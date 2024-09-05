@@ -898,58 +898,7 @@ pub const Object = struct {
                 .{ .optimized = comp.root_mod.optimize_mode != .Debug },
             );
 
-            const i32_2 = try builder.intConst(.i32, 2);
-            const i32_3 = try builder.intConst(.i32, 3);
-            const debug_info_version = try builder.debugModuleFlag(
-                try builder.metadataConstant(i32_2),
-                try builder.metadataString("Debug Info Version"),
-                try builder.metadataConstant(i32_3),
-            );
-
-            switch (comp.config.debug_format) {
-                .strip => unreachable,
-                .dwarf => |f| {
-                    const i32_4 = try builder.intConst(.i32, 4);
-                    const dwarf_version = try builder.debugModuleFlag(
-                        try builder.metadataConstant(i32_2),
-                        try builder.metadataString("Dwarf Version"),
-                        try builder.metadataConstant(i32_4),
-                    );
-                    switch (f) {
-                        .@"32" => {
-                            try builder.debugNamed(try builder.metadataString("llvm.module.flags"), &.{
-                                debug_info_version,
-                                dwarf_version,
-                            });
-                        },
-                        .@"64" => {
-                            const dwarf64 = try builder.debugModuleFlag(
-                                try builder.metadataConstant(i32_2),
-                                try builder.metadataString("DWARF64"),
-                                try builder.metadataConstant(.@"1"),
-                            );
-                            try builder.debugNamed(try builder.metadataString("llvm.module.flags"), &.{
-                                debug_info_version,
-                                dwarf_version,
-                                dwarf64,
-                            });
-                        },
-                    }
-                },
-                .code_view => {
-                    const code_view = try builder.debugModuleFlag(
-                        try builder.metadataConstant(i32_2),
-                        try builder.metadataString("CodeView"),
-                        try builder.metadataConstant(.@"1"),
-                    );
-                    try builder.debugNamed(try builder.metadataString("llvm.module.flags"), &.{
-                        debug_info_version,
-                        code_view,
-                    });
-                },
-            }
-
-            try builder.debugNamed(try builder.metadataString("llvm.dbg.cu"), &.{debug_compile_unit});
+            try builder.metadataNamed(try builder.metadataString("llvm.dbg.cu"), &.{debug_compile_unit});
             break :debug_info .{ debug_compile_unit, debug_enums_fwd_ref, debug_globals_fwd_ref };
         } else .{.none} ** 3;
 
@@ -1149,6 +1098,84 @@ pub const Object = struct {
             }
         }
 
+        {
+            var module_flags = try std.ArrayList(Builder.Metadata).initCapacity(o.gpa, 6);
+            defer module_flags.deinit();
+
+            const behavior_error = try o.builder.metadataConstant(try o.builder.intConst(.i32, 1));
+            const behavior_warning = try o.builder.metadataConstant(try o.builder.intConst(.i32, 2));
+            const behavior_max = try o.builder.metadataConstant(try o.builder.intConst(.i32, 7));
+            const behavior_min = try o.builder.metadataConstant(try o.builder.intConst(.i32, 8));
+
+            const pic_level = target_util.picLevel(comp.root_mod.resolved_target.result);
+            if (comp.root_mod.pic) {
+                module_flags.appendAssumeCapacity(try o.builder.metadataModuleFlag(
+                    behavior_min,
+                    try o.builder.metadataString("PIC Level"),
+                    try o.builder.metadataConstant(try o.builder.intConst(.i32, pic_level)),
+                ));
+            }
+
+            if (comp.config.pie) {
+                module_flags.appendAssumeCapacity(try o.builder.metadataModuleFlag(
+                    behavior_max,
+                    try o.builder.metadataString("PIE Level"),
+                    try o.builder.metadataConstant(try o.builder.intConst(.i32, pic_level)),
+                ));
+            }
+
+            if (comp.root_mod.code_model != .default) {
+                module_flags.appendAssumeCapacity(try o.builder.metadataModuleFlag(
+                    behavior_error,
+                    try o.builder.metadataString("Code Model"),
+                    try o.builder.metadataConstant(try o.builder.intConst(.i32, @as(i32, switch (comp.root_mod.code_model) {
+                        .tiny => 0,
+                        .small => 1,
+                        .kernel => 2,
+                        .medium => 3,
+                        .large => 4,
+                        else => unreachable,
+                    }))),
+                ));
+            }
+
+            if (!o.builder.strip) {
+                module_flags.appendAssumeCapacity(try o.builder.metadataModuleFlag(
+                    behavior_warning,
+                    try o.builder.metadataString("Debug Info Version"),
+                    try o.builder.metadataConstant(try o.builder.intConst(.i32, 3)),
+                ));
+
+                switch (comp.config.debug_format) {
+                    .strip => unreachable,
+                    .dwarf => |f| {
+                        module_flags.appendAssumeCapacity(try o.builder.metadataModuleFlag(
+                            behavior_max,
+                            try o.builder.metadataString("Dwarf Version"),
+                            try o.builder.metadataConstant(try o.builder.intConst(.i32, 4)),
+                        ));
+
+                        if (f == .@"64") {
+                            module_flags.appendAssumeCapacity(try o.builder.metadataModuleFlag(
+                                behavior_max,
+                                try o.builder.metadataString("DWARF64"),
+                                try o.builder.metadataConstant(.@"1"),
+                            ));
+                        }
+                    },
+                    .code_view => {
+                        module_flags.appendAssumeCapacity(try o.builder.metadataModuleFlag(
+                            behavior_warning,
+                            try o.builder.metadataString("CodeView"),
+                            try o.builder.metadataConstant(.@"1"),
+                        ));
+                    },
+                }
+            }
+
+            try o.builder.metadataNamed(try o.builder.metadataString("llvm.module.flags"), module_flags.items);
+        }
+
         const target_triple_sentinel =
             try o.gpa.dupeZ(u8, o.builder.target_triple.slice(&o.builder).?);
         defer o.gpa.free(target_triple_sentinel);
@@ -1235,14 +1262,13 @@ pub const Object = struct {
         }
 
         const optimize_mode = comp.root_mod.optimize_mode;
-        const pic = comp.root_mod.pic;
 
         const opt_level: llvm.CodeGenOptLevel = if (optimize_mode == .Debug)
             .None
         else
             .Aggressive;
 
-        const reloc_mode: llvm.RelocMode = if (pic)
+        const reloc_mode: llvm.RelocMode = if (comp.root_mod.pic)
             .PIC
         else if (comp.config.link_mode == .dynamic)
             llvm.RelocMode.DynamicNoPIC
@@ -1275,13 +1301,6 @@ pub const Object = struct {
             if (target_util.llvmMachineAbi(comp.root_mod.resolved_target.result)) |s| s.ptr else null,
         );
         errdefer target_machine.dispose();
-
-        const large_pic = target_util.usesLargePIC(comp.root_mod.resolved_target.result);
-
-        if (pic) module.setModulePICLevel(large_pic);
-        if (comp.config.pie) module.setModulePIELevel(large_pic);
-
-        if (code_model != .Default) module.setModuleCodeModel(code_model);
 
         if (comp.llvm_opt_bisect_limit >= 0) {
             context.setOptBisectLimit(comp.llvm_opt_bisect_limit);
@@ -1720,6 +1739,8 @@ pub const Object = struct {
             .arg_inline_index = 0,
             .func_inst_table = .{},
             .blocks = .{},
+            .loops = .{},
+            .switch_dispatch_info = .{},
             .sync_scope = if (owner_mod.single_threaded) .singlethread else .system,
             .file = file,
             .scope = subprogram,
@@ -4841,6 +4862,13 @@ pub const FuncGen = struct {
         breaks: *BreakList,
     }),
 
+    /// Maps `loop` instructions to the bb to branch to to repeat the loop.
+    loops: std.AutoHashMapUnmanaged(Air.Inst.Index, Builder.Function.Block.Index),
+
+    /// Maps `loop_switch_br` instructions to the information required to lower
+    /// dispatches (`switch_dispatch` instructions).
+    switch_dispatch_info: std.AutoHashMapUnmanaged(Air.Inst.Index, SwitchDispatchInfo),
+
     sync_scope: Builder.SyncScope,
 
     const Fuzz = struct {
@@ -4851,6 +4879,33 @@ pub const FuncGen = struct {
             f.pcs.deinit(gpa);
             f.* = undefined;
         }
+    };
+
+    const SwitchDispatchInfo = struct {
+        /// These are the blocks corresponding to each switch case.
+        /// The final element corresponds to the `else` case.
+        /// Slices allocated into `gpa`.
+        case_blocks: []Builder.Function.Block.Index,
+        /// This is `.none` if `jmp_table` is set, since we won't use a `switch` instruction to dispatch.
+        switch_weights: Builder.Function.Instruction.BrCond.Weights,
+        /// If not `null`, we have manually constructed a jump table to reach the desired block.
+        /// `table` can be used if the value is between `min` and `max` inclusive.
+        /// We perform this lowering manually to avoid some questionable behavior from LLVM.
+        /// See `airSwitchBr` for details.
+        jmp_table: ?JmpTable,
+
+        const JmpTable = struct {
+            min: Builder.Constant,
+            max: Builder.Constant,
+            in_bounds_hint: enum { none, unpredictable, likely, unlikely },
+            /// Pointer to the jump table itself, to be used with `indirectbr`.
+            /// The index into the jump table is the dispatch condition minus `min`.
+            /// The table values are `blockaddress` constants corresponding to blocks in `case_blocks`.
+            table: Builder.Constant,
+            /// `true` if `table` conatins a reference to the `else` block.
+            /// In this case, the `indirectbr` must include the `else` block in its target list.
+            table_includes_else: bool,
+        };
     };
 
     const BreakList = union {
@@ -4867,6 +4922,12 @@ pub const FuncGen = struct {
         self.wip.deinit();
         self.func_inst_table.deinit(gpa);
         self.blocks.deinit(gpa);
+        self.loops.deinit(gpa);
+        var it = self.switch_dispatch_info.valueIterator();
+        while (it.next()) |info| {
+            self.gpa.free(info.case_blocks);
+        }
+        self.switch_dispatch_info.deinit(gpa);
     }
 
     fn todo(self: *FuncGen, comptime format: []const u8, args: anytype) Error {
@@ -5058,14 +5119,9 @@ pub const FuncGen = struct {
                 .arg            => try self.airArg(inst),
                 .bitcast        => try self.airBitCast(inst),
                 .int_from_bool  => try self.airIntFromBool(inst),
-                .block          => try self.airBlock(inst),
-                .br             => try self.airBr(inst),
-                .switch_br      => try self.airSwitchBr(inst),
-                .trap           => try self.airTrap(inst),
                 .breakpoint     => try self.airBreakpoint(inst),
                 .ret_addr       => try self.airRetAddr(inst),
                 .frame_addr     => try self.airFrameAddress(inst),
-                .cond_br        => try self.airCondBr(inst),
                 .@"try"         => try self.airTry(body[i..], false),
                 .try_cold       => try self.airTry(body[i..], true),
                 .try_ptr        => try self.airTryPtr(inst, false),
@@ -5076,21 +5132,12 @@ pub const FuncGen = struct {
                 .fpext          => try self.airFpext(inst),
                 .int_from_ptr   => try self.airIntFromPtr(inst),
                 .load           => try self.airLoad(body[i..]),
-                .loop           => try self.airLoop(inst),
                 .not            => try self.airNot(inst),
-                .ret            => try self.airRet(inst, false),
-                .ret_safe       => try self.airRet(inst, true),
-                .ret_load       => try self.airRetLoad(inst),
                 .store          => try self.airStore(inst, false),
                 .store_safe     => try self.airStore(inst, true),
                 .assembly       => try self.airAssembly(inst),
                 .slice_ptr      => try self.airSliceField(inst, 0),
                 .slice_len      => try self.airSliceField(inst, 1),
-
-                .call              => try self.airCall(inst, .auto),
-                .call_always_tail  => try self.airCall(inst, .always_tail),
-                .call_never_tail   => try self.airCall(inst, .never_tail),
-                .call_never_inline => try self.airCall(inst, .never_inline),
 
                 .ptr_slice_ptr_ptr => try self.airPtrSliceFieldPtr(inst, 0),
                 .ptr_slice_len_ptr => try self.airPtrSliceFieldPtr(inst, 1),
@@ -5176,9 +5223,7 @@ pub const FuncGen = struct {
 
                 .inferred_alloc, .inferred_alloc_comptime => unreachable,
 
-                .unreach  => try self.airUnreach(inst),
                 .dbg_stmt => try self.airDbgStmt(inst),
-                .dbg_inline_block => try self.airDbgInlineBlock(inst),
                 .dbg_var_ptr => try self.airDbgVarPtr(inst),
                 .dbg_var_val => try self.airDbgVarVal(inst, false),
                 .dbg_arg_inline => try self.airDbgVarVal(inst, true),
@@ -5191,10 +5236,52 @@ pub const FuncGen = struct {
                 .work_item_id => try self.airWorkItemId(inst),
                 .work_group_size => try self.airWorkGroupSize(inst),
                 .work_group_id => try self.airWorkGroupId(inst),
+
+                // Instructions that are known to always be `noreturn` based on their tag.
+                .br              => return self.airBr(inst),
+                .repeat          => return self.airRepeat(inst),
+                .switch_dispatch => return self.airSwitchDispatch(inst),
+                .cond_br         => return self.airCondBr(inst),
+                .switch_br       => return self.airSwitchBr(inst, false),
+                .loop_switch_br  => return self.airSwitchBr(inst, true),
+                .loop            => return self.airLoop(inst),
+                .ret             => return self.airRet(inst, false),
+                .ret_safe        => return self.airRet(inst, true),
+                .ret_load        => return self.airRetLoad(inst),
+                .trap            => return self.airTrap(inst),
+                .unreach         => return self.airUnreach(inst),
+
+                // Instructions which may be `noreturn`.
+                .block => res: {
+                    const res = try self.airBlock(inst);
+                    if (self.typeOfIndex(inst).isNoReturn(zcu)) return;
+                    break :res res;
+                },
+                .dbg_inline_block => res: {
+                    const res = try self.airDbgInlineBlock(inst);
+                    if (self.typeOfIndex(inst).isNoReturn(zcu)) return;
+                    break :res res;
+                },
+                .call, .call_always_tail, .call_never_tail, .call_never_inline => |tag| res: {
+                    const res = try self.airCall(inst, switch (tag) {
+                        .call              => .auto,
+                        .call_always_tail  => .always_tail,
+                        .call_never_tail   => .never_tail,
+                        .call_never_inline => .never_inline,
+                        else               => unreachable,
+                    });
+                    // TODO: the AIR we emit for calls is a bit weird - the instruction has
+                    // type `noreturn`, but there are instructions (and maybe a safety check) following
+                    // nonetheless. The `unreachable` or safety check should be emitted by backends instead.
+                    //if (self.typeOfIndex(inst).isNoReturn(mod)) return;
+                    break :res res;
+                },
+
                 // zig fmt: on
             };
             if (val != .none) try self.func_inst_table.putNoClobber(self.gpa, inst.toRef(), val);
         }
+        unreachable;
     }
 
     fn genBodyDebugScope(
@@ -5640,7 +5727,7 @@ pub const FuncGen = struct {
         _ = try fg.wip.@"unreachable"();
     }
 
-    fn airRet(self: *FuncGen, inst: Air.Inst.Index, safety: bool) !Builder.Value {
+    fn airRet(self: *FuncGen, inst: Air.Inst.Index, safety: bool) !void {
         const o = self.ng.object;
         const pt = o.pt;
         const zcu = pt.zcu;
@@ -5675,7 +5762,7 @@ pub const FuncGen = struct {
                     try self.valgrindMarkUndef(self.ret_ptr, len);
                 }
                 _ = try self.wip.retVoid();
-                return .none;
+                return;
             }
 
             const unwrapped_operand = operand.unwrap();
@@ -5684,12 +5771,12 @@ pub const FuncGen = struct {
             // Return value was stored previously
             if (unwrapped_operand == .instruction and unwrapped_ret == .instruction and unwrapped_operand.instruction == unwrapped_ret.instruction) {
                 _ = try self.wip.retVoid();
-                return .none;
+                return;
             }
 
             try self.store(self.ret_ptr, ptr_ty, operand, .none);
             _ = try self.wip.retVoid();
-            return .none;
+            return;
         }
         const fn_info = zcu.typeToFunc(Type.fromInterned(ip.getNav(self.ng.nav_index).typeOf(ip))).?;
         if (!ret_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
@@ -5701,7 +5788,7 @@ pub const FuncGen = struct {
             } else {
                 _ = try self.wip.retVoid();
             }
-            return .none;
+            return;
         }
 
         const abi_ret_ty = try lowerFnRetTy(o, fn_info);
@@ -5725,29 +5812,29 @@ pub const FuncGen = struct {
                 try self.valgrindMarkUndef(rp, len);
             }
             _ = try self.wip.ret(try self.wip.load(.normal, abi_ret_ty, rp, alignment, ""));
-            return .none;
+            return;
         }
 
         if (isByRef(ret_ty, zcu)) {
             // operand is a pointer however self.ret_ptr is null so that means
             // we need to return a value.
             _ = try self.wip.ret(try self.wip.load(.normal, abi_ret_ty, operand, alignment, ""));
-            return .none;
+            return;
         }
 
         const llvm_ret_ty = operand.typeOfWip(&self.wip);
         if (abi_ret_ty == llvm_ret_ty) {
             _ = try self.wip.ret(operand);
-            return .none;
+            return;
         }
 
         const rp = try self.buildAlloca(llvm_ret_ty, alignment);
         _ = try self.wip.store(.normal, operand, rp, alignment);
         _ = try self.wip.ret(try self.wip.load(.normal, abi_ret_ty, rp, alignment, ""));
-        return .none;
+        return;
     }
 
-    fn airRetLoad(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
+    fn airRetLoad(self: *FuncGen, inst: Air.Inst.Index) !void {
         const o = self.ng.object;
         const pt = o.pt;
         const zcu = pt.zcu;
@@ -5765,17 +5852,17 @@ pub const FuncGen = struct {
             } else {
                 _ = try self.wip.retVoid();
             }
-            return .none;
+            return;
         }
         if (self.ret_ptr != .none) {
             _ = try self.wip.retVoid();
-            return .none;
+            return;
         }
         const ptr = try self.resolveInst(un_op);
         const abi_ret_ty = try lowerFnRetTy(o, fn_info);
         const alignment = ret_ty.abiAlignment(zcu).toLlvm();
         _ = try self.wip.ret(try self.wip.load(.normal, abi_ret_ty, ptr, alignment, ""));
-        return .none;
+        return;
     }
 
     fn airCVaArg(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
@@ -6039,7 +6126,7 @@ pub const FuncGen = struct {
         }
     }
 
-    fn airBr(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
+    fn airBr(self: *FuncGen, inst: Air.Inst.Index) !void {
         const o = self.ng.object;
         const zcu = o.pt.zcu;
         const branch = self.air.instructions.items(.data)[@intFromEnum(inst)].br;
@@ -6055,10 +6142,212 @@ pub const FuncGen = struct {
             try block.breaks.list.append(self.gpa, .{ .bb = self.wip.cursor.block, .val = val });
         } else block.breaks.len += 1;
         _ = try self.wip.br(block.parent_bb);
-        return .none;
     }
 
-    fn airCondBr(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
+    fn airRepeat(self: *FuncGen, inst: Air.Inst.Index) !void {
+        const repeat = self.air.instructions.items(.data)[@intFromEnum(inst)].repeat;
+        const loop_bb = self.loops.get(repeat.loop_inst).?;
+        loop_bb.ptr(&self.wip).incoming += 1;
+        _ = try self.wip.br(loop_bb);
+    }
+
+    fn lowerSwitchDispatch(
+        self: *FuncGen,
+        switch_inst: Air.Inst.Index,
+        cond_ref: Air.Inst.Ref,
+        dispatch_info: SwitchDispatchInfo,
+    ) !void {
+        const o = self.ng.object;
+        const pt = o.pt;
+        const zcu = pt.zcu;
+        const cond_ty = self.typeOf(cond_ref);
+        const switch_br = self.air.unwrapSwitch(switch_inst);
+
+        if (try self.air.value(cond_ref, pt)) |cond_val| {
+            // Comptime-known dispatch. Iterate the cases to find the correct
+            // one, and branch to the corresponding element of `case_blocks`.
+            var it = switch_br.iterateCases();
+            const target_case_idx = target: while (it.next()) |case| {
+                for (case.items) |item| {
+                    const val = Value.fromInterned(item.toInterned().?);
+                    if (cond_val.compareHetero(.eq, val, zcu)) break :target case.idx;
+                }
+                for (case.ranges) |range| {
+                    const low = Value.fromInterned(range[0].toInterned().?);
+                    const high = Value.fromInterned(range[1].toInterned().?);
+                    if (cond_val.compareHetero(.gte, low, zcu) and
+                        cond_val.compareHetero(.lte, high, zcu))
+                    {
+                        break :target case.idx;
+                    }
+                }
+            } else dispatch_info.case_blocks.len - 1;
+            const target_block = dispatch_info.case_blocks[target_case_idx];
+            target_block.ptr(&self.wip).incoming += 1;
+            _ = try self.wip.br(target_block);
+            return;
+        }
+
+        // Runtime-known dispatch.
+        const cond = try self.resolveInst(cond_ref);
+
+        if (dispatch_info.jmp_table) |jmp_table| {
+            // We should use the constructed jump table.
+            // First, check the bounds to branch to the `else` case if needed.
+            const inbounds = try self.wip.bin(
+                .@"and",
+                try self.cmp(.normal, .gte, cond_ty, cond, jmp_table.min.toValue()),
+                try self.cmp(.normal, .lte, cond_ty, cond, jmp_table.max.toValue()),
+                "",
+            );
+            const jmp_table_block = try self.wip.block(1, "Then");
+            const else_block = dispatch_info.case_blocks[dispatch_info.case_blocks.len - 1];
+            else_block.ptr(&self.wip).incoming += 1;
+            _ = try self.wip.brCond(inbounds, jmp_table_block, else_block, switch (jmp_table.in_bounds_hint) {
+                .none => .none,
+                .unpredictable => .unpredictable,
+                .likely => .then_likely,
+                .unlikely => .else_likely,
+            });
+
+            self.wip.cursor = .{ .block = jmp_table_block };
+
+            // Figure out the list of blocks we might branch to.
+            // This includes all case blocks, but it might not include the `else` block if
+            // the table is dense.
+            const target_blocks_len = dispatch_info.case_blocks.len - @intFromBool(!jmp_table.table_includes_else);
+            const target_blocks = dispatch_info.case_blocks[0..target_blocks_len];
+
+            // Make sure to cast the index to a usize so it's not treated as negative!
+            const table_index = try self.wip.cast(
+                .zext,
+                try self.wip.bin(.@"sub nuw", cond, jmp_table.min.toValue(), ""),
+                try o.lowerType(Type.usize),
+                "",
+            );
+            const target_ptr_ptr = try self.wip.gep(
+                .inbounds,
+                .ptr,
+                jmp_table.table.toValue(),
+                &.{table_index},
+                "",
+            );
+            const target_ptr = try self.wip.load(.normal, .ptr, target_ptr_ptr, .default, "");
+
+            // Do the branch!
+            _ = try self.wip.indirectbr(target_ptr, target_blocks);
+
+            // Mark all target blocks as having one more incoming branch.
+            for (target_blocks) |case_block| {
+                case_block.ptr(&self.wip).incoming += 1;
+            }
+
+            return;
+        }
+
+        // We must lower to an actual LLVM `switch` instruction.
+        // The switch prongs will correspond to our scalar cases. Ranges will
+        // be handled by conditional branches in the `else` prong.
+
+        const llvm_usize = try o.lowerType(Type.usize);
+        const cond_int = if (cond.typeOfWip(&self.wip).isPointer(&o.builder))
+            try self.wip.cast(.ptrtoint, cond, llvm_usize, "")
+        else
+            cond;
+
+        const llvm_cases_len, const last_range_case = info: {
+            var llvm_cases_len: u32 = 0;
+            var last_range_case: ?u32 = null;
+            var it = switch_br.iterateCases();
+            while (it.next()) |case| {
+                if (case.ranges.len > 0) last_range_case = case.idx;
+                llvm_cases_len += @intCast(case.items.len);
+            }
+            break :info .{ llvm_cases_len, last_range_case };
+        };
+
+        // The `else` of the LLVM `switch` is the actual `else` prong only
+        // if there are no ranges. Otherwise, the `else` will have a
+        // conditional chain before the "true" `else` prong.
+        const llvm_else_block = if (last_range_case == null)
+            dispatch_info.case_blocks[dispatch_info.case_blocks.len - 1]
+        else
+            try self.wip.block(0, "RangeTest");
+
+        llvm_else_block.ptr(&self.wip).incoming += 1;
+
+        var wip_switch = try self.wip.@"switch"(cond_int, llvm_else_block, llvm_cases_len, dispatch_info.switch_weights);
+        defer wip_switch.finish(&self.wip);
+
+        // Construct the actual cases. Set the cursor to the `else` block so
+        // we can construct ranges at the same time as scalar cases.
+        self.wip.cursor = .{ .block = llvm_else_block };
+
+        var it = switch_br.iterateCases();
+        while (it.next()) |case| {
+            const case_block = dispatch_info.case_blocks[case.idx];
+
+            for (case.items) |item| {
+                const llvm_item = (try self.resolveInst(item)).toConst().?;
+                const llvm_int_item = if (llvm_item.typeOf(&o.builder).isPointer(&o.builder))
+                    try o.builder.castConst(.ptrtoint, llvm_item, llvm_usize)
+                else
+                    llvm_item;
+                try wip_switch.addCase(llvm_int_item, case_block, &self.wip);
+            }
+            case_block.ptr(&self.wip).incoming += @intCast(case.items.len);
+
+            if (case.ranges.len == 0) continue;
+
+            // Add a conditional for the ranges, directing to the relevant bb.
+            // We don't need to consider `cold` branch hints since that information is stored
+            // in the target bb body, but we do care about likely/unlikely/unpredictable.
+
+            const hint = switch_br.getHint(case.idx);
+
+            var range_cond: ?Builder.Value = null;
+            for (case.ranges) |range| {
+                const llvm_min = try self.resolveInst(range[0]);
+                const llvm_max = try self.resolveInst(range[1]);
+                const cond_part = try self.wip.bin(
+                    .@"and",
+                    try self.cmp(.normal, .gte, cond_ty, cond, llvm_min),
+                    try self.cmp(.normal, .lte, cond_ty, cond, llvm_max),
+                    "",
+                );
+                if (range_cond) |prev| {
+                    range_cond = try self.wip.bin(.@"or", prev, cond_part, "");
+                } else range_cond = cond_part;
+            }
+
+            // If the check fails, we either branch to the "true" `else` case,
+            // or to the next range condition.
+            const range_else_block = if (case.idx == last_range_case.?)
+                dispatch_info.case_blocks[dispatch_info.case_blocks.len - 1]
+            else
+                try self.wip.block(0, "RangeTest");
+
+            _ = try self.wip.brCond(range_cond.?, case_block, range_else_block, switch (hint) {
+                .none, .cold => .none,
+                .unpredictable => .unpredictable,
+                .likely => .then_likely,
+                .unlikely => .else_likely,
+            });
+            case_block.ptr(&self.wip).incoming += 1;
+            range_else_block.ptr(&self.wip).incoming += 1;
+
+            // Construct the next range conditional (if any) in the false branch.
+            self.wip.cursor = .{ .block = range_else_block };
+        }
+    }
+
+    fn airSwitchDispatch(self: *FuncGen, inst: Air.Inst.Index) !void {
+        const br = self.air.instructions.items(.data)[@intFromEnum(inst)].br;
+        const dispatch_info = self.switch_dispatch_info.get(br.block_inst).?;
+        return self.lowerSwitchDispatch(br.block_inst, br.operand, dispatch_info);
+    }
+
+    fn airCondBr(self: *FuncGen, inst: Air.Inst.Index) !void {
         const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const cond = try self.resolveInst(pl_op.operand);
         const extra = self.air.extraData(Air.CondBr, pl_op.payload);
@@ -6117,7 +6406,6 @@ pub const FuncGen = struct {
         try self.genBodyDebugScope(null, else_body, extra.data.branch_hints.else_cov);
 
         // No need to reset the insert cursor since this instruction is noreturn.
-        return .none;
     }
 
     fn airTry(self: *FuncGen, body_tail: []const Air.Inst.Index, err_cold: bool) !Builder.Value {
@@ -6223,28 +6511,123 @@ pub const FuncGen = struct {
         return fg.wip.extractValue(err_union, &.{offset}, "");
     }
 
-    fn airSwitchBr(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
+    fn airSwitchBr(self: *FuncGen, inst: Air.Inst.Index, is_dispatch_loop: bool) !void {
         const o = self.ng.object;
+        const zcu = o.pt.zcu;
 
         const switch_br = self.air.unwrapSwitch(inst);
 
-        const cond = try self.resolveInst(switch_br.operand);
+        // For `loop_switch_br`, we need these BBs prepared ahead of time to generate dispatches.
+        // For `switch_br`, they allow us to sometimes generate better IR by sharing a BB between
+        // scalar and range cases in the same prong.
+        // +1 for `else` case. This is not the same as the LLVM `else` prong, as that may first contain
+        // conditionals to handle ranges.
+        const case_blocks = try self.gpa.alloc(Builder.Function.Block.Index, switch_br.cases_len + 1);
+        defer self.gpa.free(case_blocks);
+        // We set incoming as 0 for now, and increment it as we construct dispatches.
+        for (case_blocks[0 .. case_blocks.len - 1]) |*b| b.* = try self.wip.block(0, "Case");
+        case_blocks[case_blocks.len - 1] = try self.wip.block(0, "Default");
 
-        const else_block = try self.wip.block(1, "Default");
-        const llvm_usize = try o.lowerType(Type.usize);
-        const cond_int = if (cond.typeOfWip(&self.wip).isPointer(&o.builder))
-            try self.wip.cast(.ptrtoint, cond, llvm_usize, "")
-        else
-            cond;
+        // There's a special case here to manually generate a jump table in some cases.
+        //
+        // Labeled switch in Zig is intended to follow the "direct threading" pattern. We would ideally use a jump
+        // table, and each `continue` has its own indirect `jmp`, to allow the branch predictor to more accurately
+        // use data patterns to predict future dispatches. The problem, however, is that LLVM emits fascinatingly
+        // bad asm for this. Not only does it not share the jump table -- which we really need it to do to prevent
+        // destroying the cache -- but it also actually generates slightly different jump tables for each case,
+        // and *a separate conditional branch beforehand* to handle dispatching back to the case we're currently
+        // within(!!).
+        //
+        // This asm is really, really, not what we want. As such, we will construct the jump table manually where
+        // appropriate (the values are dense and relatively few), and use it when lowering dispatches.
 
-        const llvm_cases_len = llvm_cases_len: {
-            var len: u32 = 0;
+        const jmp_table: ?SwitchDispatchInfo.JmpTable = jmp_table: {
+            if (!is_dispatch_loop) break :jmp_table null;
+            // On a 64-bit target, 1024 pointers in our jump table is about 8K of pointers. This seems just
+            // about acceptable - it won't fill L1d cache on most CPUs.
+            const max_table_len = 1024;
+
+            const cond_ty = self.typeOf(switch_br.operand);
+            switch (cond_ty.zigTypeTag(zcu)) {
+                .bool, .pointer => break :jmp_table null,
+                .@"enum", .int, .error_set => {},
+                else => unreachable,
+            }
+
+            if (cond_ty.intInfo(zcu).signedness == .signed) break :jmp_table null;
+
+            // Don't worry about the size of the type -- it's irrelevant, because the prong values could be fairly dense.
+            // If they are, then we will construct a jump table.
+            const min, const max = self.switchCaseItemRange(switch_br);
+            const min_int = min.getUnsignedInt(zcu) orelse break :jmp_table null;
+            const max_int = max.getUnsignedInt(zcu) orelse break :jmp_table null;
+            const table_len = max_int - min_int + 1;
+            if (table_len > max_table_len) break :jmp_table null;
+
+            const table_elems = try self.gpa.alloc(Builder.Constant, @intCast(table_len));
+            defer self.gpa.free(table_elems);
+
+            // Set them all to the `else` branch, then iterate over the AIR switch
+            // and replace all values which correspond to other prongs.
+            @memset(table_elems, try o.builder.blockAddrConst(
+                self.wip.function,
+                case_blocks[case_blocks.len - 1],
+            ));
+            var item_count: u32 = 0;
             var it = switch_br.iterateCases();
-            while (it.next()) |case| len += @intCast(case.items.len);
-            break :llvm_cases_len len;
+            while (it.next()) |case| {
+                const case_block = case_blocks[case.idx];
+                const case_block_addr = try o.builder.blockAddrConst(
+                    self.wip.function,
+                    case_block,
+                );
+                for (case.items) |item| {
+                    const val = Value.fromInterned(item.toInterned().?);
+                    const table_idx = val.toUnsignedInt(zcu) - min_int;
+                    table_elems[@intCast(table_idx)] = case_block_addr;
+                    item_count += 1;
+                }
+                for (case.ranges) |range| {
+                    const low = Value.fromInterned(range[0].toInterned().?);
+                    const high = Value.fromInterned(range[1].toInterned().?);
+                    const low_idx = low.toUnsignedInt(zcu) - min_int;
+                    const high_idx = high.toUnsignedInt(zcu) - min_int;
+                    @memset(table_elems[@intCast(low_idx)..@intCast(high_idx + 1)], case_block_addr);
+                    item_count += @intCast(high_idx + 1 - low_idx);
+                }
+            }
+
+            const table_llvm_ty = try o.builder.arrayType(table_elems.len, .ptr);
+            const table_val = try o.builder.arrayConst(table_llvm_ty, table_elems);
+
+            const table_variable = try o.builder.addVariable(
+                try o.builder.strtabStringFmt("__jmptab_{d}", .{@intFromEnum(inst)}),
+                table_llvm_ty,
+                .default,
+            );
+            try table_variable.setInitializer(table_val, &o.builder);
+            table_variable.setLinkage(.internal, &o.builder);
+            table_variable.setUnnamedAddr(.unnamed_addr, &o.builder);
+
+            const table_includes_else = item_count != table_len;
+
+            break :jmp_table .{
+                .min = try o.lowerValue(min.toIntern()),
+                .max = try o.lowerValue(max.toIntern()),
+                .in_bounds_hint = if (table_includes_else) .none else switch (switch_br.getElseHint()) {
+                    .none, .cold => .none,
+                    .unpredictable => .unpredictable,
+                    .likely => .likely,
+                    .unlikely => .unlikely,
+                },
+                .table = table_variable.toConst(&o.builder),
+                .table_includes_else = table_includes_else,
+            };
         };
 
         const weights: Builder.Function.Instruction.BrCond.Weights = weights: {
+            if (jmp_table != null) break :weights .none; // not used
+
             // First pass. If any weights are `.unpredictable`, unpredictable.
             // If all are `.none` or `.cold`, none.
             var any_likely = false;
@@ -6261,6 +6644,13 @@ pub const FuncGen = struct {
                 .unpredictable => break :weights .unpredictable,
             }
             if (!any_likely) break :weights .none;
+
+            const llvm_cases_len = llvm_cases_len: {
+                var len: u32 = 0;
+                var it = switch_br.iterateCases();
+                while (it.next()) |case| len += @intCast(case.items.len);
+                break :llvm_cases_len len;
+            };
 
             var weights = try self.gpa.alloc(Builder.Metadata, llvm_cases_len + 1);
             defer self.gpa.free(weights);
@@ -6294,60 +6684,80 @@ pub const FuncGen = struct {
             break :weights @enumFromInt(@intFromEnum(tuple));
         };
 
-        var wip_switch = try self.wip.@"switch"(cond_int, else_block, llvm_cases_len, weights);
-        defer wip_switch.finish(&self.wip);
+        const dispatch_info: SwitchDispatchInfo = .{
+            .case_blocks = case_blocks,
+            .switch_weights = weights,
+            .jmp_table = jmp_table,
+        };
 
+        if (is_dispatch_loop) {
+            try self.switch_dispatch_info.putNoClobber(self.gpa, inst, dispatch_info);
+        }
+        defer if (is_dispatch_loop) {
+            assert(self.switch_dispatch_info.remove(inst));
+        };
+
+        // Generate the initial dispatch.
+        // If this is a simple `switch_br`, this is the only dispatch.
+        try self.lowerSwitchDispatch(inst, switch_br.operand, dispatch_info);
+
+        // Iterate the cases and generate their bodies.
         var it = switch_br.iterateCases();
         while (it.next()) |case| {
-            const case_block = try self.wip.block(@intCast(case.items.len), "Case");
-            for (case.items) |item| {
-                const llvm_item = (try self.resolveInst(item)).toConst().?;
-                const llvm_int_item = if (llvm_item.typeOf(&o.builder).isPointer(&o.builder))
-                    try o.builder.castConst(.ptrtoint, llvm_item, llvm_usize)
-                else
-                    llvm_item;
-                try wip_switch.addCase(llvm_int_item, case_block, &self.wip);
-            }
+            const case_block = case_blocks[case.idx];
             self.wip.cursor = .{ .block = case_block };
             if (switch_br.getHint(case.idx) == .cold) _ = try self.wip.callIntrinsicAssumeCold();
-            try self.genBodyDebugScope(null, case.body, .poi);
+            try self.genBodyDebugScope(null, case.body, .none);
         }
-
+        self.wip.cursor = .{ .block = case_blocks[case_blocks.len - 1] };
         const else_body = it.elseBody();
-        self.wip.cursor = .{ .block = else_block };
         if (switch_br.getElseHint() == .cold) _ = try self.wip.callIntrinsicAssumeCold();
-        if (else_body.len != 0) {
-            try self.genBodyDebugScope(null, else_body, .poi);
+        if (else_body.len > 0) {
+            try self.genBodyDebugScope(null, it.elseBody(), .none);
         } else {
             _ = try self.wip.@"unreachable"();
         }
-
-        // No need to reset the insert cursor since this instruction is noreturn.
-        return .none;
     }
 
-    fn airLoop(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.ng.object;
-        const zcu = o.pt.zcu;
+    fn switchCaseItemRange(self: *FuncGen, switch_br: Air.UnwrappedSwitch) [2]Value {
+        const zcu = self.ng.object.pt.zcu;
+        var it = switch_br.iterateCases();
+        var min: ?Value = null;
+        var max: ?Value = null;
+        while (it.next()) |case| {
+            for (case.items) |item| {
+                const val = Value.fromInterned(item.toInterned().?);
+                const low = if (min) |m| val.compareHetero(.lt, m, zcu) else true;
+                const high = if (max) |m| val.compareHetero(.gt, m, zcu) else true;
+                if (low) min = val;
+                if (high) max = val;
+            }
+            for (case.ranges) |range| {
+                const vals: [2]Value = .{
+                    Value.fromInterned(range[0].toInterned().?),
+                    Value.fromInterned(range[1].toInterned().?),
+                };
+                const low = if (min) |m| vals[0].compareHetero(.lt, m, zcu) else true;
+                const high = if (max) |m| vals[1].compareHetero(.gt, m, zcu) else true;
+                if (low) min = vals[0];
+                if (high) max = vals[1];
+            }
+        }
+        return .{ min.?, max.? };
+    }
+
+    fn airLoop(self: *FuncGen, inst: Air.Inst.Index) !void {
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const loop = self.air.extraData(Air.Block, ty_pl.payload);
         const body: []const Air.Inst.Index = @ptrCast(self.air.extra[loop.end..][0..loop.data.body_len]);
-        const loop_block = try self.wip.block(2, "Loop");
+        const loop_block = try self.wip.block(1, "Loop"); // `airRepeat` will increment incoming each time
         _ = try self.wip.br(loop_block);
+
+        try self.loops.putNoClobber(self.gpa, inst, loop_block);
+        defer assert(self.loops.remove(inst));
 
         self.wip.cursor = .{ .block = loop_block };
         try self.genBodyDebugScope(null, body, .none);
-
-        // TODO instead of this logic, change AIR to have the property that
-        // every block is guaranteed to end with a noreturn instruction.
-        // Then we can simply rely on the fact that a repeat or break instruction
-        // would have been emitted already. Also the main loop in genBody can
-        // be while(true) instead of for(body), which will eliminate 1 branch on
-        // a hot path.
-        if (body.len == 0 or !self.typeOfIndex(body[body.len - 1]).isNoReturn(zcu)) {
-            _ = try self.wip.br(loop_block);
-        }
-        return .none;
     }
 
     fn airArrayToSlice(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
@@ -6842,10 +7252,9 @@ pub const FuncGen = struct {
         return self.wip.not(operand, "");
     }
 
-    fn airUnreach(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
+    fn airUnreach(self: *FuncGen, inst: Air.Inst.Index) !void {
         _ = inst;
         _ = try self.wip.@"unreachable"();
-        return .none;
     }
 
     fn airDbgStmt(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
@@ -9248,11 +9657,10 @@ pub const FuncGen = struct {
         return fg.load(ptr, ptr_ty);
     }
 
-    fn airTrap(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
+    fn airTrap(self: *FuncGen, inst: Air.Inst.Index) !void {
         _ = inst;
         _ = try self.wip.callIntrinsic(.normal, .none, .trap, &.{}, &.{}, "");
         _ = try self.wip.@"unreachable"();
-        return .none;
     }
 
     fn airBreakpoint(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {

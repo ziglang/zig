@@ -108,6 +108,13 @@ frame_allocs: std.MultiArrayList(FrameAlloc) = .{},
 free_frame_indices: std.AutoArrayHashMapUnmanaged(FrameIndex, void) = .{},
 frame_locs: std.MultiArrayList(Mir.FrameLoc) = .{},
 
+loops: std.AutoHashMapUnmanaged(Air.Inst.Index, struct {
+    /// The state to restore before branching.
+    state: State,
+    /// The branch target.
+    jmp_target: Mir.Inst.Index,
+}) = .{},
+
 /// Debug field, used to find bugs in the compiler.
 air_bookkeeping: @TypeOf(air_bookkeeping_init) = air_bookkeeping_init,
 
@@ -225,11 +232,12 @@ const MCValue = union(enum) {
             .register,
             .register_pair,
             .register_offset,
-            .load_frame,
             .load_symbol,
             .load_tlv,
             .indirect,
             => true,
+
+            .load_frame => |frame_addr| !frame_addr.index.isNamed(),
         };
     }
 
@@ -797,6 +805,7 @@ pub fn generate(
         function.frame_allocs.deinit(gpa);
         function.free_frame_indices.deinit(gpa);
         function.frame_locs.deinit(gpa);
+        function.loops.deinit(gpa);
         var block_it = function.blocks.valueIterator();
         while (block_it.next()) |block| block.deinit(gpa);
         function.blocks.deinit(gpa);
@@ -1579,6 +1588,8 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
             .bitcast         => try func.airBitCast(inst),
             .block           => try func.airBlock(inst),
             .br              => try func.airBr(inst),
+            .repeat          => try func.airRepeat(inst),
+            .switch_dispatch => try func.airSwitchDispatch(inst),
             .trap            => try func.airTrap(),
             .breakpoint      => try func.airBreakpoint(),
             .ret_addr        => try func.airRetAddr(inst),
@@ -1668,6 +1679,7 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
             .field_parent_ptr => try func.airFieldParentPtr(inst),
 
             .switch_br       => try func.airSwitchBr(inst),
+            .loop_switch_br  => try func.airLoopSwitchBr(inst),
 
             .ptr_slice_len_ptr => try func.airPtrSliceLenPtr(inst),
             .ptr_slice_ptr_ptr => try func.airPtrSlicePtrPtr(inst),
@@ -3471,9 +3483,48 @@ fn airUnwrapErrPayloadPtr(func: *Func, inst: Air.Inst.Index) !void {
     return func.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
+// *(E!T) => *T
 fn airErrUnionPayloadPtrSet(func: *Func, inst: Air.Inst.Index) !void {
     const ty_op = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-    const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else return func.fail("TODO implement .errunion_payload_ptr_set for {}", .{func.target.cpu.arch});
+    const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else result: {
+        const zcu = func.pt.zcu;
+        const src_ty = func.typeOf(ty_op.operand);
+        const src_mcv = try func.resolveInst(ty_op.operand);
+
+        // `src_reg` contains the pointer to the error union
+        const src_reg = switch (src_mcv) {
+            .register => |reg| reg,
+            else => try func.copyToTmpRegister(src_ty, src_mcv),
+        };
+        const src_lock = func.register_manager.lockRegAssumeUnused(src_reg);
+        defer func.register_manager.unlockReg(src_lock);
+
+        // we set the place of where the error would have been to 0
+        const eu_ty = src_ty.childType(zcu);
+        const pl_ty = eu_ty.errorUnionPayload(zcu);
+        const err_ty = eu_ty.errorUnionSet(zcu);
+        const err_off: i32 = @intCast(errUnionErrorOffset(pl_ty, zcu));
+        try func.genSetMem(.{ .reg = src_reg }, err_off, err_ty, .{ .immediate = 0 });
+
+        const dst_reg, const dst_lock = if (func.reuseOperand(inst, ty_op.operand, 0, src_mcv))
+            .{ src_reg, null }
+        else
+            try func.allocReg(.int);
+        defer if (dst_lock) |lock| func.register_manager.unlockReg(lock);
+
+        // move the pointer to be at the payload
+        const pl_off = errUnionPayloadOffset(pl_ty, zcu);
+        try func.genBinOp(
+            .add,
+            .{ .register = src_reg },
+            Type.u64,
+            .{ .immediate = pl_off },
+            Type.u64,
+            dst_reg,
+        );
+
+        break :result .{ .register = dst_reg };
+    };
     return func.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
@@ -5599,15 +5650,13 @@ fn airLoop(func: *Func, inst: Air.Inst.Index) !void {
     func.scope_generation += 1;
     const state = try func.saveState();
 
-    const jmp_target: Mir.Inst.Index = @intCast(func.mir_instructions.len);
-    try func.genBody(body);
-    try func.restoreState(state, &.{}, .{
-        .emit_instructions = true,
-        .update_tracking = false,
-        .resurrect = false,
-        .close_scope = true,
+    try func.loops.putNoClobber(func.gpa, inst, .{
+        .state = state,
+        .jmp_target = @intCast(func.mir_instructions.len),
     });
-    _ = try func.jump(jmp_target);
+    defer assert(func.loops.remove(inst));
+
+    try func.genBody(body);
 
     func.finishAirBookkeeping();
 }
@@ -5662,12 +5711,7 @@ fn lowerBlock(func: *Func, inst: Air.Inst.Index, body: []const Air.Inst.Index) !
 
 fn airSwitchBr(func: *Func, inst: Air.Inst.Index) !void {
     const switch_br = func.air.unwrapSwitch(inst);
-
-    const liveness = try func.liveness.getSwitchBr(func.gpa, inst, switch_br.cases_len + 1);
-    defer func.gpa.free(liveness.deaths);
-
     const condition = try func.resolveInst(switch_br.operand);
-    const condition_ty = func.typeOf(switch_br.operand);
 
     // If the condition dies here in this switch instruction, process
     // that death now instead of later as this has an effect on
@@ -5676,15 +5720,31 @@ fn airSwitchBr(func: *Func, inst: Air.Inst.Index) !void {
         if (switch_br.operand.toIndex()) |op_inst| try func.processDeath(op_inst);
     }
 
+    try func.lowerSwitchBr(inst, switch_br, condition);
+
+    // We already took care of pl_op.operand earlier, so there's nothing left to do
+    func.finishAirBookkeeping();
+}
+
+fn lowerSwitchBr(
+    func: *Func,
+    inst: Air.Inst.Index,
+    switch_br: Air.UnwrappedSwitch,
+    condition: MCValue,
+) !void {
+    const condition_ty = func.typeOf(switch_br.operand);
+    const liveness = try func.liveness.getSwitchBr(func.gpa, inst, switch_br.cases_len + 1);
+    defer func.gpa.free(liveness.deaths);
+
     func.scope_generation += 1;
     const state = try func.saveState();
 
     var it = switch_br.iterateCases();
     while (it.next()) |case| {
-        var relocs = try func.gpa.alloc(Mir.Inst.Index, case.items.len);
+        var relocs = try func.gpa.alloc(Mir.Inst.Index, case.items.len + case.ranges.len);
         defer func.gpa.free(relocs);
 
-        for (case.items, relocs, 0..) |item, *reloc, i| {
+        for (case.items, relocs[0..case.items.len]) |item, *reloc| {
             const item_mcv = try func.resolveInst(item);
 
             const cond_lock = switch (condition) {
@@ -5705,22 +5765,52 @@ fn airSwitchBr(func: *Func, inst: Air.Inst.Index) !void {
                 cmp_reg,
             );
 
-            if (!(i < relocs.len - 1)) {
-                _ = try func.addInst(.{
-                    .tag = .pseudo_not,
-                    .data = .{ .rr = .{
-                        .rd = cmp_reg,
-                        .rs = cmp_reg,
-                    } },
-                });
-            }
-
             reloc.* = try func.condBr(condition_ty, .{ .register = cmp_reg });
         }
 
+        for (case.ranges, relocs[case.items.len..]) |range, *reloc| {
+            const min_mcv = try func.resolveInst(range[0]);
+            const max_mcv = try func.resolveInst(range[1]);
+            const cond_lock = switch (condition) {
+                .register => func.register_manager.lockRegAssumeUnused(condition.register),
+                else => null,
+            };
+            defer if (cond_lock) |lock| func.register_manager.unlockReg(lock);
+
+            const temp_cmp_reg, const temp_cmp_lock = try func.allocReg(.int);
+            defer func.register_manager.unlockReg(temp_cmp_lock);
+
+            // is `condition` less than `min`? is "true", we've failed
+            try func.genBinOp(
+                .cmp_gte,
+                condition,
+                condition_ty,
+                min_mcv,
+                condition_ty,
+                temp_cmp_reg,
+            );
+
+            // if the compare was true, we will jump to the fail case and fall through
+            // to the next checks
+            const lt_fail_reloc = try func.condBr(condition_ty, .{ .register = temp_cmp_reg });
+            try func.genBinOp(
+                .cmp_gt,
+                condition,
+                condition_ty,
+                max_mcv,
+                condition_ty,
+                temp_cmp_reg,
+            );
+
+            reloc.* = try func.condBr(condition_ty, .{ .register = temp_cmp_reg });
+            func.performReloc(lt_fail_reloc);
+        }
+
+        const skip_case_reloc = try func.jump(undefined);
+
         for (liveness.deaths[case.idx]) |operand| try func.processDeath(operand);
 
-        for (relocs[0 .. relocs.len - 1]) |reloc| func.performReloc(reloc);
+        for (relocs) |reloc| func.performReloc(reloc);
         try func.genBody(case.body);
         try func.restoreState(state, &.{}, .{
             .emit_instructions = false,
@@ -5729,7 +5819,7 @@ fn airSwitchBr(func: *Func, inst: Air.Inst.Index) !void {
             .close_scope = true,
         });
 
-        func.performReloc(relocs[relocs.len - 1]);
+        func.performReloc(skip_case_reloc);
     }
 
     if (switch_br.else_body_len > 0) {
@@ -5746,8 +5836,92 @@ fn airSwitchBr(func: *Func, inst: Air.Inst.Index) !void {
             .close_scope = true,
         });
     }
+}
 
-    // We already took care of pl_op.operand earlier, so there's nothing left to do
+fn airLoopSwitchBr(func: *Func, inst: Air.Inst.Index) !void {
+    const switch_br = func.air.unwrapSwitch(inst);
+    const condition = try func.resolveInst(switch_br.operand);
+
+    const mat_cond = if (condition.isMutable() and
+        func.reuseOperand(inst, switch_br.operand, 0, condition))
+        condition
+    else mat_cond: {
+        const ty = func.typeOf(switch_br.operand);
+        const mat_cond = try func.allocRegOrMem(ty, inst, true);
+        try func.genCopy(ty, mat_cond, condition);
+        break :mat_cond mat_cond;
+    };
+    func.inst_tracking.putAssumeCapacityNoClobber(inst, InstTracking.init(mat_cond));
+
+    // If the condition dies here in this switch instruction, process
+    // that death now instead of later as this has an effect on
+    // whether it needs to be spilled in the branches
+    if (func.liveness.operandDies(inst, 0)) {
+        if (switch_br.operand.toIndex()) |op_inst| try func.processDeath(op_inst);
+    }
+
+    func.scope_generation += 1;
+    const state = try func.saveState();
+
+    try func.loops.putNoClobber(func.gpa, inst, .{
+        .state = state,
+        .jmp_target = @intCast(func.mir_instructions.len),
+    });
+    defer assert(func.loops.remove(inst));
+
+    // Stop tracking block result without forgetting tracking info
+    try func.freeValue(mat_cond);
+
+    try func.lowerSwitchBr(inst, switch_br, mat_cond);
+
+    try func.processDeath(inst);
+    func.finishAirBookkeeping();
+}
+
+fn airSwitchDispatch(func: *Func, inst: Air.Inst.Index) !void {
+    const br = func.air.instructions.items(.data)[@intFromEnum(inst)].br;
+
+    const block_ty = func.typeOfIndex(br.block_inst);
+    const block_tracking = func.inst_tracking.getPtr(br.block_inst).?;
+    const loop_data = func.loops.getPtr(br.block_inst).?;
+    done: {
+        try func.getValue(block_tracking.short, null);
+        const src_mcv = try func.resolveInst(br.operand);
+
+        if (func.reuseOperandAdvanced(inst, br.operand, 0, src_mcv, br.block_inst)) {
+            try func.getValue(block_tracking.short, br.block_inst);
+            // .long = .none to avoid merging operand and block result stack frames.
+            const current_tracking: InstTracking = .{ .long = .none, .short = src_mcv };
+            try current_tracking.materializeUnsafe(func, br.block_inst, block_tracking.*);
+            for (current_tracking.getRegs()) |src_reg| func.register_manager.freeReg(src_reg);
+            break :done;
+        }
+
+        try func.getValue(block_tracking.short, br.block_inst);
+        const dst_mcv = block_tracking.short;
+        try func.genCopy(block_ty, dst_mcv, try func.resolveInst(br.operand));
+        break :done;
+    }
+
+    // Process operand death so that it is properly accounted for in the State below.
+    if (func.liveness.operandDies(inst, 0)) {
+        if (br.operand.toIndex()) |op_inst| try func.processDeath(op_inst);
+    }
+
+    try func.restoreState(loop_data.state, &.{}, .{
+        .emit_instructions = true,
+        .update_tracking = false,
+        .resurrect = false,
+        .close_scope = false,
+    });
+
+    // Emit a jump with a relocation. It will be patched up after the block ends.
+    // Leave the jump offset undefined
+    _ = try func.jump(loop_data.jmp_target);
+
+    // Stop tracking block result without forgetting tracking info
+    try func.freeValue(block_tracking.short);
+
     func.finishAirBookkeeping();
 }
 
@@ -5823,6 +5997,19 @@ fn airBr(func: *Func, inst: Air.Inst.Index) !void {
     // Stop tracking block result without forgetting tracking info
     try func.freeValue(block_tracking.short);
 
+    func.finishAirBookkeeping();
+}
+
+fn airRepeat(func: *Func, inst: Air.Inst.Index) !void {
+    const loop_inst = func.air.instructions.items(.data)[@intFromEnum(inst)].repeat.loop_inst;
+    const repeat_info = func.loops.get(loop_inst).?;
+    try func.restoreState(repeat_info.state, &.{}, .{
+        .emit_instructions = true,
+        .update_tracking = false,
+        .resurrect = false,
+        .close_scope = true,
+    });
+    _ = try func.jump(repeat_info.jmp_target);
     func.finishAirBookkeeping();
 }
 
@@ -8246,7 +8433,10 @@ fn typeOf(func: *Func, inst: Air.Inst.Ref) Type {
 
 fn typeOfIndex(func: *Func, inst: Air.Inst.Index) Type {
     const zcu = func.pt.zcu;
-    return func.air.typeOfIndex(inst, &zcu.intern_pool);
+    return switch (func.air.instructions.items(.tag)[@intFromEnum(inst)]) {
+        .loop_switch_br => func.typeOf(func.air.unwrapSwitch(inst).operand),
+        else => func.air.typeOfIndex(inst, &zcu.intern_pool),
+    };
 }
 
 fn hasFeature(func: *Func, feature: Target.riscv.Feature) bool {

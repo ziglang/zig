@@ -950,13 +950,13 @@ fn formatSizeImpl(comptime base: comptime_int) type {
         }
     };
 }
-
 const formatSizeDec = formatSizeImpl(1000).formatSizeImpl;
 const formatSizeBin = formatSizeImpl(1024).formatSizeImpl;
 
 /// Return a Formatter for a u64 value representing a file size.
 /// This formatter represents the number as multiple of 1000 and uses the SI
 /// measurement units (kB, MB, GB, ...).
+/// Format option `precision` is ignored when `value` is less than 1kB
 pub fn fmtIntSizeDec(value: u64) std.fmt.Formatter(formatSizeDec) {
     return .{ .data = value };
 }
@@ -964,6 +964,7 @@ pub fn fmtIntSizeDec(value: u64) std.fmt.Formatter(formatSizeDec) {
 /// Return a Formatter for a u64 value representing a file size.
 /// This formatter represents the number as multiple of 1024 and uses the IEC
 /// measurement units (KiB, MiB, GiB, ...).
+/// Format option `precision` is ignored when `value` is less than 1KiB
 pub fn fmtIntSizeBin(value: u64) std.fmt.Formatter(formatSizeBin) {
     return .{ .data = value };
 }

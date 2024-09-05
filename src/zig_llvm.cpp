@@ -435,20 +435,6 @@ void ZigLLVMParseCommandLineOptions(size_t argc, const char *const *argv) {
     cl::ParseCommandLineOptions(argc, argv);
 }
 
-void ZigLLVMSetModulePICLevel(LLVMModuleRef module, bool big) {
-    unwrap(module)->setPICLevel(big ? PICLevel::Level::BigPIC : PICLevel::Level::SmallPIC);
-}
-
-void ZigLLVMSetModulePIELevel(LLVMModuleRef module, bool large) {
-    unwrap(module)->setPIELevel(large ? PIELevel::Level::Large : PIELevel::Level::Small);
-}
-
-void ZigLLVMSetModuleCodeModel(LLVMModuleRef module, LLVMCodeModel code_model) {
-    bool JIT;
-    unwrap(module)->setCodeModel(*unwrap(code_model, JIT));
-    assert(!JIT);
-}
-
 bool ZigLLVMWriteImportLibrary(const char *def_path, const ZigLLVM_ArchType arch,
                                const char *output_lib_path, bool kill_at)
 {
