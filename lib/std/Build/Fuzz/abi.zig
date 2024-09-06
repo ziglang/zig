@@ -47,6 +47,7 @@ pub const ToClientTag = enum(u8) {
     source_index,
     coverage_update,
     entry_points,
+    periodic,
     _,
 };
 
@@ -101,5 +102,16 @@ pub const EntryPointHeader = extern struct {
     pub const Flags = packed struct(u32) {
         tag: ToClientTag = .entry_points,
         locs_len: u24,
+    };
+};
+
+/// Sent to the fuzzer web client on a periodic basis.
+pub const PeriodicUpdateHeader = extern struct {
+    flags: Flags = .{},
+    cycles_per_second: u64,
+
+    pub const Flags = packed struct(u64) {
+        tag: ToClientTag = .periodic,
+        _: u56 = 0,
     };
 };

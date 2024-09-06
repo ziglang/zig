@@ -387,10 +387,12 @@ fn serveWebSocket(ws: *WebServer, web_socket: *std.http.WebSocket) !void {
     // so that subsequent updates can contain only the updated bits.
     var prev_unique_runs: usize = 0;
     var prev_entry_points: usize = 0;
-    try sendCoverageContext(ws, web_socket, &prev_unique_runs, &prev_entry_points);
+    var timer = try std.time.Timer.start();
+    var last_cycle_timed: usize = 0;
+    try sendCoverageContext(ws, web_socket, &prev_unique_runs, &prev_entry_points, &timer, &last_cycle_timed);
     while (true) {
         ws.coverage_condition.timedWait(&ws.coverage_mutex, std.time.ns_per_ms * 500) catch {};
-        try sendCoverageContext(ws, web_socket, &prev_unique_runs, &prev_entry_points);
+        try sendCoverageContext(ws, web_socket, &prev_unique_runs, &prev_entry_points, &timer, &last_cycle_timed);
     }
 }
 
@@ -399,6 +401,8 @@ fn sendCoverageContext(
     web_socket: *std.http.WebSocket,
     prev_unique_runs: *usize,
     prev_entry_points: *usize,
+    timer: *std.time.Timer,
+    last_cycle_timed: *usize,
 ) !void {
     const coverage_maps = ws.coverage_files.values();
     if (coverage_maps.len == 0) return;
@@ -409,6 +413,7 @@ fn sendCoverageContext(
     const n_runs = @atomicLoad(usize, &cov_header.n_runs, .monotonic);
     const unique_runs = @atomicLoad(usize, &cov_header.unique_runs, .monotonic);
     const lowest_stack = @atomicLoad(usize, &cov_header.lowest_stack, .monotonic);
+    const duration = timer.read();
     if (prev_unique_runs.* != unique_runs) {
         // There has been an update.
         if (prev_unique_runs.* == 0) {
@@ -457,6 +462,19 @@ fn sendCoverageContext(
         try web_socket.writeMessagev(&iovecs, .binary);
 
         prev_entry_points.* = coverage_map.entry_points.items.len;
+    }
+
+    if (duration >= std.time.ns_per_s) {
+        const time_s: usize = @intCast(duration / std.time.ns_per_s);
+        const window_size = n_runs -% last_cycle_timed.*;
+        const cycles_per_second = window_size / time_s;
+        last_cycle_timed.* = n_runs;
+
+        try web_socket.writeMessage(std.mem.asBytes(&abi.PeriodicUpdateHeader{
+            .cycles_per_second = cycles_per_second,
+        }), .binary);
+
+        timer.reset();
     }
 }
 

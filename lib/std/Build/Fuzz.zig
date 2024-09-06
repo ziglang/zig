@@ -13,6 +13,8 @@ const build_runner = @import("root");
 pub const WebServer = @import("Fuzz/WebServer.zig");
 pub const abi = @import("Fuzz/abi.zig");
 
+pub const StartError = Allocator.Error || std.time.Timer.Error;
+
 pub fn start(
     gpa: Allocator,
     arena: Allocator,
@@ -24,7 +26,7 @@ pub fn start(
     ttyconf: std.io.tty.Config,
     listen_address: std.net.Address,
     prog_node: std.Progress.Node,
-) Allocator.Error!void {
+) StartError!void {
     const fuzz_run_steps = block: {
         const rebuild_node = prog_node.start("Rebuilding Unit Tests", 0);
         defer rebuild_node.end();

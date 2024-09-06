@@ -15,6 +15,7 @@ const js = struct {
     extern "js" fn panic(ptr: [*]const u8, len: usize) noreturn;
     extern "js" fn emitSourceIndexChange() void;
     extern "js" fn emitCoverageUpdate() void;
+    extern "js" fn emitPeriodicUpdate() void;
     extern "js" fn emitEntryPointsUpdate() void;
 };
 
@@ -67,6 +68,7 @@ export fn message_end() void {
         .source_index => return sourceIndexMessage(msg_bytes) catch @panic("OOM"),
         .coverage_update => return coverageUpdateMessage(msg_bytes) catch @panic("OOM"),
         .entry_points => return entryPointsMessage(msg_bytes) catch @panic("OOM"),
+        .periodic => return periodicMessage(msg_bytes),
         _ => unreachable,
     }
 }
@@ -127,6 +129,10 @@ export fn coveredSourceLocations() usize {
 export fn totalRuns() u64 {
     const header: *abi.CoverageUpdateHeader = @alignCast(@ptrCast(recent_coverage_update.items[0..@sizeOf(abi.CoverageUpdateHeader)]));
     return header.n_runs;
+}
+
+export fn cyclesPerSecond() u64 {
+    return recent_periodic_update.cycles_per_second;
 }
 
 export fn uniqueRuns() u64 {
@@ -233,6 +239,11 @@ fn entryPointsMessage(msg_bytes: []u8) error{OutOfMemory}!void {
 
 export fn entryPoints() Slice(u32) {
     return Slice(u32).init(entry_points.items);
+}
+
+fn periodicMessage(msg_bytes: []u8) void {
+    recent_periodic_update = std.mem.bytesToValue(abi.PeriodicUpdateHeader, msg_bytes);
+    js.emitPeriodicUpdate();
 }
 
 /// Index into `coverage_source_locations`.
@@ -350,6 +361,8 @@ var coverage = Coverage.init;
 var coverage_source_locations: std.ArrayListUnmanaged(Coverage.SourceLocation) = .{};
 /// Contains the most recent coverage update message, unmodified.
 var recent_coverage_update: std.ArrayListAlignedUnmanaged(u8, @alignOf(u64)) = .{};
+/// Contains the most recent periodic update message, unmodified.
+var recent_periodic_update: abi.PeriodicUpdateHeader = .{ .cycles_per_second = 0 };
 
 fn updateCoverage(
     directories: []const Coverage.String,
