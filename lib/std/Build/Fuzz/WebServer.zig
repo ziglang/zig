@@ -247,6 +247,8 @@ fn buildWasmBinary(
         try std.fmt.allocPrint(arena, "-MWalk={}", .{walk_src_path}), //
         "--dep", "Walk", //
         try std.fmt.allocPrint(arena, "-Mhtml_render={}", .{html_render_src_path}), //
+        "--zig-lib-dir",
+        ws.zig_lib_directory.path orelse ".",
         "--listen=-",
     });
 
