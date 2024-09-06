@@ -1505,3 +1505,70 @@ test values {
     };
     try testing.expectEqualSlices(E, &.{ .X, .Y, .Z }, values(E));
 }
+
+/// Returns an enum containing the combined elements of the given enum types.
+/// The values are incremental integers starting at 0.
+fn CombinedEnums(comptime enum_types: anytype) type {
+    return CombinedEnumsTagged(null, enum_types);
+}
+
+/// Returns an enum with the given tag type containing the combined elements
+/// of the given enum types.
+/// The values are incremental integers starting at 0.
+fn CombinedEnumsTagged(comptime tag: ?type, comptime enum_types: anytype) type {
+    var fieldCount = 0;
+    inline for (enum_types) |enum_type| {
+        fieldCount += std.meta.fields(enum_type).len;
+    }
+
+    var fields: [fieldCount]std.builtin.Type.EnumField = undefined;
+    const decls = &[_]std.builtin.Type.Declaration{};
+
+    var idx = 0;
+    inline for (enum_types) |enum_type| {
+        inline for (std.meta.fields(enum_type)) |enum_field| {
+            fields[idx] = .{
+                .name = enum_field.name,
+                .value = idx,
+            };
+            idx += 1;
+        }
+    }
+
+    return @Type(.{
+        .Enum = .{
+            .tag_type = tag orelse std.math.IntFittingRange(0, fieldCount - 1),
+            .fields = &fields,
+            .decls = decls,
+            .is_exhaustive = true,
+        },
+    });
+}
+
+test CombinedEnums {
+    const Fruit = enum(i32) {
+        apple = 1,
+        banana,
+        mango,
+    };
+    const Vegetable = enum {
+        carrot,
+        broccoli,
+        spinach,
+    };
+    const Snack = union(enum) {
+        const Bread = enum {
+            garlic_bread,
+            bread_sticks,
+            bruschetta,
+        };
+
+        chips,
+        bread: Bread,
+    };
+    const Consumable = CombinedEnums(.{ Fruit, Vegetable, Snack });
+
+    std.debug.assert(@intFromEnum(Consumable.apple) == 0);
+    std.debug.assert(@intFromEnum(Consumable.carrot) != 0);
+    std.debug.assert(@intFromEnum(Consumable.chips) != @intFromEnum(Consumable.bread));
+}
