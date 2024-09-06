@@ -2083,6 +2083,15 @@ test "shift-right negative" {
     try a.shiftRight(&a, 1);
     a.setSign(true);
     try testing.expect(try a.to(u64) == 0x8000000000000000);
+
+    var arg7 = try Managed.initSet(testing.allocator, -32767);
+    defer arg7.deinit();
+    a.setSign(false);
+    try a.shiftRight(&arg7, 4);
+    try testing.expect(try a.to(i16) == -2048);
+    a.setSign(true);
+    try a.shiftRight(&arg7, 4);
+    try testing.expect(try a.to(i16) == -2048);
 }
 
 test "sat shift-left simple unsigned" {
