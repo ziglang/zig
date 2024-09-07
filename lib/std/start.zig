@@ -607,7 +607,7 @@ fn mainWithoutEnv(c_argc: c_int, c_argv: [*:null]?[*:0]c_char) callconv(.C) c_in
 // General error message for a malformed return type
 const bad_main_ret = "expected return type of main to be 'void', '!void', 'noreturn', 'u8', '!u8', or c_int";
 
-// General error message for a malformed C main unction
+// General error message for a malformed C main function
 const bad_c_main = "expected main function returning c_int to accept zero, two, or three arguments";
 
 // Same as std.process.argsAlloc but with null sentinal and c_char
