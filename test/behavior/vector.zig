@@ -1450,6 +1450,7 @@ test "store vector with memset" {
             .mips64el,
             .riscv64,
             .powerpc,
+            .powerpc64,
             => {
                 // LLVM 16 ERROR: "Converting bits to bytes lost precision"
                 // https://github.com/ziglang/zig/issues/16177

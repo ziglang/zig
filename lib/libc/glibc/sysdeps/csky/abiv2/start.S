@@ -1,5 +1,5 @@
-/* Special .init and .fini section support for 64 bit S/390.
-   Copyright (C) 2001-2024 Free Software Foundation, Inc.
+/* Startup code compliant to the ELF C-SKY ABIV2.
+   Copyright (C) 2018-2024 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -30,64 +30,74 @@
    Lesser General Public License for more details.
 
    You should have received a copy of the GNU Lesser General Public
-   License along with the GNU C Library; if not, see
+   License along with the GNU C Library.  If not, see
    <https://www.gnu.org/licenses/>.  */
 
-/* crti.S puts a function prologue at the beginning of the .init and
-   .fini sections and defines global symbols for those addresses, so
-   they can be called as functions.  The symbols _init and _fini are
-   magic and cause the linker to emit DT_INIT and DT_FINI.  */
+/* We need to call:
+   __libc_start_main (int (*main) (int, char **, char **), int argc,
+		      char **argv, void (*init) (void), void (*fini) (void),
+		      void (*rtld_fini) (void), void *stack_end)
+ */
 
-#include <libc-symbols.h>
 #include <sysdep.h>
 
-#ifndef PREINIT_FUNCTION
-# define PREINIT_FUNCTION __gmon_start__
-#endif
+	.text
+	.globl _start;
+	.type _start,@function;
+	.align 4;
+_start:
+	cfi_startproc
+	.cfi_label .Ldummy
+	cfi_undefined (lr)
+	subi	sp, 8
+	/* Clear the link register since this is the outermost frame.  */
+	movi	lr, 0
+	/* Pop argc off the stack and save a pointer to argv.  */
+	ldw	a1, (sp, 8)	/* Init argc for __libc_start_main.  */
+	addi	a2, sp, 12	/* Init argv for __libc_start_main.  */
 
-#ifndef PREINIT_FUNCTION_WEAK
-# define PREINIT_FUNCTION_WEAK 1
-#endif
+	/* Push stack limit.  */
+	stw	a2, (sp, 8)
+	/* Push rtld_fini.  */
+	stw	a0, (sp, 4)
 
-#if PREINIT_FUNCTION_WEAK
-	weak_extern (PREINIT_FUNCTION)
+#ifdef SHARED
+	grs	t0, .Lgetpc
+.Lgetpc:
+	lrw	gb, .Lgetpc@GOTPC
+	addu	gb, t0
+
+	movi	a3, 0		/* Used to be init.  */
+	stw 	a3, (sp, 0) 	/* Used to be fini.  */
+
+	lrw	t0, main@GOT
+	addu	t0, gb
+	ldw	a0, (t0, 0)
+	lrw	t1, __libc_start_main@PLT
+	ldr.w	t1, (gb, t1 << 0)
+	jsr	t1
+
+	lrw	t1, abort@PLT
+	ldr.w	t1, (gb, t1 << 0)
+	jsr	t1
 #else
-	.hidden PREINIT_FUNCTION
-#endif
+	movi	a3, 0		/* Used to be init.  */
+	stw 	a3, (sp, 0) 	/* Used to be fini.  */
+	lrw	a0, main
+	/* Let the libc call main and exit with its return code.  */
+	jsri	__libc_start_main
 
-	.section .init,"ax",@progbits
-	.align 4
-	.globl	_init
-	.hidden	_init
-	.type	_init,@function
-_init:
-	stmg	%r6,%r15,48(%r15)
-	lgr	%r1,%r15
-	aghi	%r15,-160
-	stg	%r1,0(%r15)
-	larl	%r12,_GLOBAL_OFFSET_TABLE_
-#if PREINIT_FUNCTION_WEAK
-	/* zig patch: GOTENT -> GOT. revert with llvm 20. */
-	larl	%r1,PREINIT_FUNCTION@GOT
-	lg	%r1,0(%r1)
-	ltgr	%r1,%r1
-	je	1f
-	basr	%r14,%r1
-#else
-	brasl	%r14,PREINIT_FUNCTION
-#endif
-	.align	4,0x07
-1:
+	/* Should never get here.  */
+	jsri	abort
+#endif	/* !SHARED */
+	cfi_endproc
+	.size _start,.-_start
 
-	.section .fini,"ax",@progbits
-	.align 4
-	.globl	_fini
-	.hidden	_fini
-	.type	_fini,@function
-_fini:
-	stmg	%r6,%r15,48(%r15)
-	lg	%r1,120(%r15)
-	aghi	%r15,-160
-	stg	%r1,0(%r15)
-	larl	%r12,_GLOBAL_OFFSET_TABLE_
-	.align	4,0x07
+
+	/* Define a symbol for the first piece of initialized data.  */
+	.data
+	.globl __data_start
+__data_start:
+	.long 0
+	.weak data_start
+	data_start = __data_start
