@@ -483,6 +483,7 @@ pub fn WriteStream(
         ///      * If the union declares a method `pub fn jsonStringify(self: *@This(), jw: anytype) !void`, it is called to do the serialization instead of the default behavior. The given `jw` is a pointer to this `WriteStream`.
         ///  * Zig `enum` -> JSON string naming the active tag.
         ///      * If the enum declares a method `pub fn jsonStringify(self: *@This(), jw: anytype) !void`, it is called to do the serialization instead of the default behavior. The given `jw` is a pointer to this `WriteStream`.
+        ///      * If the enum is non-exhaustive, unnamed values are rendered as integers.
         ///  * Zig untyped enum literal -> JSON string naming the active tag.
         ///  * Zig error -> JSON string naming the error.
         ///  * Zig `*T` -> the rendering of `T`. Note there is no guard against circular-reference infinite recursion.
@@ -551,9 +552,7 @@ pub fn WriteStream(
                                 break;
                             }
                         } else {
-                            try self.valueStart();
-                            try self.stream.print("{d}", .{@intFromEnum(value)});
-                            return self.valueDone();
+                            return self.write(@intFromEnum(value));
                         }
                     }
 
