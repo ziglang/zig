@@ -419,6 +419,11 @@ pub fn detectNativeCpuAndFeatures() ?Target.Cpu {
                 .ARM_TYPHOON => &Target.aarch64.cpu.apple_a8,
                 .ARM_CYCLONE => &Target.aarch64.cpu.cyclone,
                 else => return null,
+                .ARM_COLL => &Target.aarch64.cpu.apple_a17,
+                .ARM_IBIZA => &Target.aarch64.cpu.apple_m3, // base
+                .ARM_LOBOS => &Target.aarch64.cpu.apple_m3, // pro
+                .ARM_PALMA => &Target.aarch64.cpu.apple_m3, // max
+                // .ARM_DONAN => &Target.aarch64.cpu.apple_m4, // decl not available until llvm 19
             };
 
             return Target.Cpu{

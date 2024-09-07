@@ -18,6 +18,7 @@ if(${LLVM_LINK_MODE} STREQUAL "shared")
   find_library(CLANG_LIBRARIES
     NAMES
       libclang-cpp.so.18
+      libclang-cpp.so.18.1
       clang-cpp-18.0
       clang-cpp180
       clang-cpp

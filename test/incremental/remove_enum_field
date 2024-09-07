@@ -1,0 +1,23 @@
+#target=x86_64-linux
+#update=initial version
+#file=main.zig
+const MyEnum = enum(u8) {
+    foo = 1,
+    bar = 2,
+};
+pub fn main() !void {
+    try std.io.getStdOut().writer().print("{}\n", .{@intFromEnum(MyEnum.foo)});
+}
+const std = @import("std");
+#expect_stdout="1\n"
+#update=remove enum field
+#file=main.zig
+const MyEnum = enum(u8) {
+    //foo = 1,
+    bar = 2,
+};
+pub fn main() !void {
+    try std.io.getStdOut().writer().print("{}\n", .{@intFromEnum(MyEnum.foo)});
+}
+const std = @import("std");
+#expect_error=ignored

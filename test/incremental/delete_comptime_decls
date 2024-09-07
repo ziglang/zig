@@ -1,0 +1,38 @@
+#target=x86_64-linux
+#update=initial version
+#file=main.zig
+pub fn main() void {}
+comptime {
+    var array = [_:0]u8{ 1, 2, 3, 4 };
+    const src_slice: [:0]u8 = &array;
+    const slice = src_slice[2..6];
+    _ = slice;
+}
+comptime {
+    var array = [_:0]u8{ 1, 2, 3, 4 };
+    const slice = array[2..6];
+    _ = slice;
+}
+comptime {
+    var array = [_]u8{ 1, 2, 3, 4 };
+    const slice = array[2..5];
+    _ = slice;
+}
+comptime {
+    var array = [_:0]u8{ 1, 2, 3, 4 };
+    const slice = array[3..2];
+    _ = slice;
+}
+#expect_error=ignored
+
+#update=delete and modify comptime decls
+#file=main.zig
+pub fn main() void {}
+comptime {
+    const x: [*c]u8 = null;
+    var runtime_len: usize = undefined;
+    runtime_len = 0;
+    const y = x[0..runtime_len];
+    _ = y;
+}
+#expect_error=ignored

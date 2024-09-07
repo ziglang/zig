@@ -32,6 +32,10 @@ test "getpid" {
     try expect(linux.getpid() != 0);
 }
 
+test "getppid" {
+    try expect(linux.getppid() != 0);
+}
+
 test "timer" {
     const epoll_fd = linux.epoll_create();
     var err: linux.E = linux.E.init(epoll_fd);
@@ -119,6 +123,23 @@ test "fadvise" {
 
     const ret = linux.fadvise(file.handle, 0, 0, linux.POSIX_FADV.SEQUENTIAL);
     try expectEqual(@as(usize, 0), ret);
+}
+
+test "sigset_t" {
+    var sigset = linux.empty_sigset;
+
+    try expectEqual(linux.sigismember(&sigset, linux.SIG.USR1), false);
+    try expectEqual(linux.sigismember(&sigset, linux.SIG.USR2), false);
+
+    linux.sigaddset(&sigset, linux.SIG.USR1);
+
+    try expectEqual(linux.sigismember(&sigset, linux.SIG.USR1), true);
+    try expectEqual(linux.sigismember(&sigset, linux.SIG.USR2), false);
+
+    linux.sigaddset(&sigset, linux.SIG.USR2);
+
+    try expectEqual(linux.sigismember(&sigset, linux.SIG.USR1), true);
+    try expectEqual(linux.sigismember(&sigset, linux.SIG.USR2), true);
 }
 
 test {

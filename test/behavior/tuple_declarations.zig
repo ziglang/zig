@@ -10,7 +10,7 @@ test "tuple declaration type info" {
 
     {
         const T = struct { comptime u32 align(2) = 1, []const u8 };
-        const info = @typeInfo(T).Struct;
+        const info = @typeInfo(T).@"struct";
 
         try expect(info.layout == .auto);
         try expect(info.backing_integer == null);

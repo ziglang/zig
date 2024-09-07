@@ -170,7 +170,7 @@ extern ssize_t recvfrom (int __fd, void *__restrict __buf, size_t __n,
 
    This function is a cancellation point and therefore not marked with
    __THROW.  */
-#ifndef __USE_TIME_BITS64
+#ifndef __USE_TIME64_REDIRECTS
 extern ssize_t sendmsg (int __fd, const struct msghdr *__message,
 			int __flags);
 #else
@@ -191,7 +191,7 @@ extern ssize_t __sendmsg64 (int __fd, const struct msghdr *__message,
 
    This function is a cancellation point and therefore not marked with
    __THROW.  */
-# ifndef __USE_TIME_BITS64
+# ifndef __USE_TIME64_REDIRECTS
 extern int sendmmsg (int __fd, struct mmsghdr *__vmessages,
 		     unsigned int __vlen, int __flags);
 # else
@@ -204,7 +204,7 @@ extern int __sendmmsg64 (int __fd, struct mmsghdr *__vmessages,
 			 unsigned int __vlen, int __flags);
 #   define sendmmsg __sendmmsg64
 #  endif
-# endif	 /* __USE_TIME_BITS64 */
+# endif	 /* __USE_TIME64_REDIRECTS */
 #endif /* __USE_GNU */
 
 /* Receive a message as described by MESSAGE from socket FD.
@@ -212,7 +212,7 @@ extern int __sendmmsg64 (int __fd, struct mmsghdr *__vmessages,
 
    This function is a cancellation point and therefore not marked with
    __THROW.  */
-#ifndef __USE_TIME_BITS64
+#ifndef __USE_TIME64_REDIRECTS
 extern ssize_t recvmsg (int __fd, struct msghdr *__message, int __flags);
 #else
 # ifdef __REDIRECT
@@ -231,7 +231,7 @@ extern ssize_t __recvmsg64 (int __fd, struct msghdr *__message, int __flags);
 
    This function is a cancellation point and therefore not marked with
    __THROW.  */
-# ifndef __USE_TIME_BITS64
+# ifndef __USE_TIME64_REDIRECTS
 extern int recvmmsg (int __fd, struct mmsghdr *__vmessages,
 		     unsigned int __vlen, int __flags,
 		     struct timespec *__tmo);
@@ -251,7 +251,7 @@ extern int __REDIRECT (recvmmsg, (int __fd, struct mmsghdr *__vmessages,
 /* Put the current value for socket FD's option OPTNAME at protocol level LEVEL
    into OPTVAL (which is *OPTLEN bytes long), and set *OPTLEN to the value's
    actual length.  Returns 0 on success, -1 for errors.  */
-#ifndef __USE_TIME_BITS64
+#ifndef __USE_TIME64_REDIRECTS
 extern int getsockopt (int __fd, int __level, int __optname,
 		       void *__restrict __optval,
 		       socklen_t *__restrict __optlen) __THROW;
@@ -273,7 +273,7 @@ extern int __getsockopt64 (int __fd, int __level, int __optname,
 /* Set socket FD's option OPTNAME at protocol level LEVEL
    to *OPTVAL (which is OPTLEN bytes long).
    Returns 0 on success, -1 for errors.  */
-#ifndef __USE_TIME_BITS64
+#ifndef __USE_TIME64_REDIRECTS
 extern int setsockopt (int __fd, int __level, int __optname,
 		       const void *__optval, socklen_t __optlen) __THROW;
 #else

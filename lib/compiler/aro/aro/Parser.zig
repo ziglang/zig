@@ -385,12 +385,12 @@ fn errExpectedToken(p: *Parser, expected: Token.Id, actual: Token.Id) Error {
 }
 
 pub fn errStr(p: *Parser, tag: Diagnostics.Tag, tok_i: TokenIndex, str: []const u8) Compilation.Error!void {
-    @setCold(true);
+    @branchHint(.cold);
     return p.errExtra(tag, tok_i, .{ .str = str });
 }
 
 pub fn errExtra(p: *Parser, tag: Diagnostics.Tag, tok_i: TokenIndex, extra: Diagnostics.Message.Extra) Compilation.Error!void {
-    @setCold(true);
+    @branchHint(.cold);
     const tok = p.pp.tokens.get(tok_i);
     var loc = tok.loc;
     if (tok_i != 0 and tok.id == .eof) {
@@ -407,12 +407,12 @@ pub fn errExtra(p: *Parser, tag: Diagnostics.Tag, tok_i: TokenIndex, extra: Diag
 }
 
 pub fn errTok(p: *Parser, tag: Diagnostics.Tag, tok_i: TokenIndex) Compilation.Error!void {
-    @setCold(true);
+    @branchHint(.cold);
     return p.errExtra(tag, tok_i, .{ .none = {} });
 }
 
 pub fn err(p: *Parser, tag: Diagnostics.Tag) Compilation.Error!void {
-    @setCold(true);
+    @branchHint(.cold);
     return p.errExtra(tag, p.tok_i, .{ .none = {} });
 }
 
@@ -638,7 +638,7 @@ fn pragma(p: *Parser) Compilation.Error!bool {
 
 /// Issue errors for top-level definitions whose type was never completed.
 fn diagnoseIncompleteDefinitions(p: *Parser) !void {
-    @setCold(true);
+    @branchHint(.cold);
 
     const node_slices = p.nodes.slice();
     const tags = node_slices.items(.tag);
@@ -4802,6 +4802,7 @@ const CallExpr = union(enum) {
     }
 
     fn shouldPromoteVarArg(self: CallExpr, arg_idx: u32) bool {
+        @setEvalBranchQuota(2000);
         return switch (self) {
             .standard => true,
             .builtin => |builtin| switch (builtin.tag) {
@@ -4902,6 +4903,7 @@ const CallExpr = union(enum) {
     }
 
     fn returnType(self: CallExpr, p: *Parser, callable_ty: Type) Type {
+        @setEvalBranchQuota(6000);
         return switch (self) {
             .standard => callable_ty.returnType(),
             .builtin => |builtin| switch (builtin.tag) {
@@ -5631,15 +5633,15 @@ pub const Result = struct {
             };
             const a_spec = a.ty.canonicalize(.standard).specifier;
             const b_spec = b.ty.canonicalize(.standard).specifier;
-            if (p.comp.target.c_type_bit_size(.longdouble) == 128) {
+            if (p.comp.target.cTypeBitSize(.longdouble) == 128) {
                 if (try a.floatConversion(b, a_spec, b_spec, p, float_types[0])) return;
             }
             if (try a.floatConversion(b, a_spec, b_spec, p, float_types[1])) return;
-            if (p.comp.target.c_type_bit_size(.longdouble) == 80) {
+            if (p.comp.target.cTypeBitSize(.longdouble) == 80) {
                 if (try a.floatConversion(b, a_spec, b_spec, p, float_types[0])) return;
             }
             if (try a.floatConversion(b, a_spec, b_spec, p, float_types[2])) return;
-            if (p.comp.target.c_type_bit_size(.longdouble) == 64) {
+            if (p.comp.target.cTypeBitSize(.longdouble) == 64) {
                 if (try a.floatConversion(b, a_spec, b_spec, p, float_types[0])) return;
             }
             if (try a.floatConversion(b, a_spec, b_spec, p, float_types[3])) return;

@@ -27,7 +27,7 @@ const atomic = std.atomic;
 /// The checking of `ptr` and `expect`, along with blocking the caller, is done atomically
 /// and totally ordered (sequentially consistent) with respect to other wait()/wake() calls on the same `ptr`.
 pub fn wait(ptr: *const atomic.Value(u32), expect: u32) void {
-    @setCold(true);
+    @branchHint(.cold);
 
     Impl.wait(ptr, expect, null) catch |err| switch (err) {
         error.Timeout => unreachable, // null timeout meant to wait forever
@@ -43,7 +43,7 @@ pub fn wait(ptr: *const atomic.Value(u32), expect: u32) void {
 /// The checking of `ptr` and `expect`, along with blocking the caller, is done atomically
 /// and totally ordered (sequentially consistent) with respect to other wait()/wake() calls on the same `ptr`.
 pub fn timedWait(ptr: *const atomic.Value(u32), expect: u32, timeout_ns: u64) error{Timeout}!void {
-    @setCold(true);
+    @branchHint(.cold);
 
     // Avoid calling into the OS for no-op timeouts.
     if (timeout_ns == 0) {
@@ -56,7 +56,7 @@ pub fn timedWait(ptr: *const atomic.Value(u32), expect: u32, timeout_ns: u64) er
 
 /// Unblocks at most `max_waiters` callers blocked in a `wait()` call on `ptr`.
 pub fn wake(ptr: *const atomic.Value(u32), max_waiters: u32) void {
-    @setCold(true);
+    @branchHint(.cold);
 
     // Avoid calling into the OS if there's nothing to wake up.
     if (max_waiters == 0) {
@@ -1048,7 +1048,7 @@ pub const Deadline = struct {
     /// - A spurious wake occurs.
     /// - The deadline expires; In which case `error.Timeout` is returned.
     pub fn wait(self: *Deadline, ptr: *const atomic.Value(u32), expect: u32) error{Timeout}!void {
-        @setCold(true);
+        @branchHint(.cold);
 
         // Check if we actually have a timeout to wait until.
         // If not just wait "forever".

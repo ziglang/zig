@@ -64,6 +64,7 @@ stage3-debug/bin/zig build \
 
 stage3-debug/bin/zig build test docs \
   --maxrss 21000000000 \
+  -Dlldb=$HOME/deps/lldb-zig/Debug-befcd57a8/bin/lldb \
   -fqemu \
   -fwasmtime \
   -Dstatic-llvm \

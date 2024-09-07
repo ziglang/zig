@@ -22,6 +22,7 @@ const Air = @import("../Air.zig");
 const Allocator = std.mem.Allocator;
 const Archive = @import("Wasm/Archive.zig");
 const Cache = std.Build.Cache;
+const Path = Cache.Path;
 const CodeGen = @import("../arch/wasm/CodeGen.zig");
 const Compilation = @import("../Compilation.zig");
 const Dwarf = @import("Dwarf.zig");
@@ -38,8 +39,6 @@ const ZigObject = @import("Wasm/ZigObject.zig");
 
 pub const Atom = @import("Wasm/Atom.zig");
 pub const Relocation = types.Relocation;
-
-pub const base_tag: link.File.Tag = .wasm;
 
 base: link.File,
 /// Symbol name of the entry function to export
@@ -348,7 +347,7 @@ pub const StringTable = struct {
 pub fn open(
     arena: Allocator,
     comp: *Compilation,
-    emit: Compilation.Emit,
+    emit: Path,
     options: link.File.OpenOptions,
 ) !*Wasm {
     // TODO: restore saved linker state, don't truncate the file, and
@@ -359,7 +358,7 @@ pub fn open(
 pub fn createEmpty(
     arena: Allocator,
     comp: *Compilation,
-    emit: Compilation.Emit,
+    emit: Path,
     options: link.File.OpenOptions,
 ) !*Wasm {
     const gpa = comp.gpa;
@@ -432,7 +431,7 @@ pub fn createEmpty(
     // can be passed to LLD.
     const sub_path = if (use_lld) zcu_object_sub_path.? else emit.sub_path;
 
-    wasm.base.file = try emit.directory.handle.createFile(sub_path, .{
+    wasm.base.file = try emit.root_dir.handle.createFile(sub_path, .{
         .truncate = true,
         .read = true,
         .mode = if (fs.has_executable_bit)
@@ -557,7 +556,7 @@ pub fn createEmpty(
         }
     }
 
-    if (comp.module) |zcu| {
+    if (comp.zcu) |zcu| {
         if (!use_llvm) {
             const index: File.Index = @enumFromInt(wasm.files.len);
             var zig_object: ZigObject = .{
@@ -1170,7 +1169,7 @@ fn setupTLSRelocationsFunction(wasm: *Wasm) !void {
 
 fn validateFeatures(
     wasm: *const Wasm,
-    to_emit: *[@typeInfo(types.Feature.Tag).Enum.fields.len]bool,
+    to_emit: *[@typeInfo(types.Feature.Tag).@"enum".fields.len]bool,
     emit_features_count: *u32,
 ) !void {
     const comp = wasm.base.comp;
@@ -1178,7 +1177,7 @@ fn validateFeatures(
     const shared_memory = comp.config.shared_memory;
     const cpu_features = target.cpu.features;
     const infer = cpu_features.isEmpty(); // when the user did not define any features, we infer them from linked objects.
-    const known_features_count = @typeInfo(types.Feature.Tag).Enum.fields.len;
+    const known_features_count = @typeInfo(types.Feature.Tag).@"enum".fields.len;
 
     var allowed = [_]bool{false} ** known_features_count;
     var used = [_]u17{0} ** known_features_count;
@@ -1193,7 +1192,7 @@ fn validateFeatures(
     // When the user has given an explicit list of features to enable,
     // we extract them and insert each into the 'allowed' list.
     if (!infer) {
-        inline for (@typeInfo(std.Target.wasm.Feature).Enum.fields) |feature_field| {
+        inline for (@typeInfo(std.Target.wasm.Feature).@"enum".fields) |feature_field| {
             if (cpu_features.isEnabled(feature_field.value)) {
                 allowed[feature_field.value] = true;
                 emit_features_count.* += 1;
@@ -1451,19 +1450,19 @@ pub fn updateFunc(wasm: *Wasm, pt: Zcu.PerThread, func_index: InternPool.Index, 
     try wasm.zigObjectPtr().?.updateFunc(wasm, pt, func_index, air, liveness);
 }
 
-// Generate code for the Decl, storing it in memory to be later written to
+// Generate code for the "Nav", storing it in memory to be later written to
 // the file on flush().
-pub fn updateDecl(wasm: *Wasm, pt: Zcu.PerThread, decl_index: InternPool.DeclIndex) !void {
+pub fn updateNav(wasm: *Wasm, pt: Zcu.PerThread, nav: InternPool.Nav.Index) !void {
     if (build_options.skip_non_native and builtin.object_format != .wasm) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (wasm.llvm_object) |llvm_object| return llvm_object.updateDecl(pt, decl_index);
-    try wasm.zigObjectPtr().?.updateDecl(wasm, pt, decl_index);
+    if (wasm.llvm_object) |llvm_object| return llvm_object.updateNav(pt, nav);
+    try wasm.zigObjectPtr().?.updateNav(wasm, pt, nav);
 }
 
-pub fn updateDeclLineNumber(wasm: *Wasm, pt: Zcu.PerThread, decl_index: InternPool.DeclIndex) !void {
+pub fn updateNavLineNumber(wasm: *Wasm, pt: Zcu.PerThread, nav: InternPool.Nav.Index) !void {
     if (wasm.llvm_object) |_| return;
-    try wasm.zigObjectPtr().?.updateDeclLineNumber(pt, decl_index);
+    try wasm.zigObjectPtr().?.updateNavLineNumber(pt, nav);
 }
 
 /// From a given symbol location, returns its `wasm.GlobalType`.
@@ -1505,13 +1504,6 @@ fn getFunctionSignature(wasm: *const Wasm, loc: SymbolLoc) std.wasm.Type {
     return wasm.func_types.items[wasm.functions.get(.{ .file = loc.file, .index = symbol.index }).?.func.type_index];
 }
 
-/// Lowers a constant typed value to a local symbol and atom.
-/// Returns the symbol index of the local
-/// The given `decl` is the parent decl whom owns the constant.
-pub fn lowerUnnamedConst(wasm: *Wasm, pt: Zcu.PerThread, val: Value, decl_index: InternPool.DeclIndex) !u32 {
-    return wasm.zigObjectPtr().?.lowerUnnamedConst(wasm, pt, val, decl_index);
-}
-
 /// Returns the symbol index from a symbol of which its flag is set global,
 /// such as an exported or imported symbol.
 /// If the symbol does not yet exist, creates a new one symbol instead
@@ -1521,29 +1513,29 @@ pub fn getGlobalSymbol(wasm: *Wasm, name: []const u8, lib_name: ?[]const u8) !Sy
     return wasm.zigObjectPtr().?.getGlobalSymbol(wasm.base.comp.gpa, name);
 }
 
-/// For a given decl, find the given symbol index's atom, and create a relocation for the type.
+/// For a given `Nav`, find the given symbol index's atom, and create a relocation for the type.
 /// Returns the given pointer address
-pub fn getDeclVAddr(
+pub fn getNavVAddr(
     wasm: *Wasm,
     pt: Zcu.PerThread,
-    decl_index: InternPool.DeclIndex,
+    nav: InternPool.Nav.Index,
     reloc_info: link.File.RelocInfo,
 ) !u64 {
-    return wasm.zigObjectPtr().?.getDeclVAddr(wasm, pt, decl_index, reloc_info);
+    return wasm.zigObjectPtr().?.getNavVAddr(wasm, pt, nav, reloc_info);
 }
 
-pub fn lowerAnonDecl(
+pub fn lowerUav(
     wasm: *Wasm,
     pt: Zcu.PerThread,
-    decl_val: InternPool.Index,
+    uav: InternPool.Index,
     explicit_alignment: Alignment,
     src_loc: Zcu.LazySrcLoc,
-) !codegen.Result {
-    return wasm.zigObjectPtr().?.lowerAnonDecl(wasm, pt, decl_val, explicit_alignment, src_loc);
+) !codegen.GenResult {
+    return wasm.zigObjectPtr().?.lowerUav(wasm, pt, uav, explicit_alignment, src_loc);
 }
 
-pub fn getAnonDeclVAddr(wasm: *Wasm, decl_val: InternPool.Index, reloc_info: link.File.RelocInfo) !u64 {
-    return wasm.zigObjectPtr().?.getAnonDeclVAddr(wasm, decl_val, reloc_info);
+pub fn getUavVAddr(wasm: *Wasm, uav: InternPool.Index, reloc_info: link.File.RelocInfo) !u64 {
+    return wasm.zigObjectPtr().?.getUavVAddr(wasm, uav, reloc_info);
 }
 
 pub fn deleteExport(
@@ -2505,7 +2497,7 @@ pub fn flushModule(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
     const sub_prog_node = prog_node.start("Wasm Flush", 0);
     defer sub_prog_node.end();
 
-    const directory = wasm.base.emit.directory; // Just an alias to make it shorter to type.
+    const directory = wasm.base.emit.root_dir; // Just an alias to make it shorter to type.
     const full_out_path = try directory.join(arena, &[_][]const u8{wasm.base.emit.sub_path});
     const module_obj_path: ?[]const u8 = if (wasm.base.zcu_object_sub_path) |path| blk: {
         if (fs.path.dirname(full_out_path)) |dirname| {
@@ -2584,7 +2576,7 @@ pub fn flushModule(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
     if (wasm.base.hasErrors()) return error.FlushFailure;
 
     var emit_features_count: u32 = 0;
-    var enabled_features: [@typeInfo(types.Feature.Tag).Enum.fields.len]bool = undefined;
+    var enabled_features: [@typeInfo(types.Feature.Tag).@"enum".fields.len]bool = undefined;
     try wasm.validateFeatures(&enabled_features, &emit_features_count);
     try wasm.resolveSymbolsInArchives();
     if (wasm.base.hasErrors()) return error.FlushFailure;
@@ -2618,7 +2610,7 @@ pub fn flushModule(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
 /// Writes the WebAssembly in-memory module to the file
 fn writeToFile(
     wasm: *Wasm,
-    enabled_features: [@typeInfo(types.Feature.Tag).Enum.fields.len]bool,
+    enabled_features: [@typeInfo(types.Feature.Tag).@"enum".fields.len]bool,
     feature_count: u32,
     arena: Allocator,
 ) !void {
@@ -3355,12 +3347,12 @@ fn linkWithLLD(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
 
     const gpa = comp.gpa;
 
-    const directory = wasm.base.emit.directory; // Just an alias to make it shorter to type.
+    const directory = wasm.base.emit.root_dir; // Just an alias to make it shorter to type.
     const full_out_path = try directory.join(arena, &[_][]const u8{wasm.base.emit.sub_path});
 
     // If there is no Zig code to compile, then we should skip flushing the output file because it
     // will not be part of the linker line anyway.
-    const module_obj_path: ?[]const u8 = if (comp.module != null) blk: {
+    const module_obj_path: ?[]const u8 = if (comp.zcu != null) blk: {
         try wasm.flushModule(arena, tid, prog_node);
 
         if (fs.path.dirname(full_out_path)) |dirname| {
@@ -3875,7 +3867,7 @@ fn emitSegmentInfo(wasm: *Wasm, binary_bytes: *std.ArrayList(u8)) !void {
 
 pub fn getUleb128Size(uint_value: anytype) u32 {
     const T = @TypeOf(uint_value);
-    const U = if (@typeInfo(T).Int.bits < 8) u8 else T;
+    const U = if (@typeInfo(T).int.bits < 8) u8 else T;
     var value = @as(U, @intCast(uint_value));
 
     var size: u32 = 0;
@@ -4018,11 +4010,11 @@ pub fn putOrGetFuncType(wasm: *Wasm, func_type: std.wasm.Type) !u32 {
     return index;
 }
 
-/// For the given `decl_index`, stores the corresponding type representing the function signature.
+/// For the given `nav`, stores the corresponding type representing the function signature.
 /// Asserts declaration has an associated `Atom`.
 /// Returns the index into the list of types.
-pub fn storeDeclType(wasm: *Wasm, decl_index: InternPool.DeclIndex, func_type: std.wasm.Type) !u32 {
-    return wasm.zigObjectPtr().?.storeDeclType(wasm.base.comp.gpa, decl_index, func_type);
+pub fn storeNavType(wasm: *Wasm, nav: InternPool.Nav.Index, func_type: std.wasm.Type) !u32 {
+    return wasm.zigObjectPtr().?.storeDeclType(wasm.base.comp.gpa, nav, func_type);
 }
 
 /// Returns the symbol index of the error name table.
@@ -4036,8 +4028,8 @@ pub fn getErrorTableSymbol(wasm_file: *Wasm, pt: Zcu.PerThread) !u32 {
 /// For a given `InternPool.DeclIndex` returns its corresponding `Atom.Index`.
 /// When the index was not found, a new `Atom` will be created, and its index will be returned.
 /// The newly created Atom is empty with default fields as specified by `Atom.empty`.
-pub fn getOrCreateAtomForDecl(wasm_file: *Wasm, pt: Zcu.PerThread, decl_index: InternPool.DeclIndex) !Atom.Index {
-    return wasm_file.zigObjectPtr().?.getOrCreateAtomForDecl(wasm_file, pt, decl_index);
+pub fn getOrCreateAtomForNav(wasm_file: *Wasm, pt: Zcu.PerThread, nav: InternPool.Nav.Index) !Atom.Index {
+    return wasm_file.zigObjectPtr().?.getOrCreateAtomForNav(wasm_file, pt, nav);
 }
 
 /// Verifies all resolved symbols and checks whether itself needs to be marked alive,

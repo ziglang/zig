@@ -6,16 +6,16 @@ const testing = std.testing;
 const EnumField = std.builtin.Type.EnumField;
 
 /// Increment this value when adding APIs that add single backwards branches.
-const eval_branch_quota_cushion = 5;
+const eval_branch_quota_cushion = 10;
 
 /// Returns a struct with a field matching each unique named enum element.
 /// If the enum is extern and has multiple names for the same value, only
 /// the first name is used.  Each field is of type Data and has the provided
 /// default, which may be undefined.
 pub fn EnumFieldStruct(comptime E: type, comptime Data: type, comptime field_default: ?Data) type {
-    @setEvalBranchQuota(@typeInfo(E).Enum.fields.len + eval_branch_quota_cushion);
-    var struct_fields: [@typeInfo(E).Enum.fields.len]std.builtin.Type.StructField = undefined;
-    for (&struct_fields, @typeInfo(E).Enum.fields) |*struct_field, enum_field| {
+    @setEvalBranchQuota(@typeInfo(E).@"enum".fields.len + eval_branch_quota_cushion);
+    var struct_fields: [@typeInfo(E).@"enum".fields.len]std.builtin.Type.StructField = undefined;
+    for (&struct_fields, @typeInfo(E).@"enum".fields) |*struct_field, enum_field| {
         struct_field.* = .{
             .name = enum_field.name ++ "",
             .type = Data,
@@ -24,7 +24,7 @@ pub fn EnumFieldStruct(comptime E: type, comptime Data: type, comptime field_def
             .alignment = if (@sizeOf(Data) > 0) @alignOf(Data) else 0,
         };
     }
-    return @Type(.{ .Struct = .{
+    return @Type(.{ .@"struct" = .{
         .layout = .auto,
         .fields = &struct_fields,
         .decls = &.{},
@@ -49,14 +49,14 @@ pub inline fn valuesFromFields(comptime E: type, comptime fields: []const EnumFi
 /// Returns the set of all named values in the given enum, in
 /// declaration order.
 pub fn values(comptime E: type) []const E {
-    return comptime valuesFromFields(E, @typeInfo(E).Enum.fields);
+    return comptime valuesFromFields(E, @typeInfo(E).@"enum".fields);
 }
 
 /// A safe alternative to @tagName() for non-exhaustive enums that doesn't
 /// panic when `e` has no tagged value.
 /// Returns the tag name for `e` or null if no tag exists.
 pub fn tagName(comptime E: type, e: E) ?[]const u8 {
-    return inline for (@typeInfo(E).Enum.fields) |f| {
+    return inline for (@typeInfo(E).@"enum".fields) |f| {
         if (@intFromEnum(e) == f.value) break f.name;
     } else null;
 }
@@ -80,7 +80,7 @@ test tagName {
 pub fn directEnumArrayLen(comptime E: type, comptime max_unused_slots: comptime_int) comptime_int {
     var max_value: comptime_int = -1;
     const max_usize: comptime_int = ~@as(usize, 0);
-    const fields = @typeInfo(E).Enum.fields;
+    const fields = @typeInfo(E).@"enum".fields;
     for (fields) |f| {
         if (f.value < 0) {
             @compileError("Cannot create a direct enum array for " ++ @typeName(E) ++ ", field ." ++ f.name ++ " has a negative value.");
@@ -159,7 +159,7 @@ pub fn directEnumArrayDefault(
 ) [directEnumArrayLen(E, max_unused_slots)]Data {
     const len = comptime directEnumArrayLen(E, max_unused_slots);
     var result: [len]Data = if (default) |d| [_]Data{d} ** len else undefined;
-    inline for (@typeInfo(@TypeOf(init_values)).Struct.fields) |f| {
+    inline for (@typeInfo(@TypeOf(init_values)).@"struct".fields) |f| {
         const enum_value = @field(E, f.name);
         const index = @as(usize, @intCast(@intFromEnum(enum_value)));
         result[index] = @field(init_values, f.name);
@@ -204,8 +204,8 @@ pub fn nameCast(comptime E: type, comptime value: anytype) E {
         const V = @TypeOf(value);
         if (V == E) break :blk value;
         const name: ?[]const u8 = switch (@typeInfo(V)) {
-            .EnumLiteral, .Enum => @tagName(value),
-            .Pointer => value,
+            .enum_literal, .@"enum" => @tagName(value),
+            .pointer => value,
             else => null,
         };
         if (name) |n| {
@@ -262,9 +262,9 @@ pub fn EnumSet(comptime E: type) type {
 
         /// Initializes the set using a struct of bools
         pub fn init(init_values: EnumFieldStruct(E, bool, false)) Self {
-            @setEvalBranchQuota(2 * @typeInfo(E).Enum.fields.len);
+            @setEvalBranchQuota(2 * @typeInfo(E).@"enum".fields.len);
             var result: Self = .{};
-            if (@typeInfo(E).Enum.is_exhaustive) {
+            if (@typeInfo(E).@"enum".is_exhaustive) {
                 inline for (0..Self.len) |i| {
                     const key = comptime Indexer.keyForIndex(i);
                     const tag = @tagName(key);
@@ -453,9 +453,9 @@ pub fn EnumMap(comptime E: type, comptime V: type) type {
 
         /// Initializes the map using a sparse struct of optionals
         pub fn init(init_values: EnumFieldStruct(E, ?Value, @as(?Value, null))) Self {
-            @setEvalBranchQuota(2 * @typeInfo(E).Enum.fields.len);
+            @setEvalBranchQuota(2 * @typeInfo(E).@"enum".fields.len);
             var result: Self = .{};
-            if (@typeInfo(E).Enum.is_exhaustive) {
+            if (@typeInfo(E).@"enum".is_exhaustive) {
                 inline for (0..Self.len) |i| {
                     const key = comptime Indexer.keyForIndex(i);
                     const tag = @tagName(key);
@@ -497,7 +497,7 @@ pub fn EnumMap(comptime E: type, comptime V: type) type {
         /// Initializes a full mapping with a provided default.
         /// Consider using EnumArray instead if the map will remain full.
         pub fn initFullWithDefault(comptime default: ?Value, init_values: EnumFieldStruct(E, Value, default)) Self {
-            @setEvalBranchQuota(2 * @typeInfo(E).Enum.fields.len);
+            @setEvalBranchQuota(2 * @typeInfo(E).@"enum".fields.len);
             var result: Self = .{
                 .bits = Self.BitSet.initFull(),
                 .values = undefined,
@@ -683,9 +683,9 @@ pub fn BoundedEnumMultiset(comptime E: type, comptime CountSize: type) type {
 
         /// Initializes the multiset using a struct of counts.
         pub fn init(init_counts: EnumFieldStruct(E, CountSize, 0)) Self {
-            @setEvalBranchQuota(2 * @typeInfo(E).Enum.fields.len);
+            @setEvalBranchQuota(2 * @typeInfo(E).@"enum".fields.len);
             var self = initWithCount(0);
-            inline for (@typeInfo(E).Enum.fields) |field| {
+            inline for (@typeInfo(E).@"enum".fields) |field| {
                 const c = @field(init_counts, field.name);
                 const key = @as(E, @enumFromInt(field.value));
                 self.counts.set(key, c);
@@ -757,7 +757,7 @@ pub fn BoundedEnumMultiset(comptime E: type, comptime CountSize: type) type {
         /// Increases the all key counts by given multiset. Caller
         /// asserts operation will not overflow any key.
         pub fn addSetAssertSafe(self: *Self, other: Self) void {
-            inline for (@typeInfo(E).Enum.fields) |field| {
+            inline for (@typeInfo(E).@"enum".fields) |field| {
                 const key = @as(E, @enumFromInt(field.value));
                 self.addAssertSafe(key, other.getCount(key));
             }
@@ -765,7 +765,7 @@ pub fn BoundedEnumMultiset(comptime E: type, comptime CountSize: type) type {
 
         /// Increases the all key counts by given multiset.
         pub fn addSet(self: *Self, other: Self) error{Overflow}!void {
-            inline for (@typeInfo(E).Enum.fields) |field| {
+            inline for (@typeInfo(E).@"enum".fields) |field| {
                 const key = @as(E, @enumFromInt(field.value));
                 try self.add(key, other.getCount(key));
             }
@@ -775,7 +775,7 @@ pub fn BoundedEnumMultiset(comptime E: type, comptime CountSize: type) type {
         /// the given multiset has more key counts than this,
         /// then that key will have a key count of zero.
         pub fn removeSet(self: *Self, other: Self) void {
-            inline for (@typeInfo(E).Enum.fields) |field| {
+            inline for (@typeInfo(E).@"enum".fields) |field| {
                 const key = @as(E, @enumFromInt(field.value));
                 self.remove(key, other.getCount(key));
             }
@@ -784,7 +784,7 @@ pub fn BoundedEnumMultiset(comptime E: type, comptime CountSize: type) type {
         /// Returns true iff all key counts are the same as
         /// given multiset.
         pub fn eql(self: Self, other: Self) bool {
-            inline for (@typeInfo(E).Enum.fields) |field| {
+            inline for (@typeInfo(E).@"enum".fields) |field| {
                 const key = @as(E, @enumFromInt(field.value));
                 if (self.getCount(key) != other.getCount(key)) {
                     return false;
@@ -796,7 +796,7 @@ pub fn BoundedEnumMultiset(comptime E: type, comptime CountSize: type) type {
         /// Returns true iff all key counts less than or
         /// equal to the given multiset.
         pub fn subsetOf(self: Self, other: Self) bool {
-            inline for (@typeInfo(E).Enum.fields) |field| {
+            inline for (@typeInfo(E).@"enum".fields) |field| {
                 const key = @as(E, @enumFromInt(field.value));
                 if (self.getCount(key) > other.getCount(key)) {
                     return false;
@@ -808,7 +808,7 @@ pub fn BoundedEnumMultiset(comptime E: type, comptime CountSize: type) type {
         /// Returns true iff all key counts greater than or
         /// equal to the given multiset.
         pub fn supersetOf(self: Self, other: Self) bool {
-            inline for (@typeInfo(E).Enum.fields) |field| {
+            inline for (@typeInfo(E).@"enum".fields) |field| {
                 const key = @as(E, @enumFromInt(field.value));
                 if (self.getCount(key) < other.getCount(key)) {
                     return false;
@@ -1087,7 +1087,7 @@ pub fn EnumArray(comptime E: type, comptime V: type) type {
 
         /// Initializes values in the enum array, with the specified default.
         pub fn initDefault(comptime default: ?Value, init_values: EnumFieldStruct(E, Value, default)) Self {
-            @setEvalBranchQuota(2 * @typeInfo(E).Enum.fields.len);
+            @setEvalBranchQuota(2 * @typeInfo(E).@"enum".fields.len);
             var result: Self = .{ .values = undefined };
             inline for (0..Self.len) |i| {
                 const key = comptime Indexer.keyForIndex(i);
@@ -1277,17 +1277,17 @@ test "EnumSet non-exhaustive" {
 pub fn EnumIndexer(comptime E: type) type {
     // Assumes that the enum fields are sorted in ascending order (optimistic).
     // Unsorted enums may require the user to manually increase the quota.
-    @setEvalBranchQuota(3 * @typeInfo(E).Enum.fields.len + eval_branch_quota_cushion);
+    @setEvalBranchQuota(3 * @typeInfo(E).@"enum".fields.len + eval_branch_quota_cushion);
 
-    if (!@typeInfo(E).Enum.is_exhaustive) {
-        const BackingInt = @typeInfo(E).Enum.tag_type;
+    if (!@typeInfo(E).@"enum".is_exhaustive) {
+        const BackingInt = @typeInfo(E).@"enum".tag_type;
         if (@bitSizeOf(BackingInt) > @bitSizeOf(usize))
             @compileError("Cannot create an enum indexer for a given non-exhaustive enum, tag_type is larger than usize.");
 
         return struct {
             pub const Key: type = E;
 
-            const backing_int_sign = @typeInfo(BackingInt).Int.signedness;
+            const backing_int_sign = @typeInfo(BackingInt).int.signedness;
             const min_value = std.math.minInt(BackingInt);
             const max_value = std.math.maxInt(BackingInt);
 
@@ -1312,7 +1312,7 @@ pub fn EnumIndexer(comptime E: type) type {
         };
     }
 
-    const const_fields = @typeInfo(E).Enum.fields;
+    const const_fields = @typeInfo(E).@"enum".fields;
     var fields = const_fields[0..const_fields.len].*;
     const fields_len = fields.len;
 
@@ -1359,7 +1359,7 @@ pub fn EnumIndexer(comptime E: type) type {
                 // gives up some safety to avoid artificially limiting
                 // the range of signed enum values to max_isize.
                 const enum_value = if (min < 0) @as(isize, @bitCast(i)) +% min else i + min;
-                return @as(E, @enumFromInt(@as(@typeInfo(E).Enum.tag_type, @intCast(enum_value))));
+                return @as(E, @enumFromInt(@as(@typeInfo(E).@"enum".tag_type, @intCast(enum_value))));
             }
         };
     }
@@ -1411,7 +1411,7 @@ test "EnumIndexer non-exhaustive" {
 
         const RangedType = std.meta.Int(.unsigned, @bitSizeOf(BackingInt));
         const max_index: comptime_int = std.math.maxInt(RangedType);
-        const number_zero_tag_index: usize = switch (@typeInfo(BackingInt).Int.signedness) {
+        const number_zero_tag_index: usize = switch (@typeInfo(BackingInt).int.signedness) {
             .unsigned => 0,
             .signed => std.math.divCeil(comptime_int, max_index, 2) catch unreachable,
         };
@@ -1501,7 +1501,7 @@ test values {
         X,
         Y,
         Z,
-        pub const X = 1;
+        const A = 1;
     };
     try testing.expectEqualSlices(E, &.{ .X, .Y, .Z }, values(E));
 }

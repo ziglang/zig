@@ -7,9 +7,10 @@ pub fn build(b: *std.Build) void {
     b.default_step = test_step;
 
     const optimize: std.builtin.OptimizeMode = .Debug;
-    const target = b.standardTargetOptions(.{});
-
-    if (builtin.os.tag != .windows) return;
+    const target = if (builtin.os.tag == .windows)
+        b.standardTargetOptions(.{})
+    else
+        b.resolveTargetQuery(.{ .os_tag = .windows });
 
     if (builtin.cpu.arch == .aarch64) {
         // https://github.com/ziglang/zig/issues/18427

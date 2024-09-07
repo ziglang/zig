@@ -193,7 +193,7 @@ extern __ssize_t __REDIRECT_NTH (aio_return, (struct aiocb *__aiocbp),
 extern int __REDIRECT_NTH (aio_cancel,
 			   (int __fildes, struct aiocb *__aiocbp),
 			   aio_cancel64);
-#  ifdef __USE_TIME_BITS64
+#  ifdef __USE_TIME64_REDIRECTS
 extern int __REDIRECT_NTH (aio_suspend,
 			   (const struct aiocb *const __list[], int __nent,
 			    const struct timespec *__restrict __timeout),
@@ -215,7 +215,7 @@ extern int __REDIRECT_NTH (aio_fsync,
 #  define aio_error aio_error64
 #  define aio_return aio_return64
 #  define aio_cancel aio_cancel64
-#  ifdef __USE_TIME_BITS64
+#  ifdef __USE_TIME64_REDIRECTS
 #   define aio_suspend __aio_suspend_time64
 #  else
 #   define aio_suspend aio_suspend64

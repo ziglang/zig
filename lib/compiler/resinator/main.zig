@@ -421,7 +421,7 @@ fn cliDiagnosticsToErrorBundle(
     gpa: std.mem.Allocator,
     diagnostics: *cli.Diagnostics,
 ) !ErrorBundle {
-    @setCold(true);
+    @branchHint(.cold);
 
     var bundle: ErrorBundle.Wip = undefined;
     try bundle.init(gpa);
@@ -468,7 +468,7 @@ fn diagnosticsToErrorBundle(
     diagnostics: *Diagnostics,
     mappings: SourceMappings,
 ) !ErrorBundle {
-    @setCold(true);
+    @branchHint(.cold);
 
     var bundle: ErrorBundle.Wip = undefined;
     try bundle.init(gpa);
@@ -559,7 +559,7 @@ fn flushErrorMessageIntoBundle(wip: *ErrorBundle.Wip, msg: ErrorBundle.ErrorMess
 }
 
 fn errorStringToErrorBundle(allocator: std.mem.Allocator, comptime format: []const u8, args: anytype) !ErrorBundle {
-    @setCold(true);
+    @branchHint(.cold);
     var bundle: ErrorBundle.Wip = undefined;
     try bundle.init(allocator);
     errdefer bundle.deinit();
@@ -574,7 +574,7 @@ fn aroDiagnosticsToErrorBundle(
     fail_msg: []const u8,
     comp: *aro.Compilation,
 ) !ErrorBundle {
-    @setCold(true);
+    @branchHint(.cold);
 
     var bundle: ErrorBundle.Wip = undefined;
     try bundle.init(gpa);

@@ -9,7 +9,6 @@ const pwhash = crypto.pwhash;
 const testing = std.testing;
 const HmacSha512 = crypto.auth.hmac.sha2.HmacSha512;
 const Sha512 = crypto.hash.sha2.Sha512;
-const utils = crypto.utils;
 
 const phc_format = @import("phc_encoding.zig");
 
@@ -446,7 +445,7 @@ pub fn bcrypt(
         state.expand0(passwordZ);
         state.expand0(salt[0..]);
     }
-    utils.secureZero(u8, &password_buf);
+    crypto.secureZero(u8, &password_buf);
 
     var cdata = [6]u32{ 0x4f727068, 0x65616e42, 0x65686f6c, 0x64657253, 0x63727944, 0x6f756274 }; // "OrpheanBeholderScryDoubt"
     k = 0;
@@ -556,8 +555,8 @@ const pbkdf_prf = struct {
         }
 
         // zap
-        crypto.utils.secureZero(u32, &cdata);
-        crypto.utils.secureZero(u32, &state.subkeys);
+        crypto.secureZero(u32, &cdata);
+        crypto.secureZero(u32, &state.subkeys);
 
         return out;
     }

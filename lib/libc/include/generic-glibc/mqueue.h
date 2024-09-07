@@ -71,7 +71,7 @@ extern int mq_send (mqd_t __mqdes, const char *__msg_ptr, size_t __msg_len,
 		    unsigned int __msg_prio) __nonnull ((2));
 
 #ifdef __USE_XOPEN2K
-# ifndef __USE_TIME_BITS64
+# ifndef __USE_TIME64_REDIRECTS
 /* Receive the oldest from highest priority messages in message queue
    MQDES, stop waiting if ABS_TIMEOUT expires.  */
 extern ssize_t mq_timedreceive (mqd_t __mqdes, char *__restrict __msg_ptr,
@@ -110,8 +110,7 @@ extern int __REDIRECT (mq_timedsend, (mqd_t __mqdes,
 #endif
 
 /* Define some inlines helping to catch common problems.  */
-#if __USE_FORTIFY_LEVEL > 0 && defined __fortify_function \
-    && defined __va_arg_pack_len
+#if __USE_FORTIFY_LEVEL > 0 && defined __fortify_function
 # include <bits/mqueue2.h>
 #endif
 

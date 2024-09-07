@@ -70,6 +70,25 @@ Write-Output "Main test suite..."
   -Denable-symlinks-windows
 CheckLastExitCode
 
+# Ensure that stage3 and stage4 are byte-for-byte identical.
+Write-Output "Build and compare stage4..."
+& "stage3-release\bin\zig.exe" build `
+  --prefix stage4-release `
+  -Denable-llvm `
+  -Dno-lib `
+  -Doptimize=ReleaseFast `
+  -Dstrip `
+  -Dtarget="$TARGET" `
+  -Duse-zig-libcxx `
+  -Dversion-string="$(stage3-release\bin\zig version)"
+CheckLastExitCode
+
+# Compare-Object returns an error code if the files differ.
+Write-Output "If the following command fails, it means nondeterminism has been"
+Write-Output "introduced, making stage3 and stage4 no longer byte-for-byte identical."
+Compare-Object (Get-Content stage3-release\bin\zig.exe) (Get-Content stage4-release\bin\zig.exe)
+CheckLastExitCode
+
 Write-Output "Build x86_64-windows-msvc behavior tests using the C backend..."
 & "stage3-release\bin\zig.exe" test `
   ..\test\behavior.zig `

@@ -14,8 +14,8 @@ pub const Message = struct {
         zig_version,
         /// Body is an ErrorBundle.
         error_bundle,
-        /// Body is a EmitBinPath.
-        emit_bin_path,
+        /// Body is a EmitDigest.
+        emit_digest,
         /// Body is a TestMetadata
         test_metadata,
         /// Body is a TestResults
@@ -28,6 +28,14 @@ pub const Message = struct {
         /// The remaining bytes is the file path relative to that prefix.
         /// The prefixes are hard-coded in Compilation.create (cwd, zig lib dir, local cache dir)
         file_system_inputs,
+        /// Body is a u64le that indicates the file path within the cache used
+        /// to store coverage information. The integer is a hash of the PCs
+        /// stored within that file.
+        coverage_id,
+        /// Body is a u64le that indicates the function pointer virtual memory
+        /// address of the fuzz unit test. This is used to provide a starting
+        /// point to view coverage.
+        fuzz_start_addr,
 
         _,
     };
@@ -74,8 +82,8 @@ pub const Message = struct {
     };
 
     /// Trailing:
-    /// * file system path where the emitted binary can be found
-    pub const EmitBinPath = extern struct {
+    /// * the hex digest of the cache directory within the /o/ subdirectory.
+    pub const EmitDigest = extern struct {
         flags: Flags,
 
         pub const Flags = packed struct(u8) {
@@ -116,9 +124,9 @@ pub fn receiveMessage(s: *Server) !InMessage.Header {
         const buf = fifo.readableSlice(0);
         assert(fifo.readableLength() == buf.len);
         if (buf.len >= @sizeOf(Header)) {
-            // workaround for https://github.com/ziglang/zig/issues/14904
-            const bytes_len = bswap_and_workaround_u32(buf[4..][0..4]);
-            const tag = bswap_and_workaround_tag(buf[0..][0..4]);
+            const header: *align(1) const Header = @ptrCast(buf[0..@sizeOf(Header)]);
+            const bytes_len = bswap(header.bytes_len);
+            const tag = bswap(header.tag);
 
             if (buf.len - @sizeOf(Header) >= bytes_len) {
                 fifo.discard(@sizeOf(Header));
@@ -180,17 +188,25 @@ pub fn serveMessage(
     try s.out.writevAll(iovecs[0 .. bufs.len + 1]);
 }
 
-pub fn serveEmitBinPath(
+pub fn serveU64Message(s: *Server, tag: OutMessage.Tag, int: u64) !void {
+    const msg_le = bswap(int);
+    return s.serveMessage(.{
+        .tag = tag,
+        .bytes_len = @sizeOf(u64),
+    }, &.{std.mem.asBytes(&msg_le)});
+}
+
+pub fn serveEmitDigest(
     s: *Server,
-    fs_path: []const u8,
-    header: OutMessage.EmitBinPath,
+    digest: *const [Cache.bin_digest_len]u8,
+    header: OutMessage.EmitDigest,
 ) !void {
     try s.serveMessage(.{
-        .tag = .emit_bin_path,
-        .bytes_len = @as(u32, @intCast(fs_path.len + @sizeOf(OutMessage.EmitBinPath))),
+        .tag = .emit_digest,
+        .bytes_len = @intCast(digest.len + @sizeOf(OutMessage.EmitDigest)),
     }, &.{
         std.mem.asBytes(&header),
-        fs_path,
+        digest,
     });
 }
 
@@ -201,7 +217,7 @@ pub fn serveTestResults(
     const msg_le = bswap(msg);
     try s.serveMessage(.{
         .tag = .test_results,
-        .bytes_len = @as(u32, @intCast(@sizeOf(OutMessage.TestResults))),
+        .bytes_len = @intCast(@sizeOf(OutMessage.TestResults)),
     }, &.{
         std.mem.asBytes(&msg_le),
     });
@@ -209,14 +225,14 @@ pub fn serveTestResults(
 
 pub fn serveErrorBundle(s: *Server, error_bundle: std.zig.ErrorBundle) !void {
     const eb_hdr: OutMessage.ErrorBundle = .{
-        .extra_len = @as(u32, @intCast(error_bundle.extra.len)),
-        .string_bytes_len = @as(u32, @intCast(error_bundle.string_bytes.len)),
+        .extra_len = @intCast(error_bundle.extra.len),
+        .string_bytes_len = @intCast(error_bundle.string_bytes.len),
     };
     const bytes_len = @sizeOf(OutMessage.ErrorBundle) +
         4 * error_bundle.extra.len + error_bundle.string_bytes.len;
     try s.serveMessage(.{
         .tag = .error_bundle,
-        .bytes_len = @as(u32, @intCast(bytes_len)),
+        .bytes_len = @intCast(bytes_len),
     }, &.{
         std.mem.asBytes(&eb_hdr),
         // TODO: implement @ptrCast between slices changing the length
@@ -251,7 +267,7 @@ pub fn serveTestMetadata(s: *Server, test_metadata: TestMetadata) !void {
 
     return s.serveMessage(.{
         .tag = .test_metadata,
-        .bytes_len = @as(u32, @intCast(bytes_len)),
+        .bytes_len = @intCast(bytes_len),
     }, &.{
         std.mem.asBytes(&header),
         // TODO: implement @ptrCast between slices changing the length
@@ -266,9 +282,9 @@ fn bswap(x: anytype) @TypeOf(x) {
 
     const T = @TypeOf(x);
     switch (@typeInfo(T)) {
-        .Enum => return @as(T, @enumFromInt(@byteSwap(@intFromEnum(x)))),
-        .Int => return @byteSwap(x),
-        .Struct => |info| switch (info.layout) {
+        .@"enum" => return @as(T, @enumFromInt(@byteSwap(@intFromEnum(x)))),
+        .int => return @byteSwap(x),
+        .@"struct" => |info| switch (info.layout) {
             .@"extern" => {
                 var result: T = undefined;
                 inline for (info.fields) |field| {
@@ -291,17 +307,6 @@ fn bswap_u32_array(slice: []u32) void {
     for (slice) |*elem| elem.* = @byteSwap(elem.*);
 }
 
-/// workaround for https://github.com/ziglang/zig/issues/14904
-fn bswap_and_workaround_u32(bytes_ptr: *const [4]u8) u32 {
-    return std.mem.readInt(u32, bytes_ptr, .little);
-}
-
-/// workaround for https://github.com/ziglang/zig/issues/14904
-fn bswap_and_workaround_tag(bytes_ptr: *const [4]u8) InMessage.Tag {
-    const int = std.mem.readInt(u32, bytes_ptr, .little);
-    return @as(InMessage.Tag, @enumFromInt(int));
-}
-
 const OutMessage = std.zig.Server.Message;
 const InMessage = std.zig.Client.Message;
 
@@ -312,3 +317,4 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const native_endian = builtin.target.cpu.arch.endian();
 const need_bswap = native_endian != .little;
+const Cache = std.Build.Cache;

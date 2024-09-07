@@ -53,7 +53,7 @@ pub const CpuModel = union(enum) {
     explicit: *const Target.Cpu.Model,
 
     pub fn eql(a: CpuModel, b: CpuModel) bool {
-        const Tag = @typeInfo(CpuModel).Union.tag_type.?;
+        const Tag = @typeInfo(CpuModel).@"union".tag_type.?;
         const a_tag: Tag = a;
         const b_tag: Tag = b;
         if (a_tag != b_tag) return false;
@@ -70,7 +70,7 @@ pub const OsVersion = union(enum) {
     windows: Target.Os.WindowsVersion,
 
     pub fn eql(a: OsVersion, b: OsVersion) bool {
-        const Tag = @typeInfo(OsVersion).Union.tag_type.?;
+        const Tag = @typeInfo(OsVersion).@"union".tag_type.?;
         const a_tag: Tag = a;
         const b_tag: Tag = b;
         if (a_tag != b_tag) return false;
@@ -588,14 +588,7 @@ test parse {
         const text = try query.zigTriple(std.testing.allocator);
         defer std.testing.allocator.free(text);
 
-        var buf: [256]u8 = undefined;
-        const triple = std.fmt.bufPrint(
-            buf[0..],
-            "native-native-{s}.2.1.1",
-            .{@tagName(builtin.target.abi)},
-        ) catch unreachable;
-
-        try std.testing.expectEqualSlices(u8, triple, text);
+        try std.testing.expectEqualSlices(u8, "native-native-gnu.2.1.1", text);
     }
     {
         const query = try Query.parse(.{

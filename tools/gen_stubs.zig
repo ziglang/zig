@@ -2,7 +2,7 @@
 //! ./gen_stubs /path/to/musl/build-all >libc.S
 //!
 //! The directory 'build-all' is expected to contain these subdirectories:
-//! arm  x86  mips  mips64  powerpc  powerpc64  riscv32  riscv64  x86_64
+//! arm  x86  mips  mips64  powerpc  powerpc64  riscv32  riscv64  x86_64  loongarch64
 //!
 //! ...each with 'lib/libc.so' inside of them.
 //!
@@ -18,6 +18,7 @@
 //!   - `-DARCH_powerpc`
 //!   - `-DARCH_powerpc64`
 //!   - `-DARCH_aarch64`
+//!   - `-DARCH_loongarch64`
 
 // TODO: pick the best index to put them into instead of at the end
 //       - e.g. find a common previous symbol and put it after that one
@@ -77,7 +78,8 @@ const MultiSym = struct {
             ms.present[archIndex(.x86_64)] == false and
             ms.present[archIndex(.powerpc)] == true and
             ms.present[archIndex(.powerpc64)] == false and
-            ms.present[archIndex(.aarch64)] == false;
+            ms.present[archIndex(.aarch64)] == false and
+            ms.present[archIndex(.loongarch64)] == false;
     }
 
     fn commonSize(ms: MultiSym) ?u64 {
@@ -121,6 +123,7 @@ const MultiSym = struct {
             .{ .powerpc, 4 },
             .{ .powerpc64, 8 },
             .{ .aarch64, 8 },
+            .{ .loongarch64, 8 },
         };
         inline for (map) |item| {
             const arch = item[0];
@@ -144,6 +147,7 @@ const MultiSym = struct {
             .{ .powerpc, 8 },
             .{ .powerpc64, 16 },
             .{ .aarch64, 16 },
+            .{ .loongarch64, 16 },
         };
         inline for (map) |item| {
             const arch = item[0];
@@ -167,6 +171,7 @@ const MultiSym = struct {
             .{ .powerpc, 1 },
             .{ .powerpc64, 2 },
             .{ .aarch64, 2 },
+            .{ .loongarch64, 2 },
         };
         inline for (map) |item| {
             const arch = item[0];

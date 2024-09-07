@@ -155,18 +155,6 @@ test "unions embedded in aggregate types" {
     }
 }
 
-test "access a member of tagged union with conflicting enum tag name" {
-    const Bar = union(enum) {
-        A: A,
-        B: B,
-
-        const A = u8;
-        const B = void;
-    };
-
-    comptime assert(Bar.A == u8);
-}
-
 test "constant tagged union with payload" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
@@ -479,7 +467,7 @@ test "global union with single field is correctly initialized" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     glbl = Foo1{
-        .f = @typeInfo(Foo1).Union.fields[0].type{ .x = 123 },
+        .f = @typeInfo(Foo1).@"union".fields[0].type{ .x = 123 },
     };
     try expect(glbl.f.x == 123);
 }
@@ -600,8 +588,8 @@ test "tagged union type" {
     const baz = Baz.B;
 
     try expect(baz == Baz.B);
-    try expect(@typeInfo(TaggedFoo).Union.fields.len == 3);
-    try expect(@typeInfo(Baz).Enum.fields.len == 4);
+    try expect(@typeInfo(TaggedFoo).@"union".fields.len == 3);
+    try expect(@typeInfo(Baz).@"enum".fields.len == 4);
     try expect(@sizeOf(TaggedFoo) == @sizeOf(FooNoVoid));
     try expect(@sizeOf(Baz) == 1);
 }
@@ -1417,10 +1405,10 @@ test "union field ptr - zero sized payload" {
     const U = union {
         foo: void,
         bar: void,
-        fn bar(_: *void) void {}
+        fn qux(_: *void) void {}
     };
     var u: U = .{ .foo = {} };
-    U.bar(&u.foo);
+    U.qux(&u.foo);
 }
 
 test "union field ptr - zero sized field" {
@@ -1431,10 +1419,10 @@ test "union field ptr - zero sized field" {
     const U = union {
         foo: void,
         bar: u32,
-        fn bar(_: *void) void {}
+        fn qux(_: *void) void {}
     };
     var u: U = .{ .foo = {} };
-    U.bar(&u.foo);
+    U.qux(&u.foo);
 }
 
 test "packed union in packed struct" {
@@ -1903,7 +1891,8 @@ test "reinterpret packed union" {
     try comptime S.doTheTest();
 
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.cpu.arch.isPPC()) return error.SkipZigTest; // TODO
+    if (builtin.cpu.arch.isPowerPC()) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21050
+    if (builtin.cpu.arch.isMIPS()) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21050
     if (builtin.cpu.arch.isWasm()) return error.SkipZigTest; // TODO
     try S.doTheTest();
 }
@@ -2304,13 +2293,13 @@ test "create union(enum) from other union(enum)" {
 test "matching captures causes union equivalence" {
     const S = struct {
         fn SignedUnsigned(comptime I: type) type {
-            const bits = @typeInfo(I).Int.bits;
+            const bits = @typeInfo(I).int.bits;
             return union {
-                u: @Type(.{ .Int = .{
+                u: @Type(.{ .int = .{
                     .signedness = .unsigned,
                     .bits = bits,
                 } }),
-                i: @Type(.{ .Int = .{
+                i: @Type(.{ .int = .{
                     .signedness = .signed,
                     .bits = bits,
                 } }),

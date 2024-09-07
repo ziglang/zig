@@ -92,7 +92,7 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
             \\const a = @import("a.zig");
             \\
             \\export fn entry() void {
-            \\    _ = a.S.foo(a.S{ .foo = 2, .bar = 2 });
+            \\    _ = a.S.qux(a.S{ .foo = 2, .bar = 2 });
             \\}
         , &[_][]const u8{
             ":4:23: error: value stored in comptime field does not match the default value of the field",
@@ -102,7 +102,7 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
             \\pub const S = struct {
             \\    comptime foo: u32 = 1,
             \\    bar: u32,
-            \\    pub fn foo(x: @This()) void {
+            \\    pub fn qux(x: @This()) void {
             \\        _ = x;
             \\    }
             \\};

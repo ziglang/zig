@@ -78,7 +78,13 @@ fn dumpStatusReport() !void {
     const block: *Sema.Block = anal.block;
     const zcu = anal.sema.pt.zcu;
 
-    const file, const src_base_node = Zcu.LazySrcLoc.resolveBaseNode(block.src_base_inst, zcu);
+    const file, const src_base_node = Zcu.LazySrcLoc.resolveBaseNode(block.src_base_inst, zcu) orelse {
+        const file = zcu.fileByIndex(block.src_base_inst.resolveFile(&zcu.intern_pool));
+        try stderr.writeAll("Analyzing lost instruction in file '");
+        try writeFilePath(file, stderr);
+        try stderr.writeAll("'. This should not happen!\n\n");
+        return;
+    };
 
     try stderr.writeAll("Analyzing ");
     try writeFilePath(file, stderr);
@@ -104,7 +110,13 @@ fn dumpStatusReport() !void {
     while (parent) |curr| {
         fba.reset();
         try stderr.writeAll("  in ");
-        const cur_block_file, const cur_block_src_base_node = Zcu.LazySrcLoc.resolveBaseNode(curr.block.src_base_inst, zcu);
+        const cur_block_file, const cur_block_src_base_node = Zcu.LazySrcLoc.resolveBaseNode(curr.block.src_base_inst, zcu) orelse {
+            const cur_block_file = zcu.fileByIndex(curr.block.src_base_inst.resolveFile(&zcu.intern_pool));
+            try writeFilePath(cur_block_file, stderr);
+            try stderr.writeAll("\n    > [lost instruction; this should not happen]\n");
+            parent = curr.parent;
+            continue;
+        };
         try writeFilePath(cur_block_file, stderr);
         try stderr.writeAll("\n    > ");
         print_zir.renderSingleInstruction(
@@ -141,8 +153,8 @@ fn writeFilePath(file: *Zcu.File, writer: anytype) !void {
 }
 
 pub fn compilerPanic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, maybe_ret_addr: ?usize) noreturn {
+    @branchHint(.cold);
     PanicSwitch.preDispatch();
-    @setCold(true);
     const ret_addr = maybe_ret_addr orelse @returnAddress();
     const stack_ctx: StackContext = .{ .current = .{ .ret_addr = ret_addr } };
     PanicSwitch.dispatch(error_return_trace, stack_ctx, msg);
@@ -256,7 +268,7 @@ const StackContext = union(enum) {
     current: struct {
         ret_addr: ?usize,
     },
-    exception: *const debug.ThreadContext,
+    exception: *debug.ThreadContext,
     not_supported: void,
 
     pub fn dumpStackTrace(ctx: @This()) void {

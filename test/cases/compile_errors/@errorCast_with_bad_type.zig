@@ -23,8 +23,8 @@ pub export fn entry4() void {
 // backend=stage2
 // target=x86_64-linux
 //
-// :4:25: error: expected error set or error union type, found 'ComptimeInt'
-// :8:20: error: expected error set or error union type, found 'Int'
+// :4:25: error: expected error set or error union type, found 'comptime_int'
+// :8:20: error: expected error set or error union type, found 'int'
 // :13:25: error: cannot cast an error union type to error set
 // :18:29: error: payload types of error unions must match
 // :18:29: note: destination payload is 'f32'

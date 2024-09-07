@@ -63,7 +63,7 @@ struct timezone
    use localtime etc. instead.
    This function itself is semi-obsolete;
    most callers should use time or clock_gettime instead. */
-#ifndef __USE_TIME_BITS64
+#ifndef __USE_TIME64_REDIRECTS
 extern int gettimeofday (struct timeval *__restrict __tv,
 			 void *__restrict __tz) __THROW __nonnull ((1));
 #else
@@ -77,7 +77,7 @@ extern int __REDIRECT_NTH (gettimeofday, (struct timeval *__restrict __tv,
 #endif
 
 #ifdef __USE_MISC
-# ifndef __USE_TIME_BITS64
+# ifndef __USE_TIME64_REDIRECTS
 /* Set the current time of day and timezone information.
    This call is restricted to the super-user.
    Setting the timezone in this way is obsolete, but we don't yet
@@ -143,7 +143,7 @@ typedef enum __itimer_which __itimer_which_t;
 typedef int __itimer_which_t;
 #endif
 
-#ifndef __USE_TIME_BITS64
+#ifndef __USE_TIME64_REDIRECTS
 /* Set *VALUE to the current setting of timer WHICH.
    Return 0 on success, -1 on errors.  */
 extern int getitimer (__itimer_which_t __which,
@@ -184,7 +184,7 @@ extern int __REDIRECT_NTH (utimes, (const char *__file,
 #endif
 
 #ifdef __USE_MISC
-# ifndef __USE_TIME_BITS64
+# ifndef __USE_TIME64_REDIRECTS
 /* Same as `utimes', but does not follow symbolic links.  */
 extern int lutimes (const char *__file, const struct timeval __tvp[2])
      __THROW __nonnull ((1));
@@ -207,7 +207,7 @@ extern int __REDIRECT_NTH (futimes, (int __fd, const struct timeval __tvp[2]),
 #endif
 
 #ifdef __USE_GNU
-# ifndef __USE_TIME_BITS64
+# ifndef __USE_TIME64_REDIRECTS
 /* Change the access time of FILE relative to FD to TVP[0] and the
    modification time of FILE to TVP[1].  If TVP is a null pointer, use
    the current time instead.  Returns 0 on success, -1 on errors.  */

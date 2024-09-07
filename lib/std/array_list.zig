@@ -359,6 +359,24 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             return m.len;
         }
 
+        pub const FixedWriter = std.io.Writer(*Self, Allocator.Error, appendWriteFixed);
+
+        /// Initializes a Writer which will append to the list but will return
+        /// `error.OutOfMemory` rather than increasing capacity.
+        pub fn fixedWriter(self: *Self) FixedWriter {
+            return .{ .context = self };
+        }
+
+        /// The purpose of this function existing is to match `std.io.Writer` API.
+        fn appendWriteFixed(self: *Self, m: []const u8) error{OutOfMemory}!usize {
+            const available_capacity = self.capacity - self.items.len;
+            if (m.len > available_capacity)
+                return error.OutOfMemory;
+
+            self.appendSliceAssumeCapacity(m);
+            return m.len;
+        }
+
         /// Append a value to the list `n` times.
         /// Allocates more memory as necessary.
         /// Invalidates element pointers if additional memory is needed.
@@ -600,6 +618,8 @@ pub fn ArrayListUnmanaged(comptime T: type) type {
 /// Functions that potentially allocate memory accept an `Allocator` parameter.
 /// Initialize directly or with `initCapacity`, and deinitialize with `deinit`
 /// or use `toOwnedSlice`.
+///
+/// Default initialization of this struct is deprecated; use `.empty` instead.
 pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) type {
     if (alignment) |a| {
         if (a == @alignOf(T)) {
@@ -619,6 +639,12 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// How many T values this list can hold without allocating
         /// additional memory.
         capacity: usize = 0,
+
+        /// An ArrayList containing no elements.
+        pub const empty: Self = .{
+            .items = &.{},
+            .capacity = 0,
+        };
 
         pub const Slice = if (alignment) |a| ([]align(a) T) else []T;
 

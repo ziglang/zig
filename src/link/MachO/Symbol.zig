@@ -123,6 +123,7 @@ pub fn getSymbolRank(symbol: Symbol, macho_file: *MachO) u32 {
 
 pub fn getAddress(symbol: Symbol, opts: struct {
     stubs: bool = true,
+    trampoline: bool = true,
 }, macho_file: *MachO) u64 {
     if (opts.stubs) {
         if (symbol.getSectionFlags().stubs) {
@@ -130,6 +131,9 @@ pub fn getAddress(symbol: Symbol, opts: struct {
         } else if (symbol.getSectionFlags().objc_stubs) {
             return symbol.getObjcStubsAddress(macho_file);
         }
+    }
+    if (symbol.flags.trampoline and opts.trampoline) {
+        return symbol.getTrampolineAddress(macho_file);
     }
     if (symbol.getAtom(macho_file)) |atom| return atom.getAddress(macho_file) + symbol.value;
     return symbol.value;
@@ -169,23 +173,11 @@ pub fn getTlvPtrAddress(symbol: Symbol, macho_file: *MachO) u64 {
     return macho_file.tlv_ptr.getAddress(extra.tlv_ptr, macho_file);
 }
 
-const GetOrCreateZigGotEntryResult = struct {
-    found_existing: bool,
-    index: ZigGotSection.Index,
-};
-
-pub fn getOrCreateZigGotEntry(symbol: *Symbol, symbol_index: Index, macho_file: *MachO) !GetOrCreateZigGotEntryResult {
-    assert(!macho_file.base.isRelocatable());
-    assert(symbol.getSectionFlags().needs_zig_got);
-    if (symbol.getSectionFlags().has_zig_got) return .{ .found_existing = true, .index = symbol.getExtra(macho_file).zig_got };
-    const index = try macho_file.zig_got.addSymbol(symbol_index, macho_file);
-    return .{ .found_existing = false, .index = index };
-}
-
-pub fn getZigGotAddress(symbol: Symbol, macho_file: *MachO) u64 {
-    if (!symbol.getSectionFlags().has_zig_got) return 0;
-    const extras = symbol.getExtra(macho_file);
-    return macho_file.zig_got.entryAddress(extras.zig_got, macho_file);
+pub fn getTrampolineAddress(symbol: Symbol, macho_file: *MachO) u64 {
+    if (!symbol.flags.trampoline) return 0;
+    const zo = macho_file.getZigObject().?;
+    const index = symbol.getExtra(macho_file).trampoline;
+    return zo.symbols.items[index].getAddress(.{}, macho_file);
 }
 
 pub fn getOutputSymtabIndex(symbol: Symbol, macho_file: *MachO) ?u32 {
@@ -209,17 +201,17 @@ pub fn getOutputSymtabIndex(symbol: Symbol, macho_file: *MachO) ?u32 {
 
 const AddExtraOpts = struct {
     got: ?u32 = null,
-    zig_got: ?u32 = null,
     stubs: ?u32 = null,
     objc_stubs: ?u32 = null,
     objc_selrefs: ?u32 = null,
     tlv_ptr: ?u32 = null,
     symtab: ?u32 = null,
+    trampoline: ?u32 = null,
 };
 
 pub fn addExtra(symbol: *Symbol, opts: AddExtraOpts, macho_file: *MachO) void {
     var extra = symbol.getExtra(macho_file);
-    inline for (@typeInfo(@TypeOf(opts)).Struct.fields) |field| {
+    inline for (@typeInfo(@TypeOf(opts)).@"struct".fields) |field| {
         if (@field(opts, field.name)) |x| {
             @field(extra, field.name) = x;
         }
@@ -393,16 +385,19 @@ pub const Flags = packed struct {
 
     /// Whether the symbol makes into the output symtab or not.
     output_symtab: bool = false,
+
+    /// ZigObject specific flags
+    /// Whether the symbol has a trampoline
+    trampoline: bool = false,
+
+    /// Whether the symbol is an extern pointer (as opposed to function).
+    is_extern_ptr: bool = false,
 };
 
 pub const SectionFlags = packed struct(u8) {
     /// Whether the symbol contains __got indirection.
     needs_got: bool = false,
     has_got: bool = false,
-
-    /// Whether the symbol contains __got_zig indirection.
-    needs_zig_got: bool = false,
-    has_zig_got: bool = false,
 
     /// Whether the symbols contains __stubs indirection.
     stubs: bool = false,
@@ -413,7 +408,7 @@ pub const SectionFlags = packed struct(u8) {
     /// Whether the symbol contains __objc_stubs indirection.
     objc_stubs: bool = false,
 
-    _: u1 = 0,
+    _: u3 = 0,
 };
 
 pub const Visibility = enum {
@@ -432,12 +427,12 @@ pub const Visibility = enum {
 
 pub const Extra = struct {
     got: u32 = 0,
-    zig_got: u32 = 0,
     stubs: u32 = 0,
     objc_stubs: u32 = 0,
     objc_selrefs: u32 = 0,
     tlv_ptr: u32 = 0,
     symtab: u32 = 0,
+    trampoline: u32 = 0,
 };
 
 pub const Index = u32;

@@ -264,7 +264,7 @@ pub fn systemCompiler(target: std.Target) LangOpts.Compiler {
 pub fn hasFloat128(target: std.Target) bool {
     if (target.cpu.arch.isWasm()) return true;
     if (target.isDarwin()) return false;
-    if (target.cpu.arch.isPPC() or target.cpu.arch.isPPC64()) return std.Target.powerpc.featureSetHas(target.cpu.features, .float128);
+    if (target.cpu.arch.isPowerPC()) return std.Target.powerpc.featureSetHas(target.cpu.features, .float128);
     return switch (target.os.tag) {
         .dragonfly,
         .haiku,
@@ -306,7 +306,7 @@ pub const FPSemantics = enum {
     /// Only intended for generating float.h macros for the preprocessor
     pub fn forType(ty: std.Target.CType, target: std.Target) FPSemantics {
         std.debug.assert(ty == .float or ty == .double or ty == .longdouble);
-        return switch (target.c_type_bit_size(ty)) {
+        return switch (target.cTypeBitSize(ty)) {
             32 => .IEEESingle,
             64 => .IEEEDouble,
             80 => .x87ExtendedDouble,
@@ -350,7 +350,7 @@ pub const FPSemantics = enum {
 };
 
 pub fn isLP64(target: std.Target) bool {
-    return target.c_type_bit_size(.int) == 32 and target.ptrBitWidth() == 64;
+    return target.cTypeBitSize(.int) == 32 and target.ptrBitWidth() == 64;
 }
 
 pub fn isKnownWindowsMSVCEnvironment(target: std.Target) bool {
@@ -626,7 +626,6 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .windows => "windows",
         .zos => "zos",
         .haiku => "haiku",
-        .minix => "minix",
         .rtems => "rtems",
         .aix => "aix",
         .cuda => "cuda",
@@ -650,9 +649,8 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .visionos => "xros",
         .driverkit => "driverkit",
         .shadermodel => "shadermodel",
-        .liteos => "liteos",
         .opencl,
-        .glsl450,
+        .opengl,
         .vulkan,
         .plan9,
         .other,

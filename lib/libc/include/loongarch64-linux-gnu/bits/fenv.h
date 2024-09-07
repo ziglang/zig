@@ -81,7 +81,7 @@ typedef struct
 #define FE_NOMASK_ENV ((const fenv_t *) -257)
 #endif
 
-#if __GLIBC_USE (IEC_60559_BFP_EXT_C2X)
+#if __GLIBC_USE (IEC_60559_BFP_EXT_C23)
 /* Type representing floating-point control modes.  */
 typedef unsigned int femode_t;
 

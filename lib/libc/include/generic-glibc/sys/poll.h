@@ -66,7 +66,7 @@ extern int ppoll (struct pollfd *__fds, nfds_t __nfds,
 		  const __sigset_t *__ss)
     __fortified_attr_access (__write_only__, 1, 2);
 
-# ifdef __USE_TIME_BITS64
+# ifdef __USE_TIME64_REDIRECTS
 #  ifdef __REDIRECT
 extern int __REDIRECT (ppoll, (struct pollfd *__fds, nfds_t __nfds,
                                const struct timespec *__timeout,

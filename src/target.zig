@@ -49,6 +49,12 @@ pub fn requiresPIC(target: std.Target, linking_libc: bool) bool {
         (target.abi == .ohos and target.cpu.arch == .aarch64);
 }
 
+pub fn picLevel(target: std.Target) u32 {
+    // MIPS always uses PIC level 1; other platforms vary in their default PIC levels, but they
+    // support both level 1 and 2, in which case we prefer 2.
+    return if (target.cpu.arch.isMIPS()) 1 else 2;
+}
+
 /// This is not whether the target supports Position Independent Code, but whether the -fPIC
 /// C compiler argument is valid to Clang.
 pub fn supports_fpic(target: std.Target) bool {
@@ -98,14 +104,16 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         => return false,
 
         .coff,
-        .elf,
-        .macho,
-        .wasm,
-        .spirv,
-        .hex,
-        .raw,
-        .nvptx,
         .dxcontainer,
+        .elf,
+        .goff,
+        .hex,
+        .macho,
+        .nvptx,
+        .spirv,
+        .raw,
+        .wasm,
+        .xcoff,
         => {},
     }
 
@@ -119,7 +127,6 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         .bpfel,
         .bpfeb,
         .csky,
-        .dxil,
         .hexagon,
         .loongarch32,
         .loongarch64,
@@ -147,17 +154,23 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         .xtensa,
         .nvptx,
         .nvptx64,
-        .spirv,
-        .spirv32,
-        .spirv64,
-        .kalimba,
         .lanai,
         .wasm32,
         .wasm64,
         .ve,
         => true,
 
-        .spu_2 => false,
+        // An LLVM backend exists but we don't currently support using it.
+        .dxil,
+        .spirv,
+        .spirv32,
+        .spirv64,
+        => false,
+
+        // No LLVM backend exists.
+        .kalimba,
+        .spu_2,
+        => false,
     };
 }
 
@@ -189,7 +202,7 @@ pub fn supportsStackProtector(target: std.Target, backend: std.builtin.CompilerB
         else => {},
     }
     switch (target.cpu.arch) {
-        .spirv32, .spirv64 => return false,
+        .spirv, .spirv32, .spirv64 => return false,
         else => {},
     }
     return switch (backend) {
@@ -200,7 +213,7 @@ pub fn supportsStackProtector(target: std.Target, backend: std.builtin.CompilerB
 
 pub fn clangSupportsStackProtector(target: std.Target) bool {
     return switch (target.cpu.arch) {
-        .spirv32, .spirv64 => return false,
+        .spirv, .spirv32, .spirv64 => return false,
         else => true,
     };
 }
@@ -213,7 +226,7 @@ pub fn supportsReturnAddress(target: std.Target) bool {
     return switch (target.cpu.arch) {
         .wasm32, .wasm64 => target.os.tag == .emscripten,
         .bpfel, .bpfeb => false,
-        .spirv32, .spirv64 => false,
+        .spirv, .spirv32, .spirv64 => false,
         else => true,
     };
 }
@@ -327,7 +340,7 @@ pub fn clangAssemblerSupportsMcpuArg(target: std.Target) bool {
 }
 
 pub fn needUnwindTables(target: std.Target) bool {
-    return target.os.tag == .windows or target.isDarwin() or std.dwarf.abi.supportsUnwinding(target);
+    return target.os.tag == .windows or target.isDarwin() or std.debug.Dwarf.abi.supportsUnwinding(target);
 }
 
 pub fn defaultAddressSpace(
@@ -368,8 +381,15 @@ pub fn addrSpaceCastIsValid(
 }
 
 pub fn llvmMachineAbi(target: std.Target) ?[:0]const u8 {
+    // LLD does not support ELFv1. Rather than having LLVM produce ELFv1 code and then linking it
+    // into a broken ELFv2 binary, just force LLVM to use ELFv2 as well. This will break when glibc
+    // is linked as glibc only supports ELFv2 for little endian, but there's nothing we can do about
+    // that. With this hack, `powerpc64-linux-none` will at least work.
+    //
+    // Once our self-hosted linker can handle both ABIs, this hack should go away.
+    if (target.cpu.arch == .powerpc64) return "elfv2";
+
     const have_float = switch (target.abi) {
-        .gnuilp32 => return "ilp32",
         .gnueabihf, .musleabihf, .eabihf => true,
         else => false,
     };
@@ -397,7 +417,6 @@ pub fn llvmMachineAbi(target: std.Target) ?[:0]const u8 {
                 return "ilp32";
             }
         },
-        //TODO add ARM, Mips, and PowerPC
         else => return null,
     }
 }
@@ -520,7 +539,11 @@ pub fn zigBackend(target: std.Target, use_llvm: bool) std.builtin.CompilerBacken
 pub inline fn backendSupportsFeature(backend: std.builtin.CompilerBackend, comptime feature: Feature) bool {
     return switch (feature) {
         .panic_fn => switch (backend) {
-            .stage2_c, .stage2_llvm, .stage2_x86_64, .stage2_riscv64 => true,
+            .stage2_c,
+            .stage2_llvm,
+            .stage2_x86_64,
+            .stage2_riscv64,
+            => true,
             else => false,
         },
         .panic_unwrap_error => switch (backend) {

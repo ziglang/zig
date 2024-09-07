@@ -24,7 +24,7 @@ pub fn intern(comp: *Compilation, k: Interner.Key) !Value {
 
 pub fn int(i: anytype, comp: *Compilation) !Value {
     const info = @typeInfo(@TypeOf(i));
-    if (info == .ComptimeInt or info.Int.signedness == .unsigned) {
+    if (info == .comptime_int or info.int.signedness == .unsigned) {
         return intern(comp, .{ .int = .{ .u64 = i } });
     } else {
         return intern(comp, .{ .int = .{ .i64 = i } });

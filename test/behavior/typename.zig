@@ -110,7 +110,7 @@ test "top level decl" {
     );
     // regular fn inside struct, with error
     try expectEqualStrings(
-        "fn () @typeInfo(@typeInfo(@TypeOf(behavior.typename.B.doTest)).Fn.return_type.?).ErrorUnion.error_set!void",
+        "fn () @typeInfo(@typeInfo(@TypeOf(behavior.typename.B.doTest)).@\"fn\".return_type.?).error_union.error_set!void",
         @typeName(@TypeOf(B.doTest)),
     );
     // generic fn

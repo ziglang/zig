@@ -11,15 +11,15 @@ const common = @import("common.zig");
 pub const panic = common.panic;
 
 comptime {
-    @export(__sincosh, .{ .name = "__sincosh", .linkage = common.linkage, .visibility = common.visibility });
-    @export(sincosf, .{ .name = "sincosf", .linkage = common.linkage, .visibility = common.visibility });
-    @export(sincos, .{ .name = "sincos", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__sincosx, .{ .name = "__sincosx", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__sincosh, .{ .name = "__sincosh", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&sincosf, .{ .name = "sincosf", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&sincos, .{ .name = "sincos", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__sincosx, .{ .name = "__sincosx", .linkage = common.linkage, .visibility = common.visibility });
     if (common.want_ppc_abi) {
-        @export(sincosq, .{ .name = "sincosf128", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&sincosq, .{ .name = "sincosf128", .linkage = common.linkage, .visibility = common.visibility });
     }
-    @export(sincosq, .{ .name = "sincosq", .linkage = common.linkage, .visibility = common.visibility });
-    @export(sincosl, .{ .name = "sincosl", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&sincosq, .{ .name = "sincosq", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&sincosl, .{ .name = "sincosl", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 pub fn __sincosh(x: f16, r_sin: *f16, r_cos: *f16) callconv(.C) void {
@@ -198,7 +198,7 @@ pub fn sincosq(x: f128, r_sin: *f128, r_cos: *f128) callconv(.C) void {
 }
 
 pub fn sincosl(x: c_longdouble, r_sin: *c_longdouble, r_cos: *c_longdouble) callconv(.C) void {
-    switch (@typeInfo(c_longdouble).Float.bits) {
+    switch (@typeInfo(c_longdouble).float.bits) {
         16 => return __sincosh(x, r_sin, r_cos),
         32 => return sincosf(x, r_sin, r_cos),
         64 => return sincos(x, r_sin, r_cos),
@@ -216,7 +216,7 @@ pub const rem_pio2_generic = @compileError("TODO");
 /// * trig.cos_generic ported from __cosl.c
 inline fn sincos_generic(comptime F: type, x: F, r_sin: *F, r_cos: *F) void {
     const sc1pio4: F = 1.0 * math.pi / 4.0;
-    const bits = @typeInfo(F).Float.bits;
+    const bits = @typeInfo(F).float.bits;
     const I = std.meta.Int(.unsigned, bits);
     const ix = @as(I, @bitCast(x)) & (math.maxInt(I) >> 1);
     const se: u16 = @truncate(ix >> (bits - 16));

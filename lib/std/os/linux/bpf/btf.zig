@@ -83,13 +83,14 @@ pub const Kind = enum(u5) {
 /// int kind is followed by this struct
 pub const IntInfo = packed struct(u32) {
     bits: u8,
-    unused: u8,
+    reserved_1: u8,
     offset: u8,
     encoding: enum(u4) {
         signed = 1 << 0,
         char = 1 << 1,
         boolean = 1 << 2,
     },
+    reserved_2: u4,
 };
 
 test "IntInfo is 32 bits" {

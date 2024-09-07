@@ -1,6 +1,6 @@
 const testing = @import("std").testing;
 
-const high_bit = 1 << @typeInfo(usize).Int.bits - 1;
+const high_bit = 1 << @typeInfo(usize).int.bits - 1;
 
 pub const Status = enum(usize) {
     /// The operation completed successfully.
@@ -186,7 +186,7 @@ pub const Status = enum(usize) {
     };
 
     pub fn err(self: Status) EfiError!void {
-        inline for (@typeInfo(EfiError).ErrorSet.?) |efi_err| {
+        inline for (@typeInfo(EfiError).error_set.?) |efi_err| {
             if (self == @field(Status, efi_err.name)) {
                 return @field(EfiError, efi_err.name);
             }

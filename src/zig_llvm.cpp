@@ -81,7 +81,7 @@ static const bool assertions_on = false;
 
 LLVMTargetMachineRef ZigLLVMCreateTargetMachine(LLVMTargetRef T, const char *Triple,
     const char *CPU, const char *Features, LLVMCodeGenOptLevel Level, LLVMRelocMode Reloc,
-    LLVMCodeModel CodeModel, bool function_sections, bool data_sections, ZigLLVMABIType float_abi, 
+    LLVMCodeModel CodeModel, bool function_sections, bool data_sections, ZigLLVMABIType float_abi,
     const char *abi_name)
 {
     std::optional<Reloc::Model> RM;
@@ -213,33 +213,33 @@ static SanitizerCoverageOptions getSanCovOptions(ZigLLVMCoverageOptions z) {
 }
 
 ZIG_EXTERN_C bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef module_ref,
-        char **error_message, struct ZigLLVMEmitOptions options)
+        char **error_message, const struct ZigLLVMEmitOptions *options)
 {
-    TimePassesIsEnabled = options.time_report;
+    TimePassesIsEnabled = options->time_report;
 
     raw_fd_ostream *dest_asm_ptr = nullptr;
     raw_fd_ostream *dest_bin_ptr = nullptr;
     raw_fd_ostream *dest_bitcode_ptr = nullptr;
 
-    if (options.asm_filename) {
+    if (options->asm_filename) {
         std::error_code EC;
-        dest_asm_ptr = new(std::nothrow) raw_fd_ostream(options.asm_filename, EC, sys::fs::OF_None);
+        dest_asm_ptr = new(std::nothrow) raw_fd_ostream(options->asm_filename, EC, sys::fs::OF_None);
         if (EC) {
             *error_message = strdup((const char *)StringRef(EC.message()).bytes_begin());
             return true;
         }
     }
-    if (options.bin_filename) {
+    if (options->bin_filename) {
         std::error_code EC;
-        dest_bin_ptr = new(std::nothrow) raw_fd_ostream(options.bin_filename, EC, sys::fs::OF_None);
+        dest_bin_ptr = new(std::nothrow) raw_fd_ostream(options->bin_filename, EC, sys::fs::OF_None);
         if (EC) {
             *error_message = strdup((const char *)StringRef(EC.message()).bytes_begin());
             return true;
         }
     }
-    if (options.bitcode_filename) {
+    if (options->bitcode_filename) {
         std::error_code EC;
-        dest_bitcode_ptr = new(std::nothrow) raw_fd_ostream(options.bitcode_filename, EC, sys::fs::OF_None);
+        dest_bitcode_ptr = new(std::nothrow) raw_fd_ostream(options->bitcode_filename, EC, sys::fs::OF_None);
         if (EC) {
             *error_message = strdup((const char *)StringRef(EC.message()).bytes_begin());
             return true;
@@ -255,20 +255,19 @@ ZIG_EXTERN_C bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machi
     std::string ProcName = "zig-";
     ProcName += std::to_string(PID);
     TimeTracerRAII TimeTracer(ProcName,
-                              options.bin_filename? options.bin_filename : options.asm_filename);
+                              options->bin_filename? options->bin_filename : options->asm_filename);
 
     TargetMachine &target_machine = *reinterpret_cast<TargetMachine*>(targ_machine_ref);
-    target_machine.setO0WantsFastISel(true);
 
     Module &llvm_module = *unwrap(module_ref);
 
     // Pipeline configurations
     PipelineTuningOptions pipeline_opts;
-    pipeline_opts.LoopUnrolling = !options.is_debug;
-    pipeline_opts.SLPVectorization = !options.is_debug;
-    pipeline_opts.LoopVectorization = !options.is_debug;
-    pipeline_opts.LoopInterleaving = !options.is_debug;
-    pipeline_opts.MergeFunctions = !options.is_debug;
+    pipeline_opts.LoopUnrolling = !options->is_debug;
+    pipeline_opts.SLPVectorization = !options->is_debug;
+    pipeline_opts.LoopVectorization = !options->is_debug;
+    pipeline_opts.LoopInterleaving = !options->is_debug;
+    pipeline_opts.MergeFunctions = !options->is_debug;
 
     // Instrumentations
     PassInstrumentationCallbacks instr_callbacks;
@@ -306,25 +305,26 @@ ZIG_EXTERN_C bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machi
             module_pm.addPass(VerifierPass());
         }
 
-        if (!options.is_debug) {
+        if (!options->is_debug) {
             module_pm.addPass(createModuleToFunctionPassAdaptor(AddDiscriminatorsPass()));
         }
     });
 
-    pass_builder.registerOptimizerEarlyEPCallback([&](ModulePassManager &module_pm, OptimizationLevel OL) {
+    //pass_builder.registerOptimizerEarlyEPCallback([&](ModulePassManager &module_pm, OptimizationLevel OL) {
+    //});
+
+    pass_builder.registerOptimizerLastEPCallback([&](ModulePassManager &module_pm, OptimizationLevel level) {
         // Code coverage instrumentation.
-        if (options.sancov) {
-            module_pm.addPass(SanitizerCoveragePass(getSanCovOptions(options.coverage)));
+        if (options->sancov) {
+            module_pm.addPass(SanitizerCoveragePass(getSanCovOptions(options->coverage)));
         }
 
         // Thread sanitizer
-        if (options.tsan) {
+        if (options->tsan) {
             module_pm.addPass(ModuleThreadSanitizerPass());
             module_pm.addPass(createModuleToFunctionPassAdaptor(ThreadSanitizerPass()));
         }
-    });
 
-    pass_builder.registerOptimizerLastEPCallback([&](ModulePassManager &module_pm, OptimizationLevel level) {
         // Verify the output
         if (assertions_on) {
             module_pm.addPass(VerifierPass());
@@ -334,17 +334,17 @@ ZIG_EXTERN_C bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machi
     ModulePassManager module_pm;
     OptimizationLevel opt_level;
     // Setting up the optimization level
-    if (options.is_debug)
+    if (options->is_debug)
       opt_level = OptimizationLevel::O0;
-    else if (options.is_small)
+    else if (options->is_small)
       opt_level = OptimizationLevel::Oz;
     else
       opt_level = OptimizationLevel::O3;
 
     // Initialize the PassManager
     if (opt_level == OptimizationLevel::O0) {
-      module_pm = pass_builder.buildO0DefaultPipeline(opt_level, options.lto);
-    } else if (options.lto) {
+      module_pm = pass_builder.buildO0DefaultPipeline(opt_level, options->lto);
+    } else if (options->lto) {
       module_pm = pass_builder.buildLTOPreLinkDefaultPipeline(opt_level);
     } else {
       module_pm = pass_builder.buildPerModuleDefaultPipeline(opt_level);
@@ -355,7 +355,7 @@ ZIG_EXTERN_C bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machi
     codegen_pm.add(
       createTargetTransformInfoWrapperPass(target_machine.getTargetIRAnalysis()));
 
-    if (dest_bin && !options.lto) {
+    if (dest_bin && !options->lto) {
         if (target_machine.addPassesToEmitFile(codegen_pm, *dest_bin, nullptr, CodeGenFileType::ObjectFile)) {
             *error_message = strdup("TargetMachine can't emit an object file");
             return true;
@@ -368,26 +368,32 @@ ZIG_EXTERN_C bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machi
         }
     }
 
+    if (options->allow_fast_isel) {
+        target_machine.setO0WantsFastISel(true);
+    } else {
+        target_machine.setFastISel(false);
+    }
+
     // Optimization phase
     module_pm.run(llvm_module, module_am);
 
     // Code generation phase
     codegen_pm.run(llvm_module);
 
-    if (options.llvm_ir_filename) {
-        if (LLVMPrintModuleToFile(module_ref, options.llvm_ir_filename, error_message)) {
+    if (options->llvm_ir_filename) {
+        if (LLVMPrintModuleToFile(module_ref, options->llvm_ir_filename, error_message)) {
             return true;
         }
     }
 
-    if (dest_bin && options.lto) {
+    if (dest_bin && options->lto) {
         WriteBitcodeToFile(llvm_module, *dest_bin);
     }
     if (dest_bitcode) {
         WriteBitcodeToFile(llvm_module, *dest_bitcode);
     }
 
-    if (options.time_report) {
+    if (options->time_report) {
         TimerGroup::printAll(errs());
     }
 
@@ -427,20 +433,6 @@ bool ZigLLVMGetBrokenDebugInfo(LLVMContextRef context_ref) {
 
 void ZigLLVMParseCommandLineOptions(size_t argc, const char *const *argv) {
     cl::ParseCommandLineOptions(argc, argv);
-}
-
-void ZigLLVMSetModulePICLevel(LLVMModuleRef module) {
-    unwrap(module)->setPICLevel(PICLevel::Level::BigPIC);
-}
-
-void ZigLLVMSetModulePIELevel(LLVMModuleRef module) {
-    unwrap(module)->setPIELevel(PIELevel::Level::Large);
-}
-
-void ZigLLVMSetModuleCodeModel(LLVMModuleRef module, LLVMCodeModel code_model) {
-    bool JIT;
-    unwrap(module)->setCodeModel(*unwrap(code_model, JIT));
-    assert(!JIT);
 }
 
 bool ZigLLVMWriteImportLibrary(const char *def_path, const ZigLLVM_ArchType arch,

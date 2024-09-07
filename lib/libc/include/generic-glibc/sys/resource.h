@@ -88,7 +88,7 @@ extern int setrlimit64 (__rlimit_resource_t __resource,
    and put it in *USAGE.  Returns 0 for success, -1 for failure.  */
 extern int getrusage (__rusage_who_t __who, struct rusage *__usage) __THROW;
 
-#ifdef __USE_TIME_BITS64
+#ifdef __USE_TIME64_REDIRECTS
 # if defined(__REDIRECT_NTH)
 extern int __REDIRECT_NTH (getrusage, (__rusage_who_t __who,
                                        struct rusage *__usage),

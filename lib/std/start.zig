@@ -31,39 +31,39 @@ comptime {
     if (simplified_logic) {
         if (builtin.output_mode == .Exe) {
             if ((builtin.link_libc or builtin.object_format == .c) and @hasDecl(root, "main")) {
-                if (@typeInfo(@TypeOf(root.main)).Fn.calling_convention != .C) {
-                    @export(main2, .{ .name = "main" });
+                if (@typeInfo(@TypeOf(root.main)).@"fn".calling_convention != .C) {
+                    @export(&main2, .{ .name = "main" });
                 }
             } else if (builtin.os.tag == .windows) {
                 if (!@hasDecl(root, "wWinMainCRTStartup") and !@hasDecl(root, "mainCRTStartup")) {
-                    @export(wWinMainCRTStartup2, .{ .name = "wWinMainCRTStartup" });
+                    @export(&wWinMainCRTStartup2, .{ .name = "wWinMainCRTStartup" });
                 }
             } else if (builtin.os.tag == .opencl) {
                 if (@hasDecl(root, "main"))
-                    @export(spirvMain2, .{ .name = "main" });
+                    @export(&spirvMain2, .{ .name = "main" });
             } else {
                 if (!@hasDecl(root, "_start")) {
-                    @export(_start2, .{ .name = "_start" });
+                    @export(&_start2, .{ .name = "_start" });
                 }
             }
         }
     } else {
         if (builtin.output_mode == .Lib and builtin.link_mode == .dynamic) {
             if (native_os == .windows and !@hasDecl(root, "_DllMainCRTStartup")) {
-                @export(_DllMainCRTStartup, .{ .name = "_DllMainCRTStartup" });
+                @export(&_DllMainCRTStartup, .{ .name = "_DllMainCRTStartup" });
             }
         } else if (builtin.output_mode == .Exe or @hasDecl(root, "main")) {
             if (builtin.link_libc and @hasDecl(root, "main")) {
                 if (native_arch.isWasm()) {
-                    @export(mainWithoutEnv, .{ .name = "main" });
-                } else if (@typeInfo(@TypeOf(root.main)).Fn.calling_convention != .C) {
-                    @export(main, .{ .name = "main" });
+                    @export(&mainWithoutEnv, .{ .name = "main" });
+                } else if (@typeInfo(@TypeOf(root.main)).@"fn".calling_convention != .C) {
+                    @export(&main, .{ .name = "main" });
                 }
             } else if (native_os == .windows) {
                 if (!@hasDecl(root, "WinMain") and !@hasDecl(root, "WinMainCRTStartup") and
                     !@hasDecl(root, "wWinMain") and !@hasDecl(root, "wWinMainCRTStartup"))
                 {
-                    @export(WinStartup, .{ .name = "wWinMainCRTStartup" });
+                    @export(&WinStartup, .{ .name = "wWinMainCRTStartup" });
                 } else if (@hasDecl(root, "WinMain") and !@hasDecl(root, "WinMainCRTStartup") and
                     !@hasDecl(root, "wWinMain") and !@hasDecl(root, "wWinMainCRTStartup"))
                 {
@@ -71,10 +71,10 @@ comptime {
                 } else if (@hasDecl(root, "wWinMain") and !@hasDecl(root, "wWinMainCRTStartup") and
                     !@hasDecl(root, "WinMain") and !@hasDecl(root, "WinMainCRTStartup"))
                 {
-                    @export(wWinMainCRTStartup, .{ .name = "wWinMainCRTStartup" });
+                    @export(&wWinMainCRTStartup, .{ .name = "wWinMainCRTStartup" });
                 }
             } else if (native_os == .uefi) {
-                if (!@hasDecl(root, "EfiMain")) @export(EfiMain, .{ .name = "EfiMain" });
+                if (!@hasDecl(root, "EfiMain")) @export(&EfiMain, .{ .name = "EfiMain" });
             } else if (native_os == .wasi) {
                 const wasm_start_sym = switch (builtin.wasi_exec_model) {
                     .reactor => "_initialize",
@@ -83,14 +83,14 @@ comptime {
                 if (!@hasDecl(root, wasm_start_sym) and @hasDecl(root, "main")) {
                     // Only call main when defined. For WebAssembly it's allowed to pass `-fno-entry` in which
                     // case it's not required to provide an entrypoint such as main.
-                    @export(wasi_start, .{ .name = wasm_start_sym });
+                    @export(&wasi_start, .{ .name = wasm_start_sym });
                 }
             } else if (native_arch.isWasm() and native_os == .freestanding) {
                 // Only call main when defined. For WebAssembly it's allowed to pass `-fno-entry` in which
                 // case it's not required to provide an entrypoint such as main.
-                if (!@hasDecl(root, start_sym_name) and @hasDecl(root, "main")) @export(wasm_freestanding_start, .{ .name = start_sym_name });
+                if (!@hasDecl(root, start_sym_name) and @hasDecl(root, "main")) @export(&wasm_freestanding_start, .{ .name = start_sym_name });
             } else if (native_os != .other and native_os != .freestanding) {
-                if (!@hasDecl(root, start_sym_name)) @export(_start, .{ .name = start_sym_name });
+                if (!@hasDecl(root, start_sym_name)) @export(&_start, .{ .name = start_sym_name });
             }
         }
     }
@@ -177,7 +177,7 @@ fn _DllMainCRTStartup(
     lpReserved: std.os.windows.LPVOID,
 ) callconv(std.os.windows.WINAPI) std.os.windows.BOOL {
     if (!builtin.single_threaded and !builtin.link_libc) {
-        _ = @import("start_windows_tls.zig");
+        _ = @import("os/windows/tls.zig");
     }
 
     if (@hasDecl(root, "DllMain")) {
@@ -206,7 +206,7 @@ fn EfiMain(handle: uefi.Handle, system_table: *uefi.tables.SystemTable) callconv
     uefi.handle = handle;
     uefi.system_table = system_table;
 
-    switch (@typeInfo(@TypeOf(root.main)).Fn.return_type.?) {
+    switch (@typeInfo(@TypeOf(root.main)).@"fn".return_type.?) {
         noreturn => {
             root.main();
         },
@@ -233,6 +233,16 @@ fn _start() callconv(.Naked) noreturn {
         );
     }
 
+    // Move this to the riscv prong below when this is resolved: https://github.com/ziglang/zig/issues/20918
+    if (builtin.cpu.arch.isRISCV() and builtin.zig_backend != .stage2_riscv64) asm volatile (
+        \\ .weak __global_pointer$
+        \\ .hidden __global_pointer$
+        \\ .option push
+        \\ .option norelax
+        \\ lla gp, __global_pointer$
+        \\ .option pop
+    );
+
     // Note that we maintain a very low level of trust with regards to ABI guarantees at this point.
     // We will redundantly align the stack, clear the link register, etc. While e.g. the Linux
     // kernel is usually good about upholding the ABI guarantees, the same cannot be said of dynamic
@@ -240,6 +250,7 @@ fn _start() callconv(.Naked) noreturn {
     // linker explicitly.
     asm volatile (switch (native_arch) {
             .x86_64 =>
+            \\ .cfi_undefined %%rip
             \\ xorl %%ebp, %%ebp
             \\ movq %%rsp, %%rdi
             \\ andq $-16, %%rsp
@@ -273,27 +284,24 @@ fn _start() callconv(.Naked) noreturn {
             \\ mov fp, #0
             \\ mov lr, #0
             \\ mov a1, sp
-            \\ and sp, #-16
+            \\ mov ip, sp
+            \\ and ip, ip, #-16
+            \\ mov sp, ip
             \\ b %[posixCallMainAndExit]
             ,
-            // zig fmt: off
             .csky =>
-            if (builtin.position_independent_code)
-                // The CSKY ABI assumes that `gb` is set to the address of the GOT in order for
-                // position-independent code to work. We depend on this in `std.os.linux.start_pie`
-                // to locate `_DYNAMIC` as well.
-                \\ grs t0, 1f
-                \\ 1:
-                \\ lrw gb, 1b@GOTPC
-                \\ addu gb, t0
-            else ""
-            ++
+            // The CSKY ABI assumes that `gb` is set to the address of the GOT in order for
+            // position-independent code to work. We depend on this in `std.os.linux.start_pie`
+            // to locate `_DYNAMIC` as well.
+            \\ grs t0, 1f
+            \\ 1:
+            \\ lrw gb, 1b@GOTPC
+            \\ addu gb, t0
             \\ movi lr, 0
             \\ mov a0, sp
             \\ andi sp, sp, -8
             \\ jmpi %[posixCallMainAndExit]
             ,
-            // zig fmt: on
             .hexagon =>
             // r29 = SP, r30 = FP
             \\ r30 = #0
@@ -309,27 +317,13 @@ fn _start() callconv(.Naked) noreturn {
             \\ bstrins.d $sp, $zero, 3, 0
             \\ b %[posixCallMainAndExit]
             ,
-            // zig fmt: off
             .riscv32, .riscv64 =>
-            // The self-hosted riscv64 backend is not able to assemble this yet.
-            if (builtin.zig_backend != .stage2_riscv64)
-                // The RISC-V ELF ABI assumes that `gp` is set to the value of `__global_pointer$` at
-                // startup in order for GP relaxation to work, even in static builds.
-                \\ .weak __global_pointer$
-                \\ .hidden __global_pointer$
-                \\ .option push
-                \\ .option norelax
-                \\ lla gp, __global_pointer$
-                \\ .option pop
-            else ""
-            ++
             \\ li s0, 0
             \\ li ra, 0
             \\ mv a0, sp
             \\ andi sp, sp, -16
             \\ tail %[posixCallMainAndExit]@plt
             ,
-            // zig fmt: off
             .m68k =>
             // Note that the - 8 is needed because pc in the jsr instruction points into the middle
             // of the jsr instruction. (The lea is 6 bytes, the jsr is 4 bytes.)
@@ -407,6 +401,13 @@ fn _start() callconv(.Naked) noreturn {
             \\ stg  %%r0, 0(%%r15)
             \\ jg %[posixCallMainAndExit]
             ,
+            .sparc =>
+            // argc is stored after a register window (16 registers * 4 bytes).
+            \\ mov %%g0, %%fp
+            \\ add %%sp, 64, %%o0
+            \\ and %%sp, -8, %%sp
+            \\ ba,a %[posixCallMainAndExit]
+            ,
             .sparc64 =>
             // argc is stored after a register window (16 registers * 8 bytes) plus the stack bias
             // (2047 bytes).
@@ -420,7 +421,7 @@ fn _start() callconv(.Naked) noreturn {
             else => @compileError("unsupported arch"),
         }
         :
-        : [_start] "X" (_start),
+        : [_start] "X" (&_start),
           [posixCallMainAndExit] "X" (&posixCallMainAndExit),
     );
 }
@@ -428,7 +429,7 @@ fn _start() callconv(.Naked) noreturn {
 fn WinStartup() callconv(std.os.windows.WINAPI) noreturn {
     @setAlignStack(16);
     if (!builtin.single_threaded and !builtin.link_libc) {
-        _ = @import("start_windows_tls.zig");
+        _ = @import("os/windows/tls.zig");
     }
 
     std.debug.maybeEnableSegfaultHandler();
@@ -439,7 +440,7 @@ fn WinStartup() callconv(std.os.windows.WINAPI) noreturn {
 fn wWinMainCRTStartup() callconv(std.os.windows.WINAPI) noreturn {
     @setAlignStack(16);
     if (!builtin.single_threaded and !builtin.link_libc) {
-        _ = @import("start_windows_tls.zig");
+        _ = @import("os/windows/tls.zig");
     }
 
     std.debug.maybeEnableSegfaultHandler();
@@ -498,7 +499,7 @@ fn posixCallMainAndExit(argc_argv_ptr: [*]usize) callconv(.C) noreturn {
             // ARMv6 targets (and earlier) have no support for TLS in hardware.
             // FIXME: Elide the check for targets >= ARMv7 when the target feature API
             // becomes less verbose (and more usable).
-            if (comptime native_arch.isARM()) {
+            if (comptime native_arch.isArmOrThumb()) {
                 if (at_hwcap & std.os.linux.HWCAP.TLS == 0) {
                     // FIXME: Make __aeabi_read_tp call the kernel helper kuser_get_tls
                     // For the time being use a simple trap instead of a @panic call to
@@ -640,7 +641,7 @@ inline fn envpAlloc(arena: std.mem.Allocator) ![*:null]?[*:0]c_char {
 
 pub inline fn callMain(c_argv_optional: ?[:null]?[*:0]c_char, c_envp_optional: ?[*:null]?[*:0]c_char) u8 {
     const main_info = @typeInfo(@TypeOf(root.main));
-    const ReturnType = main_info.Fn.return_type.?;
+    const ReturnType = main_info.@"fn".return_type.?;
 
     switch (ReturnType) {
         void => {
@@ -682,7 +683,7 @@ pub inline fn callMain(c_argv_optional: ?[:null]?[*:0]c_char, c_envp_optional: ?
             return @intCast(root.main(@intCast(c_argv.len), @ptrCast(c_argv), @ptrCast(c_envp)) & 0xff);
         },
         else => {
-            if (@typeInfo(ReturnType) != .ErrorUnion) @compileError(bad_main_ret);
+            if (@typeInfo(ReturnType) != .error_union) @compileError(bad_main_ret);
 
             const result = root.main() catch |err| {
                 if (builtin.zig_backend == .stage2_riscv64) {
@@ -707,7 +708,7 @@ pub inline fn callMain(c_argv_optional: ?[:null]?[*:0]c_char, c_envp_optional: ?
 
 pub fn call_wWinMain() std.os.windows.INT {
     const peb = std.os.windows.peb();
-    const MAIN_HINSTANCE = @typeInfo(@TypeOf(root.wWinMain)).Fn.params[0].type.?;
+    const MAIN_HINSTANCE = @typeInfo(@TypeOf(root.wWinMain)).@"fn".params[0].type.?;
     const hInstance = @as(MAIN_HINSTANCE, @ptrCast(peb.ImageBaseAddress));
     const lpCmdLine: [*:0]u16 = @ptrCast(peb.ProcessParameters.CommandLine.Buffer);
 

@@ -33,8 +33,13 @@ extern int __REDIRECT (__poll_chk_warn, (struct pollfd *__fds, nfds_t __nfds,
 		       __poll_chk)
   __warnattr ("poll called with fds buffer too small file nfds entries");
 
-__fortify_function __fortified_attr_access (__write_only__, 1, 2) int
-poll (struct pollfd *__fds, nfds_t __nfds, int __timeout)
+__fortify_function __fortified_attr_access (__write_only__, 1, 2)
+__attribute_overloadable__ int
+poll (__fortify_clang_overload_arg (struct pollfd *, ,__fds), nfds_t __nfds,
+      int __timeout)
+     __fortify_clang_warning_only_if_bos_lt2 (__nfds, __fds, sizeof (*__fds),
+					      "poll called with fds buffer "
+					      "too small file nfds entries")
 {
   return __glibc_fortify (poll, __nfds, sizeof (*__fds),
 			  __glibc_objsize (__fds),
@@ -43,7 +48,7 @@ poll (struct pollfd *__fds, nfds_t __nfds, int __timeout)
 
 
 #ifdef __USE_GNU
-# ifdef __USE_TIME_BITS64
+# ifdef __USE_TIME64_REDIRECTS
 extern int __REDIRECT (__ppoll64_alias, (struct pollfd *__fds, nfds_t __nfds,
 				       const struct timespec *__timeout,
 				       const __sigset_t *__ss), __ppoll64);
@@ -58,9 +63,13 @@ extern int __REDIRECT (__ppoll64_chk_warn, (struct pollfd *__fds, nfds_t __n,
 		       __ppoll64_chk)
   __warnattr ("ppoll called with fds buffer too small file nfds entries");
 
-__fortify_function __fortified_attr_access (__write_only__, 1, 2) int
-ppoll (struct pollfd *__fds, nfds_t __nfds, const struct timespec *__timeout,
-       const __sigset_t *__ss)
+__fortify_function __fortified_attr_access (__write_only__, 1, 2)
+__attribute_overloadable__ int
+ppoll (__fortify_clang_overload_arg (struct pollfd *, ,__fds), nfds_t __nfds,
+       const struct timespec *__timeout, const __sigset_t *__ss)
+     __fortify_clang_warning_only_if_bos_lt2 (__nfds, __fds, sizeof (*__fds),
+					      "ppoll called with fds buffer "
+					      "too small file nfds entries")
 {
   return __glibc_fortify (ppoll64, __nfds, sizeof (*__fds),
 			  __glibc_objsize (__fds),
@@ -81,9 +90,13 @@ extern int __REDIRECT (__ppoll_chk_warn, (struct pollfd *__fds, nfds_t __nfds,
 		       __ppoll_chk)
   __warnattr ("ppoll called with fds buffer too small file nfds entries");
 
-__fortify_function __fortified_attr_access (__write_only__, 1, 2) int
-ppoll (struct pollfd *__fds, nfds_t __nfds, const struct timespec *__timeout,
-       const __sigset_t *__ss)
+__fortify_function __fortified_attr_access (__write_only__, 1, 2)
+__attribute_overloadable__ int
+ppoll (__fortify_clang_overload_arg (struct pollfd *, ,__fds), nfds_t __nfds,
+       const struct timespec *__timeout, const __sigset_t *__ss)
+     __fortify_clang_warning_only_if_bos_lt2 (__nfds, __fds, sizeof (*__fds),
+					      "ppoll called with fds buffer "
+					      "too small file nfds entries")
 {
   return __glibc_fortify (ppoll, __nfds, sizeof (*__fds),
 			  __glibc_objsize (__fds),

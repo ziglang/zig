@@ -104,7 +104,7 @@ test "@abs big int <= 128 bits" {
     try testAbsUnsignedBigInt();
 }
 
-fn abs(comptime T: type, a: T) std.meta.Int(.unsigned, @typeInfo(T).Int.bits) {
+fn abs(comptime T: type, a: T) std.meta.Int(.unsigned, @typeInfo(T).int.bits) {
     return @abs(a);
 }
 

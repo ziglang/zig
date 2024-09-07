@@ -278,7 +278,7 @@ test "link with relative paths" {
     cwd.deleteFile("new.txt") catch {};
 
     try cwd.writeFile(.{ .sub_path = "example.txt", .data = "example" });
-    try posix.link("example.txt", "new.txt", 0);
+    try posix.link("example.txt", "new.txt");
 
     const efd = try cwd.openFile("example.txt", .{});
     defer efd.close();
@@ -349,6 +349,7 @@ test "linkat with different directories" {
 }
 
 test "fstatat" {
+    if (builtin.cpu.arch == .riscv32 and builtin.os.tag == .linux and !builtin.link_libc) return error.SkipZigTest; // No `fstatat()`.
     // enable when `fstat` and `fstatat` are implemented on Windows
     if (native_os == .windows) return error.SkipZigTest;
 
@@ -782,7 +783,7 @@ test "fsync" {
 test "getrlimit and setrlimit" {
     if (posix.system.rlimit_resource == void) return error.SkipZigTest;
 
-    inline for (@typeInfo(posix.rlimit_resource).Enum.fields) |field| {
+    inline for (@typeInfo(posix.rlimit_resource).@"enum".fields) |field| {
         const resource: posix.rlimit_resource = @enumFromInt(field.value);
         const limit = try posix.getrlimit(resource);
 
@@ -1264,6 +1265,9 @@ test "fchmodat smoke test" {
         0o644,
     );
     posix.close(fd);
+
+    if (builtin.cpu.arch == .riscv32 and builtin.os.tag == .linux and !builtin.link_libc) return error.SkipZigTest; // No `fstatat()`.
+
     try posix.symlinkat("regfile", tmp.dir.fd, "symlink");
     const sym_mode = blk: {
         const st = try posix.fstatat(tmp.dir.fd, "symlink", posix.AT.SYMLINK_NOFOLLOW);

@@ -19,7 +19,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const testing = std.testing;
 
-pub const output = @import("tar/output.zig");
+pub const writer = @import("tar/writer.zig").writer;
 
 /// Provide this to receive detailed error messages.
 /// When this is provided, some errors which would otherwise be returned
@@ -355,13 +355,13 @@ pub fn Iterator(comptime ReaderType: type) type {
             }
 
             // Writes file content to writer.
-            pub fn writeAll(self: File, writer: anytype) !void {
+            pub fn writeAll(self: File, out_writer: anytype) !void {
                 var buffer: [4096]u8 = undefined;
 
                 while (self.unread_bytes.* > 0) {
                     const buf = buffer[0..@min(buffer.len, self.unread_bytes.*)];
                     try self.parent_reader.readNoEof(buf);
-                    try writer.writeAll(buf);
+                    try out_writer.writeAll(buf);
                     self.unread_bytes.* -= buf.len;
                 }
             }

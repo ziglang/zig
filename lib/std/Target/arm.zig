@@ -86,6 +86,7 @@ pub const Feature = enum {
     has_v9_2a,
     has_v9_3a,
     has_v9_4a,
+    has_v9_5a,
     has_v9a,
     hwdiv,
     hwdiv_arm,
@@ -207,14 +208,14 @@ pub const Feature = enum {
     zcz,
 };
 
-pub const featureSet = CpuFeature.feature_set_fns(Feature).featureSet;
-pub const featureSetHas = CpuFeature.feature_set_fns(Feature).featureSetHas;
-pub const featureSetHasAny = CpuFeature.feature_set_fns(Feature).featureSetHasAny;
-pub const featureSetHasAll = CpuFeature.feature_set_fns(Feature).featureSetHasAll;
+pub const featureSet = CpuFeature.FeatureSetFns(Feature).featureSet;
+pub const featureSetHas = CpuFeature.FeatureSetFns(Feature).featureSetHas;
+pub const featureSetHasAny = CpuFeature.FeatureSetFns(Feature).featureSetHasAny;
+pub const featureSetHasAll = CpuFeature.FeatureSetFns(Feature).featureSetHasAll;
 
 pub const all_features = blk: {
     @setEvalBranchQuota(10000);
-    const len = @typeInfo(Feature).Enum.fields.len;
+    const len = @typeInfo(Feature).@"enum".fields.len;
     std.debug.assert(len <= CpuFeature.Set.needed_bit_count);
     var result: [len]CpuFeature = undefined;
     result[@intFromEnum(Feature.@"32bit")] = .{
@@ -752,6 +753,13 @@ pub const all_features = blk: {
         .dependencies = featureSet(&[_]Feature{
             .has_v8_9a,
             .has_v9_3a,
+        }),
+    };
+    result[@intFromEnum(Feature.has_v9_5a)] = .{
+        .llvm_name = "v9.5a",
+        .description = "Support ARM v9.5a instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .has_v9_4a,
         }),
     };
     result[@intFromEnum(Feature.has_v9a)] = .{
@@ -1582,18 +1590,11 @@ pub const all_features = blk: {
             .db,
             .dsp,
             .fp_armv8,
+            .has_v9_5a,
             .mp,
             .ras,
             .trustzone,
-            .v9_5a,
             .virtualization,
-        }),
-    };
-    result[@intFromEnum(Feature.v9_5a)] = .{
-        .llvm_name = "v9.5a",
-        .description = "Support ARM v9.5a instructions",
-        .dependencies = featureSet(&[_]Feature{
-            .has_v9_4a,
         }),
     };
     result[@intFromEnum(Feature.v9a)] = .{
@@ -1734,7 +1735,7 @@ pub const all_features = blk: {
     const ti = @typeInfo(Feature);
     for (&result, 0..) |*elem, i| {
         elem.index = i;
-        elem.name = ti.Enum.fields[i].name;
+        elem.name = ti.@"enum".fields[i].name;
     }
     break :blk result;
 };

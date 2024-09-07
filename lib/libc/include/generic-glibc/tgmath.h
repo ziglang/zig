@@ -42,12 +42,12 @@
    versions before GCC 13 have __builtin_tgmath semantics that, when
    integer arguments are passed to narrowing macros returning
    _Float32x, or non-narrowing macros with at least two generic
-   arguments, do not always correspond to the C2X semantics, so more
+   arguments, do not always correspond to the C23 semantics, so more
    complicated macro definitions are also used in some cases for
    versions from GCC 8 to GCC 12.  */
 
 #define __HAVE_BUILTIN_TGMATH __GNUC_PREREQ (8, 0)
-#define __HAVE_BUILTIN_TGMATH_C2X __GNUC_PREREQ (13, 0)
+#define __HAVE_BUILTIN_TGMATH_C23 __GNUC_PREREQ (13, 0)
 
 #if __GNUC_PREREQ (2, 7)
 
@@ -171,7 +171,7 @@
   __builtin_tgmath (__TGMATH_NARROW_FUNCS_F64 (F) (X), (Y))
 #  define __TGMATH_3_NARROW_F64(F, X, Y, Z)				\
   __builtin_tgmath (__TGMATH_NARROW_FUNCS_F64 (F) (X), (Y), (Z))
-#  if __HAVE_FLOAT128 && __HAVE_BUILTIN_TGMATH_C2X
+#  if __HAVE_FLOAT128 && __HAVE_BUILTIN_TGMATH_C23
 #   define __TGMATH_1_NARROW_F32X(F, X)				\
   __builtin_tgmath (__TGMATH_NARROW_FUNCS_F32X (F) (X))
 #   define __TGMATH_2_NARROW_F32X(F, X, Y)			\
@@ -182,7 +182,7 @@
 
 # endif
 
-# if !__HAVE_BUILTIN_TGMATH_C2X
+# if !__HAVE_BUILTIN_TGMATH_C23
 #  ifdef __NO_LONG_DOUBLE_MATH
 #   define __tgml(fct) fct
 #  else
@@ -261,20 +261,20 @@
 			     __complex_integer_type (__typeof__ (+(expr))))
 
 /* The tgmath real type of EXPR1 combined with EXPR2, without handling
-   the C2X rule of interpreting integer arguments as _Float32x if any
+   the C23 rule of interpreting integer arguments as _Float32x if any
    argument is _FloatNx.  */
 #  define __tgmath_real_type2_base(expr1, expr2)			\
   __typeof ((__tgmath_real_type (expr1)) 0 + (__tgmath_real_type (expr2)) 0)
 
 /* The tgmath complex type of EXPR1 combined with EXPR2, without
-   handling the C2X rule of interpreting integer arguments as
+   handling the C23 rule of interpreting integer arguments as
    _Float32x if any argument is _FloatNx.  */
 #  define __tgmath_complex_type2_base(expr1, expr2)	\
   __typeof ((__tgmath_complex_type (expr1)) 0		\
 	    + (__tgmath_complex_type (expr2)) 0)
 
 /* The tgmath real type of EXPR1 combined with EXPR2 and EXPR3,
-   without handling the C2X rule of interpreting integer arguments as
+   without handling the C23 rule of interpreting integer arguments as
    _Float32x if any argument is _FloatNx.  */
 #  define __tgmath_real_type3_base(expr1, expr2, expr3)	\
   __typeof ((__tgmath_real_type (expr1)) 0		\
@@ -361,7 +361,7 @@
 #   define __TGMATH_CF128(arg_comb, fct, cfct, arg_call) /* Nothing.  */
 #  endif
 
-# endif /* !__HAVE_BUILTIN_TGMATH_C2X.  */
+# endif /* !__HAVE_BUILTIN_TGMATH_C23.  */
 
 /* We have two kinds of generic macros: to support functions which are
    only defined on real valued parameters and those which are defined
@@ -374,13 +374,13 @@
   __TGMATH_2 (Fct, (Val1), (Val2))
 #  define __TGMATH_BINARY_FIRST_REAL_STD_ONLY(Val1, Val2, Fct)	\
   __TGMATH_2STD (Fct, (Val1), (Val2))
-#  if __HAVE_BUILTIN_TGMATH_C2X
+#  if __HAVE_BUILTIN_TGMATH_C23
 #   define __TGMATH_BINARY_REAL_ONLY(Val1, Val2, Fct)	\
   __TGMATH_2 (Fct, (Val1), (Val2))
 #  endif
 #  define __TGMATH_BINARY_REAL_STD_ONLY(Val1, Val2, Fct)	\
   __TGMATH_2STD (Fct, (Val1), (Val2))
-#  if __HAVE_BUILTIN_TGMATH_C2X
+#  if __HAVE_BUILTIN_TGMATH_C23
 #   define __TGMATH_TERNARY_FIRST_SECOND_REAL_ONLY(Val1, Val2, Val3, Fct) \
   __TGMATH_3 (Fct, (Val1), (Val2), (Val3))
 #   define __TGMATH_TERNARY_REAL_ONLY(Val1, Val2, Val3, Fct)	\
@@ -395,7 +395,7 @@
   __TGMATH_1C (Fct, Cfct, (Val))
 #  define __TGMATH_UNARY_REAL_IMAG_RET_REAL_SAME(Val, Cfct)	\
   __TGMATH_1 (Cfct, (Val))
-#  if __HAVE_BUILTIN_TGMATH_C2X
+#  if __HAVE_BUILTIN_TGMATH_C23
 #   define __TGMATH_BINARY_REAL_IMAG(Val1, Val2, Fct, Cfct)	\
   __TGMATH_2C (Fct, Cfct, (Val1), (Val2))
 #  endif
@@ -441,7 +441,7 @@
 		     : (__tgmath_real_type (Val1)) __tgml(Fct) (Val1, Val2)))
 # endif
 
-# if !__HAVE_BUILTIN_TGMATH_C2X
+# if !__HAVE_BUILTIN_TGMATH_C23
 #  define __TGMATH_BINARY_REAL_ONLY(Val1, Val2, Fct) \
      (__extension__ ((sizeof ((Val1) + (Val2)) > sizeof (double)	      \
 		      && __builtin_classify_type ((Val1) + (Val2)) == 8)      \
@@ -479,7 +479,7 @@
 		       Fct##f (Val1, Val2)))
 # endif
 
-# if !__HAVE_BUILTIN_TGMATH_C2X
+# if !__HAVE_BUILTIN_TGMATH_C23
 #  define __TGMATH_TERNARY_FIRST_SECOND_REAL_ONLY(Val1, Val2, Val3, Fct) \
      (__extension__ ((sizeof ((Val1) + (Val2)) > sizeof (double)	      \
 		      && __builtin_classify_type ((Val1) + (Val2)) == 8)      \
@@ -597,7 +597,7 @@
   __TGMATH_UNARY_REAL_IMAG_RET_REAL ((Val), Cfct, Cfct)
 # endif
 
-# if !__HAVE_BUILTIN_TGMATH_C2X
+# if !__HAVE_BUILTIN_TGMATH_C23
 /* XXX This definition has to be changed as soon as the compiler understands
    the imaginary keyword.  */
 #  define __TGMATH_BINARY_REAL_IMAG(Val1, Val2, Fct, Cfct) \
@@ -664,7 +664,7 @@
    distinguished using sizeof (or at all if the types are typedefs
    rather than different types, in which case we err on the side of
    using the wider type if unsure).  */
-# if !__HAVE_BUILTIN_TGMATH_C2X
+# if !__HAVE_BUILTIN_TGMATH_C23
 #  if __HAVE_FLOATN_NOT_TYPEDEF
 #   define __TGMATH_NARROW_F32X_USE_F64X(X)			\
   !__builtin_types_compatible_p (__typeof (+(X)), _Float64)
@@ -714,7 +714,7 @@
 		  F ## f64x (X, Y, Z)					\
 		  : F ## f128 (X, Y, Z)))
 #  endif
-#  if !__HAVE_BUILTIN_TGMATH_C2X
+#  if !__HAVE_BUILTIN_TGMATH_C23
 #   define __TGMATH_1_NARROW_F32X(F, X)					\
   (__extension__ (sizeof ((__tgmath_real_type (X)) 0) > sizeof (_Float64) \
 		  || __TGMATH_NARROW_F32X_USE_F64X (X)			\
@@ -761,7 +761,7 @@
 #   define __TGMATH_3_NARROW_F64(F, X, Y, Z)	\
   (F ## f128 (X, Y, Z))
 #  endif
-#  if !__HAVE_BUILTIN_TGMATH_C2X
+#  if !__HAVE_BUILTIN_TGMATH_C23
 #   define __TGMATH_1_NARROW_F32X(F, X)					\
   (__extension__ (sizeof ((__tgmath_real_type (X)) 0) > sizeof (_Float32x) \
 		  || __TGMATH_NARROW_F32X_USE_F64X (X)			\
@@ -871,9 +871,24 @@
 /* Compute base-2 logarithm of X.  */
 #define log2(Val) __TGMATH_UNARY_REAL_ONLY (Val, log2)
 
-#if __GLIBC_USE (IEC_60559_FUNCS_EXT_C2X)
+#if __GLIBC_USE (IEC_60559_FUNCS_EXT_C23)
 /* Compute exponent to base ten.  */
 #define exp10(Val) __TGMATH_UNARY_REAL_ONLY (Val, exp10)
+
+/* Return exp2(X) - 1.  */
+#define exp2m1(Val) __TGMATH_UNARY_REAL_ONLY (Val, exp2m1)
+
+/* Return exp10(X) - 1.  */
+#define exp10m1(Val) __TGMATH_UNARY_REAL_ONLY (Val, exp10m1)
+
+/* Return log2(1 + X).  */
+#define log2p1(Val) __TGMATH_UNARY_REAL_ONLY (Val, log2p1)
+
+/* Return log10(1 + X).  */
+#define log10p1(Val) __TGMATH_UNARY_REAL_ONLY (Val, log10p1)
+
+/* Return log(1 + X).  */
+#define logp1(Val) __TGMATH_UNARY_REAL_ONLY (Val, logp1)
 #endif
 
 
@@ -949,7 +964,7 @@
    prevailing rounding mode.  */
 #define rint(Val) __TGMATH_UNARY_REAL_ONLY (Val, rint)
 
-#if __GLIBC_USE (IEC_60559_BFP_EXT_C2X)
+#if __GLIBC_USE (IEC_60559_BFP_EXT_C23)
 /* Return X - epsilon.  */
 # define nextdown(Val) __TGMATH_UNARY_REAL_ONLY (Val, nextdown)
 /* Return X + epsilon.  */
@@ -983,7 +998,7 @@
 /* Return positive difference between X and Y.  */
 #define fdim(Val1, Val2) __TGMATH_BINARY_REAL_ONLY (Val1, Val2, fdim)
 
-#if __GLIBC_USE (ISOC2X) && !defined __USE_GNU
+#if __GLIBC_USE (ISOC23) && !defined __USE_GNU
 /* Return maximum numeric value from X and Y.  */
 # define fmax(Val1, Val2) __TGMATH_BINARY_REAL_STD_ONLY (Val1, Val2, fmax)
 
@@ -1002,7 +1017,7 @@
 #define fma(Val1, Val2, Val3) \
      __TGMATH_TERNARY_REAL_ONLY (Val1, Val2, Val3, fma)
 
-#if __GLIBC_USE (IEC_60559_BFP_EXT_C2X)
+#if __GLIBC_USE (IEC_60559_BFP_EXT_C23)
 /* Round X to nearest integer value, rounding halfway cases to even.  */
 # define roundeven(Val) __TGMATH_UNARY_REAL_ONLY (Val, roundeven)
 
@@ -1030,7 +1045,7 @@
 # define fminmag(Val1, Val2) __TGMATH_BINARY_REAL_ONLY (Val1, Val2, fminmag)
 #endif
 
-#if __GLIBC_USE (ISOC2X)
+#if __GLIBC_USE (ISOC23)
 /* Return maximum value from X and Y.  */
 # define fmaximum(Val1, Val2) __TGMATH_BINARY_REAL_ONLY (Val1, Val2, fmaximum)
 
@@ -1086,7 +1101,7 @@
 
 /* Narrowing functions.  */
 
-#if __GLIBC_USE (IEC_60559_BFP_EXT_C2X)
+#if __GLIBC_USE (IEC_60559_BFP_EXT_C23)
 
 /* Add.  */
 # define fadd(Val1, Val2) __TGMATH_2_NARROW_F (fadd, Val1, Val2)

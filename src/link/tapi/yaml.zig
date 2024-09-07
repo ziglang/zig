@@ -204,13 +204,13 @@ pub const Value = union(enum) {
 
     fn encode(arena: Allocator, input: anytype) YamlError!?Value {
         switch (@typeInfo(@TypeOf(input))) {
-            .ComptimeInt,
-            .Int,
+            .comptime_int,
+            .int,
             => return Value{ .int = math.cast(i64, input) orelse return error.Overflow },
 
-            .Float => return Value{ .float = math.lossyCast(f64, input) },
+            .float => return Value{ .float = math.lossyCast(f64, input) },
 
-            .Struct => |info| if (info.is_tuple) {
+            .@"struct" => |info| if (info.is_tuple) {
                 var list = std.ArrayList(Value).init(arena);
                 errdefer list.deinit();
                 try list.ensureTotalCapacityPrecise(info.fields.len);
@@ -237,7 +237,7 @@ pub const Value = union(enum) {
                 return Value{ .map = map };
             },
 
-            .Union => |info| if (info.tag_type) |tag_type| {
+            .@"union" => |info| if (info.tag_type) |tag_type| {
                 inline for (info.fields) |field| {
                     if (@field(tag_type, field.name) == input) {
                         return try encode(arena, @field(input, field.name));
@@ -245,11 +245,11 @@ pub const Value = union(enum) {
                 } else unreachable;
             } else return error.UntaggedUnion,
 
-            .Array => return encode(arena, &input),
+            .array => return encode(arena, &input),
 
-            .Pointer => |info| switch (info.size) {
+            .pointer => |info| switch (info.size) {
                 .One => switch (@typeInfo(info.child)) {
-                    .Array => |child_info| {
+                    .array => |child_info| {
                         const Slice = []const child_info.child;
                         return encode(arena, @as(Slice, input));
                     },
@@ -284,9 +284,9 @@ pub const Value = union(enum) {
 
             // TODO we should probably have an option to encode `null` and also
             // allow for some default value too.
-            .Optional => return if (input) |val| encode(arena, val) else null,
+            .optional => return if (input) |val| encode(arena, val) else null,
 
-            .Null => return null,
+            .null => return null,
 
             else => {
                 @compileError("Unhandled type: {s}" ++ @typeName(@TypeOf(input)));
@@ -339,7 +339,7 @@ pub const Yaml = struct {
 
     pub fn parse(self: *Yaml, comptime T: type) Error!T {
         if (self.docs.items.len == 0) {
-            if (@typeInfo(T) == .Void) return {};
+            if (@typeInfo(T) == .void) return {};
             return error.TypeMismatch;
         }
 
@@ -348,14 +348,14 @@ pub const Yaml = struct {
         }
 
         switch (@typeInfo(T)) {
-            .Array => |info| {
+            .array => |info| {
                 var parsed: T = undefined;
                 for (self.docs.items, 0..) |doc, i| {
                     parsed[i] = try self.parseValue(info.child, doc);
                 }
                 return parsed;
             },
-            .Pointer => |info| {
+            .pointer => |info| {
                 switch (info.size) {
                     .Slice => {
                         var parsed = try self.arena.allocator().alloc(info.child, self.docs.items.len);
@@ -367,35 +367,35 @@ pub const Yaml = struct {
                     else => return error.TypeMismatch,
                 }
             },
-            .Union => return error.Unimplemented,
+            .@"union" => return error.Unimplemented,
             else => return error.TypeMismatch,
         }
     }
 
     fn parseValue(self: *Yaml, comptime T: type, value: Value) Error!T {
         return switch (@typeInfo(T)) {
-            .Int => math.cast(T, try value.asInt()) orelse return error.Overflow,
-            .Float => if (value.asFloat()) |float| {
+            .int => math.cast(T, try value.asInt()) orelse return error.Overflow,
+            .float => if (value.asFloat()) |float| {
                 return math.lossyCast(T, float);
             } else |_| {
                 return math.lossyCast(T, try value.asInt());
             },
-            .Struct => self.parseStruct(T, try value.asMap()),
-            .Union => self.parseUnion(T, value),
-            .Array => self.parseArray(T, try value.asList()),
-            .Pointer => if (value.asList()) |list| {
+            .@"struct" => self.parseStruct(T, try value.asMap()),
+            .@"union" => self.parseUnion(T, value),
+            .array => self.parseArray(T, try value.asList()),
+            .pointer => if (value.asList()) |list| {
                 return self.parsePointer(T, .{ .list = list });
             } else |_| {
                 return self.parsePointer(T, .{ .string = try value.asString() });
             },
-            .Void => error.TypeMismatch,
-            .Optional => unreachable,
+            .void => error.TypeMismatch,
+            .optional => unreachable,
             else => error.Unimplemented,
         };
     }
 
     fn parseUnion(self: *Yaml, comptime T: type, value: Value) Error!T {
-        const union_info = @typeInfo(T).Union;
+        const union_info = @typeInfo(T).@"union";
 
         if (union_info.tag_type) |_| {
             inline for (union_info.fields) |field| {
@@ -412,12 +412,12 @@ pub const Yaml = struct {
 
     fn parseOptional(self: *Yaml, comptime T: type, value: ?Value) Error!T {
         const unwrapped = value orelse return null;
-        const opt_info = @typeInfo(T).Optional;
+        const opt_info = @typeInfo(T).optional;
         return @as(T, try self.parseValue(opt_info.child, unwrapped));
     }
 
     fn parseStruct(self: *Yaml, comptime T: type, map: Map) Error!T {
-        const struct_info = @typeInfo(T).Struct;
+        const struct_info = @typeInfo(T).@"struct";
         var parsed: T = undefined;
 
         inline for (struct_info.fields) |field| {
@@ -426,7 +426,7 @@ pub const Yaml = struct {
                 break :blk map.get(field_name);
             };
 
-            if (@typeInfo(field.type) == .Optional) {
+            if (@typeInfo(field.type) == .optional) {
                 @field(parsed, field.name) = try self.parseOptional(field.type, value);
                 continue;
             }
@@ -442,7 +442,7 @@ pub const Yaml = struct {
     }
 
     fn parsePointer(self: *Yaml, comptime T: type, value: Value) Error!T {
-        const ptr_info = @typeInfo(T).Pointer;
+        const ptr_info = @typeInfo(T).pointer;
         const arena = self.arena.allocator();
 
         switch (ptr_info.size) {
@@ -462,7 +462,7 @@ pub const Yaml = struct {
     }
 
     fn parseArray(self: *Yaml, comptime T: type, list: List) Error!T {
-        const array_info = @typeInfo(T).Array;
+        const array_info = @typeInfo(T).array;
         if (array_info.len != list.len) return error.ArraySizeMismatch;
 
         var parsed: T = undefined;

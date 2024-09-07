@@ -809,6 +809,10 @@ const llvm_targets = [_]LlvmTarget{
                 .llvm_name = "v9.4a",
                 .zig_name = "has_v9_4a",
             },
+            .{
+                .llvm_name = "v9.5a",
+                .zig_name = "has_v9_5a",
+            },
         },
         // LLVM removed support for v2 and v3 but zig wants to support targeting old hardware
         .extra_features = &.{
@@ -990,6 +994,7 @@ const llvm_targets = [_]LlvmTarget{
             "icelake_client",
             "icelake_server",
             "graniterapids_d",
+            "arrowlake_s",
         },
     },
     .{
@@ -1331,10 +1336,10 @@ fn processOneTarget(job: Job) anyerror!void {
     try w.writeAll(
         \\};
         \\
-        \\pub const featureSet = CpuFeature.feature_set_fns(Feature).featureSet;
-        \\pub const featureSetHas = CpuFeature.feature_set_fns(Feature).featureSetHas;
-        \\pub const featureSetHasAny = CpuFeature.feature_set_fns(Feature).featureSetHasAny;
-        \\pub const featureSetHasAll = CpuFeature.feature_set_fns(Feature).featureSetHasAll;
+        \\pub const featureSet = CpuFeature.FeatureSetFns(Feature).featureSet;
+        \\pub const featureSetHas = CpuFeature.FeatureSetFns(Feature).featureSetHas;
+        \\pub const featureSetHasAny = CpuFeature.FeatureSetFns(Feature).featureSetHasAny;
+        \\pub const featureSetHasAll = CpuFeature.FeatureSetFns(Feature).featureSetHasAll;
         \\
         \\pub const all_features = blk: {
         \\
@@ -1343,7 +1348,7 @@ fn processOneTarget(job: Job) anyerror!void {
         try w.print("    @setEvalBranchQuota({d});\n", .{branch_quota});
     }
     try w.writeAll(
-        \\    const len = @typeInfo(Feature).Enum.fields.len;
+        \\    const len = @typeInfo(Feature).@"enum".fields.len;
         \\    std.debug.assert(len <= CpuFeature.Set.needed_bit_count);
         \\    var result: [len]CpuFeature = undefined;
         \\
@@ -1412,7 +1417,7 @@ fn processOneTarget(job: Job) anyerror!void {
         \\    const ti = @typeInfo(Feature);
         \\    for (&result, 0..) |*elem, i| {
         \\        elem.index = i;
-        \\        elem.name = ti.Enum.fields[i].name;
+        \\        elem.name = ti.@"enum".fields[i].name;
         \\    }
         \\    break :blk result;
         \\};

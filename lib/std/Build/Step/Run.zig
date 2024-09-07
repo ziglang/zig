@@ -7,6 +7,7 @@ const mem = std.mem;
 const process = std.process;
 const EnvMap = process.EnvMap;
 const assert = std.debug.assert;
+const Path = Build.Cache.Path;
 
 const Run = @This();
 
@@ -93,7 +94,7 @@ cached_test_metadata: ?CachedTestMetadata = null,
 
 /// Populated during the fuzz phase if this run step corresponds to a unit test
 /// executable that contains fuzz tests.
-rebuilt_executable: ?[]const u8,
+rebuilt_executable: ?Path,
 
 /// If this Run step was produced by a Compile step, it is tracked here.
 producer: ?*Step.Compile,
@@ -205,6 +206,7 @@ pub fn enableTestRunnerMode(run: *Run) void {
     run.stdio = .zig_test;
     run.addArgs(&.{
         std.fmt.allocPrint(arena, "--seed=0x{x}", .{b.graph.random_seed}) catch @panic("OOM"),
+        std.fmt.allocPrint(arena, "--cache-dir={s}", .{b.cache_root.path orelse ""}) catch @panic("OOM"),
         "--listen=-",
     });
 }
@@ -612,7 +614,7 @@ fn checksContainStderr(checks: []const StdIo.Check) bool {
 
 const IndexedOutput = struct {
     index: usize,
-    tag: @typeInfo(Arg).Union.tag_type.?,
+    tag: @typeInfo(Arg).@"union".tag_type.?,
     output: *Output,
 };
 fn make(step: *Step, options: Step.MakeOptions) !void {
@@ -845,7 +847,12 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     );
 }
 
-pub fn rerunInFuzzMode(run: *Run, unit_test_index: u32, prog_node: std.Progress.Node) !void {
+pub fn rerunInFuzzMode(
+    run: *Run,
+    web_server: *std.Build.Fuzz.WebServer,
+    unit_test_index: u32,
+    prog_node: std.Progress.Node,
+) !void {
     const step = &run.step;
     const b = step.owner;
     const arena = b.allocator;
@@ -866,7 +873,7 @@ pub fn rerunInFuzzMode(run: *Run, unit_test_index: u32, prog_node: std.Progress.
             .artifact => |pa| {
                 const artifact = pa.artifact;
                 const file_path = if (artifact == run.producer.?)
-                    run.rebuilt_executable.?
+                    b.fmt("{}", .{run.rebuilt_executable.?})
                 else
                     (artifact.installed_path orelse artifact.generated_bin.?.path.?);
                 try argv_list.append(arena, b.fmt("{s}{s}", .{ pa.prefix, file_path }));
@@ -877,7 +884,10 @@ pub fn rerunInFuzzMode(run: *Run, unit_test_index: u32, prog_node: std.Progress.
     const has_side_effects = false;
     const rand_int = std.crypto.random.int(u64);
     const tmp_dir_path = "tmp" ++ fs.path.sep_str ++ std.fmt.hex(rand_int);
-    try runCommand(run, argv_list.items, has_side_effects, tmp_dir_path, prog_node, unit_test_index);
+    try runCommand(run, argv_list.items, has_side_effects, tmp_dir_path, prog_node, .{
+        .unit_test_index = unit_test_index,
+        .web_server = web_server,
+    });
 }
 
 fn populateGeneratedPaths(
@@ -952,13 +962,18 @@ fn termMatches(expected: ?std.process.Child.Term, actual: std.process.Child.Term
     };
 }
 
+const FuzzContext = struct {
+    web_server: *std.Build.Fuzz.WebServer,
+    unit_test_index: u32,
+};
+
 fn runCommand(
     run: *Run,
     argv: []const []const u8,
     has_side_effects: bool,
     output_dir_path: []const u8,
     prog_node: std.Progress.Node,
-    fuzz_unit_test_index: ?u32,
+    fuzz_context: ?FuzzContext,
 ) !void {
     const step = &run.step;
     const b = step.owner;
@@ -977,7 +992,7 @@ fn runCommand(
     var interp_argv = std.ArrayList([]const u8).init(b.allocator);
     defer interp_argv.deinit();
 
-    const result = spawnChildAndCollect(run, argv, has_side_effects, prog_node, fuzz_unit_test_index) catch |err| term: {
+    const result = spawnChildAndCollect(run, argv, has_side_effects, prog_node, fuzz_context) catch |err| term: {
         // InvalidExe: cpu arch mismatch
         // FileNotFound: can happen with a wrong dynamic linker path
         if (err == error.InvalidExe or err == error.FileNotFound) interpret: {
@@ -1113,7 +1128,7 @@ fn runCommand(
 
             try Step.handleVerbose2(step.owner, cwd, run.env_map, interp_argv.items);
 
-            break :term spawnChildAndCollect(run, interp_argv.items, has_side_effects, prog_node, fuzz_unit_test_index) catch |e| {
+            break :term spawnChildAndCollect(run, interp_argv.items, has_side_effects, prog_node, fuzz_context) catch |e| {
                 if (!run.failing_to_execute_foreign_is_an_error) return error.MakeSkipped;
 
                 return step.fail("unable to spawn interpreter {s}: {s}", .{
@@ -1133,7 +1148,7 @@ fn runCommand(
 
     const final_argv = if (interp_argv.items.len == 0) argv else interp_argv.items;
 
-    if (fuzz_unit_test_index != null) {
+    if (fuzz_context != null) {
         try step.handleChildProcessTerm(result.term, cwd, final_argv);
         return;
     }
@@ -1298,12 +1313,12 @@ fn spawnChildAndCollect(
     argv: []const []const u8,
     has_side_effects: bool,
     prog_node: std.Progress.Node,
-    fuzz_unit_test_index: ?u32,
+    fuzz_context: ?FuzzContext,
 ) !ChildProcResult {
     const b = run.step.owner;
     const arena = b.allocator;
 
-    if (fuzz_unit_test_index != null) {
+    if (fuzz_context != null) {
         assert(!has_side_effects);
         assert(run.stdio == .zig_test);
     }
@@ -1357,7 +1372,7 @@ fn spawnChildAndCollect(
         var timer = try std.time.Timer.start();
 
         const result = if (run.stdio == .zig_test)
-            evalZigTest(run, &child, prog_node, fuzz_unit_test_index)
+            evalZigTest(run, &child, prog_node, fuzz_context)
         else
             evalGeneric(run, &child);
 
@@ -1383,7 +1398,7 @@ fn evalZigTest(
     run: *Run,
     child: *std.process.Child,
     prog_node: std.Progress.Node,
-    fuzz_unit_test_index: ?u32,
+    fuzz_context: ?FuzzContext,
 ) !StdIoResult {
     const gpa = run.step.owner.allocator;
     const arena = run.step.owner.allocator;
@@ -1394,8 +1409,8 @@ fn evalZigTest(
     });
     defer poller.deinit();
 
-    if (fuzz_unit_test_index) |index| {
-        try sendRunTestMessage(child.stdin.?, .start_fuzzing, index);
+    if (fuzz_context) |fuzz| {
+        try sendRunTestMessage(child.stdin.?, .start_fuzzing, fuzz.unit_test_index);
     } else {
         run.fuzz_tests.clearRetainingCapacity();
         try sendMessage(child.stdin.?, .query_test_metadata);
@@ -1413,6 +1428,7 @@ fn evalZigTest(
     var log_err_count: u32 = 0;
 
     var metadata: ?TestMetadata = null;
+    var coverage_id: ?u64 = null;
 
     var sub_prog_node: ?std.Progress.Node = null;
     defer if (sub_prog_node) |n| n.end();
@@ -1437,7 +1453,7 @@ fn evalZigTest(
                 }
             },
             .test_metadata => {
-                assert(fuzz_unit_test_index == null);
+                assert(fuzz_context == null);
                 const TmHdr = std.zig.Server.Message.TestMetadata;
                 const tm_hdr = @as(*align(1) const TmHdr, @ptrCast(body));
                 test_count = tm_hdr.tests_len;
@@ -1466,7 +1482,7 @@ fn evalZigTest(
                 try requestNextTest(child.stdin.?, &metadata.?, &sub_prog_node);
             },
             .test_results => {
-                assert(fuzz_unit_test_index == null);
+                assert(fuzz_context == null);
                 const md = metadata.?;
 
                 const TrHdr = std.zig.Server.Message.TestResults;
@@ -1499,6 +1515,34 @@ fn evalZigTest(
                 }
 
                 try requestNextTest(child.stdin.?, &metadata.?, &sub_prog_node);
+            },
+            .coverage_id => {
+                const web_server = fuzz_context.?.web_server;
+                const msg_ptr: *align(1) const u64 = @ptrCast(body);
+                coverage_id = msg_ptr.*;
+                {
+                    web_server.mutex.lock();
+                    defer web_server.mutex.unlock();
+                    try web_server.msg_queue.append(web_server.gpa, .{ .coverage = .{
+                        .id = coverage_id.?,
+                        .run = run,
+                    } });
+                    web_server.condition.signal();
+                }
+            },
+            .fuzz_start_addr => {
+                const web_server = fuzz_context.?.web_server;
+                const msg_ptr: *align(1) const u64 = @ptrCast(body);
+                const addr = msg_ptr.*;
+                {
+                    web_server.mutex.lock();
+                    defer web_server.mutex.unlock();
+                    try web_server.msg_queue.append(web_server.gpa, .{ .entry_point = .{
+                        .addr = addr,
+                        .coverage_id = coverage_id.?,
+                    } });
+                    web_server.condition.signal();
+                }
             },
             else => {}, // ignore other messages
         }

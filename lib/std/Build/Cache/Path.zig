@@ -32,16 +32,16 @@ pub fn resolvePosix(p: Path, arena: Allocator, sub_path: []const u8) Allocator.E
     };
 }
 
-pub fn joinString(p: Path, allocator: Allocator, sub_path: []const u8) Allocator.Error![]u8 {
+pub fn joinString(p: Path, gpa: Allocator, sub_path: []const u8) Allocator.Error![]u8 {
     const parts: []const []const u8 =
         if (p.sub_path.len == 0) &.{sub_path} else &.{ p.sub_path, sub_path };
-    return p.root_dir.join(allocator, parts);
+    return p.root_dir.join(gpa, parts);
 }
 
-pub fn joinStringZ(p: Path, allocator: Allocator, sub_path: []const u8) Allocator.Error![:0]u8 {
+pub fn joinStringZ(p: Path, gpa: Allocator, sub_path: []const u8) Allocator.Error![:0]u8 {
     const parts: []const []const u8 =
         if (p.sub_path.len == 0) &.{sub_path} else &.{ p.sub_path, sub_path };
-    return p.root_dir.joinZ(allocator, parts);
+    return p.root_dir.joinZ(gpa, parts);
 }
 
 pub fn openFile(
@@ -189,8 +189,8 @@ pub const TableAdapter = struct {
     pub fn hash(self: TableAdapter, a: Cache.Path) u32 {
         _ = self;
         const seed = switch (@typeInfo(@TypeOf(a.root_dir.handle.fd))) {
-            .Pointer => @intFromPtr(a.root_dir.handle.fd),
-            .Int => @as(u32, @bitCast(a.root_dir.handle.fd)),
+            .pointer => @intFromPtr(a.root_dir.handle.fd),
+            .int => @as(u32, @bitCast(a.root_dir.handle.fd)),
             else => @compileError("unimplemented hash function"),
         };
         return @truncate(Hash.hash(seed, a.sub_path));
