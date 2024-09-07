@@ -652,7 +652,7 @@ pub inline fn callMain(c_argv_optional: ?[:null]?[*:0]c_char, c_envp_optional: ?
             return root.main();
         },
         c_int => {
-            if (main_info.Fn.params.len == 0) {
+            if (main_info.@"fn".params.len == 0) {
                 return @intCast(root.main() & 0xff);
             }
 
@@ -671,14 +671,14 @@ pub inline fn callMain(c_argv_optional: ?[:null]?[*:0]c_char, c_envp_optional: ?
                 });
             }
 
-            if (main_info.Fn.params.len == 2) {
+            if (main_info.@"fn".params.len == 2) {
                 return @intCast(root.main(@intCast(c_argv.len), @ptrCast(c_argv)) & 0xff);
             }
 
             const c_envp = c_envp_optional orelse (envpAlloc(arena) catch |err|
                 std.debug.panic("failed to allocate envp: {s}", .{@errorName(err)}));
 
-            if (main_info.Fn.params.len != 3) @compileError(bad_c_main);
+            if (main_info.@"fn".params.len != 3) @compileError(bad_c_main);
 
             return @intCast(root.main(@intCast(c_argv.len), @ptrCast(c_argv), @ptrCast(c_envp)) & 0xff);
         },
