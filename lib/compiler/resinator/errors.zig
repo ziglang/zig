@@ -250,7 +250,7 @@ pub const ErrorDetails = struct {
         });
 
         pub fn writeCommaSeparated(self: ExpectedTypes, writer: anytype) !void {
-            const struct_info = @typeInfo(ExpectedTypes).Struct;
+            const struct_info = @typeInfo(ExpectedTypes).@"struct";
             const num_real_fields = struct_info.fields.len - 1;
             const num_padding_bits = @bitSizeOf(ExpectedTypes) - num_real_fields;
             const mask = std.math.maxInt(struct_info.backing_integer.?) >> num_padding_bits;

@@ -1,5 +1,5 @@
 comptime {
-    @Type(.{ .Struct = .{
+    @Type(.{ .@"struct" = .{
         .layout = .auto,
         .fields = &.{.{
             .name = "foo",
@@ -13,7 +13,7 @@ comptime {
     } });
 }
 comptime {
-    @Type(.{ .Struct = .{
+    @Type(.{ .@"struct" = .{
         .layout = .auto,
         .fields = &.{.{
             .name = "3",
@@ -27,7 +27,7 @@ comptime {
     } });
 }
 comptime {
-    @Type(.{ .Struct = .{
+    @Type(.{ .@"struct" = .{
         .layout = .auto,
         .fields = &.{.{
             .name = "0",
@@ -41,7 +41,7 @@ comptime {
     } });
 }
 comptime {
-    @Type(.{ .Struct = .{
+    @Type(.{ .@"struct" = .{
         .layout = .@"extern",
         .fields = &.{.{
             .name = "0",
@@ -55,7 +55,7 @@ comptime {
     } });
 }
 comptime {
-    @Type(.{ .Struct = .{
+    @Type(.{ .@"struct" = .{
         .layout = .@"packed",
         .fields = &.{.{
             .name = "0",

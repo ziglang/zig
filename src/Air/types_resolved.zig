@@ -222,7 +222,7 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
                 if (!checkRef(data.un_op, zcu)) return false;
             },
 
-            .br => {
+            .br, .switch_dispatch => {
                 if (!checkRef(data.br.operand, zcu)) return false;
             },
 
@@ -272,7 +272,7 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
                 const elems_len: usize = @intCast(ty.arrayLen(zcu));
                 const elems: []const Air.Inst.Ref = @ptrCast(air.extra[data.ty_pl.payload..][0..elems_len]);
                 if (!checkType(ty, zcu)) return false;
-                if (ty.zigTypeTag(zcu) == .Struct) {
+                if (ty.zigTypeTag(zcu) == .@"struct") {
                     for (elems, 0..) |elem, elem_idx| {
                         if (ty.structFieldIsComptime(elem_idx, zcu)) continue;
                         if (!checkRef(elem, zcu)) return false;
@@ -380,12 +380,16 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
                 )) return false;
             },
 
-            .switch_br => {
+            .switch_br, .loop_switch_br => {
                 const switch_br = air.unwrapSwitch(inst);
                 if (!checkRef(switch_br.operand, zcu)) return false;
                 var it = switch_br.iterateCases();
                 while (it.next()) |case| {
                     for (case.items) |item| if (!checkRef(item, zcu)) return false;
+                    for (case.ranges) |range| {
+                        if (!checkRef(range[0], zcu)) return false;
+                        if (!checkRef(range[1], zcu)) return false;
+                    }
                     if (!checkBody(air, case.body, zcu)) return false;
                 }
                 if (!checkBody(air, it.elseBody(), zcu)) return false;
@@ -416,6 +420,7 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
             .dbg_stmt,
             .err_return_trace,
             .save_err_return_trace_index,
+            .repeat,
             => {},
         }
     }
@@ -453,35 +458,35 @@ pub fn checkType(ty: Type, zcu: *Zcu) bool {
     return switch (ty.zigTypeTagOrPoison(zcu) catch |err| switch (err) {
         error.GenericPoison => return true,
     }) {
-        .Type,
-        .Void,
-        .Bool,
-        .NoReturn,
-        .Int,
-        .Float,
-        .ErrorSet,
-        .Enum,
-        .Opaque,
-        .Vector,
+        .type,
+        .void,
+        .bool,
+        .noreturn,
+        .int,
+        .float,
+        .error_set,
+        .@"enum",
+        .@"opaque",
+        .vector,
         // These types can appear due to some dummy instructions Sema introduces and expects to be omitted by Liveness.
         // It's a little silly -- but fine, we'll return `true`.
-        .ComptimeFloat,
-        .ComptimeInt,
-        .Undefined,
-        .Null,
-        .EnumLiteral,
+        .comptime_float,
+        .comptime_int,
+        .undefined,
+        .null,
+        .enum_literal,
         => true,
 
-        .Frame,
-        .AnyFrame,
+        .frame,
+        .@"anyframe",
         => @panic("TODO Air.types_resolved.checkType async frames"),
 
-        .Optional => checkType(ty.childType(zcu), zcu),
-        .ErrorUnion => checkType(ty.errorUnionPayload(zcu), zcu),
-        .Pointer => checkType(ty.childType(zcu), zcu),
-        .Array => checkType(ty.childType(zcu), zcu),
+        .optional => checkType(ty.childType(zcu), zcu),
+        .error_union => checkType(ty.errorUnionPayload(zcu), zcu),
+        .pointer => checkType(ty.childType(zcu), zcu),
+        .array => checkType(ty.childType(zcu), zcu),
 
-        .Fn => {
+        .@"fn" => {
             const info = zcu.typeToFunc(ty).?;
             for (0..info.param_types.len) |i| {
                 const param_ty = info.param_types.get(ip)[i];
@@ -489,7 +494,7 @@ pub fn checkType(ty: Type, zcu: *Zcu) bool {
             }
             return checkType(Type.fromInterned(info.return_type), zcu);
         },
-        .Struct => switch (ip.indexToKey(ty.toIntern())) {
+        .@"struct" => switch (ip.indexToKey(ty.toIntern())) {
             .struct_type => {
                 const struct_obj = zcu.typeToStruct(ty).?;
                 return switch (struct_obj.layout) {
@@ -508,6 +513,6 @@ pub fn checkType(ty: Type, zcu: *Zcu) bool {
             },
             else => unreachable,
         },
-        .Union => return zcu.typeToUnion(ty).?.flagsUnordered(ip).status == .fully_resolved,
+        .@"union" => return zcu.typeToUnion(ty).?.flagsUnordered(ip).status == .fully_resolved,
     };
 }

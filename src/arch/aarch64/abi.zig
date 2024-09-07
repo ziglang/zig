@@ -20,7 +20,7 @@ pub fn classifyType(ty: Type, zcu: *Zcu) Class {
 
     var maybe_float_bits: ?u16 = null;
     switch (ty.zigTypeTag(zcu)) {
-        .Struct => {
+        .@"struct" => {
             if (ty.containerLayout(zcu) == .@"packed") return .byval;
             const float_count = countFloats(ty, zcu, &maybe_float_bits);
             if (float_count <= sret_float_count) return .{ .float_array = float_count };
@@ -30,7 +30,7 @@ pub fn classifyType(ty: Type, zcu: *Zcu) Class {
             if (bit_size > 64) return .double_integer;
             return .integer;
         },
-        .Union => {
+        .@"union" => {
             if (ty.containerLayout(zcu) == .@"packed") return .byval;
             const float_count = countFloats(ty, zcu, &maybe_float_bits);
             if (float_count <= sret_float_count) return .{ .float_array = float_count };
@@ -40,35 +40,35 @@ pub fn classifyType(ty: Type, zcu: *Zcu) Class {
             if (bit_size > 64) return .double_integer;
             return .integer;
         },
-        .Int, .Enum, .ErrorSet, .Float, .Bool => return .byval,
-        .Vector => {
+        .int, .@"enum", .error_set, .float, .bool => return .byval,
+        .vector => {
             const bit_size = ty.bitSize(zcu);
             // TODO is this controlled by a cpu feature?
             if (bit_size > 128) return .memory;
             return .byval;
         },
-        .Optional => {
+        .optional => {
             std.debug.assert(ty.isPtrLikeOptional(zcu));
             return .byval;
         },
-        .Pointer => {
+        .pointer => {
             std.debug.assert(!ty.isSlice(zcu));
             return .byval;
         },
-        .ErrorUnion,
-        .Frame,
-        .AnyFrame,
-        .NoReturn,
-        .Void,
-        .Type,
-        .ComptimeFloat,
-        .ComptimeInt,
-        .Undefined,
-        .Null,
-        .Fn,
-        .Opaque,
-        .EnumLiteral,
-        .Array,
+        .error_union,
+        .frame,
+        .@"anyframe",
+        .noreturn,
+        .void,
+        .type,
+        .comptime_float,
+        .comptime_int,
+        .undefined,
+        .null,
+        .@"fn",
+        .@"opaque",
+        .enum_literal,
+        .array,
         => unreachable,
     }
 }
@@ -79,7 +79,7 @@ fn countFloats(ty: Type, zcu: *Zcu, maybe_float_bits: *?u16) u8 {
     const target = zcu.getTarget();
     const invalid = std.math.maxInt(u8);
     switch (ty.zigTypeTag(zcu)) {
-        .Union => {
+        .@"union" => {
             const union_obj = zcu.typeToUnion(ty).?;
             var max_count: u8 = 0;
             for (union_obj.field_types.get(ip)) |field_ty| {
@@ -90,7 +90,7 @@ fn countFloats(ty: Type, zcu: *Zcu, maybe_float_bits: *?u16) u8 {
             }
             return max_count;
         },
-        .Struct => {
+        .@"struct" => {
             const fields_len = ty.structFieldCount(zcu);
             var count: u8 = 0;
             var i: u32 = 0;
@@ -103,7 +103,7 @@ fn countFloats(ty: Type, zcu: *Zcu, maybe_float_bits: *?u16) u8 {
             }
             return count;
         },
-        .Float => {
+        .float => {
             const float_bits = maybe_float_bits.* orelse {
                 maybe_float_bits.* = ty.floatBits(target);
                 return 1;
@@ -111,7 +111,7 @@ fn countFloats(ty: Type, zcu: *Zcu, maybe_float_bits: *?u16) u8 {
             if (ty.floatBits(target) == float_bits) return 1;
             return invalid;
         },
-        .Void => return 0,
+        .void => return 0,
         else => return invalid,
     }
 }
@@ -119,14 +119,14 @@ fn countFloats(ty: Type, zcu: *Zcu, maybe_float_bits: *?u16) u8 {
 pub fn getFloatArrayType(ty: Type, zcu: *Zcu) ?Type {
     const ip = &zcu.intern_pool;
     switch (ty.zigTypeTag(zcu)) {
-        .Union => {
+        .@"union" => {
             const union_obj = zcu.typeToUnion(ty).?;
             for (union_obj.field_types.get(ip)) |field_ty| {
                 if (getFloatArrayType(Type.fromInterned(field_ty), zcu)) |some| return some;
             }
             return null;
         },
-        .Struct => {
+        .@"struct" => {
             const fields_len = ty.structFieldCount(zcu);
             var i: u32 = 0;
             while (i < fields_len) : (i += 1) {
@@ -135,7 +135,7 @@ pub fn getFloatArrayType(ty: Type, zcu: *Zcu) ?Type {
             }
             return null;
         },
-        .Float => return ty,
+        .float => return ty,
         else => return null,
     }
 }

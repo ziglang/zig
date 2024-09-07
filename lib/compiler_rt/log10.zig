@@ -177,7 +177,7 @@ pub fn log10q(a: f128) callconv(.C) f128 {
 }
 
 pub fn log10l(x: c_longdouble) callconv(.C) c_longdouble {
-    switch (@typeInfo(c_longdouble).Float.bits) {
+    switch (@typeInfo(c_longdouble).float.bits) {
         16 => return __log10h(x),
         32 => return log10f(x),
         64 => return log10(x),

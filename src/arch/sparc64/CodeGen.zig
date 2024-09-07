@@ -576,6 +576,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .bitcast         => try self.airBitCast(inst),
             .block           => try self.airBlock(inst),
             .br              => try self.airBr(inst),
+            .repeat          => return self.fail("TODO implement `repeat`", .{}),
+            .switch_dispatch => return self.fail("TODO implement `switch_dispatch`", .{}),
             .trap            => try self.airTrap(),
             .breakpoint      => try self.airBreakpoint(),
             .ret_addr        => @panic("TODO try self.airRetAddr(inst)"),
@@ -666,6 +668,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .field_parent_ptr => @panic("TODO try self.airFieldParentPtr(inst)"),
 
             .switch_br       => try self.airSwitch(inst),
+            .loop_switch_br  => return self.fail("TODO implement `loop_switch_br`", .{}),
             .slice_ptr       => try self.airSlicePtr(inst),
             .slice_len       => try self.airSliceLen(inst),
 
@@ -770,8 +773,8 @@ fn airAddSubWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
         const rhs_ty = self.typeOf(extra.rhs);
 
         switch (lhs_ty.zigTypeTag(zcu)) {
-            .Vector => return self.fail("TODO implement add_with_overflow/sub_with_overflow for vectors", .{}),
-            .Int => {
+            .vector => return self.fail("TODO implement add_with_overflow/sub_with_overflow for vectors", .{}),
+            .int => {
                 assert(lhs_ty.eql(rhs_ty, zcu));
                 const int_info = lhs_ty.intInfo(zcu);
                 switch (int_info.bits) {
@@ -1231,8 +1234,8 @@ fn airByteSwap(self: *Self, inst: Air.Inst.Index) !void {
         const operand = try self.resolveInst(ty_op.operand);
         const operand_ty = self.typeOf(ty_op.operand);
         switch (operand_ty.zigTypeTag(zcu)) {
-            .Vector => return self.fail("TODO byteswap for vectors", .{}),
-            .Int => {
+            .vector => return self.fail("TODO byteswap for vectors", .{}),
+            .int => {
                 const int_info = operand_ty.intInfo(zcu);
                 if (int_info.bits == 8) break :result operand;
 
@@ -1310,8 +1313,8 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     const fn_ty = switch (ty.zigTypeTag(zcu)) {
-        .Fn => ty,
-        .Pointer => ty.childType(zcu),
+        .@"fn" => ty,
+        .pointer => ty.childType(zcu),
         else => unreachable,
     };
 
@@ -1363,7 +1366,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
             return self.fail("TODO implement calling bitcasted functions", .{});
         },
     } else {
-        assert(ty.zigTypeTag(zcu) == .Pointer);
+        assert(ty.zigTypeTag(zcu) == .pointer);
         const mcv = try self.resolveInst(callee);
         try self.genSetReg(ty, .o7, mcv);
 
@@ -1419,13 +1422,13 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
         const lhs_ty = self.typeOf(bin_op.lhs);
 
         const int_ty = switch (lhs_ty.zigTypeTag(zcu)) {
-            .Vector => unreachable, // Handled by cmp_vector.
-            .Enum => lhs_ty.intTagType(zcu),
-            .Int => lhs_ty,
-            .Bool => Type.u1,
-            .Pointer => Type.usize,
-            .ErrorSet => Type.u16,
-            .Optional => blk: {
+            .vector => unreachable, // Handled by cmp_vector.
+            .@"enum" => lhs_ty.intTagType(zcu),
+            .int => lhs_ty,
+            .bool => Type.u1,
+            .pointer => Type.usize,
+            .error_set => Type.u16,
+            .optional => blk: {
                 const payload_ty = lhs_ty.optionalChild(zcu);
                 if (!payload_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
                     break :blk Type.u1;
@@ -1435,7 +1438,7 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
                     return self.fail("TODO SPARCv9 cmp non-pointer optionals", .{});
                 }
             },
-            .Float => return self.fail("TODO SPARCv9 cmp floats", .{}),
+            .float => return self.fail("TODO SPARCv9 cmp floats", .{}),
             else => unreachable,
         };
 
@@ -2031,8 +2034,8 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
         const rhs_ty = self.typeOf(extra.rhs);
 
         switch (lhs_ty.zigTypeTag(zcu)) {
-            .Vector => return self.fail("TODO implement mul_with_overflow for vectors", .{}),
-            .Int => {
+            .vector => return self.fail("TODO implement mul_with_overflow for vectors", .{}),
+            .int => {
                 assert(lhs_ty.eql(rhs_ty, zcu));
                 const int_info = lhs_ty.intInfo(zcu);
                 switch (int_info.bits) {
@@ -2105,7 +2108,7 @@ fn airNot(self: *Self, inst: Air.Inst.Index) !void {
             },
             else => {
                 switch (operand_ty.zigTypeTag(zcu)) {
-                    .Bool => {
+                    .bool => {
                         const op_reg = switch (operand) {
                             .register => |r| r,
                             else => try self.copyToTmpRegister(operand_ty, operand),
@@ -2136,8 +2139,8 @@ fn airNot(self: *Self, inst: Air.Inst.Index) !void {
 
                         break :result MCValue{ .register = dest_reg };
                     },
-                    .Vector => return self.fail("TODO bitwise not for vectors", .{}),
-                    .Int => {
+                    .vector => return self.fail("TODO bitwise not for vectors", .{}),
+                    .int => {
                         const int_info = operand_ty.intInfo(zcu);
                         if (int_info.bits <= 64) {
                             const op_reg = switch (operand) {
@@ -2329,8 +2332,8 @@ fn airShlWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
         const rhs_ty = self.typeOf(extra.rhs);
 
         switch (lhs_ty.zigTypeTag(zcu)) {
-            .Vector => return self.fail("TODO implement mul_with_overflow for vectors", .{}),
-            .Int => {
+            .vector => return self.fail("TODO implement mul_with_overflow for vectors", .{}),
+            .int => {
                 const int_info = lhs_ty.intInfo(zcu);
                 if (int_info.bits <= 64) {
                     try self.spillConditionFlagsIfOccupied();
@@ -2858,9 +2861,9 @@ fn binOp(
         .cmp_eq,
         => {
             switch (lhs_ty.zigTypeTag(zcu)) {
-                .Float => return self.fail("TODO binary operations on floats", .{}),
-                .Vector => return self.fail("TODO binary operations on vectors", .{}),
-                .Int => {
+                .float => return self.fail("TODO binary operations on floats", .{}),
+                .vector => return self.fail("TODO binary operations on vectors", .{}),
+                .int => {
                     assert(lhs_ty.eql(rhs_ty, zcu));
                     const int_info = lhs_ty.intInfo(zcu);
                     if (int_info.bits <= 64) {
@@ -2932,8 +2935,8 @@ fn binOp(
 
             // Truncate if necessary
             switch (lhs_ty.zigTypeTag(zcu)) {
-                .Vector => return self.fail("TODO binary operations on vectors", .{}),
-                .Int => {
+                .vector => return self.fail("TODO binary operations on vectors", .{}),
+                .int => {
                     const int_info = lhs_ty.intInfo(zcu);
                     if (int_info.bits <= 64) {
                         const result_reg = result.register;
@@ -2949,8 +2952,8 @@ fn binOp(
 
         .div_trunc => {
             switch (lhs_ty.zigTypeTag(zcu)) {
-                .Vector => return self.fail("TODO binary operations on vectors", .{}),
-                .Int => {
+                .vector => return self.fail("TODO binary operations on vectors", .{}),
+                .int => {
                     assert(lhs_ty.eql(rhs_ty, zcu));
                     const int_info = lhs_ty.intInfo(zcu);
                     if (int_info.bits <= 64) {
@@ -2982,7 +2985,7 @@ fn binOp(
 
         .ptr_add => {
             switch (lhs_ty.zigTypeTag(zcu)) {
-                .Pointer => {
+                .pointer => {
                     const ptr_ty = lhs_ty;
                     const elem_ty = switch (ptr_ty.ptrSize(zcu)) {
                         .One => ptr_ty.childType(zcu).childType(zcu), // ptr to array, so get array element type
@@ -3014,7 +3017,7 @@ fn binOp(
         .bool_or,
         => {
             switch (lhs_ty.zigTypeTag(zcu)) {
-                .Bool => {
+                .bool => {
                     assert(lhs != .immediate); // should have been handled by Sema
                     assert(rhs != .immediate); // should have been handled by Sema
 
@@ -3044,8 +3047,8 @@ fn binOp(
 
             // Truncate if necessary
             switch (lhs_ty.zigTypeTag(zcu)) {
-                .Vector => return self.fail("TODO binary operations on vectors", .{}),
-                .Int => {
+                .vector => return self.fail("TODO binary operations on vectors", .{}),
+                .int => {
                     const int_info = lhs_ty.intInfo(zcu);
                     if (int_info.bits <= 64) {
                         // 32 and 64 bit operands doesn't need truncating
@@ -3066,8 +3069,8 @@ fn binOp(
         .shr_exact,
         => {
             switch (lhs_ty.zigTypeTag(zcu)) {
-                .Vector => return self.fail("TODO binary operations on vectors", .{}),
-                .Int => {
+                .vector => return self.fail("TODO binary operations on vectors", .{}),
+                .int => {
                     const int_info = lhs_ty.intInfo(zcu);
                     if (int_info.bits <= 64) {
                         const rhs_immediate_ok = rhs == .immediate;
@@ -4329,9 +4332,9 @@ fn minMax(
     const zcu = pt.zcu;
     assert(lhs_ty.eql(rhs_ty, zcu));
     switch (lhs_ty.zigTypeTag(zcu)) {
-        .Float => return self.fail("TODO min/max on floats", .{}),
-        .Vector => return self.fail("TODO min/max on vectors", .{}),
-        .Int => {
+        .float => return self.fail("TODO min/max on floats", .{}),
+        .vector => return self.fail("TODO min/max on vectors", .{}),
+        .int => {
             const int_info = lhs_ty.intInfo(zcu);
             if (int_info.bits <= 64) {
                 // TODO skip register setting when one of the operands
@@ -4515,7 +4518,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type, role: RegisterView) 
             result.stack_byte_count = next_stack_offset;
             result.stack_align = .@"16";
 
-            if (ret_ty.zigTypeTag(zcu) == .NoReturn) {
+            if (ret_ty.zigTypeTag(zcu) == .noreturn) {
                 result.return_value = .{ .unreach = {} };
             } else if (!ret_ty.hasRuntimeBits(zcu)) {
                 result.return_value = .{ .none = {} };

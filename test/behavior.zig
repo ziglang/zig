@@ -21,6 +21,7 @@ test {
     _ = @import("behavior/cast_int.zig");
     _ = @import("behavior/comptime_memory.zig");
     _ = @import("behavior/const_slice_child.zig");
+    _ = @import("behavior/decl_literals.zig");
     _ = @import("behavior/decltest.zig");
     _ = @import("behavior/duplicated_test_names.zig");
     _ = @import("behavior/defer.zig");
@@ -88,6 +89,7 @@ test {
     _ = @import("behavior/struct_contains_null_ptr_itself.zig");
     _ = @import("behavior/struct_contains_slice_of_itself.zig");
     _ = @import("behavior/switch.zig");
+    _ = @import("behavior/switch_loop.zig");
     _ = @import("behavior/switch_prong_err_enum.zig");
     _ = @import("behavior/switch_prong_implicit_cast.zig");
     _ = @import("behavior/switch_on_captured_error.zig");

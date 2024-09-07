@@ -391,7 +391,7 @@ test "async fn with inferred error set" {
             var frame: [1]@Frame(middle) = undefined;
             var fn_ptr = middle;
             _ = &fn_ptr;
-            var result: @typeInfo(@typeInfo(@TypeOf(fn_ptr)).Fn.return_type.?).ErrorUnion.error_set!void = undefined;
+            var result: @typeInfo(@typeInfo(@TypeOf(fn_ptr)).@"fn".return_type.?).error_union.error_set!void = undefined;
             _ = @asyncCall(std.mem.sliceAsBytes(frame[0..]), &result, fn_ptr, .{});
             resume global_frame;
             try std.testing.expectError(error.Fail, result);
@@ -1088,7 +1088,7 @@ test "@asyncCall with comptime-known function, but not awaited directly" {
 
         fn doTheTest() !void {
             var frame: [1]@Frame(middle) = undefined;
-            var result: @typeInfo(@typeInfo(@TypeOf(middle)).Fn.return_type.?).ErrorUnion.error_set!void = undefined;
+            var result: @typeInfo(@typeInfo(@TypeOf(middle)).@"fn".return_type.?).error_union.error_set!void = undefined;
             _ = @asyncCall(std.mem.sliceAsBytes(frame[0..]), &result, middle, .{});
             resume global_frame;
             try std.testing.expectError(error.Fail, result);
@@ -1166,7 +1166,7 @@ test "@TypeOf an async function call of generic fn with error union type" {
     const S = struct {
         fn func(comptime x: anytype) anyerror!i32 {
             const T = @TypeOf(async func(x));
-            comptime assert(T == @typeInfo(@TypeOf(@frame())).Pointer.child);
+            comptime assert(T == @typeInfo(@TypeOf(@frame())).pointer.child);
             return undefined;
         }
     };

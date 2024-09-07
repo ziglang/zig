@@ -296,10 +296,12 @@ const Writer = struct {
             .aggregate_init => try w.writeAggregateInit(s, inst),
             .union_init => try w.writeUnionInit(s, inst),
             .br => try w.writeBr(s, inst),
+            .switch_dispatch => try w.writeBr(s, inst),
+            .repeat => try w.writeRepeat(s, inst),
             .cond_br => try w.writeCondBr(s, inst),
             .@"try", .try_cold => try w.writeTry(s, inst),
             .try_ptr, .try_ptr_cold => try w.writeTryPtr(s, inst),
-            .switch_br => try w.writeSwitchBr(s, inst),
+            .loop_switch_br, .switch_br => try w.writeSwitchBr(s, inst),
             .cmpxchg_weak, .cmpxchg_strong => try w.writeCmpxchg(s, inst),
             .fence => try w.writeFence(s, inst),
             .atomic_load => try w.writeAtomicLoad(s, inst),
@@ -708,6 +710,11 @@ const Writer = struct {
         try w.writeOperand(s, inst, 0, br.operand);
     }
 
+    fn writeRepeat(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
+        const repeat = w.air.instructions.items(.data)[@intFromEnum(inst)].repeat;
+        try w.writeInstIndex(s, repeat.loop_inst, false);
+    }
+
     fn writeTry(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const pl_op = w.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const extra = w.air.extraData(Air.Try, pl_op.payload);
@@ -791,7 +798,14 @@ const Writer = struct {
 
         try w.writeOperand(s, inst, 0, pl_op.operand);
         if (w.skip_body) return s.writeAll(", ...");
-        try s.writeAll(", {\n");
+        try s.writeAll(",");
+        if (extra.data.branch_hints.true != .none) {
+            try s.print(" {s}", .{@tagName(extra.data.branch_hints.true)});
+        }
+        if (extra.data.branch_hints.then_cov != .none) {
+            try s.print(" {s}", .{@tagName(extra.data.branch_hints.then_cov)});
+        }
+        try s.writeAll(" {\n");
         const old_indent = w.indent;
         w.indent += 2;
 
@@ -806,7 +820,14 @@ const Writer = struct {
 
         try w.writeBody(s, then_body);
         try s.writeByteNTimes(' ', old_indent);
-        try s.writeAll("}, {\n");
+        try s.writeAll("},");
+        if (extra.data.branch_hints.false != .none) {
+            try s.print(" {s}", .{@tagName(extra.data.branch_hints.false)});
+        }
+        if (extra.data.branch_hints.else_cov != .none) {
+            try s.print(" {s}", .{@tagName(extra.data.branch_hints.else_cov)});
+        }
+        try s.writeAll(" {\n");
 
         if (liveness_condbr.else_deaths.len != 0) {
             try s.writeByteNTimes(' ', w.indent);
@@ -849,6 +870,12 @@ const Writer = struct {
             for (case.items, 0..) |item, item_i| {
                 if (item_i != 0) try s.writeAll(", ");
                 try w.writeInstRef(s, item, false);
+            }
+            for (case.ranges, 0..) |range, range_i| {
+                if (range_i != 0 or case.items.len != 0) try s.writeAll(", ");
+                try w.writeInstRef(s, range[0], false);
+                try s.writeAll("...");
+                try w.writeInstRef(s, range[1], false);
             }
             try s.writeAll("] ");
             const hint = switch_br.getHint(case.idx);

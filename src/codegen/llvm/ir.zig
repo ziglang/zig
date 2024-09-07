@@ -19,6 +19,7 @@ const LineAbbrev = AbbrevOp{ .vbr = 8 };
 const ColumnAbbrev = AbbrevOp{ .vbr = 8 };
 
 const BlockAbbrev = AbbrevOp{ .vbr = 6 };
+const BlockArrayAbbrev = AbbrevOp{ .array_vbr = 6 };
 
 /// Unused tags are commented out so that they are omitted in the generated
 /// bitcode, which scans over this enum using reflection.
@@ -1294,6 +1295,7 @@ pub const FunctionBlock = struct {
         DebugLoc,
         DebugLocAgain,
         ColdOperandBundle,
+        IndirectBr,
     };
 
     pub const DeclareBlocks = struct {
@@ -1812,6 +1814,18 @@ pub const FunctionBlock = struct {
             .{ .literal = 55 },
             .{ .literal = 0 },
         };
+    };
+
+    pub const IndirectBr = struct {
+        pub const ops = [_]AbbrevOp{
+            .{ .literal = 31 },
+            .{ .fixed_runtime = Builder.Type },
+            ValueAbbrev,
+            BlockArrayAbbrev,
+        };
+        ty: Builder.Type,
+        addr: Builder.Value,
+        targets: []const Builder.Function.Block.Index,
     };
 };
 

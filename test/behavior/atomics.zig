@@ -414,7 +414,7 @@ fn testAtomicsWithType(comptime T: type, a: T, b: T) !void {
 }
 
 fn testAtomicsWithPackedStruct(comptime T: type, a: T, b: T) !void {
-    const BackingInt = @typeInfo(T).Struct.backing_integer.?;
+    const BackingInt = @typeInfo(T).@"struct".backing_integer.?;
     var x: T = b;
     @atomicStore(T, &x, a, .seq_cst);
     try expect(@as(BackingInt, @bitCast(x)) == @as(BackingInt, @bitCast(a)));

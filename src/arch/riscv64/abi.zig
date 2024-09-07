@@ -15,7 +15,7 @@ pub fn classifyType(ty: Type, zcu: *Zcu) Class {
 
     const max_byval_size = target.ptrBitWidth() * 2;
     switch (ty.zigTypeTag(zcu)) {
-        .Struct => {
+        .@"struct" => {
             const bit_size = ty.bitSize(zcu);
             if (ty.containerLayout(zcu) == .@"packed") {
                 if (bit_size > max_byval_size) return .memory;
@@ -44,7 +44,7 @@ pub fn classifyType(ty: Type, zcu: *Zcu) Class {
             if (bit_size > max_byval_size / 2) return .double_integer;
             return .integer;
         },
-        .Union => {
+        .@"union" => {
             const bit_size = ty.bitSize(zcu);
             if (ty.containerLayout(zcu) == .@"packed") {
                 if (bit_size > max_byval_size) return .memory;
@@ -55,40 +55,40 @@ pub fn classifyType(ty: Type, zcu: *Zcu) Class {
             if (bit_size > max_byval_size / 2) return .double_integer;
             return .integer;
         },
-        .Bool => return .integer,
-        .Float => return .byval,
-        .Int, .Enum, .ErrorSet => {
+        .bool => return .integer,
+        .float => return .byval,
+        .int, .@"enum", .error_set => {
             const bit_size = ty.bitSize(zcu);
             if (bit_size > max_byval_size) return .memory;
             return .byval;
         },
-        .Vector => {
+        .vector => {
             const bit_size = ty.bitSize(zcu);
             if (bit_size > max_byval_size) return .memory;
             return .integer;
         },
-        .Optional => {
+        .optional => {
             std.debug.assert(ty.isPtrLikeOptional(zcu));
             return .byval;
         },
-        .Pointer => {
+        .pointer => {
             std.debug.assert(!ty.isSlice(zcu));
             return .byval;
         },
-        .ErrorUnion,
-        .Frame,
-        .AnyFrame,
-        .NoReturn,
-        .Void,
-        .Type,
-        .ComptimeFloat,
-        .ComptimeInt,
-        .Undefined,
-        .Null,
-        .Fn,
-        .Opaque,
-        .EnumLiteral,
-        .Array,
+        .error_union,
+        .frame,
+        .@"anyframe",
+        .noreturn,
+        .void,
+        .type,
+        .comptime_float,
+        .comptime_int,
+        .undefined,
+        .null,
+        .@"fn",
+        .@"opaque",
+        .enum_literal,
+        .array,
         => unreachable,
     }
 }
@@ -104,11 +104,11 @@ pub fn classifySystem(ty: Type, zcu: *Zcu) [8]SystemClass {
         .none,   .none, .none, .none,
     };
     switch (ty.zigTypeTag(zcu)) {
-        .Bool, .Void, .NoReturn => {
+        .bool, .void, .noreturn => {
             result[0] = .integer;
             return result;
         },
-        .Pointer => switch (ty.ptrSize(zcu)) {
+        .pointer => switch (ty.ptrSize(zcu)) {
             .Slice => {
                 result[0] = .integer;
                 result[1] = .integer;
@@ -119,14 +119,14 @@ pub fn classifySystem(ty: Type, zcu: *Zcu) [8]SystemClass {
                 return result;
             },
         },
-        .Optional => {
+        .optional => {
             if (ty.isPtrLikeOptional(zcu)) {
                 result[0] = .integer;
                 return result;
             }
             return memory_class;
         },
-        .Int, .Enum, .ErrorSet => {
+        .int, .@"enum", .error_set => {
             const int_bits = ty.intInfo(zcu).bits;
             if (int_bits <= 64) {
                 result[0] = .integer;
@@ -139,7 +139,7 @@ pub fn classifySystem(ty: Type, zcu: *Zcu) [8]SystemClass {
             }
             unreachable; // support > 128 bit int arguments
         },
-        .Float => {
+        .float => {
             const target = zcu.getTarget();
             const features = target.cpu.features;
 
@@ -151,7 +151,7 @@ pub fn classifySystem(ty: Type, zcu: *Zcu) [8]SystemClass {
             }
             unreachable; // support split float args
         },
-        .ErrorUnion => {
+        .error_union => {
             const payload_ty = ty.errorUnionPayload(zcu);
             const payload_bits = payload_ty.bitSize(zcu);
 
@@ -163,7 +163,7 @@ pub fn classifySystem(ty: Type, zcu: *Zcu) [8]SystemClass {
 
             return memory_class;
         },
-        .Struct, .Union => {
+        .@"struct", .@"union" => {
             const layout = ty.containerLayout(zcu);
             const ty_size = ty.abiSize(zcu);
 
@@ -176,7 +176,7 @@ pub fn classifySystem(ty: Type, zcu: *Zcu) [8]SystemClass {
 
             return memory_class;
         },
-        .Array => {
+        .array => {
             const ty_size = ty.abiSize(zcu);
             if (ty_size <= 8) {
                 result[0] = .integer;
@@ -189,7 +189,7 @@ pub fn classifySystem(ty: Type, zcu: *Zcu) [8]SystemClass {
             }
             return memory_class;
         },
-        .Vector => {
+        .vector => {
             // we pass vectors through integer registers if they are small enough to fit.
             const vec_bits = ty.totalVectorBits(zcu);
             if (vec_bits <= 64) {

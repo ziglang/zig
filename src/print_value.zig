@@ -207,7 +207,7 @@ fn printAggregate(
     const ip = &zcu.intern_pool;
     const ty = Type.fromInterned(aggregate.ty);
     switch (ty.zigTypeTag(zcu)) {
-        .Struct => if (!ty.isTuple(zcu)) {
+        .@"struct" => if (!ty.isTuple(zcu)) {
             if (is_ref) try writer.writeByte('&');
             if (ty.structFieldCount(zcu) == 0) {
                 return writer.writeAll(".{}");
@@ -223,7 +223,7 @@ fn printAggregate(
             try writer.writeAll(" }");
             return;
         },
-        .Array => {
+        .array => {
             switch (aggregate.storage) {
                 .bytes => |bytes| string: {
                     const len = ty.arrayLenIncludingSentinel(zcu);
@@ -253,7 +253,7 @@ fn printAggregate(
                 else => {},
             }
         },
-        .Vector => if (ty.arrayLen(zcu) == 0) {
+        .vector => if (ty.arrayLen(zcu) == 0) {
             if (is_ref) try writer.writeByte('&');
             return writer.writeAll(".{}");
         },
@@ -362,17 +362,17 @@ fn printPtrDerivation(
             try printPtrDerivation(field.parent.*, writer, level, pt, have_sema, sema);
             const agg_ty = (try field.parent.ptrType(pt)).childType(zcu);
             switch (agg_ty.zigTypeTag(zcu)) {
-                .Struct => if (agg_ty.structFieldName(field.field_idx, zcu).unwrap()) |field_name| {
+                .@"struct" => if (agg_ty.structFieldName(field.field_idx, zcu).unwrap()) |field_name| {
                     try writer.print(".{i}", .{field_name.fmt(ip)});
                 } else {
                     try writer.print("[{d}]", .{field.field_idx});
                 },
-                .Union => {
+                .@"union" => {
                     const tag_ty = agg_ty.unionTagTypeHypothetical(zcu);
                     const field_name = tag_ty.enumFieldName(field.field_idx, zcu);
                     try writer.print(".{i}", .{field_name.fmt(ip)});
                 },
-                .Pointer => switch (field.field_idx) {
+                .pointer => switch (field.field_idx) {
                     Value.slice_ptr_index => try writer.writeAll(".ptr"),
                     Value.slice_len_index => try writer.writeAll(".len"),
                     else => unreachable,

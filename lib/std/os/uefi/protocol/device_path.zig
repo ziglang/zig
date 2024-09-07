@@ -76,7 +76,7 @@ pub const DevicePath = extern struct {
     }
 
     pub fn getDevicePath(self: *const DevicePath) ?uefi.DevicePath {
-        inline for (@typeInfo(uefi.DevicePath).Union.fields) |ufield| {
+        inline for (@typeInfo(uefi.DevicePath).@"union".fields) |ufield| {
             const enum_value = std.meta.stringToEnum(uefi.DevicePath.Type, ufield.name);
 
             // Got the associated union type for self.type, now
@@ -94,7 +94,7 @@ pub const DevicePath = extern struct {
     }
 
     pub fn initSubtype(self: *const DevicePath, comptime TUnion: type) ?TUnion {
-        const type_info = @typeInfo(TUnion).Union;
+        const type_info = @typeInfo(TUnion).@"union";
         const TTag = type_info.tag_type.?;
 
         inline for (type_info.fields) |subtype| {

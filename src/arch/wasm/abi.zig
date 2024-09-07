@@ -27,7 +27,7 @@ pub fn classifyType(ty: Type, zcu: *Zcu) [2]Class {
     const target = zcu.getTarget();
     if (!ty.hasRuntimeBitsIgnoreComptime(zcu)) return none;
     switch (ty.zigTypeTag(zcu)) {
-        .Struct => {
+        .@"struct" => {
             const struct_type = zcu.typeToStruct(ty).?;
             if (struct_type.layout == .@"packed") {
                 if (ty.bitSize(zcu) <= 64) return direct;
@@ -45,30 +45,30 @@ pub fn classifyType(ty: Type, zcu: *Zcu) [2]Class {
             }
             return classifyType(field_ty, zcu);
         },
-        .Int, .Enum, .ErrorSet => {
+        .int, .@"enum", .error_set => {
             const int_bits = ty.intInfo(zcu).bits;
             if (int_bits <= 64) return direct;
             if (int_bits <= 128) return .{ .direct, .direct };
             return memory;
         },
-        .Float => {
+        .float => {
             const float_bits = ty.floatBits(target);
             if (float_bits <= 64) return direct;
             if (float_bits <= 128) return .{ .direct, .direct };
             return memory;
         },
-        .Bool => return direct,
-        .Vector => return direct,
-        .Array => return memory,
-        .Optional => {
+        .bool => return direct,
+        .vector => return direct,
+        .array => return memory,
+        .optional => {
             assert(ty.isPtrLikeOptional(zcu));
             return direct;
         },
-        .Pointer => {
+        .pointer => {
             assert(!ty.isSlice(zcu));
             return direct;
         },
-        .Union => {
+        .@"union" => {
             const union_obj = zcu.typeToUnion(ty).?;
             if (union_obj.flagsUnordered(ip).layout == .@"packed") {
                 if (ty.bitSize(zcu) <= 64) return direct;
@@ -80,19 +80,19 @@ pub fn classifyType(ty: Type, zcu: *Zcu) [2]Class {
             const first_field_ty = Type.fromInterned(union_obj.field_types.get(ip)[0]);
             return classifyType(first_field_ty, zcu);
         },
-        .ErrorUnion,
-        .Frame,
-        .AnyFrame,
-        .NoReturn,
-        .Void,
-        .Type,
-        .ComptimeFloat,
-        .ComptimeInt,
-        .Undefined,
-        .Null,
-        .Fn,
-        .Opaque,
-        .EnumLiteral,
+        .error_union,
+        .frame,
+        .@"anyframe",
+        .noreturn,
+        .void,
+        .type,
+        .comptime_float,
+        .comptime_int,
+        .undefined,
+        .null,
+        .@"fn",
+        .@"opaque",
+        .enum_literal,
         => unreachable,
     }
 }
@@ -103,7 +103,7 @@ pub fn classifyType(ty: Type, zcu: *Zcu) [2]Class {
 pub fn scalarType(ty: Type, zcu: *Zcu) Type {
     const ip = &zcu.intern_pool;
     switch (ty.zigTypeTag(zcu)) {
-        .Struct => {
+        .@"struct" => {
             if (zcu.typeToPackedStruct(ty)) |packed_struct| {
                 return scalarType(Type.fromInterned(packed_struct.backingIntTypeUnordered(ip)), zcu);
             } else {
@@ -111,7 +111,7 @@ pub fn scalarType(ty: Type, zcu: *Zcu) Type {
                 return scalarType(ty.fieldType(0, zcu), zcu);
             }
         },
-        .Union => {
+        .@"union" => {
             const union_obj = zcu.typeToUnion(ty).?;
             if (union_obj.flagsUnordered(ip).layout != .@"packed") {
                 const layout = Type.getUnionLayout(union_obj, zcu);

@@ -166,6 +166,7 @@ fn mainServer() !void {
                     if (log_err_count != 0) @panic("error logs detected");
                     if (first) {
                         first = false;
+                        const entry_addr = @intFromPtr(test_fn.func);
                         try server.serveU64Message(.fuzz_start_addr, entry_addr);
                     }
                 }
@@ -265,7 +266,7 @@ fn mainTerminal() void {
 
 pub fn log(
     comptime message_level: std.log.Level,
-    comptime scope: @Type(.EnumLiteral),
+    comptime scope: @Type(.enum_literal),
     comptime format: []const u8,
     args: anytype,
 ) void {
@@ -347,7 +348,6 @@ const FuzzerSlice = extern struct {
 };
 
 var is_fuzz_test: bool = undefined;
-var entry_addr: usize = 0;
 
 extern fn fuzzer_next() FuzzerSlice;
 extern fn fuzzer_init(cache_dir: FuzzerSlice) void;
@@ -358,7 +358,6 @@ pub fn fuzzInput(options: testing.FuzzInputOptions) []const u8 {
     if (crippled) return "";
     is_fuzz_test = true;
     if (builtin.fuzz) {
-        if (entry_addr == 0) entry_addr = @returnAddress();
         return fuzzer_next().toSlice();
     }
     if (options.corpus.len == 0) return "";

@@ -494,7 +494,7 @@ pub fn WriteStream(
             if (build_mode_has_safety) assert(self.raw_streaming_mode == .none);
             const T = @TypeOf(value);
             switch (@typeInfo(T)) {
-                .Int => {
+                .int => {
                     try self.valueStart();
                     if (self.options.emit_nonportable_numbers_as_strings and
                         (value <= -(1 << 53) or value >= (1 << 53)))
@@ -506,10 +506,10 @@ pub fn WriteStream(
                     self.valueDone();
                     return;
                 },
-                .ComptimeInt => {
+                .comptime_int => {
                     return self.write(@as(std.math.IntFittingRange(value, value), value));
                 },
-                .Float, .ComptimeFloat => {
+                .float, .comptime_float => {
                     if (@as(f64, @floatCast(value)) == value) {
                         try self.valueStart();
                         try self.stream.print("{}", .{@as(f64, @floatCast(value))});
@@ -522,26 +522,26 @@ pub fn WriteStream(
                     return;
                 },
 
-                .Bool => {
+                .bool => {
                     try self.valueStart();
                     try self.stream.writeAll(if (value) "true" else "false");
                     self.valueDone();
                     return;
                 },
-                .Null => {
+                .null => {
                     try self.valueStart();
                     try self.stream.writeAll("null");
                     self.valueDone();
                     return;
                 },
-                .Optional => {
+                .optional => {
                     if (value) |payload| {
                         return try self.write(payload);
                     } else {
                         return try self.write(null);
                     }
                 },
-                .Enum => |enum_info| {
+                .@"enum" => |enum_info| {
                     if (std.meta.hasFn(T, "jsonStringify")) {
                         return value.jsonStringify(self);
                     }
@@ -558,15 +558,15 @@ pub fn WriteStream(
 
                     return self.stringValue(@tagName(value));
                 },
-                .EnumLiteral => {
+                .enum_literal => {
                     return self.stringValue(@tagName(value));
                 },
-                .Union => {
+                .@"union" => {
                     if (std.meta.hasFn(T, "jsonStringify")) {
                         return value.jsonStringify(self);
                     }
 
-                    const info = @typeInfo(T).Union;
+                    const info = @typeInfo(T).@"union";
                     if (info.tag_type) |UnionTagType| {
                         try self.beginObject();
                         inline for (info.fields) |u_field| {
@@ -590,7 +590,7 @@ pub fn WriteStream(
                         @compileError("Unable to stringify untagged union '" ++ @typeName(T) ++ "'");
                     }
                 },
-                .Struct => |S| {
+                .@"struct" => |S| {
                     if (std.meta.hasFn(T, "jsonStringify")) {
                         return value.jsonStringify(self);
                     }
@@ -607,7 +607,7 @@ pub fn WriteStream(
                         var emit_field = true;
 
                         // don't include optional fields that are null when emit_null_optional_fields is set to false
-                        if (@typeInfo(Field.type) == .Optional) {
+                        if (@typeInfo(Field.type) == .optional) {
                             if (self.options.emit_null_optional_fields == false) {
                                 if (@field(value, Field.name) == null) {
                                     emit_field = false;
@@ -629,10 +629,10 @@ pub fn WriteStream(
                     }
                     return;
                 },
-                .ErrorSet => return self.stringValue(@errorName(value)),
-                .Pointer => |ptr_info| switch (ptr_info.size) {
+                .error_set => return self.stringValue(@errorName(value)),
+                .pointer => |ptr_info| switch (ptr_info.size) {
                     .One => switch (@typeInfo(ptr_info.child)) {
-                        .Array => {
+                        .array => {
                             // Coerce `*[N]T` to `[]const T`.
                             const Slice = []const std.meta.Elem(ptr_info.child);
                             return self.write(@as(Slice, value));
@@ -662,11 +662,11 @@ pub fn WriteStream(
                     },
                     else => @compileError("Unable to stringify type '" ++ @typeName(T) ++ "'"),
                 },
-                .Array => {
+                .array => {
                     // Coerce `[N]T` to `*const [N]T` (and then to `[]const T`).
                     return self.write(&value);
                 },
-                .Vector => |info| {
+                .vector => |info| {
                     const array: [info.len]info.child = value;
                     return self.write(&array);
                 },

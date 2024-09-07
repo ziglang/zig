@@ -377,7 +377,7 @@ pub fn dumpStackTrace(stack_trace: std.builtin.StackTrace) void {
             stderr.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{@errorName(err)}) catch return;
             return;
         };
-        writeStackTrace(stack_trace, stderr, getDebugInfoAllocator(), debug_info, io.tty.detectConfig(io.getStdErr())) catch |err| {
+        writeStackTrace(stack_trace, stderr, debug_info, io.tty.detectConfig(io.getStdErr())) catch |err| {
             stderr.print("Unable to dump stack trace: {s}\n", .{@errorName(err)}) catch return;
             return;
         };
@@ -520,11 +520,9 @@ fn waitForOtherThreadToFinishPanicking() void {
 pub fn writeStackTrace(
     stack_trace: std.builtin.StackTrace,
     out_stream: anytype,
-    allocator: mem.Allocator,
     debug_info: *SelfInfo,
     tty_config: io.tty.Config,
 ) !void {
-    _ = allocator;
     if (builtin.strip_debug_info) return error.MissingDebugInfo;
     var frame_index: usize = 0;
     var frames_left: usize = @min(stack_trace.index, stack_trace.instruction_addresses.len);
@@ -547,7 +545,7 @@ pub fn writeStackTrace(
 }
 
 pub const UnwindError = if (have_ucontext)
-    @typeInfo(@typeInfo(@TypeOf(StackIterator.next_unwind)).Fn.return_type.?).ErrorUnion.error_set
+    @typeInfo(@typeInfo(@TypeOf(StackIterator.next_unwind)).@"fn".return_type.?).error_union.error_set
 else
     void;
 
@@ -789,7 +787,7 @@ pub noinline fn walkStackWindows(addresses: []usize, existing_context: ?*const w
     }
 
     var i: usize = 0;
-    var image_base: usize = undefined;
+    var image_base: windows.DWORD64 = undefined;
     var history_table: windows.UNWIND_HISTORY_TABLE = std.mem.zeroes(windows.UNWIND_HISTORY_TABLE);
 
     while (i < addresses.len) : (i += 1) {
@@ -809,7 +807,7 @@ pub noinline fn walkStackWindows(addresses: []usize, existing_context: ?*const w
             );
         } else {
             // leaf function
-            context.setIp(@as(*u64, @ptrFromInt(current_regs.sp)).*);
+            context.setIp(@as(*usize, @ptrFromInt(current_regs.sp)).*);
             context.setSp(current_regs.sp + @sizeOf(usize));
         }
 
@@ -1349,7 +1347,7 @@ pub fn dumpStackPointerAddr(prefix: []const u8) void {
     const sp = asm (""
         : [argc] "={rsp}" (-> usize),
     );
-    std.debug.print("{} sp = 0x{x}\n", .{ prefix, sp });
+    std.debug.print("{s} sp = 0x{x}\n", .{ prefix, sp });
 }
 
 test "manage resources correctly" {
@@ -1452,7 +1450,7 @@ pub fn ConfigurableTrace(comptime size: usize, comptime stack_frame_count: usize
                     .index = frames.len,
                     .instruction_addresses = frames,
                 };
-                writeStackTrace(stack_trace, stderr, getDebugInfoAllocator(), debug_info, tty_config) catch continue;
+                writeStackTrace(stack_trace, stderr, debug_info, tty_config) catch continue;
             }
             if (t.index > end) {
                 stderr.print("{d} more traces not shown; consider increasing trace size\n", .{

@@ -600,6 +600,7 @@ set(ZIG_STAGE2_SOURCES
     src/link/Elf.zig
     src/link/Elf/Archive.zig
     src/link/Elf/Atom.zig
+    src/link/Elf/AtomList.zig
     src/link/Elf/LdScript.zig
     src/link/Elf/LinkerDefined.zig
     src/link/Elf/Object.zig
@@ -613,7 +614,7 @@ set(ZIG_STAGE2_SOURCES
     src/link/Elf/relocatable.zig
     src/link/Elf/relocation.zig
     src/link/Elf/synthetic_sections.zig
-    src/link/Elf/thunks.zig
+    src/link/Elf/Thunk.zig
     src/link/MachO.zig
     src/link/MachO/Archive.zig
     src/link/MachO/Atom.zig
@@ -638,7 +639,7 @@ set(ZIG_STAGE2_SOURCES
     src/link/MachO/load_commands.zig
     src/link/MachO/relocatable.zig
     src/link/MachO/synthetic.zig
-    src/link/MachO/thunks.zig
+    src/link/MachO/Thunk.zig
     src/link/MachO/uuid.zig
     src/link/NvPtx.zig
     src/link/Plan9.zig

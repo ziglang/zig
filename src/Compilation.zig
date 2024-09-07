@@ -384,7 +384,7 @@ const Job = union(enum) {
     /// The value is the index into `system_libs`.
     windows_import_lib: usize,
 
-    const Tag = @typeInfo(Job).Union.tag_type.?;
+    const Tag = @typeInfo(Job).@"union".tag_type.?;
     fn stage(tag: Tag) usize {
         return switch (tag) {
             // Prioritize functions so that codegen can get to work on them on a
@@ -911,7 +911,7 @@ pub const cache_helpers = struct {
     }
 
     pub fn addDebugFormat(hh: *Cache.HashHelper, x: Config.DebugFormat) void {
-        const tag: @typeInfo(Config.DebugFormat).Union.tag_type.? = x;
+        const tag: @typeInfo(Config.DebugFormat).@"union".tag_type.? = x;
         hh.add(tag);
         switch (x) {
             .strip, .code_view => {},
@@ -1486,7 +1486,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .emit_asm = options.emit_asm,
             .emit_llvm_ir = options.emit_llvm_ir,
             .emit_llvm_bc = options.emit_llvm_bc,
-            .work_queues = .{std.fifo.LinearFifo(Job, .Dynamic).init(gpa)} ** @typeInfo(std.meta.FieldType(Compilation, .work_queues)).Array.len,
+            .work_queues = .{std.fifo.LinearFifo(Job, .Dynamic).init(gpa)} ** @typeInfo(std.meta.FieldType(Compilation, .work_queues)).array.len,
             .codegen_work = if (InternPool.single_threaded) {} else .{
                 .mutex = .{},
                 .cond = .{},
@@ -3113,8 +3113,8 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
                 err: *?Error,
 
                 const Error = @typeInfo(
-                    @typeInfo(@TypeOf(Zcu.SrcLoc.span)).Fn.return_type.?,
-                ).ErrorUnion.error_set;
+                    @typeInfo(@TypeOf(Zcu.SrcLoc.span)).@"fn".return_type.?,
+                ).error_union.error_set;
 
                 pub fn lessThan(ctx: @This(), lhs_index: usize, rhs_index: usize) bool {
                     if (ctx.err.*) |_| return lhs_index < rhs_index;
@@ -5536,10 +5536,6 @@ pub fn addCCArgs(
                 else => {},
             }
 
-            if (target.cpu.arch.isThumb()) {
-                try argv.append("-mthumb");
-            }
-
             {
                 var san_arg: std.ArrayListUnmanaged(u8) = .{};
                 const prefix = "-fsanitize=";
@@ -5636,10 +5632,6 @@ pub fn addCCArgs(
                 try argv.append("-Werror=date-time");
             }
 
-            if (target_util.supports_fpic(target) and mod.pic) {
-                try argv.append("-fPIC");
-            }
-
             if (mod.unwind_tables) {
                 try argv.append("-funwind-tables");
             } else {
@@ -5728,6 +5720,14 @@ pub fn addCCArgs(
                 }
             }
         },
+    }
+
+    if (target.cpu.arch.isThumb()) {
+        try argv.append("-mthumb");
+    }
+
+    if (target_util.supports_fpic(target) and mod.pic) {
+        try argv.append("-fPIC");
     }
 
     try argv.ensureUnusedCapacity(2);

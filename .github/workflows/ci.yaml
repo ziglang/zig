@@ -9,6 +9,9 @@ concurrency:
   # Cancels pending runs when a PR gets updated.
   group: ${{ github.head_ref || github.run_id }}-${{ github.actor }}
   cancel-in-progress: true
+permissions:
+  # Sets permission policy for `GITHUB_TOKEN`
+  contents: read
 jobs:
   x86_64-linux-debug:
     timeout-minutes: 420

@@ -1456,6 +1456,16 @@ pub fn clock_settime(clk_id: i32, tp: *const timespec) usize {
     return syscall2(.clock_settime, @as(usize, @bitCast(@as(isize, clk_id))), @intFromPtr(tp));
 }
 
+pub fn clock_nanosleep(clockid: clockid_t, flags: TIMER, request: *const timespec, remain: ?*timespec) usize {
+    return syscall4(
+        .clock_nanosleep,
+        @intFromEnum(clockid),
+        @as(u32, @bitCast(flags)),
+        @intFromPtr(request),
+        @intFromPtr(remain),
+    );
+}
+
 pub fn gettimeofday(tv: ?*timeval, tz: ?*timezone) usize {
     return syscall2(.gettimeofday, @intFromPtr(tv), @intFromPtr(tz));
 }
@@ -1465,7 +1475,9 @@ pub fn settimeofday(tv: *const timeval, tz: *const timezone) usize {
 }
 
 pub fn nanosleep(req: *const timespec, rem: ?*timespec) usize {
-    return syscall2(.nanosleep, @intFromPtr(req), @intFromPtr(rem));
+    if (native_arch == .riscv32) {
+        @compileError("No nanosleep syscall on this architecture.");
+    } else return syscall2(.nanosleep, @intFromPtr(req), @intFromPtr(rem));
 }
 
 pub fn pause() usize {
@@ -1547,7 +1559,7 @@ pub fn seteuid(euid: uid_t) usize {
     // The setresuid(2) man page says that if -1 is passed the corresponding
     // id will not be changed. Since uid_t is unsigned, this wraps around to the
     // max value in C.
-    comptime assert(@typeInfo(uid_t) == .Int and @typeInfo(uid_t).Int.signedness == .unsigned);
+    comptime assert(@typeInfo(uid_t) == .int and @typeInfo(uid_t).int.signedness == .unsigned);
     return setresuid(std.math.maxInt(uid_t), euid, std.math.maxInt(uid_t));
 }
 
@@ -1558,7 +1570,7 @@ pub fn setegid(egid: gid_t) usize {
     // The setresgid(2) man page says that if -1 is passed the corresponding
     // id will not be changed. Since gid_t is unsigned, this wraps around to the
     // max value in C.
-    comptime assert(@typeInfo(uid_t) == .Int and @typeInfo(uid_t).Int.signedness == .unsigned);
+    comptime assert(@typeInfo(uid_t) == .int and @typeInfo(uid_t).int.signedness == .unsigned);
     return setresgid(std.math.maxInt(gid_t), egid, std.math.maxInt(gid_t));
 }
 
@@ -1673,7 +1685,7 @@ pub fn sigaction(sig: u6, noalias act: ?*const Sigaction, noalias oact: ?*Sigact
     return 0;
 }
 
-const usize_bits = @typeInfo(usize).Int.bits;
+const usize_bits = @typeInfo(usize).int.bits;
 
 pub fn sigaddset(set: *sigset_t, sig: u6) void {
     const s = sig - 1;
@@ -1734,7 +1746,7 @@ pub fn sendmsg(fd: i32, msg: *const msghdr_const, flags: u32) usize {
 }
 
 pub fn sendmmsg(fd: i32, msgvec: [*]mmsghdr_const, vlen: u32, flags: u32) usize {
-    if (@typeInfo(usize).Int.bits > @typeInfo(@typeInfo(mmsghdr).Struct.fields[1].type).Int.bits) {
+    if (@typeInfo(usize).int.bits > @typeInfo(@typeInfo(mmsghdr).@"struct".fields[1].type).int.bits) {
         // workaround kernel brokenness:
         // if adding up all iov_len overflows a i32 then split into multiple calls
         // see https://www.openwall.com/lists/musl/2014/06/07/5
@@ -4525,6 +4537,11 @@ pub const clockid_t = enum(u32) {
     _,
 };
 
+pub const TIMER = packed struct(u32) {
+    ABSTIME: bool,
+    _: u31 = 0,
+};
+
 pub const CSIGNAL = 0x000000ff;
 
 pub const CLONE = struct {
@@ -4904,7 +4921,7 @@ pub const NSIG = if (is_mips) 128 else 65;
 
 pub const sigset_t = [1024 / 32]u32;
 
-pub const all_mask: sigset_t = [_]u32{0xffffffff} ** @typeInfo(sigset_t).Array.len;
+pub const all_mask: sigset_t = [_]u32{0xffffffff} ** @typeInfo(sigset_t).array.len;
 pub const app_mask: sigset_t = [2]u32{ 0xfffffffc, 0x7fffffff } ++ [_]u32{0xffffffff} ** 30;
 
 const k_sigaction_funcs = struct {
@@ -4947,7 +4964,7 @@ pub const Sigaction = extern struct {
     restorer: ?*const fn () callconv(.C) void = null,
 };
 
-const sigset_len = @typeInfo(sigset_t).Array.len;
+const sigset_len = @typeInfo(sigset_t).array.len;
 pub const empty_sigset = [_]u32{0} ** sigset_len;
 pub const filled_sigset = [_]u32{(1 << (31 & (usize_bits - 1))) - 1} ++ [_]u32{0} ** (sigset_len - 1);
 
@@ -7420,7 +7437,7 @@ pub const MADV = struct {
 };
 
 pub const POSIX_FADV = switch (native_arch) {
-    .s390x => if (@typeInfo(usize).Int.bits == 64) struct {
+    .s390x => if (@typeInfo(usize).int.bits == 64) struct {
         pub const NORMAL = 0;
         pub const RANDOM = 1;
         pub const SEQUENTIAL = 2;
@@ -7452,7 +7469,7 @@ pub const kernel_timespec = extern struct {
 };
 
 // https://github.com/ziglang/zig/issues/4726#issuecomment-2190337877
-pub const timespec = if (!builtin.link_libc and native_arch == .riscv32) kernel_timespec else extern struct {
+pub const timespec = if (native_arch == .riscv32) kernel_timespec else extern struct {
     sec: isize,
     nsec: isize,
 };

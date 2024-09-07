@@ -1115,7 +1115,7 @@ pub const Attribute = union(Kind) {
                 => |kind| {
                     const field = comptime blk: {
                         @setEvalBranchQuota(10_000);
-                        for (@typeInfo(Attribute).Union.fields) |field| {
+                        for (@typeInfo(Attribute).@"union".fields) |field| {
                             if (std.mem.eql(u8, field.name, @tagName(kind))) break :blk field;
                         }
                         unreachable;
@@ -1232,11 +1232,11 @@ pub const Attribute = union(Kind) {
                 .dereferenceable_or_null,
                 => |size| try writer.print(" {s}({d})", .{ @tagName(attribute), size }),
                 .nofpclass => |fpclass| {
-                    const Int = @typeInfo(FpClass).Struct.backing_integer.?;
+                    const Int = @typeInfo(FpClass).@"struct".backing_integer.?;
                     try writer.print(" {s}(", .{@tagName(attribute)});
                     var any = false;
                     var remaining: Int = @bitCast(fpclass);
-                    inline for (@typeInfo(FpClass).Struct.decls) |decl| {
+                    inline for (@typeInfo(FpClass).@"struct".decls) |decl| {
                         const pattern: Int = @bitCast(@field(FpClass, decl.name));
                         if (remaining & pattern == pattern) {
                             if (!any) {
@@ -1259,7 +1259,7 @@ pub const Attribute = union(Kind) {
                 .allockind => |allockind| {
                     try writer.print(" {s}(\"", .{@tagName(attribute)});
                     var any = false;
-                    inline for (@typeInfo(AllocKind).Struct.fields) |field| {
+                    inline for (@typeInfo(AllocKind).@"struct".fields) |field| {
                         if (comptime std.mem.eql(u8, field.name, "_")) continue;
                         if (@field(allockind, field.name)) {
                             if (!any) {
@@ -1418,7 +1418,7 @@ pub const Attribute = union(Kind) {
         none = std.math.maxInt(u32),
         _,
 
-        pub const len = @typeInfo(Kind).Enum.fields.len - 2;
+        pub const len = @typeInfo(Kind).@"enum".fields.len - 2;
 
         pub fn fromString(str: String) Kind {
             assert(!str.isAnon());
@@ -4157,6 +4157,7 @@ pub const Function = struct {
             @"icmp ugt",
             @"icmp ule",
             @"icmp ult",
+            indirectbr,
             insertelement,
             insertvalue,
             inttoptr,
@@ -4367,6 +4368,7 @@ pub const Function = struct {
                 return switch (wip.instructions.items(.tag)[@intFromEnum(self)]) {
                     .br,
                     .br_cond,
+                    .indirectbr,
                     .ret,
                     .@"ret void",
                     .@"switch",
@@ -4381,6 +4383,7 @@ pub const Function = struct {
                     .br,
                     .br_cond,
                     .fence,
+                    .indirectbr,
                     .ret,
                     .@"ret void",
                     .store,
@@ -4471,6 +4474,7 @@ pub const Function = struct {
                     .br,
                     .br_cond,
                     .fence,
+                    .indirectbr,
                     .ret,
                     .@"ret void",
                     .store,
@@ -4657,6 +4661,7 @@ pub const Function = struct {
                     .br,
                     .br_cond,
                     .fence,
+                    .indirectbr,
                     .ret,
                     .@"ret void",
                     .store,
@@ -4835,6 +4840,12 @@ pub const Function = struct {
             weights: BrCond.Weights,
             //case_vals: [cases_len]Constant,
             //case_blocks: [cases_len]Block.Index,
+        };
+
+        pub const IndirectBr = struct {
+            addr: Value,
+            targets_len: u32,
+            //targets: [targets_len]Block.Index,
         };
 
         pub const Binary = struct {
@@ -5037,7 +5048,7 @@ pub const Function = struct {
         index: Instruction.ExtraIndex,
     ) struct { data: T, trail: ExtraDataTrail } {
         var result: T = undefined;
-        const fields = @typeInfo(T).Struct.fields;
+        const fields = @typeInfo(T).@"struct".fields;
         inline for (fields, self.extra[index..][0..fields.len]) |field, value|
             @field(result, field.name) = switch (field.type) {
                 u32 => value,
@@ -5294,10 +5305,27 @@ pub const WipFunction = struct {
         return .{ .index = 0, .instruction = instruction };
     }
 
+    pub fn indirectbr(
+        self: *WipFunction,
+        addr: Value,
+        targets: []const Block.Index,
+    ) Allocator.Error!Instruction.Index {
+        try self.ensureUnusedExtraCapacity(1, Instruction.IndirectBr, targets.len);
+        const instruction = try self.addInst(null, .{
+            .tag = .indirectbr,
+            .data = self.addExtraAssumeCapacity(Instruction.IndirectBr{
+                .addr = addr,
+                .targets_len = @intCast(targets.len),
+            }),
+        });
+        _ = self.extra.appendSliceAssumeCapacity(@ptrCast(targets));
+        for (targets) |target| target.ptr(self).branches += 1;
+        return instruction;
+    }
+
     pub fn @"unreachable"(self: *WipFunction) Allocator.Error!Instruction.Index {
         try self.ensureUnusedExtraCapacity(1, NoExtra, 0);
-        const instruction = try self.addInst(null, .{ .tag = .@"unreachable", .data = undefined });
-        return instruction;
+        return try self.addInst(null, .{ .tag = .@"unreachable", .data = undefined });
     }
 
     pub fn un(
@@ -6151,7 +6179,7 @@ pub const WipFunction = struct {
 
             fn addExtra(wip_extra: *@This(), extra: anytype) Instruction.ExtraIndex {
                 const result = wip_extra.index;
-                inline for (@typeInfo(@TypeOf(extra)).Struct.fields) |field| {
+                inline for (@typeInfo(@TypeOf(extra)).@"struct".fields) |field| {
                     const value = @field(extra, field.name);
                     wip_extra.items[wip_extra.index] = switch (field.type) {
                         u32 => value,
@@ -6175,7 +6203,7 @@ pub const WipFunction = struct {
             }
 
             fn appendSlice(wip_extra: *@This(), slice: anytype) void {
-                if (@typeInfo(@TypeOf(slice)).Pointer.child == Value)
+                if (@typeInfo(@TypeOf(slice)).pointer.child == Value)
                     @compileError("use appendMappedValues");
                 const data: []const u32 = @ptrCast(slice);
                 @memcpy(wip_extra.items[wip_extra.index..][0..data.len], data);
@@ -6299,8 +6327,7 @@ pub const WipFunction = struct {
             });
             names[@intFromEnum(new_block_index)] = try wip_name.map(current_block.name, "");
             for (current_block.instructions.items) |old_instruction_index| {
-                const new_instruction_index: Instruction.Index =
-                    @enumFromInt(function.instructions.len);
+                const new_instruction_index: Instruction.Index = @enumFromInt(function.instructions.len);
                 var instruction = self.instructions.get(@intFromEnum(old_instruction_index));
                 switch (instruction.tag) {
                     .add,
@@ -6508,6 +6535,15 @@ pub const WipFunction = struct {
                             .indices_len = extra.data.indices_len,
                         });
                         wip_extra.appendMappedValues(indices, instructions);
+                    },
+                    .indirectbr => {
+                        var extra = self.extraDataTrail(Instruction.IndirectBr, instruction.data);
+                        const targets = extra.trail.next(extra.data.targets_len, Block.Index, self);
+                        instruction.data = wip_extra.addExtra(Instruction.IndirectBr{
+                            .addr = instructions.map(extra.data.addr),
+                            .targets_len = extra.data.targets_len,
+                        });
+                        wip_extra.appendSlice(targets);
                     },
                     .insertelement => {
                         const extra = self.extraData(Instruction.InsertElement, instruction.data);
@@ -6760,7 +6796,7 @@ pub const WipFunction = struct {
     ) Allocator.Error!void {
         try self.extra.ensureUnusedCapacity(
             self.builder.gpa,
-            count * (@typeInfo(Extra).Struct.fields.len + trail_len),
+            count * (@typeInfo(Extra).@"struct".fields.len + trail_len),
         );
     }
 
@@ -6799,7 +6835,7 @@ pub const WipFunction = struct {
 
     fn addExtraAssumeCapacity(self: *WipFunction, extra: anytype) Instruction.ExtraIndex {
         const result: Instruction.ExtraIndex = @intCast(self.extra.items.len);
-        inline for (@typeInfo(@TypeOf(extra)).Struct.fields) |field| {
+        inline for (@typeInfo(@TypeOf(extra)).@"struct".fields) |field| {
             const value = @field(extra, field.name);
             self.extra.appendAssumeCapacity(switch (field.type) {
                 u32 => value,
@@ -6848,7 +6884,7 @@ pub const WipFunction = struct {
         index: Instruction.ExtraIndex,
     ) struct { data: T, trail: ExtraDataTrail } {
         var result: T = undefined;
-        const fields = @typeInfo(T).Struct.fields;
+        const fields = @typeInfo(T).@"struct".fields;
         inline for (fields, self.extra.items[index..][0..fields.len]) |field, value|
             @field(result, field.name) = switch (field.type) {
                 u32 => value,
@@ -7555,10 +7591,10 @@ pub const Constant = enum(u32) {
                     .blockaddress => |tag| {
                         const extra = data.builder.constantExtraData(BlockAddress, item.data);
                         const function = extra.function.ptrConst(data.builder);
-                        try writer.print("{s}({}, %{d})", .{
+                        try writer.print("{s}({}, {})", .{
                             @tagName(tag),
                             function.global.fmt(data.builder),
-                            @intFromEnum(extra.block), // TODO
+                            extra.block.toInst(function).fmt(extra.function, data.builder),
                         });
                     },
                     .dso_local_equivalent,
@@ -7926,17 +7962,17 @@ pub const Metadata = enum(u32) {
             writer: anytype,
         ) @TypeOf(writer).Error!void {
             var need_pipe = false;
-            inline for (@typeInfo(DIFlags).Struct.fields) |field| {
+            inline for (@typeInfo(DIFlags).@"struct".fields) |field| {
                 switch (@typeInfo(field.type)) {
-                    .Bool => if (@field(self, field.name)) {
+                    .bool => if (@field(self, field.name)) {
                         if (need_pipe) try writer.writeAll(" | ") else need_pipe = true;
                         try writer.print("DIFlag{s}", .{field.name});
                     },
-                    .Enum => if (@field(self, field.name) != .Zero) {
+                    .@"enum" => if (@field(self, field.name) != .Zero) {
                         if (need_pipe) try writer.writeAll(" | ") else need_pipe = true;
                         try writer.print("DIFlag{s}", .{@tagName(@field(self, field.name))});
                     },
-                    .Int => assert(@field(self, field.name) == 0),
+                    .int => assert(@field(self, field.name) == 0),
                     else => @compileError("bad field type: " ++ field.name ++ ": " ++
                         @typeName(field.type)),
                 }
@@ -7988,17 +8024,17 @@ pub const Metadata = enum(u32) {
                 writer: anytype,
             ) @TypeOf(writer).Error!void {
                 var need_pipe = false;
-                inline for (@typeInfo(DISPFlags).Struct.fields) |field| {
+                inline for (@typeInfo(DISPFlags).@"struct".fields) |field| {
                     switch (@typeInfo(field.type)) {
-                        .Bool => if (@field(self, field.name)) {
+                        .bool => if (@field(self, field.name)) {
                             if (need_pipe) try writer.writeAll(" | ") else need_pipe = true;
                             try writer.print("DISPFlag{s}", .{field.name});
                         },
-                        .Enum => if (@field(self, field.name) != .Zero) {
+                        .@"enum" => if (@field(self, field.name) != .Zero) {
                             if (need_pipe) try writer.writeAll(" | ") else need_pipe = true;
                             try writer.print("DISPFlag{s}", .{@tagName(@field(self, field.name))});
                         },
-                        .Int => assert(@field(self, field.name) == 0),
+                        .int => assert(@field(self, field.name) == 0),
                         else => @compileError("bad field type: " ++ field.name ++ ": " ++
                             @typeName(field.type)),
                     }
@@ -8281,16 +8317,16 @@ pub const Metadata = enum(u32) {
         }!std.fmt.Formatter(format) {
             const Node = @TypeOf(node);
             const MaybeNode = switch (@typeInfo(Node)) {
-                .Optional => Node,
-                .Null => ?noreturn,
+                .optional => Node,
+                .null => ?noreturn,
                 else => ?Node,
             };
-            const Some = @typeInfo(MaybeNode).Optional.child;
+            const Some = @typeInfo(MaybeNode).optional.child;
             return .{ .data = .{
                 .formatter = formatter,
                 .prefix = prefix,
                 .node = if (@as(MaybeNode, node)) |some| switch (@typeInfo(Some)) {
-                    .Enum => |enum_info| switch (Some) {
+                    .@"enum" => |enum_info| switch (Some) {
                         Metadata => switch (some) {
                             .none => .none,
                             else => try formatter.refUnwrapped(some.unwrap(formatter.builder)),
@@ -8301,18 +8337,18 @@ pub const Metadata = enum(u32) {
                         else
                             @compileError("unknown type to format: " ++ @typeName(Node)),
                     },
-                    .EnumLiteral => .{ .raw = @tagName(some) },
-                    .Bool => .{ .bool = some },
-                    .Struct => switch (Some) {
+                    .enum_literal => .{ .raw = @tagName(some) },
+                    .bool => .{ .bool = some },
+                    .@"struct" => switch (Some) {
                         DIFlags => .{ .di_flags = some },
                         Subprogram.DISPFlags => .{ .sp_flags = some },
                         else => @compileError("unknown type to format: " ++ @typeName(Node)),
                     },
-                    .Int, .ComptimeInt => .{ .u64 = some },
-                    .Pointer => .{ .raw = some },
+                    .int, .comptime_int => .{ .u64 = some },
+                    .pointer => .{ .raw = some },
                     else => @compileError("unknown type to format: " ++ @typeName(Node)),
                 } else switch (@typeInfo(Node)) {
-                    .Optional, .Null => .none,
+                    .optional, .null => .none,
                     else => unreachable,
                 },
             } };
@@ -8414,7 +8450,7 @@ pub const Metadata = enum(u32) {
             }
             fmt_str = fmt_str ++ ")\n";
 
-            var fmt_args: @Type(.{ .Struct = .{
+            var fmt_args: @Type(.{ .@"struct" = .{
                 .layout = .auto,
                 .fields = &fields,
                 .decls = &.{},
@@ -8501,10 +8537,10 @@ pub fn init(options: Options) Allocator.Error!Builder {
     }
 
     {
-        const static_len = @typeInfo(Type).Enum.fields.len - 1;
+        const static_len = @typeInfo(Type).@"enum".fields.len - 1;
         try self.type_map.ensureTotalCapacity(self.gpa, static_len);
         try self.type_items.ensureTotalCapacity(self.gpa, static_len);
-        inline for (@typeInfo(Type.Simple).Enum.fields) |simple_field| {
+        inline for (@typeInfo(Type.Simple).@"enum".fields) |simple_field| {
             const result = self.getOrPutTypeNoExtraAssumeCapacity(
                 .{ .tag = .simple, .data = simple_field.value },
             );
@@ -9031,14 +9067,14 @@ pub fn getIntrinsic(
 
 pub fn intConst(self: *Builder, ty: Type, value: anytype) Allocator.Error!Constant {
     const int_value = switch (@typeInfo(@TypeOf(value))) {
-        .Int, .ComptimeInt => value,
-        .Enum => @intFromEnum(value),
+        .int, .comptime_int => value,
+        .@"enum" => @intFromEnum(value),
         else => @compileError("intConst expected an integral value, got " ++ @typeName(@TypeOf(value))),
     };
     var limbs: [
         switch (@typeInfo(@TypeOf(int_value))) {
-            .Int => |info| std.math.big.int.calcTwosCompLimbCount(info.bits),
-            .ComptimeInt => std.math.big.int.calcLimbLen(int_value),
+            .int => |info| std.math.big.int.calcTwosCompLimbCount(info.bits),
+            .comptime_int => std.math.big.int.calcLimbLen(int_value),
             else => unreachable,
         }
     ]std.math.big.Limb = undefined;
@@ -9902,6 +9938,23 @@ pub fn printUnbuffered(
                             index.fmt(function_index, self),
                         });
                     },
+                    .indirectbr => |tag| {
+                        var extra =
+                            function.extraDataTrail(Function.Instruction.IndirectBr, instruction.data);
+                        const targets =
+                            extra.trail.next(extra.data.targets_len, Function.Block.Index, &function);
+                        try writer.print("  {s} {%}, [", .{
+                            @tagName(tag),
+                            extra.data.addr.fmt(function_index, self),
+                        });
+                        for (0.., targets) |target_index, target| {
+                            if (target_index > 0) try writer.writeAll(", ");
+                            try writer.print("{%}", .{
+                                target.toInst(&function).fmt(function_index, self),
+                            });
+                        }
+                        try writer.writeByte(']');
+                    },
                     .insertelement => |tag| {
                         const extra =
                             function.extraData(Function.Instruction.InsertElement, instruction.data);
@@ -10046,8 +10099,9 @@ pub fn printUnbuffered(
                 }
 
                 if (maybe_dbg_index) |dbg_index| {
-                    try writer.print(", !dbg !{}\n", .{dbg_index});
-                } else try writer.writeByte('\n');
+                    try writer.print(", !dbg !{}", .{dbg_index});
+                }
+                try writer.writeByte('\n');
             }
             try writer.writeByte('}');
         }
@@ -10759,7 +10813,7 @@ fn ensureUnusedTypeCapacity(
     try self.type_items.ensureUnusedCapacity(self.gpa, count);
     try self.type_extra.ensureUnusedCapacity(
         self.gpa,
-        count * (@typeInfo(Extra).Struct.fields.len + trail_len),
+        count * (@typeInfo(Extra).@"struct".fields.len + trail_len),
     );
 }
 
@@ -10789,7 +10843,7 @@ fn getOrPutTypeNoExtraAssumeCapacity(self: *Builder, item: Type.Item) struct { n
 
 fn addTypeExtraAssumeCapacity(self: *Builder, extra: anytype) Type.Item.ExtraIndex {
     const result: Type.Item.ExtraIndex = @intCast(self.type_extra.items.len);
-    inline for (@typeInfo(@TypeOf(extra)).Struct.fields) |field| {
+    inline for (@typeInfo(@TypeOf(extra)).@"struct".fields) |field| {
         const value = @field(extra, field.name);
         self.type_extra.appendAssumeCapacity(switch (field.type) {
             u32 => value,
@@ -10827,7 +10881,7 @@ fn typeExtraDataTrail(
     index: Type.Item.ExtraIndex,
 ) struct { data: T, trail: TypeExtraDataTrail } {
     var result: T = undefined;
-    const fields = @typeInfo(T).Struct.fields;
+    const fields = @typeInfo(T).@"struct".fields;
     inline for (fields, self.type_extra.items[index..][0..fields.len]) |field, value|
         @field(result, field.name) = switch (field.type) {
             u32 => value,
@@ -11642,7 +11696,7 @@ fn ensureUnusedConstantCapacity(
     try self.constant_items.ensureUnusedCapacity(self.gpa, count);
     try self.constant_extra.ensureUnusedCapacity(
         self.gpa,
-        count * (@typeInfo(Extra).Struct.fields.len + trail_len),
+        count * (@typeInfo(Extra).@"struct".fields.len + trail_len),
     );
 }
 
@@ -11717,7 +11771,7 @@ fn getOrPutConstantAggregateAssumeCapacity(
 
 fn addConstantExtraAssumeCapacity(self: *Builder, extra: anytype) Constant.Item.ExtraIndex {
     const result: Constant.Item.ExtraIndex = @intCast(self.constant_extra.items.len);
-    inline for (@typeInfo(@TypeOf(extra)).Struct.fields) |field| {
+    inline for (@typeInfo(@TypeOf(extra)).@"struct".fields) |field| {
         const value = @field(extra, field.name);
         self.constant_extra.appendAssumeCapacity(switch (field.type) {
             u32 => value,
@@ -11756,7 +11810,7 @@ fn constantExtraDataTrail(
     index: Constant.Item.ExtraIndex,
 ) struct { data: T, trail: ConstantExtraDataTrail } {
     var result: T = undefined;
-    const fields = @typeInfo(T).Struct.fields;
+    const fields = @typeInfo(T).@"struct".fields;
     inline for (fields, self.constant_extra.items[index..][0..fields.len]) |field, value|
         @field(result, field.name) = switch (field.type) {
             u32 => value,
@@ -11784,13 +11838,13 @@ fn ensureUnusedMetadataCapacity(
     try self.metadata_items.ensureUnusedCapacity(self.gpa, count);
     try self.metadata_extra.ensureUnusedCapacity(
         self.gpa,
-        count * (@typeInfo(Extra).Struct.fields.len + trail_len),
+        count * (@typeInfo(Extra).@"struct".fields.len + trail_len),
     );
 }
 
 fn addMetadataExtraAssumeCapacity(self: *Builder, extra: anytype) Metadata.Item.ExtraIndex {
     const result: Metadata.Item.ExtraIndex = @intCast(self.metadata_extra.items.len);
-    inline for (@typeInfo(@TypeOf(extra)).Struct.fields) |field| {
+    inline for (@typeInfo(@TypeOf(extra)).@"struct".fields) |field| {
         const value = @field(extra, field.name);
         self.metadata_extra.appendAssumeCapacity(switch (field.type) {
             u32 => value,
@@ -11829,7 +11883,7 @@ fn metadataExtraDataTrail(
     index: Metadata.Item.ExtraIndex,
 ) struct { data: T, trail: MetadataExtraDataTrail } {
     var result: T = undefined;
-    const fields = @typeInfo(T).Struct.fields;
+    const fields = @typeInfo(T).@"struct".fields;
     inline for (fields, self.metadata_extra.items[index..][0..fields.len]) |field, value|
         @field(result, field.name) = switch (field.type) {
             u32 => value,
@@ -11898,10 +11952,10 @@ pub fn trailingMetadataStringAssumeCapacity(self: *Builder) MetadataString {
     return @enumFromInt(gop.index);
 }
 
-pub fn debugNamed(self: *Builder, name: MetadataString, operands: []const Metadata) Allocator.Error!void {
+pub fn metadataNamed(self: *Builder, name: MetadataString, operands: []const Metadata) Allocator.Error!void {
     try self.metadata_extra.ensureUnusedCapacity(self.gpa, operands.len);
     try self.metadata_named.ensureUnusedCapacity(self.gpa, 1);
-    self.debugNamedAssumeCapacity(name, operands);
+    self.metadataNamedAssumeCapacity(name, operands);
 }
 
 fn metadataNone(self: *Builder) Allocator.Error!Metadata {
@@ -12212,14 +12266,14 @@ pub fn strTuple(
     return self.strTupleAssumeCapacity(str, elements);
 }
 
-pub fn debugModuleFlag(
+pub fn metadataModuleFlag(
     self: *Builder,
     behavior: Metadata,
     name: MetadataString,
     constant: Metadata,
 ) Allocator.Error!Metadata {
     try self.ensureUnusedMetadataCapacity(1, Metadata.ModuleFlag, 0);
-    return self.debugModuleFlagAssumeCapacity(behavior, name, constant);
+    return self.metadataModuleFlagAssumeCapacity(behavior, name, constant);
 }
 
 pub fn debugLocalVar(
@@ -12364,8 +12418,7 @@ fn metadataDistinctAssumeCapacity(self: *Builder, tag: Metadata.Tag, value: anyt
     return @enumFromInt(gop.index);
 }
 
-fn debugNamedAssumeCapacity(self: *Builder, name: MetadataString, operands: []const Metadata) void {
-    assert(!self.strip);
+fn metadataNamedAssumeCapacity(self: *Builder, name: MetadataString, operands: []const Metadata) void {
     assert(name != .none);
     const extra_index: u32 = @intCast(self.metadata_extra.items.len);
     self.metadata_extra.appendSliceAssumeCapacity(@ptrCast(operands));
@@ -12948,13 +13001,12 @@ fn strTupleAssumeCapacity(
     return @enumFromInt(gop.index);
 }
 
-fn debugModuleFlagAssumeCapacity(
+fn metadataModuleFlagAssumeCapacity(
     self: *Builder,
     behavior: Metadata,
     name: MetadataString,
     constant: Metadata,
 ) Metadata {
-    assert(!self.strip);
     return self.metadataSimpleAssumeCapacity(.module_flag, Metadata.ModuleFlag{
         .behavior = behavior,
         .name = name,
@@ -13921,7 +13973,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
             const MetadataKindBlock = ir.MetadataKindBlock;
             var metadata_kind_block = try module_block.enterSubBlock(MetadataKindBlock, true);
 
-            inline for (@typeInfo(ir.FixedMetadataKind).Enum.fields) |field| {
+            inline for (@typeInfo(ir.FixedMetadataKind).@"enum".fields) |field| {
                 // don't include `dbg` in stripped functions
                 if (!(self.strip and std.mem.eql(u8, field.name, "dbg"))) {
                     try metadata_kind_block.writeAbbrev(MetadataKindBlock.Kind{
@@ -14197,7 +14249,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                             const limbs_len = std.math.divCeil(u32, extra.bit_width, 64) catch unreachable;
                             try record.ensureTotalCapacity(self.gpa, 3 + limbs_len);
                             record.appendAssumeCapacity(@as(
-                                @typeInfo(MetadataBlock.Enumerator.Flags).Struct.backing_integer.?,
+                                @typeInfo(MetadataBlock.Enumerator.Flags).@"struct".backing_integer.?,
                                 @bitCast(flags),
                             ));
                             record.appendAssumeCapacity(extra.bit_width);
@@ -14776,15 +14828,6 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                                 .indices = indices,
                             });
                         },
-                        .insertvalue => {
-                            var extra = func.extraDataTrail(Function.Instruction.InsertValue, data);
-                            const indices = extra.trail.next(extra.data.indices_len, u32, &func);
-                            try function_block.writeAbbrev(FunctionBlock.InsertValue{
-                                .val = adapter.getOffsetValueIndex(extra.data.val),
-                                .elem = adapter.getOffsetValueIndex(extra.data.elem),
-                                .indices = indices,
-                            });
-                        },
                         .extractelement => {
                             const extra = func.extraData(Function.Instruction.ExtractElement, data);
                             try function_block.writeAbbrev(FunctionBlock.ExtractElement{
@@ -14792,12 +14835,35 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                                 .index = adapter.getOffsetValueIndex(extra.index),
                             });
                         },
+                        .indirectbr => {
+                            var extra =
+                                func.extraDataTrail(Function.Instruction.IndirectBr, datas[instr_index]);
+                            const targets =
+                                extra.trail.next(extra.data.targets_len, Function.Block.Index, &func);
+                            try function_block.writeAbbrevAdapted(
+                                FunctionBlock.IndirectBr{
+                                    .ty = extra.data.addr.typeOf(@enumFromInt(func_index), self),
+                                    .addr = extra.data.addr,
+                                    .targets = targets,
+                                },
+                                adapter,
+                            );
+                        },
                         .insertelement => {
                             const extra = func.extraData(Function.Instruction.InsertElement, data);
                             try function_block.writeAbbrev(FunctionBlock.InsertElement{
                                 .val = adapter.getOffsetValueIndex(extra.val),
                                 .elem = adapter.getOffsetValueIndex(extra.elem),
                                 .index = adapter.getOffsetValueIndex(extra.index),
+                            });
+                        },
+                        .insertvalue => {
+                            var extra = func.extraDataTrail(Function.Instruction.InsertValue, datas[instr_index]);
+                            const indices = extra.trail.next(extra.data.indices_len, u32, &func);
+                            try function_block.writeAbbrev(FunctionBlock.InsertValue{
+                                .val = adapter.getOffsetValueIndex(extra.data.val),
+                                .elem = adapter.getOffsetValueIndex(extra.data.elem),
+                                .indices = indices,
                             });
                         },
                         .select => {

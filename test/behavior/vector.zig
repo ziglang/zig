@@ -564,7 +564,7 @@ test "vector division operators" {
     const S = struct {
         fn doTheTestDiv(comptime T: type, x: @Vector(4, T), y: @Vector(4, T)) !void {
             const is_signed_int = switch (@typeInfo(T)) {
-                .Int => |info| info.signedness == .signed,
+                .int => |info| info.signedness == .signed,
                 else => false,
             };
             if (!is_signed_int) {
@@ -589,10 +589,10 @@ test "vector division operators" {
 
         fn doTheTestMod(comptime T: type, x: @Vector(4, T), y: @Vector(4, T)) !void {
             const is_signed_int = switch (@typeInfo(T)) {
-                .Int => |info| info.signedness == .signed,
+                .int => |info| info.signedness == .signed,
                 else => false,
             };
-            if (!is_signed_int and @typeInfo(T) != .Float) {
+            if (!is_signed_int and @typeInfo(T) != .float) {
                 const r0 = x % y;
                 for (@as([4]T, r0), 0..) |v, i| {
                     try expect(x[i] % y[i] == v);
@@ -686,9 +686,9 @@ test "vector shift operators" {
 
     const S = struct {
         fn doTheTestShift(x: anytype, y: anytype) !void {
-            const N = @typeInfo(@TypeOf(x)).Array.len;
-            const TX = @typeInfo(@TypeOf(x)).Array.child;
-            const TY = @typeInfo(@TypeOf(y)).Array.child;
+            const N = @typeInfo(@TypeOf(x)).array.len;
+            const TX = @typeInfo(@TypeOf(x)).array.child;
+            const TY = @typeInfo(@TypeOf(y)).array.child;
 
             const xv = @as(@Vector(N, TX), x);
             const yv = @as(@Vector(N, TY), y);
@@ -703,9 +703,9 @@ test "vector shift operators" {
             }
         }
         fn doTheTestShiftExact(x: anytype, y: anytype, dir: enum { Left, Right }) !void {
-            const N = @typeInfo(@TypeOf(x)).Array.len;
-            const TX = @typeInfo(@TypeOf(x)).Array.child;
-            const TY = @typeInfo(@TypeOf(y)).Array.child;
+            const N = @typeInfo(@TypeOf(x)).array.len;
+            const TX = @typeInfo(@TypeOf(x)).array.child;
+            const TY = @typeInfo(@TypeOf(y)).array.child;
 
             const xv = @as(@Vector(N, TX), x);
             const yv = @as(@Vector(N, TY), y);
@@ -777,13 +777,13 @@ test "vector reduce operation" {
 
     const S = struct {
         fn testReduce(comptime op: std.builtin.ReduceOp, x: anytype, expected: anytype) !void {
-            const N = @typeInfo(@TypeOf(x)).Array.len;
-            const TX = @typeInfo(@TypeOf(x)).Array.child;
+            const N = @typeInfo(@TypeOf(x)).array.len;
+            const TX = @typeInfo(@TypeOf(x)).array.child;
 
             const r = @reduce(op, @as(@Vector(N, TX), x));
             switch (@typeInfo(TX)) {
-                .Int, .Bool => try expect(expected == r),
-                .Float => {
+                .int, .bool => try expect(expected == r),
+                .float => {
                     const expected_nan = math.isNan(expected);
                     const got_nan = math.isNan(r);
 
@@ -941,10 +941,10 @@ test "mask parameter of @shuffle is comptime scope" {
     var v4_b = __v4hi{ 5, 6, 7, 8 };
     _ = .{ &v4_a, &v4_b };
     const shuffled: __v4hi = @shuffle(i16, v4_a, v4_b, @Vector(4, i32){
-        std.zig.c_translation.shuffleVectorIndex(0, @typeInfo(@TypeOf(v4_a)).Vector.len),
-        std.zig.c_translation.shuffleVectorIndex(2, @typeInfo(@TypeOf(v4_a)).Vector.len),
-        std.zig.c_translation.shuffleVectorIndex(4, @typeInfo(@TypeOf(v4_a)).Vector.len),
-        std.zig.c_translation.shuffleVectorIndex(6, @typeInfo(@TypeOf(v4_a)).Vector.len),
+        std.zig.c_translation.shuffleVectorIndex(0, @typeInfo(@TypeOf(v4_a)).vector.len),
+        std.zig.c_translation.shuffleVectorIndex(2, @typeInfo(@TypeOf(v4_a)).vector.len),
+        std.zig.c_translation.shuffleVectorIndex(4, @typeInfo(@TypeOf(v4_a)).vector.len),
+        std.zig.c_translation.shuffleVectorIndex(6, @typeInfo(@TypeOf(v4_a)).vector.len),
     });
     try expect(shuffled[0] == 1);
     try expect(shuffled[1] == 3);
@@ -1450,6 +1450,7 @@ test "store vector with memset" {
             .mips64el,
             .riscv64,
             .powerpc,
+            .powerpc64,
             => {
                 // LLVM 16 ERROR: "Converting bits to bytes lost precision"
                 // https://github.com/ziglang/zig/issues/16177

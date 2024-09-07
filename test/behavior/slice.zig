@@ -329,9 +329,9 @@ test "empty array to slice" {
             const align_1: []align(1) u8 = empty;
             const align_4: []align(4) u8 = empty;
             const align_16: []align(16) u8 = empty;
-            try expect(1 == @typeInfo(@TypeOf(align_1)).Pointer.alignment);
-            try expect(4 == @typeInfo(@TypeOf(align_4)).Pointer.alignment);
-            try expect(16 == @typeInfo(@TypeOf(align_16)).Pointer.alignment);
+            try expect(1 == @typeInfo(@TypeOf(align_1)).pointer.alignment);
+            try expect(4 == @typeInfo(@TypeOf(align_4)).pointer.alignment);
+            try expect(16 == @typeInfo(@TypeOf(align_16)).pointer.alignment);
         }
     };
 

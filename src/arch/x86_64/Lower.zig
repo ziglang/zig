@@ -200,13 +200,13 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                 });
                 try lower.emit(.none, .lea, &.{
                     .{ .reg = inst.data.ri.r1 },
-                    .{ .mem = Memory.sib(.qword, .{
+                    .{ .mem = Memory.initSib(.qword, .{
                         .base = .{ .reg = inst.data.ri.r1 },
                         .disp = -page_size,
                     }) },
                 });
                 try lower.emit(.none, .@"test", &.{
-                    .{ .mem = Memory.sib(.dword, .{
+                    .{ .mem = Memory.initSib(.dword, .{
                         .base = .{ .reg = inst.data.ri.r1 },
                     }) },
                     .{ .reg = inst.data.ri.r1.to32() },
@@ -220,7 +220,7 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                 var offset = page_size;
                 while (offset < @as(i32, @bitCast(inst.data.ri.i))) : (offset += page_size) {
                     try lower.emit(.none, .@"test", &.{
-                        .{ .mem = Memory.sib(.dword, .{
+                        .{ .mem = Memory.initSib(.dword, .{
                             .base = .{ .reg = inst.data.ri.r1 },
                             .disp = -offset,
                         }) },
@@ -246,7 +246,7 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
             },
             .pseudo_probe_adjust_loop_rr => {
                 try lower.emit(.none, .@"test", &.{
-                    .{ .mem = Memory.sib(.dword, .{
+                    .{ .mem = Memory.initSib(.dword, .{
                         .base = .{ .reg = inst.data.rr.r1 },
                         .scale_index = .{ .scale = 1, .index = inst.data.rr.r2 },
                         .disp = -page_size,
@@ -417,7 +417,7 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                                 lower.result_insts[lower.result_insts_len] =
                                     try Instruction.new(.none, .lea, &[_]Operand{
                                     .{ .reg = .rdi },
-                                    .{ .mem = Memory.rip(mem_op.sib.ptr_size, 0) },
+                                    .{ .mem = Memory.initRip(mem_op.sib.ptr_size, 0) },
                                 });
                                 lower.result_insts_len += 1;
                                 _ = lower.reloc(.{
@@ -430,7 +430,7 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                                 lower.result_insts_len += 1;
                                 _ = lower.reloc(.{ .linker_dtpoff = sym_index }, 0);
                                 emit_mnemonic = .lea;
-                                break :op .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{
+                                break :op .{ .mem = Memory.initSib(mem_op.sib.ptr_size, .{
                                     .base = .{ .reg = .rax },
                                     .disp = std.math.minInt(i32),
                                 }) };
@@ -439,12 +439,12 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                                 lower.result_insts[lower.result_insts_len] =
                                     try Instruction.new(.none, .mov, &[_]Operand{
                                     .{ .reg = .rax },
-                                    .{ .mem = Memory.sib(.qword, .{ .base = .{ .reg = .fs } }) },
+                                    .{ .mem = Memory.initSib(.qword, .{ .base = .{ .reg = .fs } }) },
                                 });
                                 lower.result_insts_len += 1;
                                 _ = lower.reloc(.{ .linker_reloc = sym_index }, 0);
                                 emit_mnemonic = .lea;
-                                break :op .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{
+                                break :op .{ .mem = Memory.initSib(mem_op.sib.ptr_size, .{
                                     .base = .{ .reg = .rax },
                                     .disp = std.math.minInt(i32),
                                 }) };
@@ -455,7 +455,7 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                         if (lower.pic) switch (mnemonic) {
                             .lea => {
                                 if (elf_sym.flags.is_extern_ptr) emit_mnemonic = .mov;
-                                break :op .{ .mem = Memory.rip(mem_op.sib.ptr_size, 0) };
+                                break :op .{ .mem = Memory.initRip(mem_op.sib.ptr_size, 0) };
                             },
                             .mov => {
                                 if (elf_sym.flags.is_extern_ptr) {
@@ -463,25 +463,25 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                                     lower.result_insts[lower.result_insts_len] =
                                         try Instruction.new(.none, .mov, &[_]Operand{
                                         .{ .reg = reg.to64() },
-                                        .{ .mem = Memory.rip(.qword, 0) },
+                                        .{ .mem = Memory.initRip(.qword, 0) },
                                     });
                                     lower.result_insts_len += 1;
-                                    break :op .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{ .base = .{
+                                    break :op .{ .mem = Memory.initSib(mem_op.sib.ptr_size, .{ .base = .{
                                         .reg = reg.to64(),
                                     } }) };
                                 }
-                                break :op .{ .mem = Memory.rip(mem_op.sib.ptr_size, 0) };
+                                break :op .{ .mem = Memory.initRip(mem_op.sib.ptr_size, 0) };
                             },
                             else => unreachable,
                         } else switch (mnemonic) {
-                            .call => break :op .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{
+                            .call => break :op .{ .mem = Memory.initSib(mem_op.sib.ptr_size, .{
                                 .base = .{ .reg = .ds },
                             }) },
                             .lea => {
                                 emit_mnemonic = .mov;
                                 break :op .{ .imm = Immediate.s(0) };
                             },
-                            .mov => break :op .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{
+                            .mov => break :op .{ .mem = Memory.initSib(mem_op.sib.ptr_size, .{
                                 .base = .{ .reg = .ds },
                             }) },
                             else => unreachable,
@@ -495,12 +495,12 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                             lower.result_insts[lower.result_insts_len] =
                                 try Instruction.new(.none, .mov, &[_]Operand{
                                 .{ .reg = .rdi },
-                                .{ .mem = Memory.rip(mem_op.sib.ptr_size, 0) },
+                                .{ .mem = Memory.initRip(mem_op.sib.ptr_size, 0) },
                             });
                             lower.result_insts_len += 1;
                             lower.result_insts[lower.result_insts_len] =
                                 try Instruction.new(.none, .call, &[_]Operand{
-                                .{ .mem = Memory.sib(.qword, .{ .base = .{ .reg = .rdi } }) },
+                                .{ .mem = Memory.initSib(.qword, .{ .base = .{ .reg = .rdi } }) },
                             });
                             lower.result_insts_len += 1;
                             emit_mnemonic = .mov;
@@ -511,7 +511,7 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                         break :op switch (mnemonic) {
                             .lea => {
                                 if (macho_sym.flags.is_extern_ptr) emit_mnemonic = .mov;
-                                break :op .{ .mem = Memory.rip(mem_op.sib.ptr_size, 0) };
+                                break :op .{ .mem = Memory.initRip(mem_op.sib.ptr_size, 0) };
                             },
                             .mov => {
                                 if (macho_sym.flags.is_extern_ptr) {
@@ -519,14 +519,14 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                                     lower.result_insts[lower.result_insts_len] =
                                         try Instruction.new(.none, .mov, &[_]Operand{
                                         .{ .reg = reg.to64() },
-                                        .{ .mem = Memory.rip(.qword, 0) },
+                                        .{ .mem = Memory.initRip(.qword, 0) },
                                     });
                                     lower.result_insts_len += 1;
-                                    break :op .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{ .base = .{
+                                    break :op .{ .mem = Memory.initSib(mem_op.sib.ptr_size, .{ .base = .{
                                         .reg = reg.to64(),
                                     } }) };
                                 }
-                                break :op .{ .mem = Memory.rip(mem_op.sib.ptr_size, 0) };
+                                break :op .{ .mem = Memory.initRip(mem_op.sib.ptr_size, 0) };
                             },
                             else => unreachable,
                         };
@@ -571,7 +571,7 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
         @setEvalBranchQuota(2_000);
 
         comptime var max_len = 0;
-        inline for (@typeInfo(Mnemonic).Enum.fields) |field| max_len = @max(field.name.len, max_len);
+        inline for (@typeInfo(Mnemonic).@"enum".fields) |field| max_len = @max(field.name.len, max_len);
         var buf: [max_len]u8 = undefined;
 
         const fixes_name = @tagName(fixes);
@@ -701,7 +701,7 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
             }, extra.off);
             break :ops &.{
                 .{ .reg = reg },
-                .{ .mem = Memory.rip(Memory.PtrSize.fromBitSize(reg.bitSize()), 0) },
+                .{ .mem = Memory.initRip(Memory.PtrSize.fromBitSize(reg.bitSize()), 0) },
             };
         },
         else => return lower.fail("TODO lower {s} {s}", .{ @tagName(inst.tag), @tagName(inst.ops) }),

@@ -49,6 +49,12 @@ pub fn requiresPIC(target: std.Target, linking_libc: bool) bool {
         (target.abi == .ohos and target.cpu.arch == .aarch64);
 }
 
+pub fn picLevel(target: std.Target) u32 {
+    // MIPS always uses PIC level 1; other platforms vary in their default PIC levels, but they
+    // support both level 1 and 2, in which case we prefer 2.
+    return if (target.cpu.arch.isMIPS()) 1 else 2;
+}
+
 /// This is not whether the target supports Position Independent Code, but whether the -fPIC
 /// C compiler argument is valid to Clang.
 pub fn supports_fpic(target: std.Target) bool {
@@ -375,6 +381,14 @@ pub fn addrSpaceCastIsValid(
 }
 
 pub fn llvmMachineAbi(target: std.Target) ?[:0]const u8 {
+    // LLD does not support ELFv1. Rather than having LLVM produce ELFv1 code and then linking it
+    // into a broken ELFv2 binary, just force LLVM to use ELFv2 as well. This will break when glibc
+    // is linked as glibc only supports ELFv2 for little endian, but there's nothing we can do about
+    // that. With this hack, `powerpc64-linux-none` will at least work.
+    //
+    // Once our self-hosted linker can handle both ABIs, this hack should go away.
+    if (target.cpu.arch == .powerpc64) return "elfv2";
+
     const have_float = switch (target.abi) {
         .gnueabihf, .musleabihf, .eabihf => true,
         else => false,
@@ -403,7 +417,6 @@ pub fn llvmMachineAbi(target: std.Target) ?[:0]const u8 {
                 return "ilp32";
             }
         },
-        //TODO add ARM, Mips, and PowerPC
         else => return null,
     }
 }
