@@ -26,6 +26,7 @@ const wasm_c_abi = @import("../arch/wasm/abi.zig");
 const aarch64_c_abi = @import("../arch/aarch64/abi.zig");
 const arm_c_abi = @import("../arch/arm/abi.zig");
 const riscv_c_abi = @import("../arch/riscv64/abi.zig");
+const mips_c_abi = @import("../arch/mips/abi.zig");
 const dev = @import("../dev.zig");
 
 const target_util = @import("../target.zig");
@@ -11681,7 +11682,10 @@ fn firstParamSRet(fn_info: InternPool.Key.FuncType, zcu: *Zcu, target: std.Targe
     return switch (fn_info.cc) {
         .Unspecified, .Inline => returnTypeByRef(zcu, target, return_type),
         .C => switch (target.cpu.arch) {
-            .mips, .mipsel => false,
+            .mips, .mipsel => switch (mips_c_abi.classifyType(return_type, zcu, .ret)) {
+                .memory, .i32_array => true,
+                .byval => false,
+            },
             .x86 => isByRef(return_type, zcu),
             .x86_64 => switch (target.os.tag) {
                 .windows => x86_64_abi.classifyWindows(return_type, zcu) == .memory,
@@ -11732,7 +11736,12 @@ fn lowerFnRetTy(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.Error!Bu
 
         .C => {
             switch (target.cpu.arch) {
-                .mips, .mipsel => return o.lowerType(return_type),
+                .mips, .mipsel => {
+                    switch (mips_c_abi.classifyType(return_type, zcu, .ret)) {
+                        .memory, .i32_array => return .void,
+                        .byval => return o.lowerType(return_type),
+                    }
+                },
                 .x86 => return if (isByRef(return_type, zcu)) .void else o.lowerType(return_type),
                 .x86_64 => switch (target.os.tag) {
                     .windows => return lowerWin64FnRetTy(o, fn_info),
@@ -11978,7 +11987,14 @@ const ParamTypeIterator = struct {
                 .mips, .mipsel => {
                     it.zig_index += 1;
                     it.llvm_index += 1;
-                    return .byval;
+                    switch (mips_c_abi.classifyType(ty, zcu, .arg)) {
+                        .memory => {
+                            it.byval_attr = true;
+                            return .byref;
+                        },
+                        .byval => return .byval,
+                        .i32_array => |size| return Lowering{ .i32_array = size },
+                    }
                 },
                 .x86_64 => switch (target.os.tag) {
                     .windows => return it.nextWin64(ty),
