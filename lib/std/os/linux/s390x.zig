@@ -106,37 +106,37 @@ pub fn clone() callconv(.Naked) usize {
         \\# return tid;
         \\
         \\# preserve call-saved register used as syscall arg
-        \\stg  %r6, 48(%r15)
+        \\stg  %%r6, 48(%%r15)
         \\
         \\# create initial stack frame for new thread
-        \\nill %r3, 0xfff8
-        \\aghi %r3, -160
-        \\lghi %r0, 0
-        \\stg  %r0, 0(%r3)
+        \\nill %%r3, 0xfff8
+        \\aghi %%r3, -160
+        \\lghi %%r0, 0
+        \\stg  %%r0, 0(%%r3)
         \\
         \\# save fn and arg to child stack
-        \\stg  %r2,  8(%r3)
-        \\stg  %r5, 16(%r3)
+        \\stg  %%r2,  8(%%r3)
+        \\stg  %%r5, 16(%%r3)
         \\
         \\# shuffle args into correct registers and call SYS_clone
-        \\lgr  %r2, %r3
-        \\lgr  %r3, %r4
-        \\lgr  %r4, %r6
-        \\lg   %r5, 168(%r15)
-        \\lg   %r6, 160(%r15)
+        \\lgr  %%r2, %%r3
+        \\lgr  %%r3, %%r4
+        \\lgr  %%r4, %%r6
+        \\lg   %%r5, 168(%%r15)
+        \\lg   %%r6, 160(%%r15)
         \\svc  120
         \\
         \\# restore call-saved register
-        \\lg   %r6, 48(%r15)
+        \\lg   %%r6, 48(%%r15)
         \\
         \\# if error or if we're the parent, return
-        \\ltgr %r2, %r2
-        \\bnzr %r14
+        \\ltgr %%r2, %%r2
+        \\bnzr %%r14
         \\
         \\# we're the child. call fn(arg)
-        \\lg   %r1,  8(%r15)
-        \\lg   %r2, 16(%r15)
-        \\basr %r14, %r1
+        \\lg   %%r1,  8(%%r15)
+        \\lg   %%r2, 16(%%r15)
+        \\basr %%r14, %%r1
         \\
         \\# call SYS_exit. exit code is already in r2 from fn return value
         \\svc  1
