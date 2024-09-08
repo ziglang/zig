@@ -1,15 +1,21 @@
-// from #7370 - this used to not compile on stage1
-
-export fn foo() void {
-    var x: bool = false;
-    _ = &x;
-    const v = // : usize here fixes the problem
-        while (x) : ({})
-    { // for loop has the same problem
+export fn test_a() void {
+    var x: bool = undefined;
+    x = false; // bug only works on var
+    const a = while (x) : ({}) {
         if (x) continue;
         break @as(usize, 0);
     } else unreachable;
-    _ = &v;
+    _ = a;
+}
+
+export fn test_b() void {
+    var x: bool = undefined;
+    x = false; // bug only works on var
+    const a = for (&[1]u8{0}) |_| {
+        if (!x) continue;
+        break @as(usize, 0);
+    } else unreachable;
+    _ = a;
 }
 
 // compile
