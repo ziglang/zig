@@ -47,6 +47,7 @@ const arch_bits = switch (native_arch) {
     .mips64, .mips64el => @import("linux/mips64.zig"),
     .powerpc, .powerpcle => @import("linux/powerpc.zig"),
     .powerpc64, .powerpc64le => @import("linux/powerpc64.zig"),
+    .s390x => @import("linux/s390x.zig"),
     else => struct {
         pub const ucontext_t = void;
         pub const getcontext = {};
@@ -276,6 +277,29 @@ pub const MAP = switch (native_arch) {
         UNINITIALIZED: bool = false,
         _: u5 = 0,
     },
+    .s390x => packed struct(u32) {
+        TYPE: MAP_TYPE,
+        FIXED: bool = false,
+        ANONYMOUS: bool = false,
+        _4: u1 = 0,
+        _5: u1 = 0,
+        GROWSDOWN: bool = false,
+        _7: u1 = 0,
+        _8: u1 = 0,
+        DENYWRITE: bool = false,
+        EXECUTABLE: bool = false,
+        LOCKED: bool = false,
+        NORESERVE: bool = false,
+        POPULATE: bool = false,
+        NONBLOCK: bool = false,
+        STACK: bool = false,
+        HUGETLB: bool = false,
+        SYNC: bool = false,
+        FIXED_NOREPLACE: bool = false,
+        _19: u5 = 0,
+        UNINITIALIZED: bool = false,
+        _: u5 = 0,
+    },
     else => @compileError("missing std.os.linux.MAP constants for this architecture"),
 };
 
@@ -416,6 +440,32 @@ pub const O = switch (native_arch) {
         PATH: bool = false,
         TMPFILE: bool = false,
         _: u9 = 0,
+    },
+    .s390x => packed struct(u32) {
+        ACCMODE: ACCMODE = .RDONLY,
+        _2: u4 = 0,
+        CREAT: bool = false,
+        EXCL: bool = false,
+        NOCTTY: bool = false,
+        TRUNC: bool = false,
+        APPEND: bool = false,
+        NONBLOCK: bool = false,
+        DSYNC: bool = false,
+        ASYNC: bool = false,
+        DIRECT: bool = false,
+        LARGEFILE: bool = false,
+        DIRECTORY: bool = false,
+        NOFOLLOW: bool = false,
+        NOATIME: bool = false,
+        CLOEXEC: bool = false,
+        _17: u1 = 0,
+        PATH: bool = false,
+        _: u10 = 0,
+
+        // #define O_RSYNC    04010000
+        // #define O_SYNC     04010000
+        // #define O_TMPFILE 020200000
+        // #define O_NDELAY O_NONBLOCK
     },
     else => @compileError("missing std.os.linux.O constants for this architecture"),
 };
