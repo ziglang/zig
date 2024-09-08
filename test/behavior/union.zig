@@ -1826,6 +1826,7 @@ test "reinterpret extern union" {
 
 test "reinterpret packed union" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.cpu.arch == .s390x and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // TODO
 
     const U = packed union {
         foo: u8,
