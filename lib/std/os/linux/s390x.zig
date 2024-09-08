@@ -208,7 +208,7 @@ pub const msghdr = void;
 /// TODO
 pub const msghdr_const = void;
 
-// // The `stat` definition used by the Linux kernel.
+// The `stat` definition used by the Linux kernel.
 pub const Stat = extern struct {
     dev: dev_t,
     ino: ino_t,
