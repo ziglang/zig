@@ -1100,3 +1100,17 @@ test "return error union with i65" {
 fn add(x: i65, y: i65) anyerror!i65 {
     return x + y;
 }
+
+test "error cast into IES coerces" {
+    const S = struct {
+        fn a() !void {
+            _ = try @as(@typeInfo(@TypeOf(a)).@"fn".return_type.?, @errorCast(error.Foo));
+        }
+    };
+
+    comptime {
+        const ret_ty = @typeInfo(@TypeOf(S.a)).@"fn".return_type.?;
+        const err_set = @typeInfo(ret_ty).error_union.error_set;
+        assert(@Type(@typeInfo(err_set)) == error{Foo});
+    }
+}
