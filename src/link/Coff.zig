@@ -1163,8 +1163,8 @@ fn lowerConst(
     try self.setSymbolName(sym, name);
     sym.section_number = @as(coff.SectionNumber, @enumFromInt(sect_id + 1));
 
-    const res = try codegen.generateSymbol(&self.base, pt, src_loc, val, &code_buffer, .none, .{
-        .parent_atom_index = self.getAtom(atom_index).getSymbolIndex().?,
+    const res = try codegen.generateSymbol(&self.base, pt, src_loc, val, &code_buffer, .{
+        .atom_index = self.getAtom(atom_index).getSymbolIndex().?,
     });
     const code = switch (res) {
         .ok => code_buffer.items,
@@ -1235,8 +1235,7 @@ pub fn updateNav(
             zcu.navSrcLoc(nav_index),
             nav_init,
             &code_buffer,
-            .none,
-            .{ .parent_atom_index = atom.getSymbolIndex().? },
+            .{ .atom_index = atom.getSymbolIndex().? },
         );
         const code = switch (res) {
             .ok => code_buffer.items,
@@ -1284,7 +1283,7 @@ fn updateLazySymbolAtom(
         &required_alignment,
         &code_buffer,
         .none,
-        .{ .parent_atom_index = local_sym_index },
+        .{ .atom_index = local_sym_index },
     );
     const code = switch (res) {
         .ok => code_buffer.items,
@@ -1823,7 +1822,10 @@ pub fn getNavVAddr(
         .@"extern" => |@"extern"| try self.getGlobalSymbol(nav.name.toSlice(ip), @"extern".lib_name.toSlice(ip)),
         else => self.getAtom(try self.getOrCreateAtomForNav(nav_index)).getSymbolIndex().?,
     };
-    const atom_index = self.getAtomIndexForSymbol(.{ .sym_index = reloc_info.parent_atom_index, .file = null }).?;
+    const atom_index = self.getAtomIndexForSymbol(.{
+        .sym_index = reloc_info.parent.atom_index,
+        .file = null,
+    }).?;
     const target = SymbolWithLoc{ .sym_index = sym_index, .file = null };
     try Atom.addRelocation(self, atom_index, .{
         .type = .direct,
@@ -1901,7 +1903,10 @@ pub fn getUavVAddr(
 
     const this_atom_index = self.uavs.get(uav).?.atom;
     const sym_index = self.getAtom(this_atom_index).getSymbolIndex().?;
-    const atom_index = self.getAtomIndexForSymbol(.{ .sym_index = reloc_info.parent_atom_index, .file = null }).?;
+    const atom_index = self.getAtomIndexForSymbol(.{
+        .sym_index = reloc_info.parent.atom_index,
+        .file = null,
+    }).?;
     const target = SymbolWithLoc{ .sym_index = sym_index, .file = null };
     try Atom.addRelocation(self, atom_index, .{
         .type = .direct,

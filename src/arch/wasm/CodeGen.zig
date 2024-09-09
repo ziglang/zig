@@ -648,7 +648,7 @@ block_depth: u32 = 0,
 air: Air,
 liveness: Liveness,
 gpa: mem.Allocator,
-debug_output: codegen.DebugInfoOutput,
+debug_output: link.File.DebugInfoOutput,
 func_index: InternPool.Index,
 /// Contains a list of current branches.
 /// When we return from a branch, the branch will be popped from this list,
@@ -1211,7 +1211,7 @@ pub fn generate(
     air: Air,
     liveness: Liveness,
     code: *std.ArrayList(u8),
-    debug_output: codegen.DebugInfoOutput,
+    debug_output: link.File.DebugInfoOutput,
 ) codegen.CodeGenError!codegen.Result {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;

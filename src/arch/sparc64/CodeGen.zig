@@ -22,7 +22,6 @@ const Liveness = @import("../../Liveness.zig");
 const Type = @import("../../Type.zig");
 const CodeGenError = codegen.CodeGenError;
 const Result = @import("../../codegen.zig").Result;
-const DebugInfoOutput = @import("../../codegen.zig").DebugInfoOutput;
 const Endian = std.builtin.Endian;
 const Alignment = InternPool.Alignment;
 
@@ -57,7 +56,7 @@ bin_file: *link.File,
 target: *const std.Target,
 func_index: InternPool.Index,
 code: *std.ArrayList(u8),
-debug_output: DebugInfoOutput,
+debug_output: link.File.DebugInfoOutput,
 err_msg: ?*ErrorMsg,
 args: []MCValue,
 ret_mcv: MCValue,
@@ -268,7 +267,7 @@ pub fn generate(
     air: Air,
     liveness: Liveness,
     code: *std.ArrayList(u8),
-    debug_output: DebugInfoOutput,
+    debug_output: link.File.DebugInfoOutput,
 ) CodeGenError!Result {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;

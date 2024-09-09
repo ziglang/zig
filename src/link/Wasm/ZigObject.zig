@@ -277,8 +277,7 @@ pub fn updateNav(
             zcu.navSrcLoc(nav_index),
             nav_init,
             &code_writer,
-            .none,
-            .{ .parent_atom_index = @intFromEnum(atom.sym_index) },
+            .{ .atom_index = @intFromEnum(atom.sym_index) },
         );
 
         const code = switch (res) {
@@ -520,10 +519,7 @@ fn lowerConst(
             src_loc,
             val,
             &value_bytes,
-            .none,
-            .{
-                .parent_atom_index = @intFromEnum(atom.sym_index),
-            },
+            .{ .atom_index = @intFromEnum(atom.sym_index) },
         );
         break :code switch (result) {
             .ok => value_bytes.items,
@@ -762,8 +758,11 @@ pub fn getNavVAddr(
         else => {},
     }
 
-    std.debug.assert(reloc_info.parent_atom_index != 0);
-    const atom_index = wasm_file.symbol_atom.get(.{ .file = zig_object.index, .index = @enumFromInt(reloc_info.parent_atom_index) }).?;
+    std.debug.assert(reloc_info.parent.atom_index != 0);
+    const atom_index = wasm_file.symbol_atom.get(.{
+        .file = zig_object.index,
+        .index = @enumFromInt(reloc_info.parent.atom_index),
+    }).?;
     const atom = wasm_file.getAtomPtr(atom_index);
     const is_wasm32 = target.cpu.arch == .wasm32;
     if (ip.isFunctionType(ip.getNav(nav_index).typeOf(ip))) {
@@ -800,7 +799,10 @@ pub fn getUavVAddr(
     const atom_index = zig_object.uavs.get(uav).?;
     const target_symbol_index = @intFromEnum(wasm_file.getAtom(atom_index).sym_index);
 
-    const parent_atom_index = wasm_file.symbol_atom.get(.{ .file = zig_object.index, .index = @enumFromInt(reloc_info.parent_atom_index) }).?;
+    const parent_atom_index = wasm_file.symbol_atom.get(.{
+        .file = zig_object.index,
+        .index = @enumFromInt(reloc_info.parent.atom_index),
+    }).?;
     const parent_atom = wasm_file.getAtomPtr(parent_atom_index);
     const is_wasm32 = target.cpu.arch == .wasm32;
     const zcu = wasm_file.base.comp.zcu.?;
