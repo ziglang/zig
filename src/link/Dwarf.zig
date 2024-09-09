@@ -2576,7 +2576,7 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
     const nav_gop = try dwarf.navs.getOrPut(dwarf.gpa, nav_index);
     errdefer _ = dwarf.navs.pop();
 
-    const tag: enum { done, decl_alias, decl_const } = switch (ip.indexToKey(nav_val.toIntern())) {
+    const tag: enum { done, decl_alias, decl_var, decl_const } = switch (ip.indexToKey(nav_val.toIntern())) {
         .int_type,
         .ptr_type,
         .array_type,
@@ -2895,7 +2895,7 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
         .aggregate,
         .un,
         => .decl_const,
-        .variable => unreachable,
+        .variable => .decl_var,
         .func => |func| tag: {
             if (nav_gop.found_existing) {
                 const unit_ptr = dwarf.debug_info.section.getUnit(wip_nav.unit);
@@ -2965,6 +2965,23 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
             try diw.writeByte(accessibility);
             try wip_nav.strp(nav.name.toSlice(ip));
             try wip_nav.refType(nav_val.toType());
+        },
+        .decl_var => {
+            const diw = wip_nav.debug_info.writer(dwarf.gpa);
+            try wip_nav.abbrevCode(.decl_var);
+            try wip_nav.refType(Type.fromInterned(parent_type));
+            assert(wip_nav.debug_info.items.len == DebugInfo.declEntryLineOff(dwarf));
+            try diw.writeInt(u32, @intCast(loc.line + 1), dwarf.endian);
+            try uleb128(diw, loc.column + 1);
+            try diw.writeByte(accessibility);
+            try wip_nav.strp(nav.name.toSlice(ip));
+            try wip_nav.strp(nav.fqn.toSlice(ip));
+            const nav_ty = nav_val.typeOf(zcu);
+            try wip_nav.refType(nav_ty);
+            try wip_nav.blockValue(nav_src_loc, nav_val);
+            try uleb128(diw, nav.status.resolved.alignment.toByteUnits() orelse
+                nav_ty.abiAlignment(zcu).toByteUnits().?);
+            try diw.writeByte(@intFromBool(false));
         },
         .decl_const => {
             const diw = wip_nav.debug_info.writer(dwarf.gpa);
