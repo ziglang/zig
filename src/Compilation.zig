@@ -5638,7 +5638,7 @@ pub fn addCCArgs(
                 try argv.append("-fno-unwind-tables");
             }
         },
-        .shared_library, .ll, .bc, .unknown, .static_library, .object, .def, .zig, .res, .manifest => {},
+        .shared_library, .ll, .bc, .unknown, .static_library, .object, .def, .zig, .res, .manifest, .linker_script => {},
         .assembly, .assembly_with_cpp => {
             if (ext == .assembly_with_cpp) {
                 const c_headers_dir = try std.fs.path.join(arena, &[_][]const u8{ comp.zig_lib_directory.path.?, "include" });
@@ -5884,6 +5884,7 @@ pub const FileExt = enum {
     rc,
     res,
     manifest,
+    linker_script,
     unknown,
 
     pub fn clangSupportsDiagnostics(ext: FileExt) bool {
@@ -5900,6 +5901,7 @@ pub const FileExt = enum {
             .rc,
             .res,
             .manifest,
+            .linker_script,
             .unknown,
             => false,
         };
@@ -5921,6 +5923,7 @@ pub const FileExt = enum {
             .rc,
             .res,
             .manifest,
+            .linker_script,
             .unknown,
             => false,
         };
@@ -5949,6 +5952,7 @@ pub const FileExt = enum {
             .rc => ".rc",
             .res => ".res",
             .manifest => ".manifest",
+            .linker_script => ".ld",
             .unknown => "",
         };
     }
@@ -6010,6 +6014,10 @@ pub fn hasSharedLibraryExt(filename: []const u8) bool {
     return true;
 }
 
+pub fn hasLinkerScriptExt(filename: []const u8) bool {
+    return mem.endsWith(u8, filename, ".ld") or mem.endsWith(u8, filename, ".lds");
+}
+
 pub fn classifyFileExt(filename: []const u8) FileExt {
     if (hasCExt(filename)) {
         return .c;
@@ -6047,6 +6055,8 @@ pub fn classifyFileExt(filename: []const u8) FileExt {
         return .res;
     } else if (std.ascii.endsWithIgnoreCase(filename, ".manifest")) {
         return .manifest;
+    } else if (hasLinkerScriptExt(filename)) {
+        return .linker_script;
     } else {
         return .unknown;
     }
