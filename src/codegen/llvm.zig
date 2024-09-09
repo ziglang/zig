@@ -3537,22 +3537,10 @@ pub const Object = struct {
                         return enum_tag_ty;
                     }
 
-                    const aligned_field_ty = Type.fromInterned(union_obj.field_types.get(ip)[layout.most_aligned_field]);
-                    const aligned_field_llvm_ty = try o.lowerType(aligned_field_ty);
-
-                    const payload_ty = ty: {
-                        if (layout.most_aligned_field_size == layout.payload_size) {
-                            break :ty aligned_field_llvm_ty;
-                        }
-                        const padding_len = if (layout.tag_size == 0)
-                            layout.abi_size - layout.most_aligned_field_size
-                        else
-                            layout.payload_size - layout.most_aligned_field_size;
-                        break :ty try o.builder.structType(.@"packed", &.{
-                            aligned_field_llvm_ty,
-                            try o.builder.arrayType(padding_len, .i8),
-                        });
-                    };
+                    const payload_ty = try o.builder.arrayType(
+                        if (layout.tag_size == 0) layout.abi_size else layout.payload_size,
+                        .i8,
+                    );
 
                     if (layout.tag_size == 0) {
                         const ty = try o.builder.opaqueType(try o.builder.string(t.containerTypeName(ip).toSlice(ip)));
@@ -4271,7 +4259,12 @@ pub const Object = struct {
                 const union_obj = zcu.typeToUnion(ty).?;
                 const container_layout = union_obj.flagsUnordered(ip).layout;
 
-                var need_unnamed = false;
+                // LLVM does not necessarily support bitcasting our payload struct to the true union
+                // payload type (represented as an opaque byte array). Instead, we lower the payload
+                // as an unnamed struct, and every reference to the global must pointer cast to the
+                // expected type before access. The only exception is packed unions, which have early
+                // returns paths below.
+
                 const payload = if (un.tag != .none) p: {
                     const field_index = zcu.unionTagFieldIndex(union_obj, Value.fromInterned(un.tag)).?;
                     const field_ty = Type.fromInterned(union_obj.field_types.get(ip)[field_index]);
@@ -4279,15 +4272,8 @@ pub const Object = struct {
                         if (!field_ty.hasRuntimeBits(zcu)) return o.builder.intConst(union_ty, 0);
                         const bits = ty.bitSize(zcu);
                         const llvm_int_ty = try o.builder.intType(@intCast(bits));
-
                         return o.lowerValueToInt(llvm_int_ty, arg_val);
                     }
-
-                    // Sometimes we must make an unnamed struct because LLVM does
-                    // not support bitcasting our payload struct to the true union payload type.
-                    // Instead we use an unnamed struct and every reference to the global
-                    // must pointer cast to the expected type before accessing the union.
-                    need_unnamed = layout.most_aligned_field != field_index;
 
                     if (!field_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
                         const padding_len = layout.payload_size;
@@ -4295,9 +4281,6 @@ pub const Object = struct {
                     }
                     const payload = try o.lowerValue(un.val);
                     const payload_ty = payload.typeOf(&o.builder);
-                    if (payload_ty != union_ty.structFields(&o.builder)[
-                        @intFromBool(layout.tag_align.compare(.gte, layout.payload_align))
-                    ]) need_unnamed = true;
                     const field_size = field_ty.abiSize(zcu);
                     if (field_size == layout.payload_size) break :p payload;
                     const padding_len = layout.payload_size - field_size;
@@ -4311,20 +4294,16 @@ pub const Object = struct {
                     if (container_layout == .@"packed") {
                         const bits = ty.bitSize(zcu);
                         const llvm_int_ty = try o.builder.intType(@intCast(bits));
-
                         return o.lowerValueToInt(llvm_int_ty, arg_val);
                     }
-
-                    const union_val = try o.lowerValue(un.val);
-                    need_unnamed = true;
-                    break :p union_val;
+                    break :p try o.lowerValue(un.val);
                 };
 
                 const payload_ty = payload.typeOf(&o.builder);
-                if (layout.tag_size == 0) return o.builder.structConst(if (need_unnamed)
-                    try o.builder.structType(union_ty.structKind(&o.builder), &.{payload_ty})
-                else
-                    union_ty, &.{payload});
+                if (layout.tag_size == 0) return o.builder.structConst(
+                    try o.builder.structType(union_ty.structKind(&o.builder), &.{payload_ty}),
+                    &.{payload},
+                );
                 const tag = try o.lowerValue(un.tag);
                 const tag_ty = tag.typeOf(&o.builder);
                 var fields: [3]Builder.Type = undefined;
@@ -4342,10 +4321,10 @@ pub const Object = struct {
                     vals[2] = try o.builder.undefConst(fields[2]);
                     len = 3;
                 }
-                return o.builder.structConst(if (need_unnamed)
-                    try o.builder.structType(union_ty.structKind(&o.builder), fields[0..len])
-                else
-                    union_ty, vals[0..len]);
+                return o.builder.structConst(
+                    try o.builder.structType(union_ty.structKind(&o.builder), fields[0..len]),
+                    vals[0..len],
+                );
             },
             .memoized_call => unreachable,
         };
