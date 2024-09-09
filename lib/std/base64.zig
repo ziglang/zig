@@ -99,7 +99,7 @@ pub const Base64Encoder = struct {
         }
     }
 
-    // dest must be compatible with std.io.Writer's writeAll interface
+    /// `dest` must be compatible with `std.io.Writer`'s `writeAll` interface.
     pub fn encodeWriter(encoder: *const Base64Encoder, dest: anytype, source: []const u8) !void {
         var chunker = window(u8, source, 3, 3);
         while (chunker.next()) |chunk| {
@@ -109,19 +109,19 @@ pub const Base64Encoder = struct {
         }
     }
 
-    // destWriter must be compatible with std.io.Writer's writeAll interface
-    // sourceReader must be compatible with std.io.Reader's read interface
-    pub fn encodeFromReaderToWriter(encoder: *const Base64Encoder, destWriter: anytype, sourceReader: anytype) !void {
+    /// `dest_writer` must be compatible with `std.io.Writer`'s `writeAll` interface.
+    /// `source_reader` must be compatible with `std.io.Reader`'s `read` interface.
+    pub fn encodeFromReaderToWriter(encoder: *const Base64Encoder, dest_writer: anytype, source_reader: anytype) !void {
         while (true) {
-            var tempSource: [3]u8 = undefined;
-            const bytesRead = try sourceReader.read(&tempSource);
+            var temp_source: [3]u8 = undefined;
+            const bytesRead = try source_reader.read(&temp_source);
             if (bytesRead == 0) {
                 break;
             }
 
             var temp: [5]u8 = undefined;
-            const s = encoder.encode(&temp, tempSource[0..bytesRead]);
-            try destWriter.writeAll(s);
+            const s = encoder.encode(&temp, temp_source[0..bytesRead]);
+            try dest_writer.writeAll(s);
         }
     }
 
@@ -302,30 +302,30 @@ pub const Base64Decoder = struct {
         }
     }
 
-    // destWriter must be compatible with std.io.Writer's writeAll interface
-    pub fn decodeWriter(decoder: *const Base64Decoder, destWriter: anytype, source: []const u8) !void {
+    /// `dest_writer` must be compatible with `std.io.Writer`'s `writeAll` interface.
+    pub fn decodeWriter(decoder: *const Base64Decoder, dest_writer: anytype, source: []const u8) !void {
         var temp = [_]u8{0} ** 4;
         var chunker = window(u8, source, 4, 4);
         while (chunker.next()) |chunk| {
             const size = try decoder.calcSizeForSlice(chunk);
             try decoder.decode(&temp, chunk);
-            try destWriter.writeAll(temp[0..size]);
+            try dest_writer.writeAll(temp[0..size]);
         }
     }
 
-    // destWriter must be compatible with std.io.Writer's writeAll interface
-    // sourceReader must be compatible with std.io.Reader's read interface
-    pub fn decodeFromReaderToWriter(decoder: *const Base64Decoder, destWriter: anytype, sourceReader: anytype) !void {
+    /// `dest_writer` must be compatible with `std.io.Writer`'s `writeAll` interface.
+    /// `source_reader` must be compatible with `std.io.Reader`'s `read` interface.
+    pub fn decodeFromReaderToWriter(decoder: *const Base64Decoder, dest_writer: anytype, source_reader: anytype) !void {
         var temp = [_]u8{0} ** 3;
-        var tempSource = [_]u8{0} ** 4;
+        var temp_source = [_]u8{0} ** 4;
         while (true) {
-            const bytesRead = try sourceReader.read(&tempSource);
+            const bytesRead = try source_reader.read(&temp_source);
             if (bytesRead == 0) {
                 break;
             }
-            const size = try decoder.calcSizeForSlice(tempSource[0..bytesRead]);
-            try decoder.decode(&temp, tempSource[0..bytesRead]);
-            try destWriter.writeAll(temp[0..size]);
+            const size = try decoder.calcSizeForSlice(temp_source[0..bytesRead]);
+            try decoder.decode(&temp, temp_source[0..bytesRead]);
+            try dest_writer.writeAll(temp[0..size]);
         }
     }
 };
@@ -404,33 +404,33 @@ pub const Base64DecoderWithIgnore = struct {
     /// Returns the number of bytes written to dest.
     pub fn decode(decoder_with_ignore: *const Base64DecoderWithIgnore, dest: []u8, source: []const u8) Error!usize {
         var sourceStream = std.io.fixedBufferStream(source);
-        const sourceReader = sourceStream.reader();
-        var destStream = std.io.fixedBufferStream(dest);
-        const DestStreamType = @TypeOf(destStream);
-        const destWriter = destStream.writer();
-        decoder_with_ignore.decodeFromReaderToWriter(destWriter, sourceReader) catch |err| switch (err) {
+        const source_reader = sourceStream.reader();
+        var dest_stream = std.io.fixedBufferStream(dest);
+        const DestStreamType = @TypeOf(dest_stream);
+        const dest_writer = dest_stream.writer();
+        decoder_with_ignore.decodeFromReaderToWriter(dest_writer, source_reader) catch |err| switch (err) {
             DestStreamType.WriteError.NoSpaceLeft => return error.NoSpaceLeft,
-            WindowWithIgnore(@TypeOf(sourceReader)).Err.EndOfStream => unreachable,
+            WindowWithIgnore(@TypeOf(source_reader)).Err.EndOfStream => unreachable,
             error.InvalidCharacter, error.InvalidPadding => |e| return e,
         };
-        return destStream.pos;
+        return dest_stream.pos;
     }
 
-    // destWriter must be compatible with std.io.Writer's writeAll interface
-    pub fn decodeWriter(decoder_with_ignore: *const Base64DecoderWithIgnore, destWriter: anytype, source: []const u8) !void {
+    /// `dest_writer` must be compatible with `std.io.Writer`'s `writeAll` interface.
+    pub fn decodeWriter(decoder_with_ignore: *const Base64DecoderWithIgnore, dest_writer: anytype, source: []const u8) !void {
         var stream = std.io.fixedBufferStream(source);
         const reader = stream.reader();
-        return decoder_with_ignore.decodeFromReaderToWriter(destWriter, reader);
+        return decoder_with_ignore.decodeFromReaderToWriter(dest_writer, reader);
     }
 
-    // destWriter must be compatible with std.io.Writer's writeAll interface
-    // sourceReader must be compatible with std.io.Reader's readByte interface
-    pub fn decodeFromReaderToWriter(decoder_with_ignore: *const Base64DecoderWithIgnore, destWriter: anytype, sourceReader: anytype) !void {
+    /// `dest_writer` must be compatible with `std.io.Writer`'s `writeAll` interface.
+    /// `source_reader` must be compatible with `std.io.Reader`'s `readByte` interface.
+    pub fn decodeFromReaderToWriter(decoder_with_ignore: *const Base64DecoderWithIgnore, dest_writer: anytype, source_reader: anytype) !void {
         var buffer = [_]u8{0} ** 4;
-        const WindowType = WindowWithIgnore(@TypeOf(sourceReader));
-        var chunker = WindowType.init(sourceReader, decoder_with_ignore);
+        const WindowType = WindowWithIgnore(@TypeOf(source_reader));
+        var chunker = WindowType.init(source_reader, decoder_with_ignore);
         while (chunker.next(&buffer)) |chunk| {
-            try decoder_with_ignore.decoder.decodeWriter(destWriter, chunk);
+            try decoder_with_ignore.decoder.decodeWriter(dest_writer, chunk);
         } else |err| switch (err) {
             WindowType.Err.EndOfStream => return,
             else => return err,
