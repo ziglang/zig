@@ -3207,7 +3207,7 @@ fn anythingBetween(tree: Ast, start_token: Ast.TokenIndex, end_token: Ast.TokenI
 
 fn writeFixingWhitespace(writer: std.ArrayList(u8).Writer, slice: []const u8) Error!void {
     for (slice) |byte| switch (byte) {
-        '\t' => try writer.writeAll(" " ** 4),
+        '\t' => try writer.writeAll(" " ** indent_delta),
         '\r' => {},
         else => try writer.writeByte(byte),
     };
