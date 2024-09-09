@@ -1762,7 +1762,7 @@ pub const WipNav = struct {
     fn blockValue(wip_nav: *WipNav, src_loc: Zcu.LazySrcLoc, val: Value) UpdateError!void {
         const ty = val.typeOf(wip_nav.pt.zcu);
         const diw = wip_nav.debug_info.writer(wip_nav.dwarf.gpa);
-        const bytes = ty.abiSize(wip_nav.pt.zcu);
+        const bytes = if (ty.hasRuntimeBits(wip_nav.pt.zcu)) ty.abiSize(wip_nav.pt.zcu) else 0;
         try uleb128(diw, bytes);
         if (bytes == 0) return;
         var dim = wip_nav.debug_info.toManaged(wip_nav.dwarf.gpa);
