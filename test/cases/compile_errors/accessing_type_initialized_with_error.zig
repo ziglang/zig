@@ -7,4 +7,5 @@ pub fn main() void {
 // error
 // target=native
 // backend=stage2
+//
 // 1:21: error: expected type 'type', found 'error{E}'
