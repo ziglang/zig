@@ -1,5 +1,5 @@
-/* Special .init and .fini section support for 64 bit S/390.
-   Copyright (C) 2001-2024 Free Software Foundation, Inc.
+/* Startup code for ARC.
+   Copyright (C) 2020-2024 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -33,61 +33,58 @@
    License along with the GNU C Library; if not, see
    <https://www.gnu.org/licenses/>.  */
 
-/* crti.S puts a function prologue at the beginning of the .init and
-   .fini sections and defines global symbols for those addresses, so
-   they can be called as functions.  The symbols _init and _fini are
-   magic and cause the linker to emit DT_INIT and DT_FINI.  */
-
-#include <libc-symbols.h>
+#define __ASSEMBLY__ 1
+#include <entry.h>
 #include <sysdep.h>
 
-#ifndef PREINIT_FUNCTION
-# define PREINIT_FUNCTION __gmon_start__
+#ifndef ENTRY_POINT
+# error ENTRY_POINT needs to be defined for ARC
 #endif
 
-#ifndef PREINIT_FUNCTION_WEAK
-# define PREINIT_FUNCTION_WEAK 1
-#endif
+/* When we enter this piece of code, the program stack looks like this:
+        argc            argument counter (integer)
+        argv[0]         program name (pointer)
+        argv[1...N]     program args (pointers)
+        argv[argc-1]    end of args (integer)
+        NULL
+        env[0...N]      environment variables (pointers)
+        NULL.  */
 
-#if PREINIT_FUNCTION_WEAK
-	weak_extern (PREINIT_FUNCTION)
+ENTRY (ENTRY_POINT)
+
+	/* Needed to make gdb backtraces stop here.  */
+	.cfi_label .Ldummy
+	cfi_undefined (blink)
+
+	mov	fp, 0
+	ld_s	r1, [sp]	/* argc.  */
+
+	mov_s	r5, r0		/* rltd_fini.  */
+	add_s	r2, sp, 4	/* argv.  */
+	and	sp, sp, -8
+	mov	r6, sp
+
+	/* __libc_start_main (main, argc, argv, init, fini, rtld_fini, stack_end).  */
+
+	mov_s	r3, 0 		/* Used to be init.  */
+	mov	r4, 0		/* Used to be fini.  */
+
+#ifdef SHARED
+	ld	r0, [pcl, @main@gotpc]
+	bl	__libc_start_main@plt
 #else
-	.hidden PREINIT_FUNCTION
+	mov_s	r0, main
+	bl	__libc_start_main
 #endif
 
-	.section .init,"ax",@progbits
-	.align 4
-	.globl	_init
-	.hidden	_init
-	.type	_init,@function
-_init:
-	stmg	%r6,%r15,48(%r15)
-	lgr	%r1,%r15
-	aghi	%r15,-160
-	stg	%r1,0(%r15)
-	larl	%r12,_GLOBAL_OFFSET_TABLE_
-#if PREINIT_FUNCTION_WEAK
-	/* zig patch: GOTENT -> GOT. revert with llvm 20. */
-	larl	%r1,PREINIT_FUNCTION@GOT
-	lg	%r1,0(%r1)
-	ltgr	%r1,%r1
-	je	1f
-	basr	%r14,%r1
-#else
-	brasl	%r14,PREINIT_FUNCTION
-#endif
-	.align	4,0x07
-1:
+	/* Should never get here.  */
+	flag    1
+END (ENTRY_POINT)
 
-	.section .fini,"ax",@progbits
-	.align 4
-	.globl	_fini
-	.hidden	_fini
-	.type	_fini,@function
-_fini:
-	stmg	%r6,%r15,48(%r15)
-	lg	%r1,120(%r15)
-	aghi	%r15,-160
-	stg	%r1,0(%r15)
-	larl	%r12,_GLOBAL_OFFSET_TABLE_
-	.align	4,0x07
+/* Define a symbol for the first piece of initialized data.  */
+	.data
+	.globl __data_start
+__data_start:
+	.long 0
+	.weak data_start
+	data_start = __data_start

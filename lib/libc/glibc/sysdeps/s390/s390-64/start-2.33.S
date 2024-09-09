@@ -61,7 +61,8 @@
 _start:
 	cfi_startproc
 	/* Mark r14 as undefined in order to stop unwinding here!  */
-	cfi_undefined (r14)
+	/* zig patch: r14 -> %r14. revert with llvm 20. */
+	cfi_undefined (%r14)
 	/* Load argc and argv from stack.  */
 	la	%r4,8(%r15)		# get argv
 	lg	%r3,0(%r15)		# get argc
@@ -85,7 +86,8 @@ _start:
 
 	/* Ok, now branch to the libc main routine.  */
 #ifdef PIC
-	larl	%r2,main@GOTENT		# load pointer to main
+	/* zig patch: GOTENT -> GOT. revert with llvm 20. */
+	larl	%r2,main@GOT		# load pointer to main
 	lg	%r2,0(%r2)
 	brasl	%r14,__libc_start_main@plt
 #else
