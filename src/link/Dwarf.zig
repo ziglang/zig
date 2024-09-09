@@ -2643,7 +2643,14 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
                         try uleb128(diw, nav_val.toType().abiAlignment(zcu).toByteUnits().?);
                         for (0..loaded_struct.field_types.len) |field_index| {
                             const is_comptime = loaded_struct.fieldIsComptime(ip, field_index);
-                            try wip_nav.abbrevCode(if (is_comptime) .struct_field_comptime else .struct_field);
+                            const field_init = loaded_struct.fieldInit(ip, field_index);
+                            assert(!(is_comptime and field_init == .none));
+                            try wip_nav.abbrevCode(if (is_comptime)
+                                .struct_field_comptime
+                            else if (field_init != .none)
+                                .struct_field_default
+                            else
+                                .struct_field);
                             if (loaded_struct.fieldName(ip, field_index).unwrap()) |field_name| try wip_nav.strp(field_name.toSlice(ip)) else {
                                 const field_name = try std.fmt.allocPrint(dwarf.gpa, "{d}", .{field_index});
                                 defer dwarf.gpa.free(field_name);
@@ -2651,14 +2658,12 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
                             }
                             const field_type = Type.fromInterned(loaded_struct.field_types.get(ip)[field_index]);
                             try wip_nav.refType(field_type);
-                            if (is_comptime) try wip_nav.blockValue(
-                                nav_src_loc,
-                                Value.fromInterned(loaded_struct.fieldInit(ip, field_index)),
-                            ) else {
+                            if (!is_comptime) {
                                 try uleb128(diw, loaded_struct.offsets.get(ip)[field_index]);
                                 try uleb128(diw, loaded_struct.fieldAlign(ip, field_index).toByteUnits() orelse
                                     field_type.abiAlignment(zcu).toByteUnits().?);
                             }
+                            if (field_init != .none) try wip_nav.blockValue(nav_src_loc, Value.fromInterned(field_init));
                         }
                         try uleb128(diw, @intFromEnum(AbbrevCode.null));
                     }
@@ -3498,7 +3503,14 @@ pub fn updateContainerType(dwarf: *Dwarf, pt: Zcu.PerThread, type_index: InternP
             try uleb128(diw, ty.abiAlignment(zcu).toByteUnits().?);
             for (0..loaded_struct.field_types.len) |field_index| {
                 const is_comptime = loaded_struct.fieldIsComptime(ip, field_index);
-                try wip_nav.abbrevCode(if (is_comptime) .struct_field_comptime else .struct_field);
+                const field_init = loaded_struct.fieldInit(ip, field_index);
+                assert(!(is_comptime and field_init == .none));
+                try wip_nav.abbrevCode(if (is_comptime)
+                    .struct_field_comptime
+                else if (field_init != .none)
+                    .struct_field_default
+                else
+                    .struct_field);
                 if (loaded_struct.fieldName(ip, field_index).unwrap()) |field_name| try wip_nav.strp(field_name.toSlice(ip)) else {
                     const field_name = try std.fmt.allocPrint(dwarf.gpa, "{d}", .{field_index});
                     defer dwarf.gpa.free(field_name);
@@ -3506,14 +3518,12 @@ pub fn updateContainerType(dwarf: *Dwarf, pt: Zcu.PerThread, type_index: InternP
                 }
                 const field_type = Type.fromInterned(loaded_struct.field_types.get(ip)[field_index]);
                 try wip_nav.refType(field_type);
-                if (is_comptime) try wip_nav.blockValue(
-                    ty_src_loc,
-                    Value.fromInterned(loaded_struct.fieldInit(ip, field_index)),
-                ) else {
+                if (!is_comptime) {
                     try uleb128(diw, loaded_struct.offsets.get(ip)[field_index]);
                     try uleb128(diw, loaded_struct.fieldAlign(ip, field_index).toByteUnits() orelse
                         field_type.abiAlignment(zcu).toByteUnits().?);
                 }
+                if (field_init != .none) try wip_nav.blockValue(ty_src_loc, Value.fromInterned(field_init));
             }
             try uleb128(diw, @intFromEnum(AbbrevCode.null));
         }
@@ -3569,7 +3579,14 @@ pub fn updateContainerType(dwarf: *Dwarf, pt: Zcu.PerThread, type_index: InternP
                             try uleb128(diw, ty.abiAlignment(zcu).toByteUnits().?);
                             for (0..loaded_struct.field_types.len) |field_index| {
                                 const is_comptime = loaded_struct.fieldIsComptime(ip, field_index);
-                                try wip_nav.abbrevCode(if (is_comptime) .struct_field_comptime else .struct_field);
+                                const field_init = loaded_struct.fieldInit(ip, field_index);
+                                assert(!(is_comptime and field_init == .none));
+                                try wip_nav.abbrevCode(if (is_comptime)
+                                    .struct_field_comptime
+                                else if (field_init != .none)
+                                    .struct_field_default
+                                else
+                                    .struct_field);
                                 if (loaded_struct.fieldName(ip, field_index).unwrap()) |field_name| try wip_nav.strp(field_name.toSlice(ip)) else {
                                     const field_name = try std.fmt.allocPrint(dwarf.gpa, "{d}", .{field_index});
                                     defer dwarf.gpa.free(field_name);
@@ -3577,14 +3594,12 @@ pub fn updateContainerType(dwarf: *Dwarf, pt: Zcu.PerThread, type_index: InternP
                                 }
                                 const field_type = Type.fromInterned(loaded_struct.field_types.get(ip)[field_index]);
                                 try wip_nav.refType(field_type);
-                                if (is_comptime) try wip_nav.blockValue(
-                                    ty_src_loc,
-                                    Value.fromInterned(loaded_struct.fieldInit(ip, field_index)),
-                                ) else {
+                                if (!is_comptime) {
                                     try uleb128(diw, loaded_struct.offsets.get(ip)[field_index]);
                                     try uleb128(diw, loaded_struct.fieldAlign(ip, field_index).toByteUnits() orelse
                                         field_type.abiAlignment(zcu).toByteUnits().?);
                                 }
+                                if (field_init != .none) try wip_nav.blockValue(ty_src_loc, Value.fromInterned(field_init));
                             }
                             try uleb128(diw, @intFromEnum(AbbrevCode.null));
                         }
@@ -4165,6 +4180,7 @@ const AbbrevCode = enum {
     big_enum_field,
     generated_field,
     struct_field,
+    struct_field_default,
     struct_field_comptime,
     packed_struct_field,
     untagged_union_field,
@@ -4412,13 +4428,23 @@ const AbbrevCode = enum {
                 .{ .alignment, .udata },
             },
         },
+        .struct_field_default = .{
+            .tag = .member,
+            .attrs = &.{
+                .{ .name, .strp },
+                .{ .type, .ref_addr },
+                .{ .data_member_location, .udata },
+                .{ .alignment, .udata },
+                .{ .default_value, .block },
+            },
+        },
         .struct_field_comptime = .{
             .tag = .member,
             .attrs = &.{
                 .{ .const_expr, .flag_present },
                 .{ .name, .strp },
                 .{ .type, .ref_addr },
-                .{ .default_value, .block },
+                .{ .const_value, .block },
             },
         },
         .packed_struct_field = .{
