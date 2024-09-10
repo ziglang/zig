@@ -28,7 +28,8 @@ fn logOverride(
     f.writer().print(prefix1 ++ prefix2 ++ format ++ "\n", args) catch @panic("failed to write to fuzzer log");
 }
 
-export threadlocal var __sancov_lowest_stack: usize = std.math.maxInt(usize);
+/// Helps determine run uniqueness in the face of recursion.
+export threadlocal var __sancov_lowest_stack: usize = 0;
 
 export fn __sanitizer_cov_trace_const_cmp1(arg1: u8, arg2: u8) void {
     handleCmp(@returnAddress(), arg1, arg2);
@@ -220,7 +221,6 @@ const Fuzzer = struct {
                 .n_runs = 0,
                 .unique_runs = 0,
                 .pcs_len = pcs.len,
-                .lowest_stack = std.math.maxInt(usize),
             };
             f.seen_pcs.appendSliceAssumeCapacity(std.mem.asBytes(&header));
             f.seen_pcs.appendNTimesAssumeCapacity(0, n_bitset_elems * @sizeOf(usize));
@@ -261,8 +261,8 @@ const Fuzzer = struct {
             f.input.appendSliceAssumeCapacity(run.input);
             try f.mutate();
 
-            _ = @atomicRmw(usize, &header.lowest_stack, .Min, __sancov_lowest_stack, .monotonic);
             @memset(f.pc_counters, 0);
+            __sancov_lowest_stack = std.math.maxInt(usize);
             f.coverage.reset();
 
             fuzzer_one(f.input.items.ptr, f.input.items.len);

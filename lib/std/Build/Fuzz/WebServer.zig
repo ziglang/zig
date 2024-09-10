@@ -406,7 +406,6 @@ fn sendCoverageContext(
     const seen_pcs = cov_header.seenBits();
     const n_runs = @atomicLoad(usize, &cov_header.n_runs, .monotonic);
     const unique_runs = @atomicLoad(usize, &cov_header.unique_runs, .monotonic);
-    const lowest_stack = @atomicLoad(usize, &cov_header.lowest_stack, .monotonic);
     if (prev_unique_runs.* != unique_runs) {
         // There has been an update.
         if (prev_unique_runs.* == 0) {
@@ -431,7 +430,6 @@ fn sendCoverageContext(
         const header: abi.CoverageUpdateHeader = .{
             .n_runs = n_runs,
             .unique_runs = unique_runs,
-            .lowest_stack = lowest_stack,
         };
         const iovecs: [2]std.posix.iovec_const = .{
             makeIov(std.mem.asBytes(&header)),

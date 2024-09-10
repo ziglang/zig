@@ -13,7 +13,6 @@ pub const SeenPcsHeader = extern struct {
     n_runs: usize,
     unique_runs: usize,
     pcs_len: usize,
-    lowest_stack: usize,
 
     /// Used for comptime assertions. Provides a mechanism for strategically
     /// causing compile errors.
@@ -79,7 +78,6 @@ pub const CoverageUpdateHeader = extern struct {
     flags: Flags = .{},
     n_runs: u64,
     unique_runs: u64,
-    lowest_stack: u64,
 
     pub const Flags = packed struct(u64) {
         tag: ToClientTag = .coverage_update,

@@ -106,13 +106,6 @@ export fn decl_source_html(decl_index: Decl.Index) String {
     return String.init(string_result.items);
 }
 
-export fn lowestStack() String {
-    const header: *abi.CoverageUpdateHeader = @ptrCast(recent_coverage_update.items[0..@sizeOf(abi.CoverageUpdateHeader)]);
-    string_result.clearRetainingCapacity();
-    string_result.writer(gpa).print("0x{d}", .{header.lowest_stack}) catch @panic("OOM");
-    return String.init(string_result.items);
-}
-
 export fn totalSourceLocations() usize {
     return coverage_source_locations.items.len;
 }
