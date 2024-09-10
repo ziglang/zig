@@ -1767,9 +1767,11 @@ pub fn HashMapUnmanaged(
         }
 
         comptime {
-            if (builtin.zig_backend == .stage2_llvm and !builtin.strip_debug_info) {
-                _ = &dbHelper;
-            }
+            if (!builtin.strip_debug_info) _ = switch (builtin.zig_backend) {
+                .stage2_llvm => &dbHelper,
+                .stage2_x86_64 => KV,
+                else => {},
+            };
         }
     };
 }

@@ -107,11 +107,11 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
         },
         \\breakpoint set --file basic.zig --source-pattern-regexp '_ = basic;'
         \\process launch
-        \\frame variable --show-types basic
+        \\frame variable --show-types -- basic
         \\breakpoint delete --force 1
     ,
         &.{
-            \\(lldb) frame variable --show-types basic
+            \\(lldb) frame variable --show-types -- basic
             \\(root.basic.Basic) basic = {
             \\  (void) void = {}
             \\  (bool) bool_false = false
@@ -243,11 +243,11 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
         },
         \\breakpoint set --file pointers.zig --source-pattern-regexp '_ = pointers;'
         \\process launch
-        \\frame variable --show-types pointers
+        \\frame variable --show-types -- pointers
         \\breakpoint delete --force 1
     ,
         &.{
-            \\(lldb) frame variable --show-types pointers
+            \\(lldb) frame variable --show-types -- pointers
             \\(root.pointers.Pointers) pointers = {
             \\  (*u32) single = 0x0000000000001010
             \\  (*const u32) single_const = 0x0000000000001014
@@ -330,13 +330,13 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
         },
         \\breakpoint set --file strings.zig --source-pattern-regexp '_ = strings;'
         \\process launch
-        \\frame variable --show-types strings.slice
-        \\frame variable --show-types --format character strings.slice
-        \\frame variable --show-types --format c-string strings
+        \\frame variable --show-types -- strings.slice
+        \\frame variable --show-types --format character -- strings.slice
+        \\frame variable --show-types --format c-string -- strings
         \\breakpoint delete --force 1
     ,
         &.{
-            \\(lldb) frame variable --show-types strings.slice
+            \\(lldb) frame variable --show-types -- strings.slice
             \\([:0]const u8) strings.slice = len=9 {
             \\  (u8) [0] = 115
             \\  (u8) [1] = 108
@@ -348,7 +348,7 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
             \\  (u8) [7] = 92
             \\  (u8) [8] = 0
             \\}
-            \\(lldb) frame variable --show-types --format character strings.slice
+            \\(lldb) frame variable --show-types --format character -- strings.slice
             \\([:0]const u8) strings.slice = len=9 {
             \\  (u8) [0] = 's'
             \\  (u8) [1] = 'l'
@@ -360,7 +360,7 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
             \\  (u8) [7] = '\\'
             \\  (u8) [8] = '\x00'
             \\}
-            \\(lldb) frame variable --show-types --format c-string strings
+            \\(lldb) frame variable --show-types --format c-string -- strings
             \\(root.strings.Strings) strings = {
             \\  ([*c]const u8) c_ptr = "c_ptr\x07\x08\t"
             \\  ([*:0]const u8) many_ptr = "many_ptr\n\x0b\x0c"
@@ -412,7 +412,7 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
         \\breakpoint set --file enums.zig --source-pattern-regexp '_ = enums;'
         \\process launch
         \\expression --show-types -- Enums
-        \\frame variable --show-types enums
+        \\frame variable --show-types -- enums
         \\breakpoint delete --force 1
     ,
         &.{
@@ -432,7 +432,7 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
             \\    (root.enums.Enums.Three) third = .third
             \\  }
             \\}
-            \\(lldb) frame variable --show-types enums
+            \\(lldb) frame variable --show-types -- enums
             \\(root.enums.Enums) enums = {
             \\  (root.enums.Enums.Zero) zero = @enumFromInt(13)
             \\  (root.enums.Enums.One) one = .first
@@ -476,7 +476,7 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
         \\breakpoint set --file errors.zig --source-pattern-regexp '_ = errors;'
         \\process launch
         \\expression --show-types -- Errors
-        \\frame variable --show-types errors
+        \\frame variable --show-types -- errors
         \\breakpoint delete --force 1
     ,
         &.{
@@ -496,7 +496,7 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
             \\    (error{One,Two,Three}) Three = error.Three
             \\  }
             \\}
-            \\(lldb) frame variable --show-types errors
+            \\(lldb) frame variable --show-types -- errors
             \\(root.errors.Errors) errors = {
             \\  (error{One}) one = error.One
             \\  (error{One,Two}) two = error.Two
@@ -535,23 +535,23 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
         },
         \\breakpoint set --file optionals.zig --source-pattern-regexp 'maybe_u32 = 123;'
         \\process launch
-        \\frame variable null_u32 maybe_u32 nonnull_u32
+        \\frame variable -- null_u32 maybe_u32 nonnull_u32
         \\breakpoint delete --force 1
         \\
         \\breakpoint set --file optionals.zig --source-pattern-regexp '_ = \.{ &null_u32, &nonnull_u32 };'
         \\process continue
-        \\frame variable --show-types null_u32 maybe_u32 nonnull_u32
+        \\frame variable --show-types -- null_u32 maybe_u32 nonnull_u32
         \\breakpoint delete --force 2
     ,
         &.{
-            \\(lldb) frame variable null_u32 maybe_u32 nonnull_u32
+            \\(lldb) frame variable -- null_u32 maybe_u32 nonnull_u32
             \\(?u32) null_u32 = null
             \\(?u32) maybe_u32 = null
             \\(?u32) nonnull_u32 = (nonnull_u32.? = 456)
             \\(lldb) breakpoint delete --force 1
             \\1 breakpoints deleted; 0 breakpoint locations disabled.
             ,
-            \\(lldb) frame variable --show-types null_u32 maybe_u32 nonnull_u32
+            \\(lldb) frame variable --show-types -- null_u32 maybe_u32 nonnull_u32
             \\(?u32) null_u32 = null
             \\(?u32) maybe_u32 = {
             \\  (u32) maybe_u32.? = 123
@@ -605,7 +605,7 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
         \\breakpoint set --file unions.zig --source-pattern-regexp '_ = unions;'
         \\process launch
         \\expression --show-types -- Unions
-        \\frame variable --show-types unions
+        \\frame variable --show-types -- unions
         \\breakpoint delete --force 1
     ,
         &.{
@@ -628,7 +628,7 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
             \\    (@typeInfo(unions.Unions.Tagged).@"union".tag_type.?) eu = .eu
             \\  }
             \\}
-            \\(lldb) frame variable --show-types unions
+            \\(lldb) frame variable --show-types -- unions
             \\(root.unions.Unions) unions = {
             \\  (root.unions.Unions.Untagged) untagged = {
             \\    (u32) u32 = 3217031168
@@ -694,17 +694,17 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
         },
         \\breakpoint set --file storage.zig --source-pattern-regexp 'local_var = local_var;'
         \\process launch
-        \\target variable --show-types --format hex global_const global_var global_threadlocal1 global_threadlocal2
-        \\frame variable --show-types --format hex param1 param2 param3 param4 param5 param6 param7 param8 local_comptime_val local_comptime_ptr.0 local_const local_var
+        \\target variable --show-types --format hex -- global_const global_var global_threadlocal1 global_threadlocal2
+        \\frame variable --show-types --format hex -- param1 param2 param3 param4 param5 param6 param7 param8 local_comptime_val local_comptime_ptr.0 local_const local_var
         \\breakpoint delete --force 1
     ,
         &.{
-            \\(lldb) target variable --show-types --format hex global_const global_var global_threadlocal1 global_threadlocal2
+            \\(lldb) target variable --show-types --format hex -- global_const global_var global_threadlocal1 global_threadlocal2
             \\(u64) global_const = 0x19e50dc8d6002077
             \\(u64) global_var = 0xcc423cec08622e32
             \\(u64) global_threadlocal1 = 0xb4d643528c042121
             \\(u64) global_threadlocal2 = 0x43faea1cf5ad7a22
-            \\(lldb) frame variable --show-types --format hex param1 param2 param3 param4 param5 param6 param7 param8 local_comptime_val local_comptime_ptr.0 local_const local_var
+            \\(lldb) frame variable --show-types --format hex -- param1 param2 param3 param4 param5 param6 param7 param8 local_comptime_val local_comptime_ptr.0 local_const local_var
             \\(u64) param1 = 0x6a607e08125c7e00
             \\(u64) param2 = 0x98944cb2a45a8b51
             \\(u64) param3 = 0xa320cf10601ee6fb
@@ -1305,23 +1305,92 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
         },
         \\breakpoint set --file main.zig --source-pattern-regexp 'x = fabsf\(x\);'
         \\process launch
-        \\frame variable x
+        \\frame variable -- x
         \\breakpoint delete --force 1
         \\
         \\breakpoint set --file main.zig --source-pattern-regexp '_ = &x;'
         \\process continue
-        \\frame variable x
+        \\frame variable -- x
         \\breakpoint delete --force 2
     ,
         &.{
-            \\(lldb) frame variable x
+            \\(lldb) frame variable -- x
             \\(f32) x = -1234.5
             \\(lldb) breakpoint delete --force 1
             \\1 breakpoints deleted; 0 breakpoint locations disabled.
             ,
-            \\(lldb) frame variable x
+            \\(lldb) frame variable -- x
             \\(f32) x = 1234.5
             \\(lldb) breakpoint delete --force 2
+            \\1 breakpoints deleted; 0 breakpoint locations disabled.
+        },
+    );
+    db.addLldbTest(
+        "hash_map",
+        target,
+        &.{
+            .{
+                .path = "main.zig",
+                .source =
+                \\const std = @import("std");
+                \\const Context = struct {
+                \\    pub fn hash(_: Context, key: u32) Map.Hash {
+                \\        return key;
+                \\    }
+                \\    pub fn eql(_: Context, lhs: u32, rhs: u32) bool {
+                \\        return lhs == rhs;
+                \\    }
+                \\};
+                \\const Map = std.HashMap(u32, u32, Context, 63);
+                \\fn testHashMap(map: Map) void {
+                \\    _ = map;
+                \\}
+                \\pub fn main() !void {
+                \\    var map = Map.init(std.heap.page_allocator);
+                \\    defer map.deinit();
+                \\    try map.ensureTotalCapacity(10);
+                \\    map.putAssumeCapacity(0, 1);
+                \\    map.putAssumeCapacity(2, 3);
+                \\    map.putAssumeCapacity(4, 5);
+                \\    map.putAssumeCapacity(6, 7);
+                \\    map.putAssumeCapacity(8, 9);
+                \\
+                \\    testHashMap(map);
+                \\}
+                \\
+                ,
+            },
+        },
+        \\breakpoint set --file main.zig --source-pattern-regexp '_ = map;'
+        \\process launch
+        \\frame variable --show-types -- map.unmanaged
+        \\breakpoint delete --force 1
+    ,
+        &.{
+            \\(lldb) frame variable --show-types -- map.unmanaged
+            \\(std.hash_map.HashMapUnmanaged(u32,u32,main.Context,63)) map.unmanaged = len=5 capacity=16 {
+            \\  (std.hash_map.HashMapUnmanaged(u32,u32,main.Context,63).KV) [0] = {
+            \\    (u32) key = 0
+            \\    (u32) value = 1
+            \\  }
+            \\  (std.hash_map.HashMapUnmanaged(u32,u32,main.Context,63).KV) [1] = {
+            \\    (u32) key = 2
+            \\    (u32) value = 3
+            \\  }
+            \\  (std.hash_map.HashMapUnmanaged(u32,u32,main.Context,63).KV) [2] = {
+            \\    (u32) key = 4
+            \\    (u32) value = 5
+            \\  }
+            \\  (std.hash_map.HashMapUnmanaged(u32,u32,main.Context,63).KV) [3] = {
+            \\    (u32) key = 6
+            \\    (u32) value = 7
+            \\  }
+            \\  (std.hash_map.HashMapUnmanaged(u32,u32,main.Context,63).KV) [4] = {
+            \\    (u32) key = 8
+            \\    (u32) value = 9
+            \\  }
+            \\}
+            \\(lldb) breakpoint delete --force 1
             \\1 breakpoints deleted; 0 breakpoint locations disabled.
         },
     );
@@ -1615,11 +1684,11 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
         },
         \\breakpoint set --file main.zig --source-pattern-regexp 'testSegmentedList\(\);'
         \\process launch
-        \\frame variable list0 list1 list2 list4
+        \\frame variable -- list0 list1 list2 list4
         \\breakpoint delete --force 1
     ,
         &.{
-            \\(lldb) frame variable list0 list1 list2 list4
+            \\(lldb) frame variable -- list0 list1 list2 list4
             \\(std.segmented_list.SegmentedList(usize,0)) list0 = len=32 {
             \\  [0] = 0
             \\  [1] = 1
