@@ -419,7 +419,7 @@ pub const tty = @import("io/tty.zig");
 /// A Writer that doesn't write to anything.
 pub const null_writer: NullWriter = .{ .context = {} };
 
-const NullWriter = Writer(void, error{}, dummyWrite);
+pub const NullWriter = Writer(void, error{}, dummyWrite);
 fn dummyWrite(context: void, data: []const u8) error{}!usize {
     _ = context;
     return data.len;
@@ -434,7 +434,7 @@ pub fn poll(
     comptime StreamEnum: type,
     files: PollFiles(StreamEnum),
 ) Poller(StreamEnum) {
-    const enum_fields = @typeInfo(StreamEnum).Enum.fields;
+    const enum_fields = @typeInfo(StreamEnum).@"enum".fields;
     var result: Poller(StreamEnum) = undefined;
 
     if (is_windows) result.windows = .{
@@ -473,7 +473,7 @@ pub const PollFifo = std.fifo.LinearFifo(u8, .Dynamic);
 
 pub fn Poller(comptime StreamEnum: type) type {
     return struct {
-        const enum_fields = @typeInfo(StreamEnum).Enum.fields;
+        const enum_fields = @typeInfo(StreamEnum).@"enum".fields;
         const PollFd = if (is_windows) void else posix.pollfd;
 
         fifos: [enum_fields.len]PollFifo,
@@ -567,7 +567,7 @@ pub fn Poller(comptime StreamEnum: type) type {
                         windows.INFINITE,
                 );
                 if (status == windows.WAIT_FAILED)
-                    return windows.unexpectedError(windows.kernel32.GetLastError());
+                    return windows.unexpectedError(windows.GetLastError());
                 if (status == windows.WAIT_TIMEOUT)
                     return true;
 
@@ -584,7 +584,7 @@ pub fn Poller(comptime StreamEnum: type) type {
                     &self.windows.overlapped[stream_idx],
                     &read_bytes,
                     0,
-                )) switch (windows.kernel32.GetLastError()) {
+                )) switch (windows.GetLastError()) {
                     .BROKEN_PIPE => {
                         self.windows.active.removeAt(active_idx);
                         continue;
@@ -664,7 +664,7 @@ fn windowsAsyncRead(
         const buf = try fifo.writableWithSize(bump_amt);
         var read_bytes: u32 = undefined;
         const read_result = windows.kernel32.ReadFile(handle, buf.ptr, math.cast(u32, buf.len) orelse math.maxInt(u32), &read_bytes, overlapped);
-        if (read_result == 0) return switch (windows.kernel32.GetLastError()) {
+        if (read_result == 0) return switch (windows.GetLastError()) {
             .IO_PENDING => .pending,
             .BROKEN_PIPE => .closed,
             else => |err| windows.unexpectedError(err),
@@ -676,7 +676,7 @@ fn windowsAsyncRead(
 /// Given an enum, returns a struct with fields of that enum, each field
 /// representing an I/O stream for polling.
 pub fn PollFiles(comptime StreamEnum: type) type {
-    const enum_fields = @typeInfo(StreamEnum).Enum.fields;
+    const enum_fields = @typeInfo(StreamEnum).@"enum".fields;
     var struct_fields: [enum_fields.len]std.builtin.Type.StructField = undefined;
     for (&struct_fields, enum_fields) |*struct_field, enum_field| {
         struct_field.* = .{
@@ -687,7 +687,7 @@ pub fn PollFiles(comptime StreamEnum: type) type {
             .alignment = @alignOf(fs.File),
         };
     }
-    return @Type(.{ .Struct = .{
+    return @Type(.{ .@"struct" = .{
         .layout = .auto,
         .fields = &struct_fields,
         .decls = &.{},

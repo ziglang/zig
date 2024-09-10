@@ -1,5 +1,5 @@
 /* System-specific socket constants and types.  Linux version.
-   Copyright (C) 1991-2023 Free Software Foundation, Inc.
+   Copyright (C) 1991-2024 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -172,6 +172,7 @@ typedef __socklen_t socklen_t;
 #define SOL_MPTCP	284
 #define SOL_MCTP	285
 #define SOL_SMC		286
+#define SOL_VSOCK	287
 
 /* Maximum queue length specifiable by listen.  */
 #define SOMAXCONN	4096
@@ -180,7 +181,7 @@ typedef __socklen_t socklen_t;
 #include <bits/sockaddr.h>
 
 /* Structure describing a generic socket address.  */
-struct sockaddr
+struct __attribute_struct_may_alias__ sockaddr
   {
     __SOCKADDR_COMMON (sa_);	/* Common data: address family and length.  */
     char sa_data[14];		/* Address data.  */
@@ -193,7 +194,7 @@ struct sockaddr
 #define _SS_PADSIZE \
   (_SS_SIZE - __SOCKADDR_COMMON_SIZE - sizeof (__ss_aligntype))
 
-struct sockaddr_storage
+struct __attribute_struct_may_alias__ sockaddr_storage
   {
     __SOCKADDR_COMMON (ss_);	/* Address family, etc.  */
     char __ss_padding[_SS_PADSIZE];
@@ -367,6 +368,10 @@ enum
 #ifdef __USE_GNU
     , SCM_CREDENTIALS = 0x02	/* Credentials passing.  */
 # define SCM_CREDENTIALS SCM_CREDENTIALS
+    , SCM_SECURITY = 0x03	/* Security label.  */
+# define SCM_SECURITY SCM_SECURITY
+    , SCM_PIDFD = 0x04		/* Pidfd.  */
+# define SCM_PIDFD SCM_PIDFD
 #endif
   };
 

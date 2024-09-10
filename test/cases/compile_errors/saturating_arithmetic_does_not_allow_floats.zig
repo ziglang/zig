@@ -6,4 +6,4 @@ export fn a() void {
 // backend=stage2
 // target=native
 //
-// :2:23: error: invalid operands to binary expression: 'Float' and 'Float'
+// :2:23: error: invalid operands to binary expression: 'float' and 'float'

@@ -69,7 +69,7 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, mode: Mode) Allocator.Error!A
         const token = tokenizer.next();
         try tokens.append(gpa, .{
             .tag = token.tag,
-            .start = @as(u32, @intCast(token.loc.start)),
+            .start = @intCast(token.loc.start),
         });
         if (token.tag == .eof) break;
     }
@@ -188,9 +188,8 @@ pub fn tokenSlice(tree: Ast, token_index: TokenIndex) []const u8 {
     var tokenizer: std.zig.Tokenizer = .{
         .buffer = tree.source,
         .index = token_starts[token_index],
-        .pending_invalid_token = null,
     };
-    const token = tokenizer.findTagAtCurrentIndex(token_tag);
+    const token = tokenizer.next();
     assert(token.tag == token_tag);
     return tree.source[token.loc.start..token.loc.end];
 }
@@ -730,19 +729,7 @@ pub fn firstToken(tree: Ast, node: Node.Index) TokenIndex {
         .ptr_type_sentinel,
         .ptr_type,
         .ptr_type_bit_range,
-        => {
-            const main_token = main_tokens[n];
-            return switch (token_tags[main_token]) {
-                .asterisk,
-                .asterisk_asterisk,
-                => switch (token_tags[main_token -| 1]) {
-                    .l_bracket => main_token -| 1,
-                    else => main_token,
-                },
-                .l_bracket => main_token,
-                else => unreachable,
-            } - end_offset;
-        },
+        => return main_tokens[n] - end_offset,
 
         .switch_case_one => {
             if (datas[n].lhs == 0) {
@@ -1197,14 +1184,7 @@ pub fn lastToken(tree: Ast, node: Node.Index) TokenIndex {
             n = extra.sentinel;
         },
 
-        .@"continue" => {
-            if (datas[n].lhs != 0) {
-                return datas[n].lhs + end_offset;
-            } else {
-                return main_tokens[n] + end_offset;
-            }
-        },
-        .@"break" => {
+        .@"continue", .@"break" => {
             if (datas[n].rhs != 0) {
                 n = datas[n].rhs;
             } else if (datas[n].lhs != 0) {
@@ -1908,6 +1888,25 @@ pub fn taggedUnionEnumTag(tree: Ast, node: Node.Index) full.ContainerDecl {
     });
 }
 
+pub fn switchFull(tree: Ast, node: Node.Index) full.Switch {
+    const data = &tree.nodes.items(.data)[node];
+    const main_token = tree.nodes.items(.main_token)[node];
+    const switch_token: TokenIndex, const label_token: ?TokenIndex = switch (tree.tokens.items(.tag)[main_token]) {
+        .identifier => .{ main_token + 2, main_token },
+        .keyword_switch => .{ main_token, null },
+        else => unreachable,
+    };
+    const extra = tree.extraData(data.rhs, Ast.Node.SubRange);
+    return .{
+        .ast = .{
+            .switch_token = switch_token,
+            .condition = data.lhs,
+            .cases = tree.extra_data[extra.start..extra.end],
+        },
+        .label_token = label_token,
+    };
+}
+
 pub fn switchCaseOne(tree: Ast, node: Node.Index) full.SwitchCase {
     const data = &tree.nodes.items(.data)[node];
     const values: *[1]Node.Index = &data.lhs;
@@ -2160,12 +2159,11 @@ fn fullPtrTypeComponents(tree: Ast, info: full.PtrType.Components) full.PtrType 
     const size: Size = switch (token_tags[info.main_token]) {
         .asterisk,
         .asterisk_asterisk,
-        => switch (token_tags[info.main_token + 1]) {
-            .r_bracket, .colon => .Many,
-            .identifier => if (token_tags[info.main_token -| 1] == .l_bracket) Size.C else .One,
-            else => .One,
+        => .One,
+        .l_bracket => switch (token_tags[info.main_token + 1]) {
+            .asterisk => if (token_tags[info.main_token + 2] == .identifier) Size.C else Size.Many,
+            else => Size.Slice,
         },
-        .l_bracket => Size.Slice,
         else => unreachable,
     };
     var result: full.PtrType = .{
@@ -2179,7 +2177,10 @@ fn fullPtrTypeComponents(tree: Ast, info: full.PtrType.Components) full.PtrType 
     // here while looking for modifiers as that could result in false
     // positives. Therefore, start after a sentinel if there is one and
     // skip over any align node and bit range nodes.
-    var i = if (info.sentinel != 0) tree.lastToken(info.sentinel) + 1 else info.main_token;
+    var i = if (info.sentinel != 0) tree.lastToken(info.sentinel) + 1 else switch (size) {
+        .Many, .C => info.main_token + 1,
+        else => info.main_token,
+    };
     const end = tree.firstToken(info.child_type);
     while (i < end) : (i += 1) {
         switch (token_tags[i]) {
@@ -2213,6 +2214,21 @@ fn fullContainerDeclComponents(tree: Ast, info: full.ContainerDecl.Components) f
     switch (token_tags[info.main_token - 1]) {
         .keyword_extern, .keyword_packed => result.layout_token = info.main_token - 1,
         else => {},
+    }
+    return result;
+}
+
+fn fullSwitchComponents(tree: Ast, info: full.Switch.Components) full.Switch {
+    const token_tags = tree.tokens.items(.tag);
+    const tok_i = info.switch_token -| 1;
+    var result: full.Switch = .{
+        .ast = info,
+        .label_token = null,
+    };
+    if (token_tags[tok_i] == .colon and
+        token_tags[tok_i -| 1] == .identifier)
+    {
+        result.label_token = tok_i - 1;
     }
     return result;
 }
@@ -2484,6 +2500,13 @@ pub fn fullContainerDecl(tree: Ast, buffer: *[2]Ast.Node.Index, node: Node.Index
         .tagged_union, .tagged_union_trailing => tree.taggedUnion(node),
         .tagged_union_enum_tag, .tagged_union_enum_tag_trailing => tree.taggedUnionEnumTag(node),
         .tagged_union_two, .tagged_union_two_trailing => tree.taggedUnionTwo(buffer, node),
+        else => null,
+    };
+}
+
+pub fn fullSwitch(tree: Ast, node: Node.Index) ?full.Switch {
+    return switch (tree.nodes.items(.tag)[node]) {
+        .@"switch", .switch_comma => tree.switchFull(node),
         else => null,
     };
 }
@@ -2840,6 +2863,17 @@ pub const full = struct {
         };
     };
 
+    pub const Switch = struct {
+        ast: Components,
+        label_token: ?TokenIndex,
+
+        pub const Components = struct {
+            switch_token: TokenIndex,
+            condition: Node.Index,
+            cases: []const Node.Index,
+        };
+    };
+
     pub const SwitchCase = struct {
         inline_token: ?TokenIndex,
         /// Points to the first token after the `|`. Will either be an identifier or
@@ -3148,24 +3182,28 @@ pub const Node = struct {
         /// `[*]align(lhs) rhs`. lhs can be omitted.
         /// `*align(lhs) rhs`. lhs can be omitted.
         /// `[]rhs`.
-        /// main_token is the asterisk if a pointer or the lbracket if a slice
+        /// main_token is the asterisk if a single item pointer or the lbracket
+        /// if a slice, many-item pointer, or C-pointer
         /// main_token might be a ** token, which is shared with a parent/child
         /// pointer type and may require special handling.
         ptr_type_aligned,
         /// `[*:lhs]rhs`. lhs can be omitted.
         /// `*rhs`.
         /// `[:lhs]rhs`.
-        /// main_token is the asterisk if a pointer or the lbracket if a slice
+        /// main_token is the asterisk if a single item pointer or the lbracket
+        /// if a slice, many-item pointer, or C-pointer
         /// main_token might be a ** token, which is shared with a parent/child
         /// pointer type and may require special handling.
         ptr_type_sentinel,
         /// lhs is index into ptr_type. rhs is the element type expression.
-        /// main_token is the asterisk if a pointer or the lbracket if a slice
+        /// main_token is the asterisk if a single item pointer or the lbracket
+        /// if a slice, many-item pointer, or C-pointer
         /// main_token might be a ** token, which is shared with a parent/child
         /// pointer type and may require special handling.
         ptr_type,
         /// lhs is index into ptr_type_bit_range. rhs is the element type expression.
-        /// main_token is the asterisk if a pointer or the lbracket if a slice
+        /// main_token is the asterisk if a single item pointer or the lbracket
+        /// if a slice, many-item pointer, or C-pointer
         /// main_token might be a ** token, which is shared with a parent/child
         /// pointer type and may require special handling.
         ptr_type_bit_range,
@@ -3250,6 +3288,7 @@ pub const Node = struct {
         /// main_token is the `(`.
         async_call_comma,
         /// `switch(lhs) {}`. `SubRange[rhs]`.
+        /// `main_token` is the identifier of a preceding label, if any; otherwise `switch`.
         @"switch",
         /// Same as switch except there is known to be a trailing comma
         /// before the final rbrace
@@ -3294,7 +3333,8 @@ pub const Node = struct {
         @"suspend",
         /// `resume lhs`. rhs is unused.
         @"resume",
-        /// `continue`. lhs is token index of label if any. rhs is unused.
+        /// `continue :lhs rhs`
+        /// both lhs and rhs may be omitted.
         @"continue",
         /// `break :lhs rhs`
         /// both lhs and rhs may be omitted.

@@ -86,21 +86,38 @@ pub fn getExternalExecutor(
             .arm => Executor{ .qemu = "qemu-arm" },
             .armeb => Executor{ .qemu = "qemu-armeb" },
             .hexagon => Executor{ .qemu = "qemu-hexagon" },
-            .x86 => Executor{ .qemu = "qemu-i386" },
+            .loongarch64 => Executor{ .qemu = "qemu-loongarch64" },
             .m68k => Executor{ .qemu = "qemu-m68k" },
             .mips => Executor{ .qemu = "qemu-mips" },
             .mipsel => Executor{ .qemu = "qemu-mipsel" },
-            .mips64 => Executor{ .qemu = "qemu-mips64" },
-            .mips64el => Executor{ .qemu = "qemu-mips64el" },
+            .mips64 => Executor{
+                .qemu = if (candidate.abi == .gnuabin32)
+                    "qemu-mipsn32"
+                else
+                    "qemu-mips64",
+            },
+            .mips64el => Executor{
+                .qemu = if (candidate.abi == .gnuabin32)
+                    "qemu-mipsn32el"
+                else
+                    "qemu-mips64el",
+            },
             .powerpc => Executor{ .qemu = "qemu-ppc" },
             .powerpc64 => Executor{ .qemu = "qemu-ppc64" },
             .powerpc64le => Executor{ .qemu = "qemu-ppc64le" },
             .riscv32 => Executor{ .qemu = "qemu-riscv32" },
             .riscv64 => Executor{ .qemu = "qemu-riscv64" },
             .s390x => Executor{ .qemu = "qemu-s390x" },
-            .sparc => Executor{ .qemu = "qemu-sparc" },
+            .sparc => Executor{
+                .qemu = if (std.Target.sparc.featureSetHas(candidate.cpu.features, .v9))
+                    "qemu-sparc32plus"
+                else
+                    "qemu-sparc",
+            },
             .sparc64 => Executor{ .qemu = "qemu-sparc64" },
+            .x86 => Executor{ .qemu = "qemu-i386" },
             .x86_64 => Executor{ .qemu = "qemu-x86_64" },
+            .xtensa => Executor{ .qemu = "qemu-xtensa" },
             else => return bad_result,
         };
     }
@@ -1044,7 +1061,7 @@ fn detectAbiAndDynamicLinker(
             defer if (is_elf_file == false) file.close();
 
             // Shortest working interpreter path is "#!/i" (4)
-            // (interpreter is "/i", assuming all pathes are absolute, like in above comment).
+            // (interpreter is "/i", assuming all paths are absolute, like in above comment).
             // ELF magic number length is also 4.
             //
             // If file is shorter than that, it is definitely not ELF file
@@ -1141,6 +1158,7 @@ fn preadAtLeast(file: fs.File, buf: []u8, offset: u64, min_read_len: usize) !usi
         const len = file.pread(buf[i..], offset + i) catch |err| switch (err) {
             error.OperationAborted => unreachable, // Windows-only
             error.WouldBlock => unreachable, // Did not request blocking mode
+            error.Canceled => unreachable, // timerfd is unseekable
             error.NotOpenForReading => unreachable,
             error.SystemResources => return error.SystemResources,
             error.IsDir => return error.UnableToReadElfFile,

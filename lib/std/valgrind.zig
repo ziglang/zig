@@ -124,21 +124,33 @@ pub fn innerThreads(qzz: [*]u8) void {
     doClientRequestStmt(.InnerThreads, qzz, 0, 0, 0, 0);
 }
 
-pub fn nonSIMDCall0(func: fn (usize) usize) usize {
+pub fn nonSimdCall0(func: fn (usize) usize) usize {
     return doClientRequestExpr(0, .ClientCall0, @intFromPtr(func), 0, 0, 0, 0);
 }
 
-pub fn nonSIMDCall1(func: fn (usize, usize) usize, a1: usize) usize {
+pub fn nonSimdCall1(func: fn (usize, usize) usize, a1: usize) usize {
     return doClientRequestExpr(0, .ClientCall1, @intFromPtr(func), a1, 0, 0, 0);
 }
 
-pub fn nonSIMDCall2(func: fn (usize, usize, usize) usize, a1: usize, a2: usize) usize {
+pub fn nonSimdCall2(func: fn (usize, usize, usize) usize, a1: usize, a2: usize) usize {
     return doClientRequestExpr(0, .ClientCall2, @intFromPtr(func), a1, a2, 0, 0);
 }
 
-pub fn nonSIMDCall3(func: fn (usize, usize, usize, usize) usize, a1: usize, a2: usize, a3: usize) usize {
+pub fn nonSimdCall3(func: fn (usize, usize, usize, usize) usize, a1: usize, a2: usize, a3: usize) usize {
     return doClientRequestExpr(0, .ClientCall3, @intFromPtr(func), a1, a2, a3, 0);
 }
+
+/// Deprecated: use `nonSimdCall0`
+pub const nonSIMDCall0 = nonSimdCall0;
+
+/// Deprecated: use `nonSimdCall1`
+pub const nonSIMDCall1 = nonSimdCall1;
+
+/// Deprecated: use `nonSimdCall2`
+pub const nonSIMDCall2 = nonSimdCall2;
+
+/// Deprecated: use `nonSimdCall3`
+pub const nonSIMDCall3 = nonSimdCall3;
 
 /// Counts the number of errors that have been recorded by a tool.  Nb:
 /// the tool must record the errors with VG_(maybe_record_error)() or
@@ -266,8 +278,10 @@ pub fn monitorCommand(command: [*]u8) bool {
 
 pub const memcheck = @import("valgrind/memcheck.zig");
 pub const callgrind = @import("valgrind/callgrind.zig");
+pub const cachegrind = @import("valgrind/cachegrind.zig");
 
 test {
     _ = memcheck;
     _ = callgrind;
+    _ = cachegrind;
 }

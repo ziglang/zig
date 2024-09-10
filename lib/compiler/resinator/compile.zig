@@ -3405,7 +3405,7 @@ test "StringTable" {
         }
         break :ids buf;
     };
-    var prng = std.rand.DefaultPrng.init(0);
+    var prng = std.Random.DefaultPrng.init(0);
     var random = prng.random();
     random.shuffle(u16, &ids);
 

@@ -4,7 +4,7 @@ const common = @import("./common.zig");
 pub const panic = common.panic;
 
 comptime {
-    @export(__extendxftf2, .{ .name = "__extendxftf2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__extendxftf2, .{ .name = "__extendxftf2", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 fn __extendxftf2(a: f80) callconv(.C) f128 {
@@ -18,7 +18,7 @@ fn __extendxftf2(a: f80) callconv(.C) f128 {
     const dst_min_normal = @as(u128, 1) << dst_sig_bits;
 
     // Break a into a sign and representation of the absolute value
-    var a_rep = std.math.break_f80(a);
+    var a_rep = std.math.F80.fromFloat(a);
     const sign = a_rep.exp & 0x8000;
     a_rep.exp &= 0x7FFF;
     var abs_result: u128 = undefined;

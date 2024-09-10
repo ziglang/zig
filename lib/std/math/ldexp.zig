@@ -7,7 +7,7 @@ const expect = std.testing.expect;
 /// Returns x * 2^n.
 pub fn ldexp(x: anytype, n: i32) @TypeOf(x) {
     const T = @TypeOf(x);
-    const TBits = std.meta.Int(.unsigned, @typeInfo(T).Float.bits);
+    const TBits = std.meta.Int(.unsigned, @typeInfo(T).float.bits);
 
     const exponent_bits = math.floatExponentBits(T);
     const mantissa_bits = math.floatMantissaBits(T);

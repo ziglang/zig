@@ -1,23 +1,29 @@
-const std = @import("../std.zig");
+const std = @import("std");
 const builtin = @import("builtin");
-const assert = std.debug.assert;
-const macho = std.macho;
 const native_arch = builtin.target.cpu.arch;
-const maxInt = std.math.maxInt;
+const assert = std.debug.assert;
+const AF = std.c.AF;
+const PROT = std.c.PROT;
+const fd_t = std.c.fd_t;
 const iovec_const = std.posix.iovec_const;
+const mode_t = std.c.mode_t;
+const off_t = std.c.off_t;
+const pid_t = std.c.pid_t;
+const pthread_attr_t = std.c.pthread_attr_t;
+const sigset_t = std.c.segset_t;
+const timespec = std.c.timespec;
+const sf_hdtr = std.c.sf_hdtr;
 
-pub const aarch64 = @import("darwin/aarch64.zig");
-pub const x86_64 = @import("darwin/x86_64.zig");
-pub const cssm = @import("darwin/cssm.zig");
+comptime {
+    assert(builtin.os.tag.isDarwin()); // Prevent access of std.c symbols on wrong OS.
+}
 
-const arch_bits = switch (native_arch) {
-    .aarch64 => @import("darwin/aarch64.zig"),
-    .x86_64 => @import("darwin/x86_64.zig"),
-    else => struct {},
+pub const mach_port_t = c_uint;
+
+pub const THREAD_STATE_NONE = switch (native_arch) {
+    .aarch64 => 5,
+    .x86_64 => 13,
 };
-
-pub const EXC_TYPES_COUNT = arch_bits.EXC_TYPES_COUNT;
-pub const THREAD_STATE_NONE = arch_bits.THREAD_STATE_NONE;
 
 pub const EXC = enum(exception_type_t) {
     NULL = 0,
@@ -47,49 +53,61 @@ pub const EXC = enum(exception_type_t) {
     GUARD = 12,
     /// Abnormal process exited to corpse state
     CORPSE_NOTIFY = 13,
+
+    pub const TYPES_COUNT = @typeInfo(EXC).@"enum".fields.len;
+    pub const SOFT_SIGNAL = 0x10003;
+
+    pub const MASK = packed struct(u32) {
+        BAD_ACCESS: bool = false,
+        BAD_INSTRUCTION: bool = false,
+        ARITHMETIC: bool = false,
+        EMULATION: bool = false,
+        SOFTWARE: bool = false,
+        BREAKPOINT: bool = false,
+        SYSCALL: bool = false,
+        MACH_SYSCALL: bool = false,
+        RPC_ALERT: bool = false,
+        CRASH: bool = false,
+        RESOURCE: bool = false,
+        GUARD: bool = false,
+        CORPSE_NOTIFY: bool = false,
+
+        pub const MACHINE: MASK = @bitCast(@as(u32, 0));
+
+        pub const ALL: MASK = .{
+            .BAD_ACCESS = true,
+            .BAD_INSTRUCTION = true,
+            .ARITHMETIC = true,
+            .EMULATION = true,
+            .SOFTWARE = true,
+            .BREAKPOINT = true,
+            .SYSCALL = true,
+            .MACH_SYSCALL = true,
+            .RPC_ALERT = true,
+            .CRASH = true,
+            .RESOURCE = true,
+            .GUARD = true,
+            .CORPSE_NOTIFY = true,
+        };
+    };
 };
 
-pub const EXC_SOFT_SIGNAL = 0x10003;
+pub const EXCEPTION = enum(u32) {
+    /// Send a catch_exception_raise message including the identity.
+    DEFAULT = 1,
+    /// Send a catch_exception_raise_state message including the
+    /// thread state.
+    STATE = 2,
+    /// Send a catch_exception_raise_state_identity message including
+    /// the thread identity and state.
+    STATE_IDENTITY = 3,
+    /// Send a catch_exception_raise_identity_protected message including protected task
+    /// and thread identity.
+    IDENTITY_PROTECTED = 4,
 
-pub const EXC_MASK_BAD_ACCESS = 1 << @intFromEnum(EXC.BAD_ACCESS);
-pub const EXC_MASK_BAD_INSTRUCTION = 1 << @intFromEnum(EXC.BAD_INSTRUCTION);
-pub const EXC_MASK_ARITHMETIC = 1 << @intFromEnum(EXC.ARITHMETIC);
-pub const EXC_MASK_EMULATION = 1 << @intFromEnum(EXC.EMULATION);
-pub const EXC_MASK_SOFTWARE = 1 << @intFromEnum(EXC.SOFTWARE);
-pub const EXC_MASK_BREAKPOINT = 1 << @intFromEnum(EXC.BREAKPOINT);
-pub const EXC_MASK_SYSCALL = 1 << @intFromEnum(EXC.SYSCALL);
-pub const EXC_MASK_MACH_SYSCALL = 1 << @intFromEnum(EXC.MACH_SYSCALL);
-pub const EXC_MASK_RPC_ALERT = 1 << @intFromEnum(EXC.RPC_ALERT);
-pub const EXC_MASK_CRASH = 1 << @intFromEnum(EXC.CRASH);
-pub const EXC_MASK_RESOURCE = 1 << @intFromEnum(EXC.RESOURCE);
-pub const EXC_MASK_GUARD = 1 << @intFromEnum(EXC.GUARD);
-pub const EXC_MASK_CORPSE_NOTIFY = 1 << @intFromEnum(EXC.CORPSE_NOTIFY);
-pub const EXC_MASK_MACHINE = arch_bits.EXC_MASK_MACHINE;
+    _,
+};
 
-pub const EXC_MASK_ALL = EXC_MASK_BAD_ACCESS |
-    EXC_MASK_BAD_INSTRUCTION |
-    EXC_MASK_ARITHMETIC |
-    EXC_MASK_EMULATION |
-    EXC_MASK_SOFTWARE |
-    EXC_MASK_BREAKPOINT |
-    EXC_MASK_SYSCALL |
-    EXC_MASK_MACH_SYSCALL |
-    EXC_MASK_RPC_ALERT |
-    EXC_MASK_RESOURCE |
-    EXC_MASK_GUARD |
-    EXC_MASK_MACHINE;
-
-/// Send a catch_exception_raise message including the identity.
-pub const EXCEPTION_DEFAULT = 1;
-/// Send a catch_exception_raise_state message including the
-/// thread state.
-pub const EXCEPTION_STATE = 2;
-/// Send a catch_exception_raise_state_identity message including
-/// the thread identity and state.
-pub const EXCEPTION_STATE_IDENTITY = 3;
-/// Send a catch_exception_raise_identity_protected message including protected task
-/// and thread identity.
-pub const EXCEPTION_IDENTITY_PROTECTED = 4;
 /// Prefer sending a catch_exception_raice_backtrace message, if applicable.
 pub const MACH_EXCEPTION_BACKTRACE_PREFERRED = 0x20000000;
 /// include additional exception specific errors, not used yet.
@@ -141,19 +159,109 @@ pub const MACH_RCV_SYNC_PEEK = 0x00008000;
 
 pub const MACH_MSG_STRICT_REPLY = 0x00000200;
 
-pub const ucontext_t = extern struct {
-    onstack: c_int,
-    sigmask: sigset_t,
-    stack: stack_t,
-    link: ?*ucontext_t,
-    mcsize: u64,
-    mcontext: *mcontext_t,
-    __mcontext_data: mcontext_t,
+pub const exception_type_t = c_int;
+
+pub const mcontext_t = switch (native_arch) {
+    .aarch64 => extern struct {
+        es: exception_state,
+        ss: thread_state,
+        ns: neon_state,
+    },
+    .x86_64 => extern struct {
+        es: exception_state,
+        ss: thread_state,
+        fs: float_state,
+    },
+    else => @compileError("unsupported arch"),
 };
 
-pub const mcontext_t = arch_bits.mcontext_t;
+pub const exception_state = switch (native_arch) {
+    .aarch64 => extern struct {
+        far: u64, // Virtual Fault Address
+        esr: u32, // Exception syndrome
+        exception: u32, // Number of arm exception taken
+    },
+    .x86_64 => extern struct {
+        trapno: u16,
+        cpu: u16,
+        err: u32,
+        faultvaddr: u64,
+    },
+    else => @compileError("unsupported arch"),
+};
 
-extern "c" fn __error() *c_int;
+pub const thread_state = switch (native_arch) {
+    .aarch64 => extern struct {
+        /// General purpose registers
+        regs: [29]u64,
+        /// Frame pointer x29
+        fp: u64,
+        /// Link register x30
+        lr: u64,
+        /// Stack pointer x31
+        sp: u64,
+        /// Program counter
+        pc: u64,
+        /// Current program status register
+        cpsr: u32,
+        __pad: u32,
+    },
+    .x86_64 => extern struct {
+        rax: u64,
+        rbx: u64,
+        rcx: u64,
+        rdx: u64,
+        rdi: u64,
+        rsi: u64,
+        rbp: u64,
+        rsp: u64,
+        r8: u64,
+        r9: u64,
+        r10: u64,
+        r11: u64,
+        r12: u64,
+        r13: u64,
+        r14: u64,
+        r15: u64,
+        rip: u64,
+        rflags: u64,
+        cs: u64,
+        fs: u64,
+        gs: u64,
+    },
+    else => @compileError("unsupported arch"),
+};
+
+pub const neon_state = extern struct {
+    q: [32]u128,
+    fpsr: u32,
+    fpcr: u32,
+};
+
+pub const float_state = extern struct {
+    reserved: [2]c_int,
+    fcw: u16,
+    fsw: u16,
+    ftw: u8,
+    rsrv1: u8,
+    fop: u16,
+    ip: u32,
+    cs: u16,
+    rsrv2: u16,
+    dp: u32,
+    ds: u16,
+    rsrv3: u16,
+    mxcsr: u32,
+    mxcsrmask: u32,
+    stmm: [8]stmm_reg,
+    xmm: [16]xmm_reg,
+    rsrv4: [96]u8,
+    reserved1: c_int,
+};
+
+pub const stmm_reg = [16]u8;
+pub const xmm_reg = [16]u8;
+
 pub extern "c" fn NSVersionOfRunTimeLibrary(library_name: [*:0]const u8) u32;
 pub extern "c" fn _NSGetExecutablePath(buf: [*:0]u8, bufsize: *u32) c_int;
 pub extern "c" fn _dyld_image_count() u32;
@@ -161,22 +269,21 @@ pub extern "c" fn _dyld_get_image_header(image_index: u32) ?*mach_header;
 pub extern "c" fn _dyld_get_image_vmaddr_slide(image_index: u32) usize;
 pub extern "c" fn _dyld_get_image_name(image_index: u32) [*:0]const u8;
 
-pub const COPYFILE_ACL = 1 << 0;
-pub const COPYFILE_STAT = 1 << 1;
-pub const COPYFILE_XATTR = 1 << 2;
-pub const COPYFILE_DATA = 1 << 3;
+pub const COPYFILE = packed struct(u32) {
+    ACL: bool = false,
+    STAT: bool = false,
+    XATTR: bool = false,
+    DATA: bool = false,
+    _: u28 = 0,
+};
 
 pub const copyfile_state_t = *opaque {};
-pub extern "c" fn fcopyfile(from: fd_t, to: fd_t, state: ?copyfile_state_t, flags: u32) c_int;
-
+pub extern "c" fn fcopyfile(from: fd_t, to: fd_t, state: ?copyfile_state_t, flags: COPYFILE) c_int;
 pub extern "c" fn __getdirentries64(fd: c_int, buf_ptr: [*]u8, buf_len: usize, basep: *i64) isize;
 
 pub extern "c" fn mach_absolute_time() u64;
 pub extern "c" fn mach_continuous_time() u64;
 pub extern "c" fn mach_timebase_info(tinfo: ?*mach_timebase_info_data) kern_return_t;
-
-pub extern "c" fn malloc_size(?*const anyopaque) usize;
-pub extern "c" fn posix_memalign(memptr: *?*anyopaque, alignment: usize, size: usize) c_int;
 
 pub extern "c" fn kevent64(
     kq: c_int,
@@ -188,34 +295,15 @@ pub extern "c" fn kevent64(
     timeout: ?*const timespec,
 ) c_int;
 
-const mach_hdr = if (@sizeOf(usize) == 8) mach_header_64 else mach_header;
+pub const mach_hdr = if (@sizeOf(usize) == 8) mach_header_64 else mach_header;
 
-/// The value of the link editor defined symbol _MH_EXECUTE_SYM is the address
-/// of the mach header in a Mach-O executable file type.  It does not appear in
-/// any file type other than a MH_EXECUTE file type.  The type of the symbol is
-/// absolute as the header is not part of any section.
-/// This symbol is populated when linking the system's libc, which is guaranteed
-/// on this operating system. However when building object files or libraries,
-/// the system libc won't be linked until the final executable. So we
-/// export a weak symbol here, to be overridden by the real one.
-var dummy_execute_header: mach_hdr = undefined;
-pub extern var _mh_execute_header: mach_hdr;
-comptime {
-    if (builtin.target.isDarwin()) {
-        @export(dummy_execute_header, .{ .name = "_mh_execute_header", .linkage = .weak });
-    }
-}
-
-pub const mach_header_64 = macho.mach_header_64;
-pub const mach_header = macho.mach_header;
-
-pub const _errno = __error;
+pub const mach_header_64 = std.macho.mach_header_64;
+pub const mach_header = std.macho.mach_header;
 
 pub extern "c" fn @"close$NOCANCEL"(fd: fd_t) c_int;
 pub extern "c" fn mach_host_self() mach_port_t;
 pub extern "c" fn clock_get_time(clock_serv: clock_serv_t, cur_time: *mach_timespec_t) kern_return_t;
 
-pub const exception_type_t = c_int;
 pub const exception_data_type_t = integer_t;
 pub const exception_data_t = ?*mach_exception_data_type_t;
 pub const mach_exception_data_type_t = i64;
@@ -267,31 +355,22 @@ pub const MACH_PORT_RIGHT = enum(mach_port_right_t) {
 pub const MACH_MSG_TYPE = enum(mach_msg_type_name_t) {
     /// Must hold receive right
     MOVE_RECEIVE = 16,
-
     /// Must hold send right(s)
     MOVE_SEND = 17,
-
     /// Must hold sendonce right
     MOVE_SEND_ONCE = 18,
-
     /// Must hold send right(s)
     COPY_SEND = 19,
-
     /// Must hold receive right
     MAKE_SEND = 20,
-
     /// Must hold receive right
     MAKE_SEND_ONCE = 21,
-
     /// NOT VALID
     COPY_RECEIVE = 22,
-
     /// Must hold receive right
     DISPOSE_RECEIVE = 24,
-
     /// Must hold send right(s)
     DISPOSE_SEND = 25,
-
     /// Must hold sendonce right
     DISPOSE_SEND_ONCE = 26,
 };
@@ -381,38 +460,45 @@ pub const vm_behavior_t = i32;
 pub const vm32_object_id_t = u32;
 pub const vm_object_id_t = u64;
 
-pub const VM_INHERIT_SHARE: vm_inherit_t = 0;
-pub const VM_INHERIT_COPY: vm_inherit_t = 1;
-pub const VM_INHERIT_NONE: vm_inherit_t = 2;
-pub const VM_INHERIT_DONATE_COPY: vm_inherit_t = 3;
-pub const VM_INHERIT_DEFAULT = VM_INHERIT_COPY;
+pub const VM = struct {
+    pub const INHERIT = struct {
+        pub const SHARE: vm_inherit_t = 0;
+        pub const COPY: vm_inherit_t = 1;
+        pub const NONE: vm_inherit_t = 2;
+        pub const DONATE_COPY: vm_inherit_t = 3;
+        pub const DEFAULT = COPY;
+    };
 
-pub const VM_BEHAVIOR_DEFAULT: vm_behavior_t = 0;
-pub const VM_BEHAVIOR_RANDOM: vm_behavior_t = 1;
-pub const VM_BEHAVIOR_SEQUENTIAL: vm_behavior_t = 2;
-pub const VM_BEHAVIOR_RSEQNTL: vm_behavior_t = 3;
+    pub const BEHAVIOR = struct {
+        pub const DEFAULT: vm_behavior_t = 0;
+        pub const RANDOM: vm_behavior_t = 1;
+        pub const SEQUENTIAL: vm_behavior_t = 2;
+        pub const RSEQNTL: vm_behavior_t = 3;
+        pub const WILLNEED: vm_behavior_t = 4;
+        pub const DONTNEED: vm_behavior_t = 5;
+        pub const FREE: vm_behavior_t = 6;
+        pub const ZERO_WIRED_PAGES: vm_behavior_t = 7;
+        pub const REUSABLE: vm_behavior_t = 8;
+        pub const REUSE: vm_behavior_t = 9;
+        pub const CAN_REUSE: vm_behavior_t = 10;
+        pub const PAGEOUT: vm_behavior_t = 11;
+    };
 
-pub const VM_BEHAVIOR_WILLNEED: vm_behavior_t = 4;
-pub const VM_BEHAVIOR_DONTNEED: vm_behavior_t = 5;
-pub const VM_BEHAVIOR_FREE: vm_behavior_t = 6;
-pub const VM_BEHAVIOR_ZERO_WIRED_PAGES: vm_behavior_t = 7;
-pub const VM_BEHAVIOR_REUSABLE: vm_behavior_t = 8;
-pub const VM_BEHAVIOR_REUSE: vm_behavior_t = 9;
-pub const VM_BEHAVIOR_CAN_REUSE: vm_behavior_t = 10;
-pub const VM_BEHAVIOR_PAGEOUT: vm_behavior_t = 11;
+    pub const REGION = struct {
+        pub const BASIC_INFO_64 = 9;
+        pub const EXTENDED_INFO = 13;
+        pub const TOP_INFO = 12;
+        pub const SUBMAP_INFO_COUNT_64: mach_msg_type_number_t = @sizeOf(vm_region_submap_info_64) / @sizeOf(natural_t);
+        pub const SUBMAP_SHORT_INFO_COUNT_64: mach_msg_type_number_t = @sizeOf(vm_region_submap_short_info_64) / @sizeOf(natural_t);
+        pub const BASIC_INFO_COUNT: mach_msg_type_number_t = @sizeOf(vm_region_basic_info_64) / @sizeOf(c_int);
+        pub const EXTENDED_INFO_COUNT: mach_msg_type_number_t = @sizeOf(vm_region_extended_info) / @sizeOf(natural_t);
+        pub const TOP_INFO_COUNT: mach_msg_type_number_t = @sizeOf(vm_region_top_info) / @sizeOf(natural_t);
+    };
 
-pub const VM_REGION_BASIC_INFO_64 = 9;
-pub const VM_REGION_EXTENDED_INFO = 13;
-pub const VM_REGION_TOP_INFO = 12;
-pub const VM_REGION_SUBMAP_INFO_COUNT_64: mach_msg_type_number_t = @sizeOf(vm_region_submap_info_64) / @sizeOf(natural_t);
-pub const VM_REGION_SUBMAP_SHORT_INFO_COUNT_64: mach_msg_type_number_t = @sizeOf(vm_region_submap_short_info_64) / @sizeOf(natural_t);
-pub const VM_REGION_BASIC_INFO_COUNT: mach_msg_type_number_t = @sizeOf(vm_region_basic_info_64) / @sizeOf(c_int);
-pub const VM_REGION_EXTENDED_INFO_COUNT: mach_msg_type_number_t = @sizeOf(vm_region_extended_info) / @sizeOf(natural_t);
-pub const VM_REGION_TOP_INFO_COUNT: mach_msg_type_number_t = @sizeOf(vm_region_top_info) / @sizeOf(natural_t);
-
-pub fn VM_MAKE_TAG(tag: u8) u32 {
-    return @as(u32, tag) << 24;
-}
+    pub fn MAKE_TAG(tag: u8) u32 {
+        return @as(u32, tag) << 24;
+    }
+};
 
 pub const vm_region_basic_info_64 = extern struct {
     protection: vm_prot_t,
@@ -590,29 +676,30 @@ pub const thread_identifier_info = extern struct {
     dispatch_qaddr: u64,
 };
 
-/// Cachability
-pub const MATTR_CACHE = 1;
-/// Migrability
-pub const MATTR_MIGRATE = 2;
-/// Replicability
-pub const MATTR_REPLICATE = 4;
-
-/// (Generic) turn attribute off
-pub const MATTR_VAL_OFF = 0;
-/// (Generic) turn attribute on
-pub const MATTR_VAL_ON = 1;
-/// (Generic) return current value
-pub const MATTR_VAL_GET = 2;
-/// Flush from all caches
-pub const MATTR_VAL_CACHE_FLUSH = 6;
-/// Flush from data caches
-pub const MATTR_VAL_DCACHE_FLUSH = 7;
-/// Flush from instruction caches
-pub const MATTR_VAL_ICACHE_FLUSH = 8;
-/// Sync I+D caches
-pub const MATTR_VAL_CACHE_SYNC = 9;
-/// Get page info (stats)
-pub const MATTR_VAL_GET_INFO = 10;
+pub const MATTR = struct {
+    /// Cachability
+    pub const CACHE = 1;
+    /// Migrability
+    pub const MIGRATE = 2;
+    /// Replicability
+    pub const REPLICATE = 4;
+    /// (Generic) turn attribute off
+    pub const VAL_OFF = 0;
+    /// (Generic) turn attribute on
+    pub const VAL_ON = 1;
+    /// (Generic) return current value
+    pub const VAL_GET = 2;
+    /// Flush from all caches
+    pub const VAL_CACHE_FLUSH = 6;
+    /// Flush from data caches
+    pub const VAL_DCACHE_FLUSH = 7;
+    /// Flush from instruction caches
+    pub const VAL_ICACHE_FLUSH = 8;
+    /// Sync I+D caches
+    pub const VAL_CACHE_SYNC = 9;
+    /// Get page info (stats)
+    pub const VAL_GET_INFO = 10;
+};
 
 pub const TASK_VM_INFO = 22;
 pub const TASK_VM_INFO_COUNT: mach_msg_type_number_t = @sizeOf(task_vm_info_data_t) / @sizeOf(natural_t);
@@ -679,6 +766,7 @@ pub const task_vm_info = extern struct {
     // added for rev5
     decompressions: integer_t,
 };
+
 pub const task_vm_info_data_t = task_vm_info;
 
 pub const vm_prot_t = c_int;
@@ -715,19 +803,14 @@ pub extern "c" fn task_info(
 pub const mach_task_basic_info = extern struct {
     /// Virtual memory size (bytes)
     virtual_size: mach_vm_size_t,
-
     /// Resident memory size (bytes)
     resident_size: mach_vm_size_t,
-
     /// Total user run time for terminated threads
     user_time: time_value_t,
-
     /// Total system run time for terminated threads
     system_time: time_value_t,
-
     /// Default policy for new threads
     policy: policy_t,
-
     /// Suspend count for task
     suspend_count: mach_vm_size_t,
 };
@@ -745,13 +828,6 @@ pub extern "c" fn vm_machine_attribute(
     value: *vm_machine_attribute_val_t,
 ) kern_return_t;
 
-pub const sf_hdtr = extern struct {
-    headers: [*]const iovec_const,
-    hdr_cnt: c_int,
-    trailers: [*]const iovec_const,
-    trl_cnt: c_int,
-};
-
 pub extern "c" fn sendfile(
     in_fd: fd_t,
     out_fd: fd_t,
@@ -764,69 +840,6 @@ pub extern "c" fn sendfile(
 pub fn sigaddset(set: *sigset_t, signo: u5) void {
     set.* |= @as(u32, 1) << (signo - 1);
 }
-
-pub extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
-
-pub const IFNAMESIZE = 16;
-
-pub const AI = struct {
-    /// get address to use bind()
-    pub const PASSIVE = 0x00000001;
-    /// fill ai_canonname
-    pub const CANONNAME = 0x00000002;
-    /// prevent host name resolution
-    pub const NUMERICHOST = 0x00000004;
-    /// prevent service name resolution
-    pub const NUMERICSERV = 0x00001000;
-};
-
-pub const EAI = enum(c_int) {
-    /// address family for hostname not supported
-    ADDRFAMILY = 1,
-
-    /// temporary failure in name resolution
-    AGAIN = 2,
-
-    /// invalid value for ai_flags
-    BADFLAGS = 3,
-
-    /// non-recoverable failure in name resolution
-    FAIL = 4,
-
-    /// ai_family not supported
-    FAMILY = 5,
-
-    /// memory allocation failure
-    MEMORY = 6,
-
-    /// no address associated with hostname
-    NODATA = 7,
-
-    /// hostname nor servname provided, or not known
-    NONAME = 8,
-
-    /// servname not supported for ai_socktype
-    SERVICE = 9,
-
-    /// ai_socktype not supported
-    SOCKTYPE = 10,
-
-    /// system error returned in errno
-    SYSTEM = 11,
-
-    /// invalid value for hints
-    BADHINTS = 12,
-
-    /// resolved protocol is unknown
-    PROTOCOL = 13,
-
-    /// argument buffer overflow
-    OVERFLOW = 14,
-
-    _,
-};
-
-pub const EAI_MAX = 15;
 
 pub const qos_class_t = enum(c_uint) {
     /// highest priority QOS class for critical tasks
@@ -842,23 +855,6 @@ pub const qos_class_t = enum(c_uint) {
     /// QOS class as a return value
     QOS_CLASS_UNSPECIFIED = 0x00,
 };
-
-pub const sem_t = c_int;
-
-pub const pthread_attr_t = extern struct {
-    __sig: c_long,
-    __opaque: [56]u8,
-};
-
-pub extern "c" fn pthread_threadid_np(thread: ?std.c.pthread_t, thread_id: *u64) c_int;
-pub extern "c" fn pthread_setname_np(name: [*:0]const u8) E;
-pub extern "c" fn pthread_getname_np(thread: std.c.pthread_t, name: [*:0]u8, len: usize) E;
-pub extern "c" fn pthread_attr_set_qos_class_np(attr: *pthread_attr_t, qos_class: qos_class_t, relative_priority: c_int) c_int;
-pub extern "c" fn pthread_attr_get_qos_class_np(attr: *pthread_attr_t, qos_class: *qos_class_t, relative_priority: *c_int) c_int;
-pub extern "c" fn pthread_set_qos_class_self_np(qos_class: qos_class_t, relative_priority: c_int) c_int;
-pub extern "c" fn pthread_get_qos_class_np(pthread: std.c.pthread_t, qos_class: *qos_class_t, relative_priority: *c_int) c_int;
-
-pub extern "c" fn arc4random_buf(buf: [*]u8, len: usize) void;
 
 // Grand Central Dispatch is exposed by libSystem.
 pub extern "c" fn dispatch_release(object: *anyopaque) void;
@@ -881,38 +877,37 @@ pub extern fn dispatch_once_f(
     function: dispatch_function_t,
 ) void;
 
-// Undocumented futex-like API available on darwin 16+
-// (macOS 10.12+, iOS 10.0+, tvOS 10.0+, watchOS 3.0+, catalyst 13.0+).
-//
-// [ulock.h]: https://github.com/apple/darwin-xnu/blob/master/bsd/sys/ulock.h
-// [sys_ulock.c]: https://github.com/apple/darwin-xnu/blob/master/bsd/kern/sys_ulock.c
+/// Undocumented futex-like API available on darwin 16+
+/// (macOS 10.12+, iOS 10.0+, tvOS 10.0+, watchOS 3.0+, catalyst 13.0+).
+///
+/// [ulock.h]: https://github.com/apple/darwin-xnu/blob/master/bsd/sys/ulock.h
+/// [sys_ulock.c]: https://github.com/apple/darwin-xnu/blob/master/bsd/kern/sys_ulock.c
+pub const UL = packed struct(u32) {
+    op: Op,
+    WAKE_ALL: bool = false,
+    WAKE_THREAD: bool = false,
+    _10: u6 = 0,
+    WAIT_WORKQ_DATA_CONTENTION: bool = false,
+    WAIT_CANCEL_POINT: bool = false,
+    WAIT_ADAPTIVE_SPIN: bool = false,
+    _19: u5 = 0,
+    NO_ERRNO: bool = false,
+    _: u7 = 0,
 
-pub const UL_COMPARE_AND_WAIT = 1;
-pub const UL_UNFAIR_LOCK = 2;
+    pub const Op = enum(u8) {
+        COMPARE_AND_WAIT = 1,
+        UNFAIR_LOCK = 2,
+        COMPARE_AND_WAIT_SHARED = 3,
+        UNFAIR_LOCK64_SHARED = 4,
+        COMPARE_AND_WAIT64 = 5,
+        COMPARE_AND_WAIT64_SHARED = 6,
+    };
+};
 
-// Obsolete/deprecated
-pub const UL_OSSPINLOCK = UL_COMPARE_AND_WAIT;
-pub const UL_HANDOFFLOCK = UL_UNFAIR_LOCK;
+pub extern "c" fn __ulock_wait2(op: UL, addr: ?*const anyopaque, val: u64, timeout_ns: u64, val2: u64) c_int;
+pub extern "c" fn __ulock_wait(op: UL, addr: ?*const anyopaque, val: u64, timeout_us: u32) c_int;
+pub extern "c" fn __ulock_wake(op: UL, addr: ?*const anyopaque, val: u64) c_int;
 
-pub const ULF_WAKE_ALL = 0x100;
-pub const ULF_WAKE_THREAD = 0x200;
-pub const ULF_WAIT_WORKQ_DATA_CONTENTION = 0x10000;
-pub const ULF_WAIT_CANCEL_POINT = 0x20000;
-pub const ULF_NO_ERRNO = 0x1000000;
-
-// The following are only supported on darwin 19+
-// (macOS 10.15+, iOS 13.0+)
-pub const UL_COMPARE_AND_WAIT_SHARED = 3;
-pub const UL_UNFAIR_LOCK64_SHARED = 4;
-pub const UL_COMPARE_AND_WAIT64 = 5;
-pub const UL_COMPARE_AND_WAIT64_SHARED = 6;
-pub const ULF_WAIT_ADAPTIVE_SPIN = 0x40000;
-
-pub extern "c" fn __ulock_wait2(op: u32, addr: ?*const anyopaque, val: u64, timeout_ns: u64, val2: u64) c_int;
-pub extern "c" fn __ulock_wait(op: u32, addr: ?*const anyopaque, val: u64, timeout_us: u32) c_int;
-pub extern "c" fn __ulock_wake(op: u32, addr: ?*const anyopaque, val: u64) c_int;
-
-pub const OS_UNFAIR_LOCK_INIT = os_unfair_lock{};
 pub const os_unfair_lock_t = *os_unfair_lock;
 pub const os_unfair_lock = extern struct {
     _os_unfair_lock_opaque: u32 = 0,
@@ -924,275 +919,48 @@ pub extern "c" fn os_unfair_lock_trylock(o: os_unfair_lock_t) bool;
 pub extern "c" fn os_unfair_lock_assert_owner(o: os_unfair_lock_t) void;
 pub extern "c" fn os_unfair_lock_assert_not_owner(o: os_unfair_lock_t) void;
 
-// See: https://opensource.apple.com/source/xnu/xnu-6153.141.1/bsd/sys/_types.h.auto.html
-// TODO: audit mode_t/pid_t, should likely be u16/i32
-pub const blkcnt_t = i64;
-pub const blksize_t = i32;
-pub const dev_t = i32;
-pub const fd_t = c_int;
-pub const pid_t = c_int;
-pub const mode_t = c_uint;
-pub const uid_t = u32;
-pub const gid_t = u32;
+pub const os_signpost_id_t = u64;
 
-// machine/_types.h
-pub const clock_t = c_ulong;
-pub const time_t = c_long;
+pub const OS_SIGNPOST_ID_NULL: os_signpost_id_t = 0;
+pub const OS_SIGNPOST_ID_INVALID: os_signpost_id_t = !0;
+pub const OS_SIGNPOST_ID_EXCLUSIVE: os_signpost_id_t = 0xeeeeb0b5b2b2eeee;
 
-pub const in_port_t = u16;
-pub const sa_family_t = u8;
-pub const socklen_t = u32;
-pub const sockaddr = extern struct {
-    len: u8,
-    family: sa_family_t,
-    data: [14]u8,
-
-    pub const SS_MAXSIZE = 128;
-    pub const storage = extern struct {
-        len: u8 align(8),
-        family: sa_family_t,
-        padding: [126]u8 = undefined,
-
-        comptime {
-            assert(@sizeOf(storage) == SS_MAXSIZE);
-            assert(@alignOf(storage) == 8);
-        }
-    };
-    pub const in = extern struct {
-        len: u8 = @sizeOf(in),
-        family: sa_family_t = AF.INET,
-        port: in_port_t,
-        addr: u32,
-        zero: [8]u8 = [8]u8{ 0, 0, 0, 0, 0, 0, 0, 0 },
-    };
-    pub const in6 = extern struct {
-        len: u8 = @sizeOf(in6),
-        family: sa_family_t = AF.INET6,
-        port: in_port_t,
-        flowinfo: u32,
-        addr: [16]u8,
-        scope_id: u32,
-    };
-
-    /// UNIX domain socket
-    pub const un = extern struct {
-        len: u8 = @sizeOf(un),
-        family: sa_family_t = AF.UNIX,
-        path: [104]u8,
-    };
-};
-pub const timeval = extern struct {
-    tv_sec: c_long,
-    tv_usec: i32,
+pub const os_log_t = opaque {};
+pub const os_log_type_t = enum(u8) {
+    /// default messages always captures
+    OS_LOG_TYPE_DEFAULT = 0x00,
+    /// messages with additional infos
+    OS_LOG_TYPE_INFO = 0x01,
+    /// debug messages
+    OS_LOG_TYPE_DEBUG = 0x02,
+    /// error messages
+    OS_LOG_TYPE_ERROR = 0x10,
+    /// unexpected conditions messages
+    OS_LOG_TYPE_FAULT = 0x11,
 };
 
-pub const timezone = extern struct {
-    tz_minuteswest: i32,
-    tz_dsttime: i32,
-};
+pub const OS_LOG_CATEGORY_POINTS_OF_INTEREST: *const u8 = "PointsOfInterest";
+pub const OS_LOG_CATEGORY_DYNAMIC_TRACING: *const u8 = "DynamicTracing";
+pub const OS_LOG_CATEGORY_DYNAMIC_STACK_TRACING: *const u8 = "DynamicStackTracing";
+
+pub extern "c" fn os_log_create(subsystem: [*]const u8, category: [*]const u8) os_log_t;
+pub extern "c" fn os_log_type_enabled(log: os_log_t, tpe: os_log_type_t) bool;
+pub extern "c" fn os_signpost_id_generate(log: os_log_t) os_signpost_id_t;
+pub extern "c" fn os_signpost_interval_begin(log: os_log_t, signpos: os_signpost_id_t, func: [*]const u8, ...) void;
+pub extern "c" fn os_signpost_interval_end(log: os_log_t, signpos: os_signpost_id_t, func: [*]const u8, ...) void;
+pub extern "c" fn os_signpost_id_make_with_pointer(log: os_log_t, ptr: ?*anyopaque) os_signpost_id_t;
+pub extern "c" fn os_signpost_enabled(log: os_log_t) bool;
+
+pub extern "c" fn pthread_setname_np(name: [*:0]const u8) c_int;
+pub extern "c" fn pthread_attr_set_qos_class_np(attr: *pthread_attr_t, qos_class: qos_class_t, relative_priority: c_int) c_int;
+pub extern "c" fn pthread_attr_get_qos_class_np(attr: *pthread_attr_t, qos_class: *qos_class_t, relative_priority: *c_int) c_int;
+pub extern "c" fn pthread_set_qos_class_self_np(qos_class: qos_class_t, relative_priority: c_int) c_int;
+pub extern "c" fn pthread_get_qos_class_np(pthread: std.c.pthread_t, qos_class: *qos_class_t, relative_priority: *c_int) c_int;
 
 pub const mach_timebase_info_data = extern struct {
     numer: u32,
     denom: u32,
 };
-
-pub const off_t = i64;
-pub const ino_t = u64;
-
-pub const Flock = extern struct {
-    start: off_t,
-    len: off_t,
-    pid: pid_t,
-    type: i16,
-    whence: i16,
-};
-
-pub const Stat = extern struct {
-    dev: i32,
-    mode: u16,
-    nlink: u16,
-    ino: ino_t,
-    uid: uid_t,
-    gid: gid_t,
-    rdev: i32,
-    atimespec: timespec,
-    mtimespec: timespec,
-    ctimespec: timespec,
-    birthtimespec: timespec,
-    size: off_t,
-    blocks: i64,
-    blksize: i32,
-    flags: u32,
-    gen: u32,
-    lspare: i32,
-    qspare: [2]i64,
-
-    pub fn atime(self: @This()) timespec {
-        return self.atimespec;
-    }
-
-    pub fn mtime(self: @This()) timespec {
-        return self.mtimespec;
-    }
-
-    pub fn ctime(self: @This()) timespec {
-        return self.ctimespec;
-    }
-
-    pub fn birthtime(self: @This()) timespec {
-        return self.birthtimespec;
-    }
-};
-
-pub const timespec = extern struct {
-    tv_sec: isize,
-    tv_nsec: isize,
-};
-
-pub const sigset_t = u32;
-pub const empty_sigset: sigset_t = 0;
-
-pub const SIG = struct {
-    pub const ERR: ?Sigaction.handler_fn = @ptrFromInt(maxInt(usize));
-    pub const DFL: ?Sigaction.handler_fn = @ptrFromInt(0);
-    pub const IGN: ?Sigaction.handler_fn = @ptrFromInt(1);
-    pub const HOLD: ?Sigaction.handler_fn = @ptrFromInt(5);
-
-    /// block specified signal set
-    pub const BLOCK = 1;
-    /// unblock specified signal set
-    pub const UNBLOCK = 2;
-    /// set specified signal set
-    pub const SETMASK = 3;
-    /// hangup
-    pub const HUP = 1;
-    /// interrupt
-    pub const INT = 2;
-    /// quit
-    pub const QUIT = 3;
-    /// illegal instruction (not reset when caught)
-    pub const ILL = 4;
-    /// trace trap (not reset when caught)
-    pub const TRAP = 5;
-    /// abort()
-    pub const ABRT = 6;
-    /// pollable event ([XSR] generated, not supported)
-    pub const POLL = 7;
-    /// compatibility
-    pub const IOT = ABRT;
-    /// EMT instruction
-    pub const EMT = 7;
-    /// floating point exception
-    pub const FPE = 8;
-    /// kill (cannot be caught or ignored)
-    pub const KILL = 9;
-    /// bus error
-    pub const BUS = 10;
-    /// segmentation violation
-    pub const SEGV = 11;
-    /// bad argument to system call
-    pub const SYS = 12;
-    /// write on a pipe with no one to read it
-    pub const PIPE = 13;
-    /// alarm clock
-    pub const ALRM = 14;
-    /// software termination signal from kill
-    pub const TERM = 15;
-    /// urgent condition on IO channel
-    pub const URG = 16;
-    /// sendable stop signal not from tty
-    pub const STOP = 17;
-    /// stop signal from tty
-    pub const TSTP = 18;
-    /// continue a stopped process
-    pub const CONT = 19;
-    /// to parent on child stop or exit
-    pub const CHLD = 20;
-    /// to readers pgrp upon background tty read
-    pub const TTIN = 21;
-    /// like TTIN for output if (tp->t_local&LTOSTOP)
-    pub const TTOU = 22;
-    /// input/output possible signal
-    pub const IO = 23;
-    /// exceeded CPU time limit
-    pub const XCPU = 24;
-    /// exceeded file size limit
-    pub const XFSZ = 25;
-    /// virtual time alarm
-    pub const VTALRM = 26;
-    /// profiling time alarm
-    pub const PROF = 27;
-    /// window size changes
-    pub const WINCH = 28;
-    /// information request
-    pub const INFO = 29;
-    /// user defined signal 1
-    pub const USR1 = 30;
-    /// user defined signal 2
-    pub const USR2 = 31;
-};
-
-pub const siginfo_t = extern struct {
-    signo: c_int,
-    errno: c_int,
-    code: c_int,
-    pid: pid_t,
-    uid: uid_t,
-    status: c_int,
-    addr: *allowzero anyopaque,
-    value: extern union {
-        int: c_int,
-        ptr: *anyopaque,
-    },
-    si_band: c_long,
-    _pad: [7]c_ulong,
-};
-
-/// Renamed from `sigaction` to `Sigaction` to avoid conflict with function name.
-pub const Sigaction = extern struct {
-    pub const handler_fn = *align(1) const fn (i32) callconv(.C) void;
-    pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.C) void;
-
-    handler: extern union {
-        handler: ?handler_fn,
-        sigaction: ?sigaction_fn,
-    },
-    mask: sigset_t,
-    flags: c_uint,
-};
-
-pub const dirent = extern struct {
-    ino: u64,
-    seekoff: u64,
-    reclen: u16,
-    namlen: u16,
-    type: u8,
-    name: [1024]u8,
-};
-
-/// Renamed from `kevent` to `Kevent` to avoid conflict with function name.
-pub const Kevent = extern struct {
-    ident: usize,
-    filter: i16,
-    flags: u16,
-    fflags: u32,
-    data: isize,
-    udata: usize,
-};
-
-// sys/types.h on macos uses #pragma pack(4) so these checks are
-// to make sure the struct is laid out the same. These values were
-// produced from C code using the offsetof macro.
-comptime {
-    if (builtin.target.isDarwin()) {
-        assert(@offsetOf(Kevent, "ident") == 0);
-        assert(@offsetOf(Kevent, "filter") == 8);
-        assert(@offsetOf(Kevent, "flags") == 10);
-        assert(@offsetOf(Kevent, "fflags") == 12);
-        assert(@offsetOf(Kevent, "data") == 16);
-        assert(@offsetOf(Kevent, "udata") == 24);
-    }
-}
 
 pub const kevent64_s = extern struct {
     ident: u64,
@@ -1219,14 +987,13 @@ comptime {
     }
 }
 
-pub const mach_port_t = c_uint;
 pub const clock_serv_t = mach_port_t;
 pub const clock_res_t = c_int;
 pub const mach_port_name_t = natural_t;
 pub const natural_t = c_uint;
 pub const mach_timespec_t = extern struct {
-    tv_sec: c_uint,
-    tv_nsec: clock_res_t,
+    sec: c_uint,
+    nsec: clock_res_t,
 };
 pub const kern_return_t = c_int;
 pub const host_t = mach_port_t;
@@ -1241,1033 +1008,15 @@ pub const vm_machine_attribute_val_t = isize;
 
 pub const CALENDAR_CLOCK = 1;
 
-pub const PATH_MAX = 1024;
-pub const NAME_MAX = 255;
-pub const IOV_MAX = 16;
-
-pub const STDIN_FILENO = 0;
-pub const STDOUT_FILENO = 1;
-pub const STDERR_FILENO = 2;
-
-pub const PROT = struct {
-    /// [MC2] no permissions
-    pub const NONE: vm_prot_t = 0x00;
-    /// [MC2] pages can be read
-    pub const READ: vm_prot_t = 0x01;
-    /// [MC2] pages can be written
-    pub const WRITE: vm_prot_t = 0x02;
-    /// [MC2] pages can be executed
-    pub const EXEC: vm_prot_t = 0x04;
-    /// When a caller finds that they cannot obtain write permission on a
-    /// mapped entry, the following flag can be used. The entry will be
-    /// made "needs copy" effectively copying the object (using COW),
-    /// and write permission will be added to the maximum protections for
-    /// the associated entry.
-    pub const COPY: vm_prot_t = 0x10;
-};
-
-pub const MSF = struct {
-    pub const ASYNC = 0x1;
-    pub const INVALIDATE = 0x2;
-    // invalidate, leave mapped
-    pub const KILLPAGES = 0x4;
-    // deactivate, leave mapped
-    pub const DEACTIVATE = 0x8;
-    pub const SYNC = 0x10;
-};
-
-pub const SA = struct {
-    /// take signal on signal stack
-    pub const ONSTACK = 0x0001;
-    /// restart system on signal return
-    pub const RESTART = 0x0002;
-    /// reset to SIG.DFL when taking signal
-    pub const RESETHAND = 0x0004;
-    /// do not generate SIG.CHLD on child stop
-    pub const NOCLDSTOP = 0x0008;
-    /// don't mask the signal we're delivering
-    pub const NODEFER = 0x0010;
-    /// don't keep zombies around
-    pub const NOCLDWAIT = 0x0020;
-    /// signal handler with SIGINFO args
-    pub const SIGINFO = 0x0040;
-    /// do not bounce off kernel's sigtramp
-    pub const USERTRAMP = 0x0100;
-    /// signal handler with SIGINFO args with 64bit regs information
-    pub const @"64REGSET" = 0x0200;
-};
-
-pub const F_OK = 0;
-pub const X_OK = 1;
-pub const W_OK = 2;
-pub const R_OK = 4;
-
-pub const SEEK = struct {
-    pub const SET = 0x0;
-    pub const CUR = 0x1;
-    pub const END = 0x2;
-};
-
-pub const DT = struct {
-    pub const UNKNOWN = 0;
-    pub const FIFO = 1;
-    pub const CHR = 2;
-    pub const DIR = 4;
-    pub const BLK = 6;
-    pub const REG = 8;
-    pub const LNK = 10;
-    pub const SOCK = 12;
-    pub const WHT = 14;
-};
-
 /// no flag value
 pub const KEVENT_FLAG_NONE = 0x000;
-
 /// immediate timeout
 pub const KEVENT_FLAG_IMMEDIATE = 0x001;
-
 /// output events only include change
 pub const KEVENT_FLAG_ERROR_EVENTS = 0x002;
 
-/// add event to kq (implies enable)
-pub const EV_ADD = 0x0001;
-
-/// delete event from kq
-pub const EV_DELETE = 0x0002;
-
-/// enable event
-pub const EV_ENABLE = 0x0004;
-
-/// disable event (not reported)
-pub const EV_DISABLE = 0x0008;
-
-/// only report one occurrence
-pub const EV_ONESHOT = 0x0010;
-
-/// clear event state after reporting
-pub const EV_CLEAR = 0x0020;
-
-/// force immediate event output
-/// ... with or without EV_ERROR
-/// ... use KEVENT_FLAG_ERROR_EVENTS
-///     on syscalls supporting flags
-pub const EV_RECEIPT = 0x0040;
-
-/// disable event after reporting
-pub const EV_DISPATCH = 0x0080;
-
-/// unique kevent per udata value
-pub const EV_UDATA_SPECIFIC = 0x0100;
-
-/// ... in combination with EV_DELETE
-/// will defer delete until udata-specific
-/// event enabled. EINPROGRESS will be
-/// returned to indicate the deferral
-pub const EV_DISPATCH2 = EV_DISPATCH | EV_UDATA_SPECIFIC;
-
-/// report that source has vanished
-/// ... only valid with EV_DISPATCH2
-pub const EV_VANISHED = 0x0200;
-
-/// reserved by system
-pub const EV_SYSFLAGS = 0xF000;
-
-/// filter-specific flag
-pub const EV_FLAG0 = 0x1000;
-
-/// filter-specific flag
-pub const EV_FLAG1 = 0x2000;
-
-/// EOF detected
-pub const EV_EOF = 0x8000;
-
-/// error, data contains errno
-pub const EV_ERROR = 0x4000;
-
-pub const EV_POLL = EV_FLAG0;
-pub const EV_OOBAND = EV_FLAG1;
-
-pub const EVFILT_READ = -1;
-pub const EVFILT_WRITE = -2;
-
-/// attached to aio requests
-pub const EVFILT_AIO = -3;
-
-/// attached to vnodes
-pub const EVFILT_VNODE = -4;
-
-/// attached to struct proc
-pub const EVFILT_PROC = -5;
-
-/// attached to struct proc
-pub const EVFILT_SIGNAL = -6;
-
-/// timers
-pub const EVFILT_TIMER = -7;
-
-/// Mach portsets
-pub const EVFILT_MACHPORT = -8;
-
-/// Filesystem events
-pub const EVFILT_FS = -9;
-
-/// User events
-pub const EVFILT_USER = -10;
-
-/// Virtual memory events
-pub const EVFILT_VM = -12;
-
-/// Exception events
-pub const EVFILT_EXCEPT = -15;
-
-pub const EVFILT_SYSCOUNT = 17;
-
-/// On input, NOTE_TRIGGER causes the event to be triggered for output.
-pub const NOTE_TRIGGER = 0x01000000;
-
-/// ignore input fflags
-pub const NOTE_FFNOP = 0x00000000;
-
-/// and fflags
-pub const NOTE_FFAND = 0x40000000;
-
-/// or fflags
-pub const NOTE_FFOR = 0x80000000;
-
-/// copy fflags
-pub const NOTE_FFCOPY = 0xc0000000;
-
-/// mask for operations
-pub const NOTE_FFCTRLMASK = 0xc0000000;
-pub const NOTE_FFLAGSMASK = 0x00ffffff;
-
-/// low water mark
-pub const NOTE_LOWAT = 0x00000001;
-
-/// OOB data
-pub const NOTE_OOB = 0x00000002;
-
-/// vnode was removed
-pub const NOTE_DELETE = 0x00000001;
-
-/// data contents changed
-pub const NOTE_WRITE = 0x00000002;
-
-/// size increased
-pub const NOTE_EXTEND = 0x00000004;
-
-/// attributes changed
-pub const NOTE_ATTRIB = 0x00000008;
-
-/// link count changed
-pub const NOTE_LINK = 0x00000010;
-
-/// vnode was renamed
-pub const NOTE_RENAME = 0x00000020;
-
-/// vnode access was revoked
-pub const NOTE_REVOKE = 0x00000040;
-
-/// No specific vnode event: to test for EVFILT_READ      activation
-pub const NOTE_NONE = 0x00000080;
-
-/// vnode was unlocked by flock(2)
-pub const NOTE_FUNLOCK = 0x00000100;
-
-/// process exited
-pub const NOTE_EXIT = 0x80000000;
-
-/// process forked
-pub const NOTE_FORK = 0x40000000;
-
-/// process exec'd
-pub const NOTE_EXEC = 0x20000000;
-
-/// shared with EVFILT_SIGNAL
-pub const NOTE_SIGNAL = 0x08000000;
-
-/// exit status to be returned, valid for child       process only
-pub const NOTE_EXITSTATUS = 0x04000000;
-
-/// provide details on reasons for exit
-pub const NOTE_EXIT_DETAIL = 0x02000000;
-
-/// mask for signal & exit status
-pub const NOTE_PDATAMASK = 0x000fffff;
-pub const NOTE_PCTRLMASK = (~NOTE_PDATAMASK);
-
-pub const NOTE_EXIT_DETAIL_MASK = 0x00070000;
-pub const NOTE_EXIT_DECRYPTFAIL = 0x00010000;
-pub const NOTE_EXIT_MEMORY = 0x00020000;
-pub const NOTE_EXIT_CSERROR = 0x00040000;
-
-/// will react on memory          pressure
-pub const NOTE_VM_PRESSURE = 0x80000000;
-
-/// will quit on memory       pressure, possibly after cleaning up dirty state
-pub const NOTE_VM_PRESSURE_TERMINATE = 0x40000000;
-
-/// will quit immediately on      memory pressure
-pub const NOTE_VM_PRESSURE_SUDDEN_TERMINATE = 0x20000000;
-
-/// there was an error
-pub const NOTE_VM_ERROR = 0x10000000;
-
-/// data is seconds
-pub const NOTE_SECONDS = 0x00000001;
-
-/// data is microseconds
-pub const NOTE_USECONDS = 0x00000002;
-
-/// data is nanoseconds
-pub const NOTE_NSECONDS = 0x00000004;
-
-/// absolute timeout
-pub const NOTE_ABSOLUTE = 0x00000008;
-
-/// ext[1] holds leeway for power aware timers
-pub const NOTE_LEEWAY = 0x00000010;
-
-/// system does minimal timer coalescing
-pub const NOTE_CRITICAL = 0x00000020;
-
-/// system does maximum timer coalescing
-pub const NOTE_BACKGROUND = 0x00000040;
-pub const NOTE_MACH_CONTINUOUS_TIME = 0x00000080;
-
-/// data is mach absolute time units
-pub const NOTE_MACHTIME = 0x00000100;
-
-pub const AF = struct {
-    pub const UNSPEC = 0;
-    pub const LOCAL = 1;
-    pub const UNIX = LOCAL;
-    pub const INET = 2;
-    pub const SYS_CONTROL = 2;
-    pub const IMPLINK = 3;
-    pub const PUP = 4;
-    pub const CHAOS = 5;
-    pub const NS = 6;
-    pub const ISO = 7;
-    pub const OSI = ISO;
-    pub const ECMA = 8;
-    pub const DATAKIT = 9;
-    pub const CCITT = 10;
-    pub const SNA = 11;
-    pub const DECnet = 12;
-    pub const DLI = 13;
-    pub const LAT = 14;
-    pub const HYLINK = 15;
-    pub const APPLETALK = 16;
-    pub const ROUTE = 17;
-    pub const LINK = 18;
-    pub const XTP = 19;
-    pub const COIP = 20;
-    pub const CNT = 21;
-    pub const RTIP = 22;
-    pub const IPX = 23;
-    pub const SIP = 24;
-    pub const PIP = 25;
-    pub const ISDN = 28;
-    pub const E164 = ISDN;
-    pub const KEY = 29;
-    pub const INET6 = 30;
-    pub const NATM = 31;
-    pub const SYSTEM = 32;
-    pub const NETBIOS = 33;
-    pub const PPP = 34;
-    pub const MAX = 40;
-};
-
-pub const PF = struct {
-    pub const UNSPEC = AF.UNSPEC;
-    pub const LOCAL = AF.LOCAL;
-    pub const UNIX = PF.LOCAL;
-    pub const INET = AF.INET;
-    pub const IMPLINK = AF.IMPLINK;
-    pub const PUP = AF.PUP;
-    pub const CHAOS = AF.CHAOS;
-    pub const NS = AF.NS;
-    pub const ISO = AF.ISO;
-    pub const OSI = AF.ISO;
-    pub const ECMA = AF.ECMA;
-    pub const DATAKIT = AF.DATAKIT;
-    pub const CCITT = AF.CCITT;
-    pub const SNA = AF.SNA;
-    pub const DECnet = AF.DECnet;
-    pub const DLI = AF.DLI;
-    pub const LAT = AF.LAT;
-    pub const HYLINK = AF.HYLINK;
-    pub const APPLETALK = AF.APPLETALK;
-    pub const ROUTE = AF.ROUTE;
-    pub const LINK = AF.LINK;
-    pub const XTP = AF.XTP;
-    pub const COIP = AF.COIP;
-    pub const CNT = AF.CNT;
-    pub const SIP = AF.SIP;
-    pub const IPX = AF.IPX;
-    pub const RTIP = AF.RTIP;
-    pub const PIP = AF.PIP;
-    pub const ISDN = AF.ISDN;
-    pub const KEY = AF.KEY;
-    pub const INET6 = AF.INET6;
-    pub const NATM = AF.NATM;
-    pub const SYSTEM = AF.SYSTEM;
-    pub const NETBIOS = AF.NETBIOS;
-    pub const PPP = AF.PPP;
-    pub const MAX = AF.MAX;
-};
-
 pub const SYSPROTO_EVENT = 1;
 pub const SYSPROTO_CONTROL = 2;
-
-pub const SOCK = struct {
-    pub const STREAM = 1;
-    pub const DGRAM = 2;
-    pub const RAW = 3;
-    pub const RDM = 4;
-    pub const SEQPACKET = 5;
-    pub const MAXADDRLEN = 255;
-
-    /// Not actually supported by Darwin, but Zig supplies a shim.
-    /// This numerical value is not ABI-stable. It need only not conflict
-    /// with any other `SOCK` bits.
-    pub const CLOEXEC = 1 << 15;
-    /// Not actually supported by Darwin, but Zig supplies a shim.
-    /// This numerical value is not ABI-stable. It need only not conflict
-    /// with any other `SOCK` bits.
-    pub const NONBLOCK = 1 << 16;
-};
-
-pub const IPPROTO = struct {
-    pub const ICMP = 1;
-    pub const ICMPV6 = 58;
-    pub const TCP = 6;
-    pub const UDP = 17;
-    pub const IP = 0;
-    pub const IPV6 = 41;
-};
-
-pub const SOL = struct {
-    pub const SOCKET = 0xffff;
-};
-
-pub const SO = struct {
-    pub const DEBUG = 0x0001;
-    pub const ACCEPTCONN = 0x0002;
-    pub const REUSEADDR = 0x0004;
-    pub const KEEPALIVE = 0x0008;
-    pub const DONTROUTE = 0x0010;
-    pub const BROADCAST = 0x0020;
-    pub const USELOOPBACK = 0x0040;
-    pub const LINGER = 0x1080;
-    pub const OOBINLINE = 0x0100;
-    pub const REUSEPORT = 0x0200;
-    pub const ACCEPTFILTER = 0x1000;
-    pub const SNDBUF = 0x1001;
-    pub const RCVBUF = 0x1002;
-    pub const SNDLOWAT = 0x1003;
-    pub const RCVLOWAT = 0x1004;
-    pub const SNDTIMEO = 0x1005;
-    pub const RCVTIMEO = 0x1006;
-    pub const ERROR = 0x1007;
-    pub const TYPE = 0x1008;
-
-    pub const NREAD = 0x1020;
-    pub const NKE = 0x1021;
-    pub const NOSIGPIPE = 0x1022;
-    pub const NOADDRERR = 0x1023;
-    pub const NWRITE = 0x1024;
-    pub const REUSESHAREUID = 0x1025;
-};
-
-pub const W = struct {
-    /// [XSI] no hang in wait/no child to reap
-    pub const NOHANG = 0x00000001;
-    /// [XSI] notify on stop, untraced child
-    pub const UNTRACED = 0x00000002;
-
-    pub fn EXITSTATUS(x: u32) u8 {
-        return @as(u8, @intCast(x >> 8));
-    }
-    pub fn TERMSIG(x: u32) u32 {
-        return status(x);
-    }
-    pub fn STOPSIG(x: u32) u32 {
-        return x >> 8;
-    }
-    pub fn IFEXITED(x: u32) bool {
-        return status(x) == 0;
-    }
-    pub fn IFSTOPPED(x: u32) bool {
-        return status(x) == stopped and STOPSIG(x) != 0x13;
-    }
-    pub fn IFSIGNALED(x: u32) bool {
-        return status(x) != stopped and status(x) != 0;
-    }
-
-    fn status(x: u32) u32 {
-        return x & 0o177;
-    }
-    const stopped = 0o177;
-};
-
-pub const E = enum(u16) {
-    /// No error occurred.
-    SUCCESS = 0,
-
-    /// Operation not permitted
-    PERM = 1,
-
-    /// No such file or directory
-    NOENT = 2,
-
-    /// No such process
-    SRCH = 3,
-
-    /// Interrupted system call
-    INTR = 4,
-
-    /// Input/output error
-    IO = 5,
-
-    /// Device not configured
-    NXIO = 6,
-
-    /// Argument list too long
-    @"2BIG" = 7,
-
-    /// Exec format error
-    NOEXEC = 8,
-
-    /// Bad file descriptor
-    BADF = 9,
-
-    /// No child processes
-    CHILD = 10,
-
-    /// Resource deadlock avoided
-    DEADLK = 11,
-
-    /// Cannot allocate memory
-    NOMEM = 12,
-
-    /// Permission denied
-    ACCES = 13,
-
-    /// Bad address
-    FAULT = 14,
-
-    /// Block device required
-    NOTBLK = 15,
-
-    /// Device / Resource busy
-    BUSY = 16,
-
-    /// File exists
-    EXIST = 17,
-
-    /// Cross-device link
-    XDEV = 18,
-
-    /// Operation not supported by device
-    NODEV = 19,
-
-    /// Not a directory
-    NOTDIR = 20,
-
-    /// Is a directory
-    ISDIR = 21,
-
-    /// Invalid argument
-    INVAL = 22,
-
-    /// Too many open files in system
-    NFILE = 23,
-
-    /// Too many open files
-    MFILE = 24,
-
-    /// Inappropriate ioctl for device
-    NOTTY = 25,
-
-    /// Text file busy
-    TXTBSY = 26,
-
-    /// File too large
-    FBIG = 27,
-
-    /// No space left on device
-    NOSPC = 28,
-
-    /// Illegal seek
-    SPIPE = 29,
-
-    /// Read-only file system
-    ROFS = 30,
-
-    /// Too many links
-    MLINK = 31,
-
-    /// Broken pipe
-    PIPE = 32,
-
-    // math software
-
-    /// Numerical argument out of domain
-    DOM = 33,
-
-    /// Result too large
-    RANGE = 34,
-
-    // non-blocking and interrupt i/o
-
-    /// Resource temporarily unavailable
-    /// This is the same code used for `WOULDBLOCK`.
-    AGAIN = 35,
-
-    /// Operation now in progress
-    INPROGRESS = 36,
-
-    /// Operation already in progress
-    ALREADY = 37,
-
-    // ipc/network software -- argument errors
-
-    /// Socket operation on non-socket
-    NOTSOCK = 38,
-
-    /// Destination address required
-    DESTADDRREQ = 39,
-
-    /// Message too long
-    MSGSIZE = 40,
-
-    /// Protocol wrong type for socket
-    PROTOTYPE = 41,
-
-    /// Protocol not available
-    NOPROTOOPT = 42,
-
-    /// Protocol not supported
-    PROTONOSUPPORT = 43,
-
-    /// Socket type not supported
-    SOCKTNOSUPPORT = 44,
-
-    /// Operation not supported
-    /// The same code is used for `NOTSUP`.
-    OPNOTSUPP = 45,
-
-    /// Protocol family not supported
-    PFNOSUPPORT = 46,
-
-    /// Address family not supported by protocol family
-    AFNOSUPPORT = 47,
-
-    /// Address already in use
-    ADDRINUSE = 48,
-    /// Can't assign requested address
-
-    // ipc/network software -- operational errors
-    ADDRNOTAVAIL = 49,
-
-    /// Network is down
-    NETDOWN = 50,
-
-    /// Network is unreachable
-    NETUNREACH = 51,
-
-    /// Network dropped connection on reset
-    NETRESET = 52,
-
-    /// Software caused connection abort
-    CONNABORTED = 53,
-
-    /// Connection reset by peer
-    CONNRESET = 54,
-
-    /// No buffer space available
-    NOBUFS = 55,
-
-    /// Socket is already connected
-    ISCONN = 56,
-
-    /// Socket is not connected
-    NOTCONN = 57,
-
-    /// Can't send after socket shutdown
-    SHUTDOWN = 58,
-
-    /// Too many references: can't splice
-    TOOMANYREFS = 59,
-
-    /// Operation timed out
-    TIMEDOUT = 60,
-
-    /// Connection refused
-    CONNREFUSED = 61,
-
-    /// Too many levels of symbolic links
-    LOOP = 62,
-
-    /// File name too long
-    NAMETOOLONG = 63,
-
-    /// Host is down
-    HOSTDOWN = 64,
-
-    /// No route to host
-    HOSTUNREACH = 65,
-    /// Directory not empty
-
-    // quotas & mush
-    NOTEMPTY = 66,
-
-    /// Too many processes
-    PROCLIM = 67,
-
-    /// Too many users
-    USERS = 68,
-    /// Disc quota exceeded
-
-    // Network File System
-    DQUOT = 69,
-
-    /// Stale NFS file handle
-    STALE = 70,
-
-    /// Too many levels of remote in path
-    REMOTE = 71,
-
-    /// RPC struct is bad
-    BADRPC = 72,
-
-    /// RPC version wrong
-    RPCMISMATCH = 73,
-
-    /// RPC prog. not avail
-    PROGUNAVAIL = 74,
-
-    /// Program version wrong
-    PROGMISMATCH = 75,
-
-    /// Bad procedure for program
-    PROCUNAVAIL = 76,
-
-    /// No locks available
-    NOLCK = 77,
-
-    /// Function not implemented
-    NOSYS = 78,
-
-    /// Inappropriate file type or format
-    FTYPE = 79,
-
-    /// Authentication error
-    AUTH = 80,
-
-    /// Need authenticator
-    NEEDAUTH = 81,
-
-    // Intelligent device errors
-
-    /// Device power is off
-    PWROFF = 82,
-
-    /// Device error, e.g. paper out
-    DEVERR = 83,
-
-    /// Value too large to be stored in data type
-    OVERFLOW = 84,
-
-    // Program loading errors
-
-    /// Bad executable
-    BADEXEC = 85,
-
-    /// Bad CPU type in executable
-    BADARCH = 86,
-
-    /// Shared library version mismatch
-    SHLIBVERS = 87,
-
-    /// Malformed Macho file
-    BADMACHO = 88,
-
-    /// Operation canceled
-    CANCELED = 89,
-
-    /// Identifier removed
-    IDRM = 90,
-
-    /// No message of desired type
-    NOMSG = 91,
-
-    /// Illegal byte sequence
-    ILSEQ = 92,
-
-    /// Attribute not found
-    NOATTR = 93,
-
-    /// Bad message
-    BADMSG = 94,
-
-    /// Reserved
-    MULTIHOP = 95,
-
-    /// No message available on STREAM
-    NODATA = 96,
-
-    /// Reserved
-    NOLINK = 97,
-
-    /// No STREAM resources
-    NOSR = 98,
-
-    /// Not a STREAM
-    NOSTR = 99,
-
-    /// Protocol error
-    PROTO = 100,
-
-    /// STREAM ioctl timeout
-    TIME = 101,
-
-    /// No such policy registered
-    NOPOLICY = 103,
-
-    /// State not recoverable
-    NOTRECOVERABLE = 104,
-
-    /// Previous owner died
-    OWNERDEAD = 105,
-
-    /// Interface output queue is full
-    QFULL = 106,
-
-    _,
-};
-
-/// Kernel return values
-pub const KernE = enum(u32) {
-    SUCCESS = 0,
-
-    /// Specified address is not currently valid
-    INVALID_ADDRESS = 1,
-
-    /// Specified memory is valid, but does not permit the
-    /// required forms of access.
-    PROTECTION_FAILURE = 2,
-
-    /// The address range specified is already in use, or
-    /// no address range of the size specified could be
-    /// found.
-    NO_SPACE = 3,
-
-    /// The function requested was not applicable to this
-    /// type of argument, or an argument is invalid
-    INVALID_ARGUMENT = 4,
-
-    /// The function could not be performed.  A catch-all.
-    FAILURE = 5,
-
-    /// A system resource could not be allocated to fulfill
-    /// this request.  This failure may not be permanent.
-    RESOURCE_SHORTAGE = 6,
-
-    /// The task in question does not hold receive rights
-    /// for the port argument.
-    NOT_RECEIVER = 7,
-
-    /// Bogus access restriction.
-    NO_ACCESS = 8,
-
-    /// During a page fault, the target address refers to a
-    /// memory object that has been destroyed.  This
-    /// failure is permanent.
-    MEMORY_FAILURE = 9,
-
-    /// During a page fault, the memory object indicated
-    /// that the data could not be returned.  This failure
-    /// may be temporary; future attempts to access this
-    /// same data may succeed, as defined by the memory
-    /// object.
-    MEMORY_ERROR = 10,
-
-    /// The receive right is already a member of the portset.
-    ALREADY_IN_SET = 11,
-
-    /// The receive right is not a member of a port set.
-    NOT_IN_SET = 12,
-
-    /// The name already denotes a right in the task.
-    NAME_EXISTS = 13,
-
-    /// The operation was aborted.  Ipc code will
-    /// catch this and reflect it as a message error.
-    ABORTED = 14,
-
-    /// The name doesn't denote a right in the task.
-    INVALID_NAME = 15,
-
-    /// Target task isn't an active task.
-    INVALID_TASK = 16,
-
-    /// The name denotes a right, but not an appropriate right.
-    INVALID_RIGHT = 17,
-
-    /// A blatant range error.
-    INVALID_VALUE = 18,
-
-    /// Operation would overflow limit on user-references.
-    UREFS_OVERFLOW = 19,
-
-    /// The supplied (port) capability is improper.
-    INVALID_CAPABILITY = 20,
-
-    /// The task already has send or receive rights
-    /// for the port under another name.
-    RIGHT_EXISTS = 21,
-
-    /// Target host isn't actually a host.
-    INVALID_HOST = 22,
-
-    /// An attempt was made to supply "precious" data
-    /// for memory that is already present in a
-    /// memory object.
-    MEMORY_PRESENT = 23,
-
-    /// A page was requested of a memory manager via
-    /// memory_object_data_request for an object using
-    /// a MEMORY_OBJECT_COPY_CALL strategy, with the
-    /// VM_PROT_WANTS_COPY flag being used to specify
-    /// that the page desired is for a copy of the
-    /// object, and the memory manager has detected
-    /// the page was pushed into a copy of the object
-    /// while the kernel was walking the shadow chain
-    /// from the copy to the object. This error code
-    /// is delivered via memory_object_data_error
-    /// and is handled by the kernel (it forces the
-    /// kernel to restart the fault). It will not be
-    /// seen by users.
-    MEMORY_DATA_MOVED = 24,
-
-    /// A strategic copy was attempted of an object
-    /// upon which a quicker copy is now possible.
-    /// The caller should retry the copy using
-    /// vm_object_copy_quickly. This error code
-    /// is seen only by the kernel.
-    MEMORY_RESTART_COPY = 25,
-
-    /// An argument applied to assert processor set privilege
-    /// was not a processor set control port.
-    INVALID_PROCESSOR_SET = 26,
-
-    /// The specified scheduling attributes exceed the thread's
-    /// limits.
-    POLICY_LIMIT = 27,
-
-    /// The specified scheduling policy is not currently
-    /// enabled for the processor set.
-    INVALID_POLICY = 28,
-
-    /// The external memory manager failed to initialize the
-    /// memory object.
-    INVALID_OBJECT = 29,
-
-    /// A thread is attempting to wait for an event for which
-    /// there is already a waiting thread.
-    ALREADY_WAITING = 30,
-
-    /// An attempt was made to destroy the default processor
-    /// set.
-    DEFAULT_SET = 31,
-
-    /// An attempt was made to fetch an exception port that is
-    /// protected, or to abort a thread while processing a
-    /// protected exception.
-    EXCEPTION_PROTECTED = 32,
-
-    /// A ledger was required but not supplied.
-    INVALID_LEDGER = 33,
-
-    /// The port was not a memory cache control port.
-    INVALID_MEMORY_CONTROL = 34,
-
-    /// An argument supplied to assert security privilege
-    /// was not a host security port.
-    INVALID_SECURITY = 35,
-
-    /// thread_depress_abort was called on a thread which
-    /// was not currently depressed.
-    NOT_DEPRESSED = 36,
-
-    /// Object has been terminated and is no longer available
-    TERMINATED = 37,
-
-    /// Lock set has been destroyed and is no longer available.
-    LOCK_SET_DESTROYED = 38,
-
-    /// The thread holding the lock terminated before releasing
-    /// the lock
-    LOCK_UNSTABLE = 39,
-
-    /// The lock is already owned by another thread
-    LOCK_OWNED = 40,
-
-    /// The lock is already owned by the calling thread
-    LOCK_OWNED_SELF = 41,
-
-    /// Semaphore has been destroyed and is no longer available.
-    SEMAPHORE_DESTROYED = 42,
-
-    /// Return from RPC indicating the target server was
-    /// terminated before it successfully replied
-    RPC_SERVER_TERMINATED = 43,
-
-    /// Terminate an orphaned activation.
-    RPC_TERMINATE_ORPHAN = 44,
-
-    /// Allow an orphaned activation to continue executing.
-    RPC_CONTINUE_ORPHAN = 45,
-
-    /// Empty thread activation (No thread linked to it)
-    NOT_SUPPORTED = 46,
-
-    /// Remote node down or inaccessible.
-    NODE_DOWN = 47,
-
-    /// A signalled thread was not actually waiting.
-    NOT_WAITING = 48,
-
-    /// Some thread-oriented operation (semaphore_wait) timed out
-    OPERATION_TIMED_OUT = 49,
-
-    /// During a page fault, indicates that the page was rejected
-    /// as a result of a signature check.
-    CODESIGN_ERROR = 50,
-
-    /// The requested property cannot be changed at this time.
-    POLICY_STATIC = 51,
-
-    /// The provided buffer is of insufficient size for the requested data.
-    INSUFFICIENT_BUFFER_SIZE = 52,
-
-    /// Denied by security policy
-    DENIED = 53,
-
-    /// The KC on which the function is operating is missing
-    MISSING_KC = 54,
-
-    /// The KC on which the function is operating is invalid
-    INVALID_KC = 55,
-
-    /// A search or query operation did not return a result
-    NOT_FOUND = 56,
-
-    _,
-};
 
 pub const mach_msg_return_t = kern_return_t;
 
@@ -2367,350 +1116,11 @@ pub const MachMsgE = enum(u32) {
     RCV_INVALID_REPLY = 0x10004012,
 };
 
-pub const SIGSTKSZ = 131072;
-pub const MINSIGSTKSZ = 32768;
-
-pub const SS_ONSTACK = 1;
-pub const SS_DISABLE = 4;
-
-pub const stack_t = extern struct {
-    sp: [*]u8,
-    size: isize,
-    flags: i32,
-};
-
-pub const S = struct {
-    pub const IFMT = 0o170000;
-
-    pub const IFIFO = 0o010000;
-    pub const IFCHR = 0o020000;
-    pub const IFDIR = 0o040000;
-    pub const IFBLK = 0o060000;
-    pub const IFREG = 0o100000;
-    pub const IFLNK = 0o120000;
-    pub const IFSOCK = 0o140000;
-    pub const IFWHT = 0o160000;
-
-    pub const ISUID = 0o4000;
-    pub const ISGID = 0o2000;
-    pub const ISVTX = 0o1000;
-    pub const IRWXU = 0o700;
-    pub const IRUSR = 0o400;
-    pub const IWUSR = 0o200;
-    pub const IXUSR = 0o100;
-    pub const IRWXG = 0o070;
-    pub const IRGRP = 0o040;
-    pub const IWGRP = 0o020;
-    pub const IXGRP = 0o010;
-    pub const IRWXO = 0o007;
-    pub const IROTH = 0o004;
-    pub const IWOTH = 0o002;
-    pub const IXOTH = 0o001;
-
-    pub fn ISFIFO(m: u32) bool {
-        return m & IFMT == IFIFO;
-    }
-
-    pub fn ISCHR(m: u32) bool {
-        return m & IFMT == IFCHR;
-    }
-
-    pub fn ISDIR(m: u32) bool {
-        return m & IFMT == IFDIR;
-    }
-
-    pub fn ISBLK(m: u32) bool {
-        return m & IFMT == IFBLK;
-    }
-
-    pub fn ISREG(m: u32) bool {
-        return m & IFMT == IFREG;
-    }
-
-    pub fn ISLNK(m: u32) bool {
-        return m & IFMT == IFLNK;
-    }
-
-    pub fn ISSOCK(m: u32) bool {
-        return m & IFMT == IFSOCK;
-    }
-
-    pub fn IWHT(m: u32) bool {
-        return m & IFMT == IFWHT;
-    }
-};
-
-pub const HOST_NAME_MAX = 72;
-
-pub const addrinfo = extern struct {
-    flags: i32,
-    family: i32,
-    socktype: i32,
-    protocol: i32,
-    addrlen: socklen_t,
-    canonname: ?[*:0]u8,
-    addr: ?*sockaddr,
-    next: ?*addrinfo,
-};
-
-pub const RTLD = struct {
-    pub const LAZY = 0x1;
-    pub const NOW = 0x2;
-    pub const LOCAL = 0x4;
-    pub const GLOBAL = 0x8;
-    pub const NOLOAD = 0x10;
-    pub const NODELETE = 0x80;
-    pub const FIRST = 0x100;
-
-    pub const NEXT = @as(*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -1)))));
-    pub const DEFAULT = @as(*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -2)))));
-    pub const SELF = @as(*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -3)))));
-    pub const MAIN_ONLY = @as(*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -5)))));
-};
-
-pub const F = struct {
-    /// duplicate file descriptor
-    pub const DUPFD = 0;
-    /// get file descriptor flags
-    pub const GETFD = 1;
-    /// set file descriptor flags
-    pub const SETFD = 2;
-    /// get file status flags
-    pub const GETFL = 3;
-    /// set file status flags
-    pub const SETFL = 4;
-    /// get SIGIO/SIGURG proc/pgrp
-    pub const GETOWN = 5;
-    /// set SIGIO/SIGURG proc/pgrp
-    pub const SETOWN = 6;
-    /// get record locking information
-    pub const GETLK = 7;
-    /// set record locking information
-    pub const SETLK = 8;
-    /// F.SETLK; wait if blocked
-    pub const SETLKW = 9;
-    /// F.SETLK; wait if blocked, return on timeout
-    pub const SETLKWTIMEOUT = 10;
-    pub const FLUSH_DATA = 40;
-    /// Used for regression test
-    pub const CHKCLEAN = 41;
-    /// Preallocate storage
-    pub const PREALLOCATE = 42;
-    /// Truncate a file without zeroing space
-    pub const SETSIZE = 43;
-    /// Issue an advisory read async with no copy to user
-    pub const RDADVISE = 44;
-    /// turn read ahead off/on for this fd
-    pub const RDAHEAD = 45;
-    /// turn data caching off/on for this fd
-    pub const NOCACHE = 48;
-    /// file offset to device offset
-    pub const LOG2PHYS = 49;
-    /// return the full path of the fd
-    pub const GETPATH = 50;
-    /// fsync + ask the drive to flush to the media
-    pub const FULLFSYNC = 51;
-    /// find which component (if any) is a package
-    pub const PATHPKG_CHECK = 52;
-    /// "freeze" all fs operations
-    pub const FREEZE_FS = 53;
-    /// "thaw" all fs operations
-    pub const THAW_FS = 54;
-    /// turn data caching off/on (globally) for this file
-    pub const GLOBAL_NOCACHE = 55;
-    /// add detached signatures
-    pub const ADDSIGS = 59;
-    /// add signature from same file (used by dyld for shared libs)
-    pub const ADDFILESIGS = 61;
-    /// used in conjunction with F.NOCACHE to indicate that DIRECT, synchronous writes
-    /// should not be used (i.e. its ok to temporaily create cached pages)
-    pub const NODIRECT = 62;
-    ///Get the protection class of a file from the EA, returns int
-    pub const GETPROTECTIONCLASS = 63;
-    ///Set the protection class of a file for the EA, requires int
-    pub const SETPROTECTIONCLASS = 64;
-    ///file offset to device offset, extended
-    pub const LOG2PHYS_EXT = 65;
-    ///get record locking information, per-process
-    pub const GETLKPID = 66;
-    ///Mark the file as being the backing store for another filesystem
-    pub const SETBACKINGSTORE = 70;
-    ///return the full path of the FD, but error in specific mtmd circumstances
-    pub const GETPATH_MTMINFO = 71;
-    ///Returns the code directory, with associated hashes, to the caller
-    pub const GETCODEDIR = 72;
-    ///No SIGPIPE generated on EPIPE
-    pub const SETNOSIGPIPE = 73;
-    ///Status of SIGPIPE for this fd
-    pub const GETNOSIGPIPE = 74;
-    ///For some cases, we need to rewrap the key for AKS/MKB
-    pub const TRANSCODEKEY = 75;
-    ///file being written to a by single writer... if throttling enabled, writes
-    ///may be broken into smaller chunks with throttling in between
-    pub const SINGLE_WRITER = 76;
-    ///Get the protection version number for this filesystem
-    pub const GETPROTECTIONLEVEL = 77;
-    ///Add detached code signatures (used by dyld for shared libs)
-    pub const FINDSIGS = 78;
-    ///Add signature from same file, only if it is signed by Apple (used by dyld for simulator)
-    pub const ADDFILESIGS_FOR_DYLD_SIM = 83;
-    ///fsync + issue barrier to drive
-    pub const BARRIERFSYNC = 85;
-    ///Add signature from same file, return end offset in structure on success
-    pub const ADDFILESIGS_RETURN = 97;
-    ///Check if Library Validation allows this Mach-O file to be mapped into the calling process
-    pub const CHECK_LV = 98;
-    ///Deallocate a range of the file
-    pub const PUNCHHOLE = 99;
-    ///Trim an active file
-    pub const TRIM_ACTIVE_FILE = 100;
-    ///mark the dup with FD_CLOEXEC
-    pub const DUPFD_CLOEXEC = 67;
-    /// shared or read lock
-    pub const RDLCK = 1;
-    /// unlock
-    pub const UNLCK = 2;
-    /// exclusive or write lock
-    pub const WRLCK = 3;
-};
-
 pub const FCNTL_FS_SPECIFIC_BASE = 0x00010000;
-
-///close-on-exec flag
-pub const FD_CLOEXEC = 1;
-
-pub const LOCK = struct {
-    pub const SH = 1;
-    pub const EX = 2;
-    pub const UN = 8;
-    pub const NB = 4;
-};
-
-pub const nfds_t = u32;
-pub const pollfd = extern struct {
-    fd: fd_t,
-    events: i16,
-    revents: i16,
-};
-
-pub const POLL = struct {
-    pub const IN = 0x001;
-    pub const PRI = 0x002;
-    pub const OUT = 0x004;
-    pub const RDNORM = 0x040;
-    pub const WRNORM = OUT;
-    pub const RDBAND = 0x080;
-    pub const WRBAND = 0x100;
-
-    pub const EXTEND = 0x0200;
-    pub const ATTRIB = 0x0400;
-    pub const NLINK = 0x0800;
-    pub const WRITE = 0x1000;
-
-    pub const ERR = 0x008;
-    pub const HUP = 0x010;
-    pub const NVAL = 0x020;
-
-    pub const STANDARD = IN | PRI | OUT | RDNORM | RDBAND | WRBAND | ERR | HUP | NVAL;
-};
-
-pub const CLOCK = struct {
-    pub const REALTIME = 0;
-    pub const MONOTONIC = 6;
-    pub const MONOTONIC_RAW = 4;
-    pub const MONOTONIC_RAW_APPROX = 5;
-    pub const UPTIME_RAW = 8;
-    pub const UPTIME_RAW_APPROX = 9;
-    pub const PROCESS_CPUTIME_ID = 12;
-    pub const THREAD_CPUTIME_ID = 16;
-};
 
 /// Max open files per process
 /// https://opensource.apple.com/source/xnu/xnu-4903.221.2/bsd/sys/syslimits.h.auto.html
 pub const OPEN_MAX = 10240;
-
-pub const rusage = extern struct {
-    utime: timeval,
-    stime: timeval,
-    maxrss: isize,
-    ixrss: isize,
-    idrss: isize,
-    isrss: isize,
-    minflt: isize,
-    majflt: isize,
-    nswap: isize,
-    inblock: isize,
-    oublock: isize,
-    msgsnd: isize,
-    msgrcv: isize,
-    nsignals: isize,
-    nvcsw: isize,
-    nivcsw: isize,
-
-    pub const SELF = 0;
-    pub const CHILDREN = -1;
-};
-
-pub const rlimit_resource = enum(c_int) {
-    CPU = 0,
-    FSIZE = 1,
-    DATA = 2,
-    STACK = 3,
-    CORE = 4,
-    RSS = 5,
-    MEMLOCK = 6,
-    NPROC = 7,
-    NOFILE = 8,
-    _,
-
-    pub const AS: rlimit_resource = .RSS;
-};
-
-pub const rlim_t = u64;
-
-pub const RLIM = struct {
-    /// No limit
-    pub const INFINITY: rlim_t = (1 << 63) - 1;
-
-    pub const SAVED_MAX = INFINITY;
-    pub const SAVED_CUR = INFINITY;
-};
-
-pub const rlimit = extern struct {
-    /// Soft limit
-    cur: rlim_t,
-    /// Hard limit
-    max: rlim_t,
-};
-
-pub const SHUT = struct {
-    pub const RD = 0;
-    pub const WR = 1;
-    pub const RDWR = 2;
-};
-
-pub const TCSA = enum(c_uint) {
-    NOW,
-    DRAIN,
-    FLUSH,
-    _,
-};
-
-pub const winsize = extern struct {
-    ws_row: u16,
-    ws_col: u16,
-    ws_xpixel: u16,
-    ws_ypixel: u16,
-};
-
-pub const T = struct {
-    pub const IOCGWINSZ = ior(0x40000000, 't', 104, @sizeOf(winsize));
-};
-pub const IOCPARM_MASK = 0x1fff;
-
-fn ior(inout: u32, group: usize, num: usize, len: usize) usize {
-    return (inout | ((len & IOCPARM_MASK) << 16) | ((group) << 8) | (num));
-}
 
 // CPU families mapping
 pub const CPUFAMILY = enum(u32) {
@@ -2746,6 +1156,11 @@ pub const CPUFAMILY = enum(u32) {
     ARM_FIRESTORM_ICESTORM = 0x1b588bb3,
     ARM_BLIZZARD_AVALANCHE = 0xda33d83d,
     ARM_EVEREST_SAWTOOTH = 0x8765edea,
+    ARM_COLL = 0x2876f5b5,
+    ARM_IBIZA = 0xfa33415e,
+    ARM_LOBOS = 0x5f4dea93,
+    ARM_PALMA = 0x72015832,
+    ARM_DONAN = 0x6f5129ac,
     _,
 };
 
@@ -2826,514 +1241,275 @@ pub extern "c" fn posix_spawnp(
     env: [*:null]?[*:0]const u8,
 ) c_int;
 
-pub fn getKernError(err: kern_return_t) KernE {
-    return @as(KernE, @enumFromInt(@as(u32, @truncate(@as(usize, @intCast(err))))));
-}
-
-pub fn unexpectedKernError(err: KernE) std.posix.UnexpectedError {
-    if (std.posix.unexpected_error_tracing) {
-        std.debug.print("unexpected error: {d}\n", .{@intFromEnum(err)});
-        std.debug.dumpCurrentStackTrace(null);
-    }
-    return error.Unexpected;
-}
-
-pub const MachError = error{
-    /// Not enough permissions held to perform the requested kernel
-    /// call.
-    PermissionDenied,
-} || std.posix.UnexpectedError;
-
-pub const MachTask = extern struct {
-    port: mach_port_name_t,
-
-    pub fn isValid(self: MachTask) bool {
-        return self.port != TASK_NULL;
-    }
-
-    pub fn pidForTask(self: MachTask) MachError!std.c.pid_t {
-        var pid: std.c.pid_t = undefined;
-        switch (getKernError(pid_for_task(self.port, &pid))) {
-            .SUCCESS => return pid,
-            .FAILURE => return error.PermissionDenied,
-            else => |err| return unexpectedKernError(err),
-        }
-    }
-
-    pub fn allocatePort(self: MachTask, right: MACH_PORT_RIGHT) MachError!MachTask {
-        var out_port: mach_port_name_t = undefined;
-        switch (getKernError(mach_port_allocate(
-            self.port,
-            @intFromEnum(right),
-            &out_port,
-        ))) {
-            .SUCCESS => return .{ .port = out_port },
-            .FAILURE => return error.PermissionDenied,
-            else => |err| return unexpectedKernError(err),
-        }
-    }
-
-    pub fn deallocatePort(self: MachTask, port: MachTask) void {
-        _ = getKernError(mach_port_deallocate(self.port, port.port));
-    }
-
-    pub fn insertRight(self: MachTask, port: MachTask, msg: MACH_MSG_TYPE) !void {
-        switch (getKernError(mach_port_insert_right(
-            self.port,
-            port.port,
-            port.port,
-            @intFromEnum(msg),
-        ))) {
-            .SUCCESS => return,
-            .FAILURE => return error.PermissionDenied,
-            else => |err| return unexpectedKernError(err),
-        }
-    }
-
-    pub const PortInfo = struct {
-        mask: exception_mask_t,
-        masks: [EXC_TYPES_COUNT]exception_mask_t,
-        ports: [EXC_TYPES_COUNT]mach_port_t,
-        behaviors: [EXC_TYPES_COUNT]exception_behavior_t,
-        flavors: [EXC_TYPES_COUNT]thread_state_flavor_t,
-        count: mach_msg_type_number_t,
-    };
-
-    pub fn getExceptionPorts(self: MachTask, mask: exception_mask_t) !PortInfo {
-        var info = PortInfo{
-            .mask = mask,
-            .masks = undefined,
-            .ports = undefined,
-            .behaviors = undefined,
-            .flavors = undefined,
-            .count = 0,
-        };
-        info.count = info.ports.len / @sizeOf(mach_port_t);
-
-        switch (getKernError(task_get_exception_ports(
-            self.port,
-            info.mask,
-            &info.masks,
-            &info.count,
-            &info.ports,
-            &info.behaviors,
-            &info.flavors,
-        ))) {
-            .SUCCESS => return info,
-            .FAILURE => return error.PermissionDenied,
-            else => |err| return unexpectedKernError(err),
-        }
-    }
-
-    pub fn setExceptionPorts(
-        self: MachTask,
-        mask: exception_mask_t,
-        new_port: MachTask,
-        behavior: exception_behavior_t,
-        new_flavor: thread_state_flavor_t,
-    ) !void {
-        switch (getKernError(task_set_exception_ports(
-            self.port,
-            mask,
-            new_port.port,
-            behavior,
-            new_flavor,
-        ))) {
-            .SUCCESS => return,
-            .FAILURE => return error.PermissionDenied,
-            else => |err| return unexpectedKernError(err),
-        }
-    }
-
-    pub const RegionInfo = struct {
-        pub const Tag = enum {
-            basic,
-            extended,
-            top,
-        };
-
-        base_addr: u64,
-        tag: Tag,
-        info: union {
-            basic: vm_region_basic_info_64,
-            extended: vm_region_extended_info,
-            top: vm_region_top_info,
-        },
-    };
-
-    pub fn getRegionInfo(
-        task: MachTask,
-        address: u64,
-        len: usize,
-        tag: RegionInfo.Tag,
-    ) MachError!RegionInfo {
-        var info: RegionInfo = .{
-            .base_addr = address,
-            .tag = tag,
-            .info = undefined,
-        };
-        switch (tag) {
-            .basic => info.info = .{ .basic = undefined },
-            .extended => info.info = .{ .extended = undefined },
-            .top => info.info = .{ .top = undefined },
-        }
-        var base_len: mach_vm_size_t = if (len == 1) 2 else len;
-        var objname: mach_port_t = undefined;
-        var count: mach_msg_type_number_t = switch (tag) {
-            .basic => VM_REGION_BASIC_INFO_COUNT,
-            .extended => VM_REGION_EXTENDED_INFO_COUNT,
-            .top => VM_REGION_TOP_INFO_COUNT,
-        };
-        switch (getKernError(mach_vm_region(
-            task.port,
-            &info.base_addr,
-            &base_len,
-            switch (tag) {
-                .basic => VM_REGION_BASIC_INFO_64,
-                .extended => VM_REGION_EXTENDED_INFO,
-                .top => VM_REGION_TOP_INFO,
-            },
-            switch (tag) {
-                .basic => @as(vm_region_info_t, @ptrCast(&info.info.basic)),
-                .extended => @as(vm_region_info_t, @ptrCast(&info.info.extended)),
-                .top => @as(vm_region_info_t, @ptrCast(&info.info.top)),
-            },
-            &count,
-            &objname,
-        ))) {
-            .SUCCESS => return info,
-            .FAILURE => return error.PermissionDenied,
-            else => |err| return unexpectedKernError(err),
-        }
-    }
-
-    pub const RegionSubmapInfo = struct {
-        pub const Tag = enum {
-            short,
-            full,
-        };
-
-        tag: Tag,
-        base_addr: u64,
-        info: union {
-            short: vm_region_submap_short_info_64,
-            full: vm_region_submap_info_64,
-        },
-    };
-
-    pub fn getRegionSubmapInfo(
-        task: MachTask,
-        address: u64,
-        len: usize,
-        nesting_depth: u32,
-        tag: RegionSubmapInfo.Tag,
-    ) MachError!RegionSubmapInfo {
-        var info: RegionSubmapInfo = .{
-            .base_addr = address,
-            .tag = tag,
-            .info = undefined,
-        };
-        switch (tag) {
-            .short => info.info = .{ .short = undefined },
-            .full => info.info = .{ .full = undefined },
-        }
-        var nesting = nesting_depth;
-        var base_len: mach_vm_size_t = if (len == 1) 2 else len;
-        var count: mach_msg_type_number_t = switch (tag) {
-            .short => VM_REGION_SUBMAP_SHORT_INFO_COUNT_64,
-            .full => VM_REGION_SUBMAP_INFO_COUNT_64,
-        };
-        switch (getKernError(mach_vm_region_recurse(
-            task.port,
-            &info.base_addr,
-            &base_len,
-            &nesting,
-            switch (tag) {
-                .short => @as(vm_region_recurse_info_t, @ptrCast(&info.info.short)),
-                .full => @as(vm_region_recurse_info_t, @ptrCast(&info.info.full)),
-            },
-            &count,
-        ))) {
-            .SUCCESS => return info,
-            .FAILURE => return error.PermissionDenied,
-            else => |err| return unexpectedKernError(err),
-        }
-    }
-
-    pub fn getCurrProtection(task: MachTask, address: u64, len: usize) MachError!vm_prot_t {
-        const info = try task.getRegionSubmapInfo(address, len, 0, .short);
-        return info.info.short.protection;
-    }
-
-    pub fn setMaxProtection(task: MachTask, address: u64, len: usize, prot: vm_prot_t) MachError!void {
-        return task.setProtectionImpl(address, len, true, prot);
-    }
-
-    pub fn setCurrProtection(task: MachTask, address: u64, len: usize, prot: vm_prot_t) MachError!void {
-        return task.setProtectionImpl(address, len, false, prot);
-    }
-
-    fn setProtectionImpl(task: MachTask, address: u64, len: usize, set_max: bool, prot: vm_prot_t) MachError!void {
-        switch (getKernError(mach_vm_protect(task.port, address, len, @intFromBool(set_max), prot))) {
-            .SUCCESS => return,
-            .FAILURE => return error.PermissionDenied,
-            else => |err| return unexpectedKernError(err),
-        }
-    }
-
-    /// Will write to VM even if current protection attributes specifically prohibit
-    /// us from doing so, by temporarily setting protection level to a level with VM_PROT_COPY
-    /// variant, and resetting after a successful or unsuccessful write.
-    pub fn writeMemProtected(task: MachTask, address: u64, buf: []const u8, arch: std.Target.Cpu.Arch) MachError!usize {
-        const curr_prot = try task.getCurrProtection(address, buf.len);
-        try task.setCurrProtection(
-            address,
-            buf.len,
-            PROT.READ | PROT.WRITE | PROT.COPY,
-        );
-        defer {
-            task.setCurrProtection(address, buf.len, curr_prot) catch {};
-        }
-        return task.writeMem(address, buf, arch);
-    }
-
-    pub fn writeMem(task: MachTask, address: u64, buf: []const u8, arch: std.Target.Cpu.Arch) MachError!usize {
-        const count = buf.len;
-        var total_written: usize = 0;
-        var curr_addr = address;
-        const page_size = try getPageSize(task); // TODO we probably can assume value here
-        var out_buf = buf[0..];
-
-        while (total_written < count) {
-            const curr_size = maxBytesLeftInPage(page_size, curr_addr, count - total_written);
-            switch (getKernError(mach_vm_write(
-                task.port,
-                curr_addr,
-                @intFromPtr(out_buf.ptr),
-                @as(mach_msg_type_number_t, @intCast(curr_size)),
-            ))) {
-                .SUCCESS => {},
-                .FAILURE => return error.PermissionDenied,
-                else => |err| return unexpectedKernError(err),
-            }
-
-            switch (arch) {
-                .aarch64 => {
-                    var mattr_value: vm_machine_attribute_val_t = MATTR_VAL_CACHE_FLUSH;
-                    switch (getKernError(vm_machine_attribute(
-                        task.port,
-                        curr_addr,
-                        curr_size,
-                        MATTR_CACHE,
-                        &mattr_value,
-                    ))) {
-                        .SUCCESS => {},
-                        .FAILURE => return error.PermissionDenied,
-                        else => |err| return unexpectedKernError(err),
-                    }
-                },
-                .x86_64 => {},
-                else => unreachable,
-            }
-
-            out_buf = out_buf[curr_size..];
-            total_written += curr_size;
-            curr_addr += curr_size;
-        }
-
-        return total_written;
-    }
-
-    pub fn readMem(task: MachTask, address: u64, buf: []u8) MachError!usize {
-        const count = buf.len;
-        var total_read: usize = 0;
-        var curr_addr = address;
-        const page_size = try getPageSize(task); // TODO we probably can assume value here
-        var out_buf = buf[0..];
-
-        while (total_read < count) {
-            const curr_size = maxBytesLeftInPage(page_size, curr_addr, count - total_read);
-            var curr_bytes_read: mach_msg_type_number_t = 0;
-            var vm_memory: vm_offset_t = undefined;
-            switch (getKernError(mach_vm_read(task.port, curr_addr, curr_size, &vm_memory, &curr_bytes_read))) {
-                .SUCCESS => {},
-                .FAILURE => return error.PermissionDenied,
-                else => |err| return unexpectedKernError(err),
-            }
-
-            @memcpy(out_buf[0..curr_bytes_read], @as([*]const u8, @ptrFromInt(vm_memory)));
-            _ = vm_deallocate(mach_task_self(), vm_memory, curr_bytes_read);
-
-            out_buf = out_buf[curr_bytes_read..];
-            curr_addr += curr_bytes_read;
-            total_read += curr_bytes_read;
-        }
-
-        return total_read;
-    }
-
-    fn maxBytesLeftInPage(page_size: usize, address: u64, count: usize) usize {
-        var left = count;
-        if (page_size > 0) {
-            const page_offset = address % page_size;
-            const bytes_left_in_page = page_size - page_offset;
-            if (count > bytes_left_in_page) {
-                left = bytes_left_in_page;
-            }
-        }
-        return left;
-    }
-
-    fn getPageSize(task: MachTask) MachError!usize {
-        if (task.isValid()) {
-            var info_count = TASK_VM_INFO_COUNT;
-            var vm_info: task_vm_info_data_t = undefined;
-            switch (getKernError(task_info(
-                task.port,
-                TASK_VM_INFO,
-                @as(task_info_t, @ptrCast(&vm_info)),
-                &info_count,
-            ))) {
-                .SUCCESS => return @as(usize, @intCast(vm_info.page_size)),
-                else => {},
-            }
-        }
-        var page_size: vm_size_t = undefined;
-        switch (getKernError(_host_page_size(mach_host_self(), &page_size))) {
-            .SUCCESS => return page_size,
-            else => |err| return unexpectedKernError(err),
-        }
-    }
-
-    pub fn basicTaskInfo(task: MachTask) MachError!mach_task_basic_info {
-        var info: mach_task_basic_info = undefined;
-        var count = MACH_TASK_BASIC_INFO_COUNT;
-        switch (getKernError(task_info(
-            task.port,
-            MACH_TASK_BASIC_INFO,
-            @as(task_info_t, @ptrCast(&info)),
-            &count,
-        ))) {
-            .SUCCESS => return info,
-            else => |err| return unexpectedKernError(err),
-        }
-    }
-
-    pub fn @"resume"(task: MachTask) MachError!void {
-        switch (getKernError(task_resume(task.port))) {
-            .SUCCESS => {},
-            else => |err| return unexpectedKernError(err),
-        }
-    }
-
-    pub fn @"suspend"(task: MachTask) MachError!void {
-        switch (getKernError(task_suspend(task.port))) {
-            .SUCCESS => {},
-            else => |err| return unexpectedKernError(err),
-        }
-    }
-
-    const ThreadList = struct {
-        buf: []MachThread,
-
-        pub fn deinit(list: ThreadList) void {
-            const self_task = machTaskForSelf();
-            _ = vm_deallocate(
-                self_task.port,
-                @intFromPtr(list.buf.ptr),
-                @as(vm_size_t, @intCast(list.buf.len * @sizeOf(mach_port_t))),
-            );
-        }
-    };
-
-    pub fn getThreads(task: MachTask) MachError!ThreadList {
-        var thread_list: mach_port_array_t = undefined;
-        var thread_count: mach_msg_type_number_t = undefined;
-        switch (getKernError(task_threads(task.port, &thread_list, &thread_count))) {
-            .SUCCESS => return ThreadList{ .buf = @as([*]MachThread, @ptrCast(thread_list))[0..thread_count] },
-            else => |err| return unexpectedKernError(err),
-        }
-    }
+pub const E = enum(u16) {
+    /// No error occurred.
+    SUCCESS = 0,
+    /// Operation not permitted
+    PERM = 1,
+    /// No such file or directory
+    NOENT = 2,
+    /// No such process
+    SRCH = 3,
+    /// Interrupted system call
+    INTR = 4,
+    /// Input/output error
+    IO = 5,
+    /// Device not configured
+    NXIO = 6,
+    /// Argument list too long
+    @"2BIG" = 7,
+    /// Exec format error
+    NOEXEC = 8,
+    /// Bad file descriptor
+    BADF = 9,
+    /// No child processes
+    CHILD = 10,
+    /// Resource deadlock avoided
+    DEADLK = 11,
+    /// Cannot allocate memory
+    NOMEM = 12,
+    /// Permission denied
+    ACCES = 13,
+    /// Bad address
+    FAULT = 14,
+    /// Block device required
+    NOTBLK = 15,
+    /// Device / Resource busy
+    BUSY = 16,
+    /// File exists
+    EXIST = 17,
+    /// Cross-device link
+    XDEV = 18,
+    /// Operation not supported by device
+    NODEV = 19,
+    /// Not a directory
+    NOTDIR = 20,
+    /// Is a directory
+    ISDIR = 21,
+    /// Invalid argument
+    INVAL = 22,
+    /// Too many open files in system
+    NFILE = 23,
+    /// Too many open files
+    MFILE = 24,
+    /// Inappropriate ioctl for device
+    NOTTY = 25,
+    /// Text file busy
+    TXTBSY = 26,
+    /// File too large
+    FBIG = 27,
+    /// No space left on device
+    NOSPC = 28,
+    /// Illegal seek
+    SPIPE = 29,
+    /// Read-only file system
+    ROFS = 30,
+    /// Too many links
+    MLINK = 31,
+    /// Broken pipe
+    PIPE = 32,
+    // math software
+    /// Numerical argument out of domain
+    DOM = 33,
+    /// Result too large
+    RANGE = 34,
+    // non-blocking and interrupt i/o
+    /// Resource temporarily unavailable
+    /// This is the same code used for `WOULDBLOCK`.
+    AGAIN = 35,
+    /// Operation now in progress
+    INPROGRESS = 36,
+    /// Operation already in progress
+    ALREADY = 37,
+    // ipc/network software -- argument errors
+    /// Socket operation on non-socket
+    NOTSOCK = 38,
+    /// Destination address required
+    DESTADDRREQ = 39,
+    /// Message too long
+    MSGSIZE = 40,
+    /// Protocol wrong type for socket
+    PROTOTYPE = 41,
+    /// Protocol not available
+    NOPROTOOPT = 42,
+    /// Protocol not supported
+    PROTONOSUPPORT = 43,
+    /// Socket type not supported
+    SOCKTNOSUPPORT = 44,
+    /// Operation not supported
+    /// The same code is used for `NOTSUP`.
+    OPNOTSUPP = 45,
+    /// Protocol family not supported
+    PFNOSUPPORT = 46,
+    /// Address family not supported by protocol family
+    AFNOSUPPORT = 47,
+    /// Address already in use
+    ADDRINUSE = 48,
+    /// Can't assign requested address
+    // ipc/network software -- operational errors
+    ADDRNOTAVAIL = 49,
+    /// Network is down
+    NETDOWN = 50,
+    /// Network is unreachable
+    NETUNREACH = 51,
+    /// Network dropped connection on reset
+    NETRESET = 52,
+    /// Software caused connection abort
+    CONNABORTED = 53,
+    /// Connection reset by peer
+    CONNRESET = 54,
+    /// No buffer space available
+    NOBUFS = 55,
+    /// Socket is already connected
+    ISCONN = 56,
+    /// Socket is not connected
+    NOTCONN = 57,
+    /// Can't send after socket shutdown
+    SHUTDOWN = 58,
+    /// Too many references: can't splice
+    TOOMANYREFS = 59,
+    /// Operation timed out
+    TIMEDOUT = 60,
+    /// Connection refused
+    CONNREFUSED = 61,
+    /// Too many levels of symbolic links
+    LOOP = 62,
+    /// File name too long
+    NAMETOOLONG = 63,
+    /// Host is down
+    HOSTDOWN = 64,
+    /// No route to host
+    HOSTUNREACH = 65,
+    /// Directory not empty
+    // quotas & mush
+    NOTEMPTY = 66,
+    /// Too many processes
+    PROCLIM = 67,
+    /// Too many users
+    USERS = 68,
+    /// Disc quota exceeded
+    // Network File System
+    DQUOT = 69,
+    /// Stale NFS file handle
+    STALE = 70,
+    /// Too many levels of remote in path
+    REMOTE = 71,
+    /// RPC struct is bad
+    BADRPC = 72,
+    /// RPC version wrong
+    RPCMISMATCH = 73,
+    /// RPC prog. not avail
+    PROGUNAVAIL = 74,
+    /// Program version wrong
+    PROGMISMATCH = 75,
+    /// Bad procedure for program
+    PROCUNAVAIL = 76,
+    /// No locks available
+    NOLCK = 77,
+    /// Function not implemented
+    NOSYS = 78,
+    /// Inappropriate file type or format
+    FTYPE = 79,
+    /// Authentication error
+    AUTH = 80,
+    /// Need authenticator
+    NEEDAUTH = 81,
+    // Intelligent device errors
+    /// Device power is off
+    PWROFF = 82,
+    /// Device error, e.g. paper out
+    DEVERR = 83,
+    /// Value too large to be stored in data type
+    OVERFLOW = 84,
+    // Program loading errors
+    /// Bad executable
+    BADEXEC = 85,
+    /// Bad CPU type in executable
+    BADARCH = 86,
+    /// Shared library version mismatch
+    SHLIBVERS = 87,
+    /// Malformed Macho file
+    BADMACHO = 88,
+    /// Operation canceled
+    CANCELED = 89,
+    /// Identifier removed
+    IDRM = 90,
+    /// No message of desired type
+    NOMSG = 91,
+    /// Illegal byte sequence
+    ILSEQ = 92,
+    /// Attribute not found
+    NOATTR = 93,
+    /// Bad message
+    BADMSG = 94,
+    /// Reserved
+    MULTIHOP = 95,
+    /// No message available on STREAM
+    NODATA = 96,
+    /// Reserved
+    NOLINK = 97,
+    /// No STREAM resources
+    NOSR = 98,
+    /// Not a STREAM
+    NOSTR = 99,
+    /// Protocol error
+    PROTO = 100,
+    /// STREAM ioctl timeout
+    TIME = 101,
+    /// No such policy registered
+    NOPOLICY = 103,
+    /// State not recoverable
+    NOTRECOVERABLE = 104,
+    /// Previous owner died
+    OWNERDEAD = 105,
+    /// Interface output queue is full
+    QFULL = 106,
+    _,
 };
 
-pub const MachThread = extern struct {
-    port: mach_port_t,
+/// From Common Security Services Manager
+/// Security.framework/Headers/cssm*.h
+pub const DB_RECORDTYPE = enum(u32) {
+    // Record Types defined in the Schema Management Name Space
+    SCHEMA_INFO = SCHEMA_START + 0,
+    SCHEMA_INDEXES = SCHEMA_START + 1,
+    SCHEMA_ATTRIBUTES = SCHEMA_START + 2,
+    SCHEMA_PARSING_MODULE = SCHEMA_START + 3,
 
-    pub fn isValid(thread: MachThread) bool {
-        return thread.port != THREAD_NULL;
-    }
+    // Record Types defined in the Open Group Application Name Space
+    ANY = OPEN_GROUP_START + 0,
+    CERT = OPEN_GROUP_START + 1,
+    CRL = OPEN_GROUP_START + 2,
+    POLICY = OPEN_GROUP_START + 3,
+    GENERIC = OPEN_GROUP_START + 4,
+    PUBLIC_KEY = OPEN_GROUP_START + 5,
+    PRIVATE_KEY = OPEN_GROUP_START + 6,
+    SYMMETRIC_KEY = OPEN_GROUP_START + 7,
+    ALL_KEYS = OPEN_GROUP_START + 8,
 
-    pub fn getBasicInfo(thread: MachThread) MachError!thread_basic_info {
-        var info: thread_basic_info = undefined;
-        var count = THREAD_BASIC_INFO_COUNT;
-        switch (getKernError(thread_info(
-            thread.port,
-            THREAD_BASIC_INFO,
-            @as(thread_info_t, @ptrCast(&info)),
-            &count,
-        ))) {
-            .SUCCESS => return info,
-            else => |err| return unexpectedKernError(err),
-        }
-    }
+    // AppleFileDL record types
+    GENERIC_PASSWORD = APP_DEFINED_START + 0,
+    INTERNET_PASSWORD = APP_DEFINED_START + 1,
+    APPLESHARE_PASSWORD = APP_DEFINED_START + 2,
 
-    pub fn getIdentifierInfo(thread: MachThread) MachError!thread_identifier_info {
-        var info: thread_identifier_info = undefined;
-        var count = THREAD_IDENTIFIER_INFO_COUNT;
-        switch (getKernError(thread_info(
-            thread.port,
-            THREAD_IDENTIFIER_INFO,
-            @as(thread_info_t, @ptrCast(&info)),
-            &count,
-        ))) {
-            .SUCCESS => return info,
-            else => |err| return unexpectedKernError(err),
-        }
-    }
+    X509_CERTIFICATE = APP_DEFINED_START + 0x1000,
+    USER_TRUST,
+    X509_CRL,
+    UNLOCK_REFERRAL,
+    EXTENDED_ATTRIBUTE,
+    METADATA = APP_DEFINED_START + 0x8000,
+
+    _,
+
+    // Schema Management Name Space Range Definition
+    pub const SCHEMA_START = 0x00000000;
+    pub const SCHEMA_END = SCHEMA_START + 4;
+
+    // Open Group Application Name Space Range Definition
+    pub const OPEN_GROUP_START = 0x0000000A;
+    pub const OPEN_GROUP_END = OPEN_GROUP_START + 8;
+
+    // Industry At Large Application Name Space Range Definition
+    pub const APP_DEFINED_START = 0x80000000;
+    pub const APP_DEFINED_END = 0xffffffff;
 };
-
-pub fn machTaskForPid(pid: std.c.pid_t) MachError!MachTask {
-    var port: mach_port_name_t = undefined;
-    switch (getKernError(task_for_pid(mach_task_self(), pid, &port))) {
-        .SUCCESS => {},
-        .FAILURE => return error.PermissionDenied,
-        else => |err| return unexpectedKernError(err),
-    }
-    return MachTask{ .port = port };
-}
-
-pub fn machTaskForSelf() MachTask {
-    return .{ .port = mach_task_self() };
-}
-
-pub const os_signpost_id_t = u64;
-
-pub const OS_SIGNPOST_ID_NULL: os_signpost_id_t = 0;
-pub const OS_SIGNPOST_ID_INVALID: os_signpost_id_t = !0;
-pub const OS_SIGNPOST_ID_EXCLUSIVE: os_signpost_id_t = 0xeeeeb0b5b2b2eeee;
-
-pub const os_log_t = opaque {};
-pub const os_log_type_t = enum(u8) {
-    /// default messages always captures
-    OS_LOG_TYPE_DEFAULT = 0x00,
-    /// messages with additional infos
-    OS_LOG_TYPE_INFO = 0x01,
-    /// debug messages
-    OS_LOG_TYPE_DEBUG = 0x02,
-    /// error messages
-    OS_LOG_TYPE_ERROR = 0x10,
-    /// unexpected conditions messages
-    OS_LOG_TYPE_FAULT = 0x11,
-};
-
-pub const OS_LOG_CATEGORY_POINTS_OF_INTEREST: *const u8 = "PointsOfInterest";
-pub const OS_LOG_CATEGORY_DYNAMIC_TRACING: *const u8 = "DynamicTracing";
-pub const OS_LOG_CATEGORY_DYNAMIC_STACK_TRACING: *const u8 = "DynamicStackTracing";
-
-pub extern "c" fn os_log_create(subsystem: [*]const u8, category: [*]const u8) os_log_t;
-pub extern "c" fn os_log_type_enabled(log: os_log_t, tpe: os_log_type_t) bool;
-pub extern "c" fn os_signpost_id_generate(log: os_log_t) os_signpost_id_t;
-pub extern "c" fn os_signpost_interval_begin(log: os_log_t, signpos: os_signpost_id_t, func: [*]const u8, ...) void;
-pub extern "c" fn os_signpost_interval_end(log: os_log_t, signpos: os_signpost_id_t, func: [*]const u8, ...) void;
-pub extern "c" fn os_signpost_id_make_with_pointer(log: os_log_t, ptr: ?*anyopaque) os_signpost_id_t;
-pub extern "c" fn os_signpost_enabled(log: os_log_t) bool;

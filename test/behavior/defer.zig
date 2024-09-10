@@ -53,7 +53,6 @@ test "return variable while defer expression in scope to modify it" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -95,7 +94,6 @@ test "mixing normal and error defers" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     try expect(runSomeErrorDefers(true) catch unreachable);
     try expect(result[0] == 'c');
@@ -162,7 +160,6 @@ test "reference to errdefer payload" {
 test "simple else prong doesn't emit an error for unreachable else prong" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn foo() error{Foo}!void {
@@ -199,4 +196,41 @@ const defer_assign = switch (block: {
 };
 comptime {
     if (defer_assign != 0) @compileError("defer_assign failed!");
+}
+
+test "errdefer capture" {
+    const S = struct {
+        fail: bool = undefined,
+        fn bar0(self: *@This()) error{a}!void {
+            self.fail = false;
+            errdefer |err| if (@TypeOf(err) != error{a}) {
+                self.fail = true;
+            };
+            return error.a;
+        }
+        fn bar1(self: *@This()) error{a}!void {
+            self.fail = false;
+            errdefer |err| if (@TypeOf(err) != error{a}) {
+                self.fail = true;
+            };
+            const rv: error{a}!void = @errorCast(@as(error{a}!void, error.a));
+            return rv;
+        }
+        // https://github.com/ziglang/zig/issues/20371
+        fn bar2(self: *@This()) error{a}!void {
+            self.fail = false;
+            errdefer |err| if (@TypeOf(err) != error{a}) {
+                self.fail = true;
+            };
+            return @errorCast(@as(error{a}!void, error.a));
+        }
+    };
+
+    var s: S = .{};
+    s.bar0() catch {};
+    if (s.fail) return error.TestExpectedError;
+    s.bar1() catch {};
+    if (s.fail) return error.TestExpectedError;
+    s.bar2() catch {};
+    if (s.fail) return error.TestExpectedError;
 }

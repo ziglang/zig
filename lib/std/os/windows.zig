@@ -172,6 +172,10 @@ pub fn GetCurrentThreadId() DWORD {
     return @truncate(@intFromPtr(teb().ClientId.UniqueThread));
 }
 
+pub fn GetLastError() Win32Error {
+    return @enumFromInt(teb().LastErrorValue);
+}
+
 pub const CreatePipeError = error{ Unexpected, SystemResources };
 
 var npfs: ?HANDLE = null;
@@ -309,7 +313,7 @@ pub fn CreateEventExW(attributes: ?*SECURITY_ATTRIBUTES, nameW: ?LPCWSTR, flags:
     if (handle) |h| {
         return h;
     } else {
-        switch (kernel32.GetLastError()) {
+        switch (GetLastError()) {
             else => |err| return unexpectedError(err),
         }
     }
@@ -385,7 +389,7 @@ pub fn DeviceIoControl(
 pub fn GetOverlappedResult(h: HANDLE, overlapped: *OVERLAPPED, wait: bool) !DWORD {
     var bytes: DWORD = undefined;
     if (kernel32.GetOverlappedResult(h, overlapped, &bytes, @intFromBool(wait)) == 0) {
-        switch (kernel32.GetLastError()) {
+        switch (GetLastError()) {
             .IO_INCOMPLETE => if (!wait) return error.WouldBlock else unreachable,
             else => |err| return unexpectedError(err),
         }
@@ -397,7 +401,7 @@ pub const SetHandleInformationError = error{Unexpected};
 
 pub fn SetHandleInformation(h: HANDLE, mask: DWORD, flags: DWORD) SetHandleInformationError!void {
     if (kernel32.SetHandleInformation(h, mask, flags) == 0) {
-        switch (kernel32.GetLastError()) {
+        switch (GetLastError()) {
             else => |err| return unexpectedError(err),
         }
     }
@@ -417,7 +421,7 @@ pub fn RtlGenRandom(output: []u8) RtlGenRandomError!void {
         const to_read: ULONG = @min(buff.len, max_read_size);
 
         if (advapi32.RtlGenRandom(buff.ptr, to_read) == 0) {
-            return unexpectedError(kernel32.GetLastError());
+            return unexpectedError(GetLastError());
         }
 
         total_read += to_read;
@@ -440,7 +444,7 @@ pub fn WaitForSingleObjectEx(handle: HANDLE, milliseconds: DWORD, alertable: boo
         WAIT_ABANDONED => return error.WaitAbandoned,
         WAIT_OBJECT_0 => return,
         WAIT_TIMEOUT => return error.WaitTimeOut,
-        WAIT_FAILED => switch (kernel32.GetLastError()) {
+        WAIT_FAILED => switch (GetLastError()) {
             else => |err| return unexpectedError(err),
         },
         else => return error.Unexpected,
@@ -448,7 +452,7 @@ pub fn WaitForSingleObjectEx(handle: HANDLE, milliseconds: DWORD, alertable: boo
 }
 
 pub fn WaitForMultipleObjectsEx(handles: []const HANDLE, waitAll: bool, milliseconds: DWORD, alertable: bool) !u32 {
-    assert(handles.len < MAXIMUM_WAIT_OBJECTS);
+    assert(handles.len > 0 and handles.len <= MAXIMUM_WAIT_OBJECTS);
     const nCount: DWORD = @as(DWORD, @intCast(handles.len));
     switch (kernel32.WaitForMultipleObjectsEx(
         nCount,
@@ -468,7 +472,7 @@ pub fn WaitForMultipleObjectsEx(handles: []const HANDLE, waitAll: bool, millisec
             return error.WaitAbandoned;
         },
         WAIT_TIMEOUT => return error.WaitTimeOut,
-        WAIT_FAILED => switch (kernel32.GetLastError()) {
+        WAIT_FAILED => switch (GetLastError()) {
             else => |err| return unexpectedError(err),
         },
         else => return error.Unexpected,
@@ -484,7 +488,7 @@ pub fn CreateIoCompletionPort(
     concurrent_thread_count: DWORD,
 ) CreateIoCompletionPortError!HANDLE {
     const handle = kernel32.CreateIoCompletionPort(file_handle, existing_completion_port, completion_key, concurrent_thread_count) orelse {
-        switch (kernel32.GetLastError()) {
+        switch (GetLastError()) {
             .INVALID_PARAMETER => unreachable,
             else => |err| return unexpectedError(err),
         }
@@ -501,7 +505,7 @@ pub fn PostQueuedCompletionStatus(
     lpOverlapped: ?*OVERLAPPED,
 ) PostQueuedCompletionStatusError!void {
     if (kernel32.PostQueuedCompletionStatus(completion_port, bytes_transferred_count, completion_key, lpOverlapped) == 0) {
-        switch (kernel32.GetLastError()) {
+        switch (GetLastError()) {
             else => |err| return unexpectedError(err),
         }
     }
@@ -512,6 +516,7 @@ pub const GetQueuedCompletionStatusResult = enum {
     Aborted,
     Cancelled,
     EOF,
+    Timeout,
 };
 
 pub fn GetQueuedCompletionStatus(
@@ -528,10 +533,11 @@ pub fn GetQueuedCompletionStatus(
         lpOverlapped,
         dwMilliseconds,
     ) == FALSE) {
-        switch (kernel32.GetLastError()) {
+        switch (GetLastError()) {
             .ABANDONED_WAIT_0 => return GetQueuedCompletionStatusResult.Aborted,
             .OPERATION_ABORTED => return GetQueuedCompletionStatusResult.Cancelled,
             .HANDLE_EOF => return GetQueuedCompletionStatusResult.EOF,
+            .WAIT_TIMEOUT => return GetQueuedCompletionStatusResult.Timeout,
             else => |err| {
                 if (std.debug.runtime_safety) {
                     @setEvalBranchQuota(2500);
@@ -568,7 +574,7 @@ pub fn GetQueuedCompletionStatusEx(
     );
 
     if (success == FALSE) {
-        return switch (kernel32.GetLastError()) {
+        return switch (GetLastError()) {
             .ABANDONED_WAIT_0 => error.Aborted,
             .OPERATION_ABORTED => error.Cancelled,
             .HANDLE_EOF => error.EOF,
@@ -618,7 +624,7 @@ pub fn ReadFile(in_hFile: HANDLE, buffer: []u8, offset: ?u64) ReadFileError!usiz
             break :blk &overlapped_data;
         } else null;
         if (kernel32.ReadFile(in_hFile, buffer.ptr, want_read_count, &amt_read, overlapped) == 0) {
-            switch (kernel32.GetLastError()) {
+            switch (GetLastError()) {
                 .IO_PENDING => unreachable,
                 .OPERATION_ABORTED => continue,
                 .BROKEN_PIPE => return 0,
@@ -667,7 +673,7 @@ pub fn WriteFile(
     } else null;
     const adjusted_len = math.cast(u32, bytes.len) orelse maxInt(u32);
     if (kernel32.WriteFile(handle, bytes.ptr, adjusted_len, &bytes_written, overlapped) == 0) {
-        switch (kernel32.GetLastError()) {
+        switch (GetLastError()) {
             .INVALID_USER_BUFFER => return error.SystemResources,
             .NOT_ENOUGH_MEMORY => return error.SystemResources,
             .OPERATION_ABORTED => return error.OperationAborted,
@@ -725,10 +731,10 @@ pub const GetCurrentDirectoryError = error{
 /// The result is a slice of `buffer`, indexed from 0.
 /// The result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
 pub fn GetCurrentDirectory(buffer: []u8) GetCurrentDirectoryError![]u8 {
-    var wtf16le_buf: [PATH_MAX_WIDE]u16 = undefined;
-    const result = kernel32.GetCurrentDirectoryW(wtf16le_buf.len, &wtf16le_buf);
+    var wtf16le_buf: [PATH_MAX_WIDE:0]u16 = undefined;
+    const result = kernel32.GetCurrentDirectoryW(wtf16le_buf.len + 1, &wtf16le_buf);
     if (result == 0) {
-        switch (kernel32.GetLastError()) {
+        switch (GetLastError()) {
             else => |err| return unexpectedError(err),
         }
     }
@@ -1109,7 +1115,7 @@ pub fn MoveFileEx(old_path: []const u8, new_path: []const u8, flags: DWORD) Move
 
 pub fn MoveFileExW(old_path: [*:0]const u16, new_path: [*:0]const u16, flags: DWORD) MoveFileError!void {
     if (kernel32.MoveFileExW(old_path, new_path, flags) == 0) {
-        switch (kernel32.GetLastError()) {
+        switch (GetLastError()) {
             .FILE_NOT_FOUND => return error.FileNotFound,
             .ACCESS_DENIED => return error.AccessDenied,
             else => |err| return unexpectedError(err),
@@ -1125,7 +1131,7 @@ pub const GetStdHandleError = error{
 pub fn GetStdHandle(handle_id: DWORD) GetStdHandleError!HANDLE {
     const handle = kernel32.GetStdHandle(handle_id) orelse return error.NoStandardHandleAttached;
     if (handle == INVALID_HANDLE_VALUE) {
-        switch (kernel32.GetLastError()) {
+        switch (GetLastError()) {
             else => |err| return unexpectedError(err),
         }
     }
@@ -1141,7 +1147,7 @@ pub fn SetFilePointerEx_BEGIN(handle: HANDLE, offset: u64) SetFilePointerError!v
     // https://docs.microsoft.com/en-us/windows/desktop/api/fileapi/nf-fileapi-setfilepointerex
     const ipos = @as(LARGE_INTEGER, @bitCast(offset));
     if (kernel32.SetFilePointerEx(handle, ipos, null, FILE_BEGIN) == 0) {
-        switch (kernel32.GetLastError()) {
+        switch (GetLastError()) {
             .INVALID_PARAMETER => unreachable,
             .INVALID_HANDLE => unreachable,
             else => |err| return unexpectedError(err),
@@ -1152,7 +1158,7 @@ pub fn SetFilePointerEx_BEGIN(handle: HANDLE, offset: u64) SetFilePointerError!v
 /// The SetFilePointerEx function with the `dwMoveMethod` parameter set to `FILE_CURRENT`.
 pub fn SetFilePointerEx_CURRENT(handle: HANDLE, offset: i64) SetFilePointerError!void {
     if (kernel32.SetFilePointerEx(handle, offset, null, FILE_CURRENT) == 0) {
-        switch (kernel32.GetLastError()) {
+        switch (GetLastError()) {
             .INVALID_PARAMETER => unreachable,
             .INVALID_HANDLE => unreachable,
             else => |err| return unexpectedError(err),
@@ -1163,7 +1169,7 @@ pub fn SetFilePointerEx_CURRENT(handle: HANDLE, offset: i64) SetFilePointerError
 /// The SetFilePointerEx function with the `dwMoveMethod` parameter set to `FILE_END`.
 pub fn SetFilePointerEx_END(handle: HANDLE, offset: i64) SetFilePointerError!void {
     if (kernel32.SetFilePointerEx(handle, offset, null, FILE_END) == 0) {
-        switch (kernel32.GetLastError()) {
+        switch (GetLastError()) {
             .INVALID_PARAMETER => unreachable,
             .INVALID_HANDLE => unreachable,
             else => |err| return unexpectedError(err),
@@ -1175,7 +1181,7 @@ pub fn SetFilePointerEx_END(handle: HANDLE, offset: i64) SetFilePointerError!voi
 pub fn SetFilePointerEx_CURRENT_get(handle: HANDLE) SetFilePointerError!u64 {
     var result: LARGE_INTEGER = undefined;
     if (kernel32.SetFilePointerEx(handle, 0, &result, FILE_CURRENT) == 0) {
-        switch (kernel32.GetLastError()) {
+        switch (GetLastError()) {
             .INVALID_PARAMETER => unreachable,
             .INVALID_HANDLE => unreachable,
             else => |err| return unexpectedError(err),
@@ -1186,7 +1192,14 @@ pub fn SetFilePointerEx_CURRENT_get(handle: HANDLE) SetFilePointerError!u64 {
     return @as(u64, @bitCast(result));
 }
 
-pub fn QueryObjectName(handle: HANDLE, out_buffer: []u16) ![]u16 {
+pub const QueryObjectNameError = error{
+    AccessDenied,
+    InvalidHandle,
+    NameTooLong,
+    Unexpected,
+};
+
+pub fn QueryObjectName(handle: HANDLE, out_buffer: []u16) QueryObjectNameError![]u16 {
     const out_buffer_aligned = mem.alignInSlice(out_buffer, @alignOf(OBJECT_NAME_INFORMATION)) orelse return error.NameTooLong;
 
     const info = @as(*OBJECT_NAME_INFORMATION, @ptrCast(out_buffer_aligned));
@@ -1489,7 +1502,7 @@ pub const GetFileSizeError = error{Unexpected};
 pub fn GetFileSizeEx(hFile: HANDLE) GetFileSizeError!u64 {
     var file_size: LARGE_INTEGER = undefined;
     if (kernel32.GetFileSizeEx(hFile, &file_size) == 0) {
-        switch (kernel32.GetLastError()) {
+        switch (GetLastError()) {
             else => |err| return unexpectedError(err),
         }
     }
@@ -1510,7 +1523,7 @@ pub fn GetFileAttributes(filename: []const u8) GetFileAttributesError!DWORD {
 pub fn GetFileAttributesW(lpFileName: [*:0]const u16) GetFileAttributesError!DWORD {
     const rc = kernel32.GetFileAttributesW(lpFileName);
     if (rc == INVALID_FILE_ATTRIBUTES) {
-        switch (kernel32.GetLastError()) {
+        switch (GetLastError()) {
             .FILE_NOT_FOUND => return error.FileNotFound,
             .PATH_NOT_FOUND => return error.FileNotFound,
             .ACCESS_DENIED => return error.PermissionDenied,
@@ -1721,7 +1734,7 @@ const GetModuleFileNameError = error{Unexpected};
 pub fn GetModuleFileNameW(hModule: ?HMODULE, buf_ptr: [*]u16, buf_len: DWORD) GetModuleFileNameError![:0]u16 {
     const rc = kernel32.GetModuleFileNameW(hModule, buf_ptr, buf_len);
     if (rc == 0) {
-        switch (kernel32.GetLastError()) {
+        switch (GetLastError()) {
             else => |err| return unexpectedError(err),
         }
     }
@@ -1732,7 +1745,7 @@ pub const TerminateProcessError = error{ PermissionDenied, Unexpected };
 
 pub fn TerminateProcess(hProcess: HANDLE, uExitCode: UINT) TerminateProcessError!void {
     if (kernel32.TerminateProcess(hProcess, uExitCode) == 0) {
-        switch (kernel32.GetLastError()) {
+        switch (GetLastError()) {
             Win32Error.ACCESS_DENIED => return error.PermissionDenied,
             else => |err| return unexpectedError(err),
         }
@@ -1743,7 +1756,7 @@ pub const VirtualAllocError = error{Unexpected};
 
 pub fn VirtualAlloc(addr: ?LPVOID, size: usize, alloc_type: DWORD, flProtect: DWORD) VirtualAllocError!LPVOID {
     return kernel32.VirtualAlloc(addr, size, alloc_type, flProtect) orelse {
-        switch (kernel32.GetLastError()) {
+        switch (GetLastError()) {
             else => |err| return unexpectedError(err),
         }
     };
@@ -1792,7 +1805,7 @@ pub const VirtualQueryError = error{Unexpected};
 pub fn VirtualQuery(lpAddress: ?LPVOID, lpBuffer: PMEMORY_BASIC_INFORMATION, dwLength: SIZE_T) VirtualQueryError!SIZE_T {
     const rc = kernel32.VirtualQuery(lpAddress, lpBuffer, dwLength);
     if (rc == 0) {
-        switch (kernel32.GetLastError()) {
+        switch (GetLastError()) {
             else => |err| return unexpectedError(err),
         }
     }
@@ -1804,7 +1817,7 @@ pub const SetConsoleTextAttributeError = error{Unexpected};
 
 pub fn SetConsoleTextAttribute(hConsoleOutput: HANDLE, wAttributes: WORD) SetConsoleTextAttributeError!void {
     if (kernel32.SetConsoleTextAttribute(hConsoleOutput, wAttributes) == 0) {
-        switch (kernel32.GetLastError()) {
+        switch (GetLastError()) {
             else => |err| return unexpectedError(err),
         }
     }
@@ -1817,7 +1830,7 @@ pub fn SetConsoleCtrlHandler(handler_routine: ?HANDLER_ROUTINE, add: bool) !void
     );
 
     if (success == FALSE) {
-        return switch (kernel32.GetLastError()) {
+        return switch (GetLastError()) {
             else => |err| unexpectedError(err),
         };
     }
@@ -1826,7 +1839,7 @@ pub fn SetConsoleCtrlHandler(handler_routine: ?HANDLER_ROUTINE, add: bool) !void
 pub fn SetFileCompletionNotificationModes(handle: HANDLE, flags: UCHAR) !void {
     const success = kernel32.SetFileCompletionNotificationModes(handle, flags);
     if (success == FALSE) {
-        return switch (kernel32.GetLastError()) {
+        return switch (GetLastError()) {
             else => |err| unexpectedError(err),
         };
     }
@@ -1850,7 +1863,7 @@ pub const GetEnvironmentVariableError = error{
 pub fn GetEnvironmentVariableW(lpName: LPWSTR, lpBuffer: [*]u16, nSize: DWORD) GetEnvironmentVariableError!DWORD {
     const rc = kernel32.GetEnvironmentVariableW(lpName, lpBuffer, nSize);
     if (rc == 0) {
-        switch (kernel32.GetLastError()) {
+        switch (GetLastError()) {
             .ENVVAR_NOT_FOUND => return error.EnvironmentVariableNotFound,
             else => |err| return unexpectedError(err),
         }
@@ -1891,7 +1904,7 @@ pub fn CreateProcessW(
         lpStartupInfo,
         lpProcessInformation,
     ) == 0) {
-        switch (kernel32.GetLastError()) {
+        switch (GetLastError()) {
             .FILE_NOT_FOUND => return error.FileNotFound,
             .PATH_NOT_FOUND => return error.FileNotFound,
             .ACCESS_DENIED => return error.AccessDenied,
@@ -1934,7 +1947,7 @@ pub const LoadLibraryError = error{
 
 pub fn LoadLibraryW(lpLibFileName: [*:0]const u16) LoadLibraryError!HMODULE {
     return kernel32.LoadLibraryW(lpLibFileName) orelse {
-        switch (kernel32.GetLastError()) {
+        switch (GetLastError()) {
             .FILE_NOT_FOUND => return error.FileNotFound,
             .PATH_NOT_FOUND => return error.FileNotFound,
             .MOD_NOT_FOUND => return error.FileNotFound,
@@ -1962,7 +1975,7 @@ pub const LoadLibraryFlags = enum(DWORD) {
 
 pub fn LoadLibraryExW(lpLibFileName: [*:0]const u16, dwFlags: LoadLibraryFlags) LoadLibraryError!HMODULE {
     return kernel32.LoadLibraryExW(lpLibFileName, null, @intFromEnum(dwFlags)) orelse {
-        switch (kernel32.GetLastError()) {
+        switch (GetLastError()) {
             .FILE_NOT_FOUND => return error.FileNotFound,
             .PATH_NOT_FOUND => return error.FileNotFound,
             .MOD_NOT_FOUND => return error.FileNotFound,
@@ -2019,7 +2032,7 @@ pub fn SetFileTime(
 ) SetFileTimeError!void {
     const rc = kernel32.SetFileTime(hFile, lpCreationTime, lpLastAccessTime, lpLastWriteTime);
     if (rc == 0) {
-        switch (kernel32.GetLastError()) {
+        switch (GetLastError()) {
             else => |err| return unexpectedError(err),
         }
     }
@@ -2110,6 +2123,10 @@ pub fn teb() *TEB {
                 );
             }
         },
+        .thumb => asm (
+            \\ mrc p15, 0, %[ptr], c13, c0, 2
+            : [ptr] "=r" (-> *TEB),
+        ),
         .aarch64 => asm (
             \\ mov %[ptr], x18
             : [ptr] "=r" (-> *TEB),
@@ -2709,7 +2726,7 @@ fn testNtToWin32Namespace(expected: []const u16, path: []const u16) !void {
 fn getFullPathNameW(path: [*:0]const u16, out: []u16) !usize {
     const result = kernel32.GetFullPathNameW(path, @as(u32, @intCast(out.len)), out.ptr, null);
     if (result == 0) {
-        switch (kernel32.GetLastError()) {
+        switch (GetLastError()) {
             else => |err| return unexpectedError(err),
         }
     }
@@ -2757,7 +2774,7 @@ pub fn loadWinsockExtensionFunction(comptime T: type, sock: ws2_32.SOCKET, guid:
 pub fn unexpectedError(err: Win32Error) UnexpectedError {
     if (std.posix.unexpected_error_tracing) {
         // 614 is the length of the longest windows error description
-        var buf_wstr: [614]WCHAR = undefined;
+        var buf_wstr: [614:0]WCHAR = undefined;
         const len = kernel32.FormatMessageW(
             FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
             null,
@@ -3193,6 +3210,15 @@ pub const FILE_DISPOSITION_INFORMATION = extern struct {
 pub const FILE_FS_DEVICE_INFORMATION = extern struct {
     DeviceType: DEVICE_TYPE,
     Characteristics: ULONG,
+};
+
+pub const FILE_FS_VOLUME_INFORMATION = extern struct {
+    VolumeCreationTime: LARGE_INTEGER,
+    VolumeSerialNumber: ULONG,
+    VolumeLabelLength: ULONG,
+    SupportsObjects: BOOLEAN,
+    // Flexible array member
+    VolumeLabel: [1]WCHAR,
 };
 
 pub const FS_INFORMATION_CLASS = enum(c_int) {
@@ -3916,14 +3942,21 @@ pub const FILE_ACTION_RENAMED_NEW_NAME = 0x00000005;
 
 pub const LPOVERLAPPED_COMPLETION_ROUTINE = ?*const fn (DWORD, DWORD, *OVERLAPPED) callconv(.C) void;
 
-pub const FILE_NOTIFY_CHANGE_CREATION = 64;
-pub const FILE_NOTIFY_CHANGE_SIZE = 8;
-pub const FILE_NOTIFY_CHANGE_SECURITY = 256;
-pub const FILE_NOTIFY_CHANGE_LAST_ACCESS = 32;
-pub const FILE_NOTIFY_CHANGE_LAST_WRITE = 16;
-pub const FILE_NOTIFY_CHANGE_DIR_NAME = 2;
-pub const FILE_NOTIFY_CHANGE_FILE_NAME = 1;
-pub const FILE_NOTIFY_CHANGE_ATTRIBUTES = 4;
+pub const FileNotifyChangeFilter = packed struct(DWORD) {
+    file_name: bool = false,
+    dir_name: bool = false,
+    attributes: bool = false,
+    size: bool = false,
+    last_write: bool = false,
+    last_access: bool = false,
+    creation: bool = false,
+    ea: bool = false,
+    security: bool = false,
+    stream_name: bool = false,
+    stream_size: bool = false,
+    stream_write: bool = false,
+    _pad: u20 = 0,
+};
 
 pub const CONSOLE_SCREEN_BUFFER_INFO = extern struct {
     dwSize: COORD,
@@ -4091,6 +4124,10 @@ pub const XMM_SAVE_AREA32 = switch (native_arch) {
 };
 
 pub const NEON128 = switch (native_arch) {
+    .thumb => extern struct {
+        Low: ULONGLONG,
+        High: LONGLONG,
+    },
     .aarch64 => extern union {
         DUMMYSTRUCTNAME: extern struct {
             Low: ULONGLONG,
@@ -4219,6 +4256,54 @@ pub const CONTEXT = switch (native_arch) {
             ctx.Rsp = sp;
         }
     },
+    .thumb => extern struct {
+        ContextFlags: ULONG,
+        R0: ULONG,
+        R1: ULONG,
+        R2: ULONG,
+        R3: ULONG,
+        R4: ULONG,
+        R5: ULONG,
+        R6: ULONG,
+        R7: ULONG,
+        R8: ULONG,
+        R9: ULONG,
+        R10: ULONG,
+        R11: ULONG,
+        R12: ULONG,
+        Sp: ULONG,
+        Lr: ULONG,
+        Pc: ULONG,
+        Cpsr: ULONG,
+        Fpcsr: ULONG,
+        Padding: ULONG,
+        DUMMYUNIONNAME: extern union {
+            Q: [16]NEON128,
+            D: [32]ULONGLONG,
+            S: [32]ULONG,
+        },
+        Bvr: [8]ULONG,
+        Bcr: [8]ULONG,
+        Wvr: [1]ULONG,
+        Wcr: [1]ULONG,
+        Padding2: [2]ULONG,
+
+        pub fn getRegs(ctx: *const CONTEXT) struct { bp: usize, ip: usize, sp: usize } {
+            return .{
+                .bp = ctx.DUMMYUNIONNAME.S[11],
+                .ip = ctx.Pc,
+                .sp = ctx.Sp,
+            };
+        }
+
+        pub fn setIp(ctx: *CONTEXT, ip: usize) void {
+            ctx.Pc = ip;
+        }
+
+        pub fn setSp(ctx: *CONTEXT, sp: usize) void {
+            ctx.Sp = sp;
+        }
+    },
     .aarch64 => extern struct {
         ContextFlags: ULONG align(16),
         Cpsr: ULONG,
@@ -4293,6 +4378,23 @@ pub const RUNTIME_FUNCTION = switch (native_arch) {
         EndAddress: DWORD,
         UnwindData: DWORD,
     },
+    .thumb => extern struct {
+        BeginAddress: DWORD,
+        DUMMYUNIONNAME: extern union {
+            UnwindData: DWORD,
+            DUMMYSTRUCTNAME: packed struct {
+                Flag: u2,
+                FunctionLength: u11,
+                Ret: u2,
+                H: u1,
+                Reg: u3,
+                R: u1,
+                L: u1,
+                C: u1,
+                StackAdjust: u10,
+            },
+        },
+    },
     .aarch64 => extern struct {
         BeginAddress: DWORD,
         DUMMYUNIONNAME: extern union {
@@ -4315,6 +4417,25 @@ pub const KNONVOLATILE_CONTEXT_POINTERS = switch (native_arch) {
     .x86_64 => extern struct {
         FloatingContext: [16]?*M128A,
         IntegerContext: [16]?*ULONG64,
+    },
+    .thumb => extern struct {
+        R4: ?*DWORD,
+        R5: ?*DWORD,
+        R6: ?*DWORD,
+        R7: ?*DWORD,
+        R8: ?*DWORD,
+        R9: ?*DWORD,
+        R10: ?*DWORD,
+        R11: ?*DWORD,
+        Lr: ?*DWORD,
+        D8: ?*ULONGLONG,
+        D9: ?*ULONGLONG,
+        D10: ?*ULONGLONG,
+        D11: ?*ULONGLONG,
+        D12: ?*ULONGLONG,
+        D13: ?*ULONGLONG,
+        D14: ?*ULONGLONG,
+        D15: ?*ULONGLONG,
     },
     .aarch64 => extern struct {
         X19: ?*DWORD64,
@@ -4430,7 +4551,8 @@ pub const TEB = extern struct {
     ActiveRpcHandle: PVOID,
     ThreadLocalStoragePointer: PVOID,
     ProcessEnvironmentBlock: *PEB,
-    Reserved2: [399]PVOID,
+    LastErrorValue: ULONG,
+    Reserved2: [399 * @sizeOf(PVOID) - @sizeOf(ULONG)]u8,
     Reserved3: [1952]u8,
     TlsSlots: [64]PVOID,
     Reserved4: [8]u8,
@@ -4450,12 +4572,16 @@ comptime {
         assert(@offsetOf(TEB, "ActiveRpcHandle") == 0x28);
         assert(@offsetOf(TEB, "ThreadLocalStoragePointer") == 0x2C);
         assert(@offsetOf(TEB, "ProcessEnvironmentBlock") == 0x30);
+        assert(@offsetOf(TEB, "LastErrorValue") == 0x34);
+        assert(@offsetOf(TEB, "TlsSlots") == 0xe10);
     } else if (@sizeOf(usize) == 8) {
         assert(@offsetOf(TEB, "EnvironmentPointer") == 0x38);
         assert(@offsetOf(TEB, "ClientId") == 0x40);
         assert(@offsetOf(TEB, "ActiveRpcHandle") == 0x50);
         assert(@offsetOf(TEB, "ThreadLocalStoragePointer") == 0x58);
         assert(@offsetOf(TEB, "ProcessEnvironmentBlock") == 0x60);
+        assert(@offsetOf(TEB, "LastErrorValue") == 0x68);
+        assert(@offsetOf(TEB, "TlsSlots") == 0x1480);
     }
 }
 

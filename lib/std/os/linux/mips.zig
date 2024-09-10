@@ -14,7 +14,8 @@ const timespec = linux.timespec;
 pub fn syscall0(number: SYS) usize {
     return asm volatile (
         \\ syscall
-        \\ blez $7, 1f
+        \\ beq $7, $zero, 1f
+        \\ blez $2, 1f
         \\ subu $2, $0, $2
         \\ 1:
         : [ret] "={$2}" (-> usize),
@@ -28,7 +29,7 @@ pub fn syscall_pipe(fd: *[2]i32) usize {
         \\ .set noat
         \\ .set noreorder
         \\ syscall
-        \\ blez $7, 1f
+        \\ beq $7, $zero, 1f
         \\ nop
         \\ b 2f
         \\ subu $2, $0, $2
@@ -46,7 +47,8 @@ pub fn syscall_pipe(fd: *[2]i32) usize {
 pub fn syscall1(number: SYS, arg1: usize) usize {
     return asm volatile (
         \\ syscall
-        \\ blez $7, 1f
+        \\ beq $7, $zero, 1f
+        \\ blez $2, 1f
         \\ subu $2, $0, $2
         \\ 1:
         : [ret] "={$2}" (-> usize),
@@ -59,7 +61,8 @@ pub fn syscall1(number: SYS, arg1: usize) usize {
 pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
     return asm volatile (
         \\ syscall
-        \\ blez $7, 1f
+        \\ beq $7, $zero, 1f
+        \\ blez $2, 1f
         \\ subu $2, $0, $2
         \\ 1:
         : [ret] "={$2}" (-> usize),
@@ -73,7 +76,8 @@ pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
 pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
     return asm volatile (
         \\ syscall
-        \\ blez $7, 1f
+        \\ beq $7, $zero, 1f
+        \\ blez $2, 1f
         \\ subu $2, $0, $2
         \\ 1:
         : [ret] "={$2}" (-> usize),
@@ -88,7 +92,8 @@ pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
 pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize) usize {
     return asm volatile (
         \\ syscall
-        \\ blez $7, 1f
+        \\ beq $7, $zero, 1f
+        \\ blez $2, 1f
         \\ subu $2, $0, $2
         \\ 1:
         : [ret] "={$2}" (-> usize),
@@ -108,7 +113,8 @@ pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize,
         \\ sw %[arg5], 16($sp)
         \\ syscall
         \\ addu $sp, $sp, 24
-        \\ blez $7, 1f
+        \\ beq $7, $zero, 1f
+        \\ blez $2, 1f
         \\ subu $2, $0, $2
         \\ 1:
         : [ret] "={$2}" (-> usize),
@@ -141,7 +147,8 @@ pub fn syscall6(
         \\ sw %[arg6], 20($sp)
         \\ syscall
         \\ addu $sp, $sp, 24
-        \\ blez $7, 1f
+        \\ beq $7, $zero, 1f
+        \\ blez $2, 1f
         \\ subu $2, $0, $2
         \\ 1:
         : [ret] "={$2}" (-> usize),
@@ -174,7 +181,8 @@ pub fn syscall7(
         \\ sw %[arg7], 24($sp)
         \\ syscall
         \\ addu $sp, $sp, 32
-        \\ blez $7, 1f
+        \\ beq $7, $zero, 1f
+        \\ blez $2, 1f
         \\ subu $2, $0, $2
         \\ 1:
         : [ret] "={$2}" (-> usize),
@@ -190,10 +198,48 @@ pub fn syscall7(
     );
 }
 
-const CloneFn = *const fn (arg: usize) callconv(.C) u8;
-
-/// This matches the libc clone function.
-pub extern fn clone(func: CloneFn, stack: usize, flags: u32, arg: usize, ptid: *i32, tls: usize, ctid: *i32) usize;
+pub fn clone() callconv(.Naked) usize {
+    // __clone(func, stack, flags, arg, ptid, tls, ctid)
+    //         3,    4,     5,     6,   7,    8,   9
+    //
+    // syscall(SYS_clone, flags, stack, ptid, tls, ctid)
+    //         2          4,     5,     6,    7,   8
+    asm volatile (
+        \\  # Save function pointer and argument pointer on new thread stack
+        \\  and $5, $5, -8
+        \\  subu $5, $5, 16
+        \\  sw $4, 0($5)
+        \\  sw $7, 4($5)
+        \\  # Shuffle (fn,sp,fl,arg,ptid,tls,ctid) to (fl,sp,ptid,tls,ctid)
+        \\  move $4, $6
+        \\  lw $6, 16($sp)
+        \\  lw $7, 20($sp)
+        \\  lw $9, 24($sp)
+        \\  subu $sp, $sp, 16
+        \\  sw $9, 16($sp)
+        \\  li $2, 4120 # SYS_clone
+        \\  syscall
+        \\  beq $7, $0, 1f
+        \\  nop
+        \\  addu $sp, $sp, 16
+        \\  jr $ra
+        \\  subu $2, $0, $2
+        \\1:
+        \\  beq $2, $0, 1f
+        \\  nop
+        \\  addu $sp, $sp, 16
+        \\  jr $ra
+        \\  nop
+        \\1:
+        \\  lw $25, 0($sp)
+        \\  lw $4, 4($sp)
+        \\  jalr $25
+        \\  nop
+        \\  move $4, $2
+        \\  li $2, 4001 # SYS_exit
+        \\  syscall
+    );
+}
 
 pub fn restore() callconv(.Naked) noreturn {
     asm volatile (
@@ -239,18 +285,11 @@ pub const F = struct {
     pub const GETOWNER_UIDS = 17;
 };
 
-pub const LOCK = struct {
-    pub const SH = 1;
-    pub const EX = 2;
-    pub const UN = 8;
-    pub const NB = 4;
-};
-
 pub const MMAP2_UNIT = 4096;
 
 pub const VDSO = struct {
-    pub const CGT_SYM = "__kernel_clock_gettime";
-    pub const CGT_VER = "LINUX_2.6.39";
+    pub const CGT_SYM = "__vdso_clock_gettime";
+    pub const CGT_VER = "LINUX_2.6";
 };
 
 pub const Flock = extern struct {
@@ -283,7 +322,7 @@ pub const msghdr_const = extern struct {
     flags: i32,
 };
 
-pub const blksize_t = i32;
+pub const blksize_t = u32;
 pub const nlink_t = u32;
 pub const time_t = i32;
 pub const mode_t = u32;
@@ -292,107 +331,64 @@ pub const ino_t = u64;
 pub const dev_t = u64;
 pub const blkcnt_t = i64;
 
-// The `stat` definition used by the Linux kernel.
+// The `stat64` definition used by the Linux kernel.
 pub const Stat = extern struct {
-    dev: u32,
-    __pad0: [3]u32, // Reserved for st_dev expansion
+    dev: dev_t,
+    __pad0: [2]u32, // -1 because our dev_t is u64 (kernel dev_t is really u32).
     ino: ino_t,
     mode: mode_t,
     nlink: nlink_t,
     uid: uid_t,
     gid: gid_t,
-    rdev: u32,
-    __pad1: [3]u32,
+    rdev: dev_t,
+    __pad1: [2]u32, // -1 because our dev_t is u64 (kernel dev_t is really u32).
     size: off_t,
-    atim: timespec,
-    mtim: timespec,
-    ctim: timespec,
+    atim: i32,
+    atim_nsec: u32,
+    mtim: i32,
+    mtim_nsec: u32,
+    ctim: i32,
+    ctim_nsec: u32,
     blksize: blksize_t,
     __pad3: u32,
     blocks: blkcnt_t,
-    __pad4: [14]usize,
 
     pub fn atime(self: @This()) timespec {
-        return self.atim;
+        return .{
+            .sec = self.atim,
+            .nsec = self.atim_nsec,
+        };
     }
 
     pub fn mtime(self: @This()) timespec {
-        return self.mtim;
+        return .{
+            .sec = self.mtim,
+            .nsec = self.mtim_nsec,
+        };
     }
 
     pub fn ctime(self: @This()) timespec {
-        return self.ctim;
+        return .{
+            .sec = self.ctim,
+            .nsec = self.ctim_nsec,
+        };
     }
 };
 
 pub const timeval = extern struct {
-    tv_sec: isize,
-    tv_usec: isize,
+    sec: isize,
+    usec: isize,
 };
 
 pub const timezone = extern struct {
-    tz_minuteswest: i32,
-    tz_dsttime: i32,
+    minuteswest: i32,
+    dsttime: i32,
 };
 
 pub const Elf_Symndx = u32;
 
-pub const rlimit_resource = enum(c_int) {
-    /// Per-process CPU limit, in seconds.
-    CPU,
+/// TODO
+pub const ucontext_t = void;
 
-    /// Largest file that can be created, in bytes.
-    FSIZE,
-
-    /// Maximum size of data segment, in bytes.
-    DATA,
-
-    /// Maximum size of stack segment, in bytes.
-    STACK,
-
-    /// Largest core file that can be created, in bytes.
-    CORE,
-
-    /// Number of open files.
-    NOFILE,
-
-    /// Address space limit.
-    AS,
-
-    /// Largest resident set size, in bytes.
-    /// This affects swapping; processes that are exceeding their
-    /// resident set size will be more likely to have physical memory
-    /// taken from them.
-    RSS,
-
-    /// Number of processes.
-    NPROC,
-
-    /// Locked-in-memory address space.
-    MEMLOCK,
-
-    /// Maximum number of file locks.
-    LOCKS,
-
-    /// Maximum number of pending signals.
-    SIGPENDING,
-
-    /// Maximum bytes in POSIX message queues.
-    MSGQUEUE,
-
-    /// Maximum nice priority allowed to raise to.
-    /// Nice levels 19 .. -20 correspond to 0 .. 39
-    /// values of this resource limit.
-    NICE,
-
-    /// Maximum realtime priority allowed for non-priviledged
-    /// processes.
-    RTPRIO,
-
-    /// Maximum CPU time in µs that a process scheduled under a real-time
-    /// scheduling policy may consume without making a blocking system
-    /// call before being forcibly descheduled.
-    RTTIME,
-
-    _,
-};
+/// TODO
+pub const getcontext = {};

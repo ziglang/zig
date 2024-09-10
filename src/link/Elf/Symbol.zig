@@ -9,10 +9,9 @@ name_offset: u32 = 0,
 /// Index of file where this symbol is defined.
 file_index: File.Index = 0,
 
-/// Index of atom containing this symbol.
-/// Index of 0 means there is no associated atom with this symbol.
-/// Use `atom` to get the pointer to the atom.
-atom_index: Atom.Index = 0,
+/// Reference to Atom or merge subsection containing this symbol if any.
+/// Use `atom` or `mergeSubsection` to get the pointer to the atom.
+ref: Elf.Ref = .{},
 
 /// Assigned output section index for this symbol.
 output_section_index: u32 = 0,
@@ -34,11 +33,15 @@ pub fn isAbs(symbol: Symbol, elf_file: *Elf) bool {
     const file_ptr = symbol.file(elf_file).?;
     if (file_ptr == .shared_object) return symbol.elfSym(elf_file).st_shndx == elf.SHN_ABS;
     return !symbol.flags.import and symbol.atom(elf_file) == null and
-        symbol.mergeSubsection(elf_file) == null and symbol.outputShndx() == null and
+        symbol.mergeSubsection(elf_file) == null and symbol.outputShndx(elf_file) == null and
         file_ptr != .linker_defined;
 }
 
-pub fn outputShndx(symbol: Symbol) ?u32 {
+pub fn outputShndx(symbol: Symbol, elf_file: *Elf) ?u32 {
+    if (symbol.mergeSubsection(elf_file)) |msub|
+        return if (msub.alive) msub.mergeSection(elf_file).output_section_index else null;
+    if (symbol.atom(elf_file)) |atom_ptr|
+        return if (atom_ptr.alive) atom_ptr.output_section_index else null;
     if (symbol.output_section_index == 0) return null;
     return symbol.output_section_index;
 }
@@ -60,21 +63,21 @@ pub fn @"type"(symbol: Symbol, elf_file: *Elf) u4 {
 }
 
 pub fn name(symbol: Symbol, elf_file: *Elf) [:0]const u8 {
-    if (symbol.flags.global) return elf_file.strings.getAssumeExists(symbol.name_offset);
-    const file_ptr = symbol.file(elf_file).?;
-    return switch (file_ptr) {
+    return switch (symbol.file(elf_file).?) {
         inline else => |x| x.getString(symbol.name_offset),
     };
 }
 
 pub fn atom(symbol: Symbol, elf_file: *Elf) ?*Atom {
-    return elf_file.atom(symbol.atom_index);
+    if (symbol.flags.merge_subsection) return null;
+    const file_ptr = elf_file.file(symbol.ref.file) orelse return null;
+    return file_ptr.atom(symbol.ref.index);
 }
 
 pub fn mergeSubsection(symbol: Symbol, elf_file: *Elf) ?*MergeSubsection {
     if (!symbol.flags.merge_subsection) return null;
-    const extras = symbol.extra(elf_file).?;
-    return elf_file.mergeSubsection(extras.subsection);
+    const msec = elf_file.mergeSection(symbol.ref.file);
+    return msec.mergeSubsection(symbol.ref.index);
 }
 
 pub fn file(symbol: Symbol, elf_file: *Elf) ?File {
@@ -82,9 +85,8 @@ pub fn file(symbol: Symbol, elf_file: *Elf) ?File {
 }
 
 pub fn elfSym(symbol: Symbol, elf_file: *Elf) elf.Elf64_Sym {
-    const file_ptr = symbol.file(elf_file).?;
-    return switch (file_ptr) {
-        .zig_object => |x| x.elfSym(symbol.esym_index).*,
+    return switch (symbol.file(elf_file).?) {
+        .zig_object => |x| x.symtab.items(.elf_sym)[symbol.esym_index],
         inline else => |x| x.symtab.items[symbol.esym_index],
     };
 }
@@ -99,13 +101,16 @@ pub fn symbolRank(symbol: Symbol, elf_file: *Elf) u32 {
     return file_ptr.symbolRank(sym, in_archive);
 }
 
-pub fn address(symbol: Symbol, opts: struct { plt: bool = true }, elf_file: *Elf) i64 {
+pub fn address(symbol: Symbol, opts: struct { plt: bool = true, trampoline: bool = true }, elf_file: *Elf) i64 {
     if (symbol.mergeSubsection(elf_file)) |msub| {
         if (!msub.alive) return 0;
         return msub.address(elf_file) + symbol.value;
     }
     if (symbol.flags.has_copy_rel) {
         return symbol.copyRelAddress(elf_file);
+    }
+    if (symbol.flags.has_trampoline and opts.trampoline) {
+        return symbol.trampolineAddress(elf_file);
     }
     if (symbol.flags.has_plt and opts.plt) {
         if (!symbol.flags.is_canonical and symbol.flags.has_got) {
@@ -116,12 +121,12 @@ pub fn address(symbol: Symbol, opts: struct { plt: bool = true }, elf_file: *Elf
         return symbol.pltAddress(elf_file);
     }
     if (symbol.atom(elf_file)) |atom_ptr| {
-        if (!atom_ptr.flags.alive) {
+        if (!atom_ptr.alive) {
             if (mem.eql(u8, atom_ptr.name(elf_file), ".eh_frame")) {
                 const sym_name = symbol.name(elf_file);
                 const sh_addr, const sh_size = blk: {
                     const shndx = elf_file.eh_frame_section_index orelse break :blk .{ 0, 0 };
-                    const shdr = elf_file.shdrs.items[shndx];
+                    const shdr = elf_file.sections.items(.shdr)[shndx];
                     break :blk .{ shdr.sh_addr, shdr.sh_size };
                 };
                 if (mem.startsWith(u8, sym_name, "__EH_FRAME_BEGIN__") or
@@ -154,84 +159,72 @@ pub fn outputSymtabIndex(symbol: Symbol, elf_file: *Elf) ?u32 {
     const symtab_ctx = switch (file_ptr) {
         inline else => |x| x.output_symtab_ctx,
     };
-    const idx = symbol.extra(elf_file).?.symtab;
+    const idx = symbol.extra(elf_file).symtab;
     return if (symbol.isLocal(elf_file)) idx + symtab_ctx.ilocal else idx + symtab_ctx.iglobal;
 }
 
 pub fn gotAddress(symbol: Symbol, elf_file: *Elf) i64 {
     if (!symbol.flags.has_got) return 0;
-    const extras = symbol.extra(elf_file).?;
+    const extras = symbol.extra(elf_file);
     const entry = elf_file.got.entries.items[extras.got];
     return entry.address(elf_file);
 }
 
 pub fn pltGotAddress(symbol: Symbol, elf_file: *Elf) i64 {
     if (!(symbol.flags.has_plt and symbol.flags.has_got)) return 0;
-    const extras = symbol.extra(elf_file).?;
-    const shdr = elf_file.shdrs.items[elf_file.plt_got_section_index.?];
+    const extras = symbol.extra(elf_file);
+    const shdr = elf_file.sections.items(.shdr)[elf_file.plt_got_section_index.?];
     const cpu_arch = elf_file.getTarget().cpu.arch;
     return @intCast(shdr.sh_addr + extras.plt_got * PltGotSection.entrySize(cpu_arch));
 }
 
 pub fn pltAddress(symbol: Symbol, elf_file: *Elf) i64 {
     if (!symbol.flags.has_plt) return 0;
-    const extras = symbol.extra(elf_file).?;
-    const shdr = elf_file.shdrs.items[elf_file.plt_section_index.?];
+    const extras = symbol.extra(elf_file);
+    const shdr = elf_file.sections.items(.shdr)[elf_file.plt_section_index.?];
     const cpu_arch = elf_file.getTarget().cpu.arch;
     return @intCast(shdr.sh_addr + extras.plt * PltSection.entrySize(cpu_arch) + PltSection.preambleSize(cpu_arch));
 }
 
 pub fn gotPltAddress(symbol: Symbol, elf_file: *Elf) i64 {
     if (!symbol.flags.has_plt) return 0;
-    const extras = symbol.extra(elf_file).?;
-    const shdr = elf_file.shdrs.items[elf_file.got_plt_section_index.?];
+    const extras = symbol.extra(elf_file);
+    const shdr = elf_file.sections.items(.shdr)[elf_file.got_plt_section_index.?];
     return @intCast(shdr.sh_addr + extras.plt * 8 + GotPltSection.preamble_size);
 }
 
 pub fn copyRelAddress(symbol: Symbol, elf_file: *Elf) i64 {
     if (!symbol.flags.has_copy_rel) return 0;
-    const shdr = elf_file.shdrs.items[elf_file.copy_rel_section_index.?];
+    const shdr = elf_file.sections.items(.shdr)[elf_file.copy_rel_section_index.?];
     return @as(i64, @intCast(shdr.sh_addr)) + symbol.value;
 }
 
 pub fn tlsGdAddress(symbol: Symbol, elf_file: *Elf) i64 {
     if (!symbol.flags.has_tlsgd) return 0;
-    const extras = symbol.extra(elf_file).?;
+    const extras = symbol.extra(elf_file);
     const entry = elf_file.got.entries.items[extras.tlsgd];
     return entry.address(elf_file);
 }
 
 pub fn gotTpAddress(symbol: Symbol, elf_file: *Elf) i64 {
     if (!symbol.flags.has_gottp) return 0;
-    const extras = symbol.extra(elf_file).?;
+    const extras = symbol.extra(elf_file);
     const entry = elf_file.got.entries.items[extras.gottp];
     return entry.address(elf_file);
 }
 
 pub fn tlsDescAddress(symbol: Symbol, elf_file: *Elf) i64 {
     if (!symbol.flags.has_tlsdesc) return 0;
-    const extras = symbol.extra(elf_file).?;
+    const extras = symbol.extra(elf_file);
     const entry = elf_file.got.entries.items[extras.tlsdesc];
     return entry.address(elf_file);
 }
 
-const GetOrCreateZigGotEntryResult = struct {
-    found_existing: bool,
-    index: ZigGotSection.Index,
-};
-
-pub fn getOrCreateZigGotEntry(symbol: *Symbol, symbol_index: Index, elf_file: *Elf) !GetOrCreateZigGotEntryResult {
-    assert(!elf_file.base.isRelocatable());
-    assert(symbol.flags.needs_zig_got);
-    if (symbol.flags.has_zig_got) return .{ .found_existing = true, .index = symbol.extra(elf_file).?.zig_got };
-    const index = try elf_file.zig_got.addSymbol(symbol_index, elf_file);
-    return .{ .found_existing = false, .index = index };
-}
-
-pub fn zigGotAddress(symbol: Symbol, elf_file: *Elf) i64 {
-    if (!symbol.flags.has_zig_got) return 0;
-    const extras = symbol.extra(elf_file).?;
-    return elf_file.zig_got.entryAddress(extras.zig_got, elf_file);
+pub fn trampolineAddress(symbol: Symbol, elf_file: *Elf) i64 {
+    if (!symbol.flags.has_trampoline) return 0;
+    const zo = elf_file.zigObjectPtr().?;
+    const index = symbol.extra(elf_file).trampoline;
+    return zo.symbol(index).address(.{}, elf_file);
 }
 
 pub fn dsoAlignment(symbol: Symbol, elf_file: *Elf) !u64 {
@@ -257,16 +250,12 @@ const AddExtraOpts = struct {
     tlsgd: ?u32 = null,
     gottp: ?u32 = null,
     tlsdesc: ?u32 = null,
-    zig_got: ?u32 = null,
-    subsection: ?u32 = null,
+    trampoline: ?u32 = null,
 };
 
-pub fn addExtra(symbol: *Symbol, opts: AddExtraOpts, elf_file: *Elf) !void {
-    if (symbol.extra(elf_file) == null) {
-        symbol.extra_index = try elf_file.addSymbolExtra(.{});
-    }
-    var extras = symbol.extra(elf_file).?;
-    inline for (@typeInfo(@TypeOf(opts)).Struct.fields) |field| {
+pub fn addExtra(symbol: *Symbol, opts: AddExtraOpts, elf_file: *Elf) void {
+    var extras = symbol.extra(elf_file);
+    inline for (@typeInfo(@TypeOf(opts)).@"struct".fields) |field| {
         if (@field(opts, field.name)) |x| {
             @field(extras, field.name) = x;
         }
@@ -274,12 +263,16 @@ pub fn addExtra(symbol: *Symbol, opts: AddExtraOpts, elf_file: *Elf) !void {
     symbol.setExtra(extras, elf_file);
 }
 
-pub fn extra(symbol: Symbol, elf_file: *Elf) ?Extra {
-    return elf_file.symbolExtra(symbol.extra_index);
+pub fn extra(symbol: Symbol, elf_file: *Elf) Extra {
+    return switch (symbol.file(elf_file).?) {
+        inline else => |x| x.symbolExtra(symbol.extra_index),
+    };
 }
 
 pub fn setExtra(symbol: Symbol, extras: Extra, elf_file: *Elf) void {
-    elf_file.setSymbolExtra(symbol.extra_index, extras);
+    return switch (symbol.file(elf_file).?) {
+        inline else => |x| x.setSymbolExtra(symbol.extra_index, extras),
+    };
 }
 
 pub fn setOutputSym(symbol: Symbol, elf_file: *Elf, out: *elf.Elf64_Sym) void {
@@ -298,7 +291,7 @@ pub fn setOutputSym(symbol: Symbol, elf_file: *Elf, out: *elf.Elf64_Sym) void {
         if (elf_file.base.isRelocatable() and esym.st_shndx == elf.SHN_COMMON) break :blk elf.SHN_COMMON;
         if (symbol.mergeSubsection(elf_file)) |msub| break :blk @intCast(msub.mergeSection(elf_file).output_section_index);
         if (symbol.atom(elf_file) == null and file_ptr != .linker_defined) break :blk elf.SHN_ABS;
-        break :blk @intCast(symbol.outputShndx() orelse elf.SHN_UNDEF);
+        break :blk @intCast(symbol.outputShndx(elf_file) orelse elf.SHN_UNDEF);
     };
     const st_value = blk: {
         if (symbol.flags.has_copy_rel) break :blk symbol.address(.{}, elf_file);
@@ -307,10 +300,10 @@ pub fn setOutputSym(symbol: Symbol, elf_file: *Elf, out: *elf.Elf64_Sym) void {
             break :blk 0;
         }
         if (st_shndx == elf.SHN_ABS or st_shndx == elf.SHN_COMMON) break :blk symbol.address(.{ .plt = false }, elf_file);
-        const shdr = elf_file.shdrs.items[st_shndx];
+        const shdr = elf_file.sections.items(.shdr)[st_shndx];
         if (shdr.sh_flags & elf.SHF_TLS != 0 and file_ptr != .linker_defined)
             break :blk symbol.address(.{ .plt = false }, elf_file) - elf_file.tlsAddress();
-        break :blk symbol.address(.{ .plt = false }, elf_file);
+        break :blk symbol.address(.{ .plt = false, .trampoline = false }, elf_file);
     };
     out.st_info = (st_bind << 4) | st_type;
     out.st_other = esym.st_other;
@@ -329,7 +322,7 @@ pub fn format(
     _ = unused_fmt_string;
     _ = options;
     _ = writer;
-    @compileError("do not format symbols directly");
+    @compileError("do not format Symbol directly");
 }
 
 const FormatContext = struct {
@@ -382,22 +375,23 @@ fn format2(
     _ = options;
     _ = unused_fmt_string;
     const symbol = ctx.symbol;
+    const elf_file = ctx.elf_file;
     try writer.print("%{d} : {s} : @{x}", .{
         symbol.esym_index,
-        symbol.fmtName(ctx.elf_file),
-        symbol.address(.{}, ctx.elf_file),
+        symbol.fmtName(elf_file),
+        symbol.address(.{ .plt = false, .trampoline = false }, elf_file),
     });
-    if (symbol.file(ctx.elf_file)) |file_ptr| {
-        if (symbol.isAbs(ctx.elf_file)) {
-            if (symbol.elfSym(ctx.elf_file).st_shndx == elf.SHN_UNDEF) {
+    if (symbol.file(elf_file)) |file_ptr| {
+        if (symbol.isAbs(elf_file)) {
+            if (symbol.elfSym(elf_file).st_shndx == elf.SHN_UNDEF) {
                 try writer.writeAll(" : undef");
             } else {
                 try writer.writeAll(" : absolute");
             }
-        } else if (symbol.outputShndx()) |shndx| {
+        } else if (symbol.outputShndx(elf_file)) |shndx| {
             try writer.print(" : shdr({d})", .{shndx});
         }
-        if (symbol.atom(ctx.elf_file)) |atom_ptr| {
+        if (symbol.atom(elf_file)) |atom_ptr| {
             try writer.print(" : atom({d})", .{atom_ptr.atom_index});
         }
         var buf: [2]u8 = .{'_'} ** 2;
@@ -420,12 +414,6 @@ pub const Flags = packed struct {
 
     /// Whether this symbol is weak.
     weak: bool = false,
-
-    /// Whether the symbol has its name interned in global symbol
-    /// resolver table.
-    /// This happens for any symbol that is considered a global
-    /// symbol, but is not necessarily an import or export.
-    global: bool = false,
 
     /// Whether the symbol makes into the output symtab.
     output_symtab: bool = false,
@@ -459,17 +447,18 @@ pub const Flags = packed struct {
     needs_tlsdesc: bool = false,
     has_tlsdesc: bool = false,
 
-    /// Whether the symbol contains .zig.got indirection.
-    needs_zig_got: bool = false,
-    has_zig_got: bool = false,
-
-    /// Whether the symbol is a TLS variable.
-    /// TODO this is really not needed if only we operated on esyms between
-    /// codegen and ZigObject.
-    is_tls: bool = false,
-
     /// Whether the symbol is a merge subsection.
     merge_subsection: bool = false,
+
+    /// ZigObject specific flags
+    /// Whether the symbol has a trampoline.
+    has_trampoline: bool = false,
+
+    /// Whether the symbol is a TLS variable.
+    is_tls: bool = false,
+
+    /// Whether the symbol is an extern pointer (as opposed to function).
+    is_extern_ptr: bool = false,
 };
 
 pub const Extra = struct {
@@ -482,8 +471,8 @@ pub const Extra = struct {
     tlsgd: u32 = 0,
     gottp: u32 = 0,
     tlsdesc: u32 = 0,
-    zig_got: u32 = 0,
-    subsection: u32 = 0,
+    merge_section: u32 = 0,
+    trampoline: u32 = 0,
 };
 
 pub const Index = u32;

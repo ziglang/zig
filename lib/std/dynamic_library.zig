@@ -17,12 +17,15 @@ pub const DynLib = struct {
             DlDynLib,
         .windows => WindowsDynLib,
         .macos, .tvos, .watchos, .ios, .visionos, .freebsd, .netbsd, .openbsd, .dragonfly, .solaris, .illumos => DlDynLib,
-        else => @compileError("unsupported platform"),
+        else => struct {
+            const open = @compileError("unsupported platform");
+            const openZ = @compileError("unsupported platform");
+        },
     };
 
     inner: InnerType,
 
-    pub const Error = ElfDynLib.Error || DlDynLib.Error || WindowsDynLib.Error;
+    pub const Error = ElfDynLibError || DlDynLibError || WindowsDynLibError;
 
     /// Trusts the file. Malicious file will be able to execute arbitrary code.
     pub fn open(path: []const u8) Error!DynLib {
@@ -31,7 +34,7 @@ pub const DynLib = struct {
 
     /// Trusts the file. Malicious file will be able to execute arbitrary code.
     pub fn openZ(path_c: [*:0]const u8) Error!DynLib {
-        return .{ .inner = try InnerType.open(path_c) };
+        return .{ .inner = try InnerType.openZ(path_c) };
     }
 
     /// Trusts the file.
@@ -122,6 +125,18 @@ pub fn linkmap_iterator(phdrs: []elf.Phdr) error{InvalidExe}!LinkMap.Iterator {
     return .{ .current = link_map_ptr };
 }
 
+/// Separated to avoid referencing `ElfDynLib`, because its field types may not
+/// be valid on other targets.
+const ElfDynLibError = error{
+    FileTooBig,
+    NotElfFile,
+    NotDynamicLibrary,
+    MissingDynamicLinkingInformation,
+    ElfStringSectionNotFound,
+    ElfSymSectionNotFound,
+    ElfHashTableNotFound,
+} || posix.OpenError || posix.MMapError;
+
 pub const ElfDynLib = struct {
     strings: [*:0]u8,
     syms: [*]elf.Sym,
@@ -130,22 +145,78 @@ pub const ElfDynLib = struct {
     verdef: ?*elf.Verdef,
     memory: []align(mem.page_size) u8,
 
-    pub const Error = error{
-        FileTooBig,
-        NotElfFile,
-        NotDynamicLibrary,
-        MissingDynamicLinkingInformation,
-        ElfStringSectionNotFound,
-        ElfSymSectionNotFound,
-        ElfHashTableNotFound,
-    } || posix.OpenError || posix.MMapError;
+    pub const Error = ElfDynLibError;
+
+    fn openPath(path: []const u8) !std.fs.Dir {
+        if (path.len == 0) return error.NotDir;
+        var parts = std.mem.tokenizeScalar(u8, path, '/');
+        var parent = if (path[0] == '/') try std.fs.cwd().openDir("/", .{}) else std.fs.cwd();
+        while (parts.next()) |part| {
+            const child = try parent.openDir(part, .{});
+            parent.close();
+            parent = child;
+        }
+        return parent;
+    }
+
+    fn resolveFromSearchPath(search_path: []const u8, file_name: []const u8, delim: u8) ?posix.fd_t {
+        var paths = std.mem.tokenizeScalar(u8, search_path, delim);
+        while (paths.next()) |p| {
+            var dir = openPath(p) catch continue;
+            defer dir.close();
+            const fd = posix.openat(dir.fd, file_name, .{
+                .ACCMODE = .RDONLY,
+                .CLOEXEC = true,
+            }, 0) catch continue;
+            return fd;
+        }
+        return null;
+    }
+
+    fn resolveFromParent(dir_path: []const u8, file_name: []const u8) ?posix.fd_t {
+        var dir = std.fs.cwd().openDir(dir_path, .{}) catch return null;
+        defer dir.close();
+        return posix.openat(dir.fd, file_name, .{
+            .ACCMODE = .RDONLY,
+            .CLOEXEC = true,
+        }, 0) catch null;
+    }
+
+    // This implements enough to be able to load system libraries in general
+    // Places where it differs from dlopen:
+    // - DT_RPATH of the calling binary is not used as a search path
+    // - DT_RUNPATH of the calling binary is not used as a search path
+    // - /etc/ld.so.cache is not read
+    fn resolveFromName(path_or_name: []const u8) !posix.fd_t {
+        // If filename contains a slash ("/"), then it is interpreted as a (relative or absolute) pathname
+        if (std.mem.indexOfScalarPos(u8, path_or_name, 0, '/')) |_| {
+            return posix.open(path_or_name, .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
+        }
+
+        // Only read LD_LIBRARY_PATH if the binary is not setuid/setgid
+        if (std.os.linux.geteuid() == std.os.linux.getuid() and
+            std.os.linux.getegid() == std.os.linux.getgid())
+        {
+            if (posix.getenvZ("LD_LIBRARY_PATH")) |ld_library_path| {
+                if (resolveFromSearchPath(ld_library_path, path_or_name, ':')) |fd| {
+                    return fd;
+                }
+            }
+        }
+
+        // Lastly the directories /lib and /usr/lib are searched (in this exact order)
+        if (resolveFromParent("/lib", path_or_name)) |fd| return fd;
+        if (resolveFromParent("/usr/lib", path_or_name)) |fd| return fd;
+        return error.FileNotFound;
+    }
 
     /// Trusts the file. Malicious file will be able to execute arbitrary code.
     pub fn open(path: []const u8) Error!ElfDynLib {
-        const fd = try posix.open(path, .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
+        const fd = try resolveFromName(path);
         defer posix.close(fd);
 
-        const stat = try posix.fstat(fd);
+        const file: std.fs.File = .{ .handle = fd };
+        const stat = try file.stat();
         const size = std.math.cast(usize, stat.size) orelse return error.FileTooBig;
 
         // This one is to read the ELF info. We do more mmapping later
@@ -350,11 +421,15 @@ test "ElfDynLib" {
     try testing.expectError(error.FileNotFound, ElfDynLib.open("invalid_so.so"));
 }
 
+/// Separated to avoid referencing `WindowsDynLib`, because its field types may not
+/// be valid on other targets.
+const WindowsDynLibError = error{
+    FileNotFound,
+    InvalidPath,
+} || windows.LoadLibraryError;
+
 pub const WindowsDynLib = struct {
-    pub const Error = error{
-        FileNotFound,
-        InvalidPath,
-    } || windows.LoadLibraryError;
+    pub const Error = WindowsDynLibError;
 
     dll: windows.HMODULE,
 
@@ -376,7 +451,7 @@ pub const WindowsDynLib = struct {
     /// WindowsDynLib specific
     /// Opens dynamic library with specified library loading flags.
     pub fn openExZ(path_c: [*:0]const u8, flags: windows.LoadLibraryFlags) Error!WindowsDynLib {
-        const path_w = try windows.cStrToPrefixedFileW(null, path_c);
+        const path_w = windows.cStrToPrefixedFileW(null, path_c) catch return error.InvalidPath;
         return openExW(path_w.span().ptr, flags);
     }
 
@@ -413,8 +488,12 @@ pub const WindowsDynLib = struct {
     }
 };
 
+/// Separated to avoid referencing `DlDynLib`, because its field types may not
+/// be valid on other targets.
+const DlDynLibError = error{ FileNotFound, NameTooLong };
+
 pub const DlDynLib = struct {
-    pub const Error = error{ FileNotFound, NameTooLong };
+    pub const Error = DlDynLibError;
 
     handle: *anyopaque,
 
@@ -425,7 +504,7 @@ pub const DlDynLib = struct {
 
     pub fn openZ(path_c: [*:0]const u8) Error!DlDynLib {
         return .{
-            .handle = std.c.dlopen(path_c, std.c.RTLD.LAZY) orelse {
+            .handle = std.c.dlopen(path_c, .{ .LAZY = true }) orelse {
                 return error.FileNotFound;
             },
         };
@@ -466,4 +545,5 @@ test "dynamic_library" {
     };
 
     try testing.expectError(error.FileNotFound, DynLib.open(libname));
+    try testing.expectError(error.FileNotFound, DynLib.openZ(libname.ptr));
 }

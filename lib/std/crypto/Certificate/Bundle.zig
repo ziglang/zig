@@ -132,7 +132,7 @@ fn rescanWindows(cb: *Bundle, gpa: Allocator) RescanWindowsError!void {
     cb.map.clearRetainingCapacity();
 
     const w = std.os.windows;
-    const GetLastError = w.kernel32.GetLastError;
+    const GetLastError = w.GetLastError;
     const root = [4:0]u16{ 'R', 'O', 'O', 'T' };
     const store = w.crypt32.CertOpenSystemStoreW(null, &root) orelse switch (GetLastError()) {
         .FILE_NOT_FOUND => return error.FileNotFound,

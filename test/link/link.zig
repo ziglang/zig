@@ -1,7 +1,7 @@
 pub const BuildOptions = struct {
     has_macos_sdk: bool,
     has_ios_sdk: bool,
-    has_symlinks_windows: bool,
+    has_symlinks: bool,
 };
 
 pub const Options = struct {
@@ -74,8 +74,9 @@ fn addCompileStep(
             .target = base.target,
             .optimize = base.optimize,
             .root_source_file = rsf: {
+                const name = b.fmt("{s}.zig", .{overlay.name});
                 const bytes = overlay.zig_source_bytes orelse break :rsf null;
-                break :rsf b.addWriteFiles().add("a.zig", bytes);
+                break :rsf b.addWriteFiles().add(name, bytes);
             },
             .pic = overlay.pic,
             .strip = if (base.strip) |s| s else overlay.strip,

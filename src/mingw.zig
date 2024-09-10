@@ -9,6 +9,7 @@ const builtin = @import("builtin");
 const Compilation = @import("Compilation.zig");
 const build_options = @import("build_options");
 const Cache = std.Build.Cache;
+const dev = @import("dev.zig");
 
 pub const CRTFile = enum {
     crt2_o,
@@ -16,7 +17,7 @@ pub const CRTFile = enum {
     mingw32_lib,
 };
 
-pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progress.Node) !void {
+pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: std.Progress.Node) !void {
     if (!build_options.have_llvm) {
         return error.ZigCompilerNotBuiltWithLLVMExtensions;
     }
@@ -94,7 +95,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
                         });
                     }
                 }
-            } else if (target.cpu.arch.isARM()) {
+            } else if (target.cpu.arch.isThumb()) {
                 for (mingw32_arm32_src) |dep| {
                     try c_source_files.append(.{
                         .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
@@ -138,7 +139,7 @@ fn add_cc_args(
     });
 
     const target = comp.getTarget();
-    if (target.cpu.arch.isARM() and target.ptrBitWidth() == 32) {
+    if (target.cpu.arch.isThumb()) {
         try args.append("-mfpu=vfp");
     }
 
@@ -157,7 +158,8 @@ fn add_cc_args(
 }
 
 pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
-    if (build_options.only_c) @compileError("building import libs not included in core functionality");
+    dev.check(.build_import_lib);
+
     var arena_allocator = std.heap.ArenaAllocator.init(comp.gpa);
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
@@ -220,22 +222,22 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     });
 
     const target_defines = switch (target.cpu.arch) {
+        .thumb => "#define DEF_ARM32\n",
+        .aarch64 => "#define DEF_ARM64\n",
         .x86 => "#define DEF_I386\n",
         .x86_64 => "#define DEF_X64\n",
-        .arm, .armeb, .thumb, .thumbeb, .aarch64_32 => "#define DEF_ARM32\n",
-        .aarch64, .aarch64_be => "#define DEF_ARM64\n",
         else => unreachable,
     };
 
     const aro = @import("aro");
-    var aro_comp = aro.Compilation.init(comp.gpa);
+    var aro_comp = aro.Compilation.init(comp.gpa, std.fs.cwd());
     defer aro_comp.deinit();
 
     const include_dir = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", "mingw", "def-include" });
 
     if (comp.verbose_cc) print: {
-        std.debug.getStderrMutex().lock();
-        defer std.debug.getStderrMutex().unlock();
+        std.debug.lockStdErr();
+        defer std.debug.unlockStdErr();
         const stderr = std.io.getStdErr().writer();
         nosuspend stderr.print("def file: {s}\n", .{def_file_path}) catch break :print;
         nosuspend stderr.print("include dir: {s}\n", .{include_dir}) catch break :print;
@@ -266,7 +268,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
         // new scope to ensure definition file is written before passing the path to WriteImportLibrary
         const def_final_file = try o_dir.createFile(final_def_basename, .{ .truncate = true });
         defer def_final_file.close();
-        try pp.prettyPrintTokens(def_final_file.writer());
+        try pp.prettyPrintTokens(def_final_file.writer(), .result_only);
     }
 
     const lib_final_path = try comp.global_cache_directory.join(comp.gpa, &[_][]const u8{
@@ -319,10 +321,10 @@ fn findDef(
     lib_name: []const u8,
 ) ![]u8 {
     const lib_path = switch (target.cpu.arch) {
+        .thumb => "libarm32",
+        .aarch64 => "libarm64",
         .x86 => "lib32",
         .x86_64 => "lib64",
-        .arm, .armeb, .thumb, .thumbeb, .aarch64_32 => "libarm32",
-        .aarch64, .aarch64_be => "libarm64",
         else => unreachable,
     };
 

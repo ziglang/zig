@@ -130,7 +130,7 @@ pub fn isLower(c: u8) bool {
 /// Returns whether the character is printable and has some graphical representation,
 /// including the space character.
 pub fn isPrint(c: u8) bool {
-    return isASCII(c) and !isControl(c);
+    return isAscii(c) and !isControl(c);
 }
 
 /// Returns whether this character is included in `whitespace`.
@@ -151,7 +151,7 @@ test whitespace {
     for (whitespace) |char| try std.testing.expect(isWhitespace(char));
 
     var i: u8 = 0;
-    while (isASCII(i)) : (i += 1) {
+    while (isAscii(i)) : (i += 1) {
         if (isWhitespace(i)) try std.testing.expect(std.mem.indexOfScalar(u8, &whitespace, i) != null);
     }
 }
@@ -173,9 +173,12 @@ pub fn isHex(c: u8) bool {
 }
 
 /// Returns whether the character is a 7-bit ASCII character.
-pub fn isASCII(c: u8) bool {
+pub fn isAscii(c: u8) bool {
     return c < 128;
 }
+
+/// /// Deprecated: use `isAscii`
+pub const isASCII = isAscii;
 
 /// Uppercases the character and returns it as-is if already uppercase or not a letter.
 pub fn toUpper(c: u8) u8 {

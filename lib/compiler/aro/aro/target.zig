@@ -17,8 +17,6 @@ pub fn intMaxType(target: std.Target) Type {
         .riscv64,
         .powerpc64,
         .powerpc64le,
-        .tce,
-        .tcele,
         .ve,
         => return .{ .specifier = .long },
 
@@ -37,11 +35,7 @@ pub fn intMaxType(target: std.Target) Type {
 
 /// intptr_t for this target
 pub fn intPtrType(target: std.Target) Type {
-    switch (target.os.tag) {
-        .haiku => return .{ .specifier = .long },
-        .nacl => return .{ .specifier = .int },
-        else => {},
-    }
+    if (target.os.tag == .haiku) return .{ .specifier = .long };
 
     switch (target.cpu.arch) {
         .aarch64, .aarch64_be => switch (target.os.tag) {
@@ -55,16 +49,13 @@ pub fn intPtrType(target: std.Target) Type {
         .riscv32,
         .xcore,
         .hexagon,
-        .tce,
-        .tcele,
         .m68k,
-        .spir,
         .spirv32,
         .arc,
         .avr,
         => return .{ .specifier = .int },
 
-        .sparc, .sparcel => switch (target.os.tag) {
+        .sparc => switch (target.os.tag) {
             .netbsd, .openbsd => {},
             else => return .{ .specifier = .int },
         },
@@ -133,12 +124,20 @@ pub fn int64Type(target: std.Target) Type {
     return .{ .specifier = .long_long };
 }
 
+pub fn float80Type(target: std.Target) ?Type {
+    switch (target.cpu.arch) {
+        .x86, .x86_64 => return .{ .specifier = .long_double },
+        else => {},
+    }
+    return null;
+}
+
 /// This function returns 1 if function alignment is not observable or settable.
 pub fn defaultFunctionAlignment(target: std.Target) u8 {
     return switch (target.cpu.arch) {
         .arm, .armeb => 4,
-        .aarch64, .aarch64_32, .aarch64_be => 4,
-        .sparc, .sparcel, .sparc64 => 4,
+        .aarch64, .aarch64_be => 4,
+        .sparc, .sparc64 => 4,
         .riscv64 => 2,
         else => 1,
     };
@@ -154,7 +153,7 @@ pub fn isTlsSupported(target: std.Target) bool {
         return supported;
     }
     return switch (target.cpu.arch) {
-        .tce, .tcele, .bpfel, .bpfeb, .msp430, .nvptx, .nvptx64, .x86, .arm, .armeb, .thumb, .thumbeb => false,
+        .bpfel, .bpfeb, .msp430, .nvptx, .nvptx64, .x86, .arm, .armeb, .thumb, .thumbeb => false,
         else => true,
     };
 }
@@ -270,7 +269,7 @@ pub fn systemCompiler(target: std.Target) LangOpts.Compiler {
 pub fn hasFloat128(target: std.Target) bool {
     if (target.cpu.arch.isWasm()) return true;
     if (target.isDarwin()) return false;
-    if (target.cpu.arch.isPPC() or target.cpu.arch.isPPC64()) return std.Target.powerpc.featureSetHas(target.cpu.features, .float128);
+    if (target.cpu.arch.isPowerPC()) return std.Target.powerpc.featureSetHas(target.cpu.features, .float128);
     return switch (target.os.tag) {
         .dragonfly,
         .haiku,
@@ -312,7 +311,7 @@ pub const FPSemantics = enum {
     /// Only intended for generating float.h macros for the preprocessor
     pub fn forType(ty: std.Target.CType, target: std.Target) FPSemantics {
         std.debug.assert(ty == .float or ty == .double or ty == .longdouble);
-        return switch (target.c_type_bit_size(ty)) {
+        return switch (target.cTypeBitSize(ty)) {
             32 => .IEEESingle,
             64 => .IEEEDouble,
             80 => .x87ExtendedDouble,
@@ -327,7 +326,6 @@ pub const FPSemantics = enum {
     pub fn halfPrecisionType(target: std.Target) ?FPSemantics {
         switch (target.cpu.arch) {
             .aarch64,
-            .aarch64_32,
             .aarch64_be,
             .arm,
             .armeb,
@@ -357,7 +355,7 @@ pub const FPSemantics = enum {
 };
 
 pub fn isLP64(target: std.Target) bool {
-    return target.c_type_bit_size(.int) == 32 and target.ptrBitWidth() == 64;
+    return target.cTypeBitSize(.int) == 32 and target.ptrBitWidth() == 64;
 }
 
 pub fn isKnownWindowsMSVCEnvironment(target: std.Target) bool {
@@ -433,7 +431,7 @@ pub fn ldEmulationOption(target: std.Target, arm_endianness: ?std.builtin.Endian
         .powerpc64le => "elf64lppc",
         .riscv32 => "elf32lriscv",
         .riscv64 => "elf64lriscv",
-        .sparc, .sparcel => "elf32_sparc",
+        .sparc => "elf32_sparc",
         .sparc64 => "elf64_sparc",
         .loongarch32 => "elf32loongarch",
         .loongarch64 => "elf64loongarch",
@@ -467,31 +465,21 @@ pub fn get32BitArchVariant(target: std.Target) ?std.Target {
         .csky,
         .hexagon,
         .m68k,
-        .le32,
         .mips,
         .mipsel,
         .powerpc,
         .powerpcle,
-        .r600,
         .riscv32,
         .sparc,
-        .sparcel,
-        .tce,
-        .tcele,
         .thumb,
         .thumbeb,
         .x86,
         .xcore,
         .nvptx,
-        .amdil,
-        .hsail,
-        .spir,
         .kalimba,
-        .shave,
         .lanai,
         .wasm32,
-        .renderscript32,
-        .aarch64_32,
+        .spirv,
         .spirv32,
         .loongarch32,
         .dxil,
@@ -500,14 +488,9 @@ pub fn get32BitArchVariant(target: std.Target) ?std.Target {
 
         .aarch64 => copy.cpu.arch = .arm,
         .aarch64_be => copy.cpu.arch = .armeb,
-        .le64 => copy.cpu.arch = .le32,
-        .amdil64 => copy.cpu.arch = .amdil,
         .nvptx64 => copy.cpu.arch = .nvptx,
         .wasm64 => copy.cpu.arch = .wasm32,
-        .hsail64 => copy.cpu.arch = .hsail,
-        .spir64 => copy.cpu.arch = .spir,
         .spirv64 => copy.cpu.arch = .spirv32,
-        .renderscript64 => copy.cpu.arch = .renderscript32,
         .loongarch64 => copy.cpu.arch = .loongarch32,
         .mips64 => copy.cpu.arch = .mips,
         .mips64el => copy.cpu.arch = .mipsel,
@@ -532,12 +515,7 @@ pub fn get64BitArchVariant(target: std.Target) ?std.Target {
         .lanai,
         .m68k,
         .msp430,
-        .r600,
-        .shave,
-        .sparcel,
         .spu_2,
-        .tce,
-        .tcele,
         .xcore,
         .xtensa,
         => return null,
@@ -547,14 +525,9 @@ pub fn get64BitArchVariant(target: std.Target) ?std.Target {
         .amdgcn,
         .bpfeb,
         .bpfel,
-        .le64,
-        .amdil64,
         .nvptx64,
         .wasm64,
-        .hsail64,
-        .spir64,
         .spirv64,
-        .renderscript64,
         .loongarch64,
         .mips64,
         .mips64el,
@@ -567,22 +540,17 @@ pub fn get64BitArchVariant(target: std.Target) ?std.Target {
         .x86_64,
         => {}, // Already 64 bit
 
-        .aarch64_32 => copy.cpu.arch = .aarch64,
-        .amdil => copy.cpu.arch = .amdil64,
         .arm => copy.cpu.arch = .aarch64,
         .armeb => copy.cpu.arch = .aarch64_be,
-        .hsail => copy.cpu.arch = .hsail64,
-        .le32 => copy.cpu.arch = .le64,
         .loongarch32 => copy.cpu.arch = .loongarch64,
         .mips => copy.cpu.arch = .mips64,
         .mipsel => copy.cpu.arch = .mips64el,
         .nvptx => copy.cpu.arch = .nvptx64,
         .powerpc => copy.cpu.arch = .powerpc64,
         .powerpcle => copy.cpu.arch = .powerpc64le,
-        .renderscript32 => copy.cpu.arch = .renderscript64,
         .riscv32 => copy.cpu.arch = .riscv64,
         .sparc => copy.cpu.arch = .sparc64,
-        .spir => copy.cpu.arch = .spir64,
+        .spirv => copy.cpu.arch = .spirv64,
         .spirv32 => copy.cpu.arch = .spirv64,
         .thumb => copy.cpu.arch = .aarch64,
         .thumbeb => copy.cpu.arch = .aarch64_be,
@@ -603,9 +571,8 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
     const llvm_arch = switch (target.cpu.arch) {
         .arm => "arm",
         .armeb => "armeb",
-        .aarch64 => "aarch64",
+        .aarch64 => if (target.abi == .ilp32) "aarch64_32" else "aarch64",
         .aarch64_be => "aarch64_be",
-        .aarch64_32 => "aarch64_32",
         .arc => "arc",
         .avr => "avr",
         .bpfel => "bpfel",
@@ -625,16 +592,12 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .powerpcle => "powerpcle",
         .powerpc64 => "powerpc64",
         .powerpc64le => "powerpc64le",
-        .r600 => "r600",
         .amdgcn => "amdgcn",
         .riscv32 => "riscv32",
         .riscv64 => "riscv64",
         .sparc => "sparc",
         .sparc64 => "sparc64",
-        .sparcel => "sparcel",
         .s390x => "s390x",
-        .tce => "tce",
-        .tcele => "tcele",
         .thumb => "thumb",
         .thumbeb => "thumbeb",
         .x86 => "i386",
@@ -643,23 +606,13 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .xtensa => "xtensa",
         .nvptx => "nvptx",
         .nvptx64 => "nvptx64",
-        .le32 => "le32",
-        .le64 => "le64",
-        .amdil => "amdil",
-        .amdil64 => "amdil64",
-        .hsail => "hsail",
-        .hsail64 => "hsail64",
-        .spir => "spir",
-        .spir64 => "spir64",
+        .spirv => "spirv",
         .spirv32 => "spirv32",
         .spirv64 => "spirv64",
         .kalimba => "kalimba",
-        .shave => "shave",
         .lanai => "lanai",
         .wasm32 => "wasm32",
         .wasm64 => "wasm64",
-        .renderscript32 => "renderscript32",
-        .renderscript64 => "renderscript64",
         .ve => "ve",
         // Note: spu_2 is not supported in LLVM; this is the Zig arch name
         .spu_2 => "spu_2",
@@ -669,14 +622,11 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
 
     const llvm_os = switch (target.os.tag) {
         .freestanding => "unknown",
-        .ananas => "ananas",
-        .cloudabi => "cloudabi",
         .dragonfly => "dragonfly",
         .freebsd => "freebsd",
         .fuchsia => "fuchsia",
-        .kfreebsd => "kfreebsd",
         .linux => "linux",
-        .lv2 => "lv2",
+        .ps3 => "lv2",
         .netbsd => "netbsd",
         .openbsd => "openbsd",
         .solaris => "solaris",
@@ -684,9 +634,7 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .windows => "windows",
         .zos => "zos",
         .haiku => "haiku",
-        .minix => "minix",
         .rtems => "rtems",
-        .nacl => "nacl",
         .aix => "aix",
         .cuda => "cuda",
         .nvcl => "nvcl",
@@ -706,12 +654,12 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .ios => "ios",
         .tvos => "tvos",
         .watchos => "watchos",
-        .visionos => "xros",
         .driverkit => "driverkit",
         .shadermodel => "shadermodel",
-        .liteos => "liteos",
+        .visionos => "xros",
+        .serenity => "serenity",
         .opencl,
-        .glsl450,
+        .opengl,
         .vulkan,
         .plan9,
         .other,
@@ -730,14 +678,13 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
     writer.writeByte('-') catch unreachable;
 
     const llvm_abi = switch (target.abi) {
-        .none => "unknown",
+        .none, .ilp32 => "unknown",
         .gnu => "gnu",
         .gnuabin32 => "gnuabin32",
         .gnuabi64 => "gnuabi64",
         .gnueabi => "gnueabi",
         .gnueabihf => "gnueabihf",
         .gnuf32 => "gnuf32",
-        .gnuf64 => "gnuf64",
         .gnusf => "gnusf",
         .gnux32 => "gnux32",
         .gnuilp32 => "gnuilp32",
@@ -752,7 +699,6 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .msvc => "msvc",
         .itanium => "itanium",
         .cygnus => "cygnus",
-        .coreclr => "coreclr",
         .simulator => "simulator",
         .macabi => "macabi",
         .pixel => "pixel",
@@ -770,6 +716,7 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .callable => "callable",
         .mesh => "mesh",
         .amplification => "amplification",
+        .ohos => "openhos",
     };
     writer.writeAll(llvm_abi) catch unreachable;
     return stream.getWritten();

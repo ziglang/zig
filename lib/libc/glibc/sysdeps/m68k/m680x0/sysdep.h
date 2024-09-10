@@ -1,5 +1,5 @@
 /* Assembler macros for m680x0.
-   Copyright (C) 2010-2023 Free Software Foundation, Inc.
+   Copyright (C) 2010-2024 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -37,3 +37,10 @@
   OP " " SRC "(" PC "), " DST
 
 #endif	/* __ASSEMBLER__ */
+
+# if defined __mc68020__ || defined __mc68030__ || defined __mc68040__	      \
+     || defined __mc68060__
+#  define M68K_SCALE_AVAILABLE 1
+# else
+#  define M68K_SCALE_AVAILABLE 0
+# endif

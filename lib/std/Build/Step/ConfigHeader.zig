@@ -109,47 +109,47 @@ pub fn getOutput(config_header: *ConfigHeader) std.Build.LazyPath {
 }
 
 fn addValuesInner(config_header: *ConfigHeader, values: anytype) !void {
-    inline for (@typeInfo(@TypeOf(values)).Struct.fields) |field| {
+    inline for (@typeInfo(@TypeOf(values)).@"struct".fields) |field| {
         try putValue(config_header, field.name, field.type, @field(values, field.name));
     }
 }
 
 fn putValue(config_header: *ConfigHeader, field_name: []const u8, comptime T: type, v: T) !void {
     switch (@typeInfo(T)) {
-        .Null => {
+        .null => {
             try config_header.values.put(field_name, .undef);
         },
-        .Void => {
+        .void => {
             try config_header.values.put(field_name, .defined);
         },
-        .Bool => {
+        .bool => {
             try config_header.values.put(field_name, .{ .boolean = v });
         },
-        .Int => {
+        .int => {
             try config_header.values.put(field_name, .{ .int = v });
         },
-        .ComptimeInt => {
+        .comptime_int => {
             try config_header.values.put(field_name, .{ .int = v });
         },
-        .EnumLiteral => {
+        .enum_literal => {
             try config_header.values.put(field_name, .{ .ident = @tagName(v) });
         },
-        .Optional => {
+        .optional => {
             if (v) |x| {
                 return putValue(config_header, field_name, @TypeOf(x), x);
             } else {
                 try config_header.values.put(field_name, .undef);
             }
         },
-        .Pointer => |ptr| {
+        .pointer => |ptr| {
             switch (@typeInfo(ptr.child)) {
-                .Array => |array| {
+                .array => |array| {
                     if (ptr.size == .One and array.child == u8) {
                         try config_header.values.put(field_name, .{ .string = v });
                         return;
                     }
                 },
-                .Int => {
+                .int => {
                     if (ptr.size == .Slice and ptr.child == u8) {
                         try config_header.values.put(field_name, .{ .string = v });
                         return;
@@ -164,10 +164,12 @@ fn putValue(config_header: *ConfigHeader, field_name: []const u8, comptime T: ty
     }
 }
 
-fn make(step: *Step, prog_node: *std.Progress.Node) !void {
-    _ = prog_node;
+fn make(step: *Step, options: Step.MakeOptions) !void {
+    _ = options;
     const b = step.owner;
     const config_header: *ConfigHeader = @fieldParentPtr("step", step);
+    if (config_header.style.getPath()) |lp| try step.singleUnchangingWatchInput(lp);
+
     const gpa = b.allocator;
     const arena = b.allocator;
 
@@ -568,7 +570,7 @@ fn expand_variables_cmake(
                     }
 
                     const key = contents[curr + 1 .. close_pos];
-                    const value = values.get(key) orelse .undef;
+                    const value = values.get(key) orelse return error.MissingValue;
                     const missing = contents[source_offset..curr];
                     try result.appendSlice(missing);
                     switch (value) {
@@ -623,7 +625,10 @@ fn expand_variables_cmake(
 
                 const key_start = open_pos.target + open_var.len;
                 const key = result.items[key_start..];
-                const value = values.get(key) orelse .undef;
+                if (key.len == 0) {
+                    return error.MissingKey;
+                }
+                const value = values.get(key) orelse return error.MissingValue;
                 result.shrinkRetainingCapacity(result.items.len - key.len - open_var.len);
                 switch (value) {
                     .undef, .defined => {},
@@ -693,8 +698,8 @@ test "expand_variables_cmake simple cases" {
     // line with misc content is preserved
     try testReplaceVariables(allocator, "no substitution", "no substitution", values);
 
-    // empty ${} wrapper is removed
-    try testReplaceVariables(allocator, "${}", "", values);
+    // empty ${} wrapper leads to an error
+    try std.testing.expectError(error.MissingKey, testReplaceVariables(allocator, "${}", "", values));
 
     // empty @ sigils are preserved
     try testReplaceVariables(allocator, "@", "@", values);
@@ -757,9 +762,9 @@ test "expand_variables_cmake simple cases" {
     try testReplaceVariables(allocator, "undef@", "undef@", values);
     try testReplaceVariables(allocator, "undef}", "undef}", values);
 
-    // unknown key is removed
-    try testReplaceVariables(allocator, "@bad@", "", values);
-    try testReplaceVariables(allocator, "${bad}", "", values);
+    // unknown key leads to an error
+    try std.testing.expectError(error.MissingValue, testReplaceVariables(allocator, "@bad@", "", values));
+    try std.testing.expectError(error.MissingValue, testReplaceVariables(allocator, "${bad}", "", values));
 }
 
 test "expand_variables_cmake edge cases" {
@@ -804,17 +809,17 @@ test "expand_variables_cmake edge cases" {
     try testReplaceVariables(allocator, "@dollar@{@string@}", "${text}", values);
 
     // when expanded variables contain invalid characters, they prevent further expansion
-    try testReplaceVariables(allocator, "${${string_var}}", "", values);
-    try testReplaceVariables(allocator, "${@string_var@}", "", values);
+    try std.testing.expectError(error.MissingValue, testReplaceVariables(allocator, "${${string_var}}", "", values));
+    try std.testing.expectError(error.MissingValue, testReplaceVariables(allocator, "${@string_var@}", "", values));
 
     // nested expanded variables are expanded from the inside out
     try testReplaceVariables(allocator, "${string${underscore}proxy}", "string", values);
     try testReplaceVariables(allocator, "${string@underscore@proxy}", "string", values);
 
     // nested vars are only expanded when ${} is closed
-    try testReplaceVariables(allocator, "@nest@underscore@proxy@", "underscore", values);
+    try std.testing.expectError(error.MissingValue, testReplaceVariables(allocator, "@nest@underscore@proxy@", "", values));
     try testReplaceVariables(allocator, "${nest${underscore}proxy}", "nest_underscore_proxy", values);
-    try testReplaceVariables(allocator, "@nest@@nest_underscore@underscore@proxy@@proxy@", "underscore", values);
+    try std.testing.expectError(error.MissingValue, testReplaceVariables(allocator, "@nest@@nest_underscore@underscore@proxy@@proxy@", "", values));
     try testReplaceVariables(allocator, "${nest${${nest_underscore${underscore}proxy}}proxy}", "nest_underscore_proxy", values);
 
     // invalid characters lead to an error
@@ -840,5 +845,5 @@ test "expand_variables_cmake escaped characters" {
     try testReplaceVariables(allocator, "$\\{string}", "$\\{string}", values);
 
     // backslash is skipped when checking for invalid characters, yet it mangles the key
-    try testReplaceVariables(allocator, "${string\\}", "", values);
+    try std.testing.expectError(error.MissingValue, testReplaceVariables(allocator, "${string\\}", "", values));
 }

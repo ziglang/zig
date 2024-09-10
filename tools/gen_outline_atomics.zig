@@ -48,7 +48,7 @@ pub fn main() !void {
                     @tagName(op), n.toBytes(), @tagName(order),
                 });
                 try writeFunction(arena, w, name, op, n, order);
-                try footer.writer().print("    @export({s}, .{{ .name = \"{s}\", .linkage = linkage }});\n", .{
+                try footer.writer().print("    @export(&{s}, .{{ .name = \"{s}\", .linkage = linkage }});\n", .{
                     name, name,
                 });
             }

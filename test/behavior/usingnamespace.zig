@@ -90,10 +90,6 @@ test {
     try expect(a.x == AA.c().expected);
 }
 
-comptime {
-    _ = @import("usingnamespace/file_1.zig");
-}
-
 const Bar = struct {
     usingnamespace Mixin;
 };
@@ -113,7 +109,7 @@ test "container member access usingnamespace decls" {
 
 usingnamespace opaque {};
 
-usingnamespace @Type(.{ .Struct = .{
+usingnamespace @Type(.{ .@"struct" = .{
     .layout = .auto,
     .fields = &.{},
     .decls = &.{},

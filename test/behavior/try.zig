@@ -4,7 +4,6 @@ const expect = std.testing.expect;
 
 test "try on error union" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     try tryOnErrorUnionImpl();
     try comptime tryOnErrorUnionImpl();
@@ -67,4 +66,23 @@ test "`try`ing an if/else expression" {
     };
 
     try std.testing.expectError(error.Test, S.getError2());
+}
+
+test "try forwards result location" {
+    if (builtin.zig_backend == .stage2_x86) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+
+    const S = struct {
+        fn foo(err: bool) error{Foo}!u32 {
+            const result: error{ Foo, Bar }!u32 = if (err) error.Foo else 123;
+            const res_int: u32 = try @errorCast(result);
+            return res_int;
+        }
+    };
+
+    try expect((S.foo(false) catch return error.TestUnexpectedResult) == 123);
+    try std.testing.expectError(error.Foo, S.foo(true));
 }

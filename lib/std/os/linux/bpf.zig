@@ -140,7 +140,7 @@ pub const F_STRICT_ALIGNMENT = 0x1;
 
 /// If BPF_F_ANY_ALIGNMENT is used in BPF_PROF_LOAD command, the verifier will
 /// allow any alignment whatsoever. On platforms with strict alignment
-/// requirements for loads ands stores (such as sparc and mips) the verifier
+/// requirements for loads and stores (such as sparc and mips) the verifier
 /// validates that all loads and stores provably follow this requirement. This
 /// flag turns that checking and enforcement off.
 ///
@@ -459,7 +459,7 @@ pub const Insn = packed struct {
     };
 
     fn imm_reg(code: u8, dst: Reg, src: anytype, off: i16) Insn {
-        const imm_or_reg = if (@TypeOf(src) == Reg or @typeInfo(@TypeOf(src)) == .EnumLiteral)
+        const imm_or_reg = if (@TypeOf(src) == Reg or @typeInfo(@TypeOf(src)) == .enum_literal)
             ImmOrReg{ .reg = @as(Reg, src) }
         else
             ImmOrReg{ .imm = src };
@@ -1001,7 +1001,7 @@ pub const MapType = enum(u32) {
     cpumap,
     xskmap,
     sockhash,
-    cgroup_storage,
+    cgroup_storage_deprecated,
     reuseport_sockarray,
     percpu_cgroup_storage,
     queue,
@@ -1044,6 +1044,12 @@ pub const MapType = enum(u32) {
     /// value size: 0
     /// max entries: size of ringbuf, must be power of 2
     ringbuf,
+    inode_storage,
+    task_storage,
+    bloom_filter,
+    user_ringbuf,
+    cgroup_storage,
+    arena,
 
     _,
 };
@@ -1144,6 +1150,9 @@ pub const ProgType = enum(u32) {
     /// context type: void *
     syscall,
 
+    /// context type: bpf_nf_ctx
+    netfilter,
+
     _,
 };
 
@@ -1186,6 +1195,25 @@ pub const AttachType = enum(u32) {
     xdp_cpumap,
     sk_lookup,
     xdp,
+    sk_skb_verdict,
+    sk_reuseport_select,
+    sk_reuseport_select_or_migrate,
+    perf_event,
+    trace_kprobe_multi,
+    lsm_cgroup,
+    struct_ops,
+    netfilter,
+    tcx_ingress,
+    tcx_egress,
+    trace_uprobe_multi,
+    cgroup_unix_connect,
+    cgroup_unix_sendmsg,
+    cgroup_unix_recvmsg,
+    cgroup_unix_getpeername,
+    cgroup_unix_getsockname,
+    netkit_primary,
+    netkit_peer,
+    trace_kprobe_session,
     _,
 };
 

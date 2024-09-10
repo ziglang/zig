@@ -19,15 +19,15 @@ const rem_pio2f = @import("rem_pio2f.zig").rem_pio2f;
 pub const panic = common.panic;
 
 comptime {
-    @export(__sinh, .{ .name = "__sinh", .linkage = common.linkage, .visibility = common.visibility });
-    @export(sinf, .{ .name = "sinf", .linkage = common.linkage, .visibility = common.visibility });
-    @export(sin, .{ .name = "sin", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__sinx, .{ .name = "__sinx", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__sinh, .{ .name = "__sinh", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&sinf, .{ .name = "sinf", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&sin, .{ .name = "sin", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__sinx, .{ .name = "__sinx", .linkage = common.linkage, .visibility = common.visibility });
     if (common.want_ppc_abi) {
-        @export(sinq, .{ .name = "sinf128", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&sinq, .{ .name = "sinf128", .linkage = common.linkage, .visibility = common.visibility });
     }
-    @export(sinq, .{ .name = "sinq", .linkage = common.linkage, .visibility = common.visibility });
-    @export(sinl, .{ .name = "sinl", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&sinq, .{ .name = "sinq", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&sinl, .{ .name = "sinl", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 pub fn __sinh(x: f16) callconv(.C) f16 {
@@ -49,7 +49,7 @@ pub fn sinf(x: f32) callconv(.C) f32 {
     if (ix <= 0x3f490fda) { // |x| ~<= pi/4
         if (ix < 0x39800000) { // |x| < 2**-12
             // raise inexact if x!=0 and underflow if subnormal
-            mem.doNotOptimizeAway(if (ix < 0x00800000) x / 0x1p120 else x + 0x1p120);
+            if (common.want_float_exceptions) mem.doNotOptimizeAway(if (ix < 0x00800000) x / 0x1p120 else x + 0x1p120);
             return x;
         }
         return trig.__sindf(x);
@@ -98,7 +98,7 @@ pub fn sin(x: f64) callconv(.C) f64 {
     if (ix <= 0x3fe921fb) {
         if (ix < 0x3e500000) { // |x| < 2**-26
             // raise inexact if x != 0 and underflow if subnormal
-            mem.doNotOptimizeAway(if (ix < 0x00100000) x / 0x1p120 else x + 0x1p120);
+            if (common.want_float_exceptions) mem.doNotOptimizeAway(if (ix < 0x00100000) x / 0x1p120 else x + 0x1p120);
             return x;
         }
         return trig.__sin(x, 0.0, 0);
@@ -130,7 +130,7 @@ pub fn sinq(x: f128) callconv(.C) f128 {
 }
 
 pub fn sinl(x: c_longdouble) callconv(.C) c_longdouble {
-    switch (@typeInfo(c_longdouble).Float.bits) {
+    switch (@typeInfo(c_longdouble).float.bits) {
         16 => return __sinh(x),
         32 => return sinf(x),
         64 => return sin(x),

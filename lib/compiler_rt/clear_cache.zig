@@ -25,7 +25,11 @@ fn clear_cache(start: usize, end: usize) callconv(.C) void {
         else => false,
     };
     const arm64 = switch (arch) {
-        .aarch64, .aarch64_be, .aarch64_32 => true,
+        .aarch64, .aarch64_be => true,
+        else => false,
+    };
+    const loongarch64 = switch (arch) {
+        .loongarch64 => true,
         else => false,
     };
     const mips = switch (arch) {
@@ -41,7 +45,7 @@ fn clear_cache(start: usize, end: usize) callconv(.C) void {
         else => false,
     };
     const sparc = switch (arch) {
-        .sparc, .sparc64, .sparcel => true,
+        .sparc, .sparc64 => true,
         else => false,
     };
     const apple = switch (os) {
@@ -159,13 +163,19 @@ fn clear_cache(start: usize, end: usize) callconv(.C) void {
         // On Darwin, sys_icache_invalidate() provides this functionality
         sys_icache_invalidate(start, end - start);
         exportIt();
+    } else if (os == .linux and loongarch64) {
+        // See: https://github.com/llvm/llvm-project/blob/cf54cae26b65fc3201eff7200ffb9b0c9e8f9a13/compiler-rt/lib/builtins/clear_cache.c#L94-L95
+        asm volatile (
+            \\ ibar 0
+        );
+        exportIt();
     }
 }
 
 const linkage = if (builtin.is_test) std.builtin.GlobalLinkage.internal else std.builtin.GlobalLinkage.weak;
 
 fn exportIt() void {
-    @export(clear_cache, .{ .name = "__clear_cache", .linkage = linkage });
+    @export(&clear_cache, .{ .name = "__clear_cache", .linkage = linkage });
 }
 
 // Darwin-only

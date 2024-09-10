@@ -15,15 +15,15 @@ const common = @import("common.zig");
 pub const panic = common.panic;
 
 comptime {
-    @export(__exph, .{ .name = "__exph", .linkage = common.linkage, .visibility = common.visibility });
-    @export(expf, .{ .name = "expf", .linkage = common.linkage, .visibility = common.visibility });
-    @export(exp, .{ .name = "exp", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__expx, .{ .name = "__expx", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__exph, .{ .name = "__exph", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&expf, .{ .name = "expf", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&exp, .{ .name = "exp", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__expx, .{ .name = "__expx", .linkage = common.linkage, .visibility = common.visibility });
     if (common.want_ppc_abi) {
-        @export(expq, .{ .name = "expf128", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&expq, .{ .name = "expf128", .linkage = common.linkage, .visibility = common.visibility });
     }
-    @export(expq, .{ .name = "expq", .linkage = common.linkage, .visibility = common.visibility });
-    @export(expl, .{ .name = "expl", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&expq, .{ .name = "expq", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&expl, .{ .name = "expl", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 pub fn __exph(a: f16) callconv(.C) f16 {
@@ -59,7 +59,7 @@ pub fn expf(x_: f32) callconv(.C) f32 {
             return x * 0x1.0p127;
         }
         if (sign != 0) {
-            mem.doNotOptimizeAway(-0x1.0p-149 / x); // overflow
+            if (common.want_float_exceptions) mem.doNotOptimizeAway(-0x1.0p-149 / x); // overflow
             // x <= -103.972084
             if (hx >= 0x42CFF1B5) {
                 return 0;
@@ -91,7 +91,7 @@ pub fn expf(x_: f32) callconv(.C) f32 {
         hi = x;
         lo = 0;
     } else {
-        mem.doNotOptimizeAway(0x1.0p127 + x); // inexact
+        if (common.want_float_exceptions) mem.doNotOptimizeAway(0x1.0p127 + x); // inexact
         return 1 + x;
     }
 
@@ -142,7 +142,7 @@ pub fn exp(x_: f64) callconv(.C) f64 {
         }
         if (x < -708.39641853226410622) {
             // underflow if x != -inf
-            // mem.doNotOptimizeAway(@as(f32, -0x1.0p-149 / x));
+            // if (common.want_float_exceptions) mem.doNotOptimizeAway(@as(f32, -0x1.0p-149 / x));
             if (x < -745.13321910194110842) {
                 return 0;
             }
@@ -175,7 +175,7 @@ pub fn exp(x_: f64) callconv(.C) f64 {
         lo = 0;
     } else {
         // inexact if x != 0
-        // mem.doNotOptimizeAway(0x1.0p1023 + x);
+        // if (common.want_float_exceptions) mem.doNotOptimizeAway(0x1.0p1023 + x);
         return 1 + x;
     }
 
@@ -201,7 +201,7 @@ pub fn expq(a: f128) callconv(.C) f128 {
 }
 
 pub fn expl(x: c_longdouble) callconv(.C) c_longdouble {
-    switch (@typeInfo(c_longdouble).Float.bits) {
+    switch (@typeInfo(c_longdouble).float.bits) {
         16 => return __exph(x),
         32 => return expf(x),
         64 => return exp(x),

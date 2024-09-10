@@ -85,6 +85,11 @@ const glibc_targets = [_]LibCTarget{
         .abi = MultiAbi{ .specific = Abi.gnueabihf },
     },
     LibCTarget{
+        .name = "arc-linux-gnu",
+        .arch = MultiArch{ .specific = Arch.arc },
+        .abi = MultiAbi{ .specific = Abi.gnu },
+    },
+    LibCTarget{
         .name = "csky-linux-gnuabiv2",
         .arch = MultiArch{ .specific = Arch.csky },
         .abi = MultiAbi{ .specific = Abi.gnueabihf },
@@ -160,7 +165,12 @@ const glibc_targets = [_]LibCTarget{
         .abi = MultiAbi{ .specific = Abi.gnueabi },
     },
     LibCTarget{
-        .name = "riscv64-linux-gnu-rv64imac-lp64",
+        .name = "riscv32-linux-gnu-rv32imafdc-ilp32d",
+        .arch = MultiArch{ .specific = Arch.riscv32 },
+        .abi = MultiAbi{ .specific = Abi.gnu },
+    },
+    LibCTarget{
+        .name = "riscv64-linux-gnu-rv64imafdc-lp64d",
         .arch = MultiArch{ .specific = Arch.riscv64 },
         .abi = MultiAbi{ .specific = Abi.gnu },
     },
@@ -169,12 +179,11 @@ const glibc_targets = [_]LibCTarget{
         .arch = MultiArch{ .specific = Arch.s390x },
         .abi = MultiAbi{ .specific = Abi.gnu },
     },
-    // It's unclear which zig target this glibc sparcv9 target maps to.
-    //LibCTarget{
-    //    .name = "sparcv9-linux-gnu",
-    //    .arch = MultiArch{ .specific = Arch.sparc },
-    //    .abi = MultiAbi{ .specific = Abi.gnu },
-    //},
+    LibCTarget{
+        .name = "sparcv9-linux-gnu",
+        .arch = MultiArch{ .specific = Arch.sparc },
+        .abi = MultiAbi{ .specific = Abi.gnu },
+    },
     LibCTarget{
         .name = "sparc64-linux-gnu",
         .arch = MultiArch{ .specific = Arch.sparc64 },
@@ -193,6 +202,11 @@ const glibc_targets = [_]LibCTarget{
     LibCTarget{
         .name = "m68k-linux-gnu",
         .arch = MultiArch{ .specific = Arch.m68k },
+        .abi = MultiAbi{ .specific = Abi.gnu },
+    },
+    LibCTarget{
+        .name = "loongarch64-linux-gnu-lp64d",
+        .arch = MultiArch{ .specific = .loongarch64 },
         .abi = MultiAbi{ .specific = Abi.gnu },
     },
 };
@@ -214,6 +228,11 @@ const musl_targets = [_]LibCTarget{
         .abi = MultiAbi.musl,
     },
     LibCTarget{
+        .name = "loongarch64",
+        .arch = MultiArch{ .specific = .loongarch64 },
+        .abi = MultiAbi.musl,
+    },
+    LibCTarget{
         .name = "mips",
         .arch = MultiArch.mips,
         .abi = MultiAbi.musl,
@@ -231,6 +250,11 @@ const musl_targets = [_]LibCTarget{
     LibCTarget{
         .name = "powerpc64",
         .arch = MultiArch.powerpc64,
+        .abi = MultiAbi.musl,
+    },
+    LibCTarget{
+        .name = "riscv32",
+        .arch = MultiArch{ .specific = .riscv32 },
         .abi = MultiAbi.musl,
     },
     LibCTarget{

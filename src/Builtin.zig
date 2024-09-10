@@ -10,6 +10,7 @@ optimize_mode: std.builtin.OptimizeMode,
 error_tracing: bool,
 valgrind: bool,
 sanitize_thread: bool,
+fuzz: bool,
 pic: bool,
 pie: bool,
 strip: bool,
@@ -185,6 +186,7 @@ pub fn append(opts: @This(), buffer: *std.ArrayList(u8)) Allocator.Error!void {
         \\pub const have_error_return_tracing = {};
         \\pub const valgrind_support = {};
         \\pub const sanitize_thread = {};
+        \\pub const fuzz = {};
         \\pub const position_independent_code = {};
         \\pub const position_independent_executable = {};
         \\pub const strip_debug_info = {};
@@ -199,6 +201,7 @@ pub fn append(opts: @This(), buffer: *std.ArrayList(u8)) Allocator.Error!void {
         opts.error_tracing,
         opts.valgrind,
         opts.sanitize_thread,
+        opts.fuzz,
         opts.pic,
         opts.pie,
         opts.strip,
@@ -215,7 +218,7 @@ pub fn append(opts: @This(), buffer: *std.ArrayList(u8)) Allocator.Error!void {
 
     if (opts.is_test) {
         try buffer.appendSlice(
-            \\pub var test_functions: []const std.builtin.TestFn = undefined; // overwritten later
+            \\pub var test_functions: []const std.builtin.TestFn = &.{}; // overwritten later
             \\
         );
     }
@@ -266,7 +269,7 @@ pub fn populateFile(comp: *Compilation, mod: *Module, file: *File) !void {
 }
 
 fn writeFile(file: *File, mod: *Module) !void {
-    var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
     var af = try mod.root.atomicFile(mod.root_src_path, .{ .make_path = true }, &buf);
     defer af.deinit();
     try af.file.writeAll(file.source);
@@ -296,6 +299,6 @@ const build_options = @import("build_options");
 const Module = @import("Package/Module.zig");
 const assert = std.debug.assert;
 const AstGen = std.zig.AstGen;
-const File = @import("Module.zig").File;
+const File = @import("Zcu.zig").File;
 const Compilation = @import("Compilation.zig");
 const log = std.log.scoped(.builtin);

@@ -48,14 +48,12 @@ pub const StackTrace = struct {
         if (builtin.os.tag == .freestanding) return;
 
         _ = options;
-        var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-        defer arena.deinit();
         const debug_info = std.debug.getSelfDebugInfo() catch |err| {
             return writer.print("\nUnable to print stack trace: Unable to open debug info: {s}\n", .{@errorName(err)});
         };
         const tty_config = std.io.tty.detectConfig(std.io.getStdErr());
         try writer.writeAll("\n");
-        std.debug.writeStackTrace(self, writer, arena.allocator(), debug_info, tty_config) catch |err| {
+        std.debug.writeStackTrace(self, writer, debug_info, tty_config) catch |err| {
             try writer.print("Unable to print stack trace: {s}\n", .{@errorName(err)});
         };
     }
@@ -243,6 +241,9 @@ pub const AddressSpace = enum(u5) {
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
 pub const SourceLocation = struct {
+    /// The name chosen when compiling. Not a file path.
+    module: [:0]const u8,
+    /// Relative to the root directory of its module.
     file: [:0]const u8,
     fn_name: [:0]const u8,
     line: u32,
@@ -254,30 +255,30 @@ pub const TypeId = std.meta.Tag(Type);
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
 pub const Type = union(enum) {
-    Type: void,
-    Void: void,
-    Bool: void,
-    NoReturn: void,
-    Int: Int,
-    Float: Float,
-    Pointer: Pointer,
-    Array: Array,
-    Struct: Struct,
-    ComptimeFloat: void,
-    ComptimeInt: void,
-    Undefined: void,
-    Null: void,
-    Optional: Optional,
-    ErrorUnion: ErrorUnion,
-    ErrorSet: ErrorSet,
-    Enum: Enum,
-    Union: Union,
-    Fn: Fn,
-    Opaque: Opaque,
-    Frame: Frame,
-    AnyFrame: AnyFrame,
-    Vector: Vector,
-    EnumLiteral: void,
+    type: void,
+    void: void,
+    bool: void,
+    noreturn: void,
+    int: Int,
+    float: Float,
+    pointer: Pointer,
+    array: Array,
+    @"struct": Struct,
+    comptime_float: void,
+    comptime_int: void,
+    undefined: void,
+    null: void,
+    optional: Optional,
+    error_union: ErrorUnion,
+    error_set: ErrorSet,
+    @"enum": Enum,
+    @"union": Union,
+    @"fn": Fn,
+    @"opaque": Opaque,
+    frame: Frame,
+    @"anyframe": AnyFrame,
+    vector: Vector,
+    enum_literal: void,
 
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
@@ -600,7 +601,7 @@ pub const VaList = switch (builtin.cpu.arch) {
         .ios, .macos, .tvos, .watchos, .visionos => *u8,
         else => @compileError("disabled due to miscompilations"), // VaListAarch64,
     },
-    .arm => switch (builtin.os.tag) {
+    .arm, .armeb, .thumb, .thumbeb => switch (builtin.os.tag) {
         .ios, .macos, .tvos, .watchos, .visionos => *u8,
         else => *anyopaque,
     },
@@ -615,7 +616,7 @@ pub const VaList = switch (builtin.cpu.arch) {
         else => VaListPowerPc,
     },
     .powerpc64, .powerpc64le => *u8,
-    .sparc, .sparcel, .sparc64 => *anyopaque,
+    .sparc, .sparc64 => *anyopaque,
     .spirv32, .spirv64 => *anyopaque,
     .s390x => VaListS390x,
     .wasm32, .wasm64 => *anyopaque,
@@ -670,6 +671,25 @@ pub const ExternOptions = struct {
     library_name: ?[]const u8 = null,
     linkage: GlobalLinkage = .strong,
     is_thread_local: bool = false,
+};
+
+/// This data structure is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+pub const BranchHint = enum(u3) {
+    /// Equivalent to no hint given.
+    none,
+    /// This branch of control flow is more likely to be reached than its peers.
+    /// The optimizer should optimize for reaching it.
+    likely,
+    /// This branch of control flow is less likely to be reached than its peers.
+    /// The optimizer should optimize for not reaching it.
+    unlikely,
+    /// This branch of control flow is unlikely to *ever* be reached.
+    /// The optimizer may place it in a different page of memory to optimize other branches.
+    cold,
+    /// It is difficult to predict whether this branch of control flow will be reached.
+    /// The optimizer should avoid branching behavior with expensive mispredictions.
+    unpredictable,
 };
 
 /// This enum is set by the compiler and communicates which compiler backend is
@@ -757,7 +777,7 @@ else
 /// This function is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
 pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace, ret_addr: ?usize) noreturn {
-    @setCold(true);
+    @branchHint(.cold);
 
     // For backends that cannot handle the language features depended on by the
     // default panic handler, we have a simpler panic handler:
@@ -775,14 +795,8 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace, ret_addr
     }
 
     if (builtin.zig_backend == .stage2_riscv64) {
-        asm volatile ("ecall"
-            :
-            : [number] "{a7}" (64),
-              [arg1] "{a0}" (1),
-              [arg2] "{a1}" (@intFromPtr(msg.ptr)),
-              [arg3] "{a2}" (msg.len),
-            : "memory"
-        );
+        std.debug.print("panic: {s}\n", .{msg});
+        @breakpoint();
         std.posix.exit(127);
     }
 
@@ -799,41 +813,55 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace, ret_addr
         .uefi => {
             const uefi = std.os.uefi;
 
+            const Formatter = struct {
+                pub fn fmt(exit_msg: []const u8, out: []u16) ![:0]u16 {
+                    var u8_buf: [256]u8 = undefined;
+                    const slice = try std.fmt.bufPrint(&u8_buf, "err: {s}\r\n", .{exit_msg});
+                    // We pass len - 1 because we need to add a null terminator after
+                    const len = try std.unicode.utf8ToUtf16Le(out[0 .. out.len - 1], slice);
+
+                    out[len] = 0;
+
+                    return out[0..len :0];
+                }
+            };
+
             const ExitData = struct {
-                pub fn create_exit_data(exit_msg: []const u8, exit_size: *usize) ![*:0]u16 {
+                pub fn create_exit_data(exit_msg: [:0]u16, exit_size: *usize) ![*:0]u16 {
                     // Need boot services for pool allocation
                     if (uefi.system_table.boot_services == null) {
                         return error.BootServicesUnavailable;
                     }
 
-                    // ExitData buffer must be allocated using boot_services.allocatePool
-                    var utf16: []u16 = try uefi.raw_pool_allocator.alloc(u16, 256);
-                    errdefer uefi.raw_pool_allocator.free(utf16);
+                    // ExitData buffer must be allocated using boot_services.allocatePool (spec: page 220)
+                    const exit_data: []u16 = try uefi.raw_pool_allocator.alloc(u16, exit_msg.len + 1);
 
-                    if (exit_msg.len > 255) {
-                        return error.MessageTooLong;
-                    }
+                    @memcpy(exit_data[0 .. exit_msg.len + 1], exit_msg[0 .. exit_msg.len + 1]);
+                    exit_size.* = exit_msg.len + 1;
 
-                    var fmt: [256]u8 = undefined;
-                    const slice = try std.fmt.bufPrint(&fmt, "\r\nerr: {s}\r\n", .{exit_msg});
-                    const len = try std.unicode.utf8ToUtf16Le(utf16, slice);
-
-                    utf16[len] = 0;
-
-                    exit_size.* = 256;
-
-                    return @as([*:0]u16, @ptrCast(utf16.ptr));
+                    return @as([*:0]u16, @ptrCast(exit_data.ptr));
                 }
             };
 
-            var exit_size: usize = 0;
-            const exit_data = ExitData.create_exit_data(msg, &exit_size) catch null;
+            var buf: [256]u16 = undefined;
+            const utf16 = Formatter.fmt(msg, &buf) catch null;
 
-            if (exit_data) |data| {
-                if (uefi.system_table.std_err) |out| {
-                    _ = out.setAttribute(uefi.protocol.SimpleTextOutput.red);
-                    _ = out.outputString(data);
-                    _ = out.setAttribute(uefi.protocol.SimpleTextOutput.white);
+            var exit_size: usize = 0;
+            const exit_data = if (utf16) |u|
+                ExitData.create_exit_data(u, &exit_size) catch null
+            else
+                null;
+
+            if (utf16) |str| {
+                // Output to both std_err and con_out, as std_err is easier
+                // to read in stuff like QEMU at times, but, unlike con_out,
+                // isn't visible on actual hardware if directly booted into
+                inline for ([_]?*uefi.protocol.SimpleTextOutput{ uefi.system_table.std_err, uefi.system_table.con_out }) |o| {
+                    if (o) |out| {
+                        _ = out.setAttribute(uefi.protocol.SimpleTextOutput.red);
+                        _ = out.outputString(str);
+                        _ = out.setAttribute(uefi.protocol.SimpleTextOutput.white);
+                    }
                 }
             }
 
@@ -866,27 +894,27 @@ pub fn checkNonScalarSentinel(expected: anytype, actual: @TypeOf(expected)) void
 }
 
 pub fn panicSentinelMismatch(expected: anytype, actual: @TypeOf(expected)) noreturn {
-    @setCold(true);
+    @branchHint(.cold);
     std.debug.panicExtra(null, @returnAddress(), "sentinel mismatch: expected {any}, found {any}", .{ expected, actual });
 }
 
 pub fn panicUnwrapError(st: ?*StackTrace, err: anyerror) noreturn {
-    @setCold(true);
+    @branchHint(.cold);
     std.debug.panicExtra(st, @returnAddress(), "attempt to unwrap error: {s}", .{@errorName(err)});
 }
 
 pub fn panicOutOfBounds(index: usize, len: usize) noreturn {
-    @setCold(true);
+    @branchHint(.cold);
     std.debug.panicExtra(null, @returnAddress(), "index out of bounds: index {d}, len {d}", .{ index, len });
 }
 
 pub fn panicStartGreaterThanEnd(start: usize, end: usize) noreturn {
-    @setCold(true);
+    @branchHint(.cold);
     std.debug.panicExtra(null, @returnAddress(), "start index {d} is larger than end index {d}", .{ start, end });
 }
 
 pub fn panicInactiveUnionField(active: anytype, wanted: @TypeOf(active)) noreturn {
-    @setCold(true);
+    @branchHint(.cold);
     std.debug.panicExtra(null, @returnAddress(), "access of union field '{s}' while field '{s}' is active", .{ @tagName(wanted), @tagName(active) });
 }
 
@@ -919,7 +947,7 @@ pub const panic_messages = struct {
 };
 
 pub noinline fn returnError(st: *StackTrace) void {
-    @setCold(true);
+    @branchHint(.cold);
     @setRuntimeSafety(false);
     addErrRetTraceAddr(st, @returnAddress());
 }

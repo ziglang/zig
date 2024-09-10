@@ -78,6 +78,7 @@ pub const Feature = enum {
     svnapot,
     svpbmt,
     tagged_globals,
+    unaligned_scalar_mem,
     use_postra_scheduler,
     v,
     ventana_veyron,
@@ -194,13 +195,13 @@ pub const Feature = enum {
     zvl8192b,
 };
 
-pub const featureSet = CpuFeature.feature_set_fns(Feature).featureSet;
-pub const featureSetHas = CpuFeature.feature_set_fns(Feature).featureSetHas;
-pub const featureSetHasAny = CpuFeature.feature_set_fns(Feature).featureSetHasAny;
-pub const featureSetHasAll = CpuFeature.feature_set_fns(Feature).featureSetHasAll;
+pub const featureSet = CpuFeature.FeatureSetFns(Feature).featureSet;
+pub const featureSetHas = CpuFeature.FeatureSetFns(Feature).featureSetHas;
+pub const featureSetHasAny = CpuFeature.FeatureSetFns(Feature).featureSetHasAny;
+pub const featureSetHasAll = CpuFeature.FeatureSetFns(Feature).featureSetHasAll;
 
 pub const all_features = blk: {
-    const len = @typeInfo(Feature).Enum.fields.len;
+    const len = @typeInfo(Feature).@"enum".fields.len;
     std.debug.assert(len <= CpuFeature.Set.needed_bit_count);
     var result: [len]CpuFeature = undefined;
     result[@intFromEnum(Feature.@"32bit")] = .{
@@ -584,6 +585,11 @@ pub const all_features = blk: {
         .description = "Use an instruction sequence for taking the address of a global that allows a memory tag in the upper address bits",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@intFromEnum(Feature.unaligned_scalar_mem)] = .{
+        .llvm_name = "unaligned-scalar-mem",
+        .description = "Has reasonably performant unaligned scalar loads and stores",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@intFromEnum(Feature.use_postra_scheduler)] = .{
         .llvm_name = "use-postra-scheduler",
         .description = "Schedule again after register allocation",
@@ -823,14 +829,14 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.zcmp)] = .{
         .llvm_name = "zcmp",
-        .description = "'Zcmp' (sequenced instuctions for code-size reduction)",
+        .description = "'Zcmp' (sequenced instructions for code-size reduction)",
         .dependencies = featureSet(&[_]Feature{
             .zca,
         }),
     };
     result[@intFromEnum(Feature.zcmt)] = .{
         .llvm_name = "zcmt",
-        .description = "'Zcmt' (table jump instuctions for code-size reduction)",
+        .description = "'Zcmt' (table jump instructions for code-size reduction)",
         .dependencies = featureSet(&[_]Feature{
             .zca,
             .zicsr,
@@ -1292,7 +1298,7 @@ pub const all_features = blk: {
     const ti = @typeInfo(Feature);
     for (&result, 0..) |*elem, i| {
         elem.index = i;
-        elem.name = ti.Enum.fields[i].name;
+        elem.name = ti.@"enum".fields[i].name;
     }
     break :blk result;
 };

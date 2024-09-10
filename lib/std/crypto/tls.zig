@@ -40,8 +40,8 @@ const assert = std.debug.assert;
 pub const Client = @import("tls/Client.zig");
 
 pub const record_header_len = 5;
-pub const max_cipertext_inner_record_len = 1 << 14;
-pub const max_ciphertext_len = max_cipertext_inner_record_len + 256;
+pub const max_ciphertext_inner_record_len = 1 << 14;
+pub const max_ciphertext_len = max_ciphertext_inner_record_len + 256;
 pub const max_ciphertext_record_len = max_ciphertext_len + record_header_len;
 pub const hello_retry_request_sequence = [32]u8{
     0xCF, 0x21, 0xAD, 0x74, 0xE5, 0x9A, 0x61, 0x11, 0xBE, 0x1D, 0x8C, 0x02, 0x1E, 0x65, 0xB8, 0x91,
@@ -491,7 +491,7 @@ pub const Decoder = struct {
     /// Use this function to increase `idx`.
     pub fn decode(d: *Decoder, comptime T: type) T {
         switch (@typeInfo(T)) {
-            .Int => |info| switch (info.bits) {
+            .int => |info| switch (info.bits) {
                 8 => {
                     skip(d, 1);
                     return d.buf[d.idx - 1];
@@ -511,7 +511,7 @@ pub const Decoder = struct {
                 },
                 else => @compileError("unsupported int type: " ++ @typeName(T)),
             },
-            .Enum => |info| {
+            .@"enum" => |info| {
                 const int = d.decode(info.tag_type);
                 if (info.is_exhaustive) @compileError("exhaustive enum cannot be used");
                 return @as(T, @enumFromInt(int));

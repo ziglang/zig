@@ -30,7 +30,7 @@ const largest_atomic_size = switch (arch) {
     // On SPARC systems that lacks CAS and/or swap instructions, the only
     // available atomic operation is a test-and-set (`ldstub`), so we force
     // every atomic memory access to go through the lock.
-    .sparc, .sparcel => if (cpu.features.featureSetHas(.hasleoncasa)) @sizeOf(usize) else 0,
+    .sparc => if (std.Target.sparc.featureSetHas(builtin.cpu.features, .hasleoncasa)) @sizeOf(usize) else 0,
 
     // XXX: On x86/x86_64 we could check the presence of cmpxchg8b/cmpxchg16b
     // and set this parameter accordingly.
@@ -538,81 +538,81 @@ fn __atomic_fetch_umin_16(ptr: *u128, val: u128, model: i32) callconv(.C) u128 {
 
 comptime {
     if (supports_atomic_ops and builtin.object_format != .c) {
-        @export(__atomic_load, .{ .name = "__atomic_load", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_store, .{ .name = "__atomic_store", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_exchange, .{ .name = "__atomic_exchange", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_compare_exchange, .{ .name = "__atomic_compare_exchange", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_load, .{ .name = "__atomic_load", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_store, .{ .name = "__atomic_store", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_exchange, .{ .name = "__atomic_exchange", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_compare_exchange, .{ .name = "__atomic_compare_exchange", .linkage = linkage, .visibility = visibility });
 
-        @export(__atomic_fetch_add_1, .{ .name = "__atomic_fetch_add_1", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_add_2, .{ .name = "__atomic_fetch_add_2", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_add_4, .{ .name = "__atomic_fetch_add_4", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_add_8, .{ .name = "__atomic_fetch_add_8", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_add_16, .{ .name = "__atomic_fetch_add_16", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_add_1, .{ .name = "__atomic_fetch_add_1", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_add_2, .{ .name = "__atomic_fetch_add_2", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_add_4, .{ .name = "__atomic_fetch_add_4", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_add_8, .{ .name = "__atomic_fetch_add_8", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_add_16, .{ .name = "__atomic_fetch_add_16", .linkage = linkage, .visibility = visibility });
 
-        @export(__atomic_fetch_sub_1, .{ .name = "__atomic_fetch_sub_1", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_sub_2, .{ .name = "__atomic_fetch_sub_2", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_sub_4, .{ .name = "__atomic_fetch_sub_4", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_sub_8, .{ .name = "__atomic_fetch_sub_8", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_sub_16, .{ .name = "__atomic_fetch_sub_16", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_sub_1, .{ .name = "__atomic_fetch_sub_1", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_sub_2, .{ .name = "__atomic_fetch_sub_2", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_sub_4, .{ .name = "__atomic_fetch_sub_4", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_sub_8, .{ .name = "__atomic_fetch_sub_8", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_sub_16, .{ .name = "__atomic_fetch_sub_16", .linkage = linkage, .visibility = visibility });
 
-        @export(__atomic_fetch_and_1, .{ .name = "__atomic_fetch_and_1", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_and_2, .{ .name = "__atomic_fetch_and_2", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_and_4, .{ .name = "__atomic_fetch_and_4", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_and_8, .{ .name = "__atomic_fetch_and_8", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_and_16, .{ .name = "__atomic_fetch_and_16", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_and_1, .{ .name = "__atomic_fetch_and_1", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_and_2, .{ .name = "__atomic_fetch_and_2", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_and_4, .{ .name = "__atomic_fetch_and_4", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_and_8, .{ .name = "__atomic_fetch_and_8", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_and_16, .{ .name = "__atomic_fetch_and_16", .linkage = linkage, .visibility = visibility });
 
-        @export(__atomic_fetch_or_1, .{ .name = "__atomic_fetch_or_1", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_or_2, .{ .name = "__atomic_fetch_or_2", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_or_4, .{ .name = "__atomic_fetch_or_4", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_or_8, .{ .name = "__atomic_fetch_or_8", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_or_16, .{ .name = "__atomic_fetch_or_16", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_or_1, .{ .name = "__atomic_fetch_or_1", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_or_2, .{ .name = "__atomic_fetch_or_2", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_or_4, .{ .name = "__atomic_fetch_or_4", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_or_8, .{ .name = "__atomic_fetch_or_8", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_or_16, .{ .name = "__atomic_fetch_or_16", .linkage = linkage, .visibility = visibility });
 
-        @export(__atomic_fetch_xor_1, .{ .name = "__atomic_fetch_xor_1", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_xor_2, .{ .name = "__atomic_fetch_xor_2", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_xor_4, .{ .name = "__atomic_fetch_xor_4", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_xor_8, .{ .name = "__atomic_fetch_xor_8", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_xor_16, .{ .name = "__atomic_fetch_xor_16", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_xor_1, .{ .name = "__atomic_fetch_xor_1", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_xor_2, .{ .name = "__atomic_fetch_xor_2", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_xor_4, .{ .name = "__atomic_fetch_xor_4", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_xor_8, .{ .name = "__atomic_fetch_xor_8", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_xor_16, .{ .name = "__atomic_fetch_xor_16", .linkage = linkage, .visibility = visibility });
 
-        @export(__atomic_fetch_nand_1, .{ .name = "__atomic_fetch_nand_1", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_nand_2, .{ .name = "__atomic_fetch_nand_2", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_nand_4, .{ .name = "__atomic_fetch_nand_4", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_nand_8, .{ .name = "__atomic_fetch_nand_8", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_nand_16, .{ .name = "__atomic_fetch_nand_16", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_nand_1, .{ .name = "__atomic_fetch_nand_1", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_nand_2, .{ .name = "__atomic_fetch_nand_2", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_nand_4, .{ .name = "__atomic_fetch_nand_4", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_nand_8, .{ .name = "__atomic_fetch_nand_8", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_nand_16, .{ .name = "__atomic_fetch_nand_16", .linkage = linkage, .visibility = visibility });
 
-        @export(__atomic_fetch_umax_1, .{ .name = "__atomic_fetch_umax_1", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_umax_2, .{ .name = "__atomic_fetch_umax_2", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_umax_4, .{ .name = "__atomic_fetch_umax_4", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_umax_8, .{ .name = "__atomic_fetch_umax_8", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_umax_16, .{ .name = "__atomic_fetch_umax_16", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_umax_1, .{ .name = "__atomic_fetch_umax_1", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_umax_2, .{ .name = "__atomic_fetch_umax_2", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_umax_4, .{ .name = "__atomic_fetch_umax_4", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_umax_8, .{ .name = "__atomic_fetch_umax_8", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_umax_16, .{ .name = "__atomic_fetch_umax_16", .linkage = linkage, .visibility = visibility });
 
-        @export(__atomic_fetch_umin_1, .{ .name = "__atomic_fetch_umin_1", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_umin_2, .{ .name = "__atomic_fetch_umin_2", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_umin_4, .{ .name = "__atomic_fetch_umin_4", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_umin_8, .{ .name = "__atomic_fetch_umin_8", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_fetch_umin_16, .{ .name = "__atomic_fetch_umin_16", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_umin_1, .{ .name = "__atomic_fetch_umin_1", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_umin_2, .{ .name = "__atomic_fetch_umin_2", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_umin_4, .{ .name = "__atomic_fetch_umin_4", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_umin_8, .{ .name = "__atomic_fetch_umin_8", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_fetch_umin_16, .{ .name = "__atomic_fetch_umin_16", .linkage = linkage, .visibility = visibility });
 
-        @export(__atomic_load_1, .{ .name = "__atomic_load_1", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_load_2, .{ .name = "__atomic_load_2", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_load_4, .{ .name = "__atomic_load_4", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_load_8, .{ .name = "__atomic_load_8", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_load_16, .{ .name = "__atomic_load_16", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_load_1, .{ .name = "__atomic_load_1", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_load_2, .{ .name = "__atomic_load_2", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_load_4, .{ .name = "__atomic_load_4", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_load_8, .{ .name = "__atomic_load_8", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_load_16, .{ .name = "__atomic_load_16", .linkage = linkage, .visibility = visibility });
 
-        @export(__atomic_store_1, .{ .name = "__atomic_store_1", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_store_2, .{ .name = "__atomic_store_2", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_store_4, .{ .name = "__atomic_store_4", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_store_8, .{ .name = "__atomic_store_8", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_store_16, .{ .name = "__atomic_store_16", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_store_1, .{ .name = "__atomic_store_1", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_store_2, .{ .name = "__atomic_store_2", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_store_4, .{ .name = "__atomic_store_4", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_store_8, .{ .name = "__atomic_store_8", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_store_16, .{ .name = "__atomic_store_16", .linkage = linkage, .visibility = visibility });
 
-        @export(__atomic_exchange_1, .{ .name = "__atomic_exchange_1", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_exchange_2, .{ .name = "__atomic_exchange_2", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_exchange_4, .{ .name = "__atomic_exchange_4", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_exchange_8, .{ .name = "__atomic_exchange_8", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_exchange_16, .{ .name = "__atomic_exchange_16", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_exchange_1, .{ .name = "__atomic_exchange_1", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_exchange_2, .{ .name = "__atomic_exchange_2", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_exchange_4, .{ .name = "__atomic_exchange_4", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_exchange_8, .{ .name = "__atomic_exchange_8", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_exchange_16, .{ .name = "__atomic_exchange_16", .linkage = linkage, .visibility = visibility });
 
-        @export(__atomic_compare_exchange_1, .{ .name = "__atomic_compare_exchange_1", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_compare_exchange_2, .{ .name = "__atomic_compare_exchange_2", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_compare_exchange_4, .{ .name = "__atomic_compare_exchange_4", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_compare_exchange_8, .{ .name = "__atomic_compare_exchange_8", .linkage = linkage, .visibility = visibility });
-        @export(__atomic_compare_exchange_16, .{ .name = "__atomic_compare_exchange_16", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_compare_exchange_1, .{ .name = "__atomic_compare_exchange_1", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_compare_exchange_2, .{ .name = "__atomic_compare_exchange_2", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_compare_exchange_4, .{ .name = "__atomic_compare_exchange_4", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_compare_exchange_8, .{ .name = "__atomic_compare_exchange_8", .linkage = linkage, .visibility = visibility });
+        @export(&__atomic_compare_exchange_16, .{ .name = "__atomic_compare_exchange_16", .linkage = linkage, .visibility = visibility });
     }
 }

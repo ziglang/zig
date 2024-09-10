@@ -135,9 +135,9 @@ pub const Rational = struct {
     /// completely represent the provided float.
     pub fn setFloat(self: *Rational, comptime T: type, f: T) !void {
         // Translated from golang.go/src/math/big/rat.go.
-        debug.assert(@typeInfo(T) == .Float);
+        debug.assert(@typeInfo(T) == .float);
 
-        const UnsignedInt = std.meta.Int(.unsigned, @typeInfo(T).Float.bits);
+        const UnsignedInt = std.meta.Int(.unsigned, @typeInfo(T).float.bits);
         const f_bits = @as(UnsignedInt, @bitCast(f));
 
         const exponent_bits = math.floatExponentBits(T);
@@ -193,9 +193,9 @@ pub const Rational = struct {
     pub fn toFloat(self: Rational, comptime T: type) !T {
         // Translated from golang.go/src/math/big/rat.go.
         // TODO: Indicate whether the result is not exact.
-        debug.assert(@typeInfo(T) == .Float);
+        debug.assert(@typeInfo(T) == .float);
 
-        const fsize = @typeInfo(T).Float.bits;
+        const fsize = @typeInfo(T).float.bits;
         const BitReprType = std.meta.Int(.unsigned, fsize);
 
         const msize = math.floatMantissaBits(T);
@@ -473,10 +473,10 @@ pub const Rational = struct {
 };
 
 fn extractLowBits(a: Int, comptime T: type) T {
-    debug.assert(@typeInfo(T) == .Int);
+    debug.assert(@typeInfo(T) == .int);
 
-    const t_bits = @typeInfo(T).Int.bits;
-    const limb_bits = @typeInfo(Limb).Int.bits;
+    const t_bits = @typeInfo(T).int.bits;
+    const limb_bits = @typeInfo(Limb).int.bits;
     if (t_bits <= limb_bits) {
         return @as(T, @truncate(a.limbs[0]));
     } else {
@@ -594,7 +594,7 @@ test "toFloat" {
 test "set/to Float round-trip" {
     var a = try Rational.init(testing.allocator);
     defer a.deinit();
-    var prng = std.Random.DefaultPrng.init(0x5EED);
+    var prng = std.Random.DefaultPrng.init(std.testing.random_seed);
     const random = prng.random();
     var i: usize = 0;
     while (i < 512) : (i += 1) {

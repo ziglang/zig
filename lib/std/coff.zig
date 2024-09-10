@@ -542,7 +542,7 @@ pub const SectionHeader = extern struct {
 
     pub fn setAlignment(self: *SectionHeader, new_alignment: u16) void {
         assert(new_alignment > 0 and new_alignment <= 8192);
-        self.flags.ALIGN = std.math.log2(new_alignment);
+        self.flags.ALIGN = @intCast(std.math.log2(new_alignment));
     }
 
     pub fn isCode(self: SectionHeader) bool {
@@ -581,7 +581,7 @@ pub const SectionHeaderFlags = packed struct {
     /// This is valid for object files only.
     LNK_INFO: u1 = 0,
 
-    _reserverd_2: u1 = 0,
+    _reserved_2: u1 = 0,
 
     /// The section will not become part of the image.
     /// This is valid only for object files.
@@ -983,7 +983,11 @@ pub const DebugInfoDefinition = struct {
 };
 
 pub const MachineType = enum(u16) {
-    Unknown = 0x0,
+    UNKNOWN = 0x0,
+    /// Alpha AXP, 32-bit address space
+    ALPHA = 0x184,
+    /// Alpha 64, 64-bit address space
+    ALPHA64 = 0x284,
     /// Matsushita AM33
     AM33 = 0x1d3,
     /// x64
@@ -994,14 +998,26 @@ pub const MachineType = enum(u16) {
     ARM64 = 0xaa64,
     /// ARM64EC
     ARM64EC = 0xa641,
+    /// ARM64X
+    ARM64X = 0xa64e,
     /// ARM Thumb-2 little endian
     ARMNT = 0x1c4,
+    /// CEE
+    CEE = 0xc0ee,
+    /// CEF
+    CEF = 0xcef,
+    /// Hybrid PE
+    CHPE_X86 = 0x3a64,
     /// EFI byte code
     EBC = 0xebc,
     /// Intel 386 or later processors and compatible processors
     I386 = 0x14c,
     /// Intel Itanium processor family
     IA64 = 0x200,
+    /// LoongArch32
+    LOONGARCH32 = 0x6232,
+    /// LoongArch64
+    LOONGARCH64 = 0x6264,
     /// Mitsubishi M32R little endian
     M32R = 0x9041,
     /// MIPS16
@@ -1015,7 +1031,11 @@ pub const MachineType = enum(u16) {
     /// Power PC with floating point support
     POWERPCFP = 0x1f1,
     /// MIPS little endian
+    R3000 = 0x162,
+    /// MIPS little endian
     R4000 = 0x166,
+    /// MIPS little endian
+    R10000 = 0x168,
     /// RISC-V 32-bit address space
     RISCV32 = 0x5032,
     /// RISC-V 64-bit address space
@@ -1026,46 +1046,20 @@ pub const MachineType = enum(u16) {
     SH3 = 0x1a2,
     /// Hitachi SH3 DSP
     SH3DSP = 0x1a3,
+    /// SH3E little-endian
+    SH3E = 0x1a4,
     /// Hitachi SH4
     SH4 = 0x1a6,
     /// Hitachi SH5
     SH5 = 0x1a8,
     /// Thumb
-    Thumb = 0x1c2,
+    THUMB = 0x1c2,
+    /// Infineon
+    TRICORE = 0x520,
     /// MIPS little-endian WCE v2
     WCEMIPSV2 = 0x169,
 
     _,
-
-    pub fn fromTargetCpuArch(arch: std.Target.Cpu.Arch) MachineType {
-        return switch (arch) {
-            .arm => .ARM,
-            .powerpc => .POWERPC,
-            .riscv32 => .RISCV32,
-            .thumb => .Thumb,
-            .x86 => .I386,
-            .aarch64 => .ARM64,
-            .riscv64 => .RISCV64,
-            .x86_64 => .X64,
-            // there's cases we don't (yet) handle
-            else => unreachable,
-        };
-    }
-
-    pub fn toTargetCpuArch(machine_type: MachineType) ?std.Target.Cpu.Arch {
-        return switch (machine_type) {
-            .ARM => .arm,
-            .POWERPC => .powerpc,
-            .RISCV32 => .riscv32,
-            .Thumb => .thumb,
-            .I386 => .x86,
-            .ARM64 => .aarch64,
-            .RISCV64 => .riscv64,
-            .X64 => .x86_64,
-            // there's cases we don't (yet) handle
-            else => null,
-        };
-    }
 };
 
 pub const CoffError = error{

@@ -1,5 +1,5 @@
 /* Startup code compliant to the ELF s390 ABI.
-   Copyright (C) 2000-2023 Free Software Foundation, Inc.
+   Copyright (C) 2000-2024 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -60,7 +60,8 @@
 _start:
 	cfi_startproc
 	/* Mark r14 as undefined in order to stop unwinding here!  */
-	cfi_undefined (r14)
+	/* zig patch: r14 -> %r14. revert with llvm 20. */
+	cfi_undefined (%r14)
 
 	/* Check if the kernel provides highgprs facility if needed by
 	   the binary.  */

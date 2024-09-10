@@ -1,23 +1,11 @@
-//! Mutex is a synchronization primitive which enforces atomic access to a shared region of code known as the "critical section".
-//! It does this by blocking ensuring only one thread is in the critical section at any given point in time by blocking the others.
+//! Mutex is a synchronization primitive which enforces atomic access to a
+//! shared region of code known as the "critical section".
+//!
+//! It does this by blocking ensuring only one thread is in the critical
+//! section at any given point in time by blocking the others.
+//!
 //! Mutex can be statically initialized and is at most `@sizeOf(u64)` large.
 //! Use `lock()` or `tryLock()` to enter the critical section and `unlock()` to leave it.
-//!
-//! Example:
-//! ```
-//! var m = Mutex{};
-//!
-//! {
-//!     m.lock();
-//!     defer m.unlock();
-//!     // ... critical section code
-//! }
-//!
-//! if (m.tryLock()) {
-//!     defer m.unlock();
-//!     // ... critical section code
-//! }
-//! ```
 
 const std = @import("../std.zig");
 const builtin = @import("builtin");
@@ -29,6 +17,8 @@ const Thread = std.Thread;
 const Futex = Thread.Futex;
 
 impl: Impl = .{},
+
+pub const Recursive = @import("Mutex/Recursive.zig");
 
 /// Tries to acquire the mutex without blocking the caller's thread.
 /// Returns `false` if the calling thread would have to block to acquire it.
@@ -113,8 +103,8 @@ const SingleThreadedImpl = struct {
     }
 };
 
-// SRWLOCK on windows is almost always faster than Futex solution.
-// It also implements an efficient Condition with requeue support for us.
+/// SRWLOCK on windows is almost always faster than Futex solution.
+/// It also implements an efficient Condition with requeue support for us.
 const WindowsImpl = struct {
     srwlock: windows.SRWLOCK = .{},
 
@@ -133,7 +123,7 @@ const WindowsImpl = struct {
     const windows = std.os.windows;
 };
 
-// os_unfair_lock on darwin supports priority inheritance and is generally faster than Futex solutions.
+/// os_unfair_lock on darwin supports priority inheritance and is generally faster than Futex solutions.
 const DarwinImpl = struct {
     oul: c.os_unfair_lock = .{},
 
@@ -179,7 +169,7 @@ const FutexImpl = struct {
     }
 
     fn lockSlow(self: *@This()) void {
-        @setCold(true);
+        @branchHint(.cold);
 
         // Avoid doing an atomic swap below if we already know the state is contended.
         // An atomic swap unconditionally stores which marks the cache-line as modified unnecessarily.
@@ -312,3 +302,19 @@ test "many contended" {
 
     try testing.expectEqual(runner.counter.get(), num_increments * num_threads);
 }
+
+// https://github.com/ziglang/zig/issues/19295
+//test @This() {
+//    var m: Mutex = .{};
+//
+//    {
+//        m.lock();
+//        defer m.unlock();
+//        // ... critical section code
+//    }
+//
+//    if (m.tryLock()) {
+//        defer m.unlock();
+//        // ... critical section code
+//    }
+//}

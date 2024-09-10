@@ -1,3 +1,12 @@
+const Decl = @This();
+const std = @import("std");
+const Ast = std.zig.Ast;
+const Walk = @import("Walk.zig");
+const gpa = std.heap.wasm_allocator;
+const assert = std.debug.assert;
+const log = std.log;
+const Oom = error{OutOfMemory};
+
 ast_node: Ast.Node.Index,
 file: Walk.File.Index,
 /// The decl whose namespace this is in.
@@ -115,7 +124,7 @@ pub fn categorize(decl: *const Decl) Walk.Category {
 pub fn get_child(decl: *const Decl, name: []const u8) ?Decl.Index {
     switch (decl.categorize()) {
         .alias => |aliasee| return aliasee.get().get_child(name),
-        .namespace => |node| {
+        .namespace, .container => |node| {
             const file = decl.file.get();
             const scope = file.scopes.get(node) orelse return null;
             const child_node = scope.get_child(name) orelse return null;
@@ -128,7 +137,7 @@ pub fn get_child(decl: *const Decl, name: []const u8) ?Decl.Index {
 /// Looks up a decl by name accessible in `decl`'s namespace.
 pub fn lookup(decl: *const Decl, name: []const u8) ?Decl.Index {
     const namespace_node = switch (decl.categorize()) {
-        .namespace => |node| node,
+        .namespace, .container => |node| node,
         else => decl.parent.get().ast_node,
     };
     const file = decl.file.get();
@@ -215,12 +224,3 @@ pub fn find(search_string: []const u8) Decl.Index {
     }
     return current_decl_index;
 }
-
-const Decl = @This();
-const std = @import("std");
-const Ast = std.zig.Ast;
-const Walk = @import("Walk.zig");
-const gpa = std.heap.wasm_allocator;
-const assert = std.debug.assert;
-const log = std.log;
-const Oom = error{OutOfMemory};

@@ -17,7 +17,7 @@ test "pointer casting" {
 
 test "pointer child type" {
     // pointer types have a `child` field which tells you the type they point to.
-    try expect(@typeInfo(*u32).Pointer.child == u32);
+    try expect(@typeInfo(*u32).pointer.child == u32);
 }
 
 // test

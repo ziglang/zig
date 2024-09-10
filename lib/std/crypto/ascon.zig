@@ -152,7 +152,7 @@ pub fn State(comptime endian: std.builtin.Endian) type {
 
         /// Clear the entire state, disabling compiler optimizations.
         pub fn secureZero(self: *Self) void {
-            std.crypto.utils.secureZero(u64, &self.st);
+            std.crypto.secureZero(u64, &self.st);
         }
 
         /// Apply a reduced-round permutation to the state.

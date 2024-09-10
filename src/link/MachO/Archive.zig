@@ -1,21 +1,10 @@
 objects: std.ArrayListUnmanaged(Object) = .{},
 
-pub fn isArchive(path: []const u8, fat_arch: ?fat.Arch) !bool {
-    const file = try std.fs.cwd().openFile(path, .{});
-    defer file.close();
-    if (fat_arch) |arch| {
-        try file.seekTo(arch.offset);
-    }
-    const magic = file.reader().readBytesNoEof(SARMAG) catch return false;
-    if (!mem.eql(u8, &magic, ARMAG)) return false;
-    return true;
-}
-
 pub fn deinit(self: *Archive, allocator: Allocator) void {
     self.objects.deinit(allocator);
 }
 
-pub fn parse(self: *Archive, macho_file: *MachO, path: []const u8, handle_index: File.HandleIndex, fat_arch: ?fat.Arch) !void {
+pub fn unpack(self: *Archive, macho_file: *MachO, path: []const u8, handle_index: File.HandleIndex, fat_arch: ?fat.Arch) !void {
     const gpa = macho_file.base.comp.gpa;
 
     var arena = std.heap.ArenaAllocator.init(gpa);
@@ -67,9 +56,9 @@ pub fn parse(self: *Archive, macho_file: *MachO, path: []const u8, handle_index:
             mem.eql(u8, name, SYMDEF64_SORTED)) continue;
 
         const object = Object{
-            .archive = .{
+            .offset = pos,
+            .in_archive = .{
                 .path = try gpa.dupe(u8, path),
-                .offset = pos,
                 .size = hdr_size,
             },
             .path = try gpa.dupe(u8, name),
@@ -101,7 +90,7 @@ pub fn writeHeader(
         .ar_fmag = undefined,
     };
     @memset(mem.asBytes(&hdr), 0x20);
-    inline for (@typeInfo(ar_hdr).Struct.fields) |field| {
+    inline for (@typeInfo(ar_hdr).@"struct".fields) |field| {
         var stream = std.io.fixedBufferStream(&@field(hdr, field.name));
         stream.writer().print("0", .{}) catch unreachable;
     }

@@ -32,6 +32,7 @@ any_non_single_threaded: bool,
 /// per-Module setting.
 any_error_tracing: bool,
 any_sanitize_thread: bool,
+any_fuzz: bool,
 pie: bool,
 /// If this is true then linker code is responsible for making an LLVM IR
 /// Module, outputting it to an object file, and then linking that together
@@ -59,6 +60,7 @@ root_strip: bool,
 root_error_tracing: bool,
 dll_export_fns: bool,
 rdynamic: bool,
+san_cov_trace_pc_guard: bool,
 
 pub const CFrontend = enum { clang, aro };
 
@@ -82,6 +84,7 @@ pub const Options = struct {
     ensure_libcpp_on_non_freestanding: bool = false,
     any_non_single_threaded: bool = false,
     any_sanitize_thread: bool = false,
+    any_fuzz: bool = false,
     any_unwind_tables: bool = false,
     any_dyn_libs: bool = false,
     any_c_source_files: bool = false,
@@ -106,6 +109,7 @@ pub const Options = struct {
     debug_format: ?DebugFormat = null,
     dll_export_fns: ?bool = null,
     rdynamic: ?bool = null,
+    san_cov_trace_pc_guard: bool = false,
 };
 
 pub const ResolveError = error{
@@ -119,6 +123,7 @@ pub const ResolveError = error{
     ZigLacksTargetSupport,
     EmittingBinaryRequiresLlvmLibrary,
     LldIncompatibleObjectFormat,
+    LldCannotIncrementallyLink,
     LtoRequiresLld,
     SanitizeThreadRequiresLibCpp,
     LibCppRequiresLibUnwind,
@@ -255,6 +260,11 @@ pub fn resolve(options: Options) ResolveError!Config {
         if (options.lto == true) {
             if (options.use_lld == false) return error.LtoRequiresLld;
             break :b true;
+        }
+
+        if (options.use_llvm == false) {
+            if (options.use_lld == true) return error.LldCannotIncrementallyLink;
+            break :b false;
         }
 
         if (options.use_lld) |x| break :b x;
@@ -424,7 +434,7 @@ pub fn resolve(options: Options) ResolveError!Config {
     const debug_format: DebugFormat = b: {
         if (root_strip and !options.any_non_stripped) break :b .strip;
         break :b switch (target.ofmt) {
-            .elf, .macho, .wasm => .{ .dwarf = .@"32" },
+            .elf, .goff, .macho, .wasm, .xcoff => .{ .dwarf = .@"32" },
             .coff => .code_view,
             .c => switch (target.os.tag) {
                 .windows, .uefi => .code_view,
@@ -434,12 +444,8 @@ pub fn resolve(options: Options) ResolveError!Config {
         };
     };
 
-    const backend_supports_error_tracing = target_util.backendSupportsFeature(
-        target.cpu.arch,
-        target.ofmt,
-        use_llvm,
-        .error_return_trace,
-    );
+    const backend = target_util.zigBackend(target, use_llvm);
+    const backend_supports_error_tracing = target_util.backendSupportsFeature(backend, .error_return_trace);
 
     const root_error_tracing = b: {
         if (options.root_error_tracing) |x| break :b x;
@@ -484,6 +490,8 @@ pub fn resolve(options: Options) ResolveError!Config {
         .any_non_single_threaded = options.any_non_single_threaded,
         .any_error_tracing = any_error_tracing,
         .any_sanitize_thread = options.any_sanitize_thread,
+        .any_fuzz = options.any_fuzz,
+        .san_cov_trace_pc_guard = options.san_cov_trace_pc_guard,
         .root_error_tracing = root_error_tracing,
         .pie = pie,
         .lto = lto,

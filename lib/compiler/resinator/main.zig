@@ -50,12 +50,6 @@ pub fn main() !void {
         },
     };
 
-    if (zig_integration) {
-        // Send progress with a special string to indicate that the building of the
-        // resinator binary is finished and we've moved on to actually compiling the .rc file
-        try error_handler.server.serveStringMessage(.progress, "<resinator>");
-    }
-
     var options = options: {
         var cli_diagnostics = cli.Diagnostics.init(allocator);
         defer cli_diagnostics.deinit();
@@ -132,7 +126,7 @@ pub fn main() !void {
             defer aro_arena_state.deinit();
             const aro_arena = aro_arena_state.allocator();
 
-            var comp = aro.Compilation.init(aro_arena);
+            var comp = aro.Compilation.init(aro_arena, std.fs.cwd());
             defer comp.deinit();
 
             var argv = std.ArrayList([]const u8).init(comp.gpa);
@@ -427,7 +421,7 @@ fn cliDiagnosticsToErrorBundle(
     gpa: std.mem.Allocator,
     diagnostics: *cli.Diagnostics,
 ) !ErrorBundle {
-    @setCold(true);
+    @branchHint(.cold);
 
     var bundle: ErrorBundle.Wip = undefined;
     try bundle.init(gpa);
@@ -474,7 +468,7 @@ fn diagnosticsToErrorBundle(
     diagnostics: *Diagnostics,
     mappings: SourceMappings,
 ) !ErrorBundle {
-    @setCold(true);
+    @branchHint(.cold);
 
     var bundle: ErrorBundle.Wip = undefined;
     try bundle.init(gpa);
@@ -565,7 +559,7 @@ fn flushErrorMessageIntoBundle(wip: *ErrorBundle.Wip, msg: ErrorBundle.ErrorMess
 }
 
 fn errorStringToErrorBundle(allocator: std.mem.Allocator, comptime format: []const u8, args: anytype) !ErrorBundle {
-    @setCold(true);
+    @branchHint(.cold);
     var bundle: ErrorBundle.Wip = undefined;
     try bundle.init(allocator);
     errdefer bundle.deinit();
@@ -580,7 +574,7 @@ fn aroDiagnosticsToErrorBundle(
     fail_msg: []const u8,
     comp: *aro.Compilation,
 ) !ErrorBundle {
-    @setCold(true);
+    @branchHint(.cold);
 
     var bundle: ErrorBundle.Wip = undefined;
     try bundle.init(gpa);

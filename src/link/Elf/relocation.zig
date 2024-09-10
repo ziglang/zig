@@ -91,6 +91,51 @@ pub fn encode(comptime kind: Kind, cpu_arch: std.Target.Cpu.Arch) u32 {
     };
 }
 
+pub const dwarf = struct {
+    pub fn crossSectionRelocType(format: DW.Format, cpu_arch: std.Target.Cpu.Arch) u32 {
+        return switch (cpu_arch) {
+            .x86_64 => @intFromEnum(switch (format) {
+                .@"32" => elf.R_X86_64.@"32",
+                .@"64" => .@"64",
+            }),
+            .riscv64 => @intFromEnum(switch (format) {
+                .@"32" => elf.R_RISCV.@"32",
+                .@"64" => .@"64",
+            }),
+            else => @panic("TODO unhandled cpu arch"),
+        };
+    }
+
+    pub fn externalRelocType(
+        target: Symbol,
+        source_section: Dwarf.Section.Index,
+        address_size: Dwarf.AddressSize,
+        cpu_arch: std.Target.Cpu.Arch,
+    ) u32 {
+        return switch (cpu_arch) {
+            .x86_64 => @intFromEnum(@as(elf.R_X86_64, switch (source_section) {
+                else => switch (address_size) {
+                    .@"32" => if (target.flags.is_tls) .DTPOFF32 else .@"32",
+                    .@"64" => if (target.flags.is_tls) .DTPOFF64 else .@"64",
+                    else => unreachable,
+                },
+                .debug_frame => .PC32,
+            })),
+            .riscv64 => @intFromEnum(@as(elf.R_RISCV, switch (source_section) {
+                else => switch (address_size) {
+                    .@"32" => .@"32",
+                    .@"64" => .@"64",
+                    else => unreachable,
+                },
+                .debug_frame => unreachable,
+            })),
+            else => @panic("TODO unhandled cpu arch"),
+        };
+    }
+
+    const DW = std.dwarf;
+};
+
 const FormatRelocTypeCtx = struct {
     r_type: u32,
     cpu_arch: std.Target.Cpu.Arch,
@@ -112,15 +157,11 @@ fn formatRelocType(
     _ = unused_fmt_string;
     _ = options;
     const r_type = ctx.r_type;
-    switch (r_type) {
-        Elf.R_ZIG_GOT32 => try writer.writeAll("R_ZIG_GOT32"),
-        Elf.R_ZIG_GOTPCREL => try writer.writeAll("R_ZIG_GOTPCREL"),
-        else => switch (ctx.cpu_arch) {
-            .x86_64 => try writer.print("R_X86_64_{s}", .{@tagName(@as(elf.R_X86_64, @enumFromInt(r_type)))}),
-            .aarch64 => try writer.print("R_AARCH64_{s}", .{@tagName(@as(elf.R_AARCH64, @enumFromInt(r_type)))}),
-            .riscv64 => try writer.print("R_RISCV_{s}", .{@tagName(@as(elf.R_RISCV, @enumFromInt(r_type)))}),
-            else => unreachable,
-        },
+    switch (ctx.cpu_arch) {
+        .x86_64 => try writer.print("R_X86_64_{s}", .{@tagName(@as(elf.R_X86_64, @enumFromInt(r_type)))}),
+        .aarch64 => try writer.print("R_AARCH64_{s}", .{@tagName(@as(elf.R_AARCH64, @enumFromInt(r_type)))}),
+        .riscv64 => try writer.print("R_RISCV_{s}", .{@tagName(@as(elf.R_RISCV, @enumFromInt(r_type)))}),
+        else => unreachable,
     }
 }
 
@@ -128,4 +169,6 @@ const assert = std.debug.assert;
 const elf = std.elf;
 const std = @import("std");
 
+const Dwarf = @import("../Dwarf.zig");
 const Elf = @import("../Elf.zig");
+const Symbol = @import("Symbol.zig");

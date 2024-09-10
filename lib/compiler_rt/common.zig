@@ -22,7 +22,9 @@ pub const want_aeabi = switch (builtin.abi) {
     },
     else => false,
 };
-pub const want_ppc_abi = builtin.cpu.arch.isPPC() or builtin.cpu.arch.isPPC64();
+pub const want_ppc_abi = builtin.cpu.arch.isPowerPC();
+
+pub const want_float_exceptions = !builtin.cpu.arch.isWasm();
 
 // Libcalls that involve u128 on Windows x86-64 are expected by LLVM to use the
 // calling convention of @Vector(2, u64), rather than what's standard.
@@ -70,7 +72,7 @@ pub const want_sparc_abi = builtin.cpu.arch.isSPARC();
 pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, _: ?usize) noreturn {
     _ = error_return_trace;
     if (builtin.is_test) {
-        @setCold(true);
+        @branchHint(.cold);
         std.debug.panic("{s}", .{msg});
     } else {
         unreachable;
@@ -90,7 +92,7 @@ pub fn F16T(comptime OtherType: type) type {
             }
         else
             u16,
-        .aarch64, .aarch64_be, .aarch64_32 => f16,
+        .aarch64, .aarch64_be => f16,
         .riscv64 => if (builtin.zig_backend == .stage1) u16 else f16,
         .x86, .x86_64 => if (builtin.target.isDarwin()) switch (OtherType) {
             // Starting with LLVM 16, Darwin uses different abi for f16
@@ -217,8 +219,8 @@ pub fn wideMultiply(comptime Z: type, a: Z, b: Z, hi: *Z, lo: *Z) void {
     }
 }
 
-pub fn normalize(comptime T: type, significand: *std.meta.Int(.unsigned, @typeInfo(T).Float.bits)) i32 {
-    const Z = std.meta.Int(.unsigned, @typeInfo(T).Float.bits);
+pub fn normalize(comptime T: type, significand: *std.meta.Int(.unsigned, @typeInfo(T).float.bits)) i32 {
+    const Z = std.meta.Int(.unsigned, @typeInfo(T).float.bits);
     const integerBit = @as(Z, 1) << std.math.floatFractionalBits(T);
 
     const shift = @clz(significand.*) - @clz(integerBit);
@@ -228,8 +230,8 @@ pub fn normalize(comptime T: type, significand: *std.meta.Int(.unsigned, @typeIn
 
 pub inline fn fneg(a: anytype) @TypeOf(a) {
     const F = @TypeOf(a);
-    const bits = @typeInfo(F).Float.bits;
-    const U = @Type(.{ .Int = .{
+    const bits = @typeInfo(F).float.bits;
+    const U = @Type(.{ .int = .{
         .signedness = .unsigned,
         .bits = bits,
     } });
@@ -242,7 +244,7 @@ pub inline fn fneg(a: anytype) @TypeOf(a) {
 /// signed or unsigned integers.
 pub fn HalveInt(comptime T: type, comptime signed_half: bool) type {
     return extern union {
-        pub const bits = @divExact(@typeInfo(T).Int.bits, 2);
+        pub const bits = @divExact(@typeInfo(T).int.bits, 2);
         pub const HalfTU = std.meta.Int(.unsigned, bits);
         pub const HalfTS = std.meta.Int(.signed, bits);
         pub const HalfT = if (signed_half) HalfTS else HalfTU;

@@ -231,7 +231,7 @@ pub fn PackedIntArrayEndian(comptime Int: type, comptime endian: Endian, comptim
             return Io.get(&self.bytes, index, 0);
         }
 
-        ///Copy the value of `int` into the array at `index`.
+        /// Copy the value of `int` into the array at `index`.
         pub fn set(self: *Self, index: usize, int: Int) void {
             debug.assert(index < int_count);
             return Io.set(&self.bytes, index, 0, int);

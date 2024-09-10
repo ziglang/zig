@@ -4,8 +4,8 @@ const builtin = @import("builtin");
 
 comptime {
     if (builtin.object_format != .c) {
-        @export(memset, .{ .name = "memset", .linkage = common.linkage, .visibility = common.visibility });
-        @export(__memset, .{ .name = "__memset", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&memset, .{ .name = "memset", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__memset, .{ .name = "__memset", .linkage = common.linkage, .visibility = common.visibility });
     }
 }
 

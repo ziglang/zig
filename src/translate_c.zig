@@ -161,7 +161,7 @@ pub fn translate(
         context.pattern_list.deinit(gpa);
     }
 
-    inline for (@typeInfo(std.zig.c_builtins).Struct.decls) |decl| {
+    inline for (@typeInfo(std.zig.c_builtins).@"struct".decls) |decl| {
         const builtin = try Tag.pub_var_simple.create(arena, .{
             .name = decl.name,
             .init = try Tag.import_c_builtin.create(arena, decl.name),
@@ -177,7 +177,6 @@ pub fn translate(
 
     try transPreprocessorEntities(&context, ast_unit);
 
-    try addMacros(&context);
     for (context.alias_list.items) |alias| {
         const node = try Tag.alias.create(arena, .{ .actual = alias.alias, .mangled = alias.name });
         try addTopLevelDecl(&context, alias.alias, node);
@@ -1325,7 +1324,7 @@ fn makeShuffleMask(c: *Context, scope: *Scope, expr: *const clang.ShuffleVectorE
 fn vectorTypeInfo(arena: mem.Allocator, vec_node: Node, field: []const u8) TransError!Node {
     const typeof_call = try Tag.typeof.create(arena, vec_node);
     const typeinfo_call = try Tag.typeinfo.create(arena, typeof_call);
-    const vector_type_info = try Tag.field_access.create(arena, .{ .lhs = typeinfo_call, .field_name = "Vector" });
+    const vector_type_info = try Tag.field_access.create(arena, .{ .lhs = typeinfo_call, .field_name = "vector" });
     return Tag.field_access.create(arena, .{ .lhs = vector_type_info, .field_name = field });
 }
 
@@ -1597,6 +1596,11 @@ fn transBinaryOperator(
         // @divExact(@bitCast(<platform-ptrdiff_t>, @intFromPtr(lhs) -% @intFromPtr(rhs)), @sizeOf(<lhs target type>))
         const ptrdiff_type = try transQualTypeIntWidthOf(c, qt, true);
 
+        const bitcast = try Tag.as.create(c.arena, .{
+            .lhs = ptrdiff_type,
+            .rhs = try Tag.bit_cast.create(c.arena, infixOpNode),
+        });
+
         // C standard requires that pointer subtraction operands are of the same type,
         // otherwise it is undefined behavior. So we can assume the left and right
         // sides are the same QualType and arbitrarily choose left.
@@ -1604,18 +1608,19 @@ fn transBinaryOperator(
         const lhs_qt = getExprQualType(c, lhs_expr);
         const lhs_qt_translated = try transQualType(c, scope, lhs_qt, lhs_expr.getBeginLoc());
         const c_pointer = getContainer(c, lhs_qt_translated).?;
-        const elem_type = c_pointer.castTag(.c_pointer).?.data.elem_type;
-        const sizeof = try Tag.sizeof.create(c.arena, elem_type);
 
-        const bitcast = try Tag.as.create(c.arena, .{
-            .lhs = ptrdiff_type,
-            .rhs = try Tag.bit_cast.create(c.arena, infixOpNode),
-        });
-
-        return Tag.div_exact.create(c.arena, .{
-            .lhs = bitcast,
-            .rhs = sizeof,
-        });
+        if (c_pointer.castTag(.c_pointer)) |c_pointer_payload| {
+            const sizeof = try Tag.sizeof.create(c.arena, c_pointer_payload.data.elem_type);
+            return Tag.div_exact.create(c.arena, .{
+                .lhs = bitcast,
+                .rhs = sizeof,
+            });
+        } else {
+            // This is an opaque/incomplete type. This subtraction exhibits Undefined Behavior by the C99 spec.
+            // However, allowing subtraction on `void *` and function pointers is a commonly used extension.
+            // So, just return the value in byte units, mirroring the behavior of this language extension as implemented by GCC and Clang.
+            return bitcast;
+        }
     }
     return infixOpNode;
 }
@@ -1735,6 +1740,48 @@ const ClangAlignment = struct {
     }
 };
 
+/// Translate an "extern" variable that's been declared within a scoped block.
+/// Similar to static local variables, this will be wrapped in a struct to work with Zig's syntax requirements.
+///
+/// Assumptions made:
+///     - No need to mangle the actual NamedDecl, as by definition this MUST be the same name as the external symbol it's referencing
+///     - It's not valid C to have an initializer with this type of declaration, so we can safely operate assuming no initializer
+///     - No need to look for any cleanup attributes with getCleanupAttribute(), not relevant for this type of decl
+fn transLocalExternStmt(c: *Context, scope: *Scope, var_decl: *const clang.VarDecl, block_scope: *Scope.Block) TransError!void {
+    const extern_var_name = try c.str(@as(*const clang.NamedDecl, @ptrCast(var_decl)).getName_bytes_begin());
+
+    // Special naming convention for local extern variable wrapper struct
+    const name = try std.fmt.allocPrint(c.arena, "{s}_{s}", .{ Scope.Block.extern_inner_prepend, extern_var_name });
+
+    // On the off chance there's already a variable in scope named "ExternLocal_[extern_var_name]"
+    const mangled_name = try block_scope.makeMangledName(c, name);
+
+    const qual_type = var_decl.getTypeSourceInfo_getType();
+    const is_const = qual_type.isConstQualified();
+    const loc = var_decl.getLocation();
+    const type_node = try transQualType(c, scope, qual_type, loc);
+
+    // Inner Node for the extern variable declaration
+    var node = try Tag.var_decl.create(c.arena, .{
+        .is_pub = false,
+        .is_const = is_const,
+        .is_extern = true,
+        .is_export = false,
+        .is_threadlocal = var_decl.getTLSKind() != .None, // TODO: Neccessary?
+        .linksection_string = null, // TODO: Neccessary?
+        .alignment = ClangAlignment.forVar(c, var_decl).zigAlignment(),
+        .name = extern_var_name,
+        .type = type_node,
+        .init = null,
+    });
+
+    // Outer Node for the wrapper struct
+    node = try Tag.extern_local_var.create(c.arena, .{ .name = mangled_name, .init = node });
+
+    try block_scope.statements.append(node);
+    try block_scope.discardVariable(c, mangled_name);
+}
+
 fn transDeclStmtOne(
     c: *Context,
     scope: *Scope,
@@ -1744,6 +1791,13 @@ fn transDeclStmtOne(
     switch (decl.getKind()) {
         .Var => {
             const var_decl = @as(*const clang.VarDecl, @ptrCast(decl));
+
+            // Translation behavior for a block scope declared "extern" variable
+            // is enough of an outlier that it needs it's own function
+            if (var_decl.getStorageClass() == .Extern) {
+                return transLocalExternStmt(c, scope, var_decl, block_scope);
+            }
+
             const decl_init = var_decl.getInit();
             const loc = decl.getLocation();
 
@@ -1751,11 +1805,7 @@ fn transDeclStmtOne(
             const name = try c.str(@as(*const clang.NamedDecl, @ptrCast(var_decl)).getName_bytes_begin());
             const mangled_name = try block_scope.makeMangledName(c, name);
 
-            if (var_decl.getStorageClass() == .Extern) {
-                // This is actually a global variable, put it in the global scope and reference it.
-                // `_ = mangled_name;`
-                return visitVarDecl(c, var_decl, mangled_name);
-            } else if (qualTypeWasDemotedToOpaque(c, qual_type)) {
+            if (qualTypeWasDemotedToOpaque(c, qual_type)) {
                 return fail(c, error.UnsupportedTranslation, loc, "local variable has opaque type", .{});
             }
 
@@ -1852,17 +1902,36 @@ fn transDeclRefExpr(
     const value_decl = expr.getDecl();
     const name = try c.str(@as(*const clang.NamedDecl, @ptrCast(value_decl)).getName_bytes_begin());
     const mangled_name = scope.getAlias(name);
-    var ref_expr = if (cIsFunctionDeclRef(@as(*const clang.Expr, @ptrCast(expr))))
-        try Tag.fn_identifier.create(c.arena, mangled_name)
-    else
-        try Tag.identifier.create(c.arena, mangled_name);
+    const decl_is_var = @as(*const clang.Decl, @ptrCast(value_decl)).getKind() == .Var;
+    const potential_local_extern = if (decl_is_var) ((@as(*const clang.VarDecl, @ptrCast(value_decl)).getStorageClass() == .Extern) and (scope.id != .root)) else false;
 
-    if (@as(*const clang.Decl, @ptrCast(value_decl)).getKind() == .Var) {
+    var confirmed_local_extern = false;
+    var ref_expr = val: {
+        if (cIsFunctionDeclRef(@as(*const clang.Expr, @ptrCast(expr)))) {
+            break :val try Tag.fn_identifier.create(c.arena, mangled_name);
+        } else if (potential_local_extern) {
+            if (scope.getLocalExternAlias(name)) |v| {
+                confirmed_local_extern = true;
+                break :val try Tag.identifier.create(c.arena, v);
+            } else {
+                break :val try Tag.identifier.create(c.arena, mangled_name);
+            }
+        } else {
+            break :val try Tag.identifier.create(c.arena, mangled_name);
+        }
+    };
+
+    if (decl_is_var) {
         const var_decl = @as(*const clang.VarDecl, @ptrCast(value_decl));
         if (var_decl.isStaticLocal()) {
             ref_expr = try Tag.field_access.create(c.arena, .{
                 .lhs = ref_expr,
                 .field_name = Scope.Block.static_inner_name,
+            });
+        } else if (confirmed_local_extern) {
+            ref_expr = try Tag.field_access.create(c.arena, .{
+                .lhs = ref_expr,
+                .field_name = name, // by necessity, name will always == mangled_name
             });
         }
     }
@@ -1939,7 +2008,7 @@ fn transImplicitCastExpr(
 }
 
 fn isBuiltinDefined(name: []const u8) bool {
-    inline for (@typeInfo(std.zig.c_builtins).Struct.decls) |decl| {
+    inline for (@typeInfo(std.zig.c_builtins).@"struct".decls) |decl| {
         if (std.mem.eql(u8, name, decl.name)) return true;
     }
     return false;
@@ -3825,8 +3894,9 @@ fn transCreateCompoundAssign(
     const lhs_qt = getExprQualType(c, lhs);
     const rhs_qt = getExprQualType(c, rhs);
     const is_signed = cIsSignedInteger(lhs_qt);
+    const is_ptr_arithmetic = qualTypeIsPtr(lhs_qt) and cIsInteger(rhs_qt);
     const is_ptr_op_signed = qualTypeIsPtr(lhs_qt) and cIsSignedInteger(rhs_qt);
-    const requires_cast = !lhs_qt.eq(rhs_qt) and !is_ptr_op_signed;
+    const requires_cast = !lhs_qt.eq(rhs_qt) and !is_ptr_arithmetic;
 
     if (used == .unused) {
         // common case
@@ -4585,7 +4655,7 @@ fn transCreateNodeAPInt(c: *Context, int: *const clang.APSInt) !Node {
 
 fn transCreateNodeNumber(c: *Context, num: anytype, num_kind: enum { int, float }) !Node {
     const fmt_s = switch (@typeInfo(@TypeOf(num))) {
-        .Int, .ComptimeInt => "{d}",
+        .int, .comptime_int => "{d}",
         else => "{s}",
     };
     const str = try std.fmt.allocPrint(c.arena, fmt_s, .{num});
@@ -5105,6 +5175,7 @@ const MacroCtx = struct {
     i: usize = 0,
     loc: clang.SourceLocation,
     name: []const u8,
+    refs_var_decl: bool = false,
 
     fn peek(self: *MacroCtx) ?CToken.Id {
         if (self.i >= self.list.len) return null;
@@ -5187,7 +5258,7 @@ fn getMacroText(unit: *const clang.ASTUnit, c: *const Context, macro: *const cla
     const end_c = c.source_manager.getCharacterData(end_loc);
     const slice_len = @intFromPtr(end_c) - @intFromPtr(begin_c);
 
-    var comp = aro.Compilation.init(c.gpa);
+    var comp = aro.Compilation.init(c.gpa, std.fs.cwd());
     defer comp.deinit();
     const result = comp.addSourceFromBuffer("", begin_c[0..slice_len]) catch return error.OutOfMemory;
 
@@ -5244,7 +5315,7 @@ fn transPreprocessorEntities(c: *Context, unit: *clang.ASTUnit) Error!void {
                         // We define it as an empty string so that it can still be used with ++
                         const str_node = try Tag.string_literal.create(c.arena, "\"\"");
                         const var_decl = try Tag.pub_var_simple.create(c.arena, .{ .name = name, .init = str_node });
-                        try c.global_scope.macro_table.put(name, var_decl);
+                        try addTopLevelDecl(c, name, var_decl);
                         try c.global_scope.blank_macros.put(name, {});
                         continue;
                     },
@@ -5291,7 +5362,7 @@ fn transMacroDefine(c: *Context, m: *MacroCtx) ParseError!void {
                 try c.global_scope.blank_macros.put(m.name, {});
                 const init_node = try Tag.string_literal.create(c.arena, "\"\"");
                 const var_decl = try Tag.pub_var_simple.create(c.arena, .{ .name = m.name, .init = init_node });
-                try c.global_scope.macro_table.put(m.name, var_decl);
+                try addTopLevelDecl(c, m.name, var_decl);
                 return;
             },
             else => {},
@@ -5304,8 +5375,32 @@ fn transMacroDefine(c: *Context, m: *MacroCtx) ParseError!void {
     if (last != .eof and last != .nl)
         return m.fail(c, "unable to translate C expr: unexpected token '{s}'", .{last.symbol()});
 
-    const var_decl = try Tag.pub_var_simple.create(c.arena, .{ .name = m.name, .init = init_node });
-    try c.global_scope.macro_table.put(m.name, var_decl);
+    const node = node: {
+        const var_decl = try Tag.pub_var_simple.create(c.arena, .{ .name = m.name, .init = init_node });
+
+        if (getFnProto(c, var_decl)) |proto_node| {
+            // If a macro aliases a global variable which is a function pointer, we conclude that
+            // the macro is intended to represent a function that assumes the function pointer
+            // variable is non-null and calls it.
+            break :node try transCreateNodeMacroFn(c, m.name, var_decl, proto_node);
+        } else if (m.refs_var_decl) {
+            const return_type = try Tag.typeof.create(c.arena, init_node);
+            const return_expr = try Tag.@"return".create(c.arena, init_node);
+            const block = try Tag.block_single.create(c.arena, return_expr);
+            try warn(c, scope, m.loc, "macro '{s}' contains a runtime value, translated to function", .{m.name});
+
+            break :node try Tag.pub_inline_fn.create(c.arena, .{
+                .name = m.name,
+                .params = &.{},
+                .return_type = return_type,
+                .body = block,
+            });
+        }
+
+        break :node var_decl;
+    };
+
+    try addTopLevelDecl(c, m.name, node);
 }
 
 fn transMacroFnDefine(c: *Context, m: *MacroCtx) ParseError!void {
@@ -5315,7 +5410,7 @@ fn transMacroFnDefine(c: *Context, m: *MacroCtx) ParseError!void {
             .name = m.name,
             .init = try Tag.helpers_macro.create(c.arena, pattern.impl),
         });
-        try c.global_scope.macro_table.put(m.name, decl);
+        try addTopLevelDecl(c, m.name, decl);
         return;
     }
 
@@ -5380,7 +5475,7 @@ fn transMacroFnDefine(c: *Context, m: *MacroCtx) ParseError!void {
         .return_type = return_type,
         .body = try block_scope.complete(c),
     });
-    try c.global_scope.macro_table.put(m.name, fn_decl);
+    try addTopLevelDecl(c, m.name, fn_decl);
 }
 
 const ParseError = Error || error{ParseError};
@@ -5768,6 +5863,11 @@ fn parseCPrimaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
             if (builtin_typedef_map.get(mangled_name)) |ty| return Tag.type.create(c.arena, ty);
             const identifier = try Tag.identifier.create(c.arena, mangled_name);
             scope.skipVariableDiscard(identifier.castTag(.identifier).?.data);
+            refs_var: {
+                const ident_node = c.global_scope.sym_table.get(slice) orelse break :refs_var;
+                const var_decl_node = ident_node.castTag(.var_decl) orelse break :refs_var;
+                if (!var_decl_node.data.is_const) m.refs_var_decl = true;
+            }
             return identifier;
         },
         .l_paren => {
@@ -6495,18 +6595,4 @@ fn getFnProto(c: *Context, ref: Node) ?*ast.Payload.Func {
         }
     }
     return null;
-}
-
-fn addMacros(c: *Context) !void {
-    var it = c.global_scope.macro_table.iterator();
-    while (it.next()) |entry| {
-        if (getFnProto(c, entry.value_ptr.*)) |proto_node| {
-            // If a macro aliases a global variable which is a function pointer, we conclude that
-            // the macro is intended to represent a function that assumes the function pointer
-            // variable is non-null and calls it.
-            try addTopLevelDecl(c, entry.key_ptr.*, try transCreateNodeMacroFn(c, entry.key_ptr.*, entry.value_ptr.*, proto_node));
-        } else {
-            try addTopLevelDecl(c, entry.key_ptr.*, entry.value_ptr.*);
-        }
-    }
 }

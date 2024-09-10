@@ -203,7 +203,7 @@ fn partitionEqual(a: usize, b: usize, pivot: usize, context: anytype) usize {
 ///
 /// returns `true` if the slice is sorted at the end. This function is `O(n)` worst-case.
 fn partialInsertionSort(a: usize, b: usize, context: anytype) bool {
-    @setCold(true);
+    @branchHint(.cold);
 
     // maximum number of adjacent out-of-order pairs that will get shifted
     const max_steps = 5;
@@ -247,7 +247,7 @@ fn partialInsertionSort(a: usize, b: usize, context: anytype) bool {
 }
 
 fn breakPatterns(a: usize, b: usize, context: anytype) void {
-    @setCold(true);
+    @branchHint(.cold);
 
     const len = b - a;
     if (len < 8) return;
@@ -268,7 +268,7 @@ fn breakPatterns(a: usize, b: usize, context: anytype) void {
     }
 }
 
-/// choses a pivot in `items[a..b]`.
+/// chooses a pivot in `items[a..b]`.
 /// swaps likely_sorted when `items[a..b]` seems to be already sorted.
 fn chosePivot(a: usize, b: usize, pivot: *usize, context: anytype) Hint {
     // minimum length for using the Tukey's ninther method

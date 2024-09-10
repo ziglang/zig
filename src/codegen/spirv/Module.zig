@@ -8,7 +8,6 @@
 const Module = @This();
 
 const std = @import("std");
-const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 
@@ -150,11 +149,18 @@ strings: std.StringArrayHashMapUnmanaged(IdRef) = .{},
 /// this is an ad-hoc structure to cache types where required.
 /// According to the SPIR-V specification, section 2.8, this includes all non-aggregate
 /// non-pointer types.
+/// Additionally, this is used for other values which can be cached, for example,
+/// built-in variables.
 cache: struct {
     bool_type: ?IdRef = null,
     void_type: ?IdRef = null,
     int_types: std.AutoHashMapUnmanaged(std.builtin.Type.Int, IdRef) = .{},
     float_types: std.AutoHashMapUnmanaged(std.builtin.Type.Float, IdRef) = .{},
+    // This cache is required so that @Vector(X, u1) in direct representation has the
+    // same ID as @Vector(X, bool) in indirect representation.
+    vector_types: std.AutoHashMapUnmanaged(struct { IdRef, u32 }, IdRef) = .{},
+
+    builtins: std.AutoHashMapUnmanaged(struct { IdRef, spec.BuiltIn }, Decl.Index) = .{},
 } = .{},
 
 /// Set of Decls, referred to by Decl.Index.
@@ -194,6 +200,8 @@ pub fn deinit(self: *Module) void {
 
     self.cache.int_types.deinit(self.gpa);
     self.cache.float_types.deinit(self.gpa);
+    self.cache.vector_types.deinit(self.gpa);
+    self.cache.builtins.deinit(self.gpa);
 
     self.decls.deinit(self.gpa);
     self.decl_deps.deinit(self.gpa);
@@ -474,13 +482,36 @@ pub fn floatType(self: *Module, bits: u16) !IdRef {
 }
 
 pub fn vectorType(self: *Module, len: u32, child_id: IdRef) !IdRef {
-    const result_id = self.allocId();
-    try self.sections.types_globals_constants.emit(self.gpa, .OpTypeVector, .{
-        .id_result = result_id,
-        .component_type = child_id,
-        .component_count = len,
-    });
-    return result_id;
+    const entry = try self.cache.vector_types.getOrPut(self.gpa, .{ child_id, len });
+    if (!entry.found_existing) {
+        const result_id = self.allocId();
+        entry.value_ptr.* = result_id;
+        try self.sections.types_globals_constants.emit(self.gpa, .OpTypeVector, .{
+            .id_result = result_id,
+            .component_type = child_id,
+            .component_count = len,
+        });
+    }
+    return entry.value_ptr.*;
+}
+
+/// Return a pointer to a builtin variable. `result_ty_id` must be a **pointer**
+/// with storage class `.Input`.
+pub fn builtin(self: *Module, result_ty_id: IdRef, spirv_builtin: spec.BuiltIn) !Decl.Index {
+    const entry = try self.cache.builtins.getOrPut(self.gpa, .{ result_ty_id, spirv_builtin });
+    if (!entry.found_existing) {
+        const decl_index = try self.allocDecl(.global);
+        const result_id = self.declPtr(decl_index).result_id;
+        entry.value_ptr.* = decl_index;
+        try self.sections.types_globals_constants.emit(self.gpa, .OpVariable, .{
+            .id_result_type = result_ty_id,
+            .id_result = result_id,
+            .storage_class = .Input,
+        });
+        try self.decorate(result_id, .{ .BuiltIn = .{ .built_in = spirv_builtin } });
+        try self.declareDeclDeps(decl_index, &.{});
+    }
+    return entry.value_ptr.*;
 }
 
 pub fn constUndef(self: *Module, ty_id: IdRef) !IdRef {

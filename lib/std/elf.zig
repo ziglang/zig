@@ -84,7 +84,10 @@ pub const DT_ENCODING = 32;
 pub const DT_PREINIT_ARRAY = 32;
 pub const DT_PREINIT_ARRAYSZ = 33;
 pub const DT_SYMTAB_SHNDX = 34;
-pub const DT_NUM = 35;
+pub const DT_RELRSZ = 35;
+pub const DT_RELR = 36;
+pub const DT_RELRENT = 37;
+pub const DT_NUM = 38;
 pub const DT_LOOS = 0x6000000d;
 pub const DT_HIOS = 0x6ffff000;
 pub const DT_LOPROC = 0x70000000;
@@ -859,6 +862,8 @@ pub const Elf64_Rela = extern struct {
         return @truncate(self.r_info);
     }
 };
+pub const Elf32_Relr = Elf32_Word;
+pub const Elf64_Relr = Elf64_Xword;
 pub const Elf32_Dyn = extern struct {
     d_tag: Elf32_Sword,
     d_val: Elf32_Addr,
@@ -1052,6 +1057,11 @@ pub const Rela = switch (@sizeOf(usize)) {
     8 => Elf64_Rela,
     else => @compileError("expected pointer size of 32 or 64"),
 };
+pub const Relr = switch (@sizeOf(usize)) {
+    4 => Elf32_Relr,
+    8 => Elf64_Relr,
+    else => @compileError("expected pointer size of 32 or 64"),
+};
 pub const Shdr = switch (@sizeOf(usize)) {
     4 => Elf32_Shdr,
     8 => Elf64_Shdr,
@@ -1082,11 +1092,7 @@ pub const Addr = switch (@sizeOf(usize)) {
     8 => Elf64_Addr,
     else => @compileError("expected pointer size of 32 or 64"),
 };
-pub const Half = switch (@sizeOf(usize)) {
-    4 => Elf32_Half,
-    8 => Elf64_Half,
-    else => @compileError("expected pointer size of 32 or 64"),
-};
+pub const Half = u16;
 
 /// Machine architectures.
 ///
@@ -1095,575 +1101,458 @@ pub const Half = switch (@sizeOf(usize)) {
 pub const EM = enum(u16) {
     /// No machine
     NONE = 0,
-
     /// AT&T WE 32100
     M32 = 1,
-
-    /// SPARC
+    /// SUN SPARC
     SPARC = 2,
-
-    /// Intel 386
+    /// Intel 80386
     @"386" = 3,
-
-    /// Motorola 68000
+    /// Motorola m68k family
     @"68K" = 4,
-
-    /// Motorola 88000
+    /// Motorola m88k family
     @"88K" = 5,
-
     /// Intel MCU
     IAMCU = 6,
-
     /// Intel 80860
     @"860" = 7,
-
-    /// MIPS R3000
+    /// MIPS R3000 (officially, big-endian only)
     MIPS = 8,
-
     /// IBM System/370
     S370 = 9,
-
-    /// MIPS RS3000 Little-endian
+    /// MIPS R3000 (and R4000) little-endian, Oct 4 1993 Draft (deprecated)
     MIPS_RS3_LE = 10,
-
+    /// Old version of Sparc v9, from before the ABI (deprecated)
+    OLD_SPARCV9 = 11,
     /// SPU Mark II
     SPU_2 = 13,
-
-    /// Hewlett-Packard PA-RISC
+    /// HPPA
     PARISC = 15,
-
-    /// Fujitsu VPP500
+    /// Fujitsu VPP500 (also old version of PowerPC; deprecated)
     VPP500 = 17,
-
-    /// Enhanced instruction set SPARC
+    /// Sun's "v8plus"
     SPARC32PLUS = 18,
-
     /// Intel 80960
     @"960" = 19,
-
     /// PowerPC
     PPC = 20,
-
-    /// PowerPC64
+    /// 64-bit PowerPC
     PPC64 = 21,
-
-    /// IBM System/390
+    /// IBM S/390
     S390 = 22,
-
-    /// IBM SPU/SPC
+    /// Sony/Toshiba/IBM SPU
     SPU = 23,
-
-    /// NEC V800
+    /// NEC V800 series
     V800 = 36,
-
     /// Fujitsu FR20
     FR20 = 37,
-
-    /// TRW RH-32
+    /// TRW RH32
     RH32 = 38,
-
-    /// Motorola RCE
-    RCE = 39,
-
+    /// Motorola M*Core, aka RCE (also Fujitsu MMA)
+    MCORE = 39,
     /// ARM
     ARM = 40,
-
-    /// DEC Alpha
-    ALPHA = 41,
-
-    /// Hitachi SH
+    /// Digital Alpha
+    OLD_ALPHA = 41,
+    /// Renesas (formerly Hitachi) / SuperH SH
     SH = 42,
-
-    /// SPARC V9
+    /// SPARC v9 64-bit
     SPARCV9 = 43,
-
-    /// Siemens TriCore
+    /// Siemens Tricore embedded processor
     TRICORE = 44,
-
-    /// Argonaut RISC Core
+    /// ARC Cores
     ARC = 45,
-
-    /// Hitachi H8/300
+    /// Renesas (formerly Hitachi) H8/300
     H8_300 = 46,
-
-    /// Hitachi H8/300H
+    /// Renesas (formerly Hitachi) H8/300H
     H8_300H = 47,
-
-    /// Hitachi H8S
+    /// Renesas (formerly Hitachi) H8S
     H8S = 48,
-
-    /// Hitachi H8/500
+    /// Renesas (formerly Hitachi) H8/500
     H8_500 = 49,
-
-    /// Intel IA-64 processor architecture
+    /// Intel IA-64 Processor
     IA_64 = 50,
-
     /// Stanford MIPS-X
     MIPS_X = 51,
-
-    /// Motorola ColdFire
+    /// Motorola Coldfire
     COLDFIRE = 52,
-
     /// Motorola M68HC12
     @"68HC12" = 53,
-
-    /// Fujitsu MMA Multimedia Accelerator
+    /// Fujitsu Multimedia Accelerator
     MMA = 54,
-
     /// Siemens PCP
     PCP = 55,
-
     /// Sony nCPU embedded RISC processor
     NCPU = 56,
-
     /// Denso NDR1 microprocessor
     NDR1 = 57,
-
     /// Motorola Star*Core processor
     STARCORE = 58,
-
     /// Toyota ME16 processor
     ME16 = 59,
-
     /// STMicroelectronics ST100 processor
     ST100 = 60,
-
-    /// Advanced Logic Corp. TinyJ embedded processor family
+    /// Advanced Logic Corp. TinyJ embedded processor
     TINYJ = 61,
-
-    /// AMD x86-64 architecture
+    /// Advanced Micro Devices X86-64 processor
     X86_64 = 62,
-
     /// Sony DSP Processor
     PDSP = 63,
-
     /// Digital Equipment Corp. PDP-10
     PDP10 = 64,
-
     /// Digital Equipment Corp. PDP-11
     PDP11 = 65,
-
     /// Siemens FX66 microcontroller
     FX66 = 66,
-
     /// STMicroelectronics ST9+ 8/16 bit microcontroller
     ST9PLUS = 67,
-
     /// STMicroelectronics ST7 8-bit microcontroller
     ST7 = 68,
-
     /// Motorola MC68HC16 Microcontroller
     @"68HC16" = 69,
-
     /// Motorola MC68HC11 Microcontroller
     @"68HC11" = 70,
-
     /// Motorola MC68HC08 Microcontroller
     @"68HC08" = 71,
-
     /// Motorola MC68HC05 Microcontroller
     @"68HC05" = 72,
-
     /// Silicon Graphics SVx
     SVX = 73,
-
-    /// STMicroelectronics ST19 8-bit microcontroller
+    /// STMicroelectronics ST19 8-bit cpu
     ST19 = 74,
-
     /// Digital VAX
     VAX = 75,
-
     /// Axis Communications 32-bit embedded processor
     CRIS = 76,
-
-    /// Infineon Technologies 32-bit embedded processor
+    /// Infineon Technologies 32-bit embedded cpu
     JAVELIN = 77,
-
-    /// Element 14 64-bit DSP Processor
+    /// Element 14 64-bit DSP processor
     FIREPATH = 78,
-
-    /// LSI Logic 16-bit DSP Processor
+    /// LSI Logic's 16-bit DSP processor
     ZSP = 79,
-
     /// Donald Knuth's educational 64-bit processor
     MMIX = 80,
-
-    /// Harvard University machine-independent object files
+    /// Harvard's machine-independent format
     HUANY = 81,
-
     /// SiTera Prism
     PRISM = 82,
-
     /// Atmel AVR 8-bit microcontroller
     AVR = 83,
-
     /// Fujitsu FR30
     FR30 = 84,
-
     /// Mitsubishi D10V
     D10V = 85,
-
     /// Mitsubishi D30V
     D30V = 86,
-
-    /// NEC v850
+    /// Renesas V850 (formerly NEC V850)
     V850 = 87,
-
-    /// Mitsubishi M32R
+    /// Renesas M32R (formerly Mitsubishi M32R)
     M32R = 88,
-
     /// Matsushita MN10300
     MN10300 = 89,
-
     /// Matsushita MN10200
     MN10200 = 90,
-
     /// picoJava
     PJ = 91,
-
-    /// OpenRISC 32-bit embedded processor
-    OPENRISC = 92,
-
-    /// ARC International ARCompact processor (old spelling/synonym: EM_ARC_A5)
+    /// OpenRISC 1000 32-bit embedded processor
+    OR1K = 92,
+    /// ARC International ARCompact processor
     ARC_COMPACT = 93,
-
     /// Tensilica Xtensa Architecture
     XTENSA = 94,
-
-    /// Alphamosaic VideoCore processor
+    /// Alphamosaic VideoCore processor (also old Sunplus S+core7 backend magic number)
     VIDEOCORE = 95,
-
     /// Thompson Multimedia General Purpose Processor
     TMM_GPP = 96,
-
     /// National Semiconductor 32000 series
     NS32K = 97,
-
     /// Tenor Network TPC processor
     TPC = 98,
-
-    /// Trebia SNP 1000 processor
+    /// Trebia SNP 1000 processor (also old value for picoJava; deprecated)
     SNP1K = 99,
-
-    /// STMicroelectronics (www.st.com) ST200
+    /// STMicroelectronics ST200 microcontroller
     ST200 = 100,
-
-    /// Ubicom IP2xxx microcontroller family
+    /// Ubicom IP2022 micro controller
     IP2K = 101,
-
     /// MAX Processor
     MAX = 102,
-
-    /// National Semiconductor CompactRISC microprocessor
+    /// National Semiconductor CompactRISC
     CR = 103,
-
     /// Fujitsu F2MC16
     F2MC16 = 104,
-
-    /// Texas Instruments embedded microcontroller msp430
+    /// TI msp430 micro controller
     MSP430 = 105,
-
-    /// Analog Devices Blackfin (DSP) processor
+    /// ADI Blackfin
     BLACKFIN = 106,
-
     /// S1C33 Family of Seiko Epson processors
     SE_C33 = 107,
-
     /// Sharp embedded microprocessor
     SEP = 108,
-
     /// Arca RISC Microprocessor
     ARCA = 109,
-
     /// Microprocessor series from PKU-Unity Ltd. and MPRC of Peking University
     UNICORE = 110,
-
     /// eXcess: 16/32/64-bit configurable embedded CPU
     EXCESS = 111,
-
     /// Icera Semiconductor Inc. Deep Execution Processor
     DXP = 112,
-
     /// Altera Nios II soft-core processor
     ALTERA_NIOS2 = 113,
-
-    /// National Semiconductor CompactRISC CRX
+    /// National Semiconductor CRX
     CRX = 114,
-
-    /// Motorola XGATE embedded processor
+    /// Motorola XGATE embedded processor (also old value for National Semiconductor CompactRISC; deprecated)
     XGATE = 115,
-
     /// Infineon C16x/XC16x processor
     C166 = 116,
-
     /// Renesas M16C series microprocessors
     M16C = 117,
-
     /// Microchip Technology dsPIC30F Digital Signal Controller
     DSPIC30F = 118,
-
     /// Freescale Communication Engine RISC core
     CE = 119,
-
     /// Renesas M32C series microprocessors
     M32C = 120,
-
     /// Altium TSK3000 core
     TSK3000 = 131,
-
     /// Freescale RS08 embedded processor
     RS08 = 132,
-
     /// Analog Devices SHARC family of 32-bit DSP processors
     SHARC = 133,
-
     /// Cyan Technology eCOG2 microprocessor
     ECOG2 = 134,
-
-    /// Sunplus S+core7 RISC processor
-    SCORE7 = 135,
-
+    /// Sunplus S+core (and S+core7) RISC processor
+    SCORE = 135,
     /// New Japan Radio (NJR) 24-bit DSP Processor
     DSP24 = 136,
-
     /// Broadcom VideoCore III processor
     VIDEOCORE3 = 137,
-
     /// RISC processor for Lattice FPGA architecture
     LATTICEMICO32 = 138,
-
     /// Seiko Epson C17 family
     SE_C17 = 139,
-
-    /// The Texas Instruments TMS320C6000 DSP family
+    /// Texas Instruments TMS320C6000 DSP family
     TI_C6000 = 140,
-
-    /// The Texas Instruments TMS320C2000 DSP family
+    /// Texas Instruments TMS320C2000 DSP family
     TI_C2000 = 141,
-
-    /// The Texas Instruments TMS320C55x DSP family
+    /// Texas Instruments TMS320C55x DSP family
     TI_C5500 = 142,
-
+    /// Texas Instruments Programmable Realtime Unit
+    TI_PRU = 144,
     /// STMicroelectronics 64bit VLIW Data Signal Processor
     MMDSP_PLUS = 160,
-
     /// Cypress M8C microprocessor
     CYPRESS_M8C = 161,
-
     /// Renesas R32C series microprocessors
     R32C = 162,
-
     /// NXP Semiconductors TriMedia architecture family
     TRIMEDIA = 163,
-
-    /// Qualcomm Hexagon processor
-    HEXAGON = 164,
-
+    /// QUALCOMM DSP6 Processor
+    QDSP6 = 164,
     /// Intel 8051 and variants
     @"8051" = 165,
-
-    /// STMicroelectronics STxP7x family of configurable and extensible RISC processors
+    /// STMicroelectronics STxP7x family
     STXP7X = 166,
-
     /// Andes Technology compact code size embedded RISC processor family
     NDS32 = 167,
-
     /// Cyan Technology eCOG1X family
     ECOG1X = 168,
-
     /// Dallas Semiconductor MAXQ30 Core Micro-controllers
     MAXQ30 = 169,
-
     /// New Japan Radio (NJR) 16-bit DSP Processor
     XIMO16 = 170,
-
     /// M2000 Reconfigurable RISC Microprocessor
     MANIK = 171,
-
     /// Cray Inc. NV2 vector architecture
     CRAYNV2 = 172,
-
     /// Renesas RX family
     RX = 173,
-
-    /// Imagination Technologies META processor architecture
+    /// Imagination Technologies Meta processor architecture
     METAG = 174,
-
     /// MCST Elbrus general purpose hardware architecture
     MCST_ELBRUS = 175,
-
     /// Cyan Technology eCOG16 family
     ECOG16 = 176,
-
-    /// National Semiconductor CompactRISC CR16 16-bit microprocessor
+    /// National Semiconductor CompactRISC 16-bit processor
     CR16 = 177,
-
     /// Freescale Extended Time Processing Unit
     ETPU = 178,
-
     /// Infineon Technologies SLE9X core
     SLE9X = 179,
-
     /// Intel L10M
     L10M = 180,
-
     /// Intel K10M
     K10M = 181,
-
-    /// ARM AArch64
+    /// ARM 64-bit architecture
     AARCH64 = 183,
-
     /// Atmel Corporation 32-bit microprocessor family
     AVR32 = 185,
-
     /// STMicroeletronics STM8 8-bit microcontroller
     STM8 = 186,
-
     /// Tilera TILE64 multicore architecture family
     TILE64 = 187,
-
     /// Tilera TILEPro multicore architecture family
     TILEPRO = 188,
-
+    /// Xilinx MicroBlaze 32-bit RISC soft processor core
+    MICROBLAZE = 189,
     /// NVIDIA CUDA architecture
     CUDA = 190,
-
     /// Tilera TILE-Gx multicore architecture family
     TILEGX = 191,
-
     /// CloudShield architecture family
     CLOUDSHIELD = 192,
-
     /// KIPO-KAIST Core-A 1st generation processor family
     COREA_1ST = 193,
-
     /// KIPO-KAIST Core-A 2nd generation processor family
     COREA_2ND = 194,
-
     /// Synopsys ARCompact V2
     ARC_COMPACT2 = 195,
-
     /// Open8 8-bit RISC soft processor core
     OPEN8 = 196,
-
     /// Renesas RL78 family
     RL78 = 197,
-
     /// Broadcom VideoCore V processor
     VIDEOCORE5 = 198,
-
-    /// Renesas 78KOR family
-    @"78KOR" = 199,
-
+    /// Renesas 78K0R
+    @"78K0R" = 199,
     /// Freescale 56800EX Digital Signal Controller (DSC)
     @"56800EX" = 200,
-
     /// Beyond BA1 CPU architecture
     BA1 = 201,
-
     /// Beyond BA2 CPU architecture
     BA2 = 202,
-
     /// XMOS xCORE processor family
     XCORE = 203,
-
     /// Microchip 8-bit PIC(r) family
     MCHP_PIC = 204,
-
-    /// Reserved by Intel
-    INTEL205 = 205,
-
-    /// Reserved by Intel
-    INTEL206 = 206,
-
-    /// Reserved by Intel
-    INTEL207 = 207,
-
-    /// Reserved by Intel
-    INTEL208 = 208,
-
-    /// Reserved by Intel
-    INTEL209 = 209,
-
+    /// Intel Graphics Technology
+    INTELGT = 205,
     /// KM211 KM32 32-bit processor
     KM32 = 210,
-
     /// KM211 KMX32 32-bit processor
     KMX32 = 211,
-
     /// KM211 KMX16 16-bit processor
     KMX16 = 212,
-
     /// KM211 KMX8 8-bit processor
     KMX8 = 213,
-
     /// KM211 KVARC processor
     KVARC = 214,
-
     /// Paneve CDP architecture family
     CDP = 215,
-
     /// Cognitive Smart Memory Processor
     COGE = 216,
-
-    /// iCelero CoolEngine
+    /// Bluechip Systems CoolEngine
     COOL = 217,
-
     /// Nanoradio Optimized RISC
     NORC = 218,
-
     /// CSR Kalimba architecture family
     CSR_KALIMBA = 219,
-
+    /// Zilog Z80
+    Z80 = 220,
+    /// Controls and Data Services VISIUMcore processor
+    VISIUM = 221,
+    /// FTDI Chip FT32 high performance 32-bit RISC architecture
+    FT32 = 222,
+    /// Moxie processor family
+    MOXIE = 223,
     /// AMD GPU architecture
     AMDGPU = 224,
-
     /// RISC-V
     RISCV = 243,
-
     /// Lanai 32-bit processor
     LANAI = 244,
-
-    /// Linux kernel bpf virtual machine
+    /// CEVA Processor Architecture Family
+    CEVA = 245,
+    /// CEVA X2 Processor Family
+    CEVA_X2 = 246,
+    /// Linux BPF - in-kernel virtual machine
     BPF = 247,
-
-    /// C-SKY
+    /// Graphcore Intelligent Processing Unit
+    GRAPHCORE_IPU = 248,
+    /// Imagination Technologies
+    IMG1 = 249,
+    /// Netronome Flow Processor
+    NFP = 250,
+    /// NEC Vector Engine
+    VE = 251,
+    /// C-SKY processor family
     CSKY = 252,
-
-    /// Fujitsu FR-V
-    FRV = 0x5441,
+    /// Synopsys ARCv2.3 64-bit
+    ARC_COMPACT3_64 = 253,
+    /// MOS Technology MCS 6502 processor
+    MCS6502 = 254,
+    /// Synopsys ARCv2.3 32-bit
+    ARC_COMPACT3 = 255,
+    /// Kalray VLIW core of the MPPA processor family
+    KVX = 256,
+    /// WDC 65816/65C816
+    @"65816" = 257,
+    /// LoongArch
+    LOONGARCH = 258,
+    /// ChipON KungFu32
+    KF32 = 259,
+    /// LAPIS nX-U16/U8
+    U16_U8CORE = 260,
+    /// Tachyum
+    TACHYUM = 261,
+    /// NXP 56800EF Digital Signal Controller (DSC)
+    @"56800EF" = 262,
+    /// AVR
+    AVR_OLD = 0x1057,
+    /// MSP430
+    MSP430_OLD = 0x1059,
+    /// Morpho MT
+    MT = 0x2530,
+    /// FR30
+    CYGNUS_FR30 = 0x3330,
+    /// WebAssembly (as used by LLVM)
+    WEBASSEMBLY = 0x4157,
+    /// Infineon Technologies 16-bit microcontroller with C166-V2 core
+    XC16X = 0x4688,
+    /// Freescale S12Z
+    S12Z = 0x4def,
+    /// DLX
+    DLX = 0x5aa5,
+    /// FRV
+    CYGNUS_FRV = 0x5441,
+    /// D10V
+    CYGNUS_D10V = 0x7650,
+    /// D30V
+    CYGNUS_D30V = 0x7676,
+    /// Ubicom IP2xxx
+    IP2K_OLD = 0x8217,
+    /// Cygnus PowerPC ELF
+    CYGNUS_POWERPC = 0x9025,
+    /// Alpha
+    ALPHA = 0x9026,
+    /// Cygnus M32R ELF
+    CYGNUS_M32R = 0x9041,
+    /// V850
+    CYGNUS_V850 = 0x9080,
+    /// Old S/390
+    S390_OLD = 0xa390,
+    /// Old unofficial value for Xtensa
+    XTENSA_OLD = 0xabc7,
+    /// Xstormy16
+    XSTORMY16 = 0xad45,
+    /// MN10300
+    CYGNUS_MN10300 = 0xbeef,
+    /// MN10200
+    CYGNUS_MN10200 = 0xdead,
+    /// Renesas M32C and M16C
+    M32C_OLD = 0xfeb0,
+    /// Vitesse IQ2000
+    IQ2000 = 0xfeba,
+    /// NIOS
+    NIOS32 = 0xfebb,
+    /// Toshiba MeP
+    CYGNUS_MEP = 0xf00d,
+    /// Old unofficial value for Moxie
+    MOXIE_OLD = 0xfeed,
+    /// Old MicroBlaze
+    MICROBLAZE_OLD = 0xbaab,
+    /// Adapteva's Epiphany architecture
+    ADAPTEVA_EPIPHANY = 0x1223,
 
     _,
-
-    pub fn toTargetCpuArch(em: EM) ?std.Target.Cpu.Arch {
-        return switch (em) {
-            .AVR => .avr,
-            .MSP430 => .msp430,
-            .ARC => .arc,
-            .ARM => .arm,
-            .HEXAGON => .hexagon,
-            .@"68K" => .m68k,
-            .MIPS => .mips,
-            .MIPS_RS3_LE => .mipsel,
-            .PPC => .powerpc,
-            .SPARC => .sparc,
-            .@"386" => .x86,
-            .XCORE => .xcore,
-            .CSR_KALIMBA => .kalimba,
-            .LANAI => .lanai,
-            .AARCH64 => .aarch64,
-            .PPC64 => .powerpc64,
-            .RISCV => .riscv64,
-            .X86_64 => .x86_64,
-            .BPF => .bpfel,
-            .SPARCV9 => .sparc64,
-            .S390 => .s390x,
-            .SPU_2 => .spu_2,
-            // there's many cases we don't (yet) handle, or will never have a
-            // zig target cpu arch equivalent (such as null).
-            else => null,
-        };
-    }
 };
 
 pub const GRP_COMDAT = 1;
@@ -1896,7 +1785,7 @@ pub const R_X86_64 = enum(u32) {
     _,
 };
 
-/// AArch64 relocs.
+/// AArch64 relocations.
 pub const R_AARCH64 = enum(u32) {
     /// No relocation.
     NONE = 0,
@@ -2230,6 +2119,123 @@ pub const R_RISCV = enum(u32) {
     PLT32 = 59,
     SET_ULEB128 = 60,
     SUB_ULEB128 = 61,
+    _,
+};
+
+/// PowerPC64 relocations.
+pub const R_PPC64 = enum(u32) {
+    NONE = 0,
+    ADDR32 = 1,
+    ADDR24 = 2,
+    ADDR16 = 3,
+    ADDR16_LO = 4,
+    ADDR16_HI = 5,
+    ADDR16_HA = 6,
+    ADDR14 = 7,
+    ADDR14_BRTAKEN = 8,
+    ADDR14_BRNTAKEN = 9,
+    REL24 = 10,
+    REL14 = 11,
+    REL14_BRTAKEN = 12,
+    REL14_BRNTAKEN = 13,
+    GOT16 = 14,
+    GOT16_LO = 15,
+    GOT16_HI = 16,
+    GOT16_HA = 17,
+    COPY = 19,
+    GLOB_DAT = 20,
+    JMP_SLOT = 21,
+    RELATIVE = 22,
+    REL32 = 26,
+    PLT16_LO = 29,
+    PLT16_HI = 30,
+    PLT16_HA = 31,
+    ADDR64 = 38,
+    ADDR16_HIGHER = 39,
+    ADDR16_HIGHERA = 40,
+    ADDR16_HIGHEST = 41,
+    ADDR16_HIGHESTA = 42,
+    REL64 = 44,
+    TOC16 = 47,
+    TOC16_LO = 48,
+    TOC16_HI = 49,
+    TOC16_HA = 50,
+    TOC = 51,
+    ADDR16_DS = 56,
+    ADDR16_LO_DS = 57,
+    GOT16_DS = 58,
+    GOT16_LO_DS = 59,
+    PLT16_LO_DS = 60,
+    TOC16_DS = 63,
+    TOC16_LO_DS = 64,
+    TLS = 67,
+    DTPMOD64 = 68,
+    TPREL16 = 69,
+    TPREL16_LO = 70,
+    TPREL16_HI = 71,
+    TPREL16_HA = 72,
+    TPREL64 = 73,
+    DTPREL16 = 74,
+    DTPREL16_LO = 75,
+    DTPREL16_HI = 76,
+    DTPREL16_HA = 77,
+    DTPREL64 = 78,
+    GOT_TLSGD16 = 79,
+    GOT_TLSGD16_LO = 80,
+    GOT_TLSGD16_HI = 81,
+    GOT_TLSGD16_HA = 82,
+    GOT_TLSLD16 = 83,
+    GOT_TLSLD16_LO = 84,
+    GOT_TLSLD16_HI = 85,
+    GOT_TLSLD16_HA = 86,
+    GOT_TPREL16_DS = 87,
+    GOT_TPREL16_LO_DS = 88,
+    GOT_TPREL16_HI = 89,
+    GOT_TPREL16_HA = 90,
+    GOT_DTPREL16_DS = 91,
+    GOT_DTPREL16_LO_DS = 92,
+    GOT_DTPREL16_HI = 93,
+    GOT_DTPREL16_HA = 94,
+    TPREL16_DS = 95,
+    TPREL16_LO_DS = 96,
+    TPREL16_HIGHER = 97,
+    TPREL16_HIGHERA = 98,
+    TPREL16_HIGHEST = 99,
+    TPREL16_HIGHESTA = 100,
+    DTPREL16_DS = 101,
+    DTPREL16_LO_DS = 102,
+    DTPREL16_HIGHER = 103,
+    DTPREL16_HIGHERA = 104,
+    DTPREL16_HIGHEST = 105,
+    DTPREL16_HIGHESTA = 106,
+    TLSGD = 107,
+    TLSLD = 108,
+    ADDR16_HIGH = 110,
+    ADDR16_HIGHA = 111,
+    TPREL16_HIGH = 112,
+    TPREL16_HIGHA = 113,
+    DTPREL16_HIGH = 114,
+    DTPREL16_HIGHA = 115,
+    REL24_NOTOC = 116,
+    PLTSEQ = 119,
+    PLTCALL = 120,
+    PLTSEQ_NOTOC = 121,
+    PLTCALL_NOTOC = 122,
+    PCREL_OPT = 123,
+    PCREL34 = 132,
+    GOT_PCREL34 = 133,
+    PLT_PCREL34 = 134,
+    PLT_PCREL34_NOTOC = 135,
+    TPREL34 = 146,
+    DTPREL34 = 147,
+    GOT_TLSGD_PCREL34 = 148,
+    GOT_TLSLD_PCREL34 = 149,
+    GOT_TPREL_PCREL34 = 150,
+    IRELATIVE = 248,
+    REL16 = 249,
+    REL16_LO = 250,
+    REL16_HI = 251,
+    REL16_HA = 252,
     _,
 };
 

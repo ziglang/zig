@@ -9,7 +9,7 @@ const math = std.math;
 const mem = std.mem;
 const assert = std.debug.assert;
 const maxInt = std.math.maxInt;
-pub const Random = @This(); // Remove pub when `std.rand` namespace is removed.
+const Random = @This();
 
 /// Fast unbiased random numbers.
 pub const DefaultPrng = Xoshiro256;
@@ -34,9 +34,9 @@ fillFn: *const fn (ptr: *anyopaque, buf: []u8) void,
 
 pub fn init(pointer: anytype, comptime fillFn: fn (ptr: @TypeOf(pointer), buf: []u8) void) Random {
     const Ptr = @TypeOf(pointer);
-    assert(@typeInfo(Ptr) == .Pointer); // Must be a pointer
-    assert(@typeInfo(Ptr).Pointer.size == .One); // Must be a single-item pointer
-    assert(@typeInfo(@typeInfo(Ptr).Pointer.child) == .Struct); // Must point to a struct
+    assert(@typeInfo(Ptr) == .pointer); // Must be a pointer
+    assert(@typeInfo(Ptr).pointer.size == .One); // Must be a single-item pointer
+    assert(@typeInfo(@typeInfo(Ptr).pointer.child) == .@"struct"); // Must point to a struct
     const gen = struct {
         fn fill(ptr: *anyopaque, buf: []u8) void {
             const self: Ptr = @ptrCast(@alignCast(ptr));
@@ -79,7 +79,7 @@ pub inline fn enumValue(r: Random, comptime EnumType: type) EnumType {
 /// See `uintLessThan`, which this function uses in most cases,
 /// for commentary on the runtime of this function.
 pub fn enumValueWithIndex(r: Random, comptime EnumType: type, comptime Index: type) EnumType {
-    comptime assert(@typeInfo(EnumType) == .Enum);
+    comptime assert(@typeInfo(EnumType) == .@"enum");
 
     // We won't use int -> enum casting because enum elements can have
     //  arbitrary values.  Instead we'll randomly pick one of the type's values.
@@ -100,7 +100,7 @@ pub fn enumValueWithIndex(r: Random, comptime EnumType: type, comptime Index: ty
 /// Returns a random int `i` such that `minInt(T) <= i <= maxInt(T)`.
 /// `i` is evenly distributed.
 pub fn int(r: Random, comptime T: type) T {
-    const bits = @typeInfo(T).Int.bits;
+    const bits = @typeInfo(T).int.bits;
     const UnsignedT = std.meta.Int(.unsigned, bits);
     const ceil_bytes = comptime std.math.divCeil(u16, bits, 8) catch unreachable;
     const ByteAlignedT = std.meta.Int(.unsigned, ceil_bytes * 8);
@@ -119,7 +119,7 @@ pub fn int(r: Random, comptime T: type) T {
 /// Constant-time implementation off `uintLessThan`.
 /// The results of this function may be biased.
 pub fn uintLessThanBiased(r: Random, comptime T: type, less_than: T) T {
-    comptime assert(@typeInfo(T).Int.signedness == .unsigned);
+    comptime assert(@typeInfo(T).int.signedness == .unsigned);
     assert(0 < less_than);
     return limitRangeBiased(T, r.int(T), less_than);
 }
@@ -133,8 +133,8 @@ pub fn uintLessThanBiased(r: Random, comptime T: type, less_than: T) T {
 /// this function is guaranteed to return.
 /// If you need deterministic runtime bounds, use `uintLessThanBiased`.
 pub fn uintLessThan(r: Random, comptime T: type, less_than: T) T {
-    comptime assert(@typeInfo(T).Int.signedness == .unsigned);
-    const bits = @typeInfo(T).Int.bits;
+    comptime assert(@typeInfo(T).int.signedness == .unsigned);
+    const bits = @typeInfo(T).int.bits;
     assert(0 < less_than);
 
     // adapted from:
@@ -164,7 +164,7 @@ pub fn uintLessThan(r: Random, comptime T: type, less_than: T) T {
 /// Constant-time implementation off `uintAtMost`.
 /// The results of this function may be biased.
 pub fn uintAtMostBiased(r: Random, comptime T: type, at_most: T) T {
-    assert(@typeInfo(T).Int.signedness == .unsigned);
+    assert(@typeInfo(T).int.signedness == .unsigned);
     if (at_most == maxInt(T)) {
         // have the full range
         return r.int(T);
@@ -176,7 +176,7 @@ pub fn uintAtMostBiased(r: Random, comptime T: type, at_most: T) T {
 /// See `uintLessThan`, which this function uses in most cases,
 /// for commentary on the runtime of this function.
 pub fn uintAtMost(r: Random, comptime T: type, at_most: T) T {
-    assert(@typeInfo(T).Int.signedness == .unsigned);
+    assert(@typeInfo(T).int.signedness == .unsigned);
     if (at_most == maxInt(T)) {
         // have the full range
         return r.int(T);
@@ -188,7 +188,7 @@ pub fn uintAtMost(r: Random, comptime T: type, at_most: T) T {
 /// The results of this function may be biased.
 pub fn intRangeLessThanBiased(r: Random, comptime T: type, at_least: T, less_than: T) T {
     assert(at_least < less_than);
-    const info = @typeInfo(T).Int;
+    const info = @typeInfo(T).int;
     if (info.signedness == .signed) {
         // Two's complement makes this math pretty easy.
         const UnsignedT = std.meta.Int(.unsigned, info.bits);
@@ -207,7 +207,7 @@ pub fn intRangeLessThanBiased(r: Random, comptime T: type, at_least: T, less_tha
 /// for commentary on the runtime of this function.
 pub fn intRangeLessThan(r: Random, comptime T: type, at_least: T, less_than: T) T {
     assert(at_least < less_than);
-    const info = @typeInfo(T).Int;
+    const info = @typeInfo(T).int;
     if (info.signedness == .signed) {
         // Two's complement makes this math pretty easy.
         const UnsignedT = std.meta.Int(.unsigned, info.bits);
@@ -225,7 +225,7 @@ pub fn intRangeLessThan(r: Random, comptime T: type, at_least: T, less_than: T) 
 /// The results of this function may be biased.
 pub fn intRangeAtMostBiased(r: Random, comptime T: type, at_least: T, at_most: T) T {
     assert(at_least <= at_most);
-    const info = @typeInfo(T).Int;
+    const info = @typeInfo(T).int;
     if (info.signedness == .signed) {
         // Two's complement makes this math pretty easy.
         const UnsignedT = std.meta.Int(.unsigned, info.bits);
@@ -244,7 +244,7 @@ pub fn intRangeAtMostBiased(r: Random, comptime T: type, at_least: T, at_most: T
 /// for commentary on the runtime of this function.
 pub fn intRangeAtMost(r: Random, comptime T: type, at_least: T, at_most: T) T {
     assert(at_least <= at_most);
-    const info = @typeInfo(T).Int;
+    const info = @typeInfo(T).int;
     if (info.signedness == .signed) {
         // Two's complement makes this math pretty easy.
         const UnsignedT = std.meta.Int(.unsigned, info.bits);
@@ -392,12 +392,12 @@ pub fn weightedIndex(r: Random, comptime T: type, proportions: []const T) usize 
     };
 
     const point = switch (@typeInfo(T)) {
-        .Int => |int_info| switch (int_info.signedness) {
+        .int => |int_info| switch (int_info.signedness) {
             .signed => r.intRangeLessThan(T, 0, sum),
             .unsigned => r.uintLessThan(T, sum),
         },
         // take care that imprecision doesn't lead to a value slightly greater than sum
-        .Float => @min(r.float(T) * sum, sum - std.math.floatEps(T)),
+        .float => @min(r.float(T) * sum, sum - std.math.floatEps(T)),
         else => @compileError("weightedIndex does not support proportions of type " ++
             @typeName(T)),
     };
@@ -415,8 +415,8 @@ pub fn weightedIndex(r: Random, comptime T: type, proportions: []const T) usize 
 /// into an integer 0 <= result < less_than.
 /// This function introduces a minor bias.
 pub fn limitRangeBiased(comptime T: type, random_int: T, less_than: T) T {
-    comptime assert(@typeInfo(T).Int.signedness == .unsigned);
-    const bits = @typeInfo(T).Int.bits;
+    comptime assert(@typeInfo(T).int.signedness == .unsigned);
+    const bits = @typeInfo(T).int.bits;
 
     // adapted from:
     //   http://www.pcg-random.org/posts/bounded-rands.html
@@ -427,9 +427,9 @@ pub fn limitRangeBiased(comptime T: type, random_int: T, less_than: T) T {
 
 /// Returns the smallest of `Index` and `usize`.
 fn MinArrayIndex(comptime Index: type) type {
-    const index_info = @typeInfo(Index).Int;
+    const index_info = @typeInfo(Index).int;
     assert(index_info.signedness == .unsigned);
-    return if (index_info.bits >= @typeInfo(usize).Int.bits) usize else Index;
+    return if (index_info.bits >= @typeInfo(usize).int.bits) usize else Index;
 }
 
 test {
