@@ -3,7 +3,7 @@
 air: Air,
 lower: Lower,
 atom_index: u32,
-debug_output: DebugInfoOutput,
+debug_output: link.File.DebugInfoOutput,
 code: *std.ArrayList(u8),
 
 prev_di_line: u32,
@@ -546,7 +546,6 @@ const log = std.log.scoped(.emit);
 const std = @import("std");
 
 const Air = @import("../../Air.zig");
-const DebugInfoOutput = @import("../../codegen.zig").DebugInfoOutput;
 const Emit = @This();
 const Lower = @import("Lower.zig");
 const Mir = @import("Mir.zig");

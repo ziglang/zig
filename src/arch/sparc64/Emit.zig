@@ -9,7 +9,6 @@ const Zcu = @import("../../Zcu.zig");
 const ErrorMsg = Zcu.ErrorMsg;
 const Liveness = @import("../../Liveness.zig");
 const log = std.log.scoped(.sparcv9_emit);
-const DebugInfoOutput = @import("../../codegen.zig").DebugInfoOutput;
 
 const Emit = @This();
 const Mir = @import("Mir.zig");
@@ -19,7 +18,7 @@ const Register = bits.Register;
 
 mir: Mir,
 bin_file: *link.File,
-debug_output: DebugInfoOutput,
+debug_output: link.File.DebugInfoOutput,
 target: *const std.Target,
 err_msg: ?*ErrorMsg = null,
 src_loc: Zcu.LazySrcLoc,

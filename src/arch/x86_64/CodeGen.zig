@@ -17,7 +17,6 @@ const Air = @import("../../Air.zig");
 const Allocator = mem.Allocator;
 const CodeGenError = codegen.CodeGenError;
 const Compilation = @import("../../Compilation.zig");
-const DebugInfoOutput = codegen.DebugInfoOutput;
 const ErrorMsg = Zcu.ErrorMsg;
 const Result = codegen.Result;
 const Emit = @import("Emit.zig");
@@ -53,7 +52,7 @@ pt: Zcu.PerThread,
 air: Air,
 liveness: Liveness,
 bin_file: *link.File,
-debug_output: DebugInfoOutput,
+debug_output: link.File.DebugInfoOutput,
 target: *const std.Target,
 owner: Owner,
 inline_func: InternPool.Index,
@@ -819,7 +818,7 @@ pub fn generate(
     air: Air,
     liveness: Liveness,
     code: *std.ArrayList(u8),
-    debug_output: DebugInfoOutput,
+    debug_output: link.File.DebugInfoOutput,
 ) CodeGenError!Result {
     const zcu = pt.zcu;
     const comp = zcu.comp;
@@ -1000,7 +999,7 @@ pub fn generateLazy(
     src_loc: Zcu.LazySrcLoc,
     lazy_sym: link.File.LazySymbol,
     code: *std.ArrayList(u8),
-    debug_output: DebugInfoOutput,
+    debug_output: link.File.DebugInfoOutput,
 ) CodeGenError!Result {
     const comp = bin_file.comp;
     const gpa = comp.gpa;

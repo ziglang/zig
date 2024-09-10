@@ -422,10 +422,7 @@ pub fn updateFunc(self: *Plan9, pt: Zcu.PerThread, func_index: InternPool.Index,
     );
     const code = switch (res) {
         .ok => try code_buffer.toOwnedSlice(),
-        .fail => |em| {
-            try zcu.failed_codegen.put(gpa, func.owner_nav, em);
-            return;
-        },
+        .fail => |em| return zcu.failed_codegen.put(gpa, func.owner_nav, em),
     };
     self.getAtomPtr(atom_idx).code = .{
         .code_ptr = null,
@@ -463,15 +460,17 @@ pub fn updateNav(self: *Plan9, pt: Zcu.PerThread, nav_index: InternPool.Nav.Inde
         var code_buffer = std.ArrayList(u8).init(gpa);
         defer code_buffer.deinit();
         // TODO we need the symbol index for symbol in the table of locals for the containing atom
-        const res = try codegen.generateSymbol(&self.base, pt, zcu.navSrcLoc(nav_index), nav_init, &code_buffer, .none, .{
-            .parent_atom_index = @intCast(atom_idx),
-        });
+        const res = try codegen.generateSymbol(
+            &self.base,
+            pt,
+            zcu.navSrcLoc(nav_index),
+            nav_init,
+            &code_buffer,
+            .{ .atom_index = @intCast(atom_idx) },
+        );
         const code = switch (res) {
             .ok => code_buffer.items,
-            .fail => |em| {
-                try zcu.failed_codegen.put(gpa, nav_index, em);
-                return;
-            },
+            .fail => |em| return zcu.failed_codegen.put(gpa, nav_index, em),
         };
         try self.data_nav_table.ensureUnusedCapacity(gpa, 1);
         const duped_code = try gpa.dupe(u8, code);
@@ -1116,7 +1115,7 @@ fn updateLazySymbolAtom(self: *Plan9, pt: Zcu.PerThread, sym: File.LazySymbol, a
         &required_alignment,
         &code_buffer,
         .none,
-        .{ .parent_atom_index = @as(Atom.Index, @intCast(atom_index)) },
+        .{ .atom_index = @intCast(atom_index) },
     );
     const code = switch (res) {
         .ok => code_buffer.items,
@@ -1373,21 +1372,21 @@ pub fn getNavVAddr(
     log.debug("getDeclVAddr for {}", .{nav.name.fmt(ip)});
     if (ip.indexToKey(nav.status.resolved.val) == .@"extern") {
         if (nav.name.eqlSlice("etext", ip)) {
-            try self.addReloc(reloc_info.parent_atom_index, .{
+            try self.addReloc(reloc_info.parent.atom_index, .{
                 .target = undefined,
                 .offset = reloc_info.offset,
                 .addend = reloc_info.addend,
                 .type = .special_etext,
             });
         } else if (nav.name.eqlSlice("edata", ip)) {
-            try self.addReloc(reloc_info.parent_atom_index, .{
+            try self.addReloc(reloc_info.parent.atom_index, .{
                 .target = undefined,
                 .offset = reloc_info.offset,
                 .addend = reloc_info.addend,
                 .type = .special_edata,
             });
         } else if (nav.name.eqlSlice("end", ip)) {
-            try self.addReloc(reloc_info.parent_atom_index, .{
+            try self.addReloc(reloc_info.parent.atom_index, .{
                 .target = undefined,
                 .offset = reloc_info.offset,
                 .addend = reloc_info.addend,
@@ -1400,7 +1399,7 @@ pub fn getNavVAddr(
     // otherwise, we just add a relocation
     const atom_index = try self.seeNav(pt, nav_index);
     // the parent_atom_index in this case is just the decl_index of the parent
-    try self.addReloc(reloc_info.parent_atom_index, .{
+    try self.addReloc(reloc_info.parent.atom_index, .{
         .target = atom_index,
         .offset = reloc_info.offset,
         .addend = reloc_info.addend,
@@ -1435,7 +1434,7 @@ pub fn lowerUav(
     gop.value_ptr.* = index;
     // we need to free name latex
     var code_buffer = std.ArrayList(u8).init(gpa);
-    const res = try codegen.generateSymbol(&self.base, pt, src_loc, val, &code_buffer, .{ .none = {} }, .{ .parent_atom_index = index });
+    const res = try codegen.generateSymbol(&self.base, pt, src_loc, val, &code_buffer, .{ .atom_index = index });
     const code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| return .{ .fail = em },
@@ -1459,7 +1458,7 @@ pub fn lowerUav(
 
 pub fn getUavVAddr(self: *Plan9, uav: InternPool.Index, reloc_info: link.File.RelocInfo) !u64 {
     const atom_index = self.uavs.get(uav).?;
-    try self.addReloc(reloc_info.parent_atom_index, .{
+    try self.addReloc(reloc_info.parent.atom_index, .{
         .target = atom_index,
         .offset = reloc_info.offset,
         .addend = reloc_info.addend,

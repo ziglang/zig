@@ -4723,7 +4723,7 @@ pub const Index = enum(u32) {
     }
 
     comptime {
-        if (!builtin.strip_debug_info) {
+        if (builtin.zig_backend == .stage2_llvm and !builtin.strip_debug_info) {
             _ = &dbHelper;
         }
     }

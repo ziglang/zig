@@ -107,11 +107,11 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
         },
         \\breakpoint set --file basic.zig --source-pattern-regexp '_ = basic;'
         \\process launch
-        \\frame variable --show-types basic
+        \\frame variable --show-types -- basic
         \\breakpoint delete --force 1
     ,
         &.{
-            \\(lldb) frame variable --show-types basic
+            \\(lldb) frame variable --show-types -- basic
             \\(root.basic.Basic) basic = {
             \\  (void) void = {}
             \\  (bool) bool_false = false
@@ -243,11 +243,11 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
         },
         \\breakpoint set --file pointers.zig --source-pattern-regexp '_ = pointers;'
         \\process launch
-        \\frame variable --show-types pointers
+        \\frame variable --show-types -- pointers
         \\breakpoint delete --force 1
     ,
         &.{
-            \\(lldb) frame variable --show-types pointers
+            \\(lldb) frame variable --show-types -- pointers
             \\(root.pointers.Pointers) pointers = {
             \\  (*u32) single = 0x0000000000001010
             \\  (*const u32) single_const = 0x0000000000001014
@@ -330,13 +330,13 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
         },
         \\breakpoint set --file strings.zig --source-pattern-regexp '_ = strings;'
         \\process launch
-        \\frame variable --show-types strings.slice
-        \\frame variable --show-types --format character strings.slice
-        \\frame variable --show-types --format c-string strings
+        \\frame variable --show-types -- strings.slice
+        \\frame variable --show-types --format character -- strings.slice
+        \\frame variable --show-types --format c-string -- strings
         \\breakpoint delete --force 1
     ,
         &.{
-            \\(lldb) frame variable --show-types strings.slice
+            \\(lldb) frame variable --show-types -- strings.slice
             \\([:0]const u8) strings.slice = len=9 {
             \\  (u8) [0] = 115
             \\  (u8) [1] = 108
@@ -348,7 +348,7 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
             \\  (u8) [7] = 92
             \\  (u8) [8] = 0
             \\}
-            \\(lldb) frame variable --show-types --format character strings.slice
+            \\(lldb) frame variable --show-types --format character -- strings.slice
             \\([:0]const u8) strings.slice = len=9 {
             \\  (u8) [0] = 's'
             \\  (u8) [1] = 'l'
@@ -360,7 +360,7 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
             \\  (u8) [7] = '\\'
             \\  (u8) [8] = '\x00'
             \\}
-            \\(lldb) frame variable --show-types --format c-string strings
+            \\(lldb) frame variable --show-types --format c-string -- strings
             \\(root.strings.Strings) strings = {
             \\  ([*c]const u8) c_ptr = "c_ptr\x07\x08\t"
             \\  ([*:0]const u8) many_ptr = "many_ptr\n\x0b\x0c"
@@ -411,11 +411,28 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
         },
         \\breakpoint set --file enums.zig --source-pattern-regexp '_ = enums;'
         \\process launch
-        \\frame variable --show-types enums
+        \\expression --show-types -- Enums
+        \\frame variable --show-types -- enums
         \\breakpoint delete --force 1
     ,
         &.{
-            \\(lldb) frame variable --show-types enums
+            \\(lldb) expression --show-types -- Enums
+            \\(type) Enums = struct {
+            \\  (type) Zero = enum {}
+            \\  (type) One = enum {
+            \\    (root.enums.Enums.One) first = .first
+            \\  }
+            \\  (type) Two = enum {
+            \\    (root.enums.Enums.Two) first = .first
+            \\    (root.enums.Enums.Two) second = .second
+            \\  }
+            \\  (type) Three = enum {
+            \\    (root.enums.Enums.Three) first = .first
+            \\    (root.enums.Enums.Three) second = .second
+            \\    (root.enums.Enums.Three) third = .third
+            \\  }
+            \\}
+            \\(lldb) frame variable --show-types -- enums
             \\(root.enums.Enums) enums = {
             \\  (root.enums.Enums.Zero) zero = @enumFromInt(13)
             \\  (root.enums.Enums.One) one = .first
@@ -434,12 +451,17 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
                 .path = "errors.zig",
                 .source =
                 \\const Errors = struct {
-                \\    one: error{One} = error.One,
-                \\    two: error{One,Two} = error.Two,
-                \\    three: error{One,Two,Three} = error.Three,
+                \\    const Zero = error{};
+                \\    const One = Zero || error{One};
+                \\    const Two = One || error{Two};
+                \\    const Three = Two || error{Three};
+                \\
+                \\    one: One = error.One,
+                \\    two: Two = error.Two,
+                \\    three: Three = error.Three,
                 \\    any: anyerror = error.Any,
                 \\    any_void: anyerror!void = error.NotVoid,
-                \\    any_u32: error{One}!u32 = 42,
+                \\    any_u32: One!u32 = 42,
                 \\};
                 \\fn testErrors(errors: Errors) void {
                 \\    _ = errors;
@@ -453,11 +475,28 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
         },
         \\breakpoint set --file errors.zig --source-pattern-regexp '_ = errors;'
         \\process launch
-        \\frame variable --show-types errors
+        \\expression --show-types -- Errors
+        \\frame variable --show-types -- errors
         \\breakpoint delete --force 1
     ,
         &.{
-            \\(lldb) frame variable --show-types errors
+            \\(lldb) expression --show-types -- Errors
+            \\(type) Errors = struct {
+            \\  (type) Zero = error {}
+            \\  (type) One = error {
+            \\    (error{One}) One = error.One
+            \\  }
+            \\  (type) Two = error {
+            \\    (error{One,Two}) One = error.One
+            \\    (error{One,Two}) Two = error.Two
+            \\  }
+            \\  (type) Three = error {
+            \\    (error{One,Two,Three}) One = error.One
+            \\    (error{One,Two,Three}) Two = error.Two
+            \\    (error{One,Two,Three}) Three = error.Three
+            \\  }
+            \\}
+            \\(lldb) frame variable --show-types -- errors
             \\(root.errors.Errors) errors = {
             \\  (error{One}) one = error.One
             \\  (error{One,Two}) two = error.Two
@@ -496,23 +535,23 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
         },
         \\breakpoint set --file optionals.zig --source-pattern-regexp 'maybe_u32 = 123;'
         \\process launch
-        \\frame variable null_u32 maybe_u32 nonnull_u32
+        \\frame variable -- null_u32 maybe_u32 nonnull_u32
         \\breakpoint delete --force 1
         \\
-        \\breakpoint set --file optionals.zig --source-pattern-regexp '_ = .{ &null_u32, &nonnull_u32 };'
+        \\breakpoint set --file optionals.zig --source-pattern-regexp '_ = \.{ &null_u32, &nonnull_u32 };'
         \\process continue
-        \\frame variable --show-types null_u32 maybe_u32 nonnull_u32
+        \\frame variable --show-types -- null_u32 maybe_u32 nonnull_u32
         \\breakpoint delete --force 2
     ,
         &.{
-            \\(lldb) frame variable null_u32 maybe_u32 nonnull_u32
+            \\(lldb) frame variable -- null_u32 maybe_u32 nonnull_u32
             \\(?u32) null_u32 = null
             \\(?u32) maybe_u32 = null
             \\(?u32) nonnull_u32 = (nonnull_u32.? = 456)
             \\(lldb) breakpoint delete --force 1
             \\1 breakpoints deleted; 0 breakpoint locations disabled.
             ,
-            \\(lldb) frame variable --show-types null_u32 maybe_u32 nonnull_u32
+            \\(lldb) frame variable --show-types -- null_u32 maybe_u32 nonnull_u32
             \\(?u32) null_u32 = null
             \\(?u32) maybe_u32 = {
             \\  (u32) maybe_u32.? = 123
@@ -565,11 +604,31 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
         },
         \\breakpoint set --file unions.zig --source-pattern-regexp '_ = unions;'
         \\process launch
-        \\frame variable --show-types unions
+        \\expression --show-types -- Unions
+        \\frame variable --show-types -- unions
         \\breakpoint delete --force 1
     ,
         &.{
-            \\(lldb) frame variable --show-types unions
+            \\(lldb) expression --show-types -- Unions
+            \\(type) Unions = struct {
+            \\  (type) Untagged = union {}
+            \\  (type) SafetyTagged = union(enum) {
+            \\    (@typeInfo(unions.Unions.SafetyTagged).@"union".tag_type.?) void = .void
+            \\    (@typeInfo(unions.Unions.SafetyTagged).@"union".tag_type.?) en = .en
+            \\    (@typeInfo(unions.Unions.SafetyTagged).@"union".tag_type.?) eu = .eu
+            \\  }
+            \\  (type) Enum = enum {
+            \\    (root.unions.Unions.Enum) first = .first
+            \\    (root.unions.Unions.Enum) second = .second
+            \\    (root.unions.Unions.Enum) third = .third
+            \\  }
+            \\  (type) Tagged = union(enum) {
+            \\    (@typeInfo(unions.Unions.Tagged).@"union".tag_type.?) void = .void
+            \\    (@typeInfo(unions.Unions.Tagged).@"union".tag_type.?) en = .en
+            \\    (@typeInfo(unions.Unions.Tagged).@"union".tag_type.?) eu = .eu
+            \\  }
+            \\}
+            \\(lldb) frame variable --show-types -- unions
             \\(root.unions.Unions) unions = {
             \\  (root.unions.Unions.Untagged) untagged = {
             \\    (u32) u32 = 3217031168
@@ -635,17 +694,17 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
         },
         \\breakpoint set --file storage.zig --source-pattern-regexp 'local_var = local_var;'
         \\process launch
-        \\target variable --show-types --format hex global_const global_var global_threadlocal1 global_threadlocal2
-        \\frame variable --show-types --format hex param1 param2 param3 param4 param5 param6 param7 param8 local_comptime_val local_comptime_ptr.0 local_const local_var
+        \\target variable --show-types --format hex -- global_const global_var global_threadlocal1 global_threadlocal2
+        \\frame variable --show-types --format hex -- param1 param2 param3 param4 param5 param6 param7 param8 local_comptime_val local_comptime_ptr.0 local_const local_var
         \\breakpoint delete --force 1
     ,
         &.{
-            \\(lldb) target variable --show-types --format hex global_const global_var global_threadlocal1 global_threadlocal2
+            \\(lldb) target variable --show-types --format hex -- global_const global_var global_threadlocal1 global_threadlocal2
             \\(u64) global_const = 0x19e50dc8d6002077
             \\(u64) global_var = 0xcc423cec08622e32
             \\(u64) global_threadlocal1 = 0xb4d643528c042121
             \\(u64) global_threadlocal2 = 0x43faea1cf5ad7a22
-            \\(lldb) frame variable --show-types --format hex param1 param2 param3 param4 param5 param6 param7 param8 local_comptime_val local_comptime_ptr.0 local_const local_var
+            \\(lldb) frame variable --show-types --format hex -- param1 param2 param3 param4 param5 param6 param7 param8 local_comptime_val local_comptime_ptr.0 local_const local_var
             \\(u64) param1 = 0x6a607e08125c7e00
             \\(u64) param2 = 0x98944cb2a45a8b51
             \\(u64) param3 = 0xa320cf10601ee6fb
@@ -1240,28 +1299,533 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
                 \\    x = fabsf(x);
                 \\    _ = &x;
                 \\}
+                \\
                 ,
             },
         },
         \\breakpoint set --file main.zig --source-pattern-regexp 'x = fabsf\(x\);'
         \\process launch
-        \\frame variable x
+        \\frame variable -- x
         \\breakpoint delete --force 1
         \\
         \\breakpoint set --file main.zig --source-pattern-regexp '_ = &x;'
         \\process continue
-        \\frame variable x
+        \\frame variable -- x
         \\breakpoint delete --force 2
     ,
         &.{
-            \\(lldb) frame variable x
+            \\(lldb) frame variable -- x
             \\(f32) x = -1234.5
             \\(lldb) breakpoint delete --force 1
             \\1 breakpoints deleted; 0 breakpoint locations disabled.
             ,
-            \\(lldb) frame variable x
+            \\(lldb) frame variable -- x
             \\(f32) x = 1234.5
             \\(lldb) breakpoint delete --force 2
+            \\1 breakpoints deleted; 0 breakpoint locations disabled.
+        },
+    );
+    db.addLldbTest(
+        "hash_map",
+        target,
+        &.{
+            .{
+                .path = "main.zig",
+                .source =
+                \\const std = @import("std");
+                \\const Context = struct {
+                \\    pub fn hash(_: Context, key: u32) Map.Hash {
+                \\        return key;
+                \\    }
+                \\    pub fn eql(_: Context, lhs: u32, rhs: u32) bool {
+                \\        return lhs == rhs;
+                \\    }
+                \\};
+                \\const Map = std.HashMap(u32, u32, Context, 63);
+                \\fn testHashMap(map: Map) void {
+                \\    _ = map;
+                \\}
+                \\pub fn main() !void {
+                \\    var map = Map.init(std.heap.page_allocator);
+                \\    defer map.deinit();
+                \\    try map.ensureTotalCapacity(10);
+                \\    map.putAssumeCapacity(0, 1);
+                \\    map.putAssumeCapacity(2, 3);
+                \\    map.putAssumeCapacity(4, 5);
+                \\    map.putAssumeCapacity(6, 7);
+                \\    map.putAssumeCapacity(8, 9);
+                \\
+                \\    testHashMap(map);
+                \\}
+                \\
+                ,
+            },
+        },
+        \\breakpoint set --file main.zig --source-pattern-regexp '_ = map;'
+        \\process launch
+        \\frame variable --show-types -- map.unmanaged
+        \\breakpoint delete --force 1
+    ,
+        &.{
+            \\(lldb) frame variable --show-types -- map.unmanaged
+            \\(std.hash_map.HashMapUnmanaged(u32,u32,main.Context,63)) map.unmanaged = len=5 capacity=16 {
+            \\  (std.hash_map.HashMapUnmanaged(u32,u32,main.Context,63).KV) [0] = {
+            \\    (u32) key = 0
+            \\    (u32) value = 1
+            \\  }
+            \\  (std.hash_map.HashMapUnmanaged(u32,u32,main.Context,63).KV) [1] = {
+            \\    (u32) key = 2
+            \\    (u32) value = 3
+            \\  }
+            \\  (std.hash_map.HashMapUnmanaged(u32,u32,main.Context,63).KV) [2] = {
+            \\    (u32) key = 4
+            \\    (u32) value = 5
+            \\  }
+            \\  (std.hash_map.HashMapUnmanaged(u32,u32,main.Context,63).KV) [3] = {
+            \\    (u32) key = 6
+            \\    (u32) value = 7
+            \\  }
+            \\  (std.hash_map.HashMapUnmanaged(u32,u32,main.Context,63).KV) [4] = {
+            \\    (u32) key = 8
+            \\    (u32) value = 9
+            \\  }
+            \\}
+            \\(lldb) breakpoint delete --force 1
+            \\1 breakpoints deleted; 0 breakpoint locations disabled.
+        },
+    );
+    db.addLldbTest(
+        "multi_array_list",
+        target,
+        &.{
+            .{
+                .path = "main.zig",
+                .source =
+                \\const std = @import("std");
+                \\const Elem0 = struct { u32, u8, u16 };
+                \\const Elem1 = struct { a: u32, b: u8, c: u16 };
+                \\fn testMultiArrayList(
+                \\    list0: std.MultiArrayList(Elem0),
+                \\    slice0: std.MultiArrayList(Elem0).Slice,
+                \\    list1: std.MultiArrayList(Elem1),
+                \\    slice1: std.MultiArrayList(Elem1).Slice,
+                \\) void {
+                \\    _ = .{ list0, slice0, list1, slice1 };
+                \\}
+                \\pub fn main() !void {
+                \\    var list0: std.MultiArrayList(Elem0) = .{};
+                \\    defer list0.deinit(std.heap.page_allocator);
+                \\    try list0.setCapacity(std.heap.page_allocator, 8);
+                \\    list0.appendAssumeCapacity(.{ 1, 2, 3 });
+                \\    list0.appendAssumeCapacity(.{ 4, 5, 6 });
+                \\    list0.appendAssumeCapacity(.{ 7, 8, 9 });
+                \\    const slice0 = list0.slice();
+                \\
+                \\    var list1: std.MultiArrayList(Elem1) = .{};
+                \\    defer list1.deinit(std.heap.page_allocator);
+                \\    try list1.setCapacity(std.heap.page_allocator, 12);
+                \\    list1.appendAssumeCapacity(.{ .a = 1, .b = 2, .c = 3 });
+                \\    list1.appendAssumeCapacity(.{ .a = 4, .b = 5, .c = 6 });
+                \\    list1.appendAssumeCapacity(.{ .a = 7, .b = 8, .c = 9 });
+                \\    const slice1 = list1.slice();
+                \\
+                \\    testMultiArrayList(list0, slice0, list1, slice1);
+                \\}
+                \\
+                ,
+            },
+        },
+        \\breakpoint set --file main.zig --source-pattern-regexp '_ = \.{ list0, slice0, list1, slice1 };'
+        \\process launch
+        \\frame variable --show-types -- list0 list0.len list0.capacity list0[0] list0[1] list0[2] list0.0 list0.1 list0.2
+        \\frame variable --show-types -- slice0 slice0.len slice0.capacity slice0[0] slice0[1] slice0[2] slice0.0 slice0.1 slice0.2
+        \\frame variable --show-types -- list1 list1.len list1.capacity list1[0] list1[1] list1[2] list1.a list1.b list1.c
+        \\frame variable --show-types -- slice1 slice1.len slice1.capacity slice1[0] slice1[1] slice1[2] slice1.a slice1.b slice1.c
+        \\breakpoint delete --force 1
+    ,
+        &.{
+            \\(lldb) frame variable --show-types -- list0 list0.len list0.capacity list0[0] list0[1] list0[2] list0.0 list0.1 list0.2
+            \\(std.multi_array_list.MultiArrayList(main.Elem0)) list0 = len=3 capacity=8 {
+            \\  (root.main.Elem0) [0] = {
+            \\    (u32) 0 = 1
+            \\    (u8) 1 = 2
+            \\    (u16) 2 = 3
+            \\  }
+            \\  (root.main.Elem0) [1] = {
+            \\    (u32) 0 = 4
+            \\    (u8) 1 = 5
+            \\    (u16) 2 = 6
+            \\  }
+            \\  (root.main.Elem0) [2] = {
+            \\    (u32) 0 = 7
+            \\    (u8) 1 = 8
+            \\    (u16) 2 = 9
+            \\  }
+            \\}
+            \\(usize) list0.len = 3
+            \\(usize) list0.capacity = 8
+            \\(root.main.Elem0) list0[0] = {
+            \\  (u32) 0 = 1
+            \\  (u8) 1 = 2
+            \\  (u16) 2 = 3
+            \\}
+            \\(root.main.Elem0) list0[1] = {
+            \\  (u32) 0 = 4
+            \\  (u8) 1 = 5
+            \\  (u16) 2 = 6
+            \\}
+            \\(root.main.Elem0) list0[2] = {
+            \\  (u32) 0 = 7
+            \\  (u8) 1 = 8
+            \\  (u16) 2 = 9
+            \\}
+            \\([3]u32) list0.0 = {
+            \\  (u32) [0] = 1
+            \\  (u32) [1] = 4
+            \\  (u32) [2] = 7
+            \\}
+            \\([3]u8) list0.1 = {
+            \\  (u8) [0] = 2
+            \\  (u8) [1] = 5
+            \\  (u8) [2] = 8
+            \\}
+            \\([3]u16) list0.2 = {
+            \\  (u16) [0] = 3
+            \\  (u16) [1] = 6
+            \\  (u16) [2] = 9
+            \\}
+            \\(lldb) frame variable --show-types -- slice0 slice0.len slice0.capacity slice0[0] slice0[1] slice0[2] slice0.0 slice0.1 slice0.2
+            \\(std.multi_array_list.MultiArrayList(main.Elem0).Slice) slice0 = len=3 capacity=8 {
+            \\  (root.main.Elem0) [0] = {
+            \\    (u32) 0 = 1
+            \\    (u8) 1 = 2
+            \\    (u16) 2 = 3
+            \\  }
+            \\  (root.main.Elem0) [1] = {
+            \\    (u32) 0 = 4
+            \\    (u8) 1 = 5
+            \\    (u16) 2 = 6
+            \\  }
+            \\  (root.main.Elem0) [2] = {
+            \\    (u32) 0 = 7
+            \\    (u8) 1 = 8
+            \\    (u16) 2 = 9
+            \\  }
+            \\}
+            \\(usize) slice0.len = 3
+            \\(usize) slice0.capacity = 8
+            \\(root.main.Elem0) slice0[0] = {
+            \\  (u32) 0 = 1
+            \\  (u8) 1 = 2
+            \\  (u16) 2 = 3
+            \\}
+            \\(root.main.Elem0) slice0[1] = {
+            \\  (u32) 0 = 4
+            \\  (u8) 1 = 5
+            \\  (u16) 2 = 6
+            \\}
+            \\(root.main.Elem0) slice0[2] = {
+            \\  (u32) 0 = 7
+            \\  (u8) 1 = 8
+            \\  (u16) 2 = 9
+            \\}
+            \\([3]u32) slice0.0 = {
+            \\  (u32) [0] = 1
+            \\  (u32) [1] = 4
+            \\  (u32) [2] = 7
+            \\}
+            \\([3]u8) slice0.1 = {
+            \\  (u8) [0] = 2
+            \\  (u8) [1] = 5
+            \\  (u8) [2] = 8
+            \\}
+            \\([3]u16) slice0.2 = {
+            \\  (u16) [0] = 3
+            \\  (u16) [1] = 6
+            \\  (u16) [2] = 9
+            \\}
+            \\(lldb) frame variable --show-types -- list1 list1.len list1.capacity list1[0] list1[1] list1[2] list1.a list1.b list1.c
+            \\(std.multi_array_list.MultiArrayList(main.Elem1)) list1 = len=3 capacity=12 {
+            \\  (root.main.Elem1) [0] = {
+            \\    (u32) a = 1
+            \\    (u8) b = 2
+            \\    (u16) c = 3
+            \\  }
+            \\  (root.main.Elem1) [1] = {
+            \\    (u32) a = 4
+            \\    (u8) b = 5
+            \\    (u16) c = 6
+            \\  }
+            \\  (root.main.Elem1) [2] = {
+            \\    (u32) a = 7
+            \\    (u8) b = 8
+            \\    (u16) c = 9
+            \\  }
+            \\}
+            \\(usize) list1.len = 3
+            \\(usize) list1.capacity = 12
+            \\(root.main.Elem1) list1[0] = {
+            \\  (u32) a = 1
+            \\  (u8) b = 2
+            \\  (u16) c = 3
+            \\}
+            \\(root.main.Elem1) list1[1] = {
+            \\  (u32) a = 4
+            \\  (u8) b = 5
+            \\  (u16) c = 6
+            \\}
+            \\(root.main.Elem1) list1[2] = {
+            \\  (u32) a = 7
+            \\  (u8) b = 8
+            \\  (u16) c = 9
+            \\}
+            \\([3]u32) list1.a = {
+            \\  (u32) [0] = 1
+            \\  (u32) [1] = 4
+            \\  (u32) [2] = 7
+            \\}
+            \\([3]u8) list1.b = {
+            \\  (u8) [0] = 2
+            \\  (u8) [1] = 5
+            \\  (u8) [2] = 8
+            \\}
+            \\([3]u16) list1.c = {
+            \\  (u16) [0] = 3
+            \\  (u16) [1] = 6
+            \\  (u16) [2] = 9
+            \\}
+            \\(lldb) frame variable --show-types -- slice1 slice1.len slice1.capacity slice1[0] slice1[1] slice1[2] slice1.a slice1.b slice1.c
+            \\(std.multi_array_list.MultiArrayList(main.Elem1).Slice) slice1 = len=3 capacity=12 {
+            \\  (root.main.Elem1) [0] = {
+            \\    (u32) a = 1
+            \\    (u8) b = 2
+            \\    (u16) c = 3
+            \\  }
+            \\  (root.main.Elem1) [1] = {
+            \\    (u32) a = 4
+            \\    (u8) b = 5
+            \\    (u16) c = 6
+            \\  }
+            \\  (root.main.Elem1) [2] = {
+            \\    (u32) a = 7
+            \\    (u8) b = 8
+            \\    (u16) c = 9
+            \\  }
+            \\}
+            \\(usize) slice1.len = 3
+            \\(usize) slice1.capacity = 12
+            \\(root.main.Elem1) slice1[0] = {
+            \\  (u32) a = 1
+            \\  (u8) b = 2
+            \\  (u16) c = 3
+            \\}
+            \\(root.main.Elem1) slice1[1] = {
+            \\  (u32) a = 4
+            \\  (u8) b = 5
+            \\  (u16) c = 6
+            \\}
+            \\(root.main.Elem1) slice1[2] = {
+            \\  (u32) a = 7
+            \\  (u8) b = 8
+            \\  (u16) c = 9
+            \\}
+            \\([3]u32) slice1.a = {
+            \\  (u32) [0] = 1
+            \\  (u32) [1] = 4
+            \\  (u32) [2] = 7
+            \\}
+            \\([3]u8) slice1.b = {
+            \\  (u8) [0] = 2
+            \\  (u8) [1] = 5
+            \\  (u8) [2] = 8
+            \\}
+            \\([3]u16) slice1.c = {
+            \\  (u16) [0] = 3
+            \\  (u16) [1] = 6
+            \\  (u16) [2] = 9
+            \\}
+            \\(lldb) breakpoint delete --force 1
+            \\1 breakpoints deleted; 0 breakpoint locations disabled.
+        },
+    );
+    db.addLldbTest(
+        "segmented_list",
+        target,
+        &.{
+            .{
+                .path = "main.zig",
+                .source =
+                \\const std = @import("std");
+                \\fn testSegmentedList() void {}
+                \\pub fn main() !void {
+                \\    var list0: std.SegmentedList(usize, 0) = .{};
+                \\    defer list0.deinit(std.heap.page_allocator);
+                \\
+                \\    var list1: std.SegmentedList(usize, 1) = .{};
+                \\    defer list1.deinit(std.heap.page_allocator);
+                \\
+                \\    var list2: std.SegmentedList(usize, 2) = .{};
+                \\    defer list2.deinit(std.heap.page_allocator);
+                \\
+                \\    var list4: std.SegmentedList(usize, 4) = .{};
+                \\    defer list4.deinit(std.heap.page_allocator);
+                \\
+                \\    for (0..32) |i| {
+                \\        try list0.append(std.heap.page_allocator, i);
+                \\        try list1.append(std.heap.page_allocator, i);
+                \\        try list2.append(std.heap.page_allocator, i);
+                \\        try list4.append(std.heap.page_allocator, i);
+                \\    }
+                \\    testSegmentedList();
+                \\}
+                \\
+                ,
+            },
+        },
+        \\breakpoint set --file main.zig --source-pattern-regexp 'testSegmentedList\(\);'
+        \\process launch
+        \\frame variable -- list0 list1 list2 list4
+        \\breakpoint delete --force 1
+    ,
+        &.{
+            \\(lldb) frame variable -- list0 list1 list2 list4
+            \\(std.segmented_list.SegmentedList(usize,0)) list0 = len=32 {
+            \\  [0] = 0
+            \\  [1] = 1
+            \\  [2] = 2
+            \\  [3] = 3
+            \\  [4] = 4
+            \\  [5] = 5
+            \\  [6] = 6
+            \\  [7] = 7
+            \\  [8] = 8
+            \\  [9] = 9
+            \\  [10] = 10
+            \\  [11] = 11
+            \\  [12] = 12
+            \\  [13] = 13
+            \\  [14] = 14
+            \\  [15] = 15
+            \\  [16] = 16
+            \\  [17] = 17
+            \\  [18] = 18
+            \\  [19] = 19
+            \\  [20] = 20
+            \\  [21] = 21
+            \\  [22] = 22
+            \\  [23] = 23
+            \\  [24] = 24
+            \\  [25] = 25
+            \\  [26] = 26
+            \\  [27] = 27
+            \\  [28] = 28
+            \\  [29] = 29
+            \\  [30] = 30
+            \\  [31] = 31
+            \\}
+            \\(std.segmented_list.SegmentedList(usize,1)) list1 = len=32 {
+            \\  [0] = 0
+            \\  [1] = 1
+            \\  [2] = 2
+            \\  [3] = 3
+            \\  [4] = 4
+            \\  [5] = 5
+            \\  [6] = 6
+            \\  [7] = 7
+            \\  [8] = 8
+            \\  [9] = 9
+            \\  [10] = 10
+            \\  [11] = 11
+            \\  [12] = 12
+            \\  [13] = 13
+            \\  [14] = 14
+            \\  [15] = 15
+            \\  [16] = 16
+            \\  [17] = 17
+            \\  [18] = 18
+            \\  [19] = 19
+            \\  [20] = 20
+            \\  [21] = 21
+            \\  [22] = 22
+            \\  [23] = 23
+            \\  [24] = 24
+            \\  [25] = 25
+            \\  [26] = 26
+            \\  [27] = 27
+            \\  [28] = 28
+            \\  [29] = 29
+            \\  [30] = 30
+            \\  [31] = 31
+            \\}
+            \\(std.segmented_list.SegmentedList(usize,2)) list2 = len=32 {
+            \\  [0] = 0
+            \\  [1] = 1
+            \\  [2] = 2
+            \\  [3] = 3
+            \\  [4] = 4
+            \\  [5] = 5
+            \\  [6] = 6
+            \\  [7] = 7
+            \\  [8] = 8
+            \\  [9] = 9
+            \\  [10] = 10
+            \\  [11] = 11
+            \\  [12] = 12
+            \\  [13] = 13
+            \\  [14] = 14
+            \\  [15] = 15
+            \\  [16] = 16
+            \\  [17] = 17
+            \\  [18] = 18
+            \\  [19] = 19
+            \\  [20] = 20
+            \\  [21] = 21
+            \\  [22] = 22
+            \\  [23] = 23
+            \\  [24] = 24
+            \\  [25] = 25
+            \\  [26] = 26
+            \\  [27] = 27
+            \\  [28] = 28
+            \\  [29] = 29
+            \\  [30] = 30
+            \\  [31] = 31
+            \\}
+            \\(std.segmented_list.SegmentedList(usize,4)) list4 = len=32 {
+            \\  [0] = 0
+            \\  [1] = 1
+            \\  [2] = 2
+            \\  [3] = 3
+            \\  [4] = 4
+            \\  [5] = 5
+            \\  [6] = 6
+            \\  [7] = 7
+            \\  [8] = 8
+            \\  [9] = 9
+            \\  [10] = 10
+            \\  [11] = 11
+            \\  [12] = 12
+            \\  [13] = 13
+            \\  [14] = 14
+            \\  [15] = 15
+            \\  [16] = 16
+            \\  [17] = 17
+            \\  [18] = 18
+            \\  [19] = 19
+            \\  [20] = 20
+            \\  [21] = 21
+            \\  [22] = 22
+            \\  [23] = 23
+            \\  [24] = 24
+            \\  [25] = 25
+            \\  [26] = 26
+            \\  [27] = 27
+            \\  [28] = 28
+            \\  [29] = 29
+            \\  [30] = 30
+            \\  [31] = 31
+            \\}
+            \\(lldb) breakpoint delete --force 1
             \\1 breakpoints deleted; 0 breakpoint locations disabled.
         },
     );
