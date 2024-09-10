@@ -38335,7 +38335,9 @@ fn resolveDeclaredEnumInner(
     wip_ty.setTagTy(ip, int_tag_ty.toIntern());
 
     if (small.nonexhaustive and int_tag_ty.toIntern() != .comptime_int_type) {
-        if (fields_len > 1 and std.math.log2_int(u64, fields_len) == int_tag_ty.bitSize(zcu)) {
+        if (fields_len > 1 and std.math.log2_int(u64, fields_len) == int_tag_ty.bitSize(zcu) or
+            fields_len >= 1 and int_tag_ty.bitSize(zcu) == 0)
+        {
             return sema.fail(block, src, "non-exhaustive enum specifies every value", .{});
         }
     }
