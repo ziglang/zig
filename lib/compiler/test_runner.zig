@@ -145,31 +145,27 @@ fn mainServer() !void {
             .start_fuzzing => {
                 if (!builtin.fuzz) unreachable;
                 const index = try server.receiveBody_u32();
-                var first = true;
                 const test_fn = builtin.test_functions[index];
-                while (true) {
-                    testing.allocator_instance = .{};
-                    defer if (testing.allocator_instance.deinit() == .leak) std.process.exit(1);
-                    log_err_count = 0;
-                    is_fuzz_test = false;
-                    test_fn.func() catch |err| switch (err) {
-                        error.SkipZigTest => continue,
-                        else => {
-                            if (@errorReturnTrace()) |trace| {
-                                std.debug.dumpStackTrace(trace.*);
-                            }
-                            std.debug.print("failed with error.{s}\n", .{@errorName(err)});
-                            std.process.exit(1);
-                        },
-                    };
-                    if (!is_fuzz_test) @panic("missed call to std.testing.fuzzInput");
-                    if (log_err_count != 0) @panic("error logs detected");
-                    if (first) {
-                        first = false;
-                        const entry_addr = @intFromPtr(test_fn.func);
-                        try server.serveU64Message(.fuzz_start_addr, entry_addr);
-                    }
+                const entry_addr = @intFromPtr(test_fn.func);
+                try server.serveU64Message(.fuzz_start_addr, entry_addr);
+                const prev_allocator_state = testing.allocator_instance;
+                defer {
+                    testing.allocator_instance = prev_allocator_state;
+                    if (testing.allocator_instance.deinit() == .leak) std.process.exit(1);
                 }
+                is_fuzz_test = false;
+                test_fn.func() catch |err| switch (err) {
+                    error.SkipZigTest => return,
+                    else => {
+                        if (@errorReturnTrace()) |trace| {
+                            std.debug.dumpStackTrace(trace.*);
+                        }
+                        std.debug.print("failed with error.{s}\n", .{@errorName(err)});
+                        std.process.exit(1);
+                    },
+                };
+                if (!is_fuzz_test) @panic("missed call to std.testing.fuzz");
+                if (log_err_count != 0) @panic("error logs detected");
             },
 
             else => {
@@ -349,19 +345,67 @@ const FuzzerSlice = extern struct {
 
 var is_fuzz_test: bool = undefined;
 
-extern fn fuzzer_next() FuzzerSlice;
+extern fn fuzzer_start() void;
 extern fn fuzzer_init(cache_dir: FuzzerSlice) void;
 extern fn fuzzer_coverage_id() u64;
 
-pub fn fuzzInput(options: testing.FuzzInputOptions) []const u8 {
+pub fn fuzz(
+    comptime testOne: fn ([]const u8) anyerror!void,
+    options: testing.FuzzInputOptions,
+) anyerror!void {
+    // Prevent this function from confusing the fuzzer by omitting its own code
+    // coverage from being considered.
     @disableInstrumentation();
-    if (crippled) return "";
+
+    // Some compiler backends are not capable of handling fuzz testing yet but
+    // we still want CI test coverage enabled.
+    if (crippled) return;
+
+    // Smoke test to ensure the test did not use conditional compilation to
+    // contradict itself by making it not actually be a fuzz test when the test
+    // is built in fuzz mode.
     is_fuzz_test = true;
+
+    // Ensure no test failure occurred before starting fuzzing.
+    if (log_err_count != 0) @panic("error logs detected");
+
+    // libfuzzer is in a separate compilation unit so that its own code can be
+    // excluded from code coverage instrumentation. It needs a function pointer
+    // it can call for checking exactly one input. Inside this function we do
+    // our standard unit test checks such as memory leaks, and interaction with
+    // error logs.
+    const global = struct {
+        fn fuzzer_one(input_ptr: [*]const u8, input_len: usize) callconv(.C) void {
+            @disableInstrumentation();
+            testing.allocator_instance = .{};
+            defer if (testing.allocator_instance.deinit() == .leak) std.process.exit(1);
+            log_err_count = 0;
+            testOne(input_ptr[0..input_len]) catch |err| switch (err) {
+                error.SkipZigTest => return,
+                else => {
+                    if (@errorReturnTrace()) |trace| {
+                        std.debug.dumpStackTrace(trace.*);
+                    }
+                    std.debug.print("failed with error.{s}\n", .{@errorName(err)});
+                    std.process.exit(1);
+                },
+            };
+            if (log_err_count != 0) @panic("error logs detected");
+        }
+    };
     if (builtin.fuzz) {
-        return fuzzer_next().toSlice();
+        @export(&global.fuzzer_one, .{ .name = "fuzzer_one" });
+        fuzzer_start();
+        return;
     }
-    if (options.corpus.len == 0) return "";
-    var prng = std.Random.DefaultPrng.init(testing.random_seed);
-    const random = prng.random();
-    return options.corpus[random.uintLessThan(usize, options.corpus.len)];
+
+    // When the unit test executable is not built in fuzz mode, only run the
+    // provided corpus.
+    for (options.corpus) |input| {
+        try testOne(input);
+    }
+
+    // In case there is no provided corpus, also use an empty
+    // string as a smoke test.
+    try testOne("");
 }
