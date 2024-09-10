@@ -148,11 +148,7 @@ fn mainServer() !void {
                 const test_fn = builtin.test_functions[index];
                 const entry_addr = @intFromPtr(test_fn.func);
                 try server.serveU64Message(.fuzz_start_addr, entry_addr);
-                const prev_allocator_state = testing.allocator_instance;
-                defer {
-                    testing.allocator_instance = prev_allocator_state;
-                    if (testing.allocator_instance.deinit() == .leak) std.process.exit(1);
-                }
+                defer if (testing.allocator_instance.deinit() == .leak) std.process.exit(1);
                 is_fuzz_test = false;
                 test_fn.func() catch |err| switch (err) {
                     error.SkipZigTest => return,
@@ -383,18 +379,24 @@ pub fn fuzz(
             testOne(input_ptr[0..input_len]) catch |err| switch (err) {
                 error.SkipZigTest => return,
                 else => {
-                    if (@errorReturnTrace()) |trace| {
-                        std.debug.dumpStackTrace(trace.*);
-                    }
+                    std.debug.lockStdErr();
+                    if (@errorReturnTrace()) |trace| std.debug.dumpStackTrace(trace.*);
                     std.debug.print("failed with error.{s}\n", .{@errorName(err)});
                     std.process.exit(1);
                 },
             };
-            if (log_err_count != 0) @panic("error logs detected");
+            if (log_err_count != 0) {
+                std.debug.lockStdErr();
+                std.debug.print("error logs detected\n", .{});
+                std.process.exit(1);
+            }
         }
     };
     if (builtin.fuzz) {
+        const prev_allocator_state = testing.allocator_instance;
+        testing.allocator_instance = .{};
         fuzzer_start(&global.fuzzer_one);
+        testing.allocator_instance = prev_allocator_state;
         return;
     }
 
