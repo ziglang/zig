@@ -683,7 +683,7 @@ fn testHelloC(b: *Build, opts: Options) *Step {
 
     const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = 
     \\#include <stdio.h>
-    \\int main() { 
+    \\int main() {
     \\  printf("Hello world!\n");
     \\  return 0;
     \\}
@@ -969,7 +969,7 @@ fn testMergeLiteralsX64(b: *Build, opts: Options) *Step {
     \\  lea L._q1(%rip), %rax
     \\  mov (%rax), %xmm0
     \\  ret
-    \\ 
+    \\
     \\.section __TEXT,__cstring,cstring_literals
     \\l._s1:
     \\  .asciz "hello"
@@ -995,7 +995,7 @@ fn testMergeLiteralsX64(b: *Build, opts: Options) *Step {
     \\  lea L._q2(%rip), %rax
     \\  mov (%rax), %xmm0
     \\  ret
-    \\ 
+    \\
     \\.section __TEXT,__cstring,cstring_literals
     \\l._s2:
     \\  .asciz "hello"
@@ -1085,7 +1085,7 @@ fn testMergeLiteralsArm64(b: *Build, opts: Options) *Step {
     \\  adrp x8, L._q1@PAGE
     \\  ldr d0, [x8, L._q1@PAGEOFF]
     \\  ret
-    \\ 
+    \\
     \\.section __TEXT,__cstring,cstring_literals
     \\l._s1:
     \\  .asciz "hello"
@@ -1111,7 +1111,7 @@ fn testMergeLiteralsArm64(b: *Build, opts: Options) *Step {
     \\  adrp x8, L._q2@PAGE
     \\  ldr d0, [x8, L._q2@PAGEOFF]
     \\  ret
-    \\ 
+    \\
     \\.section __TEXT,__cstring,cstring_literals
     \\l._s2:
     \\  .asciz "hello"
@@ -1205,7 +1205,7 @@ fn testMergeLiteralsArm642(b: *Build, opts: Options) *Step {
     \\  adrp x0, L._q1@PAGE
     \\  ldr x0, [x0, L._q1@PAGEOFF]
     \\  ret
-    \\ 
+    \\
     \\.section __TEXT,__cstring,cstring_literals
     \\_s1:
     \\  .asciz "hello"
@@ -1226,7 +1226,7 @@ fn testMergeLiteralsArm642(b: *Build, opts: Options) *Step {
     \\  adrp x0, L._q2@PAGE
     \\  ldr x0, [x0, L._q2@PAGEOFF]
     \\  ret
-    \\ 
+    \\
     \\.section __TEXT,__cstring,cstring_literals
     \\_s2:
     \\  .asciz "hello"

@@ -28,13 +28,13 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
             \\    );
             \\}
         , &[_][]const u8{
-            \\:2:5: error: 
+            \\:2:5: error:
             \\             hello!
             \\             I'm a multiline error message.
             \\             I hope to be very useful!
-            \\             
+            \\
             \\             also I will leave this trailing newline here if you don't mind
-            \\             
+            \\
         });
     }
 

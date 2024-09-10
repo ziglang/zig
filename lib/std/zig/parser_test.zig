@@ -5002,8 +5002,8 @@ test "zig fmt: space after top level doc comment" {
 }
 
 test "zig fmt: remove trailing whitespace after container doc comment" {
-    try testTransform(
-        \\//! top level doc comment 
+    try testTransform("" ++
+        "//! top level doc comment \n" ++
         \\
     ,
         \\//! top level doc comment
@@ -5012,8 +5012,8 @@ test "zig fmt: remove trailing whitespace after container doc comment" {
 }
 
 test "zig fmt: remove trailing whitespace after doc comment" {
-    try testTransform(
-        \\/// doc comment 
+    try testTransform("" ++
+        "/// doc comment \n" ++
         \\a = 0,
         \\
     ,
@@ -6226,8 +6226,8 @@ test "recovery: eof in c pointer" {
 
 test "matching whitespace on minus op" {
     try testError(
-        \\ _ = 2 -1, 
-        \\ _ = 2- 1, 
+        \\ _ = 2 -1,
+        \\ _ = 2- 1,
         \\ _ = 2-
         \\     2,
         \\ _ = 2
@@ -6244,7 +6244,7 @@ test "matching whitespace on minus op" {
         \\ _ = -1,
         \\ _ = 2 - -1,
         \\ _ = 2 - 1,
-        \\ _ = 2-1, 
+        \\ _ = 2-1,
         \\ _ = 2 -
         \\1,
         \\ _ = 2
@@ -6255,8 +6255,8 @@ test "matching whitespace on minus op" {
 test "ampersand" {
     try testError(
         \\ _ = bar && foo,
-        \\ _ = bar&&foo, 
-        \\ _ = bar& & foo, 
+        \\ _ = bar&&foo,
+        \\ _ = bar& & foo,
         \\ _ = bar& &foo,
     , &.{
         .invalid_ampersand_ampersand,
@@ -6266,9 +6266,9 @@ test "ampersand" {
     });
 
     try testError(
-        \\ _ = bar & &foo, 
-        \\ _ = bar & &&foo, 
-        \\ _ = &&foo, 
+        \\ _ = bar & &foo,
+        \\ _ = bar & &&foo,
+        \\ _ = &&foo,
     , &.{});
 }
 
