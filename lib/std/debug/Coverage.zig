@@ -196,7 +196,7 @@ pub fn resolveAddressesDwarf(
             const table_addrs = slc.line_table.keys();
             line_table_i = std.sort.upperBound(u64, table_addrs, pc, struct {
                 fn order(context: u64, item: u64) std.math.Order {
-                    return std.math.order(item, context);
+                    return std.math.order(context, item);
                 }
             }.order);
         }
