@@ -5107,10 +5107,10 @@ pub fn sysctl(
     newlen: usize,
 ) SysCtlError!void {
     if (native_os == .wasi) {
-        @panic("unsupported"); // TODO should be compile error, not panic
+        @compileError("sysctl not supported on WASI");
     }
     if (native_os == .haiku) {
-        @panic("unsupported"); // TODO should be compile error, not panic
+        @compileError("sysctl not supported on Haiku");
     }
 
     const name_len = cast(c_uint, name.len) orelse return error.NameTooLong;
@@ -5132,10 +5132,10 @@ pub fn sysctlbynameZ(
     newlen: usize,
 ) SysCtlError!void {
     if (native_os == .wasi) {
-        @panic("unsupported"); // TODO should be compile error, not panic
+        @compileError("sysctl not supported on WASI");
     }
     if (native_os == .haiku) {
-        @panic("unsupported"); // TODO should be compile error, not panic
+        @compileError("sysctl not supported on Haiku");
     }
 
     switch (errno(system.sysctlbyname(name, oldp, oldlenp, newp, newlen))) {
