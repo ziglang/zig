@@ -3170,9 +3170,6 @@ fn discardAllParams(r: *Render, fn_proto_node: Ast.Node.Index) Error!void {
 fn tokenSliceForRender(tree: Ast, token_index: Ast.TokenIndex) []const u8 {
     var ret = tree.tokenSlice(token_index);
     switch (tree.tokens.items(.tag)[token_index]) {
-        .multiline_string_literal_line => {
-            if (ret[ret.len - 1] == '\n') ret.len -= 1;
-        },
         .container_doc_comment, .doc_comment => {
             ret = mem.trimRight(u8, ret, &std.ascii.whitespace);
         },
