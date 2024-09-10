@@ -1624,12 +1624,12 @@ pub fn unwindFrameDwarf(
     } else {
         const index = std.sort.binarySearch(Dwarf.FrameDescriptionEntry, di.fde_list.items, context.pc, struct {
             pub fn compareFn(pc: usize, item: Dwarf.FrameDescriptionEntry) std.math.Order {
-                if (pc < item.pc_begin) return .gt;
+                if (pc < item.pc_begin) return .lt;
 
                 const range_end = item.pc_begin + item.pc_range;
                 if (pc < range_end) return .eq;
 
-                return .lt;
+                return .gt;
             }
         }.compareFn);
 
