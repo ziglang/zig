@@ -538,7 +538,7 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
         \\frame variable null_u32 maybe_u32 nonnull_u32
         \\breakpoint delete --force 1
         \\
-        \\breakpoint set --file optionals.zig --source-pattern-regexp '_ = .{ &null_u32, &nonnull_u32 };'
+        \\breakpoint set --file optionals.zig --source-pattern-regexp '_ = \.{ &null_u32, &nonnull_u32 };'
         \\process continue
         \\frame variable --show-types null_u32 maybe_u32 nonnull_u32
         \\breakpoint delete --force 2
@@ -1333,50 +1333,61 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
                 .path = "main.zig",
                 .source =
                 \\const std = @import("std");
-                \\fn testMultiArrayList() void {}
+                \\const Elem0 = struct { u32, u8, u16 };
+                \\const Elem1 = struct { a: u32, b: u8, c: u16 };
+                \\fn testMultiArrayList(
+                \\    list0: std.MultiArrayList(Elem0),
+                \\    slice0: std.MultiArrayList(Elem0).Slice,
+                \\    list1: std.MultiArrayList(Elem1),
+                \\    slice1: std.MultiArrayList(Elem1).Slice,
+                \\) void {
+                \\    _ = .{ list0, slice0, list1, slice1 };
+                \\}
                 \\pub fn main() !void {
-                \\    const Elem0 = struct { u32, u8, u16 };
                 \\    var list0: std.MultiArrayList(Elem0) = .{};
                 \\    defer list0.deinit(std.heap.page_allocator);
                 \\    try list0.setCapacity(std.heap.page_allocator, 8);
                 \\    list0.appendAssumeCapacity(.{ 1, 2, 3 });
                 \\    list0.appendAssumeCapacity(.{ 4, 5, 6 });
                 \\    list0.appendAssumeCapacity(.{ 7, 8, 9 });
+                \\    const slice0 = list0.slice();
                 \\
-                \\    const Elem1 = struct { a: u32, b: u8, c: u16 };
                 \\    var list1: std.MultiArrayList(Elem1) = .{};
                 \\    defer list1.deinit(std.heap.page_allocator);
                 \\    try list1.setCapacity(std.heap.page_allocator, 12);
                 \\    list1.appendAssumeCapacity(.{ .a = 1, .b = 2, .c = 3 });
                 \\    list1.appendAssumeCapacity(.{ .a = 4, .b = 5, .c = 6 });
                 \\    list1.appendAssumeCapacity(.{ .a = 7, .b = 8, .c = 9 });
+                \\    const slice1 = list1.slice();
                 \\
-                \\    testMultiArrayList();
+                \\    testMultiArrayList(list0, slice0, list1, slice1);
                 \\}
                 \\
                 ,
             },
         },
-        \\breakpoint set --file main.zig --source-pattern-regexp 'testMultiArrayList\(\);'
+        \\breakpoint set --file main.zig --source-pattern-regexp '_ = \.{ list0, slice0, list1, slice1 };'
         \\process launch
         \\frame variable --show-types -- list0 list0.len list0.capacity list0[0] list0[1] list0[2] list0.0 list0.1 list0.2
+        \\frame variable --show-types -- slice0 slice0.len slice0.capacity slice0[0] slice0[1] slice0[2] slice0.0 slice0.1 slice0.2
         \\frame variable --show-types -- list1 list1.len list1.capacity list1[0] list1[1] list1[2] list1.a list1.b list1.c
+        \\frame variable --show-types -- slice1 slice1.len slice1.capacity slice1[0] slice1[1] slice1[2] slice1.a slice1.b slice1.c
         \\breakpoint delete --force 1
     ,
         &.{
             \\(lldb) frame variable --show-types -- list0 list0.len list0.capacity list0[0] list0[1] list0[2] list0.0 list0.1 list0.2
-            \\(std.multi_array_list.MultiArrayList(main.main.Elem0)) list0 = len=3 capacity=8 {
-            \\  (root.main.main.Elem0) [0] = {
+            \\(std.multi_array_list.MultiArrayList(main.Elem0)) list0 = len=3 capacity=8 {
+            \\  (root.main.Elem0) [0] = {
             \\    (u32) 0 = 1
             \\    (u8) 1 = 2
             \\    (u16) 2 = 3
             \\  }
-            \\  (root.main.main.Elem0) [1] = {
+            \\  (root.main.Elem0) [1] = {
             \\    (u32) 0 = 4
             \\    (u8) 1 = 5
             \\    (u16) 2 = 6
             \\  }
-            \\  (root.main.main.Elem0) [2] = {
+            \\  (root.main.Elem0) [2] = {
             \\    (u32) 0 = 7
             \\    (u8) 1 = 8
             \\    (u16) 2 = 9
@@ -1384,17 +1395,17 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
             \\}
             \\(usize) list0.len = 3
             \\(usize) list0.capacity = 8
-            \\(root.main.main.Elem0) list0[0] = {
+            \\(root.main.Elem0) list0[0] = {
             \\  (u32) 0 = 1
             \\  (u8) 1 = 2
             \\  (u16) 2 = 3
             \\}
-            \\(root.main.main.Elem0) list0[1] = {
+            \\(root.main.Elem0) list0[1] = {
             \\  (u32) 0 = 4
             \\  (u8) 1 = 5
             \\  (u16) 2 = 6
             \\}
-            \\(root.main.main.Elem0) list0[2] = {
+            \\(root.main.Elem0) list0[2] = {
             \\  (u32) 0 = 7
             \\  (u8) 1 = 8
             \\  (u16) 2 = 9
@@ -1414,19 +1425,69 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
             \\  (u16) [1] = 6
             \\  (u16) [2] = 9
             \\}
+            \\(lldb) frame variable --show-types -- slice0 slice0.len slice0.capacity slice0[0] slice0[1] slice0[2] slice0.0 slice0.1 slice0.2
+            \\(std.multi_array_list.MultiArrayList(main.Elem0).Slice) slice0 = len=3 capacity=8 {
+            \\  (root.main.Elem0) [0] = {
+            \\    (u32) 0 = 1
+            \\    (u8) 1 = 2
+            \\    (u16) 2 = 3
+            \\  }
+            \\  (root.main.Elem0) [1] = {
+            \\    (u32) 0 = 4
+            \\    (u8) 1 = 5
+            \\    (u16) 2 = 6
+            \\  }
+            \\  (root.main.Elem0) [2] = {
+            \\    (u32) 0 = 7
+            \\    (u8) 1 = 8
+            \\    (u16) 2 = 9
+            \\  }
+            \\}
+            \\(usize) slice0.len = 3
+            \\(usize) slice0.capacity = 8
+            \\(root.main.Elem0) slice0[0] = {
+            \\  (u32) 0 = 1
+            \\  (u8) 1 = 2
+            \\  (u16) 2 = 3
+            \\}
+            \\(root.main.Elem0) slice0[1] = {
+            \\  (u32) 0 = 4
+            \\  (u8) 1 = 5
+            \\  (u16) 2 = 6
+            \\}
+            \\(root.main.Elem0) slice0[2] = {
+            \\  (u32) 0 = 7
+            \\  (u8) 1 = 8
+            \\  (u16) 2 = 9
+            \\}
+            \\([3]u32) slice0.0 = {
+            \\  (u32) [0] = 1
+            \\  (u32) [1] = 4
+            \\  (u32) [2] = 7
+            \\}
+            \\([3]u8) slice0.1 = {
+            \\  (u8) [0] = 2
+            \\  (u8) [1] = 5
+            \\  (u8) [2] = 8
+            \\}
+            \\([3]u16) slice0.2 = {
+            \\  (u16) [0] = 3
+            \\  (u16) [1] = 6
+            \\  (u16) [2] = 9
+            \\}
             \\(lldb) frame variable --show-types -- list1 list1.len list1.capacity list1[0] list1[1] list1[2] list1.a list1.b list1.c
-            \\(std.multi_array_list.MultiArrayList(main.main.Elem1)) list1 = len=3 capacity=12 {
-            \\  (root.main.main.Elem1) [0] = {
+            \\(std.multi_array_list.MultiArrayList(main.Elem1)) list1 = len=3 capacity=12 {
+            \\  (root.main.Elem1) [0] = {
             \\    (u32) a = 1
             \\    (u8) b = 2
             \\    (u16) c = 3
             \\  }
-            \\  (root.main.main.Elem1) [1] = {
+            \\  (root.main.Elem1) [1] = {
             \\    (u32) a = 4
             \\    (u8) b = 5
             \\    (u16) c = 6
             \\  }
-            \\  (root.main.main.Elem1) [2] = {
+            \\  (root.main.Elem1) [2] = {
             \\    (u32) a = 7
             \\    (u8) b = 8
             \\    (u16) c = 9
@@ -1434,17 +1495,17 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
             \\}
             \\(usize) list1.len = 3
             \\(usize) list1.capacity = 12
-            \\(root.main.main.Elem1) list1[0] = {
+            \\(root.main.Elem1) list1[0] = {
             \\  (u32) a = 1
             \\  (u8) b = 2
             \\  (u16) c = 3
             \\}
-            \\(root.main.main.Elem1) list1[1] = {
+            \\(root.main.Elem1) list1[1] = {
             \\  (u32) a = 4
             \\  (u8) b = 5
             \\  (u16) c = 6
             \\}
-            \\(root.main.main.Elem1) list1[2] = {
+            \\(root.main.Elem1) list1[2] = {
             \\  (u32) a = 7
             \\  (u8) b = 8
             \\  (u16) c = 9
@@ -1460,6 +1521,56 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
             \\  (u8) [2] = 8
             \\}
             \\([3]u16) list1.c = {
+            \\  (u16) [0] = 3
+            \\  (u16) [1] = 6
+            \\  (u16) [2] = 9
+            \\}
+            \\(lldb) frame variable --show-types -- slice1 slice1.len slice1.capacity slice1[0] slice1[1] slice1[2] slice1.a slice1.b slice1.c
+            \\(std.multi_array_list.MultiArrayList(main.Elem1).Slice) slice1 = len=3 capacity=12 {
+            \\  (root.main.Elem1) [0] = {
+            \\    (u32) a = 1
+            \\    (u8) b = 2
+            \\    (u16) c = 3
+            \\  }
+            \\  (root.main.Elem1) [1] = {
+            \\    (u32) a = 4
+            \\    (u8) b = 5
+            \\    (u16) c = 6
+            \\  }
+            \\  (root.main.Elem1) [2] = {
+            \\    (u32) a = 7
+            \\    (u8) b = 8
+            \\    (u16) c = 9
+            \\  }
+            \\}
+            \\(usize) slice1.len = 3
+            \\(usize) slice1.capacity = 12
+            \\(root.main.Elem1) slice1[0] = {
+            \\  (u32) a = 1
+            \\  (u8) b = 2
+            \\  (u16) c = 3
+            \\}
+            \\(root.main.Elem1) slice1[1] = {
+            \\  (u32) a = 4
+            \\  (u8) b = 5
+            \\  (u16) c = 6
+            \\}
+            \\(root.main.Elem1) slice1[2] = {
+            \\  (u32) a = 7
+            \\  (u8) b = 8
+            \\  (u16) c = 9
+            \\}
+            \\([3]u32) slice1.a = {
+            \\  (u32) [0] = 1
+            \\  (u32) [1] = 4
+            \\  (u32) [2] = 7
+            \\}
+            \\([3]u8) slice1.b = {
+            \\  (u8) [0] = 2
+            \\  (u8) [1] = 5
+            \\  (u8) [2] = 8
+            \\}
+            \\([3]u16) slice1.c = {
             \\  (u16) [0] = 3
             \\  (u16) [1] = 6
             \\  (u16) [2] = 9
