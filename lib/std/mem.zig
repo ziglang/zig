@@ -3947,7 +3947,7 @@ fn CopyPtrAttrs(
     comptime source: type,
     comptime size: std.builtin.Type.Pointer.Size,
     comptime child: type,
-    comptime sentinel: ?*const anyopaque,
+    comptime sentinel: ?child,
 ) type {
     const info = @typeInfo(source).pointer;
     return @Type(.{
@@ -3959,7 +3959,7 @@ fn CopyPtrAttrs(
             .alignment = info.alignment,
             .address_space = info.address_space,
             .child = child,
-            .sentinel = sentinel,
+            .sentinel = if (sentinel) |s| &s else null,
         },
     });
 }
@@ -4127,7 +4127,7 @@ test bytesToValue {
     try testing.expect(deadbeef == @as(u32, 0xDEADBEEF));
 }
 
-fn BytesAsSliceReturnType(comptime T: type, comptime bytesType: type, comptime sentinel: ?*const anyopaque) type {
+fn BytesAsSliceReturnType(comptime T: type, comptime bytesType: type, comptime sentinel: ?T) type {
     return CopyPtrAttrs(bytesType, .Slice, T, sentinel);
 }
 
@@ -4150,9 +4150,9 @@ pub fn bytesAsSlice(comptime T: type, bytes: anytype) BytesAsSliceReturnType(T, 
 ///
 /// The final bytes must equal the sentinel value, otherwise safety-protected
 /// undefined behavior results.
-pub fn bytesAsSliceSentinel(comptime T: type, bytes: anytype, comptime sentinel: *const T) BytesAsSliceReturnType(T, @TypeOf(bytes), sentinel) {
+pub fn bytesAsSliceSentinel(comptime T: type, bytes: anytype, comptime sentinel: T) BytesAsSliceReturnType(T, @TypeOf(bytes), sentinel) {
     const slice = bytesAsSlice(T, bytes);
-    return slice[0 .. slice.len - 1 :sentinel.*];
+    return slice[0 .. slice.len - 1 :sentinel];
 }
 
 test bytesAsSlice {
@@ -4227,7 +4227,7 @@ test "bytesAsSlice preserves pointer attributes" {
 test "bytesAsSliceSentinel" {
     {
         const bytes = [_]u8{ 0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x01 };
-        const slice = bytesAsSliceSentinel(u16, bytes[0..], &0x0101);
+        const slice = bytesAsSliceSentinel(u16, bytes[0..], 0x0101);
         try testing.expect(slice.len == 2);
         try testing.expect(bigToNative(u16, slice[0]) == 0xDEAD);
         try testing.expect(bigToNative(u16, slice[1]) == 0xBEEF);
@@ -4362,7 +4362,7 @@ test "sliceAsBytes and bytesAsSliceSentinel roundtrip with sentinel" {
     var new_bytes = [_]u8{0} ** (4 * 5);
     @memcpy(&new_bytes, bytes);
 
-    const remade = bytesAsSliceSentinel(i32, &new_bytes, &5);
+    const remade = bytesAsSliceSentinel(i32, &new_bytes, 5);
 
     try testing.expect(remade.len == 4);
     try testing.expect(remade[0] == 1);
