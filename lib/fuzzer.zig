@@ -423,9 +423,10 @@ export fn fuzzer_coverage_id() u64 {
     return fuzzer.coverage_id;
 }
 
-extern fn fuzzer_one(input_ptr: [*]const u8, input_len: usize) callconv(.C) void;
+var fuzzer_one: *const fn (input_ptr: [*]const u8, input_len: usize) callconv(.C) void = undefined;
 
-export fn fuzzer_start() void {
+export fn fuzzer_start(testOne: @TypeOf(fuzzer_one)) void {
+    fuzzer_one = testOne;
     fuzzer.start() catch |err| switch (err) {
         error.OutOfMemory => fatal("out of memory", .{}),
     };

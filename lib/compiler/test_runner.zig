@@ -345,7 +345,7 @@ const FuzzerSlice = extern struct {
 
 var is_fuzz_test: bool = undefined;
 
-extern fn fuzzer_start() void;
+extern fn fuzzer_start(testOne: *const fn ([*]const u8, usize) callconv(.C) void) void;
 extern fn fuzzer_init(cache_dir: FuzzerSlice) void;
 extern fn fuzzer_coverage_id() u64;
 
@@ -394,8 +394,7 @@ pub fn fuzz(
         }
     };
     if (builtin.fuzz) {
-        @export(&global.fuzzer_one, .{ .name = "fuzzer_one" });
-        fuzzer_start();
+        fuzzer_start(&global.fuzzer_one);
         return;
     }
 
