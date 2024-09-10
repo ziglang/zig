@@ -5258,7 +5258,7 @@ fn getMacroText(unit: *const clang.ASTUnit, c: *const Context, macro: *const cla
     const end_c = c.source_manager.getCharacterData(end_loc);
     const slice_len = @intFromPtr(end_c) - @intFromPtr(begin_c);
 
-    var comp = aro.Compilation.init(c.gpa);
+    var comp = aro.Compilation.init(c.gpa, std.fs.cwd());
     defer comp.deinit();
     const result = comp.addSourceFromBuffer("", begin_c[0..slice_len]) catch return error.OutOfMemory;
 

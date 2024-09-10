@@ -3087,6 +3087,22 @@ test "zig fmt: multiline string" {
     );
 }
 
+test "zig fmt: multiline string with CRLF line endings" {
+    try testTransform("" ++
+        "const s =\r\n" ++
+        "    \\\\one\r\n" ++
+        "    \\\\two)\r\n" ++
+        "    \\\\three\r\n" ++
+        ";\r\n",
+        \\const s =
+        \\    \\one
+        \\    \\two)
+        \\    \\three
+        \\;
+        \\
+    );
+}
+
 test "zig fmt: values" {
     try testCanonical(
         \\test "values" {
@@ -4402,6 +4418,28 @@ test "zig fmt: invalid doc comments on comptime and test blocks" {
         .comptime_doc_comment,
         .test_doc_comment,
     });
+}
+
+test "zig fmt: comments with CRLF line endings" {
+    try testTransform("" ++
+        "//! Top-level doc comment\r\n" ++
+        "//! Continuing to another line\r\n" ++
+        "\r\n" ++
+        "/// Regular doc comment\r\n" ++
+        "const S = struct {\r\n" ++
+        "    // Regular comment\r\n" ++
+        "    // More content\r\n" ++
+        "};\r\n",
+        \\//! Top-level doc comment
+        \\//! Continuing to another line
+        \\
+        \\/// Regular doc comment
+        \\const S = struct {
+        \\    // Regular comment
+        \\    // More content
+        \\};
+        \\
+    );
 }
 
 test "zig fmt: else comptime expr" {

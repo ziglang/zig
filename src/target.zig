@@ -381,6 +381,14 @@ pub fn addrSpaceCastIsValid(
 }
 
 pub fn llvmMachineAbi(target: std.Target) ?[:0]const u8 {
+    // LLD does not support ELFv1. Rather than having LLVM produce ELFv1 code and then linking it
+    // into a broken ELFv2 binary, just force LLVM to use ELFv2 as well. This will break when glibc
+    // is linked as glibc only supports ELFv2 for little endian, but there's nothing we can do about
+    // that. With this hack, `powerpc64-linux-none` will at least work.
+    //
+    // Once our self-hosted linker can handle both ABIs, this hack should go away.
+    if (target.cpu.arch == .powerpc64) return "elfv2";
+
     const have_float = switch (target.abi) {
         .gnueabihf, .musleabihf, .eabihf => true,
         else => false,
@@ -409,7 +417,6 @@ pub fn llvmMachineAbi(target: std.Target) ?[:0]const u8 {
                 return "ilp32";
             }
         },
-        //TODO add ARM, Mips, and PowerPC
         else => return null,
     }
 }

@@ -215,7 +215,8 @@ pub const ElfDynLib = struct {
         const fd = try resolveFromName(path);
         defer posix.close(fd);
 
-        const stat = try posix.fstat(fd);
+        const file: std.fs.File = .{ .handle = fd };
+        const stat = try file.stat();
         const size = std.math.cast(usize, stat.size) orelse return error.FileTooBig;
 
         // This one is to read the ELF info. We do more mmapping later

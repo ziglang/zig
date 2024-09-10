@@ -6333,8 +6333,10 @@ fn ifExpr(
                 const token_name_index = payload_token + @intFromBool(payload_is_ref);
                 const ident_name = try astgen.identAsString(token_name_index);
                 const token_name_str = tree.tokenSlice(token_name_index);
-                if (mem.eql(u8, "_", token_name_str))
+                if (mem.eql(u8, "_", token_name_str)) {
+                    if (payload_is_ref) return astgen.failTok(payload_token, "pointer modifier invalid on discard", .{});
                     break :s &then_scope.base;
+                }
                 try astgen.detectLocalShadowing(&then_scope.base, ident_name, token_name_index, token_name_str, .capture);
                 payload_val_scope = .{
                     .parent = &then_scope.base,
@@ -6357,8 +6359,10 @@ fn ifExpr(
             else
                 .optional_payload_unsafe;
             const ident_bytes = tree.tokenSlice(ident_token);
-            if (mem.eql(u8, "_", ident_bytes))
+            if (mem.eql(u8, "_", ident_bytes)) {
+                if (payload_is_ref) return astgen.failTok(payload_token, "pointer modifier invalid on discard", .{});
                 break :s &then_scope.base;
+            }
             const payload_inst = try then_scope.addUnNode(tag, cond.inst, then_node);
             const ident_name = try astgen.identAsString(ident_token);
             try astgen.detectLocalShadowing(&then_scope.base, ident_name, ident_token, ident_bytes, .capture);
@@ -6581,8 +6585,10 @@ fn whileExpr(
                 opt_payload_inst = payload_inst.toOptional();
                 const ident_token = payload_token + @intFromBool(payload_is_ref);
                 const ident_bytes = tree.tokenSlice(ident_token);
-                if (mem.eql(u8, "_", ident_bytes))
+                if (mem.eql(u8, "_", ident_bytes)) {
+                    if (payload_is_ref) return astgen.failTok(payload_token, "pointer modifier invalid on discard", .{});
                     break :s &then_scope.base;
+                }
                 const ident_name = try astgen.identAsString(ident_token);
                 try astgen.detectLocalShadowing(&then_scope.base, ident_name, ident_token, ident_bytes, .capture);
                 payload_val_scope = .{
@@ -6611,8 +6617,10 @@ fn whileExpr(
             opt_payload_inst = payload_inst.toOptional();
             const ident_name = try astgen.identAsString(ident_token);
             const ident_bytes = tree.tokenSlice(ident_token);
-            if (mem.eql(u8, "_", ident_bytes))
+            if (mem.eql(u8, "_", ident_bytes)) {
+                if (payload_is_ref) return astgen.failTok(payload_token, "pointer modifier invalid on discard", .{});
                 break :s &then_scope.base;
+            }
             try astgen.detectLocalShadowing(&then_scope.base, ident_name, ident_token, ident_bytes, .capture);
             payload_val_scope = .{
                 .parent = &then_scope.base,
@@ -11713,16 +11721,14 @@ fn strLitNodeAsString(astgen: *AstGen, node: Ast.Node.Index) !IndexSlice {
     var tok_i = start;
     {
         const slice = tree.tokenSlice(tok_i);
-        const carriage_return_ending: usize = if (slice[slice.len - 2] == '\r') 2 else 1;
-        const line_bytes = slice[2 .. slice.len - carriage_return_ending];
+        const line_bytes = slice[2..];
         try string_bytes.appendSlice(gpa, line_bytes);
         tok_i += 1;
     }
     // Following lines: each line prepends a newline.
     while (tok_i <= end) : (tok_i += 1) {
         const slice = tree.tokenSlice(tok_i);
-        const carriage_return_ending: usize = if (slice[slice.len - 2] == '\r') 2 else 1;
-        const line_bytes = slice[2 .. slice.len - carriage_return_ending];
+        const line_bytes = slice[2..];
         try string_bytes.ensureUnusedCapacity(gpa, line_bytes.len + 1);
         string_bytes.appendAssumeCapacity('\n');
         string_bytes.appendSliceAssumeCapacity(line_bytes);

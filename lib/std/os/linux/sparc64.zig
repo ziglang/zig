@@ -190,7 +190,7 @@ pub fn clone() callconv(.Naked) usize {
         \\ mov %%i0, %%g2
         \\ mov %%i3, %%g3
         \\ # Shuffle the arguments
-        \\ mov 217, %%g1 # SYS_clone
+        \\ mov 217, %%g1 // SYS_clone
         \\ mov %%i2, %%o0
         \\ # Add some extra space for the initial frame
         \\ sub %%i1, 176 + 2047, %%o1
@@ -214,7 +214,7 @@ pub fn clone() callconv(.Naked) usize {
         \\ call %%g2
         \\ mov %%g3, %%o0
         \\ # Exit
-        \\ mov 1, %%g1 # SYS_exit
+        \\ mov 1, %%g1 // SYS_exit
         \\ t 0x6d
         \\2:
         \\ # The syscall failed

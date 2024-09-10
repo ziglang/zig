@@ -283,7 +283,9 @@ fn _start() callconv(.Naked) noreturn {
             \\ mov fp, #0
             \\ mov lr, #0
             \\ mov a1, sp
-            \\ and sp, #-16
+            \\ mov ip, sp
+            \\ and ip, ip, #-16
+            \\ mov sp, ip
             \\ b %[posixCallMainAndExit]
             ,
             .csky =>

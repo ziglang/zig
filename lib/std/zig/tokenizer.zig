@@ -847,12 +847,10 @@ pub const Tokenizer = struct {
                         break;
                     },
                     '\n' => {
-                        self.index += 1;
                         break;
                     },
                     '\r' => {
                         if (self.buffer[self.index + 1] == '\n') {
-                            self.index += 2;
                             break;
                         } else {
                             state = .invalid;
@@ -1117,7 +1115,6 @@ pub const Tokenizer = struct {
                     },
                     '\r' => {
                         if (self.buffer[self.index + 1] == '\n') {
-                            self.index += 1;
                             result.tag = .doc_comment;
                             break;
                         } else {
@@ -1167,7 +1164,6 @@ pub const Tokenizer = struct {
                     },
                     '\r' => {
                         if (self.buffer[self.index + 1] == '\n') {
-                            self.index += 1;
                             break;
                         } else {
                             state = .invalid;
