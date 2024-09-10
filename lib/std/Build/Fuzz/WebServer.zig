@@ -128,11 +128,11 @@ fn serveRequest(ws: *WebServer, request: *std.http.Server.Request) !void {
         std.mem.eql(u8, request.head.target, "/debug") or
         std.mem.eql(u8, request.head.target, "/debug/"))
     {
-        try serveFile(ws, request, "fuzzer/index.html", "text/html");
+        try serveFile(ws, request, "fuzzer/web/index.html", "text/html");
     } else if (std.mem.eql(u8, request.head.target, "/main.js") or
         std.mem.eql(u8, request.head.target, "/debug/main.js"))
     {
-        try serveFile(ws, request, "fuzzer/main.js", "application/javascript");
+        try serveFile(ws, request, "fuzzer/web/main.js", "application/javascript");
     } else if (std.mem.eql(u8, request.head.target, "/main.wasm")) {
         try serveWasm(ws, request, .ReleaseFast);
     } else if (std.mem.eql(u8, request.head.target, "/debug/main.wasm")) {
@@ -217,7 +217,7 @@ fn buildWasmBinary(
 
     const main_src_path: Build.Cache.Path = .{
         .root_dir = ws.zig_lib_directory,
-        .sub_path = "fuzzer/wasm/main.zig",
+        .sub_path = "fuzzer/web/main.zig",
     };
     const walk_src_path: Build.Cache.Path = .{
         .root_dir = ws.zig_lib_directory,
