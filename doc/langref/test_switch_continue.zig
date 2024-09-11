@@ -5,6 +5,8 @@ test "switch continue" {
     const value: i32 = 54;
 
     const result = sw: switch (value) {
+        // Because all code after `continue` is unreachable, this branch does
+        // not provide a result.
         10...60 => |v| continue :sw v - 10,
         4 => continue :sw 3,
         3 => continue :sw 2,

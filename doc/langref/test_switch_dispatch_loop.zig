@@ -22,8 +22,6 @@ test "switch dispatch loop" {
     var ip: usize = 0;
 
     const result = vm: switch (instructions[ip]) {
-        // Because this prong always `continue`s, it's not required to produce
-        // a result.
         .add => {
             const l = stack.pop();
             const r = stack.pop();
