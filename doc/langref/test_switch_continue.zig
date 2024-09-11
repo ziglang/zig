@@ -1,5 +1,4 @@
 const std = @import("std");
-const expectEqual = std.testing.expectEqual;
 
 test "switch continue" {
     sw: switch (@as(i32, 5)) {
