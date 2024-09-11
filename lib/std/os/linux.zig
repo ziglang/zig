@@ -4536,13 +4536,25 @@ pub const clockid_t = enum(u32) {
     // * The driver implementing this got removed. The clock ID is kept as a
     // * place holder. Do not reuse!
     // Therefore, calling clock_gettime() with these IDs will result in an error.
+    //
+    // Some backgrond:
+    // - SGI_CYCLE was for Silicon Graphics (SGI) workstations,
+    // which are probably no longer in use, so it makes sense to disable
+    // - TAI_CLOCK was designed as CLOCK_REALTIME(UTC) + tai_offset,
+    // but tai_offset was always 0 in the kernel.
+    // So there is no point in using this clock.
     // SGI_CYCLE = 10,
     // TAI = 11,
     _,
 };
 
+// For use with posix.timerfd_create()
+// Actually, the parameter for the timerfd_create() function is in integer,
+// which means that the developer has to figure out which value is appropriate.
+// To make this easier and, above all, safer, because an incorrect value leads
+// to a panic, an enum is introduced which only allows the values
+// that actually work.
 pub const CLOCK_ID = clock_id;
-
 pub const clock_id = enum(u32) {
     REALTIME = 0,
     MONOTONIC = 1,
