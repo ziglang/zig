@@ -6370,7 +6370,7 @@ fn testTransform(source: [:0]const u8, expected_source: []const u8) !void {
     ) catch |err| switch (err) {
         // ArrayList.shrinkAndFree swallows OutOfMemory in Ast.parse
         error.SwallowedOutOfMemoryError => {},
-        else => try err,
+        else => |e| return e,
     };
 }
 fn testCanonical(source: [:0]const u8) !void {
