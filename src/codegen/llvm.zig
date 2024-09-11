@@ -6544,6 +6544,12 @@ pub const FuncGen = struct {
 
         const jmp_table: ?SwitchDispatchInfo.JmpTable = jmp_table: {
             if (!is_dispatch_loop) break :jmp_table null;
+
+            // Workaround for:
+            // * https://github.com/llvm/llvm-project/blob/56905dab7da50bccfcceaeb496b206ff476127e1/llvm/lib/MC/WasmObjectWriter.cpp#L560
+            // * https://github.com/llvm/llvm-project/blob/56905dab7da50bccfcceaeb496b206ff476127e1/llvm/test/MC/WebAssembly/blockaddress.ll
+            if (zcu.comp.getTarget().isWasm()) break :jmp_table null;
+
             // On a 64-bit target, 1024 pointers in our jump table is about 8K of pointers. This seems just
             // about acceptable - it won't fill L1d cache on most CPUs.
             const max_table_len = 1024;
