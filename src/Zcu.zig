@@ -116,7 +116,7 @@ embed_table: std.StringArrayHashMapUnmanaged(*EmbedFile) = .empty,
 /// Stores all Type and Value objects.
 /// The idea is that this will be periodically garbage-collected, but such logic
 /// is not yet implemented.
-intern_pool: InternPool = .{},
+intern_pool: InternPool = .empty,
 
 analysis_in_progress: std.AutoArrayHashMapUnmanaged(AnalUnit, void) = .empty,
 /// The ErrorMsg memory is owned by the `AnalUnit`, using Module's general purpose allocator.
