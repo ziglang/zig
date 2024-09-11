@@ -8986,7 +8986,7 @@ pub extern "c" fn epoll_pwait(
     sigmask: *const sigset_t,
 ) c_int;
 
-pub extern "c" fn timerfd_create(clockid: clockid_t, flags: c_int) c_int;
+pub extern "c" fn timerfd_create(clockid: c_int, flags: c_int) c_int;
 pub extern "c" fn timerfd_settime(
     fd: c_int,
     flags: c_int,

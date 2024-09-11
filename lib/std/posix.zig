@@ -5837,8 +5837,7 @@ pub fn res_mkquery(
     q[i + 3] = class;
 
     // Make a reasonably unpredictable id
-    var ts: timespec = undefined;
-    clock_gettime(.REALTIME, &ts) catch {};
+    const ts = clock_gettime(.REALTIME) catch {};
     const UInt = std.meta.Int(.unsigned, @bitSizeOf(@TypeOf(ts.nsec)));
     const unsec: UInt = @bitCast(ts.nsec);
     const id: u32 = @truncate(unsec + unsec / 65536);
