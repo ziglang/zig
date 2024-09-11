@@ -2501,18 +2501,28 @@ or
       <p>
       When a {#syntax#}switch{#endsyntax#} statement is labeled, it can be
       referenced from a {#syntax#}continue{#endsyntax#} statement. The executed
-      prong is chosen by the value passed to the {#syntax#}continue{#endsyntax#}
+      prong is chosen by the operand of the {#syntax#}continue{#endsyntax#}
       statement, instead of the original value passed to the {#syntax#}
       switch{#endsyntax#} statement.
       </p>
       {#code|test_switch_continue.zig#}
 
-      <p>
-      The intent is to allow the CPU to create an independent branch-prediction
-      cache for each prong, instead of a single branch prediction cache for the
-      switch's entry point. This can improve performance.
-      </p>
       {#code|test_switch_dispatch_loop.zig#}
+
+      <p>
+      If the operand to {#syntax#}continue{#endsyntax#} is
+      {#link|comptime#}-known, then it can be lowered to an unconditional branch
+      to the relevant case. Such a branch is perfectly predicted, and hence
+      typically very fast to execute.
+      </p>
+
+      <p>
+      If the operand is runtime-known, each {#syntax#}continue{#endsyntax#} can
+      embed a conditional branch inline (ideally through a jump table), which
+      allows a CPU to predict its target independently of the other prongs. A
+      loop-based lowering would force every branch through the same dispatch
+      point, hindering branch prediction.
+      </p>
 
       <p>
       As always, any Zig implementation is allowed to compile a labeled switch
