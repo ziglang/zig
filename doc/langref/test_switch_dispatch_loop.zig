@@ -7,46 +7,32 @@ const Instruction = enum {
     end,
 };
 
-test "switch dispatch loop" {
-    var stack = std.ArrayList(i32).init(std.testing.allocator);
-    defer stack.deinit();
-
-    try stack.append(5);
-    try stack.append(1);
-    try stack.append(-1);
-
-    const instructions: []const Instruction = &.{
-        .mul, .add, .end,
-    };
-
+fn evaluate(initial_stack: []const i32, code: []const Instruction) !i32 {
+    var stack = try std.BoundedArray(i32, 8).fromSlice(initial_stack);
     var ip: usize = 0;
 
-    const result = vm: switch (instructions[ip]) {
+    return vm: switch (code[ip]) {
         // Because all code after `continue` is unreachable, this branch does
         // not provide a result.
         .add => {
-            const l = stack.pop();
-            const r = stack.pop();
-
-            try stack.append(l + r);
+            try stack.append(stack.pop() + stack.pop());
 
             ip += 1;
-            continue :vm instructions[ip];
+            continue :vm code[ip];
         },
         .mul => {
-            const l = stack.pop();
-            const r = stack.pop();
-
-            try stack.append(l * r);
+            try stack.append(stack.pop() * stack.pop());
 
             ip += 1;
-            continue :vm instructions[ip];
+            continue :vm code[ip];
         },
         .end => stack.pop(),
     };
+}
 
-    try expectEqual(4, result);
+test "evaluate" {
+    const result = try evaluate(&.{ 7, 2, -3 }, &.{ .mul, .add, .end });
+    try expectEqual(1, result);
 }
 
 // test
-
