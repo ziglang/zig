@@ -2519,7 +2519,7 @@ or
       <p>
       If the operand is runtime-known, each {#syntax#}continue{#endsyntax#} can
       embed a conditional branch inline (ideally through a jump table), which
-      allows a CPU to predict its target independently of the other prongs. A
+      allows a CPU to predict its target independently of any other prong. A
       loop-based lowering would force every branch through the same dispatch
       point, hindering branch prediction.
       </p>
