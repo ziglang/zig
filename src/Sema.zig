@@ -38334,14 +38334,6 @@ fn resolveDeclaredEnumInner(
 
     wip_ty.setTagTy(ip, int_tag_ty.toIntern());
 
-    if (small.nonexhaustive and int_tag_ty.toIntern() != .comptime_int_type) {
-        if (fields_len > 1 and std.math.log2_int(u64, fields_len) == int_tag_ty.bitSize(zcu) or
-            fields_len >= 1 and int_tag_ty.bitSize(zcu) == 0)
-        {
-            return sema.fail(block, src, "non-exhaustive enum specifies every value", .{});
-        }
-    }
-
     var extra_index = body_end + bit_bags_count;
     var bit_bag_index: usize = body_end;
     var cur_bit_bag: u32 = undefined;
@@ -38426,6 +38418,11 @@ fn resolveDeclaredEnumInner(
                 last_tag_val.?.fmtValueSema(pt, sema), int_tag_ty.fmt(pt),
             });
             return sema.failWithOwnedErrorMsg(block, msg);
+        }
+    }
+    if (small.nonexhaustive and int_tag_ty.toIntern() != .comptime_int_type) {
+        if (fields_len >= 1 and std.math.log2_int(u64, fields_len) == int_tag_ty.bitSize(zcu)) {
+            return sema.fail(block, src, "non-exhaustive enum specifies every value", .{});
         }
     }
 }
