@@ -2054,7 +2054,7 @@ pub fn eventfd(count: u32, flags: u32) usize {
     return syscall2(.eventfd2, count, flags);
 }
 
-pub fn timerfd_create(clockid: clockid_t, flags: TFD) usize {
+pub fn timerfd_create(clockid: clock_id, flags: TFD) usize {
     return syscall2(
         .timerfd_create,
         @intFromEnum(clockid),
@@ -4535,9 +4535,17 @@ pub const clockid_t = enum(u32) {
     // In the linux kernel header file (time.h) is the following note:
     // * The driver implementing this got removed. The clock ID is kept as a
     // * place holder. Do not reuse!
-    // Therefore, calling timerfd_create() with these IDs will result in an error.
+    // Therefore, calling clock_gettime() with these IDs will result in an error.
     // SGI_CYCLE = 10,
     // TAI = 11,
+    _,
+};
+
+pub const CLOCK_ID = clock_id;
+
+pub const clock_id = enum(u32) {
+    REALTIME = 0,
+    MONOTONIC = 1,
     _,
 };
 
