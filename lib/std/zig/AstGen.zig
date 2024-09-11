@@ -7811,9 +7811,7 @@ fn switchExpr(
     const switch_block = try parent_gz.makeBlockInst(switch_tag, node);
 
     if (switch_full.label_token) |label_token| {
-        block_scope.break_block = switch_block.toOptional();
         block_scope.continue_block = switch_block.toOptional();
-        // `break_result_info` already set above
         block_scope.continue_result_info = .{
             .rl = if (any_payload_is_ref)
                 .{ .ref_coerced_ty = raw_operand_ty_ref }
@@ -7825,6 +7823,8 @@ fn switchExpr(
             .token = label_token,
             .block_inst = switch_block,
         };
+        // `break` can target this via `label.block_inst`
+        // `break_result_info` already set by `setBreakResultInfo`
     }
 
     // We re-use this same scope for all cases, including the special prong, if any.
