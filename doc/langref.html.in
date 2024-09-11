@@ -2499,12 +2499,18 @@ or
 
       {#header_open|Labeled switch#}
       <p>
-      When a {#syntax#}switch{#endsyntax#} statement is labeled, it can be referenced from a {#syntax#}continue{#endsyntax#} statement. The executed prong is chosen by the value passed to the {#syntax#}continue{#endsyntax#} statement, instead of the original value passed to the {#syntax#}switch{#endsyntax#} statement.
+      When a {#syntax#}switch{#endsyntax#} statement is labeled, it can be
+      referenced from a {#syntax#}continue{#endsyntax#} statement. The executed
+      prong is chosen by the value passed to the {#syntax#}continue{#endsyntax#}
+      statement, instead of the original value passed to the {#syntax#}
+      switch{#endsyntax#} statement.
       </p>
       {#code|test_switch_continue.zig#}
 
       <p>
-      The intent is to allow the CPU to create an independent branch-prediction cache for each prong, instead of a single branch prediction cache for the switch's entry point. This can improve performance.
+      The intent is to allow the CPU to create an independent branch-prediction
+      cache for each prong, instead of a single branch prediction cache for the
+      switch's entry point. This can improve performance.
       </p>
       <p>
       As always, any Zig implementation is allowed to compile a labeled switch
