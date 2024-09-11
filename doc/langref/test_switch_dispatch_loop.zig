@@ -2,8 +2,8 @@ const std = @import("std");
 const expectEqual = std.testing.expectEqual;
 
 const Instruction = enum {
-    mul,
     add,
+    mul,
     end,
 };
 
