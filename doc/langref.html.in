@@ -2514,7 +2514,7 @@ or
       {#code|test_switch_continue.zig#}
 
       <p>
-      Semantically, this is equivalent to the following:
+      Semantically, this is equivalent to the following loop:
       </p>
       {#code|test_switch_continue_semantics.zig#}
 
