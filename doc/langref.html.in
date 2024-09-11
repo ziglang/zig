@@ -2513,6 +2513,11 @@ or
 
       {#code|test_switch_continue.zig#}
 
+      <p>
+      Semantically, this is equivalent to the following:
+      </p>
+      {#code|test_switch_continue_semantics.zig#}
+
       {#code|test_switch_dispatch_loop.zig#}
 
       <p>
