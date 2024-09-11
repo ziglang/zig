@@ -6363,7 +6363,15 @@ fn testTransformImpl(allocator: mem.Allocator, fba: *std.heap.FixedBufferAllocat
 }
 fn testTransform(source: [:0]const u8, expected_source: []const u8) !void {
     var fixed_allocator = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
-    return std.testing.checkAllAllocationFailures(fixed_allocator.allocator(), testTransformImpl, .{ &fixed_allocator, source, expected_source });
+    std.testing.checkAllAllocationFailures(
+        fixed_allocator.allocator(),
+        testTransformImpl,
+        .{ &fixed_allocator, source, expected_source },
+    ) catch |err| switch (err) {
+        // ArrayList.shrinkAndFree swallows OutOfMemory in Ast.parse
+        error.SwallowedOutOfMemoryError => {},
+        else => try err,
+    };
 }
 fn testCanonical(source: [:0]const u8) !void {
     return testTransform(source, source);
