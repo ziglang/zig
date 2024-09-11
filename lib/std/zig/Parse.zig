@@ -1,5 +1,16 @@
 //! Represents in-progress parsing, will be converted to an Ast after completion.
 
+const Parse = @This();
+
+const std = @import("../std.zig");
+const assert = std.debug.assert;
+const Allocator = std.mem.Allocator;
+const Ast = std.zig.Ast;
+const Node = Ast.Node;
+const AstError = Ast.Error;
+const TokenIndex = Ast.TokenIndex;
+const Token = std.zig.Token;
+
 pub const Error = error{ParseError} || Allocator.Error;
 
 gpa: Allocator,
@@ -1161,17 +1172,19 @@ fn expectVarDeclExprStatement(p: *Parse, comptime_token: ?TokenIndex) !Node.Inde
 /// statement, returns 0.
 fn expectStatementRecoverable(p: *Parse) Error!Node.Index {
     while (true) {
-        return p.expectStatement(true) catch |err| switch (err) {
+        if (p.expectStatement(true)) |index| {
+            return index;
+        } else |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             error.ParseError => {
                 p.findNextStmt(); // Try to skip to the next statement.
                 switch (p.token_tags[p.tok_i]) {
                     .r_brace => return null_node,
                     .eof => return error.ParseError,
-                    else => continue,
+                    else => {},
                 }
             },
-        };
+        }
     }
 }
 
@@ -4051,16 +4064,6 @@ fn nextToken(p: *Parse) TokenIndex {
 }
 
 const null_node: Node.Index = 0;
-
-const Parse = @This();
-const std = @import("../std.zig");
-const assert = std.debug.assert;
-const Allocator = std.mem.Allocator;
-const Ast = std.zig.Ast;
-const Node = Ast.Node;
-const AstError = Ast.Error;
-const TokenIndex = Ast.TokenIndex;
-const Token = std.zig.Token;
 
 test {
     _ = @import("parser_test.zig");

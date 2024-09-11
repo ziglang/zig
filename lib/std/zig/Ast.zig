@@ -4,6 +4,17 @@
 //! For Zon syntax, the root node is at nodes[0] and contains lhs as the node
 //! index of the main expression.
 
+const Ast = @This();
+
+const std = @import("../std.zig");
+const assert = std.debug.assert;
+const mem = std.mem;
+const Tokenizer = std.zig.Tokenizer;
+const Token = std.zig.Token;
+const Allocator = std.mem.Allocator;
+const Parse = @import("Parse.zig");
+const private_render = @import("./render.zig");
+
 /// Reference to externally-owned data.
 source: [:0]const u8,
 
@@ -60,18 +71,22 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, mode: Mode) Allocator.Error!A
     var tokens = Ast.TokenList{};
     defer tokens.deinit(gpa);
 
-    // Empirically, the zig std lib has an 8:1 ratio of source bytes to token count.
-    const estimated_token_count = source.len / 8;
-    try tokens.ensureTotalCapacity(gpa, estimated_token_count);
+    var tokenizer: Tokenizer = .init(source);
 
-    var tokenizer = std.zig.Tokenizer.init(source);
-    while (true) {
-        const token = tokenizer.next();
-        try tokens.append(gpa, .{
-            .tag = token.tag,
-            .start = @intCast(token.loc.start),
-        });
-        if (token.tag == .eof) break;
+    outer: while (true) {
+        const bytes_left = tokenizer.buffer.len - tokenizer.index;
+        // Empirically, the zig std lib has an 8:1 ratio of source bytes to token count.
+        const estimated_count = @max(64, bytes_left / 8);
+        try tokens.ensureUnusedCapacity(gpa, estimated_count);
+        for (0..estimated_count) |_| {
+            const token = tokenizer.next();
+            // we are always appending less than or equal to the buffer capacity
+            tokens.appendAssumeCapacity(.{
+                .tag = token.tag,
+                .start = @intCast(token.loc.start),
+            });
+            if (token.tag == .eof) break :outer;
+        }
     }
 
     var parser: Parse = .{
@@ -101,6 +116,13 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, mode: Mode) Allocator.Error!A
     }
 
     // TODO experiment with compacting the MultiArrayList slices here
+
+    // Save memory by freeing the allocated (but not used) sections:
+    tokens.shrinkAndFree(gpa, tokens.len);
+    parser.nodes.shrinkAndFree(gpa, parser.nodes.len);
+    parser.extra_data.shrinkAndFree(gpa, parser.extra_data.items.len);
+    parser.errors.shrinkAndFree(gpa, parser.errors.items.len);
+
     return Ast{
         .source = source,
         .mode = mode,
@@ -130,10 +152,11 @@ pub fn renderToArrayList(tree: Ast, buffer: *std.ArrayList(u8), fixups: Fixups) 
 /// Returns an extra offset for column and byte offset of errors that
 /// should point after the token in the error message.
 pub fn errorOffset(tree: Ast, parse_error: Error) u32 {
-    return if (parse_error.token_is_prev)
-        @as(u32, @intCast(tree.tokenSlice(parse_error.token).len))
-    else
-        0;
+    if (parse_error.token_is_prev) {
+        return @intCast(tree.tokenSlice(parse_error.token).len);
+    } else {
+        return 0;
+    }
 }
 
 pub fn tokenLocation(self: Ast, start_offset: ByteOffset, token_index: TokenIndex) Location {
@@ -185,7 +208,7 @@ pub fn tokenSlice(tree: Ast, token_index: TokenIndex) []const u8 {
     }
 
     // For some tokens, re-tokenization is needed to find the end.
-    var tokenizer: std.zig.Tokenizer = .{
+    var tokenizer: Tokenizer = .{
         .buffer = tree.source,
         .index = token_starts[token_index],
     };
@@ -212,263 +235,111 @@ pub fn rootDecls(tree: Ast) []const Node.Index {
 
 pub fn renderError(tree: Ast, parse_error: Error, stream: anytype) !void {
     const token_tags = tree.tokens.items(.tag);
-    switch (parse_error.tag) {
-        .asterisk_after_ptr_deref => {
-            // Note that the token will point at the `.*` but ideally the source
-            // location would point to the `*` after the `.*`.
-            return stream.writeAll("'.*' cannot be followed by '*'. Are you missing a space?");
-        },
-        .chained_comparison_operators => {
-            return stream.writeAll("comparison operators cannot be chained");
-        },
-        .decl_between_fields => {
-            return stream.writeAll("declarations are not allowed between container fields");
-        },
-        .expected_block => {
-            return stream.print("expected block, found '{s}'", .{
-                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
-            });
-        },
-        .expected_block_or_assignment => {
-            return stream.print("expected block or assignment, found '{s}'", .{
-                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
-            });
-        },
-        .expected_block_or_expr => {
-            return stream.print("expected block or expression, found '{s}'", .{
-                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
-            });
-        },
-        .expected_block_or_field => {
-            return stream.print("expected block or field, found '{s}'", .{
-                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
-            });
-        },
-        .expected_container_members => {
-            return stream.print("expected test, comptime, var decl, or container field, found '{s}'", .{
-                token_tags[parse_error.token].symbol(),
-            });
-        },
-        .expected_expr => {
-            return stream.print("expected expression, found '{s}'", .{
-                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
-            });
-        },
-        .expected_expr_or_assignment => {
-            return stream.print("expected expression or assignment, found '{s}'", .{
-                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
-            });
-        },
-        .expected_expr_or_var_decl => {
-            return stream.print("expected expression or var decl, found '{s}'", .{
-                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
-            });
-        },
-        .expected_fn => {
-            return stream.print("expected function, found '{s}'", .{
-                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
-            });
-        },
-        .expected_inlinable => {
-            return stream.print("expected 'while' or 'for', found '{s}'", .{
-                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
-            });
-        },
-        .expected_labelable => {
-            return stream.print("expected 'while', 'for', 'inline', or '{{', found '{s}'", .{
-                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
-            });
-        },
-        .expected_param_list => {
-            return stream.print("expected parameter list, found '{s}'", .{
-                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
-            });
-        },
-        .expected_prefix_expr => {
-            return stream.print("expected prefix expression, found '{s}'", .{
-                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
-            });
-        },
-        .expected_primary_type_expr => {
-            return stream.print("expected primary type expression, found '{s}'", .{
-                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
-            });
-        },
-        .expected_pub_item => {
-            return stream.writeAll("expected function or variable declaration after pub");
-        },
-        .expected_return_type => {
-            return stream.print("expected return type expression, found '{s}'", .{
-                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
-            });
-        },
-        .expected_semi_or_else => {
-            return stream.writeAll("expected ';' or 'else' after statement");
-        },
-        .expected_semi_or_lbrace => {
-            return stream.writeAll("expected ';' or block after function prototype");
-        },
-        .expected_statement => {
-            return stream.print("expected statement, found '{s}'", .{
-                token_tags[parse_error.token].symbol(),
-            });
-        },
-        .expected_suffix_op => {
-            return stream.print("expected pointer dereference, optional unwrap, or field access, found '{s}'", .{
-                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
-            });
-        },
-        .expected_type_expr => {
-            return stream.print("expected type expression, found '{s}'", .{
-                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
-            });
-        },
-        .expected_var_decl => {
-            return stream.print("expected variable declaration, found '{s}'", .{
-                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
-            });
-        },
-        .expected_var_decl_or_fn => {
-            return stream.print("expected variable declaration or function, found '{s}'", .{
-                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
-            });
-        },
-        .expected_loop_payload => {
-            return stream.print("expected loop payload, found '{s}'", .{
-                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
-            });
-        },
-        .expected_container => {
-            return stream.print("expected a struct, enum or union, found '{s}'", .{
-                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
-            });
-        },
-        .extern_fn_body => {
-            return stream.writeAll("extern functions have no body");
-        },
-        .extra_addrspace_qualifier => {
-            return stream.writeAll("extra addrspace qualifier");
-        },
-        .extra_align_qualifier => {
-            return stream.writeAll("extra align qualifier");
-        },
-        .extra_allowzero_qualifier => {
-            return stream.writeAll("extra allowzero qualifier");
-        },
-        .extra_const_qualifier => {
-            return stream.writeAll("extra const qualifier");
-        },
-        .extra_volatile_qualifier => {
-            return stream.writeAll("extra volatile qualifier");
-        },
-        .ptr_mod_on_array_child_type => {
-            return stream.print("pointer modifier '{s}' not allowed on array child type", .{
-                token_tags[parse_error.token].symbol(),
-            });
-        },
-        .invalid_bit_range => {
-            return stream.writeAll("bit range not allowed on slices and arrays");
-        },
-        .same_line_doc_comment => {
-            return stream.writeAll("same line documentation comment");
-        },
-        .unattached_doc_comment => {
-            return stream.writeAll("unattached documentation comment");
-        },
-        .test_doc_comment => {
-            return stream.writeAll("documentation comments cannot be attached to tests");
-        },
-        .comptime_doc_comment => {
-            return stream.writeAll("documentation comments cannot be attached to comptime blocks");
-        },
-        .varargs_nonfinal => {
-            return stream.writeAll("function prototype has parameter after varargs");
-        },
-        .expected_continue_expr => {
-            return stream.writeAll("expected ':' before while continue expression");
-        },
+    const error_message: []const u8 = switch (parse_error.tag) {
+        // Note that the token will point at the `.*` but ideally the source
+        // location would point to the `*` after the `.*`.
+        .asterisk_after_ptr_deref => "'.*' cannot be followed by '*'. Are you missing a space?",
+        .chained_comparison_operators => "comparison operators cannot be chained",
+        .decl_between_fields => "declarations are not allowed between container fields",
+        .expected_pub_item => "expected function or variable declaration after pub",
+        .expected_semi_or_else => "expected ';' or 'else' after statement",
+        .expected_semi_or_lbrace => "expected ';' or block after function prototype",
+        .extern_fn_body => "extern functions have no body",
+        .extra_addrspace_qualifier => "extra addrspace qualifier",
+        .extra_align_qualifier => "extra align qualifier",
+        .extra_allowzero_qualifier => "extra allowzero qualifier",
+        .extra_const_qualifier => "extra const qualifier",
+        .extra_volatile_qualifier => "extra volatile qualifier",
+        .invalid_bit_range => "bit range not allowed on slices and arrays",
+        .same_line_doc_comment => "same line documentation comment",
+        .unattached_doc_comment => "unattached documentation comment",
+        .test_doc_comment => "documentation comments cannot be attached to tests",
+        .comptime_doc_comment => "documentation comments cannot be attached to comptime blocks",
+        .varargs_nonfinal => "function prototype has parameter after varargs",
+        .expected_continue_expr => "expected ':' before while continue expression",
+        .expected_semi_after_decl => "expected ';' after declaration",
+        .expected_semi_after_stmt => "expected ';' after statement",
+        .expected_comma_after_field => "expected ',' after field",
+        .expected_comma_after_arg => "expected ',' after argument",
+        .expected_comma_after_param => "expected ',' after parameter",
+        .expected_comma_after_initializer => "expected ',' after initializer",
+        .expected_comma_after_switch_prong => "expected ',' after switch prong",
+        .expected_comma_after_for_operand => "expected ',' after for operand",
+        .expected_comma_after_capture => "expected ',' after for capture",
+        .expected_initializer => "expected field initializer",
+        .previous_field => "field before declarations here",
+        .next_field => "field after declarations here",
+        .expected_var_const => "expected 'var' or 'const' before variable declaration",
+        .wrong_equal_var_decl => "variable initialized with '==' instead of '='",
+        .var_const_decl => "use 'var' or 'const' to declare variable",
+        .extra_for_capture => "extra capture in for loop",
+        .for_input_not_captured => "for input is not captured",
+        .invalid_ampersand_ampersand => "ambiguous use of '&&'; use 'and' for logical AND, or change whitespace to ' & &' for bitwise AND",
 
-        .expected_semi_after_decl => {
-            return stream.writeAll("expected ';' after declaration");
-        },
-        .expected_semi_after_stmt => {
-            return stream.writeAll("expected ';' after statement");
-        },
-        .expected_comma_after_field => {
-            return stream.writeAll("expected ',' after field");
-        },
-        .expected_comma_after_arg => {
-            return stream.writeAll("expected ',' after argument");
-        },
-        .expected_comma_after_param => {
-            return stream.writeAll("expected ',' after parameter");
-        },
-        .expected_comma_after_initializer => {
-            return stream.writeAll("expected ',' after initializer");
-        },
-        .expected_comma_after_switch_prong => {
-            return stream.writeAll("expected ',' after switch prong");
-        },
-        .expected_comma_after_for_operand => {
-            return stream.writeAll("expected ',' after for operand");
-        },
-        .expected_comma_after_capture => {
-            return stream.writeAll("expected ',' after for capture");
-        },
-        .expected_initializer => {
-            return stream.writeAll("expected field initializer");
-        },
-        .mismatched_binary_op_whitespace => {
-            return stream.print("binary operator `{s}` has whitespace on one side, but not the other.", .{token_tags[parse_error.token].lexeme().?});
-        },
-        .invalid_ampersand_ampersand => {
-            return stream.writeAll("ambiguous use of '&&'; use 'and' for logical AND, or change whitespace to ' & &' for bitwise AND");
-        },
-        .c_style_container => {
-            return stream.print("'{s} {s}' is invalid", .{
-                parse_error.extra.expected_tag.symbol(), tree.tokenSlice(parse_error.token),
-            });
-        },
-        .zig_style_container => {
-            return stream.print("to declare a container do 'const {s} = {s}'", .{
-                tree.tokenSlice(parse_error.token), parse_error.extra.expected_tag.symbol(),
-            });
-        },
-        .previous_field => {
-            return stream.writeAll("field before declarations here");
-        },
-        .next_field => {
-            return stream.writeAll("field after declarations here");
-        },
-        .expected_var_const => {
-            return stream.writeAll("expected 'var' or 'const' before variable declaration");
-        },
-        .wrong_equal_var_decl => {
-            return stream.writeAll("variable initialized with '==' instead of '='");
-        },
-        .var_const_decl => {
-            return stream.writeAll("use 'var' or 'const' to declare variable");
-        },
-        .extra_for_capture => {
-            return stream.writeAll("extra capture in for loop");
-        },
-        .for_input_not_captured => {
-            return stream.writeAll("for input is not captured");
-        },
+        // error messages that format their error message
+        else => {
+            const real_token_offset = @intFromBool(parse_error.token_is_prev);
+            // This is the symbol of the token causing the error:
+            const issue_symbol = token_tags[parse_error.token + real_token_offset].symbol();
+            // This is the symbol of the token which caused the error to bubble up:
+            const current_symbol = token_tags[parse_error.token].symbol();
+            return switch (parse_error.tag) {
+                .expected_block => try stream.print("expected block, found '{s}'", .{issue_symbol}),
+                .expected_block_or_assignment => try stream.print("expected block or assignment, found '{s}'", .{issue_symbol}),
+                .expected_block_or_expr => try stream.print("expected block or expression, found '{s}'", .{issue_symbol}),
+                .expected_block_or_field => try stream.print("expected block or field, found '{s}'", .{issue_symbol}),
+                .expected_expr => try stream.print("expected expression, found '{s}'", .{issue_symbol}),
+                .expected_expr_or_assignment => try stream.print("expected expression or assignment, found '{s}'", .{issue_symbol}),
+                .expected_expr_or_var_decl => try stream.print("expected expression or var decl, found '{s}'", .{issue_symbol}),
+                .expected_fn => try stream.print("expected function, found '{s}'", .{issue_symbol}),
+                .expected_inlinable => try stream.print("expected 'while' or 'for', found '{s}'", .{issue_symbol}),
+                .expected_labelable => try stream.print("expected 'while', 'for', 'inline', or '{{', found '{s}'", .{issue_symbol}),
+                .expected_param_list => try stream.print("expected parameter list, found '{s}'", .{issue_symbol}),
+                .expected_prefix_expr => try stream.print("expected prefix expression, found '{s}'", .{issue_symbol}),
+                .expected_primary_type_expr => try stream.print("expected primary type expression, found '{s}'", .{issue_symbol}),
+                .expected_return_type => try stream.print("expected return type expression, found '{s}'", .{issue_symbol}),
+                .expected_suffix_op => try stream.print("expected pointer dereference, optional unwrap, or field access, found '{s}'", .{issue_symbol}),
+                .expected_type_expr => try stream.print("expected type expression, found '{s}'", .{issue_symbol}),
+                .expected_var_decl => try stream.print("expected variable declaration, found '{s}'", .{issue_symbol}),
+                .expected_var_decl_or_fn => try stream.print("expected variable declaration or function, found '{s}'", .{issue_symbol}),
+                .expected_loop_payload => try stream.print("expected loop payload, found '{s}'", .{issue_symbol}),
+                .expected_container => try stream.print("expected a struct, enum or union, found '{s}'", .{issue_symbol}),
 
-        .expected_token => {
-            const found_tag = token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)];
-            const expected_symbol = parse_error.extra.expected_tag.symbol();
-            switch (found_tag) {
-                .invalid => return stream.print("expected '{s}', found invalid bytes", .{
-                    expected_symbol,
+                .expected_container_members => try stream.print("expected test, comptime, var decl, or container field, found '{s}'", .{current_symbol}),
+                .expected_statement => try stream.print("expected statement, found '{s}'", .{current_symbol}),
+                .ptr_mod_on_array_child_type => try stream.print("pointer modifier '{s}' not allowed on array child type", .{current_symbol}),
+
+                .mismatched_binary_op_whitespace => try stream.print(
+                    "binary operator `{s}` has whitespace on one side, but not the other.",
+                    .{token_tags[parse_error.token].lexeme().?},
+                ),
+                .c_style_container => try stream.print("'{s} {s}' is invalid", .{
+                    parse_error.extra.expected_tag.symbol(),
+                    tree.tokenSlice(parse_error.token),
                 }),
-                else => return stream.print("expected '{s}', found '{s}'", .{
-                    expected_symbol, found_tag.symbol(),
+                .zig_style_container => try stream.print("to declare a container do 'const {s} = {s}'", .{
+                    tree.tokenSlice(parse_error.token),
+                    parse_error.extra.expected_tag.symbol(),
                 }),
-            }
+                .expected_token => blk: {
+                    const found_tag = token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)];
+                    const expected_symbol = parse_error.extra.expected_tag.symbol();
+                    break :blk switch (found_tag) {
+                        .invalid => try stream.print(
+                            "expected '{s}', found invalid bytes",
+                            .{expected_symbol},
+                        ),
+                        else => try stream.print("expected '{s}', found '{s}'", .{
+                            expected_symbol,
+                            found_tag.symbol(),
+                        }),
+                    };
+                },
+                else => unreachable,
+            };
         },
-    }
+    };
+    try stream.writeAll(error_message);
 }
 
 pub fn firstToken(tree: Ast, node: Node.Index) TokenIndex {
@@ -3649,16 +3520,6 @@ pub fn tokensToSpan(tree: *const Ast, start: Ast.TokenIndex, end: Ast.TokenIndex
     const end_off = token_starts[end_tok] + @as(u32, @intCast(tree.tokenSlice(end_tok).len));
     return Span{ .start = start_off, .end = end_off, .main = token_starts[main] };
 }
-
-const std = @import("../std.zig");
-const assert = std.debug.assert;
-const testing = std.testing;
-const mem = std.mem;
-const Token = std.zig.Token;
-const Ast = @This();
-const Allocator = std.mem.Allocator;
-const Parse = @import("Parse.zig");
-const private_render = @import("./render.zig");
 
 test {
     _ = Parse;
