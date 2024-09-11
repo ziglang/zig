@@ -1,4 +1,4 @@
-const std = @import("../std.zig");
+const std = @import("std");
 const posix = std.posix;
 const testing = std.testing;
 const expect = testing.expect;
@@ -1121,7 +1121,7 @@ test "access smoke test" {
 test "timerfd" {
     if (native_os != .linux) return error.SkipZigTest;
 
-    const tfd = try posix.timerfd_create(linux.CLOCK_ID.MONOTONIC, .{ .CLOEXEC = true });
+    const tfd = try posix.timerfd_create(posix.system.clock_id.MONOTONIC, .{ .CLOEXEC = true });
     defer posix.close(tfd);
 
     // Fire event 10_000_000ns = 10ms after the posix.timerfd_settime call.
