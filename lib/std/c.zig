@@ -210,6 +210,19 @@ pub const ARCH = switch (native_os) {
     .linux => linux.ARCH,
     else => void,
 };
+
+// For use with timerfd_create()
+// tested on Linux and FreeBSD
+pub const CLOCK_ID = clock_id;
+pub const clock_id = switch (native_os) {
+    .linux, .freebsd => enum(u32) {
+        REALTIME = 0,
+        MONOTONIC = 1,
+        _,
+    },
+    else => void,
+};
+
 pub const CLOCK = clockid_t;
 pub const clockid_t = switch (native_os) {
     .linux, .emscripten => linux.clockid_t,
