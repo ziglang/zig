@@ -35,10 +35,7 @@ pub fn intMaxType(target: std.Target) Type {
 
 /// intptr_t for this target
 pub fn intPtrType(target: std.Target) Type {
-    switch (target.os.tag) {
-        .haiku => return .{ .specifier = .long },
-        else => {},
-    }
+    if (target.os.tag == .haiku) return .{ .specifier = .long };
 
     switch (target.cpu.arch) {
         .aarch64, .aarch64_be => switch (target.os.tag) {
@@ -125,6 +122,14 @@ pub fn int64Type(target: std.Target) Type {
         else => {},
     }
     return .{ .specifier = .long_long };
+}
+
+pub fn float80Type(target: std.Target) ?Type {
+    switch (target.cpu.arch) {
+        .x86, .x86_64 => return .{ .specifier = .long_double },
+        else => {},
+    }
+    return null;
 }
 
 /// This function returns 1 if function alignment is not observable or settable.
@@ -474,6 +479,7 @@ pub fn get32BitArchVariant(target: std.Target) ?std.Target {
         .kalimba,
         .lanai,
         .wasm32,
+        .spirv,
         .spirv32,
         .loongarch32,
         .dxil,
@@ -544,6 +550,7 @@ pub fn get64BitArchVariant(target: std.Target) ?std.Target {
         .powerpcle => copy.cpu.arch = .powerpc64le,
         .riscv32 => copy.cpu.arch = .riscv64,
         .sparc => copy.cpu.arch = .sparc64,
+        .spirv => copy.cpu.arch = .spirv64,
         .spirv32 => copy.cpu.arch = .spirv64,
         .thumb => copy.cpu.arch = .aarch64,
         .thumbeb => copy.cpu.arch = .aarch64_be,
@@ -599,6 +606,7 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .xtensa => "xtensa",
         .nvptx => "nvptx",
         .nvptx64 => "nvptx64",
+        .spirv => "spirv",
         .spirv32 => "spirv32",
         .spirv64 => "spirv64",
         .kalimba => "kalimba",
@@ -646,9 +654,10 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .ios => "ios",
         .tvos => "tvos",
         .watchos => "watchos",
-        .visionos => "xros",
         .driverkit => "driverkit",
         .shadermodel => "shadermodel",
+        .visionos => "xros",
+        .serenity => "serenity",
         .opencl,
         .opengl,
         .vulkan,
@@ -707,6 +716,7 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .callable => "callable",
         .mesh => "mesh",
         .amplification => "amplification",
+        .ohos => "openhos",
     };
     writer.writeAll(llvm_abi) catch unreachable;
     return stream.getWritten();

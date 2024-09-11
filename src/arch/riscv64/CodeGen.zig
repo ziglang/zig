@@ -32,7 +32,6 @@ const Alignment = InternPool.Alignment;
 
 const CodeGenError = codegen.CodeGenError;
 const Result = codegen.Result;
-const DebugInfoOutput = codegen.DebugInfoOutput;
 
 const bits = @import("bits.zig");
 const abi = @import("abi.zig");
@@ -61,7 +60,7 @@ gpa: Allocator,
 
 mod: *Package.Module,
 target: *const std.Target,
-debug_output: DebugInfoOutput,
+debug_output: link.File.DebugInfoOutput,
 err_msg: ?*ErrorMsg,
 args: []MCValue,
 ret_mcv: InstTracking,
@@ -760,7 +759,7 @@ pub fn generate(
     air: Air,
     liveness: Liveness,
     code: *std.ArrayList(u8),
-    debug_output: DebugInfoOutput,
+    debug_output: link.File.DebugInfoOutput,
 ) CodeGenError!Result {
     const zcu = pt.zcu;
     const comp = zcu.comp;
@@ -928,7 +927,7 @@ pub fn generateLazy(
     src_loc: Zcu.LazySrcLoc,
     lazy_sym: link.File.LazySymbol,
     code: *std.ArrayList(u8),
-    debug_output: DebugInfoOutput,
+    debug_output: link.File.DebugInfoOutput,
 ) CodeGenError!Result {
     const comp = bin_file.comp;
     const gpa = comp.gpa;

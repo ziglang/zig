@@ -25,7 +25,6 @@ const Alignment = InternPool.Alignment;
 
 const CodeGenError = codegen.CodeGenError;
 const Result = codegen.Result;
-const DebugInfoOutput = codegen.DebugInfoOutput;
 
 const bits = @import("bits.zig");
 const abi = @import("abi.zig");
@@ -48,7 +47,7 @@ pt: Zcu.PerThread,
 air: Air,
 liveness: Liveness,
 bin_file: *link.File,
-debug_output: DebugInfoOutput,
+debug_output: link.File.DebugInfoOutput,
 target: *const std.Target,
 func_index: InternPool.Index,
 owner_nav: InternPool.Nav.Index,
@@ -327,7 +326,7 @@ pub fn generate(
     air: Air,
     liveness: Liveness,
     code: *std.ArrayList(u8),
-    debug_output: DebugInfoOutput,
+    debug_output: link.File.DebugInfoOutput,
 ) CodeGenError!Result {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;

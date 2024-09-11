@@ -633,20 +633,33 @@ pub fn getNavVAddr(
     };
     const sym = self.symbols.items[sym_index];
     const vaddr = sym.getAddress(.{}, macho_file);
-    const parent_atom = self.symbols.items[reloc_info.parent_atom_index].getAtom(macho_file).?;
-    try parent_atom.addReloc(macho_file, .{
-        .tag = .@"extern",
-        .offset = @intCast(reloc_info.offset),
-        .target = sym_index,
-        .addend = reloc_info.addend,
-        .type = .unsigned,
-        .meta = .{
-            .pcrel = false,
-            .has_subtractor = false,
-            .length = 3,
-            .symbolnum = @intCast(sym.nlist_idx),
+    switch (reloc_info.parent) {
+        .atom_index => |atom_index| {
+            const parent_atom = self.symbols.items[atom_index].getAtom(macho_file).?;
+            try parent_atom.addReloc(macho_file, .{
+                .tag = .@"extern",
+                .offset = @intCast(reloc_info.offset),
+                .target = sym_index,
+                .addend = reloc_info.addend,
+                .type = .unsigned,
+                .meta = .{
+                    .pcrel = false,
+                    .has_subtractor = false,
+                    .length = 3,
+                    .symbolnum = @intCast(sym.nlist_idx),
+                },
+            });
         },
-    });
+        .debug_output => |debug_output| switch (debug_output) {
+            .dwarf => |wip_nav| try wip_nav.infoExternalReloc(.{
+                .source_off = @intCast(reloc_info.offset),
+                .target_sym = sym_index,
+                .target_off = reloc_info.addend,
+            }),
+            .plan9 => unreachable,
+            .none => unreachable,
+        },
+    }
     return vaddr;
 }
 
@@ -659,20 +672,33 @@ pub fn getUavVAddr(
     const sym_index = self.uavs.get(uav).?.symbol_index;
     const sym = self.symbols.items[sym_index];
     const vaddr = sym.getAddress(.{}, macho_file);
-    const parent_atom = self.symbols.items[reloc_info.parent_atom_index].getAtom(macho_file).?;
-    try parent_atom.addReloc(macho_file, .{
-        .tag = .@"extern",
-        .offset = @intCast(reloc_info.offset),
-        .target = sym_index,
-        .addend = reloc_info.addend,
-        .type = .unsigned,
-        .meta = .{
-            .pcrel = false,
-            .has_subtractor = false,
-            .length = 3,
-            .symbolnum = @intCast(sym.nlist_idx),
+    switch (reloc_info.parent) {
+        .atom_index => |atom_index| {
+            const parent_atom = self.symbols.items[atom_index].getAtom(macho_file).?;
+            try parent_atom.addReloc(macho_file, .{
+                .tag = .@"extern",
+                .offset = @intCast(reloc_info.offset),
+                .target = sym_index,
+                .addend = reloc_info.addend,
+                .type = .unsigned,
+                .meta = .{
+                    .pcrel = false,
+                    .has_subtractor = false,
+                    .length = 3,
+                    .symbolnum = @intCast(sym.nlist_idx),
+                },
+            });
         },
-    });
+        .debug_output => |debug_output| switch (debug_output) {
+            .dwarf => |wip_nav| try wip_nav.infoExternalReloc(.{
+                .source_off = @intCast(reloc_info.offset),
+                .target_sym = sym_index,
+                .target_off = reloc_info.addend,
+            }),
+            .plan9 => unreachable,
+            .none => unreachable,
+        },
+    }
     return vaddr;
 }
 
@@ -903,8 +929,7 @@ pub fn updateNav(
             zcu.navSrcLoc(nav_index),
             Value.fromInterned(nav_init),
             &code_buffer,
-            if (debug_wip_nav) |*wip_nav| .{ .dwarf = wip_nav } else .none,
-            .{ .parent_atom_index = sym_index },
+            .{ .atom_index = sym_index },
         );
 
         const code = switch (res) {
@@ -1212,11 +1237,14 @@ fn lowerConst(
     const name_str = try self.addString(gpa, name);
     const sym_index = try self.newSymbolWithAtom(gpa, name_str, macho_file);
 
-    const res = try codegen.generateSymbol(&macho_file.base, pt, src_loc, val, &code_buffer, .{
-        .none = {},
-    }, .{
-        .parent_atom_index = sym_index,
-    });
+    const res = try codegen.generateSymbol(
+        &macho_file.base,
+        pt,
+        src_loc,
+        val,
+        &code_buffer,
+        .{ .atom_index = sym_index },
+    );
     const code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| return .{ .fail = em },
@@ -1378,7 +1406,7 @@ fn updateLazySymbol(
         &required_alignment,
         &code_buffer,
         .none,
-        .{ .parent_atom_index = symbol_index },
+        .{ .atom_index = symbol_index },
     );
     const code = switch (res) {
         .ok => code_buffer.items,

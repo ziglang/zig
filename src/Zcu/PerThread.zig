@@ -2429,7 +2429,7 @@ fn processExportsInner(
 pub fn populateTestFunctions(
     pt: Zcu.PerThread,
     main_progress_node: std.Progress.Node,
-) !void {
+) Allocator.Error!void {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
@@ -2454,7 +2454,10 @@ pub fn populateTestFunctions(
             zcu.sema_prog_node = std.Progress.Node.none;
         }
         const cau_index = ip.getNav(nav_index).analysis_owner.unwrap().?;
-        try pt.ensureCauAnalyzed(cau_index);
+        pt.ensureCauAnalyzed(cau_index) catch |err| switch (err) {
+            error.AnalysisFail => return,
+            error.OutOfMemory => return error.OutOfMemory,
+        };
     }
 
     const test_fns_val = zcu.navValue(nav_index);

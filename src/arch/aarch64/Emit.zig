@@ -13,11 +13,10 @@ const assert = std.debug.assert;
 const Instruction = bits.Instruction;
 const Register = bits.Register;
 const log = std.log.scoped(.aarch64_emit);
-const DebugInfoOutput = @import("../../codegen.zig").DebugInfoOutput;
 
 mir: Mir,
 bin_file: *link.File,
-debug_output: DebugInfoOutput,
+debug_output: link.File.DebugInfoOutput,
 target: *const std.Target,
 err_msg: ?*ErrorMsg = null,
 src_loc: Zcu.LazySrcLoc,

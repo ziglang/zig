@@ -26,7 +26,7 @@ owner_nav: InternPool.Nav.Index,
 
 // Debug information
 /// Holds the debug information for this emission
-dbg_output: codegen.DebugInfoOutput,
+dbg_output: link.File.DebugInfoOutput,
 /// Previous debug info line
 prev_di_line: u32,
 /// Previous debug info column

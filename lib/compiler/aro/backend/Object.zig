@@ -16,7 +16,7 @@ pub fn create(gpa: Allocator, target: std.Target) !*Object {
 
 pub fn deinit(obj: *Object) void {
     switch (obj.format) {
-        .elf => @as(*Elf, @fieldParentPtr("obj", obj)).deinit(),
+        .elf => @as(*Elf, @alignCast(@fieldParentPtr("obj", obj))).deinit(),
         else => unreachable,
     }
 }
@@ -32,7 +32,7 @@ pub const Section = union(enum) {
 
 pub fn getSection(obj: *Object, section: Section) !*std.ArrayList(u8) {
     switch (obj.format) {
-        .elf => return @as(*Elf, @fieldParentPtr("obj", obj)).getSection(section),
+        .elf => return @as(*Elf, @alignCast(@fieldParentPtr("obj", obj))).getSection(section),
         else => unreachable,
     }
 }
@@ -53,21 +53,21 @@ pub fn declareSymbol(
     size: u64,
 ) ![]const u8 {
     switch (obj.format) {
-        .elf => return @as(*Elf, @fieldParentPtr("obj", obj)).declareSymbol(section, name, linkage, @"type", offset, size),
+        .elf => return @as(*Elf, @alignCast(@fieldParentPtr("obj", obj))).declareSymbol(section, name, linkage, @"type", offset, size),
         else => unreachable,
     }
 }
 
 pub fn addRelocation(obj: *Object, name: []const u8, section: Section, address: u64, addend: i64) !void {
     switch (obj.format) {
-        .elf => return @as(*Elf, @fieldParentPtr("obj", obj)).addRelocation(name, section, address, addend),
+        .elf => return @as(*Elf, @alignCast(@fieldParentPtr("obj", obj))).addRelocation(name, section, address, addend),
         else => unreachable,
     }
 }
 
 pub fn finish(obj: *Object, file: std.fs.File) !void {
     switch (obj.format) {
-        .elf => return @as(*Elf, @fieldParentPtr("obj", obj)).finish(file),
+        .elf => return @as(*Elf, @alignCast(@fieldParentPtr("obj", obj))).finish(file),
         else => unreachable,
     }
 }

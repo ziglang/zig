@@ -731,7 +731,6 @@ fn transType(c: *Context, scope: *Scope, raw_ty: Type, qual_handling: Type.QualH
         .float => return ZigTag.type.create(c.arena, "f32"),
         .double => return ZigTag.type.create(c.arena, "f64"),
         .long_double => return ZigTag.type.create(c.arena, "c_longdouble"),
-        .float80 => return ZigTag.type.create(c.arena, "f80"),
         .float128 => return ZigTag.type.create(c.arena, "f128"),
         .@"enum" => {
             const enum_decl = ty.data.@"enum";
@@ -1799,7 +1798,7 @@ pub fn main() !void {
 
     const args = try std.process.argsAlloc(arena);
 
-    var aro_comp = aro.Compilation.init(gpa);
+    var aro_comp = aro.Compilation.init(gpa, std.fs.cwd());
     defer aro_comp.deinit();
 
     var tree = translate(gpa, &aro_comp, args) catch |err| switch (err) {

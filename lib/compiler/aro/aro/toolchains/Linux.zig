@@ -423,7 +423,7 @@ test Linux {
     defer arena_instance.deinit();
     const arena = arena_instance.allocator();
 
-    var comp = Compilation.init(std.testing.allocator);
+    var comp = Compilation.init(std.testing.allocator, std.fs.cwd());
     defer comp.deinit();
     comp.environment = .{
         .path = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",

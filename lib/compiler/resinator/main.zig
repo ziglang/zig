@@ -126,7 +126,7 @@ pub fn main() !void {
             defer aro_arena_state.deinit();
             const aro_arena = aro_arena_state.allocator();
 
-            var comp = aro.Compilation.init(aro_arena);
+            var comp = aro.Compilation.init(aro_arena, std.fs.cwd());
             defer comp.deinit();
 
             var argv = std.ArrayList([]const u8).init(comp.gpa);

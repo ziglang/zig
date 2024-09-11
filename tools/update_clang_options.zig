@@ -548,6 +548,14 @@ const known_options = [_]KnownOpt{
         .name = "fno-sanitize-coverage",
         .ident = "no_san_cov",
     },
+    .{
+        .name = "rtlib",
+        .ident = "rtlib",
+    },
+    .{
+        .name = "rtlib=",
+        .ident = "rtlib",
+    },
 };
 
 const blacklisted_options = [_][]const u8{};
