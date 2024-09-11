@@ -63,5 +63,6 @@ pub fn spawnManager(
         }
     };
     wg.start();
-    _ = std.Thread.spawn(.{}, Manager.run, .{ wg, args }) catch Manager.run(wg, args);
+    const t = std.Thread.spawn(.{}, Manager.run, .{ wg, args }) catch return Manager.run(wg, args);
+    t.detach();
 }
