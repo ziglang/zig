@@ -2499,12 +2499,18 @@ or
 
       {#header_open|Labeled switch#}
       <p>
-      When a {#syntax#}switch{#endsyntax#} statement is labeled, it can be
-      referenced from a {#syntax#}continue{#endsyntax#} statement. The executed
-      prong is chosen by the operand of the {#syntax#}continue{#endsyntax#}
-      statement, instead of the original value passed to the {#syntax#}
-      switch{#endsyntax#} statement.
+      When a switch statement is labeled, it can be referenced from a
+      {#syntax#}break{#endsyntax#} or {#syntax#}continue{#endsyntax#}.
+      {#syntax#}break{#endsyntax#} will return a value from the {#syntax#}
+      switch{#endsyntax#}.
       </p>
+      <p>
+      A {#syntax#}continue{#endsyntax#} targeting a switch must have an
+      operand. When executed, it will jump to the matching prong, as if the
+      {#syntax#}switch{#endsyntax#} were executed again with the {#syntax#}
+      continue{#endsyntax#}'s operand replacing the initial switch value.
+      </p>
+
       {#code|test_switch_continue.zig#}
 
       {#code|test_switch_dispatch_loop.zig#}
