@@ -17,6 +17,24 @@ test "switch continue" {
     };
 
     try expectEqual(-6, result);
+
+    // Semantically, the labeled switch statement shown above is identical to
+    // the following loop:
+    var sw: i32 = value;
+    const result_with_loop = while (true) {
+        sw = switch (sw) {
+            10...60 => |v| v - 10,
+            4 => 3,
+            3 => 2,
+            2 => 1,
+
+            1 => break -6,
+
+            else => unreachable,
+        };
+    };
+
+    try expectEqual(result, result_with_loop);
 }
 
 // test

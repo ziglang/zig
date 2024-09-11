@@ -2499,7 +2499,7 @@ or
 
       {#header_open|Labeled switch#}
       <p>
-      When a {#syntax#}switch{#endsyntax#} statement is labeled, it can be referenced from a {#syntax#}continue{#endsyntax#} statement. The executed prong is specified by the value passed to the {#syntax#}continue{#endsyntax#} statement.
+      When a {#syntax#}switch{#endsyntax#} statement is labeled, it can be referenced from a {#syntax#}continue{#endsyntax#} statement. The executed prong is chosen by the value passed to the {#syntax#}continue{#endsyntax#} statement, instead of the original value passed to the {#syntax#}switch{#endsyntax#} statement.
       </p>
       {#code|test_switch_continue.zig#}
 
