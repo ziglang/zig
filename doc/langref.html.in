@@ -2497,6 +2497,19 @@ or
 
       {#header_close#}
 
+      {#header_open|Labeled switch#}
+      <p>
+      When a {#syntax#}switch{#endsyntax#} statement is labeled, it can be referenced from a {#syntax#}continue{#endsyntax#} statement. The executed prong is specified by the value passed to the {#syntax#}continue{#endsyntax#} statement.
+      </p>
+      {#code|test_switch_continue.zig#}
+
+      <p>
+      The intent is to allow the CPU to create an independent branch-prediction cache for each prong, instead of a single branch prediction cache for the switch's entry point. This can improve performance.
+      </p>
+      {#code|test_switch_dispatch_loop.zig#}
+
+      {#header_close#}
+
       {#header_open|Inline Switch Prongs#}
       <p>
       Switch prongs can be marked as {#syntax#}inline{#endsyntax#} to generate
