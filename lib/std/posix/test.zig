@@ -1121,7 +1121,7 @@ test "access smoke test" {
 test "timerfd" {
     if (native_os != .linux) return error.SkipZigTest;
 
-    const tfd = try posix.timerfd_create(posix.system.clock_id.MONOTONIC, .{ .CLOEXEC = true });
+    const tfd = try posix.timerfd_create(posix.clock_id.MONOTONIC, .{ .CLOEXEC = true });
     defer posix.close(tfd);
 
     // Fire event 10_000_000ns = 10ms after the posix.timerfd_settime call.

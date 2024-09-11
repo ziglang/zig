@@ -211,8 +211,7 @@ pub const ARCH = switch (native_os) {
     else => void,
 };
 
-// For use with timerfd_create()
-// tested on Linux and FreeBSD
+// For use with posix.timerfd_create()
 pub const CLOCK_ID = clock_id;
 pub const clock_id = switch (native_os) {
     .linux, .freebsd => enum(u32) {

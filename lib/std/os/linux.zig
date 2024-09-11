@@ -2054,10 +2054,10 @@ pub fn eventfd(count: u32, flags: u32) usize {
     return syscall2(.eventfd2, count, flags);
 }
 
-pub fn timerfd_create(clockid: clock_id, flags: TFD) usize {
+pub fn timerfd_create(clockid: u32, flags: TFD) usize {
     return syscall2(
         .timerfd_create,
-        @intFromEnum(clockid),
+        clockid,
         @as(u32, @bitCast(flags)),
     );
 }
