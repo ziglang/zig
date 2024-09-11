@@ -212,9 +212,14 @@ pub const ARCH = switch (native_os) {
 };
 
 // For use with posix.timerfd_create()
+// Actually, the parameter for the timerfd_create() function is in integer,
+// which means that the developer has to figure out which value is appropriate.
+// To make this easier and, above all, safer, because an incorrect value leads
+// to a panic, an enum is introduced which only allows the values
+// that actually work.
 pub const CLOCK_ID = clock_id;
 pub const clock_id = switch (native_os) {
-    .linux, .freebsd => enum(u32) {
+    .linux, .freebsd => enum(usize) {
         REALTIME = 0,
         MONOTONIC = 1,
         _,
