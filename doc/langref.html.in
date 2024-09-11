@@ -2516,7 +2516,7 @@ or
       <p>
       Semantically, this is equivalent to the following loop:
       </p>
-      {#code|test_switch_continue_semantics.zig#}
+      {#code|test_switch_continue_equivalent.zig#}
 
       {#code|test_switch_dispatch_loop.zig#}
 
