@@ -1,6 +1,6 @@
 const std = @import("std");
 
-test "switch continue" {
+test "switch continue, equivalent loop" {
     var sw: i32 = 5;
     while (true) {
         switch (sw) {
