@@ -182,12 +182,12 @@ pub const isASCII = isAscii;
 
 /// Uppercases the character and returns it as-is if already uppercase or not a letter.
 pub fn toUpper(c: u8) u8 {
-    return c ^ (@as(u8, @intFromBool(isLower(c))) * 0b00100000);
+    return c ^ (@as(u8, @intFromBool(isLower(c))) *% 0b00100000);
 }
 
 /// Lowercases the character and returns it as-is if already lowercase or not a letter.
 pub fn toLower(c: u8) u8 {
-    return c | (@as(u8, @intFromBool(isUpper(c))) * 0b00100000);
+    return c | (@as(u8, @intFromBool(isUpper(c))) *% 0b00100000);
 }
 
 test "ASCII character classes" {
