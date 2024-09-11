@@ -37,6 +37,7 @@ pub const Builder = struct {
         for (b.decls.values()) |*decl| {
             decl.deinit(b.gpa);
         }
+        b.decls.deinit(b.gpa);
         b.arena.deinit();
         b.instructions.deinit(b.gpa);
         b.body.deinit(b.gpa);

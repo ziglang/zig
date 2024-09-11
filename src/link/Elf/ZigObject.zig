@@ -957,13 +957,26 @@ pub fn getNavVAddr(
     };
     const this_sym = self.symbol(this_sym_index);
     const vaddr = this_sym.address(.{}, elf_file);
-    const parent_atom = self.symbol(reloc_info.parent_atom_index).atom(elf_file).?;
-    const r_type = relocation.encode(.abs, elf_file.getTarget().cpu.arch);
-    try parent_atom.addReloc(elf_file.base.comp.gpa, .{
-        .r_offset = reloc_info.offset,
-        .r_info = (@as(u64, @intCast(this_sym_index)) << 32) | r_type,
-        .r_addend = reloc_info.addend,
-    }, self);
+    switch (reloc_info.parent) {
+        .atom_index => |atom_index| {
+            const parent_atom = self.symbol(atom_index).atom(elf_file).?;
+            const r_type = relocation.encode(.abs, elf_file.getTarget().cpu.arch);
+            try parent_atom.addReloc(elf_file.base.comp.gpa, .{
+                .r_offset = reloc_info.offset,
+                .r_info = (@as(u64, @intCast(this_sym_index)) << 32) | r_type,
+                .r_addend = reloc_info.addend,
+            }, self);
+        },
+        .debug_output => |debug_output| switch (debug_output) {
+            .dwarf => |wip_nav| try wip_nav.infoExternalReloc(.{
+                .source_off = @intCast(reloc_info.offset),
+                .target_sym = this_sym_index,
+                .target_off = reloc_info.addend,
+            }),
+            .plan9 => unreachable,
+            .none => unreachable,
+        },
+    }
     return @intCast(vaddr);
 }
 
@@ -976,13 +989,26 @@ pub fn getUavVAddr(
     const sym_index = self.uavs.get(uav).?.symbol_index;
     const sym = self.symbol(sym_index);
     const vaddr = sym.address(.{}, elf_file);
-    const parent_atom = self.symbol(reloc_info.parent_atom_index).atom(elf_file).?;
-    const r_type = relocation.encode(.abs, elf_file.getTarget().cpu.arch);
-    try parent_atom.addReloc(elf_file.base.comp.gpa, .{
-        .r_offset = reloc_info.offset,
-        .r_info = (@as(u64, @intCast(sym_index)) << 32) | r_type,
-        .r_addend = reloc_info.addend,
-    }, self);
+    switch (reloc_info.parent) {
+        .atom_index => |atom_index| {
+            const parent_atom = self.symbol(atom_index).atom(elf_file).?;
+            const r_type = relocation.encode(.abs, elf_file.getTarget().cpu.arch);
+            try parent_atom.addReloc(elf_file.base.comp.gpa, .{
+                .r_offset = reloc_info.offset,
+                .r_info = (@as(u64, @intCast(sym_index)) << 32) | r_type,
+                .r_addend = reloc_info.addend,
+            }, self);
+        },
+        .debug_output => |debug_output| switch (debug_output) {
+            .dwarf => |wip_nav| try wip_nav.infoExternalReloc(.{
+                .source_off = @intCast(reloc_info.offset),
+                .target_sym = sym_index,
+                .target_off = reloc_info.addend,
+            }),
+            .plan9 => unreachable,
+            .none => unreachable,
+        },
+    }
     return @intCast(vaddr);
 }
 
@@ -1600,15 +1626,13 @@ pub fn updateNav(
         var debug_wip_nav = if (self.dwarf) |*dwarf| try dwarf.initWipNav(pt, nav_index, sym_index) else null;
         defer if (debug_wip_nav) |*wip_nav| wip_nav.deinit();
 
-        // TODO implement .debug_info for global variables
         const res = try codegen.generateSymbol(
             &elf_file.base,
             pt,
             zcu.navSrcLoc(nav_index),
             Value.fromInterned(nav_init),
             &code_buffer,
-            if (debug_wip_nav) |*wip_nav| .{ .dwarf = wip_nav } else .none,
-            .{ .parent_atom_index = sym_index },
+            .{ .atom_index = sym_index },
         );
 
         const code = switch (res) {
@@ -1691,7 +1715,7 @@ fn updateLazySymbol(
         &required_alignment,
         &code_buffer,
         .none,
-        .{ .parent_atom_index = symbol_index },
+        .{ .atom_index = symbol_index },
     );
     const code = switch (res) {
         .ok => code_buffer.items,
@@ -1780,8 +1804,7 @@ fn lowerConst(
         src_loc,
         val,
         &code_buffer,
-        .{ .none = {} },
-        .{ .parent_atom_index = sym_index },
+        .{ .atom_index = sym_index },
     );
     const code = switch (res) {
         .ok => code_buffer.items,

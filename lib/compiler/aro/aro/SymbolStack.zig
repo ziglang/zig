@@ -178,9 +178,11 @@ pub fn defineTypedef(
     if (s.get(name, .vars)) |prev| {
         switch (prev.kind) {
             .typedef => {
-                if (!ty.eql(prev.ty, p.comp, true)) {
-                    try p.errStr(.redefinition_of_typedef, tok, try p.typePairStrExtra(ty, " vs ", prev.ty));
-                    if (prev.tok != 0) try p.errTok(.previous_definition, prev.tok);
+                if (!prev.ty.is(.invalid)) {
+                    if (!ty.eql(prev.ty, p.comp, true)) {
+                        try p.errStr(.redefinition_of_typedef, tok, try p.typePairStrExtra(ty, " vs ", prev.ty));
+                        if (prev.tok != 0) try p.errTok(.previous_definition, prev.tok);
+                    }
                 }
             },
             .enumeration, .decl, .def, .constexpr => {
@@ -194,7 +196,12 @@ pub fn defineTypedef(
         .kind = .typedef,
         .name = name,
         .tok = tok,
-        .ty = ty,
+        .ty = .{
+            .name = name,
+            .specifier = ty.specifier,
+            .qual = ty.qual,
+            .data = ty.data,
+        },
         .node = node,
         .val = .{},
     });

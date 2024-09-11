@@ -330,6 +330,11 @@ pub const File = struct {
         }
     }
 
+    pub const DebugInfoOutput = union(enum) {
+        dwarf: *Dwarf.WipNav,
+        plan9: *Plan9.DebugInfoOutput,
+        none,
+    };
     pub const UpdateDebugInfoError = Dwarf.UpdateError;
     pub const FlushDebugInfoError = Dwarf.FlushError;
 
@@ -673,9 +678,14 @@ pub const File = struct {
     }
 
     pub const RelocInfo = struct {
-        parent_atom_index: u32,
+        parent: Parent,
         offset: u64,
         addend: u32,
+
+        pub const Parent = union(enum) {
+            atom_index: u32,
+            debug_output: DebugInfoOutput,
+        };
     };
 
     /// Get allocated `Nav`'s address in virtual memory.
