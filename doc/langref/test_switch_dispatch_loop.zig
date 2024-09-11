@@ -22,6 +22,8 @@ test "switch dispatch loop" {
     var ip: usize = 0;
 
     const result = vm: switch (instructions[ip]) {
+        // Because all code after `continue` is unreachable, this branch does
+        // not provide a result.
         .add => {
             const l = stack.pop();
             const r = stack.pop();
