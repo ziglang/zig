@@ -220,9 +220,11 @@ comptime {
     _ = @import("compiler_rt/aullrem.zig");
     _ = @import("compiler_rt/clear_cache.zig");
 
+    _ = @import("compiler_rt/stack_probe.zig");
+    _ = @import("compiler_rt/ssp.zig");
+
     if (@import("builtin").object_format != .c) {
         _ = @import("compiler_rt/atomics.zig");
-        _ = @import("compiler_rt/stack_probe.zig");
 
         // macOS has these functions inside libSystem.
         if (builtin.cpu.arch.isAARCH64() and !builtin.os.tag.isDarwin()) {
@@ -234,6 +236,5 @@ comptime {
         _ = @import("compiler_rt/memmove.zig");
         _ = @import("compiler_rt/memcmp.zig");
         _ = @import("compiler_rt/bcmp.zig");
-        _ = @import("compiler_rt/ssp.zig");
     }
 }
