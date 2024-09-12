@@ -1975,7 +1975,7 @@ pub const Stream = struct {
                 i += 1;
                 if (i >= iovecs.len) return;
             }
-            iovecs[i].adjust(amt);
+            iovecs[i].discard(amt);
         }
     }
 };
@@ -2009,12 +2009,16 @@ pub const Server = struct {
     }
 };
 
+/// A cross platform representation of a mutable `iovec`.
 pub const IoSlice = extern struct {
     data: switch (native_os) {
         .windows => windows.ws2_32.WSABUF,
         else => posix.iovec,
     },
 
+    /// Populate this IoSlice with the given buffer. To ensure cross platform
+    /// compatibility, the `data` slice should be less than 2^32 bytes in
+    /// length, although the actual limit may be larger depending on the platform.
     pub fn set(slice: *IoSlice, data: []u8) void {
         if (native_os == .windows) {
             if (data.len == 0) { // a zero length zig slice may have an undefined ptr, and the kernel requires a valid address.
@@ -2032,7 +2036,8 @@ pub const IoSlice = extern struct {
         slice.data.len = @intCast(data.len);
     }
 
-    pub fn base(slice: IoSlice) [*]u8 {
+    /// Returns the backing buffer pointer of the IoSlice.
+    pub inline fn base(slice: IoSlice) [*]u8 {
         if (native_os == .windows) {
             return slice.data.buf;
         } else {
@@ -2040,16 +2045,23 @@ pub const IoSlice = extern struct {
         }
     }
 
-    pub fn len(slice: IoSlice) usize {
+    /// Returns the backing buffer length of the IoSlice.
+    pub inline fn len(slice: IoSlice) usize {
         return slice.data.len;
     }
 
-    pub fn setLen(slice: *IoSlice, new_len: usize) void {
-        slice.data.len = @intCast(new_len);
+    /// Adjusts the length of the IoSlice to `new_length`, effectively
+    /// truncating this IoSlice to the given length. The `new_length` must be
+    /// less than or equal to the original length.
+    pub fn setLen(slice: *IoSlice, new_length: usize) void {
+        assert(new_length <= slice.data.len);
+        slice.data.len = @intCast(new_length);
     }
 
-    pub fn adjust(slice: *IoSlice, amount: usize) void {
-        assert(slice.data.len >= amount);
+    /// Discards the first `amount` bytes from the IoSlice. The `amount` must
+    /// be less than or equal to the original length.
+    pub fn discard(slice: *IoSlice, amount: usize) void {
+        assert(amount <= slice.data.len);
 
         slice.data.len -= @intCast(amount);
         if (native_os == .windows) {
@@ -2060,12 +2072,16 @@ pub const IoSlice = extern struct {
     }
 };
 
+/// A cross platform representation of a immutable `iovec`.
 pub const IoSliceConst = extern struct {
     data: switch (native_os) {
         .windows => windows.ws2_32.WSABUF,
         else => posix.iovec_const,
     },
 
+    /// Populate this IoSlice with the given buffer. To ensure cross platform
+    /// compatibility, the `data` slice should be less than 2^32 bytes in
+    /// length, although the actual limit may be larger depending on the platform.
     pub fn set(slice: *IoSliceConst, data: []const u8) void {
         if (native_os == .windows) {
             if (data.len == 0) { // a zero length zig slice may have an undefined ptr, and the kernel requires a valid address.
@@ -2084,6 +2100,7 @@ pub const IoSliceConst = extern struct {
         }
     }
 
+    /// Returns the backing buffer pointer of the IoSlice.
     pub fn base(slice: IoSliceConst) [*]const u8 {
         if (native_os == .windows) {
             return slice.data.buf;
@@ -2092,11 +2109,14 @@ pub const IoSliceConst = extern struct {
         }
     }
 
+    /// Returns the backing buffer length of the IoSlice.
     pub fn len(slice: IoSliceConst) usize {
         return slice.data.len;
     }
 
-    pub fn adjust(slice: *IoSliceConst, amount: usize) void {
+    /// Discards the first `amount` bytes from the IoSlice. The `amount` must
+    /// be less than or equal to the original length.
+    pub fn discard(slice: *IoSliceConst, amount: usize) void {
         assert(slice.data.len >= amount);
 
         slice.data.len -= @intCast(amount);
