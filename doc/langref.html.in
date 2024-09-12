@@ -2518,6 +2518,12 @@ or
       </p>
       {#code|test_switch_continue_equivalent.zig#}
 
+      <p>
+      This can improve clarity of (for example) state machines, where the syntax {#syntax#}continue :sw .next_state{#endsyntax#} is unambiguous, explicit, and immediately understandable.
+      </p>
+      <p>
+      However, the motivating example is a switch on each element of an array, where using a single switch can improve clarity and performance:
+      </p>
       {#code|test_switch_dispatch_loop.zig#}
 
       <p>
