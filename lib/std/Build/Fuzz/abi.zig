@@ -43,10 +43,17 @@ pub const SeenPcsHeader = extern struct {
 };
 
 pub const ToClientTag = enum(u8) {
+    current_time,
     source_index,
     coverage_update,
     entry_points,
     _,
+};
+
+pub const CurrentTime = extern struct {
+    tag: ToClientTag = .current_time,
+    /// Number of nanoseconds that all other timestamps are in reference to.
+    base: i64 align(1),
 };
 
 /// Sent to the fuzzer web client on first connection to the websocket URL.
@@ -62,6 +69,8 @@ pub const SourceIndexHeader = extern struct {
     files_len: u32,
     source_locations_len: u32,
     string_bytes_len: u32,
+    /// When, according to the server, fuzzing started.
+    start_timestamp: i64 align(4),
 
     pub const Flags = packed struct(u32) {
         tag: ToClientTag = .source_index,

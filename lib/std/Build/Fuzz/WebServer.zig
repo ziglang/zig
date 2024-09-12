@@ -33,6 +33,9 @@ coverage_mutex: std.Thread.Mutex,
 /// Signaled when `coverage_files` changes.
 coverage_condition: std.Thread.Condition,
 
+/// Time at initialization of WebServer.
+base_timestamp: i128,
+
 const fuzzer_bin_name = "fuzzer";
 const fuzzer_arch_os_abi = "wasm32-freestanding";
 const fuzzer_cpu_features = "baseline+atomics+bulk_memory+multivalue+mutable_globals+nontrapping_fptoint+reference_types+sign_ext";
@@ -43,6 +46,7 @@ const CoverageMap = struct {
     source_locations: []Coverage.SourceLocation,
     /// Elements are indexes into `source_locations` pointing to the unit tests that are being fuzz tested.
     entry_points: std.ArrayListUnmanaged(u32),
+    start_timestamp: i64,
 
     fn deinit(cm: *CoverageMap, gpa: Allocator) void {
         std.posix.munmap(cm.mapped_memory);
@@ -85,6 +89,10 @@ pub fn run(ws: *WebServer) void {
             continue;
         };
     }
+}
+
+fn now(s: *const WebServer) i64 {
+    return @intCast(std.time.nanoTimestamp() - s.base_timestamp);
 }
 
 fn accept(ws: *WebServer, connection: std.net.Server.Connection) void {
@@ -381,6 +389,13 @@ fn serveWebSocket(ws: *WebServer, web_socket: *std.http.WebSocket) !void {
     ws.coverage_mutex.lock();
     defer ws.coverage_mutex.unlock();
 
+    // On first connection, the client needs to know what time the server
+    // thinks it is to rebase timestamps.
+    {
+        const timestamp_message: abi.CurrentTime = .{ .base = ws.now() };
+        try web_socket.writeMessage(std.mem.asBytes(&timestamp_message), .binary);
+    }
+
     // On first connection, the client needs all the coverage information
     // so that subsequent updates can contain only the updated bits.
     var prev_unique_runs: usize = 0;
@@ -416,6 +431,7 @@ fn sendCoverageContext(
                 .files_len = @intCast(coverage_map.coverage.files.entries.len),
                 .source_locations_len = @intCast(coverage_map.source_locations.len),
                 .string_bytes_len = @intCast(coverage_map.coverage.string_bytes.items.len),
+                .start_timestamp = coverage_map.start_timestamp,
             };
             const iovecs: [5]std.posix.iovec_const = .{
                 makeIov(std.mem.asBytes(&header)),
@@ -582,6 +598,7 @@ fn prepareTables(
         .mapped_memory = undefined, // populated below
         .source_locations = undefined, // populated below
         .entry_points = .{},
+        .start_timestamp = ws.now(),
     };
     errdefer gop.value_ptr.coverage.deinit(gpa);
 
