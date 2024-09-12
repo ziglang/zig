@@ -1068,7 +1068,8 @@ fn unpackResource(
             if (ascii.eqlIgnoreCase(mime_type, "application/gzip") or
                 ascii.eqlIgnoreCase(mime_type, "application/x-gzip") or
                 ascii.eqlIgnoreCase(mime_type, "application/tar+gzip") or
-                ascii.eqlIgnoreCase(mime_type, "application/x-tar-gz"))
+                ascii.eqlIgnoreCase(mime_type, "application/x-tar-gz") or
+                ascii.eqlIgnoreCase(mime_type, "application/x-gtar-compressed"))
             {
                 break :ft .@"tar.gz";
             }
