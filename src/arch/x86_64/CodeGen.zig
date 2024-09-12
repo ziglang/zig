@@ -2180,6 +2180,12 @@ fn checkInvariantsAfterAirInst(self: *Self, inst: Air.Inst.Index, old_air_bookke
     }
 }
 
+fn genBodyBlock(self: *Self, body: []const Air.Inst.Index) InnerError!void {
+    try self.asmPseudo(.pseudo_dbg_enter_block_none);
+    try self.genBody(body);
+    try self.asmPseudo(.pseudo_dbg_leave_block_none);
+}
+
 fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
     const pt = self.pt;
     const zcu = pt.zcu;
@@ -13184,7 +13190,7 @@ fn genTry(
     const state = try self.saveState();
 
     for (liveness_cond_br.else_deaths) |death| try self.processDeath(death);
-    try self.genBody(body);
+    try self.genBodyBlock(body);
     try self.restoreState(state, &.{}, .{
         .emit_instructions = false,
         .update_tracking = true,
@@ -13293,7 +13299,7 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     const reloc = try self.genCondBrMir(cond_ty, cond);
 
     for (liveness_cond_br.then_deaths) |death| try self.processDeath(death);
-    try self.genBody(then_body);
+    try self.genBodyBlock(then_body);
     try self.restoreState(state, &.{}, .{
         .emit_instructions = false,
         .update_tracking = true,
@@ -13304,7 +13310,7 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     self.performReloc(reloc);
 
     for (liveness_cond_br.else_deaths) |death| try self.processDeath(death);
-    try self.genBody(else_body);
+    try self.genBodyBlock(else_body);
     try self.restoreState(state, &.{}, .{
         .emit_instructions = false,
         .update_tracking = true,
@@ -13665,14 +13671,16 @@ fn airLoop(self: *Self, inst: Air.Inst.Index) !void {
     });
     defer assert(self.loops.remove(inst));
 
-    try self.genBody(body);
+    try self.genBodyBlock(body);
     self.finishAirBookkeeping();
 }
 
 fn airBlock(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = self.air.extraData(Air.Block, ty_pl.payload);
+    try self.asmPseudo(.pseudo_dbg_enter_block_none);
     try self.lowerBlock(inst, @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]));
+    try self.asmPseudo(.pseudo_dbg_leave_block_none);
 }
 
 fn lowerBlock(self: *Self, inst: Air.Inst.Index, body: []const Air.Inst.Index) !void {
@@ -13684,7 +13692,6 @@ fn lowerBlock(self: *Self, inst: Air.Inst.Index, body: []const Air.Inst.Index) !
     try self.blocks.putNoClobber(self.gpa, inst, .{ .state = self.initRetroactiveState() });
     const liveness = self.liveness.getBlock(inst);
 
-    // TODO emit debug info lexical block
     try self.genBody(body);
 
     var block_data = self.blocks.fetchRemove(inst).?;
@@ -13796,7 +13803,7 @@ fn lowerSwitchBr(self: *Self, inst: Air.Inst.Index, switch_br: Air.UnwrappedSwit
 
         // Relocate all success cases to the body we're about to generate.
         for (relocs) |reloc| self.performReloc(reloc);
-        try self.genBody(case.body);
+        try self.genBodyBlock(case.body);
         try self.restoreState(state, &.{}, .{
             .emit_instructions = false,
             .update_tracking = true,
@@ -13814,7 +13821,7 @@ fn lowerSwitchBr(self: *Self, inst: Air.Inst.Index, switch_br: Air.UnwrappedSwit
         const else_deaths = liveness.deaths.len - 1;
         for (liveness.deaths[else_deaths]) |operand| try self.processDeath(operand);
 
-        try self.genBody(else_body);
+        try self.genBodyBlock(else_body);
         try self.restoreState(state, &.{}, .{
             .emit_instructions = false,
             .update_tracking = true,

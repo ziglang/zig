@@ -722,6 +722,93 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
         },
     );
     db.addLldbTest(
+        "if_blocks",
+        target,
+        &.{
+            .{
+                .path = "if_blocks.zig",
+                .source =
+                \\pub fn main() void {
+                \\    for (0..2) |i| {
+                \\        if (i == 0) {
+                \\            var x: u32 = 123;
+                \\            _ = &x;
+                \\        } else {
+                \\            var x: f32 = 4.5;
+                \\            _ = &x;
+                \\        }
+                \\    }
+                \\}
+                \\
+                ,
+            },
+        },
+        \\breakpoint set --file if_blocks.zig --source-pattern-regexp '_ = &x;'
+        \\process launch
+        \\frame variable
+        \\process continue
+        \\frame variable
+        \\breakpoint delete --force 1
+    ,
+        &.{
+            \\(lldb) frame variable
+            \\(usize) i = 0
+            \\(u32) x = 123
+            \\(lldb) process continue
+            ,
+            \\(lldb) frame variable
+            \\(usize) i = 1
+            \\(f32) x = 4.5
+            \\(lldb) breakpoint delete --force 1
+            \\1 breakpoints deleted; 0 breakpoint locations disabled.
+        },
+    );
+    db.addLldbTest(
+        "switch_blocks",
+        target,
+        &.{
+            .{
+                .path = "switch_blocks.zig",
+                .source =
+                \\pub fn main() void {
+                \\    for (0..2) |i| {
+                \\        switch (i) {
+                \\            0 => {
+                \\                var x: u32 = 123;
+                \\                _ = &x;
+                \\            },
+                \\            else => {
+                \\                var x: f32 = 4.5;
+                \\                _ = &x;
+                \\            },
+                \\        }
+                \\    }
+                \\}
+                \\
+                ,
+            },
+        },
+        \\breakpoint set --file switch_blocks.zig --source-pattern-regexp '_ = &x;'
+        \\process launch
+        \\frame variable
+        \\process continue
+        \\frame variable
+        \\breakpoint delete --force 1
+    ,
+        &.{
+            \\(lldb) frame variable
+            \\(usize) i = 0
+            \\(u32) x = 123
+            \\(lldb) process continue
+            ,
+            \\(lldb) frame variable
+            \\(usize) i = 1
+            \\(f32) x = 4.5
+            \\(lldb) breakpoint delete --force 1
+            \\1 breakpoints deleted; 0 breakpoint locations disabled.
+        },
+    );
+    db.addLldbTest(
         "inline_call",
         target,
         &.{
