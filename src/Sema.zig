@@ -8980,36 +8980,41 @@ fn zirDeclLiteral(sema: *Sema, block: *Block, inst: Zir.Inst.Index, do_coerce: b
         sema.code.nullTerminatedString(extra.field_name_start),
         .no_embedded_nulls,
     );
+
     const orig_ty = sema.resolveType(block, src, extra.lhs) catch |err| switch (err) {
-        error.GenericPoison => {
-            // Treat this as a normal enum literal.
-            return Air.internedToRef(try pt.intern(.{ .enum_literal = name }));
-        },
+        error.GenericPoison => Type.generic_poison,
         else => |e| return e,
     };
 
-    var ty = orig_ty;
-    while (true) switch (ty.zigTypeTag(zcu)) {
-        .error_union => ty = ty.errorUnionPayload(zcu),
-        .optional => ty = ty.optionalChild(zcu),
-        .enum_literal, .error_set => {
+    const uncoerced_result = res: {
+        if (orig_ty.toIntern() == .generic_poison_type) {
             // Treat this as a normal enum literal.
-            return Air.internedToRef(try pt.intern(.{ .enum_literal = name }));
-        },
-        else => break,
+            break :res Air.internedToRef(try pt.intern(.{ .enum_literal = name }));
+        }
+
+        var ty = orig_ty;
+        while (true) switch (ty.zigTypeTag(zcu)) {
+            .error_union => ty = ty.errorUnionPayload(zcu),
+            .optional => ty = ty.optionalChild(zcu),
+            .enum_literal, .error_set => {
+                // Treat this as a normal enum literal.
+                break :res Air.internedToRef(try pt.intern(.{ .enum_literal = name }));
+            },
+            else => break,
+        };
+
+        break :res try sema.fieldVal(block, src, Air.internedToRef(ty.toIntern()), name, src);
     };
 
-    const result = try sema.fieldVal(block, src, Air.internedToRef(ty.toIntern()), name, src);
-
     // Decl literals cannot lookup runtime `var`s.
-    if (!try sema.isComptimeKnown(result)) {
+    if (!try sema.isComptimeKnown(uncoerced_result)) {
         return sema.fail(block, src, "decl literal must be comptime-known", .{});
     }
 
     if (do_coerce) {
-        return sema.coerce(block, orig_ty, result, src);
+        return sema.coerce(block, orig_ty, uncoerced_result, src);
     } else {
-        return result;
+        return uncoerced_result;
     }
 }
 
