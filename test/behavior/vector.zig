@@ -1409,7 +1409,14 @@ test "store vector with memset" {
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     if (builtin.zig_backend == .stage2_llvm) {
+        // LLVM 16 ERROR: "Converting bits to bytes lost precision"
+        // https://github.com/ziglang/zig/issues/16177
         switch (builtin.target.cpu.arch) {
+            .arm,
+            .armeb,
+            .thumb,
+            .thumbeb,
+            => if (builtin.target.floatAbi() == .soft) return error.SkipZigTest,
             .wasm32,
             .mips,
             .mipsel,
@@ -1418,11 +1425,7 @@ test "store vector with memset" {
             .riscv64,
             .powerpc,
             .powerpc64,
-            => {
-                // LLVM 16 ERROR: "Converting bits to bytes lost precision"
-                // https://github.com/ziglang/zig/issues/16177
-                return error.SkipZigTest;
-            },
+            => return error.SkipZigTest,
             else => {},
         }
     }

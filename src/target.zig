@@ -339,6 +339,48 @@ pub fn clangAssemblerSupportsMcpuArg(target: std.Target) bool {
     };
 }
 
+pub fn clangSupportsFloatAbiArg(target: std.Target) bool {
+    return switch (target.cpu.arch) {
+        .arm,
+        .armeb,
+        .thumb,
+        .thumbeb,
+        .csky,
+        .mips,
+        .mipsel,
+        .mips64,
+        .mips64el,
+        .powerpc,
+        .powerpcle,
+        .powerpc64,
+        .powerpc64le,
+        .s390x,
+        .sparc,
+        .sparc64,
+        => true,
+        // We use the target triple for LoongArch.
+        .loongarch32, .loongarch64 => false,
+        else => false,
+    };
+}
+
+pub fn clangSupportsNoImplicitFloatArg(target: std.Target) bool {
+    return switch (target.cpu.arch) {
+        .aarch64,
+        .aarch64_be,
+        .arm,
+        .armeb,
+        .thumb,
+        .thumbeb,
+        .riscv32,
+        .riscv64,
+        .x86,
+        .x86_64,
+        => true,
+        else => false,
+    };
+}
+
 pub fn needUnwindTables(target: std.Target) bool {
     return target.os.tag == .windows or target.isDarwin() or std.debug.Dwarf.abi.supportsUnwinding(target);
 }

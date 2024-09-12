@@ -28,7 +28,8 @@ fn logOverride(
     f.writer().print(prefix1 ++ prefix2 ++ format ++ "\n", args) catch @panic("failed to write to fuzzer log");
 }
 
-export threadlocal var __sancov_lowest_stack: usize = std.math.maxInt(usize);
+/// Helps determine run uniqueness in the face of recursion.
+export threadlocal var __sancov_lowest_stack: usize = 0;
 
 export fn __sanitizer_cov_trace_const_cmp1(arg1: u8, arg2: u8) void {
     handleCmp(@returnAddress(), arg1, arg2);
@@ -220,7 +221,6 @@ const Fuzzer = struct {
                 .n_runs = 0,
                 .unique_runs = 0,
                 .pcs_len = pcs.len,
-                .lowest_stack = std.math.maxInt(usize),
             };
             f.seen_pcs.appendSliceAssumeCapacity(std.mem.asBytes(&header));
             f.seen_pcs.appendNTimesAssumeCapacity(0, n_bitset_elems * @sizeOf(usize));
@@ -235,22 +235,41 @@ const Fuzzer = struct {
         };
     }
 
-    fn next(f: *Fuzzer) ![]const u8 {
+    fn start(f: *Fuzzer) !void {
         const gpa = f.gpa;
         const rng = fuzzer.rng.random();
 
-        if (f.recent_cases.entries.len == 0) {
-            // Prepare initial input.
-            try f.recent_cases.ensureUnusedCapacity(gpa, 100);
-            const len = rng.uintLessThanBiased(usize, 80);
-            try f.input.resize(gpa, len);
-            rng.bytes(f.input.items);
-            f.recent_cases.putAssumeCapacity(.{
-                .id = 0,
-                .input = try gpa.dupe(u8, f.input.items),
-                .score = 0,
-            }, {});
-        } else {
+        // Prepare initial input.
+        assert(f.recent_cases.entries.len == 0);
+        assert(f.n_runs == 0);
+        try f.recent_cases.ensureUnusedCapacity(gpa, 100);
+        const len = rng.uintLessThanBiased(usize, 80);
+        try f.input.resize(gpa, len);
+        rng.bytes(f.input.items);
+        f.recent_cases.putAssumeCapacity(.{
+            .id = 0,
+            .input = try gpa.dupe(u8, f.input.items),
+            .score = 0,
+        }, {});
+
+        const header: *volatile SeenPcsHeader = @ptrCast(f.seen_pcs.items[0..@sizeOf(SeenPcsHeader)]);
+
+        while (true) {
+            const chosen_index = rng.uintLessThanBiased(usize, f.recent_cases.entries.len);
+            const run = &f.recent_cases.keys()[chosen_index];
+            f.input.clearRetainingCapacity();
+            f.input.appendSliceAssumeCapacity(run.input);
+            try f.mutate();
+
+            @memset(f.pc_counters, 0);
+            __sancov_lowest_stack = std.math.maxInt(usize);
+            f.coverage.reset();
+
+            fuzzer_one(f.input.items.ptr, f.input.items.len);
+
+            f.n_runs += 1;
+            _ = @atomicRmw(usize, &header.n_runs, .Add, 1, .monotonic);
+
             if (f.n_runs % 10000 == 0) f.dumpStats();
 
             const analysis = f.analyzeLastRun();
@@ -301,7 +320,6 @@ const Fuzzer = struct {
                     }
                 }
 
-                const header: *volatile SeenPcsHeader = @ptrCast(f.seen_pcs.items[0..@sizeOf(SeenPcsHeader)]);
                 _ = @atomicRmw(usize, &header.unique_runs, .Add, 1, .monotonic);
             }
 
@@ -317,26 +335,12 @@ const Fuzzer = struct {
                 // This has to be done before deinitializing the deleted items.
                 const doomed_runs = f.recent_cases.keys()[cap..];
                 f.recent_cases.shrinkRetainingCapacity(cap);
-                for (doomed_runs) |*run| {
-                    std.log.info("culling score={d} id={d}", .{ run.score, run.id });
-                    run.deinit(gpa);
+                for (doomed_runs) |*doomed_run| {
+                    std.log.info("culling score={d} id={d}", .{ doomed_run.score, doomed_run.id });
+                    doomed_run.deinit(gpa);
                 }
             }
         }
-
-        const chosen_index = rng.uintLessThanBiased(usize, f.recent_cases.entries.len);
-        const run = &f.recent_cases.keys()[chosen_index];
-        f.input.clearRetainingCapacity();
-        f.input.appendSliceAssumeCapacity(run.input);
-        try f.mutate();
-
-        f.n_runs += 1;
-        const header: *volatile SeenPcsHeader = @ptrCast(f.seen_pcs.items[0..@sizeOf(SeenPcsHeader)]);
-        _ = @atomicRmw(usize, &header.n_runs, .Add, 1, .monotonic);
-        _ = @atomicRmw(usize, &header.lowest_stack, .Min, __sancov_lowest_stack, .monotonic);
-        @memset(f.pc_counters, 0);
-        f.coverage.reset();
-        return f.input.items;
     }
 
     fn visitPc(f: *Fuzzer, pc: usize) void {
@@ -419,10 +423,13 @@ export fn fuzzer_coverage_id() u64 {
     return fuzzer.coverage_id;
 }
 
-export fn fuzzer_next() Fuzzer.Slice {
-    return Fuzzer.Slice.fromZig(fuzzer.next() catch |err| switch (err) {
-        error.OutOfMemory => @panic("out of memory"),
-    });
+var fuzzer_one: *const fn (input_ptr: [*]const u8, input_len: usize) callconv(.C) void = undefined;
+
+export fn fuzzer_start(testOne: @TypeOf(fuzzer_one)) void {
+    fuzzer_one = testOne;
+    fuzzer.start() catch |err| switch (err) {
+        error.OutOfMemory => fatal("out of memory", .{}),
+    };
 }
 
 export fn fuzzer_init(cache_dir_struct: Fuzzer.Slice) void {
@@ -432,24 +439,24 @@ export fn fuzzer_init(cache_dir_struct: Fuzzer.Slice) void {
     const pc_counters_start = @extern([*]u8, .{
         .name = "__start___sancov_cntrs",
         .linkage = .weak,
-    }) orelse fatal("missing __start___sancov_cntrs symbol");
+    }) orelse fatal("missing __start___sancov_cntrs symbol", .{});
 
     const pc_counters_end = @extern([*]u8, .{
         .name = "__stop___sancov_cntrs",
         .linkage = .weak,
-    }) orelse fatal("missing __stop___sancov_cntrs symbol");
+    }) orelse fatal("missing __stop___sancov_cntrs symbol", .{});
 
     const pc_counters = pc_counters_start[0 .. pc_counters_end - pc_counters_start];
 
     const pcs_start = @extern([*]usize, .{
         .name = "__start___sancov_pcs1",
         .linkage = .weak,
-    }) orelse fatal("missing __start___sancov_pcs1 symbol");
+    }) orelse fatal("missing __start___sancov_pcs1 symbol", .{});
 
     const pcs_end = @extern([*]usize, .{
         .name = "__stop___sancov_pcs1",
         .linkage = .weak,
-    }) orelse fatal("missing __stop___sancov_pcs1 symbol");
+    }) orelse fatal("missing __stop___sancov_pcs1 symbol", .{});
 
     const pcs = pcs_start[0 .. pcs_end - pcs_start];
 

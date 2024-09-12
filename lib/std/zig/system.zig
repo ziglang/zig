@@ -384,6 +384,12 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
         query.cpu_features_add,
         query.cpu_features_sub,
     );
+
+    // https://github.com/llvm/llvm-project/issues/105978
+    if (result.cpu.arch.isArmOrThumb() and result.floatAbi() == .soft) {
+        result.cpu.features.removeFeature(@intFromEnum(Target.arm.Feature.vfp2));
+    }
+
     return result;
 }
 
