@@ -961,7 +961,7 @@ pub fn writeEnd(c: *Client, stream: anytype, bytes: []const u8, end: bool) !usiz
             // not sent; otherwise the caller would not know to retry the call.
             if (amt == 0 and (!end or i < iovec_end - 1)) return total_amt;
         }
-        iovecs_buf[i].adjust(amt);
+        iovecs_buf[i].discard(amt);
     }
 }
 
@@ -1147,7 +1147,7 @@ pub fn readvAtLeast(c: *Client, stream: anytype, iovecs: []std.net.IoSlice, len:
             amt -= iovecs[vec_i].len();
             vec_i += 1;
         }
-        iovecs[vec_i].adjust(amt);
+        iovecs[vec_i].discard(amt);
     }
 }
 
