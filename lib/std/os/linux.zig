@@ -2054,10 +2054,10 @@ pub fn eventfd(count: u32, flags: u32) usize {
     return syscall2(.eventfd2, count, flags);
 }
 
-pub fn timerfd_create(clockid: usize, flags: TFD) usize {
+pub fn timerfd_create(clockid: i32, flags: TFD) usize {
     return syscall2(
         .timerfd_create,
-        clockid,
+        @intCast(clockid),
         @as(u32, @bitCast(flags)),
     );
 }
@@ -4555,7 +4555,7 @@ pub const clockid_t = enum(u32) {
 // to a panic, an enum is introduced which only allows the values
 // that actually work.
 pub const CLOCK_ID = clock_id;
-pub const clock_id = enum(usize) {
+pub const clock_id = enum(i32) {
     REALTIME = 0,
     MONOTONIC = 1,
     _,
