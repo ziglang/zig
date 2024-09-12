@@ -16,9 +16,10 @@ const std = @import("std");
 const common = @import("./common.zig");
 const builtin = @import("builtin");
 
-extern fn memset(dest: ?[*]u8, c: u8, n: usize) callconv(.C) ?[*]u8;
-extern fn memcpy(noalias dest: ?[*]u8, noalias src: ?[*]const u8, n: usize) callconv(.C) ?[*]u8;
-extern fn memmove(dest: ?[*]u8, src: ?[*]const u8, n: usize) callconv(.C) ?[*]u8;
+// These signatures are intentionally C-like to match `zig.h`.
+extern fn memset(dest: *anyopaque, c: c_int, n: usize) callconv(.C) *anyopaque;
+extern fn memcpy(noalias dest: *anyopaque, noalias src: *const anyopaque, n: usize) callconv(.C) *anyopaque;
+extern fn memmove(dest: *anyopaque, src: *const anyopaque, n: usize) callconv(.C) *anyopaque;
 
 comptime {
     @export(&__stack_chk_fail, .{ .name = "__stack_chk_fail", .linkage = common.linkage, .visibility = common.visibility });
@@ -127,17 +128,17 @@ fn __strncat_chk(dest: [*:0]u8, src: [*:0]const u8, n: usize, dest_n: usize) cal
     return dest;
 }
 
-fn __memcpy_chk(noalias dest: ?[*]u8, noalias src: ?[*]const u8, n: usize, dest_n: usize) callconv(.C) ?[*]u8 {
+fn __memcpy_chk(noalias dest: *anyopaque, noalias src: *const anyopaque, n: usize, dest_n: usize) callconv(.C) *anyopaque {
     if (dest_n < n) __chk_fail();
     return memcpy(dest, src, n);
 }
 
-fn __memmove_chk(dest: ?[*]u8, src: ?[*]const u8, n: usize, dest_n: usize) callconv(.C) ?[*]u8 {
+fn __memmove_chk(dest: *anyopaque, src: *const anyopaque, n: usize, dest_n: usize) callconv(.C) *anyopaque {
     if (dest_n < n) __chk_fail();
     return memmove(dest, src, n);
 }
 
-fn __memset_chk(dest: ?[*]u8, c: u8, n: usize, dest_n: usize) callconv(.C) ?[*]u8 {
+fn __memset_chk(dest: *anyopaque, c: c_int, n: usize, dest_n: usize) callconv(.C) *anyopaque {
     if (dest_n < n) __chk_fail();
     return memset(dest, c, n);
 }
