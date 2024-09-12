@@ -219,7 +219,7 @@ pub const ARCH = switch (native_os) {
 // that actually work.
 pub const CLOCK_ID = clock_id;
 pub const clock_id = switch (native_os) {
-    .linux, .freebsd => enum(usize) {
+    .linux, .freebsd => enum(i32) {
         REALTIME = 0,
         MONOTONIC = 1,
         _,
