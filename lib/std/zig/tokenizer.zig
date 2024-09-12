@@ -1708,6 +1708,10 @@ test "invalid tabs and carriage returns" {
     try testTokenize("\rpub\rswitch\r", &.{ .keyword_pub, .keyword_switch });
 }
 
+test "fuzzable properties upheld" {
+    return std.testing.fuzz(testPropertiesUpheld, .{});
+}
+
 fn testTokenize(source: [:0]const u8, expected_token_tags: []const Token.Tag) !void {
     var tokenizer = Tokenizer.init(source);
     for (expected_token_tags) |expected_token_tag| {
@@ -1723,8 +1727,7 @@ fn testTokenize(source: [:0]const u8, expected_token_tags: []const Token.Tag) !v
     try std.testing.expectEqual(source.len, last_token.loc.end);
 }
 
-test "fuzzable properties upheld" {
-    const source = std.testing.fuzzInput(.{});
+fn testPropertiesUpheld(source: []const u8) anyerror!void {
     const source0 = try std.testing.allocator.dupeZ(u8, source);
     defer std.testing.allocator.free(source0);
     var tokenizer = Tokenizer.init(source0);
