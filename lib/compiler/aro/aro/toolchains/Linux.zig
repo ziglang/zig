@@ -11,7 +11,7 @@ const system_defaults = @import("system_defaults");
 const Linux = @This();
 
 distro: Distro.Tag = .unknown,
-extra_opts: std.ArrayListUnmanaged([]const u8) = .{},
+extra_opts: std.ArrayListUnmanaged([]const u8) = .empty,
 gcc_detector: GCCDetector = .{},
 
 pub fn discover(self: *Linux, tc: *Toolchain) !void {

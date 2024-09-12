@@ -22,8 +22,8 @@ tree: *const Ast,
 /// sub-expressions. See `AstRlAnnotate` for details.
 nodes_need_rl: *const AstRlAnnotate.RlNeededSet,
 instructions: std.MultiArrayList(Zir.Inst) = .{},
-extra: ArrayListUnmanaged(u32) = .{},
-string_bytes: ArrayListUnmanaged(u8) = .{},
+extra: ArrayListUnmanaged(u32) = .empty,
+string_bytes: ArrayListUnmanaged(u8) = .empty,
 /// Tracks the current byte offset within the source file.
 /// Used to populate line deltas in the ZIR. AstGen maintains
 /// this "cursor" throughout the entire AST lowering process in order
@@ -39,8 +39,8 @@ source_column: u32 = 0,
 /// Used for temporary allocations; freed after AstGen is complete.
 /// The resulting ZIR code has no references to anything in this arena.
 arena: Allocator,
-string_table: std.HashMapUnmanaged(u32, void, StringIndexContext, std.hash_map.default_max_load_percentage) = .{},
-compile_errors: ArrayListUnmanaged(Zir.Inst.CompileErrors.Item) = .{},
+string_table: std.HashMapUnmanaged(u32, void, StringIndexContext, std.hash_map.default_max_load_percentage) = .empty,
+compile_errors: ArrayListUnmanaged(Zir.Inst.CompileErrors.Item) = .empty,
 /// The topmost block of the current function.
 fn_block: ?*GenZir = null,
 fn_var_args: bool = false,
@@ -52,9 +52,9 @@ within_fn: bool = false,
 fn_ret_ty: Zir.Inst.Ref = .none,
 /// Maps string table indexes to the first `@import` ZIR instruction
 /// that uses this string as the operand.
-imports: std.AutoArrayHashMapUnmanaged(Zir.NullTerminatedString, Ast.TokenIndex) = .{},
+imports: std.AutoArrayHashMapUnmanaged(Zir.NullTerminatedString, Ast.TokenIndex) = .empty,
 /// Used for temporary storage when building payloads.
-scratch: std.ArrayListUnmanaged(u32) = .{},
+scratch: std.ArrayListUnmanaged(u32) = .empty,
 /// Whenever a `ref` instruction is needed, it is created and saved in this
 /// table instead of being immediately appended to the current block body.
 /// Then, when the instruction is being added to the parent block (typically from
@@ -65,7 +65,7 @@ scratch: std.ArrayListUnmanaged(u32) = .{},
 /// 2. `ref` instructions will dominate their uses. This is a required property
 ///    of ZIR.
 /// The key is the ref operand; the value is the ref instruction.
-ref_table: std.AutoHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Index) = .{},
+ref_table: std.AutoHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Index) = .empty,
 /// Any information which should trigger invalidation of incremental compilation
 /// data should be used to update this hasher. The result is the final source
 /// hash of the enclosing declaration/etc.
@@ -159,7 +159,7 @@ pub fn generate(gpa: Allocator, tree: Ast) Allocator.Error!Zir {
 
     var top_scope: Scope.Top = .{};
 
-    var gz_instructions: std.ArrayListUnmanaged(Zir.Inst.Index) = .{};
+    var gz_instructions: std.ArrayListUnmanaged(Zir.Inst.Index) = .empty;
     var gen_scope: GenZir = .{
         .is_comptime = true,
         .parent = &top_scope.base,
@@ -5854,7 +5854,7 @@ fn errorSetDecl(gz: *GenZir, ri: ResultInfo, node: Ast.Node.Index) InnerError!Zi
     const payload_index = try reserveExtra(astgen, @typeInfo(Zir.Inst.ErrorSetDecl).@"struct".fields.len);
     var fields_len: usize = 0;
     {
-        var idents: std.AutoHashMapUnmanaged(Zir.NullTerminatedString, Ast.TokenIndex) = .{};
+        var idents: std.AutoHashMapUnmanaged(Zir.NullTerminatedString, Ast.TokenIndex) = .empty;
         defer idents.deinit(gpa);
 
         const error_token = main_tokens[node];
@@ -11259,7 +11259,7 @@ fn identifierTokenString(astgen: *AstGen, token: Ast.TokenIndex) InnerError![]co
     if (!mem.startsWith(u8, ident_name, "@")) {
         return ident_name;
     }
-    var buf: ArrayListUnmanaged(u8) = .{};
+    var buf: ArrayListUnmanaged(u8) = .empty;
     defer buf.deinit(astgen.gpa);
     try astgen.parseStrLit(token, &buf, ident_name, 1);
     if (mem.indexOfScalar(u8, buf.items, 0) != null) {
@@ -11881,7 +11881,7 @@ const Scope = struct {
         parent: *Scope,
         /// Maps string table index to the source location of declaration,
         /// for the purposes of reporting name shadowing compile errors.
-        decls: std.AutoHashMapUnmanaged(Zir.NullTerminatedString, Ast.Node.Index) = .{},
+        decls: std.AutoHashMapUnmanaged(Zir.NullTerminatedString, Ast.Node.Index) = .empty,
         node: Ast.Node.Index,
         inst: Zir.Inst.Index,
         maybe_generic: bool,
@@ -11891,7 +11891,7 @@ const Scope = struct {
         declaring_gz: ?*GenZir,
 
         /// Set of captures used by this namespace.
-        captures: std.AutoArrayHashMapUnmanaged(Zir.Inst.Capture, void) = .{},
+        captures: std.AutoArrayHashMapUnmanaged(Zir.Inst.Capture, void) = .empty,
 
         fn deinit(self: *Namespace, gpa: Allocator) void {
             self.decls.deinit(gpa);
@@ -13607,9 +13607,9 @@ fn scanContainer(
     var sfba_state = std.heap.stackFallback(512, astgen.gpa);
     const sfba = sfba_state.get();
 
-    var names: std.AutoArrayHashMapUnmanaged(Zir.NullTerminatedString, NameEntry) = .{};
-    var test_names: std.AutoArrayHashMapUnmanaged(Zir.NullTerminatedString, NameEntry) = .{};
-    var decltest_names: std.AutoArrayHashMapUnmanaged(Zir.NullTerminatedString, NameEntry) = .{};
+    var names: std.AutoArrayHashMapUnmanaged(Zir.NullTerminatedString, NameEntry) = .empty;
+    var test_names: std.AutoArrayHashMapUnmanaged(Zir.NullTerminatedString, NameEntry) = .empty;
+    var decltest_names: std.AutoArrayHashMapUnmanaged(Zir.NullTerminatedString, NameEntry) = .empty;
     defer {
         names.deinit(sfba);
         test_names.deinit(sfba);
@@ -13796,7 +13796,7 @@ fn scanContainer(
 
     for (names.keys(), names.values()) |name, first| {
         if (first.next == null) continue;
-        var notes: std.ArrayListUnmanaged(u32) = .{};
+        var notes: std.ArrayListUnmanaged(u32) = .empty;
         var prev: NameEntry = first;
         while (prev.next) |cur| : (prev = cur.*) {
             try notes.append(astgen.arena, try astgen.errNoteTok(cur.tok, "duplicate name here", .{}));
@@ -13808,7 +13808,7 @@ fn scanContainer(
 
     for (test_names.keys(), test_names.values()) |name, first| {
         if (first.next == null) continue;
-        var notes: std.ArrayListUnmanaged(u32) = .{};
+        var notes: std.ArrayListUnmanaged(u32) = .empty;
         var prev: NameEntry = first;
         while (prev.next) |cur| : (prev = cur.*) {
             try notes.append(astgen.arena, try astgen.errNoteTok(cur.tok, "duplicate test here", .{}));
@@ -13820,7 +13820,7 @@ fn scanContainer(
 
     for (decltest_names.keys(), decltest_names.values()) |name, first| {
         if (first.next == null) continue;
-        var notes: std.ArrayListUnmanaged(u32) = .{};
+        var notes: std.ArrayListUnmanaged(u32) = .empty;
         var prev: NameEntry = first;
         while (prev.next) |cur| : (prev = cur.*) {
             try notes.append(astgen.arena, try astgen.errNoteTok(cur.tok, "duplicate decltest here", .{}));
@@ -13949,10 +13949,10 @@ fn lowerAstErrors(astgen: *AstGen) !void {
     const gpa = astgen.gpa;
     const parse_err = tree.errors[0];
 
-    var msg: std.ArrayListUnmanaged(u8) = .{};
+    var msg: std.ArrayListUnmanaged(u8) = .empty;
     defer msg.deinit(gpa);
 
-    var notes: std.ArrayListUnmanaged(u32) = .{};
+    var notes: std.ArrayListUnmanaged(u32) = .empty;
     defer notes.deinit(gpa);
 
     for (tree.errors[1..]) |note| {

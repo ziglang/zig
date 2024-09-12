@@ -13,7 +13,7 @@ gpa: Allocator,
 arena: Allocator,
 code: Zir,
 air_instructions: std.MultiArrayList(Air.Inst) = .{},
-air_extra: std.ArrayListUnmanaged(u32) = .{},
+air_extra: std.ArrayListUnmanaged(u32) = .empty,
 /// Maps ZIR to AIR.
 inst_map: InstMap = .{},
 /// The "owner" of a `Sema` represents the root "thing" that is being analyzed.
@@ -65,7 +65,7 @@ generic_call_src: LazySrcLoc = LazySrcLoc.unneeded,
 /// They are created when an break_inline passes through a runtime condition, because
 /// Sema must convert comptime control flow to runtime control flow, which means
 /// breaking from a block.
-post_hoc_blocks: std.AutoHashMapUnmanaged(Air.Inst.Index, *LabeledBlock) = .{},
+post_hoc_blocks: std.AutoHashMapUnmanaged(Air.Inst.Index, *LabeledBlock) = .empty,
 /// Populated with the last compile error created.
 err: ?*Zcu.ErrorMsg = null,
 /// Set to true when analyzing a func type instruction so that nested generic
@@ -74,12 +74,12 @@ no_partial_func_ty: bool = false,
 
 /// The temporary arena is used for the memory of the `InferredAlloc` values
 /// here so the values can be dropped without any cleanup.
-unresolved_inferred_allocs: std.AutoArrayHashMapUnmanaged(Air.Inst.Index, InferredAlloc) = .{},
+unresolved_inferred_allocs: std.AutoArrayHashMapUnmanaged(Air.Inst.Index, InferredAlloc) = .empty,
 
 /// Links every pointer derived from a base `alloc` back to that `alloc`. Used
 /// to detect comptime-known `const`s.
 /// TODO: ZIR liveness analysis would allow us to remove elements from this map.
-base_allocs: std.AutoHashMapUnmanaged(Air.Inst.Index, Air.Inst.Index) = .{},
+base_allocs: std.AutoHashMapUnmanaged(Air.Inst.Index, Air.Inst.Index) = .empty,
 
 /// Runtime `alloc`s are placed in this map to track all comptime-known writes
 /// before the corresponding `make_ptr_const` instruction.
@@ -90,28 +90,28 @@ base_allocs: std.AutoHashMapUnmanaged(Air.Inst.Index, Air.Inst.Index) = .{},
 /// is comptime-known, and all stores to the pointer must be applied at comptime
 /// to determine the comptime value.
 /// Backed by gpa.
-maybe_comptime_allocs: std.AutoHashMapUnmanaged(Air.Inst.Index, MaybeComptimeAlloc) = .{},
+maybe_comptime_allocs: std.AutoHashMapUnmanaged(Air.Inst.Index, MaybeComptimeAlloc) = .empty,
 
 /// Comptime-mutable allocs, and any comptime allocs which reference it, are
 /// stored as elements of this array.
 /// Pointers to such memory are represented via an index into this array.
 /// Backed by gpa.
-comptime_allocs: std.ArrayListUnmanaged(ComptimeAlloc) = .{},
+comptime_allocs: std.ArrayListUnmanaged(ComptimeAlloc) = .empty,
 
 /// A list of exports performed by this analysis. After this `Sema` terminates,
 /// these are flushed to `Zcu.single_exports` or `Zcu.multi_exports`.
-exports: std.ArrayListUnmanaged(Zcu.Export) = .{},
+exports: std.ArrayListUnmanaged(Zcu.Export) = .empty,
 
 /// All references registered so far by this `Sema`. This is a temporary duplicate
 /// of data stored in `Zcu.all_references`. It exists to avoid adding references to
 /// a given `AnalUnit` multiple times.
-references: std.AutoArrayHashMapUnmanaged(AnalUnit, void) = .{},
-type_references: std.AutoArrayHashMapUnmanaged(InternPool.Index, void) = .{},
+references: std.AutoArrayHashMapUnmanaged(AnalUnit, void) = .empty,
+type_references: std.AutoArrayHashMapUnmanaged(InternPool.Index, void) = .empty,
 
 /// All dependencies registered so far by this `Sema`. This is a temporary duplicate
 /// of the main dependency data. It exists to avoid adding dependencies to a given
 /// `AnalUnit` multiple times.
-dependencies: std.AutoArrayHashMapUnmanaged(InternPool.Dependee, void) = .{},
+dependencies: std.AutoArrayHashMapUnmanaged(InternPool.Dependee, void) = .empty,
 
 /// Whether memoization of this call is permitted. Operations with side effects global
 /// to the `Sema`, such as `@setEvalBranchQuota`, set this to `false`. It is observed
@@ -208,7 +208,7 @@ pub const InferredErrorSet = struct {
     /// are returned from any dependent functions.
     errors: NameMap = .{},
     /// Other inferred error sets which this inferred error set should include.
-    inferred_error_sets: std.AutoArrayHashMapUnmanaged(InternPool.Index, void) = .{},
+    inferred_error_sets: std.AutoArrayHashMapUnmanaged(InternPool.Index, void) = .empty,
     /// The regular error set created by resolving this inferred error set.
     resolved: InternPool.Index = .none,
 
@@ -508,9 +508,9 @@ pub const Block = struct {
         /// * for a `switch_block[_ref]`, this refers to dummy `br` instructions
         ///   which correspond to `switch_continue` ZIR. The switch logic will
         ///   rewrite these to appropriate AIR switch dispatches.
-        extra_insts: std.ArrayListUnmanaged(Air.Inst.Index) = .{},
+        extra_insts: std.ArrayListUnmanaged(Air.Inst.Index) = .empty,
         /// Same indexes, capacity, length as `extra_insts`.
-        extra_src_locs: std.ArrayListUnmanaged(LazySrcLoc) = .{},
+        extra_src_locs: std.ArrayListUnmanaged(LazySrcLoc) = .empty,
 
         pub fn deinit(merges: *@This(), allocator: Allocator) void {
             merges.results.deinit(allocator);
@@ -871,7 +871,7 @@ const InferredAlloc = struct {
     /// is known. These should be rewritten to perform any required coercions
     /// when the type is resolved.
     /// Allocated from `sema.arena`.
-    prongs: std.ArrayListUnmanaged(Air.Inst.Index) = .{},
+    prongs: std.ArrayListUnmanaged(Air.Inst.Index) = .empty,
 };
 
 const NeededComptimeReason = struct {
@@ -2908,7 +2908,7 @@ fn createTypeName(
             const fn_info = sema.code.getFnInfo(ip.funcZirBodyInst(sema.func_index).resolve(ip) orelse return error.AnalysisFail);
             const zir_tags = sema.code.instructions.items(.tag);
 
-            var buf: std.ArrayListUnmanaged(u8) = .{};
+            var buf: std.ArrayListUnmanaged(u8) = .empty;
             defer buf.deinit(gpa);
 
             const writer = buf.writer(gpa);
@@ -6851,11 +6851,11 @@ fn lookupInNamespace(
 
     if (observe_usingnamespace and (namespace.pub_usingnamespace.items.len != 0 or namespace.priv_usingnamespace.items.len != 0)) {
         const gpa = sema.gpa;
-        var checked_namespaces: std.AutoArrayHashMapUnmanaged(*Namespace, void) = .{};
+        var checked_namespaces: std.AutoArrayHashMapUnmanaged(*Namespace, void) = .empty;
         defer checked_namespaces.deinit(gpa);
 
         // Keep track of name conflicts for error notes.
-        var candidates: std.ArrayListUnmanaged(InternPool.Nav.Index) = .{};
+        var candidates: std.ArrayListUnmanaged(InternPool.Nav.Index) = .empty;
         defer candidates.deinit(gpa);
 
         try checked_namespaces.put(gpa, namespace, {});
@@ -22754,7 +22754,7 @@ fn reifyUnion(
         break :tag_ty .{ enum_tag_ty.toIntern(), true };
     } else tag_ty: {
         // We must track field names and set up the tag type ourselves.
-        var field_names: std.AutoArrayHashMapUnmanaged(InternPool.NullTerminatedString, void) = .{};
+        var field_names: std.AutoArrayHashMapUnmanaged(InternPool.NullTerminatedString, void) = .empty;
         try field_names.ensureTotalCapacity(sema.arena, fields_len);
 
         for (field_types, 0..) |*field_ty, field_idx| {
@@ -37075,7 +37075,7 @@ fn unionFields(
 
     var int_tag_ty: Type = undefined;
     var enum_field_names: []InternPool.NullTerminatedString = &.{};
-    var enum_field_vals: std.AutoArrayHashMapUnmanaged(InternPool.Index, void) = .{};
+    var enum_field_vals: std.AutoArrayHashMapUnmanaged(InternPool.Index, void) = .empty;
     var explicit_tags_seen: []bool = &.{};
     if (tag_type_ref != .none) {
         const tag_ty_src: LazySrcLoc = .{
@@ -37126,8 +37126,8 @@ fn unionFields(
         enum_field_names = try sema.arena.alloc(InternPool.NullTerminatedString, fields_len);
     }
 
-    var field_types: std.ArrayListUnmanaged(InternPool.Index) = .{};
-    var field_aligns: std.ArrayListUnmanaged(InternPool.Alignment) = .{};
+    var field_types: std.ArrayListUnmanaged(InternPool.Index) = .empty;
+    var field_aligns: std.ArrayListUnmanaged(InternPool.Alignment) = .empty;
 
     try field_types.ensureTotalCapacityPrecise(sema.arena, fields_len);
     if (small.any_aligned_fields)

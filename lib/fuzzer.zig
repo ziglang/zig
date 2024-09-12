@@ -402,7 +402,7 @@ fn oom(err: anytype) noreturn {
     }
 }
 
-var general_purpose_allocator: std.heap.GeneralPurposeAllocator(.{}) = .{};
+var general_purpose_allocator: std.heap.GeneralPurposeAllocator(.{}) = .init;
 
 var fuzzer: Fuzzer = .{
     .gpa = general_purpose_allocator.allocator(),

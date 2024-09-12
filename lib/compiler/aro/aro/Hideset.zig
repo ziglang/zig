@@ -51,10 +51,10 @@ pub const Index = enum(u32) {
     _,
 };
 
-map: std.AutoHashMapUnmanaged(Identifier, Index) = .{},
+map: std.AutoHashMapUnmanaged(Identifier, Index) = .empty,
 /// Used for computing union/intersection of two lists; stored here so that allocations can be retained
 /// until hideset is deinit'ed
-tmp_map: std.AutoHashMapUnmanaged(Identifier, void) = .{},
+tmp_map: std.AutoHashMapUnmanaged(Identifier, void) = .empty,
 linked_list: Item.List = .{},
 comp: *const Compilation,
 
