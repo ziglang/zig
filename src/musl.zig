@@ -387,6 +387,7 @@ fn addCcArgs(
         "-fno-builtin",
         "-fexcess-precision=standard",
         "-frounding-math",
+        "-ffp-contract=off",
         "-fno-strict-aliasing",
         "-Wa,--noexecstack",
         "-D_XOPEN_SOURCE=700",

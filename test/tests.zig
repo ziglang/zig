@@ -291,23 +291,49 @@ const test_targets = blk: {
         },
 
         .{
-            .target = std.Target.Query.parse(.{
-                .arch_os_abi = "arm-linux-none",
-                .cpu_features = "generic+v8a",
-            }) catch unreachable,
+            .target = .{
+                .cpu_arch = .arm,
+                .os_tag = .linux,
+                .abi = .eabi,
+            },
         },
         .{
-            .target = std.Target.Query.parse(.{
-                .arch_os_abi = "arm-linux-musleabihf",
-                .cpu_features = "generic+v8a",
-            }) catch unreachable,
+            .target = .{
+                .cpu_arch = .arm,
+                .os_tag = .linux,
+                .abi = .eabihf,
+            },
+        },
+        .{
+            .target = .{
+                .cpu_arch = .arm,
+                .os_tag = .linux,
+                .abi = .musleabi,
+            },
             .link_libc = true,
         },
         .{
-            .target = std.Target.Query.parse(.{
-                .arch_os_abi = "arm-linux-gnueabihf",
-                .cpu_features = "generic+v8a",
-            }) catch unreachable,
+            .target = .{
+                .cpu_arch = .arm,
+                .os_tag = .linux,
+                .abi = .musleabihf,
+            },
+            .link_libc = true,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .arm,
+                .os_tag = .linux,
+                .abi = .gnueabi,
+            },
+            .link_libc = true,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .arm,
+                .os_tag = .linux,
+                .abi = .gnueabihf,
+            },
             .link_libc = true,
         },
 
@@ -315,7 +341,7 @@ const test_targets = blk: {
             .target = .{
                 .cpu_arch = .mips,
                 .os_tag = .linux,
-                .abi = .none,
+                .abi = .eabi,
             },
             .slow_backend = true,
         },
@@ -323,7 +349,33 @@ const test_targets = blk: {
             .target = .{
                 .cpu_arch = .mips,
                 .os_tag = .linux,
-                .abi = .musl,
+                .abi = .eabihf,
+            },
+            .slow_backend = true,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .mips,
+                .os_tag = .linux,
+                .abi = .musleabi,
+            },
+            .link_libc = true,
+            .slow_backend = true,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .mips,
+                .os_tag = .linux,
+                .abi = .musleabihf,
+            },
+            .link_libc = true,
+            .slow_backend = true,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .mips,
+                .os_tag = .linux,
+                .abi = .gnueabi,
             },
             .link_libc = true,
             .slow_backend = true,
@@ -342,7 +394,7 @@ const test_targets = blk: {
             .target = .{
                 .cpu_arch = .mipsel,
                 .os_tag = .linux,
-                .abi = .none,
+                .abi = .eabi,
             },
             .slow_backend = true,
         },
@@ -350,7 +402,33 @@ const test_targets = blk: {
             .target = .{
                 .cpu_arch = .mipsel,
                 .os_tag = .linux,
-                .abi = .musl,
+                .abi = .eabihf,
+            },
+            .slow_backend = true,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .mipsel,
+                .os_tag = .linux,
+                .abi = .musleabi,
+            },
+            .link_libc = true,
+            .slow_backend = true,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .mipsel,
+                .os_tag = .linux,
+                .abi = .musleabihf,
+            },
+            .link_libc = true,
+            .slow_backend = true,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .mipsel,
+                .os_tag = .linux,
+                .abi = .gnueabi,
             },
             .link_libc = true,
             .slow_backend = true,
@@ -417,14 +495,29 @@ const test_targets = blk: {
             .target = .{
                 .cpu_arch = .powerpc,
                 .os_tag = .linux,
-                .abi = .none,
+                .abi = .eabi,
             },
         },
         .{
             .target = .{
                 .cpu_arch = .powerpc,
                 .os_tag = .linux,
-                .abi = .musl,
+                .abi = .eabihf,
+            },
+        },
+        .{
+            .target = .{
+                .cpu_arch = .powerpc,
+                .os_tag = .linux,
+                .abi = .musleabi,
+            },
+            .link_libc = true,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .powerpc,
+                .os_tag = .linux,
+                .abi = .musleabihf,
             },
             .link_libc = true,
         },
@@ -661,7 +754,7 @@ const c_abi_targets = [_]CAbiTarget{
         .target = .{
             .cpu_arch = .mips,
             .os_tag = .linux,
-            .abi = .musl,
+            .abi = .musleabihf,
         },
     },
     .{
@@ -682,7 +775,7 @@ const c_abi_targets = [_]CAbiTarget{
         .target = .{
             .cpu_arch = .powerpc,
             .os_tag = .linux,
-            .abi = .musl,
+            .abi = .musleabihf,
         },
     },
     .{

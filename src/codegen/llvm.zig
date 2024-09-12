@@ -1285,8 +1285,7 @@ pub const Object = struct {
             .large => .Large,
         };
 
-        // TODO handle float ABI better- it should depend on the ABI portion of std.Target
-        const float_abi: llvm.ABIType = .Default;
+        const float_abi: llvm.ABIType = if (comp.root_mod.resolved_target.result.floatAbi() == .hard) .Hard else .Soft;
 
         var target_machine = llvm.TargetMachine.create(
             target,
@@ -3109,6 +3108,30 @@ pub const Object = struct {
                 .kind = try o.builder.string("no-builtins"),
                 .value = .empty,
             } }, &o.builder);
+        }
+        if (target.floatAbi() == .soft) {
+            // `use-soft-float` means "use software routines for floating point computations". In
+            // other words, it configures how LLVM lowers basic float instructions like `fcmp`,
+            // `fadd`, etc. The float calling convention is configured on `TargetMachine` and is
+            // mostly an orthogonal concept, although obviously we do need hardware float operations
+            // to actually be able to pass float values in float registers.
+            //
+            // Ideally, we would support something akin to the `-mfloat-abi=softfp` option that GCC
+            // and Clang support for Arm32 and CSKY. We don't currently expose such an option in
+            // Zig, and using CPU features as the source of truth for this makes for a miserable
+            // user experience since people expect e.g. `arm-linux-gnueabi` to mean full soft float
+            // unless the compiler has explicitly been told otherwise. (And note that our baseline
+            // CPU models almost all include FPU features!)
+            //
+            // Revisit this at some point.
+            try attributes.addFnAttr(.{ .string = .{
+                .kind = try o.builder.string("use-soft-float"),
+                .value = try o.builder.string("true"),
+            } }, &o.builder);
+
+            // This prevents LLVM from using FPU/SIMD code for things like `memcpy`. As for the
+            // above, this should be revisited if `softfp` support is added.
+            try attributes.addFnAttr(.noimplicitfloat, &o.builder);
         }
     }
 
@@ -12423,6 +12446,11 @@ fn backendSupportsF16(target: std.Target) bool {
         .riscv32,
         .s390x,
         => false,
+        .arm,
+        .armeb,
+        .thumb,
+        .thumbeb,
+        => target.floatAbi() == .soft or std.Target.arm.featureSetHas(target.cpu.features, .fp_armv8),
         .aarch64,
         .aarch64_be,
         => std.Target.aarch64.featureSetHas(target.cpu.features, .fp_armv8),
@@ -12445,6 +12473,11 @@ fn backendSupportsF128(target: std.Target) bool {
         .powerpc64,
         .powerpc64le,
         => target.os.tag != .aix,
+        .arm,
+        .armeb,
+        .thumb,
+        .thumbeb,
+        => target.floatAbi() == .soft or std.Target.arm.featureSetHas(target.cpu.features, .fp_armv8),
         .aarch64,
         .aarch64_be,
         => std.Target.aarch64.featureSetHas(target.cpu.features, .fp_armv8),
