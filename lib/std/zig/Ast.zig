@@ -128,10 +128,11 @@ pub fn renderToArrayList(tree: Ast, buffer: *std.ArrayList(u8), fixups: Fixups) 
 /// Returns an extra offset for column and byte offset of errors that
 /// should point after the token in the error message.
 pub fn errorOffset(tree: Ast, parse_error: Error) u32 {
-    return if (parse_error.token_is_prev)
-        @as(u32, @intCast(tree.tokenSlice(parse_error.token).len))
-    else
-        0;
+    if (parse_error.token_is_prev) {
+        return @intCast(tree.tokenSlice(parse_error.token).len);
+    } else {
+        return 0;
+    }
 }
 
 pub fn tokenLocation(self: Ast, start_offset: ByteOffset, token_index: TokenIndex) Location {
@@ -174,22 +175,8 @@ pub fn tokenLocation(self: Ast, start_offset: ByteOffset, token_index: TokenInde
 
 pub fn tokenSlice(tree: Ast, token_index: TokenIndex) []const u8 {
     const token_starts = tree.tokens.items(.start);
-    const token_tags = tree.tokens.items(.tag);
-    const token_tag = token_tags[token_index];
-
-    // Many tokens can be determined entirely by their tag.
-    if (token_tag.lexeme()) |lexeme| {
-        return lexeme;
-    }
-
-    // For some tokens, re-tokenization is needed to find the end.
-    var tokenizer: std.zig.Tokenizer = .{
-        .buffer = tree.source,
-        .index = token_starts[token_index],
-    };
-    const token = tokenizer.next();
-    assert(token.tag == token_tag);
-    return tree.source[token.start..token.end];
+    const token_ends = tree.tokens.items(.end);
+    return tree.source[token_starts[token_index]..token_ends[token_index]];
 }
 
 pub fn extraData(tree: Ast, index: usize, comptime T: type) T {
@@ -788,7 +775,7 @@ pub fn lastToken(tree: Ast, node: Node.Index) TokenIndex {
     var n = node;
     var end_offset: TokenIndex = 0;
     while (true) switch (tags[n]) {
-        .root => return @as(TokenIndex, @intCast(tree.tokens.len - 1)),
+        .root => return @intCast(tree.tokens.len - 1),
 
         .@"usingnamespace",
         .bool_not,
@@ -1323,10 +1310,11 @@ pub fn tokensOnSameLine(tree: Ast, token1: TokenIndex, token2: TokenIndex) bool 
 
 pub fn getNodeSource(tree: Ast, node: Node.Index) []const u8 {
     const token_starts = tree.tokens.items(.start);
+    const token_ends = tree.tokens.items(.end);
     const first_token = tree.firstToken(node);
     const last_token = tree.lastToken(node);
     const start = token_starts[first_token];
-    const end = token_starts[last_token] + tree.tokenSlice(last_token).len;
+    const end = token_ends[last_token];
     return tree.source[start..end];
 }
 
@@ -3630,6 +3618,7 @@ pub fn tokenToSpan(tree: *const Ast, token: Ast.TokenIndex) Span {
 
 pub fn tokensToSpan(tree: *const Ast, start: Ast.TokenIndex, end: Ast.TokenIndex, main: Ast.TokenIndex) Span {
     const token_starts = tree.tokens.items(.start);
+    const token_ends = tree.tokens.items(.end);
     var start_tok = start;
     var end_tok = end;
 
@@ -3643,9 +3632,11 @@ pub fn tokensToSpan(tree: *const Ast, start: Ast.TokenIndex, end: Ast.TokenIndex
         start_tok = main;
         end_tok = main;
     }
-    const start_off = token_starts[start_tok];
-    const end_off = token_starts[end_tok] + @as(u32, @intCast(tree.tokenSlice(end_tok).len));
-    return Span{ .start = start_off, .end = end_off, .main = token_starts[main] };
+    return Span{
+        .start = token_starts[start_tok],
+        .end = token_ends[end_tok],
+        .main = token_starts[main],
+    };
 }
 
 const std = @import("../std.zig");
