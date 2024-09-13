@@ -45,6 +45,6 @@ comptime {
 // backend=stage2
 // target=native
 //
-// :2:9: error: alignment value '3' is not a power of two or zero
-// :14:9: error: alignment value '5' is not a power of two or zero
-// :30:9: error: alignment value '7' is not a power of two or zero
+// :2:9: error: alignment value '3' is not a power of two
+// :14:9: error: alignment value '5' is not a power of two
+// :30:9: error: alignment value '7' is not a power of two

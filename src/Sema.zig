@@ -22052,7 +22052,7 @@ fn zirReify(
 
             const alignment_val_int = try alignment_val.toUnsignedIntSema(pt);
             if (alignment_val_int > 0 and !math.isPowerOfTwo(alignment_val_int)) {
-                return sema.fail(block, src, "alignment value '{d}' is not a power of two or zero", .{alignment_val_int});
+                return sema.fail(block, src, "alignment value '{d}' is not a power of two", .{alignment_val_int});
             }
             const abi_align = Alignment.fromByteUnits(alignment_val_int);
 
@@ -22731,7 +22731,7 @@ fn reifyUnion(
                 const byte_align = try (try field_info.fieldValue(pt, 2)).toUnsignedIntSema(pt);
                 if (byte_align > 0 and !math.isPowerOfTwo(byte_align)) {
                     // TODO: better source location
-                    return sema.fail(block, src, "alignment value '{d}' is not a power of two or zero", .{byte_align});
+                    return sema.fail(block, src, "alignment value '{d}' is not a power of two", .{byte_align});
                 }
                 field_aligns[field_idx] = Alignment.fromByteUnits(byte_align);
             }
@@ -22776,7 +22776,7 @@ fn reifyUnion(
                 const byte_align = try (try field_info.fieldValue(pt, 2)).toUnsignedIntSema(pt);
                 if (byte_align > 0 and !math.isPowerOfTwo(byte_align)) {
                     // TODO: better source location
-                    return sema.fail(block, src, "alignment value '{d}' is not a power of two or zero", .{byte_align});
+                    return sema.fail(block, src, "alignment value '{d}' is not a power of two", .{byte_align});
                 }
                 field_aligns[field_idx] = Alignment.fromByteUnits(byte_align);
             }
@@ -23013,7 +23013,7 @@ fn reifyStruct(
                 }
             } else {
                 if (layout == .@"packed") return sema.fail(block, src, "alignment in a packed struct field must be set to 0", .{});
-                if (!math.isPowerOfTwo(byte_align)) return sema.fail(block, src, "alignment value '{d}' is not a power of two or zero", .{byte_align});
+                if (!math.isPowerOfTwo(byte_align)) return sema.fail(block, src, "alignment value '{d}' is not a power of two", .{byte_align});
                 struct_type.field_aligns.get(ip)[field_idx] = Alignment.fromNonzeroByteUnits(byte_align);
             }
         }
