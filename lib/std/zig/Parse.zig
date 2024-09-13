@@ -41,9 +41,9 @@ fn listToSpan(p: *Parse, list: []const Node.Index) !Node.SubRange {
     };
 }
 
-fn addNode(p: *Parse, elem: Ast.Node) Allocator.Error!Node.Index {
+fn addNodeAssumeCapacity(p: *Parse, elem: Ast.Node) Node.Index {
     const result = @as(Node.Index, @intCast(p.nodes.len));
-    try p.nodes.append(p.gpa, elem);
+    p.nodes.appendAssumeCapacity(elem);
     return result;
 }
 
@@ -263,7 +263,7 @@ fn parseContainerMembers(p: *Parse) Allocator.Error!Members {
                         },
                     };
                     if (block != 0) {
-                        const comptime_node = try p.addNode(.{
+                        const comptime_node = p.addNodeAssumeCapacity(.{
                             .tag = .@"comptime",
                             .main_token = comptime_token,
                             .data = .{
@@ -571,7 +571,7 @@ fn expectTestDecl(p: *Parse) !Node.Index {
     };
     const block_node = try p.parseBlock();
     if (block_node == 0) return p.fail(.expected_block);
-    return p.addNode(.{
+    return p.addNodeAssumeCapacity(.{
         .tag = .test_decl,
         .main_token = test_token,
         .data = .{
@@ -681,7 +681,7 @@ fn expectUsingNamespace(p: *Parse) !Node.Index {
     const usingnamespace_token = p.assertToken(.keyword_usingnamespace);
     const expr = try p.expectExpr();
     try p.expectSemicolon(.expected_semi_after_decl, false);
-    return p.addNode(.{
+    return p.addNodeAssumeCapacity(.{
         .tag = .@"usingnamespace",
         .main_token = usingnamespace_token,
         .data = .{
@@ -799,7 +799,7 @@ fn parseVarDeclProto(p: *Parse) !Node.Index {
 
     if (section_node == 0 and addrspace_node == 0) {
         if (align_node == 0) {
-            return p.addNode(.{
+            return p.addNodeAssumeCapacity(.{
                 .tag = .simple_var_decl,
                 .main_token = mut_token,
                 .data = .{
@@ -810,7 +810,7 @@ fn parseVarDeclProto(p: *Parse) !Node.Index {
         }
 
         if (type_node == 0) {
-            return p.addNode(.{
+            return p.addNodeAssumeCapacity(.{
                 .tag = .aligned_var_decl,
                 .main_token = mut_token,
                 .data = .{
@@ -820,7 +820,7 @@ fn parseVarDeclProto(p: *Parse) !Node.Index {
             });
         }
 
-        return p.addNode(.{
+        return p.addNodeAssumeCapacity(.{
             .tag = .local_var_decl,
             .main_token = mut_token,
             .data = .{
@@ -832,7 +832,7 @@ fn parseVarDeclProto(p: *Parse) !Node.Index {
             },
         });
     } else {
-        return p.addNode(.{
+        return p.addNodeAssumeCapacity(.{
             .tag = .global_var_decl,
             .main_token = mut_token,
             .data = .{
@@ -884,7 +884,7 @@ fn expectContainerField(p: *Parse) !Node.Index {
     const value_expr: Node.Index = if (p.eatToken(.equal) == null) 0 else try p.expectExpr();
 
     if (align_expr == 0) {
-        return p.addNode(.{
+        return p.addNodeAssumeCapacity(.{
             .tag = .container_field_init,
             .main_token = main_token,
             .data = .{
@@ -893,7 +893,7 @@ fn expectContainerField(p: *Parse) !Node.Index {
             },
         });
     } else if (value_expr == 0) {
-        return p.addNode(.{
+        return p.addNodeAssumeCapacity(.{
             .tag = .container_field_align,
             .main_token = main_token,
             .data = .{
@@ -902,7 +902,7 @@ fn expectContainerField(p: *Parse) !Node.Index {
             },
         });
     } else {
-        return p.addNode(.{
+        return p.addNodeAssumeCapacity(.{
             .tag = .container_field,
             .main_token = main_token,
             .data = .{
@@ -929,7 +929,7 @@ fn expectStatement(p: *Parse, allow_defer_var: bool) Error!Node.Index {
     if (p.eatToken(.keyword_comptime)) |comptime_token| {
         const block_expr = try p.parseBlockExpr();
         if (block_expr != 0) {
-            return p.addNode(.{
+            return p.addNodeAssumeCapacity(.{
                 .tag = .@"comptime",
                 .main_token = comptime_token,
                 .data = .{
@@ -944,7 +944,7 @@ fn expectStatement(p: *Parse, allow_defer_var: bool) Error!Node.Index {
         } else {
             const assign = try p.expectAssignExpr();
             try p.expectSemicolon(.expected_semi_after_stmt, true);
-            return p.addNode(.{
+            return p.addNodeAssumeCapacity(.{
                 .tag = .@"comptime",
                 .main_token = comptime_token,
                 .data = .{
@@ -957,7 +957,7 @@ fn expectStatement(p: *Parse, allow_defer_var: bool) Error!Node.Index {
 
     switch (p.token_tags[p.tok_i]) {
         .keyword_nosuspend => {
-            return p.addNode(.{
+            return p.addNodeAssumeCapacity(.{
                 .tag = .@"nosuspend",
                 .main_token = p.nextToken(),
                 .data = .{
@@ -969,7 +969,7 @@ fn expectStatement(p: *Parse, allow_defer_var: bool) Error!Node.Index {
         .keyword_suspend => {
             const token = p.nextToken();
             const block_expr = try p.expectBlockExprStatement();
-            return p.addNode(.{
+            return p.addNodeAssumeCapacity(.{
                 .tag = .@"suspend",
                 .main_token = token,
                 .data = .{
@@ -978,7 +978,7 @@ fn expectStatement(p: *Parse, allow_defer_var: bool) Error!Node.Index {
                 },
             });
         },
-        .keyword_defer => if (allow_defer_var) return p.addNode(.{
+        .keyword_defer => if (allow_defer_var) return p.addNodeAssumeCapacity(.{
             .tag = .@"defer",
             .main_token = p.nextToken(),
             .data = .{
@@ -986,7 +986,7 @@ fn expectStatement(p: *Parse, allow_defer_var: bool) Error!Node.Index {
                 .rhs = try p.expectBlockExprStatement(),
             },
         }),
-        .keyword_errdefer => if (allow_defer_var) return p.addNode(.{
+        .keyword_errdefer => if (allow_defer_var) return p.addNodeAssumeCapacity(.{
             .tag = .@"errdefer",
             .main_token = p.nextToken(),
             .data = .{
@@ -999,7 +999,7 @@ fn expectStatement(p: *Parse, allow_defer_var: bool) Error!Node.Index {
             const identifier = p.tok_i + 1;
             if (try p.parseCStyleContainer()) {
                 // Return something so that `expectStatement` is happy.
-                return p.addNode(.{
+                return p.addNodeAssumeCapacity(.{
                     .tag = .identifier,
                     .main_token = identifier,
                     .data = .{
@@ -1030,7 +1030,7 @@ fn expectStatement(p: *Parse, allow_defer_var: bool) Error!Node.Index {
 fn expectComptimeStatement(p: *Parse, comptime_token: TokenIndex) !Node.Index {
     const block_expr = try p.parseBlockExpr();
     if (block_expr != 0) {
-        return p.addNode(.{
+        return p.addNodeAssumeCapacity(.{
             .tag = .@"comptime",
             .main_token = comptime_token,
             .data = .{ .lhs = block_expr, .rhs = undefined },
@@ -1094,7 +1094,7 @@ fn expectVarDeclExprStatement(p: *Parse, comptime_token: ?TokenIndex) !Node.Inde
         const expr = try p.finishAssignExpr(lhs);
         try p.expectSemicolon(.expected_semi_after_stmt, true);
         if (comptime_token) |t| {
-            return p.addNode(.{
+            return p.addNodeAssumeCapacity(.{
                 .tag = .@"comptime",
                 .main_token = t,
                 .data = .{
@@ -1120,13 +1120,13 @@ fn expectVarDeclExprStatement(p: *Parse, comptime_token: ?TokenIndex) !Node.Inde
             },
             else => {},
         }
-        const expr = try p.addNode(.{
+        const expr = p.addNodeAssumeCapacity(.{
             .tag = .assign,
             .main_token = equal_token,
             .data = .{ .lhs = lhs, .rhs = rhs },
         });
         if (comptime_token) |t| {
-            return p.addNode(.{
+            return p.addNodeAssumeCapacity(.{
                 .tag = .@"comptime",
                 .main_token = t,
                 .data = .{
@@ -1146,7 +1146,7 @@ fn expectVarDeclExprStatement(p: *Parse, comptime_token: ?TokenIndex) !Node.Inde
     p.extra_data.appendAssumeCapacity(@intCast(lhs_count));
     p.extra_data.appendSliceAssumeCapacity(p.scratch.items[scratch_top..]);
 
-    return p.addNode(.{
+    return p.addNodeAssumeCapacity(.{
         .tag = .assign_destructure,
         .main_token = equal_token,
         .data = .{
@@ -1196,7 +1196,7 @@ fn expectIfStatement(p: *Parse) !Node.Index {
             return p.fail(.expected_block_or_assignment);
         }
         if (p.eatToken(.semicolon)) |_| {
-            return p.addNode(.{
+            return p.addNodeAssumeCapacity(.{
                 .tag = .if_simple,
                 .main_token = if_token,
                 .data = .{
@@ -1212,7 +1212,7 @@ fn expectIfStatement(p: *Parse) !Node.Index {
         if (else_required) {
             try p.warn(.expected_semi_or_else);
         }
-        return p.addNode(.{
+        return p.addNodeAssumeCapacity(.{
             .tag = .if_simple,
             .main_token = if_token,
             .data = .{
@@ -1223,7 +1223,7 @@ fn expectIfStatement(p: *Parse) !Node.Index {
     };
     _ = try p.parsePayload();
     const else_expr = try p.expectStatement(false);
-    return p.addNode(.{
+    return p.addNodeAssumeCapacity(.{
         .tag = .@"if",
         .main_token = if_token,
         .data = .{
@@ -1316,7 +1316,7 @@ fn parseForStatement(p: *Parse) !Node.Index {
         has_else = true;
     } else if (inputs == 1) {
         if (else_required) try p.warn(.expected_semi_or_else);
-        return p.addNode(.{
+        return p.addNodeAssumeCapacity(.{
             .tag = .for_simple,
             .main_token = for_token,
             .data = .{
@@ -1328,7 +1328,7 @@ fn parseForStatement(p: *Parse) !Node.Index {
         if (else_required) try p.warn(.expected_semi_or_else);
         try p.scratch.append(p.gpa, then_expr);
     }
-    return p.addNode(.{
+    return p.addNodeAssumeCapacity(.{
         .tag = .@"for",
         .main_token = for_token,
         .data = .{
@@ -1366,7 +1366,7 @@ fn parseWhileStatement(p: *Parse) !Node.Index {
         }
         if (p.eatToken(.semicolon)) |_| {
             if (cont_expr == 0) {
-                return p.addNode(.{
+                return p.addNodeAssumeCapacity(.{
                     .tag = .while_simple,
                     .main_token = while_token,
                     .data = .{
@@ -1375,7 +1375,7 @@ fn parseWhileStatement(p: *Parse) !Node.Index {
                     },
                 });
             } else {
-                return p.addNode(.{
+                return p.addNodeAssumeCapacity(.{
                     .tag = .while_cont,
                     .main_token = while_token,
                     .data = .{
@@ -1396,7 +1396,7 @@ fn parseWhileStatement(p: *Parse) !Node.Index {
             try p.warn(.expected_semi_or_else);
         }
         if (cont_expr == 0) {
-            return p.addNode(.{
+            return p.addNodeAssumeCapacity(.{
                 .tag = .while_simple,
                 .main_token = while_token,
                 .data = .{
@@ -1405,7 +1405,7 @@ fn parseWhileStatement(p: *Parse) !Node.Index {
                 },
             });
         } else {
-            return p.addNode(.{
+            return p.addNodeAssumeCapacity(.{
                 .tag = .while_cont,
                 .main_token = while_token,
                 .data = .{
@@ -1420,7 +1420,7 @@ fn parseWhileStatement(p: *Parse) !Node.Index {
     };
     _ = try p.parsePayload();
     const else_expr = try p.expectStatement(false);
-    return p.addNode(.{
+    return p.addNodeAssumeCapacity(.{
         .tag = .@"while",
         .main_token = while_token,
         .data = .{
@@ -1508,7 +1508,7 @@ fn parseSingleAssignExpr(p: *Parse) !Node.Index {
     const lhs = try p.parseExpr();
     if (lhs == 0) return null_node;
     const tag = assignOpNode(p.token_tags[p.tok_i]) orelse return lhs;
-    return p.addNode(.{
+    return p.addNodeAssumeCapacity(.{
         .tag = tag,
         .main_token = p.nextToken(),
         .data = .{
@@ -1522,7 +1522,7 @@ fn finishAssignExpr(p: *Parse, lhs: Node.Index) !Node.Index {
     const tok = p.token_tags[p.tok_i];
     if (tok == .comma) return p.finishAssignDestructureExpr(lhs);
     const tag = assignOpNode(tok) orelse return lhs;
-    return p.addNode(.{
+    return p.addNodeAssumeCapacity(.{
         .tag = tag,
         .main_token = p.nextToken(),
         .data = .{
@@ -1579,7 +1579,7 @@ fn finishAssignDestructureExpr(p: *Parse, first_lhs: Node.Index) !Node.Index {
     p.extra_data.appendAssumeCapacity(@intCast(lhs_count));
     p.extra_data.appendSliceAssumeCapacity(p.scratch.items[scratch_top..]);
 
-    return p.addNode(.{
+    return p.addNodeAssumeCapacity(.{
         .tag = .assign_destructure,
         .main_token = equal_token,
         .data = .{
@@ -1714,7 +1714,7 @@ fn parseExprPrecedence(p: *Parse, min_prec: i32) Error!Node.Index {
             }
         }
 
-        node = try p.addNode(.{
+        node = p.addNodeAssumeCapacity(.{
             .tag = info.tag,
             .main_token = oper_token,
             .data = .{
@@ -1752,7 +1752,7 @@ fn parsePrefixExpr(p: *Parse) Error!Node.Index {
         .keyword_await => .@"await",
         else => return p.parsePrimaryExpr(),
     };
-    return p.addNode(.{
+    return p.addNodeAssumeCapacity(.{
         .tag = tag,
         .main_token = p.nextToken(),
         .data = .{
@@ -1789,7 +1789,7 @@ fn expectPrefixExpr(p: *Parse) Error!Node.Index {
 /// ArrayTypeStart <- LBRACKET Expr (COLON Expr)? RBRACKET
 fn parseTypeExpr(p: *Parse) Error!Node.Index {
     switch (p.token_tags[p.tok_i]) {
-        .question_mark => return p.addNode(.{
+        .question_mark => return p.addNodeAssumeCapacity(.{
             .tag = .optional_type,
             .main_token = p.nextToken(),
             .data = .{
@@ -1798,7 +1798,7 @@ fn parseTypeExpr(p: *Parse) Error!Node.Index {
             },
         }),
         .keyword_anyframe => switch (p.token_tags[p.tok_i + 1]) {
-            .arrow => return p.addNode(.{
+            .arrow => return p.addNodeAssumeCapacity(.{
                 .tag = .anyframe_type,
                 .main_token = p.nextToken(),
                 .data = .{
@@ -1813,7 +1813,7 @@ fn parseTypeExpr(p: *Parse) Error!Node.Index {
             const mods = try p.parsePtrModifiers();
             const elem_type = try p.expectTypeExpr();
             if (mods.bit_range_start != 0) {
-                return p.addNode(.{
+                return p.addNodeAssumeCapacity(.{
                     .tag = .ptr_type_bit_range,
                     .main_token = asterisk,
                     .data = .{
@@ -1828,7 +1828,7 @@ fn parseTypeExpr(p: *Parse) Error!Node.Index {
                     },
                 });
             } else if (mods.addrspace_node != 0) {
-                return p.addNode(.{
+                return p.addNodeAssumeCapacity(.{
                     .tag = .ptr_type,
                     .main_token = asterisk,
                     .data = .{
@@ -1841,7 +1841,7 @@ fn parseTypeExpr(p: *Parse) Error!Node.Index {
                     },
                 });
             } else {
-                return p.addNode(.{
+                return p.addNodeAssumeCapacity(.{
                     .tag = .ptr_type_aligned,
                     .main_token = asterisk,
                     .data = .{
@@ -1857,7 +1857,7 @@ fn parseTypeExpr(p: *Parse) Error!Node.Index {
             const elem_type = try p.expectTypeExpr();
             const inner: Node.Index = inner: {
                 if (mods.bit_range_start != 0) {
-                    break :inner try p.addNode(.{
+                    break :inner p.addNodeAssumeCapacity(.{
                         .tag = .ptr_type_bit_range,
                         .main_token = asterisk,
                         .data = .{
@@ -1872,7 +1872,7 @@ fn parseTypeExpr(p: *Parse) Error!Node.Index {
                         },
                     });
                 } else if (mods.addrspace_node != 0) {
-                    break :inner try p.addNode(.{
+                    break :inner p.addNodeAssumeCapacity(.{
                         .tag = .ptr_type,
                         .main_token = asterisk,
                         .data = .{
@@ -1885,7 +1885,7 @@ fn parseTypeExpr(p: *Parse) Error!Node.Index {
                         },
                     });
                 } else {
-                    break :inner try p.addNode(.{
+                    break :inner p.addNodeAssumeCapacity(.{
                         .tag = .ptr_type_aligned,
                         .main_token = asterisk,
                         .data = .{
@@ -1895,7 +1895,7 @@ fn parseTypeExpr(p: *Parse) Error!Node.Index {
                     });
                 }
             };
-            return p.addNode(.{
+            return p.addNodeAssumeCapacity(.{
                 .tag = .ptr_type_aligned,
                 .main_token = asterisk,
                 .data = .{
@@ -1922,7 +1922,7 @@ fn parseTypeExpr(p: *Parse) Error!Node.Index {
                 const elem_type = try p.expectTypeExpr();
                 if (mods.bit_range_start == 0) {
                     if (sentinel == 0 and mods.addrspace_node == 0) {
-                        return p.addNode(.{
+                        return p.addNodeAssumeCapacity(.{
                             .tag = .ptr_type_aligned,
                             .main_token = l_bracket,
                             .data = .{
@@ -1931,7 +1931,7 @@ fn parseTypeExpr(p: *Parse) Error!Node.Index {
                             },
                         });
                     } else if (mods.align_node == 0 and mods.addrspace_node == 0) {
-                        return p.addNode(.{
+                        return p.addNodeAssumeCapacity(.{
                             .tag = .ptr_type_sentinel,
                             .main_token = l_bracket,
                             .data = .{
@@ -1940,7 +1940,7 @@ fn parseTypeExpr(p: *Parse) Error!Node.Index {
                             },
                         });
                     } else {
-                        return p.addNode(.{
+                        return p.addNodeAssumeCapacity(.{
                             .tag = .ptr_type,
                             .main_token = l_bracket,
                             .data = .{
@@ -1954,7 +1954,7 @@ fn parseTypeExpr(p: *Parse) Error!Node.Index {
                         });
                     }
                 } else {
-                    return p.addNode(.{
+                    return p.addNodeAssumeCapacity(.{
                         .tag = .ptr_type_bit_range,
                         .main_token = l_bracket,
                         .data = .{
@@ -1988,7 +1988,7 @@ fn parseTypeExpr(p: *Parse) Error!Node.Index {
                         });
                     }
                     if (sentinel == 0 and mods.addrspace_node == 0) {
-                        return p.addNode(.{
+                        return p.addNodeAssumeCapacity(.{
                             .tag = .ptr_type_aligned,
                             .main_token = lbracket,
                             .data = .{
@@ -1997,7 +1997,7 @@ fn parseTypeExpr(p: *Parse) Error!Node.Index {
                             },
                         });
                     } else if (mods.align_node == 0 and mods.addrspace_node == 0) {
-                        return p.addNode(.{
+                        return p.addNodeAssumeCapacity(.{
                             .tag = .ptr_type_sentinel,
                             .main_token = lbracket,
                             .data = .{
@@ -2006,7 +2006,7 @@ fn parseTypeExpr(p: *Parse) Error!Node.Index {
                             },
                         });
                     } else {
-                        return p.addNode(.{
+                        return p.addNodeAssumeCapacity(.{
                             .tag = .ptr_type,
                             .main_token = lbracket,
                             .data = .{
@@ -2031,7 +2031,7 @@ fn parseTypeExpr(p: *Parse) Error!Node.Index {
                     }
                     const elem_type = try p.expectTypeExpr();
                     if (sentinel == 0) {
-                        return p.addNode(.{
+                        return p.addNodeAssumeCapacity(.{
                             .tag = .array_type,
                             .main_token = lbracket,
                             .data = .{
@@ -2040,7 +2040,7 @@ fn parseTypeExpr(p: *Parse) Error!Node.Index {
                             },
                         });
                     } else {
-                        return p.addNode(.{
+                        return p.addNodeAssumeCapacity(.{
                             .tag = .array_type_sentinel,
                             .main_token = lbracket,
                             .data = .{
@@ -2084,7 +2084,7 @@ fn parsePrimaryExpr(p: *Parse) !Node.Index {
         .keyword_asm => return p.expectAsmExpr(),
         .keyword_if => return p.parseIfExpr(),
         .keyword_break => {
-            return p.addNode(.{
+            return p.addNodeAssumeCapacity(.{
                 .tag = .@"break",
                 .main_token = p.nextToken(),
                 .data = .{
@@ -2094,7 +2094,7 @@ fn parsePrimaryExpr(p: *Parse) !Node.Index {
             });
         },
         .keyword_continue => {
-            return p.addNode(.{
+            return p.addNodeAssumeCapacity(.{
                 .tag = .@"continue",
                 .main_token = p.nextToken(),
                 .data = .{
@@ -2104,7 +2104,7 @@ fn parsePrimaryExpr(p: *Parse) !Node.Index {
             });
         },
         .keyword_comptime => {
-            return p.addNode(.{
+            return p.addNodeAssumeCapacity(.{
                 .tag = .@"comptime",
                 .main_token = p.nextToken(),
                 .data = .{
@@ -2114,7 +2114,7 @@ fn parsePrimaryExpr(p: *Parse) !Node.Index {
             });
         },
         .keyword_nosuspend => {
-            return p.addNode(.{
+            return p.addNodeAssumeCapacity(.{
                 .tag = .@"nosuspend",
                 .main_token = p.nextToken(),
                 .data = .{
@@ -2124,7 +2124,7 @@ fn parsePrimaryExpr(p: *Parse) !Node.Index {
             });
         },
         .keyword_resume => {
-            return p.addNode(.{
+            return p.addNodeAssumeCapacity(.{
                 .tag = .@"resume",
                 .main_token = p.nextToken(),
                 .data = .{
@@ -2134,7 +2134,7 @@ fn parsePrimaryExpr(p: *Parse) !Node.Index {
             });
         },
         .keyword_return => {
-            return p.addNode(.{
+            return p.addNodeAssumeCapacity(.{
                 .tag = .@"return",
                 .main_token = p.nextToken(),
                 .data = .{
@@ -2207,7 +2207,7 @@ fn parseBlock(p: *Parse) !Node.Index {
     const semicolon = (p.token_tags[p.tok_i - 2] == .semicolon);
     const statements = p.scratch.items[scratch_top..];
     switch (statements.len) {
-        0 => return p.addNode(.{
+        0 => return p.addNodeAssumeCapacity(.{
             .tag = .block_two,
             .main_token = lbrace,
             .data = .{
@@ -2215,7 +2215,7 @@ fn parseBlock(p: *Parse) !Node.Index {
                 .rhs = 0,
             },
         }),
-        1 => return p.addNode(.{
+        1 => return p.addNodeAssumeCapacity(.{
             .tag = if (semicolon) .block_two_semicolon else .block_two,
             .main_token = lbrace,
             .data = .{
@@ -2223,7 +2223,7 @@ fn parseBlock(p: *Parse) !Node.Index {
                 .rhs = 0,
             },
         }),
-        2 => return p.addNode(.{
+        2 => return p.addNodeAssumeCapacity(.{
             .tag = if (semicolon) .block_two_semicolon else .block_two,
             .main_token = lbrace,
             .data = .{
@@ -2233,7 +2233,7 @@ fn parseBlock(p: *Parse) !Node.Index {
         }),
         else => {
             const span = try p.listToSpan(statements);
-            return p.addNode(.{
+            return p.addNodeAssumeCapacity(.{
                 .tag = if (semicolon) .block_semicolon else .block,
                 .main_token = lbrace,
                 .data = .{
@@ -2257,7 +2257,7 @@ fn forPrefix(p: *Parse) Error!usize {
     while (true) {
         var input = try p.expectExpr();
         if (p.eatToken(.ellipsis2)) |ellipsis| {
-            input = try p.addNode(.{
+            input = p.addNodeAssumeCapacity(.{
                 .tag = .for_range,
                 .main_token = ellipsis,
                 .data = .{
@@ -2331,7 +2331,7 @@ fn parseWhileExpr(p: *Parse) !Node.Index {
     const then_expr = try p.expectExpr();
     _ = p.eatToken(.keyword_else) orelse {
         if (cont_expr == 0) {
-            return p.addNode(.{
+            return p.addNodeAssumeCapacity(.{
                 .tag = .while_simple,
                 .main_token = while_token,
                 .data = .{
@@ -2340,7 +2340,7 @@ fn parseWhileExpr(p: *Parse) !Node.Index {
                 },
             });
         } else {
-            return p.addNode(.{
+            return p.addNodeAssumeCapacity(.{
                 .tag = .while_cont,
                 .main_token = while_token,
                 .data = .{
@@ -2355,7 +2355,7 @@ fn parseWhileExpr(p: *Parse) !Node.Index {
     };
     _ = try p.parsePayload();
     const else_expr = try p.expectExpr();
-    return p.addNode(.{
+    return p.addNodeAssumeCapacity(.{
         .tag = .@"while",
         .main_token = while_token,
         .data = .{
@@ -2407,7 +2407,7 @@ fn parseCurlySuffixExpr(p: *Parse) !Node.Index {
         const inits = p.scratch.items[scratch_top..];
         switch (inits.len) {
             0 => unreachable,
-            1 => return p.addNode(.{
+            1 => return p.addNodeAssumeCapacity(.{
                 .tag = if (comma) .struct_init_one_comma else .struct_init_one,
                 .main_token = lbrace,
                 .data = .{
@@ -2415,7 +2415,7 @@ fn parseCurlySuffixExpr(p: *Parse) !Node.Index {
                     .rhs = inits[0],
                 },
             }),
-            else => return p.addNode(.{
+            else => return p.addNodeAssumeCapacity(.{
                 .tag = if (comma) .struct_init_comma else .struct_init,
                 .main_token = lbrace,
                 .data = .{
@@ -2444,7 +2444,7 @@ fn parseCurlySuffixExpr(p: *Parse) !Node.Index {
     const comma = (p.token_tags[p.tok_i - 2] == .comma);
     const inits = p.scratch.items[scratch_top..];
     switch (inits.len) {
-        0 => return p.addNode(.{
+        0 => return p.addNodeAssumeCapacity(.{
             .tag = .struct_init_one,
             .main_token = lbrace,
             .data = .{
@@ -2452,7 +2452,7 @@ fn parseCurlySuffixExpr(p: *Parse) !Node.Index {
                 .rhs = 0,
             },
         }),
-        1 => return p.addNode(.{
+        1 => return p.addNodeAssumeCapacity(.{
             .tag = if (comma) .array_init_one_comma else .array_init_one,
             .main_token = lbrace,
             .data = .{
@@ -2460,7 +2460,7 @@ fn parseCurlySuffixExpr(p: *Parse) !Node.Index {
                 .rhs = inits[0],
             },
         }),
-        else => return p.addNode(.{
+        else => return p.addNodeAssumeCapacity(.{
             .tag = if (comma) .array_init_comma else .array_init,
             .main_token = lbrace,
             .data = .{
@@ -2476,7 +2476,7 @@ fn parseErrorUnionExpr(p: *Parse) !Node.Index {
     const suffix_expr = try p.parseSuffixExpr();
     if (suffix_expr == 0) return null_node;
     const bang = p.eatToken(.bang) orelse return suffix_expr;
-    return p.addNode(.{
+    return p.addNodeAssumeCapacity(.{
         .tag = .error_union,
         .main_token = bang,
         .data = .{
@@ -2525,7 +2525,7 @@ fn parseSuffixExpr(p: *Parse) !Node.Index {
         const comma = (p.token_tags[p.tok_i - 2] == .comma);
         const params = p.scratch.items[scratch_top..];
         switch (params.len) {
-            0 => return p.addNode(.{
+            0 => return p.addNodeAssumeCapacity(.{
                 .tag = if (comma) .async_call_one_comma else .async_call_one,
                 .main_token = lparen,
                 .data = .{
@@ -2533,7 +2533,7 @@ fn parseSuffixExpr(p: *Parse) !Node.Index {
                     .rhs = 0,
                 },
             }),
-            1 => return p.addNode(.{
+            1 => return p.addNodeAssumeCapacity(.{
                 .tag = if (comma) .async_call_one_comma else .async_call_one,
                 .main_token = lparen,
                 .data = .{
@@ -2541,7 +2541,7 @@ fn parseSuffixExpr(p: *Parse) !Node.Index {
                     .rhs = params[0],
                 },
             }),
-            else => return p.addNode(.{
+            else => return p.addNodeAssumeCapacity(.{
                 .tag = if (comma) .async_call_comma else .async_call,
                 .main_token = lparen,
                 .data = .{
@@ -2581,7 +2581,7 @@ fn parseSuffixExpr(p: *Parse) !Node.Index {
         const comma = (p.token_tags[p.tok_i - 2] == .comma);
         const params = p.scratch.items[scratch_top..];
         res = switch (params.len) {
-            0 => try p.addNode(.{
+            0 => p.addNodeAssumeCapacity(.{
                 .tag = if (comma) .call_one_comma else .call_one,
                 .main_token = lparen,
                 .data = .{
@@ -2589,7 +2589,7 @@ fn parseSuffixExpr(p: *Parse) !Node.Index {
                     .rhs = 0,
                 },
             }),
-            1 => try p.addNode(.{
+            1 => p.addNodeAssumeCapacity(.{
                 .tag = if (comma) .call_one_comma else .call_one,
                 .main_token = lparen,
                 .data = .{
@@ -2597,7 +2597,7 @@ fn parseSuffixExpr(p: *Parse) !Node.Index {
                     .rhs = params[0],
                 },
             }),
-            else => try p.addNode(.{
+            else => p.addNodeAssumeCapacity(.{
                 .tag = if (comma) .call_comma else .call,
                 .main_token = lparen,
                 .data = .{
@@ -2652,7 +2652,7 @@ fn parseSuffixExpr(p: *Parse) !Node.Index {
 /// LoopTypeExpr <- KEYWORD_inline? (ForTypeExpr / WhileTypeExpr)
 fn parsePrimaryTypeExpr(p: *Parse) !Node.Index {
     switch (p.token_tags[p.tok_i]) {
-        .char_literal => return p.addNode(.{
+        .char_literal => return p.addNodeAssumeCapacity(.{
             .tag = .char_literal,
             .main_token = p.nextToken(),
             .data = .{
@@ -2660,7 +2660,7 @@ fn parsePrimaryTypeExpr(p: *Parse) !Node.Index {
                 .rhs = undefined,
             },
         }),
-        .number_literal => return p.addNode(.{
+        .number_literal => return p.addNodeAssumeCapacity(.{
             .tag = .number_literal,
             .main_token = p.nextToken(),
             .data = .{
@@ -2668,7 +2668,7 @@ fn parsePrimaryTypeExpr(p: *Parse) !Node.Index {
                 .rhs = undefined,
             },
         }),
-        .keyword_unreachable => return p.addNode(.{
+        .keyword_unreachable => return p.addNodeAssumeCapacity(.{
             .tag = .unreachable_literal,
             .main_token = p.nextToken(),
             .data = .{
@@ -2676,7 +2676,7 @@ fn parsePrimaryTypeExpr(p: *Parse) !Node.Index {
                 .rhs = undefined,
             },
         }),
-        .keyword_anyframe => return p.addNode(.{
+        .keyword_anyframe => return p.addNodeAssumeCapacity(.{
             .tag = .anyframe_literal,
             .main_token = p.nextToken(),
             .data = .{
@@ -2686,7 +2686,7 @@ fn parsePrimaryTypeExpr(p: *Parse) !Node.Index {
         }),
         .string_literal => {
             const main_token = p.nextToken();
-            return p.addNode(.{
+            return p.addNodeAssumeCapacity(.{
                 .tag = .string_literal,
                 .main_token = main_token,
                 .data = .{
@@ -2714,7 +2714,7 @@ fn parsePrimaryTypeExpr(p: *Parse) !Node.Index {
         .keyword_union,
         => return p.parseContainerDeclAuto(),
 
-        .keyword_comptime => return p.addNode(.{
+        .keyword_comptime => return p.addNodeAssumeCapacity(.{
             .tag = .@"comptime",
             .main_token = p.nextToken(),
             .data = .{
@@ -2727,7 +2727,7 @@ fn parsePrimaryTypeExpr(p: *Parse) !Node.Index {
             while (p.token_tags[p.tok_i] == .multiline_string_literal_line) {
                 p.tok_i += 1;
             }
-            return p.addNode(.{
+            return p.addNodeAssumeCapacity(.{
                 .tag = .multiline_string_literal,
                 .main_token = first_line,
                 .data = .{
@@ -2762,7 +2762,7 @@ fn parsePrimaryTypeExpr(p: *Parse) !Node.Index {
                     p.tok_i += 2;
                     return p.parseBlock();
                 },
-                else => return p.addNode(.{
+                else => return p.addNodeAssumeCapacity(.{
                     .tag = .identifier,
                     .main_token = p.nextToken(),
                     .data = .{
@@ -2771,7 +2771,7 @@ fn parsePrimaryTypeExpr(p: *Parse) !Node.Index {
                     },
                 }),
             },
-            else => return p.addNode(.{
+            else => return p.addNodeAssumeCapacity(.{
                 .tag = .identifier,
                 .main_token = p.nextToken(),
                 .data = .{
@@ -2791,7 +2791,7 @@ fn parsePrimaryTypeExpr(p: *Parse) !Node.Index {
         .keyword_for => return p.parseFor(expectTypeExpr),
         .keyword_while => return p.parseWhileTypeExpr(),
         .period => switch (p.token_tags[p.tok_i + 1]) {
-            .identifier => return p.addNode(.{
+            .identifier => return p.addNodeAssumeCapacity(.{
                 .tag = .enum_literal,
                 .data = .{
                     .lhs = p.nextToken(), // dot
@@ -2830,7 +2830,7 @@ fn parsePrimaryTypeExpr(p: *Parse) !Node.Index {
                     const inits = p.scratch.items[scratch_top..];
                     switch (inits.len) {
                         0 => unreachable,
-                        1 => return p.addNode(.{
+                        1 => return p.addNodeAssumeCapacity(.{
                             .tag = if (comma) .struct_init_dot_two_comma else .struct_init_dot_two,
                             .main_token = lbrace,
                             .data = .{
@@ -2838,7 +2838,7 @@ fn parsePrimaryTypeExpr(p: *Parse) !Node.Index {
                                 .rhs = 0,
                             },
                         }),
-                        2 => return p.addNode(.{
+                        2 => return p.addNodeAssumeCapacity(.{
                             .tag = if (comma) .struct_init_dot_two_comma else .struct_init_dot_two,
                             .main_token = lbrace,
                             .data = .{
@@ -2848,7 +2848,7 @@ fn parsePrimaryTypeExpr(p: *Parse) !Node.Index {
                         }),
                         else => {
                             const span = try p.listToSpan(inits);
-                            return p.addNode(.{
+                            return p.addNodeAssumeCapacity(.{
                                 .tag = if (comma) .struct_init_dot_comma else .struct_init_dot,
                                 .main_token = lbrace,
                                 .data = .{
@@ -2878,7 +2878,7 @@ fn parsePrimaryTypeExpr(p: *Parse) !Node.Index {
                 const comma = (p.token_tags[p.tok_i - 2] == .comma);
                 const inits = p.scratch.items[scratch_top..];
                 switch (inits.len) {
-                    0 => return p.addNode(.{
+                    0 => return p.addNodeAssumeCapacity(.{
                         .tag = .struct_init_dot_two,
                         .main_token = lbrace,
                         .data = .{
@@ -2886,7 +2886,7 @@ fn parsePrimaryTypeExpr(p: *Parse) !Node.Index {
                             .rhs = 0,
                         },
                     }),
-                    1 => return p.addNode(.{
+                    1 => return p.addNodeAssumeCapacity(.{
                         .tag = if (comma) .array_init_dot_two_comma else .array_init_dot_two,
                         .main_token = lbrace,
                         .data = .{
@@ -2894,7 +2894,7 @@ fn parsePrimaryTypeExpr(p: *Parse) !Node.Index {
                             .rhs = 0,
                         },
                     }),
-                    2 => return p.addNode(.{
+                    2 => return p.addNodeAssumeCapacity(.{
                         .tag = if (comma) .array_init_dot_two_comma else .array_init_dot_two,
                         .main_token = lbrace,
                         .data = .{
@@ -2904,7 +2904,7 @@ fn parsePrimaryTypeExpr(p: *Parse) !Node.Index {
                     }),
                     else => {
                         const span = try p.listToSpan(inits);
-                        return p.addNode(.{
+                        return p.addNodeAssumeCapacity(.{
                             .tag = if (comma) .array_init_dot_comma else .array_init_dot,
                             .main_token = lbrace,
                             .data = .{
@@ -2936,7 +2936,7 @@ fn parsePrimaryTypeExpr(p: *Parse) !Node.Index {
                         else => try p.warn(.expected_comma_after_field),
                     }
                 }
-                return p.addNode(.{
+                return p.addNodeAssumeCapacity(.{
                     .tag = .error_set_decl,
                     .main_token = error_token,
                     .data = .{
@@ -2951,7 +2951,7 @@ fn parsePrimaryTypeExpr(p: *Parse) !Node.Index {
                 if (period == null) try p.warnExpected(.period);
                 const identifier = p.eatToken(.identifier);
                 if (identifier == null) try p.warnExpected(.identifier);
-                return p.addNode(.{
+                return p.addNodeAssumeCapacity(.{
                     .tag = .error_value,
                     .main_token = main_token,
                     .data = .{
@@ -2961,7 +2961,7 @@ fn parsePrimaryTypeExpr(p: *Parse) !Node.Index {
                 });
             },
         },
-        .l_paren => return p.addNode(.{
+        .l_paren => return p.addNodeAssumeCapacity(.{
             .tag = .grouped_expression,
             .main_token = p.nextToken(),
             .data = .{
@@ -2995,7 +2995,7 @@ fn parseWhileTypeExpr(p: *Parse) !Node.Index {
     const then_expr = try p.expectTypeExpr();
     _ = p.eatToken(.keyword_else) orelse {
         if (cont_expr == 0) {
-            return p.addNode(.{
+            return p.addNodeAssumeCapacity(.{
                 .tag = .while_simple,
                 .main_token = while_token,
                 .data = .{
@@ -3004,7 +3004,7 @@ fn parseWhileTypeExpr(p: *Parse) !Node.Index {
                 },
             });
         } else {
-            return p.addNode(.{
+            return p.addNodeAssumeCapacity(.{
                 .tag = .while_cont,
                 .main_token = while_token,
                 .data = .{
@@ -3019,7 +3019,7 @@ fn parseWhileTypeExpr(p: *Parse) !Node.Index {
     };
     _ = try p.parsePayload();
     const else_expr = try p.expectTypeExpr();
-    return p.addNode(.{
+    return p.addNodeAssumeCapacity(.{
         .tag = .@"while",
         .main_token = while_token,
         .data = .{
@@ -3053,7 +3053,7 @@ fn expectSwitchSuffix(p: *Parse, main_token: TokenIndex) !Node.Index {
     const trailing_comma = p.token_tags[p.tok_i - 1] == .comma;
     _ = try p.expectToken(.r_brace);
 
-    return p.addNode(.{
+    return p.addNodeAssumeCapacity(.{
         .tag = if (trailing_comma) .switch_comma else .@"switch",
         .main_token = main_token,
         .data = .{
@@ -3086,7 +3086,7 @@ fn expectAsmExpr(p: *Parse) !Node.Index {
     const template = try p.expectExpr();
 
     if (p.eatToken(.r_paren)) |rparen| {
-        return p.addNode(.{
+        return p.addNodeAssumeCapacity(.{
             .tag = .asm_simple,
             .main_token = asm_token,
             .data = .{
@@ -3139,7 +3139,7 @@ fn expectAsmExpr(p: *Parse) !Node.Index {
     }
     const rparen = try p.expectToken(.r_paren);
     const span = try p.listToSpan(p.scratch.items[scratch_top..]);
-    return p.addNode(.{
+    return p.addNodeAssumeCapacity(.{
         .tag = .@"asm",
         .main_token = asm_token,
         .data = .{
@@ -3169,7 +3169,7 @@ fn parseAsmOutputItem(p: *Parse) !Node.Index {
         }
     };
     const rparen = try p.expectToken(.r_paren);
-    return p.addNode(.{
+    return p.addNodeAssumeCapacity(.{
         .tag = .asm_output,
         .main_token = identifier,
         .data = .{
@@ -3188,7 +3188,7 @@ fn parseAsmInputItem(p: *Parse) !Node.Index {
     _ = try p.expectToken(.l_paren);
     const expr = try p.expectExpr();
     const rparen = try p.expectToken(.r_paren);
-    return p.addNode(.{
+    return p.addNodeAssumeCapacity(.{
         .tag = .asm_input,
         .main_token = identifier,
         .data = .{
@@ -3375,7 +3375,7 @@ fn parseSwitchProng(p: *Parse) !Node.Index {
 
     const items = p.scratch.items[scratch_top..];
     switch (items.len) {
-        0 => return p.addNode(.{
+        0 => return p.addNodeAssumeCapacity(.{
             .tag = if (is_inline) .switch_case_inline_one else .switch_case_one,
             .main_token = arrow_token,
             .data = .{
@@ -3383,7 +3383,7 @@ fn parseSwitchProng(p: *Parse) !Node.Index {
                 .rhs = try p.expectSingleAssignExpr(),
             },
         }),
-        1 => return p.addNode(.{
+        1 => return p.addNodeAssumeCapacity(.{
             .tag = if (is_inline) .switch_case_inline_one else .switch_case_one,
             .main_token = arrow_token,
             .data = .{
@@ -3391,7 +3391,7 @@ fn parseSwitchProng(p: *Parse) !Node.Index {
                 .rhs = try p.expectSingleAssignExpr(),
             },
         }),
-        else => return p.addNode(.{
+        else => return p.addNodeAssumeCapacity(.{
             .tag = if (is_inline) .switch_case_inline else .switch_case,
             .main_token = arrow_token,
             .data = .{
@@ -3408,7 +3408,7 @@ fn parseSwitchItem(p: *Parse) !Node.Index {
     if (expr == 0) return null_node;
 
     if (p.eatToken(.ellipsis3)) |token| {
-        return p.addNode(.{
+        return p.addNodeAssumeCapacity(.{
             .tag = .switch_range,
             .main_token = token,
             .data = .{
@@ -3503,7 +3503,7 @@ fn parseSuffixOp(p: *Parse, lhs: Node.Index) !Node.Index {
                 if (p.eatToken(.colon)) |_| {
                     const sentinel = try p.expectExpr();
                     _ = try p.expectToken(.r_bracket);
-                    return p.addNode(.{
+                    return p.addNodeAssumeCapacity(.{
                         .tag = .slice_sentinel,
                         .main_token = lbracket,
                         .data = .{
@@ -3518,7 +3518,7 @@ fn parseSuffixOp(p: *Parse, lhs: Node.Index) !Node.Index {
                 }
                 _ = try p.expectToken(.r_bracket);
                 if (end_expr == 0) {
-                    return p.addNode(.{
+                    return p.addNodeAssumeCapacity(.{
                         .tag = .slice_open,
                         .main_token = lbracket,
                         .data = .{
@@ -3527,7 +3527,7 @@ fn parseSuffixOp(p: *Parse, lhs: Node.Index) !Node.Index {
                         },
                     });
                 }
-                return p.addNode(.{
+                return p.addNodeAssumeCapacity(.{
                     .tag = .slice,
                     .main_token = lbracket,
                     .data = .{
@@ -3540,7 +3540,7 @@ fn parseSuffixOp(p: *Parse, lhs: Node.Index) !Node.Index {
                 });
             }
             _ = try p.expectToken(.r_bracket);
-            return p.addNode(.{
+            return p.addNodeAssumeCapacity(.{
                 .tag = .array_access,
                 .main_token = lbracket,
                 .data = .{
@@ -3549,7 +3549,7 @@ fn parseSuffixOp(p: *Parse, lhs: Node.Index) !Node.Index {
                 },
             });
         },
-        .period_asterisk => return p.addNode(.{
+        .period_asterisk => return p.addNodeAssumeCapacity(.{
             .tag = .deref,
             .main_token = p.nextToken(),
             .data = .{
@@ -3559,7 +3559,7 @@ fn parseSuffixOp(p: *Parse, lhs: Node.Index) !Node.Index {
         }),
         .invalid_periodasterisks => {
             try p.warn(.asterisk_after_ptr_deref);
-            return p.addNode(.{
+            return p.addNodeAssumeCapacity(.{
                 .tag = .deref,
                 .main_token = p.nextToken(),
                 .data = .{
@@ -3569,7 +3569,7 @@ fn parseSuffixOp(p: *Parse, lhs: Node.Index) !Node.Index {
             });
         },
         .period => switch (p.token_tags[p.tok_i + 1]) {
-            .identifier => return p.addNode(.{
+            .identifier => return p.addNodeAssumeCapacity(.{
                 .tag = .field_access,
                 .main_token = p.nextToken(),
                 .data = .{
@@ -3577,7 +3577,7 @@ fn parseSuffixOp(p: *Parse, lhs: Node.Index) !Node.Index {
                     .rhs = p.nextToken(),
                 },
             }),
-            .question_mark => return p.addNode(.{
+            .question_mark => return p.addNodeAssumeCapacity(.{
                 .tag = .unwrap_optional,
                 .main_token = p.nextToken(),
                 .data = .{
@@ -3633,7 +3633,7 @@ fn parseContainerDeclAuto(p: *Parse) !Node.Index {
                         const members = try p.parseContainerMembers();
                         const members_span = try members.toSpan(p);
                         _ = try p.expectToken(.r_brace);
-                        return p.addNode(.{
+                        return p.addNodeAssumeCapacity(.{
                             .tag = switch (members.trailing) {
                                 true => .tagged_union_enum_tag_trailing,
                                 false => .tagged_union_enum_tag,
@@ -3651,7 +3651,7 @@ fn parseContainerDeclAuto(p: *Parse) !Node.Index {
                         const members = try p.parseContainerMembers();
                         _ = try p.expectToken(.r_brace);
                         if (members.len <= 2) {
-                            return p.addNode(.{
+                            return p.addNodeAssumeCapacity(.{
                                 .tag = switch (members.trailing) {
                                     true => .tagged_union_two_trailing,
                                     false => .tagged_union_two,
@@ -3664,7 +3664,7 @@ fn parseContainerDeclAuto(p: *Parse) !Node.Index {
                             });
                         } else {
                             const span = try members.toSpan(p);
-                            return p.addNode(.{
+                            return p.addNodeAssumeCapacity(.{
                                 .tag = switch (members.trailing) {
                                     true => .tagged_union_trailing,
                                     false => .tagged_union,
@@ -3696,7 +3696,7 @@ fn parseContainerDeclAuto(p: *Parse) !Node.Index {
     _ = try p.expectToken(.r_brace);
     if (arg_expr == 0) {
         if (members.len <= 2) {
-            return p.addNode(.{
+            return p.addNodeAssumeCapacity(.{
                 .tag = switch (members.trailing) {
                     true => .container_decl_two_trailing,
                     false => .container_decl_two,
@@ -3709,7 +3709,7 @@ fn parseContainerDeclAuto(p: *Parse) !Node.Index {
             });
         } else {
             const span = try members.toSpan(p);
-            return p.addNode(.{
+            return p.addNodeAssumeCapacity(.{
                 .tag = switch (members.trailing) {
                     true => .container_decl_trailing,
                     false => .container_decl,
@@ -3723,7 +3723,7 @@ fn parseContainerDeclAuto(p: *Parse) !Node.Index {
         }
     } else {
         const span = try members.toSpan(p);
-        return p.addNode(.{
+        return p.addNodeAssumeCapacity(.{
             .tag = switch (members.trailing) {
                 true => .container_decl_arg_trailing,
                 false => .container_decl_arg,
@@ -3849,7 +3849,7 @@ fn parseBuiltinCall(p: *Parse) !Node.Index {
     _ = p.eatToken(.l_paren) orelse {
         try p.warn(.expected_param_list);
         // Pretend this was an identifier so we can continue parsing.
-        return p.addNode(.{
+        return p.addNodeAssumeCapacity(.{
             .tag = .identifier,
             .main_token = builtin_token,
             .data = .{
@@ -3877,7 +3877,7 @@ fn parseBuiltinCall(p: *Parse) !Node.Index {
     const comma = (p.token_tags[p.tok_i - 2] == .comma);
     const params = p.scratch.items[scratch_top..];
     switch (params.len) {
-        0 => return p.addNode(.{
+        0 => return p.addNodeAssumeCapacity(.{
             .tag = .builtin_call_two,
             .main_token = builtin_token,
             .data = .{
@@ -3885,7 +3885,7 @@ fn parseBuiltinCall(p: *Parse) !Node.Index {
                 .rhs = 0,
             },
         }),
-        1 => return p.addNode(.{
+        1 => return p.addNodeAssumeCapacity(.{
             .tag = if (comma) .builtin_call_two_comma else .builtin_call_two,
             .main_token = builtin_token,
             .data = .{
@@ -3893,7 +3893,7 @@ fn parseBuiltinCall(p: *Parse) !Node.Index {
                 .rhs = 0,
             },
         }),
-        2 => return p.addNode(.{
+        2 => return p.addNodeAssumeCapacity(.{
             .tag = if (comma) .builtin_call_two_comma else .builtin_call_two,
             .main_token = builtin_token,
             .data = .{
@@ -3903,7 +3903,7 @@ fn parseBuiltinCall(p: *Parse) !Node.Index {
         }),
         else => {
             const span = try p.listToSpan(params);
-            return p.addNode(.{
+            return p.addNodeAssumeCapacity(.{
                 .tag = if (comma) .builtin_call_comma else .builtin_call,
                 .main_token = builtin_token,
                 .data = .{
@@ -3926,7 +3926,7 @@ fn parseIf(p: *Parse, comptime bodyParseFn: fn (p: *Parse) Error!Node.Index) !No
     const then_expr = try bodyParseFn(p);
     assert(then_expr != 0);
 
-    _ = p.eatToken(.keyword_else) orelse return p.addNode(.{
+    _ = p.eatToken(.keyword_else) orelse return p.addNodeAssumeCapacity(.{
         .tag = .if_simple,
         .main_token = if_token,
         .data = .{
@@ -3938,7 +3938,7 @@ fn parseIf(p: *Parse, comptime bodyParseFn: fn (p: *Parse) Error!Node.Index) !No
     const else_expr = try bodyParseFn(p);
     assert(else_expr != 0);
 
-    return p.addNode(.{
+    return p.addNodeAssumeCapacity(.{
         .tag = .@"if",
         .main_token = if_token,
         .data = .{
@@ -3969,7 +3969,7 @@ fn parseFor(p: *Parse, comptime bodyParseFn: fn (p: *Parse) Error!Node.Index) !N
         try p.scratch.append(p.gpa, else_expr);
         has_else = true;
     } else if (inputs == 1) {
-        return p.addNode(.{
+        return p.addNodeAssumeCapacity(.{
             .tag = .for_simple,
             .main_token = for_token,
             .data = .{
@@ -3980,7 +3980,7 @@ fn parseFor(p: *Parse, comptime bodyParseFn: fn (p: *Parse) Error!Node.Index) !N
     } else {
         try p.scratch.append(p.gpa, then_expr);
     }
-    return p.addNode(.{
+    return p.addNodeAssumeCapacity(.{
         .tag = .@"for",
         .main_token = for_token,
         .data = .{

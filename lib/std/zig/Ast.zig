@@ -72,6 +72,9 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, mode: Mode) Allocator.Error!A
         }
     }
 
+    // trim the size of `tokens` - it will not be modified further
+    tokens.shrinkAndFree(gpa, tokens.len);
+
     var parser: Parse = .{
         .source = source,
         .gpa = gpa,
@@ -88,15 +91,25 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, mode: Mode) Allocator.Error!A
     defer parser.extra_data.deinit(gpa);
     defer parser.scratch.deinit(gpa);
 
-    // Empirically, Zig source code has a 2:1 ratio of tokens to AST nodes.
-    // Make sure at least 1 so we can use appendAssumeCapacity on the root node below.
-    const estimated_node_count = (tokens.len + 2) / 2;
-    try parser.nodes.ensureTotalCapacity(gpa, estimated_node_count);
+    // Typically Zig source code has around a 2:1 ratio of tokens to AST nodes.
+    // In practice, it could be up to a 1:1 ratio of tokens to AST nodes.
+    // We use this information to ensure we can always use ensureTotalCapacity,
+    // at the cost of increased memory usage during parsing.
+
+    // Ensure we have the upper bound number of nodes, and add one for the "root" node
+    try parser.nodes.ensureTotalCapacity(gpa, tokens.len + 1);
 
     switch (mode) {
         .zig => try parser.parseRoot(),
         .zon => try parser.parseZon(),
     }
+
+    // trim size - these lists aren't modified further, we want to reduce max rss
+    // this also cleans up the `ensureTotalCapacity` call we made earlier, so our
+    // memory gobbling doesn't affect the rest of the pipeline
+    parser.nodes.shrinkAndFree(gpa, parser.nodes.len);
+    parser.extra_data.shrinkAndFree(gpa, parser.extra_data.items.len);
+    parser.errors.shrinkAndFree(gpa, parser.errors.items.len);
 
     // TODO experiment with compacting the MultiArrayList slices here
     return Ast{
