@@ -19,10 +19,7 @@ errors: []const Error,
 pub const TokenIndex = u32;
 pub const ByteOffset = u32;
 
-pub const TokenList = std.MultiArrayList(struct {
-    tag: Token.Tag,
-    start: ByteOffset,
-});
+pub const TokenList = std.MultiArrayList(Token);
 pub const NodeList = std.MultiArrayList(Node);
 
 pub const Location = struct {
@@ -60,18 +57,19 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, mode: Mode) Allocator.Error!A
     var tokens = Ast.TokenList{};
     defer tokens.deinit(gpa);
 
-    // Empirically, the zig std lib has an 8:1 ratio of source bytes to token count.
-    const estimated_token_count = source.len / 8;
-    try tokens.ensureTotalCapacity(gpa, estimated_token_count);
-
-    var tokenizer = std.zig.Tokenizer.init(source);
-    while (true) {
-        const token = tokenizer.next();
-        try tokens.append(gpa, .{
-            .tag = token.tag,
-            .start = @intCast(token.loc.start),
-        });
-        if (token.tag == .eof) break;
+    var tokenizer: std.zig.Tokenizer = .init(source);
+    outer: while (true) {
+        const remaining = tokenizer.buffer.len - tokenizer.index;
+        const estimated_token_count = (remaining / 8) + 1;
+        // guaruntee `estimated_token_count` number of free slots - so we can use
+        // appendAssumeCapacity for each insert, speeding things up.
+        try tokens.ensureUnusedCapacity(gpa, estimated_token_count);
+        const actual_unused = tokens.capacity - tokens.len;
+        for (0..actual_unused) |_| {
+            const token = tokenizer.next();
+            tokens.appendAssumeCapacity(token);
+            if (token.tag == .eof) break :outer;
+        }
     }
 
     var parser: Parse = .{
@@ -191,7 +189,7 @@ pub fn tokenSlice(tree: Ast, token_index: TokenIndex) []const u8 {
     };
     const token = tokenizer.next();
     assert(token.tag == token_tag);
-    return tree.source[token.loc.start..token.loc.end];
+    return tree.source[token.start..token.end];
 }
 
 pub fn extraData(tree: Ast, index: usize, comptime T: type) T {

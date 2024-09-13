@@ -687,11 +687,11 @@ fn tokenizeAndPrintRaw(
         next_tok_is_fn = false;
 
         const token = tokenizer.next();
-        if (mem.indexOf(u8, src[index..token.loc.start], "//")) |comment_start_off| {
+        if (mem.indexOf(u8, src[index..token.start], "//")) |comment_start_off| {
             // render one comment
             const comment_start = index + comment_start_off;
-            const comment_end_off = mem.indexOf(u8, src[comment_start..token.loc.start], "\n");
-            const comment_end = if (comment_end_off) |o| comment_start + o else token.loc.start;
+            const comment_end_off = mem.indexOf(u8, src[comment_start..token.start], "\n");
+            const comment_end = if (comment_end_off) |o| comment_start + o else token.start;
 
             try writeEscapedLines(out, src[index..comment_start]);
             try out.writeAll("<span class=\"tok-comment\">");
@@ -702,7 +702,7 @@ fn tokenizeAndPrintRaw(
             continue;
         }
 
-        try writeEscapedLines(out, src[index..token.loc.start]);
+        try writeEscapedLines(out, src[index..token.start]);
         switch (token.tag) {
             .eof => break,
 
@@ -756,13 +756,13 @@ fn tokenizeAndPrintRaw(
             .keyword_anytype,
             => {
                 try out.writeAll("<span class=\"tok-kw\">");
-                try writeEscaped(out, src[token.loc.start..token.loc.end]);
+                try writeEscaped(out, src[token.start..token.end]);
                 try out.writeAll("</span>");
             },
 
             .keyword_fn => {
                 try out.writeAll("<span class=\"tok-kw\">");
-                try writeEscaped(out, src[token.loc.start..token.loc.end]);
+                try writeEscaped(out, src[token.start..token.end]);
                 try out.writeAll("</span>");
                 next_tok_is_fn = true;
             },
@@ -772,13 +772,13 @@ fn tokenizeAndPrintRaw(
             .char_literal,
             => {
                 try out.writeAll("<span class=\"tok-str\">");
-                try writeEscaped(out, src[token.loc.start..token.loc.end]);
+                try writeEscaped(out, src[token.start..token.end]);
                 try out.writeAll("</span>");
             },
 
             .builtin => {
                 try out.writeAll("<span class=\"tok-builtin\">");
-                try writeEscaped(out, src[token.loc.start..token.loc.end]);
+                try writeEscaped(out, src[token.start..token.end]);
                 try out.writeAll("</span>");
             },
 
@@ -786,12 +786,12 @@ fn tokenizeAndPrintRaw(
             .container_doc_comment,
             => {
                 try out.writeAll("<span class=\"tok-comment\">");
-                try writeEscaped(out, src[token.loc.start..token.loc.end]);
+                try writeEscaped(out, src[token.start..token.end]);
                 try out.writeAll("</span>");
             },
 
             .identifier => {
-                const tok_bytes = src[token.loc.start..token.loc.end];
+                const tok_bytes = src[token.start..token.end];
                 if (mem.eql(u8, tok_bytes, "undefined") or
                     mem.eql(u8, tok_bytes, "null") or
                     mem.eql(u8, tok_bytes, "true") or
@@ -806,12 +806,12 @@ fn tokenizeAndPrintRaw(
                     try out.writeAll("</span>");
                 } else {
                     const is_int = blk: {
-                        if (src[token.loc.start] != 'i' and src[token.loc.start] != 'u')
+                        if (src[token.start] != 'i' and src[token.start] != 'u')
                             break :blk false;
-                        var i = token.loc.start + 1;
-                        if (i == token.loc.end)
+                        var i = token.start + 1;
+                        if (i == token.end)
                             break :blk false;
-                        while (i != token.loc.end) : (i += 1) {
+                        while (i != token.end) : (i += 1) {
                             if (src[i] < '0' or src[i] > '9')
                                 break :blk false;
                         }
@@ -829,7 +829,7 @@ fn tokenizeAndPrintRaw(
 
             .number_literal => {
                 try out.writeAll("<span class=\"tok-number\">");
-                try writeEscaped(out, src[token.loc.start..token.loc.end]);
+                try writeEscaped(out, src[token.start..token.end]);
                 try out.writeAll("</span>");
             },
 
@@ -895,7 +895,7 @@ fn tokenizeAndPrintRaw(
             .angle_bracket_angle_bracket_right,
             .angle_bracket_angle_bracket_right_equal,
             .tilde,
-            => try writeEscaped(out, src[token.loc.start..token.loc.end]),
+            => try writeEscaped(out, src[token.start..token.end]),
 
             .invalid, .invalid_periodasterisks => return parseError(
                 docgen_tokenizer,
@@ -904,7 +904,7 @@ fn tokenizeAndPrintRaw(
                 .{},
             ),
         }
-        index = token.loc.end;
+        index = token.end;
     }
     try out.writeAll("</code>");
 }

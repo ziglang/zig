@@ -2,12 +2,8 @@ const std = @import("../std.zig");
 
 pub const Token = struct {
     tag: Tag,
-    loc: Loc,
-
-    pub const Loc = struct {
-        start: usize,
-        end: usize,
-    };
+    start: u32,
+    end: u32,
 
     pub const keywords = std.StaticStringMap(Tag).initComptime(.{
         .{ "addrspace", .keyword_addrspace },
@@ -336,11 +332,11 @@ pub const Token = struct {
 
 pub const Tokenizer = struct {
     buffer: [:0]const u8,
-    index: usize,
+    index: u32,
 
     /// For debugging purposes.
     pub fn dump(self: *Tokenizer, token: *const Token) void {
-        std.debug.print("{s} \"{s}\"\n", .{ @tagName(token.tag), self.buffer[token.loc.start..token.loc.end] });
+        std.debug.print("{s} \"{s}\"\n", .{ @tagName(token.tag), self.buffer[token.start..token.end] });
     }
 
     pub fn init(buffer: [:0]const u8) Tokenizer {
@@ -404,10 +400,8 @@ pub const Tokenizer = struct {
     pub fn next(self: *Tokenizer) Token {
         var result: Token = .{
             .tag = undefined,
-            .loc = .{
-                .start = self.index,
-                .end = undefined,
-            },
+            .start = self.index,
+            .end = undefined,
         };
         state: switch (State.start) {
             .start => switch (self.buffer[self.index]) {
@@ -415,10 +409,8 @@ pub const Tokenizer = struct {
                     if (self.index == self.buffer.len) {
                         return .{
                             .tag = .eof,
-                            .loc = .{
-                                .start = self.index,
-                                .end = self.index,
-                            },
+                            .start = self.index,
+                            .end = self.index,
                         };
                     } else {
                         continue :state .invalid;
@@ -426,7 +418,7 @@ pub const Tokenizer = struct {
                 },
                 ' ', '\n', '\t', '\r' => {
                     self.index += 1;
-                    result.loc.start = self.index;
+                    result.start = self.index;
                     continue :state .start;
                 },
                 '"' => {
@@ -523,7 +515,7 @@ pub const Tokenizer = struct {
                     },
                     '\n' => {
                         self.index += 1;
-                        result.loc.start = self.index;
+                        result.start = self.index;
                         continue :state .start;
                     },
                     else => continue :state .invalid,
@@ -673,7 +665,7 @@ pub const Tokenizer = struct {
                 switch (self.buffer[self.index]) {
                     'a'...'z', 'A'...'Z', '_', '0'...'9' => continue :state .identifier,
                     else => {
-                        const ident = self.buffer[result.loc.start..self.index];
+                        const ident = self.buffer[result.start..self.index];
                         if (Token.getKeyword(ident)) |tag| {
                             result.tag = tag;
                         }
@@ -961,10 +953,8 @@ pub const Tokenizer = struct {
                             continue :state .invalid;
                         } else return .{
                             .tag = .eof,
-                            .loc = .{
-                                .start = self.index,
-                                .end = self.index,
-                            },
+                            .start = self.index,
+                            .end = self.index,
                         };
                     },
                     '!' => {
@@ -973,7 +963,7 @@ pub const Tokenizer = struct {
                     },
                     '\n' => {
                         self.index += 1;
-                        result.loc.start = self.index;
+                        result.start = self.index;
                         continue :state .start;
                     },
                     '/' => continue :state .doc_comment_start,
@@ -1013,15 +1003,13 @@ pub const Tokenizer = struct {
                             continue :state .invalid;
                         } else return .{
                             .tag = .eof,
-                            .loc = .{
-                                .start = self.index,
-                                .end = self.index,
-                            },
+                            .start = self.index,
+                            .end = self.index,
                         };
                     },
                     '\n' => {
                         self.index += 1;
-                        result.loc.start = self.index;
+                        result.start = self.index;
                         continue :state .start;
                     },
                     '\r' => continue :state .expect_newline,
@@ -1100,7 +1088,7 @@ pub const Tokenizer = struct {
             },
         }
 
-        result.loc.end = self.index;
+        result.end = self.index;
         return result;
     }
 };
@@ -1723,8 +1711,8 @@ fn testTokenize(source: [:0]const u8, expected_token_tags: []const Token.Tag) !v
     // recovered by opinionated means outside the scope of this implementation.
     const last_token = tokenizer.next();
     try std.testing.expectEqual(Token.Tag.eof, last_token.tag);
-    try std.testing.expectEqual(source.len, last_token.loc.start);
-    try std.testing.expectEqual(source.len, last_token.loc.end);
+    try std.testing.expectEqual(source.len, last_token.start);
+    try std.testing.expectEqual(source.len, last_token.end);
 }
 
 fn testPropertiesUpheld(source: []const u8) anyerror!void {
@@ -1736,19 +1724,19 @@ fn testPropertiesUpheld(source: []const u8) anyerror!void {
         const token = tokenizer.next();
 
         // Property: token end location after start location (or equal)
-        try std.testing.expect(token.loc.end >= token.loc.start);
+        try std.testing.expect(token.end >= token.start);
 
         switch (token.tag) {
             .invalid => {
                 tokenization_failed = true;
 
                 // Property: invalid token always ends at newline or eof
-                try std.testing.expect(source0[token.loc.end] == '\n' or source0[token.loc.end] == 0);
+                try std.testing.expect(source0[token.end] == '\n' or source0[token.end] == 0);
             },
             .eof => {
                 // Property: EOF token is always 0-length at end of source.
-                try std.testing.expectEqual(source0.len, token.loc.start);
-                try std.testing.expectEqual(source0.len, token.loc.end);
+                try std.testing.expectEqual(source0.len, token.start);
+                try std.testing.expectEqual(source0.len, token.end);
                 break;
             },
             else => continue,
