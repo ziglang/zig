@@ -2541,12 +2541,6 @@ or
       point, hindering branch prediction.
       </p>
 
-      <p>
-      As always, any Zig implementation is allowed to compile a labeled switch
-      in any way that preserves its semantics. However, the official ZSF
-      compiler implementation will attempt to match the lowering described
-      above, particularly in the {#link|ReleaseFast#} build mode.
-      </p>
 
       {#header_close#}
 
