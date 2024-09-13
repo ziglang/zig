@@ -144,12 +144,9 @@ pub fn renderToArrayList(tree: Ast, buffer: *std.ArrayList(u8), fixups: Fixups) 
 
 /// Returns an extra offset for column and byte offset of errors that
 /// should point after the token in the error message.
-pub fn errorOffset(tree: Ast, parse_error: Error) u32 {
-    if (parse_error.token_is_prev) {
-        return @intCast(tree.tokenSlice(parse_error.token).len);
-    } else {
-        return 0;
-    }
+pub inline fn errorOffset(tree: Ast, parse_error: Error) u32 {
+    const token_length: u32 = @intCast(tree.tokenSlice(parse_error.token).len);
+    return token_length * @intFromBool(parse_error.token_is_prev);
 }
 
 pub fn tokenLocation(self: Ast, start_offset: ByteOffset, token_index: TokenIndex) Location {
