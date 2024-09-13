@@ -786,7 +786,8 @@ pub fn render(gpa: Allocator, nodes: []const Node) !std.zig.Ast {
 
     try ctx.tokens.append(gpa, .{
         .tag = .eof,
-        .start = @as(u32, @intCast(ctx.buf.items.len)),
+        .start = @intCast(ctx.buf.items.len),
+        .end = @intCast(ctx.buf.items.len),
     });
 
     return std.zig.Ast{
@@ -814,10 +815,12 @@ const Context = struct {
     fn addTokenFmt(c: *Context, tag: TokenTag, comptime format: []const u8, args: anytype) Allocator.Error!TokenIndex {
         const start_index = c.buf.items.len;
         try c.buf.writer().print(format ++ " ", args);
+        const end_index = c.buf.items.len;
 
         try c.tokens.append(c.gpa, .{
             .tag = tag,
-            .start = @as(u32, @intCast(start_index)),
+            .start = @intCast(start_index),
+            .end = @intCast(end_index),
         });
 
         return @as(u32, @intCast(c.tokens.len - 1));

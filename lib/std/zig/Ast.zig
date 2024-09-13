@@ -59,16 +59,20 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, mode: Mode) Allocator.Error!A
 
     var tokenizer: std.zig.Tokenizer = .init(source);
     outer: while (true) {
-        const remaining = tokenizer.buffer.len - tokenizer.index;
-        const estimated_token_count = (remaining / 8) + 1;
-        // guaruntee `estimated_token_count` number of free slots - so we can use
+        const remaining = source.len - tokenizer.index;
+        // As of 2024-09-13 there is a ~6.2:1 ratio of bytes to tokens
+        const estimated_tokens = (remaining / 6) + 1;
+        // guarantee `estimated_tokens` number of free slots - so we can use
         // appendAssumeCapacity for each insert, speeding things up.
-        try tokens.ensureUnusedCapacity(gpa, estimated_token_count);
+        try tokens.ensureUnusedCapacity(gpa, estimated_tokens);
         const actual_unused = tokens.capacity - tokens.len;
         for (0..actual_unused) |_| {
             const token = tokenizer.next();
             tokens.appendAssumeCapacity(token);
-            if (token.tag == .eof) break :outer;
+            if (token.tag == .eof) {
+                @branchHint(.unlikely);
+                break :outer;
+            }
         }
     }
 
@@ -93,7 +97,7 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, mode: Mode) Allocator.Error!A
 
     // Typically Zig source code has around a 2:1 ratio of tokens to AST nodes.
     // In practice, it could be up to a 1:1 ratio of tokens to AST nodes.
-    // We use this information to ensure we can always use ensureTotalCapacity,
+    // We use this information to ensure we can always use appendAssumeCapacity,
     // at the cost of increased memory usage during parsing.
 
     // Ensure we have the upper bound number of nodes, and add one for the "root" node
