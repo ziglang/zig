@@ -557,7 +557,6 @@ test "vector division operators" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_llvm and comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
@@ -1409,7 +1408,14 @@ test "store vector with memset" {
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     if (builtin.zig_backend == .stage2_llvm) {
+        // LLVM 16 ERROR: "Converting bits to bytes lost precision"
+        // https://github.com/ziglang/zig/issues/16177
         switch (builtin.target.cpu.arch) {
+            .arm,
+            .armeb,
+            .thumb,
+            .thumbeb,
+            => if (builtin.target.floatAbi() == .soft) return error.SkipZigTest,
             .wasm32,
             .mips,
             .mipsel,
@@ -1418,11 +1424,7 @@ test "store vector with memset" {
             .riscv64,
             .powerpc,
             .powerpc64,
-            => {
-                // LLVM 16 ERROR: "Converting bits to bytes lost precision"
-                // https://github.com/ziglang/zig/issues/16177
-                return error.SkipZigTest;
-            },
+            => return error.SkipZigTest,
             else => {},
         }
     }
@@ -1567,11 +1569,6 @@ test "@reduce on bool vector" {
     if (builtin.zig_backend == .stage2_x86) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-
-    if (comptime builtin.zig_backend == .stage2_llvm and builtin.cpu.arch.endian() == .big) {
-        // https://github.com/ziglang/zig/issues/13782
-        return error.SkipZigTest;
-    }
 
     const a = @Vector(2, bool){ true, true };
     const b = @Vector(1, bool){true};

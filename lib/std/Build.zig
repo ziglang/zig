@@ -111,7 +111,7 @@ pub const ReleaseMode = enum {
 /// Settings that are here rather than in Build are not configurable per-package.
 pub const Graph = struct {
     arena: Allocator,
-    system_library_options: std.StringArrayHashMapUnmanaged(SystemLibraryMode) = .{},
+    system_library_options: std.StringArrayHashMapUnmanaged(SystemLibraryMode) = .empty,
     system_package_mode: bool = false,
     debug_compiler_runtime_libs: bool = false,
     cache: Cache,
@@ -119,7 +119,7 @@ pub const Graph = struct {
     env_map: EnvMap,
     global_cache_root: Cache.Directory,
     zig_lib_directory: Cache.Directory,
-    needed_lazy_dependencies: std.StringArrayHashMapUnmanaged(void) = .{},
+    needed_lazy_dependencies: std.StringArrayHashMapUnmanaged(void) = .empty,
     /// Information about the native target. Computed before build() is invoked.
     host: ResolvedTarget,
     incremental: ?bool = null,

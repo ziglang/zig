@@ -26,6 +26,7 @@ const wasm_c_abi = @import("../arch/wasm/abi.zig");
 const aarch64_c_abi = @import("../arch/aarch64/abi.zig");
 const arm_c_abi = @import("../arch/arm/abi.zig");
 const riscv_c_abi = @import("../arch/riscv64/abi.zig");
+const mips_c_abi = @import("../arch/mips/abi.zig");
 const dev = @import("../dev.zig");
 
 const target_util = @import("../target.zig");
@@ -1284,8 +1285,7 @@ pub const Object = struct {
             .large => .Large,
         };
 
-        // TODO handle float ABI better- it should depend on the ABI portion of std.Target
-        const float_abi: llvm.ABIType = .Default;
+        const float_abi: llvm.ABIType = if (comp.root_mod.resolved_target.result.floatAbi() == .hard) .Hard else .Soft;
 
         var target_machine = llvm.TargetMachine.create(
             target,
@@ -1500,7 +1500,7 @@ pub const Object = struct {
         // instructions. Depending on the calling convention, this list is not necessarily
         // a bijection with the actual LLVM parameters of the function.
         const gpa = o.gpa;
-        var args: std.ArrayListUnmanaged(Builder.Value) = .{};
+        var args: std.ArrayListUnmanaged(Builder.Value) = .empty;
         defer args.deinit(gpa);
 
         {
@@ -2497,7 +2497,7 @@ pub const Object = struct {
 
                 switch (ip.indexToKey(ty.toIntern())) {
                     .anon_struct_type => |tuple| {
-                        var fields: std.ArrayListUnmanaged(Builder.Metadata) = .{};
+                        var fields: std.ArrayListUnmanaged(Builder.Metadata) = .empty;
                         defer fields.deinit(gpa);
 
                         try fields.ensureUnusedCapacity(gpa, tuple.types.len);
@@ -2574,7 +2574,7 @@ pub const Object = struct {
 
                 const struct_type = zcu.typeToStruct(ty).?;
 
-                var fields: std.ArrayListUnmanaged(Builder.Metadata) = .{};
+                var fields: std.ArrayListUnmanaged(Builder.Metadata) = .empty;
                 defer fields.deinit(gpa);
 
                 try fields.ensureUnusedCapacity(gpa, struct_type.field_types.len);
@@ -2667,7 +2667,7 @@ pub const Object = struct {
                     return debug_union_type;
                 }
 
-                var fields: std.ArrayListUnmanaged(Builder.Metadata) = .{};
+                var fields: std.ArrayListUnmanaged(Builder.Metadata) = .empty;
                 defer fields.deinit(gpa);
 
                 try fields.ensureUnusedCapacity(gpa, union_type.loadTagType(ip).names.len);
@@ -3109,6 +3109,30 @@ pub const Object = struct {
                 .value = .empty,
             } }, &o.builder);
         }
+        if (target.floatAbi() == .soft) {
+            // `use-soft-float` means "use software routines for floating point computations". In
+            // other words, it configures how LLVM lowers basic float instructions like `fcmp`,
+            // `fadd`, etc. The float calling convention is configured on `TargetMachine` and is
+            // mostly an orthogonal concept, although obviously we do need hardware float operations
+            // to actually be able to pass float values in float registers.
+            //
+            // Ideally, we would support something akin to the `-mfloat-abi=softfp` option that GCC
+            // and Clang support for Arm32 and CSKY. We don't currently expose such an option in
+            // Zig, and using CPU features as the source of truth for this makes for a miserable
+            // user experience since people expect e.g. `arm-linux-gnueabi` to mean full soft float
+            // unless the compiler has explicitly been told otherwise. (And note that our baseline
+            // CPU models almost all include FPU features!)
+            //
+            // Revisit this at some point.
+            try attributes.addFnAttr(.{ .string = .{
+                .kind = try o.builder.string("use-soft-float"),
+                .value = try o.builder.string("true"),
+            } }, &o.builder);
+
+            // This prevents LLVM from using FPU/SIMD code for things like `memcpy`. As for the
+            // above, this should be revisited if `softfp` support is added.
+            try attributes.addFnAttr(.noimplicitfloat, &o.builder);
+        }
     }
 
     fn resolveGlobalUav(
@@ -3388,7 +3412,7 @@ pub const Object = struct {
                         return int_ty;
                     }
 
-                    var llvm_field_types = std.ArrayListUnmanaged(Builder.Type){};
+                    var llvm_field_types: std.ArrayListUnmanaged(Builder.Type) = .empty;
                     defer llvm_field_types.deinit(o.gpa);
                     // Although we can estimate how much capacity to add, these cannot be
                     // relied upon because of the recursive calls to lowerType below.
@@ -3457,7 +3481,7 @@ pub const Object = struct {
                     return ty;
                 },
                 .anon_struct_type => |anon_struct_type| {
-                    var llvm_field_types: std.ArrayListUnmanaged(Builder.Type) = .{};
+                    var llvm_field_types: std.ArrayListUnmanaged(Builder.Type) = .empty;
                     defer llvm_field_types.deinit(o.gpa);
                     // Although we can estimate how much capacity to add, these cannot be
                     // relied upon because of the recursive calls to lowerType below.
@@ -3648,7 +3672,7 @@ pub const Object = struct {
         const target = zcu.getTarget();
         const ret_ty = try lowerFnRetTy(o, fn_info);
 
-        var llvm_params = std.ArrayListUnmanaged(Builder.Type){};
+        var llvm_params: std.ArrayListUnmanaged(Builder.Type) = .empty;
         defer llvm_params.deinit(o.gpa);
 
         if (firstParamSRet(fn_info, zcu, target)) {
@@ -6543,6 +6567,12 @@ pub const FuncGen = struct {
 
         const jmp_table: ?SwitchDispatchInfo.JmpTable = jmp_table: {
             if (!is_dispatch_loop) break :jmp_table null;
+
+            // Workaround for:
+            // * https://github.com/llvm/llvm-project/blob/56905dab7da50bccfcceaeb496b206ff476127e1/llvm/lib/MC/WasmObjectWriter.cpp#L560
+            // * https://github.com/llvm/llvm-project/blob/56905dab7da50bccfcceaeb496b206ff476127e1/llvm/test/MC/WebAssembly/blockaddress.ll
+            if (zcu.comp.getTarget().isWasm()) break :jmp_table null;
+
             // On a 64-bit target, 1024 pointers in our jump table is about 8K of pointers. This seems just
             // about acceptable - it won't fill L1d cache on most CPUs.
             const max_table_len = 1024;
@@ -7408,7 +7438,7 @@ pub const FuncGen = struct {
         const inputs: []const Air.Inst.Ref = @ptrCast(self.air.extra[extra_i..][0..extra.data.inputs_len]);
         extra_i += inputs.len;
 
-        var llvm_constraints: std.ArrayListUnmanaged(u8) = .{};
+        var llvm_constraints: std.ArrayListUnmanaged(u8) = .empty;
         defer llvm_constraints.deinit(self.gpa);
 
         var arena_allocator = std.heap.ArenaAllocator.init(self.gpa);
@@ -7436,7 +7466,7 @@ pub const FuncGen = struct {
         var llvm_param_i: usize = 0;
         var total_i: u16 = 0;
 
-        var name_map: std.StringArrayHashMapUnmanaged(u16) = .{};
+        var name_map: std.StringArrayHashMapUnmanaged(u16) = .empty;
         try name_map.ensureUnusedCapacity(arena, max_param_count);
 
         var rw_extra_i = extra_i;
@@ -11681,7 +11711,10 @@ fn firstParamSRet(fn_info: InternPool.Key.FuncType, zcu: *Zcu, target: std.Targe
     return switch (fn_info.cc) {
         .Unspecified, .Inline => returnTypeByRef(zcu, target, return_type),
         .C => switch (target.cpu.arch) {
-            .mips, .mipsel => false,
+            .mips, .mipsel => switch (mips_c_abi.classifyType(return_type, zcu, .ret)) {
+                .memory, .i32_array => true,
+                .byval => false,
+            },
             .x86 => isByRef(return_type, zcu),
             .x86_64 => switch (target.os.tag) {
                 .windows => x86_64_abi.classifyWindows(return_type, zcu) == .memory,
@@ -11732,7 +11765,12 @@ fn lowerFnRetTy(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.Error!Bu
 
         .C => {
             switch (target.cpu.arch) {
-                .mips, .mipsel => return o.lowerType(return_type),
+                .mips, .mipsel => {
+                    switch (mips_c_abi.classifyType(return_type, zcu, .ret)) {
+                        .memory, .i32_array => return .void,
+                        .byval => return o.lowerType(return_type),
+                    }
+                },
                 .x86 => return if (isByRef(return_type, zcu)) .void else o.lowerType(return_type),
                 .x86_64 => switch (target.os.tag) {
                     .windows => return lowerWin64FnRetTy(o, fn_info),
@@ -11978,7 +12016,14 @@ const ParamTypeIterator = struct {
                 .mips, .mipsel => {
                     it.zig_index += 1;
                     it.llvm_index += 1;
-                    return .byval;
+                    switch (mips_c_abi.classifyType(ty, zcu, .arg)) {
+                        .memory => {
+                            it.byval_attr = true;
+                            return .byref;
+                        },
+                        .byval => return .byval,
+                        .i32_array => |size| return Lowering{ .i32_array = size },
+                    }
                 },
                 .x86_64 => switch (target.os.tag) {
                     .windows => return it.nextWin64(ty),
@@ -12401,6 +12446,11 @@ fn backendSupportsF16(target: std.Target) bool {
         .riscv32,
         .s390x,
         => false,
+        .arm,
+        .armeb,
+        .thumb,
+        .thumbeb,
+        => target.floatAbi() == .soft or std.Target.arm.featureSetHas(target.cpu.features, .fp_armv8),
         .aarch64,
         .aarch64_be,
         => std.Target.aarch64.featureSetHas(target.cpu.features, .fp_armv8),
@@ -12423,6 +12473,11 @@ fn backendSupportsF128(target: std.Target) bool {
         .powerpc64,
         .powerpc64le,
         => target.os.tag != .aix,
+        .arm,
+        .armeb,
+        .thumb,
+        .thumbeb,
+        => target.floatAbi() == .soft or std.Target.arm.featureSetHas(target.cpu.features, .fp_armv8),
         .aarch64,
         .aarch64_be,
         => std.Target.aarch64.featureSetHas(target.cpu.features, .fp_armv8),

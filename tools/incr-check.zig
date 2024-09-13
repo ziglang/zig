@@ -73,7 +73,7 @@ pub fn main() !void {
     else
         null;
 
-    var child_args: std.ArrayListUnmanaged([]const u8) = .{};
+    var child_args: std.ArrayListUnmanaged([]const u8) = .empty;
     try child_args.appendSlice(arena, &.{
         resolved_zig_exe,
         "build-exe",
@@ -107,7 +107,7 @@ pub fn main() !void {
     child.cwd_dir = tmp_dir;
     child.cwd = tmp_dir_path;
 
-    var cc_child_args: std.ArrayListUnmanaged([]const u8) = .{};
+    var cc_child_args: std.ArrayListUnmanaged([]const u8) = .empty;
     if (emit == .c) {
         const resolved_cc_zig_exe = if (opt_cc_zig) |cc_zig_exe|
             try std.fs.path.relative(arena, tmp_dir_path, cc_zig_exe)
@@ -492,8 +492,8 @@ const Case = struct {
     };
 
     fn parse(arena: Allocator, bytes: []const u8) !Case {
-        var updates: std.ArrayListUnmanaged(Update) = .{};
-        var changes: std.ArrayListUnmanaged(FullContents) = .{};
+        var updates: std.ArrayListUnmanaged(Update) = .empty;
+        var changes: std.ArrayListUnmanaged(FullContents) = .empty;
         var target_query: ?[]const u8 = null;
         var it = std.mem.splitScalar(u8, bytes, '\n');
         var line_n: usize = 1;

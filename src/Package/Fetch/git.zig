@@ -38,7 +38,7 @@ test parseOid {
 
 pub const Diagnostics = struct {
     allocator: Allocator,
-    errors: std.ArrayListUnmanaged(Error) = .{},
+    errors: std.ArrayListUnmanaged(Error) = .empty,
 
     pub const Error = union(enum) {
         unable_to_create_sym_link: struct {
@@ -263,7 +263,7 @@ const Odb = struct {
     fn readObject(odb: *Odb) !Object {
         var base_offset = try odb.pack_file.getPos();
         var base_header: EntryHeader = undefined;
-        var delta_offsets = std.ArrayListUnmanaged(u64){};
+        var delta_offsets: std.ArrayListUnmanaged(u64) = .empty;
         defer delta_offsets.deinit(odb.allocator);
         const base_object = while (true) {
             if (odb.cache.get(base_offset)) |base_object| break base_object;
@@ -361,7 +361,7 @@ const Object = struct {
 /// freed by the caller at any point after inserting it into the cache. Any
 /// objects remaining in the cache will be freed when the cache itself is freed.
 const ObjectCache = struct {
-    objects: std.AutoHashMapUnmanaged(u64, CacheEntry) = .{},
+    objects: std.AutoHashMapUnmanaged(u64, CacheEntry) = .empty,
     lru_nodes: LruList = .{},
     byte_size: usize = 0,
 
@@ -660,7 +660,7 @@ pub const Session = struct {
         upload_pack_uri.query = null;
         upload_pack_uri.fragment = null;
 
-        var body = std.ArrayListUnmanaged(u8){};
+        var body: std.ArrayListUnmanaged(u8) = .empty;
         defer body.deinit(allocator);
         const body_writer = body.writer(allocator);
         try Packet.write(.{ .data = "command=ls-refs\n" }, body_writer);
@@ -767,7 +767,7 @@ pub const Session = struct {
         upload_pack_uri.query = null;
         upload_pack_uri.fragment = null;
 
-        var body = std.ArrayListUnmanaged(u8){};
+        var body: std.ArrayListUnmanaged(u8) = .empty;
         defer body.deinit(allocator);
         const body_writer = body.writer(allocator);
         try Packet.write(.{ .data = "command=fetch\n" }, body_writer);
@@ -1044,9 +1044,9 @@ const IndexEntry = struct {
 pub fn indexPack(allocator: Allocator, pack: std.fs.File, index_writer: anytype) !void {
     try pack.seekTo(0);
 
-    var index_entries = std.AutoHashMapUnmanaged(Oid, IndexEntry){};
+    var index_entries: std.AutoHashMapUnmanaged(Oid, IndexEntry) = .empty;
     defer index_entries.deinit(allocator);
-    var pending_deltas = std.ArrayListUnmanaged(IndexEntry){};
+    var pending_deltas: std.ArrayListUnmanaged(IndexEntry) = .empty;
     defer pending_deltas.deinit(allocator);
 
     const pack_checksum = try indexPackFirstPass(allocator, pack, &index_entries, &pending_deltas);
@@ -1068,7 +1068,7 @@ pub fn indexPack(allocator: Allocator, pack: std.fs.File, index_writer: anytype)
         remaining_deltas = pending_deltas.items.len;
     }
 
-    var oids = std.ArrayListUnmanaged(Oid){};
+    var oids: std.ArrayListUnmanaged(Oid) = .empty;
     defer oids.deinit(allocator);
     try oids.ensureTotalCapacityPrecise(allocator, index_entries.count());
     var index_entries_iter = index_entries.iterator();
@@ -1109,7 +1109,7 @@ pub fn indexPack(allocator: Allocator, pack: std.fs.File, index_writer: anytype)
         try writer.writeInt(u32, index_entries.get(oid).?.crc32, .big);
     }
 
-    var big_offsets = std.ArrayListUnmanaged(u64){};
+    var big_offsets: std.ArrayListUnmanaged(u64) = .empty;
     defer big_offsets.deinit(allocator);
     for (oids.items) |oid| {
         const offset = index_entries.get(oid).?.offset;
@@ -1213,7 +1213,7 @@ fn indexPackHashDelta(
     // Figure out the chain of deltas to resolve
     var base_offset = delta.offset;
     var base_header: EntryHeader = undefined;
-    var delta_offsets = std.ArrayListUnmanaged(u64){};
+    var delta_offsets: std.ArrayListUnmanaged(u64) = .empty;
     defer delta_offsets.deinit(allocator);
     const base_object = while (true) {
         if (cache.get(base_offset)) |base_object| break base_object;
@@ -1447,7 +1447,7 @@ test "packfile indexing and checkout" {
         "file8",
         "file9",
     };
-    var actual_files: std.ArrayListUnmanaged([]u8) = .{};
+    var actual_files: std.ArrayListUnmanaged([]u8) = .empty;
     defer actual_files.deinit(testing.allocator);
     defer for (actual_files.items) |file| testing.allocator.free(file);
     var walker = try worktree.dir.walk(testing.allocator);

@@ -1070,8 +1070,8 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
         // Stores system libraries that have already been seen for at least one
         // module, along with any arguments that need to be passed to the
         // compiler for each module individually.
-        var seen_system_libs: std.StringHashMapUnmanaged([]const []const u8) = .{};
-        var frameworks: std.StringArrayHashMapUnmanaged(Module.LinkFrameworkOptions) = .{};
+        var seen_system_libs: std.StringHashMapUnmanaged([]const []const u8) = .empty;
+        var frameworks: std.StringArrayHashMapUnmanaged(Module.LinkFrameworkOptions) = .empty;
 
         var prev_has_cflags = false;
         var prev_has_rcflags = false;

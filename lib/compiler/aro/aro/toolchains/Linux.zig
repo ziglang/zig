@@ -11,7 +11,7 @@ const system_defaults = @import("system_defaults");
 const Linux = @This();
 
 distro: Distro.Tag = .unknown,
-extra_opts: std.ArrayListUnmanaged([]const u8) = .{},
+extra_opts: std.ArrayListUnmanaged([]const u8) = .empty,
 gcc_detector: GCCDetector = .{},
 
 pub fn discover(self: *Linux, tc: *Toolchain) !void {
@@ -423,7 +423,7 @@ test Linux {
     defer arena_instance.deinit();
     const arena = arena_instance.allocator();
 
-    var comp = Compilation.init(std.testing.allocator);
+    var comp = Compilation.init(std.testing.allocator, std.fs.cwd());
     defer comp.deinit();
     comp.environment = .{
         .path = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",

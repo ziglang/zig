@@ -25,7 +25,6 @@ const Alignment = InternPool.Alignment;
 
 const Result = codegen.Result;
 const CodeGenError = codegen.CodeGenError;
-const DebugInfoOutput = codegen.DebugInfoOutput;
 
 const bits = @import("bits.zig");
 const abi = @import("abi.zig");
@@ -49,7 +48,7 @@ pt: Zcu.PerThread,
 air: Air,
 liveness: Liveness,
 bin_file: *link.File,
-debug_output: DebugInfoOutput,
+debug_output: link.File.DebugInfoOutput,
 target: *const std.Target,
 func_index: InternPool.Index,
 err_msg: ?*ErrorMsg,
@@ -63,7 +62,7 @@ stack_align: u32,
 /// MIR Instructions
 mir_instructions: std.MultiArrayList(Mir.Inst) = .{},
 /// MIR extra data
-mir_extra: std.ArrayListUnmanaged(u32) = .{},
+mir_extra: std.ArrayListUnmanaged(u32) = .empty,
 
 /// Byte offset within the source file of the ending curly.
 end_di_line: u32,
@@ -72,13 +71,13 @@ end_di_column: u32,
 /// The value is an offset into the `Function` `code` from the beginning.
 /// To perform the reloc, write 32-bit signed little-endian integer
 /// which is a relative jump, based on the address following the reloc.
-exitlude_jump_relocs: std.ArrayListUnmanaged(usize) = .{},
+exitlude_jump_relocs: std.ArrayListUnmanaged(usize) = .empty,
 
 /// We postpone the creation of debug info for function args and locals
 /// until after all Mir instructions have been generated. Only then we
 /// will know saved_regs_stack_space which is necessary in order to
 /// calculate the right stack offsest with respect to the `.fp` register.
-dbg_info_relocs: std.ArrayListUnmanaged(DbgInfoReloc) = .{},
+dbg_info_relocs: std.ArrayListUnmanaged(DbgInfoReloc) = .empty,
 
 /// Whenever there is a runtime branch, we push a Branch onto this stack,
 /// and pop it off when the runtime branch joins. This provides an "overlay"
@@ -90,11 +89,11 @@ dbg_info_relocs: std.ArrayListUnmanaged(DbgInfoReloc) = .{},
 branch_stack: *std.ArrayList(Branch),
 
 // Key is the block instruction
-blocks: std.AutoHashMapUnmanaged(Air.Inst.Index, BlockData) = .{},
+blocks: std.AutoHashMapUnmanaged(Air.Inst.Index, BlockData) = .empty,
 
 register_manager: RegisterManager = .{},
 /// Maps offset to what is stored there.
-stack: std.AutoHashMapUnmanaged(u32, StackAllocation) = .{},
+stack: std.AutoHashMapUnmanaged(u32, StackAllocation) = .empty,
 /// Tracks the current instruction allocated to the compare flags
 cpsr_flags_inst: ?Air.Inst.Index = null,
 
@@ -169,7 +168,7 @@ const MCValue = union(enum) {
 };
 
 const Branch = struct {
-    inst_table: std.AutoArrayHashMapUnmanaged(Air.Inst.Index, MCValue) = .{},
+    inst_table: std.AutoArrayHashMapUnmanaged(Air.Inst.Index, MCValue) = .empty,
 
     fn deinit(self: *Branch, gpa: Allocator) void {
         self.inst_table.deinit(gpa);
@@ -335,7 +334,7 @@ pub fn generate(
     air: Air,
     liveness: Liveness,
     code: *std.ArrayList(u8),
-    debug_output: DebugInfoOutput,
+    debug_output: link.File.DebugInfoOutput,
 ) CodeGenError!Result {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
