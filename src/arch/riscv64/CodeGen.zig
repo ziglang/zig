@@ -3364,8 +3364,38 @@ fn airOptionalPayloadPtr(func: *Func, inst: Air.Inst.Index) !void {
 }
 
 fn airOptionalPayloadPtrSet(func: *Func, inst: Air.Inst.Index) !void {
+    const zcu = func.pt.zcu;
+
     const ty_op = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-    const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else return func.fail("TODO implement .optional_payload_ptr_set for {}", .{func.target.cpu.arch});
+    const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else result: {
+        const dst_ty = func.typeOfIndex(inst);
+        const src_ty = func.typeOf(ty_op.operand);
+        const opt_ty = src_ty.childType(zcu);
+        const src_mcv = try func.resolveInst(ty_op.operand);
+
+        if (opt_ty.optionalReprIsPayload(zcu)) {
+            break :result if (func.reuseOperand(inst, ty_op.operand, 0, src_mcv))
+                src_mcv
+            else
+                try func.copyToNewRegister(inst, src_mcv);
+        }
+
+        const dst_mcv: MCValue = if (src_mcv.isRegister() and
+            func.reuseOperand(inst, ty_op.operand, 0, src_mcv))
+            src_mcv
+        else
+            try func.copyToNewRegister(inst, src_mcv);
+
+        const pl_ty = dst_ty.childType(zcu);
+        const pl_abi_size: i32 = @intCast(pl_ty.abiSize(zcu));
+        try func.genSetMem(
+            .{ .reg = dst_mcv.getReg().? },
+            pl_abi_size,
+            Type.bool,
+            .{ .immediate = 1 },
+        );
+        break :result dst_mcv;
+    };
     return func.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 

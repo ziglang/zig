@@ -33,8 +33,7 @@ test "decl literal with pointer" {
 }
 
 test "call decl literal with optional" {
-    if (builtin.zig_backend == .stage2_riscv64 or
-        builtin.zig_backend == .stage2_sparc64 or
+    if (builtin.zig_backend == .stage2_sparc64 or
         builtin.zig_backend == .stage2_arm or
         builtin.zig_backend == .stage2_aarch64 or
         builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
