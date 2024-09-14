@@ -316,9 +316,7 @@ pub const RunResult = struct {
 };
 
 fn fifoToOwnedArrayList(fifo: *std.io.PollFifo) std.ArrayList(u8) {
-    if (fifo.head > 0) {
-        @memcpy(fifo.buf[0..fifo.count], fifo.buf[fifo.head..][0..fifo.count]);
-    }
+    if (fifo.head != 0) fifo.realign();
     const result = std.ArrayList(u8){
         .items = fifo.buf[0..fifo.count],
         .capacity = fifo.buf.len,
