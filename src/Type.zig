@@ -266,10 +266,20 @@ pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error
             return;
         },
         .inferred_error_set_type => |func_index| {
-            const func_nav = ip.getNav(zcu.funcInfo(func_index).owner_nav);
-            try writer.print("@typeInfo(@typeInfo(@TypeOf({})).@\"fn\".return_type.?).error_union.error_set", .{
-                func_nav.fqn.fmt(ip),
-            });
+            const func_info = zcu.funcInfo(func_index);
+            const resolved_error_set = func_info.resolvedErrorSetUnordered(ip);
+            if (resolved_error_set != .none and ip.indexToKey(resolved_error_set) == .error_set_type) {
+                const error_set_type = ip.indexToKey(resolved_error_set).error_set_type;
+                try writer.writeAll("error{");
+                for (error_set_type.names.get(ip), 0..) |name, i| {
+                    if (i != 0) try writer.writeByte(',');
+                    try writer.print("{}", .{name.fmt(ip)});
+                }
+                try writer.writeAll("}");
+            } else {
+                const func_nav = ip.getNav(func_info.owner_nav);
+                try writer.print("@typeInfo(@typeInfo(@TypeOf({})).@\"fn\".return_type.?).error_union.error_set", .{func_nav.fqn.fmt(ip)});
+            }
         },
         .error_set_type => |error_set_type| {
             const names = error_set_type.names;
