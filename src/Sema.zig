@@ -8996,6 +8996,7 @@ fn zirDeclLiteral(sema: *Sema, block: *Block, inst: Zir.Inst.Index, do_coerce: b
         while (true) switch (ty.zigTypeTag(zcu)) {
             .error_union => ty = ty.errorUnionPayload(zcu),
             .optional => ty = ty.optionalChild(zcu),
+            .pointer => ty = if (ty.isSinglePointer(zcu)) ty.childType(zcu) else break,
             .enum_literal, .error_set => {
                 // Treat this as a normal enum literal.
                 break :res Air.internedToRef(try pt.intern(.{ .enum_literal = name }));
