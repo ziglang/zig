@@ -10,9 +10,17 @@ const Walk = @import("Walk");
 const Decl = Walk.Decl;
 const html_render = @import("html_render");
 
+/// Nanoseconds.
+var server_base_timestamp: i64 = 0;
+/// Milliseconds.
+var client_base_timestamp: i64 = 0;
+/// Relative to `server_base_timestamp`.
+var start_fuzzing_timestamp: i64 = undefined;
+
 const js = struct {
     extern "js" fn log(ptr: [*]const u8, len: usize) void;
     extern "js" fn panic(ptr: [*]const u8, len: usize) noreturn;
+    extern "js" fn timestamp() i64;
     extern "js" fn emitSourceIndexChange() void;
     extern "js" fn emitCoverageUpdate() void;
     extern "js" fn emitEntryPointsUpdate() void;
@@ -50,7 +58,7 @@ export fn alloc(n: usize) [*]u8 {
     return slice.ptr;
 }
 
-var message_buffer: std.ArrayListAlignedUnmanaged(u8, @alignOf(u64)) = .{};
+var message_buffer: std.ArrayListAlignedUnmanaged(u8, @alignOf(u64)) = .empty;
 
 /// Resizes the message buffer to be the correct length; returns the pointer to
 /// the query string.
@@ -64,6 +72,7 @@ export fn message_end() void {
 
     const tag: abi.ToClientTag = @enumFromInt(msg_bytes[0]);
     switch (tag) {
+        .current_time => return currentTimeMessage(msg_bytes),
         .source_index => return sourceIndexMessage(msg_bytes) catch @panic("OOM"),
         .coverage_update => return coverageUpdateMessage(msg_bytes) catch @panic("OOM"),
         .entry_points => return entryPointsMessage(msg_bytes) catch @panic("OOM"),
@@ -81,8 +90,8 @@ export fn unpack(tar_ptr: [*]u8, tar_len: usize) void {
 }
 
 /// Set by `set_input_string`.
-var input_string: std.ArrayListUnmanaged(u8) = .{};
-var string_result: std.ArrayListUnmanaged(u8) = .{};
+var input_string: std.ArrayListUnmanaged(u8) = .empty;
+var string_result: std.ArrayListUnmanaged(u8) = .empty;
 
 export fn set_input_string(len: usize) [*]u8 {
     input_string.resize(gpa, len) catch @panic("OOM");
@@ -106,13 +115,6 @@ export fn decl_source_html(decl_index: Decl.Index) String {
     return String.init(string_result.items);
 }
 
-export fn lowestStack() String {
-    const header: *abi.CoverageUpdateHeader = @ptrCast(recent_coverage_update.items[0..@sizeOf(abi.CoverageUpdateHeader)]);
-    string_result.clearRetainingCapacity();
-    string_result.writer(gpa).print("0x{d}", .{header.lowest_stack}) catch @panic("OOM");
-    return String.init(string_result.items);
-}
-
 export fn totalSourceLocations() usize {
     return coverage_source_locations.items.len;
 }
@@ -124,14 +126,26 @@ export fn coveredSourceLocations() usize {
     return count;
 }
 
+fn getCoverageUpdateHeader() *abi.CoverageUpdateHeader {
+    return @alignCast(@ptrCast(recent_coverage_update.items[0..@sizeOf(abi.CoverageUpdateHeader)]));
+}
+
 export fn totalRuns() u64 {
-    const header: *abi.CoverageUpdateHeader = @alignCast(@ptrCast(recent_coverage_update.items[0..@sizeOf(abi.CoverageUpdateHeader)]));
+    const header = getCoverageUpdateHeader();
     return header.n_runs;
 }
 
 export fn uniqueRuns() u64 {
-    const header: *abi.CoverageUpdateHeader = @alignCast(@ptrCast(recent_coverage_update.items[0..@sizeOf(abi.CoverageUpdateHeader)]));
+    const header = getCoverageUpdateHeader();
     return header.unique_runs;
+}
+
+export fn totalRunsPerSecond() f64 {
+    @setFloatMode(.optimized);
+    const header = getCoverageUpdateHeader();
+    const ns_elapsed: f64 = @floatFromInt(nsSince(start_fuzzing_timestamp));
+    const n_runs: f64 = @floatFromInt(header.n_runs);
+    return n_runs / (ns_elapsed / std.time.ns_per_s);
 }
 
 const String = Slice(u8);
@@ -196,6 +210,18 @@ fn fatal(comptime format: []const u8, args: anytype) noreturn {
     js.panic(line.ptr, line.len);
 }
 
+fn currentTimeMessage(msg_bytes: []u8) void {
+    client_base_timestamp = js.timestamp();
+    server_base_timestamp = @bitCast(msg_bytes[1..][0..8].*);
+}
+
+/// Nanoseconds passed since a server timestamp.
+fn nsSince(server_timestamp: i64) i64 {
+    const ms_passed = js.timestamp() - client_base_timestamp;
+    const ns_passed = server_base_timestamp - server_timestamp;
+    return ns_passed + ms_passed * std.time.ns_per_ms;
+}
+
 fn sourceIndexMessage(msg_bytes: []u8) error{OutOfMemory}!void {
     const Header = abi.SourceIndexHeader;
     const header: Header = @bitCast(msg_bytes[0..@sizeOf(Header)].*);
@@ -212,6 +238,7 @@ fn sourceIndexMessage(msg_bytes: []u8) error{OutOfMemory}!void {
     const files: []const Coverage.File = @alignCast(std.mem.bytesAsSlice(Coverage.File, msg_bytes[files_start..files_end]));
     const source_locations: []const Coverage.SourceLocation = @alignCast(std.mem.bytesAsSlice(Coverage.SourceLocation, msg_bytes[source_locations_start..source_locations_end]));
 
+    start_fuzzing_timestamp = header.start_timestamp;
     try updateCoverage(directories, files, source_locations, string_bytes);
     js.emitSourceIndexChange();
 }
@@ -222,7 +249,7 @@ fn coverageUpdateMessage(msg_bytes: []u8) error{OutOfMemory}!void {
     js.emitCoverageUpdate();
 }
 
-var entry_points: std.ArrayListUnmanaged(u32) = .{};
+var entry_points: std.ArrayListUnmanaged(u32) = .empty;
 
 fn entryPointsMessage(msg_bytes: []u8) error{OutOfMemory}!void {
     const header: abi.EntryPointHeader = @bitCast(msg_bytes[0..@sizeOf(abi.EntryPointHeader)].*);
@@ -268,7 +295,7 @@ const SourceLocationIndex = enum(u32) {
     }
 
     fn toWalkFile(sli: SourceLocationIndex) ?Walk.File.Index {
-        var buf: std.ArrayListUnmanaged(u8) = .{};
+        var buf: std.ArrayListUnmanaged(u8) = .empty;
         defer buf.deinit(gpa);
         sli.appendPath(&buf) catch @panic("OOM");
         return @enumFromInt(Walk.files.getIndex(buf.items) orelse return null);
@@ -280,7 +307,7 @@ const SourceLocationIndex = enum(u32) {
     ) error{ OutOfMemory, SourceUnavailable }!void {
         const walk_file_index = sli.toWalkFile() orelse return error.SourceUnavailable;
         const root_node = walk_file_index.findRootDecl().get().ast_node;
-        var annotations: std.ArrayListUnmanaged(html_render.Annotation) = .{};
+        var annotations: std.ArrayListUnmanaged(html_render.Annotation) = .empty;
         defer annotations.deinit(gpa);
         try computeSourceAnnotations(sli.ptr().file, walk_file_index, &annotations, coverage_source_locations.items);
         html_render.fileSourceHtml(walk_file_index, out, root_node, .{
@@ -300,7 +327,7 @@ fn computeSourceAnnotations(
     // Collect all the source locations from only this file into this array
     // first, then sort by line, col, so that we can collect annotations with
     // O(N) time complexity.
-    var locs: std.ArrayListUnmanaged(SourceLocationIndex) = .{};
+    var locs: std.ArrayListUnmanaged(SourceLocationIndex) = .empty;
     defer locs.deinit(gpa);
 
     for (source_locations, 0..) |sl, sli_usize| {
@@ -347,9 +374,9 @@ fn computeSourceAnnotations(
 
 var coverage = Coverage.init;
 /// Index of type `SourceLocationIndex`.
-var coverage_source_locations: std.ArrayListUnmanaged(Coverage.SourceLocation) = .{};
+var coverage_source_locations: std.ArrayListUnmanaged(Coverage.SourceLocation) = .empty;
 /// Contains the most recent coverage update message, unmodified.
-var recent_coverage_update: std.ArrayListAlignedUnmanaged(u8, @alignOf(u64)) = .{};
+var recent_coverage_update: std.ArrayListAlignedUnmanaged(u8, @alignOf(u64)) = .empty;
 
 fn updateCoverage(
     directories: []const Coverage.String,
@@ -398,7 +425,7 @@ export fn sourceLocationFileHtml(sli: SourceLocationIndex) String {
 
 export fn sourceLocationFileCoveredList(sli_file: SourceLocationIndex) Slice(SourceLocationIndex) {
     const global = struct {
-        var result: std.ArrayListUnmanaged(SourceLocationIndex) = .{};
+        var result: std.ArrayListUnmanaged(SourceLocationIndex) = .empty;
         fn add(i: u32, want_file: Coverage.File.Index) void {
             const src_loc_index: SourceLocationIndex = @enumFromInt(i);
             if (src_loc_index.ptr().file == want_file) result.appendAssumeCapacity(src_loc_index);

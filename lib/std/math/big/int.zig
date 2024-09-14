@@ -1202,6 +1202,7 @@ pub const Mutable = struct {
         llshr(r.limbs[0..], a.limbs[0..a.limbs.len], shift);
 
         r.len = a.limbs.len - full_limbs_shifted_out;
+        r.positive = a.positive;
         if (nonzero_negative_shiftout) {
             if (full_limbs_shifted_out > 0) {
                 r.limbs[a.limbs.len - full_limbs_shifted_out] = 0;
@@ -1210,7 +1211,6 @@ pub const Mutable = struct {
             r.addScalar(r.toConst(), -1);
         }
         r.normalize(r.len);
-        r.positive = a.positive;
     }
 
     /// r = ~a under 2s complement wrapping semantics.

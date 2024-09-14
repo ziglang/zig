@@ -8,7 +8,7 @@ const assert = std.debug.assert;
 const SeenPcsHeader = std.Build.Fuzz.abi.SeenPcsHeader;
 
 pub fn main() !void {
-    var general_purpose_allocator: std.heap.GeneralPurposeAllocator(.{}) = .{};
+    var general_purpose_allocator: std.heap.GeneralPurposeAllocator(.{}) = .init;
     defer _ = general_purpose_allocator.deinit();
     const gpa = general_purpose_allocator.allocator();
 
@@ -55,7 +55,7 @@ pub fn main() !void {
     try stdout.print("{any}\n", .{header.*});
     const pcs = header.pcAddrs();
 
-    var indexed_pcs: std.AutoArrayHashMapUnmanaged(usize, void) = .{};
+    var indexed_pcs: std.AutoArrayHashMapUnmanaged(usize, void) = .empty;
     try indexed_pcs.entries.resize(arena, pcs.len);
     @memcpy(indexed_pcs.entries.items(.key), pcs);
     try indexed_pcs.reIndex(arena);

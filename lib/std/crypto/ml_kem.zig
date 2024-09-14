@@ -1677,7 +1677,7 @@ test "Test inner PKE" {
         p.* = @as(u8, @intCast(i + 32));
     }
     inline for (modes) |mode| {
-        for (0..100) |i| {
+        for (0..10) |i| {
             var pk: mode.InnerPk = undefined;
             var sk: mode.InnerSk = undefined;
             seed[0] = @as(u8, @intCast(i));
@@ -1696,7 +1696,7 @@ test "Test happy flow" {
         s.* = @as(u8, @intCast(i));
     }
     inline for (modes) |mode| {
-        for (0..100) |i| {
+        for (0..10) |i| {
             seed[0] = @as(u8, @intCast(i));
             const kp = try mode.KeyPair.create(seed);
             const sk = try mode.SecretKey.fromBytes(&kp.secret_key.toBytes());

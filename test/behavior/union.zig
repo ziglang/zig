@@ -1268,7 +1268,6 @@ test "extern union most-aligned field is smaller" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const U = extern union {
         in6: extern struct {
@@ -1891,7 +1890,7 @@ test "reinterpret packed union" {
     try comptime S.doTheTest();
 
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.cpu.arch.isPowerPC32()) return error.SkipZigTest; // TODO
+    if (builtin.cpu.arch.isPowerPC()) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21050
     if (builtin.cpu.arch.isMIPS()) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21050
     if (builtin.cpu.arch.isWasm()) return error.SkipZigTest; // TODO
     try S.doTheTest();

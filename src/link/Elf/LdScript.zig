@@ -1,6 +1,6 @@
 path: []const u8,
 cpu_arch: ?std.Target.Cpu.Arch = null,
-args: std.ArrayListUnmanaged(Elf.SystemLib) = .{},
+args: std.ArrayListUnmanaged(Elf.SystemLib) = .empty,
 
 pub fn deinit(scr: *LdScript, allocator: Allocator) void {
     scr.args.deinit(allocator);

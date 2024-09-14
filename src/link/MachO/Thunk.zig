@@ -1,6 +1,6 @@
 value: u64 = 0,
 out_n_sect: u8 = 0,
-symbols: std.AutoArrayHashMapUnmanaged(MachO.Ref, void) = .{},
+symbols: std.AutoArrayHashMapUnmanaged(MachO.Ref, void) = .empty,
 output_symtab_ctx: MachO.SymtabCtx = .{},
 
 pub fn deinit(thunk: *Thunk, allocator: Allocator) void {

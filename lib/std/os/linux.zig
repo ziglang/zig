@@ -1456,6 +1456,16 @@ pub fn clock_settime(clk_id: i32, tp: *const timespec) usize {
     return syscall2(.clock_settime, @as(usize, @bitCast(@as(isize, clk_id))), @intFromPtr(tp));
 }
 
+pub fn clock_nanosleep(clockid: clockid_t, flags: TIMER, request: *const timespec, remain: ?*timespec) usize {
+    return syscall4(
+        .clock_nanosleep,
+        @intFromEnum(clockid),
+        @as(u32, @bitCast(flags)),
+        @intFromPtr(request),
+        @intFromPtr(remain),
+    );
+}
+
 pub fn gettimeofday(tv: ?*timeval, tz: ?*timezone) usize {
     return syscall2(.gettimeofday, @intFromPtr(tv), @intFromPtr(tz));
 }
@@ -1465,7 +1475,9 @@ pub fn settimeofday(tv: *const timeval, tz: *const timezone) usize {
 }
 
 pub fn nanosleep(req: *const timespec, rem: ?*timespec) usize {
-    return syscall2(.nanosleep, @intFromPtr(req), @intFromPtr(rem));
+    if (native_arch == .riscv32) {
+        @compileError("No nanosleep syscall on this architecture.");
+    } else return syscall2(.nanosleep, @intFromPtr(req), @intFromPtr(rem));
 }
 
 pub fn pause() usize {
@@ -4577,6 +4589,11 @@ pub const clockid_t = enum(u32) {
     _,
 };
 
+pub const TIMER = packed struct(u32) {
+    ABSTIME: bool,
+    _: u31 = 0,
+};
+
 pub const CSIGNAL = 0x000000ff;
 
 pub const CLONE = struct {
@@ -7504,7 +7521,7 @@ pub const kernel_timespec = extern struct {
 };
 
 // https://github.com/ziglang/zig/issues/4726#issuecomment-2190337877
-pub const timespec = if (!builtin.link_libc and native_arch == .riscv32) kernel_timespec else extern struct {
+pub const timespec = if (native_arch == .riscv32) kernel_timespec else extern struct {
     sec: isize,
     nsec: isize,
 };

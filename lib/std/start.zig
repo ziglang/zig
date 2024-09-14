@@ -280,10 +280,14 @@ fn _start() callconv(.Naked) noreturn {
             \\ b %[posixCallMainAndExit]
             ,
             .arm, .armeb, .thumb, .thumbeb =>
-            \\ mov fp, #0
-            \\ mov lr, #0
+            // Note that this code must work for Thumb-1.
+            \\ movs v1, #0
+            \\ mov fp, v1
+            \\ mov lr, v1
             \\ mov a1, sp
-            \\ and sp, #-16
+            \\ subs v1, #16
+            \\ ands v1, a1
+            \\ mov sp, v1
             \\ b %[posixCallMainAndExit]
             ,
             .csky =>

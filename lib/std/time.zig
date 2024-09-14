@@ -50,6 +50,34 @@ pub fn sleep(nanoseconds: u64) void {
 
     const s = nanoseconds / ns_per_s;
     const ns = nanoseconds % ns_per_s;
+
+    // Newer kernel ports don't have old `nanosleep()` and `clock_nanosleep()` has been around
+    // since Linux 2.6 and glibc 2.1 anyway.
+    if (builtin.os.tag == .linux) {
+        const linux = std.os.linux;
+
+        var req: linux.timespec = .{
+            .sec = std.math.cast(linux.time_t, s) orelse std.math.maxInt(linux.time_t),
+            .nsec = std.math.cast(linux.time_t, ns) orelse std.math.maxInt(linux.time_t),
+        };
+        var rem: linux.timespec = undefined;
+
+        while (true) {
+            switch (linux.E.init(linux.clock_nanosleep(.MONOTONIC, .{ .ABSTIME = false }, &req, &rem))) {
+                .SUCCESS => return,
+                .INTR => {
+                    req = rem;
+                    continue;
+                },
+                .FAULT,
+                .INVAL,
+                .OPNOTSUPP,
+                => unreachable,
+                else => return,
+            }
+        }
+    }
+
     posix.nanosleep(s, ns);
 }
 

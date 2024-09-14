@@ -320,7 +320,7 @@ pub fn updateZirRefs(pt: Zcu.PerThread) Allocator.Error!void {
     const gpa = zcu.gpa;
 
     // We need to visit every updated File for every TrackedInst in InternPool.
-    var updated_files: std.AutoArrayHashMapUnmanaged(Zcu.File.Index, UpdatedFile) = .{};
+    var updated_files: std.AutoArrayHashMapUnmanaged(Zcu.File.Index, UpdatedFile) = .empty;
     defer cleanupUpdatedFiles(gpa, &updated_files);
     for (zcu.import_table.values()) |file_index| {
         const file = zcu.fileByIndex(file_index);
@@ -399,7 +399,7 @@ pub fn updateZirRefs(pt: Zcu.PerThread) Allocator.Error!void {
             };
             if (!has_namespace) continue;
 
-            var old_names: std.AutoArrayHashMapUnmanaged(InternPool.NullTerminatedString, void) = .{};
+            var old_names: std.AutoArrayHashMapUnmanaged(InternPool.NullTerminatedString, void) = .empty;
             defer old_names.deinit(zcu.gpa);
             {
                 var it = old_zir.declIterator(old_inst);
@@ -1721,7 +1721,7 @@ pub fn scanNamespace(
     // For incremental updates, `scanDecl` wants to look up existing decls by their ZIR index rather
     // than their name. We'll build an efficient mapping now, then discard the current `decls`.
     // We map to the `Cau`, since not every declaration has a `Nav`.
-    var existing_by_inst: std.AutoHashMapUnmanaged(InternPool.TrackedInst.Index, InternPool.Cau.Index) = .{};
+    var existing_by_inst: std.AutoHashMapUnmanaged(InternPool.TrackedInst.Index, InternPool.Cau.Index) = .empty;
     defer existing_by_inst.deinit(gpa);
 
     try existing_by_inst.ensureTotalCapacity(gpa, @intCast(
@@ -1761,7 +1761,7 @@ pub fn scanNamespace(
         }
     }
 
-    var seen_decls: std.AutoHashMapUnmanaged(InternPool.NullTerminatedString, void) = .{};
+    var seen_decls: std.AutoHashMapUnmanaged(InternPool.NullTerminatedString, void) = .empty;
     defer seen_decls.deinit(gpa);
 
     namespace.pub_decls.clearRetainingCapacity();
@@ -2293,8 +2293,8 @@ pub fn processExports(pt: Zcu.PerThread) !void {
     const gpa = zcu.gpa;
 
     // First, construct a mapping of every exported value and Nav to the indices of all its different exports.
-    var nav_exports: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, std.ArrayListUnmanaged(u32)) = .{};
-    var uav_exports: std.AutoArrayHashMapUnmanaged(InternPool.Index, std.ArrayListUnmanaged(u32)) = .{};
+    var nav_exports: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, std.ArrayListUnmanaged(u32)) = .empty;
+    var uav_exports: std.AutoArrayHashMapUnmanaged(InternPool.Index, std.ArrayListUnmanaged(u32)) = .empty;
     defer {
         for (nav_exports.values()) |*exports| {
             exports.deinit(gpa);
@@ -2429,7 +2429,7 @@ fn processExportsInner(
 pub fn populateTestFunctions(
     pt: Zcu.PerThread,
     main_progress_node: std.Progress.Node,
-) !void {
+) Allocator.Error!void {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
@@ -2454,7 +2454,10 @@ pub fn populateTestFunctions(
             zcu.sema_prog_node = std.Progress.Node.none;
         }
         const cau_index = ip.getNav(nav_index).analysis_owner.unwrap().?;
-        try pt.ensureCauAnalyzed(cau_index);
+        pt.ensureCauAnalyzed(cau_index) catch |err| switch (err) {
+            error.AnalysisFail => return,
+            error.OutOfMemory => return error.OutOfMemory,
+        };
     }
 
     const test_fns_val = zcu.navValue(nav_index);
