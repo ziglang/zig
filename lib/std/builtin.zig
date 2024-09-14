@@ -918,6 +918,14 @@ pub fn panicInactiveUnionField(active: anytype, wanted: @TypeOf(active)) noretur
     std.debug.panicExtra(null, @returnAddress(), "access of union field '{s}' while field '{s}' is active", .{ @tagName(wanted), @tagName(active) });
 }
 
+pub fn panicStartGreaterThanEndExtra(start: usize, end: usize, len: usize) noreturn {
+    @branchHint(.cold);
+    if (start > end)
+        std.debug.panicExtra(null, @returnAddress(), "start index {d} is larger than end index {d}", .{ start, end })
+    else
+        std.debug.panicExtra(null, @returnAddress(), "index out of bounds: index {d}, len {d}", .{ end, len });
+}
+
 pub const panic_messages = struct {
     pub const unreach = "reached unreachable code";
     pub const unwrap_null = "attempt to use null value";
