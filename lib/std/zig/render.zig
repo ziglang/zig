@@ -451,7 +451,10 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
                 try renderToken(r, main_token + 3, after_op_space); // pipe
             } else {
                 assert(token_tags[fallback_first - 1] == .keyword_catch);
+                const comment_below_catch = !same_line and hasComment(tree, main_token, main_token + 1);
+                if (comment_below_catch) ais.pushIndent();
                 try renderToken(r, main_token, after_op_space); // catch keyword
+                if (comment_below_catch) ais.popIndent();
             }
 
             ais.pushIndentOneShot();
@@ -1370,9 +1373,11 @@ fn renderThenElse(
             last_else_token = error_token + 1; // |
         }
 
-        const indent_else_expr = indent_then_expr and
+        const has_comment_before_else_expr = hasComment(tree, else_token, else_token + 1);
+
+        const indent_else_expr = has_comment_before_else_expr or (indent_then_expr and
             !nodeIsBlock(node_tags[else_expr]) and
-            !nodeIsIfForWhileSwitch(node_tags[else_expr]);
+            !nodeIsIfForWhileSwitch(node_tags[else_expr]));
         if (indent_else_expr) {
             ais.pushIndentNextLine();
             try renderToken(r, last_else_token, .newline);
