@@ -30,7 +30,7 @@ test "iterate over a void slice" {
 }
 
 fn times(n: usize) []const void {
-    return @as([*]void, undefined)[0..n];
+    return @as([*]void, &[_]void{})[0..n];
 }
 
 test "void optional" {

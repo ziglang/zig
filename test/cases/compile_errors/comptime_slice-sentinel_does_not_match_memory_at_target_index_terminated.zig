@@ -58,17 +58,17 @@ export fn foo_slice() void {
 // backend=stage2
 // target=native
 //
-// :4:29: error: value in memory does not match slice sentinel
-// :4:29: note: expected '0', found '100'
-// :12:29: error: value in memory does not match slice sentinel
-// :12:29: note: expected '0', found '100'
-// :20:29: error: value in memory does not match slice sentinel
-// :20:29: note: expected '0', found '100'
-// :28:29: error: value in memory does not match slice sentinel
-// :28:29: note: expected '0', found '100'
-// :36:29: error: value in memory does not match slice sentinel
-// :36:29: note: expected '0', found '100'
-// :44:29: error: value in memory does not match slice sentinel
-// :44:29: note: expected '0', found '100'
-// :52:29: error: value in memory does not match slice sentinel
-// :52:29: note: expected '0', found '100'
+// :4:36: error: value in memory does not match slice sentinel
+// :4:36: note: expected '0', found '100'
+// :12:36: error: value in memory does not match slice sentinel
+// :12:36: note: expected '0', found '100'
+// :20:36: error: value in memory does not match slice sentinel
+// :20:36: note: expected '0', found '100'
+// :28:36: error: value in memory does not match slice sentinel
+// :28:36: note: expected '0', found '100'
+// :36:36: error: value in memory does not match slice sentinel
+// :36:36: note: expected '0', found '100'
+// :44:36: error: value in memory does not match slice sentinel
+// :44:36: note: expected '0', found '100'
+// :52:36: error: value in memory does not match slice sentinel
+// :52:36: note: expected '0', found '100'
