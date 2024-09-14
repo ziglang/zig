@@ -856,7 +856,7 @@ pub fn rerunInFuzzMode(
     const step = &run.step;
     const b = step.owner;
     const arena = b.allocator;
-    var argv_list: std.ArrayListUnmanaged([]const u8) = .{};
+    var argv_list: std.ArrayListUnmanaged([]const u8) = .empty;
     for (run.argv.items) |arg| {
         switch (arg) {
             .bytes => |bytes| {

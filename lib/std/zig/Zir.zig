@@ -3711,7 +3711,7 @@ pub fn findDecls(zir: Zir, gpa: Allocator, list: *std.ArrayListUnmanaged(Inst.In
 
     // `defer` instructions duplicate the same body arbitrarily many times, but we only want to traverse
     // their contents once per defer. So, we store the extra index of the body here to deduplicate.
-    var found_defers: std.AutoHashMapUnmanaged(u32, void) = .{};
+    var found_defers: std.AutoHashMapUnmanaged(u32, void) = .empty;
     defer found_defers.deinit(gpa);
 
     try zir.findDeclsBody(gpa, list, &found_defers, bodies.value_body);
@@ -3725,7 +3725,7 @@ pub fn findDecls(zir: Zir, gpa: Allocator, list: *std.ArrayListUnmanaged(Inst.In
 pub fn findDeclsRoot(zir: Zir, gpa: Allocator, list: *std.ArrayListUnmanaged(Inst.Index)) !void {
     list.clearRetainingCapacity();
 
-    var found_defers: std.AutoHashMapUnmanaged(u32, void) = .{};
+    var found_defers: std.AutoHashMapUnmanaged(u32, void) = .empty;
     defer found_defers.deinit(gpa);
 
     try zir.findDeclsInner(gpa, list, &found_defers, .main_struct_inst);

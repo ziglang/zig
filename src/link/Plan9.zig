@@ -34,13 +34,13 @@ bases: Bases,
 /// Does not represent the order or amount of symbols in the file
 /// it is just useful for storing symbols. Some other symbols are in
 /// file_segments.
-syms: std.ArrayListUnmanaged(aout.Sym) = .{},
+syms: std.ArrayListUnmanaged(aout.Sym) = .empty,
 
 /// The plan9 a.out format requires segments of
 /// filenames to be deduplicated, so we use this map to
 /// de duplicate it. The value is the value of the path
 /// component
-file_segments: std.StringArrayHashMapUnmanaged(u16) = .{},
+file_segments: std.StringArrayHashMapUnmanaged(u16) = .empty,
 /// The value of a 'f' symbol increments by 1 every time, so that no 2 'f'
 /// symbols have the same value.
 file_segments_i: u16 = 1,
@@ -54,19 +54,19 @@ path_arena: std.heap.ArenaAllocator,
 /// If we group the decls by file, it makes it really easy to do this (put the symbol in the correct place)
 fn_nav_table: std.AutoArrayHashMapUnmanaged(
     Zcu.File.Index,
-    struct { sym_index: u32, functions: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, FnNavOutput) = .{} },
+    struct { sym_index: u32, functions: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, FnNavOutput) = .empty },
 ) = .{},
 /// the code is modified when relocated, so that is why it is mutable
-data_nav_table: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, []u8) = .{},
+data_nav_table: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, []u8) = .empty,
 /// When `updateExports` is called, we store the export indices here, to be used
 /// during flush.
-nav_exports: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, []u32) = .{},
+nav_exports: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, []u32) = .empty,
 
 lazy_syms: LazySymbolTable = .{},
 
-uavs: std.AutoHashMapUnmanaged(InternPool.Index, Atom.Index) = .{},
+uavs: std.AutoHashMapUnmanaged(InternPool.Index, Atom.Index) = .empty,
 
-relocs: std.AutoHashMapUnmanaged(Atom.Index, std.ArrayListUnmanaged(Reloc)) = .{},
+relocs: std.AutoHashMapUnmanaged(Atom.Index, std.ArrayListUnmanaged(Reloc)) = .empty,
 hdr: aout.ExecHdr = undefined,
 
 // relocs: std.
@@ -77,12 +77,12 @@ entry_val: ?u64 = null,
 got_len: usize = 0,
 // A list of all the free got indexes, so when making a new decl
 // don't make a new one, just use one from here.
-got_index_free_list: std.ArrayListUnmanaged(usize) = .{},
+got_index_free_list: std.ArrayListUnmanaged(usize) = .empty,
 
-syms_index_free_list: std.ArrayListUnmanaged(usize) = .{},
+syms_index_free_list: std.ArrayListUnmanaged(usize) = .empty,
 
-atoms: std.ArrayListUnmanaged(Atom) = .{},
-navs: std.AutoHashMapUnmanaged(InternPool.Nav.Index, NavMetadata) = .{},
+atoms: std.ArrayListUnmanaged(Atom) = .empty,
+navs: std.AutoHashMapUnmanaged(InternPool.Nav.Index, NavMetadata) = .empty,
 
 /// Indices of the three "special" symbols into atoms
 etext_edata_end_atom_indices: [3]?Atom.Index = .{ null, null, null },
@@ -220,7 +220,7 @@ pub const DebugInfoOutput = struct {
 
 const NavMetadata = struct {
     index: Atom.Index,
-    exports: std.ArrayListUnmanaged(usize) = .{},
+    exports: std.ArrayListUnmanaged(usize) = .empty,
 
     fn getExport(m: NavMetadata, p9: *const Plan9, name: []const u8) ?usize {
         for (m.exports.items) |exp| {
@@ -422,10 +422,7 @@ pub fn updateFunc(self: *Plan9, pt: Zcu.PerThread, func_index: InternPool.Index,
     );
     const code = switch (res) {
         .ok => try code_buffer.toOwnedSlice(),
-        .fail => |em| {
-            try zcu.failed_codegen.put(gpa, func.owner_nav, em);
-            return;
-        },
+        .fail => |em| return zcu.failed_codegen.put(gpa, func.owner_nav, em),
     };
     self.getAtomPtr(atom_idx).code = .{
         .code_ptr = null,
@@ -463,15 +460,17 @@ pub fn updateNav(self: *Plan9, pt: Zcu.PerThread, nav_index: InternPool.Nav.Inde
         var code_buffer = std.ArrayList(u8).init(gpa);
         defer code_buffer.deinit();
         // TODO we need the symbol index for symbol in the table of locals for the containing atom
-        const res = try codegen.generateSymbol(&self.base, pt, zcu.navSrcLoc(nav_index), nav_init, &code_buffer, .none, .{
-            .parent_atom_index = @intCast(atom_idx),
-        });
+        const res = try codegen.generateSymbol(
+            &self.base,
+            pt,
+            zcu.navSrcLoc(nav_index),
+            nav_init,
+            &code_buffer,
+            .{ .atom_index = @intCast(atom_idx) },
+        );
         const code = switch (res) {
             .ok => code_buffer.items,
-            .fail => |em| {
-                try zcu.failed_codegen.put(gpa, nav_index, em);
-                return;
-            },
+            .fail => |em| return zcu.failed_codegen.put(gpa, nav_index, em),
         };
         try self.data_nav_table.ensureUnusedCapacity(gpa, 1);
         const duped_code = try gpa.dupe(u8, code);
@@ -1116,7 +1115,7 @@ fn updateLazySymbolAtom(self: *Plan9, pt: Zcu.PerThread, sym: File.LazySymbol, a
         &required_alignment,
         &code_buffer,
         .none,
-        .{ .parent_atom_index = @as(Atom.Index, @intCast(atom_index)) },
+        .{ .atom_index = @intCast(atom_index) },
     );
     const code = switch (res) {
         .ok => code_buffer.items,
@@ -1373,21 +1372,21 @@ pub fn getNavVAddr(
     log.debug("getDeclVAddr for {}", .{nav.name.fmt(ip)});
     if (ip.indexToKey(nav.status.resolved.val) == .@"extern") {
         if (nav.name.eqlSlice("etext", ip)) {
-            try self.addReloc(reloc_info.parent_atom_index, .{
+            try self.addReloc(reloc_info.parent.atom_index, .{
                 .target = undefined,
                 .offset = reloc_info.offset,
                 .addend = reloc_info.addend,
                 .type = .special_etext,
             });
         } else if (nav.name.eqlSlice("edata", ip)) {
-            try self.addReloc(reloc_info.parent_atom_index, .{
+            try self.addReloc(reloc_info.parent.atom_index, .{
                 .target = undefined,
                 .offset = reloc_info.offset,
                 .addend = reloc_info.addend,
                 .type = .special_edata,
             });
         } else if (nav.name.eqlSlice("end", ip)) {
-            try self.addReloc(reloc_info.parent_atom_index, .{
+            try self.addReloc(reloc_info.parent.atom_index, .{
                 .target = undefined,
                 .offset = reloc_info.offset,
                 .addend = reloc_info.addend,
@@ -1400,7 +1399,7 @@ pub fn getNavVAddr(
     // otherwise, we just add a relocation
     const atom_index = try self.seeNav(pt, nav_index);
     // the parent_atom_index in this case is just the decl_index of the parent
-    try self.addReloc(reloc_info.parent_atom_index, .{
+    try self.addReloc(reloc_info.parent.atom_index, .{
         .target = atom_index,
         .offset = reloc_info.offset,
         .addend = reloc_info.addend,
@@ -1435,7 +1434,7 @@ pub fn lowerUav(
     gop.value_ptr.* = index;
     // we need to free name latex
     var code_buffer = std.ArrayList(u8).init(gpa);
-    const res = try codegen.generateSymbol(&self.base, pt, src_loc, val, &code_buffer, .{ .none = {} }, .{ .parent_atom_index = index });
+    const res = try codegen.generateSymbol(&self.base, pt, src_loc, val, &code_buffer, .{ .atom_index = index });
     const code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| return .{ .fail = em },
@@ -1459,7 +1458,7 @@ pub fn lowerUav(
 
 pub fn getUavVAddr(self: *Plan9, uav: InternPool.Index, reloc_info: link.File.RelocInfo) !u64 {
     const atom_index = self.uavs.get(uav).?;
-    try self.addReloc(reloc_info.parent_atom_index, .{
+    try self.addReloc(reloc_info.parent.atom_index, .{
         .target = atom_index,
         .offset = reloc_info.offset,
         .addend = reloc_info.addend,

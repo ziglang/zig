@@ -2,7 +2,7 @@ value: i64 = 0,
 size: u64 = 0,
 alignment: Atom.Alignment = .@"1",
 output_section_index: u32 = 0,
-atoms: std.ArrayListUnmanaged(Elf.Ref) = .{},
+atoms: std.ArrayListUnmanaged(Elf.Ref) = .empty,
 
 pub fn deinit(list: *AtomList, allocator: Allocator) void {
     list.atoms.deinit(allocator);

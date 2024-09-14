@@ -130,7 +130,7 @@ pub fn ArrayHashMap(
         }
         pub fn initContext(allocator: Allocator, ctx: Context) Self {
             return .{
-                .unmanaged = .{},
+                .unmanaged = .empty,
                 .allocator = allocator,
                 .ctx = ctx,
             };
@@ -429,7 +429,7 @@ pub fn ArrayHashMap(
         pub fn move(self: *Self) Self {
             self.unmanaged.pointer_stability.assertUnlocked();
             const result = self.*;
-            self.unmanaged = .{};
+            self.unmanaged = .empty;
             return result;
         }
 
@@ -1290,7 +1290,7 @@ pub fn ArrayHashMapUnmanaged(
         pub fn move(self: *Self) Self {
             self.pointer_stability.assertUnlocked();
             const result = self.*;
-            self.* = .{};
+            self.* = .empty;
             return result;
         }
 

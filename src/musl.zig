@@ -384,8 +384,10 @@ fn addCcArgs(
     try args.appendSlice(&[_][]const u8{
         "-std=c99",
         "-ffreestanding",
+        "-fno-builtin",
         "-fexcess-precision=standard",
         "-frounding-math",
+        "-ffp-contract=off",
         "-fno-strict-aliasing",
         "-Wa,--noexecstack",
         "-D_XOPEN_SOURCE=700",
@@ -422,6 +424,10 @@ fn addCcArgs(
         "-Qunused-arguments",
         "-w", // disable all warnings
     });
+
+    if (target.cpu.arch.isThumb()) {
+        try args.append("-mimplicit-it=always");
+    }
 }
 
 fn start_asm_path(comp: *Compilation, arena: Allocator, basename: []const u8) ![]const u8 {

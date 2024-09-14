@@ -230,7 +230,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     };
 
     const aro = @import("aro");
-    var aro_comp = aro.Compilation.init(comp.gpa);
+    var aro_comp = aro.Compilation.init(comp.gpa, std.fs.cwd());
     defer aro_comp.deinit();
 
     const include_dir = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", "mingw", "def-include" });
@@ -268,7 +268,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
         // new scope to ensure definition file is written before passing the path to WriteImportLibrary
         const def_final_file = try o_dir.createFile(final_def_basename, .{ .truncate = true });
         defer def_final_file.close();
-        try pp.prettyPrintTokens(def_final_file.writer());
+        try pp.prettyPrintTokens(def_final_file.writer(), .result_only);
     }
 
     const lib_final_path = try comp.global_cache_directory.join(comp.gpa, &[_][]const u8{

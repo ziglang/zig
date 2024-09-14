@@ -2,7 +2,7 @@ const std = @import("std");
 const fs = std.fs;
 
 pub fn main() !void {
-    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
+    var general_purpose_allocator: std.heap.GeneralPurposeAllocator(.{}) = .init;
     const gpa = general_purpose_allocator.allocator();
 
     var arena_instance = std.heap.ArenaAllocator.init(gpa);

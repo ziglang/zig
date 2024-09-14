@@ -557,7 +557,6 @@ test "vector division operators" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_llvm and comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
@@ -743,23 +742,6 @@ test "vector shift operators" {
         }
     };
 
-    switch (builtin.target.cpu.arch) {
-        .aarch64_be,
-        .armeb,
-        .thumb,
-        .thumbeb,
-        .mips,
-        .mips64,
-        .mips64el,
-        .sparc64,
-        => {
-            // LLVM miscompiles on this architecture
-            // https://github.com/ziglang/zig/issues/4951
-            return error.SkipZigTest;
-        },
-        else => {},
-    }
-
     try S.doTheTest();
     try comptime S.doTheTest();
 }
@@ -822,14 +804,8 @@ test "vector reduce operation" {
             try testReduce(.Min, [4]u16{ 1, 2, 3, 4 }, @as(u16, 1));
             try testReduce(.Min, [4]i32{ 1234567, -386, 0, 3 }, @as(i32, -386));
             try testReduce(.Min, [4]u32{ 99, 9999, 9, 99999 }, @as(u32, 9));
-
-            // LLVM 11 ERROR: Cannot select type
-            // https://github.com/ziglang/zig/issues/7138
-            if (builtin.zig_backend != .stage2_llvm or builtin.target.cpu.arch != .aarch64) {
-                try testReduce(.Min, [4]i64{ 1234567, -386, 0, 3 }, @as(i64, -386));
-                try testReduce(.Min, [4]u64{ 99, 9999, 9, 99999 }, @as(u64, 9));
-            }
-
+            try testReduce(.Min, [4]i64{ 1234567, -386, 0, 3 }, @as(i64, -386));
+            try testReduce(.Min, [4]u64{ 99, 9999, 9, 99999 }, @as(u64, 9));
             try testReduce(.Min, [4]i128{ 1234567, -386, 0, 3 }, @as(i128, -386));
             try testReduce(.Min, [4]u128{ 99, 9999, 9, 99999 }, @as(u128, 9));
             try testReduce(.Min, [4]f16{ -10.3, 10.0e9, 13.0, -100.0 }, @as(f16, -100.0));
@@ -840,14 +816,8 @@ test "vector reduce operation" {
             try testReduce(.Max, [4]u16{ 1, 2, 3, 4 }, @as(u16, 4));
             try testReduce(.Max, [4]i32{ 1234567, -386, 0, 3 }, @as(i32, 1234567));
             try testReduce(.Max, [4]u32{ 99, 9999, 9, 99999 }, @as(u32, 99999));
-
-            // LLVM 11 ERROR: Cannot select type
-            // https://github.com/ziglang/zig/issues/7138
-            if (builtin.zig_backend != .stage2_llvm or builtin.target.cpu.arch != .aarch64) {
-                try testReduce(.Max, [4]i64{ 1234567, -386, 0, 3 }, @as(i64, 1234567));
-                try testReduce(.Max, [4]u64{ 99, 9999, 9, 99999 }, @as(u64, 99999));
-            }
-
+            try testReduce(.Max, [4]i64{ 1234567, -386, 0, 3 }, @as(i64, 1234567));
+            try testReduce(.Max, [4]u64{ 99, 9999, 9, 99999 }, @as(u64, 99999));
             try testReduce(.Max, [4]i128{ 1234567, -386, 0, 3 }, @as(i128, 1234567));
             try testReduce(.Max, [4]u128{ 99, 9999, 9, 99999 }, @as(u128, 99999));
             try testReduce(.Max, [4]f16{ -10.3, 10.0e9, 13.0, -100.0 }, @as(f16, 10.0e9));
@@ -889,17 +859,13 @@ test "vector reduce operation" {
             try testReduce(.Add, [4]f32{ -1.9, 5.1, f32_nan, 100.0 }, f32_nan);
             try testReduce(.Add, [4]f64{ -1.9, 5.1, f64_nan, 100.0 }, f64_nan);
 
-            // LLVM 11 ERROR: Cannot select type
-            // https://github.com/ziglang/zig/issues/7138
-            if (builtin.zig_backend != .stage2_llvm) {
-                try testReduce(.Min, [4]f16{ -1.9, 5.1, f16_nan, 100.0 }, @as(f16, -1.9));
-                try testReduce(.Min, [4]f32{ -1.9, 5.1, f32_nan, 100.0 }, @as(f32, -1.9));
-                try testReduce(.Min, [4]f64{ -1.9, 5.1, f64_nan, 100.0 }, @as(f64, -1.9));
+            try testReduce(.Min, [4]f16{ -1.9, 5.1, f16_nan, 100.0 }, @as(f16, -1.9));
+            try testReduce(.Min, [4]f32{ -1.9, 5.1, f32_nan, 100.0 }, @as(f32, -1.9));
+            try testReduce(.Min, [4]f64{ -1.9, 5.1, f64_nan, 100.0 }, @as(f64, -1.9));
 
-                try testReduce(.Max, [4]f16{ -1.9, 5.1, f16_nan, 100.0 }, @as(f16, 100.0));
-                try testReduce(.Max, [4]f32{ -1.9, 5.1, f32_nan, 100.0 }, @as(f32, 100.0));
-                try testReduce(.Max, [4]f64{ -1.9, 5.1, f64_nan, 100.0 }, @as(f64, 100.0));
-            }
+            try testReduce(.Max, [4]f16{ -1.9, 5.1, f16_nan, 100.0 }, @as(f16, 100.0));
+            try testReduce(.Max, [4]f32{ -1.9, 5.1, f32_nan, 100.0 }, @as(f32, 100.0));
+            try testReduce(.Max, [4]f64{ -1.9, 5.1, f64_nan, 100.0 }, @as(f64, 100.0));
 
             try testReduce(.Mul, [4]f16{ -1.9, 5.1, f16_nan, 100.0 }, f16_nan);
             try testReduce(.Mul, [4]f32{ -1.9, 5.1, f32_nan, 100.0 }, f32_nan);
@@ -1442,7 +1408,14 @@ test "store vector with memset" {
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     if (builtin.zig_backend == .stage2_llvm) {
+        // LLVM 16 ERROR: "Converting bits to bytes lost precision"
+        // https://github.com/ziglang/zig/issues/16177
         switch (builtin.target.cpu.arch) {
+            .arm,
+            .armeb,
+            .thumb,
+            .thumbeb,
+            => if (builtin.target.floatAbi() == .soft) return error.SkipZigTest,
             .wasm32,
             .mips,
             .mipsel,
@@ -1450,11 +1423,8 @@ test "store vector with memset" {
             .mips64el,
             .riscv64,
             .powerpc,
-            => {
-                // LLVM 16 ERROR: "Converting bits to bytes lost precision"
-                // https://github.com/ziglang/zig/issues/16177
-                return error.SkipZigTest;
-            },
+            .powerpc64,
+            => return error.SkipZigTest,
             else => {},
         }
     }
@@ -1599,11 +1569,6 @@ test "@reduce on bool vector" {
     if (builtin.zig_backend == .stage2_x86) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-
-    if (comptime builtin.zig_backend == .stage2_llvm and builtin.cpu.arch.endian() == .big) {
-        // https://github.com/ziglang/zig/issues/13782
-        return error.SkipZigTest;
-    }
 
     const a = @Vector(2, bool){ true, true };
     const b = @Vector(1, bool){true};

@@ -38,12 +38,6 @@ pub const CodeGenError = error{
     CodegenFail,
 } || link.File.UpdateDebugInfoError;
 
-pub const DebugInfoOutput = union(enum) {
-    dwarf: *link.File.Dwarf.WipNav,
-    plan9: *link.File.Plan9.DebugInfoOutput,
-    none,
-};
-
 fn devFeatureForBackend(comptime backend: std.builtin.CompilerBackend) dev.Feature {
     comptime assert(mem.startsWith(u8, @tagName(backend), "stage2_"));
     return @field(dev.Feature, @tagName(backend)["stage2_".len..] ++ "_backend");
@@ -69,7 +63,7 @@ pub fn generateFunction(
     air: Air,
     liveness: Liveness,
     code: *std.ArrayList(u8),
-    debug_output: DebugInfoOutput,
+    debug_output: link.File.DebugInfoOutput,
 ) CodeGenError!Result {
     const zcu = pt.zcu;
     const func = zcu.funcInfo(func_index);
@@ -95,7 +89,7 @@ pub fn generateLazyFunction(
     src_loc: Zcu.LazySrcLoc,
     lazy_sym: link.File.LazySymbol,
     code: *std.ArrayList(u8),
-    debug_output: DebugInfoOutput,
+    debug_output: link.File.DebugInfoOutput,
 ) CodeGenError!Result {
     const zcu = pt.zcu;
     const file = Type.fromInterned(lazy_sym.ty).typeDeclInstAllowGeneratedTag(zcu).?.resolveFile(&zcu.intern_pool);
@@ -127,10 +121,10 @@ pub fn generateLazySymbol(
     // TODO don't use an "out" parameter like this; put it in the result instead
     alignment: *Alignment,
     code: *std.ArrayList(u8),
-    debug_output: DebugInfoOutput,
-    reloc_info: RelocInfo,
+    debug_output: link.File.DebugInfoOutput,
+    reloc_parent: link.File.RelocInfo.Parent,
 ) CodeGenError!Result {
-    _ = reloc_info;
+    _ = reloc_parent;
 
     const tracy = trace(@src());
     defer tracy.end();
@@ -192,8 +186,7 @@ pub fn generateSymbol(
     src_loc: Zcu.LazySrcLoc,
     val: Value,
     code: *std.ArrayList(u8),
-    debug_output: DebugInfoOutput,
-    reloc_info: RelocInfo,
+    reloc_parent: link.File.RelocInfo.Parent,
 ) CodeGenError!Result {
     const tracy = trace(@src());
     defer tracy.end();
@@ -290,7 +283,7 @@ pub fn generateSymbol(
                 switch (try generateSymbol(bin_file, pt, src_loc, Value.fromInterned(switch (error_union.val) {
                     .err_name => try pt.intern(.{ .undef = payload_ty.toIntern() }),
                     .payload => |payload| payload,
-                }), code, debug_output, reloc_info)) {
+                }), code, reloc_parent)) {
                     .ok => {},
                     .fail => |em| return .{ .fail = em },
                 }
@@ -318,7 +311,7 @@ pub fn generateSymbol(
         },
         .enum_tag => |enum_tag| {
             const int_tag_ty = ty.intTagType(zcu);
-            switch (try generateSymbol(bin_file, pt, src_loc, try pt.getCoerced(Value.fromInterned(enum_tag.int), int_tag_ty), code, debug_output, reloc_info)) {
+            switch (try generateSymbol(bin_file, pt, src_loc, try pt.getCoerced(Value.fromInterned(enum_tag.int), int_tag_ty), code, reloc_parent)) {
                 .ok => {},
                 .fail => |em| return .{ .fail = em },
             }
@@ -334,16 +327,16 @@ pub fn generateSymbol(
             },
             .f128 => |f128_val| writeFloat(f128, f128_val, target, endian, try code.addManyAsArray(16)),
         },
-        .ptr => switch (try lowerPtr(bin_file, pt, src_loc, val.toIntern(), code, debug_output, reloc_info, 0)) {
+        .ptr => switch (try lowerPtr(bin_file, pt, src_loc, val.toIntern(), code, reloc_parent, 0)) {
             .ok => {},
             .fail => |em| return .{ .fail = em },
         },
         .slice => |slice| {
-            switch (try generateSymbol(bin_file, pt, src_loc, Value.fromInterned(slice.ptr), code, debug_output, reloc_info)) {
+            switch (try generateSymbol(bin_file, pt, src_loc, Value.fromInterned(slice.ptr), code, reloc_parent)) {
                 .ok => {},
                 .fail => |em| return .{ .fail = em },
             }
-            switch (try generateSymbol(bin_file, pt, src_loc, Value.fromInterned(slice.len), code, debug_output, reloc_info)) {
+            switch (try generateSymbol(bin_file, pt, src_loc, Value.fromInterned(slice.len), code, reloc_parent)) {
                 .ok => {},
                 .fail => |em| return .{ .fail = em },
             }
@@ -355,7 +348,7 @@ pub fn generateSymbol(
 
             if (ty.optionalReprIsPayload(zcu)) {
                 if (payload_val) |value| {
-                    switch (try generateSymbol(bin_file, pt, src_loc, value, code, debug_output, reloc_info)) {
+                    switch (try generateSymbol(bin_file, pt, src_loc, value, code, reloc_parent)) {
                         .ok => {},
                         .fail => |em| return Result{ .fail = em },
                     }
@@ -368,7 +361,7 @@ pub fn generateSymbol(
                     const value = payload_val orelse Value.fromInterned(try pt.intern(.{
                         .undef = payload_type.toIntern(),
                     }));
-                    switch (try generateSymbol(bin_file, pt, src_loc, value, code, debug_output, reloc_info)) {
+                    switch (try generateSymbol(bin_file, pt, src_loc, value, code, reloc_parent)) {
                         .ok => {},
                         .fail => |em| return Result{ .fail = em },
                     }
@@ -390,7 +383,7 @@ pub fn generateSymbol(
                                 elem
                             else
                                 array_type.sentinel,
-                        }), code, debug_output, reloc_info)) {
+                        }), code, reloc_parent)) {
                             .ok => {},
                             .fail => |em| return .{ .fail = em },
                         }
@@ -449,7 +442,7 @@ pub fn generateSymbol(
                                         math.cast(usize, index) orelse return error.Overflow
                                     ],
                                     .repeated_elem => |elem| elem,
-                                }), code, debug_output, reloc_info)) {
+                                }), code, reloc_parent)) {
                                     .ok => {},
                                     .fail => |em| return .{ .fail = em },
                                 }
@@ -482,7 +475,7 @@ pub fn generateSymbol(
                         .repeated_elem => |elem| elem,
                     };
 
-                    switch (try generateSymbol(bin_file, pt, src_loc, Value.fromInterned(field_val), code, debug_output, reloc_info)) {
+                    switch (try generateSymbol(bin_file, pt, src_loc, Value.fromInterned(field_val), code, reloc_parent)) {
                         .ok => {},
                         .fail => |em| return Result{ .fail = em },
                     }
@@ -524,7 +517,7 @@ pub fn generateSymbol(
                                     return error.Overflow;
                                 var tmp_list = try std.ArrayList(u8).initCapacity(code.allocator, field_size);
                                 defer tmp_list.deinit();
-                                switch (try generateSymbol(bin_file, pt, src_loc, Value.fromInterned(field_val), &tmp_list, debug_output, reloc_info)) {
+                                switch (try generateSymbol(bin_file, pt, src_loc, Value.fromInterned(field_val), &tmp_list, reloc_parent)) {
                                     .ok => @memcpy(code.items[current_pos..][0..tmp_list.items.len], tmp_list.items),
                                     .fail => |em| return Result{ .fail = em },
                                 }
@@ -559,7 +552,7 @@ pub fn generateSymbol(
                             ) orelse return error.Overflow;
                             if (padding > 0) try code.appendNTimes(0, padding);
 
-                            switch (try generateSymbol(bin_file, pt, src_loc, Value.fromInterned(field_val), code, debug_output, reloc_info)) {
+                            switch (try generateSymbol(bin_file, pt, src_loc, Value.fromInterned(field_val), code, reloc_parent)) {
                                 .ok => {},
                                 .fail => |em| return Result{ .fail = em },
                             }
@@ -583,12 +576,12 @@ pub fn generateSymbol(
             const layout = ty.unionGetLayout(zcu);
 
             if (layout.payload_size == 0) {
-                return generateSymbol(bin_file, pt, src_loc, Value.fromInterned(un.tag), code, debug_output, reloc_info);
+                return generateSymbol(bin_file, pt, src_loc, Value.fromInterned(un.tag), code, reloc_parent);
             }
 
             // Check if we should store the tag first.
             if (layout.tag_size > 0 and layout.tag_align.compare(.gte, layout.payload_align)) {
-                switch (try generateSymbol(bin_file, pt, src_loc, Value.fromInterned(un.tag), code, debug_output, reloc_info)) {
+                switch (try generateSymbol(bin_file, pt, src_loc, Value.fromInterned(un.tag), code, reloc_parent)) {
                     .ok => {},
                     .fail => |em| return Result{ .fail = em },
                 }
@@ -601,7 +594,7 @@ pub fn generateSymbol(
                 if (!field_ty.hasRuntimeBits(zcu)) {
                     try code.appendNTimes(0xaa, math.cast(usize, layout.payload_size) orelse return error.Overflow);
                 } else {
-                    switch (try generateSymbol(bin_file, pt, src_loc, Value.fromInterned(un.val), code, debug_output, reloc_info)) {
+                    switch (try generateSymbol(bin_file, pt, src_loc, Value.fromInterned(un.val), code, reloc_parent)) {
                         .ok => {},
                         .fail => |em| return Result{ .fail = em },
                     }
@@ -612,14 +605,14 @@ pub fn generateSymbol(
                     }
                 }
             } else {
-                switch (try generateSymbol(bin_file, pt, src_loc, Value.fromInterned(un.val), code, debug_output, reloc_info)) {
+                switch (try generateSymbol(bin_file, pt, src_loc, Value.fromInterned(un.val), code, reloc_parent)) {
                     .ok => {},
                     .fail => |em| return Result{ .fail = em },
                 }
             }
 
             if (layout.tag_size > 0 and layout.tag_align.compare(.lt, layout.payload_align)) {
-                switch (try generateSymbol(bin_file, pt, src_loc, Value.fromInterned(un.tag), code, debug_output, reloc_info)) {
+                switch (try generateSymbol(bin_file, pt, src_loc, Value.fromInterned(un.tag), code, reloc_parent)) {
                     .ok => {},
                     .fail => |em| return Result{ .fail = em },
                 }
@@ -640,40 +633,29 @@ fn lowerPtr(
     src_loc: Zcu.LazySrcLoc,
     ptr_val: InternPool.Index,
     code: *std.ArrayList(u8),
-    debug_output: DebugInfoOutput,
-    reloc_info: RelocInfo,
+    reloc_parent: link.File.RelocInfo.Parent,
     prev_offset: u64,
 ) CodeGenError!Result {
     const zcu = pt.zcu;
     const ptr = zcu.intern_pool.indexToKey(ptr_val).ptr;
     const offset: u64 = prev_offset + ptr.byte_offset;
     return switch (ptr.base_addr) {
-        .nav => |nav| try lowerNavRef(bin_file, pt, src_loc, nav, code, debug_output, reloc_info, offset),
-        .uav => |uav| try lowerUavRef(bin_file, pt, src_loc, uav, code, debug_output, reloc_info, offset),
-        .int => try generateSymbol(bin_file, pt, src_loc, try pt.intValue(Type.usize, offset), code, debug_output, reloc_info),
+        .nav => |nav| try lowerNavRef(bin_file, pt, src_loc, nav, code, reloc_parent, offset),
+        .uav => |uav| try lowerUavRef(bin_file, pt, src_loc, uav, code, reloc_parent, offset),
+        .int => try generateSymbol(bin_file, pt, src_loc, try pt.intValue(Type.usize, offset), code, reloc_parent),
         .eu_payload => |eu_ptr| try lowerPtr(
             bin_file,
             pt,
             src_loc,
             eu_ptr,
             code,
-            debug_output,
-            reloc_info,
+            reloc_parent,
             offset + errUnionPayloadOffset(
                 Value.fromInterned(eu_ptr).typeOf(zcu).childType(zcu).errorUnionPayload(zcu),
                 zcu,
             ),
         ),
-        .opt_payload => |opt_ptr| try lowerPtr(
-            bin_file,
-            pt,
-            src_loc,
-            opt_ptr,
-            code,
-            debug_output,
-            reloc_info,
-            offset,
-        ),
+        .opt_payload => |opt_ptr| try lowerPtr(bin_file, pt, src_loc, opt_ptr, code, reloc_parent, offset),
         .field => |field| {
             const base_ptr = Value.fromInterned(field.base);
             const base_ty = base_ptr.typeOf(zcu).childType(zcu);
@@ -692,15 +674,11 @@ fn lowerPtr(
                 },
                 else => unreachable,
             };
-            return lowerPtr(bin_file, pt, src_loc, field.base, code, debug_output, reloc_info, offset + field_off);
+            return lowerPtr(bin_file, pt, src_loc, field.base, code, reloc_parent, offset + field_off);
         },
         .arr_elem, .comptime_field, .comptime_alloc => unreachable,
     };
 }
-
-const RelocInfo = struct {
-    parent_atom_index: u32,
-};
 
 fn lowerUavRef(
     lf: *link.File,
@@ -708,11 +686,9 @@ fn lowerUavRef(
     src_loc: Zcu.LazySrcLoc,
     uav: InternPool.Key.Ptr.BaseAddr.Uav,
     code: *std.ArrayList(u8),
-    debug_output: DebugInfoOutput,
-    reloc_info: RelocInfo,
+    reloc_parent: link.File.RelocInfo.Parent,
     offset: u64,
 ) CodeGenError!Result {
-    _ = debug_output;
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     const target = lf.comp.root_mod.resolved_target.result;
@@ -735,7 +711,7 @@ fn lowerUavRef(
     }
 
     const vaddr = try lf.getUavVAddr(uav_val, .{
-        .parent_atom_index = reloc_info.parent_atom_index,
+        .parent = reloc_parent,
         .offset = code.items.len,
         .addend = @intCast(offset),
     });
@@ -756,12 +732,10 @@ fn lowerNavRef(
     src_loc: Zcu.LazySrcLoc,
     nav_index: InternPool.Nav.Index,
     code: *std.ArrayList(u8),
-    debug_output: DebugInfoOutput,
-    reloc_info: RelocInfo,
+    reloc_parent: link.File.RelocInfo.Parent,
     offset: u64,
 ) CodeGenError!Result {
     _ = src_loc;
-    _ = debug_output;
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     const target = zcu.navFileScope(nav_index).mod.resolved_target.result;
@@ -775,7 +749,7 @@ fn lowerNavRef(
     }
 
     const vaddr = try lf.getNavVAddr(pt, nav_index, .{
-        .parent_atom_index = reloc_info.parent_atom_index,
+        .parent = reloc_parent,
         .offset = code.items.len,
         .addend = @intCast(offset),
     });

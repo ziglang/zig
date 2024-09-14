@@ -32,7 +32,6 @@ const Alignment = InternPool.Alignment;
 
 const CodeGenError = codegen.CodeGenError;
 const Result = codegen.Result;
-const DebugInfoOutput = codegen.DebugInfoOutput;
 
 const bits = @import("bits.zig");
 const abi = @import("abi.zig");
@@ -61,7 +60,7 @@ gpa: Allocator,
 
 mod: *Package.Module,
 target: *const std.Target,
-debug_output: DebugInfoOutput,
+debug_output: link.File.DebugInfoOutput,
 err_msg: ?*ErrorMsg,
 args: []MCValue,
 ret_mcv: InstTracking,
@@ -82,7 +81,7 @@ scope_generation: u32,
 /// The value is an offset into the `Function` `code` from the beginning.
 /// To perform the reloc, write 32-bit signed little-endian integer
 /// which is a relative jump, based on the address following the reloc.
-exitlude_jump_relocs: std.ArrayListUnmanaged(usize) = .{},
+exitlude_jump_relocs: std.ArrayListUnmanaged(usize) = .empty,
 
 /// Whenever there is a runtime branch, we push a Branch onto this stack,
 /// and pop it off when the runtime branch joins. This provides an "overlay"
@@ -98,14 +97,14 @@ avl: ?u64,
 vtype: ?bits.VType,
 
 // Key is the block instruction
-blocks: std.AutoHashMapUnmanaged(Air.Inst.Index, BlockData) = .{},
+blocks: std.AutoHashMapUnmanaged(Air.Inst.Index, BlockData) = .empty,
 register_manager: RegisterManager = .{},
 
 const_tracking: ConstTrackingMap = .{},
 inst_tracking: InstTrackingMap = .{},
 
 frame_allocs: std.MultiArrayList(FrameAlloc) = .{},
-free_frame_indices: std.AutoArrayHashMapUnmanaged(FrameIndex, void) = .{},
+free_frame_indices: std.AutoArrayHashMapUnmanaged(FrameIndex, void) = .empty,
 frame_locs: std.MultiArrayList(Mir.FrameLoc) = .{},
 
 loops: std.AutoHashMapUnmanaged(Air.Inst.Index, struct {
@@ -343,7 +342,7 @@ const MCValue = union(enum) {
 };
 
 const Branch = struct {
-    inst_table: std.AutoArrayHashMapUnmanaged(Air.Inst.Index, MCValue) = .{},
+    inst_table: std.AutoArrayHashMapUnmanaged(Air.Inst.Index, MCValue) = .empty,
 
     fn deinit(func: *Branch, gpa: Allocator) void {
         func.inst_table.deinit(gpa);
@@ -622,7 +621,7 @@ const FrameAlloc = struct {
 };
 
 const BlockData = struct {
-    relocs: std.ArrayListUnmanaged(Mir.Inst.Index) = .{},
+    relocs: std.ArrayListUnmanaged(Mir.Inst.Index) = .empty,
     state: State,
 
     fn deinit(bd: *BlockData, gpa: Allocator) void {
@@ -760,7 +759,7 @@ pub fn generate(
     air: Air,
     liveness: Liveness,
     code: *std.ArrayList(u8),
-    debug_output: DebugInfoOutput,
+    debug_output: link.File.DebugInfoOutput,
 ) CodeGenError!Result {
     const zcu = pt.zcu;
     const comp = zcu.comp;
@@ -928,7 +927,7 @@ pub fn generateLazy(
     src_loc: Zcu.LazySrcLoc,
     lazy_sym: link.File.LazySymbol,
     code: *std.ArrayList(u8),
-    debug_output: DebugInfoOutput,
+    debug_output: link.File.DebugInfoOutput,
 ) CodeGenError!Result {
     const comp = bin_file.comp;
     const gpa = comp.gpa;
@@ -6194,7 +6193,7 @@ fn airAsm(func: *Func, inst: Air.Inst.Index) !void {
 
     const Label = struct {
         target: Mir.Inst.Index = undefined,
-        pending_relocs: std.ArrayListUnmanaged(Mir.Inst.Index) = .{},
+        pending_relocs: std.ArrayListUnmanaged(Mir.Inst.Index) = .empty,
 
         const Kind = enum { definition, reference };
 
@@ -6218,7 +6217,7 @@ fn airAsm(func: *Func, inst: Air.Inst.Index) !void {
             return name.len > 0;
         }
     };
-    var labels: std.StringHashMapUnmanaged(Label) = .{};
+    var labels: std.StringHashMapUnmanaged(Label) = .empty;
     defer {
         var label_it = labels.valueIterator();
         while (label_it.next()) |label| label.pending_relocs.deinit(func.gpa);

@@ -15,7 +15,7 @@ pragma: Pragma = .{
     .parserHandler = parserHandler,
     .preserveTokens = preserveTokens,
 },
-stack: std.ArrayListUnmanaged(struct { label: []const u8, val: u8 }) = .{},
+stack: std.ArrayListUnmanaged(struct { label: []const u8, val: u8 }) = .empty,
 
 pub fn init(allocator: mem.Allocator) !*Pragma {
     var pack = try allocator.create(Pack);

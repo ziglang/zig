@@ -27,23 +27,23 @@ pub const Context = struct {
     gpa: mem.Allocator,
     arena: mem.Allocator,
     source_manager: *clang.SourceManager,
-    decl_table: std.AutoArrayHashMapUnmanaged(usize, []const u8) = .{},
+    decl_table: std.AutoArrayHashMapUnmanaged(usize, []const u8) = .empty,
     alias_list: AliasList,
     global_scope: *Scope.Root,
     clang_context: *clang.ASTContext,
     mangle_count: u32 = 0,
     /// Table of record decls that have been demoted to opaques.
-    opaque_demotes: std.AutoHashMapUnmanaged(usize, void) = .{},
+    opaque_demotes: std.AutoHashMapUnmanaged(usize, void) = .empty,
     /// Table of unnamed enums and records that are child types of typedefs.
-    unnamed_typedefs: std.AutoHashMapUnmanaged(usize, []const u8) = .{},
+    unnamed_typedefs: std.AutoHashMapUnmanaged(usize, []const u8) = .empty,
     /// Needed to decide if we are parsing a typename
-    typedefs: std.StringArrayHashMapUnmanaged(void) = .{},
+    typedefs: std.StringArrayHashMapUnmanaged(void) = .empty,
 
     /// This one is different than the root scope's name table. This contains
     /// a list of names that we found by visiting all the top level decls without
     /// translating them. The other maps are updated as we translate; this one is updated
     /// up front in a pre-processing step.
-    global_names: std.StringArrayHashMapUnmanaged(void) = .{},
+    global_names: std.StringArrayHashMapUnmanaged(void) = .empty,
 
     /// This is similar to `global_names`, but contains names which we would
     /// *like* to use, but do not strictly *have* to if they are unavailable.
@@ -52,7 +52,7 @@ pub const Context = struct {
     /// may be mangled.
     /// This is distinct from `global_names` so we can detect at a type
     /// declaration whether or not the name is available.
-    weak_global_names: std.StringArrayHashMapUnmanaged(void) = .{},
+    weak_global_names: std.StringArrayHashMapUnmanaged(void) = .empty,
 
     pattern_list: PatternList,
 
@@ -5258,7 +5258,7 @@ fn getMacroText(unit: *const clang.ASTUnit, c: *const Context, macro: *const cla
     const end_c = c.source_manager.getCharacterData(end_loc);
     const slice_len = @intFromPtr(end_c) - @intFromPtr(begin_c);
 
-    var comp = aro.Compilation.init(c.gpa);
+    var comp = aro.Compilation.init(c.gpa, std.fs.cwd());
     defer comp.deinit();
     const result = comp.addSourceFromBuffer("", begin_c[0..slice_len]) catch return error.OutOfMemory;
 

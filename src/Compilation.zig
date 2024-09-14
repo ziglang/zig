@@ -95,7 +95,7 @@ native_system_include_paths: []const []const u8,
 /// Corresponds to `-u <symbol>` for ELF/MachO and `/include:<symbol>` for COFF/PE.
 force_undefined_symbols: std.StringArrayHashMapUnmanaged(void),
 
-c_object_table: std.AutoArrayHashMapUnmanaged(*CObject, void) = .{},
+c_object_table: std.AutoArrayHashMapUnmanaged(*CObject, void) = .empty,
 win32_resource_table: if (dev.env.supports(.win32_resource)) std.AutoArrayHashMapUnmanaged(*Win32Resource, void) else struct {
     pub fn keys(_: @This()) [0]void {
         return .{};
@@ -106,10 +106,10 @@ win32_resource_table: if (dev.env.supports(.win32_resource)) std.AutoArrayHashMa
     pub fn deinit(_: @This(), _: Allocator) void {}
 } = .{},
 
-link_errors: std.ArrayListUnmanaged(link.File.ErrorMsg) = .{},
+link_errors: std.ArrayListUnmanaged(link.File.ErrorMsg) = .empty,
 link_errors_mutex: std.Thread.Mutex = .{},
 link_error_flags: link.File.ErrorFlags = .{},
-lld_errors: std.ArrayListUnmanaged(LldError) = .{},
+lld_errors: std.ArrayListUnmanaged(LldError) = .empty,
 
 work_queues: [
     len: {
@@ -154,7 +154,7 @@ embed_file_work_queue: std.fifo.LinearFifo(*Zcu.EmbedFile, .Dynamic),
 
 /// The ErrorMsg memory is owned by the `CObject`, using Compilation's general purpose allocator.
 /// This data is accessed by multiple threads and is protected by `mutex`.
-failed_c_objects: std.AutoArrayHashMapUnmanaged(*CObject, *CObject.Diag.Bundle) = .{},
+failed_c_objects: std.AutoArrayHashMapUnmanaged(*CObject, *CObject.Diag.Bundle) = .empty,
 
 /// The ErrorBundle memory is owned by the `Win32Resource`, using Compilation's general purpose allocator.
 /// This data is accessed by multiple threads and is protected by `mutex`.
@@ -166,7 +166,7 @@ failed_win32_resources: if (dev.env.supports(.win32_resource)) std.AutoArrayHash
 } = .{},
 
 /// Miscellaneous things that can fail.
-misc_failures: std.AutoArrayHashMapUnmanaged(MiscTask, MiscError) = .{},
+misc_failures: std.AutoArrayHashMapUnmanaged(MiscTask, MiscError) = .empty,
 
 /// When this is `true` it means invoking clang as a sub-process is expected to inherit
 /// stdin, stdout, stderr, and if it returns non success, to forward the exit code.
@@ -248,7 +248,7 @@ wasi_emulated_libs: []const wasi_libc.CRTFile,
 /// For example `Scrt1.o` and `libc_nonshared.a`. These are populated after building libc from source,
 /// The set of needed CRT (C runtime) files differs depending on the target and compilation settings.
 /// The key is the basename, and the value is the absolute path to the completed build artifact.
-crt_files: std.StringHashMapUnmanaged(CRTFile) = .{},
+crt_files: std.StringHashMapUnmanaged(CRTFile) = .empty,
 
 /// How many lines of reference trace should be included per compile error.
 /// Null means only show snippet on first error.
@@ -527,8 +527,8 @@ pub const CObject = struct {
         }
 
         pub const Bundle = struct {
-            file_names: std.AutoArrayHashMapUnmanaged(u32, []const u8) = .{},
-            category_names: std.AutoArrayHashMapUnmanaged(u32, []const u8) = .{},
+            file_names: std.AutoArrayHashMapUnmanaged(u32, []const u8) = .empty,
+            category_names: std.AutoArrayHashMapUnmanaged(u32, []const u8) = .empty,
             diags: []Diag = &.{},
 
             pub fn destroy(bundle: *Bundle, gpa: Allocator) void {
@@ -561,8 +561,8 @@ pub const CObject = struct {
                     category: u32 = 0,
                     msg: []const u8 = &.{},
                     src_loc: SrcLoc = .{},
-                    src_ranges: std.ArrayListUnmanaged(SrcRange) = .{},
-                    sub_diags: std.ArrayListUnmanaged(Diag) = .{},
+                    src_ranges: std.ArrayListUnmanaged(SrcRange) = .empty,
+                    sub_diags: std.ArrayListUnmanaged(Diag) = .empty,
 
                     fn deinit(wip_diag: *@This(), allocator: Allocator) void {
                         allocator.free(wip_diag.msg);
@@ -580,19 +580,19 @@ pub const CObject = struct {
                 var bc = BitcodeReader.init(gpa, .{ .reader = reader.any() });
                 defer bc.deinit();
 
-                var file_names: std.AutoArrayHashMapUnmanaged(u32, []const u8) = .{};
+                var file_names: std.AutoArrayHashMapUnmanaged(u32, []const u8) = .empty;
                 errdefer {
                     for (file_names.values()) |file_name| gpa.free(file_name);
                     file_names.deinit(gpa);
                 }
 
-                var category_names: std.AutoArrayHashMapUnmanaged(u32, []const u8) = .{};
+                var category_names: std.AutoArrayHashMapUnmanaged(u32, []const u8) = .empty;
                 errdefer {
                     for (category_names.values()) |category_name| gpa.free(category_name);
                     category_names.deinit(gpa);
                 }
 
-                var stack: std.ArrayListUnmanaged(WipDiag) = .{};
+                var stack: std.ArrayListUnmanaged(WipDiag) = .empty;
                 defer {
                     for (stack.items) |*wip_diag| wip_diag.deinit(gpa);
                     stack.deinit(gpa);
@@ -1067,7 +1067,7 @@ pub const CreateOptions = struct {
     cache_mode: CacheMode = .incremental,
     lib_dirs: []const []const u8 = &[0][]const u8{},
     rpath_list: []const []const u8 = &[0][]const u8{},
-    symbol_wrap_set: std.StringArrayHashMapUnmanaged(void) = .{},
+    symbol_wrap_set: std.StringArrayHashMapUnmanaged(void) = .empty,
     c_source_files: []const CSourceFile = &.{},
     rc_source_files: []const RcSourceFile = &.{},
     manifest_file: ?[]const u8 = null,
@@ -1155,7 +1155,7 @@ pub const CreateOptions = struct {
     skip_linker_dependencies: bool = false,
     hash_style: link.File.Elf.HashStyle = .both,
     entry: Entry = .default,
-    force_undefined_symbols: std.StringArrayHashMapUnmanaged(void) = .{},
+    force_undefined_symbols: std.StringArrayHashMapUnmanaged(void) = .empty,
     stack_size: ?u64 = null,
     image_base: ?u64 = null,
     version: ?std.SemanticVersion = null,
@@ -1210,7 +1210,7 @@ fn addModuleTableToCacheHash(
     main_mod: *Package.Module,
     hash_type: union(enum) { path_bytes, files: *Cache.Manifest },
 ) (error{OutOfMemory} || std.process.GetCwdError)!void {
-    var seen_table: std.AutoArrayHashMapUnmanaged(*Package.Module, void) = .{};
+    var seen_table: std.AutoArrayHashMapUnmanaged(*Package.Module, void) = .empty;
     defer seen_table.deinit(gpa);
 
     // root_mod and main_mod may be the same pointer. In fact they usually are.
@@ -3362,7 +3362,7 @@ pub fn addModuleErrorMsg(
     const file_path = try err_src_loc.file_scope.fullPath(gpa);
     defer gpa.free(file_path);
 
-    var ref_traces: std.ArrayListUnmanaged(ErrorBundle.ReferenceTrace) = .{};
+    var ref_traces: std.ArrayListUnmanaged(ErrorBundle.ReferenceTrace) = .empty;
     defer ref_traces.deinit(gpa);
 
     if (module_err_msg.reference_trace_root.unwrap()) |rt_root| {
@@ -3370,7 +3370,7 @@ pub fn addModuleErrorMsg(
             all_references.* = try mod.resolveReferences();
         }
 
-        var seen: std.AutoHashMapUnmanaged(InternPool.AnalUnit, void) = .{};
+        var seen: std.AutoHashMapUnmanaged(InternPool.AnalUnit, void) = .empty;
         defer seen.deinit(gpa);
 
         const max_references = mod.comp.reference_trace orelse Sema.default_reference_trace_len;
@@ -3439,7 +3439,7 @@ pub fn addModuleErrorMsg(
 
     // De-duplicate error notes. The main use case in mind for this is
     // too many "note: called from here" notes when eval branch quota is reached.
-    var notes: std.ArrayHashMapUnmanaged(ErrorBundle.ErrorMessage, void, ErrorNoteHashContext, true) = .{};
+    var notes: std.ArrayHashMapUnmanaged(ErrorBundle.ErrorMessage, void, ErrorNoteHashContext, true) = .empty;
     defer notes.deinit(gpa);
 
     for (module_err_msg.notes) |module_note| {
@@ -3544,7 +3544,7 @@ fn performAllTheWorkInner(
             comp.job_queued_update_builtin_zig = false;
             if (comp.zcu == null) break :b;
             // TODO put all the modules in a flat array to make them easy to iterate.
-            var seen: std.AutoArrayHashMapUnmanaged(*Package.Module, void) = .{};
+            var seen: std.AutoArrayHashMapUnmanaged(*Package.Module, void) = .empty;
             defer seen.deinit(comp.gpa);
             try seen.put(comp.gpa, comp.root_mod, {});
             var i: usize = 0;
@@ -4026,7 +4026,7 @@ fn docsCopyFallible(comp: *Compilation) anyerror!void {
     };
     defer tar_file.close();
 
-    var seen_table: std.AutoArrayHashMapUnmanaged(*Package.Module, []const u8) = .{};
+    var seen_table: std.AutoArrayHashMapUnmanaged(*Package.Module, []const u8) = .empty;
     defer seen_table.deinit(comp.gpa);
 
     try seen_table.put(comp.gpa, zcu.main_mod, comp.root_name);
@@ -5221,7 +5221,7 @@ fn spawnZigRc(
     argv: []const []const u8,
     child_progress_node: std.Progress.Node,
 ) !void {
-    var node_name: std.ArrayListUnmanaged(u8) = .{};
+    var node_name: std.ArrayListUnmanaged(u8) = .empty;
     defer node_name.deinit(arena);
 
     var child = std.process.Child.init(argv, arena);
@@ -5484,6 +5484,9 @@ pub fn addCCArgs(
                 const is_enabled = target.cpu.features.isEnabled(index);
 
                 if (feature.llvm_name) |llvm_name| {
+                    // We communicate float ABI to Clang through the dedicated options further down.
+                    if (std.mem.eql(u8, llvm_name, "soft-float")) continue;
+
                     argv.appendSliceAssumeCapacity(&[_][]const u8{ "-Xclang", "-target-feature", "-Xclang" });
                     const plus_or_minus = "-+"[@intFromBool(is_enabled)];
                     const arg = try std.fmt.allocPrint(arena, "{c}{s}", .{ plus_or_minus, llvm_name });
@@ -5536,12 +5539,8 @@ pub fn addCCArgs(
                 else => {},
             }
 
-            if (target.cpu.arch.isThumb()) {
-                try argv.append("-mthumb");
-            }
-
             {
-                var san_arg: std.ArrayListUnmanaged(u8) = .{};
+                var san_arg: std.ArrayListUnmanaged(u8) = .empty;
                 const prefix = "-fsanitize=";
                 if (mod.sanitize_c) {
                     if (san_arg.items.len == 0) try san_arg.appendSlice(arena, prefix);
@@ -5636,10 +5635,6 @@ pub fn addCCArgs(
                 try argv.append("-Werror=date-time");
             }
 
-            if (target_util.supports_fpic(target) and mod.pic) {
-                try argv.append("-fPIC");
-            }
-
             if (mod.unwind_tables) {
                 try argv.append("-funwind-tables");
             } else {
@@ -5713,10 +5708,6 @@ pub fn addCCArgs(
                     if (target.cpu.model.llvm_name) |llvm_name| {
                         try argv.append(try std.fmt.allocPrint(arena, "-march={s}", .{llvm_name}));
                     }
-
-                    if (std.Target.mips.featureSetHas(target.cpu.features, .soft_float)) {
-                        try argv.append("-msoft-float");
-                    }
                 },
                 else => {
                     // TODO
@@ -5728,6 +5719,14 @@ pub fn addCCArgs(
                 }
             }
         },
+    }
+
+    if (target.cpu.arch.isThumb()) {
+        try argv.append("-mthumb");
+    }
+
+    if (target_util.supports_fpic(target) and mod.pic) {
+        try argv.append("-fPIC");
     }
 
     try argv.ensureUnusedCapacity(2);
@@ -5749,6 +5748,28 @@ pub fn addCCArgs(
 
     if (target_util.llvmMachineAbi(target)) |mabi| {
         try argv.append(try std.fmt.allocPrint(arena, "-mabi={s}", .{mabi}));
+    }
+
+    // We might want to support -mfloat-abi=softfp for Arm and CSKY here in the future.
+    if (target_util.clangSupportsFloatAbiArg(target)) {
+        const fabi = @tagName(target.floatAbi());
+
+        try argv.append(switch (target.cpu.arch) {
+            // For whatever reason, Clang doesn't support `-mfloat-abi` for s390x.
+            .s390x => try std.fmt.allocPrint(arena, "-m{s}-float", .{fabi}),
+            else => try std.fmt.allocPrint(arena, "-mfloat-abi={s}", .{fabi}),
+        });
+    }
+
+    if (target_util.clangSupportsNoImplicitFloatArg(target) and target.floatAbi() == .soft) {
+        try argv.append("-mno-implicit-float");
+    }
+
+    // https://github.com/llvm/llvm-project/issues/105972
+    if (target.cpu.arch.isPowerPC() and target.floatAbi() == .soft) {
+        try argv.append("-D__NO_FPRS__");
+        try argv.append("-D_SOFT_FLOAT");
+        try argv.append("-D_SOFT_DOUBLE");
     }
 
     if (out_dep_path) |p| {
