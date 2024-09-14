@@ -1429,11 +1429,20 @@ pub fn isUndef(val: Value, zcu: *Zcu) bool {
     return zcu.intern_pool.isUndef(val.toIntern());
 }
 
-/// TODO: check for cases such as array that is not marked undef but all the element
-/// values are marked undef, or struct that is not marked undef but all fields are marked
-/// undef, etc.
+/// In addition to a simple isUndef, it recursively checks all internal values of the aggregate.
 pub fn isUndefDeep(val: Value, zcu: *Zcu) bool {
-    return val.isUndef(zcu);
+    return switch (zcu.intern_pool.indexToKey(val.toIntern())) {
+        .aggregate => |agg| blk: {
+            const storage_indicies = agg.storage.values();
+            for (storage_indicies) |index| {
+                const agg_val = Value.fromInterned(index);
+                if (!agg_val.isUndefDeep(zcu))
+                    break :blk false;
+            }
+            break :blk true;
+        },
+        else => val.isUndef(zcu),
+    };
 }
 
 /// Asserts the value is not undefined and not unreachable.
