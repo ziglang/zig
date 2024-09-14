@@ -75,7 +75,7 @@ pub fn MultiArrayList(comptime T: type) type {
                 }
                 const byte_ptr = self.ptrs[@intFromEnum(field)];
                 const casted_ptr: [*]F = if (@sizeOf(F) == 0)
-                    undefined
+                    &[_]F{}
                 else
                     @ptrCast(@alignCast(byte_ptr));
                 return casted_ptr[0..self.len];
