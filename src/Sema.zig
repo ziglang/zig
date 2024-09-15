@@ -1043,7 +1043,7 @@ fn analyzeBodyInner(
             }, inst });
         }
 
-        const air_inst: Air.Inst.Ref = switch (tags[@intFromEnum(inst)]) {
+        const air_inst: Air.Inst.Ref = inst: switch (tags[@intFromEnum(inst)]) {
             // zig fmt: off
             .alloc                        => try sema.zirAlloc(block, inst),
             .alloc_inferred               => try sema.zirAllocInferred(block, true),
@@ -1591,56 +1591,19 @@ fn analyzeBodyInner(
                 try sema.zirSwitchContinue(block, inst);
                 break;
             },
-            .loop => blk: {
-                if (!block.is_comptime) break :blk try sema.zirLoop(block, inst);
-                // Same as `block_inline`. TODO https://github.com/ziglang/zig/issues/8220
-                const inst_data = datas[@intFromEnum(inst)].pl_node;
-                const extra = sema.code.extraData(Zir.Inst.Block, inst_data.payload_index);
-                const inline_body = sema.code.bodySlice(extra.end, extra.data.body_len);
 
-                // Create a temporary child block so that this loop is properly
-                // labeled for any .restore_err_ret_index instructions
-                var child_block = block.makeSubBlock();
+            .loop => if (block.is_comptime) {
+                continue :inst .block_inline;
+            } else try sema.zirLoop(block, inst),
 
-                var label: Block.Label = .{
-                    .zir_block = inst,
-                    .merges = undefined,
-                };
-                child_block.label = &label;
+            .block => if (block.is_comptime) {
+                continue :inst .block_inline;
+            } else try sema.zirBlock(block, inst, false),
 
-                // Write these instructions directly into the parent block
-                child_block.instructions = block.instructions;
-                defer block.instructions = child_block.instructions;
+            .block_comptime => if (block.is_comptime) {
+                continue :inst .block_inline;
+            } else try sema.zirBlock(block, inst, true),
 
-                const result = try sema.analyzeInlineBody(&child_block, inline_body, inst) orelse break;
-                break :blk result;
-            },
-            .block, .block_comptime => blk: {
-                if (!block.is_comptime) {
-                    break :blk try sema.zirBlock(block, inst, tags[@intFromEnum(inst)] == .block_comptime);
-                }
-                // Same as `block_inline`. TODO https://github.com/ziglang/zig/issues/8220
-                const inst_data = datas[@intFromEnum(inst)].pl_node;
-                const extra = sema.code.extraData(Zir.Inst.Block, inst_data.payload_index);
-                const inline_body = sema.code.bodySlice(extra.end, extra.data.body_len);
-
-                // Create a temporary child block so that this block is properly
-                // labeled for any .restore_err_ret_index instructions
-                var child_block = block.makeSubBlock();
-
-                var label: Block.Label = .{
-                    .zir_block = inst,
-                    .merges = undefined,
-                };
-                child_block.label = &label;
-
-                // Write these instructions directly into the parent block
-                child_block.instructions = block.instructions;
-                defer block.instructions = child_block.instructions;
-
-                const result = try sema.analyzeInlineBody(&child_block, inline_body, inst) orelse break;
-                break :blk result;
-            },
             .block_inline => blk: {
                 // Directly analyze the block body without introducing a new block.
                 // However, in the case of a corresponding break_inline which reaches
@@ -1749,32 +1712,13 @@ fn analyzeBodyInner(
                     return error.ComptimeBreak;
                 }
             },
-            .condbr => blk: {
-                if (!block.is_comptime) {
-                    try sema.zirCondbr(block, inst);
-                    break;
-                }
-                // Same as condbr_inline. TODO https://github.com/ziglang/zig/issues/8220
-                const inst_data = datas[@intFromEnum(inst)].pl_node;
-                const cond_src = block.src(.{ .node_offset_if_cond = inst_data.src_node });
-                const extra = sema.code.extraData(Zir.Inst.CondBr, inst_data.payload_index);
-                const then_body = sema.code.bodySlice(extra.end, extra.data.then_body_len);
-                const else_body = sema.code.bodySlice(
-                    extra.end + then_body.len,
-                    extra.data.else_body_len,
-                );
-                const cond = try sema.resolveInstConst(block, cond_src, extra.data.condition, .{
-                    .needed_comptime_reason = "condition in comptime branch must be comptime-known",
-                    .block_comptime_reason = block.comptime_reason,
-                });
-                const inline_body = if (cond.toBool()) then_body else else_body;
-
-                try sema.maybeErrorUnwrapCondbr(block, inline_body, extra.data.condition, cond_src);
-
-                const result = try sema.analyzeInlineBody(block, inline_body, inst) orelse break;
-                break :blk result;
+            .condbr => if (block.is_comptime) {
+                continue :inst .condbr_inline;
+            } else {
+                try sema.zirCondbr(block, inst);
+                break;
             },
-            .condbr_inline => blk: {
+            .condbr_inline => {
                 const inst_data = datas[@intFromEnum(inst)].pl_node;
                 const cond_src = block.src(.{ .node_offset_if_cond = inst_data.src_node });
                 const extra = sema.code.extraData(Zir.Inst.CondBr, inst_data.payload_index);
@@ -1783,18 +1727,20 @@ fn analyzeBodyInner(
                     extra.end + then_body.len,
                     extra.data.else_body_len,
                 );
-                const cond = try sema.resolveInstConst(block, cond_src, extra.data.condition, .{
+                const uncasted_cond = try sema.resolveInst(extra.data.condition);
+                const cond = try sema.coerce(block, Type.bool, uncasted_cond, cond_src);
+                const cond_val = try sema.resolveConstDefinedValue(block, cond_src, cond, .{
                     .needed_comptime_reason = "condition in comptime branch must be comptime-known",
                     .block_comptime_reason = block.comptime_reason,
                 });
-                const inline_body = if (cond.toBool()) then_body else else_body;
+                const inline_body = if (cond_val.toBool()) then_body else else_body;
 
                 try sema.maybeErrorUnwrapCondbr(block, inline_body, extra.data.condition, cond_src);
                 const old_runtime_index = block.runtime_index;
                 defer block.runtime_index = old_runtime_index;
 
                 const result = try sema.analyzeInlineBody(block, inline_body, inst) orelse break;
-                break :blk result;
+                break :inst result;
             },
             .@"try" => blk: {
                 if (!block.is_comptime) break :blk try sema.zirTry(block, inst);
@@ -2249,18 +2195,6 @@ fn resolveValueAllowVariables(sema: *Sema, inst: Air.Inst.Ref) CompileError!?Val
     const val = Value.fromInterned(ip_index);
     if (val.isPtrRuntimeValue(pt.zcu)) return null;
     return val;
-}
-
-/// Returns a compile error if the value has tag `variable`.
-fn resolveInstConst(
-    sema: *Sema,
-    block: *Block,
-    src: LazySrcLoc,
-    zir_ref: Zir.Inst.Ref,
-    reason: NeededComptimeReason,
-) CompileError!Value {
-    const air_ref = try sema.resolveInst(zir_ref);
-    return sema.resolveConstDefinedValue(block, src, air_ref, reason);
 }
 
 /// Value Tag may be `undef` or `variable`.
@@ -26824,12 +26758,14 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     } else if (extra.data.bits.has_ret_ty_ref) blk: {
         const ret_ty_ref: Zir.Inst.Ref = @enumFromInt(sema.code.extra[extra_index]);
         extra_index += 1;
-        const ret_ty_val = sema.resolveInstConst(block, ret_src, ret_ty_ref, .{
+        const ret_ty_air_ref = sema.resolveInst(ret_ty_ref) catch |err| switch (err) {
+            error.GenericPoison => break :blk Type.generic_poison,
+            else => |e| return e,
+        };
+        const ret_ty_val = sema.resolveConstDefinedValue(block, ret_src, ret_ty_air_ref, .{
             .needed_comptime_reason = "return type must be comptime-known",
         }) catch |err| switch (err) {
-            error.GenericPoison => {
-                break :blk Type.generic_poison;
-            },
+            error.GenericPoison => break :blk Type.generic_poison,
             else => |e| return e,
         };
         break :blk ret_ty_val.toType();
