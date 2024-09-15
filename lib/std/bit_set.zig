@@ -1043,10 +1043,7 @@ pub const DynamicBitSet = struct {
     /// The integer type used to shift a mask in this bit set
     pub const ShiftInt = std.math.Log2Int(MaskInt);
 
-    /// The allocator used by this bit set
     allocator: Allocator,
-
-    /// Underlying data structure
     unmanaged: DynamicBitSetUnmanaged = .{},
 
     /// Creates a bit set with no elements present.
