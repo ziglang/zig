@@ -7217,7 +7217,7 @@ pub const TimerFdGetError = error{InvalidHandle} || UnexpectedError;
 pub const TimerFdSetError = TimerFdGetError || error{Canceled};
 
 pub fn timerfd_create(clockid: system.clock_id, flags: system.TFD) TimerFdCreateError!fd_t {
-    const rc = system.timerfd_create(@intFromEnum(clockid), @bitCast(flags));
+    const rc = system.timerfd_create(clockid, @bitCast(flags));
     return switch (errno(rc)) {
         .SUCCESS => @intCast(rc),
         .INVAL => unreachable,

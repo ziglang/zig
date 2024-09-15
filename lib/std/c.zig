@@ -219,7 +219,7 @@ pub const ARCH = switch (native_os) {
 // that actually work.
 pub const CLOCK_ID = clock_id;
 pub const clock_id = switch (native_os) {
-    .linux, .freebsd => enum(i32) {
+    .linux, .freebsd => enum(u32) {
         REALTIME = 0,
         MONOTONIC = 1,
         _,
@@ -9003,7 +9003,7 @@ pub extern "c" fn epoll_pwait(
     sigmask: *const sigset_t,
 ) c_int;
 
-pub extern "c" fn timerfd_create(clockid: c_int, flags: c_int) c_int;
+pub extern "c" fn timerfd_create(clockid: clock_id, flags: c_int) c_int;
 pub extern "c" fn timerfd_settime(
     fd: c_int,
     flags: c_int,
