@@ -13,21 +13,21 @@ files: std.MultiArrayList(File.Entry) = .{},
 /// Long-lived list of all file descriptors.
 /// We store them globally rather than per actual File so that we can re-use
 /// one file handle per every object file within an archive.
-file_handles: std.ArrayListUnmanaged(File.Handle) = .{},
+file_handles: std.ArrayListUnmanaged(File.Handle) = .empty,
 zig_object: ?File.Index = null,
 internal_object: ?File.Index = null,
-objects: std.ArrayListUnmanaged(File.Index) = .{},
-dylibs: std.ArrayListUnmanaged(File.Index) = .{},
+objects: std.ArrayListUnmanaged(File.Index) = .empty,
+dylibs: std.ArrayListUnmanaged(File.Index) = .empty,
 
-segments: std.ArrayListUnmanaged(macho.segment_command_64) = .{},
+segments: std.ArrayListUnmanaged(macho.segment_command_64) = .empty,
 sections: std.MultiArrayList(Section) = .{},
 
 resolver: SymbolResolver = .{},
 /// This table will be populated after `scanRelocs` has run.
 /// Key is symbol index.
-undefs: std.AutoArrayHashMapUnmanaged(SymbolResolver.Index, std.ArrayListUnmanaged(Ref)) = .{},
+undefs: std.AutoArrayHashMapUnmanaged(SymbolResolver.Index, std.ArrayListUnmanaged(Ref)) = .empty,
 undefs_mutex: std.Thread.Mutex = .{},
-dupes: std.AutoArrayHashMapUnmanaged(SymbolResolver.Index, std.ArrayListUnmanaged(File.Index)) = .{},
+dupes: std.AutoArrayHashMapUnmanaged(SymbolResolver.Index, std.ArrayListUnmanaged(File.Index)) = .empty,
 dupes_mutex: std.Thread.Mutex = .{},
 
 dyld_info_cmd: macho.dyld_info_command = .{},
@@ -52,11 +52,11 @@ eh_frame_sect_index: ?u8 = null,
 unwind_info_sect_index: ?u8 = null,
 objc_stubs_sect_index: ?u8 = null,
 
-thunks: std.ArrayListUnmanaged(Thunk) = .{},
+thunks: std.ArrayListUnmanaged(Thunk) = .empty,
 
 /// Output synthetic sections
-symtab: std.ArrayListUnmanaged(macho.nlist_64) = .{},
-strtab: std.ArrayListUnmanaged(u8) = .{},
+symtab: std.ArrayListUnmanaged(macho.nlist_64) = .empty,
+strtab: std.ArrayListUnmanaged(u8) = .empty,
 indsymtab: Indsymtab = .{},
 got: GotSection = .{},
 stubs: StubsSection = .{},
@@ -4041,19 +4041,19 @@ const default_entry_symbol_name = "_main";
 const Section = struct {
     header: macho.section_64,
     segment_id: u8,
-    atoms: std.ArrayListUnmanaged(Ref) = .{},
-    free_list: std.ArrayListUnmanaged(Atom.Index) = .{},
+    atoms: std.ArrayListUnmanaged(Ref) = .empty,
+    free_list: std.ArrayListUnmanaged(Atom.Index) = .empty,
     last_atom_index: Atom.Index = 0,
-    thunks: std.ArrayListUnmanaged(Thunk.Index) = .{},
-    out: std.ArrayListUnmanaged(u8) = .{},
-    relocs: std.ArrayListUnmanaged(macho.relocation_info) = .{},
+    thunks: std.ArrayListUnmanaged(Thunk.Index) = .empty,
+    out: std.ArrayListUnmanaged(u8) = .empty,
+    relocs: std.ArrayListUnmanaged(macho.relocation_info) = .empty,
 };
 
 pub const LiteralPool = struct {
-    table: std.AutoArrayHashMapUnmanaged(void, void) = .{},
-    keys: std.ArrayListUnmanaged(Key) = .{},
-    values: std.ArrayListUnmanaged(MachO.Ref) = .{},
-    data: std.ArrayListUnmanaged(u8) = .{},
+    table: std.AutoArrayHashMapUnmanaged(void, void) = .empty,
+    keys: std.ArrayListUnmanaged(Key) = .empty,
+    values: std.ArrayListUnmanaged(MachO.Ref) = .empty,
+    data: std.ArrayListUnmanaged(u8) = .empty,
 
     pub fn deinit(lp: *LiteralPool, allocator: Allocator) void {
         lp.table.deinit(allocator);
@@ -4480,9 +4480,9 @@ pub const Ref = struct {
 };
 
 pub const SymbolResolver = struct {
-    keys: std.ArrayListUnmanaged(Key) = .{},
-    values: std.ArrayListUnmanaged(Ref) = .{},
-    table: std.AutoArrayHashMapUnmanaged(void, void) = .{},
+    keys: std.ArrayListUnmanaged(Key) = .empty,
+    values: std.ArrayListUnmanaged(Ref) = .empty,
+    table: std.AutoArrayHashMapUnmanaged(void, void) = .empty,
 
     const Result = struct {
         found_existing: bool,

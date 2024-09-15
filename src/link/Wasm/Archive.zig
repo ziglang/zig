@@ -12,7 +12,7 @@ long_file_names: []const u8 = undefined,
 /// Parsed table of contents.
 /// Each symbol name points to a list of all definition
 /// sites within the current static archive.
-toc: std.StringArrayHashMapUnmanaged(std.ArrayListUnmanaged(u32)) = .{},
+toc: std.StringArrayHashMapUnmanaged(std.ArrayListUnmanaged(u32)) = .empty,
 
 // Archive files start with the ARMAG identifying string.  Then follows a
 // `struct ar_hdr', and as many bytes of member file data as its `ar_size'

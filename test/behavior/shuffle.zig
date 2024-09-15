@@ -170,11 +170,6 @@ test "@shuffle bool 2" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_llvm) {
-        // https://github.com/ziglang/zig/issues/3246
-        return error.SkipZigTest;
-    }
-
     const S = struct {
         fn doTheTest() !void {
             var x: @Vector(3, bool) = [3]bool{ false, true, false };

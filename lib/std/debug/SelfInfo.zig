@@ -1933,8 +1933,8 @@ pub const VirtualMachine = struct {
         len: u8 = 0,
     };
 
-    columns: std.ArrayListUnmanaged(Column) = .{},
-    stack: std.ArrayListUnmanaged(ColumnRange) = .{},
+    columns: std.ArrayListUnmanaged(Column) = .empty,
+    stack: std.ArrayListUnmanaged(ColumnRange) = .empty,
     current_row: Row = .{},
 
     /// The result of executing the CIE's initial_instructions

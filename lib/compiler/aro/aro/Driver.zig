@@ -25,8 +25,8 @@ pub const Linker = enum {
 const Driver = @This();
 
 comp: *Compilation,
-inputs: std.ArrayListUnmanaged(Source) = .{},
-link_objects: std.ArrayListUnmanaged([]const u8) = .{},
+inputs: std.ArrayListUnmanaged(Source) = .empty,
+link_objects: std.ArrayListUnmanaged([]const u8) = .empty,
 output_name: ?[]const u8 = null,
 sysroot: ?[]const u8 = null,
 system_defines: Compilation.SystemDefinesMode = .include_system_defines,

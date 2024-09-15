@@ -48,7 +48,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     const arena = b.allocator;
     const fmt: *Fmt = @fieldParentPtr("step", step);
 
-    var argv: std.ArrayListUnmanaged([]const u8) = .{};
+    var argv: std.ArrayListUnmanaged([]const u8) = .empty;
     try argv.ensureUnusedCapacity(arena, 2 + 1 + fmt.paths.len + 2 * fmt.exclude_paths.len);
 
     argv.appendAssumeCapacity(b.graph.zig_exe);

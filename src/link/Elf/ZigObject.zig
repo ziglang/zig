@@ -3,24 +3,24 @@
 //! and any relocations that may have been emitted.
 //! Think about this as fake in-memory Object file for the Zig module.
 
-data: std.ArrayListUnmanaged(u8) = .{},
+data: std.ArrayListUnmanaged(u8) = .empty,
 /// Externally owned memory.
 path: []const u8,
 index: File.Index,
 
 symtab: std.MultiArrayList(ElfSym) = .{},
 strtab: StringTable = .{},
-symbols: std.ArrayListUnmanaged(Symbol) = .{},
-symbols_extra: std.ArrayListUnmanaged(u32) = .{},
-symbols_resolver: std.ArrayListUnmanaged(Elf.SymbolResolver.Index) = .{},
-local_symbols: std.ArrayListUnmanaged(Symbol.Index) = .{},
-global_symbols: std.ArrayListUnmanaged(Symbol.Index) = .{},
-globals_lookup: std.AutoHashMapUnmanaged(u32, Symbol.Index) = .{},
+symbols: std.ArrayListUnmanaged(Symbol) = .empty,
+symbols_extra: std.ArrayListUnmanaged(u32) = .empty,
+symbols_resolver: std.ArrayListUnmanaged(Elf.SymbolResolver.Index) = .empty,
+local_symbols: std.ArrayListUnmanaged(Symbol.Index) = .empty,
+global_symbols: std.ArrayListUnmanaged(Symbol.Index) = .empty,
+globals_lookup: std.AutoHashMapUnmanaged(u32, Symbol.Index) = .empty,
 
-atoms: std.ArrayListUnmanaged(Atom) = .{},
-atoms_indexes: std.ArrayListUnmanaged(Atom.Index) = .{},
-atoms_extra: std.ArrayListUnmanaged(u32) = .{},
-relocs: std.ArrayListUnmanaged(std.ArrayListUnmanaged(elf.Elf64_Rela)) = .{},
+atoms: std.ArrayListUnmanaged(Atom) = .empty,
+atoms_indexes: std.ArrayListUnmanaged(Atom.Index) = .empty,
+atoms_extra: std.ArrayListUnmanaged(u32) = .empty,
+relocs: std.ArrayListUnmanaged(std.ArrayListUnmanaged(elf.Elf64_Rela)) = .empty,
 
 num_dynrelocs: u32 = 0,
 
@@ -2313,7 +2313,7 @@ const LazySymbolMetadata = struct {
 const AvMetadata = struct {
     symbol_index: Symbol.Index,
     /// A list of all exports aliases of this Av.
-    exports: std.ArrayListUnmanaged(Symbol.Index) = .{},
+    exports: std.ArrayListUnmanaged(Symbol.Index) = .empty,
     /// Set to true if the AV has been initialized and allocated.
     allocated: bool = false,
 

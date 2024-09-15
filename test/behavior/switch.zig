@@ -985,3 +985,20 @@ test "labeled switch with break" {
 
     comptime assert(comptime_val);
 }
+
+test "unlabeled break ignores switch" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+
+    const result = while (true) {
+        _ = s: switch (@as(u32, 1)) {
+            1 => continue :s 123,
+            else => |x| break x,
+        };
+        comptime unreachable; // control flow never breaks from the switch
+    };
+    try expect(result == 123);
+}

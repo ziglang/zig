@@ -3,7 +3,7 @@ const windows = std.os.windows;
 const utf16Literal = std.unicode.utf8ToUtf16LeStringLiteral;
 
 pub fn main() anyerror!void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
     defer if (gpa.deinit() == .leak) @panic("found memory leaks");
     const allocator = gpa.allocator();
 

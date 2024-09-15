@@ -1500,7 +1500,7 @@ pub const Object = struct {
         // instructions. Depending on the calling convention, this list is not necessarily
         // a bijection with the actual LLVM parameters of the function.
         const gpa = o.gpa;
-        var args: std.ArrayListUnmanaged(Builder.Value) = .{};
+        var args: std.ArrayListUnmanaged(Builder.Value) = .empty;
         defer args.deinit(gpa);
 
         {
@@ -2497,7 +2497,7 @@ pub const Object = struct {
 
                 switch (ip.indexToKey(ty.toIntern())) {
                     .anon_struct_type => |tuple| {
-                        var fields: std.ArrayListUnmanaged(Builder.Metadata) = .{};
+                        var fields: std.ArrayListUnmanaged(Builder.Metadata) = .empty;
                         defer fields.deinit(gpa);
 
                         try fields.ensureUnusedCapacity(gpa, tuple.types.len);
@@ -2574,7 +2574,7 @@ pub const Object = struct {
 
                 const struct_type = zcu.typeToStruct(ty).?;
 
-                var fields: std.ArrayListUnmanaged(Builder.Metadata) = .{};
+                var fields: std.ArrayListUnmanaged(Builder.Metadata) = .empty;
                 defer fields.deinit(gpa);
 
                 try fields.ensureUnusedCapacity(gpa, struct_type.field_types.len);
@@ -2667,7 +2667,7 @@ pub const Object = struct {
                     return debug_union_type;
                 }
 
-                var fields: std.ArrayListUnmanaged(Builder.Metadata) = .{};
+                var fields: std.ArrayListUnmanaged(Builder.Metadata) = .empty;
                 defer fields.deinit(gpa);
 
                 try fields.ensureUnusedCapacity(gpa, union_type.loadTagType(ip).names.len);
@@ -3412,7 +3412,7 @@ pub const Object = struct {
                         return int_ty;
                     }
 
-                    var llvm_field_types = std.ArrayListUnmanaged(Builder.Type){};
+                    var llvm_field_types: std.ArrayListUnmanaged(Builder.Type) = .empty;
                     defer llvm_field_types.deinit(o.gpa);
                     // Although we can estimate how much capacity to add, these cannot be
                     // relied upon because of the recursive calls to lowerType below.
@@ -3481,7 +3481,7 @@ pub const Object = struct {
                     return ty;
                 },
                 .anon_struct_type => |anon_struct_type| {
-                    var llvm_field_types: std.ArrayListUnmanaged(Builder.Type) = .{};
+                    var llvm_field_types: std.ArrayListUnmanaged(Builder.Type) = .empty;
                     defer llvm_field_types.deinit(o.gpa);
                     // Although we can estimate how much capacity to add, these cannot be
                     // relied upon because of the recursive calls to lowerType below.
@@ -3672,7 +3672,7 @@ pub const Object = struct {
         const target = zcu.getTarget();
         const ret_ty = try lowerFnRetTy(o, fn_info);
 
-        var llvm_params = std.ArrayListUnmanaged(Builder.Type){};
+        var llvm_params: std.ArrayListUnmanaged(Builder.Type) = .empty;
         defer llvm_params.deinit(o.gpa);
 
         if (firstParamSRet(fn_info, zcu, target)) {
@@ -7438,7 +7438,7 @@ pub const FuncGen = struct {
         const inputs: []const Air.Inst.Ref = @ptrCast(self.air.extra[extra_i..][0..extra.data.inputs_len]);
         extra_i += inputs.len;
 
-        var llvm_constraints: std.ArrayListUnmanaged(u8) = .{};
+        var llvm_constraints: std.ArrayListUnmanaged(u8) = .empty;
         defer llvm_constraints.deinit(self.gpa);
 
         var arena_allocator = std.heap.ArenaAllocator.init(self.gpa);
@@ -7466,7 +7466,7 @@ pub const FuncGen = struct {
         var llvm_param_i: usize = 0;
         var total_i: u16 = 0;
 
-        var name_map: std.StringArrayHashMapUnmanaged(u16) = .{};
+        var name_map: std.StringArrayHashMapUnmanaged(u16) = .empty;
         try name_map.ensureUnusedCapacity(arena, max_param_count);
 
         var rw_extra_i = extra_i;

@@ -3,7 +3,7 @@ const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 
 pub fn main() anyerror!void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
     defer if (gpa.deinit() == .leak) @panic("found memory leaks");
     const allocator = gpa.allocator();
 

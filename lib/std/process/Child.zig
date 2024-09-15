@@ -907,12 +907,12 @@ fn spawnWindows(self: *ChildProcess) SpawnError!void {
         var cmd_line_cache = WindowsCommandLineCache.init(self.allocator, self.argv);
         defer cmd_line_cache.deinit();
 
-        var app_buf = std.ArrayListUnmanaged(u16){};
+        var app_buf: std.ArrayListUnmanaged(u16) = .empty;
         defer app_buf.deinit(self.allocator);
 
         try app_buf.appendSlice(self.allocator, app_name_w);
 
-        var dir_buf = std.ArrayListUnmanaged(u16){};
+        var dir_buf: std.ArrayListUnmanaged(u16) = .empty;
         defer dir_buf.deinit(self.allocator);
 
         if (cwd_path_w.len > 0) {

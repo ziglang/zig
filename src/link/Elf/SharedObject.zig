@@ -2,20 +2,20 @@ path: []const u8,
 index: File.Index,
 
 header: ?elf.Elf64_Ehdr = null,
-shdrs: std.ArrayListUnmanaged(elf.Elf64_Shdr) = .{},
+shdrs: std.ArrayListUnmanaged(elf.Elf64_Shdr) = .empty,
 
-symtab: std.ArrayListUnmanaged(elf.Elf64_Sym) = .{},
-strtab: std.ArrayListUnmanaged(u8) = .{},
+symtab: std.ArrayListUnmanaged(elf.Elf64_Sym) = .empty,
+strtab: std.ArrayListUnmanaged(u8) = .empty,
 /// Version symtab contains version strings of the symbols if present.
-versyms: std.ArrayListUnmanaged(elf.Elf64_Versym) = .{},
-verstrings: std.ArrayListUnmanaged(u32) = .{},
+versyms: std.ArrayListUnmanaged(elf.Elf64_Versym) = .empty,
+verstrings: std.ArrayListUnmanaged(u32) = .empty,
 
-symbols: std.ArrayListUnmanaged(Symbol) = .{},
-symbols_extra: std.ArrayListUnmanaged(u32) = .{},
-symbols_resolver: std.ArrayListUnmanaged(Elf.SymbolResolver.Index) = .{},
+symbols: std.ArrayListUnmanaged(Symbol) = .empty,
+symbols_extra: std.ArrayListUnmanaged(u32) = .empty,
+symbols_resolver: std.ArrayListUnmanaged(Elf.SymbolResolver.Index) = .empty,
 
 aliases: ?std.ArrayListUnmanaged(u32) = null,
-dynamic_table: std.ArrayListUnmanaged(elf.Elf64_Dyn) = .{},
+dynamic_table: std.ArrayListUnmanaged(elf.Elf64_Dyn) = .empty,
 
 needed: bool,
 alive: bool,

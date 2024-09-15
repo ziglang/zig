@@ -15,7 +15,7 @@ const Opcode = spec.Opcode;
 
 /// The instructions in this section. Memory is owned by the Module
 /// externally associated to this Section.
-instructions: std.ArrayListUnmanaged(Word) = .{},
+instructions: std.ArrayListUnmanaged(Word) = .empty,
 
 pub fn deinit(section: *Section, allocator: Allocator) void {
     section.instructions.deinit(allocator);

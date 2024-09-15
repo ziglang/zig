@@ -401,7 +401,7 @@ pub fn HashMap(
                 @compileError("Context must be specified! Call initContext(allocator, ctx) instead.");
             }
             return .{
-                .unmanaged = .{},
+                .unmanaged = .empty,
                 .allocator = allocator,
                 .ctx = undefined, // ctx is zero-sized so this is safe.
             };
@@ -410,7 +410,7 @@ pub fn HashMap(
         /// Create a managed hash map with a context
         pub fn initContext(allocator: Allocator, ctx: Context) Self {
             return .{
-                .unmanaged = .{},
+                .unmanaged = .empty,
                 .allocator = allocator,
                 .ctx = ctx,
             };
@@ -691,7 +691,7 @@ pub fn HashMap(
         pub fn move(self: *Self) Self {
             self.unmanaged.pointer_stability.assertUnlocked();
             const result = self.*;
-            self.unmanaged = .{};
+            self.unmanaged = .empty;
             return result;
         }
 
@@ -1543,7 +1543,7 @@ pub fn HashMapUnmanaged(
             return self.cloneContext(allocator, @as(Context, undefined));
         }
         pub fn cloneContext(self: Self, allocator: Allocator, new_ctx: anytype) Allocator.Error!HashMapUnmanaged(K, V, @TypeOf(new_ctx), max_load_percentage) {
-            var other = HashMapUnmanaged(K, V, @TypeOf(new_ctx), max_load_percentage){};
+            var other: HashMapUnmanaged(K, V, @TypeOf(new_ctx), max_load_percentage) = .empty;
             if (self.size == 0)
                 return other;
 
@@ -1572,7 +1572,7 @@ pub fn HashMapUnmanaged(
         pub fn move(self: *Self) Self {
             self.pointer_stability.assertUnlocked();
             const result = self.*;
-            self.* = .{};
+            self.* = .empty;
             return result;
         }
 
@@ -2360,7 +2360,7 @@ test "removeByPtr 0 sized key" {
 }
 
 test "repeat fetchRemove" {
-    var map = AutoHashMapUnmanaged(u64, void){};
+    var map: AutoHashMapUnmanaged(u64, void) = .empty;
     defer map.deinit(testing.allocator);
 
     try map.ensureTotalCapacity(testing.allocator, 4);
@@ -2384,7 +2384,7 @@ test "repeat fetchRemove" {
 }
 
 test "getOrPut allocation failure" {
-    var map: std.StringHashMapUnmanaged(void) = .{};
+    var map: std.StringHashMapUnmanaged(void) = .empty;
     try testing.expectError(error.OutOfMemory, map.getOrPut(std.testing.failing_allocator, "hello"));
 }
 

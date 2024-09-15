@@ -30,16 +30,16 @@ prev_di_column: u32,
 prev_di_pc: usize,
 
 /// The branch type of every branch
-branch_types: std.AutoHashMapUnmanaged(Mir.Inst.Index, BranchType) = .{},
+branch_types: std.AutoHashMapUnmanaged(Mir.Inst.Index, BranchType) = .empty,
 /// For every forward branch, maps the target instruction to a list of
 /// branches which branch to this target instruction
-branch_forward_origins: std.AutoHashMapUnmanaged(Mir.Inst.Index, std.ArrayListUnmanaged(Mir.Inst.Index)) = .{},
+branch_forward_origins: std.AutoHashMapUnmanaged(Mir.Inst.Index, std.ArrayListUnmanaged(Mir.Inst.Index)) = .empty,
 /// For backward branches: stores the code offset of the target
 /// instruction
 ///
 /// For forward branches: stores the code offset of the branch
 /// instruction
-code_offset_mapping: std.AutoHashMapUnmanaged(Mir.Inst.Index, usize) = .{},
+code_offset_mapping: std.AutoHashMapUnmanaged(Mir.Inst.Index, usize) = .empty,
 
 const InnerError = error{
     OutOfMemory,
@@ -571,7 +571,7 @@ fn lowerBranches(emit: *Emit) !void {
                 if (emit.branch_forward_origins.getPtr(target_inst)) |origin_list| {
                     try origin_list.append(gpa, inst);
                 } else {
-                    var origin_list: std.ArrayListUnmanaged(Mir.Inst.Index) = .{};
+                    var origin_list: std.ArrayListUnmanaged(Mir.Inst.Index) = .empty;
                     try origin_list.append(gpa, inst);
                     try emit.branch_forward_origins.put(gpa, target_inst, origin_list);
                 }

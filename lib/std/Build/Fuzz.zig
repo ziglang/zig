@@ -30,7 +30,7 @@ pub fn start(
         defer rebuild_node.end();
         var wait_group: std.Thread.WaitGroup = .{};
         defer wait_group.wait();
-        var fuzz_run_steps: std.ArrayListUnmanaged(*Step.Run) = .{};
+        var fuzz_run_steps: std.ArrayListUnmanaged(*Step.Run) = .empty;
         defer fuzz_run_steps.deinit(gpa);
         for (all_steps) |step| {
             const run = step.cast(Step.Run) orelse continue;

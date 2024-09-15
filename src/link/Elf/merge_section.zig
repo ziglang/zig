@@ -7,15 +7,15 @@ pub const MergeSection = struct {
     type: u32 = 0,
     flags: u64 = 0,
     output_section_index: u32 = 0,
-    bytes: std.ArrayListUnmanaged(u8) = .{},
+    bytes: std.ArrayListUnmanaged(u8) = .empty,
     table: std.HashMapUnmanaged(
         String,
         MergeSubsection.Index,
         IndexContext,
         std.hash_map.default_max_load_percentage,
     ) = .{},
-    subsections: std.ArrayListUnmanaged(MergeSubsection) = .{},
-    finalized_subsections: std.ArrayListUnmanaged(MergeSubsection.Index) = .{},
+    subsections: std.ArrayListUnmanaged(MergeSubsection) = .empty,
+    finalized_subsections: std.ArrayListUnmanaged(MergeSubsection.Index) = .empty,
 
     pub fn deinit(msec: *MergeSection, allocator: Allocator) void {
         msec.bytes.deinit(allocator);
@@ -276,10 +276,10 @@ pub const MergeSubsection = struct {
 pub const InputMergeSection = struct {
     merge_section_index: MergeSection.Index = 0,
     atom_index: Atom.Index = 0,
-    offsets: std.ArrayListUnmanaged(u32) = .{},
-    subsections: std.ArrayListUnmanaged(MergeSubsection.Index) = .{},
-    bytes: std.ArrayListUnmanaged(u8) = .{},
-    strings: std.ArrayListUnmanaged(String) = .{},
+    offsets: std.ArrayListUnmanaged(u32) = .empty,
+    subsections: std.ArrayListUnmanaged(MergeSubsection.Index) = .empty,
+    bytes: std.ArrayListUnmanaged(u8) = .empty,
+    strings: std.ArrayListUnmanaged(String) = .empty,
 
     pub fn deinit(imsec: *InputMergeSection, allocator: Allocator) void {
         imsec.offsets.deinit(allocator);

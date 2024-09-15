@@ -95,7 +95,7 @@ counter: u32 = 0,
 expansion_source_loc: Source.Location = undefined,
 poisoned_identifiers: std.StringHashMap(void),
 /// Map from Source.Id to macro name in the `#ifndef` condition which guards the source, if any
-include_guards: std.AutoHashMapUnmanaged(Source.Id, []const u8) = .{},
+include_guards: std.AutoHashMapUnmanaged(Source.Id, []const u8) = .empty,
 
 /// Store `keyword_define` and `keyword_undef` tokens.
 /// Used to implement preprocessor debug dump options

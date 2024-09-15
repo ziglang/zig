@@ -26,7 +26,7 @@ repro: bool,
 ptr_width: PtrWidth,
 page_size: u32,
 
-objects: std.ArrayListUnmanaged(Object) = .{},
+objects: std.ArrayListUnmanaged(Object) = .empty,
 
 sections: std.MultiArrayList(Section) = .{},
 data_directories: [coff.IMAGE_NUMBEROF_DIRECTORY_ENTRIES]coff.ImageDataDirectory,
@@ -38,14 +38,14 @@ data_section_index: ?u16 = null,
 reloc_section_index: ?u16 = null,
 idata_section_index: ?u16 = null,
 
-locals: std.ArrayListUnmanaged(coff.Symbol) = .{},
-globals: std.ArrayListUnmanaged(SymbolWithLoc) = .{},
-resolver: std.StringHashMapUnmanaged(u32) = .{},
-unresolved: std.AutoArrayHashMapUnmanaged(u32, bool) = .{},
-need_got_table: std.AutoHashMapUnmanaged(u32, void) = .{},
+locals: std.ArrayListUnmanaged(coff.Symbol) = .empty,
+globals: std.ArrayListUnmanaged(SymbolWithLoc) = .empty,
+resolver: std.StringHashMapUnmanaged(u32) = .empty,
+unresolved: std.AutoArrayHashMapUnmanaged(u32, bool) = .empty,
+need_got_table: std.AutoHashMapUnmanaged(u32, void) = .empty,
 
-locals_free_list: std.ArrayListUnmanaged(u32) = .{},
-globals_free_list: std.ArrayListUnmanaged(u32) = .{},
+locals_free_list: std.ArrayListUnmanaged(u32) = .empty,
+globals_free_list: std.ArrayListUnmanaged(u32) = .empty,
 
 strtab: StringTable = .{},
 strtab_offset: ?u32 = null,
@@ -56,7 +56,7 @@ got_table: TableSection(SymbolWithLoc) = .{},
 
 /// A table of ImportTables partitioned by the library name.
 /// Key is an offset into the interning string table `temp_strtab`.
-import_tables: std.AutoArrayHashMapUnmanaged(u32, ImportTable) = .{},
+import_tables: std.AutoArrayHashMapUnmanaged(u32, ImportTable) = .empty,
 
 got_table_count_dirty: bool = true,
 got_table_contents_dirty: bool = true,
@@ -69,10 +69,10 @@ lazy_syms: LazySymbolTable = .{},
 navs: NavTable = .{},
 
 /// List of atoms that are either synthetic or map directly to the Zig source program.
-atoms: std.ArrayListUnmanaged(Atom) = .{},
+atoms: std.ArrayListUnmanaged(Atom) = .empty,
 
 /// Table of atoms indexed by the symbol index.
-atom_by_index_table: std.AutoHashMapUnmanaged(u32, Atom.Index) = .{},
+atom_by_index_table: std.AutoHashMapUnmanaged(u32, Atom.Index) = .empty,
 
 uavs: UavTable = .{},
 
@@ -131,7 +131,7 @@ const Section = struct {
     /// overcapacity can be negative. A simple way to have negative overcapacity is to
     /// allocate a fresh atom, which will have ideal capacity, and then grow it
     /// by 1 byte. It will then have -1 overcapacity.
-    free_list: std.ArrayListUnmanaged(Atom.Index) = .{},
+    free_list: std.ArrayListUnmanaged(Atom.Index) = .empty,
 };
 
 const LazySymbolTable = std.AutoArrayHashMapUnmanaged(InternPool.Index, LazySymbolMetadata);
@@ -148,7 +148,7 @@ const AvMetadata = struct {
     atom: Atom.Index,
     section: u16,
     /// A list of all exports aliases of this Decl.
-    exports: std.ArrayListUnmanaged(u32) = .{},
+    exports: std.ArrayListUnmanaged(u32) = .empty,
 
     fn deinit(m: *AvMetadata, allocator: Allocator) void {
         m.exports.deinit(allocator);

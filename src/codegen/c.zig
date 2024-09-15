@@ -304,14 +304,14 @@ pub const Function = struct {
     air: Air,
     liveness: Liveness,
     value_map: CValueMap,
-    blocks: std.AutoHashMapUnmanaged(Air.Inst.Index, BlockData) = .{},
+    blocks: std.AutoHashMapUnmanaged(Air.Inst.Index, BlockData) = .empty,
     next_arg_index: usize = 0,
     next_block_index: usize = 0,
     object: Object,
     lazy_fns: LazyFnMap,
     func_index: InternPool.Index,
     /// All the locals, to be emitted at the top of the function.
-    locals: std.ArrayListUnmanaged(Local) = .{},
+    locals: std.ArrayListUnmanaged(Local) = .empty,
     /// Which locals are available for reuse, based on Type.
     free_locals_map: LocalsMap = .{},
     /// Locals which will not be freed by Liveness. This is used after a
@@ -320,10 +320,10 @@ pub const Function = struct {
     /// of variable declarations at the top of a function, sorted descending
     /// by type alignment.
     /// The value is whether the alloc needs to be emitted in the header.
-    allocs: std.AutoArrayHashMapUnmanaged(LocalIndex, bool) = .{},
+    allocs: std.AutoArrayHashMapUnmanaged(LocalIndex, bool) = .empty,
     /// Maps from `loop_switch_br` instructions to the allocated local used
     /// for the switch cond. Dispatches should set this local to the new cond.
-    loop_switch_conds: std.AutoHashMapUnmanaged(Air.Inst.Index, LocalIndex) = .{},
+    loop_switch_conds: std.AutoHashMapUnmanaged(Air.Inst.Index, LocalIndex) = .empty,
 
     fn resolveInst(f: *Function, ref: Air.Inst.Ref) !CValue {
         const gop = try f.value_map.getOrPut(ref);

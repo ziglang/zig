@@ -23,7 +23,7 @@ const Item = struct {
 
 const InitList = @This();
 
-list: std.ArrayListUnmanaged(Item) = .{},
+list: std.ArrayListUnmanaged(Item) = .empty,
 node: NodeIndex = .none,
 tok: TokenIndex = 0,
 

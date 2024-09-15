@@ -81,7 +81,7 @@ scope_generation: u32,
 /// The value is an offset into the `Function` `code` from the beginning.
 /// To perform the reloc, write 32-bit signed little-endian integer
 /// which is a relative jump, based on the address following the reloc.
-exitlude_jump_relocs: std.ArrayListUnmanaged(usize) = .{},
+exitlude_jump_relocs: std.ArrayListUnmanaged(usize) = .empty,
 
 /// Whenever there is a runtime branch, we push a Branch onto this stack,
 /// and pop it off when the runtime branch joins. This provides an "overlay"
@@ -97,14 +97,14 @@ avl: ?u64,
 vtype: ?bits.VType,
 
 // Key is the block instruction
-blocks: std.AutoHashMapUnmanaged(Air.Inst.Index, BlockData) = .{},
+blocks: std.AutoHashMapUnmanaged(Air.Inst.Index, BlockData) = .empty,
 register_manager: RegisterManager = .{},
 
 const_tracking: ConstTrackingMap = .{},
 inst_tracking: InstTrackingMap = .{},
 
 frame_allocs: std.MultiArrayList(FrameAlloc) = .{},
-free_frame_indices: std.AutoArrayHashMapUnmanaged(FrameIndex, void) = .{},
+free_frame_indices: std.AutoArrayHashMapUnmanaged(FrameIndex, void) = .empty,
 frame_locs: std.MultiArrayList(Mir.FrameLoc) = .{},
 
 loops: std.AutoHashMapUnmanaged(Air.Inst.Index, struct {
@@ -342,7 +342,7 @@ const MCValue = union(enum) {
 };
 
 const Branch = struct {
-    inst_table: std.AutoArrayHashMapUnmanaged(Air.Inst.Index, MCValue) = .{},
+    inst_table: std.AutoArrayHashMapUnmanaged(Air.Inst.Index, MCValue) = .empty,
 
     fn deinit(func: *Branch, gpa: Allocator) void {
         func.inst_table.deinit(gpa);
@@ -621,7 +621,7 @@ const FrameAlloc = struct {
 };
 
 const BlockData = struct {
-    relocs: std.ArrayListUnmanaged(Mir.Inst.Index) = .{},
+    relocs: std.ArrayListUnmanaged(Mir.Inst.Index) = .empty,
     state: State,
 
     fn deinit(bd: *BlockData, gpa: Allocator) void {
@@ -3364,8 +3364,38 @@ fn airOptionalPayloadPtr(func: *Func, inst: Air.Inst.Index) !void {
 }
 
 fn airOptionalPayloadPtrSet(func: *Func, inst: Air.Inst.Index) !void {
+    const zcu = func.pt.zcu;
+
     const ty_op = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-    const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else return func.fail("TODO implement .optional_payload_ptr_set for {}", .{func.target.cpu.arch});
+    const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else result: {
+        const dst_ty = func.typeOfIndex(inst);
+        const src_ty = func.typeOf(ty_op.operand);
+        const opt_ty = src_ty.childType(zcu);
+        const src_mcv = try func.resolveInst(ty_op.operand);
+
+        if (opt_ty.optionalReprIsPayload(zcu)) {
+            break :result if (func.reuseOperand(inst, ty_op.operand, 0, src_mcv))
+                src_mcv
+            else
+                try func.copyToNewRegister(inst, src_mcv);
+        }
+
+        const dst_mcv: MCValue = if (src_mcv.isRegister() and
+            func.reuseOperand(inst, ty_op.operand, 0, src_mcv))
+            src_mcv
+        else
+            try func.copyToNewRegister(inst, src_mcv);
+
+        const pl_ty = dst_ty.childType(zcu);
+        const pl_abi_size: i32 = @intCast(pl_ty.abiSize(zcu));
+        try func.genSetMem(
+            .{ .reg = dst_mcv.getReg().? },
+            pl_abi_size,
+            Type.bool,
+            .{ .immediate = 1 },
+        );
+        break :result dst_mcv;
+    };
     return func.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
@@ -6193,7 +6223,7 @@ fn airAsm(func: *Func, inst: Air.Inst.Index) !void {
 
     const Label = struct {
         target: Mir.Inst.Index = undefined,
-        pending_relocs: std.ArrayListUnmanaged(Mir.Inst.Index) = .{},
+        pending_relocs: std.ArrayListUnmanaged(Mir.Inst.Index) = .empty,
 
         const Kind = enum { definition, reference };
 
@@ -6217,7 +6247,7 @@ fn airAsm(func: *Func, inst: Air.Inst.Index) !void {
             return name.len > 0;
         }
     };
-    var labels: std.StringHashMapUnmanaged(Label) = .{};
+    var labels: std.StringHashMapUnmanaged(Label) = .empty;
     defer {
         var label_it = labels.valueIterator();
         while (label_it.next()) |label| label.pending_relocs.deinit(func.gpa);

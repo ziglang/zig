@@ -109,7 +109,7 @@ param_buf: std.ArrayList(Type.Func.Param),
 enum_buf: std.ArrayList(Type.Enum.Field),
 record_buf: std.ArrayList(Type.Record.Field),
 attr_buf: std.MultiArrayList(TentativeAttribute) = .{},
-attr_application_buf: std.ArrayListUnmanaged(Attribute) = .{},
+attr_application_buf: std.ArrayListUnmanaged(Attribute) = .empty,
 field_attr_buf: std.ArrayList([]const Attribute),
 /// type name -> variable name location for tentative definitions (top-level defs with thus-far-incomplete types)
 /// e.g. `struct Foo bar;` where `struct Foo` is not defined yet.
@@ -117,7 +117,7 @@ field_attr_buf: std.ArrayList([]const Attribute),
 /// Items are removed if the type is subsequently completed with a definition.
 /// We only store the first tentative definition that uses a given type because this map is only used
 /// for issuing an error message, and correcting the first error for a type will fix all of them for that type.
-tentative_defs: std.AutoHashMapUnmanaged(StringId, TokenIndex) = .{},
+tentative_defs: std.AutoHashMapUnmanaged(StringId, TokenIndex) = .empty,
 
 // configuration and miscellaneous info
 no_eval: bool = false,
@@ -174,7 +174,7 @@ record: struct {
         }
     }
 } = .{},
-record_members: std.ArrayListUnmanaged(struct { tok: TokenIndex, name: StringId }) = .{},
+record_members: std.ArrayListUnmanaged(struct { tok: TokenIndex, name: StringId }) = .empty,
 @"switch": ?*Switch = null,
 in_loop: bool = false,
 pragma_pack: ?u8 = null,

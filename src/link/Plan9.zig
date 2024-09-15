@@ -34,13 +34,13 @@ bases: Bases,
 /// Does not represent the order or amount of symbols in the file
 /// it is just useful for storing symbols. Some other symbols are in
 /// file_segments.
-syms: std.ArrayListUnmanaged(aout.Sym) = .{},
+syms: std.ArrayListUnmanaged(aout.Sym) = .empty,
 
 /// The plan9 a.out format requires segments of
 /// filenames to be deduplicated, so we use this map to
 /// de duplicate it. The value is the value of the path
 /// component
-file_segments: std.StringArrayHashMapUnmanaged(u16) = .{},
+file_segments: std.StringArrayHashMapUnmanaged(u16) = .empty,
 /// The value of a 'f' symbol increments by 1 every time, so that no 2 'f'
 /// symbols have the same value.
 file_segments_i: u16 = 1,
@@ -54,19 +54,19 @@ path_arena: std.heap.ArenaAllocator,
 /// If we group the decls by file, it makes it really easy to do this (put the symbol in the correct place)
 fn_nav_table: std.AutoArrayHashMapUnmanaged(
     Zcu.File.Index,
-    struct { sym_index: u32, functions: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, FnNavOutput) = .{} },
+    struct { sym_index: u32, functions: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, FnNavOutput) = .empty },
 ) = .{},
 /// the code is modified when relocated, so that is why it is mutable
-data_nav_table: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, []u8) = .{},
+data_nav_table: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, []u8) = .empty,
 /// When `updateExports` is called, we store the export indices here, to be used
 /// during flush.
-nav_exports: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, []u32) = .{},
+nav_exports: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, []u32) = .empty,
 
 lazy_syms: LazySymbolTable = .{},
 
-uavs: std.AutoHashMapUnmanaged(InternPool.Index, Atom.Index) = .{},
+uavs: std.AutoHashMapUnmanaged(InternPool.Index, Atom.Index) = .empty,
 
-relocs: std.AutoHashMapUnmanaged(Atom.Index, std.ArrayListUnmanaged(Reloc)) = .{},
+relocs: std.AutoHashMapUnmanaged(Atom.Index, std.ArrayListUnmanaged(Reloc)) = .empty,
 hdr: aout.ExecHdr = undefined,
 
 // relocs: std.
@@ -77,12 +77,12 @@ entry_val: ?u64 = null,
 got_len: usize = 0,
 // A list of all the free got indexes, so when making a new decl
 // don't make a new one, just use one from here.
-got_index_free_list: std.ArrayListUnmanaged(usize) = .{},
+got_index_free_list: std.ArrayListUnmanaged(usize) = .empty,
 
-syms_index_free_list: std.ArrayListUnmanaged(usize) = .{},
+syms_index_free_list: std.ArrayListUnmanaged(usize) = .empty,
 
-atoms: std.ArrayListUnmanaged(Atom) = .{},
-navs: std.AutoHashMapUnmanaged(InternPool.Nav.Index, NavMetadata) = .{},
+atoms: std.ArrayListUnmanaged(Atom) = .empty,
+navs: std.AutoHashMapUnmanaged(InternPool.Nav.Index, NavMetadata) = .empty,
 
 /// Indices of the three "special" symbols into atoms
 etext_edata_end_atom_indices: [3]?Atom.Index = .{ null, null, null },
@@ -220,7 +220,7 @@ pub const DebugInfoOutput = struct {
 
 const NavMetadata = struct {
     index: Atom.Index,
-    exports: std.ArrayListUnmanaged(usize) = .{},
+    exports: std.ArrayListUnmanaged(usize) = .empty,
 
     fn getExport(m: NavMetadata, p9: *const Plan9, name: []const u8) ?usize {
         for (m.exports.items) |exp| {
