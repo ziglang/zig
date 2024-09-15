@@ -2086,6 +2086,10 @@ pub const Inst = struct {
         /// `operand` is payload index to `UnNode`.
         /// `small` is unused.
         branch_hint,
+        /// Compute the result type for in-place arithmetic, e.g. `+=`.
+        /// `operand` is `Zir.Inst.Ref` of the loaded LHS (*not* its type).
+        /// `small` is an `Inst.InplaceOp`.
+        inplace_arith_result_ty,
 
         pub const InstData = struct {
             opcode: Extended,
@@ -3188,6 +3192,11 @@ pub const Inst = struct {
         calling_convention_inline,
     };
 
+    pub const InplaceOp = enum(u16) {
+        add_eq,
+        sub_eq,
+    };
+
     /// Trailing:
     /// 0. tag_type: Ref, // if has_tag_type
     /// 1. captures_len: u32, // if has_captures_len
@@ -4032,6 +4041,7 @@ fn findDeclsInner(
                 .field_parent_ptr,
                 .builtin_value,
                 .branch_hint,
+                .inplace_arith_result_ty,
                 => return,
 
                 // `@TypeOf` has a body.

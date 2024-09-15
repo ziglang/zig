@@ -1361,6 +1361,7 @@ fn analyzeBodyInner(
                     .value_placeholder => unreachable, // never appears in a body
                     .field_parent_ptr => try sema.zirFieldParentPtr(block, extended),
                     .builtin_value => try sema.zirBuiltinValue(extended),
+                    .inplace_arith_result_ty => try sema.zirInplaceArithResultTy(extended),
                 };
             },
 
@@ -27339,6 +27340,33 @@ fn zirBuiltinValue(sema: *Sema, extended: Zir.Inst.Extended.InstData) CompileErr
         },
     };
     const ty = try pt.getBuiltinType(type_name);
+    return Air.internedToRef(ty.toIntern());
+}
+
+fn zirInplaceArithResultTy(sema: *Sema, extended: Zir.Inst.Extended.InstData) CompileError!Air.Inst.Ref {
+    const pt = sema.pt;
+    const zcu = pt.zcu;
+
+    const lhs = try sema.resolveInst(@enumFromInt(extended.operand));
+    const lhs_ty = sema.typeOf(lhs);
+
+    const op: Zir.Inst.InplaceOp = @enumFromInt(extended.small);
+    const ty: Type = switch (op) {
+        .add_eq => ty: {
+            const ptr_size = lhs_ty.ptrSizeOrNull(zcu) orelse break :ty lhs_ty;
+            switch (ptr_size) {
+                .One, .Slice => break :ty lhs_ty, // invalid, let it error
+                .Many, .C => break :ty .usize, // `[*]T + usize`
+            }
+        },
+        .sub_eq => ty: {
+            const ptr_size = lhs_ty.ptrSizeOrNull(zcu) orelse break :ty lhs_ty;
+            switch (ptr_size) {
+                .One, .Slice => break :ty lhs_ty, // invalid, let it error
+                .Many, .C => break :ty .generic_poison, // could be `[*]T - [*]T` or `[*]T - usize`
+            }
+        },
+    };
     return Air.internedToRef(ty.toIntern());
 }
 
