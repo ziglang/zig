@@ -3897,7 +3897,7 @@ fn airArrayElemVal(func: *Func, inst: Air.Inst.Index) !void {
 
         if (array_ty.isVector(zcu)) {
             // we need to load the vector, vslidedown to get the element we want
-            // and store that element at in a load frame.
+            // and store that element in a load frame.
 
             const src_reg, const src_lock = try func.allocReg(.vector);
             defer func.register_manager.unlockReg(src_lock);
@@ -3970,12 +3970,15 @@ fn airPtrElemVal(func: *Func, inst: Air.Inst.Index) !void {
         };
         defer if (index_lock) |lock| func.register_manager.unlockReg(lock);
 
-        const elem_ptr_reg = if (base_ptr_mcv.isRegister() and func.liveness.operandDies(inst, 0))
-            base_ptr_mcv.register
-        else
-            try func.copyToTmpRegister(base_ptr_ty, base_ptr_mcv);
-        const elem_ptr_lock = func.register_manager.lockRegAssumeUnused(elem_ptr_reg);
-        defer func.register_manager.unlockReg(elem_ptr_lock);
+        const elem_ptr_reg, const elem_ptr_lock = if (base_ptr_mcv.isRegister() and
+            func.liveness.operandDies(inst, 0))
+            .{ base_ptr_mcv.register, null }
+        else blk: {
+            const reg, const lock = try func.allocReg(.int);
+            try func.genSetReg(base_ptr_ty, reg, base_ptr_mcv);
+            break :blk .{ reg, lock };
+        };
+        defer if (elem_ptr_lock) |lock| func.register_manager.unlockReg(lock);
 
         try func.genBinOp(
             .ptr_add,
