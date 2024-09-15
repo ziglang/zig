@@ -26201,6 +26201,10 @@ fn analyzeMinMax(
         .child = refined_scalar_ty.toIntern(),
     }) else refined_scalar_ty;
 
+    if (try sema.typeHasOnePossibleValue(refined_ty)) |opv| {
+        return Air.internedToRef(opv.toIntern());
+    }
+
     if (!refined_ty.eql(unrefined_ty, zcu)) {
         // We've reduced the type - cast the result down
         return block.addTyOp(.intcast, refined_ty, cur_minmax.?);
