@@ -798,6 +798,11 @@ pub const ReadError = error{
     /// In WASI, this error occurs when the file descriptor does
     /// not hold the required rights to read from it.
     AccessDenied,
+
+    // This error occurs in Linux if the process to be read from
+    // no longer exists.
+    ProcessNotFound,
+
 } || UnexpectedError;
 
 /// Returns the number of bytes that were read, which can be less than
@@ -854,6 +859,7 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
             .INTR => continue,
             .INVAL => unreachable,
             .FAULT => unreachable,
+            .NOENT => return error.ProcessNotFound,
             .AGAIN => return error.WouldBlock,
             .CANCELED => return error.Canceled,
             .BADF => return error.NotOpenForReading, // Can be a race condition.
@@ -917,6 +923,7 @@ pub fn readv(fd: fd_t, iov: []const iovec) ReadError!usize {
             .INTR => continue,
             .INVAL => unreachable,
             .FAULT => unreachable,
+            .NOENT => return error.ProcessNotFound,
             .AGAIN => return error.WouldBlock,
             .BADF => return error.NotOpenForReading, // can be a race condition
             .IO => return error.InputOutput,
@@ -996,6 +1003,7 @@ pub fn pread(fd: fd_t, buf: []u8, offset: u64) PReadError!usize {
             .INTR => continue,
             .INVAL => unreachable,
             .FAULT => unreachable,
+            .NOENT => return error.ProcessNotFound,
             .AGAIN => return error.WouldBlock,
             .BADF => return error.NotOpenForReading, // Can be a race condition.
             .IO => return error.InputOutput,
@@ -1133,6 +1141,7 @@ pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) PReadError!usize {
             .INTR => continue,
             .INVAL => unreachable,
             .FAULT => unreachable,
+            .NOENT => return error.ProcessNotFound,
             .AGAIN => return error.WouldBlock,
             .BADF => return error.NotOpenForReading, // can be a race condition
             .IO => return error.InputOutput,
@@ -1176,6 +1185,11 @@ pub const WriteError = error{
 
     /// Connection reset by peer.
     ConnectionResetByPeer,
+
+    // This error occurs in Linux if the process being written to
+    // no longer exists.
+    ProcessNotFound,
+
 } || UnexpectedError;
 
 /// Write to a file descriptor.
@@ -1243,6 +1257,7 @@ pub fn write(fd: fd_t, bytes: []const u8) WriteError!usize {
             .INTR => continue,
             .INVAL => return error.InvalidArgument,
             .FAULT => unreachable,
+            .NOENT => return error.ProcessNotFound,
             .AGAIN => return error.WouldBlock,
             .BADF => return error.NotOpenForWriting, // can be a race condition.
             .DESTADDRREQ => unreachable, // `connect` was never called.
@@ -1315,6 +1330,7 @@ pub fn writev(fd: fd_t, iov: []const iovec_const) WriteError!usize {
             .INTR => continue,
             .INVAL => return error.InvalidArgument,
             .FAULT => unreachable,
+            .NOENT => return error.ProcessNotFound,
             .AGAIN => return error.WouldBlock,
             .BADF => return error.NotOpenForWriting, // Can be a race condition.
             .DESTADDRREQ => unreachable, // `connect` was never called.
@@ -1404,6 +1420,7 @@ pub fn pwrite(fd: fd_t, bytes: []const u8, offset: u64) PWriteError!usize {
             .INTR => continue,
             .INVAL => return error.InvalidArgument,
             .FAULT => unreachable,
+            .NOENT => return error.ProcessNotFound,
             .AGAIN => return error.WouldBlock,
             .BADF => return error.NotOpenForWriting, // Can be a race condition.
             .DESTADDRREQ => unreachable, // `connect` was never called.
@@ -1488,6 +1505,7 @@ pub fn pwritev(fd: fd_t, iov: []const iovec_const, offset: u64) PWriteError!usiz
             .INTR => continue,
             .INVAL => return error.InvalidArgument,
             .FAULT => unreachable,
+            .NOENT => return error.ProcessNotFound,
             .AGAIN => return error.WouldBlock,
             .BADF => return error.NotOpenForWriting, // Can be a race condition.
             .DESTADDRREQ => unreachable, // `connect` was never called.
