@@ -1046,7 +1046,7 @@ pub const DynamicBitSet = struct {
     /// The allocator used by this bit set
     allocator: Allocator,
 
-    /// The number of valid items in this bit set
+    /// Underlying data structure
     unmanaged: DynamicBitSetUnmanaged = .{},
 
     /// Creates a bit set with no elements present.
