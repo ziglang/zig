@@ -2250,6 +2250,40 @@ or
       </p>
       {#header_close#}
 
+      <p>
+      A Zig packed struct behaves differently when it stands alone in the memory (non-packed
+      location) and when it is embedded in another packed struct or union as a field (packed
+      location). A Zig packed struct is also not the same as a packed struct attribute in C.
+      The following table highlights some differences:
+      </p>
+      <div class="table-wrapper">
+      <table>
+        <caption>Differences between Zig and C packed structs</caption>
+        <thead>
+        <tr>
+          <th scope="col">Property</th>
+          <th scope="col">Zig packed struct in non-packed location</th>
+          <th scope="col">Zig packed struct in packed location</th>
+          <th scope="col">C packed struct</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr>
+            <th scope="row">Size</th>
+            <td>Size of the backing integer.</td>
+            <td>Total number of bits of the fields.</td>
+            <td>Total number of bytes of the fields.</td>
+        </tr>
+        <tr>
+            <th scope="row">Alignment</th>
+            <td>Alignment of the backing integer.</td>
+            <td>Can start at any bit offset.</td>
+            <td>1 byte.</td>
+        </tr>
+        </tbody>
+      </table>
+      </div>
+
       {#header_open|Struct Naming#}
       <p>Since all structs are anonymous, Zig infers the type name based on a few rules.</p>
       <ul>
