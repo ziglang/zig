@@ -3785,8 +3785,26 @@ fn assignOp(
         else => undefined,
     };
     const lhs = try gz.addUnNode(.load, lhs_ptr, infix_node);
-    const lhs_type = try gz.addUnNode(.typeof, lhs, infix_node);
-    const rhs = try expr(gz, scope, .{ .rl = .{ .coerced_ty = lhs_type } }, node_datas[infix_node].rhs);
+
+    const rhs_res_ty = switch (op_inst_tag) {
+        .add,
+        .sub,
+        => try gz.add(.{
+            .tag = .extended,
+            .data = .{ .extended = .{
+                .opcode = .inplace_arith_result_ty,
+                .small = @intFromEnum(@as(Zir.Inst.InplaceOp, switch (op_inst_tag) {
+                    .add => .add_eq,
+                    .sub => .sub_eq,
+                    else => unreachable,
+                })),
+                .operand = @intFromEnum(lhs),
+            } },
+        }),
+        else => try gz.addUnNode(.typeof, lhs, infix_node), // same as LHS type
+    };
+    // Not `coerced_ty` since `add`/etc won't coerce to this type.
+    const rhs = try expr(gz, scope, .{ .rl = .{ .ty = rhs_res_ty } }, node_datas[infix_node].rhs);
 
     switch (op_inst_tag) {
         .add, .sub, .mul, .div, .mod_rem => {
