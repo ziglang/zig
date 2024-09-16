@@ -802,7 +802,6 @@ pub const ReadError = error{
     // This error occurs in Linux if the process to be read from
     // no longer exists.
     ProcessNotFound,
-
 } || UnexpectedError;
 
 /// Returns the number of bytes that were read, which can be less than
@@ -1189,7 +1188,6 @@ pub const WriteError = error{
     // This error occurs in Linux if the process being written to
     // no longer exists.
     ProcessNotFound,
-
 } || UnexpectedError;
 
 /// Write to a file descriptor.
