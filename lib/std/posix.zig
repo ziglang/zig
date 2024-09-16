@@ -799,8 +799,8 @@ pub const ReadError = error{
     /// not hold the required rights to read from it.
     AccessDenied,
 
-    // This error occurs in Linux if the process to be read from
-    // no longer exists.
+    /// This error occurs in Linux if the process to be read from
+    /// no longer exists.
     ProcessNotFound,
 } || UnexpectedError;
 
@@ -1185,8 +1185,8 @@ pub const WriteError = error{
     /// Connection reset by peer.
     ConnectionResetByPeer,
 
-    // This error occurs in Linux if the process being written to
-    // no longer exists.
+    /// This error occurs in Linux if the process being written to
+    /// no longer exists.
     ProcessNotFound,
 } || UnexpectedError;
 
