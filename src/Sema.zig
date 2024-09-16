@@ -36337,6 +36337,7 @@ pub fn resolveUnionLayout(sema: *Sema, ty: Type) SemaError!void {
 /// be resolved.
 pub fn resolveStructFully(sema: *Sema, ty: Type) SemaError!void {
     try sema.resolveStructLayout(ty);
+    try sema.resolveStructFieldInits(ty);
 
     const pt = sema.pt;
     const zcu = pt.zcu;

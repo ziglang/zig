@@ -1240,11 +1240,11 @@ fn semaCau(pt: Zcu.PerThread, cau_index: InternPool.Cau.Index) !SemaCauResult {
         };
     }
 
-    const nav_already_populated, const queue_linker_work, const resolve_type = switch (ip.indexToKey(decl_val.toIntern())) {
-        .func => |f| .{ f.owner_nav == nav_index, true, false },
-        .variable => |v| .{ false, v.owner_nav == nav_index, true },
-        .@"extern" => .{ false, false, false },
-        else => .{ false, true, true },
+    const nav_already_populated, const queue_linker_work = switch (ip.indexToKey(decl_val.toIntern())) {
+        .func => |f| .{ f.owner_nav == nav_index, true },
+        .variable => |v| .{ false, v.owner_nav == nav_index },
+        .@"extern" => .{ false, false },
+        else => .{ false, true },
     };
 
     if (nav_already_populated) {
@@ -1317,16 +1317,7 @@ fn semaCau(pt: Zcu.PerThread, cau_index: InternPool.Cau.Index) !SemaCauResult {
     queue_codegen: {
         if (!queue_linker_work) break :queue_codegen;
 
-        if (resolve_type) {
-            // Needed for codegen_nav which will call updateDecl and then the
-            // codegen backend wants full access to the Decl Type.
-            // We also need this for the `isFnOrHasRuntimeBits` check below.
-            // TODO: we could make the language more lenient by deferring this work
-            // to the `codegen_nav` job.
-            try decl_ty.resolveFully(pt);
-        }
-
-        if (!resolve_type or !decl_ty.hasRuntimeBits(zcu)) {
+        if (!try decl_ty.hasRuntimeBitsSema(pt)) {
             if (zcu.comp.config.use_llvm) break :queue_codegen;
             if (file.mod.strip) break :queue_codegen;
         }
