@@ -443,6 +443,7 @@ pub const AbiAndDynamicLinkerFromFileError = error{
     Unexpected,
     UnexpectedEndOfFile,
     NameTooLong,
+    ProcessNotFound,
 };
 
 pub fn abiAndDynamicLinkerFromFile(
@@ -1176,6 +1177,7 @@ fn preadAtLeast(file: fs.File, buf: []u8, offset: u64, min_read_len: usize) !usi
             error.Unexpected => return error.Unexpected,
             error.InputOutput => return error.FileSystem,
             error.AccessDenied => return error.Unexpected,
+            error.ProcessNotFound => return error.ProcessNotFound,
         };
         if (len == 0) return error.UnexpectedEndOfFile;
         i += len;
