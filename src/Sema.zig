@@ -38664,9 +38664,9 @@ const SliceAnalysis = packed struct(u32) {
         allow_limited_slice_of_undefined: bool = true,
         /// Extend feature to `@ptrCast` and (when possible) `@ptrFromInt`.
         prevent_inval_ptr: bool = true,
-        /// Check implicitly propagated sentinels. Previous implementation only
-        /// did so for `comptime`-known memory.
-        check_implicit_sentinel: bool = true,
+        /// Check implicitly propagated sentinels. The previous implementation
+        /// only did so for `comptime`-known memory.
+        check_implicit_sentinel: bool = false,
     };
     // These functions exist so that there is no confusion about the meaning of
     // potentially unusual control flow in the function body.
@@ -39051,11 +39051,7 @@ fn analyzeSlice2(
                 break :val val;
             }
         }
-        if (feature.check_implicit_sentinel) {
-            break :val src_sent_val;
-        } else {
-            break :val Value.undef;
-        }
+        break :val src_sent_val;
     };
 
     if (sa.dest_sent == .variable) {
@@ -39184,7 +39180,9 @@ fn analyzeSlice2(
     if (ret_sent_ip != .none) {
         if (dest_ptr_explicit_len) {
             sa.eq_sentinel = sa.sentinelPtrByDest();
-        } else if (src_ptr_explicit_len) {
+        } else if (feature.check_implicit_sentinel and
+            src_ptr_explicit_len)
+        {
             sa.eq_sentinel = sa.sentinelPtrBySrc();
         }
     }
