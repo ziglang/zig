@@ -832,6 +832,7 @@ fn glibcVerFromRPath(rpath: []const u8) !std.SemanticVersion {
         error.UnableToReadElfFile,
         error.Unexpected,
         error.FileSystem,
+        error.ProcessNotFound,
         => |e| return e,
     };
 }
@@ -1122,6 +1123,7 @@ fn detectAbiAndDynamicLinker(
         error.SymLinkLoop,
         error.ProcessFdQuotaExceeded,
         error.SystemFdQuotaExceeded,
+        error.ProcessNotFound,
         => |e| return e,
 
         error.UnableToReadElfFile,
