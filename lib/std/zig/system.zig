@@ -1078,6 +1078,7 @@ fn detectAbiAndDynamicLinker(
             const len = preadAtLeast(file, &buffer, 0, min_len) catch |err| switch (err) {
                 error.UnexpectedEndOfFile,
                 error.UnableToReadElfFile,
+                error.ProcessNotFound,
                 => return defaultAbiAndDynamicLinker(cpu, os, query),
 
                 else => |e| return e,
