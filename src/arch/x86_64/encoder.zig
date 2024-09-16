@@ -233,7 +233,7 @@ pub const Instruction = struct {
             _ = unused_format_string;
             _ = options;
             _ = writer;
-            @compileError("do not format Operand directly; use fmtPrint() instead");
+            @compileError("do not format Operand directly; use fmt() instead");
         }
 
         const FormatContext = struct {
@@ -241,7 +241,7 @@ pub const Instruction = struct {
             enc_op: Encoding.Op,
         };
 
-        fn fmt(
+        fn fmtContext(
             ctx: FormatContext,
             comptime unused_format_string: []const u8,
             options: std.fmt.FormatOptions,
@@ -309,7 +309,7 @@ pub const Instruction = struct {
             }
         }
 
-        pub fn fmtPrint(op: Operand, enc_op: Encoding.Op) std.fmt.Formatter(fmt) {
+        pub fn fmt(op: Operand, enc_op: Encoding.Op) std.fmt.Formatter(fmtContext) {
             return .{ .data = .{ .op = op, .enc_op = enc_op } };
         }
     };
@@ -373,7 +373,7 @@ pub const Instruction = struct {
             if (op == .none) break;
             if (i > 0) try writer.writeByte(',');
             try writer.writeByte(' ');
-            try writer.print("{}", .{op.fmtPrint(enc)});
+            try writer.print("{}", .{op.fmt(enc)});
         }
     }
 

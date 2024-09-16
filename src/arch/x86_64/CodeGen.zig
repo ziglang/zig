@@ -36,6 +36,7 @@ const abi = @import("abi.zig");
 const bits = @import("bits.zig");
 const errUnionErrorOffset = codegen.errUnionErrorOffset;
 const errUnionPayloadOffset = codegen.errUnionPayloadOffset;
+const encoder = @import("encoder.zig");
 
 const Condition = bits.Condition;
 const Immediate = bits.Immediate;
@@ -1187,6 +1188,74 @@ fn formatWipMir(
         if (!first) try writer.writeAll("\ndebug(wip_mir): ");
         try writer.print("  | {}", .{lowered_inst});
         first = false;
+    }
+    if (first) {
+        const ip = &data.self.pt.zcu.intern_pool;
+        const mir_inst = lower.mir.instructions.get(data.inst);
+        try writer.print("  | .{s}", .{@tagName(mir_inst.ops)});
+        switch (mir_inst.ops) {
+            else => unreachable,
+            .pseudo_dbg_prologue_end_none,
+            .pseudo_dbg_line_line_column,
+            .pseudo_dbg_epilogue_begin_none,
+            .pseudo_dbg_enter_block_none,
+            .pseudo_dbg_leave_block_none,
+            .pseudo_dbg_var_args_none,
+            .pseudo_dead_none,
+            => {},
+            .pseudo_dbg_enter_inline_func, .pseudo_dbg_leave_inline_func => try writer.print(" {}", .{
+                ip.getNav(ip.indexToKey(mir_inst.data.func).func.owner_nav).name.fmt(ip),
+            }),
+            .pseudo_dbg_local_a => try writer.print(" {}", .{mir_inst.data.a.air_inst}),
+            .pseudo_dbg_local_ai_s => try writer.print(" {}, {d}", .{
+                mir_inst.data.ai.air_inst,
+                @as(i32, @bitCast(mir_inst.data.ai.i)),
+            }),
+            .pseudo_dbg_local_ai_u => try writer.print(" {}, {d}", .{
+                mir_inst.data.ai.air_inst,
+                mir_inst.data.ai.i,
+            }),
+            .pseudo_dbg_local_ai_64 => try writer.print(" {}, {d}", .{
+                mir_inst.data.ai.air_inst,
+                lower.mir.extraData(Mir.Imm64, mir_inst.data.ai.i).data.decode(),
+            }),
+            .pseudo_dbg_local_as => {
+                const mem_op: Instruction.Operand = .{ .mem = .initSib(.qword, .{
+                    .base = .{ .reloc = mir_inst.data.as.sym_index },
+                }) };
+                try writer.print(" {}, {}", .{ mir_inst.data.as.air_inst, mem_op.fmt(.m) });
+            },
+            .pseudo_dbg_local_aso => {
+                const sym_off = lower.mir.extraData(bits.SymbolOffset, mir_inst.data.ax.payload).data;
+                const mem_op: Instruction.Operand = .{ .mem = .initSib(.qword, .{
+                    .base = .{ .reloc = sym_off.sym_index },
+                    .disp = sym_off.off,
+                }) };
+                try writer.print(" {}, {}", .{ mir_inst.data.ax.air_inst, mem_op.fmt(.m) });
+            },
+            .pseudo_dbg_local_aro => {
+                const air_off = lower.mir.extraData(Mir.AirOffset, mir_inst.data.rx.payload).data;
+                const mem_op: Instruction.Operand = .{ .mem = .initSib(.qword, .{
+                    .base = .{ .reg = mir_inst.data.rx.r1 },
+                    .disp = air_off.off,
+                }) };
+                try writer.print(" {}, {}", .{ air_off.air_inst, mem_op.fmt(.m) });
+            },
+            .pseudo_dbg_local_af => {
+                const frame_addr = lower.mir.extraData(bits.FrameAddr, mir_inst.data.ax.payload).data;
+                const mem_op: Instruction.Operand = .{ .mem = .initSib(.qword, .{
+                    .base = .{ .frame = frame_addr.index },
+                    .disp = frame_addr.off,
+                }) };
+                try writer.print(" {}, {d}", .{ mir_inst.data.ax.air_inst, mem_op.fmt(.m) });
+            },
+            .pseudo_dbg_local_am => {
+                const mem_op: Instruction.Operand = .{
+                    .mem = lower.mir.extraData(Mir.Memory, mir_inst.data.ax.payload).data.decode(),
+                };
+                try writer.print(" {}, {}", .{ mir_inst.data.ax.air_inst, mem_op.fmt(.m) });
+            },
+        }
     }
 }
 fn fmtWipMir(self: *Self, inst: Mir.Inst.Index) std.fmt.Formatter(formatWipMir) {
