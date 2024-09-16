@@ -172,6 +172,7 @@ pub const DetectError = error{
     DeviceBusy,
     OSVersionDetectionFail,
     Unexpected,
+    ProcessNotFound,
 };
 
 /// Given a `Target.Query`, which specifies in detail which parts of the
