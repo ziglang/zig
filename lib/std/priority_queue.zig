@@ -18,11 +18,20 @@ pub fn PriorityQueue(comptime T: type, comptime Context: type, comptime compareF
     return struct {
         const Self = @This();
 
-        items: []T = undefined,
+        items: []T,
         /// The capacity of the queue. This may be read directly, but must not
         /// be modified directly.
-        capacity: usize = 0,
+        capacity: usize,
         context: Context,
+
+        /// Initialize and return an empty PriorityQueue.
+        pub fn init(context: Context) Self {
+            return .{
+                .items = &[_]T{},
+                .capacity = 0,
+                .context = context,
+            };
+        }
 
         /// Free memory used by the queue.
         pub fn deinit(self: Self, allocator: std.mem.Allocator) void {
@@ -168,7 +177,11 @@ pub fn PriorityQueue(comptime T: type, comptime Context: type, comptime compareF
         }
 
         /// Ensure that the queue can fit at least `new_capacity` items.
-        pub fn ensureTotalCapacity(self: *Self, allocator: std.mem.Allocator, new_capacity: usize) !void {
+        pub fn ensureTotalCapacity(
+            self: *Self,
+            allocator: std.mem.Allocator,
+            new_capacity: usize,
+        ) !void {
             var better_capacity = self.capacity;
             if (better_capacity >= new_capacity) return;
             while (true) {
@@ -283,7 +296,7 @@ const PQgt = PriorityQueue(u32, void, greaterThan);
 
 test "add and remove min heap" {
     const allocator = std.testing.allocator;
-    var queue: PQlt = .{ .context = {} };
+    var queue = PQlt.init({});
     defer queue.deinit(allocator);
 
     try queue.add(allocator, 54);
@@ -302,7 +315,7 @@ test "add and remove min heap" {
 
 test "add and remove same min heap" {
     const allocator = std.testing.allocator;
-    var queue: PQlt = .{ .context = {} };
+    var queue = PQlt.init({});
     defer queue.deinit(allocator);
 
     try queue.add(allocator, 1);
@@ -321,7 +334,7 @@ test "add and remove same min heap" {
 
 test "removeOrNull on empty" {
     const allocator = std.testing.allocator;
-    var queue: PQlt = .{ .context = {} };
+    var queue = PQlt.init({});
     defer queue.deinit(allocator);
 
     try expect(queue.removeOrNull() == null);
@@ -329,7 +342,7 @@ test "removeOrNull on empty" {
 
 test "edge case 3 elements" {
     const allocator = std.testing.allocator;
-    var queue: PQlt = .{ .context = {} };
+    var queue = PQlt.init({});
     defer queue.deinit(allocator);
 
     try queue.add(allocator, 9);
@@ -342,7 +355,7 @@ test "edge case 3 elements" {
 
 test "peek" {
     const allocator = std.testing.allocator;
-    var queue: PQlt = .{ .context = {} };
+    var queue = PQlt.init({});
     defer queue.deinit(allocator);
 
     try expect(queue.peek() == null);
@@ -355,7 +368,7 @@ test "peek" {
 
 test "sift up with odd indices" {
     const allocator = std.testing.allocator;
-    var queue: PQlt = .{ .context = {} };
+    var queue = PQlt.init({});
     defer queue.deinit(allocator);
 
     const items = [_]u32{ 15, 7, 21, 14, 13, 22, 12, 6, 7, 25, 5, 24, 11, 16, 15, 24, 2, 1 };
@@ -369,7 +382,7 @@ test "sift up with odd indices" {
 
 test "addSlice" {
     const allocator = std.testing.allocator;
-    var queue: PQlt = .{ .context = {} };
+    var queue = PQlt.init({});
     defer queue.deinit(allocator);
 
     const items = [_]u32{ 15, 7, 21, 14, 13, 22, 12, 6, 7, 25, 5, 24, 11, 16, 15, 24, 2, 1 };
@@ -418,7 +431,7 @@ test "fromOwnedSlice" {
 
 test "add and remove max heap" {
     const allocator = testing.allocator;
-    var queue: PQgt = .{ .context = {} };
+    var queue = PQgt.init({});
     defer queue.deinit(allocator);
 
     try queue.add(allocator, 54);
@@ -437,7 +450,7 @@ test "add and remove max heap" {
 
 test "add and remove same max heap" {
     const allocator = testing.allocator;
-    var queue: PQgt = .{ .context = {} };
+    var queue = PQgt.init({});
     defer queue.deinit(allocator);
 
     try queue.add(allocator, 1);
@@ -456,7 +469,7 @@ test "add and remove same max heap" {
 
 test "iterator" {
     const allocator = testing.allocator;
-    var queue: PQlt = .{ .context = {} };
+    var queue = PQlt.init({});
     defer queue.deinit(allocator);
 
     var map = std.AutoHashMap(u32, void).init(allocator);
@@ -478,7 +491,7 @@ test "iterator" {
 
 test "remove at index" {
     const allocator = testing.allocator;
-    var queue: PQlt = .{ .context = {} };
+    var queue = PQlt.init({});
     defer queue.deinit(allocator);
 
     const items = [_]u32{ 2, 1, 8, 9, 3, 4, 5 };
@@ -503,7 +516,7 @@ test "remove at index" {
 
 test "iterator while empty" {
     const allocator = testing.allocator;
-    var queue: PQlt = .{ .context = {} };
+    var queue = PQlt.init({});
     defer queue.deinit(allocator);
 
     var it = queue.iterator();
@@ -513,7 +526,7 @@ test "iterator while empty" {
 
 test "shrinkAndFree" {
     const allocator = std.testing.allocator;
-    var queue: PQlt = .{ .context = {} };
+    var queue = PQlt.init({});
     defer queue.deinit(allocator);
 
     try queue.ensureTotalCapacity(allocator, 4);
@@ -537,7 +550,7 @@ test "shrinkAndFree" {
 
 test "update min heap" {
     const allocator = std.testing.allocator;
-    var queue: PQlt = .{ .context = {} };
+    var queue = PQlt.init({});
     defer queue.deinit(allocator);
 
     try queue.add(allocator, 55);
@@ -553,7 +566,7 @@ test "update min heap" {
 
 test "update same min heap" {
     const allocator = std.testing.allocator;
-    var queue: PQlt = .{ .context = {} };
+    var queue = PQlt.init({});
     defer queue.deinit(allocator);
 
     try queue.add(allocator, 1);
@@ -570,7 +583,7 @@ test "update same min heap" {
 
 test "update max heap" {
     const allocator = std.testing.allocator;
-    var queue: PQgt = .{ .context = {} };
+    var queue = PQgt.init({});
     defer queue.deinit(allocator);
 
     try queue.add(allocator, 55);
@@ -586,7 +599,7 @@ test "update max heap" {
 
 test "update same max heap" {
     const allocator = std.testing.allocator;
-    var queue: PQgt = .{ .context = {} };
+    var queue = PQgt.init({});
     defer queue.deinit(allocator);
 
     try queue.add(allocator, 1);
@@ -603,7 +616,7 @@ test "update same max heap" {
 
 test "update after remove" {
     const allocator = std.testing.allocator;
-    var queue: PQlt = .{ .context = {} };
+    var queue = PQlt.init({});
     defer queue.deinit(allocator);
 
     try queue.add(allocator, 1);
@@ -613,7 +626,7 @@ test "update after remove" {
 
 test "siftUp in remove" {
     const allocator = std.testing.allocator;
-    var queue: PQlt = .{ .context = {} };
+    var queue = PQlt.init({});
     defer queue.deinit(allocator);
 
     try queue.addSlice(
@@ -637,9 +650,8 @@ const CPQlt = PriorityQueue(usize, []const u32, contextLessThan);
 
 test "add and remove min heap with context comparator" {
     const allocator = std.testing.allocator;
-    var queue: CPQlt = .{
-        .context = &[_]u32{ 5, 3, 4, 2, 2, 8, 0 },
-    };
+    const context = [_]u32{ 5, 3, 4, 2, 2, 8, 0 };
+    var queue = CPQlt.init(&context);
     defer queue.deinit(allocator);
 
     try queue.add(allocator, 0);
