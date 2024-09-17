@@ -34,7 +34,9 @@ pub fn PriorityDequeue(comptime T: type, comptime Context: type, comptime compar
 
         /// Free memory used by the dequeue.
         pub fn deinit(self: Self, allocator: std.mem.Allocator) void {
-            allocator.free(self.items);
+            if (self.items.len > 0) {
+                allocator.free(self.items);
+            }
         }
 
         /// Insert a new element, maintaining priority.

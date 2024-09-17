@@ -19,23 +19,25 @@ pub fn PriorityQueue(comptime T: type, comptime Context: type, comptime compareF
         const Self = @This();
 
         items: []T,
-        /// The capacity of the queue. This may be read directly, but must not
+        /// The current size of the queue. This may be read directly, but must not
         /// be modified directly.
-        capacity: usize,
+        len: usize,
         context: Context,
 
         /// Initialize and return an empty PriorityQueue.
         pub fn init(context: Context) Self {
             return .{
                 .items = &[_]T{},
-                .capacity = 0,
+                .len = 0,
                 .context = context,
             };
         }
 
         /// Free memory used by the queue.
         pub fn deinit(self: Self, allocator: std.mem.Allocator) void {
-            allocator.free(self.allocatedSlice());
+            if (self.items.len > 0) {
+                allocator.free(self.items);
+            }
         }
 
         /// Insert a new element, maintaining priority.
@@ -47,9 +49,13 @@ pub fn PriorityQueue(comptime T: type, comptime Context: type, comptime compareF
         /// Insert a new element, maintaining priority. Assumes there is enough
         /// capacity in the queue for the additional item.
         pub fn addAssumeCapacity(self: *Self, elem: T) void {
-            self.items.len += 1;
-            self.items[self.items.len - 1] = elem;
-            siftUp(self, self.items.len - 1);
+            self.items[self.len] = elem;
+
+            if (self.len > 0) {
+                self.siftUp(self.len);
+            }
+
+            self.len += 1;
         }
 
         fn siftUp(self: *Self, start_index: usize) void {
@@ -82,13 +88,13 @@ pub fn PriorityQueue(comptime T: type, comptime Context: type, comptime compareF
         /// Look at the highest priority element in the queue. Returns
         /// `null` if empty.
         pub fn peek(self: *Self) ?T {
-            return if (self.items.len > 0) self.items[0] else null;
+            return if (self.len > 0) self.items[0] else null;
         }
 
         /// Pop the highest priority element from the queue. Returns
         /// `null` if empty.
         pub fn removeOrNull(self: *Self) ?T {
-            return if (self.items.len > 0) self.remove() else null;
+            return if (self.len > 0) self.remove() else null;
         }
 
         /// Remove and return the highest priority element from the
@@ -101,23 +107,23 @@ pub fn PriorityQueue(comptime T: type, comptime Context: type, comptime compareF
         /// same order as iterator, which is not necessarily priority
         /// order.
         pub fn removeIndex(self: *Self, index: usize) T {
-            assert(self.items.len > index);
-            const last = self.items[self.items.len - 1];
+            assert(self.len > index);
+            const last = self.items[self.len - 1];
             const item = self.items[index];
             self.items[index] = last;
-            self.items.len -= 1;
+            self.len -= 1;
 
-            if (index == self.items.len) {
+            if (index == self.len) {
                 // Last element removed, nothing more to do.
             } else if (index == 0) {
-                siftDown(self, index);
+                self.siftDown(index);
             } else {
                 const parent_index = ((index - 1) >> 1);
                 const parent = self.items[parent_index];
                 if (compareFn(self.context, last, parent) == .gt) {
-                    siftDown(self, index);
+                    self.siftDown(index);
                 } else {
-                    siftUp(self, index);
+                    self.siftUp(index);
                 }
             }
 
@@ -127,14 +133,7 @@ pub fn PriorityQueue(comptime T: type, comptime Context: type, comptime compareF
         /// Return the number of elements remaining in the priority
         /// queue.
         pub fn count(self: Self) usize {
-            return self.items.len;
-        }
-
-        /// Returns a slice of all the items plus the extra capacity, whose memory
-        /// contents are `undefined`.
-        fn allocatedSlice(self: Self) []T {
-            // `items.len` is the length, not the capacity.
-            return self.items.ptr[0..self.capacity];
+            return self.len;
         }
 
         fn siftDown(self: *Self, target_index: usize) void {
@@ -142,10 +141,10 @@ pub fn PriorityQueue(comptime T: type, comptime Context: type, comptime compareF
             var index = target_index;
             while (true) {
                 var lesser_child_i = (std.math.mul(usize, index, 2) catch break) | 1;
-                if (!(lesser_child_i < self.items.len)) break;
+                if (!(lesser_child_i < self.len)) break;
 
                 const next_child_i = lesser_child_i + 1;
-                if (next_child_i < self.items.len and compareFn(self.context, self.items[next_child_i], self.items[lesser_child_i]) == .lt) {
+                if (next_child_i < self.len and compareFn(self.context, self.items[next_child_i], self.items[lesser_child_i]) == .lt) {
                     lesser_child_i = next_child_i;
                 }
 
@@ -164,11 +163,11 @@ pub fn PriorityQueue(comptime T: type, comptime Context: type, comptime compareF
         pub fn fromOwnedSlice(items: []T, context: Context) Self {
             var self = Self{
                 .items = items,
-                .capacity = items.len,
+                .len = items.len,
                 .context = context,
             };
 
-            var i = self.items.len >> 1;
+            var i = self.len >> 1;
             while (i > 0) {
                 i -= 1;
                 self.siftDown(i);
@@ -182,48 +181,41 @@ pub fn PriorityQueue(comptime T: type, comptime Context: type, comptime compareF
             allocator: std.mem.Allocator,
             new_capacity: usize,
         ) !void {
-            var better_capacity = self.capacity;
+            var better_capacity = self.items.len;
             if (better_capacity >= new_capacity) return;
             while (true) {
                 better_capacity += better_capacity / 2 + 8;
                 if (better_capacity >= new_capacity) break;
             }
-            const old_memory = self.allocatedSlice();
-            const new_memory = try allocator.realloc(old_memory, better_capacity);
-            self.items.ptr = new_memory.ptr;
-            self.capacity = new_memory.len;
+            self.items = try allocator.realloc(self.items, better_capacity);
         }
 
         /// Ensure that the queue can fit at least `additional_count` **more** item.
         pub fn ensureUnusedCapacity(self: *Self, allocator: std.mem.Allocator, additional_count: usize) !void {
             return self.ensureTotalCapacity(
                 allocator,
-                self.items.len + additional_count,
+                self.len + additional_count,
             );
         }
 
         /// Reduce allocated capacity to `new_capacity`.
         pub fn shrinkAndFree(self: *Self, allocator: std.mem.Allocator, new_capacity: usize) void {
-            assert(new_capacity <= self.capacity);
+            assert(new_capacity <= self.items.len);
 
             // Cannot shrink to smaller than the current queue size without invalidating the heap property
-            assert(new_capacity >= self.items.len);
+            assert(new_capacity >= self.len);
 
-            const old_memory = self.allocatedSlice();
-            const new_memory = allocator.realloc(old_memory, new_capacity) catch |e| switch (e) {
+            self.items = allocator.realloc(self.items, new_capacity) catch |e| switch (e) {
                 error.OutOfMemory => { // no problem, capacity is still correct then.
                     return;
                 },
             };
-
-            self.items.ptr = new_memory.ptr;
-            self.capacity = new_memory.len;
         }
 
         pub fn update(self: *Self, elem: T, new_elem: T) !void {
             const update_index = blk: {
                 var idx: usize = 0;
-                while (idx < self.items.len) : (idx += 1) {
+                while (idx < self.len) : (idx += 1) {
                     const item = self.items[idx];
                     if (compareFn(self.context, item, elem) == .eq) break :blk idx;
                 }
@@ -243,7 +235,7 @@ pub fn PriorityQueue(comptime T: type, comptime Context: type, comptime compareF
             count: usize,
 
             pub fn next(it: *Iterator) ?T {
-                if (it.count >= it.queue.items.len) return null;
+                if (it.count >= it.queue.len) return null;
                 const out = it.count;
                 it.count += 1;
                 return it.queue.items[out];
@@ -275,8 +267,8 @@ pub fn PriorityQueue(comptime T: type, comptime Context: type, comptime compareF
             for (self.items) |e| {
                 print("{}, ", .{e});
             }
-            print("len: {} ", .{self.items.len});
-            print("capacity: {}", .{self.capacity});
+            print("len: {} ", .{self.len});
+            print("capacity: {}", .{self.items.len});
             print(" }}\n", .{});
         }
     };
@@ -530,16 +522,16 @@ test "shrinkAndFree" {
     defer queue.deinit(allocator);
 
     try queue.ensureTotalCapacity(allocator, 4);
-    try expect(queue.capacity >= 4);
+    try expect(queue.items.len >= 4);
 
     try queue.add(allocator, 1);
     try queue.add(allocator, 2);
     try queue.add(allocator, 3);
-    try expect(queue.capacity >= 4);
+    try expect(queue.items.len >= 4);
     try expectEqual(@as(usize, 3), queue.count());
 
     queue.shrinkAndFree(allocator, 3);
-    try expectEqual(@as(usize, 3), queue.capacity);
+    try expectEqual(@as(usize, 3), queue.items.len);
     try expectEqual(@as(usize, 3), queue.count());
 
     try expectEqual(@as(u32, 1), queue.remove());
