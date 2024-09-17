@@ -121,7 +121,7 @@ pub fn discardTranslations(qzz: []const u8) void {
 }
 
 pub fn innerThreads(qzz: [*]u8) void {
-    doClientRequestStmt(.InnerThreads, qzz, 0, 0, 0, 0);
+    doClientRequestStmt(.InnerThreads, @intFromPtr(qzz), 0, 0, 0, 0);
 }
 
 pub fn nonSimdCall0(func: fn (usize) usize) usize {
@@ -273,7 +273,7 @@ pub fn enableErrorReporting() void {
 /// If no connection is opened, output will go to the log output.
 /// Returns 1 if command not recognised, 0 otherwise.
 pub fn monitorCommand(command: [*]u8) bool {
-    return doClientRequestExpr(0, .GdbMonitorCommand, @intFromPtr(command.ptr), 0, 0, 0, 0) != 0;
+    return doClientRequestExpr(0, .GdbMonitorCommand, @intFromPtr(command), 0, 0, 0, 0) != 0;
 }
 
 pub const memcheck = @import("valgrind/memcheck.zig");
