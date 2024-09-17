@@ -1729,3 +1729,65 @@ test "@clz works on both vector and scalar inputs" {
     try std.testing.expectEqual(@as(u6, 31), a);
     try std.testing.expectEqual([_]u6{ 31, 31, 31, 31 }, b);
 }
+
+test "runtime comparison to NaN is comptime-known" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.cpu.arch.isArmOrThumb() and builtin.target.floatAbi() == .soft) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21234
+
+    const S = struct {
+        fn doTheTest(comptime F: type, x: F) void {
+            const nan = math.nan(F);
+            if (!(nan != x)) comptime unreachable;
+            if (nan == x) comptime unreachable;
+            if (nan > x) comptime unreachable;
+            if (nan < x) comptime unreachable;
+            if (nan >= x) comptime unreachable;
+            if (nan <= x) comptime unreachable;
+        }
+    };
+
+    S.doTheTest(f16, 123.0);
+    S.doTheTest(f32, 123.0);
+    S.doTheTest(f64, 123.0);
+    S.doTheTest(f128, 123.0);
+    comptime S.doTheTest(f16, 123.0);
+    comptime S.doTheTest(f32, 123.0);
+    comptime S.doTheTest(f64, 123.0);
+    comptime S.doTheTest(f128, 123.0);
+}
+
+test "runtime int comparison to inf is comptime-known" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.cpu.arch.isArmOrThumb() and builtin.target.floatAbi() == .soft) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21234
+
+    const S = struct {
+        fn doTheTest(comptime F: type, x: u32) void {
+            const inf = math.inf(F);
+            if (!(inf != x)) comptime unreachable;
+            if (inf == x) comptime unreachable;
+            if (x > inf) comptime unreachable;
+            if (x >= inf) comptime unreachable;
+            if (!(x < inf)) comptime unreachable;
+            if (!(x <= inf)) comptime unreachable;
+        }
+    };
+
+    S.doTheTest(f16, 123);
+    S.doTheTest(f32, 123);
+    S.doTheTest(f64, 123);
+    S.doTheTest(f128, 123);
+    comptime S.doTheTest(f16, 123);
+    comptime S.doTheTest(f32, 123);
+    comptime S.doTheTest(f64, 123);
+    comptime S.doTheTest(f128, 123);
+}

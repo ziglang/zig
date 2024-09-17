@@ -17911,12 +17911,15 @@ fn cmpSelf(
     const pt = sema.pt;
     const zcu = pt.zcu;
     const resolved_type = sema.typeOf(casted_lhs);
-    const runtime_src: LazySrcLoc = src: {
-        if (try sema.resolveValue(casted_lhs)) |lhs_val| {
-            if (lhs_val.isUndef(zcu)) return pt.undefRef(Type.bool);
-            if (try sema.resolveValue(casted_rhs)) |rhs_val| {
-                if (rhs_val.isUndef(zcu)) return pt.undefRef(Type.bool);
 
+    const maybe_lhs_val = try sema.resolveValue(casted_lhs);
+    const maybe_rhs_val = try sema.resolveValue(casted_rhs);
+    if (maybe_lhs_val) |v| if (v.isUndef(zcu)) return pt.undefRef(Type.bool);
+    if (maybe_rhs_val) |v| if (v.isUndef(zcu)) return pt.undefRef(Type.bool);
+
+    const runtime_src: LazySrcLoc = src: {
+        if (maybe_lhs_val) |lhs_val| {
+            if (maybe_rhs_val) |rhs_val| {
                 if (resolved_type.zigTypeTag(zcu) == .vector) {
                     const cmp_val = try sema.compareVector(lhs_val, op, rhs_val, resolved_type);
                     return Air.internedToRef(cmp_val.toIntern());
@@ -17937,8 +17940,7 @@ fn cmpSelf(
             // For bools, we still check the other operand, because we can lower
             // bool eq/neq more efficiently.
             if (resolved_type.zigTypeTag(zcu) == .bool) {
-                if (try sema.resolveValue(casted_rhs)) |rhs_val| {
-                    if (rhs_val.isUndef(zcu)) return pt.undefRef(Type.bool);
+                if (maybe_rhs_val) |rhs_val| {
                     return sema.runtimeBoolCmp(block, src, op, casted_lhs, rhs_val.toBool(), lhs_src);
                 }
             }
@@ -33837,51 +33839,61 @@ fn cmpNumeric(
     else
         uncasted_rhs;
 
-    const runtime_src: LazySrcLoc = src: {
-        if (try sema.resolveValue(lhs)) |lhs_val| {
-            if (try sema.resolveValue(rhs)) |rhs_val| {
-                // Compare ints: const vs. undefined (or vice versa)
-                if (!lhs_val.isUndef(zcu) and (lhs_ty.isInt(zcu) or lhs_ty_tag == .comptime_int) and rhs_ty.isInt(zcu) and rhs_val.isUndef(zcu)) {
-                    if (try sema.compareIntsOnlyPossibleResult(try sema.resolveLazyValue(lhs_val), op, rhs_ty)) |res| {
-                        return if (res) .bool_true else .bool_false;
-                    }
-                } else if (!rhs_val.isUndef(zcu) and (rhs_ty.isInt(zcu) or rhs_ty_tag == .comptime_int) and lhs_ty.isInt(zcu) and lhs_val.isUndef(zcu)) {
-                    if (try sema.compareIntsOnlyPossibleResult(try sema.resolveLazyValue(rhs_val), op.reverse(), lhs_ty)) |res| {
-                        return if (res) .bool_true else .bool_false;
-                    }
-                }
+    const maybe_lhs_val = try sema.resolveValue(lhs);
+    const maybe_rhs_val = try sema.resolveValue(rhs);
 
-                if (lhs_val.isUndef(zcu) or rhs_val.isUndef(zcu)) {
-                    return pt.undefRef(Type.bool);
-                }
-                if (lhs_val.isNan(zcu) or rhs_val.isNan(zcu)) {
-                    return if (op == std.math.CompareOperator.neq) .bool_true else .bool_false;
-                }
-                return if (try Value.compareHeteroSema(lhs_val, op, rhs_val, pt))
-                    .bool_true
-                else
-                    .bool_false;
-            } else {
-                if (!lhs_val.isUndef(zcu) and (lhs_ty.isInt(zcu) or lhs_ty_tag == .comptime_int) and rhs_ty.isInt(zcu)) {
-                    // Compare ints: const vs. var
-                    if (try sema.compareIntsOnlyPossibleResult(try sema.resolveLazyValue(lhs_val), op, rhs_ty)) |res| {
-                        return if (res) .bool_true else .bool_false;
-                    }
-                }
-                break :src rhs_src;
+    // If the LHS is const, check if there is a guaranteed result which does not depend on ths RHS value.
+    if (maybe_lhs_val) |lhs_val| {
+        // Result based on comparison exceeding type bounds
+        if (!lhs_val.isUndef(zcu) and (lhs_ty_tag == .int or lhs_ty_tag == .comptime_int) and rhs_ty.isInt(zcu)) {
+            if (try sema.compareIntsOnlyPossibleResult(lhs_val, op, rhs_ty)) |res| {
+                return if (res) .bool_true else .bool_false;
             }
-        } else {
-            if (try sema.resolveValueResolveLazy(rhs)) |rhs_val| {
-                if (!rhs_val.isUndef(zcu) and (rhs_ty.isInt(zcu) or rhs_ty_tag == .comptime_int) and lhs_ty.isInt(zcu)) {
-                    // Compare ints: var vs. const
-                    if (try sema.compareIntsOnlyPossibleResult(try sema.resolveLazyValue(rhs_val), op.reverse(), lhs_ty)) |res| {
-                        return if (res) .bool_true else .bool_false;
-                    }
-                }
-            }
-            break :src lhs_src;
         }
-    };
+        // Result based on NaN comparison
+        if (lhs_val.isNan(zcu)) {
+            return if (op == .neq) .bool_true else .bool_false;
+        }
+        // Result based on inf comparison to int
+        if (lhs_val.isInf(zcu) and rhs_ty_tag == .int) return switch (op) {
+            .neq => .bool_true,
+            .eq => .bool_false,
+            .gt, .gte => if (lhs_val.isNegativeInf(zcu)) .bool_false else .bool_true,
+            .lt, .lte => if (lhs_val.isNegativeInf(zcu)) .bool_true else .bool_false,
+        };
+    }
+
+    // If the RHS is const, check if there is a guaranteed result which does not depend on ths LHS value.
+    if (maybe_rhs_val) |rhs_val| {
+        // Result based on comparison exceeding type bounds
+        if (!rhs_val.isUndef(zcu) and (rhs_ty_tag == .int or rhs_ty_tag == .comptime_int) and lhs_ty.isInt(zcu)) {
+            if (try sema.compareIntsOnlyPossibleResult(rhs_val, op.reverse(), lhs_ty)) |res| {
+                return if (res) .bool_true else .bool_false;
+            }
+        }
+        // Result based on NaN comparison
+        if (rhs_val.isNan(zcu)) {
+            return if (op == .neq) .bool_true else .bool_false;
+        }
+        // Result based on inf comparison to int
+        if (rhs_val.isInf(zcu) and lhs_ty_tag == .int) return switch (op) {
+            .neq => .bool_true,
+            .eq => .bool_false,
+            .gt, .gte => if (rhs_val.isNegativeInf(zcu)) .bool_true else .bool_false,
+            .lt, .lte => if (rhs_val.isNegativeInf(zcu)) .bool_false else .bool_true,
+        };
+    }
+
+    // Any other comparison depends on both values, so the result is undef if either is undef.
+    if (maybe_lhs_val) |v| if (v.isUndef(zcu)) return pt.undefRef(Type.bool);
+    if (maybe_rhs_val) |v| if (v.isUndef(zcu)) return pt.undefRef(Type.bool);
+
+    const runtime_src: LazySrcLoc = if (maybe_lhs_val) |lhs_val| rs: {
+        if (maybe_rhs_val) |rhs_val| {
+            const res = try Value.compareHeteroSema(lhs_val, op, rhs_val, pt);
+            return if (res) .bool_true else .bool_false;
+        } else break :rs rhs_src;
+    } else lhs_src;
 
     // TODO handle comparisons against lazy zero values
     // Some values can be compared against zero without being runtime-known or without forcing
@@ -33919,17 +33931,18 @@ fn cmpNumeric(
         const casted_rhs = try sema.coerce(block, dest_ty, rhs, rhs_src);
         return block.addBinOp(Air.Inst.Tag.fromCmpOp(op, block.float_mode == .optimized), casted_lhs, casted_rhs);
     }
+
     // For mixed unsigned integer sizes, implicit cast both operands to the larger integer.
     // For mixed signed and unsigned integers, implicit cast both operands to a signed
     // integer with + 1 bit.
     // For mixed floats and integers, extract the integer part from the float, cast that to
     // a signed integer with mantissa bits + 1, and if there was any non-integral part of the float,
     // add/subtract 1.
-    const lhs_is_signed = if (try sema.resolveDefinedValue(block, lhs_src, lhs)) |lhs_val|
+    const lhs_is_signed = if (maybe_lhs_val) |lhs_val|
         !(try lhs_val.compareAllWithZeroSema(.gte, pt))
     else
         (lhs_ty.isRuntimeFloat() or lhs_ty.isSignedInt(zcu));
-    const rhs_is_signed = if (try sema.resolveDefinedValue(block, rhs_src, rhs)) |rhs_val|
+    const rhs_is_signed = if (maybe_rhs_val) |rhs_val|
         !(try rhs_val.compareAllWithZeroSema(.gte, pt))
     else
         (rhs_ty.isRuntimeFloat() or rhs_ty.isSignedInt(zcu));
@@ -33938,19 +33951,8 @@ fn cmpNumeric(
     var dest_float_type: ?Type = null;
 
     var lhs_bits: usize = undefined;
-    if (try sema.resolveValueResolveLazy(lhs)) |lhs_val| {
-        if (lhs_val.isUndef(zcu))
-            return pt.undefRef(Type.bool);
-        if (lhs_val.isNan(zcu)) switch (op) {
-            .neq => return .bool_true,
-            else => return .bool_false,
-        };
-        if (lhs_val.isInf(zcu)) switch (op) {
-            .neq => return .bool_true,
-            .eq => return .bool_false,
-            .gt, .gte => return if (lhs_val.isNegativeInf(zcu)) .bool_false else .bool_true,
-            .lt, .lte => return if (lhs_val.isNegativeInf(zcu)) .bool_true else .bool_false,
-        };
+    if (maybe_lhs_val) |unresolved_lhs_val| {
+        const lhs_val = try sema.resolveLazyValue(unresolved_lhs_val);
         if (!rhs_is_signed) {
             switch (lhs_val.orderAgainstZero(zcu)) {
                 .gt => {},
@@ -33996,19 +33998,8 @@ fn cmpNumeric(
     }
 
     var rhs_bits: usize = undefined;
-    if (try sema.resolveValueResolveLazy(rhs)) |rhs_val| {
-        if (rhs_val.isUndef(zcu))
-            return pt.undefRef(Type.bool);
-        if (rhs_val.isNan(zcu)) switch (op) {
-            .neq => return .bool_true,
-            else => return .bool_false,
-        };
-        if (rhs_val.isInf(zcu)) switch (op) {
-            .neq => return .bool_true,
-            .eq => return .bool_false,
-            .gt, .gte => return if (rhs_val.isNegativeInf(zcu)) .bool_true else .bool_false,
-            .lt, .lte => return if (rhs_val.isNegativeInf(zcu)) .bool_false else .bool_true,
-        };
+    if (maybe_rhs_val) |unresolved_rhs_val| {
+        const rhs_val = try sema.resolveLazyValue(unresolved_rhs_val);
         if (!lhs_is_signed) {
             switch (rhs_val.orderAgainstZero(zcu)) {
                 .gt => {},
@@ -34075,90 +34066,49 @@ fn compareIntsOnlyPossibleResult(
     lhs_val: Value,
     op: std.math.CompareOperator,
     rhs_ty: Type,
-) Allocator.Error!?bool {
+) SemaError!?bool {
     const pt = sema.pt;
     const zcu = pt.zcu;
-    const rhs_info = rhs_ty.intInfo(zcu);
-    const vs_zero = lhs_val.orderAgainstZeroSema(pt) catch unreachable;
-    const is_zero = vs_zero == .eq;
-    const is_negative = vs_zero == .lt;
-    const is_positive = vs_zero == .gt;
 
-    // Anything vs. zero-sized type has guaranteed outcome.
-    if (rhs_info.bits == 0) return switch (op) {
-        .eq, .lte, .gte => is_zero,
-        .neq, .lt, .gt => !is_zero,
-    };
+    const min_rhs = try rhs_ty.minInt(pt, rhs_ty);
+    const max_rhs = try rhs_ty.maxInt(pt, rhs_ty);
 
-    // Special case for i1, which can only be 0 or -1.
-    // Zero and positive ints have guaranteed outcome.
-    if (rhs_info.bits == 1 and rhs_info.signedness == .signed) {
-        if (is_positive) return switch (op) {
-            .gt, .gte, .neq => true,
-            .lt, .lte, .eq => false,
-        };
-        if (is_zero) return switch (op) {
-            .gte => true,
-            .lt => false,
-            .gt, .lte, .eq, .neq => null,
-        };
+    if (min_rhs.toIntern() == max_rhs.toIntern()) {
+        // RHS is effectively comptime-known.
+        return try Value.compareHeteroSema(lhs_val, op, min_rhs, pt);
     }
 
-    // Negative vs. unsigned has guaranteed outcome.
-    if (rhs_info.signedness == .unsigned and is_negative) return switch (op) {
-        .eq, .gt, .gte => false,
-        .neq, .lt, .lte => true,
-    };
+    const against_min = try lhs_val.orderAdvanced(min_rhs, .sema, zcu, pt.tid);
+    const against_max = try lhs_val.orderAdvanced(max_rhs, .sema, zcu, pt.tid);
 
-    const sign_adj = @intFromBool(!is_negative and rhs_info.signedness == .signed);
-    const req_bits = lhs_val.intBitCountTwosComp(zcu) + sign_adj;
-
-    // No sized type can have more than 65535 bits.
-    // The RHS type operand is either a runtime value or sized (but undefined) constant.
-    if (req_bits > 65535) return switch (op) {
-        .lt, .lte => is_negative,
-        .gt, .gte => is_positive,
-        .eq => false,
-        .neq => true,
-    };
-    const fits = req_bits <= rhs_info.bits;
-
-    // Oversized int has guaranteed outcome.
     switch (op) {
-        .eq => return if (!fits) false else null,
-        .neq => return if (!fits) true else null,
-        .lt, .lte => if (!fits) return is_negative,
-        .gt, .gte => if (!fits) return !is_negative,
+        .eq => {
+            if (against_min.compare(.lt)) return false;
+            if (against_max.compare(.gt)) return false;
+        },
+        .neq => {
+            if (against_min.compare(.lt)) return true;
+            if (against_max.compare(.gt)) return true;
+        },
+        .lt => {
+            if (against_min.compare(.lt)) return true;
+            if (against_max.compare(.gte)) return false;
+        },
+        .gt => {
+            if (against_max.compare(.gt)) return true;
+            if (against_min.compare(.lte)) return false;
+        },
+        .lte => {
+            if (against_min.compare(.lte)) return true;
+            if (against_max.compare(.gt)) return false;
+        },
+        .gte => {
+            if (against_max.compare(.gte)) return true;
+            if (against_min.compare(.lt)) return false;
+        },
     }
 
-    // For any other comparison, we need to know if the LHS value is
-    // equal to the maximum or minimum possible value of the RHS type.
-    const is_min, const is_max = edge: {
-        if (is_zero and rhs_info.signedness == .unsigned) break :edge .{ true, false };
-
-        if (req_bits != rhs_info.bits) break :edge .{ false, false };
-
-        const ty = try pt.intType(
-            if (is_negative) .signed else .unsigned,
-            @intCast(req_bits),
-        );
-        const pop_count = lhs_val.popCount(ty, zcu);
-
-        if (is_negative) {
-            break :edge .{ pop_count == 1, false };
-        } else {
-            break :edge .{ false, pop_count == req_bits - sign_adj };
-        }
-    };
-
-    assert(fits);
-    return switch (op) {
-        .lt => if (is_max) false else null,
-        .lte => if (is_min) true else null,
-        .gt => if (is_min) false else null,
-        .gte => if (is_max) true else null,
-        .eq, .neq => unreachable,
-    };
+    return null;
 }
 
 /// Asserts that lhs and rhs types are both vectors.
@@ -34189,21 +34139,17 @@ fn cmpVector(
         .child = .bool_type,
     });
 
-    const runtime_src: LazySrcLoc = src: {
-        if (try sema.resolveValue(casted_lhs)) |lhs_val| {
-            if (try sema.resolveValue(casted_rhs)) |rhs_val| {
-                if (lhs_val.isUndef(zcu) or rhs_val.isUndef(zcu)) {
-                    return pt.undefRef(result_ty);
-                }
-                const cmp_val = try sema.compareVector(lhs_val, op, rhs_val, resolved_ty);
-                return Air.internedToRef(cmp_val.toIntern());
-            } else {
-                break :src rhs_src;
-            }
-        } else {
-            break :src lhs_src;
-        }
-    };
+    const maybe_lhs_val = try sema.resolveValue(casted_lhs);
+    const maybe_rhs_val = try sema.resolveValue(casted_rhs);
+    if (maybe_lhs_val) |v| if (v.isUndef(zcu)) return pt.undefRef(result_ty);
+    if (maybe_rhs_val) |v| if (v.isUndef(zcu)) return pt.undefRef(result_ty);
+
+    const runtime_src: LazySrcLoc = if (maybe_lhs_val) |lhs_val| src: {
+        if (maybe_rhs_val) |rhs_val| {
+            const cmp_val = try sema.compareVector(lhs_val, op, rhs_val, resolved_ty);
+            return Air.internedToRef(cmp_val.toIntern());
+        } else break :src rhs_src;
+    } else lhs_src;
 
     try sema.requireRuntimeBlock(block, src, runtime_src);
     return block.addCmpVector(casted_lhs, casted_rhs, op);
@@ -38691,8 +38637,12 @@ fn compareVector(
     for (result_data, 0..) |*scalar, i| {
         const lhs_elem = try lhs.elemValue(pt, i);
         const rhs_elem = try rhs.elemValue(pt, i);
-        const res_bool = try sema.compareScalar(lhs_elem, op, rhs_elem, ty.scalarType(zcu));
-        scalar.* = Value.makeBool(res_bool).toIntern();
+        if (lhs_elem.isUndef(zcu) or rhs_elem.isUndef(zcu)) {
+            scalar.* = try pt.intern(.{ .undef = .bool_type });
+        } else {
+            const res_bool = try sema.compareScalar(lhs_elem, op, rhs_elem, ty.scalarType(zcu));
+            scalar.* = Value.makeBool(res_bool).toIntern();
+        }
     }
     return Value.fromInterned(try pt.intern(.{ .aggregate = .{
         .ty = (try pt.vectorType(.{ .len = ty.vectorLen(zcu), .child = .bool_type })).toIntern(),
