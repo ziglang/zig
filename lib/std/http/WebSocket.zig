@@ -46,7 +46,9 @@ pub fn init(
     var digest: [std.crypto.hash.Sha1.digest_length]u8 = undefined;
     sha1.final(&digest);
     var base64_digest: [28]u8 = undefined;
-    assert(std.base64.standard.Encoder.encode(&base64_digest, &digest).len == base64_digest.len);
+
+    const encoded = std.base64.standard.Encoder.encode(&base64_digest, &digest);
+    assert(encoded.len == base64_digest.len);
 
     request.head.content_length = std.math.maxInt(u64);
 
