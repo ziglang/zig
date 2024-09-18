@@ -641,8 +641,8 @@ pub fn parseTargetQueryOrReportFatalError(
             help: {
                 var help_text = std.ArrayList(u8).init(allocator);
                 defer help_text.deinit();
-                for (diags.arch.?.allFeaturesList()) |feature| {
-                    help_text.writer().print(" {s}: {s}\n", .{ feature.name, feature.description }) catch break :help;
+                for (diags.arch.?.allFeaturesList(), diags.arch.?.allFeaturesDescList()) |feature, desc| {
+                    help_text.writer().print(" {s}: {s}\n", .{ feature.name, desc }) catch break :help;
                 }
                 std.log.info("available CPU features for architecture '{s}':\n{s}", .{
                     @tagName(diags.arch.?), help_text.items,
