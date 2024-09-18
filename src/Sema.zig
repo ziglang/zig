@@ -6457,15 +6457,7 @@ fn zirExport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
             if (ptr_info.byte_offset != 0) {
                 return sema.fail(block, ptr_src, "TODO: export pointer in middle of value", .{});
             }
-            try sema.ensureNavResolved(src, nav);
-            // Make sure to export the owner Nav if applicable.
-            const exported_nav = switch (ip.indexToKey(ip.getNav(nav).status.resolved.val)) {
-                .variable => |v| v.owner_nav,
-                .@"extern" => |e| e.owner_nav,
-                .func => |f| f.owner_nav,
-                else => nav,
-            };
-            try sema.analyzeExport(block, src, options, exported_nav);
+            try sema.analyzeExport(block, src, options, nav);
         },
     }
 }
@@ -6475,7 +6467,7 @@ pub fn analyzeExport(
     block: *Block,
     src: LazySrcLoc,
     options: Zcu.Export.Options,
-    exported_nav_index: InternPool.Nav.Index,
+    orig_nav_index: InternPool.Nav.Index,
 ) !void {
     const gpa = sema.gpa;
     const pt = sema.pt;
@@ -6485,7 +6477,15 @@ pub fn analyzeExport(
     if (options.linkage == .internal)
         return;
 
-    try sema.ensureNavResolved(src, exported_nav_index);
+    try sema.ensureNavResolved(src, orig_nav_index);
+
+    const exported_nav_index = switch (ip.indexToKey(ip.getNav(orig_nav_index).status.resolved.val)) {
+        .variable => |v| v.owner_nav,
+        .@"extern" => |e| e.owner_nav,
+        .func => |f| f.owner_nav,
+        else => orig_nav_index,
+    };
+
     const exported_nav = ip.getNav(exported_nav_index);
     const export_ty = Type.fromInterned(exported_nav.typeOf(ip));
 
