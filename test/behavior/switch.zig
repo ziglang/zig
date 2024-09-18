@@ -4,6 +4,8 @@ const assert = std.debug.assert;
 const expect = std.testing.expect;
 const expectError = std.testing.expectError;
 const expectEqual = std.testing.expectEqual;
+const minInt = std.math.minInt;
+const maxInt = std.math.maxInt;
 
 test "switch with numbers" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -38,6 +40,46 @@ fn testSwitchWithAllRanges(x: u32, y: u32) u32 {
         101...200 => 2,
         201...300 => 3,
         else => y,
+    };
+}
+
+test "switch arbitrary int size" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
+
+    if (builtin.zig_backend == .stage2_c and builtin.os.tag == .windows) return error.SkipZigTest; // TODO
+
+    try expect(testSwitchArbInt(u64, 0) == 0);
+    try expect(testSwitchArbInt(u64, 12) == 1);
+    try expect(testSwitchArbInt(u64, maxInt(u64)) == 2);
+    try expect(testSwitchArbInt(u64, 5555) == 3);
+
+    try expect(testSwitchArbInt(i64, minInt(i64)) == 0);
+    try expect(testSwitchArbInt(i64, 12) == 1);
+    try expect(testSwitchArbInt(i64, maxInt(i64)) == 2);
+    try expect(testSwitchArbInt(i64, -1000) == 3);
+
+    try expect(testSwitchArbInt(u128, 0) == 0);
+    try expect(testSwitchArbInt(u128, 12) == 1);
+    try expect(testSwitchArbInt(u128, maxInt(u128)) == 2);
+    try expect(testSwitchArbInt(u128, 5555) == 3);
+
+    try expect(testSwitchArbInt(i128, minInt(i128)) == 0);
+    try expect(testSwitchArbInt(i128, 12) == 1);
+    try expect(testSwitchArbInt(i128, maxInt(i128)) == 2);
+    try expect(testSwitchArbInt(i128, -1000) == 3);
+}
+
+fn testSwitchArbInt(comptime T: type, x: T) u32 {
+    return switch (x) {
+        minInt(T) => 0,
+        10...15 => 1,
+        maxInt(T) => 2,
+        else => 3,
     };
 }
 
@@ -1003,7 +1045,6 @@ test "labeled switch with break" {
 }
 
 test "unlabeled break ignores switch" {
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
