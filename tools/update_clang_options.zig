@@ -155,6 +155,10 @@ const known_options = [_]KnownOpt{
         .ident = "wl",
     },
     .{
+        .name = "Wp,",
+        .ident = "wp",
+    },
+    .{
         .name = "Xlinker",
         .ident = "for_linker",
     },
