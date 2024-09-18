@@ -1910,7 +1910,7 @@ _mm_undefined_ps(void)
 static __inline__ __m128 __DEFAULT_FN_ATTRS
 _mm_set_ss(float __w)
 {
-  return __extension__ (__m128){ __w, 0, 0, 0 };
+  return __extension__ (__m128){ __w, 0.0f, 0.0f, 0.0f };
 }
 
 /// Constructs a 128-bit floating-point vector of [4 x float], with each
