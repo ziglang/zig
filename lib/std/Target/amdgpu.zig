@@ -180,6 +180,7 @@ pub const Feature = enum {
     vgpr_index_mode,
     vgpr_singleuse_hint,
     vmem_to_scalar_write_hazard,
+    vmem_write_vgpr_in_order,
     volcanic_islands,
     vop3_literal,
     vop3p,
@@ -605,6 +606,7 @@ pub const all_features = blk: {
             .sdwa_sdst,
             .unaligned_buffer_access,
             .unaligned_ds_access,
+            .vmem_write_vgpr_in_order,
             .vop3_literal,
             .vop3p,
             .vscnt,
@@ -675,6 +677,7 @@ pub const all_features = blk: {
             .true16,
             .unaligned_buffer_access,
             .unaligned_ds_access,
+            .vmem_write_vgpr_in_order,
             .vop3_literal,
             .vop3p,
             .vopd,
@@ -791,6 +794,7 @@ pub const all_features = blk: {
             .unaligned_buffer_access,
             .unaligned_ds_access,
             .vgpr_index_mode,
+            .vmem_write_vgpr_in_order,
             .vop3p,
             .wavefrontsize64,
             .xnack_support,
@@ -1161,6 +1165,7 @@ pub const all_features = blk: {
             .s_memtime_inst,
             .trig_reduced_range,
             .unaligned_buffer_access,
+            .vmem_write_vgpr_in_order,
             .wavefrontsize64,
         }),
     };
@@ -1209,6 +1214,7 @@ pub const all_features = blk: {
             .movrel,
             .s_memtime_inst,
             .trig_reduced_range,
+            .vmem_write_vgpr_in_order,
             .wavefrontsize64,
         }),
     };
@@ -1307,6 +1313,11 @@ pub const all_features = blk: {
         .description = "VMEM instruction followed by scalar writing to EXEC mask, M0 or SGPR leads to incorrect execution.",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@intFromEnum(Feature.vmem_write_vgpr_in_order)] = .{
+        .llvm_name = "vmem-write-vgpr-in-order",
+        .description = "VMEM instructions of the same type write VGPR results in order",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@intFromEnum(Feature.volcanic_islands)] = .{
         .llvm_name = "volcanic-islands",
         .description = "VOLCANIC_ISLANDS GPU generation",
@@ -1341,6 +1352,7 @@ pub const all_features = blk: {
             .trig_reduced_range,
             .unaligned_buffer_access,
             .vgpr_index_mode,
+            .vmem_write_vgpr_in_order,
             .wavefrontsize64,
         }),
     };
