@@ -237,21 +237,21 @@ namespace std {
 #  include <cstdint>
 #  include <cstdlib>
 #  include <cstring>
-#  include <cwchar>
 #  include <initializer_list>
 #  include <limits>
+#  include <locale>
 #  include <new>
 #  include <optional>
+#  include <queue>
+#  include <stack>
 #  include <stdexcept>
 #  include <string>
 #  include <string_view>
 #  include <tuple>
-#endif
 
-#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
-#  include <locale>
-#  include <queue>
-#  include <stack>
+#  if !defined(_LIBCPP_HAS_NO_WIDE_CHARACTERS)
+#    include <cwchar>
+#  endif
 #endif
 
 #endif // _LIBCPP_FORMAT

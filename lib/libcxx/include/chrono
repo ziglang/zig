@@ -1015,8 +1015,8 @@ constexpr chrono::year                                  operator ""y(unsigned lo
 #  include <charconv>
 #  if !defined(_LIBCPP_HAS_NO_LOCALIZATION)
 #    include <locale>
+#    include <ostream>
 #  endif
-#  include <ostream>
 #endif
 
 #endif // _LIBCPP_CHRONO
