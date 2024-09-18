@@ -2045,7 +2045,7 @@ pub const cpu = struct {
             .sme2,
             .sme_f64f64,
             .sme_i16i64,
-            .v9_2a,
+            .v8_7a,
             .zcm,
             .zcz,
         }),
