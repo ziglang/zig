@@ -55,8 +55,7 @@ $Env:ZIG_LOCAL_CACHE_DIR="$(Get-Location)\zig-local-cache"
   -DZIG_TARGET_TRIPLE="$TARGET" `
   -DZIG_TARGET_MCPU="$MCPU" `
   -DZIG_STATIC=ON `
-  -DZIG_NO_LIB=ON `
-  -DZIG2_NO_RTLIB=ON
+  -DZIG_NO_LIB=ON
 CheckLastExitCode
 
 ninja install
