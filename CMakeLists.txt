@@ -894,9 +894,7 @@ set(BUILD_COMPILER_RT_ARGS
   --name compiler_rt
   -femit-bin="${ZIG_COMPILER_RT_C_SOURCE}"
   -target "${ZIG_HOST_TARGET_TRIPLE}"
-  --dep "build_options"
   "-Mroot=lib/compiler_rt.zig"
-  "-Mbuild_options=${ZIG_CONFIG_ZIG_OUT}"
 )
 
 add_custom_command(
