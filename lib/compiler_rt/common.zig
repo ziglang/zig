@@ -1,8 +1,14 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const native_endian = builtin.cpu.arch.endian();
+const ofmt_c = builtin.object_format == .c;
 
-pub const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .internal else .weak;
+pub const linkage: std.builtin.GlobalLinkage = if (builtin.is_test)
+    .internal
+else if (ofmt_c)
+    .strong
+else
+    .weak;
 /// Determines the symbol's visibility to other objects.
 /// For WebAssembly this allows the symbol to be resolved to other modules, but will not
 /// export it to the host runtime.
@@ -28,7 +34,7 @@ pub const want_float_exceptions = !builtin.cpu.arch.isWasm();
 
 // Libcalls that involve u128 on Windows x86-64 are expected by LLVM to use the
 // calling convention of @Vector(2, u64), rather than what's standard.
-pub const want_windows_v2u64_abi = builtin.os.tag == .windows and builtin.cpu.arch == .x86_64 and @import("builtin").object_format != .c;
+pub const want_windows_v2u64_abi = builtin.os.tag == .windows and builtin.cpu.arch == .x86_64 and !ofmt_c;
 
 /// This governs whether to use these symbol names for f16/f32 conversions
 /// rather than the standard names:
