@@ -11071,7 +11071,7 @@ fn zirSliceStart(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
     const start_src: Zcu.LazySrcLoc = block.src(.{ .node_offset_slice_start = inst_data.src_node });
     const start: Air.Inst.Ref = try sema.coerce(block, Type.usize, try sema.resolveInst(extra.start), start_src);
     const ptr_src: Zcu.LazySrcLoc = block.src(.{ .node_offset_slice_ptr = inst_data.src_node });
-    return sema.analyzeSlice2(block, src, array_ptr, start, .none, .none, .none, ptr_src, start_src, Zcu.LazySrcLoc.unneeded, Zcu.LazySrcLoc.unneeded, .{});
+    return sema.analyzeSlice(block, src, array_ptr, start, .none, .none, .none, ptr_src, start_src, Zcu.LazySrcLoc.unneeded, Zcu.LazySrcLoc.unneeded);
 }
 fn zirSliceEnd(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
@@ -11086,7 +11086,7 @@ fn zirSliceEnd(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     const end_src: Zcu.LazySrcLoc = block.src(.{ .node_offset_slice_end = inst_data.src_node });
     const end: Air.Inst.Ref = try sema.coerce(block, Type.usize, try sema.resolveInst(extra.end), end_src);
     const ptr_src: Zcu.LazySrcLoc = block.src(.{ .node_offset_slice_ptr = inst_data.src_node });
-    return sema.analyzeSlice2(block, src, array_ptr, start, end, .none, .none, ptr_src, start_src, end_src, Zcu.LazySrcLoc.unneeded, .{});
+    return sema.analyzeSlice(block, src, array_ptr, start, end, .none, .none, ptr_src, start_src, end_src, Zcu.LazySrcLoc.unneeded);
 }
 fn zirSliceSentinel(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
@@ -11104,9 +11104,9 @@ fn zirSliceSentinel(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErr
     if (extra.end != .none) {
         const end_src: Zcu.LazySrcLoc = block.src(.{ .node_offset_slice_end = inst_data.src_node });
         const end: Air.Inst.Ref = try sema.coerce(block, Type.usize, try sema.resolveInst(extra.end), end_src);
-        return analyzeSlice2(sema, block, src, array_ptr, start, end, .none, sentinel, ptr_src, start_src, end_src, sentinel_src, .{});
+        return analyzeSlice(sema, block, src, array_ptr, start, end, .none, sentinel, ptr_src, start_src, end_src, sentinel_src);
     } else {
-        return analyzeSlice2(sema, block, src, array_ptr, start, .none, .none, sentinel, ptr_src, start_src, Zcu.LazySrcLoc.unneeded, sentinel_src, .{});
+        return analyzeSlice(sema, block, src, array_ptr, start, .none, .none, sentinel, ptr_src, start_src, Zcu.LazySrcLoc.unneeded, sentinel_src);
     }
 }
 fn zirSliceLength(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -11124,7 +11124,7 @@ fn zirSliceLength(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     const len: Air.Inst.Ref = try sema.coerce(block, Type.usize, try sema.resolveInst(extra.len), len_src);
     const sentinel: Air.Inst.Ref = if (extra.sentinel == .none) .none else try sema.resolveInst(extra.sentinel);
     const sentinel_src: Zcu.LazySrcLoc = if (sentinel == .none) Zcu.LazySrcLoc.unneeded else block.src(.{ .node_offset_slice_sentinel = inst_data.src_node });
-    return analyzeSlice2(sema, block, src, array_ptr, start, .none, len, sentinel, ptr_src, start_src, len_src, sentinel_src, .{});
+    return analyzeSlice(sema, block, src, array_ptr, start, .none, len, sentinel, ptr_src, start_src, len_src, sentinel_src);
 }
 
 /// Holds common data used when analyzing or resolving switch prong bodies,
@@ -26392,7 +26392,7 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
     } else if (dest_len == .none and len_val == null) {
         // Change the dest to a slice, since its type must have the length.
         const dest_ptr_ptr = try sema.analyzeRef(block, dest_src, new_dest_ptr);
-        new_dest_ptr = try sema.analyzeSlice2(block, dest_src, dest_ptr_ptr, .zero_usize, src_len, src_len, .none, LazySrcLoc.unneeded, dest_src, dest_src, dest_src, .{});
+        new_dest_ptr = try sema.analyzeSlice(block, dest_src, dest_ptr_ptr, .zero_usize, src_len, src_len, .none, LazySrcLoc.unneeded, dest_src, dest_src, dest_src);
         const new_src_ptr_ty = sema.typeOf(new_src_ptr);
         if (new_src_ptr_ty.isSlice(zcu)) {
             new_src_ptr = try sema.analyzeSlicePtr(block, src_src, new_src_ptr, new_src_ptr_ty);
@@ -38612,7 +38612,7 @@ pub fn resolveDeclaredEnum(
     }
 }
 
-const SliceAnalysis = packed struct(u32) {
+const SliceAnalysis = struct {
     /// There is always an input pointer. Set to `undefined` if `comptime`-known
     /// to be `undefined`--excluding the value from all operations.
     src_ptr: State = .variable,
@@ -38644,7 +38644,6 @@ const SliceAnalysis = packed struct(u32) {
     eq_sentinel: State = .unknown,
     ptr_ne_null: State = .unknown,
 
-    padding: u2 = 0,
     /// This type is used to track the theoretical `comptime`-ness of values.
     /// The theory is that the result of any binary operation will inherit the
     /// state of the least-known operand.
@@ -38655,19 +38654,6 @@ const SliceAnalysis = packed struct(u32) {
     fn best(lhs: State, rhs: State) State {
         return @enumFromInt(@max(@intFromEnum(lhs), @intFromEnum(rhs)));
     }
-    const Feature = struct {
-        /// If the input pointer type has a sentinel, and the output type does
-        /// not, extend the effective length of the pointer length by one.
-        allow_slice_to_sentinel: bool = true,
-        /// Allow slicing `comptime`-known undefined pointers if the length is
-        /// known to be zero at compile time.
-        allow_limited_slice_of_undefined: bool = true,
-        /// Extend feature to `@ptrCast` and (when possible) `@ptrFromInt`.
-        prevent_inval_ptr: bool = true,
-        /// Check implicitly propagated sentinels. The previous implementation
-        /// only did so for `comptime`-known memory.
-        check_implicit_sentinel: bool = false,
-    };
     // These functions exist so that there is no confusion about the meaning of
     // potentially unusual control flow in the function body.
     fn srcPtrIsUndef(sa: SliceAnalysis) bool {
@@ -38694,9 +38680,6 @@ const SliceAnalysis = packed struct(u32) {
     fn destPtrGainsSentinel(sa: SliceAnalysis) bool {
         return sa.dest_sent == .known and sa.src_sent == .unknown;
     }
-    fn destPtrLosesSentinel(sa: SliceAnalysis) bool {
-        return sa.dest_sent == .unknown and sa.src_sent == .known;
-    }
     fn sentinelPtrBySrc(sa: SliceAnalysis) State {
         return worst(sa.src_ptr, sa.src_len);
     }
@@ -38709,6 +38692,16 @@ const SliceAnalysis = packed struct(u32) {
     fn sentinelPtrByDest(sa: SliceAnalysis) State {
         return best(sa.sentinelPtrByDestEnd(), sa.sentinelPtrByDestLen());
     }
+
+    /// If the input pointer type has a sentinel, and the output type does
+    /// not, extend the effective length of the pointer length by one.
+    const allow_slice_to_sentinel: bool = true;
+    /// Allow slicing `comptime`-known undefined pointers if the length is
+    /// known to be zero at compile time.
+    const allow_limited_slice_of_undefined: bool = true;
+    /// Check implicitly propagated sentinels. The previous implementation
+    /// only did so for `comptime`-known memory.
+    const check_implicit_sentinel: bool = false;
 };
 
 /// This function has multiple phases:
@@ -38740,7 +38733,7 @@ const SliceAnalysis = packed struct(u32) {
 ///
 /// 4) Compute/resolve other values:
 ///      The only purpose of this phase is to extend the length of source
-///      pointers in cases where `feature.allow_slice_to_sentinel` applies.
+///      pointers in cases where `SliceAnalysis.allow_slice_to_sentinel` applies.
 ///      This should be removed along with the feature.
 ///
 /// 5) Execute compile-time safety checks:
@@ -38757,7 +38750,7 @@ const SliceAnalysis = packed struct(u32) {
 ///
 ///      Return the new value.
 ///
-fn analyzeSlice2(
+fn analyzeSlice(
     sema: *Sema,
     block: *Sema.Block,
     src: Zcu.LazySrcLoc,
@@ -38770,7 +38763,6 @@ fn analyzeSlice2(
     dest_start_src: Zcu.LazySrcLoc,
     dest_end_src: Zcu.LazySrcLoc,
     dest_sent_src: Zcu.LazySrcLoc,
-    feature: SliceAnalysis.Feature,
 ) Zcu.CompileError!Air.Inst.Ref {
     // First assume that the input operand is a pointer-to-one array, which is
     // produced by slicing an array.
@@ -38843,6 +38835,7 @@ fn analyzeSlice2(
         var elem_ptr_ty_key: InternPool.Key.PtrType = ptr_ty_key;
         elem_ptr_ty_key.child = Type.toIntern(elem_ty);
         elem_ptr_ty_key.flags.size = .One;
+        elem_ptr_ty_key.sentinel = .none;
         break :blk try sema.pt.ptrTypeSema(elem_ptr_ty_key);
     };
 
@@ -38851,6 +38844,7 @@ fn analyzeSlice2(
         var many_ptr_ty_key: InternPool.Key.PtrType = ptr_ty_key;
         many_ptr_ty_key.child = Type.toIntern(elem_ty);
         many_ptr_ty_key.flags.size = .Many;
+        many_ptr_ty_key.sentinel = .none;
         break :blk try sema.pt.ptrTypeSema(many_ptr_ty_key);
     };
 
@@ -38872,23 +38866,22 @@ fn analyzeSlice2(
         break :val Value.undef;
     };
 
-    // Try hard to find the actual size of any `comptime` memory. It is easy to
-    // fabricate a fake size by casting any `comptime`-known pointer to an array
-    // which can then coerce to a slice.
+    // Find the actual remaining length of any `comptime` memory.
+    //
+    // This is computed using the ABI size of the underlying `comptime`
+    // allocation or addressable value, subtracting the pointer byte offset
+    // and the offsets of fields and array elements.
+    //
+    // This is then divided by the ABI size of the result pointer element type.
     const src_mem_len: Air.Inst.Ref = inst: {
-        if (feature.prevent_inval_ptr and sa.src_ptr == .known) {
+        if (sa.src_ptr == .known) {
             const elem_size: u64 = try elem_ty.abiSizeSema(sema.pt);
             const ptr_val: Value = if (src_ptr_ty_size == .Slice)
                 Value.slicePtr(src_ptr_val, sema.pt.zcu)
             else
                 src_ptr_val;
-            // Do not rely on weird kinds of pointers if there is no explicit
-            // length to compare it against. Reject reinterpreted `eu_payload`
-            // and `opt_payload` pointers.
             const want_error: bool = !src_ptr_explicit_len;
             if (elem_size == 0) {
-                // Only best-effort to give users what they ask for when it is
-                // not an unambiguous disaster.
                 if (try sema.elemLenOfContainingDecl(block, src, ptr_val, elem_ty, want_error)) |idx_int| {
                     const len: usize = try sema.usizeCast(block, src, idx_int);
                     break :inst try sema.pt.intRef(Type.usize, len);
@@ -38902,19 +38895,10 @@ fn analyzeSlice2(
         }
         break :inst .none;
     };
-    // ... And attempt to resolve the result:
-    const src_mem_len_val: Value = val: {
-        if (feature.prevent_inval_ptr and src_mem_len != .none) {
-            if (try sema.resolveDefinedValue(block, operand_src, src_mem_len)) |val| {
-                sa.src_mem_len = .known;
-                break :val val;
-            }
-        }
-        break :val Value.undef;
-    };
 
     // Compute upper bound from the input pointer:
     const src_len: Air.Inst.Ref = switch (src_ptr_ty_size) {
+        .C, .Many => src_mem_len,
         // Array length is always assumed to be valid and reusable. This is
         // currently a false assumption, because any pointer may be cast to a
         // pointer to an array of any size at compile time.
@@ -38928,9 +38912,6 @@ fn analyzeSlice2(
             Air.Inst.Ref.zero_usize
         else
             try sema.analyzeSliceLen(block, operand_src, src_ptr),
-        // Derive upper bound by reversing pointer casts until reaching the
-        // original allocation. Only possible with `comptime`-known pointers.
-        .C, .Many => src_mem_len,
     };
     // ... And attempt to resolve the result:
     const src_len_val: Value = val: {
@@ -39073,11 +39054,11 @@ fn analyzeSlice2(
         }
     }
 
-    // ATTENTION: Remove with `feature.allow_limited_slice_of_undefined`.
+    // ATTENTION: Remove with `SliceAnalysis.allow_limited_slice_of_undefined`.
     //            Clarify behaviour of slices of constant undefined pointers.
     //            This is far too much logic to enable a foot-gun.
     if (sa.srcPtrIsUndef()) {
-        if (!feature.allow_limited_slice_of_undefined) {
+        if (!SliceAnalysis.allow_limited_slice_of_undefined) {
             return sema.fail(block, src, "slice of undefined pointer causes undefined behaviour", .{});
         }
         if (sa.dest_sent == .known) {
@@ -39144,8 +39125,8 @@ fn analyzeSlice2(
     //
 
     // Bounds checks:
-    if (feature.allow_limited_slice_of_undefined and sa.srcPtrIsUndef()) {
-        // ATTENTION: Remove this with `feature.allow_limited_slice_of_undefined`
+    if (SliceAnalysis.allow_limited_slice_of_undefined and sa.srcPtrIsUndef()) {
+        // ATTENTION: Remove this with `SliceAnalysis.allow_limited_slice_of_undefined`
         //            Skip bounds checks if source pointer is known to be
         //            undefined.
         //
@@ -39180,7 +39161,7 @@ fn analyzeSlice2(
     if (ret_sent_ip != .none) {
         if (dest_ptr_explicit_len) {
             sa.eq_sentinel = sa.sentinelPtrByDest();
-        } else if (feature.check_implicit_sentinel and
+        } else if (SliceAnalysis.check_implicit_sentinel and
             src_ptr_explicit_len)
         {
             sa.eq_sentinel = sa.sentinelPtrBySrc();
@@ -39202,31 +39183,23 @@ fn analyzeSlice2(
         sa.start_le_len = .unknown;
     }
 
-    // Disable runtime bounds checks for pointers without explicit lengths.
-    if (!src_ptr_explicit_len) {
-        // Never run pointer verification. The lengths are equal.
-        sa.len_le_len = .unknown;
-        if (sa.end_le_len == .variable) sa.end_le_len = .unknown;
-        if (sa.start_le_len == .variable) sa.start_le_len = .unknown;
+    // Disable all bounds checks for pointers without explicit lengths except
+    // when the sentinel may be checked at compile time.
+    if (!src_ptr_explicit_len and sa.eq_sentinel != .known) {
+        sa.end_le_len = .unknown;
+        sa.start_le_len = .unknown;
     }
 
     //
     // COMPUTE/RESOLVE OTHER VALUES:
     //
 
-    // ATTENTION: Remove with `feature.allow_slice_to_sentinel`.
+    // ATTENTION: Remove with `SliceAnalysis.allow_slice_to_sentinel`.
     //            Compute sentinel-extended source pointer length:
     const src_len2: Air.Inst.Ref = inst: {
-        // `slice_start` preserves the source sentinel for all source pointer
-        // sizes with an explicit length. The length can never be extended.
-        if (ret_sent_ip != .none) {
-            break :inst src_len;
-        }
-        if (feature.allow_slice_to_sentinel and sa.destPtrLosesSentinel()) {
-            // Only enable safety if the source pointer is allowzero. The only
-            // way for the source length to overflow by +1 is by being maxInt,
-            // and the only way for the length to be maxInt is for the source
-            // to be zero.
+        if (SliceAnalysis.allow_slice_to_sentinel and
+            ret_sent_ip == .none and sa.src_sent == .known)
+        {
             const zir_tag: Zir.Inst.Tag = if (ptr_ty_key.flags.is_allowzero) .add else .addwrap;
             break :inst try sema.analyzeArithmetic(block, zir_tag, src_len, .one, src, operand_src, dest_sent_src, ptr_ty_key.flags.is_allowzero);
         }
@@ -39258,12 +39231,6 @@ fn analyzeSlice2(
     //
     const memkind_s: []const u8 = if (src_ptr_explicit_len) "" else " of containing declaration";
     const extended_s: []const u8 = if (src_len == src_len2) "" else "(+1)";
-    if (sa.len_le_len == .known) {
-        const args = .{ src_len2_val.fmtValueSema(sema.pt, sema), extended_s, src_mem_len_val.fmtValueSema(sema.pt, sema) };
-        if (try sema.compareScalar(src_len2_val, .gt, src_mem_len_val, Type.usize)) {
-            return sema.fail(block, operand_src, "invalid reference: stated length {}{s}, actual length {}", args);
-        }
-    }
     if (sa.end_le_len == .known) {
         const args = .{ memkind_s, dest_end_val.fmtValueSema(sema.pt, sema), src_len_val.fmtValueSema(sema.pt, sema), extended_s };
         if (sa.destPtrGainsSentinel() and
