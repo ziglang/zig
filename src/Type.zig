@@ -1703,7 +1703,6 @@ pub fn maxIntAlignment(target: std.Target, use_llvm: bool) u16 {
         .spirv32,
         .ve,
         .spirv64,
-        .dxil,
         .loongarch32,
         .loongarch64,
         .xtensa,
