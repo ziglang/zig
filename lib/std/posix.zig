@@ -654,7 +654,7 @@ fn getRandomBytesDevURandom(buf: []u8) !void {
 /// it raises SIGABRT followed by SIGKILL and finally lo
 /// Invokes the current signal handler for SIGABRT, if any.
 pub fn abort() noreturn {
-    @setCold(true);
+    @branchHint(.cold);
     // MSVCRT abort() sometimes opens a popup window which is undesirable, so
     // even when linking libc on Windows we use our own abort implementation.
     // See https://github.com/ziglang/zig/issues/2071 for more details.
@@ -4628,9 +4628,7 @@ pub const MProtectError = error{
     OutOfMemory,
 } || UnexpectedError;
 
-/// `memory.len` must be page-aligned.
 pub fn mprotect(memory: []align(mem.page_size) u8, protection: u32) MProtectError!void {
-    assert(mem.isAligned(memory.len, mem.page_size));
     if (native_os == .windows) {
         const win_prot: windows.DWORD = switch (@as(u3, @truncate(protection))) {
             0b000 => windows.PAGE_NOACCESS,
@@ -4746,11 +4744,13 @@ pub fn munmap(memory: []align(mem.page_size) const u8) void {
 
 pub const MSyncError = error{
     UnmappedMemory,
+    PermissionDenied,
 } || UnexpectedError;
 
 pub fn msync(memory: []align(mem.page_size) u8, flags: i32) MSyncError!void {
     switch (errno(system.msync(memory.ptr, memory.len, flags))) {
         .SUCCESS => return,
+        .PERM => return error.PermissionDenied,
         .NOMEM => return error.UnmappedMemory, // Unsuccessful, provided pointer does not point mapped memory
         .INVAL => unreachable, // Invalid parameters.
         else => unreachable,
@@ -6179,7 +6179,7 @@ pub fn sendfile(
     var total_written: usize = 0;
 
     // Prevents EOVERFLOW.
-    const size_t = std.meta.Int(.unsigned, @typeInfo(usize).Int.bits - 1);
+    const size_t = std.meta.Int(.unsigned, @typeInfo(usize).int.bits - 1);
     const max_count = switch (native_os) {
         .linux => 0x7ffff000,
         .macos, .ios, .watchos, .tvos, .visionos => maxInt(i32),
@@ -6986,7 +6986,7 @@ pub const PrctlError = error{
 } || UnexpectedError;
 
 pub fn prctl(option: PR, args: anytype) PrctlError!u31 {
-    if (@typeInfo(@TypeOf(args)) != .Struct)
+    if (@typeInfo(@TypeOf(args)) != .@"struct")
         @compileError("Expected tuple or struct argument, found " ++ @typeName(@TypeOf(args)));
     if (args.len > 4)
         @compileError("prctl takes a maximum of 4 optional arguments");
@@ -7106,6 +7106,7 @@ pub const MadviseError = error{
 pub fn madvise(ptr: [*]align(mem.page_size) u8, length: usize, advice: u32) MadviseError!void {
     switch (errno(system.madvise(ptr, length, advice))) {
         .SUCCESS => return,
+        .PERM => return error.PermissionDenied,
         .ACCES => return error.AccessDenied,
         .AGAIN => return error.SystemResources,
         .BADF => unreachable, // The map exists, but the area maps something that isn't a file.

@@ -8,7 +8,7 @@
 
 const std = @import("std");
 
-fn c_name(ty: std.Target.CType) []const u8 {
+fn cName(ty: std.Target.CType) []const u8 {
     return switch (ty) {
         .char => "char",
         .short => "short",
@@ -25,7 +25,7 @@ fn c_name(ty: std.Target.CType) []const u8 {
     };
 }
 
-var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
+var general_purpose_allocator: std.heap.GeneralPurposeAllocator(.{}) = .init;
 
 pub fn main() !void {
     const gpa = general_purpose_allocator.allocator();
@@ -43,19 +43,19 @@ pub fn main() !void {
     const target = try std.zig.system.resolveTargetQuery(query);
 
     const stdout = std.io.getStdOut().writer();
-    inline for (@typeInfo(std.Target.CType).Enum.fields) |field| {
+    inline for (@typeInfo(std.Target.CType).@"enum".fields) |field| {
         const c_type: std.Target.CType = @enumFromInt(field.value);
         try stdout.print("_Static_assert(sizeof({0s}) == {1d}, \"sizeof({0s}) == {1d}\");\n", .{
-            c_name(c_type),
-            target.c_type_byte_size(c_type),
+            cName(c_type),
+            target.cTypeByteSize(c_type),
         });
         try stdout.print("_Static_assert(_Alignof({0s}) == {1d}, \"_Alignof({0s}) == {1d}\");\n", .{
-            c_name(c_type),
-            target.c_type_alignment(c_type),
+            cName(c_type),
+            target.cTypeAlignment(c_type),
         });
         try stdout.print("_Static_assert(__alignof({0s}) == {1d}, \"__alignof({0s}) == {1d}\");\n\n", .{
-            c_name(c_type),
-            target.c_type_preferred_alignment(c_type),
+            cName(c_type),
+            target.cTypePreferredAlignment(c_type),
         });
     }
 }

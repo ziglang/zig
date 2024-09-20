@@ -22,7 +22,6 @@ Macros:
 
 */
 
-#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
 
 #include <errno.h>
@@ -38,5 +37,12 @@ Macros:
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
 #endif
+
+// LWG3869 Deprecate std::errc constants related to UNIX STREAMS
+//
+// This LWG issue deprecates the POSIX macros ENODATA, ENOSR, ENOSTR, and ETIME. These were
+// deprecated in libc++ in https://github.com/llvm/llvm-project/pull/80542.
+// Based on the post commit feedback the macro are no longer deprecated.
+// Instead libc++ leaves the deprecation to the provider of errno.h.
 
 #endif // _LIBCPP_CERRNO

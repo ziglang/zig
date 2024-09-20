@@ -155,6 +155,10 @@ const known_options = [_]KnownOpt{
         .ident = "wl",
     },
     .{
+        .name = "Wp,",
+        .ident = "wp",
+    },
+    .{
         .name = "Xlinker",
         .ident = "for_linker",
     },
@@ -548,6 +552,14 @@ const known_options = [_]KnownOpt{
         .name = "fno-sanitize-coverage",
         .ident = "no_san_cov",
     },
+    .{
+        .name = "rtlib",
+        .ident = "rtlib",
+    },
+    .{
+        .name = "rtlib=",
+        .ident = "rtlib",
+    },
 };
 
 const blacklisted_options = [_][]const u8{};
@@ -616,7 +628,7 @@ pub fn main() anyerror!void {
 
     var llvm_to_zig_cpu_features = std.StringHashMap([]const u8).init(allocator);
 
-    inline for (@typeInfo(cpu_targets).Struct.decls) |decl| {
+    inline for (@typeInfo(cpu_targets).@"struct".decls) |decl| {
         const Feature = @field(cpu_targets, decl.name).Feature;
         const all_features = @field(cpu_targets, decl.name).all_features;
 

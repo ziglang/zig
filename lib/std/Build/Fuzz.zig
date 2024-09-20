@@ -30,7 +30,7 @@ pub fn start(
         defer rebuild_node.end();
         var wait_group: std.Thread.WaitGroup = .{};
         defer wait_group.wait();
-        var fuzz_run_steps: std.ArrayListUnmanaged(*Step.Run) = .{};
+        var fuzz_run_steps: std.ArrayListUnmanaged(*Step.Run) = .empty;
         defer fuzz_run_steps.deinit(gpa);
         for (all_steps) |step| {
             const run = step.cast(Step.Run) orelse continue;
@@ -66,6 +66,8 @@ pub fn start(
         .coverage_files = .{},
         .coverage_mutex = .{},
         .coverage_condition = .{},
+
+        .base_timestamp = std.time.nanoTimestamp(),
     };
 
     // For accepting HTTP connections.
@@ -100,6 +102,15 @@ pub fn start(
 }
 
 fn rebuildTestsWorkerRun(run: *Step.Run, ttyconf: std.io.tty.Config, parent_prog_node: std.Progress.Node) void {
+    rebuildTestsWorkerRunFallible(run, ttyconf, parent_prog_node) catch |err| {
+        const compile = run.producer.?;
+        log.err("step '{s}': failed to rebuild in fuzz mode: {s}", .{
+            compile.step.name, @errorName(err),
+        });
+    };
+}
+
+fn rebuildTestsWorkerRunFallible(run: *Step.Run, ttyconf: std.io.tty.Config, parent_prog_node: std.Progress.Node) !void {
     const gpa = run.step.owner.allocator;
     const stderr = std.io.getStdErr();
 
@@ -121,14 +132,9 @@ fn rebuildTestsWorkerRun(run: *Step.Run, ttyconf: std.io.tty.Config, parent_prog
 
     const rebuilt_bin_path = result catch |err| switch (err) {
         error.MakeFailed => return,
-        else => {
-            log.err("step '{s}': failed to rebuild in fuzz mode: {s}", .{
-                compile.step.name, @errorName(err),
-            });
-            return;
-        },
+        else => |other| return other,
     };
-    run.rebuilt_executable = rebuilt_bin_path;
+    run.rebuilt_executable = try rebuilt_bin_path.join(gpa, compile.out_filename);
 }
 
 fn fuzzWorkerRun(

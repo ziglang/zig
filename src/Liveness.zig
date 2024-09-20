@@ -31,6 +31,7 @@ tomb_bits: []usize,
 ///  * `try`, `try_ptr` - points to a `CondBr` in `extra` at this index. The error path (the block
 ///    in the instruction) is considered the "else" path, and the rest of the block the "then".
 ///  * `switch_br` - points to a `SwitchBr` in `extra` at this index.
+///  * `loop_switch_br` - points to a `SwitchBr` in `extra` at this index.
 ///  * `block` - points to a `Block` in `extra` at this index.
 ///  * `asm`, `call`, `aggregate_init` - the value is a set of bits which are the extra tomb
 ///    bits of operands.
@@ -68,9 +69,10 @@ pub const Block = struct {
 /// Liveness analysis runs in several passes. Each pass iterates backwards over instructions in
 /// bodies, and recurses into bodies.
 const LivenessPass = enum {
-    /// In this pass, we perform some basic analysis of loops to gain information the main pass
-    /// needs. In particular, for every `loop`, we track the following information:
-    /// * Every block which the loop body contains a `br` to.
+    /// In this pass, we perform some basic analysis of loops to gain information the main pass needs.
+    /// In particular, for every `loop` and `loop_switch_br`, we track the following information:
+    /// * Every outer block which the loop body contains a `br` to.
+    /// * Every outer loop which the loop body contains a `repeat` to.
     /// * Every operand referenced within the loop body but created outside the loop.
     /// This gives the main analysis pass enough information to determine the full set of
     /// instructions which need to be alive when a loop repeats. This data is TEMPORARILY stored in
@@ -89,11 +91,13 @@ fn LivenessPassData(comptime pass: LivenessPass) type {
     return switch (pass) {
         .loop_analysis => struct {
             /// The set of blocks which are exited with a `br` instruction at some point within this
-            /// body and which we are currently within.
-            breaks: std.AutoHashMapUnmanaged(Air.Inst.Index, void) = .{},
+            /// body and which we are currently within. Also includes `loop`s which are the target
+            /// of a `repeat` instruction, and `loop_switch_br`s which are the target of a
+            /// `switch_dispatch` instruction.
+            breaks: std.AutoHashMapUnmanaged(Air.Inst.Index, void) = .empty,
 
             /// The set of operands for which we have seen at least one usage but not their birth.
-            live_set: std.AutoHashMapUnmanaged(Air.Inst.Index, void) = .{},
+            live_set: std.AutoHashMapUnmanaged(Air.Inst.Index, void) = .empty,
 
             fn deinit(self: *@This(), gpa: Allocator) void {
                 self.breaks.deinit(gpa);
@@ -102,19 +106,20 @@ fn LivenessPassData(comptime pass: LivenessPass) type {
         },
 
         .main_analysis => struct {
-            /// Every `block` currently under analysis.
-            block_scopes: std.AutoHashMapUnmanaged(Air.Inst.Index, BlockScope) = .{},
+            /// Every `block` and `loop` currently under analysis.
+            block_scopes: std.AutoHashMapUnmanaged(Air.Inst.Index, BlockScope) = .empty,
 
             /// The set of instructions currently alive in the current control
             /// flow branch.
-            live_set: std.AutoHashMapUnmanaged(Air.Inst.Index, void) = .{},
+            live_set: std.AutoHashMapUnmanaged(Air.Inst.Index, void) = .empty,
 
             /// The extra data initialized by the `loop_analysis` pass for this pass to consume.
             /// Owned by this struct during this pass.
-            old_extra: std.ArrayListUnmanaged(u32) = .{},
+            old_extra: std.ArrayListUnmanaged(u32) = .empty,
 
             const BlockScope = struct {
-                /// The set of instructions which are alive upon a `br` to this block.
+                /// If this is a `block`, these instructions are alive upon a `br` to this block.
+                /// If this is a `loop`, these instructions are alive upon a `repeat` to this block.
                 live_set: std.AutoHashMapUnmanaged(Air.Inst.Index, void),
             };
 
@@ -326,6 +331,8 @@ pub fn categorizeOperand(
         .ret_ptr,
         .trap,
         .breakpoint,
+        .repeat,
+        .switch_dispatch,
         .dbg_stmt,
         .unreach,
         .ret_addr,
@@ -464,6 +471,7 @@ pub fn categorizeOperand(
 
         .dbg_var_ptr,
         .dbg_var_val,
+        .dbg_arg_inline,
         => {
             const o = air_datas[@intFromEnum(inst)].pl_op.operand;
             if (o == operand_ref) return matchOperandSmallIndex(l, inst, 0, .none);
@@ -657,21 +665,17 @@ pub fn categorizeOperand(
 
             return .complex;
         },
-        .@"try" => {
-            return .complex;
-        },
-        .try_ptr => {
-            return .complex;
-        },
-        .loop => {
-            return .complex;
-        },
-        .cond_br => {
-            return .complex;
-        },
-        .switch_br => {
-            return .complex;
-        },
+
+        .@"try",
+        .try_cold,
+        .try_ptr,
+        .try_ptr_cold,
+        .loop,
+        .cond_br,
+        .switch_br,
+        .loop_switch_br,
+        => return .complex,
+
         .wasm_memory_grow => {
             const pl_op = air_datas[@intFromEnum(inst)].pl_op;
             if (pl_op.operand == operand_ref) return matchOperandSmallIndex(l, inst, 0, .none);
@@ -1097,6 +1101,7 @@ fn analyzeInst(
 
         .dbg_var_ptr,
         .dbg_var_val,
+        .dbg_arg_inline,
         => {
             const operand = inst_datas[@intFromEnum(inst)].pl_op.operand;
             return analyzeOperands(a, pass, data, inst, .{ operand, .none, .none });
@@ -1199,6 +1204,8 @@ fn analyzeInst(
         },
 
         .br => return analyzeInstBr(a, pass, data, inst),
+        .repeat => return analyzeInstRepeat(a, pass, data, inst),
+        .switch_dispatch => return analyzeInstSwitchDispatch(a, pass, data, inst),
 
         .assembly => {
             const extra = a.air.extraData(Air.Asm, inst_datas[@intFromEnum(inst)].ty_pl.payload);
@@ -1252,10 +1259,11 @@ fn analyzeInst(
         },
         .loop => return analyzeInstLoop(a, pass, data, inst),
 
-        .@"try" => return analyzeInstCondBr(a, pass, data, inst, .@"try"),
-        .try_ptr => return analyzeInstCondBr(a, pass, data, inst, .try_ptr),
+        .@"try", .try_cold => return analyzeInstCondBr(a, pass, data, inst, .@"try"),
+        .try_ptr, .try_ptr_cold => return analyzeInstCondBr(a, pass, data, inst, .try_ptr),
         .cond_br => return analyzeInstCondBr(a, pass, data, inst, .cond_br),
-        .switch_br => return analyzeInstSwitchBr(a, pass, data, inst),
+        .switch_br => return analyzeInstSwitchBr(a, pass, data, inst, false),
+        .loop_switch_br => return analyzeInstSwitchBr(a, pass, data, inst, true),
 
         .wasm_memory_grow => {
             const pl_op = inst_datas[@intFromEnum(inst)].pl_op;
@@ -1378,6 +1386,62 @@ fn analyzeInstBr(
     return analyzeOperands(a, pass, data, inst, .{ br.operand, .none, .none });
 }
 
+fn analyzeInstRepeat(
+    a: *Analysis,
+    comptime pass: LivenessPass,
+    data: *LivenessPassData(pass),
+    inst: Air.Inst.Index,
+) !void {
+    const inst_datas = a.air.instructions.items(.data);
+    const repeat = inst_datas[@intFromEnum(inst)].repeat;
+    const gpa = a.gpa;
+
+    switch (pass) {
+        .loop_analysis => {
+            try data.breaks.put(gpa, repeat.loop_inst, {});
+        },
+
+        .main_analysis => {
+            const block_scope = data.block_scopes.get(repeat.loop_inst).?; // we should always be repeating an enclosing loop
+
+            const new_live_set = try block_scope.live_set.clone(gpa);
+            data.live_set.deinit(gpa);
+            data.live_set = new_live_set;
+        },
+    }
+
+    return analyzeOperands(a, pass, data, inst, .{ .none, .none, .none });
+}
+
+fn analyzeInstSwitchDispatch(
+    a: *Analysis,
+    comptime pass: LivenessPass,
+    data: *LivenessPassData(pass),
+    inst: Air.Inst.Index,
+) !void {
+    // This happens to be identical to `analyzeInstBr`, but is separated anyway for clarity.
+
+    const inst_datas = a.air.instructions.items(.data);
+    const br = inst_datas[@intFromEnum(inst)].br;
+    const gpa = a.gpa;
+
+    switch (pass) {
+        .loop_analysis => {
+            try data.breaks.put(gpa, br.block_inst, {});
+        },
+
+        .main_analysis => {
+            const block_scope = data.block_scopes.get(br.block_inst).?; // we should always be repeating an enclosing loop
+
+            const new_live_set = try block_scope.live_set.clone(gpa);
+            data.live_set.deinit(gpa);
+            data.live_set = new_live_set;
+        },
+    }
+
+    return analyzeOperands(a, pass, data, inst, .{ br.operand, .none, .none });
+}
+
 fn analyzeInstBlock(
     a: *Analysis,
     comptime pass: LivenessPass,
@@ -1400,8 +1464,10 @@ fn analyzeInstBlock(
 
         .main_analysis => {
             log.debug("[{}] %{}: block live set is {}", .{ pass, inst, fmtInstSet(&data.live_set) });
+            // We can move the live set because the body should have a noreturn
+            // instruction which overrides the set.
             try data.block_scopes.put(gpa, inst, .{
-                .live_set = try data.live_set.clone(gpa),
+                .live_set = data.live_set.move(),
             });
             defer {
                 log.debug("[{}] %{}: popped block scope", .{ pass, inst });
@@ -1446,6 +1512,102 @@ fn analyzeInstBlock(
     }
 }
 
+fn writeLoopInfo(
+    a: *Analysis,
+    data: *LivenessPassData(.loop_analysis),
+    inst: Air.Inst.Index,
+    old_breaks: std.AutoHashMapUnmanaged(Air.Inst.Index, void),
+    old_live: std.AutoHashMapUnmanaged(Air.Inst.Index, void),
+) !void {
+    const gpa = a.gpa;
+
+    // `loop`s are guaranteed to have at least one matching `repeat`.
+    // Similarly, `loop_switch_br`s have a matching `switch_dispatch`.
+    // However, we no longer care about repeats of this loop for resolving
+    // which operands must live within it.
+    assert(data.breaks.remove(inst));
+
+    const extra_index: u32 = @intCast(a.extra.items.len);
+
+    const num_breaks = data.breaks.count();
+    try a.extra.ensureUnusedCapacity(gpa, 1 + num_breaks);
+
+    a.extra.appendAssumeCapacity(num_breaks);
+
+    var it = data.breaks.keyIterator();
+    while (it.next()) |key| {
+        const block_inst = key.*;
+        a.extra.appendAssumeCapacity(@intFromEnum(block_inst));
+    }
+    log.debug("[{}] %{}: includes breaks to {}", .{ LivenessPass.loop_analysis, inst, fmtInstSet(&data.breaks) });
+
+    // Now we put the live operands from the loop body in too
+    const num_live = data.live_set.count();
+    try a.extra.ensureUnusedCapacity(gpa, 1 + num_live);
+
+    a.extra.appendAssumeCapacity(num_live);
+    it = data.live_set.keyIterator();
+    while (it.next()) |key| {
+        const alive = key.*;
+        a.extra.appendAssumeCapacity(@intFromEnum(alive));
+    }
+    log.debug("[{}] %{}: maintain liveness of {}", .{ LivenessPass.loop_analysis, inst, fmtInstSet(&data.live_set) });
+
+    try a.special.put(gpa, inst, extra_index);
+
+    // Add back operands which were previously alive
+    it = old_live.keyIterator();
+    while (it.next()) |key| {
+        const alive = key.*;
+        try data.live_set.put(gpa, alive, {});
+    }
+
+    // And the same for breaks
+    it = old_breaks.keyIterator();
+    while (it.next()) |key| {
+        const block_inst = key.*;
+        try data.breaks.put(gpa, block_inst, {});
+    }
+}
+
+/// When analyzing a loop in the main pass, sets up `data.live_set` to be the set
+/// of operands known to be alive when the loop repeats.
+fn resolveLoopLiveSet(
+    a: *Analysis,
+    data: *LivenessPassData(.main_analysis),
+    inst: Air.Inst.Index,
+) !void {
+    const gpa = a.gpa;
+
+    const extra_idx = a.special.fetchRemove(inst).?.value;
+    const num_breaks = data.old_extra.items[extra_idx];
+    const breaks: []const Air.Inst.Index = @ptrCast(data.old_extra.items[extra_idx + 1 ..][0..num_breaks]);
+
+    const num_loop_live = data.old_extra.items[extra_idx + num_breaks + 1];
+    const loop_live: []const Air.Inst.Index = @ptrCast(data.old_extra.items[extra_idx + num_breaks + 2 ..][0..num_loop_live]);
+
+    // This is necessarily not in the same control flow branch, because loops are noreturn
+    data.live_set.clearRetainingCapacity();
+
+    try data.live_set.ensureUnusedCapacity(gpa, @intCast(loop_live.len));
+    for (loop_live) |alive| data.live_set.putAssumeCapacity(alive, {});
+
+    log.debug("[{}] %{}: block live set is {}", .{ LivenessPass.main_analysis, inst, fmtInstSet(&data.live_set) });
+
+    for (breaks) |block_inst| {
+        // We might break to this block, so include every operand that the block needs alive
+        const block_scope = data.block_scopes.get(block_inst).?;
+
+        var it = block_scope.live_set.keyIterator();
+        while (it.next()) |key| {
+            const alive = key.*;
+            try data.live_set.put(gpa, alive, {});
+        }
+    }
+
+    log.debug("[{}] %{}: loop live set is {}", .{ LivenessPass.main_analysis, inst, fmtInstSet(&data.live_set) });
+}
+
 fn analyzeInstLoop(
     a: *Analysis,
     comptime pass: LivenessPass,
@@ -1469,78 +1631,22 @@ fn analyzeInstLoop(
 
             try analyzeBody(a, pass, data, body);
 
-            const num_breaks = data.breaks.count();
-            try a.extra.ensureUnusedCapacity(gpa, 1 + num_breaks);
-
-            const extra_index = @as(u32, @intCast(a.extra.items.len));
-            a.extra.appendAssumeCapacity(num_breaks);
-
-            var it = data.breaks.keyIterator();
-            while (it.next()) |key| {
-                const block_inst = key.*;
-                a.extra.appendAssumeCapacity(@intFromEnum(block_inst));
-            }
-            log.debug("[{}] %{}: includes breaks to {}", .{ pass, inst, fmtInstSet(&data.breaks) });
-
-            // Now we put the live operands from the loop body in too
-            const num_live = data.live_set.count();
-            try a.extra.ensureUnusedCapacity(gpa, 1 + num_live);
-
-            a.extra.appendAssumeCapacity(num_live);
-            it = data.live_set.keyIterator();
-            while (it.next()) |key| {
-                const alive = key.*;
-                a.extra.appendAssumeCapacity(@intFromEnum(alive));
-            }
-            log.debug("[{}] %{}: maintain liveness of {}", .{ pass, inst, fmtInstSet(&data.live_set) });
-
-            try a.special.put(gpa, inst, extra_index);
-
-            // Add back operands which were previously alive
-            it = old_live.keyIterator();
-            while (it.next()) |key| {
-                const alive = key.*;
-                try data.live_set.put(gpa, alive, {});
-            }
-
-            // And the same for breaks
-            it = old_breaks.keyIterator();
-            while (it.next()) |key| {
-                const block_inst = key.*;
-                try data.breaks.put(gpa, block_inst, {});
-            }
+            try writeLoopInfo(a, data, inst, old_breaks, old_live);
         },
 
         .main_analysis => {
-            const extra_idx = a.special.fetchRemove(inst).?.value; // remove because this data does not exist after analysis
+            try resolveLoopLiveSet(a, data, inst);
 
-            const num_breaks = data.old_extra.items[extra_idx];
-            const breaks: []const Air.Inst.Index = @ptrCast(data.old_extra.items[extra_idx + 1 ..][0..num_breaks]);
-
-            const num_loop_live = data.old_extra.items[extra_idx + num_breaks + 1];
-            const loop_live: []const Air.Inst.Index = @ptrCast(data.old_extra.items[extra_idx + num_breaks + 2 ..][0..num_loop_live]);
-
-            // This is necessarily not in the same control flow branch, because loops are noreturn
-            data.live_set.clearRetainingCapacity();
-
-            try data.live_set.ensureUnusedCapacity(gpa, @intCast(loop_live.len));
-            for (loop_live) |alive| {
-                data.live_set.putAssumeCapacity(alive, {});
+            // Now, `data.live_set` is the operands which must be alive when the loop repeats.
+            // Move them into a block scope for corresponding `repeat` instructions to notice.
+            try data.block_scopes.putNoClobber(gpa, inst, .{
+                .live_set = data.live_set.move(),
+            });
+            defer {
+                log.debug("[{}] %{}: popped loop block scop", .{ pass, inst });
+                var scope = data.block_scopes.fetchRemove(inst).?.value;
+                scope.live_set.deinit(gpa);
             }
-
-            log.debug("[{}] %{}: block live set is {}", .{ pass, inst, fmtInstSet(&data.live_set) });
-
-            for (breaks) |block_inst| {
-                // We might break to this block, so include every operand that the block needs alive
-                const block_scope = data.block_scopes.get(block_inst).?;
-
-                var it = block_scope.live_set.keyIterator();
-                while (it.next()) |key| {
-                    const alive = key.*;
-                    try data.live_set.put(gpa, alive, {});
-                }
-            }
-
             try analyzeBody(a, pass, data, body);
         },
     }
@@ -1604,10 +1710,10 @@ fn analyzeInstCondBr(
             // Operands which are alive in one branch but not the other need to die at the start of
             // the peer branch.
 
-            var then_mirrored_deaths: std.ArrayListUnmanaged(Air.Inst.Index) = .{};
+            var then_mirrored_deaths: std.ArrayListUnmanaged(Air.Inst.Index) = .empty;
             defer then_mirrored_deaths.deinit(gpa);
 
-            var else_mirrored_deaths: std.ArrayListUnmanaged(Air.Inst.Index) = .{};
+            var else_mirrored_deaths: std.ArrayListUnmanaged(Air.Inst.Index) = .empty;
             defer else_mirrored_deaths.deinit(gpa);
 
             // Note: this invalidates `else_live`, but expands `then_live` to be their union
@@ -1668,30 +1774,54 @@ fn analyzeInstSwitchBr(
     comptime pass: LivenessPass,
     data: *LivenessPassData(pass),
     inst: Air.Inst.Index,
+    is_dispatch_loop: bool,
 ) !void {
     const inst_datas = a.air.instructions.items(.data);
     const pl_op = inst_datas[@intFromEnum(inst)].pl_op;
     const condition = pl_op.operand;
-    const switch_br = a.air.extraData(Air.SwitchBr, pl_op.payload);
+    const switch_br = a.air.unwrapSwitch(inst);
     const gpa = a.gpa;
-    const ncases = switch_br.data.cases_len;
+    const ncases = switch_br.cases_len;
 
     switch (pass) {
         .loop_analysis => {
-            var air_extra_index: usize = switch_br.end;
-            for (0..ncases) |_| {
-                const case = a.air.extraData(Air.SwitchBr.Case, air_extra_index);
-                const case_body: []const Air.Inst.Index = @ptrCast(a.air.extra[case.end + case.data.items_len ..][0..case.data.body_len]);
-                air_extra_index = case.end + case.data.items_len + case_body.len;
-                try analyzeBody(a, pass, data, case_body);
+            var old_breaks: std.AutoHashMapUnmanaged(Air.Inst.Index, void) = .empty;
+            defer old_breaks.deinit(gpa);
+
+            var old_live: std.AutoHashMapUnmanaged(Air.Inst.Index, void) = .empty;
+            defer old_live.deinit(gpa);
+
+            if (is_dispatch_loop) {
+                old_breaks = data.breaks.move();
+                old_live = data.live_set.move();
+            }
+
+            var it = switch_br.iterateCases();
+            while (it.next()) |case| {
+                try analyzeBody(a, pass, data, case.body);
             }
             { // else
-                const else_body: []const Air.Inst.Index = @ptrCast(a.air.extra[air_extra_index..][0..switch_br.data.else_body_len]);
+                const else_body = it.elseBody();
                 try analyzeBody(a, pass, data, else_body);
+            }
+
+            if (is_dispatch_loop) {
+                try writeLoopInfo(a, data, inst, old_breaks, old_live);
             }
         },
 
         .main_analysis => {
+            if (is_dispatch_loop) {
+                try resolveLoopLiveSet(a, data, inst);
+                try data.block_scopes.putNoClobber(gpa, inst, .{
+                    .live_set = data.live_set.move(),
+                });
+            }
+            defer if (is_dispatch_loop) {
+                log.debug("[{}] %{}: popped loop block scop", .{ pass, inst });
+                var scope = data.block_scopes.fetchRemove(inst).?.value;
+                scope.live_set.deinit(gpa);
+            };
             // This is, all in all, just a messier version of the `cond_br` logic. If you're trying
             // to understand it, I encourage looking at `analyzeInstCondBr` first.
 
@@ -1704,16 +1834,13 @@ fn analyzeInstSwitchBr(
             @memset(case_live_sets, .{});
             defer for (case_live_sets) |*live_set| live_set.deinit(gpa);
 
-            var air_extra_index: usize = switch_br.end;
-            for (case_live_sets[0..ncases]) |*live_set| {
-                const case = a.air.extraData(Air.SwitchBr.Case, air_extra_index);
-                const case_body: []const Air.Inst.Index = @ptrCast(a.air.extra[case.end + case.data.items_len ..][0..case.data.body_len]);
-                air_extra_index = case.end + case.data.items_len + case_body.len;
-                try analyzeBody(a, pass, data, case_body);
-                live_set.* = data.live_set.move();
+            var case_it = switch_br.iterateCases();
+            while (case_it.next()) |case| {
+                try analyzeBody(a, pass, data, case.body);
+                case_live_sets[case.idx] = data.live_set.move();
             }
             { // else
-                const else_body: []const Air.Inst.Index = @ptrCast(a.air.extra[air_extra_index..][0..switch_br.data.else_body_len]);
+                const else_body = case_it.elseBody();
                 try analyzeBody(a, pass, data, else_body);
                 case_live_sets[ncases] = data.live_set.move();
             }

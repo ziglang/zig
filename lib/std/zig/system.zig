@@ -86,21 +86,38 @@ pub fn getExternalExecutor(
             .arm => Executor{ .qemu = "qemu-arm" },
             .armeb => Executor{ .qemu = "qemu-armeb" },
             .hexagon => Executor{ .qemu = "qemu-hexagon" },
-            .x86 => Executor{ .qemu = "qemu-i386" },
+            .loongarch64 => Executor{ .qemu = "qemu-loongarch64" },
             .m68k => Executor{ .qemu = "qemu-m68k" },
             .mips => Executor{ .qemu = "qemu-mips" },
             .mipsel => Executor{ .qemu = "qemu-mipsel" },
-            .mips64 => Executor{ .qemu = "qemu-mips64" },
-            .mips64el => Executor{ .qemu = "qemu-mips64el" },
+            .mips64 => Executor{
+                .qemu = if (candidate.abi == .gnuabin32)
+                    "qemu-mipsn32"
+                else
+                    "qemu-mips64",
+            },
+            .mips64el => Executor{
+                .qemu = if (candidate.abi == .gnuabin32)
+                    "qemu-mipsn32el"
+                else
+                    "qemu-mips64el",
+            },
             .powerpc => Executor{ .qemu = "qemu-ppc" },
             .powerpc64 => Executor{ .qemu = "qemu-ppc64" },
             .powerpc64le => Executor{ .qemu = "qemu-ppc64le" },
             .riscv32 => Executor{ .qemu = "qemu-riscv32" },
             .riscv64 => Executor{ .qemu = "qemu-riscv64" },
             .s390x => Executor{ .qemu = "qemu-s390x" },
-            .sparc => Executor{ .qemu = "qemu-sparc" },
+            .sparc => Executor{
+                .qemu = if (std.Target.sparc.featureSetHas(candidate.cpu.features, .v9))
+                    "qemu-sparc32plus"
+                else
+                    "qemu-sparc",
+            },
             .sparc64 => Executor{ .qemu = "qemu-sparc64" },
+            .x86 => Executor{ .qemu = "qemu-i386" },
             .x86_64 => Executor{ .qemu = "qemu-x86_64" },
+            .xtensa => Executor{ .qemu = "qemu-xtensa" },
             else => return bad_result,
         };
     }
@@ -367,6 +384,12 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
         query.cpu_features_add,
         query.cpu_features_sub,
     );
+
+    // https://github.com/llvm/llvm-project/issues/105978
+    if (result.cpu.arch.isArmOrThumb() and result.floatAbi() == .soft) {
+        result.cpu.features.removeFeature(@intFromEnum(Target.arm.Feature.vfp2));
+    }
+
     return result;
 }
 

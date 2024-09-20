@@ -26,27 +26,27 @@ const is_freestanding = switch (native_os) {
 
 comptime {
     if (is_freestanding and is_wasm and builtin.link_libc) {
-        @export(wasm_start, .{ .name = "_start", .linkage = .strong });
+        @export(&wasm_start, .{ .name = "_start", .linkage = .strong });
     }
 
     if (builtin.link_libc) {
-        @export(strcmp, .{ .name = "strcmp", .linkage = .strong });
-        @export(strncmp, .{ .name = "strncmp", .linkage = .strong });
-        @export(strerror, .{ .name = "strerror", .linkage = .strong });
-        @export(strlen, .{ .name = "strlen", .linkage = .strong });
-        @export(strcpy, .{ .name = "strcpy", .linkage = .strong });
-        @export(strncpy, .{ .name = "strncpy", .linkage = .strong });
-        @export(strcat, .{ .name = "strcat", .linkage = .strong });
-        @export(strncat, .{ .name = "strncat", .linkage = .strong });
+        @export(&strcmp, .{ .name = "strcmp", .linkage = .strong });
+        @export(&strncmp, .{ .name = "strncmp", .linkage = .strong });
+        @export(&strerror, .{ .name = "strerror", .linkage = .strong });
+        @export(&strlen, .{ .name = "strlen", .linkage = .strong });
+        @export(&strcpy, .{ .name = "strcpy", .linkage = .strong });
+        @export(&strncpy, .{ .name = "strncpy", .linkage = .strong });
+        @export(&strcat, .{ .name = "strcat", .linkage = .strong });
+        @export(&strncat, .{ .name = "strncat", .linkage = .strong });
     } else if (is_msvc) {
-        @export(_fltused, .{ .name = "_fltused", .linkage = .strong });
+        @export(&_fltused, .{ .name = "_fltused", .linkage = .strong });
     }
 }
 
 // Avoid dragging in the runtime safety mechanisms into this .o file,
 // unless we're trying to test this file.
 pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, _: ?usize) noreturn {
-    @setCold(true);
+    @branchHint(.cold);
     _ = error_return_trace;
     if (builtin.is_test) {
         std.debug.panic("{s}", .{msg});

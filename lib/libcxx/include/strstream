@@ -13,7 +13,7 @@
 /*
     strstream synopsis
 
-class strstreambuf
+class strstreambuf                                    // Removed in C++26
     : public basic_streambuf<char>
 {
 public:
@@ -63,7 +63,7 @@ private:
     void (*pfree)(void*);               // exposition only
 };
 
-class istrstream
+class istrstream                                      // Removed in C++26
     : public basic_istream<char>
 {
 public:
@@ -81,7 +81,7 @@ private:
     strstreambuf sb; // exposition only
 };
 
-class ostrstream
+class ostrstream                                      // Removed in C++26
     : public basic_ostream<char>
 {
 public:
@@ -99,7 +99,7 @@ private:
     strstreambuf sb; // exposition only
 };
 
-class strstream
+class strstream                                       // Removed in C++26
     : public basic_iostream<char>
 {
 public:
@@ -129,7 +129,6 @@ private:
 
 */
 
-#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
 #include <istream>
 #include <ostream>
@@ -139,19 +138,21 @@ private:
 #  pragma GCC system_header
 #endif
 
+#if _LIBCPP_STD_VER < 26 || defined(_LIBCPP_ENABLE_CXX26_REMOVED_STRSTREAM) || defined(_LIBCPP_BUILDING_LIBRARY)
+
 _LIBCPP_PUSH_MACROS
-#include <__undef_macros>
+#  include <__undef_macros>
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 class _LIBCPP_DEPRECATED _LIBCPP_EXPORTED_FROM_ABI strstreambuf : public streambuf {
 public:
-#ifndef _LIBCPP_CXX03_LANG
+#  ifndef _LIBCPP_CXX03_LANG
   _LIBCPP_HIDE_FROM_ABI strstreambuf() : strstreambuf(0) {}
   explicit strstreambuf(streamsize __alsize);
-#else
+#  else
   explicit strstreambuf(streamsize __alsize = 0);
-#endif
+#  endif
   strstreambuf(void* (*__palloc)(size_t), void (*__pfree)(void*));
   strstreambuf(char* __gnext, streamsize __n, char* __pbeg = nullptr);
   strstreambuf(const char* __gnext, streamsize __n);
@@ -161,10 +162,10 @@ public:
   strstreambuf(unsigned char* __gnext, streamsize __n, unsigned char* __pbeg = nullptr);
   strstreambuf(const unsigned char* __gnext, streamsize __n);
 
-#ifndef _LIBCPP_CXX03_LANG
+#  ifndef _LIBCPP_CXX03_LANG
   _LIBCPP_HIDE_FROM_ABI strstreambuf(strstreambuf&& __rhs);
   _LIBCPP_HIDE_FROM_ABI strstreambuf& operator=(strstreambuf&& __rhs);
-#endif // _LIBCPP_CXX03_LANG
+#  endif // _LIBCPP_CXX03_LANG
 
   ~strstreambuf() override;
 
@@ -198,7 +199,7 @@ private:
   void __init(char* __gnext, streamsize __n, char* __pbeg);
 };
 
-#ifndef _LIBCPP_CXX03_LANG
+#  ifndef _LIBCPP_CXX03_LANG
 
 inline _LIBCPP_HIDE_FROM_ABI strstreambuf::strstreambuf(strstreambuf&& __rhs)
     : streambuf(__rhs),
@@ -227,7 +228,7 @@ inline _LIBCPP_HIDE_FROM_ABI strstreambuf& strstreambuf::operator=(strstreambuf&
   return *this;
 }
 
-#endif // _LIBCPP_CXX03_LANG
+#  endif // _LIBCPP_CXX03_LANG
 
 class _LIBCPP_DEPRECATED _LIBCPP_EXPORTED_FROM_ABI istrstream : public istream {
 public:
@@ -236,7 +237,7 @@ public:
   _LIBCPP_HIDE_FROM_ABI istrstream(const char* __s, streamsize __n) : istream(&__sb_), __sb_(__s, __n) {}
   _LIBCPP_HIDE_FROM_ABI istrstream(char* __s, streamsize __n) : istream(&__sb_), __sb_(__s, __n) {}
 
-#ifndef _LIBCPP_CXX03_LANG
+#  ifndef _LIBCPP_CXX03_LANG
   _LIBCPP_HIDE_FROM_ABI istrstream(istrstream&& __rhs) // extension
       : istream(std::move(static_cast<istream&>(__rhs))), __sb_(std::move(__rhs.__sb_)) {
     istream::set_rdbuf(&__sb_);
@@ -247,7 +248,7 @@ public:
     istream::operator=(std::move(__rhs));
     return *this;
   }
-#endif // _LIBCPP_CXX03_LANG
+#  endif // _LIBCPP_CXX03_LANG
 
   ~istrstream() override;
 
@@ -269,7 +270,7 @@ public:
   _LIBCPP_HIDE_FROM_ABI ostrstream(char* __s, int __n, ios_base::openmode __mode = ios_base::out)
       : ostream(&__sb_), __sb_(__s, __n, __s + (__mode & ios::app ? std::strlen(__s) : 0)) {}
 
-#ifndef _LIBCPP_CXX03_LANG
+#  ifndef _LIBCPP_CXX03_LANG
   _LIBCPP_HIDE_FROM_ABI ostrstream(ostrstream&& __rhs) // extension
       : ostream(std::move(static_cast<ostream&>(__rhs))), __sb_(std::move(__rhs.__sb_)) {
     ostream::set_rdbuf(&__sb_);
@@ -280,7 +281,7 @@ public:
     ostream::operator=(std::move(__rhs));
     return *this;
   }
-#endif // _LIBCPP_CXX03_LANG
+#  endif // _LIBCPP_CXX03_LANG
 
   ~ostrstream() override;
 
@@ -311,7 +312,7 @@ public:
   _LIBCPP_HIDE_FROM_ABI strstream(char* __s, int __n, ios_base::openmode __mode = ios_base::in | ios_base::out)
       : iostream(&__sb_), __sb_(__s, __n, __s + (__mode & ios::app ? std::strlen(__s) : 0)) {}
 
-#ifndef _LIBCPP_CXX03_LANG
+#  ifndef _LIBCPP_CXX03_LANG
   _LIBCPP_HIDE_FROM_ABI strstream(strstream&& __rhs) // extension
       : iostream(std::move(static_cast<iostream&>(__rhs))), __sb_(std::move(__rhs.__sb_)) {
     iostream::set_rdbuf(&__sb_);
@@ -322,7 +323,7 @@ public:
     iostream::operator=(std::move(__rhs));
     return *this;
   }
-#endif // _LIBCPP_CXX03_LANG
+#  endif // _LIBCPP_CXX03_LANG
 
   ~strstream() override;
 
@@ -344,5 +345,7 @@ private:
 _LIBCPP_END_NAMESPACE_STD
 
 _LIBCPP_POP_MACROS
+
+#endif // _LIBCPP_STD_VER < 26 || defined(_LIBCPP_ENABLE_CXX26_REMOVED_STRSTREAM) || defined(_LIBCPP_BUILDING_LIBRARY)
 
 #endif // _LIBCPP_STRSTREAM

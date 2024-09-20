@@ -190,7 +190,7 @@ pub fn clone() callconv(.Naked) usize {
         \\ mov %%i0, %%g2
         \\ mov %%i3, %%g3
         \\ # Shuffle the arguments
-        \\ mov 217, %%g1 # SYS_clone
+        \\ mov 217, %%g1 // SYS_clone
         \\ mov %%i2, %%o0
         \\ # Add some extra space for the initial frame
         \\ sub %%i1, 176 + 2047, %%o1
@@ -214,7 +214,7 @@ pub fn clone() callconv(.Naked) usize {
         \\ call %%g2
         \\ mov %%g3, %%o0
         \\ # Exit
-        \\ mov 1, %%g1 # SYS_exit
+        \\ mov 1, %%g1 // SYS_exit
         \\ t 0x6d
         \\2:
         \\ # The syscall failed
@@ -448,63 +448,3 @@ pub const ucontext_t = extern struct {
 
 /// TODO
 pub const getcontext = {};
-
-pub const rlimit_resource = enum(c_int) {
-    /// Per-process CPU limit, in seconds.
-    CPU,
-
-    /// Largest file that can be created, in bytes.
-    FSIZE,
-
-    /// Maximum size of data segment, in bytes.
-    DATA,
-
-    /// Maximum size of stack segment, in bytes.
-    STACK,
-
-    /// Largest core file that can be created, in bytes.
-    CORE,
-
-    /// Largest resident set size, in bytes.
-    /// This affects swapping; processes that are exceeding their
-    /// resident set size will be more likely to have physical memory
-    /// taken from them.
-    RSS,
-
-    /// Number of open files.
-    NOFILE,
-
-    /// Number of processes.
-    NPROC,
-
-    /// Locked-in-memory address space.
-    MEMLOCK,
-
-    /// Address space limit.
-    AS,
-
-    /// Maximum number of file locks.
-    LOCKS,
-
-    /// Maximum number of pending signals.
-    SIGPENDING,
-
-    /// Maximum bytes in POSIX message queues.
-    MSGQUEUE,
-
-    /// Maximum nice priority allowed to raise to.
-    /// Nice levels 19 .. -20 correspond to 0 .. 39
-    /// values of this resource limit.
-    NICE,
-
-    /// Maximum realtime priority allowed for non-privileged
-    /// processes.
-    RTPRIO,
-
-    /// Maximum CPU time in µs that a process scheduled under a real-time
-    /// scheduling policy may consume without making a blocking system
-    /// call before being forcibly descheduled.
-    RTTIME,
-
-    _,
-};

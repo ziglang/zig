@@ -10,7 +10,6 @@
 #ifndef _LIBCPP___FORMAT_FORMAT_CONTEXT_H
 #define _LIBCPP___FORMAT_FORMAT_CONTEXT_H
 
-#include <__availability>
 #include <__concepts/same_as.h>
 #include <__config>
 #include <__format/buffer.h>
@@ -18,7 +17,7 @@
 #include <__format/format_arg_store.h>
 #include <__format/format_args.h>
 #include <__format/format_error.h>
-#include <__format/format_fwd.h>
+#include <__fwd/format.h>
 #include <__iterator/back_insert_iterator.h>
 #include <__iterator/concepts.h>
 #include <__memory/addressof.h>
@@ -27,7 +26,7 @@
 #include <cstddef>
 
 #ifndef _LIBCPP_HAS_NO_LOCALIZATION
-#  include <locale>
+#  include <__locale>
 #  include <optional>
 #endif
 
@@ -132,6 +131,9 @@ private:
   _LIBCPP_HIDE_FROM_ABI explicit basic_format_context(_OutIt __out_it, basic_format_args<basic_format_context> __args)
       : __out_it_(std::move(__out_it)), __args_(__args) {}
 #  endif
+
+  basic_format_context(const basic_format_context&)            = delete;
+  basic_format_context& operator=(const basic_format_context&) = delete;
 };
 
 // A specialization for __retarget_buffer
@@ -166,20 +168,25 @@ public:
 #  endif
         __ctx_(std::addressof(__ctx)),
         __arg_([](void* __c, size_t __id) {
-          return std::visit_format_arg(
-              [&](auto __arg) -> basic_format_arg<basic_format_context> {
-                if constexpr (same_as<decltype(__arg), monostate>)
-                  return {};
-                else if constexpr (same_as<decltype(__arg), typename basic_format_arg<_Context>::handle>)
-                  // At the moment it's not possible for formatting to use a re-targeted handle.
-                  // TODO FMT add this when support is needed.
-                  std::__throw_format_error("Re-targeting handle not supported");
-                else
-                  return basic_format_arg<basic_format_context>{
-                      __format::__determine_arg_t<basic_format_context, decltype(__arg)>(),
-                      __basic_format_arg_value<basic_format_context>(__arg)};
-              },
-              static_cast<_Context*>(__c)->arg(__id));
+          auto __visitor = [&](auto __arg) -> basic_format_arg<basic_format_context> {
+            if constexpr (same_as<decltype(__arg), monostate>)
+              return {};
+            else if constexpr (same_as<decltype(__arg), typename basic_format_arg<_Context>::handle>)
+              // At the moment it's not possible for formatting to use a re-targeted handle.
+              // TODO FMT add this when support is needed.
+              std::__throw_format_error("Re-targeting handle not supported");
+            else
+              return basic_format_arg<basic_format_context>{
+                  __format::__determine_arg_t<basic_format_context, decltype(__arg)>(),
+                  __basic_format_arg_value<basic_format_context>(__arg)};
+          };
+#  if _LIBCPP_STD_VER >= 26 && defined(_LIBCPP_HAS_EXPLICIT_THIS_PARAMETER)
+          return static_cast<_Context*>(__c)->arg(__id).visit(std::move(__visitor));
+#  else
+          _LIBCPP_SUPPRESS_DEPRECATED_PUSH
+          return std::visit_format_arg(std::move(__visitor), static_cast<_Context*>(__c)->arg(__id));
+          _LIBCPP_SUPPRESS_DEPRECATED_POP
+#  endif // _LIBCPP_STD_VER >= 26 && defined(_LIBCPP_HAS_EXPLICIT_THIS_PARAMETER)
         }) {
   }
 

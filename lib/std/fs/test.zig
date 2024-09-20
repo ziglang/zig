@@ -745,6 +745,7 @@ test "directory operations on files" {
 test "file operations on directories" {
     // TODO: fix this test on FreeBSD. https://github.com/ziglang/zig/issues/1759
     if (native_os == .freebsd) return error.SkipZigTest;
+    if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/20747
 
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {

@@ -200,7 +200,7 @@ namespace __split_view {
 struct __fn {
   // clang-format off
   template <class _Range, class _Pattern>
-  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI
+  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI
   constexpr auto operator()(_Range&& __range, _Pattern&& __pattern) const
     noexcept(noexcept(split_view(std::forward<_Range>(__range), std::forward<_Pattern>(__pattern))))
     -> decltype(      split_view(std::forward<_Range>(__range), std::forward<_Pattern>(__pattern)))
@@ -209,7 +209,7 @@ struct __fn {
 
   template <class _Pattern>
     requires constructible_from<decay_t<_Pattern>, _Pattern>
-  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr auto operator()(_Pattern&& __pattern) const
+  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr auto operator()(_Pattern&& __pattern) const
       noexcept(is_nothrow_constructible_v<decay_t<_Pattern>, _Pattern>) {
     return __range_adaptor_closure_t(std::__bind_back(*this, std::forward<_Pattern>(__pattern)));
   }

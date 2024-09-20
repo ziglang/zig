@@ -1,0 +1,23 @@
+#target=x86_64-linux
+#update=initial version
+#file=main.zig
+const std = @import("std");
+pub fn main() !void {
+    const str = getStr();
+    try std.io.getStdOut().writeAll(str);
+}
+inline fn getStr() []const u8 {
+    return "foo\n";
+}
+#expect_stdout="foo\n"
+#update=change the string
+#file=main.zig
+const std = @import("std");
+pub fn main() !void {
+    const str = getStr();
+    try std.io.getStdOut().writeAll(str);
+}
+inline fn getStr() []const u8 {
+    return "bar\n";
+}
+#expect_stdout="bar\n"

@@ -1,6 +1,6 @@
 pub const DynamicSection = struct {
     soname: ?u32 = null,
-    needed: std.ArrayListUnmanaged(u32) = .{},
+    needed: std.ArrayListUnmanaged(u32) = .empty,
     rpath: u32 = 0,
 
     pub fn deinit(dt: *DynamicSection, allocator: Allocator) void {
@@ -95,6 +95,8 @@ pub const DynamicSection = struct {
     }
 
     pub fn write(dt: DynamicSection, elf_file: *Elf, writer: anytype) !void {
+        const shdrs = elf_file.sections.items(.shdr);
+
         // NEEDED
         for (dt.needed.items) |off| {
             try writer.writeStruct(elf.Elf64_Dyn{ .d_tag = elf.DT_NEEDED, .d_val = off });
@@ -112,33 +114,33 @@ pub const DynamicSection = struct {
 
         // INIT
         if (elf_file.sectionByName(".init")) |shndx| {
-            const addr = elf_file.shdrs.items[shndx].sh_addr;
+            const addr = shdrs[shndx].sh_addr;
             try writer.writeStruct(elf.Elf64_Dyn{ .d_tag = elf.DT_INIT, .d_val = addr });
         }
 
         // FINI
         if (elf_file.sectionByName(".fini")) |shndx| {
-            const addr = elf_file.shdrs.items[shndx].sh_addr;
+            const addr = shdrs[shndx].sh_addr;
             try writer.writeStruct(elf.Elf64_Dyn{ .d_tag = elf.DT_FINI, .d_val = addr });
         }
 
         // INIT_ARRAY
         if (elf_file.sectionByName(".init_array")) |shndx| {
-            const shdr = elf_file.shdrs.items[shndx];
+            const shdr = shdrs[shndx];
             try writer.writeStruct(elf.Elf64_Dyn{ .d_tag = elf.DT_INIT_ARRAY, .d_val = shdr.sh_addr });
             try writer.writeStruct(elf.Elf64_Dyn{ .d_tag = elf.DT_INIT_ARRAYSZ, .d_val = shdr.sh_size });
         }
 
         // FINI_ARRAY
         if (elf_file.sectionByName(".fini_array")) |shndx| {
-            const shdr = elf_file.shdrs.items[shndx];
+            const shdr = shdrs[shndx];
             try writer.writeStruct(elf.Elf64_Dyn{ .d_tag = elf.DT_FINI_ARRAY, .d_val = shdr.sh_addr });
             try writer.writeStruct(elf.Elf64_Dyn{ .d_tag = elf.DT_FINI_ARRAYSZ, .d_val = shdr.sh_size });
         }
 
         // RELA
         if (elf_file.rela_dyn_section_index) |shndx| {
-            const shdr = elf_file.shdrs.items[shndx];
+            const shdr = shdrs[shndx];
             try writer.writeStruct(elf.Elf64_Dyn{ .d_tag = elf.DT_RELA, .d_val = shdr.sh_addr });
             try writer.writeStruct(elf.Elf64_Dyn{ .d_tag = elf.DT_RELASZ, .d_val = shdr.sh_size });
             try writer.writeStruct(elf.Elf64_Dyn{ .d_tag = elf.DT_RELAENT, .d_val = shdr.sh_entsize });
@@ -146,7 +148,7 @@ pub const DynamicSection = struct {
 
         // JMPREL
         if (elf_file.rela_plt_section_index) |shndx| {
-            const shdr = elf_file.shdrs.items[shndx];
+            const shdr = shdrs[shndx];
             try writer.writeStruct(elf.Elf64_Dyn{ .d_tag = elf.DT_JMPREL, .d_val = shdr.sh_addr });
             try writer.writeStruct(elf.Elf64_Dyn{ .d_tag = elf.DT_PLTRELSZ, .d_val = shdr.sh_size });
             try writer.writeStruct(elf.Elf64_Dyn{ .d_tag = elf.DT_PLTREL, .d_val = elf.DT_RELA });
@@ -154,18 +156,18 @@ pub const DynamicSection = struct {
 
         // PLTGOT
         if (elf_file.got_plt_section_index) |shndx| {
-            const addr = elf_file.shdrs.items[shndx].sh_addr;
+            const addr = shdrs[shndx].sh_addr;
             try writer.writeStruct(elf.Elf64_Dyn{ .d_tag = elf.DT_PLTGOT, .d_val = addr });
         }
 
         {
             assert(elf_file.hash_section_index != null);
-            const addr = elf_file.shdrs.items[elf_file.hash_section_index.?].sh_addr;
+            const addr = shdrs[elf_file.hash_section_index.?].sh_addr;
             try writer.writeStruct(elf.Elf64_Dyn{ .d_tag = elf.DT_HASH, .d_val = addr });
         }
 
         if (elf_file.gnu_hash_section_index) |shndx| {
-            const addr = elf_file.shdrs.items[shndx].sh_addr;
+            const addr = shdrs[shndx].sh_addr;
             try writer.writeStruct(elf.Elf64_Dyn{ .d_tag = elf.DT_GNU_HASH, .d_val = addr });
         }
 
@@ -177,7 +179,7 @@ pub const DynamicSection = struct {
         // SYMTAB + SYMENT
         {
             assert(elf_file.dynsymtab_section_index != null);
-            const shdr = elf_file.shdrs.items[elf_file.dynsymtab_section_index.?];
+            const shdr = shdrs[elf_file.dynsymtab_section_index.?];
             try writer.writeStruct(elf.Elf64_Dyn{ .d_tag = elf.DT_SYMTAB, .d_val = shdr.sh_addr });
             try writer.writeStruct(elf.Elf64_Dyn{ .d_tag = elf.DT_SYMENT, .d_val = shdr.sh_entsize });
         }
@@ -185,20 +187,20 @@ pub const DynamicSection = struct {
         // STRTAB + STRSZ
         {
             assert(elf_file.dynstrtab_section_index != null);
-            const shdr = elf_file.shdrs.items[elf_file.dynstrtab_section_index.?];
+            const shdr = shdrs[elf_file.dynstrtab_section_index.?];
             try writer.writeStruct(elf.Elf64_Dyn{ .d_tag = elf.DT_STRTAB, .d_val = shdr.sh_addr });
             try writer.writeStruct(elf.Elf64_Dyn{ .d_tag = elf.DT_STRSZ, .d_val = shdr.sh_size });
         }
 
         // VERSYM
         if (elf_file.versym_section_index) |shndx| {
-            const addr = elf_file.shdrs.items[shndx].sh_addr;
+            const addr = shdrs[shndx].sh_addr;
             try writer.writeStruct(elf.Elf64_Dyn{ .d_tag = elf.DT_VERSYM, .d_val = addr });
         }
 
         // VERNEED + VERNEEDNUM
         if (elf_file.verneed_section_index) |shndx| {
-            const addr = elf_file.shdrs.items[shndx].sh_addr;
+            const addr = shdrs[shndx].sh_addr;
             try writer.writeStruct(elf.Elf64_Dyn{ .d_tag = elf.DT_VERNEED, .d_val = addr });
             try writer.writeStruct(elf.Elf64_Dyn{
                 .d_tag = elf.DT_VERNEEDNUM,
@@ -223,217 +225,8 @@ pub const DynamicSection = struct {
     }
 };
 
-pub const ZigGotSection = struct {
-    entries: std.ArrayListUnmanaged(Symbol.Index) = .{},
-    output_symtab_ctx: Elf.SymtabCtx = .{},
-    flags: Flags = .{},
-
-    const Flags = packed struct {
-        needs_rela: bool = false,
-        dirty: bool = false,
-    };
-
-    pub const Index = u32;
-
-    pub fn deinit(zig_got: *ZigGotSection, allocator: Allocator) void {
-        zig_got.entries.deinit(allocator);
-    }
-
-    fn allocateEntry(zig_got: *ZigGotSection, allocator: Allocator) !Index {
-        try zig_got.entries.ensureUnusedCapacity(allocator, 1);
-        // TODO add free list
-        const index = @as(Index, @intCast(zig_got.entries.items.len));
-        _ = zig_got.entries.addOneAssumeCapacity();
-        zig_got.flags.dirty = true;
-        return index;
-    }
-
-    pub fn addSymbol(zig_got: *ZigGotSection, sym_index: Symbol.Index, elf_file: *Elf) !Index {
-        const comp = elf_file.base.comp;
-        const gpa = comp.gpa;
-        const zo = elf_file.zigObjectPtr().?;
-        const index = try zig_got.allocateEntry(gpa);
-        const entry = &zig_got.entries.items[index];
-        entry.* = sym_index;
-        const symbol = zo.symbol(sym_index);
-        symbol.flags.has_zig_got = true;
-        if (elf_file.isEffectivelyDynLib() or (elf_file.base.isExe() and comp.config.pie)) {
-            zig_got.flags.needs_rela = true;
-        }
-        symbol.addExtra(.{ .zig_got = index }, elf_file);
-        return index;
-    }
-
-    pub fn entryOffset(zig_got: ZigGotSection, index: Index, elf_file: *Elf) u64 {
-        _ = zig_got;
-        const entry_size = elf_file.archPtrWidthBytes();
-        const shdr = elf_file.shdrs.items[elf_file.zig_got_section_index.?];
-        return shdr.sh_offset + @as(u64, entry_size) * index;
-    }
-
-    pub fn entryAddress(zig_got: ZigGotSection, index: Index, elf_file: *Elf) i64 {
-        _ = zig_got;
-        const entry_size = elf_file.archPtrWidthBytes();
-        const shdr = elf_file.shdrs.items[elf_file.zig_got_section_index.?];
-        return @as(i64, @intCast(shdr.sh_addr)) + entry_size * index;
-    }
-
-    pub fn size(zig_got: ZigGotSection, elf_file: *Elf) usize {
-        return elf_file.archPtrWidthBytes() * zig_got.entries.items.len;
-    }
-
-    pub fn writeOne(zig_got: *ZigGotSection, elf_file: *Elf, index: Index) !void {
-        const zo = elf_file.zigObjectPtr().?;
-        if (zig_got.flags.dirty) {
-            const needed_size = zig_got.size(elf_file);
-            try elf_file.growAllocSection(elf_file.zig_got_section_index.?, needed_size);
-            zig_got.flags.dirty = false;
-        }
-        const entry_size: u16 = elf_file.archPtrWidthBytes();
-        const target = elf_file.getTarget();
-        const endian = target.cpu.arch.endian();
-        const off = zig_got.entryOffset(index, elf_file);
-        const vaddr: u64 = @intCast(zig_got.entryAddress(index, elf_file));
-        const entry = zig_got.entries.items[index];
-        const value = zo.symbol(entry).address(.{}, elf_file);
-        switch (entry_size) {
-            2 => {
-                var buf: [2]u8 = undefined;
-                std.mem.writeInt(u16, &buf, @intCast(value), endian);
-                try elf_file.base.file.?.pwriteAll(&buf, off);
-            },
-            4 => {
-                var buf: [4]u8 = undefined;
-                std.mem.writeInt(u32, &buf, @intCast(value), endian);
-                try elf_file.base.file.?.pwriteAll(&buf, off);
-            },
-            8 => {
-                var buf: [8]u8 = undefined;
-                std.mem.writeInt(u64, &buf, @intCast(value), endian);
-                try elf_file.base.file.?.pwriteAll(&buf, off);
-
-                if (elf_file.base.child_pid) |pid| {
-                    switch (builtin.os.tag) {
-                        .linux => {
-                            var local_vec: [1]std.posix.iovec_const = .{.{
-                                .base = &buf,
-                                .len = buf.len,
-                            }};
-                            var remote_vec: [1]std.posix.iovec_const = .{.{
-                                .base = @as([*]u8, @ptrFromInt(@as(usize, @intCast(vaddr)))),
-                                .len = buf.len,
-                            }};
-                            const rc = std.os.linux.process_vm_writev(pid, &local_vec, &remote_vec, 0);
-                            switch (std.os.linux.E.init(rc)) {
-                                .SUCCESS => assert(rc == buf.len),
-                                else => |errno| log.warn("process_vm_writev failure: {s}", .{@tagName(errno)}),
-                            }
-                        },
-                        else => return error.HotSwapUnavailableOnHostOperatingSystem,
-                    }
-                }
-            },
-            else => unreachable,
-        }
-    }
-
-    pub fn writeAll(zig_got: ZigGotSection, elf_file: *Elf, writer: anytype) !void {
-        const zo = elf_file.zigObjectPtr().?;
-        for (zig_got.entries.items) |entry| {
-            const symbol = zo.symbol(entry);
-            const value = symbol.address(.{ .plt = false }, elf_file);
-            try writeInt(value, elf_file, writer);
-        }
-    }
-
-    pub fn numRela(zig_got: ZigGotSection) usize {
-        return zig_got.entries.items.len;
-    }
-
-    pub fn addRela(zig_got: ZigGotSection, elf_file: *Elf) !void {
-        const comp = elf_file.base.comp;
-        const gpa = comp.gpa;
-        const cpu_arch = elf_file.getTarget().cpu.arch;
-        const zo = elf_file.zigObjectPtr().?;
-        try elf_file.rela_dyn.ensureUnusedCapacity(gpa, zig_got.numRela());
-        for (zig_got.entries.items) |entry| {
-            const symbol = zo.symbol(entry);
-            const offset = symbol.zigGotAddress(elf_file);
-            elf_file.addRelaDynAssumeCapacity(.{
-                .offset = @intCast(offset),
-                .type = relocation.encode(.rel, cpu_arch),
-                .addend = symbol.address(.{ .plt = false }, elf_file),
-            });
-        }
-    }
-
-    pub fn updateSymtabSize(zig_got: *ZigGotSection, elf_file: *Elf) void {
-        const zo = elf_file.zigObjectPtr().?;
-        zig_got.output_symtab_ctx.nlocals = @as(u32, @intCast(zig_got.entries.items.len));
-        for (zig_got.entries.items) |entry| {
-            const name = zo.symbol(entry).name(elf_file);
-            zig_got.output_symtab_ctx.strsize += @as(u32, @intCast(name.len + "$ziggot".len)) + 1;
-        }
-    }
-
-    pub fn writeSymtab(zig_got: ZigGotSection, elf_file: *Elf) void {
-        const zo = elf_file.zigObjectPtr().?;
-        for (zig_got.entries.items, zig_got.output_symtab_ctx.ilocal.., 0..) |entry, ilocal, index| {
-            const symbol = zo.symbol(entry);
-            const symbol_name = symbol.name(elf_file);
-            const st_name = @as(u32, @intCast(elf_file.strtab.items.len));
-            elf_file.strtab.appendSliceAssumeCapacity(symbol_name);
-            elf_file.strtab.appendSliceAssumeCapacity("$ziggot");
-            elf_file.strtab.appendAssumeCapacity(0);
-            const st_value = zig_got.entryAddress(@intCast(index), elf_file);
-            const st_size = elf_file.archPtrWidthBytes();
-            elf_file.symtab.items[ilocal] = .{
-                .st_name = st_name,
-                .st_info = elf.STT_OBJECT,
-                .st_other = 0,
-                .st_shndx = @intCast(elf_file.zig_got_section_index.?),
-                .st_value = @intCast(st_value),
-                .st_size = st_size,
-            };
-        }
-    }
-
-    const FormatCtx = struct {
-        zig_got: ZigGotSection,
-        elf_file: *Elf,
-    };
-
-    pub fn fmt(zig_got: ZigGotSection, elf_file: *Elf) std.fmt.Formatter(format2) {
-        return .{ .data = .{ .zig_got = zig_got, .elf_file = elf_file } };
-    }
-
-    pub fn format2(
-        ctx: FormatCtx,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = options;
-        _ = unused_fmt_string;
-        const zig_got = ctx.zig_got;
-        const elf_file = ctx.elf_file;
-        try writer.writeAll(".zig.got\n");
-        for (zig_got.entries.items, 0..) |entry, index| {
-            const zo = elf_file.zigObjectPtr().?;
-            const symbol = zo.symbol(entry);
-            try writer.print("  {d}@0x{x} => {d}@0x{x} ({s})\n", .{
-                index,
-                zig_got.entryAddress(@intCast(index), elf_file),
-                entry,
-                symbol.address(.{}, elf_file),
-                symbol.name(elf_file),
-            });
-        }
-    }
-};
-
 pub const GotSection = struct {
-    entries: std.ArrayListUnmanaged(Entry) = .{},
+    entries: std.ArrayListUnmanaged(Entry) = .empty,
     output_symtab_ctx: Elf.SymtabCtx = .{},
     tlsld_index: ?u32 = null,
     flags: Flags = .{},
@@ -468,7 +261,7 @@ pub const GotSection = struct {
 
         pub fn address(entry: Entry, elf_file: *Elf) i64 {
             const ptr_bytes = elf_file.archPtrWidthBytes();
-            const shdr = &elf_file.shdrs.items[elf_file.got_section_index.?];
+            const shdr = &elf_file.sections.items(.shdr)[elf_file.got_section_index.?];
             return @as(i64, @intCast(shdr.sh_addr)) + entry.cell_index * ptr_bytes;
         }
     };
@@ -836,7 +629,7 @@ pub const GotSection = struct {
 };
 
 pub const PltSection = struct {
-    symbols: std.ArrayListUnmanaged(Elf.Ref) = .{},
+    symbols: std.ArrayListUnmanaged(Elf.Ref) = .empty,
     output_symtab_ctx: Elf.SymtabCtx = .{},
 
     pub fn deinit(plt: *PltSection, allocator: Allocator) void {
@@ -968,8 +761,9 @@ pub const PltSection = struct {
 
     const x86_64 = struct {
         fn write(plt: PltSection, elf_file: *Elf, writer: anytype) !void {
-            const plt_addr = elf_file.shdrs.items[elf_file.plt_section_index.?].sh_addr;
-            const got_plt_addr = elf_file.shdrs.items[elf_file.got_plt_section_index.?].sh_addr;
+            const shdrs = elf_file.sections.items(.shdr);
+            const plt_addr = shdrs[elf_file.plt_section_index.?].sh_addr;
+            const got_plt_addr = shdrs[elf_file.got_plt_section_index.?].sh_addr;
             var preamble = [_]u8{
                 0xf3, 0x0f, 0x1e, 0xfa, // endbr64
                 0x41, 0x53, // push r11
@@ -1003,8 +797,9 @@ pub const PltSection = struct {
     const aarch64 = struct {
         fn write(plt: PltSection, elf_file: *Elf, writer: anytype) !void {
             {
-                const plt_addr: i64 = @intCast(elf_file.shdrs.items[elf_file.plt_section_index.?].sh_addr);
-                const got_plt_addr: i64 = @intCast(elf_file.shdrs.items[elf_file.got_plt_section_index.?].sh_addr);
+                const shdrs = elf_file.sections.items(.shdr);
+                const plt_addr: i64 = @intCast(shdrs[elf_file.plt_section_index.?].sh_addr);
+                const got_plt_addr: i64 = @intCast(shdrs[elf_file.got_plt_section_index.?].sh_addr);
                 // TODO: relax if possible
                 // .got.plt[2]
                 const pages = try aarch64_util.calcNumberOfPages(plt_addr + 4, got_plt_addr + 16);
@@ -1078,7 +873,7 @@ pub const GotPltSection = struct {
         try writer.writeInt(u64, 0x0, .little);
         try writer.writeInt(u64, 0x0, .little);
         if (elf_file.plt_section_index) |shndx| {
-            const plt_addr = elf_file.shdrs.items[shndx].sh_addr;
+            const plt_addr = elf_file.sections.items(.shdr)[shndx].sh_addr;
             for (0..elf_file.plt.symbols.items.len) |_| {
                 // [N]: .plt
                 try writer.writeInt(u64, plt_addr, .little);
@@ -1088,7 +883,7 @@ pub const GotPltSection = struct {
 };
 
 pub const PltGotSection = struct {
-    symbols: std.ArrayListUnmanaged(Elf.Ref) = .{},
+    symbols: std.ArrayListUnmanaged(Elf.Ref) = .empty,
     output_symtab_ctx: Elf.SymtabCtx = .{},
 
     pub fn deinit(plt_got: *PltGotSection, allocator: Allocator) void {
@@ -1199,7 +994,7 @@ pub const PltGotSection = struct {
 };
 
 pub const CopyRelSection = struct {
-    symbols: std.ArrayListUnmanaged(Elf.Ref) = .{},
+    symbols: std.ArrayListUnmanaged(Elf.Ref) = .empty,
 
     pub fn deinit(copy_rel: *CopyRelSection, allocator: Allocator) void {
         copy_rel.symbols.deinit(allocator);
@@ -1236,7 +1031,7 @@ pub const CopyRelSection = struct {
     }
 
     pub fn updateSectionSize(copy_rel: CopyRelSection, shndx: u32, elf_file: *Elf) !void {
-        const shdr = &elf_file.shdrs.items[shndx];
+        const shdr = &elf_file.sections.items(.shdr)[shndx];
         for (copy_rel.symbols.items) |ref| {
             const symbol = elf_file.symbol(ref).?;
             const shared_object = symbol.file(elf_file).?.shared_object;
@@ -1277,7 +1072,7 @@ pub const CopyRelSection = struct {
 };
 
 pub const DynsymSection = struct {
-    entries: std.ArrayListUnmanaged(Entry) = .{},
+    entries: std.ArrayListUnmanaged(Entry) = .empty,
 
     pub const Entry = struct {
         /// Ref of the symbol which gets privilege of getting a dynamic treatment
@@ -1361,7 +1156,7 @@ pub const DynsymSection = struct {
 };
 
 pub const HashSection = struct {
-    buffer: std.ArrayListUnmanaged(u8) = .{},
+    buffer: std.ArrayListUnmanaged(u8) = .empty,
 
     pub fn deinit(hs: *HashSection, allocator: Allocator) void {
         hs.buffer.deinit(allocator);
@@ -1525,8 +1320,8 @@ pub const GnuHashSection = struct {
 };
 
 pub const VerneedSection = struct {
-    verneed: std.ArrayListUnmanaged(elf.Elf64_Verneed) = .{},
-    vernaux: std.ArrayListUnmanaged(elf.Elf64_Vernaux) = .{},
+    verneed: std.ArrayListUnmanaged(elf.Elf64_Verneed) = .empty,
+    vernaux: std.ArrayListUnmanaged(elf.Elf64_Vernaux) = .empty,
     index: elf.Elf64_Versym = elf.VER_NDX_GLOBAL + 1,
 
     pub fn deinit(vern: *VerneedSection, allocator: Allocator) void {
@@ -1696,8 +1491,12 @@ pub const ComdatGroupSection = struct {
                 elf.SHT_RELA => {
                     const atom_index = object.atoms_indexes.items[shdr.sh_info];
                     const atom = object.atom(atom_index).?;
-                    const rela = elf_file.output_rela_sections.get(atom.output_section_index).?;
-                    try writer.writeInt(u32, rela.shndx, .little);
+                    const rela_shndx = for (elf_file.sections.items(.shdr), 0..) |rela_shdr, rela_shndx| {
+                        if (rela_shdr.sh_type == elf.SHT_RELA and
+                            atom.output_section_index == rela_shdr.sh_info)
+                            break rela_shndx;
+                    } else unreachable;
+                    try writer.writeInt(u32, @intCast(rela_shndx), .little);
                 },
                 else => {
                     const atom_index = object.atoms_indexes.items[shndx];

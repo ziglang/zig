@@ -51,7 +51,7 @@ pub fn main() !void {
     defer arena_instance.deinit();
     const arena = arena_instance.allocator();
 
-    var general_purpose_allocator: std.heap.GeneralPurposeAllocator(.{}) = .{};
+    var general_purpose_allocator: std.heap.GeneralPurposeAllocator(.{}) = .init;
     const gpa = general_purpose_allocator.allocator();
 
     const args = try std.process.argsAlloc(arena);
@@ -109,7 +109,7 @@ pub fn main() !void {
     const root_source_file_path = opt_root_source_file_path orelse
         fatal("missing root source file path argument; see -h for usage", .{});
 
-    var interestingness_argv: std.ArrayListUnmanaged([]const u8) = .{};
+    var interestingness_argv: std.ArrayListUnmanaged([]const u8) = .empty;
     try interestingness_argv.ensureUnusedCapacity(arena, argv.len + 1);
     interestingness_argv.appendAssumeCapacity(checker_path);
     interestingness_argv.appendSliceAssumeCapacity(argv);

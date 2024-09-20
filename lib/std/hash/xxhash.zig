@@ -593,7 +593,7 @@ pub const XxHash3 = struct {
     }
 
     fn hash3(seed: u64, input: anytype, noalias secret: *const [192]u8) u64 {
-        @setCold(true);
+        @branchHint(.cold);
         std.debug.assert(input.len > 0 and input.len < 4);
 
         const flip: [2]u32 = @bitCast(secret[0..8].*);
@@ -609,7 +609,7 @@ pub const XxHash3 = struct {
     }
 
     fn hash8(seed: u64, input: anytype, noalias secret: *const [192]u8) u64 {
-        @setCold(true);
+        @branchHint(.cold);
         std.debug.assert(input.len >= 4 and input.len <= 8);
 
         const flip: [2]u64 = @bitCast(secret[8..24].*);
@@ -625,7 +625,7 @@ pub const XxHash3 = struct {
     }
 
     fn hash16(seed: u64, input: anytype, noalias secret: *const [192]u8) u64 {
-        @setCold(true);
+        @branchHint(.cold);
         std.debug.assert(input.len > 8 and input.len <= 16);
 
         const flip: [4]u64 = @bitCast(secret[24..56].*);
@@ -641,7 +641,7 @@ pub const XxHash3 = struct {
     }
 
     fn hash128(seed: u64, input: anytype, noalias secret: *const [192]u8) u64 {
-        @setCold(true);
+        @branchHint(.cold);
         std.debug.assert(input.len > 16 and input.len <= 128);
 
         var acc = XxHash64.prime_1 *% @as(u64, input.len);
@@ -657,7 +657,7 @@ pub const XxHash3 = struct {
     }
 
     fn hash240(seed: u64, input: anytype, noalias secret: *const [192]u8) u64 {
-        @setCold(true);
+        @branchHint(.cold);
         std.debug.assert(input.len > 128 and input.len <= 240);
 
         var acc = XxHash64.prime_1 *% @as(u64, input.len);
@@ -676,7 +676,7 @@ pub const XxHash3 = struct {
     }
 
     noinline fn hashLong(seed: u64, input: []const u8) u64 {
-        @setCold(true);
+        @branchHint(.cold);
         std.debug.assert(input.len >= 240);
 
         const block_count = ((input.len - 1) / @sizeOf(Block)) * @sizeOf(Block);
@@ -890,7 +890,7 @@ test "xxhash32 smhasher" {
         }
     };
     try Test.do();
-    @setEvalBranchQuota(75000);
+    @setEvalBranchQuota(85000);
     comptime try Test.do();
 }
 

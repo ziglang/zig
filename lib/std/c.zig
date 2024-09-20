@@ -40,7 +40,7 @@ pub extern var _mh_execute_header: mach_hdr;
 var dummy_execute_header: mach_hdr = undefined;
 comptime {
     if (native_os.isDarwin()) {
-        @export(dummy_execute_header, .{ .name = "_mh_execute_header", .linkage = .weak });
+        @export(&dummy_execute_header, .{ .name = "_mh_execute_header", .linkage = .weak });
     }
 }
 
@@ -177,7 +177,7 @@ pub const passwd = switch (native_os) {
         dir: ?[*:0]const u8, // home directory
         shell: ?[*:0]const u8, // shell program
     },
-    .openbsd => extern struct {
+    .netbsd, .openbsd, .macos => extern struct {
         name: ?[*:0]const u8, // user name
         passwd: ?[*:0]const u8, // encrypted password
         uid: uid_t, // user uid
@@ -2722,7 +2722,39 @@ pub const SYS = switch (native_os) {
 };
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with function name.
 pub const Sigaction = switch (native_os) {
-    .linux => linux.Sigaction,
+    .linux => switch (native_arch) {
+        .mips,
+        .mipsel,
+        .mips64,
+        .mips64el,
+        => if (builtin.target.isMusl())
+            linux.Sigaction
+        else if (builtin.target.ptrBitWidth() == 64) extern struct {
+            pub const handler_fn = *align(1) const fn (i32) callconv(.C) void;
+            pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.C) void;
+
+            flags: c_uint,
+            handler: extern union {
+                handler: ?handler_fn,
+                sigaction: ?sigaction_fn,
+            },
+            mask: sigset_t,
+            restorer: ?*const fn () callconv(.C) void = null,
+        } else extern struct {
+            pub const handler_fn = *align(1) const fn (i32) callconv(.C) void;
+            pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.C) void;
+
+            flags: c_uint,
+            handler: extern union {
+                handler: ?handler_fn,
+                sigaction: ?sigaction_fn,
+            },
+            mask: sigset_t,
+            restorer: ?*const fn () callconv(.C) void = null,
+            __resv: [1]c_int = .{0},
+        },
+        else => linux.Sigaction,
+    },
     .emscripten => emscripten.Sigaction,
     .netbsd, .macos, .ios, .tvos, .watchos, .visionos => extern struct {
         pub const handler_fn = *align(1) const fn (i32) callconv(.C) void;
@@ -6326,16 +6358,46 @@ pub const Stat = switch (native_os) {
                 return self.ctim;
             }
         },
-        .mips, .mipsel => extern struct {
+        .mips, .mipsel => if (builtin.target.isMusl()) extern struct {
             dev: dev_t,
-            __pad0: [2]u32,
+            __pad0: [2]i32,
             ino: ino_t,
             mode: mode_t,
             nlink: nlink_t,
             uid: uid_t,
             gid: gid_t,
             rdev: dev_t,
-            __pad1: [2]u32,
+            __pad1: [2]i32,
+            size: off_t,
+            atim: timespec,
+            mtim: timespec,
+            ctim: timespec,
+            blksize: blksize_t,
+            __pad3: i32,
+            blocks: blkcnt_t,
+            __pad4: [14]i32,
+
+            pub fn atime(self: @This()) timespec {
+                return self.atim;
+            }
+
+            pub fn mtime(self: @This()) timespec {
+                return self.mtim;
+            }
+
+            pub fn ctime(self: @This()) timespec {
+                return self.ctim;
+            }
+        } else extern struct {
+            dev: dev_t,
+            __pad0: [3]u32,
+            ino: ino_t,
+            mode: mode_t,
+            nlink: nlink_t,
+            uid: uid_t,
+            gid: gid_t,
+            rdev: dev_t,
+            __pad1: [3]u32,
             size: off_t,
             atim: timespec,
             mtim: timespec,
@@ -6344,6 +6406,68 @@ pub const Stat = switch (native_os) {
             __pad3: u32,
             blocks: blkcnt_t,
             __pad4: [14]u32,
+
+            pub fn atime(self: @This()) timespec {
+                return self.atim;
+            }
+
+            pub fn mtime(self: @This()) timespec {
+                return self.mtim;
+            }
+
+            pub fn ctime(self: @This()) timespec {
+                return self.ctim;
+            }
+        },
+        .mips64, .mips64el => if (builtin.target.isMusl()) extern struct {
+            dev: dev_t,
+            __pad0: [3]i32,
+            ino: ino_t,
+            mode: mode_t,
+            nlink: nlink_t,
+            uid: uid_t,
+            gid: gid_t,
+            rdev: dev_t,
+            __pad1: [2]u32,
+            size: off_t,
+            __pad2: i32,
+            atim: timespec,
+            mtim: timespec,
+            ctim: timespec,
+            blksize: blksize_t,
+            __pad3: u32,
+            blocks: blkcnt_t,
+            __pad4: [14]i32,
+
+            pub fn atime(self: @This()) timespec {
+                return self.atim;
+            }
+
+            pub fn mtime(self: @This()) timespec {
+                return self.mtim;
+            }
+
+            pub fn ctime(self: @This()) timespec {
+                return self.ctim;
+            }
+        } else extern struct {
+            dev: dev_t,
+            __pad0: [3]u32,
+            ino: ino_t,
+            mode: mode_t,
+            nlink: nlink_t,
+            uid: uid_t,
+            gid: gid_t,
+            rdev: dev_t,
+            __pad1: [3]u32,
+            size: off_t,
+            atim: timespec,
+            mtim: timespec,
+            ctim: timespec,
+            blksize: blksize_t,
+            __pad3: u32,
+            blocks: blkcnt_t,
+            __pad4: [14]i32,
 
             pub fn atime(self: @This()) timespec {
                 return self.atim;
@@ -6626,7 +6750,7 @@ pub const pthread_mutex_t = switch (native_os) {
             .musl, .musleabi, .musleabihf => if (@sizeOf(usize) == 8) 40 else 24,
             .gnu, .gnuabin32, .gnuabi64, .gnueabi, .gnueabihf, .gnux32 => switch (native_arch) {
                 .aarch64 => 48,
-                .x86_64 => if (native_abi == .gnux32) 40 else 32,
+                .x86_64 => if (native_abi == .gnux32) 32 else 40,
                 .mips64, .powerpc64, .powerpc64le, .sparc64 => 40,
                 else => if (@sizeOf(usize) == 8) 40 else 24,
             },
@@ -9375,8 +9499,8 @@ pub const LC = enum(c_int) {
 
 pub extern "c" fn setlocale(category: LC, locale: ?[*:0]const u8) ?[*:0]const u8;
 
-pub const getcontext = if (builtin.target.isAndroid())
-{} // android bionic libc does not implement getcontext
+pub const getcontext = if (builtin.target.isAndroid() or builtin.target.os.tag == .openbsd)
+{} // android bionic and openbsd libc does not implement getcontext
 else if (native_os == .linux and builtin.target.isMusl())
     linux.getcontext
 else

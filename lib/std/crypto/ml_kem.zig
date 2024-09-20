@@ -1,15 +1,8 @@
 //! Implementation of the IND-CCA2 post-quantum secure key encapsulation mechanism (KEM)
 //! ML-KEM (NIST FIPS-203 publication) and CRYSTALS-Kyber (v3.02/"draft00" CFRG draft).
 //!
-//! The schemes are not finalized yet, and are still subject to breaking changes.
-//!
-//! The Kyber namespace suffix (currently `_d00`) refers to the version currently
-//! implemented, in accordance with the draft.
-//! The ML-KEM namespace suffix (currently `_01`) refers to the NIST FIPS-203 draft
-//! published on August 24, 2023, with the unintentional transposition of Â having been reverted.
-//!
-//! Suffixes may not be updated if new versions of the documents only include editorial changes.
-//! The suffixes will be removed once the schemes are finalized.
+//! The namespace `d00` refers to the version currently implemented, in accordance with the CFRG draft.
+//! The `nist` namespace refers to the FIPS-203 publication.
 //!
 //! Quoting from the CFRG I-D:
 //!
@@ -148,7 +141,7 @@ const Params = struct {
     dv: u8,
 };
 
-pub const kyber_d00 = struct {
+pub const d00 = struct {
     pub const Kyber512 = Kyber(.{
         .name = "Kyber512",
         .k = 2,
@@ -174,7 +167,7 @@ pub const kyber_d00 = struct {
     });
 };
 
-pub const ml_kem_01 = struct {
+pub const nist = struct {
     pub const MLKem512 = Kyber(.{
         .name = "ML-KEM-512",
         .ml_kem = true,
@@ -204,12 +197,12 @@ pub const ml_kem_01 = struct {
 };
 
 const modes = [_]type{
-    kyber_d00.Kyber512,
-    kyber_d00.Kyber768,
-    kyber_d00.Kyber1024,
-    ml_kem_01.MLKem512,
-    ml_kem_01.MLKem768,
-    ml_kem_01.MLKem1024,
+    d00.Kyber512,
+    d00.Kyber768,
+    d00.Kyber1024,
+    nist.MLKem512,
+    nist.MLKem768,
+    nist.MLKem1024,
 };
 const h_length: usize = 32;
 const inner_seed_length: usize = 32;
@@ -505,7 +498,10 @@ fn Kyber(comptime p: Params) type {
         // Derives inner PKE keypair from given seed.
         fn innerKeyFromSeed(seed: [inner_seed_length]u8, pk: *InnerPk, sk: *InnerSk) void {
             var expanded_seed: [64]u8 = undefined;
-            sha3.Sha3_512.hash(&seed, &expanded_seed, .{});
+            var h = sha3.Sha3_512.init(.{});
+            if (p.ml_kem) h.update(&[1]u8{p.k});
+            h.update(&seed);
+            h.final(&expanded_seed);
             pk.rho = expanded_seed[0..32].*;
             const sigma = expanded_seed[32..64];
             pk.aT = M.uniform(pk.rho, false); // Expand ρ to A; we'll transpose later on
@@ -1681,7 +1677,7 @@ test "Test inner PKE" {
         p.* = @as(u8, @intCast(i + 32));
     }
     inline for (modes) |mode| {
-        for (0..100) |i| {
+        for (0..10) |i| {
             var pk: mode.InnerPk = undefined;
             var sk: mode.InnerSk = undefined;
             seed[0] = @as(u8, @intCast(i));
@@ -1700,7 +1696,7 @@ test "Test happy flow" {
         s.* = @as(u8, @intCast(i));
     }
     inline for (modes) |mode| {
-        for (0..100) |i| {
+        for (0..10) |i| {
             seed[0] = @as(u8, @intCast(i));
             const kp = try mode.KeyPair.create(seed);
             const sk = try mode.SecretKey.fromBytes(&kp.secret_key.toBytes());
@@ -1722,9 +1718,9 @@ const sha2 = crypto.hash.sha2;
 
 test "NIST KAT test" {
     inline for (.{
-        .{ kyber_d00.Kyber512, "e9c2bd37133fcb40772f81559f14b1f58dccd1c816701be9ba6214d43baf4547" },
-        .{ kyber_d00.Kyber1024, "89248f2f33f7f4f7051729111f3049c409a933ec904aedadf035f30fa5646cd5" },
-        .{ kyber_d00.Kyber768, "a1e122cad3c24bc51622e4c242d8b8acbcd3f618fee4220400605ca8f9ea02c2" },
+        .{ d00.Kyber512, "e9c2bd37133fcb40772f81559f14b1f58dccd1c816701be9ba6214d43baf4547" },
+        .{ d00.Kyber1024, "89248f2f33f7f4f7051729111f3049c409a933ec904aedadf035f30fa5646cd5" },
+        .{ d00.Kyber768, "a1e122cad3c24bc51622e4c242d8b8acbcd3f618fee4220400605ca8f9ea02c2" },
     }) |modeHash| {
         const mode = modeHash[0];
         var seed: [48]u8 = undefined;

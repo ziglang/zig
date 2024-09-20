@@ -153,7 +153,7 @@ pub fn StackMachine(comptime options: Options) type {
             }
         };
 
-        stack: std.ArrayListUnmanaged(Value) = .{},
+        stack: std.ArrayListUnmanaged(Value) = .empty,
 
         pub fn reset(self: *Self) void {
             self.stack.clearRetainingCapacity();
@@ -164,7 +164,7 @@ pub fn StackMachine(comptime options: Options) type {
         }
 
         fn generic(value: anytype) Operand {
-            const int_info = @typeInfo(@TypeOf(value)).Int;
+            const int_info = @typeInfo(@TypeOf(value)).int;
             if (@sizeOf(@TypeOf(value)) > options.addr_size) {
                 return .{ .generic = switch (int_info.signedness) {
                     .signed => @bitCast(@as(addr_type_signed, @truncate(value))),
@@ -843,7 +843,7 @@ pub fn Builder(comptime options: Options) type {
         }
 
         pub fn writeConst(writer: anytype, comptime T: type, value: T) !void {
-            if (@typeInfo(T) != .Int) @compileError("Constants must be integers");
+            if (@typeInfo(T) != .int) @compileError("Constants must be integers");
 
             switch (T) {
                 u8, i8, u16, i16, u32, i32, u64, i64 => {
@@ -861,7 +861,7 @@ pub fn Builder(comptime options: Options) type {
 
                     try writer.writeInt(T, value, options.endian);
                 },
-                else => switch (@typeInfo(T).Int.signedness) {
+                else => switch (@typeInfo(T).int.signedness) {
                     .unsigned => {
                         try writer.writeByte(OP.constu);
                         try leb.writeUleb128(writer, value);

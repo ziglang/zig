@@ -1,5 +1,4 @@
 const std = @import("std");
-const DW = std.dwarf;
 const assert = std.debug.assert;
 const testing = std.testing;
 
@@ -158,12 +157,12 @@ pub const Register = enum(u5) {
 
     /// Returns the unique 4-bit ID of this register which is used in
     /// the machine code
-    pub fn id(self: Register) u4 {
-        return @as(u4, @truncate(@intFromEnum(self)));
+    pub fn id(reg: Register) u4 {
+        return @truncate(@intFromEnum(reg));
     }
 
-    pub fn dwarfLocOp(self: Register) u8 {
-        return @as(u8, self.id()) + DW.OP.reg0;
+    pub fn dwarfNum(reg: Register) u4 {
+        return reg.id();
     }
 };
 
@@ -663,7 +662,7 @@ pub const Instruction = union(enum) {
         };
     }
 
-    fn multiply(
+    fn initMultiply(
         cond: Condition,
         set_cond: u1,
         rd: Register,
@@ -865,7 +864,7 @@ pub const Instruction = union(enum) {
         };
     }
 
-    fn branch(cond: Condition, offset: i26, link: u1) Instruction {
+    fn initBranch(cond: Condition, offset: i26, link: u1) Instruction {
         return Instruction{
             .branch = .{
                 .cond = @intFromEnum(cond),
@@ -901,7 +900,7 @@ pub const Instruction = union(enum) {
         };
     }
 
-    fn breakpoint(imm: u16) Instruction {
+    fn initBreakpoint(imm: u16) Instruction {
         return Instruction{
             .breakpoint = .{
                 .imm12 = @as(u12, @truncate(imm >> 4)),
@@ -1088,19 +1087,19 @@ pub const Instruction = union(enum) {
     // Multiply
 
     pub fn mul(cond: Condition, rd: Register, rn: Register, rm: Register) Instruction {
-        return multiply(cond, 0, rd, rn, rm, null);
+        return initMultiply(cond, 0, rd, rn, rm, null);
     }
 
     pub fn muls(cond: Condition, rd: Register, rn: Register, rm: Register) Instruction {
-        return multiply(cond, 1, rd, rn, rm, null);
+        return initMultiply(cond, 1, rd, rn, rm, null);
     }
 
     pub fn mla(cond: Condition, rd: Register, rn: Register, rm: Register, ra: Register) Instruction {
-        return multiply(cond, 0, rd, rn, rm, ra);
+        return initMultiply(cond, 0, rd, rn, rm, ra);
     }
 
     pub fn mlas(cond: Condition, rd: Register, rn: Register, rm: Register, ra: Register) Instruction {
-        return multiply(cond, 1, rd, rn, rm, ra);
+        return initMultiply(cond, 1, rd, rn, rm, ra);
     }
 
     // Multiply long
@@ -1262,11 +1261,11 @@ pub const Instruction = union(enum) {
     // Branch
 
     pub fn b(cond: Condition, offset: i26) Instruction {
-        return branch(cond, offset, 0);
+        return initBranch(cond, offset, 0);
     }
 
     pub fn bl(cond: Condition, offset: i26) Instruction {
-        return branch(cond, offset, 1);
+        return initBranch(cond, offset, 1);
     }
 
     // Branch and exchange
@@ -1290,7 +1289,7 @@ pub const Instruction = union(enum) {
     // Breakpoint
 
     pub fn bkpt(imm: u16) Instruction {
-        return breakpoint(imm);
+        return initBreakpoint(imm);
     }
 
     // Aliases
@@ -1300,7 +1299,7 @@ pub const Instruction = union(enum) {
     }
 
     pub fn pop(cond: Condition, args: anytype) Instruction {
-        if (@typeInfo(@TypeOf(args)) != .Struct) {
+        if (@typeInfo(@TypeOf(args)) != .@"struct") {
             @compileError("Expected tuple or struct argument, found " ++ @typeName(@TypeOf(args)));
         }
 
@@ -1324,7 +1323,7 @@ pub const Instruction = union(enum) {
     }
 
     pub fn push(cond: Condition, args: anytype) Instruction {
-        if (@typeInfo(@TypeOf(args)) != .Struct) {
+        if (@typeInfo(@TypeOf(args)) != .@"struct") {
             @compileError("Expected tuple or struct argument, found " ++ @typeName(@TypeOf(args)));
         }
 

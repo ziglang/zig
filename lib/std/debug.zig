@@ -56,6 +56,8 @@ pub const sys_can_stack_trace = switch (builtin.cpu.arch) {
     // TODO: Make this work.
     .mips,
     .mipsel,
+    .mips64,
+    .mips64el,
     => false,
 
     // `@returnAddress()` in LLVM 10 gives
@@ -375,7 +377,7 @@ pub fn dumpStackTrace(stack_trace: std.builtin.StackTrace) void {
             stderr.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{@errorName(err)}) catch return;
             return;
         };
-        writeStackTrace(stack_trace, stderr, getDebugInfoAllocator(), debug_info, io.tty.detectConfig(io.getStdErr())) catch |err| {
+        writeStackTrace(stack_trace, stderr, debug_info, io.tty.detectConfig(io.getStdErr())) catch |err| {
             stderr.print("Unable to dump stack trace: {s}\n", .{@errorName(err)}) catch return;
             return;
         };
@@ -407,7 +409,7 @@ pub fn assertReadable(slice: []const volatile u8) void {
 }
 
 pub fn panic(comptime format: []const u8, args: anytype) noreturn {
-    @setCold(true);
+    @branchHint(.cold);
 
     panicExtra(@errorReturnTrace(), @returnAddress(), format, args);
 }
@@ -420,7 +422,7 @@ pub fn panicExtra(
     comptime format: []const u8,
     args: anytype,
 ) noreturn {
-    @setCold(true);
+    @branchHint(.cold);
 
     const size = 0x1000;
     const trunc_msg = "(msg truncated)";
@@ -448,7 +450,7 @@ threadlocal var panic_stage: usize = 0;
 // `panicImpl` could be useful in implementing a custom panic handler which
 // calls the default handler (on supported platforms)
 pub fn panicImpl(trace: ?*const std.builtin.StackTrace, first_trace_addr: ?usize, msg: []const u8) noreturn {
-    @setCold(true);
+    @branchHint(.cold);
 
     if (enable_segfault_handler) {
         // If a segfault happens while panicking, we want it to actually segfault, not trigger
@@ -518,11 +520,9 @@ fn waitForOtherThreadToFinishPanicking() void {
 pub fn writeStackTrace(
     stack_trace: std.builtin.StackTrace,
     out_stream: anytype,
-    allocator: mem.Allocator,
     debug_info: *SelfInfo,
     tty_config: io.tty.Config,
 ) !void {
-    _ = allocator;
     if (builtin.strip_debug_info) return error.MissingDebugInfo;
     var frame_index: usize = 0;
     var frames_left: usize = @min(stack_trace.index, stack_trace.instruction_addresses.len);
@@ -545,7 +545,7 @@ pub fn writeStackTrace(
 }
 
 pub const UnwindError = if (have_ucontext)
-    @typeInfo(@typeInfo(@TypeOf(StackIterator.next_unwind)).Fn.return_type.?).ErrorUnion.error_set
+    @typeInfo(@typeInfo(@TypeOf(StackIterator.next_unwind)).@"fn".return_type.?).error_union.error_set
 else
     void;
 
@@ -787,7 +787,7 @@ pub noinline fn walkStackWindows(addresses: []usize, existing_context: ?*const w
     }
 
     var i: usize = 0;
-    var image_base: usize = undefined;
+    var image_base: windows.DWORD64 = undefined;
     var history_table: windows.UNWIND_HISTORY_TABLE = std.mem.zeroes(windows.UNWIND_HISTORY_TABLE);
 
     while (i < addresses.len) : (i += 1) {
@@ -807,7 +807,7 @@ pub noinline fn walkStackWindows(addresses: []usize, existing_context: ?*const w
             );
         } else {
             // leaf function
-            context.setIp(@as(*u64, @ptrFromInt(current_regs.sp)).*);
+            context.setIp(@as(*usize, @ptrFromInt(current_regs.sp)).*);
             context.setSp(current_regs.sp + @sizeOf(usize));
         }
 
@@ -1347,7 +1347,7 @@ pub fn dumpStackPointerAddr(prefix: []const u8) void {
     const sp = asm (""
         : [argc] "={rsp}" (-> usize),
     );
-    std.debug.print("{} sp = 0x{x}\n", .{ prefix, sp });
+    std.debug.print("{s} sp = 0x{x}\n", .{ prefix, sp });
 }
 
 test "manage resources correctly" {
@@ -1359,6 +1359,9 @@ test "manage resources correctly" {
         // https://github.com/ziglang/zig/issues/13963
         return error.SkipZigTest;
     }
+
+    // self-hosted debug info is still too buggy
+    if (builtin.zig_backend != .stage2_llvm) return error.SkipZigTest;
 
     const writer = std.io.null_writer;
     var di = try SelfInfo.open(testing.allocator);
@@ -1447,7 +1450,7 @@ pub fn ConfigurableTrace(comptime size: usize, comptime stack_frame_count: usize
                     .index = frames.len,
                     .instruction_addresses = frames,
                 };
-                writeStackTrace(stack_trace, stderr, getDebugInfoAllocator(), debug_info, tty_config) catch continue;
+                writeStackTrace(stack_trace, stderr, debug_info, tty_config) catch continue;
             }
             if (t.index > end) {
                 stderr.print("{d} more traces not shown; consider increasing trace size\n", .{

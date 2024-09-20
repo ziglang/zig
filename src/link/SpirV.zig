@@ -26,6 +26,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const log = std.log.scoped(.link);
+const Path = std.Build.Cache.Path;
 
 const Zcu = @import("../Zcu.zig");
 const InternPool = @import("../InternPool.zig");
@@ -54,7 +55,7 @@ object: codegen.Object,
 pub fn createEmpty(
     arena: Allocator,
     comp: *Compilation,
-    emit: Compilation.Emit,
+    emit: Path,
     options: link.File.OpenOptions,
 ) !*SpirV {
     const gpa = comp.gpa;
@@ -95,7 +96,7 @@ pub fn createEmpty(
 pub fn open(
     arena: Allocator,
     comp: *Compilation,
-    emit: Compilation.Emit,
+    emit: Path,
     options: link.File.OpenOptions,
 ) !*SpirV {
     const target = comp.root_mod.resolved_target.result;
@@ -110,7 +111,7 @@ pub fn open(
     errdefer spirv.base.destroy();
 
     // TODO: read the file and keep valid parts instead of truncating
-    const file = try emit.directory.handle.createFile(emit.sub_path, .{
+    const file = try emit.root_dir.handle.createFile(emit.sub_path, .{
         .truncate = true,
         .read = true,
     });
@@ -228,7 +229,7 @@ pub fn flushModule(self: *SpirV, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
     defer error_info.deinit();
 
     try error_info.appendSlice("zig_errors:");
-    const ip = &self.base.comp.module.?.intern_pool;
+    const ip = &self.base.comp.zcu.?.intern_pool;
     for (ip.global_error_set.getNamesFromMainThread()) |name| {
         // Errors can contain pretty much any character - to encode them in a string we must escape
         // them somehow. Easiest here is to use some established scheme, one which also preseves the

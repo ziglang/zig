@@ -27,12 +27,12 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
     const comp = self.base.comp;
     const gpa = comp.gpa;
 
-    const directory = self.base.emit.directory; // Just an alias to make it shorter to type.
+    const directory = self.base.emit.root_dir; // Just an alias to make it shorter to type.
     const full_out_path = try directory.join(arena, &[_][]const u8{self.base.emit.sub_path});
 
     // If there is no Zig code to compile, then we should skip flushing the output file because it
     // will not be part of the linker line anyway.
-    const module_obj_path: ?[]const u8 = if (comp.module != null) blk: {
+    const module_obj_path: ?[]const u8 = if (comp.zcu != null) blk: {
         try self.flushModule(arena, tid, prog_node);
 
         if (fs.path.dirname(full_out_path)) |dirname| {
@@ -248,7 +248,7 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
         try argv.append(try allocPrint(arena, "-OUT:{s}", .{full_out_path}));
 
         if (comp.implib_emit) |emit| {
-            const implib_out_path = try emit.directory.join(arena, &[_][]const u8{emit.sub_path});
+            const implib_out_path = try emit.root_dir.join(arena, &[_][]const u8{emit.sub_path});
             try argv.append(try allocPrint(arena, "-IMPLIB:{s}", .{implib_out_path}));
         }
 
@@ -296,7 +296,7 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
             if (self.subsystem) |explicit| break :blk explicit;
             switch (target.os.tag) {
                 .windows => {
-                    if (comp.module) |module| {
+                    if (comp.zcu) |module| {
                         if (module.stage1_flags.have_dllmain_crt_startup or is_dyn_lib)
                             break :blk null;
                         if (module.stage1_flags.have_c_main or comp.config.is_test or
@@ -440,7 +440,7 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
                 } else {
                     try argv.append("-NODEFAULTLIB");
                     if (!is_lib and entry_name == null) {
-                        if (comp.module) |module| {
+                        if (comp.zcu) |module| {
                             if (module.stage1_flags.have_winmain_crt_startup) {
                                 try argv.append("-ENTRY:WinMainCRTStartup");
                             } else {

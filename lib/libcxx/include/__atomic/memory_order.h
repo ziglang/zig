@@ -37,7 +37,7 @@ enum class memory_order : __memory_order_underlying_t {
   seq_cst = __mo_seq_cst
 };
 
-static_assert((is_same<underlying_type<memory_order>::type, __memory_order_underlying_t>::value),
+static_assert(is_same<underlying_type<memory_order>::type, __memory_order_underlying_t>::value,
               "unexpected underlying type for std::memory_order");
 
 inline constexpr auto memory_order_relaxed = memory_order::relaxed;

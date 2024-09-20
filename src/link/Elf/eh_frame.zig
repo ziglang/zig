@@ -13,7 +13,7 @@ pub const Fde = struct {
 
     pub fn address(fde: Fde, elf_file: *Elf) u64 {
         const base: u64 = if (elf_file.eh_frame_section_index) |shndx|
-            elf_file.shdrs.items[shndx].sh_addr
+            elf_file.sections.items(.shdr)[shndx].sh_addr
         else
             0;
         return base + fde.out_offset;
@@ -112,7 +112,7 @@ pub const Cie = struct {
 
     pub fn address(cie: Cie, elf_file: *Elf) u64 {
         const base: u64 = if (elf_file.eh_frame_section_index) |shndx|
-            elf_file.shdrs.items[shndx].sh_addr
+            elf_file.sections.items(.shdr)[shndx].sh_addr
         else
             0;
         return base + cie.out_offset;
@@ -233,7 +233,10 @@ pub fn calcEhFrameSize(elf_file: *Elf) !usize {
     const comp = elf_file.base.comp;
     const gpa = comp.gpa;
 
-    var offset: usize = 0;
+    var offset: usize = if (elf_file.zigObjectPtr()) |zo| blk: {
+        const sym = zo.symbol(zo.eh_frame_index orelse break :blk 0);
+        break :blk math.cast(usize, sym.atom(elf_file).?.size) orelse return error.Overflow;
+    } else 0;
 
     var cies = std.ArrayList(Cie).init(gpa);
     defer cies.deinit();
@@ -288,6 +291,13 @@ pub fn calcEhFrameHdrSize(elf_file: *Elf) usize {
 
 pub fn calcEhFrameRelocs(elf_file: *Elf) usize {
     var count: usize = 0;
+    if (elf_file.zigObjectPtr()) |zo| zo: {
+        const sym_index = zo.eh_frame_index orelse break :zo;
+        const sym = zo.symbol(sym_index);
+        const atom_ptr = zo.atom(sym.ref.index).?;
+        if (!atom_ptr.alive) break :zo;
+        count += atom_ptr.relocs(elf_file).len;
+    }
     for (elf_file.objects.items) |index| {
         const object = elf_file.file(index).?.object;
         for (object.cies.items) |cie| {
@@ -326,7 +336,9 @@ fn resolveReloc(rec: anytype, sym: *const Symbol, rel: elf.Elf64_Rela, elf_file:
 }
 
 pub fn writeEhFrame(elf_file: *Elf, writer: anytype) !void {
-    relocs_log.debug("{x}: .eh_frame", .{elf_file.shdrs.items[elf_file.eh_frame_section_index.?].sh_addr});
+    relocs_log.debug("{x}: .eh_frame", .{
+        elf_file.sections.items(.shdr)[elf_file.eh_frame_section_index.?].sh_addr,
+    });
 
     var has_reloc_errors = false;
 
@@ -384,7 +396,7 @@ pub fn writeEhFrame(elf_file: *Elf, writer: anytype) !void {
     if (has_reloc_errors) return error.RelocFailure;
 }
 
-pub fn writeEhFrameObject(elf_file: *Elf, writer: anytype) !void {
+pub fn writeEhFrameRelocatable(elf_file: *Elf, writer: anytype) !void {
     for (elf_file.objects.items) |index| {
         const object = elf_file.file(index).?.object;
 
@@ -414,16 +426,15 @@ pub fn writeEhFrameObject(elf_file: *Elf, writer: anytype) !void {
     }
 }
 
-fn emitReloc(elf_file: *Elf, rec: anytype, sym: *const Symbol, rel: elf.Elf64_Rela) elf.Elf64_Rela {
+fn emitReloc(elf_file: *Elf, r_offset: u64, sym: *const Symbol, rel: elf.Elf64_Rela) elf.Elf64_Rela {
     const cpu_arch = elf_file.getTarget().cpu.arch;
-    const r_offset = rec.address(elf_file) + rel.r_offset - rec.offset;
     const r_type = rel.r_type();
     var r_addend = rel.r_addend;
     var r_sym: u32 = 0;
     switch (sym.type(elf_file)) {
         elf.STT_SECTION => {
             r_addend += @intCast(sym.address(.{}, elf_file));
-            r_sym = elf_file.sectionSymbolOutputSymtabIndex(sym.outputShndx(elf_file).?);
+            r_sym = sym.outputShndx(elf_file).?;
         },
         else => {
             r_sym = sym.outputSymtabIndex(elf_file) orelse 0;
@@ -446,7 +457,22 @@ fn emitReloc(elf_file: *Elf, rec: anytype, sym: *const Symbol, rel: elf.Elf64_Re
 }
 
 pub fn writeEhFrameRelocs(elf_file: *Elf, writer: anytype) !void {
-    relocs_log.debug("{x}: .eh_frame", .{elf_file.shdrs.items[elf_file.eh_frame_section_index.?].sh_addr});
+    relocs_log.debug("{x}: .eh_frame", .{
+        elf_file.sections.items(.shdr)[elf_file.eh_frame_section_index.?].sh_addr,
+    });
+
+    if (elf_file.zigObjectPtr()) |zo| zo: {
+        const sym_index = zo.eh_frame_index orelse break :zo;
+        const sym = zo.symbol(sym_index);
+        const atom_ptr = zo.atom(sym.ref.index).?;
+        if (!atom_ptr.alive) break :zo;
+        for (atom_ptr.relocs(elf_file)) |rel| {
+            const ref = zo.resolveSymbol(rel.r_sym(), elf_file);
+            const target = elf_file.symbol(ref).?;
+            const out_rel = emitReloc(elf_file, rel.r_offset, target, rel);
+            try writer.writeStruct(out_rel);
+        }
+    }
 
     for (elf_file.objects.items) |index| {
         const object = elf_file.file(index).?.object;
@@ -456,7 +482,8 @@ pub fn writeEhFrameRelocs(elf_file: *Elf, writer: anytype) !void {
             for (cie.relocs(elf_file)) |rel| {
                 const ref = object.resolveSymbol(rel.r_sym(), elf_file);
                 const sym = elf_file.symbol(ref).?;
-                const out_rel = emitReloc(elf_file, cie, sym, rel);
+                const r_offset = cie.address(elf_file) + rel.r_offset - cie.offset;
+                const out_rel = emitReloc(elf_file, r_offset, sym, rel);
                 try writer.writeStruct(out_rel);
             }
         }
@@ -466,7 +493,8 @@ pub fn writeEhFrameRelocs(elf_file: *Elf, writer: anytype) !void {
             for (fde.relocs(elf_file)) |rel| {
                 const ref = object.resolveSymbol(rel.r_sym(), elf_file);
                 const sym = elf_file.symbol(ref).?;
-                const out_rel = emitReloc(elf_file, fde, sym, rel);
+                const r_offset = fde.address(elf_file) + rel.r_offset - fde.offset;
+                const out_rel = emitReloc(elf_file, r_offset, sym, rel);
                 try writer.writeStruct(out_rel);
             }
         }
@@ -478,18 +506,24 @@ pub fn writeEhFrameHdr(elf_file: *Elf, writer: anytype) !void {
     const gpa = comp.gpa;
 
     try writer.writeByte(1); // version
-    try writer.writeByte(EH_PE.pcrel | EH_PE.sdata4);
-    try writer.writeByte(EH_PE.udata4);
-    try writer.writeByte(EH_PE.datarel | EH_PE.sdata4);
+    try writer.writeByte(DW_EH_PE.pcrel | DW_EH_PE.sdata4);
+    try writer.writeByte(DW_EH_PE.udata4);
+    try writer.writeByte(DW_EH_PE.datarel | DW_EH_PE.sdata4);
 
-    const eh_frame_shdr = elf_file.shdrs.items[elf_file.eh_frame_section_index.?];
-    const eh_frame_hdr_shdr = elf_file.shdrs.items[elf_file.eh_frame_hdr_section_index.?];
+    const shdrs = elf_file.sections.items(.shdr);
+    const eh_frame_shdr = shdrs[elf_file.eh_frame_section_index.?];
+    const eh_frame_hdr_shdr = shdrs[elf_file.eh_frame_hdr_section_index.?];
     const num_fdes = @as(u32, @intCast(@divExact(eh_frame_hdr_shdr.sh_size - eh_frame_hdr_header_size, 8)));
+    const existing_size = existing_size: {
+        const zo = elf_file.zigObjectPtr() orelse break :existing_size 0;
+        const sym = zo.symbol(zo.eh_frame_index orelse break :existing_size 0);
+        break :existing_size sym.atom(elf_file).?.size;
+    };
     try writer.writeInt(
         u32,
         @as(u32, @bitCast(@as(
             i32,
-            @truncate(@as(i64, @intCast(eh_frame_shdr.sh_addr)) - @as(i64, @intCast(eh_frame_hdr_shdr.sh_addr)) - 4),
+            @truncate(@as(i64, @intCast(eh_frame_shdr.sh_addr + existing_size)) - @as(i64, @intCast(eh_frame_hdr_shdr.sh_addr)) - 4),
         ))),
         .little,
     );
@@ -537,25 +571,6 @@ pub fn writeEhFrameHdr(elf_file: *Elf, writer: anytype) !void {
 }
 
 const eh_frame_hdr_header_size: usize = 12;
-
-const EH_PE = struct {
-    pub const absptr = 0x00;
-    pub const uleb128 = 0x01;
-    pub const udata2 = 0x02;
-    pub const udata4 = 0x03;
-    pub const udata8 = 0x04;
-    pub const sleb128 = 0x09;
-    pub const sdata2 = 0x0A;
-    pub const sdata4 = 0x0B;
-    pub const sdata8 = 0x0C;
-    pub const pcrel = 0x10;
-    pub const textrel = 0x20;
-    pub const datarel = 0x30;
-    pub const funcrel = 0x40;
-    pub const aligned = 0x50;
-    pub const indirect = 0x80;
-    pub const omit = 0xFF;
-};
 
 const x86_64 = struct {
     fn resolveReloc(rec: anytype, elf_file: *Elf, rel: elf.Elf64_Rela, source: i64, target: i64, data: []u8) !void {
@@ -614,6 +629,7 @@ const relocation = @import("relocation.zig");
 
 const Allocator = std.mem.Allocator;
 const Atom = @import("Atom.zig");
+const DW_EH_PE = std.dwarf.EH.PE;
 const Elf = @import("../Elf.zig");
 const Object = @import("Object.zig");
 const Symbol = @import("Symbol.zig");

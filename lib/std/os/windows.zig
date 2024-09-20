@@ -2123,6 +2123,10 @@ pub fn teb() *TEB {
                 );
             }
         },
+        .thumb => asm (
+            \\ mrc p15, 0, %[ptr], c13, c0, 2
+            : [ptr] "=r" (-> *TEB),
+        ),
         .aarch64 => asm (
             \\ mov %[ptr], x18
             : [ptr] "=r" (-> *TEB),
@@ -4120,6 +4124,10 @@ pub const XMM_SAVE_AREA32 = switch (native_arch) {
 };
 
 pub const NEON128 = switch (native_arch) {
+    .thumb => extern struct {
+        Low: ULONGLONG,
+        High: LONGLONG,
+    },
     .aarch64 => extern union {
         DUMMYSTRUCTNAME: extern struct {
             Low: ULONGLONG,
@@ -4248,6 +4256,54 @@ pub const CONTEXT = switch (native_arch) {
             ctx.Rsp = sp;
         }
     },
+    .thumb => extern struct {
+        ContextFlags: ULONG,
+        R0: ULONG,
+        R1: ULONG,
+        R2: ULONG,
+        R3: ULONG,
+        R4: ULONG,
+        R5: ULONG,
+        R6: ULONG,
+        R7: ULONG,
+        R8: ULONG,
+        R9: ULONG,
+        R10: ULONG,
+        R11: ULONG,
+        R12: ULONG,
+        Sp: ULONG,
+        Lr: ULONG,
+        Pc: ULONG,
+        Cpsr: ULONG,
+        Fpcsr: ULONG,
+        Padding: ULONG,
+        DUMMYUNIONNAME: extern union {
+            Q: [16]NEON128,
+            D: [32]ULONGLONG,
+            S: [32]ULONG,
+        },
+        Bvr: [8]ULONG,
+        Bcr: [8]ULONG,
+        Wvr: [1]ULONG,
+        Wcr: [1]ULONG,
+        Padding2: [2]ULONG,
+
+        pub fn getRegs(ctx: *const CONTEXT) struct { bp: usize, ip: usize, sp: usize } {
+            return .{
+                .bp = ctx.DUMMYUNIONNAME.S[11],
+                .ip = ctx.Pc,
+                .sp = ctx.Sp,
+            };
+        }
+
+        pub fn setIp(ctx: *CONTEXT, ip: usize) void {
+            ctx.Pc = ip;
+        }
+
+        pub fn setSp(ctx: *CONTEXT, sp: usize) void {
+            ctx.Sp = sp;
+        }
+    },
     .aarch64 => extern struct {
         ContextFlags: ULONG align(16),
         Cpsr: ULONG,
@@ -4322,6 +4378,23 @@ pub const RUNTIME_FUNCTION = switch (native_arch) {
         EndAddress: DWORD,
         UnwindData: DWORD,
     },
+    .thumb => extern struct {
+        BeginAddress: DWORD,
+        DUMMYUNIONNAME: extern union {
+            UnwindData: DWORD,
+            DUMMYSTRUCTNAME: packed struct {
+                Flag: u2,
+                FunctionLength: u11,
+                Ret: u2,
+                H: u1,
+                Reg: u3,
+                R: u1,
+                L: u1,
+                C: u1,
+                StackAdjust: u10,
+            },
+        },
+    },
     .aarch64 => extern struct {
         BeginAddress: DWORD,
         DUMMYUNIONNAME: extern union {
@@ -4344,6 +4417,25 @@ pub const KNONVOLATILE_CONTEXT_POINTERS = switch (native_arch) {
     .x86_64 => extern struct {
         FloatingContext: [16]?*M128A,
         IntegerContext: [16]?*ULONG64,
+    },
+    .thumb => extern struct {
+        R4: ?*DWORD,
+        R5: ?*DWORD,
+        R6: ?*DWORD,
+        R7: ?*DWORD,
+        R8: ?*DWORD,
+        R9: ?*DWORD,
+        R10: ?*DWORD,
+        R11: ?*DWORD,
+        Lr: ?*DWORD,
+        D8: ?*ULONGLONG,
+        D9: ?*ULONGLONG,
+        D10: ?*ULONGLONG,
+        D11: ?*ULONGLONG,
+        D12: ?*ULONGLONG,
+        D13: ?*ULONGLONG,
+        D14: ?*ULONGLONG,
+        D15: ?*ULONGLONG,
     },
     .aarch64 => extern struct {
         X19: ?*DWORD64,

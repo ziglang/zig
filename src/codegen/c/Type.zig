@@ -326,9 +326,9 @@ pub fn renderLiteralSuffix(ctype: CType, writer: anytype, pool: *const Pool) @Ty
 pub fn floatActiveBits(ctype: CType, mod: *Module) u16 {
     const target = &mod.resolved_target.result;
     return switch (ctype.index) {
-        .float => target.c_type_bit_size(.float),
-        .double => target.c_type_bit_size(.double),
-        .@"long double", .zig_c_longdouble => target.c_type_bit_size(.longdouble),
+        .float => target.cTypeBitSize(.float),
+        .double => target.cTypeBitSize(.double),
+        .@"long double", .zig_c_longdouble => target.cTypeBitSize(.longdouble),
         .zig_f16 => 16,
         .zig_f32 => 32,
         .zig_f64 => 64,
@@ -344,17 +344,17 @@ pub fn byteSize(ctype: CType, pool: *const Pool, mod: *Module) u64 {
         .basic => |basic_info| switch (basic_info) {
             .void => 0,
             .char, .@"signed char", ._Bool, .@"unsigned char", .bool, .uint8_t, .int8_t => 1,
-            .short => target.c_type_byte_size(.short),
-            .int => target.c_type_byte_size(.int),
-            .long => target.c_type_byte_size(.long),
-            .@"long long" => target.c_type_byte_size(.longlong),
-            .@"unsigned short" => target.c_type_byte_size(.ushort),
-            .@"unsigned int" => target.c_type_byte_size(.uint),
-            .@"unsigned long" => target.c_type_byte_size(.ulong),
-            .@"unsigned long long" => target.c_type_byte_size(.ulonglong),
-            .float => target.c_type_byte_size(.float),
-            .double => target.c_type_byte_size(.double),
-            .@"long double" => target.c_type_byte_size(.longdouble),
+            .short => target.cTypeByteSize(.short),
+            .int => target.cTypeByteSize(.int),
+            .long => target.cTypeByteSize(.long),
+            .@"long long" => target.cTypeByteSize(.longlong),
+            .@"unsigned short" => target.cTypeByteSize(.ushort),
+            .@"unsigned int" => target.cTypeByteSize(.uint),
+            .@"unsigned long" => target.cTypeByteSize(.ulong),
+            .@"unsigned long long" => target.cTypeByteSize(.ulonglong),
+            .float => target.cTypeByteSize(.float),
+            .double => target.cTypeByteSize(.double),
+            .@"long double" => target.cTypeByteSize(.longdouble),
             .size_t,
             .ptrdiff_t,
             .uintptr_t,
@@ -364,11 +364,11 @@ pub fn byteSize(ctype: CType, pool: *const Pool, mod: *Module) u64 {
             .uint32_t, .int32_t, .zig_f32 => 4,
             .uint64_t, .int64_t, .zig_f64 => 8,
             .zig_u128, .zig_i128, .zig_f128 => 16,
-            .zig_f80 => if (target.c_type_bit_size(.longdouble) == 80)
-                target.c_type_byte_size(.longdouble)
+            .zig_f80 => if (target.cTypeBitSize(.longdouble) == 80)
+                target.cTypeByteSize(.longdouble)
             else
                 16,
-            .zig_c_longdouble => target.c_type_byte_size(.longdouble),
+            .zig_c_longdouble => target.cTypeByteSize(.longdouble),
             .va_list => unreachable,
             _ => unreachable,
         },
@@ -669,7 +669,7 @@ const Index = enum(u32) {
 
     _,
 
-    const first_pool_index: u32 = @typeInfo(CType.Index).Enum.fields.len;
+    const first_pool_index: u32 = @typeInfo(CType.Index).@"enum".fields.len;
     const basic_hashes = init: {
         @setEvalBranchQuota(1_600);
         var basic_hashes_init: [first_pool_index]Pool.Map.Hash = undefined;
@@ -740,7 +740,7 @@ pub const Info = union(enum) {
     aggregate: Aggregate,
     function: Function,
 
-    const Tag = @typeInfo(Info).Union.tag_type.?;
+    const Tag = @typeInfo(Info).@"union".tag_type.?;
 
     pub const Pointer = struct {
         elem_ctype: CType,
@@ -783,7 +783,7 @@ pub const Info = union(enum) {
             pub fn at(slice: Field.Slice, index: usize, pool: *const Pool) Field {
                 assert(index < slice.len);
                 const extra = pool.getExtra(Pool.Field, @intCast(slice.extra_index +
-                    index * @typeInfo(Pool.Field).Struct.fields.len));
+                    index * @typeInfo(Pool.Field).@"struct".fields.len));
                 return .{
                     .name = .{ .index = extra.name },
                     .ctype = .{ .index = extra.ctype },
@@ -991,7 +991,7 @@ pub const Pool = struct {
             _,
 
             const first_named_index: u32 = 1 << 31;
-            const first_pool_index: u32 = first_named_index + @typeInfo(String.Index).Enum.fields.len;
+            const first_pool_index: u32 = first_named_index + @typeInfo(String.Index).@"enum".fields.len;
         };
 
         const Adapter = struct {
@@ -1127,7 +1127,7 @@ pub const Pool = struct {
                     allocator,
                     FwdDeclAnon,
                     extra,
-                    fields.len * @typeInfo(Field).Struct.fields.len,
+                    fields.len * @typeInfo(Field).@"struct".fields.len,
                 );
                 for (fields, field_ctypes) |field, field_ctype| pool.addHashedExtraAssumeCapacity(
                     &hasher,
@@ -1184,7 +1184,7 @@ pub const Pool = struct {
                     allocator,
                     AggregateAnon,
                     extra,
-                    aggregate_info.fields.len * @typeInfo(Field).Struct.fields.len,
+                    aggregate_info.fields.len * @typeInfo(Field).@"struct".fields.len,
                 );
                 for (aggregate_info.fields) |field| pool.addHashedExtraAssumeCapacity(&hasher, Field, .{
                     .name = field.name.index,
@@ -1213,7 +1213,7 @@ pub const Pool = struct {
                     allocator,
                     Aggregate,
                     extra,
-                    aggregate_info.fields.len * @typeInfo(Field).Struct.fields.len,
+                    aggregate_info.fields.len * @typeInfo(Field).@"struct".fields.len,
                 );
                 for (aggregate_info.fields) |field| pool.addHashedExtraAssumeCapacity(&hasher, Field, .{
                     .name = field.name.index,
@@ -1344,6 +1344,7 @@ pub const Pool = struct {
         kind: Kind,
     ) !CType {
         const ip = &pt.zcu.intern_pool;
+        const zcu = pt.zcu;
         switch (ty.toIntern()) {
             .u0_type,
             .i0_type,
@@ -1389,21 +1390,6 @@ pub const Pool = struct {
             .anyframe_type,
             .generic_poison_type,
             => unreachable,
-            .atomic_order_type,
-            .atomic_rmw_op_type,
-            .calling_convention_type,
-            .address_space_type,
-            .float_mode_type,
-            .reduce_op_type,
-            .call_modifier_type,
-            => |ip_index| return pool.fromType(
-                allocator,
-                scratch,
-                Type.fromInterned(ip.loadEnumType(ip_index).tag_ty),
-                pt,
-                mod,
-                kind,
-            ),
             .anyerror_type,
             .anyerror_void_error_union_type,
             .adhoc_inferred_error_set_type,
@@ -1459,8 +1445,6 @@ pub const Pool = struct {
             .one_u8,
             .four_u8,
             .negative_one,
-            .calling_convention_c,
-            .calling_convention_inline,
             .void_value,
             .unreachable_value,
             .null_value,
@@ -1471,12 +1455,7 @@ pub const Pool = struct {
             .none,
             => unreachable,
 
-            //.prefetch_options_type,
-            //.export_options_type,
-            //.extern_options_type,
-            //.type_info_type,
-            //_,
-            else => |ip_index| switch (ip.indexToKey(ip_index)) {
+            _ => |ip_index| switch (ip.indexToKey(ip_index)) {
                 .int_type => |int_info| return pool.fromIntInfo(allocator, int_info, mod, kind),
                 .ptr_type => |ptr_info| switch (ptr_info.flags.size) {
                     .One, .Many, .C => {
@@ -1498,7 +1477,7 @@ pub const Pool = struct {
                                 ),
                                 .alignas = AlignAs.fromAlignment(.{
                                     .@"align" = ptr_info.flags.alignment,
-                                    .abi = Type.fromInterned(ptr_info.child).abiAlignment(pt),
+                                    .abi = Type.fromInterned(ptr_info.child).abiAlignment(zcu),
                                 }),
                             };
                             break :elem_ctype if (elem.alignas.abiOrder().compare(.gte))
@@ -1574,7 +1553,7 @@ pub const Pool = struct {
                         .{
                             .name = .{ .index = .array },
                             .ctype = array_ctype,
-                            .alignas = AlignAs.fromAbiAlignment(elem_type.abiAlignment(pt)),
+                            .alignas = AlignAs.fromAbiAlignment(elem_type.abiAlignment(zcu)),
                         },
                     };
                     return pool.fromFields(allocator, .@"struct", &fields, kind);
@@ -1600,7 +1579,7 @@ pub const Pool = struct {
                         .{
                             .name = .{ .index = .array },
                             .ctype = vector_ctype,
-                            .alignas = AlignAs.fromAbiAlignment(elem_type.abiAlignment(pt)),
+                            .alignas = AlignAs.fromAbiAlignment(elem_type.abiAlignment(zcu)),
                         },
                     };
                     return pool.fromFields(allocator, .@"struct", &fields, kind);
@@ -1635,7 +1614,7 @@ pub const Pool = struct {
                             .name = .{ .index = .payload },
                             .ctype = payload_ctype,
                             .alignas = AlignAs.fromAbiAlignment(
-                                Type.fromInterned(payload_type).abiAlignment(pt),
+                                Type.fromInterned(payload_type).abiAlignment(zcu),
                             ),
                         },
                     };
@@ -1671,7 +1650,7 @@ pub const Pool = struct {
                         .{
                             .name = .{ .index = .payload },
                             .ctype = payload_ctype,
-                            .alignas = AlignAs.fromAbiAlignment(payload_type.abiAlignment(pt)),
+                            .alignas = AlignAs.fromAbiAlignment(payload_type.abiAlignment(zcu)),
                         },
                     };
                     return pool.fromFields(allocator, .@"struct", &fields, kind);
@@ -1685,7 +1664,7 @@ pub const Pool = struct {
                                 .tag = .@"struct",
                                 .name = .{ .index = ip_index },
                             });
-                            if (kind.isForward()) return if (ty.hasRuntimeBitsIgnoreComptime(pt))
+                            if (kind.isForward()) return if (ty.hasRuntimeBitsIgnoreComptime(zcu))
                                 fwd_decl
                             else
                                 CType.void;
@@ -1693,7 +1672,7 @@ pub const Pool = struct {
                             defer scratch.shrinkRetainingCapacity(scratch_top);
                             try scratch.ensureUnusedCapacity(
                                 allocator,
-                                loaded_struct.field_types.len * @typeInfo(Field).Struct.fields.len,
+                                loaded_struct.field_types.len * @typeInfo(Field).@"struct".fields.len,
                             );
                             var hasher = Hasher.init;
                             var tag: Pool.Tag = .aggregate_struct;
@@ -1718,7 +1697,7 @@ pub const Pool = struct {
                                     String.fromUnnamed(@intCast(field_index));
                                 const field_alignas = AlignAs.fromAlignment(.{
                                     .@"align" = loaded_struct.fieldAlign(ip, field_index),
-                                    .abi = field_type.abiAlignment(pt),
+                                    .abi = field_type.abiAlignment(zcu),
                                 });
                                 pool.addHashedExtraAssumeCapacityTo(scratch, &hasher, Field, .{
                                     .name = field_name.index,
@@ -1730,14 +1709,14 @@ pub const Pool = struct {
                             }
                             const fields_len: u32 = @intCast(@divExact(
                                 scratch.items.len - scratch_top,
-                                @typeInfo(Field).Struct.fields.len,
+                                @typeInfo(Field).@"struct".fields.len,
                             ));
                             if (fields_len == 0) return CType.void;
                             try pool.ensureUnusedCapacity(allocator, 1);
                             const extra_index = try pool.addHashedExtra(allocator, &hasher, Aggregate, .{
                                 .fwd_decl = fwd_decl.index,
                                 .fields_len = fields_len,
-                            }, fields_len * @typeInfo(Field).Struct.fields.len);
+                            }, fields_len * @typeInfo(Field).@"struct".fields.len);
                             pool.extra.appendSliceAssumeCapacity(scratch.items[scratch_top..]);
                             return pool.tagTrailingExtraAssumeCapacity(hasher, tag, extra_index);
                         },
@@ -1755,7 +1734,7 @@ pub const Pool = struct {
                     const scratch_top = scratch.items.len;
                     defer scratch.shrinkRetainingCapacity(scratch_top);
                     try scratch.ensureUnusedCapacity(allocator, anon_struct_info.types.len *
-                        @typeInfo(Field).Struct.fields.len);
+                        @typeInfo(Field).@"struct".fields.len);
                     var hasher = Hasher.init;
                     for (0..anon_struct_info.types.len) |field_index| {
                         if (anon_struct_info.values.get(ip)[field_index] != .none) continue;
@@ -1780,13 +1759,13 @@ pub const Pool = struct {
                             .name = field_name.index,
                             .ctype = field_ctype.index,
                             .flags = .{ .alignas = AlignAs.fromAbiAlignment(
-                                field_type.abiAlignment(pt),
+                                field_type.abiAlignment(zcu),
                             ) },
                         });
                     }
                     const fields_len: u32 = @intCast(@divExact(
                         scratch.items.len - scratch_top,
-                        @typeInfo(Field).Struct.fields.len,
+                        @typeInfo(Field).@"struct".fields.len,
                     ));
                     if (fields_len == 0) return CType.void;
                     if (kind.isForward()) {
@@ -1796,7 +1775,7 @@ pub const Pool = struct {
                             &hasher,
                             FwdDeclAnon,
                             .{ .fields_len = fields_len },
-                            fields_len * @typeInfo(Field).Struct.fields.len,
+                            fields_len * @typeInfo(Field).@"struct".fields.len,
                         );
                         pool.extra.appendSliceAssumeCapacity(scratch.items[scratch_top..]);
                         return pool.tagTrailingExtra(
@@ -1811,7 +1790,7 @@ pub const Pool = struct {
                     const extra_index = try pool.addHashedExtra(allocator, &hasher, Aggregate, .{
                         .fwd_decl = fwd_decl.index,
                         .fields_len = fields_len,
-                    }, fields_len * @typeInfo(Field).Struct.fields.len);
+                    }, fields_len * @typeInfo(Field).@"struct".fields.len);
                     pool.extra.appendSliceAssumeCapacity(scratch.items[scratch_top..]);
                     return pool.tagTrailingExtraAssumeCapacity(hasher, .aggregate_struct, extra_index);
                 },
@@ -1824,7 +1803,7 @@ pub const Pool = struct {
                                 .tag = if (has_tag) .@"struct" else .@"union",
                                 .name = .{ .index = ip_index },
                             });
-                            if (kind.isForward()) return if (ty.hasRuntimeBitsIgnoreComptime(pt))
+                            if (kind.isForward()) return if (ty.hasRuntimeBitsIgnoreComptime(zcu))
                                 fwd_decl
                             else
                                 CType.void;
@@ -1833,7 +1812,7 @@ pub const Pool = struct {
                             defer scratch.shrinkRetainingCapacity(scratch_top);
                             try scratch.ensureUnusedCapacity(
                                 allocator,
-                                loaded_union.field_types.len * @typeInfo(Field).Struct.fields.len,
+                                loaded_union.field_types.len * @typeInfo(Field).@"struct".fields.len,
                             );
                             var hasher = Hasher.init;
                             var tag: Pool.Tag = .aggregate_union;
@@ -1858,7 +1837,7 @@ pub const Pool = struct {
                                 );
                                 const field_alignas = AlignAs.fromAlignment(.{
                                     .@"align" = loaded_union.fieldAlign(ip, field_index),
-                                    .abi = field_type.abiAlignment(pt),
+                                    .abi = field_type.abiAlignment(zcu),
                                 });
                                 pool.addHashedExtraAssumeCapacityTo(scratch, &hasher, Field, .{
                                     .name = field_name.index,
@@ -1871,7 +1850,7 @@ pub const Pool = struct {
                             }
                             const fields_len: u32 = @intCast(@divExact(
                                 scratch.items.len - scratch_top,
-                                @typeInfo(Field).Struct.fields.len,
+                                @typeInfo(Field).@"struct".fields.len,
                             ));
                             if (!has_tag) {
                                 if (fields_len == 0) return CType.void;
@@ -1881,7 +1860,7 @@ pub const Pool = struct {
                                     &hasher,
                                     Aggregate,
                                     .{ .fwd_decl = fwd_decl.index, .fields_len = fields_len },
-                                    fields_len * @typeInfo(Field).Struct.fields.len,
+                                    fields_len * @typeInfo(Field).@"struct".fields.len,
                                 );
                                 pool.extra.appendSliceAssumeCapacity(scratch.items[scratch_top..]);
                                 return pool.tagTrailingExtraAssumeCapacity(hasher, tag, extra_index);
@@ -1903,7 +1882,7 @@ pub const Pool = struct {
                                     struct_fields[struct_fields_len] = .{
                                         .name = .{ .index = .tag },
                                         .ctype = tag_ctype,
-                                        .alignas = AlignAs.fromAbiAlignment(tag_type.abiAlignment(pt)),
+                                        .alignas = AlignAs.fromAbiAlignment(tag_type.abiAlignment(zcu)),
                                     };
                                     struct_fields_len += 1;
                                 }
@@ -1919,7 +1898,7 @@ pub const Pool = struct {
                                             .id = 0,
                                             .fields_len = fields_len,
                                         },
-                                        fields_len * @typeInfo(Field).Struct.fields.len,
+                                        fields_len * @typeInfo(Field).@"struct".fields.len,
                                     );
                                     pool.extra.appendSliceAssumeCapacity(scratch.items[scratch_top..]);
                                     break :payload_ctype pool.tagTrailingExtraAssumeCapacity(
@@ -1951,7 +1930,7 @@ pub const Pool = struct {
                         },
                         .@"packed" => return pool.fromIntInfo(allocator, .{
                             .signedness = .unsigned,
-                            .bits = @intCast(ty.bitSize(pt)),
+                            .bits = @intCast(ty.bitSize(zcu)),
                         }, mod, kind),
                     }
                 },
@@ -2108,7 +2087,7 @@ pub const Pool = struct {
                         .tag = tag,
                         .data = try pool.addExtra(allocator, FwdDeclAnon, .{
                             .fields_len = fields.len,
-                        }, fields.len * @typeInfo(Field).Struct.fields.len),
+                        }, fields.len * @typeInfo(Field).@"struct".fields.len),
                     });
                     for (0..fields.len) |field_index| {
                         const field = fields.at(field_index, source_pool);
@@ -2136,11 +2115,11 @@ pub const Pool = struct {
                             .index = anon.index,
                             .id = anon.id,
                             .fields_len = aggregate_info.fields.len,
-                        }, aggregate_info.fields.len * @typeInfo(Field).Struct.fields.len),
+                        }, aggregate_info.fields.len * @typeInfo(Field).@"struct".fields.len),
                         .fwd_decl => |fwd_decl| try pool.addExtra(allocator, Aggregate, .{
                             .fwd_decl = pool_adapter.copy(fwd_decl).index,
                             .fields_len = aggregate_info.fields.len,
-                        }, aggregate_info.fields.len * @typeInfo(Field).Struct.fields.len),
+                        }, aggregate_info.fields.len * @typeInfo(Field).@"struct".fields.len),
                     },
                 });
                 for (0..aggregate_info.fields.len) |field_index| {
@@ -2203,7 +2182,7 @@ pub const Pool = struct {
         const init: Hasher = .{ .impl = Impl.init(0) };
 
         fn updateExtra(hasher: *Hasher, comptime Extra: type, extra: Extra, pool: *const Pool) void {
-            inline for (@typeInfo(Extra).Struct.fields) |field| {
+            inline for (@typeInfo(Extra).@"struct".fields) |field| {
                 const value = @field(extra, field.name);
                 switch (field.type) {
                     Pool.Tag, String, CType => unreachable,
@@ -2450,7 +2429,7 @@ pub const Pool = struct {
     ) !ExtraIndex {
         try pool.extra.ensureUnusedCapacity(
             allocator,
-            @typeInfo(Extra).Struct.fields.len + trailing_len,
+            @typeInfo(Extra).@"struct".fields.len + trailing_len,
         );
         defer pool.addExtraAssumeCapacity(Extra, extra);
         return @intCast(pool.extra.items.len);
@@ -2463,7 +2442,7 @@ pub const Pool = struct {
         comptime Extra: type,
         extra: Extra,
     ) void {
-        inline for (@typeInfo(Extra).Struct.fields) |field| {
+        inline for (@typeInfo(Extra).@"struct".fields) |field| {
             const value = @field(extra, field.name);
             array.appendAssumeCapacity(switch (field.type) {
                 u32 => value,
@@ -2526,7 +2505,7 @@ pub const Pool = struct {
         extra_index: ExtraIndex,
     ) struct { extra: Extra, trail: ExtraTrail } {
         var extra: Extra = undefined;
-        const fields = @typeInfo(Extra).Struct.fields;
+        const fields = @typeInfo(Extra).@"struct".fields;
         inline for (fields, pool.extra.items[extra_index..][0..fields.len]) |field, value|
             @field(extra, field.name) = switch (field.type) {
                 u32 => value,

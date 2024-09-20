@@ -71,6 +71,7 @@ pub const longest_name = 43;
 /// If found, returns the index of the node within the `dafsa` array.
 /// Otherwise, returns `null`.
 pub fn findInList(first_child_index: u16, char: u8) ?u16 {
+    @setEvalBranchQuota(7972);
     var index = first_child_index;
     while (true) {
         if (dafsa[index].char == char) return index;
@@ -5165,7 +5166,7 @@ const dafsa = [_]Node{
     .{ .char = 'e', .end_of_word = false, .end_of_list = true, .number = 1, .child_index = 4913 },
 };
 pub const data = blk: {
-    @setEvalBranchQuota(3986);
+    @setEvalBranchQuota(27902);
     break :blk [_]@This(){
         // _Block_object_assign
         .{ .tag = @enumFromInt(0), .properties = .{ .param_str = "vv*vC*iC", .header = .blocks, .attributes = .{ .lib_function_without_prefix = true } } },

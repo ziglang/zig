@@ -1,6 +1,6 @@
 path: []const u8,
 cpu_arch: ?std.Target.Cpu.Arch = null,
-args: std.ArrayListUnmanaged(Elf.SystemLib) = .{},
+args: std.ArrayListUnmanaged(Elf.SystemLib) = .empty,
 
 pub fn deinit(scr: *LdScript, allocator: Allocator) void {
     scr.args.deinit(allocator);
@@ -108,7 +108,7 @@ const Command = enum {
     as_needed,
 
     fn fromString(s: []const u8) ?Command {
-        inline for (@typeInfo(Command).Enum.fields) |field| {
+        inline for (@typeInfo(Command).@"enum".fields) |field| {
             const upper_name = n: {
                 comptime var buf: [field.name.len]u8 = undefined;
                 inline for (field.name, 0..) |c, i| {

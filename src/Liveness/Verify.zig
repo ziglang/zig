@@ -1,28 +1,38 @@
-//! Verifies that liveness information is valid.
+//! Verifies that Liveness information is valid.
 
 gpa: std.mem.Allocator,
 air: Air,
 liveness: Liveness,
 live: LiveMap = .{},
-blocks: std.AutoHashMapUnmanaged(Air.Inst.Index, LiveMap) = .{},
+blocks: std.AutoHashMapUnmanaged(Air.Inst.Index, LiveMap) = .empty,
+loops: std.AutoHashMapUnmanaged(Air.Inst.Index, LiveMap) = .empty,
 intern_pool: *const InternPool,
 
 pub const Error = error{ LivenessInvalid, OutOfMemory };
 
 pub fn deinit(self: *Verify) void {
     self.live.deinit(self.gpa);
-    var block_it = self.blocks.valueIterator();
-    while (block_it.next()) |block| block.deinit(self.gpa);
-    self.blocks.deinit(self.gpa);
+    {
+        var it = self.blocks.valueIterator();
+        while (it.next()) |block| block.deinit(self.gpa);
+        self.blocks.deinit(self.gpa);
+    }
+    {
+        var it = self.loops.valueIterator();
+        while (it.next()) |block| block.deinit(self.gpa);
+        self.loops.deinit(self.gpa);
+    }
     self.* = undefined;
 }
 
 pub fn verify(self: *Verify) Error!void {
     self.live.clearRetainingCapacity();
     self.blocks.clearRetainingCapacity();
+    self.loops.clearRetainingCapacity();
     try self.verifyBody(self.air.getMainBody());
     // We don't care about `self.live` now, because the loop body was noreturn - everything being dead was checked on `ret` etc
     assert(self.blocks.count() == 0);
+    assert(self.loops.count() == 0);
 }
 
 const LiveMap = std.AutoHashMapUnmanaged(Air.Inst.Index, void);
@@ -157,6 +167,7 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
             },
             .dbg_var_ptr,
             .dbg_var_val,
+            .dbg_arg_inline,
             .wasm_memory_grow,
             => {
                 const pl_op = data[@intFromEnum(inst)].pl_op;
@@ -373,7 +384,7 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
             },
 
             // control flow
-            .@"try" => {
+            .@"try", .try_cold => {
                 const pl_op = data[@intFromEnum(inst)].pl_op;
                 const extra = self.air.extraData(Air.Try, pl_op.payload);
                 const try_body: []const Air.Inst.Index = @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]);
@@ -395,7 +406,7 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
 
                 try self.verifyInst(inst);
             },
-            .try_ptr => {
+            .try_ptr, .try_ptr_cold => {
                 const ty_pl = data[@intFromEnum(inst)].ty_pl;
                 const extra = self.air.extraData(Air.TryPtr, ty_pl.payload);
                 const try_body: []const Air.Inst.Index = @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]);
@@ -428,6 +439,23 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
                     gop.value_ptr.* = try self.live.clone(self.gpa);
                 }
                 try self.verifyInst(inst);
+            },
+            .repeat => {
+                const repeat = data[@intFromEnum(inst)].repeat;
+                const expected_live = self.loops.get(repeat.loop_inst) orelse
+                    return invalid("%{}: loop %{} not in scope", .{ @intFromEnum(inst), @intFromEnum(repeat.loop_inst) });
+
+                try self.verifyMatchingLiveness(repeat.loop_inst, expected_live);
+            },
+            .switch_dispatch => {
+                const br = data[@intFromEnum(inst)].br;
+
+                try self.verifyOperand(inst, br.operand, self.liveness.operandDies(inst, 0));
+
+                const expected_live = self.loops.get(br.block_inst) orelse
+                    return invalid("%{}: loop %{} not in scope", .{ @intFromEnum(inst), @intFromEnum(br.block_inst) });
+
+                try self.verifyMatchingLiveness(br.block_inst, expected_live);
             },
             .block, .dbg_inline_block => |tag| {
                 const ty_pl = data[@intFromEnum(inst)].ty_pl;
@@ -474,13 +502,16 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
                 const extra = self.air.extraData(Air.Block, ty_pl.payload);
                 const loop_body: []const Air.Inst.Index = @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]);
 
-                var live = try self.live.clone(self.gpa);
-                defer live.deinit(self.gpa);
+                // The same stuff should be alive after the loop as before it.
+                const gop = try self.loops.getOrPut(self.gpa, inst);
+                if (gop.found_existing) return invalid("%{}: loop already exists", .{@intFromEnum(inst)});
+                defer {
+                    var live = self.loops.fetchRemove(inst).?;
+                    live.value.deinit(self.gpa);
+                }
+                gop.value_ptr.* = try self.live.clone(self.gpa);
 
                 try self.verifyBody(loop_body);
-
-                // The same stuff should be alive after the loop as before it
-                try self.verifyMatchingLiveness(inst, live);
 
                 try self.verifyInstOperands(inst, .{ .none, .none, .none });
             },
@@ -507,45 +538,43 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
 
                 try self.verifyInst(inst);
             },
-            .switch_br => {
-                const pl_op = data[@intFromEnum(inst)].pl_op;
-                const switch_br = self.air.extraData(Air.SwitchBr, pl_op.payload);
-                var extra_index = switch_br.end;
-                var case_i: u32 = 0;
+            .switch_br, .loop_switch_br => {
+                const switch_br = self.air.unwrapSwitch(inst);
                 const switch_br_liveness = try self.liveness.getSwitchBr(
                     self.gpa,
                     inst,
-                    switch_br.data.cases_len + 1,
+                    switch_br.cases_len + 1,
                 );
                 defer self.gpa.free(switch_br_liveness.deaths);
 
-                try self.verifyOperand(inst, pl_op.operand, self.liveness.operandDies(inst, 0));
+                try self.verifyOperand(inst, switch_br.operand, self.liveness.operandDies(inst, 0));
 
-                var live = self.live.move();
-                defer live.deinit(self.gpa);
-
-                while (case_i < switch_br.data.cases_len) : (case_i += 1) {
-                    const case = self.air.extraData(Air.SwitchBr.Case, extra_index);
-                    const items = @as(
-                        []const Air.Inst.Ref,
-                        @ptrCast(self.air.extra[case.end..][0..case.data.items_len]),
-                    );
-                    const case_body: []const Air.Inst.Index = @ptrCast(self.air.extra[case.end + items.len ..][0..case.data.body_len]);
-                    extra_index = case.end + items.len + case_body.len;
-
-                    self.live.deinit(self.gpa);
-                    self.live = try live.clone(self.gpa);
-
-                    for (switch_br_liveness.deaths[case_i]) |death| try self.verifyDeath(inst, death);
-                    try self.verifyBody(case_body);
+                // Excluding the operand (which we just handled), the same stuff should be alive
+                // after the loop as before it.
+                {
+                    const gop = try self.loops.getOrPut(self.gpa, inst);
+                    if (gop.found_existing) return invalid("%{}: loop already exists", .{@intFromEnum(inst)});
+                    gop.value_ptr.* = self.live.move();
+                }
+                defer {
+                    var live = self.loops.fetchRemove(inst).?;
+                    live.value.deinit(self.gpa);
                 }
 
-                const else_body: []const Air.Inst.Index = @ptrCast(self.air.extra[extra_index..][0..switch_br.data.else_body_len]);
+                var it = switch_br.iterateCases();
+                while (it.next()) |case| {
+                    self.live.deinit(self.gpa);
+                    self.live = try self.loops.get(inst).?.clone(self.gpa);
+
+                    for (switch_br_liveness.deaths[case.idx]) |death| try self.verifyDeath(inst, death);
+                    try self.verifyBody(case.body);
+                }
+
+                const else_body = it.elseBody();
                 if (else_body.len > 0) {
                     self.live.deinit(self.gpa);
-                    self.live = try live.clone(self.gpa);
-
-                    for (switch_br_liveness.deaths[case_i]) |death| try self.verifyDeath(inst, death);
+                    self.live = try self.loops.get(inst).?.clone(self.gpa);
+                    for (switch_br_liveness.deaths[switch_br.cases_len]) |death| try self.verifyDeath(inst, death);
                     try self.verifyBody(else_body);
                 }
 

@@ -108,7 +108,7 @@ pub fn getSourceLocation(eb: ErrorBundle, index: SourceLocationIndex) SourceLoca
 
 pub fn getNotes(eb: ErrorBundle, index: MessageIndex) []const MessageIndex {
     const notes_len = eb.getErrorMessage(index).notes_len;
-    const start = @intFromEnum(index) + @typeInfo(ErrorMessage).Struct.fields.len;
+    const start = @intFromEnum(index) + @typeInfo(ErrorMessage).@"struct".fields.len;
     return @as([]const MessageIndex, @ptrCast(eb.extra[start..][0..notes_len]));
 }
 
@@ -119,7 +119,7 @@ pub fn getCompileLogOutput(eb: ErrorBundle) [:0]const u8 {
 /// Returns the requested data, as well as the new index which is at the start of the
 /// trailers for the object.
 fn extraData(eb: ErrorBundle, comptime T: type, index: usize) struct { data: T, end: usize } {
-    const fields = @typeInfo(T).Struct.fields;
+    const fields = @typeInfo(T).@"struct".fields;
     var i: usize = index;
     var result: T = undefined;
     inline for (fields) |field| {
@@ -456,7 +456,7 @@ pub const Wip = struct {
 
     pub fn reserveNotes(wip: *Wip, notes_len: u32) !u32 {
         try wip.extra.ensureUnusedCapacity(wip.gpa, notes_len +
-            notes_len * @typeInfo(ErrorBundle.ErrorMessage).Struct.fields.len);
+            notes_len * @typeInfo(ErrorBundle.ErrorMessage).@"struct".fields.len);
         wip.extra.items.len += notes_len;
         return @intCast(wip.extra.items.len - notes_len);
     }
@@ -571,7 +571,7 @@ pub const Wip = struct {
         if (index == .none) return .none;
         const other_sl = other.getSourceLocation(index);
 
-        var ref_traces: std.ArrayListUnmanaged(ReferenceTrace) = .{};
+        var ref_traces: std.ArrayListUnmanaged(ReferenceTrace) = .empty;
         defer ref_traces.deinit(wip.gpa);
 
         if (other_sl.reference_trace_len > 0) {
@@ -616,13 +616,13 @@ pub const Wip = struct {
 
     fn addExtra(wip: *Wip, extra: anytype) Allocator.Error!u32 {
         const gpa = wip.gpa;
-        const fields = @typeInfo(@TypeOf(extra)).Struct.fields;
+        const fields = @typeInfo(@TypeOf(extra)).@"struct".fields;
         try wip.extra.ensureUnusedCapacity(gpa, fields.len);
         return addExtraAssumeCapacity(wip, extra);
     }
 
     fn addExtraAssumeCapacity(wip: *Wip, extra: anytype) u32 {
-        const fields = @typeInfo(@TypeOf(extra)).Struct.fields;
+        const fields = @typeInfo(@TypeOf(extra)).@"struct".fields;
         const result: u32 = @intCast(wip.extra.items.len);
         wip.extra.items.len += fields.len;
         setExtra(wip, result, extra);
@@ -630,7 +630,7 @@ pub const Wip = struct {
     }
 
     fn setExtra(wip: *Wip, index: usize, extra: anytype) void {
-        const fields = @typeInfo(@TypeOf(extra)).Struct.fields;
+        const fields = @typeInfo(@TypeOf(extra)).@"struct".fields;
         var i = index;
         inline for (fields) |field| {
             wip.extra.items[i] = switch (field.type) {

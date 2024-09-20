@@ -15,7 +15,7 @@ const Opcode = spec.Opcode;
 
 /// The instructions in this section. Memory is owned by the Module
 /// externally associated to this Section.
-instructions: std.ArrayListUnmanaged(Word) = .{},
+instructions: std.ArrayListUnmanaged(Word) = .empty,
 
 pub fn deinit(section: *Section, allocator: Allocator) void {
     section.instructions.deinit(allocator);
@@ -98,7 +98,7 @@ pub fn emitSpecConstantOp(
     section.writeOperand(spec.IdRef, operands.id_result);
     section.writeOperand(Opcode, opcode);
 
-    const fields = @typeInfo(opcode.Operands()).Struct.fields;
+    const fields = @typeInfo(opcode.Operands()).@"struct".fields;
     // First 2 fields are always id_result_type and id_result.
     inline for (fields[2..]) |field| {
         section.writeOperand(field.type, @field(operands, field.name));
@@ -122,8 +122,8 @@ pub fn writeDoubleWord(section: *Section, dword: DoubleWord) void {
 
 fn writeOperands(section: *Section, comptime Operands: type, operands: Operands) void {
     const fields = switch (@typeInfo(Operands)) {
-        .Struct => |info| info.fields,
-        .Void => return,
+        .@"struct" => |info| info.fields,
+        .void => return,
         else => unreachable,
     };
 
@@ -154,24 +154,24 @@ pub fn writeOperand(section: *Section, comptime Operand: type, operand: Operand)
         spec.PairIdRefIdRef => section.writeWords(&.{ @intFromEnum(operand[0]), @intFromEnum(operand[1]) }),
 
         else => switch (@typeInfo(Operand)) {
-            .Enum => section.writeWord(@intFromEnum(operand)),
-            .Optional => |info| if (operand) |child| {
+            .@"enum" => section.writeWord(@intFromEnum(operand)),
+            .optional => |info| if (operand) |child| {
                 section.writeOperand(info.child, child);
             },
-            .Pointer => |info| {
+            .pointer => |info| {
                 std.debug.assert(info.size == .Slice); // Should be no other pointer types in the spec.
                 for (operand) |item| {
                     section.writeOperand(info.child, item);
                 }
             },
-            .Struct => |info| {
+            .@"struct" => |info| {
                 if (info.layout == .@"packed") {
                     section.writeWord(@as(Word, @bitCast(operand)));
                 } else {
                     section.writeExtendedMask(Operand, operand);
                 }
             },
-            .Union => section.writeExtendedUnion(Operand, operand),
+            .@"union" => section.writeExtendedUnion(Operand, operand),
             else => unreachable,
         },
     }
@@ -207,12 +207,12 @@ fn writeContextDependentNumber(section: *Section, operand: spec.LiteralContextDe
 
 fn writeExtendedMask(section: *Section, comptime Operand: type, operand: Operand) void {
     var mask: Word = 0;
-    inline for (@typeInfo(Operand).Struct.fields, 0..) |field, bit| {
+    inline for (@typeInfo(Operand).@"struct".fields, 0..) |field, bit| {
         switch (@typeInfo(field.type)) {
-            .Optional => if (@field(operand, field.name) != null) {
+            .optional => if (@field(operand, field.name) != null) {
                 mask |= 1 << @as(u5, @intCast(bit));
             },
-            .Bool => if (@field(operand, field.name)) {
+            .bool => if (@field(operand, field.name)) {
                 mask |= 1 << @as(u5, @intCast(bit));
             },
             else => unreachable,
@@ -221,12 +221,12 @@ fn writeExtendedMask(section: *Section, comptime Operand: type, operand: Operand
 
     section.writeWord(mask);
 
-    inline for (@typeInfo(Operand).Struct.fields) |field| {
+    inline for (@typeInfo(Operand).@"struct".fields) |field| {
         switch (@typeInfo(field.type)) {
-            .Optional => |info| if (@field(operand, field.name)) |child| {
+            .optional => |info| if (@field(operand, field.name)) |child| {
                 section.writeOperands(info.child, child);
             },
-            .Bool => {},
+            .bool => {},
             else => unreachable,
         }
     }
@@ -236,7 +236,7 @@ fn writeExtendedUnion(section: *Section, comptime Operand: type, operand: Operan
     const tag = std.meta.activeTag(operand);
     section.writeWord(@intFromEnum(tag));
 
-    inline for (@typeInfo(Operand).Union.fields) |field| {
+    inline for (@typeInfo(Operand).@"union".fields) |field| {
         if (@field(Operand, field.name) == tag) {
             section.writeOperands(field.type, @field(operand, field.name));
             return;
@@ -251,8 +251,8 @@ fn instructionSize(comptime opcode: spec.Opcode, operands: opcode.Operands()) us
 
 fn operandsSize(comptime Operands: type, operands: Operands) usize {
     const fields = switch (@typeInfo(Operands)) {
-        .Struct => |info| info.fields,
-        .Void => return 0,
+        .@"struct" => |info| info.fields,
+        .void => return 0,
         else => unreachable,
     };
 
@@ -289,9 +289,9 @@ fn operandSize(comptime Operand: type, operand: Operand) usize {
         => 2,
 
         else => switch (@typeInfo(Operand)) {
-            .Enum => 1,
-            .Optional => |info| if (operand) |child| operandSize(info.child, child) else 0,
-            .Pointer => |info| blk: {
+            .@"enum" => 1,
+            .optional => |info| if (operand) |child| operandSize(info.child, child) else 0,
+            .pointer => |info| blk: {
                 std.debug.assert(info.size == .Slice); // Should be no other pointer types in the spec.
                 var total: usize = 0;
                 for (operand) |item| {
@@ -299,8 +299,8 @@ fn operandSize(comptime Operand: type, operand: Operand) usize {
                 }
                 break :blk total;
             },
-            .Struct => |info| if (info.layout == .@"packed") 1 else extendedMaskSize(Operand, operand),
-            .Union => extendedUnionSize(Operand, operand),
+            .@"struct" => |info| if (info.layout == .@"packed") 1 else extendedMaskSize(Operand, operand),
+            .@"union" => extendedUnionSize(Operand, operand),
             else => unreachable,
         },
     };
@@ -309,13 +309,13 @@ fn operandSize(comptime Operand: type, operand: Operand) usize {
 fn extendedMaskSize(comptime Operand: type, operand: Operand) usize {
     var total: usize = 0;
     var any_set = false;
-    inline for (@typeInfo(Operand).Struct.fields) |field| {
+    inline for (@typeInfo(Operand).@"struct".fields) |field| {
         switch (@typeInfo(field.type)) {
-            .Optional => |info| if (@field(operand, field.name)) |child| {
+            .optional => |info| if (@field(operand, field.name)) |child| {
                 total += operandsSize(info.child, child);
                 any_set = true;
             },
-            .Bool => if (@field(operand, field.name)) {
+            .bool => if (@field(operand, field.name)) {
                 any_set = true;
             },
             else => unreachable,
@@ -326,7 +326,7 @@ fn extendedMaskSize(comptime Operand: type, operand: Operand) usize {
 
 fn extendedUnionSize(comptime Operand: type, operand: Operand) usize {
     const tag = std.meta.activeTag(operand);
-    inline for (@typeInfo(Operand).Union.fields) |field| {
+    inline for (@typeInfo(Operand).@"union".fields) |field| {
         if (@field(Operand, field.name) == tag) {
             // Add one for the tag itself.
             return 1 + operandsSize(field.type, @field(operand, field.name));

@@ -4,29 +4,29 @@ file_handle: File.HandleIndex,
 index: File.Index,
 
 header: ?elf.Elf64_Ehdr = null,
-shdrs: std.ArrayListUnmanaged(elf.Elf64_Shdr) = .{},
+shdrs: std.ArrayListUnmanaged(elf.Elf64_Shdr) = .empty,
 
-symtab: std.ArrayListUnmanaged(elf.Elf64_Sym) = .{},
-strtab: std.ArrayListUnmanaged(u8) = .{},
+symtab: std.ArrayListUnmanaged(elf.Elf64_Sym) = .empty,
+strtab: std.ArrayListUnmanaged(u8) = .empty,
 first_global: ?Symbol.Index = null,
-symbols: std.ArrayListUnmanaged(Symbol) = .{},
-symbols_extra: std.ArrayListUnmanaged(u32) = .{},
-symbols_resolver: std.ArrayListUnmanaged(Elf.SymbolResolver.Index) = .{},
-relocs: std.ArrayListUnmanaged(elf.Elf64_Rela) = .{},
+symbols: std.ArrayListUnmanaged(Symbol) = .empty,
+symbols_extra: std.ArrayListUnmanaged(u32) = .empty,
+symbols_resolver: std.ArrayListUnmanaged(Elf.SymbolResolver.Index) = .empty,
+relocs: std.ArrayListUnmanaged(elf.Elf64_Rela) = .empty,
 
-atoms: std.ArrayListUnmanaged(Atom) = .{},
-atoms_indexes: std.ArrayListUnmanaged(Atom.Index) = .{},
-atoms_extra: std.ArrayListUnmanaged(u32) = .{},
+atoms: std.ArrayListUnmanaged(Atom) = .empty,
+atoms_indexes: std.ArrayListUnmanaged(Atom.Index) = .empty,
+atoms_extra: std.ArrayListUnmanaged(u32) = .empty,
 
-comdat_groups: std.ArrayListUnmanaged(Elf.ComdatGroup) = .{},
-comdat_group_data: std.ArrayListUnmanaged(u32) = .{},
+comdat_groups: std.ArrayListUnmanaged(Elf.ComdatGroup) = .empty,
+comdat_group_data: std.ArrayListUnmanaged(u32) = .empty,
 
-input_merge_sections: std.ArrayListUnmanaged(InputMergeSection) = .{},
-input_merge_sections_indexes: std.ArrayListUnmanaged(InputMergeSection.Index) = .{},
+input_merge_sections: std.ArrayListUnmanaged(InputMergeSection) = .empty,
+input_merge_sections_indexes: std.ArrayListUnmanaged(InputMergeSection.Index) = .empty,
 
-fdes: std.ArrayListUnmanaged(Fde) = .{},
-cies: std.ArrayListUnmanaged(Cie) = .{},
-eh_frame_data: std.ArrayListUnmanaged(u8) = .{},
+fdes: std.ArrayListUnmanaged(Fde) = .empty,
+cies: std.ArrayListUnmanaged(Cie) = .empty,
+eh_frame_data: std.ArrayListUnmanaged(u8) = .empty,
 
 alive: bool = true,
 num_dynrelocs: u32 = 0,
@@ -105,14 +105,14 @@ fn parseCommon(self: *Object, allocator: Allocator, handle: std.fs.File, elf_fil
     defer allocator.free(header_buffer);
     self.header = @as(*align(1) const elf.Elf64_Ehdr, @ptrCast(header_buffer)).*;
 
-    const target = elf_file.base.comp.root_mod.resolved_target.result;
-    if (target.cpu.arch != self.header.?.e_machine.toTargetCpuArch().?) {
+    const em = elf_file.base.comp.root_mod.resolved_target.result.toElfMachine();
+    if (em != self.header.?.e_machine) {
         try elf_file.reportParseError2(
             self.index,
-            "invalid cpu architecture: {s}",
-            .{@tagName(self.header.?.e_machine.toTargetCpuArch().?)},
+            "invalid ELF machine type: {s}",
+            .{@tagName(self.header.?.e_machine)},
         );
-        return error.InvalidCpuArch;
+        return error.InvalidMachineType;
     }
     try elf_file.validateEFlags(self.index, self.header.?.e_flags);
 
@@ -311,58 +311,6 @@ fn initAtoms(self: *Object, allocator: Allocator, handle: std.fs.File, elf_file:
     };
 }
 
-fn initOutputSection(self: Object, elf_file: *Elf, shdr: elf.Elf64_Shdr) error{OutOfMemory}!u32 {
-    const name = blk: {
-        const name = self.getString(shdr.sh_name);
-        if (elf_file.base.isRelocatable()) break :blk name;
-        if (shdr.sh_flags & elf.SHF_MERGE != 0) break :blk name;
-        const sh_name_prefixes: []const [:0]const u8 = &.{
-            ".text",       ".data.rel.ro", ".data", ".rodata", ".bss.rel.ro",       ".bss",
-            ".init_array", ".fini_array",  ".tbss", ".tdata",  ".gcc_except_table", ".ctors",
-            ".dtors",      ".gnu.warning",
-        };
-        inline for (sh_name_prefixes) |prefix| {
-            if (std.mem.eql(u8, name, prefix) or std.mem.startsWith(u8, name, prefix ++ ".")) {
-                break :blk prefix;
-            }
-        }
-        break :blk name;
-    };
-    const @"type" = tt: {
-        if (elf_file.getTarget().cpu.arch == .x86_64 and
-            shdr.sh_type == elf.SHT_X86_64_UNWIND) break :tt elf.SHT_PROGBITS;
-
-        const @"type" = switch (shdr.sh_type) {
-            elf.SHT_NULL => unreachable,
-            elf.SHT_PROGBITS => blk: {
-                if (std.mem.eql(u8, name, ".init_array") or std.mem.startsWith(u8, name, ".init_array."))
-                    break :blk elf.SHT_INIT_ARRAY;
-                if (std.mem.eql(u8, name, ".fini_array") or std.mem.startsWith(u8, name, ".fini_array."))
-                    break :blk elf.SHT_FINI_ARRAY;
-                break :blk shdr.sh_type;
-            },
-            else => shdr.sh_type,
-        };
-        break :tt @"type";
-    };
-    const flags = blk: {
-        var flags = shdr.sh_flags;
-        if (!elf_file.base.isRelocatable()) {
-            flags &= ~@as(u64, elf.SHF_COMPRESSED | elf.SHF_GROUP | elf.SHF_GNU_RETAIN);
-        }
-        break :blk switch (@"type") {
-            elf.SHT_INIT_ARRAY, elf.SHT_FINI_ARRAY => flags | elf.SHF_WRITE,
-            else => flags,
-        };
-    };
-    const out_shndx = elf_file.sectionByName(name) orelse try elf_file.addSection(.{
-        .type = @"type",
-        .flags = flags,
-        .name = try elf_file.insertShString(name),
-    });
-    return out_shndx;
-}
-
 fn skipShdr(self: *Object, index: u32, elf_file: *Elf) bool {
     const comp = elf_file.base.comp;
     const shdr = self.shdrs.items[index];
@@ -438,15 +386,24 @@ fn parseEhFrame(self: *Object, allocator: Allocator, handle: std.fs.File, shndx:
                 .input_section_index = shndx,
                 .file_index = self.index,
             }),
-            .fde => try self.fdes.append(allocator, .{
-                .offset = data_start + rec.offset,
-                .size = rec.size,
-                .cie_index = undefined,
-                .rel_index = rel_start + @as(u32, @intCast(rel_range.start)),
-                .rel_num = @as(u32, @intCast(rel_range.len)),
-                .input_section_index = shndx,
-                .file_index = self.index,
-            }),
+            .fde => {
+                if (rel_range.len == 0) {
+                    // No relocs for an FDE means we cannot associate this FDE to an Atom
+                    // so we skip it. According to mold source code
+                    // (https://github.com/rui314/mold/blob/a3e69502b0eaf1126d6093e8ea5e6fdb95219811/src/input-files.cc#L525-L528)
+                    // this can happen for object files built with -r flag by the linker.
+                    continue;
+                }
+                try self.fdes.append(allocator, .{
+                    .offset = data_start + rec.offset,
+                    .size = rec.size,
+                    .cie_index = undefined,
+                    .rel_index = rel_start + @as(u32, @intCast(rel_range.start)),
+                    .rel_num = @as(u32, @intCast(rel_range.len)),
+                    .input_section_index = shndx,
+                    .file_index = self.index,
+                });
+            },
         }
     }
 
@@ -622,7 +579,7 @@ pub fn claimUnresolved(self: *Object, elf_file: *Elf) void {
     }
 }
 
-pub fn claimUnresolvedObject(self: *Object, elf_file: *Elf) void {
+pub fn claimUnresolvedRelocatable(self: *Object, elf_file: *Elf) void {
     const first_global = self.first_global orelse return;
     for (self.globals(), 0..) |*sym, i| {
         const esym_index = @as(u32, @intCast(first_global + i));
@@ -985,22 +942,14 @@ pub fn initOutputSections(self: *Object, elf_file: *Elf) !void {
         const atom_ptr = self.atom(atom_index) orelse continue;
         if (!atom_ptr.alive) continue;
         const shdr = atom_ptr.inputShdr(elf_file);
-        _ = try self.initOutputSection(elf_file, shdr);
-    }
-}
-
-pub fn addAtomsToOutputSections(self: *Object, elf_file: *Elf) !void {
-    for (self.atoms_indexes.items) |atom_index| {
-        const atom_ptr = self.atom(atom_index) orelse continue;
-        if (!atom_ptr.alive) continue;
-        const shdr = atom_ptr.inputShdr(elf_file);
-        atom_ptr.output_section_index = self.initOutputSection(elf_file, shdr) catch unreachable;
-
-        const comp = elf_file.base.comp;
-        const gpa = comp.gpa;
-        const gop = try elf_file.output_sections.getOrPut(gpa, atom_ptr.output_section_index);
-        if (!gop.found_existing) gop.value_ptr.* = .{};
-        try gop.value_ptr.append(gpa, .{ .index = atom_index, .file = self.index });
+        const osec = try elf_file.initOutputSection(.{
+            .name = self.getString(shdr.sh_name),
+            .flags = shdr.sh_flags,
+            .type = shdr.sh_type,
+        });
+        const atom_list = &elf_file.sections.items(.atom_list_2)[osec];
+        atom_list.output_section_index = osec;
+        try atom_list.atoms.append(elf_file.base.comp.gpa, atom_ptr.ref());
     }
 }
 
@@ -1008,10 +957,16 @@ pub fn initRelaSections(self: *Object, elf_file: *Elf) !void {
     for (self.atoms_indexes.items) |atom_index| {
         const atom_ptr = self.atom(atom_index) orelse continue;
         if (!atom_ptr.alive) continue;
+        if (atom_ptr.output_section_index == elf_file.eh_frame_section_index) continue;
         const shndx = atom_ptr.relocsShndx() orelse continue;
         const shdr = self.shdrs.items[shndx];
-        const out_shndx = try self.initOutputSection(elf_file, shdr);
-        const out_shdr = &elf_file.shdrs.items[out_shndx];
+        const out_shndx = try elf_file.initOutputSection(.{
+            .name = self.getString(shdr.sh_name),
+            .flags = shdr.sh_flags,
+            .type = shdr.sh_type,
+        });
+        const out_shdr = &elf_file.sections.items(.shdr)[out_shndx];
+        out_shdr.sh_type = elf.SHT_RELA;
         out_shdr.sh_addralign = @alignOf(elf.Elf64_Rela);
         out_shdr.sh_entsize = @sizeOf(elf.Elf64_Rela);
         out_shdr.sh_flags |= elf.SHF_INFO_LINK;
@@ -1022,20 +977,23 @@ pub fn addAtomsToRelaSections(self: *Object, elf_file: *Elf) !void {
     for (self.atoms_indexes.items) |atom_index| {
         const atom_ptr = self.atom(atom_index) orelse continue;
         if (!atom_ptr.alive) continue;
+        if (atom_ptr.output_section_index == elf_file.eh_frame_section_index) continue;
         const shndx = blk: {
             const shndx = atom_ptr.relocsShndx() orelse continue;
             const shdr = self.shdrs.items[shndx];
-            break :blk self.initOutputSection(elf_file, shdr) catch unreachable;
+            break :blk elf_file.initOutputSection(.{
+                .name = self.getString(shdr.sh_name),
+                .flags = shdr.sh_flags,
+                .type = shdr.sh_type,
+            }) catch unreachable;
         };
-        const shdr = &elf_file.shdrs.items[shndx];
+        const slice = elf_file.sections.slice();
+        const shdr = &slice.items(.shdr)[shndx];
         shdr.sh_info = atom_ptr.output_section_index;
         shdr.sh_link = elf_file.symtab_section_index.?;
-
-        const comp = elf_file.base.comp;
-        const gpa = comp.gpa;
-        const gop = try elf_file.output_rela_sections.getOrPut(gpa, atom_ptr.output_section_index);
-        if (!gop.found_existing) gop.value_ptr.* = .{ .shndx = shndx };
-        try gop.value_ptr.atom_list.append(gpa, .{ .index = atom_index, .file = self.index });
+        const gpa = elf_file.base.comp.gpa;
+        const atom_list = &elf_file.sections.items(.atom_list)[shndx];
+        try atom_list.append(gpa, .{ .index = atom_index, .file = self.index });
     }
 }
 
@@ -1217,14 +1175,14 @@ fn addSymbolAssumeCapacity(self: *Object) Symbol.Index {
 }
 
 pub fn addSymbolExtra(self: *Object, allocator: Allocator, extra: Symbol.Extra) !u32 {
-    const fields = @typeInfo(Symbol.Extra).Struct.fields;
+    const fields = @typeInfo(Symbol.Extra).@"struct".fields;
     try self.symbols_extra.ensureUnusedCapacity(allocator, fields.len);
     return self.addSymbolExtraAssumeCapacity(extra);
 }
 
 pub fn addSymbolExtraAssumeCapacity(self: *Object, extra: Symbol.Extra) u32 {
     const index = @as(u32, @intCast(self.symbols_extra.items.len));
-    const fields = @typeInfo(Symbol.Extra).Struct.fields;
+    const fields = @typeInfo(Symbol.Extra).@"struct".fields;
     inline for (fields) |field| {
         self.symbols_extra.appendAssumeCapacity(switch (field.type) {
             u32 => @field(extra, field.name),
@@ -1235,7 +1193,7 @@ pub fn addSymbolExtraAssumeCapacity(self: *Object, extra: Symbol.Extra) u32 {
 }
 
 pub fn symbolExtra(self: *Object, index: u32) Symbol.Extra {
-    const fields = @typeInfo(Symbol.Extra).Struct.fields;
+    const fields = @typeInfo(Symbol.Extra).@"struct".fields;
     var i: usize = index;
     var result: Symbol.Extra = undefined;
     inline for (fields) |field| {
@@ -1249,7 +1207,7 @@ pub fn symbolExtra(self: *Object, index: u32) Symbol.Extra {
 }
 
 pub fn setSymbolExtra(self: *Object, index: u32, extra: Symbol.Extra) void {
-    const fields = @typeInfo(Symbol.Extra).Struct.fields;
+    const fields = @typeInfo(Symbol.Extra).@"struct".fields;
     inline for (fields, 0..) |field, i| {
         self.symbols_extra.items[index + i] = switch (field.type) {
             u32 => @field(extra, field.name),
@@ -1327,14 +1285,14 @@ pub fn atom(self: *Object, atom_index: Atom.Index) ?*Atom {
 }
 
 pub fn addAtomExtra(self: *Object, allocator: Allocator, extra: Atom.Extra) !u32 {
-    const fields = @typeInfo(Atom.Extra).Struct.fields;
+    const fields = @typeInfo(Atom.Extra).@"struct".fields;
     try self.atoms_extra.ensureUnusedCapacity(allocator, fields.len);
     return self.addAtomExtraAssumeCapacity(extra);
 }
 
 pub fn addAtomExtraAssumeCapacity(self: *Object, extra: Atom.Extra) u32 {
     const index = @as(u32, @intCast(self.atoms_extra.items.len));
-    const fields = @typeInfo(Atom.Extra).Struct.fields;
+    const fields = @typeInfo(Atom.Extra).@"struct".fields;
     inline for (fields) |field| {
         self.atoms_extra.appendAssumeCapacity(switch (field.type) {
             u32 => @field(extra, field.name),
@@ -1345,7 +1303,7 @@ pub fn addAtomExtraAssumeCapacity(self: *Object, extra: Atom.Extra) u32 {
 }
 
 pub fn atomExtra(self: *Object, index: u32) Atom.Extra {
-    const fields = @typeInfo(Atom.Extra).Struct.fields;
+    const fields = @typeInfo(Atom.Extra).@"struct".fields;
     var i: usize = index;
     var result: Atom.Extra = undefined;
     inline for (fields) |field| {
@@ -1359,7 +1317,7 @@ pub fn atomExtra(self: *Object, index: u32) Atom.Extra {
 }
 
 pub fn setAtomExtra(self: *Object, index: u32, extra: Atom.Extra) void {
-    const fields = @typeInfo(Atom.Extra).Struct.fields;
+    const fields = @typeInfo(Atom.Extra).@"struct".fields;
     inline for (fields, 0..) |field, i| {
         self.atoms_extra.items[index + i] = switch (field.type) {
             u32 => @field(extra, field.name),
@@ -1540,12 +1498,12 @@ fn formatComdatGroups(
     }
 }
 
-pub fn fmtPath(self: *Object) std.fmt.Formatter(formatPath) {
+pub fn fmtPath(self: Object) std.fmt.Formatter(formatPath) {
     return .{ .data = self };
 }
 
 fn formatPath(
-    object: *Object,
+    object: Object,
     comptime unused_fmt_string: []const u8,
     options: std.fmt.FormatOptions,
     writer: anytype,
@@ -1580,6 +1538,7 @@ const mem = std.mem;
 const Allocator = mem.Allocator;
 const Archive = @import("Archive.zig");
 const Atom = @import("Atom.zig");
+const AtomList = @import("AtomList.zig");
 const Cie = eh_frame.Cie;
 const Elf = @import("../Elf.zig");
 const Fde = eh_frame.Fde;

@@ -10,7 +10,7 @@
 #define _LIBCPP___TYPE_TRAITS_MAKE_SIGNED_H
 
 #include <__config>
-#include <__type_traits/apply_cv.h>
+#include <__type_traits/copy_cv.h>
 #include <__type_traits/is_enum.h>
 #include <__type_traits/is_integral.h>
 #include <__type_traits/nat.h>
@@ -70,7 +70,7 @@ template <> struct __make_signed<__uint128_t,        true> {typedef __int128_t t
 // clang-format on
 
 template <class _Tp>
-using __make_signed_t = __apply_cv_t<_Tp, typename __make_signed<__remove_cv_t<_Tp> >::type>;
+using __make_signed_t = __copy_cv_t<_Tp, typename __make_signed<__remove_cv_t<_Tp> >::type>;
 
 #endif // __has_builtin(__make_signed)
 

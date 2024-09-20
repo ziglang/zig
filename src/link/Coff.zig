@@ -26,7 +26,7 @@ repro: bool,
 ptr_width: PtrWidth,
 page_size: u32,
 
-objects: std.ArrayListUnmanaged(Object) = .{},
+objects: std.ArrayListUnmanaged(Object) = .empty,
 
 sections: std.MultiArrayList(Section) = .{},
 data_directories: [coff.IMAGE_NUMBEROF_DIRECTORY_ENTRIES]coff.ImageDataDirectory,
@@ -38,14 +38,14 @@ data_section_index: ?u16 = null,
 reloc_section_index: ?u16 = null,
 idata_section_index: ?u16 = null,
 
-locals: std.ArrayListUnmanaged(coff.Symbol) = .{},
-globals: std.ArrayListUnmanaged(SymbolWithLoc) = .{},
-resolver: std.StringHashMapUnmanaged(u32) = .{},
-unresolved: std.AutoArrayHashMapUnmanaged(u32, bool) = .{},
-need_got_table: std.AutoHashMapUnmanaged(u32, void) = .{},
+locals: std.ArrayListUnmanaged(coff.Symbol) = .empty,
+globals: std.ArrayListUnmanaged(SymbolWithLoc) = .empty,
+resolver: std.StringHashMapUnmanaged(u32) = .empty,
+unresolved: std.AutoArrayHashMapUnmanaged(u32, bool) = .empty,
+need_got_table: std.AutoHashMapUnmanaged(u32, void) = .empty,
 
-locals_free_list: std.ArrayListUnmanaged(u32) = .{},
-globals_free_list: std.ArrayListUnmanaged(u32) = .{},
+locals_free_list: std.ArrayListUnmanaged(u32) = .empty,
+globals_free_list: std.ArrayListUnmanaged(u32) = .empty,
 
 strtab: StringTable = .{},
 strtab_offset: ?u32 = null,
@@ -56,7 +56,7 @@ got_table: TableSection(SymbolWithLoc) = .{},
 
 /// A table of ImportTables partitioned by the library name.
 /// Key is an offset into the interning string table `temp_strtab`.
-import_tables: std.AutoArrayHashMapUnmanaged(u32, ImportTable) = .{},
+import_tables: std.AutoArrayHashMapUnmanaged(u32, ImportTable) = .empty,
 
 got_table_count_dirty: bool = true,
 got_table_contents_dirty: bool = true,
@@ -69,10 +69,10 @@ lazy_syms: LazySymbolTable = .{},
 navs: NavTable = .{},
 
 /// List of atoms that are either synthetic or map directly to the Zig source program.
-atoms: std.ArrayListUnmanaged(Atom) = .{},
+atoms: std.ArrayListUnmanaged(Atom) = .empty,
 
 /// Table of atoms indexed by the symbol index.
-atom_by_index_table: std.AutoHashMapUnmanaged(u32, Atom.Index) = .{},
+atom_by_index_table: std.AutoHashMapUnmanaged(u32, Atom.Index) = .empty,
 
 uavs: UavTable = .{},
 
@@ -131,7 +131,7 @@ const Section = struct {
     /// overcapacity can be negative. A simple way to have negative overcapacity is to
     /// allocate a fresh atom, which will have ideal capacity, and then grow it
     /// by 1 byte. It will then have -1 overcapacity.
-    free_list: std.ArrayListUnmanaged(Atom.Index) = .{},
+    free_list: std.ArrayListUnmanaged(Atom.Index) = .empty,
 };
 
 const LazySymbolTable = std.AutoArrayHashMapUnmanaged(InternPool.Index, LazySymbolMetadata);
@@ -148,7 +148,7 @@ const AvMetadata = struct {
     atom: Atom.Index,
     section: u16,
     /// A list of all exports aliases of this Decl.
-    exports: std.ArrayListUnmanaged(u32) = .{},
+    exports: std.ArrayListUnmanaged(u32) = .empty,
 
     fn deinit(m: *AvMetadata, allocator: Allocator) void {
         m.exports.deinit(allocator);
@@ -219,7 +219,7 @@ pub const min_text_capacity = padToIdeal(minimum_text_block_size);
 pub fn createEmpty(
     arena: Allocator,
     comp: *Compilation,
-    emit: Compilation.Emit,
+    emit: Path,
     options: link.File.OpenOptions,
 ) !*Coff {
     const target = comp.root_mod.resolved_target.result;
@@ -276,7 +276,7 @@ pub fn createEmpty(
         .image_base = options.image_base orelse switch (output_mode) {
             .Exe => switch (target.cpu.arch) {
                 .aarch64 => 0x140000000,
-                .x86_64, .x86 => 0x400000,
+                .thumb, .x86_64, .x86 => 0x400000,
                 else => unreachable,
             },
             .Lib => 0x10000000,
@@ -315,7 +315,7 @@ pub fn createEmpty(
     // If using LLD to link, this code should produce an object file so that it
     // can be passed to LLD.
     const sub_path = if (use_lld) zcu_object_sub_path.? else emit.sub_path;
-    self.base.file = try emit.directory.handle.createFile(sub_path, .{
+    self.base.file = try emit.root_dir.handle.createFile(sub_path, .{
         .truncate = true,
         .read = true,
         .mode = link.File.determineMode(use_lld, output_mode, link_mode),
@@ -416,7 +416,7 @@ pub fn createEmpty(
 pub fn open(
     arena: Allocator,
     comp: *Compilation,
-    emit: Compilation.Emit,
+    emit: Path,
     options: link.File.OpenOptions,
 ) !*Coff {
     // TODO: restore saved linker state, don't truncate the file, and
@@ -1141,7 +1141,7 @@ pub fn updateFunc(self: *Coff, pt: Zcu.PerThread, func_index: InternPool.Index, 
 
 const LowerConstResult = union(enum) {
     ok: Atom.Index,
-    fail: *Module.ErrorMsg,
+    fail: *Zcu.ErrorMsg,
 };
 
 fn lowerConst(
@@ -1151,7 +1151,7 @@ fn lowerConst(
     val: Value,
     required_alignment: InternPool.Alignment,
     sect_id: u16,
-    src_loc: Module.LazySrcLoc,
+    src_loc: Zcu.LazySrcLoc,
 ) !LowerConstResult {
     const gpa = self.base.comp.gpa;
 
@@ -1163,8 +1163,8 @@ fn lowerConst(
     try self.setSymbolName(sym, name);
     sym.section_number = @as(coff.SectionNumber, @enumFromInt(sect_id + 1));
 
-    const res = try codegen.generateSymbol(&self.base, pt, src_loc, val, &code_buffer, .none, .{
-        .parent_atom_index = self.getAtom(atom_index).getSymbolIndex().?,
+    const res = try codegen.generateSymbol(&self.base, pt, src_loc, val, &code_buffer, .{
+        .atom_index = self.getAtom(atom_index).getSymbolIndex().?,
     });
     const code = switch (res) {
         .ok => code_buffer.items,
@@ -1205,10 +1205,12 @@ pub fn updateNav(
     const ip = &zcu.intern_pool;
     const nav = ip.getNav(nav_index);
 
-    const init_val = switch (ip.indexToKey(nav.status.resolved.val)) {
-        .variable => |variable| variable.init,
+    const nav_val = zcu.navValue(nav_index);
+    const nav_init = switch (ip.indexToKey(nav_val.toIntern())) {
+        .func => return,
+        .variable => |variable| Value.fromInterned(variable.init),
         .@"extern" => |@"extern"| {
-            if (ip.isFunctionType(nav.typeOf(ip))) return;
+            if (ip.isFunctionType(@"extern".ty)) return;
             // TODO make this part of getGlobalSymbol
             const name = nav.name.toSlice(ip);
             const lib_name = @"extern".lib_name.toSlice(ip);
@@ -1216,34 +1218,35 @@ pub fn updateNav(
             try self.need_got_table.put(gpa, global_index, {});
             return;
         },
-        else => nav.status.resolved.val,
+        else => nav_val,
     };
 
-    const atom_index = try self.getOrCreateAtomForNav(nav_index);
-    Atom.freeRelocations(self, atom_index);
-    const atom = self.getAtom(atom_index);
+    if (nav_init.typeOf(zcu).hasRuntimeBits(zcu)) {
+        const atom_index = try self.getOrCreateAtomForNav(nav_index);
+        Atom.freeRelocations(self, atom_index);
+        const atom = self.getAtom(atom_index);
 
-    var code_buffer = std.ArrayList(u8).init(gpa);
-    defer code_buffer.deinit();
+        var code_buffer = std.ArrayList(u8).init(gpa);
+        defer code_buffer.deinit();
 
-    const res = try codegen.generateSymbol(
-        &self.base,
-        pt,
-        zcu.navSrcLoc(nav_index),
-        Value.fromInterned(init_val),
-        &code_buffer,
-        .none,
-        .{ .parent_atom_index = atom.getSymbolIndex().? },
-    );
-    const code = switch (res) {
-        .ok => code_buffer.items,
-        .fail => |em| {
-            try zcu.failed_codegen.put(gpa, nav_index, em);
-            return;
-        },
-    };
+        const res = try codegen.generateSymbol(
+            &self.base,
+            pt,
+            zcu.navSrcLoc(nav_index),
+            nav_init,
+            &code_buffer,
+            .{ .atom_index = atom.getSymbolIndex().? },
+        );
+        const code = switch (res) {
+            .ok => code_buffer.items,
+            .fail => |em| {
+                try zcu.failed_codegen.put(gpa, nav_index, em);
+                return;
+            },
+        };
 
-    try self.updateNavCode(pt, nav_index, code, .NULL);
+        try self.updateNavCode(pt, nav_index, code, .NULL);
+    }
 
     // Exports will be updated by `Zcu.processExports` after the update.
 }
@@ -1255,8 +1258,8 @@ fn updateLazySymbolAtom(
     atom_index: Atom.Index,
     section_index: u16,
 ) !void {
-    const mod = pt.zcu;
-    const gpa = mod.gpa;
+    const zcu = pt.zcu;
+    const gpa = zcu.gpa;
 
     var required_alignment: InternPool.Alignment = .none;
     var code_buffer = std.ArrayList(u8).init(gpa);
@@ -1271,7 +1274,7 @@ fn updateLazySymbolAtom(
     const atom = self.getAtomPtr(atom_index);
     const local_sym_index = atom.getSymbolIndex().?;
 
-    const src = Type.fromInterned(sym.ty).srcLocOrNull(mod) orelse Module.LazySrcLoc.unneeded;
+    const src = Type.fromInterned(sym.ty).srcLocOrNull(zcu) orelse Zcu.LazySrcLoc.unneeded;
     const res = try codegen.generateLazySymbol(
         &self.base,
         pt,
@@ -1280,7 +1283,7 @@ fn updateLazySymbolAtom(
         &required_alignment,
         &code_buffer,
         .none,
-        .{ .parent_atom_index = local_sym_index },
+        .{ .atom_index = local_sym_index },
     );
     const code = switch (res) {
         .ok => code_buffer.items,
@@ -1290,10 +1293,10 @@ fn updateLazySymbolAtom(
         },
     };
 
-    const code_len = @as(u32, @intCast(code.len));
+    const code_len: u32 = @intCast(code.len);
     const symbol = atom.getSymbolPtr(self);
     try self.setSymbolName(symbol, name);
-    symbol.section_number = @as(coff.SectionNumber, @enumFromInt(section_index + 1));
+    symbol.section_number = @enumFromInt(section_index + 1);
     symbol.type = .{ .complex_type = .NULL, .base_type = .NULL };
 
     const vaddr = try self.allocateAtom(atom_index, code_len, @intCast(required_alignment.toByteUnits() orelse 0));
@@ -1350,7 +1353,7 @@ pub fn getOrCreateAtomForNav(self: *Coff, nav_index: InternPool.Nav.Index) !Atom
 }
 
 fn getNavOutputSection(self: *Coff, nav_index: InternPool.Nav.Index) u16 {
-    const zcu = self.base.comp.module.?;
+    const zcu = self.base.comp.zcu.?;
     const ip = &zcu.intern_pool;
     const nav = ip.getNav(nav_index);
     const ty = Type.fromInterned(nav.typeOf(ip));
@@ -1364,7 +1367,7 @@ fn getNavOutputSection(self: *Coff, nav_index: InternPool.Nav.Index) u16 {
 
         switch (zig_ty) {
             // TODO: what if this is a function pointer?
-            .Fn => break :blk self.text_section_index.?,
+            .@"fn" => break :blk self.text_section_index.?,
             else => {
                 if (val.getVariable(zcu)) |_| {
                     break :blk self.data_section_index.?;
@@ -1458,15 +1461,15 @@ pub fn freeNav(self: *Coff, nav_index: InternPool.NavIndex) void {
 pub fn updateExports(
     self: *Coff,
     pt: Zcu.PerThread,
-    exported: Module.Exported,
+    exported: Zcu.Exported,
     export_indices: []const u32,
 ) link.File.UpdateExportsError!void {
     if (build_options.skip_non_native and builtin.object_format != .coff) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
 
-    const mod = pt.zcu;
-    const ip = &mod.intern_pool;
+    const zcu = pt.zcu;
+    const ip = &zcu.intern_pool;
     const comp = self.base.comp;
     const target = comp.root_mod.resolved_target.result;
 
@@ -1474,7 +1477,7 @@ pub fn updateExports(
         // Even in the case of LLVM, we need to notice certain exported symbols in order to
         // detect the default subsystem.
         for (export_indices) |export_idx| {
-            const exp = mod.all_exports.items[export_idx];
+            const exp = zcu.all_exports.items[export_idx];
             const exported_nav_index = switch (exp.exported) {
                 .nav => |nav| nav,
                 .uav => continue,
@@ -1486,20 +1489,20 @@ pub fn updateExports(
                 .x86 => .Stdcall,
                 else => .C,
             };
-            const exported_cc = Type.fromInterned(exported_ty).fnCallingConvention(mod);
+            const exported_cc = Type.fromInterned(exported_ty).fnCallingConvention(zcu);
             if (exported_cc == .C and exp.opts.name.eqlSlice("main", ip) and comp.config.link_libc) {
-                mod.stage1_flags.have_c_main = true;
+                zcu.stage1_flags.have_c_main = true;
             } else if (exported_cc == winapi_cc and target.os.tag == .windows) {
                 if (exp.opts.name.eqlSlice("WinMain", ip)) {
-                    mod.stage1_flags.have_winmain = true;
+                    zcu.stage1_flags.have_winmain = true;
                 } else if (exp.opts.name.eqlSlice("wWinMain", ip)) {
-                    mod.stage1_flags.have_wwinmain = true;
+                    zcu.stage1_flags.have_wwinmain = true;
                 } else if (exp.opts.name.eqlSlice("WinMainCRTStartup", ip)) {
-                    mod.stage1_flags.have_winmain_crt_startup = true;
+                    zcu.stage1_flags.have_winmain_crt_startup = true;
                 } else if (exp.opts.name.eqlSlice("wWinMainCRTStartup", ip)) {
-                    mod.stage1_flags.have_wwinmain_crt_startup = true;
+                    zcu.stage1_flags.have_wwinmain_crt_startup = true;
                 } else if (exp.opts.name.eqlSlice("DllMainCRTStartup", ip)) {
-                    mod.stage1_flags.have_dllmain_crt_startup = true;
+                    zcu.stage1_flags.have_dllmain_crt_startup = true;
                 }
             }
         }
@@ -1515,15 +1518,15 @@ pub fn updateExports(
             break :blk self.navs.getPtr(nav).?;
         },
         .uav => |uav| self.uavs.getPtr(uav) orelse blk: {
-            const first_exp = mod.all_exports.items[export_indices[0]];
+            const first_exp = zcu.all_exports.items[export_indices[0]];
             const res = try self.lowerUav(pt, uav, .none, first_exp.src);
             switch (res) {
                 .mcv => {},
                 .fail => |em| {
                     // TODO maybe it's enough to return an error here and let Module.processExportsInner
                     // handle the error?
-                    try mod.failed_exports.ensureUnusedCapacity(mod.gpa, 1);
-                    mod.failed_exports.putAssumeCapacityNoClobber(export_indices[0], em);
+                    try zcu.failed_exports.ensureUnusedCapacity(zcu.gpa, 1);
+                    zcu.failed_exports.putAssumeCapacityNoClobber(export_indices[0], em);
                     return;
                 },
             }
@@ -1534,12 +1537,12 @@ pub fn updateExports(
     const atom = self.getAtom(atom_index);
 
     for (export_indices) |export_idx| {
-        const exp = mod.all_exports.items[export_idx];
-        log.debug("adding new export '{}'", .{exp.opts.name.fmt(&mod.intern_pool)});
+        const exp = zcu.all_exports.items[export_idx];
+        log.debug("adding new export '{}'", .{exp.opts.name.fmt(&zcu.intern_pool)});
 
-        if (exp.opts.section.toSlice(&mod.intern_pool)) |section_name| {
+        if (exp.opts.section.toSlice(&zcu.intern_pool)) |section_name| {
             if (!mem.eql(u8, section_name, ".text")) {
-                try mod.failed_exports.putNoClobber(gpa, export_idx, try Module.ErrorMsg.create(
+                try zcu.failed_exports.putNoClobber(gpa, export_idx, try Zcu.ErrorMsg.create(
                     gpa,
                     exp.src,
                     "Unimplemented: ExportOptions.section",
@@ -1550,7 +1553,7 @@ pub fn updateExports(
         }
 
         if (exp.opts.linkage == .link_once) {
-            try mod.failed_exports.putNoClobber(gpa, export_idx, try Module.ErrorMsg.create(
+            try zcu.failed_exports.putNoClobber(gpa, export_idx, try Zcu.ErrorMsg.create(
                 gpa,
                 exp.src,
                 "Unimplemented: GlobalLinkage.link_once",
@@ -1559,7 +1562,7 @@ pub fn updateExports(
             continue;
         }
 
-        const exp_name = exp.opts.name.toSlice(&mod.intern_pool);
+        const exp_name = exp.opts.name.toSlice(&zcu.intern_pool);
         const sym_index = metadata.getExport(self, exp_name) orelse blk: {
             const sym_index = if (self.getGlobalIndex(exp_name)) |global_index| ind: {
                 const global = self.globals.items[global_index];
@@ -1605,14 +1608,14 @@ pub fn deleteExport(
         .nav => |nav| self.navs.getPtr(nav),
         .uav => |uav| self.uavs.getPtr(uav),
     } orelse return;
-    const mod = self.base.comp.module.?;
-    const name_slice = name.toSlice(&mod.intern_pool);
+    const zcu = self.base.comp.zcu.?;
+    const name_slice = name.toSlice(&zcu.intern_pool);
     const sym_index = metadata.getExportPtr(self, name_slice) orelse return;
 
     const gpa = self.base.comp.gpa;
     const sym_loc = SymbolWithLoc{ .sym_index = sym_index.*, .file = null };
     const sym = self.getSymbolPtr(sym_loc);
-    log.debug("deleting export '{}'", .{name.fmt(&mod.intern_pool)});
+    log.debug("deleting export '{}'", .{name.fmt(&zcu.intern_pool)});
     assert(sym.storage_class == .EXTERNAL and sym.section_number != .UNDEFINED);
     sym.* = .{
         .name = [_]u8{0} ** 8,
@@ -1687,11 +1690,11 @@ pub fn flushModule(self: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
     defer sub_prog_node.end();
 
     const pt: Zcu.PerThread = .{
-        .zcu = comp.module orelse return error.LinkingWithoutZigSourceUnimplemented,
+        .zcu = comp.zcu orelse return error.LinkingWithoutZigSourceUnimplemented,
         .tid = tid,
     };
 
-    if (self.lazy_syms.getPtr(.none)) |metadata| {
+    if (self.lazy_syms.getPtr(.anyerror_type)) |metadata| {
         // Most lazy symbols can be updated on first use, but
         // anyerror needs to wait for everything to be flushed.
         if (metadata.text_state != .unused) self.updateLazySymbolAtom(
@@ -1819,7 +1822,10 @@ pub fn getNavVAddr(
         .@"extern" => |@"extern"| try self.getGlobalSymbol(nav.name.toSlice(ip), @"extern".lib_name.toSlice(ip)),
         else => self.getAtom(try self.getOrCreateAtomForNav(nav_index)).getSymbolIndex().?,
     };
-    const atom_index = self.getAtomIndexForSymbol(.{ .sym_index = reloc_info.parent_atom_index, .file = null }).?;
+    const atom_index = self.getAtomIndexForSymbol(.{
+        .sym_index = reloc_info.parent.atom_index,
+        .file = null,
+    }).?;
     const target = SymbolWithLoc{ .sym_index = sym_index, .file = null };
     try Atom.addRelocation(self, atom_index, .{
         .type = .direct,
@@ -1839,13 +1845,13 @@ pub fn lowerUav(
     pt: Zcu.PerThread,
     uav: InternPool.Index,
     explicit_alignment: InternPool.Alignment,
-    src_loc: Module.LazySrcLoc,
+    src_loc: Zcu.LazySrcLoc,
 ) !codegen.GenResult {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const val = Value.fromInterned(uav);
     const uav_alignment = switch (explicit_alignment) {
-        .none => val.typeOf(zcu).abiAlignment(pt),
+        .none => val.typeOf(zcu).abiAlignment(zcu),
         else => explicit_alignment,
     };
     if (self.uavs.get(uav)) |metadata| {
@@ -1868,7 +1874,7 @@ pub fn lowerUav(
         src_loc,
     ) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
-        else => |e| return .{ .fail = try Module.ErrorMsg.create(
+        else => |e| return .{ .fail = try Zcu.ErrorMsg.create(
             gpa,
             src_loc,
             "lowerAnonDecl failed with error: {s}",
@@ -1897,7 +1903,10 @@ pub fn getUavVAddr(
 
     const this_atom_index = self.uavs.get(uav).?.atom;
     const sym_index = self.getAtom(this_atom_index).getSymbolIndex().?;
-    const atom_index = self.getAtomIndexForSymbol(.{ .sym_index = reloc_info.parent_atom_index, .file = null }).?;
+    const atom_index = self.getAtomIndexForSymbol(.{
+        .sym_index = reloc_info.parent.atom_index,
+        .file = null,
+    }).?;
     const target = SymbolWithLoc{ .sym_index = sym_index, .file = null };
     try Atom.addRelocation(self, atom_index, .{
         .type = .direct,
@@ -2259,7 +2268,7 @@ fn writeHeader(self: *Coff) !void {
     const timestamp = if (self.repro) 0 else std.time.timestamp();
     const size_of_optional_header = @as(u16, @intCast(self.getOptionalHeaderSize() + self.getDataDirectoryHeadersSize()));
     var coff_header = coff.CoffHeader{
-        .machine = coff.MachineType.fromTargetCpuArch(target.cpu.arch),
+        .machine = target.toCoffMachine(),
         .number_of_sections = @as(u16, @intCast(self.sections.slice().len)), // TODO what if we prune a section
         .time_date_stamp = @as(u32, @truncate(@as(u64, @bitCast(timestamp)))),
         .pointer_to_symbol_table = self.strtab_offset orelse 0,
@@ -2711,6 +2720,7 @@ const math = std.math;
 const mem = std.mem;
 
 const Allocator = std.mem.Allocator;
+const Path = std.Build.Cache.Path;
 
 const codegen = @import("../codegen.zig");
 const link = @import("../link.zig");
@@ -2725,8 +2735,6 @@ const ImportTable = @import("Coff/ImportTable.zig");
 const Liveness = @import("../Liveness.zig");
 const LlvmObject = @import("../codegen/llvm.zig").Object;
 const Zcu = @import("../Zcu.zig");
-/// Deprecated.
-const Module = Zcu;
 const InternPool = @import("../InternPool.zig");
 const Object = @import("Coff/Object.zig");
 const Relocation = @import("Coff/Relocation.zig");

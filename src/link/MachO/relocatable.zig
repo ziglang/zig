@@ -232,7 +232,7 @@ fn parseInputFilesAr(macho_file: *MachO) !void {
 
     for (macho_file.objects.items) |index| {
         macho_file.getFile(index).?.parseAr(macho_file) catch |err| switch (err) {
-            error.InvalidCpuArch => {}, // already reported
+            error.InvalidMachineType => {}, // already reported
             else => |e| try macho_file.reportParseError2(index, "unexpected error: parsing input file failed with error {s}", .{@errorName(e)}),
         };
     }
@@ -465,7 +465,7 @@ fn allocateSections(macho_file: *MachO) !void {
         const alignment = try math.powi(u32, 2, header.@"align");
         if (!header.isZerofill()) {
             if (needed_size > macho_file.allocatedSize(header.offset)) {
-                header.offset = math.cast(u32, macho_file.findFreeSpace(needed_size, alignment)) orelse
+                header.offset = math.cast(u32, try macho_file.findFreeSpace(needed_size, alignment)) orelse
                     return error.Overflow;
             }
         }

@@ -7,7 +7,6 @@ const CpuModel = std.Target.Cpu.Model;
 pub const Feature = enum {
     @"32bit",
     @"64bit",
-    auto_vec,
     d,
     f,
     frecipe,
@@ -18,17 +17,18 @@ pub const Feature = enum {
     lbt,
     lsx,
     lvz,
+    prefer_w_inst,
     relax,
     ual,
 };
 
-pub const featureSet = CpuFeature.feature_set_fns(Feature).featureSet;
-pub const featureSetHas = CpuFeature.feature_set_fns(Feature).featureSetHas;
-pub const featureSetHasAny = CpuFeature.feature_set_fns(Feature).featureSetHasAny;
-pub const featureSetHasAll = CpuFeature.feature_set_fns(Feature).featureSetHasAll;
+pub const featureSet = CpuFeature.FeatureSetFns(Feature).featureSet;
+pub const featureSetHas = CpuFeature.FeatureSetFns(Feature).featureSetHas;
+pub const featureSetHasAny = CpuFeature.FeatureSetFns(Feature).featureSetHasAny;
+pub const featureSetHasAll = CpuFeature.FeatureSetFns(Feature).featureSetHasAll;
 
 pub const all_features = blk: {
-    const len = @typeInfo(Feature).Enum.fields.len;
+    const len = @typeInfo(Feature).@"enum".fields.len;
     std.debug.assert(len <= CpuFeature.Set.needed_bit_count);
     var result: [len]CpuFeature = undefined;
     result[@intFromEnum(Feature.@"32bit")] = .{
@@ -39,11 +39,6 @@ pub const all_features = blk: {
     result[@intFromEnum(Feature.@"64bit")] = .{
         .llvm_name = "64bit",
         .description = "LA64 Basic Integer and Privilege Instruction Set",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@intFromEnum(Feature.auto_vec)] = .{
-        .llvm_name = "auto-vec",
-        .description = "Experimental auto vectorization",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.d)] = .{
@@ -102,6 +97,11 @@ pub const all_features = blk: {
         .description = "'LVZ' (Loongson Virtualization Extension)",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@intFromEnum(Feature.prefer_w_inst)] = .{
+        .llvm_name = "prefer-w-inst",
+        .description = "Prefer instructions with W suffix",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@intFromEnum(Feature.relax)] = .{
         .llvm_name = "relax",
         .description = "Enable Linker relaxation",
@@ -115,7 +115,7 @@ pub const all_features = blk: {
     const ti = @typeInfo(Feature);
     for (&result, 0..) |*elem, i| {
         elem.index = i;
-        elem.name = ti.Enum.fields[i].name;
+        elem.name = ti.@"enum".fields[i].name;
     }
     break :blk result;
 };
@@ -146,6 +146,18 @@ pub const cpu = struct {
         .llvm_name = "la464",
         .features = featureSet(&[_]Feature{
             .@"64bit",
+            .lasx,
+            .lbt,
+            .lvz,
+            .ual,
+        }),
+    };
+    pub const la664 = CpuModel{
+        .name = "la664",
+        .llvm_name = "la664",
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
+            .frecipe,
             .lasx,
             .lbt,
             .lvz,

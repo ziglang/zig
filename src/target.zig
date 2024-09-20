@@ -49,6 +49,12 @@ pub fn requiresPIC(target: std.Target, linking_libc: bool) bool {
         (target.abi == .ohos and target.cpu.arch == .aarch64);
 }
 
+pub fn picLevel(target: std.Target) u32 {
+    // MIPS always uses PIC level 1; other platforms vary in their default PIC levels, but they
+    // support both level 1 and 2, in which case we prefer 2.
+    return if (target.cpu.arch.isMIPS()) 1 else 2;
+}
+
 /// This is not whether the target supports Position Independent Code, but whether the -fPIC
 /// C compiler argument is valid to Clang.
 pub fn supports_fpic(target: std.Target) bool {
@@ -333,6 +339,48 @@ pub fn clangAssemblerSupportsMcpuArg(target: std.Target) bool {
     };
 }
 
+pub fn clangSupportsFloatAbiArg(target: std.Target) bool {
+    return switch (target.cpu.arch) {
+        .arm,
+        .armeb,
+        .thumb,
+        .thumbeb,
+        .csky,
+        .mips,
+        .mipsel,
+        .mips64,
+        .mips64el,
+        .powerpc,
+        .powerpcle,
+        .powerpc64,
+        .powerpc64le,
+        .s390x,
+        .sparc,
+        .sparc64,
+        => true,
+        // We use the target triple for LoongArch.
+        .loongarch32, .loongarch64 => false,
+        else => false,
+    };
+}
+
+pub fn clangSupportsNoImplicitFloatArg(target: std.Target) bool {
+    return switch (target.cpu.arch) {
+        .aarch64,
+        .aarch64_be,
+        .arm,
+        .armeb,
+        .thumb,
+        .thumbeb,
+        .riscv32,
+        .riscv64,
+        .x86,
+        .x86_64,
+        => true,
+        else => false,
+    };
+}
+
 pub fn needUnwindTables(target: std.Target) bool {
     return target.os.tag == .windows or target.isDarwin() or std.debug.Dwarf.abi.supportsUnwinding(target);
 }
@@ -375,6 +423,14 @@ pub fn addrSpaceCastIsValid(
 }
 
 pub fn llvmMachineAbi(target: std.Target) ?[:0]const u8 {
+    // LLD does not support ELFv1. Rather than having LLVM produce ELFv1 code and then linking it
+    // into a broken ELFv2 binary, just force LLVM to use ELFv2 as well. This will break when glibc
+    // is linked as glibc only supports ELFv2 for little endian, but there's nothing we can do about
+    // that. With this hack, `powerpc64-linux-none` will at least work.
+    //
+    // Once our self-hosted linker can handle both ABIs, this hack should go away.
+    if (target.cpu.arch == .powerpc64) return "elfv2";
+
     const have_float = switch (target.abi) {
         .gnueabihf, .musleabihf, .eabihf => true,
         else => false,
@@ -403,7 +459,6 @@ pub fn llvmMachineAbi(target: std.Target) ?[:0]const u8 {
                 return "ilp32";
             }
         },
-        //TODO add ARM, Mips, and PowerPC
         else => return null,
     }
 }
@@ -526,7 +581,11 @@ pub fn zigBackend(target: std.Target, use_llvm: bool) std.builtin.CompilerBacken
 pub inline fn backendSupportsFeature(backend: std.builtin.CompilerBackend, comptime feature: Feature) bool {
     return switch (feature) {
         .panic_fn => switch (backend) {
-            .stage2_c, .stage2_llvm, .stage2_x86_64, .stage2_riscv64 => true,
+            .stage2_c,
+            .stage2_llvm,
+            .stage2_x86_64,
+            .stage2_riscv64,
+            => true,
             else => false,
         },
         .panic_unwrap_error => switch (backend) {

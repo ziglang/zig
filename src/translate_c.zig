@@ -27,23 +27,23 @@ pub const Context = struct {
     gpa: mem.Allocator,
     arena: mem.Allocator,
     source_manager: *clang.SourceManager,
-    decl_table: std.AutoArrayHashMapUnmanaged(usize, []const u8) = .{},
+    decl_table: std.AutoArrayHashMapUnmanaged(usize, []const u8) = .empty,
     alias_list: AliasList,
     global_scope: *Scope.Root,
     clang_context: *clang.ASTContext,
     mangle_count: u32 = 0,
     /// Table of record decls that have been demoted to opaques.
-    opaque_demotes: std.AutoHashMapUnmanaged(usize, void) = .{},
+    opaque_demotes: std.AutoHashMapUnmanaged(usize, void) = .empty,
     /// Table of unnamed enums and records that are child types of typedefs.
-    unnamed_typedefs: std.AutoHashMapUnmanaged(usize, []const u8) = .{},
+    unnamed_typedefs: std.AutoHashMapUnmanaged(usize, []const u8) = .empty,
     /// Needed to decide if we are parsing a typename
-    typedefs: std.StringArrayHashMapUnmanaged(void) = .{},
+    typedefs: std.StringArrayHashMapUnmanaged(void) = .empty,
 
     /// This one is different than the root scope's name table. This contains
     /// a list of names that we found by visiting all the top level decls without
     /// translating them. The other maps are updated as we translate; this one is updated
     /// up front in a pre-processing step.
-    global_names: std.StringArrayHashMapUnmanaged(void) = .{},
+    global_names: std.StringArrayHashMapUnmanaged(void) = .empty,
 
     /// This is similar to `global_names`, but contains names which we would
     /// *like* to use, but do not strictly *have* to if they are unavailable.
@@ -52,7 +52,7 @@ pub const Context = struct {
     /// may be mangled.
     /// This is distinct from `global_names` so we can detect at a type
     /// declaration whether or not the name is available.
-    weak_global_names: std.StringArrayHashMapUnmanaged(void) = .{},
+    weak_global_names: std.StringArrayHashMapUnmanaged(void) = .empty,
 
     pattern_list: PatternList,
 
@@ -161,7 +161,7 @@ pub fn translate(
         context.pattern_list.deinit(gpa);
     }
 
-    inline for (@typeInfo(std.zig.c_builtins).Struct.decls) |decl| {
+    inline for (@typeInfo(std.zig.c_builtins).@"struct".decls) |decl| {
         const builtin = try Tag.pub_var_simple.create(arena, .{
             .name = decl.name,
             .init = try Tag.import_c_builtin.create(arena, decl.name),
@@ -1324,7 +1324,7 @@ fn makeShuffleMask(c: *Context, scope: *Scope, expr: *const clang.ShuffleVectorE
 fn vectorTypeInfo(arena: mem.Allocator, vec_node: Node, field: []const u8) TransError!Node {
     const typeof_call = try Tag.typeof.create(arena, vec_node);
     const typeinfo_call = try Tag.typeinfo.create(arena, typeof_call);
-    const vector_type_info = try Tag.field_access.create(arena, .{ .lhs = typeinfo_call, .field_name = "Vector" });
+    const vector_type_info = try Tag.field_access.create(arena, .{ .lhs = typeinfo_call, .field_name = "vector" });
     return Tag.field_access.create(arena, .{ .lhs = vector_type_info, .field_name = field });
 }
 
@@ -1596,6 +1596,11 @@ fn transBinaryOperator(
         // @divExact(@bitCast(<platform-ptrdiff_t>, @intFromPtr(lhs) -% @intFromPtr(rhs)), @sizeOf(<lhs target type>))
         const ptrdiff_type = try transQualTypeIntWidthOf(c, qt, true);
 
+        const bitcast = try Tag.as.create(c.arena, .{
+            .lhs = ptrdiff_type,
+            .rhs = try Tag.bit_cast.create(c.arena, infixOpNode),
+        });
+
         // C standard requires that pointer subtraction operands are of the same type,
         // otherwise it is undefined behavior. So we can assume the left and right
         // sides are the same QualType and arbitrarily choose left.
@@ -1603,18 +1608,19 @@ fn transBinaryOperator(
         const lhs_qt = getExprQualType(c, lhs_expr);
         const lhs_qt_translated = try transQualType(c, scope, lhs_qt, lhs_expr.getBeginLoc());
         const c_pointer = getContainer(c, lhs_qt_translated).?;
-        const elem_type = c_pointer.castTag(.c_pointer).?.data.elem_type;
-        const sizeof = try Tag.sizeof.create(c.arena, elem_type);
 
-        const bitcast = try Tag.as.create(c.arena, .{
-            .lhs = ptrdiff_type,
-            .rhs = try Tag.bit_cast.create(c.arena, infixOpNode),
-        });
-
-        return Tag.div_exact.create(c.arena, .{
-            .lhs = bitcast,
-            .rhs = sizeof,
-        });
+        if (c_pointer.castTag(.c_pointer)) |c_pointer_payload| {
+            const sizeof = try Tag.sizeof.create(c.arena, c_pointer_payload.data.elem_type);
+            return Tag.div_exact.create(c.arena, .{
+                .lhs = bitcast,
+                .rhs = sizeof,
+            });
+        } else {
+            // This is an opaque/incomplete type. This subtraction exhibits Undefined Behavior by the C99 spec.
+            // However, allowing subtraction on `void *` and function pointers is a commonly used extension.
+            // So, just return the value in byte units, mirroring the behavior of this language extension as implemented by GCC and Clang.
+            return bitcast;
+        }
     }
     return infixOpNode;
 }
@@ -2002,7 +2008,7 @@ fn transImplicitCastExpr(
 }
 
 fn isBuiltinDefined(name: []const u8) bool {
-    inline for (@typeInfo(std.zig.c_builtins).Struct.decls) |decl| {
+    inline for (@typeInfo(std.zig.c_builtins).@"struct".decls) |decl| {
         if (std.mem.eql(u8, name, decl.name)) return true;
     }
     return false;
@@ -2638,7 +2644,9 @@ fn transInitListExprArray(
     const init_count = expr.getNumInits();
     assert(@as(*const clang.Type, @ptrCast(arr_type)).isConstantArrayType());
     const const_arr_ty = @as(*const clang.ConstantArrayType, @ptrCast(arr_type));
-    const size_ap_int = const_arr_ty.getSize();
+    var size_ap_int: *const clang.APInt = undefined;
+    const_arr_ty.getSize(&size_ap_int);
+    defer size_ap_int.free();
     const all_count = size_ap_int.getLimitedValue(usize);
     const leftover_count = all_count - init_count;
 
@@ -3659,6 +3667,7 @@ fn transUnaryExprOrTypeTraitExpr(
         .AlignOf => try Tag.alignof.create(c.arena, type_node),
         .DataSizeOf,
         .PreferredAlignOf,
+        .PtrAuthTypeDiscriminator,
         .VecStep,
         .OpenMPRequiredSimdAlign,
         => return fail(
@@ -4649,7 +4658,7 @@ fn transCreateNodeAPInt(c: *Context, int: *const clang.APSInt) !Node {
 
 fn transCreateNodeNumber(c: *Context, num: anytype, num_kind: enum { int, float }) !Node {
     const fmt_s = switch (@typeInfo(@TypeOf(num))) {
-        .Int, .ComptimeInt => "{d}",
+        .int, .comptime_int => "{d}",
         else => "{s}",
     };
     const str = try std.fmt.allocPrint(c.arena, fmt_s, .{num});
@@ -4787,7 +4796,9 @@ fn transType(c: *Context, scope: *Scope, ty: *const clang.Type, source_loc: clan
         .ConstantArray => {
             const const_arr_ty = @as(*const clang.ConstantArrayType, @ptrCast(ty));
 
-            const size_ap_int = const_arr_ty.getSize();
+            var size_ap_int: *const clang.APInt = undefined;
+            const_arr_ty.getSize(&size_ap_int);
+            defer size_ap_int.free();
             const size = size_ap_int.getLimitedValue(usize);
             const elem_type = try transType(c, scope, const_arr_ty.getElementType().getTypePtr(), source_loc);
 
@@ -5252,7 +5263,7 @@ fn getMacroText(unit: *const clang.ASTUnit, c: *const Context, macro: *const cla
     const end_c = c.source_manager.getCharacterData(end_loc);
     const slice_len = @intFromPtr(end_c) - @intFromPtr(begin_c);
 
-    var comp = aro.Compilation.init(c.gpa);
+    var comp = aro.Compilation.init(c.gpa, std.fs.cwd());
     defer comp.deinit();
     const result = comp.addSourceFromBuffer("", begin_c[0..slice_len]) catch return error.OutOfMemory;
 

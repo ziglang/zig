@@ -10,7 +10,7 @@ const builtin = @import("builtin");
 const mem = std.mem;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
-const log = std.log.scoped(.module);
+const log = std.log.scoped(.zcu);
 const BigIntConst = std.math.big.int.Const;
 const BigIntMutable = std.math.big.int.Mutable;
 const Target = std.Target;
@@ -43,9 +43,9 @@ const dev = @import("dev.zig");
 comptime {
     @setEvalBranchQuota(4000);
     for (
-        @typeInfo(Zir.Inst.Ref).Enum.fields,
-        @typeInfo(Air.Inst.Ref).Enum.fields,
-        @typeInfo(InternPool.Index).Enum.fields,
+        @typeInfo(Zir.Inst.Ref).@"enum".fields,
+        @typeInfo(Air.Inst.Ref).@"enum".fields,
+        @typeInfo(InternPool.Index).@"enum".fields,
     ) |zir_field, air_field, ip_field| {
         assert(mem.eql(u8, zir_field.name, ip_field.name));
         assert(mem.eql(u8, air_field.name, ip_field.name));
@@ -76,14 +76,14 @@ local_zir_cache: Compilation.Directory,
 
 /// This is where all `Export` values are stored. Not all values here are necessarily valid exports;
 /// to enumerate all exports, `single_exports` and `multi_exports` must be consulted.
-all_exports: std.ArrayListUnmanaged(Export) = .{},
+all_exports: std.ArrayListUnmanaged(Export) = .empty,
 /// This is a list of free indices in `all_exports`. These indices may be reused by exports from
 /// future semantic analysis.
-free_exports: std.ArrayListUnmanaged(u32) = .{},
+free_exports: std.ArrayListUnmanaged(u32) = .empty,
 /// Maps from an `AnalUnit` which performs a single export, to the index into `all_exports` of
 /// the export it performs. Note that the key is not the `Decl` being exported, but the `AnalUnit`
 /// whose analysis triggered the export.
-single_exports: std.AutoArrayHashMapUnmanaged(AnalUnit, u32) = .{},
+single_exports: std.AutoArrayHashMapUnmanaged(AnalUnit, u32) = .empty,
 /// Like `single_exports`, but for `AnalUnit`s which perform multiple exports.
 /// The exports are `all_exports.items[index..][0..len]`.
 multi_exports: std.AutoArrayHashMapUnmanaged(AnalUnit, extern struct {
@@ -104,29 +104,29 @@ multi_exports: std.AutoArrayHashMapUnmanaged(AnalUnit, extern struct {
 /// `Compilation.update` of the process for a given `Compilation`.
 ///
 /// Indexes correspond 1:1 to `files`.
-import_table: std.StringArrayHashMapUnmanaged(File.Index) = .{},
+import_table: std.StringArrayHashMapUnmanaged(File.Index) = .empty,
 
 /// The set of all the files which have been loaded with `@embedFile` in the Module.
 /// We keep track of this in order to iterate over it and check which files have been
 /// modified on the file system when an update is requested, as well as to cache
 /// `@embedFile` results.
 /// Keys are fully resolved file paths. This table owns the keys and values.
-embed_table: std.StringArrayHashMapUnmanaged(*EmbedFile) = .{},
+embed_table: std.StringArrayHashMapUnmanaged(*EmbedFile) = .empty,
 
 /// Stores all Type and Value objects.
 /// The idea is that this will be periodically garbage-collected, but such logic
 /// is not yet implemented.
-intern_pool: InternPool = .{},
+intern_pool: InternPool = .empty,
 
-analysis_in_progress: std.AutoArrayHashMapUnmanaged(AnalUnit, void) = .{},
+analysis_in_progress: std.AutoArrayHashMapUnmanaged(AnalUnit, void) = .empty,
 /// The ErrorMsg memory is owned by the `AnalUnit`, using Module's general purpose allocator.
-failed_analysis: std.AutoArrayHashMapUnmanaged(AnalUnit, *ErrorMsg) = .{},
+failed_analysis: std.AutoArrayHashMapUnmanaged(AnalUnit, *ErrorMsg) = .empty,
 /// This `AnalUnit` failed semantic analysis because it required analysis of another `AnalUnit` which itself failed.
-transitive_failed_analysis: std.AutoArrayHashMapUnmanaged(AnalUnit, void) = .{},
+transitive_failed_analysis: std.AutoArrayHashMapUnmanaged(AnalUnit, void) = .empty,
 /// This `Nav` succeeded analysis, but failed codegen.
 /// This may be a simple "value" `Nav`, or it may be a function.
 /// The ErrorMsg memory is owned by the `AnalUnit`, using Module's general purpose allocator.
-failed_codegen: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, *ErrorMsg) = .{},
+failed_codegen: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, *ErrorMsg) = .empty,
 /// Keep track of one `@compileLog` callsite per `AnalUnit`.
 /// The value is the source location of the `@compileLog` call, convertible to a `LazySrcLoc`.
 compile_log_sources: std.AutoArrayHashMapUnmanaged(AnalUnit, extern struct {
@@ -141,38 +141,38 @@ compile_log_sources: std.AutoArrayHashMapUnmanaged(AnalUnit, extern struct {
 }) = .{},
 /// Using a map here for consistency with the other fields here.
 /// The ErrorMsg memory is owned by the `File`, using Module's general purpose allocator.
-failed_files: std.AutoArrayHashMapUnmanaged(*File, ?*ErrorMsg) = .{},
+failed_files: std.AutoArrayHashMapUnmanaged(*File, ?*ErrorMsg) = .empty,
 /// The ErrorMsg memory is owned by the `EmbedFile`, using Module's general purpose allocator.
-failed_embed_files: std.AutoArrayHashMapUnmanaged(*EmbedFile, *ErrorMsg) = .{},
+failed_embed_files: std.AutoArrayHashMapUnmanaged(*EmbedFile, *ErrorMsg) = .empty,
 /// Key is index into `all_exports`.
-failed_exports: std.AutoArrayHashMapUnmanaged(u32, *ErrorMsg) = .{},
+failed_exports: std.AutoArrayHashMapUnmanaged(u32, *ErrorMsg) = .empty,
 /// If analysis failed due to a cimport error, the corresponding Clang errors
 /// are stored here.
-cimport_errors: std.AutoArrayHashMapUnmanaged(AnalUnit, std.zig.ErrorBundle) = .{},
+cimport_errors: std.AutoArrayHashMapUnmanaged(AnalUnit, std.zig.ErrorBundle) = .empty,
 
 /// Maximum amount of distinct error values, set by --error-limit
 error_limit: ErrorInt,
 
-/// Value is the number of PO or outdated Decls which this AnalUnit depends on.
-potentially_outdated: std.AutoArrayHashMapUnmanaged(AnalUnit, u32) = .{},
-/// Value is the number of PO or outdated Decls which this AnalUnit depends on.
+/// Value is the number of PO dependencies of this AnalUnit.
+/// This value will decrease as we perform semantic analysis to learn what is outdated.
+/// If any of these PO deps is outdated, this value will be moved to `outdated`.
+potentially_outdated: std.AutoArrayHashMapUnmanaged(AnalUnit, u32) = .empty,
+/// Value is the number of PO dependencies of this AnalUnit.
 /// Once this value drops to 0, the AnalUnit is a candidate for re-analysis.
-outdated: std.AutoArrayHashMapUnmanaged(AnalUnit, u32) = .{},
+outdated: std.AutoArrayHashMapUnmanaged(AnalUnit, u32) = .empty,
 /// This contains all `AnalUnit`s in `outdated` whose PO dependency count is 0.
 /// Such `AnalUnit`s are ready for immediate re-analysis.
 /// See `findOutdatedToAnalyze` for details.
-outdated_ready: std.AutoArrayHashMapUnmanaged(AnalUnit, void) = .{},
-/// This contains a set of struct types whose corresponding `Cau` may not be in
-/// `outdated`, but are the root types of files which have updated source and
-/// thus must be re-analyzed. If such a type is only in this set, the struct type
-/// index may be preserved (only the namespace might change). If its owned `Cau`
-/// is also outdated, the struct type index must be recreated.
-outdated_file_root: std.AutoArrayHashMapUnmanaged(InternPool.Index, void) = .{},
+outdated_ready: std.AutoArrayHashMapUnmanaged(AnalUnit, void) = .empty,
 /// This contains a list of AnalUnit whose analysis or codegen failed, but the
 /// failure was something like running out of disk space, and trying again may
 /// succeed. On the next update, we will flush this list, marking all members of
 /// it as outdated.
-retryable_failures: std.ArrayListUnmanaged(AnalUnit) = .{},
+retryable_failures: std.ArrayListUnmanaged(AnalUnit) = .empty,
+
+/// These are the modules which we initially queue for analysis in `Compilation.update`.
+/// `resolveReferences` will use these as the root of its reachability traversal.
+analysis_roots: std.BoundedArray(*Package.Module, 3) = .{},
 
 stage1_flags: packed struct {
     have_winmain: bool = false,
@@ -184,26 +184,38 @@ stage1_flags: packed struct {
     reserved: u2 = 0,
 } = .{},
 
-compile_log_text: std.ArrayListUnmanaged(u8) = .{},
+compile_log_text: std.ArrayListUnmanaged(u8) = .empty,
 
-test_functions: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, void) = .{},
+test_functions: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, void) = .empty,
 
-global_assembly: std.AutoArrayHashMapUnmanaged(InternPool.Cau.Index, []u8) = .{},
+global_assembly: std.AutoArrayHashMapUnmanaged(InternPool.Cau.Index, []u8) = .empty,
 
 /// Key is the `AnalUnit` *performing* the reference. This representation allows
 /// incremental updates to quickly delete references caused by a specific `AnalUnit`.
-/// Value is index into `all_reference` of the first reference triggered by the unit.
+/// Value is index into `all_references` of the first reference triggered by the unit.
 /// The `next` field on the `Reference` forms a linked list of all references
 /// triggered by the key `AnalUnit`.
-reference_table: std.AutoArrayHashMapUnmanaged(AnalUnit, u32) = .{},
-all_references: std.ArrayListUnmanaged(Reference) = .{},
+reference_table: std.AutoArrayHashMapUnmanaged(AnalUnit, u32) = .empty,
+all_references: std.ArrayListUnmanaged(Reference) = .empty,
 /// Freelist of indices in `all_references`.
-free_references: std.ArrayListUnmanaged(u32) = .{},
+free_references: std.ArrayListUnmanaged(u32) = .empty,
+
+/// Key is the `AnalUnit` *performing* the reference. This representation allows
+/// incremental updates to quickly delete references caused by a specific `AnalUnit`.
+/// Value is index into `all_type_reference` of the first reference triggered by the unit.
+/// The `next` field on the `TypeReference` forms a linked list of all type references
+/// triggered by the key `AnalUnit`.
+type_reference_table: std.AutoArrayHashMapUnmanaged(AnalUnit, u32) = .empty,
+all_type_references: std.ArrayListUnmanaged(TypeReference) = .empty,
+/// Freelist of indices in `all_type_references`.
+free_type_references: std.ArrayListUnmanaged(u32) = .empty,
 
 panic_messages: [PanicId.len]InternPool.Nav.Index.Optional = .{.none} ** PanicId.len,
 /// The panic function body.
 panic_func_index: InternPool.Index = .none,
 null_stack_trace: InternPool.Index = .none,
+
+generation: u32 = 0,
 
 pub const PerThread = @import("Zcu/PerThread.zig");
 
@@ -234,7 +246,7 @@ pub const PanicId = enum {
     memcpy_alias,
     noreturn_returned,
 
-    pub const len = @typeInfo(PanicId).Enum.fields.len;
+    pub const len = @typeInfo(PanicId).@"enum".fields.len;
 };
 
 pub const GlobalErrorSet = std.AutoArrayHashMapUnmanaged(InternPool.NullTerminatedString, void);
@@ -308,23 +320,34 @@ pub const Reference = struct {
     src: LazySrcLoc,
 };
 
+pub const TypeReference = struct {
+    /// The container type which was referenced.
+    referenced: InternPool.Index,
+    /// Index into `all_type_references` of the next `TypeReference` triggered by the same `AnalUnit`.
+    /// `std.math.maxInt(u32)` is the sentinel.
+    next: u32,
+    /// The source location of the reference.
+    src: LazySrcLoc,
+};
+
 /// The container that structs, enums, unions, and opaques have.
 pub const Namespace = struct {
     parent: OptionalIndex,
     file_scope: File.Index,
+    generation: u32,
     /// Will be a struct, enum, union, or opaque.
     owner_type: InternPool.Index,
     /// Members of the namespace which are marked `pub`.
-    pub_decls: std.ArrayHashMapUnmanaged(InternPool.Nav.Index, void, NavNameContext, true) = .{},
+    pub_decls: std.ArrayHashMapUnmanaged(InternPool.Nav.Index, void, NavNameContext, true) = .empty,
     /// Members of the namespace which are *not* marked `pub`.
-    priv_decls: std.ArrayHashMapUnmanaged(InternPool.Nav.Index, void, NavNameContext, true) = .{},
+    priv_decls: std.ArrayHashMapUnmanaged(InternPool.Nav.Index, void, NavNameContext, true) = .empty,
     /// All `usingnamespace` declarations in this namespace which are marked `pub`.
-    pub_usingnamespace: std.ArrayListUnmanaged(InternPool.Nav.Index) = .{},
+    pub_usingnamespace: std.ArrayListUnmanaged(InternPool.Nav.Index) = .empty,
     /// All `usingnamespace` declarations in this namespace which are *not* marked `pub`.
-    priv_usingnamespace: std.ArrayListUnmanaged(InternPool.Nav.Index) = .{},
+    priv_usingnamespace: std.ArrayListUnmanaged(InternPool.Nav.Index) = .empty,
     /// All `comptime` and `test` declarations in this namespace. We store these purely so that
     /// incremental compilation can re-use the existing `Cau`s when a namespace changes.
-    other_decls: std.ArrayListUnmanaged(InternPool.Cau.Index) = .{},
+    other_decls: std.ArrayListUnmanaged(InternPool.Cau.Index) = .empty,
 
     pub const Index = InternPool.NamespaceIndex;
     pub const OptionalIndex = InternPool.OptionalNamespaceIndex;
@@ -428,7 +451,7 @@ pub const File = struct {
     /// Whether this file is a part of multiple packages. This is an error condition which will be reported after AstGen.
     multi_pkg: bool = false,
     /// List of references to this file, used for multi-package errors.
-    references: std.ArrayListUnmanaged(File.Reference) = .{},
+    references: std.ArrayListUnmanaged(File.Reference) = .empty,
 
     /// The most recent successful ZIR for this file, with no errors.
     /// This is only populated when a previously successful ZIR
@@ -2022,10 +2045,11 @@ pub const LazySrcLoc = struct {
         .offset = .unneeded,
     };
 
-    pub fn resolveBaseNode(base_node_inst: InternPool.TrackedInst.Index, zcu: *Zcu) struct { *File, Ast.Node.Index } {
+    /// Returns `null` if the ZIR instruction has been lost across incremental updates.
+    pub fn resolveBaseNode(base_node_inst: InternPool.TrackedInst.Index, zcu: *Zcu) ?struct { *File, Ast.Node.Index } {
         const ip = &zcu.intern_pool;
         const file_index, const zir_inst = inst: {
-            const info = base_node_inst.resolveFull(ip);
+            const info = base_node_inst.resolveFull(ip) orelse return null;
             break :inst .{ info.file, info.inst };
         };
         const file = zcu.fileByIndex(file_index);
@@ -2051,7 +2075,15 @@ pub const LazySrcLoc = struct {
     /// Resolve the file and AST node of `base_node_inst` to get a resolved `SrcLoc`.
     /// The resulting `SrcLoc` should only be used ephemerally, as it is not correct across incremental updates.
     pub fn upgrade(lazy: LazySrcLoc, zcu: *Zcu) SrcLoc {
-        const file, const base_node = resolveBaseNode(lazy.base_node_inst, zcu);
+        return lazy.upgradeOrLost(zcu).?;
+    }
+
+    /// Like `upgrade`, but returns `null` if the source location has been lost across incremental updates.
+    pub fn upgradeOrLost(lazy: LazySrcLoc, zcu: *Zcu) ?SrcLoc {
+        const file, const base_node: Ast.Node.Index = if (lazy.offset == .entire_file) .{
+            zcu.fileByIndex(lazy.base_node_inst.resolveFile(&zcu.intern_pool)),
+            0,
+        } else resolveBaseNode(lazy.base_node_inst, zcu) orelse return null;
         return .{
             .file_scope = file,
             .base_node = base_node,
@@ -2077,9 +2109,9 @@ pub const CompileError = error{
     ComptimeBreak,
 };
 
-pub fn init(mod: *Zcu, thread_count: usize) !void {
-    const gpa = mod.gpa;
-    try mod.intern_pool.init(gpa, thread_count);
+pub fn init(zcu: *Zcu, thread_count: usize) !void {
+    const gpa = zcu.gpa;
+    try zcu.intern_pool.init(gpa, thread_count);
 }
 
 pub fn deinit(zcu: *Zcu) void {
@@ -2148,7 +2180,6 @@ pub fn deinit(zcu: *Zcu) void {
     zcu.potentially_outdated.deinit(gpa);
     zcu.outdated.deinit(gpa);
     zcu.outdated_ready.deinit(gpa);
-    zcu.outdated_file_root.deinit(gpa);
     zcu.retryable_failures.deinit(gpa);
 
     zcu.test_functions.deinit(gpa);
@@ -2162,6 +2193,10 @@ pub fn deinit(zcu: *Zcu) void {
     zcu.all_references.deinit(gpa);
     zcu.free_references.deinit(gpa);
 
+    zcu.type_reference_table.deinit(gpa);
+    zcu.all_type_references.deinit(gpa);
+    zcu.free_type_references.deinit(gpa);
+
     zcu.intern_pool.deinit(gpa);
 }
 
@@ -2169,8 +2204,8 @@ pub fn namespacePtr(zcu: *Zcu, index: Namespace.Index) *Namespace {
     return zcu.intern_pool.namespacePtr(index);
 }
 
-pub fn namespacePtrUnwrap(mod: *Zcu, index: Namespace.OptionalIndex) ?*Namespace {
-    return mod.namespacePtr(index.unwrap() orelse return null);
+pub fn namespacePtrUnwrap(zcu: *Zcu, index: Namespace.OptionalIndex) ?*Namespace {
+    return zcu.namespacePtr(index.unwrap() orelse return null);
 }
 
 // TODO https://github.com/ziglang/zig/issues/8643
@@ -2255,54 +2290,88 @@ pub fn loadZirCacheBody(gpa: Allocator, header: Zir.Header, cache_file: std.fs.F
     return zir;
 }
 
-pub fn markDependeeOutdated(zcu: *Zcu, dependee: InternPool.Dependee) !void {
-    log.debug("outdated dependee: {}", .{dependee});
+pub fn markDependeeOutdated(
+    zcu: *Zcu,
+    /// When we are diffing ZIR and marking things as outdated, we won't yet have marked the dependencies as PO.
+    /// However, when we discover during analysis that something was outdated, the `Dependee` was already
+    /// marked as PO, so we need to decrement the PO dep count for each depender.
+    marked_po: enum { not_marked_po, marked_po },
+    dependee: InternPool.Dependee,
+) !void {
+    log.debug("outdated dependee: {}", .{zcu.fmtDependee(dependee)});
     var it = zcu.intern_pool.dependencyIterator(dependee);
     while (it.next()) |depender| {
-        if (zcu.outdated.contains(depender)) {
-            // We do not need to increment the PO dep count, as if the outdated
-            // dependee is a Decl, we had already marked this as PO.
+        if (zcu.outdated.getPtr(depender)) |po_dep_count| {
+            switch (marked_po) {
+                .not_marked_po => {},
+                .marked_po => {
+                    po_dep_count.* -= 1;
+                    log.debug("outdated {} => already outdated {} po_deps={}", .{ zcu.fmtDependee(dependee), zcu.fmtAnalUnit(depender), po_dep_count.* });
+                    if (po_dep_count.* == 0) {
+                        log.debug("outdated ready: {}", .{zcu.fmtAnalUnit(depender)});
+                        try zcu.outdated_ready.put(zcu.gpa, depender, {});
+                    }
+                },
+            }
             continue;
         }
         const opt_po_entry = zcu.potentially_outdated.fetchSwapRemove(depender);
+        const new_po_dep_count = switch (marked_po) {
+            .not_marked_po => if (opt_po_entry) |e| e.value else 0,
+            .marked_po => if (opt_po_entry) |e| e.value - 1 else {
+                // This `AnalUnit` has already been re-analyzed this update, and registered a dependency
+                // on this thing, but already has sufficiently up-to-date information. Nothing to do.
+                continue;
+            },
+        };
         try zcu.outdated.putNoClobber(
             zcu.gpa,
             depender,
-            // We do not need to increment this count for the same reason as above.
-            if (opt_po_entry) |e| e.value else 0,
+            new_po_dep_count,
         );
-        log.debug("outdated: {}", .{depender});
-        if (opt_po_entry == null) {
-            // This is a new entry with no PO dependencies.
+        log.debug("outdated {} => new outdated {} po_deps={}", .{ zcu.fmtDependee(dependee), zcu.fmtAnalUnit(depender), new_po_dep_count });
+        if (new_po_dep_count == 0) {
+            log.debug("outdated ready: {}", .{zcu.fmtAnalUnit(depender)});
             try zcu.outdated_ready.put(zcu.gpa, depender, {});
         }
         // If this is a Decl and was not previously PO, we must recursively
         // mark dependencies on its tyval as PO.
         if (opt_po_entry == null) {
+            assert(marked_po == .not_marked_po);
             try zcu.markTransitiveDependersPotentiallyOutdated(depender);
         }
     }
 }
 
 pub fn markPoDependeeUpToDate(zcu: *Zcu, dependee: InternPool.Dependee) !void {
+    log.debug("up-to-date dependee: {}", .{zcu.fmtDependee(dependee)});
     var it = zcu.intern_pool.dependencyIterator(dependee);
     while (it.next()) |depender| {
         if (zcu.outdated.getPtr(depender)) |po_dep_count| {
             // This depender is already outdated, but it now has one
             // less PO dependency!
             po_dep_count.* -= 1;
+            log.debug("up-to-date {} => {} po_deps={}", .{ zcu.fmtDependee(dependee), zcu.fmtAnalUnit(depender), po_dep_count.* });
             if (po_dep_count.* == 0) {
+                log.debug("outdated ready: {}", .{zcu.fmtAnalUnit(depender)});
                 try zcu.outdated_ready.put(zcu.gpa, depender, {});
             }
             continue;
         }
         // This depender is definitely at least PO, because this Decl was just analyzed
         // due to being outdated.
-        const ptr = zcu.potentially_outdated.getPtr(depender).?;
+        const ptr = zcu.potentially_outdated.getPtr(depender) orelse {
+            // This dependency has been registered during in-progress analysis, but the unit is
+            // not in `potentially_outdated` because analysis is in-progress. Nothing to do.
+            continue;
+        };
         if (ptr.* > 1) {
             ptr.* -= 1;
+            log.debug("up-to-date {} => {} po_deps={}", .{ zcu.fmtDependee(dependee), zcu.fmtAnalUnit(depender), ptr.* });
             continue;
         }
+
+        log.debug("up-to-date {} => {} po_deps=0 (up-to-date)", .{ zcu.fmtDependee(dependee), zcu.fmtAnalUnit(depender) });
 
         // This dependency is no longer PO, i.e. is known to be up-to-date.
         assert(zcu.potentially_outdated.swapRemove(depender));
@@ -2323,14 +2392,16 @@ pub fn markPoDependeeUpToDate(zcu: *Zcu, dependee: InternPool.Dependee) !void {
 /// in turn be PO, due to a dependency on the original AnalUnit's tyval or IES.
 fn markTransitiveDependersPotentiallyOutdated(zcu: *Zcu, maybe_outdated: AnalUnit) !void {
     const ip = &zcu.intern_pool;
-    var it = ip.dependencyIterator(switch (maybe_outdated.unwrap()) {
+    const dependee: InternPool.Dependee = switch (maybe_outdated.unwrap()) {
         .cau => |cau| switch (ip.getCau(cau).owner.unwrap()) {
             .nav => |nav| .{ .nav_val = nav }, // TODO: also `nav_ref` deps when introduced
-            .none, .type => return, // analysis of this `Cau` can't outdate any dependencies
+            .type => |ty| .{ .interned = ty },
+            .none => return, // analysis of this `Cau` can't outdate any dependencies
         },
         .func => |func_index| .{ .interned = func_index }, // IES
-    });
-
+    };
+    log.debug("potentially outdated dependee: {}", .{zcu.fmtDependee(dependee)});
+    var it = ip.dependencyIterator(dependee);
     while (it.next()) |po| {
         if (zcu.outdated.getPtr(po)) |po_dep_count| {
             // This dependency is already outdated, but it now has one more PO
@@ -2339,14 +2410,17 @@ fn markTransitiveDependersPotentiallyOutdated(zcu: *Zcu, maybe_outdated: AnalUni
                 _ = zcu.outdated_ready.swapRemove(po);
             }
             po_dep_count.* += 1;
+            log.debug("po {} => {} [outdated] po_deps={}", .{ zcu.fmtDependee(dependee), zcu.fmtAnalUnit(po), po_dep_count.* });
             continue;
         }
         if (zcu.potentially_outdated.getPtr(po)) |n| {
             // There is now one more PO dependency.
             n.* += 1;
+            log.debug("po {} => {} po_deps={}", .{ zcu.fmtDependee(dependee), zcu.fmtAnalUnit(po), n.* });
             continue;
         }
         try zcu.potentially_outdated.putNoClobber(zcu.gpa, po, 1);
+        log.debug("po {} => {} po_deps=1", .{ zcu.fmtDependee(dependee), zcu.fmtAnalUnit(po) });
         // This AnalUnit was not already PO, so we must recursively mark its dependers as also PO.
         try zcu.markTransitiveDependersPotentiallyOutdated(po);
     }
@@ -2355,9 +2429,11 @@ fn markTransitiveDependersPotentiallyOutdated(zcu: *Zcu, maybe_outdated: AnalUni
 pub fn findOutdatedToAnalyze(zcu: *Zcu) Allocator.Error!?AnalUnit {
     if (!zcu.comp.incremental) return null;
 
-    if (true) @panic("TODO: findOutdatedToAnalyze");
-
-    if (zcu.outdated.count() == 0 and zcu.potentially_outdated.count() == 0) {
+    if (zcu.outdated.count() == 0) {
+        // Any units in `potentially_outdated` must just be stuck in loops with one another: none of those
+        // units have had any outdated dependencies so far, and all of their remaining PO deps are triggered
+        // by other units in `potentially_outdated`. So, we can safety assume those units up-to-date.
+        zcu.potentially_outdated.clearRetainingCapacity();
         log.debug("findOutdatedToAnalyze: no outdated depender", .{});
         return null;
     }
@@ -2372,96 +2448,75 @@ pub fn findOutdatedToAnalyze(zcu: *Zcu) Allocator.Error!?AnalUnit {
     // In this case, we must defer to more complex logic below.
 
     if (zcu.outdated_ready.count() > 0) {
-        log.debug("findOutdatedToAnalyze: trivial '{s} {d}'", .{
-            @tagName(zcu.outdated_ready.keys()[0].unwrap()),
-            switch (zcu.outdated_ready.keys()[0].unwrap()) {
-                inline else => |x| @intFromEnum(x),
-            },
-        });
-        return zcu.outdated_ready.keys()[0];
+        const unit = zcu.outdated_ready.keys()[0];
+        log.debug("findOutdatedToAnalyze: trivial {}", .{zcu.fmtAnalUnit(unit)});
+        return unit;
     }
 
-    // Next, we will see if there is any outdated file root which was not in
-    // `outdated`. This set will be small (number of files changed in this
-    // update), so it's alright for us to just iterate here.
-    for (zcu.outdated_file_root.keys()) |file_decl| {
-        const decl_depender = AnalUnit.wrap(.{ .decl = file_decl });
-        if (zcu.outdated.contains(decl_depender)) {
-            // Since we didn't hit this in the first loop, this Decl must have
-            // pending dependencies, so is ineligible.
-            continue;
-        }
-        if (zcu.potentially_outdated.contains(decl_depender)) {
-            // This Decl's struct may or may not need to be recreated depending
-            // on whether it is outdated. If we analyzed it now, we would have
-            // to assume it was outdated and recreate it!
-            continue;
-        }
-        log.debug("findOutdatedToAnalyze: outdated file root decl '{d}'", .{file_decl});
-        return decl_depender;
-    }
+    // There is no single AnalUnit which is ready for re-analysis. Instead, we must assume that some
+    // Cau with PO dependencies is outdated -- e.g. in the above example we arbitrarily pick one of
+    // A or B. We should select a Cau, since a Cau is definitely responsible for the loop in the
+    // dependency graph (since IES dependencies can't have loops). We should also, of course, not
+    // select a Cau owned by a `comptime` declaration, since you can't depend on those!
 
-    // There is no single AnalUnit which is ready for re-analysis. Instead, we
-    // must assume that some Decl with PO dependencies is outdated - e.g. in the
-    // above example we arbitrarily pick one of A or B. We should select a Decl,
-    // since a Decl is definitely responsible for the loop in the dependency
-    // graph (since you can't depend on a runtime function analysis!).
-
-    // The choice of this Decl could have a big impact on how much total
-    // analysis we perform, since if analysis concludes its tyval is unchanged,
-    // then other PO AnalUnit may be resolved as up-to-date. To hopefully avoid
-    // doing too much work, let's find a Decl which the most things depend on -
-    // the idea is that this will resolve a lot of loops (but this is only a
-    // heuristic).
+    // The choice of this Cau could have a big impact on how much total analysis we perform, since
+    // if analysis concludes any dependencies on its result are up-to-date, then other PO AnalUnit
+    // may be resolved as up-to-date. To hopefully avoid doing too much work, let's find a Decl
+    // which the most things depend on - the idea is that this will resolve a lot of loops (but this
+    // is only a heuristic).
 
     log.debug("findOutdatedToAnalyze: no trivial ready, using heuristic; {d} outdated, {d} PO", .{
         zcu.outdated.count(),
         zcu.potentially_outdated.count(),
     });
 
-    const Decl = {};
+    const ip = &zcu.intern_pool;
 
-    var chosen_decl_idx: ?Decl.Index = null;
-    var chosen_decl_dependers: u32 = undefined;
+    var chosen_cau: ?InternPool.Cau.Index = null;
+    var chosen_cau_dependers: u32 = undefined;
 
-    for (zcu.outdated.keys()) |depender| {
-        const decl_index = switch (depender.unwrap()) {
-            .decl => |d| d,
-            .func => continue,
-        };
+    inline for (.{ zcu.outdated.keys(), zcu.potentially_outdated.keys() }) |outdated_units| {
+        for (outdated_units) |unit| {
+            const cau = switch (unit.unwrap()) {
+                .cau => |cau| cau,
+                .func => continue, // a `func` definitely can't be causing the loop so it is a bad choice
+            };
+            const cau_owner = ip.getCau(cau).owner;
 
-        var n: u32 = 0;
-        var it = zcu.intern_pool.dependencyIterator(.{ .decl_val = decl_index });
-        while (it.next()) |_| n += 1;
+            var n: u32 = 0;
+            var it = ip.dependencyIterator(switch (cau_owner.unwrap()) {
+                .none => continue, // there can be no dependencies on this `Cau` so it is a terrible choice
+                .type => |ty| .{ .interned = ty },
+                .nav => |nav| .{ .nav_val = nav },
+            });
+            while (it.next()) |_| n += 1;
 
-        if (chosen_decl_idx == null or n > chosen_decl_dependers) {
-            chosen_decl_idx = decl_index;
-            chosen_decl_dependers = n;
+            if (chosen_cau == null or n > chosen_cau_dependers) {
+                chosen_cau = cau;
+                chosen_cau_dependers = n;
+            }
         }
     }
 
-    for (zcu.potentially_outdated.keys()) |depender| {
-        const decl_index = switch (depender.unwrap()) {
-            .decl => |d| d,
-            .func => continue,
-        };
-
-        var n: u32 = 0;
-        var it = zcu.intern_pool.dependencyIterator(.{ .decl_val = decl_index });
-        while (it.next()) |_| n += 1;
-
-        if (chosen_decl_idx == null or n > chosen_decl_dependers) {
-            chosen_decl_idx = decl_index;
-            chosen_decl_dependers = n;
+    if (chosen_cau == null) {
+        for (zcu.outdated.keys(), zcu.outdated.values()) |o, opod| {
+            const func = o.unwrap().func;
+            const nav = zcu.funcInfo(func).owner_nav;
+            std.io.getStdErr().writer().print("outdated: func {}, nav {}, name '{}', [p]o deps {}\n", .{ func, nav, ip.getNav(nav).fqn.fmt(ip), opod }) catch {};
+        }
+        for (zcu.potentially_outdated.keys(), zcu.potentially_outdated.values()) |o, opod| {
+            const func = o.unwrap().func;
+            const nav = zcu.funcInfo(func).owner_nav;
+            std.io.getStdErr().writer().print("po: func {}, nav {}, name '{}', [p]o deps {}\n", .{ func, nav, ip.getNav(nav).fqn.fmt(ip), opod }) catch {};
         }
     }
 
-    log.debug("findOutdatedToAnalyze: heuristic returned Decl {d} ({d} dependers)", .{
-        chosen_decl_idx.?,
-        chosen_decl_dependers,
+    log.debug("findOutdatedToAnalyze: heuristic returned '{}' ({d} dependers)", .{
+        zcu.fmtAnalUnit(AnalUnit.wrap(.{ .cau = chosen_cau.? })),
+        chosen_cau_dependers,
     });
 
-    return AnalUnit.wrap(.{ .decl = chosen_decl_idx.? });
+    return AnalUnit.wrap(.{ .cau = chosen_cau.? });
 }
 
 /// During an incremental update, before semantic analysis, call this to flush all values from
@@ -2496,39 +2551,50 @@ pub fn mapOldZirToNew(
         old_inst: Zir.Inst.Index,
         new_inst: Zir.Inst.Index,
     };
-    var match_stack: std.ArrayListUnmanaged(MatchedZirDecl) = .{};
+    var match_stack: std.ArrayListUnmanaged(MatchedZirDecl) = .empty;
     defer match_stack.deinit(gpa);
 
-    // Main struct inst is always matched
-    try match_stack.append(gpa, .{
-        .old_inst = .main_struct_inst,
-        .new_inst = .main_struct_inst,
-    });
-
     // Used as temporary buffers for namespace declaration instructions
-    var old_decls = std.ArrayList(Zir.Inst.Index).init(gpa);
-    defer old_decls.deinit();
-    var new_decls = std.ArrayList(Zir.Inst.Index).init(gpa);
-    defer new_decls.deinit();
+    var old_decls: std.ArrayListUnmanaged(Zir.Inst.Index) = .empty;
+    defer old_decls.deinit(gpa);
+    var new_decls: std.ArrayListUnmanaged(Zir.Inst.Index) = .empty;
+    defer new_decls.deinit(gpa);
+
+    // Map the main struct inst (and anything in its fields)
+    {
+        try old_zir.findDeclsRoot(gpa, &old_decls);
+        try new_zir.findDeclsRoot(gpa, &new_decls);
+
+        assert(old_decls.items[0] == .main_struct_inst);
+        assert(new_decls.items[0] == .main_struct_inst);
+
+        // We don't have any smart way of matching up these type declarations, so we always
+        // correlate them based on source order.
+        const n = @min(old_decls.items.len, new_decls.items.len);
+        try match_stack.ensureUnusedCapacity(gpa, n);
+        for (old_decls.items[0..n], new_decls.items[0..n]) |old_inst, new_inst| {
+            match_stack.appendAssumeCapacity(.{ .old_inst = old_inst, .new_inst = new_inst });
+        }
+    }
 
     while (match_stack.popOrNull()) |match_item| {
         // Match the namespace declaration itself
         try inst_map.put(gpa, match_item.old_inst, match_item.new_inst);
 
         // Maps decl name to `declaration` instruction.
-        var named_decls: std.StringHashMapUnmanaged(Zir.Inst.Index) = .{};
+        var named_decls: std.StringHashMapUnmanaged(Zir.Inst.Index) = .empty;
         defer named_decls.deinit(gpa);
         // Maps test name to `declaration` instruction.
-        var named_tests: std.StringHashMapUnmanaged(Zir.Inst.Index) = .{};
+        var named_tests: std.StringHashMapUnmanaged(Zir.Inst.Index) = .empty;
         defer named_tests.deinit(gpa);
         // All unnamed tests, in order, for a best-effort match.
-        var unnamed_tests: std.ArrayListUnmanaged(Zir.Inst.Index) = .{};
+        var unnamed_tests: std.ArrayListUnmanaged(Zir.Inst.Index) = .empty;
         defer unnamed_tests.deinit(gpa);
         // All comptime declarations, in order, for a best-effort match.
-        var comptime_decls: std.ArrayListUnmanaged(Zir.Inst.Index) = .{};
+        var comptime_decls: std.ArrayListUnmanaged(Zir.Inst.Index) = .empty;
         defer comptime_decls.deinit(gpa);
         // All usingnamespace declarations, in order, for a best-effort match.
-        var usingnamespace_decls: std.ArrayListUnmanaged(Zir.Inst.Index) = .{};
+        var usingnamespace_decls: std.ArrayListUnmanaged(Zir.Inst.Index) = .empty;
         defer usingnamespace_decls.deinit(gpa);
 
         {
@@ -2583,7 +2649,7 @@ pub fn mapOldZirToNew(
                     break :inst unnamed_tests.items[unnamed_test_idx];
                 },
                 _ => inst: {
-                    const name_nts = new_decl.name.toString(old_zir).?;
+                    const name_nts = new_decl.name.toString(new_zir).?;
                     const name = new_zir.nullTerminatedString(name_nts);
                     if (new_decl.name.isNamedTest(new_zir)) {
                         break :inst named_tests.get(name) orelse continue;
@@ -2596,11 +2662,11 @@ pub fn mapOldZirToNew(
             // Match the `declaration` instruction
             try inst_map.put(gpa, old_decl_inst, new_decl_inst);
 
-            // Find namespace declarations within this declaration
-            try old_zir.findDecls(&old_decls, old_decl_inst);
-            try new_zir.findDecls(&new_decls, new_decl_inst);
+            // Find container type declarations within this declaration
+            try old_zir.findDecls(gpa, &old_decls, old_decl_inst);
+            try new_zir.findDecls(gpa, &new_decls, new_decl_inst);
 
-            // We don't have any smart way of matching up these namespace declarations, so we always
+            // We don't have any smart way of matching up these type declarations, so we always
             // correlate them based on source order.
             const n = @min(old_decls.items.len, new_decls.items.len);
             try match_stack.ensureUnusedCapacity(gpa, n);
@@ -2616,7 +2682,7 @@ pub fn mapOldZirToNew(
 ///
 /// The caller is responsible for ensuring the function decl itself is already
 /// analyzed, and for ensuring it can exist at runtime (see
-/// `sema.fnHasRuntimeBits`). This function does *not* guarantee that the body
+/// `Type.fnHasRuntimeBitsSema`). This function does *not* guarantee that the body
 /// will be analyzed when it returns: for that, see `ensureFuncBodyAnalyzed`.
 pub fn ensureFuncBodyAnalysisQueued(zcu: *Zcu, func_index: InternPool.Index) !void {
     const ip = &zcu.intern_pool;
@@ -2699,16 +2765,32 @@ pub fn deleteUnitExports(zcu: *Zcu, anal_unit: AnalUnit) void {
 pub fn deleteUnitReferences(zcu: *Zcu, anal_unit: AnalUnit) void {
     const gpa = zcu.gpa;
 
-    const kv = zcu.reference_table.fetchSwapRemove(anal_unit) orelse return;
-    var idx = kv.value;
+    unit_refs: {
+        const kv = zcu.reference_table.fetchSwapRemove(anal_unit) orelse break :unit_refs;
+        var idx = kv.value;
 
-    while (idx != std.math.maxInt(u32)) {
-        zcu.free_references.append(gpa, idx) catch {
-            // This space will be reused eventually, so we need not propagate this error.
-            // Just leak it for now, and let GC reclaim it later on.
-            return;
-        };
-        idx = zcu.all_references.items[idx].next;
+        while (idx != std.math.maxInt(u32)) {
+            zcu.free_references.append(gpa, idx) catch {
+                // This space will be reused eventually, so we need not propagate this error.
+                // Just leak it for now, and let GC reclaim it later on.
+                break :unit_refs;
+            };
+            idx = zcu.all_references.items[idx].next;
+        }
+    }
+
+    type_refs: {
+        const kv = zcu.type_reference_table.fetchSwapRemove(anal_unit) orelse break :type_refs;
+        var idx = kv.value;
+
+        while (idx != std.math.maxInt(u32)) {
+            zcu.free_type_references.append(gpa, idx) catch {
+                // This space will be reused eventually, so we need not propagate this error.
+                // Just leak it for now, and let GC reclaim it later on.
+                break :type_refs;
+            };
+            idx = zcu.all_type_references.items[idx].next;
+        }
     }
 }
 
@@ -2735,22 +2817,45 @@ pub fn addUnitReference(zcu: *Zcu, src_unit: AnalUnit, referenced_unit: AnalUnit
     gop.value_ptr.* = @intCast(ref_idx);
 }
 
-pub fn errorSetBits(mod: *Zcu) u16 {
-    if (mod.error_limit == 0) return 0;
-    return std.math.log2_int_ceil(ErrorInt, mod.error_limit + 1); // +1 for no error
+pub fn addTypeReference(zcu: *Zcu, src_unit: AnalUnit, referenced_type: InternPool.Index, ref_src: LazySrcLoc) Allocator.Error!void {
+    const gpa = zcu.gpa;
+
+    try zcu.type_reference_table.ensureUnusedCapacity(gpa, 1);
+
+    const ref_idx = zcu.free_type_references.popOrNull() orelse idx: {
+        _ = try zcu.all_type_references.addOne(gpa);
+        break :idx zcu.all_type_references.items.len - 1;
+    };
+
+    errdefer comptime unreachable;
+
+    const gop = zcu.type_reference_table.getOrPutAssumeCapacity(src_unit);
+
+    zcu.all_type_references.items[ref_idx] = .{
+        .referenced = referenced_type,
+        .next = if (gop.found_existing) gop.value_ptr.* else std.math.maxInt(u32),
+        .src = ref_src,
+    };
+
+    gop.value_ptr.* = @intCast(ref_idx);
+}
+
+pub fn errorSetBits(zcu: *const Zcu) u16 {
+    if (zcu.error_limit == 0) return 0;
+    return @as(u16, std.math.log2_int(ErrorInt, zcu.error_limit)) + 1;
 }
 
 pub fn errNote(
-    mod: *Zcu,
+    zcu: *Zcu,
     src_loc: LazySrcLoc,
     parent: *ErrorMsg,
     comptime format: []const u8,
     args: anytype,
 ) error{OutOfMemory}!void {
-    const msg = try std.fmt.allocPrint(mod.gpa, format, args);
-    errdefer mod.gpa.free(msg);
+    const msg = try std.fmt.allocPrint(zcu.gpa, format, args);
+    errdefer zcu.gpa.free(msg);
 
-    parent.notes = try mod.gpa.realloc(parent.notes, parent.notes.len + 1);
+    parent.notes = try zcu.gpa.realloc(parent.notes, parent.notes.len + 1);
     parent.notes[parent.notes.len - 1] = .{
         .src_loc = src_loc,
         .msg = msg,
@@ -2771,14 +2876,14 @@ pub fn optimizeMode(zcu: *const Zcu) std.builtin.OptimizeMode {
     return zcu.root_mod.optimize_mode;
 }
 
-fn lockAndClearFileCompileError(mod: *Zcu, file: *File) void {
+fn lockAndClearFileCompileError(zcu: *Zcu, file: *File) void {
     switch (file.status) {
         .success_zir, .retryable_failure => {},
         .never_loaded, .parse_failure, .astgen_failure => {
-            mod.comp.mutex.lock();
-            defer mod.comp.mutex.unlock();
-            if (mod.failed_files.fetchSwapRemove(file)) |kv| {
-                if (kv.value) |msg| msg.destroy(mod.gpa); // Delete previous error message.
+            zcu.comp.mutex.lock();
+            defer zcu.comp.mutex.unlock();
+            if (zcu.failed_files.fetchSwapRemove(file)) |kv| {
+                if (kv.value) |msg| msg.destroy(zcu.gpa); // Delete previous error message.
             }
         },
     }
@@ -2818,10 +2923,23 @@ pub fn addGlobalAssembly(zcu: *Zcu, cau: InternPool.Cau.Index, source: []const u
 }
 
 pub const Feature = enum {
+    /// When this feature is enabled, Sema will emit calls to `std.builtin.panic`
+    /// for things like safety checks and unreachables. Otherwise traps will be emitted.
     panic_fn,
+    /// When this feature is enabled, Sema will emit calls to `std.builtin.panicUnwrapError`.
+    /// This error message requires more advanced formatting, hence it being seperate from `panic_fn`.
+    /// Otherwise traps will be emitted.
     panic_unwrap_error,
+    /// When this feature is enabled, Sema will emit calls to the more complex panic functions
+    /// that use formatting to add detail to error messages. Similar to `panic_unwrap_error`.
+    /// Otherwise traps will be emitted.
     safety_check_formatted,
+    /// When this feature is enabled, Sema will insert tracer functions for gathering a stack
+    /// trace for error returns.
     error_return_trace,
+    /// When this feature is enabled, Sema will emit the `is_named_enum_value` AIR instructions
+    /// and use it to check for corrupt switches. Backends currently need to implement their own
+    /// logic to determine whether an enum value is in the set of named values.
     is_named_enum_value,
     error_set_has_value,
     field_reordering,
@@ -2860,11 +2978,11 @@ pub const AtomicPtrAlignmentDiagnostics = struct {
 // TODO this function does not take into account CPU features, which can affect
 // this value. Audit this!
 pub fn atomicPtrAlignment(
-    mod: *Zcu,
+    zcu: *Zcu,
     ty: Type,
     diags: *AtomicPtrAlignmentDiagnostics,
 ) AtomicPtrAlignmentError!Alignment {
-    const target = mod.getTarget();
+    const target = zcu.getTarget();
     const max_atomic_bits: u16 = switch (target.cpu.arch) {
         .avr,
         .msp430,
@@ -2934,8 +3052,8 @@ pub fn atomicPtrAlignment(
         }
         return .none;
     }
-    if (ty.isAbiInt(mod)) {
-        const bit_count = ty.intInfo(mod).bits;
+    if (ty.isAbiInt(zcu)) {
+        const bit_count = ty.intInfo(zcu).bits;
         if (bit_count > max_atomic_bits) {
             diags.* = .{
                 .bits = bit_count,
@@ -2945,7 +3063,7 @@ pub fn atomicPtrAlignment(
         }
         return .none;
     }
-    if (ty.isPtrAtRuntime(mod)) return .none;
+    if (ty.isPtrAtRuntime(zcu)) return .none;
     return error.BadType;
 }
 
@@ -2953,45 +3071,45 @@ pub fn atomicPtrAlignment(
 /// * `@TypeOf(.{})`
 /// * A struct which has no fields (`struct {}`).
 /// * Not a struct.
-pub fn typeToStruct(mod: *Zcu, ty: Type) ?InternPool.LoadedStructType {
+pub fn typeToStruct(zcu: *Zcu, ty: Type) ?InternPool.LoadedStructType {
     if (ty.ip_index == .none) return null;
-    const ip = &mod.intern_pool;
+    const ip = &zcu.intern_pool;
     return switch (ip.indexToKey(ty.ip_index)) {
         .struct_type => ip.loadStructType(ty.ip_index),
         else => null,
     };
 }
 
-pub fn typeToPackedStruct(mod: *Zcu, ty: Type) ?InternPool.LoadedStructType {
-    const s = mod.typeToStruct(ty) orelse return null;
+pub fn typeToPackedStruct(zcu: *Zcu, ty: Type) ?InternPool.LoadedStructType {
+    const s = zcu.typeToStruct(ty) orelse return null;
     if (s.layout != .@"packed") return null;
     return s;
 }
 
-pub fn typeToUnion(mod: *Zcu, ty: Type) ?InternPool.LoadedUnionType {
+pub fn typeToUnion(zcu: *const Zcu, ty: Type) ?InternPool.LoadedUnionType {
     if (ty.ip_index == .none) return null;
-    const ip = &mod.intern_pool;
+    const ip = &zcu.intern_pool;
     return switch (ip.indexToKey(ty.ip_index)) {
         .union_type => ip.loadUnionType(ty.ip_index),
         else => null,
     };
 }
 
-pub fn typeToFunc(mod: *Zcu, ty: Type) ?InternPool.Key.FuncType {
+pub fn typeToFunc(zcu: *const Zcu, ty: Type) ?InternPool.Key.FuncType {
     if (ty.ip_index == .none) return null;
-    return mod.intern_pool.indexToFuncType(ty.toIntern());
+    return zcu.intern_pool.indexToFuncType(ty.toIntern());
 }
 
 pub fn iesFuncIndex(zcu: *const Zcu, ies_index: InternPool.Index) InternPool.Index {
     return zcu.intern_pool.iesFuncIndex(ies_index);
 }
 
-pub fn funcInfo(mod: *Zcu, func_index: InternPool.Index) InternPool.Key.Func {
-    return mod.intern_pool.indexToKey(func_index).func;
+pub fn funcInfo(zcu: *const Zcu, func_index: InternPool.Index) InternPool.Key.Func {
+    return zcu.intern_pool.indexToKey(func_index).func;
 }
 
-pub fn toEnum(mod: *Zcu, comptime E: type, val: Value) E {
-    return mod.intern_pool.toEnum(E, val.toIntern());
+pub fn toEnum(zcu: *const Zcu, comptime E: type, val: Value) E {
+    return zcu.intern_pool.toEnum(E, val.toIntern());
 }
 
 pub const UnionLayout = struct {
@@ -3005,11 +3123,19 @@ pub const UnionLayout = struct {
     tag_align: Alignment,
     tag_size: u64,
     padding: u32,
+
+    pub fn tagOffset(layout: UnionLayout) u64 {
+        return if (layout.tag_align.compare(.lt, layout.payload_align)) layout.payload_size else 0;
+    }
+
+    pub fn payloadOffset(layout: UnionLayout) u64 {
+        return if (layout.tag_align.compare(.lt, layout.payload_align)) 0 else layout.tag_size;
+    }
 };
 
 /// Returns the index of the active field, given the current tag value
-pub fn unionTagFieldIndex(mod: *Zcu, loaded_union: InternPool.LoadedUnionType, enum_tag: Value) ?u32 {
-    const ip = &mod.intern_pool;
+pub fn unionTagFieldIndex(zcu: *const Zcu, loaded_union: InternPool.LoadedUnionType, enum_tag: Value) ?u32 {
+    const ip = &zcu.intern_pool;
     if (enum_tag.toIntern() == .none) return null;
     assert(ip.typeOf(enum_tag.toIntern()) == loaded_union.enum_tag_ty);
     return loaded_union.loadTagType(ip).tagValueIndex(ip, enum_tag.toIntern());
@@ -3021,34 +3147,221 @@ pub const ResolvedReference = struct {
 };
 
 /// Returns a mapping from an `AnalUnit` to where it is referenced.
-/// TODO: in future, this must be adapted to traverse from roots of analysis. That way, we can
-/// use the returned map to determine which units have become unreferenced in an incremental update.
-pub fn resolveReferences(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ResolvedReference) {
+/// If the value is `null`, the `AnalUnit` is a root of analysis.
+/// If an `AnalUnit` is not in the returned map, it is unreferenced.
+pub fn resolveReferences(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?ResolvedReference) {
     const gpa = zcu.gpa;
+    const comp = zcu.comp;
+    const ip = &zcu.intern_pool;
 
-    var result: std.AutoHashMapUnmanaged(AnalUnit, ResolvedReference) = .{};
+    var result: std.AutoHashMapUnmanaged(AnalUnit, ?ResolvedReference) = .empty;
     errdefer result.deinit(gpa);
+
+    var checked_types: std.AutoArrayHashMapUnmanaged(InternPool.Index, void) = .empty;
+    var type_queue: std.AutoArrayHashMapUnmanaged(InternPool.Index, ?ResolvedReference) = .empty;
+    var unit_queue: std.AutoArrayHashMapUnmanaged(AnalUnit, ?ResolvedReference) = .empty;
+    defer {
+        checked_types.deinit(gpa);
+        type_queue.deinit(gpa);
+        unit_queue.deinit(gpa);
+    }
 
     // This is not a sufficient size, but a lower bound.
     try result.ensureTotalCapacity(gpa, @intCast(zcu.reference_table.count()));
 
-    for (zcu.reference_table.keys(), zcu.reference_table.values()) |referencer, first_ref_idx| {
-        assert(first_ref_idx != std.math.maxInt(u32));
-        var ref_idx = first_ref_idx;
-        while (ref_idx != std.math.maxInt(u32)) {
-            const ref = zcu.all_references.items[ref_idx];
-            const gop = try result.getOrPut(gpa, ref.referenced);
-            if (!gop.found_existing) {
-                gop.value_ptr.* = .{ .referencer = referencer, .src = ref.src };
+    try type_queue.ensureTotalCapacity(gpa, zcu.analysis_roots.len);
+    for (zcu.analysis_roots.slice()) |mod| {
+        // Logic ripped from `Zcu.PerThread.importPkg`.
+        // TODO: this is silly, `Module` should just store a reference to its root `File`.
+        const resolved_path = try std.fs.path.resolve(gpa, &.{
+            mod.root.root_dir.path orelse ".",
+            mod.root.sub_path,
+            mod.root_src_path,
+        });
+        defer gpa.free(resolved_path);
+        const file = zcu.import_table.get(resolved_path).?;
+        const root_ty = zcu.fileRootType(file);
+        if (root_ty == .none) continue;
+        type_queue.putAssumeCapacityNoClobber(root_ty, null);
+    }
+
+    while (true) {
+        if (type_queue.popOrNull()) |kv| {
+            const ty = kv.key;
+            const referencer = kv.value;
+            try checked_types.putNoClobber(gpa, ty, {});
+
+            log.debug("handle type '{}'", .{Type.fromInterned(ty).containerTypeName(ip).fmt(ip)});
+
+            // If this type has a `Cau` for resolution, it's automatically referenced.
+            const resolution_cau: InternPool.Cau.Index.Optional = switch (ip.indexToKey(ty)) {
+                .struct_type => ip.loadStructType(ty).cau,
+                .union_type => ip.loadUnionType(ty).cau.toOptional(),
+                .enum_type => ip.loadEnumType(ty).cau,
+                .opaque_type => .none,
+                else => unreachable,
+            };
+            if (resolution_cau.unwrap()) |cau| {
+                // this should only be referenced by the type
+                const unit = AnalUnit.wrap(.{ .cau = cau });
+                assert(!result.contains(unit));
+                try unit_queue.putNoClobber(gpa, unit, referencer);
             }
-            ref_idx = ref.next;
+
+            // If this is a union with a generated tag, its tag type is automatically referenced.
+            // We don't add this reference for non-generated tags, as those will already be referenced via the union's `Cau`, with a better source location.
+            if (zcu.typeToUnion(Type.fromInterned(ty))) |union_obj| {
+                const tag_ty = union_obj.enum_tag_ty;
+                if (tag_ty != .none) {
+                    if (ip.indexToKey(tag_ty).enum_type == .generated_tag) {
+                        if (!checked_types.contains(tag_ty)) {
+                            try type_queue.put(gpa, tag_ty, referencer);
+                        }
+                    }
+                }
+            }
+
+            // Queue any decls within this type which would be automatically analyzed.
+            // Keep in sync with analysis queueing logic in `Zcu.PerThread.ScanDeclIter.scanDecl`.
+            const ns = Type.fromInterned(ty).getNamespace(zcu).unwrap().?;
+            for (zcu.namespacePtr(ns).other_decls.items) |cau| {
+                // These are `comptime` and `test` declarations.
+                // `comptime` decls are always analyzed; `test` declarations are analyzed depending on the test filter.
+                const inst_info = ip.getCau(cau).zir_index.resolveFull(ip) orelse continue;
+                const file = zcu.fileByIndex(inst_info.file);
+                // If the file failed AstGen, the TrackedInst refers to the old ZIR.
+                const zir = if (file.status == .success_zir) file.zir else file.prev_zir.?.*;
+                const declaration = zir.getDeclaration(inst_info.inst)[0];
+                const want_analysis = switch (declaration.name) {
+                    .@"usingnamespace" => unreachable,
+                    .@"comptime" => true,
+                    else => a: {
+                        if (!comp.config.is_test) break :a false;
+                        if (file.mod != zcu.main_mod) break :a false;
+                        if (declaration.name.isNamedTest(zir) or declaration.name == .decltest) {
+                            const nav = ip.getCau(cau).owner.unwrap().nav;
+                            const fqn_slice = ip.getNav(nav).fqn.toSlice(ip);
+                            for (comp.test_filters) |test_filter| {
+                                if (std.mem.indexOf(u8, fqn_slice, test_filter) != null) break;
+                            } else break :a false;
+                        }
+                        break :a true;
+                    },
+                };
+                if (want_analysis) {
+                    const unit = AnalUnit.wrap(.{ .cau = cau });
+                    if (!result.contains(unit)) {
+                        log.debug("type '{}': ref cau %{}", .{
+                            Type.fromInterned(ty).containerTypeName(ip).fmt(ip),
+                            @intFromEnum(inst_info.inst),
+                        });
+                        try unit_queue.put(gpa, unit, referencer);
+                    }
+                }
+            }
+            for (zcu.namespacePtr(ns).pub_decls.keys()) |nav| {
+                // These are named declarations. They are analyzed only if marked `export`.
+                const cau = ip.getNav(nav).analysis_owner.unwrap().?;
+                const inst_info = ip.getCau(cau).zir_index.resolveFull(ip) orelse continue;
+                const file = zcu.fileByIndex(inst_info.file);
+                // If the file failed AstGen, the TrackedInst refers to the old ZIR.
+                const zir = if (file.status == .success_zir) file.zir else file.prev_zir.?.*;
+                const declaration = zir.getDeclaration(inst_info.inst)[0];
+                if (declaration.flags.is_export) {
+                    const unit = AnalUnit.wrap(.{ .cau = cau });
+                    if (!result.contains(unit)) {
+                        log.debug("type '{}': ref cau %{}", .{
+                            Type.fromInterned(ty).containerTypeName(ip).fmt(ip),
+                            @intFromEnum(inst_info.inst),
+                        });
+                        try unit_queue.put(gpa, unit, referencer);
+                    }
+                }
+            }
+            for (zcu.namespacePtr(ns).priv_decls.keys()) |nav| {
+                // These are named declarations. They are analyzed only if marked `export`.
+                const cau = ip.getNav(nav).analysis_owner.unwrap().?;
+                const inst_info = ip.getCau(cau).zir_index.resolveFull(ip) orelse continue;
+                const file = zcu.fileByIndex(inst_info.file);
+                // If the file failed AstGen, the TrackedInst refers to the old ZIR.
+                const zir = if (file.status == .success_zir) file.zir else file.prev_zir.?.*;
+                const declaration = zir.getDeclaration(inst_info.inst)[0];
+                if (declaration.flags.is_export) {
+                    const unit = AnalUnit.wrap(.{ .cau = cau });
+                    if (!result.contains(unit)) {
+                        log.debug("type '{}': ref cau %{}", .{
+                            Type.fromInterned(ty).containerTypeName(ip).fmt(ip),
+                            @intFromEnum(inst_info.inst),
+                        });
+                        try unit_queue.put(gpa, unit, referencer);
+                    }
+                }
+            }
+            // Incremental compilation does not support `usingnamespace`.
+            // These are only included to keep good reference traces in non-incremental updates.
+            for (zcu.namespacePtr(ns).pub_usingnamespace.items) |nav| {
+                const cau = ip.getNav(nav).analysis_owner.unwrap().?;
+                const unit = AnalUnit.wrap(.{ .cau = cau });
+                if (!result.contains(unit)) try unit_queue.put(gpa, unit, referencer);
+            }
+            for (zcu.namespacePtr(ns).priv_usingnamespace.items) |nav| {
+                const cau = ip.getNav(nav).analysis_owner.unwrap().?;
+                const unit = AnalUnit.wrap(.{ .cau = cau });
+                if (!result.contains(unit)) try unit_queue.put(gpa, unit, referencer);
+            }
+            continue;
         }
+        if (unit_queue.popOrNull()) |kv| {
+            const unit = kv.key;
+            try result.putNoClobber(gpa, unit, kv.value);
+
+            log.debug("handle unit '{}'", .{zcu.fmtAnalUnit(unit)});
+
+            if (zcu.reference_table.get(unit)) |first_ref_idx| {
+                assert(first_ref_idx != std.math.maxInt(u32));
+                var ref_idx = first_ref_idx;
+                while (ref_idx != std.math.maxInt(u32)) {
+                    const ref = zcu.all_references.items[ref_idx];
+                    if (!result.contains(ref.referenced)) {
+                        log.debug("unit '{}': ref unit '{}'", .{
+                            zcu.fmtAnalUnit(unit),
+                            zcu.fmtAnalUnit(ref.referenced),
+                        });
+                        try unit_queue.put(gpa, ref.referenced, .{
+                            .referencer = unit,
+                            .src = ref.src,
+                        });
+                    }
+                    ref_idx = ref.next;
+                }
+            }
+            if (zcu.type_reference_table.get(unit)) |first_ref_idx| {
+                assert(first_ref_idx != std.math.maxInt(u32));
+                var ref_idx = first_ref_idx;
+                while (ref_idx != std.math.maxInt(u32)) {
+                    const ref = zcu.all_type_references.items[ref_idx];
+                    if (!checked_types.contains(ref.referenced)) {
+                        log.debug("unit '{}': ref type '{}'", .{
+                            zcu.fmtAnalUnit(unit),
+                            Type.fromInterned(ref.referenced).containerTypeName(ip).fmt(ip),
+                        });
+                        try type_queue.put(gpa, ref.referenced, .{
+                            .referencer = unit,
+                            .src = ref.src,
+                        });
+                    }
+                    ref_idx = ref.next;
+                }
+            }
+            continue;
+        }
+        break;
     }
 
     return result;
 }
 
-pub fn fileByIndex(zcu: *Zcu, file_index: File.Index) *File {
+pub fn fileByIndex(zcu: *const Zcu, file_index: File.Index) *File {
     return zcu.intern_pool.filePtr(file_index);
 }
 
@@ -3085,7 +3398,7 @@ pub fn navSrcLoc(zcu: *const Zcu, nav_index: InternPool.Nav.Index) LazySrcLoc {
 
 pub fn navSrcLine(zcu: *Zcu, nav_index: InternPool.Nav.Index) u32 {
     const ip = &zcu.intern_pool;
-    const inst_info = ip.getNav(nav_index).srcInst(ip).resolveFull(ip);
+    const inst_info = ip.getNav(nav_index).srcInst(ip).resolveFull(ip).?;
     const zir = zcu.fileByIndex(inst_info.file).zir;
     const inst = zir.instructions.get(@intFromEnum(inst_info.inst));
     assert(inst.tag == .declaration);
@@ -3098,7 +3411,7 @@ pub fn navValue(zcu: *const Zcu, nav_index: InternPool.Nav.Index) Value {
 
 pub fn navFileScopeIndex(zcu: *Zcu, nav: InternPool.Nav.Index) File.Index {
     const ip = &zcu.intern_pool;
-    return ip.getNav(nav).srcInst(ip).resolveFull(ip).file;
+    return ip.getNav(nav).srcInst(ip).resolveFile(ip);
 }
 
 pub fn navFileScope(zcu: *Zcu, nav: InternPool.Nav.Index) *File {
@@ -3107,6 +3420,101 @@ pub fn navFileScope(zcu: *Zcu, nav: InternPool.Nav.Index) *File {
 
 pub fn cauFileScope(zcu: *Zcu, cau: InternPool.Cau.Index) *File {
     const ip = &zcu.intern_pool;
-    const file_index = ip.getCau(cau).zir_index.resolveFull(ip).file;
+    const file_index = ip.getCau(cau).zir_index.resolveFile(ip);
     return zcu.fileByIndex(file_index);
+}
+
+pub fn fmtAnalUnit(zcu: *Zcu, unit: AnalUnit) std.fmt.Formatter(formatAnalUnit) {
+    return .{ .data = .{ .unit = unit, .zcu = zcu } };
+}
+pub fn fmtDependee(zcu: *Zcu, d: InternPool.Dependee) std.fmt.Formatter(formatDependee) {
+    return .{ .data = .{ .dependee = d, .zcu = zcu } };
+}
+
+fn formatAnalUnit(data: struct { unit: AnalUnit, zcu: *Zcu }, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+    _ = .{ fmt, options };
+    const zcu = data.zcu;
+    const ip = &zcu.intern_pool;
+    switch (data.unit.unwrap()) {
+        .cau => |cau_index| {
+            const cau = ip.getCau(cau_index);
+            switch (cau.owner.unwrap()) {
+                .nav => |nav| return writer.print("cau(decl='{}')", .{ip.getNav(nav).fqn.fmt(ip)}),
+                .type => |ty| return writer.print("cau(ty='{}')", .{Type.fromInterned(ty).containerTypeName(ip).fmt(ip)}),
+                .none => if (cau.zir_index.resolveFull(ip)) |resolved| {
+                    const file_path = zcu.fileByIndex(resolved.file).sub_file_path;
+                    return writer.print("cau(inst=('{s}', %{}))", .{ file_path, @intFromEnum(resolved.inst) });
+                } else {
+                    return writer.writeAll("cau(inst=<lost>)");
+                },
+            }
+        },
+        .func => |func| {
+            const nav = zcu.funcInfo(func).owner_nav;
+            return writer.print("func('{}')", .{ip.getNav(nav).fqn.fmt(ip)});
+        },
+    }
+}
+fn formatDependee(data: struct { dependee: InternPool.Dependee, zcu: *Zcu }, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+    _ = .{ fmt, options };
+    const zcu = data.zcu;
+    const ip = &zcu.intern_pool;
+    switch (data.dependee) {
+        .src_hash => |ti| {
+            const info = ti.resolveFull(ip) orelse {
+                return writer.writeAll("inst(<lost>)");
+            };
+            const file_path = zcu.fileByIndex(info.file).sub_file_path;
+            return writer.print("inst('{s}', %{d})", .{ file_path, @intFromEnum(info.inst) });
+        },
+        .nav_val => |nav| {
+            const fqn = ip.getNav(nav).fqn;
+            return writer.print("nav('{}')", .{fqn.fmt(ip)});
+        },
+        .interned => |ip_index| switch (ip.indexToKey(ip_index)) {
+            .struct_type, .union_type, .enum_type => return writer.print("type('{}')", .{Type.fromInterned(ip_index).containerTypeName(ip).fmt(ip)}),
+            .func => |f| return writer.print("ies('{}')", .{ip.getNav(f.owner_nav).fqn.fmt(ip)}),
+            else => unreachable,
+        },
+        .namespace => |ti| {
+            const info = ti.resolveFull(ip) orelse {
+                return writer.writeAll("namespace(<lost>)");
+            };
+            const file_path = zcu.fileByIndex(info.file).sub_file_path;
+            return writer.print("namespace('{s}', %{d})", .{ file_path, @intFromEnum(info.inst) });
+        },
+        .namespace_name => |k| {
+            const info = k.namespace.resolveFull(ip) orelse {
+                return writer.print("namespace(<lost>, '{}')", .{k.name.fmt(ip)});
+            };
+            const file_path = zcu.fileByIndex(info.file).sub_file_path;
+            return writer.print("namespace('{s}', %{d}, '{}')", .{ file_path, @intFromEnum(info.inst), k.name.fmt(ip) });
+        },
+    }
+}
+
+/// Given the `InternPool.Index` of a function, set its resolved IES to `.none` if it
+/// may be outdated. `Sema` should do this before ever loading a resolved IES.
+pub fn maybeUnresolveIes(zcu: *Zcu, func_index: InternPool.Index) !void {
+    const unit = AnalUnit.wrap(.{ .func = func_index });
+    if (zcu.outdated.contains(unit) or zcu.potentially_outdated.contains(unit)) {
+        // We're consulting the resolved IES now, but the function is outdated, so its
+        // IES may have changed. We have to assume the IES is outdated and set the resolved
+        // set back to `.none`.
+        //
+        // This will cause `PerThread.analyzeFnBody` to mark the IES as outdated when it's
+        // eventually hit.
+        //
+        // Since the IES needs to be resolved, the function body will now definitely need
+        // re-analysis (even if the IES turns out to be the same!), so mark it as
+        // definitely-outdated if it's only PO.
+        if (zcu.potentially_outdated.fetchSwapRemove(unit)) |kv| {
+            const gpa = zcu.gpa;
+            try zcu.outdated.putNoClobber(gpa, unit, kv.value);
+            if (kv.value == 0) {
+                try zcu.outdated_ready.put(gpa, unit, {});
+            }
+        }
+        zcu.intern_pool.funcSetIesResolved(func_index, .none);
+    }
 }
