@@ -9,7 +9,9 @@ pub fn gcd(a: anytype, b: anytype) @TypeOf(a, b) {
         comptime_int => std.math.IntFittingRange(@min(a, b), @max(a, b)),
         else => |T| T,
     };
-    comptime std.debug.assert(@typeInfo(N).Int.signedness == .unsigned);
+    if (@typeInfo(N) != .int or @typeInfo(N).int.signedness != .unsigned) {
+        @compileError("`a` and `b` must be usigned integers");
+    }
 
     // using an optimised form of Stein's algorithm:
     // https://en.wikipedia.org/wiki/Binary_GCD_algorithm
