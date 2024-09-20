@@ -13981,6 +13981,40 @@ fn lowerAstErrors(astgen: *AstGen) !void {
     var notes: std.ArrayListUnmanaged(u32) = .empty;
     defer notes.deinit(gpa);
 
+    const token_starts = tree.tokens.items(.start);
+    const token_tags = tree.tokens.items(.tag);
+    const parse_err = tree.errors[0];
+    const tok = parse_err.token + @intFromBool(parse_err.token_is_prev);
+    const tok_start = token_starts[tok];
+
+    if (token_tags[tok] == .invalid and tree.source[tok_start] == '\\') {
+        const bad_off = blk: {
+            const tok_len: u32 = @intCast(tree.tokenSlice(tok).len);
+            const tok_end = tok_start + tok_len;
+            var idx = tok_start;
+            while (idx < tok_end) : (idx += 1) {
+                switch (tree.source[idx]) {
+                    0x00...0x09, 0x0b...0x1f, 0x7f => break,
+                    else => {},
+                }
+            }
+            break :blk idx - tok_start;
+        };
+
+        const byte_abs = tok_start + bad_off;
+        try notes.append(gpa, try astgen.errNoteTokOff(tok, bad_off, "invalid byte: '{'}'", .{
+            std.zig.fmtEscapes(tree.source[byte_abs..][0..1]),
+        }));
+        const err: Ast.Error = .{
+            .tag = Ast.Error.Tag.expected_token,
+            .token = tok,
+            .extra = .{ .expected_tag = std.zig.Token.Tag.multiline_string_literal_line },
+        };
+        msg.clearRetainingCapacity();
+        try tree.renderError(err, msg.writer(gpa));
+        return try astgen.appendErrorTokNotes(tok, "{s}", .{msg.items}, notes.items);
+    }
+
     var cur_err = tree.errors[0];
     for (tree.errors[1..]) |err| {
         if (err.is_note) {
