@@ -9816,8 +9816,14 @@ pub const FuncGen = struct {
         const ptr_ty = self.typeOf(atomic_load.ptr);
         const info = ptr_ty.ptrInfo(zcu);
         const elem_ty = Type.fromInterned(info.child);
-        if (!elem_ty.hasRuntimeBitsIgnoreComptime(zcu)) return .none;
         const ordering = toLlvmAtomicOrdering(atomic_load.order);
+
+        // Zero-sized loads should still result in a fence.
+        if (!elem_ty.isFnOrHasRuntimeBitsIgnoreComptime(zcu)) {
+            _ = try self.wip.fence(self.sync_scope, ordering);
+            return .none;
+        }
+
         const llvm_abi_ty = try o.getAtomicAbiType(elem_ty, false);
         const ptr_alignment = (if (info.flags.alignment != .none)
             @as(InternPool.Alignment, info.flags.alignment)
@@ -9862,7 +9868,13 @@ pub const FuncGen = struct {
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
         const ptr_ty = self.typeOf(bin_op.lhs);
         const operand_ty = ptr_ty.childType(zcu);
-        if (!operand_ty.isFnOrHasRuntimeBitsIgnoreComptime(zcu)) return .none;
+
+        // Zero-sized stores should still result in a fence.
+        if (!operand_ty.isFnOrHasRuntimeBitsIgnoreComptime(zcu)) {
+            _ = try self.wip.fence(self.sync_scope, ordering);
+            return .none;
+        }
+
         const ptr = try self.resolveInst(bin_op.lhs);
         var element = try self.resolveInst(bin_op.rhs);
         const llvm_abi_ty = try o.getAtomicAbiType(operand_ty, false);
