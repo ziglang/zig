@@ -775,10 +775,10 @@ pub fn equalRange(
     while (low < high) {
         const mid = low + (high - low) / 2;
         switch (compareFn(context, items[mid])) {
-            .lt => {
+            .gt => {
                 low = mid + 1;
             },
-            .gt => {
+            .lt => {
                 high = mid;
             },
             .eq => {
@@ -828,6 +828,7 @@ test equalRange {
     try std.testing.expectEqual(.{ 6, 6 }, equalRange(i32, &[_]i32{ 2, 4, 8, 16, 32, 64 }, @as(i32, 100), S.orderI32));
     try std.testing.expectEqual(.{ 2, 6 }, equalRange(i32, &[_]i32{ 2, 4, 8, 8, 8, 8, 15, 22 }, @as(i32, 8), S.orderI32));
     try std.testing.expectEqual(.{ 2, 2 }, equalRange(u32, &[_]u32{ 2, 4, 8, 16, 32, 64 }, @as(u32, 5), S.orderU32));
+    try std.testing.expectEqual(.{ 3, 5 }, equalRange(u32, &[_]u32{ 2, 3, 4, 5, 5 }, @as(u32, 5), S.orderU32));
     try std.testing.expectEqual(.{ 1, 1 }, equalRange(f32, &[_]f32{ -54.2, -26.7, 0.0, 56.55, 100.1, 322.0 }, @as(f32, -33.4), S.orderF32));
     try std.testing.expectEqual(.{ 3, 5 }, equalRange(
         []const u8,
