@@ -129,6 +129,7 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .hurd => "hurd",
         .wasi => "wasi",
         .emscripten => "emscripten",
+        .bridgeos => "bridgeos",
         .macos => "macosx",
         .ios => "ios",
         .tvos => "tvos",
@@ -241,6 +242,7 @@ pub fn targetOs(os_tag: std.Target.Os.Tag) llvm.OSType {
         .shadermodel => .ShaderModel,
         .vulkan => .Vulkan,
         .serenity => .Serenity,
+        .bridgeos => .BridgeOS,
 
         .opengl,
         .plan9,
@@ -3761,28 +3763,7 @@ pub const Object = struct {
             },
             .ptr => return o.builder.convConst(try o.lowerPtr(arg_val, 0), llvm_int_ty),
             .aggregate => switch (ip.indexToKey(ty.toIntern())) {
-                .struct_type => {
-                    const struct_type = ip.loadStructType(ty.toIntern());
-                    assert(struct_type.haveLayout(ip));
-                    assert(struct_type.layout == .@"packed");
-                    comptime assert(Type.packed_struct_layout_version == 2);
-                    var running_int = try o.builder.intConst(llvm_int_ty, 0);
-                    var running_bits: u16 = 0;
-                    for (struct_type.field_types.get(ip), 0..) |field_ty, field_index| {
-                        if (!Type.fromInterned(field_ty).hasRuntimeBitsIgnoreComptime(zcu)) continue;
-
-                        const shift_rhs = try o.builder.intConst(llvm_int_ty, running_bits);
-                        const field_val = try o.lowerValueToInt(llvm_int_ty, (try val.fieldValue(pt, field_index)).toIntern());
-                        const shifted = try o.builder.binConst(.shl, field_val, shift_rhs);
-
-                        running_int = try o.builder.binConst(.xor, running_int, shifted);
-
-                        const ty_bit_size: u16 = @intCast(Type.fromInterned(field_ty).bitSize(zcu));
-                        running_bits += ty_bit_size;
-                    }
-                    return running_int;
-                },
-                .vector_type => {},
+                .struct_type, .vector_type => {},
                 else => unreachable,
             },
             .un => |un| {
@@ -6815,28 +6796,10 @@ pub const FuncGen = struct {
         const zcu = pt.zcu;
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
-        const workaround_operand = try self.resolveInst(ty_op.operand);
+        const operand = try self.resolveInst(ty_op.operand);
         const operand_ty = self.typeOf(ty_op.operand);
         const operand_scalar_ty = operand_ty.scalarType(zcu);
         const is_signed_int = operand_scalar_ty.isSignedInt(zcu);
-
-        const operand = o: {
-            // Work around LLVM bug. See https://github.com/ziglang/zig/issues/17381.
-            const bit_size = operand_scalar_ty.bitSize(zcu);
-            for ([_]u8{ 8, 16, 32, 64, 128 }) |b| {
-                if (bit_size < b) {
-                    break :o try self.wip.cast(
-                        if (is_signed_int) .sext else .zext,
-                        workaround_operand,
-                        try o.builder.intType(b),
-                        "",
-                    );
-                } else if (bit_size == b) {
-                    break :o workaround_operand;
-                }
-            }
-            break :o workaround_operand;
-        };
 
         const dest_ty = self.typeOfIndex(inst);
         const dest_scalar_ty = dest_ty.scalarType(zcu);

@@ -215,9 +215,7 @@ inline __device__ unsigned int __activemask() {
 #if CUDA_VERSION < 9020
   return __nvvm_vote_ballot(1);
 #else
-  unsigned int mask;
-  asm volatile("activemask.b32 %0;" : "=r"(mask));
-  return mask;
+  return __nvvm_activemask();
 #endif
 }
 

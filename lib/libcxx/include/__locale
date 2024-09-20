@@ -10,12 +10,13 @@
 #ifndef _LIBCPP___LOCALE
 #define _LIBCPP___LOCALE
 
-#include <__availability>
 #include <__config>
+#include <__locale_dir/locale_base_api.h>
 #include <__memory/shared_ptr.h> // __shared_count
 #include <__mutex/once_flag.h>
 #include <__type_traits/make_unsigned.h>
 #include <__utility/no_destroy.h>
+#include <__utility/private_constructor_tag.h>
 #include <cctype>
 #include <clocale>
 #include <cstdint>
@@ -30,27 +31,6 @@
 #  include <cwchar>
 #else
 #  include <__std_mbstate_t.h>
-#endif
-
-#if defined(_LIBCPP_MSVCRT_LIKE)
-#  include <__support/win32/locale_win32.h>
-#elif defined(_AIX) || defined(__MVS__)
-#  include <__support/ibm/xlocale.h>
-#elif defined(__ANDROID__)
-#  include <__support/android/locale_bionic.h>
-#elif defined(_NEWLIB_VERSION)
-#  include <__support/newlib/xlocale.h>
-#elif defined(__OpenBSD__)
-#  include <__support/openbsd/xlocale.h>
-#elif (defined(__APPLE__) || defined(__FreeBSD__))
-#  include <xlocale.h>
-#elif defined(__Fuchsia__)
-#  include <__support/fuchsia/xlocale.h>
-#elif defined(__wasi__)
-// WASI libc uses musl's locales support.
-#  include <__support/musl/xlocale.h>
-#elif defined(_LIBCPP_HAS_MUSL_LIBC)
-#  include <__support/musl/xlocale.h>
 #endif
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -69,6 +49,9 @@ _LIBCPP_HIDE_FROM_ABI const _Facet& use_facet(const locale&);
 
 class _LIBCPP_EXPORTED_FROM_ABI locale {
 public:
+  // locale is essentially a shared_ptr that doesn't support weak_ptrs and never got a move constructor.
+  using __trivially_relocatable = locale;
+
   // types:
   class _LIBCPP_EXPORTED_FROM_ABI facet;
   class _LIBCPP_EXPORTED_FROM_ABI id;
@@ -118,8 +101,7 @@ private:
 
   template <class>
   friend struct __no_destroy;
-  struct __private_tag {};
-  _LIBCPP_HIDE_FROM_ABI explicit locale(__private_tag, __imp* __loc) : __locale_(__loc) {}
+  _LIBCPP_HIDE_FROM_ABI explicit locale(__private_constructor_tag, __imp* __loc) : __locale_(__loc) {}
 
   void __install_ctor(const locale&, facet*, long);
   static locale& __global();
@@ -364,12 +346,12 @@ public:
   static const mask __regex_word = 0x4000; // 0x8000 and 0x0100 and 0x00ff are used
 #  define _LIBCPP_CTYPE_MASK_IS_COMPOSITE_PRINT
 #  define _LIBCPP_CTYPE_MASK_IS_COMPOSITE_ALPHA
-#elif defined(__APPLE__) || defined(__FreeBSD__) || defined(__EMSCRIPTEN__) || defined(__NetBSD__)
+#elif defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__)
 #  ifdef __APPLE__
   typedef __uint32_t mask;
 #  elif defined(__FreeBSD__)
   typedef unsigned long mask;
-#  elif defined(__EMSCRIPTEN__) || defined(__NetBSD__)
+#  elif defined(__NetBSD__)
   typedef unsigned short mask;
 #  endif
   static const mask space  = _CTYPE_S;
@@ -1269,10 +1251,10 @@ extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS codecvt_byname<char, char
 #ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
 extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS codecvt_byname<wchar_t, char, mbstate_t>;
 #endif
-extern template class _LIBCPP_DEPRECATED_IN_CXX20 _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS
-    codecvt_byname<char16_t, char, mbstate_t>; // deprecated in C++20
-extern template class _LIBCPP_DEPRECATED_IN_CXX20 _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS
-    codecvt_byname<char32_t, char, mbstate_t>; // deprecated in C++20
+extern template class _LIBCPP_DEPRECATED_IN_CXX20
+_LIBCPP_EXTERN_TEMPLATE_TYPE_VIS codecvt_byname<char16_t, char, mbstate_t>; // deprecated in C++20
+extern template class _LIBCPP_DEPRECATED_IN_CXX20
+_LIBCPP_EXTERN_TEMPLATE_TYPE_VIS codecvt_byname<char32_t, char, mbstate_t>; // deprecated in C++20
 #ifndef _LIBCPP_HAS_NO_CHAR8_T
 extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS codecvt_byname<char16_t, char8_t, mbstate_t>; // C++20
 extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS codecvt_byname<char32_t, char8_t, mbstate_t>; // C++20

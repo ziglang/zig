@@ -526,6 +526,7 @@ test "@bitCast of packed struct containing pointer" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://discourse.llvm.org/t/rfc-remove-most-constant-expressions/63179
 
     const S = struct {
         const A = packed struct {

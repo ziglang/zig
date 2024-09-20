@@ -54,7 +54,6 @@ class codecvt_utf8_utf16
 
 */
 
-#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
 #include <__locale>
 #include <version>
@@ -434,8 +433,8 @@ protected:
 
 _LIBCPP_SUPPRESS_DEPRECATED_PUSH
 template <class _Elem, unsigned long _Maxcode = 0x10ffff, codecvt_mode _Mode = (codecvt_mode)0>
-class _LIBCPP_TEMPLATE_VIS _LIBCPP_DEPRECATED_IN_CXX17 codecvt_utf16
-    : public __codecvt_utf16<_Elem, _Mode & little_endian> {
+class _LIBCPP_TEMPLATE_VIS
+_LIBCPP_DEPRECATED_IN_CXX17 codecvt_utf16 : public __codecvt_utf16<_Elem, _Mode & little_endian> {
 public:
   _LIBCPP_HIDE_FROM_ABI explicit codecvt_utf16(size_t __refs = 0)
       : __codecvt_utf16<_Elem, _Mode & little_endian>(__refs, _Maxcode, _Mode) {}
