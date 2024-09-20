@@ -60,8 +60,12 @@ export fn foo_slice() void {
 //
 // :4:33: error: slice end index out of bounds: end 15, length 14
 // :12:33: error: slice end index out of bounds: end 15, length 14
-// :20:37: error: slice sentinel index out of bounds of containing declaration: index 15, length 15
-// :28:37: error: slice sentinel index out of bounds of containing declaration: index 15, length 15
-// :36:37: error: slice sentinel index out of bounds of containing declaration: index 15, length 15
-// :44:37: error: slice sentinel index out of bounds of containing declaration: index 15, length 15
+// :20:37: error: slice sentinel index out of bounds: index 15
+// :20:37: note: containing decl of type '[14:0]u8'
+// :28:37: error: slice sentinel index out of bounds: index 15
+// :28:37: note: containing decl of type '[14:0]u8'
+// :36:37: error: slice sentinel index out of bounds: index 15
+// :36:37: note: containing decl of type '[14:0]u8'
+// :44:37: error: slice sentinel index out of bounds: index 15
+// :44:37: note: containing decl of type '[14:0]u8'
 // :52:33: error: slice end index out of bounds: end 15, length 14

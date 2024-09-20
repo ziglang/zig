@@ -38626,7 +38626,6 @@ const SliceAnalysis = struct {
     /// and by looking at the containing declaration for `comptime`-known
     /// pointer operands without explicit lengths.
     src_len: State = .unknown,
-    src_mem_len: State = .unknown,
     /// Optional parameter, otherwise defined as the difference between
     /// `dest_end` and `dest_start`.
     dest_len: State = .unknown,
@@ -38640,7 +38639,6 @@ const SliceAnalysis = struct {
     start_le_len: State = .unknown,
     start_le_end: State = .unknown,
     end_le_len: State = .unknown,
-    len_le_len: State = .unknown,
     eq_sentinel: State = .unknown,
     ptr_ne_null: State = .unknown,
 
@@ -38664,9 +38662,6 @@ const SliceAnalysis = struct {
     }
     fn destStartIsZero(sa: SliceAnalysis) bool {
         return sa.dest_start == .unknown;
-    }
-    fn lenAndLen(sa: SliceAnalysis) State {
-        return worst(sa.src_mem_len, sa.src_len);
     }
     fn startAndEnd(sa: SliceAnalysis) State {
         return worst(sa.dest_start, sa.dest_end);
@@ -38770,9 +38765,9 @@ fn analyzeSlice(
     // *[src_len]T      From slicing array:
     //                  ;; src_ptr_ty       => *[src_len]T
     //                  ;; src_ptr_ty_size  => One
-    //                  ;; ptr_child_ty     => [src_len]T
+    //                  ;; src_ptr_child_ty => [src_len]T
     var src_ptr: Air.Inst.Ref = operand;
-    var src_ptr_ty: Type = sema.typeOf(src_ptr);
+    var src_ptr_ty: Type = sema.typeOf(operand);
     var src_ptr_ty_size: std.builtin.Type.Pointer.Size = .One;
 
     if (src_ptr_ty.zigTypeTag(sema.pt.zcu) != .pointer) {
@@ -38782,38 +38777,42 @@ fn analyzeSlice(
     var src_ptr_child_ty: Type = src_ptr_ty.childType(sema.pt.zcu);
     var src_ptr_child_ty_tag: std.builtin.TypeId = src_ptr_child_ty.zigTypeTag(sema.pt.zcu);
 
+    // The type the user knows about.
+    const operand_ty: Type = src_ptr_child_ty;
+
     // If instead it is a double pointer, simplify more.
     const elem_ty: Type = if (src_ptr_child_ty_tag == .pointer) blk: {
-        const src_ptr_child_child_ty: Type = src_ptr_child_ty.childType(sema.pt.zcu);
-        src_ptr = try sema.analyzeLoad(block, src, src_ptr, operand_src);
         // *[]T             From slicing Slice:
         //                  ;; src_ptr_ty       => []T
         //                  ;; src_ptr_ty_size  => Slice
-        //                  ;; ptr_child_ty     => T
+        //                  ;; src_ptr_child_ty => T
         //
         // *[*]T            From slicing pointer-to-many:
         //                  ;; src_ptr_ty       => [*]T
         //                  ;; src_ptr_ty_size  => Many
-        //                  ;; ptr_child_ty     => T
+        //                  ;; src_ptr_child_ty => T
         //
         // *[*c]T           From slicing C-pointer:
         //                  ;; src_ptr_ty       => [*c]T
         //                  ;; src_ptr_ty_size  => C
-        //                  ;; ptr_child_ty     => T
+        //                  ;; src_ptr_child_ty => T
         //
         // **T              From slicing pointer-to-one:
         //                  ;; src_ptr_ty       => *T
         //                  ;; src_ptr_ty_size  => One
-        //                  ;; ptr_child_ty     => T
+        //                  ;; src_ptr_child_ty => T
         //
         // **[src_len]T     From slicing pointer-to-one array:
         //                  ;; src_ptr_ty       => *[src_len]T
         //                  ;; src_ptr_ty_size  => One
-        //                  ;; ptr_child_ty     => [src_len]T
+        //                  ;; src_ptr_child_ty => [src_len]T
         //
+        src_ptr = try sema.analyzeLoad(block, src, src_ptr, operand_src);
+
         src_ptr_ty = src_ptr_child_ty;
         src_ptr_ty_size = src_ptr_ty.ptrSize(sema.pt.zcu);
-        src_ptr_child_ty = src_ptr_child_child_ty;
+        src_ptr_child_ty = src_ptr_child_ty.childType(sema.pt.zcu);
+
         src_ptr_child_ty_tag = src_ptr_child_ty.zigTypeTag(sema.pt.zcu);
 
         if (src_ptr_ty_size == .One and src_ptr_child_ty_tag == .array) {
@@ -38829,15 +38828,6 @@ fn analyzeSlice(
     const src_ptr_explicit_len: bool = src_ptr_ty_size == .One or src_ptr_ty_size == .Slice;
     const ptr_ty_key: InternPool.Key.PtrType =
         sema.pt.zcu.intern_pool.indexToKey(Type.toIntern(src_ptr_ty)).ptr_type;
-
-    // *T   ;; Used to refer to the element at the sentinel index.
-    const elem_ptr_ty: Type = blk: {
-        var elem_ptr_ty_key: InternPool.Key.PtrType = ptr_ty_key;
-        elem_ptr_ty_key.child = Type.toIntern(elem_ty);
-        elem_ptr_ty_key.flags.size = .One;
-        elem_ptr_ty_key.sentinel = .none;
-        break :blk try sema.pt.ptrTypeSema(elem_ptr_ty_key);
-    };
 
     // [*]T ;; Used to compute the start pointer by pointer arithmetic.
     const many_ptr_ty: Type = blk: {
@@ -38866,39 +38856,9 @@ fn analyzeSlice(
         break :val Value.undef;
     };
 
-    // Find the actual remaining length of any `comptime` memory.
-    //
-    // This is computed using the ABI size of the underlying `comptime`
-    // allocation or addressable value, subtracting the pointer byte offset
-    // and the offsets of fields and array elements.
-    //
-    // This is then divided by the ABI size of the result pointer element type.
-    const src_mem_len: Air.Inst.Ref = inst: {
-        if (sa.src_ptr == .known) {
-            const elem_size: u64 = try elem_ty.abiSizeSema(sema.pt);
-            const ptr_val: Value = if (src_ptr_ty_size == .Slice)
-                Value.slicePtr(src_ptr_val, sema.pt.zcu)
-            else
-                src_ptr_val;
-            const want_error: bool = !src_ptr_explicit_len;
-            if (elem_size == 0) {
-                if (try sema.elemLenOfContainingDecl(block, src, ptr_val, elem_ty, want_error)) |idx_int| {
-                    const len: usize = try sema.usizeCast(block, src, idx_int);
-                    break :inst try sema.pt.intRef(Type.usize, len);
-                }
-            } else {
-                if (try sema.bytesOfContainingDecl(block, src, ptr_val, want_error)) |memsz_int| {
-                    const len: usize = try sema.usizeCast(block, src, memsz_int / elem_size);
-                    break :inst try sema.pt.intRef(Type.usize, len);
-                }
-            }
-        }
-        break :inst .none;
-    };
-
     // Compute upper bound from the input pointer:
     const src_len: Air.Inst.Ref = switch (src_ptr_ty_size) {
-        .C, .Many => src_mem_len,
+        .C, .Many => .none,
         // Array length is always assumed to be valid and reusable. This is
         // currently a false assumption, because any pointer may be cast to a
         // pointer to an array of any size at compile time.
@@ -39016,7 +38976,6 @@ fn analyzeSlice(
             sema.pt.zcu.intern_pool.indexToKey(Type.toIntern(src_ptr_child_ty)).array_type.sentinel
         else
             sema.pt.zcu.intern_pool.indexToKey(Type.toIntern(src_ptr_ty)).ptr_type.sentinel;
-        // The sentinel value is never usable by input pointers without lengths.
         if (src_ptr_explicit_len and src_sent_ip != .none) {
             sa.src_sent = .known;
             break :val Value.fromInterned(src_sent_ip);
@@ -39026,22 +38985,41 @@ fn analyzeSlice(
     // Attempt to resolve the value of the destination sentinel:
     const dest_sent_val: Value = val: {
         if (dest_sent_opt != .none) {
-            const dest_sent: Air.Inst.Ref = try sema.coerce(block, elem_ty, dest_sent_opt, dest_sent_src);
-            if (try sema.resolveDefinedValue(block, dest_sent_src, dest_sent)) |val| {
-                sa.dest_sent = .known;
-                break :val val;
-            }
+            sa.dest_sent = .known;
+            break :val try sema.resolveConstDefinedValue(block, dest_sent_src, try sema.coerce(block, elem_ty, dest_sent_opt, dest_sent_src), .{
+                .needed_comptime_reason = "slice sentinel must be comptime-known",
+            });
         }
         break :val src_sent_val;
     };
 
-    if (sa.dest_sent == .variable) {
-        return sema.fail(block, dest_sent_src, "destination sentinel must be comptime-known", .{});
-    }
+    // Compile error for syntax `@as([]u8, &.{})[0.. :0]`.
     if (sa.destPtrGainsSentinel() and
         !dest_ptr_explicit_len and src_ptr_explicit_len)
     {
         return sema.fail(block, dest_sent_src, "slice sentinel index always out of bounds", .{});
+    }
+
+    if (try elem_ty.comptimeOnlySema(sema.pt)) require_comptime: {
+        assert(sa.src_ptr == .known);
+        const src_note = src_note: {
+            if (sa.dest_start == .variable) {
+                break :src_note .{ dest_start_src, "start index must be comptime-known" };
+            }
+            if (dest_len_opt != .none and sa.dest_len == .variable) {
+                break :src_note .{ dest_end_src, "length must be comptime-known" };
+            }
+            if (dest_end_opt != .none and sa.dest_end == .variable) {
+                break :src_note .{ dest_end_src, "end index must be comptime-known" };
+            }
+            break :require_comptime;
+        };
+        const msg: *Zcu.ErrorMsg = try sema.errMsg(src, "unable to resolve operand slicing comptime-only type '{}'", .{operand_ty.fmt(sema.pt)});
+        {
+            errdefer msg.destroy(sema.gpa);
+            try sema.errNote(src_note[0], msg, "{s}", .{src_note[1]});
+        }
+        return sema.failWithOwnedErrorMsg(block, msg);
     }
 
     // Variants such as `ptr[0..]` and `ptr[0..][0..1]` are allowed for `*T`.
@@ -39134,7 +39112,6 @@ fn analyzeSlice(
         //            user-defined bounds. The length will be zero if the result
         //            is allowed to return.
     } else {
-        sa.len_le_len = sa.lenAndLen();
         sa.start_le_end = sa.startAndEnd();
         sa.start_le_len = sa.startAndLen();
         sa.end_le_len = sa.endAndLen();
@@ -39183,8 +39160,7 @@ fn analyzeSlice(
         sa.start_le_len = .unknown;
     }
 
-    // Disable all bounds checks for pointers without explicit lengths except
-    // when the sentinel may be checked at compile time.
+    // Disable all bounds checks for pointers without explicit lengths.
     if (!src_ptr_explicit_len and sa.eq_sentinel != .known) {
         sa.end_le_len = .unknown;
         sa.start_le_len = .unknown;
@@ -39221,28 +39197,25 @@ fn analyzeSlice(
 
     // Checks must be performed in this order:
     //
-    // 0) Require that the upper bound of the input pointer is not above the
-    //    upper bound of the containing declaration.
     // 1) Require the end index is not above the upper bound: `end <= len`.
     // 2) Require the operands are in order: `start <= end`
     // 3) Require the start index is not above the upper bound: `start <= len`
     // 4) Require that the pointer operand is non-zero: `ptr != null`.
     // 5) Attempt compile-time sentinel validation else push to runtime.
     //
-    const memkind_s: []const u8 = if (src_ptr_explicit_len) "" else " of containing declaration";
     const extended_s: []const u8 = if (src_len == src_len2) "" else "(+1)";
     if (sa.end_le_len == .known) {
-        const args = .{ memkind_s, dest_end_val.fmtValueSema(sema.pt, sema), src_len_val.fmtValueSema(sema.pt, sema), extended_s };
+        const args = .{ dest_end_val.fmtValueSema(sema.pt, sema), src_len_val.fmtValueSema(sema.pt, sema), extended_s };
         if (sa.destPtrGainsSentinel() and
             !try sema.compareScalar(dest_end_val, .lt, src_len2_val, Type.usize))
         {
             if (try sema.compareScalar(dest_end_val, .eq, src_len2_val, Type.usize)) {
-                return sema.fail(block, dest_sent_src, "slice sentinel index out of bounds{s}: index {}, length {}{s}", args);
+                return sema.fail(block, dest_sent_src, "slice sentinel index out of bounds: index {}, length {}{s}", args);
             } else {
-                return sema.fail(block, dest_end_src, "slice end index out of bounds{s}: end {}, length {}{s}", args);
+                return sema.fail(block, dest_end_src, "slice end index out of bounds: end {}, length {}{s}", args);
             }
         } else if (!try sema.compareScalar(dest_end_val, .lte, src_len2_val, Type.usize)) {
-            return sema.fail(block, dest_end_src, "slice end index out of bounds{s}: end {}, length {}{s}", args);
+            return sema.fail(block, dest_end_src, "slice end index out of bounds: end {}, length {}{s}", args);
         }
     }
     if (sa.start_le_end == .known) {
@@ -39257,13 +39230,13 @@ fn analyzeSlice(
         }
     }
     if (sa.start_le_len == .known) {
-        const args = .{ memkind_s, dest_start_val.fmtValueSema(sema.pt, sema), src_len_val.fmtValueSema(sema.pt, sema), extended_s };
+        const args = .{ dest_start_val.fmtValueSema(sema.pt, sema), src_len_val.fmtValueSema(sema.pt, sema), extended_s };
         if (sa.destPtrGainsSentinel() and
             try sema.compareScalar(dest_start_val, .eq, src_len2_val, Type.usize))
         {
-            return sema.fail(block, dest_sent_src, "slice sentinel index always out of bounds{s}: index {}, length {}{s}", args);
+            return sema.fail(block, dest_sent_src, "slice sentinel index always out of bounds: index {}, length {}{s}", args);
         } else if (!try sema.compareScalar(dest_start_val, .lte, src_len2_val, Type.usize)) {
-            return sema.fail(block, dest_start_src, "slice start index out of bounds{s}: start {}, length {}{s}", args);
+            return sema.fail(block, dest_start_src, "slice start index out of bounds: start {}, length {}{s}", args);
         }
     }
     if (sa.ptr_ne_null == .known) {
@@ -39272,7 +39245,7 @@ fn analyzeSlice(
         }
     }
     if (sa.eq_sentinel == .known) {
-        if (try sema.pointerDeref(block, src, ptr_val: {
+        switch (try sema.pointerDerefExtra(block, src, ptr_val: {
             if (sa.sentinelPtrByDestLen() == .known) {
                 const len_int: usize = try sema.usizeCast(block, src, try dest_len_val.toUnsignedIntSema(sema.pt));
                 break :ptr_val try dest_ptr_val.ptrElem(len_int, sema.pt);
@@ -39281,22 +39254,36 @@ fn analyzeSlice(
                 break :ptr_val try src_ptr_val.ptrElem(end_int, sema.pt);
             } else {
                 assert(sa.sentinelPtrBySrc() == .known);
-                const len_int: usize = try sema.usizeCast(block, src, try src_len_val.toUnsignedIntSema(sema.pt));
-                break :ptr_val try src_ptr_val.ptrElem(len_int, sema.pt);
+                const end_int: usize = try sema.usizeCast(block, src, try src_len_val.toUnsignedIntSema(sema.pt));
+                break :ptr_val try src_ptr_val.ptrElem(end_int, sema.pt);
             }
-        }, elem_ptr_ty)) |actual_sent_val| {
-            const sent_src: Zcu.LazySrcLoc = if (dest_sent_opt != .none) dest_sent_src else src;
-            const args = .{ dest_sent_val.fmtValueSema(sema.pt, sema), actual_sent_val.fmtValueSema(sema.pt, sema) };
-            if (!dest_sent_val.eql(actual_sent_val, elem_ty, sema.pt.zcu)) {
-                const msg: *Zcu.ErrorMsg = try sema.errMsg(sent_src, "value in memory does not match slice sentinel", .{});
+        })) {
+            .runtime_load => sa.eq_sentinel = .variable,
+            .needed_well_defined => |decl_ty| {
+                return sema.fail(block, src, "comptime dereference requires '{}' to have a well-defined layout", .{decl_ty.fmt(sema.pt)});
+            },
+            .out_of_bounds => |decl_ty| {
+                const sent_src: Zcu.LazySrcLoc = if (dest_sent_opt != .none) dest_sent_src else src;
+                const args = .{try dest_end_val.toUnsignedIntSema(sema.pt)};
+                const msg: *Zcu.ErrorMsg = try sema.errMsg(sent_src, "slice sentinel index out of bounds: index {}", args);
                 {
                     errdefer msg.destroy(sema.gpa);
-                    try sema.errNote(sent_src, msg, "expected '{}', found '{}'", args);
+                    try sema.errNote(sent_src, msg, "containing decl of type '{}'", .{decl_ty.fmt(sema.pt)});
                 }
                 return sema.failWithOwnedErrorMsg(block, msg);
-            }
-        } else {
-            sa.eq_sentinel = .variable;
+            },
+            .val => |actual_sent_val| {
+                const sent_src: Zcu.LazySrcLoc = if (dest_sent_opt != .none) dest_sent_src else src;
+                const args = .{ dest_sent_val.fmtValueSema(sema.pt, sema), actual_sent_val.fmtValueSema(sema.pt, sema) };
+                if (!dest_sent_val.eql(actual_sent_val, elem_ty, sema.pt.zcu)) {
+                    const msg: *Zcu.ErrorMsg = try sema.errMsg(sent_src, "value in memory does not match slice sentinel", .{});
+                    {
+                        errdefer msg.destroy(sema.gpa);
+                        try sema.errNote(sent_src, msg, "expected '{}', found '{}'", args);
+                    }
+                    return sema.failWithOwnedErrorMsg(block, msg);
+                }
+            },
         }
     }
 
@@ -39425,183 +39412,6 @@ fn analyzeSlice(
                 .payload = try sema.addExtra(Air.Bin{ .lhs = dest_ptr, .rhs = dest_len }),
             } },
         }),
-    }
-}
-
-/// Returns the number of remaining bytes (from the pointer byte offset) in the
-/// declaration containing `ptr_val`.
-fn bytesOfContainingDecl(
-    sema: *Sema,
-    block: *Sema.Block,
-    src: Zcu.LazySrcLoc,
-    ptr_val: Value,
-    reject_unreliable: bool,
-) !?u64 {
-    const ptr_key: InternPool.Key.Ptr = sema.pt.zcu.intern_pool.indexToKey(Value.toIntern(ptr_val)).ptr;
-    switch (ptr_key.base_addr) {
-        .field => |field| {
-            const container_ptr: Value = Value.fromInterned(field.base);
-            if (try sema.bytesOfContainingDecl(block, src, container_ptr, reject_unreliable)) |memsz| {
-                const container_ty: Type = Type.childType(container_ptr.typeOf(sema.pt.zcu), sema.pt.zcu);
-                const field_offset: u64 = container_ty.structFieldOffset(try sema.usizeCast(block, src, field.index), sema.pt.zcu);
-                return (memsz - field_offset) - ptr_key.byte_offset;
-            }
-            return null;
-        },
-        .arr_elem => |arr_elem| {
-            const arr_ptr: Value = Value.fromInterned(arr_elem.base);
-            if (try sema.bytesOfContainingDecl(block, src, arr_ptr, reject_unreliable)) |memsz| {
-                const child_ty: Type = Type.elemType2(arr_ptr.typeOf(sema.pt.zcu), sema.pt.zcu);
-                return (memsz - (try child_ty.abiSizeSema(sema.pt) * arr_elem.index)) - ptr_key.byte_offset;
-            }
-            return null;
-        },
-        .comptime_alloc => |comptime_alloc| {
-            const alloc_ty: Type = sema.getComptimeAlloc(comptime_alloc).val.typeOf(sema.pt.zcu);
-            return try alloc_ty.abiSizeSema(sema.pt) - ptr_key.byte_offset;
-        },
-        .uav => |uav| {
-            const val_ty: Type = Value.fromInterned(uav.val).typeOf(sema.pt.zcu);
-            return try val_ty.abiSizeSema(sema.pt) - ptr_key.byte_offset;
-        },
-        .nav => |nav_idx| {
-            const nav: InternPool.Nav = sema.pt.zcu.intern_pool.getNav(nav_idx);
-            const decl_ty: Type = Type.fromInterned(nav.typeOf(&sema.pt.zcu.intern_pool));
-            return try decl_ty.abiSizeSema(sema.pt) - ptr_key.byte_offset;
-        },
-
-        // The following base pointers arbitrarily forbid reinterpretation due
-        // to higher risk of propagating an invalid value.
-
-        .comptime_field => |comptime_field| {
-            const val_ty: Type = Value.fromInterned(comptime_field).typeOf(sema.pt.zcu);
-            if (reject_unreliable) {
-                return sema.fail(block, src, "cannot reinterpret bytes of (comptime field) type '{}'", .{val_ty.fmt(sema.pt)});
-            }
-            return try val_ty.abiSizeSema(sema.pt) - ptr_key.byte_offset;
-        },
-        .eu_payload => |eu_payload| {
-            const eu_ty: Type = Type.childType(Value.fromInterned(eu_payload).typeOf(sema.pt.zcu), sema.pt.zcu);
-            const val_ty: Type = eu_ty.errorUnionPayload(sema.pt.zcu);
-            if (reject_unreliable) {
-                return sema.fail(block, src, "cannot reinterpret bytes of (error union payload) type '{}'", .{val_ty.fmt(sema.pt)});
-            }
-            return try val_ty.abiSizeSema(sema.pt) - ptr_key.byte_offset;
-        },
-        .opt_payload => |opt_payload| {
-            const opt_ty: Type = Type.childType(Value.fromInterned(opt_payload).typeOf(sema.pt.zcu), sema.pt.zcu);
-            const val_ty: Type = opt_ty.optionalChild(sema.pt.zcu);
-            if (reject_unreliable) {
-                return sema.fail(block, src, "cannot reinterpret bytes of (optional payload) type '{}'", .{val_ty.fmt(sema.pt)});
-            }
-            return try val_ty.abiSizeSema(sema.pt) - ptr_key.byte_offset;
-        },
-        .int => return null,
-    }
-}
-
-/// Returns the number of `elem_ty` stored by type `val_ty`.
-/// `val_ty` == `elem_ty`                           => 1
-/// `val_ty` == `[len]elem_ty`                      => len
-/// `val_ty` == `[len_1][len_2]elem_ty`             => len_1 * len_2
-fn elemLenOfType(
-    sema: *Sema,
-    block: *Sema.Block,
-    src: Zcu.LazySrcLoc,
-    elem_ty: Type,
-    val_ty: Type,
-) !u64 {
-    if (elem_ty.ip_index == val_ty.ip_index) {
-        return 1;
-    }
-    if (val_ty.isArrayOrVector(sema.pt.zcu)) {
-        const val_ty_tag: std.builtin.TypeId = val_ty.zigTypeTag(sema.pt.zcu);
-        const child_ty: Type = Type.elemType2(val_ty, sema.pt.zcu);
-        if (val_ty_tag == .array) {
-            return val_ty.arrayLen(sema.pt.zcu) * try sema.elemLenOfType(block, src, elem_ty, child_ty);
-        }
-    }
-    return sema.fail(block, src, "cannot reinterpret memory of type '{}' as element type '{}'", .{
-        val_ty.fmt(sema.pt), elem_ty.fmt(sema.pt),
-    });
-}
-
-/// Returns any valid number of remaining elements of `elem_ty` in the
-/// declaration or allocation containing `ptr_val`.
-///
-/// This function only exists for the purpose of reinterpreting types without
-/// runtime bits, and will underestimate usable memory or prevent usage in cases
-/// with any uncertainty. The related function `bytesOfContainingDecl` is
-/// theoretically accurate for types with runtime bits, and should be preferred
-/// if that is possible.
-fn elemLenOfContainingDecl(
-    sema: *Sema,
-    block: *Sema.Block,
-    src: Zcu.LazySrcLoc,
-    ptr_val: Value,
-    elem_ty: Type,
-    reject_unreliable: bool,
-) !?u64 {
-    const ptr_key: InternPool.Key.Ptr = sema.pt.zcu.intern_pool.indexToKey(Value.toIntern(ptr_val)).ptr;
-    switch (ptr_key.base_addr) {
-        .field => |field| {
-            const container_ptr: Value = Value.fromInterned(field.base);
-            const container_ty: Type = Type.childType(container_ptr.typeOf(sema.pt.zcu), sema.pt.zcu);
-            const field_ty: Type = container_ty.fieldType(try sema.usizeCast(block, src, field.index), sema.pt.zcu);
-            return try sema.elemLenOfType(block, src, elem_ty, field_ty);
-        },
-        .arr_elem => |arr_elem| {
-            const arr_ptr: Value = Value.fromInterned(arr_elem.base);
-            const arr_ty: Type = Type.childType(arr_ptr.typeOf(sema.pt.zcu), sema.pt.zcu);
-            return try sema.elemLenOfType(block, src, elem_ty, arr_ty) - arr_elem.index;
-        },
-        .comptime_alloc => |comptime_alloc| {
-            const alloc_ty: Type = sema.getComptimeAlloc(comptime_alloc).val.typeOf(sema.pt.zcu);
-            return try sema.elemLenOfType(block, src, elem_ty, alloc_ty);
-        },
-        .uav => |uav| {
-            const val_ty: Type = Value.fromInterned(uav.val).typeOf(sema.pt.zcu);
-            return try sema.elemLenOfType(block, src, elem_ty, val_ty);
-        },
-        .nav => |nav_idx| {
-            const nav: InternPool.Nav = sema.pt.zcu.intern_pool.getNav(nav_idx);
-            const decl_ty: Type = Type.fromInterned(nav.typeOf(&sema.pt.zcu.intern_pool));
-            return try sema.elemLenOfType(block, src, elem_ty, decl_ty);
-        },
-
-        // The following base pointers arbitrarily forbid reinterpretation due
-        // to higher risk of propagating an invalid value.
-
-        .comptime_field => |comptime_field| {
-            const val_ty: Type = Value.fromInterned(comptime_field).typeOf(sema.pt.zcu);
-            if (reject_unreliable) {
-                return sema.fail(block, src, "cannot reinterpret memory of (comptime field) type '{}' as element type '{}'", .{
-                    val_ty.fmt(sema.pt), elem_ty.fmt(sema.pt),
-                });
-            }
-            return try val_ty.abiSizeSema(sema.pt) - ptr_key.byte_offset;
-        },
-        .eu_payload => |eu_payload| {
-            const eu_ty: Type = Type.childType(Value.fromInterned(eu_payload).typeOf(sema.pt.zcu), sema.pt.zcu);
-            const val_ty: Type = eu_ty.errorUnionPayload(sema.pt.zcu);
-            if (reject_unreliable) {
-                return sema.fail(block, src, "cannot reinterpret memory of (error union payload) type '{}' as element type '{}'", .{
-                    val_ty.fmt(sema.pt), elem_ty.fmt(sema.pt),
-                });
-            }
-            return try val_ty.abiSizeSema(sema.pt) - ptr_key.byte_offset;
-        },
-        .opt_payload => |opt_payload| {
-            const opt_ty: Type = Type.childType(Value.fromInterned(opt_payload).typeOf(sema.pt.zcu), sema.pt.zcu);
-            const val_ty: Type = opt_ty.optionalChild(sema.pt.zcu);
-            if (reject_unreliable) {
-                return sema.fail(block, src, "cannot reinterpret memory of (optional payload) type '{}' as element type '{}'", .{
-                    val_ty.fmt(sema.pt), elem_ty.fmt(sema.pt),
-                });
-            }
-            return try val_ty.abiSizeSema(sema.pt) - ptr_key.byte_offset;
-        },
-        .int => return null,
     }
 }
 
