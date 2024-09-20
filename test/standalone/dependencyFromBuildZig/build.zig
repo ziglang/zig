@@ -8,5 +8,9 @@ pub fn build(b: *std.Build) void {
 
     const dep2 = b.dependencyFromBuildZig(@import("other"), .{});
 
+    const this_dep = b.dependencyFromBuildZig(@This(), .{});
+
+    std.debug.assert(this_dep.builder == b);
+
     std.debug.assert(dep1.module("add") == dep2.module("add"));
 }
