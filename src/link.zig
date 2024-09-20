@@ -932,7 +932,6 @@ pub const File = struct {
                 .xcoff => @panic("TODO implement xcoff object format"),
                 .hex => @panic("TODO implement hex object format"),
                 .raw => @panic("TODO implement raw object format"),
-                .dxcontainer => @panic("TODO implement dxcontainer object format"),
             };
         }
 
