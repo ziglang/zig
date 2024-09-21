@@ -1570,13 +1570,13 @@ pub const RequestOptions = struct {
 };
 
 fn validateUri(uri: Uri, arena: Allocator) !struct { Connection.Protocol, Uri } {
-    const protocol_map = std.StaticStringMap(Connection.Protocol).initComptime(.{
+    const ProtocolMap = std.ComptimeStringMap(Connection.Protocol, .{
         .{ "http", .plain },
         .{ "ws", .plain },
         .{ "https", .tls },
         .{ "wss", .tls },
     });
-    const protocol = protocol_map.get(uri.scheme) orelse return error.UnsupportedUriScheme;
+    const protocol = ProtocolMap.get(uri.scheme) orelse return error.UnsupportedUriScheme;
     var valid_uri = uri;
     // The host is always going to be needed as a raw string for hostname resolution anyway.
     valid_uri.host = .{

@@ -290,7 +290,7 @@ pub const CRTFile = struct {
 
 /// Supported languages for "zig clang -x <lang>".
 /// Loosely based on llvm-project/clang/include/clang/Driver/Types.def
-pub const LangToExt = std.StaticStringMap(FileExt).initComptime(.{
+pub const LangToExt = std.ComptimeStringMap(FileExt, .{
     .{ "c", .c },
     .{ "c-header", .h },
     .{ "c++", .cpp },

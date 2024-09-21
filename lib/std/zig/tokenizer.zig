@@ -9,7 +9,7 @@ pub const Token = struct {
         end: usize,
     };
 
-    pub const keywords = std.StaticStringMap(Tag).initComptime(.{
+    pub const Keywords = std.ComptimeStringMap(Tag, .{
         .{ "addrspace", .keyword_addrspace },
         .{ "align", .keyword_align },
         .{ "allowzero", .keyword_allowzero },
@@ -62,7 +62,7 @@ pub const Token = struct {
     });
 
     pub fn getKeyword(bytes: []const u8) ?Tag {
-        return keywords.get(bytes);
+        return Keywords.get(bytes);
     }
 
     pub const Tag = enum {

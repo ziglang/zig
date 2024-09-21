@@ -108,7 +108,7 @@ const ValueRenderLocation = enum {
 
 const BuiltinInfo = enum { none, bits };
 
-const reserved_idents = std.StaticStringMap(void).initComptime(.{
+const ReservedIdents = std.ComptimeStringMap(void, .{
     // C language
     .{ "alignas", {
         @setEvalBranchQuota(4000);
@@ -231,7 +231,7 @@ fn isReservedIdent(ident: []const u8) bool {
         mem.startsWith(u8, ident, "DUMMYUNIONNAME"))
     { // windows.h
         return true;
-    } else return reserved_idents.has(ident);
+    } else return ReservedIdents.has(ident);
 }
 
 fn formatIdent(

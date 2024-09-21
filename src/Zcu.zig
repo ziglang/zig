@@ -889,7 +889,7 @@ pub const SrcLoc = struct {
 
                     const builtin_token = main_tokens[node];
                     const builtin_name = tree.tokenSlice(builtin_token);
-                    const info = BuiltinFn.list.get(builtin_name) orelse break;
+                    const info = BuiltinFn.List.get(builtin_name) orelse break;
 
                     switch (info.tag) {
                         else => break,

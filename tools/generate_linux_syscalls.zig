@@ -9,7 +9,7 @@ const fmt = std.fmt;
 const zig = std.zig;
 const fs = std.fs;
 
-const stdlib_renames = std.StaticStringMap([]const u8).initComptime(.{
+const StdlibRenames = std.ComptimeStringMap([]const u8, .{
     // Remove underscore prefix.
     .{ "_llseek", "llseek" },
     .{ "_newselect", "newselect" },
@@ -25,7 +25,7 @@ const stdlib_renames = std.StaticStringMap([]const u8).initComptime(.{
 });
 
 // Only for newer architectures where we use the C preprocessor.
-const stdlib_renames_new = std.StaticStringMap([]const u8).initComptime(.{
+const StdlibRenamesNew = std.ComptimeStringMap([]const u8, .{
     .{ "newuname", "uname" },
     .{ "umount", "umount2" },
 });
@@ -90,7 +90,7 @@ fn abiCheck(abi: []const u8, params: *const AbiCheckParams) FlowControl {
 }
 
 fn fixedName(name: []const u8) []const u8 {
-    return if (stdlib_renames.get(name)) |fixed| fixed else name;
+    return if (StdlibRenames.get(name)) |fixed| fixed else name;
 }
 
 const ArchInfo = union(enum) {
@@ -457,7 +457,7 @@ fn processPreprocessedFile(
         const sys_name = fields.next() orelse return error.Incomplete;
         const value = fields.rest();
         const name = (getOverridenNameNew(value) orelse sys_name)["sys_".len..];
-        const fixed_name = if (stdlib_renames_new.get(name)) |f| f else if (stdlib_renames.get(name)) |f| f else name;
+        const fixed_name = if (StdlibRenamesNew.get(name)) |f| f else if (StdlibRenames.get(name)) |f| f else name;
 
         try writer.print("    {p} = {s},\n", .{ zig.fmtId(fixed_name), value });
     }
@@ -545,7 +545,7 @@ fn processPowerPcBasedArch(
         const number = fields.next() orelse return error.Incomplete;
         const abi = fields.next() orelse return error.Incomplete;
         const name = fields.next() orelse return error.Incomplete;
-        const fixed_name = if (stdlib_renames.get(name)) |fixed| fixed else name;
+        const fixed_name = if (StdlibRenames.get(name)) |fixed| fixed else name;
 
         if (mem.eql(u8, abi, "spu")) {
             continue;

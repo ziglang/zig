@@ -47,10 +47,7 @@ pub const Resource = enum {
     fontdir_num,
     manifest_num,
 
-    const map = std.StaticStringMapWithEql(
-        Resource,
-        std.static_string_map.eqlAsciiIgnoreCase,
-    ).initComptime(.{
+    const Map = std.ComptimeStringMapIgnoreCase(Resource, .{
         .{ "ACCELERATORS", .accelerators },
         .{ "BITMAP", .bitmap },
         .{ "CURSOR", .cursor },
@@ -78,7 +75,7 @@ pub const Resource = enum {
             if (ordinal.ordinal >= 256) return .user_defined;
             return fromRT(@enumFromInt(ordinal.ordinal));
         }
-        return map.get(bytes.slice) orelse .user_defined;
+        return Map.get(bytes.slice) orelse .user_defined;
     }
 
     // TODO: Some comptime validation that RT <-> Resource conversion is synced?
@@ -160,19 +157,13 @@ pub const OptionalStatements = enum {
     menu,
     style,
 
-    pub const map = std.StaticStringMapWithEql(
-        OptionalStatements,
-        std.static_string_map.eqlAsciiIgnoreCase,
-    ).initComptime(.{
+    pub const Map = std.ComptimeStringMapIgnoreCase(OptionalStatements, .{
         .{ "CHARACTERISTICS", .characteristics },
         .{ "LANGUAGE", .language },
         .{ "VERSION", .version },
     });
 
-    pub const dialog_map = std.StaticStringMapWithEql(
-        OptionalStatements,
-        std.static_string_map.eqlAsciiIgnoreCase,
-    ).initComptime(.{
+    pub const DialogMap = std.ComptimeStringMapIgnoreCase(OptionalStatements, .{
         .{ "CAPTION", .caption },
         .{ "CLASS", .class },
         .{ "EXSTYLE", .exstyle },
@@ -206,10 +197,7 @@ pub const Control = enum {
     state3,
     userbutton,
 
-    pub const map = std.StaticStringMapWithEql(
-        Control,
-        std.static_string_map.eqlAsciiIgnoreCase,
-    ).initComptime(.{
+    pub const Map = std.ComptimeStringMapIgnoreCase(Control, .{
         .{ "AUTO3STATE", .auto3state },
         .{ "AUTOCHECKBOX", .autocheckbox },
         .{ "AUTORADIOBUTTON", .autoradiobutton },
@@ -243,10 +231,7 @@ pub const Control = enum {
 };
 
 pub const ControlClass = struct {
-    pub const map = std.StaticStringMapWithEql(
-        res.ControlClass,
-        std.static_string_map.eqlAsciiIgnoreCase,
-    ).initComptime(.{
+    pub const Map = std.ComptimeStringMapIgnoreCase(res.ControlClass, .{
         .{ "BUTTON", .button },
         .{ "EDIT", .edit },
         .{ "STATIC", .static },
@@ -295,10 +280,7 @@ pub const MenuItem = enum {
     menuitem,
     popup,
 
-    pub const map = std.StaticStringMapWithEql(
-        MenuItem,
-        std.static_string_map.eqlAsciiIgnoreCase,
-    ).initComptime(.{
+    pub const Map = std.ComptimeStringMapIgnoreCase(MenuItem, .{
         .{ "MENUITEM", .menuitem },
         .{ "POPUP", .popup },
     });
@@ -315,10 +297,7 @@ pub const MenuItem = enum {
         menubarbreak,
         menubreak,
 
-        pub const map = std.StaticStringMapWithEql(
-            Option,
-            std.static_string_map.eqlAsciiIgnoreCase,
-        ).initComptime(.{
+        pub const Map = std.ComptimeStringMapIgnoreCase(Option, .{
             .{ "CHECKED", .checked },
             .{ "GRAYED", .grayed },
             .{ "HELP", .help },
@@ -333,10 +312,7 @@ pub const ToolbarButton = enum {
     button,
     separator,
 
-    pub const map = std.StaticStringMapWithEql(
-        ToolbarButton,
-        std.static_string_map.eqlAsciiIgnoreCase,
-    ).initComptime(.{
+    pub const Map = std.ComptimeStringMapIgnoreCase(ToolbarButton, .{
         .{ "BUTTON", .button },
         .{ "SEPARATOR", .separator },
     });
@@ -351,10 +327,7 @@ pub const VersionInfo = enum {
     file_type,
     file_subtype,
 
-    pub const map = std.StaticStringMapWithEql(
-        VersionInfo,
-        std.static_string_map.eqlAsciiIgnoreCase,
-    ).initComptime(.{
+    pub const Map = std.ComptimeStringMapIgnoreCase(VersionInfo, .{
         .{ "FILEVERSION", .file_version },
         .{ "PRODUCTVERSION", .product_version },
         .{ "FILEFLAGSMASK", .file_flags_mask },
@@ -369,10 +342,7 @@ pub const VersionBlock = enum {
     block,
     value,
 
-    pub const map = std.StaticStringMapWithEql(
-        VersionBlock,
-        std.static_string_map.eqlAsciiIgnoreCase,
-    ).initComptime(.{
+    pub const Map = std.ComptimeStringMapIgnoreCase(VersionBlock, .{
         .{ "BLOCK", .block },
         .{ "VALUE", .value },
     });
@@ -386,10 +356,7 @@ pub const TopLevelKeywords = enum {
     characteristics,
     stringtable,
 
-    pub const map = std.StaticStringMapWithEql(
-        TopLevelKeywords,
-        std.static_string_map.eqlAsciiIgnoreCase,
-    ).initComptime(.{
+    pub const Map = std.ComptimeStringMapIgnoreCase(TopLevelKeywords, .{
         .{ "LANGUAGE", .language },
         .{ "VERSION", .version },
         .{ "CHARACTERISTICS", .characteristics },
@@ -408,10 +375,7 @@ pub const CommonResourceAttributes = enum {
     shared,
     nonshared,
 
-    pub const map = std.StaticStringMapWithEql(
-        CommonResourceAttributes,
-        std.static_string_map.eqlAsciiIgnoreCase,
-    ).initComptime(.{
+    pub const Map = std.ComptimeStringMapIgnoreCase(CommonResourceAttributes, .{
         .{ "PRELOAD", .preload },
         .{ "LOADONCALL", .loadoncall },
         .{ "FIXED", .fixed },
@@ -432,10 +396,7 @@ pub const AcceleratorTypeAndOptions = enum {
     shift,
     control,
 
-    pub const map = std.StaticStringMapWithEql(
-        AcceleratorTypeAndOptions,
-        std.static_string_map.eqlAsciiIgnoreCase,
-    ).initComptime(.{
+    pub const Map = std.ComptimeStringMapIgnoreCase(AcceleratorTypeAndOptions, .{
         .{ "VIRTKEY", .virtkey },
         .{ "ASCII", .ascii },
         .{ "NOINVERT", .noinvert },

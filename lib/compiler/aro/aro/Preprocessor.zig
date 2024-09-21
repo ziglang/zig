@@ -1745,7 +1745,7 @@ fn expandFuncMacro(
                     }
                     if (!pp.comp.langopts.standard.atLeast(.c23)) break :res not_found;
 
-                    const attrs = std.StaticStringMap([]const u8).initComptime(.{
+                    const Attrs = std.ComptimeStringMap([]const u8, .{
                         .{ "deprecated", "201904L\n" },
                         .{ "fallthrough", "201904L\n" },
                         .{ "maybe_unused", "201904L\n" },
@@ -1757,7 +1757,7 @@ fn expandFuncMacro(
                     });
 
                     const attr_str = Attribute.normalize(pp.expandedSlice(attr_ident.?));
-                    break :res attrs.get(attr_str) orelse not_found;
+                    break :res Attrs.get(attr_str) orelse not_found;
                 };
                 const start = pp.comp.generated_buf.items.len;
                 try pp.comp.generated_buf.appendSlice(pp.gpa, result);

@@ -19,7 +19,7 @@ pub const Algorithm = enum {
     md5WithRSAEncryption,
     curveEd25519,
 
-    pub const map = std.StaticStringMap(Algorithm).initComptime(.{
+    pub const Map = std.ComptimeStringMap(Algorithm, .{
         .{ &[_]u8{ 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x05 }, .sha1WithRSAEncryption },
         .{ &[_]u8{ 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0B }, .sha256WithRSAEncryption },
         .{ &[_]u8{ 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0C }, .sha384WithRSAEncryption },
@@ -52,7 +52,7 @@ pub const AlgorithmCategory = enum {
     X9_62_id_ecPublicKey,
     curveEd25519,
 
-    pub const map = std.StaticStringMap(AlgorithmCategory).initComptime(.{
+    pub const Map = std.ComptimeStringMap(AlgorithmCategory, .{
         .{ &[_]u8{ 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x01 }, .rsaEncryption },
         .{ &[_]u8{ 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x02, 0x01 }, .X9_62_id_ecPublicKey },
         .{ &[_]u8{ 0x2B, 0x65, 0x70 }, .curveEd25519 },
@@ -73,7 +73,7 @@ pub const Attribute = enum {
     pkcs9_emailAddress,
     domainComponent,
 
-    pub const map = std.StaticStringMap(Attribute).initComptime(.{
+    pub const Map = std.ComptimeStringMap(Attribute, .{
         .{ &[_]u8{ 0x55, 0x04, 0x03 }, .commonName },
         .{ &[_]u8{ 0x55, 0x04, 0x05 }, .serialNumber },
         .{ &[_]u8{ 0x55, 0x04, 0x06 }, .countryName },
@@ -94,7 +94,7 @@ pub const NamedCurve = enum {
     secp521r1,
     X9_62_prime256v1,
 
-    pub const map = std.StaticStringMap(NamedCurve).initComptime(.{
+    pub const Map = std.ComptimeStringMap(NamedCurve, .{
         .{ &[_]u8{ 0x2B, 0x81, 0x04, 0x00, 0x22 }, .secp384r1 },
         .{ &[_]u8{ 0x2B, 0x81, 0x04, 0x00, 0x23 }, .secp521r1 },
         .{ &[_]u8{ 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x03, 0x01, 0x07 }, .X9_62_prime256v1 },
@@ -130,7 +130,7 @@ pub const ExtensionId = enum {
     netscape_cert_type,
     netscape_comment,
 
-    pub const map = std.StaticStringMap(ExtensionId).initComptime(.{
+    pub const Map = std.ComptimeStringMap(ExtensionId, .{
         .{ &[_]u8{ 0x55, 0x04, 0x03 }, .commonName },
         .{ &[_]u8{ 0x55, 0x1D, 0x01 }, .authority_key_identifier },
         .{ &[_]u8{ 0x55, 0x1D, 0x07 }, .subject_alt_name },
@@ -704,7 +704,7 @@ fn parseEnum(comptime E: type, bytes: []const u8, element: der.Element) ParseEnu
     if (element.identifier.tag != .object_identifier)
         return error.CertificateFieldHasWrongDataType;
     const oid_bytes = bytes[element.slice.start..element.slice.end];
-    return E.map.get(oid_bytes) orelse return error.CertificateHasUnrecognizedObjectId;
+    return E.Map.get(oid_bytes) orelse return error.CertificateHasUnrecognizedObjectId;
 }
 
 pub const ParseVersionError = error{ UnsupportedCertificateVersion, CertificateFieldHasInvalidLength };

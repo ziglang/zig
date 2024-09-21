@@ -823,7 +823,7 @@ fn builtinCall(astrl: *AstRlAnnotate, block: ?*Block, ri: ResultInfo, node: Ast.
     const main_tokens = tree.nodes.items(.main_token);
     const builtin_token = main_tokens[node];
     const builtin_name = tree.tokenSlice(builtin_token);
-    const info = BuiltinFn.list.get(builtin_name) orelse return false;
+    const info = BuiltinFn.List.get(builtin_name) orelse return false;
     if (info.param_count) |expected| {
         if (expected != args.len) return false;
     }

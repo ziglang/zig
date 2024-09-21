@@ -1655,27 +1655,27 @@ test "walker" {
 
     // iteration order of walker is undefined, so need lookup maps to check against
 
-    const expected_paths = std.StaticStringMap(void).initComptime(.{
-        .{"dir1"},
-        .{"dir2"},
-        .{"dir3"},
-        .{"dir4"},
-        .{"dir3" ++ fs.path.sep_str ++ "sub1"},
-        .{"dir3" ++ fs.path.sep_str ++ "sub2"},
-        .{"dir3" ++ fs.path.sep_str ++ "sub2" ++ fs.path.sep_str ++ "subsub1"},
+    const ExpectedPaths = std.ComptimeStringMap(void, .{
+        .{ "dir1", {} },
+        .{ "dir2", {} },
+        .{ "dir3", {} },
+        .{ "dir4", {} },
+        .{ "dir3" ++ fs.path.sep_str ++ "sub1", {} },
+        .{ "dir3" ++ fs.path.sep_str ++ "sub2", {} },
+        .{ "dir3" ++ fs.path.sep_str ++ "sub2" ++ fs.path.sep_str ++ "subsub1", {} },
     });
 
-    const expected_basenames = std.StaticStringMap(void).initComptime(.{
-        .{"dir1"},
-        .{"dir2"},
-        .{"dir3"},
-        .{"dir4"},
-        .{"sub1"},
-        .{"sub2"},
-        .{"subsub1"},
+    const ExpectedBasename = std.ComptimeStringMap(void, .{
+        .{ "dir1", {} },
+        .{ "dir2", {} },
+        .{ "dir3", {} },
+        .{ "dir4", {} },
+        .{ "sub1", {} },
+        .{ "sub2", {} },
+        .{ "subsub1", {} },
     });
 
-    for (expected_paths.keys()) |key| {
+    for (ExpectedPaths.keys()) |key| {
         try tmp.dir.makePath(key);
     }
 
@@ -1684,11 +1684,11 @@ test "walker" {
 
     var num_walked: usize = 0;
     while (try walker.next()) |entry| {
-        testing.expect(expected_basenames.has(entry.basename)) catch |err| {
+        testing.expect(ExpectedBasename.has(entry.basename)) catch |err| {
             std.debug.print("found unexpected basename: {s}\n", .{std.fmt.fmtSliceEscapeLower(entry.basename)});
             return err;
         };
-        testing.expect(expected_paths.has(entry.path)) catch |err| {
+        testing.expect(ExpectedPaths.has(entry.path)) catch |err| {
             std.debug.print("found unexpected path: {s}\n", .{std.fmt.fmtSliceEscapeLower(entry.path)});
             return err;
         };
@@ -1697,7 +1697,7 @@ test "walker" {
         defer entry_dir.close();
         num_walked += 1;
     }
-    try testing.expectEqual(expected_paths.kvs.len, num_walked);
+    try testing.expectEqual(ExpectedPaths.kvs.len, num_walked);
 }
 
 test "walker without fully iterating" {

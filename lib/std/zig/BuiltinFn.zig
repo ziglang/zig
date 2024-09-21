@@ -159,9 +159,9 @@ illegal_outside_function: bool = false,
 /// of parameters.
 param_count: ?u8,
 
-pub const list = list: {
+pub const List = list: {
     @setEvalBranchQuota(3000);
-    break :list std.StaticStringMap(@This()).initComptime(.{
+    break :list std.ComptimeStringMap(@This(), .{
         .{
             "@addWithOverflow",
             .{

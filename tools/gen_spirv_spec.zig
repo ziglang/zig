@@ -45,7 +45,7 @@ const OperandKindMap = std.ArrayHashMap(StringPair, OperandKind, StringPairConte
 /// Khronos made it so that these names are not defined explicitly, so
 /// we need to hardcode it (like they did).
 /// See https://github.com/KhronosGroup/SPIRV-Registry/
-const set_names = std.StaticStringMap([]const u8).initComptime(.{
+const SetNames = std.ComptimeStringMap([]const u8, .{
     .{ "opencl.std.100", "OpenCL.std" },
     .{ "glsl.std.450", "GLSL.std.450" },
     .{ "opencl.debuginfo.100", "OpenCL.DebugInfo.100" },
@@ -108,7 +108,7 @@ fn readExtRegistry(exts: *std.ArrayList(Extension), a: Allocator, dir: std.fs.Di
 
     std.sort.block(Instruction, spec.instructions, CmpInst{}, CmpInst.lt);
 
-    try exts.append(.{ .name = set_names.get(name).?, .spec = spec });
+    try exts.append(.{ .name = SetNames.get(name).?, .spec = spec });
 }
 
 fn readRegistry(comptime RegistryType: type, a: Allocator, dir: std.fs.Dir, path: []const u8) !RegistryType {

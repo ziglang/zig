@@ -248,7 +248,7 @@ pub const Feature = struct {
     }
 };
 
-pub const known_features = std.StaticStringMap(Feature.Tag).initComptime(.{
+pub const KnownFeatures = std.ComptimeStringMap(Feature.Tag, .{
     .{ "atomics", .atomics },
     .{ "bulk-memory", .bulk_memory },
     .{ "exception-handling", .exception_handling },

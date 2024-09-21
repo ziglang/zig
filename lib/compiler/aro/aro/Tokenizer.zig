@@ -837,7 +837,7 @@ pub const Token = struct {
     /// belong to the implementation namespace, so we always convert them
     /// to keywords.
     pub fn getTokenId(langopts: LangOpts, str: []const u8) Token.Id {
-        const kw = all_kws.get(str) orelse return .identifier;
+        const kw = AllKws.get(str) orelse return .identifier;
         const standard = langopts.standard;
         return switch (kw) {
             .keyword_inline => if (standard.isGNU() or standard.atLeast(.c99)) kw else .identifier,
@@ -876,7 +876,7 @@ pub const Token = struct {
         };
     }
 
-    const all_kws = std.StaticStringMap(Id).initComptime(.{
+    const AllKws = std.ComptimeStringMap(Id, .{
         .{ "auto", .keyword_auto },
         .{ "break", .keyword_break },
         .{ "case", .keyword_case },
