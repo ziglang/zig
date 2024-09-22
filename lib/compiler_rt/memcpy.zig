@@ -1,4 +1,5 @@
 const std = @import("std");
+const assert = std.debug.assert;
 const common = @import("./common.zig");
 const builtin = @import("builtin");
 
@@ -16,12 +17,12 @@ const CopyType = if (std.simd.suggestVectorLength(u8)) |vec_size|
 else
     usize;
 
-const alignment = @alignOf(CopyType);
-const size = @sizeOf(CopyType);
+const copy_alignment = @alignOf(CopyType);
+const copy_size = @sizeOf(CopyType);
 
 comptime {
-    std.debug.assert(size >= alignment);
-    std.debug.assert(std.math.isPowerOfTwo(size));
+    assert(copy_size >= copy_alignment);
+    assert(std.math.isPowerOfTwo(copy_size));
 }
 
 pub const memcpy = if (builtin.mode == .ReleaseSmall or builtin.mode == .Debug)
@@ -60,7 +61,7 @@ fn memcpy_fast(noalias dest: ?[*]u8, noalias src: ?[*]const u8, len: usize) call
 
     const unroll_count = 2;
 
-    const small_limit = @min(2 * size, unroll_count * size);
+    const small_limit = @min(2 * copy_size, unroll_count * copy_size);
     if (comptime 5 <= std.math.log2(small_limit)) {
         inline for (5..std.math.log2(small_limit) + 1) |p| {
             const limit = 1 << p;
@@ -71,23 +72,23 @@ fn memcpy_fast(noalias dest: ?[*]u8, noalias src: ?[*]const u8, len: usize) call
         }
     }
 
-    std.debug.assert(2 * size < len);
+    assert(2 * copy_size < len);
 
-    // we know that `len > 2 * size` and `size >= alignment`
-    // so we can safely align `s` to `alignment`
-    dest.?[0..size].* = src.?[0..size].*;
-    const alignment_offset = alignment - @intFromPtr(src.?) % alignment;
+    // we know that `len > 2 * copy_size` and `copy_size >= copy_alignment`
+    // so we can safely align `s` to `copy_alignment`
+    dest.?[0..copy_size].* = src.?[0..copy_size].*;
+    const alignment_offset = copy_alignment - @intFromPtr(src.?) % copy_alignment;
     const n = len - alignment_offset;
     const d = dest.? + alignment_offset;
     const s = src.? + alignment_offset;
 
-    if (@intFromPtr(d) % alignment == 0) {
+    if (@intFromPtr(d) % copy_alignment == 0) {
         memcpy_aligned(@alignCast(@ptrCast(d)), @alignCast(@ptrCast(s)), n, unroll_count);
     } else {
         memcpy_unaligned(@ptrCast(d), @alignCast(@ptrCast(s)), n, unroll_count);
     }
 
-    dest.?[len - size ..][0..size].* = src.?[len - size ..][0..size].*;
+    dest.?[len - copy_size ..][0..copy_size].* = src.?[len - copy_size ..][0..copy_size].*;
 
     return dest;
 }
@@ -122,10 +123,10 @@ inline fn memcpy_blocks(
     comptime unroll_count: comptime_int,
 ) void {
     @setRuntimeSafety(builtin.is_test);
-    comptime std.debug.assert(unroll_count > 0);
+    comptime assert(unroll_count > 0);
 
     const T = @typeInfo(@TypeOf(dest)).pointer.child;
-    comptime std.debug.assert(T == @typeInfo(@TypeOf(src)).pointer.child);
+    comptime assert(T == @typeInfo(@TypeOf(src)).pointer.child);
 
     const loop_count = max_bytes / (@sizeOf(T) * unroll_count);
 
@@ -150,14 +151,14 @@ inline fn memcpy_range2(
     len: usize,
 ) void {
     @setRuntimeSafety(builtin.is_test);
-    comptime std.debug.assert(std.math.isPowerOfTwo(copy_len));
+    comptime assert(std.math.isPowerOfTwo(copy_len));
 
     const last = len - copy_len;
-    if (copy_len > size) { // comptime-known
+    if (copy_len > copy_size) { // comptime-known
         // we do these copies 1 CopyType at a time to prevent llvm turning this into a call to memcpy
         const d: [*]align(1) CopyType = @ptrCast(dest);
         const s: [*]align(1) const CopyType = @ptrCast(src);
-        const count = @divExact(copy_len, size);
+        const count = @divExact(copy_len, copy_size);
         inline for (d[0..count], s[0..count]) |*r, v| {
             r.* = v;
         }
@@ -177,12 +178,12 @@ test "aligned" {
         fn testFunc(comptime copy_func: anytype) !void {
             @setEvalBranchQuota(1024);
             inline for (0..1024) |copy_len| {
-                var buffer: [copy_len]u8 align(alignment) = undefined;
-                const p: *align(alignment) [copy_len / 2]u16 = @ptrCast(&buffer);
+                var buffer: [copy_len]u8 align(copy_alignment) = undefined;
+                const p: *align(copy_alignment) [copy_len / 2]u16 = @ptrCast(&buffer);
                 for (p, 0..) |*b, i| {
                     b.* = @intCast(i);
                 }
-                var dest: [copy_len]u8 align(alignment) = undefined;
+                var dest: [copy_len]u8 align(copy_alignment) = undefined;
                 _ = copy_func(@ptrCast(&dest), @ptrCast(&buffer), copy_len);
                 try std.testing.expectEqualSlices(u8, &buffer, &dest);
             }
@@ -198,13 +199,13 @@ test "unaligned" {
         fn testFunc(comptime copy_func: anytype) !void {
             @setEvalBranchQuota(1024);
             inline for (0..1024) |copy_len| {
-                var buffer: [copy_len + alignment - 1]u8 align(alignment) = undefined;
-                const p: *align(alignment) [copy_len / 2]u16 = @ptrCast(&buffer);
+                var buffer: [copy_len + copy_alignment - 1]u8 align(copy_alignment) = undefined;
+                const p: *align(copy_alignment) [copy_len / 2]u16 = @ptrCast(&buffer);
                 for (p, 0..) |*b, i| {
                     b.* = @intCast(i);
                 }
-                var dest: [copy_len + alignment - 1]u8 align(alignment) = undefined;
-                for (1..alignment) |offset| {
+                var dest: [copy_len + copy_alignment - 1]u8 align(copy_alignment) = undefined;
+                for (1..copy_alignment) |offset| {
                     @memset(&dest, 0);
                     const s = buffer[offset..][0..copy_len];
                     const d = dest[offset..][0..copy_len];
@@ -224,15 +225,15 @@ test "misaligned" {
         fn testFunc(comptime copy_func: anytype) !void {
             @setEvalBranchQuota(1024);
             inline for (0..1024) |copy_len| {
-                var buffer: [copy_len + alignment - 1]u8 align(alignment) = undefined;
-                const p: *align(alignment) [copy_len / 2]u16 = @ptrCast(&buffer);
+                var buffer: [copy_len + copy_alignment - 1]u8 align(copy_alignment) = undefined;
+                const p: *align(copy_alignment) [copy_len / 2]u16 = @ptrCast(&buffer);
                 for (p, 0..) |*b, i| {
                     b.* = @intCast(i);
                 }
-                var dest: [copy_len + alignment - 1]u8 align(alignment) = undefined;
+                var dest: [copy_len + copy_alignment - 1]u8 align(copy_alignment) = undefined;
 
-                for (0..alignment) |s_offset| {
-                    for (0..alignment) |d_offset| {
+                for (0..copy_alignment) |s_offset| {
+                    for (0..copy_alignment) |d_offset| {
                         if (s_offset == d_offset) continue;
                         @memset(&dest, 0);
                         const s = buffer[s_offset..][0..copy_len];
