@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const common = @import("./common.zig");
 const floatFromInt = @import("./float_from_int.zig").floatFromInt;
 
@@ -8,6 +9,10 @@ comptime {
         @export(&__aeabi_ul2d, .{ .name = "__aeabi_ul2d", .linkage = common.linkage, .visibility = common.visibility });
     } else {
         @export(&__floatundidf, .{ .name = "__floatundidf", .linkage = common.linkage, .visibility = common.visibility });
+
+        if (common.want_mingw_arm_abi) {
+            @export(&__floatundidf, .{ .name = "__u64tod", .linkage = common.linkage, .visibility = common.visibility });
+        }
     }
 }
 
