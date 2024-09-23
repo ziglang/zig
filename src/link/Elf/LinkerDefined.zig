@@ -47,7 +47,7 @@ fn newSymbolAssumeCapacity(self: *LinkerDefined, name_off: u32, elf_file: *Elf) 
     const esym = self.symtab.addOneAssumeCapacity();
     esym.* = .{
         .st_name = name_off,
-        .st_info = elf.STB_GLOBAL << 4,
+        .st_info = elf.STB_WEAK << 4,
         .st_other = @intFromEnum(elf.STV.HIDDEN),
         .st_shndx = elf.SHN_ABS,
         .st_value = 0,
@@ -255,8 +255,10 @@ pub fn allocateSymbols(self: *LinkerDefined, elf_file: *Elf) void {
 
     // __dso_handle
     if (self.dso_handle_index) |index| {
-        const shdr = shdrs[1];
-        allocSymbol(self, index, shdr.sh_addr, 0, elf_file);
+        if (self.resolveSymbol(index, elf_file).file == self.index) {
+            const shdr = shdrs[1];
+            allocSymbol(self, index, shdr.sh_addr, 0, elf_file);
+        }
     }
 
     // __GNU_EH_FRAME_HDR
