@@ -158,7 +158,6 @@ pub fn initStartStopSymbols(self: *LinkerDefined, elf_file: *Elf) !void {
                     .index = index,
                     .file = self.index,
                 }, elf_file);
-                assert(!gop.found_existing);
                 gop.ref.* = .{ .index = index, .file = self.index };
                 self.symbols_resolver.appendAssumeCapacity(gop.index);
             }
