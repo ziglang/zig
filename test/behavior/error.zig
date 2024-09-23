@@ -1065,6 +1065,18 @@ test "errorCast from error sets to error unions" {
     try expectError(error.A, err_union);
 }
 
+test "errorCast return of error set to error union" {
+    const S = struct {
+        fn foo() error{Foo}!void {
+            return @This().bar() catch |err| @errorCast(err);
+        }
+        fn bar() error{ Foo, Bar }!void {
+            return error.Foo;
+        }
+    };
+    try std.testing.expect(S.foo() == error.Foo);
+}
+
 test "result location initialization of error union with OPV payload" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
