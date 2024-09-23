@@ -143,6 +143,10 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         try cflags.append("-Wno-visibility");
         try cflags.append("-Wno-incompatible-pointer-types");
 
+        if (target.os.tag == .windows) {
+            try cflags.append("-Wno-dll-attribute-on-redeclaration");
+        }
+
         c_source_files[i] = .{
             .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{unwind_src}),
             .extra_flags = cflags.items,
