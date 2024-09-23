@@ -845,12 +845,8 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) !voi
         stubs_asm.shrinkRetainingCapacity(0);
         try stubs_asm.appendSlice(".text\n");
 
-        var inc_i: usize = 0;
-
-        const fn_inclusions_len = mem.readInt(u16, metadata.inclusions[inc_i..][0..2], .little);
-        inc_i += 2;
-
         var sym_i: usize = 0;
+        var sym_name_buf = std.ArrayList(u8).init(arena);
         var opt_symbol_name: ?[]const u8 = null;
         var versions_buffer: [32]u8 = undefined;
         var versions_len: usize = undefined;
@@ -871,32 +867,38 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) !voi
         // twice, which causes a "duplicate symbol" assembler error.
         var versions_written = std.AutoArrayHashMap(Version, void).init(arena);
 
+        var inc_fbs = std.io.fixedBufferStream(metadata.inclusions);
+        var inc_reader = inc_fbs.reader();
+
+        const fn_inclusions_len = try inc_reader.readInt(u16, .little);
+
         while (sym_i < fn_inclusions_len) : (sym_i += 1) {
             const sym_name = opt_symbol_name orelse n: {
-                const name = mem.sliceTo(metadata.inclusions[inc_i..], 0);
-                inc_i += name.len + 1;
+                sym_name_buf.clearRetainingCapacity();
+                try inc_reader.streamUntilDelimiter(sym_name_buf.writer(), 0, null);
 
-                opt_symbol_name = name;
+                opt_symbol_name = sym_name_buf.items;
                 versions_buffer = undefined;
                 versions_len = 0;
-                break :n name;
-            };
-            const targets = mem.readInt(u32, metadata.inclusions[inc_i..][0..4], .little);
-            inc_i += 4;
 
-            const lib_index = metadata.inclusions[inc_i];
-            inc_i += 1;
-            const is_terminal = (targets & (1 << 31)) != 0;
-            if (is_terminal) opt_symbol_name = null;
+                break :n sym_name_buf.items;
+            };
+            const targets = try std.leb.readUleb128(u64, inc_reader);
+            var lib_index = try inc_reader.readByte();
+
+            const is_terminal = (lib_index & (1 << 7)) != 0;
+            if (is_terminal) {
+                lib_index &= ~@as(u8, 1 << 7);
+                opt_symbol_name = null;
+            }
 
             // Test whether the inclusion applies to our current library and target.
             const ok_lib_and_target =
                 (lib_index == lib_i) and
-                ((targets & (@as(u32, 1) << @as(u5, @intCast(target_targ_index)))) != 0);
+                ((targets & (@as(u64, 1) << @as(u6, @intCast(target_targ_index)))) != 0);
 
             while (true) {
-                const byte = metadata.inclusions[inc_i];
-                inc_i += 1;
+                const byte = try inc_reader.readByte();
                 const last = (byte & 0b1000_0000) != 0;
                 const ver_i = @as(u7, @truncate(byte));
                 if (ok_lib_and_target and ver_i <= target_ver_index) {
@@ -1027,8 +1029,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) !voi
             , .{wordDirective(target)});
         }
 
-        const obj_inclusions_len = mem.readInt(u16, metadata.inclusions[inc_i..][0..2], .little);
-        inc_i += 2;
+        const obj_inclusions_len = try inc_reader.readInt(u16, .little);
 
         sym_i = 0;
         opt_symbol_name = null;
@@ -1036,33 +1037,32 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) !voi
         versions_len = undefined;
         while (sym_i < obj_inclusions_len) : (sym_i += 1) {
             const sym_name = opt_symbol_name orelse n: {
-                const name = mem.sliceTo(metadata.inclusions[inc_i..], 0);
-                inc_i += name.len + 1;
+                sym_name_buf.clearRetainingCapacity();
+                try inc_reader.streamUntilDelimiter(sym_name_buf.writer(), 0, null);
 
-                opt_symbol_name = name;
+                opt_symbol_name = sym_name_buf.items;
                 versions_buffer = undefined;
                 versions_len = 0;
-                break :n name;
+
+                break :n sym_name_buf.items;
             };
-            const targets = mem.readInt(u32, metadata.inclusions[inc_i..][0..4], .little);
-            inc_i += 4;
+            const targets = try std.leb.readUleb128(u64, inc_reader);
+            const size = try std.leb.readUleb128(u16, inc_reader);
+            var lib_index = try inc_reader.readByte();
 
-            const size = mem.readInt(u16, metadata.inclusions[inc_i..][0..2], .little);
-            inc_i += 2;
-
-            const lib_index = metadata.inclusions[inc_i];
-            inc_i += 1;
-            const is_terminal = (targets & (1 << 31)) != 0;
-            if (is_terminal) opt_symbol_name = null;
+            const is_terminal = (lib_index & (1 << 7)) != 0;
+            if (is_terminal) {
+                lib_index &= ~@as(u8, 1 << 7);
+                opt_symbol_name = null;
+            }
 
             // Test whether the inclusion applies to our current library and target.
             const ok_lib_and_target =
                 (lib_index == lib_i) and
-                ((targets & (@as(u32, 1) << @as(u5, @intCast(target_targ_index)))) != 0);
+                ((targets & (@as(u64, 1) << @as(u6, @intCast(target_targ_index)))) != 0);
 
             while (true) {
-                const byte = metadata.inclusions[inc_i];
-                inc_i += 1;
+                const byte = try inc_reader.readByte();
                 const last = (byte & 0b1000_0000) != 0;
                 const ver_i = @as(u7, @truncate(byte));
                 if (ok_lib_and_target and ver_i <= target_ver_index) {
