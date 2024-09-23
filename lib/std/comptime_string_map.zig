@@ -1,11 +1,13 @@
 const std = @import("std.zig");
 
+/// 'comptime' optimized mapping between string keys and associated values.
 pub fn ComptimeStringMap(comptime V: type, comptime kvs_list: anytype) type {
-    return ComptimeStringMapWithEql(V, u8, kvs_list, defaultEql);
+    return ComptimeStringMapAdvanced(V, u8, kvs_list, defaultEql);
 }
 
+/// Same as ComptimeStringMap, except keys are compared case-insensitively.
 pub fn ComptimeStringMapIgnoreCase(comptime V: type, comptime kvs_list: anytype) type {
-    return ComptimeStringMapWithEql(V, u8, kvs_list, ignoreCaseEql);
+    return ComptimeStringMapAdvanced(V, u8, kvs_list, ignoreCaseEql);
 }
 
 fn defaultEql(comptime T: type, comptime len: usize, comptime expected: [len]u8, actual: [len]u8) bool {
@@ -37,7 +39,7 @@ fn toLowerSimd(comptime len: usize, input: [len]u8) [len]u8 {
 
 /// Static string map constructed at compile time for additional optimizations.
 /// First branches on the key length, then compares the possible matching keys.
-pub fn ComptimeStringMapWithEql(
+pub fn ComptimeStringMapAdvanced(
     /// The type of the value
     comptime V: type,
     /// The type of the element in the array, eg. []const T - would be u8 for a string
