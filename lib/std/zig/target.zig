@@ -35,6 +35,7 @@ pub const available_libcs = [_]ArchOsAbi{
     .{ .arch = .x86, .os = .linux, .abi = .musl },
     .{ .arch = .x86, .os = .windows, .abi = .gnu },
     .{ .arch = .loongarch64, .os = .linux, .abi = .gnu, .glibc_min = .{ .major = 2, .minor = 36, .patch = 0 } },
+    .{ .arch = .loongarch64, .os = .linux, .abi = .gnusf, .glibc_min = .{ .major = 2, .minor = 36, .patch = 0 } },
     .{ .arch = .loongarch64, .os = .linux, .abi = .musl },
     .{ .arch = .m68k, .os = .linux, .abi = .gnu },
     .{ .arch = .m68k, .os = .linux, .abi = .musl },
