@@ -1,21 +1,22 @@
 const std = @import("std.zig");
 
 pub fn ComptimeStringMap(comptime V: type, comptime kvs_list: anytype) type {
-    return ComptimeStringMapWithEql(V, kvs_list, defaultEql);
+    return ComptimeStringMapWithEql(V, u8, kvs_list, defaultEql);
 }
 
 pub fn ComptimeStringMapIgnoreCase(comptime V: type, comptime kvs_list: anytype) type {
-    return ComptimeStringMapWithEql(V, kvs_list, ignoreCaseEql);
+    return ComptimeStringMapWithEql(V, u8, kvs_list, ignoreCaseEql);
 }
 
-fn defaultEql(comptime len: usize, comptime expected: [len]u8, actual: [len]u8) bool {
-    const Compare = std.meta.Int(.unsigned, len * 8);
+fn defaultEql(comptime T: type, comptime len: usize, comptime expected: [len]u8, actual: [len]u8) bool {
+    const Compare = std.meta.Int(.unsigned, len * @sizeOf(T) * std.mem.byte_size_in_bits);
     const a: Compare = @bitCast(expected);
     const b: Compare = @bitCast(actual);
     return a == b;
 }
 
-fn ignoreCaseEql(comptime len: usize, comptime expected: [len]u8, actual: [len]u8) bool {
+fn ignoreCaseEql(comptime T: type, comptime len: usize, comptime expected: [len]u8, actual: [len]u8) bool {
+    if (T != u8) @compileError("ignoreCaseEql only works with ASCII or UTF-8");
     const lower_expected = comptime toLowerSimd(len, expected);
     const lower_actual = toLowerSimd(len, actual);
     return defaultEql(len, lower_expected, lower_actual);
@@ -37,27 +38,32 @@ fn toLowerSimd(comptime len: usize, input: [len]u8) [len]u8 {
 /// Static string map constructed at compile time for additional optimizations.
 /// First branches on the key length, then compares the possible matching keys.
 pub fn ComptimeStringMapWithEql(
+    /// The type of the value
     comptime V: type,
+    /// The type of the element in the array, eg. []const T - would be u8 for a string
+    comptime T: type,
+    /// An array/slice of key/value pairs: eg. .{ .{ "a", .a }, .{ "ab", .b }, .{ "abc", .c }, ...}
     comptime kvs_list: anytype,
-    comptime eql: fn (comptime usize, comptime anytype, anytype) bool,
+    /// The equal function that is used to compare the keys
+    comptime eql: fn (comptime T: type, comptime usize, comptime anytype, anytype) bool,
 ) type {
     return struct {
         pub const Kv = struct {
-            key: []const u8,
+            key: []const T,
             value: V,
         };
 
         /// Returns the value for the key if any, else null.
-        pub fn has(key: []const u8) bool {
+        pub fn has(key: []const T) bool {
             return get(key) != null;
         }
 
         /// Checks if the map has a value for the key.
-        pub fn get(key: []const u8) ?V {
+        pub fn get(key: []const T) ?V {
             return switch (kvs.len) {
                 0 => null,
                 1 => blk: {
-                    const equal = std.mem.eql(u8, kvs[0].key, key);
+                    const equal = std.mem.eql(T, kvs[0].key, key);
                     break :blk if (equal) kvs[0].value else null;
                 },
                 else => filterLength(key),
@@ -65,8 +71,8 @@ pub fn ComptimeStringMapWithEql(
         }
 
         /// The list of all the keys in the map.
-        pub const keys: []const []const u8 = blk: {
-            var key_list: []const []const u8 = &.{};
+        pub const keys: []const []const T = blk: {
+            var key_list: []const []const T = &.{};
             for (kvs_list) |kv| {
                 key_list = key_list ++ .{kv[0]};
             }
@@ -93,7 +99,7 @@ pub fn ComptimeStringMapWithEql(
 
         /// Filters the input key by length, then compares it to the possible matches.
         /// Because we know the length at comptime, we can compare the strings faster.
-        fn filterLength(key: []const u8) ?V {
+        fn filterLength(key: []const T) ?V {
             // Provide 2000 branches per key/value pair to compile.
             @setEvalBranchQuota(2000 * kvs_list.len);
             const kvs_by_lengths = comptime separateLength();
@@ -101,7 +107,7 @@ pub fn ComptimeStringMapWithEql(
                 const len = kvs_by_len.length;
                 if (key.len == len) {
                     inline for (kvs_by_len.kvs) |kv| {
-                        if (eql(len, kv.key[0..len].*, key[0..len].*)) {
+                        if (eql(T, len, kv.key[0..len].*, key[0..len].*)) {
                             return kv.value;
                         }
                     }

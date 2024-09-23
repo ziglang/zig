@@ -2877,10 +2877,10 @@ fn renderIdentifier(r: *Render, token_index: Ast.TokenIndex, space: Space, quote
     // If we read the whole thing, we have to do further checks.
     const longest_keyword_or_primitive_len = comptime blk: {
         var longest = 0;
-        for (primitives.names.keys()) |key| {
+        for (primitives.Names.keys) |key| {
             if (key.len > longest) longest = key.len;
         }
-        for (std.zig.Token.keywords.keys()) |key| {
+        for (std.zig.Token.Keywords.keys) |key| {
             if (key.len > longest) longest = key.len;
         }
         break :blk longest;
