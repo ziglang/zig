@@ -5428,6 +5428,9 @@ fn zirValidateDestructure(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
             const msg = try sema.errMsg(src, "type '{}' cannot be destructured", .{operand_ty.fmt(pt)});
             errdefer msg.destroy(sema.gpa);
             try sema.errNote(destructure_src, msg, "result destructured here", .{});
+            if (operand_ty.zigTypeTag(pt.zcu) == .error_union) {
+                try sema.errNote(src, msg, "consider using 'try', 'catch', or 'if'", .{});
+            }
             break :msg msg;
         });
     }
