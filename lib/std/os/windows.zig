@@ -599,6 +599,8 @@ pub const ReadFileError = error{
     /// The specified network name is no longer available.
     ConnectionResetByPeer,
     OperationAborted,
+    /// Unable to read file due to lock.
+    LockViolation,
     Unexpected,
 };
 
@@ -630,6 +632,7 @@ pub fn ReadFile(in_hFile: HANDLE, buffer: []u8, offset: ?u64) ReadFileError!usiz
                 .BROKEN_PIPE => return 0,
                 .HANDLE_EOF => return 0,
                 .NETNAME_DELETED => return error.ConnectionResetByPeer,
+                .LOCK_VIOLATION => return error.LockViolation,
                 else => |err| return unexpectedError(err),
             }
         }

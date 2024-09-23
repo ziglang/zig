@@ -802,6 +802,9 @@ pub const ReadError = error{
     /// This error occurs in Linux if the process to be read from
     /// no longer exists.
     ProcessNotFound,
+
+    /// Unable to read file due to lock.
+    LockViolation,
 } || UnexpectedError;
 
 /// Returns the number of bytes that were read, which can be less than
