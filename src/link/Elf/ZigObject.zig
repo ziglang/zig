@@ -603,12 +603,6 @@ pub fn resolveSymbols(self: *ZigObject, elf_file: *Elf) !void {
         const global = &self.symbols.items[index];
         const esym = global.elfSym(elf_file);
         const shndx = self.symtab.items(.shndx)[global.esym_index];
-        if (esym.st_shndx != elf.SHN_ABS and esym.st_shndx != elf.SHN_COMMON and esym.st_shndx != elf.SHN_UNDEF) {
-            assert(esym.st_shndx == SHN_ATOM);
-            const atom_ptr = self.atom(shndx) orelse continue;
-            if (!atom_ptr.alive) continue;
-        }
-
         const resolv = &self.symbols_resolver.items[i];
         const gop = try elf_file.resolver.getOrPut(gpa, .{
             .index = @intCast(i | global_symbol_bit),
@@ -620,6 +614,11 @@ pub fn resolveSymbols(self: *ZigObject, elf_file: *Elf) !void {
         resolv.* = gop.index;
 
         if (esym.st_shndx == elf.SHN_UNDEF) continue;
+        if (esym.st_shndx != elf.SHN_ABS and esym.st_shndx != elf.SHN_COMMON) {
+            assert(esym.st_shndx == SHN_ATOM);
+            const atom_ptr = self.atom(shndx) orelse continue;
+            if (!atom_ptr.alive) continue;
+        }
         if (elf_file.symbol(gop.ref.*) == null) {
             gop.ref.* = .{ .index = @intCast(i | global_symbol_bit), .file = self.index };
             continue;
