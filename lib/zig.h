@@ -248,36 +248,54 @@ typedef char bool;
 
 #if zig_has_builtin(trap)
 #define zig_trap() __builtin_trap()
-#elif _MSC_VER && (_M_IX86 || _M_X64)
+#elif defined(_MSC_VER) && (defined(_M_IX86) || defined(_M_X64))
 #define zig_trap() __ud2()
-#elif _MSC_VER
-#define zig_trap() __fastfail(0)
-#elif defined(__i386__) || defined(__x86_64__)
-#define zig_trap() __asm__ volatile("ud2");
+#elif defined(_MSC_VER)
+#define zig_trap() __fastfail(7)
+#elif defined(__thumb__)
+#define zig_trap() __asm__ volatile("udf #0xfe")
 #elif defined(__arm__) || defined(__aarch64__)
-#define zig_trap() __asm__ volatile("udf #0");
+#define zig_trap() __asm__ volatile("udf #0xfdee")
+#elif defined(__loongarch__) || defined(__powerpc__)
+#define zig_trap() __asm__ volatile(".word 0x0")
+#elif defined(__mips__)
+#define zig_trap() __asm__ volatile(".word 0x3d")
+#elif defined(__riscv)
+#define zig_trap() __asm__ volatile("unimp")
+#elif defined(__s390__)
+#define zig_trap() __asm__ volatile("j 0x2")
+#elif defined(__sparc__)
+#define zig_trap() __asm__ volatile("illtrap")
+#elif defined(__i386__) || defined(__x86_64__)
+#define zig_trap() __asm__ volatile("ud2")
 #else
-#include <stdlib.h>
-#define zig_trap() abort()
+#define zig_trap() zig_trap_unavailable
 #endif
 
 #if zig_has_builtin(debugtrap)
 #define zig_breakpoint() __builtin_debugtrap()
 #elif defined(_MSC_VER) || defined(__MINGW32__) || defined(__MINGW64__)
 #define zig_breakpoint() __debugbreak()
-#elif defined(__i386__) || defined(__x86_64__)
-#define zig_breakpoint() __asm__ volatile("int $0x03");
 #elif defined(__arm__)
-#define zig_breakpoint() __asm__ volatile("bkpt #0");
+#define zig_breakpoint() __asm__ volatile("bkpt #0x0")
 #elif defined(__aarch64__)
-#define zig_breakpoint() __asm__ volatile("brk #0");
-#else
-#include <signal.h>
-#if defined(SIGTRAP)
-#define zig_breakpoint() raise(SIGTRAP)
+#define zig_breakpoint() __asm__ volatile("brk #0xf000")
+#elif defined(__loongarch__)
+#define zig_breakpoint() __asm__ volatile("break 0x0")
+#elif defined(__mips__)
+#define zig_breakpoint() __asm__ volatile("break")
+#elif defined(__powerpc__)
+#define zig_breakpoint() __asm__ volatile("trap")
+#elif defined(__riscv)
+#define zig_breakpoint() __asm__ volatile("ebreak")
+#elif defined(__s390__)
+#define zig_breakpoint() __asm__ volatile("j 0x6")
+#elif defined(__sparc__)
+#define zig_breakpoint() __asm__ volatile("ta 0x1")
+#elif defined(__i386__) || defined(__x86_64__)
+#define zig_breakpoint() __asm__ volatile("int $0x3")
 #else
 #define zig_breakpoint() zig_breakpoint_unavailable
-#endif
 #endif
 
 #if zig_has_builtin(return_address) || defined(zig_gnuc)
