@@ -597,7 +597,7 @@ fn lvalExpr(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Ins
             const builtin_name = tree.tokenSlice(builtin_token);
             // If the builtin is an invalid name, we don't cause an error here; instead
             // let it pass, and the error will be "invalid builtin function" later.
-            if (BuiltinFn.List.get(builtin_name)) |info| {
+            if (BuiltinFn.list.get(builtin_name)) |info| {
                 if (!info.allows_lvalue) {
                     return astgen.failNode(node, "invalid left-hand side to assignment", .{});
                 }
@@ -8982,7 +8982,7 @@ fn ptrCast(
 
         const builtin_token = main_tokens[node];
         const builtin_name = tree.tokenSlice(builtin_token);
-        const info = BuiltinFn.List.get(builtin_name) orelse break;
+        const info = BuiltinFn.list.get(builtin_name) orelse break;
         if (node_datas[node].rhs == 0) {
             // 1 arg
             if (info.param_count != 1) break;
@@ -9191,7 +9191,7 @@ fn builtinCall(
     // and `@cImport` creates a special scope that collects a .c source code text buffer.
     // Also, some builtins have a variable number of parameters.
 
-    const info = BuiltinFn.List.get(builtin_name) orelse {
+    const info = BuiltinFn.list.get(builtin_name) orelse {
         return astgen.failNode(node, "invalid builtin function: '{s}'", .{
             builtin_name,
         });
@@ -10516,7 +10516,7 @@ fn nodeMayEvalToError(tree: *const Ast, start_node: Ast.Node.Index) BuiltinFn.Ev
                 const builtin_name = tree.tokenSlice(builtin_token);
                 // If the builtin is an invalid name, we don't cause an error here; instead
                 // let it pass, and the error will be "invalid builtin function" later.
-                const builtin_info = BuiltinFn.List.get(builtin_name) orelse return .maybe;
+                const builtin_info = BuiltinFn.list.get(builtin_name) orelse return .maybe;
                 return builtin_info.eval_to_error;
             },
         }

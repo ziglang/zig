@@ -1345,7 +1345,7 @@ pub const Compiler = struct {
             const accelerator: *Node.Accelerator = @alignCast(@fieldParentPtr("base", accel_node));
             var modifiers = res.AcceleratorModifiers{};
             for (accelerator.type_and_options) |type_or_option| {
-                const modifier = rc.AcceleratorTypeAndOptions.Map.get(type_or_option.slice(self.source)).?;
+                const modifier = rc.AcceleratorTypeAndOptions.map.get(type_or_option.slice(self.source)).?;
                 modifiers.apply(modifier);
             }
             if (accelerator.event.isNumberExpression() and !modifiers.explicit_ascii_or_virtkey) {
@@ -1428,7 +1428,7 @@ pub const Compiler = struct {
                 .simple_statement => {
                     const simple_statement: *Node.SimpleStatement = @alignCast(@fieldParentPtr("base", optional_statement));
                     const statement_identifier = simple_statement.identifier;
-                    const statement_type = rc.OptionalStatements.DialogMap.get(statement_identifier.slice(self.source)) orelse continue;
+                    const statement_type = rc.OptionalStatements.dialog_map.get(statement_identifier.slice(self.source)) orelse continue;
                     switch (statement_type) {
                         .style, .exstyle => {
                             const style = evaluateFlagsExpressionWithDefault(0, simple_statement.value, self.source, self.input_code_pages);
@@ -1563,7 +1563,7 @@ pub const Compiler = struct {
 
         for (skipped_menu_or_classes.items) |simple_statement| {
             const statement_identifier = simple_statement.identifier;
-            const statement_type = rc.OptionalStatements.DialogMap.get(statement_identifier.slice(self.source)) orelse continue;
+            const statement_type = rc.OptionalStatements.dialog_map.get(statement_identifier.slice(self.source)) orelse continue;
             try self.addErrorDetails(.{
                 .err = .duplicate_menu_or_class_skipped,
                 .type = .warning,
@@ -1813,7 +1813,7 @@ pub const Compiler = struct {
         bytes_written_so_far: u32,
         controls_by_id: *std.AutoHashMap(u32, *const Node.ControlStatement),
     ) !void {
-        const control_type = rc.Control.Map.get(control.type.slice(self.source)).?;
+        const control_type = rc.Control.map.get(control.type.slice(self.source)).?;
 
         // Each control must be at a 4-byte boundary. However, the Windows RC
         // compiler will miscompile controls if their extra data ends on an odd offset.
@@ -1958,7 +1958,7 @@ pub const Compiler = struct {
                 const literal_node: *Node.Literal = @alignCast(@fieldParentPtr("base", class_node));
                 const literal_slice = literal_node.token.slice(self.source);
                 // This succeeding is guaranteed by the parser
-                const control_class = rc.ControlClass.Map.get(literal_slice) orelse unreachable;
+                const control_class = rc.ControlClass.map.get(literal_slice) orelse unreachable;
                 const ordinal = NameOrOrdinal{ .ordinal = @intFromEnum(control_class) };
                 try ordinal.write(data_writer);
             }
@@ -2182,7 +2182,7 @@ pub const Compiler = struct {
                 var flags = res.MenuItemFlags{};
                 for (menu_item.option_list) |option_token| {
                     // This failing would be a bug in the parser
-                    const option = rc.MenuItem.Option.Map.get(option_token.slice(self.source)) orelse unreachable;
+                    const option = rc.MenuItem.Option.map.get(option_token.slice(self.source)) orelse unreachable;
                     flags.apply(option);
                 }
                 if (is_last_of_parent) flags.markLast();
@@ -2200,7 +2200,7 @@ pub const Compiler = struct {
                 var flags = res.MenuItemFlags{ .value = res.MF.POPUP };
                 for (popup.option_list) |option_token| {
                     // This failing would be a bug in the parser
-                    const option = rc.MenuItem.Option.Map.get(option_token.slice(self.source)) orelse unreachable;
+                    const option = rc.MenuItem.Option.map.get(option_token.slice(self.source)) orelse unreachable;
                     flags.apply(option);
                 }
                 if (is_last_of_parent) flags.markLast();
@@ -2296,7 +2296,7 @@ pub const Compiler = struct {
             switch (fixed_info.id) {
                 .version_statement => {
                     const version_statement: *Node.VersionStatement = @alignCast(@fieldParentPtr("base", fixed_info));
-                    const version_type = rc.VersionInfo.Map.get(version_statement.type.slice(self.source)).?;
+                    const version_type = rc.VersionInfo.map.get(version_statement.type.slice(self.source)).?;
 
                     // Ensure that all parts are cleared for each version, to properly account for
                     // potential duplicate PRODUCTVERSION/FILEVERSION statements
@@ -2346,7 +2346,7 @@ pub const Compiler = struct {
                 },
                 .simple_statement => {
                     const statement: *Node.SimpleStatement = @alignCast(@fieldParentPtr("base", fixed_info));
-                    const statement_type = rc.VersionInfo.Map.get(statement.identifier.slice(self.source)).?;
+                    const statement_type = rc.VersionInfo.map.get(statement.identifier.slice(self.source)).?;
                     const value = evaluateNumberExpression(statement.value, self.source, self.input_code_pages);
                     switch (statement_type) {
                         .file_flags_mask => fixed_file_info.file_flags_mask = value.value,
@@ -2555,7 +2555,7 @@ pub const Compiler = struct {
     /// Expects this to be a top-level VERSION or CHARACTERISTICS statement
     pub fn writeTopLevelSimpleStatement(self: *Compiler, node: *Node.SimpleStatement) void {
         const value = Compiler.evaluateNumberExpression(node.value, self.source, self.input_code_pages);
-        const statement_type = rc.TopLevelKeywords.Map.get(node.identifier.slice(self.source)).?;
+        const statement_type = rc.TopLevelKeywords.map.get(node.identifier.slice(self.source)).?;
         switch (statement_type) {
             .characteristics => self.state.characteristics = value.value,
             .version => self.state.version = value.value,
@@ -2735,7 +2735,7 @@ pub const Compiler = struct {
 
     fn applyToMemoryFlags(flags: *MemoryFlags, tokens: []Token, source: []const u8) void {
         for (tokens) |token| {
-            const attribute = rc.CommonResourceAttributes.Map.get(token.slice(source)).?;
+            const attribute = rc.CommonResourceAttributes.map.get(token.slice(source)).?;
             flags.set(attribute);
         }
     }
@@ -2757,7 +2757,7 @@ pub const Compiler = struct {
         const initial_flags = flags.*;
         var flags_set = std.enums.EnumSet(rc.CommonResourceAttributes).initEmpty();
         for (tokens) |token| {
-            const attribute = rc.CommonResourceAttributes.Map.get(token.slice(source)).?;
+            const attribute = rc.CommonResourceAttributes.map.get(token.slice(source)).?;
             flags_set.insert(attribute);
         }
         if (!flags_set.contains(.preload)) return;
@@ -2767,7 +2767,7 @@ pub const Compiler = struct {
         //    For example, `PRELOAD LOADONCALL` will result in default flags, but
         //    `LOADONCALL PRELOAD` will have PRELOAD set after they are both applied in order.
         for (tokens) |token| {
-            const attribute = rc.CommonResourceAttributes.Map.get(token.slice(source)).?;
+            const attribute = rc.CommonResourceAttributes.map.get(token.slice(source)).?;
             switch (attribute) {
                 .preload, .loadoncall => flags.set(attribute),
                 else => {},
@@ -2786,7 +2786,7 @@ pub const Compiler = struct {
         };
         const discardable_shared_or_pure_specified = flags_set.intersectWith(shared_set).count() != 0;
         for (tokens) |token| {
-            const attribute = rc.CommonResourceAttributes.Map.get(token.slice(source)).?;
+            const attribute = rc.CommonResourceAttributes.map.get(token.slice(source)).?;
             flags.setGroup(attribute, !discardable_shared_or_pure_specified);
         }
     }
@@ -2800,7 +2800,7 @@ pub const Compiler = struct {
             },
             .simple_statement => {
                 const simple_statement: *Node.SimpleStatement = @alignCast(@fieldParentPtr("base", node));
-                const statement_type = rc.OptionalStatements.Map.get(simple_statement.identifier.slice(source)) orelse continue;
+                const statement_type = rc.OptionalStatements.map.get(simple_statement.identifier.slice(source)) orelse continue;
                 const result = Compiler.evaluateNumberExpression(simple_statement.value, source, code_page_lookup);
                 switch (statement_type) {
                     .version => version.* = result.value,

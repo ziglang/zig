@@ -704,7 +704,7 @@ fn parseEnum(comptime E: type, bytes: []const u8, element: der.Element) ParseEnu
     if (element.identifier.tag != .object_identifier)
         return error.CertificateFieldHasWrongDataType;
     const oid_bytes = bytes[element.slice.start..element.slice.end];
-    return E.Map.get(oid_bytes) orelse return error.CertificateHasUnrecognizedObjectId;
+    return E.map.get(oid_bytes) orelse return error.CertificateHasUnrecognizedObjectId;
 }
 
 pub const ParseVersionError = error{ UnsupportedCertificateVersion, CertificateFieldHasInvalidLength };

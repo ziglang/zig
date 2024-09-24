@@ -595,7 +595,7 @@ fn Parser(comptime ReaderType: type) type {
                 defer gpa.free(name);
                 try reader.readNoEof(name);
 
-                const tag = types.KnownFeatures.get(name) orelse {
+                const tag = types.known_features.get(name) orelse {
                     var err = try parser.wasm_file.base.addErrorWithNotes(1);
                     try err.addMsg("Object file contains unknown feature: {s}", .{name});
                     try err.addNote("defined in '{s}'", .{parser.object.path});

@@ -1665,7 +1665,7 @@ test "walker" {
         .{ "dir3" ++ fs.path.sep_str ++ "sub2" ++ fs.path.sep_str ++ "subsub1", {} },
     });
 
-    const expected_basename = std.StaticStringMap(void).initComptime(.{
+    const expected_basenames = std.StaticStringMap(void).initComptime(.{
         .{ "dir1", {} },
         .{ "dir2", {} },
         .{ "dir3", {} },
@@ -1684,7 +1684,7 @@ test "walker" {
 
     var num_walked: usize = 0;
     while (try walker.next()) |entry| {
-        testing.expect(expected_basename.has(entry.basename)) catch |err| {
+        testing.expect(expected_basenames.has(entry.basename)) catch |err| {
             std.debug.print("found unexpected basename: {s}\n", .{std.fmt.fmtSliceEscapeLower(entry.basename)});
             return err;
         };
