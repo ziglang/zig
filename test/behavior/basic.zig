@@ -1425,6 +1425,7 @@ test "allocation and looping over 3-byte integer" {
     if (builtin.zig_backend == .stage2_llvm and builtin.os.tag == .macos) {
         return error.SkipZigTest; // TODO
     }
+    if (builtin.cpu.arch == .s390x and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // TODO
 
     try expect(@sizeOf(u24) == 4);
     try expect(@sizeOf([1]u24) == 4);

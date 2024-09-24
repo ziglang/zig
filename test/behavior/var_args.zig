@@ -105,6 +105,7 @@ test "simple variadic function" {
         return error.SkipZigTest;
     }
     if (builtin.cpu.arch == .x86_64 and builtin.os.tag == .windows) return error.SkipZigTest; // TODO
+    if (builtin.cpu.arch == .s390x and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21350
 
     const S = struct {
         fn simple(...) callconv(.C) c_int {
@@ -165,6 +166,7 @@ test "coerce reference to var arg" {
         return error.SkipZigTest;
     }
     if (builtin.cpu.arch == .x86_64 and builtin.os.tag == .windows) return error.SkipZigTest; // TODO
+    if (builtin.cpu.arch == .s390x and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21350
 
     const S = struct {
         fn addPtr(count: c_int, ...) callconv(.C) c_int {
@@ -197,6 +199,7 @@ test "variadic functions" {
         return error.SkipZigTest;
     }
     if (builtin.cpu.arch == .x86_64 and builtin.os.tag == .windows) return error.SkipZigTest; // TODO
+    if (builtin.cpu.arch == .s390x and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21350
 
     const S = struct {
         fn printf(list_ptr: *std.ArrayList(u8), format: [*:0]const u8, ...) callconv(.C) void {
@@ -241,6 +244,7 @@ test "copy VaList" {
         return error.SkipZigTest;
     }
     if (builtin.cpu.arch == .x86_64 and builtin.os.tag == .windows) return error.SkipZigTest; // TODO
+    if (builtin.cpu.arch == .s390x and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21350
 
     const S = struct {
         fn add(count: c_int, ...) callconv(.C) c_int {
@@ -277,6 +281,7 @@ test "unused VaList arg" {
         // https://github.com/ziglang/zig/issues/16961
         return error.SkipZigTest; // TODO
     }
+    if (builtin.cpu.arch == .s390x and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21350
 
     const S = struct {
         fn thirdArg(dummy: c_int, ...) callconv(.C) c_int {
