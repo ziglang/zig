@@ -1048,6 +1048,7 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
     try self.updateMergeSectionSizes();
     try self.updateSectionSizes();
 
+    try self.addLoadPhdrs();
     try self.allocatePhdrTable();
     try self.allocateAllocSections();
     try self.sortPhdrs();
@@ -3729,27 +3730,19 @@ fn getMaxNumberOfPhdrs() u64 {
     return num;
 }
 
-/// Calculates how many segments (PT_LOAD progam headers) are required
-/// to cover the set of sections.
-/// We permit a maximum of 3**2 number of segments.
-fn calcNumberOfSegments(self: *Elf) usize {
-    var covers: [9]bool = [_]bool{false} ** 9;
+fn addLoadPhdrs(self: *Elf) error{OutOfMemory}!void {
     for (self.sections.items(.shdr)) |shdr| {
         if (shdr.sh_type == elf.SHT_NULL) continue;
         if (shdr.sh_flags & elf.SHF_ALLOC == 0) continue;
         const flags = shdrToPhdrFlags(shdr.sh_flags);
-        covers[flags - 1] = true;
+        if (self.getPhdr(.{ .flags = flags, .type = elf.PT_LOAD }) == null) {
+            _ = try self.addPhdr(.{ .flags = flags, .type = elf.PT_LOAD });
+        }
     }
-    var count: usize = 0;
-    for (covers) |cover| {
-        if (cover) count += 1;
-    }
-    return count;
 }
 
 /// Allocates PHDR table in virtual memory and in file.
 fn allocatePhdrTable(self: *Elf) error{OutOfMemory}!void {
-    const new_load_segments = self.calcNumberOfSegments();
     const phdr_table = &self.phdrs.items[self.phdr_table_index.?];
     const phdr_table_load = &self.phdrs.items[self.phdr_table_load_index.?];
 
@@ -3761,7 +3754,7 @@ fn allocatePhdrTable(self: *Elf) error{OutOfMemory}!void {
         .p32 => @sizeOf(elf.Elf32_Phdr),
         .p64 => @sizeOf(elf.Elf64_Phdr),
     };
-    const needed_size = (self.phdrs.items.len + new_load_segments) * phsize;
+    const needed_size = self.phdrs.items.len * phsize;
     const available_space = self.allocatedSize(phdr_table.p_offset);
 
     if (needed_size > available_space) {
@@ -3904,15 +3897,14 @@ pub fn allocateAllocSections(self: *Elf) !void {
 
         const first = slice.items(.shdr)[cover.items[0]];
         var new_offset = try self.findFreeSpace(filesz, @"align");
-        const phndx = try self.addPhdr(.{
-            .type = elf.PT_LOAD,
-            .offset = new_offset,
-            .addr = first.sh_addr,
-            .memsz = memsz,
-            .filesz = filesz,
-            .@"align" = @"align",
-            .flags = shdrToPhdrFlags(first.sh_flags),
-        });
+        const phndx = self.getPhdr(.{ .type = elf.PT_LOAD, .flags = shdrToPhdrFlags(first.sh_flags) }).?;
+        const phdr = &self.phdrs.items[phndx];
+        phdr.p_offset = new_offset;
+        phdr.p_vaddr = first.sh_addr;
+        phdr.p_paddr = first.sh_addr;
+        phdr.p_memsz = memsz;
+        phdr.p_filesz = filesz;
+        phdr.p_align = @"align";
 
         for (cover.items) |shndx| {
             const shdr = &slice.items(.shdr)[shndx];
@@ -4747,7 +4739,20 @@ pub fn isEffectivelyDynLib(self: Elf) bool {
     };
 }
 
-pub fn addPhdr(self: *Elf, opts: struct {
+fn getPhdr(self: *Elf, opts: struct {
+    type: u32 = 0,
+    flags: u32 = 0,
+}) ?u16 {
+    for (self.phdrs.items, 0..) |phdr, phndx| {
+        if (self.phdr_table_load_index) |index| {
+            if (phndx == index) continue;
+        }
+        if (phdr.p_type == opts.type and phdr.p_flags == opts.flags) return @intCast(phndx);
+    }
+    return null;
+}
+
+fn addPhdr(self: *Elf, opts: struct {
     type: u32 = 0,
     flags: u32 = 0,
     @"align": u64 = 0,
