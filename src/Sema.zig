@@ -19741,6 +19741,14 @@ fn checkNullableType(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) !voi
     return sema.failWithExpectedOptionalType(block, src, ty);
 }
 
+fn checkSentinelType(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) !void {
+    const pt = sema.pt;
+    const zcu = pt.zcu;
+    if (!ty.isSelfComparable(zcu, true)) {
+        return sema.fail(block, src, "non-scalar sentinel type '{}'", .{ty.fmt(pt)});
+    }
+}
+
 fn zirIsNonNull(
     sema: *Sema,
     block: *Block,
@@ -20542,6 +20550,7 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         const val = try sema.resolveConstDefinedValue(block, sentinel_src, coerced, .{
             .needed_comptime_reason = "pointer sentinel value must be comptime-known",
         });
+        try checkSentinelType(sema, block, sentinel_src, elem_ty);
         break :blk val.toIntern();
     } else .none;
 
@@ -28114,13 +28123,9 @@ fn panicSentinelMismatch(
                 .operation = .And,
             } },
         });
-    } else if (sentinel_ty.isSelfComparable(zcu, true))
-        try parent_block.addBinOp(.cmp_eq, expected_sentinel, actual_sentinel)
-    else {
-        const panic_fn = try pt.getBuiltin("checkNonScalarSentinel");
-        const args: [2]Air.Inst.Ref = .{ expected_sentinel, actual_sentinel };
-        try sema.callBuiltin(parent_block, src, panic_fn, .auto, &args, .@"safety check");
-        return;
+    } else ok: {
+        assert(sentinel_ty.isSelfComparable(zcu, true));
+        break :ok try parent_block.addBinOp(.cmp_eq, expected_sentinel, actual_sentinel);
     };
 
     if (!pt.zcu.comp.formatted_panics) {
@@ -33573,6 +33578,7 @@ fn analyzeSlice(
     const sentinel = s: {
         if (sentinel_opt != .none) {
             const casted = try sema.coerce(block, elem_ty, sentinel_opt, sentinel_src);
+            try checkSentinelType(sema, block, sentinel_src, elem_ty);
             break :s try sema.resolveConstDefinedValue(block, sentinel_src, casted, .{
                 .needed_comptime_reason = "slice sentinel must be comptime-known",
             });
