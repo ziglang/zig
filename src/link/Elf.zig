@@ -4127,6 +4127,7 @@ pub fn updateSymtabSize(self: *Elf) !void {
     nlocals += @intCast(self.sections.slice().len);
 
     if (self.requiresThunks()) for (self.thunks.items) |*th| {
+        th.output_symtab_ctx.reset();
         th.output_symtab_ctx.ilocal = nlocals;
         th.calcSymtabSize(self);
         nlocals += th.output_symtab_ctx.nlocals;
@@ -4138,6 +4139,7 @@ pub fn updateSymtabSize(self: *Elf) !void {
         const ctx = switch (file_ptr) {
             inline else => |x| &x.output_symtab_ctx,
         };
+        ctx.reset();
         ctx.ilocal = nlocals;
         ctx.iglobal = nglobals;
         try file_ptr.updateSymtabSize(self);
@@ -4147,6 +4149,7 @@ pub fn updateSymtabSize(self: *Elf) !void {
     }
 
     if (self.got_section_index) |_| {
+        self.got.output_symtab_ctx.reset();
         self.got.output_symtab_ctx.ilocal = nlocals;
         self.got.updateSymtabSize(self);
         nlocals += self.got.output_symtab_ctx.nlocals;
@@ -4154,6 +4157,7 @@ pub fn updateSymtabSize(self: *Elf) !void {
     }
 
     if (self.plt_section_index) |_| {
+        self.plt.output_symtab_ctx.reset();
         self.plt.output_symtab_ctx.ilocal = nlocals;
         self.plt.updateSymtabSize(self);
         nlocals += self.plt.output_symtab_ctx.nlocals;
@@ -4161,6 +4165,7 @@ pub fn updateSymtabSize(self: *Elf) !void {
     }
 
     if (self.plt_got_section_index) |_| {
+        self.plt_got.output_symtab_ctx.reset();
         self.plt_got.output_symtab_ctx.ilocal = nlocals;
         self.plt_got.updateSymtabSize(self);
         nlocals += self.plt_got.output_symtab_ctx.nlocals;
@@ -4359,6 +4364,9 @@ pub fn writeSymtab(self: *Elf) !void {
 
     try self.symtab.resize(gpa, nsyms);
     const needed_strtab_size = math.cast(usize, strtab_shdr.sh_size - 1) orelse return error.Overflow;
+    // TODO we could resize instead and in ZigObject/Object always access as slice
+    self.strtab.clearRetainingCapacity();
+    self.strtab.appendAssumeCapacity(0);
     try self.strtab.ensureUnusedCapacity(gpa, needed_strtab_size);
 
     for (slice.items(.shdr), 0..) |shdr, shndx| {
@@ -5330,7 +5338,7 @@ fn fmtDumpState(
     {
         try writer.writeAll("atom lists\n");
         for (slice.items(.shdr), slice.items(.atom_list_2), 0..) |shdr, atom_list, shndx| {
-            try writer.print("shdr({d}) : {s} : {}", .{ shndx, self.getShString(shdr.sh_name), atom_list.fmt(self) });
+            try writer.print("shdr({d}) : {s} : {}\n", .{ shndx, self.getShString(shdr.sh_name), atom_list.fmt(self) });
         }
     }
 
@@ -5462,6 +5470,14 @@ pub const SymtabCtx = struct {
     nlocals: u32 = 0,
     nglobals: u32 = 0,
     strsize: u32 = 0,
+
+    pub fn reset(ctx: *SymtabCtx) void {
+        ctx.ilocal = 0;
+        ctx.iglobal = 0;
+        ctx.nlocals = 0;
+        ctx.nglobals = 0;
+        ctx.strsize = 0;
+    }
 };
 
 pub const null_sym = elf.Elf64_Sym{
