@@ -9,7 +9,7 @@ pub const Token = struct {
         end: usize,
     };
 
-    pub const Keywords = std.ComptimeStringMap(Tag, .{
+    pub const keywords = std.StaticStringMap(Tag).initComptime(.{
         // sorted in descending order of frequency for faster lookup
         .{ "const", .keyword_const },
         .{ "pub", .keyword_pub },
@@ -63,7 +63,7 @@ pub const Token = struct {
     });
 
     pub fn getKeyword(bytes: []const u8) ?Tag {
-        return Keywords.get(bytes);
+        return keywords.get(bytes);
     }
 
     pub const Tag = enum {

@@ -1997,12 +1997,12 @@ fn comptimeExpr(
     const main_tokens = tree.nodes.items(.main_token);
     const node_tags = tree.nodes.items(.tag);
     switch (node_tags[node]) {
-        // Any identifier in `PrimitiveInstrs` is trivially comptime. In particular, this includes
+        // Any identifier in `primitive_instrs` is trivially comptime. In particular, this includes
         // some common types, so we can elide `block_comptime` for a few common type annotations.
         .identifier => {
             const ident_token = main_tokens[node];
             const ident_name_raw = tree.tokenSlice(ident_token);
-            if (PrimitiveInstrs.get(ident_name_raw)) |zir_const_ref| {
+            if (primitive_instrs.get(ident_name_raw)) |zir_const_ref| {
                 // No need to worry about result location here, we're not creating a comptime block!
                 return rvalue(gz, ri, zir_const_ref, node);
             }
@@ -8294,7 +8294,7 @@ fn identifier(
 
     // if not @"" syntax, just use raw token slice
     if (ident_name_raw[0] != '@') {
-        if (PrimitiveInstrs.get(ident_name_raw)) |zir_const_ref| {
+        if (primitive_instrs.get(ident_name_raw)) |zir_const_ref| {
             return rvalue(gz, ri, zir_const_ref, ident);
         }
 
@@ -10202,7 +10202,7 @@ fn calleeExpr(
     }
 }
 
-const PrimitiveInstrs = std.ComptimeStringMap(Zir.Inst.Ref, .{
+const primitive_instrs = std.StaticStringMap(Zir.Inst.Ref).initComptime(.{
     .{ "anyerror", .anyerror_type },
     .{ "anyframe", .anyframe_type },
     .{ "anyopaque", .anyopaque_type },
@@ -10250,13 +10250,13 @@ const PrimitiveInstrs = std.ComptimeStringMap(Zir.Inst.Ref, .{
 comptime {
     // These checks ensure that std.zig.primitives stays in sync with the primitive->Zir map.
     const primitives = std.zig.primitives;
-    for (PrimitiveInstrs.keys, PrimitiveInstrs.values) |key, value| {
+    for (primitive_instrs.keys(), primitive_instrs.values()) |key, value| {
         if (!primitives.isPrimitive(key)) {
             @compileError("std.zig.isPrimitive() is not aware of Zir instr '" ++ @tagName(value) ++ "'");
         }
     }
-    for (primitives.Names.keys) |key| {
-        if (PrimitiveInstrs.get(key) == null) {
+    for (primitives.names.keys()) |key| {
+        if (primitive_instrs.get(key) == null) {
             @compileError("std.zig.primitives entry '" ++ key ++ "' does not have a corresponding Zir instr");
         }
     }
@@ -10714,7 +10714,7 @@ fn nodeImpliesMoreThanOnePossibleValue(tree: *const Ast, start_node: Ast.Node.In
             .identifier => {
                 const main_tokens = tree.nodes.items(.main_token);
                 const ident_bytes = tree.tokenSlice(main_tokens[node]);
-                if (PrimitiveInstrs.get(ident_bytes)) |primitive| switch (primitive) {
+                if (primitive_instrs.get(ident_bytes)) |primitive| switch (primitive) {
                     .anyerror_type,
                     .anyframe_type,
                     .anyopaque_type,
@@ -10961,7 +10961,7 @@ fn nodeImpliesComptimeOnly(tree: *const Ast, start_node: Ast.Node.Index) bool {
             .identifier => {
                 const main_tokens = tree.nodes.items(.main_token);
                 const ident_bytes = tree.tokenSlice(main_tokens[node]);
-                if (PrimitiveInstrs.get(ident_bytes)) |primitive| switch (primitive) {
+                if (primitive_instrs.get(ident_bytes)) |primitive| switch (primitive) {
                     .anyerror_type,
                     .anyframe_type,
                     .anyopaque_type,

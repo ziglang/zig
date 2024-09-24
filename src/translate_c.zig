@@ -670,7 +670,7 @@ fn visitVarDecl(c: *Context, var_decl: *const clang.VarDecl, mangled_name: ?[]co
     return addTopLevelDecl(c, var_name, node);
 }
 
-const BuiltinTypedefMap = std.ComptimeStringMap([]const u8, .{
+const builtin_typedef_map = std.StaticStringMap([]const u8).initComptime(.{
     .{ "uint8_t", "u8" },
     .{ "int8_t", "i8" },
     .{ "uint16_t", "u16" },
@@ -694,7 +694,7 @@ fn transTypeDef(c: *Context, scope: *Scope, typedef_decl: *const clang.TypedefNa
     var name: []const u8 = try c.str(@as(*const clang.NamedDecl, @ptrCast(typedef_decl)).getName_bytes_begin());
     try c.typedefs.put(c.gpa, name, {});
 
-    if (BuiltinTypedefMap.get(name)) |builtin| {
+    if (builtin_typedef_map.get(name)) |builtin| {
         return c.decl_table.putNoClobber(c.gpa, @intFromPtr(typedef_decl.getCanonicalDecl()), builtin);
     }
     if (!toplevel) name = try bs.makeMangledName(c, name);
@@ -4822,7 +4822,7 @@ fn transType(c: *Context, scope: *Scope, ty: *const clang.Type, source_loc: clan
             if (@as(*const clang.Decl, @ptrCast(typedef_decl)).castToNamedDecl()) |named_decl| {
                 const decl_name = try c.str(named_decl.getName_bytes_begin());
                 if (c.global_names.get(decl_name)) |_| trans_scope = &c.global_scope.base;
-                if (BuiltinTypedefMap.get(decl_name)) |builtin| return Tag.type.create(c.arena, builtin);
+                if (builtin_typedef_map.get(decl_name)) |builtin| return Tag.type.create(c.arena, builtin);
             }
             try transTypeDef(c, trans_scope, typedef_decl);
             const name = c.decl_table.get(@intFromPtr(typedef_decl.getCanonicalDecl())).?;
@@ -5865,7 +5865,7 @@ fn parseCPrimaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
                 return parseCPrimaryExpr(c, m, scope);
             }
             const mangled_name = scope.getAlias(slice);
-            if (BuiltinTypedefMap.get(mangled_name)) |ty| return Tag.type.create(c.arena, ty);
+            if (builtin_typedef_map.get(mangled_name)) |ty| return Tag.type.create(c.arena, ty);
             const identifier = try Tag.identifier.create(c.arena, mangled_name);
             scope.skipVariableDiscard(identifier.castTag(.identifier).?.data);
             refs_var: {
@@ -6161,7 +6161,7 @@ fn parseCSpecifierQualifierList(c: *Context, m: *MacroCtx, scope: *Scope, allow_
             }
             const mangled_name = scope.getAlias(m.slice());
             if (!allow_fail or c.typedefs.contains(mangled_name)) {
-                if (BuiltinTypedefMap.get(mangled_name)) |ty| return try Tag.type.create(c.arena, ty);
+                if (builtin_typedef_map.get(mangled_name)) |ty| return try Tag.type.create(c.arena, ty);
                 return try Tag.identifier.create(c.arena, mangled_name);
             }
         },

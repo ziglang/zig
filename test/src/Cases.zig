@@ -974,7 +974,7 @@ const TestManifest = struct {
     config_map: std.StringHashMap([]const u8),
     trailing_bytes: []const u8 = "",
 
-    const ValidKeys = std.ComptimeStringMap(void, .{
+    const valid_keys = std.StaticStringMap(void).initComptime(.{
         .{ "is_test", {} },
         .{ "output_mode", {} },
         .{ "target", {} },
@@ -1081,7 +1081,7 @@ const TestManifest = struct {
             // Parse key=value(s)
             var kv_it = std.mem.splitScalar(u8, trimmed, '=');
             const key = kv_it.first();
-            if (!ValidKeys.has(key)) return error.InvalidKey;
+            if (!valid_keys.has(key)) return error.InvalidKey;
             try manifest.config_map.putNoClobber(key, kv_it.next() orelse return error.MissingValuesForConfig);
         }
 

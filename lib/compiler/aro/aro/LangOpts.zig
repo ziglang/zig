@@ -47,7 +47,7 @@ pub const Standard = enum {
     /// Working Draft for ISO C23 with GNU extensions
     gnu23,
 
-    const NameMap = std.ComptimeStringMap(Standard, .{
+    const name_map = std.StaticStringMap(Standard).initComptime(.{
         .{ "c89", .c89 },                .{ "c90", .c89 },          .{ "iso9899:1990", .c89 },
         .{ "iso9899:199409", .iso9899 }, .{ "gnu89", .gnu89 },      .{ "gnu90", .gnu89 },
         .{ "c99", .c99 },                .{ "iso9899:1999", .c99 }, .{ "c9x", .c99 },
@@ -141,7 +141,7 @@ preserve_comments_in_macros: bool = false,
 gnuc_version: u32 = 0,
 
 pub fn setStandard(self: *LangOpts, name: []const u8) error{InvalidStandard}!void {
-    self.standard = Standard.NameMap.get(name) orelse return error.InvalidStandard;
+    self.standard = Standard.name_map.get(name) orelse return error.InvalidStandard;
 }
 
 pub fn enableMSExtensions(self: *LangOpts) void {

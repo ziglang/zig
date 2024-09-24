@@ -240,7 +240,7 @@ pub const ErrorDetails = struct {
         //       see https://github.com/ziglang/zig/issues/15395
         _: u26 = 0,
 
-        pub const Strings = std.ComptimeStringMap([]const u8, .{
+        pub const strings = std.StaticStringMap([]const u8).initComptime(.{
             .{ "number", "number" },
             .{ "number_expression", "number expression" },
             .{ "string_literal", "quoted string literal" },
@@ -262,7 +262,7 @@ pub const ErrorDetails = struct {
                 if (field_info.type != bool) continue;
                 if (i == num_set_bits) return;
                 if (@field(self, field_info.name)) {
-                    try writer.writeAll(Strings.get(field_info.name).?);
+                    try writer.writeAll(strings.get(field_info.name).?);
                     i += 1;
                     if (num_set_bits > 2 and i != num_set_bits) {
                         try writer.writeAll(", ");

@@ -2,7 +2,7 @@ const std = @import("std");
 
 /// Set of primitive type and value names.
 /// Does not include `_` or integer type names.
-pub const Names = std.ComptimeStringMap(void, .{
+pub const names = std.StaticStringMap(void).initComptime(.{
     .{ "anyerror", {} },
     .{ "anyframe", {} },
     .{ "anyopaque", {} },
@@ -40,7 +40,7 @@ pub const Names = std.ComptimeStringMap(void, .{
 /// so this will still return true when they have an oversized bit count
 /// or leading zeroes.
 pub fn isPrimitive(name: []const u8) bool {
-    if (Names.get(name) != null) return true;
+    if (names.get(name) != null) return true;
     if (name.len < 2) return false;
     const first_c = name[0];
     if (first_c != 'i' and first_c != 'u') return false;

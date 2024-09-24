@@ -407,7 +407,7 @@ set(ZIG_STAGE2_SOURCES
     lib/std/c.zig
     lib/std/coff.zig
     lib/std/crypto.zig
-    lib/std/comptime_string_map.zig
+    lib/std/static_string_map.zig
     lib/std/crypto/blake3.zig
     lib/std/crypto/siphash.zig
     lib/std/debug.zig

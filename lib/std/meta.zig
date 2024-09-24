@@ -15,22 +15,22 @@ test {
 
 /// Returns the variant of an enum type, `T`, which is named `str`, or `null` if no such variant exists.
 pub fn stringToEnum(comptime T: type, str: []const u8) ?T {
-    // Using ComptimeStringMap here is more performant, but it will start to take too
+    // Using StaticStringMap here is more performant, but it will start to take too
     // long to compile if the enum is large enough, due to the current limits of comptime
     // performance when doing things like constructing lookup maps at comptime.
     // TODO The '100' here is arbitrary and should be increased when possible:
     // - https://github.com/ziglang/zig/issues/4055
     // - https://github.com/ziglang/zig/issues/3863
     if (@typeInfo(T).@"enum".fields.len <= 100) {
-        const Map = comptime build_kvs: {
+        const map = comptime build_kvs: {
             const EnumKV = struct { []const u8, T };
             var kvs_array: [@typeInfo(T).@"enum".fields.len]EnumKV = undefined;
             for (@typeInfo(T).@"enum".fields, 0..) |enumField, i| {
                 kvs_array[i] = .{ enumField.name, @field(T, enumField.name) };
             }
-            break :build_kvs std.ComptimeStringMap(T, kvs_array);
+            break :build_kvs std.StaticStringMap(T).initComptime(kvs_array);
         };
-        return Map.get(str);
+        return map.get(str);
     } else {
         inline for (@typeInfo(T).@"enum".fields) |enumField| {
             if (mem.eql(u8, str, enumField.name)) {

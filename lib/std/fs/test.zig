@@ -1655,7 +1655,7 @@ test "walker" {
 
     // iteration order of walker is undefined, so need lookup maps to check against
 
-    const ExpectedPaths = std.ComptimeStringMap(void, .{
+    const expected_paths = std.StaticStringMap(void).initComptime(.{
         .{ "dir1", {} },
         .{ "dir2", {} },
         .{ "dir3", {} },
@@ -1665,7 +1665,7 @@ test "walker" {
         .{ "dir3" ++ fs.path.sep_str ++ "sub2" ++ fs.path.sep_str ++ "subsub1", {} },
     });
 
-    const ExpectedBasename = std.ComptimeStringMap(void, .{
+    const expected_basename = std.StaticStringMap(void).initComptime(.{
         .{ "dir1", {} },
         .{ "dir2", {} },
         .{ "dir3", {} },
@@ -1675,7 +1675,7 @@ test "walker" {
         .{ "subsub1", {} },
     });
 
-    for (ExpectedPaths.keys()) |key| {
+    for (expected_paths.keys()) |key| {
         try tmp.dir.makePath(key);
     }
 
@@ -1684,11 +1684,11 @@ test "walker" {
 
     var num_walked: usize = 0;
     while (try walker.next()) |entry| {
-        testing.expect(ExpectedBasename.has(entry.basename)) catch |err| {
+        testing.expect(expected_basename.has(entry.basename)) catch |err| {
             std.debug.print("found unexpected basename: {s}\n", .{std.fmt.fmtSliceEscapeLower(entry.basename)});
             return err;
         };
-        testing.expect(ExpectedPaths.has(entry.path)) catch |err| {
+        testing.expect(expected_paths.has(entry.path)) catch |err| {
             std.debug.print("found unexpected path: {s}\n", .{std.fmt.fmtSliceEscapeLower(entry.path)});
             return err;
         };
@@ -1697,7 +1697,7 @@ test "walker" {
         defer entry_dir.close();
         num_walked += 1;
     }
-    try testing.expectEqual(ExpectedPaths.kvs.len, num_walked);
+    try testing.expectEqual(expected_paths.kvs.len, num_walked);
 }
 
 test "walker without fully iterating" {
