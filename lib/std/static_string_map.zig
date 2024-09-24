@@ -20,8 +20,25 @@ fn defaultEql(comptime T: type, comptime len: usize, comptime expected: [len]u8,
 fn ignoreCaseEql(comptime T: type, comptime len: usize, comptime expected: [len]u8, actual: [len]u8) bool {
     if (T != u8) @compileError("ignoreCaseEql only works with ASCII or UTF-8");
     const lower_expected = comptime toLowerSimd(len, expected);
-    const lower_actual = toLowerSimd(len, actual);
+
+    // TODO: x86_64 self hosted backend hasn't implemented genBinOp for cmp_gte
+    const lower_actual = blk: {
+        if (@import("builtin").zig_backend == .stage2_x86_64) {
+            break :blk toLowerSimple(len, actual);
+        } else {
+            break :blk toLowerSimd(len, actual);
+        }
+    };
+
     return defaultEql(T, len, lower_expected, lower_actual);
+}
+
+fn toLowerSimple(comptime len: usize, input: [len]u8) [len]u8 {
+    var output: [len]u8 = undefined;
+    for (input, &output) |in_byte, *out_byte| {
+        out_byte.* = std.ascii.toLower(in_byte);
+    }
+    return output;
 }
 
 fn toLowerSimd(comptime len: usize, input: [len]u8) [len]u8 {
