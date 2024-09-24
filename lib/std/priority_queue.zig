@@ -19,8 +19,7 @@ pub fn PriorityQueue(comptime T: type, comptime Context: type, comptime compareF
         const Self = @This();
 
         items: []T,
-        /// The capacity of the queue. This may be read directly, but must not
-        /// be modified directly.
+        /// Tracks the allocated slice of memory when combined with `items.ptr`.
         capacity: usize,
         context: Context,
 
