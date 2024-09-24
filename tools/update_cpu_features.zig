@@ -62,10 +62,6 @@ const llvm_targets = [_]LlvmTarget{
                 .desc = "Enable RW operand Context ID Register (EL2)",
             },
             .{
-                .llvm_name = "v8a",
-                .extra_deps = &.{"neon"},
-            },
-            .{
                 .llvm_name = "neoversee1",
                 .flatten = true,
             },
@@ -1434,6 +1430,24 @@ fn processOneTarget(job: Job) anyerror!void {
                         if (mem.eql(u8, other_zig_name, omit_dep)) break;
                     } else {
                         try deps.append(other_zig_name);
+                    }
+                }
+                // This is used by AArch64.
+                if (kv.value_ptr.object.get("DefaultExts")) |exts_val| {
+                    for (exts_val.array.items) |ext| {
+                        const other_key = ext.object.get("def").?.string;
+                        const other_obj = &root_map.getPtr(other_key).?.object;
+                        const other_llvm_name = other_obj.get("Name").?.string;
+                        const other_zig_name = (try llvmFeatureNameToZigNameOmit(
+                            arena,
+                            llvm_target,
+                            other_llvm_name,
+                        )) orelse continue;
+                        for (omit_deps) |omit_dep| {
+                            if (mem.eql(u8, other_zig_name, omit_dep)) break;
+                        } else {
+                            try deps.append(other_zig_name);
+                        }
                     }
                 }
                 for (extra_deps) |extra_dep| {
