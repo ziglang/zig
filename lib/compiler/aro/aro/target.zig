@@ -690,6 +690,7 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .eabi => "eabi",
         .eabihf => "eabihf",
         .android => "android",
+        .androideabi => "androideabi",
         .musl => "musl",
         .musleabi => "musleabi",
         .musleabihf => "musleabihf",
