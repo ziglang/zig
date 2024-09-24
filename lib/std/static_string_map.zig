@@ -61,7 +61,7 @@ pub fn StaticStringMapAdvanced(
         kvs: []const Kv,
 
         /// Initializes the map at comptime
-        inline fn initComptime(comptime kvs_list: anytype) Self {
+        pub inline fn initComptime(comptime kvs_list: anytype) Self {
             comptime {
                 var kv_list: []const Kv = &.{};
                 for (kvs_list) |kv| {
