@@ -1656,23 +1656,23 @@ test "walker" {
     // iteration order of walker is undefined, so need lookup maps to check against
 
     const expected_paths = std.StaticStringMap(void).initComptime(.{
-        .{ "dir1", {} },
-        .{ "dir2", {} },
-        .{ "dir3", {} },
-        .{ "dir4", {} },
-        .{ "dir3" ++ fs.path.sep_str ++ "sub1", {} },
-        .{ "dir3" ++ fs.path.sep_str ++ "sub2", {} },
-        .{ "dir3" ++ fs.path.sep_str ++ "sub2" ++ fs.path.sep_str ++ "subsub1", {} },
+        .{"dir1"},
+        .{"dir2"},
+        .{"dir3"},
+        .{"dir4"},
+        .{"dir3" ++ fs.path.sep_str ++ "sub1"},
+        .{"dir3" ++ fs.path.sep_str ++ "sub2"},
+        .{"dir3" ++ fs.path.sep_str ++ "sub2" ++ fs.path.sep_str ++ "subsub1"},
     });
 
     const expected_basenames = std.StaticStringMap(void).initComptime(.{
-        .{ "dir1", {} },
-        .{ "dir2", {} },
-        .{ "dir3", {} },
-        .{ "dir4", {} },
-        .{ "sub1", {} },
-        .{ "sub2", {} },
-        .{ "subsub1", {} },
+        .{"dir1"},
+        .{"dir2"},
+        .{"dir3"},
+        .{"dir4"},
+        .{"sub1"},
+        .{"sub2"},
+        .{"subsub1"},
     });
 
     for (expected_paths.keys()) |key| {
