@@ -52,8 +52,8 @@ class StackDepotBase {
     };
   }
 
-  void LockAll();
-  void UnlockAll();
+  void LockBeforeFork();
+  void UnlockAfterFork(bool fork_child);
   void PrintAll();
 
   void TestOnlyUnmap() {
@@ -160,18 +160,33 @@ StackDepotBase<Node, kReservedBits, kTabSizeLog>::Get(u32 id) {
 }
 
 template <class Node, int kReservedBits, int kTabSizeLog>
-void StackDepotBase<Node, kReservedBits, kTabSizeLog>::LockAll() {
-  for (int i = 0; i < kTabSize; ++i) {
-    lock(&tab[i]);
-  }
+void StackDepotBase<Node, kReservedBits, kTabSizeLog>::LockBeforeFork() {
+  // Do not lock hash table. It's very expensive, but it's not rely needed. The
+  // parent process will neither lock nor unlock. Child process risks to be
+  // deadlocked on already locked buckets. To avoid deadlock we will unlock
+  // every locked buckets in `UnlockAfterFork`. This may affect consistency of
+  // the hash table, but the only issue is a few items inserted by parent
+  // process will be not found by child, and the child may insert them again,
+  // wasting some space in `stackStore`.
+
+  // We still need to lock nodes.
+  nodes.Lock();
 }
 
 template <class Node, int kReservedBits, int kTabSizeLog>
-void StackDepotBase<Node, kReservedBits, kTabSizeLog>::UnlockAll() {
+void StackDepotBase<Node, kReservedBits, kTabSizeLog>::UnlockAfterFork(
+    bool fork_child) {
+  nodes.Unlock();
+
+  // Only unlock in child process to avoid deadlock. See `LockBeforeFork`.
+  if (!fork_child)
+    return;
+
   for (int i = 0; i < kTabSize; ++i) {
     atomic_uint32_t *p = &tab[i];
     uptr s = atomic_load(p, memory_order_relaxed);
-    unlock(p, s & kUnlockMask);
+    if (s & kLockMask)
+      unlock(p, s & kUnlockMask);
   }
 }
 
