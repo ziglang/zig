@@ -65,7 +65,10 @@ pub fn StaticStringMapAdvanced(
             comptime {
                 var kv_list: []const Kv = &.{};
                 for (kvs_list) |kv| {
-                    kv_list = kv_list ++ .{.{ .key = kv[0], .value = kv[1] }};
+                    kv_list = kv_list ++ .{.{
+                        .key = kv[0],
+                        .value = if (V == void) {} else kv[1],
+                    }};
                 }
                 return .{ .kvs = kv_list };
             }
@@ -164,7 +167,7 @@ const TestEnum = enum { A, B, C, D, E };
 const TestMap = StaticStringMap(TestEnum);
 const TestKV = struct { []const u8, TestEnum };
 const TestMapVoid = StaticStringMap(void);
-const TestKVVoid = struct { []const u8, void };
+const TestKVVoid = struct { []const u8 };
 const TestMapIgnoreCase = StaticStringMapIgnoreCase(TestEnum);
 const testing = std.testing;
 const test_alloc = testing.allocator;
@@ -225,11 +228,11 @@ fn testMap(comptime map: anytype) !void {
 
 test "void value type, list literal of list literals" {
     const slice = [_]TestKVVoid{
-        .{ "these", {} },
-        .{ "have", {} },
-        .{ "nothing", {} },
-        .{ "incommon", {} },
-        .{ "samelen", {} },
+        .{"these"},
+        .{"have"},
+        .{"nothing"},
+        .{"incommon"},
+        .{"samelen"},
     };
 
     try testSet(TestMapVoid.initComptime(slice));
