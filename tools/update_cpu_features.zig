@@ -483,7 +483,6 @@ const llvm_targets = [_]LlvmTarget{
             .{
                 .llvm_name = "cortex-m85",
                 .omit_deps = &.{ "mve_fp", "pacbti", "fp_armv8d16" },
-                .extra_deps = &.{"trustzone"},
             },
             .{
                 .llvm_name = "cortex-x1c",
