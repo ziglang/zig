@@ -1745,7 +1745,7 @@ fn expandFuncMacro(
                     }
                     if (!pp.comp.langopts.standard.atLeast(.c23)) break :res not_found;
 
-                    const attrs = std.StaticStringMap([]const u8).initComptime(.{
+                    const attrs = comptime std.StaticStringMap([]const u8).initComptime(.{
                         .{ "deprecated", "201904L\n" },
                         .{ "fallthrough", "201904L\n" },
                         .{ "maybe_unused", "201904L\n" },

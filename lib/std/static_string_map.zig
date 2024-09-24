@@ -164,7 +164,7 @@ pub fn StaticStringMapAdvanced(
 const testing = std.testing;
 
 test "comptime only value" {
-    const map = StaticStringMap(type).initComptime(.{
+    const map = comptime StaticStringMap(type).initComptime(.{
         .{ "a", struct {
             pub const foo = 1;
         } },
@@ -183,7 +183,7 @@ test "comptime only value" {
 }
 
 test "get/has with edge cases" {
-    const map = StaticStringMap(u32).initComptime(&.{
+    const map = comptime StaticStringMap(u32).initComptime(&.{
         .{ "a", 0 },
         .{ "ab", 3 },
         .{ "abc", 0 },
