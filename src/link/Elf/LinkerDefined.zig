@@ -145,6 +145,7 @@ pub fn initStartStopSymbols(self: *LinkerDefined, elf_file: *Elf) !void {
     try self.symbols_resolver.ensureUnusedCapacity(gpa, nsyms);
 
     for (slice.items(.shdr)) |shdr| {
+        // TODO use getOrPut for incremental so that we don't create duplicates
         if (elf_file.getStartStopBasename(shdr)) |name| {
             const start_name = try std.fmt.allocPrintZ(gpa, "__start_{s}", .{name});
             defer gpa.free(start_name);

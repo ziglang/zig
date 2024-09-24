@@ -147,6 +147,7 @@ thunks: std.ArrayListUnmanaged(Thunk) = .empty,
 
 /// List of output merge sections with deduped contents.
 merge_sections: std.ArrayListUnmanaged(MergeSection) = .empty,
+comment_merge_section_index: ?MergeSection.Index = null,
 
 first_eflags: ?elf.Elf64_Word = null,
 
@@ -2790,6 +2791,7 @@ fn checkDuplicates(self: *Elf) !void {
 
 pub fn addCommentString(self: *Elf) !void {
     const gpa = self.base.comp.gpa;
+    if (self.comment_merge_section_index != null) return;
     const msec_index = try self.getOrCreateMergeSection(".comment", elf.SHF_MERGE | elf.SHF_STRINGS, elf.SHT_PROGBITS);
     const msec = self.mergeSection(msec_index);
     const res = try msec.insertZ(gpa, "zig " ++ builtin.zig_version_string);
@@ -2803,6 +2805,7 @@ pub fn addCommentString(self: *Elf) !void {
     msub.entsize = 1;
     msub.alive = true;
     res.sub.* = msub_index;
+    self.comment_merge_section_index = msec_index;
 }
 
 pub fn resolveMergeSections(self: *Elf) !void {
@@ -2920,7 +2923,7 @@ fn initSyntheticSections(self: *Elf) !void {
                 .offset = std.math.maxInt(u64),
             });
         }
-        if (comp.link_eh_frame_hdr) {
+        if (comp.link_eh_frame_hdr and self.eh_frame_hdr_section_index == null) {
             self.eh_frame_hdr_section_index = try self.addSection(.{
                 .name = try self.insertShString(".eh_frame_hdr"),
                 .type = elf.SHT_PROGBITS,
@@ -2931,7 +2934,7 @@ fn initSyntheticSections(self: *Elf) !void {
         }
     }
 
-    if (self.got.entries.items.len > 0) {
+    if (self.got.entries.items.len > 0 and self.got_section_index == null) {
         self.got_section_index = try self.addSection(.{
             .name = try self.insertShString(".got"),
             .type = elf.SHT_PROGBITS,
@@ -2941,13 +2944,15 @@ fn initSyntheticSections(self: *Elf) !void {
         });
     }
 
-    self.got_plt_section_index = try self.addSection(.{
-        .name = try self.insertShString(".got.plt"),
-        .type = elf.SHT_PROGBITS,
-        .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
-        .addralign = @alignOf(u64),
-        .offset = std.math.maxInt(u64),
-    });
+    if (self.got_plt_section_index == null) {
+        self.got_plt_section_index = try self.addSection(.{
+            .name = try self.insertShString(".got.plt"),
+            .type = elf.SHT_PROGBITS,
+            .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
+            .addralign = @alignOf(u64),
+            .offset = std.math.maxInt(u64),
+        });
+    }
 
     const needs_rela_dyn = blk: {
         if (self.got.flags.needs_rela or self.got.flags.needs_tlsld or self.copy_rel.symbols.items.len > 0)
@@ -2960,7 +2965,7 @@ fn initSyntheticSections(self: *Elf) !void {
         }
         break :blk false;
     };
-    if (needs_rela_dyn) {
+    if (needs_rela_dyn and self.rela_dyn_section_index == null) {
         self.rela_dyn_section_index = try self.addSection(.{
             .name = try self.insertShString(".rela.dyn"),
             .type = elf.SHT_RELA,
@@ -2972,24 +2977,28 @@ fn initSyntheticSections(self: *Elf) !void {
     }
 
     if (self.plt.symbols.items.len > 0) {
-        self.plt_section_index = try self.addSection(.{
-            .name = try self.insertShString(".plt"),
-            .type = elf.SHT_PROGBITS,
-            .flags = elf.SHF_ALLOC | elf.SHF_EXECINSTR,
-            .addralign = 16,
-            .offset = std.math.maxInt(u64),
-        });
-        self.rela_plt_section_index = try self.addSection(.{
-            .name = try self.insertShString(".rela.plt"),
-            .type = elf.SHT_RELA,
-            .flags = elf.SHF_ALLOC,
-            .addralign = @alignOf(elf.Elf64_Rela),
-            .entsize = @sizeOf(elf.Elf64_Rela),
-            .offset = std.math.maxInt(u64),
-        });
+        if (self.plt_section_index == null) {
+            self.plt_section_index = try self.addSection(.{
+                .name = try self.insertShString(".plt"),
+                .type = elf.SHT_PROGBITS,
+                .flags = elf.SHF_ALLOC | elf.SHF_EXECINSTR,
+                .addralign = 16,
+                .offset = std.math.maxInt(u64),
+            });
+        }
+        if (self.rela_plt_section_index == null) {
+            self.rela_plt_section_index = try self.addSection(.{
+                .name = try self.insertShString(".rela.plt"),
+                .type = elf.SHT_RELA,
+                .flags = elf.SHF_ALLOC,
+                .addralign = @alignOf(elf.Elf64_Rela),
+                .entsize = @sizeOf(elf.Elf64_Rela),
+                .offset = std.math.maxInt(u64),
+            });
+        }
     }
 
-    if (self.plt_got.symbols.items.len > 0) {
+    if (self.plt_got.symbols.items.len > 0 and self.plt_got_section_index == null) {
         self.plt_got_section_index = try self.addSection(.{
             .name = try self.insertShString(".plt.got"),
             .type = elf.SHT_PROGBITS,
@@ -2999,7 +3008,7 @@ fn initSyntheticSections(self: *Elf) !void {
         });
     }
 
-    if (self.copy_rel.symbols.items.len > 0) {
+    if (self.copy_rel.symbols.items.len > 0 and self.copy_rel_section_index == null) {
         self.copy_rel_section_index = try self.addSection(.{
             .name = try self.insertShString(".copyrel"),
             .type = elf.SHT_NOBITS,
@@ -3017,7 +3026,7 @@ fn initSyntheticSections(self: *Elf) !void {
         if (self.base.isStatic() and !comp.config.pie) break :blk false;
         break :blk target.dynamic_linker.get() != null;
     };
-    if (needs_interp) {
+    if (needs_interp and self.interp_section_index == null) {
         self.interp_section_index = try self.addSection(.{
             .name = try self.insertShString(".interp"),
             .type = elf.SHT_PROGBITS,
@@ -3028,67 +3037,81 @@ fn initSyntheticSections(self: *Elf) !void {
     }
 
     if (self.isEffectivelyDynLib() or self.shared_objects.items.len > 0 or comp.config.pie) {
-        self.dynstrtab_section_index = try self.addSection(.{
-            .name = try self.insertShString(".dynstr"),
-            .flags = elf.SHF_ALLOC,
-            .type = elf.SHT_STRTAB,
-            .entsize = 1,
-            .addralign = 1,
-            .offset = std.math.maxInt(u64),
-        });
-        self.dynamic_section_index = try self.addSection(.{
-            .name = try self.insertShString(".dynamic"),
-            .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
-            .type = elf.SHT_DYNAMIC,
-            .entsize = @sizeOf(elf.Elf64_Dyn),
-            .addralign = @alignOf(elf.Elf64_Dyn),
-            .offset = std.math.maxInt(u64),
-        });
-        self.dynsymtab_section_index = try self.addSection(.{
-            .name = try self.insertShString(".dynsym"),
-            .flags = elf.SHF_ALLOC,
-            .type = elf.SHT_DYNSYM,
-            .addralign = @alignOf(elf.Elf64_Sym),
-            .entsize = @sizeOf(elf.Elf64_Sym),
-            .info = 1,
-            .offset = std.math.maxInt(u64),
-        });
-        self.hash_section_index = try self.addSection(.{
-            .name = try self.insertShString(".hash"),
-            .flags = elf.SHF_ALLOC,
-            .type = elf.SHT_HASH,
-            .addralign = 4,
-            .entsize = 4,
-            .offset = std.math.maxInt(u64),
-        });
-        self.gnu_hash_section_index = try self.addSection(.{
-            .name = try self.insertShString(".gnu.hash"),
-            .flags = elf.SHF_ALLOC,
-            .type = elf.SHT_GNU_HASH,
-            .addralign = 8,
-            .offset = std.math.maxInt(u64),
-        });
+        if (self.dynstrtab_section_index == null) {
+            self.dynstrtab_section_index = try self.addSection(.{
+                .name = try self.insertShString(".dynstr"),
+                .flags = elf.SHF_ALLOC,
+                .type = elf.SHT_STRTAB,
+                .entsize = 1,
+                .addralign = 1,
+                .offset = std.math.maxInt(u64),
+            });
+        }
+        if (self.dynamic_section_index == null) {
+            self.dynamic_section_index = try self.addSection(.{
+                .name = try self.insertShString(".dynamic"),
+                .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
+                .type = elf.SHT_DYNAMIC,
+                .entsize = @sizeOf(elf.Elf64_Dyn),
+                .addralign = @alignOf(elf.Elf64_Dyn),
+                .offset = std.math.maxInt(u64),
+            });
+        }
+        if (self.dynsymtab_section_index == null) {
+            self.dynsymtab_section_index = try self.addSection(.{
+                .name = try self.insertShString(".dynsym"),
+                .flags = elf.SHF_ALLOC,
+                .type = elf.SHT_DYNSYM,
+                .addralign = @alignOf(elf.Elf64_Sym),
+                .entsize = @sizeOf(elf.Elf64_Sym),
+                .info = 1,
+                .offset = std.math.maxInt(u64),
+            });
+        }
+        if (self.hash_section_index == null) {
+            self.hash_section_index = try self.addSection(.{
+                .name = try self.insertShString(".hash"),
+                .flags = elf.SHF_ALLOC,
+                .type = elf.SHT_HASH,
+                .addralign = 4,
+                .entsize = 4,
+                .offset = std.math.maxInt(u64),
+            });
+        }
+        if (self.gnu_hash_section_index == null) {
+            self.gnu_hash_section_index = try self.addSection(.{
+                .name = try self.insertShString(".gnu.hash"),
+                .flags = elf.SHF_ALLOC,
+                .type = elf.SHT_GNU_HASH,
+                .addralign = 8,
+                .offset = std.math.maxInt(u64),
+            });
+        }
 
         const needs_versions = for (self.dynsym.entries.items) |entry| {
             const sym = self.symbol(entry.ref).?;
             if (sym.flags.import and sym.version_index & elf.VERSYM_VERSION > elf.VER_NDX_GLOBAL) break true;
         } else false;
         if (needs_versions) {
-            self.versym_section_index = try self.addSection(.{
-                .name = try self.insertShString(".gnu.version"),
-                .flags = elf.SHF_ALLOC,
-                .type = elf.SHT_GNU_VERSYM,
-                .addralign = @alignOf(elf.Elf64_Versym),
-                .entsize = @sizeOf(elf.Elf64_Versym),
-                .offset = std.math.maxInt(u64),
-            });
-            self.verneed_section_index = try self.addSection(.{
-                .name = try self.insertShString(".gnu.version_r"),
-                .flags = elf.SHF_ALLOC,
-                .type = elf.SHT_GNU_VERNEED,
-                .addralign = @alignOf(elf.Elf64_Verneed),
-                .offset = std.math.maxInt(u64),
-            });
+            if (self.versym_section_index == null) {
+                self.versym_section_index = try self.addSection(.{
+                    .name = try self.insertShString(".gnu.version"),
+                    .flags = elf.SHF_ALLOC,
+                    .type = elf.SHT_GNU_VERSYM,
+                    .addralign = @alignOf(elf.Elf64_Versym),
+                    .entsize = @sizeOf(elf.Elf64_Versym),
+                    .offset = std.math.maxInt(u64),
+                });
+            }
+            if (self.verneed_section_index == null) {
+                self.verneed_section_index = try self.addSection(.{
+                    .name = try self.insertShString(".gnu.version_r"),
+                    .flags = elf.SHF_ALLOC,
+                    .type = elf.SHT_GNU_VERNEED,
+                    .addralign = @alignOf(elf.Elf64_Verneed),
+                    .offset = std.math.maxInt(u64),
+                });
+            }
         }
     }
 
