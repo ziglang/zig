@@ -13,15 +13,15 @@
 #define SANITIZER_LINUX_H
 
 #include "sanitizer_platform.h"
-#if SANITIZER_FREEBSD || SANITIZER_LINUX || SANITIZER_NETBSD ||                \
+#if SANITIZER_FREEBSD || SANITIZER_LINUX || SANITIZER_NETBSD || \
     SANITIZER_SOLARIS
-#include "sanitizer_common.h"
-#include "sanitizer_internal_defs.h"
-#include "sanitizer_platform_limits_freebsd.h"
-#include "sanitizer_platform_limits_netbsd.h"
-#include "sanitizer_platform_limits_posix.h"
-#include "sanitizer_platform_limits_solaris.h"
-#include "sanitizer_posix.h"
+#  include "sanitizer_common.h"
+#  include "sanitizer_internal_defs.h"
+#  include "sanitizer_platform_limits_freebsd.h"
+#  include "sanitizer_platform_limits_netbsd.h"
+#  include "sanitizer_platform_limits_posix.h"
+#  include "sanitizer_platform_limits_solaris.h"
+#  include "sanitizer_posix.h"
 
 struct link_map;  // Opaque type returned by dlopen().
 struct utsname;
@@ -46,9 +46,9 @@ void ReadProcMaps(ProcSelfMapsBuff *proc_maps);
 
 // Syscall wrappers.
 uptr internal_getdents(fd_t fd, struct linux_dirent *dirp, unsigned int count);
-uptr internal_sigaltstack(const void* ss, void* oss);
+uptr internal_sigaltstack(const void *ss, void *oss);
 uptr internal_sigprocmask(int how, __sanitizer_sigset_t *set,
-    __sanitizer_sigset_t *oldset);
+                          __sanitizer_sigset_t *oldset);
 
 void SetSigProcMask(__sanitizer_sigset_t *set, __sanitizer_sigset_t *oldset);
 void BlockSignals(__sanitizer_sigset_t *oldset = nullptr);
@@ -65,10 +65,10 @@ struct ScopedBlockSignals {
 
 #  if SANITIZER_GLIBC
 uptr internal_clock_gettime(__sanitizer_clockid_t clk_id, void *tp);
-#endif
+#  endif
 
 // Linux-only syscalls.
-#if SANITIZER_LINUX
+#  if SANITIZER_LINUX
 uptr internal_prctl(int option, uptr arg2, uptr arg3, uptr arg4, uptr arg5);
 #    if defined(__x86_64__)
 uptr internal_arch_prctl(int option, uptr arg2);
@@ -83,15 +83,15 @@ void internal_sigdelset(__sanitizer_sigset_t *set, int signum);
         defined(__arm__) || SANITIZER_RISCV64 || SANITIZER_LOONGARCH64
 uptr internal_clone(int (*fn)(void *), void *child_stack, int flags, void *arg,
                     int *parent_tidptr, void *newtls, int *child_tidptr);
-#endif
+#    endif
 int internal_uname(struct utsname *buf);
-#elif SANITIZER_FREEBSD
+#  elif SANITIZER_FREEBSD
 uptr internal_procctl(int type, int id, int cmd, void *data);
 void internal_sigdelset(__sanitizer_sigset_t *set, int signum);
-#elif SANITIZER_NETBSD
+#  elif SANITIZER_NETBSD
 void internal_sigdelset(__sanitizer_sigset_t *set, int signum);
 uptr internal_clone(int (*fn)(void *), void *child_stack, int flags, void *arg);
-#endif  // SANITIZER_LINUX
+#  endif  // SANITIZER_LINUX
 
 // This class reads thread IDs from /proc/<pid>/task using only syscalls.
 class ThreadLister {
@@ -135,36 +135,60 @@ inline void ReleaseMemoryPagesToOSAndZeroFill(uptr beg, uptr end) {
   ReleaseMemoryPagesToOS(beg, end);
 }
 
-#if SANITIZER_ANDROID
+#  if SANITIZER_ANDROID
 
-#if defined(__aarch64__)
-# define __get_tls() \
-    ({ void** __v; __asm__("mrs %0, tpidr_el0" : "=r"(__v)); __v; })
-#elif defined(__arm__)
-# define __get_tls() \
-    ({ void** __v; __asm__("mrc p15, 0, %0, c13, c0, 3" : "=r"(__v)); __v; })
-#elif defined(__mips__)
+#    if defined(__aarch64__)
+#      define __get_tls()                           \
+        ({                                          \
+          void **__v;                               \
+          __asm__("mrs %0, tpidr_el0" : "=r"(__v)); \
+          __v;                                      \
+        })
+#    elif defined(__arm__)
+#      define __get_tls()                                    \
+        ({                                                   \
+          void **__v;                                        \
+          __asm__("mrc p15, 0, %0, c13, c0, 3" : "=r"(__v)); \
+          __v;                                               \
+        })
+#    elif defined(__mips__)
 // On mips32r1, this goes via a kernel illegal instruction trap that's
 // optimized for v1.
-# define __get_tls() \
-    ({ register void** __v asm("v1"); \
-       __asm__(".set    push\n" \
-               ".set    mips32r2\n" \
-               "rdhwr   %0,$29\n" \
-               ".set    pop\n" : "=r"(__v)); \
-       __v; })
-#elif defined (__riscv)
-# define __get_tls() \
-    ({ void** __v; __asm__("mv %0, tp" : "=r"(__v)); __v; })
-#elif defined(__i386__)
-# define __get_tls() \
-    ({ void** __v; __asm__("movl %%gs:0, %0" : "=r"(__v)); __v; })
-#elif defined(__x86_64__)
-# define __get_tls() \
-    ({ void** __v; __asm__("mov %%fs:0, %0" : "=r"(__v)); __v; })
-#else
-#error "Unsupported architecture."
-#endif
+#      define __get_tls()                \
+        ({                               \
+          register void **__v asm("v1"); \
+          __asm__(                       \
+              ".set    push\n"           \
+              ".set    mips32r2\n"       \
+              "rdhwr   %0,$29\n"         \
+              ".set    pop\n"            \
+              : "=r"(__v));              \
+          __v;                           \
+        })
+#    elif defined(__riscv)
+#      define __get_tls()                   \
+        ({                                  \
+          void **__v;                       \
+          __asm__("mv %0, tp" : "=r"(__v)); \
+          __v;                              \
+        })
+#    elif defined(__i386__)
+#      define __get_tls()                         \
+        ({                                        \
+          void **__v;                             \
+          __asm__("movl %%gs:0, %0" : "=r"(__v)); \
+          __v;                                    \
+        })
+#    elif defined(__x86_64__)
+#      define __get_tls()                        \
+        ({                                       \
+          void **__v;                            \
+          __asm__("mov %%fs:0, %0" : "=r"(__v)); \
+          __v;                                   \
+        })
+#    else
+#      error "Unsupported architecture."
+#    endif
 
 // The Android Bionic team has allocated a TLS slot for sanitizers starting
 // with Q, given that Android currently doesn't support ELF TLS. It is used to
@@ -175,7 +199,7 @@ ALWAYS_INLINE uptr *get_android_tls_ptr() {
   return reinterpret_cast<uptr *>(&__get_tls()[TLS_SLOT_SANITIZER]);
 }
 
-#endif  // SANITIZER_ANDROID
+#  endif  // SANITIZER_ANDROID
 
 }  // namespace __sanitizer
 

@@ -523,6 +523,7 @@ typedef long __sanitizer_clock_t;
 
 #if SANITIZER_LINUX
 typedef int __sanitizer_clockid_t;
+typedef unsigned long long __sanitizer_eventfd_t;
 #endif
 
 #if SANITIZER_LINUX

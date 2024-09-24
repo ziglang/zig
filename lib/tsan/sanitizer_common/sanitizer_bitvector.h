@@ -321,23 +321,23 @@ class TwoLevelBitVector {
   };
 
  private:
-  void check(uptr idx) const { CHECK_LE(idx, size()); }
+  void check(uptr idx) const { CHECK_LT(idx, size()); }
 
   uptr idx0(uptr idx) const {
     uptr res = idx / (BV::kSize * BV::kSize);
-    CHECK_LE(res, kLevel1Size);
+    CHECK_LT(res, kLevel1Size);
     return res;
   }
 
   uptr idx1(uptr idx) const {
     uptr res = (idx / BV::kSize) % BV::kSize;
-    CHECK_LE(res, BV::kSize);
+    CHECK_LT(res, BV::kSize);
     return res;
   }
 
   uptr idx2(uptr idx) const {
     uptr res = idx % BV::kSize;
-    CHECK_LE(res, BV::kSize);
+    CHECK_LT(res, BV::kSize);
     return res;
   }
 

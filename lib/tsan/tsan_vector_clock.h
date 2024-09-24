@@ -34,7 +34,7 @@ class VectorClock {
   VectorClock& operator=(const VectorClock& other);
 
  private:
-  Epoch clk_[kThreadSlotCount] VECTOR_ALIGNED;
+  VECTOR_ALIGNED Epoch clk_[kThreadSlotCount];
 };
 
 ALWAYS_INLINE Epoch VectorClock::Get(Sid sid) const {
