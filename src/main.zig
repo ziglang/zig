@@ -7214,8 +7214,21 @@ fn cmdFetch(
                 .path => {},
             }
         }
+
+        const location_replace = try std.fmt.allocPrint(
+            arena,
+            "\"{}\"",
+            .{std.zig.fmtEscapes(path_or_url)},
+        );
+        const hash_replace = try std.fmt.allocPrint(
+            arena,
+            "\"{}\"",
+            .{std.zig.fmtEscapes(&hex_digest)},
+        );
+
         warn("overwriting existing dependency named '{s}'", .{name});
-        try fixups.replace_nodes_with_string.put(gpa, dep.node, new_node_init);
+        try fixups.replace_nodes_with_string.put(gpa, dep.location_node, location_replace);
+        try fixups.replace_nodes_with_string.put(gpa, dep.hash_node, hash_replace);
     } else if (manifest.dependencies.count() > 0) {
         // Add fixup for adding another dependency.
         const deps = manifest.dependencies.values();
