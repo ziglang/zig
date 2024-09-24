@@ -41,8 +41,6 @@ pub fn classifyType(ty: Type, zcu: *Zcu, ctx: Context) Class {
         .bool => return .byval,
         .float => return .byval,
         .int, .@"enum", .error_set => {
-            const bit_size = ty.bitSize(zcu);
-            if (bit_size > max_direct_size) return .memory;
             return .byval;
         },
         .vector => {
