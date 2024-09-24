@@ -29,7 +29,7 @@ fn toLowerSimd(comptime len: usize, input: [len]u8) [len]u8 {
     const BVec = @Vector(len, bool);
 
     const at_min: BVec = input >= @as(SVec, @splat('A'));
-    const at_max: BVec = input >= @as(SVec, @splat('Z'));
+    const at_max: BVec = input <= @as(SVec, @splat('Z'));
     const true_vec: BVec = @splat(true);
     const is_upper: BVec = @select(bool, at_min, at_max, true_vec);
 
@@ -61,15 +61,14 @@ pub fn StaticStringMapAdvanced(
         kvs: []const Kv,
 
         /// Initializes the map at comptime
-        pub fn initComptime(comptime kvs_list: anytype) Self {
-            const kvs: []const Kv = comptime blk: {
+        inline fn initComptime(comptime kvs_list: anytype) Self {
+            comptime {
                 var kv_list: []const Kv = &.{};
                 for (kvs_list) |kv| {
                     kv_list = kv_list ++ .{.{ .key = kv[0], .value = kv[1] }};
                 }
-                break :blk kv_list;
-            };
-            return .{ .kvs = kvs };
+                return .{ .kvs = kv_list };
+            }
         }
 
         /// Returns the value for the key if any, else null.
@@ -161,10 +160,161 @@ pub fn StaticStringMapAdvanced(
     };
 }
 
+const TestEnum = enum { A, B, C, D, E };
+const TestMap = StaticStringMap(TestEnum);
+const TestKV = struct { []const u8, TestEnum };
+const TestMapVoid = StaticStringMap(void);
+const TestKVVoid = struct { []const u8, void };
+const TestMapIgnoreCase = StaticStringMapIgnoreCase(TestEnum);
 const testing = std.testing;
+const test_alloc = testing.allocator;
 
-test "comptime only value" {
-    const map = comptime StaticStringMap(type).initComptime(.{
+test "get/has with edge cases" {
+    const map = StaticStringMap(u32).initComptime(&.{
+        .{ "a", 0 },
+        .{ "ab", 3 },
+        .{ "abc", 0 },
+        .{ "abcd", 1 },
+        .{ "abcde", 1 },
+    });
+
+    try testing.expectEqual(false, map.has("abcdef"));
+    try testing.expectEqual(true, map.has("abcde"));
+    try testing.expectEqual(3, map.get("ab"));
+    try testing.expectEqual(0, map.get("a"));
+    try testing.expectEqual(null, map.get(""));
+}
+
+test "array of structs" {
+    const slice = [_]TestKV{
+        .{ "these", .D },
+        .{ "have", .A },
+        .{ "nothing", .B },
+        .{ "incommon", .C },
+        .{ "samelen", .E },
+    };
+
+    try testMap(TestMap.initComptime(slice));
+}
+
+test "slice of structs" {
+    const slice = [_]TestKV{
+        .{ "these", .D },
+        .{ "have", .A },
+        .{ "nothing", .B },
+        .{ "incommon", .C },
+        .{ "samelen", .E },
+    };
+
+    try testMap(TestMap.initComptime(slice));
+}
+
+fn testMap(comptime map: anytype) !void {
+    try testing.expectEqual(TestEnum.A, map.get("have").?);
+    try testing.expectEqual(TestEnum.B, map.get("nothing").?);
+    try testing.expect(null == map.get("missing"));
+    try testing.expectEqual(TestEnum.D, map.get("these").?);
+    try testing.expectEqual(TestEnum.E, map.get("samelen").?);
+
+    try testing.expect(!map.has("missing"));
+    try testing.expect(map.has("these"));
+
+    try testing.expect(null == map.get(""));
+    try testing.expect(null == map.get("averylongstringthathasnomatches"));
+}
+
+test "void value type, list literal of list literals" {
+    const slice = [_]TestKVVoid{
+        .{ "these", {} },
+        .{ "have", {} },
+        .{ "nothing", {} },
+        .{ "incommon", {} },
+        .{ "samelen", {} },
+    };
+
+    try testSet(TestMapVoid.initComptime(slice));
+}
+
+fn testSet(comptime map: TestMapVoid) !void {
+    try testing.expectEqual({}, map.get("have").?);
+    try testing.expectEqual({}, map.get("nothing").?);
+    try testing.expect(null == map.get("missing"));
+    try testing.expectEqual({}, map.get("these").?);
+    try testing.expectEqual({}, map.get("samelen").?);
+
+    try testing.expect(!map.has("missing"));
+    try testing.expect(map.has("these"));
+
+    try testing.expect(null == map.get(""));
+    try testing.expect(null == map.get("averylongstringthathasnomatches"));
+}
+
+fn testStaticStringMapIgnoreCase(comptime map: TestMapIgnoreCase) !void {
+    try testMap(map);
+    try testing.expectEqual(TestEnum.A, map.get("HAVE").?);
+    try testing.expectEqual(TestEnum.E, map.get("SameLen").?);
+    try testing.expect(null == map.get("SameLength"));
+    try testing.expect(map.has("ThESe"));
+}
+
+test "StaticStringMapIgnoreCase" {
+    const slice = [_]TestKV{
+        .{ "these", .D },
+        .{ "have", .A },
+        .{ "nothing", .B },
+        .{ "incommon", .C },
+        .{ "samelen", .E },
+    };
+
+    try testStaticStringMapIgnoreCase(TestMapIgnoreCase.initComptime(slice));
+}
+
+test "empty" {
+    const m1 = StaticStringMap(usize).initComptime(.{});
+    try testing.expect(null == m1.get("anything"));
+
+    const m2 = StaticStringMapIgnoreCase(usize).initComptime(.{});
+    try testing.expect(null == m2.get("anything"));
+}
+
+test "redundant entries" {
+    const slice = [_]TestKV{
+        .{ "redundant", .D },
+        .{ "theNeedle", .A },
+        .{ "redundant", .B },
+        .{ "re" ++ "dundant", .C },
+        .{ "redun" ++ "dant", .E },
+    };
+    const map = TestMap.initComptime(slice);
+
+    // No promises about which one you get:
+    try testing.expect(null != map.get("redundant"));
+
+    // Default map is not case sensitive:
+    try testing.expect(null == map.get("REDUNDANT"));
+
+    try testing.expectEqual(TestEnum.A, map.get("theNeedle").?);
+}
+
+test "redundant insensitive" {
+    const slice = [_]TestKV{
+        .{ "redundant", .D },
+        .{ "theNeedle", .A },
+        .{ "redundanT", .B },
+        .{ "RE" ++ "dundant", .C },
+        .{ "redun" ++ "DANT", .E },
+    };
+
+    const map = TestMapIgnoreCase.initComptime(slice);
+
+    // No promises about which result you'll get ...
+    try testing.expect(null != map.get("REDUNDANT"));
+    try testing.expect(null != map.get("ReDuNdAnT"));
+    try testing.expectEqual(TestEnum.A, map.get("theNeedle").?);
+}
+
+test "comptime-only value" {
+    const map = StaticStringMap(type).initComptime(.{
         .{ "a", struct {
             pub const foo = 1;
         } },
@@ -182,18 +332,33 @@ test "comptime only value" {
     try testing.expect(map.get("d") == null);
 }
 
-test "get/has with edge cases" {
-    const map = comptime StaticStringMap(u32).initComptime(&.{
-        .{ "a", 0 },
-        .{ "ab", 3 },
-        .{ "abc", 0 },
-        .{ "abcd", 1 },
-        .{ "abcde", 1 },
+test "sorting kvs doesn't exceed eval branch quota" {
+    // from https://github.com/ziglang/zig/issues/19803
+    const TypeToByteSizeLUT = std.StaticStringMap(u32).initComptime(.{
+        .{ "bool", 0 },
+        .{ "c_int", 0 },
+        .{ "c_long", 0 },
+        .{ "c_longdouble", 0 },
+        .{ "t20", 0 },
+        .{ "t19", 0 },
+        .{ "t18", 0 },
+        .{ "t17", 0 },
+        .{ "t16", 0 },
+        .{ "t15", 0 },
+        .{ "t14", 0 },
+        .{ "t13", 0 },
+        .{ "t12", 0 },
+        .{ "t11", 0 },
+        .{ "t10", 0 },
+        .{ "t9", 0 },
+        .{ "t8", 0 },
+        .{ "t7", 0 },
+        .{ "t6", 0 },
+        .{ "t5", 0 },
+        .{ "t4", 0 },
+        .{ "t3", 0 },
+        .{ "t2", 0 },
+        .{ "t1", 1 },
     });
-
-    try testing.expectEqual(false, map.has("abcdef"));
-    try testing.expectEqual(true, map.has("abcde"));
-    try testing.expectEqual(3, map.get("ab"));
-    try testing.expectEqual(0, map.get("a"));
-    try testing.expectEqual(null, map.get(""));
+    try testing.expectEqual(1, TypeToByteSizeLUT.get("t1"));
 }
