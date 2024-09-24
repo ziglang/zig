@@ -3159,36 +3159,38 @@ pub fn initShStrtab(self: *Elf) !void {
 fn initSpecialPhdrs(self: *Elf) !void {
     comptime assert(max_number_of_special_phdrs == 5);
 
-    if (self.interp_section_index != null) {
+    if (self.interp_section_index != null and self.phdr_interp_index == null) {
         self.phdr_interp_index = try self.addPhdr(.{
             .type = elf.PT_INTERP,
             .flags = elf.PF_R,
             .@"align" = 1,
         });
     }
-    if (self.dynamic_section_index != null) {
+    if (self.dynamic_section_index != null and self.phdr_dynamic_index == null) {
         self.phdr_dynamic_index = try self.addPhdr(.{
             .type = elf.PT_DYNAMIC,
             .flags = elf.PF_R | elf.PF_W,
         });
     }
-    if (self.eh_frame_hdr_section_index != null) {
+    if (self.eh_frame_hdr_section_index != null and self.phdr_gnu_eh_frame_index == null) {
         self.phdr_gnu_eh_frame_index = try self.addPhdr(.{
             .type = elf.PT_GNU_EH_FRAME,
             .flags = elf.PF_R,
         });
     }
-    self.phdr_gnu_stack_index = try self.addPhdr(.{
-        .type = elf.PT_GNU_STACK,
-        .flags = elf.PF_W | elf.PF_R,
-        .memsz = self.base.stack_size,
-        .@"align" = 1,
-    });
+    if (self.phdr_gnu_stack_index == null) {
+        self.phdr_gnu_stack_index = try self.addPhdr(.{
+            .type = elf.PT_GNU_STACK,
+            .flags = elf.PF_W | elf.PF_R,
+            .memsz = self.base.stack_size,
+            .@"align" = 1,
+        });
+    }
 
     const has_tls = for (self.sections.items(.shdr)) |shdr| {
         if (shdr.sh_flags & elf.SHF_TLS != 0) break true;
     } else false;
-    if (has_tls) {
+    if (has_tls and self.phdr_tls_index == null) {
         self.phdr_tls_index = try self.addPhdr(.{
             .type = elf.PT_TLS,
             .flags = elf.PF_R,
