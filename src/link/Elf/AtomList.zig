@@ -19,6 +19,9 @@ pub fn offset(list: AtomList, elf_file: *Elf) u64 {
 }
 
 pub fn updateSize(list: *AtomList, elf_file: *Elf) void {
+    // TODO perhaps a 'stale' flag would be better here?
+    list.size = 0;
+    list.alignment = .@"1";
     for (list.atoms.items) |ref| {
         const atom_ptr = elf_file.atom(ref).?;
         assert(atom_ptr.alive);

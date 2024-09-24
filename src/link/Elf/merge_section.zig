@@ -95,6 +95,10 @@ pub const MergeSection = struct {
     }
 
     pub fn updateSize(msec: *MergeSection) void {
+        // TODO a 'stale' flag would be better here perhaps?
+        msec.size = 0;
+        msec.alignment = .@"1";
+        msec.entsize = 0;
         for (msec.finalized_subsections.items) |msub_index| {
             const msub = msec.mergeSubsection(msub_index);
             assert(msub.alive);
