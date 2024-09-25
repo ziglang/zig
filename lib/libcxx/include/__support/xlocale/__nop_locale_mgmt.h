@@ -12,20 +12,16 @@
 
 #include <__config>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 // Patch over lack of extended locale support
 typedef void* locale_t;
 
-inline _LIBCPP_HIDE_FROM_ABI_C locale_t duplocale(locale_t) { return NULL; }
+inline _LIBCPP_HIDE_FROM_ABI locale_t duplocale(locale_t) { return NULL; }
 
-inline _LIBCPP_HIDE_FROM_ABI_C void freelocale(locale_t) {}
+inline _LIBCPP_HIDE_FROM_ABI void freelocale(locale_t) {}
 
-inline _LIBCPP_HIDE_FROM_ABI_C locale_t newlocale(int, const char*, locale_t) { return NULL; }
+inline _LIBCPP_HIDE_FROM_ABI locale_t newlocale(int, const char*, locale_t) { return NULL; }
 
-inline _LIBCPP_HIDE_FROM_ABI_C locale_t uselocale(locale_t) { return NULL; }
+inline _LIBCPP_HIDE_FROM_ABI locale_t uselocale(locale_t) { return NULL; }
 
 #define LC_COLLATE_MASK (1 << LC_COLLATE)
 #define LC_CTYPE_MASK (1 << LC_CTYPE)
@@ -35,9 +31,5 @@ inline _LIBCPP_HIDE_FROM_ABI_C locale_t uselocale(locale_t) { return NULL; }
 #define LC_TIME_MASK (1 << LC_TIME)
 #define LC_ALL_MASK                                                                                                    \
   (LC_COLLATE_MASK | LC_CTYPE_MASK | LC_MONETARY_MASK | LC_NUMERIC_MASK | LC_TIME_MASK | LC_MESSAGES_MASK)
-
-#ifdef __cplusplus
-} // extern "C"
-#endif
 
 #endif // _LIBCPP___SUPPORT_XLOCALE_NOP_LOCALE_MGMT_H

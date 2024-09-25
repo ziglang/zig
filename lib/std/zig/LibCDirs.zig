@@ -254,23 +254,6 @@ fn libCGenericName(target: std.Target) [:0]const u8 {
         .simulator,
         .macabi,
         => unreachable,
-
-        .pixel,
-        .vertex,
-        .geometry,
-        .hull,
-        .domain,
-        .compute,
-        .library,
-        .raygeneration,
-        .intersection,
-        .anyhit,
-        .closesthit,
-        .miss,
-        .callable,
-        .mesh,
-        .amplification,
-        => unreachable,
     }
 }
 

@@ -104,7 +104,6 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         => return false,
 
         .coff,
-        .dxcontainer,
         .elf,
         .goff,
         .hex,
@@ -161,7 +160,6 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         => true,
 
         // An LLVM backend exists but we don't currently support using it.
-        .dxil,
         .spirv,
         .spirv32,
         .spirv64,

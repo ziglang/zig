@@ -70,6 +70,8 @@ public:
 
   _LIBCPP_HIDE_FROM_ABI constexpr const _Tp* end() const noexcept { return data() + 1; }
 
+  _LIBCPP_HIDE_FROM_ABI static constexpr bool empty() noexcept { return false; }
+
   _LIBCPP_HIDE_FROM_ABI static constexpr size_t size() noexcept { return 1; }
 
   _LIBCPP_HIDE_FROM_ABI constexpr _Tp* data() noexcept { return __value_.operator->(); }

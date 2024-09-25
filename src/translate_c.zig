@@ -2644,7 +2644,9 @@ fn transInitListExprArray(
     const init_count = expr.getNumInits();
     assert(@as(*const clang.Type, @ptrCast(arr_type)).isConstantArrayType());
     const const_arr_ty = @as(*const clang.ConstantArrayType, @ptrCast(arr_type));
-    const size_ap_int = const_arr_ty.getSize();
+    var size_ap_int: *const clang.APInt = undefined;
+    const_arr_ty.getSize(&size_ap_int);
+    defer size_ap_int.free();
     const all_count = size_ap_int.getLimitedValue(usize);
     const leftover_count = all_count - init_count;
 
@@ -3665,6 +3667,7 @@ fn transUnaryExprOrTypeTraitExpr(
         .AlignOf => try Tag.alignof.create(c.arena, type_node),
         .DataSizeOf,
         .PreferredAlignOf,
+        .PtrAuthTypeDiscriminator,
         .VecStep,
         .OpenMPRequiredSimdAlign,
         => return fail(
@@ -4793,7 +4796,9 @@ fn transType(c: *Context, scope: *Scope, ty: *const clang.Type, source_loc: clan
         .ConstantArray => {
             const const_arr_ty = @as(*const clang.ConstantArrayType, @ptrCast(ty));
 
-            const size_ap_int = const_arr_ty.getSize();
+            var size_ap_int: *const clang.APInt = undefined;
+            const_arr_ty.getSize(&size_ap_int);
+            defer size_ap_int.free();
             const size = size_ap_int.getLimitedValue(usize);
             const elem_type = try transType(c, scope, const_arr_ty.getElementType().getTypePtr(), source_loc);
 

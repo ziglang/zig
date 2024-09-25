@@ -10,11 +10,10 @@
 #ifndef _LIBCPP___FORMAT_FORMAT_ARGS_H
 #define _LIBCPP___FORMAT_FORMAT_ARGS_H
 
-#include <__availability>
 #include <__config>
 #include <__format/format_arg.h>
 #include <__format/format_arg_store.h>
-#include <__format/format_fwd.h>
+#include <__fwd/format.h>
 #include <cstddef>
 #include <cstdint>
 
@@ -29,8 +28,6 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 template <class _Context>
 class _LIBCPP_TEMPLATE_VIS basic_format_args {
 public:
-  basic_format_args() noexcept = default;
-
   template <class... _Args>
   _LIBCPP_HIDE_FROM_ABI basic_format_args(const __format_arg_store<_Context, _Args...>& __store) noexcept
       : __size_(sizeof...(_Args)) {

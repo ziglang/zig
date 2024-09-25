@@ -98,6 +98,21 @@ test "pointer subtraction" {
     }
 }
 
+test "pointer arithmetic with non-trivial RHS" {
+    var t: bool = undefined;
+    t = true;
+
+    var ptr: [*]const u8 = "Hello, World!";
+    ptr += if (t) 5 else 2;
+    try expect(ptr[0] == ',');
+    ptr += if (!t) 4 else 2;
+    try expect(ptr[0] == 'W');
+    ptr -= if (t) @as(usize, 6) else 3;
+    try expect(ptr[0] == 'e');
+    ptr -= if (!t) @as(usize, 0) else 1;
+    try expect(ptr[0] == 'H');
+}
+
 test "double pointer parsing" {
     comptime assert(PtrOf(PtrOf(i32)) == **i32);
 }

@@ -3156,6 +3156,9 @@ fn deferStmt(
     const have_err_code = scope_tag == .defer_error and payload_token != 0;
     const sub_scope = if (!have_err_code) &defer_gen.base else blk: {
         const ident_name = try gz.astgen.identAsString(payload_token);
+        if (std.mem.eql(u8, tree.tokenSlice(payload_token), "_")) {
+            return gz.astgen.failTok(payload_token, "discard of error capture; omit it instead", .{});
+        }
         const remapped_err_code: Zir.Inst.Index = @enumFromInt(gz.astgen.instructions.len);
         opt_remapped_err_code = remapped_err_code.toOptional();
         try gz.astgen.instructions.append(gz.astgen.gpa, .{
@@ -3785,8 +3788,26 @@ fn assignOp(
         else => undefined,
     };
     const lhs = try gz.addUnNode(.load, lhs_ptr, infix_node);
-    const lhs_type = try gz.addUnNode(.typeof, lhs, infix_node);
-    const rhs = try expr(gz, scope, .{ .rl = .{ .coerced_ty = lhs_type } }, node_datas[infix_node].rhs);
+
+    const rhs_res_ty = switch (op_inst_tag) {
+        .add,
+        .sub,
+        => try gz.add(.{
+            .tag = .extended,
+            .data = .{ .extended = .{
+                .opcode = .inplace_arith_result_ty,
+                .small = @intFromEnum(@as(Zir.Inst.InplaceOp, switch (op_inst_tag) {
+                    .add => .add_eq,
+                    .sub => .sub_eq,
+                    else => unreachable,
+                })),
+                .operand = @intFromEnum(lhs),
+            } },
+        }),
+        else => try gz.addUnNode(.typeof, lhs, infix_node), // same as LHS type
+    };
+    // Not `coerced_ty` since `add`/etc won't coerce to this type.
+    const rhs = try expr(gz, scope, .{ .rl = .{ .ty = rhs_res_ty } }, node_datas[infix_node].rhs);
 
     switch (op_inst_tag) {
         .add, .sub, .mul, .div, .mod_rem => {

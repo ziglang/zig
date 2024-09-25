@@ -1,4 +1,4 @@
-//===-- interception_linux.cpp ----------------------------------*- C++ -*-===//
+//===-- interception_win.cpp ------------------------------------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -339,7 +339,7 @@ struct TrampolineMemoryRegion {
   uptr max_size;
 };
 
-UNUSED static const uptr kTrampolineScanLimitRange = 1 << 31;  // 2 gig
+UNUSED static const uptr kTrampolineScanLimitRange = 1ull << 31;  // 2 gig
 static const int kMaxTrampolineRegion = 1024;
 static TrampolineMemoryRegion TrampolineRegions[kMaxTrampolineRegion];
 
@@ -431,7 +431,8 @@ static uptr AllocateMemoryForTrampoline(uptr image_address, size_t size) {
 // The following prologues cannot be patched because of the short jump
 // jumping to the patching region.
 
-#if SANITIZER_WINDOWS64
+// Short jump patterns  below are only for x86_64.
+#  if SANITIZER_WINDOWS_x64
 // ntdll!wcslen in Win11
 //   488bc1          mov     rax,rcx
 //   0fb710          movzx   edx,word ptr [rax]
@@ -457,7 +458,12 @@ static const u8 kPrologueWithShortJump2[] = {
 
 // Returns 0 on error.
 static size_t GetInstructionSize(uptr address, size_t* rel_offset = nullptr) {
-#if SANITIZER_WINDOWS64
+#if SANITIZER_ARM64
+  // An ARM64 instruction is 4 bytes long.
+  return 4;
+#endif
+
+#  if SANITIZER_WINDOWS_x64
   if (memcmp((u8*)address, kPrologueWithShortJump1,
              sizeof(kPrologueWithShortJump1)) == 0 ||
       memcmp((u8*)address, kPrologueWithShortJump2,
@@ -473,6 +479,8 @@ static size_t GetInstructionSize(uptr address, size_t* rel_offset = nullptr) {
 
   switch (*(u8*)address) {
     case 0x90:  // 90 : nop
+    case 0xC3:  // C3 : ret   (for small/empty function interception
+    case 0xCC:  // CC : int 3  i.e. registering weak functions)
       return 1;
 
     case 0x50:  // push eax / rax
@@ -496,7 +504,6 @@ static size_t GetInstructionSize(uptr address, size_t* rel_offset = nullptr) {
     // Cannot overwrite control-instruction. Return 0 to indicate failure.
     case 0xE9:  // E9 XX XX XX XX : jmp <label>
     case 0xE8:  // E8 XX XX XX XX : call <func>
-    case 0xC3:  // C3 : ret
     case 0xEB:  // EB XX : jmp XX (short jump)
     case 0x70:  // 7Y YY : jy XX (short conditional jump)
     case 0x71:
@@ -539,7 +546,12 @@ static size_t GetInstructionSize(uptr address, size_t* rel_offset = nullptr) {
       return 7;
   }
 
-#if SANITIZER_WINDOWS64
+  switch (0x000000FF & *(u32 *)address) {
+    case 0xc2:  // C2 XX XX : ret XX (needed for registering weak functions)
+      return 3;
+  }
+
+#  if SANITIZER_WINDOWS_x64
   switch (*(u8*)address) {
     case 0xA1:  // A1 XX XX XX XX XX XX XX XX :
                 //   movabs eax, dword ptr ds:[XXXXXXXX]
@@ -572,6 +584,7 @@ static size_t GetInstructionSize(uptr address, size_t* rel_offset = nullptr) {
     case 0x018a:  // mov al, byte ptr [rcx]
       return 2;
 
+    case 0x058A:  // 8A 05 XX XX XX XX : mov al, byte ptr [XX XX XX XX]
     case 0x058B:  // 8B 05 XX XX XX XX : mov eax, dword ptr [XX XX XX XX]
       if (rel_offset)
         *rel_offset = 2;
@@ -598,6 +611,7 @@ static size_t GetInstructionSize(uptr address, size_t* rel_offset = nullptr) {
     case 0xc18b4c:    // 4C 8B C1 : mov r8, rcx
     case 0xd2b60f:    // 0f b6 d2 : movzx edx, dl
     case 0xca2b48:    // 48 2b ca : sub rcx, rdx
+    case 0xca3b48:    // 48 3b ca : cmp rcx, rdx
     case 0x10b70f:    // 0f b7 10 : movzx edx, WORD PTR [rax]
     case 0xc00b4d:    // 3d 0b c0 : or r8, r8
     case 0xc08b41:    // 41 8b c0 : mov eax, r8d
@@ -617,9 +631,11 @@ static size_t GetInstructionSize(uptr address, size_t* rel_offset = nullptr) {
 
     case 0x058b48:    // 48 8b 05 XX XX XX XX :
                       //   mov rax, QWORD PTR [rip + XXXXXXXX]
+    case 0x058d48:    // 48 8d 05 XX XX XX XX :
+                      //   lea rax, QWORD PTR [rip + XXXXXXXX]
     case 0x25ff48:    // 48 ff 25 XX XX XX XX :
                       //   rex.W jmp QWORD PTR [rip + XXXXXXXX]
-
+    case 0x158D4C:    // 4c 8d 15 XX XX XX XX : lea r10, [rip + XX]
       // Instructions having offset relative to 'rip' need offset adjustment.
       if (rel_offset)
         *rel_offset = 3;
@@ -721,16 +737,22 @@ static bool CopyInstructions(uptr to, uptr from, size_t size) {
     size_t instruction_size = GetInstructionSize(from + cursor, &rel_offset);
     if (!instruction_size)
       return false;
-    _memcpy((void*)(to + cursor), (void*)(from + cursor),
+    _memcpy((void *)(to + cursor), (void *)(from + cursor),
             (size_t)instruction_size);
     if (rel_offset) {
-      uptr delta = to - from;
-      uptr relocated_offset = *(u32*)(to + cursor + rel_offset) - delta;
-#if SANITIZER_WINDOWS64
-      if (relocated_offset + 0x80000000U >= 0xFFFFFFFFU)
+#  if SANITIZER_WINDOWS64
+      // we want to make sure that the new relative offset still fits in 32-bits
+      // this will be untrue if relocated_offset \notin [-2**31, 2**31)
+      s64 delta = to - from;
+      s64 relocated_offset = *(s32 *)(to + cursor + rel_offset) - delta;
+      if (-0x8000'0000ll > relocated_offset || relocated_offset > 0x7FFF'FFFFll)
         return false;
-#endif
-      *(u32*)(to + cursor + rel_offset) = relocated_offset;
+#  else
+      // on 32-bit, the relative offset will always be correct
+      s32 delta = to - from;
+      s32 relocated_offset = *(s32 *)(to + cursor + rel_offset) - delta;
+#  endif
+      *(s32 *)(to + cursor + rel_offset) = relocated_offset;
     }
     cursor += instruction_size;
   }
@@ -932,19 +954,26 @@ bool OverrideFunction(
 
 static void **InterestingDLLsAvailable() {
   static const char *InterestingDLLs[] = {
-      "kernel32.dll",
-      "msvcr100.dll",      // VS2010
-      "msvcr110.dll",      // VS2012
-      "msvcr120.dll",      // VS2013
-      "vcruntime140.dll",  // VS2015
-      "ucrtbase.dll",      // Universal CRT
-#if (defined(__MINGW32__) && defined(__i386__))
-      "libc++.dll",        // libc++
-      "libunwind.dll",     // libunwind
-#endif
-      // NTDLL should go last as it exports some functions that we should
-      // override in the CRT [presumably only used internally].
-      "ntdll.dll", NULL};
+    "kernel32.dll",
+    "msvcr100d.dll",      // VS2010
+    "msvcr110d.dll",      // VS2012
+    "msvcr120d.dll",      // VS2013
+    "vcruntime140d.dll",  // VS2015
+    "ucrtbased.dll",      // Universal CRT
+    "msvcr100.dll",       // VS2010
+    "msvcr110.dll",       // VS2012
+    "msvcr120.dll",       // VS2013
+    "vcruntime140.dll",   // VS2015
+    "ucrtbase.dll",       // Universal CRT
+#  if (defined(__MINGW32__) && defined(__i386__))
+    "libc++.dll",     // libc++
+    "libunwind.dll",  // libunwind
+#  endif
+    // NTDLL should go last as it exports some functions that we should
+    // override in the CRT [presumably only used internally].
+    "ntdll.dll",
+    NULL
+  };
   static void *result[ARRAY_SIZE(InterestingDLLs)] = { 0 };
   if (!result[0]) {
     for (size_t i = 0, j = 0; InterestingDLLs[i]; ++i) {

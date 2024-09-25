@@ -79,7 +79,7 @@ __minmax_element_impl(_Iter __first, _Sent __last, _Comp& __comp, _Proj& __proj)
 }
 
 template <class _ForwardIterator, class _Compare>
-_LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 pair<_ForwardIterator, _ForwardIterator>
+_LIBCPP_NODISCARD _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 pair<_ForwardIterator, _ForwardIterator>
 minmax_element(_ForwardIterator __first, _ForwardIterator __last, _Compare __comp) {
   static_assert(
       __has_forward_iterator_category<_ForwardIterator>::value, "std::minmax_element requires a ForwardIterator");
@@ -90,9 +90,8 @@ minmax_element(_ForwardIterator __first, _ForwardIterator __last, _Compare __com
 }
 
 template <class _ForwardIterator>
-_LIBCPP_NODISCARD_EXT inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14
-    pair<_ForwardIterator, _ForwardIterator>
-    minmax_element(_ForwardIterator __first, _ForwardIterator __last) {
+_LIBCPP_NODISCARD inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 pair<_ForwardIterator, _ForwardIterator>
+minmax_element(_ForwardIterator __first, _ForwardIterator __last) {
   return std::minmax_element(__first, __last, __less<>());
 }
 

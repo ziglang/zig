@@ -579,51 +579,38 @@ const test_targets = blk: {
             .link_libc = true,
         },
 
-        // Disabled until LLVM fixes their O(N^2) codegen. Note that this is so bad that we don't
-        // even want to include this in CI with `slow_backend`.
-        // https://github.com/ziglang/zig/issues/18872
-        //.{
-        //    .target = .{
-        //        .cpu_arch = .riscv64,
-        //        .os_tag = .linux,
-        //        .abi = .none,
-        //    },
-        //    .use_llvm = true,
-        //},
-
-        // Disabled until LLVM fixes their O(N^2) codegen. Note that this is so bad that we don't
-        // even want to include this in CI with `slow_backend`.
-        // https://github.com/ziglang/zig/issues/18872
-        //.{
-        //    .target = .{
-        //        .cpu_arch = .riscv64,
-        //        .os_tag = .linux,
-        //        .abi = .musl,
-        //    },
-        //    .link_libc = true,
-        //    .use_llvm = true,
-        //},
+        .{
+            .target = .{
+                .cpu_arch = .riscv64,
+                .os_tag = .linux,
+                .abi = .none,
+            },
+        },
+        .{
+            .target = .{
+                .cpu_arch = .riscv64,
+                .os_tag = .linux,
+                .abi = .musl,
+            },
+            .link_libc = true,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .riscv64,
+                .os_tag = .linux,
+                .abi = .gnu,
+            },
+            .link_libc = true,
+        },
 
         .{
-            .target = std.Target.Query.parse(
-                .{
-                    .arch_os_abi = "riscv64-linux-musl",
-                    .cpu_features = "baseline+v+zbb",
-                },
-            ) catch @panic("OOM"),
+            .target = std.Target.Query.parse(.{
+                .arch_os_abi = "riscv64-linux-musl",
+                .cpu_features = "baseline+v+zbb",
+            }) catch @panic("OOM"),
             .use_llvm = false,
             .use_lld = false,
         },
-
-        // https://github.com/ziglang/zig/issues/3340
-        //.{
-        //    .target = .{
-        //        .cpu_arch = .riscv64,
-        //        .os = .linux,
-        //        .abi = .gnu,
-        //    },
-        //    .link_libc = true,
-        //},
 
         .{
             .target = .{
@@ -1210,14 +1197,6 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
         if (target.cpu.arch != .x86_64 and
             test_target.use_llvm == false and mem.eql(u8, options.name, "c-import"))
             continue;
-
-        if (target.cpu.arch == .x86_64 and target.os.tag == .windows and
-            test_target.target.cpu_arch == null and test_target.optimize_mode != .Debug and
-            mem.eql(u8, options.name, "std"))
-        {
-            // https://github.com/ziglang/zig/issues/17902
-            continue;
-        }
 
         const want_this_mode = for (options.optimize_modes) |m| {
             if (m == test_target.optimize_mode) break true;

@@ -42,7 +42,6 @@ template <class charT, class traits, class Allocator>
 
 */
 
-#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
 #include <istream>
 #include <version>
@@ -464,7 +463,7 @@ struct _LIBCPP_HIDDEN __quoted_output_proxy {
   _LIBCPP_HIDE_FROM_ABI explicit __quoted_output_proxy(const _CharT* __f, const _CharT* __l, _CharT __d, _CharT __e)
       : __first_(__f), __last_(__l), __delim_(__d), __escape_(__e) {}
 
-  template <class _T2, __enable_if_t<_IsSame<_Traits, void>::value || _IsSame<_Traits, _T2>::value>* = nullptr>
+  template <class _T2, __enable_if_t<_IsSame<_Traits, void>::value || _IsSame<_Traits, _T2>::value, int> = 0>
   friend _LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _T2>&
   operator<<(basic_ostream<_CharT, _T2>& __os, const __quoted_output_proxy& __p) {
     return std::__quoted_output(__os, __p.__first_, __p.__last_, __p.__delim_, __p.__escape_);

@@ -17,14 +17,14 @@ namespace std
 {
 
 class logic_error;
-    class domain_error;
-    class invalid_argument;
-    class length_error;
-    class out_of_range;
+class domain_error;
+class invalid_argument;
+class length_error;
+class out_of_range;
 class runtime_error;
-    class range_error;
-    class overflow_error;
-    class underflow_error;
+class range_error;
+class overflow_error;
+class underflow_error;
 
 for each class xxx_error:
 
@@ -41,7 +41,6 @@ public:
 
 */
 
-#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
 #include <__exception/exception.h>
 #include <__fwd/string.h>

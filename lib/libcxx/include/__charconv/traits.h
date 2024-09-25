@@ -10,6 +10,7 @@
 #ifndef _LIBCPP___CHARCONV_TRAITS
 #define _LIBCPP___CHARCONV_TRAITS
 
+#include <__assert>
 #include <__bit/countl.h>
 #include <__charconv/tables.h>
 #include <__charconv/to_chars_base_10.h>

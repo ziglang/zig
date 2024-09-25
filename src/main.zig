@@ -1791,6 +1791,7 @@ fn buildOutputType(
             var c_out_mode: ?COutMode = null;
             var out_path: ?[]const u8 = null;
             var is_shared_lib = false;
+            var preprocessor_args = std.ArrayList([]const u8).init(arena);
             var linker_args = std.ArrayList([]const u8).init(arena);
             var it = ClangArgIterator.init(arena, all_args);
             var emit_llvm = false;
@@ -1946,6 +1947,24 @@ fn buildOutputType(
                         is_shared_lib = true;
                     },
                     .rdynamic => create_module.opts.rdynamic = true,
+                    .wp => {
+                        var split_it = mem.splitScalar(u8, it.only_arg, ',');
+                        while (split_it.next()) |preprocessor_arg| {
+                            if (preprocessor_arg.len >= 3 and
+                                preprocessor_arg[0] == '-' and
+                                preprocessor_arg[2] != '-')
+                            {
+                                if (mem.indexOfScalar(u8, preprocessor_arg, '=')) |equals_pos| {
+                                    const key = preprocessor_arg[0..equals_pos];
+                                    const value = preprocessor_arg[equals_pos + 1 ..];
+                                    try preprocessor_args.append(key);
+                                    try preprocessor_args.append(value);
+                                    continue;
+                                }
+                            }
+                            try preprocessor_args.append(preprocessor_arg);
+                        }
+                    },
                     .wl => {
                         var split_it = mem.splitScalar(u8, it.only_arg, ',');
                         while (split_it.next()) |linker_arg| {
@@ -2551,6 +2570,20 @@ fn buildOutputType(
                     process.exit(0);
                 } else {
                     fatal("unsupported linker arg: {s}", .{arg});
+                }
+            }
+
+            // Parse preprocessor args.
+            var preprocessor_args_it = ArgsIterator{
+                .args = preprocessor_args.items,
+            };
+            while (preprocessor_args_it.next()) |arg| {
+                if (mem.eql(u8, arg, "-MD") or mem.eql(u8, arg, "-MMD") or mem.eql(u8, arg, "-MT")) {
+                    disable_c_depfile = true;
+                    const cc_arg = try std.fmt.allocPrint(arena, "-Wp,{s},{s}", .{ arg, preprocessor_args_it.nextOrFatal() });
+                    try cc_argv.append(arena, cc_arg);
+                } else {
+                    fatal("unsupported preprocessor arg: {s}", .{arg});
                 }
             }
 
@@ -5771,6 +5804,7 @@ pub const ClangArgIterator = struct {
         shared,
         rdynamic,
         wl,
+        wp,
         preprocess_only,
         asm_only,
         optimize,
@@ -7180,8 +7214,21 @@ fn cmdFetch(
                 .path => {},
             }
         }
+
+        const location_replace = try std.fmt.allocPrint(
+            arena,
+            "\"{}\"",
+            .{std.zig.fmtEscapes(path_or_url)},
+        );
+        const hash_replace = try std.fmt.allocPrint(
+            arena,
+            "\"{}\"",
+            .{std.zig.fmtEscapes(&hex_digest)},
+        );
+
         warn("overwriting existing dependency named '{s}'", .{name});
-        try fixups.replace_nodes_with_string.put(gpa, dep.node, new_node_init);
+        try fixups.replace_nodes_with_string.put(gpa, dep.location_node, location_replace);
+        try fixups.replace_nodes_with_string.put(gpa, dep.hash_node, hash_replace);
     } else if (manifest.dependencies.count() > 0) {
         // Add fixup for adding another dependency.
         const deps = manifest.dependencies.values();

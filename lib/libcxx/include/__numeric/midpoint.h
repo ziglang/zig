@@ -67,14 +67,16 @@ template <class _Fp>
 _LIBCPP_HIDE_FROM_ABI constexpr enable_if_t<is_floating_point_v<_Fp>, _Fp> midpoint(_Fp __a, _Fp __b) noexcept {
   constexpr _Fp __lo = numeric_limits<_Fp>::min() * 2;
   constexpr _Fp __hi = numeric_limits<_Fp>::max() / 2;
-  return std::__fp_abs(__a) <= __hi && std::__fp_abs(__b) <= __hi
-           ? // typical case: overflow is impossible
-             (__a + __b) / 2
-           :                                             // always correctly rounded
-             std::__fp_abs(__a) < __lo ? __a + __b / 2 : // not safe to halve a
-                 std::__fp_abs(__b) < __lo ? __a / 2 + __b
-                                           : // not safe to halve b
-                 __a / 2 + __b / 2;          // otherwise correctly rounded
+
+  // typical case: overflow is impossible
+  if (std::__fp_abs(__a) <= __hi && std::__fp_abs(__b) <= __hi)
+    return (__a + __b) / 2; // always correctly rounded
+  if (std::__fp_abs(__a) < __lo)
+    return __a + __b / 2; // not safe to halve a
+  if (std::__fp_abs(__b) < __lo)
+    return __a / 2 + __b; // not safe to halve b
+
+  return __a / 2 + __b / 2; // otherwise correctly rounded
 }
 
 #endif // _LIBCPP_STD_VER >= 20

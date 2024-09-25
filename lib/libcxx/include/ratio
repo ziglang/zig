@@ -81,7 +81,6 @@ using quetta = ratio <1'000'000'000'000'000'000'000'000'000'000, 1>; // Since C+
 }
 */
 
-#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
 #include <__type_traits/integral_constant.h>
 #include <climits>
@@ -289,6 +288,9 @@ private:
   static const intmax_t __gcd_n1_d2 = __static_gcd<_R1::num, _R2::den>::value;
   static const intmax_t __gcd_d1_n2 = __static_gcd<_R1::den, _R2::num>::value;
 
+  static_assert(__is_ratio<_R1>::value, "[ratio.general]/2 requires R1 to be a specialisation of the ratio template");
+  static_assert(__is_ratio<_R2>::value, "[ratio.general]/2 requires R2 to be a specialisation of the ratio template");
+
 public:
   typedef typename ratio< __ll_mul<_R1::num / __gcd_n1_d2, _R2::num / __gcd_d1_n2>::value,
                           __ll_mul<_R2::den / __gcd_n1_d2, _R1::den / __gcd_d1_n2>::value >::type type;
@@ -312,6 +314,9 @@ private:
   static const intmax_t __gcd_n1_n2 = __static_gcd<_R1::num, _R2::num>::value;
   static const intmax_t __gcd_d1_d2 = __static_gcd<_R1::den, _R2::den>::value;
 
+  static_assert(__is_ratio<_R1>::value, "[ratio.general]/2 requires R1 to be a specialisation of the ratio template");
+  static_assert(__is_ratio<_R2>::value, "[ratio.general]/2 requires R2 to be a specialisation of the ratio template");
+
 public:
   typedef typename ratio< __ll_mul<_R1::num / __gcd_n1_n2, _R2::den / __gcd_d1_d2>::value,
                           __ll_mul<_R2::num / __gcd_n1_n2, _R1::den / __gcd_d1_d2>::value >::type type;
@@ -334,6 +339,9 @@ struct __ratio_add {
 private:
   static const intmax_t __gcd_n1_n2 = __static_gcd<_R1::num, _R2::num>::value;
   static const intmax_t __gcd_d1_d2 = __static_gcd<_R1::den, _R2::den>::value;
+
+  static_assert(__is_ratio<_R1>::value, "[ratio.general]/2 requires R1 to be a specialisation of the ratio template");
+  static_assert(__is_ratio<_R2>::value, "[ratio.general]/2 requires R2 to be a specialisation of the ratio template");
 
 public:
   typedef typename ratio_multiply<
@@ -361,6 +369,9 @@ private:
   static const intmax_t __gcd_n1_n2 = __static_gcd<_R1::num, _R2::num>::value;
   static const intmax_t __gcd_d1_d2 = __static_gcd<_R1::den, _R2::den>::value;
 
+  static_assert(__is_ratio<_R1>::value, "[ratio.general]/2 requires R1 to be a specialisation of the ratio template");
+  static_assert(__is_ratio<_R2>::value, "[ratio.general]/2 requires R2 to be a specialisation of the ratio template");
+
 public:
   typedef typename ratio_multiply<
       ratio<__gcd_n1_n2, _R1::den / __gcd_d1_d2>,
@@ -384,10 +395,16 @@ struct _LIBCPP_TEMPLATE_VIS ratio_subtract : public __ratio_subtract<_R1, _R2>::
 // ratio_equal
 
 template <class _R1, class _R2>
-struct _LIBCPP_TEMPLATE_VIS ratio_equal : _BoolConstant<(_R1::num == _R2::num && _R1::den == _R2::den)> {};
+struct _LIBCPP_TEMPLATE_VIS ratio_equal : _BoolConstant<(_R1::num == _R2::num && _R1::den == _R2::den)> {
+  static_assert(__is_ratio<_R1>::value, "[ratio.general]/2 requires R1 to be a specialisation of the ratio template");
+  static_assert(__is_ratio<_R2>::value, "[ratio.general]/2 requires R2 to be a specialisation of the ratio template");
+};
 
 template <class _R1, class _R2>
-struct _LIBCPP_TEMPLATE_VIS ratio_not_equal : _BoolConstant<!ratio_equal<_R1, _R2>::value> {};
+struct _LIBCPP_TEMPLATE_VIS ratio_not_equal : _BoolConstant<!ratio_equal<_R1, _R2>::value> {
+  static_assert(__is_ratio<_R1>::value, "[ratio.general]/2 requires R1 to be a specialisation of the ratio template");
+  static_assert(__is_ratio<_R2>::value, "[ratio.general]/2 requires R2 to be a specialisation of the ratio template");
+};
 
 // ratio_less
 
@@ -441,16 +458,28 @@ struct __ratio_less<_R1, _R2, -1LL, -1LL> {
 };
 
 template <class _R1, class _R2>
-struct _LIBCPP_TEMPLATE_VIS ratio_less : _BoolConstant<__ratio_less<_R1, _R2>::value> {};
+struct _LIBCPP_TEMPLATE_VIS ratio_less : _BoolConstant<__ratio_less<_R1, _R2>::value> {
+  static_assert(__is_ratio<_R1>::value, "[ratio.general]/2 requires R1 to be a specialisation of the ratio template");
+  static_assert(__is_ratio<_R2>::value, "[ratio.general]/2 requires R2 to be a specialisation of the ratio template");
+};
 
 template <class _R1, class _R2>
-struct _LIBCPP_TEMPLATE_VIS ratio_less_equal : _BoolConstant<!ratio_less<_R2, _R1>::value> {};
+struct _LIBCPP_TEMPLATE_VIS ratio_less_equal : _BoolConstant<!ratio_less<_R2, _R1>::value> {
+  static_assert(__is_ratio<_R1>::value, "[ratio.general]/2 requires R1 to be a specialisation of the ratio template");
+  static_assert(__is_ratio<_R2>::value, "[ratio.general]/2 requires R2 to be a specialisation of the ratio template");
+};
 
 template <class _R1, class _R2>
-struct _LIBCPP_TEMPLATE_VIS ratio_greater : _BoolConstant<ratio_less<_R2, _R1>::value> {};
+struct _LIBCPP_TEMPLATE_VIS ratio_greater : _BoolConstant<ratio_less<_R2, _R1>::value> {
+  static_assert(__is_ratio<_R1>::value, "[ratio.general]/2 requires R1 to be a specialisation of the ratio template");
+  static_assert(__is_ratio<_R2>::value, "[ratio.general]/2 requires R2 to be a specialisation of the ratio template");
+};
 
 template <class _R1, class _R2>
-struct _LIBCPP_TEMPLATE_VIS ratio_greater_equal : _BoolConstant<!ratio_less<_R1, _R2>::value> {};
+struct _LIBCPP_TEMPLATE_VIS ratio_greater_equal : _BoolConstant<!ratio_less<_R1, _R2>::value> {
+  static_assert(__is_ratio<_R1>::value, "[ratio.general]/2 requires R1 to be a specialisation of the ratio template");
+  static_assert(__is_ratio<_R2>::value, "[ratio.general]/2 requires R2 to be a specialisation of the ratio template");
+};
 
 template <class _R1, class _R2>
 struct __ratio_gcd {

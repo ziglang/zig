@@ -271,7 +271,7 @@ fn clearBuffers(pp: *Preprocessor) void {
 pub fn expansionSlice(pp: *Preprocessor, tok: Tree.TokenIndex) []Source.Location {
     const S = struct {
         fn orderTokenIndex(context: Tree.TokenIndex, item: Tree.TokenIndex) std.math.Order {
-            return std.math.order(item, context);
+            return std.math.order(context, item);
         }
     };
 

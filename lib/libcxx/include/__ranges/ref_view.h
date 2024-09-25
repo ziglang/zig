@@ -43,7 +43,7 @@ class ref_view : public view_interface<ref_view<_Range>> {
   _Range* __range_;
 
   static void __fun(_Range&);
-  static void __fun(_Range&&) = delete;
+  static void __fun(_Range&&) = delete; // NOLINT(modernize-use-equals-delete) ; This is llvm.org/PR54276
 
 public:
   template <class _Tp>

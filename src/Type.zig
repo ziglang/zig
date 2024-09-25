@@ -1703,7 +1703,6 @@ pub fn maxIntAlignment(target: std.Target, use_llvm: bool) u16 {
         .spirv32,
         .ve,
         .spirv64,
-        .dxil,
         .loongarch32,
         .loongarch64,
         .xtensa,
@@ -3040,8 +3039,7 @@ pub fn minInt(ty: Type, pt: Zcu.PerThread, dest_ty: Type) !Value {
 pub fn minIntScalar(ty: Type, pt: Zcu.PerThread, dest_ty: Type) !Value {
     const zcu = pt.zcu;
     const info = ty.intInfo(zcu);
-    if (info.signedness == .unsigned) return pt.intValue(dest_ty, 0);
-    if (info.bits == 0) return pt.intValue(dest_ty, -1);
+    if (info.signedness == .unsigned or info.bits == 0) return pt.intValue(dest_ty, 0);
 
     if (std.math.cast(u6, info.bits - 1)) |shift| {
         const n = @as(i64, std.math.minInt(i64)) >> (63 - shift);
@@ -3072,10 +3070,7 @@ pub fn maxIntScalar(ty: Type, pt: Zcu.PerThread, dest_ty: Type) !Value {
     const info = ty.intInfo(pt.zcu);
 
     switch (info.bits) {
-        0 => return switch (info.signedness) {
-            .signed => try pt.intValue(dest_ty, -1),
-            .unsigned => try pt.intValue(dest_ty, 0),
-        },
+        0 => return pt.intValue(dest_ty, 0),
         1 => return switch (info.signedness) {
             .signed => try pt.intValue(dest_ty, 0),
             .unsigned => try pt.intValue(dest_ty, 1),

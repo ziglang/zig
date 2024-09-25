@@ -3364,8 +3364,38 @@ fn airOptionalPayloadPtr(func: *Func, inst: Air.Inst.Index) !void {
 }
 
 fn airOptionalPayloadPtrSet(func: *Func, inst: Air.Inst.Index) !void {
+    const zcu = func.pt.zcu;
+
     const ty_op = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-    const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else return func.fail("TODO implement .optional_payload_ptr_set for {}", .{func.target.cpu.arch});
+    const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else result: {
+        const dst_ty = func.typeOfIndex(inst);
+        const src_ty = func.typeOf(ty_op.operand);
+        const opt_ty = src_ty.childType(zcu);
+        const src_mcv = try func.resolveInst(ty_op.operand);
+
+        if (opt_ty.optionalReprIsPayload(zcu)) {
+            break :result if (func.reuseOperand(inst, ty_op.operand, 0, src_mcv))
+                src_mcv
+            else
+                try func.copyToNewRegister(inst, src_mcv);
+        }
+
+        const dst_mcv: MCValue = if (src_mcv.isRegister() and
+            func.reuseOperand(inst, ty_op.operand, 0, src_mcv))
+            src_mcv
+        else
+            try func.copyToNewRegister(inst, src_mcv);
+
+        const pl_ty = dst_ty.childType(zcu);
+        const pl_abi_size: i32 = @intCast(pl_ty.abiSize(zcu));
+        try func.genSetMem(
+            .{ .reg = dst_mcv.getReg().? },
+            pl_abi_size,
+            Type.bool,
+            .{ .immediate = 1 },
+        );
+        break :result dst_mcv;
+    };
     return func.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
@@ -3867,7 +3897,7 @@ fn airArrayElemVal(func: *Func, inst: Air.Inst.Index) !void {
 
         if (array_ty.isVector(zcu)) {
             // we need to load the vector, vslidedown to get the element we want
-            // and store that element at in a load frame.
+            // and store that element in a load frame.
 
             const src_reg, const src_lock = try func.allocReg(.vector);
             defer func.register_manager.unlockReg(src_lock);
@@ -3940,12 +3970,15 @@ fn airPtrElemVal(func: *Func, inst: Air.Inst.Index) !void {
         };
         defer if (index_lock) |lock| func.register_manager.unlockReg(lock);
 
-        const elem_ptr_reg = if (base_ptr_mcv.isRegister() and func.liveness.operandDies(inst, 0))
-            base_ptr_mcv.register
-        else
-            try func.copyToTmpRegister(base_ptr_ty, base_ptr_mcv);
-        const elem_ptr_lock = func.register_manager.lockRegAssumeUnused(elem_ptr_reg);
-        defer func.register_manager.unlockReg(elem_ptr_lock);
+        const elem_ptr_reg, const elem_ptr_lock = if (base_ptr_mcv.isRegister() and
+            func.liveness.operandDies(inst, 0))
+            .{ base_ptr_mcv.register, null }
+        else blk: {
+            const reg, const lock = try func.allocReg(.int);
+            try func.genSetReg(base_ptr_ty, reg, base_ptr_mcv);
+            break :blk .{ reg, lock };
+        };
+        defer if (elem_ptr_lock) |lock| func.register_manager.unlockReg(lock);
 
         try func.genBinOp(
             .ptr_add,

@@ -10,6 +10,7 @@
 #define _LIBCPP___FWD_SSTREAM_H
 
 #include <__config>
+#include <__fwd/memory.h>
 #include <__fwd/string.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)

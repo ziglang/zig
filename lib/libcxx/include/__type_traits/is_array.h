@@ -19,9 +19,8 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-// TODO: Clang incorrectly reports that __is_array is true for T[0].
-//       Re-enable the branch once https://llvm.org/PR54705 is fixed.
-#if __has_builtin(__is_array) && 0
+#if __has_builtin(__is_array) &&                                                                                       \
+    (!defined(_LIBCPP_COMPILER_CLANG_BASED) || (defined(_LIBCPP_CLANG_VER) && _LIBCPP_CLANG_VER >= 1900))
 
 template <class _Tp>
 struct _LIBCPP_TEMPLATE_VIS is_array : _BoolConstant<__is_array(_Tp)> {};

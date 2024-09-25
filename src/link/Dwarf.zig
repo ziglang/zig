@@ -2643,10 +2643,8 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
                         try uleb128(diw, nav_val.toType().abiAlignment(zcu).toByteUnits().?);
                         for (0..loaded_struct.field_types.len) |field_index| {
                             const is_comptime = loaded_struct.fieldIsComptime(ip, field_index);
-                            const field_init = if (loaded_struct.haveFieldInits(ip))
-                                loaded_struct.fieldInit(ip, field_index)
-                            else
-                                .none;
+                            const field_init = loaded_struct.fieldInit(ip, field_index);
+                            assert(!(is_comptime and field_init == .none));
                             try wip_nav.abbrevCode(if (is_comptime)
                                 .struct_field_comptime
                             else if (field_init != .none)
@@ -2658,20 +2656,14 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
                                 defer dwarf.gpa.free(field_name);
                                 try wip_nav.strp(field_name);
                             }
-                            if (is_comptime and field_init == .none) {
-                                // workaround frontend bug
-                                try wip_nav.refType(Type.void);
-                                try wip_nav.blockValue(nav_src_loc, Value.void);
-                            } else {
-                                const field_type = Type.fromInterned(loaded_struct.field_types.get(ip)[field_index]);
-                                try wip_nav.refType(field_type);
-                                if (!is_comptime) {
-                                    try uleb128(diw, loaded_struct.offsets.get(ip)[field_index]);
-                                    try uleb128(diw, loaded_struct.fieldAlign(ip, field_index).toByteUnits() orelse
-                                        field_type.abiAlignment(zcu).toByteUnits().?);
-                                }
-                                if (field_init != .none) try wip_nav.blockValue(nav_src_loc, Value.fromInterned(field_init));
+                            const field_type = Type.fromInterned(loaded_struct.field_types.get(ip)[field_index]);
+                            try wip_nav.refType(field_type);
+                            if (!is_comptime) {
+                                try uleb128(diw, loaded_struct.offsets.get(ip)[field_index]);
+                                try uleb128(diw, loaded_struct.fieldAlign(ip, field_index).toByteUnits() orelse
+                                    field_type.abiAlignment(zcu).toByteUnits().?);
                             }
+                            if (field_init != .none) try wip_nav.blockValue(nav_src_loc, Value.fromInterned(field_init));
                         }
                         try uleb128(diw, @intFromEnum(AbbrevCode.null));
                     }
@@ -3511,10 +3503,8 @@ pub fn updateContainerType(dwarf: *Dwarf, pt: Zcu.PerThread, type_index: InternP
             try uleb128(diw, ty.abiAlignment(zcu).toByteUnits().?);
             for (0..loaded_struct.field_types.len) |field_index| {
                 const is_comptime = loaded_struct.fieldIsComptime(ip, field_index);
-                const field_init = if (loaded_struct.haveFieldInits(ip))
-                    loaded_struct.fieldInit(ip, field_index)
-                else
-                    .none;
+                const field_init = loaded_struct.fieldInit(ip, field_index);
+                assert(!(is_comptime and field_init == .none));
                 try wip_nav.abbrevCode(if (is_comptime)
                     .struct_field_comptime
                 else if (field_init != .none)
@@ -3526,20 +3516,14 @@ pub fn updateContainerType(dwarf: *Dwarf, pt: Zcu.PerThread, type_index: InternP
                     defer dwarf.gpa.free(field_name);
                     try wip_nav.strp(field_name);
                 }
-                if (is_comptime and field_init == .none) {
-                    // workaround frontend bug
-                    try wip_nav.refType(Type.void);
-                    try wip_nav.blockValue(ty_src_loc, Value.void);
-                } else {
-                    const field_type = Type.fromInterned(loaded_struct.field_types.get(ip)[field_index]);
-                    try wip_nav.refType(field_type);
-                    if (!is_comptime) {
-                        try uleb128(diw, loaded_struct.offsets.get(ip)[field_index]);
-                        try uleb128(diw, loaded_struct.fieldAlign(ip, field_index).toByteUnits() orelse
-                            field_type.abiAlignment(zcu).toByteUnits().?);
-                    }
-                    if (field_init != .none) try wip_nav.blockValue(ty_src_loc, Value.fromInterned(field_init));
+                const field_type = Type.fromInterned(loaded_struct.field_types.get(ip)[field_index]);
+                try wip_nav.refType(field_type);
+                if (!is_comptime) {
+                    try uleb128(diw, loaded_struct.offsets.get(ip)[field_index]);
+                    try uleb128(diw, loaded_struct.fieldAlign(ip, field_index).toByteUnits() orelse
+                        field_type.abiAlignment(zcu).toByteUnits().?);
                 }
+                if (field_init != .none) try wip_nav.blockValue(ty_src_loc, Value.fromInterned(field_init));
             }
             try uleb128(diw, @intFromEnum(AbbrevCode.null));
         }
@@ -3595,10 +3579,8 @@ pub fn updateContainerType(dwarf: *Dwarf, pt: Zcu.PerThread, type_index: InternP
                             try uleb128(diw, ty.abiAlignment(zcu).toByteUnits().?);
                             for (0..loaded_struct.field_types.len) |field_index| {
                                 const is_comptime = loaded_struct.fieldIsComptime(ip, field_index);
-                                const field_init = if (loaded_struct.haveFieldInits(ip))
-                                    loaded_struct.fieldInit(ip, field_index)
-                                else
-                                    .none;
+                                const field_init = loaded_struct.fieldInit(ip, field_index);
+                                assert(!(is_comptime and field_init == .none));
                                 try wip_nav.abbrevCode(if (is_comptime)
                                     .struct_field_comptime
                                 else if (field_init != .none)
@@ -3610,20 +3592,14 @@ pub fn updateContainerType(dwarf: *Dwarf, pt: Zcu.PerThread, type_index: InternP
                                     defer dwarf.gpa.free(field_name);
                                     try wip_nav.strp(field_name);
                                 }
-                                if (is_comptime and field_init == .none) {
-                                    // workaround frontend bug
-                                    try wip_nav.refType(Type.void);
-                                    try wip_nav.blockValue(ty_src_loc, Value.void);
-                                } else {
-                                    const field_type = Type.fromInterned(loaded_struct.field_types.get(ip)[field_index]);
-                                    try wip_nav.refType(field_type);
-                                    if (!is_comptime) {
-                                        try uleb128(diw, loaded_struct.offsets.get(ip)[field_index]);
-                                        try uleb128(diw, loaded_struct.fieldAlign(ip, field_index).toByteUnits() orelse
-                                            field_type.abiAlignment(zcu).toByteUnits().?);
-                                    }
-                                    if (field_init != .none) try wip_nav.blockValue(ty_src_loc, Value.fromInterned(field_init));
+                                const field_type = Type.fromInterned(loaded_struct.field_types.get(ip)[field_index]);
+                                try wip_nav.refType(field_type);
+                                if (!is_comptime) {
+                                    try uleb128(diw, loaded_struct.offsets.get(ip)[field_index]);
+                                    try uleb128(diw, loaded_struct.fieldAlign(ip, field_index).toByteUnits() orelse
+                                        field_type.abiAlignment(zcu).toByteUnits().?);
                                 }
+                                if (field_init != .none) try wip_nav.blockValue(ty_src_loc, Value.fromInterned(field_init));
                             }
                             try uleb128(diw, @intFromEnum(AbbrevCode.null));
                         }

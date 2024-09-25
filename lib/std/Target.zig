@@ -38,6 +38,7 @@ pub const Os = struct {
         netbsd,
         openbsd,
 
+        bridgeos,
         driverkit,
         ios,
         macos,
@@ -75,6 +76,7 @@ pub const Os = struct {
 
         pub inline fn isDarwin(tag: Tag) bool {
             return switch (tag) {
+                .bridgeos,
                 .driverkit,
                 .ios,
                 .macos,
@@ -122,6 +124,7 @@ pub const Os = struct {
         pub fn dynamicLibSuffix(tag: Tag) [:0]const u8 {
             return switch (tag) {
                 .windows, .uefi => ".dll",
+                .bridgeos,
                 .driverkit,
                 .ios,
                 .macos,
@@ -186,6 +189,7 @@ pub const Os = struct {
                 .other,
                 => .none,
 
+                .bridgeos,
                 .driverkit,
                 .freebsd,
                 .macos,
@@ -412,6 +416,7 @@ pub const Os = struct {
                 .plan9,
                 .illumos,
                 .serenity,
+                .bridgeos,
                 .other,
                 => .{ .none = {} },
 
@@ -573,6 +578,7 @@ pub const Os = struct {
             .freebsd,
             .aix,
             .netbsd,
+            .bridgeos,
             .driverkit,
             .macos,
             .ios,
@@ -667,26 +673,26 @@ pub const Abi = enum {
     cygnus,
     simulator,
     macabi,
-    pixel,
-    vertex,
-    geometry,
-    hull,
-    domain,
-    compute,
-    library,
-    raygeneration,
-    intersection,
-    anyhit,
-    closesthit,
-    miss,
-    callable,
-    mesh,
-    amplification,
     ohos,
 
     // LLVM tags deliberately omitted:
-    // - gnuf64
+    // - amplification
+    // - anyhit
+    // - callable
+    // - closesthit
+    // - compute
     // - coreclr
+    // - domain
+    // - geometry
+    // - gnuf64
+    // - hull
+    // - intersection
+    // - library
+    // - mesh
+    // - miss
+    // - pixel
+    // - raygeneration
+    // - vertex
 
     pub fn default(arch: Cpu.Arch, os: Os) Abi {
         return if (arch.isWasm()) .musl else switch (os.tag) {
@@ -721,6 +727,7 @@ pub const Abi = enum {
             .wasi,
             .emscripten,
             => .musl,
+            .bridgeos,
             .opencl,
             .opengl,
             .vulkan,
@@ -781,8 +788,6 @@ pub const ObjectFormat = enum {
     c,
     /// The Common Object File Format used by Windows and UEFI.
     coff,
-    /// The DirectX Container format containing either DXIL or DXBC.
-    dxcontainer,
     /// The Executable and Linkable Format used by many Unixes.
     elf,
     /// The Generalized Object File Format used by z/OS.
@@ -804,11 +809,13 @@ pub const ObjectFormat = enum {
     /// The eXtended Common Object File Format used by AIX.
     xcoff,
 
+    // LLVM tags deliberately omitted:
+    // - dxcontainer
+
     pub fn fileExt(of: ObjectFormat, arch: Cpu.Arch) [:0]const u8 {
         return switch (of) {
             .c => ".c",
             .coff => ".obj",
-            .dxcontainer => ".dxil",
             .elf, .goff, .macho, .wasm, .xcoff => ".o",
             .hex => ".ihex",
             .nvptx => ".ptx",
@@ -821,12 +828,11 @@ pub const ObjectFormat = enum {
     pub fn default(os_tag: Os.Tag, arch: Cpu.Arch) ObjectFormat {
         return switch (os_tag) {
             .aix => .xcoff,
-            .driverkit, .ios, .macos, .tvos, .visionos, .watchos => .macho,
+            .bridgeos, .driverkit, .ios, .macos, .tvos, .visionos, .watchos => .macho,
             .plan9 => .plan9,
             .uefi, .windows => .coff,
             .zos => .goff,
             else => switch (arch) {
-                .dxil => .dxcontainer,
                 .nvptx, .nvptx64 => .nvptx,
                 .spirv, .spirv32, .spirv64 => .spirv,
                 .wasm32, .wasm64 => .wasm,
@@ -866,7 +872,6 @@ pub fn toElfMachine(target: Target) std.elf.EM {
         .xcore => .XCORE,
         .xtensa => .XTENSA,
 
-        .dxil,
         .nvptx,
         .nvptx64,
         .spirv,
@@ -900,7 +905,6 @@ pub fn toCoffMachine(target: Target) std.coff.MachineType {
         .bpfel,
         .bpfeb,
         .csky,
-        .dxil,
         .hexagon,
         .kalimba,
         .lanai,
@@ -1126,7 +1130,6 @@ pub const Cpu = struct {
         bpfel,
         bpfeb,
         csky,
-        dxil,
         hexagon,
         kalimba,
         lanai,
@@ -1165,6 +1168,7 @@ pub const Cpu = struct {
         // - aarch64_32
         // - amdil
         // - amdil64
+        // - dxil
         // - le32
         // - le64
         // - r600
@@ -1337,7 +1341,6 @@ pub const Cpu = struct {
                 .spirv,
                 .spirv32,
                 .spirv64,
-                .dxil,
                 .loongarch32,
                 .loongarch64,
                 .arc,
@@ -1810,12 +1813,12 @@ pub const DynamicLinker = struct {
                 .kalimba,
                 .lanai,
                 .ve,
-                .dxil,
                 .loongarch32,
                 .xtensa,
                 => none,
             },
 
+            .bridgeos,
             .driverkit,
             .ios,
             .tvos,
@@ -1905,7 +1908,6 @@ pub fn ptrBitWidth_cpu_abi(cpu: Cpu, abi: Abi) u16 {
         .sparc,
         .spirv32,
         .loongarch32,
-        .dxil,
         .xtensa,
         => 32,
 
@@ -2275,6 +2277,7 @@ pub fn cTypeBitSize(target: Target, c_type: CType) u16 {
             },
         },
 
+        .bridgeos,
         .driverkit,
         .ios,
         .macos,
@@ -2406,7 +2409,6 @@ pub fn cTypeAlignment(target: Target, c_type: CType) u16 {
             .csky,
             .x86,
             .xcore,
-            .dxil,
             .loongarch32,
             .kalimba,
             .spu_2,
@@ -2510,7 +2512,6 @@ pub fn cTypePreferredAlignment(target: Target, c_type: CType) u16 {
 
             .csky,
             .xcore,
-            .dxil,
             .loongarch32,
             .kalimba,
             .spu_2,
