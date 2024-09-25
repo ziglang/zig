@@ -261,6 +261,20 @@ fn testMap(comptime map: anytype) !void {
     try testing.expect(null == map.get("averylongstringthathasnomatches"));
 }
 
+test "void value type, slice of structs" {
+    const slice = [_]TestKVVoid{
+        .{"these"},
+        .{"have"},
+        .{"nothing"},
+        .{"incommon"},
+        .{"samelen"},
+    };
+    const map = TestMapVoid.initComptime(slice);
+    try testSet(map);
+    // Default comparison is case sensitive
+    try testing.expect(null == map.get("NOTHING"));
+}
+
 test "void value type, list literal of list literals" {
     const slice = [_]TestKVVoid{
         .{"these"},
