@@ -453,7 +453,7 @@ threadlocal var panic_stage: usize = 0;
 // This function avoids a dependency on formatted printing.
 pub fn defaultPanic(
     cause: std.builtin.PanicCause,
-    trace: ?*const std.builtin.StackTrace,
+    error_return_trace: ?*const std.builtin.StackTrace,
     first_trace_addr: ?usize,
 ) noreturn {
     @branchHint(.cold);
@@ -568,7 +568,7 @@ pub fn defaultPanic(
                 defer unlockStdErr();
 
                 io.getStdErr().writeAll(msg) catch posix.abort();
-                if (trace) |t| dumpStackTrace(t.*);
+                if (error_return_trace) |t| dumpStackTrace(t.*);
                 dumpCurrentStackTrace(first_trace_addr orelse @returnAddress());
             }
 
@@ -621,6 +621,12 @@ pub fn fmtPanicCause(buffer: []u8, cause: std.builtin.PanicCause) usize {
             i += fmtBuf(buffer[i..], ", found ");
             i += fmtInt10(buffer[i..], mm.found);
         },
+        .sentinel_mismatch_isize => |mm| {
+            i += fmtBuf(buffer[i..], "sentinel mismatch: expected ");
+            i += fmtInt10s(buffer[i..], mm.expected);
+            i += fmtBuf(buffer[i..], ", found ");
+            i += fmtInt10s(buffer[i..], mm.found);
+        },
         .sentinel_mismatch_other => i += fmtBuf(buffer[i..], "sentinel mismatch"),
         .unwrap_error => |err| {
             i += fmtBuf(buffer[i..], "attempt to unwrap error: ");
@@ -651,6 +657,15 @@ pub fn fmtPanicCause(buffer: []u8, cause: std.builtin.PanicCause) usize {
 fn fmtBuf(out_buf: []u8, s: []const u8) usize {
     @memcpy(out_buf[0..s.len], s);
     return s.len;
+}
+
+fn fmtInt10s(out_buf: []u8, integer_value: isize) usize {
+    if (integer_value < 0) {
+        out_buf[0] = '-';
+        return 1 + fmtInt10(out_buf[1..], @abs(integer_value));
+    } else {
+        return fmtInt10(out_buf, @abs(integer_value));
+    }
 }
 
 fn fmtInt10(out_buf: []u8, integer_value: usize) usize {

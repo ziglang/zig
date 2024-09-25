@@ -14249,7 +14249,7 @@ fn maybeErrorUnwrap(
             .as_node => try sema.zirAsNode(block, inst),
             .field_val => try sema.zirFieldVal(block, inst),
             .@"unreachable" => {
-                try callPanic(sema, block, operand_src, .unwrap_error, operand, .@"safety check");
+                try safetyPanicUnwrapError(sema, block, operand_src, operand);
                 return true;
             },
             .panic => {
@@ -27827,9 +27827,22 @@ fn addSafetyCheckUnwrapError(
     defer fail_block.instructions.deinit(gpa);
 
     const err = try fail_block.addTyOp(unwrap_err_tag, Type.anyerror, operand);
-    try callPanic(sema, &fail_block, src, .unwrap_error, err, .@"safety check");
+    try safetyPanicUnwrapError(sema, &fail_block, src, err);
 
     try sema.addSafetyCheckExtra(parent_block, ok, &fail_block);
+}
+
+fn safetyPanicUnwrapError(sema: *Sema, block: *Block, src: LazySrcLoc, err: Air.Inst.Ref) !void {
+    const pt = sema.pt;
+    const zcu = pt.zcu;
+    if (!zcu.backendSupportsFeature(.panic_fn)) {
+        _ = try block.addNoOp(.trap);
+    } else {
+        const panic_fn = try pt.getBuiltin("panicUnwrapError");
+        const err_return_trace = try sema.getErrorReturnTrace(block);
+        const args: [2]Air.Inst.Ref = .{ err_return_trace, err };
+        try sema.callBuiltin(block, src, panic_fn, .auto, &args, .@"safety check");
+    }
 }
 
 fn addSafetyCheckIndexOob(
@@ -27841,68 +27854,8 @@ fn addSafetyCheckIndexOob(
     cmp_op: Air.Inst.Tag,
 ) !void {
     assert(!parent_block.is_comptime);
-    const gpa = sema.gpa;
     const ok = try parent_block.addBinOp(cmp_op, index, len);
-
-    var fail_block: Block = .{
-        .parent = parent_block,
-        .sema = sema,
-        .namespace = parent_block.namespace,
-        .instructions = .{},
-        .inlining = parent_block.inlining,
-        .is_comptime = false,
-        .src_base_inst = parent_block.src_base_inst,
-        .type_name_ctx = parent_block.type_name_ctx,
-    };
-
-    defer fail_block.instructions.deinit(gpa);
-
-    const oob_ty = try getBuiltinInnerType(sema, &fail_block, src, "PanicCause", "IndexOutOfBounds");
-    comptime {
-        const fields = @typeInfo(std.builtin.PanicCause.IndexOutOfBounds).@"struct".fields;
-        assert(std.mem.eql(u8, fields[0].name, "index"));
-        assert(std.mem.eql(u8, fields[1].name, "len"));
-        assert(fields.len == 2);
-    }
-    const panic_cause_payload = try fail_block.addAggregateInit(oob_ty, &.{ index, len });
-    try callPanic(sema, &fail_block, src, .index_out_of_bounds, panic_cause_payload, .@"safety check");
-    try sema.addSafetyCheckExtra(parent_block, ok, &fail_block);
-}
-
-fn addSafetyCheckStartGreaterThanEnd(
-    sema: *Sema,
-    parent_block: *Block,
-    src: LazySrcLoc,
-    start: Air.Inst.Ref,
-    end: Air.Inst.Ref,
-) !void {
-    assert(!parent_block.is_comptime);
-    const gpa = sema.gpa;
-    const ok = try parent_block.addBinOp(.cmp_lte, start, end);
-
-    var fail_block: Block = .{
-        .parent = parent_block,
-        .sema = sema,
-        .namespace = parent_block.namespace,
-        .instructions = .{},
-        .inlining = parent_block.inlining,
-        .is_comptime = false,
-        .src_base_inst = parent_block.src_base_inst,
-        .type_name_ctx = parent_block.type_name_ctx,
-    };
-
-    defer fail_block.instructions.deinit(gpa);
-
-    const oob_ty = try getBuiltinInnerType(sema, &fail_block, src, "PanicCause", "StartIndexGreaterThanEnd");
-    comptime {
-        const fields = @typeInfo(std.builtin.PanicCause.StartIndexGreaterThanEnd).@"struct".fields;
-        assert(std.mem.eql(u8, fields[0].name, "start"));
-        assert(std.mem.eql(u8, fields[1].name, "end"));
-        assert(fields.len == 2);
-    }
-    const panic_cause_payload = try fail_block.addAggregateInit(oob_ty, &.{ start, end });
-    try callPanic(sema, &fail_block, src, .start_index_greater_than_end, panic_cause_payload, .@"safety check");
-    try sema.addSafetyCheckExtra(parent_block, ok, &fail_block);
+    return addSafetyCheckCall(sema, parent_block, src, ok, "panicOutOfBounds", &.{ index, len });
 }
 
 fn addSafetyCheckInactiveUnionField(
@@ -27913,36 +27866,8 @@ fn addSafetyCheckInactiveUnionField(
     wanted_tag: Air.Inst.Ref,
 ) !void {
     assert(!parent_block.is_comptime);
-    const gpa = sema.gpa;
     const ok = try parent_block.addBinOp(.cmp_eq, active_tag, wanted_tag);
-
-    var fail_block: Block = .{
-        .parent = parent_block,
-        .sema = sema,
-        .namespace = parent_block.namespace,
-        .instructions = .{},
-        .inlining = parent_block.inlining,
-        .is_comptime = false,
-        .src_base_inst = parent_block.src_base_inst,
-        .type_name_ctx = parent_block.type_name_ctx,
-    };
-
-    defer fail_block.instructions.deinit(gpa);
-
-    const payload_ty = try getBuiltinInnerType(sema, &fail_block, src, "PanicCause", "InactiveUnionField");
-    comptime {
-        const fields = @typeInfo(std.builtin.PanicCause.InactiveUnionField).@"struct".fields;
-        assert(std.mem.eql(u8, fields[0].name, "active"));
-        assert(std.mem.eql(u8, fields[1].name, "accessed"));
-        assert(fields.len == 2);
-    }
-    // TODO: before merging the branch, check how many safety checks end up being emitted
-    // for union field accesses and avoid extraneous ones.
-    const active_str = try analyzeTagName(sema, &fail_block, src, src, active_tag);
-    const accessed_str = try analyzeTagName(sema, &fail_block, src, src, wanted_tag);
-    const panic_cause_payload = try fail_block.addAggregateInit(payload_ty, &.{ active_str, accessed_str });
-    try callPanic(sema, &fail_block, src, .inactive_union_field, panic_cause_payload, .@"safety check");
-    try sema.addSafetyCheckExtra(parent_block, ok, &fail_block);
+    return addSafetyCheckCall(sema, parent_block, src, ok, "panicInactiveUnionField", &.{ active_tag, wanted_tag });
 }
 
 fn addSafetyCheckSentinelMismatch(
@@ -27955,7 +27880,6 @@ fn addSafetyCheckSentinelMismatch(
     sentinel_index: Air.Inst.Ref,
 ) !void {
     assert(!parent_block.is_comptime);
-    const gpa = sema.gpa;
     const pt = sema.pt;
     const zcu = pt.zcu;
     const expected_sentinel_val = maybe_sentinel orelse return;
@@ -27984,6 +27908,24 @@ fn addSafetyCheckSentinelMismatch(
         break :ok try parent_block.addBinOp(.cmp_eq, expected_sentinel, actual_sentinel);
     };
 
+    return addSafetyCheckCall(sema, parent_block, src, ok, "panicSentinelMismatch", &.{
+        expected_sentinel, actual_sentinel,
+    });
+}
+
+fn addSafetyCheckCall(
+    sema: *Sema,
+    parent_block: *Block,
+    src: LazySrcLoc,
+    ok: Air.Inst.Ref,
+    func_name: []const u8,
+    args: []const Air.Inst.Ref,
+) !void {
+    assert(!parent_block.is_comptime);
+    const gpa = sema.gpa;
+    const pt = sema.pt;
+    const zcu = pt.zcu;
+
     var fail_block: Block = .{
         .parent = parent_block,
         .sema = sema,
@@ -27997,23 +27939,13 @@ fn addSafetyCheckSentinelMismatch(
 
     defer fail_block.instructions.deinit(gpa);
 
-    // A different PanicCause tag must be used depending on what payload type it can be fit into.
-    // If it cannot fit into any, the "other" tag can be used, which does not try to carry the
-    // sentinel value data.
-
-    if (sentinel_ty.isUnsignedInt(zcu) and sentinel_ty.intInfo(zcu).bits <= Type.usize.intInfo(zcu).bits) {
-        const mm_ty = try getBuiltinInnerType(sema, &fail_block, src, "PanicCause", "SentinelMismatchUsize");
-        comptime {
-            const fields = @typeInfo(std.builtin.PanicCause.SentinelMismatchUsize).@"struct".fields;
-            assert(std.mem.eql(u8, fields[0].name, "expected"));
-            assert(std.mem.eql(u8, fields[1].name, "found"));
-            assert(fields.len == 2);
-        }
-        const panic_cause_payload = try fail_block.addAggregateInit(mm_ty, &.{ expected_sentinel, actual_sentinel });
-        try callPanic(sema, &fail_block, src, .sentinel_mismatch_usize, panic_cause_payload, .@"safety check");
+    if (!zcu.backendSupportsFeature(.panic_fn)) {
+        _ = try fail_block.addNoOp(.trap);
     } else {
-        try callPanic(sema, &fail_block, src, .sentinel_mismatch_other, .void_value, .@"safety check");
+        const panic_fn = try pt.getBuiltin(func_name);
+        try sema.callBuiltin(&fail_block, src, panic_fn, .auto, args, .@"safety check");
     }
+
     try sema.addSafetyCheckExtra(parent_block, ok, &fail_block);
 }
 
@@ -33512,7 +33444,8 @@ fn analyzeSlice(
         // requirement: start <= end
         assert(!block.is_comptime);
         try sema.requireRuntimeBlock(block, src, runtime_src.?);
-        try sema.addSafetyCheckStartGreaterThanEnd(block, src, start, end);
+        const ok = try block.addBinOp(.cmp_lte, start, end);
+        try sema.addSafetyCheckCall(block, src, ok, "panicStartGreaterThanEnd", &.{ start, end });
     }
     const new_len = if (by_length)
         try sema.coerce(block, Type.usize, uncasted_end_opt, end_src)

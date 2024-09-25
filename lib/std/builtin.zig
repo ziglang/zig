@@ -803,6 +803,7 @@ pub const PanicCause = union(enum) {
     memcpy_alias,
     noreturn_returned,
     explicit_call: []const u8,
+    sentinel_mismatch_isize: SentinelMismatchIsize,
 
     pub const IndexOutOfBounds = struct {
         index: usize,
@@ -819,22 +820,82 @@ pub const PanicCause = union(enum) {
         found: usize,
     };
 
+    pub const SentinelMismatchIsize = struct {
+        expected: isize,
+        found: isize,
+    };
+
     pub const InactiveUnionField = struct {
         active: []const u8,
         accessed: []const u8,
     };
 };
 
-pub noinline fn returnError(st: *StackTrace) void {
+pub fn panicSentinelMismatch(expected: anytype, found: @TypeOf(expected)) noreturn {
     @branchHint(.cold);
-    @setRuntimeSafety(false);
-    addErrRetTraceAddr(st, @returnAddress());
+    switch (@typeInfo(@TypeOf(expected))) {
+        .int => |int| switch (int.signedness) {
+            .unsigned => if (int.bits <= @bitSizeOf(usize)) panic(.{ .sentinel_mismatch_usize = .{
+                .expected = expected,
+                .found = found,
+            } }, null, @returnAddress()),
+            .signed => if (int.bits <= @bitSizeOf(isize)) panic(.{ .sentinel_mismatch_isize = .{
+                .expected = expected,
+                .found = found,
+            } }, null, @returnAddress()),
+        },
+        .@"enum" => |info| switch (@typeInfo(info.tag_type)) {
+            .int => |int| switch (int.signedness) {
+                .unsigned => if (int.bits <= @bitSizeOf(usize)) panic(.{ .sentinel_mismatch_usize = .{
+                    .expected = @intFromEnum(expected),
+                    .found = @intFromEnum(found),
+                } }, null, @returnAddress()),
+                .signed => if (int.bits <= @bitSizeOf(isize)) panic(.{ .sentinel_mismatch_isize = .{
+                    .expected = @intFromEnum(expected),
+                    .found = @intFromEnum(found),
+                } }, null, @returnAddress()),
+            },
+            else => comptime unreachable,
+        },
+        else => {},
+    }
+    panic(.sentinel_mismatch_other, null, @returnAddress());
 }
 
-pub inline fn addErrRetTraceAddr(st: *StackTrace, addr: usize) void {
-    if (st.index < st.instruction_addresses.len)
-        st.instruction_addresses[st.index] = addr;
+pub fn panicUnwrapError(ert: ?*StackTrace, err: anyerror) noreturn {
+    @branchHint(.cold);
+    panic(.{ .unwrap_error = err }, ert, @returnAddress());
+}
 
+pub fn panicOutOfBounds(index: usize, len: usize) noreturn {
+    @branchHint(.cold);
+    panic(.{ .index_out_of_bounds = .{
+        .index = index,
+        .len = len,
+    } }, null, @returnAddress());
+}
+
+pub fn panicStartGreaterThanEnd(start: usize, end: usize) noreturn {
+    @branchHint(.cold);
+    panic(.{ .start_index_greater_than_end = .{
+        .start = start,
+        .end = end,
+    } }, null, @returnAddress());
+}
+
+pub fn panicInactiveUnionField(active: anytype, accessed: @TypeOf(active)) noreturn {
+    @branchHint(.cold);
+    panic(.{ .inactive_union_field = .{
+        .active = @tagName(active),
+        .accessed = @tagName(accessed),
+    } }, null, @returnAddress());
+}
+
+pub noinline fn returnError(st: *StackTrace) void {
+    @branchHint(.unlikely);
+    @setRuntimeSafety(false);
+    if (st.index < st.instruction_addresses.len)
+        st.instruction_addresses[st.index] = @returnAddress();
     st.index += 1;
 }
 
