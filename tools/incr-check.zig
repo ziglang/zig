@@ -266,7 +266,6 @@ const Eval = struct {
                         try eval.checkSuccessOutcome(update, null, prog_node);
                         // This message indicates the end of the update.
                         stdout.discard(body.len);
-                        return;
                     }
 
                     const digest = body[@sizeOf(EbpHdr)..][0..Cache.bin_digest_len];
@@ -290,7 +289,6 @@ const Eval = struct {
                     try eval.checkSuccessOutcome(update, bin_path, prog_node);
                     // This message indicates the end of the update.
                     stdout.discard(body.len);
-                    return;
                 },
                 else => {
                     // Ignore other messages.
