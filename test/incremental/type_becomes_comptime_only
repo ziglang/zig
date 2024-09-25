@@ -1,4 +1,5 @@
-#target=x86_64-linux
+#target=x86_64-linux-selfhosted
+#target=x86_64-linux-cbe
 #update=initial version
 #file=main.zig
 const SomeType = u32;
