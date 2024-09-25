@@ -761,90 +761,17 @@ pub const TestFn = struct {
     func: *const fn () anyerror!void,
 };
 
-const old_version = std.SemanticVersion.parse("0.14.0-dev.1659+4ceefca14") catch unreachable;
-const is_old = @import("builtin").zig_version.order(old_version) != .gt;
-
 /// This function type is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
-pub const PanicFn = if (is_old)
-    fn ([]const u8, ?*StackTrace, ?usize) noreturn
-else
-    fn (PanicCause, ?*StackTrace, ?usize) noreturn;
+pub const PanicFn = fn (PanicCause, ?*StackTrace, ?usize) noreturn;
 
 /// The entry point for auto-generated calls by the compiler.
-pub const panic: PanicFn = if (is_old)
-    defaultPanicOld
-else if (@hasDecl(root, "panic"))
+pub const panic: PanicFn = if (@hasDecl(root, "panic"))
     root.panic
 else if (@hasDecl(root, "os") and @hasDecl(root.os, "panic"))
     root.os.panic
 else
     std.debug.defaultPanic;
-
-pub fn defaultPanicOld(
-    msg: []const u8,
-    trace: ?*const std.builtin.StackTrace,
-    first_trace_addr: ?usize,
-) noreturn {
-    @branchHint(.cold);
-    std.debug.print("old panic: {s}\n", .{msg});
-    _ = trace;
-    _ = first_trace_addr;
-    @trap();
-}
-
-pub fn panicSentinelMismatch(expected: anytype, actual: @TypeOf(expected)) noreturn {
-    @branchHint(.cold);
-    std.debug.panicExtra(null, @returnAddress(), "sentinel mismatch: expected {any}, found {any}", .{ expected, actual });
-}
-
-pub fn panicUnwrapError(st: ?*StackTrace, err: anyerror) noreturn {
-    @branchHint(.cold);
-    std.debug.panicExtra(st, @returnAddress(), "attempt to unwrap error: {s}", .{@errorName(err)});
-}
-
-pub fn panicOutOfBounds(index: usize, len: usize) noreturn {
-    @branchHint(.cold);
-    std.debug.panicExtra(null, @returnAddress(), "index out of bounds: index {d}, len {d}", .{ index, len });
-}
-
-pub fn panicStartGreaterThanEnd(start: usize, end: usize) noreturn {
-    @branchHint(.cold);
-    std.debug.panicExtra(null, @returnAddress(), "start index {d} is larger than end index {d}", .{ start, end });
-}
-
-pub fn panicInactiveUnionField(active: anytype, wanted: @TypeOf(active)) noreturn {
-    @branchHint(.cold);
-    std.debug.panicExtra(null, @returnAddress(), "access of union field '{s}' while field '{s}' is active", .{ @tagName(wanted), @tagName(active) });
-}
-
-pub const panic_messages = struct {
-    pub const unreach = "reached unreachable code";
-    pub const unwrap_null = "attempt to use null value";
-    pub const cast_to_null = "cast causes pointer to be null";
-    pub const incorrect_alignment = "incorrect alignment";
-    pub const invalid_error_code = "invalid error code";
-    pub const cast_truncated_data = "integer cast truncated bits";
-    pub const negative_to_unsigned = "attempt to cast negative value to unsigned integer";
-    pub const integer_overflow = "integer overflow";
-    pub const shl_overflow = "left shift overflowed bits";
-    pub const shr_overflow = "right shift overflowed bits";
-    pub const divide_by_zero = "division by zero";
-    pub const exact_division_remainder = "exact division produced remainder";
-    pub const inactive_union_field = "access of inactive union field";
-    pub const integer_part_out_of_bounds = "integer part of floating point value out of bounds";
-    pub const corrupt_switch = "switch on corrupt value";
-    pub const shift_rhs_too_big = "shift amount is greater than the type size";
-    pub const invalid_enum_value = "invalid enum value";
-    pub const sentinel_mismatch = "sentinel mismatch";
-    pub const unwrap_error = "attempt to unwrap error";
-    pub const index_out_of_bounds = "index out of bounds";
-    pub const start_index_greater_than_end = "start index is larger than end index";
-    pub const for_len_mismatch = "for loop over objects with non-equal lengths";
-    pub const memcpy_len_mismatch = "@memcpy arguments have non-equal lengths";
-    pub const memcpy_alias = "@memcpy arguments alias";
-    pub const noreturn_returned = "'noreturn' function returned";
-};
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
