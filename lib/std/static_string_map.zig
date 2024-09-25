@@ -11,7 +11,8 @@ pub fn StaticStringMapIgnoreCase(comptime V: type) type {
     return StaticStringMapAdvanced(V, u8, ignoreCaseEql);
 }
 
-fn defaultEql(comptime len: usize, comptime expected: [len]u8, actual: [len]u8) bool {
+pub fn defaultEql(comptime len: usize, comptime expected: anytype, actual: anytype) bool {
+    comptime assert(std.meta.hasUniqueRepresentation(@TypeOf(expected, actual)));
     const Compare = std.meta.Int(.unsigned, len * std.mem.byte_size_in_bits);
     const a: Compare = @bitCast(expected);
     const b: Compare = @bitCast(actual);
@@ -64,7 +65,6 @@ pub fn StaticStringMapAdvanced(
     /// The equal function that is used to compare the keys
     comptime eql: fn (comptime usize, comptime anytype, anytype) bool,
 ) type {
-    comptime assert(std.meta.hasUniqueRepresentation(T));
     return struct {
         const Self = @This();
 
@@ -77,16 +77,17 @@ pub fn StaticStringMapAdvanced(
 
         /// Initializes the map at comptime
         pub inline fn initComptime(comptime kvs_list: anytype) Self {
-            comptime {
-                var kv_list: []const Kv = &.{};
-                for (kvs_list) |kv| {
-                    kv_list = kv_list ++ .{.{
-                        .key = kv[0],
-                        .value = if (V == void) {} else kv[1],
-                    }};
+            const list = comptime blk: {
+                var list: [kvs_list.len]Kv = undefined;
+                for (&list, kvs_list) |*kv, item| {
+                    kv.* = .{
+                        .key = item[0],
+                        .value = if (V == void) {} else item[1],
+                    };
                 }
-                return .{ .kvs = kv_list };
-            }
+                break :blk list;
+            };
+            return comptime .{ .kvs = &list };
         }
 
         /// Returns the value for the key if any, else null.
@@ -108,24 +109,26 @@ pub fn StaticStringMapAdvanced(
 
         /// The list of all the keys in the map.
         pub fn keys(comptime self: Self) []const []const T {
-            return comptime blk: {
-                var key_list: []const []const T = &.{};
-                for (self.kvs) |kv| {
-                    key_list = key_list ++ .{kv.key};
+            const list = comptime blk: {
+                var list: [self.kvs.len][]const T = undefined;
+                for (&list, self.kvs) |*key, kv| {
+                    key.* = kv.key;
                 }
-                break :blk key_list;
+                break :blk list;
             };
+            return &list;
         }
 
         /// The list of all the values in the map.
         pub fn values(comptime self: Self) []const V {
-            return comptime blk: {
-                var value_list: []const V = &.{};
-                for (self.kvs) |kv| {
-                    value_list = value_list ++ .{kv.value};
+            const list = comptime blk: {
+                var list: [self.kvs.len]V = undefined;
+                for (&list, self.kvs) |*value, kv| {
+                    value.* = kv.value;
                 }
-                break :blk value_list;
+                break :blk list;
             };
+            return &list;
         }
 
         /// Filters the input key by length, then compares it to the possible matches.
