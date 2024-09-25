@@ -23603,7 +23603,7 @@ fn zirErrorCast(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData
         dest_ty.toIntern() != .adhoc_inferred_error_set_type and
         zcu.backendSupportsFeature(.error_set_has_value))
     {
-        if (dest_tag == .error_union and base_operand_ty.zigTypeTag(zcu) == .error_union) {
+        if (dest_tag == .error_union and operand_tag == .error_union) {
             const err_code = try sema.analyzeErrUnionCode(block, operand_src, operand);
             const err_int = try block.addBitCast(err_int_ty, err_code);
             const zero_err = try pt.intRef(try pt.errorIntType(), 0);
@@ -23622,6 +23622,8 @@ fn zirErrorCast(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData
             const err_int_inst = try block.addBitCast(err_int_ty, operand);
             const ok = try block.addTyOp(.error_set_has_value, dest_ty, err_int_inst);
             try sema.addSafetyCheck(block, src, ok, .invalid_error_code);
+            if (dest_tag == .error_union and operand_tag == .error_set)
+                return block.addTyOp(.wrap_errunion_err, base_dest_ty, err_int_inst);
         }
     }
     return block.addBitCast(base_dest_ty, operand);

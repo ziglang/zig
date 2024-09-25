@@ -1065,12 +1065,24 @@ test "errorCast from error sets to error unions" {
     try expectError(error.A, err_union);
 }
 
-test "errorCast return of error set to error union" {
+test "errorCast return of error set to void payload error union" {
     const S = struct {
         fn foo() error{Foo}!void {
             return @This().bar() catch |err| @errorCast(err);
         }
         fn bar() error{ Foo, Bar }!void {
+            return error.Foo;
+        }
+    };
+    try std.testing.expect(S.foo() == error.Foo);
+}
+
+test "errorCast return of error set to non-void payload error union" {
+    const S = struct {
+        fn foo() error{Foo}!u32 {
+            return @This().bar() catch |err| @errorCast(err);
+        }
+        fn bar() error{ Foo, Bar }!u32 {
             return error.Foo;
         }
     };
