@@ -1,4 +1,5 @@
 const std = @import("std.zig");
+const assert = std.debug.assert;
 
 /// 'comptime' optimized mapping between string keys and associated values.
 pub fn StaticStringMap(comptime V: type) type {
@@ -10,15 +11,14 @@ pub fn StaticStringMapIgnoreCase(comptime V: type) type {
     return StaticStringMapAdvanced(V, u8, ignoreCaseEql);
 }
 
-fn defaultEql(comptime T: type, comptime len: usize, comptime expected: [len]u8, actual: [len]u8) bool {
-    const Compare = std.meta.Int(.unsigned, len * @sizeOf(T) * std.mem.byte_size_in_bits);
+fn defaultEql(comptime len: usize, comptime expected: [len]u8, actual: [len]u8) bool {
+    const Compare = std.meta.Int(.unsigned, len * std.mem.byte_size_in_bits);
     const a: Compare = @bitCast(expected);
     const b: Compare = @bitCast(actual);
     return a == b;
 }
 
-fn ignoreCaseEql(comptime T: type, comptime len: usize, comptime expected: [len]u8, actual: [len]u8) bool {
-    if (T != u8) @compileError("ignoreCaseEql only works with ASCII or UTF-8");
+fn ignoreCaseEql(comptime len: usize, comptime expected: [len]u8, actual: [len]u8) bool {
     const lower_expected = comptime toLowerSimd(len, expected);
 
     // TODO: x86_64 self hosted backend hasn't implemented genBinOp for cmp_gte
@@ -30,7 +30,7 @@ fn ignoreCaseEql(comptime T: type, comptime len: usize, comptime expected: [len]
         }
     };
 
-    return defaultEql(T, len, lower_expected, lower_actual);
+    return defaultEql(len, lower_expected, lower_actual);
 }
 
 fn toLowerSimple(comptime len: usize, input: [len]u8) [len]u8 {
@@ -62,11 +62,9 @@ pub fn StaticStringMapAdvanced(
     /// The type of the element in the array, eg. []const T - would be u8 for a string
     comptime T: type,
     /// The equal function that is used to compare the keys
-    comptime eql: fn (comptime T: type, comptime usize, comptime anytype, anytype) bool,
+    comptime eql: fn (comptime usize, comptime anytype, anytype) bool,
 ) type {
-    if (!std.meta.hasUniqueRepresentation(T)) {
-        @compileError("T must have a unique in-memory representation.");
-    }
+    comptime assert(std.meta.hasUniqueRepresentation(T));
     return struct {
         const Self = @This();
 
@@ -140,7 +138,7 @@ pub fn StaticStringMapAdvanced(
                 const len = kvs_by_len.length;
                 if (key.len == len) {
                     inline for (kvs_by_len.kvs) |kv| {
-                        if (eql(T, len, kv.key[0..len].*, key[0..len].*)) {
+                        if (eql(len, kv.key[0..len].*, key[0..len].*)) {
                             return kv.value;
                         }
                     }
