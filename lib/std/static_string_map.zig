@@ -13,7 +13,9 @@ pub fn StaticStringMapIgnoreCase(comptime V: type) type {
 
 pub fn defaultEql(comptime len: usize, comptime expected: anytype, actual: anytype) bool {
     comptime assert(std.meta.hasUniqueRepresentation(@TypeOf(expected, actual)));
-    const Compare = std.meta.Int(.unsigned, len * std.mem.byte_size_in_bits);
+    const T = @typeInfo(@TypeOf(expected)).array.child;
+    const child_bytes = std.mem.byte_size_in_bits * @sizeOf(T);
+    const Compare = std.meta.Int(.unsigned, len * child_bytes);
     const a: Compare = @bitCast(expected);
     const b: Compare = @bitCast(actual);
     return a == b;
