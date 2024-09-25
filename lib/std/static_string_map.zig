@@ -187,6 +187,21 @@ const TestMapIgnoreCase = StaticStringMapIgnoreCase(TestEnum);
 const testing = std.testing;
 const test_alloc = testing.allocator;
 
+test "list literal of list literals" {
+    const slice: []const TestKV = &.{
+        .{ "these", .D },
+        .{ "have", .A },
+        .{ "nothing", .B },
+        .{ "incommon", .C },
+        .{ "samelen", .E },
+    };
+
+    const map = TestMap.initComptime(slice);
+    try testMap(map);
+    // Default comparison is case sensitive
+    try testing.expect(null == map.get("NOTHING"));
+}
+
 test "get/has with edge cases" {
     const map = StaticStringMap(u32).initComptime(&.{
         .{ "a", 0 },
