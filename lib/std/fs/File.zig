@@ -1632,7 +1632,7 @@ pub fn lock(file: File, l: Lock) LockError!void {
                 null,
             ) catch |err| switch (err) {
                 error.RangeNotLocked => unreachable, // The file is assumed to be locked.
-                error.Unexpected => unreachable, // Resource deallocation must succeed.
+                error.Unexpected => return error.Unexpected,
             },
             .shared => false,
             .exclusive => true,
@@ -1709,7 +1709,7 @@ pub fn tryLock(file: File, l: Lock) LockError!bool {
                     null,
                 ) catch |err| switch (err) {
                     error.RangeNotLocked => unreachable, // The file is assumed to be locked.
-                    error.Unexpected => unreachable, // Resource deallocation must succeed.
+                    error.Unexpected => return error.Unexpected,
                 };
 
                 return true;
@@ -1780,7 +1780,7 @@ pub fn downgradeLock(file: File) LockError!void {
             null,
         ) catch |err| switch (err) {
             error.RangeNotLocked => unreachable, // File was not locked.
-            error.Unexpected => unreachable, // Resource deallocation must succeed.
+            error.Unexpected => return error.Unexpected,
         };
     } else {
         return posix.flock(file.handle, posix.LOCK.SH | posix.LOCK.NB) catch |err| switch (err) {
