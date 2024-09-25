@@ -3848,13 +3848,13 @@ pub const Object = struct {
 
             .undef => unreachable, // handled above
             .simple_value => |simple_value| switch (simple_value) {
-                .undefined,
-                .void,
-                .null,
-                .empty_struct,
-                .@"unreachable",
-                .generic_poison,
-                => unreachable, // non-runtime values
+                .undefined => unreachable, // non-runtime value
+                .void => unreachable, // non-runtime value
+                .null => unreachable, // non-runtime value
+                .empty_struct => unreachable, // non-runtime value
+                .@"unreachable" => unreachable, // non-runtime value
+                .generic_poison => unreachable, // non-runtime value
+
                 .false => .false,
                 .true => .true,
             },
@@ -5675,43 +5675,48 @@ pub const FuncGen = struct {
         }
     }
 
-    fn buildSimplePanic(fg: *FuncGen, panic_id: Zcu.PanicId) !void {
-        const o = fg.ng.object;
-        const zcu = o.pt.zcu;
-        const ip = &zcu.intern_pool;
-        const msg_nav_index = zcu.panic_messages[@intFromEnum(panic_id)].unwrap().?;
-        const msg_nav = ip.getNav(msg_nav_index);
-        const msg_len = Type.fromInterned(msg_nav.typeOf(ip)).childType(zcu).arrayLen(zcu);
-        const msg_ptr = try o.lowerValue(msg_nav.status.resolved.val);
-        const null_opt_addr_global = try fg.resolveNullOptUsize();
-        const target = zcu.getTarget();
-        const llvm_usize = try o.lowerType(Type.usize);
-        // example:
-        // call fastcc void @test2.panic(
-        //   ptr @builtin.panic_messages.integer_overflow__anon_987, ; msg.ptr
-        //   i64 16,                                                 ; msg.len
-        //   ptr null,                                               ; stack trace
-        //   ptr @2,                                                 ; addr (null ?usize)
-        // )
-        const panic_func = zcu.funcInfo(zcu.panic_func_index);
-        const panic_nav = ip.getNav(panic_func.owner_nav);
-        const fn_info = zcu.typeToFunc(Type.fromInterned(panic_nav.typeOf(ip))).?;
-        const panic_global = try o.resolveLlvmFunction(panic_func.owner_nav);
-        _ = try fg.wip.callIntrinsicAssumeCold();
-        _ = try fg.wip.call(
-            .normal,
-            toLlvmCallConv(fn_info.cc, target),
-            .none,
-            panic_global.typeOf(&o.builder),
-            panic_global.toValue(&o.builder),
-            &.{
-                msg_ptr.toValue(),
-                try o.builder.intValue(llvm_usize, msg_len),
-                try o.builder.nullValue(.ptr),
-                null_opt_addr_global.toValue(),
-            },
-            "",
-        );
+    const PanicCauseTag = @typeInfo(std.builtin.PanicCause).@"union".tag_type.?;
+
+    fn buildSimplePanic(fg: *FuncGen, panic_cause_tag: PanicCauseTag) !void {
+        // TODO update this before merging the branch
+        _ = panic_cause_tag;
+        //const o = fg.ng.object;
+        //const zcu = o.pt.zcu;
+        //const ip = &zcu.intern_pool;
+        //const msg_nav_index = zcu.panic_messages[@intFromEnum(panic_id)].unwrap().?;
+        //const msg_nav = ip.getNav(msg_nav_index);
+        //const msg_len = Type.fromInterned(msg_nav.typeOf(ip)).childType(zcu).arrayLen(zcu);
+        //const msg_ptr = try o.lowerValue(msg_nav.status.resolved.val);
+        //const null_opt_addr_global = try fg.resolveNullOptUsize();
+        //const target = zcu.getTarget();
+        //const llvm_usize = try o.lowerType(Type.usize);
+        //// example:
+        //// call fastcc void @test2.panic(
+        ////   ptr @builtin.panic_messages.integer_overflow__anon_987, ; msg.ptr
+        ////   i64 16,                                                 ; msg.len
+        ////   ptr null,                                               ; stack trace
+        ////   ptr @2,                                                 ; addr (null ?usize)
+        //// )
+        //const panic_func = zcu.funcInfo(zcu.panic_func_index);
+        //const panic_nav = ip.getNav(panic_func.owner_nav);
+        //const fn_info = zcu.typeToFunc(Type.fromInterned(panic_nav.typeOf(ip))).?;
+        //const panic_global = try o.resolveLlvmFunction(panic_func.owner_nav);
+        //_ = try fg.wip.callIntrinsicAssumeCold();
+        //_ = try fg.wip.call(
+        //    .normal,
+        //    toLlvmCallConv(fn_info.cc, target),
+        //    .none,
+        //    panic_global.typeOf(&o.builder),
+        //    panic_global.toValue(&o.builder),
+        //    &.{
+        //        msg_ptr.toValue(),
+        //        try o.builder.intValue(llvm_usize, msg_len),
+        //        try o.builder.nullValue(.ptr),
+        //        null_opt_addr_global.toValue(),
+        //    },
+        //    "",
+        //);
+        _ = try fg.wip.callIntrinsic(.normal, .none, .trap, &.{}, &.{}, "");
         _ = try fg.wip.@"unreachable"();
     }
 

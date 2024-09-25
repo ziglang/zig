@@ -437,7 +437,7 @@ pub fn panicExtra(
             break :blk &buf;
         },
     };
-    std.builtin.panic(msg, trace, ret_addr);
+    std.builtin.panic(.{ .explicit_call = msg }, trace, ret_addr);
 }
 
 /// Non-zero whenever the program triggered a panic.
@@ -485,18 +485,6 @@ pub fn defaultPanic(
 
     switch (builtin.os.tag) {
         .freestanding => {
-            @trap();
-        },
-        .wasi => {
-            // TODO: before merging my branch, unify this logic with the main panic logic
-            var buffer: [1000]u8 = undefined;
-            var i: usize = 0;
-            i += fmtPanicCause(buffer[i..], cause);
-            buffer[i] = '\n';
-            i += 1;
-            const msg = buffer[0..i];
-            lockStdErr();
-            io.getStdErr().writeAll(msg) catch {};
             @trap();
         },
         .uefi => {
@@ -571,7 +559,7 @@ pub fn defaultPanic(
                     i += fmtInt10(buffer[i..], std.Thread.getCurrentId());
                     i += fmtBuf(buffer[i..], " panic: ");
                 }
-                i += fmtPanicCause(&buffer, cause);
+                i += fmtPanicCause(buffer[i..], cause);
                 buffer[i] = '\n';
                 i += 1;
                 const msg = buffer[0..i];
@@ -672,7 +660,7 @@ fn fmtInt10(out_buf: []u8, integer_value: usize) usize {
 
     while (true) {
         i -= 1;
-        tmp_buf[i] = '0' + (a % 10);
+        tmp_buf[i] = '0' + @as(u8, @intCast(a % 10));
         a /= 10;
         if (a == 0) break;
     }

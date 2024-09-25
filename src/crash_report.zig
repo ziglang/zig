@@ -212,7 +212,7 @@ fn handleSegfaultPosix(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopa
         else => .not_supported,
     };
 
-    PanicSwitch.dispatch(null, stack_ctx, error_msg);
+    PanicSwitch.dispatch(null, stack_ctx, .{ .explicit_call = error_msg });
 }
 
 const WindowsSegfaultMessage = union(enum) {
@@ -338,7 +338,7 @@ const PanicSwitch = struct {
         // it's happening and print a message.
         var panic_state: *volatile PanicState = &panic_state_raw;
         if (panic_state.awaiting_dispatch) {
-            dispatch(null, .{ .current = .{ .ret_addr = null } }, "Panic while preparing callstack");
+            dispatch(null, .{ .current = .{ .ret_addr = null } }, .{ .explicit_call = "Panic while preparing callstack" });
         }
         panic_state.awaiting_dispatch = true;
     }
@@ -518,6 +518,7 @@ const PanicSwitch = struct {
         stack: StackContext,
         panic_cause: std.builtin.PanicCause,
     ) void {
+        var buffer: [1000]u8 = undefined;
         switch (state.recover_verbosity) {
             .message_and_stack => {
                 // lower the verbosity, and restore it at the end if we don't panic.
@@ -525,7 +526,8 @@ const PanicSwitch = struct {
 
                 const stderr = io.getStdErr().writer();
                 stderr.writeAll("\nPanicked during a panic: ") catch {};
-                stderr.writeAll(panic_cause) catch {};
+                const msg = buffer[0..std.debug.fmtPanicCause(&buffer, panic_cause)];
+                stderr.writeAll(msg) catch {};
                 stderr.writeAll("\nInner panic stack:\n") catch {};
                 if (trace) |t| {
                     debug.dumpStackTrace(t.*);
@@ -539,7 +541,8 @@ const PanicSwitch = struct {
 
                 const stderr = io.getStdErr().writer();
                 stderr.writeAll("\nPanicked while dumping inner panic stack: ") catch {};
-                stderr.writeAll(panic_cause) catch {};
+                const msg = buffer[0..std.debug.fmtPanicCause(&buffer, panic_cause)];
+                stderr.writeAll(msg) catch {};
                 stderr.writeAll("\n") catch {};
 
                 // If we succeed, restore all the way to dumping the stack.

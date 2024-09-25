@@ -2566,7 +2566,7 @@ pub fn failWithOwnedErrorMsg(sema: *Sema, block: ?*Block, err_msg: *Zcu.ErrorMsg
         std.debug.print("compile error during Sema:\n", .{});
         var error_bundle = wip_errors.toOwnedBundle("") catch @panic("out of memory");
         error_bundle.renderToStdErr(.{ .ttyconf = .no_color });
-        crash_report.compilerPanic("unexpected compile error occurred", null, null);
+        crash_report.compilerPanic(.{ .explicit_call = "unexpected compile error occurred" }, null, null);
     }
 
     if (block) |start_block| {
@@ -7334,17 +7334,21 @@ fn callPanic(
     call_operation: CallOperation,
 ) !void {
     const pt = sema.pt;
-    if (!pt.zcu.backendSupportsFeature(.panic_fn)) {
+    const zcu = pt.zcu;
+    if (!zcu.backendSupportsFeature(.panic_fn)) {
         _ = try block.addNoOp(.trap);
         return;
     }
     const panic_cause_ty = try pt.getBuiltinType("PanicCause");
-    const panic_cause = try block.addUnionInit(panic_cause_ty, @intFromEnum(tag), payload);
+    const panic_cause = if (payload == .void_value)
+        try initUnionFromEnumTag(pt, panic_cause_ty, panic_cause_ty.unionTagType(zcu).?, @intFromEnum(tag))
+    else
+        try block.addUnionInit(panic_cause_ty, @intFromEnum(tag), payload);
     const panic_fn = try pt.getBuiltin("panic");
     const err_return_trace = try sema.getErrorReturnTrace(block);
     const opt_usize_ty = try pt.optionalType(.usize_type);
     const null_usize = try pt.nullValue(opt_usize_ty);
-    const args: [3]Air.Inst.Ref = .{ panic_cause, err_return_trace, Air.internedToRef(null_usize) };
+    const args: [3]Air.Inst.Ref = .{ panic_cause, err_return_trace, Air.internedToRef(null_usize.toIntern()) };
     try sema.callBuiltin(block, call_src, panic_fn, .auto, &args, call_operation);
 }
 
@@ -18326,11 +18330,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         .undefined,
         .null,
         .enum_literal,
-        => |type_info_tag| return Air.internedToRef((try pt.internUnion(.{
-            .ty = type_info_ty.toIntern(),
-            .tag = (try pt.enumValueFieldIndex(type_info_tag_ty, @intFromEnum(type_info_tag))).toIntern(),
-            .val = .void_value,
-        }))),
+        => |type_info_tag| return initUnionFromEnumTag(pt, type_info_ty, type_info_tag_ty, @intFromEnum(type_info_tag)),
         .@"fn" => {
             const fn_info_ty = try getInnerType(sema, block, src, type_info_ty, "Fn");
             const param_info_ty = try getInnerType(sema, block, src, fn_info_ty, "Param");
@@ -28009,7 +28009,7 @@ fn addSafetyCheckSentinelMismatch(
             assert(std.mem.eql(u8, fields[1].name, "found"));
             assert(fields.len == 2);
         }
-        const panic_cause_payload = &fail_block.addAggregateInit(mm_ty, &.{ expected_sentinel, actual_sentinel });
+        const panic_cause_payload = try fail_block.addAggregateInit(mm_ty, &.{ expected_sentinel, actual_sentinel });
         try callPanic(sema, &fail_block, src, .sentinel_mismatch_usize, panic_cause_payload, .@"safety check");
     } else {
         try callPanic(sema, &fail_block, src, .sentinel_mismatch_other, .void_value, .@"safety check");
@@ -38996,4 +38996,12 @@ fn getInnerType(
     ) orelse return sema.fail(block, src, "std.builtin missing {s}", .{inner_name});
     try sema.ensureNavResolved(src, nav);
     return Type.fromInterned(ip.getNav(nav).status.resolved.val);
+}
+
+fn initUnionFromEnumTag(pt: Zcu.PerThread, union_ty: Type, union_tag_ty: Type, field_index: u32) !Air.Inst.Ref {
+    return Air.internedToRef((try pt.internUnion(.{
+        .ty = union_ty.toIntern(),
+        .tag = (try pt.enumValueFieldIndex(union_tag_ty, field_index)).toIntern(),
+        .val = .void_value,
+    })));
 }
