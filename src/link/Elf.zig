@@ -569,19 +569,6 @@ pub fn growAllocSection(self: *Elf, shdr_index: u32, needed_size: u64, min_align
         if (maybe_phdr) |phdr| phdr.p_filesz = needed_size;
     }
     shdr.sh_size = needed_size;
-
-    if (maybe_phdr) |phdr| {
-        const mem_capacity = self.allocatedVirtualSize(phdr.p_vaddr);
-        if (needed_size > mem_capacity) {
-            var err = try self.base.addErrorWithNotes(2);
-            try err.addMsg("fatal linker error: cannot expand load segment phdr({d}) in virtual memory", .{phndx.?});
-            try err.addNote("TODO: emit relocations to memory locations in self-hosted backends", .{});
-            try err.addNote("as a workaround, try increasing pre-allocated virtual memory of each segment", .{});
-        }
-
-        phdr.p_memsz = needed_size;
-    }
-
     self.markDirty(shdr_index);
 }
 
