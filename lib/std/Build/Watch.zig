@@ -516,7 +516,7 @@ const Os = switch (builtin.os.tag) {
 pub fn init() !Watch {
     switch (builtin.os.tag) {
         .linux => {
-            const fan_fd = try std.posix.fanotify_init(.{
+            const fan_fd = std.posix.fanotify_init(.{
                 .CLASS = .NOTIF,
                 .CLOEXEC = true,
                 .NONBLOCK = true,
@@ -524,7 +524,10 @@ pub fn init() !Watch {
                 .REPORT_DIR_FID = true,
                 .REPORT_FID = true,
                 .REPORT_TARGET_FID = true,
-            }, 0);
+            }, 0) catch |err| switch (err) {
+                error.UnsupportedFlags => fatal("fanotify_init failed due to old kernel; requires 5.17+", .{}),
+                else => |e| return e,
+            };
             return .{
                 .dir_table = .{},
                 .os = switch (builtin.os.tag) {
