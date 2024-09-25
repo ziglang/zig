@@ -3,7 +3,7 @@ const fatal = std.process.fatal;
 const Allocator = std.mem.Allocator;
 const Cache = std.Build.Cache;
 
-const usage = "usage: incr-check <zig binary path> <input file> [--zig-lib-dir lib] [--debug-zcu] [--emit none|bin|c] [--zig-cc-binary /path/to/zig]";
+const usage = "usage: incr-check <zig binary path> <input file> [--zig-lib-dir lib] [--debug-zcu] [--debug-link] [--emit none|bin|c] [--zig-cc-binary /path/to/zig]";
 
 const EmitMode = enum {
     none,
@@ -22,6 +22,7 @@ pub fn main() !void {
     var opt_cc_zig: ?[]const u8 = null;
     var emit: EmitMode = .bin;
     var debug_zcu = false;
+    var debug_link = false;
 
     var arg_it = try std.process.argsWithAllocator(arena);
     _ = arg_it.skip();
@@ -35,6 +36,8 @@ pub fn main() !void {
                 opt_lib_dir = arg_it.next() orelse fatal("expected arg after '--zig-lib-dir'\n{s}", .{usage});
             } else if (std.mem.eql(u8, arg, "--debug-zcu")) {
                 debug_zcu = true;
+            } else if (std.mem.eql(u8, arg, "--debug-link")) {
+                debug_link = true;
             } else if (std.mem.eql(u8, arg, "--zig-cc-binary")) {
                 opt_cc_zig = arg_it.next() orelse fatal("expect arg after '--zig-cc-binary'\n{s}", .{usage});
             } else {
@@ -98,6 +101,11 @@ pub fn main() !void {
     if (debug_zcu) {
         try child_args.appendSlice(arena, &.{ "--debug-log", "zcu" });
     }
+    if (debug_link) {
+        try child_args.appendSlice(arena, &.{ "--debug-log", "link", "--debug-log", "link_state", "--debug-log", "link_relocs" });
+    }
+
+    const debug_log_verbose = debug_zcu or debug_link;
 
     var child = std.process.Child.init(child_args.items, arena);
     child.stdin_behavior = .Pipe;
@@ -131,7 +139,7 @@ pub fn main() !void {
         .tmp_dir = tmp_dir,
         .tmp_dir_path = tmp_dir_path,
         .child = &child,
-        .allow_stderr = debug_zcu,
+        .allow_stderr = debug_log_verbose,
         .emit = emit,
         .cc_child_args = &cc_child_args,
     };
@@ -148,7 +156,7 @@ pub fn main() !void {
         var update_node = prog_node.start(update.name, 0);
         defer update_node.end();
 
-        if (debug_zcu) {
+        if (debug_log_verbose) {
             std.log.info("=== START UPDATE '{s}' ===", .{update.name});
         }
 
