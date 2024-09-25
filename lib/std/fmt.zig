@@ -1197,7 +1197,7 @@ pub fn formatInt(
     if (base == 10) {
         while (a >= 100) : (a = @divTrunc(a, 100)) {
             index -= 2;
-            buf[index..][0..2].* = digits2(@as(usize, @intCast(a % 100)));
+            buf[index..][0..2].* = digits2(@intCast(a % 100));
         }
 
         if (a < 10) {
@@ -1205,13 +1205,13 @@ pub fn formatInt(
             buf[index] = '0' + @as(u8, @intCast(a));
         } else {
             index -= 2;
-            buf[index..][0..2].* = digits2(@as(usize, @intCast(a)));
+            buf[index..][0..2].* = digits2(@intCast(a));
         }
     } else {
         while (true) {
             const digit = a % base;
             index -= 1;
-            buf[index] = digitToChar(@as(u8, @intCast(digit)), case);
+            buf[index] = digitToChar(@intCast(digit), case);
             a /= base;
             if (a == 0) break;
         }
@@ -1242,11 +1242,7 @@ pub fn formatIntBuf(out_buf: []u8, value: anytype, base: u8, case: Case, options
 
 // Converts values in the range [0, 100) to a string.
 pub fn digits2(value: usize) [2]u8 {
-    return ("0001020304050607080910111213141516171819" ++
-        "2021222324252627282930313233343536373839" ++
-        "4041424344454647484950515253545556575859" ++
-        "6061626364656667686970717273747576777879" ++
-        "8081828384858687888990919293949596979899")[value * 2 ..][0..2].*;
+    return "00010203040506070809101112131415161718192021222324252627282930313233343536373839404142434445464748495051525354555657585960616263646566676869707172737475767778798081828384858687888990919293949596979899"[value * 2 ..][0..2].*;
 }
 
 const FormatDurationData = struct {

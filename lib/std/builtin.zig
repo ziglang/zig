@@ -763,181 +763,66 @@ pub const TestFn = struct {
 
 /// This function type is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
-pub const PanicFn = fn ([]const u8, ?*StackTrace, ?usize) noreturn;
+pub const PanicFn = fn (PanicCause, ?*StackTrace, ?usize) noreturn;
 
-/// This function is used by the Zig language code generation and
-/// therefore must be kept in sync with the compiler implementation.
+/// The entry point for auto-generated calls by the compiler.
 pub const panic: PanicFn = if (@hasDecl(root, "panic"))
     root.panic
 else if (@hasDecl(root, "os") and @hasDecl(root.os, "panic"))
     root.os.panic
 else
-    default_panic;
+    std.debug.defaultPanic;
 
-/// This function is used by the Zig language code generation and
+/// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
-pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace, ret_addr: ?usize) noreturn {
-    @branchHint(.cold);
+pub const PanicCause = union(enum) {
+    reached_unreachable,
+    unwrap_null,
+    cast_to_null,
+    incorrect_alignment,
+    invalid_error_code,
+    cast_truncated_data,
+    negative_to_unsigned,
+    integer_overflow,
+    shl_overflow,
+    shr_overflow,
+    divide_by_zero,
+    exact_division_remainder,
+    inactive_union_field: InactiveUnionField,
+    integer_part_out_of_bounds,
+    corrupt_switch,
+    shift_rhs_too_big,
+    invalid_enum_value,
+    sentinel_mismatch_usize: SentinelMismatchUsize,
+    sentinel_mismatch_other,
+    unwrap_error: anyerror,
+    index_out_of_bounds: IndexOutOfBounds,
+    start_index_greater_than_end: StartIndexGreaterThanEnd,
+    for_len_mismatch,
+    memcpy_len_mismatch,
+    memcpy_alias,
+    noreturn_returned,
+    explicit_call: []const u8,
 
-    // For backends that cannot handle the language features depended on by the
-    // default panic handler, we have a simpler panic handler:
-    if (builtin.zig_backend == .stage2_wasm or
-        builtin.zig_backend == .stage2_arm or
-        builtin.zig_backend == .stage2_aarch64 or
-        builtin.zig_backend == .stage2_x86 or
-        (builtin.zig_backend == .stage2_x86_64 and (builtin.target.ofmt != .elf and builtin.target.ofmt != .macho)) or
-        builtin.zig_backend == .stage2_sparc64 or
-        builtin.zig_backend == .stage2_spirv64)
-    {
-        while (true) {
-            @breakpoint();
-        }
-    }
+    pub const IndexOutOfBounds = struct {
+        index: usize,
+        len: usize,
+    };
 
-    if (builtin.zig_backend == .stage2_riscv64) {
-        std.debug.print("panic: {s}\n", .{msg});
-        @breakpoint();
-        std.posix.exit(127);
-    }
+    pub const StartIndexGreaterThanEnd = struct {
+        start: usize,
+        end: usize,
+    };
 
-    switch (builtin.os.tag) {
-        .freestanding => {
-            while (true) {
-                @breakpoint();
-            }
-        },
-        .wasi => {
-            std.debug.print("{s}", .{msg});
-            std.posix.abort();
-        },
-        .uefi => {
-            const uefi = std.os.uefi;
+    pub const SentinelMismatchUsize = struct {
+        expected: usize,
+        found: usize,
+    };
 
-            const Formatter = struct {
-                pub fn fmt(exit_msg: []const u8, out: []u16) ![:0]u16 {
-                    var u8_buf: [256]u8 = undefined;
-                    const slice = try std.fmt.bufPrint(&u8_buf, "err: {s}\r\n", .{exit_msg});
-                    // We pass len - 1 because we need to add a null terminator after
-                    const len = try std.unicode.utf8ToUtf16Le(out[0 .. out.len - 1], slice);
-
-                    out[len] = 0;
-
-                    return out[0..len :0];
-                }
-            };
-
-            const ExitData = struct {
-                pub fn create_exit_data(exit_msg: [:0]u16, exit_size: *usize) ![*:0]u16 {
-                    // Need boot services for pool allocation
-                    if (uefi.system_table.boot_services == null) {
-                        return error.BootServicesUnavailable;
-                    }
-
-                    // ExitData buffer must be allocated using boot_services.allocatePool (spec: page 220)
-                    const exit_data: []u16 = try uefi.raw_pool_allocator.alloc(u16, exit_msg.len + 1);
-
-                    @memcpy(exit_data[0 .. exit_msg.len + 1], exit_msg[0 .. exit_msg.len + 1]);
-                    exit_size.* = exit_msg.len + 1;
-
-                    return @as([*:0]u16, @ptrCast(exit_data.ptr));
-                }
-            };
-
-            var buf: [256]u16 = undefined;
-            const utf16 = Formatter.fmt(msg, &buf) catch null;
-
-            var exit_size: usize = 0;
-            const exit_data = if (utf16) |u|
-                ExitData.create_exit_data(u, &exit_size) catch null
-            else
-                null;
-
-            if (utf16) |str| {
-                // Output to both std_err and con_out, as std_err is easier
-                // to read in stuff like QEMU at times, but, unlike con_out,
-                // isn't visible on actual hardware if directly booted into
-                inline for ([_]?*uefi.protocol.SimpleTextOutput{ uefi.system_table.std_err, uefi.system_table.con_out }) |o| {
-                    if (o) |out| {
-                        _ = out.setAttribute(uefi.protocol.SimpleTextOutput.red);
-                        _ = out.outputString(str);
-                        _ = out.setAttribute(uefi.protocol.SimpleTextOutput.white);
-                    }
-                }
-            }
-
-            if (uefi.system_table.boot_services) |bs| {
-                _ = bs.exit(uefi.handle, .Aborted, exit_size, exit_data);
-            }
-
-            // Didn't have boot_services, just fallback to whatever.
-            std.posix.abort();
-        },
-        .cuda, .amdhsa => std.posix.abort(),
-        .plan9 => {
-            var status: [std.os.plan9.ERRMAX]u8 = undefined;
-            const len = @min(msg.len, status.len - 1);
-            @memcpy(status[0..len], msg[0..len]);
-            status[len] = 0;
-            std.os.plan9.exits(status[0..len :0]);
-        },
-        else => {
-            const first_trace_addr = ret_addr orelse @returnAddress();
-            std.debug.panicImpl(error_return_trace, first_trace_addr, msg);
-        },
-    }
-}
-
-pub fn panicSentinelMismatch(expected: anytype, actual: @TypeOf(expected)) noreturn {
-    @branchHint(.cold);
-    std.debug.panicExtra(null, @returnAddress(), "sentinel mismatch: expected {any}, found {any}", .{ expected, actual });
-}
-
-pub fn panicUnwrapError(st: ?*StackTrace, err: anyerror) noreturn {
-    @branchHint(.cold);
-    std.debug.panicExtra(st, @returnAddress(), "attempt to unwrap error: {s}", .{@errorName(err)});
-}
-
-pub fn panicOutOfBounds(index: usize, len: usize) noreturn {
-    @branchHint(.cold);
-    std.debug.panicExtra(null, @returnAddress(), "index out of bounds: index {d}, len {d}", .{ index, len });
-}
-
-pub fn panicStartGreaterThanEnd(start: usize, end: usize) noreturn {
-    @branchHint(.cold);
-    std.debug.panicExtra(null, @returnAddress(), "start index {d} is larger than end index {d}", .{ start, end });
-}
-
-pub fn panicInactiveUnionField(active: anytype, wanted: @TypeOf(active)) noreturn {
-    @branchHint(.cold);
-    std.debug.panicExtra(null, @returnAddress(), "access of union field '{s}' while field '{s}' is active", .{ @tagName(wanted), @tagName(active) });
-}
-
-pub const panic_messages = struct {
-    pub const unreach = "reached unreachable code";
-    pub const unwrap_null = "attempt to use null value";
-    pub const cast_to_null = "cast causes pointer to be null";
-    pub const incorrect_alignment = "incorrect alignment";
-    pub const invalid_error_code = "invalid error code";
-    pub const cast_truncated_data = "integer cast truncated bits";
-    pub const negative_to_unsigned = "attempt to cast negative value to unsigned integer";
-    pub const integer_overflow = "integer overflow";
-    pub const shl_overflow = "left shift overflowed bits";
-    pub const shr_overflow = "right shift overflowed bits";
-    pub const divide_by_zero = "division by zero";
-    pub const exact_division_remainder = "exact division produced remainder";
-    pub const inactive_union_field = "access of inactive union field";
-    pub const integer_part_out_of_bounds = "integer part of floating point value out of bounds";
-    pub const corrupt_switch = "switch on corrupt value";
-    pub const shift_rhs_too_big = "shift amount is greater than the type size";
-    pub const invalid_enum_value = "invalid enum value";
-    pub const sentinel_mismatch = "sentinel mismatch";
-    pub const unwrap_error = "attempt to unwrap error";
-    pub const index_out_of_bounds = "index out of bounds";
-    pub const start_index_greater_than_end = "start index is larger than end index";
-    pub const for_len_mismatch = "for loop over objects with non-equal lengths";
-    pub const memcpy_len_mismatch = "@memcpy arguments have non-equal lengths";
-    pub const memcpy_alias = "@memcpy arguments alias";
-    pub const noreturn_returned = "'noreturn' function returned";
+    pub const InactiveUnionField = struct {
+        active: []const u8,
+        accessed: []const u8,
+    };
 };
 
 pub noinline fn returnError(st: *StackTrace) void {

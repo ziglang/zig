@@ -210,44 +210,14 @@ all_type_references: std.ArrayListUnmanaged(TypeReference) = .empty,
 /// Freelist of indices in `all_type_references`.
 free_type_references: std.ArrayListUnmanaged(u32) = .empty,
 
-panic_messages: [PanicId.len]InternPool.Nav.Index.Optional = .{.none} ** PanicId.len,
 /// The panic function body.
 panic_func_index: InternPool.Index = .none,
 null_stack_trace: InternPool.Index = .none,
+panic_cause_type: InternPool.Index = .none,
 
 generation: u32 = 0,
 
 pub const PerThread = @import("Zcu/PerThread.zig");
-
-pub const PanicId = enum {
-    unreach,
-    unwrap_null,
-    cast_to_null,
-    incorrect_alignment,
-    invalid_error_code,
-    cast_truncated_data,
-    negative_to_unsigned,
-    integer_overflow,
-    shl_overflow,
-    shr_overflow,
-    divide_by_zero,
-    exact_division_remainder,
-    inactive_union_field,
-    integer_part_out_of_bounds,
-    corrupt_switch,
-    shift_rhs_too_big,
-    invalid_enum_value,
-    sentinel_mismatch,
-    unwrap_error,
-    index_out_of_bounds,
-    start_index_greater_than_end,
-    for_len_mismatch,
-    memcpy_len_mismatch,
-    memcpy_alias,
-    noreturn_returned,
-
-    pub const len = @typeInfo(PanicId).@"enum".fields.len;
-};
 
 pub const GlobalErrorSet = std.AutoArrayHashMapUnmanaged(InternPool.NullTerminatedString, void);
 
@@ -2926,14 +2896,6 @@ pub const Feature = enum {
     /// When this feature is enabled, Sema will emit calls to `std.builtin.panic`
     /// for things like safety checks and unreachables. Otherwise traps will be emitted.
     panic_fn,
-    /// When this feature is enabled, Sema will emit calls to `std.builtin.panicUnwrapError`.
-    /// This error message requires more advanced formatting, hence it being seperate from `panic_fn`.
-    /// Otherwise traps will be emitted.
-    panic_unwrap_error,
-    /// When this feature is enabled, Sema will emit calls to the more complex panic functions
-    /// that use formatting to add detail to error messages. Similar to `panic_unwrap_error`.
-    /// Otherwise traps will be emitted.
-    safety_check_formatted,
     /// When this feature is enabled, Sema will insert tracer functions for gathering a stack
     /// trace for error returns.
     error_return_trace,

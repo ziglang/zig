@@ -2697,9 +2697,14 @@ pub fn reportRetryableFileError(
     gop.value_ptr.* = err_msg;
 }
 
-///Shortcut for calling `intern_pool.get`.
+/// Shortcut for calling `intern_pool.get`.
 pub fn intern(pt: Zcu.PerThread, key: InternPool.Key) Allocator.Error!InternPool.Index {
     return pt.zcu.intern_pool.get(pt.zcu.gpa, pt.tid, key);
+}
+
+/// Shortcut for calling `intern_pool.getUnion`.
+pub fn internUnion(pt: Zcu.PerThread, un: InternPool.Key.Union) Allocator.Error!InternPool.Index {
+    return pt.zcu.intern_pool.getUnion(pt.zcu.gpa, pt.tid, un);
 }
 
 /// Essentially a shortcut for calling `intern_pool.getCoerced`.
@@ -2949,11 +2954,12 @@ pub fn intValue_i64(pt: Zcu.PerThread, ty: Type, x: i64) Allocator.Error!Value {
 }
 
 pub fn unionValue(pt: Zcu.PerThread, union_ty: Type, tag: Value, val: Value) Allocator.Error!Value {
-    return Value.fromInterned(try pt.intern(.{ .un = .{
+    const zcu = pt.zcu;
+    return Value.fromInterned(try zcu.intern_pool.getUnion(zcu.gpa, pt.tid, .{
         .ty = union_ty.toIntern(),
         .tag = tag.toIntern(),
         .val = val.toIntern(),
-    } }));
+    }));
 }
 
 /// This function casts the float representation down to the representation of the type, potentially

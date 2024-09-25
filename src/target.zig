@@ -586,14 +586,6 @@ pub inline fn backendSupportsFeature(backend: std.builtin.CompilerBackend, compt
             => true,
             else => false,
         },
-        .panic_unwrap_error => switch (backend) {
-            .stage2_c, .stage2_llvm => true,
-            else => false,
-        },
-        .safety_check_formatted => switch (backend) {
-            .stage2_c, .stage2_llvm => true,
-            else => false,
-        },
         .error_return_trace => switch (backend) {
             .stage2_llvm => true,
             else => false,

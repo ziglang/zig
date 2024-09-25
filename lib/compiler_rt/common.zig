@@ -77,11 +77,9 @@ pub const want_sparc_abi = builtin.cpu.arch.isSPARC();
 
 // Avoid dragging in the runtime safety mechanisms into this .o file,
 // unless we're trying to test compiler-rt.
-pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, _: ?usize) noreturn {
-    _ = error_return_trace;
+pub fn panic(cause: std.builtin.PanicCause, error_return_trace: ?*std.builtin.StackTrace, ret_addr: ?usize) noreturn {
     if (builtin.is_test) {
-        @branchHint(.cold);
-        std.debug.panic("{s}", .{msg});
+        std.debug.defaultPanic(cause, error_return_trace, ret_addr orelse @returnAddress());
     } else {
         unreachable;
     }

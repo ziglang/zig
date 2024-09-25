@@ -408,14 +408,15 @@ pub fn assertReadable(slice: []const volatile u8) void {
     for (slice) |*byte| _ = byte.*;
 }
 
+/// Equivalent to `@panic` but with a formatted message.
 pub fn panic(comptime format: []const u8, args: anytype) noreturn {
     @branchHint(.cold);
 
     panicExtra(@errorReturnTrace(), @returnAddress(), format, args);
 }
 
-/// `panicExtra` is useful when you want to print out an `@errorReturnTrace`
-/// and also print out some values.
+/// Equivalent to `@panic` but with a formatted message, and with an explicitly
+/// provided `@errorReturnTrace` and return address.
 pub fn panicExtra(
     trace: ?*std.builtin.StackTrace,
     ret_addr: ?usize,
@@ -447,10 +448,103 @@ var panicking = std.atomic.Value(u8).init(0);
 /// This is used to catch and handle panics triggered by the panic handler.
 threadlocal var panic_stage: usize = 0;
 
-// `panicImpl` could be useful in implementing a custom panic handler which
-// calls the default handler (on supported platforms)
-pub fn panicImpl(trace: ?*const std.builtin.StackTrace, first_trace_addr: ?usize, msg: []const u8) noreturn {
+// Dumps a stack trace to standard error, then aborts.
+//
+// This function avoids a dependency on formatted printing.
+pub fn defaultPanic(
+    cause: std.builtin.PanicCause,
+    trace: ?*const std.builtin.StackTrace,
+    first_trace_addr: ?usize,
+) noreturn {
     @branchHint(.cold);
+
+    // For backends that cannot handle the language features depended on by the
+    // default panic handler, we have a simpler panic handler:
+    if (builtin.zig_backend == .stage2_wasm or
+        builtin.zig_backend == .stage2_arm or
+        builtin.zig_backend == .stage2_aarch64 or
+        builtin.zig_backend == .stage2_x86 or
+        (builtin.zig_backend == .stage2_x86_64 and (builtin.target.ofmt != .elf and builtin.target.ofmt != .macho)) or
+        builtin.zig_backend == .stage2_sparc64 or
+        builtin.zig_backend == .stage2_spirv64)
+    {
+        @trap();
+    }
+
+    if (builtin.zig_backend == .stage2_riscv64) {
+        var buffer: [1000]u8 = undefined;
+        var i: usize = 0;
+        i += fmtPanicCause(buffer[i..], cause);
+        buffer[i] = '\n';
+        i += 1;
+        const msg = buffer[0..i];
+        lockStdErr();
+        io.getStdErr().writeAll(msg) catch {};
+        @trap();
+    }
+
+    switch (builtin.os.tag) {
+        .freestanding => {
+            @trap();
+        },
+        .wasi => {
+            // TODO: before merging my branch, unify this logic with the main panic logic
+            var buffer: [1000]u8 = undefined;
+            var i: usize = 0;
+            i += fmtPanicCause(buffer[i..], cause);
+            buffer[i] = '\n';
+            i += 1;
+            const msg = buffer[0..i];
+            lockStdErr();
+            io.getStdErr().writeAll(msg) catch {};
+            @trap();
+        },
+        .uefi => {
+            const uefi = std.os.uefi;
+
+            var buffer: [1000]u8 = undefined;
+            var i: usize = 0;
+            i += fmtBuf(buffer[i..], "panic: ");
+            i += fmtPanicCause(buffer[i..], cause);
+            i += fmtBuf(buffer[i..], "\r\n\x00");
+
+            var utf16_buffer: [1000]u16 = undefined;
+            const len = std.unicode.utf8ToUtf16Le(&utf16_buffer, buffer[0..i]) catch 0;
+            const exit_msg = utf16_buffer[0 .. len - 1 :0];
+
+            // Output to both std_err and con_out, as std_err is easier
+            // to read in stuff like QEMU at times, but, unlike con_out,
+            // isn't visible on actual hardware if directly booted into
+            inline for ([_]?*uefi.protocol.SimpleTextOutput{ uefi.system_table.std_err, uefi.system_table.con_out }) |o| {
+                if (o) |out| {
+                    _ = out.setAttribute(uefi.protocol.SimpleTextOutput.red);
+                    _ = out.outputString(exit_msg);
+                    _ = out.setAttribute(uefi.protocol.SimpleTextOutput.white);
+                }
+            }
+
+            if (uefi.system_table.boot_services) |bs| {
+                // ExitData buffer must be allocated using boot_services.allocatePool (spec: page 220)
+                const exit_data: []u16 = uefi.raw_pool_allocator.alloc(u16, exit_msg.len + 1) catch @trap();
+                @memcpy(exit_data, exit_msg[0..exit_data.len]); // Includes null terminator.
+                _ = bs.exit(uefi.handle, .Aborted, exit_msg.len + 1, exit_data);
+            }
+            @trap();
+        },
+        .cuda, .amdhsa => std.posix.abort(),
+        .plan9 => {
+            var buffer: [1000]u8 = undefined;
+            comptime assert(buffer.len > std.os.plan9.ERRMAX);
+            var i: usize = 0;
+            i += fmtPanicCause(buffer[i..], cause);
+            buffer[i] = '\n';
+            i += 1;
+            const len = @min(i, std.os.plan9.ERRMAX - 1);
+            buffer[len] = 0;
+            std.os.plan9.exits(buffer[0..len :0]);
+        },
+        else => {},
+    }
 
     if (enable_segfault_handler) {
         // If a segfault happens while panicking, we want it to actually segfault, not trigger
@@ -465,23 +559,29 @@ pub fn panicImpl(trace: ?*const std.builtin.StackTrace, first_trace_addr: ?usize
 
             _ = panicking.fetchAdd(1, .seq_cst);
 
-            // Make sure to release the mutex when done
             {
+                // This code avoids a dependency on formatted printing, the writer interface,
+                // and limits to only 1 syscall made to print the panic message to stderr.
+                var buffer: [0x1000]u8 = undefined;
+                var i: usize = 0;
+                if (builtin.single_threaded) {
+                    i += fmtBuf(buffer[i..], "panic: ");
+                } else {
+                    i += fmtBuf(buffer[i..], "thread ");
+                    i += fmtInt10(buffer[i..], std.Thread.getCurrentId());
+                    i += fmtBuf(buffer[i..], " panic: ");
+                }
+                i += fmtPanicCause(&buffer, cause);
+                buffer[i] = '\n';
+                i += 1;
+                const msg = buffer[0..i];
+
                 lockStdErr();
                 defer unlockStdErr();
 
-                const stderr = io.getStdErr().writer();
-                if (builtin.single_threaded) {
-                    stderr.print("panic: ", .{}) catch posix.abort();
-                } else {
-                    const current_thread_id = std.Thread.getCurrentId();
-                    stderr.print("thread {} panic: ", .{current_thread_id}) catch posix.abort();
-                }
-                stderr.print("{s}\n", .{msg}) catch posix.abort();
-                if (trace) |t| {
-                    dumpStackTrace(t.*);
-                }
-                dumpCurrentStackTrace(first_trace_addr);
+                io.getStdErr().writeAll(msg) catch posix.abort();
+                if (trace) |t| dumpStackTrace(t.*);
+                dumpCurrentStackTrace(first_trace_addr orelse @returnAddress());
             }
 
             waitForOtherThreadToFinishPanicking();
@@ -489,18 +589,97 @@ pub fn panicImpl(trace: ?*const std.builtin.StackTrace, first_trace_addr: ?usize
         1 => {
             panic_stage = 2;
 
-            // A panic happened while trying to print a previous panic message,
-            // we're still holding the mutex but that's fine as we're going to
-            // call abort()
-            const stderr = io.getStdErr().writer();
-            stderr.print("Panicked during a panic. Aborting.\n", .{}) catch posix.abort();
+            // A panic happened while trying to print a previous panic message.
+            // We're still holding the mutex but that's fine as we're going to
+            // call abort().
+            io.getStdErr().writeAll("aborting due to recursive panic\n") catch {};
         },
-        else => {
-            // Panicked while printing "Panicked during a panic."
-        },
+        else => {}, // Panicked while printing the recursive panic message.
     };
 
     posix.abort();
+}
+
+pub fn fmtPanicCause(buffer: []u8, cause: std.builtin.PanicCause) usize {
+    var i: usize = 0;
+
+    switch (cause) {
+        .reached_unreachable => i += fmtBuf(buffer[i..], "reached unreachable code"),
+        .unwrap_null => i += fmtBuf(buffer[i..], "attempt to use null value"),
+        .cast_to_null => i += fmtBuf(buffer[i..], "cast causes pointer to be null"),
+        .incorrect_alignment => i += fmtBuf(buffer[i..], "incorrect alignment"),
+        .invalid_error_code => i += fmtBuf(buffer[i..], "invalid error code"),
+        .cast_truncated_data => i += fmtBuf(buffer[i..], "integer cast truncated bits"),
+        .negative_to_unsigned => i += fmtBuf(buffer[i..], "attempt to cast negative value to unsigned integer"),
+        .integer_overflow => i += fmtBuf(buffer[i..], "integer overflow"),
+        .shl_overflow => i += fmtBuf(buffer[i..], "left shift overflowed bits"),
+        .shr_overflow => i += fmtBuf(buffer[i..], "right shift overflowed bits"),
+        .divide_by_zero => i += fmtBuf(buffer[i..], "division by zero"),
+        .exact_division_remainder => i += fmtBuf(buffer[i..], "exact division produced remainder"),
+        .inactive_union_field => |info| {
+            i += fmtBuf(buffer[i..], "access of union field '");
+            i += fmtBuf(buffer[i..], info.accessed);
+            i += fmtBuf(buffer[i..], "' while field '");
+            i += fmtBuf(buffer[i..], info.active);
+            i += fmtBuf(buffer[i..], "' is active");
+        },
+        .integer_part_out_of_bounds => i += fmtBuf(buffer[i..], "integer part of floating point value out of bounds"),
+        .corrupt_switch => i += fmtBuf(buffer[i..], "switch on corrupt value"),
+        .shift_rhs_too_big => i += fmtBuf(buffer[i..], "shift amount is greater than the type size"),
+        .invalid_enum_value => i += fmtBuf(buffer[i..], "invalid enum value"),
+        .sentinel_mismatch_usize => |mm| {
+            i += fmtBuf(buffer[i..], "sentinel mismatch: expected ");
+            i += fmtInt10(buffer[i..], mm.expected);
+            i += fmtBuf(buffer[i..], ", found ");
+            i += fmtInt10(buffer[i..], mm.found);
+        },
+        .sentinel_mismatch_other => i += fmtBuf(buffer[i..], "sentinel mismatch"),
+        .unwrap_error => |err| {
+            i += fmtBuf(buffer[i..], "attempt to unwrap error: ");
+            i += fmtBuf(buffer[i..], @errorName(err));
+        },
+        .index_out_of_bounds => |oob| {
+            i += fmtBuf(buffer[i..], "index ");
+            i += fmtInt10(buffer[i..], oob.index);
+            i += fmtBuf(buffer[i..], " exceeds length ");
+            i += fmtInt10(buffer[i..], oob.len);
+        },
+        .start_index_greater_than_end => |oob| {
+            i += fmtBuf(buffer[i..], "start index ");
+            i += fmtInt10(buffer[i..], oob.start);
+            i += fmtBuf(buffer[i..], " exceeds end index ");
+            i += fmtInt10(buffer[i..], oob.end);
+        },
+        .for_len_mismatch => i += fmtBuf(buffer[i..], "for loop over objects with non-equal lengths"),
+        .memcpy_len_mismatch => i += fmtBuf(buffer[i..], "@memcpy arguments have non-equal lengths"),
+        .memcpy_alias => i += fmtBuf(buffer[i..], "@memcpy arguments alias"),
+        .noreturn_returned => i += fmtBuf(buffer[i..], "'noreturn' function returned"),
+        .explicit_call => |msg| i += fmtBuf(buffer[i..], msg),
+    }
+
+    return i;
+}
+
+fn fmtBuf(out_buf: []u8, s: []const u8) usize {
+    @memcpy(out_buf[0..s.len], s);
+    return s.len;
+}
+
+fn fmtInt10(out_buf: []u8, integer_value: usize) usize {
+    var tmp_buf: [50]u8 = undefined;
+    var i: usize = tmp_buf.len;
+    var a: usize = integer_value;
+
+    while (true) {
+        i -= 1;
+        tmp_buf[i] = '0' + (a % 10);
+        a /= 10;
+        if (a == 0) break;
+    }
+
+    const result = tmp_buf[i..];
+    @memcpy(out_buf[0..result.len], result);
+    return result.len;
 }
 
 /// Must be called only after adding 1 to `panicking`. There are three callsites.
@@ -1157,7 +1336,7 @@ pub const default_enable_segfault_handler = runtime_safety and have_segfault_han
 
 pub fn maybeEnableSegfaultHandler() void {
     if (enable_segfault_handler) {
-        std.debug.attachSegfaultHandler();
+        attachSegfaultHandler();
     }
 }
 
@@ -1289,46 +1468,29 @@ fn handleSegfaultWindows(info: *windows.EXCEPTION_POINTERS) callconv(windows.WIN
     }
 }
 
-fn handleSegfaultWindowsExtra(
-    info: *windows.EXCEPTION_POINTERS,
-    msg: u8,
-    label: ?[]const u8,
-) noreturn {
-    const exception_address = @intFromPtr(info.ExceptionRecord.ExceptionAddress);
-    if (windows.CONTEXT != void) {
-        nosuspend switch (panic_stage) {
-            0 => {
-                panic_stage = 1;
-                _ = panicking.fetchAdd(1, .seq_cst);
+fn handleSegfaultWindowsExtra(info: *windows.EXCEPTION_POINTERS, msg: u8, label: ?[]const u8) noreturn {
+    comptime assert(windows.CONTEXT != void);
+    nosuspend switch (panic_stage) {
+        0 => {
+            panic_stage = 1;
+            _ = panicking.fetchAdd(1, .seq_cst);
 
-                {
-                    lockStdErr();
-                    defer unlockStdErr();
+            {
+                lockStdErr();
+                defer unlockStdErr();
 
-                    dumpSegfaultInfoWindows(info, msg, label);
-                }
-
-                waitForOtherThreadToFinishPanicking();
-            },
-            else => {
-                // panic mutex already locked
                 dumpSegfaultInfoWindows(info, msg, label);
-            },
-        };
-        posix.abort();
-    } else {
-        switch (msg) {
-            0 => panicImpl(null, exception_address, "{s}", label.?),
-            1 => {
-                const format_item = "Segmentation fault at address 0x{x}";
-                var buf: [format_item.len + 64]u8 = undefined; // 64 is arbitrary, but sufficiently large
-                const to_print = std.fmt.bufPrint(buf[0..buf.len], format_item, .{info.ExceptionRecord.ExceptionInformation[1]}) catch unreachable;
-                panicImpl(null, exception_address, to_print);
-            },
-            2 => panicImpl(null, exception_address, "Illegal Instruction"),
-            else => unreachable,
-        }
-    }
+            }
+
+            waitForOtherThreadToFinishPanicking();
+        },
+        1 => {
+            panic_stage = 2;
+            io.getStdErr().writeAll("aborting due to recursive panic\n") catch {};
+        },
+        else => {},
+    };
+    posix.abort();
 }
 
 fn dumpSegfaultInfoWindows(info: *windows.EXCEPTION_POINTERS, msg: u8, label: ?[]const u8) void {
@@ -1347,7 +1509,7 @@ pub fn dumpStackPointerAddr(prefix: []const u8) void {
     const sp = asm (""
         : [argc] "={rsp}" (-> usize),
     );
-    std.debug.print("{s} sp = 0x{x}\n", .{ prefix, sp });
+    print("{s} sp = 0x{x}\n", .{ prefix, sp });
 }
 
 test "manage resources correctly" {
