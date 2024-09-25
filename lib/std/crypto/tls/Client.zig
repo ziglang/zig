@@ -755,9 +755,8 @@ pub fn init(stream: anytype, options: Options) InitError(@TypeOf(stream))!Client
                                     pv.app_cipher.client_write_key,
                                 );
                                 const all_msgs = client_key_exchange_msg ++ client_change_cipher_spec_msg ++ client_verify_msg;
-                                var all_msgs_vec = [_]std.posix.iovec_const{
-                                    .{ .base = &all_msgs, .len = all_msgs.len },
-                                };
+                                var all_msgs_vec: [1]std.net.IoSliceConst = undefined;
+                                all_msgs_vec[0].set(&all_msgs);
                                 try stream.writevAll(&all_msgs_vec);
                             },
                         }
@@ -1100,7 +1099,8 @@ pub fn eof(c: Client) bool {
 /// If the number read is less than `len` it means the stream reached the end.
 /// Reaching the end of the stream is not an error condition.
 pub fn readAtLeast(c: *Client, stream: anytype, buffer: []u8, len: usize) !usize {
-    var iovecs = [1]std.posix.iovec{.{ .base = buffer.ptr, .len = buffer.len }};
+    var iovecs: [1]std.net.IoSlice = undefined;
+    iovecs[0].set(buffer);
     return readvAtLeast(c, stream, &iovecs, len);
 }
 

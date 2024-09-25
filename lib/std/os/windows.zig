@@ -1668,10 +1668,6 @@ pub fn getpeername(s: ws2_32.SOCKET, name: *ws2_32.sockaddr, namelen: *ws2_32.so
     return ws2_32.getpeername(s, name, @as(*i32, @ptrCast(namelen)));
 }
 
-pub fn poll(fds: [*]ws2_32.pollfd, n: c_ulong, timeout: i32) i32 {
-    return ws2_32.WSAPoll(fds, n, timeout);
-}
-
 pub fn WSAIoctl(
     s: ws2_32.SOCKET,
     dwIoControlCode: DWORD,

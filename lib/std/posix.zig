@@ -5975,6 +5975,9 @@ pub const SendError = error{
 
     /// The socket timed out.
     ConnectionTimedOut,
+
+    /// The socket is shut down for sending.
+    NotOpenForWriting,
 } || UnexpectedError;
 
 pub const SendMsgError = SendError || error{
@@ -6000,6 +6003,7 @@ pub const SendMsgError = SendError || error{
 pub const SendToError = SendMsgError || error{
     /// The destination address is not reachable by the bound address.
     UnreachableAddress,
+
     /// The destination address is not listening.
     ConnectionRefused,
 };
@@ -6012,41 +6016,44 @@ pub fn sendmsg(
     flags: u32,
 ) SendMsgError!usize {
     if (native_os == .windows) {
-        var bytes_sent: u32 = undefined;
-        if (windows.ws2_32.WSASendMsg(
-            sockfd,
-            @constCast(msg),
-            flags,
-            &bytes_sent,
-            null,
-            null,
-        ) == windows.ws2_32.SOCKET_ERROR) {
-            switch (windows.ws2_32.WSAGetLastError()) {
-                .WSAEACCES => unreachable, // The destination address is a broadcast address, but the appropriate flag was not set.
-                .WSAECONNRESET => return error.ConnectionResetByPeer,
-                .WSAEFAULT => unreachable, // A pointer or length parameter is not valid.
-                .WSAEINPROGRESS, .WSAEINTR => unreachable, // deprecated and removed in WSA 2.2
-                .WSAEINVAL => unreachable,
-                .WSAEMSGSIZE => return error.MessageTooBig,
-                .WSAENETDOWN => return error.NetworkSubsystemFailed,
-                .WSAENETRESET => return error.ConnectionResetByPeer,
-                .WSAENETUNREACH => return error.NetworkUnreachable,
-                .WSAENOBUFS => return error.SystemResources,
-                .WSAENOTCONN => return error.SocketNotConnected,
-                .WSAENOTSOCK => unreachable, // The socket descriptor does not refer to a socket.
-                .WSAEOPNOTSUPP => unreachable, // Some bit in the flags argument is inappropriate for the socket.
-                .WSAESHUTDOWN => unreachable, // cannot send on a socket after send shutdown
-                .WSAETIMEDOUT => return error.ConnectionTimedOut,
-                .WSAEWOULDBLOCK => return error.WouldBlock,
-                .WSANOTINITIALISED => unreachable, // A successful WSAStartup call must occur before using this function.
-                .WSAEADDRNOTAVAIL => unreachable, // The remote address is not valid.
-                .WSAEAFNOSUPPORT => return error.AddressFamilyNotSupported,
-                .WSAEDESTADDRREQ => unreachable, // A destination address is required.
-                .WSAEHOSTUNREACH => return error.NetworkUnreachable,
-                else => |err| return windows.unexpectedWSAError(err),
+        while (true) {
+            var bytes_sent: u32 = undefined;
+            if (windows.ws2_32.WSASendMsg(
+                sockfd,
+                @constCast(msg),
+                flags,
+                &bytes_sent,
+                null,
+                null,
+            ) == windows.ws2_32.SOCKET_ERROR) {
+                switch (windows.ws2_32.WSAGetLastError()) {
+                    .WSAEACCES => unreachable, // The destination address is a broadcast address, but the appropriate flag was not set.
+                    .WSAECONNRESET => return error.ConnectionResetByPeer,
+                    .WSAEFAULT => unreachable, // A pointer or length parameter is not valid.
+                    .WSAEINPROGRESS => unreachable, // deprecated and removed in WSA 2.2
+                    .WSAEINTR => continue,
+                    .WSAEINVAL => unreachable,
+                    .WSAEMSGSIZE => return error.MessageTooBig,
+                    .WSAENETDOWN => return error.NetworkSubsystemFailed,
+                    .WSAENETRESET => return error.ConnectionResetByPeer,
+                    .WSAENETUNREACH => return error.NetworkUnreachable,
+                    .WSAENOBUFS => return error.SystemResources,
+                    .WSAENOTCONN => return error.SocketNotConnected,
+                    .WSAENOTSOCK => unreachable, // The socket descriptor does not refer to a socket.
+                    .WSAEOPNOTSUPP => unreachable, // Some bit in the flags argument is inappropriate for the socket.
+                    .WSAESHUTDOWN => return error.NotOpenForWriting, // cannot send on a socket after send shutdown
+                    .WSAETIMEDOUT => return error.ConnectionTimedOut,
+                    .WSAEWOULDBLOCK => return error.WouldBlock,
+                    .WSANOTINITIALISED => unreachable, // A successful WSAStartup call must occur before using this function.
+                    .WSAEADDRNOTAVAIL => unreachable, // The remote address is not valid.
+                    .WSAEAFNOSUPPORT => return error.AddressFamilyNotSupported,
+                    .WSAEDESTADDRREQ => unreachable, // A destination address is required.
+                    .WSAEHOSTUNREACH => return error.NetworkUnreachable,
+                    else => |err| return windows.unexpectedWSAError(err),
+                }
+            } else {
+                return bytes_sent;
             }
-        } else {
-            return bytes_sent;
         }
     } else {
         while (true) {
@@ -6125,43 +6132,46 @@ pub fn sendto(
         var buf_iovec = [1]windows.ws2_32.WSABUF{.{ .buf = @constCast(buf.ptr), .len = len }};
         var bytes_sent: u32 = 0;
 
-        if (windows.ws2_32.WSASendTo(
-            sockfd,
-            &buf_iovec,
-            buf_iovec.len,
-            &bytes_sent,
-            flags,
-            dest_addr,
-            @intCast(addrlen),
-            null,
-            null,
-        ) == windows.ws2_32.SOCKET_ERROR) {
-            switch (windows.ws2_32.WSAGetLastError()) {
-                .WSAEACCES => unreachable, // The requested address is a broadcast address, but the appropriate flag was not set.
-                .WSAEADDRNOTAVAIL => unreachable, // The specified address is not valid for a remote computer.
-                .WSAEAFNOSUPPORT => return error.AddressFamilyNotSupported,
-                .WSAECONNRESET => return error.ConnectionResetByPeer,
-                .WSAEDESTADDRREQ => unreachable, // A destination address is required.
-                .WSAEFAULT => unreachable, // A pointer parameter is not a valid part of the user address space, or addrlen is too small to accommodate the sockaddr structure.
-                .WSAEHOSTUNREACH => return error.NetworkUnreachable,
-                .WSAEINPROGRESS, .WSAEINTR => unreachable, // deprecated and removed in WSA 2.2
-                .WSAEINVAL => return error.SocketNotBound,
-                .WSAEMSGSIZE => return error.MessageTooBig,
-                .WSAENETDOWN => return error.NetworkSubsystemFailed,
-                .WSAENETRESET => return error.ConnectionResetByPeer,
-                .WSAENETUNREACH => return error.NetworkUnreachable,
-                .WSAENOBUFS => return error.SystemResources,
-                .WSAENOTCONN => return error.SocketNotConnected,
-                .WSAENOTSOCK => unreachable, // The socket descriptor does not refer to a socket.
-                .WSAESHUTDOWN => unreachable, // cannot send on a socket after send shutdown
-                .WSAEWOULDBLOCK => return error.WouldBlock,
-                .WSANOTINITIALISED => unreachable, // A successful WSAStartup call must occur before using this function.
-                .WSA_IO_PENDING => unreachable, // not using overlapped I/O
-                .WSA_OPERATION_ABORTED => unreachable, // not using overlapped I/O
-                else => |err| return windows.unexpectedWSAError(err),
+        while (true) {
+            if (windows.ws2_32.WSASendTo(
+                sockfd,
+                &buf_iovec,
+                buf_iovec.len,
+                &bytes_sent,
+                flags,
+                dest_addr,
+                @intCast(addrlen),
+                null,
+                null,
+            ) == windows.ws2_32.SOCKET_ERROR) {
+                switch (windows.ws2_32.WSAGetLastError()) {
+                    .WSAEACCES => unreachable, // The requested address is a broadcast address, but the appropriate flag was not set.
+                    .WSAEADDRNOTAVAIL => unreachable, // The specified address is not valid for a remote computer.
+                    .WSAEAFNOSUPPORT => return error.AddressFamilyNotSupported,
+                    .WSAECONNRESET => return error.ConnectionResetByPeer,
+                    .WSAEDESTADDRREQ => unreachable, // A destination address is required.
+                    .WSAEFAULT => unreachable, // A pointer parameter is not a valid part of the user address space, or addrlen is too small to accommodate the sockaddr structure.
+                    .WSAEHOSTUNREACH => return error.NetworkUnreachable,
+                    .WSAEINPROGRESS => unreachable, // deprecated and removed in WSA 2.2
+                    .WSAEINTR => continue,
+                    .WSAEINVAL => return error.SocketNotBound,
+                    .WSAEMSGSIZE => return error.MessageTooBig,
+                    .WSAENETDOWN => return error.NetworkSubsystemFailed,
+                    .WSAENETRESET => return error.ConnectionResetByPeer,
+                    .WSAENETUNREACH => return error.NetworkUnreachable,
+                    .WSAENOBUFS => return error.SystemResources,
+                    .WSAENOTCONN => return error.SocketNotConnected,
+                    .WSAENOTSOCK => unreachable, // The socket descriptor does not refer to a socket.
+                    .WSAESHUTDOWN => return error.NotOpenForWriting,
+                    .WSAEWOULDBLOCK => return error.WouldBlock,
+                    .WSANOTINITIALISED => unreachable, // A successful WSAStartup call must occur before using this function.
+                    .WSA_IO_PENDING => unreachable, // not using overlapped I/O
+                    .WSA_OPERATION_ABORTED => unreachable, // not using overlapped I/O
+                    else => |err| return windows.unexpectedWSAError(err),
+                }
+            } else {
+                return bytes_sent;
             }
-        } else {
-            return bytes_sent;
         }
     } else {
         while (true) {
@@ -6628,15 +6638,17 @@ pub const PollError = error{
 
 pub fn poll(fds: []pollfd, timeout: i32) PollError!usize {
     if (native_os == .windows) {
-        switch (windows.poll(fds.ptr, @intCast(fds.len), timeout)) {
-            windows.ws2_32.SOCKET_ERROR => switch (windows.ws2_32.WSAGetLastError()) {
+        const rc = windows.ws2_32.WSAPoll(fds.ptr, @intCast(fds.len), timeout);
+        if (rc == windows.ws2_32.SOCKET_ERROR) {
+            switch (windows.ws2_32.WSAGetLastError()) {
                 .WSANOTINITIALISED => unreachable,
+                .WSAEFAULT => unreachable,
                 .WSAENETDOWN => return error.NetworkSubsystemFailed,
                 .WSAENOBUFS => return error.SystemResources,
-                // TODO: handle more errors
                 else => |err| return windows.unexpectedWSAError(err),
-            },
-            else => |rc| return @intCast(rc),
+            }
+        } else {
+            return @intCast(rc);
         }
     }
     while (true) {
@@ -6713,6 +6725,9 @@ pub const RecvFromError = error{
 
     /// An I/O error occurred while reading from or writing to the file system.
     InputOutput,
+
+    /// The socket has been shut down for receiving.
+    NotOpenForReading,
 } || UnexpectedError;
 
 pub fn recv(sock: socket_t, buf: []u8, flags: u32) RecvFromError!usize {
@@ -6734,33 +6749,40 @@ pub fn recvfrom(
         var bytes_received: u32 = 0;
         var flags_inout: u32 = flags;
 
-        if (windows.ws2_32.WSARecvFrom(
-            sockfd,
-            &buf_iovec,
-            buf_iovec.len,
-            &bytes_received,
-            &flags_inout,
-            src_addr,
-            @ptrCast(addrlen),
-            null,
-            null,
-        ) == windows.ws2_32.SOCKET_ERROR) {
-            switch (windows.ws2_32.WSAGetLastError()) {
-                .WSAECONNRESET => return error.ConnectionResetByPeer,
-                .WSAEFAULT => unreachable, // a pointer parameter is not a valid part of the user address space, or addrlen is too small to accommodate the sockaddr structure
-                .WSAEINPROGRESS, .WSAEINTR => unreachable, // deprecated and removed in WSA 2.2
-                .WSAEINVAL => return error.SocketNotBound,
-                .WSAEMSGSIZE => return error.MessageTooBig,
-                .WSAENETDOWN => return error.NetworkSubsystemFailed,
-                .WSAENETRESET => return error.ConnectionTimedOut,
-                .WSAENOTCONN => return error.SocketNotConnected,
-                .WSAEWOULDBLOCK => return error.WouldBlock,
-                .WSANOTINITIALISED => unreachable, // WSAStartup must be called before this function
-                .WSA_IO_PENDING, .WSA_OPERATION_ABORTED => unreachable, // not using overlapped I/O
-                else => |err| return windows.unexpectedWSAError(err),
+        while (true) {
+            if (windows.ws2_32.WSARecvFrom(
+                sockfd,
+                &buf_iovec,
+                buf_iovec.len,
+                &bytes_received,
+                &flags_inout,
+                src_addr,
+                @ptrCast(addrlen),
+                null,
+                null,
+            ) == windows.ws2_32.SOCKET_ERROR) {
+                switch (windows.ws2_32.WSAGetLastError()) {
+                    .WSAECONNABORTED => return error.ConnectionTimedOut,
+                    .WSAECONNRESET => return error.ConnectionResetByPeer,
+                    .WSAEFAULT => unreachable, // a pointer parameter is not a valid part of the user address space, or addrlen is too small to accommodate the sockaddr structure
+                    .WSAEINPROGRESS => unreachable, // deprecated and removed in WSA 2.2
+                    .WSAEINTR => continue,
+                    .WSAEINVAL => return error.SocketNotBound,
+                    .WSAEMSGSIZE => return error.MessageTooBig,
+                    .WSAENETDOWN => return error.NetworkSubsystemFailed,
+                    .WSAENETRESET => return error.ConnectionTimedOut,
+                    .WSAENOTCONN => return error.SocketNotConnected,
+                    .WSAENOTSOCK => unreachable, // the socket descriptor does not refer to a socket
+                    .WSAESHUTDOWN => return error.NotOpenForReading,
+                    .WSAETIMEDOUT => return error.ConnectionTimedOut,
+                    .WSAEWOULDBLOCK => return error.WouldBlock,
+                    .WSANOTINITIALISED => unreachable, // WSAStartup must be called before this function
+                    .WSA_IO_PENDING, .WSA_OPERATION_ABORTED => unreachable, // not using overlapped I/O
+                    else => |err| return windows.unexpectedWSAError(err),
+                }
+            } else {
+                return bytes_received;
             }
-        } else {
-            return bytes_received;
         }
     } else {
         while (true) {
