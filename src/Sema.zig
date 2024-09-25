@@ -5429,7 +5429,14 @@ fn zirValidateDestructure(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
             errdefer msg.destroy(sema.gpa);
             try sema.errNote(destructure_src, msg, "result destructured here", .{});
             if (operand_ty.zigTypeTag(pt.zcu) == .error_union) {
-                try sema.errNote(src, msg, "consider using 'try', 'catch', or 'if'", .{});
+                const base_op_ty = operand_ty.errorUnionPayload(zcu);
+                const can_destructure_base = switch (base_op_ty.zigTypeTag(zcu)) {
+                    .array, .vector => true,
+                    .@"struct" => base_op_ty.isTuple(zcu),
+                    else => false,
+                };
+                if (can_destructure_base)
+                    try sema.errNote(src, msg, "consider using 'try', 'catch', or 'if'", .{});
             }
             break :msg msg;
         });
