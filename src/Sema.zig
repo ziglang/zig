@@ -7321,7 +7321,8 @@ fn callPanic(
     }
     const panic_cause_ty = try pt.getBuiltinType("PanicCause");
     const panic_cause = try unionInitFromEnumTag(sema, block, call_src, panic_cause_ty, @intFromEnum(tag), payload);
-    const panic_fn = try pt.getBuiltin("panic");
+    try preparePanic(sema, block, call_src);
+    const panic_fn = Air.internedToRef(zcu.panic_func_index);
     const err_return_trace = try sema.getErrorReturnTrace(block);
     const opt_usize_ty = try pt.optionalType(.usize_type);
     const null_usize = try pt.nullValue(opt_usize_ty);
