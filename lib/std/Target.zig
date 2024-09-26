@@ -847,7 +847,7 @@ pub fn toElfMachine(target: Target) std.elf.EM {
 
     return switch (target.cpu.arch) {
         .amdgcn => .AMDGPU,
-        .arc => .ARC_COMPACT2,
+        .arc => .ARC_COMPACT,
         .arm, .armeb, .thumb, .thumbeb => .ARM,
         .aarch64, .aarch64_be => .AARCH64,
         .avr => .AVR,
