@@ -321,9 +321,6 @@ const PanicSwitch = struct {
     /// until all panicking threads have dumped their traces.
     var panicking = std.atomic.Value(u8).init(0);
 
-    // Locked to avoid interleaving panic messages from multiple threads.
-    var panic_mutex = std.Thread.Mutex{};
-
     /// Tracks the state of the current panic.  If the code within the
     /// panic triggers a secondary panic, this allows us to recover.
     threadlocal var panic_state_raw: PanicState = .{};
@@ -391,7 +388,7 @@ const PanicSwitch = struct {
 
         state.recover_stage = .release_ref_count;
 
-        panic_mutex.lock();
+        std.debug.lockStdErr();
 
         state.recover_stage = .release_mutex;
 
@@ -453,7 +450,7 @@ const PanicSwitch = struct {
     noinline fn releaseMutex(state: *volatile PanicState) noreturn {
         state.recover_stage = .abort;
 
-        panic_mutex.unlock();
+        std.debug.unlockStdErr();
 
         goTo(releaseRefCount, .{state});
     }
