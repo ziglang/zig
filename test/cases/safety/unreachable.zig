@@ -1,9 +1,8 @@
 const std = @import("std");
 
-pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace, ret_addr: ?usize) noreturn {
+pub fn panic(cause: std.builtin.PanicCause, stack_trace: ?*std.builtin.StackTrace, _: ?usize) noreturn {
     _ = stack_trace;
-    _ = ret_addr;
-    if (std.mem.eql(u8, message, "reached unreachable code")) {
+    if (cause == .reached_unreachable) {
         std.process.exit(0);
     }
     std.process.exit(1);

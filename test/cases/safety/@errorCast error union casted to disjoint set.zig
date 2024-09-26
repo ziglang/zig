@@ -1,8 +1,8 @@
 const std = @import("std");
 
-pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace, _: ?usize) noreturn {
+pub fn panic(cause: std.builtin.PanicCause, stack_trace: ?*std.builtin.StackTrace, _: ?usize) noreturn {
     _ = stack_trace;
-    if (std.mem.eql(u8, message, "invalid error code")) {
+    if (cause == .invalid_error_code) {
         std.process.exit(0);
     }
     std.process.exit(1);

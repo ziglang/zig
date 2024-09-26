@@ -6,7 +6,10 @@ export fn foo() void {
     @panic("oh no");
 }
 
-pub fn panic(_: []const u8, _: ?*std.builtin.StackTrace, _: ?usize) noreturn {
+pub fn panic(cause: std.builtin.PanicCause, ert: ?*std.builtin.StackTrace, ra: ?usize) noreturn {
+    _ = cause;
+    _ = ert;
+    _ = ra;
     @compileError("panic");
 }
 
@@ -14,4 +17,4 @@ pub fn panic(_: []const u8, _: ?*std.builtin.StackTrace, _: ?usize) noreturn {
 // backend=stage2
 // target=native
 //
-// :10:5: error: panic
+// :13:5: error: panic

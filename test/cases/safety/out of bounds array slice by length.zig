@@ -1,9 +1,14 @@
 const std = @import("std");
 
-pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace, _: ?usize) noreturn {
+pub fn panic(cause: std.builtin.PanicCause, stack_trace: ?*std.builtin.StackTrace, _: ?usize) noreturn {
     _ = stack_trace;
-    if (std.mem.eql(u8, message, "index out of bounds: index 16, len 5")) {
-        std.process.exit(0);
+    switch (cause) {
+        .index_out_of_bounds => |info| {
+            if (info.index == 16 and info.len == 5) {
+                std.process.exit(0);
+            }
+        },
+        else => {},
     }
     std.process.exit(1);
 }
