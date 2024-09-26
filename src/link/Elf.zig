@@ -147,6 +147,7 @@ thunks: std.ArrayListUnmanaged(Thunk) = .empty,
 
 /// List of output merge sections with deduped contents.
 merge_sections: std.ArrayListUnmanaged(MergeSection) = .empty,
+comment_merge_section_index: ?MergeSection.Index = null,
 
 first_eflags: ?elf.Elf64_Word = null,
 
@@ -568,19 +569,6 @@ pub fn growAllocSection(self: *Elf, shdr_index: u32, needed_size: u64, min_align
         if (maybe_phdr) |phdr| phdr.p_filesz = needed_size;
     }
     shdr.sh_size = needed_size;
-
-    if (maybe_phdr) |phdr| {
-        const mem_capacity = self.allocatedVirtualSize(phdr.p_vaddr);
-        if (needed_size > mem_capacity) {
-            var err = try self.base.addErrorWithNotes(2);
-            try err.addMsg("fatal linker error: cannot expand load segment phdr({d}) in virtual memory", .{phndx.?});
-            try err.addNote("TODO: emit relocations to memory locations in self-hosted backends", .{});
-            try err.addNote("as a workaround, try increasing pre-allocated virtual memory of each segment", .{});
-        }
-
-        phdr.p_memsz = needed_size;
-    }
-
     self.markDirty(shdr_index);
 }
 
@@ -1047,6 +1035,7 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
     try self.updateMergeSectionSizes();
     try self.updateSectionSizes();
 
+    try self.addLoadPhdrs();
     try self.allocatePhdrTable();
     try self.allocateAllocSections();
     try self.sortPhdrs();
@@ -2790,6 +2779,7 @@ fn checkDuplicates(self: *Elf) !void {
 
 pub fn addCommentString(self: *Elf) !void {
     const gpa = self.base.comp.gpa;
+    if (self.comment_merge_section_index != null) return;
     const msec_index = try self.getOrCreateMergeSection(".comment", elf.SHF_MERGE | elf.SHF_STRINGS, elf.SHT_PROGBITS);
     const msec = self.mergeSection(msec_index);
     const res = try msec.insertZ(gpa, "zig " ++ builtin.zig_version_string);
@@ -2803,6 +2793,7 @@ pub fn addCommentString(self: *Elf) !void {
     msub.entsize = 1;
     msub.alive = true;
     res.sub.* = msub_index;
+    self.comment_merge_section_index = msec_index;
 }
 
 pub fn resolveMergeSections(self: *Elf) !void {
@@ -2920,7 +2911,7 @@ fn initSyntheticSections(self: *Elf) !void {
                 .offset = std.math.maxInt(u64),
             });
         }
-        if (comp.link_eh_frame_hdr) {
+        if (comp.link_eh_frame_hdr and self.eh_frame_hdr_section_index == null) {
             self.eh_frame_hdr_section_index = try self.addSection(.{
                 .name = try self.insertShString(".eh_frame_hdr"),
                 .type = elf.SHT_PROGBITS,
@@ -2931,7 +2922,7 @@ fn initSyntheticSections(self: *Elf) !void {
         }
     }
 
-    if (self.got.entries.items.len > 0) {
+    if (self.got.entries.items.len > 0 and self.got_section_index == null) {
         self.got_section_index = try self.addSection(.{
             .name = try self.insertShString(".got"),
             .type = elf.SHT_PROGBITS,
@@ -2941,13 +2932,15 @@ fn initSyntheticSections(self: *Elf) !void {
         });
     }
 
-    self.got_plt_section_index = try self.addSection(.{
-        .name = try self.insertShString(".got.plt"),
-        .type = elf.SHT_PROGBITS,
-        .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
-        .addralign = @alignOf(u64),
-        .offset = std.math.maxInt(u64),
-    });
+    if (self.got_plt_section_index == null) {
+        self.got_plt_section_index = try self.addSection(.{
+            .name = try self.insertShString(".got.plt"),
+            .type = elf.SHT_PROGBITS,
+            .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
+            .addralign = @alignOf(u64),
+            .offset = std.math.maxInt(u64),
+        });
+    }
 
     const needs_rela_dyn = blk: {
         if (self.got.flags.needs_rela or self.got.flags.needs_tlsld or self.copy_rel.symbols.items.len > 0)
@@ -2960,7 +2953,7 @@ fn initSyntheticSections(self: *Elf) !void {
         }
         break :blk false;
     };
-    if (needs_rela_dyn) {
+    if (needs_rela_dyn and self.rela_dyn_section_index == null) {
         self.rela_dyn_section_index = try self.addSection(.{
             .name = try self.insertShString(".rela.dyn"),
             .type = elf.SHT_RELA,
@@ -2972,24 +2965,28 @@ fn initSyntheticSections(self: *Elf) !void {
     }
 
     if (self.plt.symbols.items.len > 0) {
-        self.plt_section_index = try self.addSection(.{
-            .name = try self.insertShString(".plt"),
-            .type = elf.SHT_PROGBITS,
-            .flags = elf.SHF_ALLOC | elf.SHF_EXECINSTR,
-            .addralign = 16,
-            .offset = std.math.maxInt(u64),
-        });
-        self.rela_plt_section_index = try self.addSection(.{
-            .name = try self.insertShString(".rela.plt"),
-            .type = elf.SHT_RELA,
-            .flags = elf.SHF_ALLOC,
-            .addralign = @alignOf(elf.Elf64_Rela),
-            .entsize = @sizeOf(elf.Elf64_Rela),
-            .offset = std.math.maxInt(u64),
-        });
+        if (self.plt_section_index == null) {
+            self.plt_section_index = try self.addSection(.{
+                .name = try self.insertShString(".plt"),
+                .type = elf.SHT_PROGBITS,
+                .flags = elf.SHF_ALLOC | elf.SHF_EXECINSTR,
+                .addralign = 16,
+                .offset = std.math.maxInt(u64),
+            });
+        }
+        if (self.rela_plt_section_index == null) {
+            self.rela_plt_section_index = try self.addSection(.{
+                .name = try self.insertShString(".rela.plt"),
+                .type = elf.SHT_RELA,
+                .flags = elf.SHF_ALLOC,
+                .addralign = @alignOf(elf.Elf64_Rela),
+                .entsize = @sizeOf(elf.Elf64_Rela),
+                .offset = std.math.maxInt(u64),
+            });
+        }
     }
 
-    if (self.plt_got.symbols.items.len > 0) {
+    if (self.plt_got.symbols.items.len > 0 and self.plt_got_section_index == null) {
         self.plt_got_section_index = try self.addSection(.{
             .name = try self.insertShString(".plt.got"),
             .type = elf.SHT_PROGBITS,
@@ -2999,7 +2996,7 @@ fn initSyntheticSections(self: *Elf) !void {
         });
     }
 
-    if (self.copy_rel.symbols.items.len > 0) {
+    if (self.copy_rel.symbols.items.len > 0 and self.copy_rel_section_index == null) {
         self.copy_rel_section_index = try self.addSection(.{
             .name = try self.insertShString(".copyrel"),
             .type = elf.SHT_NOBITS,
@@ -3017,7 +3014,7 @@ fn initSyntheticSections(self: *Elf) !void {
         if (self.base.isStatic() and !comp.config.pie) break :blk false;
         break :blk target.dynamic_linker.get() != null;
     };
-    if (needs_interp) {
+    if (needs_interp and self.interp_section_index == null) {
         self.interp_section_index = try self.addSection(.{
             .name = try self.insertShString(".interp"),
             .type = elf.SHT_PROGBITS,
@@ -3028,67 +3025,81 @@ fn initSyntheticSections(self: *Elf) !void {
     }
 
     if (self.isEffectivelyDynLib() or self.shared_objects.items.len > 0 or comp.config.pie) {
-        self.dynstrtab_section_index = try self.addSection(.{
-            .name = try self.insertShString(".dynstr"),
-            .flags = elf.SHF_ALLOC,
-            .type = elf.SHT_STRTAB,
-            .entsize = 1,
-            .addralign = 1,
-            .offset = std.math.maxInt(u64),
-        });
-        self.dynamic_section_index = try self.addSection(.{
-            .name = try self.insertShString(".dynamic"),
-            .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
-            .type = elf.SHT_DYNAMIC,
-            .entsize = @sizeOf(elf.Elf64_Dyn),
-            .addralign = @alignOf(elf.Elf64_Dyn),
-            .offset = std.math.maxInt(u64),
-        });
-        self.dynsymtab_section_index = try self.addSection(.{
-            .name = try self.insertShString(".dynsym"),
-            .flags = elf.SHF_ALLOC,
-            .type = elf.SHT_DYNSYM,
-            .addralign = @alignOf(elf.Elf64_Sym),
-            .entsize = @sizeOf(elf.Elf64_Sym),
-            .info = 1,
-            .offset = std.math.maxInt(u64),
-        });
-        self.hash_section_index = try self.addSection(.{
-            .name = try self.insertShString(".hash"),
-            .flags = elf.SHF_ALLOC,
-            .type = elf.SHT_HASH,
-            .addralign = 4,
-            .entsize = 4,
-            .offset = std.math.maxInt(u64),
-        });
-        self.gnu_hash_section_index = try self.addSection(.{
-            .name = try self.insertShString(".gnu.hash"),
-            .flags = elf.SHF_ALLOC,
-            .type = elf.SHT_GNU_HASH,
-            .addralign = 8,
-            .offset = std.math.maxInt(u64),
-        });
+        if (self.dynstrtab_section_index == null) {
+            self.dynstrtab_section_index = try self.addSection(.{
+                .name = try self.insertShString(".dynstr"),
+                .flags = elf.SHF_ALLOC,
+                .type = elf.SHT_STRTAB,
+                .entsize = 1,
+                .addralign = 1,
+                .offset = std.math.maxInt(u64),
+            });
+        }
+        if (self.dynamic_section_index == null) {
+            self.dynamic_section_index = try self.addSection(.{
+                .name = try self.insertShString(".dynamic"),
+                .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
+                .type = elf.SHT_DYNAMIC,
+                .entsize = @sizeOf(elf.Elf64_Dyn),
+                .addralign = @alignOf(elf.Elf64_Dyn),
+                .offset = std.math.maxInt(u64),
+            });
+        }
+        if (self.dynsymtab_section_index == null) {
+            self.dynsymtab_section_index = try self.addSection(.{
+                .name = try self.insertShString(".dynsym"),
+                .flags = elf.SHF_ALLOC,
+                .type = elf.SHT_DYNSYM,
+                .addralign = @alignOf(elf.Elf64_Sym),
+                .entsize = @sizeOf(elf.Elf64_Sym),
+                .info = 1,
+                .offset = std.math.maxInt(u64),
+            });
+        }
+        if (self.hash_section_index == null) {
+            self.hash_section_index = try self.addSection(.{
+                .name = try self.insertShString(".hash"),
+                .flags = elf.SHF_ALLOC,
+                .type = elf.SHT_HASH,
+                .addralign = 4,
+                .entsize = 4,
+                .offset = std.math.maxInt(u64),
+            });
+        }
+        if (self.gnu_hash_section_index == null) {
+            self.gnu_hash_section_index = try self.addSection(.{
+                .name = try self.insertShString(".gnu.hash"),
+                .flags = elf.SHF_ALLOC,
+                .type = elf.SHT_GNU_HASH,
+                .addralign = 8,
+                .offset = std.math.maxInt(u64),
+            });
+        }
 
         const needs_versions = for (self.dynsym.entries.items) |entry| {
             const sym = self.symbol(entry.ref).?;
             if (sym.flags.import and sym.version_index & elf.VERSYM_VERSION > elf.VER_NDX_GLOBAL) break true;
         } else false;
         if (needs_versions) {
-            self.versym_section_index = try self.addSection(.{
-                .name = try self.insertShString(".gnu.version"),
-                .flags = elf.SHF_ALLOC,
-                .type = elf.SHT_GNU_VERSYM,
-                .addralign = @alignOf(elf.Elf64_Versym),
-                .entsize = @sizeOf(elf.Elf64_Versym),
-                .offset = std.math.maxInt(u64),
-            });
-            self.verneed_section_index = try self.addSection(.{
-                .name = try self.insertShString(".gnu.version_r"),
-                .flags = elf.SHF_ALLOC,
-                .type = elf.SHT_GNU_VERNEED,
-                .addralign = @alignOf(elf.Elf64_Verneed),
-                .offset = std.math.maxInt(u64),
-            });
+            if (self.versym_section_index == null) {
+                self.versym_section_index = try self.addSection(.{
+                    .name = try self.insertShString(".gnu.version"),
+                    .flags = elf.SHF_ALLOC,
+                    .type = elf.SHT_GNU_VERSYM,
+                    .addralign = @alignOf(elf.Elf64_Versym),
+                    .entsize = @sizeOf(elf.Elf64_Versym),
+                    .offset = std.math.maxInt(u64),
+                });
+            }
+            if (self.verneed_section_index == null) {
+                self.verneed_section_index = try self.addSection(.{
+                    .name = try self.insertShString(".gnu.version_r"),
+                    .flags = elf.SHF_ALLOC,
+                    .type = elf.SHT_GNU_VERNEED,
+                    .addralign = @alignOf(elf.Elf64_Verneed),
+                    .offset = std.math.maxInt(u64),
+                });
+            }
         }
     }
 
@@ -3136,36 +3147,38 @@ pub fn initShStrtab(self: *Elf) !void {
 fn initSpecialPhdrs(self: *Elf) !void {
     comptime assert(max_number_of_special_phdrs == 5);
 
-    if (self.interp_section_index != null) {
+    if (self.interp_section_index != null and self.phdr_interp_index == null) {
         self.phdr_interp_index = try self.addPhdr(.{
             .type = elf.PT_INTERP,
             .flags = elf.PF_R,
             .@"align" = 1,
         });
     }
-    if (self.dynamic_section_index != null) {
+    if (self.dynamic_section_index != null and self.phdr_dynamic_index == null) {
         self.phdr_dynamic_index = try self.addPhdr(.{
             .type = elf.PT_DYNAMIC,
             .flags = elf.PF_R | elf.PF_W,
         });
     }
-    if (self.eh_frame_hdr_section_index != null) {
+    if (self.eh_frame_hdr_section_index != null and self.phdr_gnu_eh_frame_index == null) {
         self.phdr_gnu_eh_frame_index = try self.addPhdr(.{
             .type = elf.PT_GNU_EH_FRAME,
             .flags = elf.PF_R,
         });
     }
-    self.phdr_gnu_stack_index = try self.addPhdr(.{
-        .type = elf.PT_GNU_STACK,
-        .flags = elf.PF_W | elf.PF_R,
-        .memsz = self.base.stack_size,
-        .@"align" = 1,
-    });
+    if (self.phdr_gnu_stack_index == null) {
+        self.phdr_gnu_stack_index = try self.addPhdr(.{
+            .type = elf.PT_GNU_STACK,
+            .flags = elf.PF_W | elf.PF_R,
+            .memsz = self.base.stack_size,
+            .@"align" = 1,
+        });
+    }
 
     const has_tls = for (self.sections.items(.shdr)) |shdr| {
         if (shdr.sh_flags & elf.SHF_TLS != 0) break true;
     } else false;
-    if (has_tls) {
+    if (has_tls and self.phdr_tls_index == null) {
         self.phdr_tls_index = try self.addPhdr(.{
             .type = elf.PT_TLS,
             .flags = elf.PF_R,
@@ -3704,27 +3717,19 @@ fn getMaxNumberOfPhdrs() u64 {
     return num;
 }
 
-/// Calculates how many segments (PT_LOAD progam headers) are required
-/// to cover the set of sections.
-/// We permit a maximum of 3**2 number of segments.
-fn calcNumberOfSegments(self: *Elf) usize {
-    var covers: [9]bool = [_]bool{false} ** 9;
+fn addLoadPhdrs(self: *Elf) error{OutOfMemory}!void {
     for (self.sections.items(.shdr)) |shdr| {
         if (shdr.sh_type == elf.SHT_NULL) continue;
         if (shdr.sh_flags & elf.SHF_ALLOC == 0) continue;
         const flags = shdrToPhdrFlags(shdr.sh_flags);
-        covers[flags - 1] = true;
+        if (self.getPhdr(.{ .flags = flags, .type = elf.PT_LOAD }) == null) {
+            _ = try self.addPhdr(.{ .flags = flags, .type = elf.PT_LOAD });
+        }
     }
-    var count: usize = 0;
-    for (covers) |cover| {
-        if (cover) count += 1;
-    }
-    return count;
 }
 
 /// Allocates PHDR table in virtual memory and in file.
 fn allocatePhdrTable(self: *Elf) error{OutOfMemory}!void {
-    const new_load_segments = self.calcNumberOfSegments();
     const phdr_table = &self.phdrs.items[self.phdr_table_index.?];
     const phdr_table_load = &self.phdrs.items[self.phdr_table_load_index.?];
 
@@ -3736,7 +3741,7 @@ fn allocatePhdrTable(self: *Elf) error{OutOfMemory}!void {
         .p32 => @sizeOf(elf.Elf32_Phdr),
         .p64 => @sizeOf(elf.Elf64_Phdr),
     };
-    const needed_size = (self.phdrs.items.len + new_load_segments) * phsize;
+    const needed_size = self.phdrs.items.len * phsize;
     const available_space = self.allocatedSize(phdr_table.p_offset);
 
     if (needed_size > available_space) {
@@ -3879,15 +3884,14 @@ pub fn allocateAllocSections(self: *Elf) !void {
 
         const first = slice.items(.shdr)[cover.items[0]];
         var new_offset = try self.findFreeSpace(filesz, @"align");
-        const phndx = try self.addPhdr(.{
-            .type = elf.PT_LOAD,
-            .offset = new_offset,
-            .addr = first.sh_addr,
-            .memsz = memsz,
-            .filesz = filesz,
-            .@"align" = @"align",
-            .flags = shdrToPhdrFlags(first.sh_flags),
-        });
+        const phndx = self.getPhdr(.{ .type = elf.PT_LOAD, .flags = shdrToPhdrFlags(first.sh_flags) }).?;
+        const phdr = &self.phdrs.items[phndx];
+        phdr.p_offset = new_offset;
+        phdr.p_vaddr = first.sh_addr;
+        phdr.p_paddr = first.sh_addr;
+        phdr.p_memsz = memsz;
+        phdr.p_filesz = filesz;
+        phdr.p_align = @"align";
 
         for (cover.items) |shndx| {
             const shdr = &slice.items(.shdr)[shndx];
@@ -4102,6 +4106,7 @@ pub fn updateSymtabSize(self: *Elf) !void {
     nlocals += @intCast(self.sections.slice().len);
 
     if (self.requiresThunks()) for (self.thunks.items) |*th| {
+        th.output_symtab_ctx.reset();
         th.output_symtab_ctx.ilocal = nlocals;
         th.calcSymtabSize(self);
         nlocals += th.output_symtab_ctx.nlocals;
@@ -4113,6 +4118,7 @@ pub fn updateSymtabSize(self: *Elf) !void {
         const ctx = switch (file_ptr) {
             inline else => |x| &x.output_symtab_ctx,
         };
+        ctx.reset();
         ctx.ilocal = nlocals;
         ctx.iglobal = nglobals;
         try file_ptr.updateSymtabSize(self);
@@ -4122,6 +4128,7 @@ pub fn updateSymtabSize(self: *Elf) !void {
     }
 
     if (self.got_section_index) |_| {
+        self.got.output_symtab_ctx.reset();
         self.got.output_symtab_ctx.ilocal = nlocals;
         self.got.updateSymtabSize(self);
         nlocals += self.got.output_symtab_ctx.nlocals;
@@ -4129,6 +4136,7 @@ pub fn updateSymtabSize(self: *Elf) !void {
     }
 
     if (self.plt_section_index) |_| {
+        self.plt.output_symtab_ctx.reset();
         self.plt.output_symtab_ctx.ilocal = nlocals;
         self.plt.updateSymtabSize(self);
         nlocals += self.plt.output_symtab_ctx.nlocals;
@@ -4136,6 +4144,7 @@ pub fn updateSymtabSize(self: *Elf) !void {
     }
 
     if (self.plt_got_section_index) |_| {
+        self.plt_got.output_symtab_ctx.reset();
         self.plt_got.output_symtab_ctx.ilocal = nlocals;
         self.plt_got.updateSymtabSize(self);
         nlocals += self.plt_got.output_symtab_ctx.nlocals;
@@ -4334,6 +4343,9 @@ pub fn writeSymtab(self: *Elf) !void {
 
     try self.symtab.resize(gpa, nsyms);
     const needed_strtab_size = math.cast(usize, strtab_shdr.sh_size - 1) orelse return error.Overflow;
+    // TODO we could resize instead and in ZigObject/Object always access as slice
+    self.strtab.clearRetainingCapacity();
+    self.strtab.appendAssumeCapacity(0);
     try self.strtab.ensureUnusedCapacity(gpa, needed_strtab_size);
 
     for (slice.items(.shdr), 0..) |shdr, shndx| {
@@ -4714,7 +4726,20 @@ pub fn isEffectivelyDynLib(self: Elf) bool {
     };
 }
 
-pub fn addPhdr(self: *Elf, opts: struct {
+fn getPhdr(self: *Elf, opts: struct {
+    type: u32 = 0,
+    flags: u32 = 0,
+}) ?u16 {
+    for (self.phdrs.items, 0..) |phdr, phndx| {
+        if (self.phdr_table_load_index) |index| {
+            if (phndx == index) continue;
+        }
+        if (phdr.p_type == opts.type and phdr.p_flags == opts.flags) return @intCast(phndx);
+    }
+    return null;
+}
+
+fn addPhdr(self: *Elf, opts: struct {
     type: u32 = 0,
     flags: u32 = 0,
     @"align": u64 = 0,
@@ -5305,7 +5330,7 @@ fn fmtDumpState(
     {
         try writer.writeAll("atom lists\n");
         for (slice.items(.shdr), slice.items(.atom_list_2), 0..) |shdr, atom_list, shndx| {
-            try writer.print("shdr({d}) : {s} : {}", .{ shndx, self.getShString(shdr.sh_name), atom_list.fmt(self) });
+            try writer.print("shdr({d}) : {s} : {}\n", .{ shndx, self.getShString(shdr.sh_name), atom_list.fmt(self) });
         }
     }
 
@@ -5437,6 +5462,14 @@ pub const SymtabCtx = struct {
     nlocals: u32 = 0,
     nglobals: u32 = 0,
     strsize: u32 = 0,
+
+    pub fn reset(ctx: *SymtabCtx) void {
+        ctx.ilocal = 0;
+        ctx.iglobal = 0;
+        ctx.nlocals = 0;
+        ctx.nglobals = 0;
+        ctx.strsize = 0;
+    }
 };
 
 pub const null_sym = elf.Elf64_Sym{
