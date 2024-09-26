@@ -55,9 +55,6 @@ pub fn main() !void {
     const tmp_dir_path = "tmp_" ++ std.fmt.hex(rand_int);
     const tmp_dir = try std.fs.cwd().makeOpenPath(tmp_dir_path, .{});
 
-    const child_prog_node = prog_node.start("zig build-exe", 0);
-    defer child_prog_node.end();
-
     // Convert paths to be relative to the cwd of the subprocess.
     const resolved_zig_exe = try std.fs.path.relative(arena, tmp_dir_path, zig_exe);
     const opt_resolved_lib_dir = if (opt_lib_dir) |lib_dir|
@@ -65,9 +62,18 @@ pub fn main() !void {
     else
         null;
 
+    const host = try std.zig.system.resolveTargetQuery(.{});
+
     const debug_log_verbose = debug_zcu or debug_link;
 
     for (case.targets) |target| {
+        const target_prog_node = node: {
+            var name_buf: [std.Progress.Node.max_name_len]u8 = undefined;
+            const name = std.fmt.bufPrint(&name_buf, "{s}-{s}", .{ target.query, @tagName(target.backend) }) catch &name_buf;
+            break :node prog_node.start(name, case.updates.len);
+        };
+        defer target_prog_node.end();
+
         if (debug_log_verbose) {
             std.log.scoped(.status).info("target: '{s}-{s}'", .{ target.query, @tagName(target.backend) });
         }
@@ -102,11 +108,14 @@ pub fn main() !void {
             try child_args.appendSlice(arena, &.{ "--debug-log", "link", "--debug-log", "link_state", "--debug-log", "link_relocs" });
         }
 
+        const zig_prog_node = target_prog_node.start("zig build-exe", 0);
+        defer zig_prog_node.end();
+
         var child = std.process.Child.init(child_args.items, arena);
         child.stdin_behavior = .Pipe;
         child.stdout_behavior = .Pipe;
         child.stderr_behavior = .Pipe;
-        child.progress_node = child_prog_node;
+        child.progress_node = zig_prog_node;
         child.cwd_dir = tmp_dir;
         child.cwd = tmp_dir_path;
 
@@ -131,6 +140,7 @@ pub fn main() !void {
         var eval: Eval = .{
             .arena = arena,
             .case = case,
+            .host = host,
             .target = target,
             .tmp_dir = tmp_dir,
             .tmp_dir_path = tmp_dir_path,
@@ -148,7 +158,7 @@ pub fn main() !void {
         defer poller.deinit();
 
         for (case.updates) |update| {
-            var update_node = prog_node.start(update.name, 0);
+            var update_node = target_prog_node.start(update.name, 0);
             defer update_node.end();
 
             if (debug_log_verbose) {
@@ -168,6 +178,7 @@ pub fn main() !void {
 
 const Eval = struct {
     arena: Allocator,
+    host: std.Target,
     case: Case,
     target: Case.Target,
     tmp_dir: std.fs.Dir,
@@ -270,14 +281,7 @@ const Eval = struct {
                     const name = std.fs.path.stem(std.fs.path.basename(eval.case.root_source_file));
                     const bin_name = try std.zig.binNameAlloc(arena, .{
                         .root_name = name,
-                        .target = try std.zig.system.resolveTargetQuery(try std.Build.parseTargetQuery(.{
-                            .arch_os_abi = eval.target.query,
-                            .object_format = switch (eval.target.backend) {
-                                .sema => unreachable,
-                                .selfhosted, .llvm => null,
-                                .cbe => "c",
-                            },
-                        })),
+                        .target = eval.target.resolved,
                         .output_mode = .Exe,
                     });
                     const bin_path = try std.fs.path.join(arena, &.{ result_dir, bin_name });
@@ -346,9 +350,41 @@ const Eval = struct {
             },
         };
 
+        var argv_buf: [2][]const u8 = undefined;
+        const argv: []const []const u8, const ignore_stderr: bool = switch (std.zig.system.getExternalExecutor(
+            eval.host,
+            &eval.target.resolved,
+            .{ .link_libc = eval.target.backend == .cbe },
+        )) {
+            .bad_dl, .bad_os_or_cpu => {
+                // This binary cannot be executed on this host.
+                if (eval.allow_stderr) {
+                    std.log.warn("skipping execution because host '{s}' cannot execute binaries for foreign target '{s}'", .{
+                        try eval.host.zigTriple(eval.arena),
+                        try eval.target.resolved.zigTriple(eval.arena),
+                    });
+                }
+                return;
+            },
+            .native, .rosetta => argv: {
+                argv_buf[0] = binary_path;
+                break :argv .{ argv_buf[0..1], false };
+            },
+            .qemu, .wine, .wasmtime, .darling => |executor_cmd| argv: {
+                argv_buf[0] = executor_cmd;
+                argv_buf[1] = binary_path;
+                // Some executors (looking at you, Wine) like throwing some stderr in, just for fun.
+                // Therefore, we'll ignore stderr when using a foreign executor.
+                break :argv .{ argv_buf[0..2], true };
+            },
+        };
+
+        const run_prog_node = prog_node.start("run generated executable", 0);
+        defer run_prog_node.end();
+
         const result = std.process.Child.run(.{
             .allocator = eval.arena,
-            .argv = &.{binary_path},
+            .argv = argv,
             .cwd_dir = eval.tmp_dir,
             .cwd = eval.tmp_dir_path,
         }) catch |err| {
@@ -356,7 +392,7 @@ const Eval = struct {
                 update.name, binary_path, @errorName(err),
             });
         };
-        if (result.stderr.len != 0) {
+        if (!ignore_stderr and result.stderr.len != 0) {
             std.log.err("update '{s}': generated executable '{s}' had unexpected stderr:\n{s}", .{
                 update.name, binary_path, result.stderr,
             });
@@ -380,7 +416,7 @@ const Eval = struct {
                 });
             },
         }
-        if (result.stderr.len != 0) std.process.exit(1);
+        if (!ignore_stderr and result.stderr.len != 0) std.process.exit(1);
     }
 
     fn requestUpdate(eval: *Eval) !void {
@@ -468,6 +504,7 @@ const Case = struct {
 
     const Target = struct {
         query: []const u8,
+        resolved: std.Target,
         backend: Backend,
         const Backend = enum {
             /// Run semantic analysis only. Runtime output will not be tested, but we still verify
@@ -529,12 +566,26 @@ const Case = struct {
                 } else if (std.mem.eql(u8, key, "target")) {
                     const split_idx = std.mem.lastIndexOfScalar(u8, val, '-') orelse
                         fatal("line {d}: target does not include backend", .{line_n});
+
                     const query = val[0..split_idx];
+
                     const backend_str = val[split_idx + 1 ..];
                     const backend: Target.Backend = std.meta.stringToEnum(Target.Backend, backend_str) orelse
                         fatal("line {d}: invalid backend '{s}'", .{ line_n, backend_str });
+
+                    const parsed_query = std.Build.parseTargetQuery(.{
+                        .arch_os_abi = query,
+                        .object_format = switch (backend) {
+                            .sema, .selfhosted, .llvm => null,
+                            .cbe => "c",
+                        },
+                    }) catch fatal("line {d}: invalid target query '{s}'", .{ line_n, query });
+
+                    const resolved = try std.zig.system.resolveTargetQuery(parsed_query);
+
                     try targets.append(arena, .{
                         .query = query,
+                        .resolved = resolved,
                         .backend = backend,
                     });
                 } else if (std.mem.eql(u8, key, "update")) {
