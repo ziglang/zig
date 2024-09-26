@@ -833,6 +833,10 @@ pub const PanicCause = union(enum) {
 
 pub fn panicSentinelMismatch(expected: anytype, found: @TypeOf(expected)) noreturn {
     @branchHint(.cold);
+    if (builtin.zig_backend == .stage2_riscv64) {
+        // https://github.com/ziglang/zig/issues/21519
+        @trap();
+    }
     switch (@typeInfo(@TypeOf(expected))) {
         .int => |int| switch (int.signedness) {
             .unsigned => if (int.bits <= @bitSizeOf(usize)) panic(.{ .sentinel_mismatch_usize = .{
@@ -864,11 +868,19 @@ pub fn panicSentinelMismatch(expected: anytype, found: @TypeOf(expected)) noretu
 
 pub fn panicUnwrapError(ert: ?*StackTrace, err: anyerror) noreturn {
     @branchHint(.cold);
+    if (builtin.zig_backend == .stage2_riscv64) {
+        // https://github.com/ziglang/zig/issues/21519
+        @trap();
+    }
     panic(.{ .unwrap_error = err }, ert, @returnAddress());
 }
 
 pub fn panicOutOfBounds(index: usize, len: usize) noreturn {
     @branchHint(.cold);
+    if (builtin.zig_backend == .stage2_riscv64) {
+        // https://github.com/ziglang/zig/issues/21519
+        @trap();
+    }
     panic(.{ .index_out_of_bounds = .{
         .index = index,
         .len = len,
@@ -877,6 +889,10 @@ pub fn panicOutOfBounds(index: usize, len: usize) noreturn {
 
 pub fn panicStartGreaterThanEnd(start: usize, end: usize) noreturn {
     @branchHint(.cold);
+    if (builtin.zig_backend == .stage2_riscv64) {
+        // https://github.com/ziglang/zig/issues/21519
+        @trap();
+    }
     panic(.{ .start_index_greater_than_end = .{
         .start = start,
         .end = end,
@@ -885,6 +901,10 @@ pub fn panicStartGreaterThanEnd(start: usize, end: usize) noreturn {
 
 pub fn panicInactiveUnionField(active: anytype, accessed: @TypeOf(active)) noreturn {
     @branchHint(.cold);
+    if (builtin.zig_backend == .stage2_riscv64) {
+        // https://github.com/ziglang/zig/issues/21519
+        @trap();
+    }
     panic(.{ .inactive_union_field = .{
         .active = @tagName(active),
         .accessed = @tagName(accessed),

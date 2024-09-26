@@ -629,6 +629,11 @@ pub fn fmtPanicCause(buffer: []u8, cause: std.builtin.PanicCause) usize {
         },
         .sentinel_mismatch_other => i += fmtBuf(buffer[i..], "sentinel mismatch"),
         .unwrap_error => |err| {
+            if (builtin.zig_backend == .stage2_riscv64) {
+                // https://github.com/ziglang/zig/issues/21519
+                i += fmtBuf(buffer[i..], "attempt to unwrap error");
+                return i;
+            }
             i += fmtBuf(buffer[i..], "attempt to unwrap error: ");
             i += fmtBuf(buffer[i..], @errorName(err));
         },
