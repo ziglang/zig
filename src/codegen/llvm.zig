@@ -5138,7 +5138,6 @@ pub const FuncGen = struct {
                 .float_from_int => try self.airFloatFromInt(inst),
                 .cmpxchg_weak   => try self.airCmpxchg(inst, .weak),
                 .cmpxchg_strong => try self.airCmpxchg(inst, .strong),
-                .fence          => try self.airFence(inst),
                 .atomic_rmw     => try self.airAtomicRmw(inst),
                 .atomic_load    => try self.airAtomicLoad(inst),
                 .memset         => try self.airMemset(inst, false),
@@ -9663,13 +9662,6 @@ pub const FuncGen = struct {
         const o = self.ng.object;
         const result = try self.wip.callIntrinsic(.normal, .none, .frameaddress, &.{.ptr}, &.{.@"0"}, "");
         return self.wip.cast(.ptrtoint, result, try o.lowerType(Type.usize), "");
-    }
-
-    fn airFence(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const atomic_order = self.air.instructions.items(.data)[@intFromEnum(inst)].fence;
-        const ordering = toLlvmAtomicOrdering(atomic_order);
-        _ = try self.wip.fence(self.sync_scope, ordering);
-        return .none;
     }
 
     fn airCmpxchg(

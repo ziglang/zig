@@ -4218,11 +4218,10 @@ pub fn print(self: *Writer, arg0: []const u8, arg1: i32) !void {
       {#header_close#}
 
       {#header_open|Atomics#}
-      <p>TODO: @fence()</p>
       <p>TODO: @atomic rmw</p>
       <p>TODO: builtin atomic memory ordering enum</p>
 
-      {#see_also|@atomicLoad|@atomicStore|@atomicRmw|@fence|@cmpxchgWeak|@cmpxchgStrong#}
+      {#see_also|@atomicLoad|@atomicStore|@atomicRmw|@cmpxchgWeak|@cmpxchgStrong#}
 
       {#header_close#}
 
@@ -4307,7 +4306,7 @@ comptime {
       an integer or an enum.
       </p>
       <p>{#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicOrder{#endsyntax#}.</p>
-      {#see_also|@atomicStore|@atomicRmw|@fence|@cmpxchgWeak|@cmpxchgStrong#}
+      {#see_also|@atomicStore|@atomicRmw||@cmpxchgWeak|@cmpxchgStrong#}
       {#header_close#}
 
       {#header_open|@atomicRmw#}

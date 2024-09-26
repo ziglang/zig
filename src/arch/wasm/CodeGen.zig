@@ -2040,7 +2040,6 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .atomic_rmw => func.airAtomicRmw(inst),
         .cmpxchg_weak => func.airCmpxchg(inst),
         .cmpxchg_strong => func.airCmpxchg(inst),
-        .fence => func.airFence(inst),
 
         .add_optimized,
         .sub_optimized,
@@ -7740,20 +7739,6 @@ fn airAtomicRmw(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
         return func.finishAir(inst, result, &.{ pl_op.operand, extra.operand });
     }
-}
-
-fn airFence(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const pt = func.pt;
-    const zcu = pt.zcu;
-    // Only when the atomic feature is enabled, and we're not building
-    // for a single-threaded build, can we emit the `fence` instruction.
-    // In all other cases, we emit no instructions for a fence.
-    const single_threaded = zcu.navFileScope(func.owner_nav).mod.single_threaded;
-    if (func.useAtomicFeature() and !single_threaded) {
-        try func.addAtomicTag(.atomic_fence);
-    }
-
-    return func.finishAir(inst, .none, &.{});
 }
 
 fn airAtomicStore(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {

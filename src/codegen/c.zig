@@ -3144,7 +3144,6 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             .breakpoint => try airBreakpoint(f.object.writer()),
             .ret_addr   => try airRetAddr(f, inst),
             .frame_addr => try airFrameAddress(f, inst),
-            .fence      => try airFence(f, inst),
 
             .ptr_add => try airPtrAddSub(f, inst, '+'),
             .ptr_sub => try airPtrAddSub(f, inst, '-'),
@@ -4986,17 +4985,6 @@ fn airFrameAddress(f: *Function, inst: Air.Inst.Index) !CValue {
     try f.renderType(writer, Type.usize);
     try writer.writeAll(")zig_frame_address();\n");
     return local;
-}
-
-fn airFence(f: *Function, inst: Air.Inst.Index) !CValue {
-    const atomic_order = f.air.instructions.items(.data)[@intFromEnum(inst)].fence;
-    const writer = f.object.writer();
-
-    try writer.writeAll("zig_fence(");
-    try writeMemoryOrder(writer, atomic_order);
-    try writer.writeAll(");\n");
-
-    return .none;
 }
 
 fn airUnreach(f: *Function) !void {

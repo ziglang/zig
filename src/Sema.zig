@@ -1321,11 +1321,6 @@ fn analyzeBodyInner(
                     .closure_get        => try sema.zirClosureGet(        block, extended),
                     // zig fmt: on
 
-                    .fence => {
-                        try sema.zirFence(block, extended);
-                        i += 1;
-                        continue;
-                    },
                     .set_float_mode => {
                         try sema.zirSetFloatMode(block, extended);
                         i += 1;
@@ -6553,25 +6548,6 @@ fn zirSetRuntimeSafety(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Compile
     const operand_src = block.builtinCallArgSrc(inst_data.src_node, 0);
     block.want_safety = try sema.resolveConstBool(block, operand_src, inst_data.operand, .{
         .needed_comptime_reason = "operand to @setRuntimeSafety must be comptime-known",
-    });
-}
-
-fn zirFence(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!void {
-    if (block.is_comptime) return;
-
-    const extra = sema.code.extraData(Zir.Inst.UnNode, extended.operand).data;
-    const order_src = block.builtinCallArgSrc(extra.node, 0);
-    const order = try sema.resolveAtomicOrder(block, order_src, extra.operand, .{
-        .needed_comptime_reason = "atomic order of @fence must be comptime-known",
-    });
-
-    if (@intFromEnum(order) < @intFromEnum(std.builtin.AtomicOrder.acquire)) {
-        return sema.fail(block, order_src, "atomic ordering must be acquire or stricter", .{});
-    }
-
-    _ = try block.addInst(.{
-        .tag = .fence,
-        .data = .{ .fence = order },
     });
 }
 

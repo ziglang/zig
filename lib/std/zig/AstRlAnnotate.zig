@@ -908,7 +908,6 @@ fn builtinCall(astrl: *AstRlAnnotate, block: ?*Block, ri: ResultInfo, node: Ast.
         .c_include,
         .wasm_memory_size,
         .splat,
-        .fence,
         .set_float_mode,
         .set_align_stack,
         .type_info,

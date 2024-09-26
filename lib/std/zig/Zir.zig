@@ -1575,7 +1575,7 @@ pub const Inst = struct {
                 => false,
 
                 .extended => switch (data.extended.opcode) {
-                    .fence, .branch_hint, .breakpoint, .disable_instrumentation => true,
+                    .branch_hint, .breakpoint, .disable_instrumentation => true,
                     else => false,
                 },
             };
@@ -1979,9 +1979,6 @@ pub const Inst = struct {
         /// The `@prefetch` builtin.
         /// `operand` is payload index to `BinNode`.
         prefetch,
-        /// Implements the `@fence` builtin.
-        /// `operand` is payload index to `UnNode`.
-        fence,
         /// Implement builtin `@setFloatMode`.
         /// `operand` is payload index to `UnNode`.
         set_float_mode,
@@ -4014,7 +4011,6 @@ fn findDeclsInner(
                 .wasm_memory_size,
                 .wasm_memory_grow,
                 .prefetch,
-                .fence,
                 .set_float_mode,
                 .set_align_stack,
                 .error_cast,
