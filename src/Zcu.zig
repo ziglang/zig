@@ -210,16 +210,39 @@ all_type_references: std.ArrayListUnmanaged(TypeReference) = .empty,
 /// Freelist of indices in `all_type_references`.
 free_type_references: std.ArrayListUnmanaged(u32) = .empty,
 
+panic_messages: [PanicId.len]InternPool.Nav.Index.Optional = .{.none} ** PanicId.len,
 /// The panic function body.
 panic_func_index: InternPool.Index = .none,
 null_stack_trace: InternPool.Index = .none,
-panic_cause_type: InternPool.Index = .none,
-panic_cause_tag_type: InternPool.Index = .none,
-panic_cause_integer_overflow: InternPool.Index = .none,
 
 generation: u32 = 0,
 
 pub const PerThread = @import("Zcu/PerThread.zig");
+
+pub const PanicId = enum {
+    reached_unreachable,
+    unwrap_null,
+    cast_to_null,
+    incorrect_alignment,
+    invalid_error_code,
+    cast_truncated_data,
+    negative_to_unsigned,
+    integer_overflow,
+    shl_overflow,
+    shr_overflow,
+    divide_by_zero,
+    exact_division_remainder,
+    integer_part_out_of_bounds,
+    corrupt_switch,
+    shift_rhs_too_big,
+    invalid_enum_value,
+    for_len_mismatch,
+    memcpy_len_mismatch,
+    memcpy_alias,
+    noreturn_returned,
+
+    pub const len = @typeInfo(PanicId).@"enum".fields.len;
+};
 
 pub const GlobalErrorSet = std.AutoArrayHashMapUnmanaged(InternPool.NullTerminatedString, void);
 

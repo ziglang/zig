@@ -152,16 +152,12 @@ fn writeFilePath(file: *Zcu.File, writer: anytype) !void {
     try writer.writeAll(file.sub_file_path);
 }
 
-pub fn compilerPanic(
-    cause: std.builtin.PanicCause,
-    error_return_trace: ?*std.builtin.StackTrace,
-    maybe_ret_addr: ?usize,
-) noreturn {
+pub fn compilerPanic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, maybe_ret_addr: ?usize) noreturn {
     @branchHint(.cold);
     PanicSwitch.preDispatch();
     const ret_addr = maybe_ret_addr orelse @returnAddress();
     const stack_ctx: StackContext = .{ .current = .{ .ret_addr = ret_addr } };
-    PanicSwitch.dispatch(error_return_trace, stack_ctx, cause);
+    PanicSwitch.dispatch(error_return_trace, stack_ctx, msg);
 }
 
 /// Attaches a global SIGSEGV handler
@@ -212,7 +208,7 @@ fn handleSegfaultPosix(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopa
         else => .not_supported,
     };
 
-    PanicSwitch.dispatch(null, stack_ctx, .{ .explicit_call = error_msg });
+    PanicSwitch.dispatch(null, stack_ctx, error_msg);
 }
 
 const WindowsSegfaultMessage = union(enum) {
@@ -335,7 +331,7 @@ const PanicSwitch = struct {
         // it's happening and print a message.
         var panic_state: *volatile PanicState = &panic_state_raw;
         if (panic_state.awaiting_dispatch) {
-            dispatch(null, .{ .current = .{ .ret_addr = null } }, .{ .explicit_call = "Panic while preparing callstack" });
+            dispatch(null, .{ .current = .{ .ret_addr = null } }, "Panic while preparing callstack");
         }
         panic_state.awaiting_dispatch = true;
     }
@@ -355,17 +351,17 @@ const PanicSwitch = struct {
     pub fn dispatch(
         trace: ?*const std.builtin.StackTrace,
         stack_ctx: StackContext,
-        panic_cause: std.builtin.PanicCause,
+        msg: []const u8,
     ) noreturn {
         var panic_state: *volatile PanicState = &panic_state_raw;
         debug.assert(panic_state.awaiting_dispatch);
         panic_state.awaiting_dispatch = false;
         nosuspend switch (panic_state.recover_stage) {
-            .initialize => goTo(initPanic, .{ panic_state, trace, stack_ctx, panic_cause }),
-            .report_stack => goTo(recoverReportStack, .{ panic_state, trace, stack_ctx, panic_cause }),
-            .release_mutex => goTo(recoverReleaseMutex, .{ panic_state, trace, stack_ctx, panic_cause }),
-            .release_ref_count => goTo(recoverReleaseRefCount, .{ panic_state, trace, stack_ctx, panic_cause }),
-            .abort => goTo(recoverAbort, .{ panic_state, trace, stack_ctx, panic_cause }),
+            .initialize => goTo(initPanic, .{ panic_state, trace, stack_ctx, msg }),
+            .report_stack => goTo(recoverReportStack, .{ panic_state, trace, stack_ctx, msg }),
+            .release_mutex => goTo(recoverReleaseMutex, .{ panic_state, trace, stack_ctx, msg }),
+            .release_ref_count => goTo(recoverReleaseRefCount, .{ panic_state, trace, stack_ctx, msg }),
+            .abort => goTo(recoverAbort, .{ panic_state, trace, stack_ctx, msg }),
             .silent_abort => goTo(abort, .{}),
         };
     }
@@ -374,7 +370,7 @@ const PanicSwitch = struct {
         state: *volatile PanicState,
         trace: ?*const std.builtin.StackTrace,
         stack: StackContext,
-        panic_cause: std.builtin.PanicCause,
+        msg: []const u8,
     ) noreturn {
         // use a temporary so there's only one volatile store
         const new_state = PanicState{
@@ -399,8 +395,6 @@ const PanicSwitch = struct {
             const current_thread_id = std.Thread.getCurrentId();
             stderr.print("thread {} panic: ", .{current_thread_id}) catch goTo(releaseMutex, .{state});
         }
-        var buffer: [1000]u8 = undefined;
-        const msg = buffer[0..std.debug.fmtPanicCause(&buffer, panic_cause)];
         stderr.print("{s}\n", .{msg}) catch goTo(releaseMutex, .{state});
 
         state.recover_stage = .report_stack;
@@ -416,9 +410,9 @@ const PanicSwitch = struct {
         state: *volatile PanicState,
         trace: ?*const std.builtin.StackTrace,
         stack: StackContext,
-        panic_cause: std.builtin.PanicCause,
+        msg: []const u8,
     ) noreturn {
-        recover(state, trace, stack, panic_cause);
+        recover(state, trace, stack, msg);
 
         state.recover_stage = .release_mutex;
         const stderr = io.getStdErr().writer();
@@ -441,9 +435,9 @@ const PanicSwitch = struct {
         state: *volatile PanicState,
         trace: ?*const std.builtin.StackTrace,
         stack: StackContext,
-        panic_cause: std.builtin.PanicCause,
+        msg: []const u8,
     ) noreturn {
-        recover(state, trace, stack, panic_cause);
+        recover(state, trace, stack, msg);
         goTo(releaseMutex, .{state});
     }
 
@@ -459,9 +453,9 @@ const PanicSwitch = struct {
         state: *volatile PanicState,
         trace: ?*const std.builtin.StackTrace,
         stack: StackContext,
-        panic_cause: std.builtin.PanicCause,
+        msg: []const u8,
     ) noreturn {
-        recover(state, trace, stack, panic_cause);
+        recover(state, trace, stack, msg);
         goTo(releaseRefCount, .{state});
     }
 
@@ -487,9 +481,9 @@ const PanicSwitch = struct {
         state: *volatile PanicState,
         trace: ?*const std.builtin.StackTrace,
         stack: StackContext,
-        panic_cause: std.builtin.PanicCause,
+        msg: []const u8,
     ) noreturn {
-        recover(state, trace, stack, panic_cause);
+        recover(state, trace, stack, msg);
 
         state.recover_stage = .silent_abort;
         const stderr = io.getStdErr().writer();
@@ -513,9 +507,8 @@ const PanicSwitch = struct {
         state: *volatile PanicState,
         trace: ?*const std.builtin.StackTrace,
         stack: StackContext,
-        panic_cause: std.builtin.PanicCause,
+        msg: []const u8,
     ) void {
-        var buffer: [1000]u8 = undefined;
         switch (state.recover_verbosity) {
             .message_and_stack => {
                 // lower the verbosity, and restore it at the end if we don't panic.
@@ -523,7 +516,6 @@ const PanicSwitch = struct {
 
                 const stderr = io.getStdErr().writer();
                 stderr.writeAll("\nPanicked during a panic: ") catch {};
-                const msg = buffer[0..std.debug.fmtPanicCause(&buffer, panic_cause)];
                 stderr.writeAll(msg) catch {};
                 stderr.writeAll("\nInner panic stack:\n") catch {};
                 if (trace) |t| {
@@ -538,7 +530,6 @@ const PanicSwitch = struct {
 
                 const stderr = io.getStdErr().writer();
                 stderr.writeAll("\nPanicked while dumping inner panic stack: ") catch {};
-                const msg = buffer[0..std.debug.fmtPanicCause(&buffer, panic_cause)];
                 stderr.writeAll(msg) catch {};
                 stderr.writeAll("\n") catch {};
 

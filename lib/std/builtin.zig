@@ -761,11 +761,10 @@ pub const TestFn = struct {
     func: *const fn () anyerror!void,
 };
 
-/// This function type is used by the Zig language code generation and
-/// therefore must be kept in sync with the compiler implementation.
-pub const PanicFn = fn (PanicCause, ?*StackTrace, ?usize) noreturn;
+/// Deprecated, use the `Panic` namespace instead.
+pub const PanicFn = fn ([]const u8, ?*StackTrace, ?usize) noreturn;
 
-/// The entry point for auto-generated calls by the compiler.
+/// Deprecated, use the `Panic` namespace instead.
 pub const panic: PanicFn = if (@hasDecl(root, "panic"))
     root.panic
 else if (@hasDecl(root, "os") and @hasDecl(root.os, "panic"))
@@ -773,143 +772,28 @@ else if (@hasDecl(root, "os") and @hasDecl(root.os, "panic"))
 else
     std.debug.defaultPanic;
 
-/// This data structure is used by the Zig language code generation and
-/// therefore must be kept in sync with the compiler implementation.
-pub const PanicCause = union(enum) {
-    reached_unreachable,
-    unwrap_null,
-    cast_to_null,
-    incorrect_alignment,
-    invalid_error_code,
-    cast_truncated_data,
-    negative_to_unsigned,
-    integer_overflow,
-    shl_overflow,
-    shr_overflow,
-    divide_by_zero,
-    exact_division_remainder,
-    inactive_union_field: InactiveUnionField,
-    integer_part_out_of_bounds,
-    corrupt_switch,
-    shift_rhs_too_big,
-    invalid_enum_value,
-    sentinel_mismatch_usize: SentinelMismatchUsize,
-    sentinel_mismatch_other,
-    unwrap_error: anyerror,
-    index_out_of_bounds: IndexOutOfBounds,
-    start_index_greater_than_end: StartIndexGreaterThanEnd,
-    for_len_mismatch,
-    memcpy_len_mismatch,
-    memcpy_alias,
-    noreturn_returned,
-    explicit_call: []const u8,
-    sentinel_mismatch_isize: SentinelMismatchIsize,
+/// This namespace is used by the Zig compiler to emit various kinds of safety
+/// panics. These can be overridden by making a public `Panic` namespace in the
+/// root source file.
+pub const Panic: type = if (@hasDecl(root, "Panic"))
+    root.Panic
+else if (std.builtin.zig_backend == .stage2_riscv64)
+    std.debug.SimplePanic // https://github.com/ziglang/zig/issues/21519
+else
+    std.debug.FormattedPanic;
 
-    pub const IndexOutOfBounds = struct {
-        index: usize,
-        len: usize,
-    };
-
-    pub const StartIndexGreaterThanEnd = struct {
-        start: usize,
-        end: usize,
-    };
-
-    pub const SentinelMismatchUsize = struct {
-        expected: usize,
-        found: usize,
-    };
-
-    pub const SentinelMismatchIsize = struct {
-        expected: isize,
-        found: isize,
-    };
-
-    pub const InactiveUnionField = struct {
-        active: []const u8,
-        accessed: []const u8,
-    };
-};
-
-pub fn panicSentinelMismatch(expected: anytype, found: @TypeOf(expected)) noreturn {
-    @branchHint(.cold);
-    if (builtin.zig_backend == .stage2_riscv64) {
-        // https://github.com/ziglang/zig/issues/21519
-        @trap();
-    }
-    switch (@typeInfo(@TypeOf(expected))) {
-        .int => |int| switch (int.signedness) {
-            .unsigned => if (int.bits <= @bitSizeOf(usize)) panic(.{ .sentinel_mismatch_usize = .{
-                .expected = expected,
-                .found = found,
-            } }, null, @returnAddress()),
-            .signed => if (int.bits <= @bitSizeOf(isize)) panic(.{ .sentinel_mismatch_isize = .{
-                .expected = expected,
-                .found = found,
-            } }, null, @returnAddress()),
-        },
-        .@"enum" => |info| switch (@typeInfo(info.tag_type)) {
-            .int => |int| switch (int.signedness) {
-                .unsigned => if (int.bits <= @bitSizeOf(usize)) panic(.{ .sentinel_mismatch_usize = .{
-                    .expected = @intFromEnum(expected),
-                    .found = @intFromEnum(found),
-                } }, null, @returnAddress()),
-                .signed => if (int.bits <= @bitSizeOf(isize)) panic(.{ .sentinel_mismatch_isize = .{
-                    .expected = @intFromEnum(expected),
-                    .found = @intFromEnum(found),
-                } }, null, @returnAddress()),
-            },
-            else => comptime unreachable,
-        },
-        else => {},
-    }
-    panic(.sentinel_mismatch_other, null, @returnAddress());
-}
-
-pub fn panicUnwrapError(ert: ?*StackTrace, err: anyerror) noreturn {
-    @branchHint(.cold);
-    if (builtin.zig_backend == .stage2_riscv64) {
-        // https://github.com/ziglang/zig/issues/21519
-        @trap();
-    }
-    panic(.{ .unwrap_error = err }, ert, @returnAddress());
-}
-
-pub fn panicOutOfBounds(index: usize, len: usize) noreturn {
-    @branchHint(.cold);
-    if (builtin.zig_backend == .stage2_riscv64) {
-        // https://github.com/ziglang/zig/issues/21519
-        @trap();
-    }
-    panic(.{ .index_out_of_bounds = .{
-        .index = index,
-        .len = len,
-    } }, null, @returnAddress());
-}
-
-pub fn panicStartGreaterThanEnd(start: usize, end: usize) noreturn {
-    @branchHint(.cold);
-    if (builtin.zig_backend == .stage2_riscv64) {
-        // https://github.com/ziglang/zig/issues/21519
-        @trap();
-    }
-    panic(.{ .start_index_greater_than_end = .{
-        .start = start,
-        .end = end,
-    } }, null, @returnAddress());
-}
-
-pub fn panicInactiveUnionField(active: anytype, accessed: @TypeOf(active)) noreturn {
-    @branchHint(.cold);
-    if (builtin.zig_backend == .stage2_riscv64) {
-        // https://github.com/ziglang/zig/issues/21519
-        @trap();
-    }
-    panic(.{ .inactive_union_field = .{
-        .active = @tagName(active),
-        .accessed = @tagName(accessed),
-    } }, null, @returnAddress());
-}
+/// To be deleted after zig1.wasm is updated.
+pub const panicSentinelMismatch = Panic.sentinelMismatch;
+/// To be deleted after zig1.wasm is updated.
+pub const panicUnwrapError = Panic.unwrapError;
+/// To be deleted after zig1.wasm is updated.
+pub const panicOutOfBounds = Panic.outOfBounds;
+/// To be deleted after zig1.wasm is updated.
+pub const panicStartGreaterThanEnd = Panic.startGreaterThanEnd;
+/// To be deleted after zig1.wasm is updated.
+pub const panicInactiveUnionField = Panic.inactiveUnionField;
+/// To be deleted after zig1.wasm is updated.
+pub const panic_messages = Panic.messages;
 
 pub noinline fn returnError(st: *StackTrace) void {
     @branchHint(.unlikely);
