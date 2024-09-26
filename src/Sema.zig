@@ -27639,7 +27639,7 @@ fn prepareSimplePanic(sema: *Sema, block: *Block, src: LazySrcLoc) !void {
     const zcu = pt.zcu;
 
     if (zcu.panic_func_index == .none) {
-        const fn_ref = try sema.analyzeNavVal(block, src, try pt.getBuiltinNav("panic"));
+        const fn_ref = try sema.getBuiltinInnerAsInst(block, src, "Panic", "call");
         const fn_val = try sema.resolveConstValue(block, src, fn_ref, .{
             .needed_comptime_reason = "panic handler must be comptime-known",
         });

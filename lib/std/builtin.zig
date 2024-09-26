@@ -770,7 +770,7 @@ pub const panic: PanicFn = if (@hasDecl(root, "panic"))
 else if (@hasDecl(root, "os") and @hasDecl(root.os, "panic"))
     root.os.panic
 else
-    std.debug.defaultPanic;
+    Panic.call;
 
 /// This namespace is used by the Zig compiler to emit various kinds of safety
 /// panics. These can be overridden by making a public `Panic` namespace in the

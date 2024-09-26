@@ -2918,8 +2918,9 @@ pub fn addGlobalAssembly(zcu: *Zcu, cau: InternPool.Cau.Index, source: []const u
 }
 
 pub const Feature = enum {
-    /// When this feature is enabled, Sema will emit calls to `std.builtin.panic`
-    /// for things like safety checks and unreachables. Otherwise traps will be emitted.
+    /// When this feature is enabled, Sema will emit calls to
+    /// `std.builtin.Panic` functions for things like safety checks and
+    /// unreachables. Otherwise traps will be emitted.
     panic_fn,
     /// When this feature is enabled, Sema will insert tracer functions for gathering a stack
     /// trace for error returns.
