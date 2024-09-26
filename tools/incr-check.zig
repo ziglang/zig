@@ -110,7 +110,7 @@ pub fn main() !void {
             "--cache-dir",
             ".local-cache",
             "--global-cache-dir",
-            ".global_cache",
+            ".global-cache",
             "--listen=-",
         });
         if (opt_resolved_lib_dir) |resolved_lib_dir| {
@@ -373,7 +373,7 @@ const Eval = struct {
         };
 
         var argv_buf: [2][]const u8 = undefined;
-        const argv: []const []const u8, const ignore_stderr: bool = switch (std.zig.system.getExternalExecutor(
+        const argv: []const []const u8, const is_foreign: bool = switch (std.zig.system.getExternalExecutor(
             eval.host,
             &eval.target.resolved,
             .{ .link_libc = eval.target.backend == .cbe },
@@ -395,8 +395,6 @@ const Eval = struct {
             .qemu, .wine, .wasmtime, .darling => |executor_cmd| argv: {
                 argv_buf[0] = executor_cmd;
                 argv_buf[1] = binary_path;
-                // Some executors (looking at you, Wine) like throwing some stderr in, just for fun.
-                // Therefore, we'll ignore stderr when using a foreign executor.
                 break :argv .{ argv_buf[0..2], true };
             },
         };
@@ -410,15 +408,31 @@ const Eval = struct {
             .cwd_dir = eval.tmp_dir,
             .cwd = eval.tmp_dir_path,
         }) catch |err| {
+            if (is_foreign) {
+                // Chances are the foreign executor isn't available. Skip this evaluation.
+                if (eval.allow_stderr) {
+                    std.log.warn("update '{s}': skipping execution of '{s}' via executor for foreign target '{s}': {s}", .{
+                        update.name,
+                        binary_path,
+                        try eval.target.resolved.zigTriple(eval.arena),
+                        @errorName(err),
+                    });
+                }
+                return;
+            }
             eval.fatal("update '{s}': failed to run the generated executable '{s}': {s}", .{
                 update.name, binary_path, @errorName(err),
             });
         };
-        if (!ignore_stderr and result.stderr.len != 0) {
+
+        // Some executors (looking at you, Wine) like throwing some stderr in, just for fun.
+        // Therefore, we'll ignore stderr when using a foreign executor.
+        if (!is_foreign and result.stderr.len != 0) {
             std.log.err("update '{s}': generated executable '{s}' had unexpected stderr:\n{s}", .{
                 update.name, binary_path, result.stderr,
             });
         }
+
         switch (result.term) {
             .Exited => |code| switch (update.outcome) {
                 .unknown, .compile_errors => unreachable,
@@ -438,7 +452,8 @@ const Eval = struct {
                 });
             },
         }
-        if (!ignore_stderr and result.stderr.len != 0) std.process.exit(1);
+
+        if (!is_foreign and result.stderr.len != 0) std.process.exit(1);
     }
 
     fn requestUpdate(eval: *Eval) !void {
@@ -594,7 +609,7 @@ const Case = struct {
             if (std.mem.startsWith(u8, line, "#")) {
                 var line_it = std.mem.splitScalar(u8, line, '=');
                 const key = line_it.first()[1..];
-                const val = line_it.rest();
+                const val = std.mem.trimRight(u8, line_it.rest(), "\r"); // windows moment
                 if (val.len == 0) {
                     fatal("line {d}: missing value", .{line_n});
                 } else if (std.mem.eql(u8, key, "target")) {
