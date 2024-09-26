@@ -335,7 +335,7 @@ fn initComdatGroups(elf_file: *Elf) !void {
 fn updateSectionSizes(elf_file: *Elf) !void {
     const slice = elf_file.sections.slice();
     for (slice.items(.atom_list_2)) |*atom_list| {
-        if (atom_list.atoms.items.len == 0) continue;
+        if (atom_list.atoms.keys().len == 0) continue;
         atom_list.updateSize(elf_file);
         try atom_list.allocate(elf_file);
     }
@@ -434,7 +434,7 @@ fn writeAtoms(elf_file: *Elf) !void {
     const slice = elf_file.sections.slice();
     for (slice.items(.shdr), slice.items(.atom_list_2)) |shdr, atom_list| {
         if (shdr.sh_type == elf.SHT_NOBITS) continue;
-        if (atom_list.atoms.items.len == 0) continue;
+        if (atom_list.atoms.keys().len == 0) continue;
         try atom_list.writeRelocatable(&buffer, elf_file);
     }
 }

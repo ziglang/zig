@@ -915,7 +915,7 @@ pub fn initOutputSections(self: *Object, elf_file: *Elf) !void {
         });
         const atom_list = &elf_file.sections.items(.atom_list_2)[osec];
         atom_list.output_section_index = osec;
-        try atom_list.atoms.append(elf_file.base.comp.gpa, atom_ptr.ref());
+        _ = try atom_list.atoms.getOrPut(elf_file.base.comp.gpa, atom_ptr.ref());
     }
 }
 

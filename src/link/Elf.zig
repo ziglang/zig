@@ -3219,7 +3219,7 @@ fn sortInitFini(self: *Elf) !void {
 
     for (slice.items(.shdr), slice.items(.atom_list_2)) |shdr, *atom_list| {
         if (shdr.sh_flags & elf.SHF_ALLOC == 0) continue;
-        if (atom_list.atoms.items.len == 0) continue;
+        if (atom_list.atoms.keys().len == 0) continue;
 
         var is_init_fini = false;
         var is_ctor_dtor = false;
@@ -3236,10 +3236,10 @@ fn sortInitFini(self: *Elf) !void {
         if (!is_init_fini and !is_ctor_dtor) continue;
 
         var entries = std.ArrayList(Entry).init(gpa);
-        try entries.ensureTotalCapacityPrecise(atom_list.atoms.items.len);
+        try entries.ensureTotalCapacityPrecise(atom_list.atoms.keys().len);
         defer entries.deinit();
 
-        for (atom_list.atoms.items) |ref| {
+        for (atom_list.atoms.keys()) |ref| {
             const atom_ptr = self.atom(ref).?;
             const object = atom_ptr.file(self).?.object;
             const priority = blk: {
@@ -3260,7 +3260,7 @@ fn sortInitFini(self: *Elf) !void {
 
         atom_list.atoms.clearRetainingCapacity();
         for (entries.items) |entry| {
-            atom_list.atoms.appendAssumeCapacity(entry.atom_ref);
+            _ = atom_list.atoms.getOrPutAssumeCapacity(entry.atom_ref);
         }
     }
 }
@@ -3506,7 +3506,7 @@ fn resetShdrIndexes(self: *Elf, backlinks: []const u32) void {
     const slice = self.sections.slice();
     for (slice.items(.shdr), slice.items(.atom_list_2)) |*shdr, *atom_list| {
         atom_list.output_section_index = backlinks[atom_list.output_section_index];
-        for (atom_list.atoms.items) |ref| {
+        for (atom_list.atoms.keys()) |ref| {
             self.atom(ref).?.output_section_index = atom_list.output_section_index;
         }
         if (shdr.sh_type == elf.SHT_RELA) {
@@ -3585,7 +3585,7 @@ fn resetShdrIndexes(self: *Elf, backlinks: []const u32) void {
 fn updateSectionSizes(self: *Elf) !void {
     const slice = self.sections.slice();
     for (slice.items(.shdr), slice.items(.atom_list_2)) |shdr, *atom_list| {
-        if (atom_list.atoms.items.len == 0) continue;
+        if (atom_list.atoms.keys().len == 0) continue;
         if (self.requiresThunks() and shdr.sh_flags & elf.SHF_EXECINSTR != 0) continue;
         atom_list.updateSize(self);
         try atom_list.allocate(self);
@@ -3594,7 +3594,7 @@ fn updateSectionSizes(self: *Elf) !void {
     if (self.requiresThunks()) {
         for (slice.items(.shdr), slice.items(.atom_list_2)) |shdr, *atom_list| {
             if (shdr.sh_flags & elf.SHF_EXECINSTR == 0) continue;
-            if (atom_list.atoms.items.len == 0) continue;
+            if (atom_list.atoms.keys().len == 0) continue;
 
             // Create jump/branch range extenders if needed.
             try self.createThunks(atom_list);
@@ -4058,7 +4058,7 @@ fn writeAtoms(self: *Elf) !void {
     var has_reloc_errors = false;
     for (slice.items(.shdr), slice.items(.atom_list_2)) |shdr, atom_list| {
         if (shdr.sh_type == elf.SHT_NOBITS) continue;
-        if (atom_list.atoms.items.len == 0) continue;
+        if (atom_list.atoms.keys().len == 0) continue;
         atom_list.write(&buffer, &undefs, self) catch |err| switch (err) {
             error.UnsupportedCpuArch => {
                 try self.reportUnsupportedCpuArch();
@@ -5732,20 +5732,20 @@ fn createThunks(elf_file: *Elf, atom_list: *AtomList) !void {
         }
     }.advance;
 
-    for (atom_list.atoms.items) |ref| {
+    for (atom_list.atoms.keys()) |ref| {
         elf_file.atom(ref).?.value = -1;
     }
 
     var i: usize = 0;
-    while (i < atom_list.atoms.items.len) {
+    while (i < atom_list.atoms.keys().len) {
         const start = i;
-        const start_atom = elf_file.atom(atom_list.atoms.items[start]).?;
+        const start_atom = elf_file.atom(atom_list.atoms.keys()[start]).?;
         assert(start_atom.alive);
         start_atom.value = try advance(atom_list, start_atom.size, start_atom.alignment);
         i += 1;
 
-        while (i < atom_list.atoms.items.len) : (i += 1) {
-            const atom_ptr = elf_file.atom(atom_list.atoms.items[i]).?;
+        while (i < atom_list.atoms.keys().len) : (i += 1) {
+            const atom_ptr = elf_file.atom(atom_list.atoms.keys()[i]).?;
             assert(atom_ptr.alive);
             if (@as(i64, @intCast(atom_ptr.alignment.forward(atom_list.size))) - start_atom.value >= max_distance)
                 break;
@@ -5758,7 +5758,7 @@ fn createThunks(elf_file: *Elf, atom_list: *AtomList) !void {
         thunk_ptr.output_section_index = atom_list.output_section_index;
 
         // Scan relocs in the group and create trampolines for any unreachable callsite
-        for (atom_list.atoms.items[start..i]) |ref| {
+        for (atom_list.atoms.keys()[start..i]) |ref| {
             const atom_ptr = elf_file.atom(ref).?;
             const file_ptr = atom_ptr.file(elf_file).?;
             log.debug("atom({}) {s}", .{ ref, atom_ptr.name(elf_file) });
