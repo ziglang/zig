@@ -1,11 +1,12 @@
 const std = @import("std");
-const fatal = std.process.fatal;
 const Allocator = std.mem.Allocator;
 const Cache = std.Build.Cache;
 
-const usage = "usage: incr-check <zig binary path> <input file> [--zig-lib-dir lib] [--debug-zcu] [--debug-link] [--zig-cc-binary /path/to/zig]";
+const usage = "usage: incr-check <zig binary path> <input file> [--zig-lib-dir lib] [--debug-zcu] [--debug-link] [--preserve-tmp] [--zig-cc-binary /path/to/zig]";
 
 pub fn main() !void {
+    const fatal = std.process.fatal;
+
     var arena_instance = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena_instance.deinit();
     const arena = arena_instance.allocator();
@@ -16,6 +17,7 @@ pub fn main() !void {
     var opt_cc_zig: ?[]const u8 = null;
     var debug_zcu = false;
     var debug_link = false;
+    var preserve_tmp = false;
 
     var arg_it = try std.process.argsWithAllocator(arena);
     _ = arg_it.skip();
@@ -27,6 +29,8 @@ pub fn main() !void {
                 debug_zcu = true;
             } else if (std.mem.eql(u8, arg, "--debug-link")) {
                 debug_link = true;
+            } else if (std.mem.eql(u8, arg, "--preserve-tmp")) {
+                preserve_tmp = true;
             } else if (std.mem.eql(u8, arg, "--zig-cc-binary")) {
                 opt_cc_zig = arg_it.next() orelse fatal("expect arg after '--zig-cc-binary'\n{s}", .{usage});
             } else {
@@ -48,12 +52,29 @@ pub fn main() !void {
     const input_file_bytes = try std.fs.cwd().readFileAlloc(arena, input_file_name, std.math.maxInt(u32));
     const case = try Case.parse(arena, input_file_bytes);
 
+    // Check now: if there are any targets using the `cbe` backend, we need the lib dir.
+    if (opt_lib_dir == null) {
+        for (case.targets) |target| {
+            if (target.backend == .cbe) {
+                fatal("'--zig-lib-dir' requried when using backend 'cbe'", .{});
+            }
+        }
+    }
+
     const prog_node = std.Progress.start(.{});
     defer prog_node.end();
 
     const rand_int = std.crypto.random.int(u64);
     const tmp_dir_path = "tmp_" ++ std.fmt.hex(rand_int);
-    const tmp_dir = try std.fs.cwd().makeOpenPath(tmp_dir_path, .{});
+    var tmp_dir = try std.fs.cwd().makeOpenPath(tmp_dir_path, .{});
+    defer {
+        tmp_dir.close();
+        if (!preserve_tmp) {
+            std.fs.cwd().deleteTree(tmp_dir_path) catch |err| {
+                std.log.warn("failed to delete tree '{s}': {s}", .{ tmp_dir_path, @errorName(err) });
+            };
+        }
+    }
 
     // Convert paths to be relative to the cwd of the subprocess.
     const resolved_zig_exe = try std.fs.path.relative(arena, tmp_dir_path, zig_exe);
@@ -132,7 +153,7 @@ pub fn main() !void {
                 "-target",
                 target.query,
                 "-I",
-                opt_resolved_lib_dir orelse fatal("'--zig-lib-dir' required when using backend 'cbe'", .{}),
+                opt_resolved_lib_dir.?, // verified earlier
                 "-o",
             });
         }
@@ -146,6 +167,7 @@ pub fn main() !void {
             .tmp_dir_path = tmp_dir_path,
             .child = &child,
             .allow_stderr = debug_log_verbose,
+            .preserve_tmp_on_fatal = preserve_tmp,
             .cc_child_args = &cc_child_args,
         };
 
@@ -172,7 +194,7 @@ pub fn main() !void {
 
         try eval.end(&poller);
 
-        waitChild(&child);
+        waitChild(&child, &eval);
     }
 }
 
@@ -185,6 +207,7 @@ const Eval = struct {
     tmp_dir_path: []const u8,
     child: *std.process.Child,
     allow_stderr: bool,
+    preserve_tmp_on_fatal: bool,
     /// When `target.backend == .cbe`, this contains the first few arguments to `zig cc` to build the generated binary.
     /// The arguments `out.c in.c` must be appended before spawning the subprocess.
     cc_child_args: *std.ArrayListUnmanaged([]const u8),
@@ -199,12 +222,12 @@ const Eval = struct {
                 .sub_path = full_contents.name,
                 .data = full_contents.bytes,
             }) catch |err| {
-                fatal("failed to update '{s}': {s}", .{ full_contents.name, @errorName(err) });
+                eval.fatal("failed to update '{s}': {s}", .{ full_contents.name, @errorName(err) });
             };
         }
         for (update.deletes) |doomed_name| {
             eval.tmp_dir.deleteFile(doomed_name) catch |err| {
-                fatal("failed to delete '{s}': {s}", .{ doomed_name, @errorName(err) });
+                eval.fatal("failed to delete '{s}': {s}", .{ doomed_name, @errorName(err) });
             };
         }
     }
@@ -246,7 +269,7 @@ const Eval = struct {
                         if (eval.allow_stderr) {
                             std.log.info("error_bundle included stderr:\n{s}", .{stderr_data});
                         } else {
-                            fatal("error_bundle included unexpected stderr:\n{s}", .{stderr_data});
+                            eval.fatal("error_bundle included unexpected stderr:\n{s}", .{stderr_data});
                         }
                     }
                     if (result_error_bundle.errorMessageCount() != 0) {
@@ -265,7 +288,7 @@ const Eval = struct {
                         if (eval.allow_stderr) {
                             std.log.info("emit_digest included stderr:\n{s}", .{stderr_data});
                         } else {
-                            fatal("emit_digest included unexpected stderr:\n{s}", .{stderr_data});
+                            eval.fatal("emit_digest included unexpected stderr:\n{s}", .{stderr_data});
                         }
                     }
 
@@ -302,16 +325,15 @@ const Eval = struct {
             if (eval.allow_stderr) {
                 std.log.info("update '{s}' included stderr:\n{s}", .{ update.name, stderr_data });
             } else {
-                fatal("update '{s}' failed:\n{s}", .{ update.name, stderr_data });
+                eval.fatal("update '{s}' failed:\n{s}", .{ update.name, stderr_data });
             }
         }
 
-        waitChild(eval.child);
-        fatal("update '{s}': compiler failed to send error_bundle or emit_bin_path", .{update.name});
+        waitChild(eval.child, eval);
+        eval.fatal("update '{s}': compiler failed to send error_bundle or emit_bin_path", .{update.name});
     }
 
     fn checkErrorOutcome(eval: *Eval, update: Case.Update, error_bundle: std.zig.ErrorBundle) !void {
-        _ = eval;
         switch (update.outcome) {
             .unknown => return,
             .compile_errors => |expected_errors| {
@@ -323,7 +345,7 @@ const Eval = struct {
             .stdout, .exit_code => {
                 const color: std.zig.Color = .auto;
                 error_bundle.renderToStdErr(color.renderOptions());
-                fatal("update '{s}': unexpected compile errors", .{update.name});
+                eval.fatal("update '{s}': unexpected compile errors", .{update.name});
             },
         }
     }
@@ -331,7 +353,7 @@ const Eval = struct {
     fn checkSuccessOutcome(eval: *Eval, update: Case.Update, opt_emitted_path: ?[]const u8, prog_node: std.Progress.Node) !void {
         switch (update.outcome) {
             .unknown => return,
-            .compile_errors => fatal("expected compile errors but compilation incorrectly succeeded", .{}),
+            .compile_errors => eval.fatal("expected compile errors but compilation incorrectly succeeded", .{}),
             .stdout, .exit_code => {},
         }
         const emitted_path = opt_emitted_path orelse {
@@ -388,7 +410,7 @@ const Eval = struct {
             .cwd_dir = eval.tmp_dir,
             .cwd = eval.tmp_dir_path,
         }) catch |err| {
-            fatal("update '{s}': failed to run the generated executable '{s}': {s}", .{
+            eval.fatal("update '{s}': failed to run the generated executable '{s}': {s}", .{
                 update.name, binary_path, @errorName(err),
             });
         };
@@ -402,7 +424,7 @@ const Eval = struct {
                 .unknown, .compile_errors => unreachable,
                 .stdout => |expected_stdout| {
                     if (code != 0) {
-                        fatal("update '{s}': generated executable '{s}' failed with code {d}", .{
+                        eval.fatal("update '{s}': generated executable '{s}' failed with code {d}", .{
                             update.name, binary_path, code,
                         });
                     }
@@ -411,7 +433,7 @@ const Eval = struct {
                 .exit_code => |expected_code| try std.testing.expectEqual(expected_code, result.term.Exited),
             },
             .Signal, .Stopped, .Unknown => {
-                fatal("update '{s}': generated executable '{s}' terminated unexpectedly", .{
+                eval.fatal("update '{s}': generated executable '{s}' terminated unexpectedly", .{
                     update.name, binary_path,
                 });
             },
@@ -428,7 +450,7 @@ const Eval = struct {
     }
 
     fn end(eval: *Eval, poller: *Poller) !void {
-        requestExit(eval.child);
+        requestExit(eval.child, eval);
 
         const Header = std.zig.Server.Message.Header;
         const stdout = poller.fifo(.stdout);
@@ -448,7 +470,7 @@ const Eval = struct {
 
         if (stderr.readableLength() > 0) {
             const stderr_data = try stderr.toOwnedSlice();
-            fatal("unexpected stderr:\n{s}", .{stderr_data});
+            eval.fatal("unexpected stderr:\n{s}", .{stderr_data});
         }
     }
 
@@ -468,7 +490,7 @@ const Eval = struct {
             .cwd = eval.tmp_dir_path,
             .progress_node = child_prog_node,
         }) catch |err| {
-            fatal("update '{s}': failed to spawn zig cc for '{s}': {s}", .{
+            eval.fatal("update '{s}': failed to spawn zig cc for '{s}': {s}", .{
                 update.name, c_path, @errorName(err),
             });
         };
@@ -479,7 +501,7 @@ const Eval = struct {
                         update.name, result.stderr,
                     });
                 }
-                fatal("update '{s}': zig cc for '{s}' failed with code {d}", .{
+                eval.fatal("update '{s}': zig cc for '{s}' failed with code {d}", .{
                     update.name, c_path, code,
                 });
             },
@@ -489,11 +511,21 @@ const Eval = struct {
                         update.name, result.stderr,
                     });
                 }
-                fatal("update '{s}': zig cc for '{s}' terminated unexpectedly", .{
+                eval.fatal("update '{s}': zig cc for '{s}' terminated unexpectedly", .{
                     update.name, c_path,
                 });
             },
         }
+    }
+
+    fn fatal(eval: *Eval, comptime fmt: []const u8, args: anytype) noreturn {
+        eval.tmp_dir.close();
+        if (!eval.preserve_tmp_on_fatal) {
+            std.fs.cwd().deleteTree(eval.tmp_dir_path) catch |err| {
+                std.log.warn("failed to delete tree '{s}': {s}", .{ eval.tmp_dir_path, @errorName(err) });
+            };
+        }
+        std.process.fatal(fmt, args);
     }
 };
 
@@ -550,6 +582,8 @@ const Case = struct {
     };
 
     fn parse(arena: Allocator, bytes: []const u8) !Case {
+        const fatal = std.process.fatal;
+
         var targets: std.ArrayListUnmanaged(Target) = .empty;
         var updates: std.ArrayListUnmanaged(Update) = .empty;
         var changes: std.ArrayListUnmanaged(FullContents) = .empty;
@@ -656,7 +690,7 @@ const Case = struct {
     }
 };
 
-fn requestExit(child: *std.process.Child) void {
+fn requestExit(child: *std.process.Child, eval: *Eval) void {
     if (child.stdin == null) return;
 
     const header: std.zig.Client.Message.Header = .{
@@ -665,7 +699,7 @@ fn requestExit(child: *std.process.Child) void {
     };
     child.stdin.?.writeAll(std.mem.asBytes(&header)) catch |err| switch (err) {
         error.BrokenPipe => {},
-        else => fatal("failed to send exit: {s}", .{@errorName(err)}),
+        else => eval.fatal("failed to send exit: {s}", .{@errorName(err)}),
     };
 
     // Send EOF to stdin.
@@ -673,11 +707,11 @@ fn requestExit(child: *std.process.Child) void {
     child.stdin = null;
 }
 
-fn waitChild(child: *std.process.Child) void {
-    requestExit(child);
-    const term = child.wait() catch |err| fatal("child process failed: {s}", .{@errorName(err)});
+fn waitChild(child: *std.process.Child, eval: *Eval) void {
+    requestExit(child, eval);
+    const term = child.wait() catch |err| eval.fatal("child process failed: {s}", .{@errorName(err)});
     switch (term) {
-        .Exited => |code| if (code != 0) fatal("compiler failed with code {d}", .{code}),
-        .Signal, .Stopped, .Unknown => fatal("compiler terminated unexpectedly", .{}),
+        .Exited => |code| if (code != 0) eval.fatal("compiler failed with code {d}", .{code}),
+        .Signal, .Stopped, .Unknown => eval.fatal("compiler terminated unexpectedly", .{}),
     }
 }
