@@ -7320,10 +7320,7 @@ fn callPanic(
         return;
     }
     const panic_cause_ty = try pt.getBuiltinType("PanicCause");
-    const panic_cause = if (payload == .void_value)
-        try initUnionFromEnumTag(pt, panic_cause_ty, panic_cause_ty.unionTagType(zcu).?, @intFromEnum(tag))
-    else
-        try block.addUnionInit(panic_cause_ty, @intFromEnum(tag), payload);
+    const panic_cause = try unionInitFromEnumTag(sema, block, call_src, panic_cause_ty, @intFromEnum(tag), payload);
     const panic_fn = try pt.getBuiltin("panic");
     const err_return_trace = try sema.getErrorReturnTrace(block);
     const opt_usize_ty = try pt.optionalType(.usize_type);
@@ -18311,7 +18308,8 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         .undefined,
         .null,
         .enum_literal,
-        => |type_info_tag| return initUnionFromEnumTag(pt, type_info_ty, type_info_tag_ty, @intFromEnum(type_info_tag)),
+        => |type_info_tag| return unionInitFromEnumTag(sema, block, src, type_info_ty, @intFromEnum(type_info_tag), .void_value),
+
         .@"fn" => {
             const fn_info_ty = try getInnerType(sema, block, src, type_info_ty, "Fn");
             const param_info_ty = try getInnerType(sema, block, src, fn_info_ty, "Param");
@@ -20607,6 +20605,20 @@ fn unionInit(
     const field_index = try sema.unionFieldIndex(block, union_ty, field_name, field_src);
     const field_ty = Type.fromInterned(zcu.typeToUnion(union_ty).?.field_types.get(ip)[field_index]);
     const init = try sema.coerce(block, field_ty, uncasted_init, init_src);
+    _ = union_ty_src;
+    return unionInitFromEnumTag(sema, block, init_src, union_ty, field_index, init);
+}
+
+fn unionInitFromEnumTag(
+    sema: *Sema,
+    block: *Block,
+    init_src: LazySrcLoc,
+    union_ty: Type,
+    field_index: u32,
+    init: Air.Inst.Ref,
+) !Air.Inst.Ref {
+    const pt = sema.pt;
+    const zcu = pt.zcu;
 
     if (try sema.resolveValue(init)) |init_val| {
         const tag_ty = union_ty.unionTagTypeHypothetical(zcu);
@@ -20619,7 +20631,6 @@ fn unionInit(
     }
 
     try sema.requireRuntimeBlock(block, init_src, null);
-    _ = union_ty_src;
     return block.addUnionInit(union_ty, field_index, init);
 }
 
@@ -38928,12 +38939,4 @@ fn getInnerType(
     ) orelse return sema.fail(block, src, "std.builtin missing {s}", .{inner_name});
     try sema.ensureNavResolved(src, nav);
     return Type.fromInterned(ip.getNav(nav).status.resolved.val);
-}
-
-fn initUnionFromEnumTag(pt: Zcu.PerThread, union_ty: Type, union_tag_ty: Type, field_index: u32) !Air.Inst.Ref {
-    return Air.internedToRef((try pt.internUnion(.{
-        .ty = union_ty.toIntern(),
-        .tag = (try pt.enumValueFieldIndex(union_tag_ty, field_index)).toIntern(),
-        .val = .void_value,
-    })));
 }
