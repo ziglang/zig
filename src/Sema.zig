@@ -5703,27 +5703,7 @@ fn addStrLit(sema: *Sema, string: InternPool.String, len: u64) CompileError!Air.
 }
 
 fn uavRef(sema: *Sema, val: InternPool.Index) CompileError!Air.Inst.Ref {
-    return Air.internedToRef(try sema.refValue(val));
-}
-
-fn refValue(sema: *Sema, val: InternPool.Index) CompileError!InternPool.Index {
-    const pt = sema.pt;
-    const ptr_ty = (try pt.ptrTypeSema(.{
-        .child = pt.zcu.intern_pool.typeOf(val),
-        .flags = .{
-            .alignment = .none,
-            .is_const = true,
-            .address_space = .generic,
-        },
-    })).toIntern();
-    return pt.intern(.{ .ptr = .{
-        .ty = ptr_ty,
-        .base_addr = .{ .uav = .{
-            .val = val,
-            .orig_ty = ptr_ty,
-        } },
-        .byte_offset = 0,
-    } });
+    return Air.internedToRef(try sema.pt.refValue(val));
 }
 
 fn zirInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -17402,6 +17382,7 @@ fn analyzeArithmetic(
 
     if (block.wantSafety() and want_safety and scalar_tag == .int) {
         if (zcu.backendSupportsFeature(.safety_checked_instructions)) {
+            if (air_tag != air_tag_safe) try sema.preparePanicIntegerOverflow(block, src);
             return block.addBinOp(air_tag_safe, casted_lhs, casted_rhs);
         } else {
             const maybe_op_ov: ?Air.Inst.Tag = switch (air_tag) {
@@ -27706,6 +27687,24 @@ fn preparePanic(sema: *Sema, block: *Block, src: LazySrcLoc) !void {
         const panic_cause_ty = try pt.getBuiltinType("PanicCause");
         try panic_cause_ty.resolveFields(pt);
         zcu.panic_cause_type = panic_cause_ty.toIntern();
+        zcu.panic_cause_tag_type = panic_cause_ty.unionTagType(zcu).?.toIntern();
+    }
+}
+
+fn preparePanicIntegerOverflow(sema: *Sema, block: *Block, src: LazySrcLoc) !void {
+    const pt = sema.pt;
+    const zcu = pt.zcu;
+    try preparePanic(sema, block, src);
+    if (zcu.panic_cause_integer_overflow == .none) {
+        const union_val = try pt.unionValue(
+            Type.fromInterned(zcu.panic_cause_type),
+            try pt.enumValueFieldIndex(
+                Type.fromInterned(zcu.panic_cause_tag_type),
+                @intFromEnum(PanicCauseTag.integer_overflow),
+            ),
+            Value.void,
+        );
+        zcu.panic_cause_integer_overflow = try pt.refValue(union_val.toIntern());
     }
 }
 
@@ -32669,7 +32668,7 @@ fn optRefValue(sema: *Sema, opt_val: ?Value) !Value {
     return Value.fromInterned(try pt.intern(.{ .opt = .{
         .ty = (try pt.optionalType(ptr_anyopaque_ty.toIntern())).toIntern(),
         .val = if (opt_val) |val| (try pt.getCoerced(
-            Value.fromInterned(try sema.refValue(val.toIntern())),
+            Value.fromInterned(try pt.refValue(val.toIntern())),
             ptr_anyopaque_ty,
         )).toIntern() else .none,
     } }));

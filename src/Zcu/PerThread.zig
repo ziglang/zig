@@ -3656,6 +3656,25 @@ pub fn ensureNamespaceUpToDate(pt: Zcu.PerThread, namespace_index: Zcu.Namespace
     namespace.generation = zcu.generation;
 }
 
+pub fn refValue(pt: Zcu.PerThread, val: InternPool.Index) Zcu.SemaError!InternPool.Index {
+    const ptr_ty = (try pt.ptrTypeSema(.{
+        .child = pt.zcu.intern_pool.typeOf(val),
+        .flags = .{
+            .alignment = .none,
+            .is_const = true,
+            .address_space = .generic,
+        },
+    })).toIntern();
+    return pt.intern(.{ .ptr = .{
+        .ty = ptr_ty,
+        .base_addr = .{ .uav = .{
+            .val = val,
+            .orig_ty = ptr_ty,
+        } },
+        .byte_offset = 0,
+    } });
+}
+
 const Air = @import("../Air.zig");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;

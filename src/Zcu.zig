@@ -214,6 +214,8 @@ free_type_references: std.ArrayListUnmanaged(u32) = .empty,
 panic_func_index: InternPool.Index = .none,
 null_stack_trace: InternPool.Index = .none,
 panic_cause_type: InternPool.Index = .none,
+panic_cause_tag_type: InternPool.Index = .none,
+panic_cause_integer_overflow: InternPool.Index = .none,
 
 generation: u32 = 0,
 
