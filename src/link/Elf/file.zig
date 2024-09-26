@@ -95,16 +95,16 @@ pub const File = union(enum) {
                     log.debug("'{s}' is non-local", .{sym.name(ef)});
                     try ef.dynsym.addSymbol(ref, ef);
                 }
-                if (sym.flags.needs_got) {
+                if (sym.flags.needs_got and !sym.flags.has_got) {
                     log.debug("'{s}' needs GOT", .{sym.name(ef)});
                     _ = try ef.got.addGotSymbol(ref, ef);
                 }
-                if (sym.flags.needs_plt) {
+                if (sym.flags.needs_plt and !sym.flags.has_plt) {
                     if (sym.flags.is_canonical) {
                         log.debug("'{s}' needs CPLT", .{sym.name(ef)});
                         sym.flags.@"export" = true;
                         try ef.plt.addSymbol(ref, ef);
-                    } else if (sym.flags.needs_got) {
+                    } else if (sym.flags.needs_got and !sym.flags.has_got) {
                         log.debug("'{s}' needs PLTGOT", .{sym.name(ef)});
                         try ef.plt_got.addSymbol(ref, ef);
                     } else {
@@ -116,15 +116,15 @@ pub const File = union(enum) {
                     log.debug("'{s}' needs COPYREL", .{sym.name(ef)});
                     try ef.copy_rel.addSymbol(ref, ef);
                 }
-                if (sym.flags.needs_tlsgd) {
+                if (sym.flags.needs_tlsgd and !sym.flags.has_tlsgd) {
                     log.debug("'{s}' needs TLSGD", .{sym.name(ef)});
                     try ef.got.addTlsGdSymbol(ref, ef);
                 }
-                if (sym.flags.needs_gottp) {
+                if (sym.flags.needs_gottp and !sym.flags.has_gottp) {
                     log.debug("'{s}' needs GOTTP", .{sym.name(ef)});
                     try ef.got.addGotTpSymbol(ref, ef);
                 }
-                if (sym.flags.needs_tlsdesc) {
+                if (sym.flags.needs_tlsdesc and !sym.flags.has_tlsdesc) {
                     log.debug("'{s}' needs TLSDESC", .{sym.name(ef)});
                     try ef.got.addTlsDescSymbol(ref, ef);
                 }
