@@ -31,13 +31,8 @@ export fn entry2() void {
 
 // error
 //
-// :5:12: error: slice of single-item pointer must have comptime-known bounds [0..0], [0..1], or [1..1]
-// :9:13: error: slice of single-item pointer must have comptime-known bounds [0..0], [0..1], or [1..1]
-// :9:13: note: expected '0', found '1'
-// :13:16: error: slice of single-item pointer must have comptime-known bounds [0..0], [0..1], or [1..1]
-// :13:16: note: expected '1', found '2'
-// :17:16: error: end index 2 out of bounds for slice of single-item pointer
-// :23:13: error: unable to resolve comptime value
-// :23:13: note: slice of single-item pointer must have comptime-known bounds [0..0], [0..1], or [1..1]
-// :29:16: error: unable to resolve comptime value
-// :29:16: note: slice of single-item pointer must have comptime-known bounds [0..0], [0..1], or [1..1]
+// :9:16: error: slice end index out of bounds: end 2, length 1
+// :13:16: error: slice end index out of bounds: end 2, length 1
+// :17:16: error: slice end index out of bounds: end 2, length 1
+// :23:13: error: start index of slice of single-item pointer must be comptime-known
+// :29:16: error: end index of slice of single-item pointer must be comptime-known

@@ -48,7 +48,7 @@ export fn foo_cvector_ConstPtrSpecialRef() void {
 export fn foo_slice() void {
     comptime {
         var buf = [_:0]u8{ 'a', 'b', 'c', 'd' } ++ [_]u8{undefined} ** 10;
-        var target: []u8 = &buf;
+        var target: [:0]u8 = &buf;
         const slice = target[0..14 :255];
         _ = slice;
     }
@@ -73,23 +73,23 @@ export fn typeName_slice() void {
 // backend=stage2
 // target=native
 //
-// :4:29: error: value in memory does not match slice sentinel
-// :4:29: note: expected '255', found '0'
-// :12:29: error: value in memory does not match slice sentinel
-// :12:29: note: expected '255', found '0'
-// :20:29: error: value in memory does not match slice sentinel
-// :20:29: note: expected '255', found '0'
-// :28:29: error: value in memory does not match slice sentinel
-// :28:29: note: expected '255', found '0'
-// :36:29: error: value in memory does not match slice sentinel
-// :36:29: note: expected '255', found '0'
-// :44:29: error: value in memory does not match slice sentinel
-// :44:29: note: expected '255', found '0'
-// :52:29: error: value in memory does not match slice sentinel
-// :52:29: note: expected '255', found '0'
-// :58:22: error: value in memory does not match slice sentinel
-// :58:22: note: expected '0', found 'undefined'
-// :63:22: error: value in memory does not match slice sentinel
-// :63:22: note: expected '12', found '98'
-// :68:22: error: value in memory does not match slice sentinel
-// :68:22: note: expected '0', found '105'
+// :4:37: error: value in memory does not match slice sentinel
+// :4:37: note: expected '255', found '0'
+// :12:37: error: value in memory does not match slice sentinel
+// :12:37: note: expected '255', found '0'
+// :20:37: error: value in memory does not match slice sentinel
+// :20:37: note: expected '255', found '0'
+// :28:37: error: value in memory does not match slice sentinel
+// :28:37: note: expected '255', found '0'
+// :36:37: error: value in memory does not match slice sentinel
+// :36:37: note: expected '255', found '0'
+// :44:37: error: value in memory does not match slice sentinel
+// :44:37: note: expected '255', found '0'
+// :52:37: error: value in memory does not match slice sentinel
+// :52:37: note: expected '255', found '0'
+// :58:30: error: value in memory does not match slice sentinel
+// :58:30: note: expected '0', found 'undefined'
+// :63:29: error: value in memory does not match slice sentinel
+// :63:29: note: expected '12', found '98'
+// :68:29: error: value in memory does not match slice sentinel
+// :68:29: note: expected '0', found '105'

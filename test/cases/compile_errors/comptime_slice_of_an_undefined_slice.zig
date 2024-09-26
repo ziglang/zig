@@ -8,4 +8,4 @@ comptime {
 // backend=stage2
 // target=native
 //
-// :3:14: error: slice of undefined
+// :3:14: error: non-zero length slice of undefined pointer

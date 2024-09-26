@@ -120,7 +120,7 @@ pub const Tz = struct {
             timetypes[i] = .{
                 .offset = offset,
                 .flags = dst,
-                .name_data = undefined,
+                .name_data = .{0} ** 6,
             };
 
             // Temporarily cache idx in name_data to be processed after we've read the designator names below

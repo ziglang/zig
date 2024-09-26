@@ -62,6 +62,14 @@ test "comptime slice of undefined pointer of length 0" {
     try expect(slice1.len == 0);
     const slice2 = @as([*]i32, undefined)[100..100];
     try expect(slice2.len == 0);
+    const slice3 = @as(*[0]u8, undefined)[0..0];
+    try expect(slice3.len == 0);
+    const slice4 = @as(*u8, undefined)[0..0];
+    try expect(slice4.len == 0);
+    const slice5 = @as([*c]u8, undefined)[0..0];
+    try expect(slice5.len == 0);
+    const slice6 = @as([]u8, undefined)[0..0];
+    try expect(slice6.len == 0);
 }
 
 test "implicitly cast array of size 0 to slice" {
@@ -378,11 +386,11 @@ test "slice multi-pointer without end" {
             var array = [5:0]u8{ 1, 2, 3, 4, 5 };
             const pointer: [*:0]u8 = &array;
 
-            comptime assert(@TypeOf(pointer[1..]) == [*:0]u8);
+            comptime assert(@TypeOf(pointer[1..]) == [*]u8);
             comptime assert(@TypeOf(pointer[1.. :0]) == [*:0]u8);
 
             const slice = pointer[1..];
-            comptime assert(@TypeOf(slice) == [*:0]u8);
+            comptime assert(@TypeOf(slice) == [*]u8);
             try expect(slice[0] == 2);
             try expect(slice[1] == 3);
         }
