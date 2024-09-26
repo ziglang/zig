@@ -5675,20 +5675,23 @@ pub const FuncGen = struct {
         }
     }
 
-    const PanicCauseTag = @typeInfo(std.builtin.PanicCause).@"union".tag_type.?;
-
-    fn buildSimplePanic(fg: *FuncGen, panic_cause: InternPool.Index) !void {
+    fn buildSimplePanic(fg: *FuncGen, panic_id: Zcu.PanicId) !void {
         const o = fg.ng.object;
         const zcu = o.pt.zcu;
         const ip = &zcu.intern_pool;
-        const cause_ptr = try o.lowerValue(panic_cause);
+        const msg_nav_index = zcu.panic_messages[@intFromEnum(panic_id)].unwrap().?;
+        const msg_nav = ip.getNav(msg_nav_index);
+        const msg_len = Type.fromInterned(msg_nav.typeOf(ip)).childType(zcu).arrayLen(zcu);
+        const msg_ptr = try o.lowerValue(msg_nav.status.resolved.val);
         const null_opt_addr_global = try fg.resolveNullOptUsize();
         const target = zcu.getTarget();
+        const llvm_usize = try o.lowerType(Type.usize);
         // example:
         // call fastcc void @test2.panic(
-        //   ptr @foo, ; panic_cause
-        //   ptr null, ; stack trace
-        //   ptr @2,   ; addr (null ?usize)
+        //   ptr @builtin.panic_messages.integer_overflow__anon_987, ; msg.ptr
+        //   i64 16,                                                 ; msg.len
+        //   ptr null,                                               ; stack trace
+        //   ptr @2,                                                 ; addr (null ?usize)
         // )
         const panic_func = zcu.funcInfo(zcu.panic_func_index);
         const panic_nav = ip.getNav(panic_func.owner_nav);
@@ -5702,7 +5705,8 @@ pub const FuncGen = struct {
             panic_global.typeOf(&o.builder),
             panic_global.toValue(&o.builder),
             &.{
-                cause_ptr.toValue(),
+                msg_ptr.toValue(),
+                try o.builder.intValue(llvm_usize, msg_len),
                 try o.builder.nullValue(.ptr),
                 null_opt_addr_global.toValue(),
             },
@@ -8331,7 +8335,7 @@ pub const FuncGen = struct {
         _ = try fg.wip.brCond(overflow_bit, fail_block, ok_block, .none);
 
         fg.wip.cursor = .{ .block = fail_block };
-        try fg.buildSimplePanic(zcu.panic_cause_integer_overflow);
+        try fg.buildSimplePanic(.integer_overflow);
 
         fg.wip.cursor = .{ .block = ok_block };
         return fg.wip.extractValue(results, &.{0}, "");

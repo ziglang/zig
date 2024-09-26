@@ -777,7 +777,7 @@ else
 /// root source file.
 pub const Panic: type = if (@hasDecl(root, "Panic"))
     root.Panic
-else if (std.builtin.zig_backend == .stage2_riscv64)
+else if (builtin.zig_backend == .stage2_riscv64)
     std.debug.SimplePanic // https://github.com/ziglang/zig/issues/21519
 else
     std.debug.FormattedPanic;

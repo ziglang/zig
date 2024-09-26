@@ -3075,14 +3075,6 @@ pub fn structPackedFieldBitOffset(
     unreachable; // index out of bounds
 }
 
-pub fn getBuiltin(pt: Zcu.PerThread, name: []const u8) Allocator.Error!Air.Inst.Ref {
-    const zcu = pt.zcu;
-    const ip = &zcu.intern_pool;
-    const nav = try pt.getBuiltinNav(name);
-    pt.ensureCauAnalyzed(ip.getNav(nav).analysis_owner.unwrap().?) catch @panic("std.builtin is corrupt");
-    return Air.internedToRef(ip.getNav(nav).status.resolved.val);
-}
-
 pub fn getBuiltinNav(pt: Zcu.PerThread, name: []const u8) Allocator.Error!InternPool.Nav.Index {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
@@ -3098,13 +3090,6 @@ pub fn getBuiltinNav(pt: Zcu.PerThread, name: []const u8) Allocator.Error!Intern
     const builtin_namespace = zcu.namespacePtr(builtin_type.getNamespace(zcu).unwrap() orelse @panic("std.builtin is corrupt"));
     const name_str = try ip.getOrPutString(gpa, pt.tid, name, .no_embedded_nulls);
     return builtin_namespace.pub_decls.getKeyAdapted(name_str, Zcu.Namespace.NameAdapter{ .zcu = zcu }) orelse @panic("lib/std/builtin.zig is corrupt");
-}
-
-pub fn getBuiltinType(pt: Zcu.PerThread, name: []const u8) Allocator.Error!Type {
-    const ty_inst = try pt.getBuiltin(name);
-    const ty = Type.fromInterned(ty_inst.toInterned() orelse @panic("std.builtin is corrupt"));
-    ty.resolveFully(pt) catch @panic("std.builtin is corrupt");
-    return ty;
 }
 
 pub fn navPtrType(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) Allocator.Error!Type {
