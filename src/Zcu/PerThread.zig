@@ -1,6 +1,32 @@
 //! This type provides a wrapper around a `*Zcu` for uses which require a thread `Id`.
 //! Any operation which mutates `InternPool` state lives here rather than on `Zcu`.
 
+const Air = @import("../Air.zig");
+const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
+const Ast = std.zig.Ast;
+const AstGen = std.zig.AstGen;
+const BigIntConst = std.math.big.int.Const;
+const BigIntMutable = std.math.big.int.Mutable;
+const build_options = @import("build_options");
+const builtin = @import("builtin");
+const Cache = std.Build.Cache;
+const dev = @import("../dev.zig");
+const InternPool = @import("../InternPool.zig");
+const AnalUnit = InternPool.AnalUnit;
+const isUpDir = @import("../introspect.zig").isUpDir;
+const Liveness = @import("../Liveness.zig");
+const log = std.log.scoped(.zcu);
+const Module = @import("../Package.zig").Module;
+const Sema = @import("../Sema.zig");
+const std = @import("std");
+const target_util = @import("../target.zig");
+const trace = @import("../tracy.zig").trace;
+const Type = @import("../Type.zig");
+const Value = @import("../Value.zig");
+const Zcu = @import("../Zcu.zig");
+const Zir = std.zig.Zir;
+
 zcu: *Zcu,
 
 /// Dense, per-thread unique index.
@@ -3659,29 +3685,3 @@ pub fn refValue(pt: Zcu.PerThread, val: InternPool.Index) Zcu.SemaError!InternPo
         .byte_offset = 0,
     } });
 }
-
-const Air = @import("../Air.zig");
-const Allocator = std.mem.Allocator;
-const assert = std.debug.assert;
-const Ast = std.zig.Ast;
-const AstGen = std.zig.AstGen;
-const BigIntConst = std.math.big.int.Const;
-const BigIntMutable = std.math.big.int.Mutable;
-const build_options = @import("build_options");
-const builtin = @import("builtin");
-const Cache = std.Build.Cache;
-const dev = @import("../dev.zig");
-const InternPool = @import("../InternPool.zig");
-const AnalUnit = InternPool.AnalUnit;
-const isUpDir = @import("../introspect.zig").isUpDir;
-const Liveness = @import("../Liveness.zig");
-const log = std.log.scoped(.zcu);
-const Module = @import("../Package.zig").Module;
-const Sema = @import("../Sema.zig");
-const std = @import("std");
-const target_util = @import("../target.zig");
-const trace = @import("../tracy.zig").trace;
-const Type = @import("../Type.zig");
-const Value = @import("../Value.zig");
-const Zcu = @import("../Zcu.zig");
-const Zir = std.zig.Zir;
