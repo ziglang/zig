@@ -336,8 +336,10 @@ fn updateSectionSizes(elf_file: *Elf) !void {
     const slice = elf_file.sections.slice();
     for (slice.items(.atom_list_2)) |*atom_list| {
         if (atom_list.atoms.keys().len == 0) continue;
+        if (!atom_list.dirty) continue;
         atom_list.updateSize(elf_file);
         try atom_list.allocate(elf_file);
+        atom_list.dirty = false;
     }
 
     for (slice.items(.shdr), 0..) |*shdr, shndx| {

@@ -3586,19 +3586,23 @@ fn updateSectionSizes(self: *Elf) !void {
     const slice = self.sections.slice();
     for (slice.items(.shdr), slice.items(.atom_list_2)) |shdr, *atom_list| {
         if (atom_list.atoms.keys().len == 0) continue;
+        if (!atom_list.dirty) continue;
         if (self.requiresThunks() and shdr.sh_flags & elf.SHF_EXECINSTR != 0) continue;
         atom_list.updateSize(self);
         try atom_list.allocate(self);
+        atom_list.dirty = false;
     }
 
     if (self.requiresThunks()) {
         for (slice.items(.shdr), slice.items(.atom_list_2)) |shdr, *atom_list| {
             if (shdr.sh_flags & elf.SHF_EXECINSTR == 0) continue;
             if (atom_list.atoms.keys().len == 0) continue;
+            if (!atom_list.dirty) continue;
 
             // Create jump/branch range extenders if needed.
             try self.createThunks(atom_list);
             try atom_list.allocate(self);
+            atom_list.dirty = false;
         }
 
         // FIXME:JK this will hopefully not be needed once we create a link from Atom/Thunk to AtomList.
