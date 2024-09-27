@@ -1,14 +1,27 @@
 const std = @import("std.zig");
 const assert = std.debug.assert;
 
-/// 'comptime' optimized mapping between string keys and associated values.
+/// 'comptime' optimized mapping between string keys and associated `V` values.
 pub fn StaticStringMap(comptime V: type) type {
-    return StaticStringMapAdvanced(V, u8, defaultEql);
+    return StaticArrayMapWithEql(V, u8, defaultEql);
 }
 
 /// Same as StaticStringMap, except keys are compared case-insensitively.
 pub fn StaticStringMapIgnoreCase(comptime V: type) type {
-    return StaticStringMapAdvanced(V, u8, ignoreCaseEql);
+    return StaticArrayMapWithEql(V, u8, ignoreCaseEql);
+}
+
+/// Same as StaticStringMap, but allows you to provide the `eql` function yourself.
+pub fn StaticStringMapWithEql(
+    comptime V: type,
+    comptime eql: fn (comptime usize, comptime anytype, anytype) bool,
+) type {
+    return StaticArrayMapWithEql(V, u8, eql);
+}
+
+/// 'comptime' optimized mapping between `[]const T` keys and associated `V` values.
+pub fn StaticArrayMap(comptime T: type, comptime V: type) type {
+    return StaticArrayMapWithEql(V, T, defaultEql);
 }
 
 pub fn defaultEql(comptime len: usize, comptime expected: anytype, actual: anytype) bool {
@@ -59,7 +72,7 @@ fn toLowerSimd(comptime len: usize, input: [len]u8) [len]u8 {
 
 /// Static string map constructed at compile time for additional optimizations.
 /// First branches on the key length, then compares the possible matching keys.
-pub fn StaticStringMapAdvanced(
+pub fn StaticArrayMapWithEql(
     /// The type of the value
     comptime V: type,
     /// The type of the element in the array, eg. []const T - would be u8 for a string
@@ -413,4 +426,27 @@ test "sorting kvs doesn't exceed eval branch quota" {
         .{ "t1", 1 },
     });
     try testing.expectEqual(1, TypeToByteSizeLUT.get("t1"));
+}
+
+test "static array map" {
+    const map = StaticArrayMap(u16, u4).initComptime(.{
+        .{ &[_]u16{ 0, 1, 2, 3 }, 0 },
+        .{ &[_]u16{ 4, 5, 6, 7, 8 }, 1 },
+        .{ &[_]u16{ 9, 10, 1 << 13, 4 }, 2 },
+        .{ &[_]u16{0}, 3 },
+        .{ &[_]u16{}, 4 },
+    });
+
+    try testing.expectEqual(0, map.get(&[_]u16{ 0, 1, 2, 3 }).?);
+    try testing.expectEqual(2, map.get(&[_]u16{ 9, 10, 1 << 13, 4 }).?);
+    try testing.expectEqual(4, map.get(&[_]u16{}).?);
+
+    try testing.expectEqual(null, map.get(&[_]u16{ 7, 7, 7 }));
+    try testing.expectEqual(null, map.get(&[_]u16{ 0, 1 }));
+
+    try testing.expectEqual(true, map.has(&[_]u16{ 4, 5, 6, 7, 8 }));
+    try testing.expectEqual(true, map.has(&[_]u16{0}));
+
+    try testing.expectEqual(false, map.has(&[_]u16{5}));
+    try testing.expectEqual(false, map.has(&[_]u16{ 0, 0 }));
 }
