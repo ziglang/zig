@@ -44,8 +44,7 @@ pub const std_options = .{
     },
 };
 
-// Crash report needs to override the panic handler
-pub const panic = crash_report.panic;
+pub const Panic = crash_report.Panic;
 
 var wasi_preopens: fs.wasi.Preopens = undefined;
 pub fn wasi_cwd() std.os.wasi.fd_t {
