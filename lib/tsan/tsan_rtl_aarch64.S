@@ -2,6 +2,7 @@
 #if defined(__aarch64__)
 
 #include "sanitizer_common/sanitizer_asm.h"
+#include "builtins/assembly.h"
 
 #if !defined(__APPLE__)
 .section .text
@@ -16,6 +17,7 @@ ASM_HIDDEN(__tsan_setjmp)
 ASM_TYPE_FUNCTION(ASM_SYMBOL_INTERCEPTOR(setjmp))
 ASM_SYMBOL_INTERCEPTOR(setjmp):
   CFI_STARTPROC
+  BTI_C
 
   // Save frame/link register
   stp     x29, x30, [sp, -32]!
@@ -66,6 +68,7 @@ ASM_SIZE(ASM_SYMBOL_INTERCEPTOR(setjmp))
 ASM_TYPE_FUNCTION(ASM_SYMBOL_INTERCEPTOR(_setjmp))
 ASM_SYMBOL_INTERCEPTOR(_setjmp):
   CFI_STARTPROC
+  BTI_C
 
   // Save frame/link register
   stp     x29, x30, [sp, -32]!
@@ -116,6 +119,7 @@ ASM_SIZE(ASM_SYMBOL_INTERCEPTOR(_setjmp))
 ASM_TYPE_FUNCTION(ASM_SYMBOL_INTERCEPTOR(sigsetjmp))
 ASM_SYMBOL_INTERCEPTOR(sigsetjmp):
   CFI_STARTPROC
+  BTI_C
 
   // Save frame/link register
   stp     x29, x30, [sp, -32]!
@@ -168,6 +172,7 @@ ASM_SIZE(ASM_SYMBOL_INTERCEPTOR(sigsetjmp))
 ASM_TYPE_FUNCTION(ASM_SYMBOL_INTERCEPTOR(__sigsetjmp))
 ASM_SYMBOL_INTERCEPTOR(__sigsetjmp):
   CFI_STARTPROC
+  BTI_C
 
   // Save frame/link register
   stp     x29, x30, [sp, -32]!
@@ -216,5 +221,7 @@ ASM_SIZE(ASM_SYMBOL_INTERCEPTOR(__sigsetjmp))
 #endif
 
 NO_EXEC_STACK_DIRECTIVE
+
+GNU_PROPERTY_BTI_PAC
 
 #endif

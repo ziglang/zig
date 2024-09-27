@@ -9,6 +9,9 @@
 
 #ifndef __ISO646_H
 #define __ISO646_H
+#if defined(__MVS__) && __has_include_next(<iso646.h>)
+#include_next <iso646.h>
+#else
 
 #ifndef __cplusplus
 #define and    &&
@@ -24,4 +27,5 @@
 #define xor_eq ^=
 #endif
 
+#endif /* __MVS__ */
 #endif /* __ISO646_H */

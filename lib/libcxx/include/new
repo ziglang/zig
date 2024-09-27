@@ -86,13 +86,12 @@ void  operator delete[](void* ptr, void*) noexcept;
 
 */
 
-#include <__assert> // all public C++ headers provide the assertion handler
-#include <__availability>
 #include <__config>
 #include <__exception/exception.h>
 #include <__type_traits/is_function.h>
 #include <__type_traits/is_same.h>
 #include <__type_traits/remove_cv.h>
+#include <__verbose_abort>
 #include <cstddef>
 #include <version>
 
@@ -204,18 +203,18 @@ inline constexpr destroying_delete_t destroying_delete{};
 
 #if !defined(_LIBCPP_ABI_VCRUNTIME)
 
-_LIBCPP_NODISCARD_AFTER_CXX17 _LIBCPP_OVERRIDABLE_FUNC_VIS void* operator new(std::size_t __sz) _THROW_BAD_ALLOC;
-_LIBCPP_NODISCARD_AFTER_CXX17 _LIBCPP_OVERRIDABLE_FUNC_VIS void*
-operator new(std::size_t __sz, const std::nothrow_t&) _NOEXCEPT _LIBCPP_NOALIAS;
+_LIBCPP_NODISCARD _LIBCPP_OVERRIDABLE_FUNC_VIS void* operator new(std::size_t __sz) _THROW_BAD_ALLOC;
+_LIBCPP_NODISCARD _LIBCPP_OVERRIDABLE_FUNC_VIS void* operator new(std::size_t __sz, const std::nothrow_t&) _NOEXCEPT
+    _LIBCPP_NOALIAS;
 _LIBCPP_OVERRIDABLE_FUNC_VIS void operator delete(void* __p) _NOEXCEPT;
 _LIBCPP_OVERRIDABLE_FUNC_VIS void operator delete(void* __p, const std::nothrow_t&) _NOEXCEPT;
 #  ifndef _LIBCPP_HAS_NO_LIBRARY_SIZED_DEALLOCATION
 _LIBCPP_OVERRIDABLE_FUNC_VIS void operator delete(void* __p, std::size_t __sz) _NOEXCEPT;
 #  endif
 
-_LIBCPP_NODISCARD_AFTER_CXX17 _LIBCPP_OVERRIDABLE_FUNC_VIS void* operator new[](std::size_t __sz) _THROW_BAD_ALLOC;
-_LIBCPP_NODISCARD_AFTER_CXX17 _LIBCPP_OVERRIDABLE_FUNC_VIS void*
-operator new[](std::size_t __sz, const std::nothrow_t&) _NOEXCEPT _LIBCPP_NOALIAS;
+_LIBCPP_NODISCARD _LIBCPP_OVERRIDABLE_FUNC_VIS void* operator new[](std::size_t __sz) _THROW_BAD_ALLOC;
+_LIBCPP_NODISCARD _LIBCPP_OVERRIDABLE_FUNC_VIS void* operator new[](std::size_t __sz, const std::nothrow_t&) _NOEXCEPT
+    _LIBCPP_NOALIAS;
 _LIBCPP_OVERRIDABLE_FUNC_VIS void operator delete[](void* __p) _NOEXCEPT;
 _LIBCPP_OVERRIDABLE_FUNC_VIS void operator delete[](void* __p, const std::nothrow_t&) _NOEXCEPT;
 #  ifndef _LIBCPP_HAS_NO_LIBRARY_SIZED_DEALLOCATION
@@ -223,9 +222,8 @@ _LIBCPP_OVERRIDABLE_FUNC_VIS void operator delete[](void* __p, std::size_t __sz)
 #  endif
 
 #  ifndef _LIBCPP_HAS_NO_LIBRARY_ALIGNED_ALLOCATION
-_LIBCPP_NODISCARD_AFTER_CXX17 _LIBCPP_OVERRIDABLE_FUNC_VIS void*
-operator new(std::size_t __sz, std::align_val_t) _THROW_BAD_ALLOC;
-_LIBCPP_NODISCARD_AFTER_CXX17 _LIBCPP_OVERRIDABLE_FUNC_VIS void*
+_LIBCPP_NODISCARD _LIBCPP_OVERRIDABLE_FUNC_VIS void* operator new(std::size_t __sz, std::align_val_t) _THROW_BAD_ALLOC;
+_LIBCPP_NODISCARD _LIBCPP_OVERRIDABLE_FUNC_VIS void*
 operator new(std::size_t __sz, std::align_val_t, const std::nothrow_t&) _NOEXCEPT _LIBCPP_NOALIAS;
 _LIBCPP_OVERRIDABLE_FUNC_VIS void operator delete(void* __p, std::align_val_t) _NOEXCEPT;
 _LIBCPP_OVERRIDABLE_FUNC_VIS void operator delete(void* __p, std::align_val_t, const std::nothrow_t&) _NOEXCEPT;
@@ -233,9 +231,9 @@ _LIBCPP_OVERRIDABLE_FUNC_VIS void operator delete(void* __p, std::align_val_t, c
 _LIBCPP_OVERRIDABLE_FUNC_VIS void operator delete(void* __p, std::size_t __sz, std::align_val_t) _NOEXCEPT;
 #    endif
 
-_LIBCPP_NODISCARD_AFTER_CXX17 _LIBCPP_OVERRIDABLE_FUNC_VIS void*
+_LIBCPP_NODISCARD _LIBCPP_OVERRIDABLE_FUNC_VIS void*
 operator new[](std::size_t __sz, std::align_val_t) _THROW_BAD_ALLOC;
-_LIBCPP_NODISCARD_AFTER_CXX17 _LIBCPP_OVERRIDABLE_FUNC_VIS void*
+_LIBCPP_NODISCARD _LIBCPP_OVERRIDABLE_FUNC_VIS void*
 operator new[](std::size_t __sz, std::align_val_t, const std::nothrow_t&) _NOEXCEPT _LIBCPP_NOALIAS;
 _LIBCPP_OVERRIDABLE_FUNC_VIS void operator delete[](void* __p, std::align_val_t) _NOEXCEPT;
 _LIBCPP_OVERRIDABLE_FUNC_VIS void operator delete[](void* __p, std::align_val_t, const std::nothrow_t&) _NOEXCEPT;
@@ -244,12 +242,8 @@ _LIBCPP_OVERRIDABLE_FUNC_VIS void operator delete[](void* __p, std::size_t __sz,
 #    endif
 #  endif
 
-_LIBCPP_NODISCARD_AFTER_CXX17 inline _LIBCPP_HIDE_FROM_ABI void* operator new(std::size_t, void* __p) _NOEXCEPT {
-  return __p;
-}
-_LIBCPP_NODISCARD_AFTER_CXX17 inline _LIBCPP_HIDE_FROM_ABI void* operator new[](std::size_t, void* __p) _NOEXCEPT {
-  return __p;
-}
+_LIBCPP_NODISCARD inline _LIBCPP_HIDE_FROM_ABI void* operator new(std::size_t, void* __p) _NOEXCEPT { return __p; }
+_LIBCPP_NODISCARD inline _LIBCPP_HIDE_FROM_ABI void* operator new[](std::size_t, void* __p) _NOEXCEPT { return __p; }
 inline _LIBCPP_HIDE_FROM_ABI void operator delete(void*, void*) _NOEXCEPT {}
 inline _LIBCPP_HIDE_FROM_ABI void operator delete[](void*, void*) _NOEXCEPT {}
 
@@ -334,7 +328,7 @@ inline _LIBCPP_HIDE_FROM_ABI void __libcpp_deallocate_unsized(void* __ptr, size_
 }
 
 template <class _Tp>
-_LIBCPP_NODISCARD_AFTER_CXX17 inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR _Tp* __launder(_Tp* __p) _NOEXCEPT {
+_LIBCPP_NODISCARD inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR _Tp* __launder(_Tp* __p) _NOEXCEPT {
   static_assert(!(is_function<_Tp>::value), "can't launder functions");
   static_assert(!(is_same<void, __remove_cv_t<_Tp> >::value), "can't launder cv-void");
   return __builtin_launder(__p);
@@ -342,7 +336,7 @@ _LIBCPP_NODISCARD_AFTER_CXX17 inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR _Tp
 
 #if _LIBCPP_STD_VER >= 17
 template <class _Tp>
-_LIBCPP_NODISCARD_AFTER_CXX17 inline _LIBCPP_HIDE_FROM_ABI constexpr _Tp* launder(_Tp* __p) noexcept {
+[[nodiscard]] inline _LIBCPP_HIDE_FROM_ABI constexpr _Tp* launder(_Tp* __p) noexcept {
   return std::__launder(__p);
 }
 #endif

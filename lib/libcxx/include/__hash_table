@@ -28,12 +28,9 @@
 #include <__type_traits/can_extract_key.h>
 #include <__type_traits/conditional.h>
 #include <__type_traits/is_const.h>
-#include <__type_traits/is_copy_constructible.h>
+#include <__type_traits/is_constructible.h>
+#include <__type_traits/is_nothrow_assignable.h>
 #include <__type_traits/is_nothrow_constructible.h>
-#include <__type_traits/is_nothrow_copy_constructible.h>
-#include <__type_traits/is_nothrow_default_constructible.h>
-#include <__type_traits/is_nothrow_move_assignable.h>
-#include <__type_traits/is_nothrow_move_constructible.h>
 #include <__type_traits/is_pointer.h>
 #include <__type_traits/is_reference.h>
 #include <__type_traits/is_swappable.h>
@@ -243,9 +240,9 @@ public:
 
 private:
   static_assert(!is_const<__node_type>::value, "_NodePtr should never be a pointer to const");
-  static_assert((is_same<typename pointer_traits<_VoidPtr>::element_type, void>::value),
+  static_assert(is_same<typename pointer_traits<_VoidPtr>::element_type, void>::value,
                 "_VoidPtr does not point to unqualified void type");
-  static_assert((is_same<__rebind_pointer_t<_VoidPtr, __node_type>, _NodePtr>::value),
+  static_assert(is_same<__rebind_pointer_t<_VoidPtr, __node_type>, _NodePtr>::value,
                 "_VoidPtr does not rebind to _NodePtr.");
 };
 
@@ -284,13 +281,21 @@ public:
 
   _LIBCPP_HIDE_FROM_ABI __hash_iterator() _NOEXCEPT : __node_(nullptr) {}
 
-  _LIBCPP_HIDE_FROM_ABI reference operator*() const { return __node_->__upcast()->__get_value(); }
+  _LIBCPP_HIDE_FROM_ABI reference operator*() const {
+    _LIBCPP_ASSERT_NON_NULL(
+        __node_ != nullptr, "Attempted to dereference a non-dereferenceable unordered container iterator");
+    return __node_->__upcast()->__get_value();
+  }
 
   _LIBCPP_HIDE_FROM_ABI pointer operator->() const {
+    _LIBCPP_ASSERT_NON_NULL(
+        __node_ != nullptr, "Attempted to dereference a non-dereferenceable unordered container iterator");
     return pointer_traits<pointer>::pointer_to(__node_->__upcast()->__get_value());
   }
 
   _LIBCPP_HIDE_FROM_ABI __hash_iterator& operator++() {
+    _LIBCPP_ASSERT_NON_NULL(
+        __node_ != nullptr, "Attempted to increment a non-incrementable unordered container iterator");
     __node_ = __node_->__next_;
     return *this;
   }
@@ -345,12 +350,20 @@ public:
 
   _LIBCPP_HIDE_FROM_ABI __hash_const_iterator(const __non_const_iterator& __x) _NOEXCEPT : __node_(__x.__node_) {}
 
-  _LIBCPP_HIDE_FROM_ABI reference operator*() const { return __node_->__upcast()->__get_value(); }
+  _LIBCPP_HIDE_FROM_ABI reference operator*() const {
+    _LIBCPP_ASSERT_NON_NULL(
+        __node_ != nullptr, "Attempted to dereference a non-dereferenceable unordered container const_iterator");
+    return __node_->__upcast()->__get_value();
+  }
   _LIBCPP_HIDE_FROM_ABI pointer operator->() const {
+    _LIBCPP_ASSERT_NON_NULL(
+        __node_ != nullptr, "Attempted to dereference a non-dereferenceable unordered container const_iterator");
     return pointer_traits<pointer>::pointer_to(__node_->__upcast()->__get_value());
   }
 
   _LIBCPP_HIDE_FROM_ABI __hash_const_iterator& operator++() {
+    _LIBCPP_ASSERT_NON_NULL(
+        __node_ != nullptr, "Attempted to increment a non-incrementable unordered container const_iterator");
     __node_ = __node_->__next_;
     return *this;
   }
@@ -400,13 +413,21 @@ public:
 
   _LIBCPP_HIDE_FROM_ABI __hash_local_iterator() _NOEXCEPT : __node_(nullptr) {}
 
-  _LIBCPP_HIDE_FROM_ABI reference operator*() const { return __node_->__upcast()->__get_value(); }
+  _LIBCPP_HIDE_FROM_ABI reference operator*() const {
+    _LIBCPP_ASSERT_NON_NULL(
+        __node_ != nullptr, "Attempted to dereference a non-dereferenceable unordered container local_iterator");
+    return __node_->__upcast()->__get_value();
+  }
 
   _LIBCPP_HIDE_FROM_ABI pointer operator->() const {
+    _LIBCPP_ASSERT_NON_NULL(
+        __node_ != nullptr, "Attempted to dereference a non-dereferenceable unordered container local_iterator");
     return pointer_traits<pointer>::pointer_to(__node_->__upcast()->__get_value());
   }
 
   _LIBCPP_HIDE_FROM_ABI __hash_local_iterator& operator++() {
+    _LIBCPP_ASSERT_NON_NULL(
+        __node_ != nullptr, "Attempted to increment a non-incrementable unordered container local_iterator");
     __node_ = __node_->__next_;
     if (__node_ != nullptr && std::__constrain_hash(__node_->__hash(), __bucket_count_) != __bucket_)
       __node_ = nullptr;
@@ -475,13 +496,21 @@ public:
         __bucket_(__x.__bucket_),
         __bucket_count_(__x.__bucket_count_) {}
 
-  _LIBCPP_HIDE_FROM_ABI reference operator*() const { return __node_->__upcast()->__get_value(); }
+  _LIBCPP_HIDE_FROM_ABI reference operator*() const {
+    _LIBCPP_ASSERT_NON_NULL(
+        __node_ != nullptr, "Attempted to dereference a non-dereferenceable unordered container const_local_iterator");
+    return __node_->__upcast()->__get_value();
+  }
 
   _LIBCPP_HIDE_FROM_ABI pointer operator->() const {
+    _LIBCPP_ASSERT_NON_NULL(
+        __node_ != nullptr, "Attempted to dereference a non-dereferenceable unordered container const_local_iterator");
     return pointer_traits<pointer>::pointer_to(__node_->__upcast()->__get_value());
   }
 
   _LIBCPP_HIDE_FROM_ABI __hash_const_local_iterator& operator++() {
+    _LIBCPP_ASSERT_NON_NULL(
+        __node_ != nullptr, "Attempted to increment a non-incrementable unordered container const_local_iterator");
     __node_ = __node_->__next_;
     if (__node_ != nullptr && std::__constrain_hash(__node_->__hash(), __bucket_count_) != __bucket_)
       __node_ = nullptr;
@@ -671,11 +700,11 @@ private:
   // check for sane allocator pointer rebinding semantics. Rebinding the
   // allocator for a new pointer type should be exactly the same as rebinding
   // the pointer using 'pointer_traits'.
-  static_assert((is_same<__node_pointer, typename __node_traits::pointer>::value),
+  static_assert(is_same<__node_pointer, typename __node_traits::pointer>::value,
                 "Allocator does not rebind pointers in a sane manner.");
   typedef __rebind_alloc<__node_traits, __first_node> __node_base_allocator;
   typedef allocator_traits<__node_base_allocator> __node_base_traits;
-  static_assert((is_same<__node_base_pointer, typename __node_base_traits::pointer>::value),
+  static_assert(is_same<__node_base_pointer, typename __node_base_traits::pointer>::value,
                 "Allocator does not rebind pointers in a sane manner.");
 
 private:
@@ -802,7 +831,7 @@ public:
     return __emplace_unique_key_args(_NodeTypes::__get_key(__x), std::move(__x));
   }
 
-  template <class _Pp, class = __enable_if_t<!__is_same_uncvref<_Pp, __container_value_type>::value> >
+  template <class _Pp, __enable_if_t<!__is_same_uncvref<_Pp, __container_value_type>::value, int> = 0>
   _LIBCPP_HIDE_FROM_ABI pair<iterator, bool> __insert_unique(_Pp&& __x) {
     return __emplace_unique(std::forward<_Pp>(__x));
   }
@@ -899,13 +928,12 @@ public:
 
   _LIBCPP_HIDE_FROM_ABI void swap(__hash_table& __u)
 #if _LIBCPP_STD_VER <= 11
-      _NOEXCEPT_(__is_nothrow_swappable<hasher>::value&& __is_nothrow_swappable<key_equal>::value &&
+      _NOEXCEPT_(__is_nothrow_swappable_v<hasher>&& __is_nothrow_swappable_v<key_equal> &&
                  (!allocator_traits<__pointer_allocator>::propagate_on_container_swap::value ||
-                  __is_nothrow_swappable<__pointer_allocator>::value) &&
-                 (!__node_traits::propagate_on_container_swap::value ||
-                  __is_nothrow_swappable<__node_allocator>::value));
+                  __is_nothrow_swappable_v<__pointer_allocator>) &&
+                 (!__node_traits::propagate_on_container_swap::value || __is_nothrow_swappable_v<__node_allocator>));
 #else
-      _NOEXCEPT_(__is_nothrow_swappable<hasher>::value&& __is_nothrow_swappable<key_equal>::value);
+      _NOEXCEPT_(__is_nothrow_swappable_v<hasher>&& __is_nothrow_swappable_v<key_equal>);
 #endif
 
   _LIBCPP_HIDE_FROM_ABI size_type max_bucket_count() const _NOEXCEPT { return max_size(); }
@@ -1072,8 +1100,8 @@ __hash_table<_Tp, _Hash, _Equal, _Alloc>::__hash_table(__hash_table&& __u, const
 template <class _Tp, class _Hash, class _Equal, class _Alloc>
 __hash_table<_Tp, _Hash, _Equal, _Alloc>::~__hash_table() {
 #if defined(_LIBCPP_CXX03_LANG)
-  static_assert((is_copy_constructible<key_equal>::value), "Predicate must be copy-constructible.");
-  static_assert((is_copy_constructible<hasher>::value), "Hasher must be copy-constructible.");
+  static_assert(is_copy_constructible<key_equal>::value, "Predicate must be copy-constructible.");
+  static_assert(is_copy_constructible<hasher>::value, "Hasher must be copy-constructible.");
 #endif
 
   __deallocate_node(__p1_.first().__next_);
@@ -1199,7 +1227,7 @@ template <class _InputIterator>
 void __hash_table<_Tp, _Hash, _Equal, _Alloc>::__assign_unique(_InputIterator __first, _InputIterator __last) {
   typedef iterator_traits<_InputIterator> _ITraits;
   typedef typename _ITraits::value_type _ItValueType;
-  static_assert((is_same<_ItValueType, __container_value_type>::value),
+  static_assert(is_same<_ItValueType, __container_value_type>::value,
                 "__assign_unique may only be called with the containers value type");
 
   if (bucket_count() != 0) {
@@ -1956,12 +1984,12 @@ __hash_table<_Tp, _Hash, _Equal, _Alloc>::__equal_range_multi(const _Key& __k) c
 template <class _Tp, class _Hash, class _Equal, class _Alloc>
 void __hash_table<_Tp, _Hash, _Equal, _Alloc>::swap(__hash_table& __u)
 #if _LIBCPP_STD_VER <= 11
-    _NOEXCEPT_(__is_nothrow_swappable<hasher>::value&& __is_nothrow_swappable<key_equal>::value &&
+    _NOEXCEPT_(__is_nothrow_swappable_v<hasher>&& __is_nothrow_swappable_v<key_equal> &&
                (!allocator_traits<__pointer_allocator>::propagate_on_container_swap::value ||
-                __is_nothrow_swappable<__pointer_allocator>::value) &&
-               (!__node_traits::propagate_on_container_swap::value || __is_nothrow_swappable<__node_allocator>::value))
+                __is_nothrow_swappable_v<__pointer_allocator>) &&
+               (!__node_traits::propagate_on_container_swap::value || __is_nothrow_swappable_v<__node_allocator>))
 #else
-    _NOEXCEPT_(__is_nothrow_swappable<hasher>::value&& __is_nothrow_swappable<key_equal>::value)
+    _NOEXCEPT_(__is_nothrow_swappable_v<hasher>&& __is_nothrow_swappable_v<key_equal>)
 #endif
 {
   _LIBCPP_ASSERT_COMPATIBLE_ALLOCATOR(

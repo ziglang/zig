@@ -137,9 +137,9 @@ else()
     set(ZIG_SYSTEM_LIBCXX "stdc++" CACHE STRING "system libcxx name for build.zig")
 endif()
 
-find_package(llvm 18)
-find_package(clang 18)
-find_package(lld 18)
+find_package(llvm 19)
+find_package(clang 19)
+find_package(lld 19)
 
 if(ZIG_STATIC_ZLIB)
     if (MSVC)
@@ -834,6 +834,11 @@ else()
   endif()
 endif()
 
+option(ZIG2_NO_RTLIB "Build zig2 without linking to a compiler runtime library (for `zig cc` only)" OFF)
+if(ZIG2_NO_RTLIB)
+  set(ZIG2_LINK_FLAGS "${ZIG2_LINK_FLAGS} -rtlib=none")
+endif()
+
 set(ZIG1_WASM_MODULE "${PROJECT_SOURCE_DIR}/stage1/zig1.wasm")
 set(ZIG1_C_SOURCE "${PROJECT_BINARY_DIR}/zig1.c")
 set(ZIG2_C_SOURCE "${PROJECT_BINARY_DIR}/zig2.c")
@@ -889,9 +894,7 @@ set(BUILD_COMPILER_RT_ARGS
   --name compiler_rt
   -femit-bin="${ZIG_COMPILER_RT_C_SOURCE}"
   -target "${ZIG_HOST_TARGET_TRIPLE}"
-  --dep "build_options"
   "-Mroot=lib/compiler_rt.zig"
-  "-Mbuild_options=${ZIG_CONFIG_ZIG_OUT}"
 )
 
 add_custom_command(

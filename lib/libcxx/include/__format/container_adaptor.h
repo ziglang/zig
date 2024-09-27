@@ -18,11 +18,11 @@
 #include <__format/concepts.h>
 #include <__format/formatter.h>
 #include <__format/range_default_formatter.h>
+#include <__fwd/queue.h>
+#include <__fwd/stack.h>
 #include <__ranges/ref_view.h>
 #include <__type_traits/is_const.h>
 #include <__type_traits/maybe_const.h>
-#include <queue>
-#include <stack>
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 

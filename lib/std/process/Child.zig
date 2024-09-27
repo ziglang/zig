@@ -316,9 +316,7 @@ pub const RunResult = struct {
 };
 
 fn fifoToOwnedArrayList(fifo: *std.io.PollFifo) std.ArrayList(u8) {
-    if (fifo.head > 0) {
-        @memcpy(fifo.buf[0..fifo.count], fifo.buf[fifo.head..][0..fifo.count]);
-    }
+    if (fifo.head != 0) fifo.realign();
     const result = std.ArrayList(u8){
         .items = fifo.buf[0..fifo.count],
         .capacity = fifo.buf.len,
@@ -907,12 +905,12 @@ fn spawnWindows(self: *ChildProcess) SpawnError!void {
         var cmd_line_cache = WindowsCommandLineCache.init(self.allocator, self.argv);
         defer cmd_line_cache.deinit();
 
-        var app_buf = std.ArrayListUnmanaged(u16){};
+        var app_buf: std.ArrayListUnmanaged(u16) = .empty;
         defer app_buf.deinit(self.allocator);
 
         try app_buf.appendSlice(self.allocator, app_name_w);
 
-        var dir_buf = std.ArrayListUnmanaged(u16){};
+        var dir_buf: std.ArrayListUnmanaged(u16) = .empty;
         defer dir_buf.deinit(self.allocator);
 
         if (cwd_path_w.len > 0) {

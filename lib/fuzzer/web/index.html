@@ -1,0 +1,161 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Zig Build System Interface</title>
+    <style type="text/css">
+      body {
+        font-family: system-ui, -apple-system, Roboto, "Segoe UI", sans-serif;
+        color: #000000;
+      }
+      .hidden {
+        display: none;
+      }
+      table {
+        width: 100%;
+      }
+      a {
+        color: #2A6286;
+      }
+      pre{
+        font-family:"Source Code Pro",monospace;
+        font-size:1em;
+        background-color:#F5F5F5;
+        padding: 1em;
+        margin: 0;
+        overflow-x: auto;
+      }
+      :not(pre) > code {
+        white-space: break-spaces;
+      }
+      code {
+        font-family:"Source Code Pro",monospace;
+        font-size: 0.9em;
+      }
+      code a {
+        color: #000000;
+      }
+      kbd {
+        color: #000;
+        background-color: #fafbfc;
+        border-color: #d1d5da;
+        border-bottom-color: #c6cbd1;
+        box-shadow-color: #c6cbd1;
+        display: inline-block;
+        padding: 0.3em 0.2em;
+        font: 1.2em monospace;
+        line-height: 0.8em;
+        vertical-align: middle;
+        border: solid 1px;
+        border-radius: 3px;
+        box-shadow: inset 0 -1px 0;
+        cursor: default;
+      }
+
+      .l {
+        display: inline-block;
+        background: red;
+        width: 1em;
+        height: 1em;
+        border-radius: 1em;
+      }
+      .c {
+        background-color: green;
+      }
+
+      .tok-kw {
+          color: #333;
+          font-weight: bold;
+      }
+      .tok-str {
+          color: #d14;
+      }
+      .tok-builtin {
+          color: #0086b3;
+      }
+      .tok-comment {
+          color: #777;
+          font-style: italic;
+      }
+      .tok-fn {
+          color: #900;
+          font-weight: bold;
+      }
+      .tok-null {
+          color: #008080;
+      }
+      .tok-number {
+          color: #008080;
+      }
+      .tok-type {
+          color: #458;
+          font-weight: bold;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        body {
+          background-color: #111;
+          color: #bbb;
+        }
+        pre {
+          background-color: #222;
+          color: #ccc;
+        }
+        a {
+          color: #88f;
+        }
+        code a {
+          color: #ccc;
+        }
+        .l {
+          background-color: red;
+        }
+        .c {
+          background-color: green;
+        }
+        .tok-kw {
+            color: #eee;
+        }
+        .tok-str {
+            color: #2e5;
+        }
+        .tok-builtin {
+            color: #ff894c;
+        }
+        .tok-comment {
+            color: #aa7;
+        }
+        .tok-fn {
+            color: #B1A0F8;
+        }
+        .tok-null {
+            color: #ff8080;
+        }
+        .tok-number {
+            color: #ff8080;
+        }
+        .tok-type {
+            color: #68f;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <p id="status">Loading JavaScript...</p>
+    <div id="sectStats" class="hidden">
+      <ul>
+        <li>Total Runs: <span id="statTotalRuns"></span></li>
+        <li>Unique Runs: <span id="statUniqueRuns"></span></li>
+        <li>Speed (Runs/Second): <span id="statSpeed"></span></li>
+        <li>Coverage: <span id="statCoverage"></span></li>
+        <li>Entry Points: <ul id="entryPointsList"></ul></li>
+      </ul>
+    </div>
+    <div id="sectSource" class="hidden">
+      <h2>Source Code</h2>
+      <pre><code id="sourceText"></code></pre>
+    </div>
+    <script src="main.js"></script>
+  </body>
+</html>
+

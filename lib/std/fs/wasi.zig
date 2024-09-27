@@ -24,7 +24,7 @@ pub const Preopens = struct {
 };
 
 pub fn preopensAlloc(gpa: Allocator) Allocator.Error!Preopens {
-    var names: std.ArrayListUnmanaged([]const u8) = .{};
+    var names: std.ArrayListUnmanaged([]const u8) = .empty;
     defer names.deinit(gpa);
 
     try names.ensureUnusedCapacity(gpa, 3);

@@ -13,7 +13,7 @@ gpa: Allocator,
 arena: Allocator,
 code: Zir,
 air_instructions: std.MultiArrayList(Air.Inst) = .{},
-air_extra: std.ArrayListUnmanaged(u32) = .{},
+air_extra: std.ArrayListUnmanaged(u32) = .empty,
 /// Maps ZIR to AIR.
 inst_map: InstMap = .{},
 /// The "owner" of a `Sema` represents the root "thing" that is being analyzed.
@@ -65,7 +65,7 @@ generic_call_src: LazySrcLoc = LazySrcLoc.unneeded,
 /// They are created when an break_inline passes through a runtime condition, because
 /// Sema must convert comptime control flow to runtime control flow, which means
 /// breaking from a block.
-post_hoc_blocks: std.AutoHashMapUnmanaged(Air.Inst.Index, *LabeledBlock) = .{},
+post_hoc_blocks: std.AutoHashMapUnmanaged(Air.Inst.Index, *LabeledBlock) = .empty,
 /// Populated with the last compile error created.
 err: ?*Zcu.ErrorMsg = null,
 /// Set to true when analyzing a func type instruction so that nested generic
@@ -74,12 +74,12 @@ no_partial_func_ty: bool = false,
 
 /// The temporary arena is used for the memory of the `InferredAlloc` values
 /// here so the values can be dropped without any cleanup.
-unresolved_inferred_allocs: std.AutoArrayHashMapUnmanaged(Air.Inst.Index, InferredAlloc) = .{},
+unresolved_inferred_allocs: std.AutoArrayHashMapUnmanaged(Air.Inst.Index, InferredAlloc) = .empty,
 
 /// Links every pointer derived from a base `alloc` back to that `alloc`. Used
 /// to detect comptime-known `const`s.
 /// TODO: ZIR liveness analysis would allow us to remove elements from this map.
-base_allocs: std.AutoHashMapUnmanaged(Air.Inst.Index, Air.Inst.Index) = .{},
+base_allocs: std.AutoHashMapUnmanaged(Air.Inst.Index, Air.Inst.Index) = .empty,
 
 /// Runtime `alloc`s are placed in this map to track all comptime-known writes
 /// before the corresponding `make_ptr_const` instruction.
@@ -90,28 +90,28 @@ base_allocs: std.AutoHashMapUnmanaged(Air.Inst.Index, Air.Inst.Index) = .{},
 /// is comptime-known, and all stores to the pointer must be applied at comptime
 /// to determine the comptime value.
 /// Backed by gpa.
-maybe_comptime_allocs: std.AutoHashMapUnmanaged(Air.Inst.Index, MaybeComptimeAlloc) = .{},
+maybe_comptime_allocs: std.AutoHashMapUnmanaged(Air.Inst.Index, MaybeComptimeAlloc) = .empty,
 
 /// Comptime-mutable allocs, and any comptime allocs which reference it, are
 /// stored as elements of this array.
 /// Pointers to such memory are represented via an index into this array.
 /// Backed by gpa.
-comptime_allocs: std.ArrayListUnmanaged(ComptimeAlloc) = .{},
+comptime_allocs: std.ArrayListUnmanaged(ComptimeAlloc) = .empty,
 
 /// A list of exports performed by this analysis. After this `Sema` terminates,
 /// these are flushed to `Zcu.single_exports` or `Zcu.multi_exports`.
-exports: std.ArrayListUnmanaged(Zcu.Export) = .{},
+exports: std.ArrayListUnmanaged(Zcu.Export) = .empty,
 
 /// All references registered so far by this `Sema`. This is a temporary duplicate
 /// of data stored in `Zcu.all_references`. It exists to avoid adding references to
 /// a given `AnalUnit` multiple times.
-references: std.AutoArrayHashMapUnmanaged(AnalUnit, void) = .{},
-type_references: std.AutoArrayHashMapUnmanaged(InternPool.Index, void) = .{},
+references: std.AutoArrayHashMapUnmanaged(AnalUnit, void) = .empty,
+type_references: std.AutoArrayHashMapUnmanaged(InternPool.Index, void) = .empty,
 
 /// All dependencies registered so far by this `Sema`. This is a temporary duplicate
 /// of the main dependency data. It exists to avoid adding dependencies to a given
 /// `AnalUnit` multiple times.
-dependencies: std.AutoArrayHashMapUnmanaged(InternPool.Dependee, void) = .{},
+dependencies: std.AutoArrayHashMapUnmanaged(InternPool.Dependee, void) = .empty,
 
 /// Whether memoization of this call is permitted. Operations with side effects global
 /// to the `Sema`, such as `@setEvalBranchQuota`, set this to `false`. It is observed
@@ -208,7 +208,7 @@ pub const InferredErrorSet = struct {
     /// are returned from any dependent functions.
     errors: NameMap = .{},
     /// Other inferred error sets which this inferred error set should include.
-    inferred_error_sets: std.AutoArrayHashMapUnmanaged(InternPool.Index, void) = .{},
+    inferred_error_sets: std.AutoArrayHashMapUnmanaged(InternPool.Index, void) = .empty,
     /// The regular error set created by resolving this inferred error set.
     resolved: InternPool.Index = .none,
 
@@ -508,9 +508,9 @@ pub const Block = struct {
         /// * for a `switch_block[_ref]`, this refers to dummy `br` instructions
         ///   which correspond to `switch_continue` ZIR. The switch logic will
         ///   rewrite these to appropriate AIR switch dispatches.
-        extra_insts: std.ArrayListUnmanaged(Air.Inst.Index) = .{},
+        extra_insts: std.ArrayListUnmanaged(Air.Inst.Index) = .empty,
         /// Same indexes, capacity, length as `extra_insts`.
-        extra_src_locs: std.ArrayListUnmanaged(LazySrcLoc) = .{},
+        extra_src_locs: std.ArrayListUnmanaged(LazySrcLoc) = .empty,
 
         pub fn deinit(merges: *@This(), allocator: Allocator) void {
             merges.results.deinit(allocator);
@@ -871,7 +871,7 @@ const InferredAlloc = struct {
     /// is known. These should be rewritten to perform any required coercions
     /// when the type is resolved.
     /// Allocated from `sema.arena`.
-    prongs: std.ArrayListUnmanaged(Air.Inst.Index) = .{},
+    prongs: std.ArrayListUnmanaged(Air.Inst.Index) = .empty,
 };
 
 const NeededComptimeReason = struct {
@@ -1361,6 +1361,7 @@ fn analyzeBodyInner(
                     .value_placeholder => unreachable, // never appears in a body
                     .field_parent_ptr => try sema.zirFieldParentPtr(block, extended),
                     .builtin_value => try sema.zirBuiltinValue(extended),
+                    .inplace_arith_result_ty => try sema.zirInplaceArithResultTy(extended),
                 };
             },
 
@@ -2908,7 +2909,7 @@ fn createTypeName(
             const fn_info = sema.code.getFnInfo(ip.funcZirBodyInst(sema.func_index).resolve(ip) orelse return error.AnalysisFail);
             const zir_tags = sema.code.instructions.items(.tag);
 
-            var buf: std.ArrayListUnmanaged(u8) = .{};
+            var buf: std.ArrayListUnmanaged(u8) = .empty;
             defer buf.deinit(gpa);
 
             const writer = buf.writer(gpa);
@@ -4487,7 +4488,7 @@ fn zirTryOperandTy(sema: *Sema, block: *Block, inst: Zir.Inst.Index, is_ref: boo
         break :ty operand_ty.childType(zcu);
     } else operand_ty;
 
-    const err_set_ty = err_set: {
+    const err_set_ty: Type = err_set: {
         // There are awkward cases, like `?E`. Our strategy is to repeatedly unwrap optionals
         // until we hit an error union or set.
         var cur_ty = sema.fn_ret_ty;
@@ -4496,16 +4497,12 @@ fn zirTryOperandTy(sema: *Sema, block: *Block, inst: Zir.Inst.Index, is_ref: boo
                 .error_set => break :err_set cur_ty,
                 .error_union => break :err_set cur_ty.errorUnionSet(zcu),
                 .optional => cur_ty = cur_ty.optionalChild(zcu),
-                else => return sema.failWithOwnedErrorMsg(block, msg: {
-                    const msg = try sema.errMsg(src, "expected '{}', found error set", .{sema.fn_ret_ty.fmt(pt)});
-                    errdefer msg.destroy(sema.gpa);
-                    const ret_ty_src: LazySrcLoc = .{
-                        .base_node_inst = sema.getOwnerFuncDeclInst(),
-                        .offset = .{ .node_offset_fn_type_ret_ty = 0 },
-                    };
-                    try sema.errNote(ret_ty_src, msg, "function cannot return an error", .{});
-                    break :msg msg;
-                }),
+                else => {
+                    // This function cannot return an error.
+                    // `try` is still valid if the error case is impossible, i.e. no error is returned.
+                    // So, the result type has an error set of `error{}`.
+                    break :err_set .fromInterned(try zcu.intern_pool.getErrorSetType(zcu.gpa, pt.tid, &.{}));
+                },
             }
         }
     };
@@ -5431,6 +5428,9 @@ fn zirValidateDestructure(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
             const msg = try sema.errMsg(src, "type '{}' cannot be destructured", .{operand_ty.fmt(pt)});
             errdefer msg.destroy(sema.gpa);
             try sema.errNote(destructure_src, msg, "result destructured here", .{});
+            if (operand_ty.zigTypeTag(pt.zcu) == .error_union) {
+                try sema.errNote(src, msg, "consider using 'try', 'catch', or 'if'", .{});
+            }
             break :msg msg;
         });
     }
@@ -6460,15 +6460,7 @@ fn zirExport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
             if (ptr_info.byte_offset != 0) {
                 return sema.fail(block, ptr_src, "TODO: export pointer in middle of value", .{});
             }
-            try sema.ensureNavResolved(src, nav);
-            // Make sure to export the owner Nav if applicable.
-            const exported_nav = switch (ip.indexToKey(ip.getNav(nav).status.resolved.val)) {
-                .variable => |v| v.owner_nav,
-                .@"extern" => |e| e.owner_nav,
-                .func => |f| f.owner_nav,
-                else => nav,
-            };
-            try sema.analyzeExport(block, src, options, exported_nav);
+            try sema.analyzeExport(block, src, options, nav);
         },
     }
 }
@@ -6478,7 +6470,7 @@ pub fn analyzeExport(
     block: *Block,
     src: LazySrcLoc,
     options: Zcu.Export.Options,
-    exported_nav_index: InternPool.Nav.Index,
+    orig_nav_index: InternPool.Nav.Index,
 ) !void {
     const gpa = sema.gpa;
     const pt = sema.pt;
@@ -6488,7 +6480,15 @@ pub fn analyzeExport(
     if (options.linkage == .internal)
         return;
 
-    try sema.ensureNavResolved(src, exported_nav_index);
+    try sema.ensureNavResolved(src, orig_nav_index);
+
+    const exported_nav_index = switch (ip.indexToKey(ip.getNav(orig_nav_index).status.resolved.val)) {
+        .variable => |v| v.owner_nav,
+        .@"extern" => |e| e.owner_nav,
+        .func => |f| f.owner_nav,
+        else => orig_nav_index,
+    };
+
     const exported_nav = ip.getNav(exported_nav_index);
     const export_ty = Type.fromInterned(exported_nav.typeOf(ip));
 
@@ -6851,11 +6851,11 @@ fn lookupInNamespace(
 
     if (observe_usingnamespace and (namespace.pub_usingnamespace.items.len != 0 or namespace.priv_usingnamespace.items.len != 0)) {
         const gpa = sema.gpa;
-        var checked_namespaces: std.AutoArrayHashMapUnmanaged(*Namespace, void) = .{};
+        var checked_namespaces: std.AutoArrayHashMapUnmanaged(*Namespace, void) = .empty;
         defer checked_namespaces.deinit(gpa);
 
         // Keep track of name conflicts for error notes.
-        var candidates: std.ArrayListUnmanaged(InternPool.Nav.Index) = .{};
+        var candidates: std.ArrayListUnmanaged(InternPool.Nav.Index) = .empty;
         defer candidates.deinit(gpa);
 
         try checked_namespaces.put(gpa, namespace, {});
@@ -8980,36 +8980,42 @@ fn zirDeclLiteral(sema: *Sema, block: *Block, inst: Zir.Inst.Index, do_coerce: b
         sema.code.nullTerminatedString(extra.field_name_start),
         .no_embedded_nulls,
     );
+
     const orig_ty = sema.resolveType(block, src, extra.lhs) catch |err| switch (err) {
-        error.GenericPoison => {
-            // Treat this as a normal enum literal.
-            return Air.internedToRef(try pt.intern(.{ .enum_literal = name }));
-        },
+        error.GenericPoison => Type.generic_poison,
         else => |e| return e,
     };
 
-    var ty = orig_ty;
-    while (true) switch (ty.zigTypeTag(zcu)) {
-        .error_union => ty = ty.errorUnionPayload(zcu),
-        .optional => ty = ty.optionalChild(zcu),
-        .enum_literal, .error_set => {
+    const uncoerced_result = res: {
+        if (orig_ty.toIntern() == .generic_poison_type) {
             // Treat this as a normal enum literal.
-            return Air.internedToRef(try pt.intern(.{ .enum_literal = name }));
-        },
-        else => break,
+            break :res Air.internedToRef(try pt.intern(.{ .enum_literal = name }));
+        }
+
+        var ty = orig_ty;
+        while (true) switch (ty.zigTypeTag(zcu)) {
+            .error_union => ty = ty.errorUnionPayload(zcu),
+            .optional => ty = ty.optionalChild(zcu),
+            .pointer => ty = if (ty.isSinglePointer(zcu)) ty.childType(zcu) else break,
+            .enum_literal, .error_set => {
+                // Treat this as a normal enum literal.
+                break :res Air.internedToRef(try pt.intern(.{ .enum_literal = name }));
+            },
+            else => break,
+        };
+
+        break :res try sema.fieldVal(block, src, Air.internedToRef(ty.toIntern()), name, src);
     };
 
-    const result = try sema.fieldVal(block, src, Air.internedToRef(ty.toIntern()), name, src);
-
     // Decl literals cannot lookup runtime `var`s.
-    if (!try sema.isComptimeKnown(result)) {
+    if (!try sema.isComptimeKnown(uncoerced_result)) {
         return sema.fail(block, src, "decl literal must be comptime-known", .{});
     }
 
     if (do_coerce) {
-        return sema.coerce(block, orig_ty, result, src);
+        return sema.coerce(block, orig_ty, uncoerced_result, src);
     } else {
-        return result;
+        return uncoerced_result;
     }
 }
 
@@ -17908,12 +17914,15 @@ fn cmpSelf(
     const pt = sema.pt;
     const zcu = pt.zcu;
     const resolved_type = sema.typeOf(casted_lhs);
-    const runtime_src: LazySrcLoc = src: {
-        if (try sema.resolveValue(casted_lhs)) |lhs_val| {
-            if (lhs_val.isUndef(zcu)) return pt.undefRef(Type.bool);
-            if (try sema.resolveValue(casted_rhs)) |rhs_val| {
-                if (rhs_val.isUndef(zcu)) return pt.undefRef(Type.bool);
 
+    const maybe_lhs_val = try sema.resolveValue(casted_lhs);
+    const maybe_rhs_val = try sema.resolveValue(casted_rhs);
+    if (maybe_lhs_val) |v| if (v.isUndef(zcu)) return pt.undefRef(Type.bool);
+    if (maybe_rhs_val) |v| if (v.isUndef(zcu)) return pt.undefRef(Type.bool);
+
+    const runtime_src: LazySrcLoc = src: {
+        if (maybe_lhs_val) |lhs_val| {
+            if (maybe_rhs_val) |rhs_val| {
                 if (resolved_type.zigTypeTag(zcu) == .vector) {
                     const cmp_val = try sema.compareVector(lhs_val, op, rhs_val, resolved_type);
                     return Air.internedToRef(cmp_val.toIntern());
@@ -17934,8 +17943,7 @@ fn cmpSelf(
             // For bools, we still check the other operand, because we can lower
             // bool eq/neq more efficiently.
             if (resolved_type.zigTypeTag(zcu) == .bool) {
-                if (try sema.resolveValue(casted_rhs)) |rhs_val| {
-                    if (rhs_val.isUndef(zcu)) return pt.undefRef(Type.bool);
+                if (maybe_rhs_val) |rhs_val| {
                     return sema.runtimeBoolCmp(block, src, op, casted_lhs, rhs_val.toBool(), lhs_src);
                 }
             }
@@ -19733,6 +19741,14 @@ fn checkNullableType(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) !voi
     return sema.failWithExpectedOptionalType(block, src, ty);
 }
 
+fn checkSentinelType(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) !void {
+    const pt = sema.pt;
+    const zcu = pt.zcu;
+    if (!ty.isSelfComparable(zcu, true)) {
+        return sema.fail(block, src, "non-scalar sentinel type '{}'", .{ty.fmt(pt)});
+    }
+}
+
 fn zirIsNonNull(
     sema: *Sema,
     block: *Block,
@@ -20534,6 +20550,7 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         const val = try sema.resolveConstDefinedValue(block, sentinel_src, coerced, .{
             .needed_comptime_reason = "pointer sentinel value must be comptime-known",
         });
+        try checkSentinelType(sema, block, sentinel_src, elem_ty);
         break :blk val.toIntern();
     } else .none;
 
@@ -22754,7 +22771,7 @@ fn reifyUnion(
         break :tag_ty .{ enum_tag_ty.toIntern(), true };
     } else tag_ty: {
         // We must track field names and set up the tag type ourselves.
-        var field_names: std.AutoArrayHashMapUnmanaged(InternPool.NullTerminatedString, void) = .{};
+        var field_names: std.AutoArrayHashMapUnmanaged(InternPool.NullTerminatedString, void) = .empty;
         try field_names.ensureTotalCapacity(sema.arena, fields_len);
 
         for (field_types, 0..) |*field_ty, field_idx| {
@@ -26199,6 +26216,10 @@ fn analyzeMinMax(
         .child = refined_scalar_ty.toIntern(),
     }) else refined_scalar_ty;
 
+    if (try sema.typeHasOnePossibleValue(refined_ty)) |opv| {
+        return Air.internedToRef(opv.toIntern());
+    }
+
     if (!refined_ty.eql(unrefined_ty, zcu)) {
         // We've reduced the type - cast the result down
         return block.addTyOp(.intcast, refined_ty, cur_minmax.?);
@@ -27336,6 +27357,33 @@ fn zirBuiltinValue(sema: *Sema, extended: Zir.Inst.Extended.InstData) CompileErr
     return Air.internedToRef(ty.toIntern());
 }
 
+fn zirInplaceArithResultTy(sema: *Sema, extended: Zir.Inst.Extended.InstData) CompileError!Air.Inst.Ref {
+    const pt = sema.pt;
+    const zcu = pt.zcu;
+
+    const lhs = try sema.resolveInst(@enumFromInt(extended.operand));
+    const lhs_ty = sema.typeOf(lhs);
+
+    const op: Zir.Inst.InplaceOp = @enumFromInt(extended.small);
+    const ty: Type = switch (op) {
+        .add_eq => ty: {
+            const ptr_size = lhs_ty.ptrSizeOrNull(zcu) orelse break :ty lhs_ty;
+            switch (ptr_size) {
+                .One, .Slice => break :ty lhs_ty, // invalid, let it error
+                .Many, .C => break :ty .usize, // `[*]T + usize`
+            }
+        },
+        .sub_eq => ty: {
+            const ptr_size = lhs_ty.ptrSizeOrNull(zcu) orelse break :ty lhs_ty;
+            switch (ptr_size) {
+                .One, .Slice => break :ty lhs_ty, // invalid, let it error
+                .Many, .C => break :ty .generic_poison, // could be `[*]T - [*]T` or `[*]T - usize`
+            }
+        },
+    };
+    return Air.internedToRef(ty.toIntern());
+}
+
 fn zirBranchHint(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!void {
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -28075,13 +28123,9 @@ fn panicSentinelMismatch(
                 .operation = .And,
             } },
         });
-    } else if (sentinel_ty.isSelfComparable(zcu, true))
-        try parent_block.addBinOp(.cmp_eq, expected_sentinel, actual_sentinel)
-    else {
-        const panic_fn = try pt.getBuiltin("checkNonScalarSentinel");
-        const args: [2]Air.Inst.Ref = .{ expected_sentinel, actual_sentinel };
-        try sema.callBuiltin(parent_block, src, panic_fn, .auto, &args, .@"safety check");
-        return;
+    } else ok: {
+        assert(sentinel_ty.isSelfComparable(zcu, true));
+        break :ok try parent_block.addBinOp(.cmp_eq, expected_sentinel, actual_sentinel);
     };
 
     if (!pt.zcu.comp.formatted_panics) {
@@ -33534,6 +33578,7 @@ fn analyzeSlice(
     const sentinel = s: {
         if (sentinel_opt != .none) {
             const casted = try sema.coerce(block, elem_ty, sentinel_opt, sentinel_src);
+            try checkSentinelType(sema, block, sentinel_src, elem_ty);
             break :s try sema.resolveConstDefinedValue(block, sentinel_src, casted, .{
                 .needed_comptime_reason = "slice sentinel must be comptime-known",
             });
@@ -33803,51 +33848,61 @@ fn cmpNumeric(
     else
         uncasted_rhs;
 
-    const runtime_src: LazySrcLoc = src: {
-        if (try sema.resolveValue(lhs)) |lhs_val| {
-            if (try sema.resolveValue(rhs)) |rhs_val| {
-                // Compare ints: const vs. undefined (or vice versa)
-                if (!lhs_val.isUndef(zcu) and (lhs_ty.isInt(zcu) or lhs_ty_tag == .comptime_int) and rhs_ty.isInt(zcu) and rhs_val.isUndef(zcu)) {
-                    if (try sema.compareIntsOnlyPossibleResult(try sema.resolveLazyValue(lhs_val), op, rhs_ty)) |res| {
-                        return if (res) .bool_true else .bool_false;
-                    }
-                } else if (!rhs_val.isUndef(zcu) and (rhs_ty.isInt(zcu) or rhs_ty_tag == .comptime_int) and lhs_ty.isInt(zcu) and lhs_val.isUndef(zcu)) {
-                    if (try sema.compareIntsOnlyPossibleResult(try sema.resolveLazyValue(rhs_val), op.reverse(), lhs_ty)) |res| {
-                        return if (res) .bool_true else .bool_false;
-                    }
-                }
+    const maybe_lhs_val = try sema.resolveValue(lhs);
+    const maybe_rhs_val = try sema.resolveValue(rhs);
 
-                if (lhs_val.isUndef(zcu) or rhs_val.isUndef(zcu)) {
-                    return pt.undefRef(Type.bool);
-                }
-                if (lhs_val.isNan(zcu) or rhs_val.isNan(zcu)) {
-                    return if (op == std.math.CompareOperator.neq) .bool_true else .bool_false;
-                }
-                return if (try Value.compareHeteroSema(lhs_val, op, rhs_val, pt))
-                    .bool_true
-                else
-                    .bool_false;
-            } else {
-                if (!lhs_val.isUndef(zcu) and (lhs_ty.isInt(zcu) or lhs_ty_tag == .comptime_int) and rhs_ty.isInt(zcu)) {
-                    // Compare ints: const vs. var
-                    if (try sema.compareIntsOnlyPossibleResult(try sema.resolveLazyValue(lhs_val), op, rhs_ty)) |res| {
-                        return if (res) .bool_true else .bool_false;
-                    }
-                }
-                break :src rhs_src;
+    // If the LHS is const, check if there is a guaranteed result which does not depend on ths RHS value.
+    if (maybe_lhs_val) |lhs_val| {
+        // Result based on comparison exceeding type bounds
+        if (!lhs_val.isUndef(zcu) and (lhs_ty_tag == .int or lhs_ty_tag == .comptime_int) and rhs_ty.isInt(zcu)) {
+            if (try sema.compareIntsOnlyPossibleResult(lhs_val, op, rhs_ty)) |res| {
+                return if (res) .bool_true else .bool_false;
             }
-        } else {
-            if (try sema.resolveValueResolveLazy(rhs)) |rhs_val| {
-                if (!rhs_val.isUndef(zcu) and (rhs_ty.isInt(zcu) or rhs_ty_tag == .comptime_int) and lhs_ty.isInt(zcu)) {
-                    // Compare ints: var vs. const
-                    if (try sema.compareIntsOnlyPossibleResult(try sema.resolveLazyValue(rhs_val), op.reverse(), lhs_ty)) |res| {
-                        return if (res) .bool_true else .bool_false;
-                    }
-                }
-            }
-            break :src lhs_src;
         }
-    };
+        // Result based on NaN comparison
+        if (lhs_val.isNan(zcu)) {
+            return if (op == .neq) .bool_true else .bool_false;
+        }
+        // Result based on inf comparison to int
+        if (lhs_val.isInf(zcu) and rhs_ty_tag == .int) return switch (op) {
+            .neq => .bool_true,
+            .eq => .bool_false,
+            .gt, .gte => if (lhs_val.isNegativeInf(zcu)) .bool_false else .bool_true,
+            .lt, .lte => if (lhs_val.isNegativeInf(zcu)) .bool_true else .bool_false,
+        };
+    }
+
+    // If the RHS is const, check if there is a guaranteed result which does not depend on ths LHS value.
+    if (maybe_rhs_val) |rhs_val| {
+        // Result based on comparison exceeding type bounds
+        if (!rhs_val.isUndef(zcu) and (rhs_ty_tag == .int or rhs_ty_tag == .comptime_int) and lhs_ty.isInt(zcu)) {
+            if (try sema.compareIntsOnlyPossibleResult(rhs_val, op.reverse(), lhs_ty)) |res| {
+                return if (res) .bool_true else .bool_false;
+            }
+        }
+        // Result based on NaN comparison
+        if (rhs_val.isNan(zcu)) {
+            return if (op == .neq) .bool_true else .bool_false;
+        }
+        // Result based on inf comparison to int
+        if (rhs_val.isInf(zcu) and lhs_ty_tag == .int) return switch (op) {
+            .neq => .bool_true,
+            .eq => .bool_false,
+            .gt, .gte => if (rhs_val.isNegativeInf(zcu)) .bool_true else .bool_false,
+            .lt, .lte => if (rhs_val.isNegativeInf(zcu)) .bool_false else .bool_true,
+        };
+    }
+
+    // Any other comparison depends on both values, so the result is undef if either is undef.
+    if (maybe_lhs_val) |v| if (v.isUndef(zcu)) return pt.undefRef(Type.bool);
+    if (maybe_rhs_val) |v| if (v.isUndef(zcu)) return pt.undefRef(Type.bool);
+
+    const runtime_src: LazySrcLoc = if (maybe_lhs_val) |lhs_val| rs: {
+        if (maybe_rhs_val) |rhs_val| {
+            const res = try Value.compareHeteroSema(lhs_val, op, rhs_val, pt);
+            return if (res) .bool_true else .bool_false;
+        } else break :rs rhs_src;
+    } else lhs_src;
 
     // TODO handle comparisons against lazy zero values
     // Some values can be compared against zero without being runtime-known or without forcing
@@ -33885,17 +33940,18 @@ fn cmpNumeric(
         const casted_rhs = try sema.coerce(block, dest_ty, rhs, rhs_src);
         return block.addBinOp(Air.Inst.Tag.fromCmpOp(op, block.float_mode == .optimized), casted_lhs, casted_rhs);
     }
+
     // For mixed unsigned integer sizes, implicit cast both operands to the larger integer.
     // For mixed signed and unsigned integers, implicit cast both operands to a signed
     // integer with + 1 bit.
     // For mixed floats and integers, extract the integer part from the float, cast that to
     // a signed integer with mantissa bits + 1, and if there was any non-integral part of the float,
     // add/subtract 1.
-    const lhs_is_signed = if (try sema.resolveDefinedValue(block, lhs_src, lhs)) |lhs_val|
+    const lhs_is_signed = if (maybe_lhs_val) |lhs_val|
         !(try lhs_val.compareAllWithZeroSema(.gte, pt))
     else
         (lhs_ty.isRuntimeFloat() or lhs_ty.isSignedInt(zcu));
-    const rhs_is_signed = if (try sema.resolveDefinedValue(block, rhs_src, rhs)) |rhs_val|
+    const rhs_is_signed = if (maybe_rhs_val) |rhs_val|
         !(try rhs_val.compareAllWithZeroSema(.gte, pt))
     else
         (rhs_ty.isRuntimeFloat() or rhs_ty.isSignedInt(zcu));
@@ -33904,19 +33960,8 @@ fn cmpNumeric(
     var dest_float_type: ?Type = null;
 
     var lhs_bits: usize = undefined;
-    if (try sema.resolveValueResolveLazy(lhs)) |lhs_val| {
-        if (lhs_val.isUndef(zcu))
-            return pt.undefRef(Type.bool);
-        if (lhs_val.isNan(zcu)) switch (op) {
-            .neq => return .bool_true,
-            else => return .bool_false,
-        };
-        if (lhs_val.isInf(zcu)) switch (op) {
-            .neq => return .bool_true,
-            .eq => return .bool_false,
-            .gt, .gte => return if (lhs_val.isNegativeInf(zcu)) .bool_false else .bool_true,
-            .lt, .lte => return if (lhs_val.isNegativeInf(zcu)) .bool_true else .bool_false,
-        };
+    if (maybe_lhs_val) |unresolved_lhs_val| {
+        const lhs_val = try sema.resolveLazyValue(unresolved_lhs_val);
         if (!rhs_is_signed) {
             switch (lhs_val.orderAgainstZero(zcu)) {
                 .gt => {},
@@ -33962,19 +34007,8 @@ fn cmpNumeric(
     }
 
     var rhs_bits: usize = undefined;
-    if (try sema.resolveValueResolveLazy(rhs)) |rhs_val| {
-        if (rhs_val.isUndef(zcu))
-            return pt.undefRef(Type.bool);
-        if (rhs_val.isNan(zcu)) switch (op) {
-            .neq => return .bool_true,
-            else => return .bool_false,
-        };
-        if (rhs_val.isInf(zcu)) switch (op) {
-            .neq => return .bool_true,
-            .eq => return .bool_false,
-            .gt, .gte => return if (rhs_val.isNegativeInf(zcu)) .bool_true else .bool_false,
-            .lt, .lte => return if (rhs_val.isNegativeInf(zcu)) .bool_false else .bool_true,
-        };
+    if (maybe_rhs_val) |unresolved_rhs_val| {
+        const rhs_val = try sema.resolveLazyValue(unresolved_rhs_val);
         if (!lhs_is_signed) {
             switch (rhs_val.orderAgainstZero(zcu)) {
                 .gt => {},
@@ -34041,90 +34075,49 @@ fn compareIntsOnlyPossibleResult(
     lhs_val: Value,
     op: std.math.CompareOperator,
     rhs_ty: Type,
-) Allocator.Error!?bool {
+) SemaError!?bool {
     const pt = sema.pt;
     const zcu = pt.zcu;
-    const rhs_info = rhs_ty.intInfo(zcu);
-    const vs_zero = lhs_val.orderAgainstZeroSema(pt) catch unreachable;
-    const is_zero = vs_zero == .eq;
-    const is_negative = vs_zero == .lt;
-    const is_positive = vs_zero == .gt;
 
-    // Anything vs. zero-sized type has guaranteed outcome.
-    if (rhs_info.bits == 0) return switch (op) {
-        .eq, .lte, .gte => is_zero,
-        .neq, .lt, .gt => !is_zero,
-    };
+    const min_rhs = try rhs_ty.minInt(pt, rhs_ty);
+    const max_rhs = try rhs_ty.maxInt(pt, rhs_ty);
 
-    // Special case for i1, which can only be 0 or -1.
-    // Zero and positive ints have guaranteed outcome.
-    if (rhs_info.bits == 1 and rhs_info.signedness == .signed) {
-        if (is_positive) return switch (op) {
-            .gt, .gte, .neq => true,
-            .lt, .lte, .eq => false,
-        };
-        if (is_zero) return switch (op) {
-            .gte => true,
-            .lt => false,
-            .gt, .lte, .eq, .neq => null,
-        };
+    if (min_rhs.toIntern() == max_rhs.toIntern()) {
+        // RHS is effectively comptime-known.
+        return try Value.compareHeteroSema(lhs_val, op, min_rhs, pt);
     }
 
-    // Negative vs. unsigned has guaranteed outcome.
-    if (rhs_info.signedness == .unsigned and is_negative) return switch (op) {
-        .eq, .gt, .gte => false,
-        .neq, .lt, .lte => true,
-    };
+    const against_min = try lhs_val.orderAdvanced(min_rhs, .sema, zcu, pt.tid);
+    const against_max = try lhs_val.orderAdvanced(max_rhs, .sema, zcu, pt.tid);
 
-    const sign_adj = @intFromBool(!is_negative and rhs_info.signedness == .signed);
-    const req_bits = lhs_val.intBitCountTwosComp(zcu) + sign_adj;
-
-    // No sized type can have more than 65535 bits.
-    // The RHS type operand is either a runtime value or sized (but undefined) constant.
-    if (req_bits > 65535) return switch (op) {
-        .lt, .lte => is_negative,
-        .gt, .gte => is_positive,
-        .eq => false,
-        .neq => true,
-    };
-    const fits = req_bits <= rhs_info.bits;
-
-    // Oversized int has guaranteed outcome.
     switch (op) {
-        .eq => return if (!fits) false else null,
-        .neq => return if (!fits) true else null,
-        .lt, .lte => if (!fits) return is_negative,
-        .gt, .gte => if (!fits) return !is_negative,
+        .eq => {
+            if (against_min.compare(.lt)) return false;
+            if (against_max.compare(.gt)) return false;
+        },
+        .neq => {
+            if (against_min.compare(.lt)) return true;
+            if (against_max.compare(.gt)) return true;
+        },
+        .lt => {
+            if (against_min.compare(.lt)) return true;
+            if (against_max.compare(.gte)) return false;
+        },
+        .gt => {
+            if (against_max.compare(.gt)) return true;
+            if (against_min.compare(.lte)) return false;
+        },
+        .lte => {
+            if (against_min.compare(.lte)) return true;
+            if (against_max.compare(.gt)) return false;
+        },
+        .gte => {
+            if (against_max.compare(.gte)) return true;
+            if (against_min.compare(.lt)) return false;
+        },
     }
 
-    // For any other comparison, we need to know if the LHS value is
-    // equal to the maximum or minimum possible value of the RHS type.
-    const is_min, const is_max = edge: {
-        if (is_zero and rhs_info.signedness == .unsigned) break :edge .{ true, false };
-
-        if (req_bits != rhs_info.bits) break :edge .{ false, false };
-
-        const ty = try pt.intType(
-            if (is_negative) .signed else .unsigned,
-            @intCast(req_bits),
-        );
-        const pop_count = lhs_val.popCount(ty, zcu);
-
-        if (is_negative) {
-            break :edge .{ pop_count == 1, false };
-        } else {
-            break :edge .{ false, pop_count == req_bits - sign_adj };
-        }
-    };
-
-    assert(fits);
-    return switch (op) {
-        .lt => if (is_max) false else null,
-        .lte => if (is_min) true else null,
-        .gt => if (is_min) false else null,
-        .gte => if (is_max) true else null,
-        .eq, .neq => unreachable,
-    };
+    return null;
 }
 
 /// Asserts that lhs and rhs types are both vectors.
@@ -34155,21 +34148,17 @@ fn cmpVector(
         .child = .bool_type,
     });
 
-    const runtime_src: LazySrcLoc = src: {
-        if (try sema.resolveValue(casted_lhs)) |lhs_val| {
-            if (try sema.resolveValue(casted_rhs)) |rhs_val| {
-                if (lhs_val.isUndef(zcu) or rhs_val.isUndef(zcu)) {
-                    return pt.undefRef(result_ty);
-                }
-                const cmp_val = try sema.compareVector(lhs_val, op, rhs_val, resolved_ty);
-                return Air.internedToRef(cmp_val.toIntern());
-            } else {
-                break :src rhs_src;
-            }
-        } else {
-            break :src lhs_src;
-        }
-    };
+    const maybe_lhs_val = try sema.resolveValue(casted_lhs);
+    const maybe_rhs_val = try sema.resolveValue(casted_rhs);
+    if (maybe_lhs_val) |v| if (v.isUndef(zcu)) return pt.undefRef(result_ty);
+    if (maybe_rhs_val) |v| if (v.isUndef(zcu)) return pt.undefRef(result_ty);
+
+    const runtime_src: LazySrcLoc = if (maybe_lhs_val) |lhs_val| src: {
+        if (maybe_rhs_val) |rhs_val| {
+            const cmp_val = try sema.compareVector(lhs_val, op, rhs_val, resolved_ty);
+            return Air.internedToRef(cmp_val.toIntern());
+        } else break :src rhs_src;
+    } else lhs_src;
 
     try sema.requireRuntimeBlock(block, src, runtime_src);
     return block.addCmpVector(casted_lhs, casted_rhs, op);
@@ -36331,6 +36320,7 @@ pub fn resolveUnionLayout(sema: *Sema, ty: Type) SemaError!void {
 /// be resolved.
 pub fn resolveStructFully(sema: *Sema, ty: Type) SemaError!void {
     try sema.resolveStructLayout(ty);
+    try sema.resolveStructFieldInits(ty);
 
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -37075,7 +37065,7 @@ fn unionFields(
 
     var int_tag_ty: Type = undefined;
     var enum_field_names: []InternPool.NullTerminatedString = &.{};
-    var enum_field_vals: std.AutoArrayHashMapUnmanaged(InternPool.Index, void) = .{};
+    var enum_field_vals: std.AutoArrayHashMapUnmanaged(InternPool.Index, void) = .empty;
     var explicit_tags_seen: []bool = &.{};
     if (tag_type_ref != .none) {
         const tag_ty_src: LazySrcLoc = .{
@@ -37126,8 +37116,8 @@ fn unionFields(
         enum_field_names = try sema.arena.alloc(InternPool.NullTerminatedString, fields_len);
     }
 
-    var field_types: std.ArrayListUnmanaged(InternPool.Index) = .{};
-    var field_aligns: std.ArrayListUnmanaged(InternPool.Alignment) = .{};
+    var field_types: std.ArrayListUnmanaged(InternPool.Index) = .empty;
+    var field_aligns: std.ArrayListUnmanaged(InternPool.Alignment) = .empty;
 
     try field_types.ensureTotalCapacityPrecise(sema.arena, fields_len);
     if (small.any_aligned_fields)
@@ -38656,8 +38646,12 @@ fn compareVector(
     for (result_data, 0..) |*scalar, i| {
         const lhs_elem = try lhs.elemValue(pt, i);
         const rhs_elem = try rhs.elemValue(pt, i);
-        const res_bool = try sema.compareScalar(lhs_elem, op, rhs_elem, ty.scalarType(zcu));
-        scalar.* = Value.makeBool(res_bool).toIntern();
+        if (lhs_elem.isUndef(zcu) or rhs_elem.isUndef(zcu)) {
+            scalar.* = try pt.intern(.{ .undef = .bool_type });
+        } else {
+            const res_bool = try sema.compareScalar(lhs_elem, op, rhs_elem, ty.scalarType(zcu));
+            scalar.* = Value.makeBool(res_bool).toIntern();
+        }
     }
     return Value.fromInterned(try pt.intern(.{ .aggregate = .{
         .ty = (try pt.vectorType(.{ .len = ty.vectorLen(zcu), .child = .bool_type })).toIntern(),

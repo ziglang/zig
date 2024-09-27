@@ -22,48 +22,24 @@
 #  include <wchar.h>
 #endif
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-inline _LIBCPP_HIDE_FROM_ABI_C float strtof_l(const char* __nptr, char** __endptr, locale_t) {
+inline _LIBCPP_HIDE_FROM_ABI float strtof_l(const char* __nptr, char** __endptr, locale_t) {
   return ::strtof(__nptr, __endptr);
 }
 
-inline _LIBCPP_HIDE_FROM_ABI_C double strtod_l(const char* __nptr, char** __endptr, locale_t) {
+inline _LIBCPP_HIDE_FROM_ABI double strtod_l(const char* __nptr, char** __endptr, locale_t) {
   return ::strtod(__nptr, __endptr);
 }
 
-inline _LIBCPP_HIDE_FROM_ABI_C long double strtold_l(const char* __nptr, char** __endptr, locale_t) {
+inline _LIBCPP_HIDE_FROM_ABI long double strtold_l(const char* __nptr, char** __endptr, locale_t) {
   return ::strtold(__nptr, __endptr);
 }
 
-inline _LIBCPP_HIDE_FROM_ABI_C long long strtoll_l(const char* __nptr, char** __endptr, int __base, locale_t) {
+inline _LIBCPP_HIDE_FROM_ABI long long strtoll_l(const char* __nptr, char** __endptr, int __base, locale_t) {
   return ::strtoll(__nptr, __endptr, __base);
 }
 
-inline _LIBCPP_HIDE_FROM_ABI_C unsigned long long
-strtoull_l(const char* __nptr, char** __endptr, int __base, locale_t) {
+inline _LIBCPP_HIDE_FROM_ABI unsigned long long strtoull_l(const char* __nptr, char** __endptr, int __base, locale_t) {
   return ::strtoull(__nptr, __endptr, __base);
 }
-
-#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
-inline _LIBCPP_HIDE_FROM_ABI_C long long wcstoll_l(const wchar_t* __nptr, wchar_t** __endptr, int __base, locale_t) {
-  return ::wcstoll(__nptr, __endptr, __base);
-}
-
-inline _LIBCPP_HIDE_FROM_ABI_C unsigned long long
-wcstoull_l(const wchar_t* __nptr, wchar_t** __endptr, int __base, locale_t) {
-  return ::wcstoull(__nptr, __endptr, __base);
-}
-
-inline _LIBCPP_HIDE_FROM_ABI_C long double wcstold_l(const wchar_t* __nptr, wchar_t** __endptr, locale_t) {
-  return ::wcstold(__nptr, __endptr);
-}
-#endif // _LIBCPP_HAS_NO_WIDE_CHARACTERS
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif // _LIBCPP___SUPPORT_XLOCALE_STRTONUM_FALLBACK_H

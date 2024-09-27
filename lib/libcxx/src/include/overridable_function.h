@@ -13,6 +13,10 @@
 #include <__config>
 #include <cstdint>
 
+#if __has_feature(ptrauth_calls)
+#  include <ptrauth.h>
+#endif
+
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
 #endif
@@ -57,8 +61,6 @@
 // This mechanism should never be used outside of the libc++ built library. In particular,
 // attempting to use this within the libc++ headers will not work at all because we don't
 // want to be defining special sections inside user's executables which use our headers.
-// This is provided inside libc++'s include tree solely to make it easier to share with
-// libc++abi, which needs the same mechanism.
 //
 
 #if defined(_LIBCPP_OBJECT_FORMAT_MACHO)
@@ -80,6 +82,14 @@ _LIBCPP_HIDE_FROM_ABI bool __is_function_overridden(_Ret (*__fptr)(_Args...)) no
   uintptr_t __start = reinterpret_cast<uintptr_t>(&__lcxx_override_start);
   uintptr_t __end   = reinterpret_cast<uintptr_t>(&__lcxx_override_end);
   uintptr_t __ptr   = reinterpret_cast<uintptr_t>(__fptr);
+
+#  if __has_feature(ptrauth_calls)
+  // We must pass a void* to ptrauth_strip since it only accepts a pointer type. Also, in particular,
+  // we must NOT pass a function pointer, otherwise we will strip the function pointer, and then attempt
+  // to authenticate and re-sign it when casting it to a uintptr_t again, which will fail because we just
+  // stripped the function pointer. See rdar://122927845.
+  __ptr = reinterpret_cast<uintptr_t>(ptrauth_strip(reinterpret_cast<void*>(__ptr), ptrauth_key_function_pointer));
+#  endif
 
   // Finally, the function was overridden if it falls outside of the section's bounds.
   return __ptr < __start || __ptr > __end;

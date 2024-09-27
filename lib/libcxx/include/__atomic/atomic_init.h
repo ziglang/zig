@@ -15,12 +15,10 @@
 #  pragma GCC system_header
 #endif
 
-#define ATOMIC_FLAG_INIT                                                                                               \
-  { false }
-#define ATOMIC_VAR_INIT(__v)                                                                                           \
-  { __v }
+#define ATOMIC_FLAG_INIT {false}
+#define ATOMIC_VAR_INIT(__v) {__v}
 
-#if _LIBCPP_STD_VER >= 20 && !defined(_LIBCPP_DISABLE_DEPRECATION_WARNINGS)
+#if _LIBCPP_STD_VER >= 20 && defined(_LIBCPP_COMPILER_CLANG_BASED) && !defined(_LIBCPP_DISABLE_DEPRECATION_WARNINGS)
 #  pragma clang deprecated(ATOMIC_VAR_INIT)
 #endif
 

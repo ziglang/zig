@@ -4,29 +4,29 @@ file_handle: File.HandleIndex,
 index: File.Index,
 
 header: ?elf.Elf64_Ehdr = null,
-shdrs: std.ArrayListUnmanaged(elf.Elf64_Shdr) = .{},
+shdrs: std.ArrayListUnmanaged(elf.Elf64_Shdr) = .empty,
 
-symtab: std.ArrayListUnmanaged(elf.Elf64_Sym) = .{},
-strtab: std.ArrayListUnmanaged(u8) = .{},
+symtab: std.ArrayListUnmanaged(elf.Elf64_Sym) = .empty,
+strtab: std.ArrayListUnmanaged(u8) = .empty,
 first_global: ?Symbol.Index = null,
-symbols: std.ArrayListUnmanaged(Symbol) = .{},
-symbols_extra: std.ArrayListUnmanaged(u32) = .{},
-symbols_resolver: std.ArrayListUnmanaged(Elf.SymbolResolver.Index) = .{},
-relocs: std.ArrayListUnmanaged(elf.Elf64_Rela) = .{},
+symbols: std.ArrayListUnmanaged(Symbol) = .empty,
+symbols_extra: std.ArrayListUnmanaged(u32) = .empty,
+symbols_resolver: std.ArrayListUnmanaged(Elf.SymbolResolver.Index) = .empty,
+relocs: std.ArrayListUnmanaged(elf.Elf64_Rela) = .empty,
 
-atoms: std.ArrayListUnmanaged(Atom) = .{},
-atoms_indexes: std.ArrayListUnmanaged(Atom.Index) = .{},
-atoms_extra: std.ArrayListUnmanaged(u32) = .{},
+atoms: std.ArrayListUnmanaged(Atom) = .empty,
+atoms_indexes: std.ArrayListUnmanaged(Atom.Index) = .empty,
+atoms_extra: std.ArrayListUnmanaged(u32) = .empty,
 
-comdat_groups: std.ArrayListUnmanaged(Elf.ComdatGroup) = .{},
-comdat_group_data: std.ArrayListUnmanaged(u32) = .{},
+comdat_groups: std.ArrayListUnmanaged(Elf.ComdatGroup) = .empty,
+comdat_group_data: std.ArrayListUnmanaged(u32) = .empty,
 
-input_merge_sections: std.ArrayListUnmanaged(InputMergeSection) = .{},
-input_merge_sections_indexes: std.ArrayListUnmanaged(InputMergeSection.Index) = .{},
+input_merge_sections: std.ArrayListUnmanaged(InputMergeSection) = .empty,
+input_merge_sections_indexes: std.ArrayListUnmanaged(InputMergeSection.Index) = .empty,
 
-fdes: std.ArrayListUnmanaged(Fde) = .{},
-cies: std.ArrayListUnmanaged(Cie) = .{},
-eh_frame_data: std.ArrayListUnmanaged(u8) = .{},
+fdes: std.ArrayListUnmanaged(Fde) = .empty,
+cies: std.ArrayListUnmanaged(Cie) = .empty,
+eh_frame_data: std.ArrayListUnmanaged(u8) = .empty,
 
 alive: bool = true,
 num_dynrelocs: u32 = 0,
@@ -524,12 +524,6 @@ pub fn resolveSymbols(self: *Object, elf_file: *Elf) !void {
     const first_global = self.first_global orelse return;
     for (self.globals(), first_global..) |_, i| {
         const esym = self.symtab.items[i];
-        if (esym.st_shndx != elf.SHN_ABS and esym.st_shndx != elf.SHN_COMMON and esym.st_shndx != elf.SHN_UNDEF) {
-            const atom_index = self.atoms_indexes.items[esym.st_shndx];
-            const atom_ptr = self.atom(atom_index) orelse continue;
-            if (!atom_ptr.alive) continue;
-        }
-
         const resolv = &self.symbols_resolver.items[i - first_global];
         const gop = try elf_file.resolver.getOrPut(gpa, .{
             .index = @intCast(i),
@@ -541,6 +535,11 @@ pub fn resolveSymbols(self: *Object, elf_file: *Elf) !void {
         resolv.* = gop.index;
 
         if (esym.st_shndx == elf.SHN_UNDEF) continue;
+        if (esym.st_shndx != elf.SHN_ABS and esym.st_shndx != elf.SHN_COMMON) {
+            const atom_index = self.atoms_indexes.items[esym.st_shndx];
+            const atom_ptr = self.atom(atom_index) orelse continue;
+            if (!atom_ptr.alive) continue;
+        }
         if (elf_file.symbol(gop.ref.*) == null) {
             gop.ref.* = .{ .index = @intCast(i), .file = self.index };
             continue;

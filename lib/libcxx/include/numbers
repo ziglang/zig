@@ -58,7 +58,6 @@ namespace std::numbers {
 }
 */
 
-#include <__assert> // all public C++ headers provide the assertion handler
 #include <__concepts/arithmetic.h>
 #include <__config>
 #include <version>

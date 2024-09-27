@@ -26,9 +26,9 @@
 //!     DLL#2 name
 //! --- END
 
-entries: std.ArrayListUnmanaged(SymbolWithLoc) = .{},
-free_list: std.ArrayListUnmanaged(u32) = .{},
-lookup: std.AutoHashMapUnmanaged(SymbolWithLoc, u32) = .{},
+entries: std.ArrayListUnmanaged(SymbolWithLoc) = .empty,
+free_list: std.ArrayListUnmanaged(u32) = .empty,
+lookup: std.AutoHashMapUnmanaged(SymbolWithLoc, u32) = .empty,
 
 pub fn deinit(itab: *ImportTable, allocator: Allocator) void {
     itab.entries.deinit(allocator);

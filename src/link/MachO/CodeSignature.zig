@@ -53,7 +53,7 @@ const CodeDirectory = struct {
     inner: macho.CodeDirectory,
     ident: []const u8,
     special_slots: [n_special_slots][hash_size]u8,
-    code_slots: std.ArrayListUnmanaged([hash_size]u8) = .{},
+    code_slots: std.ArrayListUnmanaged([hash_size]u8) = .empty,
 
     const n_special_slots: usize = 7;
 

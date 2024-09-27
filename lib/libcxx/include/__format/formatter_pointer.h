@@ -10,7 +10,6 @@
 #ifndef _LIBCPP___FORMAT_FORMATTER_POINTER_H
 #define _LIBCPP___FORMAT_FORMATTER_POINTER_H
 
-#include <__availability>
 #include <__config>
 #include <__format/concepts.h>
 #include <__format/format_parse_context.h>

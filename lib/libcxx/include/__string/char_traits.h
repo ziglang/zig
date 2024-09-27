@@ -9,14 +9,16 @@
 #ifndef _LIBCPP___STRING_CHAR_TRAITS_H
 #define _LIBCPP___STRING_CHAR_TRAITS_H
 
-#include <__algorithm/copy_n.h>
 #include <__algorithm/fill_n.h>
+#include <__algorithm/find.h>
 #include <__algorithm/find_end.h>
 #include <__algorithm/find_first_of.h>
 #include <__algorithm/min.h>
+#include <__assert>
 #include <__compare/ordering.h>
 #include <__config>
 #include <__functional/hash.h>
+#include <__functional/identity.h>
 #include <__iterator/iterator_traits.h>
 #include <__string/constexpr_c_functions.h>
 #include <__type_traits/is_constant_evaluated.h>
@@ -71,106 +73,6 @@ exposition-only to document what members a char_traits specialization should pro
     static int_type  eof();
 };
 */
-
-//
-// Temporary extension to provide a base template for std::char_traits.
-// TODO(LLVM-19): Remove this class.
-//
-#if !defined(_LIBCPP_CHAR_TRAITS_REMOVE_BASE_SPECIALIZATION)
-template <class _CharT>
-struct _LIBCPP_DEPRECATED_(
-    "char_traits<T> for T not equal to char, wchar_t, char8_t, char16_t or char32_t is non-standard and is provided "
-    "for a temporary period. It will be removed in LLVM 19, so please migrate off of it.") char_traits {
-  using char_type  = _CharT;
-  using int_type   = int;
-  using off_type   = streamoff;
-  using pos_type   = streampos;
-  using state_type = mbstate_t;
-
-  static inline void _LIBCPP_CONSTEXPR_SINCE_CXX17 _LIBCPP_HIDE_FROM_ABI
-  assign(char_type& __c1, const char_type& __c2) _NOEXCEPT {
-    __c1 = __c2;
-  }
-  static inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR bool eq(char_type __c1, char_type __c2) _NOEXCEPT {
-    return __c1 == __c2;
-  }
-  static inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR bool lt(char_type __c1, char_type __c2) _NOEXCEPT {
-    return __c1 < __c2;
-  }
-
-  static _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX17 int
-  compare(const char_type* __s1, const char_type* __s2, size_t __n) {
-    for (; __n; --__n, ++__s1, ++__s2) {
-      if (lt(*__s1, *__s2))
-        return -1;
-      if (lt(*__s2, *__s1))
-        return 1;
-    }
-    return 0;
-  }
-  _LIBCPP_HIDE_FROM_ABI static _LIBCPP_CONSTEXPR_SINCE_CXX17 size_t length(const char_type* __s) {
-    size_t __len = 0;
-    for (; !eq(*__s, char_type(0)); ++__s)
-      ++__len;
-    return __len;
-  }
-  _LIBCPP_HIDE_FROM_ABI static _LIBCPP_CONSTEXPR_SINCE_CXX17 const char_type*
-  find(const char_type* __s, size_t __n, const char_type& __a) {
-    for (; __n; --__n) {
-      if (eq(*__s, __a))
-        return __s;
-      ++__s;
-    }
-    return nullptr;
-  }
-  static _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 char_type*
-  move(char_type* __s1, const char_type* __s2, size_t __n) {
-    if (__n == 0)
-      return __s1;
-    char_type* __r = __s1;
-    if (__s1 < __s2) {
-      for (; __n; --__n, ++__s1, ++__s2)
-        assign(*__s1, *__s2);
-    } else if (__s2 < __s1) {
-      __s1 += __n;
-      __s2 += __n;
-      for (; __n; --__n)
-        assign(*--__s1, *--__s2);
-    }
-    return __r;
-  }
-  _LIBCPP_HIDE_FROM_ABI static _LIBCPP_CONSTEXPR_SINCE_CXX20 char_type*
-  copy(char_type* __s1, const char_type* __s2, size_t __n) {
-    _LIBCPP_ASSERT_NON_OVERLAPPING_RANGES(!std::__is_pointer_in_range(__s1, __s1 + __n, __s2),
-                                          "char_traits::copy: source and destination ranges overlap");
-    char_type* __r = __s1;
-    for (; __n; --__n, ++__s1, ++__s2)
-      assign(*__s1, *__s2);
-    return __r;
-  }
-  _LIBCPP_HIDE_FROM_ABI static _LIBCPP_CONSTEXPR_SINCE_CXX20 char_type*
-  assign(char_type* __s, size_t __n, char_type __a) {
-    char_type* __r = __s;
-    for (; __n; --__n, ++__s)
-      assign(*__s, __a);
-    return __r;
-  }
-
-  static inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR int_type not_eof(int_type __c) _NOEXCEPT {
-    return eq_int_type(__c, eof()) ? ~eof() : __c;
-  }
-  static inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR char_type to_char_type(int_type __c) _NOEXCEPT {
-    return char_type(__c);
-  }
-  static inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR int_type to_int_type(char_type __c) _NOEXCEPT {
-    return int_type(__c);
-  }
-  static inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR bool eq_int_type(int_type __c1, int_type __c2) _NOEXCEPT {
-    return __c1 == __c2;
-  }
-  static inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR int_type eof() _NOEXCEPT { return int_type(EOF); }
-};
-#endif // !defined(_LIBCPP_CHAR_TRAITS_REMOVE_BASE_SPECIALIZATION)
 
 // char_traits<char>
 
@@ -243,7 +145,7 @@ struct _LIBCPP_TEMPLATE_VIS char_traits<char> {
   copy(char_type* __s1, const char_type* __s2, size_t __n) _NOEXCEPT {
     _LIBCPP_ASSERT_NON_OVERLAPPING_RANGES(!std::__is_pointer_in_range(__s1, __s1 + __n, __s2),
                                           "char_traits::copy: source and destination ranges overlap");
-    std::copy_n(__s2, __n, __s1);
+    std::__constexpr_memmove(__s1, __s2, __element_count(__n));
     return __s1;
   }
 
@@ -268,31 +170,72 @@ struct _LIBCPP_TEMPLATE_VIS char_traits<char> {
   static inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR int_type eof() _NOEXCEPT { return int_type(EOF); }
 };
 
+template <class _CharT, class _IntT, _IntT _EOFVal>
+struct __char_traits_base {
+  using char_type  = _CharT;
+  using int_type   = _IntT;
+  using off_type   = streamoff;
+  using state_type = mbstate_t;
+#if _LIBCPP_STD_VER >= 20
+  using comparison_category = strong_ordering;
+#endif
+
+  // There are different aliases for the different char types, but they are all aliases to this type
+  using pos_type = fpos<mbstate_t>;
+
+  _LIBCPP_HIDE_FROM_ABI static inline _LIBCPP_CONSTEXPR_SINCE_CXX17 void
+  assign(char_type& __lhs, const char_type& __rhs) _NOEXCEPT {
+    __lhs = __rhs;
+  }
+
+  _LIBCPP_HIDE_FROM_ABI static _LIBCPP_CONSTEXPR bool eq(char_type __lhs, char_type __rhs) _NOEXCEPT {
+    return __lhs == __rhs;
+  }
+
+  _LIBCPP_HIDE_FROM_ABI static _LIBCPP_CONSTEXPR bool lt(char_type __lhs, char_type __rhs) _NOEXCEPT {
+    return __lhs < __rhs;
+  }
+
+  _LIBCPP_HIDE_FROM_ABI static _LIBCPP_CONSTEXPR_SINCE_CXX20 char_type*
+  move(char_type* __dest, const char_type* __src, size_t __n) _NOEXCEPT {
+    return std::__constexpr_memmove(__dest, __src, __element_count(__n));
+  }
+
+  _LIBCPP_HIDE_FROM_ABI static _LIBCPP_CONSTEXPR_SINCE_CXX20 char_type*
+  copy(char_type* __dest, const char_type* __src, size_t __n) _NOEXCEPT {
+    _LIBCPP_ASSERT_NON_OVERLAPPING_RANGES(!std::__is_pointer_in_range(__dest, __dest + __n, __src),
+                                          "char_traits::copy: source and destination ranges overlap");
+    return std::__constexpr_memmove(__dest, __src, __element_count(__n));
+  }
+
+  _LIBCPP_HIDE_FROM_ABI static _LIBCPP_CONSTEXPR_SINCE_CXX20 char_type*
+  assign(char_type* __str, size_t __n, char_type __fill_char) _NOEXCEPT {
+    std::fill_n(__str, __n, __fill_char);
+    return __str;
+  }
+
+  _LIBCPP_HIDE_FROM_ABI static _LIBCPP_CONSTEXPR char_type to_char_type(int_type __c) _NOEXCEPT {
+    return char_type(__c);
+  }
+
+  _LIBCPP_HIDE_FROM_ABI static _LIBCPP_CONSTEXPR int_type to_int_type(char_type __c) _NOEXCEPT { return int_type(__c); }
+
+  _LIBCPP_HIDE_FROM_ABI static _LIBCPP_CONSTEXPR bool eq_int_type(int_type __lhs, int_type __rhs) _NOEXCEPT {
+    return __lhs == __rhs;
+  }
+
+  _LIBCPP_HIDE_FROM_ABI static _LIBCPP_CONSTEXPR int_type eof() _NOEXCEPT { return _EOFVal; }
+
+  _LIBCPP_HIDE_FROM_ABI static _LIBCPP_CONSTEXPR int_type not_eof(int_type __c) _NOEXCEPT {
+    return eq_int_type(__c, eof()) ? static_cast<int_type>(~eof()) : __c;
+  }
+};
+
 // char_traits<wchar_t>
 
 #ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
 template <>
-struct _LIBCPP_TEMPLATE_VIS char_traits<wchar_t> {
-  using char_type  = wchar_t;
-  using int_type   = wint_t;
-  using off_type   = streamoff;
-  using pos_type   = streampos;
-  using state_type = mbstate_t;
-#  if _LIBCPP_STD_VER >= 20
-  using comparison_category = strong_ordering;
-#  endif
-
-  static inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX17 void
-  assign(char_type& __c1, const char_type& __c2) _NOEXCEPT {
-    __c1 = __c2;
-  }
-  static inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR bool eq(char_type __c1, char_type __c2) _NOEXCEPT {
-    return __c1 == __c2;
-  }
-  static inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR bool lt(char_type __c1, char_type __c2) _NOEXCEPT {
-    return __c1 < __c2;
-  }
-
+struct _LIBCPP_TEMPLATE_VIS char_traits<wchar_t> : __char_traits_base<wchar_t, wint_t, static_cast<wint_t>(WEOF)> {
   static _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX17 int
   compare(const char_type* __s1, const char_type* __s2, size_t __n) _NOEXCEPT {
     if (__n == 0)
@@ -310,184 +253,46 @@ struct _LIBCPP_TEMPLATE_VIS char_traits<wchar_t> {
       return nullptr;
     return std::__constexpr_wmemchr(__s, __a, __n);
   }
-
-  static inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 char_type*
-  move(char_type* __s1, const char_type* __s2, size_t __n) _NOEXCEPT {
-    return std::__constexpr_memmove(__s1, __s2, __element_count(__n));
-  }
-
-  static inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 char_type*
-  copy(char_type* __s1, const char_type* __s2, size_t __n) _NOEXCEPT {
-    _LIBCPP_ASSERT_NON_OVERLAPPING_RANGES(!std::__is_pointer_in_range(__s1, __s1 + __n, __s2),
-                                          "char_traits::copy: source and destination ranges overlap");
-    std::copy_n(__s2, __n, __s1);
-    return __s1;
-  }
-
-  static inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 char_type*
-  assign(char_type* __s, size_t __n, char_type __a) _NOEXCEPT {
-    std::fill_n(__s, __n, __a);
-    return __s;
-  }
-
-  static inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR int_type not_eof(int_type __c) _NOEXCEPT {
-    return eq_int_type(__c, eof()) ? ~eof() : __c;
-  }
-  static inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR char_type to_char_type(int_type __c) _NOEXCEPT {
-    return char_type(__c);
-  }
-  static inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR int_type to_int_type(char_type __c) _NOEXCEPT {
-    return int_type(__c);
-  }
-  static inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR bool eq_int_type(int_type __c1, int_type __c2) _NOEXCEPT {
-    return __c1 == __c2;
-  }
-  static inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR int_type eof() _NOEXCEPT { return int_type(WEOF); }
 };
 #endif // _LIBCPP_HAS_NO_WIDE_CHARACTERS
 
 #ifndef _LIBCPP_HAS_NO_CHAR8_T
 
 template <>
-struct _LIBCPP_TEMPLATE_VIS char_traits<char8_t> {
-  using char_type  = char8_t;
-  using int_type   = unsigned int;
-  using off_type   = streamoff;
-  using pos_type   = u8streampos;
-  using state_type = mbstate_t;
-#  if _LIBCPP_STD_VER >= 20
-  using comparison_category = strong_ordering;
-#  endif
-
-  static inline _LIBCPP_HIDE_FROM_ABI constexpr void assign(char_type& __c1, const char_type& __c2) noexcept {
-    __c1 = __c2;
-  }
-  static inline _LIBCPP_HIDE_FROM_ABI constexpr bool eq(char_type __c1, char_type __c2) noexcept {
-    return __c1 == __c2;
-  }
-  static inline _LIBCPP_HIDE_FROM_ABI constexpr bool lt(char_type __c1, char_type __c2) noexcept { return __c1 < __c2; }
-
+struct _LIBCPP_TEMPLATE_VIS char_traits<char8_t>
+    : __char_traits_base<char8_t, unsigned int, static_cast<unsigned int>(EOF)> {
   static _LIBCPP_HIDE_FROM_ABI constexpr int
-  compare(const char_type* __s1, const char_type* __s2, size_t __n) _NOEXCEPT {
+  compare(const char_type* __s1, const char_type* __s2, size_t __n) noexcept {
     return std::__constexpr_memcmp(__s1, __s2, __element_count(__n));
   }
 
-  static _LIBCPP_HIDE_FROM_ABI constexpr size_t length(const char_type* __s) _NOEXCEPT;
+  static _LIBCPP_HIDE_FROM_ABI constexpr size_t length(const char_type* __str) noexcept {
+    return std::__constexpr_strlen(__str);
+  }
 
   _LIBCPP_HIDE_FROM_ABI static constexpr const char_type*
-  find(const char_type* __s, size_t __n, const char_type& __a) _NOEXCEPT;
-
-  static _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 char_type*
-  move(char_type* __s1, const char_type* __s2, size_t __n) _NOEXCEPT {
-    return std::__constexpr_memmove(__s1, __s2, __element_count(__n));
+  find(const char_type* __s, size_t __n, const char_type& __a) noexcept {
+    return std::__constexpr_memchr(__s, __a, __n);
   }
-
-  static _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 char_type*
-  copy(char_type* __s1, const char_type* __s2, size_t __n) _NOEXCEPT {
-    _LIBCPP_ASSERT_NON_OVERLAPPING_RANGES(!std::__is_pointer_in_range(__s1, __s1 + __n, __s2),
-                                          "char_traits::copy: source and destination ranges overlap");
-    std::copy_n(__s2, __n, __s1);
-    return __s1;
-  }
-
-  static _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 char_type*
-  assign(char_type* __s, size_t __n, char_type __a) _NOEXCEPT {
-    std::fill_n(__s, __n, __a);
-    return __s;
-  }
-
-  static inline _LIBCPP_HIDE_FROM_ABI constexpr int_type not_eof(int_type __c) noexcept {
-    return eq_int_type(__c, eof()) ? ~eof() : __c;
-  }
-  static inline _LIBCPP_HIDE_FROM_ABI constexpr char_type to_char_type(int_type __c) noexcept { return char_type(__c); }
-  static inline _LIBCPP_HIDE_FROM_ABI constexpr int_type to_int_type(char_type __c) noexcept { return int_type(__c); }
-  static inline _LIBCPP_HIDE_FROM_ABI constexpr bool eq_int_type(int_type __c1, int_type __c2) noexcept {
-    return __c1 == __c2;
-  }
-  static inline _LIBCPP_HIDE_FROM_ABI constexpr int_type eof() noexcept { return int_type(EOF); }
 };
-
-// TODO use '__builtin_strlen' if it ever supports char8_t ??
-inline constexpr size_t char_traits<char8_t>::length(const char_type* __s) _NOEXCEPT {
-  size_t __len = 0;
-  for (; !eq(*__s, char_type(0)); ++__s)
-    ++__len;
-  return __len;
-}
-
-// TODO use '__builtin_char_memchr' if it ever supports char8_t ??
-inline constexpr const char8_t*
-char_traits<char8_t>::find(const char_type* __s, size_t __n, const char_type& __a) _NOEXCEPT {
-  for (; __n; --__n) {
-    if (eq(*__s, __a))
-      return __s;
-    ++__s;
-  }
-  return nullptr;
-}
 
 #endif // _LIBCPP_HAS_NO_CHAR8_T
 
 template <>
-struct _LIBCPP_TEMPLATE_VIS char_traits<char16_t> {
-  using char_type  = char16_t;
-  using int_type   = uint_least16_t;
-  using off_type   = streamoff;
-  using pos_type   = u16streampos;
-  using state_type = mbstate_t;
-#if _LIBCPP_STD_VER >= 20
-  using comparison_category = strong_ordering;
-#endif
-
-  static inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX17 void
-  assign(char_type& __c1, const char_type& __c2) _NOEXCEPT {
-    __c1 = __c2;
-  }
-  static inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR bool eq(char_type __c1, char_type __c2) _NOEXCEPT {
-    return __c1 == __c2;
-  }
-  static inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR bool lt(char_type __c1, char_type __c2) _NOEXCEPT {
-    return __c1 < __c2;
-  }
-
+struct _LIBCPP_TEMPLATE_VIS char_traits<char16_t>
+    : __char_traits_base<char16_t, uint_least16_t, static_cast<uint_least16_t>(0xFFFF)> {
   _LIBCPP_HIDE_FROM_ABI static _LIBCPP_CONSTEXPR_SINCE_CXX17 int
   compare(const char_type* __s1, const char_type* __s2, size_t __n) _NOEXCEPT;
   _LIBCPP_HIDE_FROM_ABI static _LIBCPP_CONSTEXPR_SINCE_CXX17 size_t length(const char_type* __s) _NOEXCEPT;
+
   _LIBCPP_HIDE_FROM_ABI static _LIBCPP_CONSTEXPR_SINCE_CXX17 const char_type*
-  find(const char_type* __s, size_t __n, const char_type& __a) _NOEXCEPT;
-
-  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 static char_type*
-  move(char_type* __s1, const char_type* __s2, size_t __n) _NOEXCEPT {
-    return std::__constexpr_memmove(__s1, __s2, __element_count(__n));
+  find(const char_type* __s, size_t __n, const char_type& __a) _NOEXCEPT {
+    __identity __proj;
+    const char_type* __match = std::__find(__s, __s + __n, __a, __proj);
+    if (__match == __s + __n)
+      return nullptr;
+    return __match;
   }
-
-  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 static char_type*
-  copy(char_type* __s1, const char_type* __s2, size_t __n) _NOEXCEPT {
-    _LIBCPP_ASSERT_NON_OVERLAPPING_RANGES(!std::__is_pointer_in_range(__s1, __s1 + __n, __s2),
-                                          "char_traits::copy: source and destination ranges overlap");
-    std::copy_n(__s2, __n, __s1);
-    return __s1;
-  }
-
-  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 static char_type*
-  assign(char_type* __s, size_t __n, char_type __a) _NOEXCEPT {
-    std::fill_n(__s, __n, __a);
-    return __s;
-  }
-
-  static inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR int_type not_eof(int_type __c) _NOEXCEPT {
-    return eq_int_type(__c, eof()) ? ~eof() : __c;
-  }
-  static inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR char_type to_char_type(int_type __c) _NOEXCEPT {
-    return char_type(__c);
-  }
-  static inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR int_type to_int_type(char_type __c) _NOEXCEPT {
-    return int_type(__c);
-  }
-  static inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR bool eq_int_type(int_type __c1, int_type __c2) _NOEXCEPT {
-    return __c1 == __c2;
-  }
-  static inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR int_type eof() _NOEXCEPT { return int_type(0xFFFF); }
 };
 
 inline _LIBCPP_CONSTEXPR_SINCE_CXX17 int
@@ -508,74 +313,21 @@ inline _LIBCPP_CONSTEXPR_SINCE_CXX17 size_t char_traits<char16_t>::length(const 
   return __len;
 }
 
-inline _LIBCPP_CONSTEXPR_SINCE_CXX17 const char16_t*
-char_traits<char16_t>::find(const char_type* __s, size_t __n, const char_type& __a) _NOEXCEPT {
-  for (; __n; --__n) {
-    if (eq(*__s, __a))
-      return __s;
-    ++__s;
-  }
-  return nullptr;
-}
-
 template <>
-struct _LIBCPP_TEMPLATE_VIS char_traits<char32_t> {
-  using char_type  = char32_t;
-  using int_type   = uint_least32_t;
-  using off_type   = streamoff;
-  using pos_type   = u32streampos;
-  using state_type = mbstate_t;
-#if _LIBCPP_STD_VER >= 20
-  using comparison_category = strong_ordering;
-#endif
-
-  static inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX17 void
-  assign(char_type& __c1, const char_type& __c2) _NOEXCEPT {
-    __c1 = __c2;
-  }
-  static inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR bool eq(char_type __c1, char_type __c2) _NOEXCEPT {
-    return __c1 == __c2;
-  }
-  static inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR bool lt(char_type __c1, char_type __c2) _NOEXCEPT {
-    return __c1 < __c2;
-  }
-
+struct _LIBCPP_TEMPLATE_VIS char_traits<char32_t>
+    : __char_traits_base<char32_t, uint_least32_t, static_cast<uint_least32_t>(0xFFFFFFFF)> {
   _LIBCPP_HIDE_FROM_ABI static _LIBCPP_CONSTEXPR_SINCE_CXX17 int
   compare(const char_type* __s1, const char_type* __s2, size_t __n) _NOEXCEPT;
   _LIBCPP_HIDE_FROM_ABI static _LIBCPP_CONSTEXPR_SINCE_CXX17 size_t length(const char_type* __s) _NOEXCEPT;
+
   _LIBCPP_HIDE_FROM_ABI static _LIBCPP_CONSTEXPR_SINCE_CXX17 const char_type*
-  find(const char_type* __s, size_t __n, const char_type& __a) _NOEXCEPT;
-
-  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 static char_type*
-  move(char_type* __s1, const char_type* __s2, size_t __n) _NOEXCEPT {
-    return std::__constexpr_memmove(__s1, __s2, __element_count(__n));
+  find(const char_type* __s, size_t __n, const char_type& __a) _NOEXCEPT {
+    __identity __proj;
+    const char_type* __match = std::__find(__s, __s + __n, __a, __proj);
+    if (__match == __s + __n)
+      return nullptr;
+    return __match;
   }
-
-  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 static char_type*
-  copy(char_type* __s1, const char_type* __s2, size_t __n) _NOEXCEPT {
-    std::copy_n(__s2, __n, __s1);
-    return __s1;
-  }
-
-  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 static char_type*
-  assign(char_type* __s, size_t __n, char_type __a) _NOEXCEPT {
-    std::fill_n(__s, __n, __a);
-    return __s;
-  }
-
-  static inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR int_type not_eof(int_type __c) _NOEXCEPT {
-    return eq_int_type(__c, eof()) ? ~eof() : __c;
-  }
-  static inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR char_type to_char_type(int_type __c) _NOEXCEPT {
-    return char_type(__c);
-  }
-  static inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR int_type to_int_type(char_type __c) _NOEXCEPT {
-    return int_type(__c);
-  }
-  static inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR bool eq_int_type(int_type __c1, int_type __c2) _NOEXCEPT {
-    return __c1 == __c2;
-  }
-  static inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR int_type eof() _NOEXCEPT { return int_type(0xFFFFFFFF); }
 };
 
 inline _LIBCPP_CONSTEXPR_SINCE_CXX17 int
@@ -594,16 +346,6 @@ inline _LIBCPP_CONSTEXPR_SINCE_CXX17 size_t char_traits<char32_t>::length(const 
   for (; !eq(*__s, char_type(0)); ++__s)
     ++__len;
   return __len;
-}
-
-inline _LIBCPP_CONSTEXPR_SINCE_CXX17 const char32_t*
-char_traits<char32_t>::find(const char_type* __s, size_t __n, const char_type& __a) _NOEXCEPT {
-  for (; __n; --__n) {
-    if (eq(*__s, __a))
-      return __s;
-    ++__s;
-  }
-  return nullptr;
 }
 
 // helper fns for basic_string and string_view

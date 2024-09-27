@@ -30,7 +30,6 @@ void longjmp(jmp_buf env, int val);
 
 */
 
-#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
 
 // <setjmp.h> is not provided by libc++

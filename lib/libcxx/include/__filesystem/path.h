@@ -12,11 +12,9 @@
 
 #include <__algorithm/replace.h>
 #include <__algorithm/replace_copy.h>
-#include <__availability>
 #include <__config>
-#include <__functional/hash.h>
 #include <__functional/unary_function.h>
-#include <__fwd/hash.h>
+#include <__fwd/functional.h>
 #include <__iterator/back_insert_iterator.h>
 #include <__iterator/iterator_traits.h>
 #include <__type_traits/decay.h>
@@ -813,7 +811,7 @@ public:
   _LIBCPP_HIDE_FROM_ABI path extension() const { return string_type(__extension()); }
 
   // query
-  _LIBCPP_NODISCARD_AFTER_CXX17 _LIBCPP_HIDE_FROM_ABI bool empty() const noexcept { return __pn_.empty(); }
+  _LIBCPP_NODISCARD _LIBCPP_HIDE_FROM_ABI bool empty() const noexcept { return __pn_.empty(); }
 
   _LIBCPP_HIDE_FROM_ABI bool has_root_name() const { return !__root_name().empty(); }
   _LIBCPP_HIDE_FROM_ABI bool has_root_directory() const { return !__root_directory().empty(); }

@@ -8,5 +8,9 @@
 */
 #ifndef __VARARGS_H
 #define __VARARGS_H
-  #error "Please use <stdarg.h> instead of <varargs.h>"
+#if defined(__MVS__) && __has_include_next(<varargs.h>)
+#include_next <varargs.h>
+#else
+#error "Please use <stdarg.h> instead of <varargs.h>"
+#endif /* __MVS__ */
 #endif

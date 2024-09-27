@@ -29,42 +29,43 @@ class StackTraceTextPrinter {
         frame_delimiter_(frame_delimiter),
         output_(output),
         dedup_token_(dedup_token),
-        symbolize_(RenderNeedsSymbolization(stack_trace_fmt)) {}
+        symbolize_(StackTracePrinter::GetOrInit()->RenderNeedsSymbolization(
+            stack_trace_fmt)) {}
 
   bool ProcessAddressFrames(uptr pc) {
-    SymbolizedStack *frames = symbolize_
-                                  ? Symbolizer::GetOrInit()->SymbolizePC(pc)
-                                  : SymbolizedStack::New(pc);
+    SymbolizedStackHolder symbolized_stack(
+        symbolize_ ? Symbolizer::GetOrInit()->SymbolizePC(pc)
+                   : SymbolizedStack::New(pc));
+    const SymbolizedStack *frames = symbolized_stack.get();
     if (!frames)
       return false;
 
-    for (SymbolizedStack *cur = frames; cur; cur = cur->next) {
+    for (const SymbolizedStack *cur = frames; cur; cur = cur->next) {
       uptr prev_len = output_->length();
-      RenderFrame(output_, stack_trace_fmt_, frame_num_++, cur->info.address,
-                  symbolize_ ? &cur->info : nullptr,
-                  common_flags()->symbolize_vs_style,
-                  common_flags()->strip_path_prefix);
+      StackTracePrinter::GetOrInit()->RenderFrame(
+          output_, stack_trace_fmt_, frame_num_++, cur->info.address,
+          symbolize_ ? &cur->info : nullptr, common_flags()->symbolize_vs_style,
+          common_flags()->strip_path_prefix);
 
       if (prev_len != output_->length())
-        output_->append("%c", frame_delimiter_);
+        output_->AppendF("%c", frame_delimiter_);
 
       ExtendDedupToken(cur);
     }
-    frames->ClearAll();
     return true;
   }
 
  private:
   // Extend the dedup token by appending a new frame.
-  void ExtendDedupToken(SymbolizedStack *stack) {
+  void ExtendDedupToken(const SymbolizedStack *stack) {
     if (!dedup_token_)
       return;
 
     if (dedup_frames_-- > 0) {
       if (dedup_token_->length())
-        dedup_token_->append("--");
-      if (stack->info.function != nullptr)
-        dedup_token_->append("%s", stack->info.function);
+        dedup_token_->Append("--");
+      if (stack->info.function)
+        dedup_token_->Append(stack->info.function);
     }
   }
 
@@ -98,7 +99,7 @@ void StackTrace::PrintTo(InternalScopedString *output) const {
                                 output, &dedup_token);
 
   if (trace == nullptr || size == 0) {
-    output->append("    <empty stack>\n\n");
+    output->Append("    <empty stack>\n\n");
     return;
   }
 
@@ -110,11 +111,11 @@ void StackTrace::PrintTo(InternalScopedString *output) const {
   }
 
   // Always add a trailing empty line after stack trace.
-  output->append("\n");
+  output->Append("\n");
 
   // Append deduplication token, if non-empty.
   if (dedup_token.length())
-    output->append("DEDUP_TOKEN: %s\n", dedup_token.data());
+    output->AppendF("DEDUP_TOKEN: %s\n", dedup_token.data());
 }
 
 uptr StackTrace::PrintTo(char *out_buf, uptr out_buf_size) const {
@@ -197,7 +198,7 @@ void __sanitizer_symbolize_pc(uptr pc, const char *fmt, char *out_buf,
   StackTraceTextPrinter printer(fmt, '\0', &output, nullptr);
   if (!printer.ProcessAddressFrames(pc)) {
     output.clear();
-    output.append("<can't symbolize>");
+    output.Append("<can't symbolize>");
   }
   CopyStringToBuffer(output, out_buf, out_buf_size);
 }
@@ -210,7 +211,8 @@ void __sanitizer_symbolize_global(uptr data_addr, const char *fmt,
   DataInfo DI;
   if (!Symbolizer::GetOrInit()->SymbolizeData(data_addr, &DI)) return;
   InternalScopedString data_desc;
-  RenderData(&data_desc, fmt, &DI, common_flags()->strip_path_prefix);
+  StackTracePrinter::GetOrInit()->RenderData(&data_desc, fmt, &DI,
+                                             common_flags()->strip_path_prefix);
   internal_strncpy(out_buf, data_desc.data(), out_buf_size);
   out_buf[out_buf_size - 1] = 0;
 }

@@ -69,19 +69,21 @@ namespace std {
 
 */
 
-#include <__assert> // all public C++ headers provide the assertion handler
-#include <__charconv/chars_format.h>
-#include <__charconv/from_chars_integral.h>
-#include <__charconv/from_chars_result.h>
-#include <__charconv/tables.h>
-#include <__charconv/to_chars.h>
-#include <__charconv/to_chars_base_10.h>
-#include <__charconv/to_chars_floating_point.h>
-#include <__charconv/to_chars_integral.h>
-#include <__charconv/to_chars_result.h>
-#include <__charconv/traits.h>
 #include <__config>
-#include <__system_error/errc.h>
+
+#if _LIBCPP_STD_VER >= 17
+#  include <__charconv/chars_format.h>
+#  include <__charconv/from_chars_integral.h>
+#  include <__charconv/from_chars_result.h>
+#  include <__charconv/tables.h>
+#  include <__charconv/to_chars.h>
+#  include <__charconv/to_chars_base_10.h>
+#  include <__charconv/to_chars_floating_point.h>
+#  include <__charconv/to_chars_integral.h>
+#  include <__charconv/to_chars_result.h>
+#  include <__charconv/traits.h>
+#endif // _LIBCPP_STD_VER >= 17
+
 #include <version>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -91,6 +93,13 @@ namespace std {
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 _LIBCPP_END_NAMESPACE_STD
+
+#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 14
+#  include <cerrno>
+#  include <cstddef>
+#  include <initializer_list>
+#  include <new>
+#endif
 
 #if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
 #  include <cmath>

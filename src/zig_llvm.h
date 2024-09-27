@@ -280,6 +280,7 @@ enum ZigLLVM_OSType {
     ZigLLVM_ELFIAMCU,
     ZigLLVM_TvOS,       // Apple tvOS
     ZigLLVM_WatchOS,    // Apple watchOS
+    ZigLLVM_BridgeOS,   // Apple bridgeOS
     ZigLLVM_DriverKit,  // Apple DriverKit
     ZigLLVM_XROS,       // Apple XROS
     ZigLLVM_Mesa3D,
@@ -340,9 +341,12 @@ enum ZigLLVM_EnvironmentType {
     ZigLLVM_Callable,
     ZigLLVM_Mesh,
     ZigLLVM_Amplification,
+    ZigLLVM_OpenCL,
     ZigLLVM_OpenHOS,
 
-    ZigLLVM_LastEnvironmentType = ZigLLVM_OpenHOS
+    ZigLLVM_PAuthTest,
+
+    ZigLLVM_LastEnvironmentType = ZigLLVM_PAuthTest
 };
 
 enum ZigLLVM_ObjectFormatType {

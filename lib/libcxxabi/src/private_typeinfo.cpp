@@ -44,12 +44,24 @@
 #include <cstdint>
 #include <cassert>
 #include <string.h>
+#include "abort_message.h"
 
 #ifdef _LIBCXXABI_FORGIVING_DYNAMIC_CAST
-#include "abort_message.h"
 #include <sys/syslog.h>
 #include <atomic>
 #endif
+
+#if __has_feature(ptrauth_calls)
+#include <ptrauth.h>
+#endif
+
+template <typename T>
+static inline T* strip_vtable(T* vtable) {
+#if __has_feature(ptrauth_calls)
+  vtable = ptrauth_strip(vtable, ptrauth_key_cxx_vtable_pointer);
+#endif
+  return vtable;
+}
 
 static inline
 bool
@@ -102,10 +114,10 @@ void dyn_cast_get_derived_info(derived_object_info* info, const void* static_ptr
         reinterpret_cast<const uint8_t*>(vtable) + offset_to_ti_proxy;
     info->dynamic_type = *(reinterpret_cast<const __class_type_info* const*>(ptr_to_ti_proxy));
 #else
-    void **vtable = *static_cast<void ** const *>(static_ptr);
-    info->offset_to_derived = reinterpret_cast<ptrdiff_t>(vtable[-2]);
-    info->dynamic_ptr = static_cast<const char*>(static_ptr) + info->offset_to_derived;
-    info->dynamic_type = static_cast<const __class_type_info*>(vtable[-1]);
+  void** vtable = strip_vtable(*static_cast<void** const*>(static_ptr));
+  info->offset_to_derived = reinterpret_cast<ptrdiff_t>(vtable[-2]);
+  info->dynamic_ptr = static_cast<const char*>(static_ptr) + info->offset_to_derived;
+  info->dynamic_type = static_cast<const __class_type_info*>(vtable[-1]);
 #endif
 }
 
@@ -470,7 +482,7 @@ __class_type_info::can_catch(const __shim_type_info* thrown_type,
     if (thrown_class_type == 0)
         return false;
     // bullet 2
-    assert(adjustedPtr && "catching a class without an object?");
+    _LIBCXXABI_ASSERT(adjustedPtr, "catching a class without an object?");
     __dynamic_cast_info info = {thrown_class_type, 0, this, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, true, nullptr};
     info.number_of_dst_type = 1;
     thrown_class_type->has_unambiguous_public_base(&info, adjustedPtr, public_path);
@@ -560,7 +572,7 @@ __base_class_type_info::has_unambiguous_public_base(__dynamic_cast_info* info,
        find the layout.  */
     offset_to_base = __offset_flags >> __offset_shift;
     if (is_virtual) {
-      const char* vtable = *static_cast<const char* const*>(adjustedPtr);
+      const char* vtable = strip_vtable(*static_cast<const char* const*>(adjustedPtr));
       offset_to_base = update_offset_to_base(vtable, offset_to_base);
     }
   } else if (!is_virtual) {
@@ -1500,8 +1512,8 @@ __base_class_type_info::search_above_dst(__dynamic_cast_info* info,
     ptrdiff_t offset_to_base = __offset_flags >> __offset_shift;
     if (__offset_flags & __virtual_mask)
     {
-        const char* vtable = *static_cast<const char*const*>(current_ptr);
-        offset_to_base = update_offset_to_base(vtable, offset_to_base);
+      const char* vtable = strip_vtable(*static_cast<const char* const*>(current_ptr));
+      offset_to_base = update_offset_to_base(vtable, offset_to_base);
     }
     __base_type->search_above_dst(info, dst_ptr,
                                   static_cast<const char*>(current_ptr) + offset_to_base,
@@ -1520,8 +1532,8 @@ __base_class_type_info::search_below_dst(__dynamic_cast_info* info,
     ptrdiff_t offset_to_base = __offset_flags >> __offset_shift;
     if (__offset_flags & __virtual_mask)
     {
-        const char* vtable = *static_cast<const char*const*>(current_ptr);
-        offset_to_base = update_offset_to_base(vtable, offset_to_base);
+      const char* vtable = strip_vtable(*static_cast<const char* const*>(current_ptr));
+      offset_to_base = update_offset_to_base(vtable, offset_to_base);
     }
     __base_type->search_below_dst(info,
                                   static_cast<const char*>(current_ptr) + offset_to_base,

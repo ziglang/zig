@@ -58,17 +58,16 @@ void BufferedStackTrace::UnwindFast(uptr pc, uptr bp, uptr stack_top,
   // Avoid infinite loop when frame == frame[0] by using frame > prev_frame.
   while (IsValidFrame(bp, stack_top, bottom) && IsAligned(bp, sizeof(uhwptr)) &&
          size < max_depth) {
-    uhwptr pc1 = ((uhwptr *)bp)[15];
+    // %o7 contains the address of the call instruction and not the
+    // return address, so we need to compensate.
+    uhwptr pc1 = GetNextInstructionPc(((uhwptr *)bp)[15]);
     // Let's assume that any pointer in the 0th page is invalid and
     // stop unwinding here.  If we're adding support for a platform
     // where this isn't true, we need to reconsider this check.
     if (pc1 < kPageSize)
       break;
-    if (pc1 != pc) {
-      // %o7 contains the address of the call instruction and not the
-      // return address, so we need to compensate.
-      trace_buffer[size++] = GetNextInstructionPc((uptr)pc1);
-    }
+    if (pc1 != pc)
+      trace_buffer[size++] = pc1;
     bottom = bp;
     bp = (uptr)((uhwptr *)bp)[14] + STACK_BIAS;
   }

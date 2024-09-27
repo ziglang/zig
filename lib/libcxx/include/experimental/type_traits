@@ -68,7 +68,6 @@ inline namespace fundamentals_v1 {
 
  */
 
-#include <__assert> // all public C++ headers provide the assertion handler
 #include <experimental/__config>
 
 #if _LIBCPP_STD_VER >= 14
@@ -130,7 +129,7 @@ using is_detected = typename _DETECTOR<nonesuch, void, _Op, _Args...>::value_t;
 template <template <class...> class _Op, class... _Args>
 using detected_t = typename _DETECTOR<nonesuch, void, _Op, _Args...>::type;
 template <template <class...> class _Op, class... _Args>
-_LIBCPP_CONSTEXPR bool is_detected_v = is_detected<_Op, _Args...>::value;
+constexpr bool is_detected_v = is_detected<_Op, _Args...>::value;
 
 template <class _Default, template <class...> class _Op, class... _Args>
 using detected_or = _DETECTOR<_Default, void, _Op, _Args...>;
@@ -140,12 +139,12 @@ using detected_or_t = typename detected_or<_Default, _Op, _Args...>::type;
 template <class _Expected, template <class...> class _Op, class... _Args>
 using is_detected_exact = is_same<_Expected, detected_t<_Op, _Args...>>;
 template <class _Expected, template <class...> class _Op, class... _Args>
-_LIBCPP_CONSTEXPR bool is_detected_exact_v = is_detected_exact<_Expected, _Op, _Args...>::value;
+constexpr bool is_detected_exact_v = is_detected_exact<_Expected, _Op, _Args...>::value;
 
 template <class _To, template <class...> class _Op, class... _Args>
 using is_detected_convertible = is_convertible<detected_t<_Op, _Args...>, _To>;
 template <class _To, template <class...> class _Op, class... _Args>
-_LIBCPP_CONSTEXPR bool is_detected_convertible_v = is_detected_convertible<_To, _Op, _Args...>::value;
+constexpr bool is_detected_convertible_v = is_detected_convertible<_To, _Op, _Args...>::value;
 
 _LIBCPP_END_NAMESPACE_LFTS
 

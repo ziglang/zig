@@ -76,7 +76,7 @@ struct DynamicAnnContext {
 };
 
 static DynamicAnnContext *dyn_ann_ctx;
-static char dyn_ann_ctx_placeholder[sizeof(DynamicAnnContext)] ALIGNED(64);
+alignas(64) static char dyn_ann_ctx_placeholder[sizeof(DynamicAnnContext)];
 
 static void AddExpectRace(ExpectRace *list,
     char *f, int l, uptr addr, uptr size, char *desc) {
@@ -434,5 +434,27 @@ void __tsan_mutex_post_divert(void *addr, unsigned flagz) {
   SCOPED_ANNOTATION(__tsan_mutex_post_divert);
   ThreadIgnoreBegin(thr, 0);
   ThreadIgnoreSyncBegin(thr, 0);
+}
+
+static void ReportMutexHeldWrongContext(ThreadState *thr, uptr pc) {
+  ThreadRegistryLock l(&ctx->thread_registry);
+  ScopedReport rep(ReportTypeMutexHeldWrongContext);
+  for (uptr i = 0; i < thr->mset.Size(); ++i) {
+    MutexSet::Desc desc = thr->mset.Get(i);
+    rep.AddMutex(desc.addr, desc.stack_id);
+  }
+  VarSizeStackTrace trace;
+  ObtainCurrentStack(thr, pc, &trace);
+  rep.AddStack(trace, true);
+  OutputReport(thr, rep);
+}
+
+INTERFACE_ATTRIBUTE
+void __tsan_check_no_mutexes_held() {
+  SCOPED_ANNOTATION(__tsan_check_no_mutexes_held);
+  if (thr->mset.Size() == 0) {
+    return;
+  }
+  ReportMutexHeldWrongContext(thr, pc);
 }
 }  // extern "C"

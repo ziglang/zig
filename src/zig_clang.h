@@ -247,6 +247,7 @@ enum ZigClangTypeClass {
     ZigClangType_Adjusted,
     ZigClangType_Decayed,
     ZigClangType_ConstantArray,
+    ZigClangType_ArrayParameter,
     ZigClangType_DependentSizedArray,
     ZigClangType_IncompleteArray,
     ZigClangType_VariableArray,
@@ -255,6 +256,7 @@ enum ZigClangTypeClass {
     ZigClangType_BTFTagAttributed,
     ZigClangType_BitInt,
     ZigClangType_BlockPointer,
+    ZigClangType_CountAttributed,
     ZigClangType_Builtin,
     ZigClangType_Complex,
     ZigClangType_Decltype,
@@ -279,6 +281,7 @@ enum ZigClangTypeClass {
     ZigClangType_ObjCInterface,
     ZigClangType_ObjCTypeParam,
     ZigClangType_PackExpansion,
+    ZigClangType_PackIndexing,
     ZigClangType_Paren,
     ZigClangType_Pipe,
     ZigClangType_Pointer,
@@ -323,6 +326,7 @@ enum ZigClangStmtClass {
     ZigClangStmt_PredefinedExprClass,
     ZigClangStmt_ParenListExprClass,
     ZigClangStmt_ParenExprClass,
+    ZigClangStmt_PackIndexingExprClass,
     ZigClangStmt_PackExpansionExprClass,
     ZigClangStmt_UnresolvedMemberExprClass,
     ZigClangStmt_UnresolvedLookupExprClass,
@@ -345,7 +349,6 @@ enum ZigClangStmtClass {
     ZigClangStmt_ObjCArrayLiteralClass,
     ZigClangStmt_OMPIteratorExprClass,
     ZigClangStmt_OMPArrayShapingExprClass,
-    ZigClangStmt_OMPArraySectionExprClass,
     ZigClangStmt_NoInitExprClass,
     ZigClangStmt_MemberExprClass,
     ZigClangStmt_MatrixSubscriptExprClass,
@@ -366,6 +369,7 @@ enum ZigClangStmtClass {
     ZigClangStmt_FixedPointLiteralClass,
     ZigClangStmt_ExtVectorElementExprClass,
     ZigClangStmt_ExpressionTraitExprClass,
+    ZigClangStmt_EmbedExprClass,
     ZigClangStmt_DesignatedInitUpdateExprClass,
     ZigClangStmt_DesignatedInitExprClass,
     ZigClangStmt_DependentScopeDeclRefExprClass,
@@ -423,6 +427,7 @@ enum ZigClangStmtClass {
     ZigClangStmt_AsTypeExprClass,
     ZigClangStmt_ArrayTypeTraitExprClass,
     ZigClangStmt_ArraySubscriptExprClass,
+    ZigClangStmt_ArraySectionExprClass,
     ZigClangStmt_ArrayInitLoopExprClass,
     ZigClangStmt_ArrayInitIndexExprClass,
     ZigClangStmt_AddrLabelExprClass,
@@ -437,6 +442,8 @@ enum ZigClangStmtClass {
     ZigClangStmt_SEHFinallyStmtClass,
     ZigClangStmt_SEHExceptStmtClass,
     ZigClangStmt_ReturnStmtClass,
+    ZigClangStmt_OpenACCLoopConstructClass,
+    ZigClangStmt_OpenACCComputeConstructClass,
     ZigClangStmt_ObjCForCollectionStmtClass,
     ZigClangStmt_ObjCAutoreleasePoolStmtClass,
     ZigClangStmt_ObjCAtTryStmtClass,
@@ -472,6 +479,8 @@ enum ZigClangStmtClass {
     ZigClangStmt_OMPMaskedDirectiveClass,
     ZigClangStmt_OMPUnrollDirectiveClass,
     ZigClangStmt_OMPTileDirectiveClass,
+    ZigClangStmt_OMPReverseDirectiveClass,
+    ZigClangStmt_OMPInterchangeDirectiveClass,
     ZigClangStmt_OMPTeamsGenericLoopDirectiveClass,
     ZigClangStmt_OMPTeamsDistributeSimdDirectiveClass,
     ZigClangStmt_OMPTeamsDistributeParallelForSimdDirectiveClass,
@@ -608,13 +617,13 @@ enum ZigClangCK {
 
 enum ZigClangDeclKind {
     ZigClangDeclTranslationUnit,
+    ZigClangDeclTopLevelStmt,
     ZigClangDeclRequiresExprBody,
     ZigClangDeclLinkageSpec,
     ZigClangDeclExternCContext,
     ZigClangDeclExport,
     ZigClangDeclCaptured,
     ZigClangDeclBlock,
-    ZigClangDeclTopLevelStmt,
     ZigClangDeclStaticAssert,
     ZigClangDeclPragmaDetectMismatch,
     ZigClangDeclPragmaComment,
@@ -1122,6 +1131,7 @@ enum ZigClangBuiltinTypeKind {
     ZigClangBuiltinTypeRvvBFloat16m2x4,
     ZigClangBuiltinTypeRvvBFloat16m4x2,
     ZigClangBuiltinTypeWasmExternRef,
+    ZigClangBuiltinTypeAMDGPUBufferRsrc,
     ZigClangBuiltinTypeVoid,
     ZigClangBuiltinTypeBool,
     ZigClangBuiltinTypeChar_U,
@@ -1187,6 +1197,7 @@ enum ZigClangBuiltinTypeKind {
     ZigClangBuiltinTypeDependent,
     ZigClangBuiltinTypeOverload,
     ZigClangBuiltinTypeBoundMember,
+    ZigClangBuiltinTypeUnresolvedTemplate,
     ZigClangBuiltinTypePseudoObject,
     ZigClangBuiltinTypeUnknownAny,
     ZigClangBuiltinTypeBuiltinFn,
@@ -1220,6 +1231,8 @@ enum ZigClangCallingConv {
     ZigClangCallingConv_AArch64SVEPCS,
     ZigClangCallingConv_AMDGPUKernelCall,
     ZigClangCallingConv_M68kRTD,
+    ZigClangCallingConv_PreserveNone,
+    ZigClangCallingConv_RISCVVectorCall,
 };
 
 enum ZigClangStorageClass {
@@ -1255,10 +1268,14 @@ enum ZigClangAPFloatBase_Semantics {
     ZigClangAPFloatBase_Semantics_PPCDoubleDouble,
     ZigClangAPFloatBase_Semantics_Float8E5M2,
     ZigClangAPFloatBase_Semantics_Float8E5M2FNUZ,
+    ZigClangAPFloatBase_Semantics_Float8E4M3,
     ZigClangAPFloatBase_Semantics_Float8E4M3FN,
     ZigClangAPFloatBase_Semantics_Float8E4M3FNUZ,
     ZigClangAPFloatBase_Semantics_Float8E4M3B11FNUZ,
     ZigClangAPFloatBase_Semantics_FloatTF32,
+    ZigClangAPFloatBase_Semantics_Float6E3M2FN,
+    ZigClangAPFloatBase_Semantics_Float6E2M3FN,
+    ZigClangAPFloatBase_Semantics_Float4E2M1FN,
     ZigClangAPFloatBase_Semantics_x87DoubleExtended,
     ZigClangAPFloatBase_Semantics_MaxSemantics = ZigClangAPFloatBase_Semantics_x87DoubleExtended,
 };
@@ -1314,6 +1331,7 @@ enum ZigClangUnaryExprOrTypeTrait_Kind {
     ZigClangUnaryExprOrTypeTrait_KindDataSizeOf,
     ZigClangUnaryExprOrTypeTrait_KindAlignOf,
     ZigClangUnaryExprOrTypeTrait_KindPreferredAlignOf,
+    ZigClangUnaryExprOrTypeTrait_KindPtrAuthTypeDiscriminator,
     ZigClangUnaryExprOrTypeTrait_KindVecStep,
     ZigClangUnaryExprOrTypeTrait_KindOpenMPRequiredSimdAlign,
 };
@@ -1515,6 +1533,7 @@ ZIG_EXTERN_C const uint64_t *ZigClangAPSInt_getRawData(const struct ZigClangAPSI
 ZIG_EXTERN_C unsigned ZigClangAPSInt_getNumWords(const struct ZigClangAPSInt *self);
 ZIG_EXTERN_C bool ZigClangAPSInt_lessThanEqual(const struct ZigClangAPSInt *self, uint64_t rhs);
 
+ZIG_EXTERN_C void ZigClangAPInt_free(const struct ZigClangAPInt *self);
 ZIG_EXTERN_C uint64_t ZigClangAPInt_getLimitedValue(const struct ZigClangAPInt *self, uint64_t limit);
 
 ZIG_EXTERN_C const struct ZigClangExpr *ZigClangAPValueLValueBase_dyn_cast_Expr(struct ZigClangAPValueLValueBase self);
@@ -1569,7 +1588,7 @@ ZIG_EXTERN_C struct ZigClangQualType ZigClangArrayType_getElementType(const stru
 ZIG_EXTERN_C struct ZigClangQualType ZigClangIncompleteArrayType_getElementType(const struct ZigClangIncompleteArrayType *);
 
 ZIG_EXTERN_C struct ZigClangQualType ZigClangConstantArrayType_getElementType(const struct ZigClangConstantArrayType *);
-ZIG_EXTERN_C const struct ZigClangAPInt *ZigClangConstantArrayType_getSize(const struct ZigClangConstantArrayType *);
+ZIG_EXTERN_C void ZigClangConstantArrayType_getSize(const struct ZigClangConstantArrayType *, const struct ZigClangAPInt **result);
 
 ZIG_EXTERN_C const struct ZigClangValueDecl *ZigClangDeclRefExpr_getDecl(const struct ZigClangDeclRefExpr *);
 ZIG_EXTERN_C const struct ZigClangNamedDecl *ZigClangDeclRefExpr_getFoundDecl(const struct ZigClangDeclRefExpr *);

@@ -17314,6 +17314,21 @@ half __ovld __conv sub_group_clustered_rotate(half, int, uint);
 #endif // cl_khr_fp16
 #endif // cl_khr_subgroup_rotate
 
+#if defined(cl_khr_kernel_clock)
+#if defined(__opencl_c_kernel_clock_scope_device)
+ulong __ovld clock_read_device();
+uint2 __ovld clock_read_hilo_device();
+#endif // __opencl_c_kernel_clock_scope_device
+#if defined(__opencl_c_kernel_clock_scope_work_group)
+ulong __ovld clock_read_work_group();
+uint2 __ovld clock_read_hilo_work_group();
+#endif // __opencl_c_kernel_clock_scope_work_group
+#if defined(__opencl_c_kernel_clock_scope_sub_group)
+ulong __ovld clock_read_sub_group();
+uint2 __ovld clock_read_hilo_sub_group();
+#endif // __opencl_c_kernel_clock_scope_sub_group
+#endif // cl_khr_kernel_clock
+
 #if defined(cl_intel_subgroups)
 // Intel-Specific Sub Group Functions
 float   __ovld __conv intel_sub_group_shuffle( float , uint );

@@ -191,7 +191,7 @@ pub fn toBigIntAdvanced(
     comptime strat: ResolveStrat,
     zcu: *Zcu,
     tid: strat.Tid(),
-) Zcu.CompileError!BigIntConst {
+) Zcu.SemaError!BigIntConst {
     const ip = &zcu.intern_pool;
     return switch (val.toIntern()) {
         .bool_false => BigIntMutable.init(&space.limbs, 0).toConst(),
@@ -1038,7 +1038,7 @@ pub fn orderAgainstZeroInner(
     comptime strat: ResolveStrat,
     zcu: *Zcu,
     tid: strat.Tid(),
-) Zcu.CompileError!std.math.Order {
+) Zcu.SemaError!std.math.Order {
     return switch (lhs.toIntern()) {
         .bool_false => .eq,
         .bool_true => .gt,

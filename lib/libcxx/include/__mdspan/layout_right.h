@@ -66,7 +66,7 @@ private:
     return true;
   }
 
-  static_assert((extents_type::rank_dynamic() > 0) || __required_span_size_is_representable(extents_type()),
+  static_assert(extents_type::rank_dynamic() > 0 || __required_span_size_is_representable(extents_type()),
                 "layout_right::mapping product of static extents must be representable as index_type.");
 
 public:

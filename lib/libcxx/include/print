@@ -15,8 +15,10 @@ namespace std {
   // [print.fun], print functions
   template<class... Args>
     void print(format_string<Args...> fmt, Args&&... args);
+  void println();                                                          // Since C++26
   template<class... Args>
     void print(FILE* stream, format_string<Args...> fmt, Args&&... args);
+  void println(FILE* stream);                                              // Since C++26
 
   template<class... Args>
     void println(format_string<Args...> fmt, Args&&... args);
@@ -31,8 +33,7 @@ namespace std {
 }
 */
 
-#include <__assert> // all public C++ headers provide the assertion handler
-#include <__availability>
+#include <__assert>
 #include <__concepts/same_as.h>
 #include <__config>
 #include <__system_error/system_error.h>
@@ -354,6 +355,16 @@ _LIBCPP_HIDE_FROM_ABI void println(FILE* __stream, format_string<_Args...> __fmt
 #  else  // _LIBCPP_HAS_NO_UNICODE
   __print::__vprint_nonunicode(__stream, __fmt.get(), std::make_format_args(__args...), true);
 #  endif // _LIBCPP_HAS_NO_UNICODE
+}
+
+template <class = void> // TODO PRINT template or availability markup fires too eagerly (http://llvm.org/PR61563).
+_LIBCPP_HIDE_FROM_ABI inline void println(FILE* __stream) {
+  std::print(__stream, "\n");
+}
+
+template <class = void> // TODO PRINT template or availability markup fires too eagerly (http://llvm.org/PR61563).
+_LIBCPP_HIDE_FROM_ABI inline void println() {
+  println(stdout);
 }
 
 template <class... _Args>

@@ -6,6 +6,9 @@
 //
 //===----------------------------------------------------------------------===//
 
+// TODO: __builtin_clzg is available since Clang 19 and GCC 14. When support for older versions is dropped, we can
+//  refactor this code to exclusively use __builtin_clzg.
+
 #ifndef _LIBCPP___BIT_COUNTL_H
 #define _LIBCPP___BIT_COUNTL_H
 
@@ -38,6 +41,9 @@ _LIBCPP_NODISCARD inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR int __libcpp_cl
 
 #ifndef _LIBCPP_HAS_NO_INT128
 inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR int __libcpp_clz(__uint128_t __x) _NOEXCEPT {
+#  if __has_builtin(__builtin_clzg)
+  return __builtin_clzg(__x);
+#  else
   // The function is written in this form due to C++ constexpr limitations.
   // The algorithm:
   // - Test whether any bit in the high 64-bits is set
@@ -49,12 +55,16 @@ inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR int __libcpp_clz(__uint128_t __x)
   //     zeros in the high 64-bits.
   return ((__x >> 64) == 0) ? (64 + __builtin_clzll(static_cast<unsigned long long>(__x)))
                             : __builtin_clzll(static_cast<unsigned long long>(__x >> 64));
+#  endif
 }
 #endif // _LIBCPP_HAS_NO_INT128
 
 template <class _Tp>
 _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 int __countl_zero(_Tp __t) _NOEXCEPT {
   static_assert(__libcpp_is_unsigned_integer<_Tp>::value, "__countl_zero requires an unsigned integer type");
+#if __has_builtin(__builtin_clzg)
+  return __builtin_clzg(__t, numeric_limits<_Tp>::digits);
+#else  // __has_builtin(__builtin_clzg)
   if (__t == 0)
     return numeric_limits<_Tp>::digits;
 
@@ -79,17 +89,18 @@ _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 int __countl_zero(_Tp __t) _
     }
     return __ret + __iter;
   }
+#endif // __has_builtin(__builtin_clzg)
 }
 
 #if _LIBCPP_STD_VER >= 20
 
 template <__libcpp_unsigned_integer _Tp>
-_LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr int countl_zero(_Tp __t) noexcept {
+[[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr int countl_zero(_Tp __t) noexcept {
   return std::__countl_zero(__t);
 }
 
 template <__libcpp_unsigned_integer _Tp>
-_LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr int countl_one(_Tp __t) noexcept {
+[[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr int countl_one(_Tp __t) noexcept {
   return __t != numeric_limits<_Tp>::max() ? std::countl_zero(static_cast<_Tp>(~__t)) : numeric_limits<_Tp>::digits;
 }
 

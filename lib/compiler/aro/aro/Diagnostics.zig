@@ -221,7 +221,7 @@ pub const Options = struct {
 
 const Diagnostics = @This();
 
-list: std.ArrayListUnmanaged(Message) = .{},
+list: std.ArrayListUnmanaged(Message) = .empty,
 arena: std.heap.ArenaAllocator,
 fatal_errors: bool = false,
 options: Options = .{},

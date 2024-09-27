@@ -86,7 +86,7 @@ void SuppressionContext::ParseFromFile(const char *filename) {
   }
 
   Parse(file_contents);
-  UnmapOrDie(file_contents, contents_size);
+  UnmapOrDie(file_contents, buffer_size);
 }
 
 bool SuppressionContext::Match(const char *str, const char *type,
@@ -138,7 +138,10 @@ void SuppressionContext::Parse(const char *str) {
         }
       }
       if (type == suppression_types_num_) {
-        Printf("%s: failed to parse suppressions\n", SanitizerToolName);
+        Printf("%s: failed to parse suppressions.\n", SanitizerToolName);
+        Printf("Supported suppression types are:\n");
+        for (type = 0; type < suppression_types_num_; type++)
+          Printf("- %s\n", suppression_types_[type]);
         Die();
       }
       Suppression s;

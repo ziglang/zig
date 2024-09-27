@@ -336,7 +336,7 @@ pub fn main() !void {
     }
 
     if (graph.needed_lazy_dependencies.entries.len != 0) {
-        var buffer: std.ArrayListUnmanaged(u8) = .{};
+        var buffer: std.ArrayListUnmanaged(u8) = .empty;
         for (graph.needed_lazy_dependencies.keys()) |k| {
             try buffer.appendSlice(arena, k);
             try buffer.append(arena, '\n');
@@ -1173,7 +1173,7 @@ pub fn printErrorMessages(
     // Provide context for where these error messages are coming from by
     // printing the corresponding Step subtree.
 
-    var step_stack: std.ArrayListUnmanaged(*Step) = .{};
+    var step_stack: std.ArrayListUnmanaged(*Step) = .empty;
     defer step_stack.deinit(gpa);
     try step_stack.append(gpa, failing_step);
     while (step_stack.items[step_stack.items.len - 1].dependants.items.len != 0) {

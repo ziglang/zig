@@ -1,5 +1,5 @@
 pub const GotSection = struct {
-    symbols: std.ArrayListUnmanaged(MachO.Ref) = .{},
+    symbols: std.ArrayListUnmanaged(MachO.Ref) = .empty,
 
     pub const Index = u32;
 
@@ -68,7 +68,7 @@ pub const GotSection = struct {
 };
 
 pub const StubsSection = struct {
-    symbols: std.ArrayListUnmanaged(MachO.Ref) = .{},
+    symbols: std.ArrayListUnmanaged(MachO.Ref) = .empty,
 
     pub const Index = u32;
 
@@ -316,7 +316,7 @@ pub const LaSymbolPtrSection = struct {
 };
 
 pub const TlvPtrSection = struct {
-    symbols: std.ArrayListUnmanaged(MachO.Ref) = .{},
+    symbols: std.ArrayListUnmanaged(MachO.Ref) = .empty,
 
     pub const Index = u32;
 
@@ -388,7 +388,7 @@ pub const TlvPtrSection = struct {
 };
 
 pub const ObjcStubsSection = struct {
-    symbols: std.ArrayListUnmanaged(MachO.Ref) = .{},
+    symbols: std.ArrayListUnmanaged(MachO.Ref) = .empty,
 
     pub fn deinit(objc: *ObjcStubsSection, allocator: Allocator) void {
         objc.symbols.deinit(allocator);
@@ -548,7 +548,7 @@ pub const Indsymtab = struct {
 };
 
 pub const DataInCode = struct {
-    entries: std.ArrayListUnmanaged(Entry) = .{},
+    entries: std.ArrayListUnmanaged(Entry) = .empty,
 
     pub fn deinit(dice: *DataInCode, allocator: Allocator) void {
         dice.entries.deinit(allocator);

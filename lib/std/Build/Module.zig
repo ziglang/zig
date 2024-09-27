@@ -135,6 +135,44 @@ pub const IncludeDir = union(enum) {
     framework_path_system: LazyPath,
     other_step: *Step.Compile,
     config_header_step: *Step.ConfigHeader,
+
+    pub fn appendZigProcessFlags(
+        include_dir: IncludeDir,
+        b: *std.Build,
+        zig_args: *std.ArrayList([]const u8),
+        asking_step: ?*Step,
+    ) !void {
+        switch (include_dir) {
+            .path => |include_path| {
+                try zig_args.appendSlice(&.{ "-I", include_path.getPath2(b, asking_step) });
+            },
+            .path_system => |include_path| {
+                try zig_args.appendSlice(&.{ "-isystem", include_path.getPath2(b, asking_step) });
+            },
+            .path_after => |include_path| {
+                try zig_args.appendSlice(&.{ "-idirafter", include_path.getPath2(b, asking_step) });
+            },
+            .framework_path => |include_path| {
+                try zig_args.appendSlice(&.{ "-F", include_path.getPath2(b, asking_step) });
+            },
+            .framework_path_system => |include_path| {
+                try zig_args.appendSlice(&.{ "-iframework", include_path.getPath2(b, asking_step) });
+            },
+            .other_step => |other| {
+                if (other.generated_h) |header| {
+                    try zig_args.appendSlice(&.{ "-isystem", std.fs.path.dirname(header.getPath()).? });
+                }
+                if (other.installed_headers_include_tree) |include_tree| {
+                    try zig_args.appendSlice(&.{ "-I", include_tree.generated_directory.getPath() });
+                }
+            },
+            .config_header_step => |config_header| {
+                const full_file_path = config_header.output_file.getPath();
+                const header_dir_path = full_file_path[0 .. full_file_path.len - config_header.include_path.len];
+                try zig_args.appendSlice(&.{ "-I", header_dir_path });
+            },
+        }
+    }
 };
 
 pub const LinkFrameworkOptions = struct {
@@ -690,36 +728,7 @@ pub fn appendZigProcessFlags(
     }
 
     for (m.include_dirs.items) |include_dir| {
-        switch (include_dir) {
-            .path => |include_path| {
-                try zig_args.appendSlice(&.{ "-I", include_path.getPath2(b, asking_step) });
-            },
-            .path_system => |include_path| {
-                try zig_args.appendSlice(&.{ "-isystem", include_path.getPath2(b, asking_step) });
-            },
-            .path_after => |include_path| {
-                try zig_args.appendSlice(&.{ "-idirafter", include_path.getPath2(b, asking_step) });
-            },
-            .framework_path => |include_path| {
-                try zig_args.appendSlice(&.{ "-F", include_path.getPath2(b, asking_step) });
-            },
-            .framework_path_system => |include_path| {
-                try zig_args.appendSlice(&.{ "-iframework", include_path.getPath2(b, asking_step) });
-            },
-            .other_step => |other| {
-                if (other.generated_h) |header| {
-                    try zig_args.appendSlice(&.{ "-isystem", std.fs.path.dirname(header.getPath()).? });
-                }
-                if (other.installed_headers_include_tree) |include_tree| {
-                    try zig_args.appendSlice(&.{ "-I", include_tree.generated_directory.getPath() });
-                }
-            },
-            .config_header_step => |config_header| {
-                const full_file_path = config_header.output_file.getPath();
-                const header_dir_path = full_file_path[0 .. full_file_path.len - config_header.include_path.len];
-                try zig_args.appendSlice(&.{ "-I", header_dir_path });
-            },
-        }
+        try include_dir.appendZigProcessFlags(b, zig_args, asking_step);
     }
 
     try zig_args.appendSlice(m.c_macros.items);

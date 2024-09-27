@@ -56,13 +56,6 @@ extern const dispatch_block_t _dispatch_data_destructor_munmap;
 # define DISPATCH_NOESCAPE
 #endif
 
-#if SANITIZER_APPLE
-# define SANITIZER_WEAK_IMPORT extern "C" __attribute((weak_import))
-#else
-# define SANITIZER_WEAK_IMPORT extern "C" __attribute((weak))
-#endif
-
-
 // Data types used in dispatch APIs
 typedef unsigned long size_t;
 typedef unsigned long uintptr_t;

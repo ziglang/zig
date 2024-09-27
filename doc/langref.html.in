@@ -2497,6 +2497,53 @@ or
 
       {#header_close#}
 
+      {#header_open|Labeled switch#}
+      <p>
+      When a switch statement is labeled, it can be referenced from a
+      {#syntax#}break{#endsyntax#} or {#syntax#}continue{#endsyntax#}.
+      {#syntax#}break{#endsyntax#} will return a value from the {#syntax#}
+      switch{#endsyntax#}.
+      </p>
+      <p>
+      A {#syntax#}continue{#endsyntax#} targeting a switch must have an
+      operand. When executed, it will jump to the matching prong, as if the
+      {#syntax#}switch{#endsyntax#} were executed again with the {#syntax#}
+      continue{#endsyntax#}'s operand replacing the initial switch value.
+      </p>
+
+      {#code|test_switch_continue.zig#}
+
+      <p>
+      Semantically, this is equivalent to the following loop:
+      </p>
+      {#code|test_switch_continue_equivalent.zig#}
+
+      <p>
+      This can improve clarity of (for example) state machines, where the syntax {#syntax#}continue :sw .next_state{#endsyntax#} is unambiguous, explicit, and immediately understandable.
+      </p>
+      <p>
+      However, the motivating example is a switch on each element of an array, where using a single switch can improve clarity and performance:
+      </p>
+      {#code|test_switch_dispatch_loop.zig#}
+
+      <p>
+      If the operand to {#syntax#}continue{#endsyntax#} is
+      {#link|comptime#}-known, then it can be lowered to an unconditional branch
+      to the relevant case. Such a branch is perfectly predicted, and hence
+      typically very fast to execute.
+      </p>
+
+      <p>
+      If the operand is runtime-known, each {#syntax#}continue{#endsyntax#} can
+      embed a conditional branch inline (ideally through a jump table), which
+      allows a CPU to predict its target independently of any other prong. A
+      loop-based lowering would force every branch through the same dispatch
+      point, hindering branch prediction.
+      </p>
+
+
+      {#header_close#}
+
       {#header_open|Inline Switch Prongs#}
       <p>
       Switch prongs can be marked as {#syntax#}inline{#endsyntax#} to generate

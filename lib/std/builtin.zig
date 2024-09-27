@@ -887,12 +887,6 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace, ret_addr
     }
 }
 
-pub fn checkNonScalarSentinel(expected: anytype, actual: @TypeOf(expected)) void {
-    if (!std.meta.eql(expected, actual)) {
-        panicSentinelMismatch(expected, actual);
-    }
-}
-
 pub fn panicSentinelMismatch(expected: anytype, actual: @TypeOf(expected)) noreturn {
     @branchHint(.cold);
     std.debug.panicExtra(null, @returnAddress(), "sentinel mismatch: expected {any}, found {any}", .{ expected, actual });

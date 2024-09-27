@@ -43,7 +43,7 @@ public:
 
   template <class _FormatContext>
   _LIBCPP_HIDE_FROM_ABI typename _FormatContext::iterator format(__thread_id __id, _FormatContext& __ctx) const {
-    // In __threading_support __libcpp_thread_id is either a
+    // In __thread/support/pthread.h, __libcpp_thread_id is either a
     // unsigned long long or a pthread_t.
     //
     // The type of pthread_t is left unspecified in POSIX so it can be any

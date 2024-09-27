@@ -51,9 +51,8 @@ struct __fn {
   }
 
   template <random_access_iterator _It>
-  _LIBCPP_HIDE_FROM_ABI static constexpr auto
-  __go(_It __it, iter_difference_t<_It> __count) noexcept(noexcept(subrange(__it, __it + __count)))
-      -> decltype(subrange(__it, __it + __count)) {
+  _LIBCPP_HIDE_FROM_ABI static constexpr auto __go(_It __it, iter_difference_t<_It> __count) noexcept(
+      noexcept(subrange(__it, __it + __count))) -> decltype(subrange(__it, __it + __count)) {
     return subrange(__it, __it + __count);
   }
 

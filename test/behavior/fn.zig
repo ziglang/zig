@@ -415,7 +415,7 @@ test "import passed byref to function in return type" {
 
     const S = struct {
         fn get() @import("std").ArrayListUnmanaged(i32) {
-            const x: @import("std").ArrayListUnmanaged(i32) = .{};
+            const x: @import("std").ArrayListUnmanaged(i32) = .empty;
             return x;
         }
     };

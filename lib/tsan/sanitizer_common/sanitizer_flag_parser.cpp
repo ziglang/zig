@@ -19,8 +19,6 @@
 
 namespace __sanitizer {
 
-LowLevelAllocator FlagParser::Alloc;
-
 class UnknownFlags {
   static const int kMaxUnknownFlags = 20;
   const char *unknown_flags_[kMaxUnknownFlags];
@@ -49,7 +47,7 @@ void ReportUnrecognizedFlags() {
 
 char *FlagParser::ll_strndup(const char *s, uptr n) {
   uptr len = internal_strnlen(s, n);
-  char *s2 = (char*)Alloc.Allocate(len + 1);
+  char *s2 = (char *)GetGlobalLowLevelAllocator().Allocate(len + 1);
   internal_memcpy(s2, s, len);
   s2[len] = 0;
   return s2;
@@ -185,7 +183,8 @@ void FlagParser::RegisterHandler(const char *name, FlagHandlerBase *handler,
 }
 
 FlagParser::FlagParser() : n_flags_(0), buf_(nullptr), pos_(0) {
-  flags_ = (Flag *)Alloc.Allocate(sizeof(Flag) * kMaxFlags);
+  flags_ =
+      (Flag *)GetGlobalLowLevelAllocator().Allocate(sizeof(Flag) * kMaxFlags);
 }
 
 }  // namespace __sanitizer

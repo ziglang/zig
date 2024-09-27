@@ -471,7 +471,6 @@ pub const Extra = struct {
     tlsgd: u32 = 0,
     gottp: u32 = 0,
     tlsdesc: u32 = 0,
-    merge_section: u32 = 0,
     trampoline: u32 = 0,
 };
 

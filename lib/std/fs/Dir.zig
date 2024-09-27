@@ -750,7 +750,7 @@ pub const Walker = struct {
 ///
 /// `self` will not be closed after walking it.
 pub fn walk(self: Dir, allocator: Allocator) Allocator.Error!Walker {
-    var stack: std.ArrayListUnmanaged(Walker.StackItem) = .{};
+    var stack: std.ArrayListUnmanaged(Walker.StackItem) = .empty;
 
     try stack.append(allocator, .{
         .iter = self.iterate(),

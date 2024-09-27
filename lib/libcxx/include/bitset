@@ -129,7 +129,6 @@ template <size_t N> struct hash<std::bitset<N>>;
 #include <__algorithm/count.h>
 #include <__algorithm/fill.h>
 #include <__algorithm/find.h>
-#include <__assert> // all public C++ headers provide the assertion handler
 #include <__bit_reference>
 #include <__config>
 #include <__functional/hash.h>
@@ -376,8 +375,11 @@ template <size_t _N_words, size_t _Size>
 _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX23 unsigned long long
 __bitset<_N_words, _Size>::to_ullong(true_type, true_type) const {
   unsigned long long __r = __first_[0];
+  _LIBCPP_DIAGNOSTIC_PUSH
+  _LIBCPP_GCC_DIAGNOSTIC_IGNORED("-Wshift-count-overflow")
   for (size_t __i = 1; __i < sizeof(unsigned long long) / sizeof(__storage_type); ++__i)
     __r |= static_cast<unsigned long long>(__first_[__i]) << (sizeof(__storage_type) * CHAR_BIT);
+  _LIBCPP_DIAGNOSTIC_POP
   return __r;
 }
 
@@ -618,7 +620,7 @@ public:
   // 23.3.5.1 constructors:
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR bitset() _NOEXCEPT {}
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR bitset(unsigned long long __v) _NOEXCEPT : base(__v) {}
-  template <class _CharT, class = __enable_if_t<_IsCharLikeType<_CharT>::value> >
+  template <class _CharT, __enable_if_t<_IsCharLikeType<_CharT>::value, int> = 0>
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX23 explicit bitset(
       const _CharT* __str,
 #if _LIBCPP_STD_VER >= 26

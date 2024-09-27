@@ -16,7 +16,6 @@
 #include <__type_traits/decay.h>
 #include <__type_traits/enable_if.h>
 #include <__type_traits/is_constructible.h>
-#include <__type_traits/is_move_constructible.h>
 #include <__utility/forward.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)

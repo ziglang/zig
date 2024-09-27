@@ -104,7 +104,6 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         => return false,
 
         .coff,
-        .dxcontainer,
         .elf,
         .goff,
         .hex,
@@ -161,7 +160,6 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         => true,
 
         // An LLVM backend exists but we don't currently support using it.
-        .dxil,
         .spirv,
         .spirv32,
         .spirv64,
@@ -335,6 +333,48 @@ pub fn clangMightShellOutForAssembly(target: std.Target) bool {
 pub fn clangAssemblerSupportsMcpuArg(target: std.Target) bool {
     return switch (target.cpu.arch) {
         .arm, .armeb, .thumb, .thumbeb => true,
+        else => false,
+    };
+}
+
+pub fn clangSupportsFloatAbiArg(target: std.Target) bool {
+    return switch (target.cpu.arch) {
+        .arm,
+        .armeb,
+        .thumb,
+        .thumbeb,
+        .csky,
+        .mips,
+        .mipsel,
+        .mips64,
+        .mips64el,
+        .powerpc,
+        .powerpcle,
+        .powerpc64,
+        .powerpc64le,
+        .s390x,
+        .sparc,
+        .sparc64,
+        => true,
+        // We use the target triple for LoongArch.
+        .loongarch32, .loongarch64 => false,
+        else => false,
+    };
+}
+
+pub fn clangSupportsNoImplicitFloatArg(target: std.Target) bool {
+    return switch (target.cpu.arch) {
+        .aarch64,
+        .aarch64_be,
+        .arm,
+        .armeb,
+        .thumb,
+        .thumbeb,
+        .riscv32,
+        .riscv64,
+        .x86,
+        .x86_64,
+        => true,
         else => false,
     };
 }

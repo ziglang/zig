@@ -9,8 +9,8 @@
 #ifndef _LIBCPP___FWD_STRING_H
 #define _LIBCPP___FWD_STRING_H
 
-#include <__availability>
 #include <__config>
+#include <__fwd/memory.h>
 #include <__fwd/memory_resource.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -38,9 +38,6 @@ struct char_traits<char32_t>;
 template <>
 struct char_traits<wchar_t>;
 #endif
-
-template <class _Tp>
-class _LIBCPP_TEMPLATE_VIS allocator;
 
 template <class _CharT, class _Traits = char_traits<_CharT>, class _Allocator = allocator<_CharT> >
 class _LIBCPP_TEMPLATE_VIS basic_string;

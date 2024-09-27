@@ -1,11 +1,11 @@
 index: File.Index,
 
-symtab: std.ArrayListUnmanaged(elf.Elf64_Sym) = .{},
-strtab: std.ArrayListUnmanaged(u8) = .{},
+symtab: std.ArrayListUnmanaged(elf.Elf64_Sym) = .empty,
+strtab: std.ArrayListUnmanaged(u8) = .empty,
 
-symbols: std.ArrayListUnmanaged(Symbol) = .{},
-symbols_extra: std.ArrayListUnmanaged(u32) = .{},
-symbols_resolver: std.ArrayListUnmanaged(Elf.SymbolResolver.Index) = .{},
+symbols: std.ArrayListUnmanaged(Symbol) = .empty,
+symbols_extra: std.ArrayListUnmanaged(u32) = .empty,
+symbols_resolver: std.ArrayListUnmanaged(Elf.SymbolResolver.Index) = .empty,
 
 entry_index: ?Symbol.Index = null,
 dynamic_index: ?Symbol.Index = null,
@@ -24,7 +24,7 @@ dso_handle_index: ?Symbol.Index = null,
 rela_iplt_start_index: ?Symbol.Index = null,
 rela_iplt_end_index: ?Symbol.Index = null,
 global_pointer_index: ?Symbol.Index = null,
-start_stop_indexes: std.ArrayListUnmanaged(u32) = .{},
+start_stop_indexes: std.ArrayListUnmanaged(u32) = .empty,
 
 output_symtab_ctx: Elf.SymtabCtx = .{},
 
@@ -47,7 +47,7 @@ fn newSymbolAssumeCapacity(self: *LinkerDefined, name_off: u32, elf_file: *Elf) 
     const esym = self.symtab.addOneAssumeCapacity();
     esym.* = .{
         .st_name = name_off,
-        .st_info = elf.STB_GLOBAL << 4,
+        .st_info = elf.STB_WEAK << 4,
         .st_other = @intFromEnum(elf.STV.HIDDEN),
         .st_shndx = elf.SHN_ABS,
         .st_value = 0,
@@ -145,6 +145,7 @@ pub fn initStartStopSymbols(self: *LinkerDefined, elf_file: *Elf) !void {
     try self.symbols_resolver.ensureUnusedCapacity(gpa, nsyms);
 
     for (slice.items(.shdr)) |shdr| {
+        // TODO use getOrPut for incremental so that we don't create duplicates
         if (elf_file.getStartStopBasename(shdr)) |name| {
             const start_name = try std.fmt.allocPrintZ(gpa, "__start_{s}", .{name});
             defer gpa.free(start_name);
@@ -158,7 +159,6 @@ pub fn initStartStopSymbols(self: *LinkerDefined, elf_file: *Elf) !void {
                     .index = index,
                     .file = self.index,
                 }, elf_file);
-                assert(!gop.found_existing);
                 gop.ref.* = .{ .index = index, .file = self.index };
                 self.symbols_resolver.appendAssumeCapacity(gop.index);
             }
@@ -255,8 +255,10 @@ pub fn allocateSymbols(self: *LinkerDefined, elf_file: *Elf) void {
 
     // __dso_handle
     if (self.dso_handle_index) |index| {
-        const shdr = shdrs[1];
-        allocSymbol(self, index, shdr.sh_addr, 0, elf_file);
+        if (self.resolveSymbol(index, elf_file).file == self.index) {
+            const shdr = shdrs[1];
+            allocSymbol(self, index, shdr.sh_addr, 0, elf_file);
+        }
     }
 
     // __GNU_EH_FRAME_HDR

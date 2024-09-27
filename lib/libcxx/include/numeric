@@ -156,36 +156,51 @@ constexpr T saturate_cast(U x) noexcept;                    // freestanding, Sin
 
 */
 
-#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
-#include <version>
 
 #include <__numeric/accumulate.h>
 #include <__numeric/adjacent_difference.h>
-#include <__numeric/exclusive_scan.h>
-#include <__numeric/gcd_lcm.h>
-#include <__numeric/inclusive_scan.h>
 #include <__numeric/inner_product.h>
 #include <__numeric/iota.h>
-#include <__numeric/midpoint.h>
 #include <__numeric/partial_sum.h>
-#include <__numeric/pstl_reduce.h>
-#include <__numeric/pstl_transform_reduce.h>
-#include <__numeric/reduce.h>
-#include <__numeric/saturation_arithmetic.h>
-#include <__numeric/transform_exclusive_scan.h>
-#include <__numeric/transform_inclusive_scan.h>
-#include <__numeric/transform_reduce.h>
+
+#if _LIBCPP_STD_VER >= 17
+#  include <__numeric/exclusive_scan.h>
+#  include <__numeric/gcd_lcm.h>
+#  include <__numeric/inclusive_scan.h>
+#  include <__numeric/pstl.h>
+#  include <__numeric/reduce.h>
+#  include <__numeric/transform_exclusive_scan.h>
+#  include <__numeric/transform_inclusive_scan.h>
+#  include <__numeric/transform_reduce.h>
+#endif
+
+#if _LIBCPP_STD_VER >= 20
+#  include <__numeric/midpoint.h>
+#  include <__numeric/saturation_arithmetic.h>
+#endif
+
+#include <version>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
 #endif
 
+#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 14
+#  include <initializer_list>
+#  include <limits>
+#endif
+
 #if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#  include <climits>
 #  include <cmath>
 #  include <concepts>
+#  include <cstdint>
+#  include <execution>
 #  include <functional>
 #  include <iterator>
+#  include <new>
+#  include <optional>
 #  include <type_traits>
 #endif
 

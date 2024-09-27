@@ -12,9 +12,9 @@
 
 #include <__compare/ordering.h>
 #include <__config>
-#include <__fwd/hash.h>
+#include <__fwd/functional.h>
 #include <__fwd/ostream.h>
-#include <__threading_support>
+#include <__thread/support.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header

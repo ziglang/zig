@@ -178,8 +178,8 @@ const ModuleInfo = struct {
 
 const EntityContext = struct {
     a: Allocator,
-    ptr_map_a: std.AutoArrayHashMapUnmanaged(ResultId, void) = .{},
-    ptr_map_b: std.AutoArrayHashMapUnmanaged(ResultId, void) = .{},
+    ptr_map_a: std.AutoArrayHashMapUnmanaged(ResultId, void) = .empty,
+    ptr_map_b: std.AutoArrayHashMapUnmanaged(ResultId, void) = .empty,
     info: *const ModuleInfo,
     binary: *const BinaryModule,
 

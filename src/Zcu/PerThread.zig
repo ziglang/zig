@@ -320,7 +320,7 @@ pub fn updateZirRefs(pt: Zcu.PerThread) Allocator.Error!void {
     const gpa = zcu.gpa;
 
     // We need to visit every updated File for every TrackedInst in InternPool.
-    var updated_files: std.AutoArrayHashMapUnmanaged(Zcu.File.Index, UpdatedFile) = .{};
+    var updated_files: std.AutoArrayHashMapUnmanaged(Zcu.File.Index, UpdatedFile) = .empty;
     defer cleanupUpdatedFiles(gpa, &updated_files);
     for (zcu.import_table.values()) |file_index| {
         const file = zcu.fileByIndex(file_index);
@@ -399,7 +399,7 @@ pub fn updateZirRefs(pt: Zcu.PerThread) Allocator.Error!void {
             };
             if (!has_namespace) continue;
 
-            var old_names: std.AutoArrayHashMapUnmanaged(InternPool.NullTerminatedString, void) = .{};
+            var old_names: std.AutoArrayHashMapUnmanaged(InternPool.NullTerminatedString, void) = .empty;
             defer old_names.deinit(zcu.gpa);
             {
                 var it = old_zir.declIterator(old_inst);
@@ -1240,11 +1240,11 @@ fn semaCau(pt: Zcu.PerThread, cau_index: InternPool.Cau.Index) !SemaCauResult {
         };
     }
 
-    const nav_already_populated, const queue_linker_work, const resolve_type = switch (ip.indexToKey(decl_val.toIntern())) {
-        .func => |f| .{ f.owner_nav == nav_index, true, false },
-        .variable => |v| .{ false, v.owner_nav == nav_index, true },
-        .@"extern" => .{ false, false, false },
-        else => .{ false, true, true },
+    const nav_already_populated, const queue_linker_work = switch (ip.indexToKey(decl_val.toIntern())) {
+        .func => |f| .{ f.owner_nav == nav_index, true },
+        .variable => |v| .{ false, v.owner_nav == nav_index },
+        .@"extern" => .{ false, false },
+        else => .{ false, true },
     };
 
     if (nav_already_populated) {
@@ -1317,16 +1317,7 @@ fn semaCau(pt: Zcu.PerThread, cau_index: InternPool.Cau.Index) !SemaCauResult {
     queue_codegen: {
         if (!queue_linker_work) break :queue_codegen;
 
-        if (resolve_type) {
-            // Needed for codegen_nav which will call updateDecl and then the
-            // codegen backend wants full access to the Decl Type.
-            // We also need this for the `isFnOrHasRuntimeBits` check below.
-            // TODO: we could make the language more lenient by deferring this work
-            // to the `codegen_nav` job.
-            try decl_ty.resolveFully(pt);
-        }
-
-        if (!resolve_type or !decl_ty.hasRuntimeBits(zcu)) {
+        if (!try decl_ty.hasRuntimeBitsSema(pt)) {
             if (zcu.comp.config.use_llvm) break :queue_codegen;
             if (file.mod.strip) break :queue_codegen;
         }
@@ -1721,7 +1712,7 @@ pub fn scanNamespace(
     // For incremental updates, `scanDecl` wants to look up existing decls by their ZIR index rather
     // than their name. We'll build an efficient mapping now, then discard the current `decls`.
     // We map to the `Cau`, since not every declaration has a `Nav`.
-    var existing_by_inst: std.AutoHashMapUnmanaged(InternPool.TrackedInst.Index, InternPool.Cau.Index) = .{};
+    var existing_by_inst: std.AutoHashMapUnmanaged(InternPool.TrackedInst.Index, InternPool.Cau.Index) = .empty;
     defer existing_by_inst.deinit(gpa);
 
     try existing_by_inst.ensureTotalCapacity(gpa, @intCast(
@@ -1761,7 +1752,7 @@ pub fn scanNamespace(
         }
     }
 
-    var seen_decls: std.AutoHashMapUnmanaged(InternPool.NullTerminatedString, void) = .{};
+    var seen_decls: std.AutoHashMapUnmanaged(InternPool.NullTerminatedString, void) = .empty;
     defer seen_decls.deinit(gpa);
 
     namespace.pub_decls.clearRetainingCapacity();
@@ -2293,8 +2284,8 @@ pub fn processExports(pt: Zcu.PerThread) !void {
     const gpa = zcu.gpa;
 
     // First, construct a mapping of every exported value and Nav to the indices of all its different exports.
-    var nav_exports: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, std.ArrayListUnmanaged(u32)) = .{};
-    var uav_exports: std.AutoArrayHashMapUnmanaged(InternPool.Index, std.ArrayListUnmanaged(u32)) = .{};
+    var nav_exports: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, std.ArrayListUnmanaged(u32)) = .empty;
+    var uav_exports: std.AutoArrayHashMapUnmanaged(InternPool.Index, std.ArrayListUnmanaged(u32)) = .empty;
     defer {
         for (nav_exports.values()) |*exports| {
             exports.deinit(gpa);

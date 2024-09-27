@@ -36,7 +36,6 @@ size_t c32rtomb(char* s, char32_t c32, mbstate_t* ps);
 
 */
 
-#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
 
 #include <uchar.h>

@@ -39,9 +39,8 @@ namespace __all {
 struct __fn : __range_adaptor_closure<__fn> {
   template <class _Tp>
     requires ranges::view<decay_t<_Tp>>
-  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr auto operator()(_Tp&& __t) const
-      noexcept(noexcept(_LIBCPP_AUTO_CAST(std::forward<_Tp>(__t))))
-          -> decltype(_LIBCPP_AUTO_CAST(std::forward<_Tp>(__t))) {
+  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr auto operator()(_Tp&& __t) const noexcept(
+      noexcept(_LIBCPP_AUTO_CAST(std::forward<_Tp>(__t)))) -> decltype(_LIBCPP_AUTO_CAST(std::forward<_Tp>(__t))) {
     return _LIBCPP_AUTO_CAST(std::forward<_Tp>(__t));
   }
 

@@ -89,6 +89,7 @@ dep_prefix: []const u8 = "",
 modules: std.StringArrayHashMap(*Module),
 
 named_writefiles: std.StringArrayHashMap(*Step.WriteFile),
+named_lazy_paths: std.StringArrayHashMap(LazyPath),
 /// A map from build root dirs to the corresponding `*Dependency`. This is shared with all child
 /// `Build`s.
 initialized_deps: *InitializedDepMap,
@@ -111,7 +112,7 @@ pub const ReleaseMode = enum {
 /// Settings that are here rather than in Build are not configurable per-package.
 pub const Graph = struct {
     arena: Allocator,
-    system_library_options: std.StringArrayHashMapUnmanaged(SystemLibraryMode) = .{},
+    system_library_options: std.StringArrayHashMapUnmanaged(SystemLibraryMode) = .empty,
     system_package_mode: bool = false,
     debug_compiler_runtime_libs: bool = false,
     cache: Cache,
@@ -119,7 +120,7 @@ pub const Graph = struct {
     env_map: EnvMap,
     global_cache_root: Cache.Directory,
     zig_lib_directory: Cache.Directory,
-    needed_lazy_dependencies: std.StringArrayHashMapUnmanaged(void) = .{},
+    needed_lazy_dependencies: std.StringArrayHashMapUnmanaged(void) = .empty,
     /// Information about the native target. Computed before build() is invoked.
     host: ResolvedTarget,
     incremental: ?bool = null,
@@ -300,8 +301,9 @@ pub fn create(
         .install_path = undefined,
         .args = null,
         .host = graph.host,
-        .modules = std.StringArrayHashMap(*Module).init(arena),
-        .named_writefiles = std.StringArrayHashMap(*Step.WriteFile).init(arena),
+        .modules = .init(arena),
+        .named_writefiles = .init(arena),
+        .named_lazy_paths = .init(arena),
         .initialized_deps = initialized_deps,
         .pkg_hash = "",
         .available_deps = available_deps,
@@ -393,8 +395,9 @@ fn createChildOnly(
         .glibc_runtimes_dir = parent.glibc_runtimes_dir,
         .host = parent.host,
         .dep_prefix = parent.fmt("{s}{s}.", .{ parent.dep_prefix, dep_name }),
-        .modules = std.StringArrayHashMap(*Module).init(allocator),
-        .named_writefiles = std.StringArrayHashMap(*Step.WriteFile).init(allocator),
+        .modules = .init(allocator),
+        .named_writefiles = .init(allocator),
+        .named_lazy_paths = .init(allocator),
         .initialized_deps = parent.initialized_deps,
         .pkg_hash = pkg_hash,
         .available_deps = pkg_deps,
@@ -1058,6 +1061,10 @@ pub fn addNamedWriteFiles(b: *Build, name: []const u8) *Step.WriteFile {
     const wf = Step.WriteFile.create(b);
     b.named_writefiles.put(b.dupe(name), wf) catch @panic("OOM");
     return wf;
+}
+
+pub fn addNamedLazyPath(b: *Build, name: []const u8, lp: LazyPath) void {
+    b.named_lazy_paths.put(b.dupe(name), lp.dupe(b)) catch @panic("OOM");
 }
 
 pub fn addWriteFiles(b: *Build) *Step.WriteFile {
@@ -1899,6 +1906,12 @@ pub const Dependency = struct {
     pub fn namedWriteFiles(d: *Dependency, name: []const u8) *Step.WriteFile {
         return d.builder.named_writefiles.get(name) orelse {
             panic("unable to find named writefiles '{s}'", .{name});
+        };
+    }
+
+    pub fn namedLazyPath(d: *Dependency, name: []const u8) LazyPath {
+        return d.builder.named_lazy_paths.get(name) orelse {
+            panic("unable to find named lazypath '{s}'", .{name});
         };
     }
 

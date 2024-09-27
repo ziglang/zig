@@ -440,7 +440,7 @@ pub fn resolve(options: Options) ResolveError!Config {
                 .windows, .uefi => .code_view,
                 else => .{ .dwarf = .@"32" },
             },
-            .spirv, .nvptx, .dxcontainer, .hex, .raw, .plan9 => .strip,
+            .spirv, .nvptx, .hex, .raw, .plan9 => .strip,
         };
     };
 

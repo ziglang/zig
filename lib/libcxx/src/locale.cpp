@@ -34,9 +34,7 @@
 #  define _CTYPE_DISABLE_MACROS
 #endif
 
-#if defined(_LIBCPP_MSVCRT) || defined(__MINGW32__)
-#  include "__support/win32/locale_win32.h"
-#elif !defined(__BIONIC__) && !defined(__NuttX__)
+#if !defined(_LIBCPP_MSVCRT) && !defined(__MINGW32__) && !defined(__BIONIC__) && !defined(__NuttX__)
 #  include <langinfo.h>
 #endif
 
@@ -104,8 +102,6 @@ inline constexpr size_t countof(const T* const begin, const T* const end) {
   return static_cast<size_t>(end - begin);
 }
 
-} // namespace
-
 string build_name(const string& other, const string& one, locale::category c) {
   if (other == "*" || one == "*")
     return "*";
@@ -116,6 +112,8 @@ string build_name(const string& other, const string& one, locale::category c) {
   // different names for different categories.
   return "*";
 }
+
+} // namespace
 
 const locale::category locale::none;
 const locale::category locale::collate;
@@ -499,7 +497,7 @@ constinit __no_destroy<locale::__imp>
     locale::__imp::classic_locale_imp_(__uninitialized_tag{}); // initialized below in classic()
 
 const locale& locale::classic() {
-  static const __no_destroy<locale> classic_locale(__private_tag{}, [] {
+  static const __no_destroy<locale> classic_locale(__private_constructor_tag{}, [] {
     // executed exactly once on first initialization of `classic_locale`
     locale::__imp::classic_locale_imp_.__emplace(1u);
     return &locale::__imp::classic_locale_imp_.__get();
@@ -559,9 +557,9 @@ locale::locale(const locale& other, const locale& one, category c)
 
 string locale::name() const { return __locale_->name(); }
 
-void locale::__install_ctor(const locale& other, facet* f, long id) {
+void locale::__install_ctor(const locale& other, facet* f, long facet_id) {
   if (f)
-    __locale_ = new __imp(*other.__locale_, f, id);
+    __locale_ = new __imp(*other.__locale_, f, facet_id);
   else
     __locale_ = other.__locale_;
   __locale_->acquire();
