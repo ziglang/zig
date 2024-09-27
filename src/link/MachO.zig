@@ -3230,7 +3230,7 @@ fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
             self.zig_text_seg_index = try self.addSegment("__TEXT_ZIG", .{
                 .fileoff = off,
                 .filesize = filesize,
-                .vmaddr = base_vmaddr + 0x8000000,
+                .vmaddr = base_vmaddr + 0x4000000,
                 .vmsize = filesize,
                 .prot = macho.PROT.READ | macho.PROT.EXEC,
             });
