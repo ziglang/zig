@@ -537,34 +537,31 @@ fn posixCallMainAndExit(argc_argv_ptr: [*]usize) callconv(.C) noreturn {
 
 fn expandStackSize(phdrs: []elf.Phdr) void {
     for (phdrs) |*phdr| {
-        switch (phdr.p_type) {
-            elf.PT_GNU_STACK => {
-                assert(phdr.p_memsz % std.mem.page_size == 0);
+        if ((phdr.p_type == elf.PT_GNU_STACK) and (phdr.p_memsz > 0)) {
+            assert(phdr.p_memsz % std.mem.page_size == 0);
 
-                // Silently fail if we are unable to get limits.
-                const limits = std.posix.getrlimit(.STACK) catch break;
+            // Silently fail if we are unable to get limits.
+            const limits = std.posix.getrlimit(.STACK) catch break;
 
-                // Clamp to limits.max .
-                const wanted_stack_size = @min(phdr.p_memsz, limits.max);
+            // Clamp to limits.max .
+            const wanted_stack_size = @min(phdr.p_memsz, limits.max);
 
-                if (wanted_stack_size > limits.cur) {
-                    std.posix.setrlimit(.STACK, .{
-                        .cur = wanted_stack_size,
-                        .max = limits.max,
-                    }) catch {
-                        // Because we could not increase the stack size to the upper bound,
-                        // depending on what happens at runtime, a stack overflow may occur.
-                        // However it would cause a segmentation fault, thanks to stack probing,
-                        // so we do not have a memory safety issue here.
-                        // This is intentional silent failure.
-                        // This logic should be revisited when the following issues are addressed:
-                        // https://github.com/ziglang/zig/issues/157
-                        // https://github.com/ziglang/zig/issues/1006
-                    };
-                }
-                break;
-            },
-            else => {},
+            if (wanted_stack_size > limits.cur) {
+                std.posix.setrlimit(.STACK, .{
+                    .cur = wanted_stack_size,
+                    .max = limits.max,
+                }) catch {
+                    // Because we could not increase the stack size to the upper bound,
+                    // depending on what happens at runtime, a stack overflow may occur.
+                    // However it would cause a segmentation fault, thanks to stack probing,
+                    // so we do not have a memory safety issue here.
+                    // This is intentional silent failure.
+                    // This logic should be revisited when the following issues are addressed:
+                    // https://github.com/ziglang/zig/issues/157
+                    // https://github.com/ziglang/zig/issues/1006
+                };
+            }
+            break;
         }
     }
 }
