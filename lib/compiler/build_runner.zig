@@ -80,6 +80,7 @@ pub fn main() !void {
             .query = .{},
             .result = try std.zig.system.resolveTargetQuery(.{}),
         },
+        .dependency_cache = std.Build.InitializedDepMap.initContext(arena, .{ .allocator = arena }),
     };
 
     graph.cache.addPrefix(.{ .path = null, .handle = std.fs.cwd() });
