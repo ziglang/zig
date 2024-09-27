@@ -2639,7 +2639,7 @@ fn addNonIncrementalStuffToCacheManifest(
         const target = comp.root_mod.resolved_target.result;
         if (comp.libc_installation) |libc_installation| {
             man.hash.addOptionalBytes(libc_installation.crt_dir);
-            if (target.abi == .msvc) {
+            if (target.abi == .msvc or target.abi == .itanium) {
                 man.hash.addOptionalBytes(libc_installation.msvc_lib_dir);
                 man.hash.addOptionalBytes(libc_installation.kernel32_lib_dir);
             }

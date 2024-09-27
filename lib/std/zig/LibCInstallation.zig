@@ -86,14 +86,14 @@ pub fn parse(
         return error.ParseError;
     }
 
-    if (self.msvc_lib_dir == null and os_tag == .windows and target.abi == .msvc) {
+    if (self.msvc_lib_dir == null and os_tag == .windows and (target.abi == .msvc or target.abi == .itanium)) {
         log.err("msvc_lib_dir may not be empty for {s}-{s}", .{
             @tagName(os_tag),
             @tagName(target.abi),
         });
         return error.ParseError;
     }
-    if (self.kernel32_lib_dir == null and os_tag == .windows and target.abi == .msvc) {
+    if (self.kernel32_lib_dir == null and os_tag == .windows and (target.abi == .msvc or target.abi == .itanium)) {
         log.err("kernel32_lib_dir may not be empty for {s}-{s}", .{
             @tagName(os_tag),
             @tagName(target.abi),

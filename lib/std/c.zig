@@ -9506,7 +9506,7 @@ else if (native_os == .linux and builtin.target.isMusl())
 else
     private.getcontext;
 
-pub const max_align_t = if (native_abi == .msvc)
+pub const max_align_t = if (native_abi == .msvc or native_abi == .itanium)
     f64
 else if (builtin.target.isDarwin())
     c_longdouble

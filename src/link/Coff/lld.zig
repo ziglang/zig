@@ -93,7 +93,7 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
             man.hash.add(comp.libc_installation != null);
             if (comp.libc_installation) |libc_installation| {
                 man.hash.addBytes(libc_installation.crt_dir.?);
-                if (target.abi == .msvc) {
+                if (target.abi == .msvc or target.abi == .itanium) {
                     man.hash.addBytes(libc_installation.msvc_lib_dir.?);
                     man.hash.addBytes(libc_installation.kernel32_lib_dir.?);
                 }
@@ -256,7 +256,7 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
             if (comp.libc_installation) |libc_installation| {
                 try argv.append(try allocPrint(arena, "-LIBPATH:{s}", .{libc_installation.crt_dir.?}));
 
-                if (target.abi == .msvc) {
+                if (target.abi == .msvc or target.abi == .itanium) {
                     try argv.append(try allocPrint(arena, "-LIBPATH:{s}", .{libc_installation.msvc_lib_dir.?}));
                     try argv.append(try allocPrint(arena, "-LIBPATH:{s}", .{libc_installation.kernel32_lib_dir.?}));
                 }
@@ -499,7 +499,7 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
                     continue;
                 }
             }
-            if (target.abi == .msvc) {
+            if (target.abi == .msvc or target.abi == .itanium) {
                 argv.appendAssumeCapacity(lib_basename);
                 continue;
             }

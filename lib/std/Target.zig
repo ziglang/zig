@@ -113,7 +113,7 @@ pub const Os = struct {
 
         pub fn staticLibSuffix(tag: Tag, abi: Abi) [:0]const u8 {
             return switch (abi) {
-                .msvc => ".lib",
+                .msvc, .itanium => ".lib",
                 else => switch (tag) {
                     .windows, .uefi => ".lib",
                     else => ".a",
@@ -138,7 +138,7 @@ pub const Os = struct {
 
         pub fn libPrefix(tag: Os.Tag, abi: Abi) [:0]const u8 {
             return switch (abi) {
-                .msvc => "",
+                .msvc, .itanium => "",
                 else => switch (tag) {
                     .windows, .uefi => "",
                     else => "lib",
