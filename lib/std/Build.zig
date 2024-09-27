@@ -122,7 +122,7 @@ pub const Graph = struct {
     host: ResolvedTarget,
     incremental: ?bool = null,
     random_seed: u32 = 0,
-    dependency_cache: InitializedDepMap,
+    dependency_cache: InitializedDepMap = .empty,
 };
 
 const AvailableDeps = []const struct { []const u8, []const u8 };
@@ -142,7 +142,7 @@ const SystemLibraryMode = enum {
     declared_enabled,
 };
 
-pub const InitializedDepMap = std.HashMap(InitializedDepKey, *Dependency, InitializedDepContext, std.hash_map.default_max_load_percentage);
+const InitializedDepMap = std.HashMapUnmanaged(InitializedDepKey, *Dependency, InitializedDepContext, std.hash_map.default_max_load_percentage);
 const InitializedDepKey = struct {
     build_root_string: []const u8,
     user_input_options: UserInputOptionsMap,
@@ -2121,10 +2121,10 @@ fn dependencyInner(
     args: anytype,
 ) *Dependency {
     const user_input_options = userInputOptionsFromArgs(b.allocator, args);
-    if (b.graph.dependency_cache.get(.{
+    if (b.graph.dependency_cache.getContext(.{
         .build_root_string = build_root_string,
         .user_input_options = user_input_options,
-    })) |dep|
+    }, .{ .allocator = b.graph.arena })) |dep|
         return dep;
 
     const build_root: std.Build.Cache.Directory = .{
@@ -2149,10 +2149,10 @@ fn dependencyInner(
     const dep = b.allocator.create(Dependency) catch @panic("OOM");
     dep.* = .{ .builder = sub_builder };
 
-    b.graph.dependency_cache.put(.{
+    b.graph.dependency_cache.putContext(b.graph.arena, .{
         .build_root_string = build_root_string,
         .user_input_options = user_input_options,
-    }, dep) catch @panic("OOM");
+    }, dep, .{ .allocator = b.graph.arena }) catch @panic("OOM");
     return dep;
 }
 
