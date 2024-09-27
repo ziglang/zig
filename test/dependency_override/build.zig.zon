@@ -1,0 +1,15 @@
+.{
+    .name = "dependency_override",
+    .version = "0.0.0",
+    .paths = .{""},
+    .dependencies = .{
+        .overridden_runtime = .{
+            .url = "https://example.com",
+            .hash = "1220af21050dd194c8500c038b2466dabf449cd4355861cc5473bd9dae99eed7c47e",
+        },
+        .overridden_buildtime = .{
+            .url = "https://example.com",
+            .hash = "12205377339014b33ba4f8ed6acaf863a2eb14b6769a9a1d5c2f23b04bac936897a3",
+        },
+    },
+}
