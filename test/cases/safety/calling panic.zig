@@ -1,14 +1,19 @@
 const std = @import("std");
 
-pub fn panic(cause: std.builtin.PanicCause, stack_trace: ?*std.builtin.StackTrace, _: ?usize) noreturn {
+pub const Panic = struct {
+    pub const call = panic;
+    pub const unwrapError = std.debug.FormattedPanic.unwrapError;
+    pub const outOfBounds = std.debug.FormattedPanic.outOfBounds;
+    pub const startGreaterThanEnd = std.debug.FormattedPanic.startGreaterThanEnd;
+    pub const sentinelMismatch = std.debug.FormattedPanic.sentinelMismatch;
+    pub const inactiveUnionField = std.debug.FormattedPanic.inactiveUnionField;
+    pub const messages = std.debug.FormattedPanic.messages;
+};
+
+fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace, _: ?usize) noreturn {
     _ = stack_trace;
-    switch (cause) {
-        .explicit_call => |message| {
-            if (std.mem.eql(u8, message, "oh no")) {
-                std.process.exit(0);
-            }
-        },
-        else => {},
+    if (std.mem.eql(u8, message, "oh no")) {
+        std.process.exit(0);
     }
     std.process.exit(1);
 }

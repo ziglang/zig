@@ -28,7 +28,7 @@ pub fn sentinelMismatch(expected: anytype, found: @TypeOf(expected)) noreturn {
 
 pub fn unwrapError(ert: ?*std.builtin.StackTrace, err: anyerror) noreturn {
     _ = ert;
-    _ = err;
+    _ = &err;
     call("attempt to unwrap error", null, null);
 }
 

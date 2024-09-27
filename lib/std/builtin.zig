@@ -762,25 +762,34 @@ pub const TestFn = struct {
 };
 
 /// Deprecated, use the `Panic` namespace instead.
+/// To be deleted after 0.14.0 is released.
 pub const PanicFn = fn ([]const u8, ?*StackTrace, ?usize) noreturn;
-
 /// Deprecated, use the `Panic` namespace instead.
-pub const panic: PanicFn = if (@hasDecl(root, "panic"))
-    root.panic
-else if (@hasDecl(root, "os") and @hasDecl(root.os, "panic"))
-    root.os.panic
-else
-    Panic.call;
+/// To be deleted after 0.14.0 is released.
+pub const panic: PanicFn = Panic.call;
 
 /// This namespace is used by the Zig compiler to emit various kinds of safety
 /// panics. These can be overridden by making a public `Panic` namespace in the
 /// root source file.
 pub const Panic: type = if (@hasDecl(root, "Panic"))
     root.Panic
+else if (@hasDecl(root, "panic")) // Deprecated, use `Panic` instead.
+    DeprecatedPanic
 else if (builtin.zig_backend == .stage2_riscv64)
     std.debug.SimplePanic // https://github.com/ziglang/zig/issues/21519
 else
     std.debug.FormattedPanic;
+
+/// To be deleted after 0.14.0 is released.
+const DeprecatedPanic = struct {
+    pub const call = root.panic;
+    pub const sentinelMismatch = std.debug.FormattedPanic.sentinelMismatch;
+    pub const unwrapError = std.debug.FormattedPanic.unwrapError;
+    pub const outOfBounds = std.debug.FormattedPanic.outOfBounds;
+    pub const startGreaterThanEnd = std.debug.FormattedPanic.startGreaterThanEnd;
+    pub const inactiveUnionField = std.debug.FormattedPanic.inactiveUnionField;
+    pub const messages = std.debug.FormattedPanic.messages;
+};
 
 /// To be deleted after zig1.wasm is updated.
 pub const panicSentinelMismatch = Panic.sentinelMismatch;
