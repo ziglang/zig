@@ -2269,7 +2269,7 @@ or
           that variable.</li>
           <li>If the struct is in the {#syntax#}return{#endsyntax#} expression, it gets named after
           the function it is returning from, with the parameter values serialized.</li>
-          <li>Otherwise, the struct gets a name such as <code>(filename.funcname.__struct_ID)</code>.</li>
+          <li>Otherwise, the struct gets a name such as <code>(filename.funcname__struct_ID)</code>.</li>
           <li>If the struct is declared inside another struct, it gets named after both the parent
           struct and the name inferred by the previous rules, separated by a dot.</li>
       </ul>
