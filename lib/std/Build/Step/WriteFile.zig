@@ -197,7 +197,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
                 man.hash.addBytes(bytes);
             },
             .copy => |lazy_path| {
-                const path = lazy_path.getPath3(b, step);
+                const path = lazy_path.getPath3(b);
                 _ = try man.addFilePath(path, null);
                 try step.addWatchInput(lazy_path);
             },
@@ -214,7 +214,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
         if (dir.options.include_extensions) |incs| for (incs) |inc| man.hash.addBytes(inc);
 
         const need_derived_inputs = try step.addDirectoryWatchInput(dir.source);
-        const src_dir_path = dir.source.getPath3(b, step);
+        const src_dir_path = dir.source.getPath3(b);
 
         var src_dir = src_dir_path.root_dir.handle.openDir(src_dir_path.subPathOrDot(), .{ .iterate = true }) catch |err| {
             return step.fail("unable to open source directory '{}': {s}", .{
@@ -283,7 +283,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
                 };
             },
             .copy => |file_source| {
-                const source_path = file_source.getPath2(b, step);
+                const source_path = file_source.getPath(b);
                 const prev_status = fs.Dir.updateFile(
                     cwd,
                     source_path,
@@ -310,7 +310,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     }
 
     for (write_file.directories.items, open_dir_cache) |dir, already_open_dir| {
-        const src_dir_path = dir.source.getPath3(b, step);
+        const src_dir_path = dir.source.getPath3(b);
         const dest_dirname = dir.sub_path;
 
         if (dest_dirname.len != 0) {

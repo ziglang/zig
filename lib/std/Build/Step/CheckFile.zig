@@ -52,7 +52,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     const check_file: *CheckFile = @fieldParentPtr("step", step);
     try step.singleUnchangingWatchInput(check_file.source);
 
-    const src_path = check_file.source.getPath2(b, step);
+    const src_path = check_file.source.getPath(b);
     const contents = fs.cwd().readFileAlloc(b.allocator, src_path, check_file.max_bytes) catch |err| {
         return step.fail("unable to read '{s}': {s}", .{
             src_path, @errorName(err),

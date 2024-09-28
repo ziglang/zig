@@ -189,7 +189,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     }
 
     for (translate_c.include_dirs.items) |include_dir| {
-        try include_dir.appendZigProcessFlags(b, &argv_list, step);
+        try include_dir.appendZigProcessFlags(b, &argv_list);
     }
 
     for (translate_c.c_macros.items) |c_macro| {
@@ -197,7 +197,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
         try argv_list.append(c_macro);
     }
 
-    const c_source_path = translate_c.source.getPath2(b, step);
+    const c_source_path = translate_c.source.getPath(b);
     try argv_list.append(c_source_path);
 
     const output_dir = try step.evalZigProcess(argv_list.items, prog_node, false);

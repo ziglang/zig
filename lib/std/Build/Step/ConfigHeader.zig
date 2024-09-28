@@ -193,7 +193,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     switch (config_header.style) {
         .autoconf => |file_source| {
             try output.appendSlice(c_generated_line);
-            const src_path = file_source.getPath2(b, step);
+            const src_path = file_source.getPath(b);
             const contents = std.fs.cwd().readFileAlloc(arena, src_path, config_header.max_bytes) catch |err| {
                 return step.fail("unable to read autoconf input file '{s}': {s}", .{
                     src_path, @errorName(err),
@@ -203,7 +203,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
         },
         .cmake => |file_source| {
             try output.appendSlice(c_generated_line);
-            const src_path = file_source.getPath2(b, step);
+            const src_path = file_source.getPath(b);
             const contents = std.fs.cwd().readFileAlloc(arena, src_path, config_header.max_bytes) catch |err| {
                 return step.fail("unable to read cmake input file '{s}': {s}", .{
                     src_path, @errorName(err),

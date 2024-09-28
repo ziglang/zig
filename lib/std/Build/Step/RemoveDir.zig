@@ -20,6 +20,7 @@ pub fn create(owner: *std.Build, doomed_path: LazyPath) *RemoveDir {
         }),
         .doomed_path = doomed_path.dupe(owner),
     };
+    doomed_path.addStepDependencies(&remove_dir.step);
     return remove_dir;
 }
 
@@ -32,7 +33,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     step.clearWatchInputs();
     try step.addWatchInput(remove_dir.doomed_path);
 
-    const full_doomed_path = remove_dir.doomed_path.getPath2(b, step);
+    const full_doomed_path = remove_dir.doomed_path.getPath(b);
 
     b.build_root.handle.deleteTree(full_doomed_path) catch |err| {
         if (b.build_root.path) |base| {
