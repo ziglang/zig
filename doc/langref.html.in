@@ -2937,8 +2937,7 @@ or
       </p>
       {#header_open|The Global Error Set#}
       <p>{#syntax#}anyerror{#endsyntax#} refers to the global error set.
-      This is the error set that contains all errors in the entire compilation unit.
-      It is a superset of all other error sets and a subset of none of them.
+      This is the error set that contains all errors in the entire compilation unit, i.e. it is the union of all other error sets.
       </p>
       <p>
       You can {#link|coerce|Type Coercion#} any error set to the global one, and you can explicitly
