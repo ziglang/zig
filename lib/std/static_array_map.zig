@@ -237,7 +237,7 @@ test "get/has with edge cases" {
 }
 
 test "array of structs" {
-    const slice = [_]TestKV{
+    const array = [_]TestKV{
         .{ "these", .D },
         .{ "have", .A },
         .{ "nothing", .B },
@@ -245,11 +245,11 @@ test "array of structs" {
         .{ "samelen", .E },
     };
 
-    try testMap(TestMap.initComptime(slice));
+    try testMap(TestMap.initComptime(array));
 }
 
 test "slice of structs" {
-    const slice = [_]TestKV{
+    const array = [_]TestKV{
         .{ "these", .D },
         .{ "have", .A },
         .{ "nothing", .B },
@@ -257,6 +257,7 @@ test "slice of structs" {
         .{ "samelen", .E },
     };
 
+    const slice: []const TestKV = array[0..array.len];
     try testMap(TestMap.initComptime(slice));
 }
 
@@ -399,7 +400,7 @@ test "comptime-only value" {
 
 test "sorting kvs doesn't exceed eval branch quota" {
     // from https://github.com/ziglang/zig/issues/19803
-    const TypeToByteSizeLUT = std.StaticStringMap(u32).initComptime(.{
+    const TypeToByteSizeLUT = StaticStringMap(u32).initComptime(.{
         .{ "bool", 0 },
         .{ "c_int", 0 },
         .{ "c_long", 0 },
