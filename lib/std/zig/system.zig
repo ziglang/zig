@@ -995,6 +995,106 @@ fn glibcVerFromSoFile(file: fs.File) !std.SemanticVersion {
     return max_ver;
 }
 
+/// This functions tries to open file located at `start_path`, and then guesses
+/// whether it is a script or an ELF file.
+///
+/// If it finds "shebang line", file is considered a script, and logic is re-run
+/// using interpreter referenced after "#!" symbols. If interpreter is itself also a script,
+/// logic becomes recursive until non-script file is found.
+///
+/// If it finds ELF magic sequence, file is considered an ELF file and function returns.
+fn resolveElfFileRecursively(cwd: fs.Dir, start_path: []const u8) error{UnableToFindElfFile}!fs.File {
+    var current_path = start_path;
+
+    // According to `man 2 execve`:
+    //
+    // The kernel imposes a maximum length on the text
+    // that follows the "#!" characters at the start of a script;
+    // characters beyond the limit are ignored.
+    // Before Linux 5.1, the limit is 127 characters.
+    // Since Linux 5.1, the limit is 255 characters.
+    //
+    // Tests show that bash and zsh consider 255 as total limit,
+    // *including* "#!" characters and ignoring newline.
+    // For safety, we set max length as 255 + \n (1).
+    var buffer: [255 + 1]u8 = undefined;
+    while (true) {
+        // Interpreter path can be relative on Linux, but
+        // for simplicity we are asserting it is an absolute path.
+        assert(std.fs.path.isAbsolute(current_path));
+        const file = cwd.openFile(current_path, .{}) catch |err| switch (err) {
+            error.NoSpaceLeft => unreachable,
+            error.NameTooLong => unreachable,
+            error.PathAlreadyExists => unreachable,
+            error.SharingViolation => unreachable,
+            error.InvalidUtf8 => unreachable, // WASI only
+            error.InvalidWtf8 => unreachable, // Windows only
+            error.BadPathName => unreachable,
+            error.PipeBusy => unreachable,
+            error.FileLocksNotSupported => unreachable,
+            error.WouldBlock => unreachable,
+            error.FileBusy => unreachable, // opened without write permissions
+            error.AntivirusInterference => unreachable, // Windows-only error
+
+            error.IsDir,
+            error.NotDir,
+
+            error.AccessDenied,
+            error.DeviceBusy,
+            error.FileTooBig,
+            error.SymLinkLoop,
+            error.ProcessFdQuotaExceeded,
+            error.SystemFdQuotaExceeded,
+            error.SystemResources,
+
+            error.FileNotFound,
+            error.NetworkNotFound,
+            error.NoDevice,
+            error.Unexpected,
+            => return error.UnableToFindElfFile,
+        };
+        var is_elf_file = false;
+        defer if (is_elf_file == false) file.close();
+
+        // Shortest working interpreter path is "#!/i" (4)
+        // (interpreter is "/i", assuming all paths are absolute, like in above comment).
+        // ELF magic number length is also 4.
+        //
+        // If file is shorter than that, it is definitely not ELF file
+        // nor file with "shebang" line.
+        const min_len = 4;
+
+        const len = preadAtLeast(file, &buffer, 0, min_len) catch return error.UnableToFindElfFile;
+        const content = buffer[0..len];
+
+        if (mem.eql(u8, content[0..4], std.elf.MAGIC)) {
+            // It is very likely ELF file!
+            is_elf_file = true;
+            return file;
+        } else if (mem.eql(u8, content[0..2], "#!")) {
+            // We detected shebang, now parse entire line.
+
+            // Trim leading "#!", spaces and tabs.
+            const trimmed_line = mem.trimLeft(u8, content[2..], &.{ ' ', '\t' });
+
+            // This line can have:
+            // * Interpreter path only,
+            // * Interpreter path and arguments, all separated by space, tab or NUL character.
+            // And optionally newline at the end.
+            const path_maybe_args = mem.trimRight(u8, trimmed_line, "\n");
+
+            // Separate path and args.
+            const path_end = mem.indexOfAny(u8, path_maybe_args, &.{ ' ', '\t', 0 }) orelse path_maybe_args.len;
+
+            current_path = path_maybe_args[0..path_end];
+            continue;
+        } else {
+            // Not a ELF file, not a shell script with "shebang line", invalid duck.
+            return error.UnableToFindElfFile;
+        }
+    }
+}
+
 /// In the past, this function attempted to use the executable's own binary if it was dynamically
 /// linked to answer both the C ABI question and the dynamic linker question. However, this
 /// could be problematic on a system that uses a RUNPATH for the compiler binary, locking
@@ -1003,11 +1103,14 @@ fn glibcVerFromSoFile(file: fs.File) !std.SemanticVersion {
 /// the dynamic linker will match that of the compiler binary. Executables with these versions
 /// mismatching will fail to run.
 ///
-/// Therefore, this function works the same regardless of whether the compiler binary is
-/// dynamically or statically linked. It inspects `/usr/bin/env` as an ELF file to find the
-/// answer to these questions, or if there is a shebang line, then it chases the referenced
-/// file recursively. If that does not provide the answer, then the function falls back to
-/// defaults.
+/// Therefore, this function now does not inspect the executable's own binary.
+/// Instead, it tries to find `env` program in PATH or in hardcoded location, and uses it
+/// to find suitable ELF file. If `env` program is an executable, work is done and function starts to
+/// inspect inner structure of a file. But if `env` is a script or other non-ELF file, it uses
+/// interpreter path instead and tries to search ELF file again, going recursively in case interpreter
+/// is also a script/non-ELF file.
+///
+/// If nothing was found, then the function falls back to defaults.
 fn detectAbiAndDynamicLinker(
     cpu: Target.Cpu,
     os: Target.Os,
@@ -1075,14 +1178,33 @@ fn detectAbiAndDynamicLinker(
 
     const ld_info_list = ld_info_list_buffer[0..ld_info_list_len];
 
-    // Best case scenario: the executable is dynamically linked, and we can iterate
-    // over our own shared objects and find a dynamic linker.
-    const elf_file = elf_file: {
-        // This block looks for a shebang line in /usr/bin/env,
-        // if it finds one, then instead of using /usr/bin/env as the ELF file to examine, it uses the file it references instead,
-        // doing the same logic recursively in case it finds another shebang line.
+    const cwd = std.fs.cwd();
 
-        var file_name: []const u8 = switch (os.tag) {
+    // Algorithm is:
+    // 1a) try_path: If PATH is non-empty and `env` file was found in one of the directories, use that.
+    // 1b) try_path: If `env` was not found or PATH is empty, try hardcoded path below.
+    // 2a) try_hardcoded: If `env` was found in hardcoded location, use that.
+    // 2b) try_hardcoded: If `env` was not found, fall back to default ABI and dynamic linker.
+    // Source: https://github.com/ziglang/zig/issues/14146#issuecomment-2308984936
+    const elf_file = (try_path: {
+        const PATH = std.posix.getenv("PATH") orelse break :try_path null;
+        var it = mem.tokenizeScalar(u8, PATH, fs.path.delimiter);
+
+        var buf: [std.fs.max_path_bytes + 1]u8 = undefined;
+        var fbs: std.heap.FixedBufferAllocator = .init(&buf);
+        const allocator = fbs.allocator();
+
+        while (it.next()) |path| : (fbs.reset()) {
+            const start_path = std.fs.path.joinZ(allocator, &.{ path, "env" }) catch |err| switch (err) {
+                error.OutOfMemory => continue,
+            };
+
+            break :try_path resolveElfFileRecursively(cwd, start_path) catch |err| switch (err) {
+                error.UnableToFindElfFile => continue,
+            };
+        } else break :try_path null;
+    } orelse try_hardcoded: {
+        const hardcoded_file_name = switch (os.tag) {
             // Since /usr/bin/env is hard-coded into the shebang line of many portable scripts, it's a
             // reasonably reliable path to start with.
             else => "/usr/bin/env",
@@ -1090,98 +1212,10 @@ fn detectAbiAndDynamicLinker(
             .haiku => "/bin/env",
         };
 
-        // According to `man 2 execve`:
-        //
-        // The kernel imposes a maximum length on the text
-        // that follows the "#!" characters at the start of a script;
-        // characters beyond the limit are ignored.
-        // Before Linux 5.1, the limit is 127 characters.
-        // Since Linux 5.1, the limit is 255 characters.
-        //
-        // Tests show that bash and zsh consider 255 as total limit,
-        // *including* "#!" characters and ignoring newline.
-        // For safety, we set max length as 255 + \n (1).
-        var buffer: [255 + 1]u8 = undefined;
-        while (true) {
-            // Interpreter path can be relative on Linux, but
-            // for simplicity we are asserting it is an absolute path.
-            const file = fs.openFileAbsolute(file_name, .{}) catch |err| switch (err) {
-                error.NoSpaceLeft => unreachable,
-                error.NameTooLong => unreachable,
-                error.PathAlreadyExists => unreachable,
-                error.SharingViolation => unreachable,
-                error.InvalidUtf8 => unreachable, // WASI only
-                error.InvalidWtf8 => unreachable, // Windows only
-                error.BadPathName => unreachable,
-                error.PipeBusy => unreachable,
-                error.FileLocksNotSupported => unreachable,
-                error.WouldBlock => unreachable,
-                error.FileBusy => unreachable, // opened without write permissions
-                error.AntivirusInterference => unreachable, // Windows-only error
-
-                error.IsDir,
-                error.NotDir,
-                error.AccessDenied,
-                error.NoDevice,
-                error.FileNotFound,
-                error.NetworkNotFound,
-                error.FileTooBig,
-                error.Unexpected,
-                => |e| {
-                    std.log.warn("Encountered error: {s}, falling back to default ABI and dynamic linker.", .{@errorName(e)});
-                    return defaultAbiAndDynamicLinker(cpu, os, query);
-                },
-
-                else => |e| return e,
-            };
-            var is_elf_file = false;
-            defer if (is_elf_file == false) file.close();
-
-            // Shortest working interpreter path is "#!/i" (4)
-            // (interpreter is "/i", assuming all paths are absolute, like in above comment).
-            // ELF magic number length is also 4.
-            //
-            // If file is shorter than that, it is definitely not ELF file
-            // nor file with "shebang" line.
-            const min_len: usize = 4;
-
-            const len = preadAtLeast(file, &buffer, 0, min_len) catch |err| switch (err) {
-                error.UnexpectedEndOfFile,
-                error.UnableToReadElfFile,
-                error.ProcessNotFound,
-                => return defaultAbiAndDynamicLinker(cpu, os, query),
-
-                else => |e| return e,
-            };
-            const content = buffer[0..len];
-
-            if (mem.eql(u8, content[0..4], std.elf.MAGIC)) {
-                // It is very likely ELF file!
-                is_elf_file = true;
-                break :elf_file file;
-            } else if (mem.eql(u8, content[0..2], "#!")) {
-                // We detected shebang, now parse entire line.
-
-                // Trim leading "#!", spaces and tabs.
-                const trimmed_line = mem.trimLeft(u8, content[2..], &.{ ' ', '\t' });
-
-                // This line can have:
-                // * Interpreter path only,
-                // * Interpreter path and arguments, all separated by space, tab or NUL character.
-                // And optionally newline at the end.
-                const path_maybe_args = mem.trimRight(u8, trimmed_line, "\n");
-
-                // Separate path and args.
-                const path_end = mem.indexOfAny(u8, path_maybe_args, &.{ ' ', '\t', 0 }) orelse path_maybe_args.len;
-
-                file_name = path_maybe_args[0..path_end];
-                continue;
-            } else {
-                // Not a ELF file, not a shell script with "shebang line", invalid duck.
-                return defaultAbiAndDynamicLinker(cpu, os, query);
-            }
-        }
-    };
+        break :try_hardcoded resolveElfFileRecursively(cwd, hardcoded_file_name) catch |err| switch (err) {
+            error.UnableToFindElfFile => null,
+        };
+    }) orelse return defaultAbiAndDynamicLinker(cpu, os, query);
     defer elf_file.close();
 
     // TODO: inline this function and combine the buffer we already read above to find
@@ -1205,10 +1239,7 @@ fn detectAbiAndDynamicLinker(
         error.UnexpectedEndOfFile,
         error.NameTooLong,
         // Finally, we fall back on the standard path.
-        => |e| {
-            std.log.warn("Encountered error: {s}, falling back to default ABI and dynamic linker.", .{@errorName(e)});
-            return defaultAbiAndDynamicLinker(cpu, os, query);
-        },
+        => defaultAbiAndDynamicLinker(cpu, os, query),
     };
 }
 
