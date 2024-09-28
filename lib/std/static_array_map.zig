@@ -63,10 +63,10 @@ fn toLowerSimd(comptime len: usize, input: [len]u8) [len]u8 {
 
     const at_min: BVec = input >= @as(SVec, @splat('A'));
     const at_max: BVec = input <= @as(SVec, @splat('Z'));
-    const true_vec: BVec = @splat(true);
-    const is_upper: BVec = @select(bool, at_min, at_max, true_vec);
+    const false_vec: BVec = @splat(false);
+    const is_upper: BVec = @select(bool, at_min, at_max, false_vec);
 
-    const lowered: SVec = input + @as(SVec, @splat('a' - 'A'));
+    const lowered: SVec = input +% @as(SVec, @splat('a' - 'A'));
     return @select(u8, is_upper, lowered, input);
 }
 
