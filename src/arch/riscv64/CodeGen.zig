@@ -977,7 +977,7 @@ pub fn generateLazy(
             .pt = pt,
             .allocator = gpa,
             .mir = mir,
-            .cc = .Unspecified,
+            .cc = .auto,
             .src_loc = src_loc,
             .output_mode = comp.config.output_mode,
             .link_mode = comp.config.link_mode,
@@ -1036,7 +1036,7 @@ fn formatWipMir(
             .instructions = data.func.mir_instructions.slice(),
             .frame_locs = data.func.frame_locs.slice(),
         },
-        .cc = .Unspecified,
+        .cc = .auto,
         .src_loc = data.func.src_loc,
         .output_mode = comp.config.output_mode,
         .link_mode = comp.config.link_mode,
@@ -1238,7 +1238,7 @@ fn gen(func: *Func) !void {
         }
     }
 
-    if (fn_info.cc != .Naked) {
+    if (fn_info.cc != .naked) {
         _ = try func.addPseudo(.pseudo_dbg_prologue_end);
 
         const backpatch_stack_alloc = try func.addPseudo(.pseudo_dead);
@@ -4894,7 +4894,7 @@ fn genCall(
         .lib => |lib| try pt.funcType(.{
             .param_types = lib.param_types,
             .return_type = lib.return_type,
-            .cc = .C,
+            .cc = func.target.defaultCCallingConvention().?,
         }),
     };
 
@@ -8289,12 +8289,12 @@ fn resolveCallingConventionValues(
     const ret_ty = Type.fromInterned(fn_info.return_type);
 
     switch (cc) {
-        .Naked => {
+        .naked => {
             assert(result.args.len == 0);
             result.return_value = InstTracking.init(.unreach);
             result.stack_align = .@"8";
         },
-        .C, .Unspecified => {
+        .riscv64_lp64, .auto => {
             if (result.args.len > 8) {
                 return func.fail("RISC-V calling convention does not support more than 8 arguments", .{});
             }
@@ -8359,7 +8359,7 @@ fn resolveCallingConventionValues(
 
             for (param_types, result.args) |ty, *arg| {
                 if (!ty.hasRuntimeBitsIgnoreComptime(zcu)) {
-                    assert(cc == .Unspecified);
+                    assert(cc == .auto);
                     arg.* = .none;
                     continue;
                 }

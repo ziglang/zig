@@ -1783,7 +1783,7 @@ pub const DeclGen = struct {
         const fn_ctype = try dg.ctypeFromType(fn_ty, kind);
 
         const fn_info = zcu.typeToFunc(fn_ty).?;
-        if (fn_info.cc == .Naked) {
+        if (fn_info.cc == .naked) {
             switch (kind) {
                 .forward => try w.writeAll("zig_naked_decl "),
                 .complete => try w.writeAll("zig_naked "),
@@ -1796,7 +1796,7 @@ pub const DeclGen = struct {
 
         var trailing = try renderTypePrefix(dg.pass, &dg.ctype_pool, zcu, w, fn_ctype, .suffix, .{});
 
-        if (toCallingConvention(fn_info.cc)) |call_conv| {
+        if (toCallingConvention(fn_info.cc, zcu)) |call_conv| {
             try w.print("{}zig_callconv({s})", .{ trailing, call_conv });
             trailing = .maybe_space;
         }
@@ -7604,12 +7604,17 @@ fn writeMemoryOrder(w: anytype, order: std.builtin.AtomicOrder) !void {
     return w.writeAll(toMemoryOrder(order));
 }
 
-fn toCallingConvention(call_conv: std.builtin.CallingConvention) ?[]const u8 {
-    return switch (call_conv) {
-        .Stdcall => "stdcall",
-        .Fastcall => "fastcall",
-        .Vectorcall => "vectorcall",
-        else => null,
+fn toCallingConvention(cc: std.builtin.NewCallingConvention, zcu: *Zcu) ?[]const u8 {
+    return switch (cc) {
+        .auto, .naked => null,
+        .x86_stdcall => "stdcall",
+        .x86_fastcall => "fastcall",
+        .x86_vectorcall, .x86_64_vectorcall => "vectorcall",
+        else => {
+            // `Zcu.callconvSupported` means this must be the C callconv.
+            assert(cc.eql(zcu.getTarget().defaultCCallingConvention().?));
+            return null;
+        },
     };
 }
 

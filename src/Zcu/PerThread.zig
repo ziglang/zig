@@ -2090,7 +2090,7 @@ fn analyzeFnBody(pt: Zcu.PerThread, func_index: InternPool.Index) Zcu.SemaError!
         .code = zir,
         .owner = anal_unit,
         .func_index = func_index,
-        .func_is_naked = fn_ty_info.cc == .Naked,
+        .func_is_naked = fn_ty_info.cc == .naked,
         .fn_ret_ty = Type.fromInterned(fn_ty_info.return_type),
         .fn_ret_ty_ies = null,
         .branch_quota = @max(func.branchQuotaUnordered(ip), Sema.default_branch_quota),

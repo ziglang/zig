@@ -3539,3 +3539,93 @@ pub fn maybeUnresolveIes(zcu: *Zcu, func_index: InternPool.Index) !void {
         zcu.intern_pool.funcSetIesResolved(func_index, .none);
     }
 }
+
+pub fn callconvSupported(zcu: *Zcu, cc: std.builtin.NewCallingConvention) union(enum) {
+    ok,
+    bad_arch: []const std.Target.Cpu.Arch, // value is allowed archs for cc
+    bad_backend: std.builtin.CompilerBackend, // value is current backend
+} {
+    const target = zcu.getTarget();
+    const backend = target_util.zigBackend(target, zcu.comp.config.use_llvm);
+    switch (cc) {
+        .auto, .@"inline" => return .ok,
+        .@"async" => return .{ .bad_backend = backend }, // nothing supports async currently
+        .naked => {}, // depends only on backend
+        else => for (cc.archs()) |allowed_arch| {
+            if (allowed_arch == target.cpu.arch) break;
+        } else return .{ .bad_arch = cc.archs() },
+    }
+    const backend_ok = switch (backend) {
+        .stage1 => unreachable,
+        .other => unreachable,
+        _ => unreachable,
+
+        .stage2_llvm => @import("codegen/llvm.zig").toLlvmCallConv(cc, target) != null,
+        .stage2_c => ok: {
+            if (target.defaultCCallingConvention()) |default_c| {
+                if (cc.eql(default_c)) {
+                    break :ok true;
+                }
+            }
+            break :ok switch (cc) {
+                .x86_64_vectorcall,
+                .x86_fastcall,
+                .x86_thiscall,
+                .x86_vectorcall,
+                => |opts| opts.incoming_stack_alignment == null,
+
+                .x86_stdcall,
+                => |opts| opts.incoming_stack_alignment == null and opts.register_params == 0,
+
+                .naked => true,
+
+                else => false,
+            };
+        },
+        .stage2_wasm => switch (cc) {
+            .wasm_watc => |opts| opts.incoming_stack_alignment == null,
+            else => false,
+        },
+        .stage2_arm => switch (cc) {
+            .arm_aapcs => |opts| opts.incoming_stack_alignment == null,
+            .naked => true,
+            else => false,
+        },
+        .stage2_x86_64 => switch (cc) {
+            .x86_64_sysv, .x86_64_win, .naked => true,
+            else => false,
+        },
+        .stage2_aarch64 => switch (cc) {
+            .aarch64_aapcs => |opts| opts.incoming_stack_alignment == null,
+            .naked => true,
+            else => false,
+        },
+        .stage2_x86 => switch (cc) {
+            .x86_sysv,
+            .x86_win,
+            => |opts| opts.incoming_stack_alignment == null and opts.register_params == 0,
+            .naked => true,
+            else => false,
+        },
+        .stage2_riscv64 => switch (cc) {
+            .riscv64_lp64 => |opts| opts.incoming_stack_alignment == null,
+            .naked => true,
+            else => false,
+        },
+        .stage2_sparc64 => switch (cc) {
+            .sparc64_sysv => |opts| opts.incoming_stack_alignment == null,
+            .naked => true,
+            else => false,
+        },
+        .stage2_spirv64 => switch (cc) {
+            .spirv_device,
+            .spirv_kernel,
+            .spirv_fragment,
+            .spirv_vertex,
+            => true,
+            else => false,
+        },
+    };
+    if (!backend_ok) return .{ .bad_backend = backend };
+    return .ok;
+}

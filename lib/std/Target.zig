@@ -1609,6 +1609,165 @@ pub const Cpu = struct {
                 else => ".X",
             };
         }
+
+        /// Returns the array of `Arch` to which a specific `std.builtin.CallingConvention` applies.
+        /// Asserts that `cc` is not `.auto`, `.@"async"`, `.naked`, or `.@"inline"`.
+        pub fn fromCallconv(cc: std.builtin.NewCallingConvention) []const Arch {
+            return switch (cc) {
+                .auto,
+                .@"async",
+                .naked,
+                .@"inline",
+                => unreachable,
+
+                .x86_64_sysv,
+                .x86_64_win,
+                .x86_64_regcall_v3_sysv,
+                .x86_64_regcall_v4_win,
+                .x86_64_vectorcall,
+                .x86_64_interrupt,
+                => &.{.x86_64},
+
+                .x86_sysv,
+                .x86_win,
+                .x86_stdcall,
+                .x86_fastcall,
+                .x86_thiscall,
+                .x86_thiscall_mingw,
+                .x86_regcall_v3,
+                .x86_regcall_v4_win,
+                .x86_vectorcall,
+                .x86_interrupt,
+                => &.{.x86},
+
+                .aarch64_aapcs,
+                .aarch64_aapcs_darwin,
+                .aarch64_aapcs_win,
+                .aarch64_vfabi,
+                .aarch64_vfabi_sve,
+                => &.{ .aarch64, .aarch64_be },
+
+                .arm_apcs,
+                .arm_aapcs,
+                .arm_aapcs_vfp,
+                .arm_aapcs16_vfp,
+                .arm_interrupt,
+                => &.{ .arm, .armeb, .thumb, .thumbeb },
+
+                .mips64_n64,
+                .mips64_n32,
+                .mips64_interrupt,
+                => &.{ .mips64, .mips64el },
+
+                .mips_o32,
+                .mips_interrupt,
+                => &.{ .mips, .mipsel },
+
+                .riscv64_lp64,
+                .riscv64_lp64_v,
+                .riscv64_interrupt,
+                => &.{.riscv64},
+
+                .riscv32_ilp32,
+                .riscv32_ilp32_v,
+                .riscv32_interrupt,
+                => &.{.riscv32},
+
+                .sparc64_sysv,
+                => &.{.sparc64},
+
+                .sparc_sysv,
+                => &.{.sparc},
+
+                .powerpc64_elf,
+                .powerpc64_elf_altivec,
+                .powerpc64_elf_v2,
+                => &.{ .powerpc64, .powerpc64le },
+
+                .powerpc_sysv,
+                .powerpc_sysv_altivec,
+                .powerpc_aix,
+                .powerpc_aix_altivec,
+                => &.{ .powerpc, .powerpcle },
+
+                .wasm_watc,
+                => &.{ .wasm64, .wasm32 },
+
+                .arc_sysv,
+                => &.{.arc},
+
+                .avr_gnu,
+                .avr_builtin,
+                .avr_signal,
+                .avr_interrupt,
+                => &.{.avr},
+
+                .bpf_std,
+                => &.{ .bpfel, .bpfeb },
+
+                .csky_sysv,
+                .csky_interrupt,
+                => &.{.csky},
+
+                .hexagon_sysv,
+                .hexagon_sysv_hvx,
+                => &.{.hexagon},
+
+                .lanai_sysv,
+                => &.{.lanai},
+
+                .loongarch64_lp64,
+                => &.{.loongarch64},
+
+                .loongarch32_ilp32,
+                => &.{.loongarch32},
+
+                .m68k_sysv,
+                .m68k_gnu,
+                .m68k_rtd,
+                .m68k_interrupt,
+                => &.{.m68k},
+
+                .msp430_eabi,
+                => &.{.msp430},
+
+                .propeller1_sysv,
+                => &.{.propeller1},
+
+                .propeller2_sysv,
+                => &.{.propeller2},
+
+                .s390x_sysv,
+                .s390x_sysv_vx,
+                => &.{.s390x},
+
+                .ve_sysv,
+                => &.{.ve},
+
+                .xcore_xs1,
+                .xcore_xs2,
+                => &.{.xcore},
+
+                .xtensa_call0,
+                .xtensa_windowed,
+                => &.{.xtensa},
+
+                .amdgcn_device,
+                .amdgcn_kernel,
+                .amdgcn_cs,
+                => &.{.amdgcn},
+
+                .nvptx_device,
+                .nvptx_kernel,
+                => &.{ .nvptx, .nvptx64 },
+
+                .spirv_device,
+                .spirv_kernel,
+                .spirv_fragment,
+                .spirv_vertex,
+                => &.{ .spirv, .spirv32, .spirv64 },
+            };
+        }
     };
 
     pub const Model = struct {
@@ -2871,6 +3030,70 @@ pub fn cTypePreferredAlignment(target: Target, c_type: CType) u16 {
             => unreachable, // Handled above.
         }),
     );
+}
+
+pub fn defaultCCallingConvention(target: Target) ?std.builtin.NewCallingConvention {
+    return switch (target.cpu.arch) {
+        .x86_64 => switch (target.os.tag) {
+            .windows, .uefi => .{ .x86_64_win = .{} },
+            else => .{ .x86_64_sysv = .{} },
+        },
+        .x86 => switch (target.os.tag) {
+            .windows, .uefi => .{ .x86_win = .{} },
+            else => .{ .x86_sysv = .{} },
+        },
+        .aarch64, .aarch64_be => if (target.os.tag.isDarwin()) cc: {
+            break :cc .{ .aarch64_aapcs_darwin = .{} };
+        } else switch (target.os.tag) {
+            .windows => .{ .aarch64_aapcs_win = .{} },
+            else => .{ .aarch64_aapcs = .{} },
+        },
+        .arm, .armeb, .thumb, .thumbeb => .{ .arm_aapcs = .{} },
+        .mips64, .mips64el => switch (target.abi) {
+            .gnuabin32 => .{ .mips64_n32 = .{} },
+            else => .{ .mips64_n64 = .{} },
+        },
+        .mips, .mipsel => .{ .mips_o32 = .{} },
+        .riscv64 => .{ .riscv64_lp64 = .{} },
+        .riscv32 => .{ .riscv32_ilp32 = .{} },
+        .sparc64 => .{ .sparc64_sysv = .{} },
+        .sparc => .{ .sparc_sysv = .{} },
+        .powerpc64 => if (target.isMusl())
+            .{ .powerpc64_elf_v2 = .{} }
+        else
+            .{ .powerpc64_elf = .{} },
+        .powerpc64le => .{ .powerpc64_elf_v2 = .{} },
+        .powerpc, .powerpcle => switch (target.os.tag) {
+            .aix => .{ .powerpc_aix = .{} },
+            else => .{ .powerpc_sysv = .{} },
+        },
+        .wasm32 => .{ .wasm_watc = .{} },
+        .wasm64 => .{ .wasm_watc = .{} },
+        .arc => .{ .arc_sysv = .{} },
+        .avr => .avr_gnu,
+        .bpfel, .bpfeb => .{ .bpf_std = .{} },
+        .csky => .{ .csky_sysv = .{} },
+        .hexagon => .{ .hexagon_sysv = .{} },
+        .kalimba => null,
+        .lanai => .{ .lanai_sysv = .{} },
+        .loongarch64 => .{ .loongarch64_lp64 = .{} },
+        .loongarch32 => .{ .loongarch32_ilp32 = .{} },
+        .m68k => if (target.abi.isGnu() or target.abi.isMusl())
+            .{ .m68k_gnu = .{} }
+        else
+            .{ .m68k_sysv = .{} },
+        .msp430 => .{ .msp430_eabi = .{} },
+        .propeller1 => .{ .propeller1_sysv = .{} },
+        .propeller2 => .{ .propeller2_sysv = .{} },
+        .s390x => .{ .s390x_sysv = .{} },
+        .spu_2 => null,
+        .ve => .{ .ve_sysv = .{} },
+        .xcore => .{ .xcore_xs1 = .{} },
+        .xtensa => .{ .xtensa_call0 = .{} },
+        .amdgcn => .{ .amdgcn_device = .{} },
+        .nvptx, .nvptx64 => .nvptx_device,
+        .spirv, .spirv32, .spirv64 => .spirv_device,
+    };
 }
 
 pub fn osArchName(target: std.Target) [:0]const u8 {

@@ -1145,7 +1145,7 @@ fn ensureAllocLocal(func: *CodeGen, ty: Type) InnerError!WValue {
 /// Memory is owned by the caller.
 fn genFunctype(
     gpa: Allocator,
-    cc: std.builtin.CallingConvention,
+    cc: std.builtin.NewCallingConvention,
     params: []const InternPool.Index,
     return_type: Type,
     pt: Zcu.PerThread,
@@ -1160,7 +1160,7 @@ fn genFunctype(
     if (firstParamSRet(cc, return_type, pt, target)) {
         try temp_params.append(.i32); // memory address is always a 32-bit handle
     } else if (return_type.hasRuntimeBitsIgnoreComptime(zcu)) {
-        if (cc == .C) {
+        if (cc == .wasm_watc) {
             const res_classes = abi.classifyType(return_type, zcu);
             assert(res_classes[0] == .direct and res_classes[1] == .none);
             const scalar_type = abi.scalarType(return_type, zcu);
@@ -1178,7 +1178,7 @@ fn genFunctype(
         if (!param_type.hasRuntimeBitsIgnoreComptime(zcu)) continue;
 
         switch (cc) {
-            .C => {
+            .wasm_watc => {
                 const param_classes = abi.classifyType(param_type, zcu);
                 if (param_classes[1] == .none) {
                     if (param_classes[0] == .direct) {
@@ -1367,7 +1367,7 @@ fn resolveCallingConventionValues(func: *CodeGen, fn_ty: Type) InnerError!CallWV
         .args = &.{},
         .return_value = .none,
     };
-    if (cc == .Naked) return result;
+    if (cc == .naked) return result;
 
     var args = std.ArrayList(WValue).init(func.gpa);
     defer args.deinit();
@@ -1382,7 +1382,7 @@ fn resolveCallingConventionValues(func: *CodeGen, fn_ty: Type) InnerError!CallWV
     }
 
     switch (cc) {
-        .Unspecified => {
+        .auto => {
             for (fn_info.param_types.get(ip)) |ty| {
                 if (!Type.fromInterned(ty).hasRuntimeBitsIgnoreComptime(zcu)) {
                     continue;
@@ -1392,7 +1392,7 @@ fn resolveCallingConventionValues(func: *CodeGen, fn_ty: Type) InnerError!CallWV
                 func.local_index += 1;
             }
         },
-        .C => {
+        .wasm_watc => {
             for (fn_info.param_types.get(ip)) |ty| {
                 const ty_classes = abi.classifyType(Type.fromInterned(ty), zcu);
                 for (ty_classes) |class| {
@@ -1408,10 +1408,11 @@ fn resolveCallingConventionValues(func: *CodeGen, fn_ty: Type) InnerError!CallWV
     return result;
 }
 
-fn firstParamSRet(cc: std.builtin.CallingConvention, return_type: Type, pt: Zcu.PerThread, target: std.Target) bool {
+fn firstParamSRet(cc: std.builtin.NewCallingConvention, return_type: Type, pt: Zcu.PerThread, target: std.Target) bool {
     switch (cc) {
-        .Unspecified, .Inline => return isByRef(return_type, pt, target),
-        .C => {
+        .@"inline" => unreachable,
+        .auto => return isByRef(return_type, pt, target),
+        .wasm_watc => {
             const ty_classes = abi.classifyType(return_type, pt.zcu);
             if (ty_classes[0] == .indirect) return true;
             if (ty_classes[0] == .direct and ty_classes[1] == .direct) return true;
@@ -1423,8 +1424,8 @@ fn firstParamSRet(cc: std.builtin.CallingConvention, return_type: Type, pt: Zcu.
 
 /// Lowers a Zig type and its value based on a given calling convention to ensure
 /// it matches the ABI.
-fn lowerArg(func: *CodeGen, cc: std.builtin.CallingConvention, ty: Type, value: WValue) !void {
-    if (cc != .C) {
+fn lowerArg(func: *CodeGen, cc: std.builtin.NewCallingConvention, ty: Type, value: WValue) !void {
+    if (cc != .wasm_watc) {
         return func.lowerToStack(value);
     }
 
@@ -2108,7 +2109,7 @@ fn airRet(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     // to the stack instead
     if (func.return_value != .none) {
         try func.store(func.return_value, operand, ret_ty, 0);
-    } else if (fn_info.cc == .C and ret_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
+    } else if (fn_info.cc == .wasm_watc and ret_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
         switch (ret_ty.zigTypeTag(zcu)) {
             // Aggregate types can be lowered as a singular value
             .@"struct", .@"union" => {
@@ -2286,7 +2287,7 @@ fn airCall(func: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModif
         } else if (first_param_sret) {
             break :result_value sret;
             // TODO: Make this less fragile and optimize
-        } else if (zcu.typeToFunc(fn_ty).?.cc == .C and ret_ty.zigTypeTag(zcu) == .@"struct" or ret_ty.zigTypeTag(zcu) == .@"union") {
+        } else if (zcu.typeToFunc(fn_ty).?.cc == .wasm_watc and ret_ty.zigTypeTag(zcu) == .@"struct" or ret_ty.zigTypeTag(zcu) == .@"union") {
             const result_local = try func.allocLocal(ret_ty);
             try func.addLabel(.local_set, result_local.local.value);
             const scalar_type = abi.scalarType(ret_ty, zcu);
@@ -2565,7 +2566,7 @@ fn airArg(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const arg = func.args[arg_index];
     const cc = zcu.typeToFunc(zcu.navValue(func.owner_nav).typeOf(zcu)).?.cc;
     const arg_ty = func.typeOfIndex(inst);
-    if (cc == .C) {
+    if (cc == .wasm_watc) {
         const arg_classes = abi.classifyType(arg_ty, zcu);
         for (arg_classes) |class| {
             if (class != .none) {
@@ -7175,12 +7176,12 @@ fn callIntrinsic(
     // Always pass over C-ABI
     const pt = func.pt;
     const zcu = pt.zcu;
-    var func_type = try genFunctype(func.gpa, .C, param_types, return_type, pt, func.target.*);
+    var func_type = try genFunctype(func.gpa, .{ .wasm_watc = .{} }, param_types, return_type, pt, func.target.*);
     defer func_type.deinit(func.gpa);
     const func_type_index = try func.bin_file.zigObjectPtr().?.putOrGetFuncType(func.gpa, func_type);
     try func.bin_file.addOrUpdateImport(name, symbol_index, null, func_type_index);
 
-    const want_sret_param = firstParamSRet(.C, return_type, pt, func.target.*);
+    const want_sret_param = firstParamSRet(.{ .wasm_watc = .{} }, return_type, pt, func.target.*);
     // if we want return as first param, we allocate a pointer to stack,
     // and emit it as our first argument
     const sret = if (want_sret_param) blk: {
@@ -7193,7 +7194,7 @@ fn callIntrinsic(
     for (args, 0..) |arg, arg_i| {
         assert(!(want_sret_param and arg == .stack));
         assert(Type.fromInterned(param_types[arg_i]).hasRuntimeBitsIgnoreComptime(zcu));
-        try func.lowerArg(.C, Type.fromInterned(param_types[arg_i]), arg);
+        try func.lowerArg(.{ .wasm_watc = .{} }, Type.fromInterned(param_types[arg_i]), arg);
     }
 
     // Actually call our intrinsic

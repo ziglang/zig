@@ -2052,6 +2052,7 @@ pub const CallConv = enum(u10) {
     x86_intrcc,
     avr_intrcc,
     avr_signalcc,
+    avr_builtincc,
 
     amdgpu_vs = 87,
     amdgpu_gs,
@@ -2060,6 +2061,7 @@ pub const CallConv = enum(u10) {
     amdgpu_kernel,
     x86_regcallcc,
     amdgpu_hs,
+    msp430_builtincc,
 
     amdgpu_ls = 95,
     amdgpu_es,
@@ -2068,8 +2070,14 @@ pub const CallConv = enum(u10) {
 
     amdgpu_gfx = 100,
 
+    m68k_intrcc,
+
     aarch64_sme_preservemost_from_x0 = 102,
     aarch64_sme_preservemost_from_x2,
+
+    m68k_rtdcc = 106,
+
+    riscv_vectorcallcc = 110,
 
     _,
 
@@ -2115,6 +2123,7 @@ pub const CallConv = enum(u10) {
             .x86_intrcc,
             .avr_intrcc,
             .avr_signalcc,
+            .avr_builtincc,
             .amdgpu_vs,
             .amdgpu_gs,
             .amdgpu_ps,
@@ -2122,13 +2131,17 @@ pub const CallConv = enum(u10) {
             .amdgpu_kernel,
             .x86_regcallcc,
             .amdgpu_hs,
+            .msp430_builtincc,
             .amdgpu_ls,
             .amdgpu_es,
             .aarch64_vector_pcs,
             .aarch64_sve_vector_pcs,
             .amdgpu_gfx,
+            .m68k_intrcc,
             .aarch64_sme_preservemost_from_x0,
             .aarch64_sme_preservemost_from_x2,
+            .m68k_rtdcc,
+            .riscv_vectorcallcc,
             => try writer.print(" {s}", .{@tagName(self)}),
             _ => try writer.print(" cc{d}", .{@intFromEnum(self)}),
         }
