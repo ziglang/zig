@@ -1038,6 +1038,10 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
 
     // Beyond this point, everything has been allocated a virtual address and we can resolve
     // the relocations, and commit objects to file.
+    for (self.objects.items) |index| {
+        self.file(index).?.object.dirty = false;
+    }
+
     if (self.zigObjectPtr()) |zo| {
         var has_reloc_errors = false;
         for (zo.atoms_indexes.items) |atom_index| {
@@ -1399,7 +1403,6 @@ pub fn parseLibraryReportingFailure(self: *Elf, lib: SystemLib, must_link: bool)
 fn parseLibrary(self: *Elf, lib: SystemLib, must_link: bool) ParseError!void {
     const tracy = trace(@src());
     defer tracy.end();
-
     if (try Archive.isArchive(lib.path)) {
         try self.parseArchive(lib.path, must_link);
     } else if (try SharedObject.isSharedObject(lib.path)) {
@@ -2799,9 +2802,10 @@ pub fn resolveMergeSections(self: *Elf) !void {
 
     var has_errors = false;
     for (self.objects.items) |index| {
-        const file_ptr = self.file(index).?;
-        if (!file_ptr.isAlive()) continue;
-        file_ptr.object.initInputMergeSections(self) catch |err| switch (err) {
+        const object = self.file(index).?.object;
+        if (!object.alive) continue;
+        if (!object.dirty) continue;
+        object.initInputMergeSections(self) catch |err| switch (err) {
             error.LinkFailure => has_errors = true,
             else => |e| return e,
         };
@@ -2810,15 +2814,17 @@ pub fn resolveMergeSections(self: *Elf) !void {
     if (has_errors) return error.FlushFailure;
 
     for (self.objects.items) |index| {
-        const file_ptr = self.file(index).?;
-        if (!file_ptr.isAlive()) continue;
-        try file_ptr.object.initOutputMergeSections(self);
+        const object = self.file(index).?.object;
+        if (!object.alive) continue;
+        if (!object.dirty) continue;
+        try object.initOutputMergeSections(self);
     }
 
     for (self.objects.items) |index| {
-        const file_ptr = self.file(index).?;
-        if (!file_ptr.isAlive()) continue;
-        file_ptr.object.resolveMergeSubsections(self) catch |err| switch (err) {
+        const object = self.file(index).?.object;
+        if (!object.alive) continue;
+        if (!object.dirty) continue;
+        object.resolveMergeSubsections(self) catch |err| switch (err) {
             error.LinkFailure => has_errors = true,
             else => |e| return e,
         };

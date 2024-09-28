@@ -29,6 +29,7 @@ cies: std.ArrayListUnmanaged(Cie) = .empty,
 eh_frame_data: std.ArrayListUnmanaged(u8) = .empty,
 
 alive: bool = true,
+dirty: bool = true,
 num_dynrelocs: u32 = 0,
 
 output_symtab_ctx: Elf.SymtabCtx = .{},
