@@ -4490,3 +4490,163 @@ pub fn resolveLazy(
         else => return val,
     }
 }
+
+/// Given a `Value` representing a comptime-known value of type `T`, unwrap it into an actual `T` known to the compiler.
+/// This is useful for accessing `std.builtin` structures received from comptime logic.
+/// `val` must be fully resolved.
+pub fn interpret(val: Value, comptime T: type, pt: Zcu.PerThread) error{ OutOfMemory, UndefinedValue, TypeMismatch }!T {
+    @setEvalBranchQuota(400_000);
+
+    const zcu = pt.zcu;
+    const ip = &zcu.intern_pool;
+    const ty = val.typeOf(zcu);
+    if (ty.zigTypeTag(zcu) != @typeInfo(T)) return error.TypeMismatch;
+    if (val.isUndef(zcu)) return error.UndefinedValue;
+
+    return switch (@typeInfo(T)) {
+        .type,
+        .noreturn,
+        .comptime_float,
+        .comptime_int,
+        .undefined,
+        .null,
+        .@"fn",
+        .@"opaque",
+        .enum_literal,
+        => comptime unreachable, // comptime-only or otherwise impossible
+
+        .pointer,
+        .array,
+        .error_union,
+        .error_set,
+        .frame,
+        .@"anyframe",
+        .vector,
+        => comptime unreachable, // unsupported
+
+        .void => {},
+
+        .bool => switch (val.toIntern()) {
+            .bool_false => false,
+            .bool_true => true,
+            else => unreachable,
+        },
+
+        .int => switch (ip.indexToKey(val.toIntern()).int.storage) {
+            .lazy_align, .lazy_size => unreachable, // `val` is fully resolved
+            inline .u64, .i64 => |x| std.math.cast(T, x) orelse return error.TypeMismatch,
+            .big_int => |big| big.to(T) catch return error.TypeMismatch,
+        },
+
+        .float => val.toFloat(T, zcu),
+
+        .optional => |opt| if (val.optionalValue(zcu)) |unwrapped|
+            try unwrapped.interpret(opt.child, pt)
+        else
+            null,
+
+        .@"enum" => zcu.toEnum(T, val),
+
+        .@"union" => |@"union"| {
+            const union_obj = zcu.typeToUnion(ty) orelse return error.TypeMismatch;
+            if (union_obj.field_types.len != @"union".fields.len) return error.TypeMismatch;
+            const tag_val = val.unionTag(zcu) orelse return error.TypeMismatch;
+            const tag = try tag_val.interpret(@"union".tag_type.?, pt);
+            switch (tag) {
+                inline else => |tag_comptime| {
+                    const Payload = std.meta.FieldType(T, tag_comptime);
+                    const payload = try val.unionValue(zcu).interpret(Payload, pt);
+                    return @unionInit(T, @tagName(tag_comptime), payload);
+                },
+            }
+        },
+
+        .@"struct" => |@"struct"| {
+            if (ty.structFieldCount(zcu) != @"struct".fields.len) return error.TypeMismatch;
+            var result: T = undefined;
+            inline for (@"struct".fields, 0..) |field, field_idx| {
+                const field_val = try val.fieldValue(pt, field_idx);
+                @field(result, field.name) = try field_val.interpret(field.type, pt);
+            }
+            return result;
+        },
+    };
+}
+
+/// Given any `val` and a `Type` corresponding `@TypeOf(val)`, construct a `Value` representing it which can be used
+/// within the compilation. This is useful for passing `std.builtin` structures in the compiler back to the compilation.
+/// This is the inverse of `interpret`.
+pub fn uninterpret(val: anytype, ty: Type, pt: Zcu.PerThread) error{ OutOfMemory, TypeMismatch }!Value {
+    @setEvalBranchQuota(400_000);
+
+    const T = @TypeOf(val);
+
+    const zcu = pt.zcu;
+    if (ty.zigTypeTag(zcu) != @typeInfo(T)) return error.TypeMismatch;
+
+    return switch (@typeInfo(T)) {
+        .type,
+        .noreturn,
+        .comptime_float,
+        .comptime_int,
+        .undefined,
+        .null,
+        .@"fn",
+        .@"opaque",
+        .enum_literal,
+        => comptime unreachable, // comptime-only or otherwise impossible
+
+        .pointer,
+        .array,
+        .error_union,
+        .error_set,
+        .frame,
+        .@"anyframe",
+        .vector,
+        => comptime unreachable, // unsupported
+
+        .void => .void,
+
+        .bool => if (val) .true else .false,
+
+        .int => try pt.intValue(ty, val),
+
+        .float => try pt.floatValue(ty, val),
+
+        .optional => if (val) |some|
+            .fromInterned(try pt.intern(.{ .opt = .{
+                .ty = ty.toIntern(),
+                .val = (try uninterpret(some, ty.optionalChild(zcu), pt)).toIntern(),
+            } }))
+        else
+            try pt.nullValue(ty),
+
+        .@"enum" => try pt.enumValue(ty, (try uninterpret(@intFromEnum(val), ty.intTagType(zcu), pt)).toIntern()),
+
+        .@"union" => |@"union"| {
+            const tag: @"union".tag_type.? = val;
+            const tag_val = try uninterpret(tag, ty.unionTagType(zcu).?, pt);
+            const field_ty = ty.unionFieldType(tag_val, zcu) orelse return error.TypeMismatch;
+            return switch (val) {
+                inline else => |payload| try pt.unionValue(
+                    ty,
+                    tag_val,
+                    try uninterpret(payload, field_ty, pt),
+                ),
+            };
+        },
+
+        .@"struct" => |@"struct"| {
+            if (ty.structFieldCount(zcu) != @"struct".fields.len) return error.TypeMismatch;
+            var field_vals: [@"struct".fields.len]InternPool.Index = undefined;
+            inline for (&field_vals, @"struct".fields, 0..) |*field_val, field, field_idx| {
+                const field_ty = ty.fieldType(field_idx, zcu);
+                field_val.* = (try uninterpret(@field(val, field.name), field_ty, pt)).toIntern();
+            }
+            return .fromInterned(try pt.intern(.{ .aggregate = .{
+                .ty = ty.toIntern(),
+                .storage = .{ .elems = &field_vals },
+            } }));
+        },
+    };
+}

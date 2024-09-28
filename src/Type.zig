@@ -390,10 +390,14 @@ pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error
                 try writer.writeAll("...");
             }
             try writer.writeAll(") ");
-            if (fn_info.cc != .Unspecified) {
-                try writer.writeAll("callconv(.");
-                try writer.writeAll(@tagName(fn_info.cc));
-                try writer.writeAll(") ");
+            if (fn_info.cc != .auto) print_cc: {
+                if (zcu.getTarget().defaultCCallingConvention()) |ccc| {
+                    if (fn_info.cc.eql(ccc)) {
+                        try writer.writeAll("callconv(.c) ");
+                        break :print_cc;
+                    }
+                }
+                try writer.print("callconv({any}) ", .{fn_info.cc});
             }
             if (fn_info.return_type == .generic_poison_type) {
                 try writer.writeAll("anytype");
@@ -791,7 +795,7 @@ pub fn fnHasRuntimeBitsInner(
     const fn_info = zcu.typeToFunc(ty).?;
     if (fn_info.is_generic) return false;
     if (fn_info.is_var_args) return true;
-    if (fn_info.cc == .Inline) return false;
+    if (fn_info.cc == .@"inline") return false;
     return !try Type.fromInterned(fn_info.return_type).comptimeOnlyInner(strat, zcu, tid);
 }
 
@@ -2489,7 +2493,7 @@ pub fn fnReturnType(ty: Type, zcu: *const Zcu) Type {
 }
 
 /// Asserts the type is a function.
-pub fn fnCallingConvention(ty: Type, zcu: *const Zcu) std.builtin.CallingConvention {
+pub fn fnCallingConvention(ty: Type, zcu: *const Zcu) std.builtin.NewCallingConvention {
     return zcu.intern_pool.indexToKey(ty.toIntern()).func_type.cc;
 }
 

@@ -1640,8 +1640,8 @@ const NavGen = struct {
 
                     comptime assert(zig_call_abi_ver == 3);
                     switch (fn_info.cc) {
-                        .Unspecified, .Kernel, .Fragment, .Vertex, .C => {},
-                        else => unreachable, // TODO
+                        .auto, .spirv_kernel, .spirv_fragment, .spirv_vertex => {},
+                        else => @panic("TODO"),
                     }
 
                     // TODO: Put this somewhere in Sema.zig
@@ -2970,7 +2970,7 @@ const NavGen = struct {
                     .id_result_type = return_ty_id,
                     .id_result = result_id,
                     .function_control = switch (fn_info.cc) {
-                        .Inline => .{ .Inline = true },
+                        .@"inline" => .{ .Inline = true },
                         else => .{},
                     },
                     .function_type = prototype_ty_id,

@@ -26,7 +26,7 @@ owner: AnalUnit,
 /// in the case of an inline or comptime function call.
 /// This could be `none`, a `func_decl`, or a `func_instance`.
 func_index: InternPool.Index,
-/// Whether the type of func_index has a calling convention of `.Naked`.
+/// Whether the type of func_index has a calling convention of `.naked`.
 func_is_naked: bool,
 /// Used to restore the error return trace when returning a non-error from a function.
 error_return_trace_index_on_fn_entry: Air.Inst.Ref = .none,
@@ -1355,7 +1355,7 @@ fn analyzeBodyInner(
                     },
                     .value_placeholder => unreachable, // never appears in a body
                     .field_parent_ptr => try sema.zirFieldParentPtr(block, extended),
-                    .builtin_value => try sema.zirBuiltinValue(extended),
+                    .builtin_value => try sema.zirBuiltinValue(block, extended),
                     .inplace_arith_result_ty => try sema.zirInplaceArithResultTy(extended),
                 };
             },
@@ -2696,6 +2696,20 @@ fn analyzeAsInt(
     const coerced = try sema.coerce(block, dest_ty, air_ref, src);
     const val = try sema.resolveConstDefinedValue(block, src, coerced, reason);
     return try val.toUnsignedIntSema(sema.pt);
+}
+
+fn analyzeValueAsCallconv(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    unresolved_val: Value,
+) !std.builtin.NewCallingConvention {
+    const resolved_val = try sema.resolveLazyValue(unresolved_val);
+    return resolved_val.interpret(std.builtin.NewCallingConvention, sema.pt) catch |err| switch (err) {
+        error.OutOfMemory => |e| return e,
+        error.UndefinedValue => return sema.failWithUseOfUndef(block, src),
+        error.TypeMismatch => @panic("std.builtin is corrupt"),
+    };
 }
 
 /// Given a ZIR extra index which points to a list of `Zir.Inst.Capture`,
@@ -6516,8 +6530,8 @@ fn zirSetAlignStack(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.Inst
     }
 
     switch (Value.fromInterned(func).typeOf(zcu).fnCallingConvention(zcu)) {
-        .Naked => return sema.fail(block, src, "@setAlignStack in naked function", .{}),
-        .Inline => return sema.fail(block, src, "@setAlignStack in inline function", .{}),
+        .naked => return sema.fail(block, src, "@setAlignStack in naked function", .{}),
+        .@"inline" => return sema.fail(block, src, "@setAlignStack in inline function", .{}),
         else => {},
     }
 
@@ -7554,7 +7568,7 @@ fn analyzeCall(
     if (try sema.resolveValue(func)) |func_val|
         if (func_val.isUndef(zcu))
             return sema.failWithUseOfUndef(block, call_src);
-    if (cc == .Naked) {
+    if (cc == .naked) {
         const maybe_func_inst = try sema.funcDeclSrcInst(func);
         const msg = msg: {
             const msg = try sema.errMsg(
@@ -7587,7 +7601,7 @@ fn analyzeCall(
         .async_kw => return sema.failWithUseOfAsync(block, call_src),
     };
 
-    if (modifier == .never_inline and func_ty_info.cc == .Inline) {
+    if (modifier == .never_inline and func_ty_info.cc == .@"inline") {
         return sema.fail(block, call_src, "'never_inline' call of inline function", .{});
     }
     if (modifier == .always_inline and func_ty_info.is_noinline) {
@@ -7598,7 +7612,7 @@ fn analyzeCall(
 
     const is_generic_call = func_ty_info.is_generic;
     var is_comptime_call = block.is_comptime or modifier == .compile_time;
-    var is_inline_call = is_comptime_call or modifier == .always_inline or func_ty_info.cc == .Inline;
+    var is_inline_call = is_comptime_call or modifier == .always_inline or func_ty_info.cc == .@"inline";
     var comptime_reason: ?*const Block.ComptimeReason = null;
     if (!is_inline_call and !is_comptime_call) {
         if (try Type.fromInterned(func_ty_info.return_type).comptimeOnlySema(pt)) {
@@ -8455,7 +8469,7 @@ fn instantiateGenericCall(
     }
     // Similarly, if the call evaluated to a generic type we need to instead
     // call it inline.
-    if (func_ty_info.is_generic or func_ty_info.cc == .Inline) {
+    if (func_ty_info.is_generic or func_ty_info.cc == .@"inline") {
         return error.GenericPoison;
     }
 
@@ -9505,8 +9519,8 @@ fn zirFunc(
 
     // If this instruction has a body, then it's a function declaration, and we decide
     // the callconv based on whether it is exported. Otherwise, the callconv defaults
-    // to `.Unspecified`.
-    const cc: std.builtin.CallingConvention = if (has_body) cc: {
+    // to `.auto`.
+    const cc: std.builtin.NewCallingConvention = if (has_body) cc: {
         const func_decl_cau = if (sema.generic_owner != .none) cau: {
             const generic_owner_fn = zcu.funcInfo(sema.generic_owner);
             // The generic owner definitely has a `Cau` for the corresponding function declaration.
@@ -9518,8 +9532,26 @@ fn zirFunc(
             const zir_decl = sema.code.getDeclaration(decl_inst)[0];
             break :exported zir_decl.flags.is_export;
         };
-        break :cc if (fn_is_exported) .C else .Unspecified;
-    } else .Unspecified;
+        if (fn_is_exported) {
+            break :cc target.defaultCCallingConvention() orelse {
+                // This target has no default C calling convention. We sometimes trigger a similar
+                // error by trying to evaluate `std.builtin.CallingConvention.c`, so for consistency,
+                // let's eval that now and just get the transitive error. (It's guaranteed to error
+                // because it does the exact `defaultCCallingConvention` call we just did.)
+                const cc_type = try sema.getBuiltinType("CallingConvention");
+                _ = try sema.namespaceLookupVal(
+                    block,
+                    LazySrcLoc.unneeded,
+                    cc_type.getNamespaceIndex(zcu),
+                    try ip.getOrPutString(sema.gpa, pt.tid, "c", .no_embedded_nulls),
+                );
+                // The above should have errored.
+                @panic("std.builtin is corrupt");
+            };
+        } else {
+            break :cc .auto;
+        }
+    } else .auto;
 
     return sema.funcCommon(
         block,
@@ -9654,15 +9686,64 @@ fn handleExternLibName(
 /// These are calling conventions that are confirmed to work with variadic functions.
 /// Any calling conventions not included here are either not yet verified to work with variadic
 /// functions or there are no more other calling conventions that support variadic functions.
-const calling_conventions_supporting_var_args = [_]std.builtin.CallingConvention{
-    .C,
+const calling_conventions_supporting_var_args = [_]std.builtin.NewCallingConvention.Tag{
+    .x86_64_sysv,
+    .x86_64_win,
+    .x86_sysv,
+    .x86_win,
+    .aarch64_aapcs,
+    .aarch64_aapcs_darwin,
+    .aarch64_aapcs_win,
+    .aarch64_vfabi,
+    .aarch64_vfabi_sve,
+    .arm_apcs,
+    .arm_aapcs,
+    .arm_aapcs_vfp,
+    .arm_aapcs16_vfp,
+    .mips64_n64,
+    .mips64_n32,
+    .mips_o32,
+    .riscv64_lp64,
+    .riscv64_lp64_v,
+    .riscv32_ilp32,
+    .riscv32_ilp32_v,
+    .sparc64_sysv,
+    .sparc_sysv,
+    .powerpc64_elf,
+    .powerpc64_elf_altivec,
+    .powerpc64_elf_v2,
+    .powerpc_sysv,
+    .powerpc_sysv_altivec,
+    .powerpc_aix,
+    .powerpc_aix_altivec,
+    .wasm_watc,
+    .arc_sysv,
+    .avr_gnu,
+    .bpf_std,
+    .csky_sysv,
+    .hexagon_sysv,
+    .hexagon_sysv_hvx,
+    .lanai_sysv,
+    .loongarch64_lp64,
+    .loongarch32_ilp32,
+    .m68k_sysv,
+    .m68k_gnu,
+    .m68k_rtd,
+    .msp430_eabi,
+    .s390x_sysv,
+    .s390x_sysv_vx,
+    .ve_sysv,
+    .xcore_xs1,
+    .xcore_xs2,
+    .xtensa_call0,
+    .xtensa_windowed,
 };
-fn callConvSupportsVarArgs(cc: std.builtin.CallingConvention) bool {
+fn callConvSupportsVarArgs(cc: std.builtin.NewCallingConvention.Tag) bool {
     return for (calling_conventions_supporting_var_args) |supported_cc| {
         if (cc == supported_cc) return true;
     } else false;
 }
-fn checkCallConvSupportsVarArgs(sema: *Sema, block: *Block, src: LazySrcLoc, cc: std.builtin.CallingConvention) CompileError!void {
+fn checkCallConvSupportsVarArgs(sema: *Sema, block: *Block, src: LazySrcLoc, cc: std.builtin.NewCallingConvention.Tag) CompileError!void {
     const CallingConventionsSupportingVarArgsList = struct {
         pub fn format(_: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
             _ = fmt;
@@ -9703,7 +9784,7 @@ fn funcCommon(
     address_space: ?std.builtin.AddressSpace,
     section: Section,
     /// null means generic poison
-    cc: ?std.builtin.CallingConvention,
+    cc: ?std.builtin.NewCallingConvention,
     /// this might be Type.generic_poison
     bare_return_type: Type,
     var_args: bool,
@@ -9743,7 +9824,7 @@ fn funcCommon(
     // default values which are only meaningful for the generic function, *not*
     // the instantiation, which can depend on comptime parameters.
     // Related proposal: https://github.com/ziglang/zig/issues/11834
-    const cc_resolved = cc orelse .Unspecified;
+    const cc_resolved = cc orelse .auto;
     var comptime_bits: u32 = 0;
     for (block.params.items(.ty), block.params.items(.is_comptime), 0..) |param_ty_ip, param_is_comptime, i| {
         const param_ty = Type.fromInterned(param_ty_ip);
@@ -9761,10 +9842,10 @@ fn funcCommon(
         }
         const this_generic = param_ty.isGenericPoison();
         is_generic = is_generic or this_generic;
-        if (param_is_comptime and !target_util.fnCallConvAllowsZigTypes(target, cc_resolved)) {
+        if (param_is_comptime and !target_util.fnCallConvAllowsZigTypes(cc_resolved)) {
             return sema.fail(block, param_src, "comptime parameters not allowed in function with calling convention '{s}'", .{@tagName(cc_resolved)});
         }
-        if (this_generic and !sema.no_partial_func_ty and !target_util.fnCallConvAllowsZigTypes(target, cc_resolved)) {
+        if (this_generic and !sema.no_partial_func_ty and !target_util.fnCallConvAllowsZigTypes(cc_resolved)) {
             return sema.fail(block, param_src, "generic parameters not allowed in function with calling convention '{s}'", .{@tagName(cc_resolved)});
         }
         if (!param_ty.isValidParamType(zcu)) {
@@ -9773,7 +9854,7 @@ fn funcCommon(
                 opaque_str, param_ty.fmt(pt),
             });
         }
-        if (!this_generic and !target_util.fnCallConvAllowsZigTypes(target, cc_resolved) and !try sema.validateExternType(param_ty, .param_ty)) {
+        if (!this_generic and !target_util.fnCallConvAllowsZigTypes(cc_resolved) and !try sema.validateExternType(param_ty, .param_ty)) {
             const msg = msg: {
                 const msg = try sema.errMsg(param_src, "parameter of type '{}' not allowed in function with calling convention '{s}'", .{
                     param_ty.fmt(pt), @tagName(cc_resolved),
@@ -9807,15 +9888,24 @@ fn funcCommon(
             return sema.fail(block, param_src, "non-pointer parameter declared noalias", .{});
         }
         switch (cc_resolved) {
-            .Interrupt => if (target.cpu.arch.isX86()) {
+            .x86_64_interrupt, .x86_interrupt => {
                 const err_code_size = target.ptrBitWidth();
                 switch (i) {
                     0 => if (param_ty.zigTypeTag(zcu) != .pointer) return sema.fail(block, param_src, "first parameter of function with 'Interrupt' calling convention must be a pointer type", .{}),
                     1 => if (param_ty.bitSize(zcu) != err_code_size) return sema.fail(block, param_src, "second parameter of function with 'Interrupt' calling convention must be a {d}-bit integer", .{err_code_size}),
                     else => return sema.fail(block, param_src, "'Interrupt' calling convention supports up to 2 parameters, found {d}", .{i + 1}),
                 }
-            } else return sema.fail(block, param_src, "parameters are not allowed with 'Interrupt' calling convention", .{}),
-            .Signal => return sema.fail(block, param_src, "parameters are not allowed with 'Signal' calling convention", .{}),
+            },
+            .arm_interrupt,
+            .mips64_interrupt,
+            .mips_interrupt,
+            .riscv64_interrupt,
+            .riscv32_interrupt,
+            .avr_interrupt,
+            .csky_interrupt,
+            .m68k_interrupt,
+            => return sema.fail(block, param_src, "parameters are not allowed with 'Interrupt' calling convention", .{}),
+            .avr_signal => return sema.fail(block, param_src, "parameters are not allowed with 'Signal' calling convention", .{}),
             else => {},
         }
     }
@@ -10051,7 +10141,7 @@ fn finishFunc(
     ret_poison: bool,
     bare_return_type: Type,
     ret_ty_src: LazySrcLoc,
-    cc_resolved: std.builtin.CallingConvention,
+    cc_resolved: std.builtin.NewCallingConvention,
     is_source_decl: bool,
     ret_ty_requires_comptime: bool,
     func_inst: Zir.Inst.Index,
@@ -10064,7 +10154,6 @@ fn finishFunc(
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     const gpa = sema.gpa;
-    const target = zcu.getTarget();
 
     const return_type: Type = if (opt_func_index == .none or ret_poison)
         bare_return_type
@@ -10077,7 +10166,7 @@ fn finishFunc(
             opaque_str, return_type.fmt(pt),
         });
     }
-    if (!ret_poison and !target_util.fnCallConvAllowsZigTypes(target, cc_resolved) and
+    if (!ret_poison and !target_util.fnCallConvAllowsZigTypes(cc_resolved) and
         !try sema.validateExternType(return_type, .ret_ty))
     {
         const msg = msg: {
@@ -10134,56 +10223,50 @@ fn finishFunc(
     }
 
     switch (cc_resolved) {
-        .Interrupt, .Signal => if (return_type.zigTypeTag(zcu) != .void and return_type.zigTypeTag(zcu) != .noreturn) {
+        .x86_64_interrupt,
+        .x86_interrupt,
+        .arm_interrupt,
+        .mips64_interrupt,
+        .mips_interrupt,
+        .riscv64_interrupt,
+        .riscv32_interrupt,
+        .avr_interrupt,
+        .csky_interrupt,
+        .m68k_interrupt,
+        .avr_signal,
+        => if (return_type.zigTypeTag(zcu) != .void and return_type.zigTypeTag(zcu) != .noreturn) {
             return sema.fail(block, ret_ty_src, "function with calling convention '{s}' must return 'void' or 'noreturn'", .{@tagName(cc_resolved)});
         },
-        .Inline => if (is_noinline) {
-            return sema.fail(block, cc_src, "'noinline' function cannot have callconv 'Inline'", .{});
+        .@"inline" => if (is_noinline) {
+            return sema.fail(block, cc_src, "'noinline' function cannot have callconv 'inline'", .{});
         },
         else => {},
     }
 
-    const arch = target.cpu.arch;
-    if (@as(?[]const u8, switch (cc_resolved) {
-        .Unspecified, .C, .Naked, .Async, .Inline => null,
-        .Interrupt => switch (arch) {
-            .x86, .x86_64, .avr, .msp430 => null,
-            else => "x86, x86_64, AVR, and MSP430",
+    switch (zcu.callconvSupported(cc_resolved)) {
+        .ok => {},
+        .bad_arch => |allowed_archs| {
+            const ArchListFormatter = struct {
+                archs: []const std.Target.Cpu.Arch,
+                pub fn format(formatter: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+                    _ = fmt;
+                    _ = options;
+                    for (formatter.archs, 0..) |arch, i| {
+                        if (i != 0)
+                            try writer.writeAll(", ");
+                        try writer.print("'.{s}'", .{@tagName(arch)});
+                    }
+                }
+            };
+            return sema.fail(block, cc_src, "callconv '{s}' only available on architectures {}", .{
+                @tagName(cc_resolved),
+                ArchListFormatter{ .archs = allowed_archs },
+            });
         },
-        .Signal => switch (arch) {
-            .avr => null,
-            else => "AVR",
-        },
-        .Stdcall, .Fastcall, .Thiscall => switch (arch) {
-            .x86 => null,
-            else => "x86",
-        },
-        .Vectorcall => switch (arch) {
-            .x86, .aarch64, .aarch64_be => null,
-            else => "x86 and AArch64",
-        },
-        .APCS, .AAPCS, .AAPCSVFP => switch (arch) {
-            .arm, .armeb, .aarch64, .aarch64_be, .thumb, .thumbeb => null,
-            else => "ARM",
-        },
-        .SysV, .Win64 => switch (arch) {
-            .x86_64 => null,
-            else => "x86_64",
-        },
-        .Kernel => switch (arch) {
-            .nvptx, .nvptx64, .amdgcn, .spirv, .spirv32, .spirv64 => null,
-            else => "nvptx, amdgcn and SPIR-V",
-        },
-        .Fragment, .Vertex => switch (arch) {
-            .spirv, .spirv32, .spirv64 => null,
-            else => "SPIR-V",
-        },
-    })) |allowed_platform| {
-        return sema.fail(block, cc_src, "callconv '{s}' is only available on {s}, not {s}", .{
+        .bad_backend => |bad_backend| return sema.fail(block, cc_src, "callconv '{s}' not supported by compiler backend '{s}'", .{
             @tagName(cc_resolved),
-            allowed_platform,
-            @tagName(arch),
-        });
+            @tagName(bad_backend),
+        }),
     }
 
     if (is_generic and sema.no_partial_func_ty) return error.GenericPoison;
@@ -18342,10 +18425,14 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             } });
 
             const callconv_ty = try sema.getBuiltinType("CallingConvention");
+            const callconv_val = Value.uninterpret(func_ty_info.cc, callconv_ty, pt) catch |err| switch (err) {
+                error.TypeMismatch => @panic("std.builtin is corrupt"),
+                error.OutOfMemory => |e| return e,
+            };
 
-            const field_values = .{
+            const field_values: [5]InternPool.Index = .{
                 // calling_convention: CallingConvention,
-                (try pt.enumValueFieldIndex(callconv_ty, @intFromEnum(func_ty_info.cc))).toIntern(),
+                callconv_val.toIntern(),
                 // is_generic: bool,
                 Value.makeBool(func_ty_info.is_generic).toIntern(),
                 // is_var_args: bool,
@@ -22171,7 +22258,7 @@ fn zirReify(
             }
 
             const is_var_args = is_var_args_val.toBool();
-            const cc = zcu.toEnum(std.builtin.CallingConvention, calling_convention_val);
+            const cc = try sema.analyzeValueAsCallconv(block, src, calling_convention_val);
             if (is_var_args) {
                 try sema.checkCallConvSupportsVarArgs(block, src, cc);
             }
@@ -26657,7 +26744,7 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         break :blk .{ .explicit = section_name };
     } else .default;
 
-    const cc: ?std.builtin.CallingConvention = if (extra.data.bits.has_cc_body) blk: {
+    const cc: ?std.builtin.NewCallingConvention = if (extra.data.bits.has_cc_body) blk: {
         const body_len = sema.code.extra[extra_index];
         extra_index += 1;
         const body = sema.code.bodySlice(extra_index, body_len);
@@ -26670,7 +26757,7 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         if (val.isGenericPoison()) {
             break :blk null;
         }
-        break :blk zcu.toEnum(std.builtin.CallingConvention, val);
+        break :blk try sema.analyzeValueAsCallconv(block, cc_src, val);
     } else if (extra.data.bits.has_cc_ref) blk: {
         const cc_ref: Zir.Inst.Ref = @enumFromInt(sema.code.extra[extra_index]);
         extra_index += 1;
@@ -26689,7 +26776,7 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
             error.GenericPoison => break :blk null,
             else => |e| return e,
         };
-        break :blk zcu.toEnum(std.builtin.CallingConvention, cc_val);
+        break :blk try sema.analyzeValueAsCallconv(block, cc_src, cc_val);
     } else cc: {
         if (has_body) {
             const decl_inst = if (sema.generic_owner != .none) decl_inst: {
@@ -26705,7 +26792,7 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
                 break :cc .C;
             }
         }
-        break :cc .Unspecified;
+        break :cc .auto;
     };
 
     const ret_ty: Type = if (extra.data.bits.has_ret_ty_body) blk: {
@@ -27132,9 +27219,15 @@ fn zirInComptime(
     return if (block.is_comptime) .bool_true else .bool_false;
 }
 
-fn zirBuiltinValue(sema: *Sema, extended: Zir.Inst.Extended.InstData) CompileError!Air.Inst.Ref {
+fn zirBuiltinValue(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!Air.Inst.Ref {
     const pt = sema.pt;
+    const zcu = pt.zcu;
+    const gpa = zcu.gpa;
+    const ip = &zcu.intern_pool;
+
+    const src = block.nodeOffset(@bitCast(extended.operand));
     const value: Zir.Inst.BuiltinValue = @enumFromInt(extended.small);
+
     const type_name = switch (value) {
         .atomic_order => "AtomicOrder",
         .atomic_rmw_op => "AtomicRmwOp",
@@ -27152,21 +27245,25 @@ fn zirBuiltinValue(sema: *Sema, extended: Zir.Inst.Extended.InstData) CompileErr
         // Values are handled here.
         .calling_convention_c => {
             const callconv_ty = try sema.getBuiltinType("CallingConvention");
-            comptime assert(@intFromEnum(std.builtin.CallingConvention.C) == 1);
-            const val = try pt.intern(.{ .enum_tag = .{
-                .ty = callconv_ty.toIntern(),
-                .int = .one_u8,
-            } });
-            return Air.internedToRef(val);
+            return try sema.namespaceLookupVal(
+                block,
+                src,
+                callconv_ty.getNamespaceIndex(zcu),
+                try ip.getOrPutString(gpa, pt.tid, "c", .no_embedded_nulls),
+            ) orelse @panic("std.builtin is corrupt");
         },
         .calling_convention_inline => {
+            comptime assert(@typeInfo(std.builtin.NewCallingConvention.Tag).@"enum".tag_type == u8);
             const callconv_ty = try sema.getBuiltinType("CallingConvention");
-            comptime assert(@intFromEnum(std.builtin.CallingConvention.Inline) == 4);
-            const val = try pt.intern(.{ .enum_tag = .{
-                .ty = callconv_ty.toIntern(),
-                .int = .four_u8,
-            } });
-            return Air.internedToRef(val);
+            const callconv_tag_ty = callconv_ty.unionTagType(zcu) orelse @panic("std.builtin is corrupt");
+            const inline_tag_val = try pt.enumValue(
+                callconv_tag_ty,
+                (try pt.intValue(
+                    Type.u8,
+                    @intFromEnum(std.builtin.NewCallingConvention.@"inline"),
+                )).toIntern(),
+            );
+            return sema.coerce(block, callconv_ty, Air.internedToRef(inline_tag_val.toIntern()), src);
         },
     };
     const ty = try sema.getBuiltinType(type_name);
@@ -27353,7 +27450,7 @@ fn explainWhyTypeIsComptimeInner(
                     try sema.errNote(src_loc, msg, "function is generic", .{});
                 }
                 switch (fn_info.cc) {
-                    .Inline => try sema.errNote(src_loc, msg, "function has inline calling convention", .{}),
+                    .@"inline" => try sema.errNote(src_loc, msg, "function has inline calling convention", .{}),
                     else => {},
                 }
                 if (Type.fromInterned(fn_info.return_type).comptimeOnly(zcu)) {
@@ -27461,13 +27558,12 @@ fn validateExternType(
         },
         .@"fn" => {
             if (position != .other) return false;
-            const target = zcu.getTarget();
             // For now we want to authorize PTX kernel to use zig objects, even if we end up exposing the ABI.
             // The goal is to experiment with more integrated CPU/GPU code.
-            if (ty.fnCallingConvention(zcu) == .Kernel and (target.cpu.arch == .nvptx or target.cpu.arch == .nvptx64)) {
+            if (ty.fnCallingConvention(zcu) == .nvptx_kernel) {
                 return true;
             }
-            return !target_util.fnCallConvAllowsZigTypes(target, ty.fnCallingConvention(zcu));
+            return !target_util.fnCallConvAllowsZigTypes(ty.fnCallingConvention(zcu));
         },
         .@"enum" => {
             return sema.validateExternType(ty.intTagType(zcu), position);
@@ -27547,9 +27643,9 @@ fn explainWhyTypeIsNotExtern(
                 return;
             }
             switch (ty.fnCallingConvention(zcu)) {
-                .Unspecified => try sema.errNote(src_loc, msg, "extern function must specify calling convention", .{}),
-                .Async => try sema.errNote(src_loc, msg, "async function cannot be extern", .{}),
-                .Inline => try sema.errNote(src_loc, msg, "inline function cannot be extern", .{}),
+                .auto => try sema.errNote(src_loc, msg, "extern function must specify calling convention", .{}),
+                .@"async" => try sema.errNote(src_loc, msg, "async function cannot be extern", .{}),
+                .@"inline" => try sema.errNote(src_loc, msg, "inline function cannot be extern", .{}),
                 else => return,
             }
         },
@@ -30525,8 +30621,8 @@ const InMemoryCoercionResult = union(enum) {
     };
 
     const CC = struct {
-        actual: std.builtin.CallingConvention,
-        wanted: std.builtin.CallingConvention,
+        actual: std.builtin.NewCallingConvention,
+        wanted: std.builtin.NewCallingConvention,
     };
 
     const BitRange = struct {
@@ -31176,8 +31272,8 @@ fn coerceInMemoryAllowedFns(
             return InMemoryCoercionResult{ .fn_generic = dest_info.is_generic };
         }
 
-        if (dest_info.cc != src_info.cc) {
-            return InMemoryCoercionResult{ .fn_cc = .{
+        if (!callconvCoerceAllowed(target, src_info.cc, dest_info.cc)) {
+            return .{ .fn_cc = .{
                 .actual = src_info.cc,
                 .wanted = dest_info.cc,
             } };
@@ -31248,6 +31344,44 @@ fn coerceInMemoryAllowedFns(
     }
 
     return .ok;
+}
+
+fn callconvCoerceAllowed(
+    target: std.Target,
+    src_cc: std.builtin.NewCallingConvention,
+    dest_cc: std.builtin.NewCallingConvention,
+) bool {
+    const Tag = std.builtin.NewCallingConvention.Tag;
+    if (@as(Tag, src_cc) != @as(Tag, dest_cc)) return false;
+
+    switch (src_cc) {
+        inline else => |src_data, tag| {
+            const dest_data = @field(dest_cc, @tagName(tag));
+            if (@TypeOf(src_data) != void) {
+                const default_stack_align = target.stackAlignment();
+                const src_stack_align = src_data.incoming_stack_alignment orelse default_stack_align;
+                const dest_stack_align = src_data.incoming_stack_alignment orelse default_stack_align;
+                if (dest_stack_align < src_stack_align) return false;
+            }
+            switch (@TypeOf(src_data)) {
+                void, std.builtin.NewCallingConvention.CommonOptions => {},
+                std.builtin.NewCallingConvention.X86RegparmOptions => {
+                    if (src_data.register_params != dest_data.register_params) return false;
+                },
+                std.builtin.NewCallingConvention.ArmInterruptOptions => {
+                    if (src_data.type != dest_data.type) return false;
+                },
+                std.builtin.NewCallingConvention.MipsInterruptOptions => {
+                    if (src_data.mode != dest_data.mode) return false;
+                },
+                std.builtin.NewCallingConvention.RiscvInterruptOptions => {
+                    if (src_data.level != dest_data.level) return false;
+                },
+                else => comptime unreachable,
+            }
+        },
+    }
+    return true;
 }
 
 fn coerceInMemoryAllowedPtrs(
@@ -36306,7 +36440,7 @@ fn resolveInferredErrorSet(
     // because inline function does not create a new declaration, and the ies has been filled with analyzeCall,
     // so here we can simply skip this case.
     if (ies_func_info.return_type == .generic_poison_type) {
-        assert(ies_func_info.cc == .Inline);
+        assert(ies_func_info.cc == .@"inline");
     } else if (ip.errorUnionSet(ies_func_info.return_type) == ies_index) {
         if (ies_func_info.is_generic) {
             return sema.failWithOwnedErrorMsg(block, msg: {
