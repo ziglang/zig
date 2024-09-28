@@ -7353,6 +7353,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
         .func_type => unreachable, // use getFuncType() instead
         .@"extern" => unreachable, // use getExtern() instead
         .func => unreachable, // use getFuncInstance() or getFuncDecl() instead
+        .un => unreachable, // use getUnion instead
 
         .variable => |variable| {
             const has_init = variable.init != .none;
@@ -7968,15 +7969,6 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
             if (sentinel != .none) extra.appendAssumeCapacity(.{@intFromEnum(sentinel)});
         },
 
-        .un => |un| {
-            assert(un.ty != .none);
-            assert(un.val != .none);
-            items.appendAssumeCapacity(.{
-                .tag = .union_value,
-                .data = try addExtra(extra, un),
-            });
-        },
-
         .memoized_call => |memoized_call| {
             for (memoized_call.arg_values) |arg| assert(arg != .none);
             try extra.ensureUnusedCapacity(@typeInfo(MemoizedCall).@"struct".fields.len +
@@ -7993,6 +7985,30 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
             extra.appendSliceAssumeCapacity(.{@ptrCast(memoized_call.arg_values)});
         },
     }
+    return gop.put();
+}
+
+pub fn getUnion(
+    ip: *InternPool,
+    gpa: Allocator,
+    tid: Zcu.PerThread.Id,
+    un: Key.Union,
+) Allocator.Error!Index {
+    var gop = try ip.getOrPutKey(gpa, tid, .{ .un = un });
+    defer gop.deinit();
+    if (gop == .existing) return gop.existing;
+    const local = ip.getLocal(tid);
+    const items = local.getMutableItems(gpa);
+    const extra = local.getMutableExtra(gpa);
+    try items.ensureUnusedCapacity(1);
+
+    assert(un.ty != .none);
+    assert(un.val != .none);
+    items.appendAssumeCapacity(.{
+        .tag = .union_value,
+        .data = try addExtra(extra, un),
+    });
+
     return gop.put();
 }
 

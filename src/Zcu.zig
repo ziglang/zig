@@ -220,7 +220,7 @@ generation: u32 = 0,
 pub const PerThread = @import("Zcu/PerThread.zig");
 
 pub const PanicId = enum {
-    unreach,
+    reached_unreachable,
     unwrap_null,
     cast_to_null,
     incorrect_alignment,
@@ -232,15 +232,10 @@ pub const PanicId = enum {
     shr_overflow,
     divide_by_zero,
     exact_division_remainder,
-    inactive_union_field,
     integer_part_out_of_bounds,
     corrupt_switch,
     shift_rhs_too_big,
     invalid_enum_value,
-    sentinel_mismatch,
-    unwrap_error,
-    index_out_of_bounds,
-    start_index_greater_than_end,
     for_len_mismatch,
     memcpy_len_mismatch,
     memcpy_alias,
@@ -2923,17 +2918,10 @@ pub fn addGlobalAssembly(zcu: *Zcu, cau: InternPool.Cau.Index, source: []const u
 }
 
 pub const Feature = enum {
-    /// When this feature is enabled, Sema will emit calls to `std.builtin.panic`
-    /// for things like safety checks and unreachables. Otherwise traps will be emitted.
+    /// When this feature is enabled, Sema will emit calls to
+    /// `std.builtin.Panic` functions for things like safety checks and
+    /// unreachables. Otherwise traps will be emitted.
     panic_fn,
-    /// When this feature is enabled, Sema will emit calls to `std.builtin.panicUnwrapError`.
-    /// This error message requires more advanced formatting, hence it being seperate from `panic_fn`.
-    /// Otherwise traps will be emitted.
-    panic_unwrap_error,
-    /// When this feature is enabled, Sema will emit calls to the more complex panic functions
-    /// that use formatting to add detail to error messages. Similar to `panic_unwrap_error`.
-    /// Otherwise traps will be emitted.
-    safety_check_formatted,
     /// When this feature is enabled, Sema will insert tracer functions for gathering a stack
     /// trace for error returns.
     error_return_trace,

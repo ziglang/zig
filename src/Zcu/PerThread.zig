@@ -1,6 +1,32 @@
 //! This type provides a wrapper around a `*Zcu` for uses which require a thread `Id`.
 //! Any operation which mutates `InternPool` state lives here rather than on `Zcu`.
 
+const Air = @import("../Air.zig");
+const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
+const Ast = std.zig.Ast;
+const AstGen = std.zig.AstGen;
+const BigIntConst = std.math.big.int.Const;
+const BigIntMutable = std.math.big.int.Mutable;
+const build_options = @import("build_options");
+const builtin = @import("builtin");
+const Cache = std.Build.Cache;
+const dev = @import("../dev.zig");
+const InternPool = @import("../InternPool.zig");
+const AnalUnit = InternPool.AnalUnit;
+const isUpDir = @import("../introspect.zig").isUpDir;
+const Liveness = @import("../Liveness.zig");
+const log = std.log.scoped(.zcu);
+const Module = @import("../Package.zig").Module;
+const Sema = @import("../Sema.zig");
+const std = @import("std");
+const target_util = @import("../target.zig");
+const trace = @import("../tracy.zig").trace;
+const Type = @import("../Type.zig");
+const Value = @import("../Value.zig");
+const Zcu = @import("../Zcu.zig");
+const Zir = std.zig.Zir;
+
 zcu: *Zcu,
 
 /// Dense, per-thread unique index.
@@ -2697,9 +2723,14 @@ pub fn reportRetryableFileError(
     gop.value_ptr.* = err_msg;
 }
 
-///Shortcut for calling `intern_pool.get`.
+/// Shortcut for calling `intern_pool.get`.
 pub fn intern(pt: Zcu.PerThread, key: InternPool.Key) Allocator.Error!InternPool.Index {
     return pt.zcu.intern_pool.get(pt.zcu.gpa, pt.tid, key);
+}
+
+/// Shortcut for calling `intern_pool.getUnion`.
+pub fn internUnion(pt: Zcu.PerThread, un: InternPool.Key.Union) Allocator.Error!InternPool.Index {
+    return pt.zcu.intern_pool.getUnion(pt.zcu.gpa, pt.tid, un);
 }
 
 /// Essentially a shortcut for calling `intern_pool.getCoerced`.
@@ -2949,11 +2980,12 @@ pub fn intValue_i64(pt: Zcu.PerThread, ty: Type, x: i64) Allocator.Error!Value {
 }
 
 pub fn unionValue(pt: Zcu.PerThread, union_ty: Type, tag: Value, val: Value) Allocator.Error!Value {
-    return Value.fromInterned(try pt.intern(.{ .un = .{
+    const zcu = pt.zcu;
+    return Value.fromInterned(try zcu.intern_pool.getUnion(zcu.gpa, pt.tid, .{
         .ty = union_ty.toIntern(),
         .tag = tag.toIntern(),
         .val = val.toIntern(),
-    } }));
+    }));
 }
 
 /// This function casts the float representation down to the representation of the type, potentially
@@ -3069,14 +3101,6 @@ pub fn structPackedFieldBitOffset(
     unreachable; // index out of bounds
 }
 
-pub fn getBuiltin(pt: Zcu.PerThread, name: []const u8) Allocator.Error!Air.Inst.Ref {
-    const zcu = pt.zcu;
-    const ip = &zcu.intern_pool;
-    const nav = try pt.getBuiltinNav(name);
-    pt.ensureCauAnalyzed(ip.getNav(nav).analysis_owner.unwrap().?) catch @panic("std.builtin is corrupt");
-    return Air.internedToRef(ip.getNav(nav).status.resolved.val);
-}
-
 pub fn getBuiltinNav(pt: Zcu.PerThread, name: []const u8) Allocator.Error!InternPool.Nav.Index {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
@@ -3092,13 +3116,6 @@ pub fn getBuiltinNav(pt: Zcu.PerThread, name: []const u8) Allocator.Error!Intern
     const builtin_namespace = zcu.namespacePtr(builtin_type.getNamespace(zcu).unwrap() orelse @panic("std.builtin is corrupt"));
     const name_str = try ip.getOrPutString(gpa, pt.tid, name, .no_embedded_nulls);
     return builtin_namespace.pub_decls.getKeyAdapted(name_str, Zcu.Namespace.NameAdapter{ .zcu = zcu }) orelse @panic("lib/std/builtin.zig is corrupt");
-}
-
-pub fn getBuiltinType(pt: Zcu.PerThread, name: []const u8) Allocator.Error!Type {
-    const ty_inst = try pt.getBuiltin(name);
-    const ty = Type.fromInterned(ty_inst.toInterned() orelse @panic("std.builtin is corrupt"));
-    ty.resolveFully(pt) catch @panic("std.builtin is corrupt");
-    return ty;
 }
 
 pub fn navPtrType(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) Allocator.Error!Type {
@@ -3650,28 +3667,21 @@ pub fn ensureNamespaceUpToDate(pt: Zcu.PerThread, namespace_index: Zcu.Namespace
     namespace.generation = zcu.generation;
 }
 
-const Air = @import("../Air.zig");
-const Allocator = std.mem.Allocator;
-const assert = std.debug.assert;
-const Ast = std.zig.Ast;
-const AstGen = std.zig.AstGen;
-const BigIntConst = std.math.big.int.Const;
-const BigIntMutable = std.math.big.int.Mutable;
-const build_options = @import("build_options");
-const builtin = @import("builtin");
-const Cache = std.Build.Cache;
-const dev = @import("../dev.zig");
-const InternPool = @import("../InternPool.zig");
-const AnalUnit = InternPool.AnalUnit;
-const isUpDir = @import("../introspect.zig").isUpDir;
-const Liveness = @import("../Liveness.zig");
-const log = std.log.scoped(.zcu);
-const Module = @import("../Package.zig").Module;
-const Sema = @import("../Sema.zig");
-const std = @import("std");
-const target_util = @import("../target.zig");
-const trace = @import("../tracy.zig").trace;
-const Type = @import("../Type.zig");
-const Value = @import("../Value.zig");
-const Zcu = @import("../Zcu.zig");
-const Zir = std.zig.Zir;
+pub fn refValue(pt: Zcu.PerThread, val: InternPool.Index) Zcu.SemaError!InternPool.Index {
+    const ptr_ty = (try pt.ptrTypeSema(.{
+        .child = pt.zcu.intern_pool.typeOf(val),
+        .flags = .{
+            .alignment = .none,
+            .is_const = true,
+            .address_space = .generic,
+        },
+    })).toIntern();
+    return pt.intern(.{ .ptr = .{
+        .ty = ptr_ty,
+        .base_addr = .{ .uav = .{
+            .val = val,
+            .orig_ty = ptr_ty,
+        } },
+        .byte_offset = 0,
+    } });
+}

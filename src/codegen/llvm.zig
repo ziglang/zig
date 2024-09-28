@@ -3848,13 +3848,13 @@ pub const Object = struct {
 
             .undef => unreachable, // handled above
             .simple_value => |simple_value| switch (simple_value) {
-                .undefined,
-                .void,
-                .null,
-                .empty_struct,
-                .@"unreachable",
-                .generic_poison,
-                => unreachable, // non-runtime values
+                .undefined => unreachable, // non-runtime value
+                .void => unreachable, // non-runtime value
+                .null => unreachable, // non-runtime value
+                .empty_struct => unreachable, // non-runtime value
+                .@"unreachable" => unreachable, // non-runtime value
+                .generic_poison => unreachable, // non-runtime value
+
                 .false => .false,
                 .true => .true,
             },
