@@ -46,9 +46,9 @@ const SearchPhrase = struct {
     string: []const u8,
     lazy_path: ?std.Build.LazyPath = null,
 
-    fn resolve(phrase: SearchPhrase, b: *std.Build, step: *Step) []const u8 {
+    fn resolve(phrase: SearchPhrase, b: *std.Build) []const u8 {
         const lazy_path = phrase.lazy_path orelse return phrase.string;
-        return b.fmt("{s} {s}", .{ phrase.string, lazy_path.getPath2(b, step) });
+        return b.fmt("{s} {s}", .{ phrase.string, lazy_path.getPath(b) });
     }
 };
 
@@ -72,13 +72,12 @@ const Action = struct {
     fn extract(
         act: Action,
         b: *std.Build,
-        step: *Step,
         haystack: []const u8,
         global_vars: anytype,
     ) !bool {
         assert(act.tag == .extract);
         const hay = mem.trim(u8, haystack, " ");
-        const phrase = mem.trim(u8, act.phrase.resolve(b, step), " ");
+        const phrase = mem.trim(u8, act.phrase.resolve(b), " ");
 
         var candidate_vars = std.ArrayList(struct { name: []const u8, value: u64 }).init(b.allocator);
         var hay_it = mem.tokenizeScalar(u8, hay, ' ');
@@ -113,12 +112,11 @@ const Action = struct {
     fn exact(
         act: Action,
         b: *std.Build,
-        step: *Step,
         haystack: []const u8,
     ) bool {
         assert(act.tag == .exact);
         const hay = mem.trim(u8, haystack, " ");
-        const phrase = mem.trim(u8, act.phrase.resolve(b, step), " ");
+        const phrase = mem.trim(u8, act.phrase.resolve(b), " ");
         return mem.eql(u8, hay, phrase);
     }
 
@@ -126,12 +124,11 @@ const Action = struct {
     fn contains(
         act: Action,
         b: *std.Build,
-        step: *Step,
         haystack: []const u8,
     ) bool {
         assert(act.tag == .contains);
         const hay = mem.trim(u8, haystack, " ");
-        const phrase = mem.trim(u8, act.phrase.resolve(b, step), " ");
+        const phrase = mem.trim(u8, act.phrase.resolve(b), " ");
         return mem.indexOf(u8, hay, phrase) != null;
     }
 
@@ -139,7 +136,6 @@ const Action = struct {
     fn notPresent(
         act: Action,
         b: *std.Build,
-        step: *Step,
         haystack: []const u8,
     ) bool {
         assert(act.tag == .not_present);
@@ -147,7 +143,7 @@ const Action = struct {
             .tag = .contains,
             .phrase = act.phrase,
             .expected = act.expected,
-        }, b, step, haystack);
+        }, b, haystack);
     }
 
     /// Will return true if the `phrase` is correctly parsed into an RPN program and
@@ -155,7 +151,7 @@ const Action = struct {
     /// a literal or another extracted variable.
     fn computeCmp(act: Action, b: *std.Build, step: *Step, global_vars: anytype) !bool {
         const gpa = step.owner.allocator;
-        const phrase = act.phrase.resolve(b, step);
+        const phrase = act.phrase.resolve(b);
         var op_stack = std.ArrayList(enum { add, sub, mod, mul }).init(gpa);
         var values = std.ArrayList(u64).init(gpa);
 
@@ -557,7 +553,7 @@ fn make(step: *Step, make_options: Step.MakeOptions) !void {
     const check_object: *CheckObject = @fieldParentPtr("step", step);
     try step.singleUnchangingWatchInput(check_object.source);
 
-    const src_path = check_object.source.getPath2(b, step);
+    const src_path = check_object.source.getPath(b);
     const contents = fs.cwd().readFileAllocOptions(
         gpa,
         src_path,
@@ -583,7 +579,7 @@ fn make(step: *Step, make_options: Step.MakeOptions) !void {
                     \\========= comparison failed for action: ===========
                     \\{s} {}
                     \\===================================================
-                , .{ act.phrase.resolve(b, step), act.expected.? });
+                , .{ act.phrase.resolve(b), act.expected.? });
             }
             continue;
         }
@@ -632,7 +628,7 @@ fn make(step: *Step, make_options: Step.MakeOptions) !void {
             switch (act.tag) {
                 .exact => {
                     while (it.next()) |line| {
-                        if (act.exact(b, step, line)) break;
+                        if (act.exact(b, line)) break;
                     } else {
                         return step.fail(
                             \\
@@ -641,13 +637,13 @@ fn make(step: *Step, make_options: Step.MakeOptions) !void {
                             \\========= but parsed file does not contain it: =======
                             \\{s}
                             \\======================================================
-                        , .{ fmtMessageString(chk.kind, act.phrase.resolve(b, step)), fmtMessageString(chk.kind, output) });
+                        , .{ fmtMessageString(chk.kind, act.phrase.resolve(b)), fmtMessageString(chk.kind, output) });
                     }
                 },
 
                 .contains => {
                     while (it.next()) |line| {
-                        if (act.contains(b, step, line)) break;
+                        if (act.contains(b, line)) break;
                     } else {
                         return step.fail(
                             \\
@@ -656,13 +652,13 @@ fn make(step: *Step, make_options: Step.MakeOptions) !void {
                             \\========= but parsed file does not contain it: =======
                             \\{s}
                             \\======================================================
-                        , .{ fmtMessageString(chk.kind, act.phrase.resolve(b, step)), fmtMessageString(chk.kind, output) });
+                        , .{ fmtMessageString(chk.kind, act.phrase.resolve(b)), fmtMessageString(chk.kind, output) });
                     }
                 },
 
                 .not_present => {
                     while (it.next()) |line| {
-                        if (act.notPresent(b, step, line)) continue;
+                        if (act.notPresent(b, line)) continue;
                         return step.fail(
                             \\
                             \\========= expected not to find: ===================
@@ -670,13 +666,13 @@ fn make(step: *Step, make_options: Step.MakeOptions) !void {
                             \\========= but parsed file does contain it: ========
                             \\{s}
                             \\===================================================
-                        , .{ fmtMessageString(chk.kind, act.phrase.resolve(b, step)), fmtMessageString(chk.kind, output) });
+                        , .{ fmtMessageString(chk.kind, act.phrase.resolve(b)), fmtMessageString(chk.kind, output) });
                     }
                 },
 
                 .extract => {
                     while (it.next()) |line| {
-                        if (try act.extract(b, step, line, &vars)) break;
+                        if (try act.extract(b, line, &vars)) break;
                     } else {
                         return step.fail(
                             \\
@@ -685,7 +681,7 @@ fn make(step: *Step, make_options: Step.MakeOptions) !void {
                             \\========= but parsed file does not contain it: =======
                             \\{s}
                             \\======================================================
-                        , .{ act.phrase.resolve(b, step), fmtMessageString(chk.kind, output) });
+                        , .{ act.phrase.resolve(b), fmtMessageString(chk.kind, output) });
                     }
                 },
 

@@ -987,14 +987,14 @@ const CliNamedModules = struct {
     }
 };
 
-fn getGeneratedFilePath(compile: *Compile, comptime tag_name: []const u8, asking_step: ?*Step) []const u8 {
+fn getGeneratedFilePath(compile: *Compile, comptime tag_name: []const u8) []const u8 {
     const maybe_path: ?*GeneratedFile = @field(compile, tag_name);
 
     const generated_file = maybe_path orelse {
         std.debug.lockStdErr();
         const stderr = std.io.getStdErr();
 
-        std.Build.dumpBadGetPathHelp(&compile.step, stderr, compile.step.owner, asking_step) catch {};
+        std.Build.dumpBadGetPathHelp(stderr, compile.step.owner) catch {};
 
         @panic("missing emit option for " ++ tag_name);
     };
@@ -1003,7 +1003,7 @@ fn getGeneratedFilePath(compile: *Compile, comptime tag_name: []const u8, asking
         std.debug.lockStdErr();
         const stderr = std.io.getStdErr();
 
-        std.Build.dumpBadGetPathHelp(&compile.step, stderr, compile.step.owner, asking_step) catch {};
+        std.Build.dumpBadGetPathHelp(stderr, compile.step.owner) catch {};
 
         @panic(tag_name ++ " is null. Is there a missing step dependency?");
     };
@@ -1116,7 +1116,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
                 switch (link_object) {
                     .static_path => |static_path| {
                         if (my_responsibility) {
-                            try zig_args.append(static_path.getPath2(dep.module.owner, step));
+                            try zig_args.append(static_path.getPath(dep.module.owner));
                             total_linker_objects += 1;
                         }
                     },
@@ -1200,7 +1200,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
                                 const included_in_lib_or_obj = !my_responsibility and
                                     (dep.compile.?.kind == .lib or dep.compile.?.kind == .obj);
                                 if (!already_linked and !included_in_lib_or_obj) {
-                                    try zig_args.append(other.getEmittedBin().getPath2(b, step));
+                                    try zig_args.append(other.getEmittedBin().getPath(b));
                                     total_linker_objects += 1;
                                 }
                             },
@@ -1217,9 +1217,9 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
                                 // For everything else, we directly link
                                 // against the library file.
                                 const full_path_lib = if (other_produces_implib)
-                                    other.getGeneratedFilePath("generated_implib", &compile.step)
+                                    other.getGeneratedFilePath("generated_implib")
                                 else
-                                    other.getGeneratedFilePath("generated_bin", &compile.step);
+                                    other.getGeneratedFilePath("generated_bin");
 
                                 try zig_args.append(full_path_lib);
                                 total_linker_objects += 1;
@@ -1243,7 +1243,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
                             try zig_args.append("--");
                             prev_has_cflags = false;
                         }
-                        try zig_args.append(asm_file.getPath2(dep.module.owner, step));
+                        try zig_args.append(asm_file.getPath(dep.module.owner));
                         total_linker_objects += 1;
                     },
 
@@ -1264,7 +1264,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
                             try zig_args.append("--");
                             prev_has_cflags = true;
                         }
-                        try zig_args.append(c_source_file.file.getPath2(dep.module.owner, step));
+                        try zig_args.append(c_source_file.file.getPath(dep.module.owner));
                         total_linker_objects += 1;
                     },
 
@@ -1286,7 +1286,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
                             prev_has_cflags = true;
                         }
 
-                        const root_path = c_source_files.root.getPath2(dep.module.owner, step);
+                        const root_path = c_source_files.root.getPath(dep.module.owner);
                         for (c_source_files.files) |file| {
                             try zig_args.append(b.pathJoin(&.{ root_path, file }));
                         }
@@ -1310,12 +1310,12 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
                             }
                             for (rc_source_file.include_paths) |include_path| {
                                 try zig_args.append("/I");
-                                try zig_args.append(include_path.getPath2(dep.module.owner, step));
+                                try zig_args.append(include_path.getPath(dep.module.owner));
                             }
                             try zig_args.append("--");
                             prev_has_rcflags = true;
                         }
-                        try zig_args.append(rc_source_file.file.getPath2(dep.module.owner, step));
+                        try zig_args.append(rc_source_file.file.getPath(dep.module.owner));
                         total_linker_objects += 1;
                     },
                 }
@@ -1327,7 +1327,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
             if (!my_responsibility) continue;
             if (cli_named_modules.modules.getIndex(dep.module)) |module_cli_index| {
                 const module_cli_name = cli_named_modules.names.keys()[module_cli_index];
-                try dep.module.appendZigProcessFlags(&zig_args, step);
+                try dep.module.appendZigProcessFlags(&zig_args);
 
                 // --dep arguments
                 try zig_args.ensureUnusedCapacity(dep.module.import_table.count() * 2);
@@ -1350,7 +1350,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
                 // Linker objects are added to the CLI globally, while C source
                 // files must have a module parent.
                 if (dep.module.root_source_file) |lp| {
-                    const src = lp.getPath2(dep.module.owner, step);
+                    const src = lp.getPath(dep.module.owner);
                     try zig_args.append(b.fmt("-M{s}={s}", .{ module_cli_name, src }));
                 } else if (moduleNeedsCliArg(dep.module)) {
                     try zig_args.append(b.fmt("-M{s}", .{module_cli_name}));
@@ -1383,7 +1383,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
     }
 
     if (compile.win32_manifest) |manifest_file| {
-        try zig_args.append(manifest_file.getPath2(b, step));
+        try zig_args.append(manifest_file.getPath(b));
     }
 
     if (compile.image_base) |image_base| {
@@ -1398,7 +1398,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
 
     if (compile.test_runner) |test_runner| {
         try zig_args.append("--test-runner");
-        try zig_args.append(test_runner.getPath2(b, step));
+        try zig_args.append(test_runner.getPath(b));
     }
 
     for (b.debug_log_scopes) |log_scope| {
@@ -1478,7 +1478,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
 
     if (compile.libc_file) |libc_file| {
         try zig_args.append("--libc");
-        try zig_args.append(libc_file.getPath2(b, step));
+        try zig_args.append(libc_file.getPath(b));
     } else if (b.libc_file) |libc_file| {
         try zig_args.append("--libc");
         try zig_args.append(libc_file);
@@ -1575,12 +1575,12 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
     }
     if (compile.linker_script) |linker_script| {
         try zig_args.append("--script");
-        try zig_args.append(linker_script.getPath2(b, step));
+        try zig_args.append(linker_script.getPath(b));
     }
 
     if (compile.version_script) |version_script| {
         try zig_args.append("--version-script");
-        try zig_args.append(version_script.getPath2(b, step));
+        try zig_args.append(version_script.getPath(b));
     }
     if (compile.linker_allow_undefined_version) |x| {
         try zig_args.append(if (x) "--undefined-version" else "--no-undefined-version");
@@ -1664,7 +1664,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
     }
 
     const opt_zig_lib_dir = if (compile.zig_lib_dir) |dir|
-        dir.getPath2(b, step)
+        dir.getPath(b)
     else if (b.graph.zig_lib_directory.path) |_|
         b.fmt("{}", .{b.graph.zig_lib_directory})
     else
@@ -1839,7 +1839,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     {
         try doAtomicSymLinks(
             step,
-            compile.getEmittedBin().getPath2(b, step),
+            compile.getEmittedBin().getPath(b),
             compile.major_only_filename.?,
             compile.name_only_filename.?,
         );
