@@ -809,8 +809,6 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
 
     const csu = try CsuObjects.init(arena, comp);
 
-    // Here we will parse object and library files (if referenced).
-
     // csu prelude
     if (csu.crt0) |path| try parseObjectReportingFailure(self, path);
     if (csu.crti) |path| try parseObjectReportingFailure(self, path);
