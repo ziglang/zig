@@ -514,6 +514,24 @@ pub const Stat = struct {
             .ctime = st.ctime(),
         };
     }
+
+    fn fromStatx(stx: Statx) @This() {
+        return .{
+            .dev = makedev(stx.dev_major, stx.dev_minor),
+            .ino = stx.ino,
+            .mode = stx.mode,
+            .nlink = stx.nlink,
+            .uid = stx.uid,
+            .gid = stx.gid,
+            .rdev = makedev(stx.rdev_major, stx.rdev_minor),
+            .size = stx.size,
+            .blksize = stx.blksize,
+            .blocks = @intCast(stx.blocks),
+            .atime = stx.atime.toTimespec(),
+            .mtime = stx.mtime.toTimespec(),
+            .ctime = stx.ctime.toTimespec(),
+        };
+    }
 };
 
 // The 64-bit `stat` definition used by the Linux kernel,
@@ -6496,68 +6514,56 @@ pub const statx_timestamp = extern struct {
     sec: i64,
     nsec: u32,
     __pad1: u32,
+
+    fn toTimespec(self: @This()) timespec {
+        return .{
+            .sec = self.sec,
+            .nsec = @as(i32, @bitCast(self.nsec)),
+        };
+    }
 };
 
 /// Renamed to `Statx` to not conflict with the `statx` function.
 pub const Statx = extern struct {
     /// Mask of bits indicating filled fields
     mask: u32,
-
     /// Block size for filesystem I/O
     blksize: u32,
-
     /// Extra file attribute indicators
     attributes: u64,
-
     /// Number of hard links
     nlink: u32,
-
     /// User ID of owner
     uid: uid_t,
-
     /// Group ID of owner
     gid: gid_t,
-
     /// File type and mode
     mode: u16,
     __pad1: u16,
-
     /// Inode number
     ino: u64,
-
     /// Total size in bytes
     size: u64,
-
     /// Number of 512B blocks allocated
     blocks: u64,
-
     /// Mask to show what's supported in `attributes`.
     attributes_mask: u64,
-
     /// Last access file timestamp
     atime: statx_timestamp,
-
     /// Creation file timestamp
     btime: statx_timestamp,
-
     /// Last status change file timestamp
     ctime: statx_timestamp,
-
     /// Last modification file timestamp
     mtime: statx_timestamp,
-
     /// Major ID, if this file represents a device.
     rdev_major: u32,
-
     /// Minor ID, if this file represents a device.
     rdev_minor: u32,
-
     /// Major ID of the device containing the filesystem where this file resides.
     dev_major: u32,
-
     /// Minor ID of the device containing the filesystem where this file resides.
     dev_minor: u32,
-
     __pad2: [14]u64,
 };
 
