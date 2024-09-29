@@ -6069,7 +6069,7 @@ pub const io_uring_sync_cancel_reg = extern struct {
     addr: u64,
     fd: i32,
     flags: u32,
-    timeout: kernel_timespec,
+    timeout: timespec,
     pad: [4]u64,
 };
 
@@ -6897,7 +6897,7 @@ pub const SIOCGSTAMP_OLD = IOCTL.IOR('s', 100, timeval);
 pub const SIOCGSTAMP = if (native_arch == .x86_64 or @sizeOf(timeval) == 8) SIOCGSTAMP_OLD else SIOCGSTAMP_NEW;
 
 pub const SIOCGSTAMPNS_NEW = IOCTL.IOR(SOCK_IOC_TYPE, 0x07, i64[2]);
-pub const SIOCGSTAMPNS_OLD = IOCTL.IOR('s', 101, kernel_timespec);
+pub const SIOCGSTAMPNS_OLD = IOCTL.IOR('s', 101, timespec);
 
 /// Get stamp (timespec)
 pub const SIOCGSTAMPNS = if (native_arch == .x86_64 or @sizeOf(timespec) == 8) SIOCGSTAMPNS_OLD else SIOCGSTAMPNS_NEW;
@@ -7541,15 +7541,22 @@ pub const POSIX_FADV = switch (native_arch) {
 };
 
 /// The timespec struct used by the kernel.
-pub const kernel_timespec = extern struct {
+pub const timespec = extern struct {
+    /// Seconds.
     sec: i64,
+    /// Nanoseconds.
     nsec: i64,
-};
 
-// https://github.com/ziglang/zig/issues/4726#issuecomment-2190337877
-pub const timespec = if (native_arch == .riscv32) kernel_timespec else extern struct {
-    sec: isize,
-    nsec: isize,
+    pub fn makeTimespec(sec: anytype, nsec: anytype) timespec {
+        comptime {
+            const si = @typeInfo(@TypeOf(sec));
+            assert(si == .int and (si.int.bits == 32 or si.int.bits == 64));
+            const nsi = @typeInfo(@TypeOf(sec));
+            assert(nsi == .int and (nsi.int.bits == 32 or nsi.int.bits == 64));
+        }
+
+        return .{ .sec = @intCast(sec), .nsec = @intCast(nsec) };
+    }
 };
 
 pub const XDP = struct {

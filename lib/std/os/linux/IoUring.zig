@@ -832,7 +832,7 @@ pub fn close_direct(self: *IoUring, user_data: u64, file_index: u32) !*linux.io_
 pub fn timeout(
     self: *IoUring,
     user_data: u64,
-    ts: *const linux.kernel_timespec,
+    ts: *const linux.timespec,
     count: u32,
     flags: u32,
 ) !*linux.io_uring_sqe {
@@ -881,7 +881,7 @@ pub fn timeout_remove(
 pub fn link_timeout(
     self: *IoUring,
     user_data: u64,
-    ts: *const linux.kernel_timespec,
+    ts: *const linux.timespec,
     flags: u32,
 ) !*linux.io_uring_sqe {
     const sqe = try self.get_sqe();
@@ -2261,7 +2261,7 @@ test "timeout (after a relative time)" {
 
     const ms = 10;
     const margin = 5;
-    const ts: linux.kernel_timespec = .{ .sec = 0, .nsec = ms * 1000000 };
+    const ts: linux.timespec = .{ .sec = 0, .nsec = ms * 1000000 };
 
     const started = std.time.milliTimestamp();
     const sqe = try ring.timeout(0x55555555, &ts, 0, 0);
@@ -2290,7 +2290,7 @@ test "timeout (after a number of completions)" {
     };
     defer ring.deinit();
 
-    const ts: linux.kernel_timespec = .{ .sec = 3, .nsec = 0 };
+    const ts: linux.timespec = .{ .sec = 3, .nsec = 0 };
     const count_completions: u64 = 1;
     const sqe_timeout = try ring.timeout(0x66666666, &ts, count_completions, 0);
     try testing.expectEqual(linux.IORING_OP.TIMEOUT, sqe_timeout.opcode);
@@ -2323,7 +2323,7 @@ test "timeout_remove" {
     };
     defer ring.deinit();
 
-    const ts: linux.kernel_timespec = .{ .sec = 3, .nsec = 0 };
+    const ts: linux.timespec = .{ .sec = 3, .nsec = 0 };
     const sqe_timeout = try ring.timeout(0x88888888, &ts, 0, 0);
     try testing.expectEqual(linux.IORING_OP.TIMEOUT, sqe_timeout.opcode);
     try testing.expectEqual(@as(u64, 0x88888888), sqe_timeout.user_data);
@@ -2391,7 +2391,7 @@ test "accept/connect/recv/link_timeout" {
     const sqe_recv = try ring.recv(0xffffffff, socket_test_harness.server, .{ .buffer = buffer_recv[0..] }, 0);
     sqe_recv.flags |= linux.IOSQE_IO_LINK;
 
-    const ts = linux.kernel_timespec{ .sec = 0, .nsec = 1000000 };
+    const ts = linux.timespec{ .sec = 0, .nsec = 1000000 };
     _ = try ring.link_timeout(0x22222222, &ts, 0);
 
     const nr_wait = try ring.submit();
