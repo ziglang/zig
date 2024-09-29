@@ -539,6 +539,7 @@ fn expandStackSize(phdrs: []elf.Phdr) void {
     for (phdrs) |*phdr| {
         switch (phdr.p_type) {
             elf.PT_GNU_STACK => {
+                if (phdr.p_memsz == 0) break;
                 assert(phdr.p_memsz % std.mem.page_size == 0);
 
                 // Silently fail if we are unable to get limits.
