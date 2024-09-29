@@ -1149,13 +1149,23 @@ pub fn readToEndAllocOptions(
     comptime alignment: u29,
     comptime optional_sentinel: ?u8,
 ) !(if (optional_sentinel) |s| [:s]align(alignment) u8 else []align(alignment) u8) {
-    // If no size hint is provided fall back to the size=0 code path
-    const size = size_hint orelse 0;
+    var size: usize = undefined;
+    if (size_hint) |hint| {
+        size = hint;
+    } else {
+        // If no size hint is provided the file size returned by stat() is used as a
+        // hint to set the buffer size.
+        const file_stat = self.stat();
+        if (file_stat) |value| {
+            size = std.math.cast(usize, value.size) orelse return error.FileTooBig;
+        } else |_| {
+            // If the reported size is zero or there was an error reading stat(),
+            // for example on Linux for files in /proc, a small buffer is allocated instead.
+            size = 1024;
+        }
+    }
 
-    // The file size returned by stat is used as hint to set the buffer
-    // size. If the reported size is zero, as it happens on Linux for files
-    // in /proc, a small buffer is allocated instead.
-    const initial_cap = (if (size > 0) size else 1024) + @intFromBool(optional_sentinel != null);
+    const initial_cap = size + @intFromBool(optional_sentinel != null);
     var array_list = try std.ArrayListAligned(u8, alignment).initCapacity(allocator, initial_cap);
     defer array_list.deinit();
 
