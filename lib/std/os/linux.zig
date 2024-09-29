@@ -1944,62 +1944,90 @@ pub fn accept4(fd: i32, noalias addr: ?*sockaddr, noalias len: ?*socklen_t, flag
     return syscall4(.accept4, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(addr), @intFromPtr(len), flags);
 }
 
-pub fn fstat(fd: i32, stat_buf: *Stat) usize {
-    if (native_arch == .riscv32) {
-        // riscv32 has made the interesting decision to not implement some of
-        // the older stat syscalls, including this one.
-        @compileError("No fstat syscall on this architecture.");
-    } else if (@hasField(SYS, "fstat64")) {
-        return syscall2(.fstat64, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(stat_buf));
-    } else {
-        return syscall2(.fstat, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(stat_buf));
-    }
+pub fn fstat(fd: fd_t, statbuf: *Stat) usize {
+    if (fd < 0)
+        return @bitCast(@as(isize, -@as(i16, @bitCast(@intFromEnum(E.BADF)))));
+    return fstatat(fd, "", statbuf, AT.EMPTY_PATH);
 }
 
-pub fn stat(pathname: [*:0]const u8, statbuf: *Stat) usize {
-    if (native_arch == .riscv32) {
-        // riscv32 has made the interesting decision to not implement some of
-        // the older stat syscalls, including this one.
-        @compileError("No stat syscall on this architecture.");
-    } else if (@hasField(SYS, "stat64")) {
-        return syscall2(.stat64, @intFromPtr(pathname), @intFromPtr(statbuf));
-    } else {
-        return syscall2(.stat, @intFromPtr(pathname), @intFromPtr(statbuf));
-    }
+pub fn stat(noalias pathname: [*:0]const u8, noalias statbuf: *Stat) usize {
+    return fstatat(AT.FDCWD, pathname, statbuf, 0);
 }
 
-pub fn lstat(pathname: [*:0]const u8, statbuf: *Stat) usize {
-    if (native_arch == .riscv32) {
-        // riscv32 has made the interesting decision to not implement some of
-        // the older stat syscalls, including this one.
-        @compileError("No lstat syscall on this architecture.");
-    } else if (@hasField(SYS, "lstat64")) {
-        return syscall2(.lstat64, @intFromPtr(pathname), @intFromPtr(statbuf));
-    } else {
-        return syscall2(.lstat, @intFromPtr(pathname), @intFromPtr(statbuf));
-    }
+pub fn lstat(noalias pathname: [*:0]const u8, noalias statbuf: *Stat) usize {
+    return fstatat(AT.FDCWD, pathname, statbuf, AT.SYMLINK_NOFOLLOW);
 }
 
-pub fn fstatat(dirfd: i32, path: [*:0]const u8, stat_buf: *Stat, flags: u32) usize {
-    if (native_arch == .riscv32) {
-        // riscv32 has made the interesting decision to not implement some of
-        // the older stat syscalls, including this one.
-        @compileError("No fstatat syscall on this architecture.");
-    } else if (@hasField(SYS, "fstatat64")) {
-        return syscall4(.fstatat64, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), @intFromPtr(stat_buf), flags);
-    } else {
-        return syscall4(.fstatat, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), @intFromPtr(stat_buf), flags);
-    }
+pub fn fstatat(
+    dirfd: i32,
+    noalias pathname: [*:0]const u8,
+    noalias statbuf: *Stat,
+    flags: u32,
+) usize {
+    var stx: Statx = undefined;
+    const rc = statx(dirfd, pathname, flags | AT.NO_AUTOMOUNT, 0x7ff, &stx);
+    if (rc != 0) return rc;
+    statbuf.* = .{
+        .dev = makedev(stx.dev_major, stx.dev_minor),
+        .ino = stx.ino,
+        .mode = stx.mode,
+        .nlink = stx.nlink,
+        .uid = stx.uid,
+        .gid = stx.gid,
+        .rdev = makedev(stx.rdev_major, stx.rdev_minor),
+        .size = stx.size,
+        .blksize = stx.blksize,
+        .blocks = stx.blocks,
+        .atim = .{
+            .sec = stx.atime.sec,
+            .nsec = stx.atime.nsec,
+        },
+        .mtim = .{
+            .sec = stx.atime.sec,
+            .nsec = stx.atime.nsec,
+        },
+        .ctim = .{
+            .sec = stx.atime.sec,
+            .nsec = stx.atime.nsec,
+        },
+    };
+    return 0;
 }
 
-pub fn statx(dirfd: i32, path: [*:0]const u8, flags: u32, mask: u32, statx_buf: *Statx) usize {
+/// Returns the major number from a device number.
+pub fn major(dev: dev_t) u32 {
+    return ((dev >> 8) & 0xfff) | ((dev >> 32) & ~0xfff);
+}
+
+/// Returns the minor number from a device number
+pub fn minor(dev: dev_t) u32 {
+    return (dev & 0xff) | ((dev >> 12) & ~0xff);
+}
+
+/// Create a device number from a major/minor pair.
+fn makedev(x: u32, y: u32) dev_t {
+    const xx: u64 = x;
+    const yy: u64 = y;
+    return ((yy & 0xff) << 0) |
+        ((xx & 0xfff) << 8) |
+        ((yy & ~0xff) << 12) |
+        ((xx & ~0xfff) << 32);
+}
+
+pub fn statx(
+    dirfd: i32,
+    noalias path: [*:0]const u8,
+    flags: u32,
+    mask: u32,
+    noalias buf: *Statx,
+) usize {
     return syscall5(
         .statx,
         @as(usize, @bitCast(@as(isize, dirfd))),
         @intFromPtr(path),
         flags,
         mask,
-        @intFromPtr(statx_buf),
+        @intFromPtr(buf),
     );
 }
 
