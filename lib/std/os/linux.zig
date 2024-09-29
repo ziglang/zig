@@ -469,12 +469,59 @@ pub const O = switch (native_arch) {
     else => @compileError("missing std.os.linux.O constants for this architecture"),
 };
 
+pub const Stat = struct {
+    /// Device.
+    dev: dev_t,
+    /// File serial number.
+    ino: ino_t,
+    /// File mode.
+    mode: mode_t,
+    /// Link count.
+    nlink: nlink_t,
+    /// User ID of the file's owner.
+    uid: uid_t,
+    /// Group ID of the file's owner.
+    gid: gid_t,
+    /// Device number, if this file is a device.
+    rdev: dev_t,
+    /// Size of file, in bytes.
+    size: i64,
+    /// Optimal block size for I/O.
+    blksize: i32,
+    /// Number of 512-byte blocks allocated.
+    blocks: i64,
+    /// Time of last access.
+    atime: timespec,
+    /// Time of last modification.
+    mtime: timespec,
+    /// Time of last status change.
+    ctime: timespec,
+
+    fn fromKernel(st: kernel_stat) @This() {
+        return .{
+            .dev = st.dev,
+            .ino = st.ino,
+            .mode = st.mode,
+            .nlink = st.nlink,
+            .uid = st.uid,
+            .gid = st.gid,
+            .rdev = st.rdev,
+            .size = st.size,
+            .blksize = st.blksize,
+            .blocks = st.blocks,
+            .atime = st.atime(),
+            .mtime = st.mtime(),
+            .ctime = st.ctime(),
+        };
+    }
+};
+
 // The 64-bit `stat` definition used by the Linux kernel,
 // which is one of the following choices:
 // - struct stat   on 64-bit target.
 // - struct stat64 on a 32-bit target.
 // - struct stat64 on a 64-bit target.
-pub const Stat = switch (native_arch) {
+pub const kernel_stat = switch (native_arch) {
     .x86 => extern struct { // stat64
         dev: dev_t,
         __pad0: [4]u8 = .{ 0, 0, 0, 0 },
@@ -550,7 +597,7 @@ pub const Stat = switch (native_arch) {
         gid: gid_t,
         rdev: dev_t,
         __rdev_padding: [4]u8 = .{ 0, 0, 0, 0 },
-        size: off_t,
+        size: i64,
         blksize: blksize_t,
         blocks: blkcnt_t,
         atim: usize,
@@ -2284,54 +2331,39 @@ pub fn accept4(fd: i32, noalias addr: ?*sockaddr, noalias len: ?*socklen_t, flag
     return syscall4(.accept4, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(addr), @intFromPtr(len), flags);
 }
 
-pub fn fstat(fd: fd_t, statbuf: *Stat) usize {
+pub fn fstat(fd: fd_t, statbuf: *kernel_stat) usize {
     if (fd < 0)
         return @bitCast(@as(isize, -@as(i16, @bitCast(@intFromEnum(E.BADF)))));
     return fstatat(fd, "", statbuf, AT.EMPTY_PATH);
 }
 
-pub fn stat(noalias pathname: [*:0]const u8, noalias statbuf: *Stat) usize {
+pub fn stat(noalias pathname: [*:0]const u8, noalias statbuf: *kernel_stat) usize {
     return fstatat(AT.FDCWD, pathname, statbuf, 0);
 }
 
-pub fn lstat(noalias pathname: [*:0]const u8, noalias statbuf: *Stat) usize {
+pub fn lstat(noalias pathname: [*:0]const u8, noalias statbuf: *kernel_stat) usize {
     return fstatat(AT.FDCWD, pathname, statbuf, AT.SYMLINK_NOFOLLOW);
 }
 
 pub fn fstatat(
     dirfd: i32,
     noalias pathname: [*:0]const u8,
-    noalias statbuf: *Stat,
+    noalias statbuf: *kernel_stat,
     flags: u32,
 ) usize {
-    var stx: Statx = undefined;
-    const rc = statx(dirfd, pathname, flags | AT.NO_AUTOMOUNT, 0x7ff, &stx);
-    if (rc != 0) return rc;
-    statbuf.* = .{
-        .dev = makedev(stx.dev_major, stx.dev_minor),
-        .ino = stx.ino,
-        .mode = stx.mode,
-        .nlink = stx.nlink,
-        .uid = stx.uid,
-        .gid = stx.gid,
-        .rdev = makedev(stx.rdev_major, stx.rdev_minor),
-        .size = stx.size,
-        .blksize = stx.blksize,
-        .blocks = stx.blocks,
-        .atim = .{
-            .sec = stx.atime.sec,
-            .nsec = stx.atime.nsec,
-        },
-        .mtim = .{
-            .sec = stx.atime.sec,
-            .nsec = stx.atime.nsec,
-        },
-        .ctim = .{
-            .sec = stx.atime.sec,
-            .nsec = stx.atime.nsec,
-        },
-    };
-    return 0;
+    const s: SYS = if (@hasField(SYS, "fstatat64"))
+        .fstatat64
+    else if (@hasField(SYS, "fstatat"))
+        .fstatat
+    else
+        @compileError("This architecture does not implement fstatat, use statx instead.");
+    return syscall4(
+        s,
+        @bitCast(@as(isize, dirfd)),
+        @intFromPtr(pathname),
+        @intFromPtr(statbuf),
+        flags,
+    );
 }
 
 /// Returns the major number from a device number.
