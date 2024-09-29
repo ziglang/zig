@@ -90,7 +90,7 @@ const CheckOutputCaching = struct {
     fn make(step: *std.Build.Step, _: std.Build.Step.MakeOptions) !void {
         const check: *CheckOutputCaching = @fieldParentPtr("step", step);
 
-        for (step.dependencies.items) |dependency| {
+        for (step.dependencies.keys()) |dependency| {
             if (check.expect_caching) {
                 if (dependency.result_cached) continue;
                 return step.fail("expected '{s}' step to be cached, but it was not", .{dependency.name});

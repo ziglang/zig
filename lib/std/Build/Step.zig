@@ -3,7 +3,7 @@ name: []const u8,
 owner: *Build,
 makeFn: MakeFn,
 
-dependencies: std.ArrayList(*Step),
+dependencies: std.AutoArrayHashMapUnmanaged(*Step, void) = .empty,
 /// This field is empty during execution of the user's build script, and
 /// then populated during dependency loop checking in the build runner.
 dependants: std.ArrayListUnmanaged(*Step),
@@ -196,7 +196,6 @@ pub fn init(options: StepOptions) Step {
         .name = arena.dupe(u8, options.name) catch @panic("OOM"),
         .owner = options.owner,
         .makeFn = options.makeFn,
-        .dependencies = std.ArrayList(*Step).init(arena),
         .dependants = .{},
         .inputs = Inputs.init,
         .state = .precheck_unstarted,
@@ -250,8 +249,19 @@ pub fn make(s: *Step, options: MakeOptions) error{ MakeFailed, MakeSkipped }!voi
     }
 }
 
+/// Adds `other` as a dependency of `step`. Panics if it has already been
+/// added. Use `dependOnIfNotAlready` to avoid this panic.
 pub fn dependOn(step: *Step, other: *Step) void {
-    step.dependencies.append(other) catch @panic("OOM");
+    if (!step.dependOnIfNotAlready(other)) std.debug.panic(
+        "step '{s}' already depends on '{s}'",
+        .{ step.name, other.name },
+    );
+}
+
+/// Adds `other` as a dependency of `step`. Returns true if it was newly added.
+pub fn dependOnIfNotAlready(step: *Step, other: *Step) bool {
+    const entry = step.dependencies.getOrPut(step.owner.allocator, other) catch @panic("OOM");
+    return !entry.found_existing;
 }
 
 pub fn getStackTrace(s: *Step) ?std.builtin.StackTrace {
@@ -271,7 +281,7 @@ fn makeNoOp(step: *Step, options: MakeOptions) anyerror!void {
 
     var all_cached = true;
 
-    for (step.dependencies.items) |dep| {
+    for (step.dependencies.keys()) |dep| {
         all_cached = all_cached and dep.result_cached;
     }
 

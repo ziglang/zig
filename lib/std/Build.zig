@@ -2353,7 +2353,7 @@ pub const LazyPath = union(enum) {
     pub fn addStepDependencies(lazy_path: LazyPath, other_step: *Step) void {
         switch (lazy_path) {
             .src_path, .cwd_relative, .dependency => {},
-            .generated => |gen| other_step.dependOn(gen.file.step),
+            .generated => |gen| _ = other_step.dependOnIfNotAlready(gen.file.step),
         }
     }
 

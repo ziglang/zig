@@ -85,7 +85,7 @@ fn compare_headers(step: *std.Build.Step, options: std.Build.Step.MakeOptions) !
     const allocator = step.owner.allocator;
     const expected_fmt = "expected_{s}";
 
-    for (step.dependencies.items) |config_header_step| {
+    for (step.dependencies.keys()) |config_header_step| {
         const config_header: *ConfigHeader = @fieldParentPtr("step", config_header_step);
 
         const zig_header_path = config_header.output_file.path orelse @panic("Could not locate header file");
