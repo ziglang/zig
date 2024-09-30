@@ -1323,7 +1323,7 @@ test hasUniqueRepresentation {
     try testing.expect(@sizeOf(@Vector(3, u8)) == 3 or !hasUniqueRepresentation(@Vector(3, u8)));
 }
 
-/// Returns true if the given value of is known at comptime
+/// T if the given value is known at comptime
 pub inline fn comptimeKnown(value: anytype) bool {
     const TupleType = @TypeOf(.{value});
     const tuple_fields = @typeInfo(TupleType).@"struct".fields;
