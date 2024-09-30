@@ -9142,7 +9142,7 @@ fn minMax(
 ) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
     if (args.len < 2) {
-        return astgen.failNode(node, "expected at least 2 arguments, found 0", .{});
+        return astgen.failNode(node, "expected at least 2 arguments, found {}", .{args.len});
     }
     if (args.len == 2) {
         const tag: Zir.Inst.Tag = switch (op) {
