@@ -1357,7 +1357,7 @@ test comptimeKnown {
     const runtime_constant: u8 = variable;
     try testing.expect(!comptimeKnown(runtime_constant));
 
-    // runtime integer comptime-variable
+    // integer comptime-variable
     // should be comptime known
     comptime var compile_variable: u8 = 0;
     inline while (compile_variable < 10) : (compile_variable += 1) {
