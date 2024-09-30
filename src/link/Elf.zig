@@ -570,8 +570,6 @@ pub fn growAllocSection(self: *Elf, shdr_index: u32, needed_size: u64, min_align
     const slice = self.sections.slice();
     const shdr = &slice.items(.shdr)[shdr_index];
     assert(shdr.sh_flags & elf.SHF_ALLOC != 0);
-    const phndx = slice.items(.phndx)[shdr_index];
-    const maybe_phdr = if (phndx) |ndx| &self.phdrs.items[ndx] else null;
 
     log.debug("allocated size {x} of {s}, needed size {x}", .{
         self.allocatedSize(shdr.sh_offset),
@@ -598,11 +596,9 @@ pub fn growAllocSection(self: *Elf, shdr_index: u32, needed_size: u64, min_align
             if (amt != existing_size) return error.InputOutput;
 
             shdr.sh_offset = new_offset;
-            if (maybe_phdr) |phdr| phdr.p_offset = new_offset;
         } else if (shdr.sh_offset + allocated_size == std.math.maxInt(u64)) {
             try self.base.file.?.setEndPos(shdr.sh_offset + needed_size);
         }
-        if (maybe_phdr) |phdr| phdr.p_filesz = needed_size;
     }
     shdr.sh_size = needed_size;
     self.markDirty(shdr_index);
@@ -3890,56 +3886,69 @@ pub fn allocateAllocSections(self: *Elf) !void {
         }
 
         const first = slice.items(.shdr)[cover.items[0]];
-        var new_offset = try self.findFreeSpace(filesz, @"align");
         const phndx = self.getPhdr(.{ .type = elf.PT_LOAD, .flags = shdrToPhdrFlags(first.sh_flags) }).?;
         const phdr = &self.phdrs.items[phndx];
-        phdr.p_offset = new_offset;
-        phdr.p_vaddr = first.sh_addr;
-        phdr.p_paddr = first.sh_addr;
-        phdr.p_memsz = memsz;
-        phdr.p_filesz = filesz;
-        phdr.p_align = @"align";
+        const allocated_size = self.allocatedSize(phdr.p_offset);
+        if (filesz > allocated_size) {
+            const old_offset = phdr.p_offset;
+            phdr.p_offset = 0;
+            var new_offset = try self.findFreeSpace(filesz, @"align");
+            phdr.p_offset = new_offset;
 
-        for (cover.items) |shndx| {
-            const shdr = &slice.items(.shdr)[shndx];
-            slice.items(.phndx)[shndx] = phndx;
-            if (shdr.sh_type == elf.SHT_NOBITS) {
-                shdr.sh_offset = 0;
-                continue;
-            }
-            new_offset = alignment.@"align"(shndx, shdr.sh_addralign, new_offset);
+            log.debug("moving phdr({d}) from 0x{x} to 0x{x}", .{ phndx, old_offset, new_offset });
 
-            if (self.zigObjectPtr()) |zo| blk: {
-                const existing_size = for ([_]?Symbol.Index{
-                    zo.text_index,
-                    zo.rodata_index,
-                    zo.data_relro_index,
-                    zo.data_index,
-                    zo.tdata_index,
-                    zo.eh_frame_index,
-                }) |maybe_sym_index| {
-                    const sect_sym_index = maybe_sym_index orelse continue;
-                    const sect_atom_ptr = zo.symbol(sect_sym_index).atom(self).?;
-                    if (sect_atom_ptr.output_section_index != shndx) continue;
-                    break sect_atom_ptr.size;
-                } else break :blk;
+            for (cover.items) |shndx| {
+                const shdr = &slice.items(.shdr)[shndx];
+                slice.items(.phndx)[shndx] = phndx;
+                if (shdr.sh_type == elf.SHT_NOBITS) {
+                    shdr.sh_offset = 0;
+                    continue;
+                }
+                new_offset = alignment.@"align"(shndx, shdr.sh_addralign, new_offset);
+
                 log.debug("moving {s} from 0x{x} to 0x{x}", .{
                     self.getShString(shdr.sh_name),
                     shdr.sh_offset,
                     new_offset,
                 });
-                const amt = try self.base.file.?.copyRangeAll(
-                    shdr.sh_offset,
-                    self.base.file.?,
-                    new_offset,
-                    existing_size,
-                );
-                if (amt != existing_size) return error.InputOutput;
-            }
 
-            shdr.sh_offset = new_offset;
-            new_offset += shdr.sh_size;
+                if (shdr.sh_offset > 0) {
+                    // Get size actually commited to the output file.
+                    const existing_size = if (self.zigObjectPtr()) |zo| for ([_]?Symbol.Index{
+                        zo.text_index,
+                        zo.rodata_index,
+                        zo.data_relro_index,
+                        zo.data_index,
+                        zo.tdata_index,
+                        zo.eh_frame_index,
+                    }) |maybe_sym_index| {
+                        const sect_sym_index = maybe_sym_index orelse continue;
+                        const sect_atom_ptr = zo.symbol(sect_sym_index).atom(self).?;
+                        if (sect_atom_ptr.output_section_index != shndx) continue;
+                        break sect_atom_ptr.size;
+                    } else 0 else 0 + if (!slice.items(.atom_list_2)[shndx].dirty)
+                        slice.items(.atom_list_2)[shndx].size
+                    else
+                        0;
+                    const amt = try self.base.file.?.copyRangeAll(
+                        shdr.sh_offset,
+                        self.base.file.?,
+                        new_offset,
+                        existing_size,
+                    );
+                    if (amt != existing_size) return error.InputOutput;
+                }
+
+                shdr.sh_offset = new_offset;
+                new_offset += shdr.sh_size;
+            }
         }
+
+        phdr.p_vaddr = first.sh_addr;
+        phdr.p_paddr = first.sh_addr;
+        phdr.p_memsz = memsz;
+        phdr.p_filesz = filesz;
+        phdr.p_align = @"align";
 
         addr = mem.alignForward(u64, addr, self.page_size);
     }
