@@ -1358,7 +1358,6 @@ test comptimeKnown {
     try testing.expect(!comptimeKnown(runtime_constant));
 
     // integer comptime-variable
-    // should be comptime known
     comptime var compile_variable: u8 = 0;
     inline while (compile_variable < 10) : (compile_variable += 1) {
         try testing.expect(comptimeKnown(compile_variable));
