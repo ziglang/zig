@@ -1335,7 +1335,7 @@ test comptimeKnown {
     // comptime_int literal
     try testing.expect(comptimeKnown(1337));
 
-    // runtime integer literal
+    // integer literal
     try testing.expect(comptimeKnown(@as(u16, 999)));
 
     // comptime_int constant
