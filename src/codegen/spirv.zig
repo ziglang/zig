@@ -1856,6 +1856,9 @@ const NavGen = struct {
             .flash3,
             .flash4,
             .flash5,
+            .cog,
+            .lut,
+            .hub,
             => unreachable,
         };
     }

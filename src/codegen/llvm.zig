@@ -88,7 +88,10 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
 
         .kalimba,
         .spu_2,
+        .propeller1,
+        .propeller2,
         => unreachable, // Gated by hasLlvmSupport().
+        
     };
     try llvm_triple.appendSlice(llvm_arch);
 

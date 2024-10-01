@@ -37672,6 +37672,9 @@ pub fn analyzeAsAddressSpace(
         .constant => is_gpu and (ctx == .constant),
         // TODO this should also check how many flash banks the cpu has
         .flash, .flash1, .flash2, .flash3, .flash4, .flash5 => arch == .avr,
+
+        .cog, .hub => arch.isPropeller(),
+        .lut => (arch == .propeller2),
     };
 
     if (!supported) {
