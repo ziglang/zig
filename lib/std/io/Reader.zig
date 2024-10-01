@@ -326,7 +326,9 @@ pub fn isBytes(self: Self, slice: []const u8) anyerror!bool {
 
 pub fn readStruct(self: Self, comptime T: type) anyerror!T {
     // Only extern and packed structs have defined in-memory layout.
-    comptime assert(@typeInfo(T).@"struct".layout != .auto);
+    // Packed structs may have padding due to alignment of the backing integer.
+    // Therefore, only extern structs are allowed.
+    comptime assert(@typeInfo(T).@"struct".layout == .@"extern");
     var res: [1]T = undefined;
     try self.readNoEof(mem.sliceAsBytes(res[0..]));
     return res[0];
