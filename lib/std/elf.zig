@@ -663,21 +663,24 @@ pub fn int32(need_bswap: bool, int_32: anytype, comptime Int64: anytype) Int64 {
     }
 }
 
-pub const EI_NIDENT = 16;
-
-pub const EI_CLASS = 4;
 pub const ELFCLASSNONE = 0;
 pub const ELFCLASS32 = 1;
 pub const ELFCLASS64 = 2;
 pub const ELFCLASSNUM = 3;
 
-pub const EI_DATA = 5;
 pub const ELFDATANONE = 0;
 pub const ELFDATA2LSB = 1;
 pub const ELFDATA2MSB = 2;
 pub const ELFDATANUM = 3;
 
+pub const EI_CLASS = 4;
+pub const EI_DATA = 5;
 pub const EI_VERSION = 6;
+pub const EI_OSABI = 7;
+pub const EI_ABIVERSION = 8;
+pub const EI_PAD = 9;
+
+pub const EI_NIDENT = 16;
 
 pub const Elf32_Half = u16;
 pub const Elf64_Half = u16;
