@@ -12241,6 +12241,7 @@ fn ccAbiPromoteInt(
             .sparc64,
             .powerpc64,
             .powerpc64le,
+            .s390x,
             => switch (int_info.bits) {
                 0...63 => int_info.signedness,
                 else => null,
