@@ -453,10 +453,16 @@ pub const ET = enum(u16) {
     /// Core file
     CORE = 4,
 
+    /// Beginning of OS-specific codes
+    pub const LOOS = 0xfe00;
+
+    /// End of OS-specific codes
+    pub const HIOS = 0xfeff;
+
     /// Beginning of processor-specific codes
     pub const LOPROC = 0xff00;
 
-    /// Processor-specific
+    /// End of processor-specific codes
     pub const HIPROC = 0xffff;
 };
 
