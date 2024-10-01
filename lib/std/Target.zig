@@ -1526,10 +1526,12 @@ pub const Cpu = struct {
                 };
             };
             return switch (arch) {
+                .arc => &arc.cpu.generic,
                 .arm, .armeb, .thumb, .thumbeb => &arm.cpu.generic,
                 .aarch64, .aarch64_be => &aarch64.cpu.generic,
                 .avr => &avr.cpu.avr2,
                 .bpfel, .bpfeb => &bpf.cpu.generic,
+                .csky => &csky.cpu.generic,
                 .hexagon => &hexagon.cpu.generic,
                 .lanai => &lanai.cpu.generic,
                 .loongarch32 => &loongarch.cpu.generic_la32,
@@ -1555,8 +1557,11 @@ pub const Cpu = struct {
                 .ve => &ve.cpu.generic,
                 .wasm32, .wasm64 => &wasm.cpu.generic,
                 .xcore => &xcore.cpu.generic,
+                .xtensa => &xtensa.cpu.generic,
 
-                else => &S.generic_model,
+                .kalimba,
+                .spu_2,
+                => &S.generic_model,
             };
         }
 
