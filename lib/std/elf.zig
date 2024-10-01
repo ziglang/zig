@@ -468,9 +468,12 @@ pub const ET = enum(u16) {
 
 /// All integers are native endian.
 pub const Header = struct {
-    endian: std.builtin.Endian,
-    machine: EM,
     is_64: bool,
+    endian: std.builtin.Endian,
+    os_abi: OSABI,
+    abi_version: u8,
+    type: ET,
+    machine: EM,
     entry: u64,
     phoff: u64,
     shoff: u64,
@@ -507,6 +510,12 @@ pub const Header = struct {
         if (!mem.eql(u8, hdr32.e_ident[0..4], MAGIC)) return error.InvalidElfMagic;
         if (hdr32.e_ident[EI_VERSION] != 1) return error.InvalidElfVersion;
 
+        const is_64 = switch (hdr32.e_ident[EI_CLASS]) {
+            ELFCLASS32 => false,
+            ELFCLASS64 => true,
+            else => return error.InvalidElfClass,
+        };
+
         const endian: std.builtin.Endian = switch (hdr32.e_ident[EI_DATA]) {
             ELFDATA2LSB => .little,
             ELFDATA2MSB => .big,
@@ -514,11 +523,15 @@ pub const Header = struct {
         };
         const need_bswap = endian != native_endian;
 
-        const is_64 = switch (hdr32.e_ident[EI_CLASS]) {
-            ELFCLASS32 => false,
-            ELFCLASS64 => true,
-            else => return error.InvalidElfClass,
-        };
+        const os_abi: OSABI = @enumFromInt(hdr32.e_ident[EI_OSABI]);
+
+        // The meaning of this value depends on `os_abi` so just make it available as `u8`.
+        const abi_version = hdr32.e_ident[EI_ABIVERSION];
+
+        const @"type" = if (need_bswap) blk: {
+            const value = @intFromEnum(hdr32.e_type);
+            break :blk @as(ET, @enumFromInt(@byteSwap(value)));
+        } else hdr32.e_type;
 
         const machine = if (need_bswap) blk: {
             const value = @intFromEnum(hdr32.e_machine);
@@ -526,9 +539,12 @@ pub const Header = struct {
         } else hdr32.e_machine;
 
         return @as(Header, .{
-            .endian = endian,
-            .machine = machine,
             .is_64 = is_64,
+            .endian = endian,
+            .os_abi = os_abi,
+            .abi_version = abi_version,
+            .type = @"type",
+            .machine = machine,
             .entry = int(is_64, need_bswap, hdr32.e_entry, hdr64.e_entry),
             .phoff = int(is_64, need_bswap, hdr32.e_phoff, hdr64.e_phoff),
             .shoff = int(is_64, need_bswap, hdr32.e_shoff, hdr64.e_shoff),
