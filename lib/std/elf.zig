@@ -659,7 +659,7 @@ pub fn SectionHeaderIterator(comptime ParseSource: anytype) type {
     };
 }
 
-pub fn int(is_64: bool, need_bswap: bool, int_32: anytype, int_64: anytype) @TypeOf(int_64) {
+fn int(is_64: bool, need_bswap: bool, int_32: anytype, int_64: anytype) @TypeOf(int_64) {
     if (is_64) {
         if (need_bswap) {
             return @byteSwap(int_64);
@@ -671,7 +671,7 @@ pub fn int(is_64: bool, need_bswap: bool, int_32: anytype, int_64: anytype) @Typ
     }
 }
 
-pub fn int32(need_bswap: bool, int_32: anytype, comptime Int64: anytype) Int64 {
+fn int32(need_bswap: bool, int_32: anytype, comptime Int64: anytype) Int64 {
     if (need_bswap) {
         return @byteSwap(int_32);
     } else {
