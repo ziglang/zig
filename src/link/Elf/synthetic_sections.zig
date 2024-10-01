@@ -895,8 +895,7 @@ pub const PltGotSection = struct {
         const gpa = comp.gpa;
         const index = @as(u32, @intCast(plt_got.symbols.items.len));
         const symbol = elf_file.symbol(ref).?;
-        symbol.flags.has_plt = true;
-        symbol.flags.has_got = true;
+        symbol.flags.has_pltgot = true;
         symbol.addExtra(.{ .plt_got = index }, elf_file);
         try plt_got.symbols.append(gpa, ref);
     }

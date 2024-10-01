@@ -99,18 +99,18 @@ pub const File = union(enum) {
                     log.debug("'{s}' needs GOT", .{sym.name(ef)});
                     _ = try ef.got.addGotSymbol(ref, ef);
                 }
-                if (sym.flags.needs_plt and !sym.flags.has_plt) {
-                    if (sym.flags.is_canonical) {
+                if (sym.flags.needs_plt) {
+                    if (sym.flags.is_canonical and !sym.flags.has_plt) {
                         log.debug("'{s}' needs CPLT", .{sym.name(ef)});
                         sym.flags.@"export" = true;
                         try ef.plt.addSymbol(ref, ef);
-                    } else if (sym.flags.needs_got and !sym.flags.has_got) {
+                    } else if (sym.flags.needs_got and !sym.flags.has_pltgot) {
                         log.debug("'{s}' needs PLTGOT", .{sym.name(ef)});
                         try ef.plt_got.addSymbol(ref, ef);
-                    } else {
+                    } else if (!sym.flags.has_plt) {
                         log.debug("'{s}' needs PLT", .{sym.name(ef)});
                         try ef.plt.addSymbol(ref, ef);
-                    }
+                    } else unreachable;
                 }
                 if (sym.flags.needs_copy_rel and !sym.flags.has_copy_rel) {
                     log.debug("'{s}' needs COPYREL", .{sym.name(ef)});
