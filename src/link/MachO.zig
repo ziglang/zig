@@ -3542,8 +3542,8 @@ pub fn requiresCodeSig(self: MachO) bool {
     const target = self.getTarget();
     return switch (target.cpu.arch) {
         .aarch64 => switch (target.os.tag) {
-            .macos => true,
-            .watchos, .tvos, .ios, .visionos => target.abi == .simulator,
+            .bridgeos, .driverkit, .macos => true,
+            .ios, .tvos, .visionos, .watchos => target.abi == .simulator,
             else => false,
         },
         .x86_64 => false,
@@ -4172,36 +4172,38 @@ pub const Platform = struct {
                 const cmd = lc.cast(macho.build_version_command).?;
                 return .{
                     .os_tag = switch (cmd.platform) {
-                        .MACOS => .macos,
+                        .BRIDGEOS => .bridgeos,
+                        .DRIVERKIT => .driverkit,
                         .IOS, .IOSSIMULATOR => .ios,
-                        .TVOS, .TVOSSIMULATOR => .tvos,
-                        .WATCHOS, .WATCHOSSIMULATOR => .watchos,
                         .MACCATALYST => .ios,
+                        .MACOS => .macos,
+                        .TVOS, .TVOSSIMULATOR => .tvos,
                         .VISIONOS, .VISIONOSSIMULATOR => .visionos,
+                        .WATCHOS, .WATCHOSSIMULATOR => .watchos,
                         else => @panic("TODO"),
                     },
                     .abi = switch (cmd.platform) {
                         .MACCATALYST => .macabi,
                         .IOSSIMULATOR,
                         .TVOSSIMULATOR,
-                        .WATCHOSSIMULATOR,
                         .VISIONOSSIMULATOR,
+                        .WATCHOSSIMULATOR,
                         => .simulator,
                         else => .none,
                     },
                     .version = appleVersionToSemanticVersion(cmd.minos),
                 };
             },
-            .VERSION_MIN_MACOSX,
             .VERSION_MIN_IPHONEOS,
+            .VERSION_MIN_MACOSX,
             .VERSION_MIN_TVOS,
             .VERSION_MIN_WATCHOS,
             => {
                 const cmd = lc.cast(macho.version_min_command).?;
                 return .{
                     .os_tag = switch (lc.cmd()) {
-                        .VERSION_MIN_MACOSX => .macos,
                         .VERSION_MIN_IPHONEOS => .ios,
+                        .VERSION_MIN_MACOSX => .macos,
                         .VERSION_MIN_TVOS => .tvos,
                         .VERSION_MIN_WATCHOS => .watchos,
                         else => unreachable,
@@ -4228,15 +4230,17 @@ pub const Platform = struct {
 
     pub fn toApplePlatform(plat: Platform) macho.PLATFORM {
         return switch (plat.os_tag) {
-            .macos => .MACOS,
+            .bridgeos => .BRIDGEOS,
+            .driverkit => .DRIVERKIT,
             .ios => switch (plat.abi) {
-                .simulator => .IOSSIMULATOR,
                 .macabi => .MACCATALYST,
+                .simulator => .IOSSIMULATOR,
                 else => .IOS,
             },
+            .macos => .MACOS,
             .tvos => if (plat.abi == .simulator) .TVOSSIMULATOR else .TVOS,
-            .watchos => if (plat.abi == .simulator) .WATCHOSSIMULATOR else .WATCHOS,
             .visionos => if (plat.abi == .simulator) .VISIONOSSIMULATOR else .VISIONOS,
+            .watchos => if (plat.abi == .simulator) .WATCHOSSIMULATOR else .WATCHOS,
             else => unreachable,
         };
     }
@@ -4305,15 +4309,18 @@ const SupportedPlatforms = struct {
 // Source: https://github.com/apple-oss-distributions/ld64/blob/59a99ab60399c5e6c49e6945a9e1049c42b71135/src/ld/PlatformSupport.cpp#L52
 // zig fmt: off
 const supported_platforms = [_]SupportedPlatforms{
-    .{ .macos,    .none,      0xA0E00, 0xA0800 },
-    .{ .ios,      .none,      0xC0000, 0x70000 },
-    .{ .tvos,     .none,      0xC0000, 0x70000 },
-    .{ .watchos,  .none,      0x50000, 0x20000 },
-    .{ .visionos, .none,      0x10000, 0x10000 },
-    .{ .ios,      .simulator, 0xD0000, 0x80000 },
-    .{ .tvos,     .simulator, 0xD0000, 0x80000 },
-    .{ .watchos,  .simulator, 0x60000, 0x20000 },
-    .{ .visionos, .simulator, 0x10000, 0x10000 },
+    .{ .bridgeos,  .none,      0x010000, 0x010000 },
+    .{ .driverkit, .none,      0x130000, 0x130000 },
+    .{ .ios,       .none,      0x0C0000, 0x070000 },
+    .{ .ios,       .macabi,    0x0D0000, 0x0D0000 },
+    .{ .ios,       .simulator, 0x0D0000, 0x080000 },
+    .{ .macos,     .none,      0x0A0E00, 0x0A0800 },
+    .{ .tvos,      .none,      0x0C0000, 0x070000 },
+    .{ .tvos,      .simulator, 0x0D0000, 0x080000 },
+    .{ .visionos,  .none,      0x010000, 0x010000 },
+    .{ .visionos,  .simulator, 0x010000, 0x010000 },
+    .{ .watchos,   .none,      0x050000, 0x020000 },
+    .{ .watchos,   .simulator, 0x060000, 0x020000 },
 };
 // zig fmt: on
 
