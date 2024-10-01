@@ -189,7 +189,9 @@ pub const Os = struct {
                 .other,
                 => .none,
 
-                .bridgeos,
+                // This should use semver once we determine the version history.
+                .bridgeos => .none,
+
                 .driverkit,
                 .freebsd,
                 .macos,
