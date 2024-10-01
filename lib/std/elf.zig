@@ -1103,6 +1103,57 @@ pub const Addr = switch (@sizeOf(usize)) {
 };
 pub const Half = u16;
 
+pub const OSABI = enum(u8) {
+    /// UNIX System V ABI
+    NONE = 0,
+    /// HP-UX operating system
+    HPUX = 1,
+    /// NetBSD
+    NETBSD = 2,
+    /// GNU (Hurd/Linux)
+    GNU = 3,
+    /// Solaris
+    SOLARIS = 6,
+    /// AIX
+    AIX = 7,
+    /// IRIX
+    IRIX = 8,
+    /// FreeBSD
+    FREEBSD = 9,
+    /// TRU64 UNIX
+    TRU64 = 10,
+    /// Novell Modesto
+    MODESTO = 11,
+    /// OpenBSD
+    OPENBSD = 12,
+    /// OpenVMS
+    OPENVMS = 13,
+    /// Hewlett-Packard Non-Stop Kernel
+    NSK = 14,
+    /// AROS
+    AROS = 15,
+    /// FenixOS
+    FENIXOS = 16,
+    /// Nuxi CloudABI
+    CLOUDABI = 17,
+    /// Stratus Technologies OpenVOS
+    OPENVOS = 18,
+    /// NVIDIA CUDA architecture
+    CUDA = 51,
+    /// AMD HSA Runtime
+    AMDGPU_HSA = 64,
+    /// AMD PAL Runtime
+    AMDGPU_PAL = 65,
+    /// AMD Mesa3D Runtime
+    AMDGPU_MESA3D = 66,
+    /// ARM
+    ARM = 97,
+    /// Standalone (embedded) application
+    STANDALONE = 255,
+
+    _,
+};
+
 /// Machine architectures.
 ///
 /// See current registered ELF machine architectures at:
