@@ -390,14 +390,15 @@ pub const Section = struct {
             const zo = elf_file.zigObjectPtr().?;
             const atom = zo.symbol(sec.index).atom(elf_file).?;
             const shndx = atom.output_section_index;
-            if (sec == &dwarf.debug_frame.section)
-                try elf_file.growAllocSection(shndx, len, sec.alignment.toByteUnits().?)
-            else
-                try elf_file.growNonAllocSection(shndx, len, sec.alignment.toByteUnits().?, true);
-            const shdr = elf_file.sections.items(.shdr)[shndx];
-            atom.size = shdr.sh_size;
+            const needed_size = len;
+            const min_alignment = sec.alignment.toByteUnits().?;
+            try elf_file.growSection(shndx, needed_size, min_alignment);
+            const shdr = &elf_file.sections.items(.shdr)[shndx];
+            shdr.sh_size = needed_size;
+            elf_file.markDirty(shndx);
+            atom.size = needed_size;
             atom.alignment = InternPool.Alignment.fromNonzeroByteUnits(shdr.sh_addralign);
-            sec.len = shdr.sh_size;
+            sec.len = len;
         } else if (dwarf.bin_file.cast(.macho)) |macho_file| {
             const header = if (macho_file.d_sym) |*d_sym| header: {
                 try d_sym.growSection(@intCast(sec.index), len, true, macho_file);
