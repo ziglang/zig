@@ -66,13 +66,13 @@ pub const Os = struct {
         nvcl,
         opencl,
         opengl,
-        shadermodel,
         vulkan,
 
         // LLVM tags deliberately omitted:
         // - darwin
         // - kfreebsd
         // - nacl
+        // - shadermodel
 
         pub inline fn isDarwin(tag: Tag) bool {
             return switch (tag) {
@@ -178,7 +178,6 @@ pub const Os = struct {
                 .hermit,
                 .hurd,
                 .emscripten,
-                .shadermodel,
                 .uefi,
                 .opencl, // TODO: OpenCL versions
                 .opengl, // TODO: GLSL versions
@@ -410,7 +409,6 @@ pub const Os = struct {
                 .hermit,
                 .hurd,
                 .emscripten,
-                .shadermodel,
                 .uefi,
                 .opencl, // TODO: OpenCL versions
                 .opengl, // TODO: GLSL versions
@@ -615,7 +613,6 @@ pub const Os = struct {
             .hurd,
             .wasi,
             .emscripten,
-            .shadermodel,
             .uefi,
             .opencl,
             .opengl,
@@ -742,7 +739,6 @@ pub const Abi = enum {
             .watchos,
             .visionos,
             .driverkit,
-            .shadermodel,
             .solaris,
             .illumos,
             .serenity,
@@ -1879,7 +1875,6 @@ pub const DynamicLinker = struct {
             .amdpal,
             .hermit,
             .hurd,
-            .shadermodel,
             => none,
         };
     }
@@ -2372,7 +2367,6 @@ pub fn cTypeBitSize(target: Target, c_type: CType) u16 {
         .hermit,
         .hurd,
         .opengl,
-        .shadermodel,
         => @panic("TODO specify the C integer and float type sizes for this OS"),
     }
 }
