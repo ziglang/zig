@@ -2589,11 +2589,28 @@ pub fn writeElfHeader(self: *Elf) !void {
     hdr_buf[index] = 1; // ELF version
     index += 1;
 
-    // OS ABI, often set to 0 regardless of target platform
+    hdr_buf[index] = @intFromEnum(@as(elf.OSABI, switch (target.cpu.arch) {
+        .amdgcn => switch (target.os.tag) {
+            .amdhsa => .AMDGPU_HSA,
+            .amdpal => .AMDGPU_PAL,
+            .mesa3d => .AMDGPU_MESA3D,
+            else => .NONE,
+        },
+        .msp430 => .STANDALONE,
+        else => switch (target.os.tag) {
+            .freebsd, .ps4 => .FREEBSD,
+            .hermit => .STANDALONE,
+            .illumos, .solaris => .SOLARIS,
+            .openbsd => .OPENBSD,
+            else => .NONE,
+        },
+    }));
+    index += 1;
+
     // ABI Version, possibly used by glibc but not by static executables
     // padding
-    @memset(hdr_buf[index..][0..9], 0);
-    index += 9;
+    @memset(hdr_buf[index..][0..8], 0);
+    index += 8;
 
     assert(index == 16);
 
