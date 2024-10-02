@@ -2194,13 +2194,8 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
         }
 
         if (getLDMOption(target)) |ldm| {
-            // Any target ELF will use the freebsd osabi if suffixed with "_fbsd".
-            const arg = if (target.os.tag == .freebsd)
-                try std.fmt.allocPrint(arena, "{s}_fbsd", .{ldm})
-            else
-                ldm;
             try argv.append("-m");
-            try argv.append(arg);
+            try argv.append(ldm);
         }
 
         if (link_mode == .static) {
@@ -4467,45 +4462,83 @@ fn shdrTo32(shdr: elf.Elf64_Shdr) elf.Elf32_Shdr {
 }
 
 fn getLDMOption(target: std.Target) ?[]const u8 {
-    switch (target.cpu.arch) {
-        .x86 => return "elf_i386",
-        .aarch64 => return "aarch64linux",
-        .aarch64_be => return "aarch64linuxb",
-        .arm, .thumb => return "armelf_linux_eabi",
-        .armeb, .thumbeb => return "armelfb_linux_eabi",
-        .powerpc => return "elf32ppclinux",
-        .powerpc64 => return "elf64ppc",
-        .powerpc64le => return "elf64lppc",
-        .sparc => return "elf32_sparc",
-        .sparc64 => return "elf64_sparc",
-        .mips => return "elf32btsmip",
-        .mipsel => return "elf32ltsmip",
-        .mips64 => {
-            if (target.abi == .gnuabin32) {
-                return "elf32btsmipn32";
-            } else {
-                return "elf64btsmip";
-            }
+    // This should only return emulations understood by LLD's parseEmulation().
+    return switch (target.cpu.arch) {
+        .aarch64 => switch (target.os.tag) {
+            .linux => "aarch64linux",
+            else => "aarch64elf",
         },
-        .mips64el => {
-            if (target.abi == .gnuabin32) {
-                return "elf32ltsmipn32";
-            } else {
-                return "elf64ltsmip";
-            }
+        .aarch64_be => switch (target.os.tag) {
+            .linux => "aarch64linuxb",
+            else => "aarch64elfb",
         },
-        .s390x => return "elf64_s390",
-        .x86_64 => {
-            if (target.abi == .gnux32) {
-                return "elf32_x86_64";
-            } else {
-                return "elf_x86_64";
-            }
+        .amdgcn => "elf64_amdgpu",
+        .arm, .thumb => switch (target.os.tag) {
+            .linux => "armelf_linux_eabi",
+            else => "armelf",
         },
-        .riscv32 => return "elf32lriscv",
-        .riscv64 => return "elf64lriscv",
-        else => return null,
-    }
+        .armeb, .thumbeb => switch (target.os.tag) {
+            .linux => "armelfb_linux_eabi",
+            else => "armelfb",
+        },
+        .hexagon => "hexagonelf",
+        .loongarch32 => "elf32loongarch",
+        .loongarch64 => "elf64loongarch",
+        .mips => switch (target.os.tag) {
+            .freebsd => "elf32btsmip_fbsd",
+            else => "elf32btsmip",
+        },
+        .mipsel => switch (target.os.tag) {
+            .freebsd => "elf32ltsmip_fbsd",
+            else => "elf32ltsmip",
+        },
+        .mips64 => switch (target.os.tag) {
+            .freebsd => switch (target.abi) {
+                .gnuabin32 => "elf32btsmipn32_fbsd",
+                else => "elf64btsmip_fbsd",
+            },
+            else => switch (target.abi) {
+                .gnuabin32 => "elf32btsmipn32",
+                else => "elf64btsmip",
+            },
+        },
+        .mips64el => switch (target.os.tag) {
+            .freebsd => switch (target.abi) {
+                .gnuabin32 => "elf32ltsmipn32_fbsd",
+                else => "elf64ltsmip_fbsd",
+            },
+            else => switch (target.abi) {
+                .gnuabin32 => "elf32ltsmipn32",
+                else => "elf64ltsmip",
+            },
+        },
+        .msp430 => "msp430elf",
+        .powerpc => switch (target.os.tag) {
+            .freebsd => "elf32ppc_fbsd",
+            .linux => "elf32ppclinux",
+            else => "elf32ppc",
+        },
+        .powerpcle => switch (target.os.tag) {
+            .linux => "elf32lppclinux",
+            else => "elf32lppc",
+        },
+        .powerpc64 => "elf64ppc",
+        .powerpc64le => "elf64lppc",
+        .riscv32 => "elf32lriscv",
+        .riscv64 => "elf64lriscv",
+        .s390x => "elf64_s390",
+        .sparc64 => "elf64_sparc",
+        .x86 => switch (target.os.tag) {
+            .elfiamcu => "elf_iamcu",
+            .freebsd => "elf_i386_fbsd",
+            else => "elf_i386",
+        },
+        .x86_64 => switch (target.abi) {
+            .gnux32, .muslx32 => "elf32_x86_64",
+            else => "elf_x86_64",
+        },
+        else => null,
+    };
 }
 
 pub fn padToIdeal(actual_size: anytype) @TypeOf(actual_size) {

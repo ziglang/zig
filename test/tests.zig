@@ -581,6 +581,30 @@ const test_targets = blk: {
 
         .{
             .target = .{
+                .cpu_arch = .riscv32,
+                .os_tag = .linux,
+                .abi = .none,
+            },
+        },
+        .{
+            .target = .{
+                .cpu_arch = .riscv32,
+                .os_tag = .linux,
+                .abi = .musl,
+            },
+            .link_libc = true,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .riscv32,
+                .os_tag = .linux,
+                .abi = .gnu,
+            },
+            .link_libc = true,
+        },
+
+        .{
+            .target = .{
                 .cpu_arch = .riscv64,
                 .os_tag = .linux,
                 .abi = .none,

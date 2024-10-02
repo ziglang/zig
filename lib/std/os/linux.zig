@@ -8064,9 +8064,31 @@ pub const rtattr = extern struct {
     len: c_ushort,
 
     /// Type of option
-    type: IFLA,
+    type: extern union {
+        /// IFLA_* from linux/if_link.h
+        link: IFLA,
+        /// IFA_* from linux/if_addr.h
+        addr: IFA,
+    },
 
     pub const ALIGNTO = 4;
+};
+
+pub const IFA = enum(c_ushort) {
+    UNSPEC,
+    ADDRESS,
+    LOCAL,
+    LABEL,
+    BROADCAST,
+    ANYCAST,
+    CACHEINFO,
+    MULTICAST,
+    FLAGS,
+    RT_PRIORITY,
+    TARGET_NETNSID,
+    PROTO,
+
+    _,
 };
 
 pub const IFLA = enum(c_ushort) {
