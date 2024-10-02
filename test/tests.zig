@@ -925,7 +925,7 @@ pub fn addCliTests(b: *std.Build) *Step {
         run_run.setCwd(.{ .cwd_relative = tmp_path });
         run_run.setName("zig build run");
         run_run.expectStdOutEqual("Run `zig build test` to run the tests.\n");
-        run_run.expectStdErrEqual("All your codebase are belong to us.\n");
+        run_run.expectStdErrEqual("All your codebase belong to us.\n");
         run_run.step.dependOn(&init_exe.step);
 
         const cleanup = b.addRemoveDirTree(.{ .cwd_relative = tmp_path });
