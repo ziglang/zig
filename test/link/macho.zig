@@ -1899,7 +1899,7 @@ fn testSectionBoundarySymbols(b: *Build, opts: Options) *Step {
         \\const std = @import("std");
         \\extern fn interop() ?[*:0]const u8;
         \\pub fn main() !void {
-        \\    std.debug.print("All your {s} are belong to us.\n", .{
+        \\    std.debug.print("All your {s} belong to us.\n", .{
         \\        if (interop()) |ptr| std.mem.span(ptr) else "(null)",
         \\    });
         \\}
