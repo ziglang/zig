@@ -847,7 +847,7 @@ pub fn toElfMachine(target: Target) std.elf.EM {
 
     return switch (target.cpu.arch) {
         .amdgcn => .AMDGPU,
-        .arc => .ARC_COMPACT2,
+        .arc => .ARC_COMPACT,
         .arm, .armeb, .thumb, .thumbeb => .ARM,
         .aarch64, .aarch64_be => .AARCH64,
         .avr => .AVR,
@@ -867,6 +867,7 @@ pub fn toElfMachine(target: Target) std.elf.EM {
         .sparc => if (Target.sparc.featureSetHas(target.cpu.features, .v9)) .SPARC32PLUS else .SPARC,
         .sparc64 => .SPARCV9,
         .spu_2 => .SPU_2,
+        .ve => .VE,
         .x86 => .@"386",
         .x86_64 => .X86_64,
         .xcore => .XCORE,
@@ -877,7 +878,6 @@ pub fn toElfMachine(target: Target) std.elf.EM {
         .spirv,
         .spirv32,
         .spirv64,
-        .ve,
         .wasm32,
         .wasm64,
         => .NONE,
