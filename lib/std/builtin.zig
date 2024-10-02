@@ -240,7 +240,7 @@ pub const AddressSpace = enum(u5) {
     // Propeller address spaces.
 
     /// This address space only addresses the cog-local ram.
-    cog, 
+    cog,
 
     /// This address space only addresses shared hub ram.
     hub,

@@ -873,6 +873,9 @@ pub fn toElfMachine(target: Target) std.elf.EM {
         .xcore => .XCORE,
         .xtensa => .XTENSA,
 
+        .propeller1 => .PROPELLER,
+        .propeller2 => .PROPELLER2,
+
         .nvptx,
         .nvptx64,
         .spirv,
@@ -881,8 +884,6 @@ pub fn toElfMachine(target: Target) std.elf.EM {
         .ve,
         .wasm32,
         .wasm64,
-        .propeller1,
-        .propeller2,
         => .NONE,
     };
 }
@@ -1152,6 +1153,8 @@ pub const Cpu = struct {
         powerpcle,
         powerpc64,
         powerpc64le,
+        propeller1,
+        propeller2,
         riscv32,
         riscv64,
         s390x,
@@ -1168,8 +1171,6 @@ pub const Cpu = struct {
         x86_64,
         xcore,
         xtensa,
-        propeller1,
-        propeller2,
 
         // LLVM tags deliberately omitted:
         // - aarch64_32

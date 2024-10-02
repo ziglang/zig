@@ -91,7 +91,7 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .propeller1,
         .propeller2,
         => unreachable, // Gated by hasLlvmSupport().
-        
+
     };
     try llvm_triple.appendSlice(llvm_arch);
 
@@ -285,7 +285,7 @@ pub fn targetArch(arch_tag: std.Target.Cpu.Arch) llvm.ArchType {
         .wasm32 => .wasm32,
         .wasm64 => .wasm64,
         .ve => .ve,
-        .spu_2 => .UnknownArch,
+        .propeller1, .propeller2, .spu_2 => .UnknownArch,
     };
 }
 
@@ -12717,6 +12717,8 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
         // LLVM does does not have a backend for these.
         .kalimba,
         .spu_2,
+        .propeller1,
+        .propeller2,
         => unreachable,
     }
 }

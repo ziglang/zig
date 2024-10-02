@@ -1552,6 +1552,14 @@ pub const EM = enum(u16) {
     /// Adapteva's Epiphany architecture
     ADAPTEVA_EPIPHANY = 0x1223,
 
+    /// Parallax Propeller (P1)
+    /// This value is an unofficial ELF value used in: https://github.com/parallaxinc/propgcc
+    PROPELLER = 0x5072,
+
+    /// Parallax Propeller 2 (P2)
+    /// This value is an unofficial ELF value used in: https://github.com/ne75/llvm-project
+    PROPELLER2 = 300,
+
     _,
 };
 
