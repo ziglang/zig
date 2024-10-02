@@ -110,7 +110,7 @@ pub const File = union(enum) {
                     } else if (!sym.flags.has_plt) {
                         log.debug("'{s}' needs PLT", .{sym.name(ef)});
                         try ef.plt.addSymbol(ref, ef);
-                    } else unreachable;
+                    }
                 }
                 if (sym.flags.needs_copy_rel and !sym.flags.has_copy_rel) {
                     log.debug("'{s}' needs COPYREL", .{sym.name(ef)});
