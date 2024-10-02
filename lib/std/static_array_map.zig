@@ -105,12 +105,12 @@ pub fn StaticArrayMapWithEql(
             return comptime .{ .kvs = &list };
         }
 
-        /// Returns the value for the key if any, else null.
+        /// Checks if the map has a value for the key.
         pub fn has(comptime self: Self, key: []const T) bool {
             return self.get(key) != null;
         }
 
-        /// Checks if the map has a value for the key.
+        /// Returns the value for the key if any, else null.
         pub fn get(comptime self: Self, key: []const T) ?V {
             return switch (self.kvs.len) {
                 0 => null,
