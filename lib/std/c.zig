@@ -5946,7 +5946,7 @@ pub const PR = switch (native_os) {
 };
 pub const _errno = switch (native_os) {
     .linux => switch (native_abi) {
-        .android => private.__errno,
+        .android, .androideabi => private.__errno,
         else => private.__errno_location,
     },
     .emscripten => private.__errno_location,
@@ -6754,7 +6754,7 @@ pub const pthread_mutex_t = switch (native_os) {
                 .mips64, .powerpc64, .powerpc64le, .sparc64 => 40,
                 else => if (@sizeOf(usize) == 8) 40 else 24,
             },
-            .android => if (@sizeOf(usize) == 8) 40 else 4,
+            .android, .androideabi => if (@sizeOf(usize) == 8) 40 else 4,
             else => @compileError("unsupported ABI"),
         };
     },
@@ -6848,7 +6848,7 @@ pub const pthread_cond_t = switch (native_os) {
 
 pub const pthread_rwlock_t = switch (native_os) {
     .linux => switch (native_abi) {
-        .android => switch (@sizeOf(usize)) {
+        .android, .androideabi => switch (@sizeOf(usize)) {
             4 => extern struct {
                 data: [40]u8 align(@alignOf(usize)) = [_]u8{0} ** 40,
             },

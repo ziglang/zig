@@ -664,6 +664,7 @@ pub const Abi = enum {
     eabihf,
     ilp32,
     android,
+    androideabi,
     musl,
     musleabi,
     musleabihf,
@@ -770,8 +771,16 @@ pub const Abi = enum {
         };
     }
 
+    pub inline fn isAndroid(abi: Abi) bool {
+        return switch (abi) {
+            .android, .androideabi => true,
+            else => false,
+        };
+    }
+
     pub inline fn floatAbi(abi: Abi) FloatAbi {
         return switch (abi) {
+            .androideabi,
             .eabi,
             .gnueabi,
             .musleabi,
@@ -1617,7 +1626,7 @@ pub inline fn isMusl(target: Target) bool {
 }
 
 pub inline fn isAndroid(target: Target) bool {
-    return target.abi == .android;
+    return target.abi.isAndroid();
 }
 
 pub inline fn isWasm(target: Target) bool {
@@ -1724,7 +1733,7 @@ pub const DynamicLinker = struct {
     }
 
     pub fn standard(cpu: Cpu, os_tag: Os.Tag, abi: Abi) DynamicLinker {
-        return if (abi == .android) initFmt("/system/bin/linker{s}", .{
+        return if (abi.isAndroid()) initFmt("/system/bin/linker{s}", .{
             if (ptrBitWidth_cpu_abi(cpu, abi) == 64) "64" else "",
         }) catch unreachable else if (abi.isMusl()) return initFmt("/lib/ld-musl-{s}{s}.so.1", .{
             @tagName(switch (cpu.arch) {
@@ -2391,6 +2400,7 @@ pub fn cTypeAlignment(target: Target, c_type: CType) u16 {
                     .eabi,
                     .eabihf,
                     .android,
+                    .androideabi,
                     .musleabi,
                     .musleabihf,
                     => 8,
@@ -2463,6 +2473,7 @@ pub fn cTypePreferredAlignment(target: Target, c_type: CType) u16 {
                 .eabi,
                 .eabihf,
                 .android,
+                .androideabi,
                 .musleabi,
                 .musleabihf,
                 => {},

@@ -172,6 +172,7 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .eabi => "eabi",
         .eabihf => "eabihf",
         .android => "android",
+        .androideabi => "androideabi",
         .musl => "musl",
         .musleabi => "musleabi",
         .musleabihf => "musleabihf",
