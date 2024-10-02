@@ -723,6 +723,7 @@ fn resolveDynAbsReloc(
                     .sym = target.extra(elf_file).dynamic,
                     .type = relocation.encode(.abs, cpu_arch),
                     .addend = A,
+                    .target = target,
                 });
                 try applyDynamicReloc(A, elf_file, writer);
             } else {
@@ -737,6 +738,7 @@ fn resolveDynAbsReloc(
                     .sym = target.extra(elf_file).dynamic,
                     .type = relocation.encode(.abs, cpu_arch),
                     .addend = A,
+                    .target = target,
                 });
                 try applyDynamicReloc(A, elf_file, writer);
             } else {
@@ -750,6 +752,7 @@ fn resolveDynAbsReloc(
                 .sym = target.extra(elf_file).dynamic,
                 .type = relocation.encode(.abs, cpu_arch),
                 .addend = A,
+                .target = target,
             });
             try applyDynamicReloc(A, elf_file, writer);
         },
@@ -759,6 +762,7 @@ fn resolveDynAbsReloc(
                 .offset = P,
                 .type = relocation.encode(.rel, cpu_arch),
                 .addend = S + A,
+                .target = target,
             });
             try applyDynamicReloc(S + A, elf_file, writer);
         },
@@ -769,6 +773,7 @@ fn resolveDynAbsReloc(
                 .offset = P,
                 .type = relocation.encode(.irel, cpu_arch),
                 .addend = S_ + A,
+                .target = target,
             });
             try applyDynamicReloc(S_ + A, elf_file, writer);
         },
