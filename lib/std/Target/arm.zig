@@ -2254,7 +2254,6 @@ pub const cpu = struct {
         .llvm_name = "cortex-m85",
         .features = featureSet(&[_]Feature{
             .dsp,
-            .trustzone,
             .use_misched,
             .v8_1m_main,
         }),
