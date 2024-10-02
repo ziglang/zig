@@ -22,6 +22,8 @@ const stdlib_renames = std.StaticStringMap([]const u8).initComptime(.{
     // ARM EABI/Thumb.
     .{ "arm_sync_file_range", "sync_file_range" },
     .{ "arm_fadvise64_64", "fadvise64_64" },
+    // ARC and Hexagon.
+    .{ "mmap_pgoff", "mmap2" },
 });
 
 // Only for newer architectures where we use the C preprocessor.
