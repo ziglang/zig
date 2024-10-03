@@ -6389,14 +6389,14 @@ pub const Stat = switch (native_os) {
                 return self.ctim;
             }
         } else extern struct {
-            dev: dev_t,
+            dev: u32,
             __pad0: [3]u32,
             ino: ino_t,
             mode: mode_t,
             nlink: nlink_t,
             uid: uid_t,
             gid: gid_t,
-            rdev: dev_t,
+            rdev: u32,
             __pad1: [3]u32,
             size: off_t,
             atim: timespec,
