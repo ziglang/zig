@@ -393,12 +393,10 @@ pub const Section = struct {
             const needed_size = len;
             const min_alignment = sec.alignment.toByteUnits().?;
             try elf_file.growSection(shndx, needed_size, min_alignment);
-            const shdr = &elf_file.sections.items(.shdr)[shndx];
-            shdr.sh_size = needed_size;
-            elf_file.markDirty(shndx);
+            const shdr = elf_file.sections.items(.shdr)[shndx];
             atom.size = needed_size;
             atom.alignment = InternPool.Alignment.fromNonzeroByteUnits(shdr.sh_addralign);
-            sec.len = len;
+            sec.len = needed_size;
         } else if (dwarf.bin_file.cast(.macho)) |macho_file| {
             const header = if (macho_file.d_sym) |*d_sym| header: {
                 try d_sym.growSection(@intCast(sec.index), len, true, macho_file);

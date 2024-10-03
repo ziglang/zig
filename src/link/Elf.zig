@@ -558,43 +558,47 @@ pub fn findFreeSpace(self: *Elf, object_size: u64, min_alignment: u64) !u64 {
 
 pub fn growSection(self: *Elf, shdr_index: u32, needed_size: u64, min_alignment: u64) !void {
     const shdr = &self.sections.items(.shdr)[shdr_index];
-    assert(shdr.sh_type != elf.SHT_NOBITS);
 
-    const allocated_size = self.allocatedSize(shdr.sh_offset);
-    log.debug("allocated size {x} of '{s}', needed size {x}", .{
-        allocated_size,
-        self.getShString(shdr.sh_name),
-        needed_size,
-    });
-
-    if (needed_size > allocated_size) {
-        const existing_size = shdr.sh_size;
-        shdr.sh_size = 0;
-        // Must move the entire section.
-        const new_offset = try self.findFreeSpace(needed_size, min_alignment);
-
-        log.debug("new '{s}' file offset 0x{x} to 0x{x}", .{
+    if (shdr.sh_type != elf.SHT_NOBITS) {
+        const allocated_size = self.allocatedSize(shdr.sh_offset);
+        log.debug("allocated size {x} of '{s}', needed size {x}", .{
+            allocated_size,
             self.getShString(shdr.sh_name),
-            new_offset,
-            new_offset + existing_size,
+            needed_size,
         });
 
-        const amt = try self.base.file.?.copyRangeAll(
-            shdr.sh_offset,
-            self.base.file.?,
-            new_offset,
-            existing_size,
-        );
-        // TODO figure out what to about this error condition - how to communicate it up.
-        if (amt != existing_size) return error.InputOutput;
+        if (needed_size > allocated_size) {
+            const existing_size = shdr.sh_size;
+            shdr.sh_size = 0;
+            // Must move the entire section.
+            const new_offset = try self.findFreeSpace(needed_size, min_alignment);
 
-        shdr.sh_offset = new_offset;
-    } else if (shdr.sh_offset + allocated_size == std.math.maxInt(u64)) {
-        try self.base.file.?.setEndPos(shdr.sh_offset + needed_size);
+            log.debug("new '{s}' file offset 0x{x} to 0x{x}", .{
+                self.getShString(shdr.sh_name),
+                new_offset,
+                new_offset + existing_size,
+            });
+
+            const amt = try self.base.file.?.copyRangeAll(
+                shdr.sh_offset,
+                self.base.file.?,
+                new_offset,
+                existing_size,
+            );
+            // TODO figure out what to about this error condition - how to communicate it up.
+            if (amt != existing_size) return error.InputOutput;
+
+            shdr.sh_offset = new_offset;
+        } else if (shdr.sh_offset + allocated_size == std.math.maxInt(u64)) {
+            try self.base.file.?.setEndPos(shdr.sh_offset + needed_size);
+        }
     }
+
+    shdr.sh_size = needed_size;
+    self.markDirty(shdr_index);
 }
 
-pub fn markDirty(self: *Elf, shdr_index: u32) void {
+fn markDirty(self: *Elf, shdr_index: u32) void {
     if (self.zigObjectPtr()) |zo| {
         for ([_]?Symbol.Index{
             zo.debug_info_index,
@@ -700,11 +704,7 @@ pub fn allocateChunk(self: *Elf, args: struct {
         true;
     if (expand_section) {
         const needed_size = res.value + args.size;
-        if (shdr.sh_type != elf.SHT_NOBITS) {
-            try self.growSection(args.shndx, needed_size, args.alignment.toByteUnits().?);
-        }
-        shdr.sh_size = needed_size;
-        self.markDirty(args.shndx);
+        try self.growSection(args.shndx, needed_size, args.alignment.toByteUnits().?);
     }
 
     return res;
