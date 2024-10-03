@@ -172,6 +172,7 @@ pub const DetectError = error{
     DeviceBusy,
     OSVersionDetectionFail,
     Unexpected,
+    ProcessNotFound,
 };
 
 /// Given a `Target.Query`, which specifies in detail which parts of the
@@ -443,6 +444,7 @@ pub const AbiAndDynamicLinkerFromFileError = error{
     Unexpected,
     UnexpectedEndOfFile,
     NameTooLong,
+    ProcessNotFound,
 };
 
 pub fn abiAndDynamicLinkerFromFile(
@@ -831,6 +833,7 @@ fn glibcVerFromRPath(rpath: []const u8) !std.SemanticVersion {
         error.UnableToReadElfFile,
         error.Unexpected,
         error.FileSystem,
+        error.ProcessNotFound,
         => |e| return e,
     };
 }
@@ -1077,6 +1080,7 @@ fn detectAbiAndDynamicLinker(
             const len = preadAtLeast(file, &buffer, 0, min_len) catch |err| switch (err) {
                 error.UnexpectedEndOfFile,
                 error.UnableToReadElfFile,
+                error.ProcessNotFound,
                 => return defaultAbiAndDynamicLinker(cpu, os, query),
 
                 else => |e| return e,
@@ -1120,6 +1124,7 @@ fn detectAbiAndDynamicLinker(
         error.SymLinkLoop,
         error.ProcessFdQuotaExceeded,
         error.SystemFdQuotaExceeded,
+        error.ProcessNotFound,
         => |e| return e,
 
         error.UnableToReadElfFile,
@@ -1176,6 +1181,7 @@ fn preadAtLeast(file: fs.File, buf: []u8, offset: u64, min_read_len: usize) !usi
             error.Unexpected => return error.Unexpected,
             error.InputOutput => return error.FileSystem,
             error.AccessDenied => return error.Unexpected,
+            error.ProcessNotFound => return error.ProcessNotFound,
         };
         if (len == 0) return error.UnexpectedEndOfFile;
         i += len;
