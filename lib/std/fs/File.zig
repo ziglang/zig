@@ -1691,7 +1691,7 @@ pub fn tryLock(file: File, l: Lock) LockError!bool {
     if (is_windows) {
         var io_status_block: windows.IO_STATUS_BLOCK = undefined;
         const exclusive = switch (l) {
-            .none => return,
+            .none => return true,
             .shared => false,
             .exclusive => true,
         };
