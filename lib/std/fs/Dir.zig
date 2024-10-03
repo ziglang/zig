@@ -785,9 +785,8 @@ pub const OpenError = error{
     NetworkNotFound,
 } || posix.UnexpectedError;
 
-pub fn close(self: *Dir) void {
+pub fn close(self: Dir) void {
     posix.close(self.fd);
-    self.* = undefined;
 }
 
 /// Opens a file for reading or writing, without attempting to create a new file.
