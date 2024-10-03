@@ -240,8 +240,6 @@ pub fn Sentinel(comptime T: type, comptime sentinel_val: Elem(T)) type {
     @compileError("Unable to derive a sentinel pointer type from " ++ @typeName(T));
 }
 
-pub const assumeSentinel = @compileError("This function has been removed, consider using std.mem.sliceTo() or if needed a @ptrCast()");
-
 pub fn containerLayout(comptime T: type) Type.ContainerLayout {
     return switch (@typeInfo(T)) {
         .@"struct" => |info| info.layout,
@@ -930,8 +928,6 @@ pub fn fieldIndex(comptime T: type, comptime name: []const u8) ?comptime_int {
     return null;
 }
 
-pub const refAllDecls = @compileError("refAllDecls has been moved from std.meta to std.testing");
-
 /// Returns a slice of pointers to public declarations of a namespace.
 pub fn declList(comptime Namespace: type, comptime Decl: type) []const *const Decl {
     const S = struct {
@@ -950,8 +946,6 @@ pub fn declList(comptime Namespace: type, comptime Decl: type) []const *const De
         return &array;
     }
 }
-
-pub const IntType = @compileError("replaced by std.meta.Int");
 
 pub fn Int(comptime signedness: std.builtin.Signedness, comptime bit_count: u16) type {
     return @Type(.{

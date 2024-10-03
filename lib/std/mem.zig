@@ -4334,8 +4334,6 @@ pub fn alignForwardLog2(addr: usize, log2_alignment: u8) usize {
     return alignForward(usize, addr, alignment);
 }
 
-pub const alignForwardGeneric = @compileError("renamed to alignForward");
-
 /// Force an evaluation of the expression; this tries to prevent
 /// the compiler from optimizing the computation away even if the
 /// result eventually gets discarded.
@@ -4458,8 +4456,6 @@ pub fn alignBackward(comptime T: type, addr: T, alignment: T) T {
     // 111110000 // binary not
     return addr & ~(alignment - 1);
 }
-
-pub const alignBackwardGeneric = @compileError("renamed to alignBackward");
 
 /// Returns whether `alignment` is a valid alignment, meaning it is
 /// a positive power of 2.
