@@ -3868,22 +3868,7 @@ pub fn allocateAllocSections(self: *Elf) !void {
 
                 if (shdr.sh_offset > 0) {
                     // Get size actually commited to the output file.
-                    const existing_size = if (self.zigObjectPtr()) |zo| for ([_]?Symbol.Index{
-                        zo.text_index,
-                        zo.rodata_index,
-                        zo.data_relro_index,
-                        zo.data_index,
-                        zo.tdata_index,
-                        zo.eh_frame_index,
-                    }) |maybe_sym_index| {
-                        const sect_sym_index = maybe_sym_index orelse continue;
-                        const sect_atom_ptr = zo.symbol(sect_sym_index).atom(self).?;
-                        if (sect_atom_ptr.output_section_index != shndx) continue;
-                        break sect_atom_ptr.size;
-                    } else 0 else 0 + if (!slice.items(.atom_list_2)[shndx].dirty)
-                        slice.items(.atom_list_2)[shndx].size
-                    else
-                        0;
+                    const existing_size = self.sectionSize(shndx);
                     const amt = try self.base.file.?.copyRangeAll(
                         shdr.sh_offset,
                         self.base.file.?,
@@ -5681,6 +5666,12 @@ const Section = struct {
     /// by 1 byte. It will then have -1 overcapacity.
     free_list: std.ArrayListUnmanaged(Ref) = .empty,
 };
+
+pub fn sectionSize(self: *Elf, shndx: u32) u64 {
+    const last_atom_ref = self.sections.items(.last_atom)[shndx];
+    const atom_ptr = self.atom(last_atom_ref) orelse return 0;
+    return @as(u64, @intCast(atom_ptr.value)) + atom_ptr.size;
+}
 
 fn defaultEntrySymbolName(cpu_arch: std.Target.Cpu.Arch) []const u8 {
     return switch (cpu_arch) {
