@@ -5190,7 +5190,7 @@ fn asmInputNeedsLocal(f: *Function, constraint: []const u8, value: CValue) bool 
     return switch (constraint[0]) {
         '{' => true,
         'i', 'r' => false,
-        'I' => !target.cpu.arch.isArmOrThumb(),
+        'I' => !target.cpu.arch.isArm(),
         else => switch (value) {
             .constant => |val| switch (dg.pt.zcu.intern_pool.indexToKey(val.toIntern())) {
                 .ptr => |ptr| if (ptr.byte_offset == 0) switch (ptr.base_addr) {

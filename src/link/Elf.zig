@@ -1823,7 +1823,7 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
         }
 
         if (link_mode == .static) {
-            if (target.cpu.arch.isArmOrThumb()) {
+            if (target.cpu.arch.isArm()) {
                 try argv.append("-Bstatic");
             } else {
                 try argv.append("-static");
