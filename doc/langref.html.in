@@ -4617,7 +4617,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_close#}
 
       {#header_open|@compileLog#}
-      <pre>{#syntax#}@compileLog(args: ...) void{#endsyntax#}</pre>
+      <pre>{#syntax#}@compileLog(...) void{#endsyntax#}</pre>
       <p>
       This function prints the arguments passed to it at compile-time.
       </p>
@@ -5064,12 +5064,12 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_close#}
 
       {#header_open|@max#}
-      <pre>{#syntax#}@max(a: T, b: T) T{#endsyntax#}</pre>
+      <pre>{#syntax#}@max(...) T{#endsyntax#}</pre>
       <p>
-      Returns the maximum value of {#syntax#}a{#endsyntax#} and {#syntax#}b{#endsyntax#}. This builtin accepts integers, floats, and vectors of either. In the latter case, the operation is performed element wise.
+      Takes two or more arguments and returns the biggest value included (the maximum). This builtin accepts integers, floats, and vectors of either. In the latter case, the operation is performed element wise.
       </p>
       <p>
-      NaNs are handled as follows: if one of the operands of a (pairwise) operation is NaN, the other operand is returned. If both operands are NaN, NaN is returned.
+      NaNs are handled as follows: return the biggest non-NaN value included. If all operands are NaN, return NaN.
       </p>
       {#see_also|@min|Vectors#}
       {#header_close#}
@@ -5103,12 +5103,12 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_close#}
 
       {#header_open|@min#}
-      <pre>{#syntax#}@min(a: T, b: T) T{#endsyntax#}</pre>
+      <pre>{#syntax#}@min(...) T{#endsyntax#}</pre>
       <p>
-      Returns the minimum value of {#syntax#}a{#endsyntax#} and {#syntax#}b{#endsyntax#}. This builtin accepts integers, floats, and vectors of either. In the latter case, the operation is performed element wise.
+      Takes two or more arguments and returns the smallest value included (the minimum). This builtin accepts integers, floats, and vectors of either. In the latter case, the operation is performed element wise.
       </p>
       <p>
-      NaNs are handled as follows: if one of the operands of a (pairwise) operation is NaN, the other operand is returned. If both operands are NaN, NaN is returned.
+      NaNs are handled as follows: return the smallest non-NaN value included. If all operands are NaN, return NaN.
       </p>
       {#see_also|@max|Vectors#}
       {#header_close#}
@@ -5791,7 +5791,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_open|@TypeOf#}
       <pre>{#syntax#}@TypeOf(...) type{#endsyntax#}</pre>
       <p>
-      {#syntax#}@TypeOf{#endsyntax#} is a special builtin function that takes any (nonzero) number of expressions
+      {#syntax#}@TypeOf{#endsyntax#} is a special builtin function that takes any (non-zero) number of expressions
       as parameters and returns the type of the result, using {#link|Peer Type Resolution#}.
       </p>
       <p>
