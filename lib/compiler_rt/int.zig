@@ -114,7 +114,7 @@ fn test_one_aeabi_ldivmod(a: i64, b: i64, expected_q: i64, expected_r: i64) !voi
 }
 
 test "arm.__aeabi_ldivmod" {
-    if (!builtin.cpu.arch.isARM()) return error.SkipZigTest;
+    if (!builtin.cpu.arch.isArm()) return error.SkipZigTest;
 
     for (cases__divmodsi4) |case| {
         try test_one_aeabi_ldivmod(case[0], case[1], case[2], case[3]);
@@ -273,7 +273,7 @@ fn test_one_aeabi_idivmod(a: i32, b: i32, expected_q: i32, expected_r: i32) !voi
 }
 
 test "arm.__aeabi_idivmod" {
-    if (!builtin.cpu.arch.isARM()) return error.SkipZigTest;
+    if (!builtin.cpu.arch.isArm()) return error.SkipZigTest;
 
     for (cases__divmodsi4) |case| {
         try test_one_aeabi_idivmod(case[0], case[1], case[2], case[3]);

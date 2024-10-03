@@ -18,7 +18,7 @@ pub fn suggestVectorLengthForCpu(comptime T: type, comptime cpu: std.Target.Cpu)
             if (std.Target.x86.featureSetHasAny(cpu.features, .{ .prefer_256_bit, .avx2 }) and !std.Target.x86.featureSetHas(cpu.features, .prefer_128_bit)) break :blk 256;
             if (std.Target.x86.featureSetHas(cpu.features, .sse)) break :blk 128;
             if (std.Target.x86.featureSetHasAny(cpu.features, .{ .mmx, .@"3dnow" })) break :blk 64;
-        } else if (cpu.arch.isArmOrThumb()) {
+        } else if (cpu.arch.isArm()) {
             if (std.Target.arm.featureSetHas(cpu.features, .neon)) break :blk 128;
         } else if (cpu.arch.isAARCH64()) {
             // SVE allows up to 2048 bits in the specification, as of 2022 the most powerful machine has implemented 512-bit
