@@ -3876,7 +3876,7 @@ fn createModule(
             };
         }
 
-        if (builtin.target.os.tag == .windows and target.abi == .msvc and
+        if (builtin.target.os.tag == .windows and (target.abi == .msvc or target.abi == .itanium) and
             external_system_libs.len != 0)
         {
             if (create_module.libc_installation == null) {

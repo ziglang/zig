@@ -398,7 +398,7 @@ fn abiDefines(self: *C, target: std.Target) !std.ArrayList(u8) {
     errdefer defines.deinit();
     const writer = defines.writer();
     switch (target.abi) {
-        .msvc => try writer.writeAll("#define ZIG_TARGET_ABI_MSVC\n"),
+        .msvc, .itanium => try writer.writeAll("#define ZIG_TARGET_ABI_MSVC\n"),
         else => {},
     }
     try writer.print("#define ZIG_TARGET_MAX_INT_ALIGNMENT {d}\n", .{

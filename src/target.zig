@@ -31,7 +31,7 @@ pub fn libcNeedsLibUnwind(target: std.Target) bool {
         .wasi, // Wasm/WASI currently doesn't offer support for libunwind, so don't link it.
         => false,
 
-        .windows => target.abi != .msvc,
+        .windows => target.abi.isGnu(),
         else => true,
     };
 }
@@ -87,7 +87,7 @@ pub fn hasValgrindSupport(target: std.Target) bool {
         .aarch64_be,
         => {
             return target.os.tag == .linux or target.os.tag == .solaris or target.os.tag == .illumos or
-                (target.os.tag == .windows and target.abi != .msvc);
+                (target.os.tag == .windows and target.abi.isGnu());
         },
         else => return false,
     }
