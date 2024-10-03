@@ -453,18 +453,27 @@ pub const ET = enum(u16) {
     /// Core file
     CORE = 4,
 
+    /// Beginning of OS-specific codes
+    pub const LOOS = 0xfe00;
+
+    /// End of OS-specific codes
+    pub const HIOS = 0xfeff;
+
     /// Beginning of processor-specific codes
     pub const LOPROC = 0xff00;
 
-    /// Processor-specific
+    /// End of processor-specific codes
     pub const HIPROC = 0xffff;
 };
 
 /// All integers are native endian.
 pub const Header = struct {
-    endian: std.builtin.Endian,
-    machine: EM,
     is_64: bool,
+    endian: std.builtin.Endian,
+    os_abi: OSABI,
+    abi_version: u8,
+    type: ET,
+    machine: EM,
     entry: u64,
     phoff: u64,
     shoff: u64,
@@ -501,6 +510,12 @@ pub const Header = struct {
         if (!mem.eql(u8, hdr32.e_ident[0..4], MAGIC)) return error.InvalidElfMagic;
         if (hdr32.e_ident[EI_VERSION] != 1) return error.InvalidElfVersion;
 
+        const is_64 = switch (hdr32.e_ident[EI_CLASS]) {
+            ELFCLASS32 => false,
+            ELFCLASS64 => true,
+            else => return error.InvalidElfClass,
+        };
+
         const endian: std.builtin.Endian = switch (hdr32.e_ident[EI_DATA]) {
             ELFDATA2LSB => .little,
             ELFDATA2MSB => .big,
@@ -508,11 +523,15 @@ pub const Header = struct {
         };
         const need_bswap = endian != native_endian;
 
-        const is_64 = switch (hdr32.e_ident[EI_CLASS]) {
-            ELFCLASS32 => false,
-            ELFCLASS64 => true,
-            else => return error.InvalidElfClass,
-        };
+        const os_abi: OSABI = @enumFromInt(hdr32.e_ident[EI_OSABI]);
+
+        // The meaning of this value depends on `os_abi` so just make it available as `u8`.
+        const abi_version = hdr32.e_ident[EI_ABIVERSION];
+
+        const @"type" = if (need_bswap) blk: {
+            const value = @intFromEnum(hdr32.e_type);
+            break :blk @as(ET, @enumFromInt(@byteSwap(value)));
+        } else hdr32.e_type;
 
         const machine = if (need_bswap) blk: {
             const value = @intFromEnum(hdr32.e_machine);
@@ -520,9 +539,12 @@ pub const Header = struct {
         } else hdr32.e_machine;
 
         return @as(Header, .{
-            .endian = endian,
-            .machine = machine,
             .is_64 = is_64,
+            .endian = endian,
+            .os_abi = os_abi,
+            .abi_version = abi_version,
+            .type = @"type",
+            .machine = machine,
             .entry = int(is_64, need_bswap, hdr32.e_entry, hdr64.e_entry),
             .phoff = int(is_64, need_bswap, hdr32.e_phoff, hdr64.e_phoff),
             .shoff = int(is_64, need_bswap, hdr32.e_shoff, hdr64.e_shoff),
@@ -637,7 +659,7 @@ pub fn SectionHeaderIterator(comptime ParseSource: anytype) type {
     };
 }
 
-pub fn int(is_64: bool, need_bswap: bool, int_32: anytype, int_64: anytype) @TypeOf(int_64) {
+fn int(is_64: bool, need_bswap: bool, int_32: anytype, int_64: anytype) @TypeOf(int_64) {
     if (is_64) {
         if (need_bswap) {
             return @byteSwap(int_64);
@@ -649,7 +671,7 @@ pub fn int(is_64: bool, need_bswap: bool, int_32: anytype, int_64: anytype) @Typ
     }
 }
 
-pub fn int32(need_bswap: bool, int_32: anytype, comptime Int64: anytype) Int64 {
+fn int32(need_bswap: bool, int_32: anytype, comptime Int64: anytype) Int64 {
     if (need_bswap) {
         return @byteSwap(int_32);
     } else {
@@ -657,21 +679,24 @@ pub fn int32(need_bswap: bool, int_32: anytype, comptime Int64: anytype) Int64 {
     }
 }
 
-pub const EI_NIDENT = 16;
-
-pub const EI_CLASS = 4;
 pub const ELFCLASSNONE = 0;
 pub const ELFCLASS32 = 1;
 pub const ELFCLASS64 = 2;
 pub const ELFCLASSNUM = 3;
 
-pub const EI_DATA = 5;
 pub const ELFDATANONE = 0;
 pub const ELFDATA2LSB = 1;
 pub const ELFDATA2MSB = 2;
 pub const ELFDATANUM = 3;
 
+pub const EI_CLASS = 4;
+pub const EI_DATA = 5;
 pub const EI_VERSION = 6;
+pub const EI_OSABI = 7;
+pub const EI_ABIVERSION = 8;
+pub const EI_PAD = 9;
+
+pub const EI_NIDENT = 16;
 
 pub const Elf32_Half = u16;
 pub const Elf64_Half = u16;
@@ -1093,6 +1118,57 @@ pub const Addr = switch (@sizeOf(usize)) {
     else => @compileError("expected pointer size of 32 or 64"),
 };
 pub const Half = u16;
+
+pub const OSABI = enum(u8) {
+    /// UNIX System V ABI
+    NONE = 0,
+    /// HP-UX operating system
+    HPUX = 1,
+    /// NetBSD
+    NETBSD = 2,
+    /// GNU (Hurd/Linux)
+    GNU = 3,
+    /// Solaris
+    SOLARIS = 6,
+    /// AIX
+    AIX = 7,
+    /// IRIX
+    IRIX = 8,
+    /// FreeBSD
+    FREEBSD = 9,
+    /// TRU64 UNIX
+    TRU64 = 10,
+    /// Novell Modesto
+    MODESTO = 11,
+    /// OpenBSD
+    OPENBSD = 12,
+    /// OpenVMS
+    OPENVMS = 13,
+    /// Hewlett-Packard Non-Stop Kernel
+    NSK = 14,
+    /// AROS
+    AROS = 15,
+    /// FenixOS
+    FENIXOS = 16,
+    /// Nuxi CloudABI
+    CLOUDABI = 17,
+    /// Stratus Technologies OpenVOS
+    OPENVOS = 18,
+    /// NVIDIA CUDA architecture
+    CUDA = 51,
+    /// AMD HSA Runtime
+    AMDGPU_HSA = 64,
+    /// AMD PAL Runtime
+    AMDGPU_PAL = 65,
+    /// AMD Mesa3D Runtime
+    AMDGPU_MESA3D = 66,
+    /// ARM
+    ARM = 97,
+    /// Standalone (embedded) application
+    STANDALONE = 255,
+
+    _,
+};
 
 /// Machine architectures.
 ///
