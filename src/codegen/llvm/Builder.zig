@@ -9817,9 +9817,9 @@ pub fn printUnbuffered(
                         });
                         switch (extra.weights) {
                             .none => {},
-                            .unpredictable => try writer.writeAll(", !unpredictable !{}"),
+                            .unpredictable => try writer.writeAll("!unpredictable !{}"),
                             _ => try writer.print("{}", .{
-                                try metadata_formatter.fmt(", !prof ", @as(Metadata, @enumFromInt(@intFromEnum(extra.weights)))),
+                                try metadata_formatter.fmt("!prof ", @as(Metadata, @enumFromInt(@intFromEnum(extra.weights)))),
                             }),
                         }
                     },
@@ -10098,9 +10098,9 @@ pub fn printUnbuffered(
                         try writer.writeAll("  ]");
                         switch (extra.data.weights) {
                             .none => {},
-                            .unpredictable => try writer.writeAll(", !unpredictable !{}"),
+                            .unpredictable => try writer.writeAll("!unpredictable !{}"),
                             _ => try writer.print("{}", .{
-                                try metadata_formatter.fmt(", !prof ", @as(Metadata, @enumFromInt(@intFromEnum(extra.data.weights)))),
+                                try metadata_formatter.fmt("!prof ", @as(Metadata, @enumFromInt(@intFromEnum(extra.data.weights)))),
                             }),
                         }
                     },
