@@ -6242,7 +6242,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
           <li>Are you linking libc? In this case, {#syntax#}std.heap.c_allocator{#endsyntax#} is likely
               the right choice, at least for your main allocator.</li>
           <li>
-              Need to use the same allocator in multiple threads? use one of your choice
+              Need to use the same allocator in multiple threads? Use one of your choice
               wrapped around {#syntax#}std.heap.ThreadSafeAllocator{#endsyntax#}
           </li>
           <li>
