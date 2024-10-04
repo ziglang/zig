@@ -274,7 +274,7 @@ const usage =
     \\  --compress-debug-sections               Compress DWARF debug sections with zlib
     \\  --set-section-alignment <name>=<align>  Set alignment of section <name> to <align> bytes. Must be a power of two.
     \\  --set-section-flags <name>=<file>       Set flags of section <name> to <flags> represented as a comma separated set of flags.
-    \\  --add-section <name>=<file>             Add file content from <file> with the section name <name>.
+    \\  --add-section <name>=<file>             Add file content from <file> with the a new section named <name>.
     \\
 ;
 
@@ -1251,21 +1251,18 @@ fn ElfFile(comptime is_64: bool) type {
                         fatal("unable to open '{s}': {s}", .{ add_section.file_path, @errorName(err) });
                     defer section_file.close();
 
-                    const max_size = std.math.maxInt(usize);
-                    const payload = try section_file.readToEndAlloc(arena.allocator(), max_size);
-                    const flags = 0;
-                    const alignment = 4;
+                    const payload = try section_file.readToEndAlloc(arena.allocator(), std.math.maxInt(usize));
 
                     dest_sections[dest_section_idx] = Elf_Shdr{
                         .sh_name = user_section_name,
                         .sh_type = elf.SHT_PROGBITS,
-                        .sh_flags = flags,
+                        .sh_flags = 0,
                         .sh_addr = 0,
                         .sh_offset = eof_offset,
                         .sh_size = @intCast(payload.len),
                         .sh_link = elf.SHN_UNDEF,
                         .sh_info = elf.SHN_UNDEF,
-                        .sh_addralign = alignment,
+                        .sh_addralign = 4,
                         .sh_entsize = 0,
                     };
                     dest_section_idx += 1;
