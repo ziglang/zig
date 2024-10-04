@@ -236,6 +236,17 @@ pub const AddressSpace = enum(u5) {
     flash3,
     flash4,
     flash5,
+
+    // Propeller address spaces.
+
+    /// This address space only addresses the cog-local ram.
+    cog,
+
+    /// This address space only addresses shared hub ram.
+    hub,
+
+    /// This address space only addresses the "lookup" ram
+    lut,
 };
 
 /// This data structure is used by the Zig language code generation and

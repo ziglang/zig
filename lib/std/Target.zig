@@ -648,6 +648,7 @@ pub const wasm = @import("Target/wasm.zig");
 pub const x86 = @import("Target/x86.zig");
 pub const xcore = @import("Target/xcore.zig");
 pub const xtensa = @import("Target/xtensa.zig");
+pub const propeller = @import("Target/propeller.zig");
 
 pub const Abi = enum {
     none,
@@ -882,6 +883,9 @@ pub fn toElfMachine(target: Target) std.elf.EM {
         .xcore => .XCORE,
         .xtensa => .XTENSA,
 
+        .propeller1 => .PROPELLER,
+        .propeller2 => .PROPELLER2,
+
         .nvptx,
         .nvptx64,
         .spirv,
@@ -941,6 +945,8 @@ pub fn toCoffMachine(target: Target) std.coff.MachineType {
         .wasm64,
         .xcore,
         .xtensa,
+        .propeller1,
+        .propeller2,
         => .UNKNOWN,
     };
 }
@@ -1156,6 +1162,8 @@ pub const Cpu = struct {
         powerpcle,
         powerpc64,
         powerpc64le,
+        propeller1,
+        propeller2,
         riscv32,
         riscv64,
         s390x,
@@ -1309,6 +1317,14 @@ pub const Cpu = struct {
             };
         }
 
+        /// Returns if the architecture is a Parallax propeller architecture.
+        pub inline fn isPropeller(arch: Arch) bool {
+            return switch (arch) {
+                .propeller1, .propeller2 => true,
+                else => false,
+            };
+        }
+
         pub fn parseCpuModel(arch: Arch, cpu_name: []const u8) !*const Cpu.Model {
             for (arch.allCpuModels()) |cpu| {
                 if (std.mem.eql(u8, cpu_name, cpu.name)) {
@@ -1353,6 +1369,8 @@ pub const Cpu = struct {
                 .loongarch32,
                 .loongarch64,
                 .arc,
+                .propeller1,
+                .propeller2,
                 => .little,
 
                 .armeb,
@@ -1385,6 +1403,10 @@ pub const Cpu = struct {
                 .input, .output, .uniform => is_spirv,
                 // TODO this should also check how many flash banks the cpu has
                 .flash, .flash1, .flash2, .flash3, .flash4, .flash5 => arch == .avr,
+
+                // Propeller address spaces:
+                .cog, .hub => arch.isPropeller(),
+                .lut => (arch == .propeller2),
             };
         }
 
@@ -1405,6 +1427,7 @@ pub const Cpu = struct {
                 .nvptx, .nvptx64 => "nvptx",
                 .wasm32, .wasm64 => "wasm",
                 .spirv, .spirv32, .spirv64 => "spirv",
+                .propeller1, .propeller2 => "propeller",
                 else => @tagName(arch),
             };
         }
@@ -1819,6 +1842,8 @@ pub const DynamicLinker = struct {
                 .spirv,
                 .spirv32,
                 .spirv64,
+                .propeller1,
+                .propeller2,
                 => none,
 
                 // TODO go over each item in this list and either move it to the above list, or
@@ -1928,6 +1953,8 @@ pub fn ptrBitWidth_cpu_abi(cpu: Cpu, abi: Abi) u16 {
         .spirv32,
         .loongarch32,
         .xtensa,
+        .propeller1,
+        .propeller2,
         => 32,
 
         .aarch64,
@@ -2432,6 +2459,8 @@ pub fn cTypeAlignment(target: Target, c_type: CType) u16 {
             .kalimba,
             .spu_2,
             .xtensa,
+            .propeller1,
+            .propeller2,
             => 4,
 
             .amdgcn,
@@ -2536,6 +2565,8 @@ pub fn cTypePreferredAlignment(target: Target, c_type: CType) u16 {
             .kalimba,
             .spu_2,
             .xtensa,
+            .propeller1,
+            .propeller2,
             => 4,
 
             .arc,
