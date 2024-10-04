@@ -40,6 +40,7 @@ fn cmdObjCopy(
     var only_keep_debug: bool = false;
     var compress_debug_sections: bool = false;
     var listen = false;
+    var add_section: ?AddSectionOptions = null;
     while (i < args.len) : (i += 1) {
         const arg = args[i];
         if (!mem.startsWith(u8, arg, "-")) {
@@ -104,6 +105,15 @@ fn cmdObjCopy(
             i += 1;
             if (i >= args.len) fatal("expected another argument after '{s}'", .{arg});
             opt_extract = args[i];
+        } else if (mem.eql(u8, arg, "--add-section")) {
+            i += 1;
+            if (i >= args.len) fatal("expected name and filename arguments after '{s}'", .{arg});
+
+            if (splitOption(args[i])) |split| {
+                add_section = .{ .section_name = split.first, .file = split.second };
+            } else {
+                fatal("unrecognized argument: '{s}', expecting <name>=<file>", .{args[i]});
+            }
         } else {
             fatal("unrecognized argument: '{s}'", .{arg});
         }
@@ -156,6 +166,7 @@ fn cmdObjCopy(
                 .ofmt = out_fmt,
                 .only_section = only_section,
                 .pad_to = pad_to,
+                .add_section = add_section,
             });
         },
         .elf => {
@@ -175,6 +186,7 @@ fn cmdObjCopy(
                 .add_debuglink = opt_add_debuglink,
                 .extract_to = opt_extract,
                 .compress_debug = compress_debug_sections,
+                .add_section = add_section,
             });
             return std.process.cleanExit();
         },
@@ -229,6 +241,7 @@ const usage =
     \\  --add-gnu-debuglink=<file>  Creates a .gnu_debuglink section which contains a reference to <file> and adds it to the output file.
     \\  --extract-to <file>         Extract the removed sections into <file>, and add a .gnu-debuglink section.
     \\  --compress-debug-sections   Compress DWARF debug sections with zlib
+    \\  --add-section <name>=<file> Add file content from <file> with the section name <name>.
     \\
 ;
 
@@ -236,6 +249,12 @@ pub const EmitRawElfOptions = struct {
     ofmt: std.Target.ObjectFormat,
     only_section: ?[]const u8 = null,
     pad_to: ?u64 = null,
+    add_section: ?AddSectionOptions,
+};
+
+const AddSectionOptions = struct {
+    section_name: []const u8,
+    file: []const u8,
 };
 
 fn emitElf(
@@ -678,6 +697,7 @@ const StripElfOptions = struct {
     strip_debug: bool = false,
     only_keep_debug: bool = false,
     compress_debug: bool = false,
+    add_section: ?AddSectionOptions,
 };
 
 fn stripElf(
@@ -721,6 +741,14 @@ fn stripElf(
             var elf_file = try ElfFile(is_64).parse(allocator, in_file, elf_hdr);
             defer elf_file.deinit();
 
+            if (options.add_section) |user_section| {
+                for (elf_file.sections) |section| {
+                    if (std.mem.eql(u8, section.name, user_section.section_name)) {
+                        fatal("zig objcopy: unable to add section '{s}'. Section already exists in input", .{user_section.section_name});
+                    }
+                }
+            }
+
             if (filter_complement) |flt| {
                 // write the .dbg file and close it, so it can be read back to compute the debuglink checksum.
                 const path = options.extract_to.?;
@@ -733,7 +761,7 @@ fn stripElf(
             }
 
             const debuglink: ?DebugLink = if (debuglink_path) |path| ElfFileHelper.createDebugLink(path) else null;
-            try elf_file.emit(allocator, out_file, in_file, .{ .section_filter = filter, .debuglink = debuglink, .compress_debug = options.compress_debug });
+            try elf_file.emit(allocator, out_file, in_file, .{ .section_filter = filter, .debuglink = debuglink, .compress_debug = options.compress_debug, .add_section = options.add_section });
         },
     }
 }
@@ -896,6 +924,7 @@ fn ElfFile(comptime is_64: bool) type {
             section_filter: Filter = .all,
             debuglink: ?DebugLink = null,
             compress_debug: bool = false,
+            add_section: ?AddSectionOptions = null,
         };
         fn emit(self: *const Self, gpa: Allocator, out_file: File, in_file: File, options: EmitElfOptions) !void {
             var arena = std.heap.ArenaAllocator.init(gpa);
@@ -934,6 +963,10 @@ fn ElfFile(comptime is_64: bool) type {
                 if (options.debuglink != null)
                     next_idx += 1;
 
+                if (options.add_section != null) {
+                    next_idx += 1;
+                }
+
                 break :blk next_idx;
             };
 
@@ -947,6 +980,28 @@ fn ElfFile(comptime is_64: bool) type {
                 const update = &sections_update[self.raw_elf_header.e_shstrndx];
 
                 const name: []const u8 = ".gnu_debuglink";
+                const new_offset: u32 = @intCast(strtab.payload.?.len);
+                const buf = try allocator.alignedAlloc(u8, section_memory_align, new_offset + name.len + 1);
+                @memcpy(buf[0..new_offset], strtab.payload.?);
+                @memcpy(buf[new_offset..][0..name.len], name);
+                buf[new_offset + name.len] = 0;
+
+                assert(update.action == .keep);
+                update.payload = buf;
+
+                break :blk new_offset;
+            };
+
+            // add user section to the string table if needed
+            const user_section_name: u32 = blk: {
+                if (options.add_section == null) break :blk elf.SHN_UNDEF;
+                if (self.raw_elf_header.e_shstrndx == elf.SHN_UNDEF)
+                    fatal("zig objcopy: no strtab, cannot add the user section", .{}); // TODO add the section if needed?
+
+                const strtab = &self.sections[self.raw_elf_header.e_shstrndx];
+                const update = &sections_update[self.raw_elf_header.e_shstrndx];
+
+                const name = options.add_section.?.section_name;
                 const new_offset: u32 = @intCast(strtab.payload.?.len);
                 const buf = try allocator.alignedAlloc(u8, section_memory_align, new_offset + name.len + 1);
                 @memcpy(buf[0..new_offset], strtab.payload.?);
@@ -1126,6 +1181,35 @@ fn ElfFile(comptime is_64: bool) type {
                         .sh_link = elf.SHN_UNDEF,
                         .sh_info = elf.SHN_UNDEF,
                         .sh_addralign = 4,
+                        .sh_entsize = 0,
+                    };
+                    dest_section_idx += 1;
+
+                    cmdbuf.appendAssumeCapacity(.{ .write_data = .{ .data = payload, .out_offset = eof_offset } });
+                    eof_offset += @as(Elf_OffSize, @intCast(payload.len));
+                }
+
+                // add user section
+                if (options.add_section) |add_section| {
+                    var section_file = fs.cwd().openFile(add_section.file, .{}) catch |err|
+                        fatal("unable to open '{s}': {s}", .{ add_section.file, @errorName(err) });
+                    defer section_file.close();
+
+                    const max_size = std.math.maxInt(usize);
+                    const payload = try section_file.readToEndAlloc(arena.allocator(), max_size);
+                    const flags = 0; // TODO: 19009: support --set-section-flags
+                    const alignment = 4; // TODO: 19009: support --set-section-alignment
+
+                    dest_sections[dest_section_idx] = Elf_Shdr{
+                        .sh_name = user_section_name,
+                        .sh_type = elf.SHT_PROGBITS,
+                        .sh_flags = flags,
+                        .sh_addr = 0,
+                        .sh_offset = eof_offset,
+                        .sh_size = @intCast(payload.len),
+                        .sh_link = elf.SHN_UNDEF,
+                        .sh_info = elf.SHN_UNDEF,
+                        .sh_addralign = alignment,
                         .sh_entsize = 0,
                     };
                     dest_section_idx += 1;
@@ -1361,3 +1445,31 @@ const ElfFileHelper = struct {
         return hasher.final();
     }
 };
+
+const SplitResult = struct { first: []const u8, second: []const u8 };
+
+fn splitOption(option: []const u8) ?SplitResult {
+    const separator = '=';
+    if (option.len < 3) return null; // minimum "a=b"
+    for (1..option.len - 1) |i| {
+        if (option[i] == separator) return .{
+            .first = option[0..i],
+            .second = option[i + 1 ..],
+        };
+    }
+    return null;
+}
+
+test "Split option" {
+    {
+        const split = splitOption("a=123");
+        try std.testing.expect(split != null);
+        try std.testing.expectEqualStrings("a", split.?.first);
+        try std.testing.expectEqualStrings("123", split.?.second);
+    }
+
+    try std.testing.expectEqual(null, splitOption(""));
+    try std.testing.expectEqual(null, splitOption("=abc"));
+    try std.testing.expectEqual(null, splitOption("abc="));
+    try std.testing.expectEqual(null, splitOption("abc"));
+}
