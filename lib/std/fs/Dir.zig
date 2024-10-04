@@ -809,6 +809,7 @@ pub fn openFile(self: Dir, sub_path: []const u8, flags: File.OpenFlags) File.Ope
             base.FD_TELL = true;
             base.FD_SEEK = true;
             base.FD_FILESTAT_GET = true;
+            base.POLL_FD_READWRITE = true;
         }
         if (flags.isWrite()) {
             base.FD_WRITE = true;
@@ -821,6 +822,7 @@ pub fn openFile(self: Dir, sub_path: []const u8, flags: File.OpenFlags) File.Ope
             base.FD_ADVISE = true;
             base.FD_FILESTAT_SET_TIMES = true;
             base.FD_FILESTAT_SET_SIZE = true;
+            base.POLL_FD_READWRITE = true;
         }
         const fd = try posix.openatWasi(self.fd, sub_path, .{}, .{}, .{}, base, .{});
         return .{ .handle = fd };
@@ -982,6 +984,7 @@ pub fn createFile(self: Dir, sub_path: []const u8, flags: File.CreateFlags) File
                 .FD_FILESTAT_SET_TIMES = true,
                 .FD_FILESTAT_SET_SIZE = true,
                 .FD_FILESTAT_GET = true,
+                .POLL_FD_READWRITE = true,
             }, .{}),
         };
     }
