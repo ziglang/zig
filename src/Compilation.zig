@@ -1813,8 +1813,18 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                     .{ .glibc_crt_file = .crtn_o },
                 });
             }
+
+            if (comp.crtMode()) |mode| {
+                const crt_file: ?glibc.CRTFile = switch (mode) {
+                    .dynamic_lib => null,
+                    .dynamic_exe, .dynamic_pie => .scrt1_o,
+                    .static_exe, .static_pie => null,
+                };
+
+                if (crt_file) |f| try comp.queueJob(.{ .glibc_crt_file = f });
+            }
+
             try comp.queueJobs(&[_]Job{
-                .{ .glibc_crt_file = .scrt1_o },
                 .{ .glibc_crt_file = .libc_nonshared_a },
                 .{ .glibc_shared_objects = {} },
             });
@@ -1828,15 +1838,22 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                     .{ .musl_crt_file = .crtn_o },
                 });
             }
-            try comp.queueJobs(&[_]Job{
-                .{ .musl_crt_file = .crt1_o },
-                .{ .musl_crt_file = .scrt1_o },
-                .{ .musl_crt_file = .rcrt1_o },
-                switch (comp.config.link_mode) {
-                    .static => .{ .musl_crt_file = .libc_a },
-                    .dynamic => .{ .musl_crt_file = .libc_so },
-                },
-            });
+
+            if (comp.crtMode()) |mode| {
+                const crt_file: ?musl.CRTFile = switch (mode) {
+                    .dynamic_lib => null,
+                    .dynamic_exe, .static_exe => .crt1_o,
+                    .dynamic_pie => .scrt1_o,
+                    .static_pie => .rcrt1_o,
+                };
+
+                if (crt_file) |f| try comp.queueJob(.{ .musl_crt_file = f });
+            }
+
+            try comp.queueJob(.{ .musl_crt_file = switch (comp.config.link_mode) {
+                .static => .libc_a,
+                .dynamic => .libc_so,
+            } });
         }
 
         if (comp.wantBuildWasiLibcFromSource()) {
