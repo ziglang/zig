@@ -41,8 +41,8 @@ fn cmdObjCopy(
     var compress_debug_sections: bool = false;
     var listen = false;
     var add_section: ?AddSectionOptions = null;
-    var set_section_alignment: ?SectionAlignmentOptions = null;
-    var set_section_flags: ?SectionFlagsOptions = null;
+    var set_section_alignment: ?SetSectionAlignmentOptions = null;
+    var set_section_flags: ?SetSectionFlagsOptions = null;
     while (i < args.len) : (i += 1) {
         const arg = args[i];
         if (!mem.startsWith(u8, arg, "-")) {
@@ -125,9 +125,7 @@ fn cmdObjCopy(
             if (i >= args.len) fatal("expected section name and filename arguments after '{s}'", .{arg});
 
             if (splitOption(args[i])) |split| {
-                const flags = parseSectionFlags(split.second);
-                _ = flags; // TODO: 19009: integrate
-                set_section_flags = .{ .section_name = split.first, .flags = split.second };
+                set_section_flags = .{ .section_name = split.first, .flags = parseSectionFlags(split.second) };
             } else {
                 fatal("unrecognized argument: '{s}', expecting <name>=<flags>", .{args[i]});
             }
@@ -282,8 +280,8 @@ pub const EmitRawElfOptions = struct {
     only_section: ?[]const u8 = null,
     pad_to: ?u64 = null,
     add_section: ?AddSectionOptions,
-    set_section_alignment: ?SectionAlignmentOptions,
-    set_section_flags: ?SectionFlagsOptions,
+    set_section_alignment: ?SetSectionAlignmentOptions,
+    set_section_flags: ?SetSectionFlagsOptions,
 };
 
 const AddSectionOptions = struct {
@@ -292,15 +290,14 @@ const AddSectionOptions = struct {
     file_path: []const u8,
 };
 
-const SectionAlignmentOptions = struct {
+const SetSectionAlignmentOptions = struct {
     section_name: []const u8,
     alignment: u32,
 };
 
-const SectionFlagsOptions = struct {
+const SetSectionFlagsOptions = struct {
     section_name: []const u8,
-    // comma separated string representation of the SHF_x flags for Shdr.sh_flags
-    flags: []const u8,
+    flags: SectionFlags,
 };
 
 fn emitElf(
@@ -744,8 +741,8 @@ const StripElfOptions = struct {
     only_keep_debug: bool = false,
     compress_debug: bool = false,
     add_section: ?AddSectionOptions,
-    set_section_alignment: ?SectionAlignmentOptions,
-    set_section_flags: ?SectionFlagsOptions,
+    set_section_alignment: ?SetSectionAlignmentOptions,
+    set_section_flags: ?SetSectionFlagsOptions,
 };
 
 fn stripElf(
@@ -980,8 +977,8 @@ fn ElfFile(comptime is_64: bool) type {
             debuglink: ?DebugLink = null,
             compress_debug: bool = false,
             add_section: ?AddSectionOptions = null,
-            set_section_alignment: ?SectionAlignmentOptions = null,
-            set_section_flags: ?SectionFlagsOptions = null,
+            set_section_alignment: ?SetSectionAlignmentOptions = null,
+            set_section_flags: ?SetSectionFlagsOptions = null,
         };
         fn emit(self: *const Self, gpa: Allocator, out_file: File, in_file: File, options: EmitElfOptions) !void {
             var arena = std.heap.ArenaAllocator.init(gpa);
@@ -1246,7 +1243,7 @@ fn ElfFile(comptime is_64: bool) type {
                     eof_offset += @as(Elf_OffSize, @intCast(payload.len));
                 }
 
-                // add user section
+                // --add-section
                 if (options.add_section) |add_section| {
                     var section_file = fs.cwd().openFile(add_section.file_path, .{}) catch |err|
                         fatal("unable to open '{s}': {s}", .{ add_section.file_path, @errorName(err) });
@@ -1303,9 +1300,41 @@ fn ElfFile(comptime is_64: bool) type {
                 for (updated_section_header) |*section| {
                     const section_name = std.mem.span(@as([*:0]const u8, @ptrCast(&strtab.payload.?[section.sh_name])));
                     if (std.mem.eql(u8, section_name, set_flags.section_name)) {
-                        // TODO: 19009: map flags string to bitfield.
-                        // section.sh_flags = set_flags.flags;
-                        section.sh_flags = 0;
+                        section.sh_flags = std.elf.SHF_WRITE; // default is writable cleared by "readonly"
+                        const f = set_flags.flags;
+
+                        // Supporting a subset of GNU and LLVM objcopy for ELF only
+                        // GNU:
+                        // alloc: add SHF_ALLOC
+                        // contents: if section is SHT_NOBITS, set SHT_PROGBITS, otherwise do nothing
+                        // load: if section is SHT_NOBITS, set SHT_PROGBITS, otherwise do nothing (same as contents)
+                        // noload: not ELF relevant
+                        // readonly: clear default SHF_WRITE flag
+                        // code: add SHF_EXECINSTR
+                        // data: not ELF relevant
+                        // rom: ignored
+                        // exclude: add SHF_EXCLUDE
+                        // share: not ELF relevant
+                        // debug: not ELF relevant
+                        // large: add SHF_X86_64_LARGE. Fatal error if target is not x86_64
+                        if (f.alloc) section.sh_flags |= std.elf.SHF_ALLOC;
+                        if (f.contents or f.load) {
+                            if (section.sh_type == std.elf.SHT_NOBITS) section.sh_type = std.elf.SHT_PROGBITS;
+                        }
+                        if (f.readonly) section.sh_flags &= ~@as(@TypeOf(section.sh_type), std.elf.SHF_WRITE);
+                        if (f.code) section.sh_flags |= std.elf.SHF_EXECINSTR;
+                        if (f.exclude) section.sh_flags |= std.elf.SHF_EXCLUDE;
+                        if (f.large) {
+                            if (updated_elf_header.e_machine != std.elf.EM.X86_64)
+                                fatal("zig objcopy: 'large' section flag is only supported on x86_64 targets", .{});
+                            section.sh_flags |= std.elf.SHF_X86_64_LARGE;
+                        }
+
+                        // LLVM:
+                        // merge: add SHF_MERGE
+                        // strings: add SHF_STRINGS
+                        if (f.merge) section.sh_flags |= std.elf.SHF_MERGE;
+                        if (f.strings) section.sh_flags |= std.elf.SHF_STRINGS;
                         break;
                     }
                 } else std.log.warn("Skipping --set-section-flags. Section '{s}' not found", .{set_flags.section_name});
@@ -1535,24 +1564,6 @@ const ElfFileHelper = struct {
     }
 };
 
-/// Supporting a subset of GNU and LLVM objcopy for ELF only
-/// GNU:
-/// alloc: add SHF_ALLOC
-/// contents: if section is SHT_NOBITS, set SHT_PROGBITS, otherwise do nothing
-/// load: if section is SHT_NOBITS, set SHT_PROGBITS, otherwise do nothing
-/// noload: not supported
-/// readonly: clear default SHF_WRITE flag
-/// code: add SHF_EXECINSTR
-/// data: not supported
-/// rom: not supported
-/// exclude: add SHF_EXCLUDE
-/// share: not supported
-/// debug: not supported
-/// large: add SHF_X86_64_LARGE. Fatal error if target is not x86_64
-///
-/// LLVM:
-/// merge: add SHF_MERGE
-/// strings: add SHF_STRINGS
 const SectionFlags = packed struct {
     alloc: bool = false,
     contents: bool = false,
@@ -1604,29 +1615,33 @@ fn parseSectionFlags(comma_separated_flags: []const u8) SectionFlags {
             } else if (std.mem.eql(u8, string, "strings")) {
                 flags.strings = true;
             } else {
-                std.log.err("Skipping unrecognized section flag '{s}'", .{string});
+                std.log.warn("Skipping unrecognized section flag '{s}'", .{string});
             }
         }
     };
 
     var flags = SectionFlags{};
-    var start: usize = 0;
+    var offset: usize = 0;
     for (comma_separated_flags, 0..) |c, i| {
         if (c == ',') {
-            defer start = i + 1;
-            const string = comma_separated_flags[start..i];
+            defer offset = i + 1;
+            const string = comma_separated_flags[offset..i];
             P.parse(&flags, string);
         }
     }
-    P.parse(&flags, comma_separated_flags[start..]);
+    P.parse(&flags, comma_separated_flags[offset..]);
     return flags;
 }
 
 test "Parse section flags" {
     const F = SectionFlags;
     try std.testing.expectEqual(F{}, parseSectionFlags(""));
+    try std.testing.expectEqual(F{}, parseSectionFlags(","));
+    try std.testing.expectEqual(F{}, parseSectionFlags("abc"));
     try std.testing.expectEqual(F{ .alloc = true }, parseSectionFlags("alloc"));
+    try std.testing.expectEqual(F{ .data = true }, parseSectionFlags("data,"));
     try std.testing.expectEqual(F{ .alloc = true, .code = true }, parseSectionFlags("alloc,code"));
+    try std.testing.expectEqual(F{ .alloc = true, .code = true }, parseSectionFlags("alloc,code,not_supported"));
 }
 
 const SplitResult = struct { first: []const u8, second: []const u8 };
