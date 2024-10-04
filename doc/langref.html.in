@@ -4766,10 +4766,10 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       Converts an integer into an {#link|enum#} value. The return type is the inferred result type.
       </p>
       <p>
-      Attempting to convert an integer with no corresponding value in the enum invokes 
+      Attempting to convert an integer with no corresponding value in the enum invokes
       safety-checked {#link|Undefined Behavior#}.
       Note that a {#link|non-exhaustive enum|Non-exhaustive enum#} has corresponding values for all
-      integers in the enum's integer tag type: the {#syntax#}_{#endsyntax#} value represents all 
+      integers in the enum's integer tag type: the {#syntax#}_{#endsyntax#} value represents all
       the remaining unnamed integers in the enum's tag type.
       </p>
       {#see_also|@intFromEnum#}
@@ -6242,10 +6242,12 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
           <li>Are you linking libc? In this case, {#syntax#}std.heap.c_allocator{#endsyntax#} is likely
               the right choice, at least for your main allocator.</li>
           <li>
+              Need to use the same allocator in multiple threads? Use one of your choice
+              wrapped around {#syntax#}std.heap.ThreadSafeAllocator{#endsyntax#}
+          </li>
+          <li>
               Is the maximum number of bytes that you will need bounded by a number known at
-              {#link|comptime#}? In this case, use {#syntax#}std.heap.FixedBufferAllocator{#endsyntax#} or
-              {#syntax#}std.heap.ThreadSafeFixedBufferAllocator{#endsyntax#} depending on whether you need
-              thread-safety or not.
+              {#link|comptime#}? In this case, use {#syntax#}std.heap.FixedBufferAllocator{#endsyntax#}.
           </li>
           <li>
               Is your program a command line application which runs from start to end without any fundamental
