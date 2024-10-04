@@ -217,6 +217,8 @@ const UserValue = union(enum) {
     scalar: []const u8,
     list: ArrayList([]const u8),
     map: StringHashMap(*const UserValue),
+    lazy_path: LazyPath,
+    lazy_path_list: ArrayList(LazyPath),
 };
 
 const TypeId = enum {
@@ -228,6 +230,8 @@ const TypeId = enum {
     string,
     list,
     build_id,
+    lazy_path,
+    lazy_path_list,
 };
 
 const TopLevelStep = struct {
@@ -433,6 +437,22 @@ fn userInputOptionsFromArgs(allocator: Allocator, args: anytype) UserInputOption
                     .used = false,
                 }) catch @panic("OOM");
             },
+            LazyPath => {
+                user_input_options.put(field.name, .{
+                    .name = field.name,
+                    .value = .{ .lazy_path = v.dupeInner(allocator) },
+                    .used = false,
+                }) catch @panic("OOM");
+            },
+            []const LazyPath => {
+                var list = ArrayList(LazyPath).initCapacity(allocator, v.len) catch @panic("OOM");
+                for (v) |lp| list.appendAssumeCapacity(lp.dupeInner(allocator));
+                user_input_options.put(field.name, .{
+                    .name = field.name,
+                    .value = .{ .lazy_path_list = list },
+                    .used = false,
+                }) catch @panic("OOM");
+            },
             []const u8 => {
                 user_input_options.put(field.name, .{
                     .name = field.name,
@@ -492,6 +512,8 @@ const OrderedUserValue = union(enum) {
     scalar: []const u8,
     list: ArrayList([]const u8),
     map: ArrayList(Pair),
+    lazy_path: LazyPath,
+    lazy_path_list: ArrayList(LazyPath),
 
     const Pair = struct {
         name: []const u8,
@@ -502,6 +524,7 @@ const OrderedUserValue = union(enum) {
     };
 
     fn hash(val: OrderedUserValue, hasher: *std.hash.Wyhash) void {
+        hasher.update(&std.mem.toBytes(std.meta.activeTag(val)));
         switch (val) {
             .flag => {},
             .scalar => |scalar| hasher.update(scalar),
@@ -511,6 +534,31 @@ const OrderedUserValue = union(enum) {
             .map => |map| for (map.items) |map_entry| {
                 hasher.update(map_entry.name);
                 map_entry.value.hash(hasher);
+            },
+            .lazy_path => |lp| hashLazyPath(lp, hasher),
+            .lazy_path_list => |lp_list| for (lp_list.items) |lp| {
+                hashLazyPath(lp, hasher);
+            },
+        }
+    }
+
+    fn hashLazyPath(lp: LazyPath, hasher: *std.hash.Wyhash) void {
+        switch (lp) {
+            .src_path => |sp| {
+                hasher.update(sp.owner.pkg_hash);
+                hasher.update(sp.sub_path);
+            },
+            .generated => |gen| {
+                hasher.update(gen.file.step.owner.pkg_hash);
+                hasher.update(std.mem.asBytes(&gen.up));
+                hasher.update(gen.sub_path);
+            },
+            .cwd_relative => |rel_path| {
+                hasher.update(rel_path);
+            },
+            .dependency => |dep| {
+                hasher.update(dep.dependency.builder.pkg_hash);
+                hasher.update(dep.sub_path);
             },
         }
     }
@@ -535,6 +583,8 @@ const OrderedUserValue = union(enum) {
             .scalar => |scalar| .{ .scalar = scalar },
             .list => |list| .{ .list = list },
             .map => |map| .{ .map = OrderedUserValue.mapFromUnordered(allocator, map) },
+            .lazy_path => |lp| .{ .lazy_path = lp },
+            .lazy_path_list => |list| .{ .lazy_path_list = list },
         };
     }
 };
@@ -1023,7 +1073,11 @@ pub fn addConfigHeader(
 
 /// Allocator.dupe without the need to handle out of memory.
 pub fn dupe(b: *Build, bytes: []const u8) []u8 {
-    return b.allocator.dupe(u8, bytes) catch @panic("OOM");
+    return dupeInner(b.allocator, bytes);
+}
+
+pub fn dupeInner(allocator: std.mem.Allocator, bytes: []const u8) []u8 {
+    return allocator.dupe(u8, bytes) catch @panic("OOM");
 }
 
 /// Duplicates an array of strings without the need to handle out of memory.
@@ -1035,7 +1089,11 @@ pub fn dupeStrings(b: *Build, strings: []const []const u8) [][]u8 {
 
 /// Duplicates a path and converts all slashes to the OS's canonical path separator.
 pub fn dupePath(b: *Build, bytes: []const u8) []u8 {
-    const the_copy = b.dupe(bytes);
+    return dupePathInner(b.allocator, bytes);
+}
+
+fn dupePathInner(allocator: std.mem.Allocator, bytes: []const u8) []u8 {
+    const the_copy = dupeInner(allocator, bytes);
     for (the_copy) |*byte| {
         switch (byte.*) {
             '/', '\\' => byte.* = fs.path.sep,
@@ -1149,7 +1207,7 @@ pub fn option(b: *Build, comptime T: type, name_raw: []const u8, description_raw
                     return null;
                 }
             },
-            .list, .map => {
+            .list, .map, .lazy_path, .lazy_path_list => {
                 log.err("Expected -D{s} to be a boolean, but received a {s}.", .{
                     name, @tagName(option_ptr.value),
                 });
@@ -1158,7 +1216,7 @@ pub fn option(b: *Build, comptime T: type, name_raw: []const u8, description_raw
             },
         },
         .int => switch (option_ptr.value) {
-            .flag, .list, .map => {
+            .flag, .list, .map, .lazy_path, .lazy_path_list => {
                 log.err("Expected -D{s} to be an integer, but received a {s}.", .{
                     name, @tagName(option_ptr.value),
                 });
@@ -1182,7 +1240,7 @@ pub fn option(b: *Build, comptime T: type, name_raw: []const u8, description_raw
             },
         },
         .float => switch (option_ptr.value) {
-            .flag, .map, .list => {
+            .flag, .map, .list, .lazy_path, .lazy_path_list => {
                 log.err("Expected -D{s} to be a float, but received a {s}.", .{
                     name, @tagName(option_ptr.value),
                 });
@@ -1199,7 +1257,7 @@ pub fn option(b: *Build, comptime T: type, name_raw: []const u8, description_raw
             },
         },
         .@"enum" => switch (option_ptr.value) {
-            .flag, .map, .list => {
+            .flag, .map, .list, .lazy_path, .lazy_path_list => {
                 log.err("Expected -D{s} to be an enum, but received a {s}.", .{
                     name, @tagName(option_ptr.value),
                 });
@@ -1217,7 +1275,7 @@ pub fn option(b: *Build, comptime T: type, name_raw: []const u8, description_raw
             },
         },
         .string => switch (option_ptr.value) {
-            .flag, .list, .map => {
+            .flag, .list, .map, .lazy_path, .lazy_path_list => {
                 log.err("Expected -D{s} to be a string, but received a {s}.", .{
                     name, @tagName(option_ptr.value),
                 });
@@ -1227,7 +1285,7 @@ pub fn option(b: *Build, comptime T: type, name_raw: []const u8, description_raw
             .scalar => |s| return s,
         },
         .build_id => switch (option_ptr.value) {
-            .flag, .map, .list => {
+            .flag, .map, .list, .lazy_path, .lazy_path_list => {
                 log.err("Expected -D{s} to be an enum, but received a {s}.", .{
                     name, @tagName(option_ptr.value),
                 });
@@ -1245,7 +1303,7 @@ pub fn option(b: *Build, comptime T: type, name_raw: []const u8, description_raw
             },
         },
         .list => switch (option_ptr.value) {
-            .flag, .map => {
+            .flag, .map, .lazy_path, .lazy_path_list => {
                 log.err("Expected -D{s} to be a list, but received a {s}.", .{
                     name, @tagName(option_ptr.value),
                 });
@@ -1258,7 +1316,7 @@ pub fn option(b: *Build, comptime T: type, name_raw: []const u8, description_raw
             .list => |lst| return lst.items,
         },
         .enum_list => switch (option_ptr.value) {
-            .flag, .map => {
+            .flag, .map, .lazy_path, .lazy_path_list => {
                 log.err("Expected -D{s} to be a list, but received a {s}.", .{
                     name, @tagName(option_ptr.value),
                 });
@@ -1276,17 +1334,46 @@ pub fn option(b: *Build, comptime T: type, name_raw: []const u8, description_raw
             },
             .list => |lst| {
                 const Child = @typeInfo(T).pointer.child;
-                var new_list = b.allocator.alloc(Child, lst.items.len) catch @panic("OOM");
-                for (lst.items, 0..) |str, i| {
-                    const value = std.meta.stringToEnum(Child, str) orelse {
+                const new_list = b.allocator.alloc(Child, lst.items.len) catch @panic("OOM");
+                for (new_list, lst.items) |*new_item, str| {
+                    new_item.* = std.meta.stringToEnum(Child, str) orelse {
                         log.err("Expected -D{s} to be of type {s}.", .{ name, @typeName(Child) });
                         b.markInvalidUserInput();
                         b.allocator.free(new_list);
                         return null;
                     };
-                    new_list[i] = value;
                 }
                 return new_list;
+            },
+        },
+        .lazy_path => switch (option_ptr.value) {
+            .scalar => |s| return .{ .cwd_relative = s },
+            .lazy_path => |lp| return lp,
+            .flag, .map, .list, .lazy_path_list => {
+                log.err("Expected -D{s} to be a path, but received a {s}.", .{
+                    name, @tagName(option_ptr.value),
+                });
+                b.markInvalidUserInput();
+                return null;
+            },
+        },
+        .lazy_path_list => switch (option_ptr.value) {
+            .scalar => |s| return b.allocator.dupe(LazyPath, &[_]LazyPath{.{ .cwd_relative = s }}) catch @panic("OOM"),
+            .lazy_path => |lp| return b.allocator.dupe(LazyPath, &[_]LazyPath{lp}) catch @panic("OOM"),
+            .list => |lst| {
+                const new_list = b.allocator.alloc(LazyPath, lst.items.len) catch @panic("OOM");
+                for (new_list, lst.items) |*new_item, str| {
+                    new_item.* = .{ .cwd_relative = str };
+                }
+                return new_list;
+            },
+            .lazy_path_list => |lp_list| return lp_list.items,
+            .flag, .map => {
+                log.err("Expected -D{s} to be a path, but received a {s}.", .{
+                    name, @tagName(option_ptr.value),
+                });
+                b.markInvalidUserInput();
+                return null;
             },
         },
     }
@@ -1508,6 +1595,10 @@ pub fn addUserInputOption(b: *Build, name_raw: []const u8, value_raw: []const u8
             log.warn("TODO maps as command line arguments is not implemented yet.", .{});
             return true;
         },
+        .lazy_path, .lazy_path_list => {
+            log.warn("the lazy path value type isn't added from the CLI, but somehow '{s}' is a .{}", .{ name, std.zig.fmtId(@tagName(gop.value_ptr.value)) });
+            return true;
+        },
     }
     return false;
 }
@@ -1530,10 +1621,15 @@ pub fn addUserInputFlag(b: *Build, name_raw: []const u8) !bool {
             log.err("Flag '-D{s}' conflicts with option '-D{s}={s}'.", .{ name, name, s });
             return true;
         },
-        .list, .map => {
+        .list, .map, .lazy_path_list => {
             log.err("Flag '-D{s}' conflicts with multiple options of the same name.", .{name});
             return true;
         },
+        .lazy_path => |lp| {
+            log.err("Flag '-D{s}' conflicts with option '-D{s}={s}'.", .{ name, name, lp.getDisplayName() });
+            return true;
+        },
+
         .flag => {},
     }
     return false;
@@ -1542,6 +1638,7 @@ pub fn addUserInputFlag(b: *Build, name_raw: []const u8) !bool {
 fn typeToEnum(comptime T: type) TypeId {
     return switch (T) {
         std.zig.BuildId => .build_id,
+        LazyPath => .lazy_path,
         else => return switch (@typeInfo(T)) {
             .int => .int,
             .float => .float,
@@ -1550,6 +1647,7 @@ fn typeToEnum(comptime T: type) TypeId {
             .pointer => |pointer| switch (pointer.child) {
                 u8 => .string,
                 []const u8 => .list,
+                LazyPath => .lazy_path_list,
                 else => switch (@typeInfo(pointer.child)) {
                     .@"enum" => .enum_list,
                     else => @compileError("Unsupported type: " ++ @typeName(T)),
@@ -2065,22 +2163,17 @@ pub fn dependencyFromBuildZig(
 }
 
 fn userValuesAreSame(lhs: UserValue, rhs: UserValue) bool {
+    if (std.meta.activeTag(lhs) != rhs) return false;
     switch (lhs) {
         .flag => {},
         .scalar => |lhs_scalar| {
-            const rhs_scalar = switch (rhs) {
-                .scalar => |scalar| scalar,
-                else => return false,
-            };
+            const rhs_scalar = rhs.scalar;
 
             if (!std.mem.eql(u8, lhs_scalar, rhs_scalar))
                 return false;
         },
         .list => |lhs_list| {
-            const rhs_list = switch (rhs) {
-                .list => |list| list,
-                else => return false,
-            };
+            const rhs_list = rhs.list;
 
             if (lhs_list.items.len != rhs_list.items.len)
                 return false;
@@ -2091,10 +2184,7 @@ fn userValuesAreSame(lhs: UserValue, rhs: UserValue) bool {
             }
         },
         .map => |lhs_map| {
-            const rhs_map = switch (rhs) {
-                .map => |map| map,
-                else => return false,
-            };
+            const rhs_map = rhs.map;
 
             if (lhs_map.count() != rhs_map.count())
                 return false;
@@ -2106,8 +2196,51 @@ fn userValuesAreSame(lhs: UserValue, rhs: UserValue) bool {
                     return false;
             }
         },
+        .lazy_path => |lhs_lp| {
+            const rhs_lp = rhs.lazy_path;
+            return userLazyPathsAreTheSame(lhs_lp, rhs_lp);
+        },
+        .lazy_path_list => |lhs_lp_list| {
+            const rhs_lp_list = rhs.lazy_path_list;
+            if (lhs_lp_list.items.len != rhs_lp_list.items.len) return false;
+            for (lhs_lp_list.items, rhs_lp_list.items) |lhs_lp, rhs_lp| {
+                if (!userLazyPathsAreTheSame(lhs_lp, rhs_lp)) return false;
+            }
+            return true;
+        },
     }
 
+    return true;
+}
+
+fn userLazyPathsAreTheSame(lhs_lp: LazyPath, rhs_lp: LazyPath) bool {
+    if (std.meta.activeTag(lhs_lp) != rhs_lp) return false;
+    switch (lhs_lp) {
+        .src_path => |lhs_sp| {
+            const rhs_sp = rhs_lp.src_path;
+
+            if (lhs_sp.owner != rhs_sp.owner) return false;
+            if (std.mem.eql(u8, lhs_sp.sub_path, rhs_sp.sub_path)) return false;
+        },
+        .generated => |lhs_gen| {
+            const rhs_gen = rhs_lp.generated;
+
+            if (lhs_gen.file != rhs_gen.file) return false;
+            if (lhs_gen.up != rhs_gen.up) return false;
+            if (std.mem.eql(u8, lhs_gen.sub_path, rhs_gen.sub_path)) return false;
+        },
+        .cwd_relative => |lhs_rel_path| {
+            const rhs_rel_path = rhs_lp.cwd_relative;
+
+            if (!std.mem.eql(u8, lhs_rel_path, rhs_rel_path)) return false;
+        },
+        .dependency => |lhs_dep| {
+            const rhs_dep = rhs_lp.dependency;
+
+            if (lhs_dep.dependency != rhs_dep.dependency) return false;
+            if (!std.mem.eql(u8, lhs_dep.sub_path, rhs_dep.sub_path)) return false;
+        },
+    }
     return true;
 }
 
@@ -2435,16 +2568,20 @@ pub const LazyPath = union(enum) {
     /// The `b` parameter is only used for its allocator. All *Build instances
     /// share the same allocator.
     pub fn dupe(lazy_path: LazyPath, b: *Build) LazyPath {
+        return lazy_path.dupeInner(b.allocator);
+    }
+
+    fn dupeInner(lazy_path: LazyPath, allocator: std.mem.Allocator) LazyPath {
         return switch (lazy_path) {
             .src_path => |sp| .{ .src_path = .{
                 .owner = sp.owner,
                 .sub_path = sp.owner.dupePath(sp.sub_path),
             } },
-            .cwd_relative => |p| .{ .cwd_relative = b.dupePath(p) },
+            .cwd_relative => |p| .{ .cwd_relative = dupePathInner(allocator, p) },
             .generated => |gen| .{ .generated = .{
                 .file = gen.file,
                 .up = gen.up,
-                .sub_path = b.dupePath(gen.sub_path),
+                .sub_path = dupePathInner(allocator, gen.sub_path),
             } },
             .dependency => |dep| .{ .dependency = dep },
         };
