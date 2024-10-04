@@ -9463,7 +9463,7 @@ pub extern "c" fn pthread_rwlock_unlock(rwl: *pthread_rwlock_t) callconv(.C) E;
 pub const pthread_t = *opaque {};
 pub const FILE = opaque {};
 
-pub extern "c" fn dlopen(path: [*:0]const u8, mode: RTLD) ?*anyopaque;
+pub extern "c" fn dlopen(path: ?[*:0]const u8, mode: RTLD) ?*anyopaque;
 pub extern "c" fn dlclose(handle: *anyopaque) c_int;
 pub extern "c" fn dlsym(handle: ?*anyopaque, symbol: [*:0]const u8) ?*anyopaque;
 pub extern "c" fn dlerror() ?[*:0]u8;
