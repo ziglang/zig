@@ -392,7 +392,7 @@ const BinaryElfOutput = struct {
             if (phdr.p_type == elf.PT_LOAD) {
                 const newSegment = try allocator.create(BinaryElfSegment);
 
-                newSegment.physicalAddress = if (phdr.p_paddr != 0) phdr.p_paddr else phdr.p_vaddr;
+                newSegment.physicalAddress = phdr.p_paddr;
                 newSegment.virtualAddress = phdr.p_vaddr;
                 newSegment.fileSize = @intCast(phdr.p_filesz);
                 newSegment.elfOffset = phdr.p_offset;
