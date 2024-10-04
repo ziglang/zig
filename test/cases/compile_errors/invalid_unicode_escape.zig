@@ -1,5 +1,5 @@
 export fn entry() void {
-    const a = '\u{12z34}';
+    const a = '\u{12z34';
 }
 
 // error
