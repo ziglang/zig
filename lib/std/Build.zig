@@ -90,9 +90,6 @@ modules: std.StringArrayHashMap(*Module),
 
 named_writefiles: std.StringArrayHashMap(*Step.WriteFile),
 named_lazy_paths: std.StringArrayHashMap(LazyPath),
-/// A map from build root dirs to the corresponding `*Dependency`. This is shared with all child
-/// `Build`s.
-initialized_deps: *InitializedDepMap,
 /// The hash of this instance's package. `""` means that this is the root package.
 pkg_hash: []const u8,
 /// A mapping from dependency names to package hashes.
@@ -125,6 +122,7 @@ pub const Graph = struct {
     host: ResolvedTarget,
     incremental: ?bool = null,
     random_seed: u32 = 0,
+    dependency_cache: InitializedDepMap = .empty,
 };
 
 const AvailableDeps = []const struct { []const u8, []const u8 };
@@ -144,7 +142,7 @@ const SystemLibraryMode = enum {
     declared_enabled,
 };
 
-const InitializedDepMap = std.HashMap(InitializedDepKey, *Dependency, InitializedDepContext, std.hash_map.default_max_load_percentage);
+const InitializedDepMap = std.HashMapUnmanaged(InitializedDepKey, *Dependency, InitializedDepContext, std.hash_map.default_max_load_percentage);
 const InitializedDepKey = struct {
     build_root_string: []const u8,
     user_input_options: UserInputOptionsMap,
@@ -252,8 +250,6 @@ pub fn create(
     available_deps: AvailableDeps,
 ) !*Build {
     const arena = graph.arena;
-    const initialized_deps = try arena.create(InitializedDepMap);
-    initialized_deps.* = InitializedDepMap.initContext(arena, .{ .allocator = arena });
 
     const b = try arena.create(Build);
     b.* = .{
@@ -304,7 +300,6 @@ pub fn create(
         .modules = .init(arena),
         .named_writefiles = .init(arena),
         .named_lazy_paths = .init(arena),
-        .initialized_deps = initialized_deps,
         .pkg_hash = "",
         .available_deps = available_deps,
         .release_mode = .off,
@@ -398,7 +393,6 @@ fn createChildOnly(
         .modules = .init(allocator),
         .named_writefiles = .init(allocator),
         .named_lazy_paths = .init(allocator),
-        .initialized_deps = parent.initialized_deps,
         .pkg_hash = pkg_hash,
         .available_deps = pkg_deps,
         .release_mode = parent.release_mode,
@@ -2127,10 +2121,10 @@ fn dependencyInner(
     args: anytype,
 ) *Dependency {
     const user_input_options = userInputOptionsFromArgs(b.allocator, args);
-    if (b.initialized_deps.get(.{
+    if (b.graph.dependency_cache.getContext(.{
         .build_root_string = build_root_string,
         .user_input_options = user_input_options,
-    })) |dep|
+    }, .{ .allocator = b.graph.arena })) |dep|
         return dep;
 
     const build_root: std.Build.Cache.Directory = .{
@@ -2155,10 +2149,10 @@ fn dependencyInner(
     const dep = b.allocator.create(Dependency) catch @panic("OOM");
     dep.* = .{ .builder = sub_builder };
 
-    b.initialized_deps.put(.{
+    b.graph.dependency_cache.putContext(b.graph.arena, .{
         .build_root_string = build_root_string,
         .user_input_options = user_input_options,
-    }, dep) catch @panic("OOM");
+    }, dep, .{ .allocator = b.graph.arena }) catch @panic("OOM");
     return dep;
 }
 
