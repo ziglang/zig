@@ -6553,6 +6553,30 @@ pub fn toCrtFile(comp: *Compilation) Allocator.Error!CRTFile {
     };
 }
 
+pub const CrtMode = enum {
+    dynamic_lib,
+    dynamic_exe,
+    dynamic_pie,
+    static_exe,
+    static_pie,
+};
+
+pub fn crtMode(comp: *const Compilation) ?CrtMode {
+    if (!comp.config.link_libc) return null;
+
+    return switch (comp.config.output_mode) {
+        .Obj => null,
+        .Lib => switch (comp.config.link_mode) {
+            .static => null,
+            .dynamic => .dynamic_lib,
+        },
+        .Exe => switch (comp.config.link_mode) {
+            .static => if (comp.config.pie) .static_pie else .static_exe,
+            .dynamic => if (comp.config.pie) .dynamic_pie else .dynamic_exe,
+        },
+    };
+}
+
 pub fn addLinkLib(comp: *Compilation, lib_name: []const u8) !void {
     // Avoid deadlocking on building import libs such as kernel32.lib
     // This can happen when the user uses `build-exe foo.obj -lkernel32` and
