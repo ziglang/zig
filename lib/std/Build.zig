@@ -247,6 +247,7 @@ pub const DirList = struct {
     include_dir: ?[]const u8 = null,
 };
 
+/// create an instance of the `Build` module
 pub fn create(
     graph: *Graph,
     build_root: Cache.Directory,
@@ -720,6 +721,11 @@ pub const ExecutableOptions = struct {
     win32_manifest: ?LazyPath = null,
 };
 
+/// Add a step to compile a `Module` into an executable.
+/// Install the generated executable with `installArtifact` or use
+/// `addInstallArtifact` as a more flexible solution, to create a step
+/// that your top level install step `getInstallStep` would depend
+/// Run the generated exe in the local cache with `addRunArtifact`
 pub fn addExecutable(b: *Build, options: ExecutableOptions) *Step.Compile {
     return Step.Compile.create(b, .{
         .name = options.name,
@@ -770,6 +776,12 @@ pub const ObjectOptions = struct {
     zig_lib_dir: ?LazyPath = null,
 };
 
+/// Add a step to compile a `Module` into an object file.
+/// Install the generated object with `installArtifact` or use
+/// `addInstallArtifact` as a more flexible solution, to create a step
+/// that your top level install step `getInstallStep` would depend.
+/// Link the generate object into your exe/lib with `addObject` or
+/// `addObjectFile` fn of a `Compile` step
 pub fn addObject(b: *Build, options: ObjectOptions) *Step.Compile {
     return Step.Compile.create(b, .{
         .name = options.name,
@@ -824,6 +836,11 @@ pub const SharedLibraryOptions = struct {
     win32_manifest: ?LazyPath = null,
 };
 
+/// Add a step to compile a `Module` into a shared library.
+/// Install the generated executable with `installArtifact` or use
+/// `addInstallArtifact` as a more flexible solution, to create a step
+/// that your top level install step `getInstallStep` would depend.
+/// Link to generated library with `linkLibrary`
 pub fn addSharedLibrary(b: *Build, options: SharedLibraryOptions) *Step.Compile {
     return Step.Compile.create(b, .{
         .name = options.name,
@@ -875,6 +892,11 @@ pub const StaticLibraryOptions = struct {
     zig_lib_dir: ?LazyPath = null,
 };
 
+/// Add a step to compile a `Module` into a static library.
+/// Install the generated executable with `installArtifact` or use
+/// `addInstallArtifact` as a more flexible solution, to create a step
+/// that your top level install step `getInstallStep` would depend.
+/// Link to generated static library with `linkLibrary`.
 pub fn addStaticLibrary(b: *Build, options: StaticLibraryOptions) *Step.Compile {
     return Step.Compile.create(b, .{
         .name = options.name,
@@ -978,6 +1000,12 @@ pub const AssemblyOptions = struct {
     zig_lib_dir: ?LazyPath = null,
 };
 
+/// Add a step to compile an asm `Module` into an object.
+/// Install the generated object with `installArtifact` or use
+/// `addInstallArtifact` as a more flexible solution, to create a step
+/// that your top level install step `getInstallStep` would depend.
+/// Link the generate object into your exe/lib with `addObject` or
+/// `addObjectFile` fn of a `Compile` step
 pub fn addAssembly(b: *Build, options: AssemblyOptions) *Step.Compile {
     const obj_step = Step.Compile.create(b, .{
         .name = options.name,
@@ -1013,7 +1041,7 @@ pub fn createModule(b: *Build, options: Module.CreateOptions) *Module {
 /// executable. More command line arguments can be added with `addArg`,
 /// `addArgs`, and `addArtifactArg`.
 /// Be careful using this function, as it introduces a system dependency.
-/// To run an executable built with zig build, see `Step.Compile.run`.
+/// To run an executable built with zig build, see `addRunArtifact`.
 pub fn addSystemCommand(b: *Build, argv: []const []const u8) *Step.Run {
     assert(argv.len >= 1);
     const run_step = Step.Run.create(b, b.fmt("run {s}", .{argv[0]}));
@@ -1076,7 +1104,7 @@ pub fn dupe(b: *Build, bytes: []const u8) []u8 {
     return dupeInner(b.allocator, bytes);
 }
 
-pub fn dupeInner(allocator: std.mem.Allocator, bytes: []const u8) []u8 {
+fn dupeInner(allocator: std.mem.Allocator, bytes: []const u8) []u8 {
     return allocator.dupe(u8, bytes) catch @panic("OOM");
 }
 
@@ -1103,50 +1131,70 @@ fn dupePathInner(allocator: std.mem.Allocator, bytes: []const u8) []u8 {
     return the_copy;
 }
 
+/// Create a step to write `data` to `file_path` relative to a generated
+/// directory in the local cache
 pub fn addWriteFile(b: *Build, file_path: []const u8, data: []const u8) *Step.WriteFile {
     const write_file_step = b.addWriteFiles();
     _ = write_file_step.add(file_path, data);
     return write_file_step;
 }
 
+/// Create a named `WriteFile` step
+/// The named step can be retrived at a later time with `b.named_writefiles.get*(name)`
 pub fn addNamedWriteFiles(b: *Build, name: []const u8) *Step.WriteFile {
     const wf = Step.WriteFile.create(b);
     b.named_writefiles.put(b.dupe(name), wf) catch @panic("OOM");
     return wf;
 }
 
+/// Store a `LazyPath` with a `name` in the build system so that it can
+/// be retrived at a later time with `b.named_lazy_paths.get*(name)`
 pub fn addNamedLazyPath(b: *Build, name: []const u8, lp: LazyPath) void {
     b.named_lazy_paths.put(b.dupe(name), lp.dupe(b)) catch @panic("OOM");
 }
 
+/// Create a `WriteFile` step
+/// WriteFile is used to create a directory in an appropriate location inside
+/// the local cache which has a set of files that have either been generated
+/// during the build, or are copied from the source package.
 pub fn addWriteFiles(b: *Build) *Step.WriteFile {
     return Step.WriteFile.create(b);
 }
 
+/// Create a step to update and copy source files to a path
+/// relative to the package root
 pub fn addUpdateSourceFiles(b: *Build) *Step.UpdateSourceFiles {
     return Step.UpdateSourceFiles.create(b);
 }
 
+/// Create a step to remove a directory specified by `dir_path`
 pub fn addRemoveDirTree(b: *Build, dir_path: LazyPath) *Step.RemoveDir {
     return Step.RemoveDir.create(b, dir_path);
 }
 
+/// Create a step to report failure in the build system with `error_msg`
 pub fn addFail(b: *Build, error_msg: []const u8) *Step.Fail {
     return Step.Fail.create(b, error_msg);
 }
 
+/// Create a step to format zig source files in place or check
+/// for files that need formatting
 pub fn addFmt(b: *Build, options: Step.Fmt.Options) *Step.Fmt {
     return Step.Fmt.create(b, options);
 }
 
+/// Create a step to translate `c` source files `*.c` or header files `*.h`
+/// files into a zig file
 pub fn addTranslateC(b: *Build, options: Step.TranslateC.Options) *Step.TranslateC {
     return Step.TranslateC.create(b, options);
 }
 
+/// get the default top level install step
 pub fn getInstallStep(b: *Build) *Step {
     return &b.install_tls.step;
 }
 
+/// get the default top level uninstall step
 pub fn getUninstallStep(b: *Build) *Step {
     return &b.uninstall_tls.step;
 }
@@ -1379,6 +1427,9 @@ pub fn option(b: *Build, comptime T: type, name_raw: []const u8, description_raw
     }
 }
 
+/// create a `TopLevelStep` that can be depended on by other steps. `Steps`
+/// created using this function are available from the build system using
+/// `zig build step-name`
 pub fn step(b: *Build, name: []const u8, description: []const u8) *Step {
     const step_info = b.allocator.create(TopLevelStep) catch @panic("OOM");
     step_info.* = .{
@@ -1402,6 +1453,7 @@ pub const StandardOptimizeOptionOptions = struct {
     preferred_optimize_mode: ?std.builtin.OptimizeMode = null,
 };
 
+/// Exposes standard `zig build` optimization modes
 pub fn standardOptimizeOption(b: *Build, options: StandardOptimizeOptionOptions) std.builtin.OptimizeMode {
     if (options.preferred_optimize_mode) |mode| {
         if (b.option(bool, "release", "optimize for end users") orelse (b.release_mode != .off)) {
@@ -1551,6 +1603,9 @@ pub fn standardTargetOptionsQueryOnly(b: *Build, args: StandardTargetOptionsArgs
     return args.default_target;
 }
 
+/// add a user build option to the build system
+/// Example: if `name_raw` is name and `value_raw` is value
+/// -Dname=value is passed to the build system
 pub fn addUserInputOption(b: *Build, name_raw: []const u8, value_raw: []const u8) !bool {
     const name = b.dupe(name_raw);
     const value = b.dupe(value_raw);
@@ -1603,6 +1658,8 @@ pub fn addUserInputOption(b: *Build, name_raw: []const u8, value_raw: []const u8
     return false;
 }
 
+/// add a user build flag to the build system
+/// Example: if `name_raw` is name -Dname is passed to the build system
 pub fn addUserInputFlag(b: *Build, name_raw: []const u8) !bool {
     const name = b.dupe(name_raw);
     const gop = try b.user_input_options.getOrPut(name);
@@ -1662,6 +1719,7 @@ fn markInvalidUserInput(b: *Build) void {
     b.invalid_user_input = true;
 }
 
+/// checks whether all user input options are used
 pub fn validateUserInputDidItFail(b: *Build) bool {
     // Make sure all args are used.
     var it = b.user_input_options.iterator();
@@ -1689,15 +1747,15 @@ fn printCmd(ally: Allocator, cwd: ?[]const u8, argv: []const []const u8) void {
     std.debug.print("{s}\n", .{text});
 }
 
-/// This creates the install step and adds it to the dependencies of the
-/// top-level install step, using all the default options.
+/// This creates an `InstallArtifact` step and adds it to the dependencies of
+/// the top-level install step, using all the default options.
 /// See `addInstallArtifact` for a more flexible function.
 pub fn installArtifact(b: *Build, artifact: *Step.Compile) void {
     b.getInstallStep().dependOn(&b.addInstallArtifact(artifact, .{}).step);
 }
 
-/// This merely creates the step; it does not add it to the dependencies of the
-/// top-level install step.
+/// This creates the `InstallArtifact` step but does not add it to
+/// the dependencies of the top-level install step. see `installArtifact`
 pub fn addInstallArtifact(
     b: *Build,
     artifact: *Step.Compile,
@@ -1706,49 +1764,92 @@ pub fn addInstallArtifact(
     return Step.InstallArtifact.create(b, artifact, options);
 }
 
-///`dest_rel_path` is relative to prefix path
-pub fn installFile(b: *Build, src_path: []const u8, dest_rel_path: []const u8) void {
-    b.getInstallStep().dependOn(&b.addInstallFileWithDir(b.path(src_path), .prefix, dest_rel_path).step);
-}
-
+/// This creates an `Step.InstallDir` step and adds it to the dependencies
+/// of the top-level install step, using all the default options.
+/// See `addInstallDirectory` for a more flexible function.
 pub fn installDirectory(b: *Build, options: Step.InstallDir.Options) void {
     b.getInstallStep().dependOn(&b.addInstallDirectory(options).step);
 }
 
-///`dest_rel_path` is relative to bin path
+/// Create a `Step.InstallDir` step that installs a directory using
+/// `Step.InstallDir.Options`
+pub fn addInstallDirectory(b: *Build, options: Step.InstallDir.Options) *Step.InstallDir {
+    return Step.InstallDir.create(b, options);
+}
+
+/// Creates an `InstallFile` step and adds it to the dependencies of the
+/// top-level install step, using all the default options.
+/// It installs a file to `dest_rel_path` which is relative to `b.install_path`
+/// .ie `zig-out/{dest_rel_path}` by default
+/// See `addInstallFileWithDir` for a more flexible function.
+pub fn installFile(b: *Build, src_path: []const u8, dest_rel_path: []const u8) void {
+    b.getInstallStep().dependOn(&b.addInstallFileWithDir(b.path(src_path), .prefix, dest_rel_path).step);
+}
+
+/// Creates an `InstallFile` step and adds it to the dependencies of the
+/// top-level install step, using all the default options.
+/// It installs a bin file to `dest_rel_path` which is relative to `b.exe_dir`
+/// .ie `zig-out/bin/{dest_rel_path}` by default
+/// See `addInstallFileWithDir` for a more flexible function.
 pub fn installBinFile(b: *Build, src_path: []const u8, dest_rel_path: []const u8) void {
     b.getInstallStep().dependOn(&b.addInstallFileWithDir(b.path(src_path), .bin, dest_rel_path).step);
 }
 
-///`dest_rel_path` is relative to lib path
+/// This creates an `InstallFile` step and adds it to the dependencies of the
+/// top-level install step, using all the default options.
+/// It installs a lib file to `dest_rel_path` which is relative to `b.lib_dir`
+/// .ie `zig-out/lib/{dest_rel_path}` by default
+/// See `addInstallFileWithDir` for a more flexible function.
 pub fn installLibFile(b: *Build, src_path: []const u8, dest_rel_path: []const u8) void {
     b.getInstallStep().dependOn(&b.addInstallFileWithDir(b.path(src_path), .lib, dest_rel_path).step);
 }
 
+/// Create an `ObjCopy` step which copies a compiled artifact at `source` and
+/// applies operations like seperating debug info, formatting artifact as
+/// bin | hex | elf, stripping and compressing debug info using `ObjCopy.Options`
+/// Use `getOutput*` on the step to get the result of the operations
 pub fn addObjCopy(b: *Build, source: LazyPath, options: Step.ObjCopy.Options) *Step.ObjCopy {
     return Step.ObjCopy.create(b, source, options);
 }
 
-/// `dest_rel_path` is relative to install prefix path
+/// This creates an `InstallFile` step that installs a file from `source` to `dest_rel_path`,
+/// which is relative to `b.install_path` .ie `zig-out/{dest_rel_path}` by default.
+/// This step must be added as a dependency of a top level step to ensure it is added
+/// to the build graph and executed.
+/// See `installFile` for a more stright forward function
 pub fn addInstallFile(b: *Build, source: LazyPath, dest_rel_path: []const u8) *Step.InstallFile {
     return b.addInstallFileWithDir(source, .prefix, dest_rel_path);
 }
 
-/// `dest_rel_path` is relative to bin path
+/// This creates an `InstallFile` step that installs a bin from `source` to `dest_rel_path`,
+/// which is relative to `b.exe_dir` .ie `zig-out/bin/{dest_rel_path}` by default.
+/// This step must be added as a dependency of a top level step to ensure it is added
+/// to the build graph and executed.
+/// See `installBinFile` for a more stright forward function
 pub fn addInstallBinFile(b: *Build, source: LazyPath, dest_rel_path: []const u8) *Step.InstallFile {
     return b.addInstallFileWithDir(source, .bin, dest_rel_path);
 }
 
-/// `dest_rel_path` is relative to lib path
+/// This creates an `InstallFile` step that installs a lib from `source` to `dest_rel_path`,
+/// which is relative to `b.lib_dir` .ie `zig-out/lib/{dest_rel_path}` by default.
+/// This step must be added as a dependency of a top level step to ensure it is added
+/// to the build graph and executed.
+/// See `installLibFile` for a more stright forward function
 pub fn addInstallLibFile(b: *Build, source: LazyPath, dest_rel_path: []const u8) *Step.InstallFile {
     return b.addInstallFileWithDir(source, .lib, dest_rel_path);
 }
 
-/// `dest_rel_path` is relative to header path
+/// This creates an `InstallFile` step that installs a header from `source` to `dest_rel_path`,
+/// which is relative to `b.h_dir` .ie `zig-out/include/{dest_rel_path}` by default.
+/// This step must be added as a dependency of a top level step to ensure it is added
+/// to the build graph and executed.
 pub fn addInstallHeaderFile(b: *Build, source: LazyPath, dest_rel_path: []const u8) *Step.InstallFile {
     return b.addInstallFileWithDir(source, .header, dest_rel_path);
 }
 
+/// Create an `InstallFile` step that installs `source` to `dest_rel_path`
+/// using `Build.InstallDir` to specify the prefix of `dest_rel_path`
+/// see: `addInstallFile`, `addInstallBinFile`, `addInstallLibFile`, `addInstallHeaderFile`, `getInstallPath`
 pub fn addInstallFileWithDir(
     b: *Build,
     source: LazyPath,
@@ -1758,10 +1859,8 @@ pub fn addInstallFileWithDir(
     return Step.InstallFile.create(b, source, install_dir, dest_rel_path);
 }
 
-pub fn addInstallDirectory(b: *Build, options: Step.InstallDir.Options) *Step.InstallDir {
-    return Step.InstallDir.create(b, options);
-}
-
+/// Create a `CheckFile` step which fails the build step if the `file_source`
+/// does not match certain checks specified by `CheckFile.Options`
 pub fn addCheckFile(
     b: *Build,
     file_source: LazyPath,
@@ -1770,6 +1869,8 @@ pub fn addCheckFile(
     return Step.CheckFile.create(b, file_source, options);
 }
 
+/// overwrite/empty a file at `dest_path` if one exist else create a new empty
+/// file at `dest_path`
 pub fn truncateFile(b: *Build, dest_path: []const u8) !void {
     if (b.verbose) {
         log.info("truncate {s}", .{dest_path});
@@ -1812,14 +1913,22 @@ fn pathFromCwd(b: *Build, sub_path: []const u8) []u8 {
     return b.pathResolve(&.{ cwd, sub_path });
 }
 
+/// Naively combines a series of paths with the native path separator.
+/// Allocates memory for the result, which must be freed by the caller.
+/// See: `std.fs.path.join`
 pub fn pathJoin(b: *Build, paths: []const []const u8) []u8 {
     return fs.path.join(b.allocator, paths) catch @panic("OOM");
 }
 
+/// This function is like a series of `cd` statements executed one after another.
+/// It resolves "." and "..", but will not convert relative path to absolute
+/// use `std.fs.Dir.realpath` instead. See: `std.fs.path.resolve`
 pub fn pathResolve(b: *Build, paths: []const []const u8) []u8 {
     return fs.path.resolve(b.allocator, paths) catch @panic("OOM");
 }
 
+/// Return a formatted string
+/// See: `std.fmt.allocPrint`
 pub fn fmt(b: *Build, comptime format: []const u8, args: anytype) []u8 {
     return std.fmt.allocPrint(b.allocator, format, args) catch @panic("OOM");
 }
@@ -1857,6 +1966,7 @@ fn tryFindProgram(b: *Build, full_path: []const u8) ?[]const u8 {
     return null;
 }
 
+/// Returns an absolute path to a program available as `names` in your system
 pub fn findProgram(b: *Build, names: []const []const u8, paths: []const []const u8) ![]const u8 {
     // TODO report error for ambiguous situations
     for (b.search_prefixes.items) |search_prefix| {
@@ -1889,6 +1999,8 @@ pub fn findProgram(b: *Build, names: []const []const u8, paths: []const []const 
     return error.FileNotFound;
 }
 
+/// Execute an external command `argv` which is available on the system
+/// Be careful using this function, as it introduces a system dependency.
 pub fn runAllowFail(
     b: *Build,
     argv: []const []const u8,
@@ -1932,8 +2044,8 @@ pub fn runAllowFail(
 }
 
 /// This is a helper function to be called from build.zig scripts, *not* from
-/// inside step make() functions. If any errors occur, it fails the build with
-/// a helpful message.
+/// inside a step's make() function. If any errors occur, it fails the build
+/// with a helpful message.
 pub fn run(b: *Build, argv: []const []const u8) []u8 {
     if (!process.can_spawn) {
         std.debug.print("unable to spawn the following command: cannot spawn child process\n{s}\n", .{
@@ -1952,10 +2064,13 @@ pub fn run(b: *Build, argv: []const []const u8) []u8 {
     };
 }
 
+/// Add `search_prefix` to the build system for lookup of binaries, libraries
+/// and header files
 pub fn addSearchPrefix(b: *Build, search_prefix: []const u8) void {
     b.search_prefixes.append(b.allocator, b.dupePath(search_prefix)) catch @panic("OOM");
 }
 
+/// get the absolute path to `dest_rel_path` relative to `dir`
 pub fn getInstallPath(b: *Build, dir: InstallDir, dest_rel_path: []const u8) []const u8 {
     assert(!fs.path.isAbsolute(dest_rel_path)); // Install paths must be relative to the prefix
     const base_dir = switch (dir) {
@@ -1968,9 +2083,11 @@ pub fn getInstallPath(b: *Build, dir: InstallDir, dest_rel_path: []const u8) []c
     return b.pathResolve(&.{ base_dir, dest_rel_path });
 }
 
+/// Represents a package dependency defined in `build.zig.zon`
 pub const Dependency = struct {
     builder: *Build,
 
+    /// get a `Compile` artifact called `name` from a `Dependency`
     pub fn artifact(d: *Dependency, name: []const u8) *Step.Compile {
         var found: ?*Step.Compile = null;
         for (d.builder.install_tls.step.dependencies.items) |dep_step| {
@@ -1989,24 +2106,28 @@ pub const Dependency = struct {
         };
     }
 
+    /// get a `Module` called `name` from a `Dependency`
     pub fn module(d: *Dependency, name: []const u8) *Module {
         return d.builder.modules.get(name) orelse {
             panic("unable to find module '{s}'", .{name});
         };
     }
 
+    /// get a `WriteFile` called `name` from a `Dependency`
     pub fn namedWriteFiles(d: *Dependency, name: []const u8) *Step.WriteFile {
         return d.builder.named_writefiles.get(name) orelse {
             panic("unable to find named writefiles '{s}'", .{name});
         };
     }
 
+    /// get a `LazyPath` called `name` from a `Dependency`
     pub fn namedLazyPath(d: *Dependency, name: []const u8) LazyPath {
         return d.builder.named_lazy_paths.get(name) orelse {
             panic("unable to find named lazypath '{s}'", .{name});
         };
     }
 
+    /// get a `LazyPath` to `sub_path` relative to a `Dependency`'s package tree
     pub fn path(d: *Dependency, sub_path: []const u8) LazyPath {
         return .{
             .dependency = .{
@@ -2083,6 +2204,14 @@ pub fn lazyDependency(b: *Build, name: []const u8, args: anytype) ?*Dependency {
     unreachable; // Bad @dependencies source
 }
 
+/// Get a package specified in your `build.zig.zon` dependencies called `name`.
+/// Pass to `args` options that are needed to build that package
+/// eg. if the package defines an option
+/// ```zig
+/// const lto = b.option(bool, "lto", "Enable link time optimization") orelse false;
+/// ```
+/// then pass to `args` the standard `target` option, `optimize` mode option and
+/// the defined option .ie `.{ .target = target, .optimize = optimize, .lto = true }`
 pub fn dependency(b: *Build, name: []const u8, args: anytype) *Dependency {
     const build_runner = @import("root");
     const deps = build_runner.dependencies;
@@ -2136,6 +2265,30 @@ pub inline fn lazyImport(
     comptime unreachable; // Bad @dependencies source
 }
 
+/// Given a struct that corresponds to the `build.zig` of a dependency
+/// `dependencyFromBuildZig` returns that same dependency. In other words, if
+/// you have already `@import`ed a dependency's build.zig struct, you can use
+/// this function to obtain a corresponding Dependency:
+/// # example
+/// ```zig
+/// // in consumer build.zig
+/// const foo_dep = b.dependencyFromBuildZig(@import("foo"), .{});
+/// ```
+/// This function is useful for packages that expose functions from their build.zig
+/// files that need to use their corresponding Dependency, such as for accessing
+/// package-relative paths, or for running system commands and returning the
+/// output as lazy paths. This can now be accomplished through:
+/// ```zig
+/// // in dependency build.zig
+/// pub fn getImportantFile(b: *std.Build) std.Build.LazyPath {
+///     const this_dep = b.dependencyFromBuildZig(@This(), .{});
+///     return this_dep.path("file.txt");
+/// }
+/// ```
+/// ```zig
+/// // in consumer build.zig
+/// const file = @import("foo").getImportantFile(b);
+/// ```
 pub fn dependencyFromBuildZig(
     b: *Build,
     /// The build.zig struct of the dependency, normally obtained by `@import` of the dependency.
@@ -2289,6 +2442,9 @@ fn dependencyInner(
     return dep;
 }
 
+/// run the `build fn` of a `build.zig`
+/// this function is *not* to be used in `build.zig` as it is mainly for the
+/// build_runner of the compiler
 pub fn runBuild(b: *Build, build_zig: anytype) anyerror!void {
     switch (@typeInfo(@typeInfo(@TypeOf(build_zig.build)).@"fn".return_type.?)) {
         .void => build_zig.build(b),
@@ -2307,6 +2463,8 @@ pub const GeneratedFile = struct {
     /// This value must be set in the `fn make()` of the `step` and must not be `null` afterwards.
     path: ?[]const u8 = null,
 
+    /// get the path to a generated file `gen`
+    /// this fn must only be called after the `GeneratedFile`'s step has been executed
     pub fn getPath(gen: GeneratedFile) []const u8 {
         return gen.step.owner.pathFromRoot(gen.path orelse std.debug.panic(
             "getPath() was called on a GeneratedFile that wasn't built yet. Is there a missing Step dependency on step '{s}'?",
@@ -2440,10 +2598,16 @@ pub const LazyPath = union(enum) {
         };
     }
 
+    /// return a `LazyPath` to a `sub_path` relative to `lazy_path`
+    /// this fn `@panics` on out of memory
+    /// See: `LazyPath.join`
     pub fn path(lazy_path: LazyPath, b: *Build, sub_path: []const u8) LazyPath {
         return lazy_path.join(b.allocator, sub_path) catch @panic("OOM");
     }
 
+    /// return a `LazyPath` to a `sub_path` relative to `lazy_path`
+    /// this fn returns an `error` on out of memory
+    /// See: `LazyPath.path`
     pub fn join(lazy_path: LazyPath, arena: Allocator, sub_path: []const u8) Allocator.Error!LazyPath {
         return switch (lazy_path) {
             .src_path => |src| .{ .src_path = .{
@@ -2495,6 +2659,7 @@ pub const LazyPath = union(enum) {
         return src_builder.pathResolve(&.{ p.root_dir.path orelse ".", p.sub_path });
     }
 
+    /// Returns the `Cache.Path` to a `lazy_path`
     /// Intended to be used during the make phase only.
     ///
     /// `asking_step` is only used for debugging purposes; it's the step being
@@ -2660,12 +2825,17 @@ pub fn dumpBadGetPathHelp(
     tty_config.setColor(w, .reset) catch {};
 }
 
+/// Specifies an install directory prefix
 pub const InstallDir = union(enum) {
+    /// Install relative to `b.install_path` path
     prefix: void,
+    /// Install relative to `b.lib_dir` path
     lib: void,
+    /// Install relative to `b.exe_dir` path
     bin: void,
+    /// Install relative to `b.h_dir` path
     header: void,
-    /// A path relative to the prefix
+    /// Install relative to `b.install_path/{custom}` path
     custom: []const u8,
 
     /// Duplicates the install directory including the path if set to custom.
@@ -2722,6 +2892,7 @@ pub fn resolveTargetQuery(b: *Build, query: Target.Query) ResolvedTarget {
     };
 }
 
+/// check if shared library symlinks is needed on the `target` OS
 pub fn wantSharedLibSymLinks(target: Target) bool {
     return target.os.tag != .windows;
 }
@@ -2731,6 +2902,10 @@ pub const SystemIntegrationOptionConfig = struct {
     default: ?bool = null,
 };
 
+/// Allow a package to optionally depend on integrating into system libraries.
+/// This requires building the package with `zig build -fsys=package-name`
+/// when you want to use a library provided by your system.
+/// See `System Integration Options` section of `zig build --help`
 pub fn systemIntegrationOption(
     b: *Build,
     name: []const u8,
