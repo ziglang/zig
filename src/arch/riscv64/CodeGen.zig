@@ -1593,7 +1593,6 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
             .breakpoint      => try func.airBreakpoint(),
             .ret_addr        => try func.airRetAddr(inst),
             .frame_addr      => try func.airFrameAddress(inst),
-            .fence           => try func.airFence(inst),
             .cond_br         => try func.airCondBr(inst),
             .dbg_stmt        => try func.airDbgStmt(inst),
             .fptrunc         => try func.airFptrunc(inst),
@@ -4831,26 +4830,6 @@ fn airFrameAddress(func: *Func, inst: Air.Inst.Index) !void {
     const dst_mcv = try func.allocRegOrMem(func.typeOfIndex(inst), inst, true);
     try func.genCopy(Type.u64, dst_mcv, .{ .lea_frame = .{ .index = .base_ptr } });
     return func.finishAir(inst, dst_mcv, .{ .none, .none, .none });
-}
-
-fn airFence(func: *Func, inst: Air.Inst.Index) !void {
-    const order = func.air.instructions.items(.data)[@intFromEnum(inst)].fence;
-    const pred: Mir.Barrier, const succ: Mir.Barrier = switch (order) {
-        .unordered, .monotonic => unreachable,
-        .acquire => .{ .r, .rw },
-        .release => .{ .rw, .r },
-        .acq_rel => .{ .rw, .rw },
-        .seq_cst => .{ .rw, .rw },
-    };
-
-    _ = try func.addInst(.{
-        .tag = if (order == .acq_rel) .fencetso else .fence,
-        .data = .{ .fence = .{
-            .pred = pred,
-            .succ = succ,
-        } },
-    });
-    return func.finishAirBookkeeping();
 }
 
 fn airCall(func: *Func, inst: Air.Inst.Index, modifier: std.builtin.CallModifier) !void {

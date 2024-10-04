@@ -4218,11 +4218,10 @@ pub fn print(self: *Writer, arg0: []const u8, arg1: i32) !void {
       {#header_close#}
 
       {#header_open|Atomics#}
-      <p>TODO: @fence()</p>
       <p>TODO: @atomic rmw</p>
       <p>TODO: builtin atomic memory ordering enum</p>
 
-      {#see_also|@atomicLoad|@atomicStore|@atomicRmw|@fence|@cmpxchgWeak|@cmpxchgStrong#}
+      {#see_also|@atomicLoad|@atomicStore|@atomicRmw|@cmpxchgWeak|@cmpxchgStrong#}
 
       {#header_close#}
 
@@ -4307,7 +4306,7 @@ comptime {
       an integer or an enum.
       </p>
       <p>{#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicOrder{#endsyntax#}.</p>
-      {#see_also|@atomicStore|@atomicRmw|@fence|@cmpxchgWeak|@cmpxchgStrong#}
+      {#see_also|@atomicStore|@atomicRmw||@cmpxchgWeak|@cmpxchgStrong#}
       {#header_close#}
 
       {#header_open|@atomicRmw#}
@@ -4322,7 +4321,7 @@ comptime {
       </p>
       <p>{#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicOrder{#endsyntax#}.</p>
       <p>{#syntax#}AtomicRmwOp{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicRmwOp{#endsyntax#}.</p>
-      {#see_also|@atomicStore|@atomicLoad|@fence|@cmpxchgWeak|@cmpxchgStrong#}
+      {#see_also|@atomicStore|@atomicLoad|@cmpxchgWeak|@cmpxchgStrong#}
       {#header_close#}
 
       {#header_open|@atomicStore#}
@@ -4335,7 +4334,7 @@ comptime {
       an integer or an enum.
       </p>
       <p>{#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicOrder{#endsyntax#}.</p>
-      {#see_also|@atomicLoad|@atomicRmw|@fence|@cmpxchgWeak|@cmpxchgStrong#}
+      {#see_also|@atomicLoad|@atomicRmw|@cmpxchgWeak|@cmpxchgStrong#}
       {#header_close#}
 
       {#header_open|@bitCast#}
@@ -4568,7 +4567,7 @@ comptime {
       </p>
       <p>{#syntax#}@typeInfo(@TypeOf(ptr)).pointer.alignment{#endsyntax#} must be {#syntax#}>= @sizeOf(T).{#endsyntax#}</p>
       <p>{#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicOrder{#endsyntax#}.</p>
-      {#see_also|@atomicStore|@atomicLoad|@atomicRmw|@fence|@cmpxchgWeak#}
+      {#see_also|@atomicStore|@atomicLoad|@atomicRmw|@cmpxchgWeak#}
       {#header_close#}
 
       {#header_open|@cmpxchgWeak#}
@@ -4600,7 +4599,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       </p>
       <p>{#syntax#}@typeInfo(@TypeOf(ptr)).pointer.alignment{#endsyntax#} must be {#syntax#}>= @sizeOf(T).{#endsyntax#}</p>
       <p>{#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicOrder{#endsyntax#}.</p>
-      {#see_also|@atomicStore|@atomicLoad|@atomicRmw|@fence|@cmpxchgStrong#}
+      {#see_also|@atomicStore|@atomicLoad|@atomicRmw|@cmpxchgStrong#}
       {#header_close#}
 
       {#header_open|@compileError#}
@@ -4855,15 +4854,6 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       T must be a pointer type.
       </p>
       {#see_also|@export#}
-      {#header_close#}
-
-      {#header_open|@fence#}
-      <pre>{#syntax#}@fence(order: AtomicOrder) void{#endsyntax#}</pre>
-      <p>
-      The {#syntax#}fence{#endsyntax#} function is used to introduce happens-before edges between operations.
-      </p>
-      <p>{#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicOrder{#endsyntax#}.</p>
-      {#see_also|@atomicStore|@atomicLoad|@atomicRmw|@cmpxchgWeak|@cmpxchgStrong#}
       {#header_close#}
 
       {#header_open|@field#}

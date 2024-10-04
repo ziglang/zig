@@ -346,8 +346,6 @@ pub fn categorizeOperand(
         .work_group_id,
         => return .none,
 
-        .fence => return .write,
-
         .not,
         .bitcast,
         .load,
@@ -975,7 +973,6 @@ fn analyzeInst(
         .ret_ptr,
         .breakpoint,
         .dbg_stmt,
-        .fence,
         .ret_addr,
         .frame_addr,
         .wasm_memory_size,

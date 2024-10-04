@@ -416,7 +416,6 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
             .work_item_id,
             .work_group_size,
             .work_group_id,
-            .fence,
             .dbg_stmt,
             .err_return_trace,
             .save_err_return_trace_index,

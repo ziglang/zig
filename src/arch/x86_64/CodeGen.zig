@@ -2294,7 +2294,6 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .breakpoint      => try self.airBreakpoint(),
             .ret_addr        => try self.airRetAddr(inst),
             .frame_addr      => try self.airFrameAddress(inst),
-            .fence           => try self.airFence(inst),
             .cond_br         => try self.airCondBr(inst),
             .fptrunc         => try self.airFptrunc(inst),
             .fpext           => try self.airFpext(inst),
@@ -12249,16 +12248,6 @@ fn airFrameAddress(self: *Self, inst: Air.Inst.Index) !void {
     const dst_mcv = try self.allocRegOrMem(inst, true);
     try self.genCopy(Type.usize, dst_mcv, .{ .lea_frame = .{ .index = .base_ptr } }, .{});
     return self.finishAir(inst, dst_mcv, .{ .none, .none, .none });
-}
-
-fn airFence(self: *Self, inst: Air.Inst.Index) !void {
-    const order = self.air.instructions.items(.data)[@intFromEnum(inst)].fence;
-    switch (order) {
-        .unordered, .monotonic => unreachable,
-        .acquire, .release, .acq_rel => {},
-        .seq_cst => try self.asmOpOnly(.{ ._, .mfence }),
-    }
-    self.finishAirBookkeeping();
 }
 
 fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier) !void {

@@ -3610,7 +3610,6 @@ typedef enum memory_order zig_memory_order;
 #define zig_atomicrmw_add_float zig_atomicrmw_add
 #undef  zig_atomicrmw_sub_float
 #define zig_atomicrmw_sub_float zig_atomicrmw_sub
-#define zig_fence(order) atomic_thread_fence(order)
 #elif defined(__GNUC__)
 typedef int zig_memory_order;
 #define zig_memory_order_relaxed __ATOMIC_RELAXED
@@ -3634,7 +3633,6 @@ typedef int zig_memory_order;
 #define    zig_atomic_load(res, obj,      order, Type, ReprType)       __atomic_load      (obj, &(res), order)
 #undef  zig_atomicrmw_xchg_float
 #define zig_atomicrmw_xchg_float zig_atomicrmw_xchg
-#define zig_fence(order) __atomic_thread_fence(order)
 #elif _MSC_VER && (_M_IX86 || _M_X64)
 #define zig_memory_order_relaxed 0
 #define zig_memory_order_acquire 2
@@ -3655,11 +3653,6 @@ typedef int zig_memory_order;
 #define  zig_atomicrmw_max(res, obj, arg, order, Type, ReprType) res = zig_msvc_atomicrmw_max_ ##Type(obj, arg)
 #define   zig_atomic_store(     obj, arg, order, Type, ReprType)       zig_msvc_atomic_store_  ##Type(obj, arg)
 #define    zig_atomic_load(res, obj,      order, Type, ReprType) res = zig_msvc_atomic_load_   ##order##_##Type(obj)
-#if _M_X64
-#define zig_fence(order) __faststorefence()
-#else
-#define zig_fence(order) zig_msvc_atomic_barrier()
-#endif
 /* TODO: _MSC_VER && (_M_ARM || _M_ARM64) */
 #else
 #define zig_memory_order_relaxed 0
@@ -3681,7 +3674,6 @@ typedef int zig_memory_order;
 #define  zig_atomicrmw_max(res, obj, arg, order, Type, ReprType) zig_atomics_unavailable
 #define   zig_atomic_store(     obj, arg, order, Type, ReprType) zig_atomics_unavailable
 #define    zig_atomic_load(res, obj,      order, Type, ReprType) zig_atomics_unavailable
-#define zig_fence(order) zig_fence_unavailable
 #endif
 
 #if _MSC_VER && (_M_IX86 || _M_X64)

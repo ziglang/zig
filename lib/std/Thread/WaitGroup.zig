@@ -15,11 +15,10 @@ pub fn start(self: *WaitGroup) void {
 }
 
 pub fn finish(self: *WaitGroup) void {
-    const state = self.state.fetchSub(one_pending, .release);
+    const state = self.state.fetchSub(one_pending, .acq_rel);
     assert((state / one_pending) > 0);
 
     if (state == (one_pending | is_waiting)) {
-        self.state.fence(.acquire);
         self.event.set();
     }
 }
