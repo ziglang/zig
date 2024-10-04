@@ -2753,6 +2753,19 @@ pub const Sigaction = switch (native_os) {
             restorer: ?*const fn () callconv(.C) void = null,
             __resv: [1]c_int = .{0},
         },
+        .s390x => if (builtin.abi == .gnu) extern struct {
+            pub const handler_fn = *align(1) const fn (i32) callconv(.C) void;
+            pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.C) void;
+
+            handler: extern union {
+                handler: ?handler_fn,
+                sigaction: ?sigaction_fn,
+            },
+            __glibc_reserved0: c_int = 0,
+            flags: c_uint,
+            restorer: ?*const fn () callconv(.C) void = null,
+            mask: sigset_t,
+        } else linux.Sigaction,
         else => linux.Sigaction,
     },
     .emscripten => emscripten.Sigaction,
