@@ -1252,13 +1252,8 @@ fn ElfFile(comptime is_64: bool) type {
 
                     const max_size = std.math.maxInt(usize);
                     const payload = try section_file.readToEndAlloc(arena.allocator(), max_size);
-                    const flags = 0; // TODO: 19009: support --set-section-flags
-                    const alignment = align_bytes: {
-                        if (options.set_section_alignment) |set_align| {
-                            if (std.mem.eql(u8, set_align.section_name, add_section.section_name)) break :align_bytes set_align.alignment;
-                        }
-                        break :align_bytes 4;
-                    };
+                    const flags = 0;
+                    const alignment = 4;
 
                     dest_sections[dest_section_idx] = Elf_Shdr{
                         .sh_name = user_section_name,
@@ -1278,19 +1273,41 @@ fn ElfFile(comptime is_64: bool) type {
                     eof_offset += @as(Elf_OffSize, @intCast(payload.len));
                 }
 
-                // overwrite section alignment
-                {
-                    // TODO: 19009: NYI
-                }
-
-                // overwrite section flags
-                {
-                    // TODO: 19009: NYI
-                }
-
                 assert(dest_section_idx == new_shnum);
                 break :blk dest_sections;
             };
+
+            // --set-section-alignment: overwrite alignment
+            if (options.set_section_alignment) |set_align| {
+                if (self.raw_elf_header.e_shstrndx == elf.SHN_UNDEF)
+                    fatal("zig objcopy: no strtab, cannot add the user section", .{}); // TODO add the section if needed?
+
+                const strtab = &sections_update[self.raw_elf_header.e_shstrndx];
+                for (updated_section_header) |*section| {
+                    const section_name = std.mem.span(@as([*:0]const u8, @ptrCast(&strtab.payload.?[section.sh_name])));
+                    if (std.mem.eql(u8, section_name, set_align.section_name)) {
+                        section.sh_addralign = set_align.alignment;
+                        break;
+                    }
+                } else std.log.warn("Skipping --set-section-alignment. Section '{s}' not found", .{set_align.section_name});
+            }
+
+            // --set-section-flags: overwrite flags
+            if (options.set_section_flags) |set_flags| {
+                if (self.raw_elf_header.e_shstrndx == elf.SHN_UNDEF)
+                    fatal("zig objcopy: no strtab, cannot add the user section", .{}); // TODO add the section if needed?
+
+                const strtab = &sections_update[self.raw_elf_header.e_shstrndx];
+                for (updated_section_header) |*section| {
+                    const section_name = std.mem.span(@as([*:0]const u8, @ptrCast(&strtab.payload.?[section.sh_name])));
+                    if (std.mem.eql(u8, section_name, set_flags.section_name)) {
+                        // TODO: 19009: map flags string to bitfield.
+                        // section.sh_flags = set_flags.flags;
+                        section.sh_flags = 0;
+                        break;
+                    }
+                } else std.log.warn("Skipping --set-section-flags. Section '{s}' not found", .{set_flags.section_name});
+            }
 
             // write the section header at the tail
             {
