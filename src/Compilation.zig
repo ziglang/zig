@@ -5628,8 +5628,8 @@ pub fn addCCArgs(
         try argv.append("-mthumb");
     }
 
-    if (target_util.supports_fpic(target) and mod.pic) {
-        try argv.append("-fPIC");
+    if (target_util.supports_fpic(target)) {
+        try argv.append(if (mod.pic) "-fPIC" else "-fno-PIC");
     }
 
     try argv.ensureUnusedCapacity(2);
