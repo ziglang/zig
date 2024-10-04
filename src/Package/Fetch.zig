@@ -277,7 +277,7 @@ pub const Location = union(enum) {
     /// URL, or a directory, in which case it should be treated as an
     /// already-unpacked directory (but still needs to be copied into the
     /// global package cache and have inclusion rules applied).
-    path_or_url: []const u8,
+    local_or_remote: Remote,
 
     pub const Remote = struct {
         url: []const u8,
@@ -342,27 +342,26 @@ pub fn run(f: *Fetch) RunError!void {
             return queueJobsForDeps(f);
         },
         .remote => |remote| remote,
-        .path_or_url => |path_or_url| {
-            if (fs.cwd().openDir(path_or_url, .{ .iterate = true })) |dir| {
+        .local_or_remote => |remote| blk: {
+            // Here, remote.url could be either a local path or an url. Try the path first.
+            if (fs.cwd().openDir(remote.url, .{ .iterate = true })) |dir| {
                 var resource: Resource = .{ .dir = dir };
-                return f.runResource(path_or_url, &resource, null);
+                return f.runResource(remote.url, &resource, remote.hash);
             } else |dir_err| {
                 const file_err = if (dir_err == error.NotDir) e: {
-                    if (fs.cwd().openFile(path_or_url, .{})) |file| {
+                    if (fs.cwd().openFile(remote.url, .{})) |file| {
                         var resource: Resource = .{ .file = file };
-                        return f.runResource(path_or_url, &resource, null);
+                        return f.runResource(remote.url, &resource, remote.hash);
                     } else |err| break :e err;
                 } else dir_err;
 
-                const uri = std.Uri.parse(path_or_url) catch |uri_err| {
+                _ = std.Uri.parse(remote.url) catch |uri_err| {
                     return f.fail(0, try eb.printString(
                         "'{s}' could not be recognized as a file path ({s}) or an URL ({s})",
-                        .{ path_or_url, @errorName(file_err), @errorName(uri_err) },
+                        .{ remote.url, @errorName(file_err), @errorName(uri_err) },
                     ));
                 };
-                var server_header_buffer: [header_buffer_size]u8 = undefined;
-                var resource = try f.initResource(uri, &server_header_buffer);
-                return f.runResource(try uri.path.toRawMaybeAlloc(arena), &resource, null);
+                break :blk remote;
             }
         },
     };
