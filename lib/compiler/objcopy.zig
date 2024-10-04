@@ -865,7 +865,7 @@ fn ElfFile(comptime is_64: bool) type {
             // program header: list of segments
             const program_segments = blk: {
                 if (@sizeOf(Elf_Phdr) != header.phentsize)
-                    fatal("zig objcopy: unsuported ELF file, unexpected phentsize ({d})", .{header.phentsize});
+                    fatal("zig objcopy: unsupported ELF file, unexpected phentsize ({d})", .{header.phentsize});
 
                 const program_header = try allocator.alloc(Elf_Phdr, header.phnum);
                 const bytes_read = try in_file.preadAll(std.mem.sliceAsBytes(program_header), header.phoff);
@@ -877,7 +877,7 @@ fn ElfFile(comptime is_64: bool) type {
             // section header
             const sections = blk: {
                 if (@sizeOf(Elf_Shdr) != header.shentsize)
-                    fatal("zig objcopy: unsuported ELF file, unexpected shentsize ({d})", .{header.shentsize});
+                    fatal("zig objcopy: unsupported ELF file, unexpected shentsize ({d})", .{header.shentsize});
 
                 const section_header = try allocator.alloc(Section, header.shnum);
 
@@ -1126,7 +1126,7 @@ fn ElfFile(comptime is_64: bool) type {
                         if (section.section.sh_type == elf.SHT_NOBITS)
                             continue;
                         if (section.section.sh_offset < offset) {
-                            fatal("zig objcopy: unsuported ELF file", .{});
+                            fatal("zig objcopy: unsupported ELF file", .{});
                         }
                         offset = section.section.sh_offset;
                     }
