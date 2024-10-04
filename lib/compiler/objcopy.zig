@@ -40,9 +40,9 @@ fn cmdObjCopy(
     var only_keep_debug: bool = false;
     var compress_debug_sections: bool = false;
     var listen = false;
-    var add_section: ?AddSectionOptions = null;
-    var set_section_alignment: ?SetSectionAlignmentOptions = null;
-    var set_section_flags: ?SetSectionFlagsOptions = null;
+    var add_section: ?AddSection = null;
+    var set_section_alignment: ?SetSectionAlignment = null;
+    var set_section_flags: ?SetSectionFlags = null;
     while (i < args.len) : (i += 1) {
         const arg = args[i];
         if (!mem.startsWith(u8, arg, "-")) {
@@ -279,23 +279,22 @@ pub const EmitRawElfOptions = struct {
     ofmt: std.Target.ObjectFormat,
     only_section: ?[]const u8 = null,
     pad_to: ?u64 = null,
-    add_section: ?AddSectionOptions,
-    set_section_alignment: ?SetSectionAlignmentOptions,
-    set_section_flags: ?SetSectionFlagsOptions,
+    add_section: ?AddSection,
+    set_section_alignment: ?SetSectionAlignment,
+    set_section_flags: ?SetSectionFlags,
 };
 
-const AddSectionOptions = struct {
+const AddSection = struct {
     section_name: []const u8,
-    // file to store in new section
     file_path: []const u8,
 };
 
-const SetSectionAlignmentOptions = struct {
+const SetSectionAlignment = struct {
     section_name: []const u8,
     alignment: u32,
 };
 
-const SetSectionFlagsOptions = struct {
+const SetSectionFlags = struct {
     section_name: []const u8,
     flags: SectionFlags,
 };
@@ -740,9 +739,9 @@ const StripElfOptions = struct {
     strip_debug: bool = false,
     only_keep_debug: bool = false,
     compress_debug: bool = false,
-    add_section: ?AddSectionOptions,
-    set_section_alignment: ?SetSectionAlignmentOptions,
-    set_section_flags: ?SetSectionFlagsOptions,
+    add_section: ?AddSection,
+    set_section_alignment: ?SetSectionAlignment,
+    set_section_flags: ?SetSectionFlags,
 };
 
 fn stripElf(
@@ -976,9 +975,9 @@ fn ElfFile(comptime is_64: bool) type {
             section_filter: Filter = .all,
             debuglink: ?DebugLink = null,
             compress_debug: bool = false,
-            add_section: ?AddSectionOptions = null,
-            set_section_alignment: ?SetSectionAlignmentOptions = null,
-            set_section_flags: ?SetSectionFlagsOptions = null,
+            add_section: ?AddSection = null,
+            set_section_alignment: ?SetSectionAlignment = null,
+            set_section_flags: ?SetSectionFlags = null,
         };
         fn emit(self: *const Self, gpa: Allocator, out_file: File, in_file: File, options: EmitElfOptions) !void {
             var arena = std.heap.ArenaAllocator.init(gpa);
