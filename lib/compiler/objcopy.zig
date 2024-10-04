@@ -185,14 +185,17 @@ fn cmdObjCopy(
                 fatal("zig objcopy: ELF to RAW or HEX copying does not support --strip", .{});
             if (opt_extract != null)
                 fatal("zig objcopy: ELF to RAW or HEX copying does not support --extract-to", .{});
+            if (add_section != null)
+                fatal("zig objcopy: ELF to RAW or HEX copying does not support --add-section", .{});
+            if (set_section_alignment != null)
+                fatal("zig objcopy: ELF to RAW or HEX copying does not support --set_section_alignment", .{});
+            if (set_section_flags != null)
+                fatal("zig objcopy: ELF to RAW or HEX copying does not support --set_section_flags", .{});
 
             try emitElf(arena, in_file, out_file, elf_hdr, .{
                 .ofmt = out_fmt,
                 .only_section = only_section,
                 .pad_to = pad_to,
-                .add_section = add_section,
-                .set_section_alignment = set_section_alignment,
-                .set_section_flags = set_section_flags,
             });
         },
         .elf => {
@@ -279,9 +282,9 @@ pub const EmitRawElfOptions = struct {
     ofmt: std.Target.ObjectFormat,
     only_section: ?[]const u8 = null,
     pad_to: ?u64 = null,
-    add_section: ?AddSection,
-    set_section_alignment: ?SetSectionAlignment,
-    set_section_flags: ?SetSectionFlags,
+    add_section: ?AddSection = null,
+    set_section_alignment: ?SetSectionAlignment = null,
+    set_section_flags: ?SetSectionFlags = null,
 };
 
 const AddSection = struct {
