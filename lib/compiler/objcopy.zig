@@ -41,6 +41,8 @@ fn cmdObjCopy(
     var compress_debug_sections: bool = false;
     var listen = false;
     var add_section: ?AddSectionOptions = null;
+    var set_section_alignment: ?SectionAlignmentOptions = null;
+    var set_section_flags: ?SectionFlagsOptions = null;
     while (i < args.len) : (i += 1) {
         const arg = args[i];
         if (!mem.startsWith(u8, arg, "-")) {
@@ -105,12 +107,34 @@ fn cmdObjCopy(
             i += 1;
             if (i >= args.len) fatal("expected another argument after '{s}'", .{arg});
             opt_extract = args[i];
-        } else if (mem.eql(u8, arg, "--add-section")) {
+        } else if (mem.eql(u8, arg, "--set-section-alignment")) {
             i += 1;
-            if (i >= args.len) fatal("expected name and filename arguments after '{s}'", .{arg});
+            if (i >= args.len) fatal("expected section name and alignment arguments after '{s}'", .{arg});
 
             if (splitOption(args[i])) |split| {
-                add_section = .{ .section_name = split.first, .file = split.second };
+                const alignment = std.fmt.parseInt(u32, split.second, 10) catch |err| {
+                    fatal("unable to parse alignment number: '{s}': {s}", .{ split.second, @errorName(err) });
+                };
+                if (!std.math.isPowerOfTwo(alignment)) fatal("alignment must be a power of two", .{});
+                set_section_alignment = .{ .section_name = split.first, .alignment = alignment };
+            } else {
+                fatal("unrecognized argument: '{s}', expecting <name>=<alignment>", .{args[i]});
+            }
+        } else if (mem.eql(u8, arg, "--set-section-flags")) {
+            i += 1;
+            if (i >= args.len) fatal("expected section name and filename arguments after '{s}'", .{arg});
+
+            if (splitOption(args[i])) |split| {
+                set_section_flags = .{ .section_name = split.first, .flags = split.second };
+            } else {
+                fatal("unrecognized argument: '{s}', expecting <name>=<flags>", .{args[i]});
+            }
+        } else if (mem.eql(u8, arg, "--add-section")) {
+            i += 1;
+            if (i >= args.len) fatal("expected section name and filename arguments after '{s}'", .{arg});
+
+            if (splitOption(args[i])) |split| {
+                add_section = .{ .section_name = split.first, .file_path = split.second };
             } else {
                 fatal("unrecognized argument: '{s}', expecting <name>=<file>", .{args[i]});
             }
@@ -167,6 +191,8 @@ fn cmdObjCopy(
                 .only_section = only_section,
                 .pad_to = pad_to,
                 .add_section = add_section,
+                .set_section_alignment = set_section_alignment,
+                .set_section_flags = set_section_flags,
             });
         },
         .elf => {
@@ -187,6 +213,8 @@ fn cmdObjCopy(
                 .extract_to = opt_extract,
                 .compress_debug = compress_debug_sections,
                 .add_section = add_section,
+                .set_section_alignment = set_section_alignment,
+                .set_section_flags = set_section_flags,
             });
             return std.process.cleanExit();
         },
@@ -229,19 +257,21 @@ const usage =
     \\Usage: zig objcopy [options] input output
     \\
     \\Options:
-    \\  -h, --help                  Print this help and exit
-    \\  --output-target=<value>     Format of the output file
-    \\  -O <value>                  Alias for --output-target
-    \\  --only-section=<section>    Remove all but <section>
-    \\  -j <value>                  Alias for --only-section
-    \\  --pad-to <addr>             Pad the last section up to address <addr>
-    \\  --strip-debug, -g           Remove all debug sections from the output.
-    \\  --strip-all, -S             Remove all debug sections and symbol table from the output.
-    \\  --only-keep-debug           Strip a file, removing contents of any sections that would not be stripped by --strip-debug and leaving the debugging sections intact.
-    \\  --add-gnu-debuglink=<file>  Creates a .gnu_debuglink section which contains a reference to <file> and adds it to the output file.
-    \\  --extract-to <file>         Extract the removed sections into <file>, and add a .gnu-debuglink section.
-    \\  --compress-debug-sections   Compress DWARF debug sections with zlib
-    \\  --add-section <name>=<file> Add file content from <file> with the section name <name>.
+    \\  -h, --help                              Print this help and exit
+    \\  --output-target=<value>                 Format of the output file
+    \\  -O <value>                              Alias for --output-target
+    \\  --only-section=<section>                Remove all but <section>
+    \\  -j <value>                              Alias for --only-section
+    \\  --pad-to <addr>                         Pad the last section up to address <addr>
+    \\  --strip-debug, -g                       Remove all debug sections from the output.
+    \\  --strip-all, -S                         Remove all debug sections and symbol table from the output.
+    \\  --only-keep-debug                       Strip a file, removing contents of any sections that would not be stripped by --strip-debug and leaving the debugging sections intact.
+    \\  --add-gnu-debuglink=<file>              Creates a .gnu_debuglink section which contains a reference to <file> and adds it to the output file.
+    \\  --extract-to <file>                     Extract the removed sections into <file>, and add a .gnu-debuglink section.
+    \\  --compress-debug-sections               Compress DWARF debug sections with zlib
+    \\  --set-section-alignment <name>=<align>  Set alignment of section <name> to <align> bytes. Must be a power of two.
+    \\  --set-section-flags <name>=<file>       Set flags of section <name> to <flags> represented as a comma separated set of flags.
+    \\  --add-section <name>=<file>             Add file content from <file> with the section name <name>.
     \\
 ;
 
@@ -250,11 +280,25 @@ pub const EmitRawElfOptions = struct {
     only_section: ?[]const u8 = null,
     pad_to: ?u64 = null,
     add_section: ?AddSectionOptions,
+    set_section_alignment: ?SectionAlignmentOptions,
+    set_section_flags: ?SectionFlagsOptions,
 };
 
 const AddSectionOptions = struct {
     section_name: []const u8,
-    file: []const u8,
+    // file to store in new section
+    file_path: []const u8,
+};
+
+const SectionAlignmentOptions = struct {
+    section_name: []const u8,
+    alignment: u32,
+};
+
+const SectionFlagsOptions = struct {
+    section_name: []const u8,
+    // comma separated string representation of the SHF_x flags for Shdr.sh_flags
+    flags: []const u8,
 };
 
 fn emitElf(
@@ -698,6 +742,8 @@ const StripElfOptions = struct {
     only_keep_debug: bool = false,
     compress_debug: bool = false,
     add_section: ?AddSectionOptions,
+    set_section_alignment: ?SectionAlignmentOptions,
+    set_section_flags: ?SectionFlagsOptions,
 };
 
 fn stripElf(
@@ -761,7 +807,14 @@ fn stripElf(
             }
 
             const debuglink: ?DebugLink = if (debuglink_path) |path| ElfFileHelper.createDebugLink(path) else null;
-            try elf_file.emit(allocator, out_file, in_file, .{ .section_filter = filter, .debuglink = debuglink, .compress_debug = options.compress_debug, .add_section = options.add_section });
+            try elf_file.emit(allocator, out_file, in_file, .{
+                .section_filter = filter,
+                .debuglink = debuglink,
+                .compress_debug = options.compress_debug,
+                .add_section = options.add_section,
+                .set_section_alignment = options.set_section_alignment,
+                .set_section_flags = options.set_section_flags,
+            });
         },
     }
 }
@@ -925,6 +978,8 @@ fn ElfFile(comptime is_64: bool) type {
             debuglink: ?DebugLink = null,
             compress_debug: bool = false,
             add_section: ?AddSectionOptions = null,
+            set_section_alignment: ?SectionAlignmentOptions = null,
+            set_section_flags: ?SectionFlagsOptions = null,
         };
         fn emit(self: *const Self, gpa: Allocator, out_file: File, in_file: File, options: EmitElfOptions) !void {
             var arena = std.heap.ArenaAllocator.init(gpa);
@@ -1191,14 +1246,19 @@ fn ElfFile(comptime is_64: bool) type {
 
                 // add user section
                 if (options.add_section) |add_section| {
-                    var section_file = fs.cwd().openFile(add_section.file, .{}) catch |err|
-                        fatal("unable to open '{s}': {s}", .{ add_section.file, @errorName(err) });
+                    var section_file = fs.cwd().openFile(add_section.file_path, .{}) catch |err|
+                        fatal("unable to open '{s}': {s}", .{ add_section.file_path, @errorName(err) });
                     defer section_file.close();
 
                     const max_size = std.math.maxInt(usize);
                     const payload = try section_file.readToEndAlloc(arena.allocator(), max_size);
                     const flags = 0; // TODO: 19009: support --set-section-flags
-                    const alignment = 4; // TODO: 19009: support --set-section-alignment
+                    const alignment = align_bytes: {
+                        if (options.set_section_alignment) |set_align| {
+                            if (std.mem.eql(u8, set_align.section_name, add_section.section_name)) break :align_bytes set_align.alignment;
+                        }
+                        break :align_bytes 4;
+                    };
 
                     dest_sections[dest_section_idx] = Elf_Shdr{
                         .sh_name = user_section_name,
@@ -1216,6 +1276,16 @@ fn ElfFile(comptime is_64: bool) type {
 
                     cmdbuf.appendAssumeCapacity(.{ .write_data = .{ .data = payload, .out_offset = eof_offset } });
                     eof_offset += @as(Elf_OffSize, @intCast(payload.len));
+                }
+
+                // overwrite section alignment
+                {
+                    // TODO: 19009: NYI
+                }
+
+                // overwrite section flags
+                {
+                    // TODO: 19009: NYI
                 }
 
                 assert(dest_section_idx == new_shnum);
@@ -1462,9 +1532,9 @@ fn splitOption(option: []const u8) ?SplitResult {
 
 test "Split option" {
     {
-        const split = splitOption("a=123");
+        const split = splitOption(".abc=123");
         try std.testing.expect(split != null);
-        try std.testing.expectEqualStrings("a", split.?.first);
+        try std.testing.expectEqualStrings(".abc", split.?.first);
         try std.testing.expectEqualStrings("123", split.?.second);
     }
 
