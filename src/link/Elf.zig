@@ -3472,12 +3472,7 @@ fn resetShdrIndexes(self: *Elf, backlinks: []const u32) void {
         }
     }
 
-    if (self.zigObjectPtr()) |zo| {
-        for (zo.atoms_indexes.items) |atom_index| {
-            const atom_ptr = zo.atom(atom_index) orelse continue;
-            atom_ptr.output_section_index = backlinks[atom_ptr.output_section_index];
-        }
-    }
+    if (self.zigObjectPtr()) |zo| zo.resetShdrIndexes(backlinks);
 
     for (self.comdat_group_sections.items) |*cg| {
         cg.shndx = backlinks[cg.shndx];

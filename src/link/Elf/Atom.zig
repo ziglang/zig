@@ -935,9 +935,10 @@ fn format2(
     _ = unused_fmt_string;
     const atom = ctx.atom;
     const elf_file = ctx.elf_file;
-    try writer.print("atom({d}) : {s} : @{x} : shdr({d}) : align({x}) : size({x})", .{
+    try writer.print("atom({d}) : {s} : @{x} : shdr({d}) : align({x}) : size({x}) : prev({}) : next({})", .{
         atom.atom_index,           atom.name(elf_file),                   atom.address(elf_file),
         atom.output_section_index, atom.alignment.toByteUnits() orelse 0, atom.size,
+        atom.prev_atom_ref,        atom.next_atom_ref,
     });
     if (atom.fdes(elf_file).len > 0) {
         try writer.writeAll(" : fdes{ ");
