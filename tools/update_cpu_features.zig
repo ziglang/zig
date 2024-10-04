@@ -1576,12 +1576,6 @@ fn processOneTarget(job: Job) anyerror!void {
 
     const zig_code_basename = try std.fmt.allocPrint(arena, "{s}.zig", .{llvm_target.zig_name});
 
-    if (all_features.items.len == 0) {
-        // We represent this with an empty file.
-        try target_dir.deleteTree(zig_code_basename);
-        return;
-    }
-
     var zig_code_file = try target_dir.createFile(zig_code_basename, .{});
     defer zig_code_file.close();
 
@@ -1596,11 +1590,12 @@ fn processOneTarget(job: Job) anyerror!void {
         \\const CpuModel = std.Target.Cpu.Model;
         \\
         \\pub const Feature = enum {
-        \\
     );
 
-    for (all_features.items) |feature| {
-        try w.print("    {p},\n", .{std.zig.fmtId(feature.zig_name)});
+    for (all_features.items, 0..) |feature, i| {
+        try w.print("\n    {p},", .{std.zig.fmtId(feature.zig_name)});
+
+        if (i == all_features.items.len - 1) try w.writeAll("\n");
     }
 
     try w.writeAll(

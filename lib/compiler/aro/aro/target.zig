@@ -652,7 +652,6 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .tvos => "tvos",
         .watchos => "watchos",
         .driverkit => "driverkit",
-        .shadermodel => "shadermodel",
         .visionos => "xros",
         .serenity => "serenity",
         .bridgeos => "bridgeos",
