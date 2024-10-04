@@ -9,11 +9,14 @@ const one_pending: usize = 1 << 1;
 state: std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
 event: std.Thread.ResetEvent = .{},
 
+/// Increments the wait group counter. Thread-safe.
 pub fn start(self: *WaitGroup) void {
     const state = self.state.fetchAdd(one_pending, .monotonic);
     assert((state / one_pending) < (std.math.maxInt(usize) / one_pending));
 }
 
+/// Decrements the wait group counter. Thread-safe.
+/// If this sets the counter to zero, all waiters are woken.
 pub fn finish(self: *WaitGroup) void {
     const state = self.state.fetchSub(one_pending, .release);
     assert((state / one_pending) > 0);
@@ -24,6 +27,7 @@ pub fn finish(self: *WaitGroup) void {
     }
 }
 
+/// Blocks until the wait group counter reaches zero. Thread-safe.
 pub fn wait(self: *WaitGroup) void {
     const state = self.state.fetchAdd(is_waiting, .acquire);
     assert(state & is_waiting == 0);
@@ -33,11 +37,17 @@ pub fn wait(self: *WaitGroup) void {
     }
 }
 
+/// Resets the wait group counter to zero. Thread-safe.
+/// This function must be called only after all operations tracked by the wait group have completed.
+/// Calling this function prematurely can result in undefined behavior, as
+/// the counter may be reset while other threads are still performing operations.
 pub fn reset(self: *WaitGroup) void {
     self.state.store(0, .monotonic);
     self.event.reset();
 }
 
+/// Returns `true` if the wait group counter is zero, `false` otherwise. Thread-safe.
+/// Depending on the behavior of other threads, it may be a race condition to rely on this value.
 pub fn isDone(wg: *WaitGroup) bool {
     const state = wg.state.load(.acquire);
     assert(state & is_waiting == 0);
@@ -45,8 +55,8 @@ pub fn isDone(wg: *WaitGroup) bool {
     return (state / one_pending) == 0;
 }
 
-// Spawns a new thread for the task. This is appropriate when the callee
-// delegates all work.
+/// Spawns a new thread for the task. This is appropriate when the callee
+/// delegates all work.
 pub fn spawnManager(
     wg: *WaitGroup,
     comptime func: anytype,
