@@ -125,6 +125,8 @@ fn cmdObjCopy(
             if (i >= args.len) fatal("expected section name and filename arguments after '{s}'", .{arg});
 
             if (splitOption(args[i])) |split| {
+                const flags = parseSectionFlags(split.second);
+                _ = flags; // TODO: 19009: integrate
                 set_section_flags = .{ .section_name = split.first, .flags = split.second };
             } else {
                 fatal("unrecognized argument: '{s}', expecting <name>=<flags>", .{args[i]});
@@ -1532,6 +1534,100 @@ const ElfFileHelper = struct {
         return hasher.final();
     }
 };
+
+/// Supporting a subset of GNU and LLVM objcopy for ELF only
+/// GNU:
+/// alloc: add SHF_ALLOC
+/// contents: if section is SHT_NOBITS, set SHT_PROGBITS, otherwise do nothing
+/// load: if section is SHT_NOBITS, set SHT_PROGBITS, otherwise do nothing
+/// noload: not supported
+/// readonly: clear default SHF_WRITE flag
+/// code: add SHF_EXECINSTR
+/// data: not supported
+/// rom: not supported
+/// exclude: add SHF_EXCLUDE
+/// share: not supported
+/// debug: not supported
+/// large: add SHF_X86_64_LARGE. Fatal error if target is not x86_64
+///
+/// LLVM:
+/// merge: add SHF_MERGE
+/// strings: add SHF_STRINGS
+const SectionFlags = packed struct {
+    alloc: bool = false,
+    contents: bool = false,
+    load: bool = false,
+    noload: bool = false,
+    readonly: bool = false,
+    code: bool = false,
+    data: bool = false,
+    rom: bool = false,
+    exclude: bool = false,
+    shared: bool = false,
+    debug: bool = false,
+    large: bool = false,
+    merge: bool = false,
+    strings: bool = false,
+};
+
+fn parseSectionFlags(comma_separated_flags: []const u8) SectionFlags {
+    const P = struct {
+        fn parse(flags: *SectionFlags, string: []const u8) void {
+            if (string.len == 0) return;
+
+            if (std.mem.eql(u8, string, "alloc")) {
+                flags.alloc = true;
+            } else if (std.mem.eql(u8, string, "contents")) {
+                flags.contents = true;
+            } else if (std.mem.eql(u8, string, "load")) {
+                flags.load = true;
+            } else if (std.mem.eql(u8, string, "noload")) {
+                flags.noload = true;
+            } else if (std.mem.eql(u8, string, "readonly")) {
+                flags.readonly = true;
+            } else if (std.mem.eql(u8, string, "code")) {
+                flags.code = true;
+            } else if (std.mem.eql(u8, string, "data")) {
+                flags.data = true;
+            } else if (std.mem.eql(u8, string, "rom")) {
+                flags.rom = true;
+            } else if (std.mem.eql(u8, string, "exclude")) {
+                flags.exclude = true;
+            } else if (std.mem.eql(u8, string, "shared")) {
+                flags.shared = true;
+            } else if (std.mem.eql(u8, string, "debug")) {
+                flags.debug = true;
+            } else if (std.mem.eql(u8, string, "large")) {
+                flags.large = true;
+            } else if (std.mem.eql(u8, string, "merge")) {
+                flags.merge = true;
+            } else if (std.mem.eql(u8, string, "strings")) {
+                flags.strings = true;
+            } else {
+                std.log.err("Skipping unrecognized section flag '{s}'", .{string});
+            }
+        }
+    };
+
+    var flags = SectionFlags{};
+    var start: usize = 0;
+    for (comma_separated_flags, 0..) |c, i| {
+        if (c == ',') {
+            defer start = i + 1;
+            const string = comma_separated_flags[start..i];
+            P.parse(&flags, string);
+        }
+    }
+    P.parse(&flags, comma_separated_flags[start..]);
+    return flags;
+}
+
+test "Parse section flags" {
+    const F = SectionFlags;
+    try std.testing.expectEqual(F{}, parseSectionFlags(""));
+    try std.testing.expectEqual(F{ .alloc = true }, parseSectionFlags("alloc"));
+    try std.testing.expectEqual(F{ .alloc = true, .code = true }, parseSectionFlags("alloc,code"));
+}
 
 const SplitResult = struct { first: []const u8, second: []const u8 };
 
