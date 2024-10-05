@@ -28,6 +28,7 @@ const TestTarget = struct {
     use_lld: ?bool = null,
     pic: ?bool = null,
     strip: ?bool = null,
+    skip_modules: []const []const u8 = &.{},
 
     // This is intended for targets that are known to be slow to compile. These are acceptable to
     // run in CI, but should not be run on developer machines by default. As an example, at the time
@@ -1225,7 +1226,13 @@ const ModuleTestOptions = struct {
 pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
     const step = b.step(b.fmt("test-{s}", .{options.name}), options.desc);
 
-    for (test_targets) |test_target| {
+    for_targets: for (test_targets) |test_target| {
+        if (test_target.skip_modules.len > 0) {
+            for (test_target.skip_modules) |skip_mod| {
+                if (std.mem.eql(u8, options.name, skip_mod)) continue :for_targets;
+            }
+        }
+
         if (!options.test_slow_targets and test_target.slow_backend) continue;
 
         if (options.skip_non_native and !test_target.target.isNative())
