@@ -306,7 +306,7 @@ pub fn libcFullLinkFlags(target: std.Target) []const []const u8 {
             "-lc",
             "-lnetwork",
         },
-        else => if (target.isAndroid()) &[_][]const u8{
+        else => if (target.isAndroid() or target.abi.isOpenHarmony()) &[_][]const u8{
             "-lm",
             "-lc",
             "-ldl",
