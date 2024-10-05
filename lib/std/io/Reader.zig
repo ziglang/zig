@@ -324,20 +324,47 @@ pub fn isBytes(self: Self, slice: []const u8) anyerror!bool {
     return matches;
 }
 
+/// Read a struct from the stream.
+/// Only packed and extern structs are supported.
+/// Packed structs must have a `@bitSizeOf` that is a multiple of eight.
 pub fn readStruct(self: Self, comptime T: type) anyerror!T {
-    // Only extern and packed structs have defined in-memory layout.
-    comptime assert(@typeInfo(T).@"struct".layout != .auto);
-    var res: [1]T = undefined;
-    try self.readNoEof(mem.sliceAsBytes(res[0..]));
-    return res[0];
+    switch (@typeInfo(T).@"struct".layout) {
+        .auto => @compileError("readStruct only supports packed and extern structs."),
+        .@"extern" => {
+            var res: [1]T = undefined;
+            try self.readNoEof(mem.sliceAsBytes(res[0..]));
+            return res[0];
+        },
+        .@"packed" => {
+            var bytes: [@divExact(@bitSizeOf(T), 8)]u8 = undefined;
+            try self.readNoEof(&bytes);
+            return @bitCast(bytes);
+        },
+    }
 }
 
+/// Read a struct having the specified endianness into the host endianness representation.
+/// Only packed and extern structs are supported.
+/// Packed structs must have a `@bitSizeOf` that is a multiple of eight.
 pub fn readStructEndian(self: Self, comptime T: type, endian: std.builtin.Endian) anyerror!T {
-    var res = try self.readStruct(T);
-    if (native_endian != endian) {
-        mem.byteSwapAllFields(T, &res);
+    switch (@typeInfo(T).@"struct".layout) {
+        .auto => @compileError("readStructEndian only supports packed and extern structs."),
+        .@"extern" => {
+            var res = try self.readStruct(T);
+            if (native_endian != endian) {
+                mem.byteSwapAllFields(T, &res);
+            }
+            return res;
+        },
+        .@"packed" => {
+            var bytes: [@divExact(@bitSizeOf(T), 8)]u8 = undefined;
+            try self.readNoEof(&bytes);
+            if (native_endian != endian) {
+                mem.reverse(u8, &bytes);
+            }
+            return @bitCast(bytes);
+        },
     }
-    return res;
 }
 
 /// Reads an integer with the same size as the given enum's tag type. If the integer matches
