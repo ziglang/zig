@@ -3459,7 +3459,7 @@ pub const itimerspec = switch (native_os) {
 };
 pub const msghdr = switch (native_os) {
     .linux => linux.msghdr,
-    .openbsd, .emscripten, .dragonfly, .freebsd, .netbsd, .haiku, .solaris, .illumos => extern struct {
+    .openbsd, .emscripten, .dragonfly, .freebsd, .netbsd, .haiku, .solaris, .illumos, .macos => extern struct {
         /// optional address
         name: ?*sockaddr,
         /// size of address
@@ -3479,7 +3479,7 @@ pub const msghdr = switch (native_os) {
 };
 pub const msghdr_const = switch (native_os) {
     .linux => linux.msghdr_const,
-    .openbsd, .emscripten, .dragonfly, .freebsd, .netbsd, .haiku, .solaris, .illumos => extern struct {
+    .openbsd, .emscripten, .dragonfly, .freebsd, .netbsd, .haiku, .solaris, .illumos, .macos => extern struct {
         /// optional address
         name: ?*const sockaddr,
         /// size of address
