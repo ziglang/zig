@@ -54,20 +54,46 @@ pub inline fn writeInt(self: Self, comptime T: type, value: T, endian: std.built
     return self.writeAll(&bytes);
 }
 
+/// Write a struct to the stream.
+/// Only packed and extern structs are supported.
+/// Packed structs must have a `@bitSizeOf` that is a multiple of eight.
 pub fn writeStruct(self: Self, value: anytype) anyerror!void {
     // Only extern and packed structs have defined in-memory layout.
-    comptime assert(@typeInfo(@TypeOf(value)).@"struct".layout != .auto);
-    return self.writeAll(mem.asBytes(&value));
+    switch (@typeInfo(@TypeOf(value)).@"struct".layout) {
+        .auto => @compileError("writeStruct only supports packed and extern structs."),
+        .@"extern" => {
+            return try self.writeAll(mem.asBytes(&value));
+        },
+        .@"packed" => {
+            const bytes: [@divExact(@bitSizeOf(@TypeOf(value)), 8)]u8 = @bitCast(value);
+            try self.writeAll(&bytes);
+        },
+    }
 }
 
+/// Write a struct to the stream in the specified endianness.
+/// Only packed and extern structs are supported.
+/// Packed structs must have a `@bitSizeOf` that is a multiple of eight.
 pub fn writeStructEndian(self: Self, value: anytype, endian: std.builtin.Endian) anyerror!void {
     // TODO: make sure this value is not a reference type
-    if (native_endian == endian) {
-        return self.writeStruct(value);
-    } else {
-        var copy = value;
-        mem.byteSwapAllFields(@TypeOf(value), &copy);
-        return self.writeStruct(copy);
+    switch (@typeInfo(@TypeOf(value)).@"struct".layout) {
+        .auto => @compileError("writeStructEndian only supports packed and extern structs."),
+        .@"extern" => {
+            if (native_endian == endian) {
+                return try self.writeStruct(value);
+            } else {
+                var copy = value;
+                mem.byteSwapAllFields(@TypeOf(value), &copy);
+                return try self.writeStruct(copy);
+            }
+        },
+        .@"packed" => {
+            var bytes: [@divExact(@bitSizeOf(@TypeOf(value)), 8)]u8 = @bitCast(value);
+            if (native_endian != endian) {
+                mem.reverse(u8, &bytes);
+            }
+            return try self.writeAll(&bytes);
+        },
     }
 }
 
@@ -80,4 +106,8 @@ pub fn writeFile(self: Self, file: std.fs.File) anyerror!void {
         try self.writeAll(buf[0..n]);
         if (n < buf.len) return;
     }
+}
+
+test {
+    _ = @import("Writer/test.zig");
 }

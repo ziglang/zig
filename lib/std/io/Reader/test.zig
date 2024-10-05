@@ -1,6 +1,7 @@
 const builtin = @import("builtin");
 const std = @import("../../std.zig");
 const testing = std.testing;
+const native_endian = @import("builtin").target.cpu.arch.endian();
 
 test "Reader" {
     var buf = "a\x02".*;
@@ -369,4 +370,45 @@ test "readIntoBoundedBytes correctly reads into a provided bounded array" {
     // compile time error if the size is not the same at the provided `bounded.capacity()`
     try reader.readIntoBoundedBytes(10000, &bounded_array);
     try testing.expectEqualStrings(bounded_array.slice(), test_string);
+}
+
+test "readStructEndian reads packed structs without padding and in correct field order" {
+    const buf = [3]u8{ 11, 12, 13 };
+    var fis = std.io.fixedBufferStream(&buf);
+    const reader = fis.reader();
+
+    const PackedStruct = packed struct(u24) { a: u8, b: u8, c: u8 };
+
+    try testing.expectEqualDeep(
+        PackedStruct{ .a = 11, .b = 12, .c = 13 },
+        reader.readStructEndian(PackedStruct, .little),
+    );
+    fis.reset();
+    try testing.expectEqualDeep(
+        PackedStruct{ .a = 13, .b = 12, .c = 11 },
+        reader.readStructEndian(PackedStruct, .big),
+    );
+}
+
+test "readStruct reads packed structs without padding and in correct field order" {
+    const buf = [3]u8{ 11, 12, 13 };
+    var fis = std.io.fixedBufferStream(&buf);
+    const reader = fis.reader();
+
+    const PackedStruct = packed struct(u24) { a: u8, b: u8, c: u8 };
+
+    switch (native_endian) {
+        .little => {
+            try testing.expectEqualDeep(
+                PackedStruct{ .a = 11, .b = 12, .c = 13 },
+                reader.readStruct(PackedStruct),
+            );
+        },
+        .big => {
+            try testing.expectEqualDeep(
+                PackedStruct{ .a = 13, .b = 12, .c = 11 },
+                reader.readStruct(PackedStruct),
+            );
+        },
+    }
 }
