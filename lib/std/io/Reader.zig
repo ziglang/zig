@@ -325,11 +325,12 @@ pub fn isBytes(self: Self, slice: []const u8) anyerror!bool {
 }
 
 /// Read a struct from the stream.
-/// Only packed and extern structs are supported.
+/// Only packed and extern structs are supported, as they have a defined in-memory layout.
 /// Packed structs must have a `@bitSizeOf` that is a multiple of eight.
 pub fn readStruct(self: Self, comptime T: type) anyerror!T {
     switch (@typeInfo(T).@"struct".layout) {
-        .auto => @compileError("readStruct only supports packed and extern structs."),
+        .auto => @compileError("readStruct only supports packed and extern structs, " ++
+            "but the given type: " ++ @typeName(T) ++ " is a normal struct."),
         .@"extern" => {
             var res: [1]T = undefined;
             try self.readNoEof(mem.sliceAsBytes(res[0..]));
@@ -344,11 +345,12 @@ pub fn readStruct(self: Self, comptime T: type) anyerror!T {
 }
 
 /// Read a struct having the specified endianness into the host endianness representation.
-/// Only packed and extern structs are supported.
+/// Only packed and extern structs are supported, as they have a defined in-memory layout.
 /// Packed structs must have a `@bitSizeOf` that is a multiple of eight.
 pub fn readStructEndian(self: Self, comptime T: type, endian: std.builtin.Endian) anyerror!T {
     switch (@typeInfo(T).@"struct".layout) {
-        .auto => @compileError("readStructEndian only supports packed and extern structs."),
+        .auto => @compileError("readStructEndian only supports packed and extern structs, " ++
+            "but the given type: " ++ @typeName(T) ++ " is a normal struct."),
         .@"extern" => {
             var res = try self.readStruct(T);
             if (native_endian != endian) {
