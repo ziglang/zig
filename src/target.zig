@@ -46,7 +46,7 @@ pub fn requiresPIC(target: std.Target, linking_libc: bool) bool {
         target.os.tag == .windows or target.os.tag == .uefi or
         osRequiresLibC(target) or
         (linking_libc and target.isGnuLibC()) or
-        (target.abi == .ohos and target.cpu.arch == .aarch64);
+        (target.cpu.arch == .aarch64 and target.abi == .ohos);
 }
 
 pub fn picLevel(target: std.Target) u32 {

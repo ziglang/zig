@@ -699,7 +699,8 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .cygnus => "cygnus",
         .simulator => "simulator",
         .macabi => "macabi",
-        .ohos => "openhos",
+        .ohos => "ohos",
+        .ohoseabi => "ohoseabi",
     };
     writer.writeAll(llvm_abi) catch unreachable;
     return stream.getWritten();

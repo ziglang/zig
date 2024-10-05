@@ -185,6 +185,7 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .simulator => "simulator",
         .macabi => "macabi",
         .ohos => "ohos",
+        .ohoseabi => "ohoseabi",
     };
     try llvm_triple.appendSlice(llvm_abi);
 
