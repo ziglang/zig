@@ -340,6 +340,70 @@ const test_targets = blk: {
 
         .{
             .target = .{
+                .cpu_arch = .thumb,
+                .os_tag = .linux,
+                .abi = .eabi,
+            },
+        },
+        .{
+            .target = .{
+                .cpu_arch = .thumb,
+                .os_tag = .linux,
+                .abi = .eabihf,
+            },
+        },
+        .{
+            .target = .{
+                .cpu_arch = .thumb,
+                .os_tag = .linux,
+                .abi = .musleabi,
+            },
+            .link_libc = true,
+            .skip_modules = &.{"std"},
+        },
+        .{
+            .target = .{
+                .cpu_arch = .thumb,
+                .os_tag = .linux,
+                .abi = .musleabihf,
+            },
+            .link_libc = true,
+            .skip_modules = &.{"std"},
+        },
+        // Calls are normally lowered to branch instructions that only support +/- 16 MB range when
+        // targeting Thumb. This is not sufficient for the std test binary linked statically with
+        // musl, so use long calls to avoid out-of-range relocations.
+        .{
+            .target = std.Target.Query.parse(.{
+                .arch_os_abi = "thumb-linux-musleabi",
+                .cpu_features = "baseline+long_calls",
+            }) catch @panic("OOM"),
+            .link_libc = true,
+            .pic = false, // Long calls don't work with PIC.
+            .skip_modules = &.{
+                "behavior",
+                "c-import",
+                "compiler-rt",
+                "universal-libc",
+            },
+        },
+        .{
+            .target = std.Target.Query.parse(.{
+                .arch_os_abi = "thumb-linux-musleabihf",
+                .cpu_features = "baseline+long_calls",
+            }) catch @panic("OOM"),
+            .link_libc = true,
+            .pic = false, // Long calls don't work with PIC.
+            .skip_modules = &.{
+                "behavior",
+                "c-import",
+                "compiler-rt",
+                "universal-libc",
+            },
+        },
+
+        .{
+            .target = .{
                 .cpu_arch = .mips,
                 .os_tag = .linux,
                 .abi = .eabi,
