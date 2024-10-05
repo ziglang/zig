@@ -31515,6 +31515,99 @@ fn storePtr2(
         return;
     }
 
+    if (ptr.toIndex()) |ptr_idx| snt: {
+        const air_tags = sema.air_instructions.items(.tag);
+        if (air_tags[@intFromEnum(ptr_idx)] == .ptr_elem_ptr or air_tags[@intFromEnum(ptr_idx)] == .slice_elem_ptr) {
+            const ty_pl = sema.air_instructions.items(.data)[@intFromEnum(ptr_idx)].ty_pl;
+            const bin_op = sema.getTmpAir().extraData(Air.Bin, ty_pl.payload).data;
+
+            const ty = sema.typeOf(bin_op.lhs);
+            var maybe_sentinel: ?Value = null;
+            var sentinel_index: Air.Inst.Ref = undefined;
+            var elem_type: Type = undefined;
+
+            const maybe_index = try sema.resolveValue(bin_op.rhs);
+
+            switch (ty.zigTypeTag(zcu)) {
+                .pointer => switch (ty.ptrSize(zcu)) {
+                    .Slice => {
+                        maybe_sentinel = ty.sentinel(zcu);
+                        elem_type = ty.childType(zcu);
+                        sentinel_index = try sema.analyzeSliceLen(block, src, bin_op.lhs);
+                    },
+                    .One => {
+                        const double_child_ty = ty.childType(zcu);
+                        if (double_child_ty.zigTypeTag(zcu) == .array) {
+                            maybe_sentinel = double_child_ty.sentinel(zcu);
+                            elem_type = double_child_ty.childType(zcu);
+                            sentinel_index = try pt.intRef(Type.usize, double_child_ty.arrayLen(zcu));
+                        }
+                    },
+                    else => {},
+                },
+                .array => {
+                    maybe_sentinel = ty.sentinel(zcu);
+                    elem_type = ty.childType(zcu);
+                    sentinel_index = try pt.intRef(Type.usize, ty.arrayLen(zcu));
+                },
+                else => {},
+            }
+
+            if (maybe_sentinel) |sentinel_val| {
+                if (maybe_index) |idx| {
+                    if (sentinel_index.toInterned()) |comptime_index| {
+                        const sentinel_index_val = Value.fromInterned(comptime_index);
+                        if (try sema.compareScalar(idx, .neq, sentinel_index_val, Type.usize)) {
+                            break :snt;
+                        }
+
+                        if (maybe_operand_val != null) {
+                            if (try sema.compareScalar(maybe_operand_val.?, .neq, sentinel_val, elem_ty)) {
+                                return sema.fail(
+                                    block,
+                                    src,
+                                    "sentinel mismatch: expected {}, found {}",
+                                    .{ sentinel_val.fmtValue(pt), maybe_operand_val.?.fmtValue(pt) },
+                                );
+                            }
+                            break :snt;
+                        }
+                    }
+                }
+                if (!block.wantSafety()) break :snt;
+
+                const ok = if (maybe_index == null or sentinel_index.toInterned() == null)
+                    try block.addBinOp(.cmp_neq, bin_op.rhs, sentinel_index)
+                else
+                    null;
+
+                const sentinel = Air.internedToRef(sentinel_val.toIntern());
+                const and_ok = if (ty.zigTypeTag(zcu) == .vector) ok: {
+                    const eql = try block.addCmpVector(sentinel, operand, .eq);
+                    break :ok try block.addInst(.{
+                        .tag = .reduce,
+                        .data = .{ .reduce = .{
+                            .operand = eql,
+                            .operation = .And,
+                        } },
+                    });
+                } else ok: {
+                    assert(elem_ty.isSelfComparable(zcu, true));
+                    break :ok try block.addBinOp(.cmp_eq, sentinel, operand);
+                };
+
+                const all_ok = if (ok) |ok_ref|
+                    try block.addBinOp(.bool_or, ok_ref, and_ok)
+                else
+                    and_ok;
+
+                try addSafetyCheckCall(sema, block, src, all_ok, "sentinelMismatch", &.{
+                    sentinel, operand,
+                });
+            }
+        }
+    }
+
     try sema.requireRuntimeBlock(block, src, runtime_src);
 
     if (ptr_ty.ptrInfo(zcu).flags.vector_index == .runtime) {
