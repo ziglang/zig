@@ -996,26 +996,33 @@ fn detectAbiAndDynamicLinker(
     };
     var ld_info_list_buffer: [all_abis.len]LdInfo = undefined;
     var ld_info_list_len: usize = 0;
-    const ofmt = query.ofmt orelse Target.ObjectFormat.default(os.tag, cpu.arch);
 
-    for (all_abis) |abi| {
-        // This may be a nonsensical parameter. We detect this with
-        // error.UnknownDynamicLinkerPath and skip adding it to `ld_info_list`.
-        const target: Target = .{
-            .cpu = cpu,
-            .os = os,
-            .abi = abi,
-            .ofmt = ofmt,
-        };
-        const ld = target.standardDynamicLinkerPath();
-        if (ld.get() == null) continue;
+    switch (Target.DynamicLinker.kind(os.tag)) {
+        // The OS has no dynamic linker. Leave the list empty and rely on `Abi.default()` to pick
+        // something sensible in `abiAndDynamicLinkerFromFile()`.
+        .none => {},
+        // The OS has a system-wide dynamic linker. Unfortunately, this implies that there's no
+        // useful ABI information that we can glean from it merely being present. That means the
+        // best we can do for this case (for now) is also `Abi.default()`.
+        .arch_os => {},
+        // The OS can have different dynamic linker paths depending on libc/ABI. In this case, we
+        // need to gather all the valid arch/OS/ABI combinations. `abiAndDynamicLinkerFromFile()`
+        // will then look for a dynamic linker with a matching path on the system and pick the ABI
+        // we associated it with here.
+        .arch_os_abi => for (all_abis) |abi| {
+            const ld = Target.DynamicLinker.standard(cpu, os, abi);
 
-        ld_info_list_buffer[ld_info_list_len] = .{
-            .ld = ld,
-            .abi = abi,
-        };
-        ld_info_list_len += 1;
+            // Does the generated target triple actually have a standard dynamic linker path?
+            if (ld.get() == null) continue;
+
+            ld_info_list_buffer[ld_info_list_len] = .{
+                .ld = ld,
+                .abi = abi,
+            };
+            ld_info_list_len += 1;
+        },
     }
+
     const ld_info_list = ld_info_list_buffer[0..ld_info_list_len];
 
     // Best case scenario: the executable is dynamically linked, and we can iterate
