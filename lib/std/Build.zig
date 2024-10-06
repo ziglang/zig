@@ -403,104 +403,145 @@ fn createChildOnly(
     return child;
 }
 
+fn userInputOptionsAdd(allocator: Allocator, user_input_options: *UserInputOptionsMap, field: std.builtin.Type.StructField, T: type, v: T) void {
+    switch (T) {
+        Target.Query => {
+            user_input_options.put(field.name, .{
+                .name = field.name,
+                .value = .{ .scalar = v.zigTriple(allocator) catch @panic("OOM") },
+                .used = false,
+            }) catch @panic("OOM");
+            user_input_options.put("cpu", .{
+                .name = "cpu",
+                .value = .{ .scalar = v.serializeCpuAlloc(allocator) catch @panic("OOM") },
+                .used = false,
+            }) catch @panic("OOM");
+        },
+        ResolvedTarget => {
+            user_input_options.put(field.name, .{
+                .name = field.name,
+                .value = .{ .scalar = v.query.zigTriple(allocator) catch @panic("OOM") },
+                .used = false,
+            }) catch @panic("OOM");
+            user_input_options.put("cpu", .{
+                .name = "cpu",
+                .value = .{ .scalar = v.query.serializeCpuAlloc(allocator) catch @panic("OOM") },
+                .used = false,
+            }) catch @panic("OOM");
+        },
+        LazyPath => {
+            user_input_options.put(field.name, .{
+                .name = field.name,
+                .value = .{ .lazy_path = v.dupeInner(allocator) },
+                .used = false,
+            }) catch @panic("OOM");
+        },
+        []const LazyPath => {
+            var list = ArrayList(LazyPath).initCapacity(allocator, v.len) catch @panic("OOM");
+            for (v) |lp| list.appendAssumeCapacity(lp.dupeInner(allocator));
+            user_input_options.put(field.name, .{
+                .name = field.name,
+                .value = .{ .lazy_path_list = list },
+                .used = false,
+            }) catch @panic("OOM");
+        },
+        []const u8 => {
+            user_input_options.put(field.name, .{
+                .name = field.name,
+                .value = .{ .scalar = v },
+                .used = false,
+            }) catch @panic("OOM");
+        },
+        []const []const u8 => {
+            var list = ArrayList([]const u8).initCapacity(allocator, v.len) catch @panic("OOM");
+            list.appendSliceAssumeCapacity(v);
+
+            user_input_options.put(field.name, .{
+                .name = field.name,
+                .value = .{ .list = list },
+                .used = false,
+            }) catch @panic("OOM");
+        },
+        else => switch (@typeInfo(T)) {
+            .bool => {
+                user_input_options.put(field.name, .{
+                    .name = field.name,
+                    .value = .{ .scalar = if (v) "true" else "false" },
+                    .used = false,
+                }) catch @panic("OOM");
+            },
+            .@"enum", .enum_literal => {
+                user_input_options.put(field.name, .{
+                    .name = field.name,
+                    .value = .{ .scalar = @tagName(v) },
+                    .used = false,
+                }) catch @panic("OOM");
+            },
+            .comptime_int, .int => {
+                user_input_options.put(field.name, .{
+                    .name = field.name,
+                    .value = .{ .scalar = std.fmt.allocPrint(allocator, "{d}", .{v}) catch @panic("OOM") },
+                    .used = false,
+                }) catch @panic("OOM");
+            },
+            .comptime_float, .float => {
+                user_input_options.put(field.name, .{
+                    .name = field.name,
+                    .value = .{ .scalar = std.fmt.allocPrint(allocator, "{e}", .{v}) catch @panic("OOM") },
+                    .used = false,
+                }) catch @panic("OOM");
+            },
+            .optional => {
+                if (v) |value| {
+                    userInputOptionsAdd(allocator, user_input_options, field, @TypeOf(value), value);
+                }
+            },
+            .null => {},
+            else => @compileError("option '" ++ field.name ++ "' has unsupported type: " ++ @typeName(T)),
+        },
+    }
+}
+
 fn userInputOptionsFromArgs(allocator: Allocator, args: anytype) UserInputOptionsMap {
     var user_input_options = UserInputOptionsMap.init(allocator);
     inline for (@typeInfo(@TypeOf(args)).@"struct".fields) |field| {
         const v = @field(args, field.name);
         const T = @TypeOf(v);
-        switch (T) {
-            Target.Query => {
-                user_input_options.put(field.name, .{
-                    .name = field.name,
-                    .value = .{ .scalar = v.zigTriple(allocator) catch @panic("OOM") },
-                    .used = false,
-                }) catch @panic("OOM");
-                user_input_options.put("cpu", .{
-                    .name = "cpu",
-                    .value = .{ .scalar = v.serializeCpuAlloc(allocator) catch @panic("OOM") },
-                    .used = false,
-                }) catch @panic("OOM");
-            },
-            ResolvedTarget => {
-                user_input_options.put(field.name, .{
-                    .name = field.name,
-                    .value = .{ .scalar = v.query.zigTriple(allocator) catch @panic("OOM") },
-                    .used = false,
-                }) catch @panic("OOM");
-                user_input_options.put("cpu", .{
-                    .name = "cpu",
-                    .value = .{ .scalar = v.query.serializeCpuAlloc(allocator) catch @panic("OOM") },
-                    .used = false,
-                }) catch @panic("OOM");
-            },
-            LazyPath => {
-                user_input_options.put(field.name, .{
-                    .name = field.name,
-                    .value = .{ .lazy_path = v.dupeInner(allocator) },
-                    .used = false,
-                }) catch @panic("OOM");
-            },
-            []const LazyPath => {
-                var list = ArrayList(LazyPath).initCapacity(allocator, v.len) catch @panic("OOM");
-                for (v) |lp| list.appendAssumeCapacity(lp.dupeInner(allocator));
-                user_input_options.put(field.name, .{
-                    .name = field.name,
-                    .value = .{ .lazy_path_list = list },
-                    .used = false,
-                }) catch @panic("OOM");
-            },
-            []const u8 => {
-                user_input_options.put(field.name, .{
-                    .name = field.name,
-                    .value = .{ .scalar = v },
-                    .used = false,
-                }) catch @panic("OOM");
-            },
-            []const []const u8 => {
-                var list = ArrayList([]const u8).initCapacity(allocator, v.len) catch @panic("OOM");
-                list.appendSliceAssumeCapacity(v);
-
-                user_input_options.put(field.name, .{
-                    .name = field.name,
-                    .value = .{ .list = list },
-                    .used = false,
-                }) catch @panic("OOM");
-            },
-            else => switch (@typeInfo(T)) {
-                .bool => {
-                    user_input_options.put(field.name, .{
-                        .name = field.name,
-                        .value = .{ .scalar = if (v) "true" else "false" },
-                        .used = false,
-                    }) catch @panic("OOM");
-                },
-                .@"enum", .enum_literal => {
-                    user_input_options.put(field.name, .{
-                        .name = field.name,
-                        .value = .{ .scalar = @tagName(v) },
-                        .used = false,
-                    }) catch @panic("OOM");
-                },
-                .comptime_int, .int => {
-                    user_input_options.put(field.name, .{
-                        .name = field.name,
-                        .value = .{ .scalar = std.fmt.allocPrint(allocator, "{d}", .{v}) catch @panic("OOM") },
-                        .used = false,
-                    }) catch @panic("OOM");
-                },
-                .comptime_float, .float => {
-                    user_input_options.put(field.name, .{
-                        .name = field.name,
-                        .value = .{ .scalar = std.fmt.allocPrint(allocator, "{e}", .{v}) catch @panic("OOM") },
-                        .used = false,
-                    }) catch @panic("OOM");
-                },
-                else => @compileError("option '" ++ field.name ++ "' has unsupported type: " ++ @typeName(T)),
-            },
-        }
+        userInputOptionsAdd(allocator, &user_input_options, field, T, v);
     }
 
     return user_input_options;
+}
+
+test userInputOptionsFromArgs {
+    const t = std.testing;
+    { // Can accept nullable values
+        const i: ?u32 = 0;
+        var a = std.heap.ArenaAllocator.init(t.allocator);
+        defer a.deinit();
+        var map = userInputOptionsFromArgs(a.allocator(), .{
+            .value = i,
+        });
+        defer map.deinit();
+        try t.expect(map.get("value") != null);
+    }
+    { // Won't put the nullable value if the value is null
+        const i: ?u32 = null;
+        var a = std.heap.ArenaAllocator.init(t.allocator);
+        defer a.deinit();
+        var map = userInputOptionsFromArgs(a.allocator(), .{
+            .value = i,
+        });
+        defer map.deinit();
+        try t.expect(map.get("value") == null);
+    }
+    { // won't put the literal null value
+        var a = std.heap.ArenaAllocator.init(t.allocator);
+        defer a.deinit();
+        var map = userInputOptionsFromArgs(a.allocator(), .{ .value = null });
+        defer map.deinit();
+        try t.expect(map.get("value") == null);
+    }
 }
 
 const OrderedUserValue = union(enum) {
