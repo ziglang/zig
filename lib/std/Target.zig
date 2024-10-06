@@ -2009,6 +2009,75 @@ pub const DynamicLinker = struct {
         return std.mem.eql(u8, lhs.buffer[0..lhs.len], rhs.buffer[0..rhs.len]);
     }
 
+    pub const Kind = enum {
+        /// No dynamic linker.
+        none,
+        /// Dynamic linker path is determined by the arch/OS components.
+        arch_os,
+        /// Dynamic linker path is determined by the arch/OS/ABI components.
+        arch_os_abi,
+    };
+
+    pub fn kind(os: Os.Tag) Kind {
+        return switch (os) {
+            .fuchsia,
+
+            .haiku,
+            .serenity,
+
+            .dragonfly,
+            .freebsd,
+            .netbsd,
+            .openbsd,
+
+            .bridgeos,
+            .driverkit,
+            .ios,
+            .macos,
+            .tvos,
+            .visionos,
+            .watchos,
+
+            .illumos,
+            .solaris,
+            => .arch_os,
+            .hurd,
+            .linux,
+            => .arch_os_abi,
+            .freestanding,
+            .other,
+
+            .contiki,
+            .elfiamcu,
+            .hermit,
+
+            .aix,
+            .plan9,
+            .rtems,
+            .zos,
+
+            .uefi,
+            .windows,
+
+            .emscripten,
+            .wasi,
+
+            .amdhsa,
+            .amdpal,
+            .cuda,
+            .mesa3d,
+            .nvcl,
+            .opencl,
+            .opengl,
+            .vulkan,
+
+            .ps3,
+            .ps4,
+            .ps5,
+            => .none,
+        };
+    }
+
     pub fn standard(cpu: Cpu, os: Os, abi: Abi) DynamicLinker {
         return switch (os.tag) {
             .fuchsia => init("ld.so.1"), // Fuchsia is unusual in that `DT_INTERP` is just a basename.
