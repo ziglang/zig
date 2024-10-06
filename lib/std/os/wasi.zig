@@ -315,35 +315,77 @@ pub const SOCK = struct {
 };
 
 pub const rights_t = packed struct(u64) {
+    /// The right to invoke fd_datasync. If PATH_OPEN is set, includes the right to invoke
+    /// path_open with fdflags_t.dsync.
     FD_DATASYNC: bool = false,
+    /// The right to invoke fd_read and sock_recv. If FD_SEEK is set, includes the right to invoke
+    /// fd_pread.
     FD_READ: bool = false,
+    /// The right to invoke fd_seek. This flag implies FD_TELL.
     FD_SEEK: bool = false,
+    /// The right to invoke fd_fdstat_set_flags.
     FD_FDSTAT_SET_FLAGS: bool = false,
+    /// The right to invoke fd_sync. If PATH_OPEN is set, includes the right to invoke path_open
+    /// with fdflags_t.RSYNC and fdflags_t.DSYNC.
     FD_SYNC: bool = false,
+    /// The right to invoke fd_seek in such a way that the file offset remains unaltered (i.e.
+    /// whence_t.CUR with offset zero), or to invoke fd_tell.
     FD_TELL: bool = false,
+    /// The right to invoke fd_write and sock_send. If FD_SEEK is set, includes the right to invoke
+    /// fd_pwrite.
     FD_WRITE: bool = false,
+    /// The right to invoke fd_advise.
     FD_ADVISE: bool = false,
+    /// The right to invoke fd_allocate.
     FD_ALLOCATE: bool = false,
+    /// The right to invoke path_create_directory.
     PATH_CREATE_DIRECTORY: bool = false,
+    /// If PATH_OPEN is set, the right to invoke path_open with oflags_t.CREAT.
     PATH_CREATE_FILE: bool = false,
+    /// The right to invoke path_link with the file descriptor as the source directory.
     PATH_LINK_SOURCE: bool = false,
+    /// The right to invoke path_link with the file descriptor as the target directory.
     PATH_LINK_TARGET: bool = false,
+    /// The right to invoke path_open.
     PATH_OPEN: bool = false,
+    /// The right to invoke fd_readdir.
     FD_READDIR: bool = false,
+    /// The right to invoke path_readlink.
     PATH_READLINK: bool = false,
+    /// The right to invoke path_rename with the file descriptor as the source directory.
     PATH_RENAME_SOURCE: bool = false,
+    /// The right to invoke path_rename with the file descriptor as the target directory.
     PATH_RENAME_TARGET: bool = false,
+    /// The right to invoke path_filestat_get.
     PATH_FILESTAT_GET: bool = false,
+    /// The right to change a file's size. If PATH_OPEN is set, includes the right to invoke
+    /// path_open with oflags_t.TRUNC. Note: there is no function named path_filestat_set_size.
+    /// This follows POSIX design, which only has ftruncate and does not provide ftruncateat. While
+    /// such function would be desirable from the API design perspective, there are virtually no
+    /// use cases for it since no code written for POSIX systems would use it. Moreover,
+    /// implementing it would require multiple syscalls, leading to inferior performance.
     PATH_FILESTAT_SET_SIZE: bool = false,
+    /// The right to invoke path_filestat_set_times.
     PATH_FILESTAT_SET_TIMES: bool = false,
+    /// The right to invoke fd_filestat_get.
     FD_FILESTAT_GET: bool = false,
+    /// The right to invoke fd_filestat_set_size.
     FD_FILESTAT_SET_SIZE: bool = false,
+    /// The right to invoke fd_filestat_set_times.
     FD_FILESTAT_SET_TIMES: bool = false,
+    /// The right to invoke path_symlink.
     PATH_SYMLINK: bool = false,
+    /// The right to invoke path_remove_directory.
     PATH_REMOVE_DIRECTORY: bool = false,
+    /// The right to invoke path_unlink_file.
     PATH_UNLINK_FILE: bool = false,
+    /// If FD_READ is set, includes the right to invoke poll_oneoff to subscribe to
+    /// eventtype_t.FD_READ. If FD_WRITE is set, includes the right to invoke poll_oneoff to
+    /// subscribe to eventtype_t.FD_WRITE.
     POLL_FD_READWRITE: bool = false,
+    /// The right to invoke sock_shutdown.
     SOCK_SHUTDOWN: bool = false,
+    /// The right to invoke sock_accept.
     SOCK_ACCEPT: bool = false,
     _: u34 = 0,
 };
