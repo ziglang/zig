@@ -412,3 +412,89 @@ test "readStruct reads packed structs without padding and in correct field order
         },
     }
 }
+
+test "readStruct writeStruct round-trip with packed structs" {
+    var buf: [8]u8 = undefined;
+    var fis = std.io.fixedBufferStream(&buf);
+    const reader = fis.reader();
+    const writer = fis.writer();
+
+    const PackedStruct = packed struct(u64) {
+        a: u16 = 123,
+        b: u16 = 245,
+        c: u16 = 456,
+        d: i13 = -345,
+        e: i3 = 2,
+    };
+
+    const expected_packed_struct = PackedStruct{};
+    try writer.writeStruct(expected_packed_struct);
+    fis.reset();
+    try testing.expectEqualDeep(expected_packed_struct, try reader.readStruct(PackedStruct));
+}
+
+test "readStructEndian writeStructEndian round-trip with packed structs" {
+    var buf: [8]u8 = undefined;
+    var fis = std.io.fixedBufferStream(&buf);
+    const reader = fis.reader();
+    const writer = fis.writer();
+
+    const PackedStruct = packed struct(u64) {
+        a: u13 = 123,
+        b: i7 = -24,
+        c: u20 = 83,
+        d: enum(i24) { val = 3452 } = .val,
+    };
+
+    const expected_packed_struct = PackedStruct{};
+    // round-trip little endian
+    try writer.writeStructEndian(expected_packed_struct, .big);
+    fis.reset();
+    try testing.expectEqualDeep(expected_packed_struct, try reader.readStructEndian(PackedStruct, .big));
+    // round-trip big endian
+    fis.reset();
+    try writer.writeStructEndian(expected_packed_struct, .little);
+    fis.reset();
+    try testing.expectEqualDeep(expected_packed_struct, try reader.readStructEndian(PackedStruct, .little));
+}
+
+test "readStruct a packed struct with endianness-affected types" {
+    const buf = [4]u8{ 0x12, 0x34, 0x56, 0x78 };
+    var fis = std.io.fixedBufferStream(&buf);
+    const reader = fis.reader();
+
+    const PackedStruct = packed struct(u32) { a: u16, b: u16 };
+
+    switch (native_endian) {
+        .little => {
+            try testing.expectEqualDeep(
+                PackedStruct{ .a = 0x3412, .b = 0x7856 },
+                reader.readStruct(PackedStruct),
+            );
+        },
+        .big => {
+            try testing.expectEqualDeep(
+                PackedStruct{ .a = 0x5678, .b = 0x1234 },
+                reader.readStruct(PackedStruct),
+            );
+        },
+    }
+}
+
+test "readStructEndian a packed struct with endianness-affected types" {
+    const buf = [4]u8{ 0x12, 0x34, 0x56, 0x78 };
+    var fis = std.io.fixedBufferStream(&buf);
+    const reader = fis.reader();
+
+    const PackedStruct = packed struct(u32) { a: u16, b: u16 };
+
+    try testing.expectEqualDeep(
+        PackedStruct{ .a = 0x3412, .b = 0x7856 },
+        reader.readStructEndian(PackedStruct, .little),
+    );
+    fis.reset();
+    try testing.expectEqualDeep(
+        PackedStruct{ .a = 0x5678, .b = 0x1234 },
+        reader.readStructEndian(PackedStruct, .big),
+    );
+}
