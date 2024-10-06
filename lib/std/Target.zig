@@ -2626,7 +2626,6 @@ pub fn cTypeAlignment(target: Target, c_type: CType) u16 {
             },
 
             .msp430,
-            .avr,
             => 2,
 
             .arc,
@@ -2675,6 +2674,9 @@ pub fn cTypeAlignment(target: Target, c_type: CType) u16 {
             .wasm32,
             .wasm64,
             => 16,
+
+            .avr,
+            => unreachable, // Handled above.
         }),
     );
 }
@@ -2709,12 +2711,7 @@ pub fn cTypePreferredAlignment(target: Target, c_type: CType) u16 {
             .longdouble => return 4,
             else => {},
         },
-        .avr => switch (c_type) {
-            .char, .int, .uint, .long, .ulong, .float, .longdouble => return 1,
-            .short, .ushort => return 2,
-            .double => return 4,
-            .longlong, .ulonglong => return 8,
-        },
+        .avr => return 1,
         .x86 => switch (target.os.tag) {
             .windows, .uefi => switch (c_type) {
                 .longdouble => switch (target.abi) {
@@ -2750,7 +2747,6 @@ pub fn cTypePreferredAlignment(target: Target, c_type: CType) u16 {
             .arc,
             .arm,
             .armeb,
-            .avr,
             .thumb,
             .thumbeb,
             .amdgcn,
@@ -2788,6 +2784,9 @@ pub fn cTypePreferredAlignment(target: Target, c_type: CType) u16 {
             .wasm32,
             .wasm64,
             => 16,
+
+            .avr,
+            => unreachable, // Handled above.
         }),
     );
 }
