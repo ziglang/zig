@@ -185,7 +185,7 @@ const targets = [_]std.Target.Query{
     .{ .cpu_arch = .nvptx64, .os_tag = .cuda, .abi = .none },
     .{ .cpu_arch = .nvptx64, .os_tag = .nvcl, .abi = .none },
 
-    .{ .cpu_arch = .powerpc, .os_tag = .aix, .abi = .eabi },
+    .{ .cpu_arch = .powerpc, .os_tag = .aix, .abi = .eabihf },
     .{ .cpu_arch = .powerpc, .os_tag = .freebsd, .abi = .eabi },
     .{ .cpu_arch = .powerpc, .os_tag = .freebsd, .abi = .eabihf },
     .{ .cpu_arch = .powerpc, .os_tag = .freestanding, .abi = .eabi },
