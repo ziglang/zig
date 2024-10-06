@@ -1687,12 +1687,6 @@ pub const Object = struct {
                         else
                             try wip.load(.normal, param_llvm_ty, arg_ptr, param_alignment, ""));
                     },
-                    .as_u16 => {
-                        assert(!it.byval_attr);
-                        const param = wip.arg(llvm_arg_i);
-                        llvm_arg_i += 1;
-                        args.appendAssumeCapacity(try wip.cast(.bitcast, param, .half, ""));
-                    },
                     .float_array => {
                         const param_ty = Type.fromInterned(fn_info.param_types.get(ip)[it.zig_index - 1]);
                         const param_llvm_ty = try o.lowerType(param_ty);
@@ -3095,7 +3089,6 @@ pub const Object = struct {
                 .no_bits,
                 .abi_sized_int,
                 .multiple_llvm_types,
-                .as_u16,
                 .float_array,
                 .i32_array,
                 .i64_array,
@@ -3769,9 +3762,6 @@ pub const Object = struct {
             },
             .multiple_llvm_types => {
                 try llvm_params.appendSlice(o.gpa, it.types_buffer[0..it.types_len]);
-            },
-            .as_u16 => {
-                try llvm_params.append(o.gpa, .i16);
             },
             .float_array => |count| {
                 const param_ty = Type.fromInterned(fn_info.param_types.get(ip)[it.zig_index - 1]);
@@ -5587,12 +5577,6 @@ pub const FuncGen = struct {
                     llvm_args.appendAssumeCapacity(loaded);
                 }
             },
-            .as_u16 => {
-                const arg = args[it.zig_index - 1];
-                const llvm_arg = try self.resolveInst(arg);
-                const casted = try self.wip.cast(.bitcast, llvm_arg, .i16, "");
-                try llvm_args.append(casted);
-            },
             .float_array => |count| {
                 const arg = args[it.zig_index - 1];
                 const arg_ty = self.typeOf(arg);
@@ -5654,7 +5638,6 @@ pub const FuncGen = struct {
                 .no_bits,
                 .abi_sized_int,
                 .multiple_llvm_types,
-                .as_u16,
                 .float_array,
                 .i32_array,
                 .i64_array,
@@ -11968,7 +11951,6 @@ const ParamTypeIterator = struct {
         abi_sized_int,
         multiple_llvm_types,
         slice,
-        as_u16,
         float_array: u8,
         i32_array: u8,
         i64_array: u8,
@@ -12090,8 +12072,6 @@ const ParamTypeIterator = struct {
                 .riscv32, .riscv64 => {
                     it.zig_index += 1;
                     it.llvm_index += 1;
-                    if (ty.toIntern() == .f16_type and
-                        !std.Target.riscv.featureSetHas(target.cpu.features, .d)) return .as_u16;
                     switch (riscv_c_abi.classifyType(ty, zcu)) {
                         .memory => return .byref_mut,
                         .byval => return .byval,
