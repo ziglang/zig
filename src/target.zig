@@ -45,8 +45,7 @@ pub fn requiresPIC(target: std.Target, linking_libc: bool) bool {
     return target.isAndroid() or
         target.os.tag == .windows or target.os.tag == .uefi or
         osRequiresLibC(target) or
-        (linking_libc and target.isGnuLibC()) or
-        (target.abi == .ohos and target.cpu.arch == .aarch64);
+        (linking_libc and target.isGnuLibC());
 }
 
 pub fn picLevel(target: std.Target) u32 {
@@ -306,7 +305,7 @@ pub fn libcFullLinkFlags(target: std.Target) []const []const u8 {
             "-lc",
             "-lnetwork",
         },
-        else => if (target.isAndroid()) &[_][]const u8{
+        else => if (target.isAndroid() or target.abi.isOpenHarmony()) &[_][]const u8{
             "-lm",
             "-lc",
             "-ldl",

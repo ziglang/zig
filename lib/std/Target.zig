@@ -677,6 +677,7 @@ pub const Abi = enum {
     simulator,
     macabi,
     ohos,
+    ohoseabi,
 
     // LLVM tags deliberately omitted:
     // - amplification
@@ -766,8 +767,18 @@ pub const Abi = enum {
 
     pub inline fn isMusl(abi: Abi) bool {
         return switch (abi) {
-            .musl, .musleabi, .musleabihf, .muslx32 => true,
-            .ohos => true,
+            .musl,
+            .musleabi,
+            .musleabihf,
+            .muslx32,
+            => true,
+            else => abi.isOpenHarmony(),
+        };
+    }
+
+    pub inline fn isOpenHarmony(abi: Abi) bool {
+        return switch (abi) {
+            .ohos, .ohoseabi => true,
             else => false,
         };
     }
@@ -786,7 +797,7 @@ pub const Abi = enum {
             .gnueabi,
             .musleabi,
             .gnusf,
-            .ohos,
+            .ohoseabi,
             => .soft,
             else => .hard,
         };
