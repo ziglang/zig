@@ -804,6 +804,8 @@ pub fn openFile(self: Dir, sub_path: []const u8, flags: File.OpenFlags) File.Ope
     }
     if (native_os == .wasi and !builtin.link_libc) {
         var base: std.os.wasi.rights_t = .{};
+        // POLL_FD_READWRITE only grants extra rights if the corresponding FD_READ and/or FD_WRITE
+        // is also set.
         if (flags.isRead()) {
             base.FD_READ = true;
             base.FD_TELL = true;
@@ -984,6 +986,8 @@ pub fn createFile(self: Dir, sub_path: []const u8, flags: File.CreateFlags) File
                 .FD_FILESTAT_SET_TIMES = true,
                 .FD_FILESTAT_SET_SIZE = true,
                 .FD_FILESTAT_GET = true,
+                // POLL_FD_READWRITE only grants extra rights if the corresponding FD_READ and/or
+                // FD_WRITE is also set.
                 .POLL_FD_READWRITE = true,
             }, .{}),
         };
