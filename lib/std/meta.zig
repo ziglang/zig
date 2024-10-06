@@ -626,7 +626,7 @@ pub fn DeclEnum(comptime T: type) type {
     }
     return @Type(.{
         .@"enum" = .{
-            .tag_type = std.math.IntFittingRange(0, fieldInfos.len - 1),
+            .tag_type = std.math.IntFittingRange(0, if (fieldInfos.len == 0) 0 else fieldInfos.len - 1),
             .fields = &enumDecls,
             .decls = &decls,
             .is_exhaustive = true,
@@ -652,9 +652,12 @@ test DeclEnum {
         pub const b: void = {};
         pub const c: f32 = 0;
     };
+    const D = struct {};
+
     try expectEqualEnum(enum { a }, DeclEnum(A));
     try expectEqualEnum(enum { a, b, c }, DeclEnum(B));
     try expectEqualEnum(enum { a, b, c }, DeclEnum(C));
+    try expectEqualEnum(enum {}, DeclEnum(D));
 }
 
 pub fn Tag(comptime T: type) type {
