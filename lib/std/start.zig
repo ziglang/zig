@@ -391,6 +391,7 @@ fn _start() callconv(.Naked) noreturn {
             \\ stdu 0, -32(1)
             \\ mtlr 0
             \\ b %[posixCallMainAndExit]
+            \\ nop
             ,
             .s390x =>
             // Set up the stack frame (register save area and cleared back-chain slot).
