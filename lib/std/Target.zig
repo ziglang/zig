@@ -1939,30 +1939,6 @@ pub inline fn floatAbi(target: Target) FloatAbi {
     return target.abi.floatAbi();
 }
 
-pub inline fn hasDynamicLinker(target: Target) bool {
-    if (target.cpu.arch.isWasm()) {
-        return false;
-    }
-    switch (target.os.tag) {
-        .freestanding,
-        .ios,
-        .tvos,
-        .watchos,
-        .macos,
-        .visionos,
-        .uefi,
-        .windows,
-        .emscripten,
-        .opencl,
-        .opengl,
-        .vulkan,
-        .plan9,
-        .other,
-        => return false,
-        else => return true,
-    }
-}
-
 pub const DynamicLinker = struct {
     /// Contains the memory used to store the dynamic linker path. This field
     /// should not be used directly. See `get` and `set`. This field exists so

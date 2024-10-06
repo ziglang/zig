@@ -963,14 +963,15 @@ fn detectAbiAndDynamicLinker(
     os: Target.Os,
     query: Target.Query,
 ) DetectError!Target {
-    const native_target_has_ld = comptime builtin.target.hasDynamicLinker();
+    const native_target_has_ld = comptime Target.DynamicLinker.kind(builtin.os.tag) != .none;
     const is_linux = builtin.target.os.tag == .linux;
     const is_solarish = builtin.target.os.tag.isSolarish();
+    const is_darwin = builtin.target.os.tag.isDarwin();
     const have_all_info = query.dynamic_linker.get() != null and
         query.abi != null and (!is_linux or query.abi.?.isGnu());
     const os_is_non_native = query.os_tag != null;
     // The Solaris/illumos environment is always the same.
-    if (!native_target_has_ld or have_all_info or os_is_non_native or is_solarish) {
+    if (!native_target_has_ld or have_all_info or os_is_non_native or is_solarish or is_darwin) {
         return defaultAbiAndDynamicLinker(cpu, os, query);
     }
     if (query.abi) |abi| {
