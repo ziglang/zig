@@ -20,13 +20,66 @@ const dragonfly = @import("c/dragonfly.zig");
 const haiku = @import("c/haiku.zig");
 const openbsd = @import("c/openbsd.zig");
 
-// These constants are shared among all operating systems even when not linking
-// libc.
+// These constants are shared among all operating systems even when not linking libc. That said, we
+// unify with the std.os types, if applicable, for the benefit of std.posix and its users. However,
+// this is a mild layering violation that we can hopefully stop doing someday.
 
-pub const iovec = std.posix.iovec;
-pub const iovec_const = std.posix.iovec_const;
-pub const LOCK = std.posix.LOCK;
-pub const winsize = std.posix.winsize;
+pub const ACCMODE = switch (native_os) {
+    .emscripten, .linux => linux.ACCMODE,
+    else => enum(u2) {
+        RDONLY = 0,
+        WRONLY = 1,
+        RDWR = 2,
+    },
+};
+
+pub const LOCK = switch (native_os) {
+    .emscripten, .linux => linux.LOCK,
+    else => struct {
+        pub const SH = 1;
+        pub const EX = 2;
+        pub const NB = 4;
+        pub const UN = 8;
+    },
+};
+
+pub const TCSA = switch (native_os) {
+    .emscripten, .linux => linux.TCSA,
+    else => enum(c_uint) {
+        NOW,
+        DRAIN,
+        FLUSH,
+        _,
+    },
+};
+
+pub const iovec = switch (native_os) {
+    .emscripten, .linux => linux.iovec,
+    .wasi => wasi.iovec_t,
+    else => extern struct {
+        base: [*]u8,
+        len: usize,
+    },
+};
+
+pub const iovec_const = switch (native_os) {
+    .emscripten, .linux => linux.iovec_const,
+    .wasi => wasi.ciovec_t,
+    else => extern struct {
+        base: [*]const u8,
+        len: usize,
+    },
+};
+
+pub const winsize = switch (native_os) {
+    .emscripten, .linux => linux.winsize,
+    else => extern struct {
+        row: u16,
+        col: u16,
+        xpixel: u16,
+        ypixel: u16,
+    },
+};
 
 /// The value of the link editor defined symbol _MH_EXECUTE_SYM is the address
 /// of the mach header in a Mach-O executable file type.  It does not appear in
@@ -3157,7 +3210,6 @@ pub const IOCPARM_MASK = switch (native_os) {
     .macos, .ios, .tvos, .watchos, .visionos => 0x1fff,
     else => void,
 };
-pub const TCSA = std.posix.TCSA;
 pub const TFD = switch (native_os) {
     .linux => linux.TFD,
     else => void,
@@ -7215,7 +7267,7 @@ pub const AT = switch (native_os) {
 pub const O = switch (native_os) {
     .linux => linux.O,
     .emscripten => packed struct(u32) {
-        ACCMODE: std.posix.ACCMODE = .RDONLY,
+        ACCMODE: ACCMODE = .RDONLY,
         _2: u4 = 0,
         CREAT: bool = false,
         EXCL: bool = false,
@@ -7256,7 +7308,7 @@ pub const O = switch (native_os) {
         _: u3 = 0,
     },
     .solaris, .illumos => packed struct(u32) {
-        ACCMODE: std.posix.ACCMODE = .RDONLY,
+        ACCMODE: ACCMODE = .RDONLY,
         NDELAY: bool = false,
         APPEND: bool = false,
         SYNC: bool = false,
@@ -7283,7 +7335,7 @@ pub const O = switch (native_os) {
         _: u6 = 0,
     },
     .netbsd => packed struct(u32) {
-        ACCMODE: std.posix.ACCMODE = .RDONLY,
+        ACCMODE: ACCMODE = .RDONLY,
         NONBLOCK: bool = false,
         APPEND: bool = false,
         SHLOCK: bool = false,
@@ -7307,7 +7359,7 @@ pub const O = switch (native_os) {
         _: u8 = 0,
     },
     .openbsd => packed struct(u32) {
-        ACCMODE: std.posix.ACCMODE = .RDONLY,
+        ACCMODE: ACCMODE = .RDONLY,
         NONBLOCK: bool = false,
         APPEND: bool = false,
         SHLOCK: bool = false,
@@ -7325,7 +7377,7 @@ pub const O = switch (native_os) {
         _: u14 = 0,
     },
     .haiku => packed struct(u32) {
-        ACCMODE: std.posix.ACCMODE = .RDONLY,
+        ACCMODE: ACCMODE = .RDONLY,
         _2: u4 = 0,
         CLOEXEC: bool = false,
         NONBLOCK: bool = false,
@@ -7345,7 +7397,7 @@ pub const O = switch (native_os) {
         _: u10 = 0,
     },
     .macos, .ios, .tvos, .watchos, .visionos => packed struct(u32) {
-        ACCMODE: std.posix.ACCMODE = .RDONLY,
+        ACCMODE: ACCMODE = .RDONLY,
         NONBLOCK: bool = false,
         APPEND: bool = false,
         SHLOCK: bool = false,
@@ -7372,7 +7424,7 @@ pub const O = switch (native_os) {
         POPUP: bool = false,
     },
     .dragonfly => packed struct(u32) {
-        ACCMODE: std.posix.ACCMODE = .RDONLY,
+        ACCMODE: ACCMODE = .RDONLY,
         NONBLOCK: bool = false,
         APPEND: bool = false,
         SHLOCK: bool = false,
@@ -7398,7 +7450,7 @@ pub const O = switch (native_os) {
         _: u4 = 0,
     },
     .freebsd => packed struct(u32) {
-        ACCMODE: std.posix.ACCMODE = .RDONLY,
+        ACCMODE: ACCMODE = .RDONLY,
         NONBLOCK: bool = false,
         APPEND: bool = false,
         SHLOCK: bool = false,

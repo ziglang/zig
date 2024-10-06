@@ -354,12 +354,7 @@ pub fn getCurrentId() Id {
     return Impl.getCurrentId();
 }
 
-pub const CpuCountError = error{
-    PermissionDenied,
-    SystemResources,
-    Unsupported,
-    Unexpected,
-};
+pub const CpuCountError = error{Unsupported} || posix.SchedGetSetAffinityError;
 
 /// Returns the platforms view on the number of logical CPU cores available.
 pub fn getCpuCount() CpuCountError!usize {

@@ -19,8 +19,15 @@ comptime {
     }
 }
 
-pub const iovec_t = std.posix.iovec;
-pub const ciovec_t = std.posix.iovec_const;
+pub const iovec_t = extern struct {
+    base: [*]u8,
+    len: usize,
+};
+
+pub const ciovec_t = extern struct {
+    base: [*]const u8,
+    len: usize,
+};
 
 pub extern "wasi_snapshot_preview1" fn args_get(argv: [*][*:0]u8, argv_buf: [*]u8) errno_t;
 pub extern "wasi_snapshot_preview1" fn args_sizes_get(argc: *usize, argv_buf_size: *usize) errno_t;

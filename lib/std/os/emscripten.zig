@@ -2,8 +2,6 @@ const std = @import("std");
 const builtin = @import("builtin");
 const wasi = std.os.wasi;
 const linux = std.os.linux;
-const iovec = std.posix.iovec;
-const iovec_const = std.posix.iovec_const;
 const c = std.c;
 
 // TODO: go through this file and delete all the bits that are identical to linux because they can
@@ -258,13 +256,6 @@ pub const IOV_MAX = 1024;
 pub const IPPORT_RESERVED = 1024;
 
 pub const IPPROTO = linux.IPPROTO;
-
-pub const LOCK = struct {
-    pub const SH = 1;
-    pub const EX = 2;
-    pub const NB = 4;
-    pub const UN = 8;
-};
 
 pub const MADV = struct {
     pub const NORMAL = 0;
@@ -781,7 +772,6 @@ pub const TCP = struct {
     pub const REPAIR_OFF_NO_WP = -1;
 };
 
-pub const TCSA = std.posix.TCSA;
 pub const addrinfo = c.addrinfo;
 
 pub const in_port_t = c.in_port_t;
