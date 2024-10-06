@@ -488,7 +488,7 @@ pub fn defaultPanic(
 
             var utf16_buffer: [1000]u16 = undefined;
             const len_minus_3 = std.unicode.utf8ToUtf16Le(&utf16_buffer, msg) catch 0;
-            utf16_buffer[len_minus_3][0..3].* = .{ '\r', '\n', 0 };
+            utf16_buffer[len_minus_3..][0..3].* = .{ '\r', '\n', 0 };
             const len = len_minus_3 + 3;
             const exit_msg = utf16_buffer[0 .. len - 1 :0];
 
@@ -507,7 +507,7 @@ pub fn defaultPanic(
                 // ExitData buffer must be allocated using boot_services.allocatePool (spec: page 220)
                 const exit_data: []u16 = uefi.raw_pool_allocator.alloc(u16, exit_msg.len + 1) catch @trap();
                 @memcpy(exit_data, exit_msg[0..exit_data.len]); // Includes null terminator.
-                _ = bs.exit(uefi.handle, .Aborted, exit_msg.len + 1, exit_data);
+                _ = bs.exit(uefi.handle, .Aborted, exit_data.len, exit_data.ptr);
             }
             @trap();
         },
