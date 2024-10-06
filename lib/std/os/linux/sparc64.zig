@@ -2,6 +2,7 @@ const std = @import("../../std.zig");
 const maxInt = std.math.maxInt;
 const pid_t = linux.pid_t;
 const uid_t = linux.uid_t;
+const gid_t = linux.gid_t;
 const clock_t = linux.clock_t;
 const stack_t = linux.stack_t;
 const sigset_t = linux.sigset_t;
@@ -295,44 +296,10 @@ pub const msghdr_const = extern struct {
 pub const off_t = i64;
 pub const ino_t = u64;
 pub const mode_t = u32;
-pub const dev_t = usize;
+pub const dev_t = u64;
 pub const nlink_t = u32;
 pub const blksize_t = isize;
 pub const blkcnt_t = isize;
-
-// The `stat64` definition used by the kernel.
-pub const Stat = extern struct {
-    dev: u64,
-    ino: u64,
-    nlink: u64,
-
-    mode: u32,
-    uid: u32,
-    gid: u32,
-    __pad0: u32,
-
-    rdev: u64,
-    size: i64,
-    blksize: i64,
-    blocks: i64,
-
-    atim: timespec,
-    mtim: timespec,
-    ctim: timespec,
-    __unused: [3]u64,
-
-    pub fn atime(self: @This()) timespec {
-        return self.atim;
-    }
-
-    pub fn mtime(self: @This()) timespec {
-        return self.mtim;
-    }
-
-    pub fn ctime(self: @This()) timespec {
-        return self.ctim;
-    }
-};
 
 pub const timeval = extern struct {
     sec: isize,

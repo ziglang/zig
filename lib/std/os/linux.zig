@@ -96,7 +96,6 @@ pub const HWCAP = arch_bits.HWCAP;
 pub const MMAP2_UNIT = arch_bits.MMAP2_UNIT;
 pub const REG = arch_bits.REG;
 pub const SC = arch_bits.SC;
-pub const Stat = arch_bits.Stat;
 pub const VDSO = arch_bits.VDSO;
 pub const blkcnt_t = arch_bits.blkcnt_t;
 pub const blksize_t = arch_bits.blksize_t;
@@ -468,6 +467,412 @@ pub const O = switch (native_arch) {
         // #define O_NDELAY O_NONBLOCK
     },
     else => @compileError("missing std.os.linux.O constants for this architecture"),
+};
+
+pub const Stat = struct {
+    /// Device.
+    dev: dev_t,
+    /// File serial number.
+    ino: ino_t,
+    /// File mode.
+    mode: mode_t,
+    /// Link count.
+    nlink: nlink_t,
+    /// User ID of the file's owner.
+    uid: uid_t,
+    /// Group ID of the file's owner.
+    gid: gid_t,
+    /// Device number, if this file is a device.
+    rdev: dev_t,
+    /// Size of file, in bytes.
+    size: i64,
+    /// Optimal block size for I/O.
+    blksize: i32,
+    /// Number of 512-byte blocks allocated.
+    blocks: i64,
+    /// Time of last access.
+    atime: timespec,
+    /// Time of last modification.
+    mtime: timespec,
+    /// Time of last status change.
+    ctime: timespec,
+
+    fn fromKernel(st: kernel_stat) @This() {
+        return .{
+            .dev = st.dev,
+            .ino = st.ino,
+            .mode = st.mode,
+            .nlink = st.nlink,
+            .uid = st.uid,
+            .gid = st.gid,
+            .rdev = st.rdev,
+            .size = st.size,
+            .blksize = st.blksize,
+            .blocks = st.blocks,
+            .atime = st.atime(),
+            .mtime = st.mtime(),
+            .ctime = st.ctime(),
+        };
+    }
+
+    fn fromStatx(stx: Statx) @This() {
+        return .{
+            .dev = makedev(stx.dev_major, stx.dev_minor),
+            .ino = stx.ino,
+            .mode = stx.mode,
+            .nlink = stx.nlink,
+            .uid = stx.uid,
+            .gid = stx.gid,
+            .rdev = makedev(stx.rdev_major, stx.rdev_minor),
+            .size = stx.size,
+            .blksize = stx.blksize,
+            .blocks = @intCast(stx.blocks),
+            .atime = stx.atime.toTimespec(),
+            .mtime = stx.mtime.toTimespec(),
+            .ctime = stx.ctime.toTimespec(),
+        };
+    }
+};
+
+// The 64-bit `stat` definition used by the Linux kernel,
+// which is one of the following choices:
+// - struct stat   on 64-bit target.
+// - struct stat64 on a 32-bit target.
+// - struct stat64 on a 64-bit target.
+pub const kernel_stat = switch (native_arch) {
+    .x86 => extern struct { // stat64
+        dev: dev_t,
+        __pad0: [4]u8 = .{ 0, 0, 0, 0 },
+        __ino: u32 = 0,
+        mode: mode_t,
+        nlink: nlink_t,
+        uid: uid_t,
+        gid: gid_t,
+        rdev: dev_t,
+        __pad3: [4]u8 = .{ 0, 0, 0, 0 },
+        size: off_t,
+        blksize: blksize_t,
+        blocks: blkcnt_t,
+        atim: u32,
+        atim_nsec: u32,
+        mtim: u32,
+        mtim_nsec: u32,
+        ctim: u32,
+        ctim_nsec: u32,
+        ino: ino_t,
+
+        pub fn atime(self: @This()) timespec {
+            return timespec.makeTimespec(self.atim, self.atim_nsec);
+        }
+
+        pub fn mtime(self: @This()) timespec {
+            return timespec.makeTimespec(self.mtim, self.mtim_nsec);
+        }
+
+        pub fn ctime(self: @This()) timespec {
+            return timespec.makeTimespec(self.ctim, self.ctim_nsec);
+        }
+    },
+    .x86_64 => extern struct { // stat
+        dev: dev_t,
+        ino: ino_t,
+        nlink: nlink_t,
+        mode: mode_t,
+        uid: uid_t,
+        gid: gid_t,
+        __pad0: u32 = 0,
+        rdev: dev_t,
+        size: off_t,
+        blksize: blksize_t,
+        blocks: blkcnt_t,
+        atim: u64,
+        atim_nsec: u64,
+        mtim: u64,
+        mtim_nsec: u64,
+        ctim: u64,
+        ctim_nsec: u64,
+        __unused: [3]isize = .{ 0, 0, 0 },
+
+        pub fn atime(self: @This()) timespec {
+            return timespec.makeTimespec(self.atim, self.atim_nsec);
+        }
+
+        pub fn mtime(self: @This()) timespec {
+            return timespec.makeTimespec(self.mtim, self.mtim_nsec);
+        }
+
+        pub fn ctime(self: @This()) timespec {
+            return timespec.makeTimespec(self.ctim, self.ctim_nsec);
+        }
+    },
+    .arm, .armeb, .thumb, .thumbeb => extern struct { // stat64
+        dev: dev_t,
+        __dev_padding: [4]u8 = .{ 0, 0, 0, 0 },
+        __ino: u32 = 0,
+        mode: mode_t,
+        nlink: nlink_t,
+        uid: uid_t,
+        gid: gid_t,
+        rdev: dev_t,
+        __rdev_padding: [4]u8 = .{ 0, 0, 0, 0 },
+        size: i64,
+        blksize: blksize_t,
+        blocks: blkcnt_t,
+        atim: usize,
+        atim_nsec: usize,
+        mtim: usize,
+        mtim_nsec: usize,
+        ctim: usize,
+        ctim_nsec: usize,
+        ino: ino_t,
+
+        pub fn atime(self: @This()) timespec {
+            return timespec.makeTimespec(self.atim, self.atim_nsec);
+        }
+
+        pub fn mtime(self: @This()) timespec {
+            return timespec.makeTimespec(self.mtim, self.mtim_nsec);
+        }
+
+        pub fn ctime(self: @This()) timespec {
+            return timespec.makeTimespec(self.ctim, self.ctim_nsec);
+        }
+    },
+    .sparc64 => extern struct { // stat64
+        dev: dev_t,
+        ino: ino_t,
+        nlink: u64,
+        mode: mode_t,
+        uid: uid_t,
+        gid: gid_t,
+        __pad0: u32 = 0,
+        rdev: dev_t,
+        size: off_t,
+        blksize: blksize_t,
+        blocks: blkcnt_t,
+        atim: usize,
+        atim_nsec: usize,
+        mtim: usize,
+        mtim_nsec: usize,
+        ctim: usize,
+        ctim_nsec: usize,
+        __unused: [3]isize = .{ 0, 0, 0 },
+
+        pub fn atime(self: @This()) timespec {
+            return timespec.makeTimespec(self.atim, self.atim_nsec);
+        }
+
+        pub fn mtime(self: @This()) timespec {
+            return timespec.makeTimespec(self.mtim, self.mtim_nsec);
+        }
+
+        pub fn ctime(self: @This()) timespec {
+            return timespec.makeTimespec(self.ctim, self.ctim_nsec);
+        }
+    },
+    .mips, .mipsel => extern struct { // stat64
+        dev: usize,
+        __pad0: [3]u32 = .{ 0, 0, 0 },
+        ino: ino_t,
+        mode: mode_t,
+        nlink: nlink_t,
+        uid: uid_t,
+        gid: gid_t,
+        rdev: usize,
+        __pad1: [3]u32 = .{ 0, 0, 0 },
+        size: off_t,
+        atim: isize,
+        atim_nsec: usize,
+        mtim: isize,
+        mtim_nsec: usize,
+        ctim: isize,
+        ctim_nsec: usize,
+        blksize: blksize_t,
+        __pad2: u32 = 0,
+        blocks: blkcnt_t,
+
+        pub fn atime(self: @This()) timespec {
+            return timespec.makeTimespec(self.atim, self.atim_nsec);
+        }
+
+        pub fn mtime(self: @This()) timespec {
+            return timespec.makeTimespec(self.mtim, self.mtim_nsec);
+        }
+
+        pub fn ctime(self: @This()) timespec {
+            return timespec.makeTimespec(self.ctim, self.ctim_nsec);
+        }
+    },
+    .mips64, .mips64el => extern struct { // stat
+        dev: u32,
+        __pad0: [3]u32 = .{ 0, 0, 0 },
+        ino: ino_t,
+        mode: mode_t,
+        nlink: nlink_t,
+        uid: uid_t,
+        gid: gid_t,
+        rdev: u32,
+        __pad1: [3]u32 = .{ 0, 0, 0 },
+        size: off_t,
+        atim: u32,
+        atim_nsec: u32,
+        mtim: u32,
+        mtim_nsec: u32,
+        ctim: u32,
+        ctim_nsec: u32,
+        blksize: blksize_t,
+        __pad2: u32 = 0,
+        blocks: blkcnt_t,
+
+        pub fn atime(self: @This()) timespec {
+            return timespec.makeTimespec(self.atim, self.atim_nsec);
+        }
+
+        pub fn mtime(self: @This()) timespec {
+            return timespec.makeTimespec(self.mtim, self.mtim_nsec);
+        }
+
+        pub fn ctime(self: @This()) timespec {
+            return timespec.makeTimespec(self.ctim, self.ctim_nsec);
+        }
+    },
+    .powerpc, .powerpcle => extern struct { // stat64
+        dev: dev_t,
+        ino: ino_t,
+        mode: mode_t,
+        nlink: nlink_t,
+        uid: uid_t,
+        gid: gid_t,
+        rdev: dev_t,
+        __pad2: u16 = 0,
+        size: off_t,
+        blksize: blksize_t,
+        blocks: blkcnt_t,
+        atim: i32,
+        atim_nsec: u32,
+        mtim: i32,
+        mtim_nsec: u32,
+        ctim: i32,
+        ctim_nsec: u32,
+        __unused: [2]u32 = .{ 0, 0 },
+
+        pub fn atime(self: @This()) timespec {
+            return timespec.makeTimespec(self.atim, self.atim_nsec);
+        }
+
+        pub fn mtime(self: @This()) timespec {
+            return timespec.makeTimespec(self.mtim, self.mtim_nsec);
+        }
+
+        pub fn ctime(self: @This()) timespec {
+            return timespec.makeTimespec(self.ctim, self.ctim_nsec);
+        }
+    },
+    .powerpc64, .powerpc64le => extern struct { // stat64
+        dev: dev_t,
+        ino: ino_t,
+        mode: mode_t,
+        nlink: nlink_t,
+        uid: uid_t,
+        gid: gid_t,
+        rdev: dev_t,
+        __pad2: u16 = 0,
+        size: off_t,
+        blksize: i32,
+        blocks: blkcnt_t,
+        atim: i32,
+        atim_nsec: u32,
+        mtim: i32,
+        mtim_nsec: u32,
+        ctim: i32,
+        ctim_nsec: u32,
+        __unused: [2]u32 = .{ 0, 0 },
+
+        pub fn atime(self: @This()) timespec {
+            return timespec.makeTimespec(self.atim, self.atim_nsec);
+        }
+
+        pub fn mtime(self: @This()) timespec {
+            return timespec.makeTimespec(self.mtim, self.mtim_nsec);
+        }
+
+        pub fn ctime(self: @This()) timespec {
+            return timespec.makeTimespec(self.ctim, self.ctim_nsec);
+        }
+    },
+    .s390x => extern struct {
+        dev: dev_t,
+        ino: ino_t,
+        nlink: nlink_t,
+        mode: mode_t,
+        uid: uid_t,
+        gid: gid_t,
+        __pad1: u32 = 0,
+        rdev: dev_t,
+        size: off_t,
+        atim: usize,
+        atim_nsec: usize,
+        mtim: usize,
+        mtim_nsec: usize,
+        ctim: usize,
+        ctim_nsec: usize,
+        blksize: blksize_t,
+        blocks: blkcnt_t,
+        __unused: [3]usize = .{ 0, 0, 0 },
+
+        pub fn atime(self: @This()) timespec {
+            return timespec.makeTimespec(self.atim, self.atim_nsec);
+        }
+
+        pub fn mtime(self: @This()) timespec {
+            return timespec.makeTimespec(self.mtim, self.mtim_nsec);
+        }
+
+        pub fn ctime(self: @This()) timespec {
+            return timespec.makeTimespec(self.ctim, self.ctim_nsec);
+        }
+    },
+    .aarch64,
+    .aarch64_be,
+    .riscv32,
+    .riscv64,
+    .loongarch64,
+    => extern struct { // generic stat/stat64
+        dev: u64,
+        ino: u64,
+        mode: u32,
+        nlink: u32,
+        uid: uid_t,
+        gid: gid_t,
+        rdev: u64,
+        __pad1: u64 = 0,
+        size: i64,
+        blksize: i32,
+        __pad2: i32 = 0,
+        blocks: i64,
+        // Yes, the second fields will be 32-bit on 32-bit targets.
+        // Presumably this is due to statx being preferred - hence newer arch's not implementing the *stat family
+        atim: isize,
+        atim_nsec: usize,
+        mtim: isize,
+        mtim_nsec: usize,
+        ctim: isize,
+        ctim_nsec: usize,
+        __unused: [2]u32 = .{ 0, 0 },
+
+        pub fn atime(self: @This()) timespec {
+            return timespec.makeTimespec(self.atim, self.atim_nsec);
+        }
+
+        pub fn mtime(self: @This()) timespec {
+            return timespec.makeTimespec(self.mtim, self.mtim_nsec);
+        }
+
+        pub fn ctime(self: @This()) timespec {
+            return timespec.makeTimespec(self.ctim, self.ctim_nsec);
+        }
+    },
+    else => @compileError("missing std.linux.Stat definition for this architecture"),
 };
 
 /// Set by startup code, used by `getauxval`.
@@ -1956,62 +2361,75 @@ pub fn accept4(fd: i32, noalias addr: ?*sockaddr, noalias len: ?*socklen_t, flag
     return syscall4(.accept4, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(addr), @intFromPtr(len), flags);
 }
 
-pub fn fstat(fd: i32, stat_buf: *Stat) usize {
-    if (native_arch == .riscv32) {
-        // riscv32 has made the interesting decision to not implement some of
-        // the older stat syscalls, including this one.
-        @compileError("No fstat syscall on this architecture.");
-    } else if (@hasField(SYS, "fstat64")) {
-        return syscall2(.fstat64, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(stat_buf));
-    } else {
-        return syscall2(.fstat, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(stat_buf));
-    }
+pub fn fstat(fd: fd_t, statbuf: *kernel_stat) usize {
+    if (fd < 0)
+        return @bitCast(@as(isize, -@as(i16, @bitCast(@intFromEnum(E.BADF)))));
+    return fstatat(fd, "", statbuf, AT.EMPTY_PATH);
 }
 
-pub fn stat(pathname: [*:0]const u8, statbuf: *Stat) usize {
-    if (native_arch == .riscv32) {
-        // riscv32 has made the interesting decision to not implement some of
-        // the older stat syscalls, including this one.
-        @compileError("No stat syscall on this architecture.");
-    } else if (@hasField(SYS, "stat64")) {
-        return syscall2(.stat64, @intFromPtr(pathname), @intFromPtr(statbuf));
-    } else {
-        return syscall2(.stat, @intFromPtr(pathname), @intFromPtr(statbuf));
-    }
+pub fn stat(noalias pathname: [*:0]const u8, noalias statbuf: *kernel_stat) usize {
+    return fstatat(AT.FDCWD, pathname, statbuf, 0);
 }
 
-pub fn lstat(pathname: [*:0]const u8, statbuf: *Stat) usize {
-    if (native_arch == .riscv32) {
-        // riscv32 has made the interesting decision to not implement some of
-        // the older stat syscalls, including this one.
-        @compileError("No lstat syscall on this architecture.");
-    } else if (@hasField(SYS, "lstat64")) {
-        return syscall2(.lstat64, @intFromPtr(pathname), @intFromPtr(statbuf));
-    } else {
-        return syscall2(.lstat, @intFromPtr(pathname), @intFromPtr(statbuf));
-    }
+pub fn lstat(noalias pathname: [*:0]const u8, noalias statbuf: *kernel_stat) usize {
+    return fstatat(AT.FDCWD, pathname, statbuf, AT.SYMLINK_NOFOLLOW);
 }
 
-pub fn fstatat(dirfd: i32, path: [*:0]const u8, stat_buf: *Stat, flags: u32) usize {
-    if (native_arch == .riscv32) {
-        // riscv32 has made the interesting decision to not implement some of
-        // the older stat syscalls, including this one.
-        @compileError("No fstatat syscall on this architecture.");
-    } else if (@hasField(SYS, "fstatat64")) {
-        return syscall4(.fstatat64, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), @intFromPtr(stat_buf), flags);
-    } else {
-        return syscall4(.fstatat, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), @intFromPtr(stat_buf), flags);
-    }
+pub fn fstatat(
+    dirfd: i32,
+    noalias pathname: [*:0]const u8,
+    noalias statbuf: *kernel_stat,
+    flags: u32,
+) usize {
+    const s: SYS = if (@hasField(SYS, "fstatat64"))
+        .fstatat64
+    else if (@hasField(SYS, "fstatat"))
+        .fstatat
+    else
+        @compileError("This architecture does not implement fstatat, use statx instead.");
+    return syscall4(
+        s,
+        @bitCast(@as(isize, dirfd)),
+        @intFromPtr(pathname),
+        @intFromPtr(statbuf),
+        flags,
+    );
 }
 
-pub fn statx(dirfd: i32, path: [*:0]const u8, flags: u32, mask: u32, statx_buf: *Statx) usize {
+/// Returns the major number from a device number.
+pub fn major(dev: dev_t) u32 {
+    return ((dev >> 8) & 0xfff) | ((dev >> 32) & ~0xfff);
+}
+
+/// Returns the minor number from a device number
+pub fn minor(dev: dev_t) u32 {
+    return (dev & 0xff) | ((dev >> 12) & ~0xff);
+}
+
+/// Create a device number from a major/minor pair.
+fn makedev(x: u32, y: u32) dev_t {
+    const xx: u64 = x;
+    const yy: u64 = y;
+    return ((yy & 0xff) << 0) |
+        ((xx & 0xfff) << 8) |
+        ((yy & ~0xff) << 12) |
+        ((xx & ~0xfff) << 32);
+}
+
+pub fn statx(
+    dirfd: i32,
+    noalias path: [*:0]const u8,
+    flags: u32,
+    mask: u32,
+    noalias buf: *Statx,
+) usize {
     return syscall5(
         .statx,
         @as(usize, @bitCast(@as(isize, dirfd))),
         @intFromPtr(path),
         flags,
         mask,
-        @intFromPtr(statx_buf),
+        @intFromPtr(buf),
     );
 }
 
@@ -6053,7 +6471,7 @@ pub const io_uring_sync_cancel_reg = extern struct {
     addr: u64,
     fd: i32,
     flags: u32,
-    timeout: kernel_timespec,
+    timeout: timespec,
     pad: [4]u64,
 };
 
@@ -6108,68 +6526,56 @@ pub const statx_timestamp = extern struct {
     sec: i64,
     nsec: u32,
     __pad1: u32,
+
+    fn toTimespec(self: @This()) timespec {
+        return .{
+            .sec = self.sec,
+            .nsec = @as(i32, @bitCast(self.nsec)),
+        };
+    }
 };
 
 /// Renamed to `Statx` to not conflict with the `statx` function.
 pub const Statx = extern struct {
     /// Mask of bits indicating filled fields
     mask: u32,
-
     /// Block size for filesystem I/O
     blksize: u32,
-
     /// Extra file attribute indicators
     attributes: u64,
-
     /// Number of hard links
     nlink: u32,
-
     /// User ID of owner
     uid: uid_t,
-
     /// Group ID of owner
     gid: gid_t,
-
     /// File type and mode
     mode: u16,
     __pad1: u16,
-
     /// Inode number
     ino: u64,
-
     /// Total size in bytes
     size: u64,
-
     /// Number of 512B blocks allocated
     blocks: u64,
-
     /// Mask to show what's supported in `attributes`.
     attributes_mask: u64,
-
     /// Last access file timestamp
     atime: statx_timestamp,
-
     /// Creation file timestamp
     btime: statx_timestamp,
-
     /// Last status change file timestamp
     ctime: statx_timestamp,
-
     /// Last modification file timestamp
     mtime: statx_timestamp,
-
     /// Major ID, if this file represents a device.
     rdev_major: u32,
-
     /// Minor ID, if this file represents a device.
     rdev_minor: u32,
-
     /// Major ID of the device containing the filesystem where this file resides.
     dev_major: u32,
-
     /// Minor ID of the device containing the filesystem where this file resides.
     dev_minor: u32,
-
     __pad2: [14]u64,
 };
 
@@ -6881,7 +7287,7 @@ pub const SIOCGSTAMP_OLD = IOCTL.IOR('s', 100, timeval);
 pub const SIOCGSTAMP = if (native_arch == .x86_64 or @sizeOf(timeval) == 8) SIOCGSTAMP_OLD else SIOCGSTAMP_NEW;
 
 pub const SIOCGSTAMPNS_NEW = IOCTL.IOR(SOCK_IOC_TYPE, 0x07, i64[2]);
-pub const SIOCGSTAMPNS_OLD = IOCTL.IOR('s', 101, kernel_timespec);
+pub const SIOCGSTAMPNS_OLD = IOCTL.IOR('s', 101, timespec);
 
 /// Get stamp (timespec)
 pub const SIOCGSTAMPNS = if (native_arch == .x86_64 or @sizeOf(timespec) == 8) SIOCGSTAMPNS_OLD else SIOCGSTAMPNS_NEW;
@@ -7525,15 +7931,22 @@ pub const POSIX_FADV = switch (native_arch) {
 };
 
 /// The timespec struct used by the kernel.
-pub const kernel_timespec = extern struct {
+pub const timespec = extern struct {
+    /// Seconds.
     sec: i64,
+    /// Nanoseconds.
     nsec: i64,
-};
 
-// https://github.com/ziglang/zig/issues/4726#issuecomment-2190337877
-pub const timespec = if (native_arch == .riscv32) kernel_timespec else extern struct {
-    sec: isize,
-    nsec: isize,
+    pub fn makeTimespec(sec: anytype, nsec: anytype) timespec {
+        comptime {
+            const si = @typeInfo(@TypeOf(sec));
+            assert(si == .int and (si.int.bits == 32 or si.int.bits == 64));
+            const nsi = @typeInfo(@TypeOf(sec));
+            assert(nsi == .int and (nsi.int.bits == 32 or nsi.int.bits == 64));
+        }
+
+        return .{ .sec = @intCast(sec), .nsec = @intCast(nsec) };
+    }
 };
 
 pub const XDP = struct {
