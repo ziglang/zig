@@ -188,11 +188,41 @@ pub fn createEmpty(
         else => return error.UnsupportedELFArchitecture,
     };
 
+    // This is the max page size that the target system can run with, aka the ABI page size. Not to
+    // be confused with the common page size, which is the page size that's used in practice on most
+    // systems.
     const page_size: u32 = switch (target.cpu.arch) {
-        .aarch64, .hexagon, .powerpc64le => 0x10000,
-        .sparc64 => 0x2000,
+        .bpfel,
+        .bpfeb,
+        .sparc64,
+        => 0x100000,
+        .aarch64,
+        .aarch64_be,
+        .amdgcn,
+        .hexagon,
+        .mips,
+        .mipsel,
+        .mips64,
+        .mips64el,
+        .powerpc,
+        .powerpcle,
+        .powerpc64,
+        .powerpc64le,
+        .sparc,
+        => 0x10000,
+        .loongarch32,
+        .loongarch64,
+        => 0x4000,
+        .arc,
+        .m68k,
+        => 0x2000,
+        .msp430,
+        => 0x4,
+        .avr,
+        => 0x1,
         else => 0x1000,
     };
+
     const is_dyn_lib = output_mode == .Lib and link_mode == .dynamic;
     const default_sym_version: elf.Elf64_Versym = if (is_dyn_lib or comp.config.rdynamic)
         elf.VER_NDX_GLOBAL
