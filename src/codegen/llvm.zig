@@ -12444,6 +12444,7 @@ fn backendSupportsF80(target: std.Target) bool {
 /// if it produces miscompilations.
 fn backendSupportsF16(target: std.Target) bool {
     return switch (target.cpu.arch) {
+        .hexagon,
         .powerpc,
         .powerpcle,
         .powerpc64,

@@ -189,7 +189,7 @@ pub fn createEmpty(
     };
 
     const page_size: u32 = switch (target.cpu.arch) {
-        .aarch64, .powerpc64le => 0x10000,
+        .aarch64, .hexagon, .powerpc64le => 0x10000,
         .sparc64 => 0x2000,
         else => 0x1000,
     };

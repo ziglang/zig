@@ -386,6 +386,16 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
         query.cpu_features_sub,
     );
 
+    if (cpu_arch == .hexagon) {
+        // Both LLVM and LLD have broken support for the small data area. Yet LLVM has the feature
+        // on by default for all Hexagon CPUs. Clang sort of solves this by defaulting the `-gpsize`
+        // command line parameter for the Hexagon backend to 0, so that no constants get placed in
+        // the SDA. (This of course breaks down if the user passes `-G <n>` to Clang...) We can't do
+        // the `-gpsize` hack because we can have multiple concurrent LLVM emit jobs, and command
+        // line options in LLVM are shared globally. So just force this feature off. Lovely stuff.
+        result.cpu.features.removeFeature(@intFromEnum(Target.hexagon.Feature.small_data));
+    }
+
     // https://github.com/llvm/llvm-project/issues/105978
     if (result.cpu.arch.isArmOrThumb() and result.floatAbi() == .soft) {
         result.cpu.features.removeFeature(@intFromEnum(Target.arm.Feature.vfp2));
