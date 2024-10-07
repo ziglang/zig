@@ -2274,15 +2274,20 @@ pub fn resolveFinalDeclValue(
     src: LazySrcLoc,
     air_ref: Air.Inst.Ref,
 ) CompileError!Value {
+    const zcu = sema.pt.zcu;
+
     const val = try sema.resolveValueAllowVariables(air_ref) orelse {
         return sema.failWithNeededComptime(block, src, .{
             .needed_comptime_reason = "global variable initializer must be comptime-known",
         });
     };
     if (val.isGenericPoison()) return error.GenericPoison;
-    if (val.canMutateComptimeVarState(sema.pt.zcu)) {
+
+    const init_val: Value = if (val.getVariable(zcu)) |v| .fromInterned(v.init) else val;
+    if (init_val.canMutateComptimeVarState(zcu)) {
         return sema.fail(block, src, "global variable contains reference to comptime var", .{});
     }
+
     return val;
 }
 
@@ -26193,6 +26198,8 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
     }
 
     try sema.requireRuntimeBlock(block, src, runtime_src);
+    try sema.validateRuntimeValue(block, dest_src, dest_ptr);
+    try sema.validateRuntimeValue(block, src_src, src_ptr);
 
     // Aliasing safety check.
     if (block.wantSafety()) {
@@ -26321,6 +26328,9 @@ fn zirMemset(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
     };
 
     try sema.requireRuntimeBlock(block, src, runtime_src);
+    try sema.validateRuntimeValue(block, dest_src, dest_ptr);
+    try sema.validateRuntimeValue(block, value_src, elem);
+
     _ = try block.addInst(.{
         .tag = if (block.wantSafety()) .memset_safe else .memset,
         .data = .{ .bin_op = .{
