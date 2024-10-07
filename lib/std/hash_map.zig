@@ -1692,7 +1692,7 @@ pub fn HashMapUnmanaged(
             }
 
             self.size = 0;
-            self.pointer_stability = .{ .state = .unlocked };
+            self.pointer_stability = .{};
             std.mem.swap(Self, self, &map);
             map.deinit(allocator);
         }
