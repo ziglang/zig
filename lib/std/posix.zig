@@ -6785,6 +6785,7 @@ pub const MemFdCreateError = error{
     OutOfMemory,
     /// Either the name provided exceeded `NAME_MAX`, or invalid flags were passed.
     NameTooLong,
+    SystemOutdated,
 } || UnexpectedError;
 
 pub fn memfd_createZ(name: [*:0]const u8, flags: u32) MemFdCreateError!fd_t {
