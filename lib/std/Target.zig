@@ -2869,7 +2869,7 @@ pub fn cTypePreferredAlignment(target: Target, c_type: CType) u16 {
 }
 
 pub fn isLibCLibName(target: std.Target, name: []const u8) bool {
-    const ignore_case = target.os.tag == .macos or target.os.tag == .windows;
+    const ignore_case = target.os.tag.isDarwin() or target.os.tag == .windows;
 
     if (eqlIgnoreCase(ignore_case, name, "c"))
         return true;
