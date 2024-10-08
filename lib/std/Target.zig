@@ -1754,10 +1754,6 @@ pub inline fn isBSD(target: Target) bool {
     return target.os.tag.isBSD();
 }
 
-pub inline fn isBpfFreestanding(target: Target) bool {
-    return target.cpu.arch.isBpf() and target.os.tag == .freestanding;
-}
-
 pub inline fn isGnuLibC(target: Target) bool {
     return target.os.tag.isGnuLibC(target.abi);
 }
