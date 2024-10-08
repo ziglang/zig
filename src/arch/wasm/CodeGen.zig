@@ -2783,6 +2783,7 @@ const FloatOp = enum {
             .sqrt => .sqrt,
             .sub => .sub,
             .trunc => .trunc,
+            .rem => .fmod,
             else => unreachable,
         };
     }
@@ -6808,30 +6809,37 @@ fn airMod(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const lhs = try func.resolveInst(bin_op.lhs);
     const rhs = try func.resolveInst(bin_op.rhs);
 
-    if (ty.isUnsignedInt(zcu)) {
-        _ = try func.binOp(lhs, rhs, ty, .rem);
-    } else if (ty.isSignedInt(zcu)) {
-        // The wasm rem instruction gives the remainder after truncating division (rounding towards
-        // 0), equivalent to @rem.
-        // We make use of the fact that:
-        // @mod(a, b) = @rem(@rem(a, b) + b, b)
-        const int_bits = ty.intInfo(zcu).bits;
-        const wasm_bits = toWasmBits(int_bits) orelse {
-            return func.fail("TODO: `@mod` for signed integers larger than 64 bits ({d} bits requested)", .{int_bits});
-        };
-
-        if (wasm_bits > 64) {
-            return func.fail("TODO: `@mod` for signed integers larger than 64 bits ({d} bits requested)", .{int_bits});
+    const result = result: {
+        if (ty.isUnsignedInt(zcu)) {
+            break :result try func.binOp(lhs, rhs, ty, .rem);
         }
+        if (ty.isSignedInt(zcu)) {
+            // The wasm rem instruction gives the remainder after truncating division (rounding towards
+            // 0), equivalent to @rem.
+            // We make use of the fact that:
+            // @mod(a, b) = @rem(@rem(a, b) + b, b)
+            const int_bits = ty.intInfo(zcu).bits;
+            const wasm_bits = toWasmBits(int_bits) orelse {
+                return func.fail("TODO: `@mod` for signed integers larger than 64 bits ({d} bits requested)", .{int_bits});
+            };
 
-        _ = try func.binOp(lhs, rhs, ty, .rem);
-        _ = try func.binOp(.stack, rhs, ty, .add);
-        _ = try func.binOp(.stack, rhs, ty, .rem);
-    } else {
-        return func.fail("TODO: implement `@mod` on floating point types for {}", .{func.target.cpu.arch});
-    }
+            if (wasm_bits > 64) {
+                return func.fail("TODO: `@mod` for signed integers larger than 64 bits ({d} bits requested)", .{int_bits});
+            }
 
-    return func.finishAir(inst, .stack, &.{ bin_op.lhs, bin_op.rhs });
+            _ = try func.binOp(lhs, rhs, ty, .rem);
+            _ = try func.binOp(.stack, rhs, ty, .add);
+            break :result try func.binOp(.stack, rhs, ty, .rem);
+        }
+        if (ty.isAnyFloat()) {
+            const rem = try func.binOp(lhs, rhs, ty, .rem);
+            const add = try func.binOp(rem, rhs, ty, .add);
+            break :result try func.binOp(add, rhs, ty, .rem);
+        }
+        return func.fail("TODO: @mod for {}", .{ty.fmt(pt)});
+    };
+
+    return func.finishAir(inst, result, &.{ bin_op.lhs, bin_op.rhs });
 }
 
 fn airSatMul(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
