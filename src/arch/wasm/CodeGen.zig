@@ -1145,7 +1145,7 @@ fn ensureAllocLocal(func: *CodeGen, ty: Type) InnerError!WValue {
 /// Memory is owned by the caller.
 fn genFunctype(
     gpa: Allocator,
-    cc: std.builtin.NewCallingConvention,
+    cc: std.builtin.CallingConvention,
     params: []const InternPool.Index,
     return_type: Type,
     pt: Zcu.PerThread,
@@ -1408,7 +1408,7 @@ fn resolveCallingConventionValues(func: *CodeGen, fn_ty: Type) InnerError!CallWV
     return result;
 }
 
-fn firstParamSRet(cc: std.builtin.NewCallingConvention, return_type: Type, pt: Zcu.PerThread, target: std.Target) bool {
+fn firstParamSRet(cc: std.builtin.CallingConvention, return_type: Type, pt: Zcu.PerThread, target: std.Target) bool {
     switch (cc) {
         .@"inline" => unreachable,
         .auto => return isByRef(return_type, pt, target),
@@ -1424,7 +1424,7 @@ fn firstParamSRet(cc: std.builtin.NewCallingConvention, return_type: Type, pt: Z
 
 /// Lowers a Zig type and its value based on a given calling convention to ensure
 /// it matches the ABI.
-fn lowerArg(func: *CodeGen, cc: std.builtin.NewCallingConvention, ty: Type, value: WValue) !void {
+fn lowerArg(func: *CodeGen, cc: std.builtin.CallingConvention, ty: Type, value: WValue) !void {
     if (cc != .wasm_watc) {
         return func.lowerToStack(value);
     }

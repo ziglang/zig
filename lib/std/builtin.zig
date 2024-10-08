@@ -160,72 +160,20 @@ pub const OptimizeMode = enum {
 /// Deprecated; use OptimizeMode.
 pub const Mode = OptimizeMode;
 
-/// This data structure is used by the Zig language code generation and
-/// therefore must be kept in sync with the compiler implementation.
-pub const CallingConvention = enum(u8) {
-    /// This is the default Zig calling convention used when not using `export` on `fn`
-    /// and no other calling convention is specified.
-    Unspecified,
-    /// Matches the C ABI for the target.
-    /// This is the default calling convention when using `export` on `fn`
-    /// and no other calling convention is specified.
-    C,
-    /// This makes a function not have any function prologue or epilogue,
-    /// making the function itself uncallable in regular Zig code.
-    /// This can be useful when integrating with assembly.
-    Naked,
-    /// Functions with this calling convention are called asynchronously,
-    /// as if called as `async function()`.
-    Async,
-    /// Functions with this calling convention are inlined at all call sites.
-    Inline,
-    /// x86-only.
-    Interrupt,
-    Signal,
-    /// x86-only.
-    Stdcall,
-    /// x86-only.
-    Fastcall,
-    /// x86-only.
-    Vectorcall,
-    /// x86-only.
-    Thiscall,
-    /// ARM Procedure Call Standard (obsolete)
-    /// ARM-only.
-    APCS,
-    /// ARM Architecture Procedure Call Standard (current standard)
-    /// ARM-only.
-    AAPCS,
-    /// ARM Architecture Procedure Call Standard Vector Floating-Point
-    /// ARM-only.
-    AAPCSVFP,
-    /// x86-64-only.
-    SysV,
-    /// x86-64-only.
-    Win64,
-    /// AMD GPU, NVPTX, or SPIR-V kernel
-    Kernel,
-    // Vulkan-only
-    Fragment,
-    Vertex,
-};
-
 /// The calling convention of a function defines how arguments and return values are passed, as well
 /// as any other requirements which callers and callees must respect, such as register preservation
 /// and stack alignment.
 ///
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
-///
-/// TODO: this will be renamed `CallingConvention` after an initial zig1.wasm update.
-pub const NewCallingConvention = union(enum(u8)) {
-    pub const Tag = @typeInfo(NewCallingConvention).@"union".tag_type.?;
+pub const CallingConvention = union(enum(u8)) {
+    pub const Tag = @typeInfo(CallingConvention).@"union".tag_type.?;
 
     /// This is an alias for the default C calling convention for this target.
     /// Functions marked as `extern` or `export` are given this calling convention by default.
     pub const c = builtin.target.defaultCCallingConvention().?;
 
-    pub const winapi: NewCallingConvention = switch (builtin.target.arch) {
+    pub const winapi: CallingConvention = switch (builtin.target.arch) {
         .x86_64 => .{ .x86_64_win = .{} },
         .x86 => .{ .x86_stdcall = .{} },
         .aarch64, .aarch64_be => .{ .aarch64_aapcs_win = .{} },
@@ -233,7 +181,7 @@ pub const NewCallingConvention = union(enum(u8)) {
         else => unreachable,
     };
 
-    pub const kernel: NewCallingConvention = switch (builtin.target.cpu.arch) {
+    pub const kernel: CallingConvention = switch (builtin.target.cpu.arch) {
         .amdgcn => .amdgcn_kernel,
         .nvptx, .nvptx64 => .nvptx_kernel,
         .spirv, .spirv32, .spirv64 => .spirv_kernel,
@@ -241,53 +189,53 @@ pub const NewCallingConvention = union(enum(u8)) {
     };
 
     /// Deprecated; use `.auto`.
-    pub const Unspecified: NewCallingConvention = .auto;
+    pub const Unspecified: CallingConvention = .auto;
     /// Deprecated; use `.c`.
-    pub const C: NewCallingConvention = .c;
+    pub const C: CallingConvention = .c;
     /// Deprecated; use `.naked`.
-    pub const Naked: NewCallingConvention = .naked;
+    pub const Naked: CallingConvention = .naked;
     /// Deprecated; use `.@"async"`.
-    pub const Async: NewCallingConvention = .@"async";
+    pub const Async: CallingConvention = .@"async";
     /// Deprecated; use `.@"inline"`.
-    pub const Inline: NewCallingConvention = .@"inline";
+    pub const Inline: CallingConvention = .@"inline";
     /// Deprecated; use `.x86_64_interrupt`, `.x86_interrupt`, or `.avr_interrupt`.
-    pub const Interrupt: NewCallingConvention = switch (builtin.target.cpu.arch) {
+    pub const Interrupt: CallingConvention = switch (builtin.target.cpu.arch) {
         .x86_64 => .{ .x86_64_interrupt = .{} },
         .x86 => .{ .x86_interrupt = .{} },
         .avr => .avr_interrupt,
         else => unreachable,
     };
     /// Deprecated; use `.avr_signal`.
-    pub const Signal: NewCallingConvention = .avr_signal;
+    pub const Signal: CallingConvention = .avr_signal;
     /// Deprecated; use `.x86_stdcall`.
-    pub const Stdcall: NewCallingConvention = .{ .x86_stdcall = .{} };
+    pub const Stdcall: CallingConvention = .{ .x86_stdcall = .{} };
     /// Deprecated; use `.x86_fastcall`.
-    pub const Fastcall: NewCallingConvention = .{ .x86_fastcall = .{} };
+    pub const Fastcall: CallingConvention = .{ .x86_fastcall = .{} };
     /// Deprecated; use `.x86_64_vectorcall`, `.x86_vectorcall`, or `aarch64_vfabi`.
-    pub const Vectorcall: NewCallingConvention = switch (builtin.target.cpu.arch) {
+    pub const Vectorcall: CallingConvention = switch (builtin.target.cpu.arch) {
         .x86_64 => .{ .x86_64_vectorcall = .{} },
         .x86 => .{ .x86_vectorcall = .{} },
         .aarch64, .aarch64_be => .{ .aarch64_vfabi = .{} },
         else => unreachable,
     };
     /// Deprecated; use `.x86_thiscall`.
-    pub const Thiscall: NewCallingConvention = .{ .x86_thiscall = .{} };
+    pub const Thiscall: CallingConvention = .{ .x86_thiscall = .{} };
     /// Deprecated; use `.arm_apcs`.
-    pub const APCS: NewCallingConvention = .{ .arm_apcs = .{} };
+    pub const APCS: CallingConvention = .{ .arm_apcs = .{} };
     /// Deprecated; use `.arm_aapcs`.
-    pub const AAPCS: NewCallingConvention = .{ .arm_aapcs = .{} };
+    pub const AAPCS: CallingConvention = .{ .arm_aapcs = .{} };
     /// Deprecated; use `.arm_aapcs_vfp`.
-    pub const AAPCSVFP: NewCallingConvention = .{ .arm_aapcs_vfp = .{} };
+    pub const AAPCSVFP: CallingConvention = .{ .arm_aapcs_vfp = .{} };
     /// Deprecated; use `.x86_64_sysv`.
-    pub const SysV: NewCallingConvention = .{ .x86_64_sysv = .{} };
+    pub const SysV: CallingConvention = .{ .x86_64_sysv = .{} };
     /// Deprecated; use `.x86_64_win`.
-    pub const Win64: NewCallingConvention = .{ .x86_64_win = .{} };
+    pub const Win64: CallingConvention = .{ .x86_64_win = .{} };
     /// Deprecated; use `.kernel`.
-    pub const Kernel: NewCallingConvention = .kernel;
+    pub const Kernel: CallingConvention = .kernel;
     /// Deprecated; use `.spirv_fragment`.
-    pub const Fragment: NewCallingConvention = .spirv_fragment;
+    pub const Fragment: CallingConvention = .spirv_fragment;
     /// Deprecated; use `.spirv_vertex`.
-    pub const Vertex: NewCallingConvention = .spirv_vertex;
+    pub const Vertex: CallingConvention = .spirv_vertex;
 
     /// The default Zig calling convention when neither `export` nor `inline` is specified.
     /// This calling convention makes no guarantees about stack alignment, registers, etc.
@@ -535,8 +483,15 @@ pub const NewCallingConvention = union(enum(u8)) {
     /// Asserts that `cc` is not `.auto`, `.@"async"`, `.naked`, or `.@"inline"`.
     pub const archs = std.Target.Cpu.Arch.fromCallconv;
 
-    pub fn eql(a: NewCallingConvention, b: NewCallingConvention) bool {
+    pub fn eql(a: CallingConvention, b: CallingConvention) bool {
         return std.meta.eql(a, b);
+    }
+
+    pub fn withStackAlign(cc: CallingConvention, incoming_stack_alignment: u64) CallingConvention {
+        const tag: CallingConvention.Tag = cc;
+        var result = cc;
+        @field(result, tag).incoming_stack_alignment = incoming_stack_alignment;
+        return result;
     }
 };
 

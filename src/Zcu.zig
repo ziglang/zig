@@ -3540,7 +3540,7 @@ pub fn maybeUnresolveIes(zcu: *Zcu, func_index: InternPool.Index) !void {
     }
 }
 
-pub fn callconvSupported(zcu: *Zcu, cc: std.builtin.NewCallingConvention) union(enum) {
+pub fn callconvSupported(zcu: *Zcu, cc: std.builtin.CallingConvention) union(enum) {
     ok,
     bad_arch: []const std.Target.Cpu.Arch, // value is allowed archs for cc
     bad_backend: std.builtin.CompilerBackend, // value is current backend

@@ -436,9 +436,9 @@ pub const Win64 = struct {
 };
 
 pub fn resolveCallingConvention(
-    cc: std.builtin.NewCallingConvention,
+    cc: std.builtin.CallingConvention,
     target: std.Target,
-) std.builtin.NewCallingConvention {
+) std.builtin.CallingConvention {
     return switch (cc) {
         .auto => switch (target.os.tag) {
             else => .{ .x86_64_sysv = .{} },
@@ -448,7 +448,7 @@ pub fn resolveCallingConvention(
     };
 }
 
-pub fn getCalleePreservedRegs(cc: std.builtin.NewCallingConvention) []const Register {
+pub fn getCalleePreservedRegs(cc: std.builtin.CallingConvention) []const Register {
     return switch (cc) {
         .x86_64_sysv => &SysV.callee_preserved_regs,
         .x86_64_win => &Win64.callee_preserved_regs,
@@ -456,7 +456,7 @@ pub fn getCalleePreservedRegs(cc: std.builtin.NewCallingConvention) []const Regi
     };
 }
 
-pub fn getCallerPreservedRegs(cc: std.builtin.NewCallingConvention) []const Register {
+pub fn getCallerPreservedRegs(cc: std.builtin.CallingConvention) []const Register {
     return switch (cc) {
         .x86_64_sysv => &SysV.caller_preserved_regs,
         .x86_64_win => &Win64.caller_preserved_regs,
@@ -464,7 +464,7 @@ pub fn getCallerPreservedRegs(cc: std.builtin.NewCallingConvention) []const Regi
     };
 }
 
-pub fn getCAbiIntParamRegs(cc: std.builtin.NewCallingConvention) []const Register {
+pub fn getCAbiIntParamRegs(cc: std.builtin.CallingConvention) []const Register {
     return switch (cc) {
         .x86_64_sysv => &SysV.c_abi_int_param_regs,
         .x86_64_win => &Win64.c_abi_int_param_regs,
@@ -472,7 +472,7 @@ pub fn getCAbiIntParamRegs(cc: std.builtin.NewCallingConvention) []const Registe
     };
 }
 
-pub fn getCAbiSseParamRegs(cc: std.builtin.NewCallingConvention) []const Register {
+pub fn getCAbiSseParamRegs(cc: std.builtin.CallingConvention) []const Register {
     return switch (cc) {
         .x86_64_sysv => &SysV.c_abi_sse_param_regs,
         .x86_64_win => &Win64.c_abi_sse_param_regs,
@@ -480,7 +480,7 @@ pub fn getCAbiSseParamRegs(cc: std.builtin.NewCallingConvention) []const Registe
     };
 }
 
-pub fn getCAbiIntReturnRegs(cc: std.builtin.NewCallingConvention) []const Register {
+pub fn getCAbiIntReturnRegs(cc: std.builtin.CallingConvention) []const Register {
     return switch (cc) {
         .x86_64_sysv => &SysV.c_abi_int_return_regs,
         .x86_64_win => &Win64.c_abi_int_return_regs,
@@ -488,7 +488,7 @@ pub fn getCAbiIntReturnRegs(cc: std.builtin.NewCallingConvention) []const Regist
     };
 }
 
-pub fn getCAbiSseReturnRegs(cc: std.builtin.NewCallingConvention) []const Register {
+pub fn getCAbiSseReturnRegs(cc: std.builtin.CallingConvention) []const Register {
     return switch (cc) {
         .x86_64_sysv => &SysV.c_abi_sse_return_regs,
         .x86_64_win => &Win64.c_abi_sse_return_regs,

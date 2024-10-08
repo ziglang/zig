@@ -1988,7 +1988,7 @@ pub const Key = union(enum) {
         /// Tells whether a parameter is noalias. See `paramIsNoalias` helper
         /// method for accessing this.
         noalias_bits: u32,
-        cc: std.builtin.NewCallingConvention,
+        cc: std.builtin.CallingConvention,
         is_var_args: bool,
         is_generic: bool,
         is_noinline: bool,
@@ -8526,7 +8526,7 @@ pub const GetFuncTypeKey = struct {
     comptime_bits: u32 = 0,
     noalias_bits: u32 = 0,
     /// `null` means generic.
-    cc: ?std.builtin.NewCallingConvention = .auto,
+    cc: ?std.builtin.CallingConvention = .auto,
     is_var_args: bool = false,
     is_generic: bool = false,
     is_noinline: bool = false,
@@ -8668,7 +8668,7 @@ pub const GetFuncDeclKey = struct {
     rbrace_line: u32,
     lbrace_column: u32,
     rbrace_column: u32,
-    cc: ?std.builtin.NewCallingConvention,
+    cc: ?std.builtin.CallingConvention,
     is_noinline: bool,
 };
 
@@ -8733,7 +8733,7 @@ pub const GetFuncDeclIesKey = struct {
     comptime_bits: u32,
     bare_return_type: Index,
     /// null means generic.
-    cc: ?std.builtin.NewCallingConvention,
+    cc: ?std.builtin.CallingConvention,
     /// null means generic.
     alignment: ?Alignment,
     section_is_generic: bool,
@@ -8948,7 +8948,7 @@ pub const GetFuncInstanceKey = struct {
     comptime_args: []const Index,
     noalias_bits: u32,
     bare_return_type: Index,
-    cc: std.builtin.NewCallingConvention,
+    cc: std.builtin.CallingConvention,
     alignment: Alignment,
     section: OptionalNullTerminatedString,
     is_noinline: bool,
@@ -12226,13 +12226,13 @@ pub fn getErrorValueIfExists(ip: *const InternPool, name: NullTerminatedString) 
 }
 
 const PackedCallingConvention = packed struct(u18) {
-    tag: std.builtin.NewCallingConvention.Tag,
+    tag: std.builtin.CallingConvention.Tag,
     /// May be ignored depending on `tag`.
     incoming_stack_alignment: Alignment,
     /// Interpretation depends on `tag`.
     extra: u4,
 
-    fn pack(cc: std.builtin.NewCallingConvention) PackedCallingConvention {
+    fn pack(cc: std.builtin.CallingConvention) PackedCallingConvention {
         return switch (cc) {
             inline else => |pl, tag| switch (@TypeOf(pl)) {
                 void => .{
@@ -12240,27 +12240,27 @@ const PackedCallingConvention = packed struct(u18) {
                     .incoming_stack_alignment = .none, // unused
                     .extra = 0, // unused
                 },
-                std.builtin.NewCallingConvention.CommonOptions => .{
+                std.builtin.CallingConvention.CommonOptions => .{
                     .tag = tag,
                     .incoming_stack_alignment = .fromByteUnits(pl.incoming_stack_alignment orelse 0),
                     .extra = 0, // unused
                 },
-                std.builtin.NewCallingConvention.X86RegparmOptions => .{
+                std.builtin.CallingConvention.X86RegparmOptions => .{
                     .tag = tag,
                     .incoming_stack_alignment = .fromByteUnits(pl.incoming_stack_alignment orelse 0),
                     .extra = pl.register_params,
                 },
-                std.builtin.NewCallingConvention.ArmInterruptOptions => .{
+                std.builtin.CallingConvention.ArmInterruptOptions => .{
                     .tag = tag,
                     .incoming_stack_alignment = .fromByteUnits(pl.incoming_stack_alignment orelse 0),
                     .extra = @intFromEnum(pl.type),
                 },
-                std.builtin.NewCallingConvention.MipsInterruptOptions => .{
+                std.builtin.CallingConvention.MipsInterruptOptions => .{
                     .tag = tag,
                     .incoming_stack_alignment = .fromByteUnits(pl.incoming_stack_alignment orelse 0),
                     .extra = @intFromEnum(pl.mode),
                 },
-                std.builtin.NewCallingConvention.RiscvInterruptOptions => .{
+                std.builtin.CallingConvention.RiscvInterruptOptions => .{
                     .tag = tag,
                     .incoming_stack_alignment = .fromByteUnits(pl.incoming_stack_alignment orelse 0),
                     .extra = @intFromEnum(pl.level),
@@ -12270,30 +12270,30 @@ const PackedCallingConvention = packed struct(u18) {
         };
     }
 
-    fn unpack(cc: PackedCallingConvention) std.builtin.NewCallingConvention {
+    fn unpack(cc: PackedCallingConvention) std.builtin.CallingConvention {
         @setEvalBranchQuota(400_000);
         return switch (cc.tag) {
             inline else => |tag| @unionInit(
-                std.builtin.NewCallingConvention,
+                std.builtin.CallingConvention,
                 @tagName(tag),
-                switch (std.meta.FieldType(std.builtin.NewCallingConvention, tag)) {
+                switch (std.meta.FieldType(std.builtin.CallingConvention, tag)) {
                     void => {},
-                    std.builtin.NewCallingConvention.CommonOptions => .{
+                    std.builtin.CallingConvention.CommonOptions => .{
                         .incoming_stack_alignment = cc.incoming_stack_alignment.toByteUnits(),
                     },
-                    std.builtin.NewCallingConvention.X86RegparmOptions => .{
+                    std.builtin.CallingConvention.X86RegparmOptions => .{
                         .incoming_stack_alignment = cc.incoming_stack_alignment.toByteUnits(),
                         .register_params = @intCast(cc.extra),
                     },
-                    std.builtin.NewCallingConvention.ArmInterruptOptions => .{
+                    std.builtin.CallingConvention.ArmInterruptOptions => .{
                         .incoming_stack_alignment = cc.incoming_stack_alignment.toByteUnits(),
                         .type = @enumFromInt(cc.extra),
                     },
-                    std.builtin.NewCallingConvention.MipsInterruptOptions => .{
+                    std.builtin.CallingConvention.MipsInterruptOptions => .{
                         .incoming_stack_alignment = cc.incoming_stack_alignment.toByteUnits(),
                         .mode = @enumFromInt(cc.extra),
                     },
-                    std.builtin.NewCallingConvention.RiscvInterruptOptions => .{
+                    std.builtin.CallingConvention.RiscvInterruptOptions => .{
                         .incoming_stack_alignment = cc.incoming_stack_alignment.toByteUnits(),
                         .level = @enumFromInt(cc.extra),
                     },

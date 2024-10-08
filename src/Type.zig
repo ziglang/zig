@@ -2493,7 +2493,7 @@ pub fn fnReturnType(ty: Type, zcu: *const Zcu) Type {
 }
 
 /// Asserts the type is a function.
-pub fn fnCallingConvention(ty: Type, zcu: *const Zcu) std.builtin.NewCallingConvention {
+pub fn fnCallingConvention(ty: Type, zcu: *const Zcu) std.builtin.CallingConvention {
     return zcu.intern_pool.indexToKey(ty.toIntern()).func_type.cc;
 }
 

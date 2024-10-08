@@ -2703,9 +2703,9 @@ fn analyzeValueAsCallconv(
     block: *Block,
     src: LazySrcLoc,
     unresolved_val: Value,
-) !std.builtin.NewCallingConvention {
+) !std.builtin.CallingConvention {
     const resolved_val = try sema.resolveLazyValue(unresolved_val);
-    return resolved_val.interpret(std.builtin.NewCallingConvention, sema.pt) catch |err| switch (err) {
+    return resolved_val.interpret(std.builtin.CallingConvention, sema.pt) catch |err| switch (err) {
         error.OutOfMemory => |e| return e,
         error.UndefinedValue => return sema.failWithUseOfUndef(block, src),
         error.TypeMismatch => @panic("std.builtin is corrupt"),
@@ -9520,7 +9520,7 @@ fn zirFunc(
     // If this instruction has a body, then it's a function declaration, and we decide
     // the callconv based on whether it is exported. Otherwise, the callconv defaults
     // to `.auto`.
-    const cc: std.builtin.NewCallingConvention = if (has_body) cc: {
+    const cc: std.builtin.CallingConvention = if (has_body) cc: {
         const func_decl_cau = if (sema.generic_owner != .none) cau: {
             const generic_owner_fn = zcu.funcInfo(sema.generic_owner);
             // The generic owner definitely has a `Cau` for the corresponding function declaration.
@@ -9686,7 +9686,7 @@ fn handleExternLibName(
 /// These are calling conventions that are confirmed to work with variadic functions.
 /// Any calling conventions not included here are either not yet verified to work with variadic
 /// functions or there are no more other calling conventions that support variadic functions.
-const calling_conventions_supporting_var_args = [_]std.builtin.NewCallingConvention.Tag{
+const calling_conventions_supporting_var_args = [_]std.builtin.CallingConvention.Tag{
     .x86_64_sysv,
     .x86_64_win,
     .x86_sysv,
@@ -9738,12 +9738,12 @@ const calling_conventions_supporting_var_args = [_]std.builtin.NewCallingConvent
     .xtensa_call0,
     .xtensa_windowed,
 };
-fn callConvSupportsVarArgs(cc: std.builtin.NewCallingConvention.Tag) bool {
+fn callConvSupportsVarArgs(cc: std.builtin.CallingConvention.Tag) bool {
     return for (calling_conventions_supporting_var_args) |supported_cc| {
         if (cc == supported_cc) return true;
     } else false;
 }
-fn checkCallConvSupportsVarArgs(sema: *Sema, block: *Block, src: LazySrcLoc, cc: std.builtin.NewCallingConvention.Tag) CompileError!void {
+fn checkCallConvSupportsVarArgs(sema: *Sema, block: *Block, src: LazySrcLoc, cc: std.builtin.CallingConvention.Tag) CompileError!void {
     const CallingConventionsSupportingVarArgsList = struct {
         pub fn format(_: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
             _ = fmt;
@@ -9784,7 +9784,7 @@ fn funcCommon(
     address_space: ?std.builtin.AddressSpace,
     section: Section,
     /// null means generic poison
-    cc: ?std.builtin.NewCallingConvention,
+    cc: ?std.builtin.CallingConvention,
     /// this might be Type.generic_poison
     bare_return_type: Type,
     var_args: bool,
@@ -10141,7 +10141,7 @@ fn finishFunc(
     ret_poison: bool,
     bare_return_type: Type,
     ret_ty_src: LazySrcLoc,
-    cc_resolved: std.builtin.NewCallingConvention,
+    cc_resolved: std.builtin.CallingConvention,
     is_source_decl: bool,
     ret_ty_requires_comptime: bool,
     func_inst: Zir.Inst.Index,
@@ -26744,7 +26744,7 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         break :blk .{ .explicit = section_name };
     } else .default;
 
-    const cc: ?std.builtin.NewCallingConvention = if (extra.data.bits.has_cc_body) blk: {
+    const cc: ?std.builtin.CallingConvention = if (extra.data.bits.has_cc_body) blk: {
         const body_len = sema.code.extra[extra_index];
         extra_index += 1;
         const body = sema.code.bodySlice(extra_index, body_len);
@@ -27253,14 +27253,14 @@ fn zirBuiltinValue(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstD
             ) orelse @panic("std.builtin is corrupt");
         },
         .calling_convention_inline => {
-            comptime assert(@typeInfo(std.builtin.NewCallingConvention.Tag).@"enum".tag_type == u8);
+            comptime assert(@typeInfo(std.builtin.CallingConvention.Tag).@"enum".tag_type == u8);
             const callconv_ty = try sema.getBuiltinType("CallingConvention");
             const callconv_tag_ty = callconv_ty.unionTagType(zcu) orelse @panic("std.builtin is corrupt");
             const inline_tag_val = try pt.enumValue(
                 callconv_tag_ty,
                 (try pt.intValue(
                     Type.u8,
-                    @intFromEnum(std.builtin.NewCallingConvention.@"inline"),
+                    @intFromEnum(std.builtin.CallingConvention.@"inline"),
                 )).toIntern(),
             );
             return sema.coerce(block, callconv_ty, Air.internedToRef(inline_tag_val.toIntern()), src);
@@ -30621,8 +30621,8 @@ const InMemoryCoercionResult = union(enum) {
     };
 
     const CC = struct {
-        actual: std.builtin.NewCallingConvention,
-        wanted: std.builtin.NewCallingConvention,
+        actual: std.builtin.CallingConvention,
+        wanted: std.builtin.CallingConvention,
     };
 
     const BitRange = struct {
@@ -31348,10 +31348,10 @@ fn coerceInMemoryAllowedFns(
 
 fn callconvCoerceAllowed(
     target: std.Target,
-    src_cc: std.builtin.NewCallingConvention,
-    dest_cc: std.builtin.NewCallingConvention,
+    src_cc: std.builtin.CallingConvention,
+    dest_cc: std.builtin.CallingConvention,
 ) bool {
-    const Tag = std.builtin.NewCallingConvention.Tag;
+    const Tag = std.builtin.CallingConvention.Tag;
     if (@as(Tag, src_cc) != @as(Tag, dest_cc)) return false;
 
     switch (src_cc) {
@@ -31364,17 +31364,17 @@ fn callconvCoerceAllowed(
                 if (dest_stack_align < src_stack_align) return false;
             }
             switch (@TypeOf(src_data)) {
-                void, std.builtin.NewCallingConvention.CommonOptions => {},
-                std.builtin.NewCallingConvention.X86RegparmOptions => {
+                void, std.builtin.CallingConvention.CommonOptions => {},
+                std.builtin.CallingConvention.X86RegparmOptions => {
                     if (src_data.register_params != dest_data.register_params) return false;
                 },
-                std.builtin.NewCallingConvention.ArmInterruptOptions => {
+                std.builtin.CallingConvention.ArmInterruptOptions => {
                     if (src_data.type != dest_data.type) return false;
                 },
-                std.builtin.NewCallingConvention.MipsInterruptOptions => {
+                std.builtin.CallingConvention.MipsInterruptOptions => {
                     if (src_data.mode != dest_data.mode) return false;
                 },
-                std.builtin.NewCallingConvention.RiscvInterruptOptions => {
+                std.builtin.CallingConvention.RiscvInterruptOptions => {
                     if (src_data.level != dest_data.level) return false;
                 },
                 else => comptime unreachable,

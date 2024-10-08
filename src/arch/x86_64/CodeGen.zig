@@ -2694,7 +2694,7 @@ fn setFrameLoc(
     offset.* += self.frame_allocs.items(.abi_size)[frame_i];
 }
 
-fn computeFrameLayout(self: *Self, cc: std.builtin.NewCallingConvention) !FrameLayout {
+fn computeFrameLayout(self: *Self, cc: std.builtin.CallingConvention) !FrameLayout {
     const frame_allocs_len = self.frame_allocs.len;
     try self.frame_locs.resize(self.gpa, frame_allocs_len);
     const stack_frame_order = try self.gpa.alloc(FrameIndex, frame_allocs_len - FrameIndex.named_count);
@@ -3006,7 +3006,7 @@ pub fn spillEflagsIfOccupied(self: *Self) !void {
     }
 }
 
-pub fn spillCallerPreservedRegs(self: *Self, cc: std.builtin.NewCallingConvention) !void {
+pub fn spillCallerPreservedRegs(self: *Self, cc: std.builtin.CallingConvention) !void {
     switch (cc) {
         .x86_64_sysv => try self.spillRegisters(abi.getCallerPreservedRegs(.{ .x86_64_sysv = .{} })),
         .x86_64_win => try self.spillRegisters(abi.getCallerPreservedRegs(.{ .x86_64_win = .{} })),
