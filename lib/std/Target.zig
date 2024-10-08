@@ -2936,8 +2936,6 @@ pub fn isLibCLibName(target: std.Target, name: []const u8) bool {
             return true;
         if (eqlIgnoreCase(ignore_case, name, "util"))
             return true;
-        if (eqlIgnoreCase(ignore_case, name, "xnet"))
-            return true;
         if (eqlIgnoreCase(ignore_case, name, "resolv"))
             return true;
         if (eqlIgnoreCase(ignore_case, name, "dl"))
@@ -2946,6 +2944,8 @@ pub fn isLibCLibName(target: std.Target, name: []const u8) bool {
 
     if (target.abi.isMusl()) {
         if (eqlIgnoreCase(ignore_case, name, "crypt"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "xnet"))
             return true;
     }
 
