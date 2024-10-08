@@ -389,20 +389,10 @@ pub const Section = struct {
         if (dwarf.bin_file.cast(.elf)) |elf_file| {
             const zo = elf_file.zigObjectPtr().?;
             const atom = zo.symbol(sec.index).atom(elf_file).?;
-            const old_size = atom.size;
             atom.size = len;
             atom.alignment = sec.alignment;
             sec.len = len;
-            if (old_size > 0) {
-                if (!atom.alignment.check(@intCast(atom.value)) or atom.size > atom.fileCapacity(elf_file)) {
-                    try zo.allocateAtom(atom, false, elf_file);
-                } else {
-                    const shdr = &elf_file.sections.items(.shdr)[atom.output_section_index];
-                    shdr.sh_size = (shdr.sh_size - old_size) + atom.size;
-                }
-            } else {
-                try zo.allocateAtom(atom, false, elf_file);
-            }
+            try zo.allocateAtom(atom, false, elf_file);
         } else if (dwarf.bin_file.cast(.macho)) |macho_file| {
             const header = if (macho_file.d_sym) |*d_sym| header: {
                 try d_sym.growSection(@intCast(sec.index), len, true, macho_file);
