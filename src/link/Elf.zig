@@ -1801,7 +1801,6 @@ pub fn initOutputSection(self: *Elf, args: struct {
         .type = @"type",
         .flags = flags,
         .name = try self.insertShString(name),
-        .offset = std.math.maxInt(u64),
     });
     return out_shndx;
 }
@@ -2867,7 +2866,6 @@ fn initSyntheticSections(self: *Elf) !void {
                     elf.SHT_PROGBITS,
                 .flags = elf.SHF_ALLOC,
                 .addralign = ptr_size,
-                .offset = std.math.maxInt(u64),
             });
         }
         if (comp.link_eh_frame_hdr and self.eh_frame_hdr_section_index == null) {
@@ -2876,7 +2874,6 @@ fn initSyntheticSections(self: *Elf) !void {
                 .type = elf.SHT_PROGBITS,
                 .flags = elf.SHF_ALLOC,
                 .addralign = 4,
-                .offset = std.math.maxInt(u64),
             });
         }
     }
@@ -2887,7 +2884,6 @@ fn initSyntheticSections(self: *Elf) !void {
             .type = elf.SHT_PROGBITS,
             .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
             .addralign = ptr_size,
-            .offset = std.math.maxInt(u64),
         });
     }
 
@@ -2897,7 +2893,6 @@ fn initSyntheticSections(self: *Elf) !void {
             .type = elf.SHT_PROGBITS,
             .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
             .addralign = @alignOf(u64),
-            .offset = std.math.maxInt(u64),
         });
     }
 
@@ -2919,7 +2914,6 @@ fn initSyntheticSections(self: *Elf) !void {
             .flags = elf.SHF_ALLOC,
             .addralign = @alignOf(elf.Elf64_Rela),
             .entsize = @sizeOf(elf.Elf64_Rela),
-            .offset = std.math.maxInt(u64),
         });
     }
 
@@ -2930,7 +2924,6 @@ fn initSyntheticSections(self: *Elf) !void {
                 .type = elf.SHT_PROGBITS,
                 .flags = elf.SHF_ALLOC | elf.SHF_EXECINSTR,
                 .addralign = 16,
-                .offset = std.math.maxInt(u64),
             });
         }
         if (self.rela_plt_section_index == null) {
@@ -2940,7 +2933,6 @@ fn initSyntheticSections(self: *Elf) !void {
                 .flags = elf.SHF_ALLOC,
                 .addralign = @alignOf(elf.Elf64_Rela),
                 .entsize = @sizeOf(elf.Elf64_Rela),
-                .offset = std.math.maxInt(u64),
             });
         }
     }
@@ -2951,7 +2943,6 @@ fn initSyntheticSections(self: *Elf) !void {
             .type = elf.SHT_PROGBITS,
             .flags = elf.SHF_ALLOC | elf.SHF_EXECINSTR,
             .addralign = 16,
-            .offset = std.math.maxInt(u64),
         });
     }
 
@@ -2960,7 +2951,6 @@ fn initSyntheticSections(self: *Elf) !void {
             .name = try self.insertShString(".copyrel"),
             .type = elf.SHT_NOBITS,
             .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
-            .offset = std.math.maxInt(u64),
         });
     }
 
@@ -2979,7 +2969,6 @@ fn initSyntheticSections(self: *Elf) !void {
             .type = elf.SHT_PROGBITS,
             .flags = elf.SHF_ALLOC,
             .addralign = 1,
-            .offset = std.math.maxInt(u64),
         });
     }
 
@@ -2991,7 +2980,6 @@ fn initSyntheticSections(self: *Elf) !void {
                 .type = elf.SHT_STRTAB,
                 .entsize = 1,
                 .addralign = 1,
-                .offset = std.math.maxInt(u64),
             });
         }
         if (self.dynamic_section_index == null) {
@@ -3001,7 +2989,6 @@ fn initSyntheticSections(self: *Elf) !void {
                 .type = elf.SHT_DYNAMIC,
                 .entsize = @sizeOf(elf.Elf64_Dyn),
                 .addralign = @alignOf(elf.Elf64_Dyn),
-                .offset = std.math.maxInt(u64),
             });
         }
         if (self.dynsymtab_section_index == null) {
@@ -3012,7 +2999,6 @@ fn initSyntheticSections(self: *Elf) !void {
                 .addralign = @alignOf(elf.Elf64_Sym),
                 .entsize = @sizeOf(elf.Elf64_Sym),
                 .info = 1,
-                .offset = std.math.maxInt(u64),
             });
         }
         if (self.hash_section_index == null) {
@@ -3022,7 +3008,6 @@ fn initSyntheticSections(self: *Elf) !void {
                 .type = elf.SHT_HASH,
                 .addralign = 4,
                 .entsize = 4,
-                .offset = std.math.maxInt(u64),
             });
         }
         if (self.gnu_hash_section_index == null) {
@@ -3031,7 +3016,6 @@ fn initSyntheticSections(self: *Elf) !void {
                 .flags = elf.SHF_ALLOC,
                 .type = elf.SHT_GNU_HASH,
                 .addralign = 8,
-                .offset = std.math.maxInt(u64),
             });
         }
 
@@ -3047,7 +3031,6 @@ fn initSyntheticSections(self: *Elf) !void {
                     .type = elf.SHT_GNU_VERSYM,
                     .addralign = @alignOf(elf.Elf64_Versym),
                     .entsize = @sizeOf(elf.Elf64_Versym),
-                    .offset = std.math.maxInt(u64),
                 });
             }
             if (self.verneed_section_index == null) {
@@ -3056,7 +3039,6 @@ fn initSyntheticSections(self: *Elf) !void {
                     .flags = elf.SHF_ALLOC,
                     .type = elf.SHT_GNU_VERNEED,
                     .addralign = @alignOf(elf.Elf64_Verneed),
-                    .offset = std.math.maxInt(u64),
                 });
             }
         }
@@ -3077,7 +3059,6 @@ pub fn initSymtab(self: *Elf) !void {
             .type = elf.SHT_SYMTAB,
             .addralign = if (small_ptr) @alignOf(elf.Elf32_Sym) else @alignOf(elf.Elf64_Sym),
             .entsize = if (small_ptr) @sizeOf(elf.Elf32_Sym) else @sizeOf(elf.Elf64_Sym),
-            .offset = std.math.maxInt(u64),
         });
     }
     if (self.strtab_section_index == null) {
@@ -3086,7 +3067,6 @@ pub fn initSymtab(self: *Elf) !void {
             .type = elf.SHT_STRTAB,
             .entsize = 1,
             .addralign = 1,
-            .offset = std.math.maxInt(u64),
         });
     }
 }
@@ -3098,7 +3078,6 @@ pub fn initShStrtab(self: *Elf) !void {
             .type = elf.SHT_STRTAB,
             .entsize = 1,
             .addralign = 1,
-            .offset = std.math.maxInt(u64),
         });
     }
 }
@@ -4760,7 +4739,6 @@ pub fn addRelaShdr(self: *Elf, name: u32, shndx: u32) !u32 {
         .entsize = entsize,
         .info = shndx,
         .addralign = addralign,
-        .offset = std.math.maxInt(u64),
     });
 }
 
@@ -4772,7 +4750,6 @@ pub const AddSectionOpts = struct {
     info: u32 = 0,
     addralign: u64 = 0,
     entsize: u64 = 0,
-    offset: u64 = 0,
 };
 
 pub fn addSection(self: *Elf, opts: AddSectionOpts) !u32 {
@@ -4784,7 +4761,7 @@ pub fn addSection(self: *Elf, opts: AddSectionOpts) !u32 {
             .sh_type = opts.type,
             .sh_flags = opts.flags,
             .sh_addr = 0,
-            .sh_offset = opts.offset,
+            .sh_offset = 0,
             .sh_size = 0,
             .sh_link = opts.link,
             .sh_info = opts.info,

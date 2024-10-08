@@ -130,7 +130,6 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
                     .entsize = 1,
                     .type = elf.SHT_PROGBITS,
                     .addralign = 1,
-                    .offset = std.math.maxInt(u64),
                 });
                 self.debug_str_section_dirty = true;
                 self.debug_str_index = try addSectionSymbolWithAtom(self, gpa, ".debug_str", .@"1", osec);
@@ -141,7 +140,6 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
                     .name = try elf_file.insertShString(".debug_info"),
                     .type = elf.SHT_PROGBITS,
                     .addralign = 1,
-                    .offset = std.math.maxInt(u64),
                 });
                 self.debug_info_section_dirty = true;
                 self.debug_info_index = try addSectionSymbolWithAtom(self, gpa, ".debug_info", .@"1", osec);
@@ -152,7 +150,6 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
                     .name = try elf_file.insertShString(".debug_abbrev"),
                     .type = elf.SHT_PROGBITS,
                     .addralign = 1,
-                    .offset = std.math.maxInt(u64),
                 });
                 self.debug_abbrev_section_dirty = true;
                 self.debug_abbrev_index = try addSectionSymbolWithAtom(self, gpa, ".debug_abbrev", .@"1", osec);
@@ -163,7 +160,6 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
                     .name = try elf_file.insertShString(".debug_aranges"),
                     .type = elf.SHT_PROGBITS,
                     .addralign = 16,
-                    .offset = std.math.maxInt(u64),
                 });
                 self.debug_aranges_section_dirty = true;
                 self.debug_aranges_index = try addSectionSymbolWithAtom(self, gpa, ".debug_aranges", .@"16", osec);
@@ -174,7 +170,6 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
                     .name = try elf_file.insertShString(".debug_line"),
                     .type = elf.SHT_PROGBITS,
                     .addralign = 1,
-                    .offset = std.math.maxInt(u64),
                 });
                 self.debug_line_section_dirty = true;
                 self.debug_line_index = try addSectionSymbolWithAtom(self, gpa, ".debug_line", .@"1", osec);
@@ -187,7 +182,6 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
                     .entsize = 1,
                     .type = elf.SHT_PROGBITS,
                     .addralign = 1,
-                    .offset = std.math.maxInt(u64),
                 });
                 self.debug_line_str_section_dirty = true;
                 self.debug_line_str_index = try addSectionSymbolWithAtom(self, gpa, ".debug_line_str", .@"1", osec);
@@ -198,7 +192,6 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
                     .name = try elf_file.insertShString(".debug_loclists"),
                     .type = elf.SHT_PROGBITS,
                     .addralign = 1,
-                    .offset = std.math.maxInt(u64),
                 });
                 self.debug_loclists_section_dirty = true;
                 self.debug_loclists_index = try addSectionSymbolWithAtom(self, gpa, ".debug_loclists", .@"1", osec);
@@ -209,7 +202,6 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
                     .name = try elf_file.insertShString(".debug_rnglists"),
                     .type = elf.SHT_PROGBITS,
                     .addralign = 1,
-                    .offset = std.math.maxInt(u64),
                 });
                 self.debug_rnglists_section_dirty = true;
                 self.debug_rnglists_index = try addSectionSymbolWithAtom(self, gpa, ".debug_rnglists", .@"1", osec);
@@ -224,7 +216,6 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
                         elf.SHT_PROGBITS,
                     .flags = elf.SHF_ALLOC,
                     .addralign = ptr_size,
-                    .offset = std.math.maxInt(u64),
                 });
                 self.eh_frame_section_dirty = true;
                 self.eh_frame_index = try addSectionSymbolWithAtom(self, gpa, ".eh_frame", Atom.Alignment.fromNonzeroByteUnits(ptr_size), osec);
@@ -1026,7 +1017,6 @@ pub fn lowerUav(
             .type = elf.SHT_PROGBITS,
             .addralign = 1,
             .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
-            .offset = std.math.maxInt(u64),
         });
         self.data_relro_index = try self.addSectionSymbol(gpa, try self.addString(gpa, ".data.rel.ro"), osec);
         break :osec osec;
@@ -1166,7 +1156,6 @@ fn getNavShdrIndex(
             .flags = elf.SHF_ALLOC | elf.SHF_EXECINSTR,
             .name = try elf_file.insertShString(".text"),
             .addralign = 1,
-            .offset = std.math.maxInt(u64),
         });
         self.text_index = try self.addSectionSymbol(gpa, try self.addString(gpa, ".text"), osec);
         return osec;
@@ -1200,7 +1189,6 @@ fn getNavShdrIndex(
             .flags = elf.SHF_ALLOC | elf.SHF_WRITE | elf.SHF_TLS,
             .name = try elf_file.insertShString(".tdata"),
             .addralign = 1,
-            .offset = std.math.maxInt(u64),
         });
         self.tdata_index = try self.addSectionSymbol(gpa, try self.addString(gpa, ".tdata"), osec);
         return osec;
@@ -1213,7 +1201,6 @@ fn getNavShdrIndex(
             .type = elf.SHT_PROGBITS,
             .addralign = 1,
             .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
-            .offset = std.math.maxInt(u64),
         });
         self.data_relro_index = try self.addSectionSymbol(gpa, try self.addString(gpa, ".data.rel.ro"), osec);
         return osec;
@@ -1228,7 +1215,6 @@ fn getNavShdrIndex(
                     .type = elf.SHT_PROGBITS,
                     .addralign = ptr_size,
                     .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
-                    .offset = std.math.maxInt(u64),
                 });
                 self.data_index = try self.addSectionSymbol(gpa, try self.addString(gpa, ".data"), osec);
                 return osec;
@@ -1268,7 +1254,6 @@ fn getNavShdrIndex(
         .type = elf.SHT_PROGBITS,
         .addralign = ptr_size,
         .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
-        .offset = std.math.maxInt(u64),
     });
     self.data_index = try self.addSectionSymbol(gpa, try self.addString(gpa, ".data"), osec);
     return osec;
@@ -1521,7 +1506,6 @@ pub fn updateFunc(
                     .flags = elf.SHF_ALLOC | elf.SHF_EXECINSTR,
                     .type = elf.SHT_PROGBITS,
                     .addralign = 1,
-                    .offset = std.math.maxInt(u64),
                 });
                 self.text_index = try self.addSectionSymbol(gpa, try self.addString(gpa, ".text"), osec);
                 break :osec osec;
@@ -1697,7 +1681,6 @@ fn updateLazySymbol(
                 .type = elf.SHT_PROGBITS,
                 .addralign = 1,
                 .flags = elf.SHF_ALLOC | elf.SHF_EXECINSTR,
-                .offset = std.math.maxInt(u64),
             });
             self.text_index = try self.addSectionSymbol(gpa, try self.addString(gpa, ".text"), osec);
             break :osec osec;
@@ -1710,7 +1693,6 @@ fn updateLazySymbol(
                 .type = elf.SHT_PROGBITS,
                 .addralign = 1,
                 .flags = elf.SHF_ALLOC,
-                .offset = std.math.maxInt(u64),
             });
             self.rodata_index = try self.addSectionSymbol(gpa, try self.addString(gpa, ".rodata"), osec);
             break :osec osec;

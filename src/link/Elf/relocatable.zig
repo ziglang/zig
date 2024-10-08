@@ -295,7 +295,6 @@ fn initSections(elf_file: *Elf) !void {
                     elf.SHT_PROGBITS,
                 .flags = elf.SHF_ALLOC,
                 .addralign = elf_file.ptrWidthBytes(),
-                .offset = std.math.maxInt(u64),
             });
         }
         elf_file.eh_frame_rela_section_index = elf_file.sectionByName(".rela.eh_frame") orelse
@@ -324,7 +323,6 @@ fn initComdatGroups(elf_file: *Elf) !void {
                     .type = elf.SHT_GROUP,
                     .entsize = @sizeOf(u32),
                     .addralign = @alignOf(u32),
-                    .offset = std.math.maxInt(u64),
                 }),
                 .cg_ref = .{ .index = @intCast(cg_index), .file = index },
             };
