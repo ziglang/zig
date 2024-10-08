@@ -9606,7 +9606,7 @@ fn handleExternLibName(
         const comp = zcu.comp;
         const target = zcu.getTarget();
         log.debug("extern fn symbol expected in lib '{s}'", .{lib_name});
-        if (target.isLibCLibName(lib_name)) {
+        if (std.zig.target.isLibCLibName(target, lib_name)) {
             if (!comp.config.link_libc) {
                 return sema.fail(
                     block,
@@ -9617,7 +9617,7 @@ fn handleExternLibName(
             }
             break :blk;
         }
-        if (target.isLibCxxLibName(lib_name)) {
+        if (std.zig.target.isLibCxxLibName(target, lib_name)) {
             if (!comp.config.link_libcpp) return sema.fail(
                 block,
                 src_loc,
