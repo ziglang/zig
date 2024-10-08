@@ -3400,7 +3400,7 @@ fn updateType(
             try wip_nav.strp(name);
             const cc: DW.CC = cc: {
                 if (zcu.getTarget().defaultCCallingConvention()) |cc| {
-                    if (@as(std.builtin.NewCallingConvention.Tag, cc) == func_type.cc) {
+                    if (@as(std.builtin.CallingConvention.Tag, cc) == func_type.cc) {
                         break :cc .normal;
                     }
                 }

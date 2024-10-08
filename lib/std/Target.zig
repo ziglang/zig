@@ -1612,7 +1612,7 @@ pub const Cpu = struct {
 
         /// Returns the array of `Arch` to which a specific `std.builtin.CallingConvention` applies.
         /// Asserts that `cc` is not `.auto`, `.@"async"`, `.naked`, or `.@"inline"`.
-        pub fn fromCallconv(cc: std.builtin.NewCallingConvention) []const Arch {
+        pub fn fromCallconv(cc: std.builtin.CallingConvention) []const Arch {
             return switch (cc) {
                 .auto,
                 .@"async",
@@ -3032,7 +3032,7 @@ pub fn cTypePreferredAlignment(target: Target, c_type: CType) u16 {
     );
 }
 
-pub fn defaultCCallingConvention(target: Target) ?std.builtin.NewCallingConvention {
+pub fn defaultCCallingConvention(target: Target) ?std.builtin.CallingConvention {
     return switch (target.cpu.arch) {
         .x86_64 => switch (target.os.tag) {
             .windows, .uefi => .{ .x86_64_win = .{} },

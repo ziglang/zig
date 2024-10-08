@@ -7604,7 +7604,7 @@ fn writeMemoryOrder(w: anytype, order: std.builtin.AtomicOrder) !void {
     return w.writeAll(toMemoryOrder(order));
 }
 
-fn toCallingConvention(cc: std.builtin.NewCallingConvention, zcu: *Zcu) ?[]const u8 {
+fn toCallingConvention(cc: std.builtin.CallingConvention, zcu: *Zcu) ?[]const u8 {
     return switch (cc) {
         .auto, .naked => null,
         .x86_stdcall => "stdcall",

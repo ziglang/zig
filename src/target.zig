@@ -544,7 +544,7 @@ pub fn compilerRtIntAbbrev(bits: u16) []const u8 {
     };
 }
 
-pub fn fnCallConvAllowsZigTypes(cc: std.builtin.NewCallingConvention) bool {
+pub fn fnCallConvAllowsZigTypes(cc: std.builtin.CallingConvention) bool {
     return switch (cc) {
         .auto, .@"async", .@"inline" => true,
         // For now we want to authorize PTX kernel to use zig objects, even if

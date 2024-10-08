@@ -11595,13 +11595,13 @@ const CallingConventionInfo = struct {
     inreg_param_count: u2 = 0,
 };
 
-pub fn toLlvmCallConv(cc: std.builtin.NewCallingConvention, target: std.Target) ?CallingConventionInfo {
+pub fn toLlvmCallConv(cc: std.builtin.CallingConvention, target: std.Target) ?CallingConventionInfo {
     const llvm_cc = toLlvmCallConvTag(cc, target) orelse return null;
     const incoming_stack_alignment: ?u64, const register_params: u2 = switch (cc) {
         inline else => |pl| switch (@TypeOf(pl)) {
             void => .{ null, 0 },
-            std.builtin.NewCallingConvention.CommonOptions => .{ pl.incoming_stack_alignment, 0 },
-            std.builtin.NewCallingConvention.X86RegparmOptions => .{ pl.incoming_stack_alignment, pl.register_params },
+            std.builtin.CallingConvention.CommonOptions => .{ pl.incoming_stack_alignment, 0 },
+            std.builtin.CallingConvention.X86RegparmOptions => .{ pl.incoming_stack_alignment, pl.register_params },
             else => unreachable,
         },
     };
@@ -11615,7 +11615,7 @@ pub fn toLlvmCallConv(cc: std.builtin.NewCallingConvention, target: std.Target) 
         .inreg_param_count = register_params,
     };
 }
-fn toLlvmCallConvTag(cc_tag: std.builtin.NewCallingConvention.Tag, target: std.Target) ?Builder.CallConv {
+fn toLlvmCallConvTag(cc_tag: std.builtin.CallingConvention.Tag, target: std.Target) ?Builder.CallConv {
     if (target.defaultCCallingConvention()) |default_c| {
         if (cc_tag == default_c) {
             return .ccc;
@@ -12371,7 +12371,7 @@ fn iterateParamTypes(object: *Object, fn_info: InternPool.Key.FuncType) ParamTyp
 }
 
 fn ccAbiPromoteInt(
-    cc: std.builtin.NewCallingConvention,
+    cc: std.builtin.CallingConvention,
     zcu: *Zcu,
     ty: Type,
 ) ?std.builtin.Signedness {
