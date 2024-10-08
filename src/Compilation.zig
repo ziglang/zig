@@ -877,7 +877,7 @@ pub const cache_helpers = struct {
         hh.addBytes(target.cpu.model.name);
         hh.add(target.cpu.features.ints);
         hh.add(target.os.tag);
-        hh.add(target.os.getVersionRange());
+        hh.add(target.os.versionRange());
         hh.add(target.abi);
         hh.add(target.ofmt);
         hh.add(resolved_target.is_native_os);
@@ -5412,7 +5412,7 @@ pub fn addCCArgs(
 
             switch (ext) {
                 .c, .cpp, .m, .mm, .h, .hpp, .hm, .hmm, .cu, .rc, .assembly, .assembly_with_cpp => {
-                    const minver: u16 = @truncate(@intFromEnum(target.os.getVersionRange().windows.min) >> 16);
+                    const minver: u16 = @truncate(@intFromEnum(target.os.versionRange().windows.min) >> 16);
                     try argv.append(
                         try std.fmt.allocPrint(arena, "-D_WIN32_WINNT=0x{x:0>4}", .{minver}),
                     );

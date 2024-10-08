@@ -157,7 +157,7 @@ pub const Os = struct {
             };
         }
 
-        pub inline fn getVersionRangeTag(tag: Tag) @typeInfo(TaggedVersionRange).@"union".tag_type.? {
+        pub inline fn versionRangeTag(tag: Tag) @typeInfo(TaggedVersionRange).@"union".tag_type.? {
             return switch (tag) {
                 .freestanding,
                 .fuchsia,
@@ -545,8 +545,8 @@ pub const Os = struct {
 
     /// Provides a tagged union. `Target` does not store the tag because it is
     /// redundant with the OS tag; this function abstracts that part away.
-    pub inline fn getVersionRange(os: Os) TaggedVersionRange {
-        return switch (os.tag.getVersionRangeTag()) {
+    pub inline fn versionRange(os: Os) TaggedVersionRange {
+        return switch (os.tag.versionRangeTag()) {
             .none => .{ .none = {} },
             .semver => .{ .semver = os.version_range.semver },
             .linux => .{ .linux = os.version_range.linux },
@@ -556,12 +556,12 @@ pub const Os = struct {
 
     /// Checks if system is guaranteed to be at least `version` or older than `version`.
     /// Returns `null` if a runtime check is required.
-    pub inline fn isAtLeast(os: Os, comptime tag: Tag, ver: switch (tag.getVersionRangeTag()) {
+    pub inline fn isAtLeast(os: Os, comptime tag: Tag, ver: switch (tag.versionRangeTag()) {
         .none => void,
         .semver, .linux => std.SemanticVersion,
         .windows => WindowsVersion,
     }) ?bool {
-        return if (os.tag != tag) false else switch (tag.getVersionRangeTag()) {
+        return if (os.tag != tag) false else switch (tag.versionRangeTag()) {
             .none => true,
             inline .semver,
             .linux,
