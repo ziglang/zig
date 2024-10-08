@@ -303,6 +303,51 @@ pub const Request = struct {
         return http.HeaderIterator.init(r.server.read_buffer[0..r.head_end]);
     }
 
+    /// Retrieves the value of a specified HTTP header from a Request object.
+    ///
+    /// This function searches for a header with a name matching the provided string,
+    /// ignoring case. If found, it returns the header's value. If not found, it
+    /// returns an empty string.
+    pub fn getHeader(r: *Request, s: []const u8) []const u8 {
+        var iter = r.iterateHeaders();
+        while (iter.next()) |header| {
+            if (std.ascii.eqlIgnoreCase(s, header.name)) {
+                return header.value;
+            }
+        }
+        return "";
+    }
+
+    test getHeader {
+        const request_bytes = "GET /hi HTTP/1.0\r\n" ++
+            "content-tYpe: text/plain\r\n" ++
+            "content-Length:10\r\n" ++
+            "expeCt:   100-continue \r\n" ++
+            "TRansfer-encoding:\tdeflate, chunked \r\n" ++
+            "connectioN:\t keep-alive \r\n\r\n";
+
+        var read_buffer: [500]u8 = undefined;
+        @memcpy(read_buffer[0..request_bytes.len], request_bytes);
+
+        var server: Server = .{
+            .connection = undefined,
+            .state = .ready,
+            .read_buffer = &read_buffer,
+            .read_buffer_len = request_bytes.len,
+            .next_request_start = 0,
+        };
+
+        var request: Request = .{
+            .server = &server,
+            .head_end = request_bytes.len,
+            .head = undefined,
+            .reader_state = undefined,
+        };
+        try std.testing.expectEqualStrings("text/plain", getHeader(&request, "content-type"));
+        try std.testing.expectEqualStrings("", getHeader(&request, "content-ype"));
+        try std.testing.expectEqualStrings("text/plain", getHeader(&request, "content-Type"));
+    }
+
     test iterateHeaders {
         const request_bytes = "GET /hi HTTP/1.0\r\n" ++
             "content-tYpe: text/plain\r\n" ++
