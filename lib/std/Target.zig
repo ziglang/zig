@@ -925,8 +925,6 @@ pub const ObjectFormat = enum {
 };
 
 pub fn toElfMachine(target: Target) std.elf.EM {
-    if (target.os.tag == .elfiamcu) return .IAMCU;
-
     return switch (target.cpu.arch) {
         .amdgcn => .AMDGPU,
         .arc => .ARC_COMPACT,
@@ -950,7 +948,7 @@ pub fn toElfMachine(target: Target) std.elf.EM {
         .sparc64 => .SPARCV9,
         .spu_2 => .SPU_2,
         .ve => .VE,
-        .x86 => .@"386",
+        .x86 => if (target.os.tag == .elfiamcu) .IAMCU else .@"386",
         .x86_64 => .X86_64,
         .xcore => .XCORE,
         .xtensa => .XTENSA,
