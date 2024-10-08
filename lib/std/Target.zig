@@ -2868,7 +2868,7 @@ pub fn cTypePreferredAlignment(target: Target, c_type: CType) u16 {
     );
 }
 
-pub fn is_libc_lib_name(target: std.Target, name: []const u8) bool {
+pub fn isLibCLibName(target: std.Target, name: []const u8) bool {
     const ignore_case = target.os.tag == .macos or target.os.tag == .windows;
 
     if (eqlIgnoreCase(ignore_case, name, "c"))
@@ -2987,7 +2987,7 @@ pub fn is_libc_lib_name(target: std.Target, name: []const u8) bool {
     return false;
 }
 
-pub fn is_libcpp_lib_name(target: std.Target, name: []const u8) bool {
+pub fn isLibCxxLibName(target: std.Target, name: []const u8) bool {
     const ignore_case = target.os.tag.isDarwin() or target.os.tag == .windows;
 
     return eqlIgnoreCase(ignore_case, name, "c++") or

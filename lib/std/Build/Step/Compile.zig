@@ -611,11 +611,11 @@ pub fn dependsOnSystemLibrary(compile: *const Compile, name: []const u8) bool {
         is_linking_libcpp = is_linking_libcpp or module.link_libcpp == true;
     }
 
-    if (compile.rootModuleTarget().is_libc_lib_name(name)) {
+    if (compile.rootModuleTarget().isLibCLibName(name)) {
         return is_linking_libc;
     }
 
-    if (compile.rootModuleTarget().is_libcpp_lib_name(name)) {
+    if (compile.rootModuleTarget().isLibCxxLibName(name)) {
         return is_linking_libcpp;
     }
 
