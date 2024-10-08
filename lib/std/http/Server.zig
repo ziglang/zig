@@ -299,23 +299,29 @@ pub const Request = struct {
         }
     };
 
-    pub fn iterateHeaders(r: *Request) http.HeaderIterator {
+    pub fn iterateHeaders(r: Request) http.HeaderIterator {
         return http.HeaderIterator.init(r.server.read_buffer[0..r.head_end]);
     }
 
-    /// Retrieves the value of a specified HTTP header from a Request object.
+    /// Retrieves the value of a specified HTTP header from a Request struct.
     ///
     /// This function searches for a header with a name matching the provided string,
     /// ignoring case. If found, it returns the header's value. If not found, it
-    /// returns an empty string.
-    pub fn getHeader(r: *Request, s: []const u8) []const u8 {
+    /// returns null.
+    ///
+    /// Note: If multiple headers with the same name are present, this function
+    /// will return the value of the first matching header encountered.
+    ///
+    /// For accessing duplicate headers or iterating through all headers,
+    /// use the `iterateHeaders()` method directly.
+    pub fn getHeader(r: Request, s: []const u8) ?[]const u8 {
         var iter = r.iterateHeaders();
         while (iter.next()) |header| {
             if (std.ascii.eqlIgnoreCase(s, header.name)) {
                 return header.value;
             }
         }
-        return "";
+        return null;
     }
 
     test getHeader {
@@ -325,10 +331,9 @@ pub const Request = struct {
             "expeCt:   100-continue \r\n" ++
             "TRansfer-encoding:\tdeflate, chunked \r\n" ++
             "connectioN:\t keep-alive \r\n\r\n";
-
         var read_buffer: [500]u8 = undefined;
-        @memcpy(read_buffer[0..request_bytes.len], request_bytes);
 
+        @memcpy(read_buffer[0..request_bytes.len], request_bytes);
         var server: Server = .{
             .connection = undefined,
             .state = .ready,
@@ -336,16 +341,36 @@ pub const Request = struct {
             .read_buffer_len = request_bytes.len,
             .next_request_start = 0,
         };
-
-        var request: Request = .{
+        const request: Request = .{
             .server = &server,
             .head_end = request_bytes.len,
             .head = undefined,
             .reader_state = undefined,
         };
-        try std.testing.expectEqualStrings("text/plain", getHeader(&request, "content-type"));
-        try std.testing.expectEqualStrings("", getHeader(&request, "content-ype"));
-        try std.testing.expectEqualStrings("text/plain", getHeader(&request, "content-Type"));
+
+        // Test 1: Existing header with case-insensitive match
+        try testing.expectEqualStrings("text/plain", getHeader(request, "content-type").?);
+
+        // Test 2: Existing header with exact case match
+        try testing.expectEqualStrings("10", getHeader(request, "content-Length").?);
+
+        // Test 3: Existing header with leading/trailing whitespace
+        try testing.expectEqualStrings("100-continue", getHeader(request, "expect").?);
+
+        // Test 4: Existing header with tab separator
+        try testing.expectEqualStrings("deflate, chunked", getHeader(request, "Transfer-encoding").?);
+
+        // Test 5: Non-existent header
+        try testing.expectEqual(@as(?[]const u8, null), getHeader(request, "User-Agent"));
+
+        // Test 6: Case-insensitive match for header name
+        try testing.expectEqualStrings("keep-alive", getHeader(request, "CONNECTION").?);
+
+        // Test 7: Partial header name match (should fail)
+        try testing.expectEqual(@as(?[]const u8, null), getHeader(request, "content"));
+
+        // Test 8: Empty header name (should return null)
+        try testing.expectEqual(@as(?[]const u8, null), getHeader(request, ""));
     }
 
     test iterateHeaders {
