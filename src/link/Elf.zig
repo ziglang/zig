@@ -1,4 +1,5 @@
 base: link.File,
+rpath_table: std.StringArrayHashMapUnmanaged(void),
 image_base: u64,
 emit_relocs: bool,
 z_nodelete: bool,
@@ -239,6 +240,11 @@ pub fn createEmpty(
     else
         try std.fmt.allocPrint(arena, "{s}.o", .{emit.sub_path});
 
+    var rpath_table: std.StringArrayHashMapUnmanaged(void) = .empty;
+    try rpath_table.entries.resize(arena, options.rpath_list.len);
+    @memcpy(rpath_table.entries.items(.key), options.rpath_list);
+    try rpath_table.reIndex(arena);
+
     const self = try arena.create(Elf);
     self.* = .{
         .base = .{
@@ -253,8 +259,8 @@ pub fn createEmpty(
             .file = null,
             .disable_lld_caching = options.disable_lld_caching,
             .build_id = options.build_id,
-            .rpath_list = options.rpath_list,
         },
+        .rpath_table = rpath_table,
         .ptr_width = ptr_width,
         .page_size = page_size,
         .default_sym_version = default_sym_version,
@@ -829,14 +835,6 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
 
     if (module_obj_path) |path| try positionals.append(.{ .path = path });
 
-    // rpaths
-    var rpath_table = std.StringArrayHashMap(void).init(gpa);
-    defer rpath_table.deinit();
-
-    for (self.base.rpath_list) |rpath| {
-        _ = try rpath_table.put(rpath, {});
-    }
-
     if (comp.config.any_sanitize_thread) {
         try positionals.append(.{ .path = comp.tsan_lib.?.full_object_path });
     }
@@ -1056,7 +1054,7 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
     try self.initSpecialPhdrs();
     try self.sortShdrs();
 
-    try self.setDynamicSection(rpath_table.keys());
+    try self.setDynamicSection(self.rpath_table.keys());
     self.sortDynamicSymtab();
     try self.setHashSections();
     try self.setVersionSymtab();
@@ -1207,9 +1205,8 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
             try argv.appendSlice(&.{ "--entry", name });
         }
 
-        for (self.base.rpath_list) |rpath| {
-            try argv.append("-rpath");
-            try argv.append(rpath);
+        for (self.rpath_table.keys()) |rpath| {
+            try argv.appendSlice(&.{ "-rpath", rpath });
         }
 
         try argv.appendSlice(&.{
@@ -1978,7 +1975,7 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
         man.hash.add(self.emit_relocs);
         man.hash.add(comp.config.rdynamic);
         man.hash.addListOfBytes(self.lib_dirs);
-        man.hash.addListOfBytes(self.base.rpath_list);
+        man.hash.addListOfBytes(self.rpath_table.keys());
         if (output_mode == .Exe) {
             man.hash.add(self.base.stack_size);
             man.hash.add(self.base.build_id);
@@ -2263,14 +2260,8 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
         if (csu.crti) |v| try argv.append(v);
         if (csu.crtbegin) |v| try argv.append(v);
 
-        // rpaths
-        var rpath_table = std.StringHashMap(void).init(gpa);
-        defer rpath_table.deinit();
-        for (self.base.rpath_list) |rpath| {
-            if ((try rpath_table.fetchPut(rpath, {})) == null) {
-                try argv.append("-rpath");
-                try argv.append(rpath);
-            }
+        for (self.rpath_table.keys()) |rpath| {
+            try argv.appendSlice(&.{ "-rpath", rpath });
         }
 
         for (self.symbol_wrap_set.keys()) |symbol_name| {
