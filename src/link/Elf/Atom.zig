@@ -868,15 +868,7 @@ pub fn resolveRelocsNonAlloc(self: Atom, elf_file: *Elf, code: []u8, undefs: any
     if (has_reloc_errors) return error.RelocFailure;
 }
 
-const AddExtraOpts = struct {
-    thunk: ?u32 = null,
-    fde_start: ?u32 = null,
-    fde_count: ?u32 = null,
-    rel_index: ?u32 = null,
-    rel_count: ?u32 = null,
-};
-
-pub fn addExtra(atom: *Atom, opts: AddExtraOpts, elf_file: *Elf) void {
+pub fn addExtra(atom: *Atom, opts: Extra.AsOptionals, elf_file: *Elf) void {
     const file_ptr = atom.file(elf_file).?;
     var extras = file_ptr.atomExtra(atom.extra_index);
     inline for (@typeInfo(@TypeOf(opts)).@"struct".fields) |field| {
@@ -887,11 +879,11 @@ pub fn addExtra(atom: *Atom, opts: AddExtraOpts, elf_file: *Elf) void {
     file_ptr.setAtomExtra(atom.extra_index, extras);
 }
 
-pub inline fn extra(atom: Atom, elf_file: *Elf) Extra {
+pub fn extra(atom: Atom, elf_file: *Elf) Extra {
     return atom.file(elf_file).?.atomExtra(atom.extra_index);
 }
 
-pub inline fn setExtra(atom: Atom, extras: Extra, elf_file: *Elf) void {
+pub fn setExtra(atom: Atom, extras: Extra, elf_file: *Elf) void {
     atom.file(elf_file).?.setAtomExtra(atom.extra_index, extras);
 }
 
@@ -2103,6 +2095,14 @@ pub const Extra = struct {
 
     /// Count of relocations belonging to this atom.
     rel_count: u32 = 0,
+
+    pub const AsOptionals = struct {
+        thunk: ?u32 = null,
+        fde_start: ?u32 = null,
+        fde_count: ?u32 = null,
+        rel_index: ?u32 = null,
+        rel_count: ?u32 = null,
+    };
 };
 
 const std = @import("std");
