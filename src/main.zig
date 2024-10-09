@@ -541,6 +541,7 @@ const usage_build_generic =
     \\  -idirafter [dir]          Add directory to AFTER include search path
     \\  -isystem  [dir]           Add directory to SYSTEM include search path
     \\  -I[dir]                   Add directory to include search path
+    \\  --embed-dir=[dir]         Add directory to embed search path
     \\  -D[macro]=[value]         Define C [macro] to [value] (1 if [value] omitted)
     \\  -cflags [flags] --        Set extra flags for the next positional C source files
     \\  -rcflags [flags] --       Set extra flags for the next positional .rc source files
@@ -1287,6 +1288,8 @@ fn buildOutputType(
                         try cc_argv.appendSlice(arena, &.{ arg, args_iter.nextOrFatal() });
                     } else if (mem.eql(u8, arg, "-I")) {
                         try cssan.addIncludePath(arena, &cc_argv, .I, arg, args_iter.nextOrFatal(), false);
+                    } else if (mem.startsWith(u8, arg, "--embed-dir=")) {
+                        try cssan.addIncludePath(arena, &cc_argv, .embed_dir, arg, arg["--embed-dir=".len..], true);
                     } else if (mem.eql(u8, arg, "-isystem")) {
                         try cssan.addIncludePath(arena, &cc_argv, .isystem, arg, args_iter.nextOrFatal(), false);
                     } else if (mem.eql(u8, arg, "-iwithsysroot")) {
@@ -6974,13 +6977,17 @@ const ClangSearchSanitizer = struct {
                 m.iframeworkwithsysroot = true;
                 if (m.iwithsysroot) warn(wtxt, .{ dir, "iframeworkwithsysroot", "iwithsysroot" });
             },
+            .embed_dir => {
+                if (m.embed_dir) return;
+                m.embed_dir = true;
+            },
         }
         try argv.ensureUnusedCapacity(ally, 2);
         argv.appendAssumeCapacity(arg);
         if (!joined) argv.appendAssumeCapacity(dir);
     }
 
-    const Group = enum { I, isystem, iwithsysroot, idirafter, iframework, iframeworkwithsysroot };
+    const Group = enum { I, isystem, iwithsysroot, idirafter, iframework, iframeworkwithsysroot, embed_dir };
 
     const Membership = packed struct {
         I: bool = false,
@@ -6989,6 +6996,7 @@ const ClangSearchSanitizer = struct {
         idirafter: bool = false,
         iframework: bool = false,
         iframeworkwithsysroot: bool = false,
+        embed_dir: bool = false,
     };
 };
 
