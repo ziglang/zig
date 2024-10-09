@@ -27,7 +27,7 @@ sections: std.MultiArrayList(Section) = .{},
 resolver: SymbolResolver = .{},
 /// This table will be populated after `scanRelocs` has run.
 /// Key is symbol index.
-undefs: std.AutoArrayHashMapUnmanaged(SymbolResolver.Index, std.ArrayListUnmanaged(Ref)) = .empty,
+undefs: std.AutoArrayHashMapUnmanaged(SymbolResolver.Index, UndefRefs) = .empty,
 undefs_mutex: std.Thread.Mutex = .{},
 dupes: std.AutoArrayHashMapUnmanaged(SymbolResolver.Index, std.ArrayListUnmanaged(File.Index)) = .empty,
 dupes_mutex: std.Thread.Mutex = .{},
@@ -1470,6 +1470,9 @@ fn scanRelocs(self: *MachO) !void {
 
     if (self.has_errors.swap(false, .seq_cst)) return error.FlushFailure;
 
+    if (self.getInternalObject()) |obj| {
+        try obj.checkUndefs(self);
+    }
     try self.reportUndefs();
 
     if (self.getZigObject()) |zo| {
@@ -1530,29 +1533,43 @@ fn reportUndefs(self: *MachO) !void {
         }
     }.lessThan;
 
-    for (self.undefs.values()) |*refs| {
-        mem.sort(Ref, refs.items, {}, refLessThan);
-    }
+    for (self.undefs.values()) |*undefs| switch (undefs.*) {
+        .refs => |refs| mem.sort(Ref, refs.items, {}, refLessThan),
+        else => {},
+    };
 
     for (keys.items) |key| {
         const undef_sym = self.resolver.keys.items[key - 1];
         const notes = self.undefs.get(key).?;
-        const nnotes = @min(notes.items.len, max_notes) + @intFromBool(notes.items.len > max_notes);
+        const nnotes = nnotes: {
+            const nnotes = switch (notes) {
+                .refs => |refs| refs.items.len,
+                else => 1,
+            };
+            break :nnotes @min(nnotes, max_notes) + @intFromBool(nnotes > max_notes);
+        };
 
         var err = try self.base.addErrorWithNotes(nnotes);
         try err.addMsg("undefined symbol: {s}", .{undef_sym.getName(self)});
 
-        var inote: usize = 0;
-        while (inote < @min(notes.items.len, max_notes)) : (inote += 1) {
-            const note = notes.items[inote];
-            const file = self.getFile(note.file).?;
-            const atom = note.getAtom(self).?;
-            try err.addNote("referenced by {}:{s}", .{ file.fmtPath(), atom.getName(self) });
-        }
+        switch (notes) {
+            .force_undefined => try err.addNote("referenced with linker flag -u", .{}),
+            .entry => try err.addNote("referenced with linker flag -e", .{}),
+            .dyld_stub_binder, .objc_msgsend => try err.addNote("referenced implicitly", .{}),
+            .refs => |refs| {
+                var inote: usize = 0;
+                while (inote < @min(refs.items.len, max_notes)) : (inote += 1) {
+                    const ref = refs.items[inote];
+                    const file = self.getFile(ref.file).?;
+                    const atom = ref.getAtom(self).?;
+                    try err.addNote("referenced by {}:{s}", .{ file.fmtPath(), atom.getName(self) });
+                }
 
-        if (notes.items.len > max_notes) {
-            const remaining = notes.items.len - max_notes;
-            try err.addNote("referenced {d} more times", .{remaining});
+                if (refs.items.len > max_notes) {
+                    const remaining = refs.items.len - max_notes;
+                    try err.addNote("referenced {d} more times", .{remaining});
+                }
+            },
         }
     }
 
@@ -4584,78 +4601,20 @@ pub const String = struct {
     len: u32 = 0,
 };
 
-const MachO = @This();
+pub const UndefRefs = union(enum) {
+    force_undefined,
+    entry,
+    dyld_stub_binder,
+    objc_msgsend,
+    refs: std.ArrayListUnmanaged(Ref),
 
-const std = @import("std");
-const build_options = @import("build_options");
-const builtin = @import("builtin");
-const assert = std.debug.assert;
-const fs = std.fs;
-const log = std.log.scoped(.link);
-const state_log = std.log.scoped(.link_state);
-const macho = std.macho;
-const math = std.math;
-const mem = std.mem;
-const meta = std.meta;
-
-const aarch64 = @import("../arch/aarch64/bits.zig");
-const bind = @import("MachO/dyld_info/bind.zig");
-const calcUuid = @import("MachO/uuid.zig").calcUuid;
-const codegen = @import("../codegen.zig");
-const dead_strip = @import("MachO/dead_strip.zig");
-const eh_frame = @import("MachO/eh_frame.zig");
-const fat = @import("MachO/fat.zig");
-const link = @import("../link.zig");
-const load_commands = @import("MachO/load_commands.zig");
-const relocatable = @import("MachO/relocatable.zig");
-const tapi = @import("tapi.zig");
-const target_util = @import("../target.zig");
-const trace = @import("../tracy.zig").trace;
-const synthetic = @import("MachO/synthetic.zig");
-
-const Air = @import("../Air.zig");
-const Alignment = Atom.Alignment;
-const Allocator = mem.Allocator;
-const Archive = @import("MachO/Archive.zig");
-pub const Atom = @import("MachO/Atom.zig");
-const AtomicBool = std.atomic.Value(bool);
-const Bind = bind.Bind;
-const Cache = std.Build.Cache;
-const Path = Cache.Path;
-const CodeSignature = @import("MachO/CodeSignature.zig");
-const Compilation = @import("../Compilation.zig");
-const DataInCode = synthetic.DataInCode;
-pub const DebugSymbols = @import("MachO/DebugSymbols.zig");
-const Dylib = @import("MachO/Dylib.zig");
-const ExportTrie = @import("MachO/dyld_info/Trie.zig");
-const File = @import("MachO/file.zig").File;
-const GotSection = synthetic.GotSection;
-const Hash = std.hash.Wyhash;
-const Indsymtab = synthetic.Indsymtab;
-const InternalObject = @import("MachO/InternalObject.zig");
-const ObjcStubsSection = synthetic.ObjcStubsSection;
-const Object = @import("MachO/Object.zig");
-const LazyBind = bind.LazyBind;
-const LaSymbolPtrSection = synthetic.LaSymbolPtrSection;
-const Liveness = @import("../Liveness.zig");
-const LlvmObject = @import("../codegen/llvm.zig").Object;
-const Md5 = std.crypto.hash.Md5;
-const Zcu = @import("../Zcu.zig");
-const InternPool = @import("../InternPool.zig");
-const Rebase = @import("MachO/dyld_info/Rebase.zig");
-pub const Relocation = @import("MachO/Relocation.zig");
-const StringTable = @import("StringTable.zig");
-const StubsSection = synthetic.StubsSection;
-const StubsHelperSection = synthetic.StubsHelperSection;
-const Symbol = @import("MachO/Symbol.zig");
-const Thunk = @import("MachO/Thunk.zig");
-const TlvPtrSection = synthetic.TlvPtrSection;
-const Value = @import("../Value.zig");
-const UnwindInfo = @import("MachO/UnwindInfo.zig");
-const WaitGroup = std.Thread.WaitGroup;
-const WeakBind = bind.WeakBind;
-const ZigObject = @import("MachO/ZigObject.zig");
-const dev = @import("../dev.zig");
+    pub fn deinit(self: *UndefRefs, allocator: Allocator) void {
+        switch (self.*) {
+            .refs => |*refs| refs.deinit(allocator),
+            else => {},
+        }
+    }
+};
 
 pub const MachError = error{
     /// Not enough permissions held to perform the requested kernel
@@ -5392,3 +5351,76 @@ const max_distance = (1 << (jump_bits - 1));
 /// mold uses 5MiB margin, while ld64 uses 4MiB margin. We will follow mold
 /// and assume margin to be 5MiB.
 const max_allowed_distance = max_distance - 0x500_000;
+
+const MachO = @This();
+
+const std = @import("std");
+const build_options = @import("build_options");
+const builtin = @import("builtin");
+const assert = std.debug.assert;
+const fs = std.fs;
+const log = std.log.scoped(.link);
+const state_log = std.log.scoped(.link_state);
+const macho = std.macho;
+const math = std.math;
+const mem = std.mem;
+const meta = std.meta;
+
+const aarch64 = @import("../arch/aarch64/bits.zig");
+const bind = @import("MachO/dyld_info/bind.zig");
+const calcUuid = @import("MachO/uuid.zig").calcUuid;
+const codegen = @import("../codegen.zig");
+const dead_strip = @import("MachO/dead_strip.zig");
+const eh_frame = @import("MachO/eh_frame.zig");
+const fat = @import("MachO/fat.zig");
+const link = @import("../link.zig");
+const load_commands = @import("MachO/load_commands.zig");
+const relocatable = @import("MachO/relocatable.zig");
+const tapi = @import("tapi.zig");
+const target_util = @import("../target.zig");
+const trace = @import("../tracy.zig").trace;
+const synthetic = @import("MachO/synthetic.zig");
+
+const Air = @import("../Air.zig");
+const Alignment = Atom.Alignment;
+const Allocator = mem.Allocator;
+const Archive = @import("MachO/Archive.zig");
+pub const Atom = @import("MachO/Atom.zig");
+const AtomicBool = std.atomic.Value(bool);
+const Bind = bind.Bind;
+const Cache = std.Build.Cache;
+const Path = Cache.Path;
+const CodeSignature = @import("MachO/CodeSignature.zig");
+const Compilation = @import("../Compilation.zig");
+const DataInCode = synthetic.DataInCode;
+pub const DebugSymbols = @import("MachO/DebugSymbols.zig");
+const Dylib = @import("MachO/Dylib.zig");
+const ExportTrie = @import("MachO/dyld_info/Trie.zig");
+const File = @import("MachO/file.zig").File;
+const GotSection = synthetic.GotSection;
+const Hash = std.hash.Wyhash;
+const Indsymtab = synthetic.Indsymtab;
+const InternalObject = @import("MachO/InternalObject.zig");
+const ObjcStubsSection = synthetic.ObjcStubsSection;
+const Object = @import("MachO/Object.zig");
+const LazyBind = bind.LazyBind;
+const LaSymbolPtrSection = synthetic.LaSymbolPtrSection;
+const Liveness = @import("../Liveness.zig");
+const LlvmObject = @import("../codegen/llvm.zig").Object;
+const Md5 = std.crypto.hash.Md5;
+const Zcu = @import("../Zcu.zig");
+const InternPool = @import("../InternPool.zig");
+const Rebase = @import("MachO/dyld_info/Rebase.zig");
+pub const Relocation = @import("MachO/Relocation.zig");
+const StringTable = @import("StringTable.zig");
+const StubsSection = synthetic.StubsSection;
+const StubsHelperSection = synthetic.StubsHelperSection;
+const Symbol = @import("MachO/Symbol.zig");
+const Thunk = @import("MachO/Thunk.zig");
+const TlvPtrSection = synthetic.TlvPtrSection;
+const Value = @import("../Value.zig");
+const UnwindInfo = @import("MachO/UnwindInfo.zig");
+const WaitGroup = std.Thread.WaitGroup;
+const WeakBind = bind.WeakBind;
+const ZigObject = @import("MachO/ZigObject.zig");
+const dev = @import("../dev.zig");
