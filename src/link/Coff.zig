@@ -263,7 +263,6 @@ pub fn createEmpty(
             .file = null,
             .disable_lld_caching = options.disable_lld_caching,
             .build_id = options.build_id,
-            .rpath_list = options.rpath_list,
         },
         .ptr_width = ptr_width,
         .page_size = page_size,

@@ -58,24 +58,16 @@ pub fn parse(self: *SharedObject, elf_file: *Elf, handle: std.fs.File) !void {
 
     const em = elf_file.base.comp.root_mod.resolved_target.result.toElfMachine();
     if (em != self.header.?.e_machine) {
-        try elf_file.reportParseError2(
-            self.index,
-            "invalid ELF machine type: {s}",
-            .{@tagName(self.header.?.e_machine)},
-        );
-        return error.InvalidMachineType;
+        return elf_file.failFile(self.index, "invalid ELF machine type: {s}", .{
+            @tagName(self.header.?.e_machine),
+        });
     }
 
     const shoff = std.math.cast(usize, self.header.?.e_shoff) orelse return error.Overflow;
     const shnum = std.math.cast(usize, self.header.?.e_shnum) orelse return error.Overflow;
     const shsize = shnum * @sizeOf(elf.Elf64_Shdr);
     if (file_size < shoff or file_size < shoff + shsize) {
-        try elf_file.reportParseError2(
-            self.index,
-            "corrupted header: section header table extends past the end of file",
-            .{},
-        );
-        return error.MalformedObject;
+        return elf_file.failFile(self.index, "corrupted header: section header table extends past the end of file", .{});
     }
 
     const shdrs_buffer = try Elf.preadAllAlloc(gpa, handle, shoff, shsize);
@@ -90,8 +82,7 @@ pub fn parse(self: *SharedObject, elf_file: *Elf, handle: std.fs.File) !void {
     for (self.shdrs.items, 0..) |shdr, i| {
         if (shdr.sh_type != elf.SHT_NOBITS) {
             if (file_size < shdr.sh_offset or file_size < shdr.sh_offset + shdr.sh_size) {
-                try elf_file.reportParseError2(self.index, "corrupted section header", .{});
-                return error.MalformedObject;
+                return elf_file.failFile(self.index, "corrupted section header", .{});
             }
         }
         switch (shdr.sh_type) {

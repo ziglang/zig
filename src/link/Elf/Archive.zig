@@ -35,10 +35,9 @@ pub fn parse(self: *Archive, elf_file: *Elf, path: []const u8, handle_index: Fil
         pos += @sizeOf(elf.ar_hdr);
 
         if (!mem.eql(u8, &hdr.ar_fmag, elf.ARFMAG)) {
-            try elf_file.reportParseError(path, "invalid archive header delimiter: {s}", .{
+            return elf_file.failParse(path, "invalid archive header delimiter: {s}", .{
                 std.fmt.fmtSliceEscapeLower(&hdr.ar_fmag),
             });
-            return error.MalformedArchive;
         }
 
         const obj_size = try hdr.size();

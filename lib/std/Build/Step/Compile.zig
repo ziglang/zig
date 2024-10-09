@@ -235,6 +235,7 @@ sanitize_coverage_trace_pc_guard: ?bool = null,
 pub const ExpectedCompileErrors = union(enum) {
     contains: []const u8,
     exact: []const []const u8,
+    starts_with: []const u8,
 };
 
 pub const Entry = union(enum) {
@@ -1958,6 +1959,17 @@ fn checkCompileErrors(compile: *Compile) !void {
 
     // TODO merge this with the testing.expectEqualStrings logic, and also CheckFile
     switch (expect_errors) {
+        .starts_with => |expect_starts_with| {
+            if (std.mem.startsWith(u8, actual_stderr, expect_starts_with)) return;
+            return compile.step.fail(
+                \\
+                \\========= should start with: ============
+                \\{s}
+                \\========= but not found: ================
+                \\{s}
+                \\=========================================
+            , .{ expect_starts_with, actual_stderr });
+        },
         .contains => |expect_line| {
             while (actual_line_it.next()) |actual_line| {
                 if (!matchCompileError(actual_line, expect_line)) continue;

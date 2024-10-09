@@ -7,7 +7,7 @@ pub fn deinit(scr: *LdScript, allocator: Allocator) void {
 }
 
 pub const Error = error{
-    InvalidLdScript,
+    LinkFailure,
     UnexpectedToken,
     UnknownCpuArch,
     OutOfMemory,
@@ -32,12 +32,9 @@ pub fn parse(scr: *LdScript, data: []const u8, elf_file: *Elf) Error!void {
         try line_col.append(.{ .line = line, .column = column });
         switch (tok.id) {
             .invalid => {
-                try elf_file.reportParseError(scr.path, "invalid token in LD script: '{s}' ({d}:{d})", .{
-                    std.fmt.fmtSliceEscapeLower(tok.get(data)),
-                    line,
-                    column,
+                return elf_file.failParse(scr.path, "invalid token in LD script: '{s}' ({d}:{d})", .{
+                    std.fmt.fmtSliceEscapeLower(tok.get(data)), line, column,
                 });
-                return error.InvalidLdScript;
             },
             .new_line => {
                 line += 1;
@@ -59,13 +56,12 @@ pub fn parse(scr: *LdScript, data: []const u8, elf_file: *Elf) Error!void {
             const last_token_id = parser.it.pos - 1;
             const last_token = parser.it.get(last_token_id);
             const lcol = line_col.items[last_token_id];
-            try elf_file.reportParseError(scr.path, "unexpected token in LD script: {s}: '{s}' ({d}:{d})", .{
+            return elf_file.failParse(scr.path, "unexpected token in LD script: {s}: '{s}' ({d}:{d})", .{
                 @tagName(last_token.id),
                 last_token.get(data),
                 lcol.line,
                 lcol.column,
             });
-            return error.InvalidLdScript;
         },
         else => |e| return e,
     };

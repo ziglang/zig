@@ -3916,7 +3916,7 @@ fn testUnknownFileTypeError(b: *Build, opts: Options) *Step {
     //     "note: while parsing /?/liba.dylib",
     // } });
     expectLinkErrors(exe, test_step, .{
-        .contains = "error: unexpected error: parsing input file failed with error InvalidLdScript",
+        .starts_with = "error: invalid token in LD script: '\\x00\\x00\\x00\\x0c\\x00\\x00\\x00/usr/lib/dyld\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x0d' (",
     });
 
     return test_step;

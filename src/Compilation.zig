@@ -280,6 +280,13 @@ pub const CRTFile = struct {
     lock: Cache.Lock,
     full_object_path: []const u8,
 
+    pub fn isObject(cf: CRTFile) bool {
+        return switch (classifyFileExt(cf.full_object_path)) {
+            .object => true,
+            else => false,
+        };
+    }
+
     pub fn deinit(self: *CRTFile, gpa: Allocator) void {
         self.lock.release();
         gpa.free(self.full_object_path);
@@ -1018,6 +1025,13 @@ pub const LinkObject = struct {
     //
     // Consistent with `withLOption` variable name in lld ELF driver.
     loption: bool = false,
+
+    pub fn isObject(lo: LinkObject) bool {
+        return switch (classifyFileExt(lo.path)) {
+            .object => true,
+            else => false,
+        };
+    }
 };
 
 pub const CreateOptions = struct {
@@ -2433,7 +2447,7 @@ fn flush(
     if (comp.bin_file) |lf| {
         // This is needed before reading the error flags.
         lf.flush(arena, tid, prog_node) catch |err| switch (err) {
-            error.FlushFailure => {}, // error reported through link_error_flags
+            error.FlushFailure, error.LinkFailure => {}, // error reported through link_error_flags
             error.LLDReportedFailure => {}, // error reported via lockAndParseLldStderr
             else => |e| return e,
         };

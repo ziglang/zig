@@ -1,36 +1,24 @@
 pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation, module_obj_path: ?[]const u8) link.File.FlushError!void {
     const gpa = comp.gpa;
 
-    var positionals = std.ArrayList(Compilation.LinkObject).init(gpa);
-    defer positionals.deinit();
-
-    try positionals.ensureUnusedCapacity(comp.objects.len);
-    positionals.appendSliceAssumeCapacity(comp.objects);
+    for (comp.objects) |obj| {
+        switch (Compilation.classifyFileExt(obj.path)) {
+            .object => try parseObjectStaticLibReportingFailure(elf_file, obj.path),
+            .static_library => try parseArchiveStaticLibReportingFailure(elf_file, obj.path),
+            else => try elf_file.addParseError(obj.path, "unrecognized file extension", .{}),
+        }
+    }
 
     for (comp.c_object_table.keys()) |key| {
-        try positionals.append(.{ .path = key.status.success.object_path });
+        try parseObjectStaticLibReportingFailure(elf_file, key.status.success.object_path);
     }
 
-    if (module_obj_path) |path| try positionals.append(.{ .path = path });
+    if (module_obj_path) |path| {
+        try parseObjectStaticLibReportingFailure(elf_file, path);
+    }
 
     if (comp.include_compiler_rt) {
-        try positionals.append(.{ .path = comp.compiler_rt_obj.?.full_object_path });
-    }
-
-    for (positionals.items) |obj| {
-        parsePositionalStaticLib(elf_file, obj.path) catch |err| switch (err) {
-            error.MalformedObject,
-            error.MalformedArchive,
-            error.InvalidMachineType,
-            error.MismatchedEflags,
-            => continue, // already reported
-            error.UnknownFileType => try elf_file.reportParseError(obj.path, "unknown file type for an object file", .{}),
-            else => |e| try elf_file.reportParseError(
-                obj.path,
-                "unexpected error: parsing input file failed with error {s}",
-                .{@errorName(e)},
-            ),
-        };
+        try parseObjectStaticLibReportingFailure(elf_file, comp.compiler_rt_obj.?.full_object_path);
     }
 
     if (elf_file.base.hasErrors()) return error.FlushFailure;
@@ -153,36 +141,22 @@ pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation, module_obj_path: ?[]co
 }
 
 pub fn flushObject(elf_file: *Elf, comp: *Compilation, module_obj_path: ?[]const u8) link.File.FlushError!void {
-    const gpa = elf_file.base.comp.gpa;
-
-    var positionals = std.ArrayList(Compilation.LinkObject).init(gpa);
-    defer positionals.deinit();
-    try positionals.ensureUnusedCapacity(comp.objects.len);
-    positionals.appendSliceAssumeCapacity(comp.objects);
+    for (comp.objects) |obj| {
+        if (obj.isObject()) {
+            try elf_file.parseObjectReportingFailure(obj.path);
+        } else {
+            try elf_file.parseLibraryReportingFailure(.{ .path = obj.path }, obj.must_link);
+        }
+    }
 
     // This is a set of object files emitted by clang in a single `build-exe` invocation.
     // For instance, the implicit `a.o` as compiled by `zig build-exe a.c` will end up
     // in this set.
     for (comp.c_object_table.keys()) |key| {
-        try positionals.append(.{ .path = key.status.success.object_path });
+        try elf_file.parseObjectReportingFailure(key.status.success.object_path);
     }
 
-    if (module_obj_path) |path| try positionals.append(.{ .path = path });
-
-    for (positionals.items) |obj| {
-        elf_file.parsePositional(obj.path, obj.must_link) catch |err| switch (err) {
-            error.MalformedObject,
-            error.MalformedArchive,
-            error.InvalidMachineType,
-            error.MismatchedEflags,
-            => continue, // already reported
-            else => |e| try elf_file.reportParseError(
-                obj.path,
-                "unexpected error: parsing input file failed with error {s}",
-                .{@errorName(e)},
-            ),
-        };
-    }
+    if (module_obj_path) |path| try elf_file.parseObjectReportingFailure(path);
 
     if (elf_file.base.hasErrors()) return error.FlushFailure;
 
@@ -224,14 +198,20 @@ pub fn flushObject(elf_file: *Elf, comp: *Compilation, module_obj_path: ?[]const
     if (elf_file.base.hasErrors()) return error.FlushFailure;
 }
 
-fn parsePositionalStaticLib(elf_file: *Elf, path: []const u8) Elf.ParseError!void {
-    if (try Object.isObject(path)) {
-        try parseObjectStaticLib(elf_file, path);
-    } else if (try Archive.isArchive(path)) {
-        try parseArchiveStaticLib(elf_file, path);
-    } else return error.UnknownFileType;
-    // TODO: should we check for LD script?
-    // Actually, should we even unpack an archive?
+fn parseObjectStaticLibReportingFailure(elf_file: *Elf, path: []const u8) error{OutOfMemory}!void {
+    parseObjectStaticLib(elf_file, path) catch |err| switch (err) {
+        error.LinkFailure => return,
+        error.OutOfMemory => return error.OutOfMemory,
+        else => |e| try elf_file.addParseError(path, "parsing object failed: {s}", .{@errorName(e)}),
+    };
+}
+
+fn parseArchiveStaticLibReportingFailure(elf_file: *Elf, path: []const u8) error{OutOfMemory}!void {
+    parseArchiveStaticLib(elf_file, path) catch |err| switch (err) {
+        error.LinkFailure => return,
+        error.OutOfMemory => return error.OutOfMemory,
+        else => |e| try elf_file.addParseError(path, "parsing static library failed: {s}", .{@errorName(e)}),
+    };
 }
 
 fn parseObjectStaticLib(elf_file: *Elf, path: []const u8) Elf.ParseError!void {

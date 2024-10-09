@@ -1,5 +1,7 @@
 base: link.File,
 
+rpath_list: []const []const u8,
+
 /// If this is not null, an object file is created by LLVM and emitted to zcu_object_sub_path.
 llvm_object: ?LlvmObject.Ptr = null,
 
@@ -192,8 +194,8 @@ pub fn createEmpty(
             .file = null,
             .disable_lld_caching = options.disable_lld_caching,
             .build_id = options.build_id,
-            .rpath_list = options.rpath_list,
         },
+        .rpath_list = options.rpath_list,
         .pagezero_size = options.pagezero_size,
         .headerpad_size = options.headerpad_size,
         .headerpad_max_install_names = options.headerpad_max_install_names,
@@ -662,9 +664,8 @@ fn dumpArgv(self: *MachO, comp: *Compilation) !void {
             try argv.append(syslibroot);
         }
 
-        for (self.base.rpath_list) |rpath| {
-            try argv.append("-rpath");
-            try argv.append(rpath);
+        for (self.rpath_list) |rpath| {
+            try argv.appendSlice(&.{ "-rpath", rpath });
         }
 
         if (self.pagezero_size) |size| {
@@ -2842,7 +2843,7 @@ fn writeLoadCommands(self: *MachO) !struct { usize, usize, u64 } {
         ncmds += 1;
     }
 
-    for (self.base.rpath_list) |rpath| {
+    for (self.rpath_list) |rpath| {
         try load_commands.writeRpathLC(rpath, writer);
         ncmds += 1;
     }
