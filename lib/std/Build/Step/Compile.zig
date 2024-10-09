@@ -939,6 +939,10 @@ pub fn addConfigHeader(compile: *Compile, config_header: *Step.ConfigHeader) voi
     compile.root_module.addConfigHeader(config_header);
 }
 
+pub fn addEmbedPath(compile: *Compile, lazy_path: LazyPath) void {
+    compile.root_module.addEmbedPath(lazy_path);
+}
+
 pub fn addLibraryPath(compile: *Compile, directory_path: LazyPath) void {
     compile.root_module.addLibraryPath(directory_path);
 }
