@@ -281,7 +281,7 @@ fn addObjcMethnameSection(self: *InternalObject, methname: []const u8, macho_fil
     sym.nlist_idx = nlist_idx;
     try self.globals.append(gpa, 0);
 
-    return atom_index;
+    return sym_index;
 }
 
 fn addObjcSelrefsSection(self: *InternalObject, methname_sym_index: Symbol.Index, macho_file: *MachO) !Symbol.Index {
