@@ -533,7 +533,10 @@ pub const File = struct {
         FailedToEmit,
         FileSystem,
         FilesOpenedWithWrongFlags,
+        /// Indicates an error will be present in `Compilation.link_errors`.
         FlushFailure,
+        /// Indicates an error will be present in `Compilation.link_errors`.
+        LinkFailure,
         FunctionSignatureMismatch,
         GlobalTypeMismatch,
         HotSwapUnavailableOnHostOperatingSystem,

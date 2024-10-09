@@ -791,8 +791,8 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
     const target = self.getTarget();
     const link_mode = comp.config.link_mode;
     const directory = self.base.emit.root_dir; // Just an alias to make it shorter to type.
-    const full_out_path = try directory.join(arena, &[_][]const u8{self.base.emit.sub_path});
     const module_obj_path: ?[]const u8 = if (self.base.zcu_object_sub_path) |path| blk: {
+        const full_out_path = try directory.join(arena, &[_][]const u8{self.base.emit.sub_path});
         if (fs.path.dirname(full_out_path)) |dirname| {
             break :blk try fs.path.join(arena, &.{ dirname, path });
         } else {
@@ -808,61 +808,37 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
     if (self.base.isObject()) return relocatable.flushObject(self, comp, module_obj_path);
 
     const csu = try CsuObjects.init(arena, comp);
-    const compiler_rt_path: ?[]const u8 = blk: {
-        if (comp.compiler_rt_lib) |x| break :blk x.full_object_path;
-        if (comp.compiler_rt_obj) |x| break :blk x.full_object_path;
-        break :blk null;
-    };
 
-    // Here we will parse input positional and library files (if referenced).
-    // This will roughly match in any linker backend we support.
-    var positionals = std.ArrayList(Compilation.LinkObject).init(arena);
+    // Here we will parse object and library files (if referenced).
 
     // csu prelude
-    if (csu.crt0) |v| try positionals.append(.{ .path = v });
-    if (csu.crti) |v| try positionals.append(.{ .path = v });
-    if (csu.crtbegin) |v| try positionals.append(.{ .path = v });
+    if (csu.crt0) |path| try parseObjectReportingFailure(self, path);
+    if (csu.crti) |path| try parseObjectReportingFailure(self, path);
+    if (csu.crtbegin) |path| try parseObjectReportingFailure(self, path);
 
-    try positionals.ensureUnusedCapacity(comp.objects.len);
-    positionals.appendSliceAssumeCapacity(comp.objects);
+    for (comp.objects) |obj| {
+        if (obj.isObject()) {
+            try parseObjectReportingFailure(self, obj.path);
+        } else {
+            try parseLibraryReportingFailure(self, .{ .path = obj.path }, obj.must_link);
+        }
+    }
 
     // This is a set of object files emitted by clang in a single `build-exe` invocation.
     // For instance, the implicit `a.o` as compiled by `zig build-exe a.c` will end up
     // in this set.
     for (comp.c_object_table.keys()) |key| {
-        try positionals.append(.{ .path = key.status.success.object_path });
+        try parseObjectReportingFailure(self, key.status.success.object_path);
     }
 
-    if (module_obj_path) |path| try positionals.append(.{ .path = path });
+    if (module_obj_path) |path| try parseObjectReportingFailure(self, path);
 
-    if (comp.config.any_sanitize_thread) {
-        try positionals.append(.{ .path = comp.tsan_lib.?.full_object_path });
-    }
-
-    if (comp.config.any_fuzz) {
-        try positionals.append(.{ .path = comp.fuzzer_lib.?.full_object_path });
-    }
+    if (comp.config.any_sanitize_thread) try parseCrtFileReportingFailure(self, comp.tsan_lib.?);
+    if (comp.config.any_fuzz) try parseCrtFileReportingFailure(self, comp.fuzzer_lib.?);
 
     // libc
     if (!comp.skip_linker_dependencies and !comp.config.link_libc) {
-        if (comp.libc_static_lib) |lib| {
-            try positionals.append(.{ .path = lib.full_object_path });
-        }
-    }
-
-    for (positionals.items) |obj| {
-        self.parsePositional(obj.path, obj.must_link) catch |err| switch (err) {
-            error.MalformedObject,
-            error.MalformedArchive,
-            error.MismatchedEflags,
-            error.InvalidMachineType,
-            => continue, // already reported
-            else => |e| try self.reportParseError(
-                obj.path,
-                "unexpected error: parsing input file failed with error {s}",
-                .{@errorName(e)},
-            ),
-        };
+        if (comp.libc_static_lib) |lib| try parseCrtFileReportingFailure(self, lib);
     }
 
     var system_libs = std.ArrayList(SystemLib).init(arena);
@@ -945,42 +921,23 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
     }
 
     for (system_libs.items) |lib| {
-        self.parseLibrary(lib, false) catch |err| switch (err) {
-            error.MalformedObject, error.MalformedArchive, error.InvalidMachineType => continue, // already reported
-            else => |e| try self.reportParseError(
-                lib.path,
-                "unexpected error: parsing library failed with error {s}",
-                .{@errorName(e)},
-            ),
-        };
+        try self.parseLibraryReportingFailure(lib, false);
     }
 
     // Finally, as the last input objects we add compiler_rt and CSU postlude (if any).
-    positionals.clearRetainingCapacity();
 
     // compiler-rt. Since compiler_rt exports symbols like `memset`, it needs
     // to be after the shared libraries, so they are picked up from the shared
     // libraries, not libcompiler_rt.
-    if (compiler_rt_path) |path| try positionals.append(.{ .path = path });
+    if (comp.compiler_rt_lib) |crt_file| {
+        try parseLibraryReportingFailure(self, .{ .path = crt_file.full_object_path }, false);
+    } else if (comp.compiler_rt_obj) |crt_file| {
+        try parseObjectReportingFailure(self, crt_file.full_object_path);
+    }
 
     // csu postlude
-    if (csu.crtend) |v| try positionals.append(.{ .path = v });
-    if (csu.crtn) |v| try positionals.append(.{ .path = v });
-
-    for (positionals.items) |obj| {
-        self.parsePositional(obj.path, obj.must_link) catch |err| switch (err) {
-            error.MalformedObject,
-            error.MalformedArchive,
-            error.MismatchedEflags,
-            error.InvalidMachineType,
-            => continue, // already reported
-            else => |e| try self.reportParseError(
-                obj.path,
-                "unexpected error: parsing input file failed with error {s}",
-                .{@errorName(e)},
-            ),
-        };
-    }
+    if (csu.crtend) |path| try parseObjectReportingFailure(self, path);
+    if (csu.crtn) |path| try parseObjectReportingFailure(self, path);
 
     if (self.base.hasErrors()) return error.FlushFailure;
 
@@ -1022,7 +979,9 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
     self.markEhFrameAtomsDead();
     try self.resolveMergeSections();
 
-    try self.convertCommonSymbols();
+    for (self.objects.items) |index| {
+        try self.file(index).?.object.convertCommonSymbols(self);
+    }
     self.markImportsExports();
 
     if (self.base.gc_sections) {
@@ -1402,10 +1361,9 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
 }
 
 pub const ParseError = error{
-    MalformedObject,
-    MalformedArchive,
-    InvalidMachineType,
-    MismatchedEflags,
+    /// Indicates the error is already reported on `Compilation.link_errors`.
+    LinkFailure,
+
     OutOfMemory,
     Overflow,
     InputOutput,
@@ -1416,14 +1374,28 @@ pub const ParseError = error{
     UnknownFileType,
 } || LdScript.Error || fs.Dir.AccessError || fs.File.SeekError || fs.File.OpenError || fs.File.ReadError;
 
-pub fn parsePositional(self: *Elf, path: []const u8, must_link: bool) ParseError!void {
-    const tracy = trace(@src());
-    defer tracy.end();
-    if (try Object.isObject(path)) {
-        try self.parseObject(path);
+fn parseCrtFileReportingFailure(self: *Elf, crt_file: Compilation.CRTFile) error{OutOfMemory}!void {
+    if (crt_file.isObject()) {
+        try parseObjectReportingFailure(self, crt_file.full_object_path);
     } else {
-        try self.parseLibrary(.{ .path = path }, must_link);
+        try parseLibraryReportingFailure(self, .{ .path = crt_file.full_object_path }, false);
     }
+}
+
+pub fn parseObjectReportingFailure(self: *Elf, path: []const u8) error{OutOfMemory}!void {
+    self.parseObject(path) catch |err| switch (err) {
+        error.LinkFailure => return, // already reported
+        error.OutOfMemory => return error.OutOfMemory,
+        else => |e| try self.addParseError(path, "unable to parse object: {s}", .{@errorName(e)}),
+    };
+}
+
+pub fn parseLibraryReportingFailure(self: *Elf, lib: SystemLib, must_link: bool) error{OutOfMemory}!void {
+    self.parseLibrary(lib, must_link) catch |err| switch (err) {
+        error.LinkFailure => return, // already reported
+        error.OutOfMemory => return error.OutOfMemory,
+        else => |e| try self.addParseError(lib.path, "unable to parse library: {s}", .{@errorName(e)}),
+    };
 }
 
 fn parseLibrary(self: *Elf, lib: SystemLib, must_link: bool) ParseError!void {
@@ -1575,8 +1547,8 @@ fn parseLdScript(self: *Elf, lib: SystemLib) ParseError!void {
             .needed = scr_obj.needed,
             .path = full_path,
         }, false) catch |err| switch (err) {
-            error.MalformedObject, error.MalformedArchive, error.InvalidMachineType => continue, // already reported
-            else => |e| try self.reportParseError(
+            error.LinkFailure => continue, // already reported
+            else => |e| try self.addParseError(
                 full_path,
                 "unexpected error: parsing library failed with error {s}",
                 .{@errorName(e)},
@@ -1601,24 +1573,24 @@ pub fn validateEFlags(self: *Elf, file_index: File.Index, e_flags: elf.Elf64_Wor
                 self_riscv_eflags.rvc = self_riscv_eflags.rvc or riscv_eflags.rvc;
                 self_riscv_eflags.tso = self_riscv_eflags.tso or riscv_eflags.tso;
 
-                var is_error: bool = false;
+                var any_errors: bool = false;
                 if (self_riscv_eflags.fabi != riscv_eflags.fabi) {
-                    is_error = true;
-                    _ = try self.reportParseError2(
+                    any_errors = true;
+                    try self.addFileError(
                         file_index,
                         "cannot link object files with different float-point ABIs",
                         .{},
                     );
                 }
                 if (self_riscv_eflags.rve != riscv_eflags.rve) {
-                    is_error = true;
-                    _ = try self.reportParseError2(
+                    any_errors = true;
+                    try self.addFileError(
                         file_index,
                         "cannot link object files with different RVEs",
                         .{},
                     );
                 }
-                if (is_error) return error.MismatchedEflags;
+                if (any_errors) return error.LinkFailure;
             }
         },
         else => {},
@@ -1737,12 +1709,6 @@ pub fn markEhFrameAtomsDead(self: *Elf) void {
         const file_ptr = self.file(index).?;
         if (!file_ptr.isAlive()) continue;
         file_ptr.object.markEhFrameAtomsDead(self);
-    }
-}
-
-fn convertCommonSymbols(self: *Elf) !void {
-    for (self.objects.items) |index| {
-        try self.file(index).?.object.convertCommonSymbols(self);
     }
 }
 
@@ -2838,7 +2804,7 @@ pub fn resolveMergeSections(self: *Elf) !void {
         const file_ptr = self.file(index).?;
         if (!file_ptr.isAlive()) continue;
         file_ptr.object.initInputMergeSections(self) catch |err| switch (err) {
-            error.MalformedObject => has_errors = true,
+            error.LinkFailure => has_errors = true,
             else => |e| return e,
         };
     }
@@ -2855,12 +2821,12 @@ pub fn resolveMergeSections(self: *Elf) !void {
         const file_ptr = self.file(index).?;
         if (!file_ptr.isAlive()) continue;
         file_ptr.object.resolveMergeSubsections(self) catch |err| switch (err) {
-            error.MalformedObject => has_errors = true,
+            error.LinkFailure => has_errors = true,
             else => |e| return e,
         };
     }
 
-    if (has_errors) return error.FlushFailure;
+    if (has_errors) return error.LinkFailure;
 }
 
 pub fn finalizeMergeSections(self: *Elf) !void {
@@ -5192,7 +5158,7 @@ fn reportUnsupportedCpuArch(self: *Elf) error{OutOfMemory}!void {
     });
 }
 
-pub fn reportParseError(
+pub fn addParseError(
     self: *Elf,
     path: []const u8,
     comptime format: []const u8,
@@ -5203,7 +5169,7 @@ pub fn reportParseError(
     try err.addNote("while parsing {s}", .{path});
 }
 
-pub fn reportParseError2(
+pub fn addFileError(
     self: *Elf,
     file_index: File.Index,
     comptime format: []const u8,
@@ -5212,6 +5178,26 @@ pub fn reportParseError2(
     var err = try self.base.addErrorWithNotes(1);
     try err.addMsg(format, args);
     try err.addNote("while parsing {}", .{self.file(file_index).?.fmtPath()});
+}
+
+pub fn failFile(
+    self: *Elf,
+    file_index: File.Index,
+    comptime format: []const u8,
+    args: anytype,
+) error{ OutOfMemory, LinkFailure } {
+    try addFileError(self, file_index, format, args);
+    return error.LinkFailure;
+}
+
+pub fn failParse(
+    self: *Elf,
+    path: []const u8,
+    comptime format: []const u8,
+    args: anytype,
+) error{ OutOfMemory, LinkFailure } {
+    try addParseError(self, path, format, args);
+    return error.LinkFailure;
 }
 
 const FormatShdrCtx = struct {

@@ -34,18 +34,6 @@ num_dynrelocs: u32 = 0,
 output_symtab_ctx: Elf.SymtabCtx = .{},
 output_ar_state: Archive.ArState = .{},
 
-pub fn isObject(path: []const u8) !bool {
-    const file = try std.fs.cwd().openFile(path, .{});
-    defer file.close();
-    const reader = file.reader();
-    const header = reader.readStruct(elf.Elf64_Ehdr) catch return false;
-    if (!mem.eql(u8, header.e_ident[0..4], "\x7fELF")) return false;
-    if (header.e_ident[elf.EI_VERSION] != 1) return false;
-    if (header.e_type != elf.ET.REL) return false;
-    if (header.e_version != 1) return false;
-    return true;
-}
-
 pub fn deinit(self: *Object, allocator: Allocator) void {
     if (self.archive) |*ar| allocator.free(ar.path);
     allocator.free(self.path);
@@ -107,12 +95,9 @@ fn parseCommon(self: *Object, allocator: Allocator, handle: std.fs.File, elf_fil
 
     const em = elf_file.base.comp.root_mod.resolved_target.result.toElfMachine();
     if (em != self.header.?.e_machine) {
-        try elf_file.reportParseError2(
-            self.index,
-            "invalid ELF machine type: {s}",
-            .{@tagName(self.header.?.e_machine)},
-        );
-        return error.InvalidMachineType;
+        return elf_file.failFile(self.index, "invalid ELF machine type: {s}", .{
+            @tagName(self.header.?.e_machine),
+        });
     }
     try elf_file.validateEFlags(self.index, self.header.?.e_flags);
 
@@ -122,12 +107,7 @@ fn parseCommon(self: *Object, allocator: Allocator, handle: std.fs.File, elf_fil
     const shnum = math.cast(usize, self.header.?.e_shnum) orelse return error.Overflow;
     const shsize = shnum * @sizeOf(elf.Elf64_Shdr);
     if (file_size < offset + shoff or file_size < offset + shoff + shsize) {
-        try elf_file.reportParseError2(
-            self.index,
-            "corrupt header: section header table extends past the end of file",
-            .{},
-        );
-        return error.MalformedObject;
+        return elf_file.failFile(self.index, "corrupt header: section header table extends past the end of file", .{});
     }
 
     const shdrs_buffer = try Elf.preadAllAlloc(allocator, handle, offset + shoff, shsize);
@@ -138,8 +118,7 @@ fn parseCommon(self: *Object, allocator: Allocator, handle: std.fs.File, elf_fil
     for (self.shdrs.items) |shdr| {
         if (shdr.sh_type != elf.SHT_NOBITS) {
             if (file_size < offset + shdr.sh_offset or file_size < offset + shdr.sh_offset + shdr.sh_size) {
-                try elf_file.reportParseError2(self.index, "corrupt section: extends past the end of file", .{});
-                return error.MalformedObject;
+                return elf_file.failFile(self.index, "corrupt section: extends past the end of file", .{});
             }
         }
     }
@@ -148,8 +127,7 @@ fn parseCommon(self: *Object, allocator: Allocator, handle: std.fs.File, elf_fil
     defer allocator.free(shstrtab);
     for (self.shdrs.items) |shdr| {
         if (shdr.sh_name >= shstrtab.len) {
-            try elf_file.reportParseError2(self.index, "corrupt section name offset", .{});
-            return error.MalformedObject;
+            return elf_file.failFile(self.index, "corrupt section name offset", .{});
         }
     }
     try self.strtab.appendSlice(allocator, shstrtab);
@@ -166,8 +144,7 @@ fn parseCommon(self: *Object, allocator: Allocator, handle: std.fs.File, elf_fil
         const raw_symtab = try self.preadShdrContentsAlloc(allocator, handle, index);
         defer allocator.free(raw_symtab);
         const nsyms = math.divExact(usize, raw_symtab.len, @sizeOf(elf.Elf64_Sym)) catch {
-            try elf_file.reportParseError2(self.index, "symbol table not evenly divisible", .{});
-            return error.MalformedObject;
+            return elf_file.failFile(self.index, "symbol table not evenly divisible", .{});
         };
         const symtab = @as([*]align(1) const elf.Elf64_Sym, @ptrCast(raw_symtab.ptr))[0..nsyms];
 
@@ -221,30 +198,15 @@ fn initAtoms(self: *Object, allocator: Allocator, handle: std.fs.File, elf_file:
                 const group_raw_data = try self.preadShdrContentsAlloc(allocator, handle, shndx);
                 defer allocator.free(group_raw_data);
                 const group_nmembers = math.divExact(usize, group_raw_data.len, @sizeOf(u32)) catch {
-                    try elf_file.reportParseError2(
-                        self.index,
-                        "corrupt section group: not evenly divisible ",
-                        .{},
-                    );
-                    return error.MalformedObject;
+                    return elf_file.failFile(self.index, "corrupt section group: not evenly divisible ", .{});
                 };
                 if (group_nmembers == 0) {
-                    try elf_file.reportParseError2(
-                        self.index,
-                        "corrupt section group: empty section",
-                        .{},
-                    );
-                    return error.MalformedObject;
+                    return elf_file.failFile(self.index, "corrupt section group: empty section", .{});
                 }
                 const group_members = @as([*]align(1) const u32, @ptrCast(group_raw_data.ptr))[0..group_nmembers];
 
                 if (group_members[0] != elf.GRP_COMDAT) {
-                    try elf_file.reportParseError2(
-                        self.index,
-                        "corrupt section group: unknown SHT_GROUP format",
-                        .{},
-                    );
-                    return error.MalformedObject;
+                    return elf_file.failFile(self.index, "corrupt section group: unknown SHT_GROUP format", .{});
                 }
 
                 const group_start = @as(u32, @intCast(self.comdat_group_data.items.len));
@@ -722,7 +684,7 @@ pub fn initInputMergeSections(self: *Object, elf_file: *Elf) !void {
                     var err = try elf_file.base.addErrorWithNotes(1);
                     try err.addMsg("string not null terminated", .{});
                     try err.addNote("in {}:{s}", .{ self.fmtPath(), atom_ptr.name(elf_file) });
-                    return error.MalformedObject;
+                    return error.LinkFailure;
                 }
                 end += sh_entsize;
                 const string = data[start..end];
@@ -737,7 +699,7 @@ pub fn initInputMergeSections(self: *Object, elf_file: *Elf) !void {
                 var err = try elf_file.base.addErrorWithNotes(1);
                 try err.addMsg("size not a multiple of sh_entsize", .{});
                 try err.addNote("in {}:{s}", .{ self.fmtPath(), atom_ptr.name(elf_file) });
-                return error.MalformedObject;
+                return error.LinkFailure;
             }
 
             var pos: u32 = 0;
@@ -765,7 +727,12 @@ pub fn initOutputMergeSections(self: *Object, elf_file: *Elf) !void {
     }
 }
 
-pub fn resolveMergeSubsections(self: *Object, elf_file: *Elf) !void {
+pub fn resolveMergeSubsections(self: *Object, elf_file: *Elf) error{
+    LinkFailure,
+    OutOfMemory,
+    /// TODO report the error and remove this
+    Overflow,
+}!void {
     const gpa = elf_file.base.comp.gpa;
 
     for (self.input_merge_sections_indexes.items) |index| {
@@ -809,7 +776,7 @@ pub fn resolveMergeSubsections(self: *Object, elf_file: *Elf) !void {
             try err.addMsg("invalid symbol value: {x}", .{esym.st_value});
             try err.addNote("for symbol {s}", .{sym.name(elf_file)});
             try err.addNote("in {}", .{self.fmtPath()});
-            return error.MalformedObject;
+            return error.LinkFailure;
         };
 
         sym.ref = .{ .index = res.msub_index, .file = imsec.merge_section_index };
@@ -834,7 +801,7 @@ pub fn resolveMergeSubsections(self: *Object, elf_file: *Elf) !void {
                 var err = try elf_file.base.addErrorWithNotes(1);
                 try err.addMsg("invalid relocation at offset 0x{x}", .{rel.r_offset});
                 try err.addNote("in {}:{s}", .{ self.fmtPath(), atom_ptr.name(elf_file) });
-                return error.MalformedObject;
+                return error.LinkFailure;
             };
 
             const sym_index = try self.addSymbol(gpa);
