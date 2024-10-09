@@ -1603,8 +1603,8 @@ test containsAtLeast {
 /// the result.
 pub fn readVarInt(comptime ReturnType: type, bytes: []const u8, endian: Endian) ReturnType {
     assert(@typeInfo(ReturnType).Int.bits >= bytes.len * 8);
-    const bits = @typeInfo(ReturnType).Int.bits;
-    const signedness = @typeInfo(ReturnType).Int.signedness;
+    const bits = @typeInfo(ReturnType).int.bits;
+    const signedness = @typeInfo(ReturnType).int.signedness;
     const WorkType = std.meta.Int(signedness, @max(16, bits));
     var result: WorkType = 0;
     switch (endian) {
