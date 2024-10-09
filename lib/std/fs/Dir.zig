@@ -1134,7 +1134,7 @@ pub fn makeDirZ(self: Dir, sub_path: [*:0]const u8) MakeError!void {
 /// To create multiple directories to make an entire path, see `makePath`.
 /// To operate on only absolute paths, see `makeDirAbsoluteW`.
 pub fn makeDirW(self: Dir, sub_path: [*:0]const u16) MakeError!void {
-    try posix.mkdiratW(self.fd, sub_path, default_mode);
+    try posix.mkdiratW(self.fd, mem.sliceTo(sub_path, 0), default_mode);
 }
 
 /// Calls makeDir iteratively to make an entire path
@@ -1763,7 +1763,7 @@ pub fn renameZ(self: Dir, old_sub_path_z: [*:0]const u8, new_sub_path_z: [*:0]co
 /// Same as `rename` except the parameters are WTF16LE, NT prefixed.
 /// This function is Windows-only.
 pub fn renameW(self: Dir, old_sub_path_w: []const u16, new_sub_path_w: []const u16) RenameError!void {
-    return posix.renameatW(self.fd, old_sub_path_w, self.fd, new_sub_path_w);
+    return posix.renameatW(self.fd, old_sub_path_w, self.fd, new_sub_path_w, windows.FALSE);
 }
 
 /// Use with `Dir.symLink`, `Dir.atomicSymLink`, and `symLinkAbsolute` to
