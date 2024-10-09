@@ -9,9 +9,19 @@ pub fn main() void {
 
     x, y, z = tuple;
 
-    print("x = {}\n", .{x});
-    print("y = {}\n", .{y});
-    print("z = {}\n", .{z});
+    print("tuple: x = {}, y = {}, z = {}\n", .{x, y, z});
+
+    const array = [_]u32{ 4, 5, 6 };
+
+    x, y, z = array;
+
+    print("array: x = {}, y = {}, z = {}\n", .{x, y, z});
+
+    const vector: @Vector(3, u32) = .{ 7, 8, 9 };
+
+    x, y, z = vector;
+
+    print("vector: x = {}, y = {}, z = {}\n", .{x, y, z});
 }
 
 // exe=succeed

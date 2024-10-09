@@ -780,8 +780,8 @@
 
       {#header_open|Destructuring#}
       <p>
-        Some aggregate values ({#link|Tuples#}, {#link|Arrays#}, {#link|Vectors#}) can be destructed using
-        destructuring assignment:
+        A destructuring assignment can separate elements of indexable aggregate types
+        ({#link|Tuples#}, {#link|Arrays#}, {#link|Vectors#}):
       </p>
       {#code|destructuring_to_existing.zig#}
 

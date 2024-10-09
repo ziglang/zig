@@ -7,12 +7,15 @@ pub fn main() void {
 
     x, var y : u32, const z = tuple;
 
-    print("x = {}\n", .{x});
-    print("y = {}\n", .{y});
-    print("z = {}\n", .{z});
+    print("x = {}, y = {}, z = {}\n", .{x, y, z});
 
     // y is mutable
     y = 100;
+
+    // You can use _ to throw away unwanted values.
+    _, x, _ = tuple;
+
+    print("x = {}", .{x});
 }
 
 // exe=succeed
