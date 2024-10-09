@@ -61,7 +61,7 @@ const FreeBlock = struct {
     const not_found = maxInt(usize);
 
     fn useRecycled(self: FreeBlock, num_pages: usize, log2_align: u8) usize {
-        @setCold(true);
+        @branchHint(.cold);
         for (self.data, 0..) |segment, i| {
             const spills_into_next = @as(i128, @bitCast(segment)) < 0;
             const has_enough_bits = @popCount(segment) >= num_pages;

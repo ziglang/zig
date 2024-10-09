@@ -20,6 +20,15 @@
 
 #include <unwind.h>
 
+#if defined(__SEH__) && !defined(__USING_SJLJ_EXCEPTIONS__)
+#include <windows.h>
+#include <winnt.h>
+
+EXCEPTION_DISPOSITION _GCC_specific_handler(PEXCEPTION_RECORD, void *, PCONTEXT,
+                                            PDISPATCHER_CONTEXT,
+                                            _Unwind_Personality_Fn);
+#endif
+
 // Pointer encodings documented at:
 //   http://refspecs.freestandards.org/LSB_1.3.0/gLSB/gLSB/ehframehdr.html
 
@@ -43,9 +52,9 @@
 #define DW_EH_PE_indirect 0x80 // gcc extension
 
 // read a uleb128 encoded value and advance pointer
-static uintptr_t readULEB128(const uint8_t **data) {
-  uintptr_t result = 0;
-  uintptr_t shift = 0;
+static size_t readULEB128(const uint8_t **data) {
+  size_t result = 0;
+  size_t shift = 0;
   unsigned char byte;
   const uint8_t *p = *data;
   do {
@@ -133,7 +142,7 @@ static uintptr_t readEncodedPointer(const uint8_t **data, uint8_t encoding) {
 }
 
 #if defined(__arm__) && !defined(__USING_SJLJ_EXCEPTIONS__) &&                 \
-    !defined(__ARM_DWARF_EH__)
+    !defined(__ARM_DWARF_EH__) && !defined(__SEH__)
 #define USING_ARM_EHABI 1
 _Unwind_Reason_Code __gnu_unwind_frame(struct _Unwind_Exception *,
                                        struct _Unwind_Context *);
@@ -168,6 +177,10 @@ COMPILER_RT_ABI _Unwind_Reason_Code __gcc_personality_sj0(
 COMPILER_RT_ABI _Unwind_Reason_Code __gcc_personality_v0(
     _Unwind_State state, struct _Unwind_Exception *exceptionObject,
     struct _Unwind_Context *context)
+#elif defined(__SEH__)
+static _Unwind_Reason_Code __gcc_personality_imp(
+    int version, _Unwind_Action actions, uint64_t exceptionClass,
+    struct _Unwind_Exception *exceptionObject, struct _Unwind_Context *context)
 #else
 COMPILER_RT_ABI _Unwind_Reason_Code __gcc_personality_v0(
     int version, _Unwind_Action actions, uint64_t exceptionClass,
@@ -205,14 +218,14 @@ COMPILER_RT_ABI _Unwind_Reason_Code __gcc_personality_v0(
   }
   // Walk call-site table looking for range that includes current PC.
   uint8_t callSiteEncoding = *lsda++;
-  uint32_t callSiteTableLength = readULEB128(&lsda);
+  size_t callSiteTableLength = readULEB128(&lsda);
   const uint8_t *callSiteTableStart = lsda;
   const uint8_t *callSiteTableEnd = callSiteTableStart + callSiteTableLength;
   const uint8_t *p = callSiteTableStart;
   while (p < callSiteTableEnd) {
     uintptr_t start = readEncodedPointer(&p, callSiteEncoding);
-    uintptr_t length = readEncodedPointer(&p, callSiteEncoding);
-    uintptr_t landingPad = readEncodedPointer(&p, callSiteEncoding);
+    size_t length = readEncodedPointer(&p, callSiteEncoding);
+    size_t landingPad = readEncodedPointer(&p, callSiteEncoding);
     readULEB128(&p); // action value not used for C code
     if (landingPad == 0)
       continue; // no landing pad for this entry
@@ -232,3 +245,12 @@ COMPILER_RT_ABI _Unwind_Reason_Code __gcc_personality_v0(
   // No landing pad found, continue unwinding.
   return continueUnwind(exceptionObject, context);
 }
+
+#if defined(__SEH__) && !defined(__USING_SJLJ_EXCEPTIONS__)
+COMPILER_RT_ABI EXCEPTION_DISPOSITION
+__gcc_personality_seh0(PEXCEPTION_RECORD ms_exc, void *this_frame,
+                       PCONTEXT ms_orig_context, PDISPATCHER_CONTEXT ms_disp) {
+  return _GCC_specific_handler(ms_exc, this_frame, ms_orig_context, ms_disp,
+                               __gcc_personality_imp);
+}
+#endif

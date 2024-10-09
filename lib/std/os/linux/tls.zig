@@ -88,6 +88,7 @@ const current_variant: Variant = switch (native_arch) {
     => .I_modified,
     .hexagon,
     .s390x,
+    .sparc,
     .sparc64,
     .x86,
     .x86_64,
@@ -268,7 +269,7 @@ pub fn setThreadPointer(addr: usize) void {
         },
         .loongarch32, .loongarch64 => {
             asm volatile (
-                \\ mv tp, %[addr]
+                \\ move $tp, %[addr]
                 :
                 : [addr] "r" (addr),
             );
@@ -309,7 +310,7 @@ pub fn setThreadPointer(addr: usize) void {
                 : "r0"
             );
         },
-        .sparc64 => {
+        .sparc, .sparc64 => {
             asm volatile (
                 \\ mov %[addr], %%g7
                 :
@@ -540,7 +541,19 @@ inline fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: linux.MAP, fd
             @as(usize, @truncate(@as(u64, @bitCast(offset)) / linux.MMAP2_UNIT)),
         });
     } else {
-        return @call(.always_inline, linux.syscall6, .{
+        // The s390x mmap() syscall existed before Linux supported syscalls with 5+ parameters, so
+        // it takes a single pointer to an array of arguments instead.
+        return if (native_arch == .s390x) @call(.always_inline, linux.syscall1, .{
+            .mmap,
+            @intFromPtr(&[_]usize{
+                @intFromPtr(address),
+                length,
+                prot,
+                @as(u32, @bitCast(flags)),
+                @as(usize, @bitCast(@as(isize, fd))),
+                @as(u64, @bitCast(offset)),
+            }),
+        }) else @call(.always_inline, linux.syscall6, .{
             .mmap,
             @intFromPtr(address),
             length,

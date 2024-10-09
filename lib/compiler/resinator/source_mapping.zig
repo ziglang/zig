@@ -10,7 +10,7 @@ pub const ParseLineCommandsResult = struct {
 
 const CurrentMapping = struct {
     line_num: usize = 1,
-    filename: std.ArrayListUnmanaged(u8) = .{},
+    filename: std.ArrayListUnmanaged(u8) = .empty,
     pending: bool = true,
     ignore_contents: bool = false,
 };
@@ -626,8 +626,8 @@ test "SourceMappings collapse" {
 
 /// Same thing as StringTable in Zig's src/Wasm.zig
 pub const StringTable = struct {
-    data: std.ArrayListUnmanaged(u8) = .{},
-    map: std.HashMapUnmanaged(u32, void, std.hash_map.StringIndexContext, std.hash_map.default_max_load_percentage) = .{},
+    data: std.ArrayListUnmanaged(u8) = .empty,
+    map: std.HashMapUnmanaged(u32, void, std.hash_map.StringIndexContext, std.hash_map.default_max_load_percentage) = .empty,
 
     pub fn deinit(self: *StringTable, allocator: Allocator) void {
         self.data.deinit(allocator);

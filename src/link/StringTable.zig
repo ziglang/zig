@@ -1,5 +1,5 @@
-buffer: std.ArrayListUnmanaged(u8) = .{},
-table: std.HashMapUnmanaged(u32, void, StringIndexContext, std.hash_map.default_max_load_percentage) = .{},
+buffer: std.ArrayListUnmanaged(u8) = .empty,
+table: std.HashMapUnmanaged(u32, void, StringIndexContext, std.hash_map.default_max_load_percentage) = .empty,
 
 pub fn deinit(self: *Self, gpa: Allocator) void {
     self.buffer.deinit(gpa);

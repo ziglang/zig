@@ -2,7 +2,7 @@ const Foo = union(enum(f32)) {
     A: i32,
 };
 export fn entry() void {
-    const x = @typeInfo(Foo).Union.tag_type.?;
+    const x = @typeInfo(Foo).@"union".tag_type.?;
     _ = x;
 }
 

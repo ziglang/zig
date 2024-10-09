@@ -82,9 +82,9 @@ struct _LIBCPP_TEMPLATE_VIS common_type<_Tp> : public common_type<_Tp, _Tp> {};
 // sub-bullet 1 - "If is_same_v<T1, D1> is false or ..."
 template <class _Tp, class _Up>
 struct _LIBCPP_TEMPLATE_VIS common_type<_Tp, _Up>
-    : conditional<_IsSame<_Tp, __decay_t<_Tp> >::value && _IsSame<_Up, __decay_t<_Up> >::value,
-                  __common_type2_imp<_Tp, _Up>,
-                  common_type<__decay_t<_Tp>, __decay_t<_Up> > >::type {};
+    : __conditional_t<_IsSame<_Tp, __decay_t<_Tp> >::value && _IsSame<_Up, __decay_t<_Up> >::value,
+                      __common_type2_imp<_Tp, _Up>,
+                      common_type<__decay_t<_Tp>, __decay_t<_Up> > > {};
 
 // bullet 4 - sizeof...(Tp) > 2
 

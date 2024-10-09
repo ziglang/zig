@@ -24,13 +24,14 @@
 #include <__memory/pointer_traits.h>
 #include <__memory/swap_allocator.h>
 #include <__type_traits/add_lvalue_reference.h>
+#include <__type_traits/conditional.h>
 #include <__type_traits/enable_if.h>
 #include <__type_traits/integral_constant.h>
-#include <__type_traits/is_nothrow_default_constructible.h>
-#include <__type_traits/is_nothrow_move_assignable.h>
-#include <__type_traits/is_nothrow_move_constructible.h>
+#include <__type_traits/is_nothrow_assignable.h>
+#include <__type_traits/is_nothrow_constructible.h>
 #include <__type_traits/is_swappable.h>
 #include <__type_traits/is_trivially_destructible.h>
+#include <__type_traits/is_trivially_relocatable.h>
 #include <__type_traits/remove_reference.h>
 #include <__utility/forward.h>
 #include <__utility/move.h>
@@ -64,6 +65,15 @@ public:
   using const_pointer   = typename __alloc_traits::const_pointer;
   using iterator        = pointer;
   using const_iterator  = const_pointer;
+
+  // A __split_buffer contains the following members which may be trivially relocatable:
+  // - pointer: may be trivially relocatable, so it's checked
+  // - allocator_type: may be trivially relocatable, so it's checked
+  // __split_buffer doesn't have any self-references, so it's trivially relocatable if its members are.
+  using __trivially_relocatable = __conditional_t<
+      __libcpp_is_trivially_relocatable<pointer>::value && __libcpp_is_trivially_relocatable<allocator_type>::value,
+      __split_buffer,
+      void>;
 
   pointer __first_;
   pointer __begin_;
@@ -188,7 +198,7 @@ public:
   _LIBCPP_CONSTEXPR_SINCE_CXX20 _LIBCPP_HIDE_FROM_ABI void __destruct_at_end(pointer __new_last, true_type) _NOEXCEPT;
 
   _LIBCPP_CONSTEXPR_SINCE_CXX20 _LIBCPP_HIDE_FROM_ABI void swap(__split_buffer& __x)
-      _NOEXCEPT_(!__alloc_traits::propagate_on_container_swap::value || __is_nothrow_swappable<__alloc_rr>::value);
+      _NOEXCEPT_(!__alloc_traits::propagate_on_container_swap::value || __is_nothrow_swappable_v<__alloc_rr>);
 
   _LIBCPP_CONSTEXPR_SINCE_CXX20 _LIBCPP_HIDE_FROM_ABI bool __invariants() const;
 
@@ -201,8 +211,8 @@ private:
   _LIBCPP_CONSTEXPR_SINCE_CXX20 _LIBCPP_HIDE_FROM_ABI void __move_assign_alloc(__split_buffer&, false_type) _NOEXCEPT {}
 
   struct _ConstructTransaction {
-    _LIBCPP_CONSTEXPR_SINCE_CXX20 _LIBCPP_HIDE_FROM_ABI explicit _ConstructTransaction(
-        pointer* __p, size_type __n) _NOEXCEPT
+    _LIBCPP_CONSTEXPR_SINCE_CXX20
+    _LIBCPP_HIDE_FROM_ABI explicit _ConstructTransaction(pointer* __p, size_type __n) _NOEXCEPT
         : __pos_(*__p),
           __end_(*__p + __n),
           __dest_(__p) {}
@@ -410,7 +420,7 @@ __split_buffer<_Tp, _Allocator>::operator=(__split_buffer&& __c)
 
 template <class _Tp, class _Allocator>
 _LIBCPP_CONSTEXPR_SINCE_CXX20 void __split_buffer<_Tp, _Allocator>::swap(__split_buffer& __x)
-    _NOEXCEPT_(!__alloc_traits::propagate_on_container_swap::value || __is_nothrow_swappable<__alloc_rr>::value) {
+    _NOEXCEPT_(!__alloc_traits::propagate_on_container_swap::value || __is_nothrow_swappable_v<__alloc_rr>) {
   std::swap(__first_, __x.__first_);
   std::swap(__begin_, __x.__begin_);
   std::swap(__end_, __x.__end_);

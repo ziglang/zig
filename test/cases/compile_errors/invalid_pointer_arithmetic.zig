@@ -45,7 +45,7 @@ comptime {
 // :2:11: note: pointer-integer arithmetic only supports addition and subtraction
 // :6:11: error: invalid pointer-pointer arithmetic operator
 // :6:11: note: pointer-pointer arithmetic only supports subtraction
-// :12:11: error: invalid operands to binary expression: 'Pointer' and 'Pointer'
+// :12:11: error: invalid operands to binary expression: 'pointer' and 'pointer'
 // :20:11: error: incompatible pointer arithmetic operands '[*]u8' and '[*]u16'
 // :26:11: error: incompatible pointer arithmetic operands '*u8' and '*u16'
 // :31:11: error: pointer arithmetic requires element type 'u0' to have runtime bits

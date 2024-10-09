@@ -13,11 +13,23 @@ const Sema = @import("Sema.zig");
 const InternPool = @import("InternPool.zig");
 const Zir = std.zig.Zir;
 const Decl = Zcu.Decl;
+const dev = @import("dev.zig");
 
 /// To use these crash report diagnostics, publish this panic in your main file
 /// and add `pub const enable_segfault_handler = false;` to your `std_options`.
 /// You will also need to call initialize() on startup, preferably as the very first operation in your program.
-pub const panic = if (build_options.enable_debug_extensions) compilerPanic else std.builtin.default_panic;
+pub const Panic = if (build_options.enable_debug_extensions) struct {
+    pub const call = compilerPanic;
+    pub const sentinelMismatch = std.debug.FormattedPanic.sentinelMismatch;
+    pub const unwrapError = std.debug.FormattedPanic.unwrapError;
+    pub const outOfBounds = std.debug.FormattedPanic.outOfBounds;
+    pub const startGreaterThanEnd = std.debug.FormattedPanic.startGreaterThanEnd;
+    pub const inactiveUnionField = std.debug.FormattedPanic.inactiveUnionField;
+    pub const messages = std.debug.FormattedPanic.messages;
+} else if (dev.env == .bootstrap)
+    std.debug.SimplePanic
+else
+    std.debug.FormattedPanic;
 
 /// Install signal handlers to identify crashes and report diagnostics.
 pub fn initialize() void {
@@ -78,7 +90,13 @@ fn dumpStatusReport() !void {
     const block: *Sema.Block = anal.block;
     const zcu = anal.sema.pt.zcu;
 
-    const file, const src_base_node = Zcu.LazySrcLoc.resolveBaseNode(block.src_base_inst, zcu);
+    const file, const src_base_node = Zcu.LazySrcLoc.resolveBaseNode(block.src_base_inst, zcu) orelse {
+        const file = zcu.fileByIndex(block.src_base_inst.resolveFile(&zcu.intern_pool));
+        try stderr.writeAll("Analyzing lost instruction in file '");
+        try writeFilePath(file, stderr);
+        try stderr.writeAll("'. This should not happen!\n\n");
+        return;
+    };
 
     try stderr.writeAll("Analyzing ");
     try writeFilePath(file, stderr);
@@ -104,7 +122,13 @@ fn dumpStatusReport() !void {
     while (parent) |curr| {
         fba.reset();
         try stderr.writeAll("  in ");
-        const cur_block_file, const cur_block_src_base_node = Zcu.LazySrcLoc.resolveBaseNode(curr.block.src_base_inst, zcu);
+        const cur_block_file, const cur_block_src_base_node = Zcu.LazySrcLoc.resolveBaseNode(curr.block.src_base_inst, zcu) orelse {
+            const cur_block_file = zcu.fileByIndex(curr.block.src_base_inst.resolveFile(&zcu.intern_pool));
+            try writeFilePath(cur_block_file, stderr);
+            try stderr.writeAll("\n    > [lost instruction; this should not happen]\n");
+            parent = curr.parent;
+            continue;
+        };
         try writeFilePath(cur_block_file, stderr);
         try stderr.writeAll("\n    > ");
         print_zir.renderSingleInstruction(
@@ -141,8 +165,8 @@ fn writeFilePath(file: *Zcu.File, writer: anytype) !void {
 }
 
 pub fn compilerPanic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, maybe_ret_addr: ?usize) noreturn {
+    @branchHint(.cold);
     PanicSwitch.preDispatch();
-    @setCold(true);
     const ret_addr = maybe_ret_addr orelse @returnAddress();
     const stack_ctx: StackContext = .{ .current = .{ .ret_addr = ret_addr } };
     PanicSwitch.dispatch(error_return_trace, stack_ctx, msg);
@@ -305,9 +329,6 @@ const PanicSwitch = struct {
     /// until all panicking threads have dumped their traces.
     var panicking = std.atomic.Value(u8).init(0);
 
-    // Locked to avoid interleaving panic messages from multiple threads.
-    var panic_mutex = std.Thread.Mutex{};
-
     /// Tracks the state of the current panic.  If the code within the
     /// panic triggers a secondary panic, this allows us to recover.
     threadlocal var panic_state_raw: PanicState = .{};
@@ -375,7 +396,7 @@ const PanicSwitch = struct {
 
         state.recover_stage = .release_ref_count;
 
-        panic_mutex.lock();
+        std.debug.lockStdErr();
 
         state.recover_stage = .release_mutex;
 
@@ -435,7 +456,7 @@ const PanicSwitch = struct {
     noinline fn releaseMutex(state: *volatile PanicState) noreturn {
         state.recover_stage = .abort;
 
-        panic_mutex.unlock();
+        std.debug.unlockStdErr();
 
         goTo(releaseRefCount, .{state});
     }

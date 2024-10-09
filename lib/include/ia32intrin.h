@@ -26,8 +26,8 @@
 #define __DEFAULT_FN_ATTRS_CONSTEXPR __DEFAULT_FN_ATTRS
 #endif
 
-/// Find the first set bit starting from the lsb. Result is undefined if
-///    input is 0.
+/// Finds the first set bit starting from the least significant bit. The result
+///    is undefined if the input is 0.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -43,8 +43,8 @@ __bsfd(int __A) {
   return __builtin_ctz((unsigned int)__A);
 }
 
-/// Find the first set bit starting from the msb. Result is undefined if
-///    input is 0.
+/// Finds the first set bit starting from the most significant bit. The result
+///    is undefined if the input is 0.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -90,8 +90,8 @@ _bswap(int __A) {
   return (int)__builtin_bswap32((unsigned int)__A);
 }
 
-/// Find the first set bit starting from the lsb. Result is undefined if
-///    input is 0.
+/// Finds the first set bit starting from the least significant bit. The result
+///    is undefined if the input is 0.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -108,8 +108,8 @@ _bswap(int __A) {
 /// \see __bsfd
 #define _bit_scan_forward(A) __bsfd((A))
 
-/// Find the first set bit starting from the msb. Result is undefined if
-///    input is 0.
+/// Finds the first set bit starting from the most significant bit. The result
+///    is undefined if the input is 0.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -127,8 +127,8 @@ _bswap(int __A) {
 #define _bit_scan_reverse(A) __bsrd((A))
 
 #ifdef __x86_64__
-/// Find the first set bit starting from the lsb. Result is undefined if
-///    input is 0.
+/// Finds the first set bit starting from the least significant bit. The result
+///    is undefined if the input is 0.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -143,8 +143,8 @@ __bsfq(long long __A) {
   return (long long)__builtin_ctzll((unsigned long long)__A);
 }
 
-/// Find the first set bit starting from the msb. Result is undefined if
-///    input is 0.
+/// Finds the first set bit starting from the most significant bit. The result
+///    is undefined if input is 0.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -159,7 +159,7 @@ __bsrq(long long __A) {
   return 63 - __builtin_clzll((unsigned long long)__A);
 }
 
-/// Swaps the bytes in the input. Converting little endian to big endian or
+/// Swaps the bytes in the input, converting little endian to big endian or
 ///    vice versa.
 ///
 /// \headerfile <x86intrin.h>
@@ -175,7 +175,7 @@ __bswapq(long long __A) {
   return (long long)__builtin_bswap64((unsigned long long)__A);
 }
 
-/// Swaps the bytes in the input. Converting little endian to big endian or
+/// Swaps the bytes in the input, converting little endian to big endian or
 ///    vice versa.
 ///
 /// \headerfile <x86intrin.h>
@@ -198,7 +198,7 @@ __bswapq(long long __A) {
 /// \headerfile <x86intrin.h>
 ///
 /// This intrinsic corresponds to the \c POPCNT instruction or a
-///    a sequence of arithmetic and logic ops to calculate it.
+///    sequence of arithmetic and logic operations to calculate it.
 ///
 /// \param __A
 ///    An unsigned 32-bit integer operand.
@@ -220,7 +220,7 @@ __popcntd(unsigned int __A)
 /// \endcode
 ///
 /// This intrinsic corresponds to the \c POPCNT instruction or a
-///    a sequence of arithmetic and logic ops to calculate it.
+///    sequence of arithmetic and logic operations to calculate it.
 ///
 /// \param A
 ///    An unsigned 32-bit integer operand.
@@ -235,7 +235,7 @@ __popcntd(unsigned int __A)
 /// \headerfile <x86intrin.h>
 ///
 /// This intrinsic corresponds to the \c POPCNT instruction or a
-///    a sequence of arithmetic and logic ops to calculate it.
+///    sequence of arithmetic and logic operations to calculate it.
 ///
 /// \param __A
 ///    An unsigned 64-bit integer operand.
@@ -257,7 +257,7 @@ __popcntq(unsigned long long __A)
 /// \endcode
 ///
 /// This intrinsic corresponds to the \c POPCNT instruction or a
-///    a sequence of arithmetic and logic ops to calculate it.
+///    sequence of arithmetic and logic operations to calculate it.
 ///
 /// \param A
 ///    An unsigned 64-bit integer operand.
@@ -268,7 +268,7 @@ __popcntq(unsigned long long __A)
 #endif /* __x86_64__ */
 
 #ifdef __x86_64__
-/// Returns the program status and control \c RFLAGS register with the \c VM
+/// Returns the program status-and-control \c RFLAGS register with the \c VM
 ///    and \c RF flags cleared.
 ///
 /// \headerfile <x86intrin.h>
@@ -282,7 +282,7 @@ __readeflags(void)
   return __builtin_ia32_readeflags_u64();
 }
 
-/// Writes the specified value to the program status and control \c RFLAGS
+/// Writes the specified value to the program status-and-control \c RFLAGS
 ///    register. Reserved bits are not affected.
 ///
 /// \headerfile <x86intrin.h>
@@ -298,7 +298,7 @@ __writeeflags(unsigned long long __f)
 }
 
 #else /* !__x86_64__ */
-/// Returns the program status and control \c EFLAGS register with the \c VM
+/// Returns the program status-and-control \c EFLAGS register with the \c VM
 ///    and \c RF flags cleared.
 ///
 /// \headerfile <x86intrin.h>
@@ -312,7 +312,7 @@ __readeflags(void)
   return __builtin_ia32_readeflags_u32();
 }
 
-/// Writes the specified value to the program status and control \c EFLAGS
+/// Writes the specified value to the program status-and-control \c EFLAGS
 ///    register. Reserved bits are not affected.
 ///
 /// \headerfile <x86intrin.h>
@@ -328,7 +328,7 @@ __writeeflags(unsigned int __f)
 }
 #endif /* !__x86_64__ */
 
-/// Cast a 32-bit float value to a 32-bit unsigned integer value.
+/// Casts a 32-bit float value to a 32-bit unsigned integer value.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -337,13 +337,13 @@ __writeeflags(unsigned int __f)
 ///
 /// \param __A
 ///    A 32-bit float value.
-/// \returns a 32-bit unsigned integer containing the converted value.
+/// \returns A 32-bit unsigned integer containing the converted value.
 static __inline__ unsigned int __DEFAULT_FN_ATTRS_CAST
 _castf32_u32(float __A) {
   return __builtin_bit_cast(unsigned int, __A);
 }
 
-/// Cast a 64-bit float value to a 64-bit unsigned integer value.
+/// Casts a 64-bit float value to a 64-bit unsigned integer value.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -352,13 +352,13 @@ _castf32_u32(float __A) {
 ///
 /// \param __A
 ///    A 64-bit float value.
-/// \returns a 64-bit unsigned integer containing the converted value.
+/// \returns A 64-bit unsigned integer containing the converted value.
 static __inline__ unsigned long long __DEFAULT_FN_ATTRS_CAST
 _castf64_u64(double __A) {
   return __builtin_bit_cast(unsigned long long, __A);
 }
 
-/// Cast a 32-bit unsigned integer value to a 32-bit float value.
+/// Casts a 32-bit unsigned integer value to a 32-bit float value.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -367,13 +367,13 @@ _castf64_u64(double __A) {
 ///
 /// \param __A
 ///    A 32-bit unsigned integer value.
-/// \returns a 32-bit float value containing the converted value.
+/// \returns A 32-bit float value containing the converted value.
 static __inline__ float __DEFAULT_FN_ATTRS_CAST
 _castu32_f32(unsigned int __A) {
   return __builtin_bit_cast(float, __A);
 }
 
-/// Cast a 64-bit unsigned integer value to a 64-bit float value.
+/// Casts a 64-bit unsigned integer value to a 64-bit float value.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -382,7 +382,7 @@ _castu32_f32(unsigned int __A) {
 ///
 /// \param __A
 ///    A 64-bit unsigned integer value.
-/// \returns a 64-bit float value containing the converted value.
+/// \returns A 64-bit float value containing the converted value.
 static __inline__ double __DEFAULT_FN_ATTRS_CAST
 _castu64_f64(unsigned long long __A) {
   return __builtin_bit_cast(double, __A);
@@ -470,7 +470,7 @@ __crc32q(unsigned long long __C, unsigned long long __D)
 }
 #endif /* __x86_64__ */
 
-/// Reads the specified performance monitoring counter. Refer to your
+/// Reads the specified performance-monitoring counter. Refer to your
 ///    processor's documentation to determine which performance counters are
 ///    supported.
 ///
@@ -487,7 +487,7 @@ __rdpmc(int __A) {
   return __builtin_ia32_rdpmc(__A);
 }
 
-/// Reads the processor's time stamp counter and the \c IA32_TSC_AUX MSR
+/// Reads the processor's time-stamp counter and the \c IA32_TSC_AUX MSR
 ///    \c (0xc0000103).
 ///
 /// \headerfile <x86intrin.h>
@@ -495,14 +495,14 @@ __rdpmc(int __A) {
 /// This intrinsic corresponds to the \c RDTSCP instruction.
 ///
 /// \param __A
-///    Address of where to store the 32-bit \c IA32_TSC_AUX value.
-/// \returns The 64-bit value of the time stamp counter.
+///    The address of where to store the 32-bit \c IA32_TSC_AUX value.
+/// \returns The 64-bit value of the time-stamp counter.
 static __inline__ unsigned long long __DEFAULT_FN_ATTRS
 __rdtscp(unsigned int *__A) {
   return __builtin_ia32_rdtscp(__A);
 }
 
-/// Reads the processor's time stamp counter.
+/// Reads the processor's time-stamp counter.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -512,7 +512,7 @@ __rdtscp(unsigned int *__A) {
 ///
 /// This intrinsic corresponds to the \c RDTSC instruction.
 ///
-/// \returns The 64-bit value of the time stamp counter.
+/// \returns The 64-bit value of the time-stamp counter.
 #define _rdtsc() __rdtsc()
 
 /// Reads the specified performance monitoring counter. Refer to your

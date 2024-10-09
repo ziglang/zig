@@ -130,7 +130,7 @@ pub fn ArrayHashMap(
         }
         pub fn initContext(allocator: Allocator, ctx: Context) Self {
             return .{
-                .unmanaged = .{},
+                .unmanaged = .empty,
                 .allocator = allocator,
                 .ctx = ctx,
             };
@@ -429,7 +429,7 @@ pub fn ArrayHashMap(
         pub fn move(self: *Self) Self {
             self.unmanaged.pointer_stability.assertUnlocked();
             const result = self.*;
-            self.unmanaged = .{};
+            self.unmanaged = .empty;
             return result;
         }
 
@@ -510,6 +510,8 @@ pub fn ArrayHashMap(
 /// `store_hash` is `false` and the number of entries in the map is less than 9,
 /// the overhead cost of using `ArrayHashMapUnmanaged` rather than `std.ArrayList` is
 /// only a single pointer-sized integer.
+///
+/// Default initialization of this struct is deprecated; use `.empty` instead.
 pub fn ArrayHashMapUnmanaged(
     comptime K: type,
     comptime V: type,
@@ -537,6 +539,12 @@ pub fn ArrayHashMapUnmanaged(
 
         /// Used to detect memory safety violations.
         pointer_stability: std.debug.SafetyLock = .{},
+
+        /// A map containing no keys or values.
+        pub const empty: Self = .{
+            .entries = .{},
+            .index_header = null,
+        };
 
         /// Modifying the key is allowed only if it does not change the hash.
         /// Modifying the value is allowed.
@@ -1282,7 +1290,7 @@ pub fn ArrayHashMapUnmanaged(
         pub fn move(self: *Self) Self {
             self.pointer_stability.assertUnlocked();
             const result = self.*;
-            self.* = .{};
+            self.* = .empty;
             return result;
         }
 
@@ -2584,17 +2592,17 @@ pub fn getAutoEqlFn(comptime K: type, comptime Context: type) (fn (Context, K, K
 
 pub fn autoEqlIsCheap(comptime K: type) bool {
     return switch (@typeInfo(K)) {
-        .Bool,
-        .Int,
-        .Float,
-        .Pointer,
-        .ComptimeFloat,
-        .ComptimeInt,
-        .Enum,
-        .Fn,
-        .ErrorSet,
-        .AnyFrame,
-        .EnumLiteral,
+        .bool,
+        .int,
+        .float,
+        .pointer,
+        .comptime_float,
+        .comptime_int,
+        .@"enum",
+        .@"fn",
+        .error_set,
+        .@"anyframe",
+        .enum_literal,
         => true,
         else => false,
     };

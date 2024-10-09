@@ -40,7 +40,9 @@ pub const Feature = enum {
     reset_dat_protection,
     reset_reference_bits_multiple,
     soft_float,
+    test_pending_external_interruption,
     transactional_execution,
+    unaligned_symbols,
     vector,
     vector_enhancements_1,
     vector_enhancements_2,
@@ -49,13 +51,13 @@ pub const Feature = enum {
     vector_packed_decimal_enhancement_2,
 };
 
-pub const featureSet = CpuFeature.feature_set_fns(Feature).featureSet;
-pub const featureSetHas = CpuFeature.feature_set_fns(Feature).featureSetHas;
-pub const featureSetHasAny = CpuFeature.feature_set_fns(Feature).featureSetHasAny;
-pub const featureSetHasAll = CpuFeature.feature_set_fns(Feature).featureSetHasAll;
+pub const featureSet = CpuFeature.FeatureSetFns(Feature).featureSet;
+pub const featureSetHas = CpuFeature.FeatureSetFns(Feature).featureSetHas;
+pub const featureSetHasAny = CpuFeature.FeatureSetFns(Feature).featureSetHasAny;
+pub const featureSetHasAll = CpuFeature.FeatureSetFns(Feature).featureSetHasAll;
 
 pub const all_features = blk: {
-    const len = @typeInfo(Feature).Enum.fields.len;
+    const len = @typeInfo(Feature).@"enum".fields.len;
     std.debug.assert(len <= CpuFeature.Set.needed_bit_count);
     var result: [len]CpuFeature = undefined;
     result[@intFromEnum(Feature.backchain)] = .{
@@ -233,9 +235,19 @@ pub const all_features = blk: {
         .description = "Use software emulation for floating point",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@intFromEnum(Feature.test_pending_external_interruption)] = .{
+        .llvm_name = "test-pending-external-interruption",
+        .description = "Assume that the test-pending-external-interruption facility is installed",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@intFromEnum(Feature.transactional_execution)] = .{
         .llvm_name = "transactional-execution",
         .description = "Assume that the transactional-execution facility is installed",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.unaligned_symbols)] = .{
+        .llvm_name = "unaligned-symbols",
+        .description = "Don't apply the ABI minimum alignment to external symbols.",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.vector)] = .{
@@ -271,7 +283,7 @@ pub const all_features = blk: {
     const ti = @typeInfo(Feature);
     for (&result, 0..) |*elem, i| {
         elem.index = i;
-        elem.name = ti.Enum.fields[i].name;
+        elem.name = ti.@"enum".fields[i].name;
     }
     break :blk result;
 };
@@ -357,6 +369,7 @@ pub const cpu = struct {
             .population_count,
             .processor_assist,
             .reset_reference_bits_multiple,
+            .test_pending_external_interruption,
             .transactional_execution,
             .vector,
             .vector_enhancements_1,
@@ -396,6 +409,7 @@ pub const cpu = struct {
             .population_count,
             .processor_assist,
             .reset_reference_bits_multiple,
+            .test_pending_external_interruption,
             .transactional_execution,
             .vector,
             .vector_enhancements_1,
@@ -441,6 +455,7 @@ pub const cpu = struct {
             .processor_assist,
             .reset_dat_protection,
             .reset_reference_bits_multiple,
+            .test_pending_external_interruption,
             .transactional_execution,
             .vector,
             .vector_enhancements_1,
@@ -538,6 +553,7 @@ pub const cpu = struct {
             .population_count,
             .processor_assist,
             .reset_reference_bits_multiple,
+            .test_pending_external_interruption,
             .transactional_execution,
             .vector,
             .vector_enhancements_1,
@@ -577,6 +593,7 @@ pub const cpu = struct {
             .population_count,
             .processor_assist,
             .reset_reference_bits_multiple,
+            .test_pending_external_interruption,
             .transactional_execution,
             .vector,
             .vector_enhancements_1,
@@ -622,6 +639,7 @@ pub const cpu = struct {
             .processor_assist,
             .reset_dat_protection,
             .reset_reference_bits_multiple,
+            .test_pending_external_interruption,
             .transactional_execution,
             .vector,
             .vector_enhancements_1,

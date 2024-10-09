@@ -35,8 +35,10 @@ extern "C" void __tsan_resume() {
   __tsan_resumed = 1;
 }
 
+#if SANITIZER_APPLE
 SANITIZER_WEAK_DEFAULT_IMPL
 void __tsan_test_only_on_fork() {}
+#endif
 
 namespace __tsan {
 
@@ -46,11 +48,10 @@ int (*on_finalize)(int);
 #endif
 
 #if !SANITIZER_GO && !SANITIZER_APPLE
-__attribute__((tls_model("initial-exec")))
-THREADLOCAL char cur_thread_placeholder[sizeof(ThreadState)] ALIGNED(
-    SANITIZER_CACHE_LINE_SIZE);
+alignas(SANITIZER_CACHE_LINE_SIZE) THREADLOCAL __attribute__((tls_model(
+    "initial-exec"))) char cur_thread_placeholder[sizeof(ThreadState)];
 #endif
-static char ctx_placeholder[sizeof(Context)] ALIGNED(SANITIZER_CACHE_LINE_SIZE);
+alignas(SANITIZER_CACHE_LINE_SIZE) static char ctx_placeholder[sizeof(Context)];
 Context *ctx;
 
 // Can be overriden by a front-end.
@@ -446,7 +447,7 @@ static bool InitializeMemoryProfiler() {
     ctx->memprof_fd = 2;
   } else {
     InternalScopedString filename;
-    filename.append("%s.%d", fname, (int)internal_getpid());
+    filename.AppendF("%s.%d", fname, (int)internal_getpid());
     ctx->memprof_fd = OpenFile(filename.data(), WrOnly);
     if (ctx->memprof_fd == kInvalidFd) {
       Printf("ThreadSanitizer: failed to open memory profile file '%s'\n",
@@ -813,7 +814,7 @@ void ForkBefore(ThreadState* thr, uptr pc) SANITIZER_NO_THREAD_SAFETY_ANALYSIS {
   ctx->thread_registry.Lock();
   ctx->slot_mtx.Lock();
   ScopedErrorReportLock::Lock();
-  AllocatorLock();
+  AllocatorLockBeforeFork();
   // Suppress all reports in the pthread_atfork callbacks.
   // Reports will deadlock on the report_mtx.
   // We could ignore sync operations as well,
@@ -828,14 +829,17 @@ void ForkBefore(ThreadState* thr, uptr pc) SANITIZER_NO_THREAD_SAFETY_ANALYSIS {
   // Disables memory write in OnUserAlloc/Free.
   thr->ignore_reads_and_writes++;
 
+#  if SANITIZER_APPLE
   __tsan_test_only_on_fork();
+#  endif
 }
 
-static void ForkAfter(ThreadState* thr) SANITIZER_NO_THREAD_SAFETY_ANALYSIS {
+static void ForkAfter(ThreadState* thr,
+                      bool child) SANITIZER_NO_THREAD_SAFETY_ANALYSIS {
   thr->suppress_reports--;  // Enabled in ForkBefore.
   thr->ignore_interceptors--;
   thr->ignore_reads_and_writes--;
-  AllocatorUnlock();
+  AllocatorUnlockAfterFork(child);
   ScopedErrorReportLock::Unlock();
   ctx->slot_mtx.Unlock();
   ctx->thread_registry.Unlock();
@@ -845,10 +849,10 @@ static void ForkAfter(ThreadState* thr) SANITIZER_NO_THREAD_SAFETY_ANALYSIS {
   GlobalProcessorUnlock();
 }
 
-void ForkParentAfter(ThreadState* thr, uptr pc) { ForkAfter(thr); }
+void ForkParentAfter(ThreadState* thr, uptr pc) { ForkAfter(thr, false); }
 
 void ForkChildAfter(ThreadState* thr, uptr pc, bool start_thread) {
-  ForkAfter(thr);
+  ForkAfter(thr, true);
   u32 nthread = ctx->thread_registry.OnFork(thr->tid);
   VPrintf(1,
           "ThreadSanitizer: forked new process with pid %d,"

@@ -129,7 +129,7 @@ const AddExtraOpts = struct {
 pub fn addExtra(atom: *Atom, opts: AddExtraOpts, macho_file: *MachO) void {
     const file = atom.getFile(macho_file);
     var extra = file.getAtomExtra(atom.extra);
-    inline for (@typeInfo(@TypeOf(opts)).Struct.fields) |field| {
+    inline for (@typeInfo(@TypeOf(opts)).@"struct".fields) |field| {
         if (@field(opts, field.name)) |x| {
             @field(extra, field.name) = x;
         }
@@ -492,10 +492,6 @@ pub fn scanRelocs(self: Atom, macho_file: *MachO) !void {
                 }
             },
 
-            .zig_got_load => {
-                assert(rel.getTargetSymbol(self, macho_file).getSectionFlags().has_zig_got);
-            },
-
             .got => {
                 rel.getTargetSymbol(self, macho_file).setSectionFlags(.{ .needs_got = true });
             },
@@ -652,8 +648,6 @@ fn resolveRelocInner(
     const G: i64 = @intCast(rel.getGotTargetAddress(self, macho_file));
     const TLS = @as(i64, @intCast(macho_file.getTlsAddress()));
     const SUB = if (subtractor) |sub| @as(i64, @intCast(sub.getTargetAddress(self, macho_file))) else 0;
-    // Address of the __got_zig table entry if any.
-    const ZIG_GOT = @as(i64, @intCast(rel.getZigGotTargetAddress(macho_file)));
 
     const divExact = struct {
         fn divExact(atom: Atom, r: Relocation, num: u12, den: u12, ctx: *MachO) !u12 {
@@ -676,13 +670,12 @@ fn resolveRelocInner(
             S + A - SUB,
             rel.getTargetAtom(self, macho_file).atom_index,
         }),
-        .@"extern" => relocs_log.debug("  {x}<+{d}>: {}: [=> {x}] G({x}) ZG({x}) ({s})", .{
+        .@"extern" => relocs_log.debug("  {x}<+{d}>: {}: [=> {x}] G({x}) ({s})", .{
             P,
             rel_offset,
             rel.fmtPretty(cpu_arch),
             S + A - SUB,
             G + A,
-            ZIG_GOT + A,
             rel.getTargetSymbol(self, macho_file).getName(macho_file),
         }),
     }
@@ -742,17 +735,6 @@ fn resolveRelocInner(
             } else {
                 try x86_64.relaxGotLoad(self, code[rel_offset - 3 ..], rel, macho_file);
                 try writer.writeInt(i32, @intCast(S + A - P), .little);
-            }
-        },
-
-        .zig_got_load => {
-            assert(rel.tag == .@"extern");
-            assert(rel.meta.length == 2);
-            assert(rel.meta.pcrel);
-            switch (cpu_arch) {
-                .x86_64 => try writer.writeInt(i32, @intCast(ZIG_GOT + A - P), .little),
-                .aarch64 => @panic("TODO resolve __got_zig indirection reloc"),
-                else => unreachable,
             }
         },
 
@@ -992,6 +974,8 @@ pub fn writeRelocs(self: Atom, macho_file: *MachO, code: []u8, buffer: []macho.r
     const tracy = trace(@src());
     defer tracy.end();
 
+    relocs_log.debug("{x}: {s}", .{ self.getAddress(macho_file), self.getName(macho_file) });
+
     const cpu_arch = macho_file.getTarget().cpu.arch;
     const relocs = self.getRelocs(macho_file);
 
@@ -1013,6 +997,24 @@ pub fn writeRelocs(self: Atom, macho_file: *MachO, code: []u8, buffer: []macho.r
         if (rel.tag == .local) {
             const target: i64 = @intCast(rel.getTargetAddress(self, macho_file));
             addend += target;
+        }
+
+        switch (rel.tag) {
+            .local => relocs_log.debug("  {}: [{x} => {d}({s},{s})] + {x}", .{
+                rel.fmtPretty(cpu_arch),
+                r_address,
+                r_symbolnum,
+                macho_file.sections.items(.header)[r_symbolnum - 1].segName(),
+                macho_file.sections.items(.header)[r_symbolnum - 1].sectName(),
+                addend,
+            }),
+            .@"extern" => relocs_log.debug("  {}: [{x} => {d}({s})] + {x}", .{
+                rel.fmtPretty(cpu_arch),
+                r_address,
+                r_symbolnum,
+                rel.getTargetSymbol(self, macho_file).getName(macho_file),
+                addend,
+            }),
         }
 
         switch (cpu_arch) {
@@ -1045,7 +1047,6 @@ pub fn writeRelocs(self: Atom, macho_file: *MachO, code: []u8, buffer: []macho.r
                     .subtractor => .ARM64_RELOC_SUBTRACTOR,
                     .unsigned => .ARM64_RELOC_UNSIGNED,
 
-                    .zig_got_load,
                     .signed,
                     .signed1,
                     .signed2,
@@ -1089,7 +1090,6 @@ pub fn writeRelocs(self: Atom, macho_file: *MachO, code: []u8, buffer: []macho.r
                     .subtractor => .X86_64_RELOC_SUBTRACTOR,
                     .unsigned => .X86_64_RELOC_UNSIGNED,
 
-                    .zig_got_load,
                     .page,
                     .pageoff,
                     .got_load_page,
@@ -1220,6 +1220,6 @@ const MachO = @import("../MachO.zig");
 const Object = @import("Object.zig");
 const Relocation = @import("Relocation.zig");
 const Symbol = @import("Symbol.zig");
-const Thunk = @import("thunks.zig").Thunk;
+const Thunk = @import("Thunk.zig");
 const UnwindInfo = @import("UnwindInfo.zig");
 const dev = @import("../../dev.zig");

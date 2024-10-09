@@ -10,31 +10,7 @@ pub fn Value(comptime T: type) type {
             return .{ .raw = value };
         }
 
-        /// Perform an atomic fence which uses the atomic value as a hint for
-        /// the modification order. Use this when you want to imply a fence on
-        /// an atomic variable without necessarily performing a memory access.
-        pub inline fn fence(self: *Self, comptime order: AtomicOrder) void {
-            // LLVM's ThreadSanitizer doesn't support the normal fences so we specialize for it.
-            if (builtin.sanitize_thread) {
-                const tsan = struct {
-                    extern "c" fn __tsan_acquire(addr: *anyopaque) void;
-                    extern "c" fn __tsan_release(addr: *anyopaque) void;
-                };
-
-                const addr: *anyopaque = self;
-                return switch (order) {
-                    .unordered, .monotonic => @compileError(@tagName(order) ++ " only applies to atomic loads and stores"),
-                    .acquire => tsan.__tsan_acquire(addr),
-                    .release => tsan.__tsan_release(addr),
-                    .acq_rel, .seq_cst => {
-                        tsan.__tsan_acquire(addr);
-                        tsan.__tsan_release(addr);
-                    },
-                };
-            }
-
-            return @fence(order);
-        }
+        pub const fence = @compileError("@fence is deprecated, use other atomics to establish ordering");
 
         pub inline fn load(self: *const Self, comptime order: AtomicOrder) T {
             return @atomicLoad(T, &self.raw, order);
@@ -148,21 +124,19 @@ test Value {
         const RefCount = @This();
 
         fn ref(rc: *RefCount) void {
-            // No ordering necessary; just updating a counter.
+            // no synchronization necessary; just updating a counter.
             _ = rc.count.fetchAdd(1, .monotonic);
         }
 
         fn unref(rc: *RefCount) void {
-            // Release ensures code before unref() happens-before the
+            // release ensures code before unref() happens-before the
             // count is decremented as dropFn could be called by then.
             if (rc.count.fetchSub(1, .release) == 1) {
-                // acquire ensures count decrement and code before
-                // previous unrefs()s happens-before we call dropFn
-                // below.
-                // Another alternative is to use .acq_rel on the
-                // fetchSub count decrement but it's extra barrier in
-                // possibly hot path.
-                rc.count.fence(.acquire);
+                // seeing 1 in the counter means that other unref()s have happened,
+                // but it doesn't mean that uses before each unref() are visible.
+                // The load acquires the release-sequence created by previous unref()s
+                // in order to ensure visibility of uses before dropping.
+                _ = rc.count.load(.acquire);
                 (rc.dropFn)(rc);
             }
         }
@@ -459,18 +433,20 @@ pub const cache_line = switch (builtin.cpu.arch) {
     .powerpc64le,
     => 128,
 
+    // https://github.com/llvm/llvm-project/blob/e379094328e49731a606304f7e3559d4f1fa96f9/clang/lib/Basic/Targets/Hexagon.h#L145-L151
+    .hexagon,
+    => if (std.Target.hexagon.featureSetHas(builtin.target.cpu.features, .v73)) 64 else 32,
+
     // - https://github.com/golang/go/blob/3dd58676054223962cd915bb0934d1f9f489d4d2/src/internal/cpu/cpu_arm.go#L7
     // - https://github.com/golang/go/blob/3dd58676054223962cd915bb0934d1f9f489d4d2/src/internal/cpu/cpu_mips.go#L7
     // - https://github.com/golang/go/blob/3dd58676054223962cd915bb0934d1f9f489d4d2/src/internal/cpu/cpu_mipsle.go#L7
     // - https://github.com/golang/go/blob/3dd58676054223962cd915bb0934d1f9f489d4d2/src/internal/cpu/cpu_mips64x.go#L9
     // - https://github.com/golang/go/blob/3dd58676054223962cd915bb0934d1f9f489d4d2/src/internal/cpu/cpu_riscv64.go#L7
-    // - https://github.com/torvalds/linux/blob/3a7e02c040b130b5545e4b115aada7bacd80a2b6/arch/hexagon/include/asm/cache.h#L13
     // - https://github.com/torvalds/linux/blob/3a7e02c040b130b5545e4b115aada7bacd80a2b6/arch/sparc/include/asm/cache.h#L14
     .arm,
     .armeb,
     .thumb,
     .thumbeb,
-    .hexagon,
     .mips,
     .mipsel,
     .mips64,

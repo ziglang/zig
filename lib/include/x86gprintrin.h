@@ -10,38 +10,31 @@
 #ifndef __X86GPRINTRIN_H
 #define __X86GPRINTRIN_H
 
-#if !(defined(_MSC_VER) || defined(__SCE__)) || __has_feature(modules) ||      \
-    defined(__HRESET__)
+#if !defined(__SCE__) || __has_feature(modules) || defined(__HRESET__)
 #include <hresetintrin.h>
 #endif
 
-#if !(defined(_MSC_VER) || defined(__SCE__)) || __has_feature(modules) ||      \
-    defined(__UINTR__)
+#if !defined(__SCE__) || __has_feature(modules) || defined(__UINTR__)
 #include <uintrintrin.h>
 #endif
 
-#if !(defined(_MSC_VER) || defined(__SCE__)) || __has_feature(modules) ||      \
-    defined(__USERMSR__)
+#if !defined(__SCE__) || __has_feature(modules) || defined(__USERMSR__)
 #include <usermsrintrin.h>
 #endif
 
-#if !(defined(_MSC_VER) || defined(__SCE__)) || __has_feature(modules) ||      \
-    defined(__CRC32__)
+#if !defined(__SCE__) || __has_feature(modules) || defined(__CRC32__)
 #include <crc32intrin.h>
 #endif
 
-#if !(defined(_MSC_VER) || defined(__SCE__)) || __has_feature(modules) ||      \
-    defined(__PRFCHI__)
+#if !defined(__SCE__) || __has_feature(modules) || defined(__PRFCHI__)
 #include <prfchiintrin.h>
 #endif
 
-#if !(defined(_MSC_VER) || defined(__SCE__)) || __has_feature(modules) ||      \
-    defined(__RAOINT__)
+#if !defined(__SCE__) || __has_feature(modules) || defined(__RAOINT__)
 #include <raointintrin.h>
 #endif
 
-#if !(defined(_MSC_VER) || defined(__SCE__)) || __has_feature(modules) ||      \
-    defined(__CMPCCXADD__)
+#if !defined(__SCE__) || __has_feature(modules) || defined(__CMPCCXADD__)
 #include <cmpccxaddintrin.h>
 #endif
 

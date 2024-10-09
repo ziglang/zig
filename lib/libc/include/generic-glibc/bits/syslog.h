@@ -36,6 +36,15 @@ syslog (int __pri, const char *__fmt, ...)
 {
   __syslog_chk (__pri, __USE_FORTIFY_LEVEL - 1, __fmt, __va_arg_pack ());
 }
+#elif __fortify_use_clang && defined __USE_MISC
+__fortify_function_error_function __attribute_overloadable__ void
+syslog (int __pri, __fortify_clang_overload_arg (const char *, , __fmt), ...)
+{
+  __gnuc_va_list __fortify_ap;
+  __builtin_va_start (__fortify_ap, __fmt);
+  __vsyslog_chk (__pri, __USE_FORTIFY_LEVEL - 1, __fmt, __fortify_ap);
+  __builtin_va_end (__fortify_ap);
+}
 #elif !defined __cplusplus
 # define syslog(pri, ...) \
   __syslog_chk (pri, __USE_FORTIFY_LEVEL - 1, __VA_ARGS__)
@@ -43,8 +52,9 @@ syslog (int __pri, const char *__fmt, ...)
 
 
 #ifdef __USE_MISC
-__fortify_function void
-vsyslog (int __pri, const char *__fmt, __gnuc_va_list __ap)
+__fortify_function __attribute_overloadable__ void
+vsyslog (int __pri, __fortify_clang_overload_arg (const char *, ,__fmt),
+	 __gnuc_va_list __ap)
 {
   __vsyslog_chk (__pri,  __USE_FORTIFY_LEVEL - 1, __fmt, __ap);
 }

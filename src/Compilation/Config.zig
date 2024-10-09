@@ -434,13 +434,13 @@ pub fn resolve(options: Options) ResolveError!Config {
     const debug_format: DebugFormat = b: {
         if (root_strip and !options.any_non_stripped) break :b .strip;
         break :b switch (target.ofmt) {
-            .elf, .macho, .wasm => .{ .dwarf = .@"32" },
+            .elf, .goff, .macho, .wasm, .xcoff => .{ .dwarf = .@"32" },
             .coff => .code_view,
             .c => switch (target.os.tag) {
                 .windows, .uefi => .code_view,
                 else => .{ .dwarf = .@"32" },
             },
-            .spirv, .nvptx, .dxcontainer, .hex, .raw, .plan9 => .strip,
+            .spirv, .nvptx, .hex, .raw, .plan9 => .strip,
         };
     };
 

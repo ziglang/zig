@@ -47,6 +47,11 @@ else switch (native_os) {
     .plan9 => std.os.plan9,
     else => struct {
         pub const ucontext_t = void;
+        pub const pid_t = void;
+        pub const pollfd = void;
+        pub const fd_t = void;
+        pub const uid_t = void;
+        pub const gid_t = void;
     },
 };
 
@@ -649,7 +654,7 @@ fn getRandomBytesDevURandom(buf: []u8) !void {
 /// it raises SIGABRT followed by SIGKILL and finally lo
 /// Invokes the current signal handler for SIGABRT, if any.
 pub fn abort() noreturn {
-    @setCold(true);
+    @branchHint(.cold);
     // MSVCRT abort() sometimes opens a popup window which is undesirable, so
     // even when linking libc on Windows we use our own abort implementation.
     // See https://github.com/ziglang/zig/issues/2071 for more details.
@@ -786,9 +791,20 @@ pub const ReadError = error{
     /// and reading from the file descriptor would block.
     WouldBlock,
 
+    /// reading a timerfd with CANCEL_ON_SET will lead to this error
+    /// when the clock goes through a discontinuous change
+    Canceled,
+
     /// In WASI, this error occurs when the file descriptor does
     /// not hold the required rights to read from it.
     AccessDenied,
+
+    /// This error occurs in Linux if the process to be read from
+    /// no longer exists.
+    ProcessNotFound,
+
+    /// Unable to read file due to lock.
+    LockViolation,
 } || UnexpectedError;
 
 /// Returns the number of bytes that were read, which can be less than
@@ -845,7 +861,9 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
             .INTR => continue,
             .INVAL => unreachable,
             .FAULT => unreachable,
+            .NOENT => return error.ProcessNotFound,
             .AGAIN => return error.WouldBlock,
+            .CANCELED => return error.Canceled,
             .BADF => return error.NotOpenForReading, // Can be a race condition.
             .IO => return error.InputOutput,
             .ISDIR => return error.IsDir,
@@ -907,6 +925,7 @@ pub fn readv(fd: fd_t, iov: []const iovec) ReadError!usize {
             .INTR => continue,
             .INVAL => unreachable,
             .FAULT => unreachable,
+            .NOENT => return error.ProcessNotFound,
             .AGAIN => return error.WouldBlock,
             .BADF => return error.NotOpenForReading, // can be a race condition
             .IO => return error.InputOutput,
@@ -986,6 +1005,7 @@ pub fn pread(fd: fd_t, buf: []u8, offset: u64) PReadError!usize {
             .INTR => continue,
             .INVAL => unreachable,
             .FAULT => unreachable,
+            .NOENT => return error.ProcessNotFound,
             .AGAIN => return error.WouldBlock,
             .BADF => return error.NotOpenForReading, // Can be a race condition.
             .IO => return error.InputOutput,
@@ -1123,6 +1143,7 @@ pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) PReadError!usize {
             .INTR => continue,
             .INVAL => unreachable,
             .FAULT => unreachable,
+            .NOENT => return error.ProcessNotFound,
             .AGAIN => return error.WouldBlock,
             .BADF => return error.NotOpenForReading, // can be a race condition
             .IO => return error.InputOutput,
@@ -1166,6 +1187,10 @@ pub const WriteError = error{
 
     /// Connection reset by peer.
     ConnectionResetByPeer,
+
+    /// This error occurs in Linux if the process being written to
+    /// no longer exists.
+    ProcessNotFound,
 } || UnexpectedError;
 
 /// Write to a file descriptor.
@@ -1233,6 +1258,7 @@ pub fn write(fd: fd_t, bytes: []const u8) WriteError!usize {
             .INTR => continue,
             .INVAL => return error.InvalidArgument,
             .FAULT => unreachable,
+            .NOENT => return error.ProcessNotFound,
             .AGAIN => return error.WouldBlock,
             .BADF => return error.NotOpenForWriting, // can be a race condition.
             .DESTADDRREQ => unreachable, // `connect` was never called.
@@ -1305,6 +1331,7 @@ pub fn writev(fd: fd_t, iov: []const iovec_const) WriteError!usize {
             .INTR => continue,
             .INVAL => return error.InvalidArgument,
             .FAULT => unreachable,
+            .NOENT => return error.ProcessNotFound,
             .AGAIN => return error.WouldBlock,
             .BADF => return error.NotOpenForWriting, // Can be a race condition.
             .DESTADDRREQ => unreachable, // `connect` was never called.
@@ -1394,6 +1421,7 @@ pub fn pwrite(fd: fd_t, bytes: []const u8, offset: u64) PWriteError!usize {
             .INTR => continue,
             .INVAL => return error.InvalidArgument,
             .FAULT => unreachable,
+            .NOENT => return error.ProcessNotFound,
             .AGAIN => return error.WouldBlock,
             .BADF => return error.NotOpenForWriting, // Can be a race condition.
             .DESTADDRREQ => unreachable, // `connect` was never called.
@@ -1478,6 +1506,7 @@ pub fn pwritev(fd: fd_t, iov: []const iovec_const, offset: u64) PWriteError!usiz
             .INTR => continue,
             .INVAL => return error.InvalidArgument,
             .FAULT => unreachable,
+            .NOENT => return error.ProcessNotFound,
             .AGAIN => return error.WouldBlock,
             .BADF => return error.NotOpenForWriting, // Can be a race condition.
             .DESTADDRREQ => unreachable, // `connect` was never called.
@@ -2197,11 +2226,11 @@ pub const LinkError = UnexpectedError || error{
 
 /// On WASI, both paths should be encoded as valid UTF-8.
 /// On other platforms, both paths are an opaque sequence of bytes with no particular encoding.
-pub fn linkZ(oldpath: [*:0]const u8, newpath: [*:0]const u8, flags: i32) LinkError!void {
+pub fn linkZ(oldpath: [*:0]const u8, newpath: [*:0]const u8) LinkError!void {
     if (native_os == .wasi and !builtin.link_libc) {
-        return link(mem.sliceTo(oldpath, 0), mem.sliceTo(newpath, 0), flags);
+        return link(mem.sliceTo(oldpath, 0), mem.sliceTo(newpath, 0));
     }
-    switch (errno(system.link(oldpath, newpath, flags))) {
+    switch (errno(system.link(oldpath, newpath))) {
         .SUCCESS => return,
         .ACCES => return error.AccessDenied,
         .DQUOT => return error.DiskQuota,
@@ -2228,16 +2257,16 @@ pub fn linkZ(oldpath: [*:0]const u8, newpath: [*:0]const u8, flags: i32) LinkErr
 
 /// On WASI, both paths should be encoded as valid UTF-8.
 /// On other platforms, both paths are an opaque sequence of bytes with no particular encoding.
-pub fn link(oldpath: []const u8, newpath: []const u8, flags: i32) LinkError!void {
+pub fn link(oldpath: []const u8, newpath: []const u8) LinkError!void {
     if (native_os == .wasi and !builtin.link_libc) {
-        return linkat(wasi.AT.FDCWD, oldpath, wasi.AT.FDCWD, newpath, flags) catch |err| switch (err) {
+        return linkat(wasi.AT.FDCWD, oldpath, wasi.AT.FDCWD, newpath, 0) catch |err| switch (err) {
             error.NotDir => unreachable, // link() does not support directories
             else => |e| return e,
         };
     }
     const old = try toPosixPath(oldpath);
     const new = try toPosixPath(newpath);
-    return try linkZ(&old, &new, flags);
+    return try linkZ(&old, &new);
 }
 
 pub const LinkatError = LinkError || error{NotDir};
@@ -4534,13 +4563,16 @@ pub const FanotifyInitError = error{
     SystemFdQuotaExceeded,
     SystemResources,
     PermissionDenied,
+    /// The kernel does not recognize the flags passed, likely because it is an
+    /// older version.
+    UnsupportedFlags,
 } || UnexpectedError;
 
 pub fn fanotify_init(flags: std.os.linux.fanotify.InitFlags, event_f_flags: u32) FanotifyInitError!i32 {
     const rc = system.fanotify_init(flags, event_f_flags);
     switch (errno(rc)) {
         .SUCCESS => return @intCast(rc),
-        .INVAL => unreachable,
+        .INVAL => return error.UnsupportedFlags,
         .MFILE => return error.ProcessFdQuotaExceeded,
         .NFILE => return error.SystemFdQuotaExceeded,
         .NOMEM => return error.SystemResources,
@@ -4618,9 +4650,7 @@ pub const MProtectError = error{
     OutOfMemory,
 } || UnexpectedError;
 
-/// `memory.len` must be page-aligned.
 pub fn mprotect(memory: []align(mem.page_size) u8, protection: u32) MProtectError!void {
-    assert(mem.isAligned(memory.len, mem.page_size));
     if (native_os == .windows) {
         const win_prot: windows.DWORD = switch (@as(u3, @truncate(protection))) {
             0b000 => windows.PAGE_NOACCESS,
@@ -4736,11 +4766,13 @@ pub fn munmap(memory: []align(mem.page_size) const u8) void {
 
 pub const MSyncError = error{
     UnmappedMemory,
+    PermissionDenied,
 } || UnexpectedError;
 
 pub fn msync(memory: []align(mem.page_size) u8, flags: i32) MSyncError!void {
     switch (errno(system.msync(memory.ptr, memory.len, flags))) {
         .SUCCESS => return,
+        .PERM => return error.PermissionDenied,
         .NOMEM => return error.UnmappedMemory, // Unsuccessful, provided pointer does not point mapped memory
         .INVAL => unreachable, // Invalid parameters.
         else => unreachable,
@@ -6169,7 +6201,7 @@ pub fn sendfile(
     var total_written: usize = 0;
 
     // Prevents EOVERFLOW.
-    const size_t = std.meta.Int(.unsigned, @typeInfo(usize).Int.bits - 1);
+    const size_t = std.meta.Int(.unsigned, @typeInfo(usize).int.bits - 1);
     const max_count = switch (native_os) {
         .linux => 0x7ffff000,
         .macos, .ios, .watchos, .tvos, .visionos => maxInt(i32),
@@ -6753,6 +6785,7 @@ pub const MemFdCreateError = error{
     OutOfMemory,
     /// Either the name provided exceeded `NAME_MAX`, or invalid flags were passed.
     NameTooLong,
+    SystemOutdated,
 } || UnexpectedError;
 
 pub fn memfd_createZ(name: [*:0]const u8, flags: u32) MemFdCreateError!fd_t {
@@ -6976,7 +7009,7 @@ pub const PrctlError = error{
 } || UnexpectedError;
 
 pub fn prctl(option: PR, args: anytype) PrctlError!u31 {
-    if (@typeInfo(@TypeOf(args)) != .Struct)
+    if (@typeInfo(@TypeOf(args)) != .@"struct")
         @compileError("Expected tuple or struct argument, found " ++ @typeName(@TypeOf(args)));
     if (args.len > 4)
         @compileError("prctl takes a maximum of 4 optional arguments");
@@ -7096,6 +7129,7 @@ pub const MadviseError = error{
 pub fn madvise(ptr: [*]align(mem.page_size) u8, length: usize, advice: u32) MadviseError!void {
     switch (errno(system.madvise(ptr, length, advice))) {
         .SUCCESS => return,
+        .PERM => return error.PermissionDenied,
         .ACCES => return error.AccessDenied,
         .AGAIN => return error.SystemResources,
         .BADF => unreachable, // The map exists, but the area maps something that isn't a file.

@@ -5,7 +5,7 @@ const Object = @import("../Object.zig");
 
 const Section = struct {
     data: std.ArrayList(u8),
-    relocations: std.ArrayListUnmanaged(Relocation) = .{},
+    relocations: std.ArrayListUnmanaged(Relocation) = .empty,
     flags: u64,
     type: u32,
     index: u16 = undefined,
@@ -37,9 +37,9 @@ const Elf = @This();
 
 obj: Object,
 /// The keys are owned by the Codegen.tree
-sections: std.StringHashMapUnmanaged(*Section) = .{},
-local_symbols: std.StringHashMapUnmanaged(*Symbol) = .{},
-global_symbols: std.StringHashMapUnmanaged(*Symbol) = .{},
+sections: std.StringHashMapUnmanaged(*Section) = .empty,
+local_symbols: std.StringHashMapUnmanaged(*Symbol) = .empty,
+global_symbols: std.StringHashMapUnmanaged(*Symbol) = .empty,
 unnamed_symbol_mangle: u32 = 0,
 strtab_len: u64 = strtab_default.len,
 arena: std.heap.ArenaAllocator,
@@ -199,7 +199,7 @@ pub fn finish(elf: *Elf, file: std.fs.File) !void {
     const elf_header = std.elf.Elf64_Ehdr{
         .e_ident = .{ 0x7F, 'E', 'L', 'F', 2, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
         .e_type = std.elf.ET.REL, // we only produce relocatables
-        .e_machine = elf.obj.target.cpu.arch.toElfMachine(),
+        .e_machine = elf.obj.target.toElfMachine(),
         .e_version = 1,
         .e_entry = 0, // linker will handle this
         .e_phoff = 0, // no program header

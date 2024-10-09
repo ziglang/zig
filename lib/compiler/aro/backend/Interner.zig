@@ -8,14 +8,14 @@ const Limb = std.math.big.Limb;
 
 const Interner = @This();
 
-map: std.AutoArrayHashMapUnmanaged(void, void) = .{},
+map: std.AutoArrayHashMapUnmanaged(void, void) = .empty,
 items: std.MultiArrayList(struct {
     tag: Tag,
     data: u32,
 }) = .{},
-extra: std.ArrayListUnmanaged(u32) = .{},
-limbs: std.ArrayListUnmanaged(Limb) = .{},
-strings: std.ArrayListUnmanaged(u8) = .{},
+extra: std.ArrayListUnmanaged(u32) = .empty,
+limbs: std.ArrayListUnmanaged(Limb) = .empty,
+strings: std.ArrayListUnmanaged(u8) = .empty,
 
 const KeyAdapter = struct {
     interner: *const Interner,
@@ -34,6 +34,7 @@ const KeyAdapter = struct {
 pub const Key = union(enum) {
     int_ty: u16,
     float_ty: u16,
+    complex_ty: u16,
     ptr_ty,
     noreturn_ty,
     void_ty,
@@ -62,6 +63,7 @@ pub const Key = union(enum) {
         }
     },
     float: Float,
+    complex: Complex,
     bytes: []const u8,
 
     pub const Float = union(enum) {
@@ -70,6 +72,13 @@ pub const Key = union(enum) {
         f64: f64,
         f80: f80,
         f128: f128,
+    };
+    pub const Complex = union(enum) {
+        cf16: [2]f16,
+        cf32: [2]f32,
+        cf64: [2]f64,
+        cf80: [2]f80,
+        cf128: [2]f128,
     };
 
     pub fn hash(key: Key) u32 {
@@ -84,6 +93,12 @@ pub const Key = union(enum) {
                 std.hash.autoHash(&hasher, elem);
             },
             .float => |repr| switch (repr) {
+                inline else => |data| std.hash.autoHash(
+                    &hasher,
+                    @as(std.meta.Int(.unsigned, @bitSizeOf(@TypeOf(data))), @bitCast(data)),
+                ),
+            },
+            .complex => |repr| switch (repr) {
                 inline else => |data| std.hash.autoHash(
                     &hasher,
                     @as(std.meta.Int(.unsigned, @bitSizeOf(@TypeOf(data))), @bitCast(data)),
@@ -154,6 +169,14 @@ pub const Key = union(enum) {
                 128 => return .f128,
                 else => unreachable,
             },
+            .complex_ty => |bits| switch (bits) {
+                16 => return .cf16,
+                32 => return .cf32,
+                64 => return .cf64,
+                80 => return .cf80,
+                128 => return .cf128,
+                else => unreachable,
+            },
             .ptr_ty => return .ptr,
             .func_ty => return .func,
             .noreturn_ty => return .noreturn,
@@ -199,6 +222,11 @@ pub const Ref = enum(u32) {
     zero = max - 16,
     one = max - 17,
     null = max - 18,
+    cf16 = max - 19,
+    cf32 = max - 20,
+    cf64 = max - 21,
+    cf80 = max - 22,
+    cf128 = max - 23,
     _,
 };
 
@@ -224,6 +252,11 @@ pub const OptRef = enum(u32) {
     zero = max - 16,
     one = max - 17,
     null = max - 18,
+    cf16 = max - 19,
+    cf32 = max - 20,
+    cf64 = max - 21,
+    cf80 = max - 22,
+    cf128 = max - 23,
     _,
 };
 
@@ -232,6 +265,8 @@ pub const Tag = enum(u8) {
     int_ty,
     /// `data` is `u16`
     float_ty,
+    /// `data` is `u16`
+    complex_ty,
     /// `data` is index to `Array`
     array_ty,
     /// `data` is index to `Vector`
@@ -254,6 +289,16 @@ pub const Tag = enum(u8) {
     f80,
     /// `data` is `F128`
     f128,
+    /// `data` is `CF16`
+    cf16,
+    /// `data` is `CF32`
+    cf32,
+    /// `data` is `CF64`
+    cf64,
+    /// `data` is `CF80`
+    cf80,
+    /// `data` is `CF128`
+    cf128,
     /// `data` is `Bytes`
     bytes,
     /// `data` is `Record`
@@ -354,6 +399,134 @@ pub const Tag = enum(u8) {
         }
     };
 
+    pub const CF16 = struct {
+        piece0: u32,
+
+        pub fn get(self: CF16) [2]f16 {
+            const real: f16 = @bitCast(@as(u16, @truncate(self.piece0 >> 16)));
+            const imag: f16 = @bitCast(@as(u16, @truncate(self.piece0)));
+            return .{
+                real,
+                imag,
+            };
+        }
+
+        fn pack(val: [2]f16) CF16 {
+            const real: u16 = @bitCast(val[0]);
+            const imag: u16 = @bitCast(val[1]);
+            return .{
+                .piece0 = (@as(u32, real) << 16) | @as(u32, imag),
+            };
+        }
+    };
+
+    pub const CF32 = struct {
+        piece0: u32,
+        piece1: u32,
+
+        pub fn get(self: CF32) [2]f32 {
+            return .{
+                @bitCast(self.piece0),
+                @bitCast(self.piece1),
+            };
+        }
+
+        fn pack(val: [2]f32) CF32 {
+            return .{
+                .piece0 = @bitCast(val[0]),
+                .piece1 = @bitCast(val[1]),
+            };
+        }
+    };
+
+    pub const CF64 = struct {
+        piece0: u32,
+        piece1: u32,
+        piece2: u32,
+        piece3: u32,
+
+        pub fn get(self: CF64) [2]f64 {
+            return .{
+                (F64{ .piece0 = self.piece0, .piece1 = self.piece1 }).get(),
+                (F64{ .piece0 = self.piece2, .piece1 = self.piece3 }).get(),
+            };
+        }
+
+        fn pack(val: [2]f64) CF64 {
+            const real = F64.pack(val[0]);
+            const imag = F64.pack(val[1]);
+            return .{
+                .piece0 = real.piece0,
+                .piece1 = real.piece1,
+                .piece2 = imag.piece0,
+                .piece3 = imag.piece1,
+            };
+        }
+    };
+
+    /// TODO pack into 5 pieces
+    pub const CF80 = struct {
+        piece0: u32,
+        piece1: u32,
+        piece2: u32, // u16 part, top bits
+        piece3: u32,
+        piece4: u32,
+        piece5: u32, // u16 part, top bits
+
+        pub fn get(self: CF80) [2]f80 {
+            return .{
+                (F80{ .piece0 = self.piece0, .piece1 = self.piece1, .piece2 = self.piece2 }).get(),
+                (F80{ .piece0 = self.piece3, .piece1 = self.piece4, .piece2 = self.piece5 }).get(),
+            };
+        }
+
+        fn pack(val: [2]f80) CF80 {
+            const real = F80.pack(val[0]);
+            const imag = F80.pack(val[1]);
+            return .{
+                .piece0 = real.piece0,
+                .piece1 = real.piece1,
+                .piece2 = real.piece2,
+                .piece3 = imag.piece0,
+                .piece4 = imag.piece1,
+                .piece5 = imag.piece2,
+            };
+        }
+    };
+
+    pub const CF128 = struct {
+        piece0: u32,
+        piece1: u32,
+        piece2: u32,
+        piece3: u32,
+        piece4: u32,
+        piece5: u32,
+        piece6: u32,
+        piece7: u32,
+
+        pub fn get(self: CF128) [2]f128 {
+            return .{
+                (F128{ .piece0 = self.piece0, .piece1 = self.piece1, .piece2 = self.piece2, .piece3 = self.piece3 }).get(),
+                (F128{ .piece0 = self.piece4, .piece1 = self.piece5, .piece2 = self.piece6, .piece3 = self.piece7 }).get(),
+            };
+        }
+
+        fn pack(val: [2]f128) CF128 {
+            const real = F128.pack(val[0]);
+            const imag = F128.pack(val[1]);
+            return .{
+                .piece0 = real.piece0,
+                .piece1 = real.piece1,
+                .piece2 = real.piece2,
+                .piece3 = real.piece3,
+                .piece4 = imag.piece0,
+                .piece5 = imag.piece1,
+                .piece6 = imag.piece2,
+                .piece7 = imag.piece3,
+            };
+        }
+    };
+
     pub const Bytes = struct {
         strings_index: u32,
         len: u32,
@@ -404,6 +577,12 @@ pub fn put(i: *Interner, gpa: Allocator, key: Key) !Ref {
         .float_ty => |bits| {
             i.items.appendAssumeCapacity(.{
                 .tag = .float_ty,
+                .data = bits,
+            });
+        },
+        .complex_ty => |bits| {
+            i.items.appendAssumeCapacity(.{
+                .tag = .complex_ty,
                 .data = bits,
             });
         },
@@ -493,6 +672,28 @@ pub fn put(i: *Interner, gpa: Allocator, key: Key) !Ref {
                 .data = try i.addExtra(gpa, Tag.F128.pack(data)),
             }),
         },
+        .complex => |repr| switch (repr) {
+            .cf16 => |data| i.items.appendAssumeCapacity(.{
+                .tag = .cf16,
+                .data = try i.addExtra(gpa, Tag.CF16.pack(data)),
+            }),
+            .cf32 => |data| i.items.appendAssumeCapacity(.{
+                .tag = .cf32,
+                .data = try i.addExtra(gpa, Tag.CF32.pack(data)),
+            }),
+            .cf64 => |data| i.items.appendAssumeCapacity(.{
+                .tag = .cf64,
+                .data = try i.addExtra(gpa, Tag.CF64.pack(data)),
+            }),
+            .cf80 => |data| i.items.appendAssumeCapacity(.{
+                .tag = .cf80,
+                .data = try i.addExtra(gpa, Tag.CF80.pack(data)),
+            }),
+            .cf128 => |data| i.items.appendAssumeCapacity(.{
+                .tag = .cf128,
+                .data = try i.addExtra(gpa, Tag.CF128.pack(data)),
+            }),
+        },
         .bytes => |bytes| {
             const strings_index: u32 = @intCast(i.strings.items.len);
             try i.strings.appendSlice(gpa, bytes);
@@ -505,7 +706,7 @@ pub fn put(i: *Interner, gpa: Allocator, key: Key) !Ref {
             });
         },
         .record_ty => |elems| {
-            try i.extra.ensureUnusedCapacity(gpa, @typeInfo(Tag.Record).Struct.fields.len +
+            try i.extra.ensureUnusedCapacity(gpa, @typeInfo(Tag.Record).@"struct".fields.len +
                 elems.len);
             i.items.appendAssumeCapacity(.{
                 .tag = .record_ty,
@@ -527,14 +728,14 @@ pub fn put(i: *Interner, gpa: Allocator, key: Key) !Ref {
 }
 
 fn addExtra(i: *Interner, gpa: Allocator, extra: anytype) Allocator.Error!u32 {
-    const fields = @typeInfo(@TypeOf(extra)).Struct.fields;
+    const fields = @typeInfo(@TypeOf(extra)).@"struct".fields;
     try i.extra.ensureUnusedCapacity(gpa, fields.len);
     return i.addExtraAssumeCapacity(extra);
 }
 
 fn addExtraAssumeCapacity(i: *Interner, extra: anytype) u32 {
     const result = @as(u32, @intCast(i.extra.items.len));
-    inline for (@typeInfo(@TypeOf(extra)).Struct.fields) |field| {
+    inline for (@typeInfo(@TypeOf(extra)).@"struct".fields) |field| {
         i.extra.appendAssumeCapacity(switch (field.type) {
             Ref => @intFromEnum(@field(extra, field.name)),
             u32 => @field(extra, field.name),
@@ -564,6 +765,10 @@ pub fn get(i: *const Interner, ref: Ref) Key {
         .zero => return .{ .int = .{ .u64 = 0 } },
         .one => return .{ .int = .{ .u64 = 1 } },
         .null => return .null,
+        .cf16 => return .{ .complex_ty = 16 },
+        .cf32 => return .{ .complex_ty = 32 },
+        .cf64 => return .{ .complex_ty = 64 },
+        .cf80 => return .{ .complex_ty = 80 },
         else => {},
     }
 
@@ -572,6 +777,7 @@ pub fn get(i: *const Interner, ref: Ref) Key {
     return switch (item.tag) {
         .int_ty => .{ .int_ty = @intCast(data) },
         .float_ty => .{ .float_ty = @intCast(data) },
+        .complex_ty => .{ .complex_ty = @intCast(data) },
         .array_ty => {
             const array_ty = i.extraData(Tag.Array, data);
             return .{ .array_ty = .{
@@ -612,6 +818,26 @@ pub fn get(i: *const Interner, ref: Ref) Key {
             const float = i.extraData(Tag.F128, data);
             return .{ .float = .{ .f128 = float.get() } };
         },
+        .cf16 => {
+            const components = i.extraData(Tag.CF16, data);
+            return .{ .complex = .{ .cf16 = components.get() } };
+        },
+        .cf32 => {
+            const components = i.extraData(Tag.CF32, data);
+            return .{ .complex = .{ .cf32 = components.get() } };
+        },
+        .cf64 => {
+            const components = i.extraData(Tag.CF64, data);
+            return .{ .complex = .{ .cf64 = components.get() } };
+        },
+        .cf80 => {
+            const components = i.extraData(Tag.CF80, data);
+            return .{ .complex = .{ .cf80 = components.get() } };
+        },
+        .cf128 => {
+            const components = i.extraData(Tag.CF128, data);
+            return .{ .complex = .{ .cf128 = components.get() } };
+        },
         .bytes => {
             const bytes = i.extraData(Tag.Bytes, data);
             return .{ .bytes = i.strings.items[bytes.strings_index..][0..bytes.len] };
@@ -631,7 +857,7 @@ fn extraData(i: *const Interner, comptime T: type, index: usize) T {
 
 fn extraDataTrail(i: *const Interner, comptime T: type, index: usize) struct { data: T, end: u32 } {
     var result: T = undefined;
-    const fields = @typeInfo(T).Struct.fields;
+    const fields = @typeInfo(T).@"struct".fields;
     inline for (fields, 0..) |field, field_i| {
         const int32 = i.extra.items[field_i + index];
         @field(result, field.name) = switch (field.type) {

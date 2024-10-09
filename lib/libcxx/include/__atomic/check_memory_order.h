@@ -27,4 +27,8 @@
   _LIBCPP_DIAGNOSE_WARNING(__f == memory_order_release || __f == memory_order_acq_rel,                                 \
                            "memory order argument to atomic operation is invalid")
 
+#define _LIBCPP_CHECK_WAIT_MEMORY_ORDER(__m)                                                                           \
+  _LIBCPP_DIAGNOSE_WARNING(__m == memory_order_release || __m == memory_order_acq_rel,                                 \
+                           "memory order argument to atomic operation is invalid")
+
 #endif // _LIBCPP___ATOMIC_CHECK_MEMORY_ORDER_H

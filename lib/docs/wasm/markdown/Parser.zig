@@ -31,11 +31,11 @@ const ExtraData = Document.ExtraData;
 const StringIndex = Document.StringIndex;
 
 nodes: Node.List = .{},
-extra: std.ArrayListUnmanaged(u32) = .{},
-scratch_extra: std.ArrayListUnmanaged(u32) = .{},
-string_bytes: std.ArrayListUnmanaged(u8) = .{},
-scratch_string: std.ArrayListUnmanaged(u8) = .{},
-pending_blocks: std.ArrayListUnmanaged(Block) = .{},
+extra: std.ArrayListUnmanaged(u32) = .empty,
+scratch_extra: std.ArrayListUnmanaged(u32) = .empty,
+string_bytes: std.ArrayListUnmanaged(u8) = .empty,
+scratch_string: std.ArrayListUnmanaged(u8) = .empty,
+pending_blocks: std.ArrayListUnmanaged(Block) = .empty,
 allocator: Allocator,
 
 const Parser = @This();
@@ -928,8 +928,8 @@ const InlineParser = struct {
     parent: *Parser,
     content: []const u8,
     pos: usize = 0,
-    pending_inlines: std.ArrayListUnmanaged(PendingInline) = .{},
-    completed_inlines: std.ArrayListUnmanaged(CompletedInline) = .{},
+    pending_inlines: std.ArrayListUnmanaged(PendingInline) = .empty,
+    completed_inlines: std.ArrayListUnmanaged(CompletedInline) = .empty,
 
     const PendingInline = struct {
         tag: Tag,
@@ -1564,7 +1564,7 @@ fn parseInlines(p: *Parser, content: []const u8) !ExtraIndex {
 }
 
 pub fn extraData(p: Parser, comptime T: type, index: ExtraIndex) ExtraData(T) {
-    const fields = @typeInfo(T).Struct.fields;
+    const fields = @typeInfo(T).@"struct".fields;
     var i: usize = @intFromEnum(index);
     var result: T = undefined;
     inline for (fields) |field| {

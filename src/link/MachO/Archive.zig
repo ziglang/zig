@@ -1,4 +1,4 @@
-objects: std.ArrayListUnmanaged(Object) = .{},
+objects: std.ArrayListUnmanaged(Object) = .empty,
 
 pub fn deinit(self: *Archive, allocator: Allocator) void {
     self.objects.deinit(allocator);
@@ -90,7 +90,7 @@ pub fn writeHeader(
         .ar_fmag = undefined,
     };
     @memset(mem.asBytes(&hdr), 0x20);
-    inline for (@typeInfo(ar_hdr).Struct.fields) |field| {
+    inline for (@typeInfo(ar_hdr).@"struct".fields) |field| {
         var stream = std.io.fixedBufferStream(&@field(hdr, field.name));
         stream.writer().print("0", .{}) catch unreachable;
     }
@@ -181,7 +181,7 @@ pub const ar_hdr = extern struct {
 };
 
 pub const ArSymtab = struct {
-    entries: std.ArrayListUnmanaged(Entry) = .{},
+    entries: std.ArrayListUnmanaged(Entry) = .empty,
     strtab: StringTable = .{},
 
     pub fn deinit(ar: *ArSymtab, allocator: Allocator) void {

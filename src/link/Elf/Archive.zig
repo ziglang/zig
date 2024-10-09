@@ -1,5 +1,5 @@
-objects: std.ArrayListUnmanaged(Object) = .{},
-strtab: std.ArrayListUnmanaged(u8) = .{},
+objects: std.ArrayListUnmanaged(Object) = .empty,
+strtab: std.ArrayListUnmanaged(u8) = .empty,
 
 pub fn isArchive(path: []const u8) !bool {
     const file = try std.fs.cwd().openFile(path, .{});
@@ -35,10 +35,9 @@ pub fn parse(self: *Archive, elf_file: *Elf, path: []const u8, handle_index: Fil
         pos += @sizeOf(elf.ar_hdr);
 
         if (!mem.eql(u8, &hdr.ar_fmag, elf.ARFMAG)) {
-            try elf_file.reportParseError(path, "invalid archive header delimiter: {s}", .{
+            return elf_file.failParse(path, "invalid archive header delimiter: {s}", .{
                 std.fmt.fmtSliceEscapeLower(&hdr.ar_fmag),
             });
-            return error.MalformedArchive;
         }
 
         const obj_size = try hdr.size();
@@ -127,7 +126,7 @@ const strtab_delimiter = '\n';
 pub const max_member_name_len = 15;
 
 pub const ArSymtab = struct {
-    symtab: std.ArrayListUnmanaged(Entry) = .{},
+    symtab: std.ArrayListUnmanaged(Entry) = .empty,
     strtab: StringTable = .{},
 
     pub fn deinit(ar: *ArSymtab, allocator: Allocator) void {
@@ -241,7 +240,7 @@ pub const ArSymtab = struct {
 };
 
 pub const ArStrtab = struct {
-    buffer: std.ArrayListUnmanaged(u8) = .{},
+    buffer: std.ArrayListUnmanaged(u8) = .empty,
 
     pub fn deinit(ar: *ArStrtab, allocator: Allocator) void {
         ar.buffer.deinit(allocator);

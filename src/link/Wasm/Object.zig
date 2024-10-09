@@ -51,7 +51,7 @@ start: ?u32 = null,
 features: []const types.Feature = &.{},
 /// A table that maps the relocations we must perform where the key represents
 /// the section that the list of relocations applies to.
-relocations: std.AutoArrayHashMapUnmanaged(u32, []types.Relocation) = .{},
+relocations: std.AutoArrayHashMapUnmanaged(u32, []types.Relocation) = .empty,
 /// Table of symbols belonging to this Object file
 symtable: []Symbol = &.{},
 /// Extra metadata about the linking section, such as alignment of segments and their name
@@ -62,7 +62,7 @@ init_funcs: []const types.InitFunc = &.{},
 comdat_info: []const types.Comdat = &.{},
 /// Represents non-synthetic sections that can essentially be mem-cpy'd into place
 /// after performing relocations.
-relocatable_data: std.AutoHashMapUnmanaged(RelocatableData.Tag, []RelocatableData) = .{},
+relocatable_data: std.AutoHashMapUnmanaged(RelocatableData.Tag, []RelocatableData) = .empty,
 /// String table for all strings required by the object file, such as symbol names,
 /// import name, module name and export names. Each string will be deduplicated
 /// and returns an offset into the table.
@@ -379,7 +379,7 @@ fn Parser(comptime ReaderType: type) type {
                             try parser.parseFeatures(gpa);
                         } else if (std.mem.startsWith(u8, name, ".debug")) {
                             const gop = try parser.object.relocatable_data.getOrPut(gpa, .custom);
-                            var relocatable_data: std.ArrayListUnmanaged(RelocatableData) = .{};
+                            var relocatable_data: std.ArrayListUnmanaged(RelocatableData) = .empty;
                             defer relocatable_data.deinit(gpa);
                             if (!gop.found_existing) {
                                 gop.value_ptr.* = &.{};
@@ -871,7 +871,7 @@ fn ElementType(comptime ptr: type) type {
 /// signedness of the given type `T`.
 /// Asserts `T` is an integer.
 fn readLeb(comptime T: type, reader: anytype) !T {
-    return switch (@typeInfo(T).Int.signedness) {
+    return switch (@typeInfo(T).int.signedness) {
         .signed => try leb.readIleb128(T, reader),
         .unsigned => try leb.readUleb128(T, reader),
     };
@@ -881,7 +881,7 @@ fn readLeb(comptime T: type, reader: anytype) !T {
 /// Asserts `T` is an enum
 fn readEnum(comptime T: type, reader: anytype) !T {
     switch (@typeInfo(T)) {
-        .Enum => |enum_type| return @as(T, @enumFromInt(try readLeb(enum_type.tag_type, reader))),
+        .@"enum" => |enum_type| return @as(T, @enumFromInt(try readLeb(enum_type.tag_type, reader))),
         else => @compileError("T must be an enum. Instead was given type " ++ @typeName(T)),
     }
 }

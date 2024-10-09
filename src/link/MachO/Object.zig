@@ -9,27 +9,27 @@ in_archive: ?InArchive = null,
 header: ?macho.mach_header_64 = null,
 sections: std.MultiArrayList(Section) = .{},
 symtab: std.MultiArrayList(Nlist) = .{},
-strtab: std.ArrayListUnmanaged(u8) = .{},
+strtab: std.ArrayListUnmanaged(u8) = .empty,
 
-symbols: std.ArrayListUnmanaged(Symbol) = .{},
-symbols_extra: std.ArrayListUnmanaged(u32) = .{},
-globals: std.ArrayListUnmanaged(MachO.SymbolResolver.Index) = .{},
-atoms: std.ArrayListUnmanaged(Atom) = .{},
-atoms_indexes: std.ArrayListUnmanaged(Atom.Index) = .{},
-atoms_extra: std.ArrayListUnmanaged(u32) = .{},
+symbols: std.ArrayListUnmanaged(Symbol) = .empty,
+symbols_extra: std.ArrayListUnmanaged(u32) = .empty,
+globals: std.ArrayListUnmanaged(MachO.SymbolResolver.Index) = .empty,
+atoms: std.ArrayListUnmanaged(Atom) = .empty,
+atoms_indexes: std.ArrayListUnmanaged(Atom.Index) = .empty,
+atoms_extra: std.ArrayListUnmanaged(u32) = .empty,
 
 platform: ?MachO.Platform = null,
 compile_unit: ?CompileUnit = null,
-stab_files: std.ArrayListUnmanaged(StabFile) = .{},
+stab_files: std.ArrayListUnmanaged(StabFile) = .empty,
 
 eh_frame_sect_index: ?u8 = null,
 compact_unwind_sect_index: ?u8 = null,
-cies: std.ArrayListUnmanaged(Cie) = .{},
-fdes: std.ArrayListUnmanaged(Fde) = .{},
-eh_frame_data: std.ArrayListUnmanaged(u8) = .{},
-unwind_records: std.ArrayListUnmanaged(UnwindInfo.Record) = .{},
-unwind_records_indexes: std.ArrayListUnmanaged(UnwindInfo.Record.Index) = .{},
-data_in_code: std.ArrayListUnmanaged(macho.data_in_code_entry) = .{},
+cies: std.ArrayListUnmanaged(Cie) = .empty,
+fdes: std.ArrayListUnmanaged(Fde) = .empty,
+eh_frame_data: std.ArrayListUnmanaged(u8) = .empty,
+unwind_records: std.ArrayListUnmanaged(UnwindInfo.Record) = .empty,
+unwind_records_indexes: std.ArrayListUnmanaged(UnwindInfo.Record.Index) = .empty,
+data_in_code: std.ArrayListUnmanaged(macho.data_in_code_entry) = .empty,
 
 alive: bool = true,
 hidden: bool = false,
@@ -91,12 +91,12 @@ pub fn parse(self: *Object, macho_file: *MachO) !void {
         macho.CPU_TYPE_X86_64 => .x86_64,
         else => |x| {
             try macho_file.reportParseError2(self.index, "unknown cpu architecture: {d}", .{x});
-            return error.InvalidCpuArch;
+            return error.InvalidMachineType;
         },
     };
     if (cpu_arch != this_cpu_arch) {
         try macho_file.reportParseError2(self.index, "invalid cpu architecture: {s}", .{@tagName(this_cpu_arch)});
-        return error.InvalidCpuArch;
+        return error.InvalidMachineType;
     }
 
     const lc_buffer = try gpa.alloc(u8, self.header.?.sizeofcmds);
@@ -1648,12 +1648,12 @@ pub fn parseAr(self: *Object, macho_file: *MachO) !void {
         macho.CPU_TYPE_X86_64 => .x86_64,
         else => |x| {
             try macho_file.reportParseError2(self.index, "unknown cpu architecture: {d}", .{x});
-            return error.InvalidCpuArch;
+            return error.InvalidMachineType;
         },
     };
     if (macho_file.getTarget().cpu.arch != this_cpu_arch) {
         try macho_file.reportParseError2(self.index, "invalid cpu architecture: {s}", .{@tagName(this_cpu_arch)});
-        return error.InvalidCpuArch;
+        return error.InvalidMachineType;
     }
 
     const lc_buffer = try gpa.alloc(u8, self.header.?.sizeofcmds);
@@ -2386,14 +2386,14 @@ pub fn getAtoms(self: *Object) []const Atom.Index {
 }
 
 fn addAtomExtra(self: *Object, allocator: Allocator, extra: Atom.Extra) !u32 {
-    const fields = @typeInfo(Atom.Extra).Struct.fields;
+    const fields = @typeInfo(Atom.Extra).@"struct".fields;
     try self.atoms_extra.ensureUnusedCapacity(allocator, fields.len);
     return self.addAtomExtraAssumeCapacity(extra);
 }
 
 fn addAtomExtraAssumeCapacity(self: *Object, extra: Atom.Extra) u32 {
     const index = @as(u32, @intCast(self.atoms_extra.items.len));
-    const fields = @typeInfo(Atom.Extra).Struct.fields;
+    const fields = @typeInfo(Atom.Extra).@"struct".fields;
     inline for (fields) |field| {
         self.atoms_extra.appendAssumeCapacity(switch (field.type) {
             u32 => @field(extra, field.name),
@@ -2404,7 +2404,7 @@ fn addAtomExtraAssumeCapacity(self: *Object, extra: Atom.Extra) u32 {
 }
 
 pub fn getAtomExtra(self: Object, index: u32) Atom.Extra {
-    const fields = @typeInfo(Atom.Extra).Struct.fields;
+    const fields = @typeInfo(Atom.Extra).@"struct".fields;
     var i: usize = index;
     var result: Atom.Extra = undefined;
     inline for (fields) |field| {
@@ -2419,7 +2419,7 @@ pub fn getAtomExtra(self: Object, index: u32) Atom.Extra {
 
 pub fn setAtomExtra(self: *Object, index: u32, extra: Atom.Extra) void {
     assert(index > 0);
-    const fields = @typeInfo(Atom.Extra).Struct.fields;
+    const fields = @typeInfo(Atom.Extra).@"struct".fields;
     inline for (fields, 0..) |field, i| {
         self.atoms_extra.items[index + i] = switch (field.type) {
             u32 => @field(extra, field.name),
@@ -2447,14 +2447,14 @@ pub fn getSymbolRef(self: Object, index: Symbol.Index, macho_file: *MachO) MachO
 }
 
 pub fn addSymbolExtra(self: *Object, allocator: Allocator, extra: Symbol.Extra) !u32 {
-    const fields = @typeInfo(Symbol.Extra).Struct.fields;
+    const fields = @typeInfo(Symbol.Extra).@"struct".fields;
     try self.symbols_extra.ensureUnusedCapacity(allocator, fields.len);
     return self.addSymbolExtraAssumeCapacity(extra);
 }
 
 fn addSymbolExtraAssumeCapacity(self: *Object, extra: Symbol.Extra) u32 {
     const index = @as(u32, @intCast(self.symbols_extra.items.len));
-    const fields = @typeInfo(Symbol.Extra).Struct.fields;
+    const fields = @typeInfo(Symbol.Extra).@"struct".fields;
     inline for (fields) |field| {
         self.symbols_extra.appendAssumeCapacity(switch (field.type) {
             u32 => @field(extra, field.name),
@@ -2465,7 +2465,7 @@ fn addSymbolExtraAssumeCapacity(self: *Object, extra: Symbol.Extra) u32 {
 }
 
 pub fn getSymbolExtra(self: Object, index: u32) Symbol.Extra {
-    const fields = @typeInfo(Symbol.Extra).Struct.fields;
+    const fields = @typeInfo(Symbol.Extra).@"struct".fields;
     var i: usize = index;
     var result: Symbol.Extra = undefined;
     inline for (fields) |field| {
@@ -2479,7 +2479,7 @@ pub fn getSymbolExtra(self: Object, index: u32) Symbol.Extra {
 }
 
 pub fn setSymbolExtra(self: *Object, index: u32, extra: Symbol.Extra) void {
-    const fields = @typeInfo(Symbol.Extra).Struct.fields;
+    const fields = @typeInfo(Symbol.Extra).@"struct".fields;
     inline for (fields, 0..) |field, i| {
         self.symbols_extra.items[index + i] = switch (field.type) {
             u32 => @field(extra, field.name),
@@ -2675,8 +2675,8 @@ fn formatPath(
 
 const Section = struct {
     header: macho.section_64,
-    subsections: std.ArrayListUnmanaged(Subsection) = .{},
-    relocs: std.ArrayListUnmanaged(Relocation) = .{},
+    subsections: std.ArrayListUnmanaged(Subsection) = .empty,
+    relocs: std.ArrayListUnmanaged(Relocation) = .empty,
 };
 
 const Subsection = struct {
@@ -2692,7 +2692,7 @@ pub const Nlist = struct {
 
 const StabFile = struct {
     comp_dir: u32,
-    stabs: std.ArrayListUnmanaged(Stab) = .{},
+    stabs: std.ArrayListUnmanaged(Stab) = .empty,
 
     fn getCompDir(sf: StabFile, object: Object) [:0]const u8 {
         const nlist = object.symtab.items(.nlist)[sf.comp_dir];

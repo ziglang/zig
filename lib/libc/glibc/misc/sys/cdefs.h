@@ -145,6 +145,14 @@
 #endif
 
 
+/* The overloadable attribute was added on clang 2.6. */
+#if defined __clang_major__ \
+    && (__clang_major__ + (__clang_minor__ >= 6) > 2)
+# define __attribute_overloadable__ __attribute__((__overloadable__))
+#else
+# define __attribute_overloadable__
+#endif
+
 /* Fortify support.  */
 #define __bos(ptr) __builtin_object_size (ptr, __USE_FORTIFY_LEVEL > 1)
 #define __bos0(ptr) __builtin_object_size (ptr, 0)
@@ -187,26 +195,172 @@
 						   __s, __osz))		      \
    && !__glibc_safe_len_cond ((__SIZE_TYPE__) (__l), __s, __osz))
 
+/* To correctly instrument the fortify wrapper clang requires the
+   pass_object_size attribute, and the attribute has the restriction that the
+   argument needs to be 'const'.  Furthermore, to make it usable with C
+   interfaces, clang provides the overload attribute, which provides a C++
+   like function overload support.  The overloaded fortify wrapper with the
+   pass_object_size attribute has precedence over the default symbol.
+
+   Also, clang does not support __va_arg_pack, so variadic functions are
+   expanded to issue va_arg implementations. The error function must not have
+   bodies (address takes are expanded to nonfortified calls), and with
+   __fortify_function compiler might still create a body with the C++
+   mangling name (due to the overload attribute).  In this case, the function
+   is defined with __fortify_function_error_function macro instead.
+
+   The argument size check is also done with a clang-only attribute,
+   __attribute__ ((__diagnose_if__ (...))), different than gcc which calls
+   symbol_chk_warn alias with uses __warnattr attribute.
+
+   The pass_object_size was added on clang 4.0, __diagnose_if__ on 5.0,
+   and pass_dynamic_object_size on 9.0.  */
+#if defined __clang_major__ && __clang_major__ >= 5
+# define __fortify_use_clang 1
+
+# define __fortify_function_error_function static __attribute__((__unused__))
+
+# define __fortify_clang_pass_object_size_n(n) \
+  __attribute__ ((__pass_object_size__ (n)))
+# define __fortify_clang_pass_object_size0 \
+  __fortify_clang_pass_object_size_n (0)
+# define __fortify_clang_pass_object_size \
+  __fortify_clang_pass_object_size_n (__USE_FORTIFY_LEVEL > 1)
+
+# if __clang_major__ >= 9
+#  define __fortify_clang_pass_dynamic_object_size_n(n) \
+  __attribute__ ((__pass_dynamic_object_size__ (n)))
+#  define __fortify_clang_pass_dynamic_object_size0 \
+  __fortify_clang_pass_dynamic_object_size_n (0)
+#  define __fortify_clang_pass_dynamic_object_size \
+  __fortify_clang_pass_dynamic_object_size_n (1)
+# else
+#  define __fortify_clang_pass_dynamic_object_size_n(n)
+#  define __fortify_clang_pass_dynamic_object_size0
+#  define __fortify_clang_pass_dynamic_object_size
+# endif
+
+# define __fortify_clang_bos_static_lt_impl(bos_val, n, s) \
+  ((bos_val) != -1ULL && (n) > (bos_val) / (s))
+# define __fortify_clang_bos_static_lt2(__n, __e, __s) \
+  __fortify_clang_bos_static_lt_impl (__bos (__e), __n, __s)
+# define __fortify_clang_bos_static_lt(__n, __e) \
+  __fortify_clang_bos_static_lt2 (__n, __e, 1)
+# define __fortify_clang_bos0_static_lt2(__n, __e, __s) \
+  __fortify_clang_bos_static_lt_impl (__bos0 (__e), __n, __s)
+# define __fortify_clang_bos0_static_lt(__n, __e) \
+  __fortify_clang_bos0_static_lt2 (__n, __e, 1)
+
+# define __fortify_clang_bosn_args(bos_fn, n, buf, div, complaint) \
+  (__fortify_clang_bos_static_lt_impl (bos_fn (buf), n, div)), (complaint), \
+  "warning"
+
+# define __fortify_clang_warning(__c, __msg) \
+  __attribute__ ((__diagnose_if__ ((__c), (__msg), "warning")))
+#  define __fortify_clang_error(__c, __msg) \
+  __attribute__ ((__diagnose_if__ ((__c), (__msg), "error")))
+#  define __fortify_clang_warning_only_if_bos0_lt(n, buf, complaint) \
+  __attribute__ ((__diagnose_if__ \
+		  (__fortify_clang_bosn_args (__bos0, n, buf, 1, complaint))))
+# define __fortify_clang_warning_only_if_bos0_lt2(n, buf, div, complaint) \
+  __attribute__ ((__diagnose_if__ \
+		  (__fortify_clang_bosn_args (__bos0, n, buf, div, complaint))))
+# define __fortify_clang_warning_only_if_bos_lt(n, buf, complaint) \
+  __attribute__ ((__diagnose_if__ \
+		  (__fortify_clang_bosn_args (__bos, n, buf, 1, complaint))))
+# define __fortify_clang_warning_only_if_bos_lt2(n, buf, div, complaint) \
+  __attribute__ ((__diagnose_if__ \
+		  (__fortify_clang_bosn_args (__bos, n, buf, div, complaint))))
+
+#  define __fortify_clang_prefer_this_overload \
+  __attribute__ ((enable_if (1, "")))
+#  define __fortify_clang_unavailable(__msg) \
+  __attribute__ ((unavailable(__msg)))
+
+# if __USE_FORTIFY_LEVEL == 3
+#  define __fortify_clang_overload_arg(__type, __attr, __name) \
+  __type __attr const __fortify_clang_pass_dynamic_object_size __name
+#  define __fortify_clang_overload_arg0(__type, __attr, __name) \
+  __type __attr const __fortify_clang_pass_dynamic_object_size0 __name
+# else
+#  define __fortify_clang_overload_arg(__type, __attr, __name) \
+  __type __attr const __fortify_clang_pass_object_size __name
+#  define __fortify_clang_overload_arg0(__type, __attr, __name) \
+  __type __attr const __fortify_clang_pass_object_size0 __name
+# endif
+
+# define __fortify_clang_mul_may_overflow(size, n) \
+  ((size | n) >= (((size_t)1) << (8 * sizeof (size_t) / 2)))
+
+# define __fortify_clang_size_too_small(__bos, __dest, __len) \
+  (__bos (__dest) != (size_t) -1 && __bos (__dest) < __len)
+# define __fortify_clang_warn_if_src_too_large(__dest, __src) \
+  __fortify_clang_warning (__fortify_clang_size_too_small (__glibc_objsize, \
+							   __dest, \
+							   __builtin_strlen (__src) + 1), \
+			   "destination buffer will always be overflown by source")
+# define __fortify_clang_warn_if_dest_too_small(__dest, __len) \
+  __fortify_clang_warning (__fortify_clang_size_too_small (__glibc_objsize, \
+                                                           __dest, \
+                                                           __len), \
+                           "function called with bigger length than the destination buffer")
+# define __fortify_clang_warn_if_dest_too_small0(__dest, __len) \
+  __fortify_clang_warning (__fortify_clang_size_too_small (__glibc_objsize0, \
+                                                           __dest, \
+                                                           __len), \
+                           "function called with bigger length than the destination buffer")
+#else
+# define __fortify_use_clang 0
+# define __fortify_clang_warning(__c, __msg)
+# define __fortify_clang_warning_only_if_bos0_lt(__n, __buf, __complaint)
+# define __fortify_clang_warning_only_if_bos0_lt2(__n, __buf, __div, complaint)
+# define __fortify_clang_warning_only_if_bos_lt(__n, __buf, __complaint)
+# define __fortify_clang_warning_only_if_bos_lt2(__n, __buf, div, __complaint)
+# define __fortify_clang_overload_arg(__type, __attr, __name) \
+ __type __attr __name
+# define __fortify_clang_overload_arg0(__type, __attr, __name) \
+  __fortify_clang_overload_arg (__type, __attr, __name)
+# define __fortify_clang_warn_if_src_too_large(__dest, __src)
+# define __fortify_clang_warn_if_dest_too_small(__dest, __len)
+# define __fortify_clang_warn_if_dest_too_small0(__dest, __len)
+#endif
+
+
 /* Fortify function f.  __f_alias, __f_chk and __f_chk_warn must be
    declared.  */
 
-#define __glibc_fortify(f, __l, __s, __osz, ...) \
+#if !__fortify_use_clang
+# define __glibc_fortify(f, __l, __s, __osz, ...) \
   (__glibc_safe_or_unknown_len (__l, __s, __osz)			      \
    ? __ ## f ## _alias (__VA_ARGS__)					      \
    : (__glibc_unsafe_len (__l, __s, __osz)				      \
       ? __ ## f ## _chk_warn (__VA_ARGS__, __osz)			      \
       : __ ## f ## _chk (__VA_ARGS__, __osz)))
+#else
+# define __glibc_fortify(f, __l, __s, __osz, ...) \
+  (__osz == (__SIZE_TYPE__) -1)						      \
+   ? __ ## f ## _alias (__VA_ARGS__)					      \
+   : __ ## f ## _chk (__VA_ARGS__, __osz)
+#endif
 
 /* Fortify function f, where object size argument passed to f is the number of
    elements and not total size.  */
 
-#define __glibc_fortify_n(f, __l, __s, __osz, ...) \
+#if !__fortify_use_clang
+# define __glibc_fortify_n(f, __l, __s, __osz, ...) \
   (__glibc_safe_or_unknown_len (__l, __s, __osz)			      \
    ? __ ## f ## _alias (__VA_ARGS__)					      \
    : (__glibc_unsafe_len (__l, __s, __osz)				      \
       ? __ ## f ## _chk_warn (__VA_ARGS__, (__osz) / (__s))		      \
       : __ ## f ## _chk (__VA_ARGS__, (__osz) / (__s))))
+# else
+# define __glibc_fortify_n(f, __l, __s, __osz, ...) \
+  (__osz == (__SIZE_TYPE__) -1)						      \
+   ? __ ## f ## _alias (__VA_ARGS__)					      \
+   : __ ## f ## _chk (__VA_ARGS__, (__osz) / (__s))
 #endif
+
+#endif /* __USE_FORTIFY_LEVEL > 0 */
 
 #if __GNUC_PREREQ (4,3)
 # define __warnattr(msg) __attribute__((__warning__ (msg)))
@@ -683,10 +837,10 @@ _Static_assert (0, "IEEE 128-bits long double requires redirection on this platf
 #  define __attr_access(x) __attribute__ ((__access__ x))
 /* For _FORTIFY_SOURCE == 3 we use __builtin_dynamic_object_size, which may
    use the access attribute to get object sizes from function definition
-   arguments, so we can't use them on functions we fortify.  Drop the object
-   size hints for such functions.  */
+   arguments, so we can't use them on functions we fortify.  Drop the access
+   attribute for such functions.  */
 #  if __USE_FORTIFY_LEVEL == 3
-#    define __fortified_attr_access(a, o, s) __attribute__ ((__access__ (a, o)))
+#    define __fortified_attr_access(a, o, s)
 #  else
 #    define __fortified_attr_access(a, o, s) __attr_access ((a, o, s))
 #  endif
@@ -718,6 +872,15 @@ _Static_assert (0, "IEEE 128-bits long double requires redirection on this platf
 # define __attribute_returns_twice__ __attribute__ ((__returns_twice__))
 #else
 # define __attribute_returns_twice__ /* Ignore.  */
+#endif
+
+/* Mark struct types as aliasable.  Restricted to compilers that
+   support forward declarations of structs in the presence of the
+   attribute.  */
+#if __GNUC_PREREQ (7, 1) || defined __clang__
+# define __attribute_struct_may_alias__ __attribute__ ((__may_alias__))
+#else
+# define __attribute_struct_may_alias__
 #endif
 
 #endif	 /* sys/cdefs.h */

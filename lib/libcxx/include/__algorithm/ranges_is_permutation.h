@@ -56,7 +56,7 @@ struct __fn {
       class _Proj1                                                                              = identity,
       class _Proj2                                                                              = identity,
       indirect_equivalence_relation<projected<_Iter1, _Proj1>, projected<_Iter2, _Proj2>> _Pred = ranges::equal_to>
-  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr bool operator()(
+  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr bool operator()(
       _Iter1 __first1,
       _Sent1 __last1,
       _Iter2 __first2,
@@ -74,7 +74,7 @@ struct __fn {
             class _Proj2                                                                = identity,
             indirect_equivalence_relation<projected<iterator_t<_Range1>, _Proj1>,
                                           projected<iterator_t<_Range2>, _Proj2>> _Pred = ranges::equal_to>
-  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr bool operator()(
+  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr bool operator()(
       _Range1&& __range1, _Range2&& __range2, _Pred __pred = {}, _Proj1 __proj1 = {}, _Proj2 __proj2 = {}) const {
     if constexpr (sized_range<_Range1> && sized_range<_Range2>) {
       if (ranges::distance(__range1) != ranges::distance(__range2))

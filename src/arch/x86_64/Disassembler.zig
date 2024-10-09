@@ -8,7 +8,7 @@ const bits = @import("bits.zig");
 const encoder = @import("encoder.zig");
 
 const Encoding = @import("Encoding.zig");
-const Immediate = bits.Immediate;
+const Immediate = Instruction.Immediate;
 const Instruction = encoder.Instruction;
 const LegacyPrefixes = encoder.LegacyPrefixes;
 const Memory = Instruction.Memory;
@@ -95,7 +95,7 @@ pub fn next(dis: *Disassembler) Error!?Instruction {
 
             if (modrm.rip()) {
                 return inst(act_enc, .{
-                    .op1 = .{ .mem = Memory.rip(Memory.PtrSize.fromBitSize(act_enc.data.ops[0].memBitSize()), disp) },
+                    .op1 = .{ .mem = Memory.initRip(Memory.PtrSize.fromBitSize(act_enc.data.ops[0].memBitSize()), disp) },
                     .op2 = op2,
                 });
             }
@@ -106,7 +106,7 @@ pub fn next(dis: *Disassembler) Error!?Instruction {
             else
                 parseGpRegister(modrm.op2, prefixes.rex.b, prefixes.rex, 64);
             return inst(act_enc, .{
-                .op1 = .{ .mem = Memory.sib(Memory.PtrSize.fromBitSize(act_enc.data.ops[0].memBitSize()), .{
+                .op1 = .{ .mem = Memory.initSib(Memory.PtrSize.fromBitSize(act_enc.data.ops[0].memBitSize()), .{
                     .base = if (base) |base_reg| .{ .reg = base_reg } else .none,
                     .scale_index = scale_index,
                     .disp = disp,
@@ -119,14 +119,14 @@ pub fn next(dis: *Disassembler) Error!?Instruction {
             const offset = try dis.parseOffset();
             return inst(enc, .{
                 .op1 = .{ .reg = Register.rax.toBitSize(enc.data.ops[0].regBitSize()) },
-                .op2 = .{ .mem = Memory.moffs(seg, offset) },
+                .op2 = .{ .mem = Memory.initMoffs(seg, offset) },
             });
         },
         .td => {
             const seg = segmentRegister(prefixes.legacy);
             const offset = try dis.parseOffset();
             return inst(enc, .{
-                .op1 = .{ .mem = Memory.moffs(seg, offset) },
+                .op1 = .{ .mem = Memory.initMoffs(seg, offset) },
                 .op2 = .{ .reg = Register.rax.toBitSize(enc.data.ops[1].regBitSize()) },
             });
         },
@@ -153,7 +153,7 @@ pub fn next(dis: *Disassembler) Error!?Instruction {
 
             if (modrm.rip()) {
                 return inst(enc, .{
-                    .op1 = .{ .mem = Memory.rip(Memory.PtrSize.fromBitSize(dst_bit_size), disp) },
+                    .op1 = .{ .mem = Memory.initRip(Memory.PtrSize.fromBitSize(dst_bit_size), disp) },
                     .op2 = .{ .reg = parseGpRegister(modrm.op1, prefixes.rex.r, prefixes.rex, src_bit_size) },
                     .op3 = op3,
                 });
@@ -165,7 +165,7 @@ pub fn next(dis: *Disassembler) Error!?Instruction {
             else
                 parseGpRegister(modrm.op2, prefixes.rex.b, prefixes.rex, 64);
             return inst(enc, .{
-                .op1 = .{ .mem = Memory.sib(Memory.PtrSize.fromBitSize(dst_bit_size), .{
+                .op1 = .{ .mem = Memory.initSib(Memory.PtrSize.fromBitSize(dst_bit_size), .{
                     .base = if (base) |base_reg| .{ .reg = base_reg } else .none,
                     .scale_index = scale_index,
                     .disp = disp,
@@ -203,7 +203,7 @@ pub fn next(dis: *Disassembler) Error!?Instruction {
             if (modrm.rip()) {
                 return inst(enc, .{
                     .op1 = .{ .reg = parseGpRegister(modrm.op1, prefixes.rex.r, prefixes.rex, dst_bit_size) },
-                    .op2 = .{ .mem = Memory.rip(Memory.PtrSize.fromBitSize(src_bit_size), disp) },
+                    .op2 = .{ .mem = Memory.initRip(Memory.PtrSize.fromBitSize(src_bit_size), disp) },
                     .op3 = op3,
                 });
             }
@@ -215,7 +215,7 @@ pub fn next(dis: *Disassembler) Error!?Instruction {
                 parseGpRegister(modrm.op2, prefixes.rex.b, prefixes.rex, 64);
             return inst(enc, .{
                 .op1 = .{ .reg = parseGpRegister(modrm.op1, prefixes.rex.r, prefixes.rex, dst_bit_size) },
-                .op2 = .{ .mem = Memory.sib(Memory.PtrSize.fromBitSize(src_bit_size), .{
+                .op2 = .{ .mem = Memory.initSib(Memory.PtrSize.fromBitSize(src_bit_size), .{
                     .base = if (base) |base_reg| .{ .reg = base_reg } else .none,
                     .scale_index = scale_index,
                     .disp = disp,

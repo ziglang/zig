@@ -1,17 +1,21 @@
 pub const MergeSection = struct {
+    value: u64 = 0,
+    size: u64 = 0,
+    alignment: Atom.Alignment = .@"1",
+    entsize: u32 = 0,
     name_offset: u32 = 0,
     type: u32 = 0,
     flags: u64 = 0,
     output_section_index: u32 = 0,
-    bytes: std.ArrayListUnmanaged(u8) = .{},
+    bytes: std.ArrayListUnmanaged(u8) = .empty,
     table: std.HashMapUnmanaged(
         String,
         MergeSubsection.Index,
         IndexContext,
         std.hash_map.default_max_load_percentage,
     ) = .{},
-    subsections: std.ArrayListUnmanaged(MergeSubsection) = .{},
-    finalized_subsections: std.ArrayListUnmanaged(MergeSubsection.Index) = .{},
+    subsections: std.ArrayListUnmanaged(MergeSubsection) = .empty,
+    finalized_subsections: std.ArrayListUnmanaged(MergeSubsection.Index) = .empty,
 
     pub fn deinit(msec: *MergeSection, allocator: Allocator) void {
         msec.bytes.deinit(allocator);
@@ -25,8 +29,8 @@ pub const MergeSection = struct {
     }
 
     pub fn address(msec: MergeSection, elf_file: *Elf) i64 {
-        const shdr = elf_file.shdrs.items[msec.output_section_index];
-        return @intCast(shdr.sh_addr);
+        const shdr = elf_file.sections.items(.shdr)[msec.output_section_index];
+        return @intCast(shdr.sh_addr + msec.value);
     }
 
     const InsertResult = struct {
@@ -88,6 +92,31 @@ pub const MergeSection = struct {
         }.sortFn;
 
         std.mem.sort(MergeSubsection.Index, msec.finalized_subsections.items, msec, sortFn);
+    }
+
+    pub fn updateSize(msec: *MergeSection) void {
+        // TODO a 'stale' flag would be better here perhaps?
+        msec.size = 0;
+        msec.alignment = .@"1";
+        msec.entsize = 0;
+        for (msec.finalized_subsections.items) |msub_index| {
+            const msub = msec.mergeSubsection(msub_index);
+            assert(msub.alive);
+            const offset = msub.alignment.forward(msec.size);
+            const padding = offset - msec.size;
+            msub.value = @intCast(offset);
+            msec.size += padding + msub.size;
+            msec.alignment = msec.alignment.max(msub.alignment);
+            msec.entsize = if (msec.entsize == 0) msub.entsize else @min(msec.entsize, msub.entsize);
+        }
+    }
+
+    pub fn initOutputSection(msec: *MergeSection, elf_file: *Elf) !void {
+        msec.output_section_index = elf_file.sectionByName(msec.name(elf_file)) orelse try elf_file.addSection(.{
+            .name = msec.name_offset,
+            .type = msec.type,
+            .flags = msec.flags,
+        });
     }
 
     pub fn addMergeSubsection(msec: *MergeSection, allocator: Allocator) !MergeSubsection.Index {
@@ -163,9 +192,12 @@ pub const MergeSection = struct {
         _ = unused_fmt_string;
         const msec = ctx.msec;
         const elf_file = ctx.elf_file;
-        try writer.print("{s} : @{x} : type({x}) : flags({x})\n", .{
+        try writer.print("{s} : @{x} : size({x}) : align({x}) : entsize({x}) : type({x}) : flags({x})\n", .{
             msec.name(elf_file),
             msec.address(elf_file),
+            msec.size,
+            msec.alignment.toByteUnits() orelse 0,
+            msec.entsize,
             msec.type,
             msec.flags,
         });
@@ -248,10 +280,10 @@ pub const MergeSubsection = struct {
 pub const InputMergeSection = struct {
     merge_section_index: MergeSection.Index = 0,
     atom_index: Atom.Index = 0,
-    offsets: std.ArrayListUnmanaged(u32) = .{},
-    subsections: std.ArrayListUnmanaged(MergeSubsection.Index) = .{},
-    bytes: std.ArrayListUnmanaged(u8) = .{},
-    strings: std.ArrayListUnmanaged(String) = .{},
+    offsets: std.ArrayListUnmanaged(u32) = .empty,
+    subsections: std.ArrayListUnmanaged(MergeSubsection.Index) = .empty,
+    bytes: std.ArrayListUnmanaged(u8) = .empty,
+    strings: std.ArrayListUnmanaged(String) = .empty,
 
     pub fn deinit(imsec: *InputMergeSection, allocator: Allocator) void {
         imsec.offsets.deinit(allocator);

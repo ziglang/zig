@@ -121,25 +121,26 @@ DTLS::DTV *DTLS_on_tls_get_addr(void *arg_void, void *res,
   uptr tls_size = 0;
   uptr tls_beg = reinterpret_cast<uptr>(res) - arg->offset - kDtvOffset;
   VReport(2,
-          "__tls_get_addr: %p {0x%zx,0x%zx} => %p; tls_beg: 0x%zx; sp: %p "
+          "__tls_get_addr: %p {0x%zx,0x%zx} => %p; tls_beg: %p; sp: %p "
           "num_live_dtls %zd\n",
-          (void *)arg, arg->dso_id, arg->offset, res, tls_beg, (void *)&tls_beg,
+          (void *)arg, arg->dso_id, arg->offset, res, (void *)tls_beg,
+          (void *)&tls_beg,
           atomic_load(&number_of_live_dtls, memory_order_relaxed));
   if (dtls.last_memalign_ptr == tls_beg) {
     tls_size = dtls.last_memalign_size;
-    VReport(2, "__tls_get_addr: glibc <=2.24 suspected; tls={0x%zx,0x%zx}\n",
-            tls_beg, tls_size);
+    VReport(2, "__tls_get_addr: glibc <=2.24 suspected; tls={%p,0x%zx}\n",
+            (void *)tls_beg, tls_size);
   } else if (tls_beg >= static_tls_begin && tls_beg < static_tls_end) {
     // This is the static TLS block which was initialized / unpoisoned at thread
     // creation.
-    VReport(2, "__tls_get_addr: static tls: 0x%zx\n", tls_beg);
+    VReport(2, "__tls_get_addr: static tls: %p\n", (void *)tls_beg);
     tls_size = 0;
   } else if (const void *start =
                  __sanitizer_get_allocated_begin((void *)tls_beg)) {
     tls_beg = (uptr)start;
     tls_size = __sanitizer_get_allocated_size(start);
-    VReport(2, "__tls_get_addr: glibc >=2.25 suspected; tls={0x%zx,0x%zx}\n",
-            tls_beg, tls_size);
+    VReport(2, "__tls_get_addr: glibc >=2.25 suspected; tls={%p,0x%zx}\n",
+            (void *)tls_beg, tls_size);
   } else {
     VReport(2, "__tls_get_addr: Can't guess glibc version\n");
     // This may happen inside the DTOR of main thread, so just ignore it.

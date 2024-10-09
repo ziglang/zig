@@ -163,7 +163,7 @@ pub fn binNameAlloc(allocator: Allocator, options: BinNameOptions) error{OutOfMe
             },
             .Obj => return std.fmt.allocPrint(allocator, "{s}.obj", .{root_name}),
         },
-        .elf => switch (options.output_mode) {
+        .elf, .goff, .xcoff => switch (options.output_mode) {
             .Exe => return allocator.dupe(u8, root_name),
             .Lib => {
                 switch (options.link_mode orelse .static) {
@@ -233,7 +233,6 @@ pub fn binNameAlloc(allocator: Allocator, options: BinNameOptions) error{OutOfMe
             }),
         },
         .nvptx => return std.fmt.allocPrint(allocator, "{s}.ptx", .{root_name}),
-        .dxcontainer => return std.fmt.allocPrint(allocator, "{s}.dxil", .{root_name}),
     }
 }
 
@@ -246,7 +245,7 @@ pub const BuildId = union(enum) {
     hexstring: HexString,
 
     pub fn eql(a: BuildId, b: BuildId) bool {
-        const Tag = @typeInfo(BuildId).Union.tag_type.?;
+        const Tag = @typeInfo(BuildId).@"union".tag_type.?;
         const a_tag: Tag = a;
         const b_tag: Tag = b;
         if (a_tag != b_tag) return false;
@@ -654,7 +653,7 @@ pub fn parseTargetQueryOrReportFatalError(
             help: {
                 var help_text = std.ArrayList(u8).init(allocator);
                 defer help_text.deinit();
-                inline for (@typeInfo(std.Target.ObjectFormat).Enum.fields) |field| {
+                inline for (@typeInfo(std.Target.ObjectFormat).@"enum".fields) |field| {
                     help_text.writer().print(" {s}\n", .{field.name}) catch break :help;
                 }
                 std.log.info("available object formats:\n{s}", .{help_text.items});

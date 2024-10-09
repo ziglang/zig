@@ -14,6 +14,7 @@ pub const Tag = enum {
     bit_offset_of,
     int_from_bool,
     bit_size_of,
+    branch_hint,
     breakpoint,
     disable_instrumentation,
     mul_add,
@@ -47,7 +48,6 @@ pub const Tag = enum {
     error_cast,
     @"export",
     @"extern",
-    fence,
     field,
     field_parent_ptr,
     float_cast,
@@ -82,7 +82,6 @@ pub const Tag = enum {
     return_address,
     select,
     set_align_stack,
-    set_cold,
     set_eval_branch_quota,
     set_float_mode,
     set_runtime_safety,
@@ -254,6 +253,14 @@ pub const list = list: {
             .{
                 .tag = .bit_size_of,
                 .param_count = 1,
+            },
+        },
+        .{
+            "@branchHint",
+            .{
+                .tag = .branch_hint,
+                .param_count = 1,
+                .illegal_outside_function = true,
             },
         },
         .{
@@ -474,7 +481,7 @@ pub const list = list: {
             "@errorCast",
             .{
                 .tag = .error_cast,
-                .eval_to_error = .always,
+                .eval_to_error = .maybe,
                 .param_count = 1,
             },
         },
@@ -490,13 +497,6 @@ pub const list = list: {
             .{
                 .tag = .@"extern",
                 .param_count = 2,
-            },
-        },
-        .{
-            "@fence",
-            .{
-                .tag = .fence,
-                .param_count = 1,
             },
         },
         .{
@@ -740,14 +740,6 @@ pub const list = list: {
             "@setAlignStack",
             .{
                 .tag = .set_align_stack,
-                .param_count = 1,
-                .illegal_outside_function = true,
-            },
-        },
-        .{
-            "@setCold",
-            .{
-                .tag = .set_cold,
                 .param_count = 1,
                 .illegal_outside_function = true,
             },

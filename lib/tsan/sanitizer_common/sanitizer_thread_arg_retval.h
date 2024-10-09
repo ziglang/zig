@@ -93,6 +93,7 @@ class SANITIZER_MUTEX ThreadArgRetval {
   // will keep pointers alive forever, missing leaks caused by cancelation.
 
  private:
+  static const u32 kInvalidGen = UINT32_MAX;
   struct Data {
     Args args;
     u32 gen;  // Avoid collision if thread id re-used.

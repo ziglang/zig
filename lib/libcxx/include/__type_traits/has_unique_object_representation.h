@@ -12,7 +12,6 @@
 #include <__config>
 #include <__type_traits/integral_constant.h>
 #include <__type_traits/remove_all_extents.h>
-#include <__type_traits/remove_cv.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -24,10 +23,15 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _Tp>
 struct _LIBCPP_TEMPLATE_VIS has_unique_object_representations
-    : public integral_constant<bool, __has_unique_object_representations(remove_cv_t<remove_all_extents_t<_Tp>>)> {};
+    // TODO: We work around a Clang and GCC bug in __has_unique_object_representations by using remove_all_extents
+    //       even though it should not be necessary. This was reported to the compilers:
+    //         - Clang: https://github.com/llvm/llvm-project/issues/95311
+    //         - GCC: https://gcc.gnu.org/bugzilla/show_bug.cgi?id=115476
+    //       remove_all_extents_t can be removed once all the compilers we support have fixed this bug.
+    : public integral_constant<bool, __has_unique_object_representations(remove_all_extents_t<_Tp>)> {};
 
 template <class _Tp>
-inline constexpr bool has_unique_object_representations_v = has_unique_object_representations<_Tp>::value;
+inline constexpr bool has_unique_object_representations_v = __has_unique_object_representations(_Tp);
 
 #endif
 

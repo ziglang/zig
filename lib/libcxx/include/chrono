@@ -58,7 +58,7 @@ public:
         constexpr explicit duration(const Rep2& r,
             typename enable_if
             <
-               is_convertible<Rep2, rep>::value &&
+               is_convertible<const Rep2&, rep>::value &&
                (treat_as_floating_point<rep>::value ||
                !treat_as_floating_point<rep>::value && !treat_as_floating_point<Rep2>::value)
             >::type* = 0);
@@ -686,6 +686,12 @@ constexpr hours make24(const hours& h, bool is_pm) noexcept;
 // [time.zone.db], time zone database
 struct tzdb {                                                                    // C++20
   string                 version;
+  vector<time_zone>      zones;
+  vector<time_zone_link> links;
+  vector<leap_second>    leap_seconds;
+
+  const time_zone* locate_zone(string_view tz_name) const;
+  const time_zone* current_zone() const;
 };
 
 class tzdb_list {                                                                // C++20
@@ -711,20 +717,145 @@ public:
 // [time.zone.db.access], time zone database access
 const tzdb& get_tzdb();                                                          // C++20
 tzdb_list& get_tzdb_list();                                                      // C++20
+const time_zone* locate_zone(string_view tz_name);                               // C++20
+const time_zone* current_zone()                                                  // C++20
 
 // [time.zone.db.remote], remote time zone database support
 const tzdb& reload_tzdb();                                                       // C++20
 string remote_version();                                                         // C++20
 
-// 25.10.5, class time_zone    // C++20
+// [time.zone.exception], exception classes
+class nonexistent_local_time;                                                    // C++20
+class ambiguous_local_time;                                                      // C++20
+
+// [time.zone.info], information classes
+struct sys_info {                                                                // C++20
+  sys_seconds   begin;
+  sys_seconds   end;
+  seconds       offset;
+  minutes       save;
+  string        abbrev;
+};
+
+template<class charT, class traits>                                              // C++20
+  basic_ostream<charT, traits>&
+    operator<<(basic_ostream<charT, traits>& os, const sys_info& si);
+
+struct local_info {                                                             // C++20
+  static constexpr int unique      = 0;
+  static constexpr int nonexistent = 1;
+  static constexpr int ambiguous   = 2;
+
+  int result;
+  sys_info first;
+  sys_info second;
+};
+
+template<class charT, class traits>                                              // C++20
+  basic_ostream<charT, traits>&
+    operator<<(basic_ostream<charT, traits>& os, const local_info& li);
+
+// 25.10.5, class time_zone                                                      // C++20
 enum class choose {earliest, latest};
-class time_zone;
-bool operator==(const time_zone& x, const time_zone& y) noexcept;
-bool operator!=(const time_zone& x, const time_zone& y) noexcept;
-bool operator<(const time_zone& x, const time_zone& y) noexcept;
-bool operator>(const time_zone& x, const time_zone& y) noexcept;
-bool operator<=(const time_zone& x, const time_zone& y) noexcept;
-bool operator>=(const time_zone& x, const time_zone& y) noexcept;
+class time_zone {
+  time_zone(time_zone&&) = default;
+  time_zone& operator=(time_zone&&) = default;
+
+  // unspecified additional constructors
+
+  string_view name() const noexcept;
+
+  template<class Duration>
+  sys_info get_info(const sys_time<Duration>& st) const;
+
+  template<class Duration>
+  local_info get_info(const local_time<Duration>& tp) const;
+
+  template<class Duration>
+  sys_time<common_type_t<Duration, seconds>>
+    to_sys(const local_time<Duration>& tp) const;
+
+  template<class Duration>
+  sys_time<common_type_t<Duration, seconds>>
+    to_sys(const local_time<Duration>& tp, choose z) const;
+
+  template<class Duration>
+  local_time<common_type_t<Duration, seconds>>
+    to_local(const sys_time<Duration>& tp) const;
+};
+bool operator==(const time_zone& x, const time_zone& y) noexcept;                // C++20
+strong_ordering operator<=>(const time_zone& x, const time_zone& y) noexcept;    // C++20
+
+// [time.zone.zonedtraits], class template zoned_traits
+template<class T> struct zoned_traits;                                           // C++20
+
+// [time.zone.zonedtime], class template zoned_time
+template<class Duration, class TimeZonePtr = const time_zone*>                   // C++20
+class zoned_time;
+
+using zoned_seconds = zoned_time<seconds>;                                       // C++20
+
+template<class Duration1, class Duration2, class TimeZonePtr>                    // C++20
+  bool operator==(const zoned_time<Duration1, TimeZonePtr>& x,
+                  const zoned_time<Duration2, TimeZonePtr>& y);
+
+template<class charT, class traits, class Duration, class TimeZonePtr>           // C++20
+  basic_ostream<charT, traits>&
+    operator<<(basic_ostream<charT, traits>& os,
+               const zoned_time<Duration, TimeZonePtr>& t);
+
+// [time.zone.leap], leap second support
+class leap_second {                                                              // C++20
+public:
+  leap_second(const leap_second&)            = default;
+  leap_second& operator=(const leap_second&) = default;
+
+  // unspecified additional constructors
+
+  constexpr sys_seconds date() const noexcept;
+  constexpr seconds value() const noexcept;
+};
+
+constexpr bool operator==(const leap_second& x, const leap_second& y);           // C++20
+constexpr strong_ordering operator<=>(const leap_second& x, const leap_second& y);
+
+template<class Duration>                                                         // C++20
+  constexpr bool operator==(const leap_second& x, const sys_time<Duration>& y);
+template<class Duration>                                                         // C++20
+  constexpr bool operator< (const leap_second& x, const sys_time<Duration>& y);
+template<class Duration>                                                         // C++20
+  constexpr bool operator< (const sys_time<Duration>& x, const leap_second& y);
+template<class Duration>                                                         // C++20
+  constexpr bool operator> (const leap_second& x, const sys_time<Duration>& y);
+template<class Duration>                                                         // C++20
+  constexpr bool operator> (const sys_time<Duration>& x, const leap_second& y);
+template<class Duration>                                                         // C++20
+  constexpr bool operator<=(const leap_second& x, const sys_time<Duration>& y);
+template<class Duration>                                                         // C++20
+  constexpr bool operator<=(const sys_time<Duration>& x, const leap_second& y);
+template<class Duration>                                                         // C++20
+  constexpr bool operator>=(const leap_second& x, const sys_time<Duration>& y);
+template<class Duration>                                                         // C++20
+  constexpr bool operator>=(const sys_time<Duration>& x, const leap_second& y);
+template<class Duration>                                                         // C++20
+  requires three_way_comparable_with<sys_seconds, sys_time<Duration>>
+  constexpr auto operator<=>(const leap_second& x, const sys_time<Duration>& y);
+
+// [time.zone.link], class time_zone_link
+class time_zone_link {                                                           // C++20
+public:
+  time_zone_link(time_zone_link&&)            = default;
+  time_zone_link& operator=(time_zone_link&&) = default;
+
+  // unspecified additional constructors
+
+  string_view name()   const noexcept;
+  string_view target() const noexcept;
+};
+
+bool operator==(const time_zone_link& x, const time_zone_link& y);               // C++20
+strong_ordering operator<=>(const time_zone_link& x, const time_zone_link& y);   // C++20
+
 }  // chrono
 
 namespace std {
@@ -753,6 +884,10 @@ namespace std {
   template<class charT> struct formatter<chrono::year_month_weekday_last, charT>; // C++20
   template<class Rep, class Period, class charT>
     struct formatter<chrono::hh_mm_ss<duration<Rep, Period>>, charT>;             // C++20
+  template<class charT> struct formatter<chrono::sys_info, charT>;                // C++20
+  template<class charT> struct formatter<chrono::local_info, charT>;              // C++20
+  template<class Duration, class TimeZonePtr, class charT>                        // C++20
+    struct formatter<chrono::zoned_time<Duration, TimeZonePtr>, charT>;
 } // namespace std
 
 namespace chrono {
@@ -804,28 +939,51 @@ constexpr chrono::year                                  operator ""y(unsigned lo
 
 // clang-format on
 
-#include <__assert> // all public C++ headers provide the assertion handler
-#include <__chrono/calendar.h>
-#include <__chrono/convert_to_timespec.h>
-#include <__chrono/convert_to_tm.h>
-#include <__chrono/day.h>
+#include <__config>
+
 #include <__chrono/duration.h>
 #include <__chrono/file_clock.h>
-#include <__chrono/hh_mm_ss.h>
 #include <__chrono/high_resolution_clock.h>
-#include <__chrono/literals.h>
-#include <__chrono/month.h>
-#include <__chrono/month_weekday.h>
-#include <__chrono/monthday.h>
 #include <__chrono/steady_clock.h>
 #include <__chrono/system_clock.h>
 #include <__chrono/time_point.h>
-#include <__chrono/weekday.h>
-#include <__chrono/year.h>
-#include <__chrono/year_month.h>
-#include <__chrono/year_month_day.h>
-#include <__chrono/year_month_weekday.h>
-#include <__config>
+
+#if _LIBCPP_STD_VER >= 20
+#  include <__chrono/calendar.h>
+#  include <__chrono/day.h>
+#  include <__chrono/exception.h>
+#  include <__chrono/hh_mm_ss.h>
+#  include <__chrono/literals.h>
+#  include <__chrono/local_info.h>
+#  include <__chrono/month.h>
+#  include <__chrono/month_weekday.h>
+#  include <__chrono/monthday.h>
+#  include <__chrono/sys_info.h>
+#  include <__chrono/weekday.h>
+#  include <__chrono/year.h>
+#  include <__chrono/year_month.h>
+#  include <__chrono/year_month_day.h>
+#  include <__chrono/year_month_weekday.h>
+
+#  if !defined(_LIBCPP_HAS_NO_LOCALIZATION)
+#    include <__chrono/formatter.h>
+#    include <__chrono/ostream.h>
+#    include <__chrono/parser_std_format_spec.h>
+#    include <__chrono/statically_widen.h>
+#  endif
+
+#  if !defined(_LIBCPP_HAS_NO_TIME_ZONE_DATABASE) && !defined(_LIBCPP_HAS_NO_FILESYSTEM) &&                            \
+      !defined(_LIBCPP_HAS_NO_LOCALIZATION)
+#    include <__chrono/leap_second.h>
+#    include <__chrono/time_zone.h>
+#    include <__chrono/time_zone_link.h>
+#    include <__chrono/tzdb.h>
+#    include <__chrono/tzdb_list.h>
+#    include <__chrono/zoned_time.h>
+#  endif
+
+#endif
+
 #include <version>
 
 // standard-mandated includes
@@ -833,21 +991,15 @@ constexpr chrono::year                                  operator ""y(unsigned lo
 // [time.syn]
 #include <compare>
 
-#if !defined(_LIBCPP_HAS_NO_LOCALIZATION) && _LIBCPP_STD_VER >= 20
-#  include <__chrono/formatter.h>
-#  include <__chrono/ostream.h>
-#  include <__chrono/parser_std_format_spec.h>
-#  include <__chrono/statically_widen.h>
-#endif
-
-#if !defined(_LIBCPP_HAS_NO_TIME_ZONE_DATABASE) && !defined(_LIBCPP_HAS_NO_FILESYSTEM) &&                              \
-    !defined(_LIBCPP_HAS_NO_LOCALIZATION)
-#  include <__chrono/tzdb.h>
-#  include <__chrono/tzdb_list.h>
-#endif
-
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
+#endif
+
+#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 17
+#  include <cstdint>
+#  include <stdexcept>
+#  include <string_view>
+#  include <vector>
 #endif
 
 #if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
@@ -856,10 +1008,15 @@ constexpr chrono::year                                  operator ""y(unsigned lo
 #  include <cstring>
 #  include <forward_list>
 #  include <string>
+#  include <tuple>
 #endif
 
 #if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER == 20
 #  include <charconv>
+#  if !defined(_LIBCPP_HAS_NO_LOCALIZATION)
+#    include <locale>
+#    include <ostream>
+#  endif
 #endif
 
 #endif // _LIBCPP_CHRONO

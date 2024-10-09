@@ -760,8 +760,8 @@ pub const Inst = struct {
         /// Uses `ri` payload.
         ri_u,
         /// Register, 64-bit unsigned immediate operands.
-        /// Uses `rx` payload with payload type `Imm64`.
-        ri64,
+        /// Uses `ri` payload with `i` index of extra data of type `Imm64`.
+        ri_64,
         /// Immediate (sign-extended) operand.
         /// Uses `imm` payload.
         i_s,
@@ -769,7 +769,7 @@ pub const Inst = struct {
         /// Uses `imm` payload.
         i_u,
         /// Relative displacement operand.
-        /// Uses `imm` payload.
+        /// Uses `reloc` payload.
         rel,
         /// Register, memory operands.
         /// Uses `rx` payload with extra data of type `Memory`.
@@ -796,7 +796,7 @@ pub const Inst = struct {
         /// Uses `rrix` payload with extra data of type `Memory`.
         rrmi,
         /// Single memory operand.
-        /// Uses `x` with extra data of type `Memory`.
+        /// Uses `x` payload with extra data of type `Memory`.
         m,
         /// Memory, immediate (sign-extend) operands.
         /// Uses `x` payload with extra data of type `Imm32` followed by `Memory`.
@@ -820,16 +820,16 @@ pub const Inst = struct {
         /// Uses `reloc` payload.
         extern_fn_reloc,
         /// Linker relocation - GOT indirection.
-        /// Uses `rx` payload with extra data of type `bits.Symbol`.
+        /// Uses `rx` payload with extra data of type `bits.SymbolOffset`.
         got_reloc,
         /// Linker relocation - direct reference.
-        /// Uses `rx` payload with extra data of type `bits.Symbol`.
+        /// Uses `rx` payload with extra data of type `bits.SymbolOffset`.
         direct_reloc,
         /// Linker relocation - imports table indirection (binding).
-        /// Uses `rx` payload with extra data of type `bits.Symbol`.
+        /// Uses `rx` payload with extra data of type `bits.SymbolOffset`.
         import_reloc,
         /// Linker relocation - threadlocal variable via GOT indirection.
-        /// Uses `rx` payload with extra data of type `bits.Symbol`.
+        /// Uses `rx` payload with extra data of type `bits.SymbolOffset`.
         tlv_reloc,
 
         // Pseudo instructions:
@@ -868,23 +868,65 @@ pub const Inst = struct {
         pseudo_j_nz_or_p_inst,
 
         /// Probe alignment
-        /// Uses `ri` payload
+        /// Uses `ri` payload.
         pseudo_probe_align_ri_s,
         /// Probe adjust unrolled
-        /// Uses `ri` payload
+        /// Uses `ri` payload.
         pseudo_probe_adjust_unrolled_ri_s,
         /// Probe adjust setup
-        /// Uses `rri` payload
+        /// Uses `rri` payload.
         pseudo_probe_adjust_setup_rri_s,
         /// Probe adjust loop
-        /// Uses `rr` payload
+        /// Uses `rr` payload.
         pseudo_probe_adjust_loop_rr,
+
         /// Push registers
         /// Uses `reg_list` payload.
         pseudo_push_reg_list,
         /// Pop registers
         /// Uses `reg_list` payload.
         pseudo_pop_reg_list,
+
+        /// Define cfa rule as offset from register.
+        /// Uses `ri` payload.
+        pseudo_cfi_def_cfa_ri_s,
+        /// Modify cfa rule register.
+        /// Uses `r` payload.
+        pseudo_cfi_def_cfa_register_r,
+        /// Modify cfa rule offset.
+        /// Uses `i` payload.
+        pseudo_cfi_def_cfa_offset_i_s,
+        /// Offset cfa rule offset.
+        /// Uses `i` payload.
+        pseudo_cfi_adjust_cfa_offset_i_s,
+        /// Define register rule as stored at offset from cfa.
+        /// Uses `ri` payload.
+        pseudo_cfi_offset_ri_s,
+        /// Define register rule as offset from cfa.
+        /// Uses `ri` payload.
+        pseudo_cfi_val_offset_ri_s,
+        /// Define register rule as stored at offset from cfa rule register.
+        /// Uses `ri` payload.
+        pseudo_cfi_rel_offset_ri_s,
+        /// Define register rule as register.
+        /// Uses `rr` payload.
+        pseudo_cfi_register_rr,
+        /// Define register rule from initial.
+        /// Uses `r` payload.
+        pseudo_cfi_restore_r,
+        /// Define register rule as undefined.
+        /// Uses `r` payload.
+        pseudo_cfi_undefined_r,
+        /// Define register rule as itself.
+        /// Uses `r` payload.
+        pseudo_cfi_same_value_r,
+        /// Push cfi state.
+        pseudo_cfi_remember_state_none,
+        /// Pop cfi state.
+        pseudo_cfi_restore_state_none,
+        /// Raw cfi bytes.
+        /// Uses `bytes` payload.
+        pseudo_cfi_escape_bytes,
 
         /// End of prologue
         pseudo_dbg_prologue_end_none,
@@ -893,8 +935,39 @@ pub const Inst = struct {
         pseudo_dbg_line_line_column,
         /// Start of epilogue
         pseudo_dbg_epilogue_begin_none,
-        /// Start or end of inline function
-        pseudo_dbg_inline_func,
+        /// Start of inline function
+        pseudo_dbg_enter_inline_func,
+        /// End of inline function
+        pseudo_dbg_leave_inline_func,
+        /// Local argument or variable.
+        /// Uses `a` payload.
+        pseudo_dbg_local_a,
+        /// Local argument or variable.
+        /// Uses `ai` payload.
+        pseudo_dbg_local_ai_s,
+        /// Local argument or variable.
+        /// Uses `ai` payload.
+        pseudo_dbg_local_ai_u,
+        /// Local argument or variable.
+        /// Uses `ai` payload with extra data of type `Imm64`.
+        pseudo_dbg_local_ai_64,
+        /// Local argument or variable.
+        /// Uses `as` payload.
+        pseudo_dbg_local_as,
+        /// Local argument or variable.
+        /// Uses `ax` payload with extra data of type `bits.SymbolOffset`.
+        pseudo_dbg_local_aso,
+        /// Local argument or variable.
+        /// Uses `rx` payload with extra data of type `AirOffset`.
+        pseudo_dbg_local_aro,
+        /// Local argument or variable.
+        /// Uses `ax` payload with extra data of type `bits.FrameAddr`.
+        pseudo_dbg_local_af,
+        /// Local argument or variable.
+        /// Uses `ax` payload with extra data of type `Memory`.
+        pseudo_dbg_local_am,
+        /// Remaining arguments are varargs.
+        pseudo_dbg_var_args_none,
 
         /// Tombstone
         /// Emitter should skip this instruction.
@@ -997,10 +1070,33 @@ pub const Inst = struct {
             fixes: Fixes = ._,
             payload: u32,
         },
+        bytes: struct {
+            payload: u32,
+            len: u32,
+
+            pub fn get(bytes: @This(), mir: Mir) []const u8 {
+                return std.mem.sliceAsBytes(mir.extra[bytes.payload..])[0..bytes.len];
+            }
+        },
+        a: struct {
+            air_inst: Air.Inst.Index,
+        },
+        ai: struct {
+            air_inst: Air.Inst.Index,
+            i: u32,
+        },
+        as: struct {
+            air_inst: Air.Inst.Index,
+            sym_index: u32,
+        },
+        ax: struct {
+            air_inst: Air.Inst.Index,
+            payload: u32,
+        },
         /// Relocation for the linker where:
-        /// * `atom_index` is the index of the source
         /// * `sym_index` is the index of the target
-        reloc: bits.Symbol,
+        /// * `off` is the offset from the target
+        reloc: bits.SymbolOffset,
         /// Debug line and column position
         line_column: struct {
             line: u32,
@@ -1019,6 +1115,8 @@ pub const Inst = struct {
         }
     }
 };
+
+pub const AirOffset = struct { air_inst: Air.Inst.Index, off: i32 };
 
 /// Used in conjunction with payload to transfer a list of used registers in a compact manner.
 pub const RegisterList = struct {
@@ -1087,8 +1185,8 @@ pub const Memory = struct {
     extra: u32,
 
     pub const Info = packed struct(u32) {
-        base: @typeInfo(bits.Memory.Base).Union.tag_type.?,
-        mod: @typeInfo(bits.Memory.Mod).Union.tag_type.?,
+        base: @typeInfo(bits.Memory.Base).@"union".tag_type.?,
+        mod: @typeInfo(bits.Memory.Mod).@"union".tag_type.?,
         size: bits.Memory.Size,
         index: Register,
         scale: bits.Memory.Scale,
@@ -1118,15 +1216,13 @@ pub const Memory = struct {
                 .none => undefined,
                 .reg => |reg| @intFromEnum(reg),
                 .frame => |frame_index| @intFromEnum(frame_index),
-                .reloc => |symbol| symbol.sym_index,
+                .reloc => |sym_index| sym_index,
             },
             .off = switch (mem.mod) {
                 .rm => |rm| @bitCast(rm.disp),
                 .off => |off| @truncate(off),
             },
-            .extra = if (mem.base == .reloc)
-                mem.base.reloc.atom_index
-            else if (mem.mod == .off)
+            .extra = if (mem.mod == .off)
                 @intCast(mem.mod.off >> 32)
             else
                 undefined,
@@ -1138,15 +1234,15 @@ pub const Memory = struct {
             .rm => {
                 if (mem.info.base == .reg and @as(Register, @enumFromInt(mem.base)) == .rip) {
                     assert(mem.info.index == .none and mem.info.scale == .@"1");
-                    return encoder.Instruction.Memory.rip(mem.info.size, @bitCast(mem.off));
+                    return encoder.Instruction.Memory.initRip(mem.info.size, @bitCast(mem.off));
                 }
-                return encoder.Instruction.Memory.sib(mem.info.size, .{
+                return encoder.Instruction.Memory.initSib(mem.info.size, .{
                     .disp = @bitCast(mem.off),
                     .base = switch (mem.info.base) {
                         .none => .none,
                         .reg => .{ .reg = @enumFromInt(mem.base) },
                         .frame => .{ .frame = @enumFromInt(mem.base) },
-                        .reloc => .{ .reloc = .{ .atom_index = mem.extra, .sym_index = mem.base } },
+                        .reloc => .{ .reloc = mem.base },
                     },
                     .scale_index = switch (mem.info.index) {
                         .none => null,
@@ -1162,7 +1258,7 @@ pub const Memory = struct {
             },
             .off => {
                 assert(mem.info.base == .reg);
-                return encoder.Instruction.Memory.moffs(
+                return encoder.Instruction.Memory.initMoffs(
                     @enumFromInt(mem.base),
                     @as(u64, mem.extra) << 32 | mem.off,
                 );
@@ -1186,6 +1282,7 @@ pub fn extraData(mir: Mir, comptime T: type, index: u32) struct { data: T, end: 
         @field(result, field.name) = switch (field.type) {
             u32 => mir.extra[i],
             i32, Memory.Info => @bitCast(mir.extra[i]),
+            bits.FrameIndex, Air.Inst.Index => @enumFromInt(mir.extra[i]),
             else => @compileError("bad field type: " ++ field.name ++ ": " ++ @typeName(field.type)),
         };
         i += 1;
@@ -1201,10 +1298,15 @@ pub const FrameLoc = struct {
     disp: i32,
 };
 
+pub fn resolveFrameAddr(mir: Mir, frame_addr: bits.FrameAddr) bits.RegisterOffset {
+    const frame_loc = mir.frame_locs.get(@intFromEnum(frame_addr.index));
+    return .{ .reg = frame_loc.base, .off = frame_loc.disp + frame_addr.off };
+}
+
 pub fn resolveFrameLoc(mir: Mir, mem: Memory) Memory {
     return switch (mem.info.base) {
         .none, .reg, .reloc => mem,
-        .frame => if (mir.frame_locs.len > 0) Memory{
+        .frame => if (mir.frame_locs.len > 0) .{
             .info = .{
                 .base = .reg,
                 .mod = mem.info.mod,
@@ -1225,6 +1327,7 @@ const builtin = @import("builtin");
 const encoder = @import("encoder.zig");
 const std = @import("std");
 
+const Air = @import("../../Air.zig");
 const IntegerBitSet = std.bit_set.IntegerBitSet;
 const InternPool = @import("../../InternPool.zig");
 const Mir = @This();

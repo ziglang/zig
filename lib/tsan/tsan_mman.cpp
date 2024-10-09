@@ -9,17 +9,19 @@
 // This file is a part of ThreadSanitizer (TSan), a race detector.
 //
 //===----------------------------------------------------------------------===//
+#include "tsan_mman.h"
+
 #include "sanitizer_common/sanitizer_allocator_checks.h"
 #include "sanitizer_common/sanitizer_allocator_interface.h"
 #include "sanitizer_common/sanitizer_allocator_report.h"
 #include "sanitizer_common/sanitizer_common.h"
 #include "sanitizer_common/sanitizer_errno.h"
 #include "sanitizer_common/sanitizer_placement_new.h"
-#include "tsan_interface.h"
-#include "tsan_mman.h"
-#include "tsan_rtl.h"
-#include "tsan_report.h"
+#include "sanitizer_common/sanitizer_stackdepot.h"
 #include "tsan_flags.h"
+#include "tsan_interface.h"
+#include "tsan_report.h"
+#include "tsan_rtl.h"
 
 namespace __tsan {
 
@@ -52,7 +54,7 @@ struct MapUnmapCallback {
   }
 };
 
-static char allocator_placeholder[sizeof(Allocator)] ALIGNED(64);
+alignas(64) static char allocator_placeholder[sizeof(Allocator)];
 Allocator *allocator() {
   return reinterpret_cast<Allocator*>(&allocator_placeholder);
 }
@@ -73,7 +75,7 @@ struct GlobalProc {
         internal_alloc_mtx(MutexTypeInternalAlloc) {}
 };
 
-static char global_proc_placeholder[sizeof(GlobalProc)] ALIGNED(64);
+alignas(64) static char global_proc_placeholder[sizeof(GlobalProc)];
 GlobalProc *global_proc() {
   return reinterpret_cast<GlobalProc*>(&global_proc_placeholder);
 }
@@ -115,12 +117,21 @@ ScopedGlobalProcessor::~ScopedGlobalProcessor() {
   gp->mtx.Unlock();
 }
 
-void AllocatorLock() SANITIZER_NO_THREAD_SAFETY_ANALYSIS {
+void AllocatorLockBeforeFork() SANITIZER_NO_THREAD_SAFETY_ANALYSIS {
   global_proc()->internal_alloc_mtx.Lock();
   InternalAllocatorLock();
+#if !SANITIZER_APPLE
+  // OS X allocates from hooks, see 6a3958247a.
+  allocator()->ForceLock();
+  StackDepotLockBeforeFork();
+#endif
 }
 
-void AllocatorUnlock() SANITIZER_NO_THREAD_SAFETY_ANALYSIS {
+void AllocatorUnlockAfterFork(bool child) SANITIZER_NO_THREAD_SAFETY_ANALYSIS {
+#if !SANITIZER_APPLE
+  StackDepotUnlockAfterFork(child);
+  allocator()->ForceUnlock();
+#endif
   InternalAllocatorUnlock();
   global_proc()->internal_alloc_mtx.Unlock();
 }

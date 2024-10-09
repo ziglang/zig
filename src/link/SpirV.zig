@@ -26,6 +26,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const log = std.log.scoped(.link);
+const Path = std.Build.Cache.Path;
 
 const Zcu = @import("../Zcu.zig");
 const InternPool = @import("../InternPool.zig");
@@ -36,6 +37,7 @@ const trace = @import("../tracy.zig").trace;
 const build_options = @import("build_options");
 const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
+const Type = @import("../Type.zig");
 const Value = @import("../Value.zig");
 
 const SpvModule = @import("../codegen/spirv/Module.zig");
@@ -50,12 +52,10 @@ base: link.File,
 
 object: codegen.Object,
 
-pub const base_tag: link.File.Tag = .spirv;
-
 pub fn createEmpty(
     arena: Allocator,
     comp: *Compilation,
-    emit: Compilation.Emit,
+    emit: Path,
     options: link.File.OpenOptions,
 ) !*SpirV {
     const gpa = comp.gpa;
@@ -74,19 +74,18 @@ pub fn createEmpty(
             .file = null,
             .disable_lld_caching = options.disable_lld_caching,
             .build_id = options.build_id,
-            .rpath_list = options.rpath_list,
         },
         .object = codegen.Object.init(gpa),
     };
     errdefer self.deinit();
 
     switch (target.cpu.arch) {
-        .spirv32, .spirv64 => {},
+        .spirv, .spirv32, .spirv64 => {},
         else => unreachable, // Caught by Compilation.Config.resolve.
     }
 
     switch (target.os.tag) {
-        .opencl, .glsl450, .vulkan => {},
+        .opencl, .opengl, .vulkan => {},
         else => unreachable, // Caught by Compilation.Config.resolve.
     }
 
@@ -96,7 +95,7 @@ pub fn createEmpty(
 pub fn open(
     arena: Allocator,
     comp: *Compilation,
-    emit: Compilation.Emit,
+    emit: Path,
     options: link.File.OpenOptions,
 ) !*SpirV {
     const target = comp.root_mod.resolved_target.result;
@@ -111,7 +110,7 @@ pub fn open(
     errdefer spirv.base.destroy();
 
     // TODO: read the file and keep valid parts instead of truncating
-    const file = try emit.directory.handle.createFile(emit.sub_path, .{
+    const file = try emit.root_dir.handle.createFile(emit.sub_path, .{
         .truncate = true,
         .read = true,
     });
@@ -128,22 +127,22 @@ pub fn updateFunc(self: *SpirV, pt: Zcu.PerThread, func_index: InternPool.Index,
         @panic("Attempted to compile for architecture that was disabled by build configuration");
     }
 
+    const ip = &pt.zcu.intern_pool;
     const func = pt.zcu.funcInfo(func_index);
-    const decl = pt.zcu.declPtr(func.owner_decl);
-    log.debug("lowering function {}", .{decl.name.fmt(&pt.zcu.intern_pool)});
+    log.debug("lowering function {}", .{ip.getNav(func.owner_nav).name.fmt(ip)});
 
     try self.object.updateFunc(pt, func_index, air, liveness);
 }
 
-pub fn updateDecl(self: *SpirV, pt: Zcu.PerThread, decl_index: InternPool.DeclIndex) !void {
+pub fn updateNav(self: *SpirV, pt: Zcu.PerThread, nav: InternPool.Nav.Index) !void {
     if (build_options.skip_non_native) {
         @panic("Attempted to compile for architecture that was disabled by build configuration");
     }
 
-    const decl = pt.zcu.declPtr(decl_index);
-    log.debug("lowering declaration {}", .{decl.name.fmt(&pt.zcu.intern_pool)});
+    const ip = &pt.zcu.intern_pool;
+    log.debug("lowering declaration {}", .{ip.getNav(nav).name.fmt(ip)});
 
-    try self.object.updateDecl(pt, decl_index);
+    try self.object.updateNav(pt, nav);
 }
 
 pub fn updateExports(
@@ -152,19 +151,20 @@ pub fn updateExports(
     exported: Zcu.Exported,
     export_indices: []const u32,
 ) !void {
-    const mod = pt.zcu;
-    const decl_index = switch (exported) {
-        .decl_index => |i| i,
-        .value => |val| {
-            _ = val;
+    const zcu = pt.zcu;
+    const ip = &zcu.intern_pool;
+    const nav_index = switch (exported) {
+        .nav => |nav| nav,
+        .uav => |uav| {
+            _ = uav;
             @panic("TODO: implement SpirV linker code for exporting a constant value");
         },
     };
-    const decl = mod.declPtr(decl_index);
-    if (decl.val.isFuncBody(mod)) {
-        const target = mod.getTarget();
-        const spv_decl_index = try self.object.resolveDecl(mod, decl_index);
-        const execution_model = switch (decl.typeOf(mod).fnCallingConvention(mod)) {
+    const nav_ty = ip.getNav(nav_index).typeOf(ip);
+    if (ip.isFunctionType(nav_ty)) {
+        const target = zcu.getTarget();
+        const spv_decl_index = try self.object.resolveNav(zcu, nav_index);
+        const execution_model = switch (Type.fromInterned(nav_ty).fnCallingConvention(zcu)) {
             .Vertex => spec.ExecutionModel.Vertex,
             .Fragment => spec.ExecutionModel.Fragment,
             .Kernel => spec.ExecutionModel.Kernel,
@@ -177,10 +177,10 @@ pub fn updateExports(
             (is_vulkan and (execution_model == .Fragment or execution_model == .Vertex)))
         {
             for (export_indices) |export_idx| {
-                const exp = mod.all_exports.items[export_idx];
+                const exp = zcu.all_exports.items[export_idx];
                 try self.object.spv.declareEntryPoint(
                     spv_decl_index,
-                    exp.opts.name.toSlice(&mod.intern_pool),
+                    exp.opts.name.toSlice(ip),
                     execution_model,
                 );
             }
@@ -228,7 +228,7 @@ pub fn flushModule(self: *SpirV, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
     defer error_info.deinit();
 
     try error_info.appendSlice("zig_errors:");
-    const ip = &self.base.comp.module.?.intern_pool;
+    const ip = &self.base.comp.zcu.?.intern_pool;
     for (ip.global_error_set.getNamesFromMainThread()) |name| {
         // Errors can contain pretty much any character - to encode them in a string we must escape
         // them somehow. Easiest here is to use some established scheme, one which also preseves the
@@ -290,7 +290,7 @@ fn writeCapabilities(spv: *SpvModule, target: std.Target) !void {
     // TODO: Integrate with a hypothetical feature system
     const caps: []const spec.Capability = switch (target.os.tag) {
         .opencl => &.{ .Kernel, .Addresses, .Int8, .Int16, .Int64, .Float64, .Float16, .Vector16, .GenericPointer },
-        .glsl450 => &.{.Shader},
+        .opengl => &.{.Shader},
         .vulkan => &.{ .Shader, .VariablePointersStorageBuffer, .Int8, .Int16, .Int64, .Float64, .Float16 },
         else => unreachable, // TODO
     };
@@ -311,13 +311,13 @@ fn writeMemoryModel(spv: *SpvModule, target: std.Target) !void {
             .spirv64 => spec.AddressingModel.Physical64,
             else => unreachable, // TODO
         },
-        .glsl450, .vulkan => spec.AddressingModel.Logical,
+        .opengl, .vulkan => spec.AddressingModel.Logical,
         else => unreachable, // TODO
     };
 
     const memory_model: spec.MemoryModel = switch (target.os.tag) {
         .opencl => .OpenCL,
-        .glsl450 => .GLSL450,
+        .opengl => .GLSL450,
         .vulkan => .GLSL450,
         else => unreachable,
     };

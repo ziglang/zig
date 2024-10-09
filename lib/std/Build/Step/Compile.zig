@@ -17,6 +17,7 @@ const Module = std.Build.Module;
 const InstallDir = std.Build.InstallDir;
 const GeneratedFile = std.Build.GeneratedFile;
 const Compile = @This();
+const Path = std.Build.Cache.Path;
 
 pub const base_id: Step.Id = .compile;
 
@@ -217,17 +218,24 @@ no_builtin: bool = false,
 /// Managed by the build runner, not user build script.
 zig_process: ?*Step.ZigProcess,
 
-/// Enables deprecated coverage instrumentation that is only useful if you
-/// are using third party fuzzers that depend on it. Otherwise, slows down
-/// the instrumented binary with unnecessary function calls.
+/// Enables coverage instrumentation that is only useful if you are using third
+/// party fuzzers that depend on it. Otherwise, slows down the instrumented
+/// binary with unnecessary function calls.
 ///
-/// To enable fuzz testing instrumentation on a compilation, see the `fuzz`
-/// flag in `Module`.
+/// This kind of coverage instrumentation is used by AFLplusplus v4.21c,
+/// however, modern fuzzers - including Zig - have switched to using "inline
+/// 8-bit counters" or "inline bool flag" which incurs only a single
+/// instruction for coverage, along with "trace cmp" which instruments
+/// comparisons and reports the operands.
+///
+/// To instead enable fuzz testing instrumentation on a compilation using Zig's
+/// builtin fuzzer, see the `fuzz` flag in `Module`.
 sanitize_coverage_trace_pc_guard: ?bool = null,
 
 pub const ExpectedCompileErrors = union(enum) {
     contains: []const u8,
     exact: []const []const u8,
+    starts_with: []const u8,
 };
 
 pub const Entry = union(enum) {
@@ -1063,8 +1071,8 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
         // Stores system libraries that have already been seen for at least one
         // module, along with any arguments that need to be passed to the
         // compiler for each module individually.
-        var seen_system_libs: std.StringHashMapUnmanaged([]const []const u8) = .{};
-        var frameworks: std.StringArrayHashMapUnmanaged(Module.LinkFrameworkOptions) = .{};
+        var seen_system_libs: std.StringHashMapUnmanaged([]const []const u8) = .empty;
+        var frameworks: std.StringArrayHashMapUnmanaged(Module.LinkFrameworkOptions) = .empty;
 
         var prev_has_cflags = false;
         var prev_has_rcflags = false;
@@ -1765,7 +1773,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
 
     const zig_args = try getZigArgs(compile, false);
 
-    const maybe_output_bin_path = step.evalZigProcess(
+    const maybe_output_dir = step.evalZigProcess(
         zig_args,
         options.progress_node,
         (b.graph.incremental == true) and options.watch,
@@ -1779,53 +1787,51 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     };
 
     // Update generated files
-    if (maybe_output_bin_path) |output_bin_path| {
-        const output_dir = fs.path.dirname(output_bin_path).?;
-
+    if (maybe_output_dir) |output_dir| {
         if (compile.emit_directory) |lp| {
-            lp.path = output_dir;
+            lp.path = b.fmt("{}", .{output_dir});
         }
 
         // -femit-bin[=path]         (default) Output machine code
         if (compile.generated_bin) |bin| {
-            bin.path = b.pathJoin(&.{ output_dir, compile.out_filename });
+            bin.path = output_dir.joinString(b.allocator, compile.out_filename) catch @panic("OOM");
         }
 
-        const sep = std.fs.path.sep;
+        const sep = std.fs.path.sep_str;
 
         // output PDB if someone requested it
         if (compile.generated_pdb) |pdb| {
-            pdb.path = b.fmt("{s}{c}{s}.pdb", .{ output_dir, sep, compile.name });
+            pdb.path = b.fmt("{}" ++ sep ++ "{s}.pdb", .{ output_dir, compile.name });
         }
 
         // -femit-implib[=path]      (default) Produce an import .lib when building a Windows DLL
         if (compile.generated_implib) |implib| {
-            implib.path = b.fmt("{s}{c}{s}.lib", .{ output_dir, sep, compile.name });
+            implib.path = b.fmt("{}" ++ sep ++ "{s}.lib", .{ output_dir, compile.name });
         }
 
         // -femit-h[=path]           Generate a C header file (.h)
         if (compile.generated_h) |lp| {
-            lp.path = b.fmt("{s}{c}{s}.h", .{ output_dir, sep, compile.name });
+            lp.path = b.fmt("{}" ++ sep ++ "{s}.h", .{ output_dir, compile.name });
         }
 
         // -femit-docs[=path]        Create a docs/ dir with html documentation
         if (compile.generated_docs) |generated_docs| {
-            generated_docs.path = b.pathJoin(&.{ output_dir, "docs" });
+            generated_docs.path = output_dir.joinString(b.allocator, "docs") catch @panic("OOM");
         }
 
         // -femit-asm[=path]         Output .s (assembly code)
         if (compile.generated_asm) |lp| {
-            lp.path = b.fmt("{s}{c}{s}.s", .{ output_dir, sep, compile.name });
+            lp.path = b.fmt("{}" ++ sep ++ "{s}.s", .{ output_dir, compile.name });
         }
 
         // -femit-llvm-ir[=path]     Produce a .ll file with optimized LLVM IR (requires LLVM extensions)
         if (compile.generated_llvm_ir) |lp| {
-            lp.path = b.fmt("{s}{c}{s}.ll", .{ output_dir, sep, compile.name });
+            lp.path = b.fmt("{}" ++ sep ++ "{s}.ll", .{ output_dir, compile.name });
         }
 
         // -femit-llvm-bc[=path]     Produce an optimized LLVM module as a .bc file (requires LLVM extensions)
         if (compile.generated_llvm_bc) |lp| {
-            lp.path = b.fmt("{s}{c}{s}.bc", .{ output_dir, sep, compile.name });
+            lp.path = b.fmt("{}" ++ sep ++ "{s}.bc", .{ output_dir, compile.name });
         }
     }
 
@@ -1841,7 +1847,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     }
 }
 
-pub fn rebuildInFuzzMode(c: *Compile, progress_node: std.Progress.Node) ![]const u8 {
+pub fn rebuildInFuzzMode(c: *Compile, progress_node: std.Progress.Node) !Path {
     const gpa = c.step.owner.allocator;
 
     c.step.result_error_msgs.clearRetainingCapacity();
@@ -1953,6 +1959,17 @@ fn checkCompileErrors(compile: *Compile) !void {
 
     // TODO merge this with the testing.expectEqualStrings logic, and also CheckFile
     switch (expect_errors) {
+        .starts_with => |expect_starts_with| {
+            if (std.mem.startsWith(u8, actual_stderr, expect_starts_with)) return;
+            return compile.step.fail(
+                \\
+                \\========= should start with: ============
+                \\{s}
+                \\========= but not found: ================
+                \\{s}
+                \\=========================================
+            , .{ expect_starts_with, actual_stderr });
+        },
         .contains => |expect_line| {
             while (actual_line_it.next()) |actual_line| {
                 if (!matchCompileError(actual_line, expect_line)) continue;

@@ -446,9 +446,9 @@ void Acquire(ThreadState *thr, uptr pc, uptr addr) {
   if (!s)
     return;
   SlotLocker locker(thr);
+  ReadLock lock(&s->mtx);
   if (!s->clock)
     return;
-  ReadLock lock(&s->mtx);
   thr->clock.Acquire(s->clock);
 }
 

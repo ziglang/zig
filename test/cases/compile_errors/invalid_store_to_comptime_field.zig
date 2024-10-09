@@ -25,21 +25,21 @@ pub export fn entry3() void {
     const U = struct {
         comptime foo: u32 = 1,
         bar: u32,
-        fn foo(x: @This()) void {
+        fn qux(x: @This()) void {
             _ = x;
         }
     };
-    _ = U.foo(U{ .foo = 2, .bar = 2 });
+    _ = U.qux(U{ .foo = 2, .bar = 2 });
 }
 pub export fn entry4() void {
     const U = struct {
         comptime foo: u32 = 1,
         bar: u32,
-        fn foo(x: @This()) void {
+        fn qux(x: @This()) void {
             _ = x;
         }
     };
-    _ = U.foo(.{ .foo = 2, .bar = 2 });
+    _ = U.qux(.{ .foo = 2, .bar = 2 });
 }
 pub export fn entry5() void {
     comptime var y = .{ 1, 2 };

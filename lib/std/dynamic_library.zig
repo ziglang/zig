@@ -147,12 +147,76 @@ pub const ElfDynLib = struct {
 
     pub const Error = ElfDynLibError;
 
+    fn openPath(path: []const u8) !std.fs.Dir {
+        if (path.len == 0) return error.NotDir;
+        var parts = std.mem.tokenizeScalar(u8, path, '/');
+        var parent = if (path[0] == '/') try std.fs.cwd().openDir("/", .{}) else std.fs.cwd();
+        while (parts.next()) |part| {
+            const child = try parent.openDir(part, .{});
+            parent.close();
+            parent = child;
+        }
+        return parent;
+    }
+
+    fn resolveFromSearchPath(search_path: []const u8, file_name: []const u8, delim: u8) ?posix.fd_t {
+        var paths = std.mem.tokenizeScalar(u8, search_path, delim);
+        while (paths.next()) |p| {
+            var dir = openPath(p) catch continue;
+            defer dir.close();
+            const fd = posix.openat(dir.fd, file_name, .{
+                .ACCMODE = .RDONLY,
+                .CLOEXEC = true,
+            }, 0) catch continue;
+            return fd;
+        }
+        return null;
+    }
+
+    fn resolveFromParent(dir_path: []const u8, file_name: []const u8) ?posix.fd_t {
+        var dir = std.fs.cwd().openDir(dir_path, .{}) catch return null;
+        defer dir.close();
+        return posix.openat(dir.fd, file_name, .{
+            .ACCMODE = .RDONLY,
+            .CLOEXEC = true,
+        }, 0) catch null;
+    }
+
+    // This implements enough to be able to load system libraries in general
+    // Places where it differs from dlopen:
+    // - DT_RPATH of the calling binary is not used as a search path
+    // - DT_RUNPATH of the calling binary is not used as a search path
+    // - /etc/ld.so.cache is not read
+    fn resolveFromName(path_or_name: []const u8) !posix.fd_t {
+        // If filename contains a slash ("/"), then it is interpreted as a (relative or absolute) pathname
+        if (std.mem.indexOfScalarPos(u8, path_or_name, 0, '/')) |_| {
+            return posix.open(path_or_name, .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
+        }
+
+        // Only read LD_LIBRARY_PATH if the binary is not setuid/setgid
+        if (std.os.linux.geteuid() == std.os.linux.getuid() and
+            std.os.linux.getegid() == std.os.linux.getgid())
+        {
+            if (posix.getenvZ("LD_LIBRARY_PATH")) |ld_library_path| {
+                if (resolveFromSearchPath(ld_library_path, path_or_name, ':')) |fd| {
+                    return fd;
+                }
+            }
+        }
+
+        // Lastly the directories /lib and /usr/lib are searched (in this exact order)
+        if (resolveFromParent("/lib", path_or_name)) |fd| return fd;
+        if (resolveFromParent("/usr/lib", path_or_name)) |fd| return fd;
+        return error.FileNotFound;
+    }
+
     /// Trusts the file. Malicious file will be able to execute arbitrary code.
     pub fn open(path: []const u8) Error!ElfDynLib {
-        const fd = try posix.open(path, .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
+        const fd = try resolveFromName(path);
         defer posix.close(fd);
 
-        const stat = try posix.fstat(fd);
+        const file: std.fs.File = .{ .handle = fd };
+        const stat = try file.stat();
         const size = std.math.cast(usize, stat.size) orelse return error.FileTooBig;
 
         // This one is to read the ELF info. We do more mmapping later

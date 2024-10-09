@@ -86,21 +86,38 @@ pub fn getExternalExecutor(
             .arm => Executor{ .qemu = "qemu-arm" },
             .armeb => Executor{ .qemu = "qemu-armeb" },
             .hexagon => Executor{ .qemu = "qemu-hexagon" },
-            .x86 => Executor{ .qemu = "qemu-i386" },
+            .loongarch64 => Executor{ .qemu = "qemu-loongarch64" },
             .m68k => Executor{ .qemu = "qemu-m68k" },
             .mips => Executor{ .qemu = "qemu-mips" },
             .mipsel => Executor{ .qemu = "qemu-mipsel" },
-            .mips64 => Executor{ .qemu = "qemu-mips64" },
-            .mips64el => Executor{ .qemu = "qemu-mips64el" },
+            .mips64 => Executor{
+                .qemu = if (candidate.abi == .gnuabin32)
+                    "qemu-mipsn32"
+                else
+                    "qemu-mips64",
+            },
+            .mips64el => Executor{
+                .qemu = if (candidate.abi == .gnuabin32)
+                    "qemu-mipsn32el"
+                else
+                    "qemu-mips64el",
+            },
             .powerpc => Executor{ .qemu = "qemu-ppc" },
             .powerpc64 => Executor{ .qemu = "qemu-ppc64" },
             .powerpc64le => Executor{ .qemu = "qemu-ppc64le" },
             .riscv32 => Executor{ .qemu = "qemu-riscv32" },
             .riscv64 => Executor{ .qemu = "qemu-riscv64" },
             .s390x => Executor{ .qemu = "qemu-s390x" },
-            .sparc => Executor{ .qemu = "qemu-sparc" },
+            .sparc => Executor{
+                .qemu = if (std.Target.sparc.featureSetHas(candidate.cpu.features, .v9))
+                    "qemu-sparc32plus"
+                else
+                    "qemu-sparc",
+            },
             .sparc64 => Executor{ .qemu = "qemu-sparc64" },
+            .x86 => Executor{ .qemu = "qemu-i386" },
             .x86_64 => Executor{ .qemu = "qemu-x86_64" },
+            .xtensa => Executor{ .qemu = "qemu-xtensa" },
             else => return bad_result,
         };
     }
@@ -155,6 +172,7 @@ pub const DetectError = error{
     DeviceBusy,
     OSVersionDetectionFail,
     Unexpected,
+    ProcessNotFound,
 };
 
 /// Given a `Target.Query`, which specifies in detail which parts of the
@@ -367,6 +385,22 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
         query.cpu_features_add,
         query.cpu_features_sub,
     );
+
+    if (cpu_arch == .hexagon) {
+        // Both LLVM and LLD have broken support for the small data area. Yet LLVM has the feature
+        // on by default for all Hexagon CPUs. Clang sort of solves this by defaulting the `-gpsize`
+        // command line parameter for the Hexagon backend to 0, so that no constants get placed in
+        // the SDA. (This of course breaks down if the user passes `-G <n>` to Clang...) We can't do
+        // the `-gpsize` hack because we can have multiple concurrent LLVM emit jobs, and command
+        // line options in LLVM are shared globally. So just force this feature off. Lovely stuff.
+        result.cpu.features.removeFeature(@intFromEnum(Target.hexagon.Feature.small_data));
+    }
+
+    // https://github.com/llvm/llvm-project/issues/105978
+    if (result.cpu.arch.isArmOrThumb() and result.floatAbi() == .soft) {
+        result.cpu.features.removeFeature(@intFromEnum(Target.arm.Feature.vfp2));
+    }
+
     return result;
 }
 
@@ -420,6 +454,7 @@ pub const AbiAndDynamicLinkerFromFileError = error{
     Unexpected,
     UnexpectedEndOfFile,
     NameTooLong,
+    ProcessNotFound,
 };
 
 pub fn abiAndDynamicLinkerFromFile(
@@ -808,6 +843,7 @@ fn glibcVerFromRPath(rpath: []const u8) !std.SemanticVersion {
         error.UnableToReadElfFile,
         error.Unexpected,
         error.FileSystem,
+        error.ProcessNotFound,
         => |e| return e,
     };
 }
@@ -1054,6 +1090,7 @@ fn detectAbiAndDynamicLinker(
             const len = preadAtLeast(file, &buffer, 0, min_len) catch |err| switch (err) {
                 error.UnexpectedEndOfFile,
                 error.UnableToReadElfFile,
+                error.ProcessNotFound,
                 => return defaultAbiAndDynamicLinker(cpu, os, query),
 
                 else => |e| return e,
@@ -1097,6 +1134,7 @@ fn detectAbiAndDynamicLinker(
         error.SymLinkLoop,
         error.ProcessFdQuotaExceeded,
         error.SystemFdQuotaExceeded,
+        error.ProcessNotFound,
         => |e| return e,
 
         error.UnableToReadElfFile,
@@ -1124,7 +1162,7 @@ fn defaultAbiAndDynamicLinker(cpu: Target.Cpu, os: Target.Os, query: Target.Quer
         .abi = abi,
         .ofmt = query.ofmt orelse Target.ObjectFormat.default(os.tag, cpu.arch),
         .dynamic_linker = if (query.dynamic_linker.get() == null)
-            Target.DynamicLinker.standard(cpu, os.tag, abi)
+            Target.DynamicLinker.standard(cpu, os, abi)
         else
             query.dynamic_linker,
     };
@@ -1141,6 +1179,7 @@ fn preadAtLeast(file: fs.File, buf: []u8, offset: u64, min_read_len: usize) !usi
         const len = file.pread(buf[i..], offset + i) catch |err| switch (err) {
             error.OperationAborted => unreachable, // Windows-only
             error.WouldBlock => unreachable, // Did not request blocking mode
+            error.Canceled => unreachable, // timerfd is unseekable
             error.NotOpenForReading => unreachable,
             error.SystemResources => return error.SystemResources,
             error.IsDir => return error.UnableToReadElfFile,
@@ -1152,6 +1191,8 @@ fn preadAtLeast(file: fs.File, buf: []u8, offset: u64, min_read_len: usize) !usi
             error.Unexpected => return error.Unexpected,
             error.InputOutput => return error.FileSystem,
             error.AccessDenied => return error.Unexpected,
+            error.ProcessNotFound => return error.ProcessNotFound,
+            error.LockViolation => return error.UnableToReadElfFile,
         };
         if (len == 0) return error.UnexpectedEndOfFile;
         i += len;

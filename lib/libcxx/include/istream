@@ -158,16 +158,18 @@ template <class Stream, class T>
 
 */
 
-#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
 #include <__fwd/istream.h>
 #include <__iterator/istreambuf_iterator.h>
+#include <__ostream/basic_ostream.h>
 #include <__type_traits/conjunction.h>
 #include <__type_traits/enable_if.h>
 #include <__type_traits/is_base_of.h>
 #include <__utility/declval.h>
 #include <__utility/forward.h>
-#include <ostream>
+#include <bitset>
+#include <ios>
+#include <locale>
 #include <version>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -214,10 +216,10 @@ protected:
     basic_ios<char_type, traits_type>::swap(__rhs);
   }
 
+public:
   basic_istream(const basic_istream& __rhs)            = delete;
   basic_istream& operator=(const basic_istream& __rhs) = delete;
 
-public:
   // 27.7.1.1.3 Prefix/suffix:
   class _LIBCPP_TEMPLATE_VIS sentry;
 
@@ -1009,17 +1011,18 @@ basic_istream<_CharT, _Traits>& basic_istream<_CharT, _Traits>::unget() {
 template <class _CharT, class _Traits>
 int basic_istream<_CharT, _Traits>::sync() {
   ios_base::iostate __state = ios_base::goodbit;
-  int __r                   = 0;
   sentry __sen(*this, true);
+  if (this->rdbuf() == nullptr)
+    return -1;
+
+  int __r = 0;
   if (__sen) {
 #ifndef _LIBCPP_HAS_NO_EXCEPTIONS
     try {
 #endif // _LIBCPP_HAS_NO_EXCEPTIONS
-      if (this->rdbuf() == nullptr)
-        return -1;
       if (this->rdbuf()->pubsync() == -1) {
         __state |= ios_base::badbit;
-        return -1;
+        __r = -1;
       }
 #ifndef _LIBCPP_HAS_NO_EXCEPTIONS
     } catch (...) {
@@ -1361,6 +1364,7 @@ _LIBCPP_END_NAMESPACE_STD
 #if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
 #  include <concepts>
 #  include <iosfwd>
+#  include <ostream>
 #  include <type_traits>
 #endif
 

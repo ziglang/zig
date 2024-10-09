@@ -7,7 +7,7 @@ const assert = std.debug.assert;
 var foo: u8 align(4) = 100;
 
 test "global variable alignment" {
-    comptime assert(@typeInfo(@TypeOf(&foo)).Pointer.alignment == 4);
+    comptime assert(@typeInfo(@TypeOf(&foo)).pointer.alignment == 4);
     comptime assert(@TypeOf(&foo) == *align(4) u8);
     {
         const slice = @as(*align(4) [1]u8, &foo)[0..];
@@ -582,10 +582,6 @@ test "comptime alloc alignment" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // flaky
-    if (builtin.zig_backend == .stage2_llvm and builtin.target.cpu.arch == .x86) {
-        // https://github.com/ziglang/zig/issues/18034
-        return error.SkipZigTest;
-    }
 
     comptime var bytes1 = [_]u8{0};
     _ = &bytes1;

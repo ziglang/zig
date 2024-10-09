@@ -100,10 +100,32 @@ pub fn syscall6(
     );
 }
 
-const CloneFn = *const fn (arg: usize) callconv(.C) u8;
-
-/// This matches the libc clone function.
-pub extern fn clone(func: CloneFn, stack: usize, flags: usize, arg: usize, ptid: *i32, tls: usize, ctid: *i32) usize;
+pub fn clone() callconv(.Naked) usize {
+    asm volatile (
+        \\      movl $56,%%eax // SYS_clone
+        \\      movq %%rdi,%%r11
+        \\      movq %%rdx,%%rdi
+        \\      movq %%r8,%%rdx
+        \\      movq %%r9,%%r8
+        \\      movq 8(%%rsp),%%r10
+        \\      movq %%r11,%%r9
+        \\      andq $-16,%%rsi
+        \\      subq $8,%%rsi
+        \\      movq %%rcx,(%%rsi)
+        \\      syscall
+        \\      testq %%rax,%%rax
+        \\      jz 1f
+        \\      retq
+        \\1:    .cfi_undefined %%rip
+        \\      xorl %%ebp,%%ebp
+        \\      popq %%rdi
+        \\      callq *%%r9
+        \\      movl %%eax,%%edi
+        \\      movl $60,%%eax // SYS_exit
+        \\      syscall
+        \\
+    );
+}
 
 pub const restore = restore_rt;
 

@@ -961,3 +961,44 @@ test "block error return trace index is reset between prongs" {
     };
     try result;
 }
+
+test "labeled switch with break" {
+    var six: u32 = undefined;
+    six = 6;
+
+    const val = s: switch (six) {
+        0...4 => break :s false,
+        5 => break :s false,
+        6...7 => break :s true,
+        else => break :s false,
+    };
+
+    try expect(val);
+
+    // Make sure the switch is implicitly comptime!
+    const comptime_val = s: switch (@as(u32, 6)) {
+        0...4 => break :s false,
+        5 => break :s false,
+        6...7 => break :s true,
+        else => break :s false,
+    };
+
+    comptime assert(comptime_val);
+}
+
+test "unlabeled break ignores switch" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+
+    const result = while (true) {
+        _ = s: switch (@as(u32, 1)) {
+            1 => continue :s 123,
+            else => |x| break x,
+        };
+        comptime unreachable; // control flow never breaks from the switch
+    };
+    try expect(result == 123);
+}

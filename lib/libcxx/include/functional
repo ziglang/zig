@@ -77,6 +77,15 @@ template <class T> struct unwrap_ref_decay : unwrap_reference<decay_t<T>> { };  
 template <class T> using unwrap_reference_t = typename unwrap_reference<T>::type; // since C++20
 template <class T> using unwrap_ref_decay_t = typename unwrap_ref_decay<T>::type; // since C++20
 
+// [refwrap.comparisons], comparisons
+friend constexpr bool operator==(reference_wrapper, reference_wrapper);           // Since C++26
+friend constexpr bool operator==(reference_wrapper, const T&);                    // Since C++26
+friend constexpr bool operator==(reference_wrapper, reference_wrapper<const T>);  // Since C++26
+
+friend constexpr auto operator<=>(reference_wrapper, reference_wrapper);          // Since C++26
+friend constexpr auto operator<=>(reference_wrapper, const T&);                   // Since C++26
+friend constexpr auto operator<=>(reference_wrapper, reference_wrapper<const T>); // Since C++26
+
 template <class T> // <class T=void> in C++14
 struct plus {
     T operator()(const T& x, const T& y) const;
@@ -206,6 +215,12 @@ binary_negate<Predicate> not2(const Predicate& pred);
 
 template <class F>
 constexpr unspecified not_fn(F&& f); // C++17, constexpr in C++20
+
+// [func.bind.partial], function templates bind_front and bind_back
+template<class F, class... Args>
+  constexpr unspecified bind_front(F&&, Args&&...); // C++20
+template<class F, class... Args>
+  constexpr unspecified bind_back(F&&, Args&&...);  // C++23
 
 template<class T> struct is_bind_expression;
 template<class T> struct is_placeholder;
@@ -512,40 +527,58 @@ POLICY:  For non-variadic implementations, the number of arguments is limited
 
 */
 
-#include <__algorithm/search.h>
-#include <__assert> // all public C++ headers provide the assertion handler
-#include <__compare/compare_three_way.h>
 #include <__config>
+
 #include <__functional/binary_function.h>
 #include <__functional/binary_negate.h>
 #include <__functional/bind.h>
-#include <__functional/bind_back.h>
-#include <__functional/bind_front.h>
 #include <__functional/binder1st.h>
 #include <__functional/binder2nd.h>
-#include <__functional/boyer_moore_searcher.h>
-#include <__functional/compose.h>
-#include <__functional/default_searcher.h>
-#include <__functional/function.h>
 #include <__functional/hash.h>
-#include <__functional/identity.h>
-#include <__functional/invoke.h>
 #include <__functional/mem_fn.h> // TODO: deprecate
 #include <__functional/mem_fun_ref.h>
-#include <__functional/not_fn.h>
 #include <__functional/operations.h>
 #include <__functional/pointer_to_binary_function.h>
 #include <__functional/pointer_to_unary_function.h>
-#include <__functional/ranges_operations.h>
 #include <__functional/reference_wrapper.h>
 #include <__functional/unary_function.h>
 #include <__functional/unary_negate.h>
-#include <__type_traits/unwrap_ref.h>
-#include <__utility/forward.h>
+
+#ifndef _LIBCPP_CXX03_LANG
+#  include <__functional/function.h>
+#endif
+
+#if _LIBCPP_STD_VER >= 17
+#  include <__functional/boyer_moore_searcher.h>
+#  include <__functional/default_searcher.h>
+#  include <__functional/invoke.h>
+#  include <__functional/not_fn.h>
+#endif
+
+#if _LIBCPP_STD_VER >= 20
+#  include <__functional/bind_back.h>
+#  include <__functional/bind_front.h>
+#  include <__functional/identity.h>
+#  include <__functional/ranges_operations.h>
+#  include <__type_traits/unwrap_ref.h>
+#endif
+
 #include <version>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
+#endif
+
+#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && defined(_LIBCPP_CXX03_LANG)
+#  include <limits>
+#  include <new>
+#endif
+
+#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 14
+#  include <array>
+#  include <initializer_list>
+#  include <unordered_map>
+#  include <vector>
 #endif
 
 #if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20

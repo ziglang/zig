@@ -25,8 +25,8 @@ pub const Linker = enum {
 const Driver = @This();
 
 comp: *Compilation,
-inputs: std.ArrayListUnmanaged(Source) = .{},
-link_objects: std.ArrayListUnmanaged([]const u8) = .{},
+inputs: std.ArrayListUnmanaged(Source) = .empty,
+link_objects: std.ArrayListUnmanaged([]const u8) = .empty,
 output_name: ?[]const u8 = null,
 sysroot: ?[]const u8 = null,
 system_defines: Compilation.SystemDefinesMode = .include_system_defines,
@@ -47,6 +47,20 @@ color: ?bool = null,
 nobuiltininc: bool = false,
 nostdinc: bool = false,
 nostdlibinc: bool = false,
+debug_dump_letters: packed struct(u3) {
+    d: bool = false,
+    m: bool = false,
+    n: bool = false,
+
+    /// According to GCC, specifying letters whose behavior conflicts is undefined.
+    /// We follow clang in that `-dM` always takes precedence over `-dD`
+    pub fn getPreprocessorDumpMode(self: @This()) Preprocessor.DumpMode {
+        if (self.m) return .macros_only;
+        if (self.d) return .macros_and_result;
+        if (self.n) return .macro_names_and_result;
+        return .result_only;
+    }
+} = .{},
 
 /// Full path to the aro executable
 aro_name: []const u8 = "",
@@ -92,6 +106,9 @@ pub const usage =
     \\
     \\Compile options:
     \\  -c, --compile           Only run preprocess, compile, and assemble steps
+    \\  -dM                     Output #define directives for all the macros defined during the execution of the preprocessor
+    \\  -dD                     Like -dM except that it outputs both the #define directives and the result of preprocessing
+    \\  -dN                     Like -dD, but emit only the macro names, not their expansions.
     \\  -D <macro>=<value>      Define <macro> to <value> (defaults to 1)
     \\  -E                      Only run the preprocessor
     \\  -fchar8_t               Enable char8_t (enabled by default in C23 and later)
@@ -234,6 +251,12 @@ pub fn parseArgs(
                 d.system_defines = .no_system_defines;
             } else if (mem.eql(u8, arg, "-c") or mem.eql(u8, arg, "--compile")) {
                 d.only_compile = true;
+            } else if (mem.eql(u8, arg, "-dD")) {
+                d.debug_dump_letters.d = true;
+            } else if (mem.eql(u8, arg, "-dM")) {
+                d.debug_dump_letters.m = true;
+            } else if (mem.eql(u8, arg, "-dN")) {
+                d.debug_dump_letters.n = true;
             } else if (mem.eql(u8, arg, "-E")) {
                 d.only_preprocess = true;
             } else if (mem.eql(u8, arg, "-P") or mem.eql(u8, arg, "--no-line-commands")) {
@@ -636,12 +659,16 @@ fn processSource(
     if (d.comp.langopts.ms_extensions) {
         d.comp.ms_cwd_source_id = source.id;
     }
-
+    const dump_mode = d.debug_dump_letters.getPreprocessorDumpMode();
     if (d.verbose_pp) pp.verbose = true;
     if (d.only_preprocess) {
         pp.preserve_whitespace = true;
         if (d.line_commands) {
             pp.linemarkers = if (d.use_line_directives) .line_directives else .numeric_directives;
+        }
+        switch (dump_mode) {
+            .macros_and_result, .macro_names_and_result => pp.store_macro_tokens = true,
+            .result_only, .macros_only => {},
         }
     }
 
@@ -663,7 +690,8 @@ fn processSource(
         defer if (d.output_name != null) file.close();
 
         var buf_w = std.io.bufferedWriter(file.writer());
-        pp.prettyPrintTokens(buf_w.writer()) catch |er|
+
+        pp.prettyPrintTokens(buf_w.writer(), dump_mode) catch |er|
             return d.fatal("unable to write result: {s}", .{errorDescription(er)});
 
         buf_w.flush() catch |er|

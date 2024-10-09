@@ -4,6 +4,7 @@ const mem = std.mem;
 const io = std.io;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
+const Cache = std.Build.Cache;
 
 fn usage() noreturn {
     io.getStdOut().writeAll(
@@ -24,7 +25,7 @@ pub fn main() !void {
     defer arena_instance.deinit();
     const arena = arena_instance.allocator();
 
-    var general_purpose_allocator: std.heap.GeneralPurposeAllocator(.{}) = .{};
+    var general_purpose_allocator: std.heap.GeneralPurposeAllocator(.{}) = .init;
     const gpa = general_purpose_allocator.allocator();
 
     var argv = try std.process.argsWithAllocator(arena);
@@ -181,13 +182,15 @@ fn serveSourcesTar(request: *std.http.Server.Request, context: *Context) !void {
             },
         },
     });
-    const w = response.writer();
 
     var std_dir = try context.lib_dir.openDir("std", .{ .iterate = true });
     defer std_dir.close();
 
     var walker = try std_dir.walk(gpa);
     defer walker.deinit();
+
+    var archiver = std.tar.writer(response.writer());
+    archiver.prefix = "std";
 
     while (try walker.next()) |entry| {
         switch (entry.kind) {
@@ -199,47 +202,21 @@ fn serveSourcesTar(request: *std.http.Server.Request, context: *Context) !void {
             },
             else => continue,
         }
-
-        var file = try std_dir.openFile(entry.path, .{});
+        var file = try entry.dir.openFile(entry.basename, .{});
         defer file.close();
-
-        const stat = try file.stat();
-        const padding = p: {
-            const remainder = stat.size % 512;
-            break :p if (remainder > 0) 512 - remainder else 0;
-        };
-
-        var file_header = std.tar.output.Header.init();
-        file_header.typeflag = .regular;
-        try file_header.setPath("std", entry.path);
-        try file_header.setSize(stat.size);
-        try file_header.updateChecksum();
-        try w.writeAll(std.mem.asBytes(&file_header));
-        try w.writeFile(file);
-        try w.writeByteNTimes(0, padding);
+        try archiver.writeFile(entry.path, file);
     }
 
     {
         // Since this command is JIT compiled, the builtin module available in
         // this source file corresponds to the user's host system.
         const builtin_zig = @embedFile("builtin");
-
-        var file_header = std.tar.output.Header.init();
-        file_header.typeflag = .regular;
-        try file_header.setPath("builtin", "builtin.zig");
-        try file_header.setSize(builtin_zig.len);
-        try file_header.updateChecksum();
-        try w.writeAll(std.mem.asBytes(&file_header));
-        try w.writeAll(builtin_zig);
-        const padding = p: {
-            const remainder = builtin_zig.len % 512;
-            break :p if (remainder > 0) 512 - remainder else 0;
-        };
-        try w.writeByteNTimes(0, padding);
+        archiver.prefix = "builtin";
+        try archiver.writeFileBytes("builtin.zig", builtin_zig, .{});
     }
 
     // intentionally omitting the pointless trailer
-    //try w.writeByteNTimes(0, 512 * 2);
+    //try archiver.finish();
     try response.end();
 }
 
@@ -256,9 +233,18 @@ fn serveWasm(
 
     // Do the compilation every request, so that the user can edit the files
     // and see the changes without restarting the server.
-    const wasm_binary_path = try buildWasmBinary(arena, context, optimize_mode);
+    const wasm_base_path = try buildWasmBinary(arena, context, optimize_mode);
+    const bin_name = try std.zig.binNameAlloc(arena, .{
+        .root_name = autodoc_root_name,
+        .target = std.zig.system.resolveTargetQuery(std.Build.parseTargetQuery(.{
+            .arch_os_abi = autodoc_arch_os_abi,
+            .cpu_features = autodoc_cpu_features,
+        }) catch unreachable) catch unreachable,
+        .output_mode = .Exe,
+    });
     // std.http.Server does not have a sendfile API yet.
-    const file_contents = try std.fs.cwd().readFileAlloc(gpa, wasm_binary_path, 10 * 1024 * 1024);
+    const bin_path = try wasm_base_path.join(arena, bin_name);
+    const file_contents = try bin_path.root_dir.handle.readFileAlloc(gpa, bin_path.sub_path, 10 * 1024 * 1024);
     defer gpa.free(file_contents);
     try request.respond(file_contents, .{
         .extra_headers = &.{
@@ -268,38 +254,42 @@ fn serveWasm(
     });
 }
 
+const autodoc_root_name = "autodoc";
+const autodoc_arch_os_abi = "wasm32-freestanding";
+const autodoc_cpu_features = "baseline+atomics+bulk_memory+multivalue+mutable_globals+nontrapping_fptoint+reference_types+sign_ext";
+
 fn buildWasmBinary(
     arena: Allocator,
     context: *Context,
     optimize_mode: std.builtin.OptimizeMode,
-) ![]const u8 {
+) !Cache.Path {
     const gpa = context.gpa;
 
-    const main_src_path = try std.fs.path.join(arena, &.{
-        context.zig_lib_directory, "docs", "wasm", "main.zig",
-    });
-
-    var argv: std.ArrayListUnmanaged([]const u8) = .{};
+    var argv: std.ArrayListUnmanaged([]const u8) = .empty;
 
     try argv.appendSlice(arena, &.{
-        context.zig_exe_path,
-        "build-exe",
-        "-fno-entry",
-        "-O",
-        @tagName(optimize_mode),
-        "-target",
-        "wasm32-freestanding",
-        "-mcpu",
-        "baseline+atomics+bulk_memory+multivalue+mutable_globals+nontrapping_fptoint+reference_types+sign_ext",
-        "--cache-dir",
-        context.global_cache_path,
-        "--global-cache-dir",
-        context.global_cache_path,
-        "--name",
-        "autodoc",
-        "-rdynamic",
-        main_src_path,
-        "--listen=-",
+        context.zig_exe_path, //
+        "build-exe", //
+        "-fno-entry", //
+        "-O", @tagName(optimize_mode), //
+        "-target", autodoc_arch_os_abi, //
+        "-mcpu", autodoc_cpu_features, //
+        "--cache-dir", context.global_cache_path, //
+        "--global-cache-dir", context.global_cache_path, //
+        "--name", autodoc_root_name, //
+        "-rdynamic", //
+        "--dep", "Walk", //
+        try std.fmt.allocPrint(
+            arena,
+            "-Mroot={s}/docs/wasm/main.zig",
+            .{context.zig_lib_directory},
+        ),
+        try std.fmt.allocPrint(
+            arena,
+            "-MWalk={s}/docs/wasm/Walk.zig",
+            .{context.zig_lib_directory},
+        ),
+        "--listen=-", //
     });
 
     var child = std.process.Child.init(argv.items, gpa);
@@ -318,7 +308,7 @@ fn buildWasmBinary(
     try sendMessage(child.stdin.?, .exit);
 
     const Header = std.zig.Server.Message.Header;
-    var result: ?[]const u8 = null;
+    var result: ?Cache.Path = null;
     var result_error_bundle = std.zig.ErrorBundle.empty;
 
     const stdout = poller.fifo(.stdout);
@@ -355,13 +345,19 @@ fn buildWasmBinary(
                     .extra = extra_array,
                 };
             },
-            .emit_bin_path => {
-                const EbpHdr = std.zig.Server.Message.EmitBinPath;
-                const ebp_hdr = @as(*align(1) const EbpHdr, @ptrCast(body));
-                if (!ebp_hdr.flags.cache_hit) {
+            .emit_digest => {
+                const EmitDigest = std.zig.Server.Message.EmitDigest;
+                const emit_digest = @as(*align(1) const EmitDigest, @ptrCast(body));
+                if (!emit_digest.flags.cache_hit) {
                     std.log.info("source changes detected; rebuilt wasm component", .{});
                 }
-                result = try arena.dupe(u8, body[@sizeOf(EbpHdr)..]);
+                const digest = body[@sizeOf(EmitDigest)..][0..Cache.bin_digest_len];
+                result = .{
+                    .root_dir = Cache.Directory.cwd(),
+                    .sub_path = try std.fs.path.join(arena, &.{
+                        context.global_cache_path, "o" ++ std.fs.path.sep_str ++ Cache.binToHex(digest.*),
+                    }),
+                };
             },
             else => {}, // ignore other messages
         }

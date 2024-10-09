@@ -379,6 +379,8 @@ pub fn build(b: *std.Build) !void {
     }
 
     const test_filters = b.option([]const []const u8, "test-filter", "Skip tests that do not match any filter") orelse &[0][]const u8{};
+    const test_target_filters = b.option([]const []const u8, "test-target-filter", "Skip tests whose target triple do not match any filter") orelse &[0][]const u8{};
+    const test_slow_targets = b.option(bool, "test-slow-targets", "Enable running module tests for targets that have a slow compiler backend") orelse false;
 
     const test_cases_options = b.addOptions();
 
@@ -455,8 +457,12 @@ pub fn build(b: *std.Build) !void {
     });
     test_step.dependOn(test_cases_step);
 
-    test_step.dependOn(tests.addModuleTests(b, .{
+    const test_modules_step = b.step("test-modules", "Run the per-target module tests");
+
+    test_modules_step.dependOn(tests.addModuleTests(b, .{
         .test_filters = test_filters,
+        .test_target_filters = test_target_filters,
+        .test_slow_targets = test_slow_targets,
         .root_src = "test/behavior.zig",
         .name = "behavior",
         .desc = "Run the behavior tests",
@@ -468,8 +474,10 @@ pub fn build(b: *std.Build) !void {
         .max_rss = 1 * 1024 * 1024 * 1024,
     }));
 
-    test_step.dependOn(tests.addModuleTests(b, .{
+    test_modules_step.dependOn(tests.addModuleTests(b, .{
         .test_filters = test_filters,
+        .test_target_filters = test_target_filters,
+        .test_slow_targets = test_slow_targets,
         .root_src = "test/c_import.zig",
         .name = "c-import",
         .desc = "Run the @cImport tests",
@@ -480,8 +488,10 @@ pub fn build(b: *std.Build) !void {
         .skip_libc = skip_libc,
     }));
 
-    test_step.dependOn(tests.addModuleTests(b, .{
+    test_modules_step.dependOn(tests.addModuleTests(b, .{
         .test_filters = test_filters,
+        .test_target_filters = test_target_filters,
+        .test_slow_targets = test_slow_targets,
         .root_src = "lib/compiler_rt.zig",
         .name = "compiler-rt",
         .desc = "Run the compiler_rt tests",
@@ -493,8 +503,10 @@ pub fn build(b: *std.Build) !void {
         .no_builtin = true,
     }));
 
-    test_step.dependOn(tests.addModuleTests(b, .{
+    test_modules_step.dependOn(tests.addModuleTests(b, .{
         .test_filters = test_filters,
+        .test_target_filters = test_target_filters,
+        .test_slow_targets = test_slow_targets,
         .root_src = "lib/c.zig",
         .name = "universal-libc",
         .desc = "Run the universal libc tests",
@@ -505,6 +517,24 @@ pub fn build(b: *std.Build) !void {
         .skip_libc = true,
         .no_builtin = true,
     }));
+
+    test_modules_step.dependOn(tests.addModuleTests(b, .{
+        .test_filters = test_filters,
+        .test_target_filters = test_target_filters,
+        .test_slow_targets = test_slow_targets,
+        .root_src = "lib/std/std.zig",
+        .name = "std",
+        .desc = "Run the standard library tests",
+        .optimize_modes = optimization_modes,
+        .include_paths = &.{},
+        .skip_single_threaded = skip_single_threaded,
+        .skip_non_native = skip_non_native,
+        .skip_libc = skip_libc,
+        // I observed a value of 4572626944 on the M2 CI.
+        .max_rss = 5029889638,
+    }));
+
+    test_step.dependOn(test_modules_step);
 
     test_step.dependOn(tests.addCompareOutputTests(b, test_filters, optimization_modes));
     test_step.dependOn(tests.addStandaloneTests(
@@ -519,39 +549,38 @@ pub fn build(b: *std.Build) !void {
     test_step.dependOn(tests.addStackTraceTests(b, test_filters, optimization_modes));
     test_step.dependOn(tests.addCliTests(b));
     test_step.dependOn(tests.addAssembleAndLinkTests(b, test_filters, optimization_modes));
-    test_step.dependOn(tests.addModuleTests(b, .{
+    if (tests.addDebuggerTests(b, .{
         .test_filters = test_filters,
-        .root_src = "lib/std/std.zig",
-        .name = "std",
-        .desc = "Run the standard library tests",
+        .gdb = b.option([]const u8, "gdb", "path to gdb binary"),
+        .lldb = b.option([]const u8, "lldb", "path to lldb binary"),
         .optimize_modes = optimization_modes,
-        .include_paths = &.{},
         .skip_single_threaded = skip_single_threaded,
         .skip_non_native = skip_non_native,
         .skip_libc = skip_libc,
-        // I observed a value of 4572626944 on the M2 CI.
-        .max_rss = 5029889638,
-    }));
+    })) |test_debugger_step| test_step.dependOn(test_debugger_step);
 
     try addWasiUpdateStep(b, version);
 
     const update_mingw_step = b.step("update-mingw", "Update zig's bundled mingw");
     const opt_mingw_src_path = b.option([]const u8, "mingw-src", "path to mingw-w64 source directory");
-    const update_mingw_exe = b.addExecutable(.{
-        .name = "update_mingw",
-        .target = b.graph.host,
-        .root_source_file = b.path("tools/update_mingw.zig"),
-    });
-    const update_mingw_run = b.addRunArtifact(update_mingw_exe);
-    update_mingw_run.addDirectoryArg(b.path("lib"));
     if (opt_mingw_src_path) |mingw_src_path| {
+        const update_mingw_exe = b.addExecutable(.{
+            .name = "update_mingw",
+            .target = b.graph.host,
+            .root_source_file = b.path("tools/update_mingw.zig"),
+        });
+        const update_mingw_run = b.addRunArtifact(update_mingw_exe);
+        update_mingw_run.addDirectoryArg(b.path("lib"));
         update_mingw_run.addDirectoryArg(.{ .cwd_relative = mingw_src_path });
+
+        update_mingw_step.dependOn(&update_mingw_run.step);
     } else {
-        // Intentionally cause an error if this build step is requested.
-        update_mingw_run.addArg("--missing-mingw-source-directory");
+        update_mingw_step.dependOn(&b.addFail("The -Dmingw-src=... option is required for this step").step);
     }
 
-    update_mingw_step.dependOn(&update_mingw_run.step);
+    const test_incremental_step = b.step("test-incremental", "Run the incremental compilation test cases");
+    try tests.addIncrementalTests(b, test_incremental_step);
+    test_step.dependOn(test_incremental_step);
 }
 
 fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
@@ -622,6 +651,24 @@ fn addCompilerStep(b: *std.Build, options: AddCompilerStepOptions) *std.Build.St
         .strip = options.strip,
         .sanitize_thread = options.sanitize_thread,
         .single_threaded = options.single_threaded,
+        .code_model = switch (options.target.result.cpu.arch) {
+            // NB:
+            // For loongarch, LLVM supports only small, medium and large
+            // code model. If we don't explicitly specify the code model,
+            // the default value `small' will be used.
+            //
+            // Since zig binary itself is relatively large, using a `small'
+            // code model will cause
+            //
+            // relocation R_LARCH_B26 out of range
+            //
+            // error when linking a loongarch64 zig binary.
+            //
+            // Here we explicitly set code model to `medium' to avoid this
+            // error.
+            .loongarch64 => .medium,
+            else => .default,
+        },
     });
     exe.root_module.valgrind = options.valgrind;
     exe.stack_size = stack_size;
@@ -1056,6 +1103,8 @@ const clang_libs = [_][]const u8{
     "clangToolingCore",
     "clangExtractAPI",
     "clangSupport",
+    "clangInstallAPI",
+    "clangAST",
 };
 const lld_libs = [_][]const u8{
     "lldMinGW",
@@ -1077,6 +1126,7 @@ const llvm_libs = [_][]const u8{
     "LLVMTextAPIBinaryReader",
     "LLVMCoverage",
     "LLVMLineEditor",
+    "LLVMSandboxIR",
     "LLVMXCoreDisassembler",
     "LLVMXCoreCodeGen",
     "LLVMXCoreDesc",
@@ -1212,6 +1262,7 @@ const llvm_libs = [_][]const u8{
     "LLVMDWARFLinkerParallel",
     "LLVMDWARFLinkerClassic",
     "LLVMDWARFLinker",
+    "LLVMCodeGenData",
     "LLVMGlobalISel",
     "LLVMMIRParser",
     "LLVMAsmPrinter",

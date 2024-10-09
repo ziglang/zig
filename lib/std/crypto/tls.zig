@@ -279,8 +279,8 @@ pub const NamedGroup = enum(u16) {
     ffdhe8192 = 0x0104,
 
     // Hybrid post-quantum key agreements
-    x25519_kyber512d00 = 0xFE30,
-    x25519_kyber768d00 = 0x6399,
+    secp256r1_ml_kem256 = 0x11EB,
+    x25519_ml_kem768 = 0x11EC,
 
     _,
 };
@@ -491,7 +491,7 @@ pub const Decoder = struct {
     /// Use this function to increase `idx`.
     pub fn decode(d: *Decoder, comptime T: type) T {
         switch (@typeInfo(T)) {
-            .Int => |info| switch (info.bits) {
+            .int => |info| switch (info.bits) {
                 8 => {
                     skip(d, 1);
                     return d.buf[d.idx - 1];
@@ -511,7 +511,7 @@ pub const Decoder = struct {
                 },
                 else => @compileError("unsupported int type: " ++ @typeName(T)),
             },
-            .Enum => |info| {
+            .@"enum" => |info| {
                 const int = d.decode(info.tag_type);
                 if (info.is_exhaustive) @compileError("exhaustive enum cannot be used");
                 return @as(T, @enumFromInt(int));

@@ -158,7 +158,7 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
         // Only possible to happen if the private key is all zeroes.
         error.IdentityElement => return error.InsufficientEntropy,
     };
-    const kyber768_kp = crypto.kem.kyber_d00.Kyber768.KeyPair.create(null) catch {};
+    const ml_kem768_kp = crypto.kem.ml_kem.MLKem768.KeyPair.create(null) catch {};
 
     const extensions_payload =
         tls.extension(.supported_versions, [_]u8{
@@ -172,7 +172,7 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
         .rsa_pss_rsae_sha512,
         .ed25519,
     })) ++ tls.extension(.supported_groups, enum_array(tls.NamedGroup, &.{
-        .x25519_kyber768d00,
+        .x25519_ml_kem768,
         .secp256r1,
         .x25519,
     })) ++ tls.extension(
@@ -181,8 +181,8 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
             array(1, x25519_kp.public_key) ++
             int2(@intFromEnum(tls.NamedGroup.secp256r1)) ++
             array(1, secp256r1_kp.public_key.toUncompressedSec1()) ++
-            int2(@intFromEnum(tls.NamedGroup.x25519_kyber768d00)) ++
-            array(1, x25519_kp.public_key ++ kyber768_kp.public_key.toBytes())),
+            int2(@intFromEnum(tls.NamedGroup.x25519_ml_kem768)) ++
+            array(1, x25519_kp.public_key ++ ml_kem768_kp.public_key.toBytes())),
     ) ++
         int2(@intFromEnum(tls.ExtensionType.server_name)) ++
         int2(host_len + 5) ++ // byte length of this extension payload
@@ -298,9 +298,9 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
                             const key_size = extd.decode(u16);
                             try extd.ensure(key_size);
                             switch (named_group) {
-                                .x25519_kyber768d00 => {
+                                .x25519_ml_kem768 => {
                                     const xksl = crypto.dh.X25519.public_length;
-                                    const hksl = xksl + crypto.kem.kyber_d00.Kyber768.ciphertext_length;
+                                    const hksl = xksl + crypto.kem.ml_kem.MLKem768.ciphertext_length;
                                     if (key_size != hksl)
                                         return error.TlsIllegalParameter;
                                     const server_ks = extd.array(hksl);
@@ -308,7 +308,7 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
                                     shared_key = &((crypto.dh.X25519.scalarmult(
                                         x25519_kp.secret_key,
                                         server_ks[0..xksl].*,
-                                    ) catch return error.TlsDecryptFailure) ++ (kyber768_kp.secret_key.decaps(
+                                    ) catch return error.TlsDecryptFailure) ++ (ml_kem768_kp.secret_key.decaps(
                                         server_ks[xksl..hksl],
                                     ) catch return error.TlsDecryptFailure));
                                 },

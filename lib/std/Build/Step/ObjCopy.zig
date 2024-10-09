@@ -26,6 +26,50 @@ pub const Strip = enum {
     debug_and_symbols,
 };
 
+pub const SectionFlags = packed struct {
+    /// add SHF_ALLOC
+    alloc: bool = false,
+
+    /// if section is SHT_NOBITS, set SHT_PROGBITS, otherwise do nothing
+    contents: bool = false,
+
+    /// if section is SHT_NOBITS, set SHT_PROGBITS, otherwise do nothing (same as contents)
+    load: bool = false,
+
+    /// readonly: clear default SHF_WRITE flag
+    readonly: bool = false,
+
+    /// add SHF_EXECINSTR
+    code: bool = false,
+
+    /// add SHF_EXCLUDE
+    exclude: bool = false,
+
+    /// add SHF_X86_64_LARGE. Fatal error if target is not x86_64
+    large: bool = false,
+
+    /// add SHF_MERGE
+    merge: bool = false,
+
+    /// add SHF_STRINGS
+    strings: bool = false,
+};
+
+pub const AddSection = struct {
+    section_name: []const u8,
+    file_path: std.Build.LazyPath,
+};
+
+pub const SetSectionAlignment = struct {
+    section_name: []const u8,
+    alignment: u32,
+};
+
+pub const SetSectionFlags = struct {
+    section_name: []const u8,
+    flags: SectionFlags,
+};
+
 step: Step,
 input_file: std.Build.LazyPath,
 basename: []const u8,
@@ -37,6 +81,10 @@ only_section: ?[]const u8,
 pad_to: ?u64,
 strip: Strip,
 compress_debug: bool,
+
+add_section: ?AddSection,
+set_section_alignment: ?SetSectionAlignment,
+set_section_flags: ?SetSectionFlags,
 
 pub const Options = struct {
     basename: ?[]const u8 = null,
@@ -51,6 +99,10 @@ pub const Options = struct {
     /// note: the `basename` is baked into the elf file to specify the link to the separate debug file.
     /// see https://sourceware.org/gdb/onlinedocs/gdb/Separate-Debug-Files.html
     extract_to_separate_file: bool = false,
+
+    add_section: ?AddSection = null,
+    set_section_alignment: ?SetSectionAlignment = null,
+    set_section_flags: ?SetSectionFlags = null,
 };
 
 pub fn create(
@@ -75,6 +127,9 @@ pub fn create(
         .pad_to = options.pad_to,
         .strip = options.strip,
         .compress_debug = options.compress_debug,
+        .add_section = options.add_section,
+        .set_section_alignment = options.set_section_alignment,
+        .set_section_flags = options.set_section_flags,
     };
     input_file.addStepDependencies(&objcopy.step);
     return objcopy;
@@ -154,6 +209,31 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     }
     if (objcopy.output_file_debug != null) {
         try argv.appendSlice(&.{b.fmt("--extract-to={s}", .{full_dest_path_debug})});
+    }
+    if (objcopy.add_section) |section| {
+        try argv.append("--add-section");
+        try argv.appendSlice(&.{b.fmt("{s}={s}", .{ section.section_name, section.file_path.getPath(b) })});
+    }
+    if (objcopy.set_section_alignment) |set_align| {
+        try argv.append("--set-section-alignment");
+        try argv.appendSlice(&.{b.fmt("{s}={d}", .{ set_align.section_name, set_align.alignment })});
+    }
+    if (objcopy.set_section_flags) |set_flags| {
+        const f = set_flags.flags;
+        // trailing comma is allowed
+        try argv.append("--set-section-flags");
+        try argv.appendSlice(&.{b.fmt("{s}={s}{s}{s}{s}{s}{s}{s}{s}{s}", .{
+            set_flags.section_name,
+            if (f.alloc) "alloc," else "",
+            if (f.contents) "contents," else "",
+            if (f.load) "load," else "",
+            if (f.readonly) "readonly," else "",
+            if (f.code) "code," else "",
+            if (f.exclude) "exclude," else "",
+            if (f.large) "large," else "",
+            if (f.merge) "merge," else "",
+            if (f.strings) "strings," else "",
+        })});
     }
 
     try argv.appendSlice(&.{ full_src_path, full_dest_path });

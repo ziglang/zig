@@ -10,7 +10,7 @@ const mode_t = std.c.mode_t;
 const off_t = std.c.off_t;
 const pid_t = std.c.pid_t;
 const pthread_attr_t = std.c.pthread_attr_t;
-const sigset_t = std.c.segset_t;
+const sigset_t = std.c.sigset_t;
 const timespec = std.c.timespec;
 const sf_hdtr = std.c.sf_hdtr;
 
@@ -23,6 +23,7 @@ pub const mach_port_t = c_uint;
 pub const THREAD_STATE_NONE = switch (native_arch) {
     .aarch64 => 5,
     .x86_64 => 13,
+    else => @compileError("unsupported arch"),
 };
 
 pub const EXC = enum(exception_type_t) {
@@ -54,7 +55,7 @@ pub const EXC = enum(exception_type_t) {
     /// Abnormal process exited to corpse state
     CORPSE_NOTIFY = 13,
 
-    pub const TYPES_COUNT = @typeInfo(EXC).Enum.fields.len;
+    pub const TYPES_COUNT = @typeInfo(EXC).@"enum".fields.len;
     pub const SOFT_SIGNAL = 0x10003;
 
     pub const MASK = packed struct(u32) {
@@ -1156,6 +1157,11 @@ pub const CPUFAMILY = enum(u32) {
     ARM_FIRESTORM_ICESTORM = 0x1b588bb3,
     ARM_BLIZZARD_AVALANCHE = 0xda33d83d,
     ARM_EVEREST_SAWTOOTH = 0x8765edea,
+    ARM_COLL = 0x2876f5b5,
+    ARM_IBIZA = 0xfa33415e,
+    ARM_LOBOS = 0x5f4dea93,
+    ARM_PALMA = 0x72015832,
+    ARM_DONAN = 0x6f5129ac,
     _,
 };
 

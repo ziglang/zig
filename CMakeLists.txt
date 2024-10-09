@@ -137,9 +137,9 @@ else()
     set(ZIG_SYSTEM_LIBCXX "stdc++" CACHE STRING "system libcxx name for build.zig")
 endif()
 
-find_package(llvm 18)
-find_package(clang 18)
-find_package(lld 18)
+find_package(llvm 19)
+find_package(clang 19)
+find_package(lld 19)
 
 if(ZIG_STATIC_ZLIB)
     if (MSVC)
@@ -381,6 +381,7 @@ set(ZIG_STAGE2_SOURCES
     lib/std/Target/avr.zig
     lib/std/Target/bpf.zig
     lib/std/Target/hexagon.zig
+    lib/std/Target/loongarch.zig
     lib/std/Target/mips.zig
     lib/std/Target/msp430.zig
     lib/std/Target/nvptx.zig
@@ -599,6 +600,7 @@ set(ZIG_STAGE2_SOURCES
     src/link/Elf.zig
     src/link/Elf/Archive.zig
     src/link/Elf/Atom.zig
+    src/link/Elf/AtomList.zig
     src/link/Elf/LdScript.zig
     src/link/Elf/LinkerDefined.zig
     src/link/Elf/Object.zig
@@ -612,7 +614,7 @@ set(ZIG_STAGE2_SOURCES
     src/link/Elf/relocatable.zig
     src/link/Elf/relocation.zig
     src/link/Elf/synthetic_sections.zig
-    src/link/Elf/thunks.zig
+    src/link/Elf/Thunk.zig
     src/link/MachO.zig
     src/link/MachO/Archive.zig
     src/link/MachO/Atom.zig
@@ -637,7 +639,7 @@ set(ZIG_STAGE2_SOURCES
     src/link/MachO/load_commands.zig
     src/link/MachO/relocatable.zig
     src/link/MachO/synthetic.zig
-    src/link/MachO/thunks.zig
+    src/link/MachO/Thunk.zig
     src/link/MachO/uuid.zig
     src/link/NvPtx.zig
     src/link/Plan9.zig
@@ -832,6 +834,11 @@ else()
   endif()
 endif()
 
+option(ZIG2_NO_RTLIB "Build zig2 without linking to a compiler runtime library (for `zig cc` only)" OFF)
+if(ZIG2_NO_RTLIB)
+  set(ZIG2_LINK_FLAGS "${ZIG2_LINK_FLAGS} -rtlib=none")
+endif()
+
 set(ZIG1_WASM_MODULE "${PROJECT_SOURCE_DIR}/stage1/zig1.wasm")
 set(ZIG1_C_SOURCE "${PROJECT_BINARY_DIR}/zig1.c")
 set(ZIG2_C_SOURCE "${PROJECT_BINARY_DIR}/zig2.c")
@@ -887,9 +894,7 @@ set(BUILD_COMPILER_RT_ARGS
   --name compiler_rt
   -femit-bin="${ZIG_COMPILER_RT_C_SOURCE}"
   -target "${ZIG_HOST_TARGET_TRIPLE}"
-  --dep "build_options"
   "-Mroot=lib/compiler_rt.zig"
-  "-Mbuild_options=${ZIG_CONFIG_ZIG_OUT}"
 )
 
 add_custom_command(
@@ -944,6 +949,11 @@ set(ZIG_BUILD_ARGS
 
   -Dno-langref
 )
+
+option(ZIG_EXTRA_BUILD_ARGS "Extra zig build args")
+if(ZIG_EXTRA_BUILD_ARGS)
+  list(APPEND ZIG_BUILD_ARGS ${ZIG_EXTRA_BUILD_ARGS})
+endif()
 
 if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
   list(APPEND ZIG_BUILD_ARGS -Doptimize=Debug)

@@ -21,7 +21,6 @@
 #include <__fwd/pair.h>
 #include <__iterator/incrementable_traits.h>
 #include <__iterator/readable_traits.h>
-#include <__type_traits/add_const.h>
 #include <__type_traits/common_reference.h>
 #include <__type_traits/conditional.h>
 #include <__type_traits/disjunction.h>
@@ -493,8 +492,8 @@ using __iter_mapped_type = typename iterator_traits<_InputIterator>::value_type:
 
 template <class _InputIterator>
 using __iter_to_alloc_type =
-    pair< typename add_const<typename iterator_traits<_InputIterator>::value_type::first_type>::type,
-          typename iterator_traits<_InputIterator>::value_type::second_type>;
+    pair<const typename iterator_traits<_InputIterator>::value_type::first_type,
+         typename iterator_traits<_InputIterator>::value_type::second_type>;
 
 template <class _Iter>
 using __iterator_category_type = typename iterator_traits<_Iter>::iterator_category;

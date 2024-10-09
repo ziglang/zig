@@ -58,6 +58,28 @@ typedef __syscall_ulong_t shmatt_t;
 # define SHM_HUGETLB	04000	/* segment is mapped via hugetlb */
 # define SHM_NORESERVE	010000	/* don't check for reservations */
 
+/* When SHM_HUGETLB is set, bits [26:31] encode the log2 of the huge page size.
+   The following definitions are associated with this huge page size encoding.
+   It is responsibility of the application to know which sizes are supported on
+   the running system.  See shmget(2) man page for details.  */
+
+#define SHM_HUGE_SHIFT	26
+#define SHM_HUGE_MASK	0x3f
+
+#define SHM_HUGE_16KB	(14 << SHM_HUGE_SHIFT)
+#define SHM_HUGE_64KB	(16 << SHM_HUGE_SHIFT)
+#define SHM_HUGE_512KB	(19 << SHM_HUGE_SHIFT)
+#define SHM_HUGE_1MB	(20 << SHM_HUGE_SHIFT)
+#define SHM_HUGE_2MB	(21 << SHM_HUGE_SHIFT)
+#define SHM_HUGE_8MB	(23 << SHM_HUGE_SHIFT)
+#define SHM_HUGE_16MB	(24 << SHM_HUGE_SHIFT)
+#define SHM_HUGE_32MB	(25 << SHM_HUGE_SHIFT)
+#define SHM_HUGE_256MB	(28 << SHM_HUGE_SHIFT)
+#define SHM_HUGE_512MB	(29 << SHM_HUGE_SHIFT)
+#define SHM_HUGE_1GB	(30 << SHM_HUGE_SHIFT)
+#define SHM_HUGE_2GB	(31 << SHM_HUGE_SHIFT)
+#define SHM_HUGE_16GB	(34U << SHM_HUGE_SHIFT)
+
 struct	shminfo
   {
     __syscall_ulong_t shmmax;

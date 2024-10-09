@@ -1,7 +1,18 @@
 //! Find and annotate identifiers with links to their declarations.
-pub var files: std.StringArrayHashMapUnmanaged(File) = .{};
-pub var decls: std.ArrayListUnmanaged(Decl) = .{};
-pub var modules: std.StringArrayHashMapUnmanaged(File.Index) = .{};
+
+const Walk = @This();
+const std = @import("std");
+const Ast = std.zig.Ast;
+const assert = std.debug.assert;
+const log = std.log;
+const gpa = std.heap.wasm_allocator;
+const Oom = error{OutOfMemory};
+
+pub const Decl = @import("Decl.zig");
+
+pub var files: std.StringArrayHashMapUnmanaged(File) = .empty;
+pub var decls: std.ArrayListUnmanaged(Decl) = .empty;
+pub var modules: std.StringArrayHashMapUnmanaged(File.Index) = .empty;
 
 file: File.Index,
 
@@ -25,23 +36,23 @@ pub const Category = union(enum(u8)) {
     /// A function that returns a type.
     type_function: Ast.Node.Index,
 
-    pub const Tag = @typeInfo(Category).Union.tag_type.?;
+    pub const Tag = @typeInfo(Category).@"union".tag_type.?;
 };
 
 pub const File = struct {
     ast: Ast,
     /// Maps identifiers to the declarations they point to.
-    ident_decls: std.AutoArrayHashMapUnmanaged(Ast.TokenIndex, Ast.Node.Index) = .{},
+    ident_decls: std.AutoArrayHashMapUnmanaged(Ast.TokenIndex, Ast.Node.Index) = .empty,
     /// Maps field access identifiers to the containing field access node.
-    token_parents: std.AutoArrayHashMapUnmanaged(Ast.TokenIndex, Ast.Node.Index) = .{},
+    token_parents: std.AutoArrayHashMapUnmanaged(Ast.TokenIndex, Ast.Node.Index) = .empty,
     /// Maps declarations to their global index.
-    node_decls: std.AutoArrayHashMapUnmanaged(Ast.Node.Index, Decl.Index) = .{},
+    node_decls: std.AutoArrayHashMapUnmanaged(Ast.Node.Index, Decl.Index) = .empty,
     /// Maps function declarations to doctests.
-    doctests: std.AutoArrayHashMapUnmanaged(Ast.Node.Index, Ast.Node.Index) = .{},
+    doctests: std.AutoArrayHashMapUnmanaged(Ast.Node.Index, Ast.Node.Index) = .empty,
     /// root node => its namespace scope
     /// struct/union/enum/opaque decl node => its namespace scope
     /// local var decl node => its local variable scope
-    scopes: std.AutoArrayHashMapUnmanaged(Ast.Node.Index, *Scope) = .{},
+    scopes: std.AutoArrayHashMapUnmanaged(Ast.Node.Index, *Scope) = .empty,
 
     pub fn lookup_token(file: *File, token: Ast.TokenIndex) Decl.Index {
         const decl_node = file.ident_decls.get(token) orelse return .none;
@@ -453,8 +464,8 @@ pub const Scope = struct {
     const Namespace = struct {
         base: Scope = .{ .tag = .namespace },
         parent: *Scope,
-        names: std.StringArrayHashMapUnmanaged(Ast.Node.Index) = .{},
-        doctests: std.StringArrayHashMapUnmanaged(Ast.Node.Index) = .{},
+        names: std.StringArrayHashMapUnmanaged(Ast.Node.Index) = .empty,
+        doctests: std.StringArrayHashMapUnmanaged(Ast.Node.Index) = .empty,
         decl_index: Decl.Index,
     };
 
@@ -1119,15 +1130,6 @@ pub fn isPrimitiveNonType(name: []const u8) bool {
 //
 //    try w.root();
 //}
-
-const Walk = @This();
-const std = @import("std");
-const Ast = std.zig.Ast;
-const assert = std.debug.assert;
-const Decl = @import("Decl.zig");
-const log = std.log;
-const gpa = std.heap.wasm_allocator;
-const Oom = error{OutOfMemory};
 
 fn shrinkToFit(m: anytype) void {
     m.shrinkAndFree(gpa, m.entries.len);

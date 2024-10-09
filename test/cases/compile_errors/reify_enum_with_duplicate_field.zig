@@ -1,6 +1,6 @@
 export fn entry() void {
     _ = @Type(.{
-        .Enum = .{
+        .@"enum" = .{
             .tag_type = u32,
             .fields = &.{
                 .{ .name = "A", .value = 0 },

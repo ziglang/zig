@@ -22,6 +22,83 @@ pub const WaitGroup = @import("Thread/WaitGroup.zig");
 
 pub const use_pthreads = native_os != .windows and native_os != .wasi and builtin.link_libc;
 
+/// Spurious wakeups are possible and no precision of timing is guaranteed.
+pub fn sleep(nanoseconds: u64) void {
+    if (builtin.os.tag == .windows) {
+        const big_ms_from_ns = nanoseconds / std.time.ns_per_ms;
+        const ms = math.cast(windows.DWORD, big_ms_from_ns) orelse math.maxInt(windows.DWORD);
+        windows.kernel32.Sleep(ms);
+        return;
+    }
+
+    if (builtin.os.tag == .wasi) {
+        const w = std.os.wasi;
+        const userdata: w.userdata_t = 0x0123_45678;
+        const clock: w.subscription_clock_t = .{
+            .id = .MONOTONIC,
+            .timeout = nanoseconds,
+            .precision = 0,
+            .flags = 0,
+        };
+        const in: w.subscription_t = .{
+            .userdata = userdata,
+            .u = .{
+                .tag = .CLOCK,
+                .u = .{ .clock = clock },
+            },
+        };
+
+        var event: w.event_t = undefined;
+        var nevents: usize = undefined;
+        _ = w.poll_oneoff(&in, &event, 1, &nevents);
+        return;
+    }
+
+    if (builtin.os.tag == .uefi) {
+        const boot_services = std.os.uefi.system_table.boot_services.?;
+        const us_from_ns = nanoseconds / std.time.ns_per_us;
+        const us = math.cast(usize, us_from_ns) orelse math.maxInt(usize);
+        _ = boot_services.stall(us);
+        return;
+    }
+
+    const s = nanoseconds / std.time.ns_per_s;
+    const ns = nanoseconds % std.time.ns_per_s;
+
+    // Newer kernel ports don't have old `nanosleep()` and `clock_nanosleep()` has been around
+    // since Linux 2.6 and glibc 2.1 anyway.
+    if (builtin.os.tag == .linux) {
+        const linux = std.os.linux;
+
+        var req: linux.timespec = .{
+            .sec = std.math.cast(linux.time_t, s) orelse std.math.maxInt(linux.time_t),
+            .nsec = std.math.cast(linux.time_t, ns) orelse std.math.maxInt(linux.time_t),
+        };
+        var rem: linux.timespec = undefined;
+
+        while (true) {
+            switch (linux.E.init(linux.clock_nanosleep(.MONOTONIC, .{ .ABSTIME = false }, &req, &rem))) {
+                .SUCCESS => return,
+                .INTR => {
+                    req = rem;
+                    continue;
+                },
+                .FAULT,
+                .INVAL,
+                .OPNOTSUPP,
+                => unreachable,
+                else => return,
+            }
+        }
+    }
+
+    posix.nanosleep(s, ns);
+}
+
+test sleep {
+    sleep(1);
+}
+
 const Thread = @This();
 const Impl = if (native_os == .windows)
     WindowsThreadImpl
@@ -401,15 +478,15 @@ fn callFn(comptime f: anytype, args: anytype) switch (Impl) {
     const default_value = if (Impl == PosixThreadImpl) null else 0;
     const bad_fn_ret = "expected return type of startFn to be 'u8', 'noreturn', '!noreturn', 'void', or '!void'";
 
-    switch (@typeInfo(@typeInfo(@TypeOf(f)).Fn.return_type.?)) {
-        .NoReturn => {
+    switch (@typeInfo(@typeInfo(@TypeOf(f)).@"fn".return_type.?)) {
+        .noreturn => {
             @call(.auto, f, args);
         },
-        .Void => {
+        .void => {
             @call(.auto, f, args);
             return default_value;
         },
-        .Int => |info| {
+        .int => |info| {
             if (info.bits != 8) {
                 @compileError(bad_fn_ret);
             }
@@ -422,7 +499,7 @@ fn callFn(comptime f: anytype, args: anytype) switch (Impl) {
             // pthreads don't support exit status, ignore value
             return default_value;
         },
-        .ErrorUnion => |info| {
+        .error_union => |info| {
             switch (info.payload) {
                 void, noreturn => {
                     @call(.auto, f, args) catch |err| {
@@ -850,17 +927,17 @@ const WasiThreadImpl = struct {
             fn entry(ptr: usize) void {
                 const w: *@This() = @ptrFromInt(ptr);
                 const bad_fn_ret = "expected return type of startFn to be 'u8', 'noreturn', 'void', or '!void'";
-                switch (@typeInfo(@typeInfo(@TypeOf(f)).Fn.return_type.?)) {
-                    .NoReturn, .Void => {
+                switch (@typeInfo(@typeInfo(@TypeOf(f)).@"fn".return_type.?)) {
+                    .noreturn, .void => {
                         @call(.auto, f, w.args);
                     },
-                    .Int => |info| {
+                    .int => |info| {
                         if (info.bits != 8) {
                             @compileError(bad_fn_ret);
                         }
                         _ = @call(.auto, f, w.args); // WASI threads don't support exit status, ignore value
                     },
-                    .ErrorUnion => |info| {
+                    .error_union => |info| {
                         if (info.payload != void) {
                             @compileError(bad_fn_ret);
                         }
@@ -1130,6 +1207,23 @@ const LinuxThreadImpl = struct {
                       [len] "r" (self.mapped.len),
                     : "memory"
                 ),
+                .hexagon => asm volatile (
+                    \\  r6 = #215 // SYS_munmap
+                    \\  r0 = %[ptr]
+                    \\  r1 = %[len]
+                    \\  trap0(#1)
+                    \\  r6 = #93 // SYS_exit
+                    \\  r0 = #0
+                    \\  trap0(#1)
+                    :
+                    : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
+                      [len] "r" (self.mapped.len),
+                    : "memory"
+                ),
+                // We set `sp` to the address of the current function as a workaround for a Linux
+                // kernel bug that caused syscalls to return EFAULT if the stack pointer is invalid.
+                // The bug was introduced in 46e12c07b3b9603c60fc1d421ff18618241cb081 and fixed in
+                // 7928eb0370d1133d0d8cd2f5ddfca19c309079d5.
                 .mips, .mipsel => asm volatile (
                     \\  move $sp, $25
                     \\  li $2, 4091 # SYS_munmap
@@ -1145,11 +1239,11 @@ const LinuxThreadImpl = struct {
                     : "memory"
                 ),
                 .mips64, .mips64el => asm volatile (
-                    \\  li $2, 4091 # SYS_munmap
+                    \\  li $2, 5011 # SYS_munmap
                     \\  move $4, %[ptr]
                     \\  move $5, %[len]
                     \\  syscall
-                    \\  li $2, 4001 # SYS_exit
+                    \\  li $2, 5058 # SYS_exit
                     \\  li $4, 0
                     \\  syscall
                     :
@@ -1159,8 +1253,8 @@ const LinuxThreadImpl = struct {
                 ),
                 .powerpc, .powerpcle, .powerpc64, .powerpc64le => asm volatile (
                     \\  li 0, 91 # SYS_munmap
-                    \\  mr %[ptr], 3
-                    \\  mr %[len], 4
+                    \\  mr 3, %[ptr]
+                    \\  mr 4, %[len]
                     \\  sc
                     \\  li 0, 1 # SYS_exit
                     \\  li 3, 0
@@ -1171,7 +1265,7 @@ const LinuxThreadImpl = struct {
                       [len] "r" (self.mapped.len),
                     : "memory"
                 ),
-                .riscv32 => asm volatile (
+                .riscv32, .riscv64 => asm volatile (
                     \\  li a7, 215 # SYS_munmap
                     \\  mv a0, %[ptr]
                     \\  mv a1, %[len]
@@ -1184,14 +1278,34 @@ const LinuxThreadImpl = struct {
                       [len] "r" (self.mapped.len),
                     : "memory"
                 ),
-                .riscv64 => asm volatile (
-                    \\  li a7, 215 # SYS_munmap
-                    \\  mv a0, %[ptr]
-                    \\  mv a1, %[len]
-                    \\  ecall
-                    \\  li a7, 93 # SYS_exit
-                    \\  mv a0, zero
-                    \\  ecall
+                .s390x => asm volatile (
+                    \\  lgr %%r2, %[ptr]
+                    \\  lgr %%r3, %[len]
+                    \\  svc 91 # SYS_munmap
+                    \\  lghi %%r2, 0
+                    \\  svc 1 # SYS_exit
+                    :
+                    : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
+                      [len] "r" (self.mapped.len),
+                    : "memory"
+                ),
+                .sparc => asm volatile (
+                    \\ # See sparc64 comments below.
+                    \\ 1:
+                    \\  cmp %%fp, 0
+                    \\  beq 2f
+                    \\  nop
+                    \\  ba 1b
+                    \\  restore
+                    \\ 2:
+                    \\  mov 73, %%g1 // SYS_munmap
+                    \\  mov %[ptr], %%o0
+                    \\  mov %[len], %%o1
+                    \\  t 0x3 # ST_FLUSH_WINDOWS
+                    \\  t 0x10
+                    \\  mov 1, %%g1 // SYS_exit
+                    \\  mov 0, %%o0
+                    \\  t 0x10
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
@@ -1202,23 +1316,36 @@ const LinuxThreadImpl = struct {
                     \\ # is unmapped (it will result in a segfault), so we
                     \\ # force-deactivate it by running `restore` until
                     \\ # all frames are cleared.
-                    \\  1:
+                    \\ 1:
                     \\  cmp %%fp, 0
                     \\  beq 2f
                     \\  nop
                     \\  ba 1b
                     \\  restore
-                    \\  2:
-                    \\  mov 73, %%g1 # SYS_munmap
+                    \\ 2:
+                    \\  mov 73, %%g1 // SYS_munmap
                     \\  mov %[ptr], %%o0
                     \\  mov %[len], %%o1
                     \\  # Flush register window contents to prevent background
                     \\  # memory access before unmapping the stack.
                     \\  flushw
                     \\  t 0x6d
-                    \\  mov 1, %%g1 # SYS_exit
-                    \\  mov 1, %%o0
+                    \\  mov 1, %%g1 // SYS_exit
+                    \\  mov 0, %%o0
                     \\  t 0x6d
+                    :
+                    : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
+                      [len] "r" (self.mapped.len),
+                    : "memory"
+                ),
+                .loongarch64 => asm volatile (
+                    \\ or      $a0, $zero, %[ptr]
+                    \\ or      $a1, $zero, %[len]
+                    \\ ori     $a7, $zero, 215     # SYS_munmap
+                    \\ syscall 0                   # call munmap
+                    \\ ori     $a0, $zero, 0
+                    \\ ori     $a7, $zero, 93      # SYS_exit
+                    \\ syscall 0                   # call exit
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),

@@ -196,7 +196,7 @@ fn testDuplicateDefinitions(b: *Build, opts: Options) *Step {
     const exe = addExecutable(b, opts, .{ .name = "main", .zig_source_bytes = 
     \\var x: usize = 1;
     \\export fn strong() void { x += 1; }
-    \\comptime { @export(weakImpl, .{ .name = "weak", .linkage = .weak }); }
+    \\comptime { @export(&weakImpl, .{ .name = "weak", .linkage = .weak }); }
     \\fn weakImpl() callconv(.C) void { x += 1; }
     \\extern fn weak() void;
     \\pub fn main() void {
@@ -1676,7 +1676,7 @@ fn testReexportsZig(b: *Build, opts: Options) *Step {
     \\    return x;
     \\}
     \\comptime {
-    \\    @export(foo, .{ .name = "bar", .linkage = .strong });
+    \\    @export(&foo, .{ .name = "bar", .linkage = .strong });
     \\}
     });
 
@@ -2204,25 +2204,28 @@ fn testThunks(b: *Build, opts: Options) *Step {
 
     const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = 
     \\#include <stdio.h>
-    \\__attribute__((aligned(0x8000000))) int bar() {
-    \\  return 42;
+    \\void bar() {
+    \\  printf("bar");
     \\}
-    \\int foobar();
-    \\int foo() {
-    \\  return bar() - foobar();
-    \\}
-    \\__attribute__((aligned(0x8000000))) int foobar() {
-    \\  return 42;
+    \\void foo() {
+    \\  fprintf(stdout, "foo");
     \\}
     \\int main() {
-    \\  printf("bar=%d, foo=%d, foobar=%d", bar(), foo(), foobar());
-    \\  return foo();
+    \\  foo();
+    \\  bar();
+    \\  return 0;
     \\}
     });
 
+    const check = exe.checkObject();
+    check.checkInSymtab();
+    check.checkContains("_printf__thunk");
+    check.checkInSymtab();
+    check.checkContains("_fprintf__thunk");
+    test_step.dependOn(&check.step);
+
     const run = addRunArtifact(exe);
-    run.expectStdOutEqual("bar=42, foo=0, foobar=42");
-    run.expectExitCode(0);
+    run.expectStdOutEqual("foobar");
     test_step.dependOn(&run.step);
 
     return test_step;
