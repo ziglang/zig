@@ -421,7 +421,7 @@ fn make(step: *Step, make_options: Step.MakeOptions) !void {
         options.addOption(
             []const u8,
             item.name,
-            item.path.getPath2(b, step),
+            item.path.getPath(b),
         );
     }
     if (!step.inputs.populated()) for (options.args.items) |item| {

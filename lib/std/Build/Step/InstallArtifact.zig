@@ -125,7 +125,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
 
     if (install_artifact.dest_dir) |dest_dir| {
         const full_dest_path = b.getInstallPath(dest_dir, install_artifact.dest_sub_path);
-        const src_path = install_artifact.emitted_bin.?.getPath3(b, step);
+        const src_path = install_artifact.emitted_bin.?.getPath3(b);
         const p = fs.Dir.updateFile(src_path.root_dir.handle, src_path.sub_path, cwd, full_dest_path, .{}) catch |err| {
             return step.fail("unable to update file from '{s}' to '{s}': {s}", .{
                 src_path.sub_path, full_dest_path, @errorName(err),
@@ -141,7 +141,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     }
 
     if (install_artifact.implib_dir) |implib_dir| {
-        const src_path = install_artifact.emitted_implib.?.getPath3(b, step);
+        const src_path = install_artifact.emitted_implib.?.getPath3(b);
         const full_implib_path = b.getInstallPath(implib_dir, fs.path.basename(src_path.sub_path));
         const p = fs.Dir.updateFile(src_path.root_dir.handle, src_path.sub_path, cwd, full_implib_path, .{}) catch |err| {
             return step.fail("unable to update file from '{s}' to '{s}': {s}", .{
@@ -152,7 +152,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     }
 
     if (install_artifact.pdb_dir) |pdb_dir| {
-        const src_path = install_artifact.emitted_pdb.?.getPath3(b, step);
+        const src_path = install_artifact.emitted_pdb.?.getPath3(b);
         const full_pdb_path = b.getInstallPath(pdb_dir, fs.path.basename(src_path.sub_path));
         const p = fs.Dir.updateFile(src_path.root_dir.handle, src_path.sub_path, cwd, full_pdb_path, .{}) catch |err| {
             return step.fail("unable to update file from '{s}' to '{s}': {s}", .{
@@ -164,7 +164,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
 
     if (install_artifact.h_dir) |h_dir| {
         if (install_artifact.emitted_h) |emitted_h| {
-            const src_path = emitted_h.getPath3(b, step);
+            const src_path = emitted_h.getPath3(b);
             const full_h_path = b.getInstallPath(h_dir, fs.path.basename(src_path.sub_path));
             const p = fs.Dir.updateFile(src_path.root_dir.handle, src_path.sub_path, cwd, full_h_path, .{}) catch |err| {
                 return step.fail("unable to update file from '{s}' to '{s}': {s}", .{
@@ -176,7 +176,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
 
         for (install_artifact.artifact.installed_headers.items) |installation| switch (installation) {
             .file => |file| {
-                const src_path = file.source.getPath3(b, step);
+                const src_path = file.source.getPath3(b);
                 const full_h_path = b.getInstallPath(h_dir, file.dest_rel_path);
                 const p = fs.Dir.updateFile(src_path.root_dir.handle, src_path.sub_path, cwd, full_h_path, .{}) catch |err| {
                     return step.fail("unable to update file from '{s}' to '{s}': {s}", .{
@@ -186,7 +186,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
                 all_cached = all_cached and p == .fresh;
             },
             .directory => |dir| {
-                const src_dir_path = dir.source.getPath3(b, step);
+                const src_dir_path = dir.source.getPath3(b);
                 const full_h_prefix = b.getInstallPath(h_dir, dir.dest_rel_path);
 
                 var src_dir = src_dir_path.root_dir.handle.openDir(src_dir_path.sub_path, .{ .iterate = true }) catch |err| {

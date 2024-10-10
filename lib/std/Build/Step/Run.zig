@@ -637,13 +637,13 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
                 man.hash.addBytes(bytes);
             },
             .lazy_path => |file| {
-                const file_path = file.lazy_path.getPath2(b, step);
+                const file_path = file.lazy_path.getPath(b);
                 try argv_list.append(b.fmt("{s}{s}", .{ file.prefix, file_path }));
                 man.hash.addBytes(file.prefix);
                 _ = try man.addFile(file_path, null);
             },
             .directory_source => |file| {
-                const file_path = file.lazy_path.getPath2(b, step);
+                const file_path = file.lazy_path.getPath(b);
                 try argv_list.append(b.fmt("{s}{s}", .{ file.prefix, file_path }));
                 man.hash.addBytes(file.prefix);
                 man.hash.addBytes(file_path);
@@ -682,7 +682,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
             man.hash.addBytes(bytes);
         },
         .lazy_path => |lazy_path| {
-            const file_path = lazy_path.getPath2(b, step);
+            const file_path = lazy_path.getPath(b);
             _ = try man.addFile(file_path, null);
         },
         .none => {},
@@ -702,7 +702,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
         _ = try man.addFile(b.pathFromRoot(file_path), null);
     }
     for (run.file_inputs.items) |lazy_path| {
-        _ = try man.addFile(lazy_path.getPath2(b, step), null);
+        _ = try man.addFile(lazy_path.getPath(b), null);
     }
 
     if (!has_side_effects and try step.cacheHitAndWatch(&man)) {
@@ -863,11 +863,11 @@ pub fn rerunInFuzzMode(
                 try argv_list.append(arena, bytes);
             },
             .lazy_path => |file| {
-                const file_path = file.lazy_path.getPath2(b, step);
+                const file_path = file.lazy_path.getPath(b);
                 try argv_list.append(arena, b.fmt("{s}{s}", .{ file.prefix, file_path }));
             },
             .directory_source => |file| {
-                const file_path = file.lazy_path.getPath2(b, step);
+                const file_path = file.lazy_path.getPath(b);
                 try argv_list.append(arena, b.fmt("{s}{s}", .{ file.prefix, file_path }));
             },
             .artifact => |pa| {
@@ -979,7 +979,7 @@ fn runCommand(
     const b = step.owner;
     const arena = b.allocator;
 
-    const cwd: ?[]const u8 = if (run.cwd) |lazy_cwd| lazy_cwd.getPath2(b, step) else null;
+    const cwd: ?[]const u8 = if (run.cwd) |lazy_cwd| lazy_cwd.getPath(b) else null;
 
     try step.handleChildProcUnsupported(cwd, argv);
     try Step.handleVerbose2(step.owner, cwd, run.env_map, argv);
@@ -1325,7 +1325,7 @@ fn spawnChildAndCollect(
 
     var child = std.process.Child.init(argv, arena);
     if (run.cwd) |lazy_cwd| {
-        child.cwd = lazy_cwd.getPath2(b, &run.step);
+        child.cwd = lazy_cwd.getPath(b);
     } else {
         child.cwd = b.build_root.path;
         child.cwd_dir = b.build_root.handle;
@@ -1649,7 +1649,7 @@ fn evalGeneric(run: *Run, child: *std.process.Child) !StdIoResult {
             child.stdin = null;
         },
         .lazy_path => |lazy_path| {
-            const path = lazy_path.getPath2(b, &run.step);
+            const path = lazy_path.getPath(b);
             const file = b.build_root.handle.openFile(path, .{}) catch |err| {
                 return run.step.fail("unable to open stdin file: {s}", .{@errorName(err)});
             };
@@ -1718,7 +1718,7 @@ fn addPathForDynLibs(run: *Run, artifact: *Step.Compile) void {
             if (item.module.resolved_target.?.result.os.tag == .windows and
                 other.isDynamicLibrary())
             {
-                addPathDir(run, fs.path.dirname(other.getEmittedBin().getPath2(b, &run.step)).?);
+                addPathDir(run, fs.path.dirname(other.getEmittedBin().getPath(b)).?);
             }
         }
     }
