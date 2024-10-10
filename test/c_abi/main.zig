@@ -10,7 +10,7 @@ const builtin = @import("builtin");
 const print = std.debug.print;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
-const have_i128 = builtin.cpu.arch != .x86 and !builtin.cpu.arch.isARM() and
+const have_i128 = builtin.cpu.arch != .x86 and !builtin.cpu.arch.isArm() and
     !builtin.cpu.arch.isMIPS() and !builtin.cpu.arch.isPowerPC32();
 
 const have_f128 = builtin.cpu.arch.isX86() and !builtin.os.tag.isDarwin();
@@ -181,7 +181,7 @@ extern fn c_cmultf(a: ComplexFloat, b: ComplexFloat) ComplexFloat;
 extern fn c_cmultd(a: ComplexDouble, b: ComplexDouble) ComplexDouble;
 
 const complex_abi_compatible = builtin.cpu.arch != .x86 and !builtin.cpu.arch.isMIPS() and
-    !builtin.cpu.arch.isARM() and !builtin.cpu.arch.isPowerPC32() and !builtin.cpu.arch.isRISCV();
+    !builtin.cpu.arch.isArm() and !builtin.cpu.arch.isPowerPC32() and !builtin.cpu.arch.isRISCV();
 
 test "C ABI complex float" {
     if (!complex_abi_compatible) return error.SkipZigTest;
@@ -5553,7 +5553,7 @@ extern fn c_f16_struct(f16_struct) f16_struct;
 test "f16 struct" {
     if (builtin.target.cpu.arch.isMIPS64()) return error.SkipZigTest;
     if (builtin.target.cpu.arch.isPowerPC32()) return error.SkipZigTest;
-    if (builtin.cpu.arch.isARM() and builtin.mode != .Debug) return error.SkipZigTest;
+    if (builtin.cpu.arch.isArm() and builtin.mode != .Debug) return error.SkipZigTest;
 
     const a = c_f16_struct(.{ .a = 12 });
     try expect(a.a == 34);

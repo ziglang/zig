@@ -17,7 +17,7 @@ fn test__aeabi_uidivmod(a: u32, b: u32, expected_q: u32, expected_r: u32) !void 
 }
 
 test "arm.__aeabi_uidivmod" {
-    if (!builtin.cpu.arch.isARM()) return error.SkipZigTest;
+    if (!builtin.cpu.arch.isArm()) return error.SkipZigTest;
 
     var i: i32 = 0;
     for (cases) |case| {

@@ -268,7 +268,7 @@ test "clzsi2" {
     try test__clzsi2(0xFE000000, 0);
     try test__clzsi2(0xFF000000, 0);
     // arm and thumb1 assume input a != 0
-    if (!builtin.cpu.arch.isArmOrThumb())
+    if (!builtin.cpu.arch.isArm())
         try test__clzsi2(0x00000000, 32);
     try test__clzsi2(0x00000001, 31);
     try test__clzsi2(0x00000002, 30);

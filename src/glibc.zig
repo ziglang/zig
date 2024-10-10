@@ -219,7 +219,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: std.Progre
                     .owner = comp.root_mod,
                 },
             };
-            return comp.build_crt_file("crti", .Obj, .@"glibc crti.o", prog_node, &files);
+            return comp.build_crt_file("crti", .Obj, null, .@"glibc crti.o", prog_node, &files);
         },
         .crtn_o => {
             var args = std.ArrayList([]const u8).init(arena);
@@ -240,7 +240,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: std.Progre
                     .owner = undefined,
                 },
             };
-            return comp.build_crt_file("crtn", .Obj, .@"glibc crtn.o", prog_node, &files);
+            return comp.build_crt_file("crtn", .Obj, null, .@"glibc crtn.o", prog_node, &files);
         },
         .scrt1_o => {
             const start_o: Compilation.CSourceFile = blk: {
@@ -292,7 +292,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: std.Progre
                 .owner = undefined,
             };
             var files = [_]Compilation.CSourceFile{ start_o, abi_note_o, init_o };
-            return comp.build_crt_file("Scrt1", .Obj, .@"glibc Scrt1.o", prog_node, &files);
+            return comp.build_crt_file("Scrt1", .Obj, null, .@"glibc Scrt1.o", prog_node, &files);
         },
         .libc_nonshared_a => {
             const s = path.sep_str;
@@ -410,7 +410,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: std.Progre
                 files_index += 1;
             }
             const files = files_buf[0..files_index];
-            return comp.build_crt_file("c_nonshared", .Lib, .@"glibc libc_nonshared.a", prog_node, files);
+            return comp.build_crt_file("c_nonshared", .Lib, null, .@"glibc libc_nonshared.a", prog_node, files);
         },
     }
 }
@@ -437,7 +437,7 @@ fn start_asm_path(comp: *Compilation, arena: Allocator, basename: []const u8) ![
                 try result.appendSlice("sparc" ++ s ++ "sparc32");
             }
         }
-    } else if (arch.isARM()) {
+    } else if (arch.isArm()) {
         try result.appendSlice("arm");
     } else if (arch.isMIPS()) {
         if (!mem.eql(u8, basename, "crti.S") and !mem.eql(u8, basename, "crtn.S")) {
@@ -601,7 +601,7 @@ fn add_include_dirs_arch(
             try args.append("-I");
             try args.append(try path.join(arena, &[_][]const u8{ dir, "x86" }));
         }
-    } else if (arch.isARM()) {
+    } else if (arch.isArm()) {
         if (opt_nptl) |nptl| {
             try args.append("-I");
             try args.append(try path.join(arena, &[_][]const u8{ dir, "arm", nptl }));

@@ -2148,7 +2148,7 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
         }
 
         if (link_mode == .static) {
-            if (target.cpu.arch.isArmOrThumb()) {
+            if (target.cpu.arch.isArm()) {
                 try argv.append("-Bstatic");
             } else {
                 try argv.append("-static");
@@ -4492,29 +4492,9 @@ const CsuObjects = struct {
     const InitArgs = struct {};
 
     fn init(arena: Allocator, comp: *const Compilation) !CsuObjects {
-        // crt objects are only required for libc.
-        if (!comp.config.link_libc) return .{};
+        const mode = comp.crtMode() orelse return .{};
 
         var result: CsuObjects = .{};
-
-        // Flatten crt cases.
-        const mode: enum {
-            dynamic_lib,
-            dynamic_exe,
-            dynamic_pie,
-            static_exe,
-            static_pie,
-        } = switch (comp.config.output_mode) {
-            .Obj => return CsuObjects{},
-            .Lib => switch (comp.config.link_mode) {
-                .dynamic => .dynamic_lib,
-                .static => return CsuObjects{},
-            },
-            .Exe => switch (comp.config.link_mode) {
-                .dynamic => if (comp.config.pie) .dynamic_pie else .dynamic_exe,
-                .static => if (comp.config.pie) .static_pie else .static_exe,
-            },
-        };
 
         const target = comp.root_mod.resolved_target.result;
 

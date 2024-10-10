@@ -31,7 +31,7 @@ fn test__aeabi_uldivmod(a: u64, b: u64, expected_q: u64, expected_r: u64) !void 
 }
 
 test "arm.__aeabi_uldivmod" {
-    if (!builtin.cpu.arch.isARM()) return error.SkipZigTest;
+    if (!builtin.cpu.arch.isArm()) return error.SkipZigTest;
 
     for (cases) |case| {
         try test__aeabi_uldivmod(case[0], case[1], case[2], case[3]);

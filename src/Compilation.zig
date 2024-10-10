@@ -1813,8 +1813,18 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                     .{ .glibc_crt_file = .crtn_o },
                 });
             }
+
+            if (comp.crtMode()) |mode| {
+                const crt_file: ?glibc.CRTFile = switch (mode) {
+                    .dynamic_lib => null,
+                    .dynamic_exe, .dynamic_pie => .scrt1_o,
+                    .static_exe, .static_pie => null,
+                };
+
+                if (crt_file) |f| try comp.queueJob(.{ .glibc_crt_file = f });
+            }
+
             try comp.queueJobs(&[_]Job{
-                .{ .glibc_crt_file = .scrt1_o },
                 .{ .glibc_crt_file = .libc_nonshared_a },
                 .{ .glibc_shared_objects = {} },
             });
@@ -1828,15 +1838,22 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                     .{ .musl_crt_file = .crtn_o },
                 });
             }
-            try comp.queueJobs(&[_]Job{
-                .{ .musl_crt_file = .crt1_o },
-                .{ .musl_crt_file = .scrt1_o },
-                .{ .musl_crt_file = .rcrt1_o },
-                switch (comp.config.link_mode) {
-                    .static => .{ .musl_crt_file = .libc_a },
-                    .dynamic => .{ .musl_crt_file = .libc_so },
-                },
-            });
+
+            if (comp.crtMode()) |mode| {
+                const crt_file: ?musl.CRTFile = switch (mode) {
+                    .dynamic_lib => null,
+                    .dynamic_exe, .static_exe => .crt1_o,
+                    .dynamic_pie => .scrt1_o,
+                    .static_pie => .rcrt1_o,
+                };
+
+                if (crt_file) |f| try comp.queueJob(.{ .musl_crt_file = f });
+            }
+
+            try comp.queueJob(.{ .musl_crt_file = switch (comp.config.link_mode) {
+                .static => .libc_a,
+                .dynamic => .libc_so,
+            } });
         }
 
         if (comp.wantBuildWasiLibcFromSource()) {
@@ -5731,8 +5748,8 @@ pub fn addCCArgs(
         try argv.append("-mthumb");
     }
 
-    if (target_util.supports_fpic(target) and mod.pic) {
-        try argv.append("-fPIC");
+    if (target_util.supports_fpic(target)) {
+        try argv.append(if (mod.pic) "-fPIC" else "-fno-PIC");
     }
 
     try argv.ensureUnusedCapacity(2);
@@ -6438,6 +6455,7 @@ pub fn build_crt_file(
     comp: *Compilation,
     root_name: []const u8,
     output_mode: std.builtin.OutputMode,
+    pic: ?bool,
     misc_task_tag: MiscTask,
     prog_node: std.Progress.Node,
     /// These elements have to get mutated to add the owner module after it is
@@ -6490,7 +6508,8 @@ pub fn build_crt_file(
             .omit_frame_pointer = comp.root_mod.omit_frame_pointer,
             .valgrind = false,
             .unwind_tables = false,
-            .pic = comp.root_mod.pic,
+            // Some CRT objects (rcrt1.o, Scrt1.o) are opinionated about PIC.
+            .pic = pic orelse comp.root_mod.pic,
             .optimize_mode = comp.compilerRtOptMode(),
             .structured_cfg = comp.root_mod.structured_cfg,
         },
@@ -6548,6 +6567,30 @@ pub fn toCrtFile(comp: *Compilation) Allocator.Error!CRTFile {
             comp.cache_use.whole.bin_sub_path.?,
         }),
         .lock = comp.cache_use.whole.moveLock(),
+    };
+}
+
+pub const CrtMode = enum {
+    dynamic_lib,
+    dynamic_exe,
+    dynamic_pie,
+    static_exe,
+    static_pie,
+};
+
+pub fn crtMode(comp: *const Compilation) ?CrtMode {
+    if (!comp.config.link_libc) return null;
+
+    return switch (comp.config.output_mode) {
+        .Obj => null,
+        .Lib => switch (comp.config.link_mode) {
+            .static => null,
+            .dynamic => .dynamic_lib,
+        },
+        .Exe => switch (comp.config.link_mode) {
+            .static => if (comp.config.pie) .static_pie else .static_exe,
+            .dynamic => if (comp.config.pie) .dynamic_pie else .dynamic_exe,
+        },
     };
 }
 
