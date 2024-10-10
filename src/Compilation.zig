@@ -2302,7 +2302,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
         try pt.processExports();
     }
 
-    if (try comp.totalErrorCount() != 0) {
+    if (comp.anyErrors()) {
         // Skip flushing and keep source files loaded for error reporting.
         comp.link_error_flags = .{};
         return;
@@ -2391,6 +2391,9 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
                 .root_dir = comp.local_cache_directory,
                 .sub_path = o_sub_path,
             }, .main, main_progress_node);
+
+            // Check if there were any linker errors that would be reported as late as link.File.flush.
+            if (comp.anyErrors()) return;
 
             // Failure here only means an unnecessary cache miss.
             man.writeManifest() catch |err| {
@@ -3292,10 +3295,26 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
     return bundle.toOwnedBundle(compile_log_text);
 }
 
-fn totalErrorCount(comp: *Compilation) !u32 {
-    var errors = try comp.getAllErrorsAlloc();
-    defer errors.deinit(comp.gpa);
-    return errors.errorMessageCount();
+fn anyErrors(comp: *Compilation) bool {
+    const zcu_has_errors = zcu_has_errors: {
+        const zcu = comp.zcu orelse break :zcu_has_errors false;
+        break :zcu_has_errors zcu.failed_files.values().len > 0 or
+            zcu.failed_embed_files.values().len > 0 or
+            zcu.failed_analysis.values().len > 0 or
+            zcu.failed_codegen.values().len > 0 or
+            zcu.failed_exports.values().len > 0 or
+            zcu.compile_log_sources.count() > 0 or
+            (comp.incremental and zcu.transitive_failed_analysis.values().len > 0);
+    };
+    return comp.failed_c_objects.values().len > 0 or
+        comp.failed_win32_resources.values().len > 0 or
+        comp.lld_errors.items.len > 0 or
+        comp.misc_failures.values().len > 0 or
+        comp.alloc_failure_occurred or
+        comp.link_error_flags.missing_libc or
+        comp.link_errors.items.len > 0 or
+        comp.link_error_flags.no_entry_point_found or
+        zcu_has_errors;
 }
 
 pub const ErrorNoteHashContext = struct {
