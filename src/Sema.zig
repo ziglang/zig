@@ -26202,7 +26202,8 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
     try sema.validateRuntimeValue(block, src_src, src_ptr);
 
     // Aliasing safety check.
-    if (block.wantSafety()) {
+    // Only emit check if there's any copying to be done
+    if (block.wantSafety() and dest_elem_ty.bitSize(zcu) > 0) {
         const len = if (len_val) |v|
             Air.internedToRef(v.toIntern())
         else if (dest_len != .none)
