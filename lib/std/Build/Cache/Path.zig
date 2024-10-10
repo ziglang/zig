@@ -149,7 +149,7 @@ pub fn format(
         const stringEscape = std.zig.stringEscape;
         const f = switch (fmt_string[0]) {
             'q' => "",
-            '\'' => '\'',
+            '\'' => "\'",
             else => @compileError("unsupported format string: " ++ fmt_string),
         };
         if (self.root_dir.path) |p| {
