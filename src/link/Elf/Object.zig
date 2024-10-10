@@ -29,6 +29,7 @@ cies: std.ArrayListUnmanaged(Cie) = .empty,
 eh_frame_data: std.ArrayListUnmanaged(u8) = .empty,
 
 alive: bool = true,
+dirty: bool = true,
 num_dynrelocs: u32 = 0,
 
 output_symtab_ctx: Elf.SymtabCtx = .{},
@@ -917,7 +918,7 @@ pub fn initOutputSections(self: *Object, elf_file: *Elf) !void {
         });
         const atom_list = &elf_file.sections.items(.atom_list_2)[osec];
         atom_list.output_section_index = osec;
-        try atom_list.atoms.append(elf_file.base.comp.gpa, atom_ptr.ref());
+        _ = try atom_list.atoms.getOrPut(elf_file.base.comp.gpa, atom_ptr.ref());
     }
 }
 

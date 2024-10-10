@@ -435,6 +435,8 @@ pub const GotSection = struct {
         const cpu_arch = elf_file.getTarget().cpu.arch;
         try elf_file.rela_dyn.ensureUnusedCapacity(gpa, got.numRela(elf_file));
 
+        relocs_log.debug(".got", .{});
+
         for (got.entries.items) |entry| {
             const symbol = elf_file.symbol(entry.ref);
             const extra = if (symbol) |s| s.extra(elf_file) else null;
@@ -447,6 +449,7 @@ pub const GotSection = struct {
                             .offset = offset,
                             .sym = extra.?.dynamic,
                             .type = relocation.encode(.glob_dat, cpu_arch),
+                            .target = symbol,
                         });
                         continue;
                     }
@@ -455,6 +458,7 @@ pub const GotSection = struct {
                             .offset = offset,
                             .type = relocation.encode(.irel, cpu_arch),
                             .addend = symbol.?.address(.{ .plt = false }, elf_file),
+                            .target = symbol,
                         });
                         continue;
                     }
@@ -465,6 +469,7 @@ pub const GotSection = struct {
                             .offset = offset,
                             .type = relocation.encode(.rel, cpu_arch),
                             .addend = symbol.?.address(.{ .plt = false }, elf_file),
+                            .target = symbol,
                         });
                     }
                 },
@@ -486,17 +491,20 @@ pub const GotSection = struct {
                             .offset = offset,
                             .sym = extra.?.dynamic,
                             .type = relocation.encode(.dtpmod, cpu_arch),
+                            .target = symbol,
                         });
                         elf_file.addRelaDynAssumeCapacity(.{
                             .offset = offset + 8,
                             .sym = extra.?.dynamic,
                             .type = relocation.encode(.dtpoff, cpu_arch),
+                            .target = symbol,
                         });
                     } else if (is_dyn_lib) {
                         elf_file.addRelaDynAssumeCapacity(.{
                             .offset = offset,
                             .sym = extra.?.dynamic,
                             .type = relocation.encode(.dtpmod, cpu_arch),
+                            .target = symbol,
                         });
                     }
                 },
@@ -508,12 +516,14 @@ pub const GotSection = struct {
                             .offset = offset,
                             .sym = extra.?.dynamic,
                             .type = relocation.encode(.tpoff, cpu_arch),
+                            .target = symbol,
                         });
                     } else if (is_dyn_lib) {
                         elf_file.addRelaDynAssumeCapacity(.{
                             .offset = offset,
                             .type = relocation.encode(.tpoff, cpu_arch),
                             .addend = symbol.?.address(.{}, elf_file) - elf_file.tlsAddress(),
+                            .target = symbol,
                         });
                     }
                 },
@@ -525,6 +535,7 @@ pub const GotSection = struct {
                         .sym = if (symbol.?.flags.import) extra.?.dynamic else 0,
                         .type = relocation.encode(.tlsdesc, cpu_arch),
                         .addend = if (symbol.?.flags.import) 0 else symbol.?.address(.{}, elf_file) - elf_file.tlsAddress(),
+                        .target = symbol,
                     });
                 },
             }
@@ -681,6 +692,9 @@ pub const PltSection = struct {
         const gpa = comp.gpa;
         const cpu_arch = elf_file.getTarget().cpu.arch;
         try elf_file.rela_plt.ensureUnusedCapacity(gpa, plt.numRela());
+
+        relocs_log.debug(".plt", .{});
+
         for (plt.symbols.items) |ref| {
             const sym = elf_file.symbol(ref).?;
             assert(sym.flags.import);
@@ -688,6 +702,14 @@ pub const PltSection = struct {
             const r_offset: u64 = @intCast(sym.gotPltAddress(elf_file));
             const r_sym: u64 = extra.dynamic;
             const r_type = relocation.encode(.jump_slot, cpu_arch);
+
+            relocs_log.debug("  {s}: [{x} => {d}({s})] + 0", .{
+                relocation.fmtRelocType(r_type, cpu_arch),
+                r_offset,
+                r_sym,
+                sym.name(elf_file),
+            });
+
             elf_file.rela_plt.appendAssumeCapacity(.{
                 .r_offset = r_offset,
                 .r_info = (r_sym << 32) | r_type,
@@ -895,8 +917,7 @@ pub const PltGotSection = struct {
         const gpa = comp.gpa;
         const index = @as(u32, @intCast(plt_got.symbols.items.len));
         const symbol = elf_file.symbol(ref).?;
-        symbol.flags.has_plt = true;
-        symbol.flags.has_got = true;
+        symbol.flags.has_pltgot = true;
         symbol.addExtra(.{ .plt_got = index }, elf_file);
         try plt_got.symbols.append(gpa, ref);
     }
@@ -1054,6 +1075,9 @@ pub const CopyRelSection = struct {
         const gpa = comp.gpa;
         const cpu_arch = elf_file.getTarget().cpu.arch;
         try elf_file.rela_dyn.ensureUnusedCapacity(gpa, copy_rel.numRela());
+
+        relocs_log.debug(".copy.rel", .{});
+
         for (copy_rel.symbols.items) |ref| {
             const sym = elf_file.symbol(ref).?;
             assert(sym.flags.import and sym.flags.has_copy_rel);
@@ -1526,6 +1550,7 @@ const elf = std.elf;
 const math = std.math;
 const mem = std.mem;
 const log = std.log.scoped(.link);
+const relocs_log = std.log.scoped(.link_relocs);
 const relocation = @import("relocation.zig");
 const std = @import("std");
 

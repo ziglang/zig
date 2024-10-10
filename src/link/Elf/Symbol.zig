@@ -112,13 +112,16 @@ pub fn address(symbol: Symbol, opts: struct { plt: bool = true, trampoline: bool
     if (symbol.flags.has_trampoline and opts.trampoline) {
         return symbol.trampolineAddress(elf_file);
     }
-    if (symbol.flags.has_plt and opts.plt) {
-        if (!symbol.flags.is_canonical and symbol.flags.has_got) {
+    if (opts.plt) {
+        if (symbol.flags.has_pltgot) {
+            assert(!symbol.flags.is_canonical);
             // We have a non-lazy bound function pointer, use that!
             return symbol.pltGotAddress(elf_file);
         }
-        // Lazy-bound function it is!
-        return symbol.pltAddress(elf_file);
+        if (symbol.flags.has_plt) {
+            // Lazy-bound function it is!
+            return symbol.pltAddress(elf_file);
+        }
     }
     if (symbol.atom(elf_file)) |atom_ptr| {
         if (!atom_ptr.alive) {
@@ -171,7 +174,7 @@ pub fn gotAddress(symbol: Symbol, elf_file: *Elf) i64 {
 }
 
 pub fn pltGotAddress(symbol: Symbol, elf_file: *Elf) i64 {
-    if (!(symbol.flags.has_plt and symbol.flags.has_got)) return 0;
+    if (!symbol.flags.has_pltgot) return 0;
     const extras = symbol.extra(elf_file);
     const shdr = elf_file.sections.items(.shdr)[elf_file.plt_got_section_index.?];
     const cpu_arch = elf_file.getTarget().cpu.arch;
@@ -430,6 +433,8 @@ pub const Flags = packed struct {
     has_plt: bool = false,
     /// Whether the PLT entry is canonical.
     is_canonical: bool = false,
+    /// Whether the PLT entry is indirected via GOT.
+    has_pltgot: bool = false,
 
     /// Whether the symbol contains COPYREL directive.
     needs_copy_rel: bool = false,

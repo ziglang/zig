@@ -118,10 +118,19 @@ pub fn capacity(self: Atom, elf_file: *Elf) u64 {
     return @intCast(next_addr - self.address(elf_file));
 }
 
+pub fn fileCapacity(self: Atom, elf_file: *Elf) u64 {
+    const self_off = self.offset(elf_file);
+    const next_off = if (self.nextAtom(elf_file)) |next_atom|
+        next_atom.offset(elf_file)
+    else
+        self_off + elf_file.allocatedSize(self_off);
+    return @intCast(next_off - self_off);
+}
+
 pub fn freeListEligible(self: Atom, elf_file: *Elf) bool {
     // No need to keep a free list node for the last block.
     const next = self.nextAtom(elf_file) orelse return false;
-    const cap: u64 = @intCast(next.address(elf_file) - self.address(elf_file));
+    const cap: u64 = @intCast(next.value - self.value);
     const ideal_cap = Elf.padToIdeal(self.size);
     if (cap <= ideal_cap) return false;
     const surplus = cap - ideal_cap;
@@ -723,6 +732,7 @@ fn resolveDynAbsReloc(
                     .sym = target.extra(elf_file).dynamic,
                     .type = relocation.encode(.abs, cpu_arch),
                     .addend = A,
+                    .target = target,
                 });
                 try applyDynamicReloc(A, elf_file, writer);
             } else {
@@ -737,6 +747,7 @@ fn resolveDynAbsReloc(
                     .sym = target.extra(elf_file).dynamic,
                     .type = relocation.encode(.abs, cpu_arch),
                     .addend = A,
+                    .target = target,
                 });
                 try applyDynamicReloc(A, elf_file, writer);
             } else {
@@ -750,6 +761,7 @@ fn resolveDynAbsReloc(
                 .sym = target.extra(elf_file).dynamic,
                 .type = relocation.encode(.abs, cpu_arch),
                 .addend = A,
+                .target = target,
             });
             try applyDynamicReloc(A, elf_file, writer);
         },
@@ -759,6 +771,7 @@ fn resolveDynAbsReloc(
                 .offset = P,
                 .type = relocation.encode(.rel, cpu_arch),
                 .addend = S + A,
+                .target = target,
             });
             try applyDynamicReloc(S + A, elf_file, writer);
         },
@@ -769,6 +782,7 @@ fn resolveDynAbsReloc(
                 .offset = P,
                 .type = relocation.encode(.irel, cpu_arch),
                 .addend = S_ + A,
+                .target = target,
             });
             try applyDynamicReloc(S_ + A, elf_file, writer);
         },
@@ -922,9 +936,10 @@ fn format2(
     _ = unused_fmt_string;
     const atom = ctx.atom;
     const elf_file = ctx.elf_file;
-    try writer.print("atom({d}) : {s} : @{x} : shdr({d}) : align({x}) : size({x})", .{
+    try writer.print("atom({d}) : {s} : @{x} : shdr({d}) : align({x}) : size({x}) : prev({}) : next({})", .{
         atom.atom_index,           atom.name(elf_file),                   atom.address(elf_file),
         atom.output_section_index, atom.alignment.toByteUnits() orelse 0, atom.size,
+        atom.prev_atom_ref,        atom.next_atom_ref,
     });
     if (atom.fdes(elf_file).len > 0) {
         try writer.writeAll(" : fdes{ ");
