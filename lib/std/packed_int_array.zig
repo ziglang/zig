@@ -669,7 +669,7 @@ test "PackedIntArray at end of available memory" {
     const PackedArray = PackedIntArray(u3, 8);
 
     const Padded = struct {
-        _: [std.mem.page_size - @sizeOf(PackedArray)]u8,
+        _: [std.heap.max_page_size - @sizeOf(PackedArray)]u8,
         p: PackedArray,
     };
 
@@ -689,9 +689,9 @@ test "PackedIntSlice at end of available memory" {
 
     const allocator = std.testing.allocator;
 
-    var page = try allocator.alloc(u8, std.mem.page_size);
+    var page = try allocator.alloc(u8, std.heap.pageSize());
     defer allocator.free(page);
 
-    var p = PackedSlice.init(page[std.mem.page_size - 2 ..], 1);
+    var p = PackedSlice.init(page[std.heap.pageSize() - 2 ..], 1);
     p.set(0, std.math.maxInt(u11));
 }

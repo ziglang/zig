@@ -5,6 +5,7 @@ const Allocator = std.mem.Allocator;
 const mem = std.mem;
 const maxInt = std.math.maxInt;
 const assert = std.debug.assert;
+const page_size = std.wasm.page_size;
 
 comptime {
     if (!builtin.target.isWasm()) {
@@ -73,7 +74,7 @@ const FreeBlock = struct {
                 var count: usize = 0;
                 while (j + count < self.totalPages() and self.getBit(j + count) == .free) {
                     count += 1;
-                    const addr = j * mem.page_size;
+                    const addr = j * page_size;
                     if (count >= num_pages and mem.isAlignedLog2(addr, log2_align)) {
                         self.setBits(j, num_pages, .used);
                         return j;
@@ -100,16 +101,16 @@ fn extendedOffset() usize {
 }
 
 fn nPages(memsize: usize) usize {
-    return mem.alignForward(usize, memsize, mem.page_size) / mem.page_size;
+    return mem.alignForward(usize, memsize, page_size) / page_size;
 }
 
 fn alloc(ctx: *anyopaque, len: usize, log2_align: u8, ra: usize) ?[*]u8 {
     _ = ctx;
     _ = ra;
-    if (len > maxInt(usize) - (mem.page_size - 1)) return null;
+    if (len > maxInt(usize) - (page_size - 1)) return null;
     const page_count = nPages(len);
     const page_idx = allocPages(page_count, log2_align) catch return null;
-    return @as([*]u8, @ptrFromInt(page_idx * mem.page_size));
+    return @as([*]u8, @ptrFromInt(page_idx * page_size));
 }
 
 fn allocPages(page_count: usize, log2_align: u8) !usize {
@@ -126,9 +127,9 @@ fn allocPages(page_count: usize, log2_align: u8) !usize {
     }
 
     const next_page_idx = @wasmMemorySize(0);
-    const next_page_addr = next_page_idx * mem.page_size;
+    const next_page_addr = next_page_idx * page_size;
     const aligned_addr = mem.alignForwardLog2(next_page_addr, log2_align);
-    const drop_page_count = @divExact(aligned_addr - next_page_addr, mem.page_size);
+    const drop_page_count = @divExact(aligned_addr - next_page_addr, page_size);
     const result = @wasmMemoryGrow(0, @as(u32, @intCast(drop_page_count + page_count)));
     if (result <= 0)
         return error.OutOfMemory;
@@ -151,7 +152,7 @@ fn freePages(start: usize, end: usize) void {
             // TODO: would it be better if we use the first page instead?
             new_end -= 1;
 
-            extended.data = @as([*]u128, @ptrFromInt(new_end * mem.page_size))[0 .. mem.page_size / @sizeOf(u128)];
+            extended.data = @as([*]u128, @ptrFromInt(new_end * page_size))[0 .. page_size / @sizeOf(u128)];
             // Since this is the first page being freed and we consume it, assume *nothing* is free.
             @memset(extended.data, PageStatus.none_free);
         }
@@ -170,7 +171,7 @@ fn resize(
     _ = ctx;
     _ = log2_buf_align;
     _ = return_address;
-    const aligned_len = mem.alignForward(usize, buf.len, mem.page_size);
+    const aligned_len = mem.alignForward(usize, buf.len, page_size);
     if (new_len > aligned_len) return false;
     const current_n = nPages(aligned_len);
     const new_n = nPages(new_len);
@@ -190,7 +191,7 @@ fn free(
     _ = ctx;
     _ = log2_buf_align;
     _ = return_address;
-    const aligned_len = mem.alignForward(usize, buf.len, mem.page_size);
+    const aligned_len = mem.alignForward(usize, buf.len, page_size);
     const current_n = nPages(aligned_len);
     const base = nPages(@intFromPtr(buf.ptr));
     freePages(base, base + current_n);
@@ -200,8 +201,8 @@ test "internals" {
     const page_allocator = std.heap.page_allocator;
     const testing = std.testing;
 
-    const conventional_memsize = WasmPageAllocator.conventional.totalPages() * mem.page_size;
-    const initial = try page_allocator.alloc(u8, mem.page_size);
+    const conventional_memsize = WasmPageAllocator.conventional.totalPages() * page_size;
+    const initial = try page_allocator.alloc(u8, page_size);
     try testing.expect(@intFromPtr(initial.ptr) < conventional_memsize); // If this isn't conventional, the rest of these tests don't make sense. Also we have a serious memory leak in the test suite.
 
     var inplace = try page_allocator.realloc(initial, 1);

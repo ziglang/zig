@@ -3,6 +3,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 const mem = std.mem;
+const heap = std.heap;
 const net = std.net;
 const posix = std.posix;
 const linux = std.os.linux;
@@ -1341,8 +1342,8 @@ pub const SubmissionQueue = struct {
     dropped: *u32,
     array: []u32,
     sqes: []linux.io_uring_sqe,
-    mmap: []align(mem.page_size) u8,
-    mmap_sqes: []align(mem.page_size) u8,
+    mmap: []align(heap.min_page_size) u8,
+    mmap_sqes: []align(heap.min_page_size) u8,
 
     // We use `sqe_head` and `sqe_tail` in the same way as liburing:
     // We increment `sqe_tail` (but not `tail`) for each call to `get_sqe()`.
@@ -1460,7 +1461,7 @@ pub const BufferGroup = struct {
     /// Pointer to the memory shared by the kernel.
     /// `buffers_count` of `io_uring_buf` structures are shared by the kernel.
     /// First `io_uring_buf` is overlaid by `io_uring_buf_ring` struct.
-    br: *align(mem.page_size) linux.io_uring_buf_ring,
+    br: *align(heap.min_page_size) linux.io_uring_buf_ring,
     /// Contiguous block of memory of size (buffers_count * buffer_size).
     buffers: []u8,
     /// Size of each buffer in buffers.
@@ -1555,7 +1556,7 @@ pub const BufferGroup = struct {
 /// `fd` is IO_Uring.fd for which the provided buffer ring is being registered.
 /// `entries` is the number of entries requested in the buffer ring, must be power of 2.
 /// `group_id` is the chosen buffer group ID, unique in IO_Uring.
-pub fn setup_buf_ring(fd: posix.fd_t, entries: u16, group_id: u16) !*align(mem.page_size) linux.io_uring_buf_ring {
+pub fn setup_buf_ring(fd: posix.fd_t, entries: u16, group_id: u16) !*align(heap.min_page_size) linux.io_uring_buf_ring {
     if (entries == 0 or entries > 1 << 15) return error.EntriesNotInRange;
     if (!std.math.isPowerOfTwo(entries)) return error.EntriesNotPowerOfTwo;
 
@@ -1571,7 +1572,7 @@ pub fn setup_buf_ring(fd: posix.fd_t, entries: u16, group_id: u16) !*align(mem.p
     errdefer posix.munmap(mmap);
     assert(mmap.len == mmap_size);
 
-    const br: *align(mem.page_size) linux.io_uring_buf_ring = @ptrCast(mmap.ptr);
+    const br: *align(heap.min_page_size) linux.io_uring_buf_ring = @ptrCast(mmap.ptr);
     try register_buf_ring(fd, @intFromPtr(br), entries, group_id);
     return br;
 }
@@ -1613,9 +1614,9 @@ fn handle_register_buf_ring_result(res: usize) !void {
 }
 
 // Unregisters a previously registered shared buffer ring, returned from io_uring_setup_buf_ring.
-pub fn free_buf_ring(fd: posix.fd_t, br: *align(mem.page_size) linux.io_uring_buf_ring, entries: u32, group_id: u16) void {
+pub fn free_buf_ring(fd: posix.fd_t, br: *align(heap.min_page_size) linux.io_uring_buf_ring, entries: u32, group_id: u16) void {
     unregister_buf_ring(fd, group_id) catch {};
-    var mmap: []align(mem.page_size) u8 = undefined;
+    var mmap: []align(heap.min_page_size) u8 = undefined;
     mmap.ptr = @ptrCast(br);
     mmap.len = entries * @sizeOf(linux.io_uring_buf);
     posix.munmap(mmap);
