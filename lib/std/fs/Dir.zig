@@ -1134,7 +1134,7 @@ pub fn makeDirZ(self: Dir, sub_path: [*:0]const u8) MakeError!void {
 /// To create multiple directories to make an entire path, see `makePath`.
 /// To operate on only absolute paths, see `makeDirAbsoluteW`.
 pub fn makeDirW(self: Dir, sub_path: [*:0]const u16) MakeError!void {
-    try posix.mkdiratW(self.fd, mem.sliceTo(sub_path, 0), default_mode);
+    try posix.mkdiratW(self.fd, mem.span(sub_path), default_mode);
 }
 
 /// Calls makeDir iteratively to make an entire path

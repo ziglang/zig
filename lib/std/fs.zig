@@ -160,7 +160,7 @@ pub fn makeDirAbsoluteZ(absolute_path_z: [*:0]const u8) !void {
 /// Same as `makeDirAbsolute` except the parameter is a null-terminated WTF-16 LE-encoded string.
 pub fn makeDirAbsoluteW(absolute_path_w: [*:0]const u16) !void {
     assert(path.isAbsoluteWindowsW(absolute_path_w));
-    return posix.mkdirW(mem.sliceTo(absolute_path_w, 0), Dir.default_mode);
+    return posix.mkdirW(mem.span(absolute_path_w), Dir.default_mode);
 }
 
 /// Same as `Dir.deleteDir` except the path is absolute.
@@ -181,7 +181,7 @@ pub fn deleteDirAbsoluteZ(dir_path: [*:0]const u8) !void {
 /// Same as `deleteDirAbsolute` except the path parameter is WTF-16 and target OS is assumed Windows.
 pub fn deleteDirAbsoluteW(dir_path: [*:0]const u16) !void {
     assert(path.isAbsoluteWindowsW(dir_path));
-    return posix.rmdirW(mem.sliceTo(dir_path, 0));
+    return posix.rmdirW(mem.span(dir_path));
 }
 
 /// Same as `Dir.rename` except the paths are absolute.
@@ -338,7 +338,7 @@ pub fn createFileAbsoluteZ(absolute_path_c: [*:0]const u8, flags: File.CreateFla
 /// Same as `createFileAbsolute` but the path parameter is WTF-16 encoded.
 pub fn createFileAbsoluteW(absolute_path_w: [*:0]const u16, flags: File.CreateFlags) File.OpenError!File {
     assert(path.isAbsoluteWindowsW(absolute_path_w));
-    return cwd().createFileW(mem.sliceTo(absolute_path_w, 0), flags);
+    return cwd().createFileW(mem.span(absolute_path_w), flags);
 }
 
 /// Delete a file name and possibly the file it refers to, based on an absolute path.
@@ -362,7 +362,7 @@ pub fn deleteFileAbsoluteZ(absolute_path_c: [*:0]const u8) Dir.DeleteFileError!v
 /// Same as `deleteFileAbsolute` except the parameter is WTF-16 encoded.
 pub fn deleteFileAbsoluteW(absolute_path_w: [*:0]const u16) Dir.DeleteFileError!void {
     assert(path.isAbsoluteWindowsW(absolute_path_w));
-    return cwd().deleteFileW(mem.sliceTo(absolute_path_w, 0));
+    return cwd().deleteFileW(mem.span(absolute_path_w));
 }
 
 /// Removes a symlink, file, or directory.
@@ -400,7 +400,7 @@ pub fn readLinkAbsolute(pathname: []const u8, buffer: *[max_path_bytes]u8) ![]u8
 /// encoded.
 pub fn readlinkAbsoluteW(pathname_w: [*:0]const u16, buffer: *[max_path_bytes]u8) ![]u8 {
     assert(path.isAbsoluteWindowsW(pathname_w));
-    return posix.readlinkW(mem.sliceTo(pathname_w, 0), buffer);
+    return posix.readlinkW(mem.span(pathname_w), buffer);
 }
 
 /// Same as `readLink`, except the path parameter is null-terminated.
