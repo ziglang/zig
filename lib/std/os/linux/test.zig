@@ -41,7 +41,7 @@ test "timer" {
     var err: linux.E = linux.E.init(epoll_fd);
     try expect(err == .SUCCESS);
 
-    const timer_fd = linux.timerfd_create(linux.CLOCK.MONOTONIC, .{});
+    const timer_fd = linux.timerfd_create(linux.CLOCK_ID.MONOTONIC, .{});
     try expect(linux.E.init(timer_fd) == .SUCCESS);
 
     const time_interval = linux.timespec{
