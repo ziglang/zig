@@ -407,6 +407,7 @@ const usage_build_generic =
     \\                          .mm    Objective-C++ source code (requires LLVM extensions)
     \\                          .bc    LLVM IR Module (requires LLVM extensions)
     \\                          .cu    Cuda source code (requires LLVM extensions)
+    \\                     .ld .lds    Implicit linker script (requires LLVM extensions)
     \\
     \\General Options:
     \\  -h, --help                Print this help and exit
@@ -1727,7 +1728,7 @@ fn buildOutputType(
                         try create_module.link_objects.append(arena, .{ .path = arg });
                         create_module.opts.any_dyn_libs = true;
                     },
-                    .object, .static_library => {
+                    .object, .static_library, .linker_script => {
                         try create_module.link_objects.append(arena, .{ .path = arg });
                     },
                     .res => {
@@ -1850,7 +1851,7 @@ fn buildOutputType(
                             });
                             create_module.opts.any_dyn_libs = true;
                         },
-                        .unknown, .object, .static_library => {
+                        .unknown, .object, .static_library, .linker_script => {
                             try create_module.link_objects.append(arena, .{
                                 .path = it.only_arg,
                                 .must_link = must_link,

@@ -941,6 +941,10 @@ pub fn addFrameworkPath(compile: *Compile, directory_path: LazyPath) void {
     compile.root_module.addFrameworkPath(directory_path);
 }
 
+pub fn addImplicitLinkerScript(compile: *Compile, linker_script: LazyPath) void {
+    compile.root_module.addImplicitLinkerScript(linker_script);
+}
+
 pub fn setExecCmd(compile: *Compile, args: []const ?[]const u8) void {
     const b = compile.step.owner;
     assert(compile.kind == .@"test");

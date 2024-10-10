@@ -656,6 +656,12 @@ pub fn addRPathSpecial(m: *Module, bytes: []const u8) void {
     m.rpaths.append(b.allocator, .{ .special = b.dupe(bytes) }) catch @panic("OOM");
 }
 
+pub fn addImplicitLinkerScript(m: *Module, linker_script: LazyPath) void {
+    const b = m.owner;
+    m.link_objects.append(b.allocator, .{ .static_path = linker_script.dupe(b) }) catch @panic("OOM");
+    addLazyPathDependenciesOnly(m, linker_script);
+}
+
 /// Equvialent to the following C code, applied to all C source files owned by
 /// this `Module`:
 /// ```c
