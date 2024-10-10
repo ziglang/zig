@@ -2302,7 +2302,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
         try pt.processExports();
     }
 
-    if (try comp.totalErrorCount() != 0) {
+    if (anyErrors(comp)) {
         // Skip flushing and keep source files loaded for error reporting.
         comp.link_error_flags = .{};
         return;
@@ -2391,6 +2391,10 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
                 .root_dir = comp.local_cache_directory,
                 .sub_path = o_sub_path,
             }, .main, main_progress_node);
+
+            // Calling `flush` may have produced errors, in which case the
+            // cache manifest must not be written.
+            if (anyErrors(comp)) return;
 
             // Failure here only means an unnecessary cache miss.
             man.writeManifest() catch |err| {
@@ -3289,6 +3293,10 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
 
     const compile_log_text = if (comp.zcu) |m| m.compile_log_text.items else "";
     return bundle.toOwnedBundle(compile_log_text);
+}
+
+fn anyErrors(comp: *Compilation) bool {
+    return (totalErrorCount(comp) catch return true) != 0;
 }
 
 fn totalErrorCount(comp: *Compilation) !u32 {
