@@ -10,17 +10,31 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("shared.zig"),
     });
 
-    const exe = b.addExecutable(.{
-        .name = "test",
+    const main_mod = b.createModule(.{
         .root_source_file = b.path("test.zig"),
         .target = b.graph.host,
         .optimize = optimize,
+        .imports = &.{
+            .{
+                .name = "shared",
+                .module = shared,
+            },
+        },
     });
-    exe.root_module.addAnonymousImport("foo", .{
+    main_mod.addAnonymousImport("foo", .{
         .root_source_file = b.path("foo.zig"),
-        .imports = &.{.{ .name = "shared", .module = shared }},
+        .imports = &.{
+            .{
+                .name = "shared",
+                .module = shared,
+            },
+        },
     });
-    exe.root_module.addImport("shared", shared);
+
+    const exe = b.addExecutable2(.{
+        .name = "test",
+        .root_module = main_mod,
+    });
 
     const run = b.addRunArtifact(exe);
     test_step.dependOn(&run.step);

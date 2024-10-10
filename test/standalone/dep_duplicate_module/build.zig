@@ -10,23 +10,39 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    const lib = b.addStaticLibrary(.{
+    const lib = b.addLibrary(.{
         .name = "lib",
-        .root_source_file = b.path("lib.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("lib.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{
+                    .name = "mod",
+                    .module = mod,
+                },
+            },
+        }),
+        .linkage = .static,
     });
-    lib.root_module.addImport("mod", mod);
 
-    const exe = b.addExecutable(.{
-        .name = "app",
+    const exe_mod = b.createModule(.{
         .root_source_file = b.path("main.zig"),
         .target = target,
         .optimize = optimize,
+        .imports = &.{
+            .{
+                .name = "mod",
+                .module = mod,
+            },
+        },
     });
+    exe_mod.linkLibrary(lib);
 
-    exe.root_module.addImport("mod", mod);
-    exe.root_module.linkLibrary(lib);
+    const exe = b.addExecutable2(.{
+        .name = "app",
+        .root_module = exe_mod,
+    });
 
     b.installArtifact(exe);
 }

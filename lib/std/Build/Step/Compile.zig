@@ -22,7 +22,7 @@ const Path = std.Build.Cache.Path;
 pub const base_id: Step.Id = .compile;
 
 step: Step,
-root_module: Module,
+root_module: *Module,
 
 name: []const u8,
 linker_script: ?LazyPath = null,
@@ -252,7 +252,7 @@ pub const Entry = union(enum) {
 
 pub const Options = struct {
     name: []const u8,
-    root_module: Module.CreateOptions,
+    root_module: *Module,
     kind: Kind,
     linkage: ?std.builtin.LinkMode = null,
     version: ?std.SemanticVersion = null,
@@ -349,7 +349,8 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
     else
         owner.fmt("{s} ", .{name});
 
-    const resolved_target = options.root_module.target.?;
+    const resolved_target = options.root_module.resolved_target orelse
+        @panic("the root Module of a Compile step must be created with a known 'target' field");
     const target = resolved_target.result;
 
     const step_name = owner.fmt("{s} {s}{s} {s}", .{
@@ -421,8 +422,8 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
 
         .zig_process = null,
     };
-
-    compile.root_module.init(owner, options.root_module, compile);
+    options.root_module.init(owner, .{ .existing = options.root_module }, compile);
+    compile.root_module = options.root_module;
 
     if (options.zig_lib_dir) |lp| {
         compile.zig_lib_dir = lp.dupe(compile.step.owner);
@@ -573,9 +574,6 @@ pub fn checkObject(compile: *Compile) *Step.CheckObject {
     return Step.CheckObject.create(compile.step.owner, compile.getEmittedBin(), compile.rootModuleTarget().ofmt);
 }
 
-/// deprecated: use `setLinkerScript`
-pub const setLinkerScriptPath = setLinkerScript;
-
 pub fn setLinkerScript(compile: *Compile, source: LazyPath) void {
     const b = compile.step.owner;
     compile.linker_script = source.dupe(b);
@@ -661,11 +659,6 @@ pub fn linkLibC(compile: *Compile) void {
 
 pub fn linkLibCpp(compile: *Compile) void {
     compile.root_module.link_libcpp = true;
-}
-
-/// Deprecated. Use `c.root_module.addCMacro`.
-pub fn defineCMacro(c: *Compile, name: []const u8, value: ?[]const u8) void {
-    c.root_module.addCMacro(name, value orelse "1");
 }
 
 const PkgConfigResult = struct {
@@ -789,16 +782,6 @@ pub fn linkSystemLibrary2(
 
 pub fn linkFramework(c: *Compile, name: []const u8) void {
     c.root_module.linkFramework(name, .{});
-}
-
-/// Deprecated. Use `c.root_module.linkFramework`.
-pub fn linkFrameworkNeeded(c: *Compile, name: []const u8) void {
-    c.root_module.linkFramework(name, .{ .needed = true });
-}
-
-/// Deprecated. Use `c.root_module.linkFramework`.
-pub fn linkFrameworkWeak(c: *Compile, name: []const u8) void {
-    c.root_module.linkFramework(name, .{ .weak = true });
 }
 
 /// Handy when you have many C/C++ source files and want them all to have the same flags.
@@ -1092,7 +1075,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
             }
         }
 
-        var cli_named_modules = try CliNamedModules.init(arena, &compile.root_module);
+        var cli_named_modules = try CliNamedModules.init(arena, compile.root_module);
 
         // For this loop, don't chase dynamic libraries because their link
         // objects are already linked.

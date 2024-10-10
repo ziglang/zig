@@ -14,22 +14,30 @@ pub fn build(b: *std.Build) void {
         .abi = .msvc,
     });
     const optimize: std.builtin.OptimizeMode = .Debug;
-    const obj = b.addObject(.{
+
+    const obj = b.addObject2(.{
         .name = "issue_5825",
-        .root_source_file = b.path("main.zig"),
-        .optimize = optimize,
-        .target = target,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("main.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
     });
 
-    const exe = b.addExecutable(.{
-        .name = "issue_5825",
-        .optimize = optimize,
+    const main_mod = b.createModule(.{
+        .root_source_file = null,
         .target = target,
+        .optimize = optimize,
+    });
+    main_mod.linkSystemLibrary("kernel32", .{});
+    main_mod.linkSystemLibrary("ntdll", .{});
+    main_mod.addObject(obj);
+
+    const exe = b.addExecutable2(.{
+        .name = "issue_5825",
+        .root_module = main_mod,
     });
     exe.subsystem = .Console;
-    exe.linkSystemLibrary("kernel32");
-    exe.linkSystemLibrary("ntdll");
-    exe.addObject(obj);
 
     // TODO: actually check the output
     _ = exe.getEmittedBin();

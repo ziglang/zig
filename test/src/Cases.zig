@@ -572,16 +572,20 @@ pub fn lowerToTranslateCSteps(
 
             const translate_c = b.addTranslateC(.{
                 .root_source_file = file_source,
-                .optimize = .Debug,
                 .target = case.target,
+                .optimize = .Debug,
                 .link_libc = case.link_libc,
                 .use_clang = case.c_frontend == .clang,
             });
             translate_c.step.name = b.fmt("{s} translate-c", .{annotated_case_name});
 
-            const run_exe = translate_c.addExecutable(.{});
-            run_exe.step.name = b.fmt("{s} build-exe", .{annotated_case_name});
+            const run_exe = b.addExecutable2(.{
+                .name = "translated_c",
+                .root_module = translate_c.createModule(),
+            });
             run_exe.linkLibC();
+            run_exe.step.name = b.fmt("{s} build-exe", .{annotated_case_name});
+
             const run = b.addRunArtifact(run_exe);
             run.step.name = b.fmt("{s} run", .{annotated_case_name});
             run.expectStdOutEqual(output);
@@ -601,8 +605,8 @@ pub fn lowerToTranslateCSteps(
 
             const translate_c = b.addTranslateC(.{
                 .root_source_file = file_source,
-                .optimize = .Debug,
                 .target = case.target,
+                .optimize = .Debug,
                 .link_libc = case.link_libc,
                 .use_clang = case.c_frontend == .clang,
             });
@@ -658,33 +662,31 @@ pub fn lowerToBuildSteps(
             file_sources.put(file.path, writefiles.add(file.path, file.src)) catch @panic("OOM");
         }
 
-        const artifact = if (case.is_test) b.addTest(.{
+        const mod = b.createModule(.{
             .root_source_file = root_source_file,
-            .name = case.name,
             .target = case.target,
             .optimize = case.optimize_mode,
+            .link_libc = case.link_libc,
+        });
+
+        const artifact = if (case.is_test) b.addTest2(.{
+            .name = case.name,
+            .root_module = mod,
         }) else switch (case.output_mode) {
-            .Obj => b.addObject(.{
-                .root_source_file = root_source_file,
+            .Obj => b.addObject2(.{
                 .name = case.name,
-                .target = case.target,
-                .optimize = case.optimize_mode,
+                .root_module = mod,
             }),
-            .Lib => b.addStaticLibrary(.{
-                .root_source_file = root_source_file,
+            .Lib => b.addLibrary(.{
                 .name = case.name,
-                .target = case.target,
-                .optimize = case.optimize_mode,
+                .root_module = mod,
+                .linkage = .static,
             }),
-            .Exe => b.addExecutable(.{
-                .root_source_file = root_source_file,
+            .Exe => b.addExecutable2(.{
                 .name = case.name,
-                .target = case.target,
-                .optimize = case.optimize_mode,
+                .root_module = mod,
             }),
         };
-
-        if (case.link_libc) artifact.linkLibC();
 
         switch (case.backend) {
             .stage1 => continue,
@@ -698,7 +700,7 @@ pub fn lowerToBuildSteps(
         }
 
         for (case.deps.items) |dep| {
-            artifact.root_module.addAnonymousImport(dep.name, .{
+            mod.addAnonymousImport(dep.name, .{
                 .root_source_file = file_sources.get(dep.path).?,
             });
         }

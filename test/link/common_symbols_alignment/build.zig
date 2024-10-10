@@ -11,21 +11,32 @@ pub fn build(b: *std.Build) void {
 }
 
 fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.OptimizeMode) void {
-    const lib_a = b.addStaticLibrary(.{
-        .name = "a",
-        .optimize = optimize,
+    const a_mod = b.createModule(.{
+        .root_source_file = null,
         .target = b.graph.host,
+        .optimize = optimize,
     });
-    lib_a.addCSourceFiles(.{
+    a_mod.addCSourceFiles(.{
         .files = &.{"a.c"},
         .flags = &.{"-fcommon"},
     });
 
-    const test_exe = b.addTest(.{
+    const a_lib = b.addLibrary(.{
+        .name = "a",
+        .root_module = a_mod,
+        .linkage = .static,
+    });
+
+    const test_mod = b.createModule(.{
         .root_source_file = b.path("main.zig"),
+        .target = b.graph.host,
         .optimize = optimize,
     });
-    test_exe.linkLibrary(lib_a);
+    test_mod.linkLibrary(a_lib);
+
+    const test_exe = b.addTest2(.{
+        .root_module = test_mod,
+    });
 
     test_step.dependOn(&b.addRunArtifact(test_exe).step);
 }
