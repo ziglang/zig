@@ -13,7 +13,6 @@ pub fn build(b: *std.Build) void {
         .target = b.graph.host,
     });
     _ = obj.getEmittedAsm();
-    b.default_step.dependOn(&obj.step);
 
     test_step.dependOn(&obj.step);
 }
