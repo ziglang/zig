@@ -281,7 +281,7 @@ fn addObjcMethnameSection(self: *InternalObject, methname: []const u8, macho_fil
     sym.nlist_idx = nlist_idx;
     try self.globals.append(gpa, 0);
 
-    return atom_index;
+    return sym_index;
 }
 
 fn addObjcSelrefsSection(self: *InternalObject, methname_sym_index: Symbol.Index, macho_file: *MachO) !Symbol.Index {
@@ -503,6 +503,41 @@ pub fn scanRelocs(self: *InternalObject, macho_file: *MachO) void {
             const sym = ref.getSymbol(macho_file).?;
             // TODO is it always needed, or only if we are synthesising fast stubs
             sym.setSectionFlags(.{ .needs_got = true });
+        }
+    }
+}
+
+pub fn checkUndefs(self: InternalObject, macho_file: *MachO) !void {
+    const addUndef = struct {
+        fn addUndef(mf: *MachO, index: MachO.SymbolResolver.Index, tag: anytype) !void {
+            const gpa = mf.base.comp.gpa;
+            mf.undefs_mutex.lock();
+            defer mf.undefs_mutex.unlock();
+            const gop = try mf.undefs.getOrPut(gpa, index);
+            if (!gop.found_existing) {
+                gop.value_ptr.* = tag;
+            }
+        }
+    }.addUndef;
+    for (self.force_undefined.items) |index| {
+        const ref = self.getSymbolRef(index, macho_file);
+        if (ref.getFile(macho_file) == null) {
+            try addUndef(macho_file, self.globals.items[index], .force_undefined);
+        }
+    }
+    if (self.getEntryRef(macho_file)) |ref| {
+        if (ref.getFile(macho_file) == null) {
+            try addUndef(macho_file, self.globals.items[self.entry_index.?], .entry);
+        }
+    }
+    if (self.getDyldStubBinderRef(macho_file)) |ref| {
+        if (ref.getFile(macho_file) == null and macho_file.stubs.symbols.items.len > 0) {
+            try addUndef(macho_file, self.globals.items[self.dyld_stub_binder_index.?], .dyld_stub_binder);
+        }
+    }
+    if (self.getObjcMsgSendRef(macho_file)) |ref| {
+        if (ref.getFile(macho_file) == null and self.needsObjcMsgsendSymbol()) {
+            try addUndef(macho_file, self.globals.items[self.objc_msg_send_index.?], .objc_msgsend);
         }
     }
 }
@@ -789,6 +824,13 @@ pub fn setSymbolExtra(self: *InternalObject, index: u32, extra: Symbol.Extra) vo
             else => @compileError("bad field type"),
         };
     }
+}
+
+fn needsObjcMsgsendSymbol(self: InternalObject) bool {
+    for (self.sections.items(.extra)) |extra| {
+        if (extra.is_objc_methname or extra.is_objc_selref) return true;
+    }
+    return false;
 }
 
 const FormatContext = struct {

@@ -295,7 +295,6 @@ fn initSections(elf_file: *Elf) !void {
                     elf.SHT_PROGBITS,
                 .flags = elf.SHF_ALLOC,
                 .addralign = elf_file.ptrWidthBytes(),
-                .offset = std.math.maxInt(u64),
             });
         }
         elf_file.eh_frame_rela_section_index = elf_file.sectionByName(".rela.eh_frame") orelse
@@ -324,7 +323,6 @@ fn initComdatGroups(elf_file: *Elf) !void {
                     .type = elf.SHT_GROUP,
                     .entsize = @sizeOf(u32),
                     .addralign = @alignOf(u32),
-                    .offset = std.math.maxInt(u64),
                 }),
                 .cg_ref = .{ .index = @intCast(cg_index), .file = index },
             };
@@ -335,9 +333,11 @@ fn initComdatGroups(elf_file: *Elf) !void {
 fn updateSectionSizes(elf_file: *Elf) !void {
     const slice = elf_file.sections.slice();
     for (slice.items(.atom_list_2)) |*atom_list| {
-        if (atom_list.atoms.items.len == 0) continue;
+        if (atom_list.atoms.keys().len == 0) continue;
+        if (!atom_list.dirty) continue;
         atom_list.updateSize(elf_file);
         try atom_list.allocate(elf_file);
+        atom_list.dirty = false;
     }
 
     for (slice.items(.shdr), 0..) |*shdr, shndx| {
@@ -392,24 +392,14 @@ fn allocateAllocSections(elf_file: *Elf) !void {
             shdr.sh_size = 0;
             const new_offset = try elf_file.findFreeSpace(needed_size, shdr.sh_addralign);
 
-            if (elf_file.zigObjectPtr()) |zo| blk: {
-                const existing_size = for ([_]?Symbol.Index{
-                    zo.text_index,
-                    zo.rodata_index,
-                    zo.data_relro_index,
-                    zo.data_index,
-                    zo.tdata_index,
-                    zo.eh_frame_index,
-                }) |maybe_sym_index| {
-                    const sect_sym_index = maybe_sym_index orelse continue;
-                    const sect_atom_ptr = zo.symbol(sect_sym_index).atom(elf_file).?;
-                    if (sect_atom_ptr.output_section_index == shndx) break sect_atom_ptr.size;
-                } else break :blk;
-                log.debug("moving {s} from 0x{x} to 0x{x}", .{
-                    elf_file.getShString(shdr.sh_name),
-                    shdr.sh_offset,
-                    new_offset,
-                });
+            log.debug("moving {s} from 0x{x} to 0x{x}", .{
+                elf_file.getShString(shdr.sh_name),
+                shdr.sh_offset,
+                new_offset,
+            });
+
+            if (shdr.sh_offset > 0) {
+                const existing_size = elf_file.sectionSize(@intCast(shndx));
                 const amt = try elf_file.base.file.?.copyRangeAll(
                     shdr.sh_offset,
                     elf_file.base.file.?,
@@ -434,7 +424,7 @@ fn writeAtoms(elf_file: *Elf) !void {
     const slice = elf_file.sections.slice();
     for (slice.items(.shdr), slice.items(.atom_list_2)) |shdr, atom_list| {
         if (shdr.sh_type == elf.SHT_NOBITS) continue;
-        if (atom_list.atoms.items.len == 0) continue;
+        if (atom_list.atoms.keys().len == 0) continue;
         try atom_list.writeRelocatable(&buffer, elf_file);
     }
 }

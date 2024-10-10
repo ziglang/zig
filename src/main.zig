@@ -7220,7 +7220,7 @@ fn cmdFetch(
         const location_replace = try std.fmt.allocPrint(
             arena,
             "\"{}\"",
-            .{std.zig.fmtEscapes(path_or_url)},
+            .{std.zig.fmtEscapes(saved_path_or_url)},
         );
         const hash_replace = try std.fmt.allocPrint(
             arena,

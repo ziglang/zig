@@ -2,7 +2,10 @@ value: i64 = 0,
 size: u64 = 0,
 alignment: Atom.Alignment = .@"1",
 output_section_index: u32 = 0,
-atoms: std.ArrayListUnmanaged(Elf.Ref) = .empty,
+// atoms: std.ArrayListUnmanaged(Elf.Ref) = .empty,
+atoms: std.AutoArrayHashMapUnmanaged(Elf.Ref, void) = .empty,
+
+dirty: bool = true,
 
 pub fn deinit(list: *AtomList, allocator: Allocator) void {
     list.atoms.deinit(allocator);
@@ -19,10 +22,8 @@ pub fn offset(list: AtomList, elf_file: *Elf) u64 {
 }
 
 pub fn updateSize(list: *AtomList, elf_file: *Elf) void {
-    // TODO perhaps a 'stale' flag would be better here?
-    list.size = 0;
-    list.alignment = .@"1";
-    for (list.atoms.items) |ref| {
+    assert(list.dirty);
+    for (list.atoms.keys()) |ref| {
         const atom_ptr = elf_file.atom(ref).?;
         assert(atom_ptr.alive);
         const off = atom_ptr.alignment.forward(list.size);
@@ -34,6 +35,8 @@ pub fn updateSize(list: *AtomList, elf_file: *Elf) void {
 }
 
 pub fn allocate(list: *AtomList, elf_file: *Elf) !void {
+    assert(list.dirty);
+
     const alloc_res = try elf_file.allocateChunk(.{
         .shndx = list.output_section_index,
         .size = list.size,
@@ -41,6 +44,8 @@ pub fn allocate(list: *AtomList, elf_file: *Elf) !void {
         .requires_padding = false,
     });
     list.value = @intCast(alloc_res.value);
+
+    log.debug("allocated atom_list({d}) at 0x{x}", .{ list.output_section_index, list.address(elf_file) });
 
     const slice = elf_file.sections.slice();
     const shdr = &slice.items(.shdr)[list.output_section_index];
@@ -56,13 +61,13 @@ pub fn allocate(list: *AtomList, elf_file: *Elf) !void {
     // FIXME:JK this currently ignores Thunks as valid chunks.
     {
         var idx: usize = 0;
-        while (idx < list.atoms.items.len) : (idx += 1) {
-            const curr_atom_ptr = elf_file.atom(list.atoms.items[idx]).?;
+        while (idx < list.atoms.keys().len) : (idx += 1) {
+            const curr_atom_ptr = elf_file.atom(list.atoms.keys()[idx]).?;
             if (idx > 0) {
-                curr_atom_ptr.prev_atom_ref = list.atoms.items[idx - 1];
+                curr_atom_ptr.prev_atom_ref = list.atoms.keys()[idx - 1];
             }
-            if (idx + 1 < list.atoms.items.len) {
-                curr_atom_ptr.next_atom_ref = list.atoms.items[idx + 1];
+            if (idx + 1 < list.atoms.keys().len) {
+                curr_atom_ptr.next_atom_ref = list.atoms.keys()[idx + 1];
             }
         }
     }
@@ -74,17 +79,20 @@ pub fn allocate(list: *AtomList, elf_file: *Elf) !void {
     }
 
     // FIXME:JK if we had a link from Atom to parent AtomList we would not need to update Atom's value or osec index
-    for (list.atoms.items) |ref| {
+    for (list.atoms.keys()) |ref| {
         const atom_ptr = elf_file.atom(ref).?;
         atom_ptr.output_section_index = list.output_section_index;
         atom_ptr.value += list.value;
     }
+
+    list.dirty = false;
 }
 
 pub fn write(list: AtomList, buffer: *std.ArrayList(u8), undefs: anytype, elf_file: *Elf) !void {
     const gpa = elf_file.base.comp.gpa;
     const osec = elf_file.sections.items(.shdr)[list.output_section_index];
     assert(osec.sh_type != elf.SHT_NOBITS);
+    assert(!list.dirty);
 
     log.debug("writing atoms in section '{s}'", .{elf_file.getShString(osec.sh_name)});
 
@@ -92,7 +100,7 @@ pub fn write(list: AtomList, buffer: *std.ArrayList(u8), undefs: anytype, elf_fi
     try buffer.ensureUnusedCapacity(list_size);
     buffer.appendNTimesAssumeCapacity(0, list_size);
 
-    for (list.atoms.items) |ref| {
+    for (list.atoms.keys()) |ref| {
         const atom_ptr = elf_file.atom(ref).?;
         assert(atom_ptr.alive);
 
@@ -128,7 +136,7 @@ pub fn writeRelocatable(list: AtomList, buffer: *std.ArrayList(u8), elf_file: *E
     try buffer.ensureUnusedCapacity(list_size);
     buffer.appendNTimesAssumeCapacity(0, list_size);
 
-    for (list.atoms.items) |ref| {
+    for (list.atoms.keys()) |ref| {
         const atom_ptr = elf_file.atom(ref).?;
         assert(atom_ptr.alive);
 
@@ -149,13 +157,13 @@ pub fn writeRelocatable(list: AtomList, buffer: *std.ArrayList(u8), elf_file: *E
 }
 
 pub fn firstAtom(list: AtomList, elf_file: *Elf) *Atom {
-    assert(list.atoms.items.len > 0);
-    return elf_file.atom(list.atoms.items[0]).?;
+    assert(list.atoms.keys().len > 0);
+    return elf_file.atom(list.atoms.keys()[0]).?;
 }
 
 pub fn lastAtom(list: AtomList, elf_file: *Elf) *Atom {
-    assert(list.atoms.items.len > 0);
-    return elf_file.atom(list.atoms.items[list.atoms.items.len - 1]).?;
+    assert(list.atoms.keys().len > 0);
+    return elf_file.atom(list.atoms.keys()[list.atoms.keys().len - 1]).?;
 }
 
 pub fn format(
@@ -191,9 +199,9 @@ fn format2(
         list.alignment.toByteUnits() orelse 0, list.size,
     });
     try writer.writeAll(" : atoms{ ");
-    for (list.atoms.items, 0..) |ref, i| {
+    for (list.atoms.keys(), 0..) |ref, i| {
         try writer.print("{}", .{ref});
-        if (i < list.atoms.items.len - 1) try writer.writeAll(", ");
+        if (i < list.atoms.keys().len - 1) try writer.writeAll(", ");
     }
     try writer.writeAll(" }");
 }

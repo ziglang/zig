@@ -312,6 +312,8 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
             .pseudo_dbg_prologue_end_none,
             .pseudo_dbg_line_line_column,
             .pseudo_dbg_epilogue_begin_none,
+            .pseudo_dbg_enter_block_none,
+            .pseudo_dbg_leave_block_none,
             .pseudo_dbg_enter_inline_func,
             .pseudo_dbg_leave_inline_func,
             .pseudo_dbg_local_a,

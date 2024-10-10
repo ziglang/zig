@@ -548,16 +548,6 @@ pub fn allocatedSize(self: *Elf, start: u64) u64 {
     return min_pos - start;
 }
 
-fn allocatedVirtualSize(self: *Elf, start: u64) u64 {
-    if (start == 0) return 0;
-    var min_pos: u64 = std.math.maxInt(u64);
-    for (self.phdrs.items) |phdr| {
-        if (phdr.p_vaddr <= start) continue;
-        if (phdr.p_vaddr < min_pos) min_pos = phdr.p_vaddr;
-    }
-    return min_pos - start;
-}
-
 pub fn findFreeSpace(self: *Elf, object_size: u64, min_alignment: u64) !u64 {
     var start: u64 = 0;
     while (try self.detectAllocCollision(start, object_size)) |item_end| {
@@ -566,90 +556,49 @@ pub fn findFreeSpace(self: *Elf, object_size: u64, min_alignment: u64) !u64 {
     return start;
 }
 
-pub fn growAllocSection(self: *Elf, shdr_index: u32, needed_size: u64, min_alignment: u64) !void {
-    const slice = self.sections.slice();
-    const shdr = &slice.items(.shdr)[shdr_index];
-    assert(shdr.sh_flags & elf.SHF_ALLOC != 0);
-    const phndx = slice.items(.phndx)[shdr_index];
-    const maybe_phdr = if (phndx) |ndx| &self.phdrs.items[ndx] else null;
-
-    log.debug("allocated size {x} of {s}, needed size {x}", .{
-        self.allocatedSize(shdr.sh_offset),
-        self.getShString(shdr.sh_name),
-        needed_size,
-    });
+pub fn growSection(self: *Elf, shdr_index: u32, needed_size: u64, min_alignment: u64) !void {
+    const shdr = &self.sections.items(.shdr)[shdr_index];
 
     if (shdr.sh_type != elf.SHT_NOBITS) {
         const allocated_size = self.allocatedSize(shdr.sh_offset);
+        log.debug("allocated size {x} of '{s}', needed size {x}", .{
+            allocated_size,
+            self.getShString(shdr.sh_name),
+            needed_size,
+        });
+
         if (needed_size > allocated_size) {
             const existing_size = shdr.sh_size;
             shdr.sh_size = 0;
             // Must move the entire section.
             const new_offset = try self.findFreeSpace(needed_size, min_alignment);
 
-            log.debug("new '{s}' file offset 0x{x} to 0x{x}", .{
+            log.debug("moving '{s}' from 0x{x} to 0x{x}", .{
                 self.getShString(shdr.sh_name),
+                shdr.sh_offset,
                 new_offset,
-                new_offset + existing_size,
             });
 
-            const amt = try self.base.file.?.copyRangeAll(shdr.sh_offset, self.base.file.?, new_offset, existing_size);
-            // TODO figure out what to about this error condition - how to communicate it up.
-            if (amt != existing_size) return error.InputOutput;
-
-            shdr.sh_offset = new_offset;
-            if (maybe_phdr) |phdr| phdr.p_offset = new_offset;
-        } else if (shdr.sh_offset + allocated_size == std.math.maxInt(u64)) {
-            try self.base.file.?.setEndPos(shdr.sh_offset + needed_size);
-        }
-        if (maybe_phdr) |phdr| phdr.p_filesz = needed_size;
-    }
-    shdr.sh_size = needed_size;
-    self.markDirty(shdr_index);
-}
-
-pub fn growNonAllocSection(
-    self: *Elf,
-    shdr_index: u32,
-    needed_size: u64,
-    min_alignment: u64,
-    requires_file_copy: bool,
-) !void {
-    const shdr = &self.sections.items(.shdr)[shdr_index];
-    assert(shdr.sh_flags & elf.SHF_ALLOC == 0);
-
-    const allocated_size = self.allocatedSize(shdr.sh_offset);
-    if (needed_size > allocated_size) {
-        const existing_size = shdr.sh_size;
-        shdr.sh_size = 0;
-        // Move all the symbols to a new file location.
-        const new_offset = try self.findFreeSpace(needed_size, min_alignment);
-
-        log.debug("new '{s}' file offset 0x{x} to 0x{x}", .{
-            self.getShString(shdr.sh_name),
-            new_offset,
-            new_offset + existing_size,
-        });
-
-        if (requires_file_copy) {
             const amt = try self.base.file.?.copyRangeAll(
                 shdr.sh_offset,
                 self.base.file.?,
                 new_offset,
                 existing_size,
             );
+            // TODO figure out what to about this error condition - how to communicate it up.
             if (amt != existing_size) return error.InputOutput;
-        }
 
-        shdr.sh_offset = new_offset;
-    } else if (shdr.sh_offset + allocated_size == std.math.maxInt(u64)) {
-        try self.base.file.?.setEndPos(shdr.sh_offset + needed_size);
+            shdr.sh_offset = new_offset;
+        } else if (shdr.sh_offset + allocated_size == std.math.maxInt(u64)) {
+            try self.base.file.?.setEndPos(shdr.sh_offset + needed_size);
+        }
     }
+
     shdr.sh_size = needed_size;
     self.markDirty(shdr_index);
 }
 
-pub fn markDirty(self: *Elf, shdr_index: u32) void {
+fn markDirty(self: *Elf, shdr_index: u32) void {
     if (self.zigObjectPtr()) |zo| {
         for ([_]?Symbol.Index{
             zo.debug_info_index,
@@ -742,24 +691,26 @@ pub fn allocateChunk(self: *Elf, args: struct {
         }
     };
 
-    log.debug("allocated chunk (size({x}),align({x})) at 0x{x} (file(0x{x}))", .{
-        args.size,
-        args.alignment.toByteUnits().?,
-        shdr.sh_addr + res.value,
-        shdr.sh_offset + res.value,
-    });
-
     const expand_section = if (self.atom(res.placement)) |placement_atom|
         placement_atom.nextAtom(self) == null
     else
         true;
     if (expand_section) {
         const needed_size = res.value + args.size;
-        if (shdr.sh_flags & elf.SHF_ALLOC != 0)
-            try self.growAllocSection(args.shndx, needed_size, args.alignment.toByteUnits().?)
-        else
-            try self.growNonAllocSection(args.shndx, needed_size, args.alignment.toByteUnits().?, true);
+        try self.growSection(args.shndx, needed_size, args.alignment.toByteUnits().?);
     }
+
+    log.debug("allocated chunk (size({x}),align({x})) in {s} at 0x{x} (file(0x{x}))", .{
+        args.size,
+        args.alignment.toByteUnits().?,
+        self.getShString(shdr.sh_name),
+        shdr.sh_addr + res.value,
+        shdr.sh_offset + res.value,
+    });
+    log.debug("  placement {}, {s}", .{
+        res.placement,
+        if (self.atom(res.placement)) |atom_ptr| atom_ptr.name(self) else "",
+    });
 
     return res;
 }
@@ -808,8 +759,6 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
     if (self.base.isObject()) return relocatable.flushObject(self, comp, module_obj_path);
 
     const csu = try CsuObjects.init(arena, comp);
-
-    // Here we will parse object and library files (if referenced).
 
     // csu prelude
     if (csu.crt0) |path| try parseObjectReportingFailure(self, path);
@@ -1040,6 +989,13 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
 
     // Beyond this point, everything has been allocated a virtual address and we can resolve
     // the relocations, and commit objects to file.
+    for (self.objects.items) |index| {
+        self.file(index).?.object.dirty = false;
+    }
+    // TODO: would state tracking be more appropriate here? perhaps even custom relocation type?
+    self.rela_dyn.clearRetainingCapacity();
+    self.rela_plt.clearRetainingCapacity();
+
     if (self.zigObjectPtr()) |zo| {
         var has_reloc_errors = false;
         for (zo.atoms_indexes.items) |atom_index| {
@@ -1069,6 +1025,7 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
     try self.writeShdrTable();
     try self.writeAtoms();
     try self.writeMergeSections();
+
     self.writeSyntheticSections() catch |err| switch (err) {
         error.RelocFailure => return error.FlushFailure,
         error.UnsupportedCpuArch => {
@@ -1401,7 +1358,6 @@ pub fn parseLibraryReportingFailure(self: *Elf, lib: SystemLib, must_link: bool)
 fn parseLibrary(self: *Elf, lib: SystemLib, must_link: bool) ParseError!void {
     const tracy = trace(@src());
     defer tracy.end();
-
     if (try Archive.isArchive(lib.path)) {
         try self.parseArchive(lib.path, must_link);
     } else if (try SharedObject.isSharedObject(lib.path)) {
@@ -2801,9 +2757,10 @@ pub fn resolveMergeSections(self: *Elf) !void {
 
     var has_errors = false;
     for (self.objects.items) |index| {
-        const file_ptr = self.file(index).?;
-        if (!file_ptr.isAlive()) continue;
-        file_ptr.object.initInputMergeSections(self) catch |err| switch (err) {
+        const object = self.file(index).?.object;
+        if (!object.alive) continue;
+        if (!object.dirty) continue;
+        object.initInputMergeSections(self) catch |err| switch (err) {
             error.LinkFailure => has_errors = true,
             else => |e| return e,
         };
@@ -2812,15 +2769,17 @@ pub fn resolveMergeSections(self: *Elf) !void {
     if (has_errors) return error.FlushFailure;
 
     for (self.objects.items) |index| {
-        const file_ptr = self.file(index).?;
-        if (!file_ptr.isAlive()) continue;
-        try file_ptr.object.initOutputMergeSections(self);
+        const object = self.file(index).?.object;
+        if (!object.alive) continue;
+        if (!object.dirty) continue;
+        try object.initOutputMergeSections(self);
     }
 
     for (self.objects.items) |index| {
-        const file_ptr = self.file(index).?;
-        if (!file_ptr.isAlive()) continue;
-        file_ptr.object.resolveMergeSubsections(self) catch |err| switch (err) {
+        const object = self.file(index).?.object;
+        if (!object.alive) continue;
+        if (!object.dirty) continue;
+        object.resolveMergeSubsections(self) catch |err| switch (err) {
             error.LinkFailure => has_errors = true,
             else => |e| return e,
         };
@@ -2907,7 +2866,6 @@ fn initSyntheticSections(self: *Elf) !void {
                     elf.SHT_PROGBITS,
                 .flags = elf.SHF_ALLOC,
                 .addralign = ptr_size,
-                .offset = std.math.maxInt(u64),
             });
         }
         if (comp.link_eh_frame_hdr and self.eh_frame_hdr_section_index == null) {
@@ -2916,7 +2874,6 @@ fn initSyntheticSections(self: *Elf) !void {
                 .type = elf.SHT_PROGBITS,
                 .flags = elf.SHF_ALLOC,
                 .addralign = 4,
-                .offset = std.math.maxInt(u64),
             });
         }
     }
@@ -2927,7 +2884,6 @@ fn initSyntheticSections(self: *Elf) !void {
             .type = elf.SHT_PROGBITS,
             .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
             .addralign = ptr_size,
-            .offset = std.math.maxInt(u64),
         });
     }
 
@@ -2937,7 +2893,6 @@ fn initSyntheticSections(self: *Elf) !void {
             .type = elf.SHT_PROGBITS,
             .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
             .addralign = @alignOf(u64),
-            .offset = std.math.maxInt(u64),
         });
     }
 
@@ -2959,7 +2914,6 @@ fn initSyntheticSections(self: *Elf) !void {
             .flags = elf.SHF_ALLOC,
             .addralign = @alignOf(elf.Elf64_Rela),
             .entsize = @sizeOf(elf.Elf64_Rela),
-            .offset = std.math.maxInt(u64),
         });
     }
 
@@ -2970,7 +2924,6 @@ fn initSyntheticSections(self: *Elf) !void {
                 .type = elf.SHT_PROGBITS,
                 .flags = elf.SHF_ALLOC | elf.SHF_EXECINSTR,
                 .addralign = 16,
-                .offset = std.math.maxInt(u64),
             });
         }
         if (self.rela_plt_section_index == null) {
@@ -2980,7 +2933,6 @@ fn initSyntheticSections(self: *Elf) !void {
                 .flags = elf.SHF_ALLOC,
                 .addralign = @alignOf(elf.Elf64_Rela),
                 .entsize = @sizeOf(elf.Elf64_Rela),
-                .offset = std.math.maxInt(u64),
             });
         }
     }
@@ -2991,7 +2943,6 @@ fn initSyntheticSections(self: *Elf) !void {
             .type = elf.SHT_PROGBITS,
             .flags = elf.SHF_ALLOC | elf.SHF_EXECINSTR,
             .addralign = 16,
-            .offset = std.math.maxInt(u64),
         });
     }
 
@@ -3000,7 +2951,6 @@ fn initSyntheticSections(self: *Elf) !void {
             .name = try self.insertShString(".copyrel"),
             .type = elf.SHT_NOBITS,
             .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
-            .offset = std.math.maxInt(u64),
         });
     }
 
@@ -3019,7 +2969,6 @@ fn initSyntheticSections(self: *Elf) !void {
             .type = elf.SHT_PROGBITS,
             .flags = elf.SHF_ALLOC,
             .addralign = 1,
-            .offset = std.math.maxInt(u64),
         });
     }
 
@@ -3031,7 +2980,6 @@ fn initSyntheticSections(self: *Elf) !void {
                 .type = elf.SHT_STRTAB,
                 .entsize = 1,
                 .addralign = 1,
-                .offset = std.math.maxInt(u64),
             });
         }
         if (self.dynamic_section_index == null) {
@@ -3041,7 +2989,6 @@ fn initSyntheticSections(self: *Elf) !void {
                 .type = elf.SHT_DYNAMIC,
                 .entsize = @sizeOf(elf.Elf64_Dyn),
                 .addralign = @alignOf(elf.Elf64_Dyn),
-                .offset = std.math.maxInt(u64),
             });
         }
         if (self.dynsymtab_section_index == null) {
@@ -3052,7 +2999,6 @@ fn initSyntheticSections(self: *Elf) !void {
                 .addralign = @alignOf(elf.Elf64_Sym),
                 .entsize = @sizeOf(elf.Elf64_Sym),
                 .info = 1,
-                .offset = std.math.maxInt(u64),
             });
         }
         if (self.hash_section_index == null) {
@@ -3062,7 +3008,6 @@ fn initSyntheticSections(self: *Elf) !void {
                 .type = elf.SHT_HASH,
                 .addralign = 4,
                 .entsize = 4,
-                .offset = std.math.maxInt(u64),
             });
         }
         if (self.gnu_hash_section_index == null) {
@@ -3071,7 +3016,6 @@ fn initSyntheticSections(self: *Elf) !void {
                 .flags = elf.SHF_ALLOC,
                 .type = elf.SHT_GNU_HASH,
                 .addralign = 8,
-                .offset = std.math.maxInt(u64),
             });
         }
 
@@ -3087,7 +3031,6 @@ fn initSyntheticSections(self: *Elf) !void {
                     .type = elf.SHT_GNU_VERSYM,
                     .addralign = @alignOf(elf.Elf64_Versym),
                     .entsize = @sizeOf(elf.Elf64_Versym),
-                    .offset = std.math.maxInt(u64),
                 });
             }
             if (self.verneed_section_index == null) {
@@ -3096,7 +3039,6 @@ fn initSyntheticSections(self: *Elf) !void {
                     .flags = elf.SHF_ALLOC,
                     .type = elf.SHT_GNU_VERNEED,
                     .addralign = @alignOf(elf.Elf64_Verneed),
-                    .offset = std.math.maxInt(u64),
                 });
             }
         }
@@ -3117,7 +3059,6 @@ pub fn initSymtab(self: *Elf) !void {
             .type = elf.SHT_SYMTAB,
             .addralign = if (small_ptr) @alignOf(elf.Elf32_Sym) else @alignOf(elf.Elf64_Sym),
             .entsize = if (small_ptr) @sizeOf(elf.Elf32_Sym) else @sizeOf(elf.Elf64_Sym),
-            .offset = std.math.maxInt(u64),
         });
     }
     if (self.strtab_section_index == null) {
@@ -3126,7 +3067,6 @@ pub fn initSymtab(self: *Elf) !void {
             .type = elf.SHT_STRTAB,
             .entsize = 1,
             .addralign = 1,
-            .offset = std.math.maxInt(u64),
         });
     }
 }
@@ -3138,7 +3078,6 @@ pub fn initShStrtab(self: *Elf) !void {
             .type = elf.SHT_STRTAB,
             .entsize = 1,
             .addralign = 1,
-            .offset = std.math.maxInt(u64),
         });
     }
 }
@@ -3219,7 +3158,7 @@ fn sortInitFini(self: *Elf) !void {
 
     for (slice.items(.shdr), slice.items(.atom_list_2)) |shdr, *atom_list| {
         if (shdr.sh_flags & elf.SHF_ALLOC == 0) continue;
-        if (atom_list.atoms.items.len == 0) continue;
+        if (atom_list.atoms.keys().len == 0) continue;
 
         var is_init_fini = false;
         var is_ctor_dtor = false;
@@ -3236,10 +3175,10 @@ fn sortInitFini(self: *Elf) !void {
         if (!is_init_fini and !is_ctor_dtor) continue;
 
         var entries = std.ArrayList(Entry).init(gpa);
-        try entries.ensureTotalCapacityPrecise(atom_list.atoms.items.len);
+        try entries.ensureTotalCapacityPrecise(atom_list.atoms.keys().len);
         defer entries.deinit();
 
-        for (atom_list.atoms.items) |ref| {
+        for (atom_list.atoms.keys()) |ref| {
             const atom_ptr = self.atom(ref).?;
             const object = atom_ptr.file(self).?.object;
             const priority = blk: {
@@ -3260,7 +3199,7 @@ fn sortInitFini(self: *Elf) !void {
 
         atom_list.atoms.clearRetainingCapacity();
         for (entries.items) |entry| {
-            atom_list.atoms.appendAssumeCapacity(entry.atom_ref);
+            _ = atom_list.atoms.getOrPutAssumeCapacity(entry.atom_ref);
         }
     }
 }
@@ -3506,7 +3445,7 @@ fn resetShdrIndexes(self: *Elf, backlinks: []const u32) void {
     const slice = self.sections.slice();
     for (slice.items(.shdr), slice.items(.atom_list_2)) |*shdr, *atom_list| {
         atom_list.output_section_index = backlinks[atom_list.output_section_index];
-        for (atom_list.atoms.items) |ref| {
+        for (atom_list.atoms.keys()) |ref| {
             self.atom(ref).?.output_section_index = atom_list.output_section_index;
         }
         if (shdr.sh_type == elf.SHT_RELA) {
@@ -3518,12 +3457,7 @@ fn resetShdrIndexes(self: *Elf, backlinks: []const u32) void {
         }
     }
 
-    if (self.zigObjectPtr()) |zo| {
-        for (zo.atoms_indexes.items) |atom_index| {
-            const atom_ptr = zo.atom(atom_index) orelse continue;
-            atom_ptr.output_section_index = backlinks[atom_ptr.output_section_index];
-        }
-    }
+    if (self.zigObjectPtr()) |zo| zo.resetShdrIndexes(backlinks);
 
     for (self.comdat_group_sections.items) |*cg| {
         cg.shndx = backlinks[cg.shndx];
@@ -3585,20 +3519,24 @@ fn resetShdrIndexes(self: *Elf, backlinks: []const u32) void {
 fn updateSectionSizes(self: *Elf) !void {
     const slice = self.sections.slice();
     for (slice.items(.shdr), slice.items(.atom_list_2)) |shdr, *atom_list| {
-        if (atom_list.atoms.items.len == 0) continue;
+        if (atom_list.atoms.keys().len == 0) continue;
+        if (!atom_list.dirty) continue;
         if (self.requiresThunks() and shdr.sh_flags & elf.SHF_EXECINSTR != 0) continue;
         atom_list.updateSize(self);
         try atom_list.allocate(self);
+        atom_list.dirty = false;
     }
 
     if (self.requiresThunks()) {
         for (slice.items(.shdr), slice.items(.atom_list_2)) |shdr, *atom_list| {
             if (shdr.sh_flags & elf.SHF_EXECINSTR == 0) continue;
-            if (atom_list.atoms.items.len == 0) continue;
+            if (atom_list.atoms.keys().len == 0) continue;
+            if (!atom_list.dirty) continue;
 
             // Create jump/branch range extenders if needed.
             try self.createThunks(atom_list);
             try atom_list.allocate(self);
+            atom_list.dirty = false;
         }
 
         // FIXME:JK this will hopefully not be needed once we create a link from Atom/Thunk to AtomList.
@@ -3882,56 +3820,54 @@ pub fn allocateAllocSections(self: *Elf) !void {
         }
 
         const first = slice.items(.shdr)[cover.items[0]];
-        var new_offset = try self.findFreeSpace(filesz, @"align");
         const phndx = self.getPhdr(.{ .type = elf.PT_LOAD, .flags = shdrToPhdrFlags(first.sh_flags) }).?;
         const phdr = &self.phdrs.items[phndx];
-        phdr.p_offset = new_offset;
-        phdr.p_vaddr = first.sh_addr;
-        phdr.p_paddr = first.sh_addr;
-        phdr.p_memsz = memsz;
-        phdr.p_filesz = filesz;
-        phdr.p_align = @"align";
+        const allocated_size = self.allocatedSize(phdr.p_offset);
+        if (filesz > allocated_size) {
+            const old_offset = phdr.p_offset;
+            phdr.p_offset = 0;
+            var new_offset = try self.findFreeSpace(filesz, @"align");
+            phdr.p_offset = new_offset;
 
-        for (cover.items) |shndx| {
-            const shdr = &slice.items(.shdr)[shndx];
-            slice.items(.phndx)[shndx] = phndx;
-            if (shdr.sh_type == elf.SHT_NOBITS) {
-                shdr.sh_offset = 0;
-                continue;
-            }
-            new_offset = alignment.@"align"(shndx, shdr.sh_addralign, new_offset);
+            log.debug("moving phdr({d}) from 0x{x} to 0x{x}", .{ phndx, old_offset, new_offset });
 
-            if (self.zigObjectPtr()) |zo| blk: {
-                const existing_size = for ([_]?Symbol.Index{
-                    zo.text_index,
-                    zo.rodata_index,
-                    zo.data_relro_index,
-                    zo.data_index,
-                    zo.tdata_index,
-                    zo.eh_frame_index,
-                }) |maybe_sym_index| {
-                    const sect_sym_index = maybe_sym_index orelse continue;
-                    const sect_atom_ptr = zo.symbol(sect_sym_index).atom(self).?;
-                    if (sect_atom_ptr.output_section_index != shndx) continue;
-                    break sect_atom_ptr.size;
-                } else break :blk;
+            for (cover.items) |shndx| {
+                const shdr = &slice.items(.shdr)[shndx];
+                slice.items(.phndx)[shndx] = phndx;
+                if (shdr.sh_type == elf.SHT_NOBITS) {
+                    shdr.sh_offset = 0;
+                    continue;
+                }
+                new_offset = alignment.@"align"(shndx, shdr.sh_addralign, new_offset);
+
                 log.debug("moving {s} from 0x{x} to 0x{x}", .{
                     self.getShString(shdr.sh_name),
                     shdr.sh_offset,
                     new_offset,
                 });
-                const amt = try self.base.file.?.copyRangeAll(
-                    shdr.sh_offset,
-                    self.base.file.?,
-                    new_offset,
-                    existing_size,
-                );
-                if (amt != existing_size) return error.InputOutput;
-            }
 
-            shdr.sh_offset = new_offset;
-            new_offset += shdr.sh_size;
+                if (shdr.sh_offset > 0) {
+                    // Get size actually commited to the output file.
+                    const existing_size = self.sectionSize(shndx);
+                    const amt = try self.base.file.?.copyRangeAll(
+                        shdr.sh_offset,
+                        self.base.file.?,
+                        new_offset,
+                        existing_size,
+                    );
+                    if (amt != existing_size) return error.InputOutput;
+                }
+
+                shdr.sh_offset = new_offset;
+                new_offset += shdr.sh_size;
+            }
         }
+
+        phdr.p_vaddr = first.sh_addr;
+        phdr.p_paddr = first.sh_addr;
+        phdr.p_memsz = memsz;
+        phdr.p_filesz = filesz;
+        phdr.p_align = @"align";
 
         addr = mem.alignForward(u64, addr, self.page_size);
     }
@@ -3947,27 +3883,14 @@ pub fn allocateNonAllocSections(self: *Elf) !void {
             shdr.sh_size = 0;
             const new_offset = try self.findFreeSpace(needed_size, shdr.sh_addralign);
 
-            if (self.zigObjectPtr()) |zo| blk: {
-                const existing_size = for ([_]?Symbol.Index{
-                    zo.debug_info_index,
-                    zo.debug_abbrev_index,
-                    zo.debug_aranges_index,
-                    zo.debug_str_index,
-                    zo.debug_line_index,
-                    zo.debug_line_str_index,
-                    zo.debug_loclists_index,
-                    zo.debug_rnglists_index,
-                }) |maybe_sym_index| {
-                    const sym_index = maybe_sym_index orelse continue;
-                    const sym = zo.symbol(sym_index);
-                    const atom_ptr = sym.atom(self).?;
-                    if (atom_ptr.output_section_index == shndx) break atom_ptr.size;
-                } else break :blk;
-                log.debug("moving {s} from 0x{x} to 0x{x}", .{
-                    self.getShString(shdr.sh_name),
-                    shdr.sh_offset,
-                    new_offset,
-                });
+            log.debug("moving {s} from 0x{x} to 0x{x}", .{
+                self.getShString(shdr.sh_name),
+                shdr.sh_offset,
+                new_offset,
+            });
+
+            if (shdr.sh_offset > 0) {
+                const existing_size = self.sectionSize(@intCast(shndx));
                 const amt = try self.base.file.?.copyRangeAll(
                     shdr.sh_offset,
                     self.base.file.?,
@@ -4058,7 +3981,7 @@ fn writeAtoms(self: *Elf) !void {
     var has_reloc_errors = false;
     for (slice.items(.shdr), slice.items(.atom_list_2)) |shdr, atom_list| {
         if (shdr.sh_type == elf.SHT_NOBITS) continue;
-        if (atom_list.atoms.items.len == 0) continue;
+        if (atom_list.atoms.keys().len == 0) continue;
         atom_list.write(&buffer, &undefs, self) catch |err| switch (err) {
             error.UnsupportedCpuArch => {
                 try self.reportUnsupportedCpuArch();
@@ -4816,7 +4739,6 @@ pub fn addRelaShdr(self: *Elf, name: u32, shndx: u32) !u32 {
         .entsize = entsize,
         .info = shndx,
         .addralign = addralign,
-        .offset = std.math.maxInt(u64),
     });
 }
 
@@ -4828,7 +4750,6 @@ pub const AddSectionOpts = struct {
     info: u32 = 0,
     addralign: u64 = 0,
     entsize: u64 = 0,
-    offset: u64 = 0,
 };
 
 pub fn addSection(self: *Elf, opts: AddSectionOpts) !u32 {
@@ -4840,7 +4761,7 @@ pub fn addSection(self: *Elf, opts: AddSectionOpts) !u32 {
             .sh_type = opts.type,
             .sh_flags = opts.flags,
             .sh_addr = 0,
-            .sh_offset = opts.offset,
+            .sh_offset = 0,
             .sh_size = 0,
             .sh_link = opts.link,
             .sh_info = opts.info,
@@ -4863,6 +4784,7 @@ const RelaDyn = struct {
     sym: u64 = 0,
     type: u32,
     addend: i64 = 0,
+    target: ?*const Symbol = null,
 };
 
 pub fn addRelaDyn(self: *Elf, opts: RelaDyn) !void {
@@ -4871,6 +4793,13 @@ pub fn addRelaDyn(self: *Elf, opts: RelaDyn) !void {
 }
 
 pub fn addRelaDynAssumeCapacity(self: *Elf, opts: RelaDyn) void {
+    relocs_log.debug("  {s}: [{x} => {d}({s})] + {x}", .{
+        relocation.fmtRelocType(opts.type, self.getTarget().cpu.arch),
+        opts.offset,
+        opts.sym,
+        if (opts.target) |sym| sym.name(self) else "",
+        opts.addend,
+    });
     self.rela_dyn.appendAssumeCapacity(.{
         .r_offset = opts.offset,
         .r_info = (opts.sym << 32) | opts.type,
@@ -5703,6 +5632,12 @@ const Section = struct {
     free_list: std.ArrayListUnmanaged(Ref) = .empty,
 };
 
+pub fn sectionSize(self: *Elf, shndx: u32) u64 {
+    const last_atom_ref = self.sections.items(.last_atom)[shndx];
+    const atom_ptr = self.atom(last_atom_ref) orelse return 0;
+    return @as(u64, @intCast(atom_ptr.value)) + atom_ptr.size;
+}
+
 fn defaultEntrySymbolName(cpu_arch: std.Target.Cpu.Arch) []const u8 {
     return switch (cpu_arch) {
         .mips, .mipsel, .mips64, .mips64el => "__start",
@@ -5732,20 +5667,20 @@ fn createThunks(elf_file: *Elf, atom_list: *AtomList) !void {
         }
     }.advance;
 
-    for (atom_list.atoms.items) |ref| {
+    for (atom_list.atoms.keys()) |ref| {
         elf_file.atom(ref).?.value = -1;
     }
 
     var i: usize = 0;
-    while (i < atom_list.atoms.items.len) {
+    while (i < atom_list.atoms.keys().len) {
         const start = i;
-        const start_atom = elf_file.atom(atom_list.atoms.items[start]).?;
+        const start_atom = elf_file.atom(atom_list.atoms.keys()[start]).?;
         assert(start_atom.alive);
         start_atom.value = try advance(atom_list, start_atom.size, start_atom.alignment);
         i += 1;
 
-        while (i < atom_list.atoms.items.len) : (i += 1) {
-            const atom_ptr = elf_file.atom(atom_list.atoms.items[i]).?;
+        while (i < atom_list.atoms.keys().len) : (i += 1) {
+            const atom_ptr = elf_file.atom(atom_list.atoms.keys()[i]).?;
             assert(atom_ptr.alive);
             if (@as(i64, @intCast(atom_ptr.alignment.forward(atom_list.size))) - start_atom.value >= max_distance)
                 break;
@@ -5758,7 +5693,7 @@ fn createThunks(elf_file: *Elf, atom_list: *AtomList) !void {
         thunk_ptr.output_section_index = atom_list.output_section_index;
 
         // Scan relocs in the group and create trampolines for any unreachable callsite
-        for (atom_list.atoms.items[start..i]) |ref| {
+        for (atom_list.atoms.keys()[start..i]) |ref| {
             const atom_ptr = elf_file.atom(ref).?;
             const file_ptr = atom_ptr.file(elf_file).?;
             log.debug("atom({}) {s}", .{ ref, atom_ptr.name(elf_file) });
@@ -5801,6 +5736,7 @@ const assert = std.debug.assert;
 const elf = std.elf;
 const fs = std.fs;
 const log = std.log.scoped(.link);
+const relocs_log = std.log.scoped(.link_relocs);
 const state_log = std.log.scoped(.link_state);
 const math = std.math;
 const mem = std.mem;
