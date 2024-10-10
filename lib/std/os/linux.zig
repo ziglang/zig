@@ -29,11 +29,6 @@ test {
     }
 }
 
-const syscall_bits = switch (native_arch) {
-    .thumb => @import("linux/thumb.zig"),
-    else => arch_bits,
-};
-
 const arch_bits = switch (native_arch) {
     .x86 => @import("linux/x86.zig"),
     .x86_64 => @import("linux/x86_64.zig"),
@@ -54,6 +49,9 @@ const arch_bits = switch (native_arch) {
         pub const getcontext = {};
     },
 };
+
+const syscall_bits = if (native_arch.isThumb()) @import("linux/thumb.zig") else arch_bits;
+
 pub const syscall0 = syscall_bits.syscall0;
 pub const syscall1 = syscall_bits.syscall1;
 pub const syscall2 = syscall_bits.syscall2;
