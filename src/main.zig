@@ -4699,12 +4699,15 @@ const usage_init =
     \\
     \\Options:
     \\  -h, --help             Print this help and exit
+    \\  -m, --minimal          Initializes a minimal `zig build` project
     \\
     \\
 ;
 
 fn cmdInit(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     dev.check(.init_command);
+
+    var minimal = false;
 
     {
         var i: usize = 0;
@@ -4714,6 +4717,8 @@ fn cmdInit(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                 if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
                     try io.getStdOut().writeAll(usage_init);
                     return cleanExit();
+                } else if (mem.eql(u8, arg, "-m") or mem.eql(u8, arg, "--minimal")) {
+                    minimal = true;
                 } else {
                     fatal("unrecognized parameter: '{s}'", .{arg});
                 }
@@ -4723,14 +4728,19 @@ fn cmdInit(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
         }
     }
 
-    var templates = findTemplates(gpa, arena);
+    var templates = findTemplates(minimal, gpa, arena);
     defer templates.deinit();
 
     const cwd_path = try process.getCwdAlloc(arena);
     const cwd_basename = fs.path.basename(cwd_path);
 
     const s = fs.path.sep_str;
-    const template_paths = [_][]const u8{
+    const template_paths_minimal = [_][]const u8{
+        Package.build_zig_basename,
+        Package.Manifest.basename,
+        "src" ++ s ++ "main.zig",
+    };
+    const template_paths_default = [_][]const u8{
         Package.build_zig_basename,
         Package.Manifest.basename,
         "src" ++ s ++ "main.zig",
@@ -4738,20 +4748,38 @@ fn cmdInit(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     };
     var ok_count: usize = 0;
 
-    for (template_paths) |template_path| {
-        if (templates.write(arena, fs.cwd(), cwd_basename, template_path)) |_| {
-            std.log.info("created {s}", .{template_path});
-            ok_count += 1;
-        } else |err| switch (err) {
-            error.PathAlreadyExists => std.log.info("preserving already existing file: {s}", .{
-                template_path,
-            }),
-            else => std.log.err("unable to write {s}: {s}\n", .{ template_path, @errorName(err) }),
+    if (minimal) {
+        for (template_paths_minimal) |template_path| {
+            if (templates.write(arena, fs.cwd(), cwd_basename, template_path)) |_| {
+                std.log.info("created {s}", .{template_path});
+                ok_count += 1;
+            } else |err| switch (err) {
+                error.PathAlreadyExists => std.log.info("preserving already existing file: {s}", .{
+                    template_path,
+                }),
+                else => std.log.err("unable to write {s}: {s}\n", .{ template_path, @errorName(err) }),
+            }
         }
-    }
 
-    if (ok_count == template_paths.len) {
-        std.log.info("see `zig build --help` for a menu of options", .{});
+        if (ok_count == template_paths_minimal.len) {
+            std.log.info("see `zig build --help` for a menu of options", .{});
+        }
+    } else {
+        for (template_paths_default) |template_path| {
+            if (templates.write(arena, fs.cwd(), cwd_basename, template_path)) |_| {
+                std.log.info("created {s}", .{template_path});
+                ok_count += 1;
+            } else |err| switch (err) {
+                error.PathAlreadyExists => std.log.info("preserving already existing file: {s}", .{
+                    template_path,
+                }),
+                else => std.log.err("unable to write {s}: {s}\n", .{ template_path, @errorName(err) }),
+            }
+        }
+
+        if (ok_count == template_paths_default.len) {
+            std.log.info("see `zig build --help` for a menu of options", .{});
+        }
     }
     return cleanExit();
 }
@@ -7424,7 +7452,7 @@ fn loadManifest(
             0,
         ) catch |err| switch (err) {
             error.FileNotFound => {
-                var templates = findTemplates(gpa, arena);
+                var templates = findTemplates(false, gpa, arena);
                 defer templates.deinit();
 
                 templates.write(arena, options.dir, options.root_name, Package.Manifest.basename) catch |e| {
@@ -7514,7 +7542,7 @@ const Templates = struct {
     }
 };
 
-fn findTemplates(gpa: Allocator, arena: Allocator) Templates {
+fn findTemplates(minimal: bool, gpa: Allocator, arena: Allocator) Templates {
     const self_exe_path = introspect.findZigExePath(arena) catch |err| {
         fatal("unable to find self exe path: {s}", .{@errorName(err)});
     };
@@ -7523,7 +7551,11 @@ fn findTemplates(gpa: Allocator, arena: Allocator) Templates {
     };
 
     const s = fs.path.sep_str;
-    const template_sub_path = "init";
+    const template_sub_path = if (minimal)
+        "init/minimal"
+    else
+        "init/default";
+
     const template_dir = zig_lib_directory.handle.openDir(template_sub_path, .{}) catch |err| {
         const path = zig_lib_directory.path orelse ".";
         fatal("unable to open zig project template directory '{s}{s}{s}': {s}", .{
