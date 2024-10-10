@@ -30368,7 +30368,6 @@ fn coerceExtra(
     // should initialize the length field of the slice.
     if (maybe_inst_val) |val| if (val.toIntern() == .undef) return pt.undefRef(dest_ty);
 
-
     const msg = msg: {
         const msg = try sema.errMsg(inst_src, "expected type '{}', found '{}'", .{ dest_ty.fmt(pt), inst_ty.fmt(pt) });
         errdefer msg.destroy(sema.gpa);
