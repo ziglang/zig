@@ -1,5 +1,7 @@
 archive: ?InArchive = null,
-path: []const u8,
+/// Archive files cannot contain subdirectories, so only the basename is needed
+/// for output. However, the full path is kept for error reporting.
+path: Path,
 file_handle: File.HandleIndex,
 index: File.Index,
 
@@ -36,8 +38,8 @@ output_symtab_ctx: Elf.SymtabCtx = .{},
 output_ar_state: Archive.ArState = .{},
 
 pub fn deinit(self: *Object, allocator: Allocator) void {
-    if (self.archive) |*ar| allocator.free(ar.path);
-    allocator.free(self.path);
+    if (self.archive) |*ar| allocator.free(ar.path.sub_path);
+    allocator.free(self.path.sub_path);
     self.shdrs.deinit(allocator);
     self.symtab.deinit(allocator);
     self.strtab.deinit(allocator);
@@ -474,8 +476,7 @@ pub fn scanRelocs(self: *Object, elf_file: *Elf, undefs: anytype) !void {
                 if (sym.type(elf_file) != elf.STT_FUNC)
                     // TODO convert into an error
                     log.debug("{s}: {s}: CIE referencing external data reference", .{
-                        self.fmtPath(),
-                        sym.name(elf_file),
+                        self.fmtPath(), sym.name(elf_file),
                     });
                 sym.flags.needs_plt = true;
             }
@@ -996,7 +997,7 @@ pub fn updateArSize(self: *Object, elf_file: *Elf) !void {
 pub fn writeAr(self: Object, elf_file: *Elf, writer: anytype) !void {
     const size = std.math.cast(usize, self.output_ar_state.size) orelse return error.Overflow;
     const offset: u64 = if (self.archive) |ar| ar.offset else 0;
-    const name = self.path;
+    const name = std.fs.path.basename(self.path.sub_path);
     const hdr = Archive.setArHdr(.{
         .name = if (name.len <= Archive.max_member_name_len)
             .{ .name = name }
@@ -1489,15 +1490,14 @@ fn formatPath(
     _ = unused_fmt_string;
     _ = options;
     if (object.archive) |ar| {
-        try writer.writeAll(ar.path);
-        try writer.writeByte('(');
-        try writer.writeAll(object.path);
-        try writer.writeByte(')');
-    } else try writer.writeAll(object.path);
+        try writer.print("{}({})", .{ ar.path, object.path });
+    } else {
+        try writer.print("{}", .{object.path});
+    }
 }
 
 const InArchive = struct {
-    path: []const u8,
+    path: Path,
     offset: u64,
     size: u32,
 };
@@ -1512,8 +1512,9 @@ const fs = std.fs;
 const log = std.log.scoped(.link);
 const math = std.math;
 const mem = std.mem;
-
+const Path = std.Build.Cache.Path;
 const Allocator = mem.Allocator;
+
 const Archive = @import("Archive.zig");
 const Atom = @import("Atom.zig");
 const AtomList = @import("AtomList.zig");

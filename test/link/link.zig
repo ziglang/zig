@@ -74,8 +74,8 @@ fn addCompileStep(
             .target = base.target,
             .optimize = base.optimize,
             .root_source_file = rsf: {
-                const name = b.fmt("{s}.zig", .{overlay.name});
                 const bytes = overlay.zig_source_bytes orelse break :rsf null;
+                const name = b.fmt("{s}.zig", .{overlay.name});
                 break :rsf b.addWriteFiles().add(name, bytes);
             },
             .pic = overlay.pic,

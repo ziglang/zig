@@ -2507,6 +2507,7 @@ pub fn flushModule(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
     } else null;
 
     // Positional arguments to the linker such as object files and static archives.
+    // TODO: "positional arguments" is a CLI concept, not a linker concept. Delete this unnecessary array list.
     var positionals = std.ArrayList([]const u8).init(arena);
     try positionals.ensureUnusedCapacity(comp.objects.len);
 
@@ -2527,23 +2528,23 @@ pub fn flushModule(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
             (output_mode == .Lib and link_mode == .dynamic);
         if (is_exe_or_dyn_lib) {
             for (comp.wasi_emulated_libs) |crt_file| {
-                try positionals.append(try comp.get_libc_crt_file(
+                try positionals.append(try comp.crtFileAsString(
                     arena,
                     wasi_libc.emulatedLibCRFileLibName(crt_file),
                 ));
             }
 
             if (link_libc) {
-                try positionals.append(try comp.get_libc_crt_file(
+                try positionals.append(try comp.crtFileAsString(
                     arena,
                     wasi_libc.execModelCrtFileFullName(wasi_exec_model),
                 ));
-                try positionals.append(try comp.get_libc_crt_file(arena, "libc.a"));
+                try positionals.append(try comp.crtFileAsString(arena, "libc.a"));
             }
 
             if (link_libcpp) {
-                try positionals.append(comp.libcxx_static_lib.?.full_object_path);
-                try positionals.append(comp.libcxxabi_static_lib.?.full_object_path);
+                try positionals.append(try comp.libcxx_static_lib.?.full_object_path.toString(arena));
+                try positionals.append(try comp.libcxxabi_static_lib.?.full_object_path.toString(arena));
             }
         }
     }
@@ -2553,15 +2554,15 @@ pub fn flushModule(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
     }
 
     for (comp.objects) |object| {
-        try positionals.append(object.path);
+        try positionals.append(try object.path.toString(arena));
     }
 
     for (comp.c_object_table.keys()) |c_object| {
-        try positionals.append(c_object.status.success.object_path);
+        try positionals.append(try c_object.status.success.object_path.toString(arena));
     }
 
-    if (comp.compiler_rt_lib) |lib| try positionals.append(lib.full_object_path);
-    if (comp.compiler_rt_obj) |obj| try positionals.append(obj.full_object_path);
+    if (comp.compiler_rt_lib) |lib| try positionals.append(try lib.full_object_path.toString(arena));
+    if (comp.compiler_rt_obj) |obj| try positionals.append(try obj.full_object_path.toString(arena));
 
     try wasm.parseInputFiles(positionals.items);
 
@@ -3365,7 +3366,7 @@ fn linkWithLLD(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
     defer sub_prog_node.end();
 
     const is_obj = comp.config.output_mode == .Obj;
-    const compiler_rt_path: ?[]const u8 = blk: {
+    const compiler_rt_path: ?Path = blk: {
         if (comp.compiler_rt_lib) |lib| break :blk lib.full_object_path;
         if (comp.compiler_rt_obj) |obj| break :blk obj.full_object_path;
         break :blk null;
@@ -3387,14 +3388,14 @@ fn linkWithLLD(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
         comptime assert(Compilation.link_hash_implementation_version == 14);
 
         for (comp.objects) |obj| {
-            _ = try man.addFile(obj.path, null);
+            _ = try man.addFilePath(obj.path, null);
             man.hash.add(obj.must_link);
         }
         for (comp.c_object_table.keys()) |key| {
-            _ = try man.addFile(key.status.success.object_path, null);
+            _ = try man.addFilePath(key.status.success.object_path, null);
         }
         try man.addOptionalFile(module_obj_path);
-        try man.addOptionalFile(compiler_rt_path);
+        try man.addOptionalFilePath(compiler_rt_path);
         man.hash.addOptionalBytes(wasm.entry_name);
         man.hash.add(wasm.base.stack_size);
         man.hash.add(wasm.base.build_id);
@@ -3450,17 +3451,19 @@ fn linkWithLLD(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
                 break :blk comp.c_object_table.keys()[0].status.success.object_path;
 
             if (module_obj_path) |p|
-                break :blk p;
+                break :blk Path.initCwd(p);
 
             // TODO I think this is unreachable. Audit this situation when solving the above TODO
             // regarding eliding redundant object -> object transformations.
             return error.NoObjectsToLink;
         };
-        // This can happen when using --enable-cache and using the stage1 backend. In this case
-        // we can skip the file copy.
-        if (!mem.eql(u8, the_object_path, full_out_path)) {
-            try fs.cwd().copyFile(the_object_path, fs.cwd(), full_out_path, .{});
-        }
+        try std.fs.Dir.copyFile(
+            the_object_path.root_dir.handle,
+            the_object_path.sub_path,
+            directory.handle,
+            wasm.base.emit.sub_path,
+            .{},
+        );
     } else {
         // Create an LLD command line and invoke it.
         var argv = std.ArrayList([]const u8).init(gpa);
@@ -3581,23 +3584,23 @@ fn linkWithLLD(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
                 (comp.config.output_mode == .Lib and comp.config.link_mode == .dynamic);
             if (is_exe_or_dyn_lib) {
                 for (comp.wasi_emulated_libs) |crt_file| {
-                    try argv.append(try comp.get_libc_crt_file(
+                    try argv.append(try comp.crtFileAsString(
                         arena,
                         wasi_libc.emulatedLibCRFileLibName(crt_file),
                     ));
                 }
 
                 if (comp.config.link_libc) {
-                    try argv.append(try comp.get_libc_crt_file(
+                    try argv.append(try comp.crtFileAsString(
                         arena,
                         wasi_libc.execModelCrtFileFullName(comp.config.wasi_exec_model),
                     ));
-                    try argv.append(try comp.get_libc_crt_file(arena, "libc.a"));
+                    try argv.append(try comp.crtFileAsString(arena, "libc.a"));
                 }
 
                 if (comp.config.link_libcpp) {
-                    try argv.append(comp.libcxx_static_lib.?.full_object_path);
-                    try argv.append(comp.libcxxabi_static_lib.?.full_object_path);
+                    try argv.append(try comp.libcxx_static_lib.?.full_object_path.toString(arena));
+                    try argv.append(try comp.libcxxabi_static_lib.?.full_object_path.toString(arena));
                 }
             }
         }
@@ -3612,7 +3615,7 @@ fn linkWithLLD(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
                 try argv.append("-no-whole-archive");
                 whole_archive = false;
             }
-            try argv.append(obj.path);
+            try argv.append(try obj.path.toString(arena));
         }
         if (whole_archive) {
             try argv.append("-no-whole-archive");
@@ -3620,7 +3623,7 @@ fn linkWithLLD(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
         }
 
         for (comp.c_object_table.keys()) |key| {
-            try argv.append(key.status.success.object_path);
+            try argv.append(try key.status.success.object_path.toString(arena));
         }
         if (module_obj_path) |p| {
             try argv.append(p);
@@ -3630,11 +3633,11 @@ fn linkWithLLD(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
             !comp.skip_linker_dependencies and
             !comp.config.link_libc)
         {
-            try argv.append(comp.libc_static_lib.?.full_object_path);
+            try argv.append(try comp.libc_static_lib.?.full_object_path.toString(arena));
         }
 
         if (compiler_rt_path) |p| {
-            try argv.append(p);
+            try argv.append(try p.toString(arena));
         }
 
         if (comp.verbose_link) {

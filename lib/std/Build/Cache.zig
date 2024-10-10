@@ -398,10 +398,17 @@ pub const Manifest = struct {
         return gop.index;
     }
 
+    /// Deprecated, use `addOptionalFilePath`.
     pub fn addOptionalFile(self: *Manifest, optional_file_path: ?[]const u8) !void {
         self.hash.add(optional_file_path != null);
         const file_path = optional_file_path orelse return;
         _ = try self.addFile(file_path, null);
+    }
+
+    pub fn addOptionalFilePath(self: *Manifest, optional_file_path: ?Path) !void {
+        self.hash.add(optional_file_path != null);
+        const file_path = optional_file_path orelse return;
+        _ = try self.addFilePath(file_path, null);
     }
 
     pub fn addListOfFiles(self: *Manifest, list_of_files: []const []const u8) !void {

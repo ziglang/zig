@@ -15,7 +15,7 @@ pub fn insert(self: *Self, gpa: Allocator, string: []const u8) !u32 {
     if (gop.found_existing) return gop.key_ptr.*;
 
     try self.buffer.ensureUnusedCapacity(gpa, string.len + 1);
-    const new_off = @as(u32, @intCast(self.buffer.items.len));
+    const new_off: u32 = @intCast(self.buffer.items.len);
 
     self.buffer.appendSliceAssumeCapacity(string);
     self.buffer.appendAssumeCapacity(0);

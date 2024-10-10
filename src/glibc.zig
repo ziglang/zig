@@ -169,14 +169,14 @@ fn useElfInitFini(target: std.Target) bool {
     };
 }
 
-pub const CRTFile = enum {
+pub const CrtFile = enum {
     crti_o,
     crtn_o,
     scrt1_o,
     libc_nonshared_a,
 };
 
-pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: std.Progress.Node) !void {
+pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progress.Node) !void {
     if (!build_options.have_llvm) {
         return error.ZigCompilerNotBuiltWithLLVMExtensions;
     }
@@ -292,7 +292,8 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: std.Progre
                 .owner = undefined,
             };
             var files = [_]Compilation.CSourceFile{ start_o, abi_note_o, init_o };
-            return comp.build_crt_file("Scrt1", .Obj, .@"glibc Scrt1.o", prog_node, &files);
+            const basename = if (comp.config.output_mode == .Exe and !comp.config.pie) "crt1" else "Scrt1";
+            return comp.build_crt_file(basename, .Obj, .@"glibc Scrt1.o", prog_node, &files);
         },
         .libc_nonshared_a => {
             const s = path.sep_str;

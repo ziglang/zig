@@ -9,7 +9,7 @@ const archName = std.zig.target.muslArchName;
 const Compilation = @import("Compilation.zig");
 const build_options = @import("build_options");
 
-pub const CRTFile = enum {
+pub const CrtFile = enum {
     crti_o,
     crtn_o,
     crt1_o,
@@ -19,7 +19,7 @@ pub const CRTFile = enum {
     libc_so,
 };
 
-pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: std.Progress.Node) !void {
+pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progress.Node) !void {
     if (!build_options.have_llvm) {
         return error.ZigCompilerNotBuiltWithLLVMExtensions;
     }

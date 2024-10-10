@@ -1,8 +1,8 @@
-pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation, module_obj_path: ?[]const u8) link.File.FlushError!void {
+pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation, module_obj_path: ?Path) link.File.FlushError!void {
     const gpa = comp.gpa;
 
     for (comp.objects) |obj| {
-        switch (Compilation.classifyFileExt(obj.path)) {
+        switch (Compilation.classifyFileExt(obj.path.sub_path)) {
             .object => try parseObjectStaticLibReportingFailure(elf_file, obj.path),
             .static_library => try parseArchiveStaticLibReportingFailure(elf_file, obj.path),
             else => try elf_file.addParseError(obj.path, "unrecognized file extension", .{}),
@@ -140,7 +140,7 @@ pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation, module_obj_path: ?[]co
     if (elf_file.base.hasErrors()) return error.FlushFailure;
 }
 
-pub fn flushObject(elf_file: *Elf, comp: *Compilation, module_obj_path: ?[]const u8) link.File.FlushError!void {
+pub fn flushObject(elf_file: *Elf, comp: *Compilation, module_obj_path: ?Path) link.File.FlushError!void {
     for (comp.objects) |obj| {
         if (obj.isObject()) {
             try elf_file.parseObjectReportingFailure(obj.path);
@@ -198,7 +198,7 @@ pub fn flushObject(elf_file: *Elf, comp: *Compilation, module_obj_path: ?[]const
     if (elf_file.base.hasErrors()) return error.FlushFailure;
 }
 
-fn parseObjectStaticLibReportingFailure(elf_file: *Elf, path: []const u8) error{OutOfMemory}!void {
+fn parseObjectStaticLibReportingFailure(elf_file: *Elf, path: Path) error{OutOfMemory}!void {
     parseObjectStaticLib(elf_file, path) catch |err| switch (err) {
         error.LinkFailure => return,
         error.OutOfMemory => return error.OutOfMemory,
@@ -206,7 +206,7 @@ fn parseObjectStaticLibReportingFailure(elf_file: *Elf, path: []const u8) error{
     };
 }
 
-fn parseArchiveStaticLibReportingFailure(elf_file: *Elf, path: []const u8) error{OutOfMemory}!void {
+fn parseArchiveStaticLibReportingFailure(elf_file: *Elf, path: Path) error{OutOfMemory}!void {
     parseArchiveStaticLib(elf_file, path) catch |err| switch (err) {
         error.LinkFailure => return,
         error.OutOfMemory => return error.OutOfMemory,
@@ -214,14 +214,17 @@ fn parseArchiveStaticLibReportingFailure(elf_file: *Elf, path: []const u8) error
     };
 }
 
-fn parseObjectStaticLib(elf_file: *Elf, path: []const u8) Elf.ParseError!void {
+fn parseObjectStaticLib(elf_file: *Elf, path: Path) Elf.ParseError!void {
     const gpa = elf_file.base.comp.gpa;
-    const handle = try std.fs.cwd().openFile(path, .{});
+    const handle = try path.root_dir.handle.openFile(path.sub_path, .{});
     const fh = try elf_file.addFileHandle(handle);
 
-    const index = @as(File.Index, @intCast(try elf_file.files.addOne(gpa)));
+    const index: File.Index = @intCast(try elf_file.files.addOne(gpa));
     elf_file.files.set(index, .{ .object = .{
-        .path = try gpa.dupe(u8, path),
+        .path = .{
+            .root_dir = path.root_dir,
+            .sub_path = try gpa.dupe(u8, path.sub_path),
+        },
         .file_handle = fh,
         .index = index,
     } });
@@ -231,9 +234,9 @@ fn parseObjectStaticLib(elf_file: *Elf, path: []const u8) Elf.ParseError!void {
     try object.parseAr(elf_file);
 }
 
-fn parseArchiveStaticLib(elf_file: *Elf, path: []const u8) Elf.ParseError!void {
+fn parseArchiveStaticLib(elf_file: *Elf, path: Path) Elf.ParseError!void {
     const gpa = elf_file.base.comp.gpa;
-    const handle = try std.fs.cwd().openFile(path, .{});
+    const handle = try path.root_dir.handle.openFile(path.sub_path, .{});
     const fh = try elf_file.addFileHandle(handle);
 
     var archive = Archive{};
@@ -531,6 +534,7 @@ const log = std.log.scoped(.link);
 const math = std.math;
 const mem = std.mem;
 const state_log = std.log.scoped(.link_state);
+const Path = std.Build.Cache.Path;
 const std = @import("std");
 
 const Archive = @import("Archive.zig");

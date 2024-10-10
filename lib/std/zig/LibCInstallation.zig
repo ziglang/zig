@@ -690,12 +690,340 @@ fn appendCcExe(args: *std.ArrayList([]const u8), skip_cc_env_var: bool) !void {
     }
 }
 
+/// These are basenames. This data is produced with a pure function. See also
+/// `CsuPaths`.
+pub const CrtBasenames = struct {
+    crt0: ?[]const u8 = null,
+    crti: ?[]const u8 = null,
+    crtbegin: ?[]const u8 = null,
+    crtend: ?[]const u8 = null,
+    crtn: ?[]const u8 = null,
+
+    pub const GetArgs = struct {
+        target: std.Target,
+        link_libc: bool,
+        output_mode: std.builtin.OutputMode,
+        link_mode: std.builtin.LinkMode,
+        pie: bool,
+    };
+
+    /// Determine file system path names of C runtime startup objects for supported
+    /// link modes.
+    pub fn get(args: GetArgs) CrtBasenames {
+        // crt objects are only required for libc.
+        if (!args.link_libc) return .{};
+
+        // Flatten crt cases.
+        const mode: enum {
+            dynamic_lib,
+            dynamic_exe,
+            dynamic_pie,
+            static_exe,
+            static_pie,
+        } = switch (args.output_mode) {
+            .Obj => return .{},
+            .Lib => switch (args.link_mode) {
+                .dynamic => .dynamic_lib,
+                .static => return .{},
+            },
+            .Exe => switch (args.link_mode) {
+                .dynamic => if (args.pie) .dynamic_pie else .dynamic_exe,
+                .static => if (args.pie) .static_pie else .static_exe,
+            },
+        };
+
+        const target = args.target;
+
+        if (target.isAndroid()) return switch (mode) {
+            .dynamic_lib => .{
+                .crtbegin = "crtbegin_so.o",
+                .crtend = "crtend_so.o",
+            },
+            .dynamic_exe, .dynamic_pie => .{
+                .crtbegin = "crtbegin_dynamic.o",
+                .crtend = "crtend_android.o",
+            },
+            .static_exe, .static_pie => .{
+                .crtbegin = "crtbegin_static.o",
+                .crtend = "crtend_android.o",
+            },
+        };
+
+        return switch (target.os.tag) {
+            .linux => switch (mode) {
+                .dynamic_lib => .{
+                    .crti = "crti.o",
+                    .crtn = "crtn.o",
+                },
+                .dynamic_exe => .{
+                    .crt0 = "crt1.o",
+                    .crti = "crti.o",
+                    .crtn = "crtn.o",
+                },
+                .dynamic_pie => .{
+                    .crt0 = "Scrt1.o",
+                    .crti = "crti.o",
+                    .crtn = "crtn.o",
+                },
+                .static_exe => .{
+                    .crt0 = "crt1.o",
+                    .crti = "crti.o",
+                    .crtn = "crtn.o",
+                },
+                .static_pie => .{
+                    .crt0 = "rcrt1.o",
+                    .crti = "crti.o",
+                    .crtn = "crtn.o",
+                },
+            },
+            .dragonfly => switch (mode) {
+                .dynamic_lib => .{
+                    .crti = "crti.o",
+                    .crtbegin = "crtbeginS.o",
+                    .crtend = "crtendS.o",
+                    .crtn = "crtn.o",
+                },
+                .dynamic_exe => .{
+                    .crt0 = "crt1.o",
+                    .crti = "crti.o",
+                    .crtbegin = "crtbegin.o",
+                    .crtend = "crtend.o",
+                    .crtn = "crtn.o",
+                },
+                .dynamic_pie => .{
+                    .crt0 = "Scrt1.o",
+                    .crti = "crti.o",
+                    .crtbegin = "crtbeginS.o",
+                    .crtend = "crtendS.o",
+                    .crtn = "crtn.o",
+                },
+                .static_exe => .{
+                    .crt0 = "crt1.o",
+                    .crti = "crti.o",
+                    .crtbegin = "crtbegin.o",
+                    .crtend = "crtend.o",
+                    .crtn = "crtn.o",
+                },
+                .static_pie => .{
+                    .crt0 = "Scrt1.o",
+                    .crti = "crti.o",
+                    .crtbegin = "crtbeginS.o",
+                    .crtend = "crtendS.o",
+                    .crtn = "crtn.o",
+                },
+            },
+            .freebsd => switch (mode) {
+                .dynamic_lib => .{
+                    .crti = "crti.o",
+                    .crtbegin = "crtbeginS.o",
+                    .crtend = "crtendS.o",
+                    .crtn = "crtn.o",
+                },
+                .dynamic_exe => .{
+                    .crt0 = "crt1.o",
+                    .crti = "crti.o",
+                    .crtbegin = "crtbegin.o",
+                    .crtend = "crtend.o",
+                    .crtn = "crtn.o",
+                },
+                .dynamic_pie => .{
+                    .crt0 = "Scrt1.o",
+                    .crti = "crti.o",
+                    .crtbegin = "crtbeginS.o",
+                    .crtend = "crtendS.o",
+                    .crtn = "crtn.o",
+                },
+                .static_exe => .{
+                    .crt0 = "crt1.o",
+                    .crti = "crti.o",
+                    .crtbegin = "crtbeginT.o",
+                    .crtend = "crtend.o",
+                    .crtn = "crtn.o",
+                },
+                .static_pie => .{
+                    .crt0 = "Scrt1.o",
+                    .crti = "crti.o",
+                    .crtbegin = "crtbeginS.o",
+                    .crtend = "crtendS.o",
+                    .crtn = "crtn.o",
+                },
+            },
+            .netbsd => switch (mode) {
+                .dynamic_lib => .{
+                    .crti = "crti.o",
+                    .crtbegin = "crtbeginS.o",
+                    .crtend = "crtendS.o",
+                    .crtn = "crtn.o",
+                },
+                .dynamic_exe => .{
+                    .crt0 = "crt0.o",
+                    .crti = "crti.o",
+                    .crtbegin = "crtbegin.o",
+                    .crtend = "crtend.o",
+                    .crtn = "crtn.o",
+                },
+                .dynamic_pie => .{
+                    .crt0 = "crt0.o",
+                    .crti = "crti.o",
+                    .crtbegin = "crtbeginS.o",
+                    .crtend = "crtendS.o",
+                    .crtn = "crtn.o",
+                },
+                .static_exe => .{
+                    .crt0 = "crt0.o",
+                    .crti = "crti.o",
+                    .crtbegin = "crtbeginT.o",
+                    .crtend = "crtend.o",
+                    .crtn = "crtn.o",
+                },
+                .static_pie => .{
+                    .crt0 = "crt0.o",
+                    .crti = "crti.o",
+                    .crtbegin = "crtbeginT.o",
+                    .crtend = "crtendS.o",
+                    .crtn = "crtn.o",
+                },
+            },
+            .openbsd => switch (mode) {
+                .dynamic_lib => .{
+                    .crtbegin = "crtbeginS.o",
+                    .crtend = "crtendS.o",
+                },
+                .dynamic_exe, .dynamic_pie => .{
+                    .crt0 = "crt0.o",
+                    .crtbegin = "crtbegin.o",
+                    .crtend = "crtend.o",
+                },
+                .static_exe, .static_pie => .{
+                    .crt0 = "rcrt0.o",
+                    .crtbegin = "crtbegin.o",
+                    .crtend = "crtend.o",
+                },
+            },
+            .haiku => switch (mode) {
+                .dynamic_lib => .{
+                    .crti = "crti.o",
+                    .crtbegin = "crtbeginS.o",
+                    .crtend = "crtendS.o",
+                    .crtn = "crtn.o",
+                },
+                .dynamic_exe => .{
+                    .crt0 = "start_dyn.o",
+                    .crti = "crti.o",
+                    .crtbegin = "crtbegin.o",
+                    .crtend = "crtend.o",
+                    .crtn = "crtn.o",
+                },
+                .dynamic_pie => .{
+                    .crt0 = "start_dyn.o",
+                    .crti = "crti.o",
+                    .crtbegin = "crtbeginS.o",
+                    .crtend = "crtendS.o",
+                    .crtn = "crtn.o",
+                },
+                .static_exe => .{
+                    .crt0 = "start_dyn.o",
+                    .crti = "crti.o",
+                    .crtbegin = "crtbegin.o",
+                    .crtend = "crtend.o",
+                    .crtn = "crtn.o",
+                },
+                .static_pie => .{
+                    .crt0 = "start_dyn.o",
+                    .crti = "crti.o",
+                    .crtbegin = "crtbeginS.o",
+                    .crtend = "crtendS.o",
+                    .crtn = "crtn.o",
+                },
+            },
+            .solaris, .illumos => switch (mode) {
+                .dynamic_lib => .{
+                    .crti = "crti.o",
+                    .crtn = "crtn.o",
+                },
+                .dynamic_exe, .dynamic_pie => .{
+                    .crt0 = "crt1.o",
+                    .crti = "crti.o",
+                    .crtn = "crtn.o",
+                },
+                .static_exe, .static_pie => .{},
+            },
+            else => .{},
+        };
+    }
+};
+
+pub const CrtPaths = struct {
+    crt0: ?Path = null,
+    crti: ?Path = null,
+    crtbegin: ?Path = null,
+    crtend: ?Path = null,
+    crtn: ?Path = null,
+};
+
+pub fn resolveCrtPaths(
+    lci: LibCInstallation,
+    arena: Allocator,
+    crt_basenames: CrtBasenames,
+    target: std.Target,
+) error{ OutOfMemory, LibCInstallationMissingCrtDir }!CrtPaths {
+    const crt_dir_path: Path = .{
+        .root_dir = std.Build.Cache.Directory.cwd(),
+        .sub_path = lci.crt_dir orelse return error.LibCInstallationMissingCrtDir,
+    };
+    switch (target.os.tag) {
+        .dragonfly => {
+            const gccv: []const u8 = if (target.os.version_range.semver.isAtLeast(.{
+                .major = 5,
+                .minor = 4,
+                .patch = 0,
+            }) orelse true) "gcc80" else "gcc54";
+            return .{
+                .crt0 = if (crt_basenames.crt0) |basename| try crt_dir_path.join(arena, basename) else null,
+                .crti = if (crt_basenames.crti) |basename| try crt_dir_path.join(arena, basename) else null,
+                .crtbegin = if (crt_basenames.crtbegin) |basename| .{
+                    .root_dir = crt_dir_path.root_dir,
+                    .sub_path = try fs.path.join(arena, &.{ crt_dir_path.sub_path, gccv, basename }),
+                } else null,
+                .crtend = if (crt_basenames.crtend) |basename| .{
+                    .root_dir = crt_dir_path.root_dir,
+                    .sub_path = try fs.path.join(arena, &.{ crt_dir_path.sub_path, gccv, basename }),
+                } else null,
+                .crtn = if (crt_basenames.crtn) |basename| try crt_dir_path.join(arena, basename) else null,
+            };
+        },
+        .haiku => {
+            const gcc_dir_path: Path = .{
+                .root_dir = std.Build.Cache.Directory.cwd(),
+                .sub_path = lci.gcc_dir orelse return error.LibCInstallationMissingCrtDir,
+            };
+            return .{
+                .crt0 = if (crt_basenames.crt0) |basename| try crt_dir_path.join(arena, basename) else null,
+                .crti = if (crt_basenames.crti) |basename| try crt_dir_path.join(arena, basename) else null,
+                .crtbegin = if (crt_basenames.crtbegin) |basename| try gcc_dir_path.join(arena, basename) else null,
+                .crtend = if (crt_basenames.crtend) |basename| try gcc_dir_path.join(arena, basename) else null,
+                .crtn = if (crt_basenames.crtn) |basename| try crt_dir_path.join(arena, basename) else null,
+            };
+        },
+        else => {
+            return .{
+                .crt0 = if (crt_basenames.crt0) |basename| try crt_dir_path.join(arena, basename) else null,
+                .crti = if (crt_basenames.crti) |basename| try crt_dir_path.join(arena, basename) else null,
+                .crtbegin = if (crt_basenames.crtbegin) |basename| try crt_dir_path.join(arena, basename) else null,
+                .crtend = if (crt_basenames.crtend) |basename| try crt_dir_path.join(arena, basename) else null,
+                .crtn = if (crt_basenames.crtn) |basename| try crt_dir_path.join(arena, basename) else null,
+            };
+        },
+    }
+}
+
 const LibCInstallation = @This();
 const std = @import("std");
 const builtin = @import("builtin");
 const Target = std.Target;
 const fs = std.fs;
 const Allocator = std.mem.Allocator;
+const Path = std.Build.Cache.Path;
 
 const is_darwin = builtin.target.isDarwin();
 const is_windows = builtin.target.os.tag == .windows;

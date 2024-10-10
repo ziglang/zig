@@ -7,6 +7,7 @@ const fs = std.fs;
 const log = std.log.scoped(.link);
 const mem = std.mem;
 const Cache = std.Build.Cache;
+const Path = std.Build.Cache.Path;
 
 const mingw = @import("../../mingw.zig");
 const link = @import("../../link.zig");
@@ -74,11 +75,11 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
         comptime assert(Compilation.link_hash_implementation_version == 14);
 
         for (comp.objects) |obj| {
-            _ = try man.addFile(obj.path, null);
+            _ = try man.addFilePath(obj.path, null);
             man.hash.add(obj.must_link);
         }
         for (comp.c_object_table.keys()) |key| {
-            _ = try man.addFile(key.status.success.object_path, null);
+            _ = try man.addFilePath(key.status.success.object_path, null);
         }
         for (comp.win32_resource_table.keys()) |key| {
             _ = try man.addFile(key.status.success.res_path, null);
@@ -154,17 +155,19 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
                 break :blk comp.c_object_table.keys()[0].status.success.object_path;
 
             if (module_obj_path) |p|
-                break :blk p;
+                break :blk Path.initCwd(p);
 
             // TODO I think this is unreachable. Audit this situation when solving the above TODO
             // regarding eliding redundant object -> object transformations.
             return error.NoObjectsToLink;
         };
-        // This can happen when using --enable-cache and using the stage1 backend. In this case
-        // we can skip the file copy.
-        if (!mem.eql(u8, the_object_path, full_out_path)) {
-            try fs.cwd().copyFile(the_object_path, fs.cwd(), full_out_path, .{});
-        }
+        try std.fs.Dir.copyFile(
+            the_object_path.root_dir.handle,
+            the_object_path.sub_path,
+            directory.handle,
+            self.base.emit.sub_path,
+            .{},
+        );
     } else {
         // Create an LLD command line and invoke it.
         var argv = std.ArrayList([]const u8).init(gpa);
@@ -270,14 +273,14 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
         try argv.ensureUnusedCapacity(comp.objects.len);
         for (comp.objects) |obj| {
             if (obj.must_link) {
-                argv.appendAssumeCapacity(try allocPrint(arena, "-WHOLEARCHIVE:{s}", .{obj.path}));
+                argv.appendAssumeCapacity(try allocPrint(arena, "-WHOLEARCHIVE:{}", .{@as(Path, obj.path)}));
             } else {
-                argv.appendAssumeCapacity(obj.path);
+                argv.appendAssumeCapacity(try obj.path.toString(arena));
             }
         }
 
         for (comp.c_object_table.keys()) |key| {
-            try argv.append(key.status.success.object_path);
+            try argv.append(try key.status.success.object_path.toString(arena));
         }
 
         for (comp.win32_resource_table.keys()) |key| {
@@ -401,17 +404,17 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
                         }
 
                         if (is_dyn_lib) {
-                            try argv.append(try comp.get_libc_crt_file(arena, "dllcrt2.obj"));
+                            try argv.append(try comp.crtFileAsString(arena, "dllcrt2.obj"));
                             if (target.cpu.arch == .x86) {
                                 try argv.append("-ALTERNATENAME:__DllMainCRTStartup@12=_DllMainCRTStartup@12");
                             } else {
                                 try argv.append("-ALTERNATENAME:_DllMainCRTStartup=DllMainCRTStartup");
                             }
                         } else {
-                            try argv.append(try comp.get_libc_crt_file(arena, "crt2.obj"));
+                            try argv.append(try comp.crtFileAsString(arena, "crt2.obj"));
                         }
 
-                        try argv.append(try comp.get_libc_crt_file(arena, "mingw32.lib"));
+                        try argv.append(try comp.crtFileAsString(arena, "mingw32.lib"));
                     } else {
                         const lib_str = switch (comp.config.link_mode) {
                             .dynamic => "",
@@ -456,36 +459,36 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
 
         // libc++ dep
         if (comp.config.link_libcpp) {
-            try argv.append(comp.libcxxabi_static_lib.?.full_object_path);
-            try argv.append(comp.libcxx_static_lib.?.full_object_path);
+            try argv.append(try comp.libcxxabi_static_lib.?.full_object_path.toString(arena));
+            try argv.append(try comp.libcxx_static_lib.?.full_object_path.toString(arena));
         }
 
         // libunwind dep
         if (comp.config.link_libunwind) {
-            try argv.append(comp.libunwind_static_lib.?.full_object_path);
+            try argv.append(try comp.libunwind_static_lib.?.full_object_path.toString(arena));
         }
 
         if (comp.config.any_fuzz) {
-            try argv.append(comp.fuzzer_lib.?.full_object_path);
+            try argv.append(try comp.fuzzer_lib.?.full_object_path.toString(arena));
         }
 
         if (is_exe_or_dyn_lib and !comp.skip_linker_dependencies) {
             if (!comp.config.link_libc) {
                 if (comp.libc_static_lib) |lib| {
-                    try argv.append(lib.full_object_path);
+                    try argv.append(try lib.full_object_path.toString(arena));
                 }
             }
             // MSVC compiler_rt is missing some stuff, so we build it unconditionally but
             // and rely on weak linkage to allow MSVC compiler_rt functions to override ours.
-            if (comp.compiler_rt_obj) |obj| try argv.append(obj.full_object_path);
-            if (comp.compiler_rt_lib) |lib| try argv.append(lib.full_object_path);
+            if (comp.compiler_rt_obj) |obj| try argv.append(try obj.full_object_path.toString(arena));
+            if (comp.compiler_rt_lib) |lib| try argv.append(try lib.full_object_path.toString(arena));
         }
 
         try argv.ensureUnusedCapacity(comp.system_libs.count());
         for (comp.system_libs.keys()) |key| {
             const lib_basename = try allocPrint(arena, "{s}.lib", .{key});
             if (comp.crt_files.get(lib_basename)) |crt_file| {
-                argv.appendAssumeCapacity(crt_file.full_object_path);
+                argv.appendAssumeCapacity(try crt_file.full_object_path.toString(arena));
                 continue;
             }
             if (try findLib(arena, lib_basename, self.lib_dirs)) |full_path| {

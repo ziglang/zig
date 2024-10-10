@@ -1,6 +1,6 @@
 data: std.ArrayListUnmanaged(u8) = .empty,
 /// Externally owned memory.
-path: []const u8,
+basename: []const u8,
 index: File.Index,
 
 symtab: std.MultiArrayList(Nlist) = .{},
@@ -317,7 +317,7 @@ pub fn updateArSize(self: *ZigObject) void {
 pub fn writeAr(self: ZigObject, ar_format: Archive.Format, writer: anytype) !void {
     // Header
     const size = std.math.cast(usize, self.output_ar_state.size) orelse return error.Overflow;
-    try Archive.writeHeader(self.path, size, ar_format, writer);
+    try Archive.writeHeader(self.basename, size, ar_format, writer);
     // Data
     try writer.writeAll(self.data.items);
 }

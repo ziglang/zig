@@ -1,6 +1,7 @@
-pub fn flushObject(macho_file: *MachO, comp: *Compilation, module_obj_path: ?[]const u8) link.File.FlushError!void {
+pub fn flushObject(macho_file: *MachO, comp: *Compilation, module_obj_path: ?Path) link.File.FlushError!void {
     const gpa = macho_file.base.comp.gpa;
 
+    // TODO: "positional arguments" is a CLI concept, not a linker concept. Delete this unnecessary array list.
     var positionals = std.ArrayList(Compilation.LinkObject).init(gpa);
     defer positionals.deinit();
     try positionals.ensureUnusedCapacity(comp.objects.len);
@@ -19,7 +20,7 @@ pub fn flushObject(macho_file: *MachO, comp: *Compilation, module_obj_path: ?[]c
         // TODO: in the future, when we implement `dsymutil` alternative directly in the Zig
         // compiler, investigate if we can get rid of this `if` prong here.
         const path = positionals.items[0].path;
-        const in_file = try std.fs.cwd().openFile(path, .{});
+        const in_file = try path.root_dir.handle.openFile(path.sub_path, .{});
         const stat = try in_file.stat();
         const amt = try in_file.copyRangeAll(0, macho_file.base.file.?, 0, stat.size);
         if (amt != stat.size) return error.InputOutput; // TODO: report an actual user error
@@ -72,7 +73,7 @@ pub fn flushObject(macho_file: *MachO, comp: *Compilation, module_obj_path: ?[]c
     try writeHeader(macho_file, ncmds, sizeofcmds);
 }
 
-pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?[]const u8) link.File.FlushError!void {
+pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?Path) link.File.FlushError!void {
     const gpa = comp.gpa;
 
     var positionals = std.ArrayList(Compilation.LinkObject).init(gpa);
@@ -173,21 +174,25 @@ pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?
 
         for (files.items) |index| {
             const file = macho_file.getFile(index).?;
-            const state = switch (file) {
-                .zig_object => |x| &x.output_ar_state,
-                .object => |x| &x.output_ar_state,
+            switch (file) {
+                .zig_object => |zo| {
+                    const state = &zo.output_ar_state;
+                    pos = mem.alignForward(usize, pos, 2);
+                    state.file_off = pos;
+                    pos += @sizeOf(Archive.ar_hdr);
+                    pos += mem.alignForward(usize, zo.basename.len + 1, ptr_width);
+                    pos += math.cast(usize, state.size) orelse return error.Overflow;
+                },
+                .object => |o| {
+                    const state = &o.output_ar_state;
+                    pos = mem.alignForward(usize, pos, 2);
+                    state.file_off = pos;
+                    pos += @sizeOf(Archive.ar_hdr);
+                    pos += mem.alignForward(usize, o.path.basename().len + 1, ptr_width);
+                    pos += math.cast(usize, state.size) orelse return error.Overflow;
+                },
                 else => unreachable,
-            };
-            const path = switch (file) {
-                .zig_object => |x| x.path,
-                .object => |x| x.path,
-                else => unreachable,
-            };
-            pos = mem.alignForward(usize, pos, 2);
-            state.file_off = pos;
-            pos += @sizeOf(Archive.ar_hdr);
-            pos += mem.alignForward(usize, path.len + 1, ptr_width);
-            pos += math.cast(usize, state.size) orelse return error.Overflow;
+            }
         }
 
         break :blk pos;
@@ -777,6 +782,7 @@ const mem = std.mem;
 const state_log = std.log.scoped(.link_state);
 const std = @import("std");
 const trace = @import("../../tracy.zig").trace;
+const Path = std.Build.Cache.Path;
 
 const Archive = @import("Archive.zig");
 const Atom = @import("Atom.zig");
