@@ -247,9 +247,9 @@ pub const Inst = struct {
         /// element type. Emits a compile error if the type is not an indexable pointer.
         /// Uses the `un_node` field.
         indexable_ptr_elem_type,
-        /// Given a vector type, returns its element type.
+        /// Given a vector or array type, returns its element type.
         /// Uses the `un_node` field.
-        vector_elem_type,
+        vec_arr_elem_type,
         /// Given a pointer to an indexable object, returns the len property. This is
         /// used by for loops. This instruction also emits a for-loop specific compile
         /// error if the indexable object is not indexable.
@@ -1065,7 +1065,7 @@ pub const Inst = struct {
                 .vector_type,
                 .elem_type,
                 .indexable_ptr_elem_type,
-                .vector_elem_type,
+                .vec_arr_elem_type,
                 .indexable_ptr_len,
                 .anyframe_type,
                 .as_node,
@@ -1375,7 +1375,7 @@ pub const Inst = struct {
                 .vector_type,
                 .elem_type,
                 .indexable_ptr_elem_type,
-                .vector_elem_type,
+                .vec_arr_elem_type,
                 .indexable_ptr_len,
                 .anyframe_type,
                 .as_node,
@@ -1607,7 +1607,7 @@ pub const Inst = struct {
                 .vector_type = .pl_node,
                 .elem_type = .un_node,
                 .indexable_ptr_elem_type = .un_node,
-                .vector_elem_type = .un_node,
+                .vec_arr_elem_type = .un_node,
                 .indexable_ptr_len = .un_node,
                 .anyframe_type = .un_node,
                 .as_node = .pl_node,
@@ -3781,7 +3781,7 @@ fn findDeclsInner(
         .vector_type,
         .elem_type,
         .indexable_ptr_elem_type,
-        .vector_elem_type,
+        .vec_arr_elem_type,
         .indexable_ptr_len,
         .anyframe_type,
         .as_node,
