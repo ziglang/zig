@@ -4489,7 +4489,10 @@ comptime {
       <pre>{#syntax#}@cmpxchgStrong(comptime T: type, ptr: *T, expected_value: T, new_value: T, success_order: AtomicOrder, fail_order: AtomicOrder) ?T{#endsyntax#}</pre>
       <p>
       This function performs a strong atomic compare-and-exchange operation, returning {#syntax#}null{#endsyntax#}
-      if the underlying atomic value was successfully changed, otherwise it returns the current value of the atomic at the time of the operation. It's the equivalent of this code, except atomic:
+      if the value at {#syntax#}ptr{#endsyntax#} was equal to {#syntax#}expected_value{#endsyntax#}
+      at the time of the operation and therefore changed to {#syntax#}new_value{#endsyntax#};
+      otherwise, it returns the value at {#syntax#}ptr{#endsyntax#} at the time of the operation.
+      It's the equivalent of this code, except atomic:
       </p>
       {#code|not_atomic_cmpxchgStrong.zig#}
 
