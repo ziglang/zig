@@ -427,17 +427,14 @@ pub fn llvmMachineAbi(target: std.Target) ?[:0]const u8 {
     // Once our self-hosted linker can handle both ABIs, this hack should go away.
     if (target.cpu.arch == .powerpc64) return "elfv2";
 
-    const have_float = switch (target.abi) {
-        .gnueabihf, .musleabihf, .eabihf => true,
-        else => false,
-    };
-
     switch (target.cpu.arch) {
         .riscv64 => {
             const featureSetHas = std.Target.riscv.featureSetHas;
-            if (featureSetHas(target.cpu.features, .d)) {
+            if (featureSetHas(target.cpu.features, .e)) {
+                return "lp64e";
+            } else if (featureSetHas(target.cpu.features, .d)) {
                 return "lp64d";
-            } else if (have_float) {
+            } else if (featureSetHas(target.cpu.features, .f)) {
                 return "lp64f";
             } else {
                 return "lp64";
@@ -445,12 +442,12 @@ pub fn llvmMachineAbi(target: std.Target) ?[:0]const u8 {
         },
         .riscv32 => {
             const featureSetHas = std.Target.riscv.featureSetHas;
-            if (featureSetHas(target.cpu.features, .d)) {
-                return "ilp32d";
-            } else if (have_float) {
-                return "ilp32f";
-            } else if (featureSetHas(target.cpu.features, .e)) {
+            if (featureSetHas(target.cpu.features, .e)) {
                 return "ilp32e";
+            } else if (featureSetHas(target.cpu.features, .d)) {
+                return "ilp32d";
+            } else if (featureSetHas(target.cpu.features, .f)) {
+                return "ilp32f";
             } else {
                 return "ilp32";
             }
