@@ -23,10 +23,10 @@ pub const File = union(enum) {
         _ = unused_fmt_string;
         _ = options;
         switch (file) {
-            .zig_object => |x| try writer.print("{s}", .{x.path}),
+            .zig_object => |zo| try writer.writeAll(zo.basename),
             .linker_defined => try writer.writeAll("(linker defined)"),
             .object => |x| try writer.print("{}", .{x.fmtPath()}),
-            .shared_object => |x| try writer.writeAll(x.path),
+            .shared_object => |x| try writer.print("{}", .{@as(Path, x.path)}),
         }
     }
 
@@ -240,30 +240,31 @@ pub const File = union(enum) {
         return switch (file) {
             .zig_object => |x| x.updateArSymtab(ar_symtab, elf_file),
             .object => |x| x.updateArSymtab(ar_symtab, elf_file),
-            inline else => unreachable,
+            else => unreachable,
         };
     }
 
     pub fn updateArStrtab(file: File, allocator: Allocator, ar_strtab: *Archive.ArStrtab) !void {
-        const path = switch (file) {
-            .zig_object => |x| x.path,
-            .object => |x| x.path,
-            inline else => unreachable,
-        };
-        const state = switch (file) {
-            .zig_object => |x| &x.output_ar_state,
-            .object => |x| &x.output_ar_state,
-            inline else => unreachable,
-        };
-        if (path.len <= Archive.max_member_name_len) return;
-        state.name_off = try ar_strtab.insert(allocator, path);
+        switch (file) {
+            .zig_object => |zo| {
+                const basename = zo.basename;
+                if (basename.len <= Archive.max_member_name_len) return;
+                zo.output_ar_state.name_off = try ar_strtab.insert(allocator, basename);
+            },
+            .object => |o| {
+                const basename = std.fs.path.basename(o.path.sub_path);
+                if (basename.len <= Archive.max_member_name_len) return;
+                o.output_ar_state.name_off = try ar_strtab.insert(allocator, basename);
+            },
+            else => unreachable,
+        }
     }
 
     pub fn updateArSize(file: File, elf_file: *Elf) !void {
         return switch (file) {
             .zig_object => |x| x.updateArSize(),
             .object => |x| x.updateArSize(elf_file),
-            inline else => unreachable,
+            else => unreachable,
         };
     }
 
@@ -271,7 +272,7 @@ pub const File = union(enum) {
         return switch (file) {
             .zig_object => |x| x.writeAr(writer),
             .object => |x| x.writeAr(elf_file, writer),
-            inline else => unreachable,
+            else => unreachable,
         };
     }
 
@@ -292,8 +293,9 @@ pub const File = union(enum) {
 const std = @import("std");
 const elf = std.elf;
 const log = std.log.scoped(.link);
-
+const Path = std.Build.Cache.Path;
 const Allocator = std.mem.Allocator;
+
 const Archive = @import("Archive.zig");
 const Atom = @import("Atom.zig");
 const Cie = @import("eh_frame.zig").Cie;
