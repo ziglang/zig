@@ -3337,7 +3337,8 @@ fn sortPhdrs(
         entry.* = .{ .phndx = @intCast(phndx) };
     }
 
-    mem.sort(Entry, entries, phdrs.items, Entry.lessThan);
+    // The `@as` here works around a bug in the C backend.
+    mem.sort(Entry, entries, @as([]const elf.Elf64_Phdr, phdrs.items), Entry.lessThan);
 
     const backlinks = try gpa.alloc(u16, entries.len);
     defer gpa.free(backlinks);
