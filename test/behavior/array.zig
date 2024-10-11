@@ -1021,3 +1021,70 @@ test "runtime index of array of zero-bit values" {
     try std.testing.expect(result.index == 0);
     try std.testing.expect(result.value == {});
 }
+
+test "@splat array" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    const S = struct {
+        fn doTheTest(comptime T: type, x: T) !void {
+            const arr: [10]T = @splat(x);
+            for (arr) |elem| {
+                try expectEqual(x, elem);
+            }
+        }
+    };
+
+    try S.doTheTest(u32, 123);
+    try comptime S.doTheTest(u32, 123);
+
+    const Foo = struct { x: u8 };
+    try S.doTheTest(Foo, .{ .x = 10 });
+    try comptime S.doTheTest(Foo, .{ .x = 10 });
+}
+
+test "@splat array with sentinel" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    const S = struct {
+        fn doTheTest(comptime T: type, x: T, comptime s: T) !void {
+            const arr: [10:s]T = @splat(x);
+            for (arr) |elem| {
+                try expectEqual(x, elem);
+            }
+            const ptr: [*]const T = &arr;
+            try expectEqual(s, ptr[10]); // sentinel correct
+        }
+    };
+
+    try S.doTheTest(u32, 100, 42);
+    try comptime S.doTheTest(u32, 100, 42);
+
+    try S.doTheTest(?*anyopaque, @ptrFromInt(0x1000), null);
+    try comptime S.doTheTest(?*anyopaque, @ptrFromInt(0x1000), null);
+}
+
+test "@splat zero-length array" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    const S = struct {
+        fn doTheTest(comptime T: type, comptime s: T) !void {
+            var runtime_undef: T = undefined;
+            runtime_undef = undefined;
+            // The array should be comptime-known despite the `@splat` operand being runtime-known.
+            const arr: [0:s]T = @splat(runtime_undef);
+            const ptr: [*]const T = &arr;
+            comptime assert(ptr[0] == s);
+        }
+    };
+
+    try S.doTheTest(u32, 42);
+    try comptime S.doTheTest(u32, 42);
+
+    try S.doTheTest(?*anyopaque, null);
+    try comptime S.doTheTest(?*anyopaque, null);
+}
