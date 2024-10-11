@@ -72,7 +72,8 @@ pub fn calcLoadCommandsSize(macho_file: *MachO, assume_max_path_len: bool) !u32 
         }
 
         if (comp.config.any_sanitize_thread) {
-            const path = comp.tsan_lib.?.full_object_path;
+            const path = try comp.tsan_lib.?.full_object_path.toString(gpa);
+            defer gpa.free(path);
             const rpath = std.fs.path.dirname(path) orelse ".";
             sizeofcmds += calcInstallNameLen(
                 @sizeOf(macho.rpath_command),

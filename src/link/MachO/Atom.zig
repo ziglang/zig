@@ -893,6 +893,7 @@ fn resolveRelocInner(
 const x86_64 = struct {
     fn relaxGotLoad(self: Atom, code: []u8, rel: Relocation, macho_file: *MachO) ResolveError!void {
         dev.check(.x86_64_backend);
+        const diags = &macho_file.base.comp.link_diags;
         const old_inst = disassemble(code) orelse return error.RelaxFail;
         switch (old_inst.encoding.mnemonic) {
             .mov => {
@@ -901,7 +902,7 @@ const x86_64 = struct {
                 encode(&.{inst}, code) catch return error.RelaxFail;
             },
             else => |x| {
-                var err = try macho_file.base.addErrorWithNotes(2);
+                var err = try diags.addErrorWithNotes(2);
                 try err.addMsg("{s}: 0x{x}: 0x{x}: failed to relax relocation of type {}", .{
                     self.getName(macho_file),
                     self.getAddress(macho_file),

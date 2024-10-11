@@ -11,7 +11,7 @@ const wasi_libc = @import("wasi_libc.zig");
 const Air = @import("Air.zig");
 const Allocator = std.mem.Allocator;
 const Cache = std.Build.Cache;
-const Path = Cache.Path;
+const Path = std.Build.Cache.Path;
 const Compilation = @import("Compilation.zig");
 const LibCInstallation = std.zig.LibCInstallation;
 const Liveness = @import("Liveness.zig");
@@ -34,7 +34,253 @@ pub const SystemLib = struct {
     /// 1. Windows DLLs that zig ships such as advapi32.
     /// 2. extern "foo" fn declarations where we find out about libraries too late
     /// TODO: make this non-optional and resolve those two cases somehow.
-    path: ?[]const u8,
+    path: ?Path,
+};
+
+pub const Diags = struct {
+    /// Stored here so that function definitions can distinguish between
+    /// needing an allocator for things besides error reporting.
+    gpa: Allocator,
+    mutex: std.Thread.Mutex,
+    msgs: std.ArrayListUnmanaged(Msg),
+    flags: Flags,
+    lld: std.ArrayListUnmanaged(Lld),
+
+    pub const Flags = packed struct {
+        no_entry_point_found: bool = false,
+        missing_libc: bool = false,
+        alloc_failure_occurred: bool = false,
+
+        const Int = blk: {
+            const bits = @typeInfo(@This()).@"struct".fields.len;
+            break :blk @Type(.{ .int = .{
+                .signedness = .unsigned,
+                .bits = bits,
+            } });
+        };
+
+        pub fn anySet(ef: Flags) bool {
+            return @as(Int, @bitCast(ef)) > 0;
+        }
+    };
+
+    pub const Lld = struct {
+        /// Allocated with gpa.
+        msg: []const u8,
+        context_lines: []const []const u8 = &.{},
+
+        pub fn deinit(self: *Lld, gpa: Allocator) void {
+            for (self.context_lines) |line| gpa.free(line);
+            gpa.free(self.context_lines);
+            gpa.free(self.msg);
+            self.* = undefined;
+        }
+    };
+
+    pub const Msg = struct {
+        msg: []const u8,
+        notes: []Msg = &.{},
+
+        pub fn deinit(self: *Msg, gpa: Allocator) void {
+            for (self.notes) |*note| note.deinit(gpa);
+            gpa.free(self.notes);
+            gpa.free(self.msg);
+        }
+    };
+
+    pub const ErrorWithNotes = struct {
+        diags: *Diags,
+        /// Allocated index in diags.msgs array.
+        index: usize,
+        /// Next available note slot.
+        note_slot: usize = 0,
+
+        pub fn addMsg(
+            err: ErrorWithNotes,
+            comptime format: []const u8,
+            args: anytype,
+        ) error{OutOfMemory}!void {
+            const gpa = err.diags.gpa;
+            const err_msg = &err.diags.msgs.items[err.index];
+            err_msg.msg = try std.fmt.allocPrint(gpa, format, args);
+        }
+
+        pub fn addNote(
+            err: *ErrorWithNotes,
+            comptime format: []const u8,
+            args: anytype,
+        ) error{OutOfMemory}!void {
+            const gpa = err.diags.gpa;
+            const err_msg = &err.diags.msgs.items[err.index];
+            assert(err.note_slot < err_msg.notes.len);
+            err_msg.notes[err.note_slot] = .{ .msg = try std.fmt.allocPrint(gpa, format, args) };
+            err.note_slot += 1;
+        }
+    };
+
+    pub fn init(gpa: Allocator) Diags {
+        return .{
+            .gpa = gpa,
+            .mutex = .{},
+            .msgs = .empty,
+            .flags = .{},
+            .lld = .empty,
+        };
+    }
+
+    pub fn deinit(diags: *Diags) void {
+        const gpa = diags.gpa;
+
+        for (diags.msgs.items) |*item| item.deinit(gpa);
+        diags.msgs.deinit(gpa);
+
+        for (diags.lld.items) |*item| item.deinit(gpa);
+        diags.lld.deinit(gpa);
+
+        diags.* = undefined;
+    }
+
+    pub fn hasErrors(diags: *Diags) bool {
+        return diags.msgs.items.len > 0 or diags.flags.anySet();
+    }
+
+    pub fn lockAndParseLldStderr(diags: *Diags, prefix: []const u8, stderr: []const u8) void {
+        diags.mutex.lock();
+        defer diags.mutex.unlock();
+
+        diags.parseLldStderr(prefix, stderr) catch diags.setAllocFailure();
+    }
+
+    fn parseLldStderr(
+        diags: *Diags,
+        prefix: []const u8,
+        stderr: []const u8,
+    ) Allocator.Error!void {
+        const gpa = diags.gpa;
+
+        var context_lines = std.ArrayList([]const u8).init(gpa);
+        defer context_lines.deinit();
+
+        var current_err: ?*Lld = null;
+        var lines = mem.splitSequence(u8, stderr, if (builtin.os.tag == .windows) "\r\n" else "\n");
+        while (lines.next()) |line| {
+            if (line.len > prefix.len + ":".len and
+                mem.eql(u8, line[0..prefix.len], prefix) and line[prefix.len] == ':')
+            {
+                if (current_err) |err| {
+                    err.context_lines = try context_lines.toOwnedSlice();
+                }
+
+                var split = mem.splitSequence(u8, line, "error: ");
+                _ = split.first();
+
+                const duped_msg = try std.fmt.allocPrint(gpa, "{s}: {s}", .{ prefix, split.rest() });
+                errdefer gpa.free(duped_msg);
+
+                current_err = try diags.lld.addOne(gpa);
+                current_err.?.* = .{ .msg = duped_msg };
+            } else if (current_err != null) {
+                const context_prefix = ">>> ";
+                var trimmed = mem.trimRight(u8, line, &std.ascii.whitespace);
+                if (mem.startsWith(u8, trimmed, context_prefix)) {
+                    trimmed = trimmed[context_prefix.len..];
+                }
+
+                if (trimmed.len > 0) {
+                    const duped_line = try gpa.dupe(u8, trimmed);
+                    try context_lines.append(duped_line);
+                }
+            }
+        }
+
+        if (current_err) |err| {
+            err.context_lines = try context_lines.toOwnedSlice();
+        }
+    }
+
+    pub fn fail(diags: *Diags, comptime format: []const u8, args: anytype) error{LinkFailure} {
+        @branchHint(.cold);
+        addError(diags, format, args);
+        return error.LinkFailure;
+    }
+
+    pub fn addError(diags: *Diags, comptime format: []const u8, args: anytype) void {
+        @branchHint(.cold);
+        const gpa = diags.gpa;
+        diags.mutex.lock();
+        defer diags.mutex.unlock();
+        diags.msgs.ensureUnusedCapacity(gpa, 1) catch |err| switch (err) {
+            error.OutOfMemory => {
+                diags.flags.alloc_failure_occurred = true;
+                return;
+            },
+        };
+        const err_msg: Msg = .{
+            .msg = std.fmt.allocPrint(gpa, format, args) catch |err| switch (err) {
+                error.OutOfMemory => {
+                    diags.flags.alloc_failure_occurred = true;
+                    return;
+                },
+            },
+        };
+        diags.msgs.appendAssumeCapacity(err_msg);
+    }
+
+    pub fn addErrorWithNotes(diags: *Diags, note_count: usize) error{OutOfMemory}!ErrorWithNotes {
+        @branchHint(.cold);
+        const gpa = diags.gpa;
+        diags.mutex.lock();
+        defer diags.mutex.unlock();
+        try diags.msgs.ensureUnusedCapacity(gpa, 1);
+        return addErrorWithNotesAssumeCapacity(diags, note_count);
+    }
+
+    pub fn addErrorWithNotesAssumeCapacity(diags: *Diags, note_count: usize) error{OutOfMemory}!ErrorWithNotes {
+        @branchHint(.cold);
+        const gpa = diags.gpa;
+        const index = diags.msgs.items.len;
+        const err = diags.msgs.addOneAssumeCapacity();
+        err.* = .{
+            .msg = undefined,
+            .notes = try gpa.alloc(Diags.Msg, note_count),
+        };
+        return .{
+            .diags = diags,
+            .index = index,
+        };
+    }
+
+    pub fn reportMissingLibraryError(
+        diags: *Diags,
+        checked_paths: []const []const u8,
+        comptime format: []const u8,
+        args: anytype,
+    ) error{OutOfMemory}!void {
+        @branchHint(.cold);
+        var err = try diags.addErrorWithNotes(checked_paths.len);
+        try err.addMsg(format, args);
+        for (checked_paths) |path| {
+            try err.addNote("tried {s}", .{path});
+        }
+    }
+
+    pub fn reportParseError(
+        diags: *Diags,
+        path: Path,
+        comptime format: []const u8,
+        args: anytype,
+    ) error{OutOfMemory}!void {
+        @branchHint(.cold);
+        var err = try diags.addErrorWithNotes(1);
+        try err.addMsg(format, args);
+        try err.addNote("while parsing {}", .{path});
+    }
+
+    pub fn setAllocFailure(diags: *Diags) void {
+        @branchHint(.cold);
+        log.debug("memory allocation failure", .{});
+        diags.flags.alloc_failure_occurred = true;
+    }
 };
 
 pub fn hashAddSystemLibs(
@@ -46,7 +292,7 @@ pub fn hashAddSystemLibs(
     for (hm.values()) |value| {
         man.hash.add(value.needed);
         man.hash.add(value.weak);
-        if (value.path) |p| _ = try man.addFile(p, null);
+        if (value.path) |p| _ = try man.addFilePath(p, null);
     }
 }
 
@@ -446,58 +692,6 @@ pub const File = struct {
         }
     }
 
-    pub const ErrorWithNotes = struct {
-        base: *const File,
-
-        /// Allocated index in base.errors array.
-        index: usize,
-
-        /// Next available note slot.
-        note_slot: usize = 0,
-
-        pub fn addMsg(
-            err: ErrorWithNotes,
-            comptime format: []const u8,
-            args: anytype,
-        ) error{OutOfMemory}!void {
-            const gpa = err.base.comp.gpa;
-            const err_msg = &err.base.comp.link_errors.items[err.index];
-            err_msg.msg = try std.fmt.allocPrint(gpa, format, args);
-        }
-
-        pub fn addNote(
-            err: *ErrorWithNotes,
-            comptime format: []const u8,
-            args: anytype,
-        ) error{OutOfMemory}!void {
-            const gpa = err.base.comp.gpa;
-            const err_msg = &err.base.comp.link_errors.items[err.index];
-            assert(err.note_slot < err_msg.notes.len);
-            err_msg.notes[err.note_slot] = .{ .msg = try std.fmt.allocPrint(gpa, format, args) };
-            err.note_slot += 1;
-        }
-    };
-
-    pub fn addErrorWithNotes(base: *const File, note_count: usize) error{OutOfMemory}!ErrorWithNotes {
-        base.comp.link_errors_mutex.lock();
-        defer base.comp.link_errors_mutex.unlock();
-        const gpa = base.comp.gpa;
-        try base.comp.link_errors.ensureUnusedCapacity(gpa, 1);
-        return base.addErrorWithNotesAssumeCapacity(note_count);
-    }
-
-    pub fn addErrorWithNotesAssumeCapacity(base: *const File, note_count: usize) error{OutOfMemory}!ErrorWithNotes {
-        const gpa = base.comp.gpa;
-        const index = base.comp.link_errors.items.len;
-        const err = base.comp.link_errors.addOneAssumeCapacity();
-        err.* = .{ .msg = undefined, .notes = try gpa.alloc(ErrorMsg, note_count) };
-        return .{ .base = base, .index = index };
-    }
-
-    pub fn hasErrors(base: *const File) bool {
-        return base.comp.link_errors.items.len > 0 or base.comp.link_error_flags.isSet();
-    }
-
     pub fn releaseLock(self: *File) void {
         if (self.lock) |*lock| {
             lock.release();
@@ -523,7 +717,7 @@ pub const File = struct {
     }
 
     /// TODO audit this error set. most of these should be collapsed into one error,
-    /// and ErrorFlags should be updated to convey the meaning to the user.
+    /// and Diags.Flags should be updated to convey the meaning to the user.
     pub const FlushError = error{
         CacheUnavailable,
         CurrentWorkingDirectoryUnlinked,
@@ -551,7 +745,7 @@ pub const File = struct {
         LLDCrashed,
         LLDReportedFailure,
         LLD_LinkingIsTODO_ForSpirV,
-        LibCInstallationMissingCRTDir,
+        LibCInstallationMissingCrtDir,
         LibCInstallationNotAvailable,
         LinkingWithoutZigSourceUnimplemented,
         MalformedArchive,
@@ -606,18 +800,15 @@ pub const File = struct {
         const comp = base.comp;
         if (comp.clang_preprocessor_mode == .yes or comp.clang_preprocessor_mode == .pch) {
             dev.check(.clang_command);
-            const gpa = comp.gpa;
             const emit = base.emit;
             // TODO: avoid extra link step when it's just 1 object file (the `zig cc -c` case)
             // Until then, we do `lld -r -o output.o input.o` even though the output is the same
             // as the input. For the preprocessing case (`zig cc -E -o foo`) we copy the file
             // to the final location. See also the corresponding TODO in Coff linking.
-            const full_out_path = try emit.root_dir.join(gpa, &[_][]const u8{emit.sub_path});
-            defer gpa.free(full_out_path);
             assert(comp.c_object_table.count() == 1);
             const the_key = comp.c_object_table.keys()[0];
             const cached_pp_file_path = the_key.status.success.object_path;
-            try fs.cwd().copyFile(cached_pp_file_path, fs.cwd(), full_out_path, .{});
+            try cached_pp_file_path.root_dir.handle.copyFile(cached_pp_file_path.sub_path, emit.root_dir.handle, emit.sub_path, .{});
             return;
         }
 
@@ -781,7 +972,7 @@ pub const File = struct {
 
         log.debug("zcu_obj_path={s}", .{if (zcu_obj_path) |s| s else "(null)"});
 
-        const compiler_rt_path: ?[]const u8 = if (comp.include_compiler_rt)
+        const compiler_rt_path: ?Path = if (comp.include_compiler_rt)
             comp.compiler_rt_obj.?.full_object_path
         else
             null;
@@ -806,18 +997,18 @@ pub const File = struct {
             base.releaseLock();
 
             for (objects) |obj| {
-                _ = try man.addFile(obj.path, null);
+                _ = try man.addFilePath(obj.path, null);
                 man.hash.add(obj.must_link);
                 man.hash.add(obj.loption);
             }
             for (comp.c_object_table.keys()) |key| {
-                _ = try man.addFile(key.status.success.object_path, null);
+                _ = try man.addFilePath(key.status.success.object_path, null);
             }
             for (comp.win32_resource_table.keys()) |key| {
                 _ = try man.addFile(key.status.success.res_path, null);
             }
             try man.addOptionalFile(zcu_obj_path);
-            try man.addOptionalFile(compiler_rt_path);
+            try man.addOptionalFilePath(compiler_rt_path);
 
             // We don't actually care whether it's a cache hit or miss; we just need the digest and the lock.
             _ = try man.hit();
@@ -851,10 +1042,10 @@ pub const File = struct {
         defer object_files.deinit();
 
         for (objects) |obj| {
-            object_files.appendAssumeCapacity(try arena.dupeZ(u8, obj.path));
+            object_files.appendAssumeCapacity(try obj.path.toStringZ(arena));
         }
         for (comp.c_object_table.keys()) |key| {
-            object_files.appendAssumeCapacity(try arena.dupeZ(u8, key.status.success.object_path));
+            object_files.appendAssumeCapacity(try key.status.success.object_path.toStringZ(arena));
         }
         for (comp.win32_resource_table.keys()) |key| {
             object_files.appendAssumeCapacity(try arena.dupeZ(u8, key.status.success.res_path));
@@ -863,7 +1054,7 @@ pub const File = struct {
             object_files.appendAssumeCapacity(try arena.dupeZ(u8, p));
         }
         if (compiler_rt_path) |p| {
-            object_files.appendAssumeCapacity(try arena.dupeZ(u8, p));
+            object_files.appendAssumeCapacity(try p.toStringZ(arena));
         }
 
         if (comp.verbose_link) {
@@ -939,36 +1130,6 @@ pub const File = struct {
 
         pub fn devFeature(tag: Tag) dev.Feature {
             return @field(dev.Feature, @tagName(tag) ++ "_linker");
-        }
-    };
-
-    pub const ErrorFlags = packed struct {
-        no_entry_point_found: bool = false,
-        missing_libc: bool = false,
-
-        const Int = blk: {
-            const bits = @typeInfo(@This()).@"struct".fields.len;
-            break :blk @Type(.{ .int = .{
-                .signedness = .unsigned,
-                .bits = bits,
-            } });
-        };
-
-        fn isSet(ef: ErrorFlags) bool {
-            return @as(Int, @bitCast(ef)) > 0;
-        }
-    };
-
-    pub const ErrorMsg = struct {
-        msg: []const u8,
-        notes: []ErrorMsg = &.{},
-
-        pub fn deinit(self: *ErrorMsg, gpa: Allocator) void {
-            for (self.notes) |*note| {
-                note.deinit(gpa);
-            }
-            gpa.free(self.notes);
-            gpa.free(self.msg);
         }
     };
 
@@ -1157,7 +1318,8 @@ pub fn spawnLld(
     switch (term) {
         .Exited => |code| if (code != 0) {
             if (comp.clang_passthrough_mode) std.process.exit(code);
-            comp.lockAndParseLldStderr(argv[1], stderr);
+            const diags = &comp.link_diags;
+            diags.lockAndParseLldStderr(argv[1], stderr);
             return error.LLDReportedFailure;
         },
         else => {

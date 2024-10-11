@@ -12,7 +12,7 @@ pub const Fde = struct {
     out_offset: u64 = 0,
 
     pub fn address(fde: Fde, elf_file: *Elf) u64 {
-        const base: u64 = if (elf_file.eh_frame_section_index) |shndx|
+        const base: u64 = if (elf_file.section_indexes.eh_frame) |shndx|
             elf_file.sections.items(.shdr)[shndx].sh_addr
         else
             0;
@@ -111,7 +111,7 @@ pub const Cie = struct {
     alive: bool = false,
 
     pub fn address(cie: Cie, elf_file: *Elf) u64 {
-        const base: u64 = if (elf_file.eh_frame_section_index) |shndx|
+        const base: u64 = if (elf_file.section_indexes.eh_frame) |shndx|
             elf_file.sections.items(.shdr)[shndx].sh_addr
         else
             0;
@@ -337,7 +337,7 @@ fn resolveReloc(rec: anytype, sym: *const Symbol, rel: elf.Elf64_Rela, elf_file:
 
 pub fn writeEhFrame(elf_file: *Elf, writer: anytype) !void {
     relocs_log.debug("{x}: .eh_frame", .{
-        elf_file.sections.items(.shdr)[elf_file.eh_frame_section_index.?].sh_addr,
+        elf_file.sections.items(.shdr)[elf_file.section_indexes.eh_frame.?].sh_addr,
     });
 
     var has_reloc_errors = false;
@@ -458,7 +458,7 @@ fn emitReloc(elf_file: *Elf, r_offset: u64, sym: *const Symbol, rel: elf.Elf64_R
 
 pub fn writeEhFrameRelocs(elf_file: *Elf, writer: anytype) !void {
     relocs_log.debug("{x}: .eh_frame", .{
-        elf_file.sections.items(.shdr)[elf_file.eh_frame_section_index.?].sh_addr,
+        elf_file.sections.items(.shdr)[elf_file.section_indexes.eh_frame.?].sh_addr,
     });
 
     if (elf_file.zigObjectPtr()) |zo| zo: {
@@ -511,8 +511,8 @@ pub fn writeEhFrameHdr(elf_file: *Elf, writer: anytype) !void {
     try writer.writeByte(DW_EH_PE.datarel | DW_EH_PE.sdata4);
 
     const shdrs = elf_file.sections.items(.shdr);
-    const eh_frame_shdr = shdrs[elf_file.eh_frame_section_index.?];
-    const eh_frame_hdr_shdr = shdrs[elf_file.eh_frame_hdr_section_index.?];
+    const eh_frame_shdr = shdrs[elf_file.section_indexes.eh_frame.?];
+    const eh_frame_hdr_shdr = shdrs[elf_file.section_indexes.eh_frame_hdr.?];
     const num_fdes = @as(u32, @intCast(@divExact(eh_frame_hdr_shdr.sh_size - eh_frame_hdr_header_size, 8)));
     const existing_size = existing_size: {
         const zo = elf_file.zigObjectPtr() orelse break :existing_size 0;
@@ -611,7 +611,8 @@ const riscv = struct {
 };
 
 fn reportInvalidReloc(rec: anytype, elf_file: *Elf, rel: elf.Elf64_Rela) !void {
-    var err = try elf_file.base.addErrorWithNotes(1);
+    const diags = &elf_file.base.comp.link_diags;
+    var err = try diags.addErrorWithNotes(1);
     try err.addMsg("invalid relocation type {} at offset 0x{x}", .{
         relocation.fmtRelocType(rel.r_type(), elf_file.getTarget().cpu.arch),
         rel.r_offset,

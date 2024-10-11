@@ -5,7 +5,7 @@
 
 data: std.ArrayListUnmanaged(u8) = .empty,
 /// Externally owned memory.
-path: []const u8,
+basename: []const u8,
 index: File.Index,
 
 symtab: std.MultiArrayList(ElfSym) = .{},
@@ -88,7 +88,7 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
     try self.strtab.buffer.append(gpa, 0);
 
     {
-        const name_off = try self.strtab.insert(gpa, self.path);
+        const name_off = try self.strtab.insert(gpa, self.basename);
         const symbol_index = try self.newLocalSymbol(gpa, name_off);
         const sym = self.symbol(symbol_index);
         const esym = &self.symtab.items(.elf_sym)[sym.esym_index];
@@ -774,7 +774,7 @@ pub fn updateArSize(self: *ZigObject) void {
 }
 
 pub fn writeAr(self: ZigObject, writer: anytype) !void {
-    const name = self.path;
+    const name = self.basename;
     const hdr = Archive.setArHdr(.{
         .name = if (name.len <= Archive.max_member_name_len)
             .{ .name = name }
@@ -791,7 +791,7 @@ pub fn initRelaSections(self: *ZigObject, elf_file: *Elf) !void {
     for (self.atoms_indexes.items) |atom_index| {
         const atom_ptr = self.atom(atom_index) orelse continue;
         if (!atom_ptr.alive) continue;
-        if (atom_ptr.output_section_index == elf_file.eh_frame_section_index) continue;
+        if (atom_ptr.output_section_index == elf_file.section_indexes.eh_frame) continue;
         const rela_shndx = atom_ptr.relocsShndx() orelse continue;
         // TODO this check will become obsolete when we rework our relocs mechanism at the ZigObject level
         if (self.relocs.items[rela_shndx].items.len == 0) continue;
@@ -812,7 +812,7 @@ pub fn addAtomsToRelaSections(self: *ZigObject, elf_file: *Elf) !void {
     for (self.atoms_indexes.items) |atom_index| {
         const atom_ptr = self.atom(atom_index) orelse continue;
         if (!atom_ptr.alive) continue;
-        if (atom_ptr.output_section_index == elf_file.eh_frame_section_index) continue;
+        if (atom_ptr.output_section_index == elf_file.section_indexes.eh_frame) continue;
         const rela_shndx = atom_ptr.relocsShndx() orelse continue;
         // TODO this check will become obsolete when we rework our relocs mechanism at the ZigObject level
         if (self.relocs.items[rela_shndx].items.len == 0) continue;
@@ -826,7 +826,7 @@ pub fn addAtomsToRelaSections(self: *ZigObject, elf_file: *Elf) !void {
         const out_rela_shndx = elf_file.sectionByName(rela_sect_name).?;
         const out_rela_shdr = &elf_file.sections.items(.shdr)[out_rela_shndx];
         out_rela_shdr.sh_info = out_shndx;
-        out_rela_shdr.sh_link = elf_file.symtab_section_index.?;
+        out_rela_shdr.sh_link = elf_file.section_indexes.symtab.?;
         const atom_list = &elf_file.sections.items(.atom_list)[out_rela_shndx];
         try atom_list.append(gpa, .{ .index = atom_index, .file = self.index });
     }
@@ -2027,7 +2027,7 @@ pub fn allocateAtom(self: *ZigObject, atom_ptr: *Atom, requires_padding: bool, e
     log.debug("  prev {?}, next {?}", .{ atom_ptr.prev_atom_ref, atom_ptr.next_atom_ref });
 }
 
-pub fn resetShdrIndexes(self: *ZigObject, backlinks: anytype) void {
+pub fn resetShdrIndexes(self: *ZigObject, backlinks: []const u32) void {
     for (self.atoms_indexes.items) |atom_index| {
         const atom_ptr = self.atom(atom_index) orelse continue;
         atom_ptr.output_section_index = backlinks[atom_ptr.output_section_index];
@@ -2384,9 +2384,9 @@ const relocation = @import("relocation.zig");
 const target_util = @import("../../target.zig");
 const trace = @import("../../tracy.zig").trace;
 const std = @import("std");
+const Allocator = std.mem.Allocator;
 
 const Air = @import("../../Air.zig");
-const Allocator = std.mem.Allocator;
 const Archive = @import("Archive.zig");
 const Atom = @import("Atom.zig");
 const Dwarf = @import("../Dwarf.zig");
