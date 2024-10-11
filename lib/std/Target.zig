@@ -2935,7 +2935,7 @@ pub fn is_libc_lib_name(target: std.Target, name: []const u8) bool {
             return true;
         if (eqlIgnoreCase(ignore_case, name, "resolv"))
             return true;
-        if (eqlIgnoreCase(ignore_case, name, "dl"))
+        if (eqlIgnoreCase(ignore_case, name, "dl") and !target.isWasm())
             return true;
     }
 
