@@ -603,18 +603,18 @@ set(ZIG_STAGE2_SOURCES
     src/link/Elf/AtomList.zig
     src/link/Elf/LdScript.zig
     src/link/Elf/LinkerDefined.zig
+    src/link/Elf/Merge.zig
     src/link/Elf/Object.zig
     src/link/Elf/SharedObject.zig
     src/link/Elf/Symbol.zig
+    src/link/Elf/Thunk.zig
     src/link/Elf/ZigObject.zig
     src/link/Elf/eh_frame.zig
     src/link/Elf/file.zig
     src/link/Elf/gc.zig
-    src/link/Elf/merge_section.zig
     src/link/Elf/relocatable.zig
     src/link/Elf/relocation.zig
     src/link/Elf/synthetic_sections.zig
-    src/link/Elf/Thunk.zig
     src/link/MachO.zig
     src/link/MachO/Archive.zig
     src/link/MachO/Atom.zig
