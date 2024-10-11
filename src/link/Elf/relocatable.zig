@@ -32,7 +32,16 @@ pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation, module_obj_path: ?Path
         zig_object.claimUnresolvedRelocatable(elf_file);
 
         try initSections(elf_file);
-        try elf_file.sortShdrs();
+        try Elf.sortShdrs(
+            gpa,
+            &elf_file.section_indexes,
+            &elf_file.sections,
+            elf_file.shstrtab.items,
+            elf_file.merge_sections.items,
+            elf_file.comdat_group_sections.items,
+            elf_file.zigObjectPtr(),
+            elf_file.files,
+        );
         try zig_object.addAtomsToRelaSections(elf_file);
         try elf_file.updateMergeSectionSizes();
         try updateSectionSizes(elf_file);
@@ -171,7 +180,16 @@ pub fn flushObject(elf_file: *Elf, comp: *Compilation, module_obj_path: ?Path) l
     claimUnresolved(elf_file);
 
     try initSections(elf_file);
-    try elf_file.sortShdrs();
+    try Elf.sortShdrs(
+        comp.gpa,
+        &elf_file.section_indexes,
+        &elf_file.sections,
+        elf_file.shstrtab.items,
+        elf_file.merge_sections.items,
+        elf_file.comdat_group_sections.items,
+        elf_file.zigObjectPtr(),
+        elf_file.files,
+    );
     if (elf_file.zigObjectPtr()) |zig_object| {
         try zig_object.addAtomsToRelaSections(elf_file);
     }

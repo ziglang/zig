@@ -992,7 +992,16 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
     // Generate and emit synthetic sections.
     try self.initSyntheticSections();
     try self.initSpecialPhdrs();
-    try self.sortShdrs();
+    try sortShdrs(
+        gpa,
+        &self.section_indexes,
+        &self.sections,
+        self.shstrtab.items,
+        self.merge_sections.items,
+        self.comdat_group_sections.items,
+        self.zigObjectPtr(),
+        self.files,
+    );
 
     try self.setDynamicSection(self.rpath_table.keys());
     self.sortDynamicSymtab();
@@ -3354,9 +3363,8 @@ fn sortPhdrs(
     }
 }
 
-fn shdrRank(self: *Elf, shndx: u32) u8 {
-    const shdr = self.sections.items(.shdr)[shndx];
-    const name = self.getShString(shdr.sh_name);
+fn shdrRank(shdr: elf.Elf64_Shdr, shstrtab: []const u8) u8 {
+    const name = shString(shstrtab, shdr.sh_name);
     const flags = shdr.sh_flags;
 
     switch (shdr.sh_type) {
@@ -3405,120 +3413,138 @@ fn shdrRank(self: *Elf, shndx: u32) u8 {
     }
 }
 
-pub fn sortShdrs(self: *Elf) !void {
+pub fn sortShdrs(
+    gpa: Allocator,
+    section_indexes: *SectionIndexes,
+    sections: *std.MultiArrayList(Section),
+    shstrtab: []const u8,
+    merge_sections: []Merge.Section,
+    comdat_group_sections: []ComdatGroupSection,
+    zig_object_ptr: ?*ZigObject,
+    files: std.MultiArrayList(File.Entry),
+) !void {
     const Entry = struct {
         shndx: u32,
 
-        pub fn lessThan(elf_file: *Elf, lhs: @This(), rhs: @This()) bool {
-            return elf_file.shdrRank(lhs.shndx) < elf_file.shdrRank(rhs.shndx);
+        const Context = struct {
+            shdrs: []const elf.Elf64_Shdr,
+            shstrtab: []const u8,
+        };
+
+        pub fn lessThan(ctx: Context, lhs: @This(), rhs: @This()) bool {
+            return shdrRank(ctx.shdrs[lhs.shndx], ctx.shstrtab) <
+                shdrRank(ctx.shdrs[rhs.shndx], ctx.shstrtab);
         }
     };
 
-    const gpa = self.base.comp.gpa;
-    var entries = try std.ArrayList(Entry).initCapacity(gpa, self.sections.items(.shdr).len);
-    defer entries.deinit();
-    for (0..self.sections.items(.shdr).len) |shndx| {
-        entries.appendAssumeCapacity(.{ .shndx = @intCast(shndx) });
+    const shdrs = sections.items(.shdr);
+
+    const entries = try gpa.alloc(Entry, shdrs.len);
+    defer gpa.free(entries);
+    for (entries, 0..shdrs.len) |*entry, shndx| {
+        entry.* = .{ .shndx = @intCast(shndx) };
     }
 
-    mem.sort(Entry, entries.items, self, Entry.lessThan);
+    const sort_context: Entry.Context = .{
+        .shdrs = shdrs,
+        .shstrtab = shstrtab,
+    };
+    mem.sort(Entry, entries, sort_context, Entry.lessThan);
 
-    const backlinks = try gpa.alloc(u32, entries.items.len);
+    const backlinks = try gpa.alloc(u32, entries.len);
     defer gpa.free(backlinks);
     {
-        var slice = self.sections.toOwnedSlice();
+        var slice = sections.toOwnedSlice();
         defer slice.deinit(gpa);
-        try self.sections.resize(gpa, slice.len);
+        try sections.resize(gpa, slice.len);
 
-        for (entries.items, 0..) |entry, i| {
+        for (entries, 0..) |entry, i| {
             backlinks[entry.shndx] = @intCast(i);
-            self.sections.set(i, slice.get(entry.shndx));
+            sections.set(i, slice.get(entry.shndx));
         }
     }
-
-    const special_indexes = &self.section_indexes;
 
     inline for (@typeInfo(SectionIndexes).@"struct".fields) |field| {
-        if (@field(special_indexes, field.name)) |special_index| {
-            @field(special_indexes, field.name) = backlinks[special_index];
+        if (@field(section_indexes, field.name)) |special_index| {
+            @field(section_indexes, field.name) = backlinks[special_index];
         }
     }
 
-    for (self.merge_sections.items) |*msec| {
+    for (merge_sections) |*msec| {
         msec.output_section_index = backlinks[msec.output_section_index];
     }
 
-    const slice = self.sections.slice();
+    const slice = sections.slice();
     for (slice.items(.shdr), slice.items(.atom_list_2)) |*shdr, *atom_list| {
         atom_list.output_section_index = backlinks[atom_list.output_section_index];
         for (atom_list.atoms.keys()) |ref| {
-            self.atom(ref).?.output_section_index = atom_list.output_section_index;
+            fileLookup(files, ref.file).?.atom(ref.index).?.output_section_index = atom_list.output_section_index;
         }
         if (shdr.sh_type == elf.SHT_RELA) {
             // FIXME:JK we should spin up .symtab potentially earlier, or set all non-dynamic RELA sections
             // to point at symtab
             // shdr.sh_link = backlinks[shdr.sh_link];
-            shdr.sh_link = self.section_indexes.symtab.?;
+            shdr.sh_link = section_indexes.symtab.?;
             shdr.sh_info = backlinks[shdr.sh_info];
         }
     }
 
-    if (self.zigObjectPtr()) |zo| zo.resetShdrIndexes(backlinks);
+    if (zig_object_ptr) |zo| zo.resetShdrIndexes(backlinks);
 
-    for (self.comdat_group_sections.items) |*cg| {
+    for (comdat_group_sections) |*cg| {
         cg.shndx = backlinks[cg.shndx];
     }
 
-    if (self.section_indexes.symtab) |index| {
+    if (section_indexes.symtab) |index| {
         const shdr = &slice.items(.shdr)[index];
-        shdr.sh_link = self.section_indexes.strtab.?;
+        shdr.sh_link = section_indexes.strtab.?;
     }
 
-    if (self.section_indexes.dynamic) |index| {
+    if (section_indexes.dynamic) |index| {
         const shdr = &slice.items(.shdr)[index];
-        shdr.sh_link = self.section_indexes.dynstrtab.?;
+        shdr.sh_link = section_indexes.dynstrtab.?;
     }
 
-    if (self.section_indexes.dynsymtab) |index| {
+    if (section_indexes.dynsymtab) |index| {
         const shdr = &slice.items(.shdr)[index];
-        shdr.sh_link = self.section_indexes.dynstrtab.?;
+        shdr.sh_link = section_indexes.dynstrtab.?;
     }
 
-    if (self.section_indexes.hash) |index| {
+    if (section_indexes.hash) |index| {
         const shdr = &slice.items(.shdr)[index];
-        shdr.sh_link = self.section_indexes.dynsymtab.?;
+        shdr.sh_link = section_indexes.dynsymtab.?;
     }
 
-    if (self.section_indexes.gnu_hash) |index| {
+    if (section_indexes.gnu_hash) |index| {
         const shdr = &slice.items(.shdr)[index];
-        shdr.sh_link = self.section_indexes.dynsymtab.?;
+        shdr.sh_link = section_indexes.dynsymtab.?;
     }
 
-    if (self.section_indexes.versym) |index| {
+    if (section_indexes.versym) |index| {
         const shdr = &slice.items(.shdr)[index];
-        shdr.sh_link = self.section_indexes.dynsymtab.?;
+        shdr.sh_link = section_indexes.dynsymtab.?;
     }
 
-    if (self.section_indexes.verneed) |index| {
+    if (section_indexes.verneed) |index| {
         const shdr = &slice.items(.shdr)[index];
-        shdr.sh_link = self.section_indexes.dynstrtab.?;
+        shdr.sh_link = section_indexes.dynstrtab.?;
     }
 
-    if (self.section_indexes.rela_dyn) |index| {
+    if (section_indexes.rela_dyn) |index| {
         const shdr = &slice.items(.shdr)[index];
-        shdr.sh_link = self.section_indexes.dynsymtab orelse 0;
+        shdr.sh_link = section_indexes.dynsymtab orelse 0;
     }
 
-    if (self.section_indexes.rela_plt) |index| {
+    if (section_indexes.rela_plt) |index| {
         const shdr = &slice.items(.shdr)[index];
-        shdr.sh_link = self.section_indexes.dynsymtab.?;
-        shdr.sh_info = self.section_indexes.plt.?;
+        shdr.sh_link = section_indexes.dynsymtab.?;
+        shdr.sh_info = section_indexes.plt.?;
     }
 
-    if (self.section_indexes.eh_frame_rela) |index| {
+    if (section_indexes.eh_frame_rela) |index| {
         const shdr = &slice.items(.shdr)[index];
-        shdr.sh_link = self.section_indexes.symtab.?;
-        shdr.sh_info = self.section_indexes.eh_frame.?;
+        shdr.sh_link = section_indexes.symtab.?;
+        shdr.sh_info = section_indexes.eh_frame.?;
     }
 }
 
@@ -4677,13 +4703,17 @@ pub fn thunk(self: *Elf, index: Thunk.Index) *Thunk {
 }
 
 pub fn file(self: *Elf, index: File.Index) ?File {
-    const tag = self.files.items(.tags)[index];
+    return fileLookup(self.files, index);
+}
+
+fn fileLookup(files: std.MultiArrayList(File.Entry), index: File.Index) ?File {
+    const tag = files.items(.tags)[index];
     return switch (tag) {
         .null => null,
-        .linker_defined => .{ .linker_defined = &self.files.items(.data)[index].linker_defined },
-        .zig_object => .{ .zig_object = &self.files.items(.data)[index].zig_object },
-        .object => .{ .object = &self.files.items(.data)[index].object },
-        .shared_object => .{ .shared_object = &self.files.items(.data)[index].shared_object },
+        .linker_defined => .{ .linker_defined = &files.items(.data)[index].linker_defined },
+        .zig_object => .{ .zig_object = &files.items(.data)[index].zig_object },
+        .object => .{ .object = &files.items(.data)[index].object },
+        .shared_object => .{ .shared_object = &files.items(.data)[index].shared_object },
     };
 }
 
@@ -4790,8 +4820,15 @@ pub fn tlsAddress(self: *Elf) i64 {
 }
 
 pub fn getShString(self: Elf, off: u32) [:0]const u8 {
-    assert(off < self.shstrtab.items.len);
-    return mem.sliceTo(@as([*:0]const u8, @ptrCast(self.shstrtab.items.ptr + off)), 0);
+    return shString(self.shstrtab.items, off);
+}
+
+fn shString(
+    shstrtab: []const u8,
+    off: u32,
+) [:0]const u8 {
+    const slice = shstrtab[off..];
+    return slice[0..std.mem.indexOfScalar(u8, slice, 0).? :0];
 }
 
 pub fn insertShString(self: *Elf, name: [:0]const u8) error{OutOfMemory}!u32 {
