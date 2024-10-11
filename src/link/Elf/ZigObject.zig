@@ -5,7 +5,7 @@
 
 data: std.ArrayListUnmanaged(u8) = .empty,
 /// Externally owned memory.
-path: []const u8,
+basename: []const u8,
 index: File.Index,
 
 symtab: std.MultiArrayList(ElfSym) = .{},
@@ -88,7 +88,7 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
     try self.strtab.buffer.append(gpa, 0);
 
     {
-        const name_off = try self.strtab.insert(gpa, self.path);
+        const name_off = try self.strtab.insert(gpa, self.basename);
         const symbol_index = try self.newLocalSymbol(gpa, name_off);
         const sym = self.symbol(symbol_index);
         const esym = &self.symtab.items(.elf_sym)[sym.esym_index];
@@ -774,7 +774,7 @@ pub fn updateArSize(self: *ZigObject) void {
 }
 
 pub fn writeAr(self: ZigObject, writer: anytype) !void {
-    const name = self.path;
+    const name = self.basename;
     const hdr = Archive.setArHdr(.{
         .name = if (name.len <= Archive.max_member_name_len)
             .{ .name = name }
@@ -2384,9 +2384,9 @@ const relocation = @import("relocation.zig");
 const target_util = @import("../../target.zig");
 const trace = @import("../../tracy.zig").trace;
 const std = @import("std");
+const Allocator = std.mem.Allocator;
 
 const Air = @import("../../Air.zig");
-const Allocator = std.mem.Allocator;
 const Archive = @import("Archive.zig");
 const Atom = @import("Atom.zig");
 const Dwarf = @import("../Dwarf.zig");

@@ -1,4 +1,4 @@
-path: []const u8,
+path: Path,
 index: File.Index,
 
 header: ?elf.Elf64_Ehdr = null,
@@ -22,8 +22,8 @@ alive: bool,
 
 output_symtab_ctx: Elf.SymtabCtx = .{},
 
-pub fn isSharedObject(path: []const u8) !bool {
-    const file = try std.fs.cwd().openFile(path, .{});
+pub fn isSharedObject(path: Path) !bool {
+    const file = try path.root_dir.handle.openFile(path.sub_path, .{});
     defer file.close();
     const reader = file.reader();
     const header = reader.readStruct(elf.Elf64_Ehdr) catch return false;
@@ -34,7 +34,7 @@ pub fn isSharedObject(path: []const u8) !bool {
 }
 
 pub fn deinit(self: *SharedObject, allocator: Allocator) void {
-    allocator.free(self.path);
+    allocator.free(self.path.sub_path);
     self.shdrs.deinit(allocator);
     self.symtab.deinit(allocator);
     self.strtab.deinit(allocator);
@@ -319,7 +319,7 @@ pub fn asFile(self: *SharedObject) File {
 
 fn verdefNum(self: *SharedObject) u32 {
     for (self.dynamic_table.items) |entry| switch (entry.d_tag) {
-        elf.DT_VERDEFNUM => return @as(u32, @intCast(entry.d_val)),
+        elf.DT_VERDEFNUM => return @intCast(entry.d_val),
         else => {},
     };
     return 0;
@@ -327,10 +327,10 @@ fn verdefNum(self: *SharedObject) u32 {
 
 pub fn soname(self: *SharedObject) []const u8 {
     for (self.dynamic_table.items) |entry| switch (entry.d_tag) {
-        elf.DT_SONAME => return self.getString(@as(u32, @intCast(entry.d_val))),
+        elf.DT_SONAME => return self.getString(@intCast(entry.d_val)),
         else => {},
     };
-    return std.fs.path.basename(self.path);
+    return std.fs.path.basename(self.path.sub_path);
 }
 
 pub fn initSymbolAliases(self: *SharedObject, elf_file: *Elf) !void {
@@ -508,6 +508,7 @@ const assert = std.debug.assert;
 const elf = std.elf;
 const log = std.log.scoped(.elf);
 const mem = std.mem;
+const Path = std.Build.Cache.Path;
 
 const Allocator = mem.Allocator;
 const Elf = @import("../Elf.zig");

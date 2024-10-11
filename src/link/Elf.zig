@@ -383,9 +383,9 @@ pub fn createEmpty(
             const index: File.Index = @intCast(try self.files.addOne(gpa));
             self.files.set(index, .{ .zig_object = .{
                 .index = index,
-                .path = try std.fmt.allocPrint(arena, "{s}.o", .{fs.path.stem(
-                    zcu.main_mod.root_src_path,
-                )}),
+                .basename = try std.fmt.allocPrint(arena, "{s}.o", .{
+                    fs.path.stem(zcu.main_mod.root_src_path),
+                }),
             } });
             self.zig_object_index = index;
             try self.zigObjectPtr().?.init(self, .{
@@ -742,13 +742,12 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
     const target = self.getTarget();
     const link_mode = comp.config.link_mode;
     const directory = self.base.emit.root_dir; // Just an alias to make it shorter to type.
-    const module_obj_path: ?[]const u8 = if (self.base.zcu_object_sub_path) |path| blk: {
-        const full_out_path = try directory.join(arena, &[_][]const u8{self.base.emit.sub_path});
-        if (fs.path.dirname(full_out_path)) |dirname| {
-            break :blk try fs.path.join(arena, &.{ dirname, path });
-        } else {
-            break :blk path;
-        }
+    const module_obj_path: ?Path = if (self.base.zcu_object_sub_path) |path| .{
+        .root_dir = directory,
+        .sub_path = if (fs.path.dirname(self.base.emit.sub_path)) |dirname|
+            try fs.path.join(arena, &.{ dirname, path })
+        else
+            path,
     } else null;
 
     // --verbose-link
@@ -758,7 +757,7 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
     if (self.base.isStaticLib()) return relocatable.flushStaticLib(self, comp, module_obj_path);
     if (self.base.isObject()) return relocatable.flushObject(self, comp, module_obj_path);
 
-    const csu = try CsuObjects.init(arena, comp);
+    const csu = try comp.getCrtPaths(arena);
 
     // csu prelude
     if (csu.crt0) |path| try parseObjectReportingFailure(self, path);
@@ -790,23 +789,22 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
         if (comp.libc_static_lib) |lib| try parseCrtFileReportingFailure(self, lib);
     }
 
-    var system_libs = std.ArrayList(SystemLib).init(arena);
-
-    try system_libs.ensureUnusedCapacity(comp.system_libs.values().len);
     for (comp.system_libs.values()) |lib_info| {
-        system_libs.appendAssumeCapacity(.{ .needed = lib_info.needed, .path = lib_info.path.? });
+        try self.parseLibraryReportingFailure(.{
+            .needed = lib_info.needed,
+            .path = lib_info.path.?,
+        }, false);
     }
 
     // libc++ dep
     if (comp.config.link_libcpp) {
-        try system_libs.ensureUnusedCapacity(2);
-        system_libs.appendAssumeCapacity(.{ .path = comp.libcxxabi_static_lib.?.full_object_path });
-        system_libs.appendAssumeCapacity(.{ .path = comp.libcxx_static_lib.?.full_object_path });
+        try self.parseLibraryReportingFailure(.{ .path = comp.libcxxabi_static_lib.?.full_object_path }, false);
+        try self.parseLibraryReportingFailure(.{ .path = comp.libcxx_static_lib.?.full_object_path }, false);
     }
 
     // libunwind dep
     if (comp.config.link_libunwind) {
-        try system_libs.append(.{ .path = comp.libunwind_static_lib.?.full_object_path });
+        try self.parseLibraryReportingFailure(.{ .path = comp.libunwind_static_lib.?.full_object_path }, false);
     }
 
     // libc dep
@@ -814,7 +812,6 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
     if (comp.config.link_libc) {
         if (comp.libc_installation) |lc| {
             const flags = target_util.libcFullLinkFlags(target);
-            try system_libs.ensureUnusedCapacity(flags.len);
 
             var test_path = std.ArrayList(u8).init(arena);
             var checked_paths = std.ArrayList([]const u8).init(arena);
@@ -840,37 +837,32 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
                     continue;
                 }
 
-                const resolved_path = try arena.dupe(u8, test_path.items);
-                system_libs.appendAssumeCapacity(.{ .path = resolved_path });
+                const resolved_path = Path.initCwd(try arena.dupe(u8, test_path.items));
+                try self.parseLibraryReportingFailure(.{ .path = resolved_path }, false);
             }
         } else if (target.isGnuLibC()) {
-            try system_libs.ensureUnusedCapacity(glibc.libs.len + 1);
             for (glibc.libs) |lib| {
                 if (lib.removed_in) |rem_in| {
                     if (target.os.version_range.linux.glibc.order(rem_in) != .lt) continue;
                 }
 
-                const lib_path = try std.fmt.allocPrint(arena, "{s}{c}lib{s}.so.{d}", .{
+                const lib_path = Path.initCwd(try std.fmt.allocPrint(arena, "{s}{c}lib{s}.so.{d}", .{
                     comp.glibc_so_files.?.dir_path, fs.path.sep, lib.name, lib.sover,
-                });
-                system_libs.appendAssumeCapacity(.{ .path = lib_path });
+                }));
+                try self.parseLibraryReportingFailure(.{ .path = lib_path }, false);
             }
-            system_libs.appendAssumeCapacity(.{
+            try self.parseLibraryReportingFailure(.{
                 .path = try comp.get_libc_crt_file(arena, "libc_nonshared.a"),
-            });
+            }, false);
         } else if (target.isMusl()) {
             const path = try comp.get_libc_crt_file(arena, switch (link_mode) {
                 .static => "libc.a",
                 .dynamic => "libc.so",
             });
-            try system_libs.append(.{ .path = path });
+            try self.parseLibraryReportingFailure(.{ .path = path }, false);
         } else {
             comp.link_error_flags.missing_libc = true;
         }
-    }
-
-    for (system_libs.items) |lib| {
-        try self.parseLibraryReportingFailure(lib, false);
     }
 
     // Finally, as the last input objects we add compiler_rt and CSU postlude (if any).
@@ -1066,10 +1058,10 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
         }
     } else null;
 
-    const csu = try CsuObjects.init(arena, comp);
+    const csu = try comp.getCrtPaths(arena);
     const compiler_rt_path: ?[]const u8 = blk: {
-        if (comp.compiler_rt_lib) |x| break :blk x.full_object_path;
-        if (comp.compiler_rt_obj) |x| break :blk x.full_object_path;
+        if (comp.compiler_rt_lib) |x| break :blk try x.full_object_path.toString(arena);
+        if (comp.compiler_rt_obj) |x| break :blk try x.full_object_path.toString(arena);
         break :blk null;
     };
 
@@ -1092,11 +1084,11 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
 
     if (self.base.isRelocatable()) {
         for (comp.objects) |obj| {
-            try argv.append(obj.path);
+            try argv.append(try obj.path.toString(arena));
         }
 
         for (comp.c_object_table.keys()) |key| {
-            try argv.append(key.status.success.object_path);
+            try argv.append(try key.status.success.object_path.toString(arena));
         }
 
         if (module_obj_path) |p| {
@@ -1178,9 +1170,9 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
         }
 
         // csu prelude
-        if (csu.crt0) |v| try argv.append(v);
-        if (csu.crti) |v| try argv.append(v);
-        if (csu.crtbegin) |v| try argv.append(v);
+        if (csu.crt0) |path| try argv.append(try path.toString(arena));
+        if (csu.crti) |path| try argv.append(try path.toString(arena));
+        if (csu.crtbegin) |path| try argv.append(try path.toString(arena));
 
         for (self.lib_dirs) |lib_dir| {
             try argv.append("-L");
@@ -1205,10 +1197,9 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
             }
 
             if (obj.loption) {
-                assert(obj.path[0] == ':');
                 try argv.append("-l");
             }
-            try argv.append(obj.path);
+            try argv.append(try obj.path.toString(arena));
         }
         if (whole_archive) {
             try argv.append("-no-whole-archive");
@@ -1216,7 +1207,7 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
         }
 
         for (comp.c_object_table.keys()) |key| {
-            try argv.append(key.status.success.object_path);
+            try argv.append(try key.status.success.object_path.toString(arena));
         }
 
         if (module_obj_path) |p| {
@@ -1224,17 +1215,17 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
         }
 
         if (comp.config.any_sanitize_thread) {
-            try argv.append(comp.tsan_lib.?.full_object_path);
+            try argv.append(try comp.tsan_lib.?.full_object_path.toString(arena));
         }
 
         if (comp.config.any_fuzz) {
-            try argv.append(comp.fuzzer_lib.?.full_object_path);
+            try argv.append(try comp.fuzzer_lib.?.full_object_path.toString(arena));
         }
 
         // libc
         if (!comp.skip_linker_dependencies and !comp.config.link_libc) {
             if (comp.libc_static_lib) |lib| {
-                try argv.append(lib.full_object_path);
+                try argv.append(try lib.full_object_path.toString(arena));
             }
         }
 
@@ -1258,7 +1249,7 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
                     as_needed = true;
                 },
             }
-            argv.appendAssumeCapacity(lib_info.path.?);
+            argv.appendAssumeCapacity(try lib_info.path.?.toString(arena));
         }
 
         if (!as_needed) {
@@ -1268,13 +1259,13 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
 
         // libc++ dep
         if (comp.config.link_libcpp) {
-            try argv.append(comp.libcxxabi_static_lib.?.full_object_path);
-            try argv.append(comp.libcxx_static_lib.?.full_object_path);
+            try argv.append(try comp.libcxxabi_static_lib.?.full_object_path.toString(arena));
+            try argv.append(try comp.libcxx_static_lib.?.full_object_path.toString(arena));
         }
 
         // libunwind dep
         if (comp.config.link_libunwind) {
-            try argv.append(comp.libunwind_static_lib.?.full_object_path);
+            try argv.append(try comp.libunwind_static_lib.?.full_object_path.toString(arena));
         }
 
         // libc dep
@@ -1295,9 +1286,9 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
                     });
                     try argv.append(lib_path);
                 }
-                try argv.append(try comp.get_libc_crt_file(arena, "libc_nonshared.a"));
+                try argv.append(try comp.crtFileAsString(arena, "libc_nonshared.a"));
             } else if (target.isMusl()) {
-                try argv.append(try comp.get_libc_crt_file(arena, switch (link_mode) {
+                try argv.append(try comp.crtFileAsString(arena, switch (link_mode) {
                     .static => "libc.a",
                     .dynamic => "libc.so",
                 }));
@@ -1310,8 +1301,8 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
         }
 
         // crt postlude
-        if (csu.crtend) |v| try argv.append(v);
-        if (csu.crtn) |v| try argv.append(v);
+        if (csu.crtend) |path| try argv.append(try path.toString(arena));
+        if (csu.crtn) |path| try argv.append(try path.toString(arena));
     }
 
     Compilation.dump_argv(argv.items);
@@ -1331,7 +1322,7 @@ pub const ParseError = error{
     UnknownFileType,
 } || LdScript.Error || fs.Dir.AccessError || fs.File.SeekError || fs.File.OpenError || fs.File.ReadError;
 
-fn parseCrtFileReportingFailure(self: *Elf, crt_file: Compilation.CRTFile) error{OutOfMemory}!void {
+fn parseCrtFileReportingFailure(self: *Elf, crt_file: Compilation.CrtFile) error{OutOfMemory}!void {
     if (crt_file.isObject()) {
         try parseObjectReportingFailure(self, crt_file.full_object_path);
     } else {
@@ -1339,7 +1330,7 @@ fn parseCrtFileReportingFailure(self: *Elf, crt_file: Compilation.CRTFile) error
     }
 }
 
-pub fn parseObjectReportingFailure(self: *Elf, path: []const u8) error{OutOfMemory}!void {
+pub fn parseObjectReportingFailure(self: *Elf, path: Path) error{OutOfMemory}!void {
     self.parseObject(path) catch |err| switch (err) {
         error.LinkFailure => return, // already reported
         error.OutOfMemory => return error.OutOfMemory,
@@ -1367,17 +1358,20 @@ fn parseLibrary(self: *Elf, lib: SystemLib, must_link: bool) ParseError!void {
     }
 }
 
-fn parseObject(self: *Elf, path: []const u8) ParseError!void {
+fn parseObject(self: *Elf, path: Path) ParseError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
     const gpa = self.base.comp.gpa;
-    const handle = try fs.cwd().openFile(path, .{});
+    const handle = try path.root_dir.handle.openFile(path.sub_path, .{});
     const fh = try self.addFileHandle(handle);
 
-    const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
+    const index: File.Index = @intCast(try self.files.addOne(gpa));
     self.files.set(index, .{ .object = .{
-        .path = try gpa.dupe(u8, path),
+        .path = .{
+            .root_dir = path.root_dir,
+            .sub_path = try gpa.dupe(u8, path.sub_path),
+        },
         .file_handle = fh,
         .index = index,
     } });
@@ -1387,15 +1381,15 @@ fn parseObject(self: *Elf, path: []const u8) ParseError!void {
     try object.parse(self);
 }
 
-fn parseArchive(self: *Elf, path: []const u8, must_link: bool) ParseError!void {
+fn parseArchive(self: *Elf, path: Path, must_link: bool) ParseError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
     const gpa = self.base.comp.gpa;
-    const handle = try fs.cwd().openFile(path, .{});
+    const handle = try path.root_dir.handle.openFile(path.sub_path, .{});
     const fh = try self.addFileHandle(handle);
 
-    var archive = Archive{};
+    var archive: Archive = .{};
     defer archive.deinit(gpa);
     try archive.parse(self, path, fh);
 
@@ -1403,7 +1397,7 @@ fn parseArchive(self: *Elf, path: []const u8, must_link: bool) ParseError!void {
     defer gpa.free(objects);
 
     for (objects) |extracted| {
-        const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
+        const index: File.Index = @intCast(try self.files.addOne(gpa));
         self.files.set(index, .{ .object = extracted });
         const object = &self.files.items(.data)[index].object;
         object.index = index;
@@ -1418,12 +1412,15 @@ fn parseSharedObject(self: *Elf, lib: SystemLib) ParseError!void {
     defer tracy.end();
 
     const gpa = self.base.comp.gpa;
-    const handle = try fs.cwd().openFile(lib.path, .{});
+    const handle = try lib.path.root_dir.handle.openFile(lib.path.sub_path, .{});
     defer handle.close();
 
     const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
     self.files.set(index, .{ .shared_object = .{
-        .path = try gpa.dupe(u8, lib.path),
+        .path = .{
+            .root_dir = lib.path.root_dir,
+            .sub_path = try gpa.dupe(u8, lib.path.sub_path),
+        },
         .index = index,
         .needed = lib.needed,
         .alive = lib.needed,
@@ -1439,12 +1436,12 @@ fn parseLdScript(self: *Elf, lib: SystemLib) ParseError!void {
     defer tracy.end();
 
     const gpa = self.base.comp.gpa;
-    const in_file = try fs.cwd().openFile(lib.path, .{});
+    const in_file = try lib.path.root_dir.handle.openFile(lib.path.sub_path, .{});
     defer in_file.close();
     const data = try in_file.readToEndAlloc(gpa, std.math.maxInt(u32));
     defer gpa.free(data);
 
-    var script = LdScript{ .path = lib.path };
+    var script: LdScript = .{ .path = lib.path };
     defer script.deinit(gpa);
     try script.parse(data, self);
 
@@ -1455,12 +1452,12 @@ fn parseLdScript(self: *Elf, lib: SystemLib) ParseError!void {
     var test_path = std.ArrayList(u8).init(arena);
     var checked_paths = std.ArrayList([]const u8).init(arena);
 
-    for (script.args.items) |scr_obj| {
+    for (script.args.items) |script_arg| {
         checked_paths.clearRetainingCapacity();
 
         success: {
-            if (mem.startsWith(u8, scr_obj.path, "-l")) {
-                const lib_name = scr_obj.path["-l".len..];
+            if (mem.startsWith(u8, script_arg.path, "-l")) {
+                const lib_name = script_arg.path["-l".len..];
 
                 // TODO I think technically we should re-use the mechanism used by the frontend here.
                 // Maybe we should hoist search-strategy all the way here?
@@ -1474,33 +1471,30 @@ fn parseLdScript(self: *Elf, lib: SystemLib) ParseError!void {
                 }
             } else {
                 var buffer: [fs.max_path_bytes]u8 = undefined;
-                if (fs.realpath(scr_obj.path, &buffer)) |path| {
+                if (fs.realpath(script_arg.path, &buffer)) |path| {
                     test_path.clearRetainingCapacity();
                     try test_path.writer().writeAll(path);
                     break :success;
                 } else |_| {}
 
-                try checked_paths.append(try arena.dupe(u8, scr_obj.path));
+                try checked_paths.append(try arena.dupe(u8, script_arg.path));
                 for (self.lib_dirs) |lib_dir| {
-                    if (try self.accessLibPath(arena, &test_path, &checked_paths, lib_dir, scr_obj.path, null))
+                    if (try self.accessLibPath(arena, &test_path, &checked_paths, lib_dir, script_arg.path, null))
                         break :success;
                 }
             }
 
             try self.reportMissingLibraryError(
                 checked_paths.items,
-                "missing library dependency: GNU ld script '{s}' requires '{s}', but file not found",
-                .{
-                    lib.path,
-                    scr_obj.path,
-                },
+                "missing library dependency: GNU ld script '{}' requires '{s}', but file not found",
+                .{ @as(Path, lib.path), script_arg.path },
             );
             continue;
         }
 
-        const full_path = test_path.items;
+        const full_path = Path.initCwd(test_path.items);
         self.parseLibrary(.{
-            .needed = scr_obj.needed,
+            .needed = script_arg.needed,
             .path = full_path,
         }, false) catch |err| switch (err) {
             error.LinkFailure => continue, // already reported
@@ -1841,7 +1835,7 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
     const have_dynamic_linker = comp.config.link_libc and
         link_mode == .dynamic and is_exe_or_dyn_lib;
     const target = self.getTarget();
-    const compiler_rt_path: ?[]const u8 = blk: {
+    const compiler_rt_path: ?Path = blk: {
         if (comp.compiler_rt_lib) |x| break :blk x.full_object_path;
         if (comp.compiler_rt_obj) |x| break :blk x.full_object_path;
         break :blk null;
@@ -1875,17 +1869,17 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
         man.hash.add(self.allow_undefined_version);
         man.hash.addOptional(self.enable_new_dtags);
         for (comp.objects) |obj| {
-            _ = try man.addFile(obj.path, null);
+            _ = try man.addFilePath(obj.path, null);
             man.hash.add(obj.must_link);
             man.hash.add(obj.loption);
         }
         for (comp.c_object_table.keys()) |key| {
-            _ = try man.addFile(key.status.success.object_path, null);
+            _ = try man.addFilePath(key.status.success.object_path, null);
         }
         try man.addOptionalFile(module_obj_path);
-        try man.addOptionalFile(compiler_rt_path);
-        try man.addOptionalFile(if (comp.tsan_lib) |l| l.full_object_path else null);
-        try man.addOptionalFile(if (comp.fuzzer_lib) |l| l.full_object_path else null);
+        try man.addOptionalFilePath(compiler_rt_path);
+        try man.addOptionalFilePath(if (comp.tsan_lib) |l| l.full_object_path else null);
+        try man.addOptionalFilePath(if (comp.fuzzer_lib) |l| l.full_object_path else null);
 
         // We can skip hashing libc and libc++ components that we are in charge of building from Zig
         // installation sources because they are always a product of the compiler version + target information.
@@ -1982,17 +1976,19 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
                 break :blk comp.c_object_table.keys()[0].status.success.object_path;
 
             if (module_obj_path) |p|
-                break :blk p;
+                break :blk Path.initCwd(p);
 
             // TODO I think this is unreachable. Audit this situation when solving the above TODO
             // regarding eliding redundant object -> object transformations.
             return error.NoObjectsToLink;
         };
-        // This can happen when using --enable-cache and using the stage1 backend. In this case
-        // we can skip the file copy.
-        if (!mem.eql(u8, the_object_path, full_out_path)) {
-            try fs.cwd().copyFile(the_object_path, fs.cwd(), full_out_path, .{});
-        }
+        try std.fs.Dir.copyFile(
+            the_object_path.root_dir.handle,
+            the_object_path.sub_path,
+            directory.handle,
+            self.base.emit.sub_path,
+            .{},
+        );
     } else {
         // Create an LLD command line and invoke it.
         var argv = std.ArrayList([]const u8).init(gpa);
@@ -2177,10 +2173,10 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
         try argv.append(full_out_path);
 
         // csu prelude
-        const csu = try CsuObjects.init(arena, comp);
-        if (csu.crt0) |v| try argv.append(v);
-        if (csu.crti) |v| try argv.append(v);
-        if (csu.crtbegin) |v| try argv.append(v);
+        const csu = try comp.getCrtPaths(arena);
+        if (csu.crt0) |p| try argv.append(try p.toString(arena));
+        if (csu.crti) |p| try argv.append(try p.toString(arena));
+        if (csu.crtbegin) |p| try argv.append(try p.toString(arena));
 
         for (self.rpath_table.keys()) |rpath| {
             try argv.appendSlice(&.{ "-rpath", rpath });
@@ -2244,10 +2240,10 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
             }
 
             if (obj.loption) {
-                assert(obj.path[0] == ':');
+                assert(obj.path.sub_path[0] == ':');
                 try argv.append("-l");
             }
-            try argv.append(obj.path);
+            try argv.append(try obj.path.toString(arena));
         }
         if (whole_archive) {
             try argv.append("-no-whole-archive");
@@ -2255,7 +2251,7 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
         }
 
         for (comp.c_object_table.keys()) |key| {
-            try argv.append(key.status.success.object_path);
+            try argv.append(try key.status.success.object_path.toString(arena));
         }
 
         if (module_obj_path) |p| {
@@ -2264,12 +2260,12 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
 
         if (comp.tsan_lib) |lib| {
             assert(comp.config.any_sanitize_thread);
-            try argv.append(lib.full_object_path);
+            try argv.append(try lib.full_object_path.toString(arena));
         }
 
         if (comp.fuzzer_lib) |lib| {
             assert(comp.config.any_fuzz);
-            try argv.append(lib.full_object_path);
+            try argv.append(try lib.full_object_path.toString(arena));
         }
 
         // libc
@@ -2278,7 +2274,7 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
             !comp.config.link_libc)
         {
             if (comp.libc_static_lib) |lib| {
-                try argv.append(lib.full_object_path);
+                try argv.append(try lib.full_object_path.toString(arena));
             }
         }
 
@@ -2311,7 +2307,7 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
                 // libraries and not static libraries (the check for that needs to be earlier),
                 // but they could be full paths to .so files, in which case we
                 // want to avoid prepending "-l".
-                argv.appendAssumeCapacity(lib_info.path.?);
+                argv.appendAssumeCapacity(try lib_info.path.?.toString(arena));
             }
 
             if (!as_needed) {
@@ -2321,13 +2317,13 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
 
             // libc++ dep
             if (comp.config.link_libcpp) {
-                try argv.append(comp.libcxxabi_static_lib.?.full_object_path);
-                try argv.append(comp.libcxx_static_lib.?.full_object_path);
+                try argv.append(try comp.libcxxabi_static_lib.?.full_object_path.toString(arena));
+                try argv.append(try comp.libcxx_static_lib.?.full_object_path.toString(arena));
             }
 
             // libunwind dep
             if (comp.config.link_libunwind) {
-                try argv.append(comp.libunwind_static_lib.?.full_object_path);
+                try argv.append(try comp.libunwind_static_lib.?.full_object_path.toString(arena));
             }
 
             // libc dep
@@ -2349,9 +2345,9 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
                         });
                         try argv.append(lib_path);
                     }
-                    try argv.append(try comp.get_libc_crt_file(arena, "libc_nonshared.a"));
+                    try argv.append(try comp.crtFileAsString(arena, "libc_nonshared.a"));
                 } else if (target.isMusl()) {
-                    try argv.append(try comp.get_libc_crt_file(arena, switch (link_mode) {
+                    try argv.append(try comp.crtFileAsString(arena, switch (link_mode) {
                         .static => "libc.a",
                         .dynamic => "libc.so",
                     }));
@@ -2365,12 +2361,12 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
         // to be after the shared libraries, so they are picked up from the shared
         // libraries, not libcompiler_rt.
         if (compiler_rt_path) |p| {
-            try argv.append(p);
+            try argv.append(try p.toString(arena));
         }
 
         // crt postlude
-        if (csu.crtend) |v| try argv.append(v);
-        if (csu.crtn) |v| try argv.append(v);
+        if (csu.crtend) |p| try argv.append(try p.toString(arena));
+        if (csu.crtn) |p| try argv.append(try p.toString(arena));
 
         if (self.base.allow_shlib_undefined) {
             try argv.append("--allow-shlib-undefined");
@@ -3183,8 +3179,9 @@ fn sortInitFini(self: *Elf) !void {
             const object = atom_ptr.file(self).?.object;
             const priority = blk: {
                 if (is_ctor_dtor) {
-                    if (mem.indexOf(u8, object.path, "crtbegin") != null) break :blk std.math.minInt(i32);
-                    if (mem.indexOf(u8, object.path, "crtend") != null) break :blk std.math.maxInt(i32);
+                    const basename = object.path.basename();
+                    if (mem.eql(u8, basename, "crtbegin.o")) break :blk std.math.minInt(i32);
+                    if (mem.eql(u8, basename, "crtend.o")) break :blk std.math.maxInt(i32);
                 }
                 const default: i32 = if (is_ctor_dtor) -1 else std.math.maxInt(i32);
                 const name = atom_ptr.name(self);
@@ -4472,210 +4469,6 @@ pub fn padToIdeal(actual_size: anytype) @TypeOf(actual_size) {
     return actual_size +| (actual_size / ideal_factor);
 }
 
-// Provide a blueprint of csu (c-runtime startup) objects for supported
-// link modes.
-//
-// This is for cross-mode targets only. For host-mode targets the system
-// compiler can be probed to produce a robust blueprint.
-//
-// Targets requiring a libc for which zig does not bundle a libc are
-// host-mode targets. Unfortunately, host-mode probes are not yet
-// implemented. For now the data is hard-coded here. Such targets are
-// { freebsd, netbsd, openbsd, dragonfly }.
-const CsuObjects = struct {
-    crt0: ?[]const u8 = null,
-    crti: ?[]const u8 = null,
-    crtbegin: ?[]const u8 = null,
-    crtend: ?[]const u8 = null,
-    crtn: ?[]const u8 = null,
-
-    const InitArgs = struct {};
-
-    fn init(arena: Allocator, comp: *const Compilation) !CsuObjects {
-        // crt objects are only required for libc.
-        if (!comp.config.link_libc) return .{};
-
-        var result: CsuObjects = .{};
-
-        // Flatten crt cases.
-        const mode: enum {
-            dynamic_lib,
-            dynamic_exe,
-            dynamic_pie,
-            static_exe,
-            static_pie,
-        } = switch (comp.config.output_mode) {
-            .Obj => return CsuObjects{},
-            .Lib => switch (comp.config.link_mode) {
-                .dynamic => .dynamic_lib,
-                .static => return CsuObjects{},
-            },
-            .Exe => switch (comp.config.link_mode) {
-                .dynamic => if (comp.config.pie) .dynamic_pie else .dynamic_exe,
-                .static => if (comp.config.pie) .static_pie else .static_exe,
-            },
-        };
-
-        const target = comp.root_mod.resolved_target.result;
-
-        if (target.isAndroid()) {
-            switch (mode) {
-                // zig fmt: off
-                .dynamic_lib => result.set( null, null, "crtbegin_so.o",      "crtend_so.o",      null ),
-                .dynamic_exe,
-                .dynamic_pie => result.set( null, null, "crtbegin_dynamic.o", "crtend_android.o", null ),
-                .static_exe,
-                .static_pie  => result.set( null, null, "crtbegin_static.o",  "crtend_android.o", null ),
-                // zig fmt: on
-            }
-        } else {
-            switch (target.os.tag) {
-                .linux => {
-                    switch (mode) {
-                        // zig fmt: off
-                        .dynamic_lib => result.set( null,      "crti.o", "crtbeginS.o", "crtendS.o", "crtn.o" ),
-                        .dynamic_exe => result.set( "crt1.o",  "crti.o", "crtbegin.o",  "crtend.o",  "crtn.o" ),
-                        .dynamic_pie => result.set( "Scrt1.o", "crti.o", "crtbeginS.o", "crtendS.o", "crtn.o" ),
-                        .static_exe  => result.set( "crt1.o",  "crti.o", "crtbeginT.o", "crtend.o",  "crtn.o" ),
-                        .static_pie  => result.set( "rcrt1.o", "crti.o", "crtbeginS.o", "crtendS.o", "crtn.o" ),
-                        // zig fmt: on
-                    }
-                    if (comp.libc_installation) |_| {
-                        // hosted-glibc provides crtbegin/end objects in platform/compiler-specific dirs
-                        // and they are not known at comptime. For now null-out crtbegin/end objects;
-                        // there is no feature loss, zig has never linked those objects in before.
-                        result.crtbegin = null;
-                        result.crtend = null;
-                    } else {
-                        // Bundled glibc only has Scrt1.o .
-                        if (result.crt0 != null and target.isGnuLibC()) result.crt0 = "Scrt1.o";
-                    }
-                },
-                .dragonfly => switch (mode) {
-                    // zig fmt: off
-                    .dynamic_lib => result.set( null,      "crti.o", "crtbeginS.o",  "crtendS.o", "crtn.o" ),
-                    .dynamic_exe => result.set( "crt1.o",  "crti.o", "crtbegin.o",   "crtend.o",  "crtn.o" ),
-                    .dynamic_pie => result.set( "Scrt1.o", "crti.o", "crtbeginS.o",  "crtendS.o", "crtn.o" ),
-                    .static_exe  => result.set( "crt1.o",  "crti.o", "crtbegin.o",   "crtend.o",  "crtn.o" ),
-                    .static_pie  => result.set( "Scrt1.o", "crti.o", "crtbeginS.o",  "crtendS.o", "crtn.o" ),
-                    // zig fmt: on
-                },
-                .freebsd => switch (mode) {
-                    // zig fmt: off
-                    .dynamic_lib => result.set( null,      "crti.o", "crtbeginS.o", "crtendS.o", "crtn.o" ),
-                    .dynamic_exe => result.set( "crt1.o",  "crti.o", "crtbegin.o",  "crtend.o",  "crtn.o" ),
-                    .dynamic_pie => result.set( "Scrt1.o", "crti.o", "crtbeginS.o", "crtendS.o", "crtn.o" ),
-                    .static_exe  => result.set( "crt1.o",  "crti.o", "crtbeginT.o", "crtend.o",  "crtn.o" ),
-                    .static_pie  => result.set( "Scrt1.o", "crti.o", "crtbeginS.o", "crtendS.o", "crtn.o" ),
-                    // zig fmt: on
-                },
-                .netbsd => switch (mode) {
-                    // zig fmt: off
-                    .dynamic_lib => result.set( null,     "crti.o", "crtbeginS.o", "crtendS.o", "crtn.o" ),
-                    .dynamic_exe => result.set( "crt0.o", "crti.o", "crtbegin.o",  "crtend.o",  "crtn.o" ),
-                    .dynamic_pie => result.set( "crt0.o", "crti.o", "crtbeginS.o", "crtendS.o", "crtn.o" ),
-                    .static_exe  => result.set( "crt0.o", "crti.o", "crtbeginT.o", "crtend.o",  "crtn.o" ),
-                    .static_pie  => result.set( "crt0.o", "crti.o", "crtbeginT.o", "crtendS.o", "crtn.o" ),
-                    // zig fmt: on
-                },
-                .openbsd => switch (mode) {
-                    // zig fmt: off
-                    .dynamic_lib => result.set( null,      null, "crtbeginS.o", "crtendS.o", null ),
-                    .dynamic_exe,
-                    .dynamic_pie => result.set( "crt0.o",  null, "crtbegin.o",  "crtend.o",  null ),
-                    .static_exe,
-                    .static_pie  => result.set( "rcrt0.o", null, "crtbegin.o",  "crtend.o",  null ),
-                    // zig fmt: on
-                },
-                .haiku => switch (mode) {
-                    // zig fmt: off
-                    .dynamic_lib => result.set( null,          "crti.o", "crtbeginS.o", "crtendS.o", "crtn.o" ),
-                    .dynamic_exe => result.set( "start_dyn.o", "crti.o", "crtbegin.o",  "crtend.o",  "crtn.o" ),
-                    .dynamic_pie => result.set( "start_dyn.o", "crti.o", "crtbeginS.o", "crtendS.o", "crtn.o" ),
-                    .static_exe  => result.set( "start_dyn.o", "crti.o", "crtbegin.o",  "crtend.o",  "crtn.o" ),
-                    .static_pie  => result.set( "start_dyn.o", "crti.o", "crtbeginS.o", "crtendS.o", "crtn.o" ),
-                    // zig fmt: on
-                },
-                .solaris, .illumos => switch (mode) {
-                    // zig fmt: off
-                    .dynamic_lib => result.set( null,     "crti.o", null, null, "crtn.o" ),
-                    .dynamic_exe,
-                    .dynamic_pie => result.set( "crt1.o", "crti.o", null, null, "crtn.o" ),
-                    .static_exe,
-                    .static_pie  => result.set( null,     null,     null, null, null     ),
-                    // zig fmt: on
-                },
-                else => {},
-            }
-        }
-
-        // Convert each object to a full pathname.
-        if (comp.libc_installation) |lci| {
-            const crt_dir_path = lci.crt_dir orelse return error.LibCInstallationMissingCRTDir;
-            switch (target.os.tag) {
-                .dragonfly => {
-                    if (result.crt0) |*obj| obj.* = try fs.path.join(arena, &[_][]const u8{ crt_dir_path, obj.* });
-                    if (result.crti) |*obj| obj.* = try fs.path.join(arena, &[_][]const u8{ crt_dir_path, obj.* });
-                    if (result.crtn) |*obj| obj.* = try fs.path.join(arena, &[_][]const u8{ crt_dir_path, obj.* });
-
-                    var gccv: []const u8 = undefined;
-                    if (target.os.version_range.semver.isAtLeast(.{ .major = 5, .minor = 4, .patch = 0 }) orelse true) {
-                        gccv = "gcc80";
-                    } else {
-                        gccv = "gcc54";
-                    }
-
-                    if (result.crtbegin) |*obj| obj.* = try fs.path.join(arena, &[_][]const u8{ crt_dir_path, gccv, obj.* });
-                    if (result.crtend) |*obj| obj.* = try fs.path.join(arena, &[_][]const u8{ crt_dir_path, gccv, obj.* });
-                },
-                .haiku => {
-                    const gcc_dir_path = lci.gcc_dir orelse return error.LibCInstallationMissingCRTDir;
-                    if (result.crt0) |*obj| obj.* = try fs.path.join(arena, &[_][]const u8{ crt_dir_path, obj.* });
-                    if (result.crti) |*obj| obj.* = try fs.path.join(arena, &[_][]const u8{ crt_dir_path, obj.* });
-                    if (result.crtn) |*obj| obj.* = try fs.path.join(arena, &[_][]const u8{ crt_dir_path, obj.* });
-
-                    if (result.crtbegin) |*obj| obj.* = try fs.path.join(arena, &[_][]const u8{ gcc_dir_path, obj.* });
-                    if (result.crtend) |*obj| obj.* = try fs.path.join(arena, &[_][]const u8{ gcc_dir_path, obj.* });
-                },
-                else => {
-                    inline for (std.meta.fields(@TypeOf(result))) |f| {
-                        if (@field(result, f.name)) |*obj| {
-                            obj.* = try fs.path.join(arena, &[_][]const u8{ crt_dir_path, obj.* });
-                        }
-                    }
-                },
-            }
-        } else {
-            inline for (std.meta.fields(@TypeOf(result))) |f| {
-                if (@field(result, f.name)) |*obj| {
-                    if (comp.crt_files.get(obj.*)) |crtf| {
-                        obj.* = crtf.full_object_path;
-                    } else {
-                        @field(result, f.name) = null;
-                    }
-                }
-            }
-        }
-
-        return result;
-    }
-
-    fn set(
-        self: *CsuObjects,
-        crt0: ?[]const u8,
-        crti: ?[]const u8,
-        crtbegin: ?[]const u8,
-        crtend: ?[]const u8,
-        crtn: ?[]const u8,
-    ) void {
-        self.crt0 = crt0;
-        self.crti = crti;
-        self.crtbegin = crtbegin;
-        self.crtend = crtend;
-        self.crtn = crtn;
-    }
-};
-
 /// If a target compiles other output modes as dynamic libraries,
 /// this function returns true for those too.
 pub fn isEffectivelyDynLib(self: Elf) bool {
@@ -5089,13 +4882,13 @@ fn reportUnsupportedCpuArch(self: *Elf) error{OutOfMemory}!void {
 
 pub fn addParseError(
     self: *Elf,
-    path: []const u8,
+    path: Path,
     comptime format: []const u8,
     args: anytype,
 ) error{OutOfMemory}!void {
     var err = try self.base.addErrorWithNotes(1);
     try err.addMsg(format, args);
-    try err.addNote("while parsing {s}", .{path});
+    try err.addNote("while parsing {}", .{path});
 }
 
 pub fn addFileError(
@@ -5121,7 +4914,7 @@ pub fn failFile(
 
 pub fn failParse(
     self: *Elf,
-    path: []const u8,
+    path: Path,
     comptime format: []const u8,
     args: anytype,
 ) error{ OutOfMemory, LinkFailure } {
@@ -5274,7 +5067,7 @@ fn fmtDumpState(
     _ = options;
 
     if (self.zigObjectPtr()) |zig_object| {
-        try writer.print("zig_object({d}) : {s}\n", .{ zig_object.index, zig_object.path });
+        try writer.print("zig_object({d}) : {s}\n", .{ zig_object.index, zig_object.basename });
         try writer.print("{}{}", .{
             zig_object.fmtAtoms(self),
             zig_object.fmtSymtab(self),
@@ -5299,7 +5092,7 @@ fn fmtDumpState(
     for (self.shared_objects.items) |index| {
         const shared_object = self.file(index).?.shared_object;
         try writer.print("shared_object({d}) : ", .{index});
-        try writer.print("{s}", .{shared_object.path});
+        try writer.print("{}", .{shared_object.path});
         try writer.print(" : needed({})", .{shared_object.needed});
         if (!shared_object.alive) try writer.writeAll(" : [*]");
         try writer.writeByte('\n');
@@ -5482,7 +5275,7 @@ pub const null_shdr = elf.Elf64_Shdr{
 
 pub const SystemLib = struct {
     needed: bool = false,
-    path: []const u8,
+    path: Path,
 };
 
 pub const Ref = struct {
