@@ -101,7 +101,7 @@ comptime {
 }
 
 fn testMemcpyAllowsAliasingOnZeroBitTypes() !void {
-    var a: [2]u0 = .{ 0, 0, 0 };
+    var a: [3]u0 = .{ 0, 0, 0 };
     @memcpy(a[1..3], a[0..2]);
 }
 
