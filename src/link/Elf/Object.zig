@@ -644,6 +644,7 @@ pub fn checkDuplicates(self: *Object, dupes: anytype, elf_file: *Elf) error{OutO
 
 pub fn initInputMergeSections(self: *Object, elf_file: *Elf) !void {
     const gpa = elf_file.base.comp.gpa;
+    const diags = &elf_file.base.comp.link_diags;
 
     try self.input_merge_sections.ensureUnusedCapacity(gpa, self.shdrs.items.len);
     try self.input_merge_sections_indexes.resize(gpa, self.shdrs.items.len);
@@ -685,7 +686,7 @@ pub fn initInputMergeSections(self: *Object, elf_file: *Elf) !void {
                 var end = start;
                 while (end < data.len - sh_entsize and !isNull(data[end .. end + sh_entsize])) : (end += sh_entsize) {}
                 if (!isNull(data[end .. end + sh_entsize])) {
-                    var err = try elf_file.base.addErrorWithNotes(1);
+                    var err = try diags.addErrorWithNotes(1);
                     try err.addMsg("string not null terminated", .{});
                     try err.addNote("in {}:{s}", .{ self.fmtPath(), atom_ptr.name(elf_file) });
                     return error.LinkFailure;
@@ -700,7 +701,7 @@ pub fn initInputMergeSections(self: *Object, elf_file: *Elf) !void {
             const sh_entsize: u32 = @intCast(shdr.sh_entsize);
             if (sh_entsize == 0) continue; // Malformed, don't split but don't error out
             if (shdr.sh_size % sh_entsize != 0) {
-                var err = try elf_file.base.addErrorWithNotes(1);
+                var err = try diags.addErrorWithNotes(1);
                 try err.addMsg("size not a multiple of sh_entsize", .{});
                 try err.addNote("in {}:{s}", .{ self.fmtPath(), atom_ptr.name(elf_file) });
                 return error.LinkFailure;
@@ -738,6 +739,7 @@ pub fn resolveMergeSubsections(self: *Object, elf_file: *Elf) error{
     Overflow,
 }!void {
     const gpa = elf_file.base.comp.gpa;
+    const diags = &elf_file.base.comp.link_diags;
 
     for (self.input_merge_sections_indexes.items) |index| {
         const imsec = self.inputMergeSection(index) orelse continue;
@@ -776,7 +778,7 @@ pub fn resolveMergeSubsections(self: *Object, elf_file: *Elf) error{
         const imsec = self.inputMergeSection(imsec_index) orelse continue;
         if (imsec.offsets.items.len == 0) continue;
         const res = imsec.findSubsection(@intCast(esym.st_value)) orelse {
-            var err = try elf_file.base.addErrorWithNotes(2);
+            var err = try diags.addErrorWithNotes(2);
             try err.addMsg("invalid symbol value: {x}", .{esym.st_value});
             try err.addNote("for symbol {s}", .{sym.name(elf_file)});
             try err.addNote("in {}", .{self.fmtPath()});
@@ -802,7 +804,7 @@ pub fn resolveMergeSubsections(self: *Object, elf_file: *Elf) error{
             if (imsec.offsets.items.len == 0) continue;
             const msec = elf_file.mergeSection(imsec.merge_section_index);
             const res = imsec.findSubsection(@intCast(@as(i64, @intCast(esym.st_value)) + rel.r_addend)) orelse {
-                var err = try elf_file.base.addErrorWithNotes(1);
+                var err = try diags.addErrorWithNotes(1);
                 try err.addMsg("invalid relocation at offset 0x{x}", .{rel.r_offset});
                 try err.addNote("in {}:{s}", .{ self.fmtPath(), atom_ptr.name(elf_file) });
                 return error.LinkFailure;

@@ -364,6 +364,8 @@ pub fn scanRelocs(self: *ZigObject, macho_file: *MachO) !void {
 
 pub fn resolveRelocs(self: *ZigObject, macho_file: *MachO) !void {
     const gpa = macho_file.base.comp.gpa;
+    const diags = &macho_file.base.comp.link_diags;
+
     var has_error = false;
     for (self.getAtoms()) |atom_index| {
         const atom = self.getAtom(atom_index) orelse continue;
@@ -379,17 +381,12 @@ pub fn resolveRelocs(self: *ZigObject, macho_file: *MachO) !void {
         defer gpa.free(code);
         self.getAtomData(macho_file, atom.*, code) catch |err| {
             switch (err) {
-                error.InputOutput => {
-                    try macho_file.reportUnexpectedError("fetching code for '{s}' failed", .{
-                        atom.getName(macho_file),
-                    });
-                },
-                else => |e| {
-                    try macho_file.reportUnexpectedError("unexpected error while fetching code for '{s}': {s}", .{
-                        atom.getName(macho_file),
-                        @errorName(e),
-                    });
-                },
+                error.InputOutput => return diags.fail("fetching code for '{s}' failed", .{
+                    atom.getName(macho_file),
+                }),
+                else => |e| return diags.fail("failed to fetch code for '{s}': {s}", .{
+                    atom.getName(macho_file), @errorName(e),
+                }),
             }
             has_error = true;
             continue;
@@ -398,9 +395,7 @@ pub fn resolveRelocs(self: *ZigObject, macho_file: *MachO) !void {
         atom.resolveRelocs(macho_file, code) catch |err| {
             switch (err) {
                 error.ResolveFailed => {},
-                else => |e| {
-                    try macho_file.reportUnexpectedError("unexpected error while resolving relocations: {s}", .{@errorName(e)});
-                },
+                else => |e| return diags.fail("failed to resolve relocations: {s}", .{@errorName(e)}),
             }
             has_error = true;
             continue;
@@ -426,6 +421,7 @@ pub fn calcNumRelocs(self: *ZigObject, macho_file: *MachO) void {
 
 pub fn writeRelocs(self: *ZigObject, macho_file: *MachO) !void {
     const gpa = macho_file.base.comp.gpa;
+    const diags = &macho_file.base.comp.link_diags;
 
     for (self.getAtoms()) |atom_index| {
         const atom = self.getAtom(atom_index) orelse continue;
@@ -439,21 +435,8 @@ pub fn writeRelocs(self: *ZigObject, macho_file: *MachO) !void {
         const atom_size = std.math.cast(usize, atom.size) orelse return error.Overflow;
         const code = try gpa.alloc(u8, atom_size);
         defer gpa.free(code);
-        self.getAtomData(macho_file, atom.*, code) catch |err| switch (err) {
-            error.InputOutput => {
-                try macho_file.reportUnexpectedError("fetching code for '{s}' failed", .{
-                    atom.getName(macho_file),
-                });
-                return error.FlushFailure;
-            },
-            else => |e| {
-                try macho_file.reportUnexpectedError("unexpected error while fetching code for '{s}': {s}", .{
-                    atom.getName(macho_file),
-                    @errorName(e),
-                });
-                return error.FlushFailure;
-            },
-        };
+        self.getAtomData(macho_file, atom.*, code) catch |err|
+            return diags.fail("failed to fetch code for '{s}': {s}", .{ atom.getName(macho_file), @errorName(err) });
         const file_offset = header.offset + atom.value;
         try atom.writeRelocs(macho_file, code, relocs[extra.rel_out_index..][0..extra.rel_out_count]);
         try macho_file.base.file.?.pwriteAll(code, file_offset);

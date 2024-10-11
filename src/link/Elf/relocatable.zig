@@ -1,5 +1,6 @@
 pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation, module_obj_path: ?Path) link.File.FlushError!void {
     const gpa = comp.gpa;
+    const diags = &comp.link_diags;
 
     for (comp.objects) |obj| {
         switch (Compilation.classifyFileExt(obj.path.sub_path)) {
@@ -21,7 +22,7 @@ pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation, module_obj_path: ?Path
         try parseObjectStaticLibReportingFailure(elf_file, comp.compiler_rt_obj.?.full_object_path);
     }
 
-    if (elf_file.base.hasErrors()) return error.FlushFailure;
+    if (diags.hasErrors()) return error.FlushFailure;
 
     // First, we flush relocatable object file generated with our backends.
     if (elf_file.zigObjectPtr()) |zig_object| {
@@ -146,10 +147,12 @@ pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation, module_obj_path: ?Path
     try elf_file.base.file.?.setEndPos(total_size);
     try elf_file.base.file.?.pwriteAll(buffer.items, 0);
 
-    if (elf_file.base.hasErrors()) return error.FlushFailure;
+    if (diags.hasErrors()) return error.FlushFailure;
 }
 
 pub fn flushObject(elf_file: *Elf, comp: *Compilation, module_obj_path: ?Path) link.File.FlushError!void {
+    const diags = &comp.link_diags;
+
     for (comp.objects) |obj| {
         if (obj.isObject()) {
             try elf_file.parseObjectReportingFailure(obj.path);
@@ -167,7 +170,7 @@ pub fn flushObject(elf_file: *Elf, comp: *Compilation, module_obj_path: ?Path) l
 
     if (module_obj_path) |path| try elf_file.parseObjectReportingFailure(path);
 
-    if (elf_file.base.hasErrors()) return error.FlushFailure;
+    if (diags.hasErrors()) return error.FlushFailure;
 
     // Now, we are ready to resolve the symbols across all input files.
     // We will first resolve the files in the ZigObject, next in the parsed
@@ -213,7 +216,7 @@ pub fn flushObject(elf_file: *Elf, comp: *Compilation, module_obj_path: ?Path) l
     try elf_file.writeShdrTable();
     try elf_file.writeElfHeader();
 
-    if (elf_file.base.hasErrors()) return error.FlushFailure;
+    if (diags.hasErrors()) return error.FlushFailure;
 }
 
 fn parseObjectStaticLibReportingFailure(elf_file: *Elf, path: Path) error{OutOfMemory}!void {
