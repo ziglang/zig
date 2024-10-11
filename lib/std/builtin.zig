@@ -620,6 +620,7 @@ pub const VaList = switch (builtin.cpu.arch) {
     .avr => *anyopaque,
     .bpfel, .bpfeb => *anyopaque,
     .hexagon => if (builtin.target.isMusl()) VaListHexagon else *u8,
+    .loongarch32, .loongarch64 => *anyopaque,
     .mips, .mipsel, .mips64, .mips64el => *anyopaque,
     .riscv32, .riscv64 => *anyopaque,
     .powerpc, .powerpcle => switch (builtin.os.tag) {
