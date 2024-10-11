@@ -437,13 +437,13 @@ pub fn symLinkAbsolute(
 /// like to create a symbolic link to a directory, specify this with `SymLinkFlags{ .is_directory = true }`.
 /// See also `symLinkAbsolute`, `symLinkAbsoluteZ`.
 pub fn symLinkAbsoluteW(
-    target_path_w: []const u16,
-    sym_link_path_w: []const u16,
+    target_path_w: [*:0]const u16,
+    sym_link_path_w: [*:0]const u16,
     flags: Dir.SymLinkFlags,
 ) !void {
-    assert(path.isAbsoluteWindowsWTF16(target_path_w));
-    assert(path.isAbsoluteWindowsWTF16(sym_link_path_w));
-    return windows.CreateSymbolicLink(null, sym_link_path_w, @as([:0]const u16, @ptrCast(target_path_w)), flags.is_directory);
+    assert(path.isAbsoluteWindowsW(target_path_w));
+    assert(path.isAbsoluteWindowsW(sym_link_path_w));
+    return windows.CreateSymbolicLink(null, mem.span(sym_link_path_w), mem.span(target_path_w), flags.is_directory);
 }
 
 /// Same as `symLinkAbsolute` except the parameters are null-terminated pointers.
