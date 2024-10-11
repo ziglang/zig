@@ -106,10 +106,7 @@ win32_resource_table: if (dev.env.supports(.win32_resource)) std.AutoArrayHashMa
     pub fn deinit(_: @This(), _: Allocator) void {}
 } = .{},
 
-link_errors: std.ArrayListUnmanaged(link.File.ErrorMsg) = .empty,
-link_errors_mutex: std.Thread.Mutex = .{},
-link_error_flags: link.File.ErrorFlags = .{},
-lld_errors: std.ArrayListUnmanaged(LldError) = .empty,
+link_diags: link.Diags,
 
 work_queues: [
     len: {
@@ -842,21 +839,6 @@ pub const MiscError = struct {
     }
 };
 
-pub const LldError = struct {
-    /// Allocated with gpa.
-    msg: []const u8,
-    context_lines: []const []const u8 = &.{},
-
-    pub fn deinit(self: *LldError, gpa: Allocator) void {
-        for (self.context_lines) |line| {
-            gpa.free(line);
-        }
-
-        gpa.free(self.context_lines);
-        gpa.free(self.msg);
-    }
-};
-
 pub const EmitLoc = struct {
     /// If this is `null` it means the file will be output to the cache directory.
     /// When provided, both the open file handle and the path name must outlive the `Compilation`.
@@ -1558,6 +1540,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .global_cc_argv = options.global_cc_argv,
             .file_system_inputs = options.file_system_inputs,
             .parent_whole_cache = options.parent_whole_cache,
+            .link_diags = .init(gpa),
         };
 
         // Prevent some footguns by making the "any" fields of config reflect
@@ -1999,13 +1982,7 @@ pub fn destroy(comp: *Compilation) void {
     }
     comp.failed_win32_resources.deinit(gpa);
 
-    for (comp.link_errors.items) |*item| item.deinit(gpa);
-    comp.link_errors.deinit(gpa);
-
-    for (comp.lld_errors.items) |*lld_error| {
-        lld_error.deinit(gpa);
-    }
-    comp.lld_errors.deinit(gpa);
+    comp.link_diags.deinit();
 
     comp.clearMiscFailures();
 
@@ -2304,7 +2281,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
 
     if (anyErrors(comp)) {
         // Skip flushing and keep source files loaded for error reporting.
-        comp.link_error_flags = .{};
+        comp.link_diags.flags = .{};
         return;
     }
 
@@ -2451,7 +2428,7 @@ fn flush(
     if (comp.bin_file) |lf| {
         // This is needed before reading the error flags.
         lf.flush(arena, tid, prog_node) catch |err| switch (err) {
-            error.FlushFailure, error.LinkFailure => {}, // error reported through link_error_flags
+            error.FlushFailure, error.LinkFailure => {}, // error reported through link_diags.flags
             error.LLDReportedFailure => {}, // error reported via lockAndParseLldStderr
             else => |e| return e,
         };
@@ -3070,7 +3047,7 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
         try bundle.addBundleAsRoots(error_bundle);
     }
 
-    for (comp.lld_errors.items) |lld_error| {
+    for (comp.link_diags.lld.items) |lld_error| {
         const notes_len = @as(u32, @intCast(lld_error.context_lines.len));
 
         try bundle.addRootErrorMessage(.{
@@ -3091,7 +3068,7 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
         });
         if (value.children) |b| try bundle.addBundleAsNotes(b);
     }
-    if (comp.alloc_failure_occurred) {
+    if (comp.alloc_failure_occurred or comp.link_diags.flags.alloc_failure_occurred) {
         try bundle.addRootErrorMessage(.{
             .msg = try bundle.addString("memory allocation failure"),
         });
@@ -3220,14 +3197,14 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
     }
 
     if (bundle.root_list.items.len == 0) {
-        if (comp.link_error_flags.no_entry_point_found) {
+        if (comp.link_diags.flags.no_entry_point_found) {
             try bundle.addRootErrorMessage(.{
                 .msg = try bundle.addString("no entry point found"),
             });
         }
     }
 
-    if (comp.link_error_flags.missing_libc) {
+    if (comp.link_diags.flags.missing_libc) {
         try bundle.addRootErrorMessage(.{
             .msg = try bundle.addString("libc not available"),
             .notes_len = 2,
@@ -3241,7 +3218,7 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
         }));
     }
 
-    for (comp.link_errors.items) |link_err| {
+    for (comp.link_diags.msgs.items) |link_err| {
         try bundle.addRootErrorMessage(.{
             .msg = try bundle.addString(link_err.msg),
             .notes_len = @intCast(link_err.notes.len),
@@ -6161,6 +6138,7 @@ fn wantBuildLibUnwindFromSource(comp: *Compilation) bool {
 }
 
 fn setAllocFailure(comp: *Compilation) void {
+    @branchHint(.cold);
     log.debug("memory allocation failure", .{});
     comp.alloc_failure_occurred = true;
 }
@@ -6193,54 +6171,6 @@ pub fn lockAndSetMiscFailure(
     defer comp.mutex.unlock();
 
     return setMiscFailure(comp, tag, format, args);
-}
-
-fn parseLldStderr(comp: *Compilation, prefix: []const u8, stderr: []const u8) Allocator.Error!void {
-    var context_lines = std.ArrayList([]const u8).init(comp.gpa);
-    defer context_lines.deinit();
-
-    var current_err: ?*LldError = null;
-    var lines = mem.splitSequence(u8, stderr, if (builtin.os.tag == .windows) "\r\n" else "\n");
-    while (lines.next()) |line| {
-        if (line.len > prefix.len + ":".len and
-            mem.eql(u8, line[0..prefix.len], prefix) and line[prefix.len] == ':')
-        {
-            if (current_err) |err| {
-                err.context_lines = try context_lines.toOwnedSlice();
-            }
-
-            var split = mem.splitSequence(u8, line, "error: ");
-            _ = split.first();
-
-            const duped_msg = try std.fmt.allocPrint(comp.gpa, "{s}: {s}", .{ prefix, split.rest() });
-            errdefer comp.gpa.free(duped_msg);
-
-            current_err = try comp.lld_errors.addOne(comp.gpa);
-            current_err.?.* = .{ .msg = duped_msg };
-        } else if (current_err != null) {
-            const context_prefix = ">>> ";
-            var trimmed = mem.trimRight(u8, line, &std.ascii.whitespace);
-            if (mem.startsWith(u8, trimmed, context_prefix)) {
-                trimmed = trimmed[context_prefix.len..];
-            }
-
-            if (trimmed.len > 0) {
-                const duped_line = try comp.gpa.dupe(u8, trimmed);
-                try context_lines.append(duped_line);
-            }
-        }
-    }
-
-    if (current_err) |err| {
-        err.context_lines = try context_lines.toOwnedSlice();
-    }
-}
-
-pub fn lockAndParseLldStderr(comp: *Compilation, prefix: []const u8, stderr: []const u8) void {
-    comp.mutex.lock();
-    defer comp.mutex.unlock();
-
-    comp.parseLldStderr(prefix, stderr) catch comp.setAllocFailure();
 }
 
 pub fn dump_argv(argv: []const []const u8) void {

@@ -1679,6 +1679,7 @@ pub fn flushModule(self: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
 
     const comp = self.base.comp;
     const gpa = comp.gpa;
+    const diags = &comp.link_diags;
 
     if (self.llvm_object) |llvm_object| {
         try self.base.emitLlvmObject(arena, llvm_object, prog_node);
@@ -1796,10 +1797,10 @@ pub fn flushModule(self: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
 
     if (self.entry_addr == null and comp.config.output_mode == .Exe) {
         log.debug("flushing. no_entry_point_found = true\n", .{});
-        comp.link_error_flags.no_entry_point_found = true;
+        diags.flags.no_entry_point_found = true;
     } else {
         log.debug("flushing. no_entry_point_found = false\n", .{});
-        comp.link_error_flags.no_entry_point_found = false;
+        diags.flags.no_entry_point_found = false;
         try self.writeHeader();
     }
 

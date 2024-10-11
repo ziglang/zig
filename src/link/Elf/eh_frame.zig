@@ -611,7 +611,8 @@ const riscv = struct {
 };
 
 fn reportInvalidReloc(rec: anytype, elf_file: *Elf, rel: elf.Elf64_Rela) !void {
-    var err = try elf_file.base.addErrorWithNotes(1);
+    const diags = &elf_file.base.comp.link_diags;
+    var err = try diags.addErrorWithNotes(1);
     try err.addMsg("invalid relocation type {} at offset 0x{x}", .{
         relocation.fmtRelocType(rel.r_type(), elf_file.getTarget().cpu.arch),
         rel.r_offset,

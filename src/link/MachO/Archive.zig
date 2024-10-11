@@ -6,6 +6,7 @@ pub fn deinit(self: *Archive, allocator: Allocator) void {
 
 pub fn unpack(self: *Archive, macho_file: *MachO, path: Path, handle_index: File.HandleIndex, fat_arch: ?fat.Arch) !void {
     const gpa = macho_file.base.comp.gpa;
+    const diags = &macho_file.base.comp.link_diags;
 
     var arena = std.heap.ArenaAllocator.init(gpa);
     defer arena.deinit();
@@ -28,7 +29,7 @@ pub fn unpack(self: *Archive, macho_file: *MachO, path: Path, handle_index: File
         pos += @sizeOf(ar_hdr);
 
         if (!mem.eql(u8, &hdr.ar_fmag, ARFMAG)) {
-            try macho_file.reportParseError(path, "invalid header delimiter: expected '{s}', found '{s}'", .{
+            try diags.reportParseError(path, "invalid header delimiter: expected '{s}', found '{s}'", .{
                 std.fmt.fmtSliceEscapeLower(ARFMAG), std.fmt.fmtSliceEscapeLower(&hdr.ar_fmag),
             });
             return error.MalformedArchive;

@@ -769,6 +769,7 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
 
     const comp = self.base.comp;
     const gpa = comp.gpa;
+    const diags = &comp.link_diags;
 
     if (self.llvm_object) |llvm_object| {
         try self.base.emitLlvmObject(arena, llvm_object, prog_node);
@@ -848,7 +849,7 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
     }
 
     // libc dep
-    comp.link_error_flags.missing_libc = false;
+    diags.flags.missing_libc = false;
     if (comp.config.link_libc) {
         if (comp.libc_installation) |lc| {
             const flags = target_util.libcFullLinkFlags(target);
@@ -868,7 +869,7 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
                     if (try self.accessLibPath(arena, &test_path, &checked_paths, lc.crt_dir.?, lib_name, .static))
                         break :success;
 
-                    try self.reportMissingLibraryError(
+                    try diags.reportMissingLibraryError(
                         checked_paths.items,
                         "missing system library: '{s}' was not found",
                         .{lib_name},
@@ -901,7 +902,7 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
             });
             try self.parseLibraryReportingFailure(.{ .path = path }, false);
         } else {
-            comp.link_error_flags.missing_libc = true;
+            diags.flags.missing_libc = true;
         }
     }
 
@@ -920,7 +921,7 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
     if (csu.crtend) |path| try parseObjectReportingFailure(self, path);
     if (csu.crtn) |path| try parseObjectReportingFailure(self, path);
 
-    if (self.base.hasErrors()) return error.FlushFailure;
+    if (diags.hasErrors()) return error.FlushFailure;
 
     // Dedup shared objects
     {
@@ -1078,14 +1079,14 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
 
     if (self.base.isExe() and self.linkerDefinedPtr().?.entry_index == null) {
         log.debug("flushing. no_entry_point_found = true", .{});
-        comp.link_error_flags.no_entry_point_found = true;
+        diags.flags.no_entry_point_found = true;
     } else {
         log.debug("flushing. no_entry_point_found = false", .{});
-        comp.link_error_flags.no_entry_point_found = false;
+        diags.flags.no_entry_point_found = false;
         try self.writeElfHeader();
     }
 
-    if (self.base.hasErrors()) return error.FlushFailure;
+    if (diags.hasErrors()) return error.FlushFailure;
 }
 
 /// --verbose-link output
@@ -1358,7 +1359,7 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
 }
 
 pub const ParseError = error{
-    /// Indicates the error is already reported on `Compilation.link_errors`.
+    /// Indicates the error is already reported on `Compilation.link_diags`.
     LinkFailure,
 
     OutOfMemory,
@@ -1484,7 +1485,10 @@ fn parseLdScript(self: *Elf, lib: SystemLib) ParseError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const gpa = self.base.comp.gpa;
+    const comp = self.base.comp;
+    const gpa = comp.gpa;
+    const diags = &comp.link_diags;
+
     const in_file = try lib.path.root_dir.handle.openFile(lib.path.sub_path, .{});
     defer in_file.close();
     const data = try in_file.readToEndAlloc(gpa, std.math.maxInt(u32));
@@ -1533,7 +1537,7 @@ fn parseLdScript(self: *Elf, lib: SystemLib) ParseError!void {
                 }
             }
 
-            try self.reportMissingLibraryError(
+            try diags.reportMissingLibraryError(
                 checked_paths.items,
                 "missing library dependency: GNU ld script '{}' requires '{s}', but file not found",
                 .{ @as(Path, lib.path), script_arg.path },
@@ -1856,6 +1860,7 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
 
     const comp = self.base.comp;
     const gpa = comp.gpa;
+    const diags = &comp.link_diags;
 
     const directory = self.base.emit.root_dir; // Just an alias to make it shorter to type.
     const full_out_path = try directory.join(arena, &[_][]const u8{self.base.emit.sub_path});
@@ -2376,7 +2381,7 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
             }
 
             // libc dep
-            comp.link_error_flags.missing_libc = false;
+            diags.flags.missing_libc = false;
             if (comp.config.link_libc) {
                 if (comp.libc_installation != null) {
                     const needs_grouping = link_mode == .static;
@@ -2401,7 +2406,7 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
                         .dynamic => "libc.so",
                     }));
                 } else {
-                    comp.link_error_flags.missing_libc = true;
+                    diags.flags.missing_libc = true;
                 }
             }
         }
@@ -2546,7 +2551,8 @@ fn writePhdrTable(self: *Elf) !void {
 }
 
 pub fn writeElfHeader(self: *Elf) !void {
-    if (self.base.hasErrors()) return; // We had errors, so skip flushing to render the output unusable
+    const diags = &self.base.comp.link_diags;
+    if (diags.hasErrors()) return; // We had errors, so skip flushing to render the output unusable
 
     const comp = self.base.comp;
     var hdr_buf: [@sizeOf(elf.Elf64_Ehdr)]u8 = undefined;
@@ -3700,6 +3706,7 @@ fn addLoadPhdrs(self: *Elf) error{OutOfMemory}!void {
 
 /// Allocates PHDR table in virtual memory and in file.
 fn allocatePhdrTable(self: *Elf) error{OutOfMemory}!void {
+    const diags = &self.base.comp.link_diags;
     const phdr_table = &self.phdrs.items[self.phdr_indexes.table.int().?];
     const phdr_table_load = &self.phdrs.items[self.phdr_indexes.table_load.int().?];
 
@@ -3720,7 +3727,7 @@ fn allocatePhdrTable(self: *Elf) error{OutOfMemory}!void {
         //    (revisit getMaxNumberOfPhdrs())
         // 2. shift everything in file to free more space for EHDR + PHDR table
         // TODO verify `getMaxNumberOfPhdrs()` is accurate and convert this into no-op
-        var err = try self.base.addErrorWithNotes(1);
+        var err = try diags.addErrorWithNotes(1);
         try err.addMsg("fatal linker error: not enough space reserved for EHDR and PHDR table", .{});
         try err.addNote("required 0x{x}, available 0x{x}", .{ needed_size, available_space });
     }
@@ -4855,16 +4862,17 @@ pub fn insertDynString(self: *Elf, name: []const u8) error{OutOfMemory}!u32 {
 
 fn reportUndefinedSymbols(self: *Elf, undefs: anytype) !void {
     const gpa = self.base.comp.gpa;
+    const diags = &self.base.comp.link_diags;
     const max_notes = 4;
 
-    try self.base.comp.link_errors.ensureUnusedCapacity(gpa, undefs.count());
+    try diags.msgs.ensureUnusedCapacity(gpa, undefs.count());
 
     for (undefs.keys(), undefs.values()) |key, refs| {
         const undef_sym = self.resolver.keys.items[key - 1];
         const nrefs = @min(refs.items.len, max_notes);
         const nnotes = nrefs + @intFromBool(refs.items.len > max_notes);
 
-        var err = try self.base.addErrorWithNotesAssumeCapacity(nnotes);
+        var err = try diags.addErrorWithNotesAssumeCapacity(nnotes);
         try err.addMsg("undefined symbol: {s}", .{undef_sym.name(self)});
 
         for (refs.items[0..nrefs]) |ref| {
@@ -4882,6 +4890,7 @@ fn reportUndefinedSymbols(self: *Elf, undefs: anytype) !void {
 
 fn reportDuplicates(self: *Elf, dupes: anytype) error{ HasDuplicates, OutOfMemory }!void {
     if (dupes.keys().len == 0) return; // Nothing to do
+    const diags = &self.base.comp.link_diags;
 
     const max_notes = 3;
 
@@ -4889,7 +4898,7 @@ fn reportDuplicates(self: *Elf, dupes: anytype) error{ HasDuplicates, OutOfMemor
         const sym = self.resolver.keys.items[key - 1];
         const nnotes = @min(notes.items.len, max_notes) + @intFromBool(notes.items.len > max_notes);
 
-        var err = try self.base.addErrorWithNotes(nnotes + 1);
+        var err = try diags.addErrorWithNotes(nnotes + 1);
         try err.addMsg("duplicate symbol definition: {s}", .{sym.name(self)});
         try err.addNote("defined by {}", .{sym.file(self).?.fmtPath()});
 
@@ -4908,21 +4917,9 @@ fn reportDuplicates(self: *Elf, dupes: anytype) error{ HasDuplicates, OutOfMemor
     return error.HasDuplicates;
 }
 
-fn reportMissingLibraryError(
-    self: *Elf,
-    checked_paths: []const []const u8,
-    comptime format: []const u8,
-    args: anytype,
-) error{OutOfMemory}!void {
-    var err = try self.base.addErrorWithNotes(checked_paths.len);
-    try err.addMsg(format, args);
-    for (checked_paths) |path| {
-        try err.addNote("tried {s}", .{path});
-    }
-}
-
 fn reportUnsupportedCpuArch(self: *Elf) error{OutOfMemory}!void {
-    var err = try self.base.addErrorWithNotes(0);
+    const diags = &self.base.comp.link_diags;
+    var err = try diags.addErrorWithNotes(0);
     try err.addMsg("fatal linker error: unsupported CPU architecture {s}", .{
         @tagName(self.getTarget().cpu.arch),
     });
@@ -4934,7 +4931,8 @@ pub fn addParseError(
     comptime format: []const u8,
     args: anytype,
 ) error{OutOfMemory}!void {
-    var err = try self.base.addErrorWithNotes(1);
+    const diags = &self.base.comp.link_diags;
+    var err = try diags.addErrorWithNotes(1);
     try err.addMsg(format, args);
     try err.addNote("while parsing {}", .{path});
 }
@@ -4945,7 +4943,8 @@ pub fn addFileError(
     comptime format: []const u8,
     args: anytype,
 ) error{OutOfMemory}!void {
-    var err = try self.base.addErrorWithNotes(1);
+    const diags = &self.base.comp.link_diags;
+    var err = try diags.addErrorWithNotes(1);
     try err.addMsg(format, args);
     try err.addNote("while parsing {}", .{self.file(file_index).?.fmtPath()});
 }
