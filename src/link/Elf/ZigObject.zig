@@ -2027,7 +2027,7 @@ pub fn allocateAtom(self: *ZigObject, atom_ptr: *Atom, requires_padding: bool, e
     log.debug("  prev {?}, next {?}", .{ atom_ptr.prev_atom_ref, atom_ptr.next_atom_ref });
 }
 
-pub fn resetShdrIndexes(self: *ZigObject, backlinks: anytype) void {
+pub fn resetShdrIndexes(self: *ZigObject, backlinks: []const u32) void {
     for (self.atoms_indexes.items) |atom_index| {
         const atom_ptr = self.atom(atom_index) orelse continue;
         atom_ptr.output_section_index = backlinks[atom_ptr.output_section_index];
