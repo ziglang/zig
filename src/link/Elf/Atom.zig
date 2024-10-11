@@ -519,7 +519,8 @@ fn dataType(symbol: *const Symbol, elf_file: *Elf) u2 {
 }
 
 fn reportUnhandledRelocError(self: Atom, rel: elf.Elf64_Rela, elf_file: *Elf) RelocError!void {
-    var err = try elf_file.base.addErrorWithNotes(1);
+    const diags = &elf_file.base.comp.link_diags;
+    var err = try diags.addErrorWithNotes(1);
     try err.addMsg("fatal linker error: unhandled relocation type {} at offset 0x{x}", .{
         relocation.fmtRelocType(rel.r_type(), elf_file.getTarget().cpu.arch),
         rel.r_offset,
@@ -534,7 +535,8 @@ fn reportTextRelocError(
     rel: elf.Elf64_Rela,
     elf_file: *Elf,
 ) RelocError!void {
-    var err = try elf_file.base.addErrorWithNotes(1);
+    const diags = &elf_file.base.comp.link_diags;
+    var err = try diags.addErrorWithNotes(1);
     try err.addMsg("relocation at offset 0x{x} against symbol '{s}' cannot be used", .{
         rel.r_offset,
         symbol.name(elf_file),
@@ -549,7 +551,8 @@ fn reportPicError(
     rel: elf.Elf64_Rela,
     elf_file: *Elf,
 ) RelocError!void {
-    var err = try elf_file.base.addErrorWithNotes(2);
+    const diags = &elf_file.base.comp.link_diags;
+    var err = try diags.addErrorWithNotes(2);
     try err.addMsg("relocation at offset 0x{x} against symbol '{s}' cannot be used", .{
         rel.r_offset,
         symbol.name(elf_file),
@@ -565,7 +568,8 @@ fn reportNoPicError(
     rel: elf.Elf64_Rela,
     elf_file: *Elf,
 ) RelocError!void {
-    var err = try elf_file.base.addErrorWithNotes(2);
+    const diags = &elf_file.base.comp.link_diags;
+    var err = try diags.addErrorWithNotes(2);
     try err.addMsg("relocation at offset 0x{x} against symbol '{s}' cannot be used", .{
         rel.r_offset,
         symbol.name(elf_file),
@@ -1082,6 +1086,7 @@ const x86_64 = struct {
         stream: anytype,
     ) (error{ InvalidInstruction, CannotEncode } || RelocError)!void {
         dev.check(.x86_64_backend);
+        const diags = &elf_file.base.comp.link_diags;
         const r_type: elf.R_X86_64 = @enumFromInt(rel.r_type());
         const r_offset = std.math.cast(usize, rel.r_offset) orelse return error.Overflow;
 
@@ -1176,7 +1181,7 @@ const x86_64 = struct {
                     try cwriter.writeInt(i32, @as(i32, @intCast(S_ + A - P)), .little);
                 } else {
                     x86_64.relaxGotPcTlsDesc(code[r_offset - 3 ..]) catch {
-                        var err = try elf_file.base.addErrorWithNotes(1);
+                        var err = try diags.addErrorWithNotes(1);
                         try err.addMsg("could not relax {s}", .{@tagName(r_type)});
                         try err.addNote("in {}:{s} at offset 0x{x}", .{
                             atom.file(elf_file).?.fmtPath(),
@@ -1301,6 +1306,7 @@ const x86_64 = struct {
     ) !void {
         dev.check(.x86_64_backend);
         assert(rels.len == 2);
+        const diags = &elf_file.base.comp.link_diags;
         const writer = stream.writer();
         const rel: elf.R_X86_64 = @enumFromInt(rels[1].r_type());
         switch (rel) {
@@ -1317,7 +1323,7 @@ const x86_64 = struct {
             },
 
             else => {
-                var err = try elf_file.base.addErrorWithNotes(1);
+                var err = try diags.addErrorWithNotes(1);
                 try err.addMsg("TODO: rewrite {} when followed by {}", .{
                     relocation.fmtRelocType(rels[0].r_type(), .x86_64),
                     relocation.fmtRelocType(rels[1].r_type(), .x86_64),
@@ -1341,6 +1347,7 @@ const x86_64 = struct {
     ) !void {
         dev.check(.x86_64_backend);
         assert(rels.len == 2);
+        const diags = &elf_file.base.comp.link_diags;
         const writer = stream.writer();
         const rel: elf.R_X86_64 = @enumFromInt(rels[1].r_type());
         switch (rel) {
@@ -1372,7 +1379,7 @@ const x86_64 = struct {
             },
 
             else => {
-                var err = try elf_file.base.addErrorWithNotes(1);
+                var err = try diags.addErrorWithNotes(1);
                 try err.addMsg("TODO: rewrite {} when followed by {}", .{
                     relocation.fmtRelocType(rels[0].r_type(), .x86_64),
                     relocation.fmtRelocType(rels[1].r_type(), .x86_64),
@@ -1446,6 +1453,7 @@ const x86_64 = struct {
     ) !void {
         dev.check(.x86_64_backend);
         assert(rels.len == 2);
+        const diags = &elf_file.base.comp.link_diags;
         const writer = stream.writer();
         const rel: elf.R_X86_64 = @enumFromInt(rels[1].r_type());
         switch (rel) {
@@ -1468,7 +1476,7 @@ const x86_64 = struct {
             },
 
             else => {
-                var err = try elf_file.base.addErrorWithNotes(1);
+                var err = try diags.addErrorWithNotes(1);
                 try err.addMsg("fatal linker error: rewrite {} when followed by {}", .{
                     relocation.fmtRelocType(rels[0].r_type(), .x86_64),
                     relocation.fmtRelocType(rels[1].r_type(), .x86_64),
@@ -1603,6 +1611,7 @@ const aarch64 = struct {
     ) (error{ UnexpectedRemainder, DivisionByZero } || RelocError)!void {
         _ = it;
 
+        const diags = &elf_file.base.comp.link_diags;
         const r_type: elf.R_AARCH64 = @enumFromInt(rel.r_type());
         const r_offset = std.math.cast(usize, rel.r_offset) orelse return error.Overflow;
         const cwriter = stream.writer();
@@ -1657,7 +1666,7 @@ const aarch64 = struct {
                 aarch64_util.writeAdrpInst(pages, code);
             } else {
                 // TODO: relax
-                var err = try elf_file.base.addErrorWithNotes(1);
+                var err = try diags.addErrorWithNotes(1);
                 try err.addMsg("TODO: relax ADR_GOT_PAGE", .{});
                 try err.addNote("in {}:{s} at offset 0x{x}", .{
                     atom.file(elf_file).?.fmtPath(),
@@ -1882,6 +1891,7 @@ const riscv = struct {
         code: []u8,
         stream: anytype,
     ) !void {
+        const diags = &elf_file.base.comp.link_diags;
         const r_type: elf.R_RISCV = @enumFromInt(rel.r_type());
         const r_offset = std.math.cast(usize, rel.r_offset) orelse return error.Overflow;
         const cwriter = stream.writer();
@@ -1943,7 +1953,7 @@ const riscv = struct {
                     if (S == atom_addr + @as(i64, @intCast(pair.r_offset))) break pair;
                 } else {
                     // TODO: implement searching forward
-                    var err = try elf_file.base.addErrorWithNotes(1);
+                    var err = try diags.addErrorWithNotes(1);
                     try err.addMsg("TODO: find HI20 paired reloc scanning forward", .{});
                     try err.addNote("in {}:{s} at offset 0x{x}", .{
                         atom.file(elf_file).?.fmtPath(),

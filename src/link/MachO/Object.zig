@@ -1,6 +1,8 @@
 /// Non-zero for fat object files or archives
 offset: u64,
-path: []const u8,
+/// Archive files cannot contain subdirectories, so only the basename is needed
+/// for output. However, the full path is kept for error reporting.
+path: Path,
 file_handle: File.HandleIndex,
 mtime: u64,
 index: File.Index,
@@ -39,8 +41,8 @@ output_symtab_ctx: MachO.SymtabCtx = .{},
 output_ar_state: Archive.ArState = .{},
 
 pub fn deinit(self: *Object, allocator: Allocator) void {
-    if (self.in_archive) |*ar| allocator.free(ar.path);
-    allocator.free(self.path);
+    if (self.in_archive) |*ar| allocator.free(ar.path.sub_path);
+    allocator.free(self.path.sub_path);
     for (self.sections.items(.relocs), self.sections.items(.subsections)) |*relocs, *sub| {
         relocs.deinit(allocator);
         sub.deinit(allocator);
@@ -1723,7 +1725,8 @@ pub fn updateArSize(self: *Object, macho_file: *MachO) !void {
 pub fn writeAr(self: Object, ar_format: Archive.Format, macho_file: *MachO, writer: anytype) !void {
     // Header
     const size = std.math.cast(usize, self.output_ar_state.size) orelse return error.Overflow;
-    try Archive.writeHeader(self.path, size, ar_format, writer);
+    const basename = std.fs.path.basename(self.path.sub_path);
+    try Archive.writeHeader(basename, size, ar_format, writer);
     // Data
     const file = macho_file.getFileHandle(self.file_handle);
     // TODO try using copyRangeAll
@@ -1774,6 +1777,11 @@ pub fn calcSymtabSize(self: *Object, macho_file: *MachO) void {
         self.calcStabsSize(macho_file);
 }
 
+fn pathLen(path: Path) usize {
+    // +1 for the path separator
+    return (if (path.root_dir.path) |p| p.len + @intFromBool(path.sub_path.len != 0) else 0) + path.sub_path.len;
+}
+
 pub fn calcStabsSize(self: *Object, macho_file: *MachO) void {
     if (self.compile_unit) |cu| {
         const comp_dir = cu.getCompDir(self.*);
@@ -1784,9 +1792,9 @@ pub fn calcStabsSize(self: *Object, macho_file: *MachO) void {
         self.output_symtab_ctx.strsize += @as(u32, @intCast(tu_name.len + 1)); // tu_name
 
         if (self.in_archive) |ar| {
-            self.output_symtab_ctx.strsize += @as(u32, @intCast(ar.path.len + 1 + self.path.len + 1 + 1));
+            self.output_symtab_ctx.strsize += @intCast(pathLen(ar.path) + 1 + self.path.basename().len + 1 + 1);
         } else {
-            self.output_symtab_ctx.strsize += @as(u32, @intCast(self.path.len + 1));
+            self.output_symtab_ctx.strsize += @intCast(pathLen(self.path) + 1);
         }
 
         for (self.symbols.items, 0..) |sym, i| {
@@ -2118,19 +2126,36 @@ pub fn writeStabs(self: Object, stroff: u32, macho_file: *MachO, ctx: anytype) v
         };
         index += 1;
         if (self.in_archive) |ar| {
-            @memcpy(ctx.strtab.items[n_strx..][0..ar.path.len], ar.path);
-            n_strx += @intCast(ar.path.len);
+            if (ar.path.root_dir.path) |p| {
+                @memcpy(ctx.strtab.items[n_strx..][0..p.len], p);
+                n_strx += @intCast(p.len);
+                if (ar.path.sub_path.len != 0) {
+                    ctx.strtab.items[n_strx] = '/';
+                    n_strx += 1;
+                }
+            }
+            @memcpy(ctx.strtab.items[n_strx..][0..ar.path.sub_path.len], ar.path.sub_path);
+            n_strx += @intCast(ar.path.sub_path.len);
             ctx.strtab.items[n_strx] = '(';
             n_strx += 1;
-            @memcpy(ctx.strtab.items[n_strx..][0..self.path.len], self.path);
-            n_strx += @intCast(self.path.len);
+            const basename = self.path.basename();
+            @memcpy(ctx.strtab.items[n_strx..][0..basename.len], basename);
+            n_strx += @intCast(basename.len);
             ctx.strtab.items[n_strx] = ')';
             n_strx += 1;
             ctx.strtab.items[n_strx] = 0;
             n_strx += 1;
         } else {
-            @memcpy(ctx.strtab.items[n_strx..][0..self.path.len], self.path);
-            n_strx += @intCast(self.path.len);
+            if (self.path.root_dir.path) |p| {
+                @memcpy(ctx.strtab.items[n_strx..][0..p.len], p);
+                n_strx += @intCast(p.len);
+                if (self.path.sub_path.len != 0) {
+                    ctx.strtab.items[n_strx] = '/';
+                    n_strx += 1;
+                }
+            }
+            @memcpy(ctx.strtab.items[n_strx..][0..self.path.sub_path.len], self.path.sub_path);
+            n_strx += @intCast(self.path.sub_path.len);
             ctx.strtab.items[n_strx] = 0;
             n_strx += 1;
         }
@@ -2666,11 +2691,12 @@ fn formatPath(
     _ = unused_fmt_string;
     _ = options;
     if (object.in_archive) |ar| {
-        try writer.writeAll(ar.path);
-        try writer.writeByte('(');
-        try writer.writeAll(object.path);
-        try writer.writeByte(')');
-    } else try writer.writeAll(object.path);
+        try writer.print("{}({s})", .{
+            @as(Path, ar.path), object.path.basename(),
+        });
+    } else {
+        try writer.print("{}", .{@as(Path, object.path)});
+    }
 }
 
 const Section = struct {
@@ -2777,7 +2803,7 @@ const CompileUnit = struct {
 };
 
 const InArchive = struct {
-    path: []const u8,
+    path: Path,
     size: u32,
 };
 
@@ -3170,6 +3196,7 @@ const math = std.math;
 const mem = std.mem;
 const trace = @import("../../tracy.zig").trace;
 const std = @import("std");
+const Path = std.Build.Cache.Path;
 
 const Allocator = mem.Allocator;
 const Archive = @import("Archive.zig");

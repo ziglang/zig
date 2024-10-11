@@ -3886,7 +3886,13 @@ inline fn skipKernelLessThan(required: std.SemanticVersion) !void {
     }
 
     const release = mem.sliceTo(&uts.release, 0);
-    var current = try std.SemanticVersion.parse(release);
+    // Strips potential extra, as kernel version might not be semver compliant, example "6.8.9-300.fc40.x86_64"
+    const extra_index = std.mem.indexOfAny(u8, release, "-+");
+    const stripped = release[0..(extra_index orelse release.len)];
+    // Make sure the input don't rely on the extra we just stripped
+    try testing.expect(required.pre == null and required.build == null);
+
+    var current = try std.SemanticVersion.parse(stripped);
     current.pre = null; // don't check pre field
     if (required.order(current) == .gt) return error.SkipZigTest;
 }
