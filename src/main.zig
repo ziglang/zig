@@ -4728,7 +4728,7 @@ fn cmdInit(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
         }
     }
 
-    var templates = findTemplates(minimal, gpa, arena);
+    var templates = findTemplates(gpa, arena, minimal);
     defer templates.deinit();
 
     const cwd_path = try process.getCwdAlloc(arena);
@@ -7452,7 +7452,7 @@ fn loadManifest(
             0,
         ) catch |err| switch (err) {
             error.FileNotFound => {
-                var templates = findTemplates(false, gpa, arena);
+                var templates = findTemplates(gpa, arena, false);
                 defer templates.deinit();
 
                 templates.write(arena, options.dir, options.root_name, Package.Manifest.basename) catch |e| {
@@ -7542,7 +7542,7 @@ const Templates = struct {
     }
 };
 
-fn findTemplates(minimal: bool, gpa: Allocator, arena: Allocator) Templates {
+fn findTemplates(gpa: Allocator, arena: Allocator, minimal: bool) Templates {
     const self_exe_path = introspect.findZigExePath(arena) catch |err| {
         fatal("unable to find self exe path: {s}", .{@errorName(err)});
     };
