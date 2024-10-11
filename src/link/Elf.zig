@@ -1,3 +1,5 @@
+pub const Atom = @import("Elf/Atom.zig");
+
 base: link.File,
 rpath_table: std.StringArrayHashMapUnmanaged(void),
 image_base: u64,
@@ -109,8 +111,8 @@ num_ifunc_dynrelocs: usize = 0,
 thunks: std.ArrayListUnmanaged(Thunk) = .empty,
 
 /// List of output merge sections with deduped contents.
-merge_sections: std.ArrayListUnmanaged(MergeSection) = .empty,
-comment_merge_section_index: ?MergeSection.Index = null,
+merge_sections: std.ArrayListUnmanaged(Merge.Section) = .empty,
+comment_merge_section_index: ?Merge.Section.Index = null,
 
 first_eflags: ?elf.Elf64_Word = null,
 
@@ -4726,7 +4728,7 @@ pub fn linkerDefinedPtr(self: *Elf) ?*LinkerDefined {
     return self.file(index).?.linker_defined;
 }
 
-pub fn getOrCreateMergeSection(self: *Elf, name: [:0]const u8, flags: u64, @"type": u32) !MergeSection.Index {
+pub fn getOrCreateMergeSection(self: *Elf, name: [:0]const u8, flags: u64, @"type": u32) !Merge.Section.Index {
     const gpa = self.base.comp.gpa;
     const out_name = name: {
         if (self.base.isRelocatable()) break :name name;
@@ -4739,7 +4741,7 @@ pub fn getOrCreateMergeSection(self: *Elf, name: [:0]const u8, flags: u64, @"typ
     }
     const out_off = try self.insertShString(out_name);
     const out_flags = flags & ~@as(u64, elf.SHF_COMPRESSED | elf.SHF_GROUP);
-    const index = @as(MergeSection.Index, @intCast(self.merge_sections.items.len));
+    const index: Merge.Section.Index = @intCast(self.merge_sections.items.len);
     const msec = try self.merge_sections.addOne(gpa);
     msec.* = .{
         .name_offset = out_off,
@@ -4749,7 +4751,7 @@ pub fn getOrCreateMergeSection(self: *Elf, name: [:0]const u8, flags: u64, @"typ
     return index;
 }
 
-pub fn mergeSection(self: *Elf, index: MergeSection.Index) *MergeSection {
+pub fn mergeSection(self: *Elf, index: Merge.Section.Index) *Merge.Section {
     assert(index < self.merge_sections.items.len);
     return &self.merge_sections.items[index];
 }
@@ -5541,6 +5543,9 @@ const relocs_log = std.log.scoped(.link_relocs);
 const state_log = std.log.scoped(.link_state);
 const math = std.math;
 const mem = std.mem;
+const Allocator = std.mem.Allocator;
+const Cache = std.Build.Cache;
+const Hash = std.hash.Wyhash;
 
 const codegen = @import("../codegen.zig");
 const dev = @import("../dev.zig");
@@ -5548,7 +5553,6 @@ const eh_frame = @import("Elf/eh_frame.zig");
 const gc = @import("Elf/gc.zig");
 const glibc = @import("../glibc.zig");
 const link = @import("../link.zig");
-const merge_section = @import("Elf/merge_section.zig");
 const musl = @import("../musl.zig");
 const relocatable = @import("Elf/relocatable.zig");
 const relocation = @import("Elf/relocation.zig");
@@ -5556,12 +5560,10 @@ const target_util = @import("../target.zig");
 const trace = @import("../tracy.zig").trace;
 const synthetic_sections = @import("Elf/synthetic_sections.zig");
 
+const Merge = @import("Elf/Merge.zig");
 const Air = @import("../Air.zig");
-const Allocator = std.mem.Allocator;
 const Archive = @import("Elf/Archive.zig");
-pub const Atom = @import("Elf/Atom.zig");
 const AtomList = @import("Elf/AtomList.zig");
-const Cache = std.Build.Cache;
 const Path = Cache.Path;
 const Compilation = @import("../Compilation.zig");
 const ComdatGroupSection = synthetic_sections.ComdatGroupSection;
@@ -5574,15 +5576,11 @@ const File = @import("Elf/file.zig").File;
 const GnuHashSection = synthetic_sections.GnuHashSection;
 const GotSection = synthetic_sections.GotSection;
 const GotPltSection = synthetic_sections.GotPltSection;
-const Hash = std.hash.Wyhash;
 const HashSection = synthetic_sections.HashSection;
-const InputMergeSection = merge_section.InputMergeSection;
 const LdScript = @import("Elf/LdScript.zig");
 const LinkerDefined = @import("Elf/LinkerDefined.zig");
 const Liveness = @import("../Liveness.zig");
 const LlvmObject = @import("../codegen/llvm.zig").Object;
-const MergeSection = merge_section.MergeSection;
-const MergeSubsection = merge_section.MergeSubsection;
 const Zcu = @import("../Zcu.zig");
 const Object = @import("Elf/Object.zig");
 const InternPool = @import("../InternPool.zig");

@@ -1,4 +1,4 @@
-pub const MergeSection = struct {
+pub const Section = struct {
     value: u64 = 0,
     size: u64 = 0,
     alignment: Atom.Alignment = .@"1",
@@ -10,25 +10,25 @@ pub const MergeSection = struct {
     bytes: std.ArrayListUnmanaged(u8) = .empty,
     table: std.HashMapUnmanaged(
         String,
-        MergeSubsection.Index,
+        Subsection.Index,
         IndexContext,
         std.hash_map.default_max_load_percentage,
     ) = .{},
-    subsections: std.ArrayListUnmanaged(MergeSubsection) = .empty,
-    finalized_subsections: std.ArrayListUnmanaged(MergeSubsection.Index) = .empty,
+    subsections: std.ArrayListUnmanaged(Subsection) = .empty,
+    finalized_subsections: std.ArrayListUnmanaged(Subsection.Index) = .empty,
 
-    pub fn deinit(msec: *MergeSection, allocator: Allocator) void {
+    pub fn deinit(msec: *Section, allocator: Allocator) void {
         msec.bytes.deinit(allocator);
         msec.table.deinit(allocator);
         msec.subsections.deinit(allocator);
         msec.finalized_subsections.deinit(allocator);
     }
 
-    pub fn name(msec: MergeSection, elf_file: *Elf) [:0]const u8 {
+    pub fn name(msec: Section, elf_file: *Elf) [:0]const u8 {
         return elf_file.getShString(msec.name_offset);
     }
 
-    pub fn address(msec: MergeSection, elf_file: *Elf) i64 {
+    pub fn address(msec: Section, elf_file: *Elf) i64 {
         const shdr = elf_file.sections.items(.shdr)[msec.output_section_index];
         return @intCast(shdr.sh_addr + msec.value);
     }
@@ -36,10 +36,10 @@ pub const MergeSection = struct {
     const InsertResult = struct {
         found_existing: bool,
         key: String,
-        sub: *MergeSubsection.Index,
+        sub: *Subsection.Index,
     };
 
-    pub fn insert(msec: *MergeSection, allocator: Allocator, string: []const u8) !InsertResult {
+    pub fn insert(msec: *Section, allocator: Allocator, string: []const u8) !InsertResult {
         const gop = try msec.table.getOrPutContextAdapted(
             allocator,
             string,
@@ -54,7 +54,7 @@ pub const MergeSection = struct {
         return .{ .found_existing = gop.found_existing, .key = gop.key_ptr.*, .sub = gop.value_ptr };
     }
 
-    pub fn insertZ(msec: *MergeSection, allocator: Allocator, string: []const u8) !InsertResult {
+    pub fn insertZ(msec: *Section, allocator: Allocator, string: []const u8) !InsertResult {
         const with_null = try allocator.alloc(u8, string.len + 1);
         defer allocator.free(with_null);
         @memcpy(with_null[0..string.len], string);
@@ -64,7 +64,7 @@ pub const MergeSection = struct {
 
     /// Finalizes the merge section and clears hash table.
     /// Sorts all owned subsections.
-    pub fn finalize(msec: *MergeSection, allocator: Allocator) !void {
+    pub fn finalize(msec: *Section, allocator: Allocator) !void {
         try msec.finalized_subsections.ensureTotalCapacityPrecise(allocator, msec.subsections.items.len);
 
         var it = msec.table.iterator();
@@ -76,7 +76,7 @@ pub const MergeSection = struct {
         msec.table.clearAndFree(allocator);
 
         const sortFn = struct {
-            pub fn sortFn(ctx: *MergeSection, lhs: MergeSubsection.Index, rhs: MergeSubsection.Index) bool {
+            pub fn sortFn(ctx: *Section, lhs: Subsection.Index, rhs: Subsection.Index) bool {
                 const lhs_msub = ctx.mergeSubsection(lhs);
                 const rhs_msub = ctx.mergeSubsection(rhs);
                 if (lhs_msub.alignment.compareStrict(.eq, rhs_msub.alignment)) {
@@ -91,10 +91,10 @@ pub const MergeSection = struct {
             }
         }.sortFn;
 
-        std.mem.sort(MergeSubsection.Index, msec.finalized_subsections.items, msec, sortFn);
+        std.mem.sort(Subsection.Index, msec.finalized_subsections.items, msec, sortFn);
     }
 
-    pub fn updateSize(msec: *MergeSection) void {
+    pub fn updateSize(msec: *Section) void {
         // TODO a 'stale' flag would be better here perhaps?
         msec.size = 0;
         msec.alignment = .@"1";
@@ -111,7 +111,7 @@ pub const MergeSection = struct {
         }
     }
 
-    pub fn initOutputSection(msec: *MergeSection, elf_file: *Elf) !void {
+    pub fn initOutputSection(msec: *Section, elf_file: *Elf) !void {
         msec.output_section_index = elf_file.sectionByName(msec.name(elf_file)) orelse try elf_file.addSection(.{
             .name = msec.name_offset,
             .type = msec.type,
@@ -119,14 +119,14 @@ pub const MergeSection = struct {
         });
     }
 
-    pub fn addMergeSubsection(msec: *MergeSection, allocator: Allocator) !MergeSubsection.Index {
-        const index: MergeSubsection.Index = @intCast(msec.subsections.items.len);
+    pub fn addMergeSubsection(msec: *Section, allocator: Allocator) !Subsection.Index {
+        const index: Subsection.Index = @intCast(msec.subsections.items.len);
         const msub = try msec.subsections.addOne(allocator);
         msub.* = .{};
         return index;
     }
 
-    pub fn mergeSubsection(msec: *MergeSection, index: MergeSubsection.Index) *MergeSubsection {
+    pub fn mergeSubsection(msec: *Section, index: Subsection.Index) *Subsection {
         assert(index < msec.subsections.items.len);
         return &msec.subsections.items[index];
     }
@@ -158,7 +158,7 @@ pub const MergeSection = struct {
     };
 
     pub fn format(
-        msec: MergeSection,
+        msec: Section,
         comptime unused_fmt_string: []const u8,
         options: std.fmt.FormatOptions,
         writer: anytype,
@@ -167,10 +167,10 @@ pub const MergeSection = struct {
         _ = unused_fmt_string;
         _ = options;
         _ = writer;
-        @compileError("do not format MergeSection directly");
+        @compileError("do not format directly");
     }
 
-    pub fn fmt(msec: MergeSection, elf_file: *Elf) std.fmt.Formatter(format2) {
+    pub fn fmt(msec: Section, elf_file: *Elf) std.fmt.Formatter(format2) {
         return .{ .data = .{
             .msec = msec,
             .elf_file = elf_file,
@@ -178,7 +178,7 @@ pub const MergeSection = struct {
     }
 
     const FormatContext = struct {
-        msec: MergeSection,
+        msec: Section,
         elf_file: *Elf,
     };
 
@@ -209,30 +209,30 @@ pub const MergeSection = struct {
     pub const Index = u32;
 };
 
-pub const MergeSubsection = struct {
+pub const Subsection = struct {
     value: i64 = 0,
-    merge_section_index: MergeSection.Index = 0,
+    merge_section_index: Section.Index = 0,
     string_index: u32 = 0,
     size: u32 = 0,
     alignment: Atom.Alignment = .@"1",
     entsize: u32 = 0,
     alive: bool = false,
 
-    pub fn address(msub: MergeSubsection, elf_file: *Elf) i64 {
+    pub fn address(msub: Subsection, elf_file: *Elf) i64 {
         return msub.mergeSection(elf_file).address(elf_file) + msub.value;
     }
 
-    pub fn mergeSection(msub: MergeSubsection, elf_file: *Elf) *MergeSection {
+    pub fn mergeSection(msub: Subsection, elf_file: *Elf) *Section {
         return elf_file.mergeSection(msub.merge_section_index);
     }
 
-    pub fn getString(msub: MergeSubsection, elf_file: *Elf) []const u8 {
+    pub fn getString(msub: Subsection, elf_file: *Elf) []const u8 {
         const msec = msub.mergeSection(elf_file);
         return msec.bytes.items[msub.string_index..][0..msub.size];
     }
 
     pub fn format(
-        msub: MergeSubsection,
+        msub: Subsection,
         comptime unused_fmt_string: []const u8,
         options: std.fmt.FormatOptions,
         writer: anytype,
@@ -241,10 +241,10 @@ pub const MergeSubsection = struct {
         _ = unused_fmt_string;
         _ = options;
         _ = writer;
-        @compileError("do not format MergeSubsection directly");
+        @compileError("do not format directly");
     }
 
-    pub fn fmt(msub: MergeSubsection, elf_file: *Elf) std.fmt.Formatter(format2) {
+    pub fn fmt(msub: Subsection, elf_file: *Elf) std.fmt.Formatter(format2) {
         return .{ .data = .{
             .msub = msub,
             .elf_file = elf_file,
@@ -252,7 +252,7 @@ pub const MergeSubsection = struct {
     }
 
     const FormatContext = struct {
-        msub: MergeSubsection,
+        msub: Subsection,
         elf_file: *Elf,
     };
 
@@ -277,32 +277,32 @@ pub const MergeSubsection = struct {
     pub const Index = u32;
 };
 
-pub const InputMergeSection = struct {
-    merge_section_index: MergeSection.Index = 0,
+pub const InputSection = struct {
+    merge_section_index: Section.Index = 0,
     atom_index: Atom.Index = 0,
     offsets: std.ArrayListUnmanaged(u32) = .empty,
-    subsections: std.ArrayListUnmanaged(MergeSubsection.Index) = .empty,
+    subsections: std.ArrayListUnmanaged(Subsection.Index) = .empty,
     bytes: std.ArrayListUnmanaged(u8) = .empty,
     strings: std.ArrayListUnmanaged(String) = .empty,
 
-    pub fn deinit(imsec: *InputMergeSection, allocator: Allocator) void {
+    pub fn deinit(imsec: *InputSection, allocator: Allocator) void {
         imsec.offsets.deinit(allocator);
         imsec.subsections.deinit(allocator);
         imsec.bytes.deinit(allocator);
         imsec.strings.deinit(allocator);
     }
 
-    pub fn clearAndFree(imsec: *InputMergeSection, allocator: Allocator) void {
+    pub fn clearAndFree(imsec: *InputSection, allocator: Allocator) void {
         imsec.bytes.clearAndFree(allocator);
         // TODO: imsec.strings.clearAndFree(allocator);
     }
 
     const FindSubsectionResult = struct {
-        msub_index: MergeSubsection.Index,
+        msub_index: Subsection.Index,
         offset: u32,
     };
 
-    pub fn findSubsection(imsec: InputMergeSection, offset: u32) ?FindSubsectionResult {
+    pub fn findSubsection(imsec: InputSection, offset: u32) ?FindSubsectionResult {
         // TODO: binary search
         for (imsec.offsets.items, 0..) |off, index| {
             if (offset < off) return .{
@@ -320,7 +320,7 @@ pub const InputMergeSection = struct {
         return null;
     }
 
-    pub fn insert(imsec: *InputMergeSection, allocator: Allocator, string: []const u8) !void {
+    pub fn insert(imsec: *InputSection, allocator: Allocator, string: []const u8) !void {
         const index: u32 = @intCast(imsec.bytes.items.len);
         try imsec.bytes.appendSlice(allocator, string);
         try imsec.strings.append(allocator, .{ .pos = index, .len = @intCast(string.len) });
@@ -338,3 +338,4 @@ const std = @import("std");
 const Allocator = mem.Allocator;
 const Atom = @import("Atom.zig");
 const Elf = @import("../Elf.zig");
+const Merge = @This();

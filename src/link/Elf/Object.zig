@@ -23,8 +23,8 @@ atoms_extra: std.ArrayListUnmanaged(u32) = .empty,
 comdat_groups: std.ArrayListUnmanaged(Elf.ComdatGroup) = .empty,
 comdat_group_data: std.ArrayListUnmanaged(u32) = .empty,
 
-input_merge_sections: std.ArrayListUnmanaged(InputMergeSection) = .empty,
-input_merge_sections_indexes: std.ArrayListUnmanaged(InputMergeSection.Index) = .empty,
+input_merge_sections: std.ArrayListUnmanaged(Merge.InputSection) = .empty,
+input_merge_sections_indexes: std.ArrayListUnmanaged(Merge.InputSection.Index) = .empty,
 
 fdes: std.ArrayListUnmanaged(Fde) = .empty,
 cies: std.ArrayListUnmanaged(Cie) = .empty,
@@ -1305,14 +1305,14 @@ fn setAtomFields(o: *Object, atom_ptr: *Atom, opts: Atom.Extra.AsOptionals) void
     o.setAtomExtra(atom_ptr.extra_index, extras);
 }
 
-fn addInputMergeSection(self: *Object, allocator: Allocator) !InputMergeSection.Index {
-    const index: InputMergeSection.Index = @intCast(self.input_merge_sections.items.len);
+fn addInputMergeSection(self: *Object, allocator: Allocator) !Merge.InputSection.Index {
+    const index: Merge.InputSection.Index = @intCast(self.input_merge_sections.items.len);
     const msec = try self.input_merge_sections.addOne(allocator);
     msec.* = .{};
     return index;
 }
 
-fn inputMergeSection(self: *Object, index: InputMergeSection.Index) ?*InputMergeSection {
+fn inputMergeSection(self: *Object, index: Merge.InputSection.Index) ?*Merge.InputSection {
     if (index == 0) return null;
     return &self.input_merge_sections.items[index];
 }
@@ -1522,6 +1522,6 @@ const Cie = eh_frame.Cie;
 const Elf = @import("../Elf.zig");
 const Fde = eh_frame.Fde;
 const File = @import("file.zig").File;
-const InputMergeSection = @import("merge_section.zig").InputMergeSection;
+const Merge = @import("Merge.zig");
 const Symbol = @import("Symbol.zig");
 const Alignment = Atom.Alignment;

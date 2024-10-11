@@ -74,7 +74,7 @@ pub fn atom(symbol: Symbol, elf_file: *Elf) ?*Atom {
     return file_ptr.atom(symbol.ref.index);
 }
 
-pub fn mergeSubsection(symbol: Symbol, elf_file: *Elf) ?*MergeSubsection {
+pub fn mergeSubsection(symbol: Symbol, elf_file: *Elf) ?*Merge.Subsection {
     if (!symbol.flags.merge_subsection) return null;
     const msec = elf_file.mergeSection(symbol.ref.file);
     return msec.mergeSubsection(symbol.ref.index);
@@ -493,7 +493,7 @@ const File = @import("file.zig").File;
 const GotSection = synthetic_sections.GotSection;
 const GotPltSection = synthetic_sections.GotPltSection;
 const LinkerDefined = @import("LinkerDefined.zig");
-const MergeSubsection = @import("merge_section.zig").MergeSubsection;
+const Merge = @import("Merge.zig");
 const Object = @import("Object.zig");
 const PltSection = synthetic_sections.PltSection;
 const PltGotSection = synthetic_sections.PltGotSection;
