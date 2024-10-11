@@ -14,10 +14,9 @@ pub fn build(b: *std.Build) void {
     c_mod.addIncludePath(b.path("."));
     c_mod.addCSourceFile(.{ .file = b.path("foo.c") });
 
-    const c_lib = b.addLibrary(.{
+    const c_lib = b.addStaticLibrary2(.{
         .name = "foo",
         .root_module = c_mod,
-        .linkage = .static,
     });
 
     const test_mod = b.createModule(.{

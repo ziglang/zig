@@ -12,7 +12,7 @@ pub fn build(b: *std.Build) void {
     const target = b.graph.host;
     const optimize: std.builtin.OptimizeMode = .Debug;
 
-    const lib = b.addLibrary(.{
+    const lib = b.addSharedLibrary2(.{
         .name = "mathtest",
         .root_module = b.createModule(.{
             .root_source_file = b.path("mathtest.zig"),
@@ -20,7 +20,6 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
         .version = .{ .major = 1, .minor = 0, .patch = 0 },
-        .linkage = .dynamic,
     });
 
     const exe_mod = b.createModule(.{

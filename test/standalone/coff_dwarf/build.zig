@@ -28,10 +28,9 @@ pub fn build(b: *std.Build) void {
         .flags = &.{"-gdwarf"},
     });
 
-    const lib = b.addLibrary(.{
+    const lib = b.addSharedLibrary2(.{
         .name = "shared_lib",
         .root_module = lib_mod,
-        .linkage = .dynamic,
     });
 
     const exe_mod = b.createModule(.{

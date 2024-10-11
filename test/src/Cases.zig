@@ -682,10 +682,9 @@ pub fn lowerToBuildSteps(
                 .name = case.name,
                 .root_module = mod,
             }),
-            .Lib => b.addLibrary(.{
+            .Lib => b.addStaticLibrary2(.{
                 .name = case.name,
                 .root_module = mod,
-                .linkage = .static,
             }),
             .Exe => b.addExecutable2(.{
                 .name = case.name,

@@ -874,7 +874,7 @@ pub const SharedLibraryOptions = struct {
     win32_manifest: ?LazyPath = null,
 };
 
-/// Deprecated: use `addLibrary` instead.
+/// Deprecated: use `addSharedLibrary2` instead.
 pub fn addSharedLibrary(b: *Build, options: SharedLibraryOptions) *Step.Compile {
     return Step.Compile.create(b, .{
         .name = options.name,
@@ -926,7 +926,7 @@ pub const StaticLibraryOptions = struct {
     zig_lib_dir: ?LazyPath = null,
 };
 
-/// Deprecated: use `addLibrary` instead.
+/// Deprecated: use `addStaticLibrary2` instead.
 pub fn addStaticLibrary(b: *Build, options: StaticLibraryOptions) *Step.Compile {
     return Step.Compile.create(b, .{
         .name = options.name,
@@ -954,10 +954,9 @@ pub fn addStaticLibrary(b: *Build, options: StaticLibraryOptions) *Step.Compile 
     });
 }
 
-pub const LibraryOptions = struct {
+pub const SharedLibraryOptions2 = struct {
     name: []const u8,
     root_module: *Module,
-    linkage: std.builtin.LinkMode,
     version: ?std.SemanticVersion = null,
     max_rss: usize = 0,
     use_llvm: ?bool = null,
@@ -971,18 +970,42 @@ pub const LibraryOptions = struct {
     win32_manifest: ?LazyPath = null,
 };
 
-pub fn addLibrary(b: *Build, options: LibraryOptions) *Step.Compile {
+pub fn addSharedLibrary2(b: *Build, options: SharedLibraryOptions2) *Step.Compile {
     return Step.Compile.create(b, .{
         .name = options.name,
         .root_module = options.root_module,
         .kind = .lib,
-        .linkage = options.linkage,
+        .linkage = .dynamic,
         .version = options.version,
         .max_rss = options.max_rss,
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
         .zig_lib_dir = options.zig_lib_dir,
         .win32_manifest = options.win32_manifest,
+    });
+}
+
+pub const StaticLibraryOptions2 = struct {
+    name: []const u8,
+    root_module: *Module,
+    version: ?std.SemanticVersion = null,
+    max_rss: usize = 0,
+    use_llvm: ?bool = null,
+    use_lld: ?bool = null,
+    zig_lib_dir: ?LazyPath = null,
+};
+
+pub fn addStaticLibrary2(b: *Build, options: StaticLibraryOptions2) *Step.Compile {
+    return Step.Compile.create(b, .{
+        .name = options.name,
+        .root_module = options.root_module,
+        .kind = .lib,
+        .linkage = .static,
+        .version = options.version,
+        .max_rss = options.max_rss,
+        .use_llvm = options.use_llvm,
+        .use_lld = options.use_lld,
+        .zig_lib_dir = options.zig_lib_dir,
     });
 }
 

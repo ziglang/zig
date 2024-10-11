@@ -7,24 +7,22 @@ pub fn build(b: *std.Build) void {
     const target = b.graph.host;
     const optimize: std.builtin.OptimizeMode = .Debug;
 
-    const obj1 = b.addLibrary(.{
+    const obj1 = b.addStaticLibrary2(.{
         .name = "obj1",
         .root_module = b.createModule(.{
             .root_source_file = b.path("obj1.zig"),
             .target = target,
             .optimize = optimize,
         }),
-        .linkage = .static,
     });
 
-    const obj2 = b.addLibrary(.{
+    const obj2 = b.addStaticLibrary2(.{
         .name = "obj2",
         .root_module = b.createModule(.{
             .root_source_file = b.path("obj2.zig"),
             .target = target,
             .optimize = optimize,
         }),
-        .linkage = .static,
     });
 
     const main_mod = b.createModule(.{

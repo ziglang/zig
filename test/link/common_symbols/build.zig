@@ -21,10 +21,9 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         .flags = &.{"-fcommon"},
     });
 
-    const a_lib = b.addLibrary(.{
+    const a_lib = b.addStaticLibrary2(.{
         .name = "a",
         .root_module = a_mod,
-        .linkage = .static,
     });
 
     const test_mod = b.createModule(.{

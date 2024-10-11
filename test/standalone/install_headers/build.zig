@@ -13,10 +13,9 @@ pub fn build(b: *std.Build) void {
     });
     foo_mod.addCSourceFile(.{ .file = empty_c });
 
-    const foo_lib = b.addLibrary(.{
+    const foo_lib = b.addStaticLibrary2(.{
         .name = "foo",
         .root_module = foo_mod,
-        .linkage = .static,
     });
 
     const main_mod = b.createModule(.{
@@ -72,10 +71,9 @@ pub fn build(b: *std.Build) void {
     });
     bar_mod.addCSourceFile(.{ .file = empty_c });
 
-    const bar_lib = b.addLibrary(.{
+    const bar_lib = b.addStaticLibrary2(.{
         .name = "bar",
         .root_module = bar_mod,
-        .linkage = .static,
     });
     bar_lib.installHeader(b.addWriteFiles().add("bar.h",
         \\#define BAR_X "X"

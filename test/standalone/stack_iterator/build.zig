@@ -82,10 +82,9 @@ pub fn build(b: *std.Build) void {
             .flags = &.{"-fomit-frame-pointer"},
         });
 
-        const c_shared_lib = b.addLibrary(.{
+        const c_shared_lib = b.addSharedLibrary2(.{
             .name = "c_shared_lib",
             .root_module = c_mod,
-            .linkage = .dynamic,
         });
 
         const main_mod = b.createModule(.{

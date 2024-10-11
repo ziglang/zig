@@ -119,10 +119,9 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    const lib = b.addLibrary(.{
+    const lib = b.addStaticLibrary2(.{
         .name = "$",
         .root_module = another_mod,
-        .linkage = .static,
     });
 
     b.installArtifact(lib);

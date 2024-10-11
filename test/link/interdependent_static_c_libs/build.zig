@@ -27,16 +27,14 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     b_mod.addIncludePath(b.path("."));
     b_mod.addCSourceFile(.{ .file = b.path("b.c") });
 
-    const a_lib = b.addLibrary(.{
+    const a_lib = b.addStaticLibrary2(.{
         .name = "a",
         .root_module = a_mod,
-        .linkage = .static,
     });
 
-    const b_lib = b.addLibrary(.{
+    const b_lib = b.addStaticLibrary2(.{
         .name = "b",
         .root_module = b_mod,
-        .linkage = .static,
     });
 
     const test_mod = b.createModule(.{

@@ -10,7 +10,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    const lib = b.addLibrary(.{
+    const lib = b.addStaticLibrary2(.{
         .name = "lib",
         .root_module = b.createModule(.{
             .root_source_file = b.path("lib.zig"),
@@ -23,7 +23,6 @@ pub fn build(b: *std.Build) void {
                 },
             },
         }),
-        .linkage = .static,
     });
 
     const exe_mod = b.createModule(.{
