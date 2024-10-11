@@ -26203,7 +26203,7 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
 
     // Aliasing safety check.
     // Only emit check if there's any copying to be done
-    if (block.wantSafety() and dest_elem_ty.bitSize(zcu) > 0) {
+    if (block.wantSafety() and dest_elem_ty.hasRuntimeBits(zcu)) {
         const len = if (len_val) |v|
             Air.internedToRef(v.toIntern())
         else if (dest_len != .none)
