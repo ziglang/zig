@@ -288,8 +288,8 @@ fn initSections(elf_file: *Elf) !void {
         } else false;
     };
     if (needs_eh_frame) {
-        if (elf_file.eh_frame_section_index == null) {
-            elf_file.eh_frame_section_index = elf_file.sectionByName(".eh_frame") orelse
+        if (elf_file.section_indexes.eh_frame == null) {
+            elf_file.section_indexes.eh_frame = elf_file.sectionByName(".eh_frame") orelse
                 try elf_file.addSection(.{
                 .name = try elf_file.insertShString(".eh_frame"),
                 .type = if (elf_file.getTarget().cpu.arch == .x86_64)
@@ -300,10 +300,10 @@ fn initSections(elf_file: *Elf) !void {
                 .addralign = elf_file.ptrWidthBytes(),
             });
         }
-        elf_file.eh_frame_rela_section_index = elf_file.sectionByName(".rela.eh_frame") orelse
+        elf_file.section_indexes.eh_frame_rela = elf_file.sectionByName(".rela.eh_frame") orelse
             try elf_file.addRelaShdr(
             try elf_file.insertShString(".rela.eh_frame"),
-            elf_file.eh_frame_section_index.?,
+            elf_file.section_indexes.eh_frame.?,
         );
     }
 
@@ -346,7 +346,7 @@ fn updateSectionSizes(elf_file: *Elf) !void {
     for (slice.items(.shdr), 0..) |*shdr, shndx| {
         const atom_list = slice.items(.atom_list)[shndx];
         if (shdr.sh_type != elf.SHT_RELA) continue;
-        if (@as(u32, @intCast(shndx)) == elf_file.eh_frame_section_index) continue;
+        if (@as(u32, @intCast(shndx)) == elf_file.section_indexes.eh_frame) continue;
         for (atom_list.items) |ref| {
             const atom_ptr = elf_file.atom(ref) orelse continue;
             if (!atom_ptr.alive) continue;
@@ -357,10 +357,10 @@ fn updateSectionSizes(elf_file: *Elf) !void {
         if (shdr.sh_size == 0) shdr.sh_offset = 0;
     }
 
-    if (elf_file.eh_frame_section_index) |index| {
+    if (elf_file.section_indexes.eh_frame) |index| {
         slice.items(.shdr)[index].sh_size = try eh_frame.calcEhFrameSize(elf_file);
     }
-    if (elf_file.eh_frame_rela_section_index) |index| {
+    if (elf_file.section_indexes.eh_frame_rela) |index| {
         const shdr = &slice.items(.shdr)[index];
         shdr.sh_size = eh_frame.calcEhFrameRelocs(elf_file) * shdr.sh_entsize;
     }
@@ -374,7 +374,7 @@ fn updateComdatGroupsSizes(elf_file: *Elf) void {
     for (elf_file.comdat_group_sections.items) |cg| {
         const shdr = &elf_file.sections.items(.shdr)[cg.shndx];
         shdr.sh_size = cg.size(elf_file);
-        shdr.sh_link = elf_file.symtab_section_index.?;
+        shdr.sh_link = elf_file.section_indexes.symtab.?;
 
         const sym = cg.symbol(elf_file);
         shdr.sh_info = sym.outputSymtabIndex(elf_file) orelse sym.outputShndx(elf_file).?;
@@ -439,7 +439,7 @@ fn writeSyntheticSections(elf_file: *Elf) !void {
     for (slice.items(.shdr), slice.items(.atom_list), 0..) |shdr, atom_list, shndx| {
         if (shdr.sh_type != elf.SHT_RELA) continue;
         if (atom_list.items.len == 0) continue;
-        if (@as(u32, @intCast(shndx)) == elf_file.eh_frame_section_index) continue;
+        if (@as(u32, @intCast(shndx)) == elf_file.section_indexes.eh_frame) continue;
 
         const num_relocs = math.cast(usize, @divExact(shdr.sh_size, shdr.sh_entsize)) orelse
             return error.Overflow;
@@ -471,7 +471,7 @@ fn writeSyntheticSections(elf_file: *Elf) !void {
         try elf_file.base.file.?.pwriteAll(mem.sliceAsBytes(relocs.items), shdr.sh_offset);
     }
 
-    if (elf_file.eh_frame_section_index) |shndx| {
+    if (elf_file.section_indexes.eh_frame) |shndx| {
         const existing_size = existing_size: {
             const zo = elf_file.zigObjectPtr() orelse break :existing_size 0;
             const sym = zo.symbol(zo.eh_frame_index orelse break :existing_size 0);
@@ -489,7 +489,7 @@ fn writeSyntheticSections(elf_file: *Elf) !void {
         assert(buffer.items.len == sh_size - existing_size);
         try elf_file.base.file.?.pwriteAll(buffer.items, shdr.sh_offset + existing_size);
     }
-    if (elf_file.eh_frame_rela_section_index) |shndx| {
+    if (elf_file.section_indexes.eh_frame_rela) |shndx| {
         const shdr = slice.items(.shdr)[shndx];
         const sh_size = math.cast(usize, shdr.sh_size) orelse return error.Overflow;
         var buffer = try std.ArrayList(u8).initCapacity(gpa, sh_size);

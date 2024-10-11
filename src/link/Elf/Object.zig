@@ -927,7 +927,7 @@ pub fn initRelaSections(self: *Object, elf_file: *Elf) !void {
     for (self.atoms_indexes.items) |atom_index| {
         const atom_ptr = self.atom(atom_index) orelse continue;
         if (!atom_ptr.alive) continue;
-        if (atom_ptr.output_section_index == elf_file.eh_frame_section_index) continue;
+        if (atom_ptr.output_section_index == elf_file.section_indexes.eh_frame) continue;
         const shndx = atom_ptr.relocsShndx() orelse continue;
         const shdr = self.shdrs.items[shndx];
         const out_shndx = try elf_file.initOutputSection(.{
@@ -947,7 +947,7 @@ pub fn addAtomsToRelaSections(self: *Object, elf_file: *Elf) !void {
     for (self.atoms_indexes.items) |atom_index| {
         const atom_ptr = self.atom(atom_index) orelse continue;
         if (!atom_ptr.alive) continue;
-        if (atom_ptr.output_section_index == elf_file.eh_frame_section_index) continue;
+        if (atom_ptr.output_section_index == elf_file.section_indexes.eh_frame) continue;
         const shndx = blk: {
             const shndx = atom_ptr.relocsShndx() orelse continue;
             const shdr = self.shdrs.items[shndx];
@@ -960,7 +960,7 @@ pub fn addAtomsToRelaSections(self: *Object, elf_file: *Elf) !void {
         const slice = elf_file.sections.slice();
         const shdr = &slice.items(.shdr)[shndx];
         shdr.sh_info = atom_ptr.output_section_index;
-        shdr.sh_link = elf_file.symtab_section_index.?;
+        shdr.sh_link = elf_file.section_indexes.symtab.?;
         const gpa = elf_file.base.comp.gpa;
         const atom_list = &elf_file.sections.items(.atom_list)[shndx];
         try atom_list.append(gpa, .{ .index = atom_index, .file = self.index });

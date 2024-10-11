@@ -791,7 +791,7 @@ pub fn initRelaSections(self: *ZigObject, elf_file: *Elf) !void {
     for (self.atoms_indexes.items) |atom_index| {
         const atom_ptr = self.atom(atom_index) orelse continue;
         if (!atom_ptr.alive) continue;
-        if (atom_ptr.output_section_index == elf_file.eh_frame_section_index) continue;
+        if (atom_ptr.output_section_index == elf_file.section_indexes.eh_frame) continue;
         const rela_shndx = atom_ptr.relocsShndx() orelse continue;
         // TODO this check will become obsolete when we rework our relocs mechanism at the ZigObject level
         if (self.relocs.items[rela_shndx].items.len == 0) continue;
@@ -812,7 +812,7 @@ pub fn addAtomsToRelaSections(self: *ZigObject, elf_file: *Elf) !void {
     for (self.atoms_indexes.items) |atom_index| {
         const atom_ptr = self.atom(atom_index) orelse continue;
         if (!atom_ptr.alive) continue;
-        if (atom_ptr.output_section_index == elf_file.eh_frame_section_index) continue;
+        if (atom_ptr.output_section_index == elf_file.section_indexes.eh_frame) continue;
         const rela_shndx = atom_ptr.relocsShndx() orelse continue;
         // TODO this check will become obsolete when we rework our relocs mechanism at the ZigObject level
         if (self.relocs.items[rela_shndx].items.len == 0) continue;
@@ -826,7 +826,7 @@ pub fn addAtomsToRelaSections(self: *ZigObject, elf_file: *Elf) !void {
         const out_rela_shndx = elf_file.sectionByName(rela_sect_name).?;
         const out_rela_shdr = &elf_file.sections.items(.shdr)[out_rela_shndx];
         out_rela_shdr.sh_info = out_shndx;
-        out_rela_shdr.sh_link = elf_file.symtab_section_index.?;
+        out_rela_shdr.sh_link = elf_file.section_indexes.symtab.?;
         const atom_list = &elf_file.sections.items(.atom_list)[out_rela_shndx];
         try atom_list.append(gpa, .{ .index = atom_index, .file = self.index });
     }

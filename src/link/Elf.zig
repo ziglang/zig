@@ -57,6 +57,7 @@ phdrs: ProgramHeaderList = .empty,
 
 /// Special program headers.
 phdr_indexes: ProgramHeaderIndexes = .{},
+section_indexes: SectionIndexes = .{},
 
 page_size: u32,
 default_sym_version: elf.Elf64_Versym,
@@ -99,29 +100,6 @@ rela_plt: std.ArrayListUnmanaged(elf.Elf64_Rela) = .empty,
 /// Applies only to a relocatable.
 comdat_group_sections: std.ArrayListUnmanaged(ComdatGroupSection) = .empty,
 
-copy_rel_section_index: ?u32 = null,
-dynamic_section_index: ?u32 = null,
-dynstrtab_section_index: ?u32 = null,
-dynsymtab_section_index: ?u32 = null,
-eh_frame_section_index: ?u32 = null,
-eh_frame_rela_section_index: ?u32 = null,
-eh_frame_hdr_section_index: ?u32 = null,
-hash_section_index: ?u32 = null,
-gnu_hash_section_index: ?u32 = null,
-got_section_index: ?u32 = null,
-got_plt_section_index: ?u32 = null,
-interp_section_index: ?u32 = null,
-plt_section_index: ?u32 = null,
-plt_got_section_index: ?u32 = null,
-rela_dyn_section_index: ?u32 = null,
-rela_plt_section_index: ?u32 = null,
-versym_section_index: ?u32 = null,
-verneed_section_index: ?u32 = null,
-
-shstrtab_section_index: ?u32 = null,
-strtab_section_index: ?u32 = null,
-symtab_section_index: ?u32 = null,
-
 resolver: SymbolResolver = .{},
 
 has_text_reloc: bool = false,
@@ -135,6 +113,31 @@ merge_sections: std.ArrayListUnmanaged(MergeSection) = .empty,
 comment_merge_section_index: ?MergeSection.Index = null,
 
 first_eflags: ?elf.Elf64_Word = null,
+
+const SectionIndexes = struct {
+    copy_rel: ?u32 = null,
+    dynamic: ?u32 = null,
+    dynstrtab: ?u32 = null,
+    dynsymtab: ?u32 = null,
+    eh_frame: ?u32 = null,
+    eh_frame_rela: ?u32 = null,
+    eh_frame_hdr: ?u32 = null,
+    hash: ?u32 = null,
+    gnu_hash: ?u32 = null,
+    got: ?u32 = null,
+    got_plt: ?u32 = null,
+    interp: ?u32 = null,
+    plt: ?u32 = null,
+    plt_got: ?u32 = null,
+    rela_dyn: ?u32 = null,
+    rela_plt: ?u32 = null,
+    versym: ?u32 = null,
+    verneed: ?u32 = null,
+
+    shstrtab: ?u32 = null,
+    strtab: ?u32 = null,
+    symtab: ?u32 = null,
+};
 
 const ProgramHeaderList = std.ArrayListUnmanaged(elf.Elf64_Phdr);
 
@@ -2670,7 +2673,7 @@ pub fn writeElfHeader(self: *Elf) !void {
     mem.writeInt(u16, hdr_buf[index..][0..2], e_shnum, endian);
     index += 2;
 
-    mem.writeInt(u16, hdr_buf[index..][0..2], @intCast(self.shstrtab_section_index.?), endian);
+    mem.writeInt(u16, hdr_buf[index..][0..2], @intCast(self.section_indexes.shstrtab.?), endian);
     index += 2;
 
     assert(index == e_ehsize);
@@ -2888,8 +2891,8 @@ fn initSyntheticSections(self: *Elf) !void {
         } else false;
     };
     if (needs_eh_frame) {
-        if (self.eh_frame_section_index == null) {
-            self.eh_frame_section_index = self.sectionByName(".eh_frame") orelse try self.addSection(.{
+        if (self.section_indexes.eh_frame == null) {
+            self.section_indexes.eh_frame = self.sectionByName(".eh_frame") orelse try self.addSection(.{
                 .name = try self.insertShString(".eh_frame"),
                 .type = if (target.cpu.arch == .x86_64)
                     elf.SHT_X86_64_UNWIND
@@ -2899,8 +2902,8 @@ fn initSyntheticSections(self: *Elf) !void {
                 .addralign = ptr_size,
             });
         }
-        if (comp.link_eh_frame_hdr and self.eh_frame_hdr_section_index == null) {
-            self.eh_frame_hdr_section_index = try self.addSection(.{
+        if (comp.link_eh_frame_hdr and self.section_indexes.eh_frame_hdr == null) {
+            self.section_indexes.eh_frame_hdr = try self.addSection(.{
                 .name = try self.insertShString(".eh_frame_hdr"),
                 .type = elf.SHT_PROGBITS,
                 .flags = elf.SHF_ALLOC,
@@ -2909,8 +2912,8 @@ fn initSyntheticSections(self: *Elf) !void {
         }
     }
 
-    if (self.got.entries.items.len > 0 and self.got_section_index == null) {
-        self.got_section_index = try self.addSection(.{
+    if (self.got.entries.items.len > 0 and self.section_indexes.got == null) {
+        self.section_indexes.got = try self.addSection(.{
             .name = try self.insertShString(".got"),
             .type = elf.SHT_PROGBITS,
             .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
@@ -2918,8 +2921,8 @@ fn initSyntheticSections(self: *Elf) !void {
         });
     }
 
-    if (self.got_plt_section_index == null) {
-        self.got_plt_section_index = try self.addSection(.{
+    if (self.section_indexes.got_plt == null) {
+        self.section_indexes.got_plt = try self.addSection(.{
             .name = try self.insertShString(".got.plt"),
             .type = elf.SHT_PROGBITS,
             .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
@@ -2938,8 +2941,8 @@ fn initSyntheticSections(self: *Elf) !void {
         }
         break :blk false;
     };
-    if (needs_rela_dyn and self.rela_dyn_section_index == null) {
-        self.rela_dyn_section_index = try self.addSection(.{
+    if (needs_rela_dyn and self.section_indexes.rela_dyn == null) {
+        self.section_indexes.rela_dyn = try self.addSection(.{
             .name = try self.insertShString(".rela.dyn"),
             .type = elf.SHT_RELA,
             .flags = elf.SHF_ALLOC,
@@ -2949,16 +2952,16 @@ fn initSyntheticSections(self: *Elf) !void {
     }
 
     if (self.plt.symbols.items.len > 0) {
-        if (self.plt_section_index == null) {
-            self.plt_section_index = try self.addSection(.{
+        if (self.section_indexes.plt == null) {
+            self.section_indexes.plt = try self.addSection(.{
                 .name = try self.insertShString(".plt"),
                 .type = elf.SHT_PROGBITS,
                 .flags = elf.SHF_ALLOC | elf.SHF_EXECINSTR,
                 .addralign = 16,
             });
         }
-        if (self.rela_plt_section_index == null) {
-            self.rela_plt_section_index = try self.addSection(.{
+        if (self.section_indexes.rela_plt == null) {
+            self.section_indexes.rela_plt = try self.addSection(.{
                 .name = try self.insertShString(".rela.plt"),
                 .type = elf.SHT_RELA,
                 .flags = elf.SHF_ALLOC,
@@ -2968,8 +2971,8 @@ fn initSyntheticSections(self: *Elf) !void {
         }
     }
 
-    if (self.plt_got.symbols.items.len > 0 and self.plt_got_section_index == null) {
-        self.plt_got_section_index = try self.addSection(.{
+    if (self.plt_got.symbols.items.len > 0 and self.section_indexes.plt_got == null) {
+        self.section_indexes.plt_got = try self.addSection(.{
             .name = try self.insertShString(".plt.got"),
             .type = elf.SHT_PROGBITS,
             .flags = elf.SHF_ALLOC | elf.SHF_EXECINSTR,
@@ -2977,8 +2980,8 @@ fn initSyntheticSections(self: *Elf) !void {
         });
     }
 
-    if (self.copy_rel.symbols.items.len > 0 and self.copy_rel_section_index == null) {
-        self.copy_rel_section_index = try self.addSection(.{
+    if (self.copy_rel.symbols.items.len > 0 and self.section_indexes.copy_rel == null) {
+        self.section_indexes.copy_rel = try self.addSection(.{
             .name = try self.insertShString(".copyrel"),
             .type = elf.SHT_NOBITS,
             .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
@@ -2994,8 +2997,8 @@ fn initSyntheticSections(self: *Elf) !void {
         if (self.base.isStatic() and !comp.config.pie) break :blk false;
         break :blk target.dynamic_linker.get() != null;
     };
-    if (needs_interp and self.interp_section_index == null) {
-        self.interp_section_index = try self.addSection(.{
+    if (needs_interp and self.section_indexes.interp == null) {
+        self.section_indexes.interp = try self.addSection(.{
             .name = try self.insertShString(".interp"),
             .type = elf.SHT_PROGBITS,
             .flags = elf.SHF_ALLOC,
@@ -3004,8 +3007,8 @@ fn initSyntheticSections(self: *Elf) !void {
     }
 
     if (self.isEffectivelyDynLib() or self.shared_objects.items.len > 0 or comp.config.pie) {
-        if (self.dynstrtab_section_index == null) {
-            self.dynstrtab_section_index = try self.addSection(.{
+        if (self.section_indexes.dynstrtab == null) {
+            self.section_indexes.dynstrtab = try self.addSection(.{
                 .name = try self.insertShString(".dynstr"),
                 .flags = elf.SHF_ALLOC,
                 .type = elf.SHT_STRTAB,
@@ -3013,8 +3016,8 @@ fn initSyntheticSections(self: *Elf) !void {
                 .addralign = 1,
             });
         }
-        if (self.dynamic_section_index == null) {
-            self.dynamic_section_index = try self.addSection(.{
+        if (self.section_indexes.dynamic == null) {
+            self.section_indexes.dynamic = try self.addSection(.{
                 .name = try self.insertShString(".dynamic"),
                 .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
                 .type = elf.SHT_DYNAMIC,
@@ -3022,8 +3025,8 @@ fn initSyntheticSections(self: *Elf) !void {
                 .addralign = @alignOf(elf.Elf64_Dyn),
             });
         }
-        if (self.dynsymtab_section_index == null) {
-            self.dynsymtab_section_index = try self.addSection(.{
+        if (self.section_indexes.dynsymtab == null) {
+            self.section_indexes.dynsymtab = try self.addSection(.{
                 .name = try self.insertShString(".dynsym"),
                 .flags = elf.SHF_ALLOC,
                 .type = elf.SHT_DYNSYM,
@@ -3032,8 +3035,8 @@ fn initSyntheticSections(self: *Elf) !void {
                 .info = 1,
             });
         }
-        if (self.hash_section_index == null) {
-            self.hash_section_index = try self.addSection(.{
+        if (self.section_indexes.hash == null) {
+            self.section_indexes.hash = try self.addSection(.{
                 .name = try self.insertShString(".hash"),
                 .flags = elf.SHF_ALLOC,
                 .type = elf.SHT_HASH,
@@ -3041,8 +3044,8 @@ fn initSyntheticSections(self: *Elf) !void {
                 .entsize = 4,
             });
         }
-        if (self.gnu_hash_section_index == null) {
-            self.gnu_hash_section_index = try self.addSection(.{
+        if (self.section_indexes.gnu_hash == null) {
+            self.section_indexes.gnu_hash = try self.addSection(.{
                 .name = try self.insertShString(".gnu.hash"),
                 .flags = elf.SHF_ALLOC,
                 .type = elf.SHT_GNU_HASH,
@@ -3055,8 +3058,8 @@ fn initSyntheticSections(self: *Elf) !void {
             if (sym.flags.import and sym.version_index & elf.VERSYM_VERSION > elf.VER_NDX_GLOBAL) break true;
         } else false;
         if (needs_versions) {
-            if (self.versym_section_index == null) {
-                self.versym_section_index = try self.addSection(.{
+            if (self.section_indexes.versym == null) {
+                self.section_indexes.versym = try self.addSection(.{
                     .name = try self.insertShString(".gnu.version"),
                     .flags = elf.SHF_ALLOC,
                     .type = elf.SHT_GNU_VERSYM,
@@ -3064,8 +3067,8 @@ fn initSyntheticSections(self: *Elf) !void {
                     .entsize = @sizeOf(elf.Elf64_Versym),
                 });
             }
-            if (self.verneed_section_index == null) {
-                self.verneed_section_index = try self.addSection(.{
+            if (self.section_indexes.verneed == null) {
+                self.section_indexes.verneed = try self.addSection(.{
                     .name = try self.insertShString(".gnu.version_r"),
                     .flags = elf.SHF_ALLOC,
                     .type = elf.SHT_GNU_VERNEED,
@@ -3084,16 +3087,16 @@ pub fn initSymtab(self: *Elf) !void {
         .p32 => true,
         .p64 => false,
     };
-    if (self.symtab_section_index == null) {
-        self.symtab_section_index = try self.addSection(.{
+    if (self.section_indexes.symtab == null) {
+        self.section_indexes.symtab = try self.addSection(.{
             .name = try self.insertShString(".symtab"),
             .type = elf.SHT_SYMTAB,
             .addralign = if (small_ptr) @alignOf(elf.Elf32_Sym) else @alignOf(elf.Elf64_Sym),
             .entsize = if (small_ptr) @sizeOf(elf.Elf32_Sym) else @sizeOf(elf.Elf64_Sym),
         });
     }
-    if (self.strtab_section_index == null) {
-        self.strtab_section_index = try self.addSection(.{
+    if (self.section_indexes.strtab == null) {
+        self.section_indexes.strtab = try self.addSection(.{
             .name = try self.insertShString(".strtab"),
             .type = elf.SHT_STRTAB,
             .entsize = 1,
@@ -3103,8 +3106,8 @@ pub fn initSymtab(self: *Elf) !void {
 }
 
 pub fn initShStrtab(self: *Elf) !void {
-    if (self.shstrtab_section_index == null) {
-        self.shstrtab_section_index = try self.addSection(.{
+    if (self.section_indexes.shstrtab == null) {
+        self.section_indexes.shstrtab = try self.addSection(.{
             .name = try self.insertShString(".shstrtab"),
             .type = elf.SHT_STRTAB,
             .entsize = 1,
@@ -3116,20 +3119,20 @@ pub fn initShStrtab(self: *Elf) !void {
 fn initSpecialPhdrs(self: *Elf) !void {
     comptime assert(max_number_of_special_phdrs == 5);
 
-    if (self.interp_section_index != null and self.phdr_indexes.interp == .none) {
+    if (self.section_indexes.interp != null and self.phdr_indexes.interp == .none) {
         self.phdr_indexes.interp = (try self.addPhdr(.{
             .type = elf.PT_INTERP,
             .flags = elf.PF_R,
             .@"align" = 1,
         })).toOptional();
     }
-    if (self.dynamic_section_index != null and self.phdr_indexes.dynamic == .none) {
+    if (self.section_indexes.dynamic != null and self.phdr_indexes.dynamic == .none) {
         self.phdr_indexes.dynamic = (try self.addPhdr(.{
             .type = elf.PT_DYNAMIC,
             .flags = elf.PF_R | elf.PF_W,
         })).toOptional();
     }
-    if (self.eh_frame_hdr_section_index != null and self.phdr_indexes.gnu_eh_frame == .none) {
+    if (self.section_indexes.eh_frame_hdr != null and self.phdr_indexes.gnu_eh_frame == .none) {
         self.phdr_indexes.gnu_eh_frame = (try self.addPhdr(.{
             .type = elf.PT_GNU_EH_FRAME,
             .flags = elf.PF_R,
@@ -3237,7 +3240,7 @@ fn sortInitFini(self: *Elf) !void {
 }
 
 fn setDynamicSection(self: *Elf, rpaths: []const []const u8) !void {
-    if (self.dynamic_section_index == null) return;
+    if (self.section_indexes.dynamic == null) return;
 
     for (self.shared_objects.items) |index| {
         const shared_object = self.file(index).?.shared_object;
@@ -3255,13 +3258,13 @@ fn setDynamicSection(self: *Elf, rpaths: []const []const u8) !void {
 }
 
 fn sortDynamicSymtab(self: *Elf) void {
-    if (self.gnu_hash_section_index == null) return;
+    if (self.section_indexes.gnu_hash == null) return;
     self.dynsym.sort(self);
 }
 
 fn setVersionSymtab(self: *Elf) !void {
     const gpa = self.base.comp.gpa;
-    if (self.versym_section_index == null) return;
+    if (self.section_indexes.versym == null) return;
     try self.versym.resize(gpa, self.dynsym.count());
     self.versym.items[0] = elf.VER_NDX_LOCAL;
     for (self.dynsym.entries.items, 1..) |entry, i| {
@@ -3269,7 +3272,7 @@ fn setVersionSymtab(self: *Elf) !void {
         self.versym.items[i] = sym.version_index;
     }
 
-    if (self.verneed_section_index) |shndx| {
+    if (self.section_indexes.verneed) |shndx| {
         try self.verneed.generate(self);
         const shdr = &self.sections.items(.shdr)[shndx];
         shdr.sh_info = @as(u32, @intCast(self.verneed.verneed.items.len));
@@ -3277,10 +3280,10 @@ fn setVersionSymtab(self: *Elf) !void {
 }
 
 fn setHashSections(self: *Elf) !void {
-    if (self.hash_section_index != null) {
+    if (self.section_indexes.hash != null) {
         try self.hash.generate(self);
     }
-    if (self.gnu_hash_section_index != null) {
+    if (self.section_indexes.gnu_hash != null) {
         try self.gnu_hash.calcSize(self);
     }
 }
@@ -3420,47 +3423,22 @@ pub fn sortShdrs(self: *Elf) !void {
 
     const backlinks = try gpa.alloc(u32, entries.items.len);
     defer gpa.free(backlinks);
-    for (entries.items, 0..) |entry, i| {
-        backlinks[entry.shndx] = @intCast(i);
+    {
+        var slice = self.sections.toOwnedSlice();
+        defer slice.deinit(gpa);
+        try self.sections.resize(gpa, slice.len);
+
+        for (entries.items, 0..) |entry, i| {
+            backlinks[entry.shndx] = @intCast(i);
+            self.sections.set(i, slice.get(entry.shndx));
+        }
     }
 
-    var slice = self.sections.toOwnedSlice();
-    defer slice.deinit(gpa);
+    const special_indexes = &self.section_indexes;
 
-    try self.sections.ensureTotalCapacity(gpa, slice.len);
-    for (entries.items) |sorted| {
-        self.sections.appendAssumeCapacity(slice.get(sorted.shndx));
-    }
-
-    self.resetShdrIndexes(backlinks);
-}
-
-fn resetShdrIndexes(self: *Elf, backlinks: []const u32) void {
-    for (&[_]*?u32{
-        &self.eh_frame_section_index,
-        &self.eh_frame_rela_section_index,
-        &self.eh_frame_hdr_section_index,
-        &self.got_section_index,
-        &self.symtab_section_index,
-        &self.strtab_section_index,
-        &self.shstrtab_section_index,
-        &self.interp_section_index,
-        &self.dynamic_section_index,
-        &self.dynsymtab_section_index,
-        &self.dynstrtab_section_index,
-        &self.hash_section_index,
-        &self.gnu_hash_section_index,
-        &self.plt_section_index,
-        &self.got_plt_section_index,
-        &self.plt_got_section_index,
-        &self.rela_dyn_section_index,
-        &self.rela_plt_section_index,
-        &self.copy_rel_section_index,
-        &self.versym_section_index,
-        &self.verneed_section_index,
-    }) |maybe_index| {
-        if (maybe_index.*) |*index| {
-            index.* = backlinks[index.*];
+    inline for (@typeInfo(SectionIndexes).@"struct".fields) |field| {
+        if (@field(special_indexes, field.name)) |special_index| {
+            @field(special_indexes, field.name) = backlinks[special_index];
         }
     }
 
@@ -3478,7 +3456,7 @@ fn resetShdrIndexes(self: *Elf, backlinks: []const u32) void {
             // FIXME:JK we should spin up .symtab potentially earlier, or set all non-dynamic RELA sections
             // to point at symtab
             // shdr.sh_link = backlinks[shdr.sh_link];
-            shdr.sh_link = self.symtab_section_index.?;
+            shdr.sh_link = self.section_indexes.symtab.?;
             shdr.sh_info = backlinks[shdr.sh_info];
         }
     }
@@ -3489,56 +3467,56 @@ fn resetShdrIndexes(self: *Elf, backlinks: []const u32) void {
         cg.shndx = backlinks[cg.shndx];
     }
 
-    if (self.symtab_section_index) |index| {
+    if (self.section_indexes.symtab) |index| {
         const shdr = &slice.items(.shdr)[index];
-        shdr.sh_link = self.strtab_section_index.?;
+        shdr.sh_link = self.section_indexes.strtab.?;
     }
 
-    if (self.dynamic_section_index) |index| {
+    if (self.section_indexes.dynamic) |index| {
         const shdr = &slice.items(.shdr)[index];
-        shdr.sh_link = self.dynstrtab_section_index.?;
+        shdr.sh_link = self.section_indexes.dynstrtab.?;
     }
 
-    if (self.dynsymtab_section_index) |index| {
+    if (self.section_indexes.dynsymtab) |index| {
         const shdr = &slice.items(.shdr)[index];
-        shdr.sh_link = self.dynstrtab_section_index.?;
+        shdr.sh_link = self.section_indexes.dynstrtab.?;
     }
 
-    if (self.hash_section_index) |index| {
+    if (self.section_indexes.hash) |index| {
         const shdr = &slice.items(.shdr)[index];
-        shdr.sh_link = self.dynsymtab_section_index.?;
+        shdr.sh_link = self.section_indexes.dynsymtab.?;
     }
 
-    if (self.gnu_hash_section_index) |index| {
+    if (self.section_indexes.gnu_hash) |index| {
         const shdr = &slice.items(.shdr)[index];
-        shdr.sh_link = self.dynsymtab_section_index.?;
+        shdr.sh_link = self.section_indexes.dynsymtab.?;
     }
 
-    if (self.versym_section_index) |index| {
+    if (self.section_indexes.versym) |index| {
         const shdr = &slice.items(.shdr)[index];
-        shdr.sh_link = self.dynsymtab_section_index.?;
+        shdr.sh_link = self.section_indexes.dynsymtab.?;
     }
 
-    if (self.verneed_section_index) |index| {
+    if (self.section_indexes.verneed) |index| {
         const shdr = &slice.items(.shdr)[index];
-        shdr.sh_link = self.dynstrtab_section_index.?;
+        shdr.sh_link = self.section_indexes.dynstrtab.?;
     }
 
-    if (self.rela_dyn_section_index) |index| {
+    if (self.section_indexes.rela_dyn) |index| {
         const shdr = &slice.items(.shdr)[index];
-        shdr.sh_link = self.dynsymtab_section_index orelse 0;
+        shdr.sh_link = self.section_indexes.dynsymtab orelse 0;
     }
 
-    if (self.rela_plt_section_index) |index| {
+    if (self.section_indexes.rela_plt) |index| {
         const shdr = &slice.items(.shdr)[index];
-        shdr.sh_link = self.dynsymtab_section_index.?;
-        shdr.sh_info = self.plt_section_index.?;
+        shdr.sh_link = self.section_indexes.dynsymtab.?;
+        shdr.sh_info = self.section_indexes.plt.?;
     }
 
-    if (self.eh_frame_rela_section_index) |index| {
+    if (self.section_indexes.eh_frame_rela) |index| {
         const shdr = &slice.items(.shdr)[index];
-        shdr.sh_link = self.symtab_section_index.?;
-        shdr.sh_info = self.eh_frame_section_index.?;
+        shdr.sh_link = self.section_indexes.symtab.?;
+        shdr.sh_info = self.section_indexes.eh_frame.?;
     }
 }
 
@@ -3572,31 +3550,31 @@ fn updateSectionSizes(self: *Elf) !void {
     }
 
     const shdrs = slice.items(.shdr);
-    if (self.eh_frame_section_index) |index| {
+    if (self.section_indexes.eh_frame) |index| {
         shdrs[index].sh_size = try eh_frame.calcEhFrameSize(self);
     }
 
-    if (self.eh_frame_hdr_section_index) |index| {
+    if (self.section_indexes.eh_frame_hdr) |index| {
         shdrs[index].sh_size = eh_frame.calcEhFrameHdrSize(self);
     }
 
-    if (self.got_section_index) |index| {
+    if (self.section_indexes.got) |index| {
         shdrs[index].sh_size = self.got.size(self);
     }
 
-    if (self.plt_section_index) |index| {
+    if (self.section_indexes.plt) |index| {
         shdrs[index].sh_size = self.plt.size(self);
     }
 
-    if (self.got_plt_section_index) |index| {
+    if (self.section_indexes.got_plt) |index| {
         shdrs[index].sh_size = self.got_plt.size(self);
     }
 
-    if (self.plt_got_section_index) |index| {
+    if (self.section_indexes.plt_got) |index| {
         shdrs[index].sh_size = self.plt_got.size(self);
     }
 
-    if (self.rela_dyn_section_index) |shndx| {
+    if (self.section_indexes.rela_dyn) |shndx| {
         var num = self.got.numRela(self) + self.copy_rel.numRela();
         if (self.zigObjectPtr()) |zig_object| {
             num += zig_object.num_dynrelocs;
@@ -3607,43 +3585,43 @@ fn updateSectionSizes(self: *Elf) !void {
         shdrs[shndx].sh_size = num * @sizeOf(elf.Elf64_Rela);
     }
 
-    if (self.rela_plt_section_index) |index| {
+    if (self.section_indexes.rela_plt) |index| {
         shdrs[index].sh_size = self.plt.numRela() * @sizeOf(elf.Elf64_Rela);
     }
 
-    if (self.copy_rel_section_index) |index| {
+    if (self.section_indexes.copy_rel) |index| {
         try self.copy_rel.updateSectionSize(index, self);
     }
 
-    if (self.interp_section_index) |index| {
+    if (self.section_indexes.interp) |index| {
         shdrs[index].sh_size = self.getTarget().dynamic_linker.get().?.len + 1;
     }
 
-    if (self.hash_section_index) |index| {
+    if (self.section_indexes.hash) |index| {
         shdrs[index].sh_size = self.hash.size();
     }
 
-    if (self.gnu_hash_section_index) |index| {
+    if (self.section_indexes.gnu_hash) |index| {
         shdrs[index].sh_size = self.gnu_hash.size();
     }
 
-    if (self.dynamic_section_index) |index| {
+    if (self.section_indexes.dynamic) |index| {
         shdrs[index].sh_size = self.dynamic.size(self);
     }
 
-    if (self.dynsymtab_section_index) |index| {
+    if (self.section_indexes.dynsymtab) |index| {
         shdrs[index].sh_size = self.dynsym.size();
     }
 
-    if (self.dynstrtab_section_index) |index| {
+    if (self.section_indexes.dynstrtab) |index| {
         shdrs[index].sh_size = self.dynstrtab.items.len;
     }
 
-    if (self.versym_section_index) |index| {
+    if (self.section_indexes.versym) |index| {
         shdrs[index].sh_size = self.versym.items.len * @sizeOf(elf.Elf64_Versym);
     }
 
-    if (self.verneed_section_index) |index| {
+    if (self.section_indexes.verneed) |index| {
         shdrs[index].sh_size = self.verneed.size();
     }
 
@@ -3653,7 +3631,7 @@ fn updateSectionSizes(self: *Elf) !void {
 
 // FIXME:JK this is very much obsolete, remove!
 pub fn updateShStrtabSize(self: *Elf) void {
-    if (self.shstrtab_section_index) |index| {
+    if (self.section_indexes.shstrtab) |index| {
         self.sections.items(.shdr)[index].sh_size = self.shstrtab.items.len;
     }
 }
@@ -3936,9 +3914,9 @@ fn allocateSpecialPhdrs(self: *Elf) void {
     const slice = self.sections.slice();
 
     for (&[_]struct { OptionalProgramHeaderIndex, ?u32 }{
-        .{ self.phdr_indexes.interp, self.interp_section_index },
-        .{ self.phdr_indexes.dynamic, self.dynamic_section_index },
-        .{ self.phdr_indexes.gnu_eh_frame, self.eh_frame_hdr_section_index },
+        .{ self.phdr_indexes.interp, self.section_indexes.interp },
+        .{ self.phdr_indexes.dynamic, self.section_indexes.dynamic },
+        .{ self.phdr_indexes.gnu_eh_frame, self.section_indexes.eh_frame_hdr },
     }) |pair| {
         if (pair[0].int()) |index| {
             const shdr = slice.items(.shdr)[pair[1].?];
@@ -4075,7 +4053,7 @@ pub fn updateSymtabSize(self: *Elf) !void {
         strsize += ctx.strsize;
     }
 
-    if (self.got_section_index) |_| {
+    if (self.section_indexes.got) |_| {
         self.got.output_symtab_ctx.reset();
         self.got.output_symtab_ctx.ilocal = nlocals;
         self.got.updateSymtabSize(self);
@@ -4083,7 +4061,7 @@ pub fn updateSymtabSize(self: *Elf) !void {
         strsize += self.got.output_symtab_ctx.strsize;
     }
 
-    if (self.plt_section_index) |_| {
+    if (self.section_indexes.plt) |_| {
         self.plt.output_symtab_ctx.reset();
         self.plt.output_symtab_ctx.ilocal = nlocals;
         self.plt.updateSymtabSize(self);
@@ -4091,7 +4069,7 @@ pub fn updateSymtabSize(self: *Elf) !void {
         strsize += self.plt.output_symtab_ctx.strsize;
     }
 
-    if (self.plt_got_section_index) |_| {
+    if (self.section_indexes.plt_got) |_| {
         self.plt_got.output_symtab_ctx.reset();
         self.plt_got.output_symtab_ctx.ilocal = nlocals;
         self.plt_got.updateSymtabSize(self);
@@ -4108,9 +4086,9 @@ pub fn updateSymtabSize(self: *Elf) !void {
     }
 
     const slice = self.sections.slice();
-    const symtab_shdr = &slice.items(.shdr)[self.symtab_section_index.?];
+    const symtab_shdr = &slice.items(.shdr)[self.section_indexes.symtab.?];
     symtab_shdr.sh_info = nlocals;
-    symtab_shdr.sh_link = self.strtab_section_index.?;
+    symtab_shdr.sh_link = self.section_indexes.strtab.?;
 
     const sym_size: u64 = switch (self.ptr_width) {
         .p32 => @sizeOf(elf.Elf32_Sym),
@@ -4119,7 +4097,7 @@ pub fn updateSymtabSize(self: *Elf) !void {
     const needed_size = (nlocals + nglobals) * sym_size;
     symtab_shdr.sh_size = needed_size;
 
-    const strtab = &slice.items(.shdr)[self.strtab_section_index.?];
+    const strtab = &slice.items(.shdr)[self.section_indexes.strtab.?];
     strtab.sh_size = strsize + 1;
 }
 
@@ -4127,7 +4105,7 @@ fn writeSyntheticSections(self: *Elf) !void {
     const gpa = self.base.comp.gpa;
     const slice = self.sections.slice();
 
-    if (self.interp_section_index) |shndx| {
+    if (self.section_indexes.interp) |shndx| {
         var buffer: [256]u8 = undefined;
         const interp = self.getTarget().dynamic_linker.get().?;
         @memcpy(buffer[0..interp.len], interp);
@@ -4138,12 +4116,12 @@ fn writeSyntheticSections(self: *Elf) !void {
         try self.base.file.?.pwriteAll(contents, shdr.sh_offset);
     }
 
-    if (self.hash_section_index) |shndx| {
+    if (self.section_indexes.hash) |shndx| {
         const shdr = slice.items(.shdr)[shndx];
         try self.base.file.?.pwriteAll(self.hash.buffer.items, shdr.sh_offset);
     }
 
-    if (self.gnu_hash_section_index) |shndx| {
+    if (self.section_indexes.gnu_hash) |shndx| {
         const shdr = slice.items(.shdr)[shndx];
         var buffer = try std.ArrayList(u8).initCapacity(gpa, self.gnu_hash.size());
         defer buffer.deinit();
@@ -4151,12 +4129,12 @@ fn writeSyntheticSections(self: *Elf) !void {
         try self.base.file.?.pwriteAll(buffer.items, shdr.sh_offset);
     }
 
-    if (self.versym_section_index) |shndx| {
+    if (self.section_indexes.versym) |shndx| {
         const shdr = slice.items(.shdr)[shndx];
         try self.base.file.?.pwriteAll(mem.sliceAsBytes(self.versym.items), shdr.sh_offset);
     }
 
-    if (self.verneed_section_index) |shndx| {
+    if (self.section_indexes.verneed) |shndx| {
         const shdr = slice.items(.shdr)[shndx];
         var buffer = try std.ArrayList(u8).initCapacity(gpa, self.verneed.size());
         defer buffer.deinit();
@@ -4164,7 +4142,7 @@ fn writeSyntheticSections(self: *Elf) !void {
         try self.base.file.?.pwriteAll(buffer.items, shdr.sh_offset);
     }
 
-    if (self.dynamic_section_index) |shndx| {
+    if (self.section_indexes.dynamic) |shndx| {
         const shdr = slice.items(.shdr)[shndx];
         var buffer = try std.ArrayList(u8).initCapacity(gpa, self.dynamic.size(self));
         defer buffer.deinit();
@@ -4172,7 +4150,7 @@ fn writeSyntheticSections(self: *Elf) !void {
         try self.base.file.?.pwriteAll(buffer.items, shdr.sh_offset);
     }
 
-    if (self.dynsymtab_section_index) |shndx| {
+    if (self.section_indexes.dynsymtab) |shndx| {
         const shdr = slice.items(.shdr)[shndx];
         var buffer = try std.ArrayList(u8).initCapacity(gpa, self.dynsym.size());
         defer buffer.deinit();
@@ -4180,12 +4158,12 @@ fn writeSyntheticSections(self: *Elf) !void {
         try self.base.file.?.pwriteAll(buffer.items, shdr.sh_offset);
     }
 
-    if (self.dynstrtab_section_index) |shndx| {
+    if (self.section_indexes.dynstrtab) |shndx| {
         const shdr = slice.items(.shdr)[shndx];
         try self.base.file.?.pwriteAll(self.dynstrtab.items, shdr.sh_offset);
     }
 
-    if (self.eh_frame_section_index) |shndx| {
+    if (self.section_indexes.eh_frame) |shndx| {
         const existing_size = existing_size: {
             const zo = self.zigObjectPtr() orelse break :existing_size 0;
             const sym = zo.symbol(zo.eh_frame_index orelse break :existing_size 0);
@@ -4200,7 +4178,7 @@ fn writeSyntheticSections(self: *Elf) !void {
         try self.base.file.?.pwriteAll(buffer.items, shdr.sh_offset + existing_size);
     }
 
-    if (self.eh_frame_hdr_section_index) |shndx| {
+    if (self.section_indexes.eh_frame_hdr) |shndx| {
         const shdr = slice.items(.shdr)[shndx];
         const sh_size = math.cast(usize, shdr.sh_size) orelse return error.Overflow;
         var buffer = try std.ArrayList(u8).initCapacity(gpa, sh_size);
@@ -4209,7 +4187,7 @@ fn writeSyntheticSections(self: *Elf) !void {
         try self.base.file.?.pwriteAll(buffer.items, shdr.sh_offset);
     }
 
-    if (self.got_section_index) |index| {
+    if (self.section_indexes.got) |index| {
         const shdr = slice.items(.shdr)[index];
         var buffer = try std.ArrayList(u8).initCapacity(gpa, self.got.size(self));
         defer buffer.deinit();
@@ -4217,7 +4195,7 @@ fn writeSyntheticSections(self: *Elf) !void {
         try self.base.file.?.pwriteAll(buffer.items, shdr.sh_offset);
     }
 
-    if (self.rela_dyn_section_index) |shndx| {
+    if (self.section_indexes.rela_dyn) |shndx| {
         const shdr = slice.items(.shdr)[shndx];
         try self.got.addRela(self);
         try self.copy_rel.addRela(self);
@@ -4225,7 +4203,7 @@ fn writeSyntheticSections(self: *Elf) !void {
         try self.base.file.?.pwriteAll(mem.sliceAsBytes(self.rela_dyn.items), shdr.sh_offset);
     }
 
-    if (self.plt_section_index) |shndx| {
+    if (self.section_indexes.plt) |shndx| {
         const shdr = slice.items(.shdr)[shndx];
         var buffer = try std.ArrayList(u8).initCapacity(gpa, self.plt.size(self));
         defer buffer.deinit();
@@ -4233,7 +4211,7 @@ fn writeSyntheticSections(self: *Elf) !void {
         try self.base.file.?.pwriteAll(buffer.items, shdr.sh_offset);
     }
 
-    if (self.got_plt_section_index) |shndx| {
+    if (self.section_indexes.got_plt) |shndx| {
         const shdr = slice.items(.shdr)[shndx];
         var buffer = try std.ArrayList(u8).initCapacity(gpa, self.got_plt.size(self));
         defer buffer.deinit();
@@ -4241,7 +4219,7 @@ fn writeSyntheticSections(self: *Elf) !void {
         try self.base.file.?.pwriteAll(buffer.items, shdr.sh_offset);
     }
 
-    if (self.plt_got_section_index) |shndx| {
+    if (self.section_indexes.plt_got) |shndx| {
         const shdr = slice.items(.shdr)[shndx];
         var buffer = try std.ArrayList(u8).initCapacity(gpa, self.plt_got.size(self));
         defer buffer.deinit();
@@ -4249,7 +4227,7 @@ fn writeSyntheticSections(self: *Elf) !void {
         try self.base.file.?.pwriteAll(buffer.items, shdr.sh_offset);
     }
 
-    if (self.rela_plt_section_index) |shndx| {
+    if (self.section_indexes.rela_plt) |shndx| {
         const shdr = slice.items(.shdr)[shndx];
         try self.plt.addRela(self);
         try self.base.file.?.pwriteAll(mem.sliceAsBytes(self.rela_plt.items), shdr.sh_offset);
@@ -4261,7 +4239,7 @@ fn writeSyntheticSections(self: *Elf) !void {
 
 // FIXME:JK again, why is this needed?
 pub fn writeShStrtab(self: *Elf) !void {
-    if (self.shstrtab_section_index) |index| {
+    if (self.section_indexes.shstrtab) |index| {
         const shdr = self.sections.items(.shdr)[index];
         log.debug("writing .shstrtab from 0x{x} to 0x{x}", .{ shdr.sh_offset, shdr.sh_offset + shdr.sh_size });
         try self.base.file.?.pwriteAll(self.shstrtab.items, shdr.sh_offset);
@@ -4271,8 +4249,8 @@ pub fn writeShStrtab(self: *Elf) !void {
 pub fn writeSymtab(self: *Elf) !void {
     const gpa = self.base.comp.gpa;
     const slice = self.sections.slice();
-    const symtab_shdr = slice.items(.shdr)[self.symtab_section_index.?];
-    const strtab_shdr = slice.items(.shdr)[self.strtab_section_index.?];
+    const symtab_shdr = slice.items(.shdr)[self.section_indexes.symtab.?];
+    const strtab_shdr = slice.items(.shdr)[self.section_indexes.strtab.?];
     const sym_size: u64 = switch (self.ptr_width) {
         .p32 => @sizeOf(elf.Elf32_Sym),
         .p64 => @sizeOf(elf.Elf64_Sym),
@@ -4330,15 +4308,15 @@ pub fn writeSymtab(self: *Elf) !void {
         obj.asFile().writeSymtab(self);
     }
 
-    if (self.got_section_index) |_| {
+    if (self.section_indexes.got) |_| {
         self.got.writeSymtab(self);
     }
 
-    if (self.plt_section_index) |_| {
+    if (self.section_indexes.plt) |_| {
         self.plt.writeSymtab(self);
     }
 
-    if (self.plt_got_section_index) |_| {
+    if (self.section_indexes.plt_got) |_| {
         self.plt_got.writeSymtab(self);
     }
 
@@ -4778,9 +4756,9 @@ pub fn mergeSection(self: *Elf, index: MergeSection.Index) *MergeSection {
 
 pub fn gotAddress(self: *Elf) i64 {
     const shndx = blk: {
-        if (self.getTarget().cpu.arch == .x86_64 and self.got_plt_section_index != null)
-            break :blk self.got_plt_section_index.?;
-        break :blk if (self.got_section_index) |shndx| shndx else null;
+        if (self.getTarget().cpu.arch == .x86_64 and self.section_indexes.got_plt != null)
+            break :blk self.section_indexes.got_plt.?;
+        break :blk if (self.section_indexes.got) |shndx| shndx else null;
     };
     return if (shndx) |index| @intCast(self.sections.items(.shdr)[index].sh_addr) else 0;
 }
