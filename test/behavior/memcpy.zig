@@ -99,3 +99,17 @@ comptime {
     s.set("hello");
     if (!std.mem.eql(u8, s.buffer[0..5], "hello")) @compileError("bad");
 }
+
+fn testMemcpyAllowsAliasingOnZeroBitTypes() !void {
+    var a: [2]u0 = .{ 0, 0, 0 };
+    @memcpy(a[1..3], a[0..2]);
+}
+
+test "@memcpy allows aliasing on zero bit types" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
+
+    try testMemcpyAllowsAliasingOnZeroBitTypes();
+    try comptime testMemcpyAllowsAliasingOnZeroBitTypes();
+}
