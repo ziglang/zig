@@ -1,5 +1,7 @@
 archive: ?InArchive = null,
-path: []const u8,
+/// Archive files cannot contain subdirectories, so only the basename is needed
+/// for output. However, the full path is kept for error reporting.
+path: Path,
 file_handle: File.HandleIndex,
 index: File.Index,
 
@@ -29,14 +31,15 @@ cies: std.ArrayListUnmanaged(Cie) = .empty,
 eh_frame_data: std.ArrayListUnmanaged(u8) = .empty,
 
 alive: bool = true,
+dirty: bool = true,
 num_dynrelocs: u32 = 0,
 
 output_symtab_ctx: Elf.SymtabCtx = .{},
 output_ar_state: Archive.ArState = .{},
 
 pub fn deinit(self: *Object, allocator: Allocator) void {
-    if (self.archive) |*ar| allocator.free(ar.path);
-    allocator.free(self.path);
+    if (self.archive) |*ar| allocator.free(ar.path.sub_path);
+    allocator.free(self.path.sub_path);
     self.shdrs.deinit(allocator);
     self.symtab.deinit(allocator);
     self.strtab.deinit(allocator);
@@ -166,6 +169,9 @@ fn parseCommon(self: *Object, allocator: Allocator, handle: std.fs.File, elf_fil
 }
 
 fn initAtoms(self: *Object, allocator: Allocator, handle: std.fs.File, elf_file: *Elf) !void {
+    const comp = elf_file.base.comp;
+    const debug_fmt_strip = comp.config.debug_format == .strip;
+    const target = comp.root_mod.resolved_target.result;
     const shdrs = self.shdrs.items;
     try self.atoms.ensureTotalCapacityPrecise(allocator, shdrs.len);
     try self.atoms_extra.ensureTotalCapacityPrecise(allocator, shdrs.len * @sizeOf(Atom.Extra));
@@ -194,7 +200,7 @@ fn initAtoms(self: *Object, allocator: Allocator, handle: std.fs.File, elf_file:
                     break :blk group_info_sym.st_name;
                 };
 
-                const shndx = @as(u32, @intCast(i));
+                const shndx: u32 = @intCast(i);
                 const group_raw_data = try self.preadShdrContentsAlloc(allocator, handle, shndx);
                 defer allocator.free(group_raw_data);
                 const group_nmembers = math.divExact(usize, group_raw_data.len, @sizeOf(u32)) catch {
@@ -209,7 +215,7 @@ fn initAtoms(self: *Object, allocator: Allocator, handle: std.fs.File, elf_file:
                     return elf_file.failFile(self.index, "corrupt section group: unknown SHT_GROUP format", .{});
                 }
 
-                const group_start = @as(u32, @intCast(self.comdat_group_data.items.len));
+                const group_start: u32 = @intCast(self.comdat_group_data.items.len);
                 try self.comdat_group_data.appendUnalignedSlice(allocator, group_members[1..]);
 
                 const comdat_group_index = try self.addComdatGroup(allocator);
@@ -233,8 +239,8 @@ fn initAtoms(self: *Object, allocator: Allocator, handle: std.fs.File, elf_file:
             => {},
 
             else => {
-                const shndx = @as(u32, @intCast(i));
-                if (self.skipShdr(shndx, elf_file)) continue;
+                const shndx: u32 = @intCast(i);
+                if (self.skipShdr(shndx, debug_fmt_strip)) continue;
                 const size, const alignment = if (shdr.sh_flags & elf.SHF_COMPRESSED != 0) blk: {
                     const data = try self.preadShdrContentsAlloc(allocator, handle, shndx);
                     defer allocator.free(data);
@@ -262,9 +268,9 @@ fn initAtoms(self: *Object, allocator: Allocator, handle: std.fs.File, elf_file:
                 atom_ptr.relocs_section_index = @intCast(i);
                 const rel_index: u32 = @intCast(self.relocs.items.len);
                 const rel_count: u32 = @intCast(relocs.len);
-                atom_ptr.addExtra(.{ .rel_index = rel_index, .rel_count = rel_count }, elf_file);
+                self.setAtomFields(atom_ptr, .{ .rel_index = rel_index, .rel_count = rel_count });
                 try self.relocs.appendUnalignedSlice(allocator, relocs);
-                if (elf_file.getTarget().cpu.arch == .riscv64) {
+                if (target.cpu.arch == .riscv64) {
                     sortRelocs(self.relocs.items[rel_index..][0..rel_count]);
                 }
             }
@@ -273,15 +279,14 @@ fn initAtoms(self: *Object, allocator: Allocator, handle: std.fs.File, elf_file:
     };
 }
 
-fn skipShdr(self: *Object, index: u32, elf_file: *Elf) bool {
-    const comp = elf_file.base.comp;
+fn skipShdr(self: *Object, index: u32, debug_fmt_strip: bool) bool {
     const shdr = self.shdrs.items[index];
     const name = self.getString(shdr.sh_name);
     const ignore = blk: {
         if (mem.startsWith(u8, name, ".note")) break :blk true;
         if (mem.startsWith(u8, name, ".llvm_addrsig")) break :blk true;
         if (mem.startsWith(u8, name, ".riscv.attributes")) break :blk true; // TODO: riscv attributes
-        if (comp.config.debug_format == .strip and shdr.sh_flags & elf.SHF_ALLOC == 0 and
+        if (debug_fmt_strip and shdr.sh_flags & elf.SHF_ALLOC == 0 and
             mem.startsWith(u8, name, ".debug")) break :blk true;
         break :blk false;
     };
@@ -471,8 +476,7 @@ pub fn scanRelocs(self: *Object, elf_file: *Elf, undefs: anytype) !void {
                 if (sym.type(elf_file) != elf.STT_FUNC)
                     // TODO convert into an error
                     log.debug("{s}: {s}: CIE referencing external data reference", .{
-                        self.fmtPath(),
-                        sym.name(elf_file),
+                        self.fmtPath(), sym.name(elf_file),
                     });
                 sym.flags.needs_plt = true;
             }
@@ -915,7 +919,7 @@ pub fn initOutputSections(self: *Object, elf_file: *Elf) !void {
         });
         const atom_list = &elf_file.sections.items(.atom_list_2)[osec];
         atom_list.output_section_index = osec;
-        try atom_list.atoms.append(elf_file.base.comp.gpa, atom_ptr.ref());
+        _ = try atom_list.atoms.getOrPut(elf_file.base.comp.gpa, atom_ptr.ref());
     }
 }
 
@@ -993,7 +997,7 @@ pub fn updateArSize(self: *Object, elf_file: *Elf) !void {
 pub fn writeAr(self: Object, elf_file: *Elf, writer: anytype) !void {
     const size = std.math.cast(usize, self.output_ar_state.size) orelse return error.Overflow;
     const offset: u64 = if (self.archive) |ar| ar.offset else 0;
-    const name = self.path;
+    const name = std.fs.path.basename(self.path.sub_path);
     const hdr = Archive.setArHdr(.{
         .name = if (name.len <= Archive.max_member_name_len)
             .{ .name = name }
@@ -1257,7 +1261,7 @@ pub fn addAtomExtra(self: *Object, allocator: Allocator, extra: Atom.Extra) !u32
 }
 
 pub fn addAtomExtraAssumeCapacity(self: *Object, extra: Atom.Extra) u32 {
-    const index = @as(u32, @intCast(self.atoms_extra.items.len));
+    const index: u32 = @intCast(self.atoms_extra.items.len);
     const fields = @typeInfo(Atom.Extra).@"struct".fields;
     inline for (fields) |field| {
         self.atoms_extra.appendAssumeCapacity(switch (field.type) {
@@ -1290,6 +1294,15 @@ pub fn setAtomExtra(self: *Object, index: u32, extra: Atom.Extra) void {
             else => @compileError("bad field type"),
         };
     }
+}
+
+fn setAtomFields(o: *Object, atom_ptr: *Atom, opts: Atom.Extra.AsOptionals) void {
+    assert(o.index == atom_ptr.file_index);
+    var extras = o.atomExtra(atom_ptr.extra_index);
+    inline for (@typeInfo(@TypeOf(opts)).@"struct".fields) |field| {
+        if (@field(opts, field.name)) |x| @field(extras, field.name) = x;
+    }
+    o.setAtomExtra(atom_ptr.extra_index, extras);
 }
 
 fn addInputMergeSection(self: *Object, allocator: Allocator) !InputMergeSection.Index {
@@ -1477,15 +1490,14 @@ fn formatPath(
     _ = unused_fmt_string;
     _ = options;
     if (object.archive) |ar| {
-        try writer.writeAll(ar.path);
-        try writer.writeByte('(');
-        try writer.writeAll(object.path);
-        try writer.writeByte(')');
-    } else try writer.writeAll(object.path);
+        try writer.print("{}({})", .{ ar.path, object.path });
+    } else {
+        try writer.print("{}", .{object.path});
+    }
 }
 
 const InArchive = struct {
-    path: []const u8,
+    path: Path,
     offset: u64,
     size: u32,
 };
@@ -1500,8 +1512,9 @@ const fs = std.fs;
 const log = std.log.scoped(.link);
 const math = std.math;
 const mem = std.mem;
-
+const Path = std.Build.Cache.Path;
 const Allocator = mem.Allocator;
+
 const Archive = @import("Archive.zig");
 const Atom = @import("Atom.zig");
 const AtomList = @import("AtomList.zig");

@@ -27,7 +27,7 @@ sections: std.MultiArrayList(Section) = .{},
 resolver: SymbolResolver = .{},
 /// This table will be populated after `scanRelocs` has run.
 /// Key is symbol index.
-undefs: std.AutoArrayHashMapUnmanaged(SymbolResolver.Index, std.ArrayListUnmanaged(Ref)) = .empty,
+undefs: std.AutoArrayHashMapUnmanaged(SymbolResolver.Index, UndefRefs) = .empty,
 undefs_mutex: std.Thread.Mutex = .{},
 dupes: std.AutoArrayHashMapUnmanaged(SymbolResolver.Index, std.ArrayListUnmanaged(File.Index)) = .empty,
 dupes_mutex: std.Thread.Mutex = .{},
@@ -144,14 +144,14 @@ hot_state: if (is_hot_update_compatible) HotUpdateState else struct {} = .{},
 pub const Framework = struct {
     needed: bool = false,
     weak: bool = false,
-    path: []const u8,
+    path: Path,
 };
 
 pub fn hashAddFrameworks(man: *Cache.Manifest, hm: []const Framework) !void {
     for (hm) |value| {
         man.hash.add(value.needed);
         man.hash.add(value.weak);
-        _ = try man.addFile(value.path, null);
+        _ = try man.addFilePath(value.path, null);
     }
 }
 
@@ -239,9 +239,9 @@ pub fn createEmpty(
             const index: File.Index = @intCast(try self.files.addOne(gpa));
             self.files.set(index, .{ .zig_object = .{
                 .index = index,
-                .path = try std.fmt.allocPrint(arena, "{s}.o", .{fs.path.stem(
-                    zcu.main_mod.root_src_path,
-                )}),
+                .basename = try std.fmt.allocPrint(arena, "{s}.o", .{
+                    fs.path.stem(zcu.main_mod.root_src_path),
+                }),
             } });
             self.zig_object = index;
             const zo = self.getZigObject().?;
@@ -356,13 +356,12 @@ pub fn flushModule(self: *MachO, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
     defer sub_prog_node.end();
 
     const directory = self.base.emit.root_dir;
-    const full_out_path = try directory.join(arena, &[_][]const u8{self.base.emit.sub_path});
-    const module_obj_path: ?[]const u8 = if (self.base.zcu_object_sub_path) |path| blk: {
-        if (fs.path.dirname(full_out_path)) |dirname| {
-            break :blk try fs.path.join(arena, &.{ dirname, path });
-        } else {
-            break :blk path;
-        }
+    const module_obj_path: ?Path = if (self.base.zcu_object_sub_path) |path| .{
+        .root_dir = directory,
+        .sub_path = if (fs.path.dirname(self.base.emit.sub_path)) |dirname|
+            try fs.path.join(arena, &.{ dirname, path })
+        else
+            path,
     } else null;
 
     // --verbose-link
@@ -455,7 +454,7 @@ pub fn flushModule(self: *MachO, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
     }
 
     // Finally, link against compiler_rt.
-    const compiler_rt_path: ?[]const u8 = blk: {
+    const compiler_rt_path: ?Path = blk: {
         if (comp.compiler_rt_lib) |x| break :blk x.full_object_path;
         if (comp.compiler_rt_obj) |x| break :blk x.full_object_path;
         break :blk null;
@@ -567,7 +566,7 @@ pub fn flushModule(self: *MachO, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
         // The most important here is to have the correct vm and filesize of the __LINKEDIT segment
         // where the code signature goes into.
         var codesig = CodeSignature.init(self.getPageSize());
-        codesig.code_directory.ident = fs.path.basename(full_out_path);
+        codesig.code_directory.ident = fs.path.basename(self.base.emit.sub_path);
         if (self.entitlements) |path| try codesig.addEntitlements(gpa, path);
         try self.writeCodeSignaturePadding(&codesig);
         break :blk codesig;
@@ -625,11 +624,11 @@ fn dumpArgv(self: *MachO, comp: *Compilation) !void {
 
     if (self.base.isRelocatable()) {
         for (comp.objects) |obj| {
-            try argv.append(obj.path);
+            try argv.append(try obj.path.toString(arena));
         }
 
         for (comp.c_object_table.keys()) |key| {
-            try argv.append(key.status.success.object_path);
+            try argv.append(try key.status.success.object_path.toString(arena));
         }
 
         if (module_obj_path) |p| {
@@ -711,11 +710,11 @@ fn dumpArgv(self: *MachO, comp: *Compilation) !void {
             if (obj.must_link) {
                 try argv.append("-force_load");
             }
-            try argv.append(obj.path);
+            try argv.append(try obj.path.toString(arena));
         }
 
         for (comp.c_object_table.keys()) |key| {
-            try argv.append(key.status.success.object_path);
+            try argv.append(try key.status.success.object_path.toString(arena));
         }
 
         if (module_obj_path) |p| {
@@ -723,13 +722,12 @@ fn dumpArgv(self: *MachO, comp: *Compilation) !void {
         }
 
         if (comp.config.any_sanitize_thread) {
-            const path = comp.tsan_lib.?.full_object_path;
-            try argv.append(path);
-            try argv.appendSlice(&.{ "-rpath", std.fs.path.dirname(path) orelse "." });
+            const path = try comp.tsan_lib.?.full_object_path.toString(arena);
+            try argv.appendSlice(&.{ path, "-rpath", std.fs.path.dirname(path) orelse "." });
         }
 
         if (comp.config.any_fuzz) {
-            try argv.append(comp.fuzzer_lib.?.full_object_path);
+            try argv.append(try comp.fuzzer_lib.?.full_object_path.toString(arena));
         }
 
         for (self.lib_dirs) |lib_dir| {
@@ -754,7 +752,7 @@ fn dumpArgv(self: *MachO, comp: *Compilation) !void {
         }
 
         for (self.frameworks) |framework| {
-            const name = fs.path.stem(framework.path);
+            const name = framework.path.stem();
             const arg = if (framework.needed)
                 try std.fmt.allocPrint(arena, "-needed_framework {s}", .{name})
             else if (framework.weak)
@@ -765,14 +763,16 @@ fn dumpArgv(self: *MachO, comp: *Compilation) !void {
         }
 
         if (comp.config.link_libcpp) {
-            try argv.append(comp.libcxxabi_static_lib.?.full_object_path);
-            try argv.append(comp.libcxx_static_lib.?.full_object_path);
+            try argv.appendSlice(&.{
+                try comp.libcxxabi_static_lib.?.full_object_path.toString(arena),
+                try comp.libcxx_static_lib.?.full_object_path.toString(arena),
+            });
         }
 
         try argv.append("-lSystem");
 
-        if (comp.compiler_rt_lib) |lib| try argv.append(lib.full_object_path);
-        if (comp.compiler_rt_obj) |obj| try argv.append(obj.full_object_path);
+        if (comp.compiler_rt_lib) |lib| try argv.append(try lib.full_object_path.toString(arena));
+        if (comp.compiler_rt_obj) |obj| try argv.append(try obj.full_object_path.toString(arena));
     }
 
     Compilation.dump_argv(argv.items);
@@ -807,20 +807,20 @@ pub fn resolveLibSystem(
         return error.MissingLibSystem;
     }
 
-    const libsystem_path = try arena.dupe(u8, test_path.items);
+    const libsystem_path = Path.initCwd(try arena.dupe(u8, test_path.items));
     try out_libs.append(.{
         .needed = true,
         .path = libsystem_path,
     });
 }
 
-pub fn classifyInputFile(self: *MachO, path: []const u8, lib: SystemLib, must_link: bool) !void {
+pub fn classifyInputFile(self: *MachO, path: Path, lib: SystemLib, must_link: bool) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    log.debug("classifying input file {s}", .{path});
+    log.debug("classifying input file {}", .{path});
 
-    const file = try std.fs.cwd().openFile(path, .{});
+    const file = try path.root_dir.handle.openFile(path.sub_path, .{});
     const fh = try self.addFileHandle(file);
     var buffer: [Archive.SARMAG]u8 = undefined;
 
@@ -844,7 +844,7 @@ pub fn classifyInputFile(self: *MachO, path: []const u8, lib: SystemLib, must_li
     _ = try self.addTbd(lib, true, fh);
 }
 
-fn parseFatFile(self: *MachO, file: std.fs.File, path: []const u8) !?fat.Arch {
+fn parseFatFile(self: *MachO, file: std.fs.File, path: Path) !?fat.Arch {
     const fat_h = fat.readFatHeader(file) catch return null;
     if (fat_h.magic != macho.FAT_MAGIC and fat_h.magic != macho.FAT_MAGIC_64) return null;
     var fat_archs_buffer: [2]fat.Arch = undefined;
@@ -873,7 +873,7 @@ pub fn readArMagic(file: std.fs.File, offset: usize, buffer: *[Archive.SARMAG]u8
     return buffer[0..Archive.SARMAG];
 }
 
-fn addObject(self: *MachO, path: []const u8, handle: File.HandleIndex, offset: u64) !void {
+fn addObject(self: *MachO, path: Path, handle: File.HandleIndex, offset: u64) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -886,7 +886,10 @@ fn addObject(self: *MachO, path: []const u8, handle: File.HandleIndex, offset: u
     const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
     self.files.set(index, .{ .object = .{
         .offset = offset,
-        .path = try gpa.dupe(u8, path),
+        .path = .{
+            .root_dir = path.root_dir,
+            .sub_path = try gpa.dupe(u8, path.sub_path),
+        },
         .file_handle = handle,
         .mtime = mtime,
         .index = index,
@@ -937,7 +940,7 @@ fn addArchive(self: *MachO, lib: SystemLib, must_link: bool, handle: File.Handle
 
     const gpa = self.base.comp.gpa;
 
-    var archive = Archive{};
+    var archive: Archive = .{};
     defer archive.deinit(gpa);
     try archive.unpack(self, lib.path, handle, fat_arch);
 
@@ -963,7 +966,10 @@ fn addDylib(self: *MachO, lib: SystemLib, explicit: bool, handle: File.HandleInd
         .offset = offset,
         .file_handle = handle,
         .tag = .dylib,
-        .path = try gpa.dupe(u8, lib.path),
+        .path = .{
+            .root_dir = lib.path.root_dir,
+            .sub_path = try gpa.dupe(u8, lib.path.sub_path),
+        },
         .index = index,
         .needed = lib.needed,
         .weak = lib.weak,
@@ -986,7 +992,10 @@ fn addTbd(self: *MachO, lib: SystemLib, explicit: bool, handle: File.HandleIndex
         .offset = 0,
         .file_handle = handle,
         .tag = .tbd,
-        .path = try gpa.dupe(u8, lib.path),
+        .path = .{
+            .root_dir = lib.path.root_dir,
+            .sub_path = try gpa.dupe(u8, lib.path.sub_path),
+        },
         .index = index,
         .needed = lib.needed,
         .weak = lib.weak,
@@ -1175,11 +1184,11 @@ fn parseDependentDylibs(self: *MachO) !void {
                     continue;
                 }
             };
-            const lib = SystemLib{
-                .path = full_path,
+            const lib: SystemLib = .{
+                .path = Path.initCwd(full_path),
                 .weak = is_weak,
             };
-            const file = try std.fs.cwd().openFile(lib.path, .{});
+            const file = try lib.path.root_dir.handle.openFile(lib.path.sub_path, .{});
             const fh = try self.addFileHandle(file);
             const fat_arch = try self.parseFatFile(file, lib.path);
             const offset = if (fat_arch) |fa| fa.offset else 0;
@@ -1470,6 +1479,9 @@ fn scanRelocs(self: *MachO) !void {
 
     if (self.has_errors.swap(false, .seq_cst)) return error.FlushFailure;
 
+    if (self.getInternalObject()) |obj| {
+        try obj.checkUndefs(self);
+    }
     try self.reportUndefs();
 
     if (self.getZigObject()) |zo| {
@@ -1530,29 +1542,43 @@ fn reportUndefs(self: *MachO) !void {
         }
     }.lessThan;
 
-    for (self.undefs.values()) |*refs| {
-        mem.sort(Ref, refs.items, {}, refLessThan);
-    }
+    for (self.undefs.values()) |*undefs| switch (undefs.*) {
+        .refs => |refs| mem.sort(Ref, refs.items, {}, refLessThan),
+        else => {},
+    };
 
     for (keys.items) |key| {
         const undef_sym = self.resolver.keys.items[key - 1];
         const notes = self.undefs.get(key).?;
-        const nnotes = @min(notes.items.len, max_notes) + @intFromBool(notes.items.len > max_notes);
+        const nnotes = nnotes: {
+            const nnotes = switch (notes) {
+                .refs => |refs| refs.items.len,
+                else => 1,
+            };
+            break :nnotes @min(nnotes, max_notes) + @intFromBool(nnotes > max_notes);
+        };
 
         var err = try self.base.addErrorWithNotes(nnotes);
         try err.addMsg("undefined symbol: {s}", .{undef_sym.getName(self)});
 
-        var inote: usize = 0;
-        while (inote < @min(notes.items.len, max_notes)) : (inote += 1) {
-            const note = notes.items[inote];
-            const file = self.getFile(note.file).?;
-            const atom = note.getAtom(self).?;
-            try err.addNote("referenced by {}:{s}", .{ file.fmtPath(), atom.getName(self) });
-        }
+        switch (notes) {
+            .force_undefined => try err.addNote("referenced with linker flag -u", .{}),
+            .entry => try err.addNote("referenced with linker flag -e", .{}),
+            .dyld_stub_binder, .objc_msgsend => try err.addNote("referenced implicitly", .{}),
+            .refs => |refs| {
+                var inote: usize = 0;
+                while (inote < @min(refs.items.len, max_notes)) : (inote += 1) {
+                    const ref = refs.items[inote];
+                    const file = self.getFile(ref.file).?;
+                    const atom = ref.getAtom(self).?;
+                    try err.addNote("referenced by {}:{s}", .{ file.fmtPath(), atom.getName(self) });
+                }
 
-        if (notes.items.len > max_notes) {
-            const remaining = notes.items.len - max_notes;
-            try err.addNote("referenced {d} more times", .{remaining});
+                if (refs.items.len > max_notes) {
+                    const remaining = refs.items.len - max_notes;
+                    try err.addNote("referenced {d} more times", .{remaining});
+                }
+            },
         }
     }
 
@@ -2848,7 +2874,8 @@ fn writeLoadCommands(self: *MachO) !struct { usize, usize, u64 } {
         ncmds += 1;
     }
     if (comp.config.any_sanitize_thread) {
-        const path = comp.tsan_lib.?.full_object_path;
+        const path = try comp.tsan_lib.?.full_object_path.toString(gpa);
+        defer gpa.free(path);
         const rpath = std.fs.path.dirname(path) orelse ".";
         try load_commands.writeRpathLC(rpath, writer);
         ncmds += 1;
@@ -3741,13 +3768,13 @@ pub fn eatPrefix(path: []const u8, prefix: []const u8) ?[]const u8 {
 
 pub fn reportParseError(
     self: *MachO,
-    path: []const u8,
+    path: Path,
     comptime format: []const u8,
     args: anytype,
 ) error{OutOfMemory}!void {
     var err = try self.base.addErrorWithNotes(1);
     try err.addMsg(format, args);
-    try err.addNote("while parsing {s}", .{path});
+    try err.addNote("while parsing {}", .{path});
 }
 
 pub fn reportParseError2(
@@ -3896,7 +3923,7 @@ fn fmtDumpState(
     _ = options;
     _ = unused_fmt_string;
     if (self.getZigObject()) |zo| {
-        try writer.print("zig_object({d}) : {s}\n", .{ zo.index, zo.path });
+        try writer.print("zig_object({d}) : {s}\n", .{ zo.index, zo.basename });
         try writer.print("{}{}\n", .{
             zo.fmtAtoms(self),
             zo.fmtSymtab(self),
@@ -3921,9 +3948,9 @@ fn fmtDumpState(
     }
     for (self.dylibs.items) |index| {
         const dylib = self.getFile(index).?.dylib;
-        try writer.print("dylib({d}) : {s} : needed({}) : weak({})", .{
+        try writer.print("dylib({d}) : {} : needed({}) : weak({})", .{
             index,
-            dylib.path,
+            @as(Path, dylib.path),
             dylib.needed,
             dylib.weak,
         });
@@ -4425,7 +4452,7 @@ pub const default_pagezero_size: u64 = 0x100000000;
 pub const default_headerpad_size: u32 = 0x1000;
 
 const SystemLib = struct {
-    path: []const u8,
+    path: Path,
     needed: bool = false,
     weak: bool = false,
     hidden: bool = false,
@@ -4584,78 +4611,20 @@ pub const String = struct {
     len: u32 = 0,
 };
 
-const MachO = @This();
+pub const UndefRefs = union(enum) {
+    force_undefined,
+    entry,
+    dyld_stub_binder,
+    objc_msgsend,
+    refs: std.ArrayListUnmanaged(Ref),
 
-const std = @import("std");
-const build_options = @import("build_options");
-const builtin = @import("builtin");
-const assert = std.debug.assert;
-const fs = std.fs;
-const log = std.log.scoped(.link);
-const state_log = std.log.scoped(.link_state);
-const macho = std.macho;
-const math = std.math;
-const mem = std.mem;
-const meta = std.meta;
-
-const aarch64 = @import("../arch/aarch64/bits.zig");
-const bind = @import("MachO/dyld_info/bind.zig");
-const calcUuid = @import("MachO/uuid.zig").calcUuid;
-const codegen = @import("../codegen.zig");
-const dead_strip = @import("MachO/dead_strip.zig");
-const eh_frame = @import("MachO/eh_frame.zig");
-const fat = @import("MachO/fat.zig");
-const link = @import("../link.zig");
-const load_commands = @import("MachO/load_commands.zig");
-const relocatable = @import("MachO/relocatable.zig");
-const tapi = @import("tapi.zig");
-const target_util = @import("../target.zig");
-const trace = @import("../tracy.zig").trace;
-const synthetic = @import("MachO/synthetic.zig");
-
-const Air = @import("../Air.zig");
-const Alignment = Atom.Alignment;
-const Allocator = mem.Allocator;
-const Archive = @import("MachO/Archive.zig");
-pub const Atom = @import("MachO/Atom.zig");
-const AtomicBool = std.atomic.Value(bool);
-const Bind = bind.Bind;
-const Cache = std.Build.Cache;
-const Path = Cache.Path;
-const CodeSignature = @import("MachO/CodeSignature.zig");
-const Compilation = @import("../Compilation.zig");
-const DataInCode = synthetic.DataInCode;
-pub const DebugSymbols = @import("MachO/DebugSymbols.zig");
-const Dylib = @import("MachO/Dylib.zig");
-const ExportTrie = @import("MachO/dyld_info/Trie.zig");
-const File = @import("MachO/file.zig").File;
-const GotSection = synthetic.GotSection;
-const Hash = std.hash.Wyhash;
-const Indsymtab = synthetic.Indsymtab;
-const InternalObject = @import("MachO/InternalObject.zig");
-const ObjcStubsSection = synthetic.ObjcStubsSection;
-const Object = @import("MachO/Object.zig");
-const LazyBind = bind.LazyBind;
-const LaSymbolPtrSection = synthetic.LaSymbolPtrSection;
-const Liveness = @import("../Liveness.zig");
-const LlvmObject = @import("../codegen/llvm.zig").Object;
-const Md5 = std.crypto.hash.Md5;
-const Zcu = @import("../Zcu.zig");
-const InternPool = @import("../InternPool.zig");
-const Rebase = @import("MachO/dyld_info/Rebase.zig");
-pub const Relocation = @import("MachO/Relocation.zig");
-const StringTable = @import("StringTable.zig");
-const StubsSection = synthetic.StubsSection;
-const StubsHelperSection = synthetic.StubsHelperSection;
-const Symbol = @import("MachO/Symbol.zig");
-const Thunk = @import("MachO/Thunk.zig");
-const TlvPtrSection = synthetic.TlvPtrSection;
-const Value = @import("../Value.zig");
-const UnwindInfo = @import("MachO/UnwindInfo.zig");
-const WaitGroup = std.Thread.WaitGroup;
-const WeakBind = bind.WeakBind;
-const ZigObject = @import("MachO/ZigObject.zig");
-const dev = @import("../dev.zig");
+    pub fn deinit(self: *UndefRefs, allocator: Allocator) void {
+        switch (self.*) {
+            .refs => |*refs| refs.deinit(allocator),
+            else => {},
+        }
+    }
+};
 
 pub const MachError = error{
     /// Not enough permissions held to perform the requested kernel
@@ -5392,3 +5361,76 @@ const max_distance = (1 << (jump_bits - 1));
 /// mold uses 5MiB margin, while ld64 uses 4MiB margin. We will follow mold
 /// and assume margin to be 5MiB.
 const max_allowed_distance = max_distance - 0x500_000;
+
+const MachO = @This();
+
+const std = @import("std");
+const build_options = @import("build_options");
+const builtin = @import("builtin");
+const assert = std.debug.assert;
+const fs = std.fs;
+const log = std.log.scoped(.link);
+const state_log = std.log.scoped(.link_state);
+const macho = std.macho;
+const math = std.math;
+const mem = std.mem;
+const meta = std.meta;
+
+const aarch64 = @import("../arch/aarch64/bits.zig");
+const bind = @import("MachO/dyld_info/bind.zig");
+const calcUuid = @import("MachO/uuid.zig").calcUuid;
+const codegen = @import("../codegen.zig");
+const dead_strip = @import("MachO/dead_strip.zig");
+const eh_frame = @import("MachO/eh_frame.zig");
+const fat = @import("MachO/fat.zig");
+const link = @import("../link.zig");
+const load_commands = @import("MachO/load_commands.zig");
+const relocatable = @import("MachO/relocatable.zig");
+const tapi = @import("tapi.zig");
+const target_util = @import("../target.zig");
+const trace = @import("../tracy.zig").trace;
+const synthetic = @import("MachO/synthetic.zig");
+
+const Air = @import("../Air.zig");
+const Alignment = Atom.Alignment;
+const Allocator = mem.Allocator;
+const Archive = @import("MachO/Archive.zig");
+pub const Atom = @import("MachO/Atom.zig");
+const AtomicBool = std.atomic.Value(bool);
+const Bind = bind.Bind;
+const Cache = std.Build.Cache;
+const Path = Cache.Path;
+const CodeSignature = @import("MachO/CodeSignature.zig");
+const Compilation = @import("../Compilation.zig");
+const DataInCode = synthetic.DataInCode;
+pub const DebugSymbols = @import("MachO/DebugSymbols.zig");
+const Dylib = @import("MachO/Dylib.zig");
+const ExportTrie = @import("MachO/dyld_info/Trie.zig");
+const File = @import("MachO/file.zig").File;
+const GotSection = synthetic.GotSection;
+const Hash = std.hash.Wyhash;
+const Indsymtab = synthetic.Indsymtab;
+const InternalObject = @import("MachO/InternalObject.zig");
+const ObjcStubsSection = synthetic.ObjcStubsSection;
+const Object = @import("MachO/Object.zig");
+const LazyBind = bind.LazyBind;
+const LaSymbolPtrSection = synthetic.LaSymbolPtrSection;
+const Liveness = @import("../Liveness.zig");
+const LlvmObject = @import("../codegen/llvm.zig").Object;
+const Md5 = std.crypto.hash.Md5;
+const Zcu = @import("../Zcu.zig");
+const InternPool = @import("../InternPool.zig");
+const Rebase = @import("MachO/dyld_info/Rebase.zig");
+pub const Relocation = @import("MachO/Relocation.zig");
+const StringTable = @import("StringTable.zig");
+const StubsSection = synthetic.StubsSection;
+const StubsHelperSection = synthetic.StubsHelperSection;
+const Symbol = @import("MachO/Symbol.zig");
+const Thunk = @import("MachO/Thunk.zig");
+const TlvPtrSection = synthetic.TlvPtrSection;
+const Value = @import("../Value.zig");
+const UnwindInfo = @import("MachO/UnwindInfo.zig");
+const WaitGroup = std.Thread.WaitGroup;
+const WeakBind = bind.WeakBind;
+const ZigObject = @import("MachO/ZigObject.zig");
+const dev = @import("../dev.zig");

@@ -952,25 +952,25 @@ fn testEmitStaticLib(b: *Build, opts: Options) *Step {
 
     const check = lib.checkObject();
     check.checkInArchiveSymtab();
-    check.checkExactPath("in object", obj1.getEmittedBin());
+    check.checkExact("in object obj1.o");
     check.checkExact("foo");
     check.checkInArchiveSymtab();
-    check.checkExactPath("in object", obj1.getEmittedBin());
+    check.checkExact("in object obj1.o");
     check.checkExact("bar");
     check.checkInArchiveSymtab();
-    check.checkExactPath("in object", obj1.getEmittedBin());
+    check.checkExact("in object obj1.o");
     check.checkExact("fooBar");
     check.checkInArchiveSymtab();
-    check.checkExactPath("in object", obj2.getEmittedBin());
+    check.checkExact("in object obj2.o");
     check.checkExact("tentative");
     check.checkInArchiveSymtab();
-    check.checkExactPath("in object", obj3.getEmittedBin());
+    check.checkExact("in object a_very_long_file_name_so_that_it_ends_up_in_strtab.o");
     check.checkExact("weakFoo");
     check.checkInArchiveSymtab();
-    check.checkExactPath("in object", obj3.getEmittedBin());
+    check.checkExact("in object a_very_long_file_name_so_that_it_ends_up_in_strtab.o");
     check.checkExact("strongBar");
     check.checkInArchiveSymtab();
-    check.checkExactPath("in object", obj3.getEmittedBin());
+    check.checkExact("in object a_very_long_file_name_so_that_it_ends_up_in_strtab.o");
     check.checkExact("strongBarAlias");
     test_step.dependOn(&check.step);
 
