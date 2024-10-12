@@ -1,5 +1,7 @@
 archive: ?InArchive = null,
-path: []const u8,
+/// Archive files cannot contain subdirectories, so only the basename is needed
+/// for output. However, the full path is kept for error reporting.
+path: Path,
 file_handle: File.HandleIndex,
 index: File.Index,
 
@@ -21,8 +23,8 @@ atoms_extra: std.ArrayListUnmanaged(u32) = .empty,
 comdat_groups: std.ArrayListUnmanaged(Elf.ComdatGroup) = .empty,
 comdat_group_data: std.ArrayListUnmanaged(u32) = .empty,
 
-input_merge_sections: std.ArrayListUnmanaged(InputMergeSection) = .empty,
-input_merge_sections_indexes: std.ArrayListUnmanaged(InputMergeSection.Index) = .empty,
+input_merge_sections: std.ArrayListUnmanaged(Merge.InputSection) = .empty,
+input_merge_sections_indexes: std.ArrayListUnmanaged(Merge.InputSection.Index) = .empty,
 
 fdes: std.ArrayListUnmanaged(Fde) = .empty,
 cies: std.ArrayListUnmanaged(Cie) = .empty,
@@ -36,8 +38,8 @@ output_symtab_ctx: Elf.SymtabCtx = .{},
 output_ar_state: Archive.ArState = .{},
 
 pub fn deinit(self: *Object, allocator: Allocator) void {
-    if (self.archive) |*ar| allocator.free(ar.path);
-    allocator.free(self.path);
+    if (self.archive) |*ar| allocator.free(ar.path.sub_path);
+    allocator.free(self.path.sub_path);
     self.shdrs.deinit(allocator);
     self.symtab.deinit(allocator);
     self.strtab.deinit(allocator);
@@ -474,8 +476,7 @@ pub fn scanRelocs(self: *Object, elf_file: *Elf, undefs: anytype) !void {
                 if (sym.type(elf_file) != elf.STT_FUNC)
                     // TODO convert into an error
                     log.debug("{s}: {s}: CIE referencing external data reference", .{
-                        self.fmtPath(),
-                        sym.name(elf_file),
+                        self.fmtPath(), sym.name(elf_file),
                     });
                 sym.flags.needs_plt = true;
             }
@@ -643,6 +644,7 @@ pub fn checkDuplicates(self: *Object, dupes: anytype, elf_file: *Elf) error{OutO
 
 pub fn initInputMergeSections(self: *Object, elf_file: *Elf) !void {
     const gpa = elf_file.base.comp.gpa;
+    const diags = &elf_file.base.comp.link_diags;
 
     try self.input_merge_sections.ensureUnusedCapacity(gpa, self.shdrs.items.len);
     try self.input_merge_sections_indexes.resize(gpa, self.shdrs.items.len);
@@ -684,7 +686,7 @@ pub fn initInputMergeSections(self: *Object, elf_file: *Elf) !void {
                 var end = start;
                 while (end < data.len - sh_entsize and !isNull(data[end .. end + sh_entsize])) : (end += sh_entsize) {}
                 if (!isNull(data[end .. end + sh_entsize])) {
-                    var err = try elf_file.base.addErrorWithNotes(1);
+                    var err = try diags.addErrorWithNotes(1);
                     try err.addMsg("string not null terminated", .{});
                     try err.addNote("in {}:{s}", .{ self.fmtPath(), atom_ptr.name(elf_file) });
                     return error.LinkFailure;
@@ -699,7 +701,7 @@ pub fn initInputMergeSections(self: *Object, elf_file: *Elf) !void {
             const sh_entsize: u32 = @intCast(shdr.sh_entsize);
             if (sh_entsize == 0) continue; // Malformed, don't split but don't error out
             if (shdr.sh_size % sh_entsize != 0) {
-                var err = try elf_file.base.addErrorWithNotes(1);
+                var err = try diags.addErrorWithNotes(1);
                 try err.addMsg("size not a multiple of sh_entsize", .{});
                 try err.addNote("in {}:{s}", .{ self.fmtPath(), atom_ptr.name(elf_file) });
                 return error.LinkFailure;
@@ -737,6 +739,7 @@ pub fn resolveMergeSubsections(self: *Object, elf_file: *Elf) error{
     Overflow,
 }!void {
     const gpa = elf_file.base.comp.gpa;
+    const diags = &elf_file.base.comp.link_diags;
 
     for (self.input_merge_sections_indexes.items) |index| {
         const imsec = self.inputMergeSection(index) orelse continue;
@@ -775,7 +778,7 @@ pub fn resolveMergeSubsections(self: *Object, elf_file: *Elf) error{
         const imsec = self.inputMergeSection(imsec_index) orelse continue;
         if (imsec.offsets.items.len == 0) continue;
         const res = imsec.findSubsection(@intCast(esym.st_value)) orelse {
-            var err = try elf_file.base.addErrorWithNotes(2);
+            var err = try diags.addErrorWithNotes(2);
             try err.addMsg("invalid symbol value: {x}", .{esym.st_value});
             try err.addNote("for symbol {s}", .{sym.name(elf_file)});
             try err.addNote("in {}", .{self.fmtPath()});
@@ -801,7 +804,7 @@ pub fn resolveMergeSubsections(self: *Object, elf_file: *Elf) error{
             if (imsec.offsets.items.len == 0) continue;
             const msec = elf_file.mergeSection(imsec.merge_section_index);
             const res = imsec.findSubsection(@intCast(@as(i64, @intCast(esym.st_value)) + rel.r_addend)) orelse {
-                var err = try elf_file.base.addErrorWithNotes(1);
+                var err = try diags.addErrorWithNotes(1);
                 try err.addMsg("invalid relocation at offset 0x{x}", .{rel.r_offset});
                 try err.addNote("in {}:{s}", .{ self.fmtPath(), atom_ptr.name(elf_file) });
                 return error.LinkFailure;
@@ -926,7 +929,7 @@ pub fn initRelaSections(self: *Object, elf_file: *Elf) !void {
     for (self.atoms_indexes.items) |atom_index| {
         const atom_ptr = self.atom(atom_index) orelse continue;
         if (!atom_ptr.alive) continue;
-        if (atom_ptr.output_section_index == elf_file.eh_frame_section_index) continue;
+        if (atom_ptr.output_section_index == elf_file.section_indexes.eh_frame) continue;
         const shndx = atom_ptr.relocsShndx() orelse continue;
         const shdr = self.shdrs.items[shndx];
         const out_shndx = try elf_file.initOutputSection(.{
@@ -946,7 +949,7 @@ pub fn addAtomsToRelaSections(self: *Object, elf_file: *Elf) !void {
     for (self.atoms_indexes.items) |atom_index| {
         const atom_ptr = self.atom(atom_index) orelse continue;
         if (!atom_ptr.alive) continue;
-        if (atom_ptr.output_section_index == elf_file.eh_frame_section_index) continue;
+        if (atom_ptr.output_section_index == elf_file.section_indexes.eh_frame) continue;
         const shndx = blk: {
             const shndx = atom_ptr.relocsShndx() orelse continue;
             const shdr = self.shdrs.items[shndx];
@@ -959,7 +962,7 @@ pub fn addAtomsToRelaSections(self: *Object, elf_file: *Elf) !void {
         const slice = elf_file.sections.slice();
         const shdr = &slice.items(.shdr)[shndx];
         shdr.sh_info = atom_ptr.output_section_index;
-        shdr.sh_link = elf_file.symtab_section_index.?;
+        shdr.sh_link = elf_file.section_indexes.symtab.?;
         const gpa = elf_file.base.comp.gpa;
         const atom_list = &elf_file.sections.items(.atom_list)[shndx];
         try atom_list.append(gpa, .{ .index = atom_index, .file = self.index });
@@ -996,7 +999,7 @@ pub fn updateArSize(self: *Object, elf_file: *Elf) !void {
 pub fn writeAr(self: Object, elf_file: *Elf, writer: anytype) !void {
     const size = std.math.cast(usize, self.output_ar_state.size) orelse return error.Overflow;
     const offset: u64 = if (self.archive) |ar| ar.offset else 0;
-    const name = self.path;
+    const name = std.fs.path.basename(self.path.sub_path);
     const hdr = Archive.setArHdr(.{
         .name = if (name.len <= Archive.max_member_name_len)
             .{ .name = name }
@@ -1304,14 +1307,14 @@ fn setAtomFields(o: *Object, atom_ptr: *Atom, opts: Atom.Extra.AsOptionals) void
     o.setAtomExtra(atom_ptr.extra_index, extras);
 }
 
-fn addInputMergeSection(self: *Object, allocator: Allocator) !InputMergeSection.Index {
-    const index: InputMergeSection.Index = @intCast(self.input_merge_sections.items.len);
+fn addInputMergeSection(self: *Object, allocator: Allocator) !Merge.InputSection.Index {
+    const index: Merge.InputSection.Index = @intCast(self.input_merge_sections.items.len);
     const msec = try self.input_merge_sections.addOne(allocator);
     msec.* = .{};
     return index;
 }
 
-fn inputMergeSection(self: *Object, index: InputMergeSection.Index) ?*InputMergeSection {
+fn inputMergeSection(self: *Object, index: Merge.InputSection.Index) ?*Merge.InputSection {
     if (index == 0) return null;
     return &self.input_merge_sections.items[index];
 }
@@ -1489,15 +1492,14 @@ fn formatPath(
     _ = unused_fmt_string;
     _ = options;
     if (object.archive) |ar| {
-        try writer.writeAll(ar.path);
-        try writer.writeByte('(');
-        try writer.writeAll(object.path);
-        try writer.writeByte(')');
-    } else try writer.writeAll(object.path);
+        try writer.print("{}({})", .{ ar.path, object.path });
+    } else {
+        try writer.print("{}", .{object.path});
+    }
 }
 
 const InArchive = struct {
-    path: []const u8,
+    path: Path,
     offset: u64,
     size: u32,
 };
@@ -1512,8 +1514,9 @@ const fs = std.fs;
 const log = std.log.scoped(.link);
 const math = std.math;
 const mem = std.mem;
-
+const Path = std.Build.Cache.Path;
 const Allocator = mem.Allocator;
+
 const Archive = @import("Archive.zig");
 const Atom = @import("Atom.zig");
 const AtomList = @import("AtomList.zig");
@@ -1521,6 +1524,6 @@ const Cie = eh_frame.Cie;
 const Elf = @import("../Elf.zig");
 const Fde = eh_frame.Fde;
 const File = @import("file.zig").File;
-const InputMergeSection = @import("merge_section.zig").InputMergeSection;
+const Merge = @import("Merge.zig");
 const Symbol = @import("Symbol.zig");
 const Alignment = Atom.Alignment;

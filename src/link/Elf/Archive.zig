@@ -1,8 +1,8 @@
 objects: std.ArrayListUnmanaged(Object) = .empty,
 strtab: std.ArrayListUnmanaged(u8) = .empty,
 
-pub fn isArchive(path: []const u8) !bool {
-    const file = try std.fs.cwd().openFile(path, .{});
+pub fn isArchive(path: Path) !bool {
+    const file = try path.root_dir.handle.openFile(path.sub_path, .{});
     defer file.close();
     const reader = file.reader();
     const magic = reader.readBytesNoEof(elf.ARMAG.len) catch return false;
@@ -15,7 +15,7 @@ pub fn deinit(self: *Archive, allocator: Allocator) void {
     self.strtab.deinit(allocator);
 }
 
-pub fn parse(self: *Archive, elf_file: *Elf, path: []const u8, handle_index: File.HandleIndex) !void {
+pub fn parse(self: *Archive, elf_file: *Elf, path: Path, handle_index: File.HandleIndex) !void {
     const comp = elf_file.base.comp;
     const gpa = comp.gpa;
     const handle = elf_file.fileHandle(handle_index);
@@ -59,19 +59,24 @@ pub fn parse(self: *Archive, elf_file: *Elf, path: []const u8, handle_index: Fil
         else
             unreachable;
 
-        const object = Object{
+        const object: Object = .{
             .archive = .{
-                .path = try gpa.dupe(u8, path),
+                .path = .{
+                    .root_dir = path.root_dir,
+                    .sub_path = try gpa.dupe(u8, path.sub_path),
+                },
                 .offset = pos,
                 .size = obj_size,
             },
-            .path = try gpa.dupe(u8, name),
+            .path = Path.initCwd(try gpa.dupe(u8, name)),
             .file_handle = handle_index,
             .index = undefined,
             .alive = false,
         };
 
-        log.debug("extracting object '{s}' from archive '{s}'", .{ object.path, path });
+        log.debug("extracting object '{}' from archive '{}'", .{
+            @as(Path, object.path), @as(Path, path),
+        });
 
         try self.objects.append(gpa, object);
     }
@@ -292,6 +297,7 @@ const elf = std.elf;
 const fs = std.fs;
 const log = std.log.scoped(.link);
 const mem = std.mem;
+const Path = std.Build.Cache.Path;
 
 const Allocator = mem.Allocator;
 const Archive = @This();
