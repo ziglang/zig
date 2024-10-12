@@ -3350,7 +3350,9 @@ const NavGen = struct {
             .store, .store_safe => return self.airStore(inst),
 
             .br             => return self.airBr(inst),
-            .repeat         => return self.fail("TODO implement `repeat`", .{}),
+            // For now just ignore this instruction. This effectively falls back on the old implementation,
+            // this doesn't change anything for us.
+            .repeat         => return,
             .breakpoint     => return,
             .cond_br        => return self.airCondBr(inst),
             .loop           => return self.airLoop(inst),
@@ -3363,7 +3365,7 @@ const NavGen = struct {
 
             .dbg_stmt                  => return self.airDbgStmt(inst),
             .dbg_inline_block          => try self.airDbgInlineBlock(inst),
-            .dbg_var_ptr, .dbg_var_val => return self.airDbgVar(inst),
+            .dbg_var_ptr, .dbg_var_val, .dbg_arg_inline => return self.airDbgVar(inst),
 
             .unwrap_errunion_err => try self.airErrUnionErr(inst),
             .unwrap_errunion_payload => try self.airErrUnionPayload(inst),
