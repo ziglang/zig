@@ -935,6 +935,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) !voi
                 var ver_buf_i: u8 = 0;
                 while (ver_buf_i < versions_len) : (ver_buf_i += 1) {
                     // Example:
+                    // .balign 4
                     // .globl _Exit_2_2_5
                     // .type _Exit_2_2_5, %function;
                     // .symver _Exit_2_2_5, _Exit@@GLIBC_2.2.5
@@ -957,12 +958,14 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) !voi
                                 .{ sym_name, ver.major, ver.minor },
                             );
                         try stubs_asm.writer().print(
+                            \\.balign {d}
                             \\.globl {s}
                             \\.type {s}, %function;
                             \\.symver {s}, {s}{s}GLIBC_{d}.{d}
                             \\{s}: {s} 0
                             \\
                         , .{
+                            target.ptrBitWidth() / 8,
                             sym_plus_ver,
                             sym_plus_ver,
                             sym_plus_ver,
@@ -983,12 +986,14 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) !voi
                                 .{ sym_name, ver.major, ver.minor, ver.patch },
                             );
                         try stubs_asm.writer().print(
+                            \\.balign {d}
                             \\.globl {s}
                             \\.type {s}, %function;
                             \\.symver {s}, {s}{s}GLIBC_{d}.{d}.{d}
                             \\{s}: {s} 0
                             \\
                         , .{
+                            target.ptrBitWidth() / 8,
                             sym_plus_ver,
                             sym_plus_ver,
                             sym_plus_ver,
@@ -1026,10 +1031,14 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) !voi
         // a strong reference.
         if (std.mem.eql(u8, lib.name, "c")) {
             try stubs_asm.writer().print(
+                \\.balign {d}
                 \\.globl _IO_stdin_used
                 \\{s} _IO_stdin_used
                 \\
-            , .{wordDirective(target)});
+            , .{
+                target.ptrBitWidth() / 8,
+                wordDirective(target),
+            });
         }
 
         const obj_inclusions_len = try inc_reader.readInt(u16, .little);
@@ -1101,6 +1110,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) !voi
                 var ver_buf_i: u8 = 0;
                 while (ver_buf_i < versions_len) : (ver_buf_i += 1) {
                     // Example:
+                    // .balign 4
                     // .globl environ_2_2_5
                     // .type environ_2_2_5, %object;
                     // .size environ_2_2_5, 4;
@@ -1124,6 +1134,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) !voi
                                 .{ sym_name, ver.major, ver.minor },
                             );
                         try stubs_asm.writer().print(
+                            \\.balign {d}
                             \\.globl {s}
                             \\.type {s}, %object;
                             \\.size {s}, {d};
@@ -1131,6 +1142,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) !voi
                             \\{s}: .fill {d}, 1, 0
                             \\
                         , .{
+                            target.ptrBitWidth() / 8,
                             sym_plus_ver,
                             sym_plus_ver,
                             sym_plus_ver,
@@ -1153,6 +1165,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) !voi
                                 .{ sym_name, ver.major, ver.minor, ver.patch },
                             );
                         try stubs_asm.writer().print(
+                            \\.balign {d}
                             \\.globl {s}
                             \\.type {s}, %object;
                             \\.size {s}, {d};
@@ -1160,6 +1173,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) !voi
                             \\{s}: .fill {d}, 1, 0
                             \\
                         , .{
+                            target.ptrBitWidth() / 8,
                             sym_plus_ver,
                             sym_plus_ver,
                             sym_plus_ver,
