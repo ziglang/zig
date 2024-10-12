@@ -375,7 +375,7 @@ pub fn canDetectLibC(self: Query) bool {
     if (self.os_tag) |os| {
         if (builtin.os.tag == .macos and os.isDarwin()) return true;
         if (os == .linux) {
-            if (self.abi) |abi| return abi.isAndroid();
+            if (self.abi) |abi| if (abi.isAndroid()) return true;
         }
     }
     return false;
