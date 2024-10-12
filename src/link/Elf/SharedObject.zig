@@ -138,7 +138,7 @@ pub fn parseHeader(
 
     const dynamic_table: []elf.Elf64_Dyn = if (dynamic_sect_index) |index| dt: {
         const shdr = sections[index];
-        const n = shdr.sh_size / @sizeOf(elf.Elf64_Dyn);
+        const n = std.math.cast(usize, shdr.sh_size / @sizeOf(elf.Elf64_Dyn)) orelse return error.Overflow;
         const dynamic_table = try gpa.alloc(elf.Elf64_Dyn, n);
         errdefer gpa.free(dynamic_table);
         const buf = mem.sliceAsBytes(dynamic_table);
@@ -155,7 +155,8 @@ pub fn parseHeader(
         const dynsym_shdr = sections[index];
         if (dynsym_shdr.sh_link >= sections.len) return error.BadStringTableIndex;
         const strtab_shdr = sections[dynsym_shdr.sh_link];
-        const buf = try strtab.addManyAsSlice(gpa, strtab_shdr.sh_size);
+        const n = std.math.cast(usize, strtab_shdr.sh_size) orelse return error.Overflow;
+        const buf = try strtab.addManyAsSlice(gpa, n);
         const amt = try fs_file.preadAll(buf, strtab_shdr.sh_offset);
         if (amt != buf.len) return error.UnexpectedEndOfFile;
     }
@@ -194,7 +195,7 @@ pub fn parse(
 ) !Parsed {
     const symtab = if (header.dynsym_sect_index) |index| st: {
         const shdr = header.sections[index];
-        const n = shdr.sh_size / @sizeOf(elf.Elf64_Sym);
+        const n = std.math.cast(usize, shdr.sh_size / @sizeOf(elf.Elf64_Sym)) orelse return error.Overflow;
         const symtab = try gpa.alloc(elf.Elf64_Sym, n);
         errdefer gpa.free(symtab);
         const buf = mem.sliceAsBytes(symtab);
