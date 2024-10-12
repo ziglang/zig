@@ -34,7 +34,7 @@ pub fn lookup(vername: []const u8, name: []const u8) usize {
     const dynv = maybe_dynv orelse return 0;
     if (base == maxInt(usize)) return 0;
 
-    var maybe_strings: ?[*]u8 = null;
+    var maybe_strings: ?[*:0]u8 = null;
     var maybe_syms: ?[*]elf.Sym = null;
     var maybe_hashtab: ?[*]linux.Elf_Symndx = null;
     var maybe_versym: ?[*]elf.Versym = null;
@@ -45,11 +45,11 @@ pub fn lookup(vername: []const u8, name: []const u8) usize {
         while (dynv[i] != 0) : (i += 2) {
             const p = base +% dynv[i + 1];
             switch (dynv[i]) {
-                elf.DT_STRTAB => maybe_strings = @as([*]u8, @ptrFromInt(p)),
-                elf.DT_SYMTAB => maybe_syms = @as([*]elf.Sym, @ptrFromInt(p)),
-                elf.DT_HASH => maybe_hashtab = @as([*]linux.Elf_Symndx, @ptrFromInt(p)),
-                elf.DT_VERSYM => maybe_versym = @as([*]elf.Versym, @ptrFromInt(p)),
-                elf.DT_VERDEF => maybe_verdef = @as(*elf.Verdef, @ptrFromInt(p)),
+                elf.DT_STRTAB => maybe_strings = @ptrFromInt(p),
+                elf.DT_SYMTAB => maybe_syms = @ptrFromInt(p),
+                elf.DT_HASH => maybe_hashtab = @ptrFromInt(p),
+                elf.DT_VERSYM => maybe_versym = @ptrFromInt(p),
+                elf.DT_VERDEF => maybe_verdef = @ptrFromInt(p),
                 else => {},
             }
         }
@@ -80,7 +80,7 @@ pub fn lookup(vername: []const u8, name: []const u8) usize {
     return 0;
 }
 
-fn checkver(def_arg: *elf.Verdef, vsym_arg: elf.Versym, vername: []const u8, strings: [*]u8) bool {
+fn checkver(def_arg: *elf.Verdef, vsym_arg: elf.Versym, vername: []const u8, strings: [*:0]u8) bool {
     var def = def_arg;
     const vsym_index = vsym_arg.VERSION;
     while (true) {
@@ -89,6 +89,5 @@ fn checkver(def_arg: *elf.Verdef, vsym_arg: elf.Versym, vername: []const u8, str
         def = @ptrFromInt(@intFromPtr(def) + def.next);
     }
     const aux: *elf.Verdaux = @ptrFromInt(@intFromPtr(def) + def.aux);
-    const vda_name: [*:0]u8 = @ptrCast(strings + aux.name);
-    return mem.eql(u8, vername, mem.sliceTo(vda_name, 0));
+    return mem.eql(u8, vername, mem.sliceTo(strings + aux.name, 0));
 }
