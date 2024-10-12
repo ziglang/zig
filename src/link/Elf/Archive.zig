@@ -1,15 +1,6 @@
 objects: std.ArrayListUnmanaged(Object) = .empty,
 strtab: std.ArrayListUnmanaged(u8) = .empty,
 
-pub fn isArchive(path: Path) !bool {
-    const file = try path.root_dir.handle.openFile(path.sub_path, .{});
-    defer file.close();
-    const reader = file.reader();
-    const magic = reader.readBytesNoEof(elf.ARMAG.len) catch return false;
-    if (!mem.eql(u8, &magic, elf.ARMAG)) return false;
-    return true;
-}
-
 pub fn deinit(self: *Archive, allocator: Allocator) void {
     self.objects.deinit(allocator);
     self.strtab.deinit(allocator);
@@ -18,6 +9,7 @@ pub fn deinit(self: *Archive, allocator: Allocator) void {
 pub fn parse(self: *Archive, elf_file: *Elf, path: Path, handle_index: File.HandleIndex) !void {
     const comp = elf_file.base.comp;
     const gpa = comp.gpa;
+    const diags = &comp.link_diags;
     const handle = elf_file.fileHandle(handle_index);
     const size = (try handle.stat()).size;
 
@@ -35,7 +27,7 @@ pub fn parse(self: *Archive, elf_file: *Elf, path: Path, handle_index: File.Hand
         pos += @sizeOf(elf.ar_hdr);
 
         if (!mem.eql(u8, &hdr.ar_fmag, elf.ARFMAG)) {
-            return elf_file.failParse(path, "invalid archive header delimiter: {s}", .{
+            return diags.failParse(path, "invalid archive header delimiter: {s}", .{
                 std.fmt.fmtSliceEscapeLower(&hdr.ar_fmag),
             });
         }

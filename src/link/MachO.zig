@@ -396,14 +396,8 @@ pub fn flushModule(self: *MachO, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
     }
 
     for (positionals.items) |obj| {
-        self.classifyInputFile(obj.path, .{ .path = obj.path }, obj.must_link) catch |err| switch (err) {
-            error.UnknownFileType => try diags.reportParseError(obj.path, "unknown file type for an input file", .{}),
-            else => |e| try diags.reportParseError(
-                obj.path,
-                "unexpected error: reading input file failed with error {s}",
-                .{@errorName(e)},
-            ),
-        };
+        self.classifyInputFile(obj.path, .{ .path = obj.path }, obj.must_link) catch |err|
+            diags.addParseError(obj.path, "failed to read input file: {s}", .{@errorName(err)});
     }
 
     var system_libs = std.ArrayList(SystemLib).init(gpa);
@@ -443,14 +437,8 @@ pub fn flushModule(self: *MachO, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
     };
 
     for (system_libs.items) |lib| {
-        self.classifyInputFile(lib.path, lib, false) catch |err| switch (err) {
-            error.UnknownFileType => try diags.reportParseError(lib.path, "unknown file type for an input file", .{}),
-            else => |e| try diags.reportParseError(
-                lib.path,
-                "unexpected error: parsing input file failed with error {s}",
-                .{@errorName(e)},
-            ),
-        };
+        self.classifyInputFile(lib.path, lib, false) catch |err|
+            diags.addParseError(lib.path, "failed to parse input file: {s}", .{@errorName(err)});
     }
 
     // Finally, link against compiler_rt.
@@ -460,14 +448,8 @@ pub fn flushModule(self: *MachO, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
         break :blk null;
     };
     if (compiler_rt_path) |path| {
-        self.classifyInputFile(path, .{ .path = path }, false) catch |err| switch (err) {
-            error.UnknownFileType => try diags.reportParseError(path, "unknown file type for an input file", .{}),
-            else => |e| try diags.reportParseError(
-                path,
-                "unexpected error: parsing input file failed with error {s}",
-                .{@errorName(e)},
-            ),
-        };
+        self.classifyInputFile(path, .{ .path = path }, false) catch |err|
+            diags.addParseError(path, "failed to parse input file: {s}", .{@errorName(err)});
     }
 
     try self.parseInputFiles();
@@ -796,7 +778,7 @@ pub fn resolveLibSystem(
             if (try accessLibPath(arena, &test_path, &checked_paths, dir, "System")) break :success;
         }
 
-        try diags.reportMissingLibraryError(checked_paths.items, "unable to find libSystem system library", .{});
+        diags.addMissingLibraryError(checked_paths.items, "unable to find libSystem system library", .{});
         return error.MissingLibSystem;
     }
 
@@ -847,10 +829,7 @@ fn parseFatFile(self: *MachO, file: std.fs.File, path: Path) !?fat.Arch {
     for (fat_archs) |arch| {
         if (arch.tag == cpu_arch) return arch;
     }
-    try diags.reportParseError(path, "missing arch in universal file: expected {s}", .{
-        @tagName(cpu_arch),
-    });
-    return error.MissingCpuArch;
+    return diags.failParse(path, "missing arch in universal file: expected {s}", .{@tagName(cpu_arch)});
 }
 
 pub fn readMachHeader(file: std.fs.File, offset: usize) !macho.mach_header_64 {

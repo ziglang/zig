@@ -29,10 +29,9 @@ pub fn unpack(self: *Archive, macho_file: *MachO, path: Path, handle_index: File
         pos += @sizeOf(ar_hdr);
 
         if (!mem.eql(u8, &hdr.ar_fmag, ARFMAG)) {
-            try diags.reportParseError(path, "invalid header delimiter: expected '{s}', found '{s}'", .{
+            return diags.failParse(path, "invalid header delimiter: expected '{s}', found '{s}'", .{
                 std.fmt.fmtSliceEscapeLower(ARFMAG), std.fmt.fmtSliceEscapeLower(&hdr.ar_fmag),
             });
-            return error.MalformedArchive;
         }
 
         var hdr_size = try hdr.size();

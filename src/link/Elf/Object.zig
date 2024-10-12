@@ -310,7 +310,7 @@ fn initSymbols(self: *Object, allocator: Allocator, elf_file: *Elf) !void {
         sym_ptr.name_offset = sym.st_name;
         sym_ptr.esym_index = @intCast(i);
         sym_ptr.extra_index = self.addSymbolExtraAssumeCapacity(.{});
-        sym_ptr.version_index = if (i >= first_global) elf_file.default_sym_version else elf.VER_NDX_LOCAL;
+        sym_ptr.version_index = if (i >= first_global) elf_file.default_sym_version else .LOCAL;
         sym_ptr.flags.weak = sym.st_bind() == elf.STB_WEAK;
         if (sym.st_shndx != elf.SHN_ABS and sym.st_shndx != elf.SHN_COMMON) {
             sym_ptr.ref = .{ .index = self.atoms_indexes.items[sym.st_shndx], .file = self.index };
@@ -536,7 +536,7 @@ pub fn claimUnresolved(self: *Object, elf_file: *Elf) void {
         sym.ref = .{ .index = 0, .file = 0 };
         sym.esym_index = esym_index;
         sym.file_index = self.index;
-        sym.version_index = if (is_import) elf.VER_NDX_LOCAL else elf_file.default_sym_version;
+        sym.version_index = if (is_import) .LOCAL else elf_file.default_sym_version;
         sym.flags.import = is_import;
 
         const idx = self.symbols_resolver.items[i];
@@ -598,8 +598,9 @@ pub fn markImportsExports(self: *Object, elf_file: *Elf) void {
         const ref = self.resolveSymbol(@intCast(idx), elf_file);
         const sym = elf_file.symbol(ref) orelse continue;
         const file = sym.file(elf_file).?;
-        if (sym.version_index == elf.VER_NDX_LOCAL) continue;
-        const vis = @as(elf.STV, @enumFromInt(sym.elfSym(elf_file).st_other));
+        // https://github.com/ziglang/zig/issues/21678
+        if (@as(u16, @bitCast(sym.version_index)) == @as(u16, @bitCast(elf.Versym.LOCAL))) continue;
+        const vis: elf.STV = @enumFromInt(sym.elfSym(elf_file).st_other);
         if (vis == .HIDDEN) continue;
         if (file == .shared_object and !sym.isAbs(elf_file)) {
             sym.flags.import = true;
