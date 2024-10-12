@@ -37,7 +37,7 @@ pub fn lookup(vername: []const u8, name: []const u8) usize {
     var maybe_strings: ?[*]u8 = null;
     var maybe_syms: ?[*]elf.Sym = null;
     var maybe_hashtab: ?[*]linux.Elf_Symndx = null;
-    var maybe_versym: ?[*]u16 = null;
+    var maybe_versym: ?[*]elf.Versym = null;
     var maybe_verdef: ?*elf.Verdef = null;
 
     {
@@ -48,7 +48,7 @@ pub fn lookup(vername: []const u8, name: []const u8) usize {
                 elf.DT_STRTAB => maybe_strings = @as([*]u8, @ptrFromInt(p)),
                 elf.DT_SYMTAB => maybe_syms = @as([*]elf.Sym, @ptrFromInt(p)),
                 elf.DT_HASH => maybe_hashtab = @as([*]linux.Elf_Symndx, @ptrFromInt(p)),
-                elf.DT_VERSYM => maybe_versym = @as([*]u16, @ptrFromInt(p)),
+                elf.DT_VERSYM => maybe_versym = @as([*]elf.Versym, @ptrFromInt(p)),
                 elf.DT_VERDEF => maybe_verdef = @as(*elf.Verdef, @ptrFromInt(p)),
                 else => {},
             }
@@ -80,17 +80,15 @@ pub fn lookup(vername: []const u8, name: []const u8) usize {
     return 0;
 }
 
-fn checkver(def_arg: *elf.Verdef, vsym_arg: i32, vername: []const u8, strings: [*]u8) bool {
+fn checkver(def_arg: *elf.Verdef, vsym_arg: elf.Versym, vername: []const u8, strings: [*]u8) bool {
     var def = def_arg;
-    const vsym = @as(u32, @bitCast(vsym_arg)) & 0x7fff;
+    const vsym_index = vsym_arg.VERSION;
     while (true) {
-        if (0 == (def.vd_flags & elf.VER_FLG_BASE) and (def.vd_ndx & 0x7fff) == vsym)
-            break;
-        if (def.vd_next == 0)
-            return false;
-        def = @as(*elf.Verdef, @ptrFromInt(@intFromPtr(def) + def.vd_next));
+        if (0 == (def.flags & elf.VER_FLG_BASE) and @intFromEnum(def.ndx) == vsym_index) break;
+        if (def.next == 0) return false;
+        def = @ptrFromInt(@intFromPtr(def) + def.next);
     }
-    const aux = @as(*elf.Verdaux, @ptrFromInt(@intFromPtr(def) + def.vd_aux));
-    const vda_name = @as([*:0]u8, @ptrCast(strings + aux.vda_name));
+    const aux: *elf.Verdaux = @ptrFromInt(@intFromPtr(def) + def.aux);
+    const vda_name: [*:0]u8 = @ptrCast(strings + aux.name);
     return mem.eql(u8, vername, mem.sliceTo(vda_name, 0));
 }
