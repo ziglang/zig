@@ -6544,10 +6544,6 @@ const NavGen = struct {
             .id_ref_3 = params[0..n_params],
         });
 
-        if (return_type == .noreturn_type) {
-            try self.func.body.emit(self.spv.gpa, .OpUnreachable, {});
-        }
-
         if (self.liveness.isUnused(inst) or !Type.fromInterned(return_type).hasRuntimeBitsIgnoreComptime(zcu)) {
             return null;
         }
