@@ -37,7 +37,7 @@ const FreeBlock = struct {
     }
 
     fn getBit(self: FreeBlock, idx: usize) PageStatus {
-        const bit = mem.readPackedInt(u1, mem.sliceAsBytes(self.data), 8 * idx, .little);
+        const bit = mem.readPackedInt(u1, mem.sliceAsBytes(self.data), idx, .little);
         return @as(PageStatus, @enumFromInt(bit));
     }
 
@@ -45,7 +45,7 @@ const FreeBlock = struct {
         var i: usize = 0;
         const bytes = mem.sliceAsBytes(self.data);
         while (i < len) : (i += 1) {
-            mem.writePackedInt(u1, bytes, 8 * (start_idx + i), @intFromEnum(val), .little);
+            mem.writePackedInt(u1, bytes, start_idx + i, @intFromEnum(val), .little);
         }
     }
 
