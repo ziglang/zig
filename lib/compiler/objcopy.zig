@@ -1179,13 +1179,10 @@ fn ElfFile(comptime is_64: bool) type {
                                     @memcpy(data, src_data);
 
                                     const defs = @as([*]elf.Verdef, @ptrCast(data))[0 .. @as(usize, @intCast(src.sh_size)) / @sizeOf(elf.Verdef)];
-                                    for (defs) |*def| {
-                                        // Original author of this next line had elf.SHN_UNDEF
-                                        // here which does not make sense given that this field
-                                        // is elf.VER_NDX
-                                        if (def.ndx != .LOCAL)
-                                            def.ndx = @enumFromInt(sections_update[src.sh_info].remap_idx);
-                                    }
+                                    for (defs) |*def| switch (def.ndx) {
+                                        .LOCAL, .GLOBAL => {},
+                                        else => def.ndx = @enumFromInt(sections_update[src.sh_info].remap_idx),
+                                    };
 
                                     break :dst_data data;
                                 },
