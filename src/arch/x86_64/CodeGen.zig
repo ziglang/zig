@@ -873,7 +873,7 @@ pub fn generate(
         @intFromEnum(FrameIndex.stack_frame),
         FrameAlloc.init(.{
             .size = 0,
-            .alignment = target_util.stackAlignment(function.target.*, fn_type.fnCallingConvention(zcu)),
+            .alignment = .fromByteUnits(target_util.stackAlignment(function.target.*, fn_type.fnCallingConvention(zcu))),
         }),
     );
     function.frame_allocs.set(

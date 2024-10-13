@@ -18,6 +18,7 @@ const Zcu = @import("../../Zcu.zig");
 const Package = @import("../../Package.zig");
 const InternPool = @import("../../InternPool.zig");
 const Compilation = @import("../../Compilation.zig");
+const target_util = @import("../../target.zig");
 const trace = @import("../../tracy.zig").trace;
 const codegen = @import("../../codegen.zig");
 
@@ -821,7 +822,7 @@ pub fn generate(
         @intFromEnum(FrameIndex.stack_frame),
         FrameAlloc.init(.{
             .size = 0,
-            .alignment = func.analysisUnordered(ip).stack_alignment.max(.@"1"),
+            .alignment = .fromByteUnits(target_util.stackAlignment(function.target.*, fn_type.fnCallingConvention(zcu))),
         }),
     );
     function.frame_allocs.set(

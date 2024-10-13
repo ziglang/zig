@@ -210,15 +210,6 @@ test "alignment and size of structs with 128-bit fields" {
     }
 }
 
-test "alignstack" {
-    try expect(fnWithAlignedStack() == 1234);
-}
-
-fn fnWithAlignedStack() i32 {
-    @setAlignStack(256);
-    return 1234;
-}
-
 test "implicitly decreasing slice alignment" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO

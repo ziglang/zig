@@ -9711,25 +9711,32 @@ fn callConvSupportsVarArgs(cc: std.builtin.CallingConvention.Tag) bool {
 }
 fn checkCallConvSupportsVarArgs(sema: *Sema, block: *Block, src: LazySrcLoc, cc: std.builtin.CallingConvention.Tag) CompileError!void {
     const CallingConventionsSupportingVarArgsList = struct {
-        pub fn format(_: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        arch: std.Target.Cpu.Arch,
+        pub fn format(ctx: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
             _ = fmt;
             _ = options;
-            for (calling_conventions_supporting_var_args, 0..) |cc_inner, i| {
-                if (i != 0)
+            var first = true;
+            for (calling_conventions_supporting_var_args) |cc_inner| {
+                for (std.Target.Cpu.Arch.fromCallconv(cc_inner)) |supported_arch| {
+                    if (supported_arch == ctx.arch) break;
+                } else continue; // callconv not supported by this arch
+                if (!first) {
                     try writer.writeAll(", ");
-                try writer.print("'.{s}'", .{@tagName(cc_inner)});
+                }
+                first = false;
+                try writer.print("'{s}'", .{@tagName(cc_inner)});
             }
         }
     };
 
     if (!callConvSupportsVarArgs(cc)) {
-        const msg = msg: {
-            const msg = try sema.errMsg(src, "variadic function does not support '.{s}' calling convention", .{@tagName(cc)});
+        return sema.failWithOwnedErrorMsg(block, msg: {
+            const msg = try sema.errMsg(src, "variadic function does not support '{s}' calling convention", .{@tagName(cc)});
             errdefer msg.destroy(sema.gpa);
-            try sema.errNote(src, msg, "supported calling conventions: {}", .{CallingConventionsSupportingVarArgsList{}});
+            const target = sema.pt.zcu.getTarget();
+            try sema.errNote(src, msg, "supported calling conventions: {}", .{CallingConventionsSupportingVarArgsList{ .arch = target.cpu.arch }});
             break :msg msg;
-        };
-        return sema.failWithOwnedErrorMsg(block, msg);
+        });
     }
 }
 
@@ -9857,9 +9864,9 @@ fn funcCommon(
             .x86_64_interrupt, .x86_interrupt => {
                 const err_code_size = target.ptrBitWidth();
                 switch (i) {
-                    0 => if (param_ty.zigTypeTag(zcu) != .pointer) return sema.fail(block, param_src, "first parameter of function with 'Interrupt' calling convention must be a pointer type", .{}),
-                    1 => if (param_ty.bitSize(zcu) != err_code_size) return sema.fail(block, param_src, "second parameter of function with 'Interrupt' calling convention must be a {d}-bit integer", .{err_code_size}),
-                    else => return sema.fail(block, param_src, "'Interrupt' calling convention supports up to 2 parameters, found {d}", .{i + 1}),
+                    0 => if (param_ty.zigTypeTag(zcu) != .pointer) return sema.fail(block, param_src, "first parameter of function with '{s}' calling convention must be a pointer type", .{@tagName(cc_resolved)}),
+                    1 => if (param_ty.bitSize(zcu) != err_code_size) return sema.fail(block, param_src, "second parameter of function with '{s}' calling convention must be a {d}-bit integer", .{ @tagName(cc_resolved), err_code_size }),
+                    else => return sema.fail(block, param_src, "'{s}' calling convention supports up to 2 parameters, found {d}", .{ @tagName(cc_resolved), i + 1 }),
                 }
             },
             .arm_interrupt,
@@ -9870,8 +9877,8 @@ fn funcCommon(
             .avr_interrupt,
             .csky_interrupt,
             .m68k_interrupt,
-            => return sema.fail(block, param_src, "parameters are not allowed with 'Interrupt' calling convention", .{}),
-            .avr_signal => return sema.fail(block, param_src, "parameters are not allowed with 'Signal' calling convention", .{}),
+            => return sema.fail(block, param_src, "parameters are not allowed with '{s}' calling convention", .{@tagName(cc_resolved)}),
+            .avr_signal => return sema.fail(block, param_src, "parameters are not allowed with '{s}' calling convention", .{@tagName(cc_resolved)}),
             else => {},
         }
     }
@@ -10220,7 +10227,7 @@ fn finishFunc(
                     for (formatter.archs, 0..) |arch, i| {
                         if (i != 0)
                             try writer.writeAll(", ");
-                        try writer.print("'.{s}'", .{@tagName(arch)});
+                        try writer.print("'{s}'", .{@tagName(arch)});
                     }
                 }
             };

@@ -397,7 +397,10 @@ pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error
                         break :print_cc;
                     }
                 }
-                try writer.print("callconv({any}) ", .{fn_info.cc});
+                switch (fn_info.cc) {
+                    .auto, .@"async", .naked, .@"inline" => try writer.print("callconv(.{}) ", .{std.zig.fmtId(@tagName(fn_info.cc))}),
+                    else => try writer.print("callconv({any}) ", .{fn_info.cc}),
+                }
             }
             if (fn_info.return_type == .generic_poison_type) {
                 try writer.writeAll("anytype");

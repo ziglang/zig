@@ -1612,7 +1612,7 @@ pub const Cpu = struct {
 
         /// Returns the array of `Arch` to which a specific `std.builtin.CallingConvention` applies.
         /// Asserts that `cc` is not `.auto`, `.@"async"`, `.naked`, or `.@"inline"`.
-        pub fn fromCallconv(cc: std.builtin.CallingConvention) []const Arch {
+        pub fn fromCallconv(cc: std.builtin.CallingConvention.Tag) []const Arch {
             return switch (cc) {
                 .auto,
                 .@"async",
