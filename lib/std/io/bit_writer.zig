@@ -37,26 +37,26 @@ pub fn BitWriter(comptime endian: std.builtin.Endian, comptime Writer: type) typ
         pub fn writeBits(self: *@This(), value: anytype, num: u16) !void {
             const T = @TypeOf(value);
             const UT = std.meta.Int(.unsigned, @bitSizeOf(T));
-            const U = if(@bitSizeOf(T) < 8) u8 else UT; //<u8 is a pain to work with
+            const U = if (@bitSizeOf(T) < 8) u8 else UT; //<u8 is a pain to work with
 
             var in: U = @as(UT, @bitCast(value));
             var in_count: u16 = num;
 
-            if(self.count > 0) {
+            if (self.count > 0) {
                 //if we can't fill the buffer, add what we have
                 const bits_free = 8 - self.count;
-                if(num < bits_free) {
+                if (num < bits_free) {
                     self.addBits(@truncate(in), @intCast(num));
                     return;
                 }
 
                 //finish filling the buffer and flush it
-                if(num == bits_free) {
+                if (num == bits_free) {
                     self.addBits(@truncate(in), @intCast(num));
                     return self.flushBits();
                 }
 
-                switch(endian) {
+                switch (endian) {
                     .big => {
                         const bits = in >> @intCast(in_count - bits_free);
                         self.addBits(@truncate(bits), bits_free);
@@ -70,18 +70,17 @@ pub fn BitWriter(comptime endian: std.builtin.Endian, comptime Writer: type) typ
                 try self.flushBits();
             }
 
-
             //write full bytes while we can
             const full_bytes_left = in_count / 8;
-            for(0..full_bytes_left) |_| {
-                switch(endian) {
+            for (0..full_bytes_left) |_| {
+                switch (endian) {
                     .big => {
                         const bits = in >> @intCast(in_count - 8);
                         try self.writer.writeByte(@truncate(bits));
                     },
                     .little => {
                         try self.writer.writeByte(@truncate(in));
-                        if(U == u8) in = 0 else in >>= 8;
+                        if (U == u8) in = 0 else in >>= 8;
                     },
                 }
                 in_count -= 8;
@@ -94,7 +93,7 @@ pub fn BitWriter(comptime endian: std.builtin.Endian, comptime Writer: type) typ
         //convenience funciton for adding bits to the buffer
         //in the appropriate position based on endianess
         fn addBits(self: *@This(), bits: u8, num: u4) void {
-            if(num == 8) self.bits = bits else switch(endian) {
+            if (num == 8) self.bits = bits else switch (endian) {
                 .big => {
                     self.bits <<= @intCast(num);
                     self.bits |= bits & low_bit_mask[num];
@@ -110,27 +109,12 @@ pub fn BitWriter(comptime endian: std.builtin.Endian, comptime Writer: type) typ
         /// Flush any remaining bits to the writer, filling
         /// unused bits with 0s.
         pub fn flushBits(self: *@This()) !void {
-            if(self.count == 0) return;
-            if(endian == .big) self.bits <<= @intCast(8 - self.count);
+            if (self.count == 0) return;
+            if (endian == .big) self.bits <<= @intCast(8 - self.count);
             try self.writer.writeByte(self.bits);
             self.bits = 0;
             self.count = 0;
         }
-
-        //pub fn write(self: *Self, buffer: []const u8) Error!usize {
-        //    // TODO: I'm not sure this is a good idea, maybe flushBits should be forced
-        //    if (self.bit_count > 0) {
-        //        for (buffer) |b|
-        //            try self.writeBits(b, u8_bit_count);
-        //        return buffer.len;
-        //    }
-        //
-        //    return self.forward_writer.write(buffer);
-        //}
-        //
-        //pub fn writer(self: *Self) Writer {
-        //    return .{ .context = self };
-        //}
     };
 }
 

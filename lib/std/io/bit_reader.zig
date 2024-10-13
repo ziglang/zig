@@ -51,7 +51,7 @@ pub fn BitReader(comptime endian: std.builtin.Endian, comptime Reader: type) typ
         ///  specified number of bits could not be read.
         pub fn readBitsNoEof(self: *@This(), comptime T: type, num: u16) !T {
             const b, const c = try self.readBitsTuple(T, num);
-            if(c < num) return error.EndOfStream;
+            if (c < num) return error.EndOfStream;
             return b;
         }
 
@@ -59,7 +59,7 @@ pub fn BitReader(comptime endian: std.builtin.Endian, comptime Reader: type) typ
         ///  containing them in the least significant end. The number of bits successfully
         ///  read is placed in `out_bits`, as reaching the end of the stream is not an error.
         pub fn readBits(self: *@This(), comptime T: type, num: u16, out_bits: *u16) !T {
-            const b, const c  = try self.readBitsTuple(T, num);
+            const b, const c = try self.readBitsTuple(T, num);
             out_bits.* = c;
             return b;
         }
@@ -69,10 +69,10 @@ pub fn BitReader(comptime endian: std.builtin.Endian, comptime Reader: type) typ
         ///  read. Reaching the end of the stream is not an error.
         pub fn readBitsTuple(self: *@This(), comptime T: type, num: u16) !Bits(T) {
             const UT = std.meta.Int(.unsigned, @bitSizeOf(T));
-            const U = if(@bitSizeOf(T) < 8) u8 else UT; //it is a pain to work with <u8
+            const U = if (@bitSizeOf(T) < 8) u8 else UT; //it is a pain to work with <u8
 
             //dump any bits in our buffer first
-            if(num <= self.count) return initBits(T, self.removeBits(@intCast(num)), num);
+            if (num <= self.count) return initBits(T, self.removeBits(@intCast(num)), num);
 
             var out_count: u16 = self.count;
             var out: U = self.removeBits(self.count);
@@ -81,15 +81,15 @@ pub fn BitReader(comptime endian: std.builtin.Endian, comptime Reader: type) typ
             //bits where they belong
             const full_bytes_left = (num - out_count) / 8;
 
-            for(0..full_bytes_left) |_| {
+            for (0..full_bytes_left) |_| {
                 const byte = self.reader.readByte() catch |err| {
-                    if(err == error.EndOfStream) return initBits(T, out, out_count);
+                    if (err == error.EndOfStream) return initBits(T, out, out_count);
                     return err;
                 };
 
-                switch(endian) {
+                switch (endian) {
                     .big => {
-                        if(U == u8) out = 0 else out <<= 8; //shifting u8 by 8 is illegal in Zig
+                        if (U == u8) out = 0 else out <<= 8; //shifting u8 by 8 is illegal in Zig
                         out |= byte;
                     },
                     .little => {
@@ -103,14 +103,14 @@ pub fn BitReader(comptime endian: std.builtin.Endian, comptime Reader: type) typ
             const bits_left = num - out_count;
             const keep = 8 - bits_left;
 
-            if(bits_left == 0) return initBits(T, out, out_count);
+            if (bits_left == 0) return initBits(T, out, out_count);
 
             const final_byte = self.reader.readByte() catch |err| {
-                if(err == error.EndOfStream) return initBits(T, out, out_count);
+                if (err == error.EndOfStream) return initBits(T, out, out_count);
                 return err;
             };
 
-            switch(endian) {
+            switch (endian) {
                 .big => {
                     out <<= @intCast(bits_left);
                     out |= final_byte >> @intCast(keep);
@@ -131,17 +131,17 @@ pub fn BitReader(comptime endian: std.builtin.Endian, comptime Reader: type) typ
         //the appropriate part of the buffer based on
         //endianess.
         fn removeBits(self: *@This(), num: u4) u8 {
-            if(num == 8) {
+            if (num == 8) {
                 self.count = 0;
                 return self.bits;
             }
 
             const keep = self.count - num;
-            const bits = switch(endian) {
+            const bits = switch (endian) {
                 .big => self.bits >> @intCast(keep),
                 .little => self.bits & low_bit_mask[num],
             };
-            switch(endian) {
+            switch (endian) {
                 .big => self.bits &= low_bit_mask[keep],
                 .little => self.bits >>= @intCast(num),
             }
@@ -154,27 +154,6 @@ pub fn BitReader(comptime endian: std.builtin.Endian, comptime Reader: type) typ
             self.bits = 0;
             self.count = 0;
         }
-
-        //pub fn read(self: *Self, buffer: []u8) !usize {
-        //    //NOTE: I'm not sure this is a good idea, maybe alignToByte should be forced
-        //    if (self.bit_count > 0) {
-        //        var out_bits: usize = 0;
-        //        for (buffer) |*b| {
-        //            const bits = try self.readBits(u8, 8);
-        //            b.* = bits.bits;
-        //            out_bits += bits.count;
-        //            if(bits.count < 8) break;
-        //        }
-        //        const incomplete_byte = @intFromBool(out_bits % 8 > 0);
-        //        return (out_bits / 8) + incomplete_byte;
-        //    }
-        //
-        //    return self.reader.read(buffer);
-        //}
-        //
-        //pub fn reader(self: *Self) Reader {
-        //    return .{ .context = self };
-        //}
     };
 }
 

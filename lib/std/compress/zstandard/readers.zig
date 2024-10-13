@@ -42,11 +42,11 @@ pub const ReverseBitReader = struct {
         if (i == 8) return error.BitStreamHasNoStartBit;
     }
 
-    pub fn readBitsNoEof(self: *@This(), comptime U: type, num_bits: usize) error{EndOfStream}!U {
+    pub fn readBitsNoEof(self: *@This(), comptime U: type, num_bits: u16) error{EndOfStream}!U {
         return self.bit_reader.readBitsNoEof(U, num_bits);
     }
 
-    pub fn readBits(self: *@This(), comptime U: type, num_bits: usize, out_bits: *usize) error{}!U {
+    pub fn readBits(self: *@This(), comptime U: type, num_bits: u16, out_bits: *u16) error{}!U {
         return try self.bit_reader.readBits(U, num_bits, out_bits);
     }
 
@@ -63,11 +63,11 @@ pub fn BitReader(comptime Reader: type) type {
     return struct {
         underlying: std.io.BitReader(.little, Reader),
 
-        pub fn readBitsNoEof(self: *@This(), comptime U: type, num_bits: usize) !U {
+        pub fn readBitsNoEof(self: *@This(), comptime U: type, num_bits: u16) !U {
             return self.underlying.readBitsNoEof(U, num_bits);
         }
 
-        pub fn readBits(self: *@This(), comptime U: type, num_bits: usize, out_bits: *usize) !U {
+        pub fn readBits(self: *@This(), comptime U: type, num_bits: u16, out_bits: *u16) !U {
             return self.underlying.readBits(U, num_bits, out_bits);
         }
 
