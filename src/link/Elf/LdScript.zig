@@ -21,6 +21,8 @@ pub const Error = error{
 pub fn parse(scr: *LdScript, data: []const u8, elf_file: *Elf) Error!void {
     const comp = elf_file.base.comp;
     const gpa = comp.gpa;
+    const diags = &comp.link_diags;
+
     var tokenizer = Tokenizer{ .source = data };
     var tokens = std.ArrayList(Token).init(gpa);
     defer tokens.deinit();
@@ -37,7 +39,7 @@ pub fn parse(scr: *LdScript, data: []const u8, elf_file: *Elf) Error!void {
         try line_col.append(.{ .line = line, .column = column });
         switch (tok.id) {
             .invalid => {
-                return elf_file.failParse(scr.path, "invalid token in LD script: '{s}' ({d}:{d})", .{
+                return diags.failParse(scr.path, "invalid token in LD script: '{s}' ({d}:{d})", .{
                     std.fmt.fmtSliceEscapeLower(tok.get(data)), line, column,
                 });
             },
@@ -61,7 +63,7 @@ pub fn parse(scr: *LdScript, data: []const u8, elf_file: *Elf) Error!void {
             const last_token_id = parser.it.pos - 1;
             const last_token = parser.it.get(last_token_id);
             const lcol = line_col.items[last_token_id];
-            return elf_file.failParse(scr.path, "unexpected token in LD script: {s}: '{s}' ({d}:{d})", .{
+            return diags.failParse(scr.path, "unexpected token in LD script: {s}: '{s}' ({d}:{d})", .{
                 @tagName(last_token.id),
                 last_token.get(data),
                 lcol.line,

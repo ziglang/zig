@@ -1002,6 +1002,7 @@ const CacheUse = union(CacheMode) {
 pub const LinkObject = struct {
     path: Path,
     must_link: bool = false,
+    needed: bool = false,
     // When the library is passed via a positional argument, it will be
     // added as a full path. If it's `-l<lib>`, then just the basename.
     //
@@ -2561,6 +2562,7 @@ fn addNonIncrementalStuffToCacheManifest(
     for (comp.objects) |obj| {
         _ = try man.addFilePath(obj.path, null);
         man.hash.add(obj.must_link);
+        man.hash.add(obj.needed);
         man.hash.add(obj.loption);
     }
 

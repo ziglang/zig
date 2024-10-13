@@ -46,7 +46,7 @@ file_handles: std.ArrayListUnmanaged(File.Handle) = .empty,
 zig_object_index: ?File.Index = null,
 linker_defined_index: ?File.Index = null,
 objects: std.ArrayListUnmanaged(File.Index) = .empty,
-shared_objects: std.ArrayListUnmanaged(File.Index) = .empty,
+shared_objects: std.StringArrayHashMapUnmanaged(File.Index) = .empty,
 
 /// List of all output sections and their associated metadata.
 sections: std.MultiArrayList(Section) = .{},
@@ -62,7 +62,7 @@ phdr_indexes: ProgramHeaderIndexes = .{},
 section_indexes: SectionIndexes = .{},
 
 page_size: u32,
-default_sym_version: elf.Elf64_Versym,
+default_sym_version: elf.Versym,
 
 /// .shstrtab buffer
 shstrtab: std.ArrayListUnmanaged(u8) = .empty,
@@ -75,7 +75,7 @@ dynsym: DynsymSection = .{},
 /// .dynstrtab buffer
 dynstrtab: std.ArrayListUnmanaged(u8) = .empty,
 /// Version symbol table. Only populated and emitted when linking dynamically.
-versym: std.ArrayListUnmanaged(elf.Elf64_Versym) = .empty,
+versym: std.ArrayListUnmanaged(elf.Versym) = .empty,
 /// .verneed section
 verneed: VerneedSection = .{},
 /// .got section
@@ -114,7 +114,7 @@ thunks: std.ArrayListUnmanaged(Thunk) = .empty,
 merge_sections: std.ArrayListUnmanaged(Merge.Section) = .empty,
 comment_merge_section_index: ?Merge.Section.Index = null,
 
-first_eflags: ?elf.Elf64_Word = null,
+first_eflags: ?elf.Word = null,
 
 const SectionIndexes = struct {
     copy_rel: ?u32 = null,
@@ -265,10 +265,7 @@ pub fn createEmpty(
     };
 
     const is_dyn_lib = output_mode == .Lib and link_mode == .dynamic;
-    const default_sym_version: elf.Elf64_Versym = if (is_dyn_lib or comp.config.rdynamic)
-        elf.VER_NDX_GLOBAL
-    else
-        elf.VER_NDX_LOCAL;
+    const default_sym_version: elf.Versym = if (is_dyn_lib or comp.config.rdynamic) .GLOBAL else .LOCAL;
 
     // If using LLD to link, this code should produce an object file so that it
     // can be passed to LLD.
@@ -794,58 +791,51 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
     // --verbose-link
     if (comp.verbose_link) try self.dumpArgv(comp);
 
-    if (self.zigObjectPtr()) |zig_object| try zig_object.flushModule(self, tid);
+    if (self.zigObjectPtr()) |zig_object| try zig_object.flush(self, tid);
     if (self.base.isStaticLib()) return relocatable.flushStaticLib(self, comp, module_obj_path);
     if (self.base.isObject()) return relocatable.flushObject(self, comp, module_obj_path);
 
     const csu = try comp.getCrtPaths(arena);
 
     // csu prelude
-    if (csu.crt0) |path| try parseObjectReportingFailure(self, path);
-    if (csu.crti) |path| try parseObjectReportingFailure(self, path);
-    if (csu.crtbegin) |path| try parseObjectReportingFailure(self, path);
+    if (csu.crt0) |path| parseObjectReportingFailure(self, path);
+    if (csu.crti) |path| parseObjectReportingFailure(self, path);
+    if (csu.crtbegin) |path| parseObjectReportingFailure(self, path);
 
     for (comp.objects) |obj| {
-        if (obj.isObject()) {
-            try parseObjectReportingFailure(self, obj.path);
-        } else {
-            try parseLibraryReportingFailure(self, .{ .path = obj.path }, obj.must_link);
-        }
+        parseInputReportingFailure(self, obj.path, obj.needed, obj.must_link);
     }
 
     // This is a set of object files emitted by clang in a single `build-exe` invocation.
     // For instance, the implicit `a.o` as compiled by `zig build-exe a.c` will end up
     // in this set.
     for (comp.c_object_table.keys()) |key| {
-        try parseObjectReportingFailure(self, key.status.success.object_path);
+        parseObjectReportingFailure(self, key.status.success.object_path);
     }
 
-    if (module_obj_path) |path| try parseObjectReportingFailure(self, path);
+    if (module_obj_path) |path| parseObjectReportingFailure(self, path);
 
-    if (comp.config.any_sanitize_thread) try parseCrtFileReportingFailure(self, comp.tsan_lib.?);
-    if (comp.config.any_fuzz) try parseCrtFileReportingFailure(self, comp.fuzzer_lib.?);
+    if (comp.config.any_sanitize_thread) parseCrtFileReportingFailure(self, comp.tsan_lib.?);
+    if (comp.config.any_fuzz) parseCrtFileReportingFailure(self, comp.fuzzer_lib.?);
 
     // libc
     if (!comp.skip_linker_dependencies and !comp.config.link_libc) {
-        if (comp.libc_static_lib) |lib| try parseCrtFileReportingFailure(self, lib);
+        if (comp.libc_static_lib) |lib| parseCrtFileReportingFailure(self, lib);
     }
 
     for (comp.system_libs.values()) |lib_info| {
-        try self.parseLibraryReportingFailure(.{
-            .needed = lib_info.needed,
-            .path = lib_info.path.?,
-        }, false);
+        parseInputReportingFailure(self, lib_info.path.?, lib_info.needed, false);
     }
 
     // libc++ dep
     if (comp.config.link_libcpp) {
-        try self.parseLibraryReportingFailure(.{ .path = comp.libcxxabi_static_lib.?.full_object_path }, false);
-        try self.parseLibraryReportingFailure(.{ .path = comp.libcxx_static_lib.?.full_object_path }, false);
+        parseInputReportingFailure(self, comp.libcxxabi_static_lib.?.full_object_path, false, false);
+        parseInputReportingFailure(self, comp.libcxx_static_lib.?.full_object_path, false, false);
     }
 
     // libunwind dep
     if (comp.config.link_libunwind) {
-        try self.parseLibraryReportingFailure(.{ .path = comp.libunwind_static_lib.?.full_object_path }, false);
+        parseInputReportingFailure(self, comp.libunwind_static_lib.?.full_object_path, false, false);
     }
 
     // libc dep
@@ -869,17 +859,16 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
                     if (try self.accessLibPath(arena, &test_path, &checked_paths, lc.crt_dir.?, lib_name, .static))
                         break :success;
 
-                    try diags.reportMissingLibraryError(
+                    diags.addMissingLibraryError(
                         checked_paths.items,
                         "missing system library: '{s}' was not found",
                         .{lib_name},
                     );
-
                     continue;
                 }
 
                 const resolved_path = Path.initCwd(try arena.dupe(u8, test_path.items));
-                try self.parseLibraryReportingFailure(.{ .path = resolved_path }, false);
+                parseInputReportingFailure(self, resolved_path, false, false);
             }
         } else if (target.isGnuLibC()) {
             for (glibc.libs) |lib| {
@@ -890,17 +879,15 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
                 const lib_path = Path.initCwd(try std.fmt.allocPrint(arena, "{s}{c}lib{s}.so.{d}", .{
                     comp.glibc_so_files.?.dir_path, fs.path.sep, lib.name, lib.sover,
                 }));
-                try self.parseLibraryReportingFailure(.{ .path = lib_path }, false);
+                parseInputReportingFailure(self, lib_path, false, false);
             }
-            try self.parseLibraryReportingFailure(.{
-                .path = try comp.get_libc_crt_file(arena, "libc_nonshared.a"),
-            }, false);
+            parseInputReportingFailure(self, try comp.get_libc_crt_file(arena, "libc_nonshared.a"), false, false);
         } else if (target.isMusl()) {
             const path = try comp.get_libc_crt_file(arena, switch (link_mode) {
                 .static => "libc.a",
                 .dynamic => "libc.so",
             });
-            try self.parseLibraryReportingFailure(.{ .path = path }, false);
+            parseInputReportingFailure(self, path, false, false);
         } else {
             diags.flags.missing_libc = true;
         }
@@ -912,34 +899,16 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
     // to be after the shared libraries, so they are picked up from the shared
     // libraries, not libcompiler_rt.
     if (comp.compiler_rt_lib) |crt_file| {
-        try parseLibraryReportingFailure(self, .{ .path = crt_file.full_object_path }, false);
+        parseInputReportingFailure(self, crt_file.full_object_path, false, false);
     } else if (comp.compiler_rt_obj) |crt_file| {
-        try parseObjectReportingFailure(self, crt_file.full_object_path);
+        parseObjectReportingFailure(self, crt_file.full_object_path);
     }
 
     // csu postlude
-    if (csu.crtend) |path| try parseObjectReportingFailure(self, path);
-    if (csu.crtn) |path| try parseObjectReportingFailure(self, path);
+    if (csu.crtend) |path| parseObjectReportingFailure(self, path);
+    if (csu.crtn) |path| parseObjectReportingFailure(self, path);
 
     if (diags.hasErrors()) return error.FlushFailure;
-
-    // Dedup shared objects
-    {
-        var seen_dsos = std.StringHashMap(void).init(gpa);
-        defer seen_dsos.deinit();
-        try seen_dsos.ensureTotalCapacity(@as(u32, @intCast(self.shared_objects.items.len)));
-
-        var i: usize = 0;
-        while (i < self.shared_objects.items.len) {
-            const index = self.shared_objects.items[i];
-            const shared_object = self.file(index).?.shared_object;
-            const soname = shared_object.soname();
-            const gop = seen_dsos.getOrPutAssumeCapacity(soname);
-            if (gop.found_existing) {
-                _ = self.shared_objects.orderedRemove(i);
-            } else i += 1;
-        }
-    }
 
     // If we haven't already, create a linker-generated input file comprising of
     // linker-defined synthetic symbols only such as `_DYNAMIC`, etc.
@@ -1372,40 +1341,49 @@ pub const ParseError = error{
     UnknownFileType,
 } || LdScript.Error || fs.Dir.AccessError || fs.File.SeekError || fs.File.OpenError || fs.File.ReadError;
 
-fn parseCrtFileReportingFailure(self: *Elf, crt_file: Compilation.CrtFile) error{OutOfMemory}!void {
-    if (crt_file.isObject()) {
-        try parseObjectReportingFailure(self, crt_file.full_object_path);
-    } else {
-        try parseLibraryReportingFailure(self, .{ .path = crt_file.full_object_path }, false);
+fn parseCrtFileReportingFailure(self: *Elf, crt_file: Compilation.CrtFile) void {
+    parseInputReportingFailure(self, crt_file.full_object_path, false, false);
+}
+
+pub fn parseInputReportingFailure(self: *Elf, path: Path, needed: bool, must_link: bool) void {
+    const gpa = self.base.comp.gpa;
+    const diags = &self.base.comp.link_diags;
+    const target = self.getTarget();
+
+    switch (Compilation.classifyFileExt(path.sub_path)) {
+        .object => parseObjectReportingFailure(self, path),
+        .shared_library => parseSharedObject(gpa, diags, .{
+            .path = path,
+            .needed = needed,
+        }, &self.shared_objects, &self.files, target) catch |err| switch (err) {
+            error.LinkFailure => return, // already reported
+            error.BadMagic, error.UnexpectedEndOfFile => {
+                // It could be a linker script.
+                self.parseLdScript(.{ .path = path, .needed = needed }) catch |err2| switch (err2) {
+                    error.LinkFailure => return, // already reported
+                    else => |e| diags.addParseError(path, "failed to parse linker script: {s}", .{@errorName(e)}),
+                };
+            },
+            else => |e| diags.addParseError(path, "failed to parse shared object: {s}", .{@errorName(e)}),
+        },
+        .static_library => parseArchive(self, path, must_link) catch |err| switch (err) {
+            error.LinkFailure => return, // already reported
+            else => |e| diags.addParseError(path, "failed to parse archive: {s}", .{@errorName(e)}),
+        },
+        .unknown => self.parseLdScript(.{ .path = path, .needed = needed }) catch |err| switch (err) {
+            error.LinkFailure => return, // already reported
+            else => |e| diags.addParseError(path, "failed to parse linker script: {s}", .{@errorName(e)}),
+        },
+        else => diags.addParseError(path, "unrecognized file type", .{}),
     }
 }
 
-pub fn parseObjectReportingFailure(self: *Elf, path: Path) error{OutOfMemory}!void {
+pub fn parseObjectReportingFailure(self: *Elf, path: Path) void {
+    const diags = &self.base.comp.link_diags;
     self.parseObject(path) catch |err| switch (err) {
         error.LinkFailure => return, // already reported
-        error.OutOfMemory => return error.OutOfMemory,
-        else => |e| try self.addParseError(path, "unable to parse object: {s}", .{@errorName(e)}),
+        else => |e| diags.addParseError(path, "unable to parse object: {s}", .{@errorName(e)}),
     };
-}
-
-pub fn parseLibraryReportingFailure(self: *Elf, lib: SystemLib, must_link: bool) error{OutOfMemory}!void {
-    self.parseLibrary(lib, must_link) catch |err| switch (err) {
-        error.LinkFailure => return, // already reported
-        error.OutOfMemory => return error.OutOfMemory,
-        else => |e| try self.addParseError(lib.path, "unable to parse library: {s}", .{@errorName(e)}),
-    };
-}
-
-fn parseLibrary(self: *Elf, lib: SystemLib, must_link: bool) ParseError!void {
-    const tracy = trace(@src());
-    defer tracy.end();
-    if (try Archive.isArchive(lib.path)) {
-        try self.parseArchive(lib.path, must_link);
-    } else if (try SharedObject.isSharedObject(lib.path)) {
-        try self.parseSharedObject(lib);
-    } else {
-        try self.parseLdScript(lib);
-    }
 }
 
 fn parseObject(self: *Elf, path: Path) ParseError!void {
@@ -1457,28 +1435,80 @@ fn parseArchive(self: *Elf, path: Path, must_link: bool) ParseError!void {
     }
 }
 
-fn parseSharedObject(self: *Elf, lib: SystemLib) ParseError!void {
+fn parseSharedObject(
+    gpa: Allocator,
+    diags: *Diags,
+    lib: SystemLib,
+    shared_objects: *std.StringArrayHashMapUnmanaged(File.Index),
+    files: *std.MultiArrayList(File.Entry),
+    target: std.Target,
+) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const gpa = self.base.comp.gpa;
     const handle = try lib.path.root_dir.handle.openFile(lib.path.sub_path, .{});
     defer handle.close();
 
-    const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
-    self.files.set(index, .{ .shared_object = .{
-        .path = .{
-            .root_dir = lib.path.root_dir,
-            .sub_path = try gpa.dupe(u8, lib.path.sub_path),
-        },
-        .index = index,
-        .needed = lib.needed,
-        .alive = lib.needed,
-    } });
-    try self.shared_objects.append(gpa, index);
+    const stat = Stat.fromFs(try handle.stat());
+    var header = try SharedObject.parseHeader(gpa, diags, lib.path, handle, stat, target);
+    defer header.deinit(gpa);
 
-    const shared_object = self.file(index).?.shared_object;
-    try shared_object.parse(self, handle);
+    const soname = header.soname() orelse lib.path.basename();
+
+    const gop = try shared_objects.getOrPut(gpa, soname);
+    if (gop.found_existing) {
+        header.deinit(gpa);
+        return;
+    }
+    errdefer _ = shared_objects.pop();
+
+    const index: File.Index = @intCast(try files.addOne(gpa));
+    errdefer _ = files.pop();
+
+    gop.value_ptr.* = index;
+
+    var parsed = try SharedObject.parse(gpa, &header, handle);
+    errdefer parsed.deinit(gpa);
+
+    const duped_path: Path = .{
+        .root_dir = lib.path.root_dir,
+        .sub_path = try gpa.dupe(u8, lib.path.sub_path),
+    };
+    errdefer gpa.free(duped_path.sub_path);
+
+    files.set(index, .{
+        .shared_object = .{
+            .parsed = parsed,
+            .path = duped_path,
+            .index = index,
+            .needed = lib.needed,
+            .alive = lib.needed,
+            .aliases = null,
+            .symbols = .empty,
+            .symbols_extra = .empty,
+            .symbols_resolver = .empty,
+            .output_symtab_ctx = .{},
+        },
+    });
+    const so = fileLookup(files.*, index).?.shared_object;
+
+    // TODO: save this work for later
+    const nsyms = parsed.symbols.len;
+    try so.symbols.ensureTotalCapacityPrecise(gpa, nsyms);
+    try so.symbols_extra.ensureTotalCapacityPrecise(gpa, nsyms * @typeInfo(Symbol.Extra).@"struct".fields.len);
+    try so.symbols_resolver.ensureTotalCapacityPrecise(gpa, nsyms);
+    so.symbols_resolver.appendNTimesAssumeCapacity(0, nsyms);
+
+    for (parsed.symtab, parsed.symbols, parsed.versyms, 0..) |esym, sym, versym, i| {
+        const out_sym_index = so.addSymbolAssumeCapacity();
+        const out_sym = &so.symbols.items[out_sym_index];
+        out_sym.value = @intCast(esym.st_value);
+        out_sym.name_offset = sym.mangled_name;
+        out_sym.ref = .{ .index = 0, .file = 0 };
+        out_sym.esym_index = @intCast(i);
+        out_sym.version_index = versym;
+        out_sym.extra_index = so.addSymbolExtraAssumeCapacity(.{});
+    }
 }
 
 fn parseLdScript(self: *Elf, lib: SystemLib) ParseError!void {
@@ -1537,7 +1567,7 @@ fn parseLdScript(self: *Elf, lib: SystemLib) ParseError!void {
                 }
             }
 
-            try diags.reportMissingLibraryError(
+            diags.addMissingLibraryError(
                 checked_paths.items,
                 "missing library dependency: GNU ld script '{}' requires '{s}', but file not found",
                 .{ @as(Path, lib.path), script_arg.path },
@@ -1546,26 +1576,16 @@ fn parseLdScript(self: *Elf, lib: SystemLib) ParseError!void {
         }
 
         const full_path = Path.initCwd(test_path.items);
-        self.parseLibrary(.{
-            .needed = script_arg.needed,
-            .path = full_path,
-        }, false) catch |err| switch (err) {
-            error.LinkFailure => continue, // already reported
-            else => |e| try self.addParseError(
-                full_path,
-                "unexpected error: parsing library failed with error {s}",
-                .{@errorName(e)},
-            ),
-        };
+        parseInputReportingFailure(self, full_path, script_arg.needed, false);
     }
 }
 
-pub fn validateEFlags(self: *Elf, file_index: File.Index, e_flags: elf.Elf64_Word) !void {
+pub fn validateEFlags(self: *Elf, file_index: File.Index, e_flags: elf.Word) !void {
     if (self.first_eflags == null) {
         self.first_eflags = e_flags;
         return; // there isn't anything to conflict with yet
     }
-    const self_eflags: *elf.Elf64_Word = &self.first_eflags.?;
+    const self_eflags: *elf.Word = &self.first_eflags.?;
 
     switch (self.getTarget().cpu.arch) {
         .riscv64 => {
@@ -1641,11 +1661,14 @@ fn accessLibPath(
 /// 5. Remove references to dead objects/shared objects
 /// 6. Re-run symbol resolution on pruned objects and shared objects sets.
 pub fn resolveSymbols(self: *Elf) !void {
+    // This function mutates `shared_objects`.
+    const shared_objects = &self.shared_objects;
+
     // Resolve symbols in the ZigObject. For now, we assume that it's always live.
     if (self.zigObjectPtr()) |zo| try zo.asFile().resolveSymbols(self);
     // Resolve symbols on the set of all objects and shared objects (even if some are unneeded).
     for (self.objects.items) |index| try self.file(index).?.resolveSymbols(self);
-    for (self.shared_objects.items) |index| try self.file(index).?.resolveSymbols(self);
+    for (shared_objects.values()) |index| try self.file(index).?.resolveSymbols(self);
     if (self.linkerDefinedPtr()) |obj| try obj.asFile().resolveSymbols(self);
 
     // Mark live objects.
@@ -1662,11 +1685,14 @@ pub fn resolveSymbols(self: *Elf) !void {
             _ = self.objects.orderedRemove(i);
         } else i += 1;
     }
+    // TODO This loop has 2 major flaws:
+    // 1. It is O(N^2) which is never allowed in the codebase.
+    // 2. It mutates shared_objects, which is a non-starter for incremental compilation.
     i = 0;
-    while (i < self.shared_objects.items.len) {
-        const index = self.shared_objects.items[i];
+    while (i < shared_objects.values().len) {
+        const index = shared_objects.values()[i];
         if (!self.file(index).?.isAlive()) {
-            _ = self.shared_objects.orderedRemove(i);
+            _ = shared_objects.orderedRemoveAt(i);
         } else i += 1;
     }
 
@@ -1687,7 +1713,7 @@ pub fn resolveSymbols(self: *Elf) !void {
     // Re-resolve the symbols.
     if (self.zigObjectPtr()) |zo| try zo.asFile().resolveSymbols(self);
     for (self.objects.items) |index| try self.file(index).?.resolveSymbols(self);
-    for (self.shared_objects.items) |index| try self.file(index).?.resolveSymbols(self);
+    for (shared_objects.values()) |index| try self.file(index).?.resolveSymbols(self);
     if (self.linkerDefinedPtr()) |obj| try obj.asFile().resolveSymbols(self);
 }
 
@@ -1696,12 +1722,13 @@ pub fn resolveSymbols(self: *Elf) !void {
 /// This routine will prune unneeded objects extracted from archives and
 /// unneeded shared objects.
 fn markLive(self: *Elf) void {
+    const shared_objects = self.shared_objects.values();
     if (self.zigObjectPtr()) |zig_object| zig_object.asFile().markLive(self);
     for (self.objects.items) |index| {
         const file_ptr = self.file(index).?;
         if (file_ptr.isAlive()) file_ptr.markLive(self);
     }
-    for (self.shared_objects.items) |index| {
+    for (shared_objects) |index| {
         const file_ptr = self.file(index).?;
         if (file_ptr.isAlive()) file_ptr.markLive(self);
     }
@@ -1716,6 +1743,7 @@ pub fn markEhFrameAtomsDead(self: *Elf) void {
 }
 
 fn markImportsExports(self: *Elf) void {
+    const shared_objects = self.shared_objects.values();
     if (self.zigObjectPtr()) |zo| {
         zo.markImportsExports(self);
     }
@@ -1723,7 +1751,7 @@ fn markImportsExports(self: *Elf) void {
         self.file(index).?.object.markImportsExports(self);
     }
     if (!self.isEffectivelyDynLib()) {
-        for (self.shared_objects.items) |index| {
+        for (shared_objects) |index| {
             self.file(index).?.shared_object.markImportExports(self);
         }
     }
@@ -1744,6 +1772,7 @@ fn claimUnresolved(self: *Elf) void {
 /// alloc sections.
 fn scanRelocs(self: *Elf) !void {
     const gpa = self.base.comp.gpa;
+    const shared_objects = self.shared_objects.values();
 
     var undefs = std.AutoArrayHashMap(SymbolResolver.Index, std.ArrayList(Ref)).init(gpa);
     defer {
@@ -1787,7 +1816,7 @@ fn scanRelocs(self: *Elf) !void {
     for (self.objects.items) |index| {
         try self.file(index).?.createSymbolIndirection(self);
     }
-    for (self.shared_objects.items) |index| {
+    for (shared_objects) |index| {
         try self.file(index).?.createSymbolIndirection(self);
     }
     if (self.linkerDefinedPtr()) |obj| {
@@ -1905,10 +1934,10 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
     // our digest. If so, we can skip linking. Otherwise, we proceed with invoking LLD.
     const id_symlink_basename = "lld.id";
 
-    var man: Cache.Manifest = undefined;
+    var man: std.Build.Cache.Manifest = undefined;
     defer if (!self.base.disable_lld_caching) man.deinit();
 
-    var digest: [Cache.hex_digest_len]u8 = undefined;
+    var digest: [std.Build.Cache.hex_digest_len]u8 = undefined;
 
     if (!self.base.disable_lld_caching) {
         man = comp.cache_parent.obtain();
@@ -1988,7 +2017,7 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
         digest = man.final();
 
         var prev_digest_buf: [digest.len]u8 = undefined;
-        const prev_digest: []u8 = Cache.readSmallFile(
+        const prev_digest: []u8 = std.Build.Cache.readSmallFile(
             directory.handle,
             id_symlink_basename,
             &prev_digest_buf,
@@ -2442,7 +2471,7 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
     if (!self.base.disable_lld_caching) {
         // Update the file with the digest. If it fails we can continue; it only
         // means that the next invocation will have an unnecessary cache miss.
-        Cache.writeSmallFile(directory.handle, id_symlink_basename, &digest) catch |err| {
+        std.Build.Cache.writeSmallFile(directory.handle, id_symlink_basename, &digest) catch |err| {
             log.warn("failed to save linking hash digest file: {s}", .{@errorName(err)});
         };
         // Again failure here only means an unnecessary cache miss.
@@ -2899,6 +2928,7 @@ fn initSyntheticSections(self: *Elf) !void {
     const comp = self.base.comp;
     const target = self.getTarget();
     const ptr_size = self.ptrWidthBytes();
+    const shared_objects = self.shared_objects.values();
 
     const needs_eh_frame = blk: {
         if (self.zigObjectPtr()) |zo|
@@ -3023,7 +3053,7 @@ fn initSyntheticSections(self: *Elf) !void {
         });
     }
 
-    if (self.isEffectivelyDynLib() or self.shared_objects.items.len > 0 or comp.config.pie) {
+    if (self.isEffectivelyDynLib() or shared_objects.len > 0 or comp.config.pie) {
         if (self.section_indexes.dynstrtab == null) {
             self.section_indexes.dynstrtab = try self.addSection(.{
                 .name = try self.insertShString(".dynstr"),
@@ -3072,7 +3102,7 @@ fn initSyntheticSections(self: *Elf) !void {
 
         const needs_versions = for (self.dynsym.entries.items) |entry| {
             const sym = self.symbol(entry.ref).?;
-            if (sym.flags.import and sym.version_index & elf.VERSYM_VERSION > elf.VER_NDX_GLOBAL) break true;
+            if (sym.flags.import and sym.version_index.VERSION > elf.Versym.GLOBAL.VERSION) break true;
         } else false;
         if (needs_versions) {
             if (self.section_indexes.versym == null) {
@@ -3080,8 +3110,8 @@ fn initSyntheticSections(self: *Elf) !void {
                     .name = try self.insertShString(".gnu.version"),
                     .flags = elf.SHF_ALLOC,
                     .type = elf.SHT_GNU_VERSYM,
-                    .addralign = @alignOf(elf.Elf64_Versym),
-                    .entsize = @sizeOf(elf.Elf64_Versym),
+                    .addralign = @alignOf(elf.Versym),
+                    .entsize = @sizeOf(elf.Versym),
                 });
             }
             if (self.section_indexes.verneed == null) {
@@ -3259,7 +3289,9 @@ fn sortInitFini(self: *Elf) !void {
 fn setDynamicSection(self: *Elf, rpaths: []const []const u8) !void {
     if (self.section_indexes.dynamic == null) return;
 
-    for (self.shared_objects.items) |index| {
+    const shared_objects = self.shared_objects.values();
+
+    for (shared_objects) |index| {
         const shared_object = self.file(index).?.shared_object;
         if (!shared_object.alive) continue;
         try self.dynamic.addNeeded(shared_object, self);
@@ -3283,7 +3315,7 @@ fn setVersionSymtab(self: *Elf) !void {
     const gpa = self.base.comp.gpa;
     if (self.section_indexes.versym == null) return;
     try self.versym.resize(gpa, self.dynsym.count());
-    self.versym.items[0] = elf.VER_NDX_LOCAL;
+    self.versym.items[0] = .LOCAL;
     for (self.dynsym.entries.items, 1..) |entry, i| {
         const sym = self.symbol(entry.ref).?;
         self.versym.items[i] = sym.version_index;
@@ -3653,7 +3685,7 @@ fn updateSectionSizes(self: *Elf) !void {
     }
 
     if (self.section_indexes.versym) |index| {
-        shdrs[index].sh_size = self.versym.items.len * @sizeOf(elf.Elf64_Versym);
+        shdrs[index].sh_size = self.versym.items.len * @sizeOf(elf.Versym);
     }
 
     if (self.section_indexes.verneed) |index| {
@@ -4055,13 +4087,15 @@ pub fn updateSymtabSize(self: *Elf) !void {
     var strsize: u32 = 0;
 
     const gpa = self.base.comp.gpa;
+    const shared_objects = self.shared_objects.values();
+
     var files = std.ArrayList(File.Index).init(gpa);
     defer files.deinit();
-    try files.ensureTotalCapacityPrecise(self.objects.items.len + self.shared_objects.items.len + 2);
+    try files.ensureTotalCapacityPrecise(self.objects.items.len + shared_objects.len + 2);
 
     if (self.zig_object_index) |index| files.appendAssumeCapacity(index);
     for (self.objects.items) |index| files.appendAssumeCapacity(index);
-    for (self.shared_objects.items) |index| files.appendAssumeCapacity(index);
+    for (shared_objects) |index| files.appendAssumeCapacity(index);
     if (self.linker_defined_index) |index| files.appendAssumeCapacity(index);
 
     // Section symbols
@@ -4284,6 +4318,8 @@ pub fn writeShStrtab(self: *Elf) !void {
 
 pub fn writeSymtab(self: *Elf) !void {
     const gpa = self.base.comp.gpa;
+    const shared_objects = self.shared_objects.values();
+
     const slice = self.sections.slice();
     const symtab_shdr = slice.items(.shdr)[self.section_indexes.symtab.?];
     const strtab_shdr = slice.items(.shdr)[self.section_indexes.strtab.?];
@@ -4335,7 +4371,7 @@ pub fn writeSymtab(self: *Elf) !void {
         file_ptr.writeSymtab(self);
     }
 
-    for (self.shared_objects.items) |index| {
+    for (shared_objects) |index| {
         const file_ptr = self.file(index).?;
         file_ptr.writeSymtab(self);
     }
@@ -4368,8 +4404,8 @@ pub fn writeSymtab(self: *Elf) !void {
                     .st_info = sym.st_info,
                     .st_other = sym.st_other,
                     .st_shndx = sym.st_shndx,
-                    .st_value = @as(u32, @intCast(sym.st_value)),
-                    .st_size = @as(u32, @intCast(sym.st_size)),
+                    .st_value = @intCast(sym.st_value),
+                    .st_size = @intCast(sym.st_size),
                 };
                 if (foreign_endian) mem.byteSwapAllFields(elf.Elf32_Sym, out);
             }
@@ -4925,18 +4961,6 @@ fn reportUnsupportedCpuArch(self: *Elf) error{OutOfMemory}!void {
     });
 }
 
-pub fn addParseError(
-    self: *Elf,
-    path: Path,
-    comptime format: []const u8,
-    args: anytype,
-) error{OutOfMemory}!void {
-    const diags = &self.base.comp.link_diags;
-    var err = try diags.addErrorWithNotes(1);
-    try err.addMsg(format, args);
-    try err.addNote("while parsing {}", .{path});
-}
-
 pub fn addFileError(
     self: *Elf,
     file_index: File.Index,
@@ -4956,16 +4980,6 @@ pub fn failFile(
     args: anytype,
 ) error{ OutOfMemory, LinkFailure } {
     try addFileError(self, file_index, format, args);
-    return error.LinkFailure;
-}
-
-pub fn failParse(
-    self: *Elf,
-    path: Path,
-    comptime format: []const u8,
-    args: anytype,
-) error{ OutOfMemory, LinkFailure } {
-    try addParseError(self, path, format, args);
     return error.LinkFailure;
 }
 
@@ -5113,6 +5127,8 @@ fn fmtDumpState(
     _ = unused_fmt_string;
     _ = options;
 
+    const shared_objects = self.shared_objects.values();
+
     if (self.zigObjectPtr()) |zig_object| {
         try writer.print("zig_object({d}) : {s}\n", .{ zig_object.index, zig_object.basename });
         try writer.print("{}{}", .{
@@ -5136,11 +5152,11 @@ fn fmtDumpState(
         });
     }
 
-    for (self.shared_objects.items) |index| {
+    for (shared_objects) |index| {
         const shared_object = self.file(index).?.shared_object;
-        try writer.print("shared_object({d}) : ", .{index});
-        try writer.print("{}", .{shared_object.path});
-        try writer.print(" : needed({})", .{shared_object.needed});
+        try writer.print("shared_object({d}) : {} : needed({})", .{
+            index, shared_object.path, shared_object.needed,
+        });
         if (!shared_object.alive) try writer.writeAll(" : [*]");
         try writer.writeByte('\n');
         try writer.print("{}\n", .{shared_object.fmtSymtab(self)});
@@ -5204,10 +5220,7 @@ pub fn preadAllAlloc(allocator: Allocator, handle: fs.File, offset: u64, size: u
 }
 
 /// Binary search
-pub fn bsearch(comptime T: type, haystack: []align(1) const T, predicate: anytype) usize {
-    if (!@hasDecl(@TypeOf(predicate), "predicate"))
-        @compileError("Predicate is required to define fn predicate(@This(), T) bool");
-
+pub fn bsearch(comptime T: type, haystack: []const T, predicate: anytype) usize {
     var min: usize = 0;
     var max: usize = haystack.len;
     while (min < max) {
@@ -5223,10 +5236,7 @@ pub fn bsearch(comptime T: type, haystack: []align(1) const T, predicate: anytyp
 }
 
 /// Linear search
-pub fn lsearch(comptime T: type, haystack: []align(1) const T, predicate: anytype) usize {
-    if (!@hasDecl(@TypeOf(predicate), "predicate"))
-        @compileError("Predicate is required to define fn predicate(@This(), T) bool");
-
+pub fn lsearch(comptime T: type, haystack: []const T, predicate: anytype) usize {
     var i: usize = 0;
     while (i < haystack.len) : (i += 1) {
         if (predicate.predicate(haystack[i])) break;
@@ -5569,6 +5579,11 @@ fn createThunks(elf_file: *Elf, atom_list: *AtomList) !void {
     }
 }
 
+pub fn stringTableLookup(strtab: []const u8, off: u32) [:0]const u8 {
+    const slice = strtab[off..];
+    return slice[0..mem.indexOfScalar(u8, slice, 0).? :0];
+}
+
 const std = @import("std");
 const build_options = @import("build_options");
 const builtin = @import("builtin");
@@ -5581,8 +5596,9 @@ const state_log = std.log.scoped(.link_state);
 const math = std.math;
 const mem = std.mem;
 const Allocator = std.mem.Allocator;
-const Cache = std.Build.Cache;
 const Hash = std.hash.Wyhash;
+const Path = std.Build.Cache.Path;
+const Stat = std.Build.Cache.File.Stat;
 
 const codegen = @import("../codegen.zig");
 const dev = @import("../dev.zig");
@@ -5601,10 +5617,10 @@ const Merge = @import("Elf/Merge.zig");
 const Air = @import("../Air.zig");
 const Archive = @import("Elf/Archive.zig");
 const AtomList = @import("Elf/AtomList.zig");
-const Path = Cache.Path;
 const Compilation = @import("../Compilation.zig");
 const ComdatGroupSection = synthetic_sections.ComdatGroupSection;
 const CopyRelSection = synthetic_sections.CopyRelSection;
+const Diags = @import("../link.zig").Diags;
 const DynamicSection = synthetic_sections.DynamicSection;
 const DynsymSection = synthetic_sections.DynsymSection;
 const Dwarf = @import("Dwarf.zig");
