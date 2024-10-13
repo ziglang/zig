@@ -29,7 +29,7 @@
 typedef __fp16 float16_t;
 #define __ai static __inline__ __attribute__((__always_inline__, __nodebug__))
 
-#if defined(__aarch64__)
+#if defined(__aarch64__) || defined(__arm64ec__)
 #define vabdh_f16(__p0, __p1) __extension__ ({ \
   float16_t __ret; \
   float16_t __s0 = __p0; \

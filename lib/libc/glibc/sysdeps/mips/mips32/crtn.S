@@ -42,7 +42,8 @@
 	lw $31,28($sp)
 	.set noreorder
 	.set nomacro
-	j $31
+	/* zig patch: j <reg> -> jr <reg> for https://github.com/ziglang/zig/issues/21315 */
+	jr $31
 	addiu $sp,$sp,32
 	.set macro
 	.set reorder
@@ -51,7 +52,8 @@
 	lw $31,28($sp)
 	.set noreorder
 	.set nomacro
-	j $31
+	/* zig patch: j <reg> -> jr <reg> for https://github.com/ziglang/zig/issues/21315 */
+	jr $31
 	addiu $sp,$sp,32
 	.set macro
 	.set reorder

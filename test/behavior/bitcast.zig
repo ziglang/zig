@@ -343,11 +343,6 @@ test "comptime @bitCast packed struct to int and back" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_llvm and native_endian == .big) {
-        // https://github.com/ziglang/zig/issues/13782
-        return error.SkipZigTest;
-    }
-
     const S = packed struct {
         void: void = {},
         uint: u8 = 13,
@@ -433,9 +428,6 @@ test "bitcast nan float does not modify signaling bit" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
-    // TODO: https://github.com/ziglang/zig/issues/14366
-    if (builtin.zig_backend == .stage2_llvm and comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest;
 
     const snan_u16: u16 = 0x7D00;
     const snan_u32: u32 = 0x7FA00000;
@@ -531,6 +523,7 @@ test "@bitCast of packed struct containing pointer" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://discourse.llvm.org/t/rfc-remove-most-constant-expressions/63179
 
     const S = struct {
         const A = packed struct {

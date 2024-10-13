@@ -6,7 +6,7 @@ const Allocator = std.mem.Allocator;
 const Compilation = @import("Compilation.zig");
 const build_options = @import("build_options");
 
-pub const CRTFile = enum {
+pub const CrtFile = enum {
     crt1_reactor_o,
     crt1_command_o,
     libc_a,
@@ -16,7 +16,7 @@ pub const CRTFile = enum {
     libwasi_emulated_signal_a,
 };
 
-pub fn getEmulatedLibCRTFile(lib_name: []const u8) ?CRTFile {
+pub fn getEmulatedLibCrtFile(lib_name: []const u8) ?CrtFile {
     if (mem.eql(u8, lib_name, "wasi-emulated-process-clocks")) {
         return .libwasi_emulated_process_clocks_a;
     }
@@ -32,7 +32,7 @@ pub fn getEmulatedLibCRTFile(lib_name: []const u8) ?CRTFile {
     return null;
 }
 
-pub fn emulatedLibCRFileLibName(crt_file: CRTFile) []const u8 {
+pub fn emulatedLibCRFileLibName(crt_file: CrtFile) []const u8 {
     return switch (crt_file) {
         .libwasi_emulated_process_clocks_a => "libwasi-emulated-process-clocks.a",
         .libwasi_emulated_getpid_a => "libwasi-emulated-getpid.a",
@@ -42,10 +42,10 @@ pub fn emulatedLibCRFileLibName(crt_file: CRTFile) []const u8 {
     };
 }
 
-pub fn execModelCrtFile(wasi_exec_model: std.builtin.WasiExecModel) CRTFile {
+pub fn execModelCrtFile(wasi_exec_model: std.builtin.WasiExecModel) CrtFile {
     return switch (wasi_exec_model) {
-        .reactor => CRTFile.crt1_reactor_o,
-        .command => CRTFile.crt1_command_o,
+        .reactor => CrtFile.crt1_reactor_o,
+        .command => CrtFile.crt1_command_o,
     };
 }
 
@@ -57,7 +57,7 @@ pub fn execModelCrtFileFullName(wasi_exec_model: std.builtin.WasiExecModel) []co
     };
 }
 
-pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: std.Progress.Node) !void {
+pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progress.Node) !void {
     if (!build_options.have_llvm) {
         return error.ZigCompilerNotBuiltWithLLVMExtensions;
     }

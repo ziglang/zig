@@ -1,19 +1,19 @@
 index: File.Index,
 
 sections: std.MultiArrayList(Section) = .{},
-atoms: std.ArrayListUnmanaged(Atom) = .{},
-atoms_indexes: std.ArrayListUnmanaged(Atom.Index) = .{},
-atoms_extra: std.ArrayListUnmanaged(u32) = .{},
-symtab: std.ArrayListUnmanaged(macho.nlist_64) = .{},
-strtab: std.ArrayListUnmanaged(u8) = .{},
-symbols: std.ArrayListUnmanaged(Symbol) = .{},
-symbols_extra: std.ArrayListUnmanaged(u32) = .{},
-globals: std.ArrayListUnmanaged(MachO.SymbolResolver.Index) = .{},
+atoms: std.ArrayListUnmanaged(Atom) = .empty,
+atoms_indexes: std.ArrayListUnmanaged(Atom.Index) = .empty,
+atoms_extra: std.ArrayListUnmanaged(u32) = .empty,
+symtab: std.ArrayListUnmanaged(macho.nlist_64) = .empty,
+strtab: std.ArrayListUnmanaged(u8) = .empty,
+symbols: std.ArrayListUnmanaged(Symbol) = .empty,
+symbols_extra: std.ArrayListUnmanaged(u32) = .empty,
+globals: std.ArrayListUnmanaged(MachO.SymbolResolver.Index) = .empty,
 
-objc_methnames: std.ArrayListUnmanaged(u8) = .{},
+objc_methnames: std.ArrayListUnmanaged(u8) = .empty,
 objc_selrefs: [@sizeOf(u64)]u8 = [_]u8{0} ** @sizeOf(u64),
 
-force_undefined: std.ArrayListUnmanaged(Symbol.Index) = .{},
+force_undefined: std.ArrayListUnmanaged(Symbol.Index) = .empty,
 entry_index: ?Symbol.Index = null,
 dyld_stub_binder_index: ?Symbol.Index = null,
 dyld_private_index: ?Symbol.Index = null,
@@ -21,7 +21,7 @@ objc_msg_send_index: ?Symbol.Index = null,
 mh_execute_header_index: ?Symbol.Index = null,
 mh_dylib_header_index: ?Symbol.Index = null,
 dso_handle_index: ?Symbol.Index = null,
-boundary_symbols: std.ArrayListUnmanaged(Symbol.Index) = .{},
+boundary_symbols: std.ArrayListUnmanaged(Symbol.Index) = .empty,
 
 output_symtab_ctx: MachO.SymtabCtx = .{},
 
@@ -281,7 +281,7 @@ fn addObjcMethnameSection(self: *InternalObject, methname: []const u8, macho_fil
     sym.nlist_idx = nlist_idx;
     try self.globals.append(gpa, 0);
 
-    return atom_index;
+    return sym_index;
 }
 
 fn addObjcSelrefsSection(self: *InternalObject, methname_sym_index: Symbol.Index, macho_file: *MachO) !Symbol.Index {
@@ -503,6 +503,41 @@ pub fn scanRelocs(self: *InternalObject, macho_file: *MachO) void {
             const sym = ref.getSymbol(macho_file).?;
             // TODO is it always needed, or only if we are synthesising fast stubs
             sym.setSectionFlags(.{ .needs_got = true });
+        }
+    }
+}
+
+pub fn checkUndefs(self: InternalObject, macho_file: *MachO) !void {
+    const addUndef = struct {
+        fn addUndef(mf: *MachO, index: MachO.SymbolResolver.Index, tag: anytype) !void {
+            const gpa = mf.base.comp.gpa;
+            mf.undefs_mutex.lock();
+            defer mf.undefs_mutex.unlock();
+            const gop = try mf.undefs.getOrPut(gpa, index);
+            if (!gop.found_existing) {
+                gop.value_ptr.* = tag;
+            }
+        }
+    }.addUndef;
+    for (self.force_undefined.items) |index| {
+        const ref = self.getSymbolRef(index, macho_file);
+        if (ref.getFile(macho_file) == null) {
+            try addUndef(macho_file, self.globals.items[index], .force_undefined);
+        }
+    }
+    if (self.getEntryRef(macho_file)) |ref| {
+        if (ref.getFile(macho_file) == null) {
+            try addUndef(macho_file, self.globals.items[self.entry_index.?], .entry);
+        }
+    }
+    if (self.getDyldStubBinderRef(macho_file)) |ref| {
+        if (ref.getFile(macho_file) == null and macho_file.stubs.symbols.items.len > 0) {
+            try addUndef(macho_file, self.globals.items[self.dyld_stub_binder_index.?], .dyld_stub_binder);
+        }
+    }
+    if (self.getObjcMsgSendRef(macho_file)) |ref| {
+        if (ref.getFile(macho_file) == null and self.needsObjcMsgsendSymbol()) {
+            try addUndef(macho_file, self.globals.items[self.objc_msg_send_index.?], .objc_msgsend);
         }
     }
 }
@@ -791,6 +826,13 @@ pub fn setSymbolExtra(self: *InternalObject, index: u32, extra: Symbol.Extra) vo
     }
 }
 
+fn needsObjcMsgsendSymbol(self: InternalObject) bool {
+    for (self.sections.items(.extra)) |extra| {
+        if (extra.is_objc_methname or extra.is_objc_selref) return true;
+    }
+    return false;
+}
+
 const FormatContext = struct {
     self: *InternalObject,
     macho_file: *MachO,
@@ -849,7 +891,7 @@ fn formatSymtab(
 
 const Section = struct {
     header: macho.section_64,
-    relocs: std.ArrayListUnmanaged(Relocation) = .{},
+    relocs: std.ArrayListUnmanaged(Relocation) = .empty,
     extra: Extra = .{},
 
     const Extra = packed struct {

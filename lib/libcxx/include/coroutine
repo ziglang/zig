@@ -38,12 +38,15 @@ struct suspend_always;
 
  */
 
-#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
-#include <__coroutine/coroutine_handle.h>
-#include <__coroutine/coroutine_traits.h>
-#include <__coroutine/noop_coroutine_handle.h>
-#include <__coroutine/trivial_awaitables.h>
+
+#if _LIBCPP_STD_VER >= 20
+#  include <__coroutine/coroutine_handle.h>
+#  include <__coroutine/coroutine_traits.h>
+#  include <__coroutine/noop_coroutine_handle.h>
+#  include <__coroutine/trivial_awaitables.h>
+#endif // _LIBCPP_STD_VER >= 20
+
 #include <version>
 
 // standard-mandated includes
@@ -57,6 +60,7 @@ struct suspend_always;
 
 #if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
 #  include <iosfwd>
+#  include <limits>
 #  include <type_traits>
 #endif
 

@@ -26,6 +26,7 @@
 #include "clang/Frontend/Utils.h"
 #include "clang/FrontendTool/Utils.h"
 #include "llvm/ADT/Statistic.h"
+#include "llvm/ADT/StringExtras.h"
 #include "llvm/Config/llvm-config.h"
 #include "llvm/LinkAllPasses.h"
 #include "llvm/MC/MCSubtargetInfo.h"
@@ -39,7 +40,6 @@
 #include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/Process.h"
-#include "llvm/Support/RISCVISAInfo.h"
 #include "llvm/Support/Signals.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/TimeProfiler.h"
@@ -48,6 +48,7 @@
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/TargetParser/AArch64TargetParser.h"
 #include "llvm/TargetParser/ARMTargetParser.h"
+#include "llvm/TargetParser/RISCVISAInfo.h"
 #include <cstdio>
 
 #ifdef CLANG_HAVE_RLIMITS
@@ -78,64 +79,6 @@ static void LLVMErrorHandler(void *UserData, const char *Message,
 }
 
 #ifdef CLANG_HAVE_RLIMITS
-#if defined(__linux__) && defined(__PIE__)
-static size_t getCurrentStackAllocation() {
-  // If we can't compute the current stack usage, allow for 512K of command
-  // line arguments and environment.
-  size_t Usage = 512 * 1024;
-  if (FILE *StatFile = fopen("/proc/self/stat", "r")) {
-    // We assume that the stack extends from its current address to the end of
-    // the environment space. In reality, there is another string literal (the
-    // program name) after the environment, but this is close enough (we only
-    // need to be within 100K or so).
-    unsigned long StackPtr, EnvEnd;
-    // Disable silly GCC -Wformat warning that complains about length
-    // modifiers on ignored format specifiers. We want to retain these
-    // for documentation purposes even though they have no effect.
-#if defined(__GNUC__) && !defined(__clang__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wformat"
-#endif
-    if (fscanf(StatFile,
-               "%*d %*s %*c %*d %*d %*d %*d %*d %*u %*lu %*lu %*lu %*lu %*lu "
-               "%*lu %*ld %*ld %*ld %*ld %*ld %*ld %*llu %*lu %*ld %*lu %*lu "
-               "%*lu %*lu %lu %*lu %*lu %*lu %*lu %*lu %*llu %*lu %*lu %*d %*d "
-               "%*u %*u %*llu %*lu %*ld %*lu %*lu %*lu %*lu %*lu %*lu %lu %*d",
-               &StackPtr, &EnvEnd) == 2) {
-#if defined(__GNUC__) && !defined(__clang__)
-#pragma GCC diagnostic pop
-#endif
-      Usage = StackPtr < EnvEnd ? EnvEnd - StackPtr : StackPtr - EnvEnd;
-    }
-    fclose(StatFile);
-  }
-  return Usage;
-}
-
-#include <alloca.h>
-
-LLVM_ATTRIBUTE_NOINLINE
-static void ensureStackAddressSpace() {
-  // Linux kernels prior to 4.1 will sometimes locate the heap of a PIE binary
-  // relatively close to the stack (they are only guaranteed to be 128MiB
-  // apart). This results in crashes if we happen to heap-allocate more than
-  // 128MiB before we reach our stack high-water mark.
-  //
-  // To avoid these crashes, ensure that we have sufficient virtual memory
-  // pages allocated before we start running.
-  size_t Curr = getCurrentStackAllocation();
-  const int kTargetStack = DesiredStackSize - 256 * 1024;
-  if (Curr < kTargetStack) {
-    volatile char *volatile Alloc =
-        static_cast<volatile char *>(alloca(kTargetStack - Curr));
-    Alloc[0] = 0;
-    Alloc[kTargetStack - Curr - 1] = 0;
-  }
-}
-#else
-static void ensureStackAddressSpace() {}
-#endif
-
 /// Attempt to ensure that we have at least 8MiB of usable stack space.
 static void ensureSufficientStack() {
   struct rlimit rlim;
@@ -159,10 +102,6 @@ static void ensureSufficientStack() {
         rlim.rlim_cur != DesiredStackSize)
       return;
   }
-
-  // We should now have a stack of size at least DesiredStackSize. Ensure
-  // that we can actually use that much, if necessary.
-  ensureStackAddressSpace();
 }
 #else
 static void ensureSufficientStack() {}
@@ -208,15 +147,61 @@ static int PrintSupportedExtensions(std::string TargetStr) {
     DescMap.insert({feature.Key, feature.Desc});
 
   if (MachineTriple.isRISCV())
-    llvm::riscvExtensionsHelp(DescMap);
+    llvm::RISCVISAInfo::printSupportedExtensions(DescMap);
   else if (MachineTriple.isAArch64())
-    llvm::AArch64::PrintSupportedExtensions(DescMap);
+    llvm::AArch64::PrintSupportedExtensions();
   else if (MachineTriple.isARM())
     llvm::ARM::PrintSupportedExtensions(DescMap);
   else {
     // The option was already checked in Driver::HandleImmediateArgs,
     // so we do not expect to get here if we are not a supported architecture.
     assert(0 && "Unhandled triple for --print-supported-extensions option.");
+    return 1;
+  }
+
+  return 0;
+}
+
+static int PrintEnabledExtensions(const TargetOptions& TargetOpts) {
+  std::string Error;
+  const llvm::Target *TheTarget =
+      llvm::TargetRegistry::lookupTarget(TargetOpts.Triple, Error);
+  if (!TheTarget) {
+    llvm::errs() << Error;
+    return 1;
+  }
+
+  // Create a target machine using the input features, the triple information
+  // and a dummy instance of llvm::TargetOptions. Note that this is _not_ the
+  // same as the `clang::TargetOptions` instance we have access to here.
+  llvm::TargetOptions BackendOptions;
+  std::string FeaturesStr = llvm::join(TargetOpts.FeaturesAsWritten, ",");
+  std::unique_ptr<llvm::TargetMachine> TheTargetMachine(
+      TheTarget->createTargetMachine(TargetOpts.Triple, TargetOpts.CPU, FeaturesStr, BackendOptions, std::nullopt));
+  const llvm::Triple &MachineTriple = TheTargetMachine->getTargetTriple();
+  const llvm::MCSubtargetInfo *MCInfo = TheTargetMachine->getMCSubtargetInfo();
+
+  // Extract the feature names that are enabled for the given target.
+  // We do that by capturing the key from the set of SubtargetFeatureKV entries
+  // provided by MCSubtargetInfo, which match the '-target-feature' values.
+  const std::vector<llvm::SubtargetFeatureKV> Features =
+    MCInfo->getEnabledProcessorFeatures();
+  std::set<llvm::StringRef> EnabledFeatureNames;
+  for (const llvm::SubtargetFeatureKV &feature : Features)
+    EnabledFeatureNames.insert(feature.Key);
+
+  if (MachineTriple.isAArch64())
+    llvm::AArch64::printEnabledExtensions(EnabledFeatureNames);
+  else if (MachineTriple.isRISCV()) {
+    llvm::StringMap<llvm::StringRef> DescMap;
+    for (const llvm::SubtargetFeatureKV &feature : Features)
+      DescMap.insert({feature.Key, feature.Desc});
+    llvm::RISCVISAInfo::printEnabledExtensions(MachineTriple.isArch64Bit(),
+                                               EnabledFeatureNames, DescMap);
+  } else {
+    // The option was already checked in Driver::HandleImmediateArgs,
+    // so we do not expect to get here if we are not a supported architecture.
+    assert(0 && "Unhandled triple for --print-enabled-extensions option.");
     return 1;
   }
 
@@ -256,7 +241,8 @@ int cc1_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
 
   if (!Clang->getFrontendOpts().TimeTracePath.empty()) {
     llvm::timeTraceProfilerInitialize(
-        Clang->getFrontendOpts().TimeTraceGranularity, Argv0);
+        Clang->getFrontendOpts().TimeTraceGranularity, Argv0,
+        Clang->getFrontendOpts().TimeTraceVerbose);
   }
   // --print-supported-cpus takes priority over the actual compilation.
   if (Clang->getFrontendOpts().PrintSupportedCPUs)
@@ -265,6 +251,10 @@ int cc1_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
   // --print-supported-extensions takes priority over the actual compilation.
   if (Clang->getFrontendOpts().PrintSupportedExtensions)
     return PrintSupportedExtensions(Clang->getTargetOpts().Triple);
+
+  // --print-enabled-extensions takes priority over the actual compilation.
+  if (Clang->getFrontendOpts().PrintEnabledExtensions)
+    return PrintEnabledExtensions(Clang->getTargetOpts());
 
   // Infer the builtin include path if unspecified.
   if (Clang->getHeaderSearchOpts().UseBuiltinIncludes &&

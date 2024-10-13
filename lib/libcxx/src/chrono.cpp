@@ -77,8 +77,8 @@ typedef void(WINAPI* GetSystemTimeAsFileTimePtr)(LPFILETIME);
 class GetSystemTimeInit {
 public:
   GetSystemTimeInit() {
-    fp =
-        (GetSystemTimeAsFileTimePtr)GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "GetSystemTimePreciseAsFileTime");
+    fp = (GetSystemTimeAsFileTimePtr)(void*)GetProcAddress(
+        GetModuleHandleW(L"kernel32.dll"), "GetSystemTimePreciseAsFileTime");
     if (fp == nullptr)
       fp = GetSystemTimeAsFileTime;
   }

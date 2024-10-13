@@ -532,8 +532,7 @@ template <class Value, class Hash, class Pred, class Alloc>
 // clang-format on
 
 #include <__algorithm/is_permutation.h>
-#include <__assert> // all public C++ headers provide the assertion handler
-#include <__availability>
+#include <__assert>
 #include <__config>
 #include <__functional/is_transparent.h>
 #include <__functional/operations.h>
@@ -589,12 +588,9 @@ public:
   typedef __type_identity_t<_Alloc> allocator_type;
   typedef value_type& reference;
   typedef const value_type& const_reference;
-  static_assert((is_same<value_type, typename allocator_type::value_type>::value),
+  static_assert(__check_valid_allocator<allocator_type>::value, "");
+  static_assert(is_same<value_type, typename allocator_type::value_type>::value,
                 "Allocator::value_type must be same type as value_type");
-
-  static_assert(is_same<allocator_type, __rebind_alloc<allocator_traits<allocator_type>, value_type> >::value,
-                "[allocator.requirements] states that rebinding an allocator to the same type should result in the "
-                "original allocator");
 
 private:
   typedef __hash_table<value_type, hasher, key_equal, allocator_type> __table;
@@ -735,7 +731,7 @@ public:
     return allocator_type(__table_.__node_alloc());
   }
 
-  _LIBCPP_NODISCARD_AFTER_CXX17 _LIBCPP_HIDE_FROM_ABI bool empty() const _NOEXCEPT { return __table_.size() == 0; }
+  _LIBCPP_NODISCARD _LIBCPP_HIDE_FROM_ABI bool empty() const _NOEXCEPT { return __table_.size() == 0; }
   _LIBCPP_HIDE_FROM_ABI size_type size() const _NOEXCEPT { return __table_.size(); }
   _LIBCPP_HIDE_FROM_ABI size_type max_size() const _NOEXCEPT { return __table_.max_size(); }
 
@@ -829,7 +825,7 @@ public:
   }
 #endif
 
-  _LIBCPP_HIDE_FROM_ABI void swap(unordered_set& __u) _NOEXCEPT_(__is_nothrow_swappable<__table>::value) {
+  _LIBCPP_HIDE_FROM_ABI void swap(unordered_set& __u) _NOEXCEPT_(__is_nothrow_swappable_v<__table>) {
     __table_.swap(__u.__table_);
   }
 
@@ -839,13 +835,11 @@ public:
   _LIBCPP_HIDE_FROM_ABI iterator find(const key_type& __k) { return __table_.find(__k); }
   _LIBCPP_HIDE_FROM_ABI const_iterator find(const key_type& __k) const { return __table_.find(__k); }
 #if _LIBCPP_STD_VER >= 20
-  template <class _K2,
-            enable_if_t<__is_transparent<hasher, _K2>::value && __is_transparent<key_equal, _K2>::value>* = nullptr>
+  template <class _K2, enable_if_t<__is_transparent_v<hasher, _K2> && __is_transparent_v<key_equal, _K2>>* = nullptr>
   _LIBCPP_HIDE_FROM_ABI iterator find(const _K2& __k) {
     return __table_.find(__k);
   }
-  template <class _K2,
-            enable_if_t<__is_transparent<hasher, _K2>::value && __is_transparent<key_equal, _K2>::value>* = nullptr>
+  template <class _K2, enable_if_t<__is_transparent_v<hasher, _K2> && __is_transparent_v<key_equal, _K2>>* = nullptr>
   _LIBCPP_HIDE_FROM_ABI const_iterator find(const _K2& __k) const {
     return __table_.find(__k);
   }
@@ -853,8 +847,7 @@ public:
 
   _LIBCPP_HIDE_FROM_ABI size_type count(const key_type& __k) const { return __table_.__count_unique(__k); }
 #if _LIBCPP_STD_VER >= 20
-  template <class _K2,
-            enable_if_t<__is_transparent<hasher, _K2>::value && __is_transparent<key_equal, _K2>::value>* = nullptr>
+  template <class _K2, enable_if_t<__is_transparent_v<hasher, _K2> && __is_transparent_v<key_equal, _K2>>* = nullptr>
   _LIBCPP_HIDE_FROM_ABI size_type count(const _K2& __k) const {
     return __table_.__count_unique(__k);
   }
@@ -863,8 +856,7 @@ public:
 #if _LIBCPP_STD_VER >= 20
   _LIBCPP_HIDE_FROM_ABI bool contains(const key_type& __k) const { return find(__k) != end(); }
 
-  template <class _K2,
-            enable_if_t<__is_transparent<hasher, _K2>::value && __is_transparent<key_equal, _K2>::value>* = nullptr>
+  template <class _K2, enable_if_t<__is_transparent_v<hasher, _K2> && __is_transparent_v<key_equal, _K2>>* = nullptr>
   _LIBCPP_HIDE_FROM_ABI bool contains(const _K2& __k) const {
     return find(__k) != end();
   }
@@ -877,13 +869,11 @@ public:
     return __table_.__equal_range_unique(__k);
   }
 #if _LIBCPP_STD_VER >= 20
-  template <class _K2,
-            enable_if_t<__is_transparent<hasher, _K2>::value && __is_transparent<key_equal, _K2>::value>* = nullptr>
+  template <class _K2, enable_if_t<__is_transparent_v<hasher, _K2> && __is_transparent_v<key_equal, _K2>>* = nullptr>
   _LIBCPP_HIDE_FROM_ABI pair<iterator, iterator> equal_range(const _K2& __k) {
     return __table_.__equal_range_unique(__k);
   }
-  template <class _K2,
-            enable_if_t<__is_transparent<hasher, _K2>::value && __is_transparent<key_equal, _K2>::value>* = nullptr>
+  template <class _K2, enable_if_t<__is_transparent_v<hasher, _K2> && __is_transparent_v<key_equal, _K2>>* = nullptr>
   _LIBCPP_HIDE_FROM_ABI pair<const_iterator, const_iterator> equal_range(const _K2& __k) const {
     return __table_.__equal_range_unique(__k);
   }
@@ -935,13 +925,13 @@ template <ranges::input_range _Range,
           class            = enable_if_t<!is_integral<_Hash>::value>,
           class            = enable_if_t<!__is_allocator<_Pred>::value>,
           class            = enable_if_t<__is_allocator<_Allocator>::value>>
-unordered_set(from_range_t,
-              _Range&&,
-              typename allocator_traits<_Allocator>::size_type = 0,
-              _Hash                                            = _Hash(),
-              _Pred                                            = _Pred(),
-              _Allocator                                       = _Allocator())
-    -> unordered_set<ranges::range_value_t<_Range>, _Hash, _Pred, _Allocator>; // C++23
+unordered_set(
+    from_range_t,
+    _Range&&,
+    typename allocator_traits<_Allocator>::size_type = 0,
+    _Hash                                            = _Hash(),
+    _Pred                                            = _Pred(),
+    _Allocator = _Allocator()) -> unordered_set<ranges::range_value_t<_Range>, _Hash, _Pred, _Allocator>; // C++23
 #  endif
 
 template <class _Tp,
@@ -1193,7 +1183,7 @@ public:
   typedef __type_identity_t<_Alloc> allocator_type;
   typedef value_type& reference;
   typedef const value_type& const_reference;
-  static_assert((is_same<value_type, typename allocator_type::value_type>::value),
+  static_assert(is_same<value_type, typename allocator_type::value_type>::value,
                 "Allocator::value_type must be same type as value_type");
 
 private:
@@ -1335,7 +1325,7 @@ public:
     return allocator_type(__table_.__node_alloc());
   }
 
-  _LIBCPP_NODISCARD_AFTER_CXX17 _LIBCPP_HIDE_FROM_ABI bool empty() const _NOEXCEPT { return __table_.size() == 0; }
+  _LIBCPP_NODISCARD _LIBCPP_HIDE_FROM_ABI bool empty() const _NOEXCEPT { return __table_.size() == 0; }
   _LIBCPP_HIDE_FROM_ABI size_type size() const _NOEXCEPT { return __table_.size(); }
   _LIBCPP_HIDE_FROM_ABI size_type max_size() const _NOEXCEPT { return __table_.max_size(); }
 
@@ -1432,7 +1422,7 @@ public:
   }
   _LIBCPP_HIDE_FROM_ABI void clear() _NOEXCEPT { __table_.clear(); }
 
-  _LIBCPP_HIDE_FROM_ABI void swap(unordered_multiset& __u) _NOEXCEPT_(__is_nothrow_swappable<__table>::value) {
+  _LIBCPP_HIDE_FROM_ABI void swap(unordered_multiset& __u) _NOEXCEPT_(__is_nothrow_swappable_v<__table>) {
     __table_.swap(__u.__table_);
   }
 
@@ -1442,13 +1432,11 @@ public:
   _LIBCPP_HIDE_FROM_ABI iterator find(const key_type& __k) { return __table_.find(__k); }
   _LIBCPP_HIDE_FROM_ABI const_iterator find(const key_type& __k) const { return __table_.find(__k); }
 #if _LIBCPP_STD_VER >= 20
-  template <class _K2,
-            enable_if_t<__is_transparent<hasher, _K2>::value && __is_transparent<key_equal, _K2>::value>* = nullptr>
+  template <class _K2, enable_if_t<__is_transparent_v<hasher, _K2> && __is_transparent_v<key_equal, _K2>>* = nullptr>
   _LIBCPP_HIDE_FROM_ABI iterator find(const _K2& __k) {
     return __table_.find(__k);
   }
-  template <class _K2,
-            enable_if_t<__is_transparent<hasher, _K2>::value && __is_transparent<key_equal, _K2>::value>* = nullptr>
+  template <class _K2, enable_if_t<__is_transparent_v<hasher, _K2> && __is_transparent_v<key_equal, _K2>>* = nullptr>
   _LIBCPP_HIDE_FROM_ABI const_iterator find(const _K2& __k) const {
     return __table_.find(__k);
   }
@@ -1456,8 +1444,7 @@ public:
 
   _LIBCPP_HIDE_FROM_ABI size_type count(const key_type& __k) const { return __table_.__count_multi(__k); }
 #if _LIBCPP_STD_VER >= 20
-  template <class _K2,
-            enable_if_t<__is_transparent<hasher, _K2>::value && __is_transparent<key_equal, _K2>::value>* = nullptr>
+  template <class _K2, enable_if_t<__is_transparent_v<hasher, _K2> && __is_transparent_v<key_equal, _K2>>* = nullptr>
   _LIBCPP_HIDE_FROM_ABI size_type count(const _K2& __k) const {
     return __table_.__count_multi(__k);
   }
@@ -1466,8 +1453,7 @@ public:
 #if _LIBCPP_STD_VER >= 20
   _LIBCPP_HIDE_FROM_ABI bool contains(const key_type& __k) const { return find(__k) != end(); }
 
-  template <class _K2,
-            enable_if_t<__is_transparent<hasher, _K2>::value && __is_transparent<key_equal, _K2>::value>* = nullptr>
+  template <class _K2, enable_if_t<__is_transparent_v<hasher, _K2> && __is_transparent_v<key_equal, _K2>>* = nullptr>
   _LIBCPP_HIDE_FROM_ABI bool contains(const _K2& __k) const {
     return find(__k) != end();
   }
@@ -1480,13 +1466,11 @@ public:
     return __table_.__equal_range_multi(__k);
   }
 #if _LIBCPP_STD_VER >= 20
-  template <class _K2,
-            enable_if_t<__is_transparent<hasher, _K2>::value && __is_transparent<key_equal, _K2>::value>* = nullptr>
+  template <class _K2, enable_if_t<__is_transparent_v<hasher, _K2> && __is_transparent_v<key_equal, _K2>>* = nullptr>
   _LIBCPP_HIDE_FROM_ABI pair<iterator, iterator> equal_range(const _K2& __k) {
     return __table_.__equal_range_multi(__k);
   }
-  template <class _K2,
-            enable_if_t<__is_transparent<hasher, _K2>::value && __is_transparent<key_equal, _K2>::value>* = nullptr>
+  template <class _K2, enable_if_t<__is_transparent_v<hasher, _K2> && __is_transparent_v<key_equal, _K2>>* = nullptr>
   _LIBCPP_HIDE_FROM_ABI pair<const_iterator, const_iterator> equal_range(const _K2& __k) const {
     return __table_.__equal_range_multi(__k);
   }

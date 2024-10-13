@@ -22,8 +22,8 @@ tree: *const Ast,
 /// sub-expressions. See `AstRlAnnotate` for details.
 nodes_need_rl: *const AstRlAnnotate.RlNeededSet,
 instructions: std.MultiArrayList(Zir.Inst) = .{},
-extra: ArrayListUnmanaged(u32) = .{},
-string_bytes: ArrayListUnmanaged(u8) = .{},
+extra: ArrayListUnmanaged(u32) = .empty,
+string_bytes: ArrayListUnmanaged(u8) = .empty,
 /// Tracks the current byte offset within the source file.
 /// Used to populate line deltas in the ZIR. AstGen maintains
 /// this "cursor" throughout the entire AST lowering process in order
@@ -39,8 +39,8 @@ source_column: u32 = 0,
 /// Used for temporary allocations; freed after AstGen is complete.
 /// The resulting ZIR code has no references to anything in this arena.
 arena: Allocator,
-string_table: std.HashMapUnmanaged(u32, void, StringIndexContext, std.hash_map.default_max_load_percentage) = .{},
-compile_errors: ArrayListUnmanaged(Zir.Inst.CompileErrors.Item) = .{},
+string_table: std.HashMapUnmanaged(u32, void, StringIndexContext, std.hash_map.default_max_load_percentage) = .empty,
+compile_errors: ArrayListUnmanaged(Zir.Inst.CompileErrors.Item) = .empty,
 /// The topmost block of the current function.
 fn_block: ?*GenZir = null,
 fn_var_args: bool = false,
@@ -52,9 +52,9 @@ within_fn: bool = false,
 fn_ret_ty: Zir.Inst.Ref = .none,
 /// Maps string table indexes to the first `@import` ZIR instruction
 /// that uses this string as the operand.
-imports: std.AutoArrayHashMapUnmanaged(Zir.NullTerminatedString, Ast.TokenIndex) = .{},
+imports: std.AutoArrayHashMapUnmanaged(Zir.NullTerminatedString, Ast.TokenIndex) = .empty,
 /// Used for temporary storage when building payloads.
-scratch: std.ArrayListUnmanaged(u32) = .{},
+scratch: std.ArrayListUnmanaged(u32) = .empty,
 /// Whenever a `ref` instruction is needed, it is created and saved in this
 /// table instead of being immediately appended to the current block body.
 /// Then, when the instruction is being added to the parent block (typically from
@@ -65,7 +65,7 @@ scratch: std.ArrayListUnmanaged(u32) = .{},
 /// 2. `ref` instructions will dominate their uses. This is a required property
 ///    of ZIR.
 /// The key is the ref operand; the value is the ref instruction.
-ref_table: std.AutoHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Index) = .{},
+ref_table: std.AutoHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Index) = .empty,
 /// Any information which should trigger invalidation of incremental compilation
 /// data should be used to update this hasher. The result is the final source
 /// hash of the enclosing declaration/etc.
@@ -159,7 +159,7 @@ pub fn generate(gpa: Allocator, tree: Ast) Allocator.Error!Zir {
 
     var top_scope: Scope.Top = .{};
 
-    var gz_instructions: std.ArrayListUnmanaged(Zir.Inst.Index) = .{};
+    var gz_instructions: std.ArrayListUnmanaged(Zir.Inst.Index) = .empty;
     var gen_scope: GenZir = .{
         .is_comptime = true,
         .parent = &top_scope.base,
@@ -2716,7 +2716,7 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .array_type_sentinel,
             .elem_type,
             .indexable_ptr_elem_type,
-            .vector_elem_type,
+            .vec_arr_elem_type,
             .vector_type,
             .indexable_ptr_len,
             .anyframe_type,
@@ -2901,7 +2901,6 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .extended => switch (gz.astgen.instructions.items(.data)[@intFromEnum(inst)].extended.opcode) {
                 .breakpoint,
                 .disable_instrumentation,
-                .fence,
                 .set_float_mode,
                 .set_align_stack,
                 .branch_hint,
@@ -3156,6 +3155,9 @@ fn deferStmt(
     const have_err_code = scope_tag == .defer_error and payload_token != 0;
     const sub_scope = if (!have_err_code) &defer_gen.base else blk: {
         const ident_name = try gz.astgen.identAsString(payload_token);
+        if (std.mem.eql(u8, tree.tokenSlice(payload_token), "_")) {
+            return gz.astgen.failTok(payload_token, "discard of error capture; omit it instead", .{});
+        }
         const remapped_err_code: Zir.Inst.Index = @enumFromInt(gz.astgen.instructions.len);
         opt_remapped_err_code = remapped_err_code.toOptional();
         try gz.astgen.instructions.append(gz.astgen.gpa, .{
@@ -3785,8 +3787,26 @@ fn assignOp(
         else => undefined,
     };
     const lhs = try gz.addUnNode(.load, lhs_ptr, infix_node);
-    const lhs_type = try gz.addUnNode(.typeof, lhs, infix_node);
-    const rhs = try expr(gz, scope, .{ .rl = .{ .coerced_ty = lhs_type } }, node_datas[infix_node].rhs);
+
+    const rhs_res_ty = switch (op_inst_tag) {
+        .add,
+        .sub,
+        => try gz.add(.{
+            .tag = .extended,
+            .data = .{ .extended = .{
+                .opcode = .inplace_arith_result_ty,
+                .small = @intFromEnum(@as(Zir.Inst.InplaceOp, switch (op_inst_tag) {
+                    .add => .add_eq,
+                    .sub => .sub_eq,
+                    else => unreachable,
+                })),
+                .operand = @intFromEnum(lhs),
+            } },
+        }),
+        else => try gz.addUnNode(.typeof, lhs, infix_node), // same as LHS type
+    };
+    // Not `coerced_ty` since `add`/etc won't coerce to this type.
+    const rhs = try expr(gz, scope, .{ .rl = .{ .ty = rhs_res_ty } }, node_datas[infix_node].rhs);
 
     switch (op_inst_tag) {
         .add, .sub, .mul, .div, .mod_rem => {
@@ -5854,7 +5874,7 @@ fn errorSetDecl(gz: *GenZir, ri: ResultInfo, node: Ast.Node.Index) InnerError!Zi
     const payload_index = try reserveExtra(astgen, @typeInfo(Zir.Inst.ErrorSetDecl).@"struct".fields.len);
     var fields_len: usize = 0;
     {
-        var idents: std.AutoHashMapUnmanaged(Zir.NullTerminatedString, Ast.TokenIndex) = .{};
+        var idents: std.AutoHashMapUnmanaged(Zir.NullTerminatedString, Ast.TokenIndex) = .empty;
         defer idents.deinit(gpa);
 
         const error_token = main_tokens[node];
@@ -6333,8 +6353,10 @@ fn ifExpr(
                 const token_name_index = payload_token + @intFromBool(payload_is_ref);
                 const ident_name = try astgen.identAsString(token_name_index);
                 const token_name_str = tree.tokenSlice(token_name_index);
-                if (mem.eql(u8, "_", token_name_str))
+                if (mem.eql(u8, "_", token_name_str)) {
+                    if (payload_is_ref) return astgen.failTok(payload_token, "pointer modifier invalid on discard", .{});
                     break :s &then_scope.base;
+                }
                 try astgen.detectLocalShadowing(&then_scope.base, ident_name, token_name_index, token_name_str, .capture);
                 payload_val_scope = .{
                     .parent = &then_scope.base,
@@ -6357,8 +6379,10 @@ fn ifExpr(
             else
                 .optional_payload_unsafe;
             const ident_bytes = tree.tokenSlice(ident_token);
-            if (mem.eql(u8, "_", ident_bytes))
+            if (mem.eql(u8, "_", ident_bytes)) {
+                if (payload_is_ref) return astgen.failTok(payload_token, "pointer modifier invalid on discard", .{});
                 break :s &then_scope.base;
+            }
             const payload_inst = try then_scope.addUnNode(tag, cond.inst, then_node);
             const ident_name = try astgen.identAsString(ident_token);
             try astgen.detectLocalShadowing(&then_scope.base, ident_name, ident_token, ident_bytes, .capture);
@@ -6581,8 +6605,10 @@ fn whileExpr(
                 opt_payload_inst = payload_inst.toOptional();
                 const ident_token = payload_token + @intFromBool(payload_is_ref);
                 const ident_bytes = tree.tokenSlice(ident_token);
-                if (mem.eql(u8, "_", ident_bytes))
+                if (mem.eql(u8, "_", ident_bytes)) {
+                    if (payload_is_ref) return astgen.failTok(payload_token, "pointer modifier invalid on discard", .{});
                     break :s &then_scope.base;
+                }
                 const ident_name = try astgen.identAsString(ident_token);
                 try astgen.detectLocalShadowing(&then_scope.base, ident_name, ident_token, ident_bytes, .capture);
                 payload_val_scope = .{
@@ -6611,8 +6637,10 @@ fn whileExpr(
             opt_payload_inst = payload_inst.toOptional();
             const ident_name = try astgen.identAsString(ident_token);
             const ident_bytes = tree.tokenSlice(ident_token);
-            if (mem.eql(u8, "_", ident_bytes))
+            if (mem.eql(u8, "_", ident_bytes)) {
+                if (payload_is_ref) return astgen.failTok(payload_token, "pointer modifier invalid on discard", .{});
                 break :s &then_scope.base;
+            }
             try astgen.detectLocalShadowing(&then_scope.base, ident_name, ident_token, ident_bytes, .capture);
             payload_val_scope = .{
                 .parent = &then_scope.base,
@@ -7803,9 +7831,7 @@ fn switchExpr(
     const switch_block = try parent_gz.makeBlockInst(switch_tag, node);
 
     if (switch_full.label_token) |label_token| {
-        block_scope.break_block = switch_block.toOptional();
         block_scope.continue_block = switch_block.toOptional();
-        // `break_result_info` already set above
         block_scope.continue_result_info = .{
             .rl = if (any_payload_is_ref)
                 .{ .ref_coerced_ty = raw_operand_ty_ref }
@@ -7817,6 +7843,8 @@ fn switchExpr(
             .token = label_token,
             .block_inst = switch_block,
         };
+        // `break` can target this via `label.block_inst`
+        // `break_result_info` already set by `setBreakResultInfo`
     }
 
     // We re-use this same scope for all cases, including the special prong, if any.
@@ -9113,7 +9141,7 @@ fn minMax(
 ) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
     if (args.len < 2) {
-        return astgen.failNode(node, "expected at least 2 arguments, found 0", .{});
+        return astgen.failNode(node, "expected at least 2 arguments, found {}", .{args.len});
     }
     if (args.len == 2) {
         const tag: Zir.Inst.Tag = switch (op) {
@@ -9277,15 +9305,6 @@ fn builtinCall(
                 .rhs = options,
             });
             return rvalue(gz, ri, result, node);
-        },
-        .fence => {
-            const atomic_order_ty = try gz.addBuiltinValue(node, .atomic_order);
-            const order = try expr(gz, scope, .{ .rl = .{ .coerced_ty = atomic_order_ty } }, params[0]);
-            _ = try gz.addExtendedPayload(.fence, Zir.Inst.UnNode{
-                .node = gz.nodeIndexToRelative(node),
-                .operand = order,
-            });
-            return rvalue(gz, ri, .void_value, node);
         },
         .set_float_mode => {
             const float_mode_ty = try gz.addBuiltinValue(node, .float_mode);
@@ -9510,7 +9529,7 @@ fn builtinCall(
 
         .splat => {
             const result_type = try ri.rl.resultTypeForCast(gz, node, builtin_name);
-            const elem_type = try gz.addUnNode(.vector_elem_type, result_type, node);
+            const elem_type = try gz.addUnNode(.vec_arr_elem_type, result_type, node);
             const scalar = try expr(gz, scope, .{ .rl = .{ .ty = elem_type } }, params[0]);
             const result = try gz.addPlNode(.splat, node, Zir.Inst.Bin{
                 .lhs = result_type,
@@ -11251,7 +11270,7 @@ fn identifierTokenString(astgen: *AstGen, token: Ast.TokenIndex) InnerError![]co
     if (!mem.startsWith(u8, ident_name, "@")) {
         return ident_name;
     }
-    var buf: ArrayListUnmanaged(u8) = .{};
+    var buf: ArrayListUnmanaged(u8) = .empty;
     defer buf.deinit(astgen.gpa);
     try astgen.parseStrLit(token, &buf, ident_name, 1);
     if (mem.indexOfScalar(u8, buf.items, 0) != null) {
@@ -11713,16 +11732,14 @@ fn strLitNodeAsString(astgen: *AstGen, node: Ast.Node.Index) !IndexSlice {
     var tok_i = start;
     {
         const slice = tree.tokenSlice(tok_i);
-        const carriage_return_ending: usize = if (slice[slice.len - 2] == '\r') 2 else 1;
-        const line_bytes = slice[2 .. slice.len - carriage_return_ending];
+        const line_bytes = slice[2..];
         try string_bytes.appendSlice(gpa, line_bytes);
         tok_i += 1;
     }
     // Following lines: each line prepends a newline.
     while (tok_i <= end) : (tok_i += 1) {
         const slice = tree.tokenSlice(tok_i);
-        const carriage_return_ending: usize = if (slice[slice.len - 2] == '\r') 2 else 1;
-        const line_bytes = slice[2 .. slice.len - carriage_return_ending];
+        const line_bytes = slice[2..];
         try string_bytes.ensureUnusedCapacity(gpa, line_bytes.len + 1);
         string_bytes.appendAssumeCapacity('\n');
         string_bytes.appendSliceAssumeCapacity(line_bytes);
@@ -11875,7 +11892,7 @@ const Scope = struct {
         parent: *Scope,
         /// Maps string table index to the source location of declaration,
         /// for the purposes of reporting name shadowing compile errors.
-        decls: std.AutoHashMapUnmanaged(Zir.NullTerminatedString, Ast.Node.Index) = .{},
+        decls: std.AutoHashMapUnmanaged(Zir.NullTerminatedString, Ast.Node.Index) = .empty,
         node: Ast.Node.Index,
         inst: Zir.Inst.Index,
         maybe_generic: bool,
@@ -11885,7 +11902,7 @@ const Scope = struct {
         declaring_gz: ?*GenZir,
 
         /// Set of captures used by this namespace.
-        captures: std.AutoArrayHashMapUnmanaged(Zir.Inst.Capture, void) = .{},
+        captures: std.AutoArrayHashMapUnmanaged(Zir.Inst.Capture, void) = .empty,
 
         fn deinit(self: *Namespace, gpa: Allocator) void {
             self.decls.deinit(gpa);
@@ -13601,9 +13618,9 @@ fn scanContainer(
     var sfba_state = std.heap.stackFallback(512, astgen.gpa);
     const sfba = sfba_state.get();
 
-    var names: std.AutoArrayHashMapUnmanaged(Zir.NullTerminatedString, NameEntry) = .{};
-    var test_names: std.AutoArrayHashMapUnmanaged(Zir.NullTerminatedString, NameEntry) = .{};
-    var decltest_names: std.AutoArrayHashMapUnmanaged(Zir.NullTerminatedString, NameEntry) = .{};
+    var names: std.AutoArrayHashMapUnmanaged(Zir.NullTerminatedString, NameEntry) = .empty;
+    var test_names: std.AutoArrayHashMapUnmanaged(Zir.NullTerminatedString, NameEntry) = .empty;
+    var decltest_names: std.AutoArrayHashMapUnmanaged(Zir.NullTerminatedString, NameEntry) = .empty;
     defer {
         names.deinit(sfba);
         test_names.deinit(sfba);
@@ -13790,7 +13807,7 @@ fn scanContainer(
 
     for (names.keys(), names.values()) |name, first| {
         if (first.next == null) continue;
-        var notes: std.ArrayListUnmanaged(u32) = .{};
+        var notes: std.ArrayListUnmanaged(u32) = .empty;
         var prev: NameEntry = first;
         while (prev.next) |cur| : (prev = cur.*) {
             try notes.append(astgen.arena, try astgen.errNoteTok(cur.tok, "duplicate name here", .{}));
@@ -13802,7 +13819,7 @@ fn scanContainer(
 
     for (test_names.keys(), test_names.values()) |name, first| {
         if (first.next == null) continue;
-        var notes: std.ArrayListUnmanaged(u32) = .{};
+        var notes: std.ArrayListUnmanaged(u32) = .empty;
         var prev: NameEntry = first;
         while (prev.next) |cur| : (prev = cur.*) {
             try notes.append(astgen.arena, try astgen.errNoteTok(cur.tok, "duplicate test here", .{}));
@@ -13814,7 +13831,7 @@ fn scanContainer(
 
     for (decltest_names.keys(), decltest_names.values()) |name, first| {
         if (first.next == null) continue;
-        var notes: std.ArrayListUnmanaged(u32) = .{};
+        var notes: std.ArrayListUnmanaged(u32) = .empty;
         var prev: NameEntry = first;
         while (prev.next) |cur| : (prev = cur.*) {
             try notes.append(astgen.arena, try astgen.errNoteTok(cur.tok, "duplicate decltest here", .{}));
@@ -13943,10 +13960,10 @@ fn lowerAstErrors(astgen: *AstGen) !void {
     const gpa = astgen.gpa;
     const parse_err = tree.errors[0];
 
-    var msg: std.ArrayListUnmanaged(u8) = .{};
+    var msg: std.ArrayListUnmanaged(u8) = .empty;
     defer msg.deinit(gpa);
 
-    var notes: std.ArrayListUnmanaged(u32) = .{};
+    var notes: std.ArrayListUnmanaged(u32) = .empty;
     defer notes.deinit(gpa);
 
     for (tree.errors[1..]) |note| {

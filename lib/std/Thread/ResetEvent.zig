@@ -112,9 +112,9 @@ const FutexImpl = struct {
         // Try to set the state from `unset` to `waiting` to indicate
         // to the set() thread that others are blocked on the ResetEvent.
         // We avoid using any strict barriers until the end when we know the ResetEvent is set.
-        var state = self.state.load(.monotonic);
+        var state = self.state.load(.acquire);
         if (state == unset) {
-            state = self.state.cmpxchgStrong(state, waiting, .monotonic, .monotonic) orelse waiting;
+            state = self.state.cmpxchgStrong(state, waiting, .acquire, .acquire) orelse waiting;
         }
 
         // Wait until the ResetEvent is set since the state is waiting.
@@ -124,7 +124,7 @@ const FutexImpl = struct {
                 const wait_result = futex_deadline.wait(&self.state, waiting);
 
                 // Check if the ResetEvent was set before possibly reporting error.Timeout below.
-                state = self.state.load(.monotonic);
+                state = self.state.load(.acquire);
                 if (state != waiting) {
                     break;
                 }
@@ -133,9 +133,7 @@ const FutexImpl = struct {
             }
         }
 
-        // Acquire barrier ensures memory accesses before set() happen before we return.
         assert(state == is_set);
-        self.state.fence(.acquire);
     }
 
     fn set(self: *Impl) void {

@@ -45,23 +45,23 @@ path& path::replace_extension(path const& replacement) {
 
 string_view_t path::__root_name() const {
   auto PP = PathParser::CreateBegin(__pn_);
-  if (PP.State == PathParser::PS_InRootName)
+  if (PP.State_ == PathParser::PS_InRootName)
     return *PP;
   return {};
 }
 
 string_view_t path::__root_directory() const {
   auto PP = PathParser::CreateBegin(__pn_);
-  if (PP.State == PathParser::PS_InRootName)
+  if (PP.State_ == PathParser::PS_InRootName)
     ++PP;
-  if (PP.State == PathParser::PS_InRootDir)
+  if (PP.State_ == PathParser::PS_InRootDir)
     return *PP;
   return {};
 }
 
 string_view_t path::__root_path_raw() const {
   auto PP = PathParser::CreateBegin(__pn_);
-  if (PP.State == PathParser::PS_InRootName) {
+  if (PP.State_ == PathParser::PS_InRootName) {
     auto NextCh = PP.peek();
     if (NextCh && isSeparator(*NextCh)) {
       ++PP;
@@ -69,24 +69,24 @@ string_view_t path::__root_path_raw() const {
     }
     return PP.RawEntry;
   }
-  if (PP.State == PathParser::PS_InRootDir)
+  if (PP.State_ == PathParser::PS_InRootDir)
     return *PP;
   return {};
 }
 
 static bool ConsumeRootName(PathParser* PP) {
   static_assert(PathParser::PS_BeforeBegin == 1 && PathParser::PS_InRootName == 2, "Values for enums are incorrect");
-  while (PP->State <= PathParser::PS_InRootName)
+  while (PP->State_ <= PathParser::PS_InRootName)
     ++(*PP);
-  return PP->State == PathParser::PS_AtEnd;
+  return PP->State_ == PathParser::PS_AtEnd;
 }
 
 static bool ConsumeRootDir(PathParser* PP) {
   static_assert(PathParser::PS_BeforeBegin == 1 && PathParser::PS_InRootName == 2 && PathParser::PS_InRootDir == 3,
                 "Values for enums are incorrect");
-  while (PP->State <= PathParser::PS_InRootDir)
+  while (PP->State_ <= PathParser::PS_InRootDir)
     ++(*PP);
-  return PP->State == PathParser::PS_AtEnd;
+  return PP->State_ == PathParser::PS_AtEnd;
 }
 
 string_view_t path::__relative_path() const {
@@ -248,7 +248,7 @@ path path::lexically_relative(const path& base) const {
     auto PP                      = PathParser::CreateBegin(__pn_);
     auto PPBase                  = PathParser::CreateBegin(base.__pn_);
     auto CheckIterMismatchAtBase = [&]() {
-      return PP.State != PPBase.State && (PP.inRootPath() || PPBase.inRootPath());
+      return PP.State_ != PPBase.State_ && (PP.inRootPath() || PPBase.inRootPath());
     };
     if (PP.inRootName() && PPBase.inRootName()) {
       if (*PP != *PPBase)
@@ -267,7 +267,7 @@ path path::lexically_relative(const path& base) const {
   // Find the first mismatching element
   auto PP     = PathParser::CreateBegin(__pn_);
   auto PPBase = PathParser::CreateBegin(base.__pn_);
-  while (PP && PPBase && PP.State == PPBase.State && *PP == *PPBase) {
+  while (PP && PPBase && PP.State_ == PPBase.State_ && *PP == *PPBase) {
     ++PP;
     ++PPBase;
   }
@@ -380,7 +380,7 @@ path::iterator path::begin() const {
   auto PP = PathParser::CreateBegin(__pn_);
   iterator it;
   it.__path_ptr_ = this;
-  it.__state_    = static_cast<path::iterator::_ParserState>(PP.State);
+  it.__state_    = static_cast<path::iterator::_ParserState>(PP.State_);
   it.__entry_    = PP.RawEntry;
   it.__stashed_elem_.__assign_view(*PP);
   return it;
@@ -396,7 +396,7 @@ path::iterator path::end() const {
 path::iterator& path::iterator::__increment() {
   PathParser PP(__path_ptr_->native(), __entry_, __state_);
   ++PP;
-  __state_ = static_cast<_ParserState>(PP.State);
+  __state_ = static_cast<_ParserState>(PP.State_);
   __entry_ = PP.RawEntry;
   __stashed_elem_.__assign_view(*PP);
   return *this;
@@ -405,7 +405,7 @@ path::iterator& path::iterator::__increment() {
 path::iterator& path::iterator::__decrement() {
   PathParser PP(__path_ptr_->native(), __entry_, __state_);
   --PP;
-  __state_ = static_cast<_ParserState>(PP.State);
+  __state_ = static_cast<_ParserState>(PP.State_);
   __entry_ = PP.RawEntry;
   __stashed_elem_.__assign_view(*PP);
   return *this;

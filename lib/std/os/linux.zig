@@ -29,16 +29,12 @@ test {
     }
 }
 
-const syscall_bits = switch (native_arch) {
-    .thumb => @import("linux/thumb.zig"),
-    else => arch_bits,
-};
-
 const arch_bits = switch (native_arch) {
     .x86 => @import("linux/x86.zig"),
     .x86_64 => @import("linux/x86_64.zig"),
-    .aarch64, .aarch64_be => @import("linux/arm64.zig"),
-    .arm, .armeb, .thumb, .thumbeb => @import("linux/arm-eabi.zig"),
+    .aarch64, .aarch64_be => @import("linux/aarch64.zig"),
+    .arm, .armeb, .thumb, .thumbeb => @import("linux/arm.zig"),
+    .hexagon => @import("linux/hexagon.zig"),
     .riscv32 => @import("linux/riscv32.zig"),
     .riscv64 => @import("linux/riscv64.zig"),
     .sparc64 => @import("linux/sparc64.zig"),
@@ -47,11 +43,15 @@ const arch_bits = switch (native_arch) {
     .mips64, .mips64el => @import("linux/mips64.zig"),
     .powerpc, .powerpcle => @import("linux/powerpc.zig"),
     .powerpc64, .powerpc64le => @import("linux/powerpc64.zig"),
+    .s390x => @import("linux/s390x.zig"),
     else => struct {
         pub const ucontext_t = void;
         pub const getcontext = {};
     },
 };
+
+const syscall_bits = if (native_arch.isThumb()) @import("linux/thumb.zig") else arch_bits;
+
 pub const syscall0 = syscall_bits.syscall0;
 pub const syscall1 = syscall_bits.syscall1;
 pub const syscall2 = syscall_bits.syscall2;
@@ -115,7 +115,7 @@ pub const user_desc = arch_bits.user_desc;
 pub const getcontext = arch_bits.getcontext;
 
 pub const tls = @import("linux/tls.zig");
-pub const pie = @import("linux/start_pie.zig");
+pub const pie = @import("linux/pie.zig");
 pub const BPF = @import("linux/bpf.zig");
 pub const IOCTL = @import("linux/ioctl.zig");
 pub const SECCOMP = @import("linux/seccomp.zig");
@@ -276,6 +276,29 @@ pub const MAP = switch (native_arch) {
         UNINITIALIZED: bool = false,
         _: u5 = 0,
     },
+    .hexagon, .s390x => packed struct(u32) {
+        TYPE: MAP_TYPE,
+        FIXED: bool = false,
+        ANONYMOUS: bool = false,
+        _4: u1 = 0,
+        _5: u1 = 0,
+        GROWSDOWN: bool = false,
+        _7: u1 = 0,
+        _8: u1 = 0,
+        DENYWRITE: bool = false,
+        EXECUTABLE: bool = false,
+        LOCKED: bool = false,
+        NORESERVE: bool = false,
+        POPULATE: bool = false,
+        NONBLOCK: bool = false,
+        STACK: bool = false,
+        HUGETLB: bool = false,
+        SYNC: bool = false,
+        FIXED_NOREPLACE: bool = false,
+        _19: u5 = 0,
+        UNINITIALIZED: bool = false,
+        _: u5 = 0,
+    },
     else => @compileError("missing std.os.linux.MAP constants for this architecture"),
 };
 
@@ -416,6 +439,32 @@ pub const O = switch (native_arch) {
         PATH: bool = false,
         TMPFILE: bool = false,
         _: u9 = 0,
+    },
+    .hexagon, .s390x => packed struct(u32) {
+        ACCMODE: ACCMODE = .RDONLY,
+        _2: u4 = 0,
+        CREAT: bool = false,
+        EXCL: bool = false,
+        NOCTTY: bool = false,
+        TRUNC: bool = false,
+        APPEND: bool = false,
+        NONBLOCK: bool = false,
+        DSYNC: bool = false,
+        ASYNC: bool = false,
+        DIRECT: bool = false,
+        LARGEFILE: bool = false,
+        DIRECTORY: bool = false,
+        NOFOLLOW: bool = false,
+        NOATIME: bool = false,
+        CLOEXEC: bool = false,
+        _17: u1 = 0,
+        PATH: bool = false,
+        _: u10 = 0,
+
+        // #define O_RSYNC    04010000
+        // #define O_SYNC     04010000
+        // #define O_TMPFILE 020200000
+        // #define O_NDELAY O_NONBLOCK
     },
     else => @compileError("missing std.os.linux.O constants for this architecture"),
 };
@@ -854,7 +903,19 @@ pub fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: MAP, fd: i32, of
             @truncate(@as(u64, @bitCast(offset)) / MMAP2_UNIT),
         );
     } else {
-        return syscall6(
+        // The s390x mmap() syscall existed before Linux supported syscalls with 5+ parameters, so
+        // it takes a single pointer to an array of arguments instead.
+        return if (native_arch == .s390x) syscall1(
+            .mmap,
+            @intFromPtr(&[_]usize{
+                @intFromPtr(address),
+                length,
+                prot,
+                @as(u32, @bitCast(flags)),
+                @bitCast(@as(isize, fd)),
+                @as(u64, @bitCast(offset)),
+            }),
+        ) else syscall6(
             .mmap,
             @intFromPtr(address),
             length,
@@ -6501,12 +6562,12 @@ pub const tc_oflag_t = if (is_ppc) packed struct(tcflag_t) {
     ONLRET: bool = false,
     OFILL: bool = false,
     OFDEL: bool = false,
-    NLDLY: NLDLY = 0,
-    TABDLY: TABDLY = 0,
-    CRDLY: CRDLY = 0,
-    FFDLY: FFDLY = 0,
-    BSDLY: BSDLY = 0,
-    VTDLY: VTDLY = 0,
+    NLDLY: NLDLY = .NL0,
+    TABDLY: TABDLY = .TAB0,
+    CRDLY: CRDLY = .CR0,
+    FFDLY: FFDLY = .FF0,
+    BSDLY: BSDLY = .BS0,
+    VTDLY: VTDLY = .VT0,
     _17: u15 = 0,
 } else if (is_sparc) packed struct(tcflag_t) {
     OPOST: bool = false,
@@ -8014,9 +8075,31 @@ pub const rtattr = extern struct {
     len: c_ushort,
 
     /// Type of option
-    type: IFLA,
+    type: extern union {
+        /// IFLA_* from linux/if_link.h
+        link: IFLA,
+        /// IFA_* from linux/if_addr.h
+        addr: IFA,
+    },
 
     pub const ALIGNTO = 4;
+};
+
+pub const IFA = enum(c_ushort) {
+    UNSPEC,
+    ADDRESS,
+    LOCAL,
+    LABEL,
+    BROADCAST,
+    ANYCAST,
+    CACHEINFO,
+    MULTICAST,
+    FLAGS,
+    RT_PRIORITY,
+    TARGET_NETNSID,
+    PROTO,
+
+    _,
 };
 
 pub const IFLA = enum(c_ushort) {

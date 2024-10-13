@@ -1,7 +1,7 @@
 const std = @import("std");
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
     defer _ = gpa.deinit();
     const args = try std.process.argsAlloc(gpa.allocator());
     defer std.process.argsFree(gpa.allocator(), args);

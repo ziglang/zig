@@ -3994,7 +3994,7 @@ pub const Function = struct {
     names: [*]const String = &[0]String{},
     value_indices: [*]const u32 = &[0]u32{},
     strip: bool,
-    debug_locations: std.AutoHashMapUnmanaged(Instruction.Index, DebugLocation) = .{},
+    debug_locations: std.AutoHashMapUnmanaged(Instruction.Index, DebugLocation) = .empty,
     debug_values: []const Instruction.Index = &.{},
     extra: []const u32 = &.{},
 
@@ -6166,7 +6166,7 @@ pub const WipFunction = struct {
         const value_indices = try gpa.alloc(u32, final_instructions_len);
         errdefer gpa.free(value_indices);
 
-        var debug_locations: std.AutoHashMapUnmanaged(Instruction.Index, DebugLocation) = .{};
+        var debug_locations: std.AutoHashMapUnmanaged(Instruction.Index, DebugLocation) = .empty;
         errdefer debug_locations.deinit(gpa);
         try debug_locations.ensureUnusedCapacity(gpa, @intCast(self.debug_locations.count()));
 
@@ -9557,7 +9557,7 @@ pub fn printUnbuffered(
         }
     }
 
-    var attribute_groups: std.AutoArrayHashMapUnmanaged(Attributes, void) = .{};
+    var attribute_groups: std.AutoArrayHashMapUnmanaged(Attributes, void) = .empty;
     defer attribute_groups.deinit(self.gpa);
 
     for (0.., self.functions.items) |function_i, function| {
@@ -13133,7 +13133,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
     // Write LLVM IR magic
     try bitcode.writeBits(ir.MAGIC, 32);
 
-    var record: std.ArrayListUnmanaged(u64) = .{};
+    var record: std.ArrayListUnmanaged(u64) = .empty;
     defer record.deinit(self.gpa);
 
     // IDENTIFICATION_BLOCK
@@ -13524,7 +13524,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
             try paramattr_block.end();
         }
 
-        var globals: std.AutoArrayHashMapUnmanaged(Global.Index, void) = .{};
+        var globals: std.AutoArrayHashMapUnmanaged(Global.Index, void) = .empty;
         defer globals.deinit(self.gpa);
         try globals.ensureUnusedCapacity(
             self.gpa,
@@ -13587,7 +13587,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
 
         // Globals
         {
-            var section_map: std.AutoArrayHashMapUnmanaged(String, void) = .{};
+            var section_map: std.AutoArrayHashMapUnmanaged(String, void) = .empty;
             defer section_map.deinit(self.gpa);
             try section_map.ensureUnusedCapacity(self.gpa, globals.count());
 

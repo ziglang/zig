@@ -1624,12 +1624,12 @@ pub fn unwindFrameDwarf(
     } else {
         const index = std.sort.binarySearch(Dwarf.FrameDescriptionEntry, di.fde_list.items, context.pc, struct {
             pub fn compareFn(pc: usize, item: Dwarf.FrameDescriptionEntry) std.math.Order {
-                if (pc < item.pc_begin) return .gt;
+                if (pc < item.pc_begin) return .lt;
 
                 const range_end = item.pc_begin + item.pc_range;
                 if (pc < range_end) return .eq;
 
-                return .lt;
+                return .gt;
             }
         }.compareFn);
 
@@ -1933,8 +1933,8 @@ pub const VirtualMachine = struct {
         len: u8 = 0,
     };
 
-    columns: std.ArrayListUnmanaged(Column) = .{},
-    stack: std.ArrayListUnmanaged(ColumnRange) = .{},
+    columns: std.ArrayListUnmanaged(Column) = .empty,
+    stack: std.ArrayListUnmanaged(ColumnRange) = .empty,
     current_row: Row = .{},
 
     /// The result of executing the CIE's initial_instructions

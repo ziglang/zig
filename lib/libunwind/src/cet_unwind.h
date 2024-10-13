@@ -35,6 +35,28 @@
   } while (0)
 #endif
 
+// On AArch64 we use _LIBUNWIND_USE_GCS to indicate that GCS is supported. We
+// need to guard any use of GCS instructions with __chkfeat though, as GCS may
+// not be enabled.
+#if defined(_LIBUNWIND_TARGET_AARCH64) && defined(__ARM_FEATURE_GCS_DEFAULT)
+#include <arm_acle.h>
+
+// We can only use GCS if arm_acle.h defines the GCS intrinsics.
+#ifdef _CHKFEAT_GCS
+#define _LIBUNWIND_USE_GCS 1
+#endif
+
+#define _LIBUNWIND_POP_CET_SSP(x)                                              \
+  do {                                                                         \
+    if (__chkfeat(_CHKFEAT_GCS)) {                                             \
+      unsigned tmp = (x);                                                      \
+      while (tmp--)                                                            \
+        __gcspopm();                                                           \
+    }                                                                          \
+  } while (0)
+
+#endif
+
 extern void *__libunwind_cet_get_registers(unw_cursor_t *);
 extern void *__libunwind_cet_get_jump_target(void);
 

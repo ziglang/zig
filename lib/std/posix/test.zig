@@ -368,6 +368,11 @@ test "fstatat" {
     // now repeat but using `fstatat` instead
     const flags = if (native_os == .wasi) 0x0 else posix.AT.SYMLINK_NOFOLLOW;
     const statat = try posix.fstatat(tmp.dir.fd, "file.txt", flags);
+
+    // s390x-linux does not have nanosecond precision for fstat(), but it does for fstatat(). As a
+    // result, comparing the two structures is doomed to fail.
+    if (builtin.cpu.arch == .s390x and builtin.os.tag == .linux) return error.SkipZigTest;
+
     try expectEqual(stat, statat);
 }
 

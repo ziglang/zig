@@ -91,7 +91,7 @@ pub const JobQueue = struct {
     /// `table` may be missing some tasks such as ones that failed, so this
     /// field contains references to all of them.
     /// Protected by `mutex`.
-    all_fetches: std.ArrayListUnmanaged(*Fetch) = .{},
+    all_fetches: std.ArrayListUnmanaged(*Fetch) = .empty,
 
     http_client: *std.http.Client,
     thread_pool: *ThreadPool,
@@ -1068,7 +1068,8 @@ fn unpackResource(
             if (ascii.eqlIgnoreCase(mime_type, "application/gzip") or
                 ascii.eqlIgnoreCase(mime_type, "application/x-gzip") or
                 ascii.eqlIgnoreCase(mime_type, "application/tar+gzip") or
-                ascii.eqlIgnoreCase(mime_type, "application/x-tar-gz"))
+                ascii.eqlIgnoreCase(mime_type, "application/x-tar-gz") or
+                ascii.eqlIgnoreCase(mime_type, "application/x-gtar-compressed"))
             {
                 break :ft .@"tar.gz";
             }
@@ -1439,7 +1440,7 @@ fn computeHash(
 
     // Track directories which had any files deleted from them so that empty directories
     // can be deleted.
-    var sus_dirs: std.StringArrayHashMapUnmanaged(void) = .{};
+    var sus_dirs: std.StringArrayHashMapUnmanaged(void) = .empty;
     defer sus_dirs.deinit(gpa);
 
     var walker = try root_dir.walk(gpa);
@@ -1710,7 +1711,7 @@ fn normalizePath(bytes: []u8) void {
 }
 
 const Filter = struct {
-    include_paths: std.StringArrayHashMapUnmanaged(void) = .{},
+    include_paths: std.StringArrayHashMapUnmanaged(void) = .empty,
 
     /// sub_path is relative to the package root.
     pub fn includePath(self: Filter, sub_path: []const u8) bool {
@@ -2309,7 +2310,7 @@ const TestFetchBuilder = struct {
         var package_dir = try self.packageDir();
         defer package_dir.close();
 
-        var actual_files: std.ArrayListUnmanaged([]u8) = .{};
+        var actual_files: std.ArrayListUnmanaged([]u8) = .empty;
         defer actual_files.deinit(std.testing.allocator);
         defer for (actual_files.items) |file| std.testing.allocator.free(file);
         var walker = try package_dir.walk(std.testing.allocator);

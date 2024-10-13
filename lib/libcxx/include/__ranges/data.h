@@ -40,7 +40,7 @@ template <class _Tp>
 concept __ptr_to_object = is_pointer_v<_Tp> && is_object_v<remove_pointer_t<_Tp>>;
 
 template <class _Tp>
-concept __member_data = __can_borrow<_Tp> && __workaround_52970<_Tp> && requires(_Tp&& __t) {
+concept __member_data = __can_borrow<_Tp> && requires(_Tp&& __t) {
   { _LIBCPP_AUTO_CAST(__t.data()) } -> __ptr_to_object;
 };
 
@@ -83,9 +83,8 @@ struct __fn {
 
   template <class _Tp>
     requires is_rvalue_reference_v<_Tp&&>
-  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr auto operator()(_Tp&& __t) const
-      noexcept(noexcept(ranges::data(static_cast<const _Tp&&>(__t))))
-          -> decltype(ranges::data(static_cast<const _Tp&&>(__t))) {
+  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr auto operator()(_Tp&& __t) const noexcept(
+      noexcept(ranges::data(static_cast<const _Tp&&>(__t)))) -> decltype(ranges::data(static_cast<const _Tp&&>(__t))) {
     return ranges::data(static_cast<const _Tp&&>(__t));
   }
 };

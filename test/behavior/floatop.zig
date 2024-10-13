@@ -126,6 +126,7 @@ test "cmp f16" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.cpu.arch.isArmOrThumb() and builtin.target.floatAbi() == .soft) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21234
 
     try testCmp(f16);
     try comptime testCmp(f16);
@@ -134,6 +135,7 @@ test "cmp f16" {
 test "cmp f32/f64" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
+    if (builtin.cpu.arch.isArmOrThumb() and builtin.target.floatAbi() == .soft) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21234
 
     try testCmp(f32);
     try comptime testCmp(f32);
@@ -1308,11 +1310,6 @@ test "@trunc f16" {
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch.isMIPS()) {
-        // https://github.com/ziglang/zig/issues/16846
-        return error.SkipZigTest;
-    }
-
     try testTrunc(f16);
     try comptime testTrunc(f16);
 }
@@ -1323,11 +1320,6 @@ test "@trunc f32/f64" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
-    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch.isMIPS()) {
-        // https://github.com/ziglang/zig/issues/16846
-        return error.SkipZigTest;
-    }
 
     try testTrunc(f32);
     try comptime testTrunc(f32);

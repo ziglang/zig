@@ -1,6 +1,8 @@
-pub fn flushObject(macho_file: *MachO, comp: *Compilation, module_obj_path: ?[]const u8) link.File.FlushError!void {
+pub fn flushObject(macho_file: *MachO, comp: *Compilation, module_obj_path: ?Path) link.File.FlushError!void {
     const gpa = macho_file.base.comp.gpa;
+    const diags = &macho_file.base.comp.link_diags;
 
+    // TODO: "positional arguments" is a CLI concept, not a linker concept. Delete this unnecessary array list.
     var positionals = std.ArrayList(Compilation.LinkObject).init(gpa);
     defer positionals.deinit();
     try positionals.ensureUnusedCapacity(comp.objects.len);
@@ -19,7 +21,7 @@ pub fn flushObject(macho_file: *MachO, comp: *Compilation, module_obj_path: ?[]c
         // TODO: in the future, when we implement `dsymutil` alternative directly in the Zig
         // compiler, investigate if we can get rid of this `if` prong here.
         const path = positionals.items[0].path;
-        const in_file = try std.fs.cwd().openFile(path, .{});
+        const in_file = try path.root_dir.handle.openFile(path.sub_path, .{});
         const stat = try in_file.stat();
         const amt = try in_file.copyRangeAll(0, macho_file.base.file.?, 0, stat.size);
         if (amt != stat.size) return error.InputOutput; // TODO: report an actual user error
@@ -27,21 +29,15 @@ pub fn flushObject(macho_file: *MachO, comp: *Compilation, module_obj_path: ?[]c
     }
 
     for (positionals.items) |obj| {
-        macho_file.classifyInputFile(obj.path, .{ .path = obj.path }, obj.must_link) catch |err| switch (err) {
-            error.UnknownFileType => try macho_file.reportParseError(obj.path, "unknown file type for an input file", .{}),
-            else => |e| try macho_file.reportParseError(
-                obj.path,
-                "unexpected error: reading input file failed with error {s}",
-                .{@errorName(e)},
-            ),
-        };
+        macho_file.classifyInputFile(obj.path, .{ .path = obj.path }, obj.must_link) catch |err|
+            diags.addParseError(obj.path, "failed to read input file: {s}", .{@errorName(err)});
     }
 
-    if (macho_file.base.hasErrors()) return error.FlushFailure;
+    if (diags.hasErrors()) return error.FlushFailure;
 
     try macho_file.parseInputFiles();
 
-    if (macho_file.base.hasErrors()) return error.FlushFailure;
+    if (diags.hasErrors()) return error.FlushFailure;
 
     try macho_file.resolveSymbols();
     try macho_file.dedupLiterals();
@@ -72,8 +68,9 @@ pub fn flushObject(macho_file: *MachO, comp: *Compilation, module_obj_path: ?[]c
     try writeHeader(macho_file, ncmds, sizeofcmds);
 }
 
-pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?[]const u8) link.File.FlushError!void {
+pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?Path) link.File.FlushError!void {
     const gpa = comp.gpa;
+    const diags = &macho_file.base.comp.link_diags;
 
     var positionals = std.ArrayList(Compilation.LinkObject).init(gpa);
     defer positionals.deinit();
@@ -92,21 +89,15 @@ pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?
     }
 
     for (positionals.items) |obj| {
-        macho_file.classifyInputFile(obj.path, .{ .path = obj.path }, obj.must_link) catch |err| switch (err) {
-            error.UnknownFileType => try macho_file.reportParseError(obj.path, "unknown file type for an input file", .{}),
-            else => |e| try macho_file.reportParseError(
-                obj.path,
-                "unexpected error: reading input file failed with error {s}",
-                .{@errorName(e)},
-            ),
-        };
+        macho_file.classifyInputFile(obj.path, .{ .path = obj.path }, obj.must_link) catch |err|
+            diags.addParseError(obj.path, "failed to read input file: {s}", .{@errorName(err)});
     }
 
-    if (macho_file.base.hasErrors()) return error.FlushFailure;
+    if (diags.hasErrors()) return error.FlushFailure;
 
     try parseInputFilesAr(macho_file);
 
-    if (macho_file.base.hasErrors()) return error.FlushFailure;
+    if (diags.hasErrors()) return error.FlushFailure;
 
     // First, we flush relocatable object file generated with our backends.
     if (macho_file.getZigObject()) |zo| {
@@ -173,21 +164,25 @@ pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?
 
         for (files.items) |index| {
             const file = macho_file.getFile(index).?;
-            const state = switch (file) {
-                .zig_object => |x| &x.output_ar_state,
-                .object => |x| &x.output_ar_state,
+            switch (file) {
+                .zig_object => |zo| {
+                    const state = &zo.output_ar_state;
+                    pos = mem.alignForward(usize, pos, 2);
+                    state.file_off = pos;
+                    pos += @sizeOf(Archive.ar_hdr);
+                    pos += mem.alignForward(usize, zo.basename.len + 1, ptr_width);
+                    pos += math.cast(usize, state.size) orelse return error.Overflow;
+                },
+                .object => |o| {
+                    const state = &o.output_ar_state;
+                    pos = mem.alignForward(usize, pos, 2);
+                    state.file_off = pos;
+                    pos += @sizeOf(Archive.ar_hdr);
+                    pos += mem.alignForward(usize, o.path.basename().len + 1, ptr_width);
+                    pos += math.cast(usize, state.size) orelse return error.Overflow;
+                },
                 else => unreachable,
-            };
-            const path = switch (file) {
-                .zig_object => |x| x.path,
-                .object => |x| x.path,
-                else => unreachable,
-            };
-            pos = mem.alignForward(usize, pos, 2);
-            state.file_off = pos;
-            pos += @sizeOf(Archive.ar_hdr);
-            pos += mem.alignForward(usize, path.len + 1, ptr_width);
-            pos += math.cast(usize, state.size) orelse return error.Overflow;
+            }
         }
 
         break :blk pos;
@@ -223,7 +218,7 @@ pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?
     try macho_file.base.file.?.setEndPos(total_size);
     try macho_file.base.file.?.pwriteAll(buffer.items, 0);
 
-    if (macho_file.base.hasErrors()) return error.FlushFailure;
+    if (diags.hasErrors()) return error.FlushFailure;
 }
 
 fn parseInputFilesAr(macho_file: *MachO) !void {
@@ -288,6 +283,8 @@ fn calcSectionSizes(macho_file: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
+    const diags = &macho_file.base.comp.link_diags;
+
     if (macho_file.getZigObject()) |zo| {
         // TODO this will create a race as we need to track merging of debug sections which we currently don't
         zo.calcNumRelocs(macho_file);
@@ -332,7 +329,7 @@ fn calcSectionSizes(macho_file: *MachO) !void {
     }
     try calcSymtabSize(macho_file);
 
-    if (macho_file.has_errors.swap(false, .seq_cst)) return error.FlushFailure;
+    if (diags.hasErrors()) return error.LinkFailure;
 }
 
 fn calcSectionSizeWorker(macho_file: *MachO, sect_id: u8) void {
@@ -360,6 +357,8 @@ fn calcEhFrameSizeWorker(macho_file: *MachO) void {
     const tracy = trace(@src());
     defer tracy.end();
 
+    const diags = &macho_file.base.comp.link_diags;
+
     const doWork = struct {
         fn doWork(mfile: *MachO, header: *macho.section_64) !void {
             header.size = try eh_frame.calcSize(mfile);
@@ -369,12 +368,8 @@ fn calcEhFrameSizeWorker(macho_file: *MachO) void {
     }.doWork;
 
     const header = &macho_file.sections.items(.header)[macho_file.eh_frame_sect_index.?];
-    doWork(macho_file, header) catch |err| {
-        macho_file.reportUnexpectedError("failed to calculate size of section '__TEXT,__eh_frame': {s}", .{
-            @errorName(err),
-        }) catch {};
-        _ = macho_file.has_errors.swap(true, .seq_cst);
-    };
+    doWork(macho_file, header) catch |err|
+        diags.addError("failed to calculate size of section '__TEXT,__eh_frame': {s}", .{@errorName(err)});
 }
 
 fn calcCompactUnwindSize(macho_file: *MachO) void {
@@ -587,6 +582,7 @@ fn writeSections(macho_file: *MachO) !void {
     defer tracy.end();
 
     const gpa = macho_file.base.comp.gpa;
+    const diags = &macho_file.base.comp.link_diags;
     const cpu_arch = macho_file.getTarget().cpu.arch;
     const slice = macho_file.sections.slice();
     for (slice.items(.header), slice.items(.out), slice.items(.relocs), 0..) |header, *out, *relocs, n_sect| {
@@ -632,7 +628,7 @@ fn writeSections(macho_file: *MachO) !void {
         }
     }
 
-    if (macho_file.has_errors.swap(false, .seq_cst)) return error.FlushFailure;
+    if (diags.hasErrors()) return error.LinkFailure;
 
     if (macho_file.getZigObject()) |zo| {
         try zo.writeRelocs(macho_file);
@@ -646,33 +642,28 @@ fn writeAtomsWorker(macho_file: *MachO, file: File) void {
         macho_file.reportParseError2(file.getIndex(), "failed to write atoms: {s}", .{
             @errorName(err),
         }) catch {};
-        _ = macho_file.has_errors.swap(true, .seq_cst);
     };
 }
 
 fn writeEhFrameWorker(macho_file: *MachO) void {
     const tracy = trace(@src());
     defer tracy.end();
+
+    const diags = &macho_file.base.comp.link_diags;
     const sect_index = macho_file.eh_frame_sect_index.?;
     const buffer = macho_file.sections.items(.out)[sect_index];
     const relocs = macho_file.sections.items(.relocs)[sect_index];
-    eh_frame.writeRelocs(macho_file, buffer.items, relocs.items) catch |err| {
-        macho_file.reportUnexpectedError("failed to write '__LD,__eh_frame' section: {s}", .{
-            @errorName(err),
-        }) catch {};
-        _ = macho_file.has_errors.swap(true, .seq_cst);
-    };
+    eh_frame.writeRelocs(macho_file, buffer.items, relocs.items) catch |err|
+        diags.addError("failed to write '__LD,__eh_frame' section: {s}", .{@errorName(err)});
 }
 
 fn writeCompactUnwindWorker(macho_file: *MachO, object: *Object) void {
     const tracy = trace(@src());
     defer tracy.end();
-    object.writeCompactUnwindRelocatable(macho_file) catch |err| {
-        macho_file.reportUnexpectedError("failed to write '__LD,__eh_frame' section: {s}", .{
-            @errorName(err),
-        }) catch {};
-        _ = macho_file.has_errors.swap(true, .seq_cst);
-    };
+
+    const diags = &macho_file.base.comp.link_diags;
+    object.writeCompactUnwindRelocatable(macho_file) catch |err|
+        diags.addError("failed to write '__LD,__eh_frame' section: {s}", .{@errorName(err)});
 }
 
 fn writeSectionsToFile(macho_file: *MachO) !void {
@@ -777,6 +768,7 @@ const mem = std.mem;
 const state_log = std.log.scoped(.link_state);
 const std = @import("std");
 const trace = @import("../../tracy.zig").trace;
+const Path = std.Build.Cache.Path;
 
 const Archive = @import("Archive.zig");
 const Atom = @import("Atom.zig");

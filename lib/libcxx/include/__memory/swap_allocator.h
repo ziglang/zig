@@ -26,7 +26,7 @@ _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 void __swap_allocator(_Alloc
 #if _LIBCPP_STD_VER >= 14
     _NOEXCEPT
 #else
-    _NOEXCEPT_(__is_nothrow_swappable<_Alloc>::value)
+    _NOEXCEPT_(__is_nothrow_swappable_v<_Alloc>)
 #endif
 {
   using std::swap;
@@ -42,7 +42,7 @@ inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 void __swap_allocator
 #if _LIBCPP_STD_VER >= 14
     _NOEXCEPT
 #else
-    _NOEXCEPT_(__is_nothrow_swappable<_Alloc>::value)
+    _NOEXCEPT_(__is_nothrow_swappable_v<_Alloc>)
 #endif
 {
   std::__swap_allocator(

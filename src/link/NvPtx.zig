@@ -60,7 +60,6 @@ pub fn createEmpty(
             .file = null,
             .disable_lld_caching = options.disable_lld_caching,
             .build_id = options.build_id,
-            .rpath_list = options.rpath_list,
         },
         .llvm_object = llvm_object,
     };

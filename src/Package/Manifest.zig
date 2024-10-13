@@ -18,8 +18,10 @@ pub const MultiHashHexDigest = [multihash_hex_digest_len]u8;
 pub const Dependency = struct {
     location: Location,
     location_tok: Ast.TokenIndex,
+    location_node: Ast.Node.Index,
     hash: ?[]const u8,
     hash_tok: Ast.TokenIndex,
+    hash_node: Ast.Node.Index,
     node: Ast.Node.Index,
     name_tok: Ast.TokenIndex,
     lazy: bool,
@@ -293,8 +295,10 @@ const Parse = struct {
         var dep: Dependency = .{
             .location = undefined,
             .location_tok = 0,
+            .location_node = undefined,
             .hash = null,
             .hash_tok = 0,
+            .hash_node = undefined,
             .node = node,
             .name_tok = 0,
             .lazy = false,
@@ -320,6 +324,7 @@ const Parse = struct {
                 };
                 has_location = true;
                 dep.location_tok = main_tokens[field_init];
+                dep.location_node = field_init;
             } else if (mem.eql(u8, field_name, "path")) {
                 if (has_location) {
                     return fail(p, main_tokens[field_init], "dependency should specify only one of 'url' and 'path' fields.", .{});
@@ -332,12 +337,14 @@ const Parse = struct {
                 };
                 has_location = true;
                 dep.location_tok = main_tokens[field_init];
+                dep.location_node = field_init;
             } else if (mem.eql(u8, field_name, "hash")) {
                 dep.hash = parseHash(p, field_init) catch |err| switch (err) {
                     error.ParseFailure => continue,
                     else => |e| return e,
                 };
                 dep.hash_tok = main_tokens[field_init];
+                dep.hash_node = field_init;
             } else if (mem.eql(u8, field_name, "lazy")) {
                 dep.lazy = parseBool(p, field_init) catch |err| switch (err) {
                     error.ParseFailure => continue,

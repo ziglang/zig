@@ -15,7 +15,7 @@
 #ifndef _LIBCPP_HAS_NO_THREADS
 
 #  include <__chrono/duration.h>
-#  include <__threading_support>
+#  include <__thread/support.h>
 
 #  if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #    pragma GCC system_header

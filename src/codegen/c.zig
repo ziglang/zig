@@ -304,14 +304,14 @@ pub const Function = struct {
     air: Air,
     liveness: Liveness,
     value_map: CValueMap,
-    blocks: std.AutoHashMapUnmanaged(Air.Inst.Index, BlockData) = .{},
+    blocks: std.AutoHashMapUnmanaged(Air.Inst.Index, BlockData) = .empty,
     next_arg_index: usize = 0,
     next_block_index: usize = 0,
     object: Object,
     lazy_fns: LazyFnMap,
     func_index: InternPool.Index,
     /// All the locals, to be emitted at the top of the function.
-    locals: std.ArrayListUnmanaged(Local) = .{},
+    locals: std.ArrayListUnmanaged(Local) = .empty,
     /// Which locals are available for reuse, based on Type.
     free_locals_map: LocalsMap = .{},
     /// Locals which will not be freed by Liveness. This is used after a
@@ -320,10 +320,10 @@ pub const Function = struct {
     /// of variable declarations at the top of a function, sorted descending
     /// by type alignment.
     /// The value is whether the alloc needs to be emitted in the header.
-    allocs: std.AutoArrayHashMapUnmanaged(LocalIndex, bool) = .{},
+    allocs: std.AutoArrayHashMapUnmanaged(LocalIndex, bool) = .empty,
     /// Maps from `loop_switch_br` instructions to the allocated local used
     /// for the switch cond. Dispatches should set this local to the new cond.
-    loop_switch_conds: std.AutoHashMapUnmanaged(Air.Inst.Index, LocalIndex) = .{},
+    loop_switch_conds: std.AutoHashMapUnmanaged(Air.Inst.Index, LocalIndex) = .empty,
 
     fn resolveInst(f: *Function, ref: Air.Inst.Ref) !CValue {
         const gop = try f.value_map.getOrPut(ref);
@@ -3144,7 +3144,6 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             .breakpoint => try airBreakpoint(f.object.writer()),
             .ret_addr   => try airRetAddr(f, inst),
             .frame_addr => try airFrameAddress(f, inst),
-            .fence      => try airFence(f, inst),
 
             .ptr_add => try airPtrAddSub(f, inst, '+'),
             .ptr_sub => try airPtrAddSub(f, inst, '-'),
@@ -4986,17 +4985,6 @@ fn airFrameAddress(f: *Function, inst: Air.Inst.Index) !CValue {
     try f.renderType(writer, Type.usize);
     try writer.writeAll(")zig_frame_address();\n");
     return local;
-}
-
-fn airFence(f: *Function, inst: Air.Inst.Index) !CValue {
-    const atomic_order = f.air.instructions.items(.data)[@intFromEnum(inst)].fence;
-    const writer = f.object.writer();
-
-    try writer.writeAll("zig_fence(");
-    try writeMemoryOrder(writer, atomic_order);
-    try writer.writeAll(");\n");
-
-    return .none;
 }
 
 fn airUnreach(f: *Function) !void {

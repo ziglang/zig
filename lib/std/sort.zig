@@ -461,8 +461,8 @@ pub fn binarySearch(
         const mid = low + (high - low) / 2;
         switch (compareFn(context, items[mid])) {
             .eq => return mid,
-            .lt => low = mid + 1, // item too small
-            .gt => high = mid, // item too big
+            .gt => low = mid + 1,
+            .lt => high = mid,
         }
     }
     return null;
@@ -471,13 +471,13 @@ pub fn binarySearch(
 test binarySearch {
     const S = struct {
         fn orderU32(context: u32, item: u32) std.math.Order {
-            return std.math.order(item, context);
+            return std.math.order(context, item);
         }
         fn orderI32(context: i32, item: i32) std.math.Order {
-            return std.math.order(item, context);
+            return std.math.order(context, item);
         }
         fn orderLength(context: usize, item: []const u8) std.math.Order {
-            return std.math.order(item.len, context);
+            return std.math.order(context, item.len);
         }
     };
     const R = struct {
@@ -489,9 +489,9 @@ test binarySearch {
         }
 
         fn order(context: i32, item: @This()) std.math.Order {
-            if (item.e < context) {
+            if (context < item.b) {
                 return .lt;
-            } else if (item.b > context) {
+            } else if (context > item.e) {
                 return .gt;
             } else {
                 return .eq;
@@ -513,9 +513,8 @@ test binarySearch {
     try std.testing.expectEqual(2, binarySearch([]const u8, &[_][]const u8{ "", "abc", "1234", "vwxyz" }, @as(usize, 4), S.orderLength));
 }
 
-/// Returns the index of the first element in `items` returning `.eq` or `.gt`
-/// when given to `compareFn`.
-/// - Returns `items.len` if all elements return `.lt`.
+/// Returns the index of the first element in `items` that is greater than or equal to `context`,
+/// as determined by `compareFn`. If no such element exists, returns `items.len`.
 ///
 /// `items` must be sorted in ascending order with respect to `compareFn`:
 /// ```
@@ -540,7 +539,7 @@ pub fn lowerBound(
 ) usize {
     const S = struct {
         fn predicate(ctx: @TypeOf(context), item: T) bool {
-            return compareFn(ctx, item) == .lt;
+            return compareFn(ctx, item).invert() == .lt;
         }
     };
     return partitionPoint(T, items, context, S.predicate);
@@ -549,13 +548,13 @@ pub fn lowerBound(
 test lowerBound {
     const S = struct {
         fn compareU32(context: u32, item: u32) std.math.Order {
-            return std.math.order(item, context);
+            return std.math.order(context, item);
         }
         fn compareI32(context: i32, item: i32) std.math.Order {
-            return std.math.order(item, context);
+            return std.math.order(context, item);
         }
         fn compareF32(context: f32, item: f32) std.math.Order {
-            return std.math.order(item, context);
+            return std.math.order(context, item);
         }
     };
     const R = struct {
@@ -566,7 +565,7 @@ test lowerBound {
         }
 
         fn compareFn(context: i32, item: @This()) std.math.Order {
-            return std.math.order(item.val, context);
+            return std.math.order(context, item.val);
         }
     };
 
@@ -584,9 +583,8 @@ test lowerBound {
     try std.testing.expectEqual(2, lowerBound(R, &[_]R{ R.r(-100), R.r(-40), R.r(-10), R.r(30) }, @as(i32, -20), R.compareFn));
 }
 
-/// Returns the index of the first element in `items` returning `.gt`
-/// when given to `compareFn`.
-/// - Returns `items.len` if none of the elements return `.gt`.
+/// Returns the index of the first element in `items` that is greater than `context`, as determined
+/// by `compareFn`. If no such element exists, returns `items.len`.
 ///
 /// `items` must be sorted in ascending order with respect to `compareFn`:
 /// ```
@@ -611,7 +609,7 @@ pub fn upperBound(
 ) usize {
     const S = struct {
         fn predicate(ctx: @TypeOf(context), item: T) bool {
-            return compareFn(ctx, item) != .gt;
+            return compareFn(ctx, item).invert() != .gt;
         }
     };
     return partitionPoint(T, items, context, S.predicate);
@@ -620,13 +618,13 @@ pub fn upperBound(
 test upperBound {
     const S = struct {
         fn compareU32(context: u32, item: u32) std.math.Order {
-            return std.math.order(item, context);
+            return std.math.order(context, item);
         }
         fn compareI32(context: i32, item: i32) std.math.Order {
-            return std.math.order(item, context);
+            return std.math.order(context, item);
         }
         fn compareF32(context: f32, item: f32) std.math.Order {
-            return std.math.order(item, context);
+            return std.math.order(context, item);
         }
     };
     const R = struct {
@@ -637,7 +635,7 @@ test upperBound {
         }
 
         fn compareFn(context: i32, item: @This()) std.math.Order {
-            return std.math.order(item.val, context);
+            return std.math.order(context, item.val);
         }
     };
 
@@ -771,25 +769,53 @@ pub fn equalRange(
     context: anytype,
     comptime compareFn: fn (@TypeOf(context), T) std.math.Order,
 ) struct { usize, usize } {
-    return .{
-        lowerBound(T, items, context, compareFn),
-        upperBound(T, items, context, compareFn),
-    };
+    var low: usize = 0;
+    var high: usize = items.len;
+
+    while (low < high) {
+        const mid = low + (high - low) / 2;
+        switch (compareFn(context, items[mid])) {
+            .gt => {
+                low = mid + 1;
+            },
+            .lt => {
+                high = mid;
+            },
+            .eq => {
+                return .{
+                    low + std.sort.lowerBound(
+                        T,
+                        items[low..mid],
+                        context,
+                        compareFn,
+                    ),
+                    mid + std.sort.upperBound(
+                        T,
+                        items[mid..high],
+                        context,
+                        compareFn,
+                    ),
+                };
+            },
+        }
+    }
+
+    return .{ low, low };
 }
 
 test equalRange {
     const S = struct {
         fn orderU32(context: u32, item: u32) std.math.Order {
-            return std.math.order(item, context);
+            return std.math.order(context, item);
         }
         fn orderI32(context: i32, item: i32) std.math.Order {
-            return std.math.order(item, context);
+            return std.math.order(context, item);
         }
         fn orderF32(context: f32, item: f32) std.math.Order {
-            return std.math.order(item, context);
+            return std.math.order(context, item);
         }
         fn orderLength(context: usize, item: []const u8) std.math.Order {
-            return std.math.order(item.len, context);
+            return std.math.order(context, item.len);
         }
     };
 
@@ -802,6 +828,7 @@ test equalRange {
     try std.testing.expectEqual(.{ 6, 6 }, equalRange(i32, &[_]i32{ 2, 4, 8, 16, 32, 64 }, @as(i32, 100), S.orderI32));
     try std.testing.expectEqual(.{ 2, 6 }, equalRange(i32, &[_]i32{ 2, 4, 8, 8, 8, 8, 15, 22 }, @as(i32, 8), S.orderI32));
     try std.testing.expectEqual(.{ 2, 2 }, equalRange(u32, &[_]u32{ 2, 4, 8, 16, 32, 64 }, @as(u32, 5), S.orderU32));
+    try std.testing.expectEqual(.{ 3, 5 }, equalRange(u32, &[_]u32{ 2, 3, 4, 5, 5 }, @as(u32, 5), S.orderU32));
     try std.testing.expectEqual(.{ 1, 1 }, equalRange(f32, &[_]f32{ -54.2, -26.7, 0.0, 56.55, 100.1, 322.0 }, @as(f32, -33.4), S.orderF32));
     try std.testing.expectEqual(.{ 3, 5 }, equalRange(
         []const u8,

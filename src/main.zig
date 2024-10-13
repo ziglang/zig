@@ -13,6 +13,12 @@ const warn = std.log.warn;
 const ThreadPool = std.Thread.Pool;
 const cleanExit = std.process.cleanExit;
 const native_os = builtin.os.tag;
+const Cache = std.Build.Cache;
+const Path = std.Build.Cache.Path;
+const EnvVar = std.zig.EnvVar;
+const LibCInstallation = std.zig.LibCInstallation;
+const AstGen = std.zig.AstGen;
+const Server = std.zig.Server;
 
 const tracy = @import("tracy.zig");
 const Compilation = @import("Compilation.zig");
@@ -20,16 +26,11 @@ const link = @import("link.zig");
 const Package = @import("Package.zig");
 const build_options = @import("build_options");
 const introspect = @import("introspect.zig");
-const EnvVar = std.zig.EnvVar;
-const LibCInstallation = std.zig.LibCInstallation;
 const wasi_libc = @import("wasi_libc.zig");
-const Cache = std.Build.Cache;
 const target_util = @import("target.zig");
 const crash_report = @import("crash_report.zig");
 const Zcu = @import("Zcu.zig");
-const AstGen = std.zig.AstGen;
 const mingw = @import("mingw.zig");
-const Server = std.zig.Server;
 const dev = @import("dev.zig");
 
 pub const std_options = .{
@@ -44,8 +45,7 @@ pub const std_options = .{
     },
 };
 
-// Crash report needs to override the panic handler
-pub const panic = crash_report.panic;
+pub const Panic = crash_report.Panic;
 
 var wasi_preopens: fs.wasi.Preopens = undefined;
 pub fn wasi_cwd() std.os.wasi.fd_t {
@@ -126,7 +126,7 @@ const debug_usage = normal_usage ++
 const usage = if (build_options.enable_debug_extensions) debug_usage else normal_usage;
 const default_local_zig_cache_basename = ".zig-cache";
 
-var log_scopes: std.ArrayListUnmanaged([]const u8) = .{};
+var log_scopes: std.ArrayListUnmanaged([]const u8) = .empty;
 
 pub fn log(
     comptime level: std.log.Level,
@@ -826,7 +826,6 @@ fn buildOutputType(
     var version: std.SemanticVersion = .{ .major = 0, .minor = 0, .patch = 0 };
     var have_version = false;
     var compatibility_version: ?std.SemanticVersion = null;
-    var formatted_panics: ?bool = null;
     var function_sections = false;
     var data_sections = false;
     var no_builtin = false;
@@ -895,14 +894,14 @@ fn buildOutputType(
     var linker_module_definition_file: ?[]const u8 = null;
     var test_no_exec = false;
     var entry: Compilation.CreateOptions.Entry = .default;
-    var force_undefined_symbols: std.StringArrayHashMapUnmanaged(void) = .{};
+    var force_undefined_symbols: std.StringArrayHashMapUnmanaged(void) = .empty;
     var stack_size: ?u64 = null;
     var image_base: ?u64 = null;
     var link_eh_frame_hdr = false;
     var link_emit_relocs = false;
     var build_id: ?std.zig.BuildId = null;
     var runtime_args_start: ?usize = null;
-    var test_filters: std.ArrayListUnmanaged([]const u8) = .{};
+    var test_filters: std.ArrayListUnmanaged([]const u8) = .empty;
     var test_name_prefix: ?[]const u8 = null;
     var test_runner_path: ?[]const u8 = null;
     var override_local_cache_dir: ?[]const u8 = try EnvVar.ZIG_LOCAL_CACHE_DIR.get(arena);
@@ -931,12 +930,12 @@ fn buildOutputType(
     var pdb_out_path: ?[]const u8 = null;
     var error_limit: ?Zcu.ErrorInt = null;
     // These are before resolving sysroot.
-    var extra_cflags: std.ArrayListUnmanaged([]const u8) = .{};
-    var extra_rcflags: std.ArrayListUnmanaged([]const u8) = .{};
-    var symbol_wrap_set: std.StringArrayHashMapUnmanaged(void) = .{};
+    var extra_cflags: std.ArrayListUnmanaged([]const u8) = .empty;
+    var extra_rcflags: std.ArrayListUnmanaged([]const u8) = .empty;
+    var symbol_wrap_set: std.StringArrayHashMapUnmanaged(void) = .empty;
     var rc_includes: Compilation.RcIncludes = .any;
     var manifest_file: ?[]const u8 = null;
-    var linker_export_symbol_names: std.ArrayListUnmanaged([]const u8) = .{};
+    var linker_export_symbol_names: std.ArrayListUnmanaged([]const u8) = .empty;
 
     // Tracks the position in c_source_files which have already their owner populated.
     var c_source_files_owner_index: usize = 0;
@@ -944,7 +943,7 @@ fn buildOutputType(
     var rc_source_files_owner_index: usize = 0;
 
     // null means replace with the test executable binary
-    var test_exec_args: std.ArrayListUnmanaged(?[]const u8) = .{};
+    var test_exec_args: std.ArrayListUnmanaged(?[]const u8) = .empty;
 
     // These get set by CLI flags and then snapshotted when a `-M` flag is
     // encountered.
@@ -953,8 +952,8 @@ fn buildOutputType(
     // These get appended to by CLI flags and then slurped when a `-M` flag
     // is encountered.
     var cssan: ClangSearchSanitizer = .{};
-    var cc_argv: std.ArrayListUnmanaged([]const u8) = .{};
-    var deps: std.ArrayListUnmanaged(CliModule.Dep) = .{};
+    var cc_argv: std.ArrayListUnmanaged([]const u8) = .empty;
+    var deps: std.ArrayListUnmanaged(CliModule.Dep) = .empty;
 
     // Contains every module specified via -M. The dependencies are added
     // after argument parsing is completed. We use a StringArrayHashMap to make
@@ -1537,9 +1536,11 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "-gdwarf64")) {
                         create_module.opts.debug_format = .{ .dwarf = .@"64" };
                     } else if (mem.eql(u8, arg, "-fformatted-panics")) {
-                        formatted_panics = true;
+                        // Remove this after 0.15.0 is tagged.
+                        warn("-fformatted-panics is deprecated and does nothing", .{});
                     } else if (mem.eql(u8, arg, "-fno-formatted-panics")) {
-                        formatted_panics = false;
+                        // Remove this after 0.15.0 is tagged.
+                        warn("-fno-formatted-panics is deprecated and does nothing", .{});
                     } else if (mem.eql(u8, arg, "-fsingle-threaded")) {
                         mod_opts.single_threaded = true;
                     } else if (mem.eql(u8, arg, "-fno-single-threaded")) {
@@ -1703,8 +1704,11 @@ fn buildOutputType(
                         try cc_argv.append(arena, arg);
                     } else if (mem.startsWith(u8, arg, "-I")) {
                         try cssan.addIncludePath(arena, &cc_argv, .I, arg, arg[2..], true);
-                    } else if (mem.eql(u8, arg, "-x")) {
-                        const lang = args_iter.nextOrFatal();
+                    } else if (mem.startsWith(u8, arg, "-x")) {
+                        const lang = if (arg.len == "-x".len)
+                            args_iter.nextOrFatal()
+                        else
+                            arg["-x".len..];
                         if (mem.eql(u8, lang, "none")) {
                             file_ext = null;
                         } else if (Compilation.LangToExt.get(lang)) |got_ext| {
@@ -1721,14 +1725,14 @@ fn buildOutputType(
                     }
                 } else switch (file_ext orelse Compilation.classifyFileExt(arg)) {
                     .shared_library => {
-                        try create_module.link_objects.append(arena, .{ .path = arg });
+                        try create_module.link_objects.append(arena, .{ .path = Path.initCwd(arg) });
                         create_module.opts.any_dyn_libs = true;
                     },
                     .object, .static_library => {
-                        try create_module.link_objects.append(arena, .{ .path = arg });
+                        try create_module.link_objects.append(arena, .{ .path = Path.initCwd(arg) });
                     },
                     .res => {
-                        try create_module.link_objects.append(arena, .{ .path = arg });
+                        try create_module.link_objects.append(arena, .{ .path = Path.initCwd(arg) });
                         contains_res_file = true;
                     },
                     .manifest => {
@@ -1791,6 +1795,7 @@ fn buildOutputType(
             var c_out_mode: ?COutMode = null;
             var out_path: ?[]const u8 = null;
             var is_shared_lib = false;
+            var preprocessor_args = std.ArrayList([]const u8).init(arena);
             var linker_args = std.ArrayList([]const u8).init(arena);
             var it = ClangArgIterator.init(arena, all_args);
             var emit_llvm = false;
@@ -1841,20 +1846,20 @@ fn buildOutputType(
                         },
                         .shared_library => {
                             try create_module.link_objects.append(arena, .{
-                                .path = it.only_arg,
+                                .path = Path.initCwd(it.only_arg),
                                 .must_link = must_link,
                             });
                             create_module.opts.any_dyn_libs = true;
                         },
                         .unknown, .object, .static_library => {
                             try create_module.link_objects.append(arena, .{
-                                .path = it.only_arg,
+                                .path = Path.initCwd(it.only_arg),
                                 .must_link = must_link,
                             });
                         },
                         .res => {
                             try create_module.link_objects.append(arena, .{
-                                .path = it.only_arg,
+                                .path = Path.initCwd(it.only_arg),
                                 .must_link = must_link,
                             });
                             contains_res_file = true;
@@ -1890,7 +1895,7 @@ fn buildOutputType(
                             // binary: no extra rpaths and DSO filename exactly
                             // as provided. Hello, Go.
                             try create_module.link_objects.append(arena, .{
-                                .path = it.only_arg,
+                                .path = Path.initCwd(it.only_arg),
                                 .must_link = must_link,
                                 .loption = true,
                             });
@@ -1946,6 +1951,24 @@ fn buildOutputType(
                         is_shared_lib = true;
                     },
                     .rdynamic => create_module.opts.rdynamic = true,
+                    .wp => {
+                        var split_it = mem.splitScalar(u8, it.only_arg, ',');
+                        while (split_it.next()) |preprocessor_arg| {
+                            if (preprocessor_arg.len >= 3 and
+                                preprocessor_arg[0] == '-' and
+                                preprocessor_arg[2] != '-')
+                            {
+                                if (mem.indexOfScalar(u8, preprocessor_arg, '=')) |equals_pos| {
+                                    const key = preprocessor_arg[0..equals_pos];
+                                    const value = preprocessor_arg[equals_pos + 1 ..];
+                                    try preprocessor_args.append(key);
+                                    try preprocessor_args.append(value);
+                                    continue;
+                                }
+                            }
+                            try preprocessor_args.append(preprocessor_arg);
+                        }
+                    },
                     .wl => {
                         var split_it = mem.splitScalar(u8, it.only_arg, ',');
                         while (split_it.next()) |linker_arg| {
@@ -2178,6 +2201,19 @@ fn buildOutputType(
                             linker_allow_shlib_undefined = false;
                         } else {
                             fatal("unsupported -undefined option '{s}'", .{it.only_arg});
+                        }
+                    },
+                    .rtlib => {
+                        // Unlike Clang, we support `none` for explicitly omitting compiler-rt.
+                        if (mem.eql(u8, "none", it.only_arg)) {
+                            want_compiler_rt = false;
+                        } else if (mem.eql(u8, "compiler-rt", it.only_arg) or
+                            mem.eql(u8, "libgcc", it.only_arg))
+                        {
+                            want_compiler_rt = true;
+                        } else {
+                            // Note that we don't support `platform`.
+                            fatal("unsupported -rtlib option '{s}'", .{it.only_arg});
                         }
                     },
                 }
@@ -2497,7 +2533,7 @@ fn buildOutputType(
                     install_name = linker_args_it.nextOrFatal();
                 } else if (mem.eql(u8, arg, "-force_load")) {
                     try create_module.link_objects.append(arena, .{
-                        .path = linker_args_it.nextOrFatal(),
+                        .path = Path.initCwd(linker_args_it.nextOrFatal()),
                         .must_link = true,
                     });
                 } else if (mem.eql(u8, arg, "-hash-style") or
@@ -2538,6 +2574,20 @@ fn buildOutputType(
                     process.exit(0);
                 } else {
                     fatal("unsupported linker arg: {s}", .{arg});
+                }
+            }
+
+            // Parse preprocessor args.
+            var preprocessor_args_it = ArgsIterator{
+                .args = preprocessor_args.items,
+            };
+            while (preprocessor_args_it.next()) |arg| {
+                if (mem.eql(u8, arg, "-MD") or mem.eql(u8, arg, "-MMD") or mem.eql(u8, arg, "-MT")) {
+                    disable_c_depfile = true;
+                    const cc_arg = try std.fmt.allocPrint(arena, "-Wp,{s},{s}", .{ arg, preprocessor_args_it.nextOrFatal() });
+                    try cc_argv.append(arena, cc_arg);
+                } else {
+                    fatal("unsupported preprocessor arg: {s}", .{arg});
                 }
             }
 
@@ -2658,7 +2708,7 @@ fn buildOutputType(
                 break :b create_module.c_source_files.items[0].src_path;
 
             if (create_module.link_objects.items.len >= 1)
-                break :b create_module.link_objects.items[0].path;
+                break :b create_module.link_objects.items[0].path.sub_path;
 
             if (emit_bin == .yes)
                 break :b emit_bin.yes;
@@ -2793,7 +2843,7 @@ fn buildOutputType(
     create_module.opts.emit_bin = emit_bin != .no;
     create_module.opts.any_c_source_files = create_module.c_source_files.items.len != 0;
 
-    var builtin_modules: std.StringHashMapUnmanaged(*Package.Module) = .{};
+    var builtin_modules: std.StringHashMapUnmanaged(*Package.Module) = .empty;
     // `builtin_modules` allocated into `arena`, so no deinit
     const main_mod = try createModule(gpa, arena, &create_module, 0, null, zig_lib_directory, &builtin_modules);
     for (create_module.modules.keys(), create_module.modules.values()) |key, cli_mod| {
@@ -2914,7 +2964,7 @@ fn buildOutputType(
                     framework_dir_path,
                     framework_name,
                 )) {
-                    const path = try arena.dupe(u8, test_path.items);
+                    const path = Path.initCwd(try arena.dupe(u8, test_path.items));
                     try resolved_frameworks.append(.{
                         .needed = info.needed,
                         .weak = info.weak,
@@ -3277,7 +3327,7 @@ fn buildOutputType(
 
     process.raiseFileDescriptorLimit();
 
-    var file_system_inputs: std.ArrayListUnmanaged(u8) = .{};
+    var file_system_inputs: std.ArrayListUnmanaged(u8) = .empty;
     defer file_system_inputs.deinit(gpa);
 
     const comp = Compilation.create(gpa, arena, .{
@@ -3359,7 +3409,6 @@ fn buildOutputType(
         .force_undefined_symbols = force_undefined_symbols,
         .stack_size = stack_size,
         .image_base = image_base,
-        .formatted_panics = formatted_panics,
         .function_sections = function_sections,
         .data_sections = data_sections,
         .no_builtin = no_builtin,
@@ -3587,7 +3636,7 @@ const CreateModule = struct {
         name: []const u8,
         lib: Compilation.SystemLib,
     }),
-    wasi_emulated_libs: std.ArrayListUnmanaged(wasi_libc.CRTFile),
+    wasi_emulated_libs: std.ArrayListUnmanaged(wasi_libc.CrtFile),
 
     c_source_files: std.ArrayListUnmanaged(Compilation.CSourceFile),
     rc_source_files: std.ArrayListUnmanaged(Compilation.RcSourceFile),
@@ -3760,7 +3809,7 @@ fn createModule(
             }
 
             if (target.os.tag == .wasi) {
-                if (wasi_libc.getEmulatedLibCRTFile(lib_name)) |crt_file| {
+                if (wasi_libc.getEmulatedLibCrtFile(lib_name)) |crt_file| {
                     try create_module.wasi_emulated_libs.append(arena, crt_file);
                     continue;
                 }
@@ -3828,7 +3877,7 @@ fn createModule(
             };
         }
 
-        if (builtin.target.os.tag == .windows and target.abi == .msvc and
+        if (builtin.target.os.tag == .windows and (target.abi == .msvc or target.abi == .itanium) and
             external_system_libs.len != 0)
         {
             if (create_module.libc_installation == null) {
@@ -3881,7 +3930,7 @@ fn createModule(
                                 target,
                                 info.preferred_mode,
                             )) {
-                                const path = try arena.dupe(u8, test_path.items);
+                                const path = Path.initCwd(try arena.dupe(u8, test_path.items));
                                 switch (info.preferred_mode) {
                                     .static => try create_module.link_objects.append(arena, .{ .path = path }),
                                     .dynamic => try create_module.resolved_system_libs.append(arena, .{
@@ -3915,7 +3964,7 @@ fn createModule(
                                 target,
                                 info.fallbackMode(),
                             )) {
-                                const path = try arena.dupe(u8, test_path.items);
+                                const path = Path.initCwd(try arena.dupe(u8, test_path.items));
                                 switch (info.fallbackMode()) {
                                     .static => try create_module.link_objects.append(arena, .{ .path = path }),
                                     .dynamic => try create_module.resolved_system_libs.append(arena, .{
@@ -3949,7 +3998,7 @@ fn createModule(
                                 target,
                                 info.preferred_mode,
                             )) {
-                                const path = try arena.dupe(u8, test_path.items);
+                                const path = Path.initCwd(try arena.dupe(u8, test_path.items));
                                 switch (info.preferred_mode) {
                                     .static => try create_module.link_objects.append(arena, .{ .path = path }),
                                     .dynamic => try create_module.resolved_system_libs.append(arena, .{
@@ -3973,7 +4022,7 @@ fn createModule(
                                 target,
                                 info.fallbackMode(),
                             )) {
-                                const path = try arena.dupe(u8, test_path.items);
+                                const path = Path.initCwd(try arena.dupe(u8, test_path.items));
                                 switch (info.fallbackMode()) {
                                     .static => try create_module.link_objects.append(arena, .{ .path = path }),
                                     .dynamic => try create_module.resolved_system_libs.append(arena, .{
@@ -5438,7 +5487,7 @@ fn jitCmd(
     });
     defer thread_pool.deinit();
 
-    var child_argv: std.ArrayListUnmanaged([]const u8) = .{};
+    var child_argv: std.ArrayListUnmanaged([]const u8) = .empty;
     try child_argv.ensureUnusedCapacity(arena, args.len + 4);
 
     // We want to release all the locks before executing the child process, so we make a nice
@@ -5758,6 +5807,7 @@ pub const ClangArgIterator = struct {
         shared,
         rdynamic,
         wl,
+        wp,
         preprocess_only,
         asm_only,
         optimize,
@@ -5810,6 +5860,7 @@ pub const ClangArgIterator = struct {
         san_cov_trace_pc_guard,
         san_cov,
         no_san_cov,
+        rtlib,
     };
 
     const Args = struct {
@@ -6113,7 +6164,7 @@ fn cmdAstCheck(
     }
 
     file.mod = try Package.Module.createLimited(arena, .{
-        .root = Cache.Path.cwd(),
+        .root = Path.cwd(),
         .root_src_path = file.sub_file_path,
         .fully_qualified_name = "root",
     });
@@ -6473,7 +6524,7 @@ fn cmdChangelist(
     };
 
     file.mod = try Package.Module.createLimited(arena, .{
-        .root = Cache.Path.cwd(),
+        .root = Path.cwd(),
         .root_src_path = file.sub_file_path,
         .fully_qualified_name = "root",
     });
@@ -6539,7 +6590,7 @@ fn cmdChangelist(
         process.exit(1);
     }
 
-    var inst_map: std.AutoHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Index) = .{};
+    var inst_map: std.AutoHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Index) = .empty;
     defer inst_map.deinit(gpa);
 
     try Zcu.mapOldZirToNew(gpa, old_zir, file.zir, &inst_map);
@@ -6724,7 +6775,7 @@ fn parseSubSystem(next_arg: []const u8) !std.Target.SubSystem {
 /// Silently ignore superfluous search dirs.
 /// Warn when a dir is added to multiple searchlists.
 const ClangSearchSanitizer = struct {
-    map: std.StringHashMapUnmanaged(Membership) = .{},
+    map: std.StringHashMapUnmanaged(Membership) = .empty,
 
     fn reset(self: *@This()) void {
         self.map.clearRetainingCapacity();
@@ -7166,8 +7217,21 @@ fn cmdFetch(
                 .path => {},
             }
         }
+
+        const location_replace = try std.fmt.allocPrint(
+            arena,
+            "\"{}\"",
+            .{std.zig.fmtEscapes(saved_path_or_url)},
+        );
+        const hash_replace = try std.fmt.allocPrint(
+            arena,
+            "\"{}\"",
+            .{std.zig.fmtEscapes(&hex_digest)},
+        );
+
         warn("overwriting existing dependency named '{s}'", .{name});
-        try fixups.replace_nodes_with_string.put(gpa, dep.node, new_node_init);
+        try fixups.replace_nodes_with_string.put(gpa, dep.location_node, location_replace);
+        try fixups.replace_nodes_with_string.put(gpa, dep.hash_node, hash_replace);
     } else if (manifest.dependencies.count() > 0) {
         // Add fixup for adding another dependency.
         const deps = manifest.dependencies.values();

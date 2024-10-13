@@ -734,10 +734,6 @@ pub const Inst = struct {
         cmpxchg_weak,
         /// Uses the `ty_pl` field with payload `Cmpxchg`.
         cmpxchg_strong,
-        /// Lowers to a memory fence instruction.
-        /// Result type is always void.
-        /// Uses the `fence` field.
-        fence,
         /// Atomically load from a pointer.
         /// Result type is the element type of the pointer.
         /// Uses the `atomic_load` field.
@@ -1066,7 +1062,6 @@ pub const Inst = struct {
             line: u32,
             column: u32,
         },
-        fence: std.builtin.AtomicOrder,
         atomic_load: struct {
             ptr: Ref,
             order: std.builtin.AtomicOrder,
@@ -1478,7 +1473,6 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .dbg_arg_inline,
         .store,
         .store_safe,
-        .fence,
         .atomic_store_unordered,
         .atomic_store_monotonic,
         .atomic_store_release,
@@ -1653,7 +1647,6 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .memcpy,
         .cmpxchg_weak,
         .cmpxchg_strong,
-        .fence,
         .atomic_store_unordered,
         .atomic_store_monotonic,
         .atomic_store_release,

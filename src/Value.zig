@@ -191,7 +191,7 @@ pub fn toBigIntAdvanced(
     comptime strat: ResolveStrat,
     zcu: *Zcu,
     tid: strat.Tid(),
-) Zcu.CompileError!BigIntConst {
+) Zcu.SemaError!BigIntConst {
     const ip = &zcu.intern_pool;
     return switch (val.toIntern()) {
         .bool_false => BigIntMutable.init(&space.limbs, 0).toConst(),
@@ -713,11 +713,11 @@ pub fn readFromMemory(
                 const union_size = ty.abiSize(zcu);
                 const array_ty = try zcu.arrayType(.{ .len = union_size, .child = .u8_type });
                 const val = (try readFromMemory(array_ty, zcu, buffer, arena)).toIntern();
-                return Value.fromInterned(try pt.intern(.{ .un = .{
+                return Value.fromInterned(try pt.internUnion(.{
                     .ty = ty.toIntern(),
                     .tag = .none,
                     .val = val,
-                } }));
+                }));
             },
             .@"packed" => {
                 const byte_count = (@as(usize, @intCast(ty.bitSize(zcu))) + 7) / 8;
@@ -860,11 +860,11 @@ pub fn readFromPackedMemory(
             .@"packed" => {
                 const backing_ty = try ty.unionBackingType(pt);
                 const val = (try readFromPackedMemory(backing_ty, pt, buffer, bit_offset, arena)).toIntern();
-                return Value.fromInterned(try pt.intern(.{ .un = .{
+                return Value.fromInterned(try pt.internUnion(.{
                     .ty = ty.toIntern(),
                     .tag = .none,
                     .val = val,
-                } }));
+                }));
             },
         },
         .pointer => {
@@ -1038,7 +1038,7 @@ pub fn orderAgainstZeroInner(
     comptime strat: ResolveStrat,
     zcu: *Zcu,
     tid: strat.Tid(),
-) Zcu.CompileError!std.math.Order {
+) Zcu.SemaError!std.math.Order {
     return switch (lhs.toIntern()) {
         .bool_false => .eq,
         .bool_true => .gt,
@@ -4481,11 +4481,11 @@ pub fn resolveLazy(
             return if (resolved_tag == un.tag and resolved_val == un.val)
                 val
             else
-                Value.fromInterned(try pt.intern(.{ .un = .{
+                Value.fromInterned(try pt.internUnion(.{
                     .ty = un.ty,
                     .tag = resolved_tag,
                     .val = resolved_val,
-                } }));
+                }));
         },
         else => return val,
     }

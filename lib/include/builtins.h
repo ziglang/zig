@@ -13,4 +13,7 @@
 #ifndef __BUILTINS_H
 #define __BUILTINS_H
 
+#if defined(__MVS__) && __has_include_next(<builtins.h>)
+#include_next <builtins.h>
+#endif /* __MVS__ */
 #endif /* __BUILTINS_H */

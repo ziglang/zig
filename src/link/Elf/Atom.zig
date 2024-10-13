@@ -118,10 +118,19 @@ pub fn capacity(self: Atom, elf_file: *Elf) u64 {
     return @intCast(next_addr - self.address(elf_file));
 }
 
+pub fn fileCapacity(self: Atom, elf_file: *Elf) u64 {
+    const self_off = self.offset(elf_file);
+    const next_off = if (self.nextAtom(elf_file)) |next_atom|
+        next_atom.offset(elf_file)
+    else
+        self_off + elf_file.allocatedSize(self_off);
+    return @intCast(next_off - self_off);
+}
+
 pub fn freeListEligible(self: Atom, elf_file: *Elf) bool {
     // No need to keep a free list node for the last block.
     const next = self.nextAtom(elf_file) orelse return false;
-    const cap: u64 = @intCast(next.address(elf_file) - self.address(elf_file));
+    const cap: u64 = @intCast(next.value - self.value);
     const ideal_cap = Elf.padToIdeal(self.size);
     if (cap <= ideal_cap) return false;
     const surplus = cap - ideal_cap;
@@ -510,7 +519,8 @@ fn dataType(symbol: *const Symbol, elf_file: *Elf) u2 {
 }
 
 fn reportUnhandledRelocError(self: Atom, rel: elf.Elf64_Rela, elf_file: *Elf) RelocError!void {
-    var err = try elf_file.base.addErrorWithNotes(1);
+    const diags = &elf_file.base.comp.link_diags;
+    var err = try diags.addErrorWithNotes(1);
     try err.addMsg("fatal linker error: unhandled relocation type {} at offset 0x{x}", .{
         relocation.fmtRelocType(rel.r_type(), elf_file.getTarget().cpu.arch),
         rel.r_offset,
@@ -525,7 +535,8 @@ fn reportTextRelocError(
     rel: elf.Elf64_Rela,
     elf_file: *Elf,
 ) RelocError!void {
-    var err = try elf_file.base.addErrorWithNotes(1);
+    const diags = &elf_file.base.comp.link_diags;
+    var err = try diags.addErrorWithNotes(1);
     try err.addMsg("relocation at offset 0x{x} against symbol '{s}' cannot be used", .{
         rel.r_offset,
         symbol.name(elf_file),
@@ -540,7 +551,8 @@ fn reportPicError(
     rel: elf.Elf64_Rela,
     elf_file: *Elf,
 ) RelocError!void {
-    var err = try elf_file.base.addErrorWithNotes(2);
+    const diags = &elf_file.base.comp.link_diags;
+    var err = try diags.addErrorWithNotes(2);
     try err.addMsg("relocation at offset 0x{x} against symbol '{s}' cannot be used", .{
         rel.r_offset,
         symbol.name(elf_file),
@@ -556,7 +568,8 @@ fn reportNoPicError(
     rel: elf.Elf64_Rela,
     elf_file: *Elf,
 ) RelocError!void {
-    var err = try elf_file.base.addErrorWithNotes(2);
+    const diags = &elf_file.base.comp.link_diags;
+    var err = try diags.addErrorWithNotes(2);
     try err.addMsg("relocation at offset 0x{x} against symbol '{s}' cannot be used", .{
         rel.r_offset,
         symbol.name(elf_file),
@@ -579,6 +592,7 @@ fn reportUndefined(
     const file_ptr = self.file(elf_file).?;
     const rel_esym = switch (file_ptr) {
         .zig_object => |x| x.symbol(rel.r_sym()).elfSym(elf_file),
+        .shared_object => |so| so.parsed.symtab[rel.r_sym()],
         inline else => |x| x.symtab.items[rel.r_sym()],
     };
     const esym = sym.elfSym(elf_file);
@@ -723,6 +737,7 @@ fn resolveDynAbsReloc(
                     .sym = target.extra(elf_file).dynamic,
                     .type = relocation.encode(.abs, cpu_arch),
                     .addend = A,
+                    .target = target,
                 });
                 try applyDynamicReloc(A, elf_file, writer);
             } else {
@@ -737,6 +752,7 @@ fn resolveDynAbsReloc(
                     .sym = target.extra(elf_file).dynamic,
                     .type = relocation.encode(.abs, cpu_arch),
                     .addend = A,
+                    .target = target,
                 });
                 try applyDynamicReloc(A, elf_file, writer);
             } else {
@@ -750,6 +766,7 @@ fn resolveDynAbsReloc(
                 .sym = target.extra(elf_file).dynamic,
                 .type = relocation.encode(.abs, cpu_arch),
                 .addend = A,
+                .target = target,
             });
             try applyDynamicReloc(A, elf_file, writer);
         },
@@ -759,6 +776,7 @@ fn resolveDynAbsReloc(
                 .offset = P,
                 .type = relocation.encode(.rel, cpu_arch),
                 .addend = S + A,
+                .target = target,
             });
             try applyDynamicReloc(S + A, elf_file, writer);
         },
@@ -769,6 +787,7 @@ fn resolveDynAbsReloc(
                 .offset = P,
                 .type = relocation.encode(.irel, cpu_arch),
                 .addend = S_ + A,
+                .target = target,
             });
             try applyDynamicReloc(S_ + A, elf_file, writer);
         },
@@ -868,15 +887,7 @@ pub fn resolveRelocsNonAlloc(self: Atom, elf_file: *Elf, code: []u8, undefs: any
     if (has_reloc_errors) return error.RelocFailure;
 }
 
-const AddExtraOpts = struct {
-    thunk: ?u32 = null,
-    fde_start: ?u32 = null,
-    fde_count: ?u32 = null,
-    rel_index: ?u32 = null,
-    rel_count: ?u32 = null,
-};
-
-pub fn addExtra(atom: *Atom, opts: AddExtraOpts, elf_file: *Elf) void {
+pub fn addExtra(atom: *Atom, opts: Extra.AsOptionals, elf_file: *Elf) void {
     const file_ptr = atom.file(elf_file).?;
     var extras = file_ptr.atomExtra(atom.extra_index);
     inline for (@typeInfo(@TypeOf(opts)).@"struct".fields) |field| {
@@ -887,11 +898,11 @@ pub fn addExtra(atom: *Atom, opts: AddExtraOpts, elf_file: *Elf) void {
     file_ptr.setAtomExtra(atom.extra_index, extras);
 }
 
-pub inline fn extra(atom: Atom, elf_file: *Elf) Extra {
+pub fn extra(atom: Atom, elf_file: *Elf) Extra {
     return atom.file(elf_file).?.atomExtra(atom.extra_index);
 }
 
-pub inline fn setExtra(atom: Atom, extras: Extra, elf_file: *Elf) void {
+pub fn setExtra(atom: Atom, extras: Extra, elf_file: *Elf) void {
     atom.file(elf_file).?.setAtomExtra(atom.extra_index, extras);
 }
 
@@ -930,9 +941,10 @@ fn format2(
     _ = unused_fmt_string;
     const atom = ctx.atom;
     const elf_file = ctx.elf_file;
-    try writer.print("atom({d}) : {s} : @{x} : shdr({d}) : align({x}) : size({x})", .{
+    try writer.print("atom({d}) : {s} : @{x} : shdr({d}) : align({x}) : size({x}) : prev({}) : next({})", .{
         atom.atom_index,           atom.name(elf_file),                   atom.address(elf_file),
         atom.output_section_index, atom.alignment.toByteUnits() orelse 0, atom.size,
+        atom.prev_atom_ref,        atom.next_atom_ref,
     });
     if (atom.fdes(elf_file).len > 0) {
         try writer.writeAll(" : fdes{ ");
@@ -1075,6 +1087,7 @@ const x86_64 = struct {
         stream: anytype,
     ) (error{ InvalidInstruction, CannotEncode } || RelocError)!void {
         dev.check(.x86_64_backend);
+        const diags = &elf_file.base.comp.link_diags;
         const r_type: elf.R_X86_64 = @enumFromInt(rel.r_type());
         const r_offset = std.math.cast(usize, rel.r_offset) orelse return error.Overflow;
 
@@ -1169,7 +1182,7 @@ const x86_64 = struct {
                     try cwriter.writeInt(i32, @as(i32, @intCast(S_ + A - P)), .little);
                 } else {
                     x86_64.relaxGotPcTlsDesc(code[r_offset - 3 ..]) catch {
-                        var err = try elf_file.base.addErrorWithNotes(1);
+                        var err = try diags.addErrorWithNotes(1);
                         try err.addMsg("could not relax {s}", .{@tagName(r_type)});
                         try err.addNote("in {}:{s} at offset 0x{x}", .{
                             atom.file(elf_file).?.fmtPath(),
@@ -1294,6 +1307,7 @@ const x86_64 = struct {
     ) !void {
         dev.check(.x86_64_backend);
         assert(rels.len == 2);
+        const diags = &elf_file.base.comp.link_diags;
         const writer = stream.writer();
         const rel: elf.R_X86_64 = @enumFromInt(rels[1].r_type());
         switch (rel) {
@@ -1310,7 +1324,7 @@ const x86_64 = struct {
             },
 
             else => {
-                var err = try elf_file.base.addErrorWithNotes(1);
+                var err = try diags.addErrorWithNotes(1);
                 try err.addMsg("TODO: rewrite {} when followed by {}", .{
                     relocation.fmtRelocType(rels[0].r_type(), .x86_64),
                     relocation.fmtRelocType(rels[1].r_type(), .x86_64),
@@ -1334,6 +1348,7 @@ const x86_64 = struct {
     ) !void {
         dev.check(.x86_64_backend);
         assert(rels.len == 2);
+        const diags = &elf_file.base.comp.link_diags;
         const writer = stream.writer();
         const rel: elf.R_X86_64 = @enumFromInt(rels[1].r_type());
         switch (rel) {
@@ -1365,7 +1380,7 @@ const x86_64 = struct {
             },
 
             else => {
-                var err = try elf_file.base.addErrorWithNotes(1);
+                var err = try diags.addErrorWithNotes(1);
                 try err.addMsg("TODO: rewrite {} when followed by {}", .{
                     relocation.fmtRelocType(rels[0].r_type(), .x86_64),
                     relocation.fmtRelocType(rels[1].r_type(), .x86_64),
@@ -1439,6 +1454,7 @@ const x86_64 = struct {
     ) !void {
         dev.check(.x86_64_backend);
         assert(rels.len == 2);
+        const diags = &elf_file.base.comp.link_diags;
         const writer = stream.writer();
         const rel: elf.R_X86_64 = @enumFromInt(rels[1].r_type());
         switch (rel) {
@@ -1461,7 +1477,7 @@ const x86_64 = struct {
             },
 
             else => {
-                var err = try elf_file.base.addErrorWithNotes(1);
+                var err = try diags.addErrorWithNotes(1);
                 try err.addMsg("fatal linker error: rewrite {} when followed by {}", .{
                     relocation.fmtRelocType(rels[0].r_type(), .x86_64),
                     relocation.fmtRelocType(rels[1].r_type(), .x86_64),
@@ -1596,6 +1612,7 @@ const aarch64 = struct {
     ) (error{ UnexpectedRemainder, DivisionByZero } || RelocError)!void {
         _ = it;
 
+        const diags = &elf_file.base.comp.link_diags;
         const r_type: elf.R_AARCH64 = @enumFromInt(rel.r_type());
         const r_offset = std.math.cast(usize, rel.r_offset) orelse return error.Overflow;
         const cwriter = stream.writer();
@@ -1650,7 +1667,7 @@ const aarch64 = struct {
                 aarch64_util.writeAdrpInst(pages, code);
             } else {
                 // TODO: relax
-                var err = try elf_file.base.addErrorWithNotes(1);
+                var err = try diags.addErrorWithNotes(1);
                 try err.addMsg("TODO: relax ADR_GOT_PAGE", .{});
                 try err.addNote("in {}:{s} at offset 0x{x}", .{
                     atom.file(elf_file).?.fmtPath(),
@@ -1875,6 +1892,7 @@ const riscv = struct {
         code: []u8,
         stream: anytype,
     ) !void {
+        const diags = &elf_file.base.comp.link_diags;
         const r_type: elf.R_RISCV = @enumFromInt(rel.r_type());
         const r_offset = std.math.cast(usize, rel.r_offset) orelse return error.Overflow;
         const cwriter = stream.writer();
@@ -1936,7 +1954,7 @@ const riscv = struct {
                     if (S == atom_addr + @as(i64, @intCast(pair.r_offset))) break pair;
                 } else {
                     // TODO: implement searching forward
-                    var err = try elf_file.base.addErrorWithNotes(1);
+                    var err = try diags.addErrorWithNotes(1);
                     try err.addMsg("TODO: find HI20 paired reloc scanning forward", .{});
                     try err.addNote("in {}:{s} at offset 0x{x}", .{
                         atom.file(elf_file).?.fmtPath(),
@@ -2103,6 +2121,14 @@ pub const Extra = struct {
 
     /// Count of relocations belonging to this atom.
     rel_count: u32 = 0,
+
+    pub const AsOptionals = struct {
+        thunk: ?u32 = null,
+        fde_start: ?u32 = null,
+        fde_count: ?u32 = null,
+        rel_index: ?u32 = null,
+        rel_count: ?u32 = null,
+    };
 };
 
 const std = @import("std");

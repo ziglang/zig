@@ -43,11 +43,11 @@ struct __decay {
 template <class _Up>
 struct __decay<_Up, true> {
 public:
-  typedef _LIBCPP_NODEBUG typename conditional<
-      is_array<_Up>::value,
-      __add_pointer_t<__remove_extent_t<_Up> >,
-      typename conditional<is_function<_Up>::value, typename add_pointer<_Up>::type, __remove_cv_t<_Up> >::type >::type
-      type;
+  typedef _LIBCPP_NODEBUG
+      __conditional_t<is_array<_Up>::value,
+                      __add_pointer_t<__remove_extent_t<_Up> >,
+                      __conditional_t<is_function<_Up>::value, typename add_pointer<_Up>::type, __remove_cv_t<_Up> > >
+          type;
 };
 
 template <class _Tp>

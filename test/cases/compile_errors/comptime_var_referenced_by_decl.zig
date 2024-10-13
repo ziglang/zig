@@ -38,6 +38,12 @@ export const g: *const *const u32 = g: {
     break :g &aggregate[0];
 };
 
+// Mutable globals should have the same restrictions as const globals.
+export var h: *[1]u32 = h: {
+    var x: [1]u32 = .{123};
+    break :h &x;
+};
+
 // error
 //
 // :1:27: error: global variable contains reference to comptime var
@@ -47,3 +53,4 @@ export const g: *const *const u32 = g: {
 // :22:24: error: global variable contains reference to comptime var
 // :28:33: error: global variable contains reference to comptime var
 // :34:40: error: global variable contains reference to comptime var
+// :42:28: error: global variable contains reference to comptime var

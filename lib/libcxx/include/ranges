@@ -93,6 +93,11 @@ namespace std::ranges {
   template<class T>
   concept viewable_range = see below;
 
+  // [range.adaptor.object], range adaptor objects
+  template<class D>
+    requires is_class_v<D> && same_as<D, remove_cv_t<D>>
+  class range_adaptor_closure { };  // Since c++23
+
   // [view.interface], class template view_interface
   template<class D>
     requires is_class_v<D> && same_as<D, remove_cv_t<D>>
@@ -375,50 +380,56 @@ namespace std {
 }
 */
 
-#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
-#include <__ranges/access.h>
-#include <__ranges/all.h>
-#include <__ranges/as_rvalue_view.h>
-#include <__ranges/chunk_by_view.h>
-#include <__ranges/common_view.h>
-#include <__ranges/concepts.h>
-#include <__ranges/counted.h>
-#include <__ranges/dangling.h>
-#include <__ranges/data.h>
-#include <__ranges/drop_view.h>
-#include <__ranges/drop_while_view.h>
-#include <__ranges/elements_view.h>
-#include <__ranges/empty.h>
-#include <__ranges/empty_view.h>
-#include <__ranges/enable_borrowed_range.h>
-#include <__ranges/enable_view.h>
-#include <__ranges/filter_view.h>
-#include <__ranges/from_range.h>
-#include <__ranges/iota_view.h>
-#include <__ranges/join_view.h>
-#include <__ranges/lazy_split_view.h>
-#include <__ranges/rbegin.h>
-#include <__ranges/ref_view.h>
-#include <__ranges/rend.h>
-#include <__ranges/repeat_view.h>
-#include <__ranges/reverse_view.h>
-#include <__ranges/single_view.h>
-#include <__ranges/size.h>
-#include <__ranges/split_view.h>
-#include <__ranges/subrange.h>
-#include <__ranges/take_view.h>
-#include <__ranges/take_while_view.h>
-#include <__ranges/to.h>
-#include <__ranges/transform_view.h>
-#include <__ranges/view_interface.h>
-#include <__ranges/views.h>
-#include <__ranges/zip_view.h>
-#include <version>
 
-#if !defined(_LIBCPP_HAS_NO_LOCALIZATION)
-#  include <__ranges/istream_view.h>
+#if _LIBCPP_STD_VER >= 20
+#  include <__ranges/access.h>
+#  include <__ranges/all.h>
+#  include <__ranges/common_view.h>
+#  include <__ranges/concepts.h>
+#  include <__ranges/counted.h>
+#  include <__ranges/dangling.h>
+#  include <__ranges/data.h>
+#  include <__ranges/drop_view.h>
+#  include <__ranges/drop_while_view.h>
+#  include <__ranges/elements_view.h>
+#  include <__ranges/empty.h>
+#  include <__ranges/empty_view.h>
+#  include <__ranges/enable_borrowed_range.h>
+#  include <__ranges/enable_view.h>
+#  include <__ranges/filter_view.h>
+#  include <__ranges/iota_view.h>
+#  include <__ranges/join_view.h>
+#  include <__ranges/lazy_split_view.h>
+#  include <__ranges/rbegin.h>
+#  include <__ranges/ref_view.h>
+#  include <__ranges/rend.h>
+#  include <__ranges/reverse_view.h>
+#  include <__ranges/single_view.h>
+#  include <__ranges/size.h>
+#  include <__ranges/split_view.h>
+#  include <__ranges/subrange.h>
+#  include <__ranges/take_view.h>
+#  include <__ranges/take_while_view.h>
+#  include <__ranges/transform_view.h>
+#  include <__ranges/view_interface.h>
+#  include <__ranges/views.h>
+
+#  if !defined(_LIBCPP_HAS_NO_LOCALIZATION)
+#    include <__ranges/istream_view.h>
+#  endif
 #endif
+
+#if _LIBCPP_STD_VER >= 23
+#  include <__ranges/as_rvalue_view.h>
+#  include <__ranges/chunk_by_view.h>
+#  include <__ranges/from_range.h>
+#  include <__ranges/repeat_view.h>
+#  include <__ranges/to.h>
+#  include <__ranges/zip_view.h>
+#endif
+
+#include <version>
 
 // standard-mandated includes
 
@@ -433,6 +444,14 @@ namespace std {
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
+#endif
+
+#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 17
+#  include <cstddef>
+#  include <limits>
+#  include <optional>
+#  include <span>
+#  include <tuple>
 #endif
 
 #if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20

@@ -35,10 +35,7 @@ pub fn intMaxType(target: std.Target) Type {
 
 /// intptr_t for this target
 pub fn intPtrType(target: std.Target) Type {
-    switch (target.os.tag) {
-        .haiku => return .{ .specifier = .long },
-        else => {},
-    }
+    if (target.os.tag == .haiku) return .{ .specifier = .long };
 
     switch (target.cpu.arch) {
         .aarch64, .aarch64_be => switch (target.os.tag) {
@@ -125,6 +122,14 @@ pub fn int64Type(target: std.Target) Type {
         else => {},
     }
     return .{ .specifier = .long_long };
+}
+
+pub fn float80Type(target: std.Target) ?Type {
+    switch (target.cpu.arch) {
+        .x86, .x86_64 => return .{ .specifier = .long_double },
+        else => {},
+    }
+    return null;
 }
 
 /// This function returns 1 if function alignment is not observable or settable.
@@ -474,9 +479,9 @@ pub fn get32BitArchVariant(target: std.Target) ?std.Target {
         .kalimba,
         .lanai,
         .wasm32,
+        .spirv,
         .spirv32,
         .loongarch32,
-        .dxil,
         .xtensa,
         => {}, // Already 32 bit
 
@@ -503,7 +508,6 @@ pub fn get64BitArchVariant(target: std.Target) ?std.Target {
         .arc,
         .avr,
         .csky,
-        .dxil,
         .hexagon,
         .kalimba,
         .lanai,
@@ -544,6 +548,7 @@ pub fn get64BitArchVariant(target: std.Target) ?std.Target {
         .powerpcle => copy.cpu.arch = .powerpc64le,
         .riscv32 => copy.cpu.arch = .riscv64,
         .sparc => copy.cpu.arch = .sparc64,
+        .spirv => copy.cpu.arch = .spirv64,
         .spirv32 => copy.cpu.arch = .spirv64,
         .thumb => copy.cpu.arch = .aarch64,
         .thumbeb => copy.cpu.arch = .aarch64_be,
@@ -571,7 +576,6 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .bpfel => "bpfel",
         .bpfeb => "bpfeb",
         .csky => "csky",
-        .dxil => "dxil",
         .hexagon => "hexagon",
         .loongarch32 => "loongarch32",
         .loongarch64 => "loongarch64",
@@ -599,6 +603,7 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .xtensa => "xtensa",
         .nvptx => "nvptx",
         .nvptx64 => "nvptx64",
+        .spirv => "spirv",
         .spirv32 => "spirv32",
         .spirv64 => "spirv64",
         .kalimba => "kalimba",
@@ -646,9 +651,10 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .ios => "ios",
         .tvos => "tvos",
         .watchos => "watchos",
-        .visionos => "xros",
         .driverkit => "driverkit",
-        .shadermodel => "shadermodel",
+        .visionos => "xros",
+        .serenity => "serenity",
+        .bridgeos => "bridgeos",
         .opencl,
         .opengl,
         .vulkan,
@@ -683,6 +689,7 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .eabi => "eabi",
         .eabihf => "eabihf",
         .android => "android",
+        .androideabi => "androideabi",
         .musl => "musl",
         .musleabi => "musleabi",
         .musleabihf => "musleabihf",
@@ -692,21 +699,8 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .cygnus => "cygnus",
         .simulator => "simulator",
         .macabi => "macabi",
-        .pixel => "pixel",
-        .vertex => "vertex",
-        .geometry => "geometry",
-        .hull => "hull",
-        .domain => "domain",
-        .compute => "compute",
-        .library => "library",
-        .raygeneration => "raygeneration",
-        .intersection => "intersection",
-        .anyhit => "anyhit",
-        .closesthit => "closesthit",
-        .miss => "miss",
-        .callable => "callable",
-        .mesh => "mesh",
-        .amplification => "amplification",
+        .ohos => "ohos",
+        .ohoseabi => "ohoseabi",
     };
     writer.writeAll(llvm_abi) catch unreachable;
     return stream.getWritten();

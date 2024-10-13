@@ -23,10 +23,10 @@ pub const File = union(enum) {
         _ = unused_fmt_string;
         _ = options;
         switch (file) {
-            .zig_object => |x| try writer.print("{s}", .{x.path}),
+            .zig_object => |zo| try writer.writeAll(zo.basename),
             .linker_defined => try writer.writeAll("(linker defined)"),
             .object => |x| try writer.print("{}", .{x.fmtPath()}),
-            .shared_object => |x| try writer.writeAll(x.path),
+            .shared_object => |x| try writer.print("{}", .{@as(Path, x.path)}),
         }
     }
 
@@ -95,19 +95,19 @@ pub const File = union(enum) {
                     log.debug("'{s}' is non-local", .{sym.name(ef)});
                     try ef.dynsym.addSymbol(ref, ef);
                 }
-                if (sym.flags.needs_got) {
+                if (sym.flags.needs_got and !sym.flags.has_got) {
                     log.debug("'{s}' needs GOT", .{sym.name(ef)});
                     _ = try ef.got.addGotSymbol(ref, ef);
                 }
                 if (sym.flags.needs_plt) {
-                    if (sym.flags.is_canonical) {
+                    if (sym.flags.is_canonical and !sym.flags.has_plt) {
                         log.debug("'{s}' needs CPLT", .{sym.name(ef)});
                         sym.flags.@"export" = true;
                         try ef.plt.addSymbol(ref, ef);
-                    } else if (sym.flags.needs_got) {
+                    } else if (sym.flags.needs_got and !sym.flags.has_pltgot) {
                         log.debug("'{s}' needs PLTGOT", .{sym.name(ef)});
                         try ef.plt_got.addSymbol(ref, ef);
-                    } else {
+                    } else if (!sym.flags.has_plt) {
                         log.debug("'{s}' needs PLT", .{sym.name(ef)});
                         try ef.plt.addSymbol(ref, ef);
                     }
@@ -116,15 +116,15 @@ pub const File = union(enum) {
                     log.debug("'{s}' needs COPYREL", .{sym.name(ef)});
                     try ef.copy_rel.addSymbol(ref, ef);
                 }
-                if (sym.flags.needs_tlsgd) {
+                if (sym.flags.needs_tlsgd and !sym.flags.has_tlsgd) {
                     log.debug("'{s}' needs TLSGD", .{sym.name(ef)});
                     try ef.got.addTlsGdSymbol(ref, ef);
                 }
-                if (sym.flags.needs_gottp) {
+                if (sym.flags.needs_gottp and !sym.flags.has_gottp) {
                     log.debug("'{s}' needs GOTTP", .{sym.name(ef)});
                     try ef.got.addGotTpSymbol(ref, ef);
                 }
-                if (sym.flags.needs_tlsdesc) {
+                if (sym.flags.needs_tlsdesc and !sym.flags.has_tlsdesc) {
                     log.debug("'{s}' needs TLSDESC", .{sym.name(ef)});
                     try ef.got.addTlsDescSymbol(ref, ef);
                 }
@@ -240,30 +240,31 @@ pub const File = union(enum) {
         return switch (file) {
             .zig_object => |x| x.updateArSymtab(ar_symtab, elf_file),
             .object => |x| x.updateArSymtab(ar_symtab, elf_file),
-            inline else => unreachable,
+            else => unreachable,
         };
     }
 
     pub fn updateArStrtab(file: File, allocator: Allocator, ar_strtab: *Archive.ArStrtab) !void {
-        const path = switch (file) {
-            .zig_object => |x| x.path,
-            .object => |x| x.path,
-            inline else => unreachable,
-        };
-        const state = switch (file) {
-            .zig_object => |x| &x.output_ar_state,
-            .object => |x| &x.output_ar_state,
-            inline else => unreachable,
-        };
-        if (path.len <= Archive.max_member_name_len) return;
-        state.name_off = try ar_strtab.insert(allocator, path);
+        switch (file) {
+            .zig_object => |zo| {
+                const basename = zo.basename;
+                if (basename.len <= Archive.max_member_name_len) return;
+                zo.output_ar_state.name_off = try ar_strtab.insert(allocator, basename);
+            },
+            .object => |o| {
+                const basename = std.fs.path.basename(o.path.sub_path);
+                if (basename.len <= Archive.max_member_name_len) return;
+                o.output_ar_state.name_off = try ar_strtab.insert(allocator, basename);
+            },
+            else => unreachable,
+        }
     }
 
     pub fn updateArSize(file: File, elf_file: *Elf) !void {
         return switch (file) {
             .zig_object => |x| x.updateArSize(),
             .object => |x| x.updateArSize(elf_file),
-            inline else => unreachable,
+            else => unreachable,
         };
     }
 
@@ -271,7 +272,7 @@ pub const File = union(enum) {
         return switch (file) {
             .zig_object => |x| x.writeAr(writer),
             .object => |x| x.writeAr(elf_file, writer),
-            inline else => unreachable,
+            else => unreachable,
         };
     }
 
@@ -292,8 +293,9 @@ pub const File = union(enum) {
 const std = @import("std");
 const elf = std.elf;
 const log = std.log.scoped(.link);
-
+const Path = std.Build.Cache.Path;
 const Allocator = std.mem.Allocator;
+
 const Archive = @import("Archive.zig");
 const Atom = @import("Atom.zig");
 const Cie = @import("eh_frame.zig").Cie;

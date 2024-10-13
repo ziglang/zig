@@ -114,16 +114,14 @@ namespace __common {
 struct __fn : __range_adaptor_closure<__fn> {
   template <class _Range>
     requires common_range<_Range>
-  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr auto operator()(_Range&& __range) const
-      noexcept(noexcept(views::all(std::forward<_Range>(__range))))
-          -> decltype(views::all(std::forward<_Range>(__range))) {
+  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr auto operator()(_Range&& __range) const noexcept(
+      noexcept(views::all(std::forward<_Range>(__range)))) -> decltype(views::all(std::forward<_Range>(__range))) {
     return views::all(std::forward<_Range>(__range));
   }
 
   template <class _Range>
-  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr auto operator()(_Range&& __range) const
-      noexcept(noexcept(common_view{std::forward<_Range>(__range)}))
-          -> decltype(common_view{std::forward<_Range>(__range)}) {
+  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr auto operator()(_Range&& __range) const noexcept(noexcept(common_view{
+      std::forward<_Range>(__range)})) -> decltype(common_view{std::forward<_Range>(__range)}) {
     return common_view{std::forward<_Range>(__range)};
   }
 };

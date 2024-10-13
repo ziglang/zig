@@ -14,11 +14,10 @@
 #include <__atomic/cxx_atomic_impl.h>
 #include <__atomic/is_always_lock_free.h>
 #include <__atomic/memory_order.h>
-#include <__availability>
 #include <__config>
 #include <__memory/addressof.h>
 #include <__type_traits/is_integral.h>
-#include <__type_traits/is_nothrow_default_constructible.h>
+#include <__type_traits/is_nothrow_constructible.h>
 #include <__type_traits/is_same.h>
 #include <version>
 
@@ -34,7 +33,7 @@ struct __atomic_base // false
   mutable __cxx_atomic_impl<_Tp> __a_;
 
 #if _LIBCPP_STD_VER >= 17
-  static _LIBCPP_CONSTEXPR bool is_always_lock_free = __libcpp_is_always_lock_free<__cxx_atomic_impl<_Tp> >::__value;
+  static constexpr bool is_always_lock_free = __libcpp_is_always_lock_free<__cxx_atomic_impl<_Tp> >::__value;
 #endif
 
   _LIBCPP_HIDE_FROM_ABI bool is_lock_free() const volatile _NOEXCEPT {
@@ -104,24 +103,20 @@ struct __atomic_base // false
 
   _LIBCPP_AVAILABILITY_SYNC _LIBCPP_HIDE_FROM_ABI void wait(_Tp __v, memory_order __m = memory_order_seq_cst) const
       volatile _NOEXCEPT {
-    std::__cxx_atomic_wait(std::addressof(__a_), __v, __m);
+    std::__atomic_wait(*this, __v, __m);
   }
   _LIBCPP_AVAILABILITY_SYNC _LIBCPP_HIDE_FROM_ABI void
   wait(_Tp __v, memory_order __m = memory_order_seq_cst) const _NOEXCEPT {
-    std::__cxx_atomic_wait(std::addressof(__a_), __v, __m);
+    std::__atomic_wait(*this, __v, __m);
   }
   _LIBCPP_AVAILABILITY_SYNC _LIBCPP_HIDE_FROM_ABI void notify_one() volatile _NOEXCEPT {
-    std::__cxx_atomic_notify_one(std::addressof(__a_));
+    std::__atomic_notify_one(*this);
   }
-  _LIBCPP_AVAILABILITY_SYNC _LIBCPP_HIDE_FROM_ABI void notify_one() _NOEXCEPT {
-    std::__cxx_atomic_notify_one(std::addressof(__a_));
-  }
+  _LIBCPP_AVAILABILITY_SYNC _LIBCPP_HIDE_FROM_ABI void notify_one() _NOEXCEPT { std::__atomic_notify_one(*this); }
   _LIBCPP_AVAILABILITY_SYNC _LIBCPP_HIDE_FROM_ABI void notify_all() volatile _NOEXCEPT {
-    std::__cxx_atomic_notify_all(std::addressof(__a_));
+    std::__atomic_notify_all(*this);
   }
-  _LIBCPP_AVAILABILITY_SYNC _LIBCPP_HIDE_FROM_ABI void notify_all() _NOEXCEPT {
-    std::__cxx_atomic_notify_all(std::addressof(__a_));
-  }
+  _LIBCPP_AVAILABILITY_SYNC _LIBCPP_HIDE_FROM_ABI void notify_all() _NOEXCEPT { std::__atomic_notify_all(*this); }
 
 #if _LIBCPP_STD_VER >= 20
   _LIBCPP_HIDE_FROM_ABI constexpr __atomic_base() noexcept(is_nothrow_default_constructible_v<_Tp>) : __a_(_Tp()) {}
@@ -133,11 +128,6 @@ struct __atomic_base // false
 
   __atomic_base(const __atomic_base&) = delete;
 };
-
-#if _LIBCPP_STD_VER >= 17
-template <class _Tp, bool __b>
-_LIBCPP_CONSTEXPR bool __atomic_base<_Tp, __b>::is_always_lock_free;
-#endif
 
 // atomic<Integral>
 
@@ -198,6 +188,32 @@ struct __atomic_base<_Tp, true> : public __atomic_base<_Tp, false> {
   _LIBCPP_HIDE_FROM_ABI _Tp operator|=(_Tp __op) _NOEXCEPT { return fetch_or(__op) | __op; }
   _LIBCPP_HIDE_FROM_ABI _Tp operator^=(_Tp __op) volatile _NOEXCEPT { return fetch_xor(__op) ^ __op; }
   _LIBCPP_HIDE_FROM_ABI _Tp operator^=(_Tp __op) _NOEXCEPT { return fetch_xor(__op) ^ __op; }
+};
+
+// Here we need _IsIntegral because the default template argument is not enough
+// e.g  __atomic_base<int> is __atomic_base<int, true>, which inherits from
+// __atomic_base<int, false> and the caller of the wait function is
+// __atomic_base<int, false>. So specializing __atomic_base<_Tp> does not work
+template <class _Tp, bool _IsIntegral>
+struct __atomic_waitable_traits<__atomic_base<_Tp, _IsIntegral> > {
+  static _LIBCPP_HIDE_FROM_ABI _Tp __atomic_load(const __atomic_base<_Tp, _IsIntegral>& __a, memory_order __order) {
+    return __a.load(__order);
+  }
+
+  static _LIBCPP_HIDE_FROM_ABI _Tp
+  __atomic_load(const volatile __atomic_base<_Tp, _IsIntegral>& __this, memory_order __order) {
+    return __this.load(__order);
+  }
+
+  static _LIBCPP_HIDE_FROM_ABI const __cxx_atomic_impl<_Tp>*
+  __atomic_contention_address(const __atomic_base<_Tp, _IsIntegral>& __a) {
+    return std::addressof(__a.__a_);
+  }
+
+  static _LIBCPP_HIDE_FROM_ABI const volatile __cxx_atomic_impl<_Tp>*
+  __atomic_contention_address(const volatile __atomic_base<_Tp, _IsIntegral>& __this) {
+    return std::addressof(__this.__a_);
+  }
 };
 
 _LIBCPP_END_NAMESPACE_STD

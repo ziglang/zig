@@ -9,7 +9,6 @@
 #ifndef _LIBCPP___MEMORY_RESOURCE_UNSYNCHRONIZED_POOL_RESOURCE_H
 #define _LIBCPP___MEMORY_RESOURCE_UNSYNCHRONIZED_POOL_RESOURCE_H
 
-#include <__availability>
 #include <__config>
 #include <__memory_resource/memory_resource.h>
 #include <__memory_resource/pool_options.h>

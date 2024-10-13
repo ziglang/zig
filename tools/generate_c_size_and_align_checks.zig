@@ -25,7 +25,7 @@ fn cName(ty: std.Target.CType) []const u8 {
     };
 }
 
-var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
+var general_purpose_allocator: std.heap.GeneralPurposeAllocator(.{}) = .init;
 
 pub fn main() !void {
     const gpa = general_purpose_allocator.allocator();

@@ -303,7 +303,6 @@ const Writer = struct {
             .try_ptr, .try_ptr_cold => try w.writeTryPtr(s, inst),
             .loop_switch_br, .switch_br => try w.writeSwitchBr(s, inst),
             .cmpxchg_weak, .cmpxchg_strong => try w.writeCmpxchg(s, inst),
-            .fence => try w.writeFence(s, inst),
             .atomic_load => try w.writeAtomicLoad(s, inst),
             .prefetch => try w.writePrefetch(s, inst),
             .atomic_store_unordered => try w.writeAtomicStore(s, inst, .unordered),
@@ -550,12 +549,6 @@ const Writer = struct {
         try w.writeOperand(s, inst, 1, extra.lhs);
         try s.writeAll(", ");
         try w.writeOperand(s, inst, 2, extra.rhs);
-    }
-
-    fn writeFence(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
-        const atomic_order = w.air.instructions.items(.data)[@intFromEnum(inst)].fence;
-
-        try s.print("{s}", .{@tagName(atomic_order)});
     }
 
     fn writeAtomicLoad(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {

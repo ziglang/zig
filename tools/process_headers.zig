@@ -209,6 +209,11 @@ const glibc_targets = [_]LibCTarget{
         .arch = MultiArch{ .specific = .loongarch64 },
         .abi = MultiAbi{ .specific = Abi.gnu },
     },
+    LibCTarget{
+        .name = "loongarch64-linux-gnu-lp64s",
+        .arch = MultiArch{ .specific = .loongarch64 },
+        .abi = MultiAbi{ .specific = Abi.gnusf },
+    },
 };
 
 const musl_targets = [_]LibCTarget{

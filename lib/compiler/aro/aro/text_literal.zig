@@ -71,7 +71,7 @@ pub const Kind = enum {
     pub fn maxCodepoint(kind: Kind, comp: *const Compilation) u21 {
         return @intCast(switch (kind) {
             .char => std.math.maxInt(u7),
-            .wide => @min(0x10FFFF, comp.types.wchar.maxInt(comp)),
+            .wide => @min(0x10FFFF, comp.wcharMax()),
             .utf_8 => std.math.maxInt(u7),
             .utf_16 => std.math.maxInt(u16),
             .utf_32 => 0x10FFFF,
@@ -83,7 +83,7 @@ pub const Kind = enum {
     pub fn maxInt(kind: Kind, comp: *const Compilation) u32 {
         return @intCast(switch (kind) {
             .char, .utf_8 => std.math.maxInt(u8),
-            .wide => comp.types.wchar.maxInt(comp),
+            .wide => comp.wcharMax(),
             .utf_16 => std.math.maxInt(u16),
             .utf_32 => std.math.maxInt(u32),
             .unterminated => unreachable,

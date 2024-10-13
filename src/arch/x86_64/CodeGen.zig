@@ -17,7 +17,6 @@ const Air = @import("../../Air.zig");
 const Allocator = mem.Allocator;
 const CodeGenError = codegen.CodeGenError;
 const Compilation = @import("../../Compilation.zig");
-const DebugInfoOutput = codegen.DebugInfoOutput;
 const ErrorMsg = Zcu.ErrorMsg;
 const Result = codegen.Result;
 const Emit = @import("Emit.zig");
@@ -37,6 +36,7 @@ const abi = @import("abi.zig");
 const bits = @import("bits.zig");
 const errUnionErrorOffset = codegen.errUnionErrorOffset;
 const errUnionPayloadOffset = codegen.errUnionPayloadOffset;
+const encoder = @import("encoder.zig");
 
 const Condition = bits.Condition;
 const Immediate = bits.Immediate;
@@ -53,7 +53,7 @@ pt: Zcu.PerThread,
 air: Air,
 liveness: Liveness,
 bin_file: *link.File,
-debug_output: DebugInfoOutput,
+debug_output: link.File.DebugInfoOutput,
 target: *const std.Target,
 owner: Owner,
 inline_func: InternPool.Index,
@@ -79,7 +79,7 @@ eflags_inst: ?Air.Inst.Index = null,
 /// MIR Instructions
 mir_instructions: std.MultiArrayList(Mir.Inst) = .{},
 /// MIR extra data
-mir_extra: std.ArrayListUnmanaged(u32) = .{},
+mir_extra: std.ArrayListUnmanaged(u32) = .empty,
 
 /// Byte offset within the source file of the ending curly.
 end_di_line: u32,
@@ -88,13 +88,13 @@ end_di_column: u32,
 /// The value is an offset into the `Function` `code` from the beginning.
 /// To perform the reloc, write 32-bit signed little-endian integer
 /// which is a relative jump, based on the address following the reloc.
-exitlude_jump_relocs: std.ArrayListUnmanaged(Mir.Inst.Index) = .{},
+exitlude_jump_relocs: std.ArrayListUnmanaged(Mir.Inst.Index) = .empty,
 
 const_tracking: ConstTrackingMap = .{},
 inst_tracking: InstTrackingMap = .{},
 
 // Key is the block instruction
-blocks: std.AutoHashMapUnmanaged(Air.Inst.Index, BlockData) = .{},
+blocks: std.AutoHashMapUnmanaged(Air.Inst.Index, BlockData) = .empty,
 
 register_manager: RegisterManager = .{},
 
@@ -102,7 +102,7 @@ register_manager: RegisterManager = .{},
 scope_generation: u32 = 0,
 
 frame_allocs: std.MultiArrayList(FrameAlloc) = .{},
-free_frame_indices: std.AutoArrayHashMapUnmanaged(FrameIndex, void) = .{},
+free_frame_indices: std.AutoArrayHashMapUnmanaged(FrameIndex, void) = .empty,
 frame_locs: std.MultiArrayList(Mir.FrameLoc) = .{},
 
 loops: std.AutoHashMapUnmanaged(Air.Inst.Index, struct {
@@ -800,7 +800,7 @@ const StackAllocation = struct {
 };
 
 const BlockData = struct {
-    relocs: std.ArrayListUnmanaged(Mir.Inst.Index) = .{},
+    relocs: std.ArrayListUnmanaged(Mir.Inst.Index) = .empty,
     state: State,
 
     fn deinit(self: *BlockData, gpa: Allocator) void {
@@ -819,7 +819,7 @@ pub fn generate(
     air: Air,
     liveness: Liveness,
     code: *std.ArrayList(u8),
-    debug_output: DebugInfoOutput,
+    debug_output: link.File.DebugInfoOutput,
 ) CodeGenError!Result {
     const zcu = pt.zcu;
     const comp = zcu.comp;
@@ -1000,7 +1000,7 @@ pub fn generateLazy(
     src_loc: Zcu.LazySrcLoc,
     lazy_sym: link.File.LazySymbol,
     code: *std.ArrayList(u8),
-    debug_output: DebugInfoOutput,
+    debug_output: link.File.DebugInfoOutput,
 ) CodeGenError!Result {
     const comp = bin_file.comp;
     const gpa = comp.gpa;
@@ -1188,6 +1188,74 @@ fn formatWipMir(
         if (!first) try writer.writeAll("\ndebug(wip_mir): ");
         try writer.print("  | {}", .{lowered_inst});
         first = false;
+    }
+    if (first) {
+        const ip = &data.self.pt.zcu.intern_pool;
+        const mir_inst = lower.mir.instructions.get(data.inst);
+        try writer.print("  | .{s}", .{@tagName(mir_inst.ops)});
+        switch (mir_inst.ops) {
+            else => unreachable,
+            .pseudo_dbg_prologue_end_none,
+            .pseudo_dbg_line_line_column,
+            .pseudo_dbg_epilogue_begin_none,
+            .pseudo_dbg_enter_block_none,
+            .pseudo_dbg_leave_block_none,
+            .pseudo_dbg_var_args_none,
+            .pseudo_dead_none,
+            => {},
+            .pseudo_dbg_enter_inline_func, .pseudo_dbg_leave_inline_func => try writer.print(" {}", .{
+                ip.getNav(ip.indexToKey(mir_inst.data.func).func.owner_nav).name.fmt(ip),
+            }),
+            .pseudo_dbg_local_a => try writer.print(" {}", .{mir_inst.data.a.air_inst}),
+            .pseudo_dbg_local_ai_s => try writer.print(" {}, {d}", .{
+                mir_inst.data.ai.air_inst,
+                @as(i32, @bitCast(mir_inst.data.ai.i)),
+            }),
+            .pseudo_dbg_local_ai_u => try writer.print(" {}, {d}", .{
+                mir_inst.data.ai.air_inst,
+                mir_inst.data.ai.i,
+            }),
+            .pseudo_dbg_local_ai_64 => try writer.print(" {}, {d}", .{
+                mir_inst.data.ai.air_inst,
+                lower.mir.extraData(Mir.Imm64, mir_inst.data.ai.i).data.decode(),
+            }),
+            .pseudo_dbg_local_as => {
+                const mem_op: Instruction.Operand = .{ .mem = .initSib(.qword, .{
+                    .base = .{ .reloc = mir_inst.data.as.sym_index },
+                }) };
+                try writer.print(" {}, {}", .{ mir_inst.data.as.air_inst, mem_op.fmt(.m) });
+            },
+            .pseudo_dbg_local_aso => {
+                const sym_off = lower.mir.extraData(bits.SymbolOffset, mir_inst.data.ax.payload).data;
+                const mem_op: Instruction.Operand = .{ .mem = .initSib(.qword, .{
+                    .base = .{ .reloc = sym_off.sym_index },
+                    .disp = sym_off.off,
+                }) };
+                try writer.print(" {}, {}", .{ mir_inst.data.ax.air_inst, mem_op.fmt(.m) });
+            },
+            .pseudo_dbg_local_aro => {
+                const air_off = lower.mir.extraData(Mir.AirOffset, mir_inst.data.rx.payload).data;
+                const mem_op: Instruction.Operand = .{ .mem = .initSib(.qword, .{
+                    .base = .{ .reg = mir_inst.data.rx.r1 },
+                    .disp = air_off.off,
+                }) };
+                try writer.print(" {}, {}", .{ air_off.air_inst, mem_op.fmt(.m) });
+            },
+            .pseudo_dbg_local_af => {
+                const frame_addr = lower.mir.extraData(bits.FrameAddr, mir_inst.data.ax.payload).data;
+                const mem_op: Instruction.Operand = .{ .mem = .initSib(.qword, .{
+                    .base = .{ .frame = frame_addr.index },
+                    .disp = frame_addr.off,
+                }) };
+                try writer.print(" {}, {d}", .{ mir_inst.data.ax.air_inst, mem_op.fmt(.m) });
+            },
+            .pseudo_dbg_local_am => {
+                const mem_op: Instruction.Operand = .{
+                    .mem = lower.mir.extraData(Mir.Memory, mir_inst.data.ax.payload).data.decode(),
+                };
+                try writer.print(" {}, {}", .{ mir_inst.data.ax.air_inst, mem_op.fmt(.m) });
+            },
+        }
     }
 }
 fn fmtWipMir(self: *Self, inst: Mir.Inst.Index) std.fmt.Formatter(formatWipMir) {
@@ -2181,6 +2249,12 @@ fn checkInvariantsAfterAirInst(self: *Self, inst: Air.Inst.Index, old_air_bookke
     }
 }
 
+fn genBodyBlock(self: *Self, body: []const Air.Inst.Index) InnerError!void {
+    try self.asmPseudo(.pseudo_dbg_enter_block_none);
+    try self.genBody(body);
+    try self.asmPseudo(.pseudo_dbg_leave_block_none);
+}
+
 fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
     const pt = self.pt;
     const zcu = pt.zcu;
@@ -2295,7 +2369,6 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .breakpoint      => try self.airBreakpoint(),
             .ret_addr        => try self.airRetAddr(inst),
             .frame_addr      => try self.airFrameAddress(inst),
-            .fence           => try self.airFence(inst),
             .cond_br         => try self.airCondBr(inst),
             .fptrunc         => try self.airFptrunc(inst),
             .fpext           => try self.airFpext(inst),
@@ -12252,16 +12325,6 @@ fn airFrameAddress(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, dst_mcv, .{ .none, .none, .none });
 }
 
-fn airFence(self: *Self, inst: Air.Inst.Index) !void {
-    const order = self.air.instructions.items(.data)[@intFromEnum(inst)].fence;
-    switch (order) {
-        .unordered, .monotonic => unreachable,
-        .acquire, .release, .acq_rel => {},
-        .seq_cst => try self.asmOpOnly(.{ ._, .mfence }),
-    }
-    self.finishAirBookkeeping();
-}
-
 fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier) !void {
     if (modifier == .always_tail) return self.fail("TODO implement tail calls for x86_64", .{});
 
@@ -13196,7 +13259,7 @@ fn genTry(
     const state = try self.saveState();
 
     for (liveness_cond_br.else_deaths) |death| try self.processDeath(death);
-    try self.genBody(body);
+    try self.genBodyBlock(body);
     try self.restoreState(state, &.{}, .{
         .emit_instructions = false,
         .update_tracking = true,
@@ -13305,7 +13368,7 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     const reloc = try self.genCondBrMir(cond_ty, cond);
 
     for (liveness_cond_br.then_deaths) |death| try self.processDeath(death);
-    try self.genBody(then_body);
+    try self.genBodyBlock(then_body);
     try self.restoreState(state, &.{}, .{
         .emit_instructions = false,
         .update_tracking = true,
@@ -13316,7 +13379,7 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     self.performReloc(reloc);
 
     for (liveness_cond_br.else_deaths) |death| try self.processDeath(death);
-    try self.genBody(else_body);
+    try self.genBodyBlock(else_body);
     try self.restoreState(state, &.{}, .{
         .emit_instructions = false,
         .update_tracking = true,
@@ -13677,14 +13740,16 @@ fn airLoop(self: *Self, inst: Air.Inst.Index) !void {
     });
     defer assert(self.loops.remove(inst));
 
-    try self.genBody(body);
+    try self.genBodyBlock(body);
     self.finishAirBookkeeping();
 }
 
 fn airBlock(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = self.air.extraData(Air.Block, ty_pl.payload);
+    try self.asmPseudo(.pseudo_dbg_enter_block_none);
     try self.lowerBlock(inst, @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]));
+    try self.asmPseudo(.pseudo_dbg_leave_block_none);
 }
 
 fn lowerBlock(self: *Self, inst: Air.Inst.Index, body: []const Air.Inst.Index) !void {
@@ -13696,7 +13761,6 @@ fn lowerBlock(self: *Self, inst: Air.Inst.Index, body: []const Air.Inst.Index) !
     try self.blocks.putNoClobber(self.gpa, inst, .{ .state = self.initRetroactiveState() });
     const liveness = self.liveness.getBlock(inst);
 
-    // TODO emit debug info lexical block
     try self.genBody(body);
 
     var block_data = self.blocks.fetchRemove(inst).?;
@@ -13808,7 +13872,7 @@ fn lowerSwitchBr(self: *Self, inst: Air.Inst.Index, switch_br: Air.UnwrappedSwit
 
         // Relocate all success cases to the body we're about to generate.
         for (relocs) |reloc| self.performReloc(reloc);
-        try self.genBody(case.body);
+        try self.genBodyBlock(case.body);
         try self.restoreState(state, &.{}, .{
             .emit_instructions = false,
             .update_tracking = true,
@@ -13826,7 +13890,7 @@ fn lowerSwitchBr(self: *Self, inst: Air.Inst.Index, switch_br: Air.UnwrappedSwit
         const else_deaths = liveness.deaths.len - 1;
         for (liveness.deaths[else_deaths]) |operand| try self.processDeath(operand);
 
-        try self.genBody(else_body);
+        try self.genBodyBlock(else_body);
         try self.restoreState(state, &.{}, .{
             .emit_instructions = false,
             .update_tracking = true,
@@ -14249,7 +14313,7 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
 
     const Label = struct {
         target: Mir.Inst.Index = undefined,
-        pending_relocs: std.ArrayListUnmanaged(Mir.Inst.Index) = .{},
+        pending_relocs: std.ArrayListUnmanaged(Mir.Inst.Index) = .empty,
 
         const Kind = enum { definition, reference };
 
@@ -14273,7 +14337,7 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
             return name.len > 0;
         }
     };
-    var labels: std.StringHashMapUnmanaged(Label) = .{};
+    var labels: std.StringHashMapUnmanaged(Label) = .empty;
     defer {
         var label_it = labels.valueIterator();
         while (label_it.next()) |label| label.pending_relocs.deinit(self.gpa);

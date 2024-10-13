@@ -23,19 +23,19 @@ namespace __math {
 
 // fabs
 
-_LIBCPP_NODISCARD_EXT inline _LIBCPP_HIDE_FROM_ABI float fabs(float __x) _NOEXCEPT { return __builtin_fabsf(__x); }
+_LIBCPP_NODISCARD inline _LIBCPP_HIDE_FROM_ABI float fabs(float __x) _NOEXCEPT { return __builtin_fabsf(__x); }
 
 template <class = int>
-_LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI double fabs(double __x) _NOEXCEPT {
+_LIBCPP_NODISCARD _LIBCPP_HIDE_FROM_ABI double fabs(double __x) _NOEXCEPT {
   return __builtin_fabs(__x);
 }
 
-_LIBCPP_NODISCARD_EXT inline _LIBCPP_HIDE_FROM_ABI long double fabs(long double __x) _NOEXCEPT {
+_LIBCPP_NODISCARD inline _LIBCPP_HIDE_FROM_ABI long double fabs(long double __x) _NOEXCEPT {
   return __builtin_fabsl(__x);
 }
 
 template <class _A1, __enable_if_t<is_integral<_A1>::value, int> = 0>
-_LIBCPP_NODISCARD_EXT inline _LIBCPP_HIDE_FROM_ABI double fabs(_A1 __x) _NOEXCEPT {
+_LIBCPP_NODISCARD inline _LIBCPP_HIDE_FROM_ABI double fabs(_A1 __x) _NOEXCEPT {
   return __builtin_fabs((double)__x);
 }
 

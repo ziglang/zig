@@ -247,9 +247,9 @@ pub const Inst = struct {
         /// element type. Emits a compile error if the type is not an indexable pointer.
         /// Uses the `un_node` field.
         indexable_ptr_elem_type,
-        /// Given a vector type, returns its element type.
+        /// Given a vector or array type, returns its element type.
         /// Uses the `un_node` field.
-        vector_elem_type,
+        vec_arr_elem_type,
         /// Given a pointer to an indexable object, returns the len property. This is
         /// used by for loops. This instruction also emits a for-loop specific compile
         /// error if the indexable object is not indexable.
@@ -1065,7 +1065,7 @@ pub const Inst = struct {
                 .vector_type,
                 .elem_type,
                 .indexable_ptr_elem_type,
-                .vector_elem_type,
+                .vec_arr_elem_type,
                 .indexable_ptr_len,
                 .anyframe_type,
                 .as_node,
@@ -1375,7 +1375,7 @@ pub const Inst = struct {
                 .vector_type,
                 .elem_type,
                 .indexable_ptr_elem_type,
-                .vector_elem_type,
+                .vec_arr_elem_type,
                 .indexable_ptr_len,
                 .anyframe_type,
                 .as_node,
@@ -1575,7 +1575,7 @@ pub const Inst = struct {
                 => false,
 
                 .extended => switch (data.extended.opcode) {
-                    .fence, .branch_hint, .breakpoint, .disable_instrumentation => true,
+                    .branch_hint, .breakpoint, .disable_instrumentation => true,
                     else => false,
                 },
             };
@@ -1607,7 +1607,7 @@ pub const Inst = struct {
                 .vector_type = .pl_node,
                 .elem_type = .un_node,
                 .indexable_ptr_elem_type = .un_node,
-                .vector_elem_type = .un_node,
+                .vec_arr_elem_type = .un_node,
                 .indexable_ptr_len = .un_node,
                 .anyframe_type = .un_node,
                 .as_node = .pl_node,
@@ -1979,9 +1979,6 @@ pub const Inst = struct {
         /// The `@prefetch` builtin.
         /// `operand` is payload index to `BinNode`.
         prefetch,
-        /// Implements the `@fence` builtin.
-        /// `operand` is payload index to `UnNode`.
-        fence,
         /// Implement builtin `@setFloatMode`.
         /// `operand` is payload index to `UnNode`.
         set_float_mode,
@@ -2086,6 +2083,10 @@ pub const Inst = struct {
         /// `operand` is payload index to `UnNode`.
         /// `small` is unused.
         branch_hint,
+        /// Compute the result type for in-place arithmetic, e.g. `+=`.
+        /// `operand` is `Zir.Inst.Ref` of the loaded LHS (*not* its type).
+        /// `small` is an `Inst.InplaceOp`.
+        inplace_arith_result_ty,
 
         pub const InstData = struct {
             opcode: Extended,
@@ -3188,6 +3189,11 @@ pub const Inst = struct {
         calling_convention_inline,
     };
 
+    pub const InplaceOp = enum(u16) {
+        add_eq,
+        sub_eq,
+    };
+
     /// Trailing:
     /// 0. tag_type: Ref, // if has_tag_type
     /// 1. captures_len: u32, // if has_captures_len
@@ -3711,7 +3717,7 @@ pub fn findDecls(zir: Zir, gpa: Allocator, list: *std.ArrayListUnmanaged(Inst.In
 
     // `defer` instructions duplicate the same body arbitrarily many times, but we only want to traverse
     // their contents once per defer. So, we store the extra index of the body here to deduplicate.
-    var found_defers: std.AutoHashMapUnmanaged(u32, void) = .{};
+    var found_defers: std.AutoHashMapUnmanaged(u32, void) = .empty;
     defer found_defers.deinit(gpa);
 
     try zir.findDeclsBody(gpa, list, &found_defers, bodies.value_body);
@@ -3725,7 +3731,7 @@ pub fn findDecls(zir: Zir, gpa: Allocator, list: *std.ArrayListUnmanaged(Inst.In
 pub fn findDeclsRoot(zir: Zir, gpa: Allocator, list: *std.ArrayListUnmanaged(Inst.Index)) !void {
     list.clearRetainingCapacity();
 
-    var found_defers: std.AutoHashMapUnmanaged(u32, void) = .{};
+    var found_defers: std.AutoHashMapUnmanaged(u32, void) = .empty;
     defer found_defers.deinit(gpa);
 
     try zir.findDeclsInner(gpa, list, &found_defers, .main_struct_inst);
@@ -3775,7 +3781,7 @@ fn findDeclsInner(
         .vector_type,
         .elem_type,
         .indexable_ptr_elem_type,
-        .vector_elem_type,
+        .vec_arr_elem_type,
         .indexable_ptr_len,
         .anyframe_type,
         .as_node,
@@ -4005,7 +4011,6 @@ fn findDeclsInner(
                 .wasm_memory_size,
                 .wasm_memory_grow,
                 .prefetch,
-                .fence,
                 .set_float_mode,
                 .set_align_stack,
                 .error_cast,
@@ -4032,6 +4037,7 @@ fn findDeclsInner(
                 .field_parent_ptr,
                 .builtin_value,
                 .branch_hint,
+                .inplace_arith_result_ty,
                 => return,
 
                 // `@TypeOf` has a body.

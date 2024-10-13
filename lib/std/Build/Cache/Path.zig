@@ -11,7 +11,11 @@ pub fn clone(p: Path, arena: Allocator) Allocator.Error!Path {
 }
 
 pub fn cwd() Path {
-    return .{ .root_dir = Cache.Directory.cwd() };
+    return initCwd("");
+}
+
+pub fn initCwd(sub_path: []const u8) Path {
+    return .{ .root_dir = Cache.Directory.cwd(), .sub_path = sub_path };
 }
 
 pub fn join(p: Path, arena: Allocator, sub_path: []const u8) Allocator.Error!Path {
@@ -126,6 +130,14 @@ pub fn makePath(p: Path, sub_path: []const u8) !void {
     return p.root_dir.handle.makePath(joined_path);
 }
 
+pub fn toString(p: Path, allocator: Allocator) Allocator.Error![]u8 {
+    return std.fmt.allocPrint(allocator, "{}", .{p});
+}
+
+pub fn toStringZ(p: Path, allocator: Allocator) Allocator.Error![:0]u8 {
+    return std.fmt.allocPrintZ(allocator, "{}", .{p});
+}
+
 pub fn format(
     self: Path,
     comptime fmt_string: []const u8,
@@ -137,7 +149,7 @@ pub fn format(
         const stringEscape = std.zig.stringEscape;
         const f = switch (fmt_string[0]) {
             'q' => "",
-            '\'' => '\'',
+            '\'' => "\'",
             else => @compileError("unsupported format string: " ++ fmt_string),
         };
         if (self.root_dir.path) |p| {
@@ -180,6 +192,14 @@ pub fn subPathOpt(self: Path) ?[]const u8 {
 
 pub fn subPathOrDot(self: Path) []const u8 {
     return if (self.sub_path.len == 0) "." else self.sub_path;
+}
+
+pub fn stem(p: Path) []const u8 {
+    return fs.path.stem(p.sub_path);
+}
+
+pub fn basename(p: Path) []const u8 {
+    return fs.path.basename(p.sub_path);
 }
 
 /// Useful to make `Path` a key in `std.ArrayHashMap`.

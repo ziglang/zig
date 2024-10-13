@@ -161,8 +161,7 @@ _mm_tzcnt_64(unsigned long long __X)
 
 #undef __RELAXED_FN_ATTRS
 
-#if !(defined(_MSC_VER) || defined(__SCE__)) || __has_feature(modules) ||      \
-    defined(__BMI__)
+#if !defined(__SCE__) || __has_feature(modules) || defined(__BMI__)
 
 /* Define the default attributes for the functions in this file. */
 #define __DEFAULT_FN_ATTRS __attribute__((__always_inline__, __nodebug__, __target__("bmi")))
@@ -610,7 +609,6 @@ __blsr_u64(unsigned long long __X)
 
 #undef __DEFAULT_FN_ATTRS
 
-#endif /* !(defined(_MSC_VER) || defined(__SCE__)) || __has_feature(modules)   \
-          || defined(__BMI__) */
+#endif /* !defined(__SCE__) || __has_feature(modules) || defined(__BMI__) */
 
 #endif /* __BMIINTRIN_H */

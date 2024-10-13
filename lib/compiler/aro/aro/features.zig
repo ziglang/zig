@@ -45,7 +45,7 @@ pub fn hasFeature(comp: *Compilation, ext: []const u8) bool {
         .c_static_assert = comp.langopts.standard.atLeast(.c11),
         .c_thread_local = comp.langopts.standard.atLeast(.c11) and target_util.isTlsSupported(comp.target),
     };
-    inline for (std.meta.fields(@TypeOf(list))) |f| {
+    inline for (@typeInfo(@TypeOf(list)).@"struct".fields) |f| {
         if (std.mem.eql(u8, f.name, ext)) return @field(list, f.name);
     }
     return false;
@@ -69,7 +69,7 @@ pub fn hasExtension(comp: *Compilation, ext: []const u8) bool {
         .matrix_types = false, // TODO
         .matrix_types_scalar_division = false, // TODO
     };
-    inline for (std.meta.fields(@TypeOf(list))) |f| {
+    inline for (@typeInfo(@TypeOf(list)).@"struct".fields) |f| {
         if (std.mem.eql(u8, f.name, ext)) return @field(list, f.name);
     }
     return false;

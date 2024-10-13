@@ -33,7 +33,6 @@ Types:
 
 */
 
-#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
 #include <__type_traits/enable_if.h>
 #include <__type_traits/integral_constant.h>
@@ -123,7 +122,7 @@ _LIBCPP_HIDE_FROM_ABI constexpr byte operator>>(byte __lhs, _Integer __shift) no
 }
 
 template <class _Integer, __enable_if_t<is_integral<_Integer>::value, int> = 0>
-_LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr _Integer to_integer(byte __b) noexcept {
+[[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr _Integer to_integer(byte __b) noexcept {
   return static_cast<_Integer>(__b);
 }
 

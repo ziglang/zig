@@ -18,6 +18,8 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
+class _LIBCPP_EXPORTED_FROM_ABI ios_base;
+
 template <class _CharT, class _Traits = char_traits<_CharT> >
 class _LIBCPP_TEMPLATE_VIS basic_ios;
 

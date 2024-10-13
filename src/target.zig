@@ -31,7 +31,7 @@ pub fn libcNeedsLibUnwind(target: std.Target) bool {
         .wasi, // Wasm/WASI currently doesn't offer support for libunwind, so don't link it.
         => false,
 
-        .windows => target.abi != .msvc,
+        .windows => target.abi.isGnu(),
         else => true,
     };
 }
@@ -45,8 +45,7 @@ pub fn requiresPIC(target: std.Target, linking_libc: bool) bool {
     return target.isAndroid() or
         target.os.tag == .windows or target.os.tag == .uefi or
         osRequiresLibC(target) or
-        (linking_libc and target.isGnuLibC()) or
-        (target.abi == .ohos and target.cpu.arch == .aarch64);
+        (linking_libc and target.isGnuLibC());
 }
 
 pub fn picLevel(target: std.Target) u32 {
@@ -87,7 +86,7 @@ pub fn hasValgrindSupport(target: std.Target) bool {
         .aarch64_be,
         => {
             return target.os.tag == .linux or target.os.tag == .solaris or target.os.tag == .illumos or
-                (target.os.tag == .windows and target.abi != .msvc);
+                (target.os.tag == .windows and target.abi.isGnu());
         },
         else => return false,
     }
@@ -104,7 +103,6 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         => return false,
 
         .coff,
-        .dxcontainer,
         .elf,
         .goff,
         .hex,
@@ -161,7 +159,6 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         => true,
 
         // An LLVM backend exists but we don't currently support using it.
-        .dxil,
         .spirv,
         .spirv32,
         .spirv64,
@@ -170,6 +167,8 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         // No LLVM backend exists.
         .kalimba,
         .spu_2,
+        .propeller1,
+        .propeller2,
         => false,
     };
 }
@@ -306,20 +305,17 @@ pub fn libcFullLinkFlags(target: std.Target) []const []const u8 {
             "-lc",
             "-lnetwork",
         },
-        else => switch (target.abi) {
-            .android => &[_][]const u8{
-                "-lm",
-                "-lc",
-                "-ldl",
-            },
-            else => &[_][]const u8{
-                "-lm",
-                "-lpthread",
-                "-lc",
-                "-ldl",
-                "-lrt",
-                "-lutil",
-            },
+        else => if (target.isAndroid() or target.abi.isOpenHarmony()) &[_][]const u8{
+            "-lm",
+            "-lc",
+            "-ldl",
+        } else &[_][]const u8{
+            "-lm",
+            "-lpthread",
+            "-lc",
+            "-ldl",
+            "-lrt",
+            "-lutil",
         },
     };
 }
@@ -335,6 +331,48 @@ pub fn clangMightShellOutForAssembly(target: std.Target) bool {
 pub fn clangAssemblerSupportsMcpuArg(target: std.Target) bool {
     return switch (target.cpu.arch) {
         .arm, .armeb, .thumb, .thumbeb => true,
+        else => false,
+    };
+}
+
+pub fn clangSupportsFloatAbiArg(target: std.Target) bool {
+    return switch (target.cpu.arch) {
+        .arm,
+        .armeb,
+        .thumb,
+        .thumbeb,
+        .csky,
+        .mips,
+        .mipsel,
+        .mips64,
+        .mips64el,
+        .powerpc,
+        .powerpcle,
+        .powerpc64,
+        .powerpc64le,
+        .s390x,
+        .sparc,
+        .sparc64,
+        => true,
+        // We use the target triple for LoongArch.
+        .loongarch32, .loongarch64 => false,
+        else => false,
+    };
+}
+
+pub fn clangSupportsNoImplicitFloatArg(target: std.Target) bool {
+    return switch (target.cpu.arch) {
+        .aarch64,
+        .aarch64_be,
+        .arm,
+        .armeb,
+        .thumb,
+        .thumbeb,
+        .riscv32,
+        .riscv64,
+        .x86,
+        .x86_64,
+        => true,
         else => false,
     };
 }
@@ -544,14 +582,6 @@ pub inline fn backendSupportsFeature(backend: std.builtin.CompilerBackend, compt
             .stage2_x86_64,
             .stage2_riscv64,
             => true,
-            else => false,
-        },
-        .panic_unwrap_error => switch (backend) {
-            .stage2_c, .stage2_llvm => true,
-            else => false,
-        },
-        .safety_check_formatted => switch (backend) {
-            .stage2_c, .stage2_llvm => true,
             else => false,
         },
         .error_return_trace => switch (backend) {

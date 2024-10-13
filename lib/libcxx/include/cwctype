@@ -49,7 +49,6 @@ wctrans_t wctrans(const char* property);
 
 */
 
-#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
 #include <cctype>
 

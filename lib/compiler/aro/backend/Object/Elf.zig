@@ -5,7 +5,7 @@ const Object = @import("../Object.zig");
 
 const Section = struct {
     data: std.ArrayList(u8),
-    relocations: std.ArrayListUnmanaged(Relocation) = .{},
+    relocations: std.ArrayListUnmanaged(Relocation) = .empty,
     flags: u64,
     type: u32,
     index: u16 = undefined,
@@ -37,9 +37,9 @@ const Elf = @This();
 
 obj: Object,
 /// The keys are owned by the Codegen.tree
-sections: std.StringHashMapUnmanaged(*Section) = .{},
-local_symbols: std.StringHashMapUnmanaged(*Symbol) = .{},
-global_symbols: std.StringHashMapUnmanaged(*Symbol) = .{},
+sections: std.StringHashMapUnmanaged(*Section) = .empty,
+local_symbols: std.StringHashMapUnmanaged(*Symbol) = .empty,
+global_symbols: std.StringHashMapUnmanaged(*Symbol) = .empty,
 unnamed_symbol_mangle: u32 = 0,
 strtab_len: u64 = strtab_default.len,
 arena: std.heap.ArenaAllocator,

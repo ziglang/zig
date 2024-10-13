@@ -10,7 +10,6 @@
 #ifndef _LIBCPP___FILESYSTEM_DIRECTORY_ENTRY_H
 #define _LIBCPP___FILESYSTEM_DIRECTORY_ENTRY_H
 
-#include <__availability>
 #include <__chrono/time_point.h>
 #include <__compare/ordering.h>
 #include <__config>

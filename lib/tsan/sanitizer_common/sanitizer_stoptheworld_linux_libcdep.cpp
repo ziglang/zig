@@ -257,8 +257,8 @@ static void TracerThreadDieCallback() {
 static void TracerThreadSignalHandler(int signum, __sanitizer_siginfo *siginfo,
                                       void *uctx) {
   SignalContext ctx(siginfo, uctx);
-  Printf("Tracer caught signal %d: addr=0x%zx pc=0x%zx sp=0x%zx\n", signum,
-         ctx.addr, ctx.pc, ctx.sp);
+  Printf("Tracer caught signal %d: addr=%p pc=%p sp=%p\n", signum,
+         (void *)ctx.addr, (void *)ctx.pc, (void *)ctx.sp);
   ThreadSuspender *inst = thread_suspender_instance;
   if (inst) {
     if (signum == SIGABRT)
@@ -565,7 +565,7 @@ PtraceRegistersStatus SuspendedThreadsListLinux::GetRegistersAndSP(
   constexpr uptr uptr_sz = sizeof(uptr);
   int pterrno;
 #ifdef ARCH_IOVEC_FOR_GETREGSET
-  auto append = [&](uptr regset) {
+  auto AppendF = [&](uptr regset) {
     uptr size = buffer->size();
     // NT_X86_XSTATE requires 64bit alignment.
     uptr size_up = RoundUpTo(size, 8 / uptr_sz);
@@ -596,11 +596,11 @@ PtraceRegistersStatus SuspendedThreadsListLinux::GetRegistersAndSP(
   };
 
   buffer->clear();
-  bool fail = !append(NT_PRSTATUS);
+  bool fail = !AppendF(NT_PRSTATUS);
   if (!fail) {
     // Accept the first available and do not report errors.
     for (uptr regs : kExtraRegs)
-      if (regs && append(regs))
+      if (regs && AppendF(regs))
         break;
   }
 #else

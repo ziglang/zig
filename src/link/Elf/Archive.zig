@@ -1,23 +1,15 @@
-objects: std.ArrayListUnmanaged(Object) = .{},
-strtab: std.ArrayListUnmanaged(u8) = .{},
-
-pub fn isArchive(path: []const u8) !bool {
-    const file = try std.fs.cwd().openFile(path, .{});
-    defer file.close();
-    const reader = file.reader();
-    const magic = reader.readBytesNoEof(elf.ARMAG.len) catch return false;
-    if (!mem.eql(u8, &magic, elf.ARMAG)) return false;
-    return true;
-}
+objects: std.ArrayListUnmanaged(Object) = .empty,
+strtab: std.ArrayListUnmanaged(u8) = .empty,
 
 pub fn deinit(self: *Archive, allocator: Allocator) void {
     self.objects.deinit(allocator);
     self.strtab.deinit(allocator);
 }
 
-pub fn parse(self: *Archive, elf_file: *Elf, path: []const u8, handle_index: File.HandleIndex) !void {
+pub fn parse(self: *Archive, elf_file: *Elf, path: Path, handle_index: File.HandleIndex) !void {
     const comp = elf_file.base.comp;
     const gpa = comp.gpa;
+    const diags = &comp.link_diags;
     const handle = elf_file.fileHandle(handle_index);
     const size = (try handle.stat()).size;
 
@@ -35,10 +27,9 @@ pub fn parse(self: *Archive, elf_file: *Elf, path: []const u8, handle_index: Fil
         pos += @sizeOf(elf.ar_hdr);
 
         if (!mem.eql(u8, &hdr.ar_fmag, elf.ARFMAG)) {
-            try elf_file.reportParseError(path, "invalid archive header delimiter: {s}", .{
+            return diags.failParse(path, "invalid archive header delimiter: {s}", .{
                 std.fmt.fmtSliceEscapeLower(&hdr.ar_fmag),
             });
-            return error.MalformedArchive;
         }
 
         const obj_size = try hdr.size();
@@ -60,19 +51,24 @@ pub fn parse(self: *Archive, elf_file: *Elf, path: []const u8, handle_index: Fil
         else
             unreachable;
 
-        const object = Object{
+        const object: Object = .{
             .archive = .{
-                .path = try gpa.dupe(u8, path),
+                .path = .{
+                    .root_dir = path.root_dir,
+                    .sub_path = try gpa.dupe(u8, path.sub_path),
+                },
                 .offset = pos,
                 .size = obj_size,
             },
-            .path = try gpa.dupe(u8, name),
+            .path = Path.initCwd(try gpa.dupe(u8, name)),
             .file_handle = handle_index,
             .index = undefined,
             .alive = false,
         };
 
-        log.debug("extracting object '{s}' from archive '{s}'", .{ object.path, path });
+        log.debug("extracting object '{}' from archive '{}'", .{
+            @as(Path, object.path), @as(Path, path),
+        });
 
         try self.objects.append(gpa, object);
     }
@@ -127,7 +123,7 @@ const strtab_delimiter = '\n';
 pub const max_member_name_len = 15;
 
 pub const ArSymtab = struct {
-    symtab: std.ArrayListUnmanaged(Entry) = .{},
+    symtab: std.ArrayListUnmanaged(Entry) = .empty,
     strtab: StringTable = .{},
 
     pub fn deinit(ar: *ArSymtab, allocator: Allocator) void {
@@ -241,7 +237,7 @@ pub const ArSymtab = struct {
 };
 
 pub const ArStrtab = struct {
-    buffer: std.ArrayListUnmanaged(u8) = .{},
+    buffer: std.ArrayListUnmanaged(u8) = .empty,
 
     pub fn deinit(ar: *ArStrtab, allocator: Allocator) void {
         ar.buffer.deinit(allocator);
@@ -293,6 +289,7 @@ const elf = std.elf;
 const fs = std.fs;
 const log = std.log.scoped(.link);
 const mem = std.mem;
+const Path = std.Build.Cache.Path;
 
 const Allocator = mem.Allocator;
 const Archive = @This();

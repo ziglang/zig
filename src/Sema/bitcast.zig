@@ -613,11 +613,11 @@ const PackValueBits = struct {
                         pack.bit_offset = prev_bit_offset;
                         break :backing;
                     }
-                    return Value.fromInterned(try pt.intern(.{ .un = .{
+                    return Value.fromInterned(try pt.internUnion(.{
                         .ty = ty.toIntern(),
                         .tag = .none,
                         .val = backing_val.toIntern(),
-                    } }));
+                    }));
                 }
 
                 const field_order = try pack.arena.alloc(u32, ty.unionTagTypeHypothetical(zcu).enumFieldCount(zcu));
@@ -658,21 +658,21 @@ const PackValueBits = struct {
                         continue;
                     }
                     const tag_val = try pt.enumValueFieldIndex(ty.unionTagTypeHypothetical(zcu), field_idx);
-                    return Value.fromInterned(try pt.intern(.{ .un = .{
+                    return Value.fromInterned(try pt.internUnion(.{
                         .ty = ty.toIntern(),
                         .tag = tag_val.toIntern(),
                         .val = field_val.toIntern(),
-                    } }));
+                    }));
                 }
 
                 // No field could represent the value. Just do whatever happens when we try to read
                 // the backing type - either `undefined` or `error.ReinterpretDeclRef`.
                 const backing_val = try pack.get(backing_ty);
-                return Value.fromInterned(try pt.intern(.{ .un = .{
+                return Value.fromInterned(try pt.internUnion(.{
                     .ty = ty.toIntern(),
                     .tag = .none,
                     .val = backing_val.toIntern(),
-                } }));
+                }));
             },
             else => return pack.primitive(ty),
         }

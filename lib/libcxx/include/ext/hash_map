@@ -201,7 +201,6 @@ template <class Key, class T, class Hash, class Pred, class Alloc>
 
 */
 
-#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
 #include <__hash_table>
 #include <algorithm>

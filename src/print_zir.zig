@@ -203,7 +203,7 @@ const Writer = struct {
             .alloc_comptime_mut,
             .elem_type,
             .indexable_ptr_elem_type,
-            .vector_elem_type,
+            .vec_arr_elem_type,
             .indexable_ptr_len,
             .anyframe_type,
             .bit_not,
@@ -566,7 +566,6 @@ const Writer = struct {
             .await_nosuspend,
             .c_undef,
             .c_include,
-            .fence,
             .set_float_mode,
             .set_align_stack,
             .wasm_memory_size,
@@ -620,6 +619,7 @@ const Writer = struct {
             .closure_get => try self.writeClosureGet(stream, extended),
             .field_parent_ptr => try self.writeFieldParentPtr(stream, extended),
             .builtin_value => try self.writeBuiltinValue(stream, extended),
+            .inplace_arith_result_ty => try self.writeInplaceArithResultTy(stream, extended),
         }
     }
 
@@ -2779,6 +2779,12 @@ const Writer = struct {
         const val: Zir.Inst.BuiltinValue = @enumFromInt(extended.small);
         try stream.print("{s})) ", .{@tagName(val)});
         try self.writeSrcNode(stream, @bitCast(extended.operand));
+    }
+
+    fn writeInplaceArithResultTy(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
+        const op: Zir.Inst.InplaceOp = @enumFromInt(extended.small);
+        try self.writeInstRef(stream, @enumFromInt(extended.operand));
+        try stream.print(", {s}))", .{@tagName(op)});
     }
 
     fn writeInstRef(self: *Writer, stream: anytype, ref: Zir.Inst.Ref) !void {

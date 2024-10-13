@@ -13,6 +13,9 @@
 #if !defined(_AIX) || !defined(_STD_TYPES_T)
 #define __CLANG_INTTYPES_H
 #endif
+#if defined(__MVS__) && __has_include_next(<inttypes.h>)
+#include_next <inttypes.h>
+#else
 
 #if defined(_MSC_VER) && _MSC_VER < 1800
 #error MSVC does not have inttypes.h prior to Visual Studio 2013
@@ -94,4 +97,5 @@
 #define SCNxFAST32 "x"
 #endif
 
+#endif /* __MVS__ */
 #endif /* __CLANG_INTTYPES_H */

@@ -234,7 +234,6 @@ uintmax_t wcstoumax(const wchar_t* restrict nptr, wchar_t** restrict endptr, int
 }  // std
 */
 
-#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
 
 // standard-mandated includes

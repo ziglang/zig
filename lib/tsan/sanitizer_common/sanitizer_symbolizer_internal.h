@@ -160,6 +160,15 @@ void ParseSymbolizePCOutput(const char *str, SymbolizedStack *res);
 // Used by LLVMSymbolizer and InternalSymbolizer.
 void ParseSymbolizeDataOutput(const char *str, DataInfo *info);
 
+// Parses repeated strings in the following format:
+//   <function_name>
+//   <var_name>
+//   <file_name>:<line_number>[:<column_number>]
+//   [<frame_offset>|??] [<size>|??] [<tag_offset>|??]
+// Used by LLVMSymbolizer and InternalSymbolizer.
+void ParseSymbolizeFrameOutput(const char *str,
+                               InternalMmapVector<LocalInfo> *locals);
+
 }  // namespace __sanitizer
 
 #endif  // SANITIZER_SYMBOLIZER_INTERNAL_H

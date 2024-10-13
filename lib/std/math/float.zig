@@ -172,9 +172,6 @@ test nan {
 }
 
 test snan {
-    // TODO: https://github.com/ziglang/zig/issues/14366
-    if (builtin.zig_backend == .stage2_llvm and comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest;
-
     const snan_u16: u16 = 0x7D00;
     const snan_u32: u32 = 0x7FA00000;
     const snan_u64: u64 = 0x7FF4000000000000;

@@ -150,6 +150,14 @@ pub const File = struct {
         inode: fs.File.INode,
         size: u64,
         mtime: i128,
+
+        pub fn fromFs(fs_stat: fs.File.Stat) Stat {
+            return .{
+                .inode = fs_stat.inode,
+                .size = fs_stat.size,
+                .mtime = fs_stat.mtime,
+            };
+        }
     };
 
     pub fn deinit(self: *File, gpa: Allocator) void {
@@ -398,10 +406,17 @@ pub const Manifest = struct {
         return gop.index;
     }
 
+    /// Deprecated, use `addOptionalFilePath`.
     pub fn addOptionalFile(self: *Manifest, optional_file_path: ?[]const u8) !void {
         self.hash.add(optional_file_path != null);
         const file_path = optional_file_path orelse return;
         _ = try self.addFile(file_path, null);
+    }
+
+    pub fn addOptionalFilePath(self: *Manifest, optional_file_path: ?Path) !void {
+        self.hash.add(optional_file_path != null);
+        const file_path = optional_file_path orelse return;
+        _ = try self.addFilePath(file_path, null);
     }
 
     pub fn addListOfFiles(self: *Manifest, list_of_files: []const []const u8) !void {

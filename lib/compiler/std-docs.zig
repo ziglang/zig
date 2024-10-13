@@ -25,7 +25,7 @@ pub fn main() !void {
     defer arena_instance.deinit();
     const arena = arena_instance.allocator();
 
-    var general_purpose_allocator: std.heap.GeneralPurposeAllocator(.{}) = .{};
+    var general_purpose_allocator: std.heap.GeneralPurposeAllocator(.{}) = .init;
     const gpa = general_purpose_allocator.allocator();
 
     var argv = try std.process.argsWithAllocator(arena);
@@ -265,7 +265,7 @@ fn buildWasmBinary(
 ) !Cache.Path {
     const gpa = context.gpa;
 
-    var argv: std.ArrayListUnmanaged([]const u8) = .{};
+    var argv: std.ArrayListUnmanaged([]const u8) = .empty;
 
     try argv.appendSlice(arena, &.{
         context.zig_exe_path, //

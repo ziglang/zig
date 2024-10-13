@@ -155,6 +155,10 @@ const known_options = [_]KnownOpt{
         .ident = "wl",
     },
     .{
+        .name = "Wp,",
+        .ident = "wp",
+    },
+    .{
         .name = "Xlinker",
         .ident = "for_linker",
     },
@@ -547,6 +551,14 @@ const known_options = [_]KnownOpt{
     .{
         .name = "fno-sanitize-coverage",
         .ident = "no_san_cov",
+    },
+    .{
+        .name = "rtlib",
+        .ident = "rtlib",
+    },
+    .{
+        .name = "rtlib=",
+        .ident = "rtlib",
     },
 };
 

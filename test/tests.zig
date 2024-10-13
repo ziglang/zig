@@ -291,23 +291,49 @@ const test_targets = blk: {
         },
 
         .{
-            .target = std.Target.Query.parse(.{
-                .arch_os_abi = "arm-linux-none",
-                .cpu_features = "generic+v8a",
-            }) catch unreachable,
+            .target = .{
+                .cpu_arch = .arm,
+                .os_tag = .linux,
+                .abi = .eabi,
+            },
         },
         .{
-            .target = std.Target.Query.parse(.{
-                .arch_os_abi = "arm-linux-musleabihf",
-                .cpu_features = "generic+v8a",
-            }) catch unreachable,
+            .target = .{
+                .cpu_arch = .arm,
+                .os_tag = .linux,
+                .abi = .eabihf,
+            },
+        },
+        .{
+            .target = .{
+                .cpu_arch = .arm,
+                .os_tag = .linux,
+                .abi = .musleabi,
+            },
             .link_libc = true,
         },
         .{
-            .target = std.Target.Query.parse(.{
-                .arch_os_abi = "arm-linux-gnueabihf",
-                .cpu_features = "generic+v8a",
-            }) catch unreachable,
+            .target = .{
+                .cpu_arch = .arm,
+                .os_tag = .linux,
+                .abi = .musleabihf,
+            },
+            .link_libc = true,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .arm,
+                .os_tag = .linux,
+                .abi = .gnueabi,
+            },
+            .link_libc = true,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .arm,
+                .os_tag = .linux,
+                .abi = .gnueabihf,
+            },
             .link_libc = true,
         },
 
@@ -315,7 +341,7 @@ const test_targets = blk: {
             .target = .{
                 .cpu_arch = .mips,
                 .os_tag = .linux,
-                .abi = .none,
+                .abi = .eabi,
             },
             .slow_backend = true,
         },
@@ -323,7 +349,33 @@ const test_targets = blk: {
             .target = .{
                 .cpu_arch = .mips,
                 .os_tag = .linux,
-                .abi = .musl,
+                .abi = .eabihf,
+            },
+            .slow_backend = true,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .mips,
+                .os_tag = .linux,
+                .abi = .musleabi,
+            },
+            .link_libc = true,
+            .slow_backend = true,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .mips,
+                .os_tag = .linux,
+                .abi = .musleabihf,
+            },
+            .link_libc = true,
+            .slow_backend = true,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .mips,
+                .os_tag = .linux,
+                .abi = .gnueabi,
             },
             .link_libc = true,
             .slow_backend = true,
@@ -342,7 +394,7 @@ const test_targets = blk: {
             .target = .{
                 .cpu_arch = .mipsel,
                 .os_tag = .linux,
-                .abi = .none,
+                .abi = .eabi,
             },
             .slow_backend = true,
         },
@@ -350,7 +402,33 @@ const test_targets = blk: {
             .target = .{
                 .cpu_arch = .mipsel,
                 .os_tag = .linux,
-                .abi = .musl,
+                .abi = .eabihf,
+            },
+            .slow_backend = true,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .mipsel,
+                .os_tag = .linux,
+                .abi = .musleabi,
+            },
+            .link_libc = true,
+            .slow_backend = true,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .mipsel,
+                .os_tag = .linux,
+                .abi = .musleabihf,
+            },
+            .link_libc = true,
+            .slow_backend = true,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .mipsel,
+                .os_tag = .linux,
+                .abi = .gnueabi,
             },
             .link_libc = true,
             .slow_backend = true,
@@ -417,14 +495,29 @@ const test_targets = blk: {
             .target = .{
                 .cpu_arch = .powerpc,
                 .os_tag = .linux,
-                .abi = .none,
+                .abi = .eabi,
             },
         },
         .{
             .target = .{
                 .cpu_arch = .powerpc,
                 .os_tag = .linux,
-                .abi = .musl,
+                .abi = .eabihf,
+            },
+        },
+        .{
+            .target = .{
+                .cpu_arch = .powerpc,
+                .os_tag = .linux,
+                .abi = .musleabi,
+            },
+            .link_libc = true,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .powerpc,
+                .os_tag = .linux,
+                .abi = .musleabihf,
             },
             .link_libc = true,
         },
@@ -486,51 +579,86 @@ const test_targets = blk: {
             .link_libc = true,
         },
 
-        // Disabled until LLVM fixes their O(N^2) codegen. Note that this is so bad that we don't
-        // even want to include this in CI with `slow_backend`.
-        // https://github.com/ziglang/zig/issues/18872
-        //.{
-        //    .target = .{
-        //        .cpu_arch = .riscv64,
-        //        .os_tag = .linux,
-        //        .abi = .none,
-        //    },
-        //    .use_llvm = true,
-        //},
-
-        // Disabled until LLVM fixes their O(N^2) codegen. Note that this is so bad that we don't
-        // even want to include this in CI with `slow_backend`.
-        // https://github.com/ziglang/zig/issues/18872
-        //.{
-        //    .target = .{
-        //        .cpu_arch = .riscv64,
-        //        .os_tag = .linux,
-        //        .abi = .musl,
-        //    },
-        //    .link_libc = true,
-        //    .use_llvm = true,
-        //},
+        .{
+            .target = .{
+                .cpu_arch = .riscv32,
+                .os_tag = .linux,
+                .abi = .none,
+            },
+        },
+        .{
+            .target = .{
+                .cpu_arch = .riscv32,
+                .os_tag = .linux,
+                .abi = .musl,
+            },
+            .link_libc = true,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .riscv32,
+                .os_tag = .linux,
+                .abi = .gnu,
+            },
+            .link_libc = true,
+        },
 
         .{
-            .target = std.Target.Query.parse(
-                .{
-                    .arch_os_abi = "riscv64-linux-musl",
-                    .cpu_features = "baseline+v+zbb",
-                },
-            ) catch @panic("OOM"),
+            .target = .{
+                .cpu_arch = .riscv64,
+                .os_tag = .linux,
+                .abi = .none,
+            },
+        },
+        .{
+            .target = .{
+                .cpu_arch = .riscv64,
+                .os_tag = .linux,
+                .abi = .musl,
+            },
+            .link_libc = true,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .riscv64,
+                .os_tag = .linux,
+                .abi = .gnu,
+            },
+            .link_libc = true,
+        },
+
+        .{
+            .target = std.Target.Query.parse(.{
+                .arch_os_abi = "riscv64-linux-musl",
+                .cpu_features = "baseline+v+zbb",
+            }) catch @panic("OOM"),
             .use_llvm = false,
             .use_lld = false,
         },
 
-        // https://github.com/ziglang/zig/issues/3340
-        //.{
-        //    .target = .{
-        //        .cpu_arch = .riscv64,
-        //        .os = .linux,
-        //        .abi = .gnu,
-        //    },
-        //    .link_libc = true,
-        //},
+        .{
+            .target = .{
+                .cpu_arch = .s390x,
+                .os_tag = .linux,
+                .abi = .none,
+            },
+        },
+        .{
+            .target = .{
+                .cpu_arch = .s390x,
+                .os_tag = .linux,
+                .abi = .musl,
+            },
+            .link_libc = true,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .s390x,
+                .os_tag = .linux,
+                .abi = .gnu,
+            },
+            .link_libc = true,
+        },
 
         .{
             .target = .{
@@ -661,7 +789,7 @@ const c_abi_targets = [_]CAbiTarget{
         .target = .{
             .cpu_arch = .mips,
             .os_tag = .linux,
-            .abi = .musl,
+            .abi = .musleabihf,
         },
     },
     .{
@@ -682,7 +810,7 @@ const c_abi_targets = [_]CAbiTarget{
         .target = .{
             .cpu_arch = .powerpc,
             .os_tag = .linux,
-            .abi = .musl,
+            .abi = .musleabihf,
         },
     },
     .{
@@ -1118,14 +1246,6 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             test_target.use_llvm == false and mem.eql(u8, options.name, "c-import"))
             continue;
 
-        if (target.cpu.arch == .x86_64 and target.os.tag == .windows and
-            test_target.target.cpu_arch == null and test_target.optimize_mode != .Debug and
-            mem.eql(u8, options.name, "std"))
-        {
-            // https://github.com/ziglang/zig/issues/17902
-            continue;
-        }
-
         const want_this_mode = for (options.optimize_modes) |m| {
             if (m == test_target.optimize_mode) break true;
         } else false;
@@ -1388,4 +1508,32 @@ pub fn addDebuggerTests(b: *std.Build, options: DebuggerContext.Options) ?*Step 
         .test_name_suffix = "x86_64-linux-pic",
     });
     return step;
+}
+
+pub fn addIncrementalTests(b: *std.Build, test_step: *Step) !void {
+    const incr_check = b.addExecutable(.{
+        .name = "incr-check",
+        .root_source_file = b.path("tools/incr-check.zig"),
+        .target = b.graph.host,
+        .optimize = .Debug,
+    });
+
+    var dir = try b.build_root.handle.openDir("test/incremental", .{ .iterate = true });
+    defer dir.close();
+
+    var it = try dir.walk(b.graph.arena);
+    while (try it.next()) |entry| {
+        if (entry.kind != .file) continue;
+
+        const run = b.addRunArtifact(incr_check);
+        run.setName(b.fmt("incr-check '{s}'", .{entry.basename}));
+
+        run.addArg(b.graph.zig_exe);
+        run.addFileArg(b.path("test/incremental/").path(b, entry.path));
+        run.addArgs(&.{ "--zig-lib-dir", b.fmt("{}", .{b.graph.zig_lib_directory}) });
+
+        run.addCheck(.{ .expect_term = .{ .Exited = 0 } });
+
+        test_step.dependOn(&run.step);
+    }
 }

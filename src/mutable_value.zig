@@ -88,11 +88,11 @@ pub const MutableValue = union(enum) {
                 .ptr = (try s.ptr.intern(pt, arena)).toIntern(),
                 .len = (try s.len.intern(pt, arena)).toIntern(),
             } }),
-            .un => |u| try pt.intern(.{ .un = .{
+            .un => |u| try pt.internUnion(.{
                 .ty = u.ty,
                 .tag = u.tag,
                 .val = (try u.payload.intern(pt, arena)).toIntern(),
-            } }),
+            }),
         });
     }
 

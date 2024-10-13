@@ -25,12 +25,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 // [expos.only.func]
 
-// TODO MODULES restore the lamba to match the Standard.
-// See https://github.com/llvm/llvm-project/issues/57222
-//_LIBCPP_HIDE_FROM_ABI inline constexpr auto __synth_three_way =
-//  []<class _Tp, class _Up>(const _Tp& __t, const _Up& __u)
-template <class _Tp, class _Up>
-_LIBCPP_HIDE_FROM_ABI constexpr auto __synth_three_way(const _Tp& __t, const _Up& __u)
+_LIBCPP_HIDE_FROM_ABI inline constexpr auto __synth_three_way = []<class _Tp, class _Up>(const _Tp& __t, const _Up& __u)
   requires requires {
     { __t < __u } -> __boolean_testable;
     { __u < __t } -> __boolean_testable;
@@ -45,7 +40,7 @@ _LIBCPP_HIDE_FROM_ABI constexpr auto __synth_three_way(const _Tp& __t, const _Up
       return weak_ordering::greater;
     return weak_ordering::equivalent;
   }
-}
+};
 
 template <class _Tp, class _Up = _Tp>
 using __synth_three_way_result = decltype(std::__synth_three_way(std::declval<_Tp&>(), std::declval<_Up&>()));

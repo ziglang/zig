@@ -125,8 +125,8 @@ check_pie_supported(
   OUTPUT_VARIABLE ZIG_PIE_SUPPORTED_BY_CMAKE
   LANGUAGES C CXX
 )
-if(ZIG_PIE AND NOT ZIG_PIE_SUPPORTED_BY_CMAKE)
-  message(SEND_ERROR "ZIG_PIE was requested but CMake does not support it for \"zigcpp\" target")
+if(ZIG_PIE AND NOT CMAKE_CXX_LINK_PIE_SUPPORTED)
+  message(SEND_ERROR "ZIG_PIE was requested but CMake does not support it for \"zigcpp\" target: ${ZIG_PIE_SUPPORTED_BY_CMAKE}")
 endif()
 
 
@@ -137,9 +137,9 @@ else()
     set(ZIG_SYSTEM_LIBCXX "stdc++" CACHE STRING "system libcxx name for build.zig")
 endif()
 
-find_package(llvm 18)
-find_package(clang 18)
-find_package(lld 18)
+find_package(llvm 19)
+find_package(clang 19)
+find_package(lld 19)
 
 if(ZIG_STATIC_ZLIB)
     if (MSVC)
@@ -603,18 +603,18 @@ set(ZIG_STAGE2_SOURCES
     src/link/Elf/AtomList.zig
     src/link/Elf/LdScript.zig
     src/link/Elf/LinkerDefined.zig
+    src/link/Elf/Merge.zig
     src/link/Elf/Object.zig
     src/link/Elf/SharedObject.zig
     src/link/Elf/Symbol.zig
+    src/link/Elf/Thunk.zig
     src/link/Elf/ZigObject.zig
     src/link/Elf/eh_frame.zig
     src/link/Elf/file.zig
     src/link/Elf/gc.zig
-    src/link/Elf/merge_section.zig
     src/link/Elf/relocatable.zig
     src/link/Elf/relocation.zig
     src/link/Elf/synthetic_sections.zig
-    src/link/Elf/Thunk.zig
     src/link/MachO.zig
     src/link/MachO/Archive.zig
     src/link/MachO/Atom.zig
@@ -834,6 +834,11 @@ else()
   endif()
 endif()
 
+option(ZIG2_NO_RTLIB "Build zig2 without linking to a compiler runtime library (for `zig cc` only)" OFF)
+if(ZIG2_NO_RTLIB)
+  set(ZIG2_LINK_FLAGS "${ZIG2_LINK_FLAGS} -rtlib=none")
+endif()
+
 set(ZIG1_WASM_MODULE "${PROJECT_SOURCE_DIR}/stage1/zig1.wasm")
 set(ZIG1_C_SOURCE "${PROJECT_BINARY_DIR}/zig1.c")
 set(ZIG2_C_SOURCE "${PROJECT_BINARY_DIR}/zig2.c")
@@ -889,9 +894,7 @@ set(BUILD_COMPILER_RT_ARGS
   --name compiler_rt
   -femit-bin="${ZIG_COMPILER_RT_C_SOURCE}"
   -target "${ZIG_HOST_TARGET_TRIPLE}"
-  --dep "build_options"
   "-Mroot=lib/compiler_rt.zig"
-  "-Mbuild_options=${ZIG_CONFIG_ZIG_OUT}"
 )
 
 add_custom_command(

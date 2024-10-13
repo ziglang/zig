@@ -23,6 +23,9 @@ void ThreadArgRetval::CreateLocked(uptr thread, bool detached,
   Data& t = data_[thread];
   t = {};
   t.gen = gen_++;
+  static_assert(sizeof(gen_) == sizeof(u32) && kInvalidGen == UINT32_MAX);
+  if (gen_ == kInvalidGen)
+    gen_ = 0;
   t.detached = detached;
   t.args = args;
 }
@@ -53,16 +56,28 @@ void ThreadArgRetval::Finish(uptr thread, void* retval) {
 u32 ThreadArgRetval::BeforeJoin(uptr thread) const {
   __sanitizer::Lock lock(&mtx_);
   auto t = data_.find(thread);
-  CHECK(t);
-  CHECK(!t->second.detached);
-  return t->second.gen;
+  if (t && !t->second.detached) {
+    return t->second.gen;
+  }
+  if (!common_flags()->detect_invalid_join)
+    return kInvalidGen;
+  const char* reason = "unknown";
+  if (!t) {
+    reason = "already joined";
+  } else if (t->second.detached) {
+    reason = "detached";
+  }
+  Report("ERROR: %s: Joining %s thread, aborting.\n", SanitizerToolName,
+         reason);
+  Die();
 }
 
 void ThreadArgRetval::AfterJoin(uptr thread, u32 gen) {
   __sanitizer::Lock lock(&mtx_);
   auto t = data_.find(thread);
   if (!t || gen != t->second.gen) {
-    // Thread was reused and erased by any other event.
+    // Thread was reused and erased by any other event, or we had an invalid
+    // join.
     return;
   }
   CHECK(!t->second.detached);

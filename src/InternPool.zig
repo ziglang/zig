@@ -2,20 +2,20 @@
 //! This data structure is self-contained.
 
 /// One item per thread, indexed by `tid`, which is dense and unique per thread.
-locals: []Local = &.{},
+locals: []Local,
 /// Length must be a power of two and represents the number of simultaneous
 /// writers that can mutate any single sharded data structure.
-shards: []Shard = &.{},
+shards: []Shard,
 /// Key is the error name, index is the error tag value. Index 0 has a length-0 string.
-global_error_set: GlobalErrorSet = GlobalErrorSet.empty,
+global_error_set: GlobalErrorSet,
 /// Cached number of active bits in a `tid`.
-tid_width: if (single_threaded) u0 else std.math.Log2Int(u32) = 0,
+tid_width: if (single_threaded) u0 else std.math.Log2Int(u32),
 /// Cached shift amount to put a `tid` in the top bits of a 30-bit value.
-tid_shift_30: if (single_threaded) u0 else std.math.Log2Int(u32) = if (single_threaded) 0 else 31,
+tid_shift_30: if (single_threaded) u0 else std.math.Log2Int(u32),
 /// Cached shift amount to put a `tid` in the top bits of a 31-bit value.
-tid_shift_31: if (single_threaded) u0 else std.math.Log2Int(u32) = if (single_threaded) 0 else 31,
+tid_shift_31: if (single_threaded) u0 else std.math.Log2Int(u32),
 /// Cached shift amount to put a `tid` in the top bits of a 32-bit value.
-tid_shift_32: if (single_threaded) u0 else std.math.Log2Int(u32) = if (single_threaded) 0 else 31,
+tid_shift_32: if (single_threaded) u0 else std.math.Log2Int(u32),
 
 /// Dependencies on the source code hash associated with a ZIR instruction.
 /// * For a `declaration`, this is the entire declaration body.
@@ -23,36 +23,36 @@ tid_shift_32: if (single_threaded) u0 else std.math.Log2Int(u32) = if (single_th
 /// * For a `func`, this is the source of the full function signature.
 /// These are also invalidated if tracking fails for this instruction.
 /// Value is index into `dep_entries` of the first dependency on this hash.
-src_hash_deps: std.AutoArrayHashMapUnmanaged(TrackedInst.Index, DepEntry.Index) = .{},
+src_hash_deps: std.AutoArrayHashMapUnmanaged(TrackedInst.Index, DepEntry.Index),
 /// Dependencies on the value of a Nav.
 /// Value is index into `dep_entries` of the first dependency on this Nav value.
-nav_val_deps: std.AutoArrayHashMapUnmanaged(Nav.Index, DepEntry.Index) = .{},
+nav_val_deps: std.AutoArrayHashMapUnmanaged(Nav.Index, DepEntry.Index),
 /// Dependencies on an interned value, either:
 /// * a runtime function (invalidated when its IES changes)
 /// * a container type requiring resolution (invalidated when the type must be recreated at a new index)
 /// Value is index into `dep_entries` of the first dependency on this interned value.
-interned_deps: std.AutoArrayHashMapUnmanaged(Index, DepEntry.Index) = .{},
+interned_deps: std.AutoArrayHashMapUnmanaged(Index, DepEntry.Index),
 /// Dependencies on the full set of names in a ZIR namespace.
 /// Key refers to a `struct_decl`, `union_decl`, etc.
 /// Value is index into `dep_entries` of the first dependency on this namespace.
-namespace_deps: std.AutoArrayHashMapUnmanaged(TrackedInst.Index, DepEntry.Index) = .{},
+namespace_deps: std.AutoArrayHashMapUnmanaged(TrackedInst.Index, DepEntry.Index),
 /// Dependencies on the (non-)existence of some name in a namespace.
 /// Value is index into `dep_entries` of the first dependency on this name.
-namespace_name_deps: std.AutoArrayHashMapUnmanaged(NamespaceNameKey, DepEntry.Index) = .{},
+namespace_name_deps: std.AutoArrayHashMapUnmanaged(NamespaceNameKey, DepEntry.Index),
 
 /// Given a `Depender`, points to an entry in `dep_entries` whose `depender`
 /// matches. The `next_dependee` field can be used to iterate all such entries
 /// and remove them from the corresponding lists.
-first_dependency: std.AutoArrayHashMapUnmanaged(AnalUnit, DepEntry.Index) = .{},
+first_dependency: std.AutoArrayHashMapUnmanaged(AnalUnit, DepEntry.Index),
 
 /// Stores dependency information. The hashmaps declared above are used to look
 /// up entries in this list as required. This is not stored in `extra` so that
 /// we can use `free_dep_entries` to track free indices, since dependencies are
 /// removed frequently.
-dep_entries: std.ArrayListUnmanaged(DepEntry) = .{},
+dep_entries: std.ArrayListUnmanaged(DepEntry),
 /// Stores unused indices in `dep_entries` which can be reused without a full
 /// garbage collection pass.
-free_dep_entries: std.ArrayListUnmanaged(DepEntry.Index) = .{},
+free_dep_entries: std.ArrayListUnmanaged(DepEntry.Index),
 
 /// Whether a multi-threaded intern pool is useful.
 /// Currently `false` until the intern pool is actually accessed
@@ -61,6 +61,24 @@ const want_multi_threaded = true;
 
 /// Whether a single-threaded intern pool impl is in use.
 pub const single_threaded = builtin.single_threaded or !want_multi_threaded;
+
+pub const empty: InternPool = .{
+    .locals = &.{},
+    .shards = &.{},
+    .global_error_set = .empty,
+    .tid_width = 0,
+    .tid_shift_30 = if (single_threaded) 0 else 31,
+    .tid_shift_31 = if (single_threaded) 0 else 31,
+    .tid_shift_32 = if (single_threaded) 0 else 31,
+    .src_hash_deps = .empty,
+    .nav_val_deps = .empty,
+    .interned_deps = .empty,
+    .namespace_deps = .empty,
+    .namespace_name_deps = .empty,
+    .first_dependency = .empty,
+    .dep_entries = .empty,
+    .free_dep_entries = .empty,
+};
 
 /// A `TrackedInst.Index` provides a single, unchanging reference to a ZIR instruction across a whole
 /// compilation. From this index, you can acquire a `TrackedInst`, which containss a reference to both
@@ -4723,7 +4741,7 @@ pub const Index = enum(u32) {
     }
 
     comptime {
-        if (!builtin.strip_debug_info) {
+        if (builtin.zig_backend == .stage2_llvm and !builtin.strip_debug_info) {
             _ = &dbHelper;
         }
     }
@@ -7335,6 +7353,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
         .func_type => unreachable, // use getFuncType() instead
         .@"extern" => unreachable, // use getExtern() instead
         .func => unreachable, // use getFuncInstance() or getFuncDecl() instead
+        .un => unreachable, // use getUnion instead
 
         .variable => |variable| {
             const has_init = variable.init != .none;
@@ -7950,15 +7969,6 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
             if (sentinel != .none) extra.appendAssumeCapacity(.{@intFromEnum(sentinel)});
         },
 
-        .un => |un| {
-            assert(un.ty != .none);
-            assert(un.val != .none);
-            items.appendAssumeCapacity(.{
-                .tag = .union_value,
-                .data = try addExtra(extra, un),
-            });
-        },
-
         .memoized_call => |memoized_call| {
             for (memoized_call.arg_values) |arg| assert(arg != .none);
             try extra.ensureUnusedCapacity(@typeInfo(MemoizedCall).@"struct".fields.len +
@@ -7975,6 +7985,30 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
             extra.appendSliceAssumeCapacity(.{@ptrCast(memoized_call.arg_values)});
         },
     }
+    return gop.put();
+}
+
+pub fn getUnion(
+    ip: *InternPool,
+    gpa: Allocator,
+    tid: Zcu.PerThread.Id,
+    un: Key.Union,
+) Allocator.Error!Index {
+    var gop = try ip.getOrPutKey(gpa, tid, .{ .un = un });
+    defer gop.deinit();
+    if (gop == .existing) return gop.existing;
+    const local = ip.getLocal(tid);
+    const items = local.getMutableItems(gpa);
+    const extra = local.getMutableExtra(gpa);
+    try items.ensureUnusedCapacity(1);
+
+    assert(un.ty != .none);
+    assert(un.val != .none);
+    items.appendAssumeCapacity(.{
+        .tag = .union_value,
+        .data = try addExtra(extra, un),
+    });
+
     return gop.put();
 }
 
@@ -9858,7 +9892,7 @@ fn extraData(extra: Local.Extra, comptime T: type, index: u32) T {
 test "basic usage" {
     const gpa = std.testing.allocator;
 
-    var ip: InternPool = .{};
+    var ip: InternPool = .empty;
     defer ip.deinit(gpa);
 
     const i32_type = try ip.get(gpa, .main, .{ .int_type = .{
@@ -10791,7 +10825,7 @@ pub fn dumpGenericInstancesFallible(ip: *const InternPool, allocator: Allocator)
     var bw = std.io.bufferedWriter(std.io.getStdErr().writer());
     const w = bw.writer();
 
-    var instances: std.AutoArrayHashMapUnmanaged(Index, std.ArrayListUnmanaged(Index)) = .{};
+    var instances: std.AutoArrayHashMapUnmanaged(Index, std.ArrayListUnmanaged(Index)) = .empty;
     for (ip.locals, 0..) |*local, tid| {
         const items = local.shared.items.view().slice();
         const extra_list = local.shared.extra;

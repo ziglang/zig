@@ -12,7 +12,7 @@
 #include <__config>
 #include <__memory/allocator_traits.h>
 #include <__type_traits/integral_constant.h>
-#include <__type_traits/is_nothrow_move_assignable.h>
+#include <__type_traits/is_nothrow_assignable.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
