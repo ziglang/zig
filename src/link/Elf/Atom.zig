@@ -592,6 +592,7 @@ fn reportUndefined(
     const file_ptr = self.file(elf_file).?;
     const rel_esym = switch (file_ptr) {
         .zig_object => |x| x.symbol(rel.r_sym()).elfSym(elf_file),
+        .shared_object => |so| so.parsed.symtab[rel.r_sym()],
         inline else => |x| x.symtab.items[rel.r_sym()],
     };
     const esym = sym.elfSym(elf_file);

@@ -22,7 +22,7 @@ esym_index: Index = 0,
 
 /// Index of the source version symbol this symbol references if any.
 /// If the symbol is unversioned it will have either VER_NDX_LOCAL or VER_NDX_GLOBAL.
-version_index: elf.Elf64_Versym = elf.VER_NDX_LOCAL,
+version_index: elf.Versym = .LOCAL,
 
 /// Misc flags for the symbol packaged as packed struct for compression.
 flags: Flags = .{},
@@ -87,6 +87,7 @@ pub fn file(symbol: Symbol, elf_file: *Elf) ?File {
 pub fn elfSym(symbol: Symbol, elf_file: *Elf) elf.Elf64_Sym {
     return switch (symbol.file(elf_file).?) {
         .zig_object => |x| x.symtab.items(.elf_sym)[symbol.esym_index],
+        .shared_object => |so| so.parsed.symtab[symbol.esym_index],
         inline else => |x| x.symtab.items[symbol.esym_index],
     };
 }
@@ -235,7 +236,7 @@ pub fn dsoAlignment(symbol: Symbol, elf_file: *Elf) !u64 {
     assert(file_ptr == .shared_object);
     const shared_object = file_ptr.shared_object;
     const esym = symbol.elfSym(elf_file);
-    const shdr = shared_object.shdrs.items[esym.st_shndx];
+    const shdr = shared_object.parsed.sections[esym.st_shndx];
     const alignment = @max(1, shdr.sh_addralign);
     return if (esym.st_value == 0)
         alignment
@@ -351,8 +352,8 @@ fn formatName(
     const elf_file = ctx.elf_file;
     const symbol = ctx.symbol;
     try writer.writeAll(symbol.name(elf_file));
-    switch (symbol.version_index & elf.VERSYM_VERSION) {
-        elf.VER_NDX_LOCAL, elf.VER_NDX_GLOBAL => {},
+    switch (symbol.version_index.VERSION) {
+        @intFromEnum(elf.VER_NDX.LOCAL), @intFromEnum(elf.VER_NDX.GLOBAL) => {},
         else => {
             const file_ptr = symbol.file(elf_file).?;
             assert(file_ptr == .shared_object);

@@ -4,22 +4,22 @@ pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation, module_obj_path: ?Path
 
     for (comp.objects) |obj| {
         switch (Compilation.classifyFileExt(obj.path.sub_path)) {
-            .object => try parseObjectStaticLibReportingFailure(elf_file, obj.path),
-            .static_library => try parseArchiveStaticLibReportingFailure(elf_file, obj.path),
-            else => try elf_file.addParseError(obj.path, "unrecognized file extension", .{}),
+            .object => parseObjectStaticLibReportingFailure(elf_file, obj.path),
+            .static_library => parseArchiveStaticLibReportingFailure(elf_file, obj.path),
+            else => diags.addParseError(obj.path, "unrecognized file extension", .{}),
         }
     }
 
     for (comp.c_object_table.keys()) |key| {
-        try parseObjectStaticLibReportingFailure(elf_file, key.status.success.object_path);
+        parseObjectStaticLibReportingFailure(elf_file, key.status.success.object_path);
     }
 
     if (module_obj_path) |path| {
-        try parseObjectStaticLibReportingFailure(elf_file, path);
+        parseObjectStaticLibReportingFailure(elf_file, path);
     }
 
     if (comp.include_compiler_rt) {
-        try parseObjectStaticLibReportingFailure(elf_file, comp.compiler_rt_obj.?.full_object_path);
+        parseObjectStaticLibReportingFailure(elf_file, comp.compiler_rt_obj.?.full_object_path);
     }
 
     if (diags.hasErrors()) return error.FlushFailure;
@@ -154,21 +154,17 @@ pub fn flushObject(elf_file: *Elf, comp: *Compilation, module_obj_path: ?Path) l
     const diags = &comp.link_diags;
 
     for (comp.objects) |obj| {
-        if (obj.isObject()) {
-            try elf_file.parseObjectReportingFailure(obj.path);
-        } else {
-            try elf_file.parseLibraryReportingFailure(.{ .path = obj.path }, obj.must_link);
-        }
+        elf_file.parseInputReportingFailure(obj.path, false, obj.must_link);
     }
 
     // This is a set of object files emitted by clang in a single `build-exe` invocation.
     // For instance, the implicit `a.o` as compiled by `zig build-exe a.c` will end up
     // in this set.
     for (comp.c_object_table.keys()) |key| {
-        try elf_file.parseObjectReportingFailure(key.status.success.object_path);
+        elf_file.parseObjectReportingFailure(key.status.success.object_path);
     }
 
-    if (module_obj_path) |path| try elf_file.parseObjectReportingFailure(path);
+    if (module_obj_path) |path| elf_file.parseObjectReportingFailure(path);
 
     if (diags.hasErrors()) return error.FlushFailure;
 
@@ -219,19 +215,19 @@ pub fn flushObject(elf_file: *Elf, comp: *Compilation, module_obj_path: ?Path) l
     if (diags.hasErrors()) return error.FlushFailure;
 }
 
-fn parseObjectStaticLibReportingFailure(elf_file: *Elf, path: Path) error{OutOfMemory}!void {
+fn parseObjectStaticLibReportingFailure(elf_file: *Elf, path: Path) void {
+    const diags = &elf_file.base.comp.link_diags;
     parseObjectStaticLib(elf_file, path) catch |err| switch (err) {
         error.LinkFailure => return,
-        error.OutOfMemory => return error.OutOfMemory,
-        else => |e| try elf_file.addParseError(path, "parsing object failed: {s}", .{@errorName(e)}),
+        else => |e| diags.addParseError(path, "parsing object failed: {s}", .{@errorName(e)}),
     };
 }
 
-fn parseArchiveStaticLibReportingFailure(elf_file: *Elf, path: Path) error{OutOfMemory}!void {
+fn parseArchiveStaticLibReportingFailure(elf_file: *Elf, path: Path) void {
+    const diags = &elf_file.base.comp.link_diags;
     parseArchiveStaticLib(elf_file, path) catch |err| switch (err) {
         error.LinkFailure => return,
-        error.OutOfMemory => return error.OutOfMemory,
-        else => |e| try elf_file.addParseError(path, "parsing static library failed: {s}", .{@errorName(e)}),
+        else => |e| diags.addParseError(path, "parsing static library failed: {s}", .{@errorName(e)}),
     };
 }
 

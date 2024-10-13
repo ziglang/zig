@@ -207,23 +207,19 @@ pub const Diags = struct {
     pub fn addError(diags: *Diags, comptime format: []const u8, args: anytype) void {
         @branchHint(.cold);
         const gpa = diags.gpa;
+        const eu_main_msg = std.fmt.allocPrint(gpa, format, args);
         diags.mutex.lock();
         defer diags.mutex.unlock();
-        diags.msgs.ensureUnusedCapacity(gpa, 1) catch |err| switch (err) {
-            error.OutOfMemory => {
-                diags.flags.alloc_failure_occurred = true;
-                return;
-            },
+        addErrorLockedFallible(diags, eu_main_msg) catch |err| switch (err) {
+            error.OutOfMemory => diags.setAllocFailureLocked(),
         };
-        const err_msg: Msg = .{
-            .msg = std.fmt.allocPrint(gpa, format, args) catch |err| switch (err) {
-                error.OutOfMemory => {
-                    diags.flags.alloc_failure_occurred = true;
-                    return;
-                },
-            },
-        };
-        diags.msgs.appendAssumeCapacity(err_msg);
+    }
+
+    fn addErrorLockedFallible(diags: *Diags, eu_main_msg: Allocator.Error![]u8) Allocator.Error!void {
+        const gpa = diags.gpa;
+        const main_msg = try eu_main_msg;
+        errdefer gpa.free(main_msg);
+        try diags.msgs.append(gpa, .{ .msg = main_msg });
     }
 
     pub fn addErrorWithNotes(diags: *Diags, note_count: usize) error{OutOfMemory}!ErrorWithNotes {
@@ -242,7 +238,7 @@ pub const Diags = struct {
         const err = diags.msgs.addOneAssumeCapacity();
         err.* = .{
             .msg = undefined,
-            .notes = try gpa.alloc(Diags.Msg, note_count),
+            .notes = try gpa.alloc(Msg, note_count),
         };
         return .{
             .diags = diags,
@@ -250,34 +246,93 @@ pub const Diags = struct {
         };
     }
 
-    pub fn reportMissingLibraryError(
+    pub fn addMissingLibraryError(
         diags: *Diags,
         checked_paths: []const []const u8,
         comptime format: []const u8,
         args: anytype,
-    ) error{OutOfMemory}!void {
+    ) void {
         @branchHint(.cold);
-        var err = try diags.addErrorWithNotes(checked_paths.len);
-        try err.addMsg(format, args);
-        for (checked_paths) |path| {
-            try err.addNote("tried {s}", .{path});
-        }
+        const gpa = diags.gpa;
+        const eu_main_msg = std.fmt.allocPrint(gpa, format, args);
+        diags.mutex.lock();
+        defer diags.mutex.unlock();
+        addMissingLibraryErrorLockedFallible(diags, checked_paths, eu_main_msg) catch |err| switch (err) {
+            error.OutOfMemory => diags.setAllocFailureLocked(),
+        };
     }
 
-    pub fn reportParseError(
+    fn addMissingLibraryErrorLockedFallible(
+        diags: *Diags,
+        checked_paths: []const []const u8,
+        eu_main_msg: Allocator.Error![]u8,
+    ) Allocator.Error!void {
+        const gpa = diags.gpa;
+        const main_msg = try eu_main_msg;
+        errdefer gpa.free(main_msg);
+        try diags.msgs.ensureUnusedCapacity(gpa, 1);
+        const notes = try gpa.alloc(Msg, checked_paths.len);
+        errdefer gpa.free(notes);
+        for (checked_paths, notes) |path, *note| {
+            note.* = .{ .msg = try std.fmt.allocPrint(gpa, "tried {s}", .{path}) };
+        }
+        diags.msgs.appendAssumeCapacity(.{
+            .msg = main_msg,
+            .notes = notes,
+        });
+    }
+
+    pub fn addParseError(
         diags: *Diags,
         path: Path,
         comptime format: []const u8,
         args: anytype,
-    ) error{OutOfMemory}!void {
+    ) void {
         @branchHint(.cold);
-        var err = try diags.addErrorWithNotes(1);
-        try err.addMsg(format, args);
-        try err.addNote("while parsing {}", .{path});
+        const gpa = diags.gpa;
+        const eu_main_msg = std.fmt.allocPrint(gpa, format, args);
+        diags.mutex.lock();
+        defer diags.mutex.unlock();
+        addParseErrorLockedFallible(diags, path, eu_main_msg) catch |err| switch (err) {
+            error.OutOfMemory => diags.setAllocFailureLocked(),
+        };
+    }
+
+    fn addParseErrorLockedFallible(diags: *Diags, path: Path, m: Allocator.Error![]u8) Allocator.Error!void {
+        const gpa = diags.gpa;
+        const main_msg = try m;
+        errdefer gpa.free(main_msg);
+        try diags.msgs.ensureUnusedCapacity(gpa, 1);
+        const note = try std.fmt.allocPrint(gpa, "while parsing {}", .{path});
+        errdefer gpa.free(note);
+        const notes = try gpa.create([1]Msg);
+        errdefer gpa.destroy(notes);
+        notes.* = .{.{ .msg = note }};
+        diags.msgs.appendAssumeCapacity(.{
+            .msg = main_msg,
+            .notes = notes,
+        });
+    }
+
+    pub fn failParse(
+        diags: *Diags,
+        path: Path,
+        comptime format: []const u8,
+        args: anytype,
+    ) error{LinkFailure} {
+        @branchHint(.cold);
+        addParseError(diags, path, format, args);
+        return error.LinkFailure;
     }
 
     pub fn setAllocFailure(diags: *Diags) void {
         @branchHint(.cold);
+        diags.mutex.lock();
+        defer diags.mutex.unlock();
+        setAllocFailureLocked(diags);
+    }
+
+    fn setAllocFailureLocked(diags: *Diags) void {
         log.debug("memory allocation failure", .{});
         diags.flags.alloc_failure_occurred = true;
     }
@@ -727,7 +782,8 @@ pub const File = struct {
         FailedToEmit,
         FileSystem,
         FilesOpenedWithWrongFlags,
-        /// Indicates an error will be present in `Compilation.link_errors`.
+        /// Deprecated. Use `LinkFailure` instead.
+        /// Formerly used to indicate an error will be present in `Compilation.link_errors`.
         FlushFailure,
         /// Indicates an error will be present in `Compilation.link_errors`.
         LinkFailure,

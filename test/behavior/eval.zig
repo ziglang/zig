@@ -1618,6 +1618,8 @@ test "struct in comptime false branch is not evaluated" {
 }
 
 test "result of nested switch assigned to variable" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+
     var zds: u32 = 0;
     zds = switch (zds) {
         0 => switch (zds) {

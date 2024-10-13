@@ -1345,8 +1345,8 @@ pub const GnuHashSection = struct {
 
 pub const VerneedSection = struct {
     verneed: std.ArrayListUnmanaged(elf.Elf64_Verneed) = .empty,
-    vernaux: std.ArrayListUnmanaged(elf.Elf64_Vernaux) = .empty,
-    index: elf.Elf64_Versym = elf.VER_NDX_GLOBAL + 1,
+    vernaux: std.ArrayListUnmanaged(elf.Vernaux) = .empty,
+    index: elf.Versym = .{ .VERSION = elf.Versym.GLOBAL.VERSION + 1, .HIDDEN = false },
 
     pub fn deinit(vern: *VerneedSection, allocator: Allocator) void {
         vern.verneed.deinit(allocator);
@@ -1363,7 +1363,7 @@ pub const VerneedSection = struct {
             /// Index of the defining this symbol version shared object file
             shared_object: File.Index,
             /// Version index
-            version_index: elf.Elf64_Versym,
+            version_index: elf.Versym,
 
             fn soname(this: @This(), ctx: *Elf) []const u8 {
                 const shared_object = ctx.file(this.shared_object).?.shared_object;
@@ -1376,7 +1376,8 @@ pub const VerneedSection = struct {
             }
 
             pub fn lessThan(ctx: *Elf, lhs: @This(), rhs: @This()) bool {
-                if (lhs.shared_object == rhs.shared_object) return lhs.version_index < rhs.version_index;
+                if (lhs.shared_object == rhs.shared_object)
+                    return @as(u16, @bitCast(lhs.version_index)) < @as(u16, @bitCast(rhs.version_index));
                 return mem.lessThan(u8, lhs.soname(ctx), rhs.soname(ctx));
             }
         };
@@ -1389,7 +1390,7 @@ pub const VerneedSection = struct {
 
         for (dynsyms, 1..) |entry, i| {
             const symbol = elf_file.symbol(entry.ref).?;
-            if (symbol.flags.import and symbol.version_index & elf.VERSYM_VERSION > elf.VER_NDX_GLOBAL) {
+            if (symbol.flags.import and symbol.version_index.VERSION > elf.Versym.GLOBAL.VERSION) {
                 const shared_object = symbol.file(elf_file).?.shared_object;
                 verneed.appendAssumeCapacity(.{
                     .index = i,
@@ -1404,11 +1405,12 @@ pub const VerneedSection = struct {
         var last = verneed.items[0];
         var last_verneed = try vern.addVerneed(last.soname(elf_file), elf_file);
         var last_vernaux = try vern.addVernaux(last_verneed, last.versionString(elf_file), elf_file);
-        versyms[last.index] = last_vernaux.vna_other;
+        versyms[last.index] = @bitCast(last_vernaux.other);
 
         for (verneed.items[1..]) |ver| {
             if (ver.shared_object == last.shared_object) {
-                if (ver.version_index != last.version_index) {
+                // https://github.com/ziglang/zig/issues/21678
+                if (@as(u16, @bitCast(ver.version_index)) != @as(u16, @bitCast(last.version_index))) {
                     last_vernaux = try vern.addVernaux(last_verneed, ver.versionString(elf_file), elf_file);
                 }
             } else {
@@ -1416,7 +1418,7 @@ pub const VerneedSection = struct {
                 last_vernaux = try vern.addVernaux(last_verneed, ver.versionString(elf_file), elf_file);
             }
             last = ver;
-            versyms[ver.index] = last_vernaux.vna_other;
+            versyms[ver.index] = @bitCast(last_vernaux.other);
         }
 
         // Fixup offsets
@@ -1428,8 +1430,8 @@ pub const VerneedSection = struct {
             vsym.vn_aux = vernaux_off - verneed_off;
             var inner_off: u32 = 0;
             for (vern.vernaux.items[count..][0..vsym.vn_cnt], 0..) |*vaux, vaux_i| {
-                if (vaux_i < vsym.vn_cnt - 1) vaux.vna_next = @sizeOf(elf.Elf64_Vernaux);
-                inner_off += @sizeOf(elf.Elf64_Vernaux);
+                if (vaux_i < vsym.vn_cnt - 1) vaux.next = @sizeOf(elf.Vernaux);
+                inner_off += @sizeOf(elf.Vernaux);
             }
             vernaux_off += inner_off;
             verneed_off += @sizeOf(elf.Elf64_Verneed);
@@ -1456,24 +1458,24 @@ pub const VerneedSection = struct {
         verneed_sym: *elf.Elf64_Verneed,
         version: [:0]const u8,
         elf_file: *Elf,
-    ) !elf.Elf64_Vernaux {
+    ) !elf.Vernaux {
         const comp = elf_file.base.comp;
         const gpa = comp.gpa;
         const sym = try vern.vernaux.addOne(gpa);
         sym.* = .{
-            .vna_hash = HashSection.hasher(version),
-            .vna_flags = 0,
-            .vna_other = vern.index,
-            .vna_name = try elf_file.insertDynString(version),
-            .vna_next = 0,
+            .hash = HashSection.hasher(version),
+            .flags = 0,
+            .other = @bitCast(vern.index),
+            .name = try elf_file.insertDynString(version),
+            .next = 0,
         };
         verneed_sym.vn_cnt += 1;
-        vern.index += 1;
+        vern.index.VERSION += 1;
         return sym.*;
     }
 
     pub fn size(vern: VerneedSection) usize {
-        return vern.verneed.items.len * @sizeOf(elf.Elf64_Verneed) + vern.vernaux.items.len * @sizeOf(elf.Elf64_Vernaux);
+        return vern.verneed.items.len * @sizeOf(elf.Elf64_Verneed) + vern.vernaux.items.len * @sizeOf(elf.Vernaux);
     }
 
     pub fn write(vern: VerneedSection, writer: anytype) !void {

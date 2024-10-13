@@ -258,17 +258,26 @@ pub const DF_1_SINGLETON = 0x02000000;
 pub const DF_1_STUB = 0x04000000;
 pub const DF_1_PIE = 0x08000000;
 
-pub const VERSYM_HIDDEN = 0x8000;
-pub const VERSYM_VERSION = 0x7fff;
+pub const Versym = packed struct(u16) {
+    VERSION: u15,
+    HIDDEN: bool,
 
-/// Symbol is local
-pub const VER_NDX_LOCAL = 0;
-/// Symbol is global
-pub const VER_NDX_GLOBAL = 1;
-/// Beginning of reserved entries
-pub const VER_NDX_LORESERVE = 0xff00;
-/// Symbol is to be eliminated
-pub const VER_NDX_ELIMINATE = 0xff01;
+    pub const LOCAL: Versym = @bitCast(@intFromEnum(VER_NDX.LOCAL));
+    pub const GLOBAL: Versym = @bitCast(@intFromEnum(VER_NDX.GLOBAL));
+};
+
+pub const VER_NDX = enum(u16) {
+    /// Symbol is local
+    LOCAL = 0,
+    /// Symbol is global
+    GLOBAL = 1,
+    /// Beginning of reserved entries
+    LORESERVE = 0xff00,
+    /// Symbol is to be eliminated
+    ELIMINATE = 0xff01,
+    UNSPECIFIED = 0xffff,
+    _,
+};
 
 /// Version definition of the file itself
 pub const VER_FLG_BASE = 1;
@@ -698,12 +707,9 @@ pub const EI_PAD = 9;
 
 pub const EI_NIDENT = 16;
 
-pub const Elf32_Half = u16;
-pub const Elf64_Half = u16;
-pub const Elf32_Word = u32;
-pub const Elf32_Sword = i32;
-pub const Elf64_Word = u32;
-pub const Elf64_Sword = i32;
+pub const Half = u16;
+pub const Word = u32;
+pub const Sword = i32;
 pub const Elf32_Xword = u64;
 pub const Elf32_Sxword = i64;
 pub const Elf64_Xword = u64;
@@ -714,53 +720,51 @@ pub const Elf32_Off = u32;
 pub const Elf64_Off = u64;
 pub const Elf32_Section = u16;
 pub const Elf64_Section = u16;
-pub const Elf32_Versym = Elf32_Half;
-pub const Elf64_Versym = Elf64_Half;
 pub const Elf32_Ehdr = extern struct {
     e_ident: [EI_NIDENT]u8,
     e_type: ET,
     e_machine: EM,
-    e_version: Elf32_Word,
+    e_version: Word,
     e_entry: Elf32_Addr,
     e_phoff: Elf32_Off,
     e_shoff: Elf32_Off,
-    e_flags: Elf32_Word,
-    e_ehsize: Elf32_Half,
-    e_phentsize: Elf32_Half,
-    e_phnum: Elf32_Half,
-    e_shentsize: Elf32_Half,
-    e_shnum: Elf32_Half,
-    e_shstrndx: Elf32_Half,
+    e_flags: Word,
+    e_ehsize: Half,
+    e_phentsize: Half,
+    e_phnum: Half,
+    e_shentsize: Half,
+    e_shnum: Half,
+    e_shstrndx: Half,
 };
 pub const Elf64_Ehdr = extern struct {
     e_ident: [EI_NIDENT]u8,
     e_type: ET,
     e_machine: EM,
-    e_version: Elf64_Word,
+    e_version: Word,
     e_entry: Elf64_Addr,
     e_phoff: Elf64_Off,
     e_shoff: Elf64_Off,
-    e_flags: Elf64_Word,
-    e_ehsize: Elf64_Half,
-    e_phentsize: Elf64_Half,
-    e_phnum: Elf64_Half,
-    e_shentsize: Elf64_Half,
-    e_shnum: Elf64_Half,
-    e_shstrndx: Elf64_Half,
+    e_flags: Word,
+    e_ehsize: Half,
+    e_phentsize: Half,
+    e_phnum: Half,
+    e_shentsize: Half,
+    e_shnum: Half,
+    e_shstrndx: Half,
 };
 pub const Elf32_Phdr = extern struct {
-    p_type: Elf32_Word,
+    p_type: Word,
     p_offset: Elf32_Off,
     p_vaddr: Elf32_Addr,
     p_paddr: Elf32_Addr,
-    p_filesz: Elf32_Word,
-    p_memsz: Elf32_Word,
-    p_flags: Elf32_Word,
-    p_align: Elf32_Word,
+    p_filesz: Word,
+    p_memsz: Word,
+    p_flags: Word,
+    p_align: Word,
 };
 pub const Elf64_Phdr = extern struct {
-    p_type: Elf64_Word,
-    p_flags: Elf64_Word,
+    p_type: Word,
+    p_flags: Word,
     p_offset: Elf64_Off,
     p_vaddr: Elf64_Addr,
     p_paddr: Elf64_Addr,
@@ -769,44 +773,44 @@ pub const Elf64_Phdr = extern struct {
     p_align: Elf64_Xword,
 };
 pub const Elf32_Shdr = extern struct {
-    sh_name: Elf32_Word,
-    sh_type: Elf32_Word,
-    sh_flags: Elf32_Word,
+    sh_name: Word,
+    sh_type: Word,
+    sh_flags: Word,
     sh_addr: Elf32_Addr,
     sh_offset: Elf32_Off,
-    sh_size: Elf32_Word,
-    sh_link: Elf32_Word,
-    sh_info: Elf32_Word,
-    sh_addralign: Elf32_Word,
-    sh_entsize: Elf32_Word,
+    sh_size: Word,
+    sh_link: Word,
+    sh_info: Word,
+    sh_addralign: Word,
+    sh_entsize: Word,
 };
 pub const Elf64_Shdr = extern struct {
-    sh_name: Elf64_Word,
-    sh_type: Elf64_Word,
+    sh_name: Word,
+    sh_type: Word,
     sh_flags: Elf64_Xword,
     sh_addr: Elf64_Addr,
     sh_offset: Elf64_Off,
     sh_size: Elf64_Xword,
-    sh_link: Elf64_Word,
-    sh_info: Elf64_Word,
+    sh_link: Word,
+    sh_info: Word,
     sh_addralign: Elf64_Xword,
     sh_entsize: Elf64_Xword,
 };
 pub const Elf32_Chdr = extern struct {
     ch_type: COMPRESS,
-    ch_size: Elf32_Word,
-    ch_addralign: Elf32_Word,
+    ch_size: Word,
+    ch_addralign: Word,
 };
 pub const Elf64_Chdr = extern struct {
     ch_type: COMPRESS,
-    ch_reserved: Elf64_Word = 0,
+    ch_reserved: Word = 0,
     ch_size: Elf64_Xword,
     ch_addralign: Elf64_Xword,
 };
 pub const Elf32_Sym = extern struct {
-    st_name: Elf32_Word,
+    st_name: Word,
     st_value: Elf32_Addr,
-    st_size: Elf32_Word,
+    st_size: Word,
     st_info: u8,
     st_other: u8,
     st_shndx: Elf32_Section,
@@ -819,7 +823,7 @@ pub const Elf32_Sym = extern struct {
     }
 };
 pub const Elf64_Sym = extern struct {
-    st_name: Elf64_Word,
+    st_name: Word,
     st_info: u8,
     st_other: u8,
     st_shndx: Elf64_Section,
@@ -834,16 +838,16 @@ pub const Elf64_Sym = extern struct {
     }
 };
 pub const Elf32_Syminfo = extern struct {
-    si_boundto: Elf32_Half,
-    si_flags: Elf32_Half,
+    si_boundto: Half,
+    si_flags: Half,
 };
 pub const Elf64_Syminfo = extern struct {
-    si_boundto: Elf64_Half,
-    si_flags: Elf64_Half,
+    si_boundto: Half,
+    si_flags: Half,
 };
 pub const Elf32_Rel = extern struct {
     r_offset: Elf32_Addr,
-    r_info: Elf32_Word,
+    r_info: Word,
 
     pub inline fn r_sym(self: @This()) u24 {
         return @truncate(self.r_info >> 8);
@@ -865,8 +869,8 @@ pub const Elf64_Rel = extern struct {
 };
 pub const Elf32_Rela = extern struct {
     r_offset: Elf32_Addr,
-    r_info: Elf32_Word,
-    r_addend: Elf32_Sword,
+    r_info: Word,
+    r_addend: Sword,
 
     pub inline fn r_sym(self: @This()) u24 {
         return @truncate(self.r_info >> 8);
@@ -887,69 +891,49 @@ pub const Elf64_Rela = extern struct {
         return @truncate(self.r_info);
     }
 };
-pub const Elf32_Relr = Elf32_Word;
+pub const Elf32_Relr = Word;
 pub const Elf64_Relr = Elf64_Xword;
 pub const Elf32_Dyn = extern struct {
-    d_tag: Elf32_Sword,
+    d_tag: Sword,
     d_val: Elf32_Addr,
 };
 pub const Elf64_Dyn = extern struct {
     d_tag: Elf64_Sxword,
     d_val: Elf64_Addr,
 };
-pub const Elf32_Verdef = extern struct {
-    vd_version: Elf32_Half,
-    vd_flags: Elf32_Half,
-    vd_ndx: Elf32_Half,
-    vd_cnt: Elf32_Half,
-    vd_hash: Elf32_Word,
-    vd_aux: Elf32_Word,
-    vd_next: Elf32_Word,
+pub const Verdef = extern struct {
+    version: Half,
+    flags: Half,
+    ndx: VER_NDX,
+    cnt: Half,
+    hash: Word,
+    aux: Word,
+    next: Word,
 };
-pub const Elf64_Verdef = extern struct {
-    vd_version: Elf64_Half,
-    vd_flags: Elf64_Half,
-    vd_ndx: Elf64_Half,
-    vd_cnt: Elf64_Half,
-    vd_hash: Elf64_Word,
-    vd_aux: Elf64_Word,
-    vd_next: Elf64_Word,
-};
-pub const Elf32_Verdaux = extern struct {
-    vda_name: Elf32_Word,
-    vda_next: Elf32_Word,
-};
-pub const Elf64_Verdaux = extern struct {
-    vda_name: Elf64_Word,
-    vda_next: Elf64_Word,
+pub const Verdaux = extern struct {
+    name: Word,
+    next: Word,
 };
 pub const Elf32_Verneed = extern struct {
-    vn_version: Elf32_Half,
-    vn_cnt: Elf32_Half,
-    vn_file: Elf32_Word,
-    vn_aux: Elf32_Word,
-    vn_next: Elf32_Word,
+    vn_version: Half,
+    vn_cnt: Half,
+    vn_file: Word,
+    vn_aux: Word,
+    vn_next: Word,
 };
 pub const Elf64_Verneed = extern struct {
-    vn_version: Elf64_Half,
-    vn_cnt: Elf64_Half,
-    vn_file: Elf64_Word,
-    vn_aux: Elf64_Word,
-    vn_next: Elf64_Word,
+    vn_version: Half,
+    vn_cnt: Half,
+    vn_file: Word,
+    vn_aux: Word,
+    vn_next: Word,
 };
-pub const Elf32_Vernaux = extern struct {
-    vna_hash: Elf32_Word,
-    vna_flags: Elf32_Half,
-    vna_other: Elf32_Half,
-    vna_name: Elf32_Word,
-    vna_next: Elf32_Word,
-};
-pub const Elf64_Vernaux = extern struct {
-    vna_hash: Elf64_Word,
-    vna_flags: Elf64_Half,
-    vna_other: Elf64_Half,
-    vna_name: Elf64_Word,
-    vna_next: Elf64_Word,
+pub const Vernaux = extern struct {
+    hash: Word,
+    flags: Half,
+    other: Half,
+    name: Word,
+    next: Word,
 };
 pub const Elf32_auxv_t = extern struct {
     a_type: u32,
@@ -964,81 +948,81 @@ pub const Elf64_auxv_t = extern struct {
     },
 };
 pub const Elf32_Nhdr = extern struct {
-    n_namesz: Elf32_Word,
-    n_descsz: Elf32_Word,
-    n_type: Elf32_Word,
+    n_namesz: Word,
+    n_descsz: Word,
+    n_type: Word,
 };
 pub const Elf64_Nhdr = extern struct {
-    n_namesz: Elf64_Word,
-    n_descsz: Elf64_Word,
-    n_type: Elf64_Word,
+    n_namesz: Word,
+    n_descsz: Word,
+    n_type: Word,
 };
 pub const Elf32_Move = extern struct {
     m_value: Elf32_Xword,
-    m_info: Elf32_Word,
-    m_poffset: Elf32_Word,
-    m_repeat: Elf32_Half,
-    m_stride: Elf32_Half,
+    m_info: Word,
+    m_poffset: Word,
+    m_repeat: Half,
+    m_stride: Half,
 };
 pub const Elf64_Move = extern struct {
     m_value: Elf64_Xword,
     m_info: Elf64_Xword,
     m_poffset: Elf64_Xword,
-    m_repeat: Elf64_Half,
-    m_stride: Elf64_Half,
+    m_repeat: Half,
+    m_stride: Half,
 };
 pub const Elf32_gptab = extern union {
     gt_header: extern struct {
-        gt_current_g_value: Elf32_Word,
-        gt_unused: Elf32_Word,
+        gt_current_g_value: Word,
+        gt_unused: Word,
     },
     gt_entry: extern struct {
-        gt_g_value: Elf32_Word,
-        gt_bytes: Elf32_Word,
+        gt_g_value: Word,
+        gt_bytes: Word,
     },
 };
 pub const Elf32_RegInfo = extern struct {
-    ri_gprmask: Elf32_Word,
-    ri_cprmask: [4]Elf32_Word,
-    ri_gp_value: Elf32_Sword,
+    ri_gprmask: Word,
+    ri_cprmask: [4]Word,
+    ri_gp_value: Sword,
 };
 pub const Elf_Options = extern struct {
     kind: u8,
     size: u8,
     section: Elf32_Section,
-    info: Elf32_Word,
+    info: Word,
 };
 pub const Elf_Options_Hw = extern struct {
-    hwp_flags1: Elf32_Word,
-    hwp_flags2: Elf32_Word,
+    hwp_flags1: Word,
+    hwp_flags2: Word,
 };
 pub const Elf32_Lib = extern struct {
-    l_name: Elf32_Word,
-    l_time_stamp: Elf32_Word,
-    l_checksum: Elf32_Word,
-    l_version: Elf32_Word,
-    l_flags: Elf32_Word,
+    l_name: Word,
+    l_time_stamp: Word,
+    l_checksum: Word,
+    l_version: Word,
+    l_flags: Word,
 };
 pub const Elf64_Lib = extern struct {
-    l_name: Elf64_Word,
-    l_time_stamp: Elf64_Word,
-    l_checksum: Elf64_Word,
-    l_version: Elf64_Word,
-    l_flags: Elf64_Word,
+    l_name: Word,
+    l_time_stamp: Word,
+    l_checksum: Word,
+    l_version: Word,
+    l_flags: Word,
 };
 pub const Elf32_Conflict = Elf32_Addr;
 pub const Elf_MIPS_ABIFlags_v0 = extern struct {
-    version: Elf32_Half,
+    version: Half,
     isa_level: u8,
     isa_rev: u8,
     gpr_size: u8,
     cpr1_size: u8,
     cpr2_size: u8,
     fp_abi: u8,
-    isa_ext: Elf32_Word,
-    ases: Elf32_Word,
-    flags1: Elf32_Word,
-    flags2: Elf32_Word,
+    isa_ext: Word,
+    ases: Word,
+    flags1: Word,
+    flags2: Word,
 };
 
 comptime {
@@ -1102,22 +1086,11 @@ pub const Sym = switch (@sizeOf(usize)) {
     8 => Elf64_Sym,
     else => @compileError("expected pointer size of 32 or 64"),
 };
-pub const Verdef = switch (@sizeOf(usize)) {
-    4 => Elf32_Verdef,
-    8 => Elf64_Verdef,
-    else => @compileError("expected pointer size of 32 or 64"),
-};
-pub const Verdaux = switch (@sizeOf(usize)) {
-    4 => Elf32_Verdaux,
-    8 => Elf64_Verdaux,
-    else => @compileError("expected pointer size of 32 or 64"),
-};
 pub const Addr = switch (@sizeOf(usize)) {
     4 => Elf32_Addr,
     8 => Elf64_Addr,
     else => @compileError("expected pointer size of 32 or 64"),
 };
-pub const Half = u16;
 
 pub const OSABI = enum(u8) {
     /// UNIX System V ABI

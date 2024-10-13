@@ -140,7 +140,7 @@ pub fn updateNav(self: *SpirV, pt: Zcu.PerThread, nav: InternPool.Nav.Index) !vo
     }
 
     const ip = &pt.zcu.intern_pool;
-    log.debug("lowering declaration {}", .{ip.getNav(nav).name.fmt(ip)});
+    log.debug("lowering nav {}({d})", .{ ip.getNav(nav).fqn.fmt(ip), nav });
 
     try self.object.updateNav(pt, nav);
 }

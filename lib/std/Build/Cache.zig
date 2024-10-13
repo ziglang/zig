@@ -150,6 +150,14 @@ pub const File = struct {
         inode: fs.File.INode,
         size: u64,
         mtime: i128,
+
+        pub fn fromFs(fs_stat: fs.File.Stat) Stat {
+            return .{
+                .inode = fs_stat.inode,
+                .size = fs_stat.size,
+                .mtime = fs_stat.mtime,
+            };
+        }
     };
 
     pub fn deinit(self: *File, gpa: Allocator) void {

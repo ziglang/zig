@@ -5162,6 +5162,7 @@ fn airCmp(func: *Func, inst: Air.Inst.Index, tag: Air.Inst.Tag) !void {
     const bin_op = func.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
     const pt = func.pt;
     const zcu = pt.zcu;
+    const ip = &zcu.intern_pool;
 
     const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else result: {
         const lhs_ty = func.typeOf(bin_op.lhs);
@@ -5173,6 +5174,7 @@ fn airCmp(func: *Func, inst: Air.Inst.Index, tag: Air.Inst.Tag) !void {
             .pointer,
             .error_set,
             .optional,
+            .@"struct",
             => {
                 const int_ty = switch (lhs_ty.zigTypeTag(zcu)) {
                     .@"enum" => lhs_ty.intTagType(zcu),
@@ -5189,6 +5191,12 @@ fn airCmp(func: *Func, inst: Air.Inst.Index, tag: Air.Inst.Tag) !void {
                         } else {
                             return func.fail("TODO riscv cmp non-pointer optionals", .{});
                         }
+                    },
+                    .@"struct" => blk: {
+                        const struct_obj = ip.loadStructType(lhs_ty.toIntern());
+                        assert(struct_obj.layout == .@"packed");
+                        const backing_index = struct_obj.backingIntTypeUnordered(ip);
+                        break :blk Type.fromInterned(backing_index);
                     },
                     else => unreachable,
                 };

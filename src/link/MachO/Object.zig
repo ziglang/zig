@@ -308,7 +308,7 @@ fn initSubsections(self: *Object, allocator: Allocator, nlists: anytype) !void {
         } else nlists.len;
 
         if (nlist_start == nlist_end or nlists[nlist_start].nlist.n_value > sect.addr) {
-            const name = try std.fmt.allocPrintZ(allocator, "{s}${s}", .{ sect.segName(), sect.sectName() });
+            const name = try std.fmt.allocPrintZ(allocator, "{s}${s}$begin", .{ sect.segName(), sect.sectName() });
             defer allocator.free(name);
             const size = if (nlist_start == nlist_end) sect.size else nlists[nlist_start].nlist.n_value - sect.addr;
             const atom_index = try self.addAtom(allocator, .{
@@ -359,6 +359,25 @@ fn initSubsections(self: *Object, allocator: Allocator, nlists: anytype) !void {
                 self.symtab.items(.size)[nlists[i].idx] = size;
             }
         }
+
+        // Some compilers such as Go reference the end of a section (addr + size)
+        // which cannot be contained in any non-zero atom (since then this atom
+        // would exceed section boundaries). In order to facilitate this behaviour,
+        // we create a dummy zero-sized atom at section end (addr + size).
+        const name = try std.fmt.allocPrintZ(allocator, "{s}${s}$end", .{ sect.segName(), sect.sectName() });
+        defer allocator.free(name);
+        const atom_index = try self.addAtom(allocator, .{
+            .name = try self.addString(allocator, name),
+            .n_sect = @intCast(n_sect),
+            .off = sect.size,
+            .size = 0,
+            .alignment = sect.@"align",
+        });
+        try self.atoms_indexes.append(allocator, atom_index);
+        try subsections.append(allocator, .{
+            .atom = atom_index,
+            .off = sect.size,
+        });
     }
 }
 
@@ -743,7 +762,7 @@ pub fn findAtom(self: Object, addr: u64) ?Atom.Index {
     const slice = self.sections.slice();
     for (slice.items(.header), slice.items(.subsections), 0..) |sect, subs, n_sect| {
         if (subs.items.len == 0) continue;
-        if (sect.addr == addr) return subs.items[0].atom;
+        if (addr == sect.addr) return subs.items[0].atom;
         if (sect.addr < addr and addr < sect.addr + sect.size) {
             return self.findAtomInSection(addr, @intCast(n_sect));
         }
@@ -794,7 +813,19 @@ fn linkNlistToAtom(self: *Object, macho_file: *MachO) !void {
     defer tracy.end();
     for (self.symtab.items(.nlist), self.symtab.items(.atom)) |nlist, *atom| {
         if (!nlist.stab() and nlist.sect()) {
-            if (self.findAtomInSection(nlist.n_value, nlist.n_sect - 1)) |atom_index| {
+            const sect = self.sections.items(.header)[nlist.n_sect - 1];
+            const subs = self.sections.items(.subsections)[nlist.n_sect - 1].items;
+            if (nlist.n_value == sect.addr) {
+                // If the nlist address is the start of the section, return the first atom
+                // since it is guaranteed to always start at section's start address.
+                atom.* = subs[0].atom;
+            } else if (nlist.n_value == sect.addr + sect.size) {
+                // If the nlist address matches section's boundary (address + size),
+                // return the last atom since it is guaranteed to always point
+                // at the section's end boundary.
+                atom.* = subs[subs.len - 1].atom;
+            } else if (self.findAtomInSection(nlist.n_value, nlist.n_sect - 1)) |atom_index| {
+                // In all other cases, do a binary search to find a matching atom for the symbol.
                 atom.* = atom_index;
             } else {
                 try macho_file.reportParseError2(self.index, "symbol {s} not attached to any (sub)section", .{
