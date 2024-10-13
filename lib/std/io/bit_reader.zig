@@ -82,9 +82,9 @@ pub fn BitReader(comptime endian: std.builtin.Endian, comptime Reader: type) typ
             const full_bytes_left = (num - out_count) / 8;
 
             for (0..full_bytes_left) |_| {
-                const byte = self.reader.readByte() catch |err| {
-                    if (err == error.EndOfStream) return initBits(T, out, out_count);
-                    return err;
+                const byte = self.reader.readByte() catch |err| switch(err) {
+                    error.EndOfStream => return initBits(T, out, out_count),
+                    else => |e| return e,
                 };
 
                 switch (endian) {
@@ -105,9 +105,9 @@ pub fn BitReader(comptime endian: std.builtin.Endian, comptime Reader: type) typ
 
             if (bits_left == 0) return initBits(T, out, out_count);
 
-            const final_byte = self.reader.readByte() catch |err| {
-                if (err == error.EndOfStream) return initBits(T, out, out_count);
-                return err;
+            const final_byte = self.reader.readByte() catch |err| switch(err) {
+                error.EndOfStream => return initBits(T, out, out_count),
+                else => |e| return e,
             };
 
             switch (endian) {

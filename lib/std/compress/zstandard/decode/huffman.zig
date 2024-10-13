@@ -63,7 +63,7 @@ fn decodeFseHuffmanTreeSlice(src: []const u8, compressed_size: usize, weights: *
 
 fn assignWeights(
     huff_bits: *readers.ReverseBitReader,
-    accuracy_log: usize,
+    accuracy_log: u16,
     entries: *[1 << 6]Table.Fse,
     weights: *[256]u4,
 ) !usize {
