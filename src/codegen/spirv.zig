@@ -190,6 +190,7 @@ pub const Object = struct {
         nav_index: InternPool.Nav.Index,
         air: Air,
         liveness: Liveness,
+        do_codegen: bool,
     ) !void {
         const zcu = pt.zcu;
         const gpa = zcu.gpa;
@@ -214,7 +215,7 @@ pub const Object = struct {
         };
         defer nav_gen.deinit();
 
-        nav_gen.genNav() catch |err| switch (err) {
+        nav_gen.genNav(do_codegen) catch |err| switch (err) {
             error.CodegenFail => {
                 try zcu.failed_codegen.put(gpa, nav_index, nav_gen.error_msg.?);
             },
@@ -239,7 +240,7 @@ pub const Object = struct {
     ) !void {
         const nav = pt.zcu.funcInfo(func_index).owner_nav;
         // TODO: Separate types for generating decls and functions?
-        try self.genNav(pt, nav, air, liveness);
+        try self.genNav(pt, nav, air, liveness, true);
     }
 
     pub fn updateNav(
@@ -247,7 +248,7 @@ pub const Object = struct {
         pt: Zcu.PerThread,
         nav: InternPool.Nav.Index,
     ) !void {
-        try self.genNav(pt, nav, undefined, undefined);
+        try self.genNav(pt, nav, undefined, undefined, false);
     }
 
     /// Fetch or allocate a result id for nav index. This function also marks the nav as alive.
@@ -2943,16 +2944,22 @@ const NavGen = struct {
         try self.spv.declareEntryPoint(spv_decl_index, test_name, .Kernel);
     }
 
-    fn genNav(self: *NavGen) !void {
+    fn genNav(self: *NavGen, do_codegen: bool) !void {
         const pt = self.pt;
         const zcu = pt.zcu;
         const ip = &zcu.intern_pool;
-        const spv_decl_index = try self.object.resolveNav(zcu, self.owner_nav);
-        const result_id = self.spv.declPtr(spv_decl_index).result_id;
 
         const nav = ip.getNav(self.owner_nav);
         const val = zcu.navValue(self.owner_nav);
         const ty = val.typeOf(zcu);
+
+        if (!do_codegen and !ty.hasRuntimeBits(zcu)) {
+            return;
+        }
+
+        const spv_decl_index = try self.object.resolveNav(zcu, self.owner_nav);
+        const result_id = self.spv.declPtr(spv_decl_index).result_id;
+
         switch (self.spv.declPtr(spv_decl_index).kind) {
             .func => {
                 const fn_info = zcu.typeToFunc(ty).?;
@@ -3343,7 +3350,9 @@ const NavGen = struct {
             .store, .store_safe => return self.airStore(inst),
 
             .br             => return self.airBr(inst),
-            .repeat         => return self.fail("TODO implement `repeat`", .{}),
+            // For now just ignore this instruction. This effectively falls back on the old implementation,
+            // this doesn't change anything for us.
+            .repeat         => return,
             .breakpoint     => return,
             .cond_br        => return self.airCondBr(inst),
             .loop           => return self.airLoop(inst),
@@ -3356,7 +3365,7 @@ const NavGen = struct {
 
             .dbg_stmt                  => return self.airDbgStmt(inst),
             .dbg_inline_block          => try self.airDbgInlineBlock(inst),
-            .dbg_var_ptr, .dbg_var_val => return self.airDbgVar(inst),
+            .dbg_var_ptr, .dbg_var_val, .dbg_arg_inline => return self.airDbgVar(inst),
 
             .unwrap_errunion_err => try self.airErrUnionErr(inst),
             .unwrap_errunion_payload => try self.airErrUnionPayload(inst),
@@ -6534,10 +6543,6 @@ const NavGen = struct {
             .function = callee_id,
             .id_ref_3 = params[0..n_params],
         });
-
-        if (return_type == .noreturn_type) {
-            try self.func.body.emit(self.spv.gpa, .OpUnreachable, {});
-        }
 
         if (self.liveness.isUnused(inst) or !Type.fromInterned(return_type).hasRuntimeBitsIgnoreComptime(zcu)) {
             return null;
