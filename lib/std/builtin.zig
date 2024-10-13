@@ -173,7 +173,7 @@ pub const CallingConvention = union(enum(u8)) {
     /// Functions marked as `extern` or `export` are given this calling convention by default.
     pub const c = builtin.target.defaultCCallingConvention().?;
 
-    pub const winapi: CallingConvention = switch (builtin.target.arch) {
+    pub const winapi: CallingConvention = switch (builtin.target.cpu.arch) {
         .x86_64 => .{ .x86_64_win = .{} },
         .x86 => .{ .x86_stdcall = .{} },
         .aarch64, .aarch64_be => .{ .aarch64_aapcs_win = .{} },
@@ -481,7 +481,9 @@ pub const CallingConvention = union(enum(u8)) {
 
     /// Returns the array of `std.Target.Cpu.Arch` to which this `CallingConvention` applies.
     /// Asserts that `cc` is not `.auto`, `.@"async"`, `.naked`, or `.@"inline"`.
-    pub const archs = std.Target.Cpu.Arch.fromCallconv;
+    pub fn archs(cc: CallingConvention) []const std.Target.Cpu.Arch {
+        return std.Target.Cpu.Arch.fromCallconv(cc);
+    }
 
     pub fn eql(a: CallingConvention, b: CallingConvention) bool {
         return std.meta.eql(a, b);
@@ -490,7 +492,7 @@ pub const CallingConvention = union(enum(u8)) {
     pub fn withStackAlign(cc: CallingConvention, incoming_stack_alignment: u64) CallingConvention {
         const tag: CallingConvention.Tag = cc;
         var result = cc;
-        @field(result, tag).incoming_stack_alignment = incoming_stack_alignment;
+        @field(result, @tagName(tag)).incoming_stack_alignment = incoming_stack_alignment;
         return result;
     }
 };
