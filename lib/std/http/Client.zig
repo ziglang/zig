@@ -1706,6 +1706,7 @@ pub const FetchOptions = struct {
 
 pub const FetchResult = struct {
     status: http.Status,
+    response: Response,
 };
 
 /// Perform a one-shot HTTP request with the provided options.
@@ -1766,6 +1767,7 @@ pub fn fetch(client: *Client, options: FetchOptions) !FetchResult {
 
     return .{
         .status = req.response.status,
+        .response = req.response,
     };
 }
 
