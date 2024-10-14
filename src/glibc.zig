@@ -935,10 +935,11 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) !voi
                 var ver_buf_i: u8 = 0;
                 while (ver_buf_i < versions_len) : (ver_buf_i += 1) {
                     // Example:
+                    // .balign 4
                     // .globl _Exit_2_2_5
                     // .type _Exit_2_2_5, %function;
                     // .symver _Exit_2_2_5, _Exit@@GLIBC_2.2.5
-                    // _Exit_2_2_5:
+                    // _Exit_2_2_5: .long 0
                     const ver_index = versions_buffer[ver_buf_i];
                     const ver = metadata.all_versions[ver_index];
 
@@ -957,12 +958,14 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) !voi
                                 .{ sym_name, ver.major, ver.minor },
                             );
                         try stubs_asm.writer().print(
+                            \\.balign {d}
                             \\.globl {s}
                             \\.type {s}, %function;
                             \\.symver {s}, {s}{s}GLIBC_{d}.{d}
-                            \\{s}:
+                            \\{s}: {s} 0
                             \\
                         , .{
+                            target.ptrBitWidth() / 8,
                             sym_plus_ver,
                             sym_plus_ver,
                             sym_plus_ver,
@@ -971,6 +974,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) !voi
                             ver.major,
                             ver.minor,
                             sym_plus_ver,
+                            wordDirective(target),
                         });
                     } else {
                         const sym_plus_ver = if (want_default)
@@ -982,12 +986,14 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) !voi
                                 .{ sym_name, ver.major, ver.minor, ver.patch },
                             );
                         try stubs_asm.writer().print(
+                            \\.balign {d}
                             \\.globl {s}
                             \\.type {s}, %function;
                             \\.symver {s}, {s}{s}GLIBC_{d}.{d}.{d}
-                            \\{s}:
+                            \\{s}: {s} 0
                             \\
                         , .{
+                            target.ptrBitWidth() / 8,
                             sym_plus_ver,
                             sym_plus_ver,
                             sym_plus_ver,
@@ -997,6 +1003,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) !voi
                             ver.minor,
                             ver.patch,
                             sym_plus_ver,
+                            wordDirective(target),
                         });
                     }
                 }
@@ -1024,10 +1031,14 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) !voi
         // a strong reference.
         if (std.mem.eql(u8, lib.name, "c")) {
             try stubs_asm.writer().print(
+                \\.balign {d}
                 \\.globl _IO_stdin_used
                 \\{s} _IO_stdin_used
                 \\
-            , .{wordDirective(target)});
+            , .{
+                target.ptrBitWidth() / 8,
+                wordDirective(target),
+            });
         }
 
         const obj_inclusions_len = try inc_reader.readInt(u16, .little);
@@ -1099,11 +1110,12 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) !voi
                 var ver_buf_i: u8 = 0;
                 while (ver_buf_i < versions_len) : (ver_buf_i += 1) {
                     // Example:
+                    // .balign 4
                     // .globl environ_2_2_5
                     // .type environ_2_2_5, %object;
                     // .size environ_2_2_5, 4;
                     // .symver environ_2_2_5, environ@@GLIBC_2.2.5
-                    // environ_2_2_5:
+                    // environ_2_2_5: .fill 4, 1, 0
                     const ver_index = versions_buffer[ver_buf_i];
                     const ver = metadata.all_versions[ver_index];
 
@@ -1122,13 +1134,15 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) !voi
                                 .{ sym_name, ver.major, ver.minor },
                             );
                         try stubs_asm.writer().print(
+                            \\.balign {d}
                             \\.globl {s}
                             \\.type {s}, %object;
                             \\.size {s}, {d};
                             \\.symver {s}, {s}{s}GLIBC_{d}.{d}
-                            \\{s}:
+                            \\{s}: .fill {d}, 1, 0
                             \\
                         , .{
+                            target.ptrBitWidth() / 8,
                             sym_plus_ver,
                             sym_plus_ver,
                             sym_plus_ver,
@@ -1139,6 +1153,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) !voi
                             ver.major,
                             ver.minor,
                             sym_plus_ver,
+                            size,
                         });
                     } else {
                         const sym_plus_ver = if (want_default)
@@ -1150,13 +1165,15 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) !voi
                                 .{ sym_name, ver.major, ver.minor, ver.patch },
                             );
                         try stubs_asm.writer().print(
+                            \\.balign {d}
                             \\.globl {s}
                             \\.type {s}, %object;
                             \\.size {s}, {d};
                             \\.symver {s}, {s}{s}GLIBC_{d}.{d}.{d}
-                            \\{s}:
+                            \\{s}: .fill {d}, 1, 0
                             \\
                         , .{
+                            target.ptrBitWidth() / 8,
                             sym_plus_ver,
                             sym_plus_ver,
                             sym_plus_ver,
@@ -1168,6 +1185,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) !voi
                             ver.minor,
                             ver.patch,
                             sym_plus_ver,
+                            size,
                         });
                     }
                 }

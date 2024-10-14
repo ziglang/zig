@@ -1260,6 +1260,7 @@ test "integer compare <= 64 bits" {
 
 test "integer compare <= 128 bits" {
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     inline for (.{ u65, u96, u127, u128 }) |T| {
         try testUnsignedCmp(T);

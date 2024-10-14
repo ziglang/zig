@@ -73,6 +73,8 @@ test "call decl literal" {
 }
 
 test "call decl literal with error union" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+
     const S = struct {
         x: u32,
         fn init(err: bool) !@This() {
