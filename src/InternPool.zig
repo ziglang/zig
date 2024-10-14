@@ -5618,12 +5618,11 @@ pub const FuncAnalysis = packed struct(u32) {
     branch_hint: std.builtin.BranchHint,
     is_noinline: bool,
     calls_or_awaits_errorable_fn: bool,
-    stack_alignment: Alignment,
     /// True if this function has an inferred error set.
     inferred_error_set: bool,
     disable_instrumentation: bool,
 
-    _: u17 = 0,
+    _: u23 = 0,
 
     pub const State = enum(u2) {
         /// The runtime function has never been referenced.
@@ -8696,7 +8695,6 @@ pub fn getFuncDecl(
             .branch_hint = .none,
             .is_noinline = key.is_noinline,
             .calls_or_awaits_errorable_fn = false,
-            .stack_alignment = .none,
             .inferred_error_set = false,
             .disable_instrumentation = false,
         },
@@ -8800,7 +8798,6 @@ pub fn getFuncDeclIes(
             .branch_hint = .none,
             .is_noinline = key.is_noinline,
             .calls_or_awaits_errorable_fn = false,
-            .stack_alignment = .none,
             .inferred_error_set = true,
             .disable_instrumentation = false,
         },
@@ -8992,7 +8989,6 @@ pub fn getFuncInstance(
             .branch_hint = .none,
             .is_noinline = arg.is_noinline,
             .calls_or_awaits_errorable_fn = false,
-            .stack_alignment = .none,
             .inferred_error_set = false,
             .disable_instrumentation = false,
         },
@@ -9092,7 +9088,6 @@ pub fn getFuncInstanceIes(
             .branch_hint = .none,
             .is_noinline = arg.is_noinline,
             .calls_or_awaits_errorable_fn = false,
-            .stack_alignment = .none,
             .inferred_error_set = true,
             .disable_instrumentation = false,
         },
@@ -11869,21 +11864,6 @@ fn funcAnalysisPtr(ip: *InternPool, func: Index) *FuncAnalysis {
 
 pub fn funcAnalysisUnordered(ip: *const InternPool, func: Index) FuncAnalysis {
     return @atomicLoad(FuncAnalysis, @constCast(ip).funcAnalysisPtr(func), .unordered);
-}
-
-pub fn funcMaxStackAlignment(ip: *InternPool, func: Index, new_stack_alignment: Alignment) void {
-    const unwrapped_func = func.unwrap(ip);
-    const extra_mutex = &ip.getLocal(unwrapped_func.tid).mutate.extra.mutex;
-    extra_mutex.lock();
-    defer extra_mutex.unlock();
-
-    const analysis_ptr = ip.funcAnalysisPtr(func);
-    var analysis = analysis_ptr.*;
-    analysis.stack_alignment = switch (analysis.stack_alignment) {
-        .none => new_stack_alignment,
-        else => |old_stack_alignment| old_stack_alignment.maxStrict(new_stack_alignment),
-    };
-    @atomicStore(FuncAnalysis, analysis_ptr, analysis, .release);
 }
 
 pub fn funcSetCallsOrAwaitsErrorableFn(ip: *InternPool, func: Index) void {

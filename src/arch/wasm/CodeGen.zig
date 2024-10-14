@@ -710,7 +710,7 @@ stack_size: u32 = 0,
 /// The stack alignment, which is 16 bytes by default. This is specified by the
 /// tool-conventions: https://github.com/WebAssembly/tool-conventions/blob/main/BasicCABI.md
 /// and also what the llvm backend will emit.
-/// However, local variables or the usage of `@setAlignStack` can overwrite this default.
+/// However, local variables or the usage of `incoming_stack_alignment` in a `CallingConvention` can overwrite this default.
 stack_alignment: Alignment = .@"16",
 
 // For each individual Wasm valtype we store a seperate free list which

@@ -11,6 +11,7 @@ const verbose_tracking_log = std.log.scoped(.verbose_tracking);
 const wip_mir_log = std.log.scoped(.wip_mir);
 const math = std.math;
 const mem = std.mem;
+const target_util = @import("../../target.zig");
 const trace = @import("../../tracy.zig").trace;
 
 const Air = @import("../../Air.zig");
@@ -872,7 +873,7 @@ pub fn generate(
         @intFromEnum(FrameIndex.stack_frame),
         FrameAlloc.init(.{
             .size = 0,
-            .alignment = func.analysisUnordered(ip).stack_alignment.max(.@"1"),
+            .alignment = target_util.stackAlignment(function.target.*, fn_type.fnCallingConvention(zcu)),
         }),
     );
     function.frame_allocs.set(

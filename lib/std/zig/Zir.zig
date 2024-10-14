@@ -1982,9 +1982,6 @@ pub const Inst = struct {
         /// Implement builtin `@setFloatMode`.
         /// `operand` is payload index to `UnNode`.
         set_float_mode,
-        /// Implement builtin `@setAlignStack`.
-        /// `operand` is payload index to `UnNode`.
-        set_align_stack,
         /// Implements the `@errorCast` builtin.
         /// `operand` is payload index to `BinNode`. `lhs` is dest type, `rhs` is operand.
         error_cast,
@@ -4012,7 +4009,6 @@ fn findDeclsInner(
                 .wasm_memory_grow,
                 .prefetch,
                 .set_float_mode,
-                .set_align_stack,
                 .error_cast,
                 .await_nosuspend,
                 .breakpoint,
