@@ -601,7 +601,6 @@ set(ZIG_STAGE2_SOURCES
     src/link/Elf/Archive.zig
     src/link/Elf/Atom.zig
     src/link/Elf/AtomList.zig
-    src/link/Elf/LdScript.zig
     src/link/Elf/LinkerDefined.zig
     src/link/Elf/Merge.zig
     src/link/Elf/Object.zig
@@ -615,6 +614,7 @@ set(ZIG_STAGE2_SOURCES
     src/link/Elf/relocatable.zig
     src/link/Elf/relocation.zig
     src/link/Elf/synthetic_sections.zig
+    src/link/LdScript.zig
     src/link/MachO.zig
     src/link/MachO/Archive.zig
     src/link/MachO/Atom.zig

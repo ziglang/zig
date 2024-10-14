@@ -442,7 +442,7 @@ const TokenIterator = struct {
 };
 
 const LdScript = @This();
-const Diags = @import("../../link.zig").Diags;
+const Diags = @import("../link.zig").Diags;
 
 const std = @import("std");
 const assert = std.debug.assert;

@@ -1,4 +1,5 @@
 pub const Atom = @import("Elf/Atom.zig");
+pub const LdScript = @import("LdScript.zig");
 
 base: link.File,
 rpath_table: std.StringArrayHashMapUnmanaged(void),
@@ -5625,7 +5626,6 @@ const GnuHashSection = synthetic_sections.GnuHashSection;
 const GotSection = synthetic_sections.GotSection;
 const GotPltSection = synthetic_sections.GotPltSection;
 const HashSection = synthetic_sections.HashSection;
-const LdScript = @import("Elf/LdScript.zig");
 const LinkerDefined = @import("Elf/LinkerDefined.zig");
 const Liveness = @import("../Liveness.zig");
 const LlvmObject = @import("../codegen/llvm.zig").Object;
