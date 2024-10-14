@@ -379,12 +379,12 @@ test "readStructEndian reads packed structs without padding and in correct field
 
     const PackedStruct = packed struct(u24) { a: u8, b: u8, c: u8 };
 
-    try testing.expectEqualDeep(
+    try testing.expectEqual(
         PackedStruct{ .a = 11, .b = 12, .c = 13 },
         reader.readStructEndian(PackedStruct, .little),
     );
     fis.reset();
-    try testing.expectEqualDeep(
+    try testing.expectEqual(
         PackedStruct{ .a = 13, .b = 12, .c = 11 },
         reader.readStructEndian(PackedStruct, .big),
     );
@@ -399,13 +399,13 @@ test "readStruct reads packed structs without padding and in correct field order
 
     switch (native_endian) {
         .little => {
-            try testing.expectEqualDeep(
+            try testing.expectEqual(
                 PackedStruct{ .a = 11, .b = 12, .c = 13 },
                 reader.readStruct(PackedStruct),
             );
         },
         .big => {
-            try testing.expectEqualDeep(
+            try testing.expectEqual(
                 PackedStruct{ .a = 13, .b = 12, .c = 11 },
                 reader.readStruct(PackedStruct),
             );
@@ -430,7 +430,7 @@ test "readStruct writeStruct round-trip with packed structs" {
     const expected_packed_struct = PackedStruct{};
     try writer.writeStruct(expected_packed_struct);
     fis.reset();
-    try testing.expectEqualDeep(expected_packed_struct, try reader.readStruct(PackedStruct));
+    try testing.expectEqual(expected_packed_struct, try reader.readStruct(PackedStruct));
 }
 
 test "readStructEndian writeStructEndian round-trip with packed structs" {
@@ -450,12 +450,12 @@ test "readStructEndian writeStructEndian round-trip with packed structs" {
     // round-trip little endian
     try writer.writeStructEndian(expected_packed_struct, .big);
     fis.reset();
-    try testing.expectEqualDeep(expected_packed_struct, try reader.readStructEndian(PackedStruct, .big));
+    try testing.expectEqual(expected_packed_struct, try reader.readStructEndian(PackedStruct, .big));
     // round-trip big endian
     fis.reset();
     try writer.writeStructEndian(expected_packed_struct, .little);
     fis.reset();
-    try testing.expectEqualDeep(expected_packed_struct, try reader.readStructEndian(PackedStruct, .little));
+    try testing.expectEqual(expected_packed_struct, try reader.readStructEndian(PackedStruct, .little));
 }
 
 test "readStruct a packed struct with endianness-affected types" {
@@ -467,13 +467,13 @@ test "readStruct a packed struct with endianness-affected types" {
 
     switch (native_endian) {
         .little => {
-            try testing.expectEqualDeep(
+            try testing.expectEqual(
                 PackedStruct{ .a = 0x3412, .b = 0x7856 },
                 reader.readStruct(PackedStruct),
             );
         },
         .big => {
-            try testing.expectEqualDeep(
+            try testing.expectEqual(
                 PackedStruct{ .a = 0x5678, .b = 0x1234 },
                 reader.readStruct(PackedStruct),
             );
@@ -488,12 +488,12 @@ test "readStructEndian a packed struct with endianness-affected types" {
 
     const PackedStruct = packed struct(u32) { a: u16, b: u16 };
 
-    try testing.expectEqualDeep(
+    try testing.expectEqual(
         PackedStruct{ .a = 0x3412, .b = 0x7856 },
         reader.readStructEndian(PackedStruct, .little),
     );
     fis.reset();
-    try testing.expectEqualDeep(
+    try testing.expectEqual(
         PackedStruct{ .a = 0x5678, .b = 0x1234 },
         reader.readStructEndian(PackedStruct, .big),
     );
