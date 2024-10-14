@@ -1326,11 +1326,6 @@ fn analyzeBodyInner(
                         i += 1;
                         continue;
                     },
-                    .set_align_stack => {
-                        try sema.zirSetAlignStack(block, extended);
-                        i += 1;
-                        continue;
-                    },
                     .breakpoint => {
                         if (!block.is_comptime) {
                             _ = try block.addNoOp(.breakpoint);
@@ -6508,35 +6503,6 @@ pub fn analyzeExport(
         .exported = .{ .nav = exported_nav_index },
         .status = .in_progress,
     });
-}
-
-fn zirSetAlignStack(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!void {
-    const pt = sema.pt;
-    const zcu = pt.zcu;
-    const extra = sema.code.extraData(Zir.Inst.UnNode, extended.operand).data;
-    const operand_src = block.builtinCallArgSrc(extra.node, 0);
-    const src = block.nodeOffset(extra.node);
-    const alignment = try sema.resolveAlign(block, operand_src, extra.operand);
-
-    const func = switch (sema.owner.unwrap()) {
-        .func => |func| func,
-        .cau => return sema.fail(block, src, "@setAlignStack outside of function scope", .{}),
-    };
-
-    if (alignment.order(Alignment.fromNonzeroByteUnits(256)).compare(.gt)) {
-        return sema.fail(block, src, "attempt to @setAlignStack({d}); maximum is 256", .{
-            alignment.toByteUnits().?,
-        });
-    }
-
-    switch (Value.fromInterned(func).typeOf(zcu).fnCallingConvention(zcu)) {
-        .naked => return sema.fail(block, src, "@setAlignStack in naked function", .{}),
-        .@"inline" => return sema.fail(block, src, "@setAlignStack in inline function", .{}),
-        else => {},
-    }
-
-    zcu.intern_pool.funcMaxStackAlignment(sema.func_index, alignment);
-    sema.allow_memoize = false;
 }
 
 fn zirDisableInstrumentation(sema: *Sema) CompileError!void {
