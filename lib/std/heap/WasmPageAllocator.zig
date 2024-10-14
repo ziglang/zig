@@ -28,8 +28,6 @@ const PageStatus = enum(u1) {
 const FreeBlock = struct {
     data: []u128,
 
-    const Io = std.packed_int_array.PackedIntIo(u1, .little);
-
     fn totalPages(self: FreeBlock) usize {
         return self.data.len * 128;
     }
@@ -39,15 +37,15 @@ const FreeBlock = struct {
     }
 
     fn getBit(self: FreeBlock, idx: usize) PageStatus {
-        const bit_offset = 0;
-        return @as(PageStatus, @enumFromInt(Io.get(mem.sliceAsBytes(self.data), idx, bit_offset)));
+        const bit = mem.readPackedInt(u1, mem.sliceAsBytes(self.data), idx, .little);
+        return @as(PageStatus, @enumFromInt(bit));
     }
 
     fn setBits(self: FreeBlock, start_idx: usize, len: usize, val: PageStatus) void {
-        const bit_offset = 0;
         var i: usize = 0;
+        const bytes = mem.sliceAsBytes(self.data);
         while (i < len) : (i += 1) {
-            Io.set(mem.sliceAsBytes(self.data), start_idx + i, bit_offset, @intFromEnum(val));
+            mem.writePackedInt(u1, bytes, start_idx + i, @intFromEnum(val), .little);
         }
     }
 

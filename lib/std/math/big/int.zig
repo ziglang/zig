@@ -795,7 +795,6 @@ pub const Mutable = struct {
         const endian_mask: usize = (@sizeOf(Limb) - 1) << 3;
 
         const bytes = std.mem.sliceAsBytes(r.limbs);
-        var bits = std.packed_int_array.PackedIntSliceEndian(u1, .little).init(bytes, limbs_required * @bitSizeOf(Limb));
 
         var k: usize = 0;
         while (k < ((bit_count + 1) / 2)) : (k += 1) {
@@ -809,17 +808,17 @@ pub const Mutable = struct {
                 rev_i ^= endian_mask;
             }
 
-            const bit_i = bits.get(i);
-            const bit_rev_i = bits.get(rev_i);
-            bits.set(i, bit_rev_i);
-            bits.set(rev_i, bit_i);
+            const bit_i = std.mem.readPackedInt(u1, bytes, i, .little);
+            const bit_rev_i = std.mem.readPackedInt(u1, bytes, rev_i, .little);
+            std.mem.writePackedInt(u1, bytes, i, bit_rev_i, .little);
+            std.mem.writePackedInt(u1, bytes, rev_i, bit_i, .little);
         }
 
         // Calculate signed-magnitude representation for output
         if (signedness == .signed) {
             const last_bit = switch (native_endian) {
-                .little => bits.get(bit_count - 1),
-                .big => bits.get((bit_count - 1) ^ endian_mask),
+                .little => std.mem.readPackedInt(u1, bytes, bit_count - 1, .little),
+                .big => std.mem.readPackedInt(u1, bytes, (bit_count - 1) ^ endian_mask, .little),
             };
             if (last_bit == 1) {
                 r.bitNotWrap(r.toConst(), .unsigned, bit_count); // Bitwise NOT.

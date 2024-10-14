@@ -82,7 +82,7 @@ test "BitStreams with File Stream" {
 
         var bit_stream = io.bitReader(native_endian, file.reader());
 
-        var out_bits: usize = undefined;
+        var out_bits: u16 = undefined;
 
         try expect(1 == try bit_stream.readBits(u2, 1, &out_bits));
         try expect(out_bits == 1);
