@@ -1524,9 +1524,8 @@ fn parseLdScript(self: *Elf, lib: SystemLib) ParseError!void {
     const data = try in_file.readToEndAlloc(gpa, std.math.maxInt(u32));
     defer gpa.free(data);
 
-    var script: LdScript = .{ .path = lib.path };
+    var script = try LdScript.parse(gpa, diags, lib.path, data);
     defer script.deinit(gpa);
-    try script.parse(data, self);
 
     var arena_allocator = std.heap.ArenaAllocator.init(gpa);
     defer arena_allocator.deinit();
@@ -1535,15 +1534,13 @@ fn parseLdScript(self: *Elf, lib: SystemLib) ParseError!void {
     var test_path = std.ArrayList(u8).init(arena);
     var checked_paths = std.ArrayList([]const u8).init(arena);
 
-    for (script.args.items) |script_arg| {
+    for (script.args) |script_arg| {
         checked_paths.clearRetainingCapacity();
 
         success: {
             if (mem.startsWith(u8, script_arg.path, "-l")) {
                 const lib_name = script_arg.path["-l".len..];
 
-                // TODO I think technically we should re-use the mechanism used by the frontend here.
-                // Maybe we should hoist search-strategy all the way here?
                 for (self.lib_dirs) |lib_dir| {
                     if (!self.base.isStatic()) {
                         if (try self.accessLibPath(arena, &test_path, &checked_paths, lib_dir, lib_name, .dynamic))
