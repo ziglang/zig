@@ -1704,15 +1704,10 @@ pub const FetchOptions = struct {
     };
 };
 
-pub const FetchResult = struct {
-    status: http.Status,
-    response: Response,
-};
-
 /// Perform a one-shot HTTP request with the provided options.
 ///
 /// This function is threadsafe.
-pub fn fetch(client: *Client, options: FetchOptions) !FetchResult {
+pub fn fetch(client: *Client, options: FetchOptions) !Response {
     const uri = switch (options.location) {
         .url => |u| try Uri.parse(u),
         .uri => |u| u,
@@ -1765,10 +1760,7 @@ pub fn fetch(client: *Client, options: FetchOptions) !FetchResult {
         },
     }
 
-    return .{
-        .status = req.response.status,
-        .response = req.response,
-    };
+    return req.response;
 }
 
 test {
