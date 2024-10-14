@@ -2190,6 +2190,7 @@ or
         <li>An {#link|enum#} field uses exactly the bit width of its integer tag type.</li>
         <li>A {#link|packed union#} field uses exactly the bit width of the union field with
         the largest bit width.</li>
+        <li>Packed structs support equality operators.</li>
       </ul>
       <p>
       This means that a {#syntax#}packed struct{#endsyntax#} can participate
@@ -2239,6 +2240,12 @@ or
       It's also possible to set alignment of struct fields:
       </p>
       {#code|test_aligned_struct_fields.zig#}
+
+      <p>
+      Equating packed structs results in a comparison of the backing integer, 
+      and only works for the `==` and `!=` operators.
+      </p>
+      {#code|test_packed_struct_equality.zig#}
 
       <p>
       Using packed structs with {#link|volatile#} is problematic, and may be a compile error in the future.

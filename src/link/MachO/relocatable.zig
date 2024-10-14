@@ -29,14 +29,8 @@ pub fn flushObject(macho_file: *MachO, comp: *Compilation, module_obj_path: ?Pat
     }
 
     for (positionals.items) |obj| {
-        macho_file.classifyInputFile(obj.path, .{ .path = obj.path }, obj.must_link) catch |err| switch (err) {
-            error.UnknownFileType => try diags.reportParseError(obj.path, "unknown file type for an input file", .{}),
-            else => |e| try diags.reportParseError(
-                obj.path,
-                "unexpected error: reading input file failed with error {s}",
-                .{@errorName(e)},
-            ),
-        };
+        macho_file.classifyInputFile(obj.path, .{ .path = obj.path }, obj.must_link) catch |err|
+            diags.addParseError(obj.path, "failed to read input file: {s}", .{@errorName(err)});
     }
 
     if (diags.hasErrors()) return error.FlushFailure;
@@ -95,14 +89,8 @@ pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?
     }
 
     for (positionals.items) |obj| {
-        macho_file.classifyInputFile(obj.path, .{ .path = obj.path }, obj.must_link) catch |err| switch (err) {
-            error.UnknownFileType => try diags.reportParseError(obj.path, "unknown file type for an input file", .{}),
-            else => |e| try diags.reportParseError(
-                obj.path,
-                "unexpected error: reading input file failed with error {s}",
-                .{@errorName(e)},
-            ),
-        };
+        macho_file.classifyInputFile(obj.path, .{ .path = obj.path }, obj.must_link) catch |err|
+            diags.addParseError(obj.path, "failed to read input file: {s}", .{@errorName(err)});
     }
 
     if (diags.hasErrors()) return error.FlushFailure;

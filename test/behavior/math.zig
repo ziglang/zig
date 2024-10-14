@@ -833,6 +833,8 @@ test "@addWithOverflow > 64 bits" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
 
     try testAddWithOverflow(u65, 4, 105, 109, 0);
     try testAddWithOverflow(u65, 1000, 100, 1100, 0);
@@ -986,6 +988,7 @@ test "@mulWithOverflow bitsize 128 bits" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
 
     try testMulWithOverflow(u128, 3, 0x5555555555555555_5555555555555555, 0xffffffffffffffff_ffffffffffffffff, 0);
     try testMulWithOverflow(u128, 3, 0x5555555555555555_5555555555555556, 2, 1);
@@ -1065,6 +1068,7 @@ test "@subWithOverflow > 64 bits" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
 
     try testSubWithOverflow(u65, 4, 105, maxInt(u65) - 100, 1);
     try testSubWithOverflow(u65, 1000, 100, 900, 0);

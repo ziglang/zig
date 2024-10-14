@@ -832,7 +832,6 @@ fn ElfFile(comptime is_64: bool) type {
     const Elf_Shdr = if (is_64) elf.Elf64_Shdr else elf.Elf32_Shdr;
     const Elf_Chdr = if (is_64) elf.Elf64_Chdr else elf.Elf32_Chdr;
     const Elf_Sym = if (is_64) elf.Elf64_Sym else elf.Elf32_Sym;
-    const Elf_Verdef = if (is_64) elf.Elf64_Verdef else elf.Elf32_Verdef;
     const Elf_OffSize = if (is_64) elf.Elf64_Off else elf.Elf32_Off;
 
     return struct {
@@ -1179,11 +1178,11 @@ fn ElfFile(comptime is_64: bool) type {
                                     const data = try allocator.alignedAlloc(u8, section_memory_align, src_data.len);
                                     @memcpy(data, src_data);
 
-                                    const defs = @as([*]Elf_Verdef, @ptrCast(data))[0 .. @as(usize, @intCast(src.sh_size)) / @sizeOf(Elf_Verdef)];
-                                    for (defs) |*def| {
-                                        if (def.vd_ndx != elf.SHN_UNDEF)
-                                            def.vd_ndx = sections_update[src.sh_info].remap_idx;
-                                    }
+                                    const defs = @as([*]elf.Verdef, @ptrCast(data))[0 .. @as(usize, @intCast(src.sh_size)) / @sizeOf(elf.Verdef)];
+                                    for (defs) |*def| switch (def.ndx) {
+                                        .LOCAL, .GLOBAL => {},
+                                        else => def.ndx = @enumFromInt(sections_update[src.sh_info].remap_idx),
+                                    };
 
                                     break :dst_data data;
                                 },
