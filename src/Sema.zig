@@ -31348,7 +31348,7 @@ fn callconvCoerceAllowed(
                     if (src_data.mode != dest_data.mode) return false;
                 },
                 std.builtin.CallingConvention.RiscvInterruptOptions => {
-                    if (src_data.level != dest_data.level) return false;
+                    if (src_data.mode != dest_data.mode) return false;
                 },
                 else => comptime unreachable,
             }
