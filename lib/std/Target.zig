@@ -2704,7 +2704,6 @@ pub fn cTypeAlignment(target: Target, c_type: CType) u16 {
             .csky,
             .x86,
             .xcore,
-            .loongarch32,
             .kalimba,
             .spu_2,
             .xtensa,
@@ -2728,6 +2727,7 @@ pub fn cTypeAlignment(target: Target, c_type: CType) u16 {
 
             .aarch64,
             .aarch64_be,
+            .loongarch32,
             .loongarch64,
             .mips64,
             .mips64el,
@@ -2808,7 +2808,6 @@ pub fn cTypePreferredAlignment(target: Target, c_type: CType) u16 {
 
             .csky,
             .xcore,
-            .loongarch32,
             .kalimba,
             .spu_2,
             .xtensa,
@@ -2838,6 +2837,7 @@ pub fn cTypePreferredAlignment(target: Target, c_type: CType) u16 {
 
             .aarch64,
             .aarch64_be,
+            .loongarch32,
             .loongarch64,
             .mips64,
             .mips64el,
