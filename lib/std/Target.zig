@@ -1670,9 +1670,15 @@ pub const Cpu = struct {
         }
 
         pub fn baseline(arch: Arch, os: Os) *const Model {
-            _ = os;
             return switch (arch) {
                 .arm, .armeb, .thumb, .thumbeb => &arm.cpu.baseline,
+                .aarch64 => switch (os.tag) {
+                    .bridgeos, .driverkit, .macos => &aarch64.cpu.apple_m1,
+                    .ios, .tvos => &aarch64.cpu.apple_a7,
+                    .visionos => &aarch64.cpu.apple_m2,
+                    .watchos => &aarch64.cpu.apple_s4,
+                    else => generic(arch),
+                },
                 .hexagon => &hexagon.cpu.hexagonv60, // gcc/clang do not have a generic hexagon model.
                 .riscv32 => &riscv.cpu.baseline_rv32,
                 .riscv64 => &riscv.cpu.baseline_rv64,
