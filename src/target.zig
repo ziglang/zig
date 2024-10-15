@@ -487,7 +487,14 @@ pub fn minFunctionAlignment(target: std.Target) Alignment {
 
 pub fn supportsFunctionAlignment(target: std.Target) bool {
     return switch (target.cpu.arch) {
-        .wasm32, .wasm64 => false,
+        .nvptx,
+        .nvptx64,
+        .spirv,
+        .spirv32,
+        .spirv64,
+        .wasm32,
+        .wasm64,
+        => false,
         else => true,
     };
 }
