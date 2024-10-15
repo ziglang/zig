@@ -3404,6 +3404,7 @@ fn updateType(
                         break :cc .normal;
                     }
                 }
+                // For better or worse, we try to match what Clang emits.
                 break :cc switch (func_type.cc) {
                     .@"inline" => unreachable,
                     .@"async", .auto, .naked => .normal,
