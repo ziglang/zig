@@ -3048,7 +3048,13 @@ pub fn cCallingConvention(target: Target) ?std.builtin.CallingConvention {
             .windows => .{ .aarch64_aapcs_win = .{} },
             else => .{ .aarch64_aapcs = .{} },
         },
-        .arm, .armeb, .thumb, .thumbeb => .{ .arm_aapcs = .{} },
+        .arm, .armeb, .thumb, .thumbeb => switch (target.os.tag) {
+            .netbsd => .{ .arm_apcs = .{} },
+            else => switch (target.abi.floatAbi()) {
+                .soft => .{ .arm_aapcs = .{} },
+                .hard => .{ .arm_aapcs_vfp = .{} },
+            },
+        },
         .mips64, .mips64el => switch (target.abi) {
             .gnuabin32 => .{ .mips64_n32 = .{} },
             else => .{ .mips64_n64 = .{} },
