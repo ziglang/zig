@@ -171,7 +171,7 @@ pub const CallingConvention = union(enum(u8)) {
 
     /// This is an alias for the default C calling convention for this target.
     /// Functions marked as `extern` or `export` are given this calling convention by default.
-    pub const c = builtin.target.defaultCCallingConvention().?;
+    pub const c = builtin.target.cCallingConvention().?;
 
     pub const winapi: CallingConvention = switch (builtin.target.cpu.arch) {
         .x86_64 => .{ .x86_64_win = .{} },
@@ -482,7 +482,7 @@ pub const CallingConvention = union(enum(u8)) {
     /// Returns the array of `std.Target.Cpu.Arch` to which this `CallingConvention` applies.
     /// Asserts that `cc` is not `.auto`, `.@"async"`, `.naked`, or `.@"inline"`.
     pub fn archs(cc: CallingConvention) []const std.Target.Cpu.Arch {
-        return std.Target.Cpu.Arch.fromCallconv(cc);
+        return std.Target.Cpu.Arch.fromCallingConvention(cc);
     }
 
     pub fn eql(a: CallingConvention, b: CallingConvention) bool {

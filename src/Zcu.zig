@@ -3562,7 +3562,7 @@ pub fn callconvSupported(zcu: *Zcu, cc: std.builtin.CallingConvention) union(enu
 
         .stage2_llvm => @import("codegen/llvm.zig").toLlvmCallConv(cc, target) != null,
         .stage2_c => ok: {
-            if (target.defaultCCallingConvention()) |default_c| {
+            if (target.cCallingConvention()) |default_c| {
                 if (cc.eql(default_c)) {
                     break :ok true;
                 }

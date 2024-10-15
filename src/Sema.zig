@@ -9499,11 +9499,11 @@ fn zirFunc(
             break :exported zir_decl.flags.is_export;
         };
         if (fn_is_exported) {
-            break :cc target.defaultCCallingConvention() orelse {
+            break :cc target.cCallingConvention() orelse {
                 // This target has no default C calling convention. We sometimes trigger a similar
                 // error by trying to evaluate `std.builtin.CallingConvention.c`, so for consistency,
                 // let's eval that now and just get the transitive error. (It's guaranteed to error
-                // because it does the exact `defaultCCallingConvention` call we just did.)
+                // because it does the exact `cCallingConvention` call we just did.)
                 const cc_type = try sema.getBuiltinType("CallingConvention");
                 _ = try sema.namespaceLookupVal(
                     block,
@@ -9717,7 +9717,7 @@ fn checkCallConvSupportsVarArgs(sema: *Sema, block: *Block, src: LazySrcLoc, cc:
             _ = options;
             var first = true;
             for (calling_conventions_supporting_var_args) |cc_inner| {
-                for (std.Target.Cpu.Arch.fromCallconv(cc_inner)) |supported_arch| {
+                for (std.Target.Cpu.Arch.fromCallingConvention(cc_inner)) |supported_arch| {
                     if (supported_arch == ctx.arch) break;
                 } else continue; // callconv not supported by this arch
                 if (!first) {

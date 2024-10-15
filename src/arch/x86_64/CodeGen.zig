@@ -12384,7 +12384,7 @@ fn genCall(self: *Self, info: union(enum) {
         .lib => |lib| try pt.funcType(.{
             .param_types = lib.param_types,
             .return_type = lib.return_type,
-            .cc = self.target.defaultCCallingConvention().?,
+            .cc = self.target.cCallingConvention().?,
         }),
     };
     const fn_info = zcu.typeToFunc(fn_ty).?;
