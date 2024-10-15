@@ -7605,16 +7605,38 @@ fn writeMemoryOrder(w: anytype, order: std.builtin.AtomicOrder) !void {
 }
 
 fn toCallingConvention(cc: std.builtin.CallingConvention, zcu: *Zcu) ?[]const u8 {
+    if (zcu.getTarget().cCallingConvention()) |ccc| {
+        if (cc.eql(ccc)) {
+            return null;
+        }
+    }
     return switch (cc) {
         .auto, .naked => null,
+
+        .x86_64_sysv, .x86_sysv => "sysv_abi",
+        .x86_64_win, .x86_win => "ms_abi",
         .x86_stdcall => "stdcall",
         .x86_fastcall => "fastcall",
-        .x86_vectorcall, .x86_64_vectorcall => "vectorcall",
-        else => {
-            // `Zcu.callconvSupported` means this must be the C callconv.
-            assert(cc.eql(zcu.getTarget().cCallingConvention().?));
-            return null;
-        },
+        .x86_thiscall => "thiscall",
+
+        .x86_vectorcall,
+        .x86_64_vectorcall,
+        => "vectorcall",
+
+        .x86_64_regcall_v3_sysv,
+        .x86_64_regcall_v4_win,
+        .x86_regcall_v3,
+        .x86_regcall_v4_win,
+        => "regcall",
+
+        .aarch64_vfabi => "aarch64_vector_pcs",
+        .aarch64_vfabi_sve => "aarch64_sve_pcs",
+        .arm_aapcs => "pcs(\"aapcs\")",
+        .arm_aapcs_vfp => "pcs(\"aapcs-vfp\")",
+        .riscv64_lp64_v, .riscv32_ilp32_v => "riscv_vector_cc",
+        .m68k_rtd => "m68k_rtd",
+
+        else => unreachable, // `Zcu.callconvSupported`
     };
 }
 

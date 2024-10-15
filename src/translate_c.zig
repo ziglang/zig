@@ -5005,6 +5005,7 @@ fn transCC(
     return switch (clang_cc) {
         .C => .c,
         .X86_64SysV => .x86_64_sysv,
+        .Win64 => .x86_64_win,
         .X86StdCall => .x86_stdcall,
         .X86FastCall => .x86_fastcall,
         .X86ThisCall => .x86_thiscall,
@@ -5012,6 +5013,7 @@ fn transCC(
         .AArch64VectorCall => .aarch64_vfabi,
         .AAPCS => .arm_aapcs,
         .AAPCS_VFP => .arm_aapcs_vfp,
+        .M68kRTD => .m68k_rtd,
         else => return fail(
             c,
             error.UnsupportedType,

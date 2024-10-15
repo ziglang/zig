@@ -560,6 +560,7 @@ pub const Payload = struct {
         pub const CallingConvention = enum {
             c,
             x86_64_sysv,
+            x86_64_win,
             x86_stdcall,
             x86_fastcall,
             x86_thiscall,
@@ -567,6 +568,7 @@ pub const Payload = struct {
             aarch64_vfabi,
             arm_aapcs,
             arm_aapcs_vfp,
+            m68k_rtd,
         };
     };
 
@@ -2834,6 +2836,7 @@ fn renderFunc(c: *Context, node: Node) !NodeIndex {
                 });
             },
             .x86_64_sysv,
+            .x86_64_win,
             .x86_stdcall,
             .x86_fastcall,
             .x86_thiscall,
@@ -2841,6 +2844,7 @@ fn renderFunc(c: *Context, node: Node) !NodeIndex {
             .aarch64_vfabi,
             .arm_aapcs,
             .arm_aapcs_vfp,
+            .m68k_rtd,
             => cc_node: {
                 // .{ .foo = .{} }
                 _ = try c.addToken(.period, ".");
