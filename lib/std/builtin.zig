@@ -469,10 +469,10 @@ pub const CallingConvention = union(enum(u8)) {
         /// The boundary the stack is aligned to when the function is called.
         /// `null` means the default for this calling convention.
         incoming_stack_alignment: ?u64 = null,
-        /// The privilege level.
-        level: PrivilegeLevel = .machine,
+        /// The privilege mode.
+        mode: PrivilegeMode = .machine,
 
-        pub const PrivilegeLevel = enum(u2) {
+        pub const PrivilegeMode = enum(u2) {
             user,
             supervisor,
             machine,
