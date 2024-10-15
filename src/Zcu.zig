@@ -3568,12 +3568,27 @@ pub fn callconvSupported(zcu: *Zcu, cc: std.builtin.CallingConvention) union(enu
                 }
             }
             break :ok switch (cc) {
+                .x86_64_sysv,
+                .x86_64_win,
                 .x86_64_vectorcall,
+                .x86_64_regcall_v3_sysv,
+                .x86_64_regcall_v4_win,
                 .x86_fastcall,
                 .x86_thiscall,
                 .x86_vectorcall,
+                .x86_regcall_v3,
+                .x86_regcall_v4_win,
+                .aarch64_vfabi,
+                .aarch64_vfabi_sve,
+                .arm_aapcs,
+                .arm_aapcs_vfp,
+                .riscv64_lp64_v,
+                .riscv32_ilp32_v,
+                .m68k_rtd,
                 => |opts| opts.incoming_stack_alignment == null,
 
+                .x86_sysv,
+                .x86_win,
                 .x86_stdcall,
                 => |opts| opts.incoming_stack_alignment == null and opts.register_params == 0,
 
