@@ -186,6 +186,15 @@ want_lto: ?bool = null,
 use_llvm: ?bool,
 use_lld: ?bool,
 
+/// Corresponds to the `-fallow-so-scripts` / `-fno-allow-so-scripts` CLI
+/// flags, overriding the global user setting provided to the `zig build`
+/// command.
+///
+/// The compiler defaults this value to off so that users whose system shared
+/// libraries are all ELF files don't have to pay the cost of checking every
+/// file to find out if it is a text file instead.
+allow_so_scripts: ?bool = null,
+
 /// This is an advanced setting that can change the intent of this Compile step.
 /// If this value is non-null, it means that this Compile step exists to
 /// check for compile errors and return *success* if they match, and failure
@@ -1036,6 +1045,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
     if (b.reference_trace) |some| {
         try zig_args.append(try std.fmt.allocPrint(arena, "-freference-trace={d}", .{some}));
     }
+    try addFlag(&zig_args, "allow-so-scripts", compile.allow_so_scripts orelse b.graph.allow_so_scripts);
 
     try addFlag(&zig_args, "llvm", compile.use_llvm);
     try addFlag(&zig_args, "lld", compile.use_lld);

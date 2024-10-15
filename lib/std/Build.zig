@@ -123,6 +123,7 @@ pub const Graph = struct {
     incremental: ?bool = null,
     random_seed: u32 = 0,
     dependency_cache: InitializedDepMap = .empty,
+    allow_so_scripts: ?bool = null,
 };
 
 const AvailableDeps = []const struct { []const u8, []const u8 };

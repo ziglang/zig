@@ -2145,6 +2145,7 @@ fn testLdScript(b: *Build, opts: Options) *Step {
     exe.addLibraryPath(dso.getEmittedBinDirectory());
     exe.addRPath(dso.getEmittedBinDirectory());
     exe.linkLibC();
+    exe.allow_so_scripts = true;
 
     const run = addRunArtifact(exe);
     run.expectExitCode(0);
@@ -2164,6 +2165,7 @@ fn testLdScriptPathError(b: *Build, opts: Options) *Step {
     exe.linkSystemLibrary2("a", .{});
     exe.addLibraryPath(scripts.getDirectory());
     exe.linkLibC();
+    exe.allow_so_scripts = true;
 
     // TODO: A future enhancement could make this error message also mention
     // the file that references the missing library.
@@ -2201,6 +2203,7 @@ fn testLdScriptAllowUndefinedVersion(b: *Build, opts: Options) *Step {
     });
     exe.linkLibrary(so);
     exe.linkLibC();
+    exe.allow_so_scripts = true;
 
     const run = addRunArtifact(exe);
     run.expectStdErrEqual("3\n");
@@ -2223,6 +2226,7 @@ fn testLdScriptDisallowUndefinedVersion(b: *Build, opts: Options) *Step {
     const ld = b.addWriteFiles().add("add.ld", "VERSION { ADD_1.0 { global: add; sub; local: *; }; }");
     so.setLinkerScript(ld);
     so.linker_allow_undefined_version = false;
+    so.allow_so_scripts = true;
 
     expectLinkErrors(
         so,
