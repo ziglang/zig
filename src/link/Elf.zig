@@ -1337,6 +1337,12 @@ pub fn parseInputReportingFailure(self: *Elf, path: Path, needed: bool, must_lin
             .needed = needed,
         }, &self.shared_objects, &self.files, target) catch |err| switch (err) {
             error.LinkFailure => return, // already reported
+            error.BadMagic, error.UnexpectedEndOfFile => {
+                var notes = diags.addErrorWithNotes(2) catch return diags.setAllocFailure();
+                notes.addMsg("failed to parse shared object: {s}", .{@errorName(err)}) catch return diags.setAllocFailure();
+                notes.addNote("while parsing {}", .{path}) catch return diags.setAllocFailure();
+                notes.addNote("{s}", .{@as([]const u8, "the file may be a GNU ld script, in which case it is not an ELF file but a text file referencing other libraries to link. In this case, avoid depending on the library, convince your system administrators to refrain from using this kind of file, or pass -fallow-so-scripts to force the compiler to check every shared library in case it is an ld script.")}) catch return diags.setAllocFailure();
+            },
             else => |e| diags.addParseError(path, "failed to parse shared object: {s}", .{@errorName(e)}),
         },
         .static_library => parseArchive(self, path, must_link) catch |err| switch (err) {

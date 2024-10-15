@@ -555,6 +555,8 @@ const usage_build_generic =
     \\  -fno-each-lib-rpath            Prevent adding rpath for each used dynamic library
     \\  -fallow-shlib-undefined        Allows undefined symbols in shared libraries
     \\  -fno-allow-shlib-undefined     Disallows undefined symbols in shared libraries
+    \\  -fallow-so-scripts             Allows .so files to be GNU ld scripts
+    \\  -fno-allow-so-scripts          (default) .so files must be ELF files
     \\  --build-id[=style]             At a minor link-time expense, coordinates stripped binaries
     \\      fast, uuid, sha1, md5      with debug symbols via a '.note.gnu.build-id' section
     \\      0x[hexstring]              Maximum 32 bytes
@@ -1003,6 +1005,7 @@ fn buildOutputType(
         .libc_paths_file = try EnvVar.ZIG_LIBC.get(arena),
         .link_objects = .{},
         .native_system_include_paths = &.{},
+        .allow_so_scripts = false,
     };
 
     // before arg parsing, check for the NO_COLOR and CLICOLOR_FORCE environment variables
@@ -1573,6 +1576,10 @@ fn buildOutputType(
                         linker_allow_shlib_undefined = true;
                     } else if (mem.eql(u8, arg, "-fno-allow-shlib-undefined")) {
                         linker_allow_shlib_undefined = false;
+                    } else if (mem.eql(u8, arg, "-fallow-so-scripts")) {
+                        create_module.allow_so_scripts = true;
+                    } else if (mem.eql(u8, arg, "-fno-allow-so-scripts")) {
+                        create_module.allow_so_scripts = false;
                     } else if (mem.eql(u8, arg, "-z")) {
                         const z_arg = args_iter.nextOrFatal();
                         if (mem.eql(u8, z_arg, "nodelete")) {
@@ -3679,6 +3686,7 @@ const CreateModule = struct {
     each_lib_rpath: ?bool,
     libc_paths_file: ?[]const u8,
     link_objects: std.ArrayListUnmanaged(Compilation.LinkObject),
+    allow_so_scripts: bool,
 };
 
 fn createModule(
@@ -6950,7 +6958,7 @@ fn accessLibPath(
 
         // In the case of .so files, they might actually be "linker scripts"
         // that contain references to other libraries.
-        if (target.ofmt == .elf and mem.endsWith(u8, test_path.items, ".so")) {
+        if (create_module.allow_so_scripts and target.ofmt == .elf and mem.endsWith(u8, test_path.items, ".so")) {
             var file = fs.cwd().openFile(test_path.items, .{}) catch |err| switch (err) {
                 error.FileNotFound => break :main_check,
                 else => |e| fatal("unable to search for {s} library '{s}': {s}", .{
