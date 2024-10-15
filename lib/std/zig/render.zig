@@ -454,8 +454,9 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
                 try renderToken(r, main_token, after_op_space); // catch keyword
             }
 
-            ais.pushIndentOneShot();
+            ais.pushIndent();
             try renderExpression(r, datas[node].rhs, space); // fallback
+            ais.popIndent();
         },
 
         .field_access => {
@@ -564,8 +565,9 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
                 try renderToken(r, op_token, .newline);
                 ais.popIndent();
             }
-            ais.pushIndentOneShot();
-            return renderExpression(r, infix.rhs, space);
+            ais.pushIndent();
+            try renderExpression(r, infix.rhs, space);
+            ais.popIndent();
         },
 
         .assign_destructure => {
@@ -594,8 +596,9 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
                 try renderToken(r, full.ast.equal_token, .newline);
                 ais.popIndent();
             }
-            ais.pushIndentOneShot();
-            return renderExpression(r, full.ast.value_expr, space);
+            ais.pushIndent();
+            try renderExpression(r, full.ast.value_expr, space);
+            ais.popIndent();
         },
 
         .bit_not,
@@ -725,8 +728,9 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
 
         .grouped_expression => {
             try renderToken(r, main_tokens[node], .none); // lparen
-            ais.pushIndentOneShot();
+            ais.pushIndent();
             try renderExpression(r, datas[node].lhs, .none);
+            ais.popIndent();
             return renderToken(r, datas[node].rhs, space); // rparen
         },
 
@@ -1243,8 +1247,9 @@ fn renderVarDeclWithoutFixups(
         try renderToken(r, eq_token, eq_space); // =
         ais.popIndent();
     }
-    ais.pushIndentOneShot();
-    return renderExpression(r, var_decl.ast.init_node, space); // ;
+    ais.pushIndent();
+    try renderExpression(r, var_decl.ast.init_node, space); // ;
+    ais.popIndent();
 }
 
 fn renderIf(r: *Render, if_node: Ast.full.If, space: Space) Error!void {
