@@ -184,8 +184,9 @@ fn renderMember(
                         tree.extraData(datas[fn_proto].lhs, Ast.Node.FnProtoOne).callconv_expr
                     else
                         tree.extraData(datas[fn_proto].lhs, Ast.Node.FnProto).callconv_expr;
+                    // Keep in sync with logic in `renderFnProto`. Search this file for the marker PROMOTE_CALLCONV_INLINE
                     if (callconv_expr != 0 and tree.nodes.items(.tag)[callconv_expr] == .enum_literal) {
-                        if (mem.eql(u8, "Inline", tree.tokenSlice(main_tokens[callconv_expr]))) {
+                        if (mem.eql(u8, "@\"inline\"", tree.tokenSlice(main_tokens[callconv_expr]))) {
                             try ais.writer().writeAll("inline ");
                         }
                     }
@@ -1839,7 +1840,8 @@ fn renderFnProto(r: *Render, fn_proto: Ast.full.FnProto, space: Space) Error!voi
         try renderToken(r, section_rparen, .space); // )
     }
 
-    const is_callconv_inline = mem.eql(u8, "Inline", tree.tokenSlice(tree.nodes.items(.main_token)[fn_proto.ast.callconv_expr]));
+    // Keep in sync with logic in `renderMember`. Search this file for the marker PROMOTE_CALLCONV_INLINE
+    const is_callconv_inline = mem.eql(u8, "@\"inline\"", tree.tokenSlice(tree.nodes.items(.main_token)[fn_proto.ast.callconv_expr]));
     const is_declaration = fn_proto.name_token != null;
     if (fn_proto.ast.callconv_expr != 0 and !(is_declaration and is_callconv_inline)) {
         const callconv_lparen = tree.firstToken(fn_proto.ast.callconv_expr) - 1;
