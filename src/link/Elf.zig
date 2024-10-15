@@ -1,5 +1,4 @@
 pub const Atom = @import("Elf/Atom.zig");
-pub const LdScript = @import("LdScript.zig");
 
 base: link.File,
 rpath_table: std.StringArrayHashMapUnmanaged(void),
@@ -16,7 +15,6 @@ z_relro: bool,
 z_common_page_size: ?u64,
 /// TODO make this non optional and resolve the default in open()
 z_max_page_size: ?u64,
-lib_dirs: []const []const u8,
 hash_style: HashStyle,
 compress_debug_sections: CompressDebugSections,
 symbol_wrap_set: std.StringArrayHashMapUnmanaged(void),
@@ -329,7 +327,6 @@ pub fn createEmpty(
         .z_relro = options.z_relro,
         .z_common_page_size = options.z_common_page_size,
         .z_max_page_size = options.z_max_page_size,
-        .lib_dirs = options.lib_dirs,
         .hash_style = options.hash_style,
         .compress_debug_sections = options.compress_debug_sections,
         .symbol_wrap_set = options.symbol_wrap_set,
@@ -845,30 +842,17 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
         if (comp.libc_installation) |lc| {
             const flags = target_util.libcFullLinkFlags(target);
 
-            var test_path = std.ArrayList(u8).init(arena);
-            var checked_paths = std.ArrayList([]const u8).init(arena);
-
             for (flags) |flag| {
-                checked_paths.clearRetainingCapacity();
+                assert(mem.startsWith(u8, flag, "-l"));
                 const lib_name = flag["-l".len..];
-
-                success: {
-                    if (!self.base.isStatic()) {
-                        if (try self.accessLibPath(arena, &test_path, &checked_paths, lc.crt_dir.?, lib_name, .dynamic))
-                            break :success;
-                    }
-                    if (try self.accessLibPath(arena, &test_path, &checked_paths, lc.crt_dir.?, lib_name, .static))
-                        break :success;
-
-                    diags.addMissingLibraryError(
-                        checked_paths.items,
-                        "missing system library: '{s}' was not found",
-                        .{lib_name},
-                    );
-                    continue;
-                }
-
-                const resolved_path = Path.initCwd(try arena.dupe(u8, test_path.items));
+                const suffix = switch (comp.config.link_mode) {
+                    .static => target.staticLibSuffix(),
+                    .dynamic => target.dynamicLibSuffix(),
+                };
+                const lib_path = try std.fmt.allocPrint(arena, "{s}/lib{s}{s}", .{
+                    lc.crt_dir.?, lib_name, suffix,
+                });
+                const resolved_path = Path.initCwd(lib_path);
                 parseInputReportingFailure(self, resolved_path, false, false);
             }
         } else if (target.isGnuLibC()) {
@@ -1194,11 +1178,6 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
         if (csu.crti) |path| try argv.append(try path.toString(arena));
         if (csu.crtbegin) |path| try argv.append(try path.toString(arena));
 
-        for (self.lib_dirs) |lib_dir| {
-            try argv.append("-L");
-            try argv.append(lib_dir);
-        }
-
         if (comp.config.link_libc) {
             if (self.base.comp.libc_installation) |libc_installation| {
                 try argv.append("-L");
@@ -1340,7 +1319,7 @@ pub const ParseError = error{
     NotSupported,
     InvalidCharacter,
     UnknownFileType,
-} || LdScript.Error || fs.Dir.AccessError || fs.File.SeekError || fs.File.OpenError || fs.File.ReadError;
+} || fs.Dir.AccessError || fs.File.SeekError || fs.File.OpenError || fs.File.ReadError;
 
 fn parseCrtFileReportingFailure(self: *Elf, crt_file: Compilation.CrtFile) void {
     parseInputReportingFailure(self, crt_file.full_object_path, false, false);
@@ -1358,22 +1337,11 @@ pub fn parseInputReportingFailure(self: *Elf, path: Path, needed: bool, must_lin
             .needed = needed,
         }, &self.shared_objects, &self.files, target) catch |err| switch (err) {
             error.LinkFailure => return, // already reported
-            error.BadMagic, error.UnexpectedEndOfFile => {
-                // It could be a linker script.
-                self.parseLdScript(.{ .path = path, .needed = needed }) catch |err2| switch (err2) {
-                    error.LinkFailure => return, // already reported
-                    else => |e| diags.addParseError(path, "failed to parse linker script: {s}", .{@errorName(e)}),
-                };
-            },
             else => |e| diags.addParseError(path, "failed to parse shared object: {s}", .{@errorName(e)}),
         },
         .static_library => parseArchive(self, path, must_link) catch |err| switch (err) {
             error.LinkFailure => return, // already reported
             else => |e| diags.addParseError(path, "failed to parse archive: {s}", .{@errorName(e)}),
-        },
-        .unknown => self.parseLdScript(.{ .path = path, .needed = needed }) catch |err| switch (err) {
-            error.LinkFailure => return, // already reported
-            else => |e| diags.addParseError(path, "failed to parse linker script: {s}", .{@errorName(e)}),
         },
         else => diags.addParseError(path, "unrecognized file type", .{}),
     }
@@ -1512,72 +1480,6 @@ fn parseSharedObject(
     }
 }
 
-fn parseLdScript(self: *Elf, lib: SystemLib) ParseError!void {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const comp = self.base.comp;
-    const gpa = comp.gpa;
-    const diags = &comp.link_diags;
-
-    const in_file = try lib.path.root_dir.handle.openFile(lib.path.sub_path, .{});
-    defer in_file.close();
-    const data = try in_file.readToEndAlloc(gpa, std.math.maxInt(u32));
-    defer gpa.free(data);
-
-    var script = try LdScript.parse(gpa, diags, lib.path, data);
-    defer script.deinit(gpa);
-
-    var arena_allocator = std.heap.ArenaAllocator.init(gpa);
-    defer arena_allocator.deinit();
-    const arena = arena_allocator.allocator();
-
-    var test_path = std.ArrayList(u8).init(arena);
-    var checked_paths = std.ArrayList([]const u8).init(arena);
-
-    for (script.args) |script_arg| {
-        checked_paths.clearRetainingCapacity();
-
-        success: {
-            if (mem.startsWith(u8, script_arg.path, "-l")) {
-                const lib_name = script_arg.path["-l".len..];
-
-                for (self.lib_dirs) |lib_dir| {
-                    if (!self.base.isStatic()) {
-                        if (try self.accessLibPath(arena, &test_path, &checked_paths, lib_dir, lib_name, .dynamic))
-                            break :success;
-                    }
-                    if (try self.accessLibPath(arena, &test_path, &checked_paths, lib_dir, lib_name, .static))
-                        break :success;
-                }
-            } else {
-                var buffer: [fs.max_path_bytes]u8 = undefined;
-                if (fs.realpath(script_arg.path, &buffer)) |path| {
-                    test_path.clearRetainingCapacity();
-                    try test_path.writer().writeAll(path);
-                    break :success;
-                } else |_| {}
-
-                try checked_paths.append(try arena.dupe(u8, script_arg.path));
-                for (self.lib_dirs) |lib_dir| {
-                    if (try self.accessLibPath(arena, &test_path, &checked_paths, lib_dir, script_arg.path, null))
-                        break :success;
-                }
-            }
-
-            diags.addMissingLibraryError(
-                checked_paths.items,
-                "missing library dependency: GNU ld script '{}' requires '{s}', but file not found",
-                .{ @as(Path, lib.path), script_arg.path },
-            );
-            continue;
-        }
-
-        const full_path = Path.initCwd(test_path.items);
-        parseInputReportingFailure(self, full_path, script_arg.needed, false);
-    }
-}
-
 pub fn validateEFlags(self: *Elf, file_index: File.Index, e_flags: elf.Word) !void {
     if (self.first_eflags == null) {
         self.first_eflags = e_flags;
@@ -1616,39 +1518,6 @@ pub fn validateEFlags(self: *Elf, file_index: File.Index, e_flags: elf.Word) !vo
         },
         else => {},
     }
-}
-
-fn accessLibPath(
-    self: *Elf,
-    arena: Allocator,
-    test_path: *std.ArrayList(u8),
-    checked_paths: ?*std.ArrayList([]const u8),
-    lib_dir_path: []const u8,
-    lib_name: []const u8,
-    link_mode: ?std.builtin.LinkMode,
-) !bool {
-    const sep = fs.path.sep_str;
-    const target = self.getTarget();
-    test_path.clearRetainingCapacity();
-    const prefix = if (link_mode != null) "lib" else "";
-    const suffix = if (link_mode) |mode| switch (mode) {
-        .static => target.staticLibSuffix(),
-        .dynamic => target.dynamicLibSuffix(),
-    } else "";
-    try test_path.writer().print("{s}" ++ sep ++ "{s}{s}{s}", .{
-        lib_dir_path,
-        prefix,
-        lib_name,
-        suffix,
-    });
-    if (checked_paths) |cpaths| {
-        try cpaths.append(try arena.dupe(u8, test_path.items));
-    }
-    fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
-        error.FileNotFound => return false,
-        else => |e| return e,
-    };
-    return true;
 }
 
 /// When resolving symbols, we approach the problem similarly to `mold`.
@@ -1840,7 +1709,7 @@ pub fn initOutputSection(self: *Elf, args: struct {
             ".dtors",      ".gnu.warning",
         };
         inline for (name_prefixes) |prefix| {
-            if (std.mem.eql(u8, args.name, prefix) or std.mem.startsWith(u8, args.name, prefix ++ ".")) {
+            if (mem.eql(u8, args.name, prefix) or mem.startsWith(u8, args.name, prefix ++ ".")) {
                 break :blk prefix;
             }
         }
@@ -1852,9 +1721,9 @@ pub fn initOutputSection(self: *Elf, args: struct {
         switch (args.type) {
             elf.SHT_NULL => unreachable,
             elf.SHT_PROGBITS => {
-                if (std.mem.eql(u8, args.name, ".init_array") or std.mem.startsWith(u8, args.name, ".init_array."))
+                if (mem.eql(u8, args.name, ".init_array") or mem.startsWith(u8, args.name, ".init_array."))
                     break :tt elf.SHT_INIT_ARRAY;
-                if (std.mem.eql(u8, args.name, ".fini_array") or std.mem.startsWith(u8, args.name, ".fini_array."))
+                if (mem.eql(u8, args.name, ".fini_array") or mem.startsWith(u8, args.name, ".fini_array."))
                     break :tt elf.SHT_FINI_ARRAY;
                 break :tt args.type;
             },
@@ -1971,7 +1840,6 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
         man.hash.add(comp.link_eh_frame_hdr);
         man.hash.add(self.emit_relocs);
         man.hash.add(comp.config.rdynamic);
-        man.hash.addListOfBytes(self.lib_dirs);
         man.hash.addListOfBytes(self.rpath_table.keys());
         if (output_mode == .Exe) {
             man.hash.add(self.base.stack_size);
@@ -2263,11 +2131,6 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
 
         for (self.symbol_wrap_set.keys()) |symbol_name| {
             try argv.appendSlice(&.{ "-wrap", symbol_name });
-        }
-
-        for (self.lib_dirs) |lib_dir| {
-            try argv.append("-L");
-            try argv.append(lib_dir);
         }
 
         if (comp.config.link_libc) {
@@ -4868,7 +4731,7 @@ fn shString(
     off: u32,
 ) [:0]const u8 {
     const slice = shstrtab[off..];
-    return slice[0..std.mem.indexOfScalar(u8, slice, 0).? :0];
+    return slice[0..mem.indexOfScalar(u8, slice, 0).? :0];
 }
 
 pub fn insertShString(self: *Elf, name: [:0]const u8) error{OutOfMemory}!u32 {
