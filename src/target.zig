@@ -459,7 +459,8 @@ pub fn llvmMachineAbi(target: std.Target) ?[:0]const u8 {
     }
 }
 
-/// This function returns 1 if function alignment is not observable or settable.
+/// This function returns 1 if function alignment is not observable or settable. Note that this
+/// value will not necessarily match the backend's default function alignment (e.g. for LLVM).
 pub fn defaultFunctionAlignment(target: std.Target) Alignment {
     // Overrides of the minimum for performance.
     return switch (target.cpu.arch) {

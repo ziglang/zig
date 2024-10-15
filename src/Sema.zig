@@ -26572,9 +26572,7 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         if (val.isGenericPoison()) {
             break :blk null;
         }
-        const alignment = try sema.validateAlignAllowZero(block, align_src, try val.toUnsignedIntSema(pt));
-        const default = target_util.defaultFunctionAlignment(target);
-        break :blk if (alignment == default) .none else alignment;
+        break :blk try sema.validateAlignAllowZero(block, align_src, try val.toUnsignedIntSema(pt));
     } else if (extra.data.bits.has_align_ref) blk: {
         const align_ref: Zir.Inst.Ref = @enumFromInt(sema.code.extra[extra_index]);
         extra_index += 1;
@@ -26592,9 +26590,7 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
             error.GenericPoison => break :blk null,
             else => |e| return e,
         };
-        const alignment = try sema.validateAlignAllowZero(block, align_src, try align_val.toUnsignedIntSema(pt));
-        const default = target_util.defaultFunctionAlignment(target);
-        break :blk if (alignment == default) .none else alignment;
+        break :blk try sema.validateAlignAllowZero(block, align_src, try align_val.toUnsignedIntSema(pt));
     } else .none;
 
     const @"addrspace": ?std.builtin.AddressSpace = if (extra.data.bits.has_addrspace_body) blk: {
