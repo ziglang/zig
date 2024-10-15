@@ -1338,7 +1338,7 @@ const LinuxThreadImpl = struct {
                       [len] "r" (self.mapped.len),
                     : "memory"
                 ),
-                .loongarch64 => asm volatile (
+                .loongarch32, .loongarch64 => asm volatile (
                     \\ or      $a0, $zero, %[ptr]
                     \\ or      $a1, $zero, %[len]
                     \\ ori     $a7, $zero, 215     # SYS_munmap
