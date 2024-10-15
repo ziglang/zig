@@ -256,7 +256,7 @@ pub const CallingConvention = union(enum(u8)) {
     /// Pointers to inline functions are comptime-only.
     @"inline",
 
-    // Calling conventions for the x86_64 architecture.
+    // Calling conventions for the `x86_64` architecture.
     x86_64_sysv: CommonOptions,
     x86_64_win: CommonOptions,
     x86_64_regcall_v3_sysv: CommonOptions,
@@ -264,7 +264,7 @@ pub const CallingConvention = union(enum(u8)) {
     x86_64_vectorcall: CommonOptions,
     x86_64_interrupt: CommonOptions,
 
-    // Calling conventions for the x86 architecture.
+    // Calling conventions for the `x86` architecture.
     x86_sysv: X86RegparmOptions,
     x86_win: X86RegparmOptions,
     x86_stdcall: X86RegparmOptions,
@@ -276,14 +276,14 @@ pub const CallingConvention = union(enum(u8)) {
     x86_vectorcall: CommonOptions,
     x86_interrupt: CommonOptions,
 
-    // Calling conventions for the aarch64 architecture.
+    // Calling conventions for the `aarch64` and `aarch64_be` architectures.
     aarch64_aapcs: CommonOptions,
     aarch64_aapcs_darwin: CommonOptions,
     aarch64_aapcs_win: CommonOptions,
     aarch64_vfabi: CommonOptions,
     aarch64_vfabi_sve: CommonOptions,
 
-    // Calling convetions for the arm architecture.
+    // Calling convetions for the `arm`, `armeb`, `thumb`, and `thumbeb` architectures.
     /// ARM Procedure Call Standard (obsolete)
     arm_apcs: CommonOptions,
     /// ARM Architecture Procedure Call Standard
@@ -293,114 +293,114 @@ pub const CallingConvention = union(enum(u8)) {
     arm_aapcs16_vfp: CommonOptions,
     arm_interrupt: ArmInterruptOptions,
 
-    // Calling conventions for the mips64 architecture.
+    // Calling conventions for the `mips64` architecture.
     mips64_n64: CommonOptions,
     mips64_n32: CommonOptions,
     mips64_interrupt: MipsInterruptOptions,
 
-    // Calling conventions for the mips architecture.
+    // Calling conventions for the `mips` architecture.
     mips_o32: CommonOptions,
     mips_interrupt: MipsInterruptOptions,
 
-    // Calling conventions for the riscv64 architecture.
+    // Calling conventions for the `riscv64` architecture.
     riscv64_lp64: CommonOptions,
     riscv64_lp64_v: CommonOptions,
     riscv64_interrupt: RiscvInterruptOptions,
 
-    // Calling conventions for the riscv32 architecture.
+    // Calling conventions for the `riscv32` architecture.
     riscv32_ilp32: CommonOptions,
     riscv32_ilp32_v: CommonOptions,
     riscv32_interrupt: RiscvInterruptOptions,
 
-    // Calling conventions for the sparc64 architecture.
+    // Calling conventions for the `sparc64` architecture.
     sparc64_sysv: CommonOptions,
 
-    // Calling conventions for the sparc architecture.
+    // Calling conventions for the `sparc` architecture.
     sparc_sysv: CommonOptions,
 
-    // Calling conventions for the powerpc64 architecture.
+    // Calling conventions for the `powerpc64` and `powerpc64le` architectures.
     powerpc64_elf: CommonOptions,
     powerpc64_elf_altivec: CommonOptions,
     powerpc64_elf_v2: CommonOptions,
 
-    // Calling conventions for the powerpc architecture.
+    // Calling conventions for the `powerpc` and `powerpcle` architectures.
     powerpc_sysv: CommonOptions,
     powerpc_sysv_altivec: CommonOptions,
     powerpc_aix: CommonOptions,
     powerpc_aix_altivec: CommonOptions,
 
-    /// The standard wasm32/wasm64 calling convention, as specified in the WebAssembly Tool Conventions.
+    /// The standard `wasm32`/`wasm64` calling convention, as specified in the WebAssembly Tool Conventions.
     wasm_watc: CommonOptions,
 
-    /// The standard ARC calling convention.
+    /// The standard `arc` calling convention.
     arc_sysv: CommonOptions,
 
-    // Calling conventions for the AVR architecture.
+    // Calling conventions for the `avr` architecture.
     avr_gnu,
     avr_builtin,
     avr_signal,
     avr_interrupt,
 
-    /// The standard bpf calling convention.
+    /// The standard `bpfel`/`bpfeb` calling convention.
     bpf_std: CommonOptions,
 
-    // Calling conventions for the csky architecture.
+    // Calling conventions for the `csky` architecture.
     csky_sysv: CommonOptions,
     csky_interrupt: CommonOptions,
 
-    // Calling conventions for the hexagon architecture.
+    // Calling conventions for the `hexagon` architecture.
     hexagon_sysv: CommonOptions,
     hexagon_sysv_hvx: CommonOptions,
 
-    /// The standard Lanai calling convention.
+    /// The standard `lanai` calling convention.
     lanai_sysv: CommonOptions,
 
-    /// The standard loongarch64 calling convention.
+    /// The standard `loongarch64` calling convention.
     loongarch64_lp64: CommonOptions,
 
-    /// The standard loongarch32 calling convention.
+    /// The standard `loongarch32` calling convention.
     loongarch32_ilp32: CommonOptions,
 
-    // Calling conventions for the m68k architecture.
+    // Calling conventions for the `m68k` architecture.
     m68k_sysv: CommonOptions,
     m68k_gnu: CommonOptions,
     m68k_rtd: CommonOptions,
     m68k_interrupt: CommonOptions,
 
-    /// The standard MSP430 calling convention.
+    /// The standard `msp430` calling convention.
     msp430_eabi: CommonOptions,
 
-    /// The standard propeller1 calling convention.
+    /// The standard `propeller1` calling convention.
     propeller1_sysv: CommonOptions,
 
-    /// The standard propeller1 calling convention.
+    /// The standard `propeller2` calling convention.
     propeller2_sysv: CommonOptions,
 
-    // Calling conventions for the S390X architecture.
+    // Calling conventions for the `s390x` architecture.
     s390x_sysv: CommonOptions,
     s390x_sysv_vx: CommonOptions,
 
-    /// The standard VE calling convention.
+    /// The standard `ve` calling convention.
     ve_sysv: CommonOptions,
 
-    // Calling conventions for the xCORE architecture.
+    // Calling conventions for the `xcore` architecture.
     xcore_xs1: CommonOptions,
     xcore_xs2: CommonOptions,
 
-    // Calling conventions for the Xtensa architecture.
+    // Calling conventions for the `xtensa` architecture.
     xtensa_call0: CommonOptions,
     xtensa_windowed: CommonOptions,
 
-    // Calling conventions for the AMDGCN architecture.
+    // Calling conventions for the `amdgcn` architecture.
     amdgcn_device: CommonOptions,
     amdgcn_kernel,
     amdgcn_cs: CommonOptions,
 
-    // Calling conventions for the NVPTX architecture.
+    // Calling conventions for the `nvptx` architecture.
     nvptx_device,
     nvptx_kernel,
 
-    // Calling conventions for SPIR-V kernels and shaders.
+    // Calling conventions for kernels and shaders on the `spirv`, `spirv32`, and `spirv64` architectures.
     spirv_device,
     spirv_kernel,
     spirv_fragment,
