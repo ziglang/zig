@@ -4645,8 +4645,6 @@ pub const Object = struct {
                 else => {},
                 .x86_64_interrupt,
                 .x86_interrupt,
-                .avr_interrupt,
-                .m68k_interrupt,
                 => {
                     const child_type = try lowerType(o, Type.fromInterned(ptr_info.child));
                     try attributes.addParamAttr(llvm_arg_i, .{ .byval = child_type }, &o.builder);
