@@ -236,6 +236,7 @@ pub const ExpectedCompileErrors = union(enum) {
     contains: []const u8,
     exact: []const []const u8,
     starts_with: []const u8,
+    stderr_contains: []const u8,
 };
 
 pub const Entry = union(enum) {
@@ -1945,24 +1946,24 @@ fn checkCompileErrors(compile: *Compile) !void {
 
     const arena = compile.step.owner.allocator;
 
-    var actual_stderr_list = std.ArrayList(u8).init(arena);
+    var actual_errors_list = std.ArrayList(u8).init(arena);
     try actual_eb.renderToWriter(.{
         .ttyconf = .no_color,
         .include_reference_trace = false,
         .include_source_line = false,
-    }, actual_stderr_list.writer());
-    const actual_stderr = try actual_stderr_list.toOwnedSlice();
+    }, actual_errors_list.writer());
+    const actual_errors = try actual_errors_list.toOwnedSlice();
 
     // Render the expected lines into a string that we can compare verbatim.
     var expected_generated = std.ArrayList(u8).init(arena);
     const expect_errors = compile.expect_errors.?;
 
-    var actual_line_it = mem.splitScalar(u8, actual_stderr, '\n');
+    var actual_line_it = mem.splitScalar(u8, actual_errors, '\n');
 
     // TODO merge this with the testing.expectEqualStrings logic, and also CheckFile
     switch (expect_errors) {
         .starts_with => |expect_starts_with| {
-            if (std.mem.startsWith(u8, actual_stderr, expect_starts_with)) return;
+            if (std.mem.startsWith(u8, actual_errors, expect_starts_with)) return;
             return compile.step.fail(
                 \\
                 \\========= should start with: ============
@@ -1970,10 +1971,33 @@ fn checkCompileErrors(compile: *Compile) !void {
                 \\========= but not found: ================
                 \\{s}
                 \\=========================================
-            , .{ expect_starts_with, actual_stderr });
+            , .{ expect_starts_with, actual_errors });
         },
         .contains => |expect_line| {
             while (actual_line_it.next()) |actual_line| {
+                if (!matchCompileError(actual_line, expect_line)) continue;
+                return;
+            }
+
+            return compile.step.fail(
+                \\
+                \\========= should contain: ===============
+                \\{s}
+                \\========= but not found: ================
+                \\{s}
+                \\=========================================
+            , .{ expect_line, actual_errors });
+        },
+        .stderr_contains => |expect_line| {
+            const actual_stderr: []const u8 = if (compile.step.result_error_msgs.items.len > 0)
+                compile.step.result_error_msgs.items[0]
+            else
+                &.{};
+            compile.step.result_error_msgs.clearRetainingCapacity();
+
+            var stderr_line_it = mem.splitScalar(u8, actual_stderr, '\n');
+
+            while (stderr_line_it.next()) |actual_line| {
                 if (!matchCompileError(actual_line, expect_line)) continue;
                 return;
             }
@@ -2003,7 +2027,7 @@ fn checkCompileErrors(compile: *Compile) !void {
                 try expected_generated.append('\n');
             }
 
-            if (mem.eql(u8, expected_generated.items, actual_stderr)) return;
+            if (mem.eql(u8, expected_generated.items, actual_errors)) return;
 
             return compile.step.fail(
                 \\
@@ -2012,7 +2036,7 @@ fn checkCompileErrors(compile: *Compile) !void {
                 \\========= but found: ====================
                 \\{s}
                 \\=========================================
-            , .{ expected_generated.items, actual_stderr });
+            , .{ expected_generated.items, actual_errors });
         },
     }
 }
