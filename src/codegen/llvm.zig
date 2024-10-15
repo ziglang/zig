@@ -11865,7 +11865,7 @@ fn firstParamSRet(fn_info: InternPool.Key.FuncType, zcu: *Zcu, target: std.Targe
             .byval => false,
         },
         .riscv64_lp64, .riscv32_ilp32 => riscv_c_abi.classifyType(return_type, zcu) == .memory,
-        .mips64_n64, .mips64_n32, .mips_o32 => switch (mips_c_abi.classifyType(return_type, zcu, .ret)) {
+        .mips_o32 => switch (mips_c_abi.classifyType(return_type, zcu, .ret)) {
             .memory, .i32_array => true,
             .byval => false,
         },
@@ -11914,7 +11914,7 @@ fn lowerFnRetTy(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.Error!Bu
             .i32_array => |len| return if (len == 1) .i32 else .void,
             .byval => return o.lowerType(return_type),
         },
-        .mips64_n64, .mips64_n32, .mips_o32 => switch (mips_c_abi.classifyType(return_type, zcu, .ret)) {
+        .mips_o32 => switch (mips_c_abi.classifyType(return_type, zcu, .ret)) {
             .memory, .i32_array => return .void,
             .byval => return o.lowerType(return_type),
         },
@@ -12171,7 +12171,7 @@ const ParamTypeIterator = struct {
                     .i64_array => |size| return Lowering{ .i64_array = size },
                 }
             },
-            .mips64_n64, .mips64_n32, .mips_o32 => {
+            .mips_o32 => {
                 it.zig_index += 1;
                 it.llvm_index += 1;
                 switch (mips_c_abi.classifyType(ty, zcu, .arg)) {
