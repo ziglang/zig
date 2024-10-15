@@ -12453,6 +12453,9 @@ fn backendSupportsF80(target: std.Target) bool {
 /// if it produces miscompilations.
 fn backendSupportsF16(target: std.Target) bool {
     return switch (target.cpu.arch) {
+        // LoongArch can be removed from this list with LLVM 20.
+        .loongarch32,
+        .loongarch64,
         .hexagon,
         .powerpc,
         .powerpcle,
