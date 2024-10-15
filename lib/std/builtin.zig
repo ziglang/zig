@@ -176,8 +176,8 @@ pub const CallingConvention = union(enum(u8)) {
     pub const winapi: CallingConvention = switch (builtin.target.cpu.arch) {
         .x86_64 => .{ .x86_64_win = .{} },
         .x86 => .{ .x86_stdcall = .{} },
-        .aarch64, .aarch64_be => .{ .aarch64_aapcs_win = .{} },
-        .arm, .armeb, .thumb, .thumbeb => .{ .arm_aapcs_vfp = .{} },
+        .aarch64 => .{ .aarch64_aapcs_win = .{} },
+        .thumb => .{ .arm_aapcs_vfp = .{} },
         else => unreachable,
     };
 
