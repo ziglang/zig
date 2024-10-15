@@ -168,6 +168,7 @@ const mem = std.mem;
 const Allocator = mem.Allocator;
 const assert = std.debug.assert;
 const log = std.log.scoped(.sema);
+const tracer = std.otel.trace.scoped(.{ .name = "zig.sema" });
 
 const Sema = @This();
 const Value = @import("Value.zig");
@@ -176,7 +177,6 @@ const Type = @import("Type.zig");
 const Air = @import("Air.zig");
 const Zir = std.zig.Zir;
 const Zcu = @import("Zcu.zig");
-const trace = @import("tracy.zig").trace;
 const Namespace = Zcu.Namespace;
 const CompileError = Zcu.CompileError;
 const SemaError = Zcu.SemaError;
@@ -2986,8 +2986,8 @@ fn zirEnumDecl(
     extended: Zir.Inst.Extended.InstData,
     inst: Zir.Inst.Index,
 ) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -3142,8 +3142,8 @@ fn zirUnionDecl(
     extended: Zir.Inst.Extended.InstData,
     inst: Zir.Inst.Index,
 ) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -3267,8 +3267,8 @@ fn zirOpaqueDecl(
     extended: Zir.Inst.Extended.InstData,
     inst: Zir.Inst.Index,
 ) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -3349,8 +3349,8 @@ fn zirErrorSetDecl(
     sema: *Sema,
     inst: Zir.Inst.Index,
 ) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -3376,8 +3376,8 @@ fn zirErrorSetDecl(
 }
 
 fn zirRetPtr(sema: *Sema, block: *Block) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
 
@@ -3403,8 +3403,8 @@ fn zirRetPtr(sema: *Sema, block: *Block) CompileError!Air.Inst.Ref {
 }
 
 fn zirRef(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].un_tok;
     const operand = try sema.resolveInst(inst_data.operand);
@@ -3412,8 +3412,8 @@ fn zirRef(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Ins
 }
 
 fn zirEnsureResultUsed(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].un_node;
     const operand = try sema.resolveInst(inst_data.operand);
@@ -3456,8 +3456,8 @@ fn ensureResultUsed(
 }
 
 fn zirEnsureResultNonError(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -3481,8 +3481,8 @@ fn zirEnsureResultNonError(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
 }
 
 fn zirEnsureErrUnionPayloadVoid(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -3508,8 +3508,8 @@ fn zirEnsureErrUnionPayloadVoid(sema: *Sema, block: *Block, inst: Zir.Inst.Index
 }
 
 fn zirIndexablePtrLen(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].un_node;
     const src = block.nodeOffset(inst_data.src_node);
@@ -3633,8 +3633,8 @@ fn zirAllocExtended(
 }
 
 fn zirAllocComptime(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].un_node;
     const ty_src = block.src(.{ .node_offset_var_decl_ty = inst_data.src_node });
@@ -4029,8 +4029,8 @@ fn zirAllocInferredComptime(
 }
 
 fn zirAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
 
@@ -4058,8 +4058,8 @@ fn zirAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
 }
 
 fn zirAllocMut(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
 
@@ -4087,8 +4087,8 @@ fn zirAllocInferred(
     block: *Block,
     is_const: bool,
 ) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const gpa = sema.gpa;
 
@@ -4120,8 +4120,8 @@ fn zirAllocInferred(
 }
 
 fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -4681,8 +4681,8 @@ fn zirValidatePtrStructInit(
     block: *Block,
     inst: Zir.Inst.Index,
 ) CompileError!void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -5541,8 +5541,8 @@ fn addDeclaredHereNote(sema: *Sema, parent: *Zcu.ErrorMsg, decl_ty: Type) !void 
 }
 
 fn zirStoreToInferredPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pl_node = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
     const src = block.nodeOffset(pl_node.src_node);
@@ -5637,8 +5637,8 @@ fn zirSetEvalBranchQuota(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Compi
 }
 
 fn zirStoreNode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -5708,8 +5708,8 @@ fn uavRef(sema: *Sema, val: InternPool.Index) CompileError!Air.Inst.Ref {
 
 fn zirInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     _ = block;
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const int = sema.code.instructions.items(.data)[@intFromEnum(inst)].int;
     return sema.pt.intRef(Type.comptime_int, int);
@@ -5717,8 +5717,8 @@ fn zirInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Ins
 
 fn zirIntBig(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     _ = block;
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const int = sema.code.instructions.items(.data)[@intFromEnum(inst)].str;
     const byte_count = int.len * @sizeOf(std.math.big.Limb);
@@ -5754,8 +5754,8 @@ fn zirFloat128(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 }
 
 fn zirCompileError(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].un_node;
     const src = block.nodeOffset(inst_data.src_node);
@@ -5836,8 +5836,8 @@ fn zirTrap(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
 }
 
 fn zirLoop(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -5921,8 +5921,8 @@ fn zirLoop(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileError
 }
 
 fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -6042,8 +6042,8 @@ fn zirSuspendBlock(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) Comp
 }
 
 fn zirBlock(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index, force_comptime: bool) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pl_node = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
     const src = parent_block.nodeOffset(pl_node.src_node);
@@ -6168,8 +6168,8 @@ fn resolveAnalyzedBlock(
     merges: *Block.Merges,
     need_debug_scope: bool,
 ) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const gpa = sema.gpa;
     const pt = sema.pt;
@@ -6376,8 +6376,8 @@ fn resolveAnalyzedBlock(
 }
 
 fn zirExport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -6557,8 +6557,8 @@ fn zirSetRuntimeSafety(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Compile
 }
 
 fn zirBreak(sema: *Sema, start_block: *Block, inst: Zir.Inst.Index) CompileError!void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].@"break";
     const extra = sema.code.extraData(Zir.Inst.Break, inst_data.payload_index).data;
@@ -6590,8 +6590,8 @@ fn zirBreak(sema: *Sema, start_block: *Block, inst: Zir.Inst.Index) CompileError
 }
 
 fn zirSwitchContinue(sema: *Sema, start_block: *Block, inst: Zir.Inst.Index) CompileError!void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].@"break";
     const extra = sema.code.extraData(Zir.Inst.Break, inst_data.payload_index).data;
@@ -7047,8 +7047,8 @@ fn zirCall(
     inst: Zir.Inst.Index,
     comptime kind: enum { direct, field },
 ) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -8525,8 +8525,8 @@ fn zirIntType(sema: *Sema, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
 }
 
 fn zirOptionalType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -8640,8 +8640,8 @@ fn zirVectorType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
 }
 
 fn zirArrayType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
@@ -8661,8 +8661,8 @@ fn zirArrayType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
 }
 
 fn zirArrayTypeSentinel(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
     const extra = sema.code.extraData(Zir.Inst.ArrayTypeSentinel, inst_data.payload_index).data;
@@ -8699,8 +8699,8 @@ fn validateArrayElemType(sema: *Sema, block: *Block, elem_type: Type, elem_src: 
 }
 
 fn zirAnyframeType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].un_node;
     if (true) {
@@ -8715,8 +8715,8 @@ fn zirAnyframeType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
 }
 
 fn zirErrorUnionType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -8771,8 +8771,8 @@ fn zirErrorValue(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
 }
 
 fn zirIntFromError(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -8813,8 +8813,8 @@ fn zirIntFromError(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstD
 }
 
 fn zirErrorFromInt(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -8858,8 +8858,8 @@ fn zirErrorFromInt(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstD
 }
 
 fn zirMergeErrorSets(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -8915,8 +8915,8 @@ fn zirMergeErrorSets(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileEr
 
 fn zirEnumLiteral(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     _ = block;
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -8928,8 +8928,8 @@ fn zirEnumLiteral(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
 }
 
 fn zirDeclLiteral(sema: *Sema, block: *Block, inst: Zir.Inst.Index, do_coerce: bool) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -9108,8 +9108,8 @@ fn zirOptionalPayloadPtr(
     inst: Zir.Inst.Index,
     safety_check: bool,
 ) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].un_node;
     const optional_ptr = try sema.resolveInst(inst_data.operand);
@@ -9193,8 +9193,8 @@ fn zirOptionalPayload(
     inst: Zir.Inst.Index,
     safety_check: bool,
 ) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -9246,8 +9246,8 @@ fn zirErrUnionPayload(
     block: *Block,
     inst: Zir.Inst.Index,
 ) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -9301,8 +9301,8 @@ fn zirErrUnionPayloadPtr(
     block: *Block,
     inst: Zir.Inst.Index,
 ) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].un_node;
     const operand = try sema.resolveInst(inst_data.operand);
@@ -9387,8 +9387,8 @@ fn analyzeErrUnionPayloadPtr(
 
 /// Value in, value out
 fn zirErrUnionCode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].un_node;
     const src = block.nodeOffset(inst_data.src_node);
@@ -9421,8 +9421,8 @@ fn analyzeErrUnionCode(sema: *Sema, block: *Block, src: LazySrcLoc, operand: Air
 
 /// Pointer in, value out
 fn zirErrUnionCodePtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].un_node;
     const src = block.nodeOffset(inst_data.src_node);
@@ -10296,8 +10296,8 @@ fn zirParamAnytype(
 }
 
 fn zirAsNode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
     const src = block.nodeOffset(inst_data.src_node);
@@ -10306,8 +10306,8 @@ fn zirAsNode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
 }
 
 fn zirAsShiftOperand(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
     const src = block.nodeOffset(inst_data.src_node);
@@ -10357,8 +10357,8 @@ fn analyzeAs(
 }
 
 fn zirIntFromPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -10431,8 +10431,8 @@ fn zirIntFromPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
 }
 
 fn zirFieldVal(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -10451,8 +10451,8 @@ fn zirFieldVal(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 }
 
 fn zirFieldPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -10471,8 +10471,8 @@ fn zirFieldPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 }
 
 fn zirStructInitFieldPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -10499,8 +10499,8 @@ fn zirStructInitFieldPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Compi
 }
 
 fn zirFieldValNamed(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
     const src = block.nodeOffset(inst_data.src_node);
@@ -10514,8 +10514,8 @@ fn zirFieldValNamed(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErr
 }
 
 fn zirFieldPtrNamed(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
     const src = block.nodeOffset(inst_data.src_node);
@@ -10529,8 +10529,8 @@ fn zirFieldPtrNamed(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErr
 }
 
 fn zirIntCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
     const src = block.nodeOffset(inst_data.src_node);
@@ -10699,8 +10699,8 @@ fn intCast(
 }
 
 fn zirBitcast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -10843,8 +10843,8 @@ fn zirBitcast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
 }
 
 fn zirFloatCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -10924,8 +10924,8 @@ fn zirFloatCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
 }
 
 fn zirElemVal(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
     const src = block.nodeOffset(inst_data.src_node);
@@ -10936,8 +10936,8 @@ fn zirElemVal(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
 }
 
 fn zirElemValNode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
     const src = block.nodeOffset(inst_data.src_node);
@@ -10950,8 +10950,8 @@ fn zirElemValNode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
 }
 
 fn zirElemValImm(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].elem_val_imm;
     const array = try sema.resolveInst(inst_data.operand);
@@ -10960,8 +10960,8 @@ fn zirElemValImm(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
 }
 
 fn zirElemPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -10989,8 +10989,8 @@ fn zirElemPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
 }
 
 fn zirElemPtrNode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
     const src = block.nodeOffset(inst_data.src_node);
@@ -11003,8 +11003,8 @@ fn zirElemPtrNode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
 }
 
 fn zirArrayInitElemPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -11024,8 +11024,8 @@ fn zirArrayInitElemPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Compile
 }
 
 fn zirSliceStart(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
     const src = block.nodeOffset(inst_data.src_node);
@@ -11040,8 +11040,8 @@ fn zirSliceStart(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
 }
 
 fn zirSliceEnd(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
     const src = block.nodeOffset(inst_data.src_node);
@@ -11057,8 +11057,8 @@ fn zirSliceEnd(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 }
 
 fn zirSliceSentinel(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
     const src = block.nodeOffset(inst_data.src_node);
@@ -11076,8 +11076,8 @@ fn zirSliceSentinel(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErr
 }
 
 fn zirSliceLength(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
     const src = block.nodeOffset(inst_data.src_node);
@@ -11760,8 +11760,8 @@ fn switchCond(
 const SwitchErrorSet = std.AutoHashMap(InternPool.NullTerminatedString, LazySrcLoc);
 
 fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -12084,8 +12084,8 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
 }
 
 fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_ref: bool) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -14324,8 +14324,8 @@ fn zirHasDecl(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
 }
 
 fn zirImport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -14359,8 +14359,8 @@ fn zirImport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
 }
 
 fn zirEmbedFile(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].un_node;
@@ -14411,8 +14411,8 @@ fn zirShl(
     inst: Zir.Inst.Index,
     air_tag: Air.Inst.Tag,
 ) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -14582,8 +14582,8 @@ fn zirShr(
     inst: Zir.Inst.Index,
     air_tag: Air.Inst.Tag,
 ) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -14718,8 +14718,8 @@ fn zirBitwise(
     inst: Zir.Inst.Index,
     air_tag: Air.Inst.Tag,
 ) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -14773,8 +14773,8 @@ fn zirBitwise(
 }
 
 fn zirBitNot(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -14919,8 +14919,8 @@ fn analyzeTupleCat(
 }
 
 fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -15275,8 +15275,8 @@ fn analyzeTupleMul(
 }
 
 fn zirArrayMul(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -15512,8 +15512,8 @@ fn zirArithmetic(
     zir_tag: Zir.Inst.Tag,
     safety: bool,
 ) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
     const src = block.src(.{ .node_offset_bin_op = inst_data.src_node });
@@ -16597,8 +16597,8 @@ fn zirOverflowArithmetic(
     extended: Zir.Inst.Extended.InstData,
     zir_tag: Zir.Inst.Extended,
 ) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const extra = sema.code.extraData(Zir.Inst.BinNode, extended.operand).data;
     const src = block.nodeOffset(extra.node);
@@ -17478,8 +17478,8 @@ fn analyzePtrArithmetic(
 }
 
 fn zirLoad(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].un_node;
     const src = block.nodeOffset(inst_data.src_node);
@@ -17494,8 +17494,8 @@ fn zirAsm(
     extended: Zir.Inst.Extended.InstData,
     tmpl_is_expr: bool,
 ) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -17663,8 +17663,8 @@ fn zirCmpEq(
     op: std.math.CompareOperator,
     air_tag: Air.Inst.Tag,
 ) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -17782,8 +17782,8 @@ fn zirCmp(
     inst: Zir.Inst.Index,
     op: std.math.CompareOperator,
 ) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
@@ -18141,8 +18141,8 @@ fn zirBuiltinSrc(
     block: *Block,
     extended: Zir.Inst.Extended.InstData,
 ) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -19284,8 +19284,8 @@ fn zirTypeofPeer(
     extended: Zir.Inst.Extended.InstData,
     inst: Zir.Inst.Index,
 ) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const extra = sema.code.extraData(Zir.Inst.TypeOfPeer, extended.operand);
     const src = block.nodeOffset(extra.data.src_node);
@@ -19323,8 +19323,8 @@ fn zirTypeofPeer(
 }
 
 fn zirBoolNot(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -19349,8 +19349,8 @@ fn zirBoolBr(
     inst: Zir.Inst.Index,
     is_bool_or: bool,
 ) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -19518,8 +19518,8 @@ fn zirIsNonNull(
     block: *Block,
     inst: Zir.Inst.Index,
 ) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].un_node;
     const src = block.nodeOffset(inst_data.src_node);
@@ -19533,8 +19533,8 @@ fn zirIsNonNullPtr(
     block: *Block,
     inst: Zir.Inst.Index,
 ) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -19561,8 +19561,8 @@ fn checkErrorType(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) !void {
 }
 
 fn zirIsNonErr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].un_node;
     const src = block.nodeOffset(inst_data.src_node);
@@ -19572,8 +19572,8 @@ fn zirIsNonErr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 }
 
 fn zirIsNonErrPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -19586,8 +19586,8 @@ fn zirIsNonErrPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
 }
 
 fn zirRetIsNonErr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].un_node;
     const src = block.nodeOffset(inst_data.src_node);
@@ -19600,8 +19600,8 @@ fn zirCondbr(
     parent_block: *Block,
     inst: Zir.Inst.Index,
 ) CompileError!void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -19933,8 +19933,8 @@ fn zirRetImplicit(
     block: *Block,
     inst: Zir.Inst.Index,
 ) CompileError!void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -19980,8 +19980,8 @@ fn zirRetImplicit(
 }
 
 fn zirRetNode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].un_node;
     const operand = try sema.resolveInst(inst_data.operand);
@@ -19991,8 +19991,8 @@ fn zirRetNode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!voi
 }
 
 fn zirRetLoad(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].un_node;
     const src = block.nodeOffset(inst_data.src_node);
@@ -20111,8 +20111,8 @@ fn zirRestoreErrRetIndex(sema: *Sema, start_block: *Block, extended: Zir.Inst.Ex
 /// its state at the point `block` was reached (or, if `block` is `none`, the
 /// point this function began execution).
 fn restoreErrRetIndex(sema: *Sema, start_block: *Block, src: LazySrcLoc, target_block: Zir.Inst.Ref, operand_zir: Zir.Inst.Ref) CompileError!void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -20274,8 +20274,8 @@ fn floatOpAllowed(tag: Zir.Inst.Tag) bool {
 }
 
 fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -20429,8 +20429,8 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
 }
 
 fn zirStructInitEmpty(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].un_node;
     const src = block.nodeOffset(inst_data.src_node);
@@ -20449,8 +20449,8 @@ fn zirStructInitEmpty(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
 }
 
 fn zirStructInitEmptyResult(sema: *Sema, block: *Block, inst: Zir.Inst.Index, is_byref: bool) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -21614,8 +21614,8 @@ fn zirUnaryMath(
     air_tag: Air.Inst.Tag,
     comptime eval: fn (Value, Type, Allocator, Zcu.PerThread) Allocator.Error!Value,
 ) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -25458,8 +25458,8 @@ fn zirMulAdd(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
 }
 
 fn zirBuiltinCall(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -26528,8 +26528,8 @@ fn zirVarExtended(
 }
 
 fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -36802,8 +36802,8 @@ fn unionFields(
     union_ty: InternPool.Index,
     union_type: InternPool.LoadedUnionType,
 ) CompileError!void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = sema.pt;
     const zcu = pt.zcu;

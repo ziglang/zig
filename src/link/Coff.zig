@@ -596,8 +596,8 @@ fn growSectionVirtualMemory(self: *Coff, sect_id: u32, needed_size: u32) !void {
 }
 
 fn allocateAtom(self: *Coff, atom_index: Atom.Index, new_atom_size: u32, alignment: u32) !u32 {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const atom = self.getAtom(atom_index);
     const sect_id = @intFromEnum(atom.getSymbol(self).section_number) - 1;
@@ -1102,8 +1102,8 @@ pub fn updateFunc(self: *Coff, pt: Zcu.PerThread, func_index: InternPool.Index, 
     if (self.llvm_object) |llvm_object| {
         return llvm_object.updateFunc(pt, func_index, air, liveness);
     }
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
@@ -1196,8 +1196,8 @@ pub fn updateNav(
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
     if (self.llvm_object) |llvm_object| return llvm_object.updateNav(pt, nav_index);
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
@@ -1674,8 +1674,8 @@ pub fn flush(self: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: st
 }
 
 pub fn flushModule(self: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const comp = self.base.comp;
     const gpa = comp.gpa;
@@ -2726,7 +2726,7 @@ const codegen = @import("../codegen.zig");
 const link = @import("../link.zig");
 const lld = @import("Coff/lld.zig");
 const target_util = @import("../target.zig");
-const trace = @import("../tracy.zig").trace;
+const tracer = std.otel.trace.scoped(.{ .name = "zig.link" });
 
 const Air = @import("../Air.zig");
 pub const Atom = @import("Coff/Atom.zig");

@@ -28,8 +28,8 @@ pub const GotSection = struct {
     }
 
     pub fn write(got: GotSection, macho_file: *MachO, writer: anytype) !void {
-        const tracy = trace(@src());
-        defer tracy.end();
+        const span = tracer.beginSpanSrc(@src(), .{});
+        defer span.end();
         for (got.symbols.items) |ref| {
             const sym = ref.getSymbol(macho_file).?;
             const value = if (sym.flags.import) @as(u64, 0) else sym.getAddress(.{}, macho_file);
@@ -97,8 +97,8 @@ pub const StubsSection = struct {
     }
 
     pub fn write(stubs: StubsSection, macho_file: *MachO, writer: anytype) !void {
-        const tracy = trace(@src());
-        defer tracy.end();
+        const span = tracer.beginSpanSrc(@src(), .{});
+        defer span.end();
         const cpu_arch = macho_file.getTarget().cpu.arch;
         const laptr_sect = macho_file.sections.items(.header)[macho_file.la_symbol_ptr_sect_index.?];
 
@@ -176,8 +176,8 @@ pub const StubsHelperSection = struct {
     }
 
     pub fn size(stubs_helper: StubsHelperSection, macho_file: *MachO) usize {
-        const tracy = trace(@src());
-        defer tracy.end();
+        const span = tracer.beginSpanSrc(@src(), .{});
+        defer span.end();
         _ = stubs_helper;
         const cpu_arch = macho_file.getTarget().cpu.arch;
         var s: usize = preambleSize(cpu_arch);
@@ -190,8 +190,8 @@ pub const StubsHelperSection = struct {
     }
 
     pub fn write(stubs_helper: StubsHelperSection, macho_file: *MachO, writer: anytype) !void {
-        const tracy = trace(@src());
-        defer tracy.end();
+        const span = tracer.beginSpanSrc(@src(), .{});
+        defer span.end();
 
         try stubs_helper.writePreamble(macho_file, writer);
 
@@ -294,8 +294,8 @@ pub const LaSymbolPtrSection = struct {
     }
 
     pub fn write(laptr: LaSymbolPtrSection, macho_file: *MachO, writer: anytype) !void {
-        const tracy = trace(@src());
-        defer tracy.end();
+        const span = tracer.beginSpanSrc(@src(), .{});
+        defer span.end();
         _ = laptr;
         const cpu_arch = macho_file.getTarget().cpu.arch;
         const sect = macho_file.sections.items(.header)[macho_file.stubs_helper_sect_index.?];
@@ -344,8 +344,8 @@ pub const TlvPtrSection = struct {
     }
 
     pub fn write(tlv: TlvPtrSection, macho_file: *MachO, writer: anytype) !void {
-        const tracy = trace(@src());
-        defer tracy.end();
+        const span = tracer.beginSpanSrc(@src(), .{});
+        defer span.end();
 
         for (tlv.symbols.items) |ref| {
             const sym = ref.getSymbol(macho_file).?;
@@ -422,8 +422,8 @@ pub const ObjcStubsSection = struct {
     }
 
     pub fn write(objc: ObjcStubsSection, macho_file: *MachO, writer: anytype) !void {
-        const tracy = trace(@src());
-        defer tracy.end();
+        const span = tracer.beginSpanSrc(@src(), .{});
+        defer span.end();
 
         const obj = macho_file.getInternalObject().?;
 
@@ -525,8 +525,8 @@ pub const Indsymtab = struct {
     }
 
     pub fn write(ind: Indsymtab, macho_file: *MachO, writer: anytype) !void {
-        const tracy = trace(@src());
-        defer tracy.end();
+        const span = tracer.beginSpanSrc(@src(), .{});
+        defer span.end();
 
         _ = ind;
 
@@ -624,7 +624,7 @@ const assert = std.debug.assert;
 const macho = std.macho;
 const math = std.math;
 const std = @import("std");
-const trace = @import("../../tracy.zig").trace;
+const tracer = std.otel.trace.scoped(.{ .name = "link" });
 
 const Allocator = std.mem.Allocator;
 const MachO = @import("../MachO.zig");

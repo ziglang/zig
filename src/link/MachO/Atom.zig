@@ -453,8 +453,8 @@ pub fn freeRelocs(self: *Atom, macho_file: *MachO) void {
 }
 
 pub fn scanRelocs(self: Atom, macho_file: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
     assert(self.isAlive());
 
     const relocs = self.getRelocs(macho_file);
@@ -570,8 +570,8 @@ fn reportUndefSymbol(self: Atom, rel: Relocation, macho_file: *MachO) !bool {
 }
 
 pub fn resolveRelocs(self: Atom, macho_file: *MachO, buffer: []u8) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     assert(!self.getInputSection(macho_file).isZerofill());
     const file = self.getFile(macho_file);
@@ -972,8 +972,8 @@ pub fn calcNumRelocs(self: Atom, macho_file: *MachO) u32 {
 }
 
 pub fn writeRelocs(self: Atom, macho_file: *MachO, code: []u8, buffer: []macho.relocation_info) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     relocs_log.debug("{x}: {s}", .{ self.getAddress(macho_file), self.getName(macho_file) });
 
@@ -1211,7 +1211,7 @@ const mem = std.mem;
 const log = std.log.scoped(.link);
 const relocs_log = std.log.scoped(.link_relocs);
 const std = @import("std");
-const trace = @import("../../tracy.zig").trace;
+const tracer = std.otel.trace.scoped(.{ .name = "zig.link" });
 
 const Allocator = mem.Allocator;
 const Atom = @This();

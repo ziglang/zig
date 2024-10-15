@@ -43,8 +43,8 @@ debug_info_header_dirty: bool = false,
 debug_line_header_dirty: bool = false,
 
 pub fn init(self: *ZigObject, macho_file: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const comp = macho_file.base.comp;
     const gpa = comp.gpa;
@@ -200,8 +200,8 @@ pub fn freeAtomRelocs(self: *ZigObject, atom: Atom, macho_file: *MachO) void {
 }
 
 pub fn resolveSymbols(self: *ZigObject, macho_file: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const gpa = macho_file.base.comp.gpa;
 
@@ -238,8 +238,8 @@ pub fn resolveSymbols(self: *ZigObject, macho_file: *MachO) !void {
 }
 
 pub fn markLive(self: *ZigObject, macho_file: *MachO) void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     for (0..self.symbols.items.len) |i| {
         const nlist = self.symtab.items(.nlist)[i];
@@ -257,8 +257,8 @@ pub fn markLive(self: *ZigObject, macho_file: *MachO) void {
 }
 
 pub fn mergeSymbolVisibility(self: *ZigObject, macho_file: *MachO) void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     for (self.symbols.items, 0..) |sym, i| {
         const ref = self.getSymbolRef(@intCast(i), macho_file);
@@ -323,8 +323,8 @@ pub fn writeAr(self: ZigObject, ar_format: Archive.Format, writer: anytype) !voi
 }
 
 pub fn claimUnresolved(self: *ZigObject, macho_file: *MachO) void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     for (self.symbols.items, 0..) |*sym, i| {
         const nlist = self.symtab.items(.nlist)[i];
@@ -447,8 +447,8 @@ pub fn writeRelocs(self: *ZigObject, macho_file: *MachO) !void {
 // For example, TLS data gets written out via traditional route.
 // Is there any better way of handling this?
 pub fn writeAtomsRelocatable(self: *ZigObject, macho_file: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     for (self.getAtoms()) |atom_index| {
         const atom = self.getAtom(atom_index) orelse continue;
@@ -471,8 +471,8 @@ pub fn writeAtomsRelocatable(self: *ZigObject, macho_file: *MachO) !void {
 // For example, TLS data gets written out via traditional route.
 // Is there any better way of handling this?
 pub fn writeAtoms(self: *ZigObject, macho_file: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     for (self.getAtoms()) |atom_index| {
         const atom = self.getAtom(atom_index) orelse continue;
@@ -489,8 +489,8 @@ pub fn writeAtoms(self: *ZigObject, macho_file: *MachO) !void {
 }
 
 pub fn calcSymtabSize(self: *ZigObject, macho_file: *MachO) void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     for (self.symbols.items, 0..) |*sym, i| {
         const ref = self.getSymbolRef(@intCast(i), macho_file);
@@ -516,8 +516,8 @@ pub fn calcSymtabSize(self: *ZigObject, macho_file: *MachO) void {
 }
 
 pub fn writeSymtab(self: ZigObject, macho_file: *MachO, ctx: anytype) void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     var n_strx = self.output_symtab_ctx.stroff;
     for (self.symbols.items, 0..) |sym, i| {
@@ -768,8 +768,8 @@ pub fn updateFunc(
     air: Air,
     liveness: Liveness,
 ) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
@@ -873,8 +873,8 @@ pub fn updateNav(
     pt: Zcu.PerThread,
     nav_index: InternPool.Nav.Index,
 ) link.File.UpdateNavError!void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
@@ -1264,8 +1264,8 @@ pub fn updateExports(
     exported: Zcu.Exported,
     export_indices: []const u32,
 ) link.File.UpdateExportsError!void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const zcu = pt.zcu;
     const gpa = macho_file.base.comp.gpa;
@@ -1817,6 +1817,8 @@ const x86_64 = struct {
     }
 };
 
+const tracer = std.otel.trace.scoped(.{ .name = "zig.link.MachO.ZigObject" });
+
 const assert = std.debug.assert;
 const builtin = @import("builtin");
 const codegen = @import("../../codegen.zig");
@@ -1825,7 +1827,6 @@ const log = std.log.scoped(.link);
 const macho = std.macho;
 const mem = std.mem;
 const target_util = @import("../../target.zig");
-const trace = @import("../../tracy.zig").trace;
 const std = @import("std");
 
 const Air = @import("../../Air.zig");

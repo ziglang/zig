@@ -9,8 +9,8 @@ pub const Cie = struct {
     alive: bool = false,
 
     pub fn parse(cie: *Cie, macho_file: *MachO) !void {
-        const tracy = trace(@src());
-        defer tracy.end();
+        const span = tracer.beginSpanSrc(@src(), .{});
+        defer span.end();
 
         const data = cie.getData(macho_file);
         const aug = std.mem.sliceTo(@as([*:0]const u8, @ptrCast(data.ptr + 9)), 0);
@@ -145,8 +145,8 @@ pub const Fde = struct {
     alive: bool = true,
 
     pub fn parse(fde: *Fde, macho_file: *MachO) !void {
-        const tracy = trace(@src());
-        defer tracy.end();
+        const span = tracer.beginSpanSrc(@src(), .{});
+        defer span.end();
 
         const data = fde.getData(macho_file);
         const object = fde.getObject(macho_file);
@@ -310,8 +310,8 @@ pub const Iterator = struct {
 };
 
 pub fn calcSize(macho_file: *MachO) !u32 {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     var offset: u32 = 0;
 
@@ -352,8 +352,8 @@ pub fn calcSize(macho_file: *MachO) !u32 {
 }
 
 pub fn calcNumRelocs(macho_file: *MachO) u32 {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     var nreloc: u32 = 0;
 
@@ -371,8 +371,8 @@ pub fn calcNumRelocs(macho_file: *MachO) u32 {
 }
 
 pub fn write(macho_file: *MachO, buffer: []u8) void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const sect = macho_file.sections.items(.header)[macho_file.eh_frame_sect_index.?];
     const addend: i64 = switch (macho_file.getTarget().cpu.arch) {
@@ -450,8 +450,8 @@ pub fn write(macho_file: *MachO, buffer: []u8) void {
 }
 
 pub fn writeRelocs(macho_file: *MachO, code: []u8, relocs: []macho.relocation_info) error{Overflow}!void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const cpu_arch = macho_file.getTarget().cpu.arch;
     const sect = macho_file.sections.items(.header)[macho_file.eh_frame_sect_index.?];
@@ -544,7 +544,7 @@ const macho = std.macho;
 const math = std.math;
 const mem = std.mem;
 const std = @import("std");
-const trace = @import("../../tracy.zig").trace;
+const tracer = std.otel.trace.scoped(.{ .name = "zig.link" });
 
 const Allocator = std.mem.Allocator;
 const Atom = @import("Atom.zig");

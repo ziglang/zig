@@ -761,8 +761,8 @@ pub fn flush(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std
 }
 
 pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const comp = self.base.comp;
     const gpa = comp.gpa;
@@ -1387,8 +1387,8 @@ pub fn parseObjectReportingFailure(self: *Elf, path: Path) void {
 }
 
 fn parseObject(self: *Elf, path: Path) ParseError!void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const gpa = self.base.comp.gpa;
     const handle = try path.root_dir.handle.openFile(path.sub_path, .{});
@@ -1410,8 +1410,8 @@ fn parseObject(self: *Elf, path: Path) ParseError!void {
 }
 
 fn parseArchive(self: *Elf, path: Path, must_link: bool) ParseError!void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const gpa = self.base.comp.gpa;
     const handle = try path.root_dir.handle.openFile(path.sub_path, .{});
@@ -1443,8 +1443,8 @@ fn parseSharedObject(
     files: *std.MultiArrayList(File.Entry),
     target: std.Target,
 ) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const handle = try lib.path.root_dir.handle.openFile(lib.path.sub_path, .{});
     defer handle.close();
@@ -1512,8 +1512,8 @@ fn parseSharedObject(
 }
 
 fn parseLdScript(self: *Elf, lib: SystemLib) ParseError!void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const comp = self.base.comp;
     const gpa = comp.gpa;
@@ -1884,8 +1884,8 @@ pub fn initOutputSection(self: *Elf, args: struct {
 fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) !void {
     dev.check(.lld_linker);
 
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const comp = self.base.comp;
     const gpa = comp.gpa;
@@ -2832,8 +2832,8 @@ pub fn addCommentString(self: *Elf) !void {
 }
 
 pub fn resolveMergeSections(self: *Elf) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     var has_errors = false;
     for (self.objects.items) |index| {
@@ -5610,7 +5610,7 @@ const musl = @import("../musl.zig");
 const relocatable = @import("Elf/relocatable.zig");
 const relocation = @import("Elf/relocation.zig");
 const target_util = @import("../target.zig");
-const trace = @import("../tracy.zig").trace;
+const tracer = std.otel.trace.scoped(.{ .name = "link" });
 const synthetic_sections = @import("Elf/synthetic_sections.zig");
 
 const Merge = @import("Elf/Merge.zig");

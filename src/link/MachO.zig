@@ -341,8 +341,8 @@ pub fn flush(self: *MachO, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
 }
 
 pub fn flushModule(self: *MachO, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const comp = self.base.comp;
     const gpa = comp.gpa;
@@ -790,8 +790,8 @@ pub fn resolveLibSystem(
 }
 
 pub fn classifyInputFile(self: *MachO, path: Path, lib: SystemLib, must_link: bool) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     log.debug("classifying input file {}", .{path});
 
@@ -847,8 +847,8 @@ pub fn readArMagic(file: std.fs.File, offset: usize, buffer: *[Archive.SARMAG]u8
 }
 
 fn addObject(self: *MachO, path: Path, handle: File.HandleIndex, offset: u64) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const gpa = self.base.comp.gpa;
     const mtime: u64 = mtime: {
@@ -871,8 +871,8 @@ fn addObject(self: *MachO, path: Path, handle: File.HandleIndex, offset: u64) !v
 }
 
 pub fn parseInputFiles(self: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const diags = &self.base.comp.link_diags;
     const tp = self.base.comp.thread_pool;
@@ -909,8 +909,8 @@ fn parseInputFileWorker(self: *MachO, file: File) void {
 }
 
 fn addArchive(self: *MachO, lib: SystemLib, must_link: bool, handle: File.HandleIndex, fat_arch: ?fat.Arch) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const gpa = self.base.comp.gpa;
 
@@ -930,8 +930,8 @@ fn addArchive(self: *MachO, lib: SystemLib, must_link: bool, handle: File.Handle
 }
 
 fn addDylib(self: *MachO, lib: SystemLib, explicit: bool, handle: File.HandleIndex, offset: u64) !File.Index {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const gpa = self.base.comp.gpa;
 
@@ -957,8 +957,8 @@ fn addDylib(self: *MachO, lib: SystemLib, explicit: bool, handle: File.HandleInd
 }
 
 fn addTbd(self: *MachO, lib: SystemLib, explicit: bool, handle: File.HandleIndex) !File.Index {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const gpa = self.base.comp.gpa;
     const index: File.Index = @intCast(try self.files.addOne(gpa));
@@ -1050,8 +1050,8 @@ fn accessFrameworkPath(
 }
 
 fn parseDependentDylibs(self: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     if (self.dylibs.items.len == 0) return;
 
@@ -1218,8 +1218,8 @@ fn parseDependentDylibs(self: *MachO) !void {
 /// 5. Remove references to dead objects/shared objects
 /// 6. Re-run symbol resolution on pruned objects and shared objects sets.
 pub fn resolveSymbols(self: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     // Resolve symbols in the ZigObject. For now, we assume that it's always live.
     if (self.getZigObject()) |zo| try zo.asFile().resolveSymbols(self);
@@ -1257,8 +1257,8 @@ pub fn resolveSymbols(self: *MachO) !void {
 }
 
 fn markLive(self: *MachO) void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     if (self.getZigObject()) |zo| zo.markLive(self);
     for (self.objects.items) |index| {
@@ -1286,8 +1286,8 @@ fn convertTentativeDefsAndResolveSpecialSymbols(self: *MachO) !void {
 }
 
 fn convertTentativeDefinitionsWorker(self: *MachO, object: *Object) void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
     object.convertTentativeDefinitions(self) catch |err| {
         self.reportParseError2(
             object.index,
@@ -1298,8 +1298,8 @@ fn convertTentativeDefinitionsWorker(self: *MachO, object: *Object) void {
 }
 
 fn resolveSpecialSymbolsWorker(self: *MachO, obj: *InternalObject) void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const diags = &self.base.comp.link_diags;
 
@@ -1310,8 +1310,8 @@ fn resolveSpecialSymbolsWorker(self: *MachO, obj: *InternalObject) void {
 }
 
 pub fn dedupLiterals(self: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const gpa = self.base.comp.gpa;
     var lp: LiteralPool = .{};
@@ -1354,8 +1354,8 @@ fn claimUnresolved(self: *MachO) void {
 }
 
 fn checkDuplicates(self: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const tp = self.base.comp.thread_pool;
     const diags = &self.base.comp.link_diags;
@@ -1381,8 +1381,8 @@ fn checkDuplicates(self: *MachO) !void {
 }
 
 fn checkDuplicatesWorker(self: *MachO, file: File) void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
     file.checkDuplicates(self) catch |err| {
         self.reportParseError2(file.getIndex(), "failed to check for duplicate definitions: {s}", .{
             @errorName(err),
@@ -1391,8 +1391,8 @@ fn checkDuplicatesWorker(self: *MachO, file: File) void {
 }
 
 fn markImportsAndExports(self: *MachO) void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     if (self.getZigObject()) |zo| {
         zo.asFile().markImportsExports(self);
@@ -1406,8 +1406,8 @@ fn markImportsAndExports(self: *MachO) void {
 }
 
 fn deadStripDylibs(self: *MachO) void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     for (self.dylibs.items) |index| {
         self.getFile(index).?.dylib.markReferenced(self);
@@ -1425,8 +1425,8 @@ fn deadStripDylibs(self: *MachO) void {
 }
 
 fn scanRelocs(self: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const tp = self.base.comp.thread_pool;
     const diags = &self.base.comp.link_diags;
@@ -1489,8 +1489,8 @@ fn sortGlobalSymbolsByName(self: *MachO, symbols: []SymbolResolver.Index) void {
 }
 
 fn reportUndefs(self: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     if (self.undefined_treatment == .suppress or
         self.undefined_treatment == .dynamic_lookup) return;
@@ -1557,8 +1557,8 @@ fn reportUndefs(self: *MachO) !void {
 }
 
 fn initOutputSections(self: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     for (self.objects.items) |index| {
         try self.getFile(index).?.initOutputSections(self);
@@ -1842,8 +1842,8 @@ pub fn sortSections(self: *MachO) !void {
 }
 
 pub fn addAtomsToSections(self: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const gpa = self.base.comp.gpa;
 
@@ -1876,8 +1876,8 @@ pub fn addAtomsToSections(self: *MachO) !void {
 }
 
 fn calcSectionSizes(self: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const diags = &self.base.comp.link_diags;
     const cpu_arch = self.getTarget().cpu.arch;
@@ -1973,8 +1973,8 @@ fn calcSectionSizes(self: *MachO) !void {
 }
 
 fn calcSectionSizeWorker(self: *MachO, sect_id: u8) void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const diags = &self.base.comp.link_diags;
 
@@ -2002,8 +2002,8 @@ fn calcSectionSizeWorker(self: *MachO, sect_id: u8) void {
 }
 
 fn createThunksWorker(self: *MachO, sect_id: u8) void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
     const diags = &self.base.comp.link_diags;
     self.createThunks(sect_id) catch |err| {
         const header = self.sections.items(.header)[sect_id];
@@ -2014,8 +2014,8 @@ fn createThunksWorker(self: *MachO, sect_id: u8) void {
 }
 
 fn generateUnwindInfo(self: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const diags = &self.base.comp.link_diags;
 
@@ -2392,8 +2392,8 @@ fn resizeSections(self: *MachO) !void {
 }
 
 fn writeSectionsAndUpdateLinkeditSizes(self: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const gpa = self.base.comp.gpa;
     const diags = &self.base.comp.link_diags;
@@ -2469,8 +2469,8 @@ fn writeSectionsAndUpdateLinkeditSizes(self: *MachO) !void {
 }
 
 fn writeAtomsWorker(self: *MachO, file: File) void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
     file.writeAtoms(self) catch |err| {
         self.reportParseError2(file.getIndex(), "failed to resolve relocations and write atoms: {s}", .{
             @errorName(err),
@@ -2479,8 +2479,8 @@ fn writeAtomsWorker(self: *MachO, file: File) void {
 }
 
 fn writeThunkWorker(self: *MachO, thunk: Thunk) void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const diags = &self.base.comp.link_diags;
 
@@ -2499,8 +2499,8 @@ fn writeThunkWorker(self: *MachO, thunk: Thunk) void {
 }
 
 fn writeSyntheticSectionWorker(self: *MachO, sect_id: u8, out: []u8) void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const diags = &self.base.comp.link_diags;
 
@@ -2555,8 +2555,8 @@ fn writeSyntheticSectionWorker(self: *MachO, sect_id: u8, out: []u8) void {
 }
 
 fn updateLazyBindSizeWorker(self: *MachO) void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const diags = &self.base.comp.link_diags;
 
@@ -2593,8 +2593,8 @@ pub fn updateLinkeditSizeWorker(self: *MachO, tag: enum {
 }
 
 fn writeSectionsToFile(self: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const slice = self.sections.slice();
     for (slice.items(.header), slice.items(.out)) |header, out| {
@@ -2603,8 +2603,8 @@ fn writeSectionsToFile(self: *MachO) !void {
 }
 
 fn writeLinkeditSectionsToFile(self: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
     try self.writeDyldInfo();
     try self.writeDataInCode();
     try self.writeSymtabToFile();
@@ -2612,8 +2612,8 @@ fn writeLinkeditSectionsToFile(self: *MachO) !void {
 }
 
 fn writeDyldInfo(self: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const gpa = self.base.comp.gpa;
     const base_off = self.getLinkeditSegment().fileoff;
@@ -2645,8 +2645,8 @@ fn writeDyldInfo(self: *MachO) !void {
 }
 
 pub fn writeDataInCode(self: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
     const gpa = self.base.comp.gpa;
     const cmd = self.data_in_code_cmd;
     var buffer = try std.ArrayList(u8).initCapacity(gpa, self.data_in_code.size());
@@ -2656,8 +2656,8 @@ pub fn writeDataInCode(self: *MachO) !void {
 }
 
 fn writeIndsymtab(self: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
     const gpa = self.base.comp.gpa;
     const cmd = self.dysymtab_cmd;
     const needed_size = cmd.nindirectsyms * @sizeOf(u32);
@@ -2668,16 +2668,16 @@ fn writeIndsymtab(self: *MachO) !void {
 }
 
 pub fn writeSymtabToFile(self: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
     const cmd = self.symtab_cmd;
     try self.base.file.?.pwriteAll(mem.sliceAsBytes(self.symtab.items), cmd.symoff);
     try self.base.file.?.pwriteAll(self.strtab.items, cmd.stroff);
 }
 
 fn writeUnwindInfo(self: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const gpa = self.base.comp.gpa;
 
@@ -2701,8 +2701,8 @@ fn writeUnwindInfo(self: *MachO) !void {
 }
 
 fn calcSymtabSize(self: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const gpa = self.base.comp.gpa;
 
@@ -3508,8 +3508,8 @@ pub fn getTarget(self: MachO) std.Target {
 /// the original file. This is super messy, but there doesn't seem any other
 /// way to please the XNU.
 pub fn invalidateKernelCache(dir: fs.Dir, sub_path: []const u8) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
     if (comptime builtin.target.isDarwin() and builtin.target.cpu.arch == .aarch64) {
         try dir.copyFile(sub_path, dir, sub_path, .{});
     }
@@ -3777,8 +3777,8 @@ fn reportDependencyError(
 }
 
 fn reportDuplicates(self: *MachO) error{ HasDuplicates, OutOfMemory }!void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     if (self.dupes.keys().len == 0) return; // Nothing to do
 
@@ -5210,8 +5210,8 @@ pub const KernE = enum(u32) {
 };
 
 fn createThunks(macho_file: *MachO, sect_id: u8) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const gpa = macho_file.base.comp.gpa;
     const slice = macho_file.sections.slice();
@@ -5263,8 +5263,8 @@ fn advanceSection(sect: *macho.section_64, adv_size: u64, alignment: Atom.Alignm
 }
 
 fn scanThunkRelocs(thunk_index: Thunk.Index, gpa: Allocator, atoms: []const MachO.Ref, macho_file: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const thunk = macho_file.getThunk(thunk_index);
 
@@ -5309,6 +5309,7 @@ const build_options = @import("build_options");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 const fs = std.fs;
+const tracer = std.otel.trace.scoped(.{ .name = "zig.link" });
 const log = std.log.scoped(.link);
 const state_log = std.log.scoped(.link_state);
 const macho = std.macho;
@@ -5328,7 +5329,6 @@ const load_commands = @import("MachO/load_commands.zig");
 const relocatable = @import("MachO/relocatable.zig");
 const tapi = @import("tapi.zig");
 const target_util = @import("../target.zig");
-const trace = @import("../tracy.zig").trace;
 const synthetic = @import("MachO/synthetic.zig");
 
 const Air = @import("../Air.zig");

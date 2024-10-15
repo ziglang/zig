@@ -6,7 +6,7 @@ const target_util = @import("target.zig");
 const Compilation = @import("Compilation.zig");
 const Module = @import("Package/Module.zig");
 const build_options = @import("build_options");
-const trace = @import("tracy.zig").trace;
+const tracer = std.otel.trace.scoped(.{ .name = "zig.libunwind" });
 
 pub const BuildError = error{
     OutOfMemory,
@@ -19,8 +19,8 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         return error.ZigCompilerNotBuiltWithLLVMExtensions;
     }
 
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     var arena_allocator = std.heap.ArenaAllocator.init(comp.gpa);
     defer arena_allocator.deinit();

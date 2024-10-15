@@ -5,7 +5,7 @@ const assert = std.debug.assert;
 const fs = std.fs;
 const mem = std.mem;
 const log = std.log.scoped(.link);
-const trace = @import("tracy.zig").trace;
+const tracer = std.otel.trace.scoped(.{ .name = "zig.link" });
 const wasi_libc = @import("wasi_libc.zig");
 
 const Air = @import("Air.zig");
@@ -1006,8 +1006,8 @@ pub const File = struct {
     pub fn linkAsArchive(base: *File, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) FlushError!void {
         dev.check(.lld_linker);
 
-        const tracy = trace(@src());
-        defer tracy.end();
+        const span = tracer.beginSpanSrc(@src(), .{});
+        defer span.end();
 
         const comp = base.comp;
         const gpa = comp.gpa;

@@ -222,8 +222,8 @@ pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?
 }
 
 fn parseInputFilesAr(macho_file: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     for (macho_file.objects.items) |index| {
         macho_file.getFile(index).?.parseAr(macho_file) catch |err| switch (err) {
@@ -280,8 +280,8 @@ fn initOutputSections(macho_file: *MachO) !void {
 }
 
 fn calcSectionSizes(macho_file: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const diags = &macho_file.base.comp.link_diags;
 
@@ -333,8 +333,8 @@ fn calcSectionSizes(macho_file: *MachO) !void {
 }
 
 fn calcSectionSizeWorker(macho_file: *MachO, sect_id: u8) void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const slice = macho_file.sections.slice();
     const header = &slice.items(.header)[sect_id];
@@ -354,8 +354,8 @@ fn calcSectionSizeWorker(macho_file: *MachO, sect_id: u8) void {
 }
 
 fn calcEhFrameSizeWorker(macho_file: *MachO) void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const diags = &macho_file.base.comp.link_diags;
 
@@ -373,8 +373,8 @@ fn calcEhFrameSizeWorker(macho_file: *MachO) void {
 }
 
 fn calcCompactUnwindSize(macho_file: *MachO) void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     var nrec: u32 = 0;
     var nreloc: u32 = 0;
@@ -394,8 +394,8 @@ fn calcCompactUnwindSize(macho_file: *MachO) void {
 }
 
 fn calcSymtabSize(macho_file: *MachO) error{OutOfMemory}!void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const gpa = macho_file.base.comp.gpa;
 
@@ -569,8 +569,8 @@ fn sortReloc(ctx: void, lhs: macho.relocation_info, rhs: macho.relocation_info) 
 }
 
 fn sortRelocs(macho_file: *MachO) void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     for (macho_file.sections.items(.relocs)) |*relocs| {
         mem.sort(macho.relocation_info, relocs.items, {}, sortReloc);
@@ -578,8 +578,8 @@ fn sortRelocs(macho_file: *MachO) void {
 }
 
 fn writeSections(macho_file: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const gpa = macho_file.base.comp.gpa;
     const diags = &macho_file.base.comp.link_diags;
@@ -636,8 +636,8 @@ fn writeSections(macho_file: *MachO) !void {
 }
 
 fn writeAtomsWorker(macho_file: *MachO, file: File) void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
     file.writeAtomsRelocatable(macho_file) catch |err| {
         macho_file.reportParseError2(file.getIndex(), "failed to write atoms: {s}", .{
             @errorName(err),
@@ -646,8 +646,8 @@ fn writeAtomsWorker(macho_file: *MachO, file: File) void {
 }
 
 fn writeEhFrameWorker(macho_file: *MachO) void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const diags = &macho_file.base.comp.link_diags;
     const sect_index = macho_file.eh_frame_sect_index.?;
@@ -658,8 +658,8 @@ fn writeEhFrameWorker(macho_file: *MachO) void {
 }
 
 fn writeCompactUnwindWorker(macho_file: *MachO, object: *Object) void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const diags = &macho_file.base.comp.link_diags;
     object.writeCompactUnwindRelocatable(macho_file) catch |err|
@@ -667,8 +667,8 @@ fn writeCompactUnwindWorker(macho_file: *MachO, object: *Object) void {
 }
 
 fn writeSectionsToFile(macho_file: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const slice = macho_file.sections.slice();
     for (slice.items(.header), slice.items(.out), slice.items(.relocs)) |header, out, relocs| {
@@ -767,7 +767,7 @@ const math = std.math;
 const mem = std.mem;
 const state_log = std.log.scoped(.link_state);
 const std = @import("std");
-const trace = @import("../../tracy.zig").trace;
+const tracer = std.otel.trace.scoped(.{ .name = "link" });
 const Path = std.Build.Cache.Path;
 
 const Archive = @import("Archive.zig");

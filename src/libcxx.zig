@@ -5,7 +5,7 @@ const assert = std.debug.assert;
 const target_util = @import("target.zig");
 const Compilation = @import("Compilation.zig");
 const build_options = @import("build_options");
-const trace = @import("tracy.zig").trace;
+const tracer = std.otel.trace.scoped(.{ .name = "zig.libcxx" });
 const Module = @import("Package/Module.zig");
 
 pub const AbiVersion = enum(u2) {
@@ -119,8 +119,8 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
         return error.ZigCompilerNotBuiltWithLLVMExtensions;
     }
 
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     var arena_allocator = std.heap.ArenaAllocator.init(comp.gpa);
     defer arena_allocator.deinit();
@@ -363,8 +363,8 @@ pub fn buildLibCXXABI(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         return error.ZigCompilerNotBuiltWithLLVMExtensions;
     }
 
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     var arena_allocator = std.heap.ArenaAllocator.init(comp.gpa);
     defer arena_allocator.deinit();

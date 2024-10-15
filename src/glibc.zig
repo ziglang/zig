@@ -1,7 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const mem = std.mem;
-const log = std.log;
+const log = std.log.scoped(.glibc);
 const fs = std.fs;
 const path = fs.path;
 const assert = std.debug.assert;
@@ -9,7 +9,7 @@ const Version = std.SemanticVersion;
 
 const Compilation = @import("Compilation.zig");
 const build_options = @import("build_options");
-const trace = @import("tracy.zig").trace;
+const tracer = std.otel.trace.scoped(.{ .name = "zig.glibc" });
 const Cache = std.Build.Cache;
 const Module = @import("Package/Module.zig");
 
@@ -56,8 +56,8 @@ pub const abilists_max_size = 800 * 1024; // Bigger than this and something is d
 /// This function will emit a log error when there is a problem with the zig
 /// installation and then return `error.ZigInstallationCorrupt`.
 pub fn loadMetaData(gpa: Allocator, contents: []const u8) LoadMetaDataError!*ABI {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     var arena_allocator = std.heap.ArenaAllocator.init(gpa);
     errdefer arena_allocator.deinit();
@@ -735,8 +735,8 @@ fn wordDirective(target: std.Target) []const u8 {
 }
 
 pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     if (!build_options.have_llvm) {
         return error.ZigCompilerNotBuiltWithLLVMExtensions;
@@ -1221,8 +1221,8 @@ fn buildSharedLib(
     lib: Lib,
     prog_node: std.Progress.Node,
 ) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const basename = try std.fmt.allocPrint(arena, "lib{s}.so.{d}", .{ lib.name, lib.sover });
     const emit_bin = Compilation.EmitLoc{

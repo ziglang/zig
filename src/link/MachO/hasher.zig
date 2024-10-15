@@ -9,8 +9,8 @@ pub fn ParallelHasher(comptime Hasher: type) type {
             chunk_size: u64 = 0x4000,
             max_file_size: ?u64 = null,
         }) !void {
-            const tracy = trace(@src());
-            defer tracy.end();
+            const span = tracer.beginSpanSrc(@src(), .{});
+            defer span.end();
 
             var wg: WaitGroup = .{};
 
@@ -55,8 +55,8 @@ pub fn ParallelHasher(comptime Hasher: type) type {
             out: *[hash_size]u8,
             err: *fs.File.PReadError!usize,
         ) void {
-            const tracy = trace(@src());
-            defer tracy.end();
+            const span = tracer.beginSpanSrc(@src(), .{});
+            defer span.end();
             err.* = file.preadAll(buffer, fstart);
             Hasher.hash(buffer, out, .{});
         }
@@ -69,7 +69,7 @@ const assert = std.debug.assert;
 const fs = std.fs;
 const mem = std.mem;
 const std = @import("std");
-const trace = @import("../../tracy.zig").trace;
+const tracer = std.otel.trace.scoped(.{ .name = "zig.link.macho" });
 
 const Allocator = mem.Allocator;
 const ThreadPool = std.Thread.Pool;

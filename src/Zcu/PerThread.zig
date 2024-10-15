@@ -21,7 +21,7 @@ const Module = @import("../Package.zig").Module;
 const Sema = @import("../Sema.zig");
 const std = @import("std");
 const target_util = @import("../target.zig");
-const trace = @import("../tracy.zig").trace;
+const tracer = std.otel.trace.scoped(.{ .name = "zig.zcu" });
 const Type = @import("../Type.zig");
 const Value = @import("../Value.zig");
 const Zcu = @import("../Zcu.zig");
@@ -72,8 +72,8 @@ pub fn astGenFile(
     dev.check(.ast_gen);
     assert(!file.mod.isBuiltin());
 
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const zcu = pt.zcu;
     const comp = zcu.comp;
@@ -524,8 +524,8 @@ pub fn ensureFileAnalyzed(pt: Zcu.PerThread, file_index: Zcu.File.Index) Zcu.Sem
 /// is fully up-to-date. Note that the type of the `Nav` may not be fully resolved.
 /// Returns `error.AnalysisFail` if the `Cau` has an error.
 pub fn ensureCauAnalyzed(pt: Zcu.PerThread, cau_index: InternPool.Cau.Index) Zcu.SemaError!void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
@@ -689,8 +689,8 @@ fn ensureCauAnalyzedInner(
 pub fn ensureFuncBodyAnalyzed(pt: Zcu.PerThread, maybe_coerced_func_index: InternPool.Index) Zcu.SemaError!void {
     dev.check(.sema);
 
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
@@ -1045,8 +1045,8 @@ fn updateFileNamespace(pt: Zcu.PerThread, file_index: Zcu.File.Index) Allocator.
 }
 
 fn semaFile(pt: Zcu.PerThread, file_index: Zcu.File.Index) Zcu.SemaError!void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
@@ -1727,8 +1727,8 @@ pub fn scanNamespace(
     namespace_index: Zcu.Namespace.Index,
     decls: []const Zir.Inst.Index,
 ) Allocator.Error!void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
@@ -1830,8 +1830,8 @@ const ScanDeclIter = struct {
     }
 
     fn scanDecl(iter: *ScanDeclIter, decl_inst: Zir.Inst.Index) Allocator.Error!void {
-        const tracy = trace(@src());
-        defer tracy.end();
+        const span = tracer.beginSpanSrc(@src(), .{});
+        defer span.end();
 
         const pt = iter.pt;
         const zcu = pt.zcu;
@@ -2015,8 +2015,8 @@ const ScanDeclIter = struct {
 };
 
 fn analyzeFnBody(pt: Zcu.PerThread, func_index: InternPool.Index) Zcu.SemaError!Air {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const zcu = pt.zcu;
     const gpa = zcu.gpa;

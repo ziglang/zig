@@ -11,7 +11,7 @@ const Path = std.Build.Cache.Path;
 
 const mingw = @import("../../mingw.zig");
 const link = @import("../../link.zig");
-const trace = @import("../../tracy.zig").trace;
+const tracer = std.otel.trace.scoped(.{ .name = "zig.link" });
 
 const Allocator = mem.Allocator;
 
@@ -22,8 +22,8 @@ const Zcu = @import("../../Zcu.zig");
 pub fn linkWithLLD(self: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) !void {
     dev.check(.lld_linker);
 
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const comp = self.base.comp;
     const gpa = comp.gpa;

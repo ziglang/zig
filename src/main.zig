@@ -45,6 +45,16 @@ pub const std_options = .{
     },
 };
 
+pub const otel_types: std.otel.Types = if (build_options.enable_tracy) .{
+    .trace = tracy.TRACE_TYPES,
+} else .{};
+
+pub const otel_functions: std.otel.Functions = if (build_options.enable_tracy) .{
+    .trace = tracy.TRACE_FUNCTIONS,
+} else .{};
+
+const tracer = std.otel.trace.scoped(.{ .name = "zig" });
+
 pub const Panic = crash_report.Panic;
 
 var wasi_preopens: fs.wasi.Preopens = undefined;
@@ -211,7 +221,7 @@ fn verifyLibcxxCorrectlyLinked() void {
 }
 
 fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
-    const tr = tracy.trace(@src());
+    const tr = tracer.beginSpanSrc(@src(), .{});
     defer tr.end();
 
     if (args.len <= 1) {

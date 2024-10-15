@@ -39,8 +39,8 @@ edges: std.ArrayListUnmanaged(Edge) = .empty,
 /// This operation may change the layout of the trie by splicing edges in
 /// certain circumstances.
 fn put(self: *Trie, allocator: Allocator, symbol: ExportSymbol) !void {
-    // const tracy = trace(@src());
-    // defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const node_index = try self.putNode(self.root.?, allocator, symbol.name);
     const slice = self.nodes.slice();
@@ -88,8 +88,8 @@ fn putNode(self: *Trie, node_index: Node.Index, allocator: Allocator, label: []c
 }
 
 pub fn updateSize(self: *Trie, macho_file: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const gpa = macho_file.base.comp.gpa;
 
@@ -131,8 +131,8 @@ pub fn updateSize(self: *Trie, macho_file: *MachO) !void {
 /// there are no gaps after every `Node` is ULEB128 encoded.
 /// Call this method before trying to `write` the trie to a byte stream.
 fn finalize(self: *Trie, allocator: Allocator) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     var ordered_nodes = std.ArrayList(Node.Index).init(allocator);
     defer ordered_nodes.deinit();
@@ -414,7 +414,7 @@ const macho = std.macho;
 const mem = std.mem;
 const std = @import("std");
 const testing = std.testing;
-const trace = @import("../../../tracy.zig").trace;
+const tracer = std.otel.trace.scoped(.{ .name = "zig.link.macho" });
 
 const Allocator = mem.Allocator;
 const MachO = @import("../../MachO.zig");

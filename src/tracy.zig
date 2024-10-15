@@ -2,66 +2,78 @@ const std = @import("std");
 const builtin = @import("builtin");
 const build_options = @import("build_options");
 
-pub const enable = if (builtin.is_test) false else build_options.enable_tracy;
+pub const enable = build_options.enable_tracy;
 pub const enable_allocation = enable and build_options.enable_tracy_allocation;
 pub const enable_callstack = enable and build_options.enable_tracy_callstack;
 
 // TODO: make this configurable
 const callstack_depth = 10;
 
-const ___tracy_c_zone_context = extern struct {
-    id: u32,
-    active: c_int,
+pub const TRACE_TYPES: std.otel.trace.Types = if (enable) .{
+    .Span = ___tracy_c_zone_context,
+} else std.otel.trace.NULL_TYPES;
 
-    pub inline fn end(self: @This()) void {
-        ___tracy_emit_zone_end(self);
+pub const TRACE_FUNCTIONS: std.otel.trace.Functions = if (enable) .{
+    .tracer_enabled = tracerEnabled,
+    .tracer_create_span = tracerCreateSpan,
+    .tracer_create_span_source_location = tracerCreateSpanSourceLocation,
+
+    .context_extract_span = contextExtractSpan,
+    .context_with_span = contextWithSpan,
+
+    .span_get_context = ___tracy_c_zone_context.getContext,
+    .span_is_recording = ___tracy_c_zone_context.isRecording,
+    .span_set_attribute = ___tracy_c_zone_context.setAttribute,
+    .span_add_event = ___tracy_c_zone_context.addEvent,
+    .span_add_link = ___tracy_c_zone_context.addLink,
+    .span_set_status = ___tracy_c_zone_context.setStatus,
+    .span_update_name = ___tracy_c_zone_context.updateName,
+    .span_end = ___tracy_c_zone_context.end,
+    .span_record_exception = ___tracy_c_zone_context.recordException,
+} else std.otel.trace.NULL_FUNCTIONS;
+
+pub fn tracerEnabled(comptime scope: std.otel.InstrumentationScope) bool {
+    _ = scope;
+    return build_options.enable;
+}
+
+pub fn tracerCreateSpan(
+    comptime scope: std.otel.InstrumentationScope,
+    comptime name: [:0]const u8,
+    comptime src: ?std.builtin.SourceLocation,
+    options: std.otel.trace.CreateSpanOptions,
+) ___tracy_c_zone_context {
+    _ = scope;
+    _ = options;
+    if (!enable) return;
+
+    if (src == null) @compileError("error for trace \"" ++ name ++ "\": tracy requires source location");
+
+    const global = struct {
+        const loc: ___tracy_source_location_data = .{
+            .name = name.ptr,
+            .function = src.?.fn_name.ptr,
+            .file = src.?.file.ptr,
+            .line = src.?.line,
+            .color = 0,
+        };
+    };
+
+    if (enable_callstack) {
+        return ___tracy_emit_zone_begin_callstack(&global.loc, callstack_depth, 1);
+    } else {
+        return ___tracy_emit_zone_begin(&global.loc, 1);
     }
+}
 
-    pub inline fn addText(self: @This(), text: []const u8) void {
-        ___tracy_emit_zone_text(self, text.ptr, text.len);
-    }
-
-    pub inline fn setName(self: @This(), name: []const u8) void {
-        ___tracy_emit_zone_name(self, name.ptr, name.len);
-    }
-
-    pub inline fn setColor(self: @This(), color: u32) void {
-        ___tracy_emit_zone_color(self, color);
-    }
-
-    pub inline fn setValue(self: @This(), value: u64) void {
-        ___tracy_emit_zone_value(self, value);
-    }
-};
-
-pub const Ctx = if (enable) ___tracy_c_zone_context else struct {
-    pub inline fn end(self: @This()) void {
-        _ = self;
-    }
-
-    pub inline fn addText(self: @This(), text: []const u8) void {
-        _ = self;
-        _ = text;
-    }
-
-    pub inline fn setName(self: @This(), name: []const u8) void {
-        _ = self;
-        _ = name;
-    }
-
-    pub inline fn setColor(self: @This(), color: u32) void {
-        _ = self;
-        _ = color;
-    }
-
-    pub inline fn setValue(self: @This(), value: u64) void {
-        _ = self;
-        _ = value;
-    }
-};
-
-pub inline fn trace(comptime src: std.builtin.SourceLocation) Ctx {
-    if (!enable) return .{};
+pub fn tracerCreateSpanSourceLocation(
+    comptime scope: std.otel.InstrumentationScope,
+    comptime src: std.builtin.SourceLocation,
+    options: std.otel.trace.CreateSpanOptions,
+) ___tracy_c_zone_context {
+    _ = scope;
+    _ = options;
+    if (!enable) return;
 
     const global = struct {
         const loc: ___tracy_source_location_data = .{
@@ -80,25 +92,82 @@ pub inline fn trace(comptime src: std.builtin.SourceLocation) Ctx {
     }
 }
 
-pub inline fn traceNamed(comptime src: std.builtin.SourceLocation, comptime name: [:0]const u8) Ctx {
-    if (!enable) return .{};
-
-    const global = struct {
-        const loc: ___tracy_source_location_data = .{
-            .name = name.ptr,
-            .function = src.fn_name.ptr,
-            .file = src.file.ptr,
-            .line = src.line,
-            .color = 0,
-        };
-    };
-
-    if (enable_callstack) {
-        return ___tracy_emit_zone_begin_callstack(&global.loc, callstack_depth, 1);
-    } else {
-        return ___tracy_emit_zone_begin(&global.loc, 1);
-    }
+pub fn contextExtractSpan(context: std.otel.Context) ___tracy_c_zone_context {
+    const ctx = std.otel.Context.getValue(context, ___tracy_c_zone_context) orelse return .NULL;
+    return ctx;
 }
+
+pub fn contextWithSpan(context: std.otel.Context, zone_ctx: ___tracy_c_zone_context) std.otel.Context {
+    return std.otel.Context.withValue(context, ___tracy_c_zone_context, zone_ctx);
+}
+
+const ___tracy_c_zone_context = extern struct {
+    id: u32,
+    active: c_int,
+
+    pub const NULL = ___tracy_c_zone_context{ .id = 0, .active = 0 };
+
+    pub fn getContext(self: @This()) std.otel.trace.SpanContext {
+        _ = self;
+        return std.otel.trace.SpanContext.INVALID;
+    }
+
+    pub fn isRecording(self: @This()) bool {
+        if (!enable) return false;
+        return self.active != 0;
+    }
+
+    pub fn setAttribute(self: @This(), attribute: std.otel.Attribute) void {
+        _ = self;
+        _ = attribute;
+    }
+
+    pub fn addEvent(self: @This(), options: std.otel.trace.AddEventOptions) void {
+        _ = self;
+        _ = options;
+    }
+
+    pub fn addLink(self: @This(), link: std.otel.trace.Link) void {
+        _ = self;
+        _ = link;
+    }
+
+    pub fn setStatus(self: @This(), status: std.otel.trace.Status) void {
+        _ = self;
+        _ = status;
+    }
+
+    pub fn updateName(self: @This(), name: []const u8) void {
+        if (!enable) return false;
+        ___tracy_emit_zone_name(self, name.ptr, name.len);
+    }
+
+    pub fn recordException(self: @This(), err: anyerror, stack_trace: ?std.builtin.StackTrace) void {
+        _ = self;
+        err catch {};
+        _ = stack_trace;
+    }
+
+    pub fn end(self: @This(), end_timestamp: ?i128) void {
+        _ = end_timestamp;
+        ___tracy_emit_zone_end(self);
+    }
+
+    pub inline fn addText(self: @This(), text: []const u8) void {
+        if (!enable) return false;
+        ___tracy_emit_zone_text(self, text.ptr, text.len);
+    }
+
+    pub inline fn setColor(self: @This(), color: u32) void {
+        if (!enable) return false;
+        ___tracy_emit_zone_color(self, color);
+    }
+
+    pub inline fn setValue(self: @This(), value: u64) void {
+        if (!enable) return false;
+        ___tracy_emit_zone_value(self, value);
+    }
+};
 
 pub fn tracyAllocator(allocator: std.mem.Allocator) TracyAllocator(null) {
     return TracyAllocator(null).init(allocator);

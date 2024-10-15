@@ -17,7 +17,6 @@ const target_util = @import("target.zig");
 const Package = @import("Package.zig");
 const link = @import("link.zig");
 const tracy = @import("tracy.zig");
-const trace = tracy.trace;
 const build_options = @import("build_options");
 const LibCInstallation = std.zig.LibCInstallation;
 const glibc = @import("glibc.zig");
@@ -43,6 +42,8 @@ pub const Directory = Cache.Directory;
 const Path = Cache.Path;
 
 pub const Config = @import("Compilation/Config.zig");
+
+const tracer = std.otel.trace.scoped(.{ .name = "zig.Compilation" });
 
 /// General-purpose allocator. Used for both temporary and long-term storage.
 gpa: Allocator,
@@ -2039,8 +2040,8 @@ fn cleanupAfterUpdate(comp: *Compilation) void {
 
 /// Detect changes to source files, perform semantic analysis, and update the output files.
 pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
-    const tracy_trace = trace(@src());
-    defer tracy_trace.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     // This arena is scoped to this one update.
     const gpa = comp.gpa;
@@ -4405,8 +4406,8 @@ pub const CImportResult = struct {
 pub fn cImport(comp: *Compilation, c_src: []const u8, owner_mod: *Package.Module) !CImportResult {
     dev.check(.translate_c_command);
 
-    const tracy_trace = trace(@src());
-    defer tracy_trace.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const cimport_zig_basename = "cimport.zig";
 
@@ -4684,8 +4685,8 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Pr
     const self_exe_path = comp.self_exe_path orelse
         return comp.failCObj(c_object, "clang compilation disabled", .{});
 
-    const tracy_trace = trace(@src());
-    defer tracy_trace.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     log.debug("updating C object: {s}", .{c_object.src.src_path});
 
@@ -4987,8 +4988,8 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
     const self_exe_path = comp.self_exe_path orelse
         return comp.failWin32Resource(win32_resource, "unable to find self exe path", .{});
 
-    const tracy_trace = trace(@src());
-    defer tracy_trace.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const src_path = switch (win32_resource.src) {
         .rc => |rc_src| rc_src.src_path,
@@ -6265,8 +6266,8 @@ fn buildOutputFromZig(
     misc_task_tag: MiscTask,
     prog_node: std.Progress.Node,
 ) !void {
-    const tracy_trace = trace(@src());
-    defer tracy_trace.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const gpa = comp.gpa;
     var arena_allocator = std.heap.ArenaAllocator.init(gpa);
@@ -6391,8 +6392,8 @@ pub fn build_crt_file(
     /// created within this function.
     c_source_files: []CSourceFile,
 ) !void {
-    const tracy_trace = trace(@src());
-    defer tracy_trace.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const gpa = comp.gpa;
     var arena_allocator = std.heap.ArenaAllocator.init(gpa);

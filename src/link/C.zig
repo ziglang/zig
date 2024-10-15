@@ -14,7 +14,7 @@ const Alignment = InternPool.Alignment;
 const Compilation = @import("../Compilation.zig");
 const codegen = @import("../codegen/c.zig");
 const link = @import("../link.zig");
-const trace = @import("../tracy.zig").trace;
+const tracer = std.otel.trace.scoped(.{ .name = "zig.link" });
 const Type = @import("../Type.zig");
 const Value = @import("../Value.zig");
 const Air = @import("../Air.zig");
@@ -312,8 +312,8 @@ fn updateUav(self: *C, pt: Zcu.PerThread, i: usize) !void {
 }
 
 pub fn updateNav(self: *C, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const gpa = self.base.comp.gpa;
     const zcu = pt.zcu;
@@ -409,8 +409,8 @@ fn abiDefines(self: *C, target: std.Target) !std.ArrayList(u8) {
 pub fn flushModule(self: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) !void {
     _ = arena; // Has the same lifetime as the call to Compilation.update.
 
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const sub_prog_node = prog_node.start("Flush Module", 0);
     defer sub_prog_node.end();
@@ -793,8 +793,8 @@ fn flushAvBlock(
 }
 
 pub fn flushEmitH(zcu: *Zcu) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     if (true) return; // emit-h is regressed
 
