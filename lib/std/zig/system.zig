@@ -337,14 +337,14 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
 
     const cpu = switch (query.cpu_model) {
         .native => detectNativeCpuAndFeatures(cpu_arch, os, query),
-        .baseline => Target.Cpu.baseline(cpu_arch),
-        .determined_by_cpu_arch => if (query.cpu_arch == null)
+        .baseline => Target.Cpu.baseline(cpu_arch, os),
+        .determined_by_arch_os => if (query.cpu_arch == null)
             detectNativeCpuAndFeatures(cpu_arch, os, query)
         else
-            Target.Cpu.baseline(cpu_arch),
+            Target.Cpu.baseline(cpu_arch, os),
         .explicit => |model| model.toCpu(cpu_arch),
     } orelse backup_cpu_detection: {
-        break :backup_cpu_detection Target.Cpu.baseline(cpu_arch);
+        break :backup_cpu_detection Target.Cpu.baseline(cpu_arch, os);
     };
     var result = try detectAbiAndDynamicLinker(cpu, os, query);
     // For x86, we need to populate some CPU feature flags depending on architecture

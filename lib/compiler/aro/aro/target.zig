@@ -709,8 +709,8 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
 test "alignment functions - smoke test" {
     var target: std.Target = undefined;
     const x86 = std.Target.Cpu.Arch.x86_64;
-    target.cpu = std.Target.Cpu.baseline(x86);
     target.os = std.Target.Os.Tag.defaultVersionRange(.linux, x86);
+    target.cpu = std.Target.Cpu.baseline(x86, target.os);
     target.abi = std.Target.Abi.default(x86, target.os);
 
     try std.testing.expect(isTlsSupported(target));
@@ -722,8 +722,8 @@ test "alignment functions - smoke test" {
     try std.testing.expect(systemCompiler(target) == .gcc);
 
     const arm = std.Target.Cpu.Arch.arm;
-    target.cpu = std.Target.Cpu.baseline(arm);
     target.os = std.Target.Os.Tag.defaultVersionRange(.ios, arm);
+    target.cpu = std.Target.Cpu.baseline(arm, target.os);
     target.abi = std.Target.Abi.default(arm, target.os);
 
     try std.testing.expect(!isTlsSupported(target));

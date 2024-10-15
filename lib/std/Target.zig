@@ -1669,7 +1669,8 @@ pub const Cpu = struct {
             };
         }
 
-        pub fn baseline(arch: Arch) *const Model {
+        pub fn baseline(arch: Arch, os: Os) *const Model {
+            _ = os;
             return switch (arch) {
                 .arm, .armeb, .thumb, .thumbeb => &arm.cpu.baseline,
                 .hexagon => &hexagon.cpu.hexagonv60, // gcc/clang do not have a generic hexagon model.
@@ -1688,8 +1689,8 @@ pub const Cpu = struct {
 
     /// The "default" set of CPU features for cross-compiling. A conservative set
     /// of features that is expected to be supported on most available hardware.
-    pub fn baseline(arch: Arch) Cpu {
-        return Model.baseline(arch).toCpu(arch);
+    pub fn baseline(arch: Arch, os: Os) Cpu {
+        return Model.baseline(arch, os).toCpu(arch);
     }
 };
 
