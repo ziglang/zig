@@ -12243,7 +12243,7 @@ const PackedCallingConvention = packed struct(u18) {
                 std.builtin.CallingConvention.RiscvInterruptOptions => .{
                     .tag = tag,
                     .incoming_stack_alignment = .fromByteUnits(pl.incoming_stack_alignment orelse 0),
-                    .extra = @intFromEnum(pl.level),
+                    .extra = @intFromEnum(pl.mode),
                 },
                 else => comptime unreachable,
             },
@@ -12251,35 +12251,41 @@ const PackedCallingConvention = packed struct(u18) {
     }
 
     fn unpack(cc: PackedCallingConvention) std.builtin.CallingConvention {
-        @setEvalBranchQuota(400_000);
-        return switch (cc.tag) {
-            inline else => |tag| @unionInit(
-                std.builtin.CallingConvention,
-                @tagName(tag),
-                switch (std.meta.FieldType(std.builtin.CallingConvention, tag)) {
-                    void => {},
-                    std.builtin.CallingConvention.CommonOptions => .{
-                        .incoming_stack_alignment = cc.incoming_stack_alignment.toByteUnits(),
+        switch (cc.tag) {
+            inline else => |tag| {
+                // TODO: `std.meta.FieldType` uses too much eval branch quota! #21702
+                const Payload = @TypeOf(@field(
+                    @unionInit(std.builtin.CallingConvention, @tagName(tag), undefined),
+                    @tagName(tag),
+                ));
+                return @unionInit(
+                    std.builtin.CallingConvention,
+                    @tagName(tag),
+                    switch (Payload) {
+                        void => {},
+                        std.builtin.CallingConvention.CommonOptions => .{
+                            .incoming_stack_alignment = cc.incoming_stack_alignment.toByteUnits(),
+                        },
+                        std.builtin.CallingConvention.X86RegparmOptions => .{
+                            .incoming_stack_alignment = cc.incoming_stack_alignment.toByteUnits(),
+                            .register_params = @intCast(cc.extra),
+                        },
+                        std.builtin.CallingConvention.ArmInterruptOptions => .{
+                            .incoming_stack_alignment = cc.incoming_stack_alignment.toByteUnits(),
+                            .type = @enumFromInt(cc.extra),
+                        },
+                        std.builtin.CallingConvention.MipsInterruptOptions => .{
+                            .incoming_stack_alignment = cc.incoming_stack_alignment.toByteUnits(),
+                            .mode = @enumFromInt(cc.extra),
+                        },
+                        std.builtin.CallingConvention.RiscvInterruptOptions => .{
+                            .incoming_stack_alignment = cc.incoming_stack_alignment.toByteUnits(),
+                            .mode = @enumFromInt(cc.extra),
+                        },
+                        else => comptime unreachable,
                     },
-                    std.builtin.CallingConvention.X86RegparmOptions => .{
-                        .incoming_stack_alignment = cc.incoming_stack_alignment.toByteUnits(),
-                        .register_params = @intCast(cc.extra),
-                    },
-                    std.builtin.CallingConvention.ArmInterruptOptions => .{
-                        .incoming_stack_alignment = cc.incoming_stack_alignment.toByteUnits(),
-                        .type = @enumFromInt(cc.extra),
-                    },
-                    std.builtin.CallingConvention.MipsInterruptOptions => .{
-                        .incoming_stack_alignment = cc.incoming_stack_alignment.toByteUnits(),
-                        .mode = @enumFromInt(cc.extra),
-                    },
-                    std.builtin.CallingConvention.RiscvInterruptOptions => .{
-                        .incoming_stack_alignment = cc.incoming_stack_alignment.toByteUnits(),
-                        .level = @enumFromInt(cc.extra),
-                    },
-                    else => comptime unreachable,
-                },
-            ),
-        };
+                );
+            },
+        }
     }
 };

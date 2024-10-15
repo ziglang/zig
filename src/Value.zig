@@ -4495,8 +4495,6 @@ pub fn resolveLazy(
 /// This is useful for accessing `std.builtin` structures received from comptime logic.
 /// `val` must be fully resolved.
 pub fn interpret(val: Value, comptime T: type, pt: Zcu.PerThread) error{ OutOfMemory, UndefinedValue, TypeMismatch }!T {
-    @setEvalBranchQuota(400_000);
-
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     const ty = val.typeOf(zcu);
@@ -4554,7 +4552,11 @@ pub fn interpret(val: Value, comptime T: type, pt: Zcu.PerThread) error{ OutOfMe
             const tag = try tag_val.interpret(@"union".tag_type.?, pt);
             switch (tag) {
                 inline else => |tag_comptime| {
-                    const Payload = std.meta.FieldType(T, tag_comptime);
+                    // TODO: `std.meta.FieldType` uses too much eval branch quota! #21702
+                    const Payload = @TypeOf(@field(
+                        @unionInit(T, @tagName(tag_comptime), undefined),
+                        @tagName(tag_comptime),
+                    ));
                     const payload = try val.unionValue(zcu).interpret(Payload, pt);
                     return @unionInit(T, @tagName(tag_comptime), payload);
                 },
@@ -4577,8 +4579,6 @@ pub fn interpret(val: Value, comptime T: type, pt: Zcu.PerThread) error{ OutOfMe
 /// within the compilation. This is useful for passing `std.builtin` structures in the compiler back to the compilation.
 /// This is the inverse of `interpret`.
 pub fn uninterpret(val: anytype, ty: Type, pt: Zcu.PerThread) error{ OutOfMemory, TypeMismatch }!Value {
-    @setEvalBranchQuota(400_000);
-
     const T = @TypeOf(val);
 
     const zcu = pt.zcu;
