@@ -7612,7 +7612,7 @@ fn toCallingConvention(cc: std.builtin.CallingConvention, zcu: *Zcu) ?[]const u8
         .x86_vectorcall, .x86_64_vectorcall => "vectorcall",
         else => {
             // `Zcu.callconvSupported` means this must be the C callconv.
-            assert(cc.eql(zcu.getTarget().defaultCCallingConvention().?));
+            assert(cc.eql(zcu.getTarget().cCallingConvention().?));
             return null;
         },
     };

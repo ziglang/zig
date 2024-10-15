@@ -3399,7 +3399,7 @@ fn updateType(
             try wip_nav.abbrevCode(if (is_nullary) .nullary_func_type else .func_type);
             try wip_nav.strp(name);
             const cc: DW.CC = cc: {
-                if (zcu.getTarget().defaultCCallingConvention()) |cc| {
+                if (zcu.getTarget().cCallingConvention()) |cc| {
                     if (@as(std.builtin.CallingConvention.Tag, cc) == func_type.cc) {
                         break :cc .normal;
                     }

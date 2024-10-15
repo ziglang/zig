@@ -391,7 +391,7 @@ pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error
             }
             try writer.writeAll(") ");
             if (fn_info.cc != .auto) print_cc: {
-                if (zcu.getTarget().defaultCCallingConvention()) |ccc| {
+                if (zcu.getTarget().cCallingConvention()) |ccc| {
                     if (fn_info.cc.eql(ccc)) {
                         try writer.writeAll("callconv(.c) ");
                         break :print_cc;

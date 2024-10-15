@@ -1484,7 +1484,7 @@ pub fn updateExports(
             const exported_nav = ip.getNav(exported_nav_index);
             const exported_ty = exported_nav.typeOf(ip);
             if (!ip.isFunctionType(exported_ty)) continue;
-            const c_cc = target.defaultCCallingConvention().?;
+            const c_cc = target.cCallingConvention().?;
             const winapi_cc: std.builtin.CallingConvention = switch (target.cpu.arch) {
                 .x86 => .{ .x86_stdcall = .{} },
                 else => c_cc,

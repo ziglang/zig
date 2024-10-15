@@ -11616,7 +11616,7 @@ pub fn toLlvmCallConv(cc: std.builtin.CallingConvention, target: std.Target) ?Ca
     };
 }
 fn toLlvmCallConvTag(cc_tag: std.builtin.CallingConvention.Tag, target: std.Target) ?Builder.CallConv {
-    if (target.defaultCCallingConvention()) |default_c| {
+    if (target.cCallingConvention()) |default_c| {
         if (cc_tag == default_c) {
             return .ccc;
         }
@@ -11668,7 +11668,7 @@ fn toLlvmCallConvTag(cc_tag: std.builtin.CallingConvention.Tag, target: std.Targ
         .nvptx_kernel => .ptx_kernel,
 
         // All the calling conventions which LLVM does not have a general representation for.
-        // Note that these are often still supported through the `defaultCCallingConvention` path above via `ccc`.
+        // Note that these are often still supported through the `cCallingConvention` path above via `ccc`.
         .x86_sysv,
         .x86_win,
         .x86_thiscall_mingw,

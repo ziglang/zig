@@ -4895,7 +4895,7 @@ fn genCall(
         .lib => |lib| try pt.funcType(.{
             .param_types = lib.param_types,
             .return_type = lib.return_type,
-            .cc = func.target.defaultCCallingConvention().?,
+            .cc = func.target.cCallingConvention().?,
         }),
     };
 
