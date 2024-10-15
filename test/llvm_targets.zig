@@ -108,10 +108,6 @@ const targets = [_]std.Target.Query{
     .{ .cpu_arch = .lanai, .os_tag = .freestanding, .abi = .none },
 
     .{ .cpu_arch = .loongarch32, .os_tag = .freestanding, .abi = .none },
-    .{ .cpu_arch = .loongarch32, .os_tag = .linux, .abi = .gnu },
-    .{ .cpu_arch = .loongarch32, .os_tag = .linux, .abi = .gnuf32 },
-    .{ .cpu_arch = .loongarch32, .os_tag = .linux, .abi = .gnusf },
-    .{ .cpu_arch = .loongarch32, .os_tag = .linux, .abi = .musl },
     .{ .cpu_arch = .loongarch32, .os_tag = .linux, .abi = .none },
     .{ .cpu_arch = .loongarch32, .os_tag = .uefi, .abi = .none },
 
