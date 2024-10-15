@@ -9877,8 +9877,8 @@ fn funcCommon(
             .avr_interrupt,
             .csky_interrupt,
             .m68k_interrupt,
+            .avr_signal,
             => return sema.fail(block, param_src, "parameters are not allowed with '{s}' calling convention", .{@tagName(cc_resolved)}),
-            .avr_signal => return sema.fail(block, param_src, "parameters are not allowed with '{s}' calling convention", .{@tagName(cc_resolved)}),
             else => {},
         }
     }
