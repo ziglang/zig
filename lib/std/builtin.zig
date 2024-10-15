@@ -473,7 +473,6 @@ pub const CallingConvention = union(enum(u8)) {
         mode: PrivilegeMode = .machine,
 
         pub const PrivilegeMode = enum(u2) {
-            user,
             supervisor,
             machine,
         };
