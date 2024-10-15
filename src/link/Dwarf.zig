@@ -3452,6 +3452,8 @@ fn updateType(
                     .mips_interrupt,
                     .riscv64_interrupt,
                     .riscv32_interrupt,
+                    .avr_builtin,
+                    .avr_signal,
                     .avr_interrupt,
                     .csky_interrupt,
                     .m68k_interrupt,
