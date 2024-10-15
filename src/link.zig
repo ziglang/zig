@@ -24,6 +24,8 @@ const lldMain = @import("main.zig").lldMain;
 const Package = @import("Package.zig");
 const dev = @import("dev.zig");
 
+pub const LdScript = @import("link/LdScript.zig");
+
 /// When adding a new field, remember to update `hashAddSystemLibs`.
 /// These are *always* dynamically linked. Static libraries will be
 /// provided as positional arguments.
@@ -335,6 +337,21 @@ pub const Diags = struct {
     fn setAllocFailureLocked(diags: *Diags) void {
         log.debug("memory allocation failure", .{});
         diags.flags.alloc_failure_occurred = true;
+    }
+
+    pub fn addMessagesToBundle(diags: *const Diags, bundle: *std.zig.ErrorBundle.Wip) Allocator.Error!void {
+        for (diags.msgs.items) |link_err| {
+            try bundle.addRootErrorMessage(.{
+                .msg = try bundle.addString(link_err.msg),
+                .notes_len = @intCast(link_err.notes.len),
+            });
+            const notes_start = try bundle.reserveNotes(@intCast(link_err.notes.len));
+            for (link_err.notes, 0..) |note, i| {
+                bundle.extra.items[notes_start + i] = @intFromEnum(try bundle.addErrorMessage(.{
+                    .msg = try bundle.addString(note.msg),
+                }));
+            }
+        }
     }
 };
 

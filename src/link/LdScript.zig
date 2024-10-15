@@ -14,7 +14,6 @@ pub fn deinit(ls: *LdScript, gpa: Allocator) void {
 
 pub const Error = error{
     LinkFailure,
-    UnexpectedToken,
     UnknownCpuArch,
     OutOfMemory,
 };

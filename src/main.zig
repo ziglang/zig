@@ -3618,6 +3618,28 @@ fn buildOutputType(
     return cleanExit();
 }
 
+const LinkerInput = union(enum) {
+    /// An argument like: -l[name]
+    named: Named,
+    /// When a file path is provided.
+    path: struct {
+        path: Path,
+        /// We still need all this info because the path may point to a .so
+        /// file which may actually be a "linker script" that references
+        /// library names which need to be resolved.
+        info: SystemLib,
+    },
+    /// Put exactly this string in the dynamic section, no rpath.
+    exact: struct {
+        name: []const u8,
+    },
+
+    const Named = struct {
+        name: []const u8,
+        info: SystemLib,
+    };
+};
+
 const CreateModule = struct {
     global_cache_directory: Cache.Directory,
     modules: std.StringArrayHashMapUnmanaged(CliModule),
@@ -3760,10 +3782,7 @@ fn createModule(
         // First, remove libc, libc++, and compiler_rt libraries from the system libraries list.
         // We need to know whether the set of system libraries contains anything besides these
         // to decide whether to trigger native path detection logic.
-        var external_system_libs: std.MultiArrayList(struct {
-            name: []const u8,
-            info: SystemLib,
-        }) = .{};
+        var external_linker_inputs: std.ArrayListUnmanaged(LinkerInput) = .empty;
         for (create_module.system_libs.keys(), create_module.system_libs.values()) |lib_name, info| {
             if (std.zig.target.isLibCLibName(target, lib_name)) {
                 create_module.opts.link_libc = true;
@@ -3815,13 +3834,13 @@ fn createModule(
                 }
             }
 
-            try external_system_libs.append(arena, .{
+            try external_linker_inputs.append(arena, .{ .named = .{
                 .name = lib_name,
                 .info = info,
-            });
+            } });
         }
-        // After this point, external_system_libs is used instead of system_libs.
-        if (external_system_libs.len != 0)
+        // After this point, external_linker_inputs is used instead of system_libs.
+        if (external_linker_inputs.items.len != 0)
             create_module.want_native_include_dirs = true;
 
         // Resolve the library path arguments with respect to sysroot.
@@ -3878,7 +3897,7 @@ fn createModule(
         }
 
         if (builtin.target.os.tag == .windows and (target.abi == .msvc or target.abi == .itanium) and
-            external_system_libs.len != 0)
+            external_linker_inputs.items.len != 0)
         {
             if (create_module.libc_installation == null) {
                 create_module.libc_installation = LibCInstallation.findNative(.{
@@ -3899,20 +3918,67 @@ fn createModule(
         // If any libs in this list are statically provided, we omit them from the
         // resolved list and populate the link_objects array instead.
         {
-            var test_path = std.ArrayList(u8).init(gpa);
-            defer test_path.deinit();
+            var test_path: std.ArrayListUnmanaged(u8) = .empty;
+            defer test_path.deinit(gpa);
 
-            var checked_paths = std.ArrayList(u8).init(gpa);
-            defer checked_paths.deinit();
+            var checked_paths: std.ArrayListUnmanaged(u8) = .empty;
+            defer checked_paths.deinit(gpa);
 
-            var failed_libs = std.ArrayList(struct {
+            var ld_script_bytes: std.ArrayListUnmanaged(u8) = .empty;
+            defer ld_script_bytes.deinit(gpa);
+
+            var failed_libs: std.ArrayListUnmanaged(struct {
                 name: []const u8,
                 strategy: SystemLib.SearchStrategy,
                 checked_paths: []const u8,
                 preferred_mode: std.builtin.LinkMode,
-            }).init(arena);
+            }) = .empty;
 
-            syslib: for (external_system_libs.items(.name), external_system_libs.items(.info)) |lib_name, info| {
+            // Convert external system libs into a stack so that items can be
+            // pushed to it.
+            //
+            // This is necessary because shared objects might turn out to be
+            // "linker scripts" that in fact resolve to one or more other
+            // external system libs, including parameters such as "needed".
+            //
+            // Unfortunately, such files need to be detected immediately, so
+            // that this library search logic can be applied to them.
+            mem.reverse(LinkerInput, external_linker_inputs.items);
+
+            syslib: while (external_linker_inputs.popOrNull()) |external_linker_input| {
+                const external_system_lib: LinkerInput.Named = switch (external_linker_input) {
+                    .named => |named| named,
+                    .path => |p| p: {
+                        if (fs.path.isAbsolute(p.path.sub_path)) {
+                            try create_module.link_objects.append(arena, .{
+                                .path = p.path,
+                                .needed = p.info.needed,
+                                .weak = p.info.weak,
+                            });
+                            continue;
+                        }
+                        const lib_name, const link_mode = stripLibPrefixAndSuffix(p.path.sub_path, target);
+                        break :p .{
+                            .name = lib_name,
+                            .info = .{
+                                .needed = p.info.needed,
+                                .weak = p.info.weak,
+                                .preferred_mode = link_mode,
+                                .search_strategy = .no_fallback,
+                            },
+                        };
+                    },
+                    .exact => |exact| {
+                        try create_module.link_objects.append(arena, .{
+                            .path = Path.initCwd(exact.name),
+                            .loption = true,
+                        });
+                        continue;
+                    },
+                };
+                const lib_name = external_system_lib.name;
+                const info = external_system_lib.info;
+
                 // Checked in the first pass above while looking for libc libraries.
                 assert(!fs.path.isAbsolute(lib_name));
 
@@ -3921,33 +3987,26 @@ fn createModule(
                 switch (info.search_strategy) {
                     .mode_first, .no_fallback => {
                         // check for preferred mode
-                        for (create_module.lib_dirs.items) |lib_dir_path| {
-                            if (try accessLibPath(
-                                &test_path,
-                                &checked_paths,
-                                lib_dir_path,
-                                lib_name,
-                                target,
-                                info.preferred_mode,
-                            )) {
-                                const path = Path.initCwd(try arena.dupe(u8, test_path.items));
-                                switch (info.preferred_mode) {
-                                    .static => try create_module.link_objects.append(arena, .{ .path = path }),
-                                    .dynamic => try create_module.resolved_system_libs.append(arena, .{
-                                        .name = lib_name,
-                                        .lib = .{
-                                            .needed = info.needed,
-                                            .weak = info.weak,
-                                            .path = path,
-                                        },
-                                    }),
-                                }
-                                continue :syslib;
-                            }
-                        }
+                        for (create_module.lib_dirs.items) |lib_dir_path| switch (try accessLibPath(
+                            gpa,
+                            arena,
+                            &test_path,
+                            &checked_paths,
+                            &external_linker_inputs,
+                            create_module,
+                            &ld_script_bytes,
+                            lib_dir_path,
+                            lib_name,
+                            target,
+                            info.preferred_mode,
+                            info,
+                        )) {
+                            .ok => continue :syslib,
+                            .no_match => {},
+                        };
                         // check for fallback mode
                         if (info.search_strategy == .no_fallback) {
-                            try failed_libs.append(.{
+                            try failed_libs.append(arena, .{
                                 .name = lib_name,
                                 .strategy = info.search_strategy,
                                 .checked_paths = try arena.dupe(u8, checked_paths.items),
@@ -3955,31 +4014,24 @@ fn createModule(
                             });
                             continue :syslib;
                         }
-                        for (create_module.lib_dirs.items) |lib_dir_path| {
-                            if (try accessLibPath(
-                                &test_path,
-                                &checked_paths,
-                                lib_dir_path,
-                                lib_name,
-                                target,
-                                info.fallbackMode(),
-                            )) {
-                                const path = Path.initCwd(try arena.dupe(u8, test_path.items));
-                                switch (info.fallbackMode()) {
-                                    .static => try create_module.link_objects.append(arena, .{ .path = path }),
-                                    .dynamic => try create_module.resolved_system_libs.append(arena, .{
-                                        .name = lib_name,
-                                        .lib = .{
-                                            .needed = info.needed,
-                                            .weak = info.weak,
-                                            .path = path,
-                                        },
-                                    }),
-                                }
-                                continue :syslib;
-                            }
-                        }
-                        try failed_libs.append(.{
+                        for (create_module.lib_dirs.items) |lib_dir_path| switch (try accessLibPath(
+                            gpa,
+                            arena,
+                            &test_path,
+                            &checked_paths,
+                            &external_linker_inputs,
+                            create_module,
+                            &ld_script_bytes,
+                            lib_dir_path,
+                            lib_name,
+                            target,
+                            info.fallbackMode(),
+                            info,
+                        )) {
+                            .ok => continue :syslib,
+                            .no_match => {},
+                        };
+                        try failed_libs.append(arena, .{
                             .name = lib_name,
                             .strategy = info.search_strategy,
                             .checked_paths = try arena.dupe(u8, checked_paths.items),
@@ -3990,54 +4042,44 @@ fn createModule(
                     .paths_first => {
                         for (create_module.lib_dirs.items) |lib_dir_path| {
                             // check for preferred mode
-                            if (try accessLibPath(
+                            switch (try accessLibPath(
+                                gpa,
+                                arena,
                                 &test_path,
                                 &checked_paths,
+                                &external_linker_inputs,
+                                create_module,
+                                &ld_script_bytes,
                                 lib_dir_path,
                                 lib_name,
                                 target,
                                 info.preferred_mode,
+                                info,
                             )) {
-                                const path = Path.initCwd(try arena.dupe(u8, test_path.items));
-                                switch (info.preferred_mode) {
-                                    .static => try create_module.link_objects.append(arena, .{ .path = path }),
-                                    .dynamic => try create_module.resolved_system_libs.append(arena, .{
-                                        .name = lib_name,
-                                        .lib = .{
-                                            .needed = info.needed,
-                                            .weak = info.weak,
-                                            .path = path,
-                                        },
-                                    }),
-                                }
-                                continue :syslib;
+                                .ok => continue :syslib,
+                                .no_match => {},
                             }
 
                             // check for fallback mode
-                            if (try accessLibPath(
+                            switch (try accessLibPath(
+                                gpa,
+                                arena,
                                 &test_path,
                                 &checked_paths,
+                                &external_linker_inputs,
+                                create_module,
+                                &ld_script_bytes,
                                 lib_dir_path,
                                 lib_name,
                                 target,
                                 info.fallbackMode(),
+                                info,
                             )) {
-                                const path = Path.initCwd(try arena.dupe(u8, test_path.items));
-                                switch (info.fallbackMode()) {
-                                    .static => try create_module.link_objects.append(arena, .{ .path = path }),
-                                    .dynamic => try create_module.resolved_system_libs.append(arena, .{
-                                        .name = lib_name,
-                                        .lib = .{
-                                            .needed = info.needed,
-                                            .weak = info.weak,
-                                            .path = path,
-                                        },
-                                    }),
-                                }
-                                continue :syslib;
+                                .ok => continue :syslib,
+                                .no_match => {},
                             }
                         }
-                        try failed_libs.append(.{
+                        try failed_libs.append(arena, .{
                             .name = lib_name,
                             .strategy = info.search_strategy,
                             .checked_paths = try arena.dupe(u8, checked_paths.items),
@@ -4059,8 +4101,8 @@ fn createModule(
                 process.exit(1);
             }
         }
-        // After this point, create_module.resolved_system_libs is used instead of
-        // create_module.external_system_libs.
+        // After this point, create_module.resolved_system_libs is used instead
+        // of external_linker_inputs.
 
         if (create_module.resolved_system_libs.len != 0)
             create_module.opts.any_dyn_libs = true;
@@ -6857,33 +6899,45 @@ const ClangSearchSanitizer = struct {
     };
 };
 
+const AccessLibPathResult = enum { ok, no_match };
+
 fn accessLibPath(
-    test_path: *std.ArrayList(u8),
-    checked_paths: *std.ArrayList(u8),
+    gpa: Allocator,
+    arena: Allocator,
+    /// Allocated via `gpa`.
+    test_path: *std.ArrayListUnmanaged(u8),
+    /// Allocated via `gpa`.
+    checked_paths: *std.ArrayListUnmanaged(u8),
+    /// Allocated via `arena`.
+    external_linker_inputs: *std.ArrayListUnmanaged(LinkerInput),
+    create_module: *CreateModule,
+    /// Allocated via `gpa`.
+    ld_script_bytes: *std.ArrayListUnmanaged(u8),
     lib_dir_path: []const u8,
     lib_name: []const u8,
     target: std.Target,
     link_mode: std.builtin.LinkMode,
-) !bool {
+    parent: SystemLib,
+) Allocator.Error!AccessLibPathResult {
     const sep = fs.path.sep_str;
 
     if (target.isDarwin() and link_mode == .dynamic) tbd: {
         // Prefer .tbd over .dylib.
         test_path.clearRetainingCapacity();
-        try test_path.writer().print("{s}" ++ sep ++ "lib{s}.tbd", .{ lib_dir_path, lib_name });
-        try checked_paths.writer().print("\n  {s}", .{test_path.items});
+        try test_path.writer(gpa).print("{s}" ++ sep ++ "lib{s}.tbd", .{ lib_dir_path, lib_name });
+        try checked_paths.writer(gpa).print("\n  {s}", .{test_path.items});
         fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
             error.FileNotFound => break :tbd,
             else => |e| fatal("unable to search for tbd library '{s}': {s}", .{
                 test_path.items, @errorName(e),
             }),
         };
-        return true;
+        return finishAccessLibPath(arena, create_module, test_path, link_mode, parent, lib_name);
     }
 
     main_check: {
         test_path.clearRetainingCapacity();
-        try test_path.writer().print("{s}" ++ sep ++ "{s}{s}{s}", .{
+        try test_path.writer(gpa).print("{s}" ++ sep ++ "{s}{s}{s}", .{
             lib_dir_path,
             target.libPrefix(),
             lib_name,
@@ -6892,49 +6946,148 @@ fn accessLibPath(
                 .dynamic => target.dynamicLibSuffix(),
             },
         });
-        try checked_paths.writer().print("\n  {s}", .{test_path.items});
+        try checked_paths.writer(gpa).print("\n  {s}", .{test_path.items});
+
+        // In the case of .so files, they might actually be "linker scripts"
+        // that contain references to other libraries.
+        if (target.ofmt == .elf and mem.endsWith(u8, test_path.items, ".so")) {
+            var file = fs.cwd().openFile(test_path.items, .{}) catch |err| switch (err) {
+                error.FileNotFound => break :main_check,
+                else => |e| fatal("unable to search for {s} library '{s}': {s}", .{
+                    @tagName(link_mode), test_path.items, @errorName(e),
+                }),
+            };
+            defer file.close();
+            try ld_script_bytes.resize(gpa, @sizeOf(std.elf.Elf64_Ehdr));
+            const n = file.readAll(ld_script_bytes.items) catch |err| fatal("failed to read {s}: {s}", .{
+                test_path.items, @errorName(err),
+            });
+            elf_file: {
+                if (n != ld_script_bytes.items.len) break :elf_file;
+                if (!mem.eql(u8, ld_script_bytes.items[0..4], "\x7fELF")) break :elf_file;
+                // Appears to be an ELF file.
+                return finishAccessLibPath(arena, create_module, test_path, link_mode, parent, lib_name);
+            }
+            const stat = file.stat() catch |err|
+                fatal("failed to stat {s}: {s}", .{ test_path.items, @errorName(err) });
+            const size = std.math.cast(u32, stat.size) orelse
+                fatal("{s}: linker script too big", .{test_path.items});
+            try ld_script_bytes.resize(gpa, size);
+            const buf = ld_script_bytes.items[n..];
+            const n2 = file.readAll(buf) catch |err|
+                fatal("failed to read {s}: {s}", .{ test_path.items, @errorName(err) });
+            if (n2 != buf.len) fatal("failed to read {s}: unexpected end of file", .{test_path.items});
+            var diags = link.Diags.init(gpa);
+            defer diags.deinit();
+            const ld_script_result = link.LdScript.parse(gpa, &diags, Path.initCwd(test_path.items), ld_script_bytes.items);
+            if (diags.hasErrors()) {
+                var wip_errors: std.zig.ErrorBundle.Wip = undefined;
+                try wip_errors.init(gpa);
+                defer wip_errors.deinit();
+
+                try diags.addMessagesToBundle(&wip_errors);
+
+                var error_bundle = try wip_errors.toOwnedBundle("");
+                defer error_bundle.deinit(gpa);
+
+                const color: Color = .auto;
+                error_bundle.renderToStdErr(color.renderOptions());
+
+                process.exit(1);
+            }
+
+            var ld_script = ld_script_result catch |err|
+                fatal("{s}: failed to parse linker script: {s}", .{ test_path.items, @errorName(err) });
+            defer ld_script.deinit(gpa);
+
+            try external_linker_inputs.ensureUnusedCapacity(arena, ld_script.args.len);
+            for (ld_script.args) |arg| {
+                const syslib: SystemLib = .{
+                    .needed = arg.needed or parent.needed,
+                    .weak = parent.weak,
+                    .preferred_mode = parent.preferred_mode,
+                    .search_strategy = parent.search_strategy,
+                };
+                if (mem.startsWith(u8, arg.path, "-l")) {
+                    external_linker_inputs.appendAssumeCapacity(.{ .named = .{
+                        .name = try arena.dupe(u8, arg.path["-l".len..]),
+                        .info = syslib,
+                    } });
+                } else {
+                    external_linker_inputs.appendAssumeCapacity(.{ .path = .{
+                        .path = Path.initCwd(try arena.dupe(u8, arg.path)),
+                        .info = syslib,
+                    } });
+                }
+            }
+            return .ok;
+        }
+
         fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
             error.FileNotFound => break :main_check,
             else => |e| fatal("unable to search for {s} library '{s}': {s}", .{
                 @tagName(link_mode), test_path.items, @errorName(e),
             }),
         };
-        return true;
+        return finishAccessLibPath(arena, create_module, test_path, link_mode, parent, lib_name);
     }
 
     // In the case of Darwin, the main check will be .dylib, so here we
     // additionally check for .so files.
     if (target.isDarwin() and link_mode == .dynamic) so: {
         test_path.clearRetainingCapacity();
-        try test_path.writer().print("{s}" ++ sep ++ "lib{s}.so", .{ lib_dir_path, lib_name });
-        try checked_paths.writer().print("\n  {s}", .{test_path.items});
+        try test_path.writer(gpa).print("{s}" ++ sep ++ "lib{s}.so", .{ lib_dir_path, lib_name });
+        try checked_paths.writer(gpa).print("\n  {s}", .{test_path.items});
         fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
             error.FileNotFound => break :so,
             else => |e| fatal("unable to search for so library '{s}': {s}", .{
                 test_path.items, @errorName(e),
             }),
         };
-        return true;
+        return finishAccessLibPath(arena, create_module, test_path, link_mode, parent, lib_name);
     }
 
     // In the case of MinGW, the main check will be .lib but we also need to
     // look for `libfoo.a`.
     if (target.isMinGW() and link_mode == .static) mingw: {
         test_path.clearRetainingCapacity();
-        try test_path.writer().print("{s}" ++ sep ++ "lib{s}.a", .{
+        try test_path.writer(gpa).print("{s}" ++ sep ++ "lib{s}.a", .{
             lib_dir_path, lib_name,
         });
-        try checked_paths.writer().print("\n  {s}", .{test_path.items});
+        try checked_paths.writer(gpa).print("\n  {s}", .{test_path.items});
         fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
             error.FileNotFound => break :mingw,
             else => |e| fatal("unable to search for static library '{s}': {s}", .{
                 test_path.items, @errorName(e),
             }),
         };
-        return true;
+        return finishAccessLibPath(arena, create_module, test_path, link_mode, parent, lib_name);
     }
 
-    return false;
+    return .no_match;
+}
+
+fn finishAccessLibPath(
+    arena: Allocator,
+    create_module: *CreateModule,
+    test_path: *std.ArrayListUnmanaged(u8),
+    link_mode: std.builtin.LinkMode,
+    parent: SystemLib,
+    lib_name: []const u8,
+) Allocator.Error!AccessLibPathResult {
+    const path = Path.initCwd(try arena.dupe(u8, test_path.items));
+    switch (link_mode) {
+        .static => try create_module.link_objects.append(arena, .{ .path = path }),
+        .dynamic => try create_module.resolved_system_libs.append(arena, .{
+            .name = lib_name,
+            .lib = .{
+                .needed = parent.needed,
+                .weak = parent.weak,
+                .path = path,
+            },
+        }),
+    }
+    return .ok;
 }
 
 fn accessFrameworkPath(
@@ -7633,4 +7786,19 @@ fn handleModArg(
     target_mcpu.* = null;
     c_source_files_owner_index.* = create_module.c_source_files.items.len;
     rc_source_files_owner_index.* = create_module.rc_source_files.items.len;
+}
+
+fn stripLibPrefixAndSuffix(path: []const u8, target: std.Target) struct { []const u8, std.builtin.LinkMode } {
+    const prefix = target.libPrefix();
+    const static_suffix = target.staticLibSuffix();
+    const dynamic_suffix = target.dynamicLibSuffix();
+    const basename = fs.path.basename(path);
+    const unlibbed = if (mem.startsWith(u8, basename, prefix)) basename[prefix.len..] else basename;
+    if (mem.endsWith(u8, unlibbed, static_suffix)) return .{
+        unlibbed[0 .. unlibbed.len - static_suffix.len], .static,
+    };
+    if (mem.endsWith(u8, unlibbed, dynamic_suffix)) return .{
+        unlibbed[0 .. unlibbed.len - dynamic_suffix.len], .dynamic,
+    };
+    fatal("unrecognized library path: {s}", .{path});
 }

@@ -1003,10 +1003,11 @@ pub const LinkObject = struct {
     path: Path,
     must_link: bool = false,
     needed: bool = false,
-    // When the library is passed via a positional argument, it will be
-    // added as a full path. If it's `-l<lib>`, then just the basename.
-    //
-    // Consistent with `withLOption` variable name in lld ELF driver.
+    weak: bool = false,
+    /// When the library is passed via a positional argument, it will be
+    /// added as a full path. If it's `-l<lib>`, then just the basename.
+    ///
+    /// Consistent with `withLOption` variable name in lld ELF driver.
     loption: bool = false,
 
     pub fn isObject(lo: LinkObject) bool {
@@ -1061,6 +1062,9 @@ pub const CreateOptions = struct {
     /// this flag would be set to disable this machinery to avoid false positives.
     disable_lld_caching: bool = false,
     cache_mode: CacheMode = .incremental,
+    /// This field is intended to be removed.
+    /// The ELF implementation no longer uses this data, however the MachO and COFF
+    /// implementations still do.
     lib_dirs: []const []const u8 = &[0][]const u8{},
     rpath_list: []const []const u8 = &[0][]const u8{},
     symbol_wrap_set: std.StringArrayHashMapUnmanaged(void) = .empty,
@@ -2563,6 +2567,7 @@ fn addNonIncrementalStuffToCacheManifest(
         _ = try man.addFilePath(obj.path, null);
         man.hash.add(obj.must_link);
         man.hash.add(obj.needed);
+        man.hash.add(obj.weak);
         man.hash.add(obj.loption);
     }
 
@@ -3219,18 +3224,7 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
         }));
     }
 
-    for (comp.link_diags.msgs.items) |link_err| {
-        try bundle.addRootErrorMessage(.{
-            .msg = try bundle.addString(link_err.msg),
-            .notes_len = @intCast(link_err.notes.len),
-        });
-        const notes_start = try bundle.reserveNotes(@intCast(link_err.notes.len));
-        for (link_err.notes, 0..) |note, i| {
-            bundle.extra.items[notes_start + i] = @intFromEnum(try bundle.addErrorMessage(.{
-                .msg = try bundle.addString(note.msg),
-            }));
-        }
-    }
+    try comp.link_diags.addMessagesToBundle(&bundle);
 
     if (comp.zcu) |zcu| {
         if (bundle.root_list.items.len == 0 and zcu.compile_log_sources.count() != 0) {
