@@ -76,13 +76,27 @@ static void renderExpr(FILE *out, struct InputStream *in) {
 static const uint32_t big_endian = 0xff000000;
 
 int main(int argc, char **argv) {
-    if (argc != 3) {
-        fprintf(stderr, "usage: %s in.wasm.zst out.c\n", argv[0]);
+    if (argc != 3 && argc != 4) {
+        fprintf(stderr, "usage: %s <in.wasm.zst> <out.c> [endian]\n", argv[0]);
         return 1;
     }
 
+    bool is_big_endian;
+
+    if (argc >= 4) {
+        if (!strcmp(argv[3], "big")) {
+            is_big_endian = true;
+        } else if (!strcmp(argv[3], "little")) {
+            is_big_endian = false;
+        } else {
+            fprintf(stderr, "endianness must be 'big' or 'little'\n");
+            return 1;
+        }
+    } else {
+        is_big_endian = *(uint8_t *)&big_endian; // Infer from host endianness.
+    }
+
     const char *mod = "wasm";
-    bool is_big_endian = *(uint8_t *)&big_endian;
 
     struct InputStream in;
     InputStream_open(&in, argv[1]);
