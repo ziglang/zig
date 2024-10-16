@@ -790,8 +790,15 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
     if (comp.verbose_link) try self.dumpArgv(comp);
 
     if (self.zigObjectPtr()) |zig_object| try zig_object.flush(self, tid);
-    if (self.base.isStaticLib()) return relocatable.flushStaticLib(self, comp, module_obj_path);
-    if (self.base.isObject()) return relocatable.flushObject(self, comp, module_obj_path);
+
+    switch (comp.config.output_mode) {
+        .Obj => return relocatable.flushObject(self, comp, module_obj_path),
+        .Lib => switch (comp.config.link_mode) {
+            .dynamic => {},
+            .static => return relocatable.flushStaticLib(self, comp, module_obj_path),
+        },
+        .Exe => {},
+    }
 
     const csu = try comp.getCrtPaths(arena);
 
