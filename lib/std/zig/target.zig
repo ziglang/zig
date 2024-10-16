@@ -97,31 +97,41 @@ pub fn canBuildLibC(target: std.Target) bool {
     return false;
 }
 
-pub fn muslArchNameHeaders(arch: std.Target.Cpu.Arch) [:0]const u8 {
-    return switch (arch) {
-        .x86 => return "x86",
-        else => muslArchName(arch),
+pub fn muslArchName(arch: std.Target.Cpu.Arch, abi: std.Target.Abi) [:0]const u8 {
+    return switch (abi) {
+        .muslx32 => "x32",
+        else => switch (arch) {
+            .arm, .armeb, .thumb, .thumbeb => "arm",
+            .aarch64, .aarch64_be => "aarch64",
+            .loongarch64 => "loongarch64",
+            .m68k => "m68k",
+            .mips, .mipsel => "mips",
+            .mips64el, .mips64 => "mips64",
+            .powerpc => "powerpc",
+            .powerpc64, .powerpc64le => "powerpc64",
+            .riscv32 => "riscv32",
+            .riscv64 => "riscv64",
+            .s390x => "s390x",
+            .wasm32, .wasm64 => "wasm",
+            .x86 => "i386",
+            .x86_64 => "x86_64",
+            else => unreachable,
+        },
     };
 }
 
-pub fn muslArchName(arch: std.Target.Cpu.Arch) [:0]const u8 {
-    switch (arch) {
-        .aarch64, .aarch64_be => return "aarch64",
-        .arm, .armeb, .thumb, .thumbeb => return "arm",
-        .x86 => return "i386",
-        .loongarch64 => return "loongarch64",
-        .m68k => return "m68k",
-        .mips, .mipsel => return "mips",
-        .mips64el, .mips64 => return "mips64",
-        .powerpc => return "powerpc",
-        .powerpc64, .powerpc64le => return "powerpc64",
-        .riscv32 => return "riscv32",
-        .riscv64 => return "riscv64",
-        .s390x => return "s390x",
-        .wasm32, .wasm64 => return "wasm",
-        .x86_64 => return "x86_64",
-        else => unreachable,
-    }
+pub fn muslArchNameHeaders(arch: std.Target.Cpu.Arch) [:0]const u8 {
+    return switch (arch) {
+        .x86 => "x86",
+        else => muslArchName(arch, .musl),
+    };
+}
+
+pub fn muslAbiNameHeaders(abi: std.Target.Abi) [:0]const u8 {
+    return switch (abi) {
+        .muslx32 => "muslx32",
+        else => "musl",
+    };
 }
 
 pub fn isLibCLibName(target: std.Target, name: []const u8) bool {

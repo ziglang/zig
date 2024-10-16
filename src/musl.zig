@@ -4,7 +4,6 @@ const mem = std.mem;
 const path = std.fs.path;
 const assert = std.debug.assert;
 const Module = @import("Package/Module.zig");
-const archName = std.zig.target.muslArchName;
 
 const Compilation = @import("Compilation.zig");
 const build_options = @import("build_options");
@@ -113,7 +112,7 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
             // When there is a src/<arch>/foo.* then it should substitute for src/foo.*
             // Even a .s file can substitute for a .c file.
             const target = comp.getTarget();
-            const arch_name = archName(target.cpu.arch);
+            const arch_name = std.zig.target.muslArchName(target.cpu.arch, target.abi);
             var source_table = std.StringArrayHashMap(Ext).init(comp.gpa);
             defer source_table.deinit();
 
@@ -162,7 +161,7 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
 
                 var is_arch_specific = false;
                 // Architecture-specific implementations are under a <arch>/ folder.
-                if (isMuslArchName(dirbasename)) {
+                if (isArchName(dirbasename)) {
                     if (!mem.eql(u8, dirbasename, arch_name))
                         continue; // Not the architecture we're compiling for.
                     is_arch_specific = true;
@@ -327,7 +326,7 @@ pub fn needsCrt0(output_mode: std.builtin.OutputMode, link_mode: std.builtin.Lin
     };
 }
 
-fn isMuslArchName(name: []const u8) bool {
+fn isArchName(name: []const u8) bool {
     const musl_arch_names = [_][]const u8{
         "aarch64",
         "arm",
@@ -401,10 +400,12 @@ fn addCcArgs(
     want_O3: bool,
 ) error{OutOfMemory}!void {
     const target = comp.getTarget();
-    const arch_name = archName(target.cpu.arch);
+    const arch_name = std.zig.target.muslArchName(target.cpu.arch, target.abi);
     const os_name = @tagName(target.os.tag);
-    const triple = try std.fmt.allocPrint(arena, "{s}-{s}-musl", .{
-        std.zig.target.muslArchNameHeaders(target.cpu.arch), os_name,
+    const triple = try std.fmt.allocPrint(arena, "{s}-{s}-{s}", .{
+        std.zig.target.muslArchNameHeaders(target.cpu.arch),
+        os_name,
+        std.zig.target.muslAbiNameHeaders(target.abi),
     });
     const o_arg = if (want_O3) "-O3" else "-Os";
 
@@ -460,7 +461,7 @@ fn addCcArgs(
 fn start_asm_path(comp: *Compilation, arena: Allocator, basename: []const u8) ![]const u8 {
     const target = comp.getTarget();
     return comp.zig_lib_directory.join(arena, &[_][]const u8{
-        "libc", "musl", "crt", archName(target.cpu.arch), basename,
+        "libc", "musl", "crt", std.zig.target.muslArchName(target.cpu.arch, target.abi), basename,
     });
 }
 
