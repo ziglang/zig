@@ -207,9 +207,9 @@ generated_h: ?*GeneratedFile,
 /// Defaults to `std.math.maxInt(u16)`
 error_limit: ?u32 = null,
 
-/// Computed during make().
+/// Computed during finalize().
 is_linking_libc: bool = false,
-/// Computed during make().
+/// Computed during finalize().
 is_linking_libcpp: bool = false,
 
 no_builtin: bool = false,
@@ -274,6 +274,7 @@ pub const Kind = enum {
     exe,
     lib,
     obj,
+    pch,
     @"test",
 };
 
@@ -357,6 +358,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
             .exe => "zig build-exe",
             .lib => "zig build-lib",
             .obj => "zig build-obj",
+            .pch => "zig build-pch",
             .@"test" => "zig test",
         },
         name_adjusted,
@@ -364,17 +366,21 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         resolved_target.query.zigTriple(owner.allocator) catch @panic("OOM"),
     });
 
-    const out_filename = std.zig.binNameAlloc(owner.allocator, .{
-        .root_name = name,
-        .target = target,
-        .output_mode = switch (options.kind) {
-            .lib => .Lib,
-            .obj => .Obj,
-            .exe, .@"test" => .Exe,
-        },
-        .link_mode = options.linkage,
-        .version = options.version,
-    }) catch @panic("OOM");
+    const out_filename = if (options.kind == .pch)
+        std.fmt.allocPrint(owner.allocator, "{s}.pch", .{name}) catch @panic("OOM")
+    else
+        std.zig.binNameAlloc(owner.allocator, .{
+            .root_name = name,
+            .target = target,
+            .output_mode = switch (options.kind) {
+                .lib => .Lib,
+                .obj => .Obj,
+                .exe, .@"test" => .Exe,
+                .pch => unreachable,
+            },
+            .link_mode = options.linkage,
+            .version = options.version,
+        }) catch @panic("OOM");
 
     const compile = owner.allocator.create(Compile) catch @panic("OOM");
     compile.* = .{
@@ -388,6 +394,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
             .id = base_id,
             .name = step_name,
             .owner = owner,
+            .finalizeFn = finalize,
             .makeFn = make,
             .max_rss = options.max_rss,
         }),
@@ -803,10 +810,12 @@ pub fn linkFrameworkWeak(c: *Compile, name: []const u8) void {
 
 /// Handy when you have many C/C++ source files and want them all to have the same flags.
 pub fn addCSourceFiles(compile: *Compile, options: Module.AddCSourceFilesOptions) void {
+    assert(compile.kind != .pch); // pch can only be generated from a single C header file
     compile.root_module.addCSourceFiles(options);
 }
 
 pub fn addCSourceFile(compile: *Compile, source: Module.CSourceFile) void {
+    assert(compile.kind != .pch or compile.root_module.link_objects.items.len == 0); // pch can only be generated from a single C header file
     compile.root_module.addCSourceFile(source);
 }
 
@@ -814,6 +823,7 @@ pub fn addCSourceFile(compile: *Compile, source: Module.CSourceFile) void {
 /// Can be called regardless of target. The .rc file will be ignored
 /// if the target object format does not support embedded resources.
 pub fn addWin32ResourceFile(compile: *Compile, source: Module.RcSourceFile) void {
+    assert(compile.kind != .pch); // pch can only be generated from a single C header file
     compile.root_module.addWin32ResourceFile(source);
 }
 
@@ -893,15 +903,18 @@ pub fn getEmittedLlvmBc(compile: *Compile) LazyPath {
     return compile.getEmittedFileGeneric(&compile.generated_llvm_bc);
 }
 
-pub fn addAssemblyFile(compile: *Compile, source: LazyPath) void {
+pub fn addAssemblyFile(compile: *Compile, source: Module.AsmSourceFile) void {
+    assert(compile.kind != .pch); // pch can only be generated from a single C header file
     compile.root_module.addAssemblyFile(source);
 }
 
 pub fn addObjectFile(compile: *Compile, source: LazyPath) void {
+    assert(compile.kind != .pch); // pch can only be generated from a single C header file
     compile.root_module.addObjectFile(source);
 }
 
 pub fn addObject(compile: *Compile, object: *Compile) void {
+    assert(compile.kind != .pch); // pch can only be generated from a single C header file
     compile.root_module.addObject(object);
 }
 
@@ -1026,6 +1039,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
         .lib => "build-lib",
         .exe => "build-exe",
         .obj => "build-obj",
+        .pch => "build-pch",
         .@"test" => "test",
     };
     try zig_args.append(cmd);
@@ -1076,21 +1090,12 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
 
         var prev_has_cflags = false;
         var prev_has_rcflags = false;
+        var prev_has_xflag = false;
         var prev_search_strategy: Module.SystemLib.SearchStrategy = .paths_first;
         var prev_preferred_link_mode: std.builtin.LinkMode = .dynamic;
         // Track the number of positional arguments so that a nice error can be
         // emitted if there is nothing to link.
         var total_linker_objects: usize = @intFromBool(compile.root_module.root_source_file != null);
-
-        {
-            // Fully recursive iteration including dynamic libraries to detect
-            // libc and libc++ linkage.
-            var dep_it = compile.root_module.iterateDependencies(compile, true);
-            while (dep_it.next()) |key| {
-                if (key.module.link_libc == true) compile.is_linking_libc = true;
-                if (key.module.link_libcpp == true) compile.is_linking_libcpp = true;
-            }
-        }
 
         var cli_named_modules = try CliNamedModules.init(arena, &compile.root_module);
 
@@ -1114,6 +1119,12 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
 
             // Inherit dependencies on system libraries and static libraries.
             for (dep.module.link_objects.items) |link_object| {
+                if (prev_has_xflag and link_object != .c_source_file and link_object != .c_source_files and link_object != .assembly_file) {
+                    try zig_args.append("-x");
+                    try zig_args.append("none");
+                    prev_has_xflag = false;
+                }
+
                 switch (link_object) {
                     .static_path => |static_path| {
                         if (my_responsibility) {
@@ -1197,6 +1208,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
                         switch (other.kind) {
                             .exe => return step.fail("cannot link with an executable build artifact", .{}),
                             .@"test" => return step.fail("cannot link with a test", .{}),
+                            .pch => @panic("Cannot link with a precompiled header file"),
                             .obj => {
                                 const included_in_lib_or_obj = !my_responsibility and
                                     (dep.compile.?.kind == .lib or dep.compile.?.kind == .obj);
@@ -1244,14 +1256,25 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
                             try zig_args.append("--");
                             prev_has_cflags = false;
                         }
-                        try zig_args.append(asm_file.getPath2(dep.module.owner, step));
+
+                        if (asm_file.lang) |lang| {
+                            try zig_args.append("-x");
+                            try zig_args.append(lang.getLangName());
+                            prev_has_xflag = true;
+                        } else if (prev_has_xflag) {
+                            try zig_args.append("-x");
+                            try zig_args.append("none");
+                            prev_has_xflag = false;
+                        }
+
+                        try zig_args.append(asm_file.file.getPath2(dep.module.owner, step));
                         total_linker_objects += 1;
                     },
 
                     .c_source_file => |c_source_file| l: {
                         if (!my_responsibility) break :l;
 
-                        if (c_source_file.flags.len == 0) {
+                        if (c_source_file.flags.len == 0 and c_source_file.precompiled_header == null) {
                             if (prev_has_cflags) {
                                 try zig_args.append("-cflags");
                                 try zig_args.append("--");
@@ -1262,9 +1285,25 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
                             for (c_source_file.flags) |arg| {
                                 try zig_args.append(arg);
                             }
+                            if (c_source_file.precompiled_header) |pch| {
+                                try zig_args.append("-include-pch");
+                                try zig_args.append(pch.getPath(b));
+                                try zig_args.append("-fpch-validate-input-files-content");
+                            }
                             try zig_args.append("--");
                             prev_has_cflags = true;
                         }
+
+                        if (c_source_file.lang) |lang| {
+                            try zig_args.append("-x");
+                            try zig_args.append(lang.getLangName());
+                            prev_has_xflag = true;
+                        } else if (prev_has_xflag) {
+                            try zig_args.append("-x");
+                            try zig_args.append("none");
+                            prev_has_xflag = false;
+                        }
+
                         try zig_args.append(c_source_file.file.getPath2(dep.module.owner, step));
                         total_linker_objects += 1;
                     },
@@ -1272,7 +1311,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
                     .c_source_files => |c_source_files| l: {
                         if (!my_responsibility) break :l;
 
-                        if (c_source_files.flags.len == 0) {
+                        if (c_source_files.flags.len == 0 and c_source_files.precompiled_header == null) {
                             if (prev_has_cflags) {
                                 try zig_args.append("-cflags");
                                 try zig_args.append("--");
@@ -1283,8 +1322,25 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
                             for (c_source_files.flags) |flag| {
                                 try zig_args.append(flag);
                             }
+
+                            if (c_source_files.precompiled_header) |pch| {
+                                try zig_args.append("-include-pch");
+                                try zig_args.append(pch.getPath(b));
+                                try zig_args.append("-fpch-validate-input-files-content");
+                            }
+
                             try zig_args.append("--");
                             prev_has_cflags = true;
+                        }
+
+                        if (c_source_files.lang) |lang| {
+                            try zig_args.append("-x");
+                            try zig_args.append(lang.getLangName());
+                            prev_has_xflag = true;
+                        } else if (prev_has_xflag) {
+                            try zig_args.append("-x");
+                            try zig_args.append("none");
+                            prev_has_xflag = false;
                         }
 
                         const root_path = c_source_files.root.getPath2(dep.module.owner, step);
@@ -1765,6 +1821,90 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
     }
 
     return try zig_args.toOwnedSlice();
+}
+
+fn finalize(step: *Step) !void {
+    const compile: *Compile = @fieldParentPtr("step", step);
+    const b = step.owner;
+
+    {
+        // Fully recursive iteration including dynamic libraries to detect
+        // libc and libc++ linkage.
+        var dep_it = compile.root_module.iterateDependencies(compile, true);
+        while (dep_it.next()) |key| {
+            if (key.module.link_libc == true) compile.is_linking_libc = true;
+            if (key.module.link_libcpp == true) compile.is_linking_libcpp = true;
+        }
+    }
+
+    if (compile.kind == .pch) {
+        // precompiled headers must have a single input header file.
+        var it = compile.root_module.iterateDependencies(compile, false);
+        const link_objects = it.next().?.module.link_objects;
+        assert(link_objects.items.len == 1 and link_objects.items[0] == .c_source_file);
+        assert(it.next() == null);
+    }
+
+    // add additional compile steps for precompiled headers
+    for (compile.root_module.link_objects.items) |*link_object| {
+        const pch_ptr: *Module.PrecompiledHeader, const flags: []const []const u8 = blk: {
+            switch (link_object.*) {
+                .c_source_file => |src| {
+                    if (src.precompiled_header) |*pch| break :blk .{ pch, src.flags };
+                },
+                .c_source_files => |src| {
+                    if (src.precompiled_header) |*pch| break :blk .{ pch, src.flags };
+                },
+                else => {},
+            }
+
+            continue;
+        };
+
+        switch (pch_ptr.*) {
+            .pch_step => {
+                // step customized by the user, nothing to do.
+            },
+            .source_header => |src| {
+                const name = switch (src.path) {
+                    .src_path => |sp| fs.path.basename(sp.sub_path),
+                    .cwd_relative => |p| fs.path.basename(p),
+                    .generated => "generated",
+                    .dependency => "dependency",
+                };
+
+                const step_name = b.fmt("zig build-pch {s}{s} {s}", .{
+                    name,
+                    @tagName(compile.root_module.optimize orelse .Debug),
+                    compile.root_module.resolved_target.?.query.zigTriple(b.allocator) catch @panic("OOM"),
+                });
+
+                // We generate a new compile step for each use,
+                // leveraging the cache system to reuse the generated pch file when possible.
+                const compile_pch = b.allocator.create(Compile) catch @panic("OOM");
+
+                // For robustness, suppose all options have an impact on the header compilation.
+                // (instead of auditing each llvm version for flags observable from header compilation)
+                // So, copy everything and minimally adjust as needed:
+                compile_pch.* = compile.*;
+
+                compile_pch.kind = .pch;
+                compile_pch.step.name = step_name;
+                compile_pch.name = name;
+                compile_pch.out_filename = std.fmt.allocPrint(b.allocator, "{s}.pch", .{name}) catch @panic("OOM");
+                compile_pch.installed_headers = .init(b.allocator);
+                compile_pch.force_undefined_symbols = .init(b.allocator);
+
+                compile_pch.root_module.link_objects = .{};
+                compile_pch.addCSourceFile(.{ .file = src.path, .lang = src.lang, .flags = flags });
+
+                // finalize the parent compile step by modifying it to use the generated pch compile step
+                pch_ptr.* = .{ .pch_step = compile_pch };
+                _ = compile_pch.getEmittedBin(); // Indicate there is a dependency on the outputted binary.
+                compile.root_module.addStepDependenciesOnly(&compile_pch.step);
+            },
+        }
+    }
 }
 
 fn make(step: *Step, options: Step.MakeOptions) !void {
