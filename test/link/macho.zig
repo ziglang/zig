@@ -22,11 +22,31 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
     // Exercise linker with self-hosted backend (no LLVM)
     macho_step.dependOn(testEmptyZig(b, .{ .use_llvm = false, .target = x86_64_target }));
     macho_step.dependOn(testHelloZig(b, .{ .use_llvm = false, .target = x86_64_target }));
-    macho_step.dependOn(testLinkingStaticLib(b, .{ .use_llvm = false, .target = x86_64_target }));
-    macho_step.dependOn(testReexportsZig(b, .{ .use_llvm = false, .target = x86_64_target }));
-    macho_step.dependOn(testRelocatableZig(b, .{ .use_llvm = false, .target = x86_64_target }));
+    macho_step.dependOn(testLinkingStaticLib(b, .{
+        .use_llvm = false,
+        .target = x86_64_target,
+        // https://github.com/ziglang/zig/issues/21719
+        .strip = true,
+    }));
+    macho_step.dependOn(testReexportsZig(b, .{
+        .use_llvm = false,
+        .target = x86_64_target,
+        // https://github.com/ziglang/zig/issues/21719
+        .strip = true,
+    }));
+    macho_step.dependOn(testRelocatableZig(b, .{
+        .use_llvm = false,
+        .target = x86_64_target,
+        // https://github.com/ziglang/zig/issues/21719
+        .strip = true,
+    }));
     macho_step.dependOn(testTlsZig(b, .{ .use_llvm = false, .target = x86_64_target }));
-    macho_step.dependOn(testUnresolvedError(b, .{ .use_llvm = false, .target = x86_64_target }));
+    macho_step.dependOn(testUnresolvedError(b, .{
+        .use_llvm = false,
+        .target = x86_64_target,
+        // https://github.com/ziglang/zig/issues/21719
+        .strip = true,
+    }));
 
     // Exercise linker with LLVM backend
     macho_step.dependOn(testDeadStrip(b, .{ .target = default_target }));
