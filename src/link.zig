@@ -1997,8 +1997,8 @@ pub fn openObjectInput(diags: *Diags, path: Path) error{LinkFailure}!Input {
     } };
 }
 
-pub fn openArchiveInput(diags: *Diags, path: Path) error{LinkFailure}!Input {
-    return .{ .archive = openObject(path, false, false) catch |err| {
+pub fn openArchiveInput(diags: *Diags, path: Path, must_link: bool, hidden: bool) error{LinkFailure}!Input {
+    return .{ .archive = openObject(path, must_link, hidden) catch |err| {
         return diags.failParse(path, "failed to open {}: {s}", .{ path, @errorName(err) });
     } };
 }

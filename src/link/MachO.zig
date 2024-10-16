@@ -447,15 +447,25 @@ pub fn flushModule(self: *MachO, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
     };
 
     for (system_libs.items) |lib| {
-        const dso_input = try link.openDsoInput(diags, lib.path, lib.needed, lib.weak, lib.reexport);
-        self.classifyInputFile(dso_input) catch |err|
-            diags.addParseError(lib.path, "failed to parse input file: {s}", .{@errorName(err)});
+        switch (Compilation.classifyFileExt(lib.path.sub_path)) {
+            .shared_library => {
+                const dso_input = try link.openDsoInput(diags, lib.path, lib.needed, lib.weak, lib.reexport);
+                self.classifyInputFile(dso_input) catch |err|
+                    diags.addParseError(lib.path, "failed to parse input file: {s}", .{@errorName(err)});
+            },
+            .static_library => {
+                const archive_input = try link.openArchiveInput(diags, lib.path, lib.must_link, lib.hidden);
+                self.classifyInputFile(archive_input) catch |err|
+                    diags.addParseError(lib.path, "failed to parse input file: {s}", .{@errorName(err)});
+            },
+            else => unreachable,
+        }
     }
 
     // Finally, link against compiler_rt.
     if (comp.compiler_rt_lib) |crt_file| {
         const path = crt_file.full_object_path;
-        self.classifyInputFile(try link.openArchiveInput(diags, path)) catch |err|
+        self.classifyInputFile(try link.openArchiveInput(diags, path, false, false)) catch |err|
             diags.addParseError(path, "failed to parse archive: {s}", .{@errorName(err)});
     } else if (comp.compiler_rt_obj) |crt_file| {
         const path = crt_file.full_object_path;
