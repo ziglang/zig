@@ -2721,7 +2721,7 @@ fn buildOutputType(
                 },
             }
             if (create_module.c_source_files.items.len == 0 and
-                !link.anyObjectInputs(create_module.link_inputs.items) and
+                !anyObjectLinkInputs(create_module.cli_link_inputs.items) and
                 root_src_file == null)
             {
                 // For example `zig cc` and no args should print the "no input files" message.
@@ -2763,9 +2763,13 @@ fn buildOutputType(
             if (create_module.c_source_files.items.len >= 1)
                 break :b create_module.c_source_files.items[0].src_path;
 
-            for (create_module.link_inputs.items) |link_input| {
-                if (link_input.path()) |path| break :b path.sub_path;
-            }
+            for (create_module.cli_link_inputs.items) |unresolved_link_input| switch (unresolved_link_input) {
+                .path_query => |pq| switch (Compilation.classifyFileExt(pq.path.sub_path)) {
+                    .object, .static_library, .res => break :b pq.path.sub_path,
+                    else => continue,
+                },
+                else => continue,
+            };
 
             if (emit_bin == .yes)
                 break :b emit_bin.yes;
@@ -7490,4 +7494,15 @@ fn handleModArg(
     target_mcpu.* = null;
     c_source_files_owner_index.* = create_module.c_source_files.items.len;
     rc_source_files_owner_index.* = create_module.rc_source_files.items.len;
+}
+
+fn anyObjectLinkInputs(link_inputs: []const link.UnresolvedInput) bool {
+    for (link_inputs) |link_input| switch (link_input) {
+        .path_query => |pq| switch (Compilation.classifyFileExt(pq.path.sub_path)) {
+            .object, .static_library, .res => return true,
+            else => continue,
+        },
+        else => continue,
+    };
+    return false;
 }
