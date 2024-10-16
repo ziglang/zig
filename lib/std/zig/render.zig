@@ -510,11 +510,6 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
             }
         },
 
-        .add,
-        .add_wrap,
-        .add_sat,
-        .array_cat,
-        .array_mult,
         .assign,
         .assign_bit_and,
         .assign_bit_or,
@@ -533,6 +528,25 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         .assign_mul,
         .assign_mul_wrap,
         .assign_mul_sat,
+        => {
+            const infix = datas[node];
+            try renderExpression(r, infix.lhs, .space);
+            const op_token = main_tokens[node];
+            try ais.pushIndent(.after_equals);
+            if (tree.tokensOnSameLine(op_token, op_token + 1)) {
+                try renderToken(r, op_token, .space);
+            } else {
+                try renderToken(r, op_token, .newline);
+            }
+            try renderExpression(r, infix.rhs, space);
+            ais.popIndent();
+        },
+
+        .add,
+        .add_wrap,
+        .add_sat,
+        .array_cat,
+        .array_mult,
         .bang_equal,
         .bit_and,
         .bit_or,
