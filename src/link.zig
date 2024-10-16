@@ -1562,6 +1562,7 @@ pub fn resolveInputs(
                         .reexport = an.query.reexport,
                         .must_link = an.query.must_link,
                         .hidden = an.query.hidden,
+                        .allow_so_scripts = an.query.allow_so_scripts,
                         .preferred_mode = link_mode,
                         .search_strategy = .no_fallback,
                     },
@@ -1877,6 +1878,8 @@ fn resolvePathInputLib(
     link_mode: std.builtin.LinkMode,
     color: std.zig.Color,
 ) Allocator.Error!AccessLibPathResult {
+    try resolved_inputs.ensureUnusedCapacity(gpa, 1);
+
     const test_path: Path = pq.path;
     // In the case of .so files, they might actually be "linker scripts"
     // that contain references to other libraries.
