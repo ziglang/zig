@@ -3076,15 +3076,12 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
         });
     }
 
-    var all_references: ?std.AutoHashMapUnmanaged(InternPool.AnalUnit, ?Zcu.ResolvedReference) = null;
-    defer if (all_references) |*a| a.deinit(gpa);
-
     if (comp.zcu) |zcu| {
         const ip = &zcu.intern_pool;
 
         for (zcu.failed_files.keys(), zcu.failed_files.values()) |file, error_msg| {
             if (error_msg) |msg| {
-                try addModuleErrorMsg(zcu, &bundle, msg.*, &all_references);
+                try addModuleErrorMsg(zcu, &bundle, msg.*);
             } else {
                 // Must be ZIR errors. Note that this may include AST errors.
                 // addZirErrorMessages asserts that the tree is loaded.
@@ -3093,7 +3090,7 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
             }
         }
         for (zcu.failed_embed_files.values()) |error_msg| {
-            try addModuleErrorMsg(zcu, &bundle, error_msg.*, &all_references);
+            try addModuleErrorMsg(zcu, &bundle, error_msg.*);
         }
         {
             const SortOrder = struct {
@@ -3136,10 +3133,8 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
         }
         for (zcu.failed_analysis.keys(), zcu.failed_analysis.values()) |anal_unit, error_msg| {
             if (comp.incremental) {
-                if (all_references == null) {
-                    all_references = try zcu.resolveReferences();
-                }
-                if (!all_references.?.contains(anal_unit)) continue;
+                const refs = try zcu.resolveReferences();
+                if (!refs.contains(anal_unit)) continue;
             }
 
             const file_index = switch (anal_unit.unwrap()) {
@@ -3151,7 +3146,7 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
             // We'll try again once parsing succeeds.
             if (!zcu.fileByIndex(file_index).okToReportErrors()) continue;
 
-            try addModuleErrorMsg(zcu, &bundle, error_msg.*, &all_references);
+            try addModuleErrorMsg(zcu, &bundle, error_msg.*);
             if (zcu.cimport_errors.get(anal_unit)) |errors| {
                 for (errors.getMessages()) |err_msg_index| {
                     const err_msg = errors.getErrorMessage(err_msg_index);
@@ -3175,10 +3170,10 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
         }
         for (zcu.failed_codegen.keys(), zcu.failed_codegen.values()) |nav, error_msg| {
             if (!zcu.navFileScope(nav).okToReportErrors()) continue;
-            try addModuleErrorMsg(zcu, &bundle, error_msg.*, &all_references);
+            try addModuleErrorMsg(zcu, &bundle, error_msg.*);
         }
         for (zcu.failed_exports.values()) |value| {
-            try addModuleErrorMsg(zcu, &bundle, value.*, &all_references);
+            try addModuleErrorMsg(zcu, &bundle, value.*);
         }
 
         const actual_error_count = zcu.intern_pool.global_error_set.getNamesFromMainThread().len;
@@ -3252,17 +3247,15 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
                 };
             }
 
-            try addModuleErrorMsg(zcu, &bundle, err_msg, &all_references);
+            try addModuleErrorMsg(zcu, &bundle, err_msg);
         }
     }
 
     if (comp.zcu) |zcu| {
         if (comp.incremental and bundle.root_list.items.len == 0) {
             const should_have_error = for (zcu.transitive_failed_analysis.keys()) |failed_unit| {
-                if (all_references == null) {
-                    all_references = try zcu.resolveReferences();
-                }
-                if (all_references.?.contains(failed_unit)) break true;
+                const refs = try zcu.resolveReferences();
+                if (refs.contains(failed_unit)) break true;
             } else false;
             if (should_have_error) {
                 @panic("referenced transitive analysis errors, but none actually emitted");
@@ -3331,14 +3324,13 @@ pub const ErrorNoteHashContext = struct {
 };
 
 pub fn addModuleErrorMsg(
-    mod: *Zcu,
+    zcu: *Zcu,
     eb: *ErrorBundle.Wip,
     module_err_msg: Zcu.ErrorMsg,
-    all_references: *?std.AutoHashMapUnmanaged(InternPool.AnalUnit, ?Zcu.ResolvedReference),
 ) !void {
     const gpa = eb.gpa;
-    const ip = &mod.intern_pool;
-    const err_src_loc = module_err_msg.src_loc.upgrade(mod);
+    const ip = &zcu.intern_pool;
+    const err_src_loc = module_err_msg.src_loc.upgrade(zcu);
     const err_source = err_src_loc.file_scope.getSource(gpa) catch |err| {
         const file_path = try err_src_loc.file_scope.fullPath(gpa);
         defer gpa.free(file_path);
@@ -3358,22 +3350,20 @@ pub fn addModuleErrorMsg(
     defer ref_traces.deinit(gpa);
 
     if (module_err_msg.reference_trace_root.unwrap()) |rt_root| {
-        if (all_references.* == null) {
-            all_references.* = try mod.resolveReferences();
-        }
+        const all_references = try zcu.resolveReferences();
 
         var seen: std.AutoHashMapUnmanaged(InternPool.AnalUnit, void) = .empty;
         defer seen.deinit(gpa);
 
-        const max_references = mod.comp.reference_trace orelse Sema.default_reference_trace_len;
+        const max_references = zcu.comp.reference_trace orelse Sema.default_reference_trace_len;
 
         var referenced_by = rt_root;
-        while (all_references.*.?.get(referenced_by)) |maybe_ref| {
+        while (all_references.get(referenced_by)) |maybe_ref| {
             const ref = maybe_ref orelse break;
             const gop = try seen.getOrPut(gpa, ref.referencer);
             if (gop.found_existing) break;
             if (ref_traces.items.len < max_references) {
-                const src = ref.src.upgrade(mod);
+                const src = ref.src.upgrade(zcu);
                 const source = try src.file_scope.getSource(gpa);
                 const span = try src.span(gpa);
                 const loc = std.zig.findLineColumn(source.bytes, span.main);
@@ -3385,7 +3375,7 @@ pub fn addModuleErrorMsg(
                         .type => |ty| Type.fromInterned(ty).containerTypeName(ip).toSlice(ip),
                         .none => "comptime",
                     },
-                    .func => |f| ip.getNav(mod.funcInfo(f).owner_nav).name.toSlice(ip),
+                    .func => |f| ip.getNav(zcu.funcInfo(f).owner_nav).name.toSlice(ip),
                 };
                 try ref_traces.append(gpa, .{
                     .decl_name = try eb.addString(name),
@@ -3435,7 +3425,7 @@ pub fn addModuleErrorMsg(
     defer notes.deinit(gpa);
 
     for (module_err_msg.notes) |module_note| {
-        const note_src_loc = module_note.src_loc.upgrade(mod);
+        const note_src_loc = module_note.src_loc.upgrade(zcu);
         const source = try note_src_loc.file_scope.getSource(gpa);
         const span = try note_src_loc.span(gpa);
         const loc = std.zig.findLineColumn(source.bytes, span.main);
@@ -3488,13 +3478,13 @@ pub fn performAllTheWork(
     comp: *Compilation,
     main_progress_node: std.Progress.Node,
 ) JobError!void {
-    defer if (comp.zcu) |mod| {
-        mod.sema_prog_node.end();
-        mod.sema_prog_node = std.Progress.Node.none;
-        mod.codegen_prog_node.end();
-        mod.codegen_prog_node = std.Progress.Node.none;
+    defer if (comp.zcu) |zcu| {
+        zcu.sema_prog_node.end();
+        zcu.sema_prog_node = std.Progress.Node.none;
+        zcu.codegen_prog_node.end();
+        zcu.codegen_prog_node = std.Progress.Node.none;
 
-        mod.generation += 1;
+        zcu.generation += 1;
     };
     try comp.performAllTheWorkInner(main_progress_node);
     if (!InternPool.single_threaded) if (comp.codegen_work.job_error) |job_error| return job_error;
