@@ -3885,32 +3885,14 @@ fn createModule(
                 if (fs.path.isAbsolute(lib_dir_arg)) {
                     const stripped_dir = lib_dir_arg[fs.path.diskDesignator(lib_dir_arg).len..];
                     const full_path = try fs.path.join(arena, &[_][]const u8{ root, stripped_dir });
-                    create_module.lib_directories.appendAssumeCapacity(.{
-                        .handle = fs.cwd().openDir(full_path, .{}) catch |err| {
-                            warn("unable to open library directory {s}: {s}", .{ full_path, @errorName(err) });
-                            continue;
-                        },
-                        .path = full_path,
-                    });
+                    addLibDirectoryWarn(&create_module.lib_directories, full_path);
                 } else {
-                    create_module.lib_directories.appendAssumeCapacity(.{
-                        .handle = fs.cwd().openDir(lib_dir_arg, .{}) catch |err| {
-                            warn("unable to open library directory {s}: {s}", .{ lib_dir_arg, @errorName(err) });
-                            continue;
-                        },
-                        .path = lib_dir_arg,
-                    });
+                    addLibDirectoryWarn(&create_module.lib_directories, lib_dir_arg);
                 }
             }
         } else {
             for (create_module.lib_dir_args.items) |lib_dir_arg| {
-                create_module.lib_directories.appendAssumeCapacity(.{
-                    .handle = fs.cwd().openDir(lib_dir_arg, .{}) catch |err| {
-                        warn("unable to open library directory {s}: {s}", .{ lib_dir_arg, @errorName(err) });
-                        continue;
-                    },
-                    .path = lib_dir_arg,
-                });
+                addLibDirectoryWarn(&create_module.lib_directories, lib_dir_arg);
             }
         }
         create_module.lib_dir_args = undefined; // From here we use lib_directories instead.
@@ -3946,15 +3928,7 @@ fn createModule(
             try create_module.rpath_list.appendSlice(arena, paths.rpaths.items);
 
             try create_module.lib_directories.ensureUnusedCapacity(arena, paths.lib_dirs.items.len);
-            for (paths.lib_dirs.items) |lib_dir| {
-                create_module.lib_directories.appendAssumeCapacity(.{
-                    .handle = fs.cwd().openDir(lib_dir, .{}) catch |err| {
-                        warn("unable to open library directory {s}: {s}", .{ lib_dir, @errorName(err) });
-                        continue;
-                    },
-                    .path = lib_dir,
-                });
-            }
+            for (paths.lib_dirs.items) |path| addLibDirectoryWarn(&create_module.lib_directories, path);
         }
 
         if (create_module.libc_paths_file) |paths_file| {
@@ -3977,10 +3951,9 @@ fn createModule(
                     fatal("unable to find native libc installation: {s}", .{@errorName(err)});
                 };
 
-                try create_module.lib_directories.appendSlice(arena, &.{
-                    create_module.libc_installation.?.msvc_lib_dir.?,
-                    create_module.libc_installation.?.kernel32_lib_dir.?,
-                });
+                try create_module.lib_directories.ensureUnusedCapacity(arena, 2);
+                addLibDirectoryWarn(&create_module.lib_directories, create_module.libc_installation.?.msvc_lib_dir.?);
+                addLibDirectoryWarn(&create_module.lib_directories, create_module.libc_installation.?.kernel32_lib_dir.?);
             }
         }
 
@@ -7503,4 +7476,14 @@ fn anyObjectLinkInputs(link_inputs: []const link.UnresolvedInput) bool {
         else => continue,
     };
     return false;
+}
+
+fn addLibDirectoryWarn(lib_directories: *std.ArrayListUnmanaged(Directory), path: []const u8) void {
+    lib_directories.appendAssumeCapacity(.{
+        .handle = fs.cwd().openDir(path, .{}) catch |err| {
+            warn("unable to open library directory '{s}': {s}", .{ path, @errorName(err) });
+            return;
+        },
+        .path = path,
+    });
 }
