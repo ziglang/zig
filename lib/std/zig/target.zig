@@ -130,7 +130,7 @@ pub fn muslArchNameHeaders(arch: std.Target.Cpu.Arch) [:0]const u8 {
 
 pub fn muslAbiNameHeaders(abi: std.Target.Abi) [:0]const u8 {
     return switch (abi) {
-        .muslabin32 => "mipsn32",
+        .muslabin32 => "muslabin32",
         .muslx32 => "muslx32",
         else => "musl",
     };
