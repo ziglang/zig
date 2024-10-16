@@ -160,7 +160,8 @@ pub fn makeDirAbsoluteZ(absolute_path_z: [*:0]const u8) !void {
 /// Same as `makeDirAbsolute` except the parameter is a null-terminated WTF-16 LE-encoded string.
 pub fn makeDirAbsoluteW(absolute_path_w: [*:0]const u16) !void {
     assert(path.isAbsoluteWindowsW(absolute_path_w));
-    return posix.mkdirW(absolute_path_w, Dir.default_mode);
+    const slice = mem.sliceTo(absolute_path_w, 0);
+    return posix.mkdirW(slice, Dir.default_mode);
 }
 
 /// Same as `Dir.deleteDir` except the path is absolute.
@@ -181,7 +182,8 @@ pub fn deleteDirAbsoluteZ(dir_path: [*:0]const u8) !void {
 /// Same as `deleteDirAbsolute` except the path parameter is WTF-16 and target OS is assumed Windows.
 pub fn deleteDirAbsoluteW(dir_path: [*:0]const u16) !void {
     assert(path.isAbsoluteWindowsW(dir_path));
-    return posix.rmdirW(dir_path);
+    const slice = mem.sliceTo(dir_path, 0);
+    return posix.rmdirW(slice);
 }
 
 /// Same as `Dir.rename` except the paths are absolute.
@@ -221,7 +223,7 @@ pub fn renameZ(old_dir: Dir, old_sub_path_z: [*:0]const u8, new_dir: Dir, new_su
 /// Same as `rename` except the parameters are WTF16LE, NT prefixed.
 /// This function is Windows-only.
 pub fn renameW(old_dir: Dir, old_sub_path_w: []const u16, new_dir: Dir, new_sub_path_w: []const u16) !void {
-    return posix.renameatW(old_dir.fd, old_sub_path_w, new_dir.fd, new_sub_path_w);
+    return posix.renameatW(old_dir.fd, old_sub_path_w, new_dir.fd, new_sub_path_w, windows.TRUE);
 }
 
 /// Returns a handle to the current working directory. It is not opened with iteration capability.
@@ -338,7 +340,8 @@ pub fn createFileAbsoluteZ(absolute_path_c: [*:0]const u8, flags: File.CreateFla
 /// Same as `createFileAbsolute` but the path parameter is WTF-16 encoded.
 pub fn createFileAbsoluteW(absolute_path_w: [*:0]const u16, flags: File.CreateFlags) File.OpenError!File {
     assert(path.isAbsoluteWindowsW(absolute_path_w));
-    return cwd().createFileW(absolute_path_w, flags);
+    const slice = mem.sliceTo(absolute_path_w, 0);
+    return cwd().createFileW(slice, flags);
 }
 
 /// Delete a file name and possibly the file it refers to, based on an absolute path.
@@ -362,7 +365,8 @@ pub fn deleteFileAbsoluteZ(absolute_path_c: [*:0]const u8) Dir.DeleteFileError!v
 /// Same as `deleteFileAbsolute` except the parameter is WTF-16 encoded.
 pub fn deleteFileAbsoluteW(absolute_path_w: [*:0]const u16) Dir.DeleteFileError!void {
     assert(path.isAbsoluteWindowsW(absolute_path_w));
-    return cwd().deleteFileW(absolute_path_w);
+    const slice = mem.sliceTo(absolute_path_w, 0);
+    return cwd().deleteFileW(slice);
 }
 
 /// Removes a symlink, file, or directory.
@@ -400,7 +404,8 @@ pub fn readLinkAbsolute(pathname: []const u8, buffer: *[max_path_bytes]u8) ![]u8
 /// encoded.
 pub fn readlinkAbsoluteW(pathname_w: [*:0]const u16, buffer: *[max_path_bytes]u8) ![]u8 {
     assert(path.isAbsoluteWindowsW(pathname_w));
-    return posix.readlinkW(pathname_w, buffer);
+    const slice = mem.sliceTo(pathname_w, 0);
+    return posix.readlinkW(slice, buffer);
 }
 
 /// Same as `readLink`, except the path parameter is null-terminated.
@@ -437,7 +442,7 @@ pub fn symLinkAbsolute(
 /// like to create a symbolic link to a directory, specify this with `SymLinkFlags{ .is_directory = true }`.
 /// See also `symLinkAbsolute`, `symLinkAbsoluteZ`.
 pub fn symLinkAbsoluteW(
-    target_path_w: []const u16,
+    target_path_w: [:0]const u16,
     sym_link_path_w: []const u16,
     flags: Dir.SymLinkFlags,
 ) !void {
