@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const build_options = @import("build_options");
+const otel = std.otel;
 
 pub const enable = build_options.enable_tracy;
 pub const enable_allocation = enable and build_options.enable_tracy_allocation;
@@ -9,11 +10,11 @@ pub const enable_callstack = enable and build_options.enable_tracy_callstack;
 // TODO: make this configurable
 const callstack_depth = 10;
 
-pub const TRACE_TYPES: std.otel.trace.Types = if (enable) .{
+pub const TRACE_TYPES: otel.trace.Types = if (enable) .{
     .Span = ___tracy_c_zone_context,
-} else std.otel.trace.NULL_TYPES;
+} else otel.trace.NULL_TYPES;
 
-pub const TRACE_FUNCTIONS: std.otel.trace.Functions = if (enable) .{
+pub const TRACE_FUNCTIONS: otel.trace.Functions = if (enable) .{
     .tracer_enabled = tracerEnabled,
     .tracer_create_span = tracerCreateSpan,
     .tracer_create_span_source_location = tracerCreateSpanSourceLocation,
@@ -30,18 +31,18 @@ pub const TRACE_FUNCTIONS: std.otel.trace.Functions = if (enable) .{
     .span_update_name = ___tracy_c_zone_context.updateName,
     .span_end = ___tracy_c_zone_context.end,
     .span_record_exception = ___tracy_c_zone_context.recordException,
-} else std.otel.trace.NULL_FUNCTIONS;
+} else otel.trace.NULL_FUNCTIONS;
 
-pub fn tracerEnabled(comptime scope: std.otel.InstrumentationScope) bool {
+pub fn tracerEnabled(comptime scope: otel.InstrumentationScope) bool {
     _ = scope;
     return build_options.enable;
 }
 
 pub fn tracerCreateSpan(
-    comptime scope: std.otel.InstrumentationScope,
+    comptime scope: otel.InstrumentationScope,
     comptime name: [:0]const u8,
     comptime src: ?std.builtin.SourceLocation,
-    options: std.otel.trace.CreateSpanOptions,
+    options: otel.trace.CreateSpanOptions,
 ) ___tracy_c_zone_context {
     _ = scope;
     _ = options;
@@ -67,9 +68,9 @@ pub fn tracerCreateSpan(
 }
 
 pub fn tracerCreateSpanSourceLocation(
-    comptime scope: std.otel.InstrumentationScope,
+    comptime scope: otel.InstrumentationScope,
     comptime src: std.builtin.SourceLocation,
-    options: std.otel.trace.CreateSpanOptions,
+    options: otel.trace.CreateSpanOptions,
 ) ___tracy_c_zone_context {
     _ = scope;
     _ = options;
@@ -92,13 +93,13 @@ pub fn tracerCreateSpanSourceLocation(
     }
 }
 
-pub fn contextExtractSpan(context: std.otel.Context) ___tracy_c_zone_context {
-    const ctx = std.otel.Context.getValue(context, ___tracy_c_zone_context) orelse return .NULL;
+pub fn contextExtractSpan(context: otel.Context) ___tracy_c_zone_context {
+    const ctx = otel.Context.getValue(context, ___tracy_c_zone_context) orelse return .NULL;
     return ctx;
 }
 
-pub fn contextWithSpan(context: std.otel.Context, zone_ctx: ___tracy_c_zone_context) std.otel.Context {
-    return std.otel.Context.withValue(context, ___tracy_c_zone_context, zone_ctx);
+pub fn contextWithSpan(context: otel.Context, zone_ctx: ___tracy_c_zone_context) otel.Context {
+    return otel.Context.withValue(context, ___tracy_c_zone_context, zone_ctx);
 }
 
 const ___tracy_c_zone_context = extern struct {
@@ -107,9 +108,9 @@ const ___tracy_c_zone_context = extern struct {
 
     pub const NULL = ___tracy_c_zone_context{ .id = 0, .active = 0 };
 
-    pub fn getContext(self: @This()) std.otel.trace.SpanContext {
+    pub fn getContext(self: @This()) otel.trace.SpanContext {
         _ = self;
-        return std.otel.trace.SpanContext.INVALID;
+        return otel.trace.SpanContext.INVALID;
     }
 
     pub fn isRecording(self: @This()) bool {
@@ -117,22 +118,22 @@ const ___tracy_c_zone_context = extern struct {
         return self.active != 0;
     }
 
-    pub fn setAttribute(self: @This(), attribute: std.otel.Attribute) void {
+    pub fn setAttribute(self: @This(), attribute: otel.Attribute) void {
         _ = self;
         _ = attribute;
     }
 
-    pub fn addEvent(self: @This(), options: std.otel.trace.AddEventOptions) void {
+    pub fn addEvent(self: @This(), options: otel.trace.AddEventOptions) void {
         _ = self;
         _ = options;
     }
 
-    pub fn addLink(self: @This(), link: std.otel.trace.Link) void {
+    pub fn addLink(self: @This(), link: otel.trace.Link) void {
         _ = self;
         _ = link;
     }
 
-    pub fn setStatus(self: @This(), status: std.otel.trace.Status) void {
+    pub fn setStatus(self: @This(), status: otel.trace.Status) void {
         _ = self;
         _ = status;
     }

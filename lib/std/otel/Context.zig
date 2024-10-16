@@ -4,16 +4,17 @@
 //! Immutable.
 const Context = @This();
 
-/// The value used by the implementation to implement `Context`. No peeking!
-impl: std.otel.types.context.Context,
+/// The inner value used to implement Context. The default implementation
+/// (NULL_CONTEXT_TYPE) is an empty struct.
+inner: otel.types.Context,
 
 pub fn destroy(context: Context) void {
-    std.otel.functions.context.destroy(context.impl);
+    otel.functions.context.destroy(context.inner);
 }
 
 pub fn getValue(context: Context, T: type) ?T {
     var return_value: T = undefined;
-    if (std.otel.functions.context.get_value(context.impl, T, std.mem.asBytes(&return_value))) {
+    if (otel.functions.context.get_value(context.inner, T, std.mem.asBytes(&return_value))) {
         return return_value;
     } else {
         return null;
@@ -22,7 +23,7 @@ pub fn getValue(context: Context, T: type) ?T {
 
 /// Returns a new Context with the given type set to the given `value`.
 pub fn withValue(context: Context, T: type, value: T) Context {
-    return .{ .impl = std.otel.functions.context.with_value(context.impl, T, std.mem.asBytes(&value)) };
+    return Context{ .inner = otel.functions.context.with_value(context.inner, T, std.mem.asBytes(&value)) };
 }
 
 /// Get the current context for the current "execution unit".
@@ -30,7 +31,7 @@ pub fn withValue(context: Context, T: type, value: T) Context {
 /// "Execution unit" will depend on the implementation, but generally means "the
 /// current thread".
 pub fn current() Context {
-    return .{ .impl = std.otel.functions.context.current() };
+    return Context{ .inner = otel.functions.context.current() };
 }
 
 /// Mark the given Context as the current context for the current "execution unit".
@@ -43,43 +44,33 @@ pub fn current() Context {
 /// "Execution unit" will depend on the implementation, but generally means "the
 /// current thread".
 pub fn attach(context: Context) AttachToken {
-    return .{ .impl = std.otel.functions.context.attach(context.impl) };
+    return AttachToken{ .inner = otel.functions.context.attach(context.inner) };
 }
 
 /// A value received after attaching a context to the current "execution unit". Used
 /// to detach the context, and may be used by the implementation to check that
 /// detach order is correct.
 pub const AttachToken = struct {
-    impl: std.otel.types.context.AttachToken,
+    inner: otel.types.ContextAttachToken,
 
     pub fn detach(attach_token: AttachToken) void {
-        return std.otel.functions.context.detach(attach_token.impl);
+        return otel.functions.context.detach(attach_token.inner);
     }
-};
-
-/// The list of types that MUST be provided to implement the `otel.Context` api.
-pub const Types = struct {
-    Context: type,
-    AttachToken: type,
 };
 
 /// The list of Functions that MUST be provided to implement the `otel.Context` api.
 pub const Functions = struct {
-    get_value: fn (impl_types.Context, T: type, return_value: []u8) bool,
-    with_value: fn (impl_types.Context, T: type, value_bytes: []const u8) impl_types.Context,
-    destroy: fn (impl_types.Context) void,
-    current: fn () impl_types.Context,
-    attach: fn (impl_types.Context) impl_types.AttachToken,
-    detach: fn (impl_types.AttachToken) void,
-
-    const impl_types = std.otel.types.context;
+    get_value: fn (otel.types.Context, T: type, return_value: []u8) bool,
+    with_value: fn (otel.types.Context, T: type, value_bytes: []const u8) otel.types.Context,
+    destroy: fn (otel.types.Context) void,
+    current: fn () otel.types.Context,
+    attach: fn (otel.types.Context) otel.types.ContextAttachToken,
+    detach: fn (otel.types.ContextAttachToken) void,
 };
 
 /// The default types used to implement `Context` that do nothing.
-pub const NULL_TYPES: Types = .{
-    .Context = struct {},
-    .AttachToken = struct {},
-};
+pub const NULL_CONTEXT_TYPE = struct {};
+pub const NULL_ATTACH_TOKEN_TYPE = struct {};
 
 /// The default functions used to implement `Context` that do nothing.
 pub const NULL_FUNCTIONS: Functions = .{
@@ -91,35 +82,36 @@ pub const NULL_FUNCTIONS: Functions = .{
     .detach = nullDetach,
 };
 
-fn nullGetValue(context: std.otel.types.context.Context, T: type, return_value: []u8) bool {
+fn nullGetValue(context: otel.types.Context, T: type, return_value: []u8) bool {
     _ = context;
     _ = T;
     _ = return_value;
     return false;
 }
 
-fn nullWithValue(context: std.otel.types.context.Context, T: type, value_bytes: []const u8) std.otel.types.context.Context {
+fn nullWithValue(context: otel.types.Context, T: type, value_bytes: []const u8) otel.types.Context {
     _ = context;
     _ = T;
     _ = value_bytes;
     return .{};
 }
 
-fn nullDestroy(context: std.otel.types.context.Context) void {
+fn nullDestroy(context: otel.types.Context) void {
     _ = context;
 }
 
-fn nullCurrent() std.otel.types.context.Context {
+fn nullCurrent() otel.types.Context {
     return .{};
 }
 
-fn nullAttach(context: std.otel.types.context.Context) std.otel.types.context.AttachToken {
+fn nullAttach(context: otel.types.Context) otel.types.ContextAttachToken {
     _ = context;
     return .{};
 }
 
-fn nullDetach(attach_token: std.otel.types.context.AttachToken) void {
+fn nullDetach(attach_token: otel.types.ContextAttachToken) void {
     _ = attach_token;
 }
 
+const otel = @import("../otel.zig");
 const std = @import("../std.zig");

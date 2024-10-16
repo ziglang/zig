@@ -43,9 +43,11 @@ pub const trace = @import("otel/trace.zig");
 // application configured options
 const root = @import("root");
 
-/// The types used inside opentelemetry API types. For example, the default trace
-/// API implementation sets the `trace.Span` type to `void` to make the tracing code
-/// a no-op.
+/// The concrete types that implement the APIs defined here. By default all of the
+/// APIs come with a no-op implementation. Library developers can use these APIs to
+/// instrument their libraries, and software developers can then choose an
+/// implementation of the API that matches the software's telemetry needs, or leave
+/// out telemetry all together.
 pub const types: Types = if (@hasDecl(root, "otel_types"))
     root.otel_types
 else
@@ -59,7 +61,8 @@ else
     .{};
 
 pub const Types = struct {
-    context: Context.Types = Context.NULL_TYPES,
+    Context: type = Context.NULL_CONTEXT_TYPE,
+    ContextAttachToken: type = Context.NULL_ATTACH_TOKEN_TYPE,
     trace: trace.Types = trace.NULL_TYPES,
 };
 
