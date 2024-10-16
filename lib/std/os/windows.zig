@@ -1291,16 +1291,33 @@ pub fn GetFinalPathNameByHandle(
         },
         .Dos => {
             // parse the string to separate volume path from file path
-            const expected_prefix = std.unicode.utf8ToUtf16LeStringLiteral("\\Device\\");
+            const device_prefix = std.unicode.utf8ToUtf16LeStringLiteral("\\Device\\");
 
-            // TODO find out if a path can start with something besides `\Device\<volume name>`,
-            // and if we need to handle it differently
-            // (i.e. how to determine the start and end of the volume name in that case)
-            if (!mem.eql(u16, expected_prefix, final_path[0..expected_prefix.len])) return error.Unexpected;
+            // We aren't entirely sure of the structure of the path returned by
+            // QueryObjectName in all contexts/environments.
+            // This code is written to cover the various cases that have
+            // been encountered and solved appropriately. But note that there's
+            // no easy way to verify that they have all been tackled!
+            // (Unless you, the reader knows of one then please do action that!)
+            if (!mem.eql(u16, device_prefix, final_path[0..device_prefix.len])) {
+                // Wine seems to return NT namespaced paths from QueryObjectName
+                // (e.g. `\??\Z:\some\path\to\a\file.txt`), in which case we can just strip the
+                // prefix to turn it into an absolute paths
+                const namespace_prefix = getNamespacePrefix(u16, final_path);
+                if (namespace_prefix == .nt) {
+                    const unprefixed_path = final_path[NamespacePrefix.len..];
+                    // TODO: Handle other possible path types, only drive absolute has been observed so far
+                    if (getUnprefixedPathType(u16, unprefixed_path) != .drive_absolute) {
+                        return error.Unexpected;
+                    }
+                    return unprefixed_path;
+                }
+                return error.Unexpected;
+            }
 
-            const file_path_begin_index = mem.indexOfPos(u16, final_path, expected_prefix.len, &[_]u16{'\\'}) orelse unreachable;
+            const file_path_begin_index = mem.indexOfPos(u16, final_path, device_prefix.len, &[_]u16{'\\'}) orelse unreachable;
             const volume_name_u16 = final_path[0..file_path_begin_index];
-            const device_name_u16 = volume_name_u16[expected_prefix.len..];
+            const device_name_u16 = volume_name_u16[device_prefix.len..];
             const file_name_u16 = final_path[file_path_begin_index..];
 
             // MUP is Multiple UNC Provider, and indicates that the path is a UNC
@@ -2558,6 +2575,9 @@ pub const NamespacePrefix = enum {
     fake_verbatim,
     /// `\??\`
     nt,
+
+    // The length of all the prefixes (except `none`)
+    pub const len: usize = 4;
 };
 
 /// If `T` is `u16`, then `path` should be encoded as WTF-16LE.
