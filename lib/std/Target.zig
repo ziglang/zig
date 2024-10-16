@@ -1785,6 +1785,9 @@ pub const Cpu = struct {
             };
         }
 
+        /// Returns the most bare-bones CPU model that is valid for `arch`. Note that this function
+        /// can return CPU models that are understood by LLVM, but *not* understood by Clang. If
+        /// Clang compatibility is important, consider using `baseline` instead.
         pub fn generic(arch: Arch) *const Model {
             const S = struct {
                 const generic_model = Model{
@@ -1835,6 +1838,14 @@ pub const Cpu = struct {
             };
         }
 
+        /// Returns a conservative CPU model for `arch` that is expected to be compatible with the
+        /// vast majority of hardware available. This function is guaranteed to return CPU models
+        /// that are understood by both LLVM and Clang, unlike `generic`.
+        ///
+        /// For certain `os` values, this function will additionally bump the baseline higher than
+        /// the baseline would be for `arch` in isolation; for example, for `aarch64-macos`, the
+        /// baseline is considered to be `apple_m1`. To avoid this behavior entirely, pass
+        /// `Os.Tag.freestanding`.
         pub fn baseline(arch: Arch, os: Os) *const Model {
             return switch (arch) {
                 .arm, .armeb, .thumb, .thumbeb => &arm.cpu.baseline,
