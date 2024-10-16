@@ -2003,6 +2003,12 @@ pub fn openArchiveInput(diags: *Diags, path: Path) error{LinkFailure}!Input {
     } };
 }
 
+pub fn openDsoInput(diags: *Diags, path: Path, needed: bool, weak: bool, reexport: bool) error{LinkFailure}!Input {
+    return .{ .dso = openDso(path, needed, weak, reexport) catch |err| {
+        return diags.failParse(path, "failed to open {}: {s}", .{ path, @errorName(err) });
+    } };
+}
+
 fn stripLibPrefixAndSuffix(path: []const u8, target: std.Target) ?struct { []const u8, std.builtin.LinkMode } {
     const prefix = target.libPrefix();
     const static_suffix = target.staticLibSuffix();
