@@ -2339,3 +2339,25 @@ test "signed enum tag with negative value" {
 
     try expect(e.a == i);
 }
+
+test "init tagged union with underaligned payload" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+
+    const U = union(enum) {
+        a: u64 align(1),
+        b: void,
+    };
+
+    var x: u32 = undefined;
+    x = 123;
+
+    const u: U = .{ .a = x };
+
+    try expect(u == .a);
+    try expect(u.a == 123);
+}
