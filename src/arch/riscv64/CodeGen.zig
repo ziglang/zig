@@ -820,10 +820,7 @@ pub fn generate(
     try function.frame_allocs.resize(gpa, FrameIndex.named_count);
     function.frame_allocs.set(
         @intFromEnum(FrameIndex.stack_frame),
-        FrameAlloc.init(.{
-            .size = 0,
-            .alignment = .fromByteUnits(target_util.stackAlignment(function.target.*, fn_type.fnCallingConvention(zcu))),
-        }),
+        FrameAlloc.init(.{ .size = 0, .alignment = .@"1" }),
     );
     function.frame_allocs.set(
         @intFromEnum(FrameIndex.call_frame),
