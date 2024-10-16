@@ -443,11 +443,8 @@ fn initCstringLiterals(self: *Object, allocator: Allocator, file: File.Handle, m
     for (slice.items(.header), 0..) |sect, n_sect| {
         if (!isCstringLiteral(sect)) continue;
 
-        const sect_size = math.cast(usize, sect.size) orelse return error.Overflow;
-        const data = try allocator.alloc(u8, sect_size);
+        const data = try self.readSectionData(allocator, file, @intCast(n_sect));
         defer allocator.free(data);
-        const amt = try file.preadAll(data, sect.offset + self.offset);
-        if (amt != data.len) return error.InputOutput;
 
         var count: u32 = 0;
         var start: u32 = 0;
@@ -646,13 +643,10 @@ pub fn resolveLiterals(self: *Object, lp: *MachO.LiteralPool, macho_file: *MachO
     }
 
     const slice = self.sections.slice();
-    for (slice.items(.header), slice.items(.subsections)) |header, subs| {
+    for (slice.items(.header), slice.items(.subsections), 0..) |header, subs, n_sect| {
         if (isCstringLiteral(header) or isFixedSizeLiteral(header)) {
-            const sect_size = math.cast(usize, header.size) orelse return error.Overflow;
-            const data = try gpa.alloc(u8, sect_size);
+            const data = try self.readSectionData(gpa, file, @intCast(n_sect));
             defer gpa.free(data);
-            const amt = try file.preadAll(data, header.offset + self.offset);
-            if (amt != data.len) return error.InputOutput;
 
             for (subs.items) |sub| {
                 const atom = self.getAtom(sub.atom).?;
@@ -686,12 +680,7 @@ pub fn resolveLiterals(self: *Object, lp: *MachO.LiteralPool, macho_file: *MachO
                 buffer.resize(target_size) catch unreachable;
                 const gop = try sections_data.getOrPut(target.n_sect);
                 if (!gop.found_existing) {
-                    const target_sect = slice.items(.header)[target.n_sect];
-                    const target_sect_size = math.cast(usize, target_sect.size) orelse return error.Overflow;
-                    const data = try gpa.alloc(u8, target_sect_size);
-                    const amt = try file.preadAll(data, target_sect.offset + self.offset);
-                    if (amt != data.len) return error.InputOutput;
-                    gop.value_ptr.* = data;
+                    gop.value_ptr.* = try self.readSectionData(gpa, file, @intCast(target.n_sect));
                 }
                 const data = gop.value_ptr.*;
                 const target_off = math.cast(usize, target.off) orelse return error.Overflow;
@@ -1000,7 +989,7 @@ fn initRelocs(self: *Object, file: File.Handle, cpu_arch: std.Target.Cpu.Arch, m
     defer tracy.end();
     const slice = self.sections.slice();
 
-    for (slice.items(.header), slice.items(.relocs)) |sect, *out| {
+    for (slice.items(.header), slice.items(.relocs), 0..) |sect, *out, n_sect| {
         if (sect.nreloc == 0) continue;
         // We skip relocs for __DWARF since even in -r mode, the linker is expected to emit
         // debug symbol stabs in the relocatable. This made me curious why that is. For now,
@@ -1009,8 +998,8 @@ fn initRelocs(self: *Object, file: File.Handle, cpu_arch: std.Target.Cpu.Arch, m
             !mem.eql(u8, sect.sectName(), "__compact_unwind")) continue;
 
         switch (cpu_arch) {
-            .x86_64 => try x86_64.parseRelocs(self, sect, out, file, macho_file),
-            .aarch64 => try aarch64.parseRelocs(self, sect, out, file, macho_file),
+            .x86_64 => try x86_64.parseRelocs(self, @intCast(n_sect), sect, out, file, macho_file),
+            .aarch64 => try aarch64.parseRelocs(self, @intCast(n_sect), sect, out, file, macho_file),
             else => unreachable,
         }
 
@@ -1146,11 +1135,8 @@ fn initUnwindRecords(self: *Object, allocator: Allocator, sect_id: u8, file: Fil
     };
 
     const header = self.sections.items(.header)[sect_id];
-    const size = math.cast(usize, header.size) orelse return error.Overflow;
-    const data = try allocator.alloc(u8, size);
+    const data = try self.readSectionData(allocator, file, sect_id);
     defer allocator.free(data);
-    const amt = try file.preadAll(data, header.offset + self.offset);
-    if (amt != data.len) return error.InputOutput;
 
     const nrecs = @divExact(data.len, @sizeOf(macho.compact_unwind_entry));
     const recs = @as([*]align(1) const macho.compact_unwind_entry, @ptrCast(data.ptr))[0..nrecs];
@@ -2810,6 +2796,7 @@ const CompactUnwindCtx = struct {
 const x86_64 = struct {
     fn parseRelocs(
         self: *Object,
+        n_sect: u8,
         sect: macho.section_64,
         out: *std.ArrayListUnmanaged(Relocation),
         handle: File.Handle,
@@ -2819,19 +2806,12 @@ const x86_64 = struct {
 
         const relocs_buffer = try gpa.alloc(u8, sect.nreloc * @sizeOf(macho.relocation_info));
         defer gpa.free(relocs_buffer);
-        {
-            const amt = try handle.preadAll(relocs_buffer, sect.reloff + self.offset);
-            if (amt != relocs_buffer.len) return error.InputOutput;
-        }
+        const amt = try handle.preadAll(relocs_buffer, sect.reloff + self.offset);
+        if (amt != relocs_buffer.len) return error.InputOutput;
         const relocs = @as([*]align(1) const macho.relocation_info, @ptrCast(relocs_buffer.ptr))[0..sect.nreloc];
 
-        const sect_size = math.cast(usize, sect.size) orelse return error.Overflow;
-        const code = try gpa.alloc(u8, sect_size);
+        const code = try self.readSectionData(gpa, handle, n_sect);
         defer gpa.free(code);
-        {
-            const amt = try handle.preadAll(code, sect.offset + self.offset);
-            if (amt != code.len) return error.InputOutput;
-        }
 
         try out.ensureTotalCapacityPrecise(gpa, relocs.len);
 
@@ -2983,6 +2963,7 @@ const x86_64 = struct {
 const aarch64 = struct {
     fn parseRelocs(
         self: *Object,
+        n_sect: u8,
         sect: macho.section_64,
         out: *std.ArrayListUnmanaged(Relocation),
         handle: File.Handle,
@@ -2992,19 +2973,12 @@ const aarch64 = struct {
 
         const relocs_buffer = try gpa.alloc(u8, sect.nreloc * @sizeOf(macho.relocation_info));
         defer gpa.free(relocs_buffer);
-        {
-            const amt = try handle.preadAll(relocs_buffer, sect.reloff + self.offset);
-            if (amt != relocs_buffer.len) return error.InputOutput;
-        }
+        const amt = try handle.preadAll(relocs_buffer, sect.reloff + self.offset);
+        if (amt != relocs_buffer.len) return error.InputOutput;
         const relocs = @as([*]align(1) const macho.relocation_info, @ptrCast(relocs_buffer.ptr))[0..sect.nreloc];
 
-        const sect_size = math.cast(usize, sect.size) orelse return error.Overflow;
-        const code = try gpa.alloc(u8, sect_size);
+        const code = try self.readSectionData(gpa, handle, n_sect);
         defer gpa.free(code);
-        {
-            const amt = try handle.preadAll(code, sect.offset + self.offset);
-            if (amt != code.len) return error.InputOutput;
-        }
 
         try out.ensureTotalCapacityPrecise(gpa, relocs.len);
 
