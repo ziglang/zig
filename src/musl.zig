@@ -123,7 +123,17 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
                 try addSrcFile(arena, &source_table, src_file);
             }
 
-            const time32_compat_arch_list = [_][]const u8{ "arm", "i386", "mips", "powerpc", "m68k" };
+            const time32_compat_arch_list = [_][]const u8{
+                "arm",
+                "i386",
+                "m68k",
+                "microblaze",
+                "mips",
+                "mipsn32",
+                "or1k",
+                "powerpc",
+                "sh",
+            };
             for (time32_compat_arch_list) |time32_compat_arch| {
                 if (mem.eql(u8, arch_name, time32_compat_arch)) {
                     for (compat_time32_files) |compat_time32_file| {
