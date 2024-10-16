@@ -11859,7 +11859,7 @@ fn firstParamSRet(fn_info: InternPool.Key.FuncType, zcu: *Zcu, target: std.Targe
         .aarch64_aapcs_darwin,
         .aarch64_aapcs_win,
         => aarch64_c_abi.classifyType(return_type, zcu) == .memory,
-        .arm_aapcs => switch (arm_c_abi.classifyType(return_type, zcu, .ret)) {
+        .arm_aapcs, .arm_aapcs_vfp => switch (arm_c_abi.classifyType(return_type, zcu, .ret)) {
             .memory, .i64_array => true,
             .i32_array => |size| size != 1,
             .byval => false,
@@ -11909,7 +11909,7 @@ fn lowerFnRetTy(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.Error!Bu
             .integer => return o.builder.intType(@intCast(return_type.bitSize(zcu))),
             .double_integer => return o.builder.arrayType(2, .i64),
         },
-        .arm_aapcs => switch (arm_c_abi.classifyType(return_type, zcu, .ret)) {
+        .arm_aapcs, .arm_aapcs_vfp => switch (arm_c_abi.classifyType(return_type, zcu, .ret)) {
             .memory, .i64_array => return .void,
             .i32_array => |len| return if (len == 1) .i32 else .void,
             .byval => return o.lowerType(return_type),
@@ -12158,7 +12158,7 @@ const ParamTypeIterator = struct {
                     .double_integer => return Lowering{ .i64_array = 2 },
                 }
             },
-            .arm_aapcs => {
+            .arm_aapcs, .arm_aapcs_vfp => {
                 it.zig_index += 1;
                 it.llvm_index += 1;
                 switch (arm_c_abi.classifyType(ty, zcu, .arg)) {
