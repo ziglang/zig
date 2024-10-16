@@ -10,9 +10,10 @@ pub const enable_callstack = enable and build_options.enable_tracy_callstack;
 // TODO: make this configurable
 const callstack_depth = 10;
 
-pub const TRACE_TYPES: otel.trace.Types = if (enable) .{
-    .Span = ___tracy_c_zone_context,
-} else otel.trace.NULL_TYPES;
+pub const SPAN_TYPE = if (enable)
+    ___tracy_c_zone_context
+else
+    otel.trace.NULL_SPAN_TYPE;
 
 pub const TRACE_FUNCTIONS: otel.trace.Functions = if (enable) .{
     .tracer_enabled = tracerEnabled,

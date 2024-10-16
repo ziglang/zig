@@ -53,7 +53,7 @@ pub fn scoped(comptime scope: otel.InstrumentationScope) type {
             comptime source_location: ?std.builtin.SourceLocation,
             options: CreateSpanOptions,
         ) Span {
-            return .{ .impl = otel.functions.trace.tracer_create_span(this_scope, name, source_location, options) };
+            return Span{ .inner = otel.functions.trace.tracer_create_span(this_scope, name, source_location, options) };
         }
 
         /// Create a span using only the instrumentation scope and the source location.
@@ -67,7 +67,7 @@ pub fn scoped(comptime scope: otel.InstrumentationScope) type {
             comptime source_location: std.builtin.SourceLocation,
             options: CreateSpanOptions,
         ) Span {
-            return .{ .impl = otel.functions.trace.tracer_create_span_source_location(this_scope, source_location, options) };
+            return Span{ .inner = otel.functions.trace.tracer_create_span_source_location(this_scope, source_location, options) };
         }
 
         pub fn enabled() bool {
@@ -86,7 +86,7 @@ pub fn scoped(comptime scope: otel.InstrumentationScope) type {
             const new_span = createSpan(name, source_location, options);
             const new_context = contextWithSpan(otel.Context.current(), new_span);
             const attach_token = new_context.attach();
-            return .{ .span = new_span, .context = new_context, .attach_token = attach_token };
+            return BeginSpanResult{ .span = new_span, .context = new_context, .attach_token = attach_token };
         }
 
         /// Helper function that creates a span, puts it into an otel.Context, and sets that
@@ -125,49 +125,51 @@ pub const BeginSpanResult = struct {
 /// a trace tree. Each trace contains a root span, which typically describes the
 /// entire operation and, optionally, one or more sub-spans for its sub-operations.
 pub const Span = struct {
-    impl: otel.types.trace.Span,
+    /// The inner value. Implementations may set it to be a pointer or a struct or
+    /// whatever they deem fit. Is an emptry struct by default.
+    inner: otel.types.Span,
 
     /// Gets the `SpanContext` associated with this span.
     pub fn getContext(this: @This()) SpanContext {
-        return otel.functions.trace.span_get_context(this.impl);
+        return otel.functions.trace.span_get_context(this.inner);
     }
 
     /// Gets the `SpanContext` associated with this span.
     pub fn isRecording(this: @This()) bool {
-        return otel.functions.trace.span_is_recording(this.impl);
+        return otel.functions.trace.span_is_recording(this.inner);
     }
 
     pub fn setAttribute(this: @This(), attribute: otel.Attribute) void {
-        otel.functions.trace.span_set_attribute(this.impl, attribute);
+        otel.functions.trace.span_set_attribute(this.inner, attribute);
     }
 
     pub fn addEvent(this: @This(), options: AddEventOptions) void {
-        otel.functions.trace.trace.span_add_event(this.impl, options);
+        otel.functions.trace.trace.span_add_event(this.inner, options);
     }
 
     pub fn setStatus(this: @This(), status: Status) void {
-        otel.functions.trace.span_set_status(this.impl, status);
+        otel.functions.trace.span_set_status(this.inner, status);
     }
 
     pub fn updateName(this: @This(), new_name: []const u8) void {
-        otel.functions.trace.span_update_name(this.impl, new_name);
+        otel.functions.trace.span_update_name(this.inner, new_name);
     }
 
     pub fn end(this: @This(), end_timestamp: ?i128) void {
-        otel.functions.trace.span_end(this.impl, end_timestamp);
+        otel.functions.trace.span_end(this.inner, end_timestamp);
     }
 
     pub fn recordException(this: @This(), err: anyerror, stack_trace: ?std.builtin.StackTrace) void {
-        otel.functions.trace.span_record_exception(this.impl, err, stack_trace);
+        otel.functions.trace.span_record_exception(this.inner, err, stack_trace);
     }
 };
 
 pub fn contextWithSpan(context: otel.Context, span: Span) otel.Context {
-    return otel.functions.trace.context_with_span(context, span.impl);
+    return otel.functions.trace.context_with_span(context, span.inner);
 }
 
 pub fn contextExtractSpan(context: otel.Context) Span {
-    return .{ .impl = otel.functions.trace.context_extract_span(context) };
+    return Span{ .inner = otel.functions.trace.context_extract_span(context) };
 }
 
 pub const CreateSpanOptions = struct {
@@ -364,7 +366,7 @@ pub const Functions = struct {
         comptime name: [:0]const u8,
         comptime ?std.builtin.SourceLocation,
         options: CreateSpanOptions,
-    ) impl_types.Span,
+    ) otel.types.Span,
 
     /// Create a span using only the source location.
     ///
@@ -377,30 +379,24 @@ pub const Functions = struct {
         comptime otel.InstrumentationScope,
         comptime std.builtin.SourceLocation,
         options: CreateSpanOptions,
-    ) impl_types.Span,
+    ) otel.types.Span,
 
-    context_extract_span: fn (otel.Context) impl_types.Span,
-    context_with_span: fn (otel.Context, impl_types.Span) otel.Context,
+    context_extract_span: fn (otel.Context) otel.types.Span,
+    context_with_span: fn (otel.Context, otel.types.Span) otel.Context,
 
-    span_get_context: fn (impl_types.Span) SpanContext,
-    span_is_recording: fn (impl_types.Span) bool,
-    span_set_attribute: fn (impl_types.Span, otel.Attribute) void,
-    span_add_event: fn (impl_types.Span, AddEventOptions) void,
-    span_add_link: fn (impl_types.Span, Link) void,
-    span_set_status: fn (impl_types.Span, Status) void,
-    span_update_name: fn (impl_types.Span, [:0]const u8) void,
-    span_end: fn (impl_types.Span, end_timestamp: ?i128) void,
-    span_record_exception: fn (impl_types.Span, anyerror, ?std.builtin.StackTrace) void,
-
-    const impl_types = otel.types.trace;
+    span_get_context: fn (otel.types.Span) SpanContext,
+    span_is_recording: fn (otel.types.Span) bool,
+    span_set_attribute: fn (otel.types.Span, otel.Attribute) void,
+    span_add_event: fn (otel.types.Span, AddEventOptions) void,
+    span_add_link: fn (otel.types.Span, Link) void,
+    span_set_status: fn (otel.types.Span, Status) void,
+    span_update_name: fn (otel.types.Span, [:0]const u8) void,
+    span_end: fn (otel.types.Span, end_timestamp: ?i128) void,
+    span_record_exception: fn (otel.types.Span, anyerror, ?std.builtin.StackTrace) void,
 };
 
 /// Types used by the default implementation of the otel.trace API, which does nothing.
-pub const NULL_TYPES: Types = .{
-    .Span = struct {
-        pub const NULL = @This(){};
-    },
-};
+pub const NULL_SPAN_TYPE = struct {};
 
 /// Functions used by the default implementation of the otel.trace API, which do nothing.
 pub const NULL_FUNCTIONS: Functions = .{
@@ -432,80 +428,80 @@ fn nullTracerCreateSpan(
     comptime name: []const u8,
     comptime source_location: ?std.builtin.SourceLocation,
     options: CreateSpanOptions,
-) otel.types.trace.Span {
+) otel.types.Span {
     _ = tracer_scope;
     _ = name;
     _ = source_location;
     _ = options;
     // TODO: "The API MUST return a non-recording Span with the SpanContext in the parent Context (whether explicitly given or implicit current)."
     // Not sure if we will implement this part of the spec, as it would return at least a SpanContext, which would probably affect performance.
-    return otel.types.trace.Span.NULL;
+    return .{};
 }
 
 fn nullTracerCreateSpanSourceLocation(
     comptime tracer_scope: otel.InstrumentationScope,
     comptime source_location: std.builtin.SourceLocation,
     options: CreateSpanOptions,
-) otel.types.trace.Span {
+) otel.types.Span {
     _ = tracer_scope;
     _ = source_location;
     _ = options;
     // TODO: "The API MUST return a non-recording Span with the SpanContext in the parent Context (whether explicitly given or implicit current)."
     // Not sure if we will implement this part of the spec, as it would return at least a SpanContext, which would probably affect performance.
-    return otel.types.trace.Span.NULL;
+    return .{};
 }
 
-fn nullContextExtractSpan(context: otel.Context) otel.types.trace.Span {
+fn nullContextExtractSpan(context: otel.Context) otel.types.Span {
     _ = context;
-    return .NULL;
+    return .{};
 }
 
-fn nullContextWithSpan(context: otel.Context, span: otel.types.trace.Span) otel.Context {
+fn nullContextWithSpan(context: otel.Context, span: otel.types.Span) otel.Context {
     _ = span;
-    return context;
+    return context.withValue(otel.types.Span, .{});
 }
 
-fn nullSpanGetContext(span: otel.types.trace.Span) SpanContext {
+fn nullSpanGetContext(span: otel.types.Span) SpanContext {
     _ = span;
     return SpanContext.INVALID;
 }
 
-fn nullSpanIsRecording(span: otel.types.trace.Span) bool {
+fn nullSpanIsRecording(span: otel.types.Span) bool {
     _ = span;
     return false;
 }
 
-fn nullSpanSetAttribute(span: otel.types.trace.Span, attribute: otel.Attribute) void {
+fn nullSpanSetAttribute(span: otel.types.Span, attribute: otel.Attribute) void {
     _ = span;
     _ = attribute;
 }
 
-fn nullSpanAddEvent(span: otel.types.trace.Span, options: AddEventOptions) void {
+fn nullSpanAddEvent(span: otel.types.Span, options: AddEventOptions) void {
     _ = span;
     _ = options;
 }
 
-fn nullSpanAddLink(span: otel.types.trace.Span, link: Link) void {
+fn nullSpanAddLink(span: otel.types.Span, link: Link) void {
     _ = span;
     _ = link;
 }
 
-fn nullSpanSetStatus(span: otel.types.trace.Span, status: Status) void {
+fn nullSpanSetStatus(span: otel.types.Span, status: Status) void {
     _ = span;
     _ = status;
 }
 
-fn nullSpanUpdateName(span: otel.types.trace.Span, new_name: []const u8) void {
+fn nullSpanUpdateName(span: otel.types.Span, new_name: []const u8) void {
     _ = span;
     _ = new_name;
 }
 
-fn nullSpanEnd(span: otel.types.trace.Span, end_timestamp: ?i128) void {
+fn nullSpanEnd(span: otel.types.Span, end_timestamp: ?i128) void {
     _ = span;
     _ = end_timestamp;
 }
 
-fn nullSpanRecordException(span: otel.types.trace.Span, err: anyerror, stack_trace: ?std.builtin.StackTrace) void {
+fn nullSpanRecordException(span: otel.types.Span, err: anyerror, stack_trace: ?std.builtin.StackTrace) void {
     _ = span;
     err catch {};
     _ = stack_trace;

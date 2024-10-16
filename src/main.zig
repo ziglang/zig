@@ -46,7 +46,7 @@ pub const std_options = .{
 };
 
 pub const otel_types: std.otel.Types = if (build_options.enable_tracy) .{
-    .trace = tracy.TRACE_TYPES,
+    .Span = tracy.SPAN_TYPE,
 } else .{};
 
 pub const otel_functions: std.otel.Functions = if (build_options.enable_tracy) .{

@@ -63,7 +63,7 @@ else
 pub const Types = struct {
     Context: type = Context.NULL_CONTEXT_TYPE,
     ContextAttachToken: type = Context.NULL_ATTACH_TOKEN_TYPE,
-    trace: trace.Types = trace.NULL_TYPES,
+    Span: type = trace.NULL_SPAN_TYPE,
 };
 
 pub const Functions = struct {
