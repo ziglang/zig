@@ -295,7 +295,11 @@ fn renderMember(
         .local_var_decl,
         .simple_var_decl,
         .aligned_var_decl,
-        => return renderVarDecl(r, tree.fullVarDecl(decl).?, false, .semicolon),
+        => {
+            try ais.pushSpace(.semicolon);
+            try renderVarDecl(r, tree.fullVarDecl(decl).?, false, .semicolon);
+            ais.popSpace();
+        },
 
         .test_decl => {
             const test_token = main_tokens[decl];
@@ -372,8 +376,16 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
 
             switch (space) {
                 .none, .space, .newline, .skip => {},
-                .semicolon => if (token_tags[i] == .semicolon) try renderToken(r, i, .newline),
-                .comma => if (token_tags[i] == .comma) try renderToken(r, i, .newline),
+                .semicolon => if (token_tags[i] == .semicolon) {
+                    ais.enableSpaceMode(.semicolon);
+                    try renderToken(r, i, .newline);
+                    ais.disableSpaceMode();
+                },
+                .comma => if (token_tags[i] == .comma) {
+                    ais.enableSpaceMode(.comma);
+                    try renderToken(r, i, .newline);
+                    ais.disableSpaceMode();
+                },
                 .comma_space => if (token_tags[i] == .comma) try renderToken(r, i, .space),
             }
         },
@@ -764,7 +776,11 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
                     if (i > lbrace + 1) try renderExtraNewlineToken(r, i);
                     switch (token_tags[i]) {
                         .doc_comment => try renderToken(r, i, .newline),
-                        .identifier => try renderIdentifier(r, i, .comma, .eagerly_unquote),
+                        .identifier => {
+                            try ais.pushSpace(.comma);
+                            try renderIdentifier(r, i, .comma, .eagerly_unquote);
+                            ais.popSpace();
+                        },
                         .comma => {},
                         else => unreachable,
                     }
@@ -843,7 +859,9 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
                 try renderToken(r, rparen + 1, .none); // {
             } else {
                 try renderToken(r, rparen + 1, .newline); // {
+                try ais.pushSpace(.comma);
                 try renderExpressions(r, full.ast.cases, .comma);
+                ais.popSpace();
             }
             ais.popIndent();
             return renderToken(r, tree.lastToken(node), space); // }
@@ -1625,7 +1643,9 @@ fn renderBuiltinCall(
         try renderToken(r, builtin_token + 1, Space.newline); // (
 
         for (params) |param_node| {
+            try ais.pushSpace(.comma);
             try renderExpression(r, param_node, .comma);
+            ais.popSpace();
         }
         ais.popIndent();
 
@@ -1793,7 +1813,9 @@ fn renderFnProto(r: *Render, fn_proto: Ast.full.FnProto, space: Space) Error!voi
             }
             const param = fn_proto.ast.params[param_i];
             param_i += 1;
+            try ais.pushSpace(.comma);
             try renderExpression(r, param, .comma);
+            ais.popSpace();
             last_param_token = tree.lastToken(param);
             if (token_tags[last_param_token + 1] == .comma) last_param_token += 1;
         }
@@ -1856,6 +1878,7 @@ fn renderSwitchCase(
     switch_case: Ast.full.SwitchCase,
     space: Space,
 ) Error!void {
+    const ais = r.ais;
     const tree = r.tree;
     const node_tags = tree.nodes.items(.tag);
     const token_tags = tree.tokens.items(.tag);
@@ -1875,7 +1898,9 @@ fn renderSwitchCase(
         try renderToken(r, switch_case.ast.arrow_token - 1, .space); // else keyword
     } else if (trailing_comma or has_comment_before_arrow) {
         // Render each value on a new line
+        try ais.pushSpace(.comma);
         try renderExpressions(r, switch_case.ast.values, .comma);
+        ais.popSpace();
     } else {
         // Render on one line
         for (switch_case.ast.values) |value_expr| {
@@ -1951,6 +1976,7 @@ fn finishRenderBlock(
     for (statements, 0..) |stmt, i| {
         if (i != 0) try renderExtraNewline(r, stmt);
         if (r.fixups.omit_nodes.contains(stmt)) continue;
+        try ais.pushSpace(.semicolon);
         switch (node_tags[stmt]) {
             .global_var_decl,
             .local_var_decl,
@@ -1960,6 +1986,7 @@ fn finishRenderBlock(
 
             else => try renderExpression(r, stmt, .semicolon),
         }
+        ais.popSpace();
     }
     ais.popIndent();
 
@@ -2003,7 +2030,10 @@ fn renderStructInit(
         const expr = nodes[field_node];
         var space_after_equal: Space = if (expr == .multiline_string_literal) .none else .space;
         try renderToken(r, struct_init.ast.lbrace + 3, space_after_equal); // =
+
+        try ais.pushSpace(.comma);
         try renderExpressionFixup(r, field_node, .comma);
+        ais.popSpace();
 
         for (struct_init.ast.fields[1..]) |field_init| {
             const init_token = tree.firstToken(field_init);
@@ -2012,7 +2042,10 @@ fn renderStructInit(
             try renderIdentifier(r, init_token - 2, .space, .eagerly_unquote); // name
             space_after_equal = if (nodes[field_init] == .multiline_string_literal) .none else .space;
             try renderToken(r, init_token - 1, space_after_equal); // =
+
+            try ais.pushSpace(.comma);
             try renderExpressionFixup(r, field_init, .comma);
+            ais.popSpace();
         }
 
         ais.popIndent();
@@ -2182,7 +2215,10 @@ fn renderArrayInit(
                     column_counter = 0;
                 }
             } else {
+                try ais.pushSpace(.comma);
                 try renderExpression(&sub_render, expr, .comma);
+                ais.popSpace();
+
                 const width = sub_expr_buffer.items.len - start - 2;
                 const this_contains_newline = mem.indexOfScalar(u8, sub_expr_buffer.items[start .. sub_expr_buffer.items.len - 1], '\n') != null;
                 contains_newline = contains_newline or this_contains_newline;
@@ -2362,7 +2398,11 @@ fn renderContainerDecl(
             .container_field_init,
             .container_field_align,
             .container_field,
-            => try renderMember(r, container, member, .comma),
+            => {
+                try ais.pushSpace(.comma);
+                try renderMember(r, container, member, .comma);
+                ais.popSpace();
+            },
 
             else => try renderMember(r, container, member, .newline),
         }
@@ -2450,13 +2490,17 @@ fn renderAsm(
                 try renderToken(r, comma, .newline); // ,
                 try renderExtraNewlineToken(r, tree.firstToken(next_asm_output));
             } else if (asm_node.inputs.len == 0 and asm_node.first_clobber == null) {
+                try ais.pushSpace(.comma);
                 try renderAsmOutput(r, asm_output, .comma);
+                ais.popSpace();
                 ais.popIndent();
                 ais.setIndentDelta(indent_delta);
                 ais.popIndent();
                 return renderToken(r, asm_node.ast.rparen, space); // rparen
             } else {
+                try ais.pushSpace(.comma);
                 try renderAsmOutput(r, asm_output, .comma);
+                ais.popSpace();
                 const comma_or_colon = tree.lastToken(asm_output) + 1;
                 ais.popIndent();
                 break :colon2 switch (token_tags[comma_or_colon]) {
@@ -2482,13 +2526,17 @@ fn renderAsm(
                 try renderToken(r, first_token - 1, .newline); // ,
                 try renderExtraNewlineToken(r, first_token);
             } else if (asm_node.first_clobber == null) {
+                try ais.pushSpace(.comma);
                 try renderAsmInput(r, asm_input, .comma);
+                ais.popSpace();
                 ais.popIndent();
                 ais.setIndentDelta(indent_delta);
                 ais.popIndent();
                 return renderToken(r, asm_node.ast.rparen, space); // rparen
             } else {
+                try ais.pushSpace(.comma);
                 try renderAsmInput(r, asm_input, .comma);
+                ais.popSpace();
                 const comma_or_colon = tree.lastToken(asm_input) + 1;
                 ais.popIndent();
                 break :colon3 switch (token_tags[comma_or_colon]) {
@@ -2574,7 +2622,9 @@ fn renderParamList(
 
                 try renderExtraNewline(r, params[i + 1]);
             } else {
+                try ais.pushSpace(.comma);
                 try renderExpression(r, param_node, .comma);
+                ais.popSpace();
             }
         }
         ais.popIndent();
@@ -2691,7 +2741,8 @@ fn renderSpace(r: *Render, token_index: Ast.TokenIndex, lexeme_len: usize, space
     if (space == .comma and token_tags[token_index + 1] != .comma) {
         try ais.writer().writeByte(',');
     }
-
+    if (space == .semicolon or space == .comma) ais.enableSpaceMode(space);
+    defer ais.disableSpaceMode();
     const comment = try renderComments(r, token_start + lexeme_len, token_starts[token_index + 1]);
     switch (space) {
         .none => {},
@@ -3254,6 +3305,10 @@ fn AutoIndentingStream(comptime UnderlyingWriter: type) type {
             indent_type: IndentType,
             realized: bool,
         };
+        const SpaceElem = struct {
+            space: Space,
+            indent_count: usize,
+        };
 
         underlying_writer: UnderlyingWriter,
 
@@ -3268,6 +3323,8 @@ fn AutoIndentingStream(comptime UnderlyingWriter: type) type {
         indent_count: usize = 0,
         indent_delta: usize,
         indent_stack: std.ArrayList(StackElem),
+        space_stack: std.ArrayList(SpaceElem),
+        space_mode: ?usize = null,
         disable_indent_committing: usize = 0,
         current_line_empty: bool = true,
         /// the most recently applied indent
@@ -3278,11 +3335,13 @@ fn AutoIndentingStream(comptime UnderlyingWriter: type) type {
                 .underlying_writer = buffer.writer(),
                 .indent_delta = indent_delta_,
                 .indent_stack = std.ArrayList(StackElem).init(buffer.allocator),
+                .space_stack = std.ArrayList(SpaceElem).init(buffer.allocator),
             };
         }
 
         pub fn deinit(self: *Self) void {
             self.indent_stack.deinit();
+            self.space_stack.deinit();
         }
 
         pub fn writer(self: *Self) Writer {
@@ -3347,6 +3406,28 @@ fn AutoIndentingStream(comptime UnderlyingWriter: type) type {
             self.disable_indent_committing -= 1;
         }
 
+        pub fn pushSpace(self: *Self, space: Space) !void {
+            try self.space_stack.append(.{ .space = space, .indent_count = self.indent_count });
+        }
+
+        pub fn popSpace(self: *Self) void {
+            _ = self.space_stack.pop();
+        }
+
+        pub fn enableSpaceMode(self: *Self, space: Space) void {
+            if (self.space_stack.items.len == 0) return;
+            const curr = self.space_stack.getLast();
+            if (curr.space != space) {
+                return;
+            }
+            assert(curr.space == space);
+            self.space_mode = curr.indent_count;
+        }
+
+        pub fn disableSpaceMode(self: *Self) void {
+            self.space_mode = null;
+        }
+
         /// Insert a newline unless the current line is blank
         pub fn maybeInsertNewline(self: *Self) WriteError!void {
             if (!self.current_line_empty)
@@ -3390,7 +3471,8 @@ fn AutoIndentingStream(comptime UnderlyingWriter: type) type {
         }
 
         fn currentIndent(self: *Self) usize {
-            return self.indent_count * self.indent_delta;
+            const indent_count = self.space_mode orelse self.indent_count;
+            return indent_count * self.indent_delta;
         }
     };
 }
