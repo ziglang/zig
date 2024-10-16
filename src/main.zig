@@ -2764,10 +2764,8 @@ fn buildOutputType(
                 break :b create_module.c_source_files.items[0].src_path;
 
             for (create_module.cli_link_inputs.items) |unresolved_link_input| switch (unresolved_link_input) {
-                .path_query => |pq| switch (Compilation.classifyFileExt(pq.path.sub_path)) {
-                    .object, .static_library, .res => break :b pq.path.sub_path,
-                    else => continue,
-                },
+                // Intentionally includes dynamic libraries provided by file path.
+                .path_query => |pq| break :b pq.path.sub_path,
                 else => continue,
             };
 
