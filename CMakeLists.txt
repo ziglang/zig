@@ -611,6 +611,7 @@ set(ZIG_STAGE2_SOURCES
     src/link/MachO/Atom.zig
     src/link/MachO/CodeSignature.zig
     src/link/MachO/DebugSymbols.zig
+    src/link/MachO/Dwarf.zig
     src/link/MachO/Dylib.zig
     src/link/MachO/InternalObject.zig
     src/link/MachO/Object.zig
@@ -622,7 +623,6 @@ set(ZIG_STAGE2_SOURCES
     src/link/MachO/dyld_info/Rebase.zig
     src/link/MachO/dyld_info/Trie.zig
     src/link/MachO/dyld_info/bind.zig
-    src/link/MachO/dwarf.zig
     src/link/MachO/eh_frame.zig
     src/link/MachO/fat.zig
     src/link/MachO/file.zig
