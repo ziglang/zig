@@ -81,10 +81,7 @@ const Render = struct {
 
 pub fn renderTree(buffer: *std.ArrayList(u8), tree: Ast, fixups: Fixups) Error!void {
     assert(tree.errors.len == 0); // Cannot render an invalid tree.
-    var auto_indenting_stream = Ais{
-        .indent_delta = indent_delta,
-        .underlying_writer = buffer.writer(),
-    };
+    var auto_indenting_stream = Ais.init(buffer, indent_delta);
     var r: Render = .{
         .gpa = buffer.allocator,
         .ais = &auto_indenting_stream,
@@ -2152,10 +2149,7 @@ fn renderArrayInit(
         const sub_expr_buffer_starts = try gpa.alloc(usize, section_exprs.len + 1);
         defer gpa.free(sub_expr_buffer_starts);
 
-        var auto_indenting_stream = Ais{
-            .indent_delta = indent_delta,
-            .underlying_writer = sub_expr_buffer.writer(),
-        };
+        var auto_indenting_stream = Ais.init(sub_expr_buffer, indent_delta);
         var sub_render: Render = .{
             .gpa = r.gpa,
             .ais = &auto_indenting_stream,
@@ -3340,6 +3334,13 @@ fn AutoIndentingStream(comptime UnderlyingWriter: type) type {
         applied_indent: usize = 0,
         /// not used until the next line
         indent_next_line: usize = 0,
+
+        pub fn init(buffer: *std.ArrayList(u8), indent_delta: usize) Self {
+            return .{
+                .underlying_writer = buffer.writer(),
+                .indent_delta = indent_delta,
+            };
+        }
 
         pub fn writer(self: *Self) Writer {
             return .{ .context = self };
