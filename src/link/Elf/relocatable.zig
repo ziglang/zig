@@ -2,13 +2,13 @@ pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation, module_obj_path: ?Path
     const gpa = comp.gpa;
     const diags = &comp.link_diags;
 
-    for (comp.objects) |obj| {
-        switch (Compilation.classifyFileExt(obj.path.sub_path)) {
-            .object => parseObjectStaticLibReportingFailure(elf_file, obj.path),
-            .static_library => parseArchiveStaticLibReportingFailure(elf_file, obj.path),
-            else => diags.addParseError(obj.path, "unrecognized file extension", .{}),
-        }
-    }
+    for (comp.link_inputs) |link_input| switch (link_input) {
+        .object => |obj| parseObjectStaticLibReportingFailure(elf_file, obj.path),
+        .archive => |obj| parseArchiveStaticLibReportingFailure(elf_file, obj.path),
+        .dso_exact => unreachable,
+        .res => unreachable,
+        .dso => unreachable,
+    };
 
     for (comp.c_object_table.keys()) |key| {
         parseObjectStaticLibReportingFailure(elf_file, key.status.success.object_path);
@@ -153,18 +153,18 @@ pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation, module_obj_path: ?Path
 pub fn flushObject(elf_file: *Elf, comp: *Compilation, module_obj_path: ?Path) link.File.FlushError!void {
     const diags = &comp.link_diags;
 
-    for (comp.objects) |obj| {
-        elf_file.parseInputReportingFailure(obj.path, false, obj.must_link);
+    for (comp.link_inputs) |link_input| {
+        elf_file.parseInputReportingFailure(link_input);
     }
 
     // This is a set of object files emitted by clang in a single `build-exe` invocation.
     // For instance, the implicit `a.o` as compiled by `zig build-exe a.c` will end up
     // in this set.
     for (comp.c_object_table.keys()) |key| {
-        elf_file.parseObjectReportingFailure(key.status.success.object_path);
+        elf_file.openParseObjectReportingFailure(key.status.success.object_path);
     }
 
-    if (module_obj_path) |path| elf_file.parseObjectReportingFailure(path);
+    if (module_obj_path) |path| elf_file.openParseObjectReportingFailure(path);
 
     if (diags.hasErrors()) return error.FlushFailure;
 

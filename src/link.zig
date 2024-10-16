@@ -12,6 +12,7 @@ const Air = @import("Air.zig");
 const Allocator = std.mem.Allocator;
 const Cache = std.Build.Cache;
 const Path = std.Build.Cache.Path;
+const Directory = std.Build.Cache.Directory;
 const Compilation = @import("Compilation.zig");
 const LibCInstallation = std.zig.LibCInstallation;
 const Liveness = @import("Liveness.zig");
@@ -25,19 +26,6 @@ const Package = @import("Package.zig");
 const dev = @import("dev.zig");
 
 pub const LdScript = @import("link/LdScript.zig");
-
-/// When adding a new field, remember to update `hashAddSystemLibs`.
-/// These are *always* dynamically linked. Static libraries will be
-/// provided as positional arguments.
-pub const SystemLib = struct {
-    needed: bool,
-    weak: bool,
-    /// This can be null in two cases right now:
-    /// 1. Windows DLLs that zig ships such as advapi32.
-    /// 2. extern "foo" fn declarations where we find out about libraries too late
-    /// TODO: make this non-optional and resolve those two cases somehow.
-    path: ?Path,
-};
 
 pub const Diags = struct {
     /// Stored here so that function definitions can distinguish between
@@ -355,19 +343,6 @@ pub const Diags = struct {
     }
 };
 
-pub fn hashAddSystemLibs(
-    man: *Cache.Manifest,
-    hm: std.StringArrayHashMapUnmanaged(SystemLib),
-) !void {
-    const keys = hm.keys();
-    man.hash.addListOfBytes(keys);
-    for (hm.values()) |value| {
-        man.hash.add(value.needed);
-        man.hash.add(value.weak);
-        if (value.path) |p| _ = try man.addFilePath(p, null);
-    }
-}
-
 pub const producer_string = if (builtin.is_test) "zig test" else "zig " ++ build_options.version;
 
 pub const File = struct {
@@ -455,7 +430,7 @@ pub const File = struct {
         compatibility_version: ?std.SemanticVersion,
 
         // TODO: remove this. libraries are resolved by the frontend.
-        lib_dirs: []const []const u8,
+        lib_directories: []const Directory,
         framework_dirs: []const []const u8,
         rpath_list: []const []const u8,
 
@@ -1027,7 +1002,6 @@ pub const File = struct {
         defer tracy.end();
 
         const comp = base.comp;
-        const gpa = comp.gpa;
 
         const directory = base.emit.root_dir; // Just an alias to make it shorter to type.
         const full_out_path = try directory.join(arena, &[_][]const u8{base.emit.sub_path});
@@ -1059,7 +1033,7 @@ pub const File = struct {
         var man: Cache.Manifest = undefined;
         defer if (!base.disable_lld_caching) man.deinit();
 
-        const objects = comp.objects;
+        const link_inputs = comp.link_inputs;
 
         var digest: [Cache.hex_digest_len]u8 = undefined;
 
@@ -1069,11 +1043,8 @@ pub const File = struct {
             // We are about to obtain this lock, so here we give other processes a chance first.
             base.releaseLock();
 
-            for (objects) |obj| {
-                _ = try man.addFilePath(obj.path, null);
-                man.hash.add(obj.must_link);
-                man.hash.add(obj.loption);
-            }
+            try hashInputs(&man, link_inputs);
+
             for (comp.c_object_table.keys()) |key| {
                 _ = try man.addFilePath(key.status.success.object_path, null);
             }
@@ -1109,26 +1080,24 @@ pub const File = struct {
             };
         }
 
-        const win32_resource_table_len = comp.win32_resource_table.count();
-        const num_object_files = objects.len + comp.c_object_table.count() + win32_resource_table_len + 2;
-        var object_files = try std.ArrayList([*:0]const u8).initCapacity(gpa, num_object_files);
-        defer object_files.deinit();
+        var object_files: std.ArrayListUnmanaged([*:0]const u8) = .empty;
 
-        for (objects) |obj| {
-            object_files.appendAssumeCapacity(try obj.path.toStringZ(arena));
+        try object_files.ensureUnusedCapacity(arena, link_inputs.len);
+        for (link_inputs) |input| {
+            object_files.appendAssumeCapacity(try input.path().?.toStringZ(arena));
         }
+
+        try object_files.ensureUnusedCapacity(arena, comp.c_object_table.count() +
+            comp.win32_resource_table.count() + 2);
+
         for (comp.c_object_table.keys()) |key| {
             object_files.appendAssumeCapacity(try key.status.success.object_path.toStringZ(arena));
         }
         for (comp.win32_resource_table.keys()) |key| {
             object_files.appendAssumeCapacity(try arena.dupeZ(u8, key.status.success.res_path));
         }
-        if (zcu_obj_path) |p| {
-            object_files.appendAssumeCapacity(try arena.dupeZ(u8, p));
-        }
-        if (compiler_rt_path) |p| {
-            object_files.appendAssumeCapacity(try p.toStringZ(arena));
-        }
+        if (zcu_obj_path) |p| object_files.appendAssumeCapacity(try arena.dupeZ(u8, p));
+        if (compiler_rt_path) |p| object_files.appendAssumeCapacity(try p.toStringZ(arena));
 
         if (comp.verbose_link) {
             std.debug.print("ar rcs {s}", .{full_out_path_z});
@@ -1403,4 +1372,677 @@ pub fn spawnLld(
     }
 
     if (stderr.len > 0) log.warn("unexpected LLD stderr:\n{s}", .{stderr});
+}
+
+/// Provided by the CLI, processed into `LinkInput` instances at the start of
+/// the compilation pipeline.
+pub const UnresolvedInput = union(enum) {
+    /// A library name that could potentially be dynamic or static depending on
+    /// query parameters, resolved according to library directories.
+    /// This could potentially resolve to a GNU ld script, resulting in more
+    /// library dependencies.
+    name_query: NameQuery,
+    /// When a file path is provided, query info is still needed because the
+    /// path may point to a .so file which may actually be a GNU ld script that
+    /// references library names which need to be resolved.
+    path_query: PathQuery,
+    /// Strings that come from GNU ld scripts. Is it a filename? Is it a path?
+    /// Who knows! Fuck around and find out.
+    ambiguous_name: NameQuery,
+    /// Put exactly this string in the dynamic section, no rpath.
+    dso_exact: Input.DsoExact,
+
+    ///// Relocatable.
+    //object: Input.Object,
+    ///// Static library.
+    //archive: Input.Object,
+    ///// Windows resource file.
+    //winres: Path,
+
+    pub const NameQuery = struct {
+        name: []const u8,
+        query: Query,
+    };
+
+    pub const PathQuery = struct {
+        path: Path,
+        query: Query,
+    };
+
+    pub const Query = struct {
+        needed: bool = false,
+        weak: bool = false,
+        reexport: bool = false,
+        must_link: bool = false,
+        hidden: bool = false,
+        allow_so_scripts: bool = false,
+        preferred_mode: std.builtin.LinkMode,
+        search_strategy: SearchStrategy,
+
+        fn fallbackMode(q: Query) std.builtin.LinkMode {
+            assert(q.search_strategy != .no_fallback);
+            return switch (q.preferred_mode) {
+                .dynamic => .static,
+                .static => .dynamic,
+            };
+        }
+    };
+
+    pub const SearchStrategy = enum {
+        paths_first,
+        mode_first,
+        no_fallback,
+    };
+};
+
+pub const Input = union(enum) {
+    object: Object,
+    archive: Object,
+    res: Res,
+    /// May not be a GNU ld script. Those are resolved when converting from
+    /// `UnresolvedInput` to `Input` values.
+    dso: Dso,
+    dso_exact: DsoExact,
+
+    pub const Object = struct {
+        path: Path,
+        file: fs.File,
+        must_link: bool,
+        hidden: bool,
+    };
+
+    pub const Res = struct {
+        path: Path,
+        file: fs.File,
+    };
+
+    pub const Dso = struct {
+        path: Path,
+        file: fs.File,
+        needed: bool,
+        weak: bool,
+        reexport: bool,
+    };
+
+    pub const DsoExact = struct {
+        /// Includes the ":" prefix. This is intended to be put into the DSO
+        /// section verbatim with no corresponding rpaths.
+        name: []const u8,
+    };
+
+    /// Returns `null` in the case of `dso_exact`.
+    pub fn path(input: Input) ?Path {
+        return switch (input) {
+            .object, .archive => |obj| obj.path,
+            inline .res, .dso => |x| x.path,
+            .dso_exact => null,
+        };
+    }
+
+    /// Returns `null` in the case of `dso_exact`.
+    pub fn pathAndFile(input: Input) ?struct { Path, fs.File } {
+        return switch (input) {
+            .object, .archive => |obj| .{ obj.path, obj.file },
+            inline .res, .dso => |x| .{ x.path, x.file },
+            .dso_exact => null,
+        };
+    }
+};
+
+pub fn hashInputs(man: *Cache.Manifest, link_inputs: []const Input) !void {
+    for (link_inputs) |link_input| {
+        man.hash.add(@as(@typeInfo(Input).@"union".tag_type.?, link_input));
+        switch (link_input) {
+            .object, .archive => |obj| {
+                _ = try man.addOpenedFile(obj.path, obj.file, null);
+                man.hash.add(obj.must_link);
+                man.hash.add(obj.hidden);
+            },
+            .res => |res| {
+                _ = try man.addOpenedFile(res.path, res.file, null);
+            },
+            .dso => |dso| {
+                _ = try man.addOpenedFile(dso.path, dso.file, null);
+                man.hash.add(dso.needed);
+                man.hash.add(dso.weak);
+                man.hash.add(dso.reexport);
+            },
+            .dso_exact => |dso_exact| {
+                man.hash.addBytes(dso_exact.name);
+            },
+        }
+    }
+}
+
+pub fn resolveInputs(
+    gpa: Allocator,
+    arena: Allocator,
+    target: std.Target,
+    /// This function mutates this array but does not take ownership.
+    /// Allocated with `gpa`.
+    unresolved_inputs: *std.ArrayListUnmanaged(UnresolvedInput),
+    /// Allocated with `gpa`.
+    resolved_inputs: *std.ArrayListUnmanaged(Input),
+    lib_directories: []const Cache.Directory,
+    color: std.zig.Color,
+) Allocator.Error!void {
+    var checked_paths: std.ArrayListUnmanaged(u8) = .empty;
+    defer checked_paths.deinit(gpa);
+
+    var ld_script_bytes: std.ArrayListUnmanaged(u8) = .empty;
+    defer ld_script_bytes.deinit(gpa);
+
+    var failed_libs: std.ArrayListUnmanaged(struct {
+        name: []const u8,
+        strategy: UnresolvedInput.SearchStrategy,
+        checked_paths: []const u8,
+        preferred_mode: std.builtin.LinkMode,
+    }) = .empty;
+
+    // Convert external system libs into a stack so that items can be
+    // pushed to it.
+    //
+    // This is necessary because shared objects might turn out to be
+    // "linker scripts" that in fact resolve to one or more other
+    // external system libs, including parameters such as "needed".
+    //
+    // Unfortunately, such files need to be detected immediately, so
+    // that this library search logic can be applied to them.
+    mem.reverse(UnresolvedInput, unresolved_inputs.items);
+
+    syslib: while (unresolved_inputs.popOrNull()) |unresolved_input| {
+        const name_query: UnresolvedInput.NameQuery = switch (unresolved_input) {
+            .name_query => |nq| nq,
+            .ambiguous_name => |an| an: {
+                const lib_name, const link_mode = stripLibPrefixAndSuffix(an.name, target) orelse {
+                    try resolvePathInput(gpa, arena, unresolved_inputs, resolved_inputs, &ld_script_bytes, target, .{
+                        .path = Path.initCwd(an.name),
+                        .query = an.query,
+                    }, color);
+                    continue;
+                };
+                break :an .{
+                    .name = lib_name,
+                    .query = .{
+                        .needed = an.query.needed,
+                        .weak = an.query.weak,
+                        .reexport = an.query.reexport,
+                        .must_link = an.query.must_link,
+                        .hidden = an.query.hidden,
+                        .preferred_mode = link_mode,
+                        .search_strategy = .no_fallback,
+                    },
+                };
+            },
+            .path_query => |pq| {
+                try resolvePathInput(gpa, arena, unresolved_inputs, resolved_inputs, &ld_script_bytes, target, pq, color);
+                continue;
+            },
+            .dso_exact => |dso_exact| {
+                try resolved_inputs.append(gpa, .{ .dso_exact = dso_exact });
+                continue;
+            },
+        };
+        const query = name_query.query;
+
+        // Checked in the first pass above while looking for libc libraries.
+        assert(!fs.path.isAbsolute(name_query.name));
+
+        checked_paths.clearRetainingCapacity();
+
+        switch (query.search_strategy) {
+            .mode_first, .no_fallback => {
+                // check for preferred mode
+                for (lib_directories) |lib_directory| switch (try resolveLibInput(
+                    gpa,
+                    arena,
+                    unresolved_inputs,
+                    resolved_inputs,
+                    &checked_paths,
+                    &ld_script_bytes,
+                    lib_directory,
+                    name_query,
+                    target,
+                    query.preferred_mode,
+                    color,
+                )) {
+                    .ok => continue :syslib,
+                    .no_match => {},
+                };
+                // check for fallback mode
+                if (query.search_strategy == .no_fallback) {
+                    try failed_libs.append(arena, .{
+                        .name = name_query.name,
+                        .strategy = query.search_strategy,
+                        .checked_paths = try arena.dupe(u8, checked_paths.items),
+                        .preferred_mode = query.preferred_mode,
+                    });
+                    continue :syslib;
+                }
+                for (lib_directories) |lib_directory| switch (try resolveLibInput(
+                    gpa,
+                    arena,
+                    unresolved_inputs,
+                    resolved_inputs,
+                    &checked_paths,
+                    &ld_script_bytes,
+                    lib_directory,
+                    name_query,
+                    target,
+                    query.fallbackMode(),
+                    color,
+                )) {
+                    .ok => continue :syslib,
+                    .no_match => {},
+                };
+                try failed_libs.append(arena, .{
+                    .name = name_query.name,
+                    .strategy = query.search_strategy,
+                    .checked_paths = try arena.dupe(u8, checked_paths.items),
+                    .preferred_mode = query.preferred_mode,
+                });
+                continue :syslib;
+            },
+            .paths_first => {
+                for (lib_directories) |lib_directory| {
+                    // check for preferred mode
+                    switch (try resolveLibInput(
+                        gpa,
+                        arena,
+                        unresolved_inputs,
+                        resolved_inputs,
+                        &checked_paths,
+                        &ld_script_bytes,
+                        lib_directory,
+                        name_query,
+                        target,
+                        query.preferred_mode,
+                        color,
+                    )) {
+                        .ok => continue :syslib,
+                        .no_match => {},
+                    }
+
+                    // check for fallback mode
+                    switch (try resolveLibInput(
+                        gpa,
+                        arena,
+                        unresolved_inputs,
+                        resolved_inputs,
+                        &checked_paths,
+                        &ld_script_bytes,
+                        lib_directory,
+                        name_query,
+                        target,
+                        query.fallbackMode(),
+                        color,
+                    )) {
+                        .ok => continue :syslib,
+                        .no_match => {},
+                    }
+                }
+                try failed_libs.append(arena, .{
+                    .name = name_query.name,
+                    .strategy = query.search_strategy,
+                    .checked_paths = try arena.dupe(u8, checked_paths.items),
+                    .preferred_mode = query.preferred_mode,
+                });
+                continue :syslib;
+            },
+        }
+        @compileError("unreachable");
+    }
+
+    if (failed_libs.items.len > 0) {
+        for (failed_libs.items) |f| {
+            const searched_paths = if (f.checked_paths.len == 0) " none" else f.checked_paths;
+            std.log.err("unable to find {s} system library '{s}' using strategy '{s}'. searched paths:{s}", .{
+                @tagName(f.preferred_mode), f.name, @tagName(f.strategy), searched_paths,
+            });
+        }
+        std.process.exit(1);
+    }
+}
+
+const AccessLibPathResult = enum { ok, no_match };
+const fatal = std.process.fatal;
+
+fn resolveLibInput(
+    gpa: Allocator,
+    arena: Allocator,
+    /// Allocated via `gpa`.
+    unresolved_inputs: *std.ArrayListUnmanaged(UnresolvedInput),
+    /// Allocated via `gpa`.
+    resolved_inputs: *std.ArrayListUnmanaged(Input),
+    /// Allocated via `gpa`.
+    checked_paths: *std.ArrayListUnmanaged(u8),
+    /// Allocated via `gpa`.
+    ld_script_bytes: *std.ArrayListUnmanaged(u8),
+    lib_directory: Directory,
+    name_query: UnresolvedInput.NameQuery,
+    target: std.Target,
+    link_mode: std.builtin.LinkMode,
+    color: std.zig.Color,
+) Allocator.Error!AccessLibPathResult {
+    try resolved_inputs.ensureUnusedCapacity(gpa, 1);
+
+    const lib_name = name_query.name;
+
+    if (target.isDarwin() and link_mode == .dynamic) tbd: {
+        // Prefer .tbd over .dylib.
+        const test_path: Path = .{
+            .root_dir = lib_directory,
+            .sub_path = try std.fmt.allocPrint(arena, "lib{s}.tbd", .{lib_name}),
+        };
+        try checked_paths.writer(gpa).print("\n  {}", .{test_path});
+        var file = test_path.root_dir.handle.openFile(test_path.sub_path, .{}) catch |err| switch (err) {
+            error.FileNotFound => break :tbd,
+            else => |e| fatal("unable to search for tbd library '{}': {s}", .{ test_path, @errorName(e) }),
+        };
+        errdefer file.close();
+        return finishAccessLibPath(resolved_inputs, test_path, file, link_mode, name_query.query);
+    }
+
+    {
+        const test_path: Path = .{
+            .root_dir = lib_directory,
+            .sub_path = try std.fmt.allocPrint(arena, "{s}{s}{s}", .{
+                target.libPrefix(), lib_name, switch (link_mode) {
+                    .static => target.staticLibSuffix(),
+                    .dynamic => target.dynamicLibSuffix(),
+                },
+            }),
+        };
+        try checked_paths.writer(gpa).print("\n  {}", .{test_path});
+        switch (try resolvePathInputLib(gpa, arena, unresolved_inputs, resolved_inputs, ld_script_bytes, target, .{
+            .path = test_path,
+            .query = name_query.query,
+        }, link_mode, color)) {
+            .no_match => {},
+            .ok => return .ok,
+        }
+    }
+
+    // In the case of Darwin, the main check will be .dylib, so here we
+    // additionally check for .so files.
+    if (target.isDarwin() and link_mode == .dynamic) so: {
+        const test_path: Path = .{
+            .root_dir = lib_directory,
+            .sub_path = try std.fmt.allocPrint(arena, "lib{s}.so", .{lib_name}),
+        };
+        try checked_paths.writer(gpa).print("\n  {}", .{test_path});
+        var file = test_path.root_dir.handle.openFile(test_path.sub_path, .{}) catch |err| switch (err) {
+            error.FileNotFound => break :so,
+            else => |e| fatal("unable to search for so library '{}': {s}", .{
+                test_path, @errorName(e),
+            }),
+        };
+        errdefer file.close();
+        return finishAccessLibPath(resolved_inputs, test_path, file, link_mode, name_query.query);
+    }
+
+    // In the case of MinGW, the main check will be .lib but we also need to
+    // look for `libfoo.a`.
+    if (target.isMinGW() and link_mode == .static) mingw: {
+        const test_path: Path = .{
+            .root_dir = lib_directory,
+            .sub_path = try std.fmt.allocPrint(arena, "lib{s}.a", .{lib_name}),
+        };
+        try checked_paths.writer(gpa).print("\n  {}", .{test_path});
+        var file = test_path.root_dir.handle.openFile(test_path.sub_path, .{}) catch |err| switch (err) {
+            error.FileNotFound => break :mingw,
+            else => |e| fatal("unable to search for static library '{}': {s}", .{ test_path, @errorName(e) }),
+        };
+        errdefer file.close();
+        return finishAccessLibPath(resolved_inputs, test_path, file, link_mode, name_query.query);
+    }
+
+    return .no_match;
+}
+
+fn finishAccessLibPath(
+    resolved_inputs: *std.ArrayListUnmanaged(Input),
+    path: Path,
+    file: std.fs.File,
+    link_mode: std.builtin.LinkMode,
+    query: UnresolvedInput.Query,
+) AccessLibPathResult {
+    switch (link_mode) {
+        .static => resolved_inputs.appendAssumeCapacity(.{ .archive = .{
+            .path = path,
+            .file = file,
+            .must_link = query.must_link,
+            .hidden = query.hidden,
+        } }),
+        .dynamic => resolved_inputs.appendAssumeCapacity(.{ .dso = .{
+            .path = path,
+            .file = file,
+            .needed = query.needed,
+            .weak = query.weak,
+            .reexport = query.reexport,
+        } }),
+    }
+    return .ok;
+}
+
+fn resolvePathInput(
+    gpa: Allocator,
+    arena: Allocator,
+    /// Allocated with `gpa`.
+    unresolved_inputs: *std.ArrayListUnmanaged(UnresolvedInput),
+    /// Allocated with `gpa`.
+    resolved_inputs: *std.ArrayListUnmanaged(Input),
+    /// Allocated via `gpa`.
+    ld_script_bytes: *std.ArrayListUnmanaged(u8),
+    target: std.Target,
+    pq: UnresolvedInput.PathQuery,
+    color: std.zig.Color,
+) Allocator.Error!void {
+    switch (switch (Compilation.classifyFileExt(pq.path.sub_path)) {
+        .static_library => try resolvePathInputLib(gpa, arena, unresolved_inputs, resolved_inputs, ld_script_bytes, target, pq, .static, color),
+        .shared_library => try resolvePathInputLib(gpa, arena, unresolved_inputs, resolved_inputs, ld_script_bytes, target, pq, .dynamic, color),
+        .object => {
+            var file = pq.path.root_dir.handle.openFile(pq.path.sub_path, .{}) catch |err|
+                fatal("failed to open object {}: {s}", .{ pq.path, @errorName(err) });
+            errdefer file.close();
+            try resolved_inputs.append(gpa, .{ .object = .{
+                .path = pq.path,
+                .file = file,
+                .must_link = pq.query.must_link,
+                .hidden = pq.query.hidden,
+            } });
+            return;
+        },
+        .res => {
+            var file = pq.path.root_dir.handle.openFile(pq.path.sub_path, .{}) catch |err|
+                fatal("failed to open windows resource {}: {s}", .{ pq.path, @errorName(err) });
+            errdefer file.close();
+            try resolved_inputs.append(gpa, .{ .res = .{
+                .path = pq.path,
+                .file = file,
+            } });
+            return;
+        },
+        else => fatal("{}: unrecognized file extension", .{pq.path}),
+    }) {
+        .ok => {},
+        .no_match => fatal("{}: file not found", .{pq.path}),
+    }
+}
+
+fn resolvePathInputLib(
+    gpa: Allocator,
+    arena: Allocator,
+    /// Allocated with `gpa`.
+    unresolved_inputs: *std.ArrayListUnmanaged(UnresolvedInput),
+    /// Allocated with `gpa`.
+    resolved_inputs: *std.ArrayListUnmanaged(Input),
+    /// Allocated via `gpa`.
+    ld_script_bytes: *std.ArrayListUnmanaged(u8),
+    target: std.Target,
+    pq: UnresolvedInput.PathQuery,
+    link_mode: std.builtin.LinkMode,
+    color: std.zig.Color,
+) Allocator.Error!AccessLibPathResult {
+    const test_path: Path = pq.path;
+    // In the case of .so files, they might actually be "linker scripts"
+    // that contain references to other libraries.
+    if (pq.query.allow_so_scripts and target.ofmt == .elf and mem.endsWith(u8, test_path.sub_path, ".so")) {
+        var file = test_path.root_dir.handle.openFile(test_path.sub_path, .{}) catch |err| switch (err) {
+            error.FileNotFound => return .no_match,
+            else => |e| fatal("unable to search for {s} library '{'}': {s}", .{
+                @tagName(link_mode), test_path, @errorName(e),
+            }),
+        };
+        errdefer file.close();
+        try ld_script_bytes.resize(gpa, @sizeOf(std.elf.Elf64_Ehdr));
+        const n = file.preadAll(ld_script_bytes.items, 0) catch |err| fatal("failed to read '{'}': {s}", .{
+            test_path, @errorName(err),
+        });
+        elf_file: {
+            if (n != ld_script_bytes.items.len) break :elf_file;
+            if (!mem.eql(u8, ld_script_bytes.items[0..4], "\x7fELF")) break :elf_file;
+            // Appears to be an ELF file.
+            return finishAccessLibPath(resolved_inputs, test_path, file, link_mode, pq.query);
+        }
+        const stat = file.stat() catch |err|
+            fatal("failed to stat {}: {s}", .{ test_path, @errorName(err) });
+        const size = std.math.cast(u32, stat.size) orelse
+            fatal("{}: linker script too big", .{test_path});
+        try ld_script_bytes.resize(gpa, size);
+        const buf = ld_script_bytes.items[n..];
+        const n2 = file.preadAll(buf, n) catch |err|
+            fatal("failed to read {}: {s}", .{ test_path, @errorName(err) });
+        if (n2 != buf.len) fatal("failed to read {}: unexpected end of file", .{test_path});
+        var diags = Diags.init(gpa);
+        defer diags.deinit();
+        const ld_script_result = LdScript.parse(gpa, &diags, test_path, ld_script_bytes.items);
+        if (diags.hasErrors()) {
+            var wip_errors: std.zig.ErrorBundle.Wip = undefined;
+            try wip_errors.init(gpa);
+            defer wip_errors.deinit();
+
+            try diags.addMessagesToBundle(&wip_errors);
+
+            var error_bundle = try wip_errors.toOwnedBundle("");
+            defer error_bundle.deinit(gpa);
+
+            error_bundle.renderToStdErr(color.renderOptions());
+
+            std.process.exit(1);
+        }
+
+        var ld_script = ld_script_result catch |err|
+            fatal("{}: failed to parse linker script: {s}", .{ test_path, @errorName(err) });
+        defer ld_script.deinit(gpa);
+
+        try unresolved_inputs.ensureUnusedCapacity(gpa, ld_script.args.len);
+        for (ld_script.args) |arg| {
+            const query: UnresolvedInput.Query = .{
+                .needed = arg.needed or pq.query.needed,
+                .weak = pq.query.weak,
+                .reexport = pq.query.reexport,
+                .preferred_mode = pq.query.preferred_mode,
+                .search_strategy = pq.query.search_strategy,
+                .allow_so_scripts = pq.query.allow_so_scripts,
+            };
+            if (mem.startsWith(u8, arg.path, "-l")) {
+                unresolved_inputs.appendAssumeCapacity(.{ .name_query = .{
+                    .name = try arena.dupe(u8, arg.path["-l".len..]),
+                    .query = query,
+                } });
+            } else {
+                unresolved_inputs.appendAssumeCapacity(.{ .ambiguous_name = .{
+                    .name = try arena.dupe(u8, arg.path),
+                    .query = query,
+                } });
+            }
+        }
+        file.close();
+        return .ok;
+    }
+
+    var file = test_path.root_dir.handle.openFile(test_path.sub_path, .{}) catch |err| switch (err) {
+        error.FileNotFound => return .no_match,
+        else => |e| fatal("unable to search for {s} library {}: {s}", .{
+            @tagName(link_mode), test_path, @errorName(e),
+        }),
+    };
+    errdefer file.close();
+    return finishAccessLibPath(resolved_inputs, test_path, file, link_mode, pq.query);
+}
+
+pub fn openObject(path: Path, must_link: bool, hidden: bool) !Input.Object {
+    var file = try path.root_dir.handle.openFile(path.sub_path, .{});
+    errdefer file.close();
+    return .{
+        .path = path,
+        .file = file,
+        .must_link = must_link,
+        .hidden = hidden,
+    };
+}
+
+pub fn openDso(path: Path, needed: bool, weak: bool, reexport: bool) !Input.Dso {
+    var file = try path.root_dir.handle.openFile(path.sub_path, .{});
+    errdefer file.close();
+    return .{
+        .path = path,
+        .file = file,
+        .needed = needed,
+        .weak = weak,
+        .reexport = reexport,
+    };
+}
+
+pub fn openObjectInput(diags: *Diags, path: Path) error{LinkFailure}!Input {
+    return .{ .object = openObject(path, false, false) catch |err| {
+        return diags.failParse(path, "failed to open {}: {s}", .{ path, @errorName(err) });
+    } };
+}
+
+pub fn openArchiveInput(diags: *Diags, path: Path) error{LinkFailure}!Input {
+    return .{ .archive = openObject(path, false, false) catch |err| {
+        return diags.failParse(path, "failed to open {}: {s}", .{ path, @errorName(err) });
+    } };
+}
+
+fn stripLibPrefixAndSuffix(path: []const u8, target: std.Target) ?struct { []const u8, std.builtin.LinkMode } {
+    const prefix = target.libPrefix();
+    const static_suffix = target.staticLibSuffix();
+    const dynamic_suffix = target.dynamicLibSuffix();
+    const basename = fs.path.basename(path);
+    const unlibbed = if (mem.startsWith(u8, basename, prefix)) basename[prefix.len..] else return null;
+    if (mem.endsWith(u8, unlibbed, static_suffix)) return .{
+        unlibbed[0 .. unlibbed.len - static_suffix.len], .static,
+    };
+    if (mem.endsWith(u8, unlibbed, dynamic_suffix)) return .{
+        unlibbed[0 .. unlibbed.len - dynamic_suffix.len], .dynamic,
+    };
+    return null;
+}
+
+/// Returns true if and only if there is at least one input of type object,
+/// archive, or Windows resource file.
+pub fn anyObjectInputs(inputs: []const Input) bool {
+    return countObjectInputs(inputs) != 0;
+}
+
+/// Returns the number of inputs of type object, archive, or Windows resource file.
+pub fn countObjectInputs(inputs: []const Input) usize {
+    var count: usize = 0;
+    for (inputs) |input| switch (input) {
+        .dso, .dso_exact => continue,
+        .res, .object, .archive => count += 1,
+    };
+    return count;
+}
+
+/// Returns the first input of type object or archive.
+pub fn firstObjectInput(inputs: []const Input) ?Input.Object {
+    for (inputs) |input| switch (input) {
+        .object, .archive => |obj| return obj,
+        .res, .dso, .dso_exact => continue,
+    };
+    return null;
 }

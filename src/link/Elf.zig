@@ -796,44 +796,55 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
     const csu = try comp.getCrtPaths(arena);
 
     // csu prelude
-    if (csu.crt0) |path| parseObjectReportingFailure(self, path);
-    if (csu.crti) |path| parseObjectReportingFailure(self, path);
-    if (csu.crtbegin) |path| parseObjectReportingFailure(self, path);
+    if (csu.crt0) |path| openParseObjectReportingFailure(self, path);
+    if (csu.crti) |path| openParseObjectReportingFailure(self, path);
+    if (csu.crtbegin) |path| openParseObjectReportingFailure(self, path);
 
-    for (comp.objects) |obj| {
-        parseInputReportingFailure(self, obj.path, obj.needed, obj.must_link);
-    }
+    // objects and archives
+    for (comp.link_inputs) |link_input| switch (link_input) {
+        .object, .archive => parseInputReportingFailure(self, link_input),
+        .dso_exact => @panic("TODO"),
+        .dso => continue, // handled below
+        .res => unreachable,
+    };
 
     // This is a set of object files emitted by clang in a single `build-exe` invocation.
     // For instance, the implicit `a.o` as compiled by `zig build-exe a.c` will end up
     // in this set.
     for (comp.c_object_table.keys()) |key| {
-        parseObjectReportingFailure(self, key.status.success.object_path);
+        openParseObjectReportingFailure(self, key.status.success.object_path);
     }
 
-    if (module_obj_path) |path| parseObjectReportingFailure(self, path);
+    if (module_obj_path) |path| openParseObjectReportingFailure(self, path);
 
-    if (comp.config.any_sanitize_thread) parseCrtFileReportingFailure(self, comp.tsan_lib.?);
-    if (comp.config.any_fuzz) parseCrtFileReportingFailure(self, comp.fuzzer_lib.?);
+    if (comp.config.any_sanitize_thread)
+        openParseArchiveReportingFailure(self, comp.tsan_lib.?.full_object_path);
+
+    if (comp.config.any_fuzz)
+        openParseArchiveReportingFailure(self, comp.fuzzer_lib.?.full_object_path);
 
     // libc
     if (!comp.skip_linker_dependencies and !comp.config.link_libc) {
-        if (comp.libc_static_lib) |lib| parseCrtFileReportingFailure(self, lib);
+        if (comp.libc_static_lib) |lib|
+            openParseArchiveReportingFailure(self, lib.full_object_path);
     }
 
-    for (comp.system_libs.values()) |lib_info| {
-        parseInputReportingFailure(self, lib_info.path.?, lib_info.needed, false);
-    }
+    // dynamic libraries
+    for (comp.link_inputs) |link_input| switch (link_input) {
+        .object, .archive, .dso_exact => continue, // handled above
+        .dso => parseInputReportingFailure(self, link_input),
+        .res => unreachable,
+    };
 
     // libc++ dep
     if (comp.config.link_libcpp) {
-        parseInputReportingFailure(self, comp.libcxxabi_static_lib.?.full_object_path, false, false);
-        parseInputReportingFailure(self, comp.libcxx_static_lib.?.full_object_path, false, false);
+        openParseArchiveReportingFailure(self, comp.libcxxabi_static_lib.?.full_object_path);
+        openParseArchiveReportingFailure(self, comp.libcxx_static_lib.?.full_object_path);
     }
 
     // libunwind dep
     if (comp.config.link_libunwind) {
-        parseInputReportingFailure(self, comp.libunwind_static_lib.?.full_object_path, false, false);
+        openParseArchiveReportingFailure(self, comp.libunwind_static_lib.?.full_object_path);
     }
 
     // libc dep
@@ -853,7 +864,10 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
                     lc.crt_dir.?, lib_name, suffix,
                 });
                 const resolved_path = Path.initCwd(lib_path);
-                parseInputReportingFailure(self, resolved_path, false, false);
+                switch (comp.config.link_mode) {
+                    .static => openParseArchiveReportingFailure(self, resolved_path),
+                    .dynamic => openParseDsoReportingFailure(self, resolved_path),
+                }
             }
         } else if (target.isGnuLibC()) {
             for (glibc.libs) |lib| {
@@ -864,15 +878,19 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
                 const lib_path = Path.initCwd(try std.fmt.allocPrint(arena, "{s}{c}lib{s}.so.{d}", .{
                     comp.glibc_so_files.?.dir_path, fs.path.sep, lib.name, lib.sover,
                 }));
-                parseInputReportingFailure(self, lib_path, false, false);
+                openParseDsoReportingFailure(self, lib_path);
             }
-            parseInputReportingFailure(self, try comp.get_libc_crt_file(arena, "libc_nonshared.a"), false, false);
+            const crt_file_path = try comp.get_libc_crt_file(arena, "libc_nonshared.a");
+            openParseArchiveReportingFailure(self, crt_file_path);
         } else if (target.isMusl()) {
             const path = try comp.get_libc_crt_file(arena, switch (link_mode) {
                 .static => "libc.a",
                 .dynamic => "libc.so",
             });
-            parseInputReportingFailure(self, path, false, false);
+            switch (link_mode) {
+                .static => openParseArchiveReportingFailure(self, path),
+                .dynamic => openParseDsoReportingFailure(self, path),
+            }
         } else {
             diags.flags.missing_libc = true;
         }
@@ -884,14 +902,14 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
     // to be after the shared libraries, so they are picked up from the shared
     // libraries, not libcompiler_rt.
     if (comp.compiler_rt_lib) |crt_file| {
-        parseInputReportingFailure(self, crt_file.full_object_path, false, false);
+        openParseArchiveReportingFailure(self, crt_file.full_object_path);
     } else if (comp.compiler_rt_obj) |crt_file| {
-        parseObjectReportingFailure(self, crt_file.full_object_path);
+        openParseObjectReportingFailure(self, crt_file.full_object_path);
     }
 
     // csu postlude
-    if (csu.crtend) |path| parseObjectReportingFailure(self, path);
-    if (csu.crtn) |path| parseObjectReportingFailure(self, path);
+    if (csu.crtend) |path| openParseObjectReportingFailure(self, path);
+    if (csu.crtn) |path| openParseObjectReportingFailure(self, path);
 
     if (diags.hasErrors()) return error.FlushFailure;
 
@@ -1087,9 +1105,15 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
     try argv.append(full_out_path);
 
     if (self.base.isRelocatable()) {
-        for (comp.objects) |obj| {
-            try argv.append(try obj.path.toString(arena));
-        }
+        for (self.base.comp.link_inputs) |link_input| switch (link_input) {
+            .res => unreachable,
+            .dso => |dso| try argv.append(try dso.path.toString(arena)),
+            .object, .archive => |obj| try argv.append(try obj.path.toString(arena)),
+            .dso_exact => |dso_exact| {
+                assert(dso_exact.name[0] == ':');
+                try argv.appendSlice(&.{ "-l", dso_exact.name });
+            },
+        };
 
         for (comp.c_object_table.keys()) |key| {
             try argv.append(try key.status.success.object_path.toString(arena));
@@ -1186,20 +1210,26 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
         }
 
         var whole_archive = false;
-        for (comp.objects) |obj| {
-            if (obj.must_link and !whole_archive) {
-                try argv.append("-whole-archive");
-                whole_archive = true;
-            } else if (!obj.must_link and whole_archive) {
-                try argv.append("-no-whole-archive");
-                whole_archive = false;
-            }
 
-            if (obj.loption) {
-                try argv.append("-l");
-            }
-            try argv.append(try obj.path.toString(arena));
-        }
+        for (self.base.comp.link_inputs) |link_input| switch (link_input) {
+            .res => unreachable,
+            .dso => continue,
+            .object, .archive => |obj| {
+                if (obj.must_link and !whole_archive) {
+                    try argv.append("-whole-archive");
+                    whole_archive = true;
+                } else if (!obj.must_link and whole_archive) {
+                    try argv.append("-no-whole-archive");
+                    whole_archive = false;
+                }
+                try argv.append(try obj.path.toString(arena));
+            },
+            .dso_exact => |dso_exact| {
+                assert(dso_exact.name[0] == ':');
+                try argv.appendSlice(&.{ "-l", dso_exact.name });
+            },
+        };
+
         if (whole_archive) {
             try argv.append("-no-whole-archive");
             whole_archive = false;
@@ -1231,25 +1261,28 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
         // Shared libraries.
         // Worst-case, we need an --as-needed argument for every lib, as well
         // as one before and one after.
-        try argv.ensureUnusedCapacity(self.base.comp.system_libs.keys().len * 2 + 2);
         argv.appendAssumeCapacity("--as-needed");
         var as_needed = true;
 
-        for (self.base.comp.system_libs.values()) |lib_info| {
-            const lib_as_needed = !lib_info.needed;
-            switch ((@as(u2, @intFromBool(lib_as_needed)) << 1) | @intFromBool(as_needed)) {
-                0b00, 0b11 => {},
-                0b01 => {
-                    argv.appendAssumeCapacity("--no-as-needed");
-                    as_needed = false;
-                },
-                0b10 => {
-                    argv.appendAssumeCapacity("--as-needed");
-                    as_needed = true;
-                },
-            }
-            argv.appendAssumeCapacity(try lib_info.path.?.toString(arena));
-        }
+        for (self.base.comp.link_inputs) |link_input| switch (link_input) {
+            .object, .archive, .dso_exact => continue,
+            .dso => |dso| {
+                const lib_as_needed = !dso.needed;
+                switch ((@as(u2, @intFromBool(lib_as_needed)) << 1) | @intFromBool(as_needed)) {
+                    0b00, 0b11 => {},
+                    0b01 => {
+                        try argv.append("--no-as-needed");
+                        as_needed = false;
+                    },
+                    0b10 => {
+                        try argv.append("--as-needed");
+                        as_needed = true;
+                    },
+                }
+                argv.appendAssumeCapacity(try dso.path.toString(arena));
+            },
+            .res => unreachable,
+        };
 
         if (!as_needed) {
             argv.appendAssumeCapacity("--as-needed");
@@ -1321,59 +1354,51 @@ pub const ParseError = error{
     UnknownFileType,
 } || fs.Dir.AccessError || fs.File.SeekError || fs.File.OpenError || fs.File.ReadError;
 
-fn parseCrtFileReportingFailure(self: *Elf, crt_file: Compilation.CrtFile) void {
-    parseInputReportingFailure(self, crt_file.full_object_path, false, false);
-}
-
-pub fn parseInputReportingFailure(self: *Elf, path: Path, needed: bool, must_link: bool) void {
+pub fn parseInputReportingFailure(self: *Elf, input: link.Input) void {
     const gpa = self.base.comp.gpa;
     const diags = &self.base.comp.link_diags;
     const target = self.getTarget();
 
-    switch (Compilation.classifyFileExt(path.sub_path)) {
-        .object => parseObjectReportingFailure(self, path),
-        .shared_library => parseSharedObject(gpa, diags, .{
-            .path = path,
-            .needed = needed,
-        }, &self.shared_objects, &self.files, target) catch |err| switch (err) {
-            error.LinkFailure => return, // already reported
-            error.BadMagic, error.UnexpectedEndOfFile => {
-                var notes = diags.addErrorWithNotes(2) catch return diags.setAllocFailure();
-                notes.addMsg("failed to parse shared object: {s}", .{@errorName(err)}) catch return diags.setAllocFailure();
-                notes.addNote("while parsing {}", .{path}) catch return diags.setAllocFailure();
-                notes.addNote("{s}", .{@as([]const u8, "the file may be a GNU ld script, in which case it is not an ELF file but a text file referencing other libraries to link. In this case, avoid depending on the library, convince your system administrators to refrain from using this kind of file, or pass -fallow-so-scripts to force the compiler to check every shared library in case it is an ld script.")}) catch return diags.setAllocFailure();
-            },
-            else => |e| diags.addParseError(path, "failed to parse shared object: {s}", .{@errorName(e)}),
-        },
-        .static_library => parseArchive(self, path, must_link) catch |err| switch (err) {
-            error.LinkFailure => return, // already reported
-            else => |e| diags.addParseError(path, "failed to parse archive: {s}", .{@errorName(e)}),
-        },
-        else => diags.addParseError(path, "unrecognized file type", .{}),
+    switch (input) {
+        .res => unreachable,
+        .dso_exact => unreachable,
+        .object => |obj| parseObjectReportingFailure(self, obj),
+        .archive => |obj| parseArchiveReportingFailure(self, obj),
+        .dso => |dso| parseDsoReportingFailure(gpa, diags, dso, &self.shared_objects, &self.files, target),
     }
 }
 
-pub fn parseObjectReportingFailure(self: *Elf, path: Path) void {
+pub fn openParseObjectReportingFailure(self: *Elf, path: Path) void {
     const diags = &self.base.comp.link_diags;
-    self.parseObject(path) catch |err| switch (err) {
+    const obj = link.openObject(path, false, false) catch |err| {
+        switch (diags.failParse(path, "failed to open object {}: {s}", .{ path, @errorName(err) })) {
+            error.LinkFailure => return,
+        }
+    };
+    self.parseObjectReportingFailure(obj);
+}
+
+pub fn parseObjectReportingFailure(self: *Elf, obj: link.Input.Object) void {
+    const diags = &self.base.comp.link_diags;
+    self.parseObject(obj) catch |err| switch (err) {
         error.LinkFailure => return, // already reported
-        else => |e| diags.addParseError(path, "unable to parse object: {s}", .{@errorName(e)}),
+        else => |e| diags.addParseError(obj.path, "failed to parse object: {s}", .{@errorName(e)}),
     };
 }
 
-fn parseObject(self: *Elf, path: Path) ParseError!void {
+fn parseObject(self: *Elf, obj: link.Input.Object) ParseError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
     const gpa = self.base.comp.gpa;
-    const handle = try path.root_dir.handle.openFile(path.sub_path, .{});
+    const handle = obj.file;
     const fh = try self.addFileHandle(handle);
 
     const index: File.Index = @intCast(try self.files.addOne(gpa));
     self.files.set(index, .{ .object = .{
         .path = .{
-            .root_dir = path.root_dir,
-            .sub_path = try gpa.dupe(u8, path.sub_path),
+            .root_dir = obj.path.root_dir,
+            .sub_path = try gpa.dupe(u8, obj.path.sub_path),
         },
         .file_handle = fh,
         .index = index,
@@ -1384,17 +1409,35 @@ fn parseObject(self: *Elf, path: Path) ParseError!void {
     try object.parse(self);
 }
 
-fn parseArchive(self: *Elf, path: Path, must_link: bool) ParseError!void {
+pub fn openParseArchiveReportingFailure(self: *Elf, path: Path) void {
+    const diags = &self.base.comp.link_diags;
+    const obj = link.openObject(path, false, false) catch |err| {
+        switch (diags.failParse(path, "failed to open archive {}: {s}", .{ path, @errorName(err) })) {
+            error.LinkFailure => return,
+        }
+    };
+    parseArchiveReportingFailure(self, obj);
+}
+
+pub fn parseArchiveReportingFailure(self: *Elf, obj: link.Input.Object) void {
+    const diags = &self.base.comp.link_diags;
+    self.parseArchive(obj) catch |err| switch (err) {
+        error.LinkFailure => return, // already reported
+        else => |e| diags.addParseError(obj.path, "failed to parse archive: {s}", .{@errorName(e)}),
+    };
+}
+
+fn parseArchive(self: *Elf, obj: link.Input.Object) ParseError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
     const gpa = self.base.comp.gpa;
-    const handle = try path.root_dir.handle.openFile(path.sub_path, .{});
+    const handle = obj.file;
     const fh = try self.addFileHandle(handle);
 
     var archive: Archive = .{};
     defer archive.deinit(gpa);
-    try archive.parse(self, path, fh);
+    try archive.parse(self, obj.path, fh);
 
     const objects = try archive.objects.toOwnedSlice(gpa);
     defer gpa.free(objects);
@@ -1404,16 +1447,48 @@ fn parseArchive(self: *Elf, path: Path, must_link: bool) ParseError!void {
         self.files.set(index, .{ .object = extracted });
         const object = &self.files.items(.data)[index].object;
         object.index = index;
-        object.alive = must_link;
+        object.alive = obj.must_link;
         try object.parse(self);
         try self.objects.append(gpa, index);
     }
 }
 
-fn parseSharedObject(
+fn openParseDsoReportingFailure(self: *Elf, path: Path) void {
+    const diags = &self.base.comp.link_diags;
+    const target = self.getTarget();
+    const dso = link.openDso(path, false, false, false) catch |err| {
+        switch (diags.failParse(path, "failed to open shared object {}: {s}", .{ path, @errorName(err) })) {
+            error.LinkFailure => return,
+        }
+    };
+    const gpa = self.base.comp.gpa;
+    parseDsoReportingFailure(gpa, diags, dso, &self.shared_objects, &self.files, target);
+}
+
+fn parseDsoReportingFailure(
     gpa: Allocator,
     diags: *Diags,
-    lib: SystemLib,
+    dso: link.Input.Dso,
+    shared_objects: *std.StringArrayHashMapUnmanaged(File.Index),
+    files: *std.MultiArrayList(File.Entry),
+    target: std.Target,
+) void {
+    parseDso(gpa, diags, dso, shared_objects, files, target) catch |err| switch (err) {
+        error.LinkFailure => return, // already reported
+        error.BadMagic, error.UnexpectedEndOfFile => {
+            var notes = diags.addErrorWithNotes(2) catch return diags.setAllocFailure();
+            notes.addMsg("failed to parse shared object: {s}", .{@errorName(err)}) catch return diags.setAllocFailure();
+            notes.addNote("while parsing {}", .{dso.path}) catch return diags.setAllocFailure();
+            notes.addNote("{s}", .{@as([]const u8, "the file may be a GNU ld script, in which case it is not an ELF file but a text file referencing other libraries to link. In this case, avoid depending on the library, convince your system administrators to refrain from using this kind of file, or pass -fallow-so-scripts to force the compiler to check every shared library in case it is an ld script.")}) catch return diags.setAllocFailure();
+        },
+        else => |e| diags.addParseError(dso.path, "failed to parse shared object: {s}", .{@errorName(e)}),
+    };
+}
+
+fn parseDso(
+    gpa: Allocator,
+    diags: *Diags,
+    dso: link.Input.Dso,
     shared_objects: *std.StringArrayHashMapUnmanaged(File.Index),
     files: *std.MultiArrayList(File.Entry),
     target: std.Target,
@@ -1421,14 +1496,14 @@ fn parseSharedObject(
     const tracy = trace(@src());
     defer tracy.end();
 
-    const handle = try lib.path.root_dir.handle.openFile(lib.path.sub_path, .{});
+    const handle = dso.file;
     defer handle.close();
 
     const stat = Stat.fromFs(try handle.stat());
-    var header = try SharedObject.parseHeader(gpa, diags, lib.path, handle, stat, target);
+    var header = try SharedObject.parseHeader(gpa, diags, dso.path, handle, stat, target);
     defer header.deinit(gpa);
 
-    const soname = header.soname() orelse lib.path.basename();
+    const soname = header.soname() orelse dso.path.basename();
 
     const gop = try shared_objects.getOrPut(gpa, soname);
     if (gop.found_existing) {
@@ -1446,8 +1521,8 @@ fn parseSharedObject(
     errdefer parsed.deinit(gpa);
 
     const duped_path: Path = .{
-        .root_dir = lib.path.root_dir,
-        .sub_path = try gpa.dupe(u8, lib.path.sub_path),
+        .root_dir = dso.path.root_dir,
+        .sub_path = try gpa.dupe(u8, dso.path.sub_path),
     };
     errdefer gpa.free(duped_path.sub_path);
 
@@ -1456,8 +1531,8 @@ fn parseSharedObject(
             .parsed = parsed,
             .path = duped_path,
             .index = index,
-            .needed = lib.needed,
-            .alive = lib.needed,
+            .needed = dso.needed,
+            .alive = dso.needed,
             .aliases = null,
             .symbols = .empty,
             .symbols_extra = .empty,
@@ -1824,11 +1899,7 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
         try man.addOptionalFile(self.version_script);
         man.hash.add(self.allow_undefined_version);
         man.hash.addOptional(self.enable_new_dtags);
-        for (comp.objects) |obj| {
-            _ = try man.addFilePath(obj.path, null);
-            man.hash.add(obj.must_link);
-            man.hash.add(obj.loption);
-        }
+        try link.hashInputs(&man, comp.link_inputs);
         for (comp.c_object_table.keys()) |key| {
             _ = try man.addFilePath(key.status.success.object_path, null);
         }
@@ -1875,7 +1946,6 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
         }
         man.hash.addOptionalBytes(self.soname);
         man.hash.addOptional(comp.version);
-        try link.hashAddSystemLibs(&man, comp.system_libs);
         man.hash.addListOfBytes(comp.force_undefined_symbols.keys());
         man.hash.add(self.base.allow_shlib_undefined);
         man.hash.add(self.bind_global_refs_locally);
@@ -1922,8 +1992,7 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
         // here. TODO: think carefully about how we can avoid this redundant operation when doing
         // build-obj. See also the corresponding TODO in linkAsArchive.
         const the_object_path = blk: {
-            if (comp.objects.len != 0)
-                break :blk comp.objects[0].path;
+            if (link.firstObjectInput(comp.link_inputs)) |obj| break :blk obj.path;
 
             if (comp.c_object_table.count() != 0)
                 break :blk comp.c_object_table.keys()[0].status.success.object_path;
@@ -2178,21 +2247,26 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
 
         // Positional arguments to the linker such as object files.
         var whole_archive = false;
-        for (comp.objects) |obj| {
-            if (obj.must_link and !whole_archive) {
-                try argv.append("-whole-archive");
-                whole_archive = true;
-            } else if (!obj.must_link and whole_archive) {
-                try argv.append("-no-whole-archive");
-                whole_archive = false;
-            }
 
-            if (obj.loption) {
-                assert(obj.path.sub_path[0] == ':');
-                try argv.append("-l");
-            }
-            try argv.append(try obj.path.toString(arena));
-        }
+        for (self.base.comp.link_inputs) |link_input| switch (link_input) {
+            .res => unreachable, // Windows-only
+            .dso => continue,
+            .object, .archive => |obj| {
+                if (obj.must_link and !whole_archive) {
+                    try argv.append("-whole-archive");
+                    whole_archive = true;
+                } else if (!obj.must_link and whole_archive) {
+                    try argv.append("-no-whole-archive");
+                    whole_archive = false;
+                }
+                try argv.append(try obj.path.toString(arena));
+            },
+            .dso_exact => |dso_exact| {
+                assert(dso_exact.name[0] == ':');
+                try argv.appendSlice(&.{ "-l", dso_exact.name });
+            },
+        };
+
         if (whole_archive) {
             try argv.append("-no-whole-archive");
             whole_archive = false;
@@ -2228,35 +2302,35 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
 
         // Shared libraries.
         if (is_exe_or_dyn_lib) {
-            const system_libs = comp.system_libs.keys();
-            const system_libs_values = comp.system_libs.values();
-
             // Worst-case, we need an --as-needed argument for every lib, as well
             // as one before and one after.
-            try argv.ensureUnusedCapacity(system_libs.len * 2 + 2);
-            argv.appendAssumeCapacity("--as-needed");
+            try argv.append("--as-needed");
             var as_needed = true;
 
-            for (system_libs_values) |lib_info| {
-                const lib_as_needed = !lib_info.needed;
-                switch ((@as(u2, @intFromBool(lib_as_needed)) << 1) | @intFromBool(as_needed)) {
-                    0b00, 0b11 => {},
-                    0b01 => {
-                        argv.appendAssumeCapacity("--no-as-needed");
-                        as_needed = false;
-                    },
-                    0b10 => {
-                        argv.appendAssumeCapacity("--as-needed");
-                        as_needed = true;
-                    },
-                }
+            for (self.base.comp.link_inputs) |link_input| switch (link_input) {
+                .res => unreachable, // Windows-only
+                .object, .archive, .dso_exact => continue,
+                .dso => |dso| {
+                    const lib_as_needed = !dso.needed;
+                    switch ((@as(u2, @intFromBool(lib_as_needed)) << 1) | @intFromBool(as_needed)) {
+                        0b00, 0b11 => {},
+                        0b01 => {
+                            argv.appendAssumeCapacity("--no-as-needed");
+                            as_needed = false;
+                        },
+                        0b10 => {
+                            argv.appendAssumeCapacity("--as-needed");
+                            as_needed = true;
+                        },
+                    }
 
-                // By this time, we depend on these libs being dynamically linked
-                // libraries and not static libraries (the check for that needs to be earlier),
-                // but they could be full paths to .so files, in which case we
-                // want to avoid prepending "-l".
-                argv.appendAssumeCapacity(try lib_info.path.?.toString(arena));
-            }
+                    // By this time, we depend on these libs being dynamically linked
+                    // libraries and not static libraries (the check for that needs to be earlier),
+                    // but they could be full paths to .so files, in which case we
+                    // want to avoid prepending "-l".
+                    argv.appendAssumeCapacity(try dso.path.toString(arena));
+                },
+            };
 
             if (!as_needed) {
                 argv.appendAssumeCapacity("--as-needed");
