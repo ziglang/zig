@@ -1763,7 +1763,7 @@ pub fn renameZ(self: Dir, old_sub_path_z: [*:0]const u8, new_sub_path_z: [*:0]co
 /// Same as `rename` except the parameters are WTF16LE, NT prefixed.
 /// This function is Windows-only.
 pub fn renameW(self: Dir, old_sub_path_w: []const u16, new_sub_path_w: []const u16) RenameError!void {
-    return posix.renameatW(self.fd, old_sub_path_w, self.fd, new_sub_path_w, windows.FALSE);
+    return posix.renameatW(self.fd, old_sub_path_w, self.fd, new_sub_path_w, windows.TRUE);
 }
 
 /// Use with `Dir.symLink`, `Dir.atomicSymLink`, and `symLinkAbsolute` to
