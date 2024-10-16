@@ -299,15 +299,16 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
 // Return true if musl has arch-specific crti/crtn sources.
 // See lib/libc/musl/crt/ARCH/crt?.s .
 pub fn needsCrtiCrtn(target: std.Target) bool {
-    // zig fmt: off
     return switch (target.cpu.arch) {
+        .loongarch64,
+        .m68k,
         .riscv32,
         .riscv64,
-        .wasm32, .wasm64 => false,
-        .loongarch64 => false,
+        .wasm32,
+        .wasm64,
+        => false,
         else => true,
     };
-    // zig fmt: on
 }
 
 fn isMuslArchName(name: []const u8) bool {
