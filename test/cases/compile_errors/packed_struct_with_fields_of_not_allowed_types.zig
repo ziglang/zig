@@ -84,7 +84,7 @@ export fn entry14() void {
 // :3:12: error: packed structs cannot contain fields of type 'anyerror'
 // :3:12: note: type has no guaranteed in-memory representation
 // :8:12: error: packed structs cannot contain fields of type '[2]u24'
-// :8:12: note: type has no guaranteed in-memory representation
+// :8:12: note: packed fields are ordered according to machine endianness, array elements are not
 // :13:20: error: packed structs cannot contain fields of type 'anyerror!u32'
 // :13:20: note: type has no guaranteed in-memory representation
 // :18:12: error: packed structs cannot contain fields of type 'tmp.S'
