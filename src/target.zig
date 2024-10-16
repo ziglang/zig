@@ -315,6 +315,20 @@ pub fn clangAssemblerSupportsMcpuArg(target: std.Target) bool {
     };
 }
 
+/// Some experimental or poorly-maintained LLVM targets do not properly process CPU models in their
+/// Clang driver code. For these, we should omit the `-Xclang -target-cpu -Xclang <model>` flags.
+pub fn clangSupportsTargetCpuArg(target: std.Target) bool {
+    return switch (target.cpu.arch) {
+        .arc,
+        .msp430,
+        .ve,
+        .xcore,
+        .xtensa,
+        => false,
+        else => true,
+    };
+}
+
 pub fn clangSupportsFloatAbiArg(target: std.Target) bool {
     return switch (target.cpu.arch) {
         .arm,
