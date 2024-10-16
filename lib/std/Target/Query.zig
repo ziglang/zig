@@ -6,7 +6,7 @@
 /// `null` means native.
 cpu_arch: ?Target.Cpu.Arch = null,
 
-cpu_model: CpuModel = CpuModel.determined_by_cpu_arch,
+cpu_model: CpuModel = CpuModel.determined_by_arch_os,
 
 /// Sparse set of CPU features to add to the set from `cpu_model`.
 cpu_features_add: Target.Cpu.Feature.Set = Target.Cpu.Feature.Set.empty,
@@ -48,7 +48,7 @@ pub const CpuModel = union(enum) {
 
     /// If CPU Architecture is native, then the CPU model will be native. Otherwise,
     /// it will be baseline.
-    determined_by_cpu_arch,
+    determined_by_arch_os,
 
     explicit: *const Target.Cpu.Model,
 
@@ -58,7 +58,7 @@ pub const CpuModel = union(enum) {
         const b_tag: Tag = b;
         if (a_tag != b_tag) return false;
         return switch (a) {
-            .native, .baseline, .determined_by_cpu_arch => true,
+            .native, .baseline, .determined_by_arch_os => true,
             .explicit => |a_model| a_model == b.explicit,
         };
     }
@@ -349,7 +349,7 @@ test parseVersion {
 
 pub fn isNativeCpu(self: Query) bool {
     return self.cpu_arch == null and
-        (self.cpu_model == .native or self.cpu_model == .determined_by_cpu_arch) and
+        (self.cpu_model == .native or self.cpu_model == .determined_by_arch_os) and
         self.cpu_features_sub.isEmpty() and self.cpu_features_add.isEmpty();
 }
 
@@ -461,7 +461,7 @@ pub fn serializeCpu(q: Query, buffer: *std.ArrayList(u8)) Allocator.Error!void {
         .baseline => {
             buffer.appendSliceAssumeCapacity("baseline");
         },
-        .determined_by_cpu_arch => {
+        .determined_by_arch_os => {
             if (q.cpu_arch == null) {
                 buffer.appendSliceAssumeCapacity("native");
             } else {
