@@ -4394,12 +4394,12 @@ fn processDeath(self: *Self, inst: Air.Inst.Index) void {
 
 /// Turns stack_offset MCV into a real SPARCv9 stack offset usable for asm.
 fn realStackOffset(off: u32) u32 {
-    return off
-    // SPARCv9 %sp points away from the stack by some amount.
-    + abi.stack_bias
-    // The first couple bytes of each stack frame is reserved
-    // for ABI and hardware purposes.
-    + abi.stack_reserved_area;
+    return off +
+        // SPARCv9 %sp points away from the stack by some amount.
+        abi.stack_bias +
+        // The first couple bytes of each stack frame is reserved
+        // for ABI and hardware purposes.
+        abi.stack_reserved_area;
     // Only after that we have the usable stack frame portion.
 }
 
