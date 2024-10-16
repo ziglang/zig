@@ -107,15 +107,15 @@ test "zig fmt: respect line breaks before functions" {
     );
 }
 
-test "zig fmt: rewrite callconv(.Inline) to the inline keyword" {
+test "zig fmt: rewrite callconv(.@\"inline\") to the inline keyword" {
     try testTransform(
-        \\fn foo() callconv(.Inline) void {}
-        \\const bar = .Inline;
+        \\fn foo() callconv(.@"inline") void {}
+        \\const bar: @import("std").builtin.CallingConvention = .@"inline";
         \\fn foo() callconv(bar) void {}
         \\
     ,
         \\inline fn foo() void {}
-        \\const bar = .Inline;
+        \\const bar: @import("std").builtin.CallingConvention = .@"inline";
         \\fn foo() callconv(bar) void {}
         \\
     );
@@ -3062,7 +3062,7 @@ test "zig fmt: functions" {
         \\pub export fn puts(s: *const u8) align(2 + 2) c_int;
         \\pub inline fn puts(s: *const u8) align(2 + 2) c_int;
         \\pub noinline fn puts(s: *const u8) align(2 + 2) c_int;
-        \\pub fn callInlineFn(func: fn () callconv(.Inline) void) void {
+        \\pub fn callInlineFn(func: fn () callconv(.@"inline") void) void {
         \\    func();
         \\}
         \\
