@@ -6299,7 +6299,7 @@ fn detectNativeCpuWithLLVM(
     llvm_cpu_name_z: ?[*:0]const u8,
     llvm_cpu_features_opt: ?[*:0]const u8,
 ) !std.Target.Cpu {
-    var result = std.Target.Cpu.baseline(arch);
+    var result = std.Target.Cpu.baseline(arch, builtin.os);
 
     if (llvm_cpu_name_z) |cpu_name_z| {
         const llvm_cpu_name = mem.span(cpu_name_z);

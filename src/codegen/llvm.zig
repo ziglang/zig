@@ -520,6 +520,7 @@ const DataLayoutBuilder = struct {
             .arm,
             .armeb,
             .csky,
+            .loongarch32,
             .mips,
             .mipsel,
             .powerpc,
@@ -535,6 +536,7 @@ const DataLayoutBuilder = struct {
             .amdgcn,
             .bpfeb,
             .bpfel,
+            .loongarch64,
             .mips64,
             .mips64el,
             .powerpc64,
@@ -554,7 +556,6 @@ const DataLayoutBuilder = struct {
             .nvptx64,
             => &.{ 16, 32, 64 },
             .x86_64 => &.{ 8, 16, 32, 64 },
-            .loongarch64 => &.{64},
             else => &.{},
         }), 0..) |natural, index| switch (index) {
             0 => try writer.print("-n{d}", .{natural}),
@@ -12452,6 +12453,9 @@ fn backendSupportsF80(target: std.Target) bool {
 /// if it produces miscompilations.
 fn backendSupportsF16(target: std.Target) bool {
     return switch (target.cpu.arch) {
+        // LoongArch can be removed from this list with LLVM 20.
+        .loongarch32,
+        .loongarch64,
         .hexagon,
         .powerpc,
         .powerpcle,
