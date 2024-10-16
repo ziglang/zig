@@ -85,13 +85,16 @@ pub const File = extern struct {
     fn getEndPos(self: *const File) GetSeekPosError!u64 {
         // preserve the old file position
         var pos: u64 = undefined;
+        var end_pos: u64 = undefined;
         if (.Success != self.getPosition(&pos)) return GetSeekPosError.GetSeekPosError;
         // seek to end of file to get position = file size
         if (.Success != self.setPosition(efi_file_position_end_of_file)) return GetSeekPosError.GetSeekPosError;
+        // get the position
+        if (.Success != self.getPosition(&end_pos)) return GetSeekPosError.GetSeekPosError;
         // restore the old position
         if (.Success != self.setPosition(pos)) return GetSeekPosError.GetSeekPosError;
         // return the file size = position
-        return pos;
+        return end_pos;
     }
 
     pub fn setPosition(self: *const File, position: u64) Status {
