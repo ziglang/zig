@@ -1506,10 +1506,7 @@ fn parseDso(
     const soname = header.soname() orelse dso.path.basename();
 
     const gop = try shared_objects.getOrPut(gpa, soname);
-    if (gop.found_existing) {
-        header.deinit(gpa);
-        return;
-    }
+    if (gop.found_existing) return;
     errdefer _ = shared_objects.pop();
 
     const index: File.Index = @intCast(try files.addOne(gpa));
