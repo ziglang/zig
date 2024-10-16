@@ -3607,7 +3607,8 @@ pub fn callconvSupported(zcu: *Zcu, cc: std.builtin.CallingConvention) union(enu
             else => false,
         },
         .stage2_x86_64 => switch (cc) {
-            .x86_64_sysv, .x86_64_win, .naked => true, // stack alignment supported
+            .x86_64_sysv, .x86_64_win => |opts| opts.incoming_stack_alignment == null,
+            .naked => true,
             else => false,
         },
         .stage2_aarch64 => switch (cc) {
