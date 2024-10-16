@@ -1631,6 +1631,7 @@ pub const Cpu = struct {
                 };
             };
             return switch (arch) {
+                .amdgcn => &amdgpu.cpu.gfx600,
                 .arc => &arc.cpu.generic,
                 .arm, .armeb, .thumb, .thumbeb => &arm.cpu.generic,
                 .aarch64, .aarch64_be => &aarch64.cpu.generic,
@@ -1649,7 +1650,6 @@ pub const Cpu = struct {
                 .powerpc64, .powerpc64le => &powerpc.cpu.ppc64,
                 .propeller1 => &propeller.cpu.generic,
                 .propeller2 => &propeller.cpu.generic,
-                .amdgcn => &amdgpu.cpu.generic,
                 .riscv32 => &riscv.cpu.generic_rv32,
                 .riscv64 => &riscv.cpu.generic_rv64,
                 .spirv, .spirv32, .spirv64 => &spirv.cpu.generic,
