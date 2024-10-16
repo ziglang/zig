@@ -1015,7 +1015,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) !voi
             }
         }
 
-        try stubs_asm.appendSlice(".data\n");
+        try stubs_asm.appendSlice(".rodata\n");
 
         // For some targets, the real `libc.so.6` will contain a weak reference to `_IO_stdin_used`,
         // making the linker put the symbol in the dynamic symbol table. We likewise need to emit a
@@ -1045,6 +1045,8 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) !voi
                 wordDirective(target),
             });
         }
+
+        try stubs_asm.appendSlice(".data\n");
 
         const obj_inclusions_len = try inc_reader.readInt(u16, .little);
 
