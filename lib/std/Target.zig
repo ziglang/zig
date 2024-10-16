@@ -1800,7 +1800,7 @@ pub const Cpu = struct {
                 .arc => &arc.cpu.generic,
                 .arm, .armeb, .thumb, .thumbeb => &arm.cpu.generic,
                 .aarch64, .aarch64_be => &aarch64.cpu.generic,
-                .avr => &avr.cpu.avr2,
+                .avr => &avr.cpu.avr1,
                 .bpfel, .bpfeb => &bpf.cpu.generic,
                 .csky => &csky.cpu.generic,
                 .hexagon => &hexagon.cpu.generic,
@@ -1856,6 +1856,7 @@ pub const Cpu = struct {
                     .watchos => &aarch64.cpu.apple_s4,
                     else => generic(arch),
                 },
+                .avr => &avr.cpu.avr2,
                 .csky => &csky.cpu.ck810, // gcc/clang do not have a generic csky model.
                 .hexagon => &hexagon.cpu.hexagonv60, // gcc/clang do not have a generic hexagon model.
                 .lanai => &lanai.cpu.v11, // clang does not have a generic lanai model.
