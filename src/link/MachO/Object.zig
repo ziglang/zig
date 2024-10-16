@@ -1362,6 +1362,8 @@ fn parseDebugInfo(self: *Object, macho_file: *MachO) !void {
         if (mem.eql(u8, sect.sectName(), "__debug_str")) {
             dwarf.debug_str = try self.readSectionData(gpa, file, n_sect);
         }
+        // __debug_str_offs[ets] section is a new addition in DWARFv5 and is generally
+        // required in order to correctly parse strings.
         if (mem.eql(u8, sect.sectName(), "__debug_str_offs")) {
             dwarf.debug_str_offsets = try self.readSectionData(gpa, file, n_sect);
         }
@@ -1369,20 +1371,22 @@ fn parseDebugInfo(self: *Object, macho_file: *MachO) !void {
 
     if (dwarf.debug_info.len == 0) return;
 
-    self.compile_unit = try self.findCompileUnit(gpa, dwarf, macho_file);
+    // TODO return error once we fix emitting DWARF in self-hosted backend.
+    // https://github.com/ziglang/zig/issues/21719
+    self.compile_unit = self.findCompileUnit(gpa, dwarf) catch null;
 }
 
-fn findCompileUnit(self: *Object, gpa: Allocator, ctx: Dwarf, macho_file: *MachO) !CompileUnit {
+fn findCompileUnit(self: *Object, gpa: Allocator, ctx: Dwarf) !CompileUnit {
     var info_reader = Dwarf.InfoReader{ .ctx = ctx };
     var abbrev_reader = Dwarf.AbbrevReader{ .ctx = ctx };
 
-    const cuh = try info_reader.readCompileUnitHeader(macho_file);
+    const cuh = try info_reader.readCompileUnitHeader();
     try abbrev_reader.seekTo(cuh.debug_abbrev_offset);
 
     const cu_decl = (try abbrev_reader.readDecl()) orelse return error.UnexpectedEndOfFile;
     if (cu_decl.tag != Dwarf.TAG.compile_unit) return error.UnexpectedTag;
 
-    try info_reader.seekToDie(cu_decl.code, cuh, &abbrev_reader, macho_file);
+    try info_reader.seekToDie(cu_decl.code, cuh, &abbrev_reader);
 
     const Pos = struct {
         pos: usize,
@@ -1405,10 +1409,10 @@ fn findCompileUnit(self: *Object, gpa: Allocator, ctx: Dwarf, macho_file: *MachO
             Dwarf.AT.str_offsets_base => saved.str_offsets_base = pos,
             else => {},
         }
-        try info_reader.skip(attr.form, cuh, macho_file);
+        try info_reader.skip(attr.form, cuh);
     }
 
-    if (saved.comp_dir == null) return error.MissingCompDir;
+    if (saved.comp_dir == null) return error.MissingCompileDir;
     if (saved.tu_name == null) return error.MissingTuName;
 
     const str_offsets_base: ?u64 = if (saved.str_offsets_base) |str_offsets_base| str_offsets_base: {
@@ -1433,7 +1437,7 @@ fn findCompileUnit(self: *Object, gpa: Allocator, ctx: Dwarf, macho_file: *MachO
             Dwarf.FORM.strx3,
             Dwarf.FORM.strx4,
             => blk: {
-                const base = str_offsets_base orelse return error.MalformedDwarf;
+                const base = str_offsets_base orelse return error.MissingStrOffsetsBase;
                 break :blk try self.addString(gpa, try info_reader.readStringIndexed(pos.form, cuh, base));
             },
             else => return error.InvalidForm,
