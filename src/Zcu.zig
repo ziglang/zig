@@ -424,13 +424,8 @@ pub const Namespace = struct {
 };
 
 pub const File = struct {
-    status: enum {
-        never_loaded,
-        retryable_failure,
-        parse_failure,
-        astgen_failure,
-        success_zir,
-    },
+    status: Status,
+    prev_status: Status,
     source_loaded: bool,
     tree_loaded: bool,
     zir_loaded: bool,
@@ -457,6 +452,14 @@ pub const File = struct {
     /// newly introduces compile errors during an update. When ZIR is
     /// successful, this field is unloaded.
     prev_zir: ?*Zir = null,
+
+    pub const Status = enum {
+        never_loaded,
+        retryable_failure,
+        parse_failure,
+        astgen_failure,
+        success_zir,
+    };
 
     /// A single reference to a file.
     pub const Reference = union(enum) {
@@ -3474,6 +3477,10 @@ fn formatDependee(data: struct { dependee: InternPool.Dependee, zcu: *Zcu }, com
     const zcu = data.zcu;
     const ip = &zcu.intern_pool;
     switch (data.dependee) {
+        .file => |file| {
+            const file_path = zcu.fileByIndex(file).sub_file_path;
+            return writer.print("file('{s}')", .{file_path});
+        },
         .src_hash => |ti| {
             const info = ti.resolveFull(ip) orelse {
                 return writer.writeAll("inst(<lost>)");

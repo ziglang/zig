@@ -6118,6 +6118,7 @@ fn cmdAstCheck(
 
     var file: Zcu.File = .{
         .status = .never_loaded,
+        .prev_status = .never_loaded,
         .source_loaded = false,
         .tree_loaded = false,
         .zir_loaded = false,
@@ -6441,6 +6442,7 @@ fn cmdDumpZir(
 
     var file: Zcu.File = .{
         .status = .never_loaded,
+        .prev_status = .never_loaded,
         .source_loaded = false,
         .tree_loaded = false,
         .zir_loaded = true,
@@ -6508,6 +6510,7 @@ fn cmdChangelist(
 
     var file: Zcu.File = .{
         .status = .never_loaded,
+        .prev_status = .never_loaded,
         .source_loaded = false,
         .tree_loaded = false,
         .zir_loaded = false,

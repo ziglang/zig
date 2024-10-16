@@ -454,6 +454,7 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
             .tree = undefined,
             .zir = undefined,
             .status = .never_loaded,
+            .prev_status = .never_loaded,
             .mod = new,
         };
         break :b new;
