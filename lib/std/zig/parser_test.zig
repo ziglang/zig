@@ -1766,6 +1766,39 @@ test "zig fmt: if-else with comment before else" {
     );
 }
 
+test "zig fmt: if-else with comment after else" {
+    try testCanonical(
+        \\comptime {
+        \\    _ = if (foo) bar() else
+        \\        //
+        \\        qux();
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: orelse with comment after" {
+    try testCanonical(
+        \\comptime {
+        \\    _ = foo() orelse
+        \\        //
+        \\        qux();
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: try catch with comment after catch" {
+    try testCanonical(
+        \\comptime {
+        \\    _ = foo() catch
+        \\        //
+        \\        bar();
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: if nested" {
     try testCanonical(
         \\pub fn foo() void {
