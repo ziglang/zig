@@ -1392,13 +1392,6 @@ pub const UnresolvedInput = union(enum) {
     /// Put exactly this string in the dynamic section, no rpath.
     dso_exact: Input.DsoExact,
 
-    ///// Relocatable.
-    //object: Input.Object,
-    ///// Static library.
-    //archive: Input.Object,
-    ///// Windows resource file.
-    //winres: Path,
-
     pub const NameQuery = struct {
         name: []const u8,
         query: Query,
