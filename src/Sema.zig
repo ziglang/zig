@@ -9595,7 +9595,7 @@ fn resolveGenericBody(
 }
 
 /// Given a library name, examines if the library name should end up in
-/// `link.File.Options.system_libs` table (for example, libc is always
+/// `link.File.Options.windows_libs` table (for example, libc is always
 /// specified via dedicated flag `link_libc` instead),
 /// and puts it there if it doesn't exist.
 /// It also dupes the library name which can then be saved as part of the

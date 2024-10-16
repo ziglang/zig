@@ -637,14 +637,6 @@ fn createSyntheticSymbolOffset(wasm: *Wasm, name_offset: u32, tag: Symbol.Tag) !
     return loc;
 }
 
-fn parseInputFiles(wasm: *Wasm, files: []const []const u8) !void {
-    for (files) |path| {
-        if (try wasm.parseObjectFile(path)) continue;
-        if (try wasm.parseArchive(path, false)) continue; // load archives lazily
-        log.warn("Unexpected file format at path: '{s}'", .{path});
-    }
-}
-
 /// Parses the object file from given path. Returns true when the given file was an object
 /// file and parsed successfully. Returns false when file is not an object file.
 /// May return an error instead when parsing failed.
@@ -2522,7 +2514,7 @@ pub fn flushModule(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
     // Positional arguments to the linker such as object files and static archives.
     // TODO: "positional arguments" is a CLI concept, not a linker concept. Delete this unnecessary array list.
     var positionals = std.ArrayList([]const u8).init(arena);
-    try positionals.ensureUnusedCapacity(comp.objects.len);
+    try positionals.ensureUnusedCapacity(comp.link_inputs.len);
 
     const target = comp.root_mod.resolved_target.result;
     const output_mode = comp.config.output_mode;
@@ -2566,9 +2558,12 @@ pub fn flushModule(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
         try positionals.append(path);
     }
 
-    for (comp.objects) |object| {
-        try positionals.append(try object.path.toString(arena));
-    }
+    for (comp.link_inputs) |link_input| switch (link_input) {
+        .object, .archive => |obj| try positionals.append(try obj.path.toString(arena)),
+        .dso => |dso| try positionals.append(try dso.path.toString(arena)),
+        .dso_exact => unreachable, // forbidden by frontend
+        .res => unreachable, // windows only
+    };
 
     for (comp.c_object_table.keys()) |c_object| {
         try positionals.append(try c_object.status.success.object_path.toString(arena));
@@ -2577,7 +2572,11 @@ pub fn flushModule(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
     if (comp.compiler_rt_lib) |lib| try positionals.append(try lib.full_object_path.toString(arena));
     if (comp.compiler_rt_obj) |obj| try positionals.append(try obj.full_object_path.toString(arena));
 
-    try wasm.parseInputFiles(positionals.items);
+    for (positionals.items) |path| {
+        if (try wasm.parseObjectFile(path)) continue;
+        if (try wasm.parseArchive(path, false)) continue; // load archives lazily
+        log.warn("Unexpected file format at path: '{s}'", .{path});
+    }
 
     if (wasm.zig_object_index != .null) {
         try wasm.resolveSymbolsInObject(wasm.zig_object_index);
@@ -3401,10 +3400,7 @@ fn linkWithLLD(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
 
         comptime assert(Compilation.link_hash_implementation_version == 14);
 
-        for (comp.objects) |obj| {
-            _ = try man.addFilePath(obj.path, null);
-            man.hash.add(obj.must_link);
-        }
+        try link.hashInputs(&man, comp.link_inputs);
         for (comp.c_object_table.keys()) |key| {
             _ = try man.addFilePath(key.status.success.object_path, null);
         }
@@ -3458,8 +3454,7 @@ fn linkWithLLD(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
         // here. TODO: think carefully about how we can avoid this redundant operation when doing
         // build-obj. See also the corresponding TODO in linkAsArchive.
         const the_object_path = blk: {
-            if (comp.objects.len != 0)
-                break :blk comp.objects[0].path;
+            if (link.firstObjectInput(comp.link_inputs)) |obj| break :blk obj.path;
 
             if (comp.c_object_table.count() != 0)
                 break :blk comp.c_object_table.keys()[0].status.success.object_path;
@@ -3621,16 +3616,23 @@ fn linkWithLLD(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
 
         // Positional arguments to the linker such as object files.
         var whole_archive = false;
-        for (comp.objects) |obj| {
-            if (obj.must_link and !whole_archive) {
-                try argv.append("-whole-archive");
-                whole_archive = true;
-            } else if (!obj.must_link and whole_archive) {
-                try argv.append("-no-whole-archive");
-                whole_archive = false;
-            }
-            try argv.append(try obj.path.toString(arena));
-        }
+        for (comp.link_inputs) |link_input| switch (link_input) {
+            .object, .archive => |obj| {
+                if (obj.must_link and !whole_archive) {
+                    try argv.append("-whole-archive");
+                    whole_archive = true;
+                } else if (!obj.must_link and whole_archive) {
+                    try argv.append("-no-whole-archive");
+                    whole_archive = false;
+                }
+                try argv.append(try obj.path.toString(arena));
+            },
+            .dso => |dso| {
+                try argv.append(try dso.path.toString(arena));
+            },
+            .dso_exact => unreachable,
+            .res => unreachable,
+        };
         if (whole_archive) {
             try argv.append("-no-whole-archive");
             whole_archive = false;

@@ -76,12 +76,13 @@ implib_emit: ?Path,
 docs_emit: ?Path,
 root_name: [:0]const u8,
 include_compiler_rt: bool,
-objects: []Compilation.LinkObject,
+/// Resolved into known paths, any GNU ld scripts already resolved.
+link_inputs: []const link.Input,
 /// Needed only for passing -F args to clang.
 framework_dirs: []const []const u8,
-/// These are *always* dynamically linked. Static libraries will be
-/// provided as positional arguments.
-system_libs: std.StringArrayHashMapUnmanaged(SystemLib),
+/// These are only for DLLs dependencies fulfilled by the `.def` files shipped
+/// with Zig. Static libraries are provided as `link.Input` values.
+windows_libs: std.StringArrayHashMapUnmanaged(void),
 version: ?std.SemanticVersion,
 libc_installation: ?*const LibCInstallation,
 skip_linker_dependencies: bool,
@@ -384,7 +385,7 @@ const Job = union(enum) {
     /// one of WASI libc static objects
     wasi_libc_crt_file: wasi_libc.CrtFile,
 
-    /// The value is the index into `system_libs`.
+    /// The value is the index into `windows_libs`.
     windows_import_lib: usize,
 
     const Tag = @typeInfo(Job).@"union".tag_type.?;
@@ -999,25 +1000,6 @@ const CacheUse = union(CacheMode) {
     }
 };
 
-pub const LinkObject = struct {
-    path: Path,
-    must_link: bool = false,
-    needed: bool = false,
-    weak: bool = false,
-    /// When the library is passed via a positional argument, it will be
-    /// added as a full path. If it's `-l<lib>`, then just the basename.
-    ///
-    /// Consistent with `withLOption` variable name in lld ELF driver.
-    loption: bool = false,
-
-    pub fn isObject(lo: LinkObject) bool {
-        return switch (classifyFileExt(lo.path.sub_path)) {
-            .object => true,
-            else => false,
-        };
-    }
-};
-
 pub const CreateOptions = struct {
     zig_lib_directory: Directory,
     local_cache_directory: Directory,
@@ -1065,18 +1047,17 @@ pub const CreateOptions = struct {
     /// This field is intended to be removed.
     /// The ELF implementation no longer uses this data, however the MachO and COFF
     /// implementations still do.
-    lib_dirs: []const []const u8 = &[0][]const u8{},
+    lib_directories: []const Directory = &.{},
     rpath_list: []const []const u8 = &[0][]const u8{},
     symbol_wrap_set: std.StringArrayHashMapUnmanaged(void) = .empty,
     c_source_files: []const CSourceFile = &.{},
     rc_source_files: []const RcSourceFile = &.{},
     manifest_file: ?[]const u8 = null,
     rc_includes: RcIncludes = .any,
-    link_objects: []LinkObject = &[0]LinkObject{},
+    link_inputs: []const link.Input = &.{},
     framework_dirs: []const []const u8 = &[0][]const u8{},
     frameworks: []const Framework = &.{},
-    system_lib_names: []const []const u8 = &.{},
-    system_lib_infos: []const SystemLib = &.{},
+    windows_lib_names: []const []const u8 = &.{},
     /// These correspond to the WASI libc emulated subcomponents including:
     /// * process clocks
     /// * getpid
@@ -1459,12 +1440,8 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         };
         errdefer if (opt_zcu) |zcu| zcu.deinit();
 
-        var system_libs = try std.StringArrayHashMapUnmanaged(SystemLib).init(
-            gpa,
-            options.system_lib_names,
-            options.system_lib_infos,
-        );
-        errdefer system_libs.deinit(gpa);
+        var windows_libs = try std.StringArrayHashMapUnmanaged(void).init(gpa, options.windows_lib_names, &.{});
+        errdefer windows_libs.deinit(gpa);
 
         comp.* = .{
             .gpa = gpa,
@@ -1526,11 +1503,11 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .libcxx_abi_version = options.libcxx_abi_version,
             .root_name = root_name,
             .sysroot = sysroot,
-            .system_libs = system_libs,
+            .windows_libs = windows_libs,
             .version = options.version,
             .libc_installation = libc_dirs.libc_installation,
             .include_compiler_rt = include_compiler_rt,
-            .objects = options.link_objects,
+            .link_inputs = options.link_inputs,
             .framework_dirs = options.framework_dirs,
             .llvm_opt_bisect_limit = options.llvm_opt_bisect_limit,
             .skip_linker_dependencies = options.skip_linker_dependencies,
@@ -1568,7 +1545,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .z_max_page_size = options.linker_z_max_page_size,
             .darwin_sdk_layout = libc_dirs.darwin_sdk_layout,
             .frameworks = options.frameworks,
-            .lib_dirs = options.lib_dirs,
+            .lib_directories = options.lib_directories,
             .framework_dirs = options.framework_dirs,
             .rpath_list = options.rpath_list,
             .symbol_wrap_set = options.symbol_wrap_set,
@@ -1851,17 +1828,12 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             });
 
             // When linking mingw-w64 there are some import libs we always need.
-            for (mingw.always_link_libs) |name| {
-                try comp.system_libs.put(comp.gpa, name, .{
-                    .needed = false,
-                    .weak = false,
-                    .path = null,
-                });
-            }
+            try comp.windows_libs.ensureUnusedCapacity(gpa, mingw.always_link_libs.len);
+            for (mingw.always_link_libs) |name| comp.windows_libs.putAssumeCapacity(name, {});
         }
         // Generate Windows import libs.
         if (target.os.tag == .windows) {
-            const count = comp.system_libs.count();
+            const count = comp.windows_libs.count();
             for (0..count) |i| {
                 try comp.queueJob(.{ .windows_import_lib = i });
             }
@@ -1930,7 +1902,7 @@ pub fn destroy(comp: *Compilation) void {
     comp.embed_file_work_queue.deinit();
 
     const gpa = comp.gpa;
-    comp.system_libs.deinit(gpa);
+    comp.windows_libs.deinit(gpa);
 
     {
         var it = comp.crt_files.iterator();
@@ -2563,13 +2535,7 @@ fn addNonIncrementalStuffToCacheManifest(
         cache_helpers.addModule(&man.hash, comp.root_mod);
     }
 
-    for (comp.objects) |obj| {
-        _ = try man.addFilePath(obj.path, null);
-        man.hash.add(obj.must_link);
-        man.hash.add(obj.needed);
-        man.hash.add(obj.weak);
-        man.hash.add(obj.loption);
-    }
+    try link.hashInputs(man, comp.link_inputs);
 
     for (comp.c_object_table.keys()) |key| {
         _ = try man.addFile(key.src.src_path, null);
@@ -2606,7 +2572,7 @@ fn addNonIncrementalStuffToCacheManifest(
     man.hash.add(comp.rc_includes);
     man.hash.addListOfBytes(comp.force_undefined_symbols.keys());
     man.hash.addListOfBytes(comp.framework_dirs);
-    try link.hashAddSystemLibs(man, comp.system_libs);
+    man.hash.addListOfBytes(comp.windows_libs.keys());
 
     cache_helpers.addOptionalEmitLoc(&man.hash, comp.emit_asm);
     cache_helpers.addOptionalEmitLoc(&man.hash, comp.emit_llvm_ir);
@@ -2625,12 +2591,16 @@ fn addNonIncrementalStuffToCacheManifest(
     man.hash.addOptional(opts.image_base);
     man.hash.addOptional(opts.gc_sections);
     man.hash.add(opts.emit_relocs);
-    man.hash.addListOfBytes(opts.lib_dirs);
+    const target = comp.root_mod.resolved_target.result;
+    if (target.ofmt == .macho or target.ofmt == .coff) {
+        // TODO remove this, libraries need to be resolved by the frontend. this is already
+        // done by ELF.
+        for (opts.lib_directories) |lib_directory| man.hash.addOptionalBytes(lib_directory.path);
+    }
     man.hash.addListOfBytes(opts.rpath_list);
     man.hash.addListOfBytes(opts.symbol_wrap_set.keys());
     if (comp.config.link_libc) {
         man.hash.add(comp.libc_installation != null);
-        const target = comp.root_mod.resolved_target.result;
         if (comp.libc_installation) |libc_installation| {
             man.hash.addOptionalBytes(libc_installation.crt_dir);
             if (target.abi == .msvc or target.abi == .itanium) {
@@ -3798,7 +3768,7 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job, prog_node: std.Progre
             const named_frame = tracy.namedFrame("windows_import_lib");
             defer named_frame.end();
 
-            const link_lib = comp.system_libs.keys()[index];
+            const link_lib = comp.windows_libs.keys()[index];
             mingw.buildImportLib(comp, link_lib) catch |err| {
                 // TODO Surface more error details.
                 comp.lockAndSetMiscFailure(
@@ -4711,7 +4681,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Pr
     // file and building an object we need to link them together, but with just one it should go
     // directly to the output file.
     const direct_o = comp.c_source_files.len == 1 and comp.zcu == null and
-        comp.config.output_mode == .Obj and comp.objects.len == 0;
+        comp.config.output_mode == .Obj and !link.anyObjectInputs(comp.link_inputs);
     const o_basename_noext = if (direct_o)
         comp.root_name
     else
@@ -6516,24 +6486,14 @@ pub fn addLinkLib(comp: *Compilation, lib_name: []const u8) !void {
     // then when we create a sub-Compilation for zig libc, it also tries to
     // build kernel32.lib.
     if (comp.skip_linker_dependencies) return;
+    const target = comp.root_mod.resolved_target.result;
+    if (target.os.tag != .windows or target.ofmt == .c) return;
 
     // This happens when an `extern "foo"` function is referenced.
     // If we haven't seen this library yet and we're targeting Windows, we need
     // to queue up a work item to produce the DLL import library for this.
-    const gop = try comp.system_libs.getOrPut(comp.gpa, lib_name);
-    if (!gop.found_existing) {
-        gop.value_ptr.* = .{
-            .needed = true,
-            .weak = false,
-            .path = null,
-        };
-        const target = comp.root_mod.resolved_target.result;
-        if (target.os.tag == .windows and target.ofmt != .c) {
-            try comp.queueJob(.{
-                .windows_import_lib = comp.system_libs.count() - 1,
-            });
-        }
-    }
+    const gop = try comp.windows_libs.getOrPut(comp.gpa, lib_name);
+    if (!gop.found_existing) try comp.queueJob(.{ .windows_import_lib = comp.windows_libs.count() - 1 });
 }
 
 /// This decides the optimization mode for all zig-provided libraries, including

@@ -15,6 +15,7 @@ const cleanExit = std.process.cleanExit;
 const native_os = builtin.os.tag;
 const Cache = std.Build.Cache;
 const Path = std.Build.Cache.Path;
+const Directory = std.Build.Cache.Directory;
 const EnvVar = std.zig.EnvVar;
 const LibCInstallation = std.zig.LibCInstallation;
 const AstGen = std.zig.AstGen;
@@ -55,7 +56,7 @@ pub fn wasi_cwd() std.os.wasi.fd_t {
     return cwd_fd;
 }
 
-fn getWasiPreopen(name: []const u8) Compilation.Directory {
+fn getWasiPreopen(name: []const u8) Directory {
     return .{
         .path = name,
         .handle = .{
@@ -768,27 +769,6 @@ const ArgsIterator = struct {
     }
 };
 
-/// In contrast to `link.SystemLib`, this stores arguments that may need to be
-/// resolved into static libraries so that we can pass only dynamic libraries
-/// as system libs to `Compilation`.
-const SystemLib = struct {
-    needed: bool,
-    weak: bool,
-
-    preferred_mode: std.builtin.LinkMode,
-    search_strategy: SearchStrategy,
-
-    const SearchStrategy = enum { paths_first, mode_first, no_fallback };
-
-    fn fallbackMode(this: SystemLib) std.builtin.LinkMode {
-        assert(this.search_strategy != .no_fallback);
-        return switch (this.preferred_mode) {
-            .dynamic => .static,
-            .static => .dynamic,
-        };
-    }
-};
-
 /// Similar to `link.Framework` except it doesn't store yet unresolved
 /// path to the framework.
 const Framework = struct {
@@ -869,6 +849,7 @@ fn buildOutputType(
     var linker_gc_sections: ?bool = null;
     var linker_compress_debug_sections: ?link.File.Elf.CompressDebugSections = null;
     var linker_allow_shlib_undefined: ?bool = null;
+    var allow_so_scripts: bool = false;
     var linker_bind_global_refs_locally: ?bool = null;
     var linker_import_symbols: bool = false;
     var linker_import_table: bool = false;
@@ -921,7 +902,7 @@ fn buildOutputType(
     var hash_style: link.File.Elf.HashStyle = .both;
     var entitlements: ?[]const u8 = null;
     var pagezero_size: ?u64 = null;
-    var lib_search_strategy: SystemLib.SearchStrategy = .paths_first;
+    var lib_search_strategy: link.UnresolvedInput.SearchStrategy = .paths_first;
     var lib_preferred_mode: std.builtin.LinkMode = .dynamic;
     var headerpad_size: ?u32 = null;
     var headerpad_max_install_names: bool = false;
@@ -985,8 +966,10 @@ fn buildOutputType(
         // Populated in the call to `createModule` for the root module.
         .resolved_options = undefined,
 
-        .system_libs = .{},
-        .resolved_system_libs = .{},
+        .cli_link_inputs = .empty,
+        .windows_libs = .empty,
+        .link_inputs = .empty,
+
         .wasi_emulated_libs = .{},
 
         .c_source_files = .{},
@@ -994,7 +977,7 @@ fn buildOutputType(
 
         .llvm_m_args = .{},
         .sysroot = null,
-        .lib_dirs = .{}, // populated by createModule()
+        .lib_directories = .{}, // populated by createModule()
         .lib_dir_args = .{}, // populated from CLI arg parsing
         .libc_installation = null,
         .want_native_include_dirs = false,
@@ -1003,9 +986,7 @@ fn buildOutputType(
         .rpath_list = .{},
         .each_lib_rpath = null,
         .libc_paths_file = try EnvVar.ZIG_LIBC.get(arena),
-        .link_objects = .{},
         .native_system_include_paths = &.{},
-        .allow_so_scripts = false,
     };
 
     // before arg parsing, check for the NO_COLOR and CLICOLOR_FORCE environment variables
@@ -1240,30 +1221,42 @@ fn buildOutputType(
                         // We don't know whether this library is part of libc
                         // or libc++ until we resolve the target, so we append
                         // to the list for now.
-                        try create_module.system_libs.put(arena, args_iter.nextOrFatal(), .{
-                            .needed = false,
-                            .weak = false,
-                            .preferred_mode = lib_preferred_mode,
-                            .search_strategy = lib_search_strategy,
-                        });
+                        try create_module.cli_link_inputs.append(arena, .{ .name_query = .{
+                            .name = args_iter.nextOrFatal(),
+                            .query = .{
+                                .needed = false,
+                                .weak = false,
+                                .preferred_mode = lib_preferred_mode,
+                                .search_strategy = lib_search_strategy,
+                                .allow_so_scripts = allow_so_scripts,
+                            },
+                        } });
                     } else if (mem.eql(u8, arg, "--needed-library") or
                         mem.eql(u8, arg, "-needed-l") or
                         mem.eql(u8, arg, "-needed_library"))
                     {
                         const next_arg = args_iter.nextOrFatal();
-                        try create_module.system_libs.put(arena, next_arg, .{
-                            .needed = true,
-                            .weak = false,
-                            .preferred_mode = lib_preferred_mode,
-                            .search_strategy = lib_search_strategy,
-                        });
+                        try create_module.cli_link_inputs.append(arena, .{ .name_query = .{
+                            .name = next_arg,
+                            .query = .{
+                                .needed = true,
+                                .weak = false,
+                                .preferred_mode = lib_preferred_mode,
+                                .search_strategy = lib_search_strategy,
+                                .allow_so_scripts = allow_so_scripts,
+                            },
+                        } });
                     } else if (mem.eql(u8, arg, "-weak_library") or mem.eql(u8, arg, "-weak-l")) {
-                        try create_module.system_libs.put(arena, args_iter.nextOrFatal(), .{
-                            .needed = false,
-                            .weak = true,
-                            .preferred_mode = lib_preferred_mode,
-                            .search_strategy = lib_search_strategy,
-                        });
+                        try create_module.cli_link_inputs.append(arena, .{ .name_query = .{
+                            .name = args_iter.nextOrFatal(),
+                            .query = .{
+                                .needed = false,
+                                .weak = true,
+                                .preferred_mode = lib_preferred_mode,
+                                .search_strategy = lib_search_strategy,
+                                .allow_so_scripts = allow_so_scripts,
+                            },
+                        } });
                     } else if (mem.eql(u8, arg, "-D")) {
                         try cc_argv.appendSlice(arena, &.{ arg, args_iter.nextOrFatal() });
                     } else if (mem.eql(u8, arg, "-I")) {
@@ -1577,9 +1570,9 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "-fno-allow-shlib-undefined")) {
                         linker_allow_shlib_undefined = false;
                     } else if (mem.eql(u8, arg, "-fallow-so-scripts")) {
-                        create_module.allow_so_scripts = true;
+                        allow_so_scripts = true;
                     } else if (mem.eql(u8, arg, "-fno-allow-so-scripts")) {
-                        create_module.allow_so_scripts = false;
+                        allow_so_scripts = false;
                     } else if (mem.eql(u8, arg, "-z")) {
                         const z_arg = args_iter.nextOrFatal();
                         if (mem.eql(u8, z_arg, "nodelete")) {
@@ -1687,26 +1680,38 @@ fn buildOutputType(
                         // We don't know whether this library is part of libc
                         // or libc++ until we resolve the target, so we append
                         // to the list for now.
-                        try create_module.system_libs.put(arena, arg["-l".len..], .{
-                            .needed = false,
-                            .weak = false,
-                            .preferred_mode = lib_preferred_mode,
-                            .search_strategy = lib_search_strategy,
-                        });
+                        try create_module.cli_link_inputs.append(arena, .{ .name_query = .{
+                            .name = arg["-l".len..],
+                            .query = .{
+                                .needed = false,
+                                .weak = false,
+                                .preferred_mode = lib_preferred_mode,
+                                .search_strategy = lib_search_strategy,
+                                .allow_so_scripts = allow_so_scripts,
+                            },
+                        } });
                     } else if (mem.startsWith(u8, arg, "-needed-l")) {
-                        try create_module.system_libs.put(arena, arg["-needed-l".len..], .{
-                            .needed = true,
-                            .weak = false,
-                            .preferred_mode = lib_preferred_mode,
-                            .search_strategy = lib_search_strategy,
-                        });
+                        try create_module.cli_link_inputs.append(arena, .{ .name_query = .{
+                            .name = arg["-needed-l".len..],
+                            .query = .{
+                                .needed = true,
+                                .weak = false,
+                                .preferred_mode = lib_preferred_mode,
+                                .search_strategy = lib_search_strategy,
+                                .allow_so_scripts = allow_so_scripts,
+                            },
+                        } });
                     } else if (mem.startsWith(u8, arg, "-weak-l")) {
-                        try create_module.system_libs.put(arena, arg["-weak-l".len..], .{
-                            .needed = false,
-                            .weak = true,
-                            .preferred_mode = lib_preferred_mode,
-                            .search_strategy = lib_search_strategy,
-                        });
+                        try create_module.cli_link_inputs.append(arena, .{ .name_query = .{
+                            .name = arg["-weak-l".len..],
+                            .query = .{
+                                .needed = false,
+                                .weak = true,
+                                .preferred_mode = lib_preferred_mode,
+                                .search_strategy = lib_search_strategy,
+                                .allow_so_scripts = allow_so_scripts,
+                            },
+                        } });
                     } else if (mem.startsWith(u8, arg, "-D")) {
                         try cc_argv.append(arena, arg);
                     } else if (mem.startsWith(u8, arg, "-I")) {
@@ -1731,15 +1736,28 @@ fn buildOutputType(
                         fatal("unrecognized parameter: '{s}'", .{arg});
                     }
                 } else switch (file_ext orelse Compilation.classifyFileExt(arg)) {
-                    .shared_library => {
-                        try create_module.link_objects.append(arena, .{ .path = Path.initCwd(arg) });
-                        create_module.opts.any_dyn_libs = true;
-                    },
-                    .object, .static_library => {
-                        try create_module.link_objects.append(arena, .{ .path = Path.initCwd(arg) });
+                    .shared_library, .object, .static_library => {
+                        try create_module.cli_link_inputs.append(arena, .{ .path_query = .{
+                            .path = Path.initCwd(arg),
+                            .query = .{
+                                .preferred_mode = lib_preferred_mode,
+                                .search_strategy = lib_search_strategy,
+                                .allow_so_scripts = allow_so_scripts,
+                            },
+                        } });
+                        // We do not set `any_dyn_libs` yet because a .so file
+                        // may actually resolve to a GNU ld script which ends
+                        // up being a static library.
                     },
                     .res => {
-                        try create_module.link_objects.append(arena, .{ .path = Path.initCwd(arg) });
+                        try create_module.cli_link_inputs.append(arena, .{ .path_query = .{
+                            .path = Path.initCwd(arg),
+                            .query = .{
+                                .preferred_mode = lib_preferred_mode,
+                                .search_strategy = lib_search_strategy,
+                                .allow_so_scripts = allow_so_scripts,
+                            },
+                        } });
                         contains_res_file = true;
                     },
                     .manifest => {
@@ -1792,6 +1810,7 @@ fn buildOutputType(
             // some functionality that depend on it, such as C++ exceptions and
             // DWARF-based stack traces.
             link_eh_frame_hdr = true;
+            allow_so_scripts = true;
 
             const COutMode = enum {
                 link,
@@ -1851,24 +1870,32 @@ fn buildOutputType(
                                 .ext = file_ext, // duped while parsing the args.
                             });
                         },
-                        .shared_library => {
-                            try create_module.link_objects.append(arena, .{
+                        .unknown, .object, .static_library, .shared_library => {
+                            try create_module.cli_link_inputs.append(arena, .{ .path_query = .{
                                 .path = Path.initCwd(it.only_arg),
-                                .must_link = must_link,
-                            });
-                            create_module.opts.any_dyn_libs = true;
-                        },
-                        .unknown, .object, .static_library => {
-                            try create_module.link_objects.append(arena, .{
-                                .path = Path.initCwd(it.only_arg),
-                                .must_link = must_link,
-                            });
+                                .query = .{
+                                    .must_link = must_link,
+                                    .needed = needed,
+                                    .preferred_mode = lib_preferred_mode,
+                                    .search_strategy = lib_search_strategy,
+                                    .allow_so_scripts = allow_so_scripts,
+                                },
+                            } });
+                            // We do not set `any_dyn_libs` yet because a .so file
+                            // may actually resolve to a GNU ld script which ends
+                            // up being a static library.
                         },
                         .res => {
-                            try create_module.link_objects.append(arena, .{
+                            try create_module.cli_link_inputs.append(arena, .{ .path_query = .{
                                 .path = Path.initCwd(it.only_arg),
-                                .must_link = must_link,
-                            });
+                                .query = .{
+                                    .must_link = must_link,
+                                    .needed = needed,
+                                    .preferred_mode = lib_preferred_mode,
+                                    .search_strategy = lib_search_strategy,
+                                    .allow_so_scripts = allow_so_scripts,
+                                },
+                            } });
                             contains_res_file = true;
                         },
                         .manifest => {
@@ -1900,19 +1927,21 @@ fn buildOutputType(
                             // -l :path/to/filename is used when callers need
                             // more control over what's in the resulting
                             // binary: no extra rpaths and DSO filename exactly
-                            // as provided. Hello, Go.
-                            try create_module.link_objects.append(arena, .{
-                                .path = Path.initCwd(it.only_arg),
-                                .must_link = must_link,
-                                .loption = true,
-                            });
+                            // as provided. CGo compilation depends on this.
+                            try create_module.cli_link_inputs.append(arena, .{ .dso_exact = .{
+                                .name = it.only_arg,
+                            } });
                         } else {
-                            try create_module.system_libs.put(arena, it.only_arg, .{
-                                .needed = needed,
-                                .weak = false,
-                                .preferred_mode = lib_preferred_mode,
-                                .search_strategy = lib_search_strategy,
-                            });
+                            try create_module.cli_link_inputs.append(arena, .{ .name_query = .{
+                                .name = it.only_arg,
+                                .query = .{
+                                    .needed = needed,
+                                    .weak = false,
+                                    .preferred_mode = lib_preferred_mode,
+                                    .search_strategy = lib_search_strategy,
+                                    .allow_so_scripts = allow_so_scripts,
+                                },
+                            } });
                         }
                     },
                     .ignore => {},
@@ -2181,12 +2210,16 @@ fn buildOutputType(
                     },
                     .force_load_objc => force_load_objc = true,
                     .mingw_unicode_entry_point => mingw_unicode_entry_point = true,
-                    .weak_library => try create_module.system_libs.put(arena, it.only_arg, .{
-                        .needed = false,
-                        .weak = true,
-                        .preferred_mode = lib_preferred_mode,
-                        .search_strategy = lib_search_strategy,
-                    }),
+                    .weak_library => try create_module.cli_link_inputs.append(arena, .{ .name_query = .{
+                        .name = it.only_arg,
+                        .query = .{
+                            .needed = false,
+                            .weak = true,
+                            .preferred_mode = lib_preferred_mode,
+                            .search_strategy = lib_search_strategy,
+                            .allow_so_scripts = allow_so_scripts,
+                        },
+                    } }),
                     .weak_framework => try create_module.frameworks.put(arena, it.only_arg, .{ .weak = true }),
                     .headerpad_max_install_names => headerpad_max_install_names = true,
                     .compress_debug_sections => {
@@ -2489,26 +2522,38 @@ fn buildOutputType(
                 } else if (mem.eql(u8, arg, "-needed_framework")) {
                     try create_module.frameworks.put(arena, linker_args_it.nextOrFatal(), .{ .needed = true });
                 } else if (mem.eql(u8, arg, "-needed_library")) {
-                    try create_module.system_libs.put(arena, linker_args_it.nextOrFatal(), .{
-                        .weak = false,
-                        .needed = true,
-                        .preferred_mode = lib_preferred_mode,
-                        .search_strategy = lib_search_strategy,
-                    });
+                    try create_module.cli_link_inputs.append(arena, .{ .name_query = .{
+                        .name = linker_args_it.nextOrFatal(),
+                        .query = .{
+                            .weak = false,
+                            .needed = true,
+                            .preferred_mode = lib_preferred_mode,
+                            .search_strategy = lib_search_strategy,
+                            .allow_so_scripts = allow_so_scripts,
+                        },
+                    } });
                 } else if (mem.startsWith(u8, arg, "-weak-l")) {
-                    try create_module.system_libs.put(arena, arg["-weak-l".len..], .{
-                        .weak = true,
-                        .needed = false,
-                        .preferred_mode = lib_preferred_mode,
-                        .search_strategy = lib_search_strategy,
-                    });
+                    try create_module.cli_link_inputs.append(arena, .{ .name_query = .{
+                        .name = arg["-weak-l".len..],
+                        .query = .{
+                            .weak = true,
+                            .needed = false,
+                            .preferred_mode = lib_preferred_mode,
+                            .search_strategy = lib_search_strategy,
+                            .allow_so_scripts = allow_so_scripts,
+                        },
+                    } });
                 } else if (mem.eql(u8, arg, "-weak_library")) {
-                    try create_module.system_libs.put(arena, linker_args_it.nextOrFatal(), .{
-                        .weak = true,
-                        .needed = false,
-                        .preferred_mode = lib_preferred_mode,
-                        .search_strategy = lib_search_strategy,
-                    });
+                    try create_module.cli_link_inputs.append(arena, .{ .name_query = .{
+                        .name = linker_args_it.nextOrFatal(),
+                        .query = .{
+                            .weak = true,
+                            .needed = false,
+                            .preferred_mode = lib_preferred_mode,
+                            .search_strategy = lib_search_strategy,
+                            .allow_so_scripts = allow_so_scripts,
+                        },
+                    } });
                 } else if (mem.eql(u8, arg, "-compatibility_version")) {
                     const compat_version = linker_args_it.nextOrFatal();
                     compatibility_version = std.SemanticVersion.parse(compat_version) catch |err| {
@@ -2539,10 +2584,14 @@ fn buildOutputType(
                 } else if (mem.eql(u8, arg, "-install_name")) {
                     install_name = linker_args_it.nextOrFatal();
                 } else if (mem.eql(u8, arg, "-force_load")) {
-                    try create_module.link_objects.append(arena, .{
+                    try create_module.cli_link_inputs.append(arena, .{ .path_query = .{
                         .path = Path.initCwd(linker_args_it.nextOrFatal()),
-                        .must_link = true,
-                    });
+                        .query = .{
+                            .must_link = true,
+                            .preferred_mode = .static,
+                            .search_strategy = .no_fallback,
+                        },
+                    } });
                 } else if (mem.eql(u8, arg, "-hash-style") or
                     mem.eql(u8, arg, "--hash-style"))
                 {
@@ -2672,7 +2721,7 @@ fn buildOutputType(
                 },
             }
             if (create_module.c_source_files.items.len == 0 and
-                create_module.link_objects.items.len == 0 and
+                !link.anyObjectInputs(create_module.link_inputs.items) and
                 root_src_file == null)
             {
                 // For example `zig cc` and no args should print the "no input files" message.
@@ -2714,8 +2763,9 @@ fn buildOutputType(
             if (create_module.c_source_files.items.len >= 1)
                 break :b create_module.c_source_files.items[0].src_path;
 
-            if (create_module.link_objects.items.len >= 1)
-                break :b create_module.link_objects.items[0].path.sub_path;
+            for (create_module.link_inputs.items) |link_input| {
+                if (link_input.path()) |path| break :b path.sub_path;
+            }
 
             if (emit_bin == .yes)
                 break :b emit_bin.yes;
@@ -2801,7 +2851,7 @@ fn buildOutputType(
             fatal("unable to find zig self exe path: {s}", .{@errorName(err)});
         };
 
-    var zig_lib_directory: Compilation.Directory = d: {
+    var zig_lib_directory: Directory = d: {
         if (override_lib_dir) |unresolved_lib_dir| {
             const lib_dir = try introspect.resolvePath(arena, unresolved_lib_dir);
             break :d .{
@@ -2822,7 +2872,7 @@ fn buildOutputType(
     };
     defer zig_lib_directory.handle.close();
 
-    var global_cache_directory: Compilation.Directory = l: {
+    var global_cache_directory: Directory = l: {
         if (override_global_cache_dir) |p| {
             break :l .{
                 .handle = try fs.cwd().makeOpenPath(p, .{}),
@@ -2852,7 +2902,7 @@ fn buildOutputType(
 
     var builtin_modules: std.StringHashMapUnmanaged(*Package.Module) = .empty;
     // `builtin_modules` allocated into `arena`, so no deinit
-    const main_mod = try createModule(gpa, arena, &create_module, 0, null, zig_lib_directory, &builtin_modules);
+    const main_mod = try createModule(gpa, arena, &create_module, 0, null, zig_lib_directory, &builtin_modules, color);
     for (create_module.modules.keys(), create_module.modules.values()) |key, cli_mod| {
         if (cli_mod.resolved == null)
             fatal("module '{s}' declared but not used", .{key});
@@ -2946,7 +2996,6 @@ fn buildOutputType(
         }
     }
 
-    // We now repeat part of the process for frameworks.
     var resolved_frameworks = std.ArrayList(Compilation.Framework).init(arena);
 
     if (create_module.frameworks.keys().len > 0) {
@@ -3003,7 +3052,7 @@ fn buildOutputType(
         const total_obj_count = create_module.c_source_files.items.len +
             @intFromBool(root_src_file != null) +
             create_module.rc_source_files.items.len +
-            create_module.link_objects.items.len;
+            link.countObjectInputs(create_module.link_inputs.items);
         if (total_obj_count > 1) {
             fatal("{s} does not support linking multiple objects into one", .{@tagName(target.ofmt)});
         }
@@ -3219,7 +3268,7 @@ fn buildOutputType(
     var cleanup_local_cache_dir: ?fs.Dir = null;
     defer if (cleanup_local_cache_dir) |*dir| dir.close();
 
-    var local_cache_directory: Compilation.Directory = l: {
+    var local_cache_directory: Directory = l: {
         if (override_local_cache_dir) |local_cache_dir_path| {
             const dir = try fs.cwd().makeOpenPath(local_cache_dir_path, .{});
             cleanup_local_cache_dir = dir;
@@ -3356,7 +3405,7 @@ fn buildOutputType(
         .emit_llvm_bc = emit_llvm_bc_resolved.data,
         .emit_docs = emit_docs_resolved.data,
         .emit_implib = emit_implib_resolved.data,
-        .lib_dirs = create_module.lib_dirs.items,
+        .lib_directories = create_module.lib_directories.items,
         .rpath_list = create_module.rpath_list.items,
         .symbol_wrap_set = symbol_wrap_set,
         .c_source_files = create_module.c_source_files.items,
@@ -3364,11 +3413,10 @@ fn buildOutputType(
         .manifest_file = manifest_file,
         .rc_includes = rc_includes,
         .mingw_unicode_entry_point = mingw_unicode_entry_point,
-        .link_objects = create_module.link_objects.items,
+        .link_inputs = create_module.link_inputs.items,
         .framework_dirs = create_module.framework_dirs.items,
         .frameworks = resolved_frameworks.items,
-        .system_lib_names = create_module.resolved_system_libs.items(.name),
-        .system_lib_infos = create_module.resolved_system_libs.items(.lib),
+        .windows_lib_names = create_module.windows_libs.keys(),
         .wasi_emulated_libs = create_module.wasi_emulated_libs.items,
         .want_compiler_rt = want_compiler_rt,
         .hash_style = hash_style,
@@ -3625,28 +3673,6 @@ fn buildOutputType(
     return cleanExit();
 }
 
-const LinkerInput = union(enum) {
-    /// An argument like: -l[name]
-    named: Named,
-    /// When a file path is provided.
-    path: struct {
-        path: Path,
-        /// We still need all this info because the path may point to a .so
-        /// file which may actually be a "linker script" that references
-        /// library names which need to be resolved.
-        info: SystemLib,
-    },
-    /// Put exactly this string in the dynamic section, no rpath.
-    exact: struct {
-        name: []const u8,
-    },
-
-    const Named = struct {
-        name: []const u8,
-        info: SystemLib,
-    };
-};
-
 const CreateModule = struct {
     global_cache_directory: Cache.Directory,
     modules: std.StringArrayHashMapUnmanaged(CliModule),
@@ -3659,12 +3685,14 @@ const CreateModule = struct {
     /// This one is used while collecting CLI options. The set of libs is used
     /// directly after computing the target and used to compute link_libc,
     /// link_libcpp, and then the libraries are filtered into
-    /// `external_system_libs` and `resolved_system_libs`.
-    system_libs: std.StringArrayHashMapUnmanaged(SystemLib),
-    resolved_system_libs: std.MultiArrayList(struct {
-        name: []const u8,
-        lib: Compilation.SystemLib,
-    }),
+    /// `unresolved_linker_inputs` and `windows_libs`.
+    cli_link_inputs: std.ArrayListUnmanaged(link.UnresolvedInput),
+    windows_libs: std.StringArrayHashMapUnmanaged(void),
+    /// The local variable `unresolved_link_inputs` is fed into library
+    /// resolution, mutating the input array, and producing this data as
+    /// output. Allocated with gpa.
+    link_inputs: std.ArrayListUnmanaged(link.Input),
+
     wasi_emulated_libs: std.ArrayListUnmanaged(wasi_libc.CrtFile),
 
     c_source_files: std.ArrayListUnmanaged(Compilation.CSourceFile),
@@ -3675,7 +3703,7 @@ const CreateModule = struct {
     /// CPU features.
     llvm_m_args: std.ArrayListUnmanaged([]const u8),
     sysroot: ?[]const u8,
-    lib_dirs: std.ArrayListUnmanaged([]const u8),
+    lib_directories: std.ArrayListUnmanaged(Directory),
     lib_dir_args: std.ArrayListUnmanaged([]const u8),
     libc_installation: ?LibCInstallation,
     want_native_include_dirs: bool,
@@ -3685,8 +3713,6 @@ const CreateModule = struct {
     rpath_list: std.ArrayListUnmanaged([]const u8),
     each_lib_rpath: ?bool,
     libc_paths_file: ?[]const u8,
-    link_objects: std.ArrayListUnmanaged(Compilation.LinkObject),
-    allow_so_scripts: bool,
 };
 
 fn createModule(
@@ -3697,6 +3723,7 @@ fn createModule(
     parent: ?*Package.Module,
     zig_lib_directory: Cache.Directory,
     builtin_modules: *std.StringHashMapUnmanaged(*Package.Module),
+    color: std.zig.Color,
 ) Allocator.Error!*Package.Module {
     const cli_mod = &create_module.modules.values()[index];
     if (cli_mod.resolved) |m| return m;
@@ -3790,82 +3817,101 @@ fn createModule(
         // First, remove libc, libc++, and compiler_rt libraries from the system libraries list.
         // We need to know whether the set of system libraries contains anything besides these
         // to decide whether to trigger native path detection logic.
-        var external_linker_inputs: std.ArrayListUnmanaged(LinkerInput) = .empty;
-        for (create_module.system_libs.keys(), create_module.system_libs.values()) |lib_name, info| {
-            if (std.zig.target.isLibCLibName(target, lib_name)) {
-                create_module.opts.link_libc = true;
-                continue;
-            }
-            if (std.zig.target.isLibCxxLibName(target, lib_name)) {
-                create_module.opts.link_libcpp = true;
-                continue;
-            }
-            switch (target_util.classifyCompilerRtLibName(target, lib_name)) {
-                .none => {},
-                .only_libunwind, .both => {
-                    create_module.opts.link_libunwind = true;
-                    continue;
-                },
-                .only_compiler_rt => {
-                    warn("ignoring superfluous library '{s}': this dependency is fulfilled instead by compiler-rt which zig unconditionally provides", .{lib_name});
-                    continue;
-                },
-            }
-
-            if (target.isMinGW()) {
-                const exists = mingw.libExists(arena, target, zig_lib_directory, lib_name) catch |err| {
-                    fatal("failed to check zig installation for DLL import libs: {s}", .{
-                        @errorName(err),
-                    });
-                };
-                if (exists) {
-                    try create_module.resolved_system_libs.append(arena, .{
-                        .name = lib_name,
-                        .lib = .{
-                            .needed = true,
-                            .weak = false,
-                            .path = null,
-                        },
-                    });
+        // Preserves linker input order.
+        var unresolved_link_inputs: std.ArrayListUnmanaged(link.UnresolvedInput) = .empty;
+        try unresolved_link_inputs.ensureUnusedCapacity(arena, create_module.cli_link_inputs.items.len);
+        var any_name_queries_remaining = false;
+        for (create_module.cli_link_inputs.items) |cli_link_input| switch (cli_link_input) {
+            .name_query => |nq| {
+                const lib_name = nq.name;
+                if (std.zig.target.isLibCLibName(target, lib_name)) {
+                    create_module.opts.link_libc = true;
                     continue;
                 }
-            }
-
-            if (fs.path.isAbsolute(lib_name)) {
-                fatal("cannot use absolute path as a system library: {s}", .{lib_name});
-            }
-
-            if (target.os.tag == .wasi) {
-                if (wasi_libc.getEmulatedLibCrtFile(lib_name)) |crt_file| {
-                    try create_module.wasi_emulated_libs.append(arena, crt_file);
+                if (std.zig.target.isLibCxxLibName(target, lib_name)) {
+                    create_module.opts.link_libcpp = true;
                     continue;
                 }
-            }
+                switch (target_util.classifyCompilerRtLibName(target, lib_name)) {
+                    .none => {},
+                    .only_libunwind, .both => {
+                        create_module.opts.link_libunwind = true;
+                        continue;
+                    },
+                    .only_compiler_rt => {
+                        warn("ignoring superfluous library '{s}': this dependency is fulfilled instead by compiler-rt which zig unconditionally provides", .{lib_name});
+                        continue;
+                    },
+                }
 
-            try external_linker_inputs.append(arena, .{ .named = .{
-                .name = lib_name,
-                .info = info,
-            } });
-        }
-        // After this point, external_linker_inputs is used instead of system_libs.
-        if (external_linker_inputs.items.len != 0)
-            create_module.want_native_include_dirs = true;
+                if (target.isMinGW()) {
+                    const exists = mingw.libExists(arena, target, zig_lib_directory, lib_name) catch |err| {
+                        fatal("failed to check zig installation for DLL import libs: {s}", .{
+                            @errorName(err),
+                        });
+                    };
+                    if (exists) {
+                        try create_module.windows_libs.put(arena, lib_name, {});
+                        continue;
+                    }
+                }
+
+                if (fs.path.isAbsolute(lib_name)) {
+                    fatal("cannot use absolute path as a system library: {s}", .{lib_name});
+                }
+
+                if (target.os.tag == .wasi) {
+                    if (wasi_libc.getEmulatedLibCrtFile(lib_name)) |crt_file| {
+                        try create_module.wasi_emulated_libs.append(arena, crt_file);
+                        continue;
+                    }
+                }
+                unresolved_link_inputs.appendAssumeCapacity(cli_link_input);
+                any_name_queries_remaining = true;
+            },
+            else => {
+                unresolved_link_inputs.appendAssumeCapacity(cli_link_input);
+            },
+        }; // After this point, unresolved_link_inputs is used instead of cli_link_inputs.
+
+        if (any_name_queries_remaining) create_module.want_native_include_dirs = true;
 
         // Resolve the library path arguments with respect to sysroot.
+        try create_module.lib_directories.ensureUnusedCapacity(arena, create_module.lib_dir_args.items.len);
         if (create_module.sysroot) |root| {
-            try create_module.lib_dirs.ensureUnusedCapacity(arena, create_module.lib_dir_args.items.len * 2);
-            for (create_module.lib_dir_args.items) |dir| {
-                if (fs.path.isAbsolute(dir)) {
-                    const stripped_dir = dir[fs.path.diskDesignator(dir).len..];
+            for (create_module.lib_dir_args.items) |lib_dir_arg| {
+                if (fs.path.isAbsolute(lib_dir_arg)) {
+                    const stripped_dir = lib_dir_arg[fs.path.diskDesignator(lib_dir_arg).len..];
                     const full_path = try fs.path.join(arena, &[_][]const u8{ root, stripped_dir });
-                    create_module.lib_dirs.appendAssumeCapacity(full_path);
+                    create_module.lib_directories.appendAssumeCapacity(.{
+                        .handle = fs.cwd().openDir(full_path, .{}) catch |err| {
+                            warn("unable to open library directory {s}: {s}", .{ full_path, @errorName(err) });
+                            continue;
+                        },
+                        .path = full_path,
+                    });
+                } else {
+                    create_module.lib_directories.appendAssumeCapacity(.{
+                        .handle = fs.cwd().openDir(lib_dir_arg, .{}) catch |err| {
+                            warn("unable to open library directory {s}: {s}", .{ lib_dir_arg, @errorName(err) });
+                            continue;
+                        },
+                        .path = lib_dir_arg,
+                    });
                 }
-                create_module.lib_dirs.appendAssumeCapacity(dir);
             }
         } else {
-            create_module.lib_dirs = create_module.lib_dir_args;
+            for (create_module.lib_dir_args.items) |lib_dir_arg| {
+                create_module.lib_directories.appendAssumeCapacity(.{
+                    .handle = fs.cwd().openDir(lib_dir_arg, .{}) catch |err| {
+                        warn("unable to open library directory {s}: {s}", .{ lib_dir_arg, @errorName(err) });
+                        continue;
+                    },
+                    .path = lib_dir_arg,
+                });
+            }
         }
-        create_module.lib_dir_args = undefined; // From here we use lib_dirs instead.
+        create_module.lib_dir_args = undefined; // From here we use lib_directories instead.
 
         if (resolved_target.is_native_os and target.isDarwin()) {
             // If we want to link against frameworks, we need system headers.
@@ -3874,7 +3920,10 @@ fn createModule(
         }
 
         if (create_module.each_lib_rpath orelse resolved_target.is_native_os) {
-            try create_module.rpath_list.appendSlice(arena, create_module.lib_dirs.items);
+            try create_module.rpath_list.ensureUnusedCapacity(arena, create_module.lib_directories.items.len);
+            for (create_module.lib_directories.items) |lib_directory| {
+                create_module.rpath_list.appendAssumeCapacity(lib_directory.path.?);
+            }
         }
 
         // Trigger native system library path detection if necessary.
@@ -3892,8 +3941,18 @@ fn createModule(
             create_module.native_system_include_paths = try paths.include_dirs.toOwnedSlice(arena);
 
             try create_module.framework_dirs.appendSlice(arena, paths.framework_dirs.items);
-            try create_module.lib_dirs.appendSlice(arena, paths.lib_dirs.items);
             try create_module.rpath_list.appendSlice(arena, paths.rpaths.items);
+
+            try create_module.lib_directories.ensureUnusedCapacity(arena, paths.lib_dirs.items.len);
+            for (paths.lib_dirs.items) |lib_dir| {
+                create_module.lib_directories.appendAssumeCapacity(.{
+                    .handle = fs.cwd().openDir(lib_dir, .{}) catch |err| {
+                        warn("unable to open library directory {s}: {s}", .{ lib_dir, @errorName(err) });
+                        continue;
+                    },
+                    .path = lib_dir,
+                });
+            }
         }
 
         if (create_module.libc_paths_file) |paths_file| {
@@ -3905,7 +3964,7 @@ fn createModule(
         }
 
         if (builtin.target.os.tag == .windows and (target.abi == .msvc or target.abi == .itanium) and
-            external_linker_inputs.items.len != 0)
+            any_name_queries_remaining)
         {
             if (create_module.libc_installation == null) {
                 create_module.libc_installation = LibCInstallation.findNative(.{
@@ -3916,204 +3975,32 @@ fn createModule(
                     fatal("unable to find native libc installation: {s}", .{@errorName(err)});
                 };
 
-                try create_module.lib_dirs.appendSlice(arena, &.{
+                try create_module.lib_directories.appendSlice(arena, &.{
                     create_module.libc_installation.?.msvc_lib_dir.?,
                     create_module.libc_installation.?.kernel32_lib_dir.?,
                 });
             }
         }
 
-        // If any libs in this list are statically provided, we omit them from the
-        // resolved list and populate the link_objects array instead.
-        {
-            var test_path: std.ArrayListUnmanaged(u8) = .empty;
-            defer test_path.deinit(gpa);
+        // Destructively mutates but does not transfer ownership of `unresolved_link_inputs`.
+        link.resolveInputs(
+            gpa,
+            arena,
+            target,
+            &unresolved_link_inputs,
+            &create_module.link_inputs,
+            create_module.lib_directories.items,
+            color,
+        ) catch |err| fatal("failed to resolve link inputs: {s}", .{@errorName(err)});
 
-            var checked_paths: std.ArrayListUnmanaged(u8) = .empty;
-            defer checked_paths.deinit(gpa);
-
-            var ld_script_bytes: std.ArrayListUnmanaged(u8) = .empty;
-            defer ld_script_bytes.deinit(gpa);
-
-            var failed_libs: std.ArrayListUnmanaged(struct {
-                name: []const u8,
-                strategy: SystemLib.SearchStrategy,
-                checked_paths: []const u8,
-                preferred_mode: std.builtin.LinkMode,
-            }) = .empty;
-
-            // Convert external system libs into a stack so that items can be
-            // pushed to it.
-            //
-            // This is necessary because shared objects might turn out to be
-            // "linker scripts" that in fact resolve to one or more other
-            // external system libs, including parameters such as "needed".
-            //
-            // Unfortunately, such files need to be detected immediately, so
-            // that this library search logic can be applied to them.
-            mem.reverse(LinkerInput, external_linker_inputs.items);
-
-            syslib: while (external_linker_inputs.popOrNull()) |external_linker_input| {
-                const external_system_lib: LinkerInput.Named = switch (external_linker_input) {
-                    .named => |named| named,
-                    .path => |p| p: {
-                        if (fs.path.isAbsolute(p.path.sub_path)) {
-                            try create_module.link_objects.append(arena, .{
-                                .path = p.path,
-                                .needed = p.info.needed,
-                                .weak = p.info.weak,
-                            });
-                            continue;
-                        }
-                        const lib_name, const link_mode = stripLibPrefixAndSuffix(p.path.sub_path, target);
-                        break :p .{
-                            .name = lib_name,
-                            .info = .{
-                                .needed = p.info.needed,
-                                .weak = p.info.weak,
-                                .preferred_mode = link_mode,
-                                .search_strategy = .no_fallback,
-                            },
-                        };
-                    },
-                    .exact => |exact| {
-                        try create_module.link_objects.append(arena, .{
-                            .path = Path.initCwd(exact.name),
-                            .loption = true,
-                        });
-                        continue;
-                    },
-                };
-                const lib_name = external_system_lib.name;
-                const info = external_system_lib.info;
-
-                // Checked in the first pass above while looking for libc libraries.
-                assert(!fs.path.isAbsolute(lib_name));
-
-                checked_paths.clearRetainingCapacity();
-
-                switch (info.search_strategy) {
-                    .mode_first, .no_fallback => {
-                        // check for preferred mode
-                        for (create_module.lib_dirs.items) |lib_dir_path| switch (try accessLibPath(
-                            gpa,
-                            arena,
-                            &test_path,
-                            &checked_paths,
-                            &external_linker_inputs,
-                            create_module,
-                            &ld_script_bytes,
-                            lib_dir_path,
-                            lib_name,
-                            target,
-                            info.preferred_mode,
-                            info,
-                        )) {
-                            .ok => continue :syslib,
-                            .no_match => {},
-                        };
-                        // check for fallback mode
-                        if (info.search_strategy == .no_fallback) {
-                            try failed_libs.append(arena, .{
-                                .name = lib_name,
-                                .strategy = info.search_strategy,
-                                .checked_paths = try arena.dupe(u8, checked_paths.items),
-                                .preferred_mode = info.preferred_mode,
-                            });
-                            continue :syslib;
-                        }
-                        for (create_module.lib_dirs.items) |lib_dir_path| switch (try accessLibPath(
-                            gpa,
-                            arena,
-                            &test_path,
-                            &checked_paths,
-                            &external_linker_inputs,
-                            create_module,
-                            &ld_script_bytes,
-                            lib_dir_path,
-                            lib_name,
-                            target,
-                            info.fallbackMode(),
-                            info,
-                        )) {
-                            .ok => continue :syslib,
-                            .no_match => {},
-                        };
-                        try failed_libs.append(arena, .{
-                            .name = lib_name,
-                            .strategy = info.search_strategy,
-                            .checked_paths = try arena.dupe(u8, checked_paths.items),
-                            .preferred_mode = info.preferred_mode,
-                        });
-                        continue :syslib;
-                    },
-                    .paths_first => {
-                        for (create_module.lib_dirs.items) |lib_dir_path| {
-                            // check for preferred mode
-                            switch (try accessLibPath(
-                                gpa,
-                                arena,
-                                &test_path,
-                                &checked_paths,
-                                &external_linker_inputs,
-                                create_module,
-                                &ld_script_bytes,
-                                lib_dir_path,
-                                lib_name,
-                                target,
-                                info.preferred_mode,
-                                info,
-                            )) {
-                                .ok => continue :syslib,
-                                .no_match => {},
-                            }
-
-                            // check for fallback mode
-                            switch (try accessLibPath(
-                                gpa,
-                                arena,
-                                &test_path,
-                                &checked_paths,
-                                &external_linker_inputs,
-                                create_module,
-                                &ld_script_bytes,
-                                lib_dir_path,
-                                lib_name,
-                                target,
-                                info.fallbackMode(),
-                                info,
-                            )) {
-                                .ok => continue :syslib,
-                                .no_match => {},
-                            }
-                        }
-                        try failed_libs.append(arena, .{
-                            .name = lib_name,
-                            .strategy = info.search_strategy,
-                            .checked_paths = try arena.dupe(u8, checked_paths.items),
-                            .preferred_mode = info.preferred_mode,
-                        });
-                        continue :syslib;
-                    },
-                }
-                @compileError("unreachable");
-            }
-
-            if (failed_libs.items.len > 0) {
-                for (failed_libs.items) |f| {
-                    const searched_paths = if (f.checked_paths.len == 0) " none" else f.checked_paths;
-                    std.log.err("unable to find {s} system library '{s}' using strategy '{s}'. searched paths:{s}", .{
-                        @tagName(f.preferred_mode), f.name, @tagName(f.strategy), searched_paths,
-                    });
-                }
-                process.exit(1);
-            }
-        }
-        // After this point, create_module.resolved_system_libs is used instead
-        // of external_linker_inputs.
-
-        if (create_module.resolved_system_libs.len != 0)
-            create_module.opts.any_dyn_libs = true;
+        if (create_module.windows_libs.count() != 0) create_module.opts.any_dyn_libs = true;
+        if (!create_module.opts.any_dyn_libs) for (create_module.link_inputs.items) |item| switch (item) {
+            .dso, .dso_exact => {
+                create_module.opts.any_dyn_libs = true;
+                break;
+            },
+            else => {},
+        };
 
         create_module.resolved_options = Compilation.Config.resolve(create_module.opts) catch |err| switch (err) {
             error.WasiExecModelRequiresWasi => fatal("only WASI OS targets support execution model", .{}),
@@ -4181,7 +4068,7 @@ fn createModule(
     for (cli_mod.deps) |dep| {
         const dep_index = create_module.modules.getIndex(dep.value) orelse
             fatal("module '{s}' depends on non-existent module '{s}'", .{ name, dep.key });
-        const dep_mod = try createModule(gpa, arena, create_module, dep_index, mod, zig_lib_directory, builtin_modules);
+        const dep_mod = try createModule(gpa, arena, create_module, dep_index, mod, zig_lib_directory, builtin_modules, color);
         try mod.deps.put(arena, dep.key, dep_mod);
     }
 
@@ -5046,7 +4933,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
 
     process.raiseFileDescriptorLimit();
 
-    var zig_lib_directory: Compilation.Directory = if (override_lib_dir) |lib_dir| .{
+    var zig_lib_directory: Directory = if (override_lib_dir) |lib_dir| .{
         .path = lib_dir,
         .handle = fs.cwd().openDir(lib_dir, .{}) catch |err| {
             fatal("unable to open zig lib directory from 'zig-lib-dir' argument: '{s}': {s}", .{ lib_dir, @errorName(err) });
@@ -5065,7 +4952,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     });
     child_argv.items[argv_index_build_file] = build_root.directory.path orelse cwd_path;
 
-    var global_cache_directory: Compilation.Directory = l: {
+    var global_cache_directory: Directory = l: {
         const p = override_global_cache_dir orelse try introspect.resolveGlobalCacheDir(arena);
         break :l .{
             .handle = try fs.cwd().makeOpenPath(p, .{}),
@@ -5076,7 +4963,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
 
     child_argv.items[argv_index_global_cache_dir] = global_cache_directory.path orelse cwd_path;
 
-    var local_cache_directory: Compilation.Directory = l: {
+    var local_cache_directory: Directory = l: {
         if (override_local_cache_dir) |local_cache_dir_path| {
             break :l .{
                 .handle = try fs.cwd().makeOpenPath(local_cache_dir_path, .{}),
@@ -5510,7 +5397,7 @@ fn jitCmd(
     const override_lib_dir: ?[]const u8 = try EnvVar.ZIG_LIB_DIR.get(arena);
     const override_global_cache_dir: ?[]const u8 = try EnvVar.ZIG_GLOBAL_CACHE_DIR.get(arena);
 
-    var zig_lib_directory: Compilation.Directory = if (override_lib_dir) |lib_dir| .{
+    var zig_lib_directory: Directory = if (override_lib_dir) |lib_dir| .{
         .path = lib_dir,
         .handle = fs.cwd().openDir(lib_dir, .{}) catch |err| {
             fatal("unable to open zig lib directory from 'zig-lib-dir' argument: '{s}': {s}", .{ lib_dir, @errorName(err) });
@@ -5520,7 +5407,7 @@ fn jitCmd(
     };
     defer zig_lib_directory.handle.close();
 
-    var global_cache_directory: Compilation.Directory = l: {
+    var global_cache_directory: Directory = l: {
         const p = override_global_cache_dir orelse try introspect.resolveGlobalCacheDir(arena);
         break :l .{
             .handle = try fs.cwd().makeOpenPath(p, .{}),
@@ -6907,197 +6794,6 @@ const ClangSearchSanitizer = struct {
     };
 };
 
-const AccessLibPathResult = enum { ok, no_match };
-
-fn accessLibPath(
-    gpa: Allocator,
-    arena: Allocator,
-    /// Allocated via `gpa`.
-    test_path: *std.ArrayListUnmanaged(u8),
-    /// Allocated via `gpa`.
-    checked_paths: *std.ArrayListUnmanaged(u8),
-    /// Allocated via `arena`.
-    external_linker_inputs: *std.ArrayListUnmanaged(LinkerInput),
-    create_module: *CreateModule,
-    /// Allocated via `gpa`.
-    ld_script_bytes: *std.ArrayListUnmanaged(u8),
-    lib_dir_path: []const u8,
-    lib_name: []const u8,
-    target: std.Target,
-    link_mode: std.builtin.LinkMode,
-    parent: SystemLib,
-) Allocator.Error!AccessLibPathResult {
-    const sep = fs.path.sep_str;
-
-    if (target.isDarwin() and link_mode == .dynamic) tbd: {
-        // Prefer .tbd over .dylib.
-        test_path.clearRetainingCapacity();
-        try test_path.writer(gpa).print("{s}" ++ sep ++ "lib{s}.tbd", .{ lib_dir_path, lib_name });
-        try checked_paths.writer(gpa).print("\n  {s}", .{test_path.items});
-        fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
-            error.FileNotFound => break :tbd,
-            else => |e| fatal("unable to search for tbd library '{s}': {s}", .{
-                test_path.items, @errorName(e),
-            }),
-        };
-        return finishAccessLibPath(arena, create_module, test_path, link_mode, parent, lib_name);
-    }
-
-    main_check: {
-        test_path.clearRetainingCapacity();
-        try test_path.writer(gpa).print("{s}" ++ sep ++ "{s}{s}{s}", .{
-            lib_dir_path,
-            target.libPrefix(),
-            lib_name,
-            switch (link_mode) {
-                .static => target.staticLibSuffix(),
-                .dynamic => target.dynamicLibSuffix(),
-            },
-        });
-        try checked_paths.writer(gpa).print("\n  {s}", .{test_path.items});
-
-        // In the case of .so files, they might actually be "linker scripts"
-        // that contain references to other libraries.
-        if (create_module.allow_so_scripts and target.ofmt == .elf and mem.endsWith(u8, test_path.items, ".so")) {
-            var file = fs.cwd().openFile(test_path.items, .{}) catch |err| switch (err) {
-                error.FileNotFound => break :main_check,
-                else => |e| fatal("unable to search for {s} library '{s}': {s}", .{
-                    @tagName(link_mode), test_path.items, @errorName(e),
-                }),
-            };
-            defer file.close();
-            try ld_script_bytes.resize(gpa, @sizeOf(std.elf.Elf64_Ehdr));
-            const n = file.readAll(ld_script_bytes.items) catch |err| fatal("failed to read {s}: {s}", .{
-                test_path.items, @errorName(err),
-            });
-            elf_file: {
-                if (n != ld_script_bytes.items.len) break :elf_file;
-                if (!mem.eql(u8, ld_script_bytes.items[0..4], "\x7fELF")) break :elf_file;
-                // Appears to be an ELF file.
-                return finishAccessLibPath(arena, create_module, test_path, link_mode, parent, lib_name);
-            }
-            const stat = file.stat() catch |err|
-                fatal("failed to stat {s}: {s}", .{ test_path.items, @errorName(err) });
-            const size = std.math.cast(u32, stat.size) orelse
-                fatal("{s}: linker script too big", .{test_path.items});
-            try ld_script_bytes.resize(gpa, size);
-            const buf = ld_script_bytes.items[n..];
-            const n2 = file.readAll(buf) catch |err|
-                fatal("failed to read {s}: {s}", .{ test_path.items, @errorName(err) });
-            if (n2 != buf.len) fatal("failed to read {s}: unexpected end of file", .{test_path.items});
-            var diags = link.Diags.init(gpa);
-            defer diags.deinit();
-            const ld_script_result = link.LdScript.parse(gpa, &diags, Path.initCwd(test_path.items), ld_script_bytes.items);
-            if (diags.hasErrors()) {
-                var wip_errors: std.zig.ErrorBundle.Wip = undefined;
-                try wip_errors.init(gpa);
-                defer wip_errors.deinit();
-
-                try diags.addMessagesToBundle(&wip_errors);
-
-                var error_bundle = try wip_errors.toOwnedBundle("");
-                defer error_bundle.deinit(gpa);
-
-                const color: Color = .auto;
-                error_bundle.renderToStdErr(color.renderOptions());
-
-                process.exit(1);
-            }
-
-            var ld_script = ld_script_result catch |err|
-                fatal("{s}: failed to parse linker script: {s}", .{ test_path.items, @errorName(err) });
-            defer ld_script.deinit(gpa);
-
-            try external_linker_inputs.ensureUnusedCapacity(arena, ld_script.args.len);
-            for (ld_script.args) |arg| {
-                const syslib: SystemLib = .{
-                    .needed = arg.needed or parent.needed,
-                    .weak = parent.weak,
-                    .preferred_mode = parent.preferred_mode,
-                    .search_strategy = parent.search_strategy,
-                };
-                if (mem.startsWith(u8, arg.path, "-l")) {
-                    external_linker_inputs.appendAssumeCapacity(.{ .named = .{
-                        .name = try arena.dupe(u8, arg.path["-l".len..]),
-                        .info = syslib,
-                    } });
-                } else {
-                    external_linker_inputs.appendAssumeCapacity(.{ .path = .{
-                        .path = Path.initCwd(try arena.dupe(u8, arg.path)),
-                        .info = syslib,
-                    } });
-                }
-            }
-            return .ok;
-        }
-
-        fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
-            error.FileNotFound => break :main_check,
-            else => |e| fatal("unable to search for {s} library '{s}': {s}", .{
-                @tagName(link_mode), test_path.items, @errorName(e),
-            }),
-        };
-        return finishAccessLibPath(arena, create_module, test_path, link_mode, parent, lib_name);
-    }
-
-    // In the case of Darwin, the main check will be .dylib, so here we
-    // additionally check for .so files.
-    if (target.isDarwin() and link_mode == .dynamic) so: {
-        test_path.clearRetainingCapacity();
-        try test_path.writer(gpa).print("{s}" ++ sep ++ "lib{s}.so", .{ lib_dir_path, lib_name });
-        try checked_paths.writer(gpa).print("\n  {s}", .{test_path.items});
-        fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
-            error.FileNotFound => break :so,
-            else => |e| fatal("unable to search for so library '{s}': {s}", .{
-                test_path.items, @errorName(e),
-            }),
-        };
-        return finishAccessLibPath(arena, create_module, test_path, link_mode, parent, lib_name);
-    }
-
-    // In the case of MinGW, the main check will be .lib but we also need to
-    // look for `libfoo.a`.
-    if (target.isMinGW() and link_mode == .static) mingw: {
-        test_path.clearRetainingCapacity();
-        try test_path.writer(gpa).print("{s}" ++ sep ++ "lib{s}.a", .{
-            lib_dir_path, lib_name,
-        });
-        try checked_paths.writer(gpa).print("\n  {s}", .{test_path.items});
-        fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
-            error.FileNotFound => break :mingw,
-            else => |e| fatal("unable to search for static library '{s}': {s}", .{
-                test_path.items, @errorName(e),
-            }),
-        };
-        return finishAccessLibPath(arena, create_module, test_path, link_mode, parent, lib_name);
-    }
-
-    return .no_match;
-}
-
-fn finishAccessLibPath(
-    arena: Allocator,
-    create_module: *CreateModule,
-    test_path: *std.ArrayListUnmanaged(u8),
-    link_mode: std.builtin.LinkMode,
-    parent: SystemLib,
-    lib_name: []const u8,
-) Allocator.Error!AccessLibPathResult {
-    const path = Path.initCwd(try arena.dupe(u8, test_path.items));
-    switch (link_mode) {
-        .static => try create_module.link_objects.append(arena, .{ .path = path }),
-        .dynamic => try create_module.resolved_system_libs.append(arena, .{
-            .name = lib_name,
-            .lib = .{
-                .needed = parent.needed,
-                .weak = parent.weak,
-                .path = path,
-            },
-        }),
-    }
-    return .ok;
-}
-
 fn accessFrameworkPath(
     test_path: *std.ArrayList(u8),
     checked_paths: *std.ArrayList(u8),
@@ -7218,7 +6914,7 @@ fn cmdFetch(
     });
     defer root_prog_node.end();
 
-    var global_cache_directory: Compilation.Directory = l: {
+    var global_cache_directory: Directory = l: {
         const p = override_global_cache_dir orelse try introspect.resolveGlobalCacheDir(arena);
         break :l .{
             .handle = try fs.cwd().makeOpenPath(p, .{}),
@@ -7794,19 +7490,4 @@ fn handleModArg(
     target_mcpu.* = null;
     c_source_files_owner_index.* = create_module.c_source_files.items.len;
     rc_source_files_owner_index.* = create_module.rc_source_files.items.len;
-}
-
-fn stripLibPrefixAndSuffix(path: []const u8, target: std.Target) struct { []const u8, std.builtin.LinkMode } {
-    const prefix = target.libPrefix();
-    const static_suffix = target.staticLibSuffix();
-    const dynamic_suffix = target.dynamicLibSuffix();
-    const basename = fs.path.basename(path);
-    const unlibbed = if (mem.startsWith(u8, basename, prefix)) basename[prefix.len..] else basename;
-    if (mem.endsWith(u8, unlibbed, static_suffix)) return .{
-        unlibbed[0 .. unlibbed.len - static_suffix.len], .static,
-    };
-    if (mem.endsWith(u8, unlibbed, dynamic_suffix)) return .{
-        unlibbed[0 .. unlibbed.len - dynamic_suffix.len], .dynamic,
-    };
-    fatal("unrecognized library path: {s}", .{path});
 }
