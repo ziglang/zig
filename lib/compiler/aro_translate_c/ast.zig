@@ -227,6 +227,9 @@ pub const Node = extern union {
         /// [1]type{val} ** count
         array_filler,
 
+        /// @import("std").zig.c_translation.EmulateBitfieldStruct(S)
+        helpers_emulate_bitfield_struct,
+
         pub const last_no_payload_tag = Tag.@"break";
         pub const no_payload_count = @intFromEnum(last_no_payload_tag) + 1;
 
@@ -376,6 +379,7 @@ pub const Node = extern union {
                 .shuffle => Payload.Shuffle,
                 .builtin_extern => Payload.Extern,
                 .macro_arithmetic => Payload.MacroArithmetic,
+                .helpers_emulate_bitfield_struct => Payload.EmulateBitfieldStruct,
             };
         }
 
@@ -698,6 +702,14 @@ pub const Payload = struct {
         },
     };
 
+    pub const EmulateBitfieldStruct = struct {
+        base: Payload,
+        data: struct {
+            definition: Node,
+            cfg: Node,
+        },
+    };
+
     pub const StringSlice = struct {
         base: Payload,
         data: struct {
@@ -916,6 +928,11 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             const payload = node.castTag(.helpers_shuffle_vector_index).?.data;
             const import_node = try renderStdImport(c, &.{ "zig", "c_translation", "shuffleVectorIndex" });
             return renderCall(c, import_node, &.{ payload.lhs, payload.rhs });
+        },
+        .helpers_emulate_bitfield_struct => {
+            const payload = node.castTag(.helpers_emulate_bitfield_struct).?.data;
+            const import_node = try renderStdImport(c, &.{ "zig", "c_translation", "EmulateBitfieldStruct" });
+            return renderCall(c, import_node, &.{ payload.definition, payload.cfg });
         },
         .vector => {
             const payload = node.castTag(.vector).?.data;
@@ -2042,25 +2059,34 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             }
             _ = try c.addToken(.r_brace, "}");
 
-            if (payload.len < 3) {
-                return c.addNode(.{
+            switch (payload.len) {
+                0 => return c.addNode(.{
+                    .tag = .struct_init_dot_two, // the inits[0], inits[1] are both 0
+                    .main_token = l_brace,
+                    .data = .{
+                        .lhs = inits[0],
+                        .rhs = inits[1],
+                    },
+                }),
+                1, 2 => return c.addNode(.{
                     .tag = .struct_init_dot_two_comma,
                     .main_token = l_brace,
                     .data = .{
                         .lhs = inits[0],
                         .rhs = inits[1],
                     },
-                });
-            } else {
-                const span = try c.listToSpan(inits);
-                return c.addNode(.{
-                    .tag = .struct_init_dot_comma,
-                    .main_token = l_brace,
-                    .data = .{
-                        .lhs = span.start,
-                        .rhs = span.end,
-                    },
-                });
+                }),
+                else => {
+                    const span = try c.listToSpan(inits);
+                    return c.addNode(.{
+                        .tag = .struct_init_dot_comma,
+                        .main_token = l_brace,
+                        .data = .{
+                            .lhs = span.start,
+                            .rhs = span.end,
+                        },
+                    });
+                },
             }
         },
         .container_init => {
@@ -2387,6 +2413,7 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .helpers_promoteIntLiteral,
         .helpers_shuffle_vector_index,
         .helpers_flexible_array_type,
+        .helpers_emulate_bitfield_struct,
         .std_mem_zeroinit,
         .integer_literal,
         .float_literal,
