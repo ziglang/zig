@@ -1362,6 +1362,8 @@ fn parseDebugInfo(self: *Object, macho_file: *MachO) !void {
         if (mem.eql(u8, sect.sectName(), "__debug_str")) {
             dwarf.debug_str = try self.readSectionData(gpa, file, n_sect);
         }
+        // __debug_str_offs[ets] section is a new addition in DWARFv5 and is generally
+        // required in order to correctly parse strings.
         if (mem.eql(u8, sect.sectName(), "__debug_str_offs")) {
             dwarf.debug_str_offsets = try self.readSectionData(gpa, file, n_sect);
         }
@@ -1369,20 +1371,40 @@ fn parseDebugInfo(self: *Object, macho_file: *MachO) !void {
 
     if (dwarf.debug_info.len == 0) return;
 
-    self.compile_unit = try self.findCompileUnit(gpa, dwarf, macho_file);
+    self.compile_unit = self.findCompileUnit(gpa, dwarf, macho_file) catch |err| {
+        switch (err) {
+            error.MissingCompileDir,
+            error.MissingTuName,
+            error.MissingStrOffsetsBase,
+            error.UnexpectedTag,
+            error.InvalidForm,
+            error.InvalidVersion,
+            error.UnhandledForm,
+            => {}, // already reported
+            else => |e| try macho_file.reportParseError2(self.index, "unexpected error when parsing debug info: {s}", .{
+                @errorName(e),
+            }),
+        }
+        return error.ParseFailed;
+    };
 }
 
 fn findCompileUnit(self: *Object, gpa: Allocator, ctx: Dwarf, macho_file: *MachO) !CompileUnit {
     var info_reader = Dwarf.InfoReader{ .ctx = ctx };
     var abbrev_reader = Dwarf.AbbrevReader{ .ctx = ctx };
 
-    const cuh = try info_reader.readCompileUnitHeader(macho_file);
+    const cuh = try info_reader.readCompileUnitHeader(.{ .object = self.*, .macho_file = macho_file });
     try abbrev_reader.seekTo(cuh.debug_abbrev_offset);
 
     const cu_decl = (try abbrev_reader.readDecl()) orelse return error.UnexpectedEndOfFile;
-    if (cu_decl.tag != Dwarf.TAG.compile_unit) return error.UnexpectedTag;
+    if (cu_decl.tag != Dwarf.TAG.compile_unit) {
+        try macho_file.reportParseError2(self.index, "unexpected DW_TAG_*: expected 0x{x}, found 0x{x}", .{
+            Dwarf.TAG.compile_unit, cu_decl.tag,
+        });
+        return error.UnexpectedTag;
+    }
 
-    try info_reader.seekToDie(cu_decl.code, cuh, &abbrev_reader, macho_file);
+    try info_reader.seekToDie(cu_decl.code, cuh, &abbrev_reader, .{ .object = self.*, .macho_file = macho_file });
 
     const Pos = struct {
         pos: usize,
@@ -1405,11 +1427,17 @@ fn findCompileUnit(self: *Object, gpa: Allocator, ctx: Dwarf, macho_file: *MachO
             Dwarf.AT.str_offsets_base => saved.str_offsets_base = pos,
             else => {},
         }
-        try info_reader.skip(attr.form, cuh, macho_file);
+        try info_reader.skip(attr.form, cuh, .{ .object = self.*, .macho_file = macho_file });
     }
 
-    if (saved.comp_dir == null) return error.MissingCompDir;
-    if (saved.tu_name == null) return error.MissingTuName;
+    if (saved.comp_dir == null) {
+        try macho_file.reportParseError2(self.index, "missing DW_AT_comp_dir attribute", .{});
+        return error.MissingCompileDir;
+    }
+    if (saved.tu_name == null) {
+        try macho_file.reportParseError2(self.index, "missing DW_AT_name attribute", .{});
+        return error.MissingTuName;
+    }
 
     const str_offsets_base: ?u64 = if (saved.str_offsets_base) |str_offsets_base| str_offsets_base: {
         try info_reader.seekTo(str_offsets_base.pos);
@@ -1433,10 +1461,16 @@ fn findCompileUnit(self: *Object, gpa: Allocator, ctx: Dwarf, macho_file: *MachO
             Dwarf.FORM.strx3,
             Dwarf.FORM.strx4,
             => blk: {
-                const base = str_offsets_base orelse return error.MalformedDwarf;
+                const base = str_offsets_base orelse {
+                    try macho_file.reportParseError2(self.index, "missing DW_AT_str_offsets_base attribute", .{});
+                    return error.MissingStrOffsetsBase;
+                };
                 break :blk try self.addString(gpa, try info_reader.readStringIndexed(pos.form, cuh, base));
             },
-            else => return error.InvalidForm,
+            else => |form| {
+                try macho_file.reportParseError2(self.index, "invalid DW_FORM_* when parsing string: 0x{x}", .{form});
+                return error.InvalidForm;
+            },
         };
     }
 
