@@ -1858,13 +1858,14 @@ pub const Cpu = struct {
                 },
                 .csky => &csky.cpu.ck810, // gcc/clang do not have a generic csky model.
                 .hexagon => &hexagon.cpu.hexagonv60, // gcc/clang do not have a generic hexagon model.
+                .lanai => &lanai.cpu.v11, // clang does not have a generic lanai model.
+                .loongarch64 => &loongarch.cpu.loongarch64,
                 .riscv32 => &riscv.cpu.baseline_rv32,
                 .riscv64 => &riscv.cpu.baseline_rv64,
-                .x86 => &x86.cpu.pentium4,
                 .nvptx, .nvptx64 => &nvptx.cpu.sm_20,
                 .s390x => &s390x.cpu.arch8, // gcc/clang do not have a generic s390x model.
                 .sparc => &sparc.cpu.v9, // glibc does not work with 'plain' v8.
-                .loongarch64 => &loongarch.cpu.loongarch64,
+                .x86 => &x86.cpu.pentium4,
 
                 else => generic(arch),
             };
