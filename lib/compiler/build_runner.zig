@@ -943,12 +943,12 @@ fn printTreeStep(
     if (first) {
         try printStepStatus(s, stderr, ttyconf, run);
 
-        const last_index = if (summary == .all) s.dependencies.items.len -| 1 else blk: {
-            var i: usize = s.dependencies.items.len;
+        const last_index = if (summary == .all) s.dependencies.count() -| 1 else blk: {
+            var i: usize = s.dependencies.count();
             while (i > 0) {
                 i -= 1;
 
-                const step = s.dependencies.items[i];
+                const step = s.dependencies.keys()[i];
                 const found = switch (summary) {
                     .all, .none => unreachable,
                     .failures => step.state != .success,
@@ -956,9 +956,9 @@ fn printTreeStep(
                 };
                 if (found) break :blk i;
             }
-            break :blk s.dependencies.items.len -| 1;
+            break :blk s.dependencies.count() -| 1;
         };
-        for (s.dependencies.items, 0..) |dep, i| {
+        for (s.dependencies.keys(), 0..) |dep, i| {
             var print_node: PrintNode = .{
                 .parent = parent_node,
                 .last = i == last_index,
@@ -966,11 +966,11 @@ fn printTreeStep(
             try printTreeStep(b, dep, run, stderr, ttyconf, &print_node, step_stack);
         }
     } else {
-        if (s.dependencies.items.len == 0) {
+        if (s.dependencies.count() == 0) {
             try stderr.writeAll(" (reused)\n");
         } else {
             try stderr.writer().print(" (+{d} more reused dependencies)\n", .{
-                s.dependencies.items.len,
+                s.dependencies.count(),
             });
         }
         try ttyconf.setColor(stderr, .reset);
@@ -1002,11 +1002,11 @@ fn constructGraphAndCheckForDependencyLoop(
         .precheck_unstarted => {
             s.state = .precheck_started;
 
-            try step_stack.ensureUnusedCapacity(b.allocator, s.dependencies.items.len);
+            try step_stack.ensureUnusedCapacity(b.allocator, s.dependencies.count());
 
             // We dupe to avoid shuffling the steps in the summary, it depends
             // on s.dependencies' order.
-            const deps = b.allocator.dupe(*Step, s.dependencies.items) catch @panic("OOM");
+            const deps = b.allocator.dupe(*Step, s.dependencies.keys()) catch @panic("OOM");
             rand.shuffle(*Step, deps);
 
             for (deps) |dep| {
@@ -1046,7 +1046,7 @@ fn workerMakeOneStep(
     // First, check the conditions for running this step. If they are not met,
     // then we return without doing the step, relying on another worker to
     // queue this step up again when dependencies are met.
-    for (s.dependencies.items) |dep| {
+    for (s.dependencies.keys()) |dep| {
         switch (@atomicLoad(Step.State, &dep.state, .seq_cst)) {
             .success, .skipped => continue,
             .failure, .dependency_failure, .skipped_oom => {

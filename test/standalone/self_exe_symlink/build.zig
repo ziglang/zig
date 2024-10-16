@@ -37,7 +37,6 @@ pub fn build(b: *std.Build) void {
     run_from_symlink.addFileArg(symlink_path);
     run_from_symlink.expectExitCode(0);
     run_from_symlink.skip_foreign_checks = true;
-    run_from_symlink.step.dependOn(&run_create_symlink.step);
 
     test_step.dependOn(&run_from_symlink.step);
 }
