@@ -3611,7 +3611,10 @@ pub fn callconvSupported(zcu: *Zcu, cc: std.builtin.CallingConvention) union(enu
             else => false,
         },
         .stage2_aarch64 => switch (cc) {
-            .aarch64_aapcs => |opts| opts.incoming_stack_alignment == null,
+            .aarch64_aapcs,
+            .aarch64_aapcs_darwin,
+            .aarch64_aapcs_win,
+            => |opts| opts.incoming_stack_alignment == null,
             .naked => true,
             else => false,
         },
