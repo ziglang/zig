@@ -173,6 +173,10 @@ retryable_failures: std.ArrayListUnmanaged(AnalUnit) = .empty,
 /// These are the modules which we initially queue for analysis in `Compilation.update`.
 /// `resolveReferences` will use these as the root of its reachability traversal.
 analysis_roots: std.BoundedArray(*Package.Module, 3) = .{},
+/// This is the cached result of `Zcu.resolveReferences`. It is computed on-demand, and
+/// reset to `null` when any semantic analysis occurs (since this invalidates the data).
+/// Allocated into `gpa`.
+resolved_references: ?std.AutoHashMapUnmanaged(AnalUnit, ?ResolvedReference) = null,
 
 stage1_flags: packed struct {
     have_winmain: bool = false,
@@ -420,13 +424,8 @@ pub const Namespace = struct {
 };
 
 pub const File = struct {
-    status: enum {
-        never_loaded,
-        retryable_failure,
-        parse_failure,
-        astgen_failure,
-        success_zir,
-    },
+    status: Status,
+    prev_status: Status,
     source_loaded: bool,
     tree_loaded: bool,
     zir_loaded: bool,
@@ -453,6 +452,14 @@ pub const File = struct {
     /// newly introduces compile errors during an update. When ZIR is
     /// successful, this field is unloaded.
     prev_zir: ?*Zir = null,
+
+    pub const Status = enum {
+        never_loaded,
+        retryable_failure,
+        parse_failure,
+        astgen_failure,
+        success_zir,
+    };
 
     /// A single reference to a file.
     pub const Reference = union(enum) {
@@ -2192,6 +2199,8 @@ pub fn deinit(zcu: *Zcu) void {
     zcu.all_type_references.deinit(gpa);
     zcu.free_type_references.deinit(gpa);
 
+    if (zcu.resolved_references) |*r| r.deinit(gpa);
+
     zcu.intern_pool.deinit(gpa);
 }
 
@@ -2760,6 +2769,8 @@ pub fn deleteUnitExports(zcu: *Zcu, anal_unit: AnalUnit) void {
 pub fn deleteUnitReferences(zcu: *Zcu, anal_unit: AnalUnit) void {
     const gpa = zcu.gpa;
 
+    zcu.clearCachedResolvedReferences();
+
     unit_refs: {
         const kv = zcu.reference_table.fetchSwapRemove(anal_unit) orelse break :unit_refs;
         var idx = kv.value;
@@ -2792,6 +2803,8 @@ pub fn deleteUnitReferences(zcu: *Zcu, anal_unit: AnalUnit) void {
 pub fn addUnitReference(zcu: *Zcu, src_unit: AnalUnit, referenced_unit: AnalUnit, ref_src: LazySrcLoc) Allocator.Error!void {
     const gpa = zcu.gpa;
 
+    zcu.clearCachedResolvedReferences();
+
     try zcu.reference_table.ensureUnusedCapacity(gpa, 1);
 
     const ref_idx = zcu.free_references.popOrNull() orelse idx: {
@@ -2815,6 +2828,8 @@ pub fn addUnitReference(zcu: *Zcu, src_unit: AnalUnit, referenced_unit: AnalUnit
 pub fn addTypeReference(zcu: *Zcu, src_unit: AnalUnit, referenced_type: InternPool.Index, ref_src: LazySrcLoc) Allocator.Error!void {
     const gpa = zcu.gpa;
 
+    zcu.clearCachedResolvedReferences();
+
     try zcu.type_reference_table.ensureUnusedCapacity(gpa, 1);
 
     const ref_idx = zcu.free_type_references.popOrNull() orelse idx: {
@@ -2833,6 +2848,11 @@ pub fn addTypeReference(zcu: *Zcu, src_unit: AnalUnit, referenced_type: InternPo
     };
 
     gop.value_ptr.* = @intCast(ref_idx);
+}
+
+fn clearCachedResolvedReferences(zcu: *Zcu) void {
+    if (zcu.resolved_references) |*r| r.deinit(zcu.gpa);
+    zcu.resolved_references = null;
 }
 
 pub fn errorSetBits(zcu: *const Zcu) u16 {
@@ -3138,7 +3158,15 @@ pub const ResolvedReference = struct {
 /// Returns a mapping from an `AnalUnit` to where it is referenced.
 /// If the value is `null`, the `AnalUnit` is a root of analysis.
 /// If an `AnalUnit` is not in the returned map, it is unreferenced.
-pub fn resolveReferences(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?ResolvedReference) {
+/// The returned hashmap is owned by the `Zcu`, so should not be freed by the caller.
+/// This hashmap is cached, so repeated calls to this function are cheap.
+pub fn resolveReferences(zcu: *Zcu) !*const std.AutoHashMapUnmanaged(AnalUnit, ?ResolvedReference) {
+    if (zcu.resolved_references == null) {
+        zcu.resolved_references = try zcu.resolveReferencesInner();
+    }
+    return &zcu.resolved_references.?;
+}
+fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?ResolvedReference) {
     const gpa = zcu.gpa;
     const comp = zcu.comp;
     const ip = &zcu.intern_pool;
@@ -3449,6 +3477,10 @@ fn formatDependee(data: struct { dependee: InternPool.Dependee, zcu: *Zcu }, com
     const zcu = data.zcu;
     const ip = &zcu.intern_pool;
     switch (data.dependee) {
+        .file => |file| {
+            const file_path = zcu.fileByIndex(file).sub_file_path;
+            return writer.print("file('{s}')", .{file_path});
+        },
         .src_hash => |ti| {
             const info = ti.resolveFull(ip) orelse {
                 return writer.writeAll("inst(<lost>)");

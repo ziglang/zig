@@ -17,6 +17,13 @@ tid_shift_31: if (single_threaded) u0 else std.math.Log2Int(u32),
 /// Cached shift amount to put a `tid` in the top bits of a 32-bit value.
 tid_shift_32: if (single_threaded) u0 else std.math.Log2Int(u32),
 
+/// Dependencies on whether an entire file gets past AstGen.
+/// These are triggered by `@import`, so that:
+/// * if a file initially fails AstGen, triggering a transitive failure, when a future update
+///   causes it to succeed AstGen, the `@import` is re-analyzed, allowing analysis to proceed
+/// * if a file initially succeds AstGen, but a future update causes the file to fail it,
+///   the `@import` is re-analyzed, registering a transitive failure
+file_deps: std.AutoArrayHashMapUnmanaged(FileIndex, DepEntry.Index),
 /// Dependencies on the source code hash associated with a ZIR instruction.
 /// * For a `declaration`, this is the entire declaration body.
 /// * For a `struct_decl`, `union_decl`, etc, this is the source of the fields (but not declarations).
@@ -70,6 +77,7 @@ pub const empty: InternPool = .{
     .tid_shift_30 = if (single_threaded) 0 else 31,
     .tid_shift_31 = if (single_threaded) 0 else 31,
     .tid_shift_32 = if (single_threaded) 0 else 31,
+    .file_deps = .empty,
     .src_hash_deps = .empty,
     .nav_val_deps = .empty,
     .interned_deps = .empty,
@@ -656,6 +664,7 @@ pub const Nav = struct {
 };
 
 pub const Dependee = union(enum) {
+    file: FileIndex,
     src_hash: TrackedInst.Index,
     nav_val: Nav.Index,
     interned: Index,
@@ -704,6 +713,7 @@ pub const DependencyIterator = struct {
 
 pub fn dependencyIterator(ip: *const InternPool, dependee: Dependee) DependencyIterator {
     const first_entry = switch (dependee) {
+        .file => |x| ip.file_deps.get(x),
         .src_hash => |x| ip.src_hash_deps.get(x),
         .nav_val => |x| ip.nav_val_deps.get(x),
         .interned => |x| ip.interned_deps.get(x),
@@ -740,6 +750,7 @@ pub fn addDependency(ip: *InternPool, gpa: Allocator, depender: AnalUnit, depend
     const new_index: DepEntry.Index = switch (dependee) {
         inline else => |dependee_payload, tag| new_index: {
             const gop = try switch (tag) {
+                .file => ip.file_deps,
                 .src_hash => ip.src_hash_deps,
                 .nav_val => ip.nav_val_deps,
                 .interned => ip.interned_deps,
@@ -6268,6 +6279,7 @@ pub fn init(ip: *InternPool, gpa: Allocator, available_threads: usize) !void {
 }
 
 pub fn deinit(ip: *InternPool, gpa: Allocator) void {
+    ip.file_deps.deinit(gpa);
     ip.src_hash_deps.deinit(gpa);
     ip.nav_val_deps.deinit(gpa);
     ip.interned_deps.deinit(gpa);
