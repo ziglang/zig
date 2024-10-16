@@ -2102,3 +2102,22 @@ test "invalid UTF-8/WTF-8 paths" {
         }
     }.impl);
 }
+
+test "readFile refuses to truncate regular file contents while readFileTruncate doesn't" {
+    var tmp_dir = tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const f = try tmp_dir.dir.createFile("regular_file", .{});
+    var buffer: [64]u8 = undefined;
+    @memset(&buffer, 'A');
+    try f.writeAll(&buffer);
+    f.close();
+
+    try std.testing.expectError(error.Truncated, tmp_dir.dir.readFile("regular_file", buffer[0..63]));
+    try std.testing.expectError(error.Truncated, tmp_dir.dir.readFile("regular_file", buffer[0..62]));
+    try std.testing.expectEqual(buffer[0..64], tmp_dir.dir.readFile("regular_file", buffer[0..64]));
+
+    try std.testing.expectEqual(buffer[0..63], tmp_dir.dir.readFileTruncate("regular_file", buffer[0..63]));
+    try std.testing.expectEqual(buffer[0..62], tmp_dir.dir.readFileTruncate("regular_file", buffer[0..62]));
+    try std.testing.expectEqual(buffer[0..64], tmp_dir.dir.readFileTruncate("regular_file", buffer[0..64]));
+}
