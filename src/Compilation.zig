@@ -6040,7 +6040,7 @@ test "classifyFileExt" {
 }
 
 pub fn get_libc_crt_file(comp: *Compilation, arena: Allocator, basename: []const u8) !Path {
-    return (try crtFilePath(comp, basename)) orelse {
+    return (try crtFilePath(&comp.crt_files, basename)) orelse {
         const lci = comp.libc_installation orelse return error.LibCInstallationNotAvailable;
         const crt_dir_path = lci.crt_dir orelse return error.LibCInstallationMissingCrtDir;
         const full_path = try std.fs.path.join(arena, &[_][]const u8{ crt_dir_path, basename });
@@ -6053,8 +6053,8 @@ pub fn crtFileAsString(comp: *Compilation, arena: Allocator, basename: []const u
     return path.toString(arena);
 }
 
-pub fn crtFilePath(comp: *Compilation, basename: []const u8) Allocator.Error!?Path {
-    const crt_file = comp.crt_files.get(basename) orelse return null;
+fn crtFilePath(crt_files: *std.StringHashMapUnmanaged(CrtFile), basename: []const u8) Allocator.Error!?Path {
+    const crt_file = crt_files.get(basename) orelse return null;
     return crt_file.full_object_path;
 }
 
@@ -6462,21 +6462,31 @@ pub fn getCrtPaths(
     arena: Allocator,
 ) error{ OutOfMemory, LibCInstallationMissingCrtDir }!LibCInstallation.CrtPaths {
     const target = comp.root_mod.resolved_target.result;
+    return getCrtPathsInner(arena, target, comp.config, comp.libc_installation, &comp.crt_files);
+}
+
+fn getCrtPathsInner(
+    arena: Allocator,
+    target: std.Target,
+    config: Config,
+    libc_installation: ?*const LibCInstallation,
+    crt_files: *std.StringHashMapUnmanaged(CrtFile),
+) error{ OutOfMemory, LibCInstallationMissingCrtDir }!LibCInstallation.CrtPaths {
     const basenames = LibCInstallation.CrtBasenames.get(.{
         .target = target,
-        .link_libc = comp.config.link_libc,
-        .output_mode = comp.config.output_mode,
-        .link_mode = comp.config.link_mode,
-        .pie = comp.config.pie,
+        .link_libc = config.link_libc,
+        .output_mode = config.output_mode,
+        .link_mode = config.link_mode,
+        .pie = config.pie,
     });
-    if (comp.libc_installation) |lci| return lci.resolveCrtPaths(arena, basenames, target);
+    if (libc_installation) |lci| return lci.resolveCrtPaths(arena, basenames, target);
 
     return .{
-        .crt0 = if (basenames.crt0) |basename| try comp.crtFilePath(basename) else null,
-        .crti = if (basenames.crti) |basename| try comp.crtFilePath(basename) else null,
-        .crtbegin = if (basenames.crtbegin) |basename| try comp.crtFilePath(basename) else null,
-        .crtend = if (basenames.crtend) |basename| try comp.crtFilePath(basename) else null,
-        .crtn = if (basenames.crtn) |basename| try comp.crtFilePath(basename) else null,
+        .crt0 = if (basenames.crt0) |basename| try crtFilePath(crt_files, basename) else null,
+        .crti = if (basenames.crti) |basename| try crtFilePath(crt_files, basename) else null,
+        .crtbegin = if (basenames.crtbegin) |basename| try crtFilePath(crt_files, basename) else null,
+        .crtend = if (basenames.crtend) |basename| try crtFilePath(crt_files, basename) else null,
+        .crtn = if (basenames.crtn) |basename| try crtFilePath(crt_files, basename) else null,
     };
 }
 
