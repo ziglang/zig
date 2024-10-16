@@ -2,27 +2,18 @@
 // zig fmt: off
 const testing = @import("std").testing;
 const builtin = @import("builtin");
-const __aeabi_uidivmod = @import("arm.zig").__aeabi_uidivmod;
+const __udivmodsi4 = @import("int.zig").__udivmodsi4;
 
-const ARMRes = extern struct {
-    q: u32, // r0
-    r: u32, // r1
-};
-
-fn test__aeabi_uidivmod(a: u32, b: u32, expected_q: u32, expected_r: u32) !void {
-    const actualUidivmod = @as(*const fn (a: u32, b: u32) callconv(.AAPCS) ARMRes, @ptrCast(&__aeabi_uidivmod));
-    const arm_res = actualUidivmod(a, b);
-    try testing.expectEqual(expected_q, arm_res.q);
-    try testing.expectEqual(expected_r, arm_res.r);
+fn test__udivmodsi4(a: u32, b: u32, expected_q: u32, expected_r: u32) !void {
+    var r: u32 = undefined;
+    const q = __udivmodsi4(a, b, &r);
+    try testing.expectEqual(expected_q, q);
+    try testing.expectEqual(expected_r, r);
 }
 
-test "arm.__aeabi_uidivmod" {
-    if (!builtin.cpu.arch.isARM()) return error.SkipZigTest;
-
-    var i: i32 = 0;
+test "udivmodsi4" {
     for (cases) |case| {
-        try test__aeabi_uidivmod(case[0], case[1], case[2], case[3]);
-        i+=1;
+        try test__udivmodsi4(case[0], case[1], case[2], case[3]);
     }
 }
 
