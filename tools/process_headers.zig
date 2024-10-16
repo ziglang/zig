@@ -65,6 +65,7 @@ const musl_targets = [_]LibCTarget{
     .{ .name = "m68k", .arch = .m68k, .abi = .musl },
     .{ .name = "mips", .arch = .mips, .abi = .musl },
     .{ .name = "mips64", .arch = .mips64, .abi = .musl },
+    .{ .name = "mipsn32", .arch = .mips64, .abi = .muslabin32 },
     .{ .name = "powerpc", .arch = .powerpc, .abi = .musl },
     .{ .name = "powerpc64", .arch = .powerpc64, .abi = .musl },
     .{ .name = "riscv32", .arch = .riscv32, .abi = .musl },
@@ -72,6 +73,7 @@ const musl_targets = [_]LibCTarget{
     .{ .name = "s390x", .arch = .s390x, .abi = .musl },
     .{ .name = "i386", .arch = .x86, .abi = .musl },
     .{ .name = "x86_64", .arch = .x86_64, .abi = .musl },
+    .{ .name = "x32", .arch = .x86_64, .abi = .muslx32 },
 };
 
 const DestTarget = struct {
