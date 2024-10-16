@@ -446,6 +446,12 @@ pub fn flushModule(self: *MachO, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
         },
     };
 
+    for (system_libs.items) |lib| {
+        const dso_input = try link.openDsoInput(diags, lib.path, lib.needed, lib.weak, lib.reexport);
+        self.classifyInputFile(dso_input) catch |err|
+            diags.addParseError(lib.path, "failed to parse input file: {s}", .{@errorName(err)});
+    }
+
     // Finally, link against compiler_rt.
     if (comp.compiler_rt_lib) |crt_file| {
         const path = crt_file.full_object_path;
@@ -765,7 +771,7 @@ fn dumpArgv(self: *MachO, comp: *Compilation) !void {
     Compilation.dump_argv(argv.items);
 }
 
-/// TODO delete this, libsystem must be resolved when setting up the compilationt pipeline
+/// TODO delete this, libsystem must be resolved when setting up the compilation pipeline
 pub fn resolveLibSystem(
     self: *MachO,
     arena: Allocator,
