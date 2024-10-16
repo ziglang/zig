@@ -561,7 +561,7 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
             const infix = datas[node];
             try renderExpression(r, infix.lhs, .space);
             const op_token = main_tokens[node];
-            try ais.pushIndent(.normal);
+            try ais.pushIndent(.binop);
             if (tree.tokensOnSameLine(op_token, op_token + 1)) {
                 try renderToken(r, op_token, .space);
             } else {
@@ -590,7 +590,7 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
                     else => try renderExpression(r, variable_node, variable_space),
                 }
             }
-            try ais.pushIndent(.normal);
+            try ais.pushIndent(.after_equals);
             if (tree.tokensOnSameLine(full.ast.equal_token, full.ast.equal_token + 1)) {
                 try renderToken(r, full.ast.equal_token, .space);
             } else {
@@ -1247,7 +1247,7 @@ fn renderVarDeclWithoutFixups(
 
     const eq_token = tree.firstToken(var_decl.ast.init_node) - 1;
     const eq_space: Space = if (tree.tokensOnSameLine(eq_token, eq_token + 1)) .space else .newline;
-    try ais.pushIndent(.normal);
+    try ais.pushIndent(.after_equals);
     try renderToken(r, eq_token, eq_space); // =
     try renderExpression(r, var_decl.ast.init_node, space); // ;
     ais.popIndent();
@@ -1549,25 +1549,24 @@ fn renderContainerField(
     }
     const eq_token = tree.firstToken(field.ast.value_expr) - 1;
     const eq_space: Space = if (tree.tokensOnSameLine(eq_token, eq_token + 1)) .space else .newline;
-    {
-        try ais.pushIndent(.normal);
-        try renderToken(r, eq_token, eq_space); // =
-        ais.popIndent();
-    }
 
-    if (eq_space == .space)
-        return renderExpressionComma(r, field.ast.value_expr, space); // value
+    try ais.pushIndent(.after_equals);
+    try renderToken(r, eq_token, eq_space); // =
+
+    if (eq_space == .space) {
+        ais.popIndent();
+        try renderExpressionComma(r, field.ast.value_expr, space); // value
+        return;
+    }
 
     const token_tags = tree.tokens.items(.tag);
     const maybe_comma = tree.lastToken(field.ast.value_expr) + 1;
 
     if (token_tags[maybe_comma] == .comma) {
-        try ais.pushIndent(.normal);
         try renderExpression(r, field.ast.value_expr, .none); // value
         ais.popIndent();
         try renderToken(r, maybe_comma, .newline);
     } else {
-        try ais.pushIndent(.normal);
         try renderExpression(r, field.ast.value_expr, space); // value
         ais.popIndent();
     }
@@ -3300,6 +3299,8 @@ fn AutoIndentingStream(comptime UnderlyingWriter: type) type {
 
         pub const IndentType = enum {
             normal,
+            after_equals,
+            binop,
         };
         const StackElem = struct {
             indent_type: IndentType,
@@ -3391,6 +3392,15 @@ fn AutoIndentingStream(comptime UnderlyingWriter: type) type {
             if (self.indent_stack.items.len > 0) {
                 // Only realize last pushed indent
                 if (!self.indent_stack.items[self.indent_stack.items.len - 1].realized) {
+                    if (self.indent_stack.items.len >= 2 and
+                        self.indent_stack.items[self.indent_stack.items.len - 2].indent_type == .after_equals and
+                        self.indent_stack.items[self.indent_stack.items.len - 2].realized and
+                        self.indent_stack.items[self.indent_stack.items.len - 1].indent_type == .binop)
+                    {
+                        // collapse one level of indentation in binop after equals sign
+                        return;
+                    }
+
                     self.indent_stack.items[self.indent_stack.items.len - 1].realized = true;
                     self.indent_count += 1;
                 }
