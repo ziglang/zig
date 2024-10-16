@@ -270,6 +270,8 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .android => "android",
         .androideabi => "androideabi",
         .musl => "musl",
+        .muslabin32 => "musl", // Should be muslabin32 in LLVM 20.
+        .muslabi64 => "musl", // Should be muslabi64 in LLVM 20.
         .musleabi => "musleabi",
         .musleabihf => "musleabihf",
         .muslx32 => "muslx32",

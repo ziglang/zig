@@ -438,6 +438,16 @@ pub fn arePointersLogical(target: std.Target, as: AddressSpace) bool {
 }
 
 pub fn llvmMachineAbi(target: std.Target) ?[:0]const u8 {
+    // This special-casing should be removed with LLVM 20.
+    switch (target.cpu.arch) {
+        .mips, .mipsel => return "o32",
+        .mips64, .mips64el => return switch (target.abi) {
+            .gnuabin32, .muslabin32 => "n32",
+            else => "n64",
+        },
+        else => {},
+    }
+
     // LLD does not support ELFv1. Rather than having LLVM produce ELFv1 code and then linking it
     // into a broken ELFv2 binary, just force LLVM to use ELFv2 as well. This will break when glibc
     // is linked as glibc only supports ELFv2 for little endian, but there's nothing we can do about

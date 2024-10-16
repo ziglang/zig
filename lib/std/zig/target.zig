@@ -99,6 +99,7 @@ pub fn canBuildLibC(target: std.Target) bool {
 
 pub fn muslArchName(arch: std.Target.Cpu.Arch, abi: std.Target.Abi) [:0]const u8 {
     return switch (abi) {
+        .muslabin32 => "mipsn32",
         .muslx32 => "x32",
         else => switch (arch) {
             .arm, .armeb, .thumb, .thumbeb => "arm",
@@ -129,6 +130,7 @@ pub fn muslArchNameHeaders(arch: std.Target.Cpu.Arch) [:0]const u8 {
 
 pub fn muslAbiNameHeaders(abi: std.Target.Abi) [:0]const u8 {
     return switch (abi) {
+        .muslabin32 => "mipsn32",
         .muslx32 => "muslx32",
         else => "musl",
     };

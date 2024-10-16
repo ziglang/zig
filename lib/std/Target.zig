@@ -761,6 +761,8 @@ pub const Abi = enum {
     android,
     androideabi,
     musl,
+    muslabin32,
+    muslabi64,
     musleabi,
     musleabihf,
     muslx32,
@@ -931,6 +933,8 @@ pub const Abi = enum {
     pub inline fn isMusl(abi: Abi) bool {
         return switch (abi) {
             .musl,
+            .muslabin32,
+            .muslabi64,
             .musleabi,
             .musleabihf,
             .muslx32,
@@ -2287,9 +2291,9 @@ pub const DynamicLinker = struct {
                     .mips64,
                     .mips64el,
                     => |arch| initFmt("/lib/ld-musl-mips{s}{s}{s}.so.1", .{
-                        // TODO: `n32` ABI support in LLVM 20.
                         switch (abi) {
-                            .musl => "64",
+                            .muslabi64 => "64",
+                            .muslabin32 => "n32",
                             else => return none,
                         },
                         if (mips.featureSetHas(cpu.features, .mips64r6)) "r6" else "",
@@ -2584,8 +2588,8 @@ pub fn standardDynamicLinkerPath(target: Target) DynamicLinker {
 
 pub fn ptrBitWidth_cpu_abi(cpu: Cpu, abi: Abi) u16 {
     switch (abi) {
-        .gnux32, .muslx32, .gnuabin32, .gnuilp32, .ilp32 => return 32,
-        .gnuabi64 => return 64,
+        .gnux32, .muslx32, .gnuabin32, .muslabin32, .gnuilp32, .ilp32 => return 32,
+        .gnuabi64, .muslabi64 => return 64,
         else => {},
     }
     return switch (cpu.arch) {
@@ -2788,7 +2792,10 @@ pub fn cTypeBitSize(target: Target, c_type: CType) u16 {
                 .char => return 8,
                 .short, .ushort => return 16,
                 .int, .uint, .float => return 32,
-                .long, .ulong => return if (target.abi != .gnuabin32) 64 else 32,
+                .long, .ulong => switch (target.abi) {
+                    .gnuabin32, .muslabin32 => return 32,
+                    else => return 64,
+                },
                 .longlong, .ulonglong, .double => return 64,
                 .longdouble => return 128,
             },
@@ -2821,6 +2828,8 @@ pub fn cTypeBitSize(target: Target, c_type: CType) u16 {
                     .powerpc64le,
                     => switch (target.abi) {
                         .musl,
+                        .muslabin32,
+                        .muslabi64,
                         .musleabi,
                         .musleabihf,
                         .muslx32,
@@ -2876,7 +2885,10 @@ pub fn cTypeBitSize(target: Target, c_type: CType) u16 {
                 .char => return 8,
                 .short, .ushort => return 16,
                 .int, .uint, .float => return 32,
-                .long, .ulong => return if (target.abi != .gnuabin32) 64 else 32,
+                .long, .ulong => switch (target.abi) {
+                    .gnuabin32, .muslabin32 => return 32,
+                    else => return 64,
+                },
                 .longlong, .ulonglong, .double => return 64,
                 .longdouble => if (target.os.tag == .freebsd) return 64 else return 128,
             },
@@ -2907,6 +2919,8 @@ pub fn cTypeBitSize(target: Target, c_type: CType) u16 {
                     .powerpcle,
                     => switch (target.abi) {
                         .musl,
+                        .muslabin32,
+                        .muslabi64,
                         .musleabi,
                         .musleabihf,
                         .muslx32,
@@ -2921,6 +2935,8 @@ pub fn cTypeBitSize(target: Target, c_type: CType) u16 {
                     .powerpc64le,
                     => switch (target.abi) {
                         .musl,
+                        .muslabin32,
+                        .muslabi64,
                         .musleabi,
                         .musleabihf,
                         .muslx32,
