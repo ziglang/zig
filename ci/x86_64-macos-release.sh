@@ -29,7 +29,9 @@ git clean -fd
 rm -rf zig-out
 cc -o bootstrap bootstrap.c
 ./bootstrap
-./zig2 build -Dno-lib
+# We need -Dstrip here because of invalid DWARF data emitted by the self-hosted.
+# See https://github.com/ziglang/zig/issues/21719
+./zig2 build -Dno-lib -Dstrip
 ./zig-out/bin/zig test test/behavior.zig
 
 rm -rf build
