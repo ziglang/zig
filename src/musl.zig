@@ -306,8 +306,13 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
 /// See lib/libc/musl/crt/ARCH/crt?.s .
 pub fn needsCrtiCrtn(target: std.Target) bool {
     return switch (target.cpu.arch) {
-        .riscv32, .riscv64, .wasm32, .wasm64 => false,
-        .loongarch64 => false,
+        .loongarch64,
+        .m68k,
+        .riscv32,
+        .riscv64,
+        .wasm32,
+        .wasm64,
+        => false,
         else => true,
     };
 }
