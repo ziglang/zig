@@ -4879,6 +4879,13 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       </p>
       {#header_close#}
 
+      {#header_open|@FieldType#}
+      <pre>{#syntax#}@FieldType(comptime Type: type, comptime field_name: []const u8) type{#endsyntax#}</pre>
+      <p>
+      Given a type and the name of one of its fields, returns the type of that field.
+      </p>
+      {#header_close#}
+
       {#header_open|@floatCast#}
       <pre>{#syntax#}@floatCast(value: anytype) anytype{#endsyntax#}</pre>
       <p>
