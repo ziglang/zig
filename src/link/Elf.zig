@@ -1398,8 +1398,15 @@ fn parseObject(self: *Elf, obj: link.Input.Object) ParseError!void {
     defer tracy.end();
 
     const gpa = self.base.comp.gpa;
+    const diags = &self.base.comp.link_diags;
+    const first_eflags = &self.first_eflags;
+    const target = self.base.comp.root_mod.resolved_target.result;
+    const debug_fmt_strip = self.base.comp.config.debug_format == .strip;
+    const default_sym_version = self.default_sym_version;
+    const file_handles = &self.file_handles;
+
     const handle = obj.file;
-    const fh = try self.addFileHandle(handle);
+    const fh = try addFileHandle(gpa, file_handles, handle);
 
     const index: File.Index = @intCast(try self.files.addOne(gpa));
     self.files.set(index, .{ .object = .{
@@ -1413,7 +1420,7 @@ fn parseObject(self: *Elf, obj: link.Input.Object) ParseError!void {
     try self.objects.append(gpa, index);
 
     const object = self.file(index).?.object;
-    try object.parse(self);
+    try object.parse(gpa, diags, obj.path, handle, first_eflags, target, debug_fmt_strip, default_sym_version);
 }
 
 pub fn openParseArchiveReportingFailure(self: *Elf, path: Path) void {
@@ -1427,36 +1434,49 @@ pub fn openParseArchiveReportingFailure(self: *Elf, path: Path) void {
 }
 
 pub fn parseArchiveReportingFailure(self: *Elf, obj: link.Input.Object) void {
+    const gpa = self.base.comp.gpa;
     const diags = &self.base.comp.link_diags;
-    self.parseArchive(obj) catch |err| switch (err) {
+    const first_eflags = &self.first_eflags;
+    const target = self.base.comp.root_mod.resolved_target.result;
+    const debug_fmt_strip = self.base.comp.config.debug_format == .strip;
+    const default_sym_version = self.default_sym_version;
+    const file_handles = &self.file_handles;
+    const files = &self.files;
+    const objects = &self.objects;
+
+    parseArchive(gpa, diags, file_handles, files, first_eflags, target, debug_fmt_strip, default_sym_version, objects, obj) catch |err| switch (err) {
         error.LinkFailure => return, // already reported
         else => |e| diags.addParseError(obj.path, "failed to parse archive: {s}", .{@errorName(e)}),
     };
 }
 
-fn parseArchive(self: *Elf, obj: link.Input.Object) ParseError!void {
+fn parseArchive(
+    gpa: Allocator,
+    diags: *Diags,
+    file_handles: *std.ArrayListUnmanaged(File.Handle),
+    files: *std.MultiArrayList(File.Entry),
+    first_eflags: *?elf.Word,
+    target: std.Target,
+    debug_fmt_strip: bool,
+    default_sym_version: elf.Versym,
+    objects: *std.ArrayListUnmanaged(File.Index),
+    obj: link.Input.Object,
+) ParseError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const gpa = self.base.comp.gpa;
-    const handle = obj.file;
-    const fh = try self.addFileHandle(handle);
-
-    var archive: Archive = .{};
+    const fh = try addFileHandle(gpa, file_handles, obj.file);
+    var archive = try Archive.parse(gpa, diags, file_handles, obj.path, fh);
     defer archive.deinit(gpa);
-    try archive.parse(self, obj.path, fh);
 
-    const objects = try archive.objects.toOwnedSlice(gpa);
-    defer gpa.free(objects);
-
-    for (objects) |extracted| {
-        const index: File.Index = @intCast(try self.files.addOne(gpa));
-        self.files.set(index, .{ .object = extracted });
-        const object = &self.files.items(.data)[index].object;
+    for (archive.objects) |extracted| {
+        const index: File.Index = @intCast(try files.addOne(gpa));
+        files.set(index, .{ .object = extracted });
+        const object = &files.items(.data)[index].object;
         object.index = index;
         object.alive = obj.must_link;
-        try object.parse(self);
-        try self.objects.append(gpa, index);
+        try object.parse(gpa, diags, obj.path, obj.file, first_eflags, target, debug_fmt_strip, default_sym_version);
+        try objects.append(gpa, index);
     }
 }
 
@@ -1562,46 +1582,6 @@ fn parseDso(
         out_sym.esym_index = @intCast(i);
         out_sym.version_index = versym;
         out_sym.extra_index = so.addSymbolExtraAssumeCapacity(.{});
-    }
-}
-
-pub fn validateEFlags(self: *Elf, file_index: File.Index, e_flags: elf.Word) !void {
-    if (self.first_eflags == null) {
-        self.first_eflags = e_flags;
-        return; // there isn't anything to conflict with yet
-    }
-    const self_eflags: *elf.Word = &self.first_eflags.?;
-
-    switch (self.getTarget().cpu.arch) {
-        .riscv64 => {
-            if (e_flags != self_eflags.*) {
-                const riscv_eflags: riscv.RiscvEflags = @bitCast(e_flags);
-                const self_riscv_eflags: *riscv.RiscvEflags = @ptrCast(self_eflags);
-
-                self_riscv_eflags.rvc = self_riscv_eflags.rvc or riscv_eflags.rvc;
-                self_riscv_eflags.tso = self_riscv_eflags.tso or riscv_eflags.tso;
-
-                var any_errors: bool = false;
-                if (self_riscv_eflags.fabi != riscv_eflags.fabi) {
-                    any_errors = true;
-                    try self.addFileError(
-                        file_index,
-                        "cannot link object files with different float-point ABIs",
-                        .{},
-                    );
-                }
-                if (self_riscv_eflags.rve != riscv_eflags.rve) {
-                    any_errors = true;
-                    try self.addFileError(
-                        file_index,
-                        "cannot link object files with different RVEs",
-                        .{},
-                    );
-                }
-                if (any_errors) return error.LinkFailure;
-            }
-        },
-        else => {},
     }
 }
 
@@ -4704,16 +4684,16 @@ fn fileLookup(files: std.MultiArrayList(File.Entry), index: File.Index) ?File {
     };
 }
 
-pub fn addFileHandle(self: *Elf, handle: fs.File) !File.HandleIndex {
-    const gpa = self.base.comp.gpa;
-    const index: File.HandleIndex = @intCast(self.file_handles.items.len);
-    const fh = try self.file_handles.addOne(gpa);
-    fh.* = handle;
-    return index;
+pub fn addFileHandle(
+    gpa: Allocator,
+    file_handles: *std.ArrayListUnmanaged(File.Handle),
+    handle: fs.File,
+) Allocator.Error!File.HandleIndex {
+    try file_handles.append(gpa, handle);
+    return @intCast(file_handles.items.len - 1);
 }
 
 pub fn fileHandle(self: Elf, index: File.HandleIndex) File.Handle {
-    assert(index < self.file_handles.items.len);
     return self.file_handles.items[index];
 }
 
@@ -5588,4 +5568,3 @@ const Thunk = @import("Elf/Thunk.zig");
 const Value = @import("../Value.zig");
 const VerneedSection = synthetic_sections.VerneedSection;
 const ZigObject = @import("Elf/ZigObject.zig");
-const riscv = @import("riscv.zig");

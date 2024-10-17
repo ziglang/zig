@@ -102,9 +102,13 @@ pub fn relocsShndx(self: Atom) ?u32 {
     return self.relocs_section_index;
 }
 
-pub fn priority(self: Atom, elf_file: *Elf) u64 {
-    const index = self.file(elf_file).?.index();
-    return (@as(u64, @intCast(index)) << 32) | @as(u64, @intCast(self.input_section_index));
+pub fn priority(atom: Atom, elf_file: *Elf) u64 {
+    const index = atom.file(elf_file).?.index();
+    return priorityLookup(index, atom.input_section_index);
+}
+
+pub fn priorityLookup(file_index: File.Index, input_section_index: u32) u64 {
+    return (@as(u64, @intCast(file_index)) << 32) | @as(u64, @intCast(input_section_index));
 }
 
 /// Returns how much room there is to grow in virtual address space.
@@ -255,19 +259,13 @@ pub fn writeRelocs(self: Atom, elf_file: *Elf, out_relocs: *std.ArrayList(elf.El
     }
 }
 
-pub fn fdes(self: Atom, elf_file: *Elf) []Fde {
-    const extras = self.extra(elf_file);
-    return switch (self.file(elf_file).?) {
-        .shared_object => unreachable,
-        .linker_defined, .zig_object => &[0]Fde{},
-        .object => |x| x.fdes.items[extras.fde_start..][0..extras.fde_count],
-    };
+pub fn fdes(atom: Atom, object: *Object) []Fde {
+    const extras = object.atomExtra(atom.extra_index);
+    return object.fdes.items[extras.fde_start..][0..extras.fde_count];
 }
 
-pub fn markFdesDead(self: Atom, elf_file: *Elf) void {
-    for (self.fdes(elf_file)) |*fde| {
-        fde.alive = false;
-    }
+pub fn markFdesDead(self: Atom, object: *Object) void {
+    for (self.fdes(object)) |*fde| fde.alive = false;
 }
 
 pub fn addReloc(self: Atom, alloc: Allocator, reloc: elf.Elf64_Rela, zo: *ZigObject) !void {
@@ -946,16 +944,21 @@ fn format2(
         atom.output_section_index, atom.alignment.toByteUnits() orelse 0, atom.size,
         atom.prev_atom_ref,        atom.next_atom_ref,
     });
-    if (atom.fdes(elf_file).len > 0) {
-        try writer.writeAll(" : fdes{ ");
-        const extras = atom.extra(elf_file);
-        for (atom.fdes(elf_file), extras.fde_start..) |fde, i| {
-            try writer.print("{d}", .{i});
-            if (!fde.alive) try writer.writeAll("([*])");
-            if (i - extras.fde_start < extras.fde_count - 1) try writer.writeAll(", ");
-        }
-        try writer.writeAll(" }");
-    }
+    if (atom.file(elf_file)) |atom_file| switch (atom_file) {
+        .object => |object| {
+            if (atom.fdes(object).len > 0) {
+                try writer.writeAll(" : fdes{ ");
+                const extras = atom.extra(elf_file);
+                for (atom.fdes(object), extras.fde_start..) |fde, i| {
+                    try writer.print("{d}", .{i});
+                    if (!fde.alive) try writer.writeAll("([*])");
+                    if (i - extras.fde_start < extras.fde_count - 1) try writer.writeAll(", ");
+                }
+                try writer.writeAll(" }");
+            }
+        },
+        else => {},
+    };
     if (!atom.alive) {
         try writer.writeAll(" : [*]");
     }
