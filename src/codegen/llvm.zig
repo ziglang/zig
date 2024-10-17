@@ -3405,13 +3405,20 @@ pub const Object = struct {
                     if (!Type.fromInterned(error_union_type.payload_type).hasRuntimeBitsIgnoreComptime(zcu))
                         return error_type;
                     const payload_type = try o.lowerType(pt, Type.fromInterned(error_union_type.payload_type));
-                    const err_int_ty = try pt.errorIntType();
 
                     const payload_align = Type.fromInterned(error_union_type.payload_type).abiAlignment(zcu);
-                    const error_align = err_int_ty.abiAlignment(zcu);
+                    const error_align = Type.intAbiAlignment(
+                        zcu.errorSetBits(),
+                        o.target,
+                        zcu.comp.config.use_llvm,
+                    );
 
                     const payload_size = Type.fromInterned(error_union_type.payload_type).abiSize(zcu);
-                    const error_size = err_int_ty.abiSize(zcu);
+                    const error_size = Type.intAbiSize(
+                        zcu.errorSetBits(),
+                        o.target,
+                        zcu.comp.config.use_llvm,
+                    );
 
                     var fields: [3]Builder.Type = undefined;
                     var fields_len: usize = 2;
