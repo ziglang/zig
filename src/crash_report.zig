@@ -4,15 +4,17 @@ const build_options = @import("build_options");
 const debug = std.debug;
 const io = std.io;
 const print_zir = @import("print_zir.zig");
+const print_air = @import("print_air.zig");
 const windows = std.os.windows;
 const posix = std.posix;
 const native_os = builtin.os.tag;
 
+const Air = @import("Air.zig");
+const Liveness = @import("Liveness.zig");
 const Zcu = @import("Zcu.zig");
 const Sema = @import("Sema.zig");
 const InternPool = @import("InternPool.zig");
 const Zir = std.zig.Zir;
-const Decl = Zcu.Decl;
 const dev = @import("dev.zig");
 
 /// To use these crash report diagnostics, publish this panic in your main file
@@ -148,6 +150,69 @@ fn dumpStatusReport() !void {
     }
 
     try stderr.writeAll("\n");
+}
+
+pub const CodeGenState = if (build_options.enable_debug_extensions) struct {
+    parent: ?*CodeGenState,
+    pt: Zcu.PerThread,
+    air: Air,
+    liveness: Liveness,
+    nav_index: ?InternPool.Nav.Index,
+    body: []const Air.Inst.Index,
+    body_index: usize,
+
+    pub fn push(self: *CodeGenState) void {
+        debug.assert(self.parent == null);
+        self.parent = codegen_state;
+        codegen_state = if (self.nav_index == null) null else self;
+    }
+
+    pub fn pop(self: *CodeGenState) void {
+        debug.assert(self.nav_index == null or codegen_state == self);
+        codegen_state = self.parent;
+    }
+
+    pub fn setBodyIndex(self: *CodeGenState, index: usize) void {
+        self.body_index = index;
+    }
+} else struct {
+    pub inline fn push(_: CodeGenState) void {}
+    pub inline fn pop(_: CodeGenState) void {}
+    pub inline fn setBodyIndex(_: CodeGenState, _: usize) void {}
+};
+
+threadlocal var codegen_state: ?*CodeGenState = if (build_options.enable_debug_extensions) null else @compileError("Cannot use codegen_state without debug extensions.");
+
+pub inline fn prepCodeGenState(pt: Zcu.PerThread, body: []const Air.Inst.Index, air: Air, liveness: Liveness, nav_index: ?InternPool.Nav.Index) CodeGenState {
+    return if (build_options.enable_debug_extensions) .{
+        .parent = null,
+        .pt = pt,
+        .air = air,
+        .liveness = liveness,
+        .nav_index = nav_index,
+        .body = body,
+        .body_index = 0,
+    } else .{};
+}
+
+fn dumpCodeGenReport() !void {
+    const state = codegen_state orelse return;
+    const stderr = io.getStdErr().writer();
+    const file = state.pt.zcu.navFileScope(state.nav_index.?);
+
+    try stderr.writeAll("CodeGen ");
+    try writeFilePath(file, stderr);
+    try stderr.writeAll("\n");
+
+    try print_air.writeContext(
+        stderr,
+        state.pt,
+        state.body,
+        state.body_index,
+        state.air,
+        state.liveness,
+    );
+    try stderr.writeAll("    For full context, use the --verbose-air flag\n\n");
 }
 
 var crash_heap: [16 * 4096]u8 = undefined;
@@ -413,6 +478,10 @@ const PanicSwitch = struct {
 
         dumpStatusReport() catch |err| {
             stderr.print("\nIntercepted error.{} while dumping current state.  Continuing...\n", .{err}) catch {};
+        };
+
+        dumpCodeGenReport() catch |err| {
+            stderr.print("\nIntercepted error.{} while dumping CodeGen state.  Continuing...\n", .{err}) catch {};
         };
 
         goTo(reportStack, .{state});
