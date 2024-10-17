@@ -55,7 +55,7 @@ comptime {
             if (builtin.link_libc and @hasDecl(root, "main")) {
                 if (native_arch.isWasm()) {
                     @export(&mainWithoutEnv, .{ .name = "main" });
-                } else if (@typeInfo(@TypeOf(root.main)).@"fn".calling_convention != .C) {
+                } else if (!@typeInfo(@TypeOf(root.main)).@"fn".calling_convention.eql(.c)) {
                     @export(&main, .{ .name = "main" });
                 }
             } else if (native_os == .windows) {
@@ -102,12 +102,11 @@ fn main2() callconv(.C) c_int {
     return 0;
 }
 
-fn _start2() callconv(.C) noreturn {
+fn _start2() callconv(.withStackAlign(.c, 1)) noreturn {
     callMain2();
 }
 
 fn callMain2() noreturn {
-    @setAlignStack(16);
     root.main();
     exit2(0);
 }
@@ -428,8 +427,7 @@ fn _start() callconv(.Naked) noreturn {
     );
 }
 
-fn WinStartup() callconv(std.os.windows.WINAPI) noreturn {
-    @setAlignStack(16);
+fn WinStartup() callconv(.withStackAlign(.winapi, 1)) noreturn {
     if (!builtin.single_threaded and !builtin.link_libc) {
         _ = @import("os/windows/tls.zig");
     }
@@ -439,8 +437,7 @@ fn WinStartup() callconv(std.os.windows.WINAPI) noreturn {
     std.os.windows.ntdll.RtlExitUserProcess(callMain());
 }
 
-fn wWinMainCRTStartup() callconv(std.os.windows.WINAPI) noreturn {
-    @setAlignStack(16);
+fn wWinMainCRTStartup() callconv(.withStackAlign(.winapi, 1)) noreturn {
     if (!builtin.single_threaded and !builtin.link_libc) {
         _ = @import("os/windows/tls.zig");
     }

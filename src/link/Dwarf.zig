@@ -3398,21 +3398,71 @@ fn updateType(
             const is_nullary = func_type.param_types.len == 0 and !func_type.is_var_args;
             try wip_nav.abbrevCode(if (is_nullary) .nullary_func_type else .func_type);
             try wip_nav.strp(name);
-            try diw.writeByte(@intFromEnum(@as(DW.CC, switch (func_type.cc) {
-                .Unspecified, .C => .normal,
-                .Naked, .Async, .Inline => .nocall,
-                .Interrupt, .Signal => .nocall,
-                .Stdcall => .BORLAND_stdcall,
-                .Fastcall => .BORLAND_fastcall,
-                .Vectorcall => .LLVM_vectorcall,
-                .Thiscall => .BORLAND_thiscall,
-                .APCS => .nocall,
-                .AAPCS => .LLVM_AAPCS,
-                .AAPCSVFP => .LLVM_AAPCS_VFP,
-                .SysV => .LLVM_X86_64SysV,
-                .Win64 => .LLVM_Win64,
-                .Kernel, .Fragment, .Vertex => .nocall,
-            })));
+            const cc: DW.CC = cc: {
+                if (zcu.getTarget().cCallingConvention()) |cc| {
+                    if (@as(std.builtin.CallingConvention.Tag, cc) == func_type.cc) {
+                        break :cc .normal;
+                    }
+                }
+                // For better or worse, we try to match what Clang emits.
+                break :cc switch (func_type.cc) {
+                    .@"inline" => unreachable,
+                    .@"async", .auto, .naked => .normal,
+                    .x86_64_sysv => .LLVM_X86_64SysV,
+                    .x86_64_win => .LLVM_Win64,
+                    .x86_64_regcall_v3_sysv => .LLVM_X86RegCall,
+                    .x86_64_regcall_v4_win => .LLVM_X86RegCall,
+                    .x86_64_vectorcall => .LLVM_vectorcall,
+                    .x86_sysv => .nocall,
+                    .x86_win => .nocall,
+                    .x86_stdcall => .BORLAND_stdcall,
+                    .x86_fastcall => .BORLAND_msfastcall,
+                    .x86_thiscall => .BORLAND_thiscall,
+                    .x86_thiscall_mingw => .BORLAND_thiscall,
+                    .x86_regcall_v3 => .LLVM_X86RegCall,
+                    .x86_regcall_v4_win => .LLVM_X86RegCall,
+                    .x86_vectorcall => .LLVM_vectorcall,
+
+                    .aarch64_aapcs => .LLVM_AAPCS,
+                    .aarch64_aapcs_darwin => .LLVM_AAPCS,
+                    .aarch64_aapcs_win => .LLVM_AAPCS,
+                    .aarch64_vfabi => .LLVM_AAPCS,
+                    .aarch64_vfabi_sve => .LLVM_AAPCS,
+
+                    .arm_apcs => .nocall,
+                    .arm_aapcs => .LLVM_AAPCS,
+                    .arm_aapcs_vfp => .LLVM_AAPCS_VFP,
+                    .arm_aapcs16_vfp => .nocall,
+
+                    .riscv64_lp64_v,
+                    .riscv32_ilp32_v,
+                    => .LLVM_RISCVVectorCall,
+
+                    .m68k_rtd => .LLVM_M68kRTD,
+
+                    .amdgcn_kernel,
+                    .nvptx_kernel,
+                    .spirv_kernel,
+                    => .LLVM_OpenCLKernel,
+
+                    .x86_64_interrupt,
+                    .x86_interrupt,
+                    .arm_interrupt,
+                    .mips64_interrupt,
+                    .mips_interrupt,
+                    .riscv64_interrupt,
+                    .riscv32_interrupt,
+                    .avr_builtin,
+                    .avr_signal,
+                    .avr_interrupt,
+                    .csky_interrupt,
+                    .m68k_interrupt,
+                    => .normal,
+
+                    else => .nocall,
+                };
+            };
+            try diw.writeByte(@intFromEnum(cc));
             try wip_nav.refType(Type.fromInterned(func_type.return_type));
             for (0..func_type.param_types.len) |param_index| {
                 try wip_nav.abbrevCode(.func_type_param);

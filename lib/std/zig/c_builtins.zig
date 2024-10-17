@@ -265,4 +265,4 @@ pub fn __builtin_mul_overflow(a: anytype, b: anytype, result: *@TypeOf(a, b)) c_
 // It is used in a run-translated-c test and a test-translate-c test to ensure that non-implemented
 // builtins are correctly demoted. If you implement __builtin_alloca_with_align, please update the
 // run-translated-c test and the test-translate-c test to use a different non-implemented builtin.
-// pub fn __builtin_alloca_with_align(size: usize, alignment: usize) callconv(.Inline) *anyopaque {}
+// pub inline fn __builtin_alloca_with_align(size: usize, alignment: usize) *anyopaque {}
