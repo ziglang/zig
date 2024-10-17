@@ -233,8 +233,10 @@ fn parseArchiveStaticLibReportingFailure(elf_file: *Elf, path: Path) void {
 
 fn parseObjectStaticLib(elf_file: *Elf, path: Path) Elf.ParseError!void {
     const gpa = elf_file.base.comp.gpa;
+    const file_handles = &elf_file.file_handles;
+
     const handle = try path.root_dir.handle.openFile(path.sub_path, .{});
-    const fh = try elf_file.addFileHandle(handle);
+    const fh = try Elf.addFileHandle(gpa, file_handles, handle);
 
     const index: File.Index = @intCast(try elf_file.files.addOne(gpa));
     elf_file.files.set(index, .{ .object = .{
@@ -248,27 +250,26 @@ fn parseObjectStaticLib(elf_file: *Elf, path: Path) Elf.ParseError!void {
     try elf_file.objects.append(gpa, index);
 
     const object = elf_file.file(index).?.object;
-    try object.parseAr(elf_file);
+    try object.parseAr(path, elf_file);
 }
 
 fn parseArchiveStaticLib(elf_file: *Elf, path: Path) Elf.ParseError!void {
     const gpa = elf_file.base.comp.gpa;
+    const diags = &elf_file.base.comp.link_diags;
+    const file_handles = &elf_file.file_handles;
+
     const handle = try path.root_dir.handle.openFile(path.sub_path, .{});
-    const fh = try elf_file.addFileHandle(handle);
+    const fh = try Elf.addFileHandle(gpa, file_handles, handle);
 
-    var archive = Archive{};
+    var archive = try Archive.parse(gpa, diags, file_handles, path, fh);
     defer archive.deinit(gpa);
-    try archive.parse(elf_file, path, fh);
 
-    const objects = try archive.objects.toOwnedSlice(gpa);
-    defer gpa.free(objects);
-
-    for (objects) |extracted| {
-        const index = @as(File.Index, @intCast(try elf_file.files.addOne(gpa)));
+    for (archive.objects) |extracted| {
+        const index: File.Index = @intCast(try elf_file.files.addOne(gpa));
         elf_file.files.set(index, .{ .object = extracted });
         const object = &elf_file.files.items(.data)[index].object;
         object.index = index;
-        try object.parseAr(elf_file);
+        try object.parseAr(path, elf_file);
         try elf_file.objects.append(gpa, index);
     }
 }
