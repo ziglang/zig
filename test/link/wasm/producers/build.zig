@@ -14,16 +14,18 @@ pub fn build(b: *std.Build) void {
 }
 
 fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.OptimizeMode) void {
-    const lib = b.addExecutable(.{
+    const lib = b.addExecutable2(.{
         .name = "lib",
-        .root_source_file = b.path("lib.zig"),
-        .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
-        .optimize = optimize,
-        .strip = false,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("lib.zig"),
+            .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
+            .optimize = optimize,
+            .strip = false,
+        }),
+        .use_llvm = false,
+        .use_lld = false,
     });
     lib.entry = .disabled;
-    lib.use_llvm = false;
-    lib.use_lld = false;
     b.installArtifact(lib);
 
     const version_fmt = "version " ++ builtin.zig_version_string;

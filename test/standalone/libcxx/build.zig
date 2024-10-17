@@ -9,28 +9,36 @@ pub fn build(b: *std.Build) void {
     b.default_step = link_step;
 
     {
-        const exe = b.addExecutable(.{
-            .name = "mt",
+        const mod = b.createModule(.{
             .root_source_file = b.path("mt.zig"),
             .target = target,
             .optimize = optimize,
+            .link_libcpp = true,
         });
-        exe.linkLibCpp();
-        exe.addCSourceFile(.{ .file = b.path("mt_doit.cpp") });
+        mod.addCSourceFile(.{ .file = b.path("mt_doit.cpp") });
+
+        const exe = b.addExecutable2(.{
+            .name = "mt",
+            .root_module = mod,
+        });
         link_step.dependOn(&exe.step);
         b.installArtifact(exe);
         run_step.dependOn(&b.addRunArtifact(exe).step);
     }
     {
-        const exe = b.addExecutable(.{
-            .name = "st",
+        const mod = b.createModule(.{
             .root_source_file = b.path("st.zig"),
             .target = target,
             .optimize = optimize,
+            .link_libcpp = true,
             .single_threaded = true,
         });
-        exe.linkLibCpp();
-        exe.addCSourceFile(.{ .file = b.path("st_doit.cpp") });
+        mod.addCSourceFile(.{ .file = b.path("st_doit.cpp") });
+
+        const exe = b.addExecutable2(.{
+            .name = "st",
+            .root_module = mod,
+        });
         link_step.dependOn(&exe.step);
         b.installArtifact(exe);
         run_step.dependOn(&b.addRunArtifact(exe).step);

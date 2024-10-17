@@ -8,26 +8,32 @@ pub fn build(b: *std.Build) void {
 
     const touch_src = b.path("touch.zig");
 
-    const touch = b.addExecutable(.{
+    const touch = b.addExecutable2(.{
         .name = "touch",
-        .root_source_file = touch_src,
-        .optimize = .Debug,
-        .target = target,
+        .root_module = b.createModule(.{
+            .root_source_file = touch_src,
+            .target = target,
+            .optimize = .Debug,
+        }),
     });
     const generated = b.addRunArtifact(touch).addOutputFileArg("subdir" ++ std.fs.path.sep_str ++ "generated.txt");
 
-    const exists_in = b.addExecutable(.{
+    const exists_in = b.addExecutable2(.{
         .name = "exists_in",
-        .root_source_file = b.path("exists_in.zig"),
-        .optimize = .Debug,
-        .target = target,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("exists_in.zig"),
+            .target = target,
+            .optimize = .Debug,
+        }),
     });
 
-    const has_basename = b.addExecutable(.{
+    const has_basename = b.addExecutable2(.{
         .name = "has_basename",
-        .root_source_file = b.path("has_basename.zig"),
-        .optimize = .Debug,
-        .target = target,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("has_basename.zig"),
+            .target = target,
+            .optimize = .Debug,
+        }),
     });
 
     // Known path:

@@ -11,14 +11,16 @@ pub fn build(b: *std.Build) void {
 }
 
 fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.OptimizeMode) void {
-    const unit_tests = b.addTest(.{
-        .root_source_file = b.path("src/main.zig"),
-        .target = b.resolveTargetQuery(.{
-            .os_tag = .wasi,
-            .cpu_arch = .wasm32,
-            .cpu_features_add = std.Target.wasm.featureSet(&.{.bulk_memory}),
+    const unit_tests = b.addTest2(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/main.zig"),
+            .target = b.resolveTargetQuery(.{
+                .os_tag = .wasi,
+                .cpu_arch = .wasm32,
+                .cpu_features_add = std.Target.wasm.featureSet(&.{.bulk_memory}),
+            }),
+            .optimize = optimize,
         }),
-        .optimize = optimize,
     });
 
     const run_unit_tests = b.addRunArtifact(unit_tests);
