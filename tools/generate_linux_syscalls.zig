@@ -164,6 +164,22 @@ const arch_infos = [_]ArchInfo{
     },
     .{
         .table = .{
+            .name = "x32",
+            .enum_name = "X32",
+            .file_path = "arch/x86/entry/syscalls/syscall_64.tbl",
+            .process_file = &processTableBasedArch,
+            .filters = .{
+                .abiCheckParams = .{ .abi = "64", .flow = .@"continue" },
+                .fixedName = &fixedName,
+                .isReservedNameOld = null,
+            },
+            .header = null,
+            .extra_values = null,
+            .additional_enum = null,
+        },
+    },
+    .{
+        .table = .{
             .name = "arm",
             .enum_name = "Arm",
             .file_path = "arch/arm/tools/syscall.tbl",
