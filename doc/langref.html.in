@@ -1565,6 +1565,23 @@ unwrapped == 1234{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
+          <td>Forwarding Error Unwrap</td>
+          <td><pre>{#syntax#}try a{#endsyntax#}</pre></td>
+          <td>
+            <ul>
+              <li>{#link|Error Unions|Errors#}</li>
+            </ul>
+          </td>
+          <td>
+            Equivalent to:
+            <pre>{#syntax#}a catch |err| return err{#endsyntax#}</pre>
+          </td>
+          <td>
+            <pre>{#syntax#}const value: anyerror!u32 = 5678;
+(try value) == 5678{#endsyntax#}</pre>
+          </td>
+        </tr>
+        <tr>
           <td>Logical And</td>
           <td><pre>{#syntax#}a and b{#endsyntax#}</pre></td>
           <td>
@@ -1845,7 +1862,7 @@ const B = error{Two};
       <pre>{#syntax#}x() x[] x.y x.* x.?
 a!b
 x{}
-!x -x -%x ~x &x ?x
+!x -x -%x ~x &x ?x try
 * / % ** *% *| ||
 + - ++ +% -% +| -|
 << >> <<|
@@ -1853,6 +1870,7 @@ x{}
 == != < > <= >=
 and
 or
+return break continue
 = *= *%= *|= /= %= += +%= +|= -= -%= -|= <<= <<|= >>= &= ^= |={#endsyntax#}</pre>
       {#header_close#}
       {#header_close#}
