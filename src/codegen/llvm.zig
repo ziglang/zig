@@ -3198,13 +3198,12 @@ pub const Object = struct {
                     if (!Type.fromInterned(error_union_type.payload_type).hasRuntimeBitsIgnoreComptime(zcu))
                         return error_type;
                     const payload_type = try o.lowerType(pt, Type.fromInterned(error_union_type.payload_type));
-                    const err_int_ty = try pt.errorIntType();
 
                     const payload_align = Type.fromInterned(error_union_type.payload_type).abiAlignment(zcu);
-                    const error_align = err_int_ty.abiAlignment(zcu);
+                    const error_align: InternPool.Alignment = .fromByteUnits(std.zig.target.intAlignment(target, zcu.errorSetBits()));
 
                     const payload_size = Type.fromInterned(error_union_type.payload_type).abiSize(zcu);
-                    const error_size = err_int_ty.abiSize(zcu);
+                    const error_size = std.zig.target.intByteSize(target, zcu.errorSetBits());
 
                     var fields: [3]Builder.Type = undefined;
                     var fields_len: usize = 2;
