@@ -1856,12 +1856,15 @@ pub const Cpu = struct {
                     else => generic(arch),
                 },
                 .avr => &avr.cpu.avr2,
+                .bpfel, .bpfeb => &bpf.cpu.v1,
                 .csky => &csky.cpu.ck810, // gcc/clang do not have a generic csky model.
                 .hexagon => &hexagon.cpu.hexagonv60, // gcc/clang do not have a generic hexagon model.
                 .lanai => &lanai.cpu.v11, // clang does not have a generic lanai model.
                 .loongarch64 => &loongarch.cpu.loongarch64,
+                .m68k => &m68k.cpu.M68000,
                 .mips, .mipsel => &mips.cpu.mips32r2,
                 .mips64, .mips64el => &mips.cpu.mips64r2,
+                .msp430 => &msp430.cpu.msp430,
                 .nvptx, .nvptx64 => &nvptx.cpu.sm_52,
                 .powerpc64le => &powerpc.cpu.ppc64le,
                 .riscv32 => &riscv.cpu.baseline_rv32,
@@ -1869,6 +1872,7 @@ pub const Cpu = struct {
                 .s390x => &s390x.cpu.arch8, // gcc/clang do not have a generic s390x model.
                 .sparc => &sparc.cpu.v9, // glibc does not work with 'plain' v8.
                 .x86 => &x86.cpu.pentium4,
+                .xcore => &xcore.cpu.xs1b_generic,
 
                 else => generic(arch),
             };
