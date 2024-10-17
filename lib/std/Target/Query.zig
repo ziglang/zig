@@ -124,7 +124,7 @@ pub fn fromTarget(target: Target) Query {
 }
 
 fn updateOsVersionRange(self: *Query, os: Target.Os) void {
-    self.os_version_min, self.os_version_max = switch (os.tag.getVersionRangeTag()) {
+    self.os_version_min, self.os_version_max = switch (os.tag.versionRangeTag()) {
         .none => .{ .{ .none = {} }, .{ .none = {} } },
         .semver => .{
             .{ .semver = os.version_range.semver.min },
@@ -523,7 +523,7 @@ fn parseOs(result: *Query, diags: *ParseOptions.Diagnostics, text: []const u8) !
     diags.os_tag = tag;
 
     const version_text = it.rest();
-    if (version_text.len > 0) switch (tag.getVersionRangeTag()) {
+    if (version_text.len > 0) switch (tag.versionRangeTag()) {
         .none => return error.InvalidOperatingSystemVersion,
         .semver, .linux => range: {
             var range_it = mem.splitSequence(u8, version_text, "...");

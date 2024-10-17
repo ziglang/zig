@@ -492,11 +492,11 @@ pub fn linkSystemLibrary(
     const b = m.owner;
 
     const target = m.requireKnownTarget();
-    if (target.is_libc_lib_name(name)) {
+    if (std.zig.target.isLibCLibName(target, name)) {
         m.link_libc = true;
         return;
     }
-    if (target.is_libcpp_lib_name(name)) {
+    if (std.zig.target.isLibCxxLibName(target, name)) {
         m.link_libcpp = true;
         return;
     }

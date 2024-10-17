@@ -3765,11 +3765,11 @@ fn createModule(
             info: SystemLib,
         }) = .{};
         for (create_module.system_libs.keys(), create_module.system_libs.values()) |lib_name, info| {
-            if (target.is_libc_lib_name(lib_name)) {
+            if (std.zig.target.isLibCLibName(target, lib_name)) {
                 create_module.opts.link_libc = true;
                 continue;
             }
-            if (target.is_libcpp_lib_name(lib_name)) {
+            if (std.zig.target.isLibCxxLibName(target, lib_name)) {
                 create_module.opts.link_libcpp = true;
                 continue;
             }
