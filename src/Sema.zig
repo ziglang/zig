@@ -10195,6 +10195,18 @@ fn finishFunc(
         return sema.failWithOwnedErrorMsg(block, msg);
     }
 
+    validate_incoming_stack_align: {
+        const a: u64 = switch (cc_resolved) {
+            inline else => |payload| if (@TypeOf(payload) != void and @hasField(@TypeOf(payload), "incoming_stack_alignment"))
+                payload.incoming_stack_alignment orelse break :validate_incoming_stack_align
+            else
+                break :validate_incoming_stack_align,
+        };
+        if (!std.math.isPowerOfTwo(a)) {
+            return sema.fail(block, cc_src, "calling convention incoming stack alignment '{d}' is not a power of two", .{a});
+        }
+    }
+
     switch (cc_resolved) {
         .x86_64_interrupt,
         .x86_interrupt,
@@ -10211,7 +10223,7 @@ fn finishFunc(
             return sema.fail(block, ret_ty_src, "function with calling convention '{s}' must return 'void' or 'noreturn'", .{@tagName(cc_resolved)});
         },
         .@"inline" => if (is_noinline) {
-            return sema.fail(block, cc_src, "'noinline' function cannot have callconv 'inline'", .{});
+            return sema.fail(block, cc_src, "'noinline' function cannot have calling convention 'inline'", .{});
         },
         else => {},
     }
@@ -10231,12 +10243,12 @@ fn finishFunc(
                     }
                 }
             };
-            return sema.fail(block, cc_src, "callconv '{s}' only available on architectures {}", .{
+            return sema.fail(block, cc_src, "calling convention '{s}' only available on architectures {}", .{
                 @tagName(cc_resolved),
                 ArchListFormatter{ .archs = allowed_archs },
             });
         },
-        .bad_backend => |bad_backend| return sema.fail(block, cc_src, "callconv '{s}' not supported by compiler backend '{s}'", .{
+        .bad_backend => |bad_backend| return sema.fail(block, cc_src, "calling convention '{s}' not supported by compiler backend '{s}'", .{
             @tagName(cc_resolved),
             @tagName(bad_backend),
         }),

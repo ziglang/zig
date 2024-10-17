@@ -16,4 +16,4 @@ export fn signal_ret() callconv(.Signal) noreturn {}
 // :3:51: error: 'x86_64_interrupt' calling convention supports up to 2 parameters, found 3
 // :4:69: error: function with calling convention 'x86_64_interrupt' must return 'void' or 'noreturn'
 // :8:24: error: parameters are not allowed with 'avr_signal' calling convention
-// :9:34: error: callconv 'avr_signal' only available on architectures 'avr'
+// :9:34: error: calling convention 'avr_signal' only available on architectures 'avr'

@@ -8,4 +8,4 @@ comptime {
 // backend=stage2
 // target=native
 //
-// :1:29: error: 'noinline' function cannot have callconv 'inline'
+// :1:29: error: 'noinline' function cannot have calling convention 'inline'
