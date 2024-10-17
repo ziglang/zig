@@ -28,8 +28,8 @@ pub const Bind = struct {
     }
 
     pub fn updateSize(self: *Self, macho_file: *MachO) !void {
-        const tracy = trace(@src());
-        defer tracy.end();
+        const span = tracer.beginSpanSrc(@src(), .{});
+        defer span.end();
 
         const gpa = macho_file.base.comp.gpa;
         const cpu_arch = macho_file.getTarget().cpu.arch;
@@ -280,8 +280,8 @@ pub const WeakBind = struct {
     }
 
     pub fn updateSize(self: *Self, macho_file: *MachO) !void {
-        const tracy = trace(@src());
-        defer tracy.end();
+        const span = tracer.beginSpanSrc(@src(), .{});
+        defer span.end();
 
         const gpa = macho_file.base.comp.gpa;
         const cpu_arch = macho_file.getTarget().cpu.arch;
@@ -524,8 +524,8 @@ pub const LazyBind = struct {
     }
 
     pub fn updateSize(self: *Self, macho_file: *MachO) !void {
-        const tracy = trace(@src());
-        defer tracy.end();
+        const span = tracer.beginSpanSrc(@src(), .{});
+        defer span.end();
 
         const gpa = macho_file.base.comp.gpa;
 
@@ -689,7 +689,7 @@ const log = std.log.scoped(.link_dyld_info);
 const macho = std.macho;
 const mem = std.mem;
 const testing = std.testing;
-const trace = @import("../../../tracy.zig").trace;
+const tracer = std.otel.trace.scoped(.{ .name = "zig.link.dyld_info" });
 const std = @import("std");
 
 const Allocator = mem.Allocator;

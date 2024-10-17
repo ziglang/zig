@@ -69,8 +69,8 @@ pub fn deinit(self: *Object, allocator: Allocator) void {
 }
 
 pub fn parse(self: *Object, macho_file: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     log.debug("parsing {}", .{self.fmtPath()});
 
@@ -292,8 +292,8 @@ pub fn isPtrLiteral(sect: macho.section_64) bool {
 }
 
 fn initSubsections(self: *Object, allocator: Allocator, nlists: anytype) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
     const slice = self.sections.slice();
     for (slice.items(.header), slice.items(.subsections), 0..) |sect, *subsections, n_sect| {
         if (isCstringLiteral(sect)) continue;
@@ -382,8 +382,8 @@ fn initSubsections(self: *Object, allocator: Allocator, nlists: anytype) !void {
 }
 
 fn initSections(self: *Object, allocator: Allocator, nlists: anytype) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
     const slice = self.sections.slice();
 
     try self.atoms.ensureUnusedCapacity(allocator, self.sections.items(.header).len);
@@ -435,8 +435,8 @@ fn initSections(self: *Object, allocator: Allocator, nlists: anytype) !void {
 }
 
 fn initCstringLiterals(self: *Object, allocator: Allocator, file: File.Handle, macho_file: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const slice = self.sections.slice();
 
@@ -503,8 +503,8 @@ fn initCstringLiterals(self: *Object, allocator: Allocator, file: File.Handle, m
 }
 
 fn initFixedSizeLiterals(self: *Object, allocator: Allocator, macho_file: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const slice = self.sections.slice();
 
@@ -568,8 +568,8 @@ fn initFixedSizeLiterals(self: *Object, allocator: Allocator, macho_file: *MachO
 }
 
 fn initPointerLiterals(self: *Object, allocator: Allocator, macho_file: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const slice = self.sections.slice();
 
@@ -626,8 +626,8 @@ fn initPointerLiterals(self: *Object, allocator: Allocator, macho_file: *MachO) 
 }
 
 pub fn resolveLiterals(self: *Object, lp: *MachO.LiteralPool, macho_file: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const gpa = macho_file.base.comp.gpa;
     const file = macho_file.getFileHandle(self.file_handle);
@@ -713,8 +713,8 @@ pub fn resolveLiterals(self: *Object, lp: *MachO.LiteralPool, macho_file: *MachO
 }
 
 pub fn dedupLiterals(self: *Object, lp: MachO.LiteralPool, macho_file: *MachO) void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     for (self.getAtoms()) |atom_index| {
         const atom = self.getAtom(atom_index) orelse continue;
@@ -757,8 +757,8 @@ pub fn dedupLiterals(self: *Object, lp: MachO.LiteralPool, macho_file: *MachO) v
 }
 
 pub fn findAtom(self: Object, addr: u64) ?Atom.Index {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
     const slice = self.sections.slice();
     for (slice.items(.header), slice.items(.subsections), 0..) |sect, subs, n_sect| {
         if (subs.items.len == 0) continue;
@@ -771,8 +771,8 @@ pub fn findAtom(self: Object, addr: u64) ?Atom.Index {
 }
 
 fn findAtomInSection(self: Object, addr: u64, n_sect: u8) ?Atom.Index {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
     const slice = self.sections.slice();
     const sect = slice.items(.header)[n_sect];
     const subsections = slice.items(.subsections)[n_sect];
@@ -809,8 +809,8 @@ fn findAtomInSection(self: Object, addr: u64, n_sect: u8) ?Atom.Index {
 }
 
 fn linkNlistToAtom(self: *Object, macho_file: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
     for (self.symtab.items(.nlist), self.symtab.items(.atom)) |nlist, *atom| {
         if (!nlist.stab() and nlist.sect()) {
             const sect = self.sections.items(.header)[nlist.n_sect - 1];
@@ -838,8 +838,8 @@ fn linkNlistToAtom(self: *Object, macho_file: *MachO) !void {
 }
 
 fn initSymbols(self: *Object, allocator: Allocator, macho_file: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const slice = self.symtab.slice();
     const nsyms = slice.items(.nlist).len;
@@ -892,8 +892,8 @@ fn initSymbols(self: *Object, allocator: Allocator, macho_file: *MachO) !void {
 }
 
 fn initSymbolStabs(self: *Object, allocator: Allocator, nlists: anytype, macho_file: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const SymbolLookup = struct {
         ctx: *const Object,
@@ -996,8 +996,8 @@ fn sortAtoms(self: *Object, macho_file: *MachO) !void {
 }
 
 fn initRelocs(self: *Object, file: File.Handle, cpu_arch: std.Target.Cpu.Arch, macho_file: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
     const slice = self.sections.slice();
 
     for (slice.items(.header), slice.items(.relocs)) |sect, *out| {
@@ -1037,8 +1037,8 @@ fn initRelocs(self: *Object, file: File.Handle, cpu_arch: std.Target.Cpu.Arch, m
 }
 
 fn initEhFrameRecords(self: *Object, allocator: Allocator, sect_id: u8, file: File.Handle, macho_file: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
     const nlists = self.symtab.items(.nlist);
     const slice = self.sections.slice();
     const sect = slice.items(.header)[sect_id];
@@ -1130,8 +1130,8 @@ fn initEhFrameRecords(self: *Object, allocator: Allocator, sect_id: u8, file: Fi
 }
 
 fn initUnwindRecords(self: *Object, allocator: Allocator, sect_id: u8, file: File.Handle, macho_file: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const SymbolLookup = struct {
         ctx: *const Object,
@@ -1355,8 +1355,8 @@ fn parseUnwindRecords(self: *Object, allocator: Allocator, cpu_arch: std.Target.
 /// TODO in the future, we want parse debug info and debug line sections so that
 /// we can provide nice error locations to the user.
 fn parseDebugInfo(self: *Object, macho_file: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const gpa = macho_file.base.comp.gpa;
 
@@ -1507,8 +1507,8 @@ fn findCompileUnit(self: *Object, args: struct {
 }
 
 pub fn resolveSymbols(self: *Object, macho_file: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const gpa = macho_file.base.comp.gpa;
 
@@ -1545,8 +1545,8 @@ pub fn resolveSymbols(self: *Object, macho_file: *MachO) !void {
 }
 
 pub fn markLive(self: *Object, macho_file: *MachO) void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     for (0..self.symbols.items.len) |i| {
         const nlist = self.symtab.items(.nlist)[i];
@@ -1564,8 +1564,8 @@ pub fn markLive(self: *Object, macho_file: *MachO) void {
 }
 
 pub fn mergeSymbolVisibility(self: *Object, macho_file: *MachO) void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     for (self.symbols.items, 0..) |sym, i| {
         const ref = self.getSymbolRef(@intCast(i), macho_file);
@@ -1580,8 +1580,8 @@ pub fn mergeSymbolVisibility(self: *Object, macho_file: *MachO) void {
 }
 
 pub fn scanRelocs(self: *Object, macho_file: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     for (self.getAtoms()) |atom_index| {
         const atom = self.getAtom(atom_index) orelse continue;
@@ -1605,8 +1605,8 @@ pub fn scanRelocs(self: *Object, macho_file: *MachO) !void {
 }
 
 pub fn convertTentativeDefinitions(self: *Object, macho_file: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
     const gpa = macho_file.base.comp.gpa;
 
     for (self.symbols.items, self.globals.items, 0..) |*sym, off, i| {
@@ -1663,8 +1663,8 @@ fn addSection(self: *Object, allocator: Allocator, segname: []const u8, sectname
 }
 
 pub fn parseAr(self: *Object, macho_file: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const gpa = macho_file.base.comp.gpa;
     const handle = macho_file.getFileHandle(self.file_handle);
@@ -1770,8 +1770,8 @@ pub fn writeAr(self: Object, ar_format: Archive.Format, macho_file: *MachO, writ
 }
 
 pub fn calcSymtabSize(self: *Object, macho_file: *MachO) void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const is_obj = macho_file.base.isObject();
 
@@ -1868,8 +1868,8 @@ pub fn calcStabsSize(self: *Object, macho_file: *MachO) void {
 }
 
 pub fn writeAtoms(self: *Object, macho_file: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const gpa = macho_file.base.comp.gpa;
     const headers = self.sections.items(.header);
@@ -1907,8 +1907,8 @@ pub fn writeAtoms(self: *Object, macho_file: *MachO) !void {
 }
 
 pub fn writeAtomsRelocatable(self: *Object, macho_file: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const gpa = macho_file.base.comp.gpa;
     const headers = self.sections.items(.header);
@@ -1948,8 +1948,8 @@ pub fn writeAtomsRelocatable(self: *Object, macho_file: *MachO) !void {
 }
 
 pub fn calcCompactUnwindSizeRelocatable(self: *Object, macho_file: *MachO) void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const ctx = &self.compact_unwind_ctx;
 
@@ -1969,8 +1969,8 @@ pub fn calcCompactUnwindSizeRelocatable(self: *Object, macho_file: *MachO) void 
 }
 
 pub fn writeCompactUnwindRelocatable(self: *Object, macho_file: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const cpu_arch = macho_file.getTarget().cpu.arch;
 
@@ -2049,8 +2049,8 @@ pub fn writeCompactUnwindRelocatable(self: *Object, macho_file: *MachO) !void {
 }
 
 pub fn writeSymtab(self: Object, macho_file: *MachO, ctx: anytype) void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     var n_strx = self.output_symtab_ctx.stroff;
     for (self.symbols.items, 0..) |sym, i| {
@@ -3217,6 +3217,8 @@ const aarch64 = struct {
         }
     }
 };
+
+const tracer = std.otel.trace.scoped(.{ .name = "zig.link.MachO.Object" });
 
 const assert = std.debug.assert;
 const dwarf = @import("dwarf.zig");

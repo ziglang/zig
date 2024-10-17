@@ -1415,8 +1415,8 @@ pub fn updateFunc(
     air: Air,
     liveness: Liveness,
 ) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
@@ -1539,8 +1539,8 @@ pub fn updateNav(
     pt: Zcu.PerThread,
     nav_index: InternPool.Nav.Index,
 ) link.File.UpdateNavError!void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
@@ -1625,8 +1625,8 @@ pub fn updateContainerType(
     pt: Zcu.PerThread,
     ty: InternPool.Index,
 ) link.File.UpdateNavError!void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     if (self.dwarf) |*dwarf| try dwarf.updateContainerType(pt, ty);
 }
@@ -1782,8 +1782,8 @@ pub fn updateExports(
     exported: Zcu.Exported,
     export_indices: []const u32,
 ) link.File.UpdateExportsError!void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const zcu = pt.zcu;
     const gpa = elf_file.base.comp.gpa;
@@ -1875,8 +1875,8 @@ pub fn updateNavLineNumber(
     pt: Zcu.PerThread,
     nav_index: InternPool.Nav.Index,
 ) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const ip = &pt.zcu.intern_pool;
     const nav = ip.getNav(nav_index);
@@ -2383,7 +2383,7 @@ const log = std.log.scoped(.link);
 const mem = std.mem;
 const relocation = @import("relocation.zig");
 const target_util = @import("../../target.zig");
-const trace = @import("../../tracy.zig").trace;
+const tracer = std.otel.trace.scoped(.{ .name = "zig.link" });
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 

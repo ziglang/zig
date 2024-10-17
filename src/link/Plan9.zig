@@ -8,7 +8,7 @@ const InternPool = @import("../InternPool.zig");
 const Compilation = @import("../Compilation.zig");
 const aout = @import("Plan9/aout.zig");
 const codegen = @import("../codegen.zig");
-const trace = @import("../tracy.zig").trace;
+const tracer = std.otel.trace.scoped(.{ .name = "zig.link" });
 const File = link.File;
 const build_options = @import("build_options");
 const Air = @import("../Air.zig");
@@ -588,8 +588,8 @@ pub fn flushModule(self: *Plan9, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
 
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     _ = arena; // Has the same lifetime as the call to Compilation.update.
 

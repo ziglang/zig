@@ -362,8 +362,8 @@ fn allocatedSize(self: *DebugSymbols, start: u64) u64 {
 }
 
 fn writeLinkeditSegmentData(self: *DebugSymbols, macho_file: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const page_size = macho_file.getPageSize();
     const seg = &self.segments.items[self.linkedit_segment_cmd_index.?];
@@ -379,8 +379,8 @@ fn writeLinkeditSegmentData(self: *DebugSymbols, macho_file: *MachO) !void {
 }
 
 pub fn writeSymtab(self: *DebugSymbols, off: u32, macho_file: *MachO) !u32 {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
     const gpa = self.allocator;
     const cmd = &self.symtab_cmd;
     cmd.nsyms = macho_file.symtab_cmd.nsyms;
@@ -459,7 +459,7 @@ const makeStaticString = MachO.makeStaticString;
 const math = std.math;
 const mem = std.mem;
 const padToIdeal = MachO.padToIdeal;
-const trace = @import("../../tracy.zig").trace;
+const tracer = std.otel.trace.scoped(.{ .name = "zig.link.dsym" });
 
 const Allocator = mem.Allocator;
 const MachO = @import("../MachO.zig");

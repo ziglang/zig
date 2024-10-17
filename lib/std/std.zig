@@ -77,6 +77,7 @@ pub const mem = @import("mem.zig");
 pub const meta = @import("meta.zig");
 pub const net = @import("net.zig");
 pub const os = @import("os.zig");
+pub const otel = @import("otel.zig");
 pub const once = @import("once.zig").once;
 pub const pdb = @import("pdb.zig");
 pub const posix = @import("posix.zig");

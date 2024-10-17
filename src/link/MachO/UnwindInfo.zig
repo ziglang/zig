@@ -42,8 +42,8 @@ fn canFold(macho_file: *MachO, lhs_ref: Record.Ref, rhs_ref: Record.Ref) bool {
 }
 
 pub fn generate(info: *UnwindInfo, macho_file: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const gpa = macho_file.base.comp.gpa;
 
@@ -264,8 +264,8 @@ pub fn generate(info: *UnwindInfo, macho_file: *MachO) !void {
 }
 
 pub fn calcSize(info: UnwindInfo) usize {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     var total_size: usize = 0;
     total_size += @sizeOf(macho.unwind_info_section_header);
@@ -708,7 +708,7 @@ const log = std.log.scoped(.link);
 const macho = std.macho;
 const math = std.math;
 const mem = std.mem;
-const trace = @import("../../tracy.zig").trace;
+const tracer = std.otel.trace.scoped(.{ .name = "zig.link.macho" });
 
 const Allocator = mem.Allocator;
 const Atom = @import("Atom.zig");

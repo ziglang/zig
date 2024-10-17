@@ -14,7 +14,7 @@ const lldMain = @import("../main.zig").lldMain;
 const log = std.log.scoped(.link);
 const gc_log = std.log.scoped(.gc);
 const mem = std.mem;
-const trace = @import("../tracy.zig").trace;
+const tracer = std.otel.trace.scoped(.{ .name = "zig.link" });
 const types = @import("Wasm/types.zig");
 const wasi_libc = @import("../wasi_libc.zig");
 
@@ -2495,8 +2495,8 @@ pub fn flush(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: st
 
 /// Uses the in-house linker to link one or multiple object -and archive files into a WebAssembly binary.
 pub fn flushModule(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const comp = wasm.base.comp;
     const diags = &comp.link_diags;
@@ -3350,8 +3350,8 @@ fn emitImport(wasm: *Wasm, writer: anytype, import: types.Import) !void {
 fn linkWithLLD(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) !void {
     dev.check(.lld_linker);
 
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const comp = wasm.base.comp;
     const shared_memory = comp.config.shared_memory;
@@ -4052,8 +4052,8 @@ pub fn getOrCreateAtomForNav(wasm_file: *Wasm, pt: Zcu.PerThread, nav: InternPoo
 /// Verifies all resolved symbols and checks whether itself needs to be marked alive,
 /// as well as any of its references.
 fn markReferences(wasm: *Wasm) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const do_garbage_collect = wasm.base.gc_sections;
     const comp = wasm.base.comp;

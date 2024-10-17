@@ -128,8 +128,8 @@ pub fn initSymbols(self: *InternalObject, macho_file: *MachO) !void {
 }
 
 pub fn resolveSymbols(self: *InternalObject, macho_file: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const gpa = macho_file.base.comp.gpa;
 
@@ -160,8 +160,8 @@ pub fn resolveSymbols(self: *InternalObject, macho_file: *MachO) !void {
 }
 
 pub fn resolveBoundarySymbols(self: *InternalObject, macho_file: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const gpa = macho_file.base.comp.gpa;
     var boundary_symbols = std.StringArrayHashMap(MachO.Ref).init(gpa);
@@ -221,8 +221,8 @@ pub fn resolveBoundarySymbols(self: *InternalObject, macho_file: *MachO) !void {
 }
 
 pub fn markLive(self: *InternalObject, macho_file: *MachO) void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     for (0..self.symbols.items.len) |i| {
         const nlist = self.symtab.items[i];
@@ -339,8 +339,8 @@ fn addObjcSelrefsSection(self: *InternalObject, methname_sym_index: Symbol.Index
 }
 
 pub fn resolveObjcMsgSendSymbols(self: *InternalObject, macho_file: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const gpa = macho_file.base.comp.gpa;
 
@@ -397,8 +397,8 @@ pub fn resolveObjcMsgSendSymbols(self: *InternalObject, macho_file: *MachO) !voi
 }
 
 pub fn resolveLiterals(self: *InternalObject, lp: *MachO.LiteralPool, macho_file: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const gpa = macho_file.base.comp.gpa;
 
@@ -433,8 +433,8 @@ pub fn resolveLiterals(self: *InternalObject, lp: *MachO.LiteralPool, macho_file
 }
 
 pub fn dedupLiterals(self: *InternalObject, lp: MachO.LiteralPool, macho_file: *MachO) void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     for (self.getAtoms()) |atom_index| {
         const atom = self.getAtom(atom_index) orelse continue;
@@ -483,8 +483,8 @@ pub fn dedupLiterals(self: *InternalObject, lp: MachO.LiteralPool, macho_file: *
 }
 
 pub fn scanRelocs(self: *InternalObject, macho_file: *MachO) void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     if (self.getEntryRef(macho_file)) |ref| {
         if (ref.getFile(macho_file) != null) {
@@ -599,8 +599,8 @@ pub fn calcSymtabSize(self: *InternalObject, macho_file: *MachO) void {
 }
 
 pub fn writeAtoms(self: *InternalObject, macho_file: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     for (self.getAtoms()) |atom_index| {
         const atom = self.getAtom(atom_index) orelse continue;
@@ -904,7 +904,7 @@ const assert = std.debug.assert;
 const macho = std.macho;
 const mem = std.mem;
 const std = @import("std");
-const trace = @import("../../tracy.zig").trace;
+const tracer = std.otel.trace.scoped(.{ .name = "link" });
 
 const Allocator = std.mem.Allocator;
 const Atom = @import("Atom.zig");

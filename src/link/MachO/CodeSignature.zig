@@ -7,7 +7,7 @@ const log = std.log.scoped(.link);
 const macho = std.macho;
 const mem = std.mem;
 const testing = std.testing;
-const trace = @import("../../tracy.zig").trace;
+const tracer = std.otel.trace.scoped(.{ .name = "zig.link.macho" });
 const Allocator = mem.Allocator;
 const Hasher = @import("hasher.zig").ParallelHasher;
 const MachO = @import("../MachO.zig");
@@ -265,8 +265,8 @@ pub fn writeAdhocSignature(
     opts: WriteOpts,
     writer: anytype,
 ) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const allocator = macho_file.base.comp.gpa;
 

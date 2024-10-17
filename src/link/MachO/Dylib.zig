@@ -54,8 +54,8 @@ pub fn parse(self: *Dylib, macho_file: *MachO) !void {
 }
 
 fn parseBinary(self: *Dylib, macho_file: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const gpa = macho_file.base.comp.gpa;
     const file = macho_file.getFileHandle(self.file_handle);
@@ -212,8 +212,8 @@ fn parseTrieNode(
     arena: Allocator,
     prefix: []const u8,
 ) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
     const size = try it.readUleb128();
     if (size > 0) {
         const flags = try it.readUleb128();
@@ -251,8 +251,8 @@ fn parseTrieNode(
 }
 
 fn parseTrie(self: *Dylib, data: []const u8, macho_file: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
     const gpa = macho_file.base.comp.gpa;
     var arena = std.heap.ArenaAllocator.init(gpa);
     defer arena.deinit();
@@ -262,8 +262,8 @@ fn parseTrie(self: *Dylib, data: []const u8, macho_file: *MachO) !void {
 }
 
 fn parseTbd(self: *Dylib, macho_file: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const gpa = macho_file.base.comp.gpa;
 
@@ -521,8 +521,8 @@ fn initSymbols(self: *Dylib, macho_file: *MachO) !void {
 }
 
 pub fn resolveSymbols(self: *Dylib, macho_file: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     if (!self.explicit and !self.hoisted) return;
 
@@ -557,8 +557,8 @@ pub fn isAlive(self: Dylib, macho_file: *MachO) bool {
 }
 
 pub fn markReferenced(self: *Dylib, macho_file: *MachO) void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     for (0..self.symbols.items.len) |i| {
         const ref = self.getSymbolRef(@intCast(i), macho_file);
@@ -572,8 +572,8 @@ pub fn markReferenced(self: *Dylib, macho_file: *MachO) void {
 }
 
 pub fn calcSymtabSize(self: *Dylib, macho_file: *MachO) void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     for (self.symbols.items, 0..) |*sym, i| {
         const ref = self.getSymbolRef(@intCast(i), macho_file);
@@ -589,8 +589,8 @@ pub fn calcSymtabSize(self: *Dylib, macho_file: *MachO) void {
 }
 
 pub fn writeSymtab(self: Dylib, macho_file: *MachO, ctx: anytype) void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     var n_strx = self.output_symtab_ctx.stroff;
     for (self.symbols.items, 0..) |sym, i| {
@@ -957,7 +957,7 @@ const macho = std.macho;
 const math = std.math;
 const mem = std.mem;
 const tapi = @import("../tapi.zig");
-const trace = @import("../../tracy.zig").trace;
+const tracer = std.otel.trace.scoped(.{ .name = "link" });
 const std = @import("std");
 const Allocator = mem.Allocator;
 const Path = std.Build.Cache.Path;

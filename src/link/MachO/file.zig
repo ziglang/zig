@@ -132,8 +132,8 @@ pub const File = union(enum) {
     }
 
     pub fn markImportsExports(file: File, macho_file: *MachO) void {
-        const tracy = trace(@src());
-        defer tracy.end();
+        const span = tracer.beginSpanSrc(@src(), .{});
+        defer span.end();
 
         const nsyms = switch (file) {
             .dylib => unreachable,
@@ -155,8 +155,8 @@ pub const File = union(enum) {
     }
 
     pub fn markExportsRelocatable(file: File, macho_file: *MachO) void {
-        const tracy = trace(@src());
-        defer tracy.end();
+        const span = tracer.beginSpanSrc(@src(), .{});
+        defer span.end();
 
         assert(file == .object or file == .zig_object);
 
@@ -170,8 +170,8 @@ pub const File = union(enum) {
     }
 
     pub fn createSymbolIndirection(file: File, macho_file: *MachO) !void {
-        const tracy = trace(@src());
-        defer tracy.end();
+        const span = tracer.beginSpanSrc(@src(), .{});
+        defer span.end();
 
         const nsyms = switch (file) {
             inline else => |x| x.symbols.items.len,
@@ -201,8 +201,8 @@ pub const File = union(enum) {
     }
 
     pub fn claimUnresolved(file: File, macho_file: *MachO) void {
-        const tracy = trace(@src());
-        defer tracy.end();
+        const span = tracer.beginSpanSrc(@src(), .{});
+        defer span.end();
 
         assert(file == .object or file == .zig_object);
 
@@ -232,8 +232,8 @@ pub const File = union(enum) {
     }
 
     pub fn claimUnresolvedRelocatable(file: File, macho_file: *MachO) void {
-        const tracy = trace(@src());
-        defer tracy.end();
+        const span = tracer.beginSpanSrc(@src(), .{});
+        defer span.end();
 
         assert(file == .object or file == .zig_object);
 
@@ -254,8 +254,8 @@ pub const File = union(enum) {
     }
 
     pub fn checkDuplicates(file: File, macho_file: *MachO) !void {
-        const tracy = trace(@src());
-        defer tracy.end();
+        const span = tracer.beginSpanSrc(@src(), .{});
+        defer span.end();
 
         const gpa = macho_file.base.comp.gpa;
 
@@ -279,8 +279,8 @@ pub const File = union(enum) {
     }
 
     pub fn initOutputSections(file: File, macho_file: *MachO) !void {
-        const tracy = trace(@src());
-        defer tracy.end();
+        const span = tracer.beginSpanSrc(@src(), .{});
+        defer span.end();
         for (file.getAtoms()) |atom_index| {
             const atom = file.getAtom(atom_index) orelse continue;
             if (!atom.isAlive()) continue;
@@ -380,7 +380,7 @@ const macho = std.macho;
 const Allocator = std.mem.Allocator;
 const Path = std.Build.Cache.Path;
 
-const trace = @import("../../tracy.zig").trace;
+const tracer = std.otel.trace.scoped(.{ .name = "zig.link" });
 const Archive = @import("Archive.zig");
 const Atom = @import("Atom.zig");
 const InternalObject = @import("InternalObject.zig");

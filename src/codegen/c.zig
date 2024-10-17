@@ -12,7 +12,7 @@ const Value = @import("../Value.zig");
 const Type = @import("../Type.zig");
 const C = link.File.C;
 const Decl = Zcu.Decl;
-const trace = @import("../tracy.zig").trace;
+const tracer = std.otel.trace.scoped(.{ .name = "zig.c" });
 const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
 const InternPool = @import("../InternPool.zig");
@@ -2794,8 +2794,8 @@ pub fn genLazyFn(o: *Object, lazy_ctype_pool: *const CType.Pool, lazy_fn: LazyFn
 }
 
 pub fn genFunc(f: *Function) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const o = &f.object;
     const zcu = o.dg.pt.zcu;
@@ -2888,8 +2888,8 @@ pub fn genFunc(f: *Function) !void {
 }
 
 pub fn genDecl(o: *Object) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const pt = o.dg.pt;
     const zcu = pt.zcu;

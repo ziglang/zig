@@ -8,7 +8,7 @@ const log = std.log.scoped(.codegen);
 const mem = std.mem;
 const math = std.math;
 const target_util = @import("target.zig");
-const trace = @import("tracy.zig").trace;
+const tracer = std.otel.trace.scoped(.{ .name = "zig.codegen" });
 
 const Air = @import("Air.zig");
 const Allocator = mem.Allocator;
@@ -126,8 +126,8 @@ pub fn generateLazySymbol(
 ) CodeGenError!Result {
     _ = reloc_parent;
 
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const comp = bin_file.comp;
     const ip = &pt.zcu.intern_pool;
@@ -188,8 +188,8 @@ pub fn generateSymbol(
     code: *std.ArrayList(u8),
     reloc_parent: link.File.RelocInfo.Parent,
 ) CodeGenError!Result {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;

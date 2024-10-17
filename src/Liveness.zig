@@ -12,11 +12,12 @@ const Allocator = std.mem.Allocator;
 const Log2Int = std.math.Log2Int;
 
 const Liveness = @This();
-const trace = @import("tracy.zig").trace;
 const Air = @import("Air.zig");
 const InternPool = @import("InternPool.zig");
 
 pub const Verify = @import("Liveness/Verify.zig");
+
+const tracer = std.otel.trace.scoped(.{ .name = "zig.liveness" });
 
 /// This array is split into sets of 4 bits per AIR instruction.
 /// The MSB (0bX000) is whether the instruction is unreferenced.
@@ -137,8 +138,8 @@ fn LivenessPassData(comptime pass: LivenessPass) type {
 }
 
 pub fn analyze(gpa: Allocator, air: Air, intern_pool: *InternPool) Allocator.Error!Liveness {
-    const tracy = trace(@src());
-    defer tracy.end();
+    const span = tracer.beginSpanSrc(@src(), .{});
+    defer span.end();
 
     var a: Analysis = .{
         .gpa = gpa,
