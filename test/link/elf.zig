@@ -2145,6 +2145,7 @@ fn testLdScript(b: *Build, opts: Options) *Step {
     exe.addLibraryPath(dso.getEmittedBinDirectory());
     exe.addRPath(dso.getEmittedBinDirectory());
     exe.linkLibC();
+    exe.allow_so_scripts = true;
 
     const run = addRunArtifact(exe);
     run.expectExitCode(0);
@@ -2164,14 +2165,13 @@ fn testLdScriptPathError(b: *Build, opts: Options) *Step {
     exe.linkSystemLibrary2("a", .{});
     exe.addLibraryPath(scripts.getDirectory());
     exe.linkLibC();
+    exe.allow_so_scripts = true;
 
-    expectLinkErrors(
-        exe,
-        test_step,
-        .{
-            .contains = "error: missing library dependency: GNU ld script '/?/liba.so' requires 'libfoo.so', but file not found",
-        },
-    );
+    // TODO: A future enhancement could make this error message also mention
+    // the file that references the missing library.
+    expectLinkErrors(exe, test_step, .{
+        .stderr_contains = "error: unable to find dynamic system library 'foo' using strategy 'no_fallback'. searched paths:",
+    });
 
     return test_step;
 }
@@ -2203,6 +2203,7 @@ fn testLdScriptAllowUndefinedVersion(b: *Build, opts: Options) *Step {
     });
     exe.linkLibrary(so);
     exe.linkLibC();
+    exe.allow_so_scripts = true;
 
     const run = addRunArtifact(exe);
     run.expectStdErrEqual("3\n");
@@ -2225,6 +2226,7 @@ fn testLdScriptDisallowUndefinedVersion(b: *Build, opts: Options) *Step {
     const ld = b.addWriteFiles().add("add.ld", "VERSION { ADD_1.0 { global: add; sub; local: *; }; }");
     so.setLinkerScript(ld);
     so.linker_allow_undefined_version = false;
+    so.allow_so_scripts = true;
 
     expectLinkErrors(
         so,
@@ -3907,16 +3909,8 @@ fn testUnknownFileTypeError(b: *Build, opts: Options) *Step {
     exe.linkLibrary(dylib);
     exe.linkLibC();
 
-    // TODO: improve the test harness to be able to selectively match lines in error output
-    // while avoiding jankiness
-    // expectLinkErrors(exe, test_step, .{ .exact = &.{
-    //     "error: invalid token in LD script: '\\x00\\x00\\x00\\x0c\\x00\\x00\\x00/usr/lib/dyld\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x0d' (0:989)",
-    //     "note: while parsing /?/liba.dylib",
-    //     "error: unexpected error: parsing input file failed with error InvalidLdScript",
-    //     "note: while parsing /?/liba.dylib",
-    // } });
     expectLinkErrors(exe, test_step, .{
-        .starts_with = "error: invalid token in LD script: '\\x00\\x00\\x00\\x0c\\x00\\x00\\x00/usr/lib/dyld\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x0d' (",
+        .contains = "error: failed to parse shared object: BadMagic",
     });
 
     return test_step;

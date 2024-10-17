@@ -2,13 +2,13 @@ pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation, module_obj_path: ?Path
     const gpa = comp.gpa;
     const diags = &comp.link_diags;
 
-    for (comp.objects) |obj| {
-        switch (Compilation.classifyFileExt(obj.path.sub_path)) {
-            .object => parseObjectStaticLibReportingFailure(elf_file, obj.path),
-            .static_library => parseArchiveStaticLibReportingFailure(elf_file, obj.path),
-            else => diags.addParseError(obj.path, "unrecognized file extension", .{}),
-        }
-    }
+    for (comp.link_inputs) |link_input| switch (link_input) {
+        .object => |obj| parseObjectStaticLibReportingFailure(elf_file, obj.path),
+        .archive => |obj| parseArchiveStaticLibReportingFailure(elf_file, obj.path),
+        .dso_exact => unreachable,
+        .res => unreachable,
+        .dso => unreachable,
+    };
 
     for (comp.c_object_table.keys()) |key| {
         parseObjectStaticLibReportingFailure(elf_file, key.status.success.object_path);
@@ -153,18 +153,18 @@ pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation, module_obj_path: ?Path
 pub fn flushObject(elf_file: *Elf, comp: *Compilation, module_obj_path: ?Path) link.File.FlushError!void {
     const diags = &comp.link_diags;
 
-    for (comp.objects) |obj| {
-        elf_file.parseInputReportingFailure(obj.path, false, obj.must_link);
+    for (comp.link_inputs) |link_input| {
+        elf_file.parseInputReportingFailure(link_input);
     }
 
     // This is a set of object files emitted by clang in a single `build-exe` invocation.
     // For instance, the implicit `a.o` as compiled by `zig build-exe a.c` will end up
     // in this set.
     for (comp.c_object_table.keys()) |key| {
-        elf_file.parseObjectReportingFailure(key.status.success.object_path);
+        elf_file.openParseObjectReportingFailure(key.status.success.object_path);
     }
 
-    if (module_obj_path) |path| elf_file.parseObjectReportingFailure(path);
+    if (module_obj_path) |path| elf_file.openParseObjectReportingFailure(path);
 
     if (diags.hasErrors()) return error.FlushFailure;
 
@@ -233,8 +233,10 @@ fn parseArchiveStaticLibReportingFailure(elf_file: *Elf, path: Path) void {
 
 fn parseObjectStaticLib(elf_file: *Elf, path: Path) Elf.ParseError!void {
     const gpa = elf_file.base.comp.gpa;
+    const file_handles = &elf_file.file_handles;
+
     const handle = try path.root_dir.handle.openFile(path.sub_path, .{});
-    const fh = try elf_file.addFileHandle(handle);
+    const fh = try Elf.addFileHandle(gpa, file_handles, handle);
 
     const index: File.Index = @intCast(try elf_file.files.addOne(gpa));
     elf_file.files.set(index, .{ .object = .{
@@ -248,27 +250,26 @@ fn parseObjectStaticLib(elf_file: *Elf, path: Path) Elf.ParseError!void {
     try elf_file.objects.append(gpa, index);
 
     const object = elf_file.file(index).?.object;
-    try object.parseAr(elf_file);
+    try object.parseAr(path, elf_file);
 }
 
 fn parseArchiveStaticLib(elf_file: *Elf, path: Path) Elf.ParseError!void {
     const gpa = elf_file.base.comp.gpa;
+    const diags = &elf_file.base.comp.link_diags;
+    const file_handles = &elf_file.file_handles;
+
     const handle = try path.root_dir.handle.openFile(path.sub_path, .{});
-    const fh = try elf_file.addFileHandle(handle);
+    const fh = try Elf.addFileHandle(gpa, file_handles, handle);
 
-    var archive = Archive{};
+    var archive = try Archive.parse(gpa, diags, file_handles, path, fh);
     defer archive.deinit(gpa);
-    try archive.parse(elf_file, path, fh);
 
-    const objects = try archive.objects.toOwnedSlice(gpa);
-    defer gpa.free(objects);
-
-    for (objects) |extracted| {
-        const index = @as(File.Index, @intCast(try elf_file.files.addOne(gpa)));
+    for (archive.objects) |extracted| {
+        const index: File.Index = @intCast(try elf_file.files.addOne(gpa));
         elf_file.files.set(index, .{ .object = extracted });
         const object = &elf_file.files.items(.data)[index].object;
         object.index = index;
-        try object.parseAr(elf_file);
+        try object.parseAr(path, elf_file);
         try elf_file.objects.append(gpa, index);
     }
 }
