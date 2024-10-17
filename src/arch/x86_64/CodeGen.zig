@@ -19326,12 +19326,12 @@ fn resolveCallingConventionValues(
             result.return_value = InstTracking.init(.unreach);
             result.stack_align = .@"8";
         },
-        .x86_64_sysv, .x86_64_win => {
+        .x86_64_sysv, .x86_64_win => |cc_opts| {
             var ret_int_reg_i: u32 = 0;
             var ret_sse_reg_i: u32 = 0;
             var param_int_reg_i: u32 = 0;
             var param_sse_reg_i: u32 = 0;
-            result.stack_align = .@"16";
+            result.stack_align = .fromByteUnits(cc_opts.incoming_stack_alignment orelse 16);
 
             switch (resolved_cc) {
                 .x86_64_sysv => {},
@@ -19512,10 +19512,13 @@ fn resolveCallingConventionValues(
                 }
 
                 const param_size: u31 = @intCast(ty.abiSize(zcu));
-                const param_align: u31 =
-                    @intCast(@max(ty.abiAlignment(zcu).toByteUnits().?, 8));
-                result.stack_byte_count =
-                    mem.alignForward(u31, result.stack_byte_count, param_align);
+                const param_align = ty.abiAlignment(zcu).max(.@"8");
+                result.stack_byte_count = mem.alignForward(
+                    u31,
+                    result.stack_byte_count,
+                    @intCast(param_align.toByteUnits().?),
+                );
+                result.stack_align = result.stack_align.max(param_align);
                 arg.* = .{ .load_frame = .{
                     .index = stack_frame_base,
                     .off = result.stack_byte_count,
@@ -19557,9 +19560,13 @@ fn resolveCallingConventionValues(
                     continue;
                 }
                 const param_size: u31 = @intCast(ty.abiSize(zcu));
-                const param_align: u31 = @intCast(ty.abiAlignment(zcu).toByteUnits().?);
-                result.stack_byte_count =
-                    mem.alignForward(u31, result.stack_byte_count, param_align);
+                const param_align = ty.abiAlignment(zcu);
+                result.stack_byte_count = mem.alignForward(
+                    u31,
+                    result.stack_byte_count,
+                    @intCast(param_align.toByteUnits().?),
+                );
+                result.stack_align = result.stack_align.max(param_align);
                 arg.* = .{ .load_frame = .{
                     .index = stack_frame_base,
                     .off = result.stack_byte_count,
