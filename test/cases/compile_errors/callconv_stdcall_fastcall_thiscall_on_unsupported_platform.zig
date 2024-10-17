@@ -18,6 +18,6 @@ export fn entry3() void {
 // backend=stage2
 // target=x86_64-linux-none
 //
-// :1:28: error: callconv 'x86_stdcall' only available on architectures 'x86'
-// :2:28: error: callconv 'x86_fastcall' only available on architectures 'x86'
-// :3:28: error: callconv 'x86_thiscall' only available on architectures 'x86'
+// :1:28: error: calling convention 'x86_stdcall' only available on architectures 'x86'
+// :2:28: error: calling convention 'x86_fastcall' only available on architectures 'x86'
+// :3:28: error: calling convention 'x86_thiscall' only available on architectures 'x86'
