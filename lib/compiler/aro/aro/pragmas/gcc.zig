@@ -114,9 +114,9 @@ fn preprocessorHandler(pragma: *Pragma, pp: *Preprocessor, start_idx: TokenIndex
 
     const gcc_pragma = std.meta.stringToEnum(Directive, pp.expandedSlice(directive_tok)) orelse
         return pp.comp.addDiagnostic(.{
-        .tag = .unknown_gcc_pragma,
-        .loc = directive_tok.loc,
-    }, pp.expansionSlice(start_idx + 1));
+            .tag = .unknown_gcc_pragma,
+            .loc = directive_tok.loc,
+        }, pp.expansionSlice(start_idx + 1));
 
     switch (gcc_pragma) {
         .warning, .@"error" => {

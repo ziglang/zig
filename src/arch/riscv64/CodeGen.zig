@@ -684,8 +684,7 @@ fn restoreState(func: *Func, state: State, deaths: []const Air.Inst.Index, compt
 
     const ExpectedContents = [@typeInfo(RegisterManager.TrackedRegisters).array.len]RegisterLock;
     var stack align(@max(@alignOf(ExpectedContents), @alignOf(std.heap.StackFallbackAllocator(0)))) =
-        if (opts.update_tracking)
-    {} else std.heap.stackFallback(@sizeOf(ExpectedContents), func.gpa);
+        if (opts.update_tracking) {} else std.heap.stackFallback(@sizeOf(ExpectedContents), func.gpa);
 
     var reg_locks = if (opts.update_tracking) {} else try std.ArrayList(RegisterLock).initCapacity(
         stack.get(),
@@ -2305,7 +2304,7 @@ fn airIntCast(func: *Func, inst: Air.Inst.Index) !void {
 
         const dst_mcv = if (dst_int_info.bits <= src_storage_bits and
             math.divCeil(u16, dst_int_info.bits, 64) catch unreachable ==
-            math.divCeil(u32, src_storage_bits, 64) catch unreachable and
+                math.divCeil(u32, src_storage_bits, 64) catch unreachable and
             func.reuseOperand(inst, ty_op.operand, 0, src_mcv)) src_mcv else dst: {
             const dst_mcv = try func.allocRegOrMem(dst_ty, inst, true);
             try func.genCopy(min_ty, dst_mcv, src_mcv);
@@ -2363,9 +2362,9 @@ fn airNot(func: *Func, inst: Air.Inst.Index) !void {
 
         const dst_reg: Register =
             if (func.reuseOperand(inst, ty_op.operand, 0, operand) and operand == .register)
-            operand.register
-        else
-            (try func.allocRegOrMem(func.typeOfIndex(inst), inst, true)).register;
+                operand.register
+            else
+                (try func.allocRegOrMem(func.typeOfIndex(inst), inst, true)).register;
 
         switch (ty.zigTypeTag(zcu)) {
             .bool => {
@@ -6273,11 +6272,11 @@ fn airAsm(func: *Func, inst: Air.Inst.Index) !void {
 
         const instruction: union(enum) { mnem: Mnemonic, pseudo: Pseudo } =
             if (std.meta.stringToEnum(Mnemonic, mnem_str)) |mnem|
-            .{ .mnem = mnem }
-        else if (std.meta.stringToEnum(Pseudo, mnem_str)) |pseudo|
-            .{ .pseudo = pseudo }
-        else
-            return func.fail("invalid mnem str '{s}'", .{mnem_str});
+                .{ .mnem = mnem }
+            else if (std.meta.stringToEnum(Pseudo, mnem_str)) |pseudo|
+                .{ .pseudo = pseudo }
+            else
+                return func.fail("invalid mnem str '{s}'", .{mnem_str});
 
         const Operand = union(enum) {
             none,

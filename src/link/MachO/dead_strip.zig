@@ -102,8 +102,8 @@ fn mark(roots: []*Atom, objects: []const File.Index, macho_file: *MachO) void {
                 const isec = atom.getInputSection(macho_file);
                 if (isec.isDontDeadStripIfReferencesLive() and
                     !(mem.eql(u8, isec.sectName(), "__eh_frame") or
-                    mem.eql(u8, isec.sectName(), "__compact_unwind") or
-                    isec.attrs() & macho.S_ATTR_DEBUG != 0) and
+                        mem.eql(u8, isec.sectName(), "__compact_unwind") or
+                        isec.attrs() & macho.S_ATTR_DEBUG != 0) and
                     !atom.isAlive() and refersLive(atom, macho_file))
                 {
                     markLive(atom, macho_file);
