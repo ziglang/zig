@@ -1872,6 +1872,13 @@ pub const Cpu = struct {
                 .s390x => &s390x.cpu.arch8, // gcc/clang do not have a generic s390x model.
                 .sparc => &sparc.cpu.v9, // glibc does not work with 'plain' v8.
                 .x86 => &x86.cpu.pentium4,
+                .x86_64 => switch (os.tag) {
+                    .driverkit => &x86.cpu.nehalem,
+                    .ios, .macos, .tvos, .visionos, .watchos => &x86.cpu.core2,
+                    .ps4 => &x86.cpu.btver2,
+                    .ps5 => &x86.cpu.znver2,
+                    else => generic(arch),
+                },
                 .xcore => &xcore.cpu.xs1b_generic,
 
                 else => generic(arch),
