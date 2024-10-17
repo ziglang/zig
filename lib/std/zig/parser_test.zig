@@ -1776,7 +1776,7 @@ test "zig fmt: if nested" {
         \\            GE_EQUAL
         \\        else
         \\            GE_GREATER
-        \\        // comment
+        \\            // comment
         \\    else if (aInt > bInt)
         \\        GE_LESS
         \\    else if (aInt == bInt)
@@ -4670,7 +4670,7 @@ test "zig fmt: test comments in field access chain" {
         \\        .more() //
         \\        .more().more() //
         \\        .more() //
-        \\    // .more() //
+        \\        // .more() //
         \\        .more() //
         \\        .more();
         \\    data: Data,
@@ -4679,9 +4679,9 @@ test "zig fmt: test comments in field access chain" {
         \\pub const str = struct {
         \\    pub const Thing = more.more //
         \\        .more() //
-        \\    // .more() //
-        \\    // .more() //
-        \\    // .more() //
+        \\        // .more() //
+        \\        // .more() //
+        \\        // .more() //
         \\        .more() //
         \\        .more();
         \\    data: Data,
@@ -4706,7 +4706,7 @@ test "zig fmt: allow line break before field access" {
         \\    const x = foo
         \\        .bar()
         \\        . // comment
-        \\    // comment
+        \\        // comment
         \\        swooop().zippy(zag)
         \\        .iguessthisisok();
         \\
@@ -4716,7 +4716,7 @@ test "zig fmt: allow line break before field access" {
         \\        .input_manager //
         \\        .default_seat
         \\        . // comment
-        \\    // another comment
+        \\        // another comment
         \\        wlr_seat.name;
         \\}
         \\
@@ -4955,19 +4955,19 @@ test "zig fmt: use of comments and multiline string literals may force the param
         \\
         \\// This looks like garbage don't do this
         \\const rparen = tree.prevToken(
-        \\// the first token for the annotation expressions is the left
-        \\// parenthesis, hence the need for two prevToken
-        \\if (fn_proto.getAlignExpr()) |align_expr|
-        \\    tree.prevToken(tree.prevToken(align_expr.firstToken()))
-        \\else if (fn_proto.getSectionExpr()) |section_expr|
-        \\    tree.prevToken(tree.prevToken(section_expr.firstToken()))
-        \\else if (fn_proto.getCallconvExpr()) |callconv_expr|
-        \\    tree.prevToken(tree.prevToken(callconv_expr.firstToken()))
-        \\else switch (fn_proto.return_type) {
-        \\    .Explicit => |node| node.firstToken(),
-        \\    .InferErrorSet => |node| tree.prevToken(node.firstToken()),
-        \\    .Invalid => unreachable,
-        \\});
+        \\    // the first token for the annotation expressions is the left
+        \\    // parenthesis, hence the need for two prevToken
+        \\    if (fn_proto.getAlignExpr()) |align_expr|
+        \\        tree.prevToken(tree.prevToken(align_expr.firstToken()))
+        \\    else if (fn_proto.getSectionExpr()) |section_expr|
+        \\        tree.prevToken(tree.prevToken(section_expr.firstToken()))
+        \\    else if (fn_proto.getCallconvExpr()) |callconv_expr|
+        \\        tree.prevToken(tree.prevToken(callconv_expr.firstToken()))
+        \\    else switch (fn_proto.return_type) {
+        \\        .Explicit => |node| node.firstToken(),
+        \\        .InferErrorSet => |node| tree.prevToken(node.firstToken()),
+        \\        .Invalid => unreachable,
+        \\    });
         \\
     );
 }
