@@ -700,9 +700,7 @@ pub const Abi = enum {
 
     pub fn default(arch: Cpu.Arch, os: Os) Abi {
         return if (arch.isWasm()) .musl else switch (os.tag) {
-            .freestanding,
-            .other,
-            => switch (arch) {
+            .freestanding, .other => switch (arch) {
                 // Soft float is usually a sane default for freestanding.
                 .arm,
                 .armeb,
@@ -716,14 +714,32 @@ pub const Abi = enum {
                 => .eabi,
                 else => .none,
             },
-            .aix,
-            => if (arch == .powerpc) .eabihf else .none,
-            .linux,
-            .wasi,
-            .emscripten,
-            => .musl,
-            .rtems,
-            => switch (arch) {
+            .aix => if (arch == .powerpc) .eabihf else .none,
+            .haiku => switch (arch) {
+                .arm,
+                .thumb,
+                .powerpc,
+                => .eabihf,
+                else => .none,
+            },
+            .hurd => .gnu,
+            .linux => switch (arch) {
+                .arm,
+                .armeb,
+                .thumb,
+                .thumbeb,
+                .powerpc,
+                .powerpcle,
+                => .musleabihf,
+                // Soft float tends to be more common for CSKY and MIPS.
+                .csky,
+                => .gnueabi, // No musl support.
+                .mips,
+                .mipsel,
+                => .musleabi,
+                else => .musl,
+            },
+            .rtems => switch (arch) {
                 .arm,
                 .armeb,
                 .thumb,
@@ -735,37 +751,33 @@ pub const Abi = enum {
                 => .eabihf,
                 else => .none,
             },
-            .hurd,
-            .windows,
-            => .gnu,
-            .freebsd,
-            => switch (arch) {
+            .freebsd => switch (arch) {
                 .arm,
                 .armeb,
                 .thumb,
                 .thumbeb,
                 .powerpc,
                 => .eabihf,
+                // Soft float tends to be more common for MIPS.
                 .mips,
                 .mipsel,
                 => .eabi,
                 else => .none,
             },
-            .netbsd,
-            => switch (arch) {
+            .netbsd => switch (arch) {
                 .arm,
                 .armeb,
                 .thumb,
                 .thumbeb,
                 .powerpc,
                 => .eabihf,
+                // Soft float tends to be more common for MIPS.
                 .mips,
                 .mipsel,
                 => .eabi,
                 else => .none,
             },
-            .openbsd,
-            => switch (arch) {
+            .openbsd => switch (arch) {
                 .arm,
                 .thumb,
                 => .eabi,
@@ -773,18 +785,16 @@ pub const Abi = enum {
                 => .eabihf,
                 else => .none,
             },
-            .ios,
-            => if (arch == .x86_64) .macabi else .none,
-            .tvos,
-            .visionos,
-            => if (arch == .x86_64) .simulator else .none,
-            .uefi,
-            => .msvc,
+            .ios => if (arch == .x86_64) .macabi else .none,
+            .tvos, .visionos, .watchos => if (arch == .x86_64) .simulator else .none,
+            .windows => .gnu,
+            .uefi => .msvc,
+            .wasi, .emscripten => .musl,
+
             .contiki,
             .elfiamcu,
             .fuchsia,
             .hermit,
-            .haiku,
             .plan9,
             .serenity,
             .zos,
@@ -792,7 +802,6 @@ pub const Abi = enum {
             .bridgeos,
             .driverkit,
             .macos,
-            .watchos,
             .illumos,
             .solaris,
             .ps3,
