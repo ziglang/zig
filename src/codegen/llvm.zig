@@ -1688,12 +1688,6 @@ pub const Object = struct {
                         else
                             try wip.load(.normal, param_llvm_ty, arg_ptr, param_alignment, ""));
                     },
-                    .as_u16 => {
-                        assert(!it.byval_attr);
-                        const param = wip.arg(llvm_arg_i);
-                        llvm_arg_i += 1;
-                        args.appendAssumeCapacity(try wip.cast(.bitcast, param, .half, ""));
-                    },
                     .float_array => {
                         const param_ty = Type.fromInterned(fn_info.param_types.get(ip)[it.zig_index - 1]);
                         const param_llvm_ty = try o.lowerType(param_ty);
@@ -3096,7 +3090,6 @@ pub const Object = struct {
                 .no_bits,
                 .abi_sized_int,
                 .multiple_llvm_types,
-                .as_u16,
                 .float_array,
                 .i32_array,
                 .i64_array,
@@ -3770,9 +3763,6 @@ pub const Object = struct {
             },
             .multiple_llvm_types => {
                 try llvm_params.appendSlice(o.gpa, it.types_buffer[0..it.types_len]);
-            },
-            .as_u16 => {
-                try llvm_params.append(o.gpa, .i16);
             },
             .float_array => |count| {
                 const param_ty = Type.fromInterned(fn_info.param_types.get(ip)[it.zig_index - 1]);
@@ -5588,12 +5578,6 @@ pub const FuncGen = struct {
                     llvm_args.appendAssumeCapacity(loaded);
                 }
             },
-            .as_u16 => {
-                const arg = args[it.zig_index - 1];
-                const llvm_arg = try self.resolveInst(arg);
-                const casted = try self.wip.cast(.bitcast, llvm_arg, .i16, "");
-                try llvm_args.append(casted);
-            },
             .float_array => |count| {
                 const arg = args[it.zig_index - 1];
                 const arg_ty = self.typeOf(arg);
@@ -5655,7 +5639,6 @@ pub const FuncGen = struct {
                 .no_bits,
                 .abi_sized_int,
                 .multiple_llvm_types,
-                .as_u16,
                 .float_array,
                 .i32_array,
                 .i64_array,
@@ -11969,7 +11952,6 @@ const ParamTypeIterator = struct {
         abi_sized_int,
         multiple_llvm_types,
         slice,
-        as_u16,
         float_array: u8,
         i32_array: u8,
         i64_array: u8,
@@ -12091,8 +12073,6 @@ const ParamTypeIterator = struct {
                 .riscv32, .riscv64 => {
                     it.zig_index += 1;
                     it.llvm_index += 1;
-                    if (ty.toIntern() == .f16_type and
-                        !std.Target.riscv.featureSetHas(target.cpu.features, .d)) return .as_u16;
                     switch (riscv_c_abi.classifyType(ty, zcu)) {
                         .memory => return .byref_mut,
                         .byval => return .byval,
@@ -12440,7 +12420,8 @@ fn isScalar(zcu: *Zcu, ty: Type) bool {
 }
 
 /// This function returns true if we expect LLVM to lower x86_fp80 correctly
-/// and false if we expect LLVM to crash if it counters an x86_fp80 type.
+/// and false if we expect LLVM to crash if it encounters an x86_fp80 type,
+/// or if it produces miscompilations.
 fn backendSupportsF80(target: std.Target) bool {
     return switch (target.cpu.arch) {
         .x86_64, .x86 => !std.Target.x86.featureSetHas(target.cpu.features, .soft_float),
@@ -12449,8 +12430,8 @@ fn backendSupportsF80(target: std.Target) bool {
 }
 
 /// This function returns true if we expect LLVM to lower f16 correctly
-/// and false if we expect LLVM to crash if it counters an f16 type or
-/// if it produces miscompilations.
+/// and false if we expect LLVM to crash if it encounters an f16 type,
+/// or if it produces miscompilations.
 fn backendSupportsF16(target: std.Target) bool {
     return switch (target.cpu.arch) {
         // LoongArch can be removed from this list with LLVM 20.
@@ -12467,7 +12448,6 @@ fn backendSupportsF16(target: std.Target) bool {
         .mipsel,
         .mips64,
         .mips64el,
-        .riscv32,
         .s390x,
         => false,
         .arm,
@@ -12483,7 +12463,7 @@ fn backendSupportsF16(target: std.Target) bool {
 }
 
 /// This function returns true if we expect LLVM to lower f128 correctly,
-/// and false if we expect LLVm to crash if it encounters and f128 type
+/// and false if we expect LLVM to crash if it encounters an f128 type,
 /// or if it produces miscompilations.
 fn backendSupportsF128(target: std.Target) bool {
     return switch (target.cpu.arch) {
@@ -12510,7 +12490,7 @@ fn backendSupportsF128(target: std.Target) bool {
 }
 
 /// LLVM does not support all relevant intrinsics for all targets, so we
-/// may need to manually generate a libc call
+/// may need to manually generate a compiler-rt call.
 fn intrinsicsAllowed(scalar_ty: Type, target: std.Target) bool {
     return switch (scalar_ty.toIntern()) {
         .f16_type => backendSupportsF16(target),

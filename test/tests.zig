@@ -580,6 +580,20 @@ const test_targets = blk: {
         },
 
         .{
+            .target = std.Target.Query.parse(.{
+                .arch_os_abi = "riscv32-linux-none",
+                .cpu_features = "baseline-d-f",
+            }) catch unreachable,
+        },
+        .{
+            .target = std.Target.Query.parse(.{
+                .arch_os_abi = "riscv32-linux-musl",
+                .cpu_features = "baseline-d-f",
+            }) catch unreachable,
+            .link_libc = true,
+        },
+
+        .{
             .target = .{
                 .cpu_arch = .riscv32,
                 .os_tag = .linux,
@@ -600,6 +614,20 @@ const test_targets = blk: {
                 .os_tag = .linux,
                 .abi = .gnu,
             },
+            .link_libc = true,
+        },
+
+        .{
+            .target = std.Target.Query.parse(.{
+                .arch_os_abi = "riscv64-linux-none",
+                .cpu_features = "baseline-d-f",
+            }) catch unreachable,
+        },
+        .{
+            .target = std.Target.Query.parse(.{
+                .arch_os_abi = "riscv64-linux-musl",
+                .cpu_features = "baseline-d-f",
+            }) catch unreachable,
             .link_libc = true,
         },
 
@@ -631,7 +659,7 @@ const test_targets = blk: {
             .target = std.Target.Query.parse(.{
                 .arch_os_abi = "riscv64-linux-musl",
                 .cpu_features = "baseline+v+zbb",
-            }) catch @panic("OOM"),
+            }) catch unreachable,
             .use_llvm = false,
             .use_lld = false,
         },
