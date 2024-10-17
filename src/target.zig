@@ -607,19 +607,3 @@ pub inline fn backendSupportsFeature(backend: std.builtin.CompilerBackend, compt
         },
     };
 }
-
-pub fn stackAlignment(target: std.Target, cc: std.builtin.CallingConvention) u64 {
-    switch (cc) {
-        inline else => |payload| switch (@TypeOf(payload)) {
-            std.builtin.CallingConvention.CommonOptions,
-            std.builtin.CallingConvention.X86RegparmOptions,
-            std.builtin.CallingConvention.ArmInterruptOptions,
-            std.builtin.CallingConvention.MipsInterruptOptions,
-            std.builtin.CallingConvention.RiscvInterruptOptions,
-            => if (payload.incoming_stack_alignment) |a| return a,
-            void => {},
-            else => comptime unreachable,
-        },
-    }
-    return target.stackAlignment();
-}
