@@ -2159,3 +2159,27 @@ test "matching captures causes struct equivalence" {
     comptime assert(@TypeOf(a) == @TypeOf(b));
     try expect(a.x == b.x);
 }
+
+test "struct @FieldType" {
+    const S = struct {
+        a: u32,
+        b: f64,
+        c: *@This(),
+    };
+
+    comptime assert(@FieldType(S, "a") == u32);
+    comptime assert(@FieldType(S, "b") == f64);
+    comptime assert(@FieldType(S, "c") == *S);
+}
+
+test "extern struct @FieldType" {
+    const S = extern struct {
+        a: u32,
+        b: f64,
+        c: *@This(),
+    };
+
+    comptime assert(@FieldType(S, "a") == u32);
+    comptime assert(@FieldType(S, "b") == f64);
+    comptime assert(@FieldType(S, "c") == *S);
+}

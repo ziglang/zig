@@ -2339,3 +2339,39 @@ test "signed enum tag with negative value" {
 
     try expect(e.a == i);
 }
+
+test "union @FieldType" {
+    const U = union {
+        a: u32,
+        b: f64,
+        c: *@This(),
+    };
+
+    comptime assert(@FieldType(U, "a") == u32);
+    comptime assert(@FieldType(U, "b") == f64);
+    comptime assert(@FieldType(U, "c") == *U);
+}
+
+test "tagged union @FieldType" {
+    const U = union(enum) {
+        a: u32,
+        b: f64,
+        c: *@This(),
+    };
+
+    comptime assert(@FieldType(U, "a") == u32);
+    comptime assert(@FieldType(U, "b") == f64);
+    comptime assert(@FieldType(U, "c") == *U);
+}
+
+test "extern union @FieldType" {
+    const U = extern union {
+        a: u32,
+        b: f64,
+        c: *@This(),
+    };
+
+    comptime assert(@FieldType(U, "a") == u32);
+    comptime assert(@FieldType(U, "b") == f64);
+    comptime assert(@FieldType(U, "c") == *U);
+}

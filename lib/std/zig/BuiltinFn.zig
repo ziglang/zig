@@ -50,6 +50,7 @@ pub const Tag = enum {
     @"extern",
     field,
     field_parent_ptr,
+    FieldType,
     float_cast,
     int_from_float,
     frame,
@@ -513,6 +514,13 @@ pub const list = list: {
             "@fieldParentPtr",
             .{
                 .tag = .field_parent_ptr,
+                .param_count = 2,
+            },
+        },
+        .{
+            "@FieldType",
+            .{
+                .tag = .FieldType,
                 .param_count = 2,
             },
         },

@@ -9274,6 +9274,15 @@ fn builtinCall(
             });
             return rvalue(gz, ri, result, node);
         },
+        .FieldType => {
+            const ty_inst = try typeExpr(gz, scope, params[0]);
+            const name_inst = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .slice_const_u8_type } }, params[1]);
+            const result = try gz.addPlNode(.field_type_ref, node, Zir.Inst.FieldTypeRef{
+                .container_type = ty_inst,
+                .field_name = name_inst,
+            });
+            return rvalue(gz, ri, result, node);
+        },
 
         // zig fmt: off
         .as         => return as(       gz, scope, ri, node, params[0], params[1]),
