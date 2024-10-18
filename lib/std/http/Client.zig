@@ -959,7 +959,7 @@ pub const Request = struct {
 
     pub const WaitError = RequestError || SendError || TransferReadError ||
         proto.HeadersParser.CheckCompleteHeadError || Response.ParseError ||
-        error{ // TODO: file zig fmt issue for this bad indentation
+        error{
         TooManyHttpRedirects,
         RedirectRequiresResend,
         HttpRedirectLocationMissing,
@@ -1539,7 +1539,7 @@ pub fn connect(
 
 pub const RequestError = ConnectTcpError || ConnectErrorPartial || Request.SendError ||
     std.fmt.ParseIntError || Connection.WriteError ||
-    error{ // TODO: file a zig fmt issue for this bad indentation
+    error{
     UnsupportedUriScheme,
     UriMissingHost,
 
