@@ -2227,16 +2227,23 @@ or
       Unlike normal structs, {#syntax#}packed{#endsyntax#} structs have guaranteed in-memory layout:
       </p>
       <ul>
-        <li>Fields remain in the order declared, least to most significant.</li>
+        <li>Fields are arranged in the order declared, from the least to the most significant bits of a backing integer.</li>
         <li>There is no padding between fields.</li>
-        <li>Zig supports arbitrary width {#link|Integers#} and although normally, integers with fewer
-        than 8 bits will still use 1 byte of memory, in packed structs, they use
-        exactly their bit width.
+        <li>The backing integer has the same bit width as the fields' total bit width.</li>
+        <li>The backing integer is subject to the same rules as any integer, including {#link|alignment|Alignment#}, 
+        having a maximum bit count of 65535, and the host endianness.
+        On a big endian system, the first declared field will have the highest memory address, and on a little endian system, the lowest.
         </li>
-        <li>{#syntax#}bool{#endsyntax#} fields use exactly 1 bit.</li>
+        <li>Due to {#link|alignment|Alignment#}, the backing integer may require more memory that its bit width. {#link|@bitSizeOf|@bitSizeOf#} and {#link|@sizeOf|@sizeOf#} can interrogate the difference.</li>
+        <li>Field access and assignment can be understood as shorthand for bitshifts on the backing integer.</li>
+        <li>An {#link|integer|Integers#} field uses exactly as many bits as its bit width. For example, a {#syntax#}u5{#endsyntax#} will use 5 bits of the backing integer.</li>
+        <li>A {#link|bool|Primitive Types#} field uses exactly 1 bit.</li>
         <li>An {#link|enum#} field uses exactly the bit width of its integer tag type.</li>
         <li>A {#link|packed union#} field uses exactly the bit width of the union field with
         the largest bit width.</li>
+        <li>A {#syntax#}packed struct{#endsyntax#} field, when within a {#syntax#}packed struct{#endsyntax#}, uses exactly the bit width of its backing integer. For example,
+          a {#syntax#}packed struct{#endsyntax#} field having backing integer {#syntax#}u17{#endsyntax#} uses 17 bits of its parent's backing integer.
+        </li>
         <li>Packed structs support equality operators.</li>
       </ul>
       <p>
@@ -2247,8 +2254,7 @@ or
       {#code|test_packed_structs.zig#}
 
       <p>
-      The backing integer is inferred from the fields' total bit width.
-      Optionally, it can be explicitly provided and enforced at compile time:
+      The backing integer can be inferred or explicitly provided. When inferred, it will be unsigned. When explicitly provided, its bit width will be enforced at compile time to exactly match the total bit width of the fields:
       </p>
       {#code|test_missized_packed_struct.zig#}
 
@@ -2295,12 +2301,11 @@ or
       {#code|test_packed_struct_equality.zig#}
 
       <p>
-      Using packed structs with {#link|volatile#} is problematic, and may be a compile error in the future.
-      For details on this subscribe to
-      <a href="https://github.com/ziglang/zig/issues/1761">this issue</a>.
-      TODO update these docs with a recommendation on how to use packed structs with MMIO
-      (the use case for volatile packed structs) once this issue is resolved.
-      Don't worry, there will be a good solution for this use case in zig.
+      Packed structs can be used to interact with memory-mapped input-output (MMIO), which is
+      common in embedded applications. A pointer of the correct alignment and address to a packed struct
+      can be constructed to faciltiate manipulation of bit-packed registers without arduous bitshifting.
+      
+      {#code|packed_struct_mmio.zig#}
       </p>
       {#header_close#}
 
