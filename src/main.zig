@@ -5081,12 +5081,23 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                 .root_src_path = "build_runner.zig",
             };
 
+            const strip = switch (target_util.zigBackend(resolved_target.result, build_options.have_llvm)) {
+                .stage2_x86_64 => switch (resolved_target.result.ofmt) {
+                    .elf => false,
+                    .macho => true, // https://github.com/ziglang/zig/issues/21719
+                    else => build_options.have_llvm,
+                },
+                .stage2_llvm => true,
+                else => build_options.have_llvm,
+            };
+
             const config = try Compilation.Config.resolve(.{
                 .output_mode = .Exe,
                 .resolved_target = resolved_target,
                 .have_zcu = true,
                 .emit_bin = true,
                 .is_test = false,
+                .root_strip = strip,
             });
 
             const root_mod = try Package.Module.create(arena, .{
@@ -5096,6 +5107,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                 .cc_argv = &.{},
                 .inherited = .{
                     .resolved_target = resolved_target,
+                    .strip = strip,
                 },
                 .global = config,
                 .parent = null,

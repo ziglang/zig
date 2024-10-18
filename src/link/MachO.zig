@@ -670,6 +670,10 @@ fn dumpArgv(self: *MachO, comp: *Compilation) !void {
             try argv.appendSlice(&.{ "-e", entry_name });
         }
 
+        if (comp.config.debug_format == .strip) {
+            try argv.append("-S");
+        }
+
         try argv.append("-o");
         try argv.append(full_out_path);
 
