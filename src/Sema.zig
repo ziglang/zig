@@ -23510,7 +23510,7 @@ fn ptrCastFull(
                 errdefer msg.destroy(sema.gpa);
                 if (dest_info.flags.size == .Many and
                     (src_info.flags.size == .Slice or
-                    (src_info.flags.size == .One and Type.fromInterned(src_info.child).zigTypeTag(zcu) == .array)))
+                        (src_info.flags.size == .One and Type.fromInterned(src_info.child).zigTypeTag(zcu) == .array)))
                 {
                     try sema.errNote(src, msg, "use 'ptr' field to convert slice to many pointer", .{});
                 } else {
@@ -28508,9 +28508,9 @@ fn fieldCallBind(
             const first_param_type = Type.fromInterned(func_type.param_types.get(ip)[0]);
             if (first_param_type.isGenericPoison() or
                 (first_param_type.zigTypeTag(zcu) == .pointer and
-                (first_param_type.ptrSize(zcu) == .One or
-                first_param_type.ptrSize(zcu) == .C) and
-                first_param_type.childType(zcu).eql(concrete_ty, zcu)))
+                    (first_param_type.ptrSize(zcu) == .One or
+                        first_param_type.ptrSize(zcu) == .C) and
+                    first_param_type.childType(zcu).eql(concrete_ty, zcu)))
             {
                 // Note that if the param type is generic poison, we know that it must
                 // specifically be `anytype` since it's the first parameter, meaning we
@@ -30089,7 +30089,7 @@ fn coerceExtra(
 
                     if (dest_info.sentinel == .none or inst_info.sentinel == .none or
                         Air.internedToRef(dest_info.sentinel) !=
-                        try sema.coerceInMemory(Value.fromInterned(inst_info.sentinel), Type.fromInterned(dest_info.child)))
+                            try sema.coerceInMemory(Value.fromInterned(inst_info.sentinel), Type.fromInterned(dest_info.child)))
                         break :p;
 
                     const slice_ptr = try sema.analyzeSlicePtr(block, inst_src, inst, inst_ty);
@@ -30923,12 +30923,12 @@ pub fn coerceInMemoryAllowed(
         }
         const ok_sent = (dest_info.sentinel == null and src_info.sentinel == null) or
             (src_info.sentinel != null and
-            dest_info.sentinel != null and
-            dest_info.sentinel.?.eql(
-            try pt.getCoerced(src_info.sentinel.?, dest_info.elem_type),
-            dest_info.elem_type,
-            zcu,
-        ));
+                dest_info.sentinel != null and
+                dest_info.sentinel.?.eql(
+                    try pt.getCoerced(src_info.sentinel.?, dest_info.elem_type),
+                    dest_info.elem_type,
+                    zcu,
+                ));
         if (!ok_sent) {
             return InMemoryCoercionResult{ .array_sentinel = .{
                 .actual = src_info.sentinel orelse Value.@"unreachable",
@@ -31341,7 +31341,7 @@ fn coerceInMemoryAllowedPtrs(
 
     const ok_sent = dest_info.sentinel == .none or src_info.flags.size == .C or
         (src_info.sentinel != .none and
-        dest_info.sentinel == try zcu.intern_pool.getCoerced(sema.gpa, pt.tid, src_info.sentinel, dest_info.child));
+            dest_info.sentinel == try zcu.intern_pool.getCoerced(sema.gpa, pt.tid, src_info.sentinel, dest_info.child));
     if (!ok_sent) {
         return InMemoryCoercionResult{ .ptr_sentinel = .{
             .actual = switch (src_info.sentinel) {

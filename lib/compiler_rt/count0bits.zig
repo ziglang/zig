@@ -143,7 +143,7 @@ pub const __clzsi2 = switch (builtin.cpu.arch) {
     .arm, .armeb, .thumb, .thumbeb => impl: {
         const use_thumb1 =
             (builtin.cpu.arch.isThumb() or
-            std.Target.arm.featureSetHas(builtin.cpu.features, .noarm)) and
+                std.Target.arm.featureSetHas(builtin.cpu.features, .noarm)) and
             !std.Target.arm.featureSetHas(builtin.cpu.features, .thumb2);
 
         if (use_thumb1) {

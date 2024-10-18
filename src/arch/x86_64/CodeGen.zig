@@ -2921,8 +2921,7 @@ fn restoreState(self: *Self, state: State, deaths: []const Air.Inst.Index, compt
 
     const ExpectedContents = [@typeInfo(RegisterManager.TrackedRegisters).array.len]RegisterLock;
     var stack align(@max(@alignOf(ExpectedContents), @alignOf(std.heap.StackFallbackAllocator(0)))) =
-        if (opts.update_tracking)
-    {} else std.heap.stackFallback(@sizeOf(ExpectedContents), self.gpa);
+        if (opts.update_tracking) {} else std.heap.stackFallback(@sizeOf(ExpectedContents), self.gpa);
 
     var reg_locks = if (opts.update_tracking) {} else try std.ArrayList(RegisterLock).initCapacity(
         stack.get(),
@@ -3490,7 +3489,7 @@ fn airIntCast(self: *Self, inst: Air.Inst.Index) !void {
 
         const dst_mcv = if (dst_int_info.bits <= src_storage_bits and
             math.divCeil(u16, dst_int_info.bits, 64) catch unreachable ==
-            math.divCeil(u32, src_storage_bits, 64) catch unreachable and
+                math.divCeil(u32, src_storage_bits, 64) catch unreachable and
             self.reuseOperand(inst, ty_op.operand, 0, src_mcv)) src_mcv else dst: {
             const dst_mcv = try self.allocRegOrMem(inst, true);
             try self.genCopy(min_ty, dst_mcv, src_mcv, .{});
@@ -5025,10 +5024,10 @@ fn genIntMulDivOpMir(self: *Self, tag: Mir.Inst.FixedTag, ty: Type, lhs: MCValue
             ._ => {
                 const hi_reg: Register =
                     switch (bit_size) {
-                    8 => .ah,
-                    16, 32, 64 => .edx,
-                    else => unreachable,
-                };
+                        8 => .ah,
+                        16, 32, 64 => .edx,
+                        else => unreachable,
+                    };
                 try self.asmRegisterRegister(.{ ._, .xor }, hi_reg, hi_reg);
             },
             .i_ => try self.asmOpOnly(.{ ._, switch (bit_size) {
@@ -9352,9 +9351,9 @@ fn genShiftBinOpMir(
                         .size = Memory.Size.fromSize(abi_size),
                         .disp = math.cast(i32, @as(i64, @bitCast(addr))) orelse
                             return self.fail("TODO genShiftBinOpMir between {s} and {s}", .{
-                            @tagName(lhs_mcv),
-                            @tagName(shift_mcv),
-                        }),
+                                @tagName(lhs_mcv),
+                                @tagName(shift_mcv),
+                            }),
                     } },
                 },
                 .indirect => |reg_off| .{
@@ -10084,17 +10083,17 @@ fn genBinOp(
 
     const ordered_air: [2]Air.Inst.Ref = if (lhs_ty.isVector(zcu) and
         switch (lhs_ty.childType(zcu).zigTypeTag(zcu)) {
-        .bool => false,
-        .int => switch (air_tag) {
-            .cmp_lt, .cmp_gte => true,
-            else => false,
-        },
-        .float => switch (air_tag) {
-            .cmp_gte, .cmp_gt => true,
-            else => false,
-        },
-        else => unreachable,
-    }) .{ rhs_air, lhs_air } else .{ lhs_air, rhs_air };
+            .bool => false,
+            .int => switch (air_tag) {
+                .cmp_lt, .cmp_gte => true,
+                else => false,
+            },
+            .float => switch (air_tag) {
+                .cmp_gte, .cmp_gt => true,
+                else => false,
+            },
+            else => unreachable,
+        }) .{ rhs_air, lhs_air } else .{ lhs_air, rhs_air };
 
     if (lhs_ty.isAbiInt(zcu)) for (ordered_air) |op_air| {
         switch (try self.resolveInst(op_air)) {
@@ -12069,13 +12068,13 @@ fn genIntMulComplexOpMir(self: *Self, dst_ty: Type, dst_mcv: MCValue, src_mcv: M
                                 .size = Memory.Size.fromSize(abi_size),
                                 .disp = math.cast(i32, @as(i64, @bitCast(addr))) orelse
                                     return self.asmRegisterRegister(
-                                    .{ .i_, .mul },
-                                    dst_alias,
-                                    registerAlias(
-                                        try self.copyToTmpRegister(dst_ty, resolved_src_mcv),
-                                        abi_size,
+                                        .{ .i_, .mul },
+                                        dst_alias,
+                                        registerAlias(
+                                            try self.copyToTmpRegister(dst_ty, resolved_src_mcv),
+                                            abi_size,
+                                        ),
                                     ),
-                                ),
                             } },
                         },
                         .indirect => |reg_off| .{
@@ -14168,9 +14167,9 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
                 mem.eql(u8, rest, "r,m") or mem.eql(u8, rest, "m,r"))
                 self.register_manager.tryAllocReg(maybe_inst, abi.RegisterClass.gp) orelse
                     if (output != .none)
-                    null
-                else
-                    return self.fail("ran out of registers lowering inline asm", .{})
+                        null
+                    else
+                        return self.fail("ran out of registers lowering inline asm", .{})
             else if (mem.startsWith(u8, rest, "{") and mem.endsWith(u8, rest, "}"))
                 parseRegName(rest["{".len .. rest.len - "}".len]) orelse
                     return self.fail("invalid register constraint: '{s}'", .{constraint})
@@ -16610,9 +16609,9 @@ fn airAtomicLoad(self: *Self, inst: Air.Inst.Index) !void {
 
     const dst_mcv =
         if (self.reuseOperand(inst, atomic_load.ptr, 0, ptr_mcv))
-        ptr_mcv
-    else
-        try self.allocRegOrMem(inst, true);
+            ptr_mcv
+        else
+            try self.allocRegOrMem(inst, true);
 
     try self.load(dst_mcv, ptr_ty, ptr_mcv);
     return self.finishAir(inst, dst_mcv, .{ atomic_load.ptr, .none, .none });
