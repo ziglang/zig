@@ -43,6 +43,7 @@ const WIN32_FIND_DATAW = windows.WIN32_FIND_DATAW;
 const Win32Error = windows.Win32Error;
 const WINAPI = windows.WINAPI;
 const WORD = windows.WORD;
+const SYSTEM_INFO = windows.SYSTEM_INFO;
 
 // I/O - Filesystem
 
@@ -670,4 +671,8 @@ pub extern "kernel32" fn SetLastError(
 //  Much better to use NtQuerySystemTime or NtQuerySystemTimePrecise for guaranteed 0.1ns precision.
 pub extern "kernel32" fn GetSystemTimeAsFileTime(
     lpSystemTimeAsFileTime: *FILETIME,
+) callconv(WINAPI) void;
+
+pub extern "kernel32" fn GetSystemInfo(
+    lpSystemInfo: *SYSTEM_INFO,
 ) callconv(WINAPI) void;

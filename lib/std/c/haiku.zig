@@ -17,6 +17,7 @@ comptime {
 }
 
 pub extern "root" fn _errnop() *i32;
+
 pub extern "root" fn find_directory(which: directory_which, volume: i32, createIt: bool, path_ptr: [*]u8, length: i32) u64;
 pub extern "root" fn find_thread(thread_name: ?*anyopaque) i32;
 pub extern "root" fn get_system_info(system_info: *system_info) usize;
