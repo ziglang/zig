@@ -1943,20 +1943,44 @@ pub fn readLinkW(self: Dir, sub_path_w: []const u16, buffer: []u8) ![]u8 {
     return windows.ReadLink(self.fd, sub_path_w, buffer);
 }
 
-/// Read all of file contents using a preallocated buffer.
-/// The returned slice has the same pointer as `buffer`. If the length matches `buffer.len`
-/// the situation is ambiguous. It could either mean that the entire file was read, and
-/// it exactly fits the buffer, or it could mean the buffer was not big enough for the
-/// entire file.
+/// Read at most `buffer.len` bytes from the file at `file_path` into `buffer`.
+/// The returned slice has the same pointer as `buffer`. If the entirety of the file does not fit
+/// into `buffer`, `buffer ` contains the first `buffer.len` bytes of the file.
 /// On Windows, `file_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
 /// On WASI, `file_path` should be encoded as valid UTF-8.
 /// On other platforms, `file_path` is an opaque sequence of bytes with no particular encoding.
-pub fn readFile(self: Dir, file_path: []const u8, buffer: []u8) ![]u8 {
+pub fn readFileTruncate(self: Dir, file_path: []const u8, buffer: []u8) ![]u8 {
     var file = try self.openFile(file_path, .{});
     defer file.close();
 
-    const end_index = try file.readAll(buffer);
-    return buffer[0..end_index];
+    const nb_read = try file.readAll(buffer);
+    return buffer[0..nb_read];
+}
+
+/// Read the entirety of the file at `file_path` into `buffer`.
+/// The returned slice has the same pointer as `buffer`. If the entirety of the file does not fit
+/// into `buffer`, `error.Truncated` is returned, and `buffer` contains the first `buffer.len` bytes
+/// of the file.
+/// On Windows, `file_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On WASI, `file_path` should be encoded as valid UTF-8.
+/// On other platforms, `file_path` is an opaque sequence of bytes with no particular encoding.
+pub fn readFile(self: std.fs.Dir, file_path: []const u8, buffer: []u8) ![]u8 {
+    var file = try self.openFile(file_path, .{});
+    defer file.close();
+
+    var unused: [1]u8 = undefined;
+    var iovecs = [_]std.posix.iovec{
+        .{ .base = buffer.ptr, .len = buffer.len },
+        .{ .base = &unused, .len = unused.len },
+    };
+
+    const nb_read = try file.readvAll(&iovecs);
+
+    if (nb_read > buffer.len) {
+        return error.Truncated;
+    }
+
+    return buffer[0..nb_read];
 }
 
 /// On success, caller owns returned buffer.
