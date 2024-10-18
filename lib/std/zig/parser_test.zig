@@ -5962,6 +5962,151 @@ test "zig fmt: pointer type syntax to index" {
     );
 }
 
+test "zig fmt: binop indentation in if statement" {
+    try testCanonical(
+        \\test {
+        \\    if (first_param_type.isGenericPoison() or
+        \\        (first_param_type.zigTypeTag(zcu) == .pointer and
+        \\            (first_param_type.ptrSize(zcu) == .One or
+        \\                first_param_type.ptrSize(zcu) == .C) and
+        \\            first_param_type.childType(zcu).eql(concrete_ty, zcu)))
+        \\    {
+        \\        f(x);
+        \\    }
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: test indentation after equals sign" {
+    try testCanonical(
+        \\test {
+        \\    const foo =
+        \\        if (1 == 2)
+        \\            1
+        \\        else if (3 > 4)
+        \\            2
+        \\        else
+        \\            0;
+        \\
+        \\    const foo, const bar =
+        \\        if (1 == 2)
+        \\            .{ 0, 0 }
+        \\        else if (3 > 4)
+        \\            .{ 1, 1 }
+        \\        else
+        \\            .{ 2, 2 };
+        \\
+        \\    while (foo) if (bar)
+        \\        f(x);
+        \\
+        \\    foobar =
+        \\        if (true)
+        \\            1
+        \\        else
+        \\            0;
+        \\
+        \\    const foo = if (1 == 2)
+        \\        1
+        \\    else if (3 > 4)
+        \\        2
+        \\    else
+        \\        0;
+        \\
+        \\    const foo, const bar = if (1 == 2)
+        \\        .{ 0, 0 }
+        \\    else if (3 > 4)
+        \\        .{ 1, 1 }
+        \\    else
+        \\        .{ 2, 2 };
+        \\
+        \\    foobar = if (true)
+        \\        1
+        \\    else
+        \\        0;
+        \\
+        \\    const is_alphanum =
+        \\        (ch >= 'a' and ch <= 'z') or
+        \\        (ch >= 'A' and ch <= 'Z') or
+        \\        (ch >= '0' and ch <= '9');
+        \\
+        \\    const bar = 100 + calculate(
+        \\        200,
+        \\        300,
+        \\    );
+        \\
+        \\    const gcc_pragma = std.meta.stringToEnum(Directive, pp.expandedSlice(directive_tok)) orelse
+        \\        return pp.comp.addDiagnostic(.{
+        \\            .tag = .unknown_gcc_pragma,
+        \\            .loc = directive_tok.loc,
+        \\        }, pp.expansionSlice(start_idx + 1));
+        \\
+        \\    const vec4s =
+        \\        [_][4]i32{
+        \\            [_]i32{ 0, 1, 0, 0 },
+        \\            [_]i32{ 0, -1, 0, 0 },
+        \\            [_]i32{ 2, 1, 2, 0 },
+        \\        };
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: test indentation of if expressions" {
+    try testCanonical(
+        \\test {
+        \\    const foo = 1 +
+        \\        if (1 == 2)
+        \\            2
+        \\        else
+        \\            0;
+        \\
+        \\    const foo = 1 + if (1 == 2)
+        \\        2
+        \\    else
+        \\        0;
+        \\
+        \\    errval catch |e|
+        \\        if (e == error.Meow)
+        \\            return 0x1F408
+        \\        else
+        \\            unreachable;
+        \\
+        \\    errval catch |e| if (e == error.Meow)
+        \\        return 0x1F408
+        \\    else
+        \\        unreachable;
+        \\
+        \\    return if (1 == 2)
+        \\        1
+        \\    else if (3 > 4)
+        \\        2
+        \\    else
+        \\        0;
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: indentation of comments within catch, else, orelse" {
+    try testCanonical(
+        \\comptime {
+        \\    _ = foo() catch
+        \\        //
+        \\        bar();
+        \\
+        \\    _ = if (foo) bar() else
+        \\        //
+        \\        qux();
+        \\
+        \\    _ = foo() orelse
+        \\        //
+        \\        qux();
+        \\}
+        \\
+    );
+}
+
 test "recovery: top level" {
     try testError(
         \\test "" {inline}
