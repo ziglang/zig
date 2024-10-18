@@ -14,10 +14,18 @@ pub fn deinit(dwarf: *Dwarf, allocator: Allocator) void {
 /// This is new in DWARFv5 and requires the producer to specify DW_FORM_strx* (`index` arg)
 /// but also DW_AT_str_offsets_base with DW_FORM_sec_offset (`base` arg) in the opening header
 /// of a "referencing entity" such as DW_TAG_compile_unit.
-fn getOffset(debug_str_offsets: []const u8, base: u64, index: u64, dw_fmt: DwarfFormat) u64 {
+fn getOffset(debug_str_offsets: []const u8, base: u64, index: u64, dw_fmt: DwarfFormat) error{Overflow}!u64 {
+    const base_as_usize = math.cast(usize, base) orelse return error.Overflow;
+    const index_as_usize = math.cast(usize, index) orelse return error.Overflow;
     return switch (dw_fmt) {
-        .dwarf32 => @as(*align(1) const u32, @ptrCast(debug_str_offsets.ptr + base + index * @sizeOf(u32))).*,
-        .dwarf64 => @as(*align(1) const u64, @ptrCast(debug_str_offsets.ptr + base + index * @sizeOf(u64))).*,
+        .dwarf32 => @as(
+            *align(1) const u32,
+            @ptrCast(debug_str_offsets.ptr + base_as_usize + index_as_usize * @sizeOf(u32)),
+        ).*,
+        .dwarf64 => @as(
+            *align(1) const u64,
+            @ptrCast(debug_str_offsets.ptr + base_as_usize + index_as_usize * @sizeOf(u64)),
+        ).*,
     };
 }
 
@@ -228,7 +236,10 @@ pub const InfoReader = struct {
             dw.FORM.strx4,
             => {
                 const index = try p.readIndex(form);
-                const off = getOffset(p.ctx.debug_str_offsets, base, index, cuh.format);
+                const off = math.cast(
+                    usize,
+                    try getOffset(p.ctx.debug_str_offsets, base, index, cuh.format),
+                ) orelse return error.Overflow;
                 return mem.sliceTo(@as([*:0]const u8, @ptrCast(p.ctx.debug_str.ptr + off)), 0);
             },
             else => unreachable,
