@@ -3302,6 +3302,26 @@ fn rowSize(tree: Ast, exprs: []const Ast.Node.Index, rtoken: Ast.TokenIndex) usi
 
 /// Automatically inserts indentation of written data by keeping
 /// track of the current indentation level
+///
+/// We introduce a new indentation scope with pushIndent/popIndent whenever
+/// we potentially want to introduce an indent after the next newline.
+///
+/// Indentation should only ever increment by one from one line to the next,
+/// no matter how many new indentation scopes are introduced. This is done by
+/// only realizing the indentation from the most recent scope. As an example:
+///
+///         while (foo) if (bar)
+///             f(x);
+///
+/// The body of `while` introduces a new indentation scope and the body of
+/// `if` also introduces a new indentation scope. When the newline is seen,
+/// only the indentation scope of the `if` is realized, and the `while` is
+/// not.
+///
+/// As comments are rendered during space rendering, we need to keep track
+/// of the appropriate indentation level for them with pushSpace/popSpace.
+/// This should be done whenever a scope that ends in a .semicolon or a
+/// .comma is introduced.
 fn AutoIndentingStream(comptime UnderlyingWriter: type) type {
     return struct {
         const Self = @This();
@@ -3400,8 +3420,11 @@ fn AutoIndentingStream(comptime UnderlyingWriter: type) type {
 
         fn resetLine(self: *Self) void {
             self.current_line_empty = true;
+
             if (self.disable_indent_committing > 0) return;
+
             if (self.indent_stack.items.len > 0) {
+                // By default, we realize the most recent indentation scope.
                 var to_realize = self.indent_stack.items.len - 1;
 
                 if (self.indent_stack.items.len >= 2 and
@@ -3409,12 +3432,18 @@ fn AutoIndentingStream(comptime UnderlyingWriter: type) type {
                     self.indent_stack.items[to_realize - 1].realized and
                     self.indent_stack.items[to_realize].indent_type == .binop)
                 {
-                    // collapse one level of indentation in binop after equals sign
+                    // If we are in a .binop scope and our direct parent is .after_equals, don't indent.
+                    // This ensures correct indentation in the below example:
+                    //
+                    //        const foo =
+                    //            (x >= 'a' and x <= 'z') or         //<-- we are here
+                    //            (x >= 'A' and x <= 'Z');
+                    //
                     return;
                 }
 
                 if (self.indent_stack.items[to_realize].indent_type == .field_access) {
-                    // only realize topmost field_access in a chain
+                    // Only realize the top-most field_access in a chain.
                     while (to_realize > 0 and self.indent_stack.items[to_realize - 1].indent_type == .field_access)
                         to_realize -= 1;
                 }
@@ -3425,6 +3454,7 @@ fn AutoIndentingStream(comptime UnderlyingWriter: type) type {
             }
         }
 
+        /// Disables indentation level changes during the next newlines until re-enabled.
         pub fn disableIndentCommitting(self: *Self) void {
             self.disable_indent_committing += 1;
         }
@@ -3442,6 +3472,7 @@ fn AutoIndentingStream(comptime UnderlyingWriter: type) type {
             _ = self.space_stack.pop();
         }
 
+        /// Sets current indentation level to be the same as that of the last pushSpace.
         pub fn enableSpaceMode(self: *Self, space: Space) void {
             if (self.space_stack.items.len == 0) return;
             const curr = self.space_stack.getLast();
@@ -3471,6 +3502,7 @@ fn AutoIndentingStream(comptime UnderlyingWriter: type) type {
             try self.indent_stack.append(.{ .indent_type = indent_type, .realized = false });
         }
 
+        /// Forces an indentation level to be realized.
         pub fn forcePushIndent(self: *Self, indent_type: IndentType) !void {
             try self.indent_stack.append(.{ .indent_type = indent_type, .realized = true });
             self.indent_count += 1;
