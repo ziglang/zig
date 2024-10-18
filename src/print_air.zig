@@ -52,6 +52,34 @@ pub fn write(stream: anytype, pt: Zcu.PerThread, air: Air, liveness: ?Liveness) 
     writer.writeBody(stream, air.getMainBody()) catch return;
 }
 
+pub fn writeContext(
+    stream: anytype,
+    pt: Zcu.PerThread,
+    block: []const Air.Inst.Index,
+    block_index: usize,
+    air: Air,
+    liveness: ?Liveness,
+) !void {
+    var writer: Writer = .{
+        .pt = pt,
+        .gpa = pt.zcu.gpa,
+        .air = air,
+        .liveness = liveness,
+        .indent = 6,
+        .skip_body = false,
+    };
+
+    try writer.writeBody(stream, block[0..block_index]);
+    try stream.writeAll("    > ");
+    writer.indent = 0;
+    try writer.writeInst(stream, block[block_index]);
+    writer.indent = 6;
+    try stream.writeByte('\n');
+    if (block_index + 1 < block.len) {
+        try writer.writeBody(stream, block[block_index + 1 ..]);
+    }
+}
+
 pub fn writeInst(
     stream: anytype,
     inst: Air.Inst.Index,
