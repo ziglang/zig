@@ -11,17 +11,30 @@ pub fn build(b: *std.Build) void {
     });
     const bar = b.createModule(.{
         .root_source_file = b.path("bar.zig"),
+        .imports = &.{
+            .{
+                .name = "foo",
+                .module = foo,
+            },
+        },
     });
+    // Make it mutually recursive:
     foo.addImport("bar", bar);
-    bar.addImport("foo", foo);
 
-    const exe = b.addExecutable(.{
+    const exe = b.addExecutable2(.{
         .name = "test",
-        .root_source_file = b.path("test.zig"),
-        .target = b.graph.host,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("test.zig"),
+            .target = b.graph.host,
+            .optimize = optimize,
+            .imports = &.{
+                .{
+                    .name = "foo",
+                    .module = foo,
+                },
+            },
+        }),
     });
-    exe.root_module.addImport("foo", foo);
 
     const run = b.addRunArtifact(exe);
     test_step.dependOn(&run.step);

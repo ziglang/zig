@@ -4,27 +4,34 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Test it");
     b.default_step = test_step;
 
-    const optimize: std.builtin.OptimizeMode = .Debug;
     const target = b.graph.host;
+    const optimize: std.builtin.OptimizeMode = .Debug;
 
-    const obj = b.addObject(.{
+    const obj = b.addObject2(.{
         .name = "base64",
-        .root_source_file = b.path("base64.zig"),
-        .optimize = optimize,
-        .target = target,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("base64.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
     });
 
-    const exe = b.addExecutable(.{
-        .name = "test",
-        .optimize = optimize,
+    const mod = b.createModule(.{
+        .root_source_file = null,
         .target = target,
+        .optimize = optimize,
+        .link_libc = true,
     });
-    exe.addCSourceFile(.{
+    mod.addCSourceFile(.{
         .file = b.path("test.c"),
-        .flags = &[_][]const u8{"-std=c99"},
+        .flags = &.{"-std=c99"},
     });
-    exe.addObject(obj);
-    exe.linkSystemLibrary("c");
+    mod.addObject(obj);
+
+    const exe = b.addExecutable2(.{
+        .name = "test",
+        .root_module = mod,
+    });
 
     b.default_step.dependOn(&exe.step);
 

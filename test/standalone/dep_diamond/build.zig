@@ -6,23 +6,36 @@ pub fn build(b: *std.Build) void {
 
     const optimize: std.builtin.OptimizeMode = .Debug;
 
+    // Dependency scheme:
+    // exe_mod -> foo, bar -> shared
+
     const shared = b.createModule(.{
         .root_source_file = b.path("shared.zig"),
     });
 
-    const exe = b.addExecutable(.{
-        .name = "test",
+    const exe_mod = b.createModule(.{
         .root_source_file = b.path("test.zig"),
         .target = b.graph.host,
         .optimize = optimize,
     });
-    exe.root_module.addAnonymousImport("foo", .{
+    exe_mod.addAnonymousImport("foo", .{
         .root_source_file = b.path("foo.zig"),
-        .imports = &.{.{ .name = "shared", .module = shared }},
+        .imports = &.{.{
+            .name = "shared",
+            .module = shared,
+        }},
     });
-    exe.root_module.addAnonymousImport("bar", .{
+    exe_mod.addAnonymousImport("bar", .{
         .root_source_file = b.path("bar.zig"),
-        .imports = &.{.{ .name = "shared", .module = shared }},
+        .imports = &.{.{
+            .name = "shared",
+            .module = shared,
+        }},
+    });
+
+    const exe = b.addExecutable2(.{
+        .name = "test",
+        .root_module = exe_mod,
     });
 
     const run = b.addRunArtifact(exe);

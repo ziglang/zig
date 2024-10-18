@@ -10,15 +10,20 @@ pub fn build(b: *std.Build) void {
     if (target.result.ofmt != .elf or !(target.result.abi.isMusl() or target.result.abi.isGnu()))
         return;
 
-    const exe = b.addExecutable(.{
-        .name = "main",
-        .optimize = optimize,
+    const mod = b.createModule(.{
+        .root_source_file = null,
         .target = target,
+        .optimize = optimize,
+        .link_libc = true,
     });
-    exe.linkLibC();
-    exe.addCSourceFile(.{
+    mod.addCSourceFile(.{
         .file = b.path("main.c"),
         .flags = &.{},
+    });
+
+    const exe = b.addExecutable2(.{
+        .name = "main",
+        .root_module = mod,
     });
     exe.link_gc_sections = false;
     exe.bundle_compiler_rt = true;

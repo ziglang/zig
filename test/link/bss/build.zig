@@ -4,11 +4,13 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Test");
     b.default_step = test_step;
 
-    const exe = b.addExecutable(.{
+    const exe = b.addExecutable2(.{
         .name = "bss",
-        .root_source_file = b.path("main.zig"),
-        .target = b.graph.host,
-        .optimize = .Debug,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("main.zig"),
+            .target = b.graph.host,
+            .optimize = .Debug,
+        }),
     });
 
     const run = b.addRunArtifact(exe);

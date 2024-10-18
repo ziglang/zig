@@ -43,11 +43,13 @@ pub fn build(b: *std.Build) void {
         "../../tools/update_glibc.zig",
         "../../tools/update_spirv_features.zig",
     }) |tool_src_path| {
-        const tool = b.addTest(.{
+        const tool = b.addTest2(.{
             .name = std.fs.path.stem(tool_src_path),
-            .root_source_file = b.path(tool_src_path),
-            .optimize = .Debug,
-            .target = tools_target,
+            .root_module = b.createModule(.{
+                .root_source_file = b.path(tool_src_path),
+                .target = tools_target,
+                .optimize = .Debug,
+            }),
         });
         const run = b.addRunArtifact(tool);
         tools_tests_step.dependOn(&run.step);

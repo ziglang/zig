@@ -4,16 +4,22 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Test it");
     b.default_step = test_step;
 
-    const test1 = b.addTest(.{
-        .root_source_file = b.path("test_root/empty.zig"),
+    const test1 = b.addTest2(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("test_root/empty.zig"),
+        }),
         .test_runner = "src/main.zig",
     });
-    const test2 = b.addTest(.{
-        .root_source_file = b.path("src/empty.zig"),
+    const test2 = b.addTest2(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/empty.zig"),
+        }),
         .test_runner = "src/main.zig",
     });
-    const test3 = b.addTest(.{
-        .root_source_file = b.path("empty.zig"),
+    const test3 = b.addTest2(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("empty.zig"),
+        }),
         .test_runner = "src/main.zig",
     });
 
