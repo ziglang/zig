@@ -103,15 +103,20 @@ fn markLive(atom: *Atom, elf_file: *Elf) void {
     assert(atom.visited);
     const file = atom.file(elf_file).?;
 
-    for (atom.fdes(elf_file)) |fde| {
-        for (fde.relocs(elf_file)[1..]) |rel| {
-            const ref = file.resolveSymbol(rel.r_sym(), elf_file);
-            const target_sym = elf_file.symbol(ref) orelse continue;
-            const target_atom = target_sym.atom(elf_file) orelse continue;
-            target_atom.alive = true;
-            gc_track_live_log.debug("{}marking live atom({d})", .{ track_live_level, target_atom.atom_index });
-            if (markAtom(target_atom)) markLive(target_atom, elf_file);
-        }
+    switch (file) {
+        .object => |object| {
+            for (atom.fdes(object)) |fde| {
+                for (fde.relocs(object)[1..]) |rel| {
+                    const ref = file.resolveSymbol(rel.r_sym(), elf_file);
+                    const target_sym = elf_file.symbol(ref) orelse continue;
+                    const target_atom = target_sym.atom(elf_file) orelse continue;
+                    target_atom.alive = true;
+                    gc_track_live_log.debug("{}marking live atom({d})", .{ track_live_level, target_atom.atom_index });
+                    if (markAtom(target_atom)) markLive(target_atom, elf_file);
+                }
+            }
+        },
+        else => {},
     }
 
     for (atom.relocs(elf_file)) |rel| {
@@ -135,23 +140,25 @@ fn mark(roots: std.ArrayList(*Atom), elf_file: *Elf) void {
     }
 }
 
-fn prune(elf_file: *Elf) void {
-    const pruneInFile = struct {
-        fn pruneInFile(file: File, ef: *Elf) void {
-            for (file.atoms()) |atom_index| {
-                const atom = file.atom(atom_index) orelse continue;
-                if (atom.alive and !atom.visited) {
-                    atom.alive = false;
-                    atom.markFdesDead(ef);
-                }
+fn pruneInFile(file: File) void {
+    for (file.atoms()) |atom_index| {
+        const atom = file.atom(atom_index) orelse continue;
+        if (atom.alive and !atom.visited) {
+            atom.alive = false;
+            switch (file) {
+                .object => |object| atom.markFdesDead(object),
+                else => {},
             }
         }
-    }.pruneInFile;
+    }
+}
+
+fn prune(elf_file: *Elf) void {
     if (elf_file.zigObjectPtr()) |zo| {
-        pruneInFile(zo.asFile(), elf_file);
+        pruneInFile(zo.asFile());
     }
     for (elf_file.objects.items) |index| {
-        pruneInFile(elf_file.file(index).?, elf_file);
+        pruneInFile(elf_file.file(index).?);
     }
 }
 

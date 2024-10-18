@@ -1,45 +1,47 @@
 path: Path,
-cpu_arch: ?std.Target.Cpu.Arch = null,
-args: std.ArrayListUnmanaged(Arg) = .empty,
+cpu_arch: ?std.Target.Cpu.Arch,
+args: []const Arg,
 
 pub const Arg = struct {
     needed: bool = false,
     path: []const u8,
 };
 
-pub fn deinit(scr: *LdScript, allocator: Allocator) void {
-    scr.args.deinit(allocator);
+pub fn deinit(ls: *LdScript, gpa: Allocator) void {
+    gpa.free(ls.args);
+    ls.* = undefined;
 }
 
 pub const Error = error{
     LinkFailure,
-    UnexpectedToken,
     UnknownCpuArch,
     OutOfMemory,
 };
 
-pub fn parse(scr: *LdScript, data: []const u8, elf_file: *Elf) Error!void {
-    const comp = elf_file.base.comp;
-    const gpa = comp.gpa;
-    const diags = &comp.link_diags;
-
+pub fn parse(
+    gpa: Allocator,
+    diags: *Diags,
+    /// For error reporting.
+    path: Path,
+    data: []const u8,
+) Error!LdScript {
     var tokenizer = Tokenizer{ .source = data };
-    var tokens = std.ArrayList(Token).init(gpa);
-    defer tokens.deinit();
-    var line_col = std.ArrayList(LineColumn).init(gpa);
-    defer line_col.deinit();
+    var tokens: std.ArrayListUnmanaged(Token) = .empty;
+    defer tokens.deinit(gpa);
+    var line_col: std.ArrayListUnmanaged(LineColumn) = .empty;
+    defer line_col.deinit(gpa);
 
     var line: usize = 0;
     var prev_line_last_col: usize = 0;
 
     while (true) {
         const tok = tokenizer.next();
-        try tokens.append(tok);
+        try tokens.append(gpa, tok);
         const column = tok.start - prev_line_last_col;
-        try line_col.append(.{ .line = line, .column = column });
+        try line_col.append(gpa, .{ .line = line, .column = column });
         switch (tok.id) {
             .invalid => {
-                return diags.failParse(scr.path, "invalid token in LD script: '{s}' ({d}:{d})", .{
+                return diags.failParse(path, "invalid token in LD script: '{s}' ({d}:{d})", .{
                     std.fmt.fmtSliceEscapeLower(tok.get(data)), line, column,
                 });
             },
@@ -52,18 +54,22 @@ pub fn parse(scr: *LdScript, data: []const u8, elf_file: *Elf) Error!void {
         }
     }
 
-    var it = TokenIterator{ .tokens = tokens.items };
-    var parser = Parser{ .source = data, .it = &it };
-    var args = std.ArrayList(Arg).init(gpa);
-    scr.doParse(.{
-        .parser = &parser,
-        .args = &args,
-    }) catch |err| switch (err) {
+    var it: TokenIterator = .{ .tokens = tokens.items };
+    var parser: Parser = .{
+        .gpa = gpa,
+        .source = data,
+        .it = &it,
+        .args = .empty,
+        .cpu_arch = null,
+    };
+    defer parser.args.deinit(gpa);
+
+    parser.start() catch |err| switch (err) {
         error.UnexpectedToken => {
             const last_token_id = parser.it.pos - 1;
             const last_token = parser.it.get(last_token_id);
             const lcol = line_col.items[last_token_id];
-            return diags.failParse(scr.path, "unexpected token in LD script: {s}: '{s}' ({d}:{d})", .{
+            return diags.failParse(path, "unexpected token in LD script: {s}: '{s}' ({d}:{d})", .{
                 @tagName(last_token.id),
                 last_token.get(data),
                 lcol.line,
@@ -72,30 +78,10 @@ pub fn parse(scr: *LdScript, data: []const u8, elf_file: *Elf) Error!void {
         },
         else => |e| return e,
     };
-    scr.args = args.moveToUnmanaged();
-}
-
-fn doParse(scr: *LdScript, ctx: struct {
-    parser: *Parser,
-    args: *std.ArrayList(Arg),
-}) !void {
-    while (true) {
-        ctx.parser.skipAny(&.{ .comment, .new_line });
-
-        if (ctx.parser.maybe(.command)) |cmd_id| {
-            const cmd = ctx.parser.getCommand(cmd_id);
-            switch (cmd) {
-                .output_format => scr.cpu_arch = try ctx.parser.outputFormat(),
-                // TODO we should verify that group only contains libraries
-                .input, .group => try ctx.parser.group(ctx.args),
-                else => return error.UnexpectedToken,
-            }
-        } else break;
-    }
-
-    if (ctx.parser.it.next()) |tok| switch (tok.id) {
-        .eof => {},
-        else => return error.UnexpectedToken,
+    return .{
+        .path = path,
+        .cpu_arch = parser.cpu_arch,
+        .args = try parser.args.toOwnedSlice(gpa),
     };
 }
 
@@ -126,8 +112,33 @@ const Command = enum {
 };
 
 const Parser = struct {
+    gpa: Allocator,
     source: []const u8,
     it: *TokenIterator,
+
+    cpu_arch: ?std.Target.Cpu.Arch,
+    args: std.ArrayListUnmanaged(Arg),
+
+    fn start(parser: *Parser) !void {
+        while (true) {
+            parser.skipAny(&.{ .comment, .new_line });
+
+            if (parser.maybe(.command)) |cmd_id| {
+                const cmd = parser.getCommand(cmd_id);
+                switch (cmd) {
+                    .output_format => parser.cpu_arch = try parser.outputFormat(),
+                    // TODO we should verify that group only contains libraries
+                    .input, .group => try parser.group(),
+                    else => return error.UnexpectedToken,
+                }
+            } else break;
+        }
+
+        if (parser.it.next()) |tok| switch (tok.id) {
+            .eof => {},
+            else => return error.UnexpectedToken,
+        };
+    }
 
     fn outputFormat(p: *Parser) !std.Target.Cpu.Arch {
         const value = value: {
@@ -149,18 +160,19 @@ const Parser = struct {
         return error.UnknownCpuArch;
     }
 
-    fn group(p: *Parser, args: *std.ArrayList(Arg)) !void {
+    fn group(p: *Parser) !void {
+        const gpa = p.gpa;
         if (!p.skip(&.{.lparen})) return error.UnexpectedToken;
 
         while (true) {
             if (p.maybe(.literal)) |tok_id| {
                 const tok = p.it.get(tok_id);
                 const path = tok.get(p.source);
-                try args.append(.{ .path = path, .needed = true });
+                try p.args.append(gpa, .{ .path = path, .needed = true });
             } else if (p.maybe(.command)) |cmd_id| {
                 const cmd = p.getCommand(cmd_id);
                 switch (cmd) {
-                    .as_needed => try p.asNeeded(args),
+                    .as_needed => try p.asNeeded(),
                     else => return error.UnexpectedToken,
                 }
             } else break;
@@ -169,13 +181,14 @@ const Parser = struct {
         _ = try p.require(.rparen);
     }
 
-    fn asNeeded(p: *Parser, args: *std.ArrayList(Arg)) !void {
+    fn asNeeded(p: *Parser) !void {
+        const gpa = p.gpa;
         if (!p.skip(&.{.lparen})) return error.UnexpectedToken;
 
         while (p.maybe(.literal)) |tok_id| {
             const tok = p.it.get(tok_id);
             const path = tok.get(p.source);
-            try args.append(.{ .path = path, .needed = false });
+            try p.args.append(gpa, .{ .path = path, .needed = false });
         }
 
         _ = try p.require(.rparen);
@@ -227,21 +240,19 @@ const Token = struct {
     end: usize,
 
     const Id = enum {
-        // zig fmt: off
         eof,
         invalid,
 
         new_line,
-        lparen,    // (
-        rparen,    // )
-        lbrace,    // {
-        rbrace,    // }
+        lparen, // (
+        rparen, // )
+        lbrace, // {
+        rbrace, // }
 
-        comment,   // /* */
+        comment, // /* */
 
-        command,   // literal with special meaning, see Command
+        command, // literal with special meaning, see Command
         literal,
-        // zig fmt: on
     };
 
     const Index = usize;
@@ -430,10 +441,9 @@ const TokenIterator = struct {
 };
 
 const LdScript = @This();
+const Diags = @import("../link.zig").Diags;
 
 const std = @import("std");
 const assert = std.debug.assert;
 const Path = std.Build.Cache.Path;
-
 const Allocator = std.mem.Allocator;
-const Elf = @import("../Elf.zig");
