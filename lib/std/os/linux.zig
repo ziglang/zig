@@ -122,27 +122,30 @@ pub const SECCOMP = @import("linux/seccomp.zig");
 
 pub const syscalls = @import("linux/syscalls.zig");
 pub const SYS = switch (@import("builtin").cpu.arch) {
-    .x86 => syscalls.X86,
-    .x86_64 => syscalls.X64,
-    .aarch64, .aarch64_be => syscalls.Arm64,
     .arc => syscalls.Arc,
     .arm, .armeb, .thumb, .thumbeb => syscalls.Arm,
+    .aarch64, .aarch64_be => syscalls.Arm64,
     .csky => syscalls.CSky,
     .hexagon => syscalls.Hexagon,
-    .riscv32 => syscalls.RiscV32,
-    .riscv64 => syscalls.RiscV64,
-    .sparc => syscalls.Sparc,
-    .sparc64 => syscalls.Sparc64,
     .loongarch64 => syscalls.LoongArch64,
     .m68k => syscalls.M68k,
     .mips, .mipsel => syscalls.MipsO32,
-    .mips64, .mips64el => if (builtin.abi == .gnuabin32)
-        syscalls.MipsN32
-    else
-        syscalls.MipsN64,
+    .mips64, .mips64el => switch (builtin.abi) {
+        .gnuabin32, .muslabin32 => syscalls.MipsN32,
+        else => syscalls.MipsN64,
+    },
+    .riscv32 => syscalls.RiscV32,
+    .riscv64 => syscalls.RiscV64,
+    .s390x => syscalls.S390x,
+    .sparc => syscalls.Sparc,
+    .sparc64 => syscalls.Sparc64,
     .powerpc, .powerpcle => syscalls.PowerPC,
     .powerpc64, .powerpc64le => syscalls.PowerPC64,
-    .s390x => syscalls.S390x,
+    .x86 => syscalls.X86,
+    .x86_64 => switch (builtin.abi) {
+        .gnux32, .muslx32 => syscalls.X32,
+        else => syscalls.X64,
+    },
     .xtensa => syscalls.Xtensa,
     else => @compileError("The Zig Standard Library is missing syscall definitions for the target CPU architecture"),
 };
@@ -8657,11 +8660,11 @@ pub const AUDIT = struct {
             .mips => .MIPS,
             .mipsel => .MIPSEL,
             .mips64 => switch (native_abi) {
-                .gnuabin32 => .MIPS64N32,
+                .gnuabin32, .muslabin32 => .MIPS64N32,
                 else => .MIPS64,
             },
             .mips64el => switch (native_abi) {
-                .gnuabin32 => .MIPSEL64N32,
+                .gnuabin32, .muslabin32 => .MIPSEL64N32,
                 else => .MIPSEL64,
             },
             .powerpc => .PPC,
