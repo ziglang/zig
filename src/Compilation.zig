@@ -10,6 +10,7 @@ const Target = std.Target;
 const ThreadPool = std.Thread.Pool;
 const WaitGroup = std.Thread.WaitGroup;
 const ErrorBundle = std.zig.ErrorBundle;
+const Path = Cache.Path;
 
 const Value = @import("Value.zig");
 const Type = @import("Type.zig");
@@ -39,9 +40,9 @@ const Air = @import("Air.zig");
 const Builtin = @import("Builtin.zig");
 const LlvmObject = @import("codegen/llvm.zig").Object;
 const dev = @import("dev.zig");
-pub const Directory = Cache.Directory;
-const Path = Cache.Path;
+const ThreadSafeQueue = @import("ThreadSafeQueue.zig").ThreadSafeQueue;
 
+pub const Directory = Cache.Directory;
 pub const Config = @import("Compilation/Config.zig");
 
 /// General-purpose allocator. Used for both temporary and long-term storage.
@@ -108,6 +109,7 @@ win32_resource_table: if (dev.env.supports(.win32_resource)) std.AutoArrayHashMa
 } = .{},
 
 link_diags: link.Diags,
+link_task_queue: ThreadSafeQueue(link.File.Task) = .empty,
 
 work_queues: [
     len: {
@@ -263,6 +265,9 @@ emit_asm: ?EmitLoc,
 emit_llvm_ir: ?EmitLoc,
 emit_llvm_bc: ?EmitLoc,
 
+work_queue_wait_group: WaitGroup = .{},
+work_queue_progress_node: std.Progress.Node = .none,
+
 llvm_opt_bisect_limit: c_int,
 
 file_system_inputs: ?*std.ArrayListUnmanaged(u8),
@@ -358,9 +363,6 @@ const Job = union(enum) {
     /// After analysis, a `codegen_func` job will be queued.
     /// These must be separate jobs to ensure any needed type resolution occurs *before* codegen.
     analyze_func: InternPool.Index,
-    /// The source file containing the Decl has been updated, and so the
-    /// Decl may need its line number information updated in the debug info.
-    update_line_number: void, // TODO
     /// The main source file for the module needs to be analyzed.
     analyze_mod: *Package.Module,
     /// Fully resolve the given `struct` or `union` type.
@@ -374,6 +376,7 @@ const Job = union(enum) {
     musl_crt_file: musl.CrtFile,
     /// one of the mingw-w64 static objects
     mingw_crt_file: mingw.CrtFile,
+
     /// libunwind.a, usually needed when linking libc
     libunwind: void,
     libcxx: void,
@@ -1769,68 +1772,107 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         }
         // If we need to build glibc for the target, add work items for it.
         // We go through the work queue so that building can be done in parallel.
-        if (comp.wantBuildGLibCFromSource()) {
-            if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
+        // If linking against host libc installation, instead queue up jobs
+        // for loading those files in the linker.
+        if (comp.config.link_libc and is_exe_or_dyn_lib and target.ofmt != .c) {
+            if (comp.libc_installation) |lci| {
+                const basenames = LibCInstallation.CrtBasenames.get(.{
+                    .target = target,
+                    .link_libc = comp.config.link_libc,
+                    .output_mode = comp.config.output_mode,
+                    .link_mode = comp.config.link_mode,
+                    .pie = comp.config.pie,
+                });
+                const paths = try lci.resolveCrtPaths(arena, basenames, target);
 
-            if (glibc.needsCrtiCrtn(target)) {
+                const fields = @typeInfo(@TypeOf(paths)).@"struct".fields;
+                try comp.link_task_queue.shared.ensureUnusedCapacity(gpa, fields.len);
+                inline for (fields) |field| {
+                    if (@field(paths, field.name)) |path| {
+                        comp.link_task_queue.shared.appendAssumeCapacity(.{ .load_object = path });
+                    }
+                }
+
+                const flags = target_util.libcFullLinkFlags(target);
+                try comp.link_task_queue.shared.ensureUnusedCapacity(gpa, flags.len);
+                for (flags) |flag| {
+                    assert(mem.startsWith(u8, flag, "-l"));
+                    const lib_name = flag["-l".len..];
+                    const suffix = switch (comp.config.link_mode) {
+                        .static => target.staticLibSuffix(),
+                        .dynamic => target.dynamicLibSuffix(),
+                    };
+                    const sep = std.fs.path.sep_str;
+                    const lib_path = try std.fmt.allocPrint(arena, "{s}" ++ sep ++ "lib{s}{s}", .{
+                        lci.crt_dir.?, lib_name, suffix,
+                    });
+                    const resolved_path = Path.initCwd(lib_path);
+                    comp.link_task_queue.shared.appendAssumeCapacity(switch (comp.config.link_mode) {
+                        .static => .{ .load_archive = resolved_path },
+                        .dynamic => .{ .load_dso = resolved_path },
+                    });
+                }
+            } else if (target.isMusl() and !target.isWasm()) {
+                if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
+
+                if (musl.needsCrtiCrtn(target)) {
+                    try comp.queueJobs(&[_]Job{
+                        .{ .musl_crt_file = .crti_o },
+                        .{ .musl_crt_file = .crtn_o },
+                    });
+                }
                 try comp.queueJobs(&[_]Job{
-                    .{ .glibc_crt_file = .crti_o },
-                    .{ .glibc_crt_file = .crtn_o },
+                    .{ .musl_crt_file = .crt1_o },
+                    .{ .musl_crt_file = .scrt1_o },
+                    .{ .musl_crt_file = .rcrt1_o },
+                    switch (comp.config.link_mode) {
+                        .static => .{ .musl_crt_file = .libc_a },
+                        .dynamic => .{ .musl_crt_file = .libc_so },
+                    },
                 });
-            }
-            try comp.queueJobs(&[_]Job{
-                .{ .glibc_crt_file = .scrt1_o },
-                .{ .glibc_crt_file = .libc_nonshared_a },
-                .{ .glibc_shared_objects = {} },
-            });
-        }
-        if (comp.wantBuildMuslFromSource()) {
-            if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
+            } else if (target.isGnuLibC()) {
+                if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
 
-            if (musl.needsCrtiCrtn(target)) {
+                if (glibc.needsCrtiCrtn(target)) {
+                    try comp.queueJobs(&[_]Job{
+                        .{ .glibc_crt_file = .crti_o },
+                        .{ .glibc_crt_file = .crtn_o },
+                    });
+                }
                 try comp.queueJobs(&[_]Job{
-                    .{ .musl_crt_file = .crti_o },
-                    .{ .musl_crt_file = .crtn_o },
+                    .{ .glibc_crt_file = .scrt1_o },
+                    .{ .glibc_crt_file = .libc_nonshared_a },
+                    .{ .glibc_shared_objects = {} },
                 });
-            }
-            try comp.queueJobs(&[_]Job{
-                .{ .musl_crt_file = .crt1_o },
-                .{ .musl_crt_file = .scrt1_o },
-                .{ .musl_crt_file = .rcrt1_o },
-                switch (comp.config.link_mode) {
-                    .static => .{ .musl_crt_file = .libc_a },
-                    .dynamic => .{ .musl_crt_file = .libc_so },
-                },
-            });
-        }
+            } else if (target.isWasm() and target.os.tag == .wasi) {
+                if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
 
-        if (comp.wantBuildWasiLibcFromSource()) {
-            if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
-
-            for (comp.wasi_emulated_libs) |crt_file| {
-                try comp.queueJob(.{
-                    .wasi_libc_crt_file = crt_file,
+                for (comp.wasi_emulated_libs) |crt_file| {
+                    try comp.queueJob(.{
+                        .wasi_libc_crt_file = crt_file,
+                    });
+                }
+                try comp.queueJobs(&[_]Job{
+                    .{ .wasi_libc_crt_file = wasi_libc.execModelCrtFile(comp.config.wasi_exec_model) },
+                    .{ .wasi_libc_crt_file = .libc_a },
                 });
+            } else if (target.isMinGW()) {
+                if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
+
+                const crt_job: Job = .{ .mingw_crt_file = if (is_dyn_lib) .dllcrt2_o else .crt2_o };
+                try comp.queueJobs(&.{
+                    .{ .mingw_crt_file = .mingw32_lib },
+                    crt_job,
+                });
+
+                // When linking mingw-w64 there are some import libs we always need.
+                try comp.windows_libs.ensureUnusedCapacity(gpa, mingw.always_link_libs.len);
+                for (mingw.always_link_libs) |name| comp.windows_libs.putAssumeCapacity(name, {});
+            } else {
+                return error.LibCUnavailable;
             }
-            try comp.queueJobs(&[_]Job{
-                .{ .wasi_libc_crt_file = wasi_libc.execModelCrtFile(comp.config.wasi_exec_model) },
-                .{ .wasi_libc_crt_file = .libc_a },
-            });
         }
 
-        if (comp.wantBuildMinGWFromSource()) {
-            if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
-
-            const crt_job: Job = .{ .mingw_crt_file = if (is_dyn_lib) .dllcrt2_o else .crt2_o };
-            try comp.queueJobs(&.{
-                .{ .mingw_crt_file = .mingw32_lib },
-                crt_job,
-            });
-
-            // When linking mingw-w64 there are some import libs we always need.
-            try comp.windows_libs.ensureUnusedCapacity(gpa, mingw.always_link_libs.len);
-            for (mingw.always_link_libs) |name| comp.windows_libs.putAssumeCapacity(name, {});
-        }
         // Generate Windows import libs.
         if (target.os.tag == .windows) {
             const count = comp.windows_libs.count();
@@ -1885,12 +1927,16 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         {
             try comp.queueJob(.{ .zig_libc = {} });
         }
+
+        try comp.link_task_queue.shared.append(gpa, .load_explicitly_provided);
     }
 
     return comp;
 }
 
 pub fn destroy(comp: *Compilation) void {
+    const gpa = comp.gpa;
+
     if (comp.bin_file) |lf| lf.destroy();
     if (comp.zcu) |zcu| zcu.deinit();
     comp.cache_use.deinit();
@@ -1901,7 +1947,6 @@ pub fn destroy(comp: *Compilation) void {
     comp.astgen_work_queue.deinit();
     comp.embed_file_work_queue.deinit();
 
-    const gpa = comp.gpa;
     comp.windows_libs.deinit(gpa);
 
     {
@@ -3446,6 +3491,9 @@ pub fn performAllTheWork(
     comp: *Compilation,
     main_progress_node: std.Progress.Node,
 ) JobError!void {
+    comp.work_queue_progress_node = main_progress_node;
+    defer comp.work_queue_progress_node = .none;
+
     defer if (comp.zcu) |zcu| {
         zcu.sema_prog_node.end();
         zcu.sema_prog_node = std.Progress.Node.none;
@@ -3467,12 +3515,20 @@ fn performAllTheWorkInner(
     // (at least for now) single-threaded main work queue. However, C object compilation
     // only needs to be finished by the end of this function.
 
-    var work_queue_wait_group: WaitGroup = .{};
+    const work_queue_wait_group = &comp.work_queue_wait_group;
+
+    work_queue_wait_group.reset();
     defer work_queue_wait_group.wait();
+
+    if (comp.bin_file) |lf| {
+        if (try comp.link_task_queue.enqueue(comp.gpa, &.{.load_explicitly_provided})) {
+            comp.thread_pool.spawnWg(work_queue_wait_group, link.File.flushTaskQueue, .{ lf, main_progress_node });
+        }
+    }
 
     if (comp.docs_emit != null) {
         dev.check(.docs_emit);
-        comp.thread_pool.spawnWg(&work_queue_wait_group, workerDocsCopy, .{comp});
+        comp.thread_pool.spawnWg(work_queue_wait_group, workerDocsCopy, .{comp});
         work_queue_wait_group.spawnManager(workerDocsWasm, .{ comp, main_progress_node });
     }
 
@@ -3538,21 +3594,32 @@ fn performAllTheWorkInner(
         }
 
         while (comp.c_object_work_queue.readItem()) |c_object| {
-            comp.thread_pool.spawnWg(&work_queue_wait_group, workerUpdateCObject, .{
+            comp.thread_pool.spawnWg(work_queue_wait_group, workerUpdateCObject, .{
                 comp, c_object, main_progress_node,
             });
         }
 
         while (comp.win32_resource_work_queue.readItem()) |win32_resource| {
-            comp.thread_pool.spawnWg(&work_queue_wait_group, workerUpdateWin32Resource, .{
+            comp.thread_pool.spawnWg(work_queue_wait_group, workerUpdateWin32Resource, .{
                 comp, win32_resource, main_progress_node,
             });
         }
     }
 
-    if (comp.job_queued_compiler_rt_lib) work_queue_wait_group.spawnManager(buildRt, .{ comp, "compiler_rt.zig", .compiler_rt, .Lib, &comp.compiler_rt_lib, main_progress_node });
-    if (comp.job_queued_compiler_rt_obj) work_queue_wait_group.spawnManager(buildRt, .{ comp, "compiler_rt.zig", .compiler_rt, .Obj, &comp.compiler_rt_obj, main_progress_node });
-    if (comp.job_queued_fuzzer_lib) work_queue_wait_group.spawnManager(buildRt, .{ comp, "fuzzer.zig", .libfuzzer, .Lib, &comp.fuzzer_lib, main_progress_node });
+    if (comp.job_queued_compiler_rt_lib) {
+        comp.job_queued_compiler_rt_lib = false;
+        work_queue_wait_group.spawnManager(buildRt, .{ comp, "compiler_rt.zig", .compiler_rt, .Lib, &comp.compiler_rt_lib, main_progress_node });
+    }
+
+    if (comp.job_queued_compiler_rt_obj) {
+        comp.job_queued_compiler_rt_obj = false;
+        work_queue_wait_group.spawnManager(buildRt, .{ comp, "compiler_rt.zig", .compiler_rt, .Obj, &comp.compiler_rt_obj, main_progress_node });
+    }
+
+    if (comp.job_queued_fuzzer_lib) {
+        comp.job_queued_fuzzer_lib = false;
+        work_queue_wait_group.spawnManager(buildRt, .{ comp, "fuzzer.zig", .libfuzzer, .Lib, &comp.fuzzer_lib, main_progress_node });
+    }
 
     if (comp.zcu) |zcu| {
         const pt: Zcu.PerThread = .{ .zcu = zcu, .tid = .main };
@@ -3570,7 +3637,7 @@ fn performAllTheWorkInner(
 
     if (!InternPool.single_threaded) {
         comp.codegen_work.done = false; // may be `true` from a prior update
-        comp.thread_pool.spawnWgId(&work_queue_wait_group, codegenThread, .{comp});
+        comp.thread_pool.spawnWgId(work_queue_wait_group, codegenThread, .{comp});
     }
     defer if (!InternPool.single_threaded) {
         {
@@ -3677,31 +3744,6 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job, prog_node: std.Progre
             Type.fromInterned(ty).resolveFully(pt) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.AnalysisFail => return,
-            };
-        },
-        .update_line_number => |decl_index| {
-            const named_frame = tracy.namedFrame("update_line_number");
-            defer named_frame.end();
-
-            if (true) @panic("TODO: update_line_number");
-
-            const gpa = comp.gpa;
-            const pt: Zcu.PerThread = .{ .zcu = comp.zcu.?, .tid = @enumFromInt(tid) };
-            const decl = pt.zcu.declPtr(decl_index);
-            const lf = comp.bin_file.?;
-            lf.updateDeclLineNumber(pt, decl_index) catch |err| {
-                try pt.zcu.failed_analysis.ensureUnusedCapacity(gpa, 1);
-                pt.zcu.failed_analysis.putAssumeCapacityNoClobber(
-                    InternPool.AnalUnit.wrap(.{ .decl = decl_index }),
-                    try Zcu.ErrorMsg.create(
-                        gpa,
-                        decl.navSrcLoc(pt.zcu),
-                        "unable to update line number: {s}",
-                        .{@errorName(err)},
-                    ),
-                );
-                decl.analysis = .codegen_failure;
-                try pt.zcu.retryable_failures.append(gpa, InternPool.AnalUnit.wrap(.{ .decl = decl_index }));
             };
         },
         .analyze_mod => |mod| {
@@ -4920,7 +4962,9 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Pr
         // the contents were the same, we hit the cache but the manifest is dirty and we need to update
         // it to prevent doing a full file content comparison the next time around.
         man.writeManifest() catch |err| {
-            log.warn("failed to write cache manifest when compiling '{s}': {s}", .{ c_object.src.src_path, @errorName(err) });
+            log.warn("failed to write cache manifest when compiling '{s}': {s}", .{
+                c_object.src.src_path, @errorName(err),
+            });
         };
     }
 
@@ -4935,6 +4979,8 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Pr
             .lock = man.toOwnedLock(),
         },
     };
+
+    comp.enqueueLinkTasks(&.{.{ .load_object = c_object.status.success.object_path }});
 }
 
 fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32_resource_prog_node: std.Progress.Node) !void {
@@ -6058,35 +6104,6 @@ fn crtFilePath(crt_files: *std.StringHashMapUnmanaged(CrtFile), basename: []cons
     return crt_file.full_object_path;
 }
 
-fn wantBuildLibCFromSource(comp: Compilation) bool {
-    const is_exe_or_dyn_lib = switch (comp.config.output_mode) {
-        .Obj => false,
-        .Lib => comp.config.link_mode == .dynamic,
-        .Exe => true,
-    };
-    const ofmt = comp.root_mod.resolved_target.result.ofmt;
-    return comp.config.link_libc and is_exe_or_dyn_lib and
-        comp.libc_installation == null and ofmt != .c;
-}
-
-fn wantBuildGLibCFromSource(comp: Compilation) bool {
-    return comp.wantBuildLibCFromSource() and comp.getTarget().isGnuLibC();
-}
-
-fn wantBuildMuslFromSource(comp: Compilation) bool {
-    return comp.wantBuildLibCFromSource() and comp.getTarget().isMusl() and
-        !comp.getTarget().isWasm();
-}
-
-fn wantBuildWasiLibcFromSource(comp: Compilation) bool {
-    return comp.wantBuildLibCFromSource() and comp.getTarget().isWasm() and
-        comp.getTarget().os.tag == .wasi;
-}
-
-fn wantBuildMinGWFromSource(comp: Compilation) bool {
-    return comp.wantBuildLibCFromSource() and comp.getTarget().isMinGW();
-}
-
 fn wantBuildLibUnwindFromSource(comp: *Compilation) bool {
     const is_exe_or_dyn_lib = switch (comp.config.output_mode) {
         .Obj => false,
@@ -6334,9 +6351,11 @@ fn buildOutputFromZig(
 
     try comp.updateSubCompilation(sub_compilation, misc_task_tag, prog_node);
 
-    // Under incremental compilation, `out` may already be populated from a prior update.
-    assert(out.* == null or comp.incremental);
-    out.* = try sub_compilation.toCrtFile();
+    const crt_file = try sub_compilation.toCrtFile();
+    assert(out.* == null);
+    out.* = crt_file;
+
+    comp.enqueueLinkTaskMode(crt_file.full_object_path, output_mode);
 }
 
 pub fn build_crt_file(
@@ -6443,8 +6462,39 @@ pub fn build_crt_file(
 
     try comp.updateSubCompilation(sub_compilation, misc_task_tag, prog_node);
 
-    try comp.crt_files.ensureUnusedCapacity(gpa, 1);
-    comp.crt_files.putAssumeCapacityNoClobber(basename, try sub_compilation.toCrtFile());
+    const crt_file = try sub_compilation.toCrtFile();
+    comp.enqueueLinkTaskMode(crt_file.full_object_path, output_mode);
+
+    {
+        comp.mutex.lock();
+        defer comp.mutex.unlock();
+        try comp.crt_files.ensureUnusedCapacity(gpa, 1);
+        comp.crt_files.putAssumeCapacityNoClobber(basename, crt_file);
+    }
+}
+
+pub fn enqueueLinkTaskMode(comp: *Compilation, path: Path, output_mode: std.builtin.OutputMode) void {
+    comp.enqueueLinkTasks(switch (output_mode) {
+        .Exe => unreachable,
+        .Obj => &.{.{ .load_object = path }},
+        .Lib => &.{.{ .load_archive = path }},
+    });
+}
+
+/// Only valid to call during `update`. Automatically handles queuing up a
+/// linker worker task if there is not already one.
+fn enqueueLinkTasks(comp: *Compilation, tasks: []const link.File.Task) void {
+    const use_lld = build_options.have_llvm and comp.config.use_lld;
+    if (use_lld) return;
+    const target = comp.root_mod.resolved_target.result;
+    if (target.ofmt != .elf) return;
+    if (comp.link_task_queue.enqueue(comp.gpa, tasks) catch |err| switch (err) {
+        error.OutOfMemory => return comp.setAllocFailure(),
+    }) {
+        comp.thread_pool.spawnWg(&comp.work_queue_wait_group, link.File.flushTaskQueue, .{
+            comp.bin_file.?, comp.work_queue_progress_node,
+        });
+    }
 }
 
 pub fn toCrtFile(comp: *Compilation) Allocator.Error!CrtFile {

@@ -1204,13 +1204,11 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) !voi
     };
 
     assert(comp.glibc_so_files == null);
-    comp.glibc_so_files = BuiltSharedObjects{
+    comp.glibc_so_files = .{
         .lock = man.toOwnedLock(),
         .dir_path = try comp.global_cache_directory.join(comp.gpa, &.{ "o", &digest }),
     };
 }
-
-// zig fmt: on
 
 fn buildSharedLib(
     comp: *Compilation,

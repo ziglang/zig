@@ -24,6 +24,7 @@ const LlvmObject = @import("codegen/llvm.zig").Object;
 const lldMain = @import("main.zig").lldMain;
 const Package = @import("Package.zig");
 const dev = @import("dev.zig");
+const ThreadSafeQueue = @import("ThreadSafeQueue.zig").ThreadSafeQueue;
 
 pub const LdScript = @import("link/LdScript.zig");
 
@@ -367,6 +368,9 @@ pub const File = struct {
     /// of this linking operation.
     lock: ?Cache.Lock = null,
     child_pid: ?std.process.Child.Id = null,
+
+    /// Ensure only 1 simultaneous call to `flushTaskQueue`.
+    task_queue_safety: std.debug.SafetyLock = .{},
 
     pub const OpenOptions = struct {
         symbol_count_hint: u64 = 32,
@@ -995,6 +999,86 @@ pub const File = struct {
         }
     }
 
+    /// Opens a path as an object file and parses it into the linker.
+    fn openLoadObject(base: *File, path: Path) anyerror!void {
+        const diags = &base.comp.link_diags;
+        const input = try openObjectInput(diags, path);
+        errdefer input.object.file.close();
+        try loadInput(base, input);
+    }
+
+    /// Opens a path as a static library and parses it into the linker.
+    fn openLoadArchive(base: *File, path: Path) anyerror!void {
+        const diags = &base.comp.link_diags;
+        const input = try openArchiveInput(diags, path, false, false);
+        errdefer input.archive.file.close();
+        try loadInput(base, input);
+    }
+
+    /// Opens a path as a shared library and parses it into the linker.
+    /// Handles GNU ld scripts.
+    fn openLoadDso(base: *File, path: Path, query: UnresolvedInput.Query) anyerror!void {
+        const dso = try openDso(path, query.needed, query.weak, query.reexport);
+        errdefer dso.file.close();
+        loadInput(base, .{ .dso = dso }) catch |err| switch (err) {
+            error.BadMagic, error.UnexpectedEndOfFile => {
+                if (base.tag != .elf) return err;
+                try loadGnuLdScript(base, path, query, dso.file);
+                dso.file.close();
+                return;
+            },
+            else => return err,
+        };
+    }
+
+    fn loadGnuLdScript(base: *File, path: Path, parent_query: UnresolvedInput.Query, file: fs.File) anyerror!void {
+        const diags = &base.comp.link_diags;
+        const gpa = base.comp.gpa;
+        const stat = try file.stat();
+        const size = std.math.cast(u32, stat.size) orelse return error.FileTooBig;
+        const buf = try gpa.alloc(u8, size);
+        defer gpa.free(buf);
+        const n = try file.preadAll(buf, 0);
+        if (buf.len != n) return error.UnexpectedEndOfFile;
+        var ld_script = try LdScript.parse(gpa, diags, path, buf);
+        defer ld_script.deinit(gpa);
+        for (ld_script.args) |arg| {
+            const query: UnresolvedInput.Query = .{
+                .needed = arg.needed or parent_query.needed,
+                .weak = parent_query.weak,
+                .reexport = parent_query.reexport,
+                .preferred_mode = parent_query.preferred_mode,
+                .search_strategy = parent_query.search_strategy,
+                .allow_so_scripts = parent_query.allow_so_scripts,
+            };
+            if (mem.startsWith(u8, arg.path, "-l")) {
+                @panic("TODO");
+            } else {
+                if (fs.path.isAbsolute(arg.path)) {
+                    const new_path = Path.initCwd(try gpa.dupe(u8, arg.path));
+                    switch (Compilation.classifyFileExt(arg.path)) {
+                        .shared_library => try openLoadDso(base, new_path, query),
+                        .object => try openLoadObject(base, new_path),
+                        .static_library => try openLoadArchive(base, new_path),
+                        else => diags.addParseError(path, "GNU ld script references file with unrecognized extension: {s}", .{arg.path}),
+                    }
+                } else {
+                    @panic("TODO");
+                }
+            }
+        }
+    }
+
+    pub fn loadInput(base: *File, input: Input) anyerror!void {
+        switch (base.tag) {
+            inline .elf => |tag| {
+                dev.check(tag.devFeature());
+                return @as(*tag.Type(), @fieldParentPtr("base", base)).loadInput(input);
+            },
+            else => {},
+        }
+    }
+
     pub fn linkAsArchive(base: *File, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) FlushError!void {
         dev.check(.lld_linker);
 
@@ -1261,6 +1345,111 @@ pub const File = struct {
     pub const Wasm = @import("link/Wasm.zig");
     pub const NvPtx = @import("link/NvPtx.zig");
     pub const Dwarf = @import("link/Dwarf.zig");
+
+    /// Does all the tasks in the queue. Runs in exactly one separate thread
+    /// from the rest of compilation. All tasks performed here are
+    /// single-threaded with respect to one another.
+    pub fn flushTaskQueue(base: *File, prog_node: std.Progress.Node) void {
+        const comp = base.comp;
+        base.task_queue_safety.lock();
+        defer base.task_queue_safety.unlock();
+        while (comp.link_task_queue.check()) |tasks| {
+            for (tasks) |task| doTask(base, prog_node, task);
+        }
+    }
+
+    pub const Task = union(enum) {
+        /// Loads the objects, shared objects, and archives that are already
+        /// known from the command line.
+        load_explicitly_provided,
+        /// Tells the linker to load an object file by path.
+        load_object: Path,
+        /// Tells the linker to load a static library by path.
+        load_archive: Path,
+        /// Tells the linker to load a shared library, possibly one that is a
+        /// GNU ld script.
+        load_dso: Path,
+        /// Tells the linker to load an input which could be an object file,
+        /// archive, or shared library.
+        load_input: Input,
+    };
+
+    fn doTask(base: *File, parent_prog_node: std.Progress.Node, task: Task) void {
+        const comp = base.comp;
+        switch (task) {
+            .load_explicitly_provided => {
+                const prog_node = parent_prog_node.start("Linker Parse Input", comp.link_inputs.len);
+                defer prog_node.end();
+
+                for (comp.link_inputs) |input| {
+                    const sub_node = prog_node.start(input.taskName(), 0);
+                    defer sub_node.end();
+                    base.loadInput(input) catch |err| switch (err) {
+                        error.LinkFailure => return, // error reported via link_diags
+                        else => |e| {
+                            if (input.path()) |path| {
+                                comp.link_diags.addParseError(path, "failed to parse linker input: {s}", .{@errorName(e)});
+                            } else {
+                                comp.link_diags.addError("failed to {s}: {s}", .{ input.taskName(), @errorName(e) });
+                            }
+                        },
+                    };
+                }
+            },
+            .load_object => |path| {
+                const prog_node = parent_prog_node.start("Linker Parse Object", 0);
+                defer prog_node.end();
+                const sub_node = prog_node.start(path.basename(), 0);
+                defer sub_node.end();
+
+                base.openLoadObject(path) catch |err| switch (err) {
+                    error.LinkFailure => return, // error reported via link_diags
+                    else => |e| comp.link_diags.addParseError(path, "failed to parse object: {s}", .{@errorName(e)}),
+                };
+            },
+            .load_archive => |path| {
+                const prog_node = parent_prog_node.start("Linker Parse Archive", 0);
+                defer prog_node.end();
+                const sub_node = prog_node.start(path.basename(), 0);
+                defer sub_node.end();
+
+                base.openLoadArchive(path) catch |err| switch (err) {
+                    error.LinkFailure => return, // error reported via link_diags
+                    else => |e| comp.link_diags.addParseError(path, "failed to parse archive: {s}", .{@errorName(e)}),
+                };
+            },
+            .load_dso => |path| {
+                const prog_node = parent_prog_node.start("Linker Parse Shared Library", 0);
+                defer prog_node.end();
+                const sub_node = prog_node.start(path.basename(), 0);
+                defer sub_node.end();
+
+                base.openLoadDso(path, .{
+                    .preferred_mode = .dynamic,
+                    .search_strategy = .paths_first,
+                }) catch |err| switch (err) {
+                    error.LinkFailure => return, // error reported via link_diags
+                    else => |e| comp.link_diags.addParseError(path, "failed to parse shared library: {s}", .{@errorName(e)}),
+                };
+            },
+            .load_input => |input| {
+                const prog_node = parent_prog_node.start("Linker Parse Input", 0);
+                defer prog_node.end();
+                const sub_node = prog_node.start(input.taskName(), 0);
+                defer sub_node.end();
+                base.loadInput(input) catch |err| switch (err) {
+                    error.LinkFailure => return, // error reported via link_diags
+                    else => |e| {
+                        if (input.path()) |path| {
+                            comp.link_diags.addParseError(path, "failed to parse linker input: {s}", .{@errorName(e)});
+                        } else {
+                            comp.link_diags.addError("failed to {s}: {s}", .{ input.taskName(), @errorName(e) });
+                        }
+                    },
+                };
+            },
+        }
+    }
 };
 
 pub fn spawnLld(
@@ -1478,6 +1667,14 @@ pub const Input = union(enum) {
             .object, .archive => |obj| .{ obj.path, obj.file },
             inline .res, .dso => |x| .{ x.path, x.file },
             .dso_exact => null,
+        };
+    }
+
+    pub fn taskName(input: Input) []const u8 {
+        return switch (input) {
+            .object, .archive => |obj| obj.path.basename(),
+            inline .res, .dso => |x| x.path.basename(),
+            .dso_exact => "dso_exact",
         };
     }
 };

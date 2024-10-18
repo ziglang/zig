@@ -35,8 +35,7 @@ ptr_width: PtrWidth,
 llvm_object: ?LlvmObject.Ptr = null,
 
 /// A list of all input files.
-/// Index of each input file also encodes the priority or precedence of one input file
-/// over another.
+/// First index is a special "null file". Order is otherwise not observed.
 files: std.MultiArrayList(File.Entry) = .{},
 /// Long-lived list of all file descriptors.
 /// We store them globally rather than per actual File so that we can re-use
@@ -349,6 +348,9 @@ pub fn createEmpty(
         // LLVM emits the object file (if any); LLD links it into the final product.
         return self;
     }
+
+    // --verbose-link
+    if (comp.verbose_link) try self.dumpArgv(comp);
 
     const is_obj = output_mode == .Obj;
     const is_obj_or_ar = is_obj or (output_mode == .Lib and link_mode == .static);
@@ -750,6 +752,22 @@ pub fn allocateChunk(self: *Elf, args: struct {
     return res;
 }
 
+pub fn loadInput(self: *Elf, input: link.Input) !void {
+    const gpa = self.base.comp.gpa;
+    const diags = &self.base.comp.link_diags;
+    const target = self.getTarget();
+    const debug_fmt_strip = self.base.comp.config.debug_format == .strip;
+    const default_sym_version = self.default_sym_version;
+
+    switch (input) {
+        .res => unreachable,
+        .dso_exact => @panic("TODO"),
+        .object => |obj| try parseObject(self, obj),
+        .archive => |obj| try parseArchive(gpa, diags, &self.file_handles, &self.files, &self.first_eflags, target, debug_fmt_strip, default_sym_version, &self.objects, obj),
+        .dso => |dso| try parseDso(gpa, diags, dso, &self.shared_objects, &self.files, target),
+    }
+}
+
 pub fn flush(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
     const use_lld = build_options.have_llvm and self.base.comp.config.use_lld;
     if (use_lld) {
@@ -775,8 +793,6 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
     const sub_prog_node = prog_node.start("ELF Flush", 0);
     defer sub_prog_node.end();
 
-    const target = self.getTarget();
-    const link_mode = comp.config.link_mode;
     const directory = self.base.emit.root_dir; // Just an alias to make it shorter to type.
     const module_obj_path: ?Path = if (self.base.zcu_object_sub_path) |path| .{
         .root_dir = directory,
@@ -785,9 +801,6 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
         else
             path,
     } else null;
-
-    // --verbose-link
-    if (comp.verbose_link) try self.dumpArgv(comp);
 
     if (self.zigObjectPtr()) |zig_object| try zig_object.flush(self, tid);
 
@@ -800,123 +813,7 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
         .Exe => {},
     }
 
-    const csu = try comp.getCrtPaths(arena);
-
-    // csu prelude
-    if (csu.crt0) |path| openParseObjectReportingFailure(self, path);
-    if (csu.crti) |path| openParseObjectReportingFailure(self, path);
-    if (csu.crtbegin) |path| openParseObjectReportingFailure(self, path);
-
-    // objects and archives
-    for (comp.link_inputs) |link_input| switch (link_input) {
-        .object, .archive => parseInputReportingFailure(self, link_input),
-        .dso_exact => @panic("TODO"),
-        .dso => continue, // handled below
-        .res => unreachable,
-    };
-
-    // This is a set of object files emitted by clang in a single `build-exe` invocation.
-    // For instance, the implicit `a.o` as compiled by `zig build-exe a.c` will end up
-    // in this set.
-    for (comp.c_object_table.keys()) |key| {
-        openParseObjectReportingFailure(self, key.status.success.object_path);
-    }
-
     if (module_obj_path) |path| openParseObjectReportingFailure(self, path);
-
-    if (comp.config.any_sanitize_thread)
-        openParseArchiveReportingFailure(self, comp.tsan_lib.?.full_object_path);
-
-    if (comp.config.any_fuzz)
-        openParseArchiveReportingFailure(self, comp.fuzzer_lib.?.full_object_path);
-
-    // libc
-    if (!comp.skip_linker_dependencies and !comp.config.link_libc) {
-        if (comp.libc_static_lib) |lib|
-            openParseArchiveReportingFailure(self, lib.full_object_path);
-    }
-
-    // dynamic libraries
-    for (comp.link_inputs) |link_input| switch (link_input) {
-        .object, .archive, .dso_exact => continue, // handled above
-        .dso => parseInputReportingFailure(self, link_input),
-        .res => unreachable,
-    };
-
-    // libc++ dep
-    if (comp.config.link_libcpp) {
-        openParseArchiveReportingFailure(self, comp.libcxxabi_static_lib.?.full_object_path);
-        openParseArchiveReportingFailure(self, comp.libcxx_static_lib.?.full_object_path);
-    }
-
-    // libunwind dep
-    if (comp.config.link_libunwind) {
-        openParseArchiveReportingFailure(self, comp.libunwind_static_lib.?.full_object_path);
-    }
-
-    // libc dep
-    diags.flags.missing_libc = false;
-    if (comp.config.link_libc) {
-        if (comp.libc_installation) |lc| {
-            const flags = target_util.libcFullLinkFlags(target);
-
-            for (flags) |flag| {
-                assert(mem.startsWith(u8, flag, "-l"));
-                const lib_name = flag["-l".len..];
-                const suffix = switch (comp.config.link_mode) {
-                    .static => target.staticLibSuffix(),
-                    .dynamic => target.dynamicLibSuffix(),
-                };
-                const lib_path = try std.fmt.allocPrint(arena, "{s}/lib{s}{s}", .{
-                    lc.crt_dir.?, lib_name, suffix,
-                });
-                const resolved_path = Path.initCwd(lib_path);
-                switch (comp.config.link_mode) {
-                    .static => openParseArchiveReportingFailure(self, resolved_path),
-                    .dynamic => openParseDsoReportingFailure(self, resolved_path),
-                }
-            }
-        } else if (target.isGnuLibC()) {
-            for (glibc.libs) |lib| {
-                if (lib.removed_in) |rem_in| {
-                    if (target.os.version_range.linux.glibc.order(rem_in) != .lt) continue;
-                }
-
-                const lib_path = Path.initCwd(try std.fmt.allocPrint(arena, "{s}{c}lib{s}.so.{d}", .{
-                    comp.glibc_so_files.?.dir_path, fs.path.sep, lib.name, lib.sover,
-                }));
-                openParseDsoReportingFailure(self, lib_path);
-            }
-            const crt_file_path = try comp.get_libc_crt_file(arena, "libc_nonshared.a");
-            openParseArchiveReportingFailure(self, crt_file_path);
-        } else if (target.isMusl()) {
-            const path = try comp.get_libc_crt_file(arena, switch (link_mode) {
-                .static => "libc.a",
-                .dynamic => "libc.so",
-            });
-            switch (link_mode) {
-                .static => openParseArchiveReportingFailure(self, path),
-                .dynamic => openParseDsoReportingFailure(self, path),
-            }
-        } else {
-            diags.flags.missing_libc = true;
-        }
-    }
-
-    // Finally, as the last input objects we add compiler_rt and CSU postlude (if any).
-
-    // compiler-rt. Since compiler_rt exports symbols like `memset`, it needs
-    // to be after the shared libraries, so they are picked up from the shared
-    // libraries, not libcompiler_rt.
-    if (comp.compiler_rt_lib) |crt_file| {
-        openParseArchiveReportingFailure(self, crt_file.full_object_path);
-    } else if (comp.compiler_rt_obj) |crt_file| {
-        openParseObjectReportingFailure(self, crt_file.full_object_path);
-    }
-
-    // csu postlude
-    if (csu.crtend) |path| openParseObjectReportingFailure(self, path);
-    if (csu.crtn) |path| openParseObjectReportingFailure(self, path);
 
     if (diags.hasErrors()) return error.FlushFailure;
 
@@ -1087,7 +984,17 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
         }
     } else null;
 
-    const csu = try comp.getCrtPaths(arena);
+    const crt_basenames = std.zig.LibCInstallation.CrtBasenames.get(.{
+        .target = target,
+        .link_libc = comp.config.link_libc,
+        .output_mode = comp.config.output_mode,
+        .link_mode = link_mode,
+        .pie = comp.config.pie,
+    });
+    const crt_paths: std.zig.LibCInstallation.CrtPaths = if (comp.libc_installation) |lci|
+        try lci.resolveCrtPaths(arena, crt_basenames, target)
+    else
+        .{};
     const compiler_rt_path: ?[]const u8 = blk: {
         if (comp.compiler_rt_lib) |x| break :blk try x.full_object_path.toString(arena);
         if (comp.compiler_rt_obj) |x| break :blk try x.full_object_path.toString(arena);
@@ -1204,10 +1111,9 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
             try argv.append("-s");
         }
 
-        // csu prelude
-        if (csu.crt0) |path| try argv.append(try path.toString(arena));
-        if (csu.crti) |path| try argv.append(try path.toString(arena));
-        if (csu.crtbegin) |path| try argv.append(try path.toString(arena));
+        if (crt_paths.crt0) |path| try argv.append(try path.toString(arena));
+        if (crt_paths.crti) |path| try argv.append(try path.toString(arena));
+        if (crt_paths.crtbegin) |path| try argv.append(try path.toString(arena));
 
         if (comp.config.link_libc) {
             if (self.base.comp.libc_installation) |libc_installation| {
@@ -1339,9 +1245,8 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
             try argv.append(p);
         }
 
-        // crt postlude
-        if (csu.crtend) |path| try argv.append(try path.toString(arena));
-        if (csu.crtn) |path| try argv.append(try path.toString(arena));
+        if (crt_paths.crtend) |path| try argv.append(try path.toString(arena));
+        if (crt_paths.crtn) |path| try argv.append(try path.toString(arena));
     }
 
     Compilation.dump_argv(argv.items);
@@ -1361,20 +1266,6 @@ pub const ParseError = error{
     UnknownFileType,
 } || fs.Dir.AccessError || fs.File.SeekError || fs.File.OpenError || fs.File.ReadError;
 
-pub fn parseInputReportingFailure(self: *Elf, input: link.Input) void {
-    const gpa = self.base.comp.gpa;
-    const diags = &self.base.comp.link_diags;
-    const target = self.getTarget();
-
-    switch (input) {
-        .res => unreachable,
-        .dso_exact => unreachable,
-        .object => |obj| parseObjectReportingFailure(self, obj),
-        .archive => |obj| parseArchiveReportingFailure(self, obj),
-        .dso => |dso| parseDsoReportingFailure(gpa, diags, dso, &self.shared_objects, &self.files, target),
-    }
-}
-
 pub fn openParseObjectReportingFailure(self: *Elf, path: Path) void {
     const diags = &self.base.comp.link_diags;
     const obj = link.openObject(path, false, false) catch |err| {
@@ -1385,7 +1276,7 @@ pub fn openParseObjectReportingFailure(self: *Elf, path: Path) void {
     self.parseObjectReportingFailure(obj);
 }
 
-pub fn parseObjectReportingFailure(self: *Elf, obj: link.Input.Object) void {
+fn parseObjectReportingFailure(self: *Elf, obj: link.Input.Object) void {
     const diags = &self.base.comp.link_diags;
     self.parseObject(obj) catch |err| switch (err) {
         error.LinkFailure => return, // already reported
@@ -1423,33 +1314,6 @@ fn parseObject(self: *Elf, obj: link.Input.Object) ParseError!void {
     try object.parse(gpa, diags, obj.path, handle, first_eflags, target, debug_fmt_strip, default_sym_version);
 }
 
-pub fn openParseArchiveReportingFailure(self: *Elf, path: Path) void {
-    const diags = &self.base.comp.link_diags;
-    const obj = link.openObject(path, false, false) catch |err| {
-        switch (diags.failParse(path, "failed to open archive {}: {s}", .{ path, @errorName(err) })) {
-            error.LinkFailure => return,
-        }
-    };
-    parseArchiveReportingFailure(self, obj);
-}
-
-pub fn parseArchiveReportingFailure(self: *Elf, obj: link.Input.Object) void {
-    const gpa = self.base.comp.gpa;
-    const diags = &self.base.comp.link_diags;
-    const first_eflags = &self.first_eflags;
-    const target = self.base.comp.root_mod.resolved_target.result;
-    const debug_fmt_strip = self.base.comp.config.debug_format == .strip;
-    const default_sym_version = self.default_sym_version;
-    const file_handles = &self.file_handles;
-    const files = &self.files;
-    const objects = &self.objects;
-
-    parseArchive(gpa, diags, file_handles, files, first_eflags, target, debug_fmt_strip, default_sym_version, objects, obj) catch |err| switch (err) {
-        error.LinkFailure => return, // already reported
-        else => |e| diags.addParseError(obj.path, "failed to parse archive: {s}", .{@errorName(e)}),
-    };
-}
-
 fn parseArchive(
     gpa: Allocator,
     diags: *Diags,
@@ -1480,38 +1344,6 @@ fn parseArchive(
     }
 }
 
-fn openParseDsoReportingFailure(self: *Elf, path: Path) void {
-    const diags = &self.base.comp.link_diags;
-    const target = self.getTarget();
-    const dso = link.openDso(path, false, false, false) catch |err| {
-        switch (diags.failParse(path, "failed to open shared object {}: {s}", .{ path, @errorName(err) })) {
-            error.LinkFailure => return,
-        }
-    };
-    const gpa = self.base.comp.gpa;
-    parseDsoReportingFailure(gpa, diags, dso, &self.shared_objects, &self.files, target);
-}
-
-fn parseDsoReportingFailure(
-    gpa: Allocator,
-    diags: *Diags,
-    dso: link.Input.Dso,
-    shared_objects: *std.StringArrayHashMapUnmanaged(File.Index),
-    files: *std.MultiArrayList(File.Entry),
-    target: std.Target,
-) void {
-    parseDso(gpa, diags, dso, shared_objects, files, target) catch |err| switch (err) {
-        error.LinkFailure => return, // already reported
-        error.BadMagic, error.UnexpectedEndOfFile => {
-            var notes = diags.addErrorWithNotes(2) catch return diags.setAllocFailure();
-            notes.addMsg("failed to parse shared object: {s}", .{@errorName(err)}) catch return diags.setAllocFailure();
-            notes.addNote("while parsing {}", .{dso.path}) catch return diags.setAllocFailure();
-            notes.addNote("{s}", .{@as([]const u8, "the file may be a GNU ld script, in which case it is not an ELF file but a text file referencing other libraries to link. In this case, avoid depending on the library, convince your system administrators to refrain from using this kind of file, or pass -fallow-so-scripts to force the compiler to check every shared library in case it is an ld script.")}) catch return diags.setAllocFailure();
-        },
-        else => |e| diags.addParseError(dso.path, "failed to parse shared object: {s}", .{@errorName(e)}),
-    };
-}
-
 fn parseDso(
     gpa: Allocator,
     diags: *Diags,
@@ -1524,7 +1356,6 @@ fn parseDso(
     defer tracy.end();
 
     const handle = dso.file;
-    defer handle.close();
 
     const stat = Stat.fromFs(try handle.stat());
     var header = try SharedObject.parseHeader(gpa, diags, dso.path, handle, stat, target);

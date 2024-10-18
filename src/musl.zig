@@ -19,7 +19,7 @@ pub const CrtFile = enum {
     libc_so,
 };
 
-pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progress.Node) !void {
+pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Progress.Node) !void {
     if (!build_options.have_llvm) {
         return error.ZigCompilerNotBuiltWithLLVMExtensions;
     }
@@ -28,7 +28,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    switch (crt_file) {
+    switch (in_crt_file) {
         .crti_o => {
             var args = std.ArrayList([]const u8).init(arena);
             try addCcArgs(comp, arena, &args, false);
@@ -195,8 +195,9 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
         .libc_so => {
             const optimize_mode = comp.compilerRtOptMode();
             const strip = comp.compilerRtStrip();
+            const output_mode: std.builtin.OutputMode = .Lib;
             const config = try Compilation.Config.resolve(.{
-                .output_mode = .Lib,
+                .output_mode = output_mode,
                 .link_mode = .dynamic,
                 .resolved_target = comp.root_mod.resolved_target,
                 .is_test = false,
@@ -276,12 +277,17 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
 
             try comp.updateSubCompilation(sub_compilation, .@"musl libc.so", prog_node);
 
-            try comp.crt_files.ensureUnusedCapacity(comp.gpa, 1);
-
             const basename = try comp.gpa.dupe(u8, "libc.so");
             errdefer comp.gpa.free(basename);
 
-            comp.crt_files.putAssumeCapacityNoClobber(basename, try sub_compilation.toCrtFile());
+            const crt_file = try sub_compilation.toCrtFile();
+            comp.enqueueLinkTaskMode(crt_file.full_object_path, output_mode);
+            {
+                comp.mutex.lock();
+                defer comp.mutex.unlock();
+                try comp.crt_files.ensureUnusedCapacity(comp.gpa, 1);
+                comp.crt_files.putAssumeCapacityNoClobber(basename, crt_file);
+            }
         },
     }
 }
