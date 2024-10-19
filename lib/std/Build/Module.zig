@@ -46,11 +46,36 @@ pub const RPath = union(enum) {
     special: []const u8,
 };
 
+// subset of Compilation.FileExt
+pub const AsmSourceLang = enum {
+    assembly,
+    assembly_with_cpp,
+
+    pub fn getLangName(lang: @This()) []const u8 {
+        return switch (lang) {
+            .assembly => "assembler",
+            .assembly_with_cpp => "assembler-with-cpp",
+        };
+    }
+};
+
+pub const AsmSourceFile = struct {
+    file: LazyPath,
+    lang: ?AsmSourceLang = null,
+
+    pub fn dupe(file: AsmSourceFile, b: *std.Build) AsmSourceFile {
+        return .{
+            .file = file.file.dupe(b),
+            .lang = file.lang,
+        };
+    }
+};
+
 pub const LinkObject = union(enum) {
     static_path: LazyPath,
     other_step: *Step.Compile,
     system_lib: SystemLib,
-    assembly_file: LazyPath,
+    assembly_file: *AsmSourceFile,
     c_source_file: *CSourceFile,
     c_source_files: *CSourceFiles,
     win32_resource_file: *RcSourceFile,
@@ -78,22 +103,87 @@ pub const SystemLib = struct {
     pub const SearchStrategy = enum { paths_first, mode_first, no_fallback };
 };
 
+/// Supported languages for "zig clang -x <lang>".
+// subset of Compilation.FileExt
+pub const CSourceLang = enum {
+    /// "c"
+    c,
+    /// "c-header"
+    h,
+    /// "c++"
+    cpp,
+    /// "c++-header"
+    hpp,
+    /// "objective-c"
+    m,
+    /// "objective-c-header"
+    hm,
+    /// "objective-c++"
+    mm,
+    /// "objective-c++-header"
+    hmm,
+    /// "assembler"
+    assembly,
+    /// "assembler-with-cpp"
+    assembly_with_cpp,
+    /// "cuda"
+    cu,
+
+    pub fn getLangName(lang: @This()) []const u8 {
+        return switch (lang) {
+            .assembly => "assembler",
+            .assembly_with_cpp => "assembler-with-cpp",
+            .c => "c",
+            .cpp => "c++",
+            .h => "c-header",
+            .hpp => "c++-header",
+            .hm => "objective-c-header",
+            .hmm => "objective-c++-header",
+            .cu => "cuda",
+            .m => "objective-c",
+            .mm => "objective-c++",
+        };
+    }
+};
+
+pub const PrecompiledHeader = union(enum) {
+    /// automatically create the PCH compile step for the source header file,
+    /// inheriting the options from the parent compile step.
+    source_header: struct { path: LazyPath, lang: ?CSourceLang = null },
+
+    /// final PCH compile step,
+    /// can be provided by the user or else will be created from the `source_header` field during step finalization.
+    pch_step: *Step.Compile,
+
+    pub fn getPath(pch: PrecompiledHeader, b: *std.Build) []const u8 {
+        switch (pch) {
+            .source_header => unreachable,
+            .pch_step => |pch_step| return pch_step.getEmittedBin().getPath(b),
+        }
+    }
+};
 pub const CSourceFiles = struct {
     root: LazyPath,
     /// `files` is relative to `root`, which is
     /// the build root by default
     files: []const []const u8,
+    lang: ?CSourceLang = null,
     flags: []const []const u8,
+    precompiled_header: ?PrecompiledHeader = null,
 };
 
 pub const CSourceFile = struct {
     file: LazyPath,
+    lang: ?CSourceLang = null,
     flags: []const []const u8 = &.{},
+    precompiled_header: ?PrecompiledHeader = null,
 
     pub fn dupe(file: CSourceFile, b: *std.Build) CSourceFile {
         return .{
             .file = file.file.dupe(b),
+            .lang = file.lang,
             .flags = b.dupeStrings(file.flags),
+            .precompiled_header = file.precompiled_header,
         };
     }
 };
@@ -324,10 +414,9 @@ fn addShallowDependencies(m: *Module, dependee: *Module) void {
             addLazyPathDependenciesOnly(m, compile.getEmittedIncludeTree());
         },
 
-        .static_path,
-        .assembly_file,
-        => |lp| addLazyPathDependencies(m, dependee, lp),
+        .static_path => |lp| addLazyPathDependencies(m, dependee, lp),
 
+        .assembly_file => |x| addLazyPathDependencies(m, dependee, x.file),
         .c_source_file => |x| addLazyPathDependencies(m, dependee, x.file),
         .win32_resource_file => |x| addLazyPathDependencies(m, dependee, x.file),
 
@@ -361,7 +450,7 @@ fn addStepDependencies(m: *Module, module: *Module, dependee: *Step) void {
     }
 }
 
-fn addStepDependenciesOnly(m: *Module, dependee: *Step) void {
+pub fn addStepDependenciesOnly(m: *Module, dependee: *Step) void {
     for (m.depending_steps.keys()) |compile| {
         compile.step.dependOn(dependee);
     }
@@ -523,7 +612,9 @@ pub const AddCSourceFilesOptions = struct {
     /// package that owns the `Compile` step.
     root: ?LazyPath = null,
     files: []const []const u8,
+    lang: ?CSourceLang = null,
     flags: []const []const u8 = &.{},
+    precompiled_header: ?PrecompiledHeader = null,
 };
 
 /// Handy when you have many C/C++ source files and want them all to have the same flags.
@@ -544,10 +635,22 @@ pub fn addCSourceFiles(m: *Module, options: AddCSourceFilesOptions) void {
     c_source_files.* = .{
         .root = options.root orelse b.path(""),
         .files = b.dupeStrings(options.files),
+        .lang = options.lang,
         .flags = b.dupeStrings(options.flags),
+        .precompiled_header = options.precompiled_header,
     };
     m.link_objects.append(allocator, .{ .c_source_files = c_source_files }) catch @panic("OOM");
     addLazyPathDependenciesOnly(m, c_source_files.root);
+
+    if (options.precompiled_header) |pch| {
+        switch (pch) {
+            .source_header => |src| addLazyPathDependenciesOnly(m, src.path),
+            .pch_step => |step| {
+                _ = step.getEmittedBin(); // Indicate there is a dependency on the outputted binary.
+                addStepDependenciesOnly(m, &step.step);
+            },
+        }
+    }
 }
 
 pub fn addCSourceFile(m: *Module, source: CSourceFile) void {
@@ -557,6 +660,16 @@ pub fn addCSourceFile(m: *Module, source: CSourceFile) void {
     c_source_file.* = source.dupe(b);
     m.link_objects.append(allocator, .{ .c_source_file = c_source_file }) catch @panic("OOM");
     addLazyPathDependenciesOnly(m, source.file);
+
+    if (source.precompiled_header) |pch| {
+        switch (pch) {
+            .source_header => |src| addLazyPathDependenciesOnly(m, src.path),
+            .pch_step => |step| {
+                _ = step.getEmittedBin(); // Indicate there is a dependency on the outputted binary.
+                addStepDependenciesOnly(m, &step.step);
+            },
+        }
+    }
 }
 
 /// Resource files must have the extension `.rc`.
@@ -579,10 +692,12 @@ pub fn addWin32ResourceFile(m: *Module, source: RcSourceFile) void {
     }
 }
 
-pub fn addAssemblyFile(m: *Module, source: LazyPath) void {
+pub fn addAssemblyFile(m: *Module, source: AsmSourceFile) void {
     const b = m.owner;
-    m.link_objects.append(b.allocator, .{ .assembly_file = source.dupe(b) }) catch @panic("OOM");
-    addLazyPathDependenciesOnly(m, source);
+    const source_file = b.allocator.create(AsmSourceFile) catch @panic("OOM");
+    source_file.* = source.dupe(b);
+    m.link_objects.append(b.allocator, .{ .assembly_file = source_file }) catch @panic("OOM");
+    addLazyPathDependenciesOnly(m, source.file);
 }
 
 pub fn addObjectFile(m: *Module, object: LazyPath) void {
