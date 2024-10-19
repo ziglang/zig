@@ -4782,10 +4782,10 @@ pub const NavGen = struct {
         const nav = ip.getNav(nav_index);
         const resolved = nav.status.resolved;
 
-        const is_extern, const lib_name, const is_threadlocal, const is_weak_linkage, const is_const, const init_val, const owner_nav = switch (ip.indexToKey(resolved.val)) {
-            .variable => |variable| .{ false, variable.lib_name, variable.is_threadlocal, variable.is_weak_linkage, false, variable.init, variable.owner_nav },
-            .@"extern" => |@"extern"| .{ true, @"extern".lib_name, @"extern".is_threadlocal, @"extern".is_weak_linkage, @"extern".is_const, .none, @"extern".owner_nav },
-            else => .{ false, .none, false, false, true, resolved.val, nav_index },
+        const is_extern, const lib_name, const is_threadlocal, const is_weak_linkage, const is_dll_import, const is_const, const init_val, const owner_nav = switch (ip.indexToKey(resolved.val)) {
+            .variable => |variable| .{ false, variable.lib_name, variable.is_threadlocal, variable.is_weak_linkage, false, false, variable.init, variable.owner_nav },
+            .@"extern" => |@"extern"| .{ true, @"extern".lib_name, @"extern".is_threadlocal, @"extern".is_weak_linkage, @"extern".is_dll_import, @"extern".is_const, .none, @"extern".owner_nav },
+            else => .{ false, .none, false, false, false, true, resolved.val, nav_index },
         };
         const ty = Type.fromInterned(nav.typeOf(ip));
 
@@ -4860,8 +4860,11 @@ pub const NavGen = struct {
             try global_index.rename(decl_name, &o.builder);
             global_index.setLinkage(.external, &o.builder);
             global_index.setUnnamedAddr(.default, &o.builder);
-            if (zcu.comp.config.dll_export_fns)
+            if (is_dll_import) {
+                global_index.setDllStorageClass(.dllimport, &o.builder);
+            } else if (zcu.comp.config.dll_export_fns) {
                 global_index.setDllStorageClass(.default, &o.builder);
+            }
 
             if (is_weak_linkage) global_index.setLinkage(.extern_weak, &o.builder);
         }

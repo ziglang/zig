@@ -2054,6 +2054,7 @@ pub const Key = union(enum) {
         is_const: bool,
         is_threadlocal: bool,
         is_weak_linkage: bool,
+        is_dll_import: bool,
         alignment: Alignment,
         @"addrspace": std.builtin.AddressSpace,
         /// The ZIR instruction which created this extern; used only for source locations.
@@ -2675,6 +2676,7 @@ pub const Key = union(enum) {
                 asBytes(&e.ty) ++ asBytes(&e.lib_name) ++
                 asBytes(&e.is_const) ++ asBytes(&e.is_threadlocal) ++
                 asBytes(&e.is_weak_linkage) ++ asBytes(&e.alignment) ++
+                asBytes(&e.is_dll_import) ++ asBytes(&e.alignment) ++
                 asBytes(&e.@"addrspace") ++ asBytes(&e.zir_index)),
         };
     }
@@ -2771,6 +2773,7 @@ pub const Key = union(enum) {
                     a_info.is_const == b_info.is_const and
                     a_info.is_threadlocal == b_info.is_threadlocal and
                     a_info.is_weak_linkage == b_info.is_weak_linkage and
+                    a_info.is_dll_import == b_info.is_dll_import and
                     a_info.alignment == b_info.alignment and
                     a_info.@"addrspace" == b_info.@"addrspace" and
                     a_info.zir_index == b_info.zir_index;
@@ -5370,7 +5373,8 @@ pub const Tag = enum(u8) {
             is_const: bool,
             is_threadlocal: bool,
             is_weak_linkage: bool,
-            _: u29 = 0,
+            is_dll_import: bool,
+            _: u28 = 0,
         };
     };
 
@@ -6715,6 +6719,7 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
                 .is_const = extra.flags.is_const,
                 .is_threadlocal = extra.flags.is_threadlocal,
                 .is_weak_linkage = extra.flags.is_weak_linkage,
+                .is_dll_import = extra.flags.is_dll_import,
                 .alignment = nav.status.resolved.alignment,
                 .@"addrspace" = nav.status.resolved.@"addrspace",
                 .zir_index = extra.zir_index,
@@ -7381,6 +7386,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
                         .is_const = false,
                         .is_threadlocal = variable.is_threadlocal,
                         .is_weak_linkage = variable.is_weak_linkage,
+                        .is_dll_import = false,
                     },
                 }),
             });
@@ -8644,6 +8650,7 @@ pub fn getExtern(
             .is_const = key.is_const,
             .is_threadlocal = key.is_threadlocal,
             .is_weak_linkage = key.is_weak_linkage,
+            .is_dll_import = key.is_dll_import,
         },
         .zir_index = key.zir_index,
         .owner_nav = owner_nav,

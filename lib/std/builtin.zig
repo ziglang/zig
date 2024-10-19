@@ -70,6 +70,14 @@ pub const GlobalLinkage = enum {
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
+pub const DllStorageClass = enum {
+    default,
+    import,
+    @"export",
+};
+
+/// This data structure is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
 pub const SymbolVisibility = enum {
     default,
     hidden,
@@ -683,6 +691,7 @@ pub const ExternOptions = struct {
     library_name: ?[]const u8 = null,
     linkage: GlobalLinkage = .strong,
     is_thread_local: bool = false,
+    dll_storage_class: DllStorageClass = .default,
 };
 
 /// This data structure is used by the Zig language code generation and

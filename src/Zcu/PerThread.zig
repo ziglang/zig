@@ -2763,6 +2763,7 @@ pub fn getCoerced(pt: Zcu.PerThread, val: Value, new_ty: Type) Allocator.Error!V
                 .is_const = e.is_const,
                 .is_threadlocal = e.is_threadlocal,
                 .is_weak_linkage = e.is_weak_linkage,
+                .is_dll_import = e.is_dll_import,
                 .alignment = e.alignment,
                 .@"addrspace" = e.@"addrspace",
                 .zir_index = e.zir_index,
