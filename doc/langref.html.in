@@ -2206,7 +2206,7 @@ or
       {#code|test_packed_structs.zig#}
 
       <p>
-      The backing integer can be inferred or explicitly provided. When inferred it will be unsigned, and when explicitly provided, its bit count will be enforced at compile time:
+      The backing integer can be inferred or explicitly provided. When inferred, it will be unsigned. When explicitly provided, its bit width will be enforced at compile time to exactly match the total bit width of the fields:
       </p>
       {#code|test_missized_packed_struct.zig#}
 
