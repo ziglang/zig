@@ -1,6 +1,7 @@
 pub const Atom = @import("Elf/Atom.zig");
 
 base: link.File,
+zig_object: ?*ZigObject,
 rpath_table: std.StringArrayHashMapUnmanaged(void),
 image_base: u64,
 emit_relocs: bool,
@@ -299,6 +300,7 @@ pub fn createEmpty(
             .disable_lld_caching = options.disable_lld_caching,
             .build_id = options.build_id,
         },
+        .zig_object = null,
         .rpath_table = rpath_table,
         .ptr_width = ptr_width,
         .page_size = page_size,
@@ -423,14 +425,17 @@ pub fn createEmpty(
     if (opt_zcu) |zcu| {
         if (!use_llvm) {
             const index: File.Index = @intCast(try self.files.addOne(gpa));
-            self.files.set(index, .{ .zig_object = .{
+            self.files.set(index, .zig_object);
+            self.zig_object_index = index;
+            const zig_object = try arena.create(ZigObject);
+            self.zig_object = zig_object;
+            zig_object.* = .{
                 .index = index,
                 .basename = try std.fmt.allocPrint(arena, "{s}.o", .{
                     fs.path.stem(zcu.main_mod.root_src_path),
                 }),
-            } });
-            self.zig_object_index = index;
-            try self.zigObjectPtr().?.init(self, .{
+            };
+            try zig_object.init(self, .{
                 .symbol_count_hint = options.symbol_count_hint,
                 .program_code_size_hint = options.program_code_size_hint,
             });
@@ -462,12 +467,14 @@ pub fn deinit(self: *Elf) void {
     self.file_handles.deinit(gpa);
 
     for (self.files.items(.tags), self.files.items(.data)) |tag, *data| switch (tag) {
-        .null => {},
-        .zig_object => data.zig_object.deinit(gpa),
+        .null, .zig_object => {},
         .linker_defined => data.linker_defined.deinit(gpa),
         .object => data.object.deinit(gpa),
         .shared_object => data.shared_object.deinit(gpa),
     };
+    if (self.zig_object) |zig_object| {
+        zig_object.deinit(gpa);
+    }
     self.files.deinit(gpa);
     self.objects.deinit(gpa);
     self.shared_objects.deinit(gpa);
@@ -1242,7 +1249,7 @@ fn parseDso(
             .output_symtab_ctx = .{},
         },
     });
-    const so = fileLookup(files.*, index).?.shared_object;
+    const so = fileLookup(files.*, index, null).?.shared_object;
 
     // TODO: save this work for later
     const nsyms = parsed.symbols.len;
@@ -3118,7 +3125,7 @@ pub fn sortShdrs(
     for (slice.items(.shdr), slice.items(.atom_list_2)) |*shdr, *atom_list| {
         atom_list.output_section_index = backlinks[atom_list.output_section_index];
         for (atom_list.atoms.keys()) |ref| {
-            fileLookup(files, ref.file).?.atom(ref.index).?.output_section_index = atom_list.output_section_index;
+            fileLookup(files, ref.file, zig_object_ptr).?.atom(ref.index).?.output_section_index = atom_list.output_section_index;
         }
         if (shdr.sh_type == elf.SHT_RELA) {
             // FIXME:JK we should spin up .symtab potentially earlier, or set all non-dynamic RELA sections
@@ -4348,15 +4355,15 @@ pub fn thunk(self: *Elf, index: Thunk.Index) *Thunk {
 }
 
 pub fn file(self: *Elf, index: File.Index) ?File {
-    return fileLookup(self.files, index);
+    return fileLookup(self.files, index, self.zig_object);
 }
 
-fn fileLookup(files: std.MultiArrayList(File.Entry), index: File.Index) ?File {
+fn fileLookup(files: std.MultiArrayList(File.Entry), index: File.Index, zig_object: ?*ZigObject) ?File {
     const tag = files.items(.tags)[index];
     return switch (tag) {
         .null => null,
         .linker_defined => .{ .linker_defined = &files.items(.data)[index].linker_defined },
-        .zig_object => .{ .zig_object = &files.items(.data)[index].zig_object },
+        .zig_object => .{ .zig_object = zig_object.? },
         .object => .{ .object = &files.items(.data)[index].object },
         .shared_object => .{ .shared_object = &files.items(.data)[index].shared_object },
     };
@@ -4394,8 +4401,7 @@ pub fn getGlobalSymbol(self: *Elf, name: []const u8, lib_name: ?[]const u8) !u32
 }
 
 pub fn zigObjectPtr(self: *Elf) ?*ZigObject {
-    const index = self.zig_object_index orelse return null;
-    return self.file(index).?.zig_object;
+    return self.zig_object;
 }
 
 pub fn linkerDefinedPtr(self: *Elf) ?*LinkerDefined {
