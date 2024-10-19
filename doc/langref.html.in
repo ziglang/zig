@@ -2186,14 +2186,16 @@ or
         having a maximum bit count of 65535, and the host endianness.
         On a big endian system, the first declared field will have the highest memory address.
         </li>
-        <li>The backing integer has the same bit count as the fields' total bit width.</li>
+        <li>The backing integer has the same bit width as the fields' total bit width.</li>
         <li>Field access and assignment can be understood as shorthand for bitshifts on the backing integer.</li>
-        <li>Integers will use exactly as many bits as they have. For example, a {#syntax#}u5{#endsyntax#} will use 5 bits of the backing integer.</li>
-        <li>{#syntax#}bool{#endsyntax#} fields use exactly 1 bit.</li>
+        <li>An {#link|integer|Integers#} field uses exactly as many bits as its bit width. For example, a {#syntax#}u5{#endsyntax#} will use 5 bits of the backing integer.</li>
+        <li>A {#link|bool|Primitive Types#} field uses exactly 1 bit.</li>
         <li>An {#link|enum#} field uses exactly the bit width of its integer tag type.</li>
         <li>A {#link|packed union#} field uses exactly the bit width of the union field with
         the largest bit width.</li>
-        <li>Packed structs, when they themselves are within a packed struct, will only use as many bits as their backing integer.</li>
+        <li>A {#syntax#}packed struct{#endsyntax#} field, when within a {#syntax#}packed struct{#endsyntax#}, uses exactly the bit width of its backing integer. For example,
+          a {#syntax#}packed struct{#endsyntax#} field having backing integer {#syntax#}u17{#endsyntax#} uses 17 bits of its parent's backing integer.
+        </li>
         <li>Packed structs support equality operators.</li>
       </ul>
       <p>
