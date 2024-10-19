@@ -3645,11 +3645,8 @@ fn linkWithLLD(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
             try argv.append(p);
         }
 
-        if (comp.config.output_mode != .Obj and
-            !comp.skip_linker_dependencies and
-            !comp.config.link_libc)
-        {
-            try argv.append(try comp.libc_static_lib.?.full_object_path.toString(arena));
+        if (comp.libc_static_lib) |crt_file| {
+            try argv.append(try crt_file.full_object_path.toString(arena));
         }
 
         if (compiler_rt_path) |p| {
