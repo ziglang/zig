@@ -3910,7 +3910,7 @@ fn testUnknownFileTypeError(b: *Build, opts: Options) *Step {
     exe.linkLibC();
 
     expectLinkErrors(exe, test_step, .{
-        .contains = "error: failed to parse shared object: BadMagic",
+        .contains = "error: failed to parse shared library: BadMagic",
     });
 
     return test_step;

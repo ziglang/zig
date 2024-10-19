@@ -1383,12 +1383,12 @@ pub const File = struct {
                 for (comp.link_inputs) |input| {
                     base.loadInput(input) catch |err| switch (err) {
                         error.LinkFailure => return, // error reported via link_diags
-                        else => |e| {
-                            if (input.path()) |path| {
-                                comp.link_diags.addParseError(path, "failed to parse linker input: {s}", .{@errorName(e)});
-                            } else {
-                                comp.link_diags.addError("failed to {s}: {s}", .{ input.taskName(), @errorName(e) });
-                            }
+                        else => |e| switch (input) {
+                            .dso => |dso| comp.link_diags.addParseError(dso.path, "failed to parse shared library: {s}", .{@errorName(e)}),
+                            .object => |obj| comp.link_diags.addParseError(obj.path, "failed to parse object: {s}", .{@errorName(e)}),
+                            .archive => |obj| comp.link_diags.addParseError(obj.path, "failed to parse archive: {s}", .{@errorName(e)}),
+                            .res => |res| comp.link_diags.addParseError(res.path, "failed to parse Windows resource: {s}", .{@errorName(e)}),
+                            .dso_exact => comp.link_diags.addError("failed to handle dso_exact: {s}", .{@errorName(e)}),
                         },
                     };
                 }
