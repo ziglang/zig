@@ -2253,9 +2253,11 @@ or
       {#code|test_packed_struct_equality.zig#}
 
       <p>
-      TODO update these docs with a recommendation on how to use packed structs with MMIO
-      (the use case for volatile packed structs) once this issue is resolved.
-      Don't worry, there will be a good solution for this use case in zig.
+      Packed structs can be used to interact with memory-mapped input-output (MMIO), which is
+      common in embedded applications. A pointer of the correct alignment and address to a packed struct
+      can be constructed to faciltiate manipulation of bit-packed registers without arduous bitshifting.
+      
+      {#code|packed_struct_mmio.zig#}
       </p>
       {#header_close#}
 
