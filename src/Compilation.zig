@@ -1886,7 +1886,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                 try comp.queueJob(.libcxx);
                 try comp.queueJob(.libcxxabi);
             }
-            if (build_options.have_llvm and comp.config.any_sanitize_thread) {
+            if (build_options.have_llvm and is_exe_or_dyn_lib and comp.config.any_sanitize_thread) {
                 try comp.queueJob(.libtsan);
             }
 
@@ -1914,11 +1914,9 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                 }
             }
 
-            if (comp.config.any_fuzz and capable_of_building_compiler_rt) {
-                if (is_exe_or_dyn_lib) {
-                    log.debug("queuing a job to build libfuzzer", .{});
-                    comp.job_queued_fuzzer_lib = true;
-                }
+            if (is_exe_or_dyn_lib and comp.config.any_fuzz and capable_of_building_compiler_rt) {
+                log.debug("queuing a job to build libfuzzer", .{});
+                comp.job_queued_fuzzer_lib = true;
             }
         }
 
