@@ -114,6 +114,10 @@ comment_merge_section_index: ?Merge.Section.Index = null,
 
 first_eflags: ?elf.Word = null,
 
+/// `--verbose-link` output.
+/// Initialized on creation, appended to as inputs are added, printed during `flush`.
+dump_argv_list: std.ArrayListUnmanaged([]const u8),
+
 const SectionIndexes = struct {
     copy_rel: ?u32 = null,
     dynamic: ?u32 = null,
@@ -338,6 +342,7 @@ pub fn createEmpty(
         .enable_new_dtags = options.enable_new_dtags,
         .print_icf_sections = options.print_icf_sections,
         .print_map = options.print_map,
+        .dump_argv_list = .empty,
     };
     if (use_llvm and comp.config.have_zcu) {
         self.llvm_object = try LlvmObject.create(arena, comp);
@@ -350,7 +355,7 @@ pub fn createEmpty(
     }
 
     // --verbose-link
-    if (comp.verbose_link) try self.dumpArgv(comp);
+    if (comp.verbose_link) try dumpArgvInit(self, arena);
 
     const is_obj = output_mode == .Obj;
     const is_obj_or_ar = is_obj or (output_mode == .Lib and link_mode == .static);
@@ -501,6 +506,7 @@ pub fn deinit(self: *Elf) void {
     self.rela_dyn.deinit(gpa);
     self.rela_plt.deinit(gpa);
     self.comdat_group_sections.deinit(gpa);
+    self.dump_argv_list.deinit(gpa);
 }
 
 pub fn getNavVAddr(self: *Elf, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index, reloc_info: link.File.RelocInfo) !u64 {
@@ -753,11 +759,22 @@ pub fn allocateChunk(self: *Elf, args: struct {
 }
 
 pub fn loadInput(self: *Elf, input: link.Input) !void {
-    const gpa = self.base.comp.gpa;
-    const diags = &self.base.comp.link_diags;
+    const comp = self.base.comp;
+    const gpa = comp.gpa;
+    const diags = &comp.link_diags;
     const target = self.getTarget();
-    const debug_fmt_strip = self.base.comp.config.debug_format == .strip;
+    const debug_fmt_strip = comp.config.debug_format == .strip;
     const default_sym_version = self.default_sym_version;
+
+    if (comp.verbose_link) {
+        const argv = &self.dump_argv_list;
+        switch (input) {
+            .res => unreachable,
+            .dso_exact => |dso_exact| try argv.appendSlice(gpa, &.{ "-l", dso_exact.name }),
+            .object, .archive => |obj| try argv.append(gpa, try obj.path.toString(comp.arena)),
+            .dso => |dso| try argv.append(gpa, try dso.path.toString(comp.arena)),
+        }
+    }
 
     switch (input) {
         .res => unreachable,
@@ -789,6 +806,8 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
         const use_lld = build_options.have_llvm and comp.config.use_lld;
         if (use_lld) return;
     }
+
+    if (comp.verbose_link) Compilation.dump_argv(self.dump_argv_list.items);
 
     const sub_prog_node = prog_node.start("ELF Flush", 0);
     defer sub_prog_node.end();
@@ -965,291 +984,110 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
     if (diags.hasErrors()) return error.FlushFailure;
 }
 
-/// --verbose-link output
-fn dumpArgv(self: *Elf, comp: *Compilation) !void {
-    const gpa = self.base.comp.gpa;
-    var arena_allocator = std.heap.ArenaAllocator.init(gpa);
-    defer arena_allocator.deinit();
-    const arena = arena_allocator.allocator();
-
+fn dumpArgvInit(self: *Elf, arena: Allocator) !void {
+    const comp = self.base.comp;
+    const gpa = comp.gpa;
     const target = self.getTarget();
-    const link_mode = self.base.comp.config.link_mode;
-    const directory = self.base.emit.root_dir; // Just an alias to make it shorter to type.
-    const full_out_path = try directory.join(arena, &[_][]const u8{self.base.emit.sub_path});
-    const module_obj_path: ?[]const u8 = if (self.base.zcu_object_sub_path) |path| blk: {
-        if (fs.path.dirname(full_out_path)) |dirname| {
-            break :blk try fs.path.join(arena, &.{ dirname, path });
-        } else {
-            break :blk path;
-        }
-    } else null;
+    const full_out_path = try self.base.emit.root_dir.join(arena, &[_][]const u8{self.base.emit.sub_path});
 
-    const crt_basenames = std.zig.LibCInstallation.CrtBasenames.get(.{
-        .target = target,
-        .link_libc = comp.config.link_libc,
-        .output_mode = comp.config.output_mode,
-        .link_mode = link_mode,
-        .pie = comp.config.pie,
-    });
-    const crt_paths: std.zig.LibCInstallation.CrtPaths = if (comp.libc_installation) |lci|
-        try lci.resolveCrtPaths(arena, crt_basenames, target)
-    else
-        .{};
-    const compiler_rt_path: ?[]const u8 = blk: {
-        if (comp.compiler_rt_lib) |x| break :blk try x.full_object_path.toString(arena);
-        if (comp.compiler_rt_obj) |x| break :blk try x.full_object_path.toString(arena);
-        break :blk null;
-    };
+    const argv = &self.dump_argv_list;
 
-    var argv = std.ArrayList([]const u8).init(arena);
-
-    try argv.append("zig");
+    try argv.append(gpa, "zig");
 
     if (self.base.isStaticLib()) {
-        try argv.append("ar");
+        try argv.append(gpa, "ar");
     } else {
-        try argv.append("ld");
+        try argv.append(gpa, "ld");
     }
 
     if (self.base.isObject()) {
-        try argv.append("-r");
+        try argv.append(gpa, "-r");
     }
 
-    try argv.append("-o");
-    try argv.append(full_out_path);
+    try argv.append(gpa, "-o");
+    try argv.append(gpa, full_out_path);
 
-    if (self.base.isRelocatable()) {
-        for (self.base.comp.link_inputs) |link_input| switch (link_input) {
-            .res => unreachable,
-            .dso => |dso| try argv.append(try dso.path.toString(arena)),
-            .object, .archive => |obj| try argv.append(try obj.path.toString(arena)),
-            .dso_exact => |dso_exact| {
-                assert(dso_exact.name[0] == ':');
-                try argv.appendSlice(&.{ "-l", dso_exact.name });
-            },
-        };
-
-        for (comp.c_object_table.keys()) |key| {
-            try argv.append(try key.status.success.object_path.toString(arena));
-        }
-
-        if (module_obj_path) |p| {
-            try argv.append(p);
-        }
-    } else {
+    if (!self.base.isRelocatable()) {
         if (!self.base.isStatic()) {
             if (target.dynamic_linker.get()) |path| {
-                try argv.append("-dynamic-linker");
-                try argv.append(path);
+                try argv.appendSlice(gpa, &.{ "-dynamic-linker", try arena.dupe(u8, path) });
             }
         }
 
         if (self.base.isDynLib()) {
             if (self.soname) |name| {
-                try argv.append("-soname");
-                try argv.append(name);
+                try argv.append(gpa, "-soname");
+                try argv.append(gpa, name);
             }
         }
 
         if (self.entry_name) |name| {
-            try argv.appendSlice(&.{ "--entry", name });
+            try argv.appendSlice(gpa, &.{ "--entry", name });
         }
 
         for (self.rpath_table.keys()) |rpath| {
-            try argv.appendSlice(&.{ "-rpath", rpath });
+            try argv.appendSlice(gpa, &.{ "-rpath", rpath });
         }
 
-        try argv.appendSlice(&.{
+        try argv.appendSlice(gpa, &.{
             "-z",
             try std.fmt.allocPrint(arena, "stack-size={d}", .{self.base.stack_size}),
         });
 
-        try argv.append(try std.fmt.allocPrint(arena, "--image-base={d}", .{self.image_base}));
+        try argv.append(gpa, try std.fmt.allocPrint(arena, "--image-base={d}", .{self.image_base}));
 
         if (self.base.gc_sections) {
-            try argv.append("--gc-sections");
+            try argv.append(gpa, "--gc-sections");
         }
 
         if (self.base.print_gc_sections) {
-            try argv.append("--print-gc-sections");
+            try argv.append(gpa, "--print-gc-sections");
         }
 
         if (comp.link_eh_frame_hdr) {
-            try argv.append("--eh-frame-hdr");
+            try argv.append(gpa, "--eh-frame-hdr");
         }
 
         if (comp.config.rdynamic) {
-            try argv.append("--export-dynamic");
+            try argv.append(gpa, "--export-dynamic");
         }
 
         if (self.z_notext) {
-            try argv.append("-z");
-            try argv.append("notext");
+            try argv.append(gpa, "-z");
+            try argv.append(gpa, "notext");
         }
 
         if (self.z_nocopyreloc) {
-            try argv.append("-z");
-            try argv.append("nocopyreloc");
+            try argv.append(gpa, "-z");
+            try argv.append(gpa, "nocopyreloc");
         }
 
         if (self.z_now) {
-            try argv.append("-z");
-            try argv.append("now");
+            try argv.append(gpa, "-z");
+            try argv.append(gpa, "now");
         }
 
         if (self.base.isStatic()) {
-            try argv.append("-static");
+            try argv.append(gpa, "-static");
         } else if (self.isEffectivelyDynLib()) {
-            try argv.append("-shared");
+            try argv.append(gpa, "-shared");
         }
 
         if (comp.config.pie and self.base.isExe()) {
-            try argv.append("-pie");
+            try argv.append(gpa, "-pie");
         }
 
         if (comp.config.debug_format == .strip) {
-            try argv.append("-s");
+            try argv.append(gpa, "-s");
         }
-
-        if (crt_paths.crt0) |path| try argv.append(try path.toString(arena));
-        if (crt_paths.crti) |path| try argv.append(try path.toString(arena));
-        if (crt_paths.crtbegin) |path| try argv.append(try path.toString(arena));
 
         if (comp.config.link_libc) {
-            if (self.base.comp.libc_installation) |libc_installation| {
-                try argv.append("-L");
-                try argv.append(libc_installation.crt_dir.?);
+            if (self.base.comp.libc_installation) |lci| {
+                try argv.append(gpa, "-L");
+                try argv.append(gpa, lci.crt_dir.?);
             }
         }
-
-        var whole_archive = false;
-
-        for (self.base.comp.link_inputs) |link_input| switch (link_input) {
-            .res => unreachable,
-            .dso => continue,
-            .object, .archive => |obj| {
-                if (obj.must_link and !whole_archive) {
-                    try argv.append("-whole-archive");
-                    whole_archive = true;
-                } else if (!obj.must_link and whole_archive) {
-                    try argv.append("-no-whole-archive");
-                    whole_archive = false;
-                }
-                try argv.append(try obj.path.toString(arena));
-            },
-            .dso_exact => |dso_exact| {
-                assert(dso_exact.name[0] == ':');
-                try argv.appendSlice(&.{ "-l", dso_exact.name });
-            },
-        };
-
-        if (whole_archive) {
-            try argv.append("-no-whole-archive");
-            whole_archive = false;
-        }
-
-        for (comp.c_object_table.keys()) |key| {
-            try argv.append(try key.status.success.object_path.toString(arena));
-        }
-
-        if (module_obj_path) |p| {
-            try argv.append(p);
-        }
-
-        if (comp.config.any_sanitize_thread) {
-            try argv.append(try comp.tsan_lib.?.full_object_path.toString(arena));
-        }
-
-        if (comp.config.any_fuzz) {
-            try argv.append(try comp.fuzzer_lib.?.full_object_path.toString(arena));
-        }
-
-        // libc
-        if (!comp.skip_linker_dependencies and !comp.config.link_libc) {
-            if (comp.libc_static_lib) |lib| {
-                try argv.append(try lib.full_object_path.toString(arena));
-            }
-        }
-
-        // Shared libraries.
-        // Worst-case, we need an --as-needed argument for every lib, as well
-        // as one before and one after.
-        argv.appendAssumeCapacity("--as-needed");
-        var as_needed = true;
-
-        for (self.base.comp.link_inputs) |link_input| switch (link_input) {
-            .object, .archive, .dso_exact => continue,
-            .dso => |dso| {
-                const lib_as_needed = !dso.needed;
-                switch ((@as(u2, @intFromBool(lib_as_needed)) << 1) | @intFromBool(as_needed)) {
-                    0b00, 0b11 => {},
-                    0b01 => {
-                        try argv.append("--no-as-needed");
-                        as_needed = false;
-                    },
-                    0b10 => {
-                        try argv.append("--as-needed");
-                        as_needed = true;
-                    },
-                }
-                argv.appendAssumeCapacity(try dso.path.toString(arena));
-            },
-            .res => unreachable,
-        };
-
-        if (!as_needed) {
-            argv.appendAssumeCapacity("--as-needed");
-            as_needed = true;
-        }
-
-        // libc++ dep
-        if (comp.config.link_libcpp) {
-            try argv.append(try comp.libcxxabi_static_lib.?.full_object_path.toString(arena));
-            try argv.append(try comp.libcxx_static_lib.?.full_object_path.toString(arena));
-        }
-
-        // libunwind dep
-        if (comp.config.link_libunwind) {
-            try argv.append(try comp.libunwind_static_lib.?.full_object_path.toString(arena));
-        }
-
-        // libc dep
-        if (comp.config.link_libc) {
-            if (self.base.comp.libc_installation != null) {
-                const needs_grouping = link_mode == .static;
-                if (needs_grouping) try argv.append("--start-group");
-                try argv.appendSlice(target_util.libcFullLinkFlags(target));
-                if (needs_grouping) try argv.append("--end-group");
-            } else if (target.isGnuLibC()) {
-                for (glibc.libs) |lib| {
-                    if (lib.removed_in) |rem_in| {
-                        if (target.os.version_range.linux.glibc.order(rem_in) != .lt) continue;
-                    }
-
-                    const lib_path = try std.fmt.allocPrint(arena, "{s}{c}lib{s}.so.{d}", .{
-                        comp.glibc_so_files.?.dir_path, fs.path.sep, lib.name, lib.sover,
-                    });
-                    try argv.append(lib_path);
-                }
-                try argv.append(try comp.crtFileAsString(arena, "libc_nonshared.a"));
-            } else if (target.isMusl()) {
-                try argv.append(try comp.crtFileAsString(arena, switch (link_mode) {
-                    .static => "libc.a",
-                    .dynamic => "libc.so",
-                }));
-            }
-        }
-
-        // compiler-rt
-        if (compiler_rt_path) |p| {
-            try argv.append(p);
-        }
-
-        if (crt_paths.crtend) |path| try argv.append(try path.toString(arena));
-        if (crt_paths.crtn) |path| try argv.append(try path.toString(arena));
     }
-
-    Compilation.dump_argv(argv.items);
 }
 
 pub const ParseError = error{
@@ -2177,7 +2015,7 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
                             if (target.os.version_range.linux.glibc.order(rem_in) != .lt) continue;
                         }
 
-                        const lib_path = try std.fmt.allocPrint(arena, "{s}{c}lib{s}.so.{d}", .{
+                        const lib_path = try std.fmt.allocPrint(arena, "{}{c}lib{s}.so.{d}", .{
                             comp.glibc_so_files.?.dir_path, fs.path.sep, lib.name, lib.sover,
                         });
                         try argv.append(lib_path);

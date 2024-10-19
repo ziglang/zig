@@ -49,6 +49,8 @@ pub const Config = @import("Compilation/Config.zig");
 gpa: Allocator,
 /// Arena-allocated memory, mostly used during initialization. However, it can
 /// be used for other things requiring the same lifetime as the `Compilation`.
+/// Not thread-safe - lock `mutex` if potentially accessing from multiple
+/// threads at once.
 arena: Allocator,
 /// Not every Compilation compiles .zig code! For example you could do `zig build-exe foo.o`.
 zcu: ?*Zcu,
@@ -1760,172 +1762,166 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         .incremental => comp.bin_file != null,
     };
 
-    if (have_bin_emit and !comp.skip_linker_dependencies and target.ofmt != .c) {
-        if (target.isDarwin()) {
-            switch (target.abi) {
-                .none,
-                .simulator,
-                .macabi,
-                => {},
-                else => return error.LibCUnavailable,
-            }
-        }
-        // If we need to build glibc for the target, add work items for it.
-        // We go through the work queue so that building can be done in parallel.
-        // If linking against host libc installation, instead queue up jobs
-        // for loading those files in the linker.
-        if (comp.config.link_libc and is_exe_or_dyn_lib and target.ofmt != .c) {
-            if (comp.libc_installation) |lci| {
-                const basenames = LibCInstallation.CrtBasenames.get(.{
-                    .target = target,
-                    .link_libc = comp.config.link_libc,
-                    .output_mode = comp.config.output_mode,
-                    .link_mode = comp.config.link_mode,
-                    .pie = comp.config.pie,
-                });
-                const paths = try lci.resolveCrtPaths(arena, basenames, target);
+    if (have_bin_emit and target.ofmt != .c) {
+        if (!comp.skip_linker_dependencies) {
+            // If we need to build libc for the target, add work items for it.
+            // We go through the work queue so that building can be done in parallel.
+            // If linking against host libc installation, instead queue up jobs
+            // for loading those files in the linker.
+            if (comp.config.link_libc and is_exe_or_dyn_lib) {
+                if (comp.libc_installation) |lci| {
+                    const basenames = LibCInstallation.CrtBasenames.get(.{
+                        .target = target,
+                        .link_libc = comp.config.link_libc,
+                        .output_mode = comp.config.output_mode,
+                        .link_mode = comp.config.link_mode,
+                        .pie = comp.config.pie,
+                    });
+                    const paths = try lci.resolveCrtPaths(arena, basenames, target);
 
-                const fields = @typeInfo(@TypeOf(paths)).@"struct".fields;
-                try comp.link_task_queue.shared.ensureUnusedCapacity(gpa, fields.len);
-                inline for (fields) |field| {
-                    if (@field(paths, field.name)) |path| {
-                        comp.link_task_queue.shared.appendAssumeCapacity(.{ .load_object = path });
+                    const fields = @typeInfo(@TypeOf(paths)).@"struct".fields;
+                    try comp.link_task_queue.shared.ensureUnusedCapacity(gpa, fields.len);
+                    inline for (fields) |field| {
+                        if (@field(paths, field.name)) |path| {
+                            comp.link_task_queue.shared.appendAssumeCapacity(.{ .load_object = path });
+                        }
                     }
-                }
 
-                const flags = target_util.libcFullLinkFlags(target);
-                try comp.link_task_queue.shared.ensureUnusedCapacity(gpa, flags.len);
-                for (flags) |flag| {
-                    assert(mem.startsWith(u8, flag, "-l"));
-                    const lib_name = flag["-l".len..];
-                    const suffix = switch (comp.config.link_mode) {
-                        .static => target.staticLibSuffix(),
-                        .dynamic => target.dynamicLibSuffix(),
-                    };
-                    const sep = std.fs.path.sep_str;
-                    const lib_path = try std.fmt.allocPrint(arena, "{s}" ++ sep ++ "lib{s}{s}", .{
-                        lci.crt_dir.?, lib_name, suffix,
-                    });
-                    const resolved_path = Path.initCwd(lib_path);
-                    comp.link_task_queue.shared.appendAssumeCapacity(switch (comp.config.link_mode) {
-                        .static => .{ .load_archive = resolved_path },
-                        .dynamic => .{ .load_dso = resolved_path },
-                    });
-                }
-            } else if (target.isMusl() and !target.isWasm()) {
-                if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
+                    const flags = target_util.libcFullLinkFlags(target);
+                    try comp.link_task_queue.shared.ensureUnusedCapacity(gpa, flags.len);
+                    for (flags) |flag| {
+                        assert(mem.startsWith(u8, flag, "-l"));
+                        const lib_name = flag["-l".len..];
+                        const suffix = switch (comp.config.link_mode) {
+                            .static => target.staticLibSuffix(),
+                            .dynamic => target.dynamicLibSuffix(),
+                        };
+                        const sep = std.fs.path.sep_str;
+                        const lib_path = try std.fmt.allocPrint(arena, "{s}" ++ sep ++ "lib{s}{s}", .{
+                            lci.crt_dir.?, lib_name, suffix,
+                        });
+                        const resolved_path = Path.initCwd(lib_path);
+                        comp.link_task_queue.shared.appendAssumeCapacity(switch (comp.config.link_mode) {
+                            .static => .{ .load_archive = resolved_path },
+                            .dynamic => .{ .load_dso = resolved_path },
+                        });
+                    }
+                } else if (target.isMusl() and !target.isWasm()) {
+                    if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
 
-                if (musl.needsCrtiCrtn(target)) {
+                    if (musl.needsCrtiCrtn(target)) {
+                        try comp.queueJobs(&[_]Job{
+                            .{ .musl_crt_file = .crti_o },
+                            .{ .musl_crt_file = .crtn_o },
+                        });
+                    }
                     try comp.queueJobs(&[_]Job{
-                        .{ .musl_crt_file = .crti_o },
-                        .{ .musl_crt_file = .crtn_o },
+                        .{ .musl_crt_file = .crt1_o },
+                        .{ .musl_crt_file = .scrt1_o },
+                        .{ .musl_crt_file = .rcrt1_o },
+                        switch (comp.config.link_mode) {
+                            .static => .{ .musl_crt_file = .libc_a },
+                            .dynamic => .{ .musl_crt_file = .libc_so },
+                        },
                     });
-                }
-                try comp.queueJobs(&[_]Job{
-                    .{ .musl_crt_file = .crt1_o },
-                    .{ .musl_crt_file = .scrt1_o },
-                    .{ .musl_crt_file = .rcrt1_o },
-                    switch (comp.config.link_mode) {
-                        .static => .{ .musl_crt_file = .libc_a },
-                        .dynamic => .{ .musl_crt_file = .libc_so },
-                    },
-                });
-            } else if (target.isGnuLibC()) {
-                if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
+                } else if (target.isGnuLibC()) {
+                    if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
 
-                if (glibc.needsCrtiCrtn(target)) {
+                    if (glibc.needsCrtiCrtn(target)) {
+                        try comp.queueJobs(&[_]Job{
+                            .{ .glibc_crt_file = .crti_o },
+                            .{ .glibc_crt_file = .crtn_o },
+                        });
+                    }
                     try comp.queueJobs(&[_]Job{
-                        .{ .glibc_crt_file = .crti_o },
-                        .{ .glibc_crt_file = .crtn_o },
+                        .{ .glibc_crt_file = .scrt1_o },
+                        .{ .glibc_crt_file = .libc_nonshared_a },
+                        .{ .glibc_shared_objects = {} },
                     });
-                }
-                try comp.queueJobs(&[_]Job{
-                    .{ .glibc_crt_file = .scrt1_o },
-                    .{ .glibc_crt_file = .libc_nonshared_a },
-                    .{ .glibc_shared_objects = {} },
-                });
-            } else if (target.isWasm() and target.os.tag == .wasi) {
-                if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
+                } else if (target.isWasm() and target.os.tag == .wasi) {
+                    if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
 
-                for (comp.wasi_emulated_libs) |crt_file| {
-                    try comp.queueJob(.{
-                        .wasi_libc_crt_file = crt_file,
+                    for (comp.wasi_emulated_libs) |crt_file| {
+                        try comp.queueJob(.{
+                            .wasi_libc_crt_file = crt_file,
+                        });
+                    }
+                    try comp.queueJobs(&[_]Job{
+                        .{ .wasi_libc_crt_file = wasi_libc.execModelCrtFile(comp.config.wasi_exec_model) },
+                        .{ .wasi_libc_crt_file = .libc_a },
                     });
+                } else if (target.isMinGW()) {
+                    if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
+
+                    const crt_job: Job = .{ .mingw_crt_file = if (is_dyn_lib) .dllcrt2_o else .crt2_o };
+                    try comp.queueJobs(&.{
+                        .{ .mingw_crt_file = .mingw32_lib },
+                        crt_job,
+                    });
+
+                    // When linking mingw-w64 there are some import libs we always need.
+                    try comp.windows_libs.ensureUnusedCapacity(gpa, mingw.always_link_libs.len);
+                    for (mingw.always_link_libs) |name| comp.windows_libs.putAssumeCapacity(name, {});
+                } else if (target.isDarwin()) {
+                    switch (target.abi) {
+                        .none, .simulator, .macabi => {},
+                        else => return error.LibCUnavailable,
+                    }
+                } else if (target.os.tag == .freestanding and capable_of_building_zig_libc) {
+                    try comp.queueJob(.{ .zig_libc = {} });
+                } else {
+                    return error.LibCUnavailable;
                 }
-                try comp.queueJobs(&[_]Job{
-                    .{ .wasi_libc_crt_file = wasi_libc.execModelCrtFile(comp.config.wasi_exec_model) },
-                    .{ .wasi_libc_crt_file = .libc_a },
-                });
-            } else if (target.isMinGW()) {
-                if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
-
-                const crt_job: Job = .{ .mingw_crt_file = if (is_dyn_lib) .dllcrt2_o else .crt2_o };
-                try comp.queueJobs(&.{
-                    .{ .mingw_crt_file = .mingw32_lib },
-                    crt_job,
-                });
-
-                // When linking mingw-w64 there are some import libs we always need.
-                try comp.windows_libs.ensureUnusedCapacity(gpa, mingw.always_link_libs.len);
-                for (mingw.always_link_libs) |name| comp.windows_libs.putAssumeCapacity(name, {});
-            } else {
-                return error.LibCUnavailable;
             }
-        }
 
-        // Generate Windows import libs.
-        if (target.os.tag == .windows) {
-            const count = comp.windows_libs.count();
-            for (0..count) |i| {
-                try comp.queueJob(.{ .windows_import_lib = i });
+            // Generate Windows import libs.
+            if (target.os.tag == .windows) {
+                const count = comp.windows_libs.count();
+                for (0..count) |i| {
+                    try comp.queueJob(.{ .windows_import_lib = i });
+                }
             }
-        }
-        if (comp.wantBuildLibUnwindFromSource()) {
-            try comp.queueJob(.{ .libunwind = {} });
-        }
-        if (build_options.have_llvm and is_exe_or_dyn_lib and comp.config.link_libcpp) {
-            try comp.queueJob(.libcxx);
-            try comp.queueJob(.libcxxabi);
-        }
-        if (build_options.have_llvm and comp.config.any_sanitize_thread) {
-            try comp.queueJob(.libtsan);
-        }
-
-        if (target.isMinGW() and comp.config.any_non_single_threaded) {
-            // LLD might drop some symbols as unused during LTO and GCing, therefore,
-            // we force mark them for resolution here.
-
-            const tls_index_sym = switch (target.cpu.arch) {
-                .x86 => "__tls_index",
-                else => "_tls_index",
-            };
-
-            try comp.force_undefined_symbols.put(comp.gpa, tls_index_sym, {});
-        }
-
-        if (comp.include_compiler_rt and capable_of_building_compiler_rt) {
-            if (is_exe_or_dyn_lib) {
-                log.debug("queuing a job to build compiler_rt_lib", .{});
-                comp.job_queued_compiler_rt_lib = true;
-            } else if (output_mode != .Obj) {
-                log.debug("queuing a job to build compiler_rt_obj", .{});
-                // In this case we are making a static library, so we ask
-                // for a compiler-rt object to put in it.
-                comp.job_queued_compiler_rt_obj = true;
+            if (comp.wantBuildLibUnwindFromSource()) {
+                try comp.queueJob(.{ .libunwind = {} });
             }
-        }
-
-        if (comp.config.any_fuzz and capable_of_building_compiler_rt) {
-            if (is_exe_or_dyn_lib) {
-                log.debug("queuing a job to build libfuzzer", .{});
-                comp.job_queued_fuzzer_lib = true;
+            if (build_options.have_llvm and is_exe_or_dyn_lib and comp.config.link_libcpp) {
+                try comp.queueJob(.libcxx);
+                try comp.queueJob(.libcxxabi);
             }
-        }
+            if (build_options.have_llvm and comp.config.any_sanitize_thread) {
+                try comp.queueJob(.libtsan);
+            }
 
-        if (!comp.skip_linker_dependencies and is_exe_or_dyn_lib and
-            !comp.config.link_libc and capable_of_building_zig_libc)
-        {
-            try comp.queueJob(.{ .zig_libc = {} });
+            if (target.isMinGW() and comp.config.any_non_single_threaded) {
+                // LLD might drop some symbols as unused during LTO and GCing, therefore,
+                // we force mark them for resolution here.
+
+                const tls_index_sym = switch (target.cpu.arch) {
+                    .x86 => "__tls_index",
+                    else => "_tls_index",
+                };
+
+                try comp.force_undefined_symbols.put(comp.gpa, tls_index_sym, {});
+            }
+
+            if (comp.include_compiler_rt and capable_of_building_compiler_rt) {
+                if (is_exe_or_dyn_lib) {
+                    log.debug("queuing a job to build compiler_rt_lib", .{});
+                    comp.job_queued_compiler_rt_lib = true;
+                } else if (output_mode != .Obj) {
+                    log.debug("queuing a job to build compiler_rt_obj", .{});
+                    // In this case we are making a static library, so we ask
+                    // for a compiler-rt object to put in it.
+                    comp.job_queued_compiler_rt_obj = true;
+                }
+            }
+
+            if (comp.config.any_fuzz and capable_of_building_compiler_rt) {
+                if (is_exe_or_dyn_lib) {
+                    log.debug("queuing a job to build libfuzzer", .{});
+                    comp.job_queued_fuzzer_lib = true;
+                }
+            }
         }
 
         try comp.link_task_queue.shared.append(gpa, .load_explicitly_provided);
@@ -3521,7 +3517,7 @@ fn performAllTheWorkInner(
     defer work_queue_wait_group.wait();
 
     if (comp.bin_file) |lf| {
-        if (try comp.link_task_queue.enqueue(comp.gpa, &.{.load_explicitly_provided})) {
+        if (comp.link_task_queue.start()) {
             comp.thread_pool.spawnWg(work_queue_wait_group, link.File.flushTaskQueue, .{ lf, main_progress_node });
         }
     }
@@ -4980,7 +4976,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Pr
         },
     };
 
-    comp.enqueueLinkTasks(&.{.{ .load_object = c_object.status.success.object_path }});
+    comp.queueLinkTasks(&.{.{ .load_object = c_object.status.success.object_path }});
 }
 
 fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32_resource_prog_node: std.Progress.Node) !void {
@@ -6114,7 +6110,7 @@ fn wantBuildLibUnwindFromSource(comp: *Compilation) bool {
     return is_exe_or_dyn_lib and comp.config.link_libunwind and ofmt != .c;
 }
 
-fn setAllocFailure(comp: *Compilation) void {
+pub fn setAllocFailure(comp: *Compilation) void {
     @branchHint(.cold);
     log.debug("memory allocation failure", .{});
     comp.alloc_failure_occurred = true;
@@ -6355,7 +6351,7 @@ fn buildOutputFromZig(
     assert(out.* == null);
     out.* = crt_file;
 
-    comp.enqueueLinkTaskMode(crt_file.full_object_path, output_mode);
+    comp.queueLinkTaskMode(crt_file.full_object_path, output_mode);
 }
 
 pub fn build_crt_file(
@@ -6463,7 +6459,7 @@ pub fn build_crt_file(
     try comp.updateSubCompilation(sub_compilation, misc_task_tag, prog_node);
 
     const crt_file = try sub_compilation.toCrtFile();
-    comp.enqueueLinkTaskMode(crt_file.full_object_path, output_mode);
+    comp.queueLinkTaskMode(crt_file.full_object_path, output_mode);
 
     {
         comp.mutex.lock();
@@ -6473,8 +6469,8 @@ pub fn build_crt_file(
     }
 }
 
-pub fn enqueueLinkTaskMode(comp: *Compilation, path: Path, output_mode: std.builtin.OutputMode) void {
-    comp.enqueueLinkTasks(switch (output_mode) {
+pub fn queueLinkTaskMode(comp: *Compilation, path: Path, output_mode: std.builtin.OutputMode) void {
+    comp.queueLinkTasks(switch (output_mode) {
         .Exe => unreachable,
         .Obj => &.{.{ .load_object = path }},
         .Lib => &.{.{ .load_archive = path }},
@@ -6483,7 +6479,7 @@ pub fn enqueueLinkTaskMode(comp: *Compilation, path: Path, output_mode: std.buil
 
 /// Only valid to call during `update`. Automatically handles queuing up a
 /// linker worker task if there is not already one.
-fn enqueueLinkTasks(comp: *Compilation, tasks: []const link.File.Task) void {
+pub fn queueLinkTasks(comp: *Compilation, tasks: []const link.File.Task) void {
     const use_lld = build_options.have_llvm and comp.config.use_lld;
     if (use_lld) return;
     const target = comp.root_mod.resolved_target.result;

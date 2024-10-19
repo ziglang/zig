@@ -1349,12 +1349,14 @@ pub const File = struct {
     /// Does all the tasks in the queue. Runs in exactly one separate thread
     /// from the rest of compilation. All tasks performed here are
     /// single-threaded with respect to one another.
-    pub fn flushTaskQueue(base: *File, prog_node: std.Progress.Node) void {
+    pub fn flushTaskQueue(base: *File, parent_prog_node: std.Progress.Node) void {
         const comp = base.comp;
         base.task_queue_safety.lock();
         defer base.task_queue_safety.unlock();
+        const prog_node = parent_prog_node.start("Parse Linker Inputs", 0);
+        defer prog_node.end();
         while (comp.link_task_queue.check()) |tasks| {
-            for (tasks) |task| doTask(base, prog_node, task);
+            for (tasks) |task| doTask(base, task);
         }
     }
 
@@ -1374,16 +1376,11 @@ pub const File = struct {
         load_input: Input,
     };
 
-    fn doTask(base: *File, parent_prog_node: std.Progress.Node, task: Task) void {
+    fn doTask(base: *File, task: Task) void {
         const comp = base.comp;
         switch (task) {
             .load_explicitly_provided => {
-                const prog_node = parent_prog_node.start("Linker Parse Input", comp.link_inputs.len);
-                defer prog_node.end();
-
                 for (comp.link_inputs) |input| {
-                    const sub_node = prog_node.start(input.taskName(), 0);
-                    defer sub_node.end();
                     base.loadInput(input) catch |err| switch (err) {
                         error.LinkFailure => return, // error reported via link_diags
                         else => |e| {
@@ -1397,33 +1394,18 @@ pub const File = struct {
                 }
             },
             .load_object => |path| {
-                const prog_node = parent_prog_node.start("Linker Parse Object", 0);
-                defer prog_node.end();
-                const sub_node = prog_node.start(path.basename(), 0);
-                defer sub_node.end();
-
                 base.openLoadObject(path) catch |err| switch (err) {
                     error.LinkFailure => return, // error reported via link_diags
                     else => |e| comp.link_diags.addParseError(path, "failed to parse object: {s}", .{@errorName(e)}),
                 };
             },
             .load_archive => |path| {
-                const prog_node = parent_prog_node.start("Linker Parse Archive", 0);
-                defer prog_node.end();
-                const sub_node = prog_node.start(path.basename(), 0);
-                defer sub_node.end();
-
                 base.openLoadArchive(path) catch |err| switch (err) {
                     error.LinkFailure => return, // error reported via link_diags
                     else => |e| comp.link_diags.addParseError(path, "failed to parse archive: {s}", .{@errorName(e)}),
                 };
             },
             .load_dso => |path| {
-                const prog_node = parent_prog_node.start("Linker Parse Shared Library", 0);
-                defer prog_node.end();
-                const sub_node = prog_node.start(path.basename(), 0);
-                defer sub_node.end();
-
                 base.openLoadDso(path, .{
                     .preferred_mode = .dynamic,
                     .search_strategy = .paths_first,
@@ -1433,10 +1415,6 @@ pub const File = struct {
                 };
             },
             .load_input => |input| {
-                const prog_node = parent_prog_node.start("Linker Parse Input", 0);
-                defer prog_node.end();
-                const sub_node = prog_node.start(input.taskName(), 0);
-                defer sub_node.end();
                 base.loadInput(input) catch |err| switch (err) {
                     error.LinkFailure => return, // error reported via link_diags
                     else => |e| {

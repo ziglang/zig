@@ -6,12 +6,14 @@ const fs = std.fs;
 const path = fs.path;
 const assert = std.debug.assert;
 const Version = std.SemanticVersion;
+const Path = std.Build.Cache.Path;
 
 const Compilation = @import("Compilation.zig");
 const build_options = @import("build_options");
 const trace = @import("tracy.zig").trace;
 const Cache = std.Build.Cache;
 const Module = @import("Package/Module.zig");
+const link = @import("link.zig");
 
 pub const Lib = struct {
     name: []const u8,
@@ -717,11 +719,11 @@ fn lib_path(comp: *Compilation, arena: Allocator, sub_path: []const u8) ![]const
 
 pub const BuiltSharedObjects = struct {
     lock: Cache.Lock,
-    dir_path: []u8,
+    dir_path: Path,
 
     pub fn deinit(self: *BuiltSharedObjects, gpa: Allocator) void {
         self.lock.release();
-        gpa.free(self.dir_path);
+        gpa.free(self.dir_path.sub_path);
         self.* = undefined;
     }
 };
@@ -742,7 +744,9 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) !voi
         return error.ZigCompilerNotBuiltWithLLVMExtensions;
     }
 
-    var arena_allocator = std.heap.ArenaAllocator.init(comp.gpa);
+    const gpa = comp.gpa;
+
+    var arena_allocator = std.heap.ArenaAllocator.init(gpa);
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
@@ -751,7 +755,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) !voi
 
     // Use the global cache directory.
     var cache: Cache = .{
-        .gpa = comp.gpa,
+        .gpa = gpa,
         .manifest_dir = try comp.global_cache_directory.handle.makeOpenPath("h", .{}),
     };
     cache.addPrefix(.{ .path = null, .handle = fs.cwd() });
@@ -772,12 +776,13 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) !voi
     if (try man.hit()) {
         const digest = man.final();
 
-        assert(comp.glibc_so_files == null);
-        comp.glibc_so_files = BuiltSharedObjects{
+        return queueSharedObjects(comp, .{
             .lock = man.toOwnedLock(),
-            .dir_path = try comp.global_cache_directory.join(comp.gpa, &.{ "o", &digest }),
-        };
-        return;
+            .dir_path = .{
+                .root_dir = comp.global_cache_directory,
+                .sub_path = try gpa.dupe(u8, "o" ++ fs.path.sep_str ++ digest),
+            },
+        });
     }
 
     const digest = man.final();
@@ -790,8 +795,8 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) !voi
     defer o_directory.handle.close();
 
     const abilists_contents = man.files.keys()[abilists_index].contents.?;
-    const metadata = try loadMetaData(comp.gpa, abilists_contents);
-    defer metadata.destroy(comp.gpa);
+    const metadata = try loadMetaData(gpa, abilists_contents);
+    defer metadata.destroy(gpa);
 
     const target_targ_index = for (metadata.all_targets, 0..) |targ, i| {
         if (targ.arch == target.cpu.arch and
@@ -835,7 +840,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) !voi
         map_contents.deinit(); // The most recent allocation of an arena can be freed :)
     }
 
-    var stubs_asm = std.ArrayList(u8).init(comp.gpa);
+    var stubs_asm = std.ArrayList(u8).init(gpa);
     defer stubs_asm.deinit();
 
     for (libs, 0..) |lib, lib_i| {
@@ -1195,7 +1200,6 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) !voi
         var lib_name_buf: [32]u8 = undefined; // Larger than each of the names "c", "pthread", etc.
         const asm_file_basename = std.fmt.bufPrint(&lib_name_buf, "{s}.s", .{lib.name}) catch unreachable;
         try o_directory.handle.writeFile(.{ .sub_path = asm_file_basename, .data = stubs_asm.items });
-
         try buildSharedLib(comp, arena, comp.global_cache_directory, o_directory, asm_file_basename, lib, prog_node);
     }
 
@@ -1203,11 +1207,44 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) !voi
         log.warn("failed to write cache manifest for glibc stubs: {s}", .{@errorName(err)});
     };
 
-    assert(comp.glibc_so_files == null);
-    comp.glibc_so_files = .{
+    return queueSharedObjects(comp, .{
         .lock = man.toOwnedLock(),
-        .dir_path = try comp.global_cache_directory.join(comp.gpa, &.{ "o", &digest }),
-    };
+        .dir_path = .{
+            .root_dir = comp.global_cache_directory,
+            .sub_path = try gpa.dupe(u8, "o" ++ fs.path.sep_str ++ digest),
+        },
+    });
+}
+
+fn queueSharedObjects(comp: *Compilation, so_files: BuiltSharedObjects) void {
+    const target_version = comp.getTarget().os.version_range.linux.glibc;
+
+    assert(comp.glibc_so_files == null);
+    comp.glibc_so_files = so_files;
+
+    var task_buffer: [libs.len]link.File.Task = undefined;
+    var task_buffer_i: usize = 0;
+
+    {
+        comp.mutex.lock(); // protect comp.arena
+        defer comp.mutex.unlock();
+
+        for (libs) |lib| {
+            if (lib.removed_in) |rem_in| {
+                if (target_version.order(rem_in) != .lt) continue;
+            }
+            const so_path: Path = .{
+                .root_dir = so_files.dir_path.root_dir,
+                .sub_path = std.fmt.allocPrint(comp.arena, "{s}{c}lib{s}.so.{d}", .{
+                    so_files.dir_path.sub_path, fs.path.sep, lib.name, lib.sover,
+                }) catch return comp.setAllocFailure(),
+            };
+            task_buffer[task_buffer_i] = .{ .load_dso = so_path };
+            task_buffer_i += 1;
+        }
+    }
+
+    comp.queueLinkTasks(task_buffer[0..task_buffer_i]);
 }
 
 fn buildSharedLib(

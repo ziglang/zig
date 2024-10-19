@@ -59,5 +59,13 @@ pub fn ThreadSafeQueue(comptime T: type) type {
             self.state = .run;
             return was_waiting;
         }
+
+        /// Safe only to call exactly once when initially starting the worker.
+        pub fn start(self: *Self) bool {
+            assert(self.state == .wait);
+            if (self.shared.items.len == 0) return false;
+            self.state = .run;
+            return true;
+        }
     };
 }
