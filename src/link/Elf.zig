@@ -765,6 +765,7 @@ pub fn loadInput(self: *Elf, input: link.Input) !void {
     const target = self.getTarget();
     const debug_fmt_strip = comp.config.debug_format == .strip;
     const default_sym_version = self.default_sym_version;
+    const is_static_lib = self.base.isStaticLib();
 
     if (comp.verbose_link) {
         const argv = &self.dump_argv_list;
@@ -780,7 +781,7 @@ pub fn loadInput(self: *Elf, input: link.Input) !void {
         .res => unreachable,
         .dso_exact => @panic("TODO"),
         .object => |obj| try parseObject(self, obj),
-        .archive => |obj| try parseArchive(gpa, diags, &self.file_handles, &self.files, &self.first_eflags, target, debug_fmt_strip, default_sym_version, &self.objects, obj),
+        .archive => |obj| try parseArchive(gpa, diags, &self.file_handles, &self.files, &self.first_eflags, target, debug_fmt_strip, default_sym_version, &self.objects, obj, is_static_lib),
         .dso => |dso| try parseDso(gpa, diags, dso, &self.shared_objects, &self.files, target),
     }
 }
@@ -823,16 +824,16 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
 
     if (self.zigObjectPtr()) |zig_object| try zig_object.flush(self, tid);
 
+    if (module_obj_path) |path| openParseObjectReportingFailure(self, path);
+
     switch (comp.config.output_mode) {
-        .Obj => return relocatable.flushObject(self, comp, module_obj_path),
+        .Obj => return relocatable.flushObject(self, comp),
         .Lib => switch (comp.config.link_mode) {
             .dynamic => {},
-            .static => return relocatable.flushStaticLib(self, comp, module_obj_path),
+            .static => return relocatable.flushStaticLib(self, comp),
         },
         .Exe => {},
     }
-
-    if (module_obj_path) |path| openParseObjectReportingFailure(self, path);
 
     if (diags.hasErrors()) return error.FlushFailure;
 
@@ -1149,7 +1150,10 @@ fn parseObject(self: *Elf, obj: link.Input.Object) ParseError!void {
     try self.objects.append(gpa, index);
 
     const object = self.file(index).?.object;
-    try object.parse(gpa, diags, obj.path, handle, first_eflags, target, debug_fmt_strip, default_sym_version);
+    try object.parseCommon(gpa, diags, obj.path, handle, target, first_eflags);
+    if (!self.base.isStaticLib()) {
+        try object.parse(gpa, diags, obj.path, handle, target, debug_fmt_strip, default_sym_version);
+    }
 }
 
 fn parseArchive(
@@ -1163,6 +1167,7 @@ fn parseArchive(
     default_sym_version: elf.Versym,
     objects: *std.ArrayListUnmanaged(File.Index),
     obj: link.Input.Object,
+    is_static_lib: bool,
 ) ParseError!void {
     const tracy = trace(@src());
     defer tracy.end();
@@ -1171,13 +1176,17 @@ fn parseArchive(
     var archive = try Archive.parse(gpa, diags, file_handles, obj.path, fh);
     defer archive.deinit(gpa);
 
+    const init_alive = if (is_static_lib) true else obj.must_link;
+
     for (archive.objects) |extracted| {
         const index: File.Index = @intCast(try files.addOne(gpa));
         files.set(index, .{ .object = extracted });
         const object = &files.items(.data)[index].object;
         object.index = index;
-        object.alive = obj.must_link;
-        try object.parse(gpa, diags, obj.path, obj.file, first_eflags, target, debug_fmt_strip, default_sym_version);
+        object.alive = init_alive;
+        try object.parseCommon(gpa, diags, obj.path, obj.file, target, first_eflags);
+        if (!is_static_lib)
+            try object.parse(gpa, diags, obj.path, obj.file, target, debug_fmt_strip, default_sym_version);
         try objects.append(gpa, index);
     }
 }

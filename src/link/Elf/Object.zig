@@ -69,13 +69,10 @@ pub fn parse(
     /// For error reporting purposes only.
     path: Path,
     handle: fs.File,
-    first_eflags: *?elf.Word,
     target: std.Target,
     debug_fmt_strip: bool,
     default_sym_version: elf.Versym,
 ) !void {
-    try self.parseCommon(gpa, diags, path, handle, first_eflags, target);
-
     // Append null input merge section
     try self.input_merge_sections.append(gpa, .{});
     // Allocate atom index 0 to null atom
@@ -95,14 +92,14 @@ pub fn parse(
     }
 }
 
-fn parseCommon(
+pub fn parseCommon(
     self: *Object,
     gpa: Allocator,
     diags: *Diags,
     path: Path,
     handle: fs.File,
-    first_eflags: *?elf.Word,
     target: std.Target,
+    first_eflags: *?elf.Word,
 ) !void {
     const offset = if (self.archive) |ar| ar.offset else 0;
     const file_size = (try handle.stat()).size;
@@ -1034,15 +1031,6 @@ pub fn addAtomsToRelaSections(self: *Object, elf_file: *Elf) !void {
         const atom_list = &elf_file.sections.items(.atom_list)[shndx];
         try atom_list.append(gpa, .{ .index = atom_index, .file = self.index });
     }
-}
-
-pub fn parseAr(self: *Object, path: Path, elf_file: *Elf) !void {
-    const gpa = elf_file.base.comp.gpa;
-    const diags = &elf_file.base.comp.link_diags;
-    const handle = elf_file.fileHandle(self.file_handle);
-    const first_eflags = &elf_file.first_eflags;
-    const target = elf_file.base.comp.root_mod.resolved_target.result;
-    try self.parseCommon(gpa, diags, path, handle, first_eflags, target);
 }
 
 pub fn updateArSymtab(self: Object, ar_symtab: *Archive.ArSymtab, elf_file: *Elf) !void {

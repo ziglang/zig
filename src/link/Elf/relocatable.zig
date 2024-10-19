@@ -1,10 +1,6 @@
-pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation, module_obj_path: ?Path) link.File.FlushError!void {
+pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation) link.File.FlushError!void {
     const gpa = comp.gpa;
     const diags = &comp.link_diags;
-
-    if (module_obj_path) |path| {
-        parseObjectStaticLibReportingFailure(elf_file, path);
-    }
 
     if (diags.hasErrors()) return error.FlushFailure;
 
@@ -134,10 +130,8 @@ pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation, module_obj_path: ?Path
     if (diags.hasErrors()) return error.FlushFailure;
 }
 
-pub fn flushObject(elf_file: *Elf, comp: *Compilation, module_obj_path: ?Path) link.File.FlushError!void {
+pub fn flushObject(elf_file: *Elf, comp: *Compilation) link.File.FlushError!void {
     const diags = &comp.link_diags;
-
-    if (module_obj_path) |path| elf_file.openParseObjectReportingFailure(path);
 
     if (diags.hasErrors()) return error.FlushFailure;
 
@@ -186,36 +180,6 @@ pub fn flushObject(elf_file: *Elf, comp: *Compilation, module_obj_path: ?Path) l
     try elf_file.writeElfHeader();
 
     if (diags.hasErrors()) return error.FlushFailure;
-}
-
-fn parseObjectStaticLibReportingFailure(elf_file: *Elf, path: Path) void {
-    const diags = &elf_file.base.comp.link_diags;
-    parseObjectStaticLib(elf_file, path) catch |err| switch (err) {
-        error.LinkFailure => return,
-        else => |e| diags.addParseError(path, "parsing object failed: {s}", .{@errorName(e)}),
-    };
-}
-
-fn parseObjectStaticLib(elf_file: *Elf, path: Path) Elf.ParseError!void {
-    const gpa = elf_file.base.comp.gpa;
-    const file_handles = &elf_file.file_handles;
-
-    const handle = try path.root_dir.handle.openFile(path.sub_path, .{});
-    const fh = try Elf.addFileHandle(gpa, file_handles, handle);
-
-    const index: File.Index = @intCast(try elf_file.files.addOne(gpa));
-    elf_file.files.set(index, .{ .object = .{
-        .path = .{
-            .root_dir = path.root_dir,
-            .sub_path = try gpa.dupe(u8, path.sub_path),
-        },
-        .file_handle = fh,
-        .index = index,
-    } });
-    try elf_file.objects.append(gpa, index);
-
-    const object = elf_file.file(index).?.object;
-    try object.parseAr(path, elf_file);
 }
 
 fn claimUnresolved(elf_file: *Elf) void {
