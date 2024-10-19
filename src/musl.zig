@@ -292,18 +292,24 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
     }
 }
 
-// Return true if musl has arch-specific crti/crtn sources.
-// See lib/libc/musl/crt/ARCH/crt?.s .
+/// Return true if musl has arch-specific crti/crtn sources.
+/// See lib/libc/musl/crt/ARCH/crt?.s .
 pub fn needsCrtiCrtn(target: std.Target) bool {
-    // zig fmt: off
     return switch (target.cpu.arch) {
-        .riscv32,
-        .riscv64,
-        .wasm32, .wasm64 => false,
+        .riscv32, .riscv64, .wasm32, .wasm64 => false,
         .loongarch64 => false,
         else => true,
     };
-    // zig fmt: on
+}
+
+pub fn needsCrt0(output_mode: std.builtin.OutputMode, link_mode: std.builtin.LinkMode, pie: bool) ?CrtFile {
+    return switch (output_mode) {
+        .Obj, .Lib => null,
+        .Exe => switch (link_mode) {
+            .dynamic => if (pie) .scrt1_o else .crt1_o,
+            .static => if (pie) .rcrt1_o else .crt1_o,
+        },
+    };
 }
 
 fn isMuslArchName(name: []const u8) bool {

@@ -1815,15 +1815,13 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                             .{ .musl_crt_file = .crtn_o },
                         });
                     }
-                    try comp.queueJobs(&[_]Job{
-                        .{ .musl_crt_file = .crt1_o },
-                        .{ .musl_crt_file = .scrt1_o },
-                        .{ .musl_crt_file = .rcrt1_o },
-                        switch (comp.config.link_mode) {
-                            .static => .{ .musl_crt_file = .libc_a },
-                            .dynamic => .{ .musl_crt_file = .libc_so },
-                        },
-                    });
+                    if (musl.needsCrt0(comp.config.output_mode, comp.config.link_mode, comp.config.pie)) |f| {
+                        try comp.queueJobs(&.{.{ .musl_crt_file = f }});
+                    }
+                    try comp.queueJobs(&.{.{ .musl_crt_file = switch (comp.config.link_mode) {
+                        .static => .libc_a,
+                        .dynamic => .libc_so,
+                    } }});
                 } else if (target.isGnuLibC()) {
                     if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
 
