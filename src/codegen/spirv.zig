@@ -1843,11 +1843,16 @@ const NavGen = struct {
         return switch (as) {
             .generic => switch (target.os.tag) {
                 .vulkan => .Private,
-                else => .Generic,
+                .opencl => .Generic,
+                else => unreachable,
             },
             .shared => .Workgroup,
             .local => .Private,
-            .global => .CrossWorkgroup,
+            .global => switch (target.os.tag) {
+                .opencl => .CrossWorkgroup,
+                .vulkan => .PhysicalStorageBuffer,
+                else => unreachable,
+            },
             .constant => .UniformConstant,
             .input => .Input,
             .output => .Output,

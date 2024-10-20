@@ -296,9 +296,8 @@ fn writeCapabilities(spv: *SpvModule, target: std.Target) !void {
     // TODO: Integrate with a hypothetical feature system
     const caps: []const spec.Capability = switch (target.os.tag) {
         .opencl => &.{ .Kernel, .Addresses, .Int8, .Int16, .Int64, .Float64, .Float16, .Vector16, .GenericPointer },
-        .opengl => &.{.Shader},
-        .vulkan => &.{ .Shader, .VariablePointersStorageBuffer, .Int8, .Int16, .Int64, .Float64, .Float16 },
-        else => unreachable, // TODO
+        .vulkan => &.{ .Shader, .PhysicalStorageBufferAddresses, .StoragePushConstant16, .Int8, .Int16, .Int64, .Float64, .Float16 },
+        else => unreachable,
     };
 
     for (caps) |cap| {
@@ -306,19 +305,32 @@ fn writeCapabilities(spv: *SpvModule, target: std.Target) !void {
             .capability = cap,
         });
     }
+
+    switch (target.os.tag) {
+        .vulkan => {
+            try spv.sections.extensions.emit(gpa, .OpExtension, .{
+                .name = "SPV_KHR_physical_storage_buffer",
+            });
+        },
+        else => {},
+    }
 }
 
 fn writeMemoryModel(spv: *SpvModule, target: std.Target) !void {
     const gpa = spv.gpa;
 
-    const addressing_model = switch (target.os.tag) {
+    const addressing_model: spec.AddressingModel = switch (target.os.tag) {
         .opencl => switch (target.cpu.arch) {
-            .spirv32 => spec.AddressingModel.Physical32,
-            .spirv64 => spec.AddressingModel.Physical64,
-            else => unreachable, // TODO
+            .spirv32 => .Physical32,
+            .spirv64 => .Physical64,
+            else => unreachable,
         },
-        .opengl, .vulkan => spec.AddressingModel.Logical,
-        else => unreachable, // TODO
+        .opengl, .vulkan => switch (target.cpu.arch) {
+            .spirv32 => .Logical, // TODO: I don't think this will ever be implemented.
+            .spirv64 => .PhysicalStorageBuffer64,
+            else => unreachable,
+        },
+        else => unreachable,
     };
 
     const memory_model: spec.MemoryModel = switch (target.os.tag) {
