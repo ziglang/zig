@@ -299,6 +299,25 @@ const default_max_page_size: ?usize = switch (builtin.os.tag) {
     else => null,
 };
 
+/// The compile-time minimum page size that the target might have.
+/// All pointers from `mmap` or `VirtualAlloc` are aligned to at least `min_page_size`, but their
+/// actual alignment may be much bigger.
+/// This value can be overridden via `std.options.min_page_size`.
+/// On many systems, the actual page size can only be determined at runtime with `pageSize()`.
+pub const min_page_size: usize = std.options.min_page_size orelse (default_min_page_size orelse if (builtin.os.tag == .freestanding or builtin.os.tag == .other)
+    @compileError("freestanding/other explicitly has no min_page_size. One can be provided with std.options.min_page_size")
+else
+    @compileError(@tagName(builtin.cpu.arch) ++ "-" ++ @tagName(builtin.os.tag) ++ " has no min_page_size. One can be provided with std.options.min_page_size"));
+
+/// The compile-time maximum page size that the target might have.
+/// Targeting a system with a larger page size may require overriding `std.options.max_page_size`,
+/// as well as using the linker arugment `-z max-page-size=`.
+/// The actual page size can only be determined at runtime with `pageSize()`.
+pub const max_page_size: usize = std.options.max_page_size orelse (default_max_page_size orelse if (builtin.os.tag == .freestanding or builtin.os.tag == .other)
+    @compileError("freestanding/other explicitly has no max_page_size. One can be provided with std.options.max_page_size")
+else
+    @compileError(@tagName(builtin.cpu.arch) ++ "-" ++ @tagName(builtin.os.tag) ++ " has no max_page_size. One can be provided with std.options.max_page_size"));
+
 pub const LoggingAllocator = @import("heap/logging_allocator.zig").LoggingAllocator;
 pub const loggingAllocator = @import("heap/logging_allocator.zig").loggingAllocator;
 pub const ScopedLoggingAllocator = @import("heap/logging_allocator.zig").ScopedLoggingAllocator;
