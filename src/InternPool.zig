@@ -2676,8 +2676,8 @@ pub const Key = union(enum) {
                 asBytes(&e.ty) ++ asBytes(&e.lib_name) ++
                 asBytes(&e.is_const) ++ asBytes(&e.is_threadlocal) ++
                 asBytes(&e.is_weak_linkage) ++ asBytes(&e.alignment) ++
-                asBytes(&e.is_dll_import) ++ asBytes(&e.alignment) ++
-                asBytes(&e.@"addrspace") ++ asBytes(&e.zir_index)),
+                asBytes(&e.is_dll_import) ++ asBytes(&e.@"addrspace") ++
+                asBytes(&e.zir_index)),
         };
     }
 
