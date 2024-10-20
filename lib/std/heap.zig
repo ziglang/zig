@@ -8,6 +8,297 @@ const c = std.c;
 const Allocator = std.mem.Allocator;
 const windows = std.os.windows;
 
+const default_min_page_size: ?usize = switch (builtin.os.tag) {
+    .bridgeos, .driverkit, .ios, .macos, .tvos, .visionos, .watchos => switch (builtin.cpu.arch) {
+        .x86_64 => 4 << 10,
+        .aarch64 => 16 << 10,
+        else => null,
+    },
+    .windows => switch (builtin.cpu.arch) {
+        // -- <https://devblogs.microsoft.com/oldnewthing/20210510-00/?p=105200>
+        .x86, .x86_64 => 4 << 10,
+        // SuperH => 4 << 10,
+        .mips, .mipsel, .mips64, .mips64el => 4 << 10,
+        .powerpc, .powerpcle, .powerpc64, .powerpc64le => 4 << 10,
+        // DEC Alpha => 8 << 10,
+        // Itanium => 8 << 10,
+        .thumb, .thumbeb, .arm, .armeb, .aarch64, .aarch64_be => 4 << 10,
+        else => null,
+    },
+    .wasi => switch (builtin.cpu.arch) {
+        .wasm32, .wasm64 => 64 << 10,
+        else => null,
+    },
+    // https://github.com/tianocore/edk2/blob/b158dad150bf02879668f72ce306445250838201/MdePkg/Include/Uefi/UefiBaseType.h#L180-L187
+    .uefi => 4 << 10,
+    .freebsd => switch (builtin.cpu.arch) {
+        // FreeBSD/sys/*
+        .x86, .x86_64 => 4 << 10,
+        .thumb, .thumbeb, .arm, .armeb => 4 << 10,
+        .aarch64, .aarch64_be => 4 << 10,
+        .powerpc, .powerpc64, .powerpc64le, .powerpcle => 4 << 10,
+        .riscv32, .riscv64 => 4 << 10,
+        else => null,
+    },
+    .netbsd => switch (builtin.cpu.arch) {
+        // NetBSD/sys/arch/*
+        .x86, .x86_64 => 4 << 10,
+        .thumb, .thumbeb, .arm, .armeb => 4 << 10,
+        .aarch64, .aarch64_be => 4 << 10,
+        .mips, .mipsel, .mips64, .mips64el => 4 << 10,
+        .powerpc, .powerpc64, .powerpc64le, .powerpcle => 4 << 10,
+        .sparc => 4 << 10,
+        .sparc64 => 8 << 10,
+        .riscv32, .riscv64 => 4 << 10,
+        // Sun-2
+        .m68k => 2 << 10,
+        else => null,
+    },
+    .dragonfly => switch (builtin.cpu.arch) {
+        .x86, .x86_64 => 4 << 10,
+        else => null,
+    },
+    .openbsd => switch (builtin.cpu.arch) {
+        // OpenBSD/sys/arch/*
+        .x86, .x86_64 => 4 << 10,
+        .thumb, .thumbeb, .arm, .armeb, .aarch64, .aarch64_be => 4 << 10,
+        .mips64, .mips64el => 4 << 10,
+        .powerpc, .powerpc64, .powerpc64le, .powerpcle => 4 << 10,
+        .riscv64 => 4 << 10,
+        .sparc64 => 8 << 10,
+        else => null,
+    },
+    .solaris, .illumos => switch (builtin.cpu.arch) {
+        // src/uts/*/sys/machparam.h
+        .x86, .x86_64 => 4 << 10,
+        .sparc, .sparc64 => 8 << 10,
+        else => null,
+    },
+    .fuchsia => switch (builtin.cpu.arch) {
+        // fuchsia/kernel/arch/*/include/arch/defines.h
+        .x86_64 => 4 << 10,
+        .aarch64, .aarch64_be => 4 << 10,
+        .riscv64 => 4 << 10,
+        else => null,
+    },
+    // https://github.com/SerenityOS/serenity/blob/62b938b798dc009605b5df8a71145942fc53808b/Kernel/API/POSIX/sys/limits.h#L11-L13
+    .serenity => 4 << 10,
+    .haiku => switch (builtin.cpu.arch) {
+        // haiku/headers/posix/arch/*/limits.h
+        .thumb, .thumbeb, .arm, .armeb => 4 << 10,
+        .aarch64, .aarch64_be => 4 << 10,
+        .m68k => 4 << 10,
+        .mips, .mipsel, .mips64, .mips64el => 4 << 10,
+        .powerpc, .powerpc64, .powerpc64le, .powerpcle => 4 << 10,
+        .riscv64 => 4 << 10,
+        .sparc64 => 8 << 10,
+        .x86, .x86_64 => 4 << 10,
+        else => null,
+    },
+    .hurd => switch (builtin.cpu.arch) {
+        // gnumach/*/include/mach/*/vm_param.h
+        .x86, .x86_64 => 4 << 10,
+        .aarch64 => null,
+        else => null,
+    },
+    .plan9 => switch (builtin.cpu.arch) {
+        // 9front/sys/src/9/*/mem.h
+        .x86, .x86_64 => 4 << 10,
+        .thumb, .thumbeb, .arm, .armeb => 4 << 10,
+        .aarch64, .aarch64_be => 4 << 10,
+        .mips, .mipsel, .mips64, .mips64el => 4 << 10,
+        .powerpc, .powerpcle, .powerpc64, .powerpc64le => 4 << 10,
+        .sparc => 4 << 10,
+        else => null,
+    },
+    .ps3 => switch (builtin.cpu.arch) {
+        // cell/SDK_doc/en/html/C_and_C++_standard_libraries/stdlib.html
+        .powerpc64 => 1 << 20, // 1 MiB
+        else => null,
+    },
+    .ps4 => switch (builtin.cpu.arch) {
+        // https://github.com/ps4dev/ps4sdk/blob/4df9d001b66ae4ec07d9a51b62d1e4c5e270eecc/include/machine/param.h#L95
+        .x86, .x86_64 => 4 << 10,
+        else => null,
+    },
+    .ps5 => switch (builtin.cpu.arch) {
+        // https://github.com/PS5Dev/PS5SDK/blob/a2e03a2a0231a3a3397fa6cd087a01ca6d04f273/include/machine/param.h#L95
+        .x86, .x86_64 => 16 << 10,
+        else => null,
+    },
+    // system/lib/libc/musl/arch/emscripten/bits/limits.h
+    .emscripten => 64 << 10,
+    .linux => switch (builtin.cpu.arch) {
+        // Linux/arch/*/Kconfig
+        .arc => 4 << 10,
+        .thumb, .thumbeb, .arm, .armeb => 4 << 10,
+        .aarch64, .aarch64_be => 4 << 10,
+        .csky => 4 << 10,
+        .hexagon => 4 << 10,
+        .loongarch32, .loongarch64 => 4 << 10,
+        .m68k => 4 << 10,
+        .mips, .mipsel, .mips64, .mips64el => 4 << 10,
+        .powerpc, .powerpc64, .powerpc64le, .powerpcle => 4 << 10,
+        .riscv32, .riscv64 => 4 << 10,
+        .s390x => 4 << 10,
+        .sparc => 4 << 10,
+        .sparc64 => 8 << 10,
+        .x86, .x86_64 => 4 << 10,
+        .xtensa => 4 << 10,
+        else => null,
+    },
+    .freestanding => switch (builtin.cpu.arch) {
+        .wasm32, .wasm64 => 64 << 10,
+        else => null,
+    },
+    else => null,
+};
+
+const default_max_page_size: ?usize = switch (builtin.os.tag) {
+    .bridgeos, .driverkit, .ios, .macos, .tvos, .visionos, .watchos => switch (builtin.cpu.arch) {
+        .x86_64 => 4 << 10,
+        .aarch64 => 16 << 10,
+        else => null,
+    },
+    .windows => switch (builtin.cpu.arch) {
+        // -- <https://devblogs.microsoft.com/oldnewthing/20210510-00/?p=105200>
+        .x86, .x86_64 => 4 << 10,
+        // SuperH => 4 << 10,
+        .mips, .mipsel, .mips64, .mips64el => 4 << 10,
+        .powerpc, .powerpcle, .powerpc64, .powerpc64le => 4 << 10,
+        // DEC Alpha => 8 << 10,
+        // Itanium => 8 << 10,
+        .thumb, .thumbeb, .arm, .armeb, .aarch64, .aarch64_be => 4 << 10,
+        else => null,
+    },
+    .wasi => switch (builtin.cpu.arch) {
+        .wasm32, .wasm64 => 64 << 10,
+        else => null,
+    },
+    // https://github.com/tianocore/edk2/blob/b158dad150bf02879668f72ce306445250838201/MdePkg/Include/Uefi/UefiBaseType.h#L180-L187
+    .uefi => 4 << 10,
+    .freebsd => switch (builtin.cpu.arch) {
+        // FreeBSD/sys/*
+        .x86, .x86_64 => 4 << 10,
+        .thumb, .thumbeb, .arm, .armeb => 4 << 10,
+        .aarch64, .aarch64_be => 4 << 10,
+        .powerpc, .powerpc64, .powerpc64le, .powerpcle => 4 << 10,
+        .riscv32, .riscv64 => 4 << 10,
+        else => null,
+    },
+    .netbsd => switch (builtin.cpu.arch) {
+        // NetBSD/sys/arch/*
+        .x86, .x86_64 => 4 << 10,
+        .thumb, .thumbeb, .arm, .armeb => 4 << 10,
+        .aarch64, .aarch64_be => 64 << 10,
+        .mips, .mipsel, .mips64, .mips64el => 16 << 10,
+        .powerpc, .powerpc64, .powerpc64le, .powerpcle => 16 << 10,
+        .sparc => 8 << 10,
+        .sparc64 => 8 << 10,
+        .riscv32, .riscv64 => 4 << 10,
+        .m68k => 8 << 10,
+        else => null,
+    },
+    .dragonfly => switch (builtin.cpu.arch) {
+        .x86, .x86_64 => 4 << 10,
+        else => null,
+    },
+    .openbsd => switch (builtin.cpu.arch) {
+        // OpenBSD/sys/arch/*
+        .x86, .x86_64 => 4 << 10,
+        .thumb, .thumbeb, .arm, .armeb, .aarch64, .aarch64_be => 4 << 10,
+        .mips64, .mips64el => 16 << 10,
+        .powerpc, .powerpc64, .powerpc64le, .powerpcle => 4 << 10,
+        .riscv64 => 4 << 10,
+        .sparc64 => 8 << 10,
+        else => null,
+    },
+    .solaris, .illumos => switch (builtin.cpu.arch) {
+        // src/uts/*/sys/machparam.h
+        .x86, .x86_64 => 4 << 10,
+        .sparc, .sparc64 => 8 << 10,
+        else => null,
+    },
+    .fuchsia => switch (builtin.cpu.arch) {
+        // fuchsia/kernel/arch/*/include/arch/defines.h
+        .x86_64 => 4 << 10,
+        .aarch64, .aarch64_be => 4 << 10,
+        .riscv64 => 4 << 10,
+        else => null,
+    },
+    // https://github.com/SerenityOS/serenity/blob/62b938b798dc009605b5df8a71145942fc53808b/Kernel/API/POSIX/sys/limits.h#L11-L13
+    .serenity => 4 << 10,
+    .haiku => switch (builtin.cpu.arch) {
+        // haiku/headers/posix/arch/*/limits.h
+        .thumb, .thumbeb, .arm, .armeb => 4 << 10,
+        .aarch64, .aarch64_be => 4 << 10,
+        .m68k => 4 << 10,
+        .mips, .mipsel, .mips64, .mips64el => 4 << 10,
+        .powerpc, .powerpc64, .powerpc64le, .powerpcle => 4 << 10,
+        .riscv64 => 4 << 10,
+        .sparc64 => 8 << 10,
+        .x86, .x86_64 => 4 << 10,
+        else => null,
+    },
+    .hurd => switch (builtin.cpu.arch) {
+        // gnumach/*/include/mach/*/vm_param.h
+        .x86, .x86_64 => 4 << 10,
+        .aarch64 => null,
+        else => null,
+    },
+    .plan9 => switch (builtin.cpu.arch) {
+        // 9front/sys/src/9/*/mem.h
+        .x86, .x86_64 => 4 << 10,
+        .thumb, .thumbeb, .arm, .armeb => 4 << 10,
+        .aarch64, .aarch64_be => 64 << 10,
+        .mips, .mipsel, .mips64, .mips64el => 16 << 10,
+        .powerpc, .powerpcle, .powerpc64, .powerpc64le => 4 << 10,
+        .sparc => 4 << 10,
+        else => null,
+    },
+    .ps3 => switch (builtin.cpu.arch) {
+        // cell/SDK_doc/en/html/C_and_C++_standard_libraries/stdlib.html
+        .powerpc64 => 1 << 20, // 1 MiB
+        else => null,
+    },
+    .ps4 => switch (builtin.cpu.arch) {
+        // https://github.com/ps4dev/ps4sdk/blob/4df9d001b66ae4ec07d9a51b62d1e4c5e270eecc/include/machine/param.h#L95
+        .x86, .x86_64 => 4 << 10,
+        else => null,
+    },
+    .ps5 => switch (builtin.cpu.arch) {
+        // https://github.com/PS5Dev/PS5SDK/blob/a2e03a2a0231a3a3397fa6cd087a01ca6d04f273/include/machine/param.h#L95
+        .x86, .x86_64 => 16 << 10,
+        else => null,
+    },
+    // system/lib/libc/musl/arch/emscripten/bits/limits.h
+    .emscripten => 64 << 10,
+    .linux => switch (builtin.cpu.arch) {
+        // Linux/arch/*/Kconfig
+        .arc => 16 << 10,
+        .thumb, .thumbeb, .arm, .armeb => 4 << 10,
+        .aarch64, .aarch64_be => 64 << 10,
+        .csky => 4 << 10,
+        .hexagon => 256 << 10,
+        .loongarch32, .loongarch64 => 64 << 10,
+        .m68k => 8 << 10,
+        .mips, .mipsel, .mips64, .mips64el => 64 << 10,
+        .powerpc, .powerpc64, .powerpc64le, .powerpcle => 256 << 10,
+        .riscv32, .riscv64 => 4 << 10,
+        .s390x => 4 << 10,
+        .sparc => 4 << 10,
+        .sparc64 => 8 << 10,
+        .x86, .x86_64 => 4 << 10,
+        .xtensa => 4 << 10,
+        else => null,
+    },
+    .freestanding => switch (builtin.cpu.arch) {
+        .wasm32, .wasm64 => 64 << 10,
+        else => null,
+    },
+    else => null,
+};
+
 pub const LoggingAllocator = @import("heap/logging_allocator.zig").LoggingAllocator;
 pub const loggingAllocator = @import("heap/logging_allocator.zig").loggingAllocator;
 pub const ScopedLoggingAllocator = @import("heap/logging_allocator.zig").ScopedLoggingAllocator;
