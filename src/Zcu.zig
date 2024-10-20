@@ -1522,7 +1522,7 @@ pub const SrcLoc = struct {
             .init_field_cache,
             .init_field_library,
             .init_field_thread_local,
-            .init_field_dll_storage_class,
+            .init_field_dll_import,
             => |builtin_call_node| {
                 const wanted = switch (src_loc.lazy) {
                     .init_field_name => "name",
@@ -1534,7 +1534,7 @@ pub const SrcLoc = struct {
                     .init_field_cache => "cache",
                     .init_field_library => "library",
                     .init_field_thread_local => "thread_local",
-                    .init_field_dll_storage_class => "dll_storage_class",
+                    .init_field_dll_import => "dll_import",
                     else => unreachable,
                 };
                 const tree = try src_loc.file_scope.getTree(gpa);
@@ -1961,7 +1961,7 @@ pub const LazySrcLoc = struct {
         init_field_cache: i32,
         init_field_library: i32,
         init_field_thread_local: i32,
-        init_field_dll_storage_class: i32,
+        init_field_dll_import: i32,
         /// The source location points to the value of an item in a specific
         /// case of a `switch`.
         switch_case_item: SwitchItem,

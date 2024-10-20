@@ -26970,7 +26970,7 @@ fn resolveExternOptions(
     library_name: InternPool.OptionalNullTerminatedString = .none,
     linkage: std.builtin.GlobalLinkage = .strong,
     is_thread_local: bool = false,
-    dll_storage_class: std.builtin.DllStorageClass = .default,
+    is_dll_import: bool = false,
 } {
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -26984,7 +26984,7 @@ fn resolveExternOptions(
     const library_src = block.src(.{ .init_field_library = src.offset.node_offset_builtin_call_arg.builtin_call_node });
     const linkage_src = block.src(.{ .init_field_linkage = src.offset.node_offset_builtin_call_arg.builtin_call_node });
     const thread_local_src = block.src(.{ .init_field_thread_local = src.offset.node_offset_builtin_call_arg.builtin_call_node });
-    const dll_storage_class_src = block.src(.{ .init_field_dll_storage_class = src.offset.node_offset_builtin_call_arg.builtin_call_node });
+    const dll_import_src = block.src(.{ .init_field_dll_import = src.offset.node_offset_builtin_call_arg.builtin_call_node });
 
     const name_ref = try sema.fieldVal(block, src, options, try ip.getOrPutString(gpa, pt.tid, "name", .no_embedded_nulls), name_src);
     const name = try sema.toConstString(block, name_src, name_ref, .{
@@ -27018,11 +27018,10 @@ fn resolveExternOptions(
         break :library_name library_name;
     } else null;
 
-    const dll_storage_class_ref = try sema.fieldVal(block, src, options, try ip.getOrPutString(gpa, pt.tid, "dll_storage_class", .no_embedded_nulls), dll_storage_class_src);
-    const dll_storage_class_val = try sema.resolveConstDefinedValue(block, dll_storage_class_src, dll_storage_class_ref, .{
-        .needed_comptime_reason = "dll_storage_class of the extern symbol must be comptime-known",
+    const is_dll_import_ref = try sema.fieldVal(block, src, options, try ip.getOrPutString(gpa, pt.tid, "is_dll_import", .no_embedded_nulls), dll_import_src);
+    const is_dll_import_val = try sema.resolveConstDefinedValue(block, dll_import_src, is_dll_import_ref, .{
+        .needed_comptime_reason = "it must be comptime-known if the symbol is imported from a dll",
     });
-    const dll_storage_class = zcu.toEnum(std.builtin.DllStorageClass, dll_storage_class_val);
 
     if (name.len == 0) {
         return sema.fail(block, name_src, "extern symbol name cannot be empty", .{});
@@ -27032,16 +27031,12 @@ fn resolveExternOptions(
         return sema.fail(block, linkage_src, "extern symbol must use strong or weak linkage", .{});
     }
 
-    if (dll_storage_class == .@"export") {
-        return sema.fail(block, dll_storage_class_src, "extern symbol cannot have export dll storage class", .{});
-    }
-
     return .{
         .name = try ip.getOrPutString(gpa, pt.tid, name, .no_embedded_nulls),
         .library_name = try ip.getOrPutStringOpt(gpa, pt.tid, library_name, .no_embedded_nulls),
         .linkage = linkage,
         .is_thread_local = is_thread_local_val.toBool(),
-        .dll_storage_class = dll_storage_class,
+        .is_dll_import = is_dll_import_val.toBool(),
     };
 }
 
@@ -27087,7 +27082,7 @@ fn zirBuiltinExtern(
         .is_const = ptr_info.flags.is_const,
         .is_threadlocal = options.is_thread_local,
         .is_weak_linkage = options.linkage == .weak,
-        .is_dll_import = options.dll_storage_class == .import,
+        .is_dll_import = options.is_dll_import,
         .alignment = ptr_info.flags.alignment,
         .@"addrspace" = ptr_info.flags.address_space,
         // This instruction is just for source locations.
