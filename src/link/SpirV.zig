@@ -161,28 +161,35 @@ pub fn updateExports(
         },
     };
     const nav_ty = ip.getNav(nav_index).typeOf(ip);
+    const target = zcu.getTarget();
     if (ip.isFunctionType(nav_ty)) {
-        const target = zcu.getTarget();
         const spv_decl_index = try self.object.resolveNav(zcu, nav_index);
-        const execution_model = switch (Type.fromInterned(nav_ty).fnCallingConvention(zcu)) {
-            .spirv_vertex => spec.ExecutionModel.Vertex,
-            .spirv_fragment => spec.ExecutionModel.Fragment,
-            .spirv_kernel => spec.ExecutionModel.Kernel,
+        const cc = Type.fromInterned(nav_ty).fnCallingConvention(zcu);
+        const execution_model: spec.ExecutionModel = switch (target.os.tag) {
+            .vulkan => switch (cc) {
+                .spirv_vertex => .Vertex,
+                .spirv_fragment => .Fragment,
+                .spirv_kernel => .GLCompute,
+                // TODO: We should integrate with the Linkage capability and export this function
+                .spirv_device => return,
+                else => unreachable,
+            },
+            .opencl => switch (cc) {
+                .spirv_kernel => .Kernel,
+                // TODO: We should integrate with the Linkage capability and export this function
+                .spirv_device => return,
+                else => unreachable,
+            },
             else => unreachable,
         };
-        const is_vulkan = target.os.tag == .vulkan;
 
-        if ((!is_vulkan and execution_model == .Kernel) or
-            (is_vulkan and (execution_model == .Fragment or execution_model == .Vertex)))
-        {
-            for (export_indices) |export_idx| {
-                const exp = zcu.all_exports.items[export_idx];
-                try self.object.spv.declareEntryPoint(
-                    spv_decl_index,
-                    exp.opts.name.toSlice(ip),
-                    execution_model,
-                );
-            }
+        for (export_indices) |export_idx| {
+            const exp = zcu.all_exports.items[export_idx];
+            try self.object.spv.declareEntryPoint(
+                spv_decl_index,
+                exp.opts.name.toSlice(ip),
+                execution_model,
+            );
         }
     }
 
@@ -258,7 +265,7 @@ pub fn flushModule(self: *SpirV, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
     const linked_module = self.linkModule(arena, module, sub_prog_node) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => |other| {
-            log.err("error while linking: {s}\n", .{@errorName(other)});
+            log.err("error while linking: {s}", .{@errorName(other)});
             return error.FlushFailure;
         },
     };

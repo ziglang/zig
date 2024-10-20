@@ -1640,13 +1640,18 @@ const NavGen = struct {
 
                     comptime assert(zig_call_abi_ver == 3);
                     switch (fn_info.cc) {
-                        .auto, .spirv_kernel, .spirv_fragment, .spirv_vertex => {},
-                        else => @panic("TODO"),
+                        .auto,
+                        .spirv_kernel,
+                        .spirv_fragment,
+                        .spirv_vertex,
+                        .spirv_device,
+                        => {},
+                        else => unreachable,
                     }
 
-                    // TODO: Put this somewhere in Sema.zig
-                    if (fn_info.is_var_args)
-                        return self.fail("VarArgs functions are unsupported for SPIR-V", .{});
+                    // Guaranteed by callConvSupportsVarArgs, there are nog SPIR-V CCs which support
+                    // varargs.
+                    assert(!fn_info.is_var_args);
 
                     // Note: Logic is different from functionType().
                     const param_ty_ids = try self.gpa.alloc(IdRef, fn_info.param_types.len);
@@ -2969,11 +2974,10 @@ const NavGen = struct {
                 try self.func.prologue.emit(self.spv.gpa, .OpFunction, .{
                     .id_result_type = return_ty_id,
                     .id_result = result_id,
-                    .function_control = switch (fn_info.cc) {
-                        .@"inline" => .{ .Inline = true },
-                        else => .{},
-                    },
                     .function_type = prototype_ty_id,
+                    // Note: the backend will never be asked to generate an inline function
+                    // (this is handled in sema), so we don't need to set function_control here.
+                    .function_control = .{},
                 });
 
                 comptime assert(zig_call_abi_ver == 3);
