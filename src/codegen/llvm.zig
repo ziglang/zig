@@ -3237,10 +3237,10 @@ pub const Object = struct {
         const ip = &zcu.intern_pool;
         const nav = ip.getNav(nav_index);
         const resolved = nav.status.resolved;
-        const is_extern, const is_threadlocal, const is_weak_linkage = switch (ip.indexToKey(resolved.val)) {
-            .variable => |variable| .{ false, variable.is_threadlocal, variable.is_weak_linkage },
-            .@"extern" => |@"extern"| .{ true, @"extern".is_threadlocal, @"extern".is_weak_linkage },
-            else => .{ false, false, false },
+        const is_extern, const is_threadlocal, const is_weak_linkage, const is_dll_import = switch (ip.indexToKey(resolved.val)) {
+            .variable => |variable| .{ false, variable.is_threadlocal, variable.is_weak_linkage, false },
+            .@"extern" => |@"extern"| .{ true, @"extern".is_threadlocal, @"extern".is_weak_linkage, @"extern".is_dll_import },
+            else => .{ false, false, false, false },
         };
 
         const variable_index = try o.builder.addVariable(
@@ -3257,6 +3257,7 @@ pub const Object = struct {
             if (is_threadlocal and !zcu.navFileScope(nav_index).mod.single_threaded)
                 variable_index.setThreadLocal(.generaldynamic, &o.builder);
             if (is_weak_linkage) variable_index.setLinkage(.extern_weak, &o.builder);
+            if (is_dll_import) variable_index.setDllStorageClass(.dllimport, &o.builder);
         } else {
             variable_index.setLinkage(.internal, &o.builder);
             variable_index.setUnnamedAddr(.unnamed_addr, &o.builder);

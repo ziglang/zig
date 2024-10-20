@@ -2528,6 +2528,10 @@ pub const Variable = struct {
             return self.ptrConst(builder).global.setLinkage(linkage, builder);
         }
 
+        pub fn setDllStorageClass(self: Index, class: DllStorageClass, builder: *Builder) void {
+            return self.ptrConst(builder).global.setDllStorageClass(class, builder);
+        }
+
         pub fn setUnnamedAddr(self: Index, unnamed_addr: UnnamedAddr, builder: *Builder) void {
             return self.ptrConst(builder).global.setUnnamedAddr(unnamed_addr, builder);
         }

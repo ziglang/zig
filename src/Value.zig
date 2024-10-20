@@ -1340,11 +1340,11 @@ pub fn isLazySize(val: Value, zcu: *Zcu) bool {
     };
 }
 
-pub fn isPtrToThreadLocal(val: Value, zcu: *Zcu) bool {
+pub fn isPtrRuntimeValue(val: Value, zcu: *Zcu) bool {
     const ip = &zcu.intern_pool;
     const nav = ip.getBackingNav(val.toIntern()).unwrap() orelse return false;
     return switch (ip.indexToKey(ip.getNav(nav).status.resolved.val)) {
-        .@"extern" => |e| e.is_threadlocal,
+        .@"extern" => |e| e.is_threadlocal or e.is_dll_import,
         .variable => |v| v.is_threadlocal,
         else => false,
     };

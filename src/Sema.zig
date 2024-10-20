@@ -876,6 +876,7 @@ const InferredAlloc = struct {
 
 const NeededComptimeReason = struct {
     needed_comptime_reason: []const u8,
+    value_comptime_reason: ?[]const u8 = null,
     block_comptime_reason: ?*const Block.ComptimeReason = null,
 };
 
@@ -2251,7 +2252,7 @@ fn resolveValueAllowVariables(sema: *Sema, inst: Air.Inst.Ref) CompileError!?Val
         }
     };
     const val = Value.fromInterned(ip_index);
-    if (val.isPtrToThreadLocal(pt.zcu)) return null;
+    if (val.isPtrRuntimeValue(pt.zcu)) return null;
     return val;
 }
 
@@ -2277,8 +2278,14 @@ pub fn resolveFinalDeclValue(
     const zcu = sema.pt.zcu;
 
     const val = try sema.resolveValueAllowVariables(air_ref) orelse {
+        const value_comptime_reason: ?[]const u8 = if (air_ref.toInterned()) |_|
+            "thread local and dll imported variables have runtime-known addresses"
+        else
+            null;
+
         return sema.failWithNeededComptime(block, src, .{
             .needed_comptime_reason = "global variable initializer must be comptime-known",
+            .value_comptime_reason = value_comptime_reason,
         });
     };
     if (val.isGenericPoison()) return error.GenericPoison;
@@ -2296,6 +2303,9 @@ fn failWithNeededComptime(sema: *Sema, block: *Block, src: LazySrcLoc, reason: N
         const msg = try sema.errMsg(src, "unable to resolve comptime value", .{});
         errdefer msg.destroy(sema.gpa);
         try sema.errNote(src, msg, "{s}", .{reason.needed_comptime_reason});
+        if (reason.value_comptime_reason) |value_comptime_reason| {
+            try sema.errNote(src, msg, "{s}", .{value_comptime_reason});
+        }
 
         if (reason.block_comptime_reason) |block_comptime_reason| {
             try block_comptime_reason.explain(sema, msg);
