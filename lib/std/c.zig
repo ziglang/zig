@@ -3,7 +3,7 @@ const builtin = @import("builtin");
 const c = @This();
 const maxInt = std.math.maxInt;
 const assert = std.debug.assert;
-const page_size = std.mem.page_size;
+const min_page_size = std.heap.min_page_size;
 const native_abi = builtin.abi;
 const native_arch = builtin.cpu.arch;
 const native_os = builtin.os.tag;
@@ -2227,6 +2227,39 @@ pub const SC = switch (native_os) {
     .linux => linux.SC,
     else => void,
 };
+
+pub const _SC = switch (native_os) {
+    .bridgeos, .driverkit, .ios, .macos, .tvos, .visionos, .watchos => enum(c_int) {
+        PAGESIZE = 29,
+    },
+    .dragonfly => enum(c_int) {
+        PAGESIZE = 47,
+    },
+    .freebsd => enum(c_int) {
+        PAGESIZE = 47,
+    },
+    .fuchsia => enum(c_int) {
+        PAGESIZE = 30,
+    },
+    .haiku => enum(c_int) {
+        PAGESIZE = 27,
+    },
+    .linux => enum(c_int) {
+        PAGESIZE = 30,
+    },
+    .netbsd => enum(c_int) {
+        PAGESIZE = 28,
+    },
+    .openbsd => enum(c_int) {
+        PAGESIZE = 28,
+    },
+    .solaris, .illumos => enum(c_int) {
+        PAGESIZE = 11,
+        NPROCESSORS_ONLN = 15,
+    },
+    else => void,
+};
+
 pub const SEEK = switch (native_os) {
     .linux => linux.SEEK,
     .emscripten => emscripten.SEEK,
@@ -9232,7 +9265,7 @@ pub extern "c" fn getpwnam(name: [*:0]const u8) ?*passwd;
 pub extern "c" fn getpwuid(uid: uid_t) ?*passwd;
 pub extern "c" fn getrlimit64(resource: rlimit_resource, rlim: *rlimit) c_int;
 pub extern "c" fn lseek64(fd: fd_t, offset: i64, whence: c_int) i64;
-pub extern "c" fn mmap64(addr: ?*align(std.mem.page_size) anyopaque, len: usize, prot: c_uint, flags: c_uint, fd: fd_t, offset: i64) *anyopaque;
+pub extern "c" fn mmap64(addr: ?*align(min_page_size) anyopaque, len: usize, prot: c_uint, flags: c_uint, fd: fd_t, offset: i64) *anyopaque;
 pub extern "c" fn open64(path: [*:0]const u8, oflag: O, ...) c_int;
 pub extern "c" fn openat64(fd: c_int, path: [*:0]const u8, oflag: O, ...) c_int;
 pub extern "c" fn pread64(fd: fd_t, buf: [*]u8, nbyte: usize, offset: i64) isize;
@@ -9324,13 +9357,13 @@ pub extern "c" fn signalfd(fd: fd_t, mask: *const sigset_t, flags: u32) c_int;
 
 pub extern "c" fn prlimit(pid: pid_t, resource: rlimit_resource, new_limit: *const rlimit, old_limit: *rlimit) c_int;
 pub extern "c" fn mincore(
-    addr: *align(std.mem.page_size) anyopaque,
+    addr: *align(min_page_size) anyopaque,
     length: usize,
     vec: [*]u8,
 ) c_int;
 
 pub extern "c" fn madvise(
-    addr: *align(std.mem.page_size) anyopaque,
+    addr: *align(min_page_size) anyopaque,
     length: usize,
     advice: u32,
 ) c_int;
@@ -9428,6 +9461,10 @@ pub const posix_memalign = switch (native_os) {
     .dragonfly, .netbsd, .freebsd, .solaris, .openbsd, .linux, .macos, .ios, .tvos, .watchos, .visionos => private.posix_memalign,
     else => {},
 };
+pub const sysconf = switch (native_os) {
+    .solaris => solaris.sysconf,
+    else => private.sysconf,
+};
 
 pub const sf_hdtr = switch (native_os) {
     .freebsd, .macos, .ios, .tvos, .watchos, .visionos => extern struct {
@@ -9469,9 +9506,9 @@ pub extern "c" fn writev(fd: c_int, iov: [*]const iovec_const, iovcnt: c_uint) i
 pub extern "c" fn pwritev(fd: c_int, iov: [*]const iovec_const, iovcnt: c_uint, offset: off_t) isize;
 pub extern "c" fn write(fd: fd_t, buf: [*]const u8, nbyte: usize) isize;
 pub extern "c" fn pwrite(fd: fd_t, buf: [*]const u8, nbyte: usize, offset: off_t) isize;
-pub extern "c" fn mmap(addr: ?*align(page_size) anyopaque, len: usize, prot: c_uint, flags: MAP, fd: fd_t, offset: off_t) *anyopaque;
-pub extern "c" fn munmap(addr: *align(page_size) const anyopaque, len: usize) c_int;
-pub extern "c" fn mprotect(addr: *align(page_size) anyopaque, len: usize, prot: c_uint) c_int;
+pub extern "c" fn mmap(addr: ?*align(min_page_size) anyopaque, len: usize, prot: c_uint, flags: MAP, fd: fd_t, offset: off_t) *anyopaque;
+pub extern "c" fn munmap(addr: *align(min_page_size) const anyopaque, len: usize) c_int;
+pub extern "c" fn mprotect(addr: *align(min_page_size) anyopaque, len: usize, prot: c_uint) c_int;
 pub extern "c" fn link(oldpath: [*:0]const u8, newpath: [*:0]const u8) c_int;
 pub extern "c" fn linkat(oldfd: fd_t, oldpath: [*:0]const u8, newfd: fd_t, newpath: [*:0]const u8, flags: c_int) c_int;
 pub extern "c" fn unlink(path: [*:0]const u8) c_int;
@@ -9823,7 +9860,6 @@ pub const SCM = solaris.SCM;
 pub const SETCONTEXT = solaris.SETCONTEXT;
 pub const SETUSTACK = solaris.GETUSTACK;
 pub const SFD = solaris.SFD;
-pub const _SC = solaris._SC;
 pub const cmsghdr = solaris.cmsghdr;
 pub const ctid_t = solaris.ctid_t;
 pub const file_obj = solaris.file_obj;
@@ -9840,7 +9876,6 @@ pub const priority = solaris.priority;
 pub const procfs = solaris.procfs;
 pub const projid_t = solaris.projid_t;
 pub const signalfd_siginfo = solaris.signalfd_siginfo;
-pub const sysconf = solaris.sysconf;
 pub const taskid_t = solaris.taskid_t;
 pub const zoneid_t = solaris.zoneid_t;
 
@@ -9997,6 +10032,7 @@ pub const host_t = darwin.host_t;
 pub const ipc_space_t = darwin.ipc_space_t;
 pub const ipc_space_port_t = darwin.ipc_space_port_t;
 pub const kern_return_t = darwin.kern_return_t;
+pub const vm_size_t = darwin.vm_size_t;
 pub const kevent64 = darwin.kevent64;
 pub const kevent64_s = darwin.kevent64_s;
 pub const mach_absolute_time = darwin.mach_absolute_time;
@@ -10155,7 +10191,7 @@ const private = struct {
     };
     extern "c" fn getrusage(who: c_int, usage: *rusage) c_int;
     extern "c" fn gettimeofday(noalias tv: ?*timeval, noalias tz: ?*timezone) c_int;
-    extern "c" fn msync(addr: *align(page_size) const anyopaque, len: usize, flags: c_int) c_int;
+    extern "c" fn msync(addr: *align(min_page_size) const anyopaque, len: usize, flags: c_int) c_int;
     extern "c" fn nanosleep(rqtp: *const timespec, rmtp: ?*timespec) c_int;
     extern "c" fn pipe2(fds: *[2]fd_t, flags: O) c_int;
     extern "c" fn readdir(dir: *DIR) ?*dirent;
@@ -10168,6 +10204,7 @@ const private = struct {
     extern "c" fn socket(domain: c_uint, sock_type: c_uint, protocol: c_uint) c_int;
     extern "c" fn stat(noalias path: [*:0]const u8, noalias buf: *Stat) c_int;
     extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
+    extern "c" fn sysconf(sc: c_int) c_long;
 
     extern "c" fn pthread_setname_np(thread: pthread_t, name: [*:0]const u8) c_int;
     extern "c" fn getcontext(ucp: *ucontext_t) c_int;
@@ -10202,7 +10239,7 @@ const private = struct {
     extern "c" fn __getrusage50(who: c_int, usage: *rusage) c_int;
     extern "c" fn __gettimeofday50(noalias tv: ?*timeval, noalias tz: ?*timezone) c_int;
     extern "c" fn __libc_thr_yield() c_int;
-    extern "c" fn __msync13(addr: *align(std.mem.page_size) const anyopaque, len: usize, flags: c_int) c_int;
+    extern "c" fn __msync13(addr: *align(min_page_size) const anyopaque, len: usize, flags: c_int) c_int;
     extern "c" fn __nanosleep50(rqtp: *const timespec, rmtp: ?*timespec) c_int;
     extern "c" fn __sigaction14(sig: c_int, noalias act: ?*const Sigaction, noalias oact: ?*Sigaction) c_int;
     extern "c" fn __sigfillset14(set: ?*sigset_t) void;

@@ -119,6 +119,10 @@ pub const Options = struct {
         args: anytype,
     ) void = log.defaultLog,
 
+    min_page_size: ?usize = null,
+    max_page_size: ?usize = null,
+    queryPageSizeFn: fn () usize = heap.defaultQueryPageSize,
+
     fmt_max_depth: usize = fmt.default_max_depth,
 
     cryptoRandomSeed: fn (buffer: []u8) void = @import("crypto/tlcsprng.zig").defaultRandomSeed,

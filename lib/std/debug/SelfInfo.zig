@@ -504,7 +504,7 @@ pub const Module = switch (native_os) {
     .macos, .ios, .watchos, .tvos, .visionos => struct {
         base_address: usize,
         vmaddr_slide: usize,
-        mapped_memory: []align(mem.page_size) const u8,
+        mapped_memory: []align(std.heap.min_page_size) const u8,
         symbols: []const MachoSymbol,
         strings: [:0]const u8,
         ofiles: OFileTable,
@@ -1046,7 +1046,7 @@ pub fn readElfDebugInfo(
     build_id: ?[]const u8,
     expected_crc: ?u32,
     parent_sections: *Dwarf.SectionArray,
-    parent_mapped_mem: ?[]align(mem.page_size) const u8,
+    parent_mapped_mem: ?[]align(std.heap.min_page_size) const u8,
 ) !Dwarf.ElfModule {
     nosuspend {
         const elf_file = (if (elf_filename) |filename| blk: {
@@ -1088,7 +1088,7 @@ const MachoSymbol = struct {
 
 /// Takes ownership of file, even on error.
 /// TODO it's weird to take ownership even on error, rework this code.
-fn mapWholeFile(file: File) ![]align(mem.page_size) const u8 {
+fn mapWholeFile(file: File) ![]align(std.heap.min_page_size) const u8 {
     nosuspend {
         defer file.close();
 

@@ -42,6 +42,7 @@ const WCHAR = windows.WCHAR;
 const WIN32_FIND_DATAW = windows.WIN32_FIND_DATAW;
 const Win32Error = windows.Win32Error;
 const WORD = windows.WORD;
+const SYSTEM_INFO = windows.SYSTEM_INFO;
 
 // I/O - Filesystem
 
@@ -667,6 +668,6 @@ pub extern "kernel32" fn SetLastError(
 // TODO:
 //  Wrapper around KUSER_SHARED_DATA.SystemTime.
 //  Much better to use NtQuerySystemTime or NtQuerySystemTimePrecise for guaranteed 0.1ns precision.
-pub extern "kernel32" fn GetSystemTimeAsFileTime(
-    lpSystemTimeAsFileTime: *FILETIME,
-) callconv(.winapi) void;
+pub extern "kernel32" fn GetSystemTimeAsFileTime(lpSystemTimeAsFileTime: *FILETIME) callconv(.winapi) void;
+
+pub extern "kernel32" fn GetSystemInfo(lpSystemInfo: *SYSTEM_INFO) callconv(.winapi) void;

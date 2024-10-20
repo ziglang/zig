@@ -1560,7 +1560,7 @@ pub fn posixGetUserInfo(name: []const u8) !UserInfo {
         ReadGroupId,
     };
 
-    var buf: [std.mem.page_size]u8 = undefined;
+    var buf: [std.heap.min_page_size]u8 = undefined;
     var name_index: usize = 0;
     var state = State.Start;
     var uid: posix.uid_t = 0;

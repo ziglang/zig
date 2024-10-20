@@ -8,26 +8,6 @@ const testing = std.testing;
 const Endian = std.builtin.Endian;
 const native_endian = builtin.cpu.arch.endian();
 
-/// Compile time known minimum page size.
-/// https://github.com/ziglang/zig/issues/4082
-pub const page_size = switch (builtin.cpu.arch) {
-    .wasm32, .wasm64 => 64 * 1024,
-    .aarch64 => switch (builtin.os.tag) {
-        .macos, .ios, .watchos, .tvos, .visionos => 16 * 1024,
-        else => 4 * 1024,
-    },
-    .sparc64 => 8 * 1024,
-    .loongarch32, .loongarch64 => switch (builtin.os.tag) {
-        // Linux default KConfig value is 16KiB
-        .linux => 16 * 1024,
-        // FIXME:
-        // There is no other OS supported yet. Use the same value
-        // as Linux for now.
-        else => 16 * 1024,
-    },
-    else => 4 * 1024,
-};
-
 /// The standard library currently thoroughly depends on byte size
 /// being 8 bits.  (see the use of u8 throughout allocation code as
 /// the "byte" type.)  Code which depends on this can reference this
@@ -1072,12 +1052,13 @@ pub fn indexOfSentinel(comptime T: type, comptime sentinel: T, p: [*:sentinel]co
                 const Block = @Vector(block_len, T);
                 const mask: Block = @splat(sentinel);
 
-                comptime std.debug.assert(std.mem.page_size % block_size == 0);
+                comptime std.debug.assert(std.heap.max_page_size % @sizeOf(Block) == 0);
+                std.debug.assert(std.heap.pageSize() % @sizeOf(Block) == 0);
 
                 // First block may be unaligned
                 const start_addr = @intFromPtr(&p[i]);
-                const offset_in_page = start_addr & (std.mem.page_size - 1);
-                if (offset_in_page <= std.mem.page_size - block_size) {
+                const offset_in_page = start_addr & (std.heap.pageSize() - 1);
+                if (offset_in_page <= std.heap.pageSize() - @sizeOf(Block)) {
                     // Will not read past the end of a page, full block.
                     const block: Block = p[i..][0..block_len].*;
                     const matches = block == mask;
@@ -1125,18 +1106,18 @@ test "indexOfSentinel vector paths" {
         const block_len = std.simd.suggestVectorLength(T) orelse continue;
 
         // Allocate three pages so we guarantee a page-crossing address with a full page after
-        const memory = try allocator.alloc(T, 3 * std.mem.page_size / @sizeOf(T));
+        const memory = try allocator.alloc(T, 3 * std.heap.pageSize() / @sizeOf(T));
         defer allocator.free(memory);
         @memset(memory, 0xaa);
 
         // Find starting page-alignment = 0
         var start: usize = 0;
         const start_addr = @intFromPtr(&memory);
-        start += (std.mem.alignForward(usize, start_addr, std.mem.page_size) - start_addr) / @sizeOf(T);
-        try testing.expect(start < std.mem.page_size / @sizeOf(T));
+        start += (std.mem.alignForward(usize, start_addr, std.heap.pageSize()) - start_addr) / @sizeOf(T);
+        try testing.expect(start < std.heap.pageSize() / @sizeOf(T));
 
         // Validate all sub-block alignments
-        const search_len = std.mem.page_size / @sizeOf(T);
+        const search_len = std.heap.pageSize() / @sizeOf(T);
         memory[start + search_len] = 0;
         for (0..block_len) |offset| {
             try testing.expectEqual(search_len - offset, indexOfSentinel(T, 0, @ptrCast(&memory[start + offset])));
@@ -1144,7 +1125,7 @@ test "indexOfSentinel vector paths" {
         memory[start + search_len] = 0xaa;
 
         // Validate page boundary crossing
-        const start_page_boundary = start + (std.mem.page_size / @sizeOf(T));
+        const start_page_boundary = start + (std.heap.pageSize() / @sizeOf(T));
         memory[start_page_boundary + block_len] = 0;
         for (0..block_len) |offset| {
             try testing.expectEqual(2 * block_len - offset, indexOfSentinel(T, 0, @ptrCast(&memory[start_page_boundary - block_len + offset])));
