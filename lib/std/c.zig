@@ -2206,6 +2206,39 @@ pub const SC = switch (native_os) {
     .linux => linux.SC,
     else => void,
 };
+
+pub const _SC = switch (native_os) {
+    .bridgeos, .driverkit, .ios, .macos, .tvos, .visionos, .watchos => enum(c_int) {
+        PAGESIZE = 29,
+    },
+    .dragonfly => enum(c_int) {
+        PAGESIZE = 47,
+    },
+    .freebsd => enum(c_int) {
+        PAGESIZE = 47,
+    },
+    .fuchsia => enum(c_int) {
+        PAGESIZE = 30,
+    },
+    .haiku => enum(c_int) {
+        PAGESIZE = 27,
+    },
+    .linux => enum(c_int) {
+        PAGESIZE = 30,
+    },
+    .netbsd => enum(c_int) {
+        PAGESIZE = 28,
+    },
+    .openbsd => enum(c_int) {
+        PAGESIZE = 28,
+    },
+    .solaris, .illumos => enum(c_int) {
+        PAGESIZE = 11,
+        NPROCESSORS_ONLN = 15,
+    },
+    else => void,
+};
+
 pub const SEEK = switch (native_os) {
     .linux => linux.SEEK,
     .emscripten => emscripten.SEEK,
@@ -9219,6 +9252,10 @@ pub const posix_memalign = switch (native_os) {
     .dragonfly, .netbsd, .freebsd, .solaris, .openbsd, .linux, .macos, .ios, .tvos, .watchos, .visionos => private.posix_memalign,
     else => {},
 };
+pub const sysconf = switch (native_os) {
+    .solaris => solaris.sysconf,
+    else => private.sysconf,
+};
 
 pub const sf_hdtr = switch (native_os) {
     .freebsd, .macos, .ios, .tvos, .watchos, .visionos => extern struct {
@@ -9614,7 +9651,6 @@ pub const SCM = solaris.SCM;
 pub const SETCONTEXT = solaris.SETCONTEXT;
 pub const SETUSTACK = solaris.GETUSTACK;
 pub const SFD = solaris.SFD;
-pub const _SC = solaris._SC;
 pub const cmsghdr = solaris.cmsghdr;
 pub const ctid_t = solaris.ctid_t;
 pub const file_obj = solaris.file_obj;
@@ -9631,7 +9667,6 @@ pub const priority = solaris.priority;
 pub const procfs = solaris.procfs;
 pub const projid_t = solaris.projid_t;
 pub const signalfd_siginfo = solaris.signalfd_siginfo;
-pub const sysconf = solaris.sysconf;
 pub const taskid_t = solaris.taskid_t;
 pub const zoneid_t = solaris.zoneid_t;
 
@@ -9785,6 +9820,7 @@ pub const dispatch_semaphore_wait = darwin.dispatch_semaphore_wait;
 pub const dispatch_time = darwin.dispatch_time;
 pub const fcopyfile = darwin.fcopyfile;
 pub const kern_return_t = darwin.kern_return_t;
+pub const vm_size_t = darwin.vm_size_t;
 pub const kevent64 = darwin.kevent64;
 pub const mach_absolute_time = darwin.mach_absolute_time;
 pub const mach_continuous_time = darwin.mach_continuous_time;
@@ -9910,6 +9946,7 @@ const private = struct {
     extern "c" fn socket(domain: c_uint, sock_type: c_uint, protocol: c_uint) c_int;
     extern "c" fn stat(noalias path: [*:0]const u8, noalias buf: *Stat) c_int;
     extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
+    extern "c" fn sysconf(sc: c_int) c_long;
 
     extern "c" fn pthread_setname_np(thread: pthread_t, name: [*:0]const u8) c_int;
     extern "c" fn getcontext(ucp: *ucontext_t) c_int;
