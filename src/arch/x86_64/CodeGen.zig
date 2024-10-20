@@ -2344,7 +2344,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .mul_with_overflow => try self.airMulWithOverflow(inst),
             .shl_with_overflow => try self.airShlWithOverflow(inst),
 
-            .div_float, .div_trunc, .div_floor, .div_exact => try self.airMulDivBinOp(inst),
+            .div_float, .div_trunc, .div_floor, .div_ceil, .div_exact => try self.airMulDivBinOp(inst),
 
             .cmp_lt  => try self.airCmp(inst, .lt),
             .cmp_lte => try self.airCmp(inst, .lte),
@@ -2490,6 +2490,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .div_float_optimized,
             .div_trunc_optimized,
             .div_floor_optimized,
+            .div_ceil_optimized,
             .div_exact_optimized,
             .rem_optimized,
             .mod_optimized,
@@ -3845,7 +3846,7 @@ fn airMulDivBinOp(self: *Self, inst: Air.Inst.Index) !void {
                 self.activeIntBits(bin_op.rhs),
                 dst_info.bits / 2,
             ),
-            .div_trunc, .div_floor, .div_exact, .rem, .mod => dst_info.bits,
+            .div_trunc, .div_floor, .div_ceil, .div_exact, .rem, .mod => dst_info.bits,
         });
         const src_abi_size: u32 = @intCast(src_ty.abiSize(zcu));
 
@@ -4040,6 +4041,10 @@ fn airMulDivBinOp(self: *Self, inst: Air.Inst.Index) !void {
                     else => call_mcv,
                 } else call_mcv;
             },
+            .div_ceil => return self.fail(
+                "TODO: implement `@divCeil` on {} and {}",
+                .{ dst_ty.fmt(pt), src_ty.fmt(pt) },
+            ),
         };
 
         try self.spillEflagsIfOccupied();
@@ -9547,7 +9552,7 @@ fn genMulDivBinOp(
     if (switch (tag) {
         else => unreachable,
         .mul, .mul_wrap => dst_abi_size != src_abi_size and dst_abi_size != src_abi_size * 2,
-        .div_trunc, .div_floor, .div_exact, .rem, .mod => dst_abi_size != src_abi_size,
+        .div_trunc, .div_floor, .div_ceil, .div_exact, .rem, .mod => dst_abi_size != src_abi_size,
     } or src_abi_size > 8) {
         const src_info = src_ty.intInfo(zcu);
         switch (tag) {
@@ -9658,7 +9663,7 @@ fn genMulDivBinOp(
 
                 return dst_mcv;
             },
-            .div_trunc, .div_floor, .div_exact, .rem, .mod => switch (src_info.signedness) {
+            .div_trunc, .div_floor, .div_ceil, .div_exact, .rem, .mod => switch (src_info.signedness) {
                 .signed => {},
                 .unsigned => {
                     const dst_mcv = try self.allocRegOrMemAdvanced(dst_ty, maybe_inst, false);
@@ -9686,6 +9691,7 @@ fn genMulDivBinOp(
                         .callee = switch (tag) {
                             .div_trunc,
                             .div_floor,
+                            .div_ceil,
                             .div_exact,
                             => "__udivei4",
                             .rem,
@@ -9867,6 +9873,11 @@ fn genMulDivBinOp(
             }
         },
 
+        .div_ceil => return self.fail(
+            "TODO: implement `@divCeil` on {} and {}",
+            .{ dst_ty.fmt(pt), src_ty.fmt(pt) },
+        ),
+
         else => unreachable,
     }
 }
@@ -9905,6 +9916,7 @@ fn genBinOp(
             .div_trunc,
             .div_floor,
             .div_exact,
+            .div_ceil,
             => std.fmt.bufPrint(&callee_buf, "__{s}{c}f3", .{
                 @tagName(air_tag)[0..3],
                 floatCompilerRtAbiName(float_bits),
@@ -10042,10 +10054,11 @@ fn genBinOp(
                     .callee = callee,
                 } }, &.{ lhs_ty, rhs_ty }, &.{ adjusted, .{ .air_ref = rhs_air } });
             },
-            .div_trunc, .div_floor => try self.genRoundLibcall(lhs_ty, result, .{
+            .div_trunc, .div_floor, .div_ceil => try self.genRoundLibcall(lhs_ty, result, .{
                 .mode = switch (air_tag) {
                     .div_trunc => .zero,
                     .div_floor => .down,
+                    .div_ceil => .up,
                     else => unreachable,
                 },
                 .precision = .inexact,
@@ -10485,7 +10498,7 @@ fn genBinOp(
                         .add => .{ .v_ss, .add },
                         .sub => .{ .v_ss, .sub },
                         .mul => .{ .v_ss, .mul },
-                        .div_float, .div_trunc, .div_floor, .div_exact => .{ .v_ss, .div },
+                        .div_float, .div_trunc, .div_floor, .div_ceil, .div_exact => .{ .v_ss, .div },
                         .max => .{ .v_ss, .max },
                         .min => .{ .v_ss, .max },
                         else => unreachable,
@@ -10495,7 +10508,7 @@ fn genBinOp(
                     tmp_reg,
                 );
                 switch (air_tag) {
-                    .div_trunc, .div_floor => try self.asmRegisterRegisterRegisterImmediate(
+                    .div_trunc, .div_floor, .div_ceil => try self.asmRegisterRegisterRegisterImmediate(
                         .{ .v_ss, .round },
                         dst_reg,
                         dst_reg,
@@ -10504,6 +10517,7 @@ fn genBinOp(
                             .mode = switch (air_tag) {
                                 .div_trunc => .zero,
                                 .div_floor => .down,
+                                .div_ceil => .up,
                                 else => unreachable,
                             },
                             .precision = .inexact,
@@ -10526,6 +10540,7 @@ fn genBinOp(
                 .div_float,
                 .div_trunc,
                 .div_floor,
+                .div_ceil,
                 .div_exact,
                 => if (self.hasFeature(.avx)) .{ .v_ss, .div } else .{ ._ss, .div },
                 .max => if (self.hasFeature(.avx)) .{ .v_ss, .max } else .{ ._ss, .max },
@@ -10539,6 +10554,7 @@ fn genBinOp(
                 .div_float,
                 .div_trunc,
                 .div_floor,
+                .div_ceil,
                 .div_exact,
                 => if (self.hasFeature(.avx)) .{ .v_sd, .div } else .{ ._sd, .div },
                 .max => if (self.hasFeature(.avx)) .{ .v_sd, .max } else .{ ._sd, .max },
@@ -10931,7 +10947,7 @@ fn genBinOp(
                                     .add => .{ .v_ss, .add },
                                     .sub => .{ .v_ss, .sub },
                                     .mul => .{ .v_ss, .mul },
-                                    .div_float, .div_trunc, .div_floor, .div_exact => .{ .v_ss, .div },
+                                    .div_float, .div_trunc, .div_floor, .div_ceil, .div_exact => .{ .v_ss, .div },
                                     .max => .{ .v_ss, .max },
                                     .min => .{ .v_ss, .max },
                                     else => unreachable,
@@ -10982,7 +10998,7 @@ fn genBinOp(
                                     .add => .{ .v_ps, .add },
                                     .sub => .{ .v_ps, .sub },
                                     .mul => .{ .v_ps, .mul },
-                                    .div_float, .div_trunc, .div_floor, .div_exact => .{ .v_ps, .div },
+                                    .div_float, .div_trunc, .div_floor, .div_ceil, .div_exact => .{ .v_ps, .div },
                                     .max => .{ .v_ps, .max },
                                     .min => .{ .v_ps, .max },
                                     else => unreachable,
@@ -11025,7 +11041,7 @@ fn genBinOp(
                                     .add => .{ .v_ps, .add },
                                     .sub => .{ .v_ps, .sub },
                                     .mul => .{ .v_ps, .mul },
-                                    .div_float, .div_trunc, .div_floor, .div_exact => .{ .v_ps, .div },
+                                    .div_float, .div_trunc, .div_floor, .div_ceil, .div_exact => .{ .v_ps, .div },
                                     .max => .{ .v_ps, .max },
                                     .min => .{ .v_ps, .max },
                                     else => unreachable,
@@ -11068,7 +11084,7 @@ fn genBinOp(
                                     .add => .{ .v_ps, .add },
                                     .sub => .{ .v_ps, .sub },
                                     .mul => .{ .v_ps, .mul },
-                                    .div_float, .div_trunc, .div_floor, .div_exact => .{ .v_ps, .div },
+                                    .div_float, .div_trunc, .div_floor, .div_ceil, .div_exact => .{ .v_ps, .div },
                                     .max => .{ .v_ps, .max },
                                     .min => .{ .v_ps, .max },
                                     else => unreachable,
@@ -11096,6 +11112,7 @@ fn genBinOp(
                         .div_float,
                         .div_trunc,
                         .div_floor,
+                        .div_ceil,
                         .div_exact,
                         => if (self.hasFeature(.avx)) .{ .v_ss, .div } else .{ ._ss, .div },
                         .max => if (self.hasFeature(.avx)) .{ .v_ss, .max } else .{ ._ss, .max },
@@ -11116,6 +11133,7 @@ fn genBinOp(
                         .div_float,
                         .div_trunc,
                         .div_floor,
+                        .div_ceil,
                         .div_exact,
                         => if (self.hasFeature(.avx)) .{ .v_ps, .div } else .{ ._ps, .div },
                         .max => if (self.hasFeature(.avx)) .{ .v_ps, .max } else .{ ._ps, .max },
@@ -11133,7 +11151,7 @@ fn genBinOp(
                         .add => .{ .v_ps, .add },
                         .sub => .{ .v_ps, .sub },
                         .mul => .{ .v_ps, .mul },
-                        .div_float, .div_trunc, .div_floor, .div_exact => .{ .v_ps, .div },
+                        .div_float, .div_trunc, .div_floor, .div_ceil, .div_exact => .{ .v_ps, .div },
                         .max => .{ .v_ps, .max },
                         .min => .{ .v_ps, .min },
                         .cmp_lt, .cmp_lte, .cmp_eq, .cmp_gte, .cmp_gt, .cmp_neq => .{ .v_ps, .cmp },
@@ -11149,6 +11167,7 @@ fn genBinOp(
                         .div_float,
                         .div_trunc,
                         .div_floor,
+                        .div_ceil,
                         .div_exact,
                         => if (self.hasFeature(.avx)) .{ .v_sd, .div } else .{ ._sd, .div },
                         .max => if (self.hasFeature(.avx)) .{ .v_sd, .max } else .{ ._sd, .max },
@@ -11169,6 +11188,7 @@ fn genBinOp(
                         .div_float,
                         .div_trunc,
                         .div_floor,
+                        .div_ceil,
                         .div_exact,
                         => if (self.hasFeature(.avx)) .{ .v_pd, .div } else .{ ._pd, .div },
                         .max => if (self.hasFeature(.avx)) .{ .v_pd, .max } else .{ ._pd, .max },
@@ -11186,7 +11206,7 @@ fn genBinOp(
                         .add => .{ .v_pd, .add },
                         .sub => .{ .v_pd, .sub },
                         .mul => .{ .v_pd, .mul },
-                        .div_float, .div_trunc, .div_floor, .div_exact => .{ .v_pd, .div },
+                        .div_float, .div_trunc, .div_floor, .div_ceil, .div_exact => .{ .v_pd, .div },
                         .max => .{ .v_pd, .max },
                         .cmp_lt, .cmp_lte, .cmp_eq, .cmp_gte, .cmp_gt, .cmp_neq => .{ .v_pd, .cmp },
                         .min => .{ .v_pd, .min },
@@ -11303,10 +11323,11 @@ fn genBinOp(
 
     switch (air_tag) {
         .add, .add_wrap, .sub, .sub_wrap, .mul, .mul_wrap, .div_float, .div_exact => {},
-        .div_trunc, .div_floor => try self.genRound(lhs_ty, dst_reg, .{ .register = dst_reg }, .{
+        .div_trunc, .div_floor, .div_ceil => try self.genRound(lhs_ty, dst_reg, .{ .register = dst_reg }, .{
             .mode = switch (air_tag) {
                 .div_trunc => .zero,
                 .div_floor => .down,
+                .div_ceil => .up,
                 else => unreachable,
             },
             .precision = .inexact,

@@ -1063,6 +1063,72 @@ pub const Mutable = struct {
 
     /// q = a / b (rem r)
     ///
+    /// a / b are ceiled (rounded towards +inf).
+    /// q may alias with a or b.
+    ///
+    /// Asserts there is enough memory to store q and r.
+    /// The upper bound for r limb count is `b.limbs.len`.
+    /// The upper bound for q limb count is given by `a.limbs`.
+    ///
+    /// `limbs_buffer` is used for temporary storage. The amount required is given by `calcDivLimbsBufferLen`.
+    pub fn divCeil(
+        q: *Mutable,
+        r: *Mutable,
+        a: Const,
+        b: Const,
+        limbs_buffer: []Limb,
+    ) void {
+        const sep = a.limbs.len + 2;
+        var x = a.toMutable(limbs_buffer[0..sep]);
+        var y = b.toMutable(limbs_buffer[sep..]);
+
+        // div performs truncating division (@divTrunc) which rounds towards negative
+        // infinity if the result is positive and towards positive infinity if the result is
+        // negative.
+        div(q, r, &x, &y);
+
+        // @rem gives the remainder after @divTrunc, and is defined by:
+        // x * @divTrunc(x, y) + @rem(x, y) = x
+        // For all integers x, y with y != 0.
+        // In the following comments, a, b will be integers with a >= 0, b > 0, and we will take
+        // modCeil to be the remainder after @divCeil, defined by:
+        // x * @divCeil(x, y) + modCeil(x, y) = x
+        // For all integers x, y with y != 0.
+
+        if (a.positive != b.positive or r.eqlZero()) {
+            // In this case either the result is negative or the remainder is 0.
+            // If the result is negative then the default truncating division already rounds
+            // towards positive infinity, so no adjustment is needed.
+            // If the remainder is 0 then the division is exact and no adjustment is needed.
+        } else if (a.positive) {
+            // Both positive.
+            // We have:
+            // modCeil(a, b) != 0
+            // => @divCeil(a, b) = @divTrunc(a, b) + 1
+            // And:
+            // b * @divTrunc(a, b) + @rem(a, b) = a
+            // b * @divCeil(a, b) + modCeil(a, b) = a
+            // => b * @divTrunc(a, b) + b + modCeil(a, b) = a
+            // => modCeil(a, b) = @rem(a, b) - b
+            q.addScalar(q.toConst(), 1);
+            r.sub(r.toConst(), y.toConst());
+        } else {
+            // Both negative.
+            // We have:
+            // modCeil(-a, -b) != 0
+            // => @divCeil(-a, -b) = @divTrunc(-a, -b) + 1
+            // And:
+            // -b * @divTrunc(-a, -b) + @rem(-a, -b) = -a
+            // -b * @divCeil(-a, -b) + modCeil(-a, -b) = -a
+            // => -b * @divTrunc(-a, -b) - b + modCeil(-a, -b) = -a
+            // => modCeil(-a, -b) = @rem(-a, -b) + b
+            q.addScalar(q.toConst(), 1);
+            r.add(r.toConst(), y.toConst().abs());
+        }
+    }
+
+    /// q = a / b (rem r)
+    ///
     /// a / b are truncated (rounded towards -inf).
     /// q may alias with a or b.
     ///

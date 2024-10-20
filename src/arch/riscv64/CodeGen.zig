@@ -1505,7 +1505,7 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
 
             .mul,
             .mul_wrap,
-            .div_trunc, 
+            .div_trunc,
             .div_exact,
             .rem,
 
@@ -1523,13 +1523,13 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
             .max,
             => try func.airBinOp(inst, tag),
 
-                        
             .ptr_add,
             .ptr_sub => try func.airPtrArithmetic(inst, tag),
 
             .mod,
-            .div_float, 
-            .div_floor, 
+            .div_float,
+            .div_floor,
+            .div_ceil,
             => return func.fail("TODO: {s}", .{@tagName(tag)}),
 
             .sqrt,
@@ -1716,6 +1716,7 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
             .div_trunc_optimized,
             .div_floor_optimized,
             .div_exact_optimized,
+            .div_ceil_optimized,
             .rem_optimized,
             .mod_optimized,
             .neg_optimized,

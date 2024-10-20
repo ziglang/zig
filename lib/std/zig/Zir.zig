@@ -169,6 +169,9 @@ pub const Inst = struct {
         /// Saturating multiplication.
         /// Uses the `pl_node` union field. Payload is `Bin`.
         mul_sat,
+        /// Implements the `@divCeil` builtin.
+        /// Uses the `pl_node` union field with payload `Bin`.
+        div_ceil,
         /// Implements the `@divExact` builtin.
         /// Uses the `pl_node` union field with payload `Bin`.
         div_exact,
@@ -1218,6 +1221,7 @@ pub const Inst = struct {
                 .pop_count,
                 .byte_swap,
                 .bit_reverse,
+                .div_ceil,
                 .div_exact,
                 .div_floor,
                 .div_trunc,
@@ -1514,6 +1518,7 @@ pub const Inst = struct {
                 .pop_count,
                 .byte_swap,
                 .bit_reverse,
+                .div_ceil,
                 .div_exact,
                 .div_floor,
                 .div_trunc,
@@ -1782,6 +1787,7 @@ pub const Inst = struct {
                 .byte_swap = .un_node,
                 .bit_reverse = .un_node,
 
+                .div_ceil = .pl_node,
                 .div_exact = .pl_node,
                 .div_floor = .pl_node,
                 .div_trunc = .pl_node,
@@ -3761,6 +3767,7 @@ fn findDeclsInner(
         .mul,
         .mulwrap,
         .mul_sat,
+        .div_ceil,
         .div_exact,
         .div_floor,
         .div_trunc,

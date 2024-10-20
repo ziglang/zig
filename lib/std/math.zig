@@ -897,21 +897,8 @@ fn testDivFloor() !void {
 pub fn divCeil(comptime T: type, numerator: T, denominator: T) !T {
     @setRuntimeSafety(false);
     if (denominator == 0) return error.DivisionByZero;
-    const info = @typeInfo(T);
-    switch (info) {
-        .comptime_float, .float => return @ceil(numerator / denominator),
-        .comptime_int, .int => {
-            if (numerator < 0 and denominator < 0) {
-                if (info == .int and numerator == minInt(T) and denominator == -1)
-                    return error.Overflow;
-                return @divFloor(numerator + 1, denominator) + 1;
-            }
-            if (numerator > 0 and denominator > 0)
-                return @divFloor(numerator - 1, denominator) + 1;
-            return @divTrunc(numerator, denominator);
-        },
-        else => @compileError("divCeil unsupported on " ++ @typeName(T)),
-    }
+    if (@typeInfo(T) == .int and @typeInfo(T).int.signedness == .signed and numerator == minInt(T) and denominator == -1) return error.Overflow;
+    return @divCeil(numerator, denominator);
 }
 
 test divCeil {

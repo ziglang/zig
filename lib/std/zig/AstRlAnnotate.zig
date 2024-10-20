@@ -962,6 +962,7 @@ fn builtinCall(astrl: *AstRlAnnotate, block: ?*Block, ri: ResultInfo, node: Ast.
             _ = try astrl.expr(args[0], block, ResultInfo.none);
             return false;
         },
+        .div_ceil,
         .div_exact,
         .div_floor,
         .div_trunc,
