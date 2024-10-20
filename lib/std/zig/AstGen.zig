@@ -5108,10 +5108,17 @@ fn structDeclInner(
     const bodies_start = astgen.scratch.items.len;
 
     const node_tags = tree.nodes.items(.tag);
-    const is_tuple = for (container_decl.ast.members) |member_node| {
+    var has_any_fields = false;
+    var first_field_name_token: ?Ast.TokenIndex = null;
+    for (container_decl.ast.members) |member_node| {
         const container_field = tree.fullContainerField(member_node) orelse continue;
-        if (container_field.ast.tuple_like) break true;
-    } else false;
+        has_any_fields = true;
+        if (!container_field.ast.tuple_like) {
+            first_field_name_token = container_field.ast.main_token;
+            break;
+        }
+    }
+    const is_tuple = has_any_fields and first_field_name_token == null;
 
     if (is_tuple) switch (layout) {
         .auto => {},
@@ -5169,14 +5176,17 @@ fn structDeclInner(
         astgen.src_hasher.update(tree.getNodeSource(member_node));
 
         if (!is_tuple) {
+            if (member.ast.tuple_like) {
+                return astgen.failTokNotes(member.ast.main_token, "struct field needs a name and a type", .{}, &.{
+                    try astgen.errNoteTok(first_field_name_token.?, "to make this a tuple type, remove all field names", .{}),
+                });
+            }
+
             const field_name = try astgen.identAsString(member.ast.main_token);
 
             member.convertToNonTupleLike(astgen.tree.nodes);
-            assert(!member.ast.tuple_like);
 
             wip_members.appendToField(@intFromEnum(field_name));
-        } else if (!member.ast.tuple_like) {
-            return astgen.failTok(member.ast.main_token, "tuple field has a name", .{});
         }
 
         const doc_comment_index = try astgen.docCommentAsString(member.firstToken());
