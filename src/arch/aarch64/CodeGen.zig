@@ -2124,8 +2124,7 @@ fn divCeil(
     _ = lhs_ty;
     _ = rhs_ty;
     _ = maybe_inst;
-    return self.fail("TODO: implement `@divCeil` for {}", .{ self.target.cpu.arch });
-
+    return self.fail("TODO: implement `@divCeil` for {}", .{self.target.cpu.arch});
 }
 
 fn rem(
