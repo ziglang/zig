@@ -154,9 +154,9 @@ const AvMetadata = struct {
         m.exports.deinit(allocator);
     }
 
-    fn getExport(m: AvMetadata, coff_file: *const Coff, name: []const u8) ?u32 {
+    fn getExport(m: AvMetadata, coff: *const Coff, name: []const u8) ?u32 {
         for (m.exports.items) |exp| {
-            if (mem.eql(u8, name, coff_file.getSymbolName(.{
+            if (mem.eql(u8, name, coff.getSymbolName(.{
                 .sym_index = exp,
                 .file = null,
             }))) return exp;
@@ -164,9 +164,9 @@ const AvMetadata = struct {
         return null;
     }
 
-    fn getExportPtr(m: *AvMetadata, coff_file: *Coff, name: []const u8) ?*u32 {
+    fn getExportPtr(m: *AvMetadata, coff: *Coff, name: []const u8) ?*u32 {
         for (m.exports.items) |*exp| {
-            if (mem.eql(u8, name, coff_file.getSymbolName(.{
+            if (mem.eql(u8, name, coff.getSymbolName(.{
                 .sym_index = exp.*,
                 .file = null,
             }))) return exp;
@@ -3234,7 +3234,7 @@ fn logImportTables(coff: *const Coff) void {
     for (coff.import_tables.keys(), 0..) |off, i| {
         const itable = coff.import_tables.values()[i];
         log.debug("{}", .{itable.fmtDebug(.{
-            .coff_file = coff,
+            .coff = coff,
             .index = i,
             .name_off = off,
         })});
@@ -3387,7 +3387,7 @@ pub const Relocation = struct {
                 const index = coff.import_tables.getIndex(sym.value) orelse return null;
                 const itab = coff.import_tables.values()[index];
                 return itab.getImportAddress(reloc.target, .{
-                    .coff_file = coff,
+                    .coff = coff,
                     .index = index,
                     .name_off = sym.value,
                 });
@@ -3583,6 +3583,132 @@ fn freeRelocations(coff: *Coff, atom_index: Atom.Index) void {
     if (removed_base_relocs) |*base_relocs| base_relocs.value.deinit(gpa);
 }
 
+/// Represents an import table in the .idata section where each contained pointer
+/// is to a symbol from the same DLL.
+///
+/// The layout of .idata section is as follows:
+///
+/// --- ADDR1 : IAT (all import tables concatenated together)
+///     ptr
+///     ptr
+///     0 sentinel
+///     ptr
+///     0 sentinel
+/// --- ADDR2: headers
+///     ImportDirectoryEntry header
+///     ImportDirectoryEntry header
+///     sentinel
+/// --- ADDR2: lookup tables
+///     Lookup table
+///     0 sentinel
+///     Lookup table
+///     0 sentinel
+/// --- ADDR3: name hint tables
+///     hint-symname
+///     hint-symname
+/// --- ADDR4: DLL names
+///     DLL#1 name
+///     DLL#2 name
+/// --- END
+const ImportTable = struct {
+    entries: std.ArrayListUnmanaged(SymbolWithLoc) = .empty,
+    free_list: std.ArrayListUnmanaged(u32) = .empty,
+    lookup: std.AutoHashMapUnmanaged(SymbolWithLoc, u32) = .empty,
+
+    fn deinit(itab: *ImportTable, allocator: Allocator) void {
+        itab.entries.deinit(allocator);
+        itab.free_list.deinit(allocator);
+        itab.lookup.deinit(allocator);
+    }
+
+    /// Size of the import table does not include the sentinel.
+    fn size(itab: ImportTable) u32 {
+        return @as(u32, @intCast(itab.entries.items.len)) * @sizeOf(u64);
+    }
+
+    fn addImport(itab: *ImportTable, allocator: Allocator, target: SymbolWithLoc) !ImportIndex {
+        try itab.entries.ensureUnusedCapacity(allocator, 1);
+        const index: u32 = blk: {
+            if (itab.free_list.popOrNull()) |index| {
+                log.debug("  (reusing import entry index {d})", .{index});
+                break :blk index;
+            } else {
+                log.debug("  (allocating import entry at index {d})", .{itab.entries.items.len});
+                const index = @as(u32, @intCast(itab.entries.items.len));
+                _ = itab.entries.addOneAssumeCapacity();
+                break :blk index;
+            }
+        };
+        itab.entries.items[index] = target;
+        try itab.lookup.putNoClobber(allocator, target, index);
+        return index;
+    }
+
+    const Context = struct {
+        coff: *const Coff,
+        /// Index of this ImportTable in a global list of all tables.
+        /// This is required in order to calculate the base vaddr of this ImportTable.
+        index: usize,
+        /// Offset into the string interning table of the DLL this ImportTable corresponds to.
+        name_off: u32,
+    };
+
+    fn getBaseAddress(ctx: Context) u32 {
+        const header = ctx.coff.sections.items(.header)[ctx.coff.idata_section_index.?];
+        var addr = header.virtual_address;
+        for (ctx.coff.import_tables.values(), 0..) |other_itab, i| {
+            if (ctx.index == i) break;
+            addr += @as(u32, @intCast(other_itab.entries.items.len * @sizeOf(u64))) + 8;
+        }
+        return addr;
+    }
+
+    fn getImportAddress(itab: *const ImportTable, target: SymbolWithLoc, ctx: Context) ?u32 {
+        const index = itab.lookup.get(target) orelse return null;
+        const base_vaddr = getBaseAddress(ctx);
+        return base_vaddr + index * @sizeOf(u64);
+    }
+
+    const FormatContext = struct {
+        itab: ImportTable,
+        ctx: Context,
+    };
+
+    fn format(itab: ImportTable, comptime unused_format_string: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        _ = itab;
+        _ = unused_format_string;
+        _ = options;
+        _ = writer;
+        @compileError("do not format ImportTable directly; use itab.fmtDebug()");
+    }
+
+    fn format2(
+        fmt_ctx: FormatContext,
+        comptime unused_format_string: []const u8,
+        options: fmt.FormatOptions,
+        writer: anytype,
+    ) @TypeOf(writer).Error!void {
+        _ = options;
+        comptime assert(unused_format_string.len == 0);
+        const lib_name = fmt_ctx.ctx.coff.temp_strtab.getAssumeExists(fmt_ctx.ctx.name_off);
+        const base_vaddr = getBaseAddress(fmt_ctx.ctx);
+        try writer.print("IAT({s}.dll) @{x}:", .{ lib_name, base_vaddr });
+        for (fmt_ctx.itab.entries.items, 0..) |entry, i| {
+            try writer.print("\n  {d}@{?x} => {s}", .{
+                i,
+                fmt_ctx.itab.getImportAddress(entry, fmt_ctx.ctx),
+                fmt_ctx.ctx.coff.getSymbolName(entry),
+            });
+        }
+    }
+
+    fn fmtDebug(itab: ImportTable, ctx: Context) fmt.Formatter(format2) {
+        return .{ .data = .{ .itab = itab, .ctx = ctx } };
+    }
+
+    const ImportIndex = u32;
+};
+
 const Coff = @This();
 
 const std = @import("std");
@@ -3610,7 +3736,6 @@ const trace = @import("../tracy.zig").trace;
 
 const Air = @import("../Air.zig");
 const Compilation = @import("../Compilation.zig");
-const ImportTable = @import("Coff/ImportTable.zig");
 const Liveness = @import("../Liveness.zig");
 const LlvmObject = @import("../codegen/llvm.zig").Object;
 const Zcu = @import("../Zcu.zig");
