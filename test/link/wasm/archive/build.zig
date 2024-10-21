@@ -15,17 +15,21 @@ pub fn build(b: *std.Build) void {
 fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.OptimizeMode) void {
     // The code in question will pull-in compiler-rt,
     // and therefore link with its archive file.
-    const lib = b.addExecutable(.{
-        .name = "main",
+    const mod = b.createModule(.{
         .root_source_file = b.path("main.zig"),
-        .optimize = optimize,
         .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
+        .optimize = optimize,
         .strip = false,
     });
+    mod.export_symbol_names = &.{"foo"};
+
+    const lib = b.addExecutable2(.{
+        .name = "main",
+        .root_module = mod,
+        .use_llvm = false,
+        .use_lld = false,
+    });
     lib.entry = .disabled;
-    lib.use_llvm = false;
-    lib.use_lld = false;
-    lib.root_module.export_symbol_names = &.{"foo"};
 
     const check = lib.checkObject();
     check.checkInHeaders();

@@ -17,21 +17,33 @@ pub fn build(b: *std.Build) void {
         return;
     }
 
-    const exe = b.addExecutable(.{
-        .name = "main",
-        .root_source_file = b.path("main.zig"),
-        .optimize = optimize,
+    const lib_mod = b.createModule(.{
+        .root_source_file = null,
         .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    lib_mod.addCSourceFile(.{
+        .file = b.path("shared_lib.c"),
+        .flags = &.{"-gdwarf"},
     });
 
-    const lib = b.addSharedLibrary(.{
+    const lib = b.addSharedLibrary2(.{
         .name = "shared_lib",
-        .optimize = optimize,
-        .target = target,
+        .root_module = lib_mod,
     });
-    lib.addCSourceFile(.{ .file = b.path("shared_lib.c"), .flags = &.{"-gdwarf"} });
-    lib.linkLibC();
-    exe.linkLibrary(lib);
+
+    const exe_mod = b.createModule(.{
+        .root_source_file = b.path("main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    exe_mod.linkLibrary(lib);
+
+    const exe = b.addExecutable2(.{
+        .name = "main",
+        .root_module = exe_mod,
+    });
 
     const run = b.addRunArtifact(exe);
     run.expectExitCode(0);

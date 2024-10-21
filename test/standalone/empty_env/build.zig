@@ -19,11 +19,13 @@ pub fn build(b: *std.Build) void {
         return;
     }
 
-    const main = b.addExecutable(.{
+    const main = b.addExecutable2(.{
         .name = "main",
-        .root_source_file = b.path("main.zig"),
-        .target = b.graph.host,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("main.zig"),
+            .target = b.graph.host,
+            .optimize = optimize,
+        }),
     });
 
     const run = b.addRunArtifact(main);

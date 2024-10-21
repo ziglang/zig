@@ -11,58 +11,82 @@ pub fn build(b: *std.Build) void {
     });
 
     {
-        const exe = b.addExecutable(.{
+        const mod = b.createModule(.{
+            .root_source_file = null,
+            .target = target,
+            .optimize = .Debug,
+            .link_libc = true,
+        });
+        mod.addCSourceFile(.{ .file = b.path("main.c") });
+
+        const exe = b.addExecutable2(.{
             .name = "main",
-            .target = target,
-            .optimize = .Debug,
-            .link_libc = true,
+            .root_module = mod,
         });
-        exe.addCSourceFile(.{ .file = b.path("main.c") });
 
         _ = exe.getEmittedBin();
+
         test_step.dependOn(&exe.step);
     }
 
     {
-        const exe = b.addExecutable(.{
+        const mod = b.createModule(.{
+            .root_source_file = null,
+            .target = target,
+            .optimize = .Debug,
+            .link_libc = true,
+        });
+        mod.addCSourceFile(.{ .file = b.path("wmain.c") });
+
+        const exe = b.addExecutable2(.{
             .name = "wmain",
-            .target = target,
-            .optimize = .Debug,
-            .link_libc = true,
+            .root_module = mod,
         });
         exe.mingw_unicode_entry_point = true;
-        exe.addCSourceFile(.{ .file = b.path("wmain.c") });
 
         _ = exe.getEmittedBin();
+
         test_step.dependOn(&exe.step);
     }
 
     {
-        const exe = b.addExecutable(.{
+        const mod = b.createModule(.{
+            .root_source_file = null,
+            .target = target,
+            .optimize = .Debug,
+            .link_libc = true,
+        });
+        mod.addCSourceFile(.{ .file = b.path("winmain.c") });
+
+        const exe = b.addExecutable2(.{
             .name = "winmain",
-            .target = target,
-            .optimize = .Debug,
-            .link_libc = true,
+            .root_module = mod,
         });
         // Note: `exe.subsystem = .Windows;` is not necessary
-        exe.addCSourceFile(.{ .file = b.path("winmain.c") });
 
         _ = exe.getEmittedBin();
+
         test_step.dependOn(&exe.step);
     }
 
     {
-        const exe = b.addExecutable(.{
-            .name = "wwinmain",
+        const mod = b.createModule(.{
+            .root_source_file = null,
             .target = target,
             .optimize = .Debug,
             .link_libc = true,
         });
-        exe.mingw_unicode_entry_point = true;
+        mod.addCSourceFile(.{ .file = b.path("wwinmain.c") });
+
+        const exe = b.addExecutable2(.{
+            .name = "wwinmain",
+            .root_module = mod,
+        });
         // Note: `exe.subsystem = .Windows;` is not necessary
-        exe.addCSourceFile(.{ .file = b.path("wwinmain.c") });
+        exe.mingw_unicode_entry_point = true;
 
         _ = exe.getEmittedBin();
+
         test_step.dependOn(&exe.step);
     }
 }
