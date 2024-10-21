@@ -592,7 +592,6 @@ set(ZIG_STAGE2_SOURCES
     src/link.zig
     src/link/C.zig
     src/link/Coff.zig
-    src/link/Coff/Atom.zig
     src/link/Coff/ImportTable.zig
     src/link/Coff/Object.zig
     src/link/Coff/Relocation.zig

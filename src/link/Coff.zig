@@ -1033,7 +1033,7 @@ fn freeAtom(coff: *Coff, atom_index: Atom.Index) void {
     const gpa = coff.base.comp.gpa;
 
     // Remove any relocs and base relocs associated with this Atom
-    Atom.freeRelocations(coff, atom_index);
+    coff.freeRelocations(atom_index);
 
     const atom = coff.getAtom(atom_index);
     const sym = atom.getSymbol(coff);
@@ -1114,7 +1114,7 @@ pub fn updateFunc(coff: *Coff, pt: Zcu.PerThread, func_index: InternPool.Index, 
     const func = zcu.funcInfo(func_index);
 
     const atom_index = try coff.getOrCreateAtomForNav(func.owner_nav);
-    Atom.freeRelocations(coff, atom_index);
+    coff.freeRelocations(atom_index);
 
     var code_buffer = std.ArrayList(u8).init(gpa);
     defer code_buffer.deinit();
@@ -1226,7 +1226,7 @@ pub fn updateNav(
 
     if (nav_init.typeOf(zcu).hasRuntimeBits(zcu)) {
         const atom_index = try coff.getOrCreateAtomForNav(nav_index);
-        Atom.freeRelocations(coff, atom_index);
+        coff.freeRelocations(atom_index);
         const atom = coff.getAtom(atom_index);
 
         var code_buffer = std.ArrayList(u8).init(gpa);
@@ -2361,7 +2361,7 @@ pub fn getNavVAddr(
         .file = null,
     }).?;
     const target = SymbolWithLoc{ .sym_index = sym_index, .file = null };
-    try Atom.addRelocation(coff, atom_index, .{
+    try coff.addRelocation(atom_index, .{
         .type = .direct,
         .target = target,
         .offset = @as(u32, @intCast(reloc_info.offset)),
@@ -2369,7 +2369,7 @@ pub fn getNavVAddr(
         .pcrel = false,
         .length = 3,
     });
-    try Atom.addBaseRelocation(coff, atom_index, @as(u32, @intCast(reloc_info.offset)));
+    try coff.addBaseRelocation(atom_index, @as(u32, @intCast(reloc_info.offset)));
 
     return 0;
 }
@@ -2442,7 +2442,7 @@ pub fn getUavVAddr(
         .file = null,
     }).?;
     const target = SymbolWithLoc{ .sym_index = sym_index, .file = null };
-    try Atom.addRelocation(coff, atom_index, .{
+    try coff.addRelocation(atom_index, .{
         .type = .direct,
         .target = target,
         .offset = @as(u32, @intCast(reloc_info.offset)),
@@ -2450,7 +2450,7 @@ pub fn getUavVAddr(
         .pcrel = false,
         .length = 3,
     });
-    try Atom.addBaseRelocation(coff, atom_index, @as(u32, @intCast(reloc_info.offset)));
+    try coff.addBaseRelocation(atom_index, @as(u32, @intCast(reloc_info.offset)));
 
     return 0;
 }
@@ -3241,6 +3241,127 @@ fn logImportTables(coff: *const Coff) void {
     }
 }
 
+pub const Atom = struct {
+    /// Each decl always gets a local symbol with the fully qualified name.
+    /// The vaddr and size are found here directly.
+    /// The file offset is found by computing the vaddr offset from the section vaddr
+    /// the symbol references, and adding that to the file offset of the section.
+    /// If this field is 0, it means the codegen size = 0 and there is no symbol or
+    /// offset table entry.
+    sym_index: u32,
+
+    /// null means symbol defined by Zig source.
+    file: ?u32,
+
+    /// Size of the atom
+    size: u32,
+
+    /// Points to the previous and next neighbors, based on the `text_offset`.
+    /// This can be used to find, for example, the capacity of this `Atom`.
+    prev_index: ?Index,
+    next_index: ?Index,
+
+    pub const Index = u32;
+
+    pub fn getSymbolIndex(atom: Atom) ?u32 {
+        if (atom.sym_index == 0) return null;
+        return atom.sym_index;
+    }
+
+    /// Returns symbol referencing this atom.
+    pub fn getSymbol(atom: Atom, coff: *const Coff) *const coff_util.Symbol {
+        const sym_index = atom.getSymbolIndex().?;
+        return coff.getSymbol(.{
+            .sym_index = sym_index,
+            .file = atom.file,
+        });
+    }
+
+    /// Returns pointer-to-symbol referencing this atom.
+    pub fn getSymbolPtr(atom: Atom, coff: *Coff) *coff_util.Symbol {
+        const sym_index = atom.getSymbolIndex().?;
+        return coff.getSymbolPtr(.{
+            .sym_index = sym_index,
+            .file = atom.file,
+        });
+    }
+
+    pub fn getSymbolWithLoc(atom: Atom) SymbolWithLoc {
+        const sym_index = atom.getSymbolIndex().?;
+        return .{ .sym_index = sym_index, .file = atom.file };
+    }
+
+    /// Returns the name of this atom.
+    pub fn getName(atom: Atom, coff: *const Coff) []const u8 {
+        const sym_index = atom.getSymbolIndex().?;
+        return coff.getSymbolName(.{
+            .sym_index = sym_index,
+            .file = atom.file,
+        });
+    }
+
+    /// Returns how much room there is to grow in virtual address space.
+    pub fn capacity(atom: Atom, coff: *const Coff) u32 {
+        const atom_sym = atom.getSymbol(coff);
+        if (atom.next_index) |next_index| {
+            const next = coff.getAtom(next_index);
+            const next_sym = next.getSymbol(coff);
+            return next_sym.value - atom_sym.value;
+        } else {
+            // We are the last atom.
+            // The capacity is limited only by virtual address space.
+            return std.math.maxInt(u32) - atom_sym.value;
+        }
+    }
+
+    pub fn freeListEligible(atom: Atom, coff: *const Coff) bool {
+        // No need to keep a free list node for the last atom.
+        const next_index = atom.next_index orelse return false;
+        const next = coff.getAtom(next_index);
+        const atom_sym = atom.getSymbol(coff);
+        const next_sym = next.getSymbol(coff);
+        const cap = next_sym.value - atom_sym.value;
+        const ideal_cap = padToIdeal(atom.size);
+        if (cap <= ideal_cap) return false;
+        const surplus = cap - ideal_cap;
+        return surplus >= min_text_capacity;
+    }
+};
+
+pub fn addRelocation(coff: *Coff, atom_index: Atom.Index, reloc: Relocation) !void {
+    const comp = coff.base.comp;
+    const gpa = comp.gpa;
+    log.debug("  (adding reloc of type {s} to target %{d})", .{ @tagName(reloc.type), reloc.target.sym_index });
+    const gop = try coff.relocs.getOrPut(gpa, atom_index);
+    if (!gop.found_existing) {
+        gop.value_ptr.* = .{};
+    }
+    try gop.value_ptr.append(gpa, reloc);
+}
+
+pub fn addBaseRelocation(coff: *Coff, atom_index: Atom.Index, offset: u32) !void {
+    const comp = coff.base.comp;
+    const gpa = comp.gpa;
+    log.debug("  (adding base relocation at offset 0x{x} in %{d})", .{
+        offset,
+        coff.getAtom(atom_index).getSymbolIndex().?,
+    });
+    const gop = try coff.base_relocs.getOrPut(gpa, atom_index);
+    if (!gop.found_existing) {
+        gop.value_ptr.* = .{};
+    }
+    try gop.value_ptr.append(gpa, offset);
+}
+
+pub fn freeRelocations(coff: *Coff, atom_index: Atom.Index) void {
+    const comp = coff.base.comp;
+    const gpa = comp.gpa;
+    var removed_relocs = coff.relocs.fetchOrderedRemove(atom_index);
+    if (removed_relocs) |*relocs| relocs.value.deinit(gpa);
+    var removed_base_relocs = coff.base_relocs.fetchOrderedRemove(atom_index);
+    if (removed_base_relocs) |*base_relocs| base_relocs.value.deinit(gpa);
+}
+
 const Coff = @This();
 
 const std = @import("std");
@@ -3266,7 +3387,6 @@ const target_util = @import("../target.zig");
 const trace = @import("../tracy.zig").trace;
 
 const Air = @import("../Air.zig");
-pub const Atom = @import("Coff/Atom.zig");
 const Compilation = @import("../Compilation.zig");
 const ImportTable = @import("Coff/ImportTable.zig");
 const Liveness = @import("../Liveness.zig");
