@@ -30386,7 +30386,7 @@ fn coerceExtra(
         try in_memory_result.report(sema, inst_src, msg);
 
         // Add notes about function return type
-        if (opts.is_ret and
+        if (opts.is_ret and sema.owner.unwrap() == .func and
             !zcu.test_functions.contains(zcu.funcInfo(sema.owner.unwrap().func).owner_nav))
         {
             const ret_ty_src: LazySrcLoc = .{
