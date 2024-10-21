@@ -11,6 +11,7 @@ const unicode = std.unicode;
 const meta = std.meta;
 const lossyCast = math.lossyCast;
 const expectFmt = std.testing.expectFmt;
+const json = std.json;
 
 pub const default_max_depth = 3;
 
@@ -587,6 +588,9 @@ pub fn formatType(
             }
         },
         .@"struct" => |info| {
+            if (actual_fmt.len > 0 and actual_fmt[0] == 'j') {
+                try json.stringify(value, .{}, writer);
+            }
             if (actual_fmt.len != 0) invalidFmtError(fmt, value);
             if (info.is_tuple) {
                 // Skip the type and field names when formatting tuples.
