@@ -29727,6 +29727,7 @@ fn coerceExtra(
     if (dest_ty.isGenericPoison()) return inst;
     const pt = sema.pt;
     const zcu = pt.zcu;
+    const ip = &zcu.intern_pool;
     const dest_ty_src = inst_src; // TODO better source location
     try dest_ty.resolveFields(pt);
     const inst_ty = sema.typeOf(inst);
@@ -30349,7 +30350,7 @@ fn coerceExtra(
             errdefer msg.destroy(sema.gpa);
 
             const ret_ty_src: LazySrcLoc = .{
-                .base_node_inst = sema.getOwnerFuncDeclInst(),
+                .base_node_inst = ip.getNav(zcu.funcInfo(sema.func_index).owner_nav).srcInst(ip),
                 .offset = .{ .node_offset_fn_type_ret_ty = 0 },
             };
             try sema.errNote(ret_ty_src, msg, "'noreturn' declared here", .{});
@@ -30390,7 +30391,7 @@ fn coerceExtra(
             !zcu.test_functions.contains(zcu.funcInfo(sema.func_index).owner_nav))
         {
             const ret_ty_src: LazySrcLoc = .{
-                .base_node_inst = sema.getOwnerFuncDeclInst(),
+                .base_node_inst = ip.getNav(zcu.funcInfo(sema.func_index).owner_nav).srcInst(ip),
                 .offset = .{ .node_offset_fn_type_ret_ty = 0 },
             };
             if (inst_ty.isError(zcu) and !dest_ty.isError(zcu)) {
@@ -38730,7 +38731,8 @@ fn getOwnerCauDeclInst(sema: *Sema) InternPool.TrackedInst.Index {
 fn getOwnerFuncDeclInst(sema: *Sema) InternPool.TrackedInst.Index {
     const zcu = sema.pt.zcu;
     const ip = &zcu.intern_pool;
-    const func_info = zcu.funcInfo(sema.func_index);
+    const func = sema.owner.unwrap().func;
+    const func_info = zcu.funcInfo(func);
     const cau = if (func_info.generic_owner == .none) cau: {
         break :cau ip.getNav(func_info.owner_nav).analysis_owner.unwrap().?;
     } else cau: {
