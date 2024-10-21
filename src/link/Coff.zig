@@ -26,8 +26,6 @@ repro: bool,
 ptr_width: PtrWidth,
 page_size: u32,
 
-objects: std.ArrayListUnmanaged(Object) = .empty,
-
 sections: std.MultiArrayList(Section) = .{},
 data_directories: [coff_util.IMAGE_NUMBEROF_DIRECTORY_ENTRIES]coff_util.ImageDataDirectory,
 
@@ -431,11 +429,6 @@ pub fn deinit(coff: *Coff) void {
     const gpa = coff.base.comp.gpa;
 
     if (coff.llvm_object) |llvm_object| llvm_object.deinit();
-
-    for (coff.objects.items) |*object| {
-        object.deinit(gpa);
-    }
-    coff.objects.deinit(gpa);
 
     for (coff.sections.items(.free_list)) |*free_list| {
         free_list.deinit(gpa);
@@ -3740,7 +3733,6 @@ const Liveness = @import("../Liveness.zig");
 const LlvmObject = @import("../codegen/llvm.zig").Object;
 const Zcu = @import("../Zcu.zig");
 const InternPool = @import("../InternPool.zig");
-const Object = @import("Coff/Object.zig");
 const TableSection = @import("table_section.zig").TableSection;
 const StringTable = @import("StringTable.zig");
 const Type = @import("../Type.zig");
