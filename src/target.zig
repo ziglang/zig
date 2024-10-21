@@ -291,10 +291,11 @@ pub fn libcFullLinkFlags(target: std.Target) []const []const u8 {
         // Solaris releases after 10 merged the threading libraries into libc.
         .solaris, .illumos => &.{ "-lm", "-lsocket", "-lnsl", "-lc" },
         .haiku => &.{ "-lm", "-lroot", "-lpthread", "-lc", "-lnetwork" },
-        else => if (target.isAndroid() or target.abi.isOpenHarmony())
-            &.{ "-lm", "-lc", "-ldl" }
-        else
-            &.{ "-lm", "-lpthread", "-lc", "-ldl", "-lrt", "-lutil" },
+        .linux => switch (target.abi) {
+            .android, .androideabi, .ohos, .ohoseabi => &.{ "-lm", "-lc", "-ldl" },
+            else => &.{ "-lm", "-lpthread", "-lc", "-ldl", "-lrt", "-lutil" },
+        },
+        else => &.{},
     };
     return result;
 }

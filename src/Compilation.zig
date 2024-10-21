@@ -1780,32 +1780,14 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                     const paths = try lci.resolveCrtPaths(arena, basenames, target);
 
                     const fields = @typeInfo(@TypeOf(paths)).@"struct".fields;
-                    try comp.link_task_queue.shared.ensureUnusedCapacity(gpa, fields.len);
+                    try comp.link_task_queue.shared.ensureUnusedCapacity(gpa, fields.len + 1);
                     inline for (fields) |field| {
                         if (@field(paths, field.name)) |path| {
                             comp.link_task_queue.shared.appendAssumeCapacity(.{ .load_object = path });
                         }
                     }
-
-                    const flags = target_util.libcFullLinkFlags(target);
-                    try comp.link_task_queue.shared.ensureUnusedCapacity(gpa, flags.len);
-                    for (flags) |flag| {
-                        assert(mem.startsWith(u8, flag, "-l"));
-                        const lib_name = flag["-l".len..];
-                        const suffix = switch (comp.config.link_mode) {
-                            .static => target.staticLibSuffix(),
-                            .dynamic => target.dynamicLibSuffix(),
-                        };
-                        const sep = std.fs.path.sep_str;
-                        const lib_path = try std.fmt.allocPrint(arena, "{s}" ++ sep ++ "lib{s}{s}", .{
-                            lci.crt_dir.?, lib_name, suffix,
-                        });
-                        const resolved_path = Path.initCwd(lib_path);
-                        comp.link_task_queue.shared.appendAssumeCapacity(switch (comp.config.link_mode) {
-                            .static => .{ .load_archive = resolved_path },
-                            .dynamic => .{ .load_dso = resolved_path },
-                        });
-                    }
+                    // Loads the libraries provided by `target_util.libcFullLinkFlags(target)`.
+                    comp.link_task_queue.shared.appendAssumeCapacity(.load_host_libc);
                 } else if (target.isMusl() and !target.isWasm()) {
                     if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
 

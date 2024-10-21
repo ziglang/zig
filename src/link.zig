@@ -25,6 +25,7 @@ const lldMain = @import("main.zig").lldMain;
 const Package = @import("Package.zig");
 const dev = @import("dev.zig");
 const ThreadSafeQueue = @import("ThreadSafeQueue.zig").ThreadSafeQueue;
+const target_util = @import("target.zig");
 
 pub const LdScript = @import("link/LdScript.zig");
 
@@ -1364,6 +1365,10 @@ pub const File = struct {
         /// Loads the objects, shared objects, and archives that are already
         /// known from the command line.
         load_explicitly_provided,
+        /// Loads the shared objects and archives by resolving
+        /// `target_util.libcFullLinkFlags()` against the host libc
+        /// installation.
+        load_host_libc,
         /// Tells the linker to load an object file by path.
         load_object: Path,
         /// Tells the linker to load a static library by path.
@@ -1390,6 +1395,45 @@ pub const File = struct {
                             .res => |res| comp.link_diags.addParseError(res.path, "failed to parse Windows resource: {s}", .{@errorName(e)}),
                             .dso_exact => comp.link_diags.addError("failed to handle dso_exact: {s}", .{@errorName(e)}),
                         },
+                    };
+                }
+            },
+            .load_host_libc => {
+                const target = comp.root_mod.resolved_target.result;
+                const flags = target_util.libcFullLinkFlags(target);
+                const crt_dir = comp.libc_installation.?.crt_dir.?;
+                const sep = std.fs.path.sep_str;
+                const diags = &comp.link_diags;
+                for (flags) |flag| {
+                    assert(mem.startsWith(u8, flag, "-l"));
+                    const lib_name = flag["-l".len..];
+                    switch (comp.config.link_mode) {
+                        .dynamic => d: {
+                            const path = Path.initCwd(
+                                std.fmt.allocPrint(comp.arena, "{s}" ++ sep ++ "{s}{s}{s}", .{
+                                    crt_dir, target.libPrefix(), lib_name, target.dynamicLibSuffix(),
+                                }) catch return diags.setAllocFailure(),
+                            );
+                            base.openLoadDso(path, .{
+                                .preferred_mode = .dynamic,
+                                .search_strategy = .paths_first,
+                            }) catch |err| switch (err) {
+                                error.FileNotFound => break :d, // also try static
+                                error.LinkFailure => return, // error reported via diags
+                                else => |e| diags.addParseError(path, "failed to parse shared library: {s}", .{@errorName(e)}),
+                            };
+                            continue;
+                        },
+                        .static => {},
+                    }
+                    const path = Path.initCwd(
+                        std.fmt.allocPrint(comp.arena, "{s}" ++ sep ++ "{s}{s}{s}", .{
+                            crt_dir, target.libPrefix(), lib_name, target.staticLibSuffix(),
+                        }) catch return diags.setAllocFailure(),
+                    );
+                    base.openLoadArchive(path) catch |err| switch (err) {
+                        error.LinkFailure => return, // error reported via diags
+                        else => |e| diags.addParseError(path, "failed to parse archive: {s}", .{@errorName(e)}),
                     };
                 }
             },
@@ -1873,7 +1917,7 @@ pub fn resolveInputs(
     }
 }
 
-const AccessLibPathResult = enum { ok, no_match };
+const ResolveLibInputResult = enum { ok, no_match };
 const fatal = std.process.fatal;
 
 fn resolveLibInput(
@@ -1892,7 +1936,7 @@ fn resolveLibInput(
     target: std.Target,
     link_mode: std.builtin.LinkMode,
     color: std.zig.Color,
-) Allocator.Error!AccessLibPathResult {
+) Allocator.Error!ResolveLibInputResult {
     try resolved_inputs.ensureUnusedCapacity(gpa, 1);
 
     const lib_name = name_query.name;
@@ -1909,7 +1953,7 @@ fn resolveLibInput(
             else => |e| fatal("unable to search for tbd library '{}': {s}", .{ test_path, @errorName(e) }),
         };
         errdefer file.close();
-        return finishAccessLibPath(resolved_inputs, test_path, file, link_mode, name_query.query);
+        return finishResolveLibInput(resolved_inputs, test_path, file, link_mode, name_query.query);
     }
 
     {
@@ -1947,7 +1991,7 @@ fn resolveLibInput(
             }),
         };
         errdefer file.close();
-        return finishAccessLibPath(resolved_inputs, test_path, file, link_mode, name_query.query);
+        return finishResolveLibInput(resolved_inputs, test_path, file, link_mode, name_query.query);
     }
 
     // In the case of MinGW, the main check will be .lib but we also need to
@@ -1963,19 +2007,19 @@ fn resolveLibInput(
             else => |e| fatal("unable to search for static library '{}': {s}", .{ test_path, @errorName(e) }),
         };
         errdefer file.close();
-        return finishAccessLibPath(resolved_inputs, test_path, file, link_mode, name_query.query);
+        return finishResolveLibInput(resolved_inputs, test_path, file, link_mode, name_query.query);
     }
 
     return .no_match;
 }
 
-fn finishAccessLibPath(
+fn finishResolveLibInput(
     resolved_inputs: *std.ArrayListUnmanaged(Input),
     path: Path,
     file: std.fs.File,
     link_mode: std.builtin.LinkMode,
     query: UnresolvedInput.Query,
-) AccessLibPathResult {
+) ResolveLibInputResult {
     switch (link_mode) {
         .static => resolved_inputs.appendAssumeCapacity(.{ .archive = .{
             .path = path,
@@ -2052,7 +2096,7 @@ fn resolvePathInputLib(
     pq: UnresolvedInput.PathQuery,
     link_mode: std.builtin.LinkMode,
     color: std.zig.Color,
-) Allocator.Error!AccessLibPathResult {
+) Allocator.Error!ResolveLibInputResult {
     try resolved_inputs.ensureUnusedCapacity(gpa, 1);
 
     const test_path: Path = pq.path;
@@ -2074,7 +2118,7 @@ fn resolvePathInputLib(
             if (n != ld_script_bytes.items.len) break :elf_file;
             if (!mem.eql(u8, ld_script_bytes.items[0..4], "\x7fELF")) break :elf_file;
             // Appears to be an ELF file.
-            return finishAccessLibPath(resolved_inputs, test_path, file, link_mode, pq.query);
+            return finishResolveLibInput(resolved_inputs, test_path, file, link_mode, pq.query);
         }
         const stat = file.stat() catch |err|
             fatal("failed to stat {}: {s}", .{ test_path, @errorName(err) });
@@ -2140,7 +2184,7 @@ fn resolvePathInputLib(
         }),
     };
     errdefer file.close();
-    return finishAccessLibPath(resolved_inputs, test_path, file, link_mode, pq.query);
+    return finishResolveLibInput(resolved_inputs, test_path, file, link_mode, pq.query);
 }
 
 pub fn openObject(path: Path, must_link: bool, hidden: bool) !Input.Object {
