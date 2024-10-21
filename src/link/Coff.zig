@@ -3261,7 +3261,7 @@ pub const Atom = struct {
     prev_index: ?Index,
     next_index: ?Index,
 
-    pub const Index = u32;
+    const Index = u32;
 
     pub fn getSymbolIndex(atom: Atom) ?u32 {
         if (atom.sym_index == 0) return null;
@@ -3269,7 +3269,7 @@ pub const Atom = struct {
     }
 
     /// Returns symbol referencing this atom.
-    pub fn getSymbol(atom: Atom, coff: *const Coff) *const coff_util.Symbol {
+    fn getSymbol(atom: Atom, coff: *const Coff) *const coff_util.Symbol {
         const sym_index = atom.getSymbolIndex().?;
         return coff.getSymbol(.{
             .sym_index = sym_index,
@@ -3278,7 +3278,7 @@ pub const Atom = struct {
     }
 
     /// Returns pointer-to-symbol referencing this atom.
-    pub fn getSymbolPtr(atom: Atom, coff: *Coff) *coff_util.Symbol {
+    fn getSymbolPtr(atom: Atom, coff: *Coff) *coff_util.Symbol {
         const sym_index = atom.getSymbolIndex().?;
         return coff.getSymbolPtr(.{
             .sym_index = sym_index,
@@ -3286,13 +3286,13 @@ pub const Atom = struct {
         });
     }
 
-    pub fn getSymbolWithLoc(atom: Atom) SymbolWithLoc {
+    fn getSymbolWithLoc(atom: Atom) SymbolWithLoc {
         const sym_index = atom.getSymbolIndex().?;
         return .{ .sym_index = sym_index, .file = atom.file };
     }
 
     /// Returns the name of this atom.
-    pub fn getName(atom: Atom, coff: *const Coff) []const u8 {
+    fn getName(atom: Atom, coff: *const Coff) []const u8 {
         const sym_index = atom.getSymbolIndex().?;
         return coff.getSymbolName(.{
             .sym_index = sym_index,
@@ -3301,7 +3301,7 @@ pub const Atom = struct {
     }
 
     /// Returns how much room there is to grow in virtual address space.
-    pub fn capacity(atom: Atom, coff: *const Coff) u32 {
+    fn capacity(atom: Atom, coff: *const Coff) u32 {
         const atom_sym = atom.getSymbol(coff);
         if (atom.next_index) |next_index| {
             const next = coff.getAtom(next_index);
@@ -3314,7 +3314,7 @@ pub const Atom = struct {
         }
     }
 
-    pub fn freeListEligible(atom: Atom, coff: *const Coff) bool {
+    fn freeListEligible(atom: Atom, coff: *const Coff) bool {
         // No need to keep a free list node for the last atom.
         const next_index = atom.next_index orelse return false;
         const next = coff.getAtom(next_index);
@@ -3325,6 +3325,227 @@ pub const Atom = struct {
         if (cap <= ideal_cap) return false;
         const surplus = cap - ideal_cap;
         return surplus >= min_text_capacity;
+    }
+};
+
+pub const Relocation = struct {
+    type: enum {
+        // x86, x86_64
+        /// RIP-relative displacement to a GOT pointer
+        got,
+        /// RIP-relative displacement to an import pointer
+        import,
+
+        // aarch64
+        /// PC-relative distance to target page in GOT section
+        got_page,
+        /// Offset to a GOT pointer relative to the start of a page in GOT section
+        got_pageoff,
+        /// PC-relative distance to target page in a section (e.g., .rdata)
+        page,
+        /// Offset to a pointer relative to the start of a page in a section (e.g., .rdata)
+        pageoff,
+        /// PC-relative distance to target page in a import section
+        import_page,
+        /// Offset to a pointer relative to the start of a page in an import section (e.g., .rdata)
+        import_pageoff,
+
+        // common
+        /// Absolute pointer value
+        direct,
+    },
+    target: SymbolWithLoc,
+    offset: u32,
+    addend: u32,
+    pcrel: bool,
+    length: u2,
+    dirty: bool = true,
+
+    /// Returns true if and only if the reloc can be resolved.
+    fn isResolvable(reloc: Relocation, coff: *Coff) bool {
+        _ = reloc.getTargetAddress(coff) orelse return false;
+        return true;
+    }
+
+    fn isGotIndirection(reloc: Relocation) bool {
+        return switch (reloc.type) {
+            .got, .got_page, .got_pageoff => true,
+            else => false,
+        };
+    }
+
+    /// Returns address of the target if any.
+    fn getTargetAddress(reloc: Relocation, coff: *const Coff) ?u32 {
+        switch (reloc.type) {
+            .got, .got_page, .got_pageoff => {
+                const got_index = coff.got_table.lookup.get(reloc.target) orelse return null;
+                const header = coff.sections.items(.header)[coff.got_section_index.?];
+                return header.virtual_address + got_index * coff.ptr_width.size();
+            },
+            .import, .import_page, .import_pageoff => {
+                const sym = coff.getSymbol(reloc.target);
+                const index = coff.import_tables.getIndex(sym.value) orelse return null;
+                const itab = coff.import_tables.values()[index];
+                return itab.getImportAddress(reloc.target, .{
+                    .coff_file = coff,
+                    .index = index,
+                    .name_off = sym.value,
+                });
+            },
+            else => {
+                const target_atom_index = coff.getAtomIndexForSymbol(reloc.target) orelse return null;
+                const target_atom = coff.getAtom(target_atom_index);
+                return target_atom.getSymbol(coff).value;
+            },
+        }
+    }
+
+    fn resolve(reloc: Relocation, atom_index: Atom.Index, code: []u8, image_base: u64, coff: *Coff) void {
+        const atom = coff.getAtom(atom_index);
+        const source_sym = atom.getSymbol(coff);
+        const source_vaddr = source_sym.value + reloc.offset;
+
+        const target_vaddr = reloc.getTargetAddress(coff).?; // Oops, you didn't check if the relocation can be resolved with isResolvable().
+        const target_vaddr_with_addend = target_vaddr + reloc.addend;
+
+        log.debug("  ({x}: [() => 0x{x} ({s})) ({s}) ", .{
+            source_vaddr,
+            target_vaddr_with_addend,
+            coff.getSymbolName(reloc.target),
+            @tagName(reloc.type),
+        });
+
+        const ctx: Context = .{
+            .source_vaddr = source_vaddr,
+            .target_vaddr = target_vaddr_with_addend,
+            .image_base = image_base,
+            .code = code,
+            .ptr_width = coff.ptr_width,
+        };
+
+        const target = coff.base.comp.root_mod.resolved_target.result;
+        switch (target.cpu.arch) {
+            .aarch64 => reloc.resolveAarch64(ctx),
+            .x86, .x86_64 => reloc.resolveX86(ctx),
+            else => unreachable, // unhandled target architecture
+        }
+    }
+
+    const Context = struct {
+        source_vaddr: u32,
+        target_vaddr: u32,
+        image_base: u64,
+        code: []u8,
+        ptr_width: PtrWidth,
+    };
+
+    fn resolveAarch64(reloc: Relocation, ctx: Context) void {
+        var buffer = ctx.code[reloc.offset..];
+        switch (reloc.type) {
+            .got_page, .import_page, .page => {
+                const source_page = @as(i32, @intCast(ctx.source_vaddr >> 12));
+                const target_page = @as(i32, @intCast(ctx.target_vaddr >> 12));
+                const pages = @as(u21, @bitCast(@as(i21, @intCast(target_page - source_page))));
+                var inst = aarch64_util.Instruction{
+                    .pc_relative_address = mem.bytesToValue(std.meta.TagPayload(
+                        aarch64_util.Instruction,
+                        aarch64_util.Instruction.pc_relative_address,
+                    ), buffer[0..4]),
+                };
+                inst.pc_relative_address.immhi = @as(u19, @truncate(pages >> 2));
+                inst.pc_relative_address.immlo = @as(u2, @truncate(pages));
+                mem.writeInt(u32, buffer[0..4], inst.toU32(), .little);
+            },
+            .got_pageoff, .import_pageoff, .pageoff => {
+                assert(!reloc.pcrel);
+
+                const narrowed = @as(u12, @truncate(@as(u64, @intCast(ctx.target_vaddr))));
+                if (isArithmeticOp(buffer[0..4])) {
+                    var inst = aarch64_util.Instruction{
+                        .add_subtract_immediate = mem.bytesToValue(std.meta.TagPayload(
+                            aarch64_util.Instruction,
+                            aarch64_util.Instruction.add_subtract_immediate,
+                        ), buffer[0..4]),
+                    };
+                    inst.add_subtract_immediate.imm12 = narrowed;
+                    mem.writeInt(u32, buffer[0..4], inst.toU32(), .little);
+                } else {
+                    var inst = aarch64_util.Instruction{
+                        .load_store_register = mem.bytesToValue(std.meta.TagPayload(
+                            aarch64_util.Instruction,
+                            aarch64_util.Instruction.load_store_register,
+                        ), buffer[0..4]),
+                    };
+                    const offset: u12 = blk: {
+                        if (inst.load_store_register.size == 0) {
+                            if (inst.load_store_register.v == 1) {
+                                // 128-bit SIMD is scaled by 16.
+                                break :blk @divExact(narrowed, 16);
+                            }
+                            // Otherwise, 8-bit SIMD or ldrb.
+                            break :blk narrowed;
+                        } else {
+                            const denom: u4 = math.powi(u4, 2, inst.load_store_register.size) catch unreachable;
+                            break :blk @divExact(narrowed, denom);
+                        }
+                    };
+                    inst.load_store_register.offset = offset;
+                    mem.writeInt(u32, buffer[0..4], inst.toU32(), .little);
+                }
+            },
+            .direct => {
+                assert(!reloc.pcrel);
+                switch (reloc.length) {
+                    2 => mem.writeInt(
+                        u32,
+                        buffer[0..4],
+                        @as(u32, @truncate(ctx.target_vaddr + ctx.image_base)),
+                        .little,
+                    ),
+                    3 => mem.writeInt(u64, buffer[0..8], ctx.target_vaddr + ctx.image_base, .little),
+                    else => unreachable,
+                }
+            },
+
+            .got => unreachable,
+            .import => unreachable,
+        }
+    }
+
+    fn resolveX86(reloc: Relocation, ctx: Context) void {
+        var buffer = ctx.code[reloc.offset..];
+        switch (reloc.type) {
+            .got_page => unreachable,
+            .got_pageoff => unreachable,
+            .page => unreachable,
+            .pageoff => unreachable,
+            .import_page => unreachable,
+            .import_pageoff => unreachable,
+
+            .got, .import => {
+                assert(reloc.pcrel);
+                const disp = @as(i32, @intCast(ctx.target_vaddr)) - @as(i32, @intCast(ctx.source_vaddr)) - 4;
+                mem.writeInt(i32, buffer[0..4], disp, .little);
+            },
+            .direct => {
+                if (reloc.pcrel) {
+                    const disp = @as(i32, @intCast(ctx.target_vaddr)) - @as(i32, @intCast(ctx.source_vaddr)) - 4;
+                    mem.writeInt(i32, buffer[0..4], disp, .little);
+                } else switch (ctx.ptr_width) {
+                    .p32 => mem.writeInt(u32, buffer[0..4], @as(u32, @intCast(ctx.target_vaddr + ctx.image_base)), .little),
+                    .p64 => switch (reloc.length) {
+                        2 => mem.writeInt(u32, buffer[0..4], @as(u32, @truncate(ctx.target_vaddr + ctx.image_base)), .little),
+                        3 => mem.writeInt(u64, buffer[0..8], ctx.target_vaddr + ctx.image_base, .little),
+                        else => unreachable,
+                    },
+                }
+            },
+        }
+    }
+
+    fn isArithmeticOp(inst: *const [4]u8) bool {
+        const group_decode = @as(u5, @truncate(inst[3]));
+        return ((group_decode >> 2) == 4);
     }
 };
 
@@ -3339,7 +3560,7 @@ pub fn addRelocation(coff: *Coff, atom_index: Atom.Index, reloc: Relocation) !vo
     try gop.value_ptr.append(gpa, reloc);
 }
 
-pub fn addBaseRelocation(coff: *Coff, atom_index: Atom.Index, offset: u32) !void {
+fn addBaseRelocation(coff: *Coff, atom_index: Atom.Index, offset: u32) !void {
     const comp = coff.base.comp;
     const gpa = comp.gpa;
     log.debug("  (adding base relocation at offset 0x{x} in %{d})", .{
@@ -3353,7 +3574,7 @@ pub fn addBaseRelocation(coff: *Coff, atom_index: Atom.Index, offset: u32) !void
     try gop.value_ptr.append(gpa, offset);
 }
 
-pub fn freeRelocations(coff: *Coff, atom_index: Atom.Index) void {
+fn freeRelocations(coff: *Coff, atom_index: Atom.Index) void {
     const comp = coff.base.comp;
     const gpa = comp.gpa;
     var removed_relocs = coff.relocs.fetchOrderedRemove(atom_index);
@@ -3380,6 +3601,7 @@ const Path = std.Build.Cache.Path;
 const Directory = std.Build.Cache.Directory;
 const Cache = std.Build.Cache;
 
+const aarch64_util = @import("../arch/aarch64/bits.zig");
 const allocPrint = std.fmt.allocPrint;
 const codegen = @import("../codegen.zig");
 const link = @import("../link.zig");
@@ -3394,7 +3616,6 @@ const LlvmObject = @import("../codegen/llvm.zig").Object;
 const Zcu = @import("../Zcu.zig");
 const InternPool = @import("../InternPool.zig");
 const Object = @import("Coff/Object.zig");
-const Relocation = @import("Coff/Relocation.zig");
 const TableSection = @import("table_section.zig").TableSection;
 const StringTable = @import("StringTable.zig");
 const Type = @import("../Type.zig");
