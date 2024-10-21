@@ -318,6 +318,66 @@ pub const max_page_size: usize = std.options.max_page_size orelse (default_max_p
 else
     @compileError(@tagName(builtin.cpu.arch) ++ "-" ++ @tagName(builtin.os.tag) ++ " has no max_page_size. One can be provided with std.options.max_page_size"));
 
+/// Returns the system page size.
+/// If the page size is comptime-known, `pageSize()` returns it directly.
+/// Otherwise, `pageSize()` defers to `std.options.queryPageSizeFn()`.
+pub fn pageSize() usize {
+    if (min_page_size == max_page_size) {
+        return min_page_size;
+    }
+    return std.options.queryPageSizeFn();
+}
+
+// A cache used by `defaultQueryPageSize()` to avoid repeating syscalls.
+var page_size_cache = std.atomic.Value(usize).init(0);
+
+// The default implementation in `std.options.queryPageSizeFn`.
+// The first time it is called, it asserts that the page size is within the comptime bounds.
+pub fn defaultQueryPageSize() usize {
+    var size = page_size_cache.load(.unordered);
+    if (size > 0) return size;
+    size = switch (builtin.os.tag) {
+        .linux => if (builtin.link_libc) @intCast(std.c.sysconf(@intFromEnum(std.c._SC.PAGESIZE))) else std.os.linux.getauxval(std.elf.AT_PAGESZ),
+        .bridgeos, .driverkit, .ios, .macos, .tvos, .visionos, .watchos => blk: {
+            const task_port = std.c.mach_task_self();
+            // mach_task_self may fail "if there are any resource failures or other errors".
+            if (task_port == std.c.TASK_NULL)
+                break :blk 0;
+            var info_count = std.c.TASK_VM_INFO_COUNT;
+            var vm_info: std.c.task_vm_info_data_t = undefined;
+            vm_info.page_size = 0;
+            _ = std.c.task_info(
+                task_port,
+                std.c.TASK_VM_INFO,
+                @as(std.c.task_info_t, @ptrCast(&vm_info)),
+                &info_count,
+            );
+            assert(vm_info.page_size != 0);
+            break :blk @as(usize, @intCast(vm_info.page_size));
+        },
+        .windows => blk: {
+            var info: std.os.windows.SYSTEM_INFO = undefined;
+            std.os.windows.kernel32.GetSystemInfo(&info);
+            break :blk info.dwPageSize;
+        },
+        else => if (builtin.link_libc)
+            if (std.c._SC != void and @hasDecl(std.c._SC, "PAGESIZE"))
+                @intCast(std.c.sysconf(@intFromEnum(std.c._SC.PAGESIZE)))
+            else
+                @compileError("missing _SC.PAGESIZE declaration for " ++ @tagName(builtin.os.tag) ++ "-" ++ @tagName(builtin.os.tag))
+        else if (builtin.os.tag == .freestanding or builtin.os.tag == .other)
+            @compileError("pageSize on freestanding/other is not supported with the default std.options.queryPageSizeFn")
+        else
+            @compileError("pageSize on " ++ @tagName(builtin.cpu.arch) ++ "-" ++ @tagName(builtin.os.tag) ++ " is not supported without linking libc, using the default implementation"),
+    };
+
+    assert(size >= min_page_size);
+    assert(size <= max_page_size);
+    page_size_cache.store(size, .unordered);
+
+    return size;
+}
+
 pub const LoggingAllocator = @import("heap/logging_allocator.zig").LoggingAllocator;
 pub const loggingAllocator = @import("heap/logging_allocator.zig").loggingAllocator;
 pub const ScopedLoggingAllocator = @import("heap/logging_allocator.zig").ScopedLoggingAllocator;
@@ -1191,6 +1251,20 @@ pub fn testAllocatorAlignedShrink(base_allocator: mem.Allocator) !void {
     slice = try allocator.reallocAdvanced(slice, alloc_size / 2, 0);
     try testing.expect(slice[0] == 0x12);
     try testing.expect(slice[60] == 0x34);
+}
+
+test "pageSize() smoke test" {
+    const size = std.heap.pageSize();
+    // Check that pageSize is a power of 2.
+    std.debug.assert(size & (size - 1) == 0);
+}
+
+test "defaultQueryPageSize() smoke test" {
+    // queryPageSize() does not always get called by pageSize()
+    if (builtin.cpu.arch.isWasm()) return error.SkipZigTest;
+    const size = defaultQueryPageSize();
+    // Check that pageSize is a power of 2.
+    std.debug.assert(size & (size - 1) == 0);
 }
 
 test {
