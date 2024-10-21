@@ -30386,8 +30386,8 @@ fn coerceExtra(
         try in_memory_result.report(sema, inst_src, msg);
 
         // Add notes about function return type
-        if (opts.is_ret and sema.owner.unwrap() == .func and
-            !zcu.test_functions.contains(zcu.funcInfo(sema.owner.unwrap().func).owner_nav))
+        if (opts.is_ret and
+            !zcu.test_functions.contains(zcu.funcInfo(sema.func_index).owner_nav))
         {
             const ret_ty_src: LazySrcLoc = .{
                 .base_node_inst = sema.getOwnerFuncDeclInst(),
@@ -38730,8 +38730,7 @@ fn getOwnerCauDeclInst(sema: *Sema) InternPool.TrackedInst.Index {
 fn getOwnerFuncDeclInst(sema: *Sema) InternPool.TrackedInst.Index {
     const zcu = sema.pt.zcu;
     const ip = &zcu.intern_pool;
-    const func = sema.owner.unwrap().func;
-    const func_info = zcu.funcInfo(func);
+    const func_info = zcu.funcInfo(sema.func_index);
     const cau = if (func_info.generic_owner == .none) cau: {
         break :cau ip.getNav(func_info.owner_nav).analysis_owner.unwrap().?;
     } else cau: {
