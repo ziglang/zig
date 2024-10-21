@@ -29,7 +29,7 @@ page_size: u32,
 objects: std.ArrayListUnmanaged(Object) = .empty,
 
 sections: std.MultiArrayList(Section) = .{},
-data_directories: [coff.IMAGE_NUMBEROF_DIRECTORY_ENTRIES]coff.ImageDataDirectory,
+data_directories: [coff_util.IMAGE_NUMBEROF_DIRECTORY_ENTRIES]coff_util.ImageDataDirectory,
 
 text_section_index: ?u16 = null,
 got_section_index: ?u16 = null,
@@ -38,7 +38,7 @@ data_section_index: ?u16 = null,
 reloc_section_index: ?u16 = null,
 idata_section_index: ?u16 = null,
 
-locals: std.ArrayListUnmanaged(coff.Symbol) = .empty,
+locals: std.ArrayListUnmanaged(coff_util.Symbol) = .empty,
 globals: std.ArrayListUnmanaged(SymbolWithLoc) = .empty,
 resolver: std.StringHashMapUnmanaged(u32) = .empty,
 unresolved: std.AutoArrayHashMapUnmanaged(u32, bool) = .empty,
@@ -112,7 +112,7 @@ const default_size_of_heap_reserve: u32 = 0x100000;
 const default_size_of_heap_commit: u32 = 0x1000;
 
 const Section = struct {
-    header: coff.SectionHeader,
+    header: coff_util.SectionHeader,
 
     last_atom_index: ?Atom.Index = null,
 
@@ -267,10 +267,10 @@ pub fn createEmpty(
         .ptr_width = ptr_width,
         .page_size = page_size,
 
-        .data_directories = [1]coff.ImageDataDirectory{.{
+        .data_directories = [1]coff_util.ImageDataDirectory{.{
             .virtual_address = 0,
             .size = 0,
-        }} ** coff.IMAGE_NUMBEROF_DIRECTORY_ENTRIES,
+        }} ** coff_util.IMAGE_NUMBEROF_DIRECTORY_ENTRIES,
 
         .image_base = options.image_base orelse switch (output_mode) {
             .Exe => switch (target.cpu.arch) {
@@ -385,7 +385,7 @@ pub fn createEmpty(
     }
 
     if (self.reloc_section_index == null) {
-        const file_size = @as(u32, @intCast(options.symbol_count_hint)) * @sizeOf(coff.BaseRelocation);
+        const file_size = @as(u32, @intCast(options.symbol_count_hint)) * @sizeOf(coff_util.BaseRelocation);
         self.reloc_section_index = try self.allocateSection(".reloc", file_size, .{
             .CNT_INITIALIZED_DATA = 1,
             .MEM_DISCARDABLE = 1,
@@ -494,7 +494,7 @@ pub fn deinit(self: *Coff) void {
     self.base_relocs.deinit(gpa);
 }
 
-fn allocateSection(self: *Coff, name: []const u8, size: u32, flags: coff.SectionHeaderFlags) !u16 {
+fn allocateSection(self: *Coff, name: []const u8, size: u32, flags: coff_util.SectionHeaderFlags) !u16 {
     const index = @as(u16, @intCast(self.sections.slice().len));
     const off = self.findFreeSpace(size, default_file_alignment);
     // Memory is always allocated in sequence
@@ -513,7 +513,7 @@ fn allocateSection(self: *Coff, name: []const u8, size: u32, flags: coff.Section
         vaddr,
         vaddr + size,
     });
-    var header = coff.SectionHeader{
+    var header = coff_util.SectionHeader{
         .name = undefined,
         .virtual_size = memsz,
         .virtual_address = vaddr,
@@ -1164,7 +1164,7 @@ fn lowerConst(
     const atom_index = try self.createAtom();
     const sym = self.getAtom(atom_index).getSymbolPtr(self);
     try self.setSymbolName(sym, name);
-    sym.section_number = @as(coff.SectionNumber, @enumFromInt(sect_id + 1));
+    sym.section_number = @as(coff_util.SectionNumber, @enumFromInt(sect_id + 1));
 
     const res = try codegen.generateSymbol(&self.base, pt, src_loc, val, &code_buffer, .{
         .atom_index = self.getAtom(atom_index).getSymbolIndex().?,
@@ -1387,7 +1387,7 @@ fn updateNavCode(
     pt: Zcu.PerThread,
     nav_index: InternPool.Nav.Index,
     code: []u8,
-    complex_type: coff.ComplexType,
+    complex_type: coff_util.ComplexType,
 ) !void {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
@@ -1409,7 +1409,7 @@ fn updateNavCode(
     if (atom.size != 0) {
         const sym = atom.getSymbolPtr(self);
         try self.setSymbolName(sym, nav.fqn.toSlice(ip));
-        sym.section_number = @as(coff.SectionNumber, @enumFromInt(sect_index + 1));
+        sym.section_number = @as(coff_util.SectionNumber, @enumFromInt(sect_index + 1));
         sym.type = .{ .complex_type = complex_type, .base_type = .NULL };
 
         const capacity = atom.capacity(self);
@@ -1433,7 +1433,7 @@ fn updateNavCode(
     } else {
         const sym = atom.getSymbolPtr(self);
         try self.setSymbolName(sym, nav.fqn.toSlice(ip));
-        sym.section_number = @as(coff.SectionNumber, @enumFromInt(sect_index + 1));
+        sym.section_number = @as(coff_util.SectionNumber, @enumFromInt(sect_index + 1));
         sym.type = .{ .complex_type = complex_type, .base_type = .NULL };
 
         const vaddr = try self.allocateAtom(atom_index, code_len, @intCast(required_alignment.toByteUnits() orelse 0));
@@ -1587,7 +1587,7 @@ pub fn updateExports(
         const sym = self.getSymbolPtr(sym_loc);
         try self.setSymbolName(sym, exp_name);
         sym.value = atom.getSymbol(self).value;
-        sym.section_number = @as(coff.SectionNumber, @enumFromInt(metadata.section + 1));
+        sym.section_number = @as(coff_util.SectionNumber, @enumFromInt(metadata.section + 1));
         sym.type = atom.getSymbol(self).type;
 
         switch (exp.opts.linkage) {
@@ -2496,7 +2496,7 @@ pub fn updateDeclLineNumber(self: *Coff, pt: Zcu.PerThread, decl_index: InternPo
 fn writeBaseRelocations(self: *Coff) !void {
     const gpa = self.base.comp.gpa;
 
-    var page_table = std.AutoHashMap(u32, std.ArrayList(coff.BaseRelocation)).init(gpa);
+    var page_table = std.AutoHashMap(u32, std.ArrayList(coff_util.BaseRelocation)).init(gpa);
     defer {
         var it = page_table.valueIterator();
         while (it.next()) |inner| {
@@ -2518,7 +2518,7 @@ fn writeBaseRelocations(self: *Coff) !void {
                 const page = mem.alignBackward(u32, rva, self.page_size);
                 const gop = try page_table.getOrPut(page);
                 if (!gop.found_existing) {
-                    gop.value_ptr.* = std.ArrayList(coff.BaseRelocation).init(gpa);
+                    gop.value_ptr.* = std.ArrayList(coff_util.BaseRelocation).init(gpa);
                 }
                 try gop.value_ptr.append(.{
                     .offset = @as(u12, @intCast(rva - page)),
@@ -2539,7 +2539,7 @@ fn writeBaseRelocations(self: *Coff) !void {
                 const page = mem.alignBackward(u32, rva, self.page_size);
                 const gop = try page_table.getOrPut(page);
                 if (!gop.found_existing) {
-                    gop.value_ptr.* = std.ArrayList(coff.BaseRelocation).init(gpa);
+                    gop.value_ptr.* = std.ArrayList(coff_util.BaseRelocation).init(gpa);
                 }
                 try gop.value_ptr.append(.{
                     .offset = @as(u12, @intCast(rva - page)),
@@ -2568,7 +2568,7 @@ fn writeBaseRelocations(self: *Coff) !void {
         // Pad to required 4byte alignment
         if (!mem.isAlignedGeneric(
             usize,
-            entries.items.len * @sizeOf(coff.BaseRelocation),
+            entries.items.len * @sizeOf(coff_util.BaseRelocation),
             @sizeOf(u32),
         )) {
             try entries.append(.{
@@ -2579,10 +2579,10 @@ fn writeBaseRelocations(self: *Coff) !void {
 
         const block_size = @as(
             u32,
-            @intCast(entries.items.len * @sizeOf(coff.BaseRelocation) + @sizeOf(coff.BaseRelocationDirectoryEntry)),
+            @intCast(entries.items.len * @sizeOf(coff_util.BaseRelocation) + @sizeOf(coff_util.BaseRelocationDirectoryEntry)),
         );
         try buffer.ensureUnusedCapacity(block_size);
-        buffer.appendSliceAssumeCapacity(mem.asBytes(&coff.BaseRelocationDirectoryEntry{
+        buffer.appendSliceAssumeCapacity(mem.asBytes(&coff_util.BaseRelocationDirectoryEntry{
             .page_rva = page,
             .block_size = block_size,
         }));
@@ -2595,7 +2595,7 @@ fn writeBaseRelocations(self: *Coff) !void {
 
     try self.base.file.?.pwriteAll(buffer.items, header.pointer_to_raw_data);
 
-    self.data_directories[@intFromEnum(coff.DirectoryEntry.BASERELOC)] = .{
+    self.data_directories[@intFromEnum(coff_util.DirectoryEntry.BASERELOC)] = .{
         .virtual_address = header.virtual_address,
         .size = needed_size,
     };
@@ -2612,7 +2612,7 @@ fn writeImportTables(self: *Coff) !void {
 
     // Calculate needed size
     var iat_size: u32 = 0;
-    var dir_table_size: u32 = @sizeOf(coff.ImportDirectoryEntry); // sentinel
+    var dir_table_size: u32 = @sizeOf(coff_util.ImportDirectoryEntry); // sentinel
     var lookup_table_size: u32 = 0;
     var names_table_size: u32 = 0;
     var dll_names_size: u32 = 0;
@@ -2620,8 +2620,8 @@ fn writeImportTables(self: *Coff) !void {
         const lib_name = self.temp_strtab.getAssumeExists(off);
         const itable = self.import_tables.values()[i];
         iat_size += itable.size() + 8;
-        dir_table_size += @sizeOf(coff.ImportDirectoryEntry);
-        lookup_table_size += @as(u32, @intCast(itable.entries.items.len + 1)) * @sizeOf(coff.ImportLookupEntry64.ByName);
+        dir_table_size += @sizeOf(coff_util.ImportDirectoryEntry);
+        lookup_table_size += @as(u32, @intCast(itable.entries.items.len + 1)) * @sizeOf(coff_util.ImportLookupEntry64.ByName);
         for (itable.entries.items) |entry| {
             const sym_name = self.getSymbolName(entry);
             names_table_size += 2 + mem.alignForward(u32, @as(u32, @intCast(sym_name.len + 1)), 2);
@@ -2638,8 +2638,8 @@ fn writeImportTables(self: *Coff) !void {
     try buffer.ensureTotalCapacityPrecise(needed_size);
     buffer.resize(needed_size) catch unreachable;
 
-    const dir_header_size = @sizeOf(coff.ImportDirectoryEntry);
-    const lookup_entry_size = @sizeOf(coff.ImportLookupEntry64.ByName);
+    const dir_header_size = @sizeOf(coff_util.ImportDirectoryEntry);
+    const lookup_entry_size = @sizeOf(coff_util.ImportLookupEntry64.ByName);
 
     var iat_offset: u32 = 0;
     var dir_table_offset = iat_size;
@@ -2651,28 +2651,28 @@ fn writeImportTables(self: *Coff) !void {
         const itable = self.import_tables.values()[i];
 
         // Lookup table header
-        const lookup_header = coff.ImportDirectoryEntry{
+        const lookup_header = coff_util.ImportDirectoryEntry{
             .import_lookup_table_rva = header.virtual_address + lookup_table_offset,
             .time_date_stamp = 0,
             .forwarder_chain = 0,
             .name_rva = header.virtual_address + dll_names_offset,
             .import_address_table_rva = header.virtual_address + iat_offset,
         };
-        @memcpy(buffer.items[dir_table_offset..][0..@sizeOf(coff.ImportDirectoryEntry)], mem.asBytes(&lookup_header));
+        @memcpy(buffer.items[dir_table_offset..][0..@sizeOf(coff_util.ImportDirectoryEntry)], mem.asBytes(&lookup_header));
         dir_table_offset += dir_header_size;
 
         for (itable.entries.items) |entry| {
             const import_name = self.getSymbolName(entry);
 
             // IAT and lookup table entry
-            const lookup = coff.ImportLookupEntry64.ByName{ .name_table_rva = @as(u31, @intCast(header.virtual_address + names_table_offset)) };
+            const lookup = coff_util.ImportLookupEntry64.ByName{ .name_table_rva = @as(u31, @intCast(header.virtual_address + names_table_offset)) };
             @memcpy(
-                buffer.items[iat_offset..][0..@sizeOf(coff.ImportLookupEntry64.ByName)],
+                buffer.items[iat_offset..][0..@sizeOf(coff_util.ImportLookupEntry64.ByName)],
                 mem.asBytes(&lookup),
             );
             iat_offset += lookup_entry_size;
             @memcpy(
-                buffer.items[lookup_table_offset..][0..@sizeOf(coff.ImportLookupEntry64.ByName)],
+                buffer.items[lookup_table_offset..][0..@sizeOf(coff_util.ImportLookupEntry64.ByName)],
                 mem.asBytes(&lookup),
             );
             lookup_table_offset += lookup_entry_size;
@@ -2696,8 +2696,8 @@ fn writeImportTables(self: *Coff) !void {
 
         // Lookup table sentinel
         @memcpy(
-            buffer.items[lookup_table_offset..][0..@sizeOf(coff.ImportLookupEntry64.ByName)],
-            mem.asBytes(&coff.ImportLookupEntry64.ByName{ .name_table_rva = 0 }),
+            buffer.items[lookup_table_offset..][0..@sizeOf(coff_util.ImportLookupEntry64.ByName)],
+            mem.asBytes(&coff_util.ImportLookupEntry64.ByName{ .name_table_rva = 0 }),
         );
         lookup_table_offset += lookup_entry_size;
 
@@ -2711,7 +2711,7 @@ fn writeImportTables(self: *Coff) !void {
     }
 
     // Sentinel
-    const lookup_header = coff.ImportDirectoryEntry{
+    const lookup_header = coff_util.ImportDirectoryEntry{
         .import_lookup_table_rva = 0,
         .time_date_stamp = 0,
         .forwarder_chain = 0,
@@ -2719,7 +2719,7 @@ fn writeImportTables(self: *Coff) !void {
         .import_address_table_rva = 0,
     };
     @memcpy(
-        buffer.items[dir_table_offset..][0..@sizeOf(coff.ImportDirectoryEntry)],
+        buffer.items[dir_table_offset..][0..@sizeOf(coff_util.ImportDirectoryEntry)],
         mem.asBytes(&lookup_header),
     );
     dir_table_offset += dir_header_size;
@@ -2728,11 +2728,11 @@ fn writeImportTables(self: *Coff) !void {
 
     try self.base.file.?.pwriteAll(buffer.items, header.pointer_to_raw_data);
 
-    self.data_directories[@intFromEnum(coff.DirectoryEntry.IMPORT)] = .{
+    self.data_directories[@intFromEnum(coff_util.DirectoryEntry.IMPORT)] = .{
         .virtual_address = header.virtual_address + iat_size,
         .size = dir_table_size,
     };
-    self.data_directories[@intFromEnum(coff.DirectoryEntry.IAT)] = .{
+    self.data_directories[@intFromEnum(coff_util.DirectoryEntry.IAT)] = .{
         .virtual_address = header.virtual_address,
         .size = iat_size,
     };
@@ -2787,7 +2787,7 @@ fn writeHeader(self: *Coff) !void {
     mem.writeInt(u32, buffer.items[0x3c..][0..4], msdos_stub.len, .little);
 
     writer.writeAll("PE\x00\x00") catch unreachable;
-    var flags = coff.CoffHeaderFlags{
+    var flags = coff_util.CoffHeaderFlags{
         .EXECUTABLE_IMAGE = 1,
         .DEBUG_STRIPPED = 1, // TODO
     };
@@ -2801,7 +2801,7 @@ fn writeHeader(self: *Coff) !void {
 
     const timestamp = if (self.repro) 0 else std.time.timestamp();
     const size_of_optional_header = @as(u16, @intCast(self.getOptionalHeaderSize() + self.getDataDirectoryHeadersSize()));
-    var coff_header = coff.CoffHeader{
+    var coff_header = coff_util.CoffHeader{
         .machine = target.toCoffMachine(),
         .number_of_sections = @as(u16, @intCast(self.sections.slice().len)), // TODO what if we prune a section
         .time_date_stamp = @as(u32, @truncate(@as(u64, @bitCast(timestamp)))),
@@ -2813,13 +2813,13 @@ fn writeHeader(self: *Coff) !void {
 
     writer.writeAll(mem.asBytes(&coff_header)) catch unreachable;
 
-    const dll_flags: coff.DllFlags = .{
+    const dll_flags: coff_util.DllFlags = .{
         .HIGH_ENTROPY_VA = 1, // TODO do we want to permit non-PIE builds at all?
         .DYNAMIC_BASE = 1,
         .TERMINAL_SERVER_AWARE = 1, // We are not a legacy app
         .NX_COMPAT = 1, // We are compatible with Data Execution Prevention
     };
-    const subsystem: coff.Subsystem = .WINDOWS_CUI;
+    const subsystem: coff_util.Subsystem = .WINDOWS_CUI;
     const size_of_image: u32 = self.getSizeOfImage();
     const size_of_headers: u32 = mem.alignForward(u32, self.getSizeOfHeaders(), default_file_alignment);
     const base_of_code = self.sections.get(self.text_section_index.?).header.virtual_address;
@@ -2842,8 +2842,8 @@ fn writeHeader(self: *Coff) !void {
 
     switch (self.ptr_width) {
         .p32 => {
-            var opt_header = coff.OptionalHeaderPE32{
-                .magic = coff.IMAGE_NT_OPTIONAL_HDR32_MAGIC,
+            var opt_header = coff_util.OptionalHeaderPE32{
+                .magic = coff_util.IMAGE_NT_OPTIONAL_HDR32_MAGIC,
                 .major_linker_version = 0,
                 .minor_linker_version = 0,
                 .size_of_code = size_of_code,
@@ -2877,8 +2877,8 @@ fn writeHeader(self: *Coff) !void {
             writer.writeAll(mem.asBytes(&opt_header)) catch unreachable;
         },
         .p64 => {
-            var opt_header = coff.OptionalHeaderPE64{
-                .magic = coff.IMAGE_NT_OPTIONAL_HDR64_MAGIC,
+            var opt_header = coff_util.OptionalHeaderPE64{
+                .magic = coff_util.IMAGE_NT_OPTIONAL_HDR64_MAGIC,
                 .major_linker_version = 0,
                 .minor_linker_version = 0,
                 .size_of_code = size_of_code,
@@ -2980,37 +2980,37 @@ fn allocatedVirtualSize(self: *Coff, start: u32) u32 {
     return min_pos - start;
 }
 
-inline fn getSizeOfHeaders(self: Coff) u32 {
+fn getSizeOfHeaders(self: Coff) u32 {
     const msdos_hdr_size = msdos_stub.len + 4;
-    return @as(u32, @intCast(msdos_hdr_size + @sizeOf(coff.CoffHeader) + self.getOptionalHeaderSize() +
+    return @as(u32, @intCast(msdos_hdr_size + @sizeOf(coff_util.CoffHeader) + self.getOptionalHeaderSize() +
         self.getDataDirectoryHeadersSize() + self.getSectionHeadersSize()));
 }
 
-inline fn getOptionalHeaderSize(self: Coff) u32 {
+fn getOptionalHeaderSize(self: Coff) u32 {
     return switch (self.ptr_width) {
-        .p32 => @as(u32, @intCast(@sizeOf(coff.OptionalHeaderPE32))),
-        .p64 => @as(u32, @intCast(@sizeOf(coff.OptionalHeaderPE64))),
+        .p32 => @as(u32, @intCast(@sizeOf(coff_util.OptionalHeaderPE32))),
+        .p64 => @as(u32, @intCast(@sizeOf(coff_util.OptionalHeaderPE64))),
     };
 }
 
-inline fn getDataDirectoryHeadersSize(self: Coff) u32 {
-    return @as(u32, @intCast(self.data_directories.len * @sizeOf(coff.ImageDataDirectory)));
+fn getDataDirectoryHeadersSize(self: Coff) u32 {
+    return @as(u32, @intCast(self.data_directories.len * @sizeOf(coff_util.ImageDataDirectory)));
 }
 
-inline fn getSectionHeadersSize(self: Coff) u32 {
-    return @as(u32, @intCast(self.sections.slice().len * @sizeOf(coff.SectionHeader)));
+fn getSectionHeadersSize(self: Coff) u32 {
+    return @as(u32, @intCast(self.sections.slice().len * @sizeOf(coff_util.SectionHeader)));
 }
 
-inline fn getDataDirectoryHeadersOffset(self: Coff) u32 {
+fn getDataDirectoryHeadersOffset(self: Coff) u32 {
     const msdos_hdr_size = msdos_stub.len + 4;
-    return @as(u32, @intCast(msdos_hdr_size + @sizeOf(coff.CoffHeader) + self.getOptionalHeaderSize()));
+    return @as(u32, @intCast(msdos_hdr_size + @sizeOf(coff_util.CoffHeader) + self.getOptionalHeaderSize()));
 }
 
-inline fn getSectionHeadersOffset(self: Coff) u32 {
+fn getSectionHeadersOffset(self: Coff) u32 {
     return self.getDataDirectoryHeadersOffset() + self.getDataDirectoryHeadersSize();
 }
 
-inline fn getSizeOfImage(self: Coff) u32 {
+fn getSizeOfImage(self: Coff) u32 {
     var image_size: u32 = mem.alignForward(u32, self.getSizeOfHeaders(), self.page_size);
     for (self.sections.items(.header)) |header| {
         image_size += mem.alignForward(u32, header.virtual_size, self.page_size);
@@ -3040,13 +3040,13 @@ pub fn getEntryPoint(self: Coff) ?SymbolWithLoc {
 }
 
 /// Returns pointer-to-symbol described by `sym_loc` descriptor.
-pub fn getSymbolPtr(self: *Coff, sym_loc: SymbolWithLoc) *coff.Symbol {
+pub fn getSymbolPtr(self: *Coff, sym_loc: SymbolWithLoc) *coff_util.Symbol {
     assert(sym_loc.file == null); // TODO linking object files
     return &self.locals.items[sym_loc.sym_index];
 }
 
 /// Returns symbol described by `sym_loc` descriptor.
-pub fn getSymbol(self: *const Coff, sym_loc: SymbolWithLoc) *const coff.Symbol {
+pub fn getSymbol(self: *const Coff, sym_loc: SymbolWithLoc) *const coff_util.Symbol {
     assert(sym_loc.file == null); // TODO linking object files
     return &self.locals.items[sym_loc.sym_index];
 }
@@ -3124,7 +3124,7 @@ pub fn getAtomIndexForSymbol(self: *const Coff, sym_loc: SymbolWithLoc) ?Atom.In
     return self.atom_by_index_table.get(sym_loc.sym_index);
 }
 
-fn setSectionName(self: *Coff, header: *coff.SectionHeader, name: []const u8) !void {
+fn setSectionName(self: *Coff, header: *coff_util.SectionHeader, name: []const u8) !void {
     if (name.len <= 8) {
         @memcpy(header.name[0..name.len], name);
         @memset(header.name[name.len..], 0);
@@ -3136,7 +3136,7 @@ fn setSectionName(self: *Coff, header: *coff.SectionHeader, name: []const u8) !v
     @memset(header.name[name_offset.len..], 0);
 }
 
-fn getSectionName(self: *const Coff, header: *const coff.SectionHeader) []const u8 {
+fn getSectionName(self: *const Coff, header: *const coff_util.SectionHeader) []const u8 {
     if (header.getName()) |name| {
         return name;
     }
@@ -3144,7 +3144,7 @@ fn getSectionName(self: *const Coff, header: *const coff.SectionHeader) []const 
     return self.strtab.get(offset).?;
 }
 
-fn setSymbolName(self: *Coff, symbol: *coff.Symbol, name: []const u8) !void {
+fn setSymbolName(self: *Coff, symbol: *coff_util.Symbol, name: []const u8) !void {
     if (name.len <= 8) {
         @memcpy(symbol.name[0..name.len], name);
         @memset(symbol.name[name.len..], 0);
@@ -3156,7 +3156,7 @@ fn setSymbolName(self: *Coff, symbol: *coff.Symbol, name: []const u8) !void {
     mem.writeInt(u32, symbol.name[4..8], offset, .little);
 }
 
-fn logSymAttributes(sym: *const coff.Symbol, buf: *[4]u8) []const u8 {
+fn logSymAttributes(sym: *const coff_util.Symbol, buf: *[4]u8) []const u8 {
     @memset(buf[0..4], '_');
     switch (sym.section_number) {
         .UNDEFINED => {
@@ -3247,7 +3247,7 @@ const std = @import("std");
 const build_options = @import("build_options");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
-const coff = std.coff;
+const coff_util = std.coff;
 const fmt = std.fmt;
 const fs = std.fs;
 const log = std.log.scoped(.link);
