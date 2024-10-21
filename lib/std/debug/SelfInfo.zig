@@ -172,7 +172,7 @@ fn lookupModuleDyld(self: *SelfInfo, address: usize) !*Module {
         var unwind_info: ?[]const u8 = null;
         var eh_frame: ?[]const u8 = null;
         while (it.next()) |cmd| switch (cmd.cmd()) {
-            .SEGMENT_64 => {
+            .SEGMENT, .SEGMENT_64 => {
                 const segment_cmd = cmd.cast(macho.segment_command_64).?;
                 if (!mem.eql(u8, "__TEXT", segment_cmd.segName())) continue;
 

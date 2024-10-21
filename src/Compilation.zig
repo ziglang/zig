@@ -1782,6 +1782,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                 .none,
                 .simulator,
                 .macabi,
+                .ilp32,
                 => {},
                 else => return error.LibCUnavailable,
             }

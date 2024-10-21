@@ -742,6 +742,14 @@ pub const section = extern struct {
 
     /// reserved (for count or sizeof)
     reserved2: u32,
+
+    pub fn sectName(sect: *const section) []const u8 {
+        return parseName(&sect.sectname);
+    }
+
+    pub fn segName(sect: *const section) []const u8 {
+        return parseName(&sect.segname);
+    }
 };
 
 pub const section_64 = extern struct {
@@ -1900,6 +1908,9 @@ pub const LoadCommandIterator = struct {
         hdr: load_command,
         data: []const u8,
 
+        const section_ = if (builtin.abi == .ilp32) section else section_64;
+        const segment_command_ = if (builtin.abi == .ilp32) segment_command else segment_command_64;
+
         pub fn cmd(lc: LoadCommand) LC {
             return lc.hdr.cmd;
         }
@@ -1913,12 +1924,12 @@ pub const LoadCommandIterator = struct {
             return @as(*align(1) const Cmd, @ptrCast(lc.data.ptr)).*;
         }
 
-        /// Asserts LoadCommand is of type segment_command_64.
-        pub fn getSections(lc: LoadCommand) []align(1) const section_64 {
-            const segment_lc = lc.cast(segment_command_64).?;
-            if (segment_lc.nsects == 0) return &[0]section_64{};
-            const data = lc.data[@sizeOf(segment_command_64)..];
-            const sections = @as([*]align(1) const section_64, @ptrCast(data.ptr))[0..segment_lc.nsects];
+        /// Asserts LoadCommand is of type segment_command or segment_command_64.
+        pub fn getSections(lc: LoadCommand) []align(1) const section_ {
+            const segment_lc = lc.cast(segment_command_).?;
+            if (segment_lc.nsects == 0) return &[0]section_{};
+            const data = lc.data[@sizeOf(segment_command_)..];
+            const sections = @as([*]align(1) const section_, @ptrCast(data.ptr))[0..segment_lc.nsects];
             return sections;
         }
 
