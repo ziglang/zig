@@ -10,7 +10,6 @@ const std = @import("../std.zig");
 const Allocator = std.mem.Allocator;
 const Path = std.Build.Cache.Path;
 const Dwarf = std.debug.Dwarf;
-const page_size = std.mem.page_size;
 const assert = std.debug.assert;
 const Coverage = std.debug.Coverage;
 const SourceLocation = std.debug.Coverage.SourceLocation;
