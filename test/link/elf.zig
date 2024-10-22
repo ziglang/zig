@@ -51,6 +51,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
         elf_step.dependOn(testEmitRelocatable(b, .{ .target = musl_target }));
         elf_step.dependOn(testRelocatableArchive(b, .{ .target = musl_target }));
         elf_step.dependOn(testRelocatableEhFrame(b, .{ .target = musl_target }));
+        elf_step.dependOn(testRelocatableEhFrameComdatHeavy(b, .{ .target = musl_target }));
         elf_step.dependOn(testRelocatableNoEhFrame(b, .{ .target = musl_target }));
 
         // Exercise linker in ar mode
@@ -2723,86 +2724,87 @@ fn testRelocatableArchive(b: *Build, opts: Options) *Step {
 fn testRelocatableEhFrame(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "relocatable-eh-frame", opts);
 
-    {
-        const obj = addObject(b, opts, .{
-            .name = "obj1",
-            .cpp_source_bytes =
-            \\#include <stdexcept>
-            \\int try_me() {
-            \\  throw std::runtime_error("Oh no!");
-            \\}
-            ,
-        });
-        addCppSourceBytes(obj,
-            \\extern int try_me();
-            \\int try_again() {
-            \\  return try_me();
-            \\}
-        , &.{});
-        obj.linkLibCpp();
+    const obj = addObject(b, opts, .{
+        .name = "obj1",
+        .cpp_source_bytes =
+        \\#include <stdexcept>
+        \\int try_me() {
+        \\  throw std::runtime_error("Oh no!");
+        \\}
+        ,
+    });
+    addCppSourceBytes(obj,
+        \\extern int try_me();
+        \\int try_again() {
+        \\  return try_me();
+        \\}
+    , &.{});
+    obj.linkLibCpp();
 
-        const exe = addExecutable(b, opts, .{ .name = "test1" });
-        addCppSourceBytes(exe,
-            \\#include <iostream>
-            \\#include <stdexcept>
-            \\extern int try_again();
-            \\int main() {
-            \\  try {
-            \\    try_again();
-            \\  } catch (const std::exception &e) {
-            \\    std::cout << "exception=" << e.what();
-            \\  }
-            \\  return 0;
-            \\}
-        , &.{});
-        exe.addObject(obj);
-        exe.linkLibCpp();
+    const exe = addExecutable(b, opts, .{ .name = "test1" });
+    addCppSourceBytes(exe,
+        \\#include <iostream>
+        \\#include <stdexcept>
+        \\extern int try_again();
+        \\int main() {
+        \\  try {
+        \\    try_again();
+        \\  } catch (const std::exception &e) {
+        \\    std::cout << "exception=" << e.what();
+        \\  }
+        \\  return 0;
+        \\}
+    , &.{});
+    exe.addObject(obj);
+    exe.linkLibCpp();
 
-        const run = addRunArtifact(exe);
-        run.expectStdOutEqual("exception=Oh no!");
-        test_step.dependOn(&run.step);
-    }
+    const run = addRunArtifact(exe);
+    run.expectStdOutEqual("exception=Oh no!");
+    test_step.dependOn(&run.step);
 
-    {
-        // Let's make the object file COMDAT group heavy!
-        const obj = addObject(b, opts, .{
-            .name = "obj2",
-            .cpp_source_bytes =
-            \\#include <stdexcept>
-            \\int try_me() {
-            \\  throw std::runtime_error("Oh no!");
-            \\}
-            ,
-        });
-        addCppSourceBytes(obj,
-            \\extern int try_me();
-            \\int try_again() {
-            \\  return try_me();
-            \\}
-        , &.{});
-        addCppSourceBytes(obj,
-            \\#include <iostream>
-            \\#include <stdexcept>
-            \\extern int try_again();
-            \\int main() {
-            \\  try {
-            \\    try_again();
-            \\  } catch (const std::exception &e) {
-            \\    std::cout << "exception=" << e.what();
-            \\  }
-            \\  return 0;
-            \\}
-        , &.{});
-        obj.linkLibCpp();
+    return test_step;
+}
 
-        const exe = addExecutable(b, opts, .{ .name = "test2" });
-        exe.addObject(obj);
-        exe.linkLibCpp();
+fn testRelocatableEhFrameComdatHeavy(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "relocatable-eh-frame-comdat-heavy", opts);
 
-        const run = addRunArtifact(exe);
-        run.expectStdOutEqual("exception=Oh no!");
-        test_step.dependOn(&run.step);
-    }
+    const obj = addObject(b, opts, .{
+        .name = "obj2",
+        .cpp_source_bytes =
+        \\#include <stdexcept>
+        \\int try_me() {
+        \\  throw std::runtime_error("Oh no!");
+        \\}
+        ,
+    });
+    addCppSourceBytes(obj,
+        \\extern int try_me();
+        \\int try_again() {
+        \\  return try_me();
+        \\}
+    , &.{});
+    addCppSourceBytes(obj,
+        \\#include <iostream>
+        \\#include <stdexcept>
+        \\extern int try_again();
+        \\int main() {
+        \\  try {
+        \\    try_again();
+        \\  } catch (const std::exception &e) {
+        \\    std::cout << "exception=" << e.what();
+        \\  }
+        \\  return 0;
+        \\}
+    , &.{});
+    obj.linkLibCpp();
+
+    const exe = addExecutable(b, opts, .{ .name = "test2" });
+    exe.addObject(obj);
+    exe.linkLibCpp();
+
+    const run = addRunArtifact(exe);
+    run.expectStdOutEqual("exception=Oh no!");
+    test_step.dependOn(&run.step);
 
     return test_step;
 }
