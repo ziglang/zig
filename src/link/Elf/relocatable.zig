@@ -382,11 +382,12 @@ fn writeSyntheticSections(elf_file: *Elf) !void {
         const SortRelocs = struct {
             pub fn lessThan(ctx: void, lhs: elf.Elf64_Rela, rhs: elf.Elf64_Rela) bool {
                 _ = ctx;
+                assert(lhs.r_offset != rhs.r_offset);
                 return lhs.r_offset < rhs.r_offset;
             }
         };
 
-        mem.sort(elf.Elf64_Rela, relocs.items, {}, SortRelocs.lessThan);
+        mem.sortUnstable(elf.Elf64_Rela, relocs.items, {}, SortRelocs.lessThan);
 
         log.debug("writing {s} from 0x{x} to 0x{x}", .{
             elf_file.getShString(shdr.sh_name),
