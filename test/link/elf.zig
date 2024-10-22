@@ -2724,7 +2724,7 @@ fn testRelocatableArchive(b: *Build, opts: Options) *Step {
 fn testRelocatableEhFrame(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "relocatable-eh-frame", opts);
 
-    const obj = addObject(b, opts, .{
+    const obj1 = addObject(b, opts, .{
         .name = "obj1",
         .cpp_source_bytes =
         \\#include <stdexcept>
@@ -2733,12 +2733,21 @@ fn testRelocatableEhFrame(b: *Build, opts: Options) *Step {
         \\}
         ,
     });
-    addCppSourceBytes(obj,
+    obj1.linkLibCpp();
+    const obj2 = addObject(b, opts, .{
+        .name = "obj2",
+        .cpp_source_bytes =
         \\extern int try_me();
         \\int try_again() {
         \\  return try_me();
         \\}
-    , &.{});
+        ,
+    });
+    obj2.linkLibCpp();
+
+    const obj = addObject(b, opts, .{ .name = "obj" });
+    obj.addObject(obj1);
+    obj.addObject(obj2);
     obj.linkLibCpp();
 
     const exe = addExecutable(b, opts, .{ .name = "test1" });
@@ -2768,8 +2777,8 @@ fn testRelocatableEhFrame(b: *Build, opts: Options) *Step {
 fn testRelocatableEhFrameComdatHeavy(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "relocatable-eh-frame-comdat-heavy", opts);
 
-    const obj = addObject(b, opts, .{
-        .name = "obj2",
+    const obj1 = addObject(b, opts, .{
+        .name = "obj1",
         .cpp_source_bytes =
         \\#include <stdexcept>
         \\int try_me() {
@@ -2777,13 +2786,20 @@ fn testRelocatableEhFrameComdatHeavy(b: *Build, opts: Options) *Step {
         \\}
         ,
     });
-    addCppSourceBytes(obj,
+    obj1.linkLibCpp();
+    const obj2 = addObject(b, opts, .{
+        .name = "obj2",
+        .cpp_source_bytes =
         \\extern int try_me();
         \\int try_again() {
         \\  return try_me();
         \\}
-    , &.{});
-    addCppSourceBytes(obj,
+        ,
+    });
+    obj2.linkLibCpp();
+    const obj3 = addObject(b, opts, .{
+        .name = "obj3",
+        .cpp_source_bytes =
         \\#include <iostream>
         \\#include <stdexcept>
         \\extern int try_again();
@@ -2795,7 +2811,14 @@ fn testRelocatableEhFrameComdatHeavy(b: *Build, opts: Options) *Step {
         \\  }
         \\  return 0;
         \\}
-    , &.{});
+        ,
+    });
+    obj3.linkLibCpp();
+
+    const obj = addObject(b, opts, .{ .name = "obj" });
+    obj.addObject(obj1);
+    obj.addObject(obj2);
+    obj.addObject(obj3);
     obj.linkLibCpp();
 
     const exe = addExecutable(b, opts, .{ .name = "test2" });

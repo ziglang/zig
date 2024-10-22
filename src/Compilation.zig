@@ -6059,7 +6059,7 @@ test "classifyFileExt" {
     try std.testing.expectEqual(FileExt.zig, classifyFileExt("foo.zig"));
 }
 
-pub fn get_libc_crt_file(comp: *Compilation, arena: Allocator, basename: []const u8) !Path {
+fn get_libc_crt_file(comp: *Compilation, arena: Allocator, basename: []const u8) !Path {
     return (try crtFilePath(&comp.crt_files, basename)) orelse {
         const lci = comp.libc_installation orelse return error.LibCInstallationNotAvailable;
         const crt_dir_path = lci.crt_dir orelse return error.LibCInstallationMissingCrtDir;
