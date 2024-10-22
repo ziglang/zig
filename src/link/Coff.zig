@@ -274,11 +274,15 @@ pub fn createEmpty(
 
         .image_base = options.image_base orelse switch (output_mode) {
             .Exe => switch (target.cpu.arch) {
-                .aarch64 => 0x140000000,
-                .thumb, .x86_64, .x86 => 0x400000,
+                .aarch64, .x86_64 => 0x140000000,
+                .thumb, .x86 => 0x400000,
                 else => unreachable,
             },
-            .Lib => 0x10000000,
+            .Lib => switch (target.cpu.arch) {
+                .aarch64, .x86_64 => 0x180000000,
+                .thumb, .x86 => 0x10000000,
+                else => unreachable,
+            },
             .Obj => 0,
         },
 
