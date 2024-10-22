@@ -1098,20 +1098,6 @@ fn dumpArgvInit(self: *Elf, arena: Allocator) !void {
     }
 }
 
-pub const ParseError = error{
-    /// Indicates the error is already reported on `Compilation.link_diags`.
-    LinkFailure,
-
-    OutOfMemory,
-    Overflow,
-    InputOutput,
-    EndOfStream,
-    FileSystem,
-    NotSupported,
-    InvalidCharacter,
-    UnknownFileType,
-} || fs.Dir.AccessError || fs.File.SeekError || fs.File.OpenError || fs.File.ReadError;
-
 pub fn openParseObjectReportingFailure(self: *Elf, path: Path) void {
     const diags = &self.base.comp.link_diags;
     const obj = link.openObject(path, false, false) catch |err| {
@@ -1130,7 +1116,7 @@ fn parseObjectReportingFailure(self: *Elf, obj: link.Input.Object) void {
     };
 }
 
-fn parseObject(self: *Elf, obj: link.Input.Object) ParseError!void {
+fn parseObject(self: *Elf, obj: link.Input.Object) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1175,7 +1161,7 @@ fn parseArchive(
     objects: *std.ArrayListUnmanaged(File.Index),
     obj: link.Input.Object,
     is_static_lib: bool,
-) ParseError!void {
+) !void {
     const tracy = trace(@src());
     defer tracy.end();
 

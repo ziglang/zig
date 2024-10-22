@@ -1009,11 +1009,25 @@ pub const File = struct {
     }
 
     /// Opens a path as a static library and parses it into the linker.
-    fn openLoadArchive(base: *File, path: Path) anyerror!void {
-        const diags = &base.comp.link_diags;
-        const input = try openArchiveInput(diags, path, false, false);
-        errdefer input.archive.file.close();
-        try loadInput(base, input);
+    /// If `query` is non-null, allows GNU ld scripts.
+    fn openLoadArchive(base: *File, path: Path, opt_query: ?UnresolvedInput.Query) anyerror!void {
+        if (opt_query) |query| {
+            const archive = try openObject(path, query.must_link, query.hidden);
+            errdefer archive.file.close();
+            loadInput(base, .{ .archive = archive }) catch |err| switch (err) {
+                error.BadMagic, error.UnexpectedEndOfFile => {
+                    if (base.tag != .elf) return err;
+                    try loadGnuLdScript(base, path, query, archive.file);
+                    archive.file.close();
+                    return;
+                },
+                else => return err,
+            };
+        } else {
+            const archive = try openObject(path, false, false);
+            errdefer archive.file.close();
+            try loadInput(base, .{ .archive = archive });
+        }
     }
 
     /// Opens a path as a shared library and parses it into the linker.
@@ -1060,7 +1074,7 @@ pub const File = struct {
                     switch (Compilation.classifyFileExt(arg.path)) {
                         .shared_library => try openLoadDso(base, new_path, query),
                         .object => try openLoadObject(base, new_path),
-                        .static_library => try openLoadArchive(base, new_path),
+                        .static_library => try openLoadArchive(base, new_path, query),
                         else => diags.addParseError(path, "GNU ld script references file with unrecognized extension: {s}", .{arg.path}),
                     }
                 } else {
@@ -1408,33 +1422,51 @@ pub const File = struct {
                     assert(mem.startsWith(u8, flag, "-l"));
                     const lib_name = flag["-l".len..];
                     switch (comp.config.link_mode) {
-                        .dynamic => d: {
-                            const path = Path.initCwd(
+                        .dynamic => {
+                            const dso_path = Path.initCwd(
                                 std.fmt.allocPrint(comp.arena, "{s}" ++ sep ++ "{s}{s}{s}", .{
                                     crt_dir, target.libPrefix(), lib_name, target.dynamicLibSuffix(),
                                 }) catch return diags.setAllocFailure(),
                             );
-                            base.openLoadDso(path, .{
+                            base.openLoadDso(dso_path, .{
                                 .preferred_mode = .dynamic,
                                 .search_strategy = .paths_first,
                             }) catch |err| switch (err) {
-                                error.FileNotFound => break :d, // also try static
+                                error.FileNotFound => {
+                                    // Also try static.
+                                    const archive_path = Path.initCwd(
+                                        std.fmt.allocPrint(comp.arena, "{s}" ++ sep ++ "{s}{s}{s}", .{
+                                            crt_dir, target.libPrefix(), lib_name, target.staticLibSuffix(),
+                                        }) catch return diags.setAllocFailure(),
+                                    );
+                                    base.openLoadArchive(archive_path, .{
+                                        .preferred_mode = .dynamic,
+                                        .search_strategy = .paths_first,
+                                    }) catch |archive_err| switch (archive_err) {
+                                        error.LinkFailure => return, // error reported via diags
+                                        else => |e| diags.addParseError(dso_path, "failed to parse archive {}: {s}", .{ archive_path, @errorName(e) }),
+                                    };
+                                },
                                 error.LinkFailure => return, // error reported via diags
-                                else => |e| diags.addParseError(path, "failed to parse shared library: {s}", .{@errorName(e)}),
+                                else => |e| diags.addParseError(dso_path, "failed to parse shared library: {s}", .{@errorName(e)}),
                             };
-                            continue;
                         },
-                        .static => {},
+                        .static => {
+                            const path = Path.initCwd(
+                                std.fmt.allocPrint(comp.arena, "{s}" ++ sep ++ "{s}{s}{s}", .{
+                                    crt_dir, target.libPrefix(), lib_name, target.staticLibSuffix(),
+                                }) catch return diags.setAllocFailure(),
+                            );
+                            // glibc sometimes makes even archive files GNU ld scripts.
+                            base.openLoadArchive(path, .{
+                                .preferred_mode = .static,
+                                .search_strategy = .no_fallback,
+                            }) catch |err| switch (err) {
+                                error.LinkFailure => return, // error reported via diags
+                                else => |e| diags.addParseError(path, "failed to parse archive: {s}", .{@errorName(e)}),
+                            };
+                        },
                     }
-                    const path = Path.initCwd(
-                        std.fmt.allocPrint(comp.arena, "{s}" ++ sep ++ "{s}{s}{s}", .{
-                            crt_dir, target.libPrefix(), lib_name, target.staticLibSuffix(),
-                        }) catch return diags.setAllocFailure(),
-                    );
-                    base.openLoadArchive(path) catch |err| switch (err) {
-                        error.LinkFailure => return, // error reported via diags
-                        else => |e| diags.addParseError(path, "failed to parse archive: {s}", .{@errorName(e)}),
-                    };
                 }
             },
             .load_object => |path| {
@@ -1444,7 +1476,7 @@ pub const File = struct {
                 };
             },
             .load_archive => |path| {
-                base.openLoadArchive(path) catch |err| switch (err) {
+                base.openLoadArchive(path, null) catch |err| switch (err) {
                     error.LinkFailure => return, // error reported via link_diags
                     else => |e| comp.link_diags.addParseError(path, "failed to parse archive: {s}", .{@errorName(e)}),
                 };

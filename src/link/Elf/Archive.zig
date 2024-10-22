@@ -16,6 +16,15 @@ pub fn parse(
     handle_index: File.HandleIndex,
 ) !Archive {
     const handle = file_handles.items[handle_index];
+    var pos: usize = 0;
+    {
+        var magic_buffer: [elf.ARMAG.len]u8 = undefined;
+        const n = try handle.preadAll(&magic_buffer, pos);
+        if (n != magic_buffer.len) return error.BadMagic;
+        if (!mem.eql(u8, &magic_buffer, elf.ARMAG)) return error.BadMagic;
+        pos += magic_buffer.len;
+    }
+
     const size = (try handle.stat()).size;
 
     var objects: std.ArrayListUnmanaged(Object) = .empty;
@@ -24,17 +33,14 @@ pub fn parse(
     var strtab: std.ArrayListUnmanaged(u8) = .empty;
     defer strtab.deinit(gpa);
 
-    var pos: usize = elf.ARMAG.len;
-    while (true) {
-        if (pos >= size) break;
-        if (!mem.isAligned(pos, 2)) pos += 1;
+    while (pos < size) {
+        pos = mem.alignForward(usize, pos, 2);
 
-        var hdr_buffer: [@sizeOf(elf.ar_hdr)]u8 = undefined;
+        var hdr: elf.ar_hdr = undefined;
         {
-            const amt = try handle.preadAll(&hdr_buffer, pos);
-            if (amt != @sizeOf(elf.ar_hdr)) return error.InputOutput;
+            const n = try handle.preadAll(mem.asBytes(&hdr), pos);
+            if (n != @sizeOf(elf.ar_hdr)) return error.UnexpectedEndOfFile;
         }
-        const hdr = @as(*align(1) const elf.ar_hdr, @ptrCast(&hdr_buffer)).*;
         pos += @sizeOf(elf.ar_hdr);
 
         if (!mem.eql(u8, &hdr.ar_fmag, elf.ARFMAG)) {
