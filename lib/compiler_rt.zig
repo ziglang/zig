@@ -1,6 +1,7 @@
 const builtin = @import("builtin");
+const common = @import("compiler_rt/common.zig");
 
-pub const panic = @import("compiler_rt/common.zig").panic;
+pub const panic = common.panic;
 
 comptime {
     // Integer routines
@@ -236,4 +237,10 @@ comptime {
         _ = @import("compiler_rt/bcmp.zig");
         _ = @import("compiler_rt/ssp.zig");
     }
+
+    if (!builtin.link_libc and builtin.abi == .msvc) {
+        @export(&_fltused, .{ .name = "_fltused", .linkage = common.linkage, .visibility = common.visibility });
+    }
 }
+
+var _fltused: c_int = 1;
