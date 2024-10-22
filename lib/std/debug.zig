@@ -655,8 +655,8 @@ pub const StackIterator = struct {
     pub fn initWithContext(first_address: ?usize, debug_info: *SelfInfo, context: *posix.ucontext_t) !StackIterator {
         // The implementation of DWARF unwinding on aarch64-macos is not complete. However, Apple mandates that
         // the frame pointer register is always used, so on this platform we can safely use the FP-based unwinder.
-        if (builtin.target.isDarwin() and native_arch == .aarch64 and builtin.abi != .ilp32)
-            return init(first_address, context.mcontext.ss.fp);
+        if (builtin.target.isDarwin() and native_arch == .aarch64)
+            return init(first_address, @intCast(context.mcontext.ss.fp));
 
         if (SelfInfo.supports_unwinding) {
             var iterator = init(first_address, null);

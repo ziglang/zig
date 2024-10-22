@@ -172,7 +172,7 @@ fn lookupModuleDyld(self: *SelfInfo, address: usize) !*Module {
         var unwind_info: ?[]const u8 = null;
         var eh_frame: ?[]const u8 = null;
         while (it.next()) |cmd| switch (cmd.cmd()) {
-            .SEGMENT, .SEGMENT_64 => {
+            .SEGMENT_64 => {
                 const segment_cmd = cmd.cast(macho.segment_command_64).?;
                 if (!mem.eql(u8, "__TEXT", segment_cmd.segName())) continue;
 
@@ -184,10 +184,12 @@ fn lookupModuleDyld(self: *SelfInfo, address: usize) !*Module {
                     }
 
                     for (cmd.getSections()) |sect| {
+                        const sect_addr: usize = @intCast(sect.addr);
+                        const sect_size: usize = @intCast(sect.size);
                         if (mem.eql(u8, "__unwind_info", sect.sectName())) {
-                            unwind_info = @as([*]const u8, @ptrFromInt(sect.addr + vmaddr_slide))[0..sect.size];
+                            unwind_info = @as([*]const u8, @ptrFromInt(sect_addr + vmaddr_slide))[0..sect_size];
                         } else if (mem.eql(u8, "__eh_frame", sect.sectName())) {
-                            eh_frame = @as([*]const u8, @ptrFromInt(sect.addr + vmaddr_slide))[0..sect.size];
+                            eh_frame = @as([*]const u8, @ptrFromInt(sect_addr + vmaddr_slide))[0..sect_size];
                         }
                     }
 
@@ -590,7 +592,7 @@ pub const Module = switch (native_os) {
                 const section_bytes = try Dwarf.chopSlice(mapped_mem, sect.offset, sect.size);
                 sections[section_index.?] = .{
                     .data = section_bytes,
-                    .virtual_address = sect.addr,
+                    .virtual_address = @intCast(sect.addr),
                     .owned = false,
                 };
             }
