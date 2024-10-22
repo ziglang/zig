@@ -662,6 +662,9 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
         // * path-based location is used without a hash.
         //   - Hash is added to the table based on the path alone before
         //     calling run(); no need to add it again.
+        //
+        // If we add a dep as lazy and then later try to add the same dep as eager,
+        // eagerness takes precedence and the existing entry is updated.
 
         for (dep_names, deps) |dep_name, dep| {
             const new_fetch = &new_fetches[new_fetch_index];
@@ -673,7 +676,12 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
                         const digest_len = @typeInfo(Manifest.MultiHashHexDigest).array.len;
                         const multihash_digest = h[0..digest_len].*;
                         const gop = f.job_queue.table.getOrPutAssumeCapacity(multihash_digest);
-                        if (gop.found_existing) continue;
+                        if (gop.found_existing) {
+                            if (!dep.lazy) {
+                                gop.value_ptr.*.lazy_status = .eager;
+                            }
+                            continue;
+                        }
                         gop.value_ptr.* = new_fetch;
                         break :h multihash_digest;
                     },
@@ -684,7 +692,12 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
                     const new_root = try f.package_root.resolvePosix(parent_arena, rel_path);
                     const multihash_digest = relativePathDigest(new_root, cache_root);
                     const gop = f.job_queue.table.getOrPutAssumeCapacity(multihash_digest);
-                    if (gop.found_existing) continue;
+                    if (gop.found_existing) {
+                        if (!dep.lazy) {
+                            gop.value_ptr.*.lazy_status = .eager;
+                        }
+                        continue;
+                    }
                     gop.value_ptr.* = new_fetch;
                     break :l .{ .relative_path = new_root };
                 },
