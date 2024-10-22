@@ -3079,8 +3079,14 @@ pub fn sortShdrs(
         };
 
         pub fn lessThan(ctx: Context, lhs: @This(), rhs: @This()) bool {
-            return shdrRank(ctx.shdrs[lhs.shndx], ctx.shstrtab) <
-                shdrRank(ctx.shdrs[rhs.shndx], ctx.shstrtab);
+            const lhs_rank = shdrRank(ctx.shdrs[lhs.shndx], ctx.shstrtab);
+            const rhs_rank = shdrRank(ctx.shdrs[rhs.shndx], ctx.shstrtab);
+            if (lhs_rank == rhs_rank) {
+                const lhs_name = shString(ctx.shstrtab, ctx.shdrs[lhs.shndx].sh_name);
+                const rhs_name = shString(ctx.shstrtab, ctx.shdrs[rhs.shndx].sh_name);
+                return std.mem.lessThan(u8, lhs_name, rhs_name);
+            }
+            return lhs_rank < rhs_rank;
         }
     };
 
@@ -3096,7 +3102,7 @@ pub fn sortShdrs(
         .shdrs = shdrs,
         .shstrtab = shstrtab,
     };
-    mem.sort(Entry, entries, sort_context, Entry.lessThan);
+    mem.sortUnstable(Entry, entries, sort_context, Entry.lessThan);
 
     const backlinks = try gpa.alloc(u32, entries.len);
     defer gpa.free(backlinks);
