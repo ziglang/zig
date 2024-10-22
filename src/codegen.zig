@@ -866,7 +866,7 @@ fn genNavRef(
             zo.symbol(sym_index).flags.is_extern_ptr = true;
             return .{ .mcv = .{ .lea_symbol = sym_index } };
         }
-        const sym_index = try zo.getOrCreateMetadataForNav(elf_file, nav_index);
+        const sym_index = try zo.getOrCreateMetadataForNav(zcu, nav_index);
         if (!single_threaded and is_threadlocal) {
             return .{ .mcv = .{ .load_tlv = sym_index } };
         }
