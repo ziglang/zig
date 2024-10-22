@@ -1769,7 +1769,15 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             // If linking against host libc installation, instead queue up jobs
             // for loading those files in the linker.
             if (comp.config.link_libc and is_exe_or_dyn_lib) {
-                if (comp.libc_installation) |lci| {
+                // If the "is darwin" check is moved below the libc_installation check below,
+                // error.LibCInstallationMissingCrtDir is returned from lci.resolveCrtPaths().
+                if (target.isDarwin()) {
+                    switch (target.abi) {
+                        .none, .simulator, .macabi => {},
+                        else => return error.LibCUnavailable,
+                    }
+                    // TODO delete logic from MachO flush() and queue up tasks here instead.
+                } else if (comp.libc_installation) |lci| {
                     const basenames = LibCInstallation.CrtBasenames.get(.{
                         .target = target,
                         .link_libc = comp.config.link_libc,
