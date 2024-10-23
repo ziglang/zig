@@ -875,18 +875,13 @@ pub fn parseInputFiles(self: *MachO) !void {
     defer tracy.end();
 
     const diags = &self.base.comp.link_diags;
-    const tp = self.base.comp.thread_pool;
-    var wg: WaitGroup = .{};
 
     {
-        wg.reset();
-        defer wg.wait();
-
         for (self.objects.items) |index| {
-            tp.spawnWg(&wg, parseInputFileWorker, .{ self, self.getFile(index).? });
+            parseInputFileWorker(self, self.getFile(index).?);
         }
         for (self.dylibs.items) |index| {
-            tp.spawnWg(&wg, parseInputFileWorker, .{ self, self.getFile(index).? });
+            parseInputFileWorker(self, self.getFile(index).?);
         }
     }
 
@@ -1269,17 +1264,13 @@ fn markLive(self: *MachO) void {
 }
 
 fn convertTentativeDefsAndResolveSpecialSymbols(self: *MachO) !void {
-    const tp = self.base.comp.thread_pool;
     const diags = &self.base.comp.link_diags;
-    var wg: WaitGroup = .{};
     {
-        wg.reset();
-        defer wg.wait();
         for (self.objects.items) |index| {
-            tp.spawnWg(&wg, convertTentativeDefinitionsWorker, .{ self, self.getFile(index).?.object });
+            convertTentativeDefinitionsWorker(self, self.getFile(index).?.object);
         }
         if (self.getInternalObject()) |obj| {
-            tp.spawnWg(&wg, resolveSpecialSymbolsWorker, .{ self, obj });
+            resolveSpecialSymbolsWorker(self, obj);
         }
     }
     if (diags.hasErrors()) return error.LinkFailure;
@@ -1327,19 +1318,15 @@ pub fn dedupLiterals(self: *MachO) !void {
         try object.resolveLiterals(&lp, self);
     }
 
-    const tp = self.base.comp.thread_pool;
-    var wg: WaitGroup = .{};
     {
-        wg.reset();
-        defer wg.wait();
         if (self.getZigObject()) |zo| {
-            tp.spawnWg(&wg, File.dedupLiterals, .{ zo.asFile(), lp, self });
+            File.dedupLiterals(zo.asFile(), lp, self);
         }
         for (self.objects.items) |index| {
-            tp.spawnWg(&wg, File.dedupLiterals, .{ self.getFile(index).?, lp, self });
+            File.dedupLiterals(self.getFile(index).?, lp, self);
         }
         if (self.getInternalObject()) |object| {
-            tp.spawnWg(&wg, File.dedupLiterals, .{ object.asFile(), lp, self });
+            File.dedupLiterals(object.asFile(), lp, self);
         }
     }
 }
@@ -1357,21 +1344,17 @@ fn checkDuplicates(self: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const tp = self.base.comp.thread_pool;
     const diags = &self.base.comp.link_diags;
 
-    var wg: WaitGroup = .{};
     {
-        wg.reset();
-        defer wg.wait();
         if (self.getZigObject()) |zo| {
-            tp.spawnWg(&wg, checkDuplicatesWorker, .{ self, zo.asFile() });
+            checkDuplicatesWorker(self, zo.asFile());
         }
         for (self.objects.items) |index| {
-            tp.spawnWg(&wg, checkDuplicatesWorker, .{ self, self.getFile(index).? });
+            checkDuplicatesWorker(self, self.getFile(index).?);
         }
         if (self.getInternalObject()) |obj| {
-            tp.spawnWg(&wg, checkDuplicatesWorker, .{ self, obj.asFile() });
+            checkDuplicatesWorker(self, obj.asFile());
         }
     }
 
@@ -1428,23 +1411,17 @@ fn scanRelocs(self: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const tp = self.base.comp.thread_pool;
     const diags = &self.base.comp.link_diags;
 
-    var wg: WaitGroup = .{};
-
     {
-        wg.reset();
-        defer wg.wait();
-
         if (self.getZigObject()) |zo| {
-            tp.spawnWg(&wg, scanRelocsWorker, .{ self, zo.asFile() });
+            scanRelocsWorker(self, zo.asFile());
         }
         for (self.objects.items) |index| {
-            tp.spawnWg(&wg, scanRelocsWorker, .{ self, self.getFile(index).? });
+            scanRelocsWorker(self, self.getFile(index).?);
         }
         if (self.getInternalObject()) |obj| {
-            tp.spawnWg(&wg, scanRelocsWorker, .{ self, obj.asFile() });
+            scanRelocsWorker(self, obj.asFile());
         }
     }
 
@@ -1888,38 +1865,34 @@ fn calcSectionSizes(self: *MachO) !void {
         header.@"align" = 3;
     }
 
-    const tp = self.base.comp.thread_pool;
-    var wg: WaitGroup = .{};
     {
-        wg.reset();
-        defer wg.wait();
         const slice = self.sections.slice();
         for (slice.items(.header), slice.items(.atoms), 0..) |header, atoms, i| {
             if (atoms.items.len == 0) continue;
             if (self.requiresThunks() and header.isCode()) continue;
-            tp.spawnWg(&wg, calcSectionSizeWorker, .{ self, @as(u8, @intCast(i)) });
+            calcSectionSizeWorker(self, @as(u8, @intCast(i)));
         }
 
         if (self.requiresThunks()) {
             for (slice.items(.header), slice.items(.atoms), 0..) |header, atoms, i| {
                 if (!header.isCode()) continue;
                 if (atoms.items.len == 0) continue;
-                tp.spawnWg(&wg, createThunksWorker, .{ self, @as(u8, @intCast(i)) });
+                createThunksWorker(self, @as(u8, @intCast(i)));
             }
         }
 
         // At this point, we can also calculate most of the symtab and data-in-code linkedit section sizes
         if (self.getZigObject()) |zo| {
-            tp.spawnWg(&wg, File.calcSymtabSize, .{ zo.asFile(), self });
+            File.calcSymtabSize(zo.asFile(), self);
         }
         for (self.objects.items) |index| {
-            tp.spawnWg(&wg, File.calcSymtabSize, .{ self.getFile(index).?, self });
+            File.calcSymtabSize(self.getFile(index).?, self);
         }
         for (self.dylibs.items) |index| {
-            tp.spawnWg(&wg, File.calcSymtabSize, .{ self.getFile(index).?, self });
+            File.calcSymtabSize(self.getFile(index).?, self);
         }
         if (self.getInternalObject()) |obj| {
-            tp.spawnWg(&wg, File.calcSymtabSize, .{ obj.asFile(), self });
+            File.calcSymtabSize(obj.asFile(), self);
         }
     }
 
@@ -2403,23 +2376,18 @@ fn writeSectionsAndUpdateLinkeditSizes(self: *MachO) !void {
     try self.strtab.resize(gpa, cmd.strsize);
     self.strtab.items[0] = 0;
 
-    const tp = self.base.comp.thread_pool;
-    var wg: WaitGroup = .{};
     {
-        wg.reset();
-        defer wg.wait();
-
         for (self.objects.items) |index| {
-            tp.spawnWg(&wg, writeAtomsWorker, .{ self, self.getFile(index).? });
+            writeAtomsWorker(self, self.getFile(index).?);
         }
         if (self.getZigObject()) |zo| {
-            tp.spawnWg(&wg, writeAtomsWorker, .{ self, zo.asFile() });
+            writeAtomsWorker(self, zo.asFile());
         }
         if (self.getInternalObject()) |obj| {
-            tp.spawnWg(&wg, writeAtomsWorker, .{ self, obj.asFile() });
+            writeAtomsWorker(self, obj.asFile());
         }
         for (self.thunks.items) |thunk| {
-            tp.spawnWg(&wg, writeThunkWorker, .{ self, thunk });
+            writeThunkWorker(self, thunk);
         }
 
         const slice = self.sections.slice();
@@ -2434,34 +2402,34 @@ fn writeSectionsAndUpdateLinkeditSizes(self: *MachO) !void {
         }) |maybe_sect_id| {
             if (maybe_sect_id) |sect_id| {
                 const out = slice.items(.out)[sect_id].items;
-                tp.spawnWg(&wg, writeSyntheticSectionWorker, .{ self, sect_id, out });
+                writeSyntheticSectionWorker(self, sect_id, out);
             }
         }
 
         if (self.la_symbol_ptr_sect_index) |_| {
-            tp.spawnWg(&wg, updateLazyBindSizeWorker, .{self});
+            updateLazyBindSizeWorker(self);
         }
 
-        tp.spawnWg(&wg, updateLinkeditSizeWorker, .{ self, .rebase });
-        tp.spawnWg(&wg, updateLinkeditSizeWorker, .{ self, .bind });
-        tp.spawnWg(&wg, updateLinkeditSizeWorker, .{ self, .weak_bind });
-        tp.spawnWg(&wg, updateLinkeditSizeWorker, .{ self, .export_trie });
-        tp.spawnWg(&wg, updateLinkeditSizeWorker, .{ self, .data_in_code });
+        updateLinkeditSizeWorker(self, .rebase);
+        updateLinkeditSizeWorker(self, .bind);
+        updateLinkeditSizeWorker(self, .weak_bind);
+        updateLinkeditSizeWorker(self, .export_trie);
+        updateLinkeditSizeWorker(self, .data_in_code);
 
         if (self.getZigObject()) |zo| {
-            tp.spawnWg(&wg, File.writeSymtab, .{ zo.asFile(), self, self });
+            File.writeSymtab(zo.asFile(), self, self);
         }
         for (self.objects.items) |index| {
-            tp.spawnWg(&wg, File.writeSymtab, .{ self.getFile(index).?, self, self });
+            File.writeSymtab(self.getFile(index).?, self, self);
         }
         for (self.dylibs.items) |index| {
-            tp.spawnWg(&wg, File.writeSymtab, .{ self.getFile(index).?, self, self });
+            File.writeSymtab(self.getFile(index).?, self, self);
         }
         if (self.getInternalObject()) |obj| {
-            tp.spawnWg(&wg, File.writeSymtab, .{ obj.asFile(), self, self });
+            File.writeSymtab(obj.asFile(), self, self);
         }
         if (self.requiresThunks()) for (self.thunks.items) |th| {
-            tp.spawnWg(&wg, Thunk.writeSymtab, .{ th, self, self });
+            Thunk.writeSymtab(th, self, self);
         };
     }
 
@@ -5370,7 +5338,6 @@ const Thunk = @import("MachO/Thunk.zig");
 const TlvPtrSection = synthetic.TlvPtrSection;
 const Value = @import("../Value.zig");
 const UnwindInfo = @import("MachO/UnwindInfo.zig");
-const WaitGroup = std.Thread.WaitGroup;
 const WeakBind = bind.WeakBind;
 const ZigObject = @import("MachO/ZigObject.zig");
 const dev = @import("../dev.zig");

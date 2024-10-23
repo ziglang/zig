@@ -290,38 +290,33 @@ fn calcSectionSizes(macho_file: *MachO) !void {
         zo.calcNumRelocs(macho_file);
     }
 
-    const tp = macho_file.base.comp.thread_pool;
-    var wg: WaitGroup = .{};
     {
-        wg.reset();
-        defer wg.wait();
-
         for (macho_file.sections.items(.atoms), 0..) |atoms, i| {
             if (atoms.items.len == 0) continue;
-            tp.spawnWg(&wg, calcSectionSizeWorker, .{ macho_file, @as(u8, @intCast(i)) });
+            calcSectionSizeWorker(macho_file, @as(u8, @intCast(i)));
         }
 
         if (macho_file.eh_frame_sect_index) |_| {
-            tp.spawnWg(&wg, calcEhFrameSizeWorker, .{macho_file});
+            calcEhFrameSizeWorker(macho_file);
         }
 
         if (macho_file.unwind_info_sect_index) |_| {
             for (macho_file.objects.items) |index| {
-                tp.spawnWg(&wg, Object.calcCompactUnwindSizeRelocatable, .{
+                Object.calcCompactUnwindSizeRelocatable(
                     macho_file.getFile(index).?.object,
                     macho_file,
-                });
+                );
             }
         }
 
         for (macho_file.objects.items) |index| {
-            tp.spawnWg(&wg, File.calcSymtabSize, .{ macho_file.getFile(index).?, macho_file });
+            File.calcSymtabSize(macho_file.getFile(index).?, macho_file);
         }
         if (macho_file.getZigObject()) |zo| {
-            tp.spawnWg(&wg, File.calcSymtabSize, .{ zo.asFile(), macho_file });
+            File.calcSymtabSize(zo.asFile(), macho_file);
         }
 
-        tp.spawnWg(&wg, MachO.updateLinkeditSizeWorker, .{ macho_file, .data_in_code });
+        MachO.updateLinkeditSizeWorker(macho_file, .data_in_code);
     }
 
     if (macho_file.unwind_info_sect_index) |_| {
@@ -601,29 +596,24 @@ fn writeSections(macho_file: *MachO) !void {
     try macho_file.strtab.resize(gpa, cmd.strsize);
     macho_file.strtab.items[0] = 0;
 
-    const tp = macho_file.base.comp.thread_pool;
-    var wg: WaitGroup = .{};
     {
-        wg.reset();
-        defer wg.wait();
-
         for (macho_file.objects.items) |index| {
-            tp.spawnWg(&wg, writeAtomsWorker, .{ macho_file, macho_file.getFile(index).? });
-            tp.spawnWg(&wg, File.writeSymtab, .{ macho_file.getFile(index).?, macho_file, macho_file });
+            writeAtomsWorker(macho_file, macho_file.getFile(index).?);
+            File.writeSymtab(macho_file.getFile(index).?, macho_file, macho_file);
         }
 
         if (macho_file.getZigObject()) |zo| {
-            tp.spawnWg(&wg, writeAtomsWorker, .{ macho_file, zo.asFile() });
-            tp.spawnWg(&wg, File.writeSymtab, .{ zo.asFile(), macho_file, macho_file });
+            writeAtomsWorker(macho_file, zo.asFile());
+            File.writeSymtab(zo.asFile(), macho_file, macho_file);
         }
 
         if (macho_file.eh_frame_sect_index) |_| {
-            tp.spawnWg(&wg, writeEhFrameWorker, .{macho_file});
+            writeEhFrameWorker(macho_file);
         }
 
         if (macho_file.unwind_info_sect_index) |_| {
             for (macho_file.objects.items) |index| {
-                tp.spawnWg(&wg, writeCompactUnwindWorker, .{ macho_file, macho_file.getFile(index).?.object });
+                writeCompactUnwindWorker(macho_file, macho_file.getFile(index).?.object);
             }
         }
     }
@@ -777,4 +767,3 @@ const File = @import("file.zig").File;
 const MachO = @import("../MachO.zig");
 const Object = @import("Object.zig");
 const Symbol = @import("Symbol.zig");
-const WaitGroup = std.Thread.WaitGroup;
