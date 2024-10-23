@@ -1795,10 +1795,12 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                             .{ .glibc_crt_file = .crtn_o },
                         });
                     }
+                    if (!is_dyn_lib) {
+                        try comp.queueJob(.{ .glibc_crt_file = .scrt1_o });
+                    }
                     try comp.queueJobs(&[_]Job{
-                        .{ .glibc_crt_file = .scrt1_o },
-                        .{ .glibc_crt_file = .libc_nonshared_a },
                         .{ .glibc_shared_objects = {} },
+                        .{ .glibc_crt_file = .libc_nonshared_a },
                     });
                 } else if (target.isWasm() and target.os.tag == .wasi) {
                     if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
