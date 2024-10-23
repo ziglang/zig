@@ -52,12 +52,13 @@ pub fn ThreadSafeQueue(comptime T: type) type {
             self.mutex.lock();
             defer self.mutex.unlock();
             try self.shared.appendSlice(gpa, items);
-            const was_waiting = switch (self.state) {
+            return switch (self.state) {
                 .run => false,
-                .wait => true,
+                .wait => {
+                    self.state = .run;
+                    return true;
+                },
             };
-            self.state = .run;
-            return was_waiting;
         }
 
         /// Safe only to call exactly once when initially starting the worker.

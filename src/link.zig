@@ -1365,11 +1365,11 @@ pub const File = struct {
 /// from the rest of compilation. All tasks performed here are
 /// single-threaded with respect to one another.
 pub fn flushTaskQueue(tid: usize, comp: *Compilation) void {
-    comp.link_task_queue_safety.lock();
-    defer comp.link_task_queue_safety.unlock();
-    const prog_node = comp.work_queue_progress_node.start("Parse Linker Inputs", 0);
-    defer prog_node.end();
+    // As soon as check() is called, another `flushTaskQueue` call could occur,
+    // so the safety lock must go after the check.
     while (comp.link_task_queue.check()) |tasks| {
+        comp.link_task_queue_safety.lock();
+        defer comp.link_task_queue_safety.unlock();
         for (tasks) |task| doTask(comp, tid, task);
     }
 }
@@ -1412,6 +1412,8 @@ pub fn doTask(comp: *Compilation, tid: usize, task: Task) void {
     const diags = &comp.link_diags;
     switch (task) {
         .load_explicitly_provided => if (comp.bin_file) |base| {
+            const prog_node = comp.work_queue_progress_node.start("Parse Linker Inputs", comp.link_inputs.len);
+            defer prog_node.end();
             for (comp.link_inputs) |input| {
                 base.loadInput(input) catch |err| switch (err) {
                     error.LinkFailure => return, // error reported via diags
@@ -1423,9 +1425,13 @@ pub fn doTask(comp: *Compilation, tid: usize, task: Task) void {
                         .dso_exact => diags.addError("failed to handle dso_exact: {s}", .{@errorName(e)}),
                     },
                 };
+                prog_node.completeOne();
             }
         },
         .load_host_libc => if (comp.bin_file) |base| {
+            const prog_node = comp.work_queue_progress_node.start("Linker Parse Host libc", 0);
+            defer prog_node.end();
+
             const target = comp.root_mod.resolved_target.result;
             const flags = target_util.libcFullLinkFlags(target);
             const crt_dir = comp.libc_installation.?.crt_dir.?;
@@ -1482,18 +1488,24 @@ pub fn doTask(comp: *Compilation, tid: usize, task: Task) void {
             }
         },
         .load_object => |path| if (comp.bin_file) |base| {
+            const prog_node = comp.work_queue_progress_node.start("Linker Parse Object", 0);
+            defer prog_node.end();
             base.openLoadObject(path) catch |err| switch (err) {
                 error.LinkFailure => return, // error reported via diags
                 else => |e| diags.addParseError(path, "failed to parse object: {s}", .{@errorName(e)}),
             };
         },
         .load_archive => |path| if (comp.bin_file) |base| {
+            const prog_node = comp.work_queue_progress_node.start("Linker Parse Archive", 0);
+            defer prog_node.end();
             base.openLoadArchive(path, null) catch |err| switch (err) {
                 error.LinkFailure => return, // error reported via link_diags
                 else => |e| diags.addParseError(path, "failed to parse archive: {s}", .{@errorName(e)}),
             };
         },
         .load_dso => |path| if (comp.bin_file) |base| {
+            const prog_node = comp.work_queue_progress_node.start("Linker Parse Shared Library", 0);
+            defer prog_node.end();
             base.openLoadDso(path, .{
                 .preferred_mode = .dynamic,
                 .search_strategy = .paths_first,
@@ -1503,6 +1515,8 @@ pub fn doTask(comp: *Compilation, tid: usize, task: Task) void {
             };
         },
         .load_input => |input| if (comp.bin_file) |base| {
+            const prog_node = comp.work_queue_progress_node.start("Linker Parse Input", 0);
+            defer prog_node.end();
             base.loadInput(input) catch |err| switch (err) {
                 error.LinkFailure => return, // error reported via link_diags
                 else => |e| {
