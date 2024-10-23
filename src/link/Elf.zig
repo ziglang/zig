@@ -1581,40 +1581,74 @@ fn parseLdScript(self: *Elf, lib: SystemLib) ParseError!void {
 }
 
 pub fn validateEFlags(self: *Elf, file_index: File.Index, e_flags: elf.Word) !void {
-    if (self.first_eflags == null) {
-        self.first_eflags = e_flags;
-        return; // there isn't anything to conflict with yet
-    }
-    const self_eflags: *elf.Word = &self.first_eflags.?;
-
-    switch (self.getTarget().cpu.arch) {
+    const target = self.getTarget();
+    switch (target.cpu.arch) {
         .riscv64 => {
-            if (e_flags != self_eflags.*) {
-                const riscv_eflags: riscv.RiscvEflags = @bitCast(e_flags);
-                const self_riscv_eflags: *riscv.RiscvEflags = @ptrCast(self_eflags);
+            const features = target.cpu.features;
+            const flags: riscv.Eflags = @bitCast(e_flags);
+            var any_errors: bool = false;
 
-                self_riscv_eflags.rvc = self_riscv_eflags.rvc or riscv_eflags.rvc;
-                self_riscv_eflags.tso = self_riscv_eflags.tso or riscv_eflags.tso;
+            // For an input object to target an ABI that the target CPU doesn't have enabled
+            // is invalid, and will throw an error.
 
-                var any_errors: bool = false;
-                if (self_riscv_eflags.fabi != riscv_eflags.fabi) {
-                    any_errors = true;
-                    try self.addFileError(
-                        file_index,
-                        "cannot link object files with different float-point ABIs",
-                        .{},
-                    );
-                }
-                if (self_riscv_eflags.rve != riscv_eflags.rve) {
-                    any_errors = true;
-                    try self.addFileError(
-                        file_index,
-                        "cannot link object files with different RVEs",
-                        .{},
-                    );
-                }
-                if (any_errors) return error.LinkFailure;
+            // Invalid when
+            // 1. The input uses C and we do not.
+            if (flags.rvc and !std.Target.riscv.featureSetHas(features, .c)) {
+                any_errors = true;
+                try self.addFileError(
+                    file_index,
+                    "cannot link object file targeting the C feature without having the C feature enabled",
+                    .{},
+                );
             }
+
+            // Invalid when
+            // 1. We use E and the input does not.
+            // 2. The input uses E and we do not.
+            if (std.Target.riscv.featureSetHas(features, .e) != flags.rve) {
+                any_errors = true;
+                try self.addFileError(
+                    file_index,
+                    "{s}",
+                    .{
+                        if (flags.rve)
+                            "cannot link object file targeting the E feature without having the E feature enabled"
+                        else
+                            "cannot link object file not targeting the E feature while having the E feature enabled",
+                    },
+                );
+            }
+
+            // Invalid when
+            // 1. We use total store order and the input does not.
+            // 2. The input uses total store order and we do not.
+            if (flags.tso != std.Target.riscv.featureSetHas(features, .ztso)) {
+                any_errors = true;
+                try self.addFileError(
+                    file_index,
+                    "cannot link object file targeting the TSO memory model without having the ztso feature enabled",
+                    .{},
+                );
+            }
+
+            const fabi: riscv.Eflags.FloatAbi =
+                if (std.Target.riscv.featureSetHas(features, .d))
+                .double
+            else if (std.Target.riscv.featureSetHas(features, .f))
+                .single
+            else
+                .soft;
+
+            if (flags.fabi != fabi) {
+                any_errors = true;
+                try self.addFileError(
+                    file_index,
+                    "cannot link object file targeting a different floating-point ABI. targeting {s}, found {s}",
+                    .{ @tagName(fabi), @tagName(flags.fabi) },
+                );
+            }
+
+            if (any_errors) return error.LinkFailure;
         },
         else => {},
     }
@@ -2684,7 +2718,23 @@ pub fn writeElfHeader(self: *Elf) !void {
         },
     }
 
-    const e_flags = 0;
+    const e_flags: u32 = switch (target.cpu.arch) {
+        .riscv64 => flags: {
+            const flags: riscv.Eflags = .{
+                .rve = std.Target.riscv.featureSetHas(target.cpu.features, .e),
+                .rvc = std.Target.riscv.featureSetHas(target.cpu.features, .c),
+                .tso = std.Target.riscv.featureSetHas(target.cpu.features, .ztso),
+                .fabi = if (std.Target.riscv.featureSetHas(target.cpu.features, .d))
+                    .double
+                else if (std.Target.riscv.featureSetHas(target.cpu.features, .f))
+                    .single
+                else
+                    .soft,
+            };
+            break :flags @bitCast(flags);
+        },
+        else => 0,
+    };
     mem.writeInt(u32, hdr_buf[index..][0..4], e_flags, endian);
     index += 4;
 
