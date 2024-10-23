@@ -1488,14 +1488,16 @@ pub fn updateExports(
             const exported_nav = ip.getNav(exported_nav_index);
             const exported_ty = exported_nav.typeOf(ip);
             if (!ip.isFunctionType(exported_ty)) continue;
+            const c_cc = target.cCallingConvention().?;
             const winapi_cc: std.builtin.CallingConvention = switch (target.cpu.arch) {
-                .x86 => .Stdcall,
-                else => .C,
+                .x86 => .{ .x86_stdcall = .{} },
+                else => c_cc,
             };
             const exported_cc = Type.fromInterned(exported_ty).fnCallingConvention(zcu);
-            if (exported_cc == .C and exp.opts.name.eqlSlice("main", ip) and comp.config.link_libc) {
+            const CcTag = std.builtin.CallingConvention.Tag;
+            if (@as(CcTag, exported_cc) == @as(CcTag, c_cc) and exp.opts.name.eqlSlice("main", ip) and comp.config.link_libc) {
                 zcu.stage1_flags.have_c_main = true;
-            } else if (exported_cc == winapi_cc and target.os.tag == .windows) {
+            } else if (@as(CcTag, exported_cc) == @as(CcTag, winapi_cc) and target.os.tag == .windows) {
                 if (exp.opts.name.eqlSlice("WinMain", ip)) {
                     zcu.stage1_flags.have_winmain = true;
                 } else if (exp.opts.name.eqlSlice("wWinMain", ip)) {

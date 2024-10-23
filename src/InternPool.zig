@@ -2011,10 +2011,10 @@ pub const Key = union(enum) {
                 a.return_type == b.return_type and
                 a.comptime_bits == b.comptime_bits and
                 a.noalias_bits == b.noalias_bits and
-                a.cc == b.cc and
                 a.is_var_args == b.is_var_args and
                 a.is_generic == b.is_generic and
-                a.is_noinline == b.is_noinline;
+                a.is_noinline == b.is_noinline and
+                std.meta.eql(a.cc, b.cc);
         }
 
         pub fn hash(self: FuncType, hasher: *Hash, ip: *const InternPool) void {
@@ -5444,7 +5444,7 @@ pub const Tag = enum(u8) {
         flags: Flags,
 
         pub const Flags = packed struct(u32) {
-            cc: std.builtin.CallingConvention,
+            cc: PackedCallingConvention,
             is_var_args: bool,
             is_generic: bool,
             has_comptime_bits: bool,
@@ -5453,7 +5453,7 @@ pub const Tag = enum(u8) {
             cc_is_generic: bool,
             section_is_generic: bool,
             addrspace_is_generic: bool,
-            _: u16 = 0,
+            _: u6 = 0,
         };
     };
 
@@ -5618,12 +5618,11 @@ pub const FuncAnalysis = packed struct(u32) {
     branch_hint: std.builtin.BranchHint,
     is_noinline: bool,
     calls_or_awaits_errorable_fn: bool,
-    stack_alignment: Alignment,
     /// True if this function has an inferred error set.
     inferred_error_set: bool,
     disable_instrumentation: bool,
 
-    _: u17 = 0,
+    _: u23 = 0,
 
     pub const State = enum(u2) {
         /// The runtime function has never been referenced.
@@ -6912,7 +6911,7 @@ fn extraFuncType(tid: Zcu.PerThread.Id, extra: Local.Extra, extra_index: u32) Ke
         .return_type = type_function.data.return_type,
         .comptime_bits = comptime_bits,
         .noalias_bits = noalias_bits,
-        .cc = type_function.data.flags.cc,
+        .cc = type_function.data.flags.cc.unpack(),
         .is_var_args = type_function.data.flags.is_var_args,
         .is_noinline = type_function.data.flags.is_noinline,
         .cc_is_generic = type_function.data.flags.cc_is_generic,
@@ -8526,7 +8525,7 @@ pub const GetFuncTypeKey = struct {
     comptime_bits: u32 = 0,
     noalias_bits: u32 = 0,
     /// `null` means generic.
-    cc: ?std.builtin.CallingConvention = .Unspecified,
+    cc: ?std.builtin.CallingConvention = .auto,
     is_var_args: bool = false,
     is_generic: bool = false,
     is_noinline: bool = false,
@@ -8564,7 +8563,7 @@ pub fn getFuncType(
         .params_len = params_len,
         .return_type = key.return_type,
         .flags = .{
-            .cc = key.cc orelse .Unspecified,
+            .cc = .pack(key.cc orelse .auto),
             .is_var_args = key.is_var_args,
             .has_comptime_bits = key.comptime_bits != 0,
             .has_noalias_bits = key.noalias_bits != 0,
@@ -8696,7 +8695,6 @@ pub fn getFuncDecl(
             .branch_hint = .none,
             .is_noinline = key.is_noinline,
             .calls_or_awaits_errorable_fn = false,
-            .stack_alignment = .none,
             .inferred_error_set = false,
             .disable_instrumentation = false,
         },
@@ -8800,7 +8798,6 @@ pub fn getFuncDeclIes(
             .branch_hint = .none,
             .is_noinline = key.is_noinline,
             .calls_or_awaits_errorable_fn = false,
-            .stack_alignment = .none,
             .inferred_error_set = true,
             .disable_instrumentation = false,
         },
@@ -8818,7 +8815,7 @@ pub fn getFuncDeclIes(
         .params_len = params_len,
         .return_type = error_union_type,
         .flags = .{
-            .cc = key.cc orelse .Unspecified,
+            .cc = .pack(key.cc orelse .auto),
             .is_var_args = key.is_var_args,
             .has_comptime_bits = key.comptime_bits != 0,
             .has_noalias_bits = key.noalias_bits != 0,
@@ -8992,7 +8989,6 @@ pub fn getFuncInstance(
             .branch_hint = .none,
             .is_noinline = arg.is_noinline,
             .calls_or_awaits_errorable_fn = false,
-            .stack_alignment = .none,
             .inferred_error_set = false,
             .disable_instrumentation = false,
         },
@@ -9092,7 +9088,6 @@ pub fn getFuncInstanceIes(
             .branch_hint = .none,
             .is_noinline = arg.is_noinline,
             .calls_or_awaits_errorable_fn = false,
-            .stack_alignment = .none,
             .inferred_error_set = true,
             .disable_instrumentation = false,
         },
@@ -9110,7 +9105,7 @@ pub fn getFuncInstanceIes(
         .params_len = params_len,
         .return_type = error_union_type,
         .flags = .{
-            .cc = arg.cc,
+            .cc = .pack(arg.cc),
             .is_var_args = false,
             .has_comptime_bits = false,
             .has_noalias_bits = arg.noalias_bits != 0,
@@ -11871,21 +11866,6 @@ pub fn funcAnalysisUnordered(ip: *const InternPool, func: Index) FuncAnalysis {
     return @atomicLoad(FuncAnalysis, @constCast(ip).funcAnalysisPtr(func), .unordered);
 }
 
-pub fn funcMaxStackAlignment(ip: *InternPool, func: Index, new_stack_alignment: Alignment) void {
-    const unwrapped_func = func.unwrap(ip);
-    const extra_mutex = &ip.getLocal(unwrapped_func.tid).mutate.extra.mutex;
-    extra_mutex.lock();
-    defer extra_mutex.unlock();
-
-    const analysis_ptr = ip.funcAnalysisPtr(func);
-    var analysis = analysis_ptr.*;
-    analysis.stack_alignment = switch (analysis.stack_alignment) {
-        .none => new_stack_alignment,
-        else => |old_stack_alignment| old_stack_alignment.maxStrict(new_stack_alignment),
-    };
-    @atomicStore(FuncAnalysis, analysis_ptr, analysis, .release);
-}
-
 pub fn funcSetCallsOrAwaitsErrorableFn(ip: *InternPool, func: Index) void {
     const unwrapped_func = func.unwrap(ip);
     const extra_mutex = &ip.getLocal(unwrapped_func.tid).mutate.extra.mutex;
@@ -12224,3 +12204,81 @@ pub fn getErrorValue(
 pub fn getErrorValueIfExists(ip: *const InternPool, name: NullTerminatedString) ?Zcu.ErrorInt {
     return @intFromEnum(ip.global_error_set.getErrorValueIfExists(name) orelse return null);
 }
+
+const PackedCallingConvention = packed struct(u18) {
+    tag: std.builtin.CallingConvention.Tag,
+    /// May be ignored depending on `tag`.
+    incoming_stack_alignment: Alignment,
+    /// Interpretation depends on `tag`.
+    extra: u4,
+
+    fn pack(cc: std.builtin.CallingConvention) PackedCallingConvention {
+        return switch (cc) {
+            inline else => |pl, tag| switch (@TypeOf(pl)) {
+                void => .{
+                    .tag = tag,
+                    .incoming_stack_alignment = .none, // unused
+                    .extra = 0, // unused
+                },
+                std.builtin.CallingConvention.CommonOptions => .{
+                    .tag = tag,
+                    .incoming_stack_alignment = .fromByteUnits(pl.incoming_stack_alignment orelse 0),
+                    .extra = 0, // unused
+                },
+                std.builtin.CallingConvention.X86RegparmOptions => .{
+                    .tag = tag,
+                    .incoming_stack_alignment = .fromByteUnits(pl.incoming_stack_alignment orelse 0),
+                    .extra = pl.register_params,
+                },
+                std.builtin.CallingConvention.ArmInterruptOptions => .{
+                    .tag = tag,
+                    .incoming_stack_alignment = .fromByteUnits(pl.incoming_stack_alignment orelse 0),
+                    .extra = @intFromEnum(pl.type),
+                },
+                std.builtin.CallingConvention.MipsInterruptOptions => .{
+                    .tag = tag,
+                    .incoming_stack_alignment = .fromByteUnits(pl.incoming_stack_alignment orelse 0),
+                    .extra = @intFromEnum(pl.mode),
+                },
+                std.builtin.CallingConvention.RiscvInterruptOptions => .{
+                    .tag = tag,
+                    .incoming_stack_alignment = .fromByteUnits(pl.incoming_stack_alignment orelse 0),
+                    .extra = @intFromEnum(pl.mode),
+                },
+                else => comptime unreachable,
+            },
+        };
+    }
+
+    fn unpack(cc: PackedCallingConvention) std.builtin.CallingConvention {
+        return switch (cc.tag) {
+            inline else => |tag| @unionInit(
+                std.builtin.CallingConvention,
+                @tagName(tag),
+                switch (@FieldType(std.builtin.CallingConvention, @tagName(tag))) {
+                    void => {},
+                    std.builtin.CallingConvention.CommonOptions => .{
+                        .incoming_stack_alignment = cc.incoming_stack_alignment.toByteUnits(),
+                    },
+                    std.builtin.CallingConvention.X86RegparmOptions => .{
+                        .incoming_stack_alignment = cc.incoming_stack_alignment.toByteUnits(),
+                        .register_params = @intCast(cc.extra),
+                    },
+                    std.builtin.CallingConvention.ArmInterruptOptions => .{
+                        .incoming_stack_alignment = cc.incoming_stack_alignment.toByteUnits(),
+                        .type = @enumFromInt(cc.extra),
+                    },
+                    std.builtin.CallingConvention.MipsInterruptOptions => .{
+                        .incoming_stack_alignment = cc.incoming_stack_alignment.toByteUnits(),
+                        .mode = @enumFromInt(cc.extra),
+                    },
+                    std.builtin.CallingConvention.RiscvInterruptOptions => .{
+                        .incoming_stack_alignment = cc.incoming_stack_alignment.toByteUnits(),
+                        .mode = @enumFromInt(cc.extra),
+                    },
+                    else => comptime unreachable,
+                },
+            ),
+        };
+    }
+};

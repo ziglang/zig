@@ -82,7 +82,6 @@ pub const Tag = enum {
     rem,
     return_address,
     select,
-    set_align_stack,
     set_eval_branch_quota,
     set_float_mode,
     set_runtime_safety,
@@ -742,14 +741,6 @@ pub const list = list: {
             .{
                 .tag = .select,
                 .param_count = 4,
-            },
-        },
-        .{
-            "@setAlignStack",
-            .{
-                .tag = .set_align_stack,
-                .param_count = 1,
-                .illegal_outside_function = true,
             },
         },
         .{

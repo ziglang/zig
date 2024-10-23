@@ -366,7 +366,7 @@ fn gen(self: *Self) !void {
     const pt = self.pt;
     const zcu = pt.zcu;
     const cc = self.fn_type.fnCallingConvention(zcu);
-    if (cc != .Naked) {
+    if (cc != .naked) {
         // TODO Finish function prologue and epilogue for sparc64.
 
         // save %sp, stack_reserved_area, %sp
@@ -4441,14 +4441,14 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type, role: RegisterView) 
     const ret_ty = fn_ty.fnReturnType(zcu);
 
     switch (cc) {
-        .Naked => {
+        .naked => {
             assert(result.args.len == 0);
             result.return_value = .{ .unreach = {} };
             result.stack_byte_count = 0;
             result.stack_align = .@"1";
             return result;
         },
-        .Unspecified, .C => {
+        .auto, .sparc64_sysv => {
             // SPARC Compliance Definition 2.4.1, Chapter 3
             // Low-Level System Information (64-bit psABI) - Function Calling Sequence
 

@@ -1,4 +1,4 @@
-fn entry() callconv(.C) void {}
+fn entry() callconv(.c) void {}
 comptime {
     @export(&entry, .{ .name = "entry", .linkage = @as(u32, 1234) });
 }
