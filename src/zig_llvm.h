@@ -24,12 +24,51 @@
 // ATTENTION: If you modify this file, be sure to update the corresponding
 // extern function declarations in the self-hosted compiler.
 
-ZIG_EXTERN_C bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef module_ref,
-        char **error_message, bool is_debug,
-        bool is_small, bool time_report, bool tsan, bool lto,
-        const char *asm_filename, const char *bin_filename,
-        const char *llvm_ir_filename, const char *bitcode_filename);
 
+enum ZigLLVMCoverageType {
+    ZigLLVMCoverageType_None = 0,
+    ZigLLVMCoverageType_Function,
+    ZigLLVMCoverageType_BB,
+    ZigLLVMCoverageType_Edge
+};
+
+struct ZigLLVMCoverageOptions {
+    ZigLLVMCoverageType CoverageType;
+    bool IndirectCalls;
+    bool TraceBB;
+    bool TraceCmp;
+    bool TraceDiv;
+    bool TraceGep;
+    bool Use8bitCounters;
+    bool TracePC;
+    bool TracePCGuard;
+    bool Inline8bitCounters;
+    bool InlineBoolFlag;
+    bool PCTable;
+    bool NoPrune;
+    bool StackDepth;
+    bool TraceLoads;
+    bool TraceStores;
+    bool CollectControlFlow;
+};
+
+struct ZigLLVMEmitOptions {
+    bool is_debug;
+    bool is_small;
+    bool time_report;
+    bool tsan;
+    bool sancov;
+    bool lto;
+    bool allow_fast_isel;
+    const char *asm_filename;
+    const char *bin_filename;
+    const char *llvm_ir_filename;
+    const char *bitcode_filename;
+    ZigLLVMCoverageOptions coverage;
+};
+
+ZIG_EXTERN_C bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef module_ref,
+        char **error_message, const struct ZigLLVMEmitOptions *options);
 
 enum ZigLLVMABIType {
     ZigLLVMABITypeDefault, // Target-specific (either soft or hard depending on triple, etc).
@@ -39,7 +78,7 @@ enum ZigLLVMABIType {
 
 ZIG_EXTERN_C LLVMTargetMachineRef ZigLLVMCreateTargetMachine(LLVMTargetRef T, const char *Triple,
     const char *CPU, const char *Features, LLVMCodeGenOptLevel Level, LLVMRelocMode Reloc,
-    LLVMCodeModel CodeModel, bool function_sections, bool data_sections, enum ZigLLVMABIType float_abi, 
+    LLVMCodeModel CodeModel, bool function_sections, bool data_sections, enum ZigLLVMABIType float_abi,
     const char *abi_name);
 
 ZIG_EXTERN_C void ZigLLVMSetOptBisectLimit(LLVMContextRef context_ref, int limit);
@@ -115,10 +154,6 @@ enum ZigLLVM_CallingConv {
     ZigLLVM_ARM64EC_Thunk_Native = 109,
     ZigLLVM_MaxID = 1023,
 };
-
-ZIG_EXTERN_C void ZigLLVMSetModulePICLevel(LLVMModuleRef module);
-ZIG_EXTERN_C void ZigLLVMSetModulePIELevel(LLVMModuleRef module);
-ZIG_EXTERN_C void ZigLLVMSetModuleCodeModel(LLVMModuleRef module, LLVMCodeModel code_model);
 
 ZIG_EXTERN_C void ZigLLVMParseCommandLineOptions(size_t argc, const char *const *argv);
 
@@ -245,6 +280,7 @@ enum ZigLLVM_OSType {
     ZigLLVM_ELFIAMCU,
     ZigLLVM_TvOS,       // Apple tvOS
     ZigLLVM_WatchOS,    // Apple watchOS
+    ZigLLVM_BridgeOS,   // Apple bridgeOS
     ZigLLVM_DriverKit,  // Apple DriverKit
     ZigLLVM_XROS,       // Apple XROS
     ZigLLVM_Mesa3D,
@@ -305,9 +341,12 @@ enum ZigLLVM_EnvironmentType {
     ZigLLVM_Callable,
     ZigLLVM_Mesh,
     ZigLLVM_Amplification,
+    ZigLLVM_OpenCL,
     ZigLLVM_OpenHOS,
 
-    ZigLLVM_LastEnvironmentType = ZigLLVM_OpenHOS
+    ZigLLVM_PAuthTest,
+
+    ZigLLVM_LastEnvironmentType = ZigLLVM_PAuthTest
 };
 
 enum ZigLLVM_ObjectFormatType {

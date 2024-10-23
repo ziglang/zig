@@ -23,8 +23,13 @@ struct remove_pointer {
   using type _LIBCPP_NODEBUG = __remove_pointer(_Tp);
 };
 
+#  ifdef _LIBCPP_COMPILER_GCC
+template <class _Tp>
+using __remove_pointer_t = typename remove_pointer<_Tp>::type;
+#  else
 template <class _Tp>
 using __remove_pointer_t = __remove_pointer(_Tp);
+#  endif
 #else
 // clang-format off
 template <class _Tp> struct _LIBCPP_TEMPLATE_VIS remove_pointer                      {typedef _LIBCPP_NODEBUG _Tp type;};

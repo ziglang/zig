@@ -30,5 +30,5 @@ int __setxid(int nr, int id, int eid, int sid)
 	 * trigger the safety kill above. */
 	struct ctx c = { .nr = nr, .id = id, .eid = eid, .sid = sid, .ret = 1 };
 	__synccall(do_setxid, &c);
-	return __syscall_ret(c.ret);
+	return __syscall_ret(c.ret > 0 ? -EAGAIN : c.ret);
 }

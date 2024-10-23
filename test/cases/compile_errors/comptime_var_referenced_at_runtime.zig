@@ -47,6 +47,22 @@ export fn qar() void {
     _ = y;
 }
 
+export fn bux() void {
+    comptime var x: [2]u32 = undefined;
+    x = .{ 1, 2 };
+
+    var rt: [2]u32 = undefined;
+    @memcpy(&rt, &x);
+}
+
+export fn far() void {
+    comptime var x: u32 = 123;
+
+    var rt: [2]*u32 = undefined;
+    const elem: *u32 = &x;
+    @memset(&rt, elem);
+}
+
 // error
 //
 // :5:19: error: runtime value contains reference to comptime var
@@ -63,3 +79,7 @@ export fn qar() void {
 // :41:12: note: comptime var pointers are not available at runtime
 // :46:39: error: runtime value contains reference to comptime var
 // :46:39: note: comptime var pointers are not available at runtime
+// :55:18: error: runtime value contains reference to comptime var
+// :55:18: note: comptime var pointers are not available at runtime
+// :63:18: error: runtime value contains reference to comptime var
+// :63:18: note: comptime var pointers are not available at runtime

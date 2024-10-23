@@ -146,17 +146,14 @@ pub const Attributed = struct {
     attributes: []Attribute,
     base: Type,
 
-    pub fn create(allocator: std.mem.Allocator, base: Type, existing_attributes: []const Attribute, attributes: []const Attribute) !*Attributed {
+    pub fn create(allocator: std.mem.Allocator, base_ty: Type, attributes: []const Attribute) !*Attributed {
         const attributed_type = try allocator.create(Attributed);
         errdefer allocator.destroy(attributed_type);
-
-        const all_attrs = try allocator.alloc(Attribute, existing_attributes.len + attributes.len);
-        @memcpy(all_attrs[0..existing_attributes.len], existing_attributes);
-        @memcpy(all_attrs[existing_attributes.len..], attributes);
+        const duped = try allocator.dupe(Attribute, attributes);
 
         attributed_type.* = .{
-            .attributes = all_attrs,
-            .base = base,
+            .attributes = duped,
+            .base = base_ty,
         };
         return attributed_type;
     }
@@ -190,13 +187,10 @@ pub const Enum = struct {
     }
 };
 
-// might not need all 4 of these when finished,
-// but currently it helps having all 4 when diff-ing
-// the rust code.
 pub const TypeLayout = struct {
     /// The size of the type in bits.
     ///
-    /// This is the value returned by `sizeof` and C and `std::mem::size_of` in Rust
+    /// This is the value returned by `sizeof` in C
     /// (but in bits instead of bytes). This is a multiple of `pointer_alignment_bits`.
     size_bits: u64,
     /// The alignment of the type, in bits, when used as a field in a record.
@@ -205,9 +199,7 @@ pub const TypeLayout = struct {
     /// cases in GCC where `_Alignof` returns a smaller value.
     field_alignment_bits: u32,
     /// The alignment, in bits, of valid pointers to this type.
-    ///
-    /// This is the value returned by `std::mem::align_of` in Rust
-    /// (but in bits instead of bytes). `size_bits` is a multiple of this value.
+    /// `size_bits` is a multiple of this value.
     pointer_alignment_bits: u32,
     /// The required alignment of the type in bits.
     ///
@@ -301,6 +293,15 @@ pub const Record = struct {
         }
         return false;
     }
+
+    pub fn hasField(self: *const Record, name: StringId) bool {
+        std.debug.assert(!self.isIncomplete());
+        for (self.fields) |f| {
+            if (f.isAnonymousRecord() and f.ty.getRecord().?.hasField(name)) return true;
+            if (name == f.name) return true;
+        }
+        return false;
+    }
 };
 
 pub const Specifier = enum {
@@ -354,12 +355,11 @@ pub const Specifier = enum {
     float,
     double,
     long_double,
-    float80,
     float128,
+    complex_float16,
     complex_float,
     complex_double,
     complex_long_double,
-    complex_float80,
     complex_float128,
 
     // data.sub_type
@@ -422,6 +422,8 @@ data: union {
 specifier: Specifier,
 qual: Qualifiers = .{},
 decayed: bool = false,
+/// typedef name, if any
+name: StringId = .empty,
 
 pub const int = Type{ .specifier = .int };
 pub const invalid = Type{ .specifier = .invalid };
@@ -435,8 +437,8 @@ pub fn is(ty: Type, specifier: Specifier) bool {
 
 pub fn withAttributes(self: Type, allocator: std.mem.Allocator, attributes: []const Attribute) !Type {
     if (attributes.len == 0) return self;
-    const attributed_type = try Type.Attributed.create(allocator, self, self.getAttributes(), attributes);
-    return Type{ .specifier = .attributed, .data = .{ .attributed = attributed_type }, .decayed = self.decayed };
+    const attributed_type = try Type.Attributed.create(allocator, self, attributes);
+    return .{ .specifier = .attributed, .data = .{ .attributed = attributed_type }, .decayed = self.decayed };
 }
 
 pub fn isCallable(ty: Type) ?Type {
@@ -468,6 +470,23 @@ pub fn isArray(ty: Type) bool {
         .attributed => !ty.isDecayed() and ty.data.attributed.base.isArray(),
         else => false,
     };
+}
+
+/// Must only be used to set the length of an incomplete array as determined by its initializer
+pub fn setIncompleteArrayLen(ty: *Type, len: u64) void {
+    switch (ty.specifier) {
+        .incomplete_array => {
+            // Modifying .data is exceptionally allowed for .incomplete_array.
+            ty.data.array.len = len;
+            ty.specifier = .array;
+        },
+
+        .typeof_type => ty.data.sub_type.setIncompleteArrayLen(len),
+        .typeof_expr => ty.data.expr.ty.setIncompleteArrayLen(len),
+        .attributed => ty.data.attributed.base.setIncompleteArrayLen(len),
+
+        else => unreachable,
+    }
 }
 
 /// Whether the type is promoted if used as a variadic argument or as an argument to a function with no prototype
@@ -536,7 +555,7 @@ pub fn isFloat(ty: Type) bool {
     return switch (ty.specifier) {
         // zig fmt: off
         .float, .double, .long_double, .complex_float, .complex_double, .complex_long_double,
-        .fp16, .float16, .float80, .float128, .complex_float80, .complex_float128 => true,
+        .fp16, .float16, .float128, .complex_float128, .complex_float16 => true,
         // zig fmt: on
         .typeof_type => ty.data.sub_type.isFloat(),
         .typeof_expr => ty.data.expr.ty.isFloat(),
@@ -548,11 +567,11 @@ pub fn isFloat(ty: Type) bool {
 pub fn isReal(ty: Type) bool {
     return switch (ty.specifier) {
         // zig fmt: off
-        .complex_float, .complex_double, .complex_long_double, .complex_float80,
+        .complex_float, .complex_double, .complex_long_double,
         .complex_float128, .complex_char, .complex_schar, .complex_uchar, .complex_short,
         .complex_ushort, .complex_int, .complex_uint, .complex_long, .complex_ulong,
         .complex_long_long, .complex_ulong_long, .complex_int128, .complex_uint128,
-        .complex_bit_int => false,
+        .complex_bit_int, .complex_float16 => false,
         // zig fmt: on
         .typeof_type => ty.data.sub_type.isReal(),
         .typeof_expr => ty.data.expr.ty.isReal(),
@@ -564,11 +583,11 @@ pub fn isReal(ty: Type) bool {
 pub fn isComplex(ty: Type) bool {
     return switch (ty.specifier) {
         // zig fmt: off
-        .complex_float, .complex_double, .complex_long_double, .complex_float80,
+        .complex_float, .complex_double, .complex_long_double,
         .complex_float128, .complex_char, .complex_schar, .complex_uchar, .complex_short,
         .complex_ushort, .complex_int, .complex_uint, .complex_long, .complex_ulong,
         .complex_long_long, .complex_ulong_long, .complex_int128, .complex_uint128,
-        .complex_bit_int => true,
+        .complex_bit_int, .complex_float16 => true,
         // zig fmt: on
         .typeof_type => ty.data.sub_type.isComplex(),
         .typeof_expr => ty.data.expr.ty.isComplex(),
@@ -671,11 +690,11 @@ pub fn elemType(ty: Type) Type {
         .attributed => ty.data.attributed.base.elemType(),
         .invalid => Type.invalid,
         // zig fmt: off
-        .complex_float, .complex_double, .complex_long_double, .complex_float80,
+        .complex_float, .complex_double, .complex_long_double,
         .complex_float128, .complex_char, .complex_schar, .complex_uchar, .complex_short,
         .complex_ushort, .complex_int, .complex_uint, .complex_long, .complex_ulong,
         .complex_long_long, .complex_ulong_long, .complex_int128, .complex_uint128,
-        .complex_bit_int => ty.makeReal(),
+        .complex_bit_int, .complex_float16 => ty.makeReal(),
         // zig fmt: on
         else => unreachable,
     };
@@ -703,6 +722,16 @@ pub fn params(ty: Type) []Func.Param {
     };
 }
 
+/// Returns true if the return value or any param of `ty` is `.invalid`
+/// Asserts that ty is a function type
+pub fn isInvalidFunc(ty: Type) bool {
+    if (ty.returnType().is(.invalid)) return true;
+    for (ty.params()) |param| {
+        if (param.ty.is(.invalid)) return true;
+    }
+    return false;
+}
+
 pub fn arrayLen(ty: Type) ?u64 {
     return switch (ty.specifier) {
         .array, .static_array => ty.data.array.len,
@@ -723,15 +752,6 @@ pub fn anyQual(ty: Type) bool {
         .typeof_type => ty.qual.any() or ty.data.sub_type.anyQual(),
         .typeof_expr => ty.qual.any() or ty.data.expr.ty.anyQual(),
         else => ty.qual.any(),
-    };
-}
-
-pub fn getAttributes(ty: Type) []const Attribute {
-    return switch (ty.specifier) {
-        .attributed => ty.data.attributed.attributes,
-        .typeof_type => ty.data.sub_type.getAttributes(),
-        .typeof_expr => ty.data.expr.ty.getAttributes(),
-        else => &.{},
     };
 }
 
@@ -795,8 +815,8 @@ fn realIntegerConversion(a: Type, b: Type, comp: *const Compilation) Type {
 
 pub fn makeIntegerUnsigned(ty: Type) Type {
     // TODO discards attributed/typeof
-    var base = ty.canonicalize(.standard);
-    switch (base.specifier) {
+    var base_ty = ty.canonicalize(.standard);
+    switch (base_ty.specifier) {
         // zig fmt: off
         .uchar, .ushort, .uint, .ulong, .ulong_long, .uint128,
         .complex_uchar, .complex_ushort, .complex_uint, .complex_ulong, .complex_ulong_long, .complex_uint128,
@@ -804,21 +824,21 @@ pub fn makeIntegerUnsigned(ty: Type) Type {
         // zig fmt: on
 
         .char, .complex_char => {
-            base.specifier = @enumFromInt(@intFromEnum(base.specifier) + 2);
-            return base;
+            base_ty.specifier = @enumFromInt(@intFromEnum(base_ty.specifier) + 2);
+            return base_ty;
         },
 
         // zig fmt: off
         .schar, .short, .int, .long, .long_long, .int128,
         .complex_schar, .complex_short, .complex_int, .complex_long, .complex_long_long, .complex_int128 => {
-            base.specifier = @enumFromInt(@intFromEnum(base.specifier) + 1);
-            return base;
+            base_ty.specifier = @enumFromInt(@intFromEnum(base_ty.specifier) + 1);
+            return base_ty;
         },
         // zig fmt: on
 
         .bit_int, .complex_bit_int => {
-            base.data.int.signedness = .unsigned;
-            return base;
+            base_ty.data.int.signedness = .unsigned;
+            return base_ty;
         },
         else => unreachable,
     }
@@ -837,6 +857,8 @@ pub fn integerPromotion(ty: Type, comp: *Compilation) Type {
     switch (specifier) {
         .@"enum" => {
             if (ty.hasIncompleteSize()) return .{ .specifier = .int };
+            if (ty.data.@"enum".fixed) return ty.data.@"enum".tag_ty.integerPromotion(comp);
+
             specifier = ty.data.@"enum".tag_ty.specifier;
         },
         .bit_int, .complex_bit_int => return .{ .specifier = specifier, .data = ty.data },
@@ -915,53 +937,7 @@ pub fn hasUnboundVLA(ty: Type) bool {
 }
 
 pub fn hasField(ty: Type, name: StringId) bool {
-    switch (ty.specifier) {
-        .@"struct" => {
-            std.debug.assert(!ty.data.record.isIncomplete());
-            for (ty.data.record.fields) |f| {
-                if (f.isAnonymousRecord() and f.ty.hasField(name)) return true;
-                if (name == f.name) return true;
-            }
-        },
-        .@"union" => {
-            std.debug.assert(!ty.data.record.isIncomplete());
-            for (ty.data.record.fields) |f| {
-                if (f.isAnonymousRecord() and f.ty.hasField(name)) return true;
-                if (name == f.name) return true;
-            }
-        },
-        .typeof_type => return ty.data.sub_type.hasField(name),
-        .typeof_expr => return ty.data.expr.ty.hasField(name),
-        .attributed => return ty.data.attributed.base.hasField(name),
-        .invalid => return false,
-        else => unreachable,
-    }
-    return false;
-}
-
-// TODO handle bitints
-pub fn minInt(ty: Type, comp: *const Compilation) i64 {
-    std.debug.assert(ty.isInt());
-    if (ty.isUnsignedInt(comp)) return 0;
-    return switch (ty.sizeof(comp).?) {
-        1 => std.math.minInt(i8),
-        2 => std.math.minInt(i16),
-        4 => std.math.minInt(i32),
-        8 => std.math.minInt(i64),
-        else => unreachable,
-    };
-}
-
-// TODO handle bitints
-pub fn maxInt(ty: Type, comp: *const Compilation) u64 {
-    std.debug.assert(ty.isInt());
-    return switch (ty.sizeof(comp).?) {
-        1 => if (ty.isUnsignedInt(comp)) @as(u64, std.math.maxInt(u8)) else std.math.maxInt(i8),
-        2 => if (ty.isUnsignedInt(comp)) @as(u64, std.math.maxInt(u16)) else std.math.maxInt(i16),
-        4 => if (ty.isUnsignedInt(comp)) @as(u64, std.math.maxInt(u32)) else std.math.maxInt(i32),
-        8 => if (ty.isUnsignedInt(comp)) @as(u64, std.math.maxInt(u64)) else std.math.maxInt(i64),
-        else => unreachable,
-    };
+    return ty.getRecord().?.hasField(name);
 }
 
 const TypeSizeOrder = enum {
@@ -991,29 +967,28 @@ pub fn sizeof(ty: Type, comp: *const Compilation) ?u64 {
         .incomplete_array => return if (comp.langopts.emulate == .msvc) @as(?u64, 0) else null,
         .func, .var_args_func, .old_style_func, .void, .bool => 1,
         .char, .schar, .uchar => 1,
-        .short => comp.target.c_type_byte_size(.short),
-        .ushort => comp.target.c_type_byte_size(.ushort),
-        .int => comp.target.c_type_byte_size(.int),
-        .uint => comp.target.c_type_byte_size(.uint),
-        .long => comp.target.c_type_byte_size(.long),
-        .ulong => comp.target.c_type_byte_size(.ulong),
-        .long_long => comp.target.c_type_byte_size(.longlong),
-        .ulong_long => comp.target.c_type_byte_size(.ulonglong),
-        .long_double => comp.target.c_type_byte_size(.longdouble),
+        .short => comp.target.cTypeByteSize(.short),
+        .ushort => comp.target.cTypeByteSize(.ushort),
+        .int => comp.target.cTypeByteSize(.int),
+        .uint => comp.target.cTypeByteSize(.uint),
+        .long => comp.target.cTypeByteSize(.long),
+        .ulong => comp.target.cTypeByteSize(.ulong),
+        .long_long => comp.target.cTypeByteSize(.longlong),
+        .ulong_long => comp.target.cTypeByteSize(.ulonglong),
+        .long_double => comp.target.cTypeByteSize(.longdouble),
         .int128, .uint128 => 16,
         .fp16, .float16 => 2,
-        .float => comp.target.c_type_byte_size(.float),
-        .double => comp.target.c_type_byte_size(.double),
-        .float80 => 16,
+        .float => comp.target.cTypeByteSize(.float),
+        .double => comp.target.cTypeByteSize(.double),
         .float128 => 16,
         .bit_int => {
-            return std.mem.alignForward(u64, (ty.data.int.bits + 7) / 8, ty.alignof(comp));
+            return std.mem.alignForward(u64, (@as(u32, ty.data.int.bits) + 7) / 8, ty.alignof(comp));
         },
         // zig fmt: off
         .complex_char, .complex_schar, .complex_uchar, .complex_short, .complex_ushort, .complex_int,
         .complex_uint, .complex_long, .complex_ulong, .complex_long_long, .complex_ulong_long,
         .complex_int128, .complex_uint128, .complex_float, .complex_double,
-        .complex_long_double, .complex_float80, .complex_float128, .complex_bit_int,
+        .complex_long_double, .complex_float128, .complex_bit_int, .complex_float16,
         => return 2 * ty.makeReal().sizeof(comp).?,
         // zig fmt: on
         .pointer => unreachable,
@@ -1049,8 +1024,7 @@ pub fn bitSizeof(ty: Type, comp: *const Compilation) ?u64 {
         .typeof_expr => ty.data.expr.ty.bitSizeof(comp),
         .attributed => ty.data.attributed.base.bitSizeof(comp),
         .bit_int => return ty.data.int.bits,
-        .long_double => comp.target.c_type_bit_size(.longdouble),
-        .float80 => return 80,
+        .long_double => comp.target.cTypeBitSize(.longdouble),
         else => 8 * (ty.sizeof(comp) orelse return null),
     };
 }
@@ -1100,33 +1074,38 @@ pub fn alignof(ty: Type, comp: *const Compilation) u29 {
         .complex_char, .complex_schar, .complex_uchar, .complex_short, .complex_ushort, .complex_int,
         .complex_uint, .complex_long, .complex_ulong, .complex_long_long, .complex_ulong_long,
         .complex_int128, .complex_uint128, .complex_float, .complex_double,
-        .complex_long_double, .complex_float80, .complex_float128, .complex_bit_int,
+        .complex_long_double, .complex_float128, .complex_bit_int, .complex_float16,
         => return ty.makeReal().alignof(comp),
         // zig fmt: on
 
-        .short => comp.target.c_type_alignment(.short),
-        .ushort => comp.target.c_type_alignment(.ushort),
-        .int => comp.target.c_type_alignment(.int),
-        .uint => comp.target.c_type_alignment(.uint),
+        .short => comp.target.cTypeAlignment(.short),
+        .ushort => comp.target.cTypeAlignment(.ushort),
+        .int => comp.target.cTypeAlignment(.int),
+        .uint => comp.target.cTypeAlignment(.uint),
 
-        .long => comp.target.c_type_alignment(.long),
-        .ulong => comp.target.c_type_alignment(.ulong),
-        .long_long => comp.target.c_type_alignment(.longlong),
-        .ulong_long => comp.target.c_type_alignment(.ulonglong),
+        .long => comp.target.cTypeAlignment(.long),
+        .ulong => comp.target.cTypeAlignment(.ulong),
+        .long_long => comp.target.cTypeAlignment(.longlong),
+        .ulong_long => comp.target.cTypeAlignment(.ulonglong),
 
-        .bit_int => @min(
-            std.math.ceilPowerOfTwoPromote(u16, (ty.data.int.bits + 7) / 8),
-            16, // comp.target.maxIntAlignment(), please use your own logic for this value as it is implementation-defined
-        ),
+        .bit_int => {
+            // https://www.open-std.org/jtc1/sc22/wg14/www/docs/n2709.pdf
+            // _BitInt(N) types align with existing calling conventions. They have the same size and alignment as the
+            // smallest basic type that can contain them. Types that are larger than __int64_t are conceptually treated
+            // as struct of register size chunks. The number of chunks is the smallest number that can contain the type.
+            if (ty.data.int.bits > 64) return 8;
+            const basic_type = comp.intLeastN(ty.data.int.bits, ty.data.int.signedness);
+            return basic_type.alignof(comp);
+        },
 
-        .float => comp.target.c_type_alignment(.float),
-        .double => comp.target.c_type_alignment(.double),
-        .long_double => comp.target.c_type_alignment(.longdouble),
+        .float => comp.target.cTypeAlignment(.float),
+        .double => comp.target.cTypeAlignment(.double),
+        .long_double => comp.target.cTypeAlignment(.longdouble),
 
         .int128, .uint128 => if (comp.target.cpu.arch == .s390x and comp.target.os.tag == .linux and comp.target.isGnu()) 8 else 16,
         .fp16, .float16 => 2,
 
-        .float80, .float128 => 16,
+        .float128 => 16,
         .pointer,
         .static_array,
         .nullptr_t,
@@ -1142,7 +1121,11 @@ pub fn alignof(ty: Type, comp: *const Compilation) u29 {
     };
 }
 
-pub const QualHandling = enum { standard, preserve_quals };
+// This enum should be kept public because it is used by the downstream zig translate-c
+pub const QualHandling = enum {
+    standard,
+    preserve_quals,
+};
 
 /// Canonicalize a possibly-typeof() type. If the type is not a typeof() type, simply
 /// return it. Otherwise, determine the actual qualified type.
@@ -1151,17 +1134,12 @@ pub const QualHandling = enum { standard, preserve_quals };
 /// arrays and pointers.
 pub fn canonicalize(ty: Type, qual_handling: QualHandling) Type {
     var cur = ty;
-    if (cur.specifier == .attributed) {
-        cur = cur.data.attributed.base;
-        cur.decayed = ty.decayed;
-    }
-    if (!cur.isTypeof()) return cur;
-
     var qual = cur.qual;
     while (true) {
         switch (cur.specifier) {
             .typeof_type => cur = cur.data.sub_type.*,
             .typeof_expr => cur = cur.data.expr.ty,
+            .attributed => cur = cur.data.attributed.base,
             else => break,
         }
         qual = qual.mergeAll(cur.qual);
@@ -1189,7 +1167,7 @@ pub fn requestedAlignment(ty: Type, comp: *const Compilation) ?u29 {
     return switch (ty.specifier) {
         .typeof_type => ty.data.sub_type.requestedAlignment(comp),
         .typeof_expr => ty.data.expr.ty.requestedAlignment(comp),
-        .attributed => annotationAlignment(comp, ty.data.attributed.attributes),
+        .attributed => annotationAlignment(comp, Attribute.Iterator.initType(ty)),
         else => null,
     };
 }
@@ -1199,12 +1177,27 @@ pub fn enumIsPacked(ty: Type, comp: *const Compilation) bool {
     return comp.langopts.short_enums or target_util.packAllEnums(comp.target) or ty.hasAttribute(.@"packed");
 }
 
-pub fn annotationAlignment(comp: *const Compilation, attrs: ?[]const Attribute) ?u29 {
-    const a = attrs orelse return null;
+pub fn getName(ty: Type) StringId {
+    return switch (ty.specifier) {
+        .typeof_type => if (ty.name == .empty) ty.data.sub_type.getName() else ty.name,
+        .typeof_expr => if (ty.name == .empty) ty.data.expr.ty.getName() else ty.name,
+        .attributed => if (ty.name == .empty) ty.data.attributed.base.getName() else ty.name,
+        else => ty.name,
+    };
+}
 
+pub fn annotationAlignment(comp: *const Compilation, attrs: Attribute.Iterator) ?u29 {
+    var it = attrs;
     var max_requested: ?u29 = null;
-    for (a) |attribute| {
+    var last_aligned_index: ?usize = null;
+    while (it.next()) |item| {
+        const attribute, const index = item;
         if (attribute.tag != .aligned) continue;
+        if (last_aligned_index) |aligned_index| {
+            // once we recurse into a new type, after an `aligned` attribute was found, we're done
+            if (index <= aligned_index) break;
+        }
+        last_aligned_index = index;
         const requested = if (attribute.args.aligned.alignment) |alignment| alignment.requested else target_util.defaultAlignment(comp.target);
         if (max_requested == null or max_requested.? < requested) {
             max_requested = requested;
@@ -1225,6 +1218,10 @@ pub fn eql(a_param: Type, b_param: Type, comp: *const Compilation, check_qualifi
         if (!b.isFunc()) return false;
     } else if (a.isArray()) {
         if (!b.isArray()) return false;
+    } else if (a.specifier == .@"enum" and b.specifier != .@"enum") {
+        return a.data.@"enum".tag_ty.eql(b, comp, check_qualifiers);
+    } else if (b.specifier == .@"enum" and a.specifier != .@"enum") {
+        return a.eql(b.data.@"enum".tag_ty, comp, check_qualifiers);
     } else if (a.specifier != b.specifier) return false;
 
     if (a.qual.atomic != b.qual.atomic) return false;
@@ -1315,6 +1312,12 @@ pub fn integerRank(ty: Type, comp: *const Compilation) usize {
         .long_long, .ulong_long => 6 + (ty.bitSizeof(comp).? << 3),
         .int128, .uint128 => 7 + (ty.bitSizeof(comp).? << 3),
 
+        .typeof_type => ty.data.sub_type.integerRank(comp),
+        .typeof_expr => ty.data.expr.ty.integerRank(comp),
+        .attributed => ty.data.attributed.base.integerRank(comp),
+
+        .@"enum" => real.data.@"enum".tag_ty.integerRank(comp),
+
         else => unreachable,
     });
 }
@@ -1322,25 +1325,26 @@ pub fn integerRank(ty: Type, comp: *const Compilation) usize {
 /// Returns true if `a` and `b` are integer types that differ only in sign
 pub fn sameRankDifferentSign(a: Type, b: Type, comp: *const Compilation) bool {
     if (!a.isInt() or !b.isInt()) return false;
+    if (a.hasIncompleteSize() or b.hasIncompleteSize()) return false;
     if (a.integerRank(comp) != b.integerRank(comp)) return false;
     return a.isUnsignedInt(comp) != b.isUnsignedInt(comp);
 }
 
 pub fn makeReal(ty: Type) Type {
     // TODO discards attributed/typeof
-    var base = ty.canonicalize(.standard);
-    switch (base.specifier) {
-        .complex_float, .complex_double, .complex_long_double, .complex_float80, .complex_float128 => {
-            base.specifier = @enumFromInt(@intFromEnum(base.specifier) - 5);
-            return base;
+    var base_ty = ty.canonicalize(.standard);
+    switch (base_ty.specifier) {
+        .complex_float16, .complex_float, .complex_double, .complex_long_double, .complex_float128 => {
+            base_ty.specifier = @enumFromInt(@intFromEnum(base_ty.specifier) - 5);
+            return base_ty;
         },
         .complex_char, .complex_schar, .complex_uchar, .complex_short, .complex_ushort, .complex_int, .complex_uint, .complex_long, .complex_ulong, .complex_long_long, .complex_ulong_long, .complex_int128, .complex_uint128 => {
-            base.specifier = @enumFromInt(@intFromEnum(base.specifier) - 13);
-            return base;
+            base_ty.specifier = @enumFromInt(@intFromEnum(base_ty.specifier) - 13);
+            return base_ty;
         },
         .complex_bit_int => {
-            base.specifier = .bit_int;
-            return base;
+            base_ty.specifier = .bit_int;
+            return base_ty;
         },
         else => return ty,
     }
@@ -1348,19 +1352,19 @@ pub fn makeReal(ty: Type) Type {
 
 pub fn makeComplex(ty: Type) Type {
     // TODO discards attributed/typeof
-    var base = ty.canonicalize(.standard);
-    switch (base.specifier) {
-        .float, .double, .long_double, .float80, .float128 => {
-            base.specifier = @enumFromInt(@intFromEnum(base.specifier) + 5);
-            return base;
+    var base_ty = ty.canonicalize(.standard);
+    switch (base_ty.specifier) {
+        .float, .double, .long_double, .float128 => {
+            base_ty.specifier = @enumFromInt(@intFromEnum(base_ty.specifier) + 5);
+            return base_ty;
         },
         .char, .schar, .uchar, .short, .ushort, .int, .uint, .long, .ulong, .long_long, .ulong_long, .int128, .uint128 => {
-            base.specifier = @enumFromInt(@intFromEnum(base.specifier) + 13);
-            return base;
+            base_ty.specifier = @enumFromInt(@intFromEnum(base_ty.specifier) + 13);
+            return base_ty;
         },
         .bit_int => {
-            base.specifier = .complex_bit_int;
-            return base;
+            base_ty.specifier = .complex_bit_int;
+            return base_ty;
         },
         else => return ty,
     }
@@ -1541,13 +1545,12 @@ pub const Builder = struct {
         float,
         double,
         long_double,
-        float80,
         float128,
         complex,
+        complex_float16,
         complex_float,
         complex_double,
         complex_long_double,
-        complex_float80,
         complex_float128,
 
         pointer: *Type,
@@ -1613,9 +1616,6 @@ pub const Builder = struct {
                 .int128 => "__int128",
                 .sint128 => "signed __int128",
                 .uint128 => "unsigned __int128",
-                .bit_int => "_BitInt",
-                .sbit_int => "signed _BitInt",
-                .ubit_int => "unsigned _BitInt",
                 .complex_char => "_Complex char",
                 .complex_schar => "_Complex signed char",
                 .complex_uchar => "_Complex unsigned char",
@@ -1645,22 +1645,18 @@ pub const Builder = struct {
                 .complex_int128 => "_Complex __int128",
                 .complex_sint128 => "_Complex signed __int128",
                 .complex_uint128 => "_Complex unsigned __int128",
-                .complex_bit_int => "_Complex _BitInt",
-                .complex_sbit_int => "_Complex signed _BitInt",
-                .complex_ubit_int => "_Complex unsigned _BitInt",
 
                 .fp16 => "__fp16",
                 .float16 => "_Float16",
                 .float => "float",
                 .double => "double",
                 .long_double => "long double",
-                .float80 => "__float80",
                 .float128 => "__float128",
                 .complex => "_Complex",
+                .complex_float16 => "_Complex _Float16",
                 .complex_float => "_Complex float",
                 .complex_double => "_Complex double",
                 .complex_long_double => "_Complex long double",
-                .complex_float80 => "_Complex __float80",
                 .complex_float128 => "_Complex __float128",
 
                 .attributed => |attributed| Builder.fromType(attributed.base).str(langopts),
@@ -1757,19 +1753,20 @@ pub const Builder = struct {
             .complex_uint128 => ty.specifier = .complex_uint128,
             .bit_int, .sbit_int, .ubit_int, .complex_bit_int, .complex_ubit_int, .complex_sbit_int => |bits| {
                 const unsigned = b.specifier == .ubit_int or b.specifier == .complex_ubit_int;
+                const complex_str = if (b.complex_tok != null) "_Complex " else "";
                 if (unsigned) {
                     if (bits < 1) {
-                        try p.errStr(.unsigned_bit_int_too_small, b.bit_int_tok.?, b.specifier.str(p.comp.langopts).?);
+                        try p.errStr(.unsigned_bit_int_too_small, b.bit_int_tok.?, complex_str);
                         return Type.invalid;
                     }
                 } else {
                     if (bits < 2) {
-                        try p.errStr(.signed_bit_int_too_small, b.bit_int_tok.?, b.specifier.str(p.comp.langopts).?);
+                        try p.errStr(.signed_bit_int_too_small, b.bit_int_tok.?, complex_str);
                         return Type.invalid;
                     }
                 }
                 if (bits > Compilation.bit_int_max_bits) {
-                    try p.errStr(.bit_int_too_big, b.bit_int_tok.?, b.specifier.str(p.comp.langopts).?);
+                    try p.errStr(if (unsigned) .unsigned_bit_int_too_big else .signed_bit_int_too_big, b.bit_int_tok.?, complex_str);
                     return Type.invalid;
                 }
                 ty.specifier = if (b.complex_tok != null) .complex_bit_int else .bit_int;
@@ -1784,12 +1781,11 @@ pub const Builder = struct {
             .float => ty.specifier = .float,
             .double => ty.specifier = .double,
             .long_double => ty.specifier = .long_double,
-            .float80 => ty.specifier = .float80,
             .float128 => ty.specifier = .float128,
+            .complex_float16 => ty.specifier = .complex_float16,
             .complex_float => ty.specifier = .complex_float,
             .complex_double => ty.specifier = .complex_double,
             .complex_long_double => ty.specifier = .complex_long_double,
-            .complex_float80 => ty.specifier = .complex_float80,
             .complex_float128 => ty.specifier = .complex_float128,
             .complex => {
                 try p.errTok(.plain_complex, p.tok_i - 1);
@@ -1907,6 +1903,7 @@ pub const Builder = struct {
 
     /// Try to combine type from typedef, returns true if successful.
     pub fn combineTypedef(b: *Builder, p: *Parser, typedef_ty: Type, name_tok: TokenIndex) bool {
+        if (typedef_ty.is(.invalid)) return false;
         b.error_on_invalid = true;
         defer b.error_on_invalid = false;
 
@@ -2094,6 +2091,7 @@ pub const Builder = struct {
             },
             .long => b.specifier = switch (b.specifier) {
                 .none => .long,
+                .double => .long_double,
                 .long => .long_long,
                 .unsigned => .ulong,
                 .signed => .long,
@@ -2106,6 +2104,7 @@ pub const Builder = struct {
                 .complex_long => .complex_long_long,
                 .complex_slong => .complex_slong_long,
                 .complex_ulong => .complex_ulong_long,
+                .complex_double => .complex_long_double,
                 else => return b.cannotCombine(p, source_tok),
             },
             .int128 => b.specifier = switch (b.specifier) {
@@ -2140,6 +2139,7 @@ pub const Builder = struct {
             },
             .float16 => b.specifier = switch (b.specifier) {
                 .none => .float16,
+                .complex => .complex_float16,
                 else => return b.cannotCombine(p, source_tok),
             },
             .float => b.specifier = switch (b.specifier) {
@@ -2154,11 +2154,6 @@ pub const Builder = struct {
                 .complex => .complex_double,
                 else => return b.cannotCombine(p, source_tok),
             },
-            .float80 => b.specifier = switch (b.specifier) {
-                .none => .float80,
-                .complex => .complex_float80,
-                else => return b.cannotCombine(p, source_tok),
-            },
             .float128 => b.specifier = switch (b.specifier) {
                 .none => .float128,
                 .complex => .complex_float128,
@@ -2166,10 +2161,10 @@ pub const Builder = struct {
             },
             .complex => b.specifier = switch (b.specifier) {
                 .none => .complex,
+                .float16 => .complex_float16,
                 .float => .complex_float,
                 .double => .complex_double,
                 .long_double => .complex_long_double,
-                .float80 => .complex_float80,
                 .float128 => .complex_float128,
                 .char => .complex_char,
                 .schar => .complex_schar,
@@ -2207,7 +2202,6 @@ pub const Builder = struct {
                 .complex_float,
                 .complex_double,
                 .complex_long_double,
-                .complex_float80,
                 .complex_float128,
                 .complex_char,
                 .complex_schar,
@@ -2294,13 +2288,12 @@ pub const Builder = struct {
             .float16 => .float16,
             .float => .float,
             .double => .double,
-            .float80 => .float80,
             .float128 => .float128,
             .long_double => .long_double,
+            .complex_float16 => .complex_float16,
             .complex_float => .complex_float,
             .complex_double => .complex_double,
             .complex_long_double => .complex_long_double,
-            .complex_float80 => .complex_float80,
             .complex_float128 => .complex_float128,
 
             .pointer => .{ .pointer = ty.data.sub_type },
@@ -2350,22 +2343,30 @@ pub const Builder = struct {
     }
 };
 
+/// Use with caution
+pub fn base(ty: *Type) *Type {
+    return switch (ty.specifier) {
+        .typeof_type => ty.data.sub_type.base(),
+        .typeof_expr => ty.data.expr.ty.base(),
+        .attributed => ty.data.attributed.base.base(),
+        else => ty,
+    };
+}
+
 pub fn getAttribute(ty: Type, comptime tag: Attribute.Tag) ?Attribute.ArgumentsForTag(tag) {
-    switch (ty.specifier) {
-        .typeof_type => return ty.data.sub_type.getAttribute(tag),
-        .typeof_expr => return ty.data.expr.ty.getAttribute(tag),
-        .attributed => {
-            for (ty.data.attributed.attributes) |attribute| {
-                if (attribute.tag == tag) return @field(attribute.args, @tagName(tag));
-            }
-            return null;
-        },
-        else => return null,
+    if (tag == .aligned) @compileError("use requestedAlignment");
+    var it = Attribute.Iterator.initType(ty);
+    while (it.next()) |item| {
+        const attribute, _ = item;
+        if (attribute.tag == tag) return @field(attribute.args, @tagName(tag));
     }
+    return null;
 }
 
 pub fn hasAttribute(ty: Type, tag: Attribute.Tag) bool {
-    for (ty.getAttributes()) |attr| {
+    var it = Attribute.Iterator.initType(ty);
+    while (it.next()) |item| {
+        const attr, _ = item;
         if (attr.tag == tag) return true;
     }
     return false;
@@ -2489,6 +2490,8 @@ fn printPrologue(ty: Type, mapper: StringInterner.TypeMapper, langopts: LangOpts
             _ = try elem_ty.printPrologue(mapper, langopts, w);
             try w.writeAll("' values)");
         },
+        .bit_int => try w.print("{s} _BitInt({d})", .{ @tagName(ty.data.int.signedness), ty.data.int.bits }),
+        .complex_bit_int => try w.print("_Complex {s} _BitInt({d})", .{ @tagName(ty.data.int.signedness), ty.data.int.bits }),
         else => try w.writeAll(Builder.fromType(ty).str(langopts).?),
     }
     return true;
@@ -2644,15 +2647,12 @@ pub fn dump(ty: Type, mapper: StringInterner.TypeMapper, langopts: LangOpts, w: 
         .attributed => {
             if (ty.isDecayed()) try w.writeAll("*d:");
             try w.writeAll("attributed(");
-            try ty.data.attributed.base.dump(mapper, langopts, w);
+            try ty.data.attributed.base.canonicalize(.standard).dump(mapper, langopts, w);
             try w.writeAll(")");
         },
-        else => {
-            try w.writeAll(Builder.fromType(ty).str(langopts).?);
-            if (ty.specifier == .bit_int or ty.specifier == .complex_bit_int) {
-                try w.print("({d})", .{ty.data.int.bits});
-            }
-        },
+        .bit_int => try w.print("{s} _BitInt({d})", .{ @tagName(ty.data.int.signedness), ty.data.int.bits }),
+        .complex_bit_int => try w.print("_Complex {s} _BitInt({d})", .{ @tagName(ty.data.int.signedness), ty.data.int.bits }),
+        else => try w.writeAll(Builder.fromType(ty).str(langopts).?),
     }
 }
 

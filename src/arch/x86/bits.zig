@@ -1,5 +1,4 @@
 const std = @import("std");
-const DW = std.dwarf;
 
 // zig fmt: off
 pub const Register = enum(u8) {
@@ -44,18 +43,8 @@ pub const Register = enum(u8) {
         return @enumFromInt(@as(u8, self.id()) + 16);
     }
 
-    pub fn dwarfLocOp(reg: Register) u8 {
-        return switch (reg.to32()) {
-            .eax => DW.OP.reg0,
-            .ecx => DW.OP.reg1,
-            .edx => DW.OP.reg2,
-            .ebx => DW.OP.reg3,
-            .esp => DW.OP.reg4,
-            .ebp => DW.OP.reg5,
-            .esi => DW.OP.reg6,
-            .edi => DW.OP.reg7,
-            else => unreachable,
-        };
+    pub fn dwarfNum(reg: Register) u8 {
+        return @intFromEnum(reg.to32());
     }
 };
 
@@ -64,7 +53,7 @@ pub const Register = enum(u8) {
 /// TODO this set is actually a set of caller-saved registers.
 pub const callee_preserved_regs = [_]Register{ .eax, .ecx, .edx, .esi, .edi };
 
-// TODO add these to Register enum and corresponding dwarfLocOp
+// TODO add these to Register enum and corresponding dwarfNum
 //  // Return Address register. This is stored in `0(%esp, "")` and is not a physical register.
 //  RA = (8, "RA"),
 //

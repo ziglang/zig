@@ -133,20 +133,20 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
 
     cases.add("scoped typedef",
         \\void foo() {
-        \\	typedef union {
-        \\		int A;
-        \\		int B;
-        \\		int C;
-        \\	} Foo;
-        \\	Foo a = {0};
-        \\	{
-        \\		typedef union {
-        \\			int A;
-        \\			int B;
-        \\			int C;
-        \\		} Foo;
-        \\		Foo a = {0};
-        \\	}
+        \\ typedef union {
+        \\  int A;
+        \\  int B;
+        \\  int C;
+        \\ } Foo;
+        \\ Foo a = {0};
+        \\ {
+        \\  typedef union {
+        \\   int A;
+        \\   int B;
+        \\   int C;
+        \\  } Foo;
+        \\  Foo a = {0};
+        \\ }
         \\}
     , &[_][]const u8{
         \\pub export fn foo() void {
@@ -223,7 +223,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\                             | (*((unsigned char *)(p) + 1) << 8)  \
         \\                             | (*((unsigned char *)(p) + 2) << 16))
     , &[_][]const u8{
-        \\pub const FOO = (foo + @as(c_int, 2)).*;
+        \\pub inline fn FOO() @TypeOf((foo + @as(c_int, 2)).*) {
+        \\    return (foo + @as(c_int, 2)).*;
+        \\}
         ,
         \\pub const VALUE = ((((@as(c_int, 1) + (@as(c_int, 2) * @as(c_int, 3))) + (@as(c_int, 4) * @as(c_int, 5))) + @as(c_int, 6)) << @as(c_int, 7)) | @intFromBool(@as(c_int, 8) == @as(c_int, 9));
         ,
@@ -452,7 +454,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\#define FOO -\
         \\BAR
     , &[_][]const u8{
-        \\pub const FOO = -BAR;
+        \\pub inline fn FOO() @TypeOf(-BAR) {
+        \\    return -BAR;
+        \\}
     });
 
     cases.add("struct with atomic field",
@@ -490,16 +494,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\};
     });
 
-    cases.add("function prototype with parenthesis",
-        \\void (f0) (void *L);
-        \\void ((f1)) (void *L);
-        \\void (((f2))) (void *L);
-    , &[_][]const u8{
-        \\pub extern fn f0(L: ?*anyopaque) void;
-        \\pub extern fn f1(L: ?*anyopaque) void;
-        \\pub extern fn f2(L: ?*anyopaque) void;
-    });
-
     cases.add("array initializer w/ typedef",
         \\typedef unsigned char uuid_t[16];
         \\static const uuid_t UUID_NULL __attribute__ ((unused)) = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
@@ -524,10 +518,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    0,
         \\};
     });
-
-    cases.add("empty declaration",
-        \\;
-    , &[_][]const u8{""});
 
     cases.add("#define hex literal with capital X",
         \\#define VAL 0XF00D
@@ -652,14 +642,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub extern var my_array: [16]u8 linksection("NEAR,.data");
         \\pub export fn my_fn() linksection("NEAR,.data") void {}
-    });
-
-    cases.add("simple function prototypes",
-        \\void __attribute__((noreturn)) foo(void);
-        \\int bar(void);
-    , &[_][]const u8{
-        \\pub extern fn foo() noreturn;
-        \\pub extern fn bar() c_int;
     });
 
     cases.add("simple var decls",
@@ -792,12 +774,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
-    cases.add("noreturn attribute",
-        \\void foo(void) __attribute__((noreturn));
-    , &[_][]const u8{
-        \\pub extern fn foo() noreturn;
-    });
-
     cases.add("always_inline attribute",
         \\__attribute__((always_inline)) int foo() {
         \\    return 5;
@@ -893,17 +869,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const struct_Foo = extern struct {
         \\    derp: ?*const fn ([*c]struct_Foo) callconv(.C) void = @import("std").mem.zeroes(?*const fn ([*c]struct_Foo) callconv(.C) void),
         \\};
-        ,
-        \\pub const Foo = struct_Foo;
-    });
-
-    cases.add("struct prototype used in func",
-        \\struct Foo;
-        \\struct Foo *some_func(struct Foo *foo, int x);
-    , &[_][]const u8{
-        \\pub const struct_Foo = opaque {};
-        ,
-        \\pub extern fn some_func(foo: ?*struct_Foo, x: c_int) ?*struct_Foo;
         ,
         \\pub const Foo = struct_Foo;
     });
@@ -2039,18 +2004,18 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\           break;
         \\        }
         \\        case 4:
-        \\		case 5:
+        \\        case 5:
         \\            res = 69;
         \\        {
         \\            res = 5;
-        \\			  return;
+        \\            return;
         \\        }
         \\        case 6:
         \\            switch (res) {
         \\                case 9: break;
         \\            }
         \\            res = 1;
-        \\			  return;
+        \\            return;
         \\    }
         \\}
     , &[_][]const u8{
@@ -2453,9 +2418,13 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    _ = c.*.b;
         \\}
         ,
-        \\pub const DOT = a.b;
+        \\pub inline fn ARROW() @TypeOf(a.*.b) {
+        \\    return a.*.b;
+        \\}
         ,
-        \\pub const ARROW = a.*.b;
+        \\pub inline fn DOT() @TypeOf(a.b) {
+        \\    return a.b;
+        \\}
     });
 
     cases.add("array access",
@@ -2472,7 +2441,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    return array[@as(c_uint, @intCast(index))];
         \\}
         ,
-        \\pub const ACCESS = array[@as(usize, @intCast(@as(c_int, 2)))];
+        \\pub inline fn ACCESS() @TypeOf(array[@as(usize, @intCast(@as(c_int, 2)))]) {
+        \\    return array[@as(usize, @intCast(@as(c_int, 2)))];
+        \\}
     });
 
     cases.add("cast signed array index to unsigned",
@@ -3130,7 +3101,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\ int a, b, c;
         \\#define FOO a ? b : c
     , &[_][]const u8{
-        \\pub const FOO = if (a) b else c;
+        \\pub inline fn FOO() @TypeOf(if (a) b else c) {
+        \\    return if (a) b else c;
+        \\}
     });
 
     cases.add("do while as expr",
@@ -3624,7 +3597,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\#define FOO _
         \\int _ = 42;
     , &[_][]const u8{
-        \\pub const FOO = @"_";
+        \\pub inline fn FOO() @TypeOf(@"_") {
+        \\    return @"_";
+        \\}
         ,
         \\pub export var @"_": c_int = 42;
     });

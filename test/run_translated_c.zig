@@ -26,17 +26,17 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\void baz(void);
         \\struct foo { int x; };
         \\void bar() {
-        \\	struct foo tmp;
+        \\    struct foo tmp;
         \\}
         \\
         \\void baz() {
-        \\	struct foo tmp;
+        \\    struct foo tmp;
         \\}
         \\
         \\int main(void) {
-        \\	bar();
-        \\	baz();
-        \\	return 0;
+        \\    bar();
+        \\    baz();
+        \\    return 0;
         \\}
     , "");
 
@@ -53,7 +53,7 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
     cases.add("parenthesized string literal",
         \\void foo(const char *s) {}
         \\int main(void) {
-        \\	foo(("bar"));
+        \\    foo(("bar"));
         \\}
     , "");
 

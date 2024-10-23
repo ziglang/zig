@@ -11,39 +11,19 @@ const posix = std.posix;
 
 /// We use this as a layer of indirection because global const pointers cannot
 /// point to thread-local variables.
-pub const interface = std.Random{
+pub const interface: std.Random = .{
     .ptr = undefined,
     .fillFn = tlsCsprngFill,
 };
 
-const os_has_fork = switch (native_os) {
-    .dragonfly,
-    .freebsd,
-    .ios,
-    .kfreebsd,
-    .linux,
-    .macos,
-    .netbsd,
-    .openbsd,
-    .solaris,
-    .illumos,
-    .tvos,
-    .watchos,
-    .visionos,
-    .haiku,
-    => true,
-
-    else => false,
-};
-const os_has_arc4random = builtin.link_libc and @hasDecl(std.c, "arc4random_buf");
-const want_fork_safety = os_has_fork and !os_has_arc4random and
-    std.options.crypto_fork_safety;
+const os_has_fork = @TypeOf(posix.fork) != void;
+const os_has_arc4random = builtin.link_libc and (@TypeOf(std.c.arc4random_buf) != void);
+const want_fork_safety = os_has_fork and !os_has_arc4random and std.options.crypto_fork_safety;
 const maybe_have_wipe_on_fork = builtin.os.isAtLeast(.linux, .{
     .major = 4,
     .minor = 14,
     .patch = 0,
 }) orelse true;
-const is_haiku = native_os == .haiku;
 
 const Rng = std.Random.DefaultCsprng;
 
@@ -65,7 +45,7 @@ var install_atfork_handler = std.once(struct {
 threadlocal var wipe_mem: []align(mem.page_size) u8 = &[_]u8{};
 
 fn tlsCsprngFill(_: *anyopaque, buffer: []u8) void {
-    if (builtin.link_libc and @hasDecl(std.c, "arc4random_buf")) {
+    if (os_has_arc4random) {
         // arc4random is already a thread-local CSPRNG.
         return std.c.arc4random_buf(buffer.ptr, buffer.len);
     }
@@ -78,7 +58,7 @@ fn tlsCsprngFill(_: *anyopaque, buffer: []u8) void {
 
     if (wipe_mem.len == 0) {
         // Not initialized yet.
-        if (want_fork_safety and maybe_have_wipe_on_fork or is_haiku) {
+        if (want_fork_safety and maybe_have_wipe_on_fork) {
             // Allocate a per-process page, madvise operates with page
             // granularity.
             wipe_mem = posix.mmap(
@@ -157,7 +137,7 @@ fn childAtForkHandler() callconv(.C) void {
     // The atfork handler is global, this function may be called after
     // fork()-ing threads that never initialized the CSPRNG context.
     if (wipe_mem.len == 0) return;
-    std.crypto.utils.secureZero(u8, wipe_mem);
+    std.crypto.secureZero(u8, wipe_mem);
 }
 
 fn fillWithCsprng(buffer: []u8) void {
@@ -179,7 +159,7 @@ fn initAndFill(buffer: []u8) void {
 
     const ctx = @as(*Context, @ptrCast(wipe_mem.ptr));
     ctx.rng = Rng.init(seed);
-    std.crypto.utils.secureZero(u8, &seed);
+    std.crypto.secureZero(u8, &seed);
 
     // This is at the end so that accidental recursive dependencies result
     // in stack overflows instead of invalid random data.

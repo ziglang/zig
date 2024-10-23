@@ -12,7 +12,7 @@ long_file_names: []const u8 = undefined,
 /// Parsed table of contents.
 /// Each symbol name points to a list of all definition
 /// sites within the current static archive.
-toc: std.StringArrayHashMapUnmanaged(std.ArrayListUnmanaged(u32)) = .{},
+toc: std.StringArrayHashMapUnmanaged(std.ArrayListUnmanaged(u32)) = .empty,
 
 // Archive files start with the ARMAG identifying string.  Then follows a
 // `struct ar_hdr', and as many bytes of member file data as its `ar_size'
@@ -192,7 +192,7 @@ pub fn parseObject(archive: Archive, wasm_file: *const Wasm, file_offset: u32) !
 
     const object_name = try archive.parseName(header);
     const name = name: {
-        var buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+        var buffer: [std.fs.max_path_bytes]u8 = undefined;
         const path = try std.posix.realpath(archive.name, &buffer);
         break :name try std.fmt.allocPrint(gpa, "{s}({s})", .{ path, object_name });
     };

@@ -35,7 +35,7 @@ name_tok: std.zig.Ast.TokenIndex,
 lazy_status: LazyStatus,
 parent_package_root: Cache.Path,
 parent_manifest_ast: ?*const std.zig.Ast,
-prog_node: *std.Progress.Node,
+prog_node: std.Progress.Node,
 job_queue: *JobQueue,
 /// If true, don't add an error for a missing hash. This flag is not passed
 /// down to recursive dependencies. It's intended to be used only be the CLI.
@@ -91,7 +91,7 @@ pub const JobQueue = struct {
     /// `table` may be missing some tasks such as ones that failed, so this
     /// field contains references to all of them.
     /// Protected by `mutex`.
-    all_fetches: std.ArrayListUnmanaged(*Fetch) = .{},
+    all_fetches: std.ArrayListUnmanaged(*Fetch) = .empty,
 
     http_client: *std.http.Client,
     thread_pool: *ThreadPool,
@@ -325,7 +325,7 @@ pub fn run(f: *Fetch) RunError!void {
                 // "p/$hash/foo", with possibly more directories after "foo".
                 // We want to fail unless the resolved relative path has a
                 // prefix of "p/$hash/".
-                const digest_len = @typeInfo(Manifest.MultiHashHexDigest).Array.len;
+                const digest_len = @typeInfo(Manifest.MultiHashHexDigest).array.len;
                 const prefix_len: usize = if (f.job_queue.read_only) 0 else "p/".len;
                 const expected_prefix = f.parent_package_root.sub_path[0 .. prefix_len + digest_len];
                 if (!std.mem.startsWith(u8, pkg_root.sub_path, expected_prefix)) {
@@ -445,7 +445,7 @@ fn runResource(
     const s = fs.path.sep_str;
     const cache_root = f.job_queue.global_cache;
     const rand_int = std.crypto.random.int(u64);
-    const tmp_dir_sub_path = "tmp" ++ s ++ Manifest.hex64(rand_int);
+    const tmp_dir_sub_path = "tmp" ++ s ++ std.fmt.hex(rand_int);
 
     const package_sub_path = blk: {
         const tmp_directory_path = try cache_root.join(arena, &.{tmp_dir_sub_path});
@@ -670,7 +670,7 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
                     .url = url,
                     .hash = h: {
                         const h = dep.hash orelse break :h null;
-                        const digest_len = @typeInfo(Manifest.MultiHashHexDigest).Array.len;
+                        const digest_len = @typeInfo(Manifest.MultiHashHexDigest).array.len;
                         const multihash_digest = h[0..digest_len].*;
                         const gop = f.job_queue.table.getOrPutAssumeCapacity(multihash_digest);
                         if (gop.found_existing) continue;
@@ -720,8 +720,7 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
             };
         }
 
-        // job_queue mutex is locked so this is OK.
-        f.prog_node.unprotected_estimated_total_items += new_fetch_index;
+        f.prog_node.increaseEstimatedTotalItems(new_fetch_index);
 
         break :nf .{ new_fetches[0..new_fetch_index], prog_names[0..new_fetch_index] };
     };
@@ -751,9 +750,8 @@ pub fn relativePathDigest(
 }
 
 pub fn workerRun(f: *Fetch, prog_name: []const u8) void {
-    var prog_node = f.prog_node.start(prog_name, 0);
+    const prog_node = f.prog_node.start(prog_name, 0);
     defer prog_node.end();
-    prog_node.activate();
 
     run(f) catch |err| switch (err) {
         error.OutOfMemory => f.oom_flag = true,
@@ -1069,7 +1067,9 @@ fn unpackResource(
 
             if (ascii.eqlIgnoreCase(mime_type, "application/gzip") or
                 ascii.eqlIgnoreCase(mime_type, "application/x-gzip") or
-                ascii.eqlIgnoreCase(mime_type, "application/tar+gzip"))
+                ascii.eqlIgnoreCase(mime_type, "application/tar+gzip") or
+                ascii.eqlIgnoreCase(mime_type, "application/x-tar-gz") or
+                ascii.eqlIgnoreCase(mime_type, "application/x-gtar-compressed"))
             {
                 break :ft .@"tar.gz";
             }
@@ -1191,6 +1191,7 @@ fn unpackTarball(f: *Fetch, out_dir: fs.Dir, reader: anytype) RunError!UnpackRes
                 .unable_to_create_file => |i| res.unableToCreateFile(stripRoot(i.file_name, res.root_dir), i.code),
                 .unable_to_create_sym_link => |i| res.unableToCreateSymLink(stripRoot(i.file_name, res.root_dir), i.link_name, i.code),
                 .unsupported_file_type => |i| res.unsupportedFileType(stripRoot(i.file_name, res.root_dir), @intFromEnum(i.file_type)),
+                .components_outside_stripped_prefix => unreachable, // unreachable with strip_components = 0
             }
         }
     }
@@ -1311,9 +1312,8 @@ fn unpackGitPack(f: *Fetch, out_dir: fs.Dir, resource: *Resource) anyerror!Unpac
         var index_file = try pack_dir.createFile("pkg.idx", .{ .read = true });
         defer index_file.close();
         {
-            var index_prog_node = f.prog_node.start("Index pack", 0);
+            const index_prog_node = f.prog_node.start("Index pack", 0);
             defer index_prog_node.end();
-            index_prog_node.activate();
             var index_buffered_writer = std.io.bufferedWriter(index_file.writer());
             try git.indexPack(gpa, pack_file, index_buffered_writer.writer());
             try index_buffered_writer.flush();
@@ -1321,9 +1321,8 @@ fn unpackGitPack(f: *Fetch, out_dir: fs.Dir, resource: *Resource) anyerror!Unpac
         }
 
         {
-            var checkout_prog_node = f.prog_node.start("Checkout", 0);
+            const checkout_prog_node = f.prog_node.start("Checkout", 0);
             defer checkout_prog_node.end();
-            checkout_prog_node.activate();
             var repository = try git.Repository.init(gpa, pack_file, index_file);
             defer repository.deinit();
             var diagnostics: git.Diagnostics = .{ .allocator = arena };
@@ -1368,7 +1367,7 @@ fn recursiveDirectoryCopy(f: *Fetch, dir: fs.Dir, tmp_dir: fs.Dir) anyerror!void
                 };
             },
             .sym_link => {
-                var buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+                var buf: [fs.max_path_bytes]u8 = undefined;
                 const link_name = try dir.readLink(entry.path, &buf);
                 // TODO: if this would create a symlink to outside
                 // the destination directory, fail with an error instead.
@@ -1441,7 +1440,7 @@ fn computeHash(
 
     // Track directories which had any files deleted from them so that empty directories
     // can be deleted.
-    var sus_dirs: std.StringArrayHashMapUnmanaged(void) = .{};
+    var sus_dirs: std.StringArrayHashMapUnmanaged(void) = .empty;
     defer sus_dirs.deinit(gpa);
 
     var walker = try root_dir.walk(gpa);
@@ -1712,7 +1711,7 @@ fn normalizePath(bytes: []u8) void {
 }
 
 const Filter = struct {
-    include_paths: std.StringArrayHashMapUnmanaged(void) = .{},
+    include_paths: std.StringArrayHashMapUnmanaged(void) = .empty,
 
     /// sub_path is relative to the package root.
     pub fn includePath(self: Filter, sub_path: []const u8) bool {
@@ -1752,7 +1751,7 @@ pub fn depDigest(
     switch (dep.location) {
         .url => return null,
         .path => |rel_path| {
-            var buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+            var buf: [fs.max_path_bytes]u8 = undefined;
             var fba = std.heap.FixedBufferAllocator.init(&buf);
             const new_root = pkg_root.resolvePosix(fba.allocator(), rel_path) catch
                 return null;
@@ -2004,7 +2003,7 @@ test "zip" {
         try bw.flush();
     }
 
-    const zip_path = try std.fmt.allocPrint(gpa, "zig-cache/tmp/{s}/test.zip", .{tmp.sub_path});
+    const zip_path = try std.fmt.allocPrint(gpa, ".zig-cache/tmp/{s}/test.zip", .{tmp.sub_path});
     defer gpa.free(zip_path);
 
     var fb: TestFetchBuilder = undefined;
@@ -2037,7 +2036,7 @@ test "zip with one root folder" {
         try bw.flush();
     }
 
-    const zip_path = try std.fmt.allocPrint(gpa, "zig-cache/tmp/{s}/test.zip", .{tmp.sub_path});
+    const zip_path = try std.fmt.allocPrint(gpa, ".zig-cache/tmp/{s}/test.zip", .{tmp.sub_path});
     defer gpa.free(zip_path);
 
     var fb: TestFetchBuilder = undefined;
@@ -2073,7 +2072,7 @@ test "tarball with duplicate paths" {
 
     const tarball_name = "duplicate_paths.tar.gz";
     try saveEmbedFile(tarball_name, tmp.dir);
-    const tarball_path = try std.fmt.allocPrint(gpa, "zig-cache/tmp/{s}/{s}", .{ tmp.sub_path, tarball_name });
+    const tarball_path = try std.fmt.allocPrint(gpa, ".zig-cache/tmp/{s}/{s}", .{ tmp.sub_path, tarball_name });
     defer gpa.free(tarball_path);
 
     // Run tarball fetch, expect to fail
@@ -2105,7 +2104,7 @@ test "tarball with excluded duplicate paths" {
 
     const tarball_name = "duplicate_paths_excluded.tar.gz";
     try saveEmbedFile(tarball_name, tmp.dir);
-    const tarball_path = try std.fmt.allocPrint(gpa, "zig-cache/tmp/{s}/{s}", .{ tmp.sub_path, tarball_name });
+    const tarball_path = try std.fmt.allocPrint(gpa, ".zig-cache/tmp/{s}/{s}", .{ tmp.sub_path, tarball_name });
     defer gpa.free(tarball_path);
 
     // Run tarball fetch, should succeed
@@ -2149,7 +2148,7 @@ test "tarball without root folder" {
 
     const tarball_name = "no_root.tar.gz";
     try saveEmbedFile(tarball_name, tmp.dir);
-    const tarball_path = try std.fmt.allocPrint(gpa, "zig-cache/tmp/{s}/{s}", .{ tmp.sub_path, tarball_name });
+    const tarball_path = try std.fmt.allocPrint(gpa, ".zig-cache/tmp/{s}/{s}", .{ tmp.sub_path, tarball_name });
     defer gpa.free(tarball_path);
 
     // Run tarball fetch, should succeed
@@ -2180,7 +2179,7 @@ test "set executable bit based on file content" {
 
     const tarball_name = "executables.tar.gz";
     try saveEmbedFile(tarball_name, tmp.dir);
-    const tarball_path = try std.fmt.allocPrint(gpa, "zig-cache/tmp/{s}/{s}", .{ tmp.sub_path, tarball_name });
+    const tarball_path = try std.fmt.allocPrint(gpa, ".zig-cache/tmp/{s}/{s}", .{ tmp.sub_path, tarball_name });
     defer gpa.free(tarball_path);
 
     // $ tar -tvf executables.tar.gz
@@ -2311,7 +2310,7 @@ const TestFetchBuilder = struct {
         var package_dir = try self.packageDir();
         defer package_dir.close();
 
-        var actual_files: std.ArrayListUnmanaged([]u8) = .{};
+        var actual_files: std.ArrayListUnmanaged([]u8) = .empty;
         defer actual_files.deinit(std.testing.allocator);
         defer for (actual_files.items) |file| std.testing.allocator.free(file);
         var walker = try package_dir.walk(std.testing.allocator);

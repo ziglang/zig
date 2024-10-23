@@ -11,7 +11,6 @@ const bits = switch (@import("builtin").cpu.arch) {
     .powerpc64le,
     .sparc,
     .sparc64,
-    .sparcel,
     => .{ .size = 13, .dir = 3, .none = 1, .read = 2, .write = 4 },
     else => .{ .size = 14, .dir = 2, .none = 0, .read = 2, .write = 1 },
 };

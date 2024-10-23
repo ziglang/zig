@@ -21,7 +21,7 @@ weak_alias(__cachectl, cachectl);
 #ifdef SYS_riscv_flush_icache
 
 #define VDSO_FLUSH_ICACHE_SYM "__vdso_flush_icache"
-#define VDSO_FLUSH_ICACHE_VER "LINUX_4.5"
+#define VDSO_FLUSH_ICACHE_VER "LINUX_4.15"
 
 static void *volatile vdso_func;
 
@@ -45,6 +45,7 @@ int __riscv_flush_icache(void *start, void *end, unsigned long int flags)
 		if (!r) return r;
 		if (r != -ENOSYS) return __syscall_ret(r);
 	}
+	return syscall(SYS_riscv_flush_icache, start, end, flags);
 }
 weak_alias(__riscv_flush_icache, riscv_flush_icache);
 #endif

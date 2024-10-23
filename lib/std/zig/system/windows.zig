@@ -56,11 +56,11 @@ fn getCpuInfoFromRegistry(core: usize, args: anytype) !void {
     const ArgsType = @TypeOf(args);
     const args_type_info = @typeInfo(ArgsType);
 
-    if (args_type_info != .Struct) {
+    if (args_type_info != .@"struct") {
         @compileError("expected tuple or struct argument, found " ++ @typeName(ArgsType));
     }
 
-    const fields_info = args_type_info.Struct.fields;
+    const fields_info = args_type_info.@"struct".fields;
 
     // Originally, I wanted to issue a single call with a more complex table structure such that we
     // would sequentially visit each CPU#d subkey in the registry and pull the value of interest into
@@ -209,7 +209,7 @@ fn genericCpuAndNativeFeatures(arch: Target.Cpu.Arch) Target.Cpu {
     };
 
     switch (arch) {
-        .aarch64, .aarch64_be, .aarch64_32 => {
+        .aarch64, .aarch64_be => {
             const Feature = Target.aarch64.Feature;
 
             // Override any features that are either present or absent
@@ -229,7 +229,7 @@ fn genericCpuAndNativeFeatures(arch: Target.Cpu.Arch) Target.Cpu {
 pub fn detectNativeCpuAndFeatures() ?Target.Cpu {
     const current_arch = builtin.cpu.arch;
     const cpu: ?Target.Cpu = switch (current_arch) {
-        .aarch64, .aarch64_be, .aarch64_32 => blk: {
+        .aarch64, .aarch64_be => blk: {
             var cores: [128]Target.Cpu = undefined;
             const core_count = getCpuCount();
 

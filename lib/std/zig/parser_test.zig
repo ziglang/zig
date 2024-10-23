@@ -2548,7 +2548,7 @@ test "zig fmt: same-line comment after non-block if expression" {
 test "zig fmt: same-line comment on comptime expression" {
     try testCanonical(
         \\test "" {
-        \\    comptime assert(@typeInfo(T) == .Int); // must pass an integer to absInt
+        \\    comptime assert(@typeInfo(T) == .int); // must pass an integer to absInt
         \\}
         \\
     );
@@ -3083,6 +3083,22 @@ test "zig fmt: multiline string" {
         \\        \\three
         \\    ;
         \\}
+        \\
+    );
+}
+
+test "zig fmt: multiline string with CRLF line endings" {
+    try testTransform("" ++
+        "const s =\r\n" ++
+        "    \\\\one\r\n" ++
+        "    \\\\two)\r\n" ++
+        "    \\\\three\r\n" ++
+        ";\r\n",
+        \\const s =
+        \\    \\one
+        \\    \\two)
+        \\    \\three
+        \\;
         \\
     );
 }
@@ -4404,6 +4420,28 @@ test "zig fmt: invalid doc comments on comptime and test blocks" {
     });
 }
 
+test "zig fmt: comments with CRLF line endings" {
+    try testTransform("" ++
+        "//! Top-level doc comment\r\n" ++
+        "//! Continuing to another line\r\n" ++
+        "\r\n" ++
+        "/// Regular doc comment\r\n" ++
+        "const S = struct {\r\n" ++
+        "    // Regular comment\r\n" ++
+        "    // More content\r\n" ++
+        "};\r\n",
+        \\//! Top-level doc comment
+        \\//! Continuing to another line
+        \\
+        \\/// Regular doc comment
+        \\const S = struct {
+        \\    // Regular comment
+        \\    // More content
+        \\};
+        \\
+    );
+}
+
 test "zig fmt: else comptime expr" {
     try testCanonical(
         \\comptime {
@@ -4540,7 +4578,7 @@ test "zig fmt: decimal float literals with underscore separators" {
     );
 }
 
-test "zig fmt: hexadeciaml float literals with underscore separators" {
+test "zig fmt: hexadecimal float literals with underscore separators" {
     try testTransform(
         \\pub fn main() void {
         \\    const a: f64 = (0x10.0p-0+(0x10.0p+0))+0x10_00.00_00p-8+0x00_00.00_10p+16;
@@ -5915,6 +5953,15 @@ test "zig fmt: error for ptr mod on array child type" {
     });
 }
 
+test "zig fmt: pointer type syntax to index" {
+    try testCanonical(
+        \\test {
+        \\    _ = .{}[*0];
+        \\}
+        \\
+    );
+}
+
 test "recovery: top level" {
     try testError(
         \\test "" {inline}
@@ -6052,7 +6099,6 @@ test "recovery: invalid container members" {
     , &[_]Error{
         .expected_expr,
         .expected_comma_after_field,
-        .expected_type_expr,
         .expected_semi_after_stmt,
     });
 }

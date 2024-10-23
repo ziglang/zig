@@ -1,5 +1,5 @@
 /* Special .init and .fini section support for 64 bit S/390.
-   Copyright (C) 2001-2023 Free Software Foundation, Inc.
+   Copyright (C) 2001-2024 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -37,13 +37,11 @@
    corresponding to the prologues in crti.S. */
 
 	.section .init
-	.align	4
 	lg	%r4,272(%r15)
 	lmg	%r6,%r15,208(%r15)
 	br	%r4
 
 	.section .fini
-	.align	4
 	lg	%r4,272(%r15)
 	lmg	%r6,%r15,208(%r15)
 	br	%r4

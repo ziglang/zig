@@ -7,6 +7,7 @@ comptime {
     _ = @import("compiler_rt/count0bits.zig");
     _ = @import("compiler_rt/parity.zig");
     _ = @import("compiler_rt/popcount.zig");
+    _ = @import("compiler_rt/bitreverse.zig");
     _ = @import("compiler_rt/bswap.zig");
     _ = @import("compiler_rt/cmp.zig");
 

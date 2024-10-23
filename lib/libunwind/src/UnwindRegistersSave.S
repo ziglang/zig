@@ -20,7 +20,7 @@
     .text
 #endif
 
-#if !defined(__USING_SJLJ_EXCEPTIONS__)
+#if !defined(__USING_SJLJ_EXCEPTIONS__) && !defined(__wasm__)
 
 #if defined(__i386__)
 
@@ -1177,6 +1177,6 @@ DEFINE_LIBUNWIND_FUNCTION(__unw_getcontext)
 
   WEAK_ALIAS(__unw_getcontext, unw_getcontext)
 
-#endif /* !defined(__USING_SJLJ_EXCEPTIONS__) */
+#endif /* !defined(__USING_SJLJ_EXCEPTIONS__) && !defined(__wasm__) */
 
 NO_EXEC_STACK_DIRECTIVE

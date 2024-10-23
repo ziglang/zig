@@ -84,7 +84,7 @@ bool IsPathSeparator(const char c);
 bool IsAbsolutePath(const char *path);
 // Returns true on success, false on failure.
 bool CreateDir(const char *pathname);
-// Starts a subprocess and returs its pid.
+// Starts a subprocess and returns its pid.
 // If *_fd parameters are not kInvalidFd their corresponding input/output
 // streams will be redirect to the file. The files will always be closed
 // in parent process even in case of an error.

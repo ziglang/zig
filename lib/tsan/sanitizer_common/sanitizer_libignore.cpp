@@ -105,8 +105,8 @@ void LibIgnore::OnLibraryLoaded(const char *name) {
           continue;
         if (IsPcInstrumented(range.beg) && IsPcInstrumented(range.end - 1))
           continue;
-        VReport(1, "Adding instrumented range 0x%zx-0x%zx from library '%s'\n",
-                range.beg, range.end, mod.full_name());
+        VReport(1, "Adding instrumented range %p-%p from library '%s'\n",
+                (void *)range.beg, (void *)range.end, mod.full_name());
         const uptr idx =
             atomic_load(&instrumented_ranges_count_, memory_order_relaxed);
         CHECK_LT(idx, ARRAY_SIZE(instrumented_code_ranges_));

@@ -170,7 +170,7 @@ pub fn ExtraData(comptime T: type) type {
 }
 
 pub fn extraData(doc: Document, comptime T: type, index: ExtraIndex) ExtraData(T) {
-    const fields = @typeInfo(T).Struct.fields;
+    const fields = @typeInfo(T).@"struct".fields;
     var i: usize = @intFromEnum(index);
     var result: T = undefined;
     inline for (fields) |field| {

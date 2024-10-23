@@ -7,7 +7,7 @@ const normalize = common.normalize;
 ///
 /// https://github.com/llvm/llvm-project/blob/02d85149a05cb1f6dc49f0ba7a2ceca53718ae17/compiler-rt/lib/builtins/fp_add_impl.inc
 pub inline fn addf3(comptime T: type, a: T, b: T) T {
-    const bits = @typeInfo(T).Float.bits;
+    const bits = @typeInfo(T).float.bits;
     const Z = std.meta.Int(.unsigned, bits);
 
     const typeWidth = bits;

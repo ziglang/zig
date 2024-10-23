@@ -59,7 +59,7 @@ pub fn preprocess(
 
     if (hasAnyErrors(comp)) return error.PreprocessError;
 
-    try pp.prettyPrintTokens(writer);
+    try pp.prettyPrintTokens(writer, .result_only);
 
     if (maybe_dependencies_list) |dependencies_list| {
         for (comp.sources.values()) |comp_source| {

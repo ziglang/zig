@@ -8,8 +8,8 @@ const Log2Int = math.Log2Int;
 /// Asserts that `base > 1` and `x > 0`.
 pub fn log_int(comptime T: type, base: T, x: T) Log2Int(T) {
     const valid = switch (@typeInfo(T)) {
-        .ComptimeInt => true,
-        .Int => |IntType| IntType.signedness == .unsigned,
+        .comptime_int => true,
+        .int => |IntType| IntType.signedness == .unsigned,
         else => false,
     };
     if (!valid) @compileError("log_int requires an unsigned integer, found " ++ @typeName(T));
@@ -64,9 +64,7 @@ test "log_int" {
     // Test all unsigned integers with 2, 3, ..., 64 bits.
     // We cannot test 0 or 1 bits since base must be > 1.
     inline for (2..64 + 1) |bits| {
-        const T = @Type(std.builtin.Type{
-            .Int = std.builtin.Type.Int{ .signedness = .unsigned, .bits = @intCast(bits) },
-        });
+        const T = @Type(.{ .int = .{ .signedness = .unsigned, .bits = @intCast(bits) } });
 
         // for base = 2, 3, ..., min(maxInt(T),1024)
         var base: T = 1;

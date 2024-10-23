@@ -35,7 +35,7 @@ pub fn build(b: *std.Build) !void {
     const fuzz = b.addExecutable(.{
         .name = "fuzz",
         .root_source_file = b.path("fuzz.zig"),
-        .target = b.host,
+        .target = b.graph.host,
         .optimize = optimize,
     });
 

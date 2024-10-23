@@ -70,7 +70,7 @@ fn tanh64(z: Complex(f64)) Complex(f64) {
     const ix = hx & 0x7fffffff;
 
     if (ix >= 0x7ff00000) {
-        if ((ix & 0x7fffff) | lx != 0) {
+        if ((ix & 0xfffff) | lx != 0) {
             const r = if (y == 0) y else x * y;
             return Complex(f64).init(x, r);
         }
@@ -101,20 +101,29 @@ fn tanh64(z: Complex(f64)) Complex(f64) {
     return Complex(f64).init((beta * rho * s) / den, t / den);
 }
 
-const epsilon = 0.0001;
-
 test tanh32 {
+    const epsilon = math.floatEps(f32);
     const a = Complex(f32).init(5, 3);
     const c = tanh(a);
 
-    try testing.expect(math.approxEqAbs(f32, c.re, 0.999913, epsilon));
-    try testing.expect(math.approxEqAbs(f32, c.im, -0.000025, epsilon));
+    try testing.expectApproxEqAbs(0.99991274, c.re, epsilon);
+    try testing.expectApproxEqAbs(-0.00002536878, c.im, epsilon);
 }
 
 test tanh64 {
+    const epsilon = math.floatEps(f64);
     const a = Complex(f64).init(5, 3);
     const c = tanh(a);
 
-    try testing.expect(math.approxEqAbs(f64, c.re, 0.999913, epsilon));
-    try testing.expect(math.approxEqAbs(f64, c.im, -0.000025, epsilon));
+    try testing.expectApproxEqAbs(0.9999128201513536, c.re, epsilon);
+    try testing.expectApproxEqAbs(-0.00002536867620767604, c.im, epsilon);
+}
+
+test "tanh64 musl" {
+    const epsilon = math.floatEps(f64);
+    const a = Complex(f64).init(std.math.inf(f64), std.math.inf(f64));
+    const c = tanh(a);
+
+    try testing.expectApproxEqAbs(1, c.re, epsilon);
+    try testing.expectApproxEqAbs(0, c.im, epsilon);
 }

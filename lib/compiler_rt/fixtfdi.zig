@@ -5,11 +5,11 @@ pub const panic = common.panic;
 
 comptime {
     if (common.want_ppc_abi) {
-        @export(__fixtfdi, .{ .name = "__fixkfdi", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__fixtfdi, .{ .name = "__fixkfdi", .linkage = common.linkage, .visibility = common.visibility });
     } else if (common.want_sparc_abi) {
-        @export(_Qp_qtox, .{ .name = "_Qp_qtox", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&_Qp_qtox, .{ .name = "_Qp_qtox", .linkage = common.linkage, .visibility = common.visibility });
     }
-    @export(__fixtfdi, .{ .name = "__fixtfdi", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__fixtfdi, .{ .name = "__fixtfdi", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 pub fn __fixtfdi(a: f128) callconv(.C) i64 {

@@ -8,11 +8,11 @@ set -e
 ARCH="$(uname -m)"
 TARGET="$ARCH-linux-musl"
 MCPU="baseline"
-CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.13.0-dev.130+98a30acad"
+CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.14.0-dev.1622+2ac543388"
 PREFIX="$HOME/deps/$CACHE_BASENAME"
 ZIG="$PREFIX/bin/zig"
 
-export PATH="$HOME/deps/wasmtime-v10.0.2-$ARCH-linux:$PATH"
+export PATH="$HOME/local/bin:$PATH"
 
 # Make the `zig version` number consistent.
 # This will affect the cmake command below.
@@ -49,30 +49,19 @@ unset CXX
 
 ninja install
 
-# TODO: move this to a build.zig step (check-fmt)
-echo "Looking for non-conforming code formatting..."
-stage3-debug/bin/zig fmt --check .. \
-  --exclude ../test/cases/ \
-  --exclude ../doc/ \
-  --exclude ../build-debug
-
 # simultaneously test building self-hosted without LLVM and with 32-bit arm
 stage3-debug/bin/zig build \
   -Dtarget=arm-linux-musleabihf \
   -Dno-lib
 
-# TODO: add -fqemu back to this line
+# No -fqemu and -fwasmtime here as they're covered by the x86_64-linux scripts.
 stage3-debug/bin/zig build test docs \
   --maxrss 24696061952 \
-  -fwasmtime \
   -Dstatic-llvm \
   -Dtarget=native-native-musl \
   --search-prefix "$PREFIX" \
-  --zig-lib-dir "$PWD/../lib"
-
-# Look for HTML errors.
-# TODO: move this to a build.zig flag (-Denable-tidy)
-tidy --drop-empty-elements no -qe "../zig-out/doc/langref.html"
+  --zig-lib-dir "$PWD/../lib" \
+  -Denable-superhtml
 
 # Ensure that updating the wasm binary from this commit will result in a viable build.
 stage3-debug/bin/zig build update-zig1

@@ -4,5 +4,6 @@ var foo = true;
 
 // error
 //
-// :3:1: error: redeclaration of 'foo'
-// :2:1: note: other declaration here
+// :2:5: error: duplicate struct member name 'foo'
+// :3:5: note: duplicate name here
+// :2:1: note: struct declared here

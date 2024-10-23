@@ -26,9 +26,9 @@ pub const Builder = struct {
     arena: std.heap.ArenaAllocator,
     interner: *Interner,
 
-    decls: std.StringArrayHashMapUnmanaged(Decl) = .{},
+    decls: std.StringArrayHashMapUnmanaged(Decl) = .empty,
     instructions: std.MultiArrayList(Ir.Inst) = .{},
-    body: std.ArrayListUnmanaged(Ref) = .{},
+    body: std.ArrayListUnmanaged(Ref) = .empty,
     alloc_count: u32 = 0,
     arg_count: u32 = 0,
     current_label: Ref = undefined,
@@ -37,6 +37,7 @@ pub const Builder = struct {
         for (b.decls.values()) |*decl| {
             decl.deinit(b.gpa);
         }
+        b.decls.deinit(b.gpa);
         b.arena.deinit();
         b.instructions.deinit(b.gpa);
         b.body.deinit(b.gpa);

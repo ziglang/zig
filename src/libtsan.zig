@@ -13,7 +13,7 @@ pub const BuildError = error{
     TSANUnsupportedCPUArchitecture,
 };
 
-pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) BuildError!void {
+pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!void {
     if (!build_options.have_llvm) {
         return error.ZigCompilerNotBuiltWithLLVMExtensions;
     }
@@ -25,10 +25,19 @@ pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) BuildError!v
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    const root_name = "tsan";
-    const output_mode = .Lib;
-    const link_mode = .static;
     const target = comp.getTarget();
+    const root_name = switch (target.os.tag) {
+        // On Apple platforms, we use the same name as LLVM because the
+        // TSAN library implementation hard-codes a check for these names.
+        .macos => "clang_rt.tsan_osx_dynamic",
+        .ios => switch (target.abi) {
+            .simulator => "clang_rt.tsan_iossim_dynamic",
+            else => "clang_rt.tsan_ios_dynamic",
+        },
+        else => "tsan",
+    };
+    const link_mode: std.builtin.LinkMode = if (target.isDarwin()) .dynamic else .static;
+    const output_mode = .Lib;
     const basename = try std.zig.binNameAlloc(arena, .{
         .root_name = root_name,
         .target = target,
@@ -43,6 +52,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) BuildError!v
 
     const optimize_mode = comp.compilerRtOptMode();
     const strip = comp.compilerRtStrip();
+    const link_libcpp = target.isDarwin();
 
     const config = Compilation.Config.resolve(.{
         .output_mode = output_mode,
@@ -54,6 +64,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) BuildError!v
         .root_optimize_mode = optimize_mode,
         .root_strip = strip,
         .link_libc = true,
+        .link_libcpp = link_libcpp,
     }) catch |err| {
         comp.setMiscFailure(
             .libtsan,
@@ -149,10 +160,13 @@ pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) BuildError!v
     }
     {
         const asm_source = switch (target.cpu.arch) {
-            .aarch64 => "tsan_rtl_aarch64.S",
+            .aarch64, .aarch64_be => "tsan_rtl_aarch64.S",
+            .loongarch64 => "tsan_rtl_loongarch64.S",
+            .mips64, .mips64el => "tsan_rtl_mips64.S",
+            .powerpc64, .powerpc64le => "tsan_rtl_ppc64.S",
+            .riscv64 => "tsan_rtl_riscv64.S",
+            .s390x => "tsan_rtl_s390x.S",
             .x86_64 => "tsan_rtl_amd64.S",
-            .mips64 => "tsan_rtl_mips64.S",
-            .powerpc64 => "tsan_rtl_ppc64.S",
             else => return error.TSANUnsupportedCPUArchitecture,
         };
         var cflags = std.ArrayList([]const u8).init(arena);
@@ -272,6 +286,14 @@ pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) BuildError!v
         });
     }
 
+    const skip_linker_dependencies = !target.isDarwin();
+    const linker_allow_shlib_undefined = target.isDarwin();
+    const install_name = if (target.isDarwin())
+        try std.fmt.allocPrintZ(arena, "@rpath/{s}", .{basename})
+    else
+        null;
+    // Workaround for https://github.com/llvm/llvm-project/issues/97627
+    const headerpad_size: ?u32 = if (target.isDarwin()) 32 else null;
     const sub_compilation = Compilation.create(comp.gpa, arena, .{
         .local_cache_directory = comp.global_cache_directory,
         .global_cache_directory = comp.global_cache_directory,
@@ -294,7 +316,10 @@ pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) BuildError!v
         .verbose_cimport = comp.verbose_cimport,
         .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
         .clang_passthrough_mode = comp.clang_passthrough_mode,
-        .skip_linker_dependencies = true,
+        .skip_linker_dependencies = skip_linker_dependencies,
+        .linker_allow_shlib_undefined = linker_allow_shlib_undefined,
+        .install_name = install_name,
+        .headerpad_size = headerpad_size,
     }) catch |err| {
         comp.setMiscFailure(
             .libtsan,
@@ -317,8 +342,8 @@ pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) BuildError!v
         },
     };
 
-    assert(comp.tsan_static_lib == null);
-    comp.tsan_static_lib = try sub_compilation.toCrtFile();
+    assert(comp.tsan_lib == null);
+    comp.tsan_lib = try sub_compilation.toCrtFile();
 }
 
 const tsan_sources = [_][]const u8{
@@ -394,7 +419,6 @@ const sanitizer_common_sources = [_][]const u8{
     "sanitizer_platform_limits_freebsd.cpp",
     "sanitizer_platform_limits_linux.cpp",
     "sanitizer_platform_limits_netbsd.cpp",
-    "sanitizer_platform_limits_openbsd.cpp",
     "sanitizer_platform_limits_posix.cpp",
     "sanitizer_platform_limits_solaris.cpp",
     "sanitizer_posix.cpp",
@@ -407,7 +431,6 @@ const sanitizer_common_sources = [_][]const u8{
     "sanitizer_procmaps_solaris.cpp",
     "sanitizer_range.cpp",
     "sanitizer_solaris.cpp",
-    "sanitizer_stack_store.cpp",
     "sanitizer_stoptheworld_fuchsia.cpp",
     "sanitizer_stoptheworld_mac.cpp",
     "sanitizer_stoptheworld_win.cpp",
@@ -430,6 +453,7 @@ const sanitizer_nolibc_sources = [_][]const u8{
 const sanitizer_libcdep_sources = [_][]const u8{
     "sanitizer_common_libcdep.cpp",
     "sanitizer_allocator_checks.cpp",
+    "sanitizer_dl.cpp",
     "sanitizer_linux_libcdep.cpp",
     "sanitizer_mac_libcdep.cpp",
     "sanitizer_posix_libcdep.cpp",
@@ -439,6 +463,7 @@ const sanitizer_libcdep_sources = [_][]const u8{
 
 const sanitizer_symbolizer_sources = [_][]const u8{
     "sanitizer_allocator_report.cpp",
+    "sanitizer_stack_store.cpp",
     "sanitizer_stackdepot.cpp",
     "sanitizer_stacktrace.cpp",
     "sanitizer_stacktrace_libcdep.cpp",
@@ -449,10 +474,13 @@ const sanitizer_symbolizer_sources = [_][]const u8{
     "sanitizer_symbolizer_libcdep.cpp",
     "sanitizer_symbolizer_mac.cpp",
     "sanitizer_symbolizer_markup.cpp",
+    "sanitizer_symbolizer_markup_fuchsia.cpp",
     "sanitizer_symbolizer_posix_libcdep.cpp",
     "sanitizer_symbolizer_report.cpp",
+    "sanitizer_symbolizer_report_fuchsia.cpp",
     "sanitizer_symbolizer_win.cpp",
     "sanitizer_unwind_linux_libcdep.cpp",
+    "sanitizer_unwind_fuchsia.cpp",
     "sanitizer_unwind_win.cpp",
 };
 

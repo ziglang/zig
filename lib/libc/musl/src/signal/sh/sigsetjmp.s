@@ -27,7 +27,7 @@ __sigsetjmp:
 
 	mov.l 3f, r0
 4:	braf r0
-	 mov.l @(4+8,r4), r8
+	 mov.l @(4+8,r6), r8
 
 9:	mov.l 5f, r0
 6:	braf r0

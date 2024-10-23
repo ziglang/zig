@@ -146,6 +146,8 @@ test "@min/max for floats" {
     };
 
     inline for (.{ f16, f32, f64, f80, f128, c_longdouble }) |T| {
+        if (T == c_longdouble and builtin.cpu.arch.isMIPS64()) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21090
+
         try S.doTheTest(T);
         try comptime S.doTheTest(T);
     }
@@ -333,4 +335,18 @@ test "@min/@max of signed and unsigned runtime integers" {
 
     try expectEqual(x, @min(x, y));
     try expectEqual(y, @max(x, y));
+}
+
+test "@min resulting in u0" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn min(a: u0, b: u8) u8 {
+            return @min(a, b);
+        }
+    };
+    const x = S.min(0, 1);
+    try expect(x == 0);
 }

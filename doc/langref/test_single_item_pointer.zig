@@ -32,4 +32,18 @@ test "pointer array access" {
     try expect(array[2] == 4);
 }
 
+test "slice syntax" {
+    // Get a pointer to a variable:
+    var x: i32 = 1234;
+    const x_ptr = &x;
+
+    // Convert to array pointer using slice syntax:
+    const x_array_ptr = x_ptr[0..1];
+    try expect(@TypeOf(x_array_ptr) == *[1]i32);
+
+    // Coerce to many-item pointer:
+    const x_many_ptr: [*]i32 = x_array_ptr;
+    try expect(x_many_ptr[0] == 1234);
+}
+
 // test

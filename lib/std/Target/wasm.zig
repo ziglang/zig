@@ -9,6 +9,7 @@ pub const Feature = enum {
     bulk_memory,
     exception_handling,
     extended_const,
+    half_precision,
     multimemory,
     multivalue,
     mutable_globals,
@@ -20,13 +21,13 @@ pub const Feature = enum {
     tail_call,
 };
 
-pub const featureSet = CpuFeature.feature_set_fns(Feature).featureSet;
-pub const featureSetHas = CpuFeature.feature_set_fns(Feature).featureSetHas;
-pub const featureSetHasAny = CpuFeature.feature_set_fns(Feature).featureSetHasAny;
-pub const featureSetHasAll = CpuFeature.feature_set_fns(Feature).featureSetHasAll;
+pub const featureSet = CpuFeature.FeatureSetFns(Feature).featureSet;
+pub const featureSetHas = CpuFeature.FeatureSetFns(Feature).featureSetHas;
+pub const featureSetHasAny = CpuFeature.FeatureSetFns(Feature).featureSetHasAny;
+pub const featureSetHasAll = CpuFeature.FeatureSetFns(Feature).featureSetHasAll;
 
 pub const all_features = blk: {
-    const len = @typeInfo(Feature).Enum.fields.len;
+    const len = @typeInfo(Feature).@"enum".fields.len;
     std.debug.assert(len <= CpuFeature.Set.needed_bit_count);
     var result: [len]CpuFeature = undefined;
     result[@intFromEnum(Feature.atomics)] = .{
@@ -47,6 +48,11 @@ pub const all_features = blk: {
     result[@intFromEnum(Feature.extended_const)] = .{
         .llvm_name = "extended-const",
         .description = "Enable extended const expressions",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.half_precision)] = .{
+        .llvm_name = "half-precision",
+        .description = "Enable half precision instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.multimemory)] = .{
@@ -97,7 +103,7 @@ pub const all_features = blk: {
     const ti = @typeInfo(Feature);
     for (&result, 0..) |*elem, i| {
         elem.index = i;
-        elem.name = ti.Enum.fields[i].name;
+        elem.name = ti.@"enum".fields[i].name;
     }
     break :blk result;
 };
@@ -109,8 +115,15 @@ pub const cpu = struct {
         .features = featureSet(&[_]Feature{
             .atomics,
             .bulk_memory,
+            .exception_handling,
+            .extended_const,
+            .half_precision,
+            .multimemory,
+            .multivalue,
             .mutable_globals,
             .nontrapping_fptoint,
+            .reference_types,
+            .relaxed_simd,
             .sign_ext,
             .simd128,
             .tail_call,
@@ -120,7 +133,9 @@ pub const cpu = struct {
         .name = "generic",
         .llvm_name = "generic",
         .features = featureSet(&[_]Feature{
+            .multivalue,
             .mutable_globals,
+            .reference_types,
             .sign_ext,
         }),
     };

@@ -2,10 +2,12 @@ const std = @import("std");
 const build_options = @import("build_options");
 const allocPrint = std.fmt.allocPrint;
 const assert = std.debug.assert;
+const dev = @import("../../dev.zig");
 const fs = std.fs;
 const log = std.log.scoped(.link);
 const mem = std.mem;
 const Cache = std.Build.Cache;
+const Path = std.Build.Cache.Path;
 
 const mingw = @import("../../mingw.zig");
 const link = @import("../../link.zig");
@@ -15,21 +17,24 @@ const Allocator = mem.Allocator;
 
 const Coff = @import("../Coff.zig");
 const Compilation = @import("../../Compilation.zig");
+const Zcu = @import("../../Zcu.zig");
 
-pub fn linkWithLLD(self: *Coff, arena: Allocator, prog_node: *std.Progress.Node) !void {
+pub fn linkWithLLD(self: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) !void {
+    dev.check(.lld_linker);
+
     const tracy = trace(@src());
     defer tracy.end();
 
     const comp = self.base.comp;
     const gpa = comp.gpa;
 
-    const directory = self.base.emit.directory; // Just an alias to make it shorter to type.
+    const directory = self.base.emit.root_dir; // Just an alias to make it shorter to type.
     const full_out_path = try directory.join(arena, &[_][]const u8{self.base.emit.sub_path});
 
     // If there is no Zig code to compile, then we should skip flushing the output file because it
     // will not be part of the linker line anyway.
-    const module_obj_path: ?[]const u8 = if (comp.module != null) blk: {
-        try self.flushModule(arena, prog_node);
+    const module_obj_path: ?[]const u8 = if (comp.zcu != null) blk: {
+        try self.flushModule(arena, tid, prog_node);
 
         if (fs.path.dirname(full_out_path)) |dirname| {
             break :blk try fs.path.join(arena, &.{ dirname, self.base.zcu_object_sub_path.? });
@@ -38,9 +43,7 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, prog_node: *std.Progress.Node)
         }
     } else null;
 
-    var sub_prog_node = prog_node.start("LLD Link", 0);
-    sub_prog_node.activate();
-    sub_prog_node.context.refresh();
+    const sub_prog_node = prog_node.start("LLD Link", 0);
     defer sub_prog_node.end();
 
     const is_lib = comp.config.output_mode == .Lib;
@@ -69,19 +72,17 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, prog_node: *std.Progress.Node)
         man = comp.cache_parent.obtain();
         self.base.releaseLock();
 
-        comptime assert(Compilation.link_hash_implementation_version == 13);
+        comptime assert(Compilation.link_hash_implementation_version == 14);
 
         for (comp.objects) |obj| {
-            _ = try man.addFile(obj.path, null);
+            _ = try man.addFilePath(obj.path, null);
             man.hash.add(obj.must_link);
         }
         for (comp.c_object_table.keys()) |key| {
-            _ = try man.addFile(key.status.success.object_path, null);
+            _ = try man.addFilePath(key.status.success.object_path, null);
         }
-        if (!build_options.only_core_functionality) {
-            for (comp.win32_resource_table.keys()) |key| {
-                _ = try man.addFile(key.status.success.res_path, null);
-            }
+        for (comp.win32_resource_table.keys()) |key| {
+            _ = try man.addFile(key.status.success.res_path, null);
         }
         try man.addOptionalFile(module_obj_path);
         man.hash.addOptionalBytes(entry_name);
@@ -93,7 +94,7 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, prog_node: *std.Progress.Node)
             man.hash.add(comp.libc_installation != null);
             if (comp.libc_installation) |libc_installation| {
                 man.hash.addBytes(libc_installation.crt_dir.?);
-                if (target.abi == .msvc) {
+                if (target.abi == .msvc or target.abi == .itanium) {
                     man.hash.addBytes(libc_installation.msvc_lib_dir.?);
                     man.hash.addBytes(libc_installation.kernel32_lib_dir.?);
                 }
@@ -110,6 +111,7 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, prog_node: *std.Progress.Node)
         // strip does not need to go into the linker hash because it is part of the hash namespace
         man.hash.add(self.major_subsystem_version);
         man.hash.add(self.minor_subsystem_version);
+        man.hash.add(self.repro);
         man.hash.addOptional(comp.version);
         try man.addOptionalFile(self.module_definition_file);
 
@@ -153,17 +155,19 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, prog_node: *std.Progress.Node)
                 break :blk comp.c_object_table.keys()[0].status.success.object_path;
 
             if (module_obj_path) |p|
-                break :blk p;
+                break :blk Path.initCwd(p);
 
             // TODO I think this is unreachable. Audit this situation when solving the above TODO
             // regarding eliding redundant object -> object transformations.
             return error.NoObjectsToLink;
         };
-        // This can happen when using --enable-cache and using the stage1 backend. In this case
-        // we can skip the file copy.
-        if (!mem.eql(u8, the_object_path, full_out_path)) {
-            try fs.cwd().copyFile(the_object_path, fs.cwd(), full_out_path, .{});
-        }
+        try std.fs.Dir.copyFile(
+            the_object_path.root_dir.handle,
+            the_object_path.sub_path,
+            directory.handle,
+            self.base.emit.sub_path,
+            .{},
+        );
     } else {
         // Create an LLD command line and invoke it.
         var argv = std.ArrayList([]const u8).init(gpa);
@@ -227,6 +231,10 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, prog_node: *std.Progress.Node)
             try argv.append(try allocPrint(arena, "-ENTRY:{s}", .{name}));
         }
 
+        if (self.repro) {
+            try argv.append("-BREPRO");
+        }
+
         if (self.tsaware) {
             try argv.append("-tsaware");
         }
@@ -243,7 +251,7 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, prog_node: *std.Progress.Node)
         try argv.append(try allocPrint(arena, "-OUT:{s}", .{full_out_path}));
 
         if (comp.implib_emit) |emit| {
-            const implib_out_path = try emit.directory.join(arena, &[_][]const u8{emit.sub_path});
+            const implib_out_path = try emit.root_dir.join(arena, &[_][]const u8{emit.sub_path});
             try argv.append(try allocPrint(arena, "-IMPLIB:{s}", .{implib_out_path}));
         }
 
@@ -251,7 +259,7 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, prog_node: *std.Progress.Node)
             if (comp.libc_installation) |libc_installation| {
                 try argv.append(try allocPrint(arena, "-LIBPATH:{s}", .{libc_installation.crt_dir.?}));
 
-                if (target.abi == .msvc) {
+                if (target.abi == .msvc or target.abi == .itanium) {
                     try argv.append(try allocPrint(arena, "-LIBPATH:{s}", .{libc_installation.msvc_lib_dir.?}));
                     try argv.append(try allocPrint(arena, "-LIBPATH:{s}", .{libc_installation.kernel32_lib_dir.?}));
                 }
@@ -265,20 +273,18 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, prog_node: *std.Progress.Node)
         try argv.ensureUnusedCapacity(comp.objects.len);
         for (comp.objects) |obj| {
             if (obj.must_link) {
-                argv.appendAssumeCapacity(try allocPrint(arena, "-WHOLEARCHIVE:{s}", .{obj.path}));
+                argv.appendAssumeCapacity(try allocPrint(arena, "-WHOLEARCHIVE:{}", .{@as(Path, obj.path)}));
             } else {
-                argv.appendAssumeCapacity(obj.path);
+                argv.appendAssumeCapacity(try obj.path.toString(arena));
             }
         }
 
         for (comp.c_object_table.keys()) |key| {
-            try argv.append(key.status.success.object_path);
+            try argv.append(try key.status.success.object_path.toString(arena));
         }
 
-        if (!build_options.only_core_functionality) {
-            for (comp.win32_resource_table.keys()) |key| {
-                try argv.append(key.status.success.res_path);
-            }
+        for (comp.win32_resource_table.keys()) |key| {
+            try argv.append(key.status.success.res_path);
         }
 
         if (module_obj_path) |p| {
@@ -293,7 +299,7 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, prog_node: *std.Progress.Node)
             if (self.subsystem) |explicit| break :blk explicit;
             switch (target.os.tag) {
                 .windows => {
-                    if (comp.module) |module| {
+                    if (comp.zcu) |module| {
                         if (module.stage1_flags.have_dllmain_crt_startup or is_dyn_lib)
                             break :blk null;
                         if (module.stage1_flags.have_c_main or comp.config.is_test or
@@ -398,17 +404,17 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, prog_node: *std.Progress.Node)
                         }
 
                         if (is_dyn_lib) {
-                            try argv.append(try comp.get_libc_crt_file(arena, "dllcrt2.obj"));
+                            try argv.append(try comp.crtFileAsString(arena, "dllcrt2.obj"));
                             if (target.cpu.arch == .x86) {
                                 try argv.append("-ALTERNATENAME:__DllMainCRTStartup@12=_DllMainCRTStartup@12");
                             } else {
                                 try argv.append("-ALTERNATENAME:_DllMainCRTStartup=DllMainCRTStartup");
                             }
                         } else {
-                            try argv.append(try comp.get_libc_crt_file(arena, "crt2.obj"));
+                            try argv.append(try comp.crtFileAsString(arena, "crt2.obj"));
                         }
 
-                        try argv.append(try comp.get_libc_crt_file(arena, "mingw32.lib"));
+                        try argv.append(try comp.crtFileAsString(arena, "mingw32.lib"));
                     } else {
                         const lib_str = switch (comp.config.link_mode) {
                             .dynamic => "",
@@ -437,7 +443,7 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, prog_node: *std.Progress.Node)
                 } else {
                     try argv.append("-NODEFAULTLIB");
                     if (!is_lib and entry_name == null) {
-                        if (comp.module) |module| {
+                        if (comp.zcu) |module| {
                             if (module.stage1_flags.have_winmain_crt_startup) {
                                 try argv.append("-ENTRY:WinMainCRTStartup");
                             } else {
@@ -453,32 +459,36 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, prog_node: *std.Progress.Node)
 
         // libc++ dep
         if (comp.config.link_libcpp) {
-            try argv.append(comp.libcxxabi_static_lib.?.full_object_path);
-            try argv.append(comp.libcxx_static_lib.?.full_object_path);
+            try argv.append(try comp.libcxxabi_static_lib.?.full_object_path.toString(arena));
+            try argv.append(try comp.libcxx_static_lib.?.full_object_path.toString(arena));
         }
 
         // libunwind dep
         if (comp.config.link_libunwind) {
-            try argv.append(comp.libunwind_static_lib.?.full_object_path);
+            try argv.append(try comp.libunwind_static_lib.?.full_object_path.toString(arena));
+        }
+
+        if (comp.config.any_fuzz) {
+            try argv.append(try comp.fuzzer_lib.?.full_object_path.toString(arena));
         }
 
         if (is_exe_or_dyn_lib and !comp.skip_linker_dependencies) {
             if (!comp.config.link_libc) {
                 if (comp.libc_static_lib) |lib| {
-                    try argv.append(lib.full_object_path);
+                    try argv.append(try lib.full_object_path.toString(arena));
                 }
             }
             // MSVC compiler_rt is missing some stuff, so we build it unconditionally but
             // and rely on weak linkage to allow MSVC compiler_rt functions to override ours.
-            if (comp.compiler_rt_obj) |obj| try argv.append(obj.full_object_path);
-            if (comp.compiler_rt_lib) |lib| try argv.append(lib.full_object_path);
+            if (comp.compiler_rt_obj) |obj| try argv.append(try obj.full_object_path.toString(arena));
+            if (comp.compiler_rt_lib) |lib| try argv.append(try lib.full_object_path.toString(arena));
         }
 
         try argv.ensureUnusedCapacity(comp.system_libs.count());
         for (comp.system_libs.keys()) |key| {
             const lib_basename = try allocPrint(arena, "{s}.lib", .{key});
             if (comp.crt_files.get(lib_basename)) |crt_file| {
-                argv.appendAssumeCapacity(crt_file.full_object_path);
+                argv.appendAssumeCapacity(try crt_file.full_object_path.toString(arena));
                 continue;
             }
             if (try findLib(arena, lib_basename, self.lib_dirs)) |full_path| {
@@ -492,7 +502,7 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, prog_node: *std.Progress.Node)
                     continue;
                 }
             }
-            if (target.abi == .msvc) {
+            if (target.abi == .msvc or target.abi == .itanium) {
                 argv.appendAssumeCapacity(lib_basename);
                 continue;
             }

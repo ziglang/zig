@@ -11,7 +11,7 @@
 
 #include <__assert>
 #include <__config>
-#include <__type_traits/is_nothrow_move_constructible.h>
+#include <__type_traits/is_nothrow_constructible.h>
 #include <__utility/exchange.h>
 #include <__utility/move.h>
 
@@ -96,8 +96,8 @@ _LIBCPP_CTAD_SUPPORTED_FOR_TYPE(__exception_guard_exceptions);
 template <class _Rollback>
 struct __exception_guard_noexceptions {
   __exception_guard_noexceptions() = delete;
-  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20
-      _LIBCPP_NODEBUG explicit __exception_guard_noexceptions(_Rollback) {}
+  _LIBCPP_HIDE_FROM_ABI
+  _LIBCPP_CONSTEXPR_SINCE_CXX20 _LIBCPP_NODEBUG explicit __exception_guard_noexceptions(_Rollback) {}
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _LIBCPP_NODEBUG
   __exception_guard_noexceptions(__exception_guard_noexceptions&& __other)

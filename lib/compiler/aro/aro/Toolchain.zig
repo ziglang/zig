@@ -89,7 +89,7 @@ pub fn discover(tc: *Toolchain) !void {
             .{ .unknown = {} } // TODO
         else if (target.cpu.arch.isMIPS())
             .{ .unknown = {} } // TODO
-        else if (target.cpu.arch.isPPC())
+        else if (target.cpu.arch.isPowerPC())
             .{ .unknown = {} } // TODO
         else if (target.cpu.arch == .ve)
             .{ .unknown = {} } // TODO
@@ -221,7 +221,7 @@ pub fn addFilePathLibArgs(tc: *const Toolchain, argv: *std.ArrayList([]const u8)
 /// If not found there, just use `name`
 /// Writes the result to `buf` and returns a slice of it
 fn getProgramPath(tc: *const Toolchain, name: []const u8, buf: []u8) []const u8 {
-    var path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
     var fib = std.heap.FixedBufferAllocator.init(&path_buf);
 
     var tool_specific_buf: [64]u8 = undefined;
@@ -251,7 +251,7 @@ pub fn getSysroot(tc: *const Toolchain) []const u8 {
 /// Search for `name` in a variety of places
 /// TODO: cache results based on `name` so we're not repeatedly allocating the same strings?
 pub fn getFilePath(tc: *const Toolchain, name: []const u8) ![]const u8 {
-    var path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
     var fib = std.heap.FixedBufferAllocator.init(&path_buf);
     const allocator = fib.allocator();
 
@@ -304,7 +304,7 @@ const PathKind = enum {
 /// Join `components` into a path. If the path exists, dupe it into the toolchain arena and
 /// add it to the specified path list.
 pub fn addPathIfExists(tc: *Toolchain, components: []const []const u8, dest_kind: PathKind) !void {
-    var path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
     var fib = std.heap.FixedBufferAllocator.init(&path_buf);
 
     const candidate = try std.fs.path.join(fib.allocator(), components);

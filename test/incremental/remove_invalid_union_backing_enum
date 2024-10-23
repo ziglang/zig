@@ -1,0 +1,30 @@
+#target=x86_64-linux-selfhosted
+#target=x86_64-linux-cbe
+#target=x86_64-windows-cbe
+#update=initial version
+#file=main.zig
+const E = enum { a, b, c };
+const U = union(E) {
+    a: i32,
+    b: f64,
+    c: f64,
+    d: f64,
+};
+pub fn main() void {
+    const u: U = .{ .a = 123 };
+    _ = u;
+}
+#expect_error=ignored
+#update=remove invalid backing enum
+#file=main.zig
+const U = union {
+    a: i32,
+    b: f64,
+    c: f64,
+    d: f64,
+};
+pub fn main() void {
+    const u: U = .{ .a = 123 };
+    _ = u;
+}
+#expect_stdout=""

@@ -1,6 +1,6 @@
 export fn entry() void {
     const V1 = @Vector(4, u8);
-    const V2 = @Type(.{ .Vector = .{ .len = 4, .child = V1 } });
+    const V2 = @Type(.{ .vector = .{ .len = 4, .child = V1 } });
     const v: V2 = undefined;
     _ = v;
 }

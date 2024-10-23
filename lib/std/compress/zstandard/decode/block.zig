@@ -405,7 +405,7 @@ pub const DecodeState = struct {
     };
     fn readLiteralsBits(
         self: *DecodeState,
-        bit_count_to_read: usize,
+        bit_count_to_read: u16,
     ) LiteralBitsError!u16 {
         return self.literal_stream_reader.readBitsNoEof(u16, bit_count_to_read) catch bits: {
             if (self.literal_streams == .four and self.literal_stream_index < 3) {

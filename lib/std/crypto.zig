@@ -2,6 +2,8 @@
 
 const root = @import("root");
 
+pub const timing_safe = @import("crypto/timing_safe.zig");
+
 /// Authenticated Encryption with Associated Data
 pub const aead = struct {
     pub const aegis = struct {
@@ -72,8 +74,9 @@ pub const dh = struct {
 
 /// Key Encapsulation Mechanisms.
 pub const kem = struct {
-    pub const kyber_d00 = @import("crypto/ml_kem.zig").kyber_d00;
-    pub const ml_kem_01 = @import("crypto/ml_kem.zig").ml_kem_01;
+    pub const kyber_d00 = @import("crypto/ml_kem.zig").d00;
+    pub const ml_kem = @import("crypto/ml_kem.zig").nist;
+    pub const ml_kem_01 = @compileError("deprecated: final version of the specification has been published, use ml_kem instead");
 };
 
 /// Elliptic-curve arithmetic.
@@ -179,8 +182,6 @@ pub const nacl = struct {
     pub const SecretBox = salsa20.SecretBox;
     pub const SealedBox = salsa20.SealedBox;
 };
-
-pub const utils = @import("crypto/utils.zig");
 
 /// Finite-field arithmetic.
 pub const ff = @import("crypto/ff.zig");
@@ -301,7 +302,8 @@ test {
     _ = nacl.SecretBox;
     _ = nacl.SealedBox;
 
-    _ = utils;
+    _ = secureZero;
+    _ = timing_safe;
     _ = ff;
     _ = random;
     _ = errors;
@@ -353,3 +355,36 @@ test "issue #4532: no index out of bounds" {
         try std.testing.expectEqual(out1, out2);
     }
 }
+
+/// Sets a slice to zeroes.
+/// Prevents the store from being optimized out.
+pub inline fn secureZero(comptime T: type, s: []volatile T) void {
+    @memset(s, 0);
+}
+
+test secureZero {
+    var a = [_]u8{0xfe} ** 8;
+    var b = [_]u8{0xfe} ** 8;
+
+    @memset(&a, 0);
+    secureZero(u8, &b);
+
+    try std.testing.expectEqualSlices(u8, &a, &b);
+}
+
+/// Deprecated in favor of `std.crypto`. To be removed after Zig 0.14.0 is released.
+///
+/// As a reminder, never use "utils" in a namespace (in any programming language).
+/// https://ziglang.org/documentation/0.13.0/#Avoid-Redundancy-in-Names
+pub const utils = struct {
+    /// Deprecated in favor of `std.crypto.secureZero`.
+    pub const secureZero = std.crypto.secureZero;
+    /// Deprecated in favor of `std.crypto.timing_safe.eql`.
+    pub const timingSafeEql = timing_safe.eql;
+    /// Deprecated in favor of `std.crypto.timing_safe.compare`.
+    pub const timingSafeCompare = timing_safe.compare;
+    /// Deprecated in favor of `std.crypto.timing_safe.add`.
+    pub const timingSafeAdd = timing_safe.add;
+    /// Deprecated in favor of `std.crypto.timing_safe.sub`.
+    pub const timingSafeSub = timing_safe.sub;
+};

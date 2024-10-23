@@ -158,7 +158,7 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
         // Only possible to happen if the private key is all zeroes.
         error.IdentityElement => return error.InsufficientEntropy,
     };
-    const kyber768_kp = crypto.kem.kyber_d00.Kyber768.KeyPair.create(null) catch {};
+    const ml_kem768_kp = crypto.kem.ml_kem.MLKem768.KeyPair.create(null) catch {};
 
     const extensions_payload =
         tls.extension(.supported_versions, [_]u8{
@@ -172,7 +172,7 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
         .rsa_pss_rsae_sha512,
         .ed25519,
     })) ++ tls.extension(.supported_groups, enum_array(tls.NamedGroup, &.{
-        .x25519_kyber768d00,
+        .x25519_ml_kem768,
         .secp256r1,
         .x25519,
     })) ++ tls.extension(
@@ -181,8 +181,8 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
             array(1, x25519_kp.public_key) ++
             int2(@intFromEnum(tls.NamedGroup.secp256r1)) ++
             array(1, secp256r1_kp.public_key.toUncompressedSec1()) ++
-            int2(@intFromEnum(tls.NamedGroup.x25519_kyber768d00)) ++
-            array(1, x25519_kp.public_key ++ kyber768_kp.public_key.toBytes())),
+            int2(@intFromEnum(tls.NamedGroup.x25519_ml_kem768)) ++
+            array(1, x25519_kp.public_key ++ ml_kem768_kp.public_key.toBytes())),
     ) ++
         int2(@intFromEnum(tls.ExtensionType.server_name)) ++
         int2(host_len + 5) ++ // byte length of this extension payload
@@ -298,9 +298,9 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
                             const key_size = extd.decode(u16);
                             try extd.ensure(key_size);
                             switch (named_group) {
-                                .x25519_kyber768d00 => {
+                                .x25519_ml_kem768 => {
                                     const xksl = crypto.dh.X25519.public_length;
-                                    const hksl = xksl + crypto.kem.kyber_d00.Kyber768.ciphertext_length;
+                                    const hksl = xksl + crypto.kem.ml_kem.MLKem768.ciphertext_length;
                                     if (key_size != hksl)
                                         return error.TlsIllegalParameter;
                                     const server_ks = extd.array(hksl);
@@ -308,7 +308,7 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
                                     shared_key = &((crypto.dh.X25519.scalarmult(
                                         x25519_kp.secret_key,
                                         server_ks[0..xksl].*,
-                                    ) catch return error.TlsDecryptFailure) ++ (kyber768_kp.secret_key.decaps(
+                                    ) catch return error.TlsDecryptFailure) ++ (ml_kem768_kp.secret_key.decaps(
                                         server_ks[xksl..hksl],
                                     ) catch return error.TlsDecryptFailure));
                                 },
@@ -468,7 +468,7 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
                         read_seq += 1;
                         P.AEAD.decrypt(cleartext, ciphertext, auth_tag, record_header, nonce, p.server_handshake_key) catch
                             return error.TlsBadRecordMac;
-                        break :c cleartext;
+                        break :c @constCast(mem.trimRight(u8, cleartext, "\x00"));
                     },
                 };
 
@@ -819,7 +819,7 @@ fn prepareCiphertextRecord(
             const close_notify_alert_reserved = tls.close_notify_alert.len + overhead_len;
             while (true) {
                 const encrypted_content_len: u16 = @intCast(@min(
-                    @min(bytes.len - bytes_i, tls.max_cipertext_inner_record_len),
+                    @min(bytes.len - bytes_i, tls.max_ciphertext_inner_record_len),
                     ciphertext_buf.len -|
                         (close_notify_alert_reserved + overhead_len + ciphertext_end),
                 ));
@@ -1012,7 +1012,7 @@ pub fn readvAdvanced(c: *Client, stream: anytype, iovecs: []const std.posix.iove
     // Cleartext capacity of output buffer, in records. Minimum one full record.
     const buf_cap = @max(cleartext_buf_len / max_ciphertext_len, 1);
     const wanted_read_len = buf_cap * (max_ciphertext_len + tls.record_header_len);
-    const ask_len = @max(wanted_read_len, cleartext_stack_buffer.len);
+    const ask_len = @max(wanted_read_len, cleartext_stack_buffer.len) - c.partial_ciphertext_end;
     const ask_iovecs = limitVecs(&ask_iovecs_buf, ask_len);
     const actual_read_len = try stream.readv(ask_iovecs);
     if (actual_read_len == 0) {
@@ -1146,7 +1146,7 @@ pub fn readvAdvanced(c: *Client, stream: anytype, iovecs: []const std.posix.iove
                         const cleartext = cleartext_buf[0..ciphertext.len];
                         P.AEAD.decrypt(cleartext, ciphertext, auth_tag, ad, nonce, p.server_key) catch
                             return error.TlsBadRecordMac;
-                        break :c cleartext;
+                        break :c mem.trimRight(u8, cleartext, "\x00");
                     },
                 };
 

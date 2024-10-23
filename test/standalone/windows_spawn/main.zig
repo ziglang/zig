@@ -3,7 +3,7 @@ const windows = std.os.windows;
 const utf16Literal = std.unicode.utf8ToUtf16LeStringLiteral;
 
 pub fn main() anyerror!void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
     defer if (gpa.deinit() == .leak) @panic("found memory leaks");
     const allocator = gpa.allocator();
 
@@ -158,7 +158,7 @@ fn testExec(allocator: std.mem.Allocator, command: []const u8, expected_stdout: 
 }
 
 fn testExecWithCwd(allocator: std.mem.Allocator, command: []const u8, cwd: ?[]const u8, expected_stdout: []const u8) !void {
-    const result = try std.ChildProcess.run(.{
+    const result = try std.process.Child.run(.{
         .allocator = allocator,
         .argv = &[_][]const u8{command},
         .cwd = cwd,

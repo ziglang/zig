@@ -37,13 +37,12 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 namespace ranges {
 namespace __rend {
 template <class _Tp>
-concept __member_rend = __can_borrow<_Tp> && __workaround_52970<_Tp> && requires(_Tp&& __t) {
+concept __member_rend = __can_borrow<_Tp> && requires(_Tp&& __t) {
   ranges::rbegin(__t);
   { _LIBCPP_AUTO_CAST(__t.rend()) } -> sentinel_for<decltype(ranges::rbegin(__t))>;
 };
 
-void rend(auto&)       = delete;
-void rend(const auto&) = delete;
+void rend() = delete;
 
 template <class _Tp>
 concept __unqualified_rend =
@@ -105,9 +104,8 @@ struct __fn {
 
   template <class _Tp>
     requires is_rvalue_reference_v<_Tp&&>
-  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr auto operator()(_Tp&& __t) const
-      noexcept(noexcept(ranges::rend(static_cast<const _Tp&&>(__t))))
-          -> decltype(ranges::rend(static_cast<const _Tp&&>(__t))) {
+  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr auto operator()(_Tp&& __t) const noexcept(
+      noexcept(ranges::rend(static_cast<const _Tp&&>(__t)))) -> decltype(ranges::rend(static_cast<const _Tp&&>(__t))) {
     return ranges::rend(static_cast<const _Tp&&>(__t));
   }
 };

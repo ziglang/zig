@@ -114,8 +114,8 @@ template <class T, class Container>
 */
 
 #include <__algorithm/ranges_copy.h>
-#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
+#include <__fwd/stack.h>
 #include <__iterator/back_insert_iterator.h>
 #include <__iterator/iterator_traits.h>
 #include <__memory/uses_allocator.h>
@@ -143,9 +143,6 @@ _LIBCPP_PUSH_MACROS
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-template <class _Tp, class _Container = deque<_Tp> >
-class _LIBCPP_TEMPLATE_VIS stack;
-
 template <class _Tp, class _Container>
 _LIBCPP_HIDE_FROM_ABI bool operator==(const stack<_Tp, _Container>& __x, const stack<_Tp, _Container>& __y);
 
@@ -160,7 +157,7 @@ public:
   typedef typename container_type::reference reference;
   typedef typename container_type::const_reference const_reference;
   typedef typename container_type::size_type size_type;
-  static_assert((is_same<_Tp, value_type>::value), "");
+  static_assert(is_same<_Tp, value_type>::value, "");
 
 protected:
   container_type c;
@@ -176,10 +173,10 @@ public:
   }
 
 #ifndef _LIBCPP_CXX03_LANG
-  _LIBCPP_HIDE_FROM_ABI stack(stack&& __q) _NOEXCEPT_(is_nothrow_move_constructible<container_type>::value)
+  _LIBCPP_HIDE_FROM_ABI stack(stack&& __q) noexcept(is_nothrow_move_constructible<container_type>::value)
       : c(std::move(__q.c)) {}
 
-  _LIBCPP_HIDE_FROM_ABI stack& operator=(stack&& __q) _NOEXCEPT_(is_nothrow_move_assignable<container_type>::value) {
+  _LIBCPP_HIDE_FROM_ABI stack& operator=(stack&& __q) noexcept(is_nothrow_move_assignable<container_type>::value) {
     c = std::move(__q.c);
     return *this;
   }
@@ -213,7 +210,7 @@ public:
 #endif // _LIBCPP_CXX03_LANG
 
 #if _LIBCPP_STD_VER >= 23
-  template <class _InputIterator, class = __enable_if_t<__has_input_iterator_category<_InputIterator>::value>>
+  template <class _InputIterator, __enable_if_t<__has_input_iterator_category<_InputIterator>::value, int> = 0>
   _LIBCPP_HIDE_FROM_ABI stack(_InputIterator __first, _InputIterator __last) : c(__first, __last) {}
 
   template <_ContainerCompatibleRange<_Tp> _Range>
@@ -221,20 +218,20 @@ public:
 
   template <class _InputIterator,
             class _Alloc,
-            class = __enable_if_t<__has_input_iterator_category<_InputIterator>::value>,
-            class = __enable_if_t<uses_allocator<container_type, _Alloc>::value>>
+            __enable_if_t<__has_input_iterator_category<_InputIterator>::value, int> = 0,
+            __enable_if_t<uses_allocator<container_type, _Alloc>::value, int>        = 0>
   _LIBCPP_HIDE_FROM_ABI stack(_InputIterator __first, _InputIterator __last, const _Alloc& __alloc)
       : c(__first, __last, __alloc) {}
 
   template <_ContainerCompatibleRange<_Tp> _Range,
             class _Alloc,
-            class = __enable_if_t<uses_allocator<container_type, _Alloc>::value>>
+            __enable_if_t<uses_allocator<container_type, _Alloc>::value, int> = 0>
   _LIBCPP_HIDE_FROM_ABI stack(from_range_t, _Range&& __range, const _Alloc& __alloc)
       : c(from_range, std::forward<_Range>(__range), __alloc) {}
 
 #endif
 
-  _LIBCPP_NODISCARD_AFTER_CXX17 _LIBCPP_HIDE_FROM_ABI bool empty() const { return c.empty(); }
+  _LIBCPP_NODISCARD _LIBCPP_HIDE_FROM_ABI bool empty() const { return c.empty(); }
   _LIBCPP_HIDE_FROM_ABI size_type size() const { return c.size(); }
   _LIBCPP_HIDE_FROM_ABI reference top() { return c.back(); }
   _LIBCPP_HIDE_FROM_ABI const_reference top() const { return c.back(); }
@@ -257,13 +254,13 @@ public:
   template <class... _Args>
   _LIBCPP_HIDE_FROM_ABI
 #  if _LIBCPP_STD_VER >= 17
-      decltype(auto)
-      emplace(_Args&&... __args) {
+  decltype(auto)
+  emplace(_Args&&... __args) {
     return c.emplace_back(std::forward<_Args>(__args)...);
   }
 #  else
-      void
-      emplace(_Args&&... __args) {
+  void
+  emplace(_Args&&... __args) {
     c.emplace_back(std::forward<_Args>(__args)...);
   }
 #  endif
@@ -271,7 +268,7 @@ public:
 
   _LIBCPP_HIDE_FROM_ABI void pop() { c.pop_back(); }
 
-  _LIBCPP_HIDE_FROM_ABI void swap(stack& __s) _NOEXCEPT_(__is_nothrow_swappable<container_type>::value) {
+  _LIBCPP_HIDE_FROM_ABI void swap(stack& __s) _NOEXCEPT_(__is_nothrow_swappable_v<container_type>) {
     using std::swap;
     swap(c, __s.c);
   }
@@ -297,7 +294,7 @@ stack(_Container, _Alloc) -> stack<typename _Container::value_type, _Container>;
 #endif
 
 #if _LIBCPP_STD_VER >= 23
-template <class _InputIterator, class = __enable_if_t<__has_input_iterator_category<_InputIterator>::value>>
+template <class _InputIterator, __enable_if_t<__has_input_iterator_category<_InputIterator>::value, int> = 0>
 stack(_InputIterator, _InputIterator) -> stack<__iter_value_type<_InputIterator>>;
 
 template <ranges::input_range _Range>
@@ -305,14 +302,16 @@ stack(from_range_t, _Range&&) -> stack<ranges::range_value_t<_Range>>;
 
 template <class _InputIterator,
           class _Alloc,
-          class = __enable_if_t<__has_input_iterator_category<_InputIterator>::value>,
-          class = __enable_if_t<__is_allocator<_Alloc>::value>>
-stack(_InputIterator, _InputIterator, _Alloc)
-    -> stack<__iter_value_type<_InputIterator>, deque<__iter_value_type<_InputIterator>, _Alloc>>;
+          __enable_if_t<__has_input_iterator_category<_InputIterator>::value, int> = 0,
+          __enable_if_t<__is_allocator<_Alloc>::value, int>                        = 0>
+stack(_InputIterator,
+      _InputIterator,
+      _Alloc) -> stack<__iter_value_type<_InputIterator>, deque<__iter_value_type<_InputIterator>, _Alloc>>;
 
-template <ranges::input_range _Range, class _Alloc, class = __enable_if_t<__is_allocator<_Alloc>::value>>
-stack(from_range_t, _Range&&, _Alloc)
-    -> stack<ranges::range_value_t<_Range>, deque<ranges::range_value_t<_Range>, _Alloc>>;
+template <ranges::input_range _Range, class _Alloc, __enable_if_t<__is_allocator<_Alloc>::value, int> = 0>
+stack(from_range_t,
+      _Range&&,
+      _Alloc) -> stack<ranges::range_value_t<_Range>, deque<ranges::range_value_t<_Range>, _Alloc>>;
 
 #endif
 
@@ -357,7 +356,7 @@ operator<=>(const stack<_Tp, _Container>& __x, const stack<_Tp, _Container>& __y
 
 #endif
 
-template <class _Tp, class _Container, __enable_if_t<__is_swappable<_Container>::value, int> = 0>
+template <class _Tp, class _Container, __enable_if_t<__is_swappable_v<_Container>, int> = 0>
 inline _LIBCPP_HIDE_FROM_ABI void swap(stack<_Tp, _Container>& __x, stack<_Tp, _Container>& __y)
     _NOEXCEPT_(_NOEXCEPT_(__x.swap(__y))) {
   __x.swap(__y);

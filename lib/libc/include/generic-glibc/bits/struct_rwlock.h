@@ -1,5 +1,5 @@
-/* MIPS internal rwlock struct definitions.
-   Copyright (C) 2019-2023 Free Software Foundation, Inc.
+/* Default read-write lock implementation struct definitions.
+   Copyright (C) 2019-2024 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -16,8 +16,15 @@
    License along with the GNU C Library; if not, see
    <http://www.gnu.org/licenses/>.  */
 
-#ifndef _RWLOCK_INTERNAL_H
-#define _RWLOCK_INTERNAL_H
+#ifndef __RWLOCK_INTERNAL_H
+#define __RWLOCK_INTERNAL_H
+
+#include <bits/endian.h>
+
+/* Generic struct for both POSIX read-write lock.  New ports are expected
+   to use the default layout, however archictetures can redefine it to add
+   arch-specific extensions (such as lock-elision).  The struct have a size
+   of 32 bytes on both LP32 and LP64 architectures.  */
 
 struct __pthread_rwlock_arch_t
 {
@@ -27,45 +34,28 @@ struct __pthread_rwlock_arch_t
   unsigned int __writers_futex;
   unsigned int __pad3;
   unsigned int __pad4;
-#if _MIPS_SIM == _ABI64
-  int __cur_writer;
-  int __shared;
-  unsigned long int __pad1;
-  unsigned long int __pad2;
-  /* FLAGS must stay at this position in the structure to maintain
+  /* FLAGS must stay at its position in the structure to maintain
      binary compatibility.  */
-  unsigned int __flags;
-# else
-# if __BYTE_ORDER == __BIG_ENDIAN
+#if __BYTE_ORDER == __BIG_ENDIAN
   unsigned char __pad1;
   unsigned char __pad2;
   unsigned char __shared;
-  /* FLAGS must stay at this position in the structure to maintain
-     binary compatibility.  */
   unsigned char __flags;
-# else
-  /* FLAGS must stay at this position in the structure to maintain
-     binary compatibility.  */
+#else
   unsigned char __flags;
   unsigned char __shared;
   unsigned char __pad1;
   unsigned char __pad2;
-# endif
-  int __cur_writer;
 #endif
+  int __cur_writer;
 };
 
-#if _MIPS_SIM == _ABI64
+#if __BYTE_ORDER == __BIG_ENDIAN
 # define __PTHREAD_RWLOCK_INITIALIZER(__flags) \
-  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, __flags
-#else
-# if __BYTE_ORDER == __BIG_ENDIAN
-#  define __PTHREAD_RWLOCK_INITIALIZER(__flags) \
   0, 0, 0, 0, 0, 0, 0, 0, 0, __flags, 0
-# else
-#  define __PTHREAD_RWLOCK_INITIALIZER(__flags) \
+#else
+# define __PTHREAD_RWLOCK_INITIALIZER(__flags) \
   0, 0, 0, 0, 0, 0, __flags, 0, 0, 0, 0
-# endif
 #endif
 
 #endif

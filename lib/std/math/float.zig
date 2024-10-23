@@ -6,21 +6,21 @@ const expectEqual = std.testing.expectEqual;
 
 /// Creates a raw "1.0" mantissa for floating point type T. Used to dedupe f80 logic.
 inline fn mantissaOne(comptime T: type) comptime_int {
-    return if (@typeInfo(T).Float.bits == 80) 1 << floatFractionalBits(T) else 0;
+    return if (@typeInfo(T).float.bits == 80) 1 << floatFractionalBits(T) else 0;
 }
 
 /// Creates floating point type T from an unbiased exponent and raw mantissa.
 inline fn reconstructFloat(comptime T: type, comptime exponent: comptime_int, comptime mantissa: comptime_int) T {
-    const TBits = @Type(.{ .Int = .{ .signedness = .unsigned, .bits = @bitSizeOf(T) } });
+    const TBits = @Type(.{ .int = .{ .signedness = .unsigned, .bits = @bitSizeOf(T) } });
     const biased_exponent = @as(TBits, exponent + floatExponentMax(T));
     return @as(T, @bitCast((biased_exponent << floatMantissaBits(T)) | @as(TBits, mantissa)));
 }
 
 /// Returns the number of bits in the exponent of floating point type T.
 pub inline fn floatExponentBits(comptime T: type) comptime_int {
-    comptime assert(@typeInfo(T) == .Float);
+    comptime assert(@typeInfo(T) == .float);
 
-    return switch (@typeInfo(T).Float.bits) {
+    return switch (@typeInfo(T).float.bits) {
         16 => 5,
         32 => 8,
         64 => 11,
@@ -32,9 +32,9 @@ pub inline fn floatExponentBits(comptime T: type) comptime_int {
 
 /// Returns the number of bits in the mantissa of floating point type T.
 pub inline fn floatMantissaBits(comptime T: type) comptime_int {
-    comptime assert(@typeInfo(T) == .Float);
+    comptime assert(@typeInfo(T) == .float);
 
-    return switch (@typeInfo(T).Float.bits) {
+    return switch (@typeInfo(T).float.bits) {
         16 => 10,
         32 => 23,
         64 => 52,
@@ -46,12 +46,12 @@ pub inline fn floatMantissaBits(comptime T: type) comptime_int {
 
 /// Returns the number of fractional bits in the mantissa of floating point type T.
 pub inline fn floatFractionalBits(comptime T: type) comptime_int {
-    comptime assert(@typeInfo(T) == .Float);
+    comptime assert(@typeInfo(T) == .float);
 
     // standard IEEE floats have an implicit 0.m or 1.m integer part
     // f80 is special and has an explicitly stored bit in the MSB
     // this function corresponds to `MANT_DIG - 1' from C
-    return switch (@typeInfo(T).Float.bits) {
+    return switch (@typeInfo(T).float.bits) {
         16 => 10,
         32 => 23,
         64 => 52,
@@ -92,6 +92,19 @@ pub inline fn floatMax(comptime T: type) T {
 /// Returns the machine epsilon of floating point type T.
 pub inline fn floatEps(comptime T: type) T {
     return reconstructFloat(T, -floatFractionalBits(T), mantissaOne(T));
+}
+
+/// Returns the local epsilon of floating point type T.
+pub inline fn floatEpsAt(comptime T: type, x: T) T {
+    switch (@typeInfo(T)) {
+        .float => |F| {
+            const U: type = @Type(.{ .int = .{ .signedness = .unsigned, .bits = F.bits } });
+            const u: U = @bitCast(x);
+            const y: T = @bitCast(u ^ 1);
+            return @abs(x - y);
+        },
+        else => @compileError("floatEpsAt only supports floats"),
+    }
 }
 
 /// Returns the value inf for floating point type T.
@@ -159,9 +172,6 @@ test nan {
 }
 
 test snan {
-    // TODO: https://github.com/ziglang/zig/issues/14366
-    if (builtin.zig_backend == .stage2_llvm and comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest;
-
     const snan_u16: u16 = 0x7D00;
     const snan_u32: u32 = 0x7FA00000;
     const snan_u64: u64 = 0x7FF4000000000000;

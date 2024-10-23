@@ -12,7 +12,7 @@ pub const min_buffer_size = 53;
 
 /// Returns the minimum buffer size needed to print every float of a specific type and format.
 pub fn bufferSize(comptime mode: Format, comptime T: type) comptime_int {
-    comptime std.debug.assert(@typeInfo(T) == .Float);
+    comptime std.debug.assert(@typeInfo(T) == .float);
     return switch (mode) {
         .scientific => 53,
         // Based on minimum subnormal values.
@@ -60,8 +60,8 @@ pub fn formatFloat(buf: []u8, v_: anytype, options: FormatOptions) FormatError![
     };
 
     const T = @TypeOf(v);
-    comptime std.debug.assert(@typeInfo(T) == .Float);
-    const I = @Type(.{ .Int = .{ .signedness = .unsigned, .bits = @bitSizeOf(T) } });
+    comptime std.debug.assert(@typeInfo(T) == .float);
+    const I = @Type(.{ .int = .{ .signedness = .unsigned, .bits = @bitSizeOf(T) } });
 
     const DT = if (@bitSizeOf(T) <= 64) u64 else u128;
     const tables = switch (DT) {
@@ -563,13 +563,13 @@ fn pow5Factor(value_: anytype) u32 {
 
 fn multipleOfPowerOf5(value: anytype, p: u32) bool {
     const T = @TypeOf(value);
-    std.debug.assert(@typeInfo(T) == .Int);
+    std.debug.assert(@typeInfo(T) == .int);
     return pow5Factor(value) >= p;
 }
 
 fn multipleOfPowerOf2(value: anytype, p: u32) bool {
     const T = @TypeOf(value);
-    std.debug.assert(@typeInfo(T) == .Int);
+    std.debug.assert(@typeInfo(T) == .int);
     return (value & ((@as(T, 1) << @as(std.math.Log2Int(T), @intCast(p))) - 1)) == 0;
 }
 
@@ -1513,23 +1513,25 @@ const FLOAT128_POW5_INV_ERRORS: [154]u64 = .{
 
 // zig fmt: on
 
+const builtin = @import("builtin");
+
 fn check(comptime T: type, value: T, comptime expected: []const u8) !void {
-    const I = @Type(.{ .Int = .{ .signedness = .unsigned, .bits = @bitSizeOf(T) } });
+    const I = @Type(.{ .int = .{ .signedness = .unsigned, .bits = @bitSizeOf(T) } });
 
     var buf: [6000]u8 = undefined;
     const value_bits: I = @bitCast(value);
     const s = try formatFloat(&buf, value, .{});
     try std.testing.expectEqualStrings(expected, s);
 
-    if (@bitSizeOf(T) != 80) {
-        const o = try std.fmt.parseFloat(T, s);
-        const o_bits: I = @bitCast(o);
+    if (T == f80 and builtin.target.os.tag == .windows and builtin.target.cpu.arch == .x86_64) return;
 
-        if (std.math.isNan(value)) {
-            try std.testing.expect(std.math.isNan(o));
-        } else {
-            try std.testing.expectEqual(value_bits, o_bits);
-        }
+    const o = try std.fmt.parseFloat(T, s);
+    const o_bits: I = @bitCast(o);
+
+    if (std.math.isNan(value)) {
+        try std.testing.expect(std.math.isNan(o));
+    } else {
+        try std.testing.expectEqual(value_bits, o_bits);
     }
 }
 

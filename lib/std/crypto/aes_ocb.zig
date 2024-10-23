@@ -234,9 +234,9 @@ fn AesOcb(comptime Aes: anytype) type {
             var e = xorBlocks(xorBlocks(sum, offset), lx.dol);
             aes_enc_ctx.encrypt(&e, &e);
             var computed_tag = xorBlocks(e, hash(aes_enc_ctx, &lx, ad));
-            const verify = crypto.utils.timingSafeEql([tag_length]u8, computed_tag, tag);
+            const verify = crypto.timing_safe.eql([tag_length]u8, computed_tag, tag);
             if (!verify) {
-                crypto.utils.secureZero(u8, &computed_tag);
+                crypto.secureZero(u8, &computed_tag);
                 @memset(m, undefined);
                 return error.AuthenticationFailed;
             }

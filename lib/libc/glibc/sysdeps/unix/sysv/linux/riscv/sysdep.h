@@ -156,6 +156,7 @@
 /* List of system calls which are supported as vsyscalls (for RV32 and
    RV64).  */
 # define HAVE_GETCPU_VSYSCALL		"__vdso_getcpu"
+# define HAVE_RISCV_HWPROBE		"__vdso_riscv_hwprobe"
 
 # undef HAVE_INTERNAL_BRK_ADDR_SYMBOL
 # define HAVE_INTERNAL_BRK_ADDR_SYMBOL 1

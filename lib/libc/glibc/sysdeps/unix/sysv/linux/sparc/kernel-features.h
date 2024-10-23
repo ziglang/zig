@@ -1,6 +1,6 @@
 /* Set flags signalling availability of kernel features based on given
    kernel version number.  SPARC version.
-   Copyright (C) 1999-2023 Free Software Foundation, Inc.
+   Copyright (C) 1999-2024 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -87,3 +87,7 @@
    (INLINE_CLONE_SYSCALL).  */
 #undef __ASSUME_CLONE_DEFAULT
 #define __ASSUME_CLONE_BACKWARDS	1
+
+/* sparc does not provide clone3.  */
+#undef __ASSUME_CLONE3
+#define __ASSUME_CLONE3 0

@@ -1,5 +1,5 @@
 pub const deflate = struct {
-    // Number of tokens to accumlate in deflate before starting block encoding.
+    // Number of tokens to accumulate in deflate before starting block encoding.
     //
     // In zlib this depends on memlevel: 6 + memlevel, where default memlevel is
     // 8 and max 9 that gives 14 or 15 bits.

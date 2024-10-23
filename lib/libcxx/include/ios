@@ -213,37 +213,34 @@ storage-class-specifier const error_category& iostream_category() noexcept;
 
 #include <__config>
 
-#if defined(_LIBCPP_HAS_NO_LOCALIZATION)
-#  error "The iostreams library is not supported since libc++ has been configured without support for localization."
-#endif
+#if !defined(_LIBCPP_HAS_NO_LOCALIZATION)
 
-#include <__assert> // all public C++ headers provide the assertion handler
-#include <__fwd/ios.h>
-#include <__ios/fpos.h>
-#include <__locale>
-#include <__system_error/error_category.h>
-#include <__system_error/error_code.h>
-#include <__system_error/error_condition.h>
-#include <__system_error/system_error.h>
-#include <__utility/swap.h>
-#include <__verbose_abort>
-#include <version>
+#  include <__fwd/ios.h>
+#  include <__ios/fpos.h>
+#  include <__locale>
+#  include <__system_error/error_category.h>
+#  include <__system_error/error_code.h>
+#  include <__system_error/error_condition.h>
+#  include <__system_error/system_error.h>
+#  include <__utility/swap.h>
+#  include <__verbose_abort>
+#  include <version>
 
 // standard-mandated includes
 
 // [ios.syn]
-#include <iosfwd>
+#  include <iosfwd>
 
-#if !defined(_LIBCPP_HAS_NO_ATOMIC_HEADER)
-#  include <__atomic/atomic.h> // for __xindex_
-#endif
+#  if !defined(_LIBCPP_HAS_NO_ATOMIC_HEADER)
+#    include <__atomic/atomic.h> // for __xindex_
+#  endif
 
-#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#  pragma GCC system_header
-#endif
+#  if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#    pragma GCC system_header
+#  endif
 
 _LIBCPP_PUSH_MACROS
-#include <__undef_macros>
+#  include <__undef_macros>
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -286,20 +283,20 @@ public:
   static const openmode in     = 0x08;
   static const openmode out    = 0x10;
   static const openmode trunc  = 0x20;
-#if _LIBCPP_STD_VER >= 23
+#  if _LIBCPP_STD_VER >= 23
   static const openmode noreplace = 0x40;
-#endif
+#  endif
 
   enum seekdir { beg, cur, end };
 
-#if _LIBCPP_STD_VER <= 14
+#  if _LIBCPP_STD_VER <= 14
   typedef iostate io_state;
   typedef openmode open_mode;
   typedef seekdir seek_dir;
 
   typedef std::streamoff streamoff;
   typedef std::streampos streampos;
-#endif
+#  endif
 
   class _LIBCPP_EXPORTED_FROM_ABI Init;
 
@@ -360,7 +357,13 @@ public:
   }
 
 protected:
-  _LIBCPP_HIDE_FROM_ABI ios_base() { // purposefully does no initialization
+  _LIBCPP_HIDE_FROM_ABI ios_base() : __loc_(nullptr) {
+    // Purposefully does no initialization
+    //
+    // Except for the locale, this is a sentinel to avoid destroying
+    // an uninitialized object. See
+    // test/libcxx/input.output/iostreams.base/ios.base/ios.base.cons/dtor.uninitialized.pass.cpp
+    // for the details.
   }
 
   void init(void* __sb);
@@ -393,11 +396,11 @@ private:
   size_t __event_cap_;
 // TODO(EricWF): Enable this for both Clang and GCC. Currently it is only
 // enabled with clang.
-#if defined(_LIBCPP_HAS_C_ATOMIC_IMP) && !defined(_LIBCPP_HAS_NO_THREADS)
+#  if defined(_LIBCPP_HAS_C_ATOMIC_IMP) && !defined(_LIBCPP_HAS_NO_THREADS)
   static atomic<int> __xindex_;
-#else
+#  else
   static int __xindex_;
-#endif
+#  endif
   long* __iarray_;
   size_t __iarray_size_;
   size_t __iarray_cap_;
@@ -413,10 +416,10 @@ _LIBCPP_DECLARE_STRONG_ENUM_EPILOG(io_errc)
 template <>
 struct _LIBCPP_TEMPLATE_VIS is_error_code_enum<io_errc> : public true_type {};
 
-#ifdef _LIBCPP_CXX03_LANG
+#  ifdef _LIBCPP_CXX03_LANG
 template <>
 struct _LIBCPP_TEMPLATE_VIS is_error_code_enum<io_errc::__lx> : public true_type {};
-#endif
+#  endif
 
 _LIBCPP_EXPORTED_FROM_ABI const error_category& iostream_category() _NOEXCEPT;
 
@@ -437,11 +440,11 @@ public:
 };
 
 _LIBCPP_NORETURN inline _LIBCPP_HIDE_FROM_ABI void __throw_failure(char const* __msg) {
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#  ifndef _LIBCPP_HAS_NO_EXCEPTIONS
   throw ios_base::failure(__msg);
-#else
+#  else
   _LIBCPP_VERBOSE_ABORT("ios_base::failure was thrown in -fno-exceptions mode with message \"%s\"", __msg);
-#endif
+#  endif
 }
 
 class _LIBCPP_EXPORTED_FROM_ABI ios_base::Init {
@@ -516,6 +519,38 @@ inline _LIBCPP_HIDE_FROM_ABI void ios_base::exceptions(iostate __iostate) {
   clear(__rdstate_);
 }
 
+template <class _Traits>
+// Attribute 'packed' is used to keep the layout compatible with the previous
+// definition of the '__fill_' and '_set_' pair in basic_ios on AIX & z/OS.
+struct _LIBCPP_PACKED _FillHelper {
+  _LIBCPP_HIDE_FROM_ABI void __init() { __set_ = false; }
+  _LIBCPP_HIDE_FROM_ABI _FillHelper& operator=(typename _Traits::int_type __x) {
+    __set_      = true;
+    __fill_val_ = __x;
+    return *this;
+  }
+  _LIBCPP_HIDE_FROM_ABI bool __is_set() const { return __set_; }
+  _LIBCPP_HIDE_FROM_ABI typename _Traits::int_type __get() const { return __fill_val_; }
+
+private:
+  typename _Traits::int_type __fill_val_;
+  bool __set_;
+};
+
+template <class _Traits>
+struct _LIBCPP_PACKED _SentinelValueFill {
+  _LIBCPP_HIDE_FROM_ABI void __init() { __fill_val_ = _Traits::eof(); }
+  _LIBCPP_HIDE_FROM_ABI _SentinelValueFill& operator=(typename _Traits::int_type __x) {
+    __fill_val_ = __x;
+    return *this;
+  }
+  _LIBCPP_HIDE_FROM_ABI bool __is_set() const { return __fill_val_ != _Traits::eof(); }
+  _LIBCPP_HIDE_FROM_ABI typename _Traits::int_type __get() const { return __fill_val_; }
+
+private:
+  typename _Traits::int_type __fill_val_;
+};
+
 template <class _CharT, class _Traits>
 class _LIBCPP_TEMPLATE_VIS basic_ios : public ios_base {
 public:
@@ -527,16 +562,16 @@ public:
   typedef typename traits_type::pos_type pos_type;
   typedef typename traits_type::off_type off_type;
 
-  static_assert((is_same<_CharT, typename traits_type::char_type>::value),
+  static_assert(is_same<_CharT, typename traits_type::char_type>::value,
                 "traits_type::char_type must be the same type as CharT");
 
-#ifdef _LIBCPP_CXX03_LANG
+#  ifdef _LIBCPP_CXX03_LANG
   // Preserve the ability to compare with literal 0,
   // and implicitly convert to bool, but not implicitly convert to int.
   _LIBCPP_HIDE_FROM_ABI operator void*() const { return fail() ? nullptr : (void*)this; }
-#else
+#  else
   _LIBCPP_HIDE_FROM_ABI explicit operator bool() const { return !fail(); }
-#endif
+#  endif
 
   _LIBCPP_HIDE_FROM_ABI bool operator!() const { return fail(); }
   _LIBCPP_HIDE_FROM_ABI iostate rdstate() const { return ios_base::rdstate(); }
@@ -572,7 +607,9 @@ public:
   _LIBCPP_HIDE_FROM_ABI char_type widen(char __c) const;
 
 protected:
-  _LIBCPP_HIDE_FROM_ABI basic_ios() { // purposefully does no initialization
+  _LIBCPP_HIDE_FROM_ABI basic_ios() {
+    // purposefully does no initialization
+    // since the destructor does nothing this does not have ios_base issues.
   }
   _LIBCPP_HIDE_FROM_ABI void init(basic_streambuf<char_type, traits_type>* __sb);
 
@@ -583,7 +620,13 @@ protected:
 
 private:
   basic_ostream<char_type, traits_type>* __tie_;
-  mutable int_type __fill_;
+
+#if defined(_LIBCPP_ABI_IOS_ALLOW_ARBITRARY_FILL_VALUE)
+  using _FillType = _FillHelper<traits_type>;
+#else
+  using _FillType = _SentinelValueFill<traits_type>;
+#endif
+  mutable _FillType __fill_;
 };
 
 template <class _CharT, class _Traits>
@@ -598,7 +641,7 @@ template <class _CharT, class _Traits>
 inline _LIBCPP_HIDE_FROM_ABI void basic_ios<_CharT, _Traits>::init(basic_streambuf<char_type, traits_type>* __sb) {
   ios_base::init(__sb);
   __tie_  = nullptr;
-  __fill_ = traits_type::eof();
+  __fill_.__init();
 }
 
 template <class _CharT, class _Traits>
@@ -648,16 +691,16 @@ inline _LIBCPP_HIDE_FROM_ABI _CharT basic_ios<_CharT, _Traits>::widen(char __c) 
 
 template <class _CharT, class _Traits>
 inline _LIBCPP_HIDE_FROM_ABI _CharT basic_ios<_CharT, _Traits>::fill() const {
-  if (traits_type::eq_int_type(traits_type::eof(), __fill_))
+  if (!__fill_.__is_set())
     __fill_ = widen(' ');
-  return __fill_;
+  return __fill_.__get();
 }
 
 template <class _CharT, class _Traits>
 inline _LIBCPP_HIDE_FROM_ABI _CharT basic_ios<_CharT, _Traits>::fill(char_type __ch) {
-  if (traits_type::eq_int_type(traits_type::eof(), __fill_))
+  if (!__fill_.__is_set())
     __fill_ = widen(' ');
-  char_type __r = __fill_;
+  char_type __r = __fill_.__get();
   __fill_       = __ch;
   return __r;
 }
@@ -697,9 +740,9 @@ inline _LIBCPP_HIDE_FROM_ABI void basic_ios<_CharT, _Traits>::set_rdbuf(basic_st
 
 extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_ios<char>;
 
-#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#  ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
 extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_ios<wchar_t>;
-#endif
+#  endif
 
 _LIBCPP_HIDE_FROM_ABI inline ios_base& boolalpha(ios_base& __str) {
   __str.setf(ios_base::boolalpha);
@@ -824,6 +867,8 @@ _LIBCPP_HIDE_FROM_ABI inline ios_base& defaultfloat(ios_base& __str) {
 _LIBCPP_END_NAMESPACE_STD
 
 _LIBCPP_POP_MACROS
+
+#endif // !defined(_LIBCPP_HAS_NO_LOCALIZATION)
 
 #if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
 #  include <atomic>

@@ -111,10 +111,10 @@ pub fn Decoder(comptime ReaderType: type) type {
                     return error.Unsupported;
 
                 if (flags.has_packed_size)
-                    packed_size = try std.leb.readULEB128(u64, header_reader);
+                    packed_size = try std.leb.readUleb128(u64, header_reader);
 
                 if (flags.has_unpacked_size)
-                    unpacked_size = try std.leb.readULEB128(u64, header_reader);
+                    unpacked_size = try std.leb.readUleb128(u64, header_reader);
 
                 const FilterId = enum(u64) {
                     lzma2 = 0x21,
@@ -123,7 +123,7 @@ pub fn Decoder(comptime ReaderType: type) type {
 
                 const filter_id = @as(
                     FilterId,
-                    @enumFromInt(try std.leb.readULEB128(u64, header_reader)),
+                    @enumFromInt(try std.leb.readUleb128(u64, header_reader)),
                 );
 
                 if (@intFromEnum(filter_id) >= 0x4000_0000_0000_0000)
@@ -132,7 +132,7 @@ pub fn Decoder(comptime ReaderType: type) type {
                 if (filter_id != .lzma2)
                     return error.Unsupported;
 
-                const properties_size = try std.leb.readULEB128(u64, header_reader);
+                const properties_size = try std.leb.readUleb128(u64, header_reader);
                 if (properties_size != 1)
                     return error.CorruptInput;
 

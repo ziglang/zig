@@ -7,20 +7,19 @@ const math = std.math;
 const Mir = @import("Mir.zig");
 const bits = @import("bits.zig");
 const link = @import("../../link.zig");
-const Module = @import("../../Module.zig");
-const ErrorMsg = Module.ErrorMsg;
+const Zcu = @import("../../Zcu.zig");
+const ErrorMsg = Zcu.ErrorMsg;
 const assert = std.debug.assert;
 const Instruction = bits.Instruction;
 const Register = bits.Register;
 const log = std.log.scoped(.aarch64_emit);
-const DebugInfoOutput = @import("../../codegen.zig").DebugInfoOutput;
 
 mir: Mir,
 bin_file: *link.File,
-debug_output: DebugInfoOutput,
+debug_output: link.File.DebugInfoOutput,
 target: *const std.Target,
 err_msg: ?*ErrorMsg = null,
-src_loc: Module.SrcLoc,
+src_loc: Zcu.LazySrcLoc,
 code: *std.ArrayList(u8),
 
 prev_di_line: u32,
@@ -34,18 +33,18 @@ prev_di_pc: usize,
 saved_regs_stack_space: u32,
 
 /// The branch type of every branch
-branch_types: std.AutoHashMapUnmanaged(Mir.Inst.Index, BranchType) = .{},
+branch_types: std.AutoHashMapUnmanaged(Mir.Inst.Index, BranchType) = .empty,
 
 /// For every forward branch, maps the target instruction to a list of
 /// branches which branch to this target instruction
-branch_forward_origins: std.AutoHashMapUnmanaged(Mir.Inst.Index, std.ArrayListUnmanaged(Mir.Inst.Index)) = .{},
+branch_forward_origins: std.AutoHashMapUnmanaged(Mir.Inst.Index, std.ArrayListUnmanaged(Mir.Inst.Index)) = .empty,
 
 /// For backward branches: stores the code offset of the target
 /// instruction
 ///
 /// For forward branches: stores the code offset of the branch
 /// instruction
-code_offset_mapping: std.AutoHashMapUnmanaged(Mir.Inst.Index, usize) = .{},
+code_offset_mapping: std.AutoHashMapUnmanaged(Mir.Inst.Index, usize) = .empty,
 
 /// The final stack frame size of the function (already aligned to the
 /// respective stack alignment). Does not include prologue stack space.
@@ -347,7 +346,7 @@ fn lowerBranches(emit: *Emit) !void {
                 if (emit.branch_forward_origins.getPtr(target_inst)) |origin_list| {
                     try origin_list.append(gpa, inst);
                 } else {
-                    var origin_list: std.ArrayListUnmanaged(Mir.Inst.Index) = .{};
+                    var origin_list: std.ArrayListUnmanaged(Mir.Inst.Index) = .empty;
                     try origin_list.append(gpa, inst);
                     try emit.branch_forward_origins.put(gpa, target_inst, origin_list);
                 }
@@ -430,7 +429,7 @@ fn writeInstruction(emit: *Emit, instruction: Instruction) !void {
 }
 
 fn fail(emit: *Emit, comptime format: []const u8, args: anytype) InnerError {
-    @setCold(true);
+    @branchHint(.cold);
     assert(emit.err_msg == null);
     const comp = emit.bin_file.comp;
     const gpa = comp.gpa;
@@ -687,7 +686,7 @@ fn mirCallExtern(emit: *Emit, inst: Mir.Inst.Index) !void {
     };
     _ = offset;
 
-    if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
+    if (emit.bin_file.cast(.macho)) |macho_file| {
         _ = macho_file;
         @panic("TODO mirCallExtern");
         // // Add relocation to the decl.
@@ -701,7 +700,7 @@ fn mirCallExtern(emit: *Emit, inst: Mir.Inst.Index) !void {
         //     .pcrel = true,
         //     .length = 2,
         // });
-    } else if (emit.bin_file.cast(link.File.Coff)) |_| {
+    } else if (emit.bin_file.cast(.coff)) |_| {
         unreachable; // Calling imports is handled via `.load_memory_import`
     } else {
         return emit.fail("Implement call_extern for linking backends != {{ COFF, MachO }}", .{});
@@ -903,7 +902,7 @@ fn mirLoadMemoryPie(emit: *Emit, inst: Mir.Inst.Index) !void {
         else => unreachable,
     }
 
-    if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
+    if (emit.bin_file.cast(.macho)) |macho_file| {
         _ = macho_file;
         @panic("TODO mirLoadMemoryPie");
         // const Atom = link.File.MachO.Atom;
@@ -932,7 +931,7 @@ fn mirLoadMemoryPie(emit: *Emit, inst: Mir.Inst.Index) !void {
         //         else => unreachable,
         //     },
         // } });
-    } else if (emit.bin_file.cast(link.File.Coff)) |coff_file| {
+    } else if (emit.bin_file.cast(.coff)) |coff_file| {
         const atom_index = coff_file.getAtomIndexForSymbol(.{ .sym_index = data.atom_index, .file = null }).?;
         const target = switch (tag) {
             .load_memory_got,

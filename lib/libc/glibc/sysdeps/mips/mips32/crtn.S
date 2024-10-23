@@ -1,5 +1,5 @@
 /* Special .init and .fini section support for MIPS (o32).
-   Copyright (C) 1995-2023 Free Software Foundation, Inc.
+   Copyright (C) 1995-2024 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -42,7 +42,8 @@
 	lw $31,28($sp)
 	.set noreorder
 	.set nomacro
-	j $31
+	/* zig patch: j <reg> -> jr <reg> for https://github.com/ziglang/zig/issues/21315 */
+	jr $31
 	addiu $sp,$sp,32
 	.set macro
 	.set reorder
@@ -51,7 +52,8 @@
 	lw $31,28($sp)
 	.set noreorder
 	.set nomacro
-	j $31
+	/* zig patch: j <reg> -> jr <reg> for https://github.com/ziglang/zig/issues/21315 */
+	jr $31
 	addiu $sp,$sp,32
 	.set macro
 	.set reorder

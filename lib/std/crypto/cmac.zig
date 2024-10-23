@@ -8,7 +8,7 @@ pub const CmacAes128 = Cmac(crypto.core.aes.Aes128);
 /// NIST Special Publication 800-38B - The CMAC Mode for Authentication
 /// https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-38b.pdf
 pub fn Cmac(comptime BlockCipher: type) type {
-    const BlockCipherCtx = @typeInfo(@TypeOf(BlockCipher.initEnc)).Fn.return_type.?;
+    const BlockCipherCtx = @typeInfo(@TypeOf(BlockCipher.initEnc)).@"fn".return_type.?;
     const Block = [BlockCipher.block.block_length]u8;
 
     return struct {

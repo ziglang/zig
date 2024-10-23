@@ -3,7 +3,7 @@ const expect = std.testing.expect;
 const builtin = @import("builtin");
 
 fn ShardedTable(comptime Key: type, comptime mask_bit_count: comptime_int, comptime V: type) type {
-    const key_bits = @typeInfo(Key).Int.bits;
+    const key_bits = @typeInfo(Key).int.bits;
     std.debug.assert(Key == std.meta.Int(.unsigned, key_bits));
     std.debug.assert(key_bits >= mask_bit_count);
     const shard_key_bits = mask_bit_count;
@@ -65,7 +65,6 @@ test "sharded table" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     // realistic 16-way sharding
     try testShardedTable(u32, 4, 8);
@@ -121,11 +120,11 @@ test "Saturating Shift Left where lhs is of a computed type" {
 
     const S = struct {
         fn getIntShiftType(comptime T: type) type {
-            var unsigned_shift_type = @typeInfo(std.math.Log2Int(T)).Int;
+            var unsigned_shift_type = @typeInfo(std.math.Log2Int(T)).int;
             unsigned_shift_type.signedness = .signed;
 
             return @Type(.{
-                .Int = unsigned_shift_type,
+                .int = unsigned_shift_type,
             });
         }
 

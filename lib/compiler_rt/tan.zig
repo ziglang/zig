@@ -21,15 +21,15 @@ const common = @import("common.zig");
 pub const panic = common.panic;
 
 comptime {
-    @export(__tanh, .{ .name = "__tanh", .linkage = common.linkage, .visibility = common.visibility });
-    @export(tanf, .{ .name = "tanf", .linkage = common.linkage, .visibility = common.visibility });
-    @export(tan, .{ .name = "tan", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__tanx, .{ .name = "__tanx", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__tanh, .{ .name = "__tanh", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&tanf, .{ .name = "tanf", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&tan, .{ .name = "tan", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__tanx, .{ .name = "__tanx", .linkage = common.linkage, .visibility = common.visibility });
     if (common.want_ppc_abi) {
-        @export(tanq, .{ .name = "tanf128", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&tanq, .{ .name = "tanf128", .linkage = common.linkage, .visibility = common.visibility });
     }
-    @export(tanq, .{ .name = "tanq", .linkage = common.linkage, .visibility = common.visibility });
-    @export(tanl, .{ .name = "tanl", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&tanq, .{ .name = "tanq", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&tanl, .{ .name = "tanl", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 pub fn __tanh(x: f16) callconv(.C) f16 {
@@ -51,7 +51,7 @@ pub fn tanf(x: f32) callconv(.C) f32 {
     if (ix <= 0x3f490fda) { // |x| ~<= pi/4
         if (ix < 0x39800000) { // |x| < 2**-12
             // raise inexact if x!=0 and underflow if subnormal
-            mem.doNotOptimizeAway(if (ix < 0x00800000) x / 0x1p120 else x + 0x1p120);
+            if (common.want_float_exceptions) mem.doNotOptimizeAway(if (ix < 0x00800000) x / 0x1p120 else x + 0x1p120);
             return x;
         }
         return kernel.__tandf(x, false);
@@ -89,7 +89,7 @@ pub fn tan(x: f64) callconv(.C) f64 {
     if (ix <= 0x3fe921fb) {
         if (ix < 0x3e400000) { // |x| < 2**-27
             // raise inexact if x!=0 and underflow if subnormal
-            mem.doNotOptimizeAway(if (ix < 0x00100000) x / 0x1p120 else x + 0x1p120);
+            if (common.want_float_exceptions) mem.doNotOptimizeAway(if (ix < 0x00100000) x / 0x1p120 else x + 0x1p120);
             return x;
         }
         return kernel.__tan(x, 0.0, false);
@@ -116,7 +116,7 @@ pub fn tanq(x: f128) callconv(.C) f128 {
 }
 
 pub fn tanl(x: c_longdouble) callconv(.C) c_longdouble {
-    switch (@typeInfo(c_longdouble).Float.bits) {
+    switch (@typeInfo(c_longdouble).float.bits) {
         16 => return __tanh(x),
         32 => return tanf(x),
         64 => return tan(x),

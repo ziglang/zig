@@ -27,7 +27,7 @@ pub fn powi(comptime T: type, x: T, y: T) (error{
     Overflow,
     Underflow,
 }!T) {
-    const bit_size = @typeInfo(T).Int.bits;
+    const bit_size = @typeInfo(T).int.bits;
 
     // `y & 1 == 0` won't compile when `does_one_overflow`.
     const does_one_overflow = math.maxInt(T) < 1;

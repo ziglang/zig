@@ -7,9 +7,7 @@ const CpuModel = std.Target.Cpu.Model;
 pub const Feature = enum {
     @"32bit",
     @"8msecext",
-    a76,
     aapcs_frame_chain,
-    aapcs_frame_chain_leaf,
     aclass,
     acquire_release,
     aes,
@@ -40,7 +38,6 @@ pub const Feature = enum {
     dsp,
     execute_only,
     expand_fp_mlx,
-    exynos,
     fix_cmse_cve_2021_35465,
     fix_cortex_a57_aes_1742098,
     fp16,
@@ -86,6 +83,7 @@ pub const Feature = enum {
     has_v9_2a,
     has_v9_3a,
     has_v9_4a,
+    has_v9_5a,
     has_v9a,
     hwdiv,
     hwdiv_arm,
@@ -95,7 +93,6 @@ pub const Feature = enum {
     lob,
     long_calls,
     loop_align,
-    m3,
     mclass,
     mp,
     muxed_units,
@@ -119,7 +116,6 @@ pub const Feature = enum {
     prefer_ishst,
     prefer_vmovsr,
     prof_unpr,
-    r4,
     ras,
     rclass,
     read_tp_tpidrprw,
@@ -139,7 +135,6 @@ pub const Feature = enum {
     soft_float,
     splat_vfp_neon,
     strict_align,
-    swift,
     thumb2,
     thumb_mode,
     trustzone,
@@ -207,14 +202,14 @@ pub const Feature = enum {
     zcz,
 };
 
-pub const featureSet = CpuFeature.feature_set_fns(Feature).featureSet;
-pub const featureSetHas = CpuFeature.feature_set_fns(Feature).featureSetHas;
-pub const featureSetHasAny = CpuFeature.feature_set_fns(Feature).featureSetHasAny;
-pub const featureSetHasAll = CpuFeature.feature_set_fns(Feature).featureSetHasAll;
+pub const featureSet = CpuFeature.FeatureSetFns(Feature).featureSet;
+pub const featureSetHas = CpuFeature.FeatureSetFns(Feature).featureSetHas;
+pub const featureSetHasAny = CpuFeature.FeatureSetFns(Feature).featureSetHasAny;
+pub const featureSetHasAll = CpuFeature.FeatureSetFns(Feature).featureSetHasAll;
 
 pub const all_features = blk: {
     @setEvalBranchQuota(10000);
-    const len = @typeInfo(Feature).Enum.fields.len;
+    const len = @typeInfo(Feature).@"enum".fields.len;
     std.debug.assert(len <= CpuFeature.Set.needed_bit_count);
     var result: [len]CpuFeature = undefined;
     result[@intFromEnum(Feature.@"32bit")] = .{
@@ -227,22 +222,10 @@ pub const all_features = blk: {
         .description = "Enable support for ARMv8-M Security Extensions",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.a76)] = .{
-        .llvm_name = "a76",
-        .description = "Cortex-A76 ARM processors",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
     result[@intFromEnum(Feature.aapcs_frame_chain)] = .{
         .llvm_name = "aapcs-frame-chain",
         .description = "Create an AAPCS compliant frame chain",
         .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@intFromEnum(Feature.aapcs_frame_chain_leaf)] = .{
-        .llvm_name = "aapcs-frame-chain-leaf",
-        .description = "Create an AAPCS compliant frame chain for leaf functions",
-        .dependencies = featureSet(&[_]Feature{
-            .aapcs_frame_chain,
-        }),
     };
     result[@intFromEnum(Feature.aclass)] = .{
         .llvm_name = "aclass",
@@ -420,29 +403,6 @@ pub const all_features = blk: {
         .llvm_name = "expand-fp-mlx",
         .description = "Expand VFP/NEON MLA/MLS instructions",
         .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@intFromEnum(Feature.exynos)] = .{
-        .llvm_name = "exynos",
-        .description = "Samsung Exynos processors",
-        .dependencies = featureSet(&[_]Feature{
-            .crc,
-            .crypto,
-            .expand_fp_mlx,
-            .fuse_aes,
-            .fuse_literals,
-            .hwdiv,
-            .hwdiv_arm,
-            .prof_unpr,
-            .ret_addr_stack,
-            .slow_fp_brcc,
-            .slow_vdup32,
-            .slow_vgetlni32,
-            .slowfpvfmx,
-            .slowfpvmlx,
-            .splat_vfp_neon,
-            .wide_stride_vfp,
-            .zcz,
-        }),
     };
     result[@intFromEnum(Feature.fix_cmse_cve_2021_35465)] = .{
         .llvm_name = "fix-cmse-cve-2021-35465",
@@ -754,6 +714,13 @@ pub const all_features = blk: {
             .has_v9_3a,
         }),
     };
+    result[@intFromEnum(Feature.has_v9_5a)] = .{
+        .llvm_name = "v9.5a",
+        .description = "Support ARM v9.5a instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .has_v9_4a,
+        }),
+    };
     result[@intFromEnum(Feature.has_v9a)] = .{
         .llvm_name = "v9a",
         .description = "Support ARM v9a instructions",
@@ -805,11 +772,6 @@ pub const all_features = blk: {
     result[@intFromEnum(Feature.loop_align)] = .{
         .llvm_name = "loop-align",
         .description = "Prefer 32-bit alignment for loops",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@intFromEnum(Feature.m3)] = .{
-        .llvm_name = "m3",
-        .description = "Cortex-M3 ARM processors",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.mclass)] = .{
@@ -937,11 +899,6 @@ pub const all_features = blk: {
         .description = "Is profitable to unpredicate",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.r4)] = .{
-        .llvm_name = "r4",
-        .description = "Cortex-R4 ARM processors",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
     result[@intFromEnum(Feature.ras)] = .{
         .llvm_name = "ras",
         .description = "Enable Reliability, Availability and Serviceability extensions",
@@ -1039,11 +996,6 @@ pub const all_features = blk: {
     result[@intFromEnum(Feature.strict_align)] = .{
         .llvm_name = "strict-align",
         .description = "Disallow all unaligned memory access",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@intFromEnum(Feature.swift)] = .{
-        .llvm_name = "swift",
-        .description = "Swift ARM processors",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.thumb2)] = .{
@@ -1500,10 +1452,9 @@ pub const all_features = blk: {
             .db,
             .dfb,
             .dsp,
-            .fp_armv8,
+            .fp_armv8d16sp,
             .has_v8,
             .mp,
-            .neon,
             .rclass,
             .virtualization,
         }),
@@ -1582,18 +1533,11 @@ pub const all_features = blk: {
             .db,
             .dsp,
             .fp_armv8,
+            .has_v9_5a,
             .mp,
             .ras,
             .trustzone,
-            .v9_5a,
             .virtualization,
-        }),
-    };
-    result[@intFromEnum(Feature.v9_5a)] = .{
-        .llvm_name = "v9.5a",
-        .description = "Support ARM v9.5a instructions",
-        .dependencies = featureSet(&[_]Feature{
-            .has_v9_4a,
         }),
     };
     result[@intFromEnum(Feature.v9a)] = .{
@@ -1734,7 +1678,7 @@ pub const all_features = blk: {
     const ti = @typeInfo(Feature);
     for (&result, 0..) |*elem, i| {
         elem.index = i;
-        elem.name = ti.Enum.fields[i].name;
+        elem.name = ti.@"enum".fields[i].name;
     }
     break :blk result;
 };
@@ -2103,7 +2047,6 @@ pub const cpu = struct {
         .name = "cortex_a76",
         .llvm_name = "cortex-a76",
         .features = featureSet(&[_]Feature{
-            .a76,
             .dotprod,
             .fullfp16,
             .v8_2a,
@@ -2113,7 +2056,6 @@ pub const cpu = struct {
         .name = "cortex_a76ae",
         .llvm_name = "cortex-a76ae",
         .features = featureSet(&[_]Feature{
-            .a76,
             .dotprod,
             .fullfp16,
             .v8_2a,
@@ -2131,6 +2073,15 @@ pub const cpu = struct {
     pub const cortex_a78 = CpuModel{
         .name = "cortex_a78",
         .llvm_name = "cortex-a78",
+        .features = featureSet(&[_]Feature{
+            .dotprod,
+            .fullfp16,
+            .v8_2a,
+        }),
+    };
+    pub const cortex_a78ae = CpuModel{
+        .name = "cortex_a78ae",
+        .llvm_name = "cortex-a78ae",
         .features = featureSet(&[_]Feature{
             .dotprod,
             .fullfp16,
@@ -2218,7 +2169,6 @@ pub const cpu = struct {
         .llvm_name = "cortex-m3",
         .features = featureSet(&[_]Feature{
             .loop_align,
-            .m3,
             .no_branch_predictor,
             .use_misched,
             .v7m,
@@ -2304,7 +2254,6 @@ pub const cpu = struct {
         .llvm_name = "cortex-m85",
         .features = featureSet(&[_]Feature{
             .dsp,
-            .trustzone,
             .use_misched,
             .v8_1m_main,
         }),
@@ -2314,7 +2263,6 @@ pub const cpu = struct {
         .llvm_name = "cortex-r4",
         .features = featureSet(&[_]Feature{
             .avoid_partial_cpsr,
-            .r4,
             .ret_addr_stack,
             .v7r,
         }),
@@ -2324,7 +2272,6 @@ pub const cpu = struct {
         .llvm_name = "cortex-r4f",
         .features = featureSet(&[_]Feature{
             .avoid_partial_cpsr,
-            .r4,
             .ret_addr_stack,
             .slow_fp_brcc,
             .slowfpvfmx,
@@ -2351,7 +2298,20 @@ pub const cpu = struct {
         .name = "cortex_r52",
         .llvm_name = "cortex-r52",
         .features = featureSet(&[_]Feature{
+            .fp_armv8,
             .fpao,
+            .neon,
+            .use_misched,
+            .v8r,
+        }),
+    };
+    pub const cortex_r52plus = CpuModel{
+        .name = "cortex_r52plus",
+        .llvm_name = "cortex-r52plus",
+        .features = featureSet(&[_]Feature{
+            .fp_armv8,
+            .fpao,
+            .neon,
             .use_misched,
             .v8r,
         }),
@@ -2417,7 +2377,6 @@ pub const cpu = struct {
             .ret_addr_stack,
             .slowfpvfmx,
             .slowfpvmlx,
-            .swift,
             .use_misched,
             .v8a,
             .zcz,
@@ -2434,24 +2393,60 @@ pub const cpu = struct {
         .name = "exynos_m1",
         .llvm_name = null,
         .features = featureSet(&[_]Feature{
-            .exynos,
+            .expand_fp_mlx,
+            .fuse_aes,
+            .fuse_literals,
+            .prof_unpr,
+            .ret_addr_stack,
+            .slow_fp_brcc,
+            .slow_vdup32,
+            .slow_vgetlni32,
+            .slowfpvfmx,
+            .slowfpvmlx,
+            .splat_vfp_neon,
             .v8a,
+            .wide_stride_vfp,
+            .zcz,
         }),
     };
     pub const exynos_m2 = CpuModel{
         .name = "exynos_m2",
         .llvm_name = null,
         .features = featureSet(&[_]Feature{
-            .exynos,
+            .expand_fp_mlx,
+            .fuse_aes,
+            .fuse_literals,
+            .prof_unpr,
+            .ret_addr_stack,
+            .slow_fp_brcc,
+            .slow_vdup32,
+            .slow_vgetlni32,
+            .slowfpvfmx,
+            .slowfpvmlx,
+            .splat_vfp_neon,
             .v8a,
+            .wide_stride_vfp,
+            .zcz,
         }),
     };
     pub const exynos_m3 = CpuModel{
         .name = "exynos_m3",
         .llvm_name = "exynos-m3",
         .features = featureSet(&[_]Feature{
-            .exynos,
+            .expand_fp_mlx,
+            .fuse_aes,
+            .fuse_literals,
+            .prof_unpr,
+            .ret_addr_stack,
+            .slow_fp_brcc,
+            .slow_vdup32,
+            .slow_vgetlni32,
+            .slowfpvfmx,
+            .slowfpvmlx,
+            .splat_vfp_neon,
             .v8a,
+            .wide_stride_vfp,
+            .zcz,
         }),
     };
     pub const exynos_m4 = CpuModel{
@@ -2459,9 +2454,21 @@ pub const cpu = struct {
         .llvm_name = "exynos-m4",
         .features = featureSet(&[_]Feature{
             .dotprod,
-            .exynos,
+            .expand_fp_mlx,
             .fullfp16,
+            .fuse_aes,
+            .fuse_literals,
+            .prof_unpr,
+            .ret_addr_stack,
+            .slow_fp_brcc,
+            .slow_vdup32,
+            .slow_vgetlni32,
+            .slowfpvfmx,
+            .slowfpvmlx,
+            .splat_vfp_neon,
             .v8_2a,
+            .wide_stride_vfp,
+            .zcz,
         }),
     };
     pub const exynos_m5 = CpuModel{
@@ -2469,9 +2476,21 @@ pub const cpu = struct {
         .llvm_name = "exynos-m5",
         .features = featureSet(&[_]Feature{
             .dotprod,
-            .exynos,
+            .expand_fp_mlx,
             .fullfp16,
+            .fuse_aes,
+            .fuse_literals,
+            .prof_unpr,
+            .ret_addr_stack,
+            .slow_fp_brcc,
+            .slow_vdup32,
+            .slow_vgetlni32,
+            .slowfpvfmx,
+            .slowfpvmlx,
+            .splat_vfp_neon,
             .v8_2a,
+            .wide_stride_vfp,
+            .zcz,
         }),
     };
     pub const generic = CpuModel{
@@ -2537,6 +2556,7 @@ pub const cpu = struct {
         .llvm_name = "neoverse-n2",
         .features = featureSet(&[_]Feature{
             .bf16,
+            .fp16fml,
             .i8mm,
             .v9a,
         }),
@@ -2563,7 +2583,6 @@ pub const cpu = struct {
         .name = "sc300",
         .llvm_name = "sc300",
         .features = featureSet(&[_]Feature{
-            .m3,
             .no_branch_predictor,
             .use_misched,
             .v7m,
@@ -2617,7 +2636,6 @@ pub const cpu = struct {
             .slow_vgetlni32,
             .slowfpvfmx,
             .slowfpvmlx,
-            .swift,
             .use_misched,
             .v7a,
             .vfp4,

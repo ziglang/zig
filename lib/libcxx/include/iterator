@@ -475,6 +475,11 @@ constexpr move_iterator<Iterator> operator+(   // constexpr in C++17
 template <class Iterator>   // constexpr in C++17
 constexpr  move_iterator<Iterator> make_move_iterator(const Iterator& i);
 
+template<class Iterator1, class Iterator2>
+    requires (!sized_sentinel_for<Iterator1, Iterator2>)
+  inline constexpr bool disable_sized_sentinel_for<move_iterator<Iterator1>,    // since C++20
+                                                    move_iterator<Iterator2>> = true;
+
 template<semiregular S>
 class move_sentinel {
 public:
@@ -674,48 +679,53 @@ template <class E> constexpr const E* data(initializer_list<E> il) noexcept;    
 
 */
 
-#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
 #include <__iterator/access.h>
 #include <__iterator/advance.h>
 #include <__iterator/back_insert_iterator.h>
-#include <__iterator/bounded_iter.h>
-#include <__iterator/common_iterator.h>
-#include <__iterator/concepts.h>
-#include <__iterator/counted_iterator.h>
-#include <__iterator/data.h>
-#include <__iterator/default_sentinel.h>
 #include <__iterator/distance.h>
-#include <__iterator/empty.h>
-#include <__iterator/erase_if_container.h>
 #include <__iterator/front_insert_iterator.h>
-#include <__iterator/incrementable_traits.h>
-#include <__iterator/indirectly_comparable.h>
 #include <__iterator/insert_iterator.h>
 #include <__iterator/istream_iterator.h>
 #include <__iterator/istreambuf_iterator.h>
-#include <__iterator/iter_move.h>
-#include <__iterator/iter_swap.h>
 #include <__iterator/iterator.h>
 #include <__iterator/iterator_traits.h>
-#include <__iterator/mergeable.h>
 #include <__iterator/move_iterator.h>
-#include <__iterator/move_sentinel.h>
 #include <__iterator/next.h>
 #include <__iterator/ostream_iterator.h>
 #include <__iterator/ostreambuf_iterator.h>
-#include <__iterator/permutable.h>
 #include <__iterator/prev.h>
-#include <__iterator/projected.h>
-#include <__iterator/readable_traits.h>
-#include <__iterator/reverse_access.h>
 #include <__iterator/reverse_iterator.h>
-#include <__iterator/size.h>
-#include <__iterator/sortable.h>
-#include <__iterator/unreachable_sentinel.h>
 #include <__iterator/wrap_iter.h>
-#include <__memory/addressof.h>
-#include <__memory/pointer_traits.h>
+
+#if _LIBCPP_STD_VER >= 14
+#  include <__iterator/reverse_access.h>
+#endif
+
+#if _LIBCPP_STD_VER >= 17
+#  include <__iterator/data.h>
+#  include <__iterator/empty.h>
+#  include <__iterator/size.h>
+#endif
+
+#if _LIBCPP_STD_VER >= 20
+#  include <__iterator/common_iterator.h>
+#  include <__iterator/concepts.h>
+#  include <__iterator/counted_iterator.h>
+#  include <__iterator/default_sentinel.h>
+#  include <__iterator/incrementable_traits.h>
+#  include <__iterator/indirectly_comparable.h>
+#  include <__iterator/iter_move.h>
+#  include <__iterator/iter_swap.h>
+#  include <__iterator/mergeable.h>
+#  include <__iterator/move_sentinel.h>
+#  include <__iterator/permutable.h>
+#  include <__iterator/projected.h>
+#  include <__iterator/readable_traits.h>
+#  include <__iterator/sortable.h>
+#  include <__iterator/unreachable_sentinel.h>
+#endif
+
 #include <version>
 
 // standard-mandated includes
@@ -726,6 +736,10 @@ template <class E> constexpr const E* data(initializer_list<E> il) noexcept;    
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
+#endif
+
+#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 17
+#  include <variant>
 #endif
 
 #if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20

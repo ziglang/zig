@@ -1,5 +1,5 @@
 const Tag = @Type(.{
-    .Enum = .{
+    .@"enum" = .{
         .tag_type = u0,
         .fields = &.{},
         .decls = &.{},
@@ -7,7 +7,7 @@ const Tag = @Type(.{
     },
 });
 const Tagged = @Type(.{
-    .Union = .{
+    .@"union" = .{
         .layout = .auto,
         .tag_type = Tag,
         .fields = &.{

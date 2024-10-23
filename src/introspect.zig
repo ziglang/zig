@@ -90,8 +90,11 @@ pub fn resolveGlobalCacheDir(allocator: mem.Allocator) ![]u8 {
 
     if (builtin.os.tag != .windows) {
         if (std.zig.EnvVar.XDG_CACHE_HOME.getPosix()) |cache_root| {
-            return fs.path.join(allocator, &[_][]const u8{ cache_root, appname });
-        } else if (std.zig.EnvVar.HOME.getPosix()) |home| {
+            if (cache_root.len > 0) {
+                return fs.path.join(allocator, &[_][]const u8{ cache_root, appname });
+            }
+        }
+        if (std.zig.EnvVar.HOME.getPosix()) |home| {
             return fs.path.join(allocator, &[_][]const u8{ home, ".cache", appname });
         }
     }

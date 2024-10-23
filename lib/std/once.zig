@@ -25,7 +25,7 @@ pub fn Once(comptime f: fn () void) type {
         }
 
         fn callSlow(self: *@This()) void {
-            @setCold(true);
+            @branchHint(.cold);
 
             self.mutex.lock();
             defer self.mutex.unlock();

@@ -69,7 +69,7 @@ void ReportFile::ReopenIfNecessary() {
     WriteToFile(kStderrFd, ErrorMsgPrefix, internal_strlen(ErrorMsgPrefix));
     WriteToFile(kStderrFd, full_path, internal_strlen(full_path));
     char errmsg[100];
-    internal_snprintf(errmsg, sizeof(errmsg), " (reason: %d)", err);
+    internal_snprintf(errmsg, sizeof(errmsg), " (reason: %d)\n", err);
     WriteToFile(kStderrFd, errmsg, internal_strlen(errmsg));
     Die();
   }
@@ -88,6 +88,8 @@ static void RecursiveCreateParentDirs(char *path) {
       const char *ErrorMsgPrefix = "ERROR: Can't create directory: ";
       WriteToFile(kStderrFd, ErrorMsgPrefix, internal_strlen(ErrorMsgPrefix));
       WriteToFile(kStderrFd, path, internal_strlen(path));
+      const char *ErrorMsgSuffix = "\n";
+      WriteToFile(kStderrFd, ErrorMsgSuffix, internal_strlen(ErrorMsgSuffix));
       Die();
     }
     path[i] = save;

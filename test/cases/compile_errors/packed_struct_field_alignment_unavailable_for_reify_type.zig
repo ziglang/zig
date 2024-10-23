@@ -1,5 +1,5 @@
 export fn entry() void {
-    _ = @Type(.{ .Struct = .{ .layout = .@"packed", .fields = &.{
+    _ = @Type(.{ .@"struct" = .{ .layout = .@"packed", .fields = &.{
         .{ .name = "one", .type = u4, .default_value = null, .is_comptime = false, .alignment = 2 },
     }, .decls = &.{}, .is_tuple = false } });
 }

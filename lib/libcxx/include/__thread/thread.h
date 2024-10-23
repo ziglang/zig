@@ -19,7 +19,7 @@
 #include <__mutex/mutex.h>
 #include <__system_error/system_error.h>
 #include <__thread/id.h>
-#include <__threading_support>
+#include <__thread/support.h>
 #include <__utility/forward.h>
 #include <tuple>
 
@@ -65,18 +65,17 @@ class __thread_specific_ptr {
 
   // Only __thread_local_data() may construct a __thread_specific_ptr
   // and only with _Tp == __thread_struct.
-  static_assert((is_same<_Tp, __thread_struct>::value), "");
+  static_assert(is_same<_Tp, __thread_struct>::value, "");
   __thread_specific_ptr();
   friend _LIBCPP_EXPORTED_FROM_ABI __thread_specific_ptr<__thread_struct>& __thread_local_data();
-
-  __thread_specific_ptr(const __thread_specific_ptr&);
-  __thread_specific_ptr& operator=(const __thread_specific_ptr&);
 
   _LIBCPP_HIDDEN static void _LIBCPP_TLS_DESTRUCTOR_CC __at_thread_exit(void*);
 
 public:
   typedef _Tp* pointer;
 
+  __thread_specific_ptr(const __thread_specific_ptr&)            = delete;
+  __thread_specific_ptr& operator=(const __thread_specific_ptr&) = delete;
   ~__thread_specific_ptr();
 
   _LIBCPP_HIDE_FROM_ABI pointer get() const { return static_cast<_Tp*>(__libcpp_tls_get(__key_)); }
@@ -157,7 +156,7 @@ public:
 
   _LIBCPP_HIDE_FROM_ABI thread() _NOEXCEPT : __t_(_LIBCPP_NULL_THREAD) {}
 #ifndef _LIBCPP_CXX03_LANG
-  template <class _Fp, class... _Args, class = __enable_if_t<!is_same<__remove_cvref_t<_Fp>, thread>::value> >
+  template <class _Fp, class... _Args, __enable_if_t<!is_same<__remove_cvref_t<_Fp>, thread>::value, int> = 0>
   _LIBCPP_METHOD_TEMPLATE_IMPLICIT_INSTANTIATION_VIS explicit thread(_Fp&& __f, _Args&&... __args);
 #else // _LIBCPP_CXX03_LANG
   template <class _Fp>
@@ -203,7 +202,7 @@ _LIBCPP_HIDE_FROM_ABI void* __thread_proxy(void* __vp) {
   return nullptr;
 }
 
-template <class _Fp, class... _Args, class >
+template <class _Fp, class... _Args, __enable_if_t<!is_same<__remove_cvref_t<_Fp>, thread>::value, int> >
 thread::thread(_Fp&& __f, _Args&&... __args) {
   typedef unique_ptr<__thread_struct> _TSPtr;
   _TSPtr __tsp(new __thread_struct);

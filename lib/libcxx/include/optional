@@ -136,12 +136,12 @@ namespace std {
     void swap(optional &) noexcept(see below ); // constexpr in C++20
 
     // [optional.observe], observers
-    constexpr T const *operator->() const;
-    constexpr T *operator->();
-    constexpr T const &operator*() const &;
-    constexpr T &operator*() &;
-    constexpr T &&operator*() &&;
-    constexpr const T &&operator*() const &&;
+    constexpr T const *operator->() const noexcept;
+    constexpr T *operator->() noexcept;
+    constexpr T const &operator*() const & noexcept;
+    constexpr T &operator*() & noexcept;
+    constexpr T &&operator*() && noexcept;
+    constexpr const T &&operator*() const && noexcept;
     constexpr explicit operator bool() const noexcept;
     constexpr bool has_value() const noexcept;
     constexpr T const &value() const &;
@@ -177,8 +177,7 @@ namespace std {
 
 */
 
-#include <__assert> // all public C++ headers provide the assertion handler
-#include <__availability>
+#include <__assert>
 #include <__compare/compare_three_way_result.h>
 #include <__compare/three_way_comparable.h>
 #include <__concepts/invocable.h>
@@ -186,8 +185,8 @@ namespace std {
 #include <__exception/exception.h>
 #include <__functional/hash.h>
 #include <__functional/invoke.h>
-#include <__functional/reference_wrapper.h>
 #include <__functional/unary_function.h>
+#include <__fwd/functional.h>
 #include <__memory/addressof.h>
 #include <__memory/construct_at.h>
 #include <__tuple/sfinae_helpers.h>
@@ -200,22 +199,17 @@ namespace std {
 #include <__type_traits/is_assignable.h>
 #include <__type_traits/is_constructible.h>
 #include <__type_traits/is_convertible.h>
-#include <__type_traits/is_copy_assignable.h>
-#include <__type_traits/is_copy_constructible.h>
 #include <__type_traits/is_destructible.h>
-#include <__type_traits/is_move_assignable.h>
-#include <__type_traits/is_move_constructible.h>
-#include <__type_traits/is_nothrow_move_assignable.h>
-#include <__type_traits/is_nothrow_move_constructible.h>
+#include <__type_traits/is_nothrow_assignable.h>
+#include <__type_traits/is_nothrow_constructible.h>
 #include <__type_traits/is_object.h>
 #include <__type_traits/is_reference.h>
 #include <__type_traits/is_scalar.h>
 #include <__type_traits/is_swappable.h>
-#include <__type_traits/is_trivially_copy_assignable.h>
-#include <__type_traits/is_trivially_copy_constructible.h>
+#include <__type_traits/is_trivially_assignable.h>
+#include <__type_traits/is_trivially_constructible.h>
 #include <__type_traits/is_trivially_destructible.h>
-#include <__type_traits/is_trivially_move_assignable.h>
-#include <__type_traits/is_trivially_move_constructible.h>
+#include <__type_traits/is_trivially_relocatable.h>
 #include <__type_traits/negation.h>
 #include <__type_traits/remove_const.h>
 #include <__type_traits/remove_cvref.h>
@@ -307,7 +301,7 @@ struct __optional_destruct_base<_Tp, false> {
 
 #  if _LIBCPP_STD_VER >= 23
   template <class _Fp, class... _Args>
-  _LIBCPP_HIDE_FROM_ABI constexpr __optional_destruct_base(
+  _LIBCPP_HIDE_FROM_ABI constexpr explicit __optional_destruct_base(
       __optional_construct_from_invoke_tag, _Fp&& __f, _Args&&... __args)
       : __val_(std::invoke(std::forward<_Fp>(__f), std::forward<_Args>(__args)...)), __engaged_(true) {}
 #  endif
@@ -587,6 +581,8 @@ class _LIBCPP_DECLSPEC_EMPTY_BASES optional
 public:
   using value_type = _Tp;
 
+  using __trivially_relocatable = conditional_t<__libcpp_is_trivially_relocatable<_Tp>::value, optional, void>;
+
 private:
   // Disable the reference extension using this static assert.
   static_assert(!is_same_v<__remove_cvref_t<value_type>, in_place_t>,
@@ -711,8 +707,11 @@ public:
   }
 
 #  if _LIBCPP_STD_VER >= 23
-  template <class _Fp, class... _Args>
-  _LIBCPP_HIDE_FROM_ABI constexpr explicit optional(__optional_construct_from_invoke_tag, _Fp&& __f, _Args&&... __args)
+  template <class _Tag,
+            class _Fp,
+            class... _Args,
+            __enable_if_t<_IsSame<_Tag, __optional_construct_from_invoke_tag>::value, int> = 0>
+  _LIBCPP_HIDE_FROM_ABI constexpr explicit optional(_Tag, _Fp&& __f, _Args&&... __args)
       : __base(__optional_construct_from_invoke_tag{}, std::forward<_Fp>(__f), std::forward<_Args>(__args)...) {}
 #  endif
 
@@ -728,9 +727,9 @@ public:
   template <
       class _Up = value_type,
       class     = enable_if_t< _And< _IsNotSame<__remove_cvref_t<_Up>, optional>,
-                                 _Or< _IsNotSame<__remove_cvref_t<_Up>, value_type>, _Not<is_scalar<value_type>> >,
-                                 is_constructible<value_type, _Up>,
-                                 is_assignable<value_type&, _Up> >::value> >
+                                     _Or< _IsNotSame<__remove_cvref_t<_Up>, value_type>, _Not<is_scalar<value_type>> >,
+                                     is_constructible<value_type, _Up>,
+                                     is_assignable<value_type&, _Up> >::value> >
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 optional& operator=(_Up&& __v) {
     if (this->has_value())
       this->__get() = std::forward<_Up>(__v);
@@ -787,12 +786,12 @@ public:
     }
   }
 
-  _LIBCPP_HIDE_FROM_ABI constexpr add_pointer_t<value_type const> operator->() const {
+  _LIBCPP_HIDE_FROM_ABI constexpr add_pointer_t<value_type const> operator->() const noexcept {
     _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(this->has_value(), "optional operator-> called on a disengaged value");
     return std::addressof(this->__get());
   }
 
-  _LIBCPP_HIDE_FROM_ABI constexpr add_pointer_t<value_type> operator->() {
+  _LIBCPP_HIDE_FROM_ABI constexpr add_pointer_t<value_type> operator->() noexcept {
     _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(this->has_value(), "optional operator-> called on a disengaged value");
     return std::addressof(this->__get());
   }
@@ -1246,9 +1245,9 @@ operator<=>(const optional<_Tp>& __x, const _Up& __v) {
 #  endif // _LIBCPP_STD_VER >= 20
 
 template <class _Tp>
-inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20
-    enable_if_t< is_move_constructible_v<_Tp> && is_swappable_v<_Tp>, void >
-    swap(optional<_Tp>& __x, optional<_Tp>& __y) noexcept(noexcept(__x.swap(__y))) {
+inline _LIBCPP_HIDE_FROM_ABI
+_LIBCPP_CONSTEXPR_SINCE_CXX20 enable_if_t< is_move_constructible_v<_Tp> && is_swappable_v<_Tp>, void >
+swap(optional<_Tp>& __x, optional<_Tp>& __y) noexcept(noexcept(__x.swap(__y))) {
   __x.swap(__y);
 }
 
@@ -1291,6 +1290,7 @@ _LIBCPP_POP_MACROS
 #  include <concepts>
 #  include <ctime>
 #  include <iterator>
+#  include <limits>
 #  include <memory>
 #  include <ratio>
 #  include <stdexcept>

@@ -10,7 +10,6 @@
 #ifndef _LIBCPP___FILESYSTEM_OPERATIONS_H
 #define _LIBCPP___FILESYSTEM_OPERATIONS_H
 
-#include <__availability>
 #include <__chrono/time_point.h>
 #include <__config>
 #include <__filesystem/copy_options.h>

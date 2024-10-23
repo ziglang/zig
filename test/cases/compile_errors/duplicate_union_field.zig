@@ -8,9 +8,7 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
-// :2:5: error: duplicate union field name
-// :3:5: note: duplicate field here
+// :2:5: error: duplicate union member name 'Bar'
+// :3:5: note: duplicate name here
 // :1:13: note: union declared here

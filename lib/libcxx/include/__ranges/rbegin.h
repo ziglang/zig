@@ -36,12 +36,11 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 namespace ranges {
 namespace __rbegin {
 template <class _Tp>
-concept __member_rbegin = __can_borrow<_Tp> && __workaround_52970<_Tp> && requires(_Tp&& __t) {
+concept __member_rbegin = __can_borrow<_Tp> && requires(_Tp&& __t) {
   { _LIBCPP_AUTO_CAST(__t.rbegin()) } -> input_or_output_iterator;
 };
 
-void rbegin(auto&)       = delete;
-void rbegin(const auto&) = delete;
+void rbegin() = delete;
 
 template <class _Tp>
 concept __unqualified_rbegin =

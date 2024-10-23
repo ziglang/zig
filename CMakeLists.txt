@@ -38,7 +38,7 @@ project(zig
 )
 
 set(ZIG_VERSION_MAJOR 0)
-set(ZIG_VERSION_MINOR 13)
+set(ZIG_VERSION_MINOR 14)
 set(ZIG_VERSION_PATCH 0)
 set(ZIG_VERSION "" CACHE STRING "Override Zig version string. Default is to find out with git.")
 
@@ -125,8 +125,8 @@ check_pie_supported(
   OUTPUT_VARIABLE ZIG_PIE_SUPPORTED_BY_CMAKE
   LANGUAGES C CXX
 )
-if(ZIG_PIE AND NOT ZIG_PIE_SUPPORTED_BY_CMAKE)
-  message(SEND_ERROR "ZIG_PIE was requested but CMake does not support it for \"zigcpp\" target")
+if(ZIG_PIE AND NOT CMAKE_CXX_LINK_PIE_SUPPORTED)
+  message(SEND_ERROR "ZIG_PIE was requested but CMake does not support it for \"zigcpp\" target: ${ZIG_PIE_SUPPORTED_BY_CMAKE}")
 endif()
 
 
@@ -137,9 +137,9 @@ else()
     set(ZIG_SYSTEM_LIBCXX "stdc++" CACHE STRING "system libcxx name for build.zig")
 endif()
 
-find_package(llvm 18)
-find_package(clang 18)
-find_package(lld 18)
+find_package(llvm 19)
+find_package(clang 19)
+find_package(lld 19)
 
 if(ZIG_STATIC_ZLIB)
     if (MSVC)
@@ -193,100 +193,6 @@ set(ZIG_CPP_SOURCES
 # Needed because we use cmake, not the zig build system, to build zig2.o.
 set(ZIG_STAGE2_SOURCES
     "${ZIG_CONFIG_ZIG_OUT}"
-    lib/std/array_hash_map.zig
-    lib/std/array_list.zig
-    lib/std/ascii.zig
-    lib/std/atomic.zig
-    lib/std/base64.zig
-    lib/std/BitStack.zig
-    lib/std/buf_map.zig
-    lib/std/Build.zig
-    lib/std/Build/Cache.zig
-    lib/std/Build/Cache/DepTokenizer.zig
-    lib/std/builtin.zig
-    lib/std/c.zig
-    lib/std/c/linux.zig
-    lib/std/child_process.zig
-    lib/std/coff.zig
-    lib/std/static_string_map.zig
-    lib/std/crypto.zig
-    lib/std/crypto/blake3.zig
-    lib/std/crypto/siphash.zig
-    lib/std/debug.zig
-    lib/std/dwarf.zig
-    lib/std/dwarf/AT.zig
-    lib/std/dwarf/ATE.zig
-    lib/std/dwarf/FORM.zig
-    lib/std/dwarf/LANG.zig
-    lib/std/dwarf/OP.zig
-    lib/std/dwarf/TAG.zig
-    lib/std/elf.zig
-    lib/std/fifo.zig
-    lib/std/fmt.zig
-    lib/std/fmt/format_float.zig
-    lib/std/fmt/parse_float.zig
-    lib/std/fs.zig
-    lib/std/fs/AtomicFile.zig
-    lib/std/fs/Dir.zig
-    lib/std/fs/File.zig
-    lib/std/fs/get_app_data_dir.zig
-    lib/std/fs/path.zig
-    lib/std/hash.zig
-    lib/std/hash/auto_hash.zig
-    lib/std/hash/wyhash.zig
-    lib/std/hash_map.zig
-    lib/std/heap.zig
-    lib/std/heap/arena_allocator.zig
-    lib/std/io.zig
-    lib/std/io/buffered_atomic_file.zig
-    lib/std/io/buffered_writer.zig
-    lib/std/io/change_detection_stream.zig
-    lib/std/io/counting_reader.zig
-    lib/std/io/counting_writer.zig
-    lib/std/io/find_byte_writer.zig
-    lib/std/io/fixed_buffer_stream.zig
-    lib/std/io/limited_reader.zig
-    lib/std/io/Reader.zig
-    lib/std/io/seekable_stream.zig
-    lib/std/io/Writer.zig
-    lib/std/json.zig
-    lib/std/json/stringify.zig
-    lib/std/leb128.zig
-    lib/std/linked_list.zig
-    lib/std/log.zig
-    lib/std/macho.zig
-    lib/std/math.zig
-    lib/std/math/big.zig
-    lib/std/math/big/int.zig
-    lib/std/math/float.zig
-    lib/std/math/frexp.zig
-    lib/std/math/isinf.zig
-    lib/std/math/isnan.zig
-    lib/std/math/log.zig
-    lib/std/math/log10.zig
-    lib/std/math/log2.zig
-    lib/std/math/signbit.zig
-    lib/std/math/sqrt.zig
-    lib/std/mem.zig
-    lib/std/mem/Allocator.zig
-    lib/std/meta.zig
-    lib/std/meta/trailer_flags.zig
-    lib/std/multi_array_list.zig
-    lib/std/os.zig
-    lib/std/os/linux.zig
-    lib/std/os/linux/x86_64.zig
-    lib/std/os/linux.zig
-    lib/std/os/linux/IoUring.zig
-    lib/std/os/linux/io_uring_sqe.zig
-    lib/std/os/linux/x86_64.zig
-    lib/std/os/windows.zig
-    lib/std/os/windows/ntstatus.zig
-    lib/std/os/windows/win32error.zig
-    lib/std/Progress.zig
-    lib/std/pdb.zig
-    lib/std/process.zig
-    lib/std/Random.zig
-    lib/std/sort.zig
     lib/compiler_rt.zig
     lib/compiler_rt/absv.zig
     lib/compiler_rt/absvdi2.zig
@@ -363,7 +269,7 @@ set(ZIG_STAGE2_SOURCES
     lib/compiler_rt/fixxfdi.zig
     lib/compiler_rt/fixxfsi.zig
     lib/compiler_rt/fixxfti.zig
-    lib/compiler_rt/int_from_float.zig
+    lib/compiler_rt/float_from_int.zig
     lib/compiler_rt/floatdidf.zig
     lib/compiler_rt/floatdihf.zig
     lib/compiler_rt/floatdisf.zig
@@ -404,7 +310,7 @@ set(ZIG_STAGE2_SOURCES
     lib/compiler_rt/getf2.zig
     lib/compiler_rt/gexf2.zig
     lib/compiler_rt/int.zig
-    lib/compiler_rt/float_from_int.zig
+    lib/compiler_rt/int_from_float.zig
     lib/compiler_rt/log.zig
     lib/compiler_rt/log10.zig
     lib/compiler_rt/log2.zig
@@ -417,7 +323,11 @@ set(ZIG_STAGE2_SOURCES
     lib/compiler_rt/multf3.zig
     lib/compiler_rt/mulxf3.zig
     lib/compiler_rt/negXi2.zig
+    lib/compiler_rt/negdf2.zig
+    lib/compiler_rt/negsf2.zig
+    lib/compiler_rt/negtf2.zig
     lib/compiler_rt/negv.zig
+    lib/compiler_rt/negxf2.zig
     lib/compiler_rt/os_version_check.zig
     lib/compiler_rt/parity.zig
     lib/compiler_rt/popcount.zig
@@ -430,15 +340,11 @@ set(ZIG_STAGE2_SOURCES
     lib/compiler_rt/sincos.zig
     lib/compiler_rt/sqrt.zig
     lib/compiler_rt/stack_probe.zig
+    lib/compiler_rt/subdf3.zig
     lib/compiler_rt/subo.zig
     lib/compiler_rt/subsf3.zig
-    lib/compiler_rt/subdf3.zig
     lib/compiler_rt/subtf3.zig
     lib/compiler_rt/subxf3.zig
-    lib/compiler_rt/negsf2.zig
-    lib/compiler_rt/negdf2.zig
-    lib/compiler_rt/negtf2.zig
-    lib/compiler_rt/negxf2.zig
     lib/compiler_rt/tan.zig
     lib/compiler_rt/trig.zig
     lib/compiler_rt/trunc.zig
@@ -461,8 +367,12 @@ set(ZIG_STAGE2_SOURCES
     lib/compiler_rt/unorddf2.zig
     lib/compiler_rt/unordsf2.zig
     lib/compiler_rt/unordtf2.zig
-    lib/std/start.zig
-    lib/std/std.zig
+    lib/std/BitStack.zig
+    lib/std/Build.zig
+    lib/std/Build/Cache.zig
+    lib/std/Build/Cache/DepTokenizer.zig
+    lib/std/Progress.zig
+    lib/std/Random.zig
     lib/std/Target.zig
     lib/std/Target/Query.zig
     lib/std/Target/aarch64.zig
@@ -471,13 +381,14 @@ set(ZIG_STAGE2_SOURCES
     lib/std/Target/avr.zig
     lib/std/Target/bpf.zig
     lib/std/Target/hexagon.zig
+    lib/std/Target/loongarch.zig
     lib/std/Target/mips.zig
     lib/std/Target/msp430.zig
     lib/std/Target/nvptx.zig
     lib/std/Target/powerpc.zig
     lib/std/Target/riscv.zig
-    lib/std/Target/sparc.zig
     lib/std/Target/s390x.zig
+    lib/std/Target/sparc.zig
     lib/std/Target/wasm.zig
     lib/std/Target/x86.zig
     lib/std/Thread.zig
@@ -486,6 +397,95 @@ set(ZIG_STAGE2_SOURCES
     lib/std/Thread/Pool.zig
     lib/std/Thread/ResetEvent.zig
     lib/std/Thread/WaitGroup.zig
+    lib/std/array_hash_map.zig
+    lib/std/array_list.zig
+    lib/std/ascii.zig
+    lib/std/atomic.zig
+    lib/std/base64.zig
+    lib/std/buf_map.zig
+    lib/std/builtin.zig
+    lib/std/c.zig
+    lib/std/coff.zig
+    lib/std/crypto.zig
+    lib/std/crypto/blake3.zig
+    lib/std/crypto/siphash.zig
+    lib/std/debug.zig
+    lib/std/dwarf.zig
+    lib/std/dwarf/AT.zig
+    lib/std/dwarf/ATE.zig
+    lib/std/dwarf/FORM.zig
+    lib/std/dwarf/LANG.zig
+    lib/std/dwarf/OP.zig
+    lib/std/dwarf/TAG.zig
+    lib/std/elf.zig
+    lib/std/fifo.zig
+    lib/std/fmt.zig
+    lib/std/fmt/format_float.zig
+    lib/std/fmt/parse_float.zig
+    lib/std/fs.zig
+    lib/std/fs/AtomicFile.zig
+    lib/std/fs/Dir.zig
+    lib/std/fs/File.zig
+    lib/std/fs/get_app_data_dir.zig
+    lib/std/fs/path.zig
+    lib/std/hash.zig
+    lib/std/hash/auto_hash.zig
+    lib/std/hash/wyhash.zig
+    lib/std/hash_map.zig
+    lib/std/heap.zig
+    lib/std/heap/arena_allocator.zig
+    lib/std/io.zig
+    lib/std/io/Reader.zig
+    lib/std/io/Writer.zig
+    lib/std/io/buffered_atomic_file.zig
+    lib/std/io/buffered_writer.zig
+    lib/std/io/change_detection_stream.zig
+    lib/std/io/counting_reader.zig
+    lib/std/io/counting_writer.zig
+    lib/std/io/find_byte_writer.zig
+    lib/std/io/fixed_buffer_stream.zig
+    lib/std/io/limited_reader.zig
+    lib/std/io/seekable_stream.zig
+    lib/std/json.zig
+    lib/std/json/stringify.zig
+    lib/std/leb128.zig
+    lib/std/linked_list.zig
+    lib/std/log.zig
+    lib/std/macho.zig
+    lib/std/math.zig
+    lib/std/math/big.zig
+    lib/std/math/big/int.zig
+    lib/std/math/float.zig
+    lib/std/math/frexp.zig
+    lib/std/math/isinf.zig
+    lib/std/math/isnan.zig
+    lib/std/math/log.zig
+    lib/std/math/log10.zig
+    lib/std/math/log2.zig
+    lib/std/math/signbit.zig
+    lib/std/math/sqrt.zig
+    lib/std/mem.zig
+    lib/std/mem/Allocator.zig
+    lib/std/meta.zig
+    lib/std/meta/trailer_flags.zig
+    lib/std/multi_array_list.zig
+    lib/std/os.zig
+    lib/std/os/linux.zig
+    lib/std/os/linux.zig
+    lib/std/os/linux/IoUring.zig
+    lib/std/os/linux/io_uring_sqe.zig
+    lib/std/os/linux/x86_64.zig
+    lib/std/os/linux/x86_64.zig
+    lib/std/os/windows.zig
+    lib/std/os/windows/ntstatus.zig
+    lib/std/os/windows/win32error.zig
+    lib/std/pdb.zig
+    lib/std/process.zig
+    lib/std/process/Child.zig
+    lib/std/sort.zig
+    lib/std/start.zig
+    lib/std/static_string_map.zig
+    lib/std/std.zig
     lib/std/time.zig
     lib/std/treap.zig
     lib/std/unicode.zig
@@ -513,7 +513,6 @@ set(ZIG_STAGE2_SOURCES
     src/InternPool.zig
     src/Liveness.zig
     src/Liveness/Verify.zig
-    src/Module.zig
     src/Package.zig
     src/Package/Fetch.zig
     src/Package/Fetch/git.zig
@@ -523,7 +522,10 @@ set(ZIG_STAGE2_SOURCES
     src/Sema.zig
     src/Sema/bitcast.zig
     src/Sema/comptime_ptr_access.zig
+    src/Type.zig
     src/Value.zig
+    src/Zcu.zig
+    src/Zcu/PerThread.zig
     src/arch/aarch64/CodeGen.zig
     src/arch/aarch64/Emit.zig
     src/arch/aarch64/Mir.zig
@@ -534,11 +536,14 @@ set(ZIG_STAGE2_SOURCES
     src/arch/arm/Mir.zig
     src/arch/arm/abi.zig
     src/arch/arm/bits.zig
-    src/arch/riscv64/CodeGen.zig
-    src/arch/riscv64/Emit.zig
-    src/arch/riscv64/Mir.zig
     src/arch/riscv64/abi.zig
     src/arch/riscv64/bits.zig
+    src/arch/riscv64/CodeGen.zig
+    src/arch/riscv64/Emit.zig
+    src/arch/riscv64/encoding.zig
+    src/arch/riscv64/Lower.zig
+    src/arch/riscv64/Mir.zig
+    src/arch/riscv64/mnem.zig
     src/arch/sparc64/CodeGen.zig
     src/arch/sparc64/Emit.zig
     src/arch/sparc64/Mir.zig
@@ -577,6 +582,7 @@ set(ZIG_STAGE2_SOURCES
     src/codegen/spirv/Section.zig
     src/codegen/spirv/spec.zig
     src/crash_report.zig
+    src/dev.zig
     src/glibc.zig
     src/introspect.zig
     src/libcxx.zig
@@ -594,26 +600,26 @@ set(ZIG_STAGE2_SOURCES
     src/link/Elf.zig
     src/link/Elf/Archive.zig
     src/link/Elf/Atom.zig
+    src/link/Elf/AtomList.zig
     src/link/Elf/LdScript.zig
     src/link/Elf/LinkerDefined.zig
+    src/link/Elf/Merge.zig
     src/link/Elf/Object.zig
     src/link/Elf/SharedObject.zig
     src/link/Elf/Symbol.zig
+    src/link/Elf/Thunk.zig
     src/link/Elf/ZigObject.zig
     src/link/Elf/eh_frame.zig
     src/link/Elf/file.zig
     src/link/Elf/gc.zig
-    src/link/Elf/merge_section.zig
     src/link/Elf/relocatable.zig
     src/link/Elf/relocation.zig
     src/link/Elf/synthetic_sections.zig
-    src/link/Elf/thunks.zig
     src/link/MachO.zig
     src/link/MachO/Archive.zig
     src/link/MachO/Atom.zig
     src/link/MachO/CodeSignature.zig
     src/link/MachO/DebugSymbols.zig
-    src/link/MachO/DwarfInfo.zig
     src/link/MachO/Dylib.zig
     src/link/MachO/InternalObject.zig
     src/link/MachO/Object.zig
@@ -625,6 +631,7 @@ set(ZIG_STAGE2_SOURCES
     src/link/MachO/dyld_info/Rebase.zig
     src/link/MachO/dyld_info/Trie.zig
     src/link/MachO/dyld_info/bind.zig
+    src/link/MachO/dwarf.zig
     src/link/MachO/eh_frame.zig
     src/link/MachO/fat.zig
     src/link/MachO/file.zig
@@ -632,7 +639,7 @@ set(ZIG_STAGE2_SOURCES
     src/link/MachO/load_commands.zig
     src/link/MachO/relocatable.zig
     src/link/MachO/synthetic.zig
-    src/link/MachO/thunks.zig
+    src/link/MachO/Thunk.zig
     src/link/MachO/uuid.zig
     src/link/NvPtx.zig
     src/link/Plan9.zig
@@ -673,7 +680,6 @@ set(ZIG_STAGE2_SOURCES
     src/target.zig
     src/tracy.zig
     src/translate_c.zig
-    src/type.zig
     src/wasi_libc.zig
 )
 
@@ -728,6 +734,9 @@ if(NOT MSVC)
     -Wno-missing-braces
     -Wno-comment
   )
+else()
+target_compile_options(zigcpp PRIVATE /Zc:preprocessor)
+set_property(TARGET zigcpp PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded")
 endif()
 
 target_include_directories(zigcpp PUBLIC
@@ -825,6 +834,11 @@ else()
   endif()
 endif()
 
+option(ZIG2_NO_RTLIB "Build zig2 without linking to a compiler runtime library (for `zig cc` only)" OFF)
+if(ZIG2_NO_RTLIB)
+  set(ZIG2_LINK_FLAGS "${ZIG2_LINK_FLAGS} -rtlib=none")
+endif()
+
 set(ZIG1_WASM_MODULE "${PROJECT_SOURCE_DIR}/stage1/zig1.wasm")
 set(ZIG1_C_SOURCE "${PROJECT_BINARY_DIR}/zig1.c")
 set(ZIG2_C_SOURCE "${PROJECT_BINARY_DIR}/zig2.c")
@@ -861,9 +875,9 @@ set(BUILD_ZIG2_ARGS
   -target "${ZIG_HOST_TARGET_TRIPLE}"
   --dep "build_options"
   --dep "aro"
-  --mod "root" "src/main.zig"
-  --mod "build_options" "${ZIG_CONFIG_ZIG_OUT}"
-  --mod "aro" "lib/compiler/aro/aro.zig"
+  "-Mroot=src/main.zig"
+  "-Mbuild_options=${ZIG_CONFIG_ZIG_OUT}"
+  "-Maro=lib/compiler/aro/aro.zig"
 )
 
 add_custom_command(
@@ -880,9 +894,7 @@ set(BUILD_COMPILER_RT_ARGS
   --name compiler_rt
   -femit-bin="${ZIG_COMPILER_RT_C_SOURCE}"
   -target "${ZIG_HOST_TARGET_TRIPLE}"
-  --dep "build_options"
-  --mod "root" "lib/compiler_rt.zig"
-  --mod "build_options" "${ZIG_CONFIG_ZIG_OUT}"
+  "-Mroot=lib/compiler_rt.zig"
 )
 
 add_custom_command(
@@ -920,8 +932,11 @@ if(MSVC OR MINGW)
 endif()
 
 
-# "-Dno-langref" and "-Dstd-docs=false" are hardcoded because they take too long to build.
-# To obtain these two forms of documentation, run zig build against stage3 rather than stage2.
+# "-Dno-langref" is hardcoded because stage2 builds lack the `@cImport`
+# feature, which some of the doctests rely on.
+
+# To obtain this document, run `zig build` against stage3 rather than stage2.
+# Note that the `langref` step can be used to isolate this task.
 set(ZIG_BUILD_ARGS
   --zig-lib-dir "${PROJECT_SOURCE_DIR}/lib"
 
@@ -933,8 +948,12 @@ set(ZIG_BUILD_ARGS
   "-Dconfig_h=${ZIG_CONFIG_H_OUT}"
 
   -Dno-langref
-  -Dstd-docs=false
 )
+
+option(ZIG_EXTRA_BUILD_ARGS "Extra zig build args")
+if(ZIG_EXTRA_BUILD_ARGS)
+  list(APPEND ZIG_BUILD_ARGS ${ZIG_EXTRA_BUILD_ARGS})
+endif()
 
 if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
   list(APPEND ZIG_BUILD_ARGS -Doptimize=Debug)
@@ -962,6 +981,10 @@ endif()
 
 if(NOT "${ZIG_TARGET_DYNAMIC_LINKER}" STREQUAL "")
   list(APPEND ZIG_BUILD_ARGS "-Ddynamic-linker=${ZIG_TARGET_DYNAMIC_LINKER}")
+endif()
+
+if(MINGW AND "${ZIG_HOST_TARGET_ARCH}" STREQUAL "x86")
+  list(APPEND ZIG_BUILD_ARGS --maxrss 7000000000)
 endif()
 
 

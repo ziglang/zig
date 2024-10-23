@@ -11,6 +11,8 @@
 #define _LIBCPP___ITERATOR_BOUNDED_ITER_H
 
 #include <__assert>
+#include <__compare/ordering.h>
+#include <__compare/three_way_comparable.h>
 #include <__config>
 #include <__iterator/iterator_traits.h>
 #include <__memory/pointer_traits.h>
@@ -31,13 +33,20 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 // Iterator wrapper that carries the valid range it is allowed to access.
 //
 // This is a simple iterator wrapper for contiguous iterators that points
-// within a [begin, end) range and carries these bounds with it. The iterator
-// ensures that it is pointing within that [begin, end) range when it is
-// dereferenced.
+// within a [begin, end] range and carries these bounds with it. The iterator
+// ensures that it is pointing within [begin, end) range when it is
+// dereferenced. It also ensures that it is never iterated outside of
+// [begin, end]. This is important for two reasons:
 //
-// Arithmetic operations are allowed and the bounds of the resulting iterator
-// are not checked. Hence, it is possible to create an iterator pointing outside
-// its range, but it is not possible to dereference it.
+// 1. It allows `operator*` and `operator++` bounds checks to be `iter != end`.
+//    This is both less for the optimizer to prove, and aligns with how callers
+//    typically use iterators.
+//
+// 2. Advancing an iterator out of bounds is undefined behavior (see the table
+//    in [input.iterators]). In particular, when the underlying iterator is a
+//    pointer, it is undefined at the language level (see [expr.add]). If
+//    bounded iterators exhibited this undefined behavior, we risk compiler
+//    optimizations deleting non-redundant bounds checks.
 template <class _Iterator, class = __enable_if_t< __libcpp_is_contiguous_iterator<_Iterator>::value > >
 struct __bounded_iter {
   using value_type        = typename iterator_traits<_Iterator>::value_type;
@@ -51,14 +60,14 @@ struct __bounded_iter {
 
   // Create a singular iterator.
   //
-  // Such an iterator does not point to any object and is conceptually out of bounds, so it is
-  // not dereferenceable. Observing operations like comparison and assignment are valid.
+  // Such an iterator points past the end of an empty span, so it is not dereferenceable.
+  // Observing operations like comparison and assignment are valid.
   _LIBCPP_HIDE_FROM_ABI __bounded_iter() = default;
 
   _LIBCPP_HIDE_FROM_ABI __bounded_iter(__bounded_iter const&) = default;
   _LIBCPP_HIDE_FROM_ABI __bounded_iter(__bounded_iter&&)      = default;
 
-  template <class _OtherIterator, class = __enable_if_t< is_convertible<_OtherIterator, _Iterator>::value > >
+  template <class _OtherIterator, __enable_if_t< is_convertible<_OtherIterator, _Iterator>::value, int> = 0>
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR __bounded_iter(__bounded_iter<_OtherIterator> const& __other) _NOEXCEPT
       : __current_(__other.__current_),
         __begin_(__other.__begin_),
@@ -70,18 +79,20 @@ struct __bounded_iter {
 
 private:
   // Create an iterator wrapping the given iterator, and whose bounds are described
-  // by the provided [begin, end) range.
+  // by the provided [begin, end] range.
   //
-  // This constructor does not check whether the resulting iterator is within its bounds.
-  // However, it does check that the provided [begin, end) range is a valid range (that
-  // is, begin <= end).
+  // The constructor does not check whether the resulting iterator is within its bounds. It is a
+  // responsibility of the container to ensure that the given bounds are valid.
   //
   // Since it is non-standard for iterators to have this constructor, __bounded_iter must
   // be created via `std::__make_bounded_iter`.
-  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 explicit __bounded_iter(
-      _Iterator __current, _Iterator __begin, _Iterator __end)
+  _LIBCPP_HIDE_FROM_ABI
+  _LIBCPP_CONSTEXPR_SINCE_CXX14 explicit __bounded_iter(_Iterator __current, _Iterator __begin, _Iterator __end)
       : __current_(__current), __begin_(__begin), __end_(__end) {
-    _LIBCPP_ASSERT_INTERNAL(__begin <= __end, "__bounded_iter(current, begin, end): [begin, end) is not a valid range");
+    _LIBCPP_ASSERT_INTERNAL(
+        __begin <= __current, "__bounded_iter(current, begin, end): current and begin are inconsistent");
+    _LIBCPP_ASSERT_INTERNAL(
+        __current <= __end, "__bounded_iter(current, begin, end): current and end are inconsistent");
   }
 
   template <class _It>
@@ -90,30 +101,37 @@ private:
 public:
   // Dereference and indexing operations.
   //
-  // These operations check that the iterator is dereferenceable, that is within [begin, end).
+  // These operations check that the iterator is dereferenceable. Since the class invariant is
+  // that the iterator is always within `[begin, end]`, we only need to check it's not pointing to
+  // `end`. This is easier for the optimizer because it aligns with the `iter != container.end()`
+  // checks that typical callers already use (see
+  // https://github.com/llvm/llvm-project/issues/78829).
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 reference operator*() const _NOEXCEPT {
     _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(
-        __in_bounds(__current_), "__bounded_iter::operator*: Attempt to dereference an out-of-range iterator");
+        __current_ != __end_, "__bounded_iter::operator*: Attempt to dereference an iterator at the end");
     return *__current_;
   }
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 pointer operator->() const _NOEXCEPT {
     _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(
-        __in_bounds(__current_), "__bounded_iter::operator->: Attempt to dereference an out-of-range iterator");
+        __current_ != __end_, "__bounded_iter::operator->: Attempt to dereference an iterator at the end");
     return std::__to_address(__current_);
   }
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 reference operator[](difference_type __n) const _NOEXCEPT {
     _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(
-        __in_bounds(__current_ + __n), "__bounded_iter::operator[]: Attempt to index an iterator out-of-range");
+        __n >= __begin_ - __current_, "__bounded_iter::operator[]: Attempt to index an iterator past the start");
+    _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(
+        __n < __end_ - __current_, "__bounded_iter::operator[]: Attempt to index an iterator at or past the end");
     return __current_[__n];
   }
 
   // Arithmetic operations.
   //
-  // These operations do not check that the resulting iterator is within the bounds, since that
-  // would make it impossible to create a past-the-end iterator.
+  // These operations check that the iterator remains within `[begin, end]`.
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 __bounded_iter& operator++() _NOEXCEPT {
+    _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(
+        __current_ != __end_, "__bounded_iter::operator++: Attempt to advance an iterator past the end");
     ++__current_;
     return *this;
   }
@@ -124,6 +142,8 @@ public:
   }
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 __bounded_iter& operator--() _NOEXCEPT {
+    _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(
+        __current_ != __begin_, "__bounded_iter::operator--: Attempt to rewind an iterator past the start");
     --__current_;
     return *this;
   }
@@ -134,6 +154,10 @@ public:
   }
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 __bounded_iter& operator+=(difference_type __n) _NOEXCEPT {
+    _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(
+        __n >= __begin_ - __current_, "__bounded_iter::operator+=: Attempt to rewind an iterator past the start");
+    _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(
+        __n <= __end_ - __current_, "__bounded_iter::operator+=: Attempt to advance an iterator past the end");
     __current_ += __n;
     return *this;
   }
@@ -151,6 +175,10 @@ public:
   }
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 __bounded_iter& operator-=(difference_type __n) _NOEXCEPT {
+    _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(
+        __n <= __current_ - __begin_, "__bounded_iter::operator-=: Attempt to rewind an iterator past the start");
+    _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(
+        __n >= __current_ - __end_, "__bounded_iter::operator-=: Attempt to advance an iterator past the end");
     __current_ -= __n;
     return *this;
   }
@@ -175,10 +203,15 @@ public:
   operator==(__bounded_iter const& __x, __bounded_iter const& __y) _NOEXCEPT {
     return __x.__current_ == __y.__current_;
   }
+
+#if _LIBCPP_STD_VER <= 17
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR friend bool
   operator!=(__bounded_iter const& __x, __bounded_iter const& __y) _NOEXCEPT {
     return __x.__current_ != __y.__current_;
   }
+#endif
+
+  // TODO(mordante) disable these overloads in the LLVM 20 release.
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR friend bool
   operator<(__bounded_iter const& __x, __bounded_iter const& __y) _NOEXCEPT {
     return __x.__current_ < __y.__current_;
@@ -196,16 +229,30 @@ public:
     return __x.__current_ >= __y.__current_;
   }
 
-private:
-  // Return whether the given iterator is in the bounds of this __bounded_iter.
-  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR bool __in_bounds(_Iterator const& __iter) const {
-    return __iter >= __begin_ && __iter < __end_;
-  }
+#if _LIBCPP_STD_VER >= 20
+  _LIBCPP_HIDE_FROM_ABI constexpr friend strong_ordering
+  operator<=>(__bounded_iter const& __x, __bounded_iter const& __y) noexcept {
+    if constexpr (three_way_comparable<_Iterator, strong_ordering>) {
+      return __x.__current_ <=> __y.__current_;
+    } else {
+      if (__x.__current_ < __y.__current_)
+        return strong_ordering::less;
 
+      if (__x.__current_ == __y.__current_)
+        return strong_ordering::equal;
+
+      return strong_ordering::greater;
+    }
+  }
+#endif // _LIBCPP_STD_VER >= 20
+
+private:
   template <class>
   friend struct pointer_traits;
+  template <class, class>
+  friend struct __bounded_iter;
   _Iterator __current_;       // current iterator
-  _Iterator __begin_, __end_; // valid range represented as [begin, end)
+  _Iterator __begin_, __end_; // valid range represented as [begin, end]
 };
 
 template <class _It>

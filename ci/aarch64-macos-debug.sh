@@ -9,7 +9,7 @@ set -e
 ZIGDIR="$PWD"
 TARGET="$ARCH-macos-none"
 MCPU="baseline"
-CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.13.0-dev.130+98a30acad"
+CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.14.0-dev.1622+2ac543388"
 PREFIX="$HOME/$CACHE_BASENAME"
 ZIG="$PREFIX/bin/zig"
 
@@ -26,8 +26,9 @@ cd $ZIGDIR
 git fetch --unshallow || true
 git fetch --tags
 
-mkdir build
-cd build
+rm -rf build-debug
+mkdir build-debug
+cd build-debug
 
 # Override the cache directories because they won't actually help other CI runs
 # which will be testing alternate versions of zig, and ultimately would just

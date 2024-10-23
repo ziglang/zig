@@ -199,7 +199,7 @@ static char *DemangleAlloc(const char *name, bool always_alloc) {
 #endif
   if (always_alloc)
     return internal_strdup(name);
-  return 0;
+  return nullptr;
 }
 
 const char *LibbacktraceSymbolizer::Demangle(const char *name) {

@@ -15,5 +15,3 @@ export fn entry() void {
 // target=native
 //
 // :1:17: error: struct 'tmp.LhsExpr' depends on itself
-// :5:5: note: while checking this field
-// :2:5: note: while checking this field

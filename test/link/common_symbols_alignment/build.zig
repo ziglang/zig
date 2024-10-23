@@ -14,7 +14,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     const lib_a = b.addStaticLibrary(.{
         .name = "a",
         .optimize = optimize,
-        .target = b.host,
+        .target = b.graph.host,
     });
     lib_a.addCSourceFiles(.{
         .files = &.{"a.c"},

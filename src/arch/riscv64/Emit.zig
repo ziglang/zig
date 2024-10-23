@@ -1,7 +1,8 @@
 //! This file contains the functionality for emitting RISC-V MIR as machine code
 
+bin_file: *link.File,
 lower: Lower,
-debug_output: DebugInfoOutput,
+debug_output: link.File.DebugInfoOutput,
 code: *std.ArrayList(u8),
 
 prev_di_line: u32,
@@ -9,8 +10,8 @@ prev_di_column: u32,
 /// Relative to the beginning of `code`.
 prev_di_pc: usize,
 
-code_offset_mapping: std.AutoHashMapUnmanaged(Mir.Inst.Index, usize) = .{},
-relocs: std.ArrayListUnmanaged(Reloc) = .{},
+code_offset_mapping: std.AutoHashMapUnmanaged(Mir.Inst.Index, usize) = .empty,
+relocs: std.ArrayListUnmanaged(Reloc) = .empty,
 
 pub const Error = Lower.Error || error{
     EmitFail,
@@ -25,7 +26,7 @@ pub fn emitMir(emit: *Emit) Error!void {
             mir_index,
             @intCast(emit.code.items.len),
         );
-        const lowered = try emit.lower.lowerMir(mir_index);
+        const lowered = try emit.lower.lowerMir(mir_index, .{ .allow_frame_locs = true });
         var lowered_relocs = lowered.relocs;
         for (lowered.insts, 0..) |lowered_inst, lowered_index| {
             const start_offset: u32 = @intCast(emit.code.items.len);
@@ -39,36 +40,72 @@ pub fn emitMir(emit: *Emit) Error!void {
                     .source = start_offset,
                     .target = target,
                     .offset = 0,
-                    .enc = std.meta.activeTag(lowered_inst.encoding.data),
+                    .fmt = std.meta.activeTag(lowered_inst),
                 }),
                 .load_symbol_reloc => |symbol| {
-                    if (emit.lower.bin_file.cast(link.File.Elf)) |elf_file| {
-                        const atom_ptr = elf_file.symbol(symbol.atom_index).atom(elf_file).?;
-                        const sym_index = elf_file.zigObjectPtr().?.symbol(symbol.sym_index);
-                        const sym = elf_file.symbol(sym_index);
+                    const elf_file = emit.bin_file.cast(.elf).?;
+                    const zo = elf_file.zigObjectPtr().?;
 
-                        var hi_r_type: u32 = @intFromEnum(std.elf.R_RISCV.HI20);
-                        var lo_r_type: u32 = @intFromEnum(std.elf.R_RISCV.LO12_I);
+                    const atom_ptr = zo.symbol(symbol.atom_index).atom(elf_file).?;
+                    const sym = zo.symbol(symbol.sym_index);
 
-                        if (sym.flags.needs_zig_got) {
-                            _ = try sym.getOrCreateZigGotEntry(sym_index, elf_file);
+                    if (sym.flags.is_extern_ptr and emit.lower.pic) {
+                        return emit.fail("emit GOT relocation for symbol '{s}'", .{sym.name(elf_file)});
+                    }
 
-                            hi_r_type = Elf.R_ZIG_GOT_HI20;
-                            lo_r_type = Elf.R_ZIG_GOT_LO12;
-                        }
+                    const hi_r_type: u32 = @intFromEnum(std.elf.R_RISCV.HI20);
+                    const lo_r_type: u32 = @intFromEnum(std.elf.R_RISCV.LO12_I);
 
-                        try atom_ptr.addReloc(elf_file, .{
-                            .r_offset = start_offset,
-                            .r_info = (@as(u64, @intCast(symbol.sym_index)) << 32) | hi_r_type,
-                            .r_addend = 0,
-                        });
+                    try atom_ptr.addReloc(elf_file.base.comp.gpa, .{
+                        .r_offset = start_offset,
+                        .r_info = (@as(u64, @intCast(symbol.sym_index)) << 32) | hi_r_type,
+                        .r_addend = 0,
+                    }, zo);
 
-                        try atom_ptr.addReloc(elf_file, .{
-                            .r_offset = start_offset + 4,
-                            .r_info = (@as(u64, @intCast(symbol.sym_index)) << 32) | lo_r_type,
-                            .r_addend = 0,
-                        });
-                    } else return emit.fail("TODO: load_symbol_reloc non-ELF", .{});
+                    try atom_ptr.addReloc(elf_file.base.comp.gpa, .{
+                        .r_offset = start_offset + 4,
+                        .r_info = (@as(u64, @intCast(symbol.sym_index)) << 32) | lo_r_type,
+                        .r_addend = 0,
+                    }, zo);
+                },
+                .load_tlv_reloc => |symbol| {
+                    const elf_file = emit.bin_file.cast(.elf).?;
+                    const zo = elf_file.zigObjectPtr().?;
+
+                    const atom_ptr = zo.symbol(symbol.atom_index).atom(elf_file).?;
+
+                    const R_RISCV = std.elf.R_RISCV;
+
+                    try atom_ptr.addReloc(elf_file.base.comp.gpa, .{
+                        .r_offset = start_offset,
+                        .r_info = (@as(u64, @intCast(symbol.sym_index)) << 32) | @intFromEnum(R_RISCV.TPREL_HI20),
+                        .r_addend = 0,
+                    }, zo);
+
+                    try atom_ptr.addReloc(elf_file.base.comp.gpa, .{
+                        .r_offset = start_offset + 4,
+                        .r_info = (@as(u64, @intCast(symbol.sym_index)) << 32) | @intFromEnum(R_RISCV.TPREL_ADD),
+                        .r_addend = 0,
+                    }, zo);
+
+                    try atom_ptr.addReloc(elf_file.base.comp.gpa, .{
+                        .r_offset = start_offset + 8,
+                        .r_info = (@as(u64, @intCast(symbol.sym_index)) << 32) | @intFromEnum(R_RISCV.TPREL_LO12_I),
+                        .r_addend = 0,
+                    }, zo);
+                },
+                .call_extern_fn_reloc => |symbol| {
+                    const elf_file = emit.bin_file.cast(.elf).?;
+                    const zo = elf_file.zigObjectPtr().?;
+                    const atom_ptr = zo.symbol(symbol.atom_index).atom(elf_file).?;
+
+                    const r_type: u32 = @intFromEnum(std.elf.R_RISCV.CALL_PLT);
+
+                    try atom_ptr.addReloc(elf_file.base.comp.gpa, .{
+                        .r_offset = start_offset,
+                        .r_info = (@as(u64, @intCast(symbol.sym_index)) << 32) | r_type,
+                        .r_addend = 0,
+                    }, zo);
                 },
             };
         }
@@ -78,40 +115,37 @@ pub fn emitMir(emit: *Emit) Error!void {
             const mir_inst = emit.lower.mir.instructions.get(mir_index);
             switch (mir_inst.tag) {
                 else => unreachable,
-                .pseudo => switch (mir_inst.ops) {
-                    else => unreachable,
-                    .pseudo_dbg_prologue_end => {
-                        switch (emit.debug_output) {
-                            .dwarf => |dw| {
-                                try dw.setPrologueEnd();
-                                log.debug("mirDbgPrologueEnd (line={d}, col={d})", .{
-                                    emit.prev_di_line, emit.prev_di_column,
-                                });
-                                try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
-                            },
-                            .plan9 => {},
-                            .none => {},
-                        }
-                    },
-                    .pseudo_dbg_line_column => try emit.dbgAdvancePCAndLine(
-                        mir_inst.data.pseudo_dbg_line_column.line,
-                        mir_inst.data.pseudo_dbg_line_column.column,
-                    ),
-                    .pseudo_dbg_epilogue_begin => {
-                        switch (emit.debug_output) {
-                            .dwarf => |dw| {
-                                try dw.setEpilogueBegin();
-                                log.debug("mirDbgEpilogueBegin (line={d}, col={d})", .{
-                                    emit.prev_di_line, emit.prev_di_column,
-                                });
-                                try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
-                            },
-                            .plan9 => {},
-                            .none => {},
-                        }
-                    },
-                    .pseudo_dead => {},
+                .pseudo_dbg_prologue_end => {
+                    switch (emit.debug_output) {
+                        .dwarf => |dw| {
+                            try dw.setPrologueEnd();
+                            log.debug("mirDbgPrologueEnd (line={d}, col={d})", .{
+                                emit.prev_di_line, emit.prev_di_column,
+                            });
+                            try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
+                        },
+                        .plan9 => {},
+                        .none => {},
+                    }
                 },
+                .pseudo_dbg_line_column => try emit.dbgAdvancePCAndLine(
+                    mir_inst.data.pseudo_dbg_line_column.line,
+                    mir_inst.data.pseudo_dbg_line_column.column,
+                ),
+                .pseudo_dbg_epilogue_begin => {
+                    switch (emit.debug_output) {
+                        .dwarf => |dw| {
+                            try dw.setEpilogueBegin();
+                            log.debug("mirDbgEpilogueBegin (line={d}, col={d})", .{
+                                emit.prev_di_line, emit.prev_di_column,
+                            });
+                            try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
+                        },
+                        .plan9 => {},
+                        .none => {},
+                    }
+                },
+                .pseudo_dead => {},
             }
         }
     }
@@ -131,8 +165,8 @@ const Reloc = struct {
     target: Mir.Inst.Index,
     /// Offset of the relocation within the instruction.
     offset: u32,
-    /// Encoding of the instruction, used to determine how to modify it.
-    enc: Encoding.InstEnc,
+    /// Format of the instruction, used to determine how to modify it.
+    fmt: encoding.Lir.Format,
 };
 
 fn fixupRelocs(emit: *Emit) Error!void {
@@ -144,12 +178,10 @@ fn fixupRelocs(emit: *Emit) Error!void {
         const disp = @as(i32, @intCast(target)) - @as(i32, @intCast(reloc.source));
         const code: *[4]u8 = emit.code.items[reloc.source + reloc.offset ..][0..4];
 
-        log.debug("disp: {x}", .{disp});
-
-        switch (reloc.enc) {
+        switch (reloc.fmt) {
             .J => riscv_util.writeInstJ(code, @bitCast(disp)),
             .B => riscv_util.writeInstB(code, @bitCast(disp)),
-            else => return emit.fail("tried to reloc encoding type {s}", .{@tagName(reloc.enc)}),
+            else => return emit.fail("tried to reloc format type {s}", .{@tagName(reloc.fmt)}),
         }
     }
 }
@@ -184,10 +216,9 @@ const log = std.log.scoped(.emit);
 const mem = std.mem;
 const std = @import("std");
 
-const DebugInfoOutput = @import("../../codegen.zig").DebugInfoOutput;
 const Emit = @This();
 const Lower = @import("Lower.zig");
 const Mir = @import("Mir.zig");
 const riscv_util = @import("../../link/riscv.zig");
-const Encoding = @import("Encoding.zig");
 const Elf = @import("../../link/Elf.zig");
+const encoding = @import("encoding.zig");

@@ -1,6 +1,6 @@
 /* Support macros for making weak and strong aliases for symbols,
    and for using symbol sets and linker warnings with GNU ld.
-   Copyright (C) 1995-2023 Free Software Foundation, Inc.
+   Copyright (C) 1995-2024 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -612,8 +612,10 @@ for linking")
 #endif
 
 #if IS_IN (libmvec)
+# define libmvec_hidden_proto(name, attrs...) hidden_proto (name, ##attrs)
 # define libmvec_hidden_def(name) hidden_def (name)
 #else
+# define libmvec_hidden_proto(name, attrs...)
 # define libmvec_hidden_def(name)
 #endif
 
@@ -677,9 +679,9 @@ for linking")
 #endif
 
 /* Helper / base  macros for indirect function symbols.  */
-#define __ifunc_resolver(type_name, name, expr, arg, init, classifier)	\
+#define __ifunc_resolver(type_name, name, expr, init, classifier, ...)	\
   classifier inhibit_stack_protector					\
-  __typeof (type_name) *name##_ifunc (arg)				\
+  __typeof (type_name) *name##_ifunc (__VA_ARGS__)			\
   {									\
     init ();								\
     __typeof (type_name) *res = expr;					\
@@ -687,13 +689,13 @@ for linking")
   }
 
 #ifdef HAVE_GCC_IFUNC
-# define __ifunc(type_name, name, expr, arg, init)			\
+# define __ifunc_args(type_name, name, expr, init, ...)			\
   extern __typeof (type_name) name __attribute__			\
 			      ((ifunc (#name "_ifunc")));		\
-  __ifunc_resolver (type_name, name, expr, arg, init, static)
+  __ifunc_resolver (type_name, name, expr, init, static, __VA_ARGS__)
 
-# define __ifunc_hidden(type_name, name, expr, arg, init)	\
-  __ifunc (type_name, name, expr, arg, init)
+# define __ifunc_args_hidden(type_name, name, expr, init, ...)		\
+  __ifunc_args (type_name, name, expr, init, __VA_ARGS__)
 #else
 /* Gcc does not support __attribute__ ((ifunc (...))).  Use the old behaviour
    as fallback.  But keep in mind that the debug information for the ifunc
@@ -704,17 +706,23 @@ for linking")
    different signatures.  (Gcc support is disabled at least on a ppc64le
    Ubuntu 14.04 system.)  */
 
-# define __ifunc(type_name, name, expr, arg, init)			\
+# define __ifunc_args(type_name, name, expr, init, ...)			\
   extern __typeof (type_name) name;					\
-  __typeof (type_name) *name##_ifunc (arg) __asm__ (#name);		\
-  __ifunc_resolver (type_name, name, expr, arg, init,)			\
+  __typeof (type_name) *name##_ifunc (__VA_ARGS__) __asm__ (#name);	\
+  __ifunc_resolver (type_name, name, expr, init, , __VA_ARGS__)		\
  __asm__ (".type " #name ", %gnu_indirect_function");
 
-# define __ifunc_hidden(type_name, name, expr, arg, init)		\
+# define __ifunc_args_hidden(type_name, name, expr, init, ...)		\
   extern __typeof (type_name) __libc_##name;				\
-  __ifunc (type_name, __libc_##name, expr, arg, init)			\
+  __ifunc (type_name, __libc_##name, expr, __VA_ARGS__, init)		\
   strong_alias (__libc_##name, name);
 #endif /* !HAVE_GCC_IFUNC  */
+
+#define __ifunc(type_name, name, expr, arg, init)			\
+  __ifunc_args (type_name, name, expr, init, arg)
+
+#define __ifunc_hidden(type_name, name, expr, arg, init)		\
+  __ifunc_args_hidden (type_name, name, expr, init, arg)
 
 /* The following macros are used for indirect function symbols in libc.so.
    First of all, you need to have the function prototyped somewhere,

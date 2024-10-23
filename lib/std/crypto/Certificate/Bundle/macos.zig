@@ -42,7 +42,7 @@ pub fn rescanMac(cb: *Bundle, gpa: Allocator) RescanMacError!void {
 
         const table_header = try reader.readStructEndian(TableHeader, .big);
 
-        if (@as(std.c.cssm.DB_RECORDTYPE, @enumFromInt(table_header.table_id)) != .X509_CERTIFICATE) {
+        if (@as(std.c.DB_RECORDTYPE, @enumFromInt(table_header.table_id)) != .X509_CERTIFICATE) {
             continue;
         }
 

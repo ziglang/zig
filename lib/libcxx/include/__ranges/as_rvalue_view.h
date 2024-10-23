@@ -111,18 +111,18 @@ namespace views {
 namespace __as_rvalue {
 struct __fn : __range_adaptor_closure<__fn> {
   template <class _Range>
-  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr auto operator()(_Range&& __range) const
-      noexcept(noexcept(/**/ as_rvalue_view(std::forward<_Range>(__range))))
-          -> decltype(/*--*/ as_rvalue_view(std::forward<_Range>(__range))) {
-    return /*-------------*/ as_rvalue_view(std::forward<_Range>(__range));
+  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI static constexpr auto
+  operator()(_Range&& __range) noexcept(noexcept(as_rvalue_view(std::forward<_Range>(__range))))
+      -> decltype(/*--------------------------*/ as_rvalue_view(std::forward<_Range>(__range))) {
+    return /*---------------------------------*/ as_rvalue_view(std::forward<_Range>(__range));
   }
 
   template <class _Range>
     requires same_as<range_rvalue_reference_t<_Range>, range_reference_t<_Range>>
-  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr auto operator()(_Range&& __range) const
-      noexcept(noexcept(/**/ views::all(std::forward<_Range>(__range))))
-          -> decltype(/*--*/ views::all(std::forward<_Range>(__range))) {
-    return /*-------------*/ views::all(std::forward<_Range>(__range));
+  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI static constexpr auto
+  operator()(_Range&& __range) noexcept(noexcept(views::all(std::forward<_Range>(__range))))
+      -> decltype(/*--------------------------*/ views::all(std::forward<_Range>(__range))) {
+    return /*---------------------------------*/ views::all(std::forward<_Range>(__range));
   }
 };
 } // namespace __as_rvalue

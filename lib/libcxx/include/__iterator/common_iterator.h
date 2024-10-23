@@ -124,7 +124,7 @@ public:
   }
 
   template <class _I2 = _Iter>
-  _LIBCPP_HIDE_FROM_ABI decltype(auto) operator->() const
+  _LIBCPP_HIDE_FROM_ABI auto operator->() const
     requires indirectly_readable<const _I2> && (requires(const _I2& __i) {
                __i.operator->();
              } || is_reference_v<iter_reference_t<_I2>> || constructible_from<iter_value_t<_I2>, iter_reference_t<_I2>>)

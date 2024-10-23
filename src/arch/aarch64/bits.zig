@@ -1,6 +1,5 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const DW = std.dwarf;
 const assert = std.debug.assert;
 const testing = std.testing;
 
@@ -295,15 +294,8 @@ pub const Register = enum(u8) {
         };
     }
 
-    pub fn dwarfLocOp(self: Register) u8 {
-        return @as(u8, self.enc()) + DW.OP.reg0;
-    }
-
-    /// DWARF encodings that push a value onto the DWARF stack that is either
-    /// the contents of a register or the result of adding the contents a given
-    /// register to a given signed offset.
-    pub fn dwarfLocOpDeref(self: Register) u8 {
-        return @as(u8, self.enc()) + DW.OP.breg0;
+    pub fn dwarfNum(self: Register) u5 {
+        return self.enc();
     }
 };
 
@@ -1077,7 +1069,7 @@ pub const Instruction = union(enum) {
         };
     }
 
-    fn bitfield(
+    fn initBitfield(
         opc: u2,
         n: u1,
         rd: Register,
@@ -1587,7 +1579,7 @@ pub const Instruction = union(enum) {
             64 => 0b1,
             else => unreachable, // unexpected register size
         };
-        return bitfield(0b00, n, rd, rn, immr, imms);
+        return initBitfield(0b00, n, rd, rn, immr, imms);
     }
 
     pub fn bfm(rd: Register, rn: Register, immr: u6, imms: u6) Instruction {
@@ -1596,7 +1588,7 @@ pub const Instruction = union(enum) {
             64 => 0b1,
             else => unreachable, // unexpected register size
         };
-        return bitfield(0b01, n, rd, rn, immr, imms);
+        return initBitfield(0b01, n, rd, rn, immr, imms);
     }
 
     pub fn ubfm(rd: Register, rn: Register, immr: u6, imms: u6) Instruction {
@@ -1605,7 +1597,7 @@ pub const Instruction = union(enum) {
             64 => 0b1,
             else => unreachable, // unexpected register size
         };
-        return bitfield(0b10, n, rd, rn, immr, imms);
+        return initBitfield(0b10, n, rd, rn, immr, imms);
     }
 
     pub fn asrImmediate(rd: Register, rn: Register, shift: u6) Instruction {

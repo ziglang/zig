@@ -4,7 +4,6 @@ const crypto = std.crypto;
 const debug = std.debug;
 const math = std.math;
 const mem = std.mem;
-const utils = std.crypto.utils;
 
 const Poly1305 = crypto.onetimeauth.Poly1305;
 const Blake2b = crypto.hash.blake2.Blake2b;
@@ -419,9 +418,9 @@ pub const XSalsa20Poly1305 = struct {
         var computed_tag: [tag_length]u8 = undefined;
         mac.final(&computed_tag);
 
-        const verify = utils.timingSafeEql([tag_length]u8, computed_tag, tag);
+        const verify = crypto.timing_safe.eql([tag_length]u8, computed_tag, tag);
         if (!verify) {
-            utils.secureZero(u8, &computed_tag);
+            crypto.secureZero(u8, &computed_tag);
             @memset(m, undefined);
             return error.AuthenticationFailed;
         }
@@ -487,7 +486,7 @@ pub const Box = struct {
     /// A key pair.
     pub const KeyPair = X25519.KeyPair;
 
-    /// Compute a secret suitable for `secretbox` given a recipent's public key and a sender's secret key.
+    /// Compute a secret suitable for `secretbox` given a recipient's public key and a sender's secret key.
     pub fn createSharedSecret(public_key: [public_length]u8, secret_key: [secret_length]u8) (IdentityElementError || WeakPublicKeyError)![shared_length]u8 {
         const p = try X25519.scalarmult(secret_key, public_key);
         const zero = [_]u8{0} ** 16;
@@ -540,7 +539,7 @@ pub const SealedBox = struct {
         const nonce = createNonce(ekp.public_key, public_key);
         c[0..public_length].* = ekp.public_key;
         try Box.seal(c[Box.public_length..], m, nonce, public_key, ekp.secret_key);
-        utils.secureZero(u8, ekp.secret_key[0..]);
+        crypto.secureZero(u8, ekp.secret_key[0..]);
     }
 
     /// Decrypt a message using a key pair.

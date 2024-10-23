@@ -172,6 +172,15 @@ test "stringify enums" {
     try testStringify("\"bar\"", E.bar, .{});
 }
 
+test "stringify non-exhaustive enum" {
+    const E = enum(u8) {
+        foo = 0,
+        _,
+    };
+    try testStringify("\"foo\"", E.foo, .{});
+    try testStringify("1", @as(E, @enumFromInt(1)), .{});
+}
+
 test "stringify enum literals" {
     try testStringify("\"foo\"", .foo, .{});
     try testStringify("\"bar\"", .bar, .{});
@@ -442,4 +451,54 @@ test "print" {
 test "nonportable numbers" {
     try testStringify("9999999999999999", 9999999999999999, .{});
     try testStringify("\"9999999999999999\"", 9999999999999999, .{ .emit_nonportable_numbers_as_strings = true });
+}
+
+test "stringify raw streaming" {
+    var out_buf: [1024]u8 = undefined;
+    var slice_stream = std.io.fixedBufferStream(&out_buf);
+    const out = slice_stream.writer();
+
+    {
+        var w = writeStream(out, .{ .whitespace = .indent_2 });
+        try testRawStreaming(&w, &slice_stream);
+    }
+
+    {
+        var w = writeStreamMaxDepth(out, .{ .whitespace = .indent_2 }, 8);
+        try testRawStreaming(&w, &slice_stream);
+    }
+
+    {
+        var w = writeStreamMaxDepth(out, .{ .whitespace = .indent_2 }, null);
+        try testRawStreaming(&w, &slice_stream);
+    }
+
+    {
+        var w = writeStreamArbitraryDepth(testing.allocator, out, .{ .whitespace = .indent_2 });
+        defer w.deinit();
+        try testRawStreaming(&w, &slice_stream);
+    }
+}
+
+fn testRawStreaming(w: anytype, slice_stream: anytype) !void {
+    slice_stream.reset();
+
+    try w.beginObject();
+    try w.beginObjectFieldRaw();
+    try w.stream.writeAll("\"long");
+    try w.stream.writeAll(" key\"");
+    w.endObjectFieldRaw();
+    try w.beginWriteRaw();
+    try w.stream.writeAll("\"long");
+    try w.stream.writeAll(" value\"");
+    w.endWriteRaw();
+    try w.endObject();
+
+    const result = slice_stream.getWritten();
+    const expected =
+        \\{
+        \\  "long key": "long value"
+        \\}
+    ;
+    try std.testing.expectEqualStrings(expected, result);
 }

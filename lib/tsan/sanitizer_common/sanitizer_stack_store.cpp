@@ -44,6 +44,9 @@ StackStore::Id StackStore::Store(const StackTrace &trace, uptr *pack) {
   uptr idx = 0;
   *pack = 0;
   uptr *stack_trace = Alloc(h.size + 1, &idx, pack);
+  // No more space.
+  if (stack_trace == nullptr)
+    return 0;
   *stack_trace = h.ToUptr();
   internal_memcpy(stack_trace + 1, trace.trace, h.size * sizeof(uptr));
   *pack += blocks_[GetBlockIdx(idx)].Stored(h.size + 1);
@@ -76,8 +79,10 @@ uptr *StackStore::Alloc(uptr count, uptr *idx, uptr *pack) {
     uptr block_idx = GetBlockIdx(start);
     uptr last_idx = GetBlockIdx(start + count - 1);
     if (LIKELY(block_idx == last_idx)) {
-      // Fits into the a single block.
-      CHECK_LT(block_idx, ARRAY_SIZE(blocks_));
+      // Fits into a single block.
+      // No more available blocks.  Indicate inability to allocate more memory.
+      if (block_idx >= ARRAY_SIZE(blocks_))
+        return nullptr;
       *idx = start;
       return blocks_[block_idx].GetOrCreate(this) + GetInBlockIdx(start);
     }

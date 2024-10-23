@@ -152,20 +152,20 @@ fn sinh64(z: Complex(f64)) Complex(f64) {
     return Complex(f64).init((x * x) * (y - y), (x + x) * (y - y));
 }
 
-const epsilon = 0.0001;
-
 test sinh32 {
+    const epsilon = math.floatEps(f32);
     const a = Complex(f32).init(5, 3);
     const c = sinh(a);
 
-    try testing.expect(math.approxEqAbs(f32, c.re, -73.460617, epsilon));
-    try testing.expect(math.approxEqAbs(f32, c.im, 10.472508, epsilon));
+    try testing.expectApproxEqAbs(-73.460617, c.re, epsilon);
+    try testing.expectApproxEqAbs(10.472508, c.im, epsilon);
 }
 
 test sinh64 {
+    const epsilon = math.floatEps(f64);
     const a = Complex(f64).init(5, 3);
     const c = sinh(a);
 
-    try testing.expect(math.approxEqAbs(f64, c.re, -73.460617, epsilon));
-    try testing.expect(math.approxEqAbs(f64, c.im, 10.472508, epsilon));
+    try testing.expectApproxEqAbs(-73.46062169567367, c.re, epsilon);
+    try testing.expectApproxEqAbs(10.472508533940392, c.im, epsilon);
 }

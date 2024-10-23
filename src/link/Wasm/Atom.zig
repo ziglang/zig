@@ -6,15 +6,15 @@ sym_index: Symbol.Index,
 /// Size of the atom, used to calculate section sizes in the final binary
 size: u32 = 0,
 /// List of relocations belonging to this atom
-relocs: std.ArrayListUnmanaged(types.Relocation) = .{},
+relocs: std.ArrayListUnmanaged(types.Relocation) = .empty,
 /// Contains the binary data of an atom, which can be non-relocated
-code: std.ArrayListUnmanaged(u8) = .{},
+code: std.ArrayListUnmanaged(u8) = .empty,
 /// For code this is 1, for data this is set to the highest value of all segments
 alignment: Wasm.Alignment = .@"1",
 /// Offset into the section where the atom lives, this already accounts
 /// for alignment.
 offset: u32 = 0,
-/// The original offset within the object file. This value is substracted from
+/// The original offset within the object file. This value is subtracted from
 /// relocation offsets to determine where in the `data` to rewrite the value
 original_offset: u32 = 0,
 /// Previous atom in relation to this atom.
@@ -22,7 +22,7 @@ original_offset: u32 = 0,
 prev: Atom.Index = .null,
 /// Contains atoms local to a decl, all managed by this `Atom`.
 /// When the parent atom is being freed, it will also do so for all local atoms.
-locals: std.ArrayListUnmanaged(Atom.Index) = .{},
+locals: std.ArrayListUnmanaged(Atom.Index) = .empty,
 
 /// Represents the index of an Atom where `null` is considered
 /// an invalid atom.

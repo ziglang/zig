@@ -63,7 +63,7 @@ fn decodeFseHuffmanTreeSlice(src: []const u8, compressed_size: usize, weights: *
 
 fn assignWeights(
     huff_bits: *readers.ReverseBitReader,
-    accuracy_log: usize,
+    accuracy_log: u16,
     entries: *[1 << 6]Table.Fse,
     weights: *[256]u4,
 ) !usize {
@@ -73,7 +73,7 @@ fn assignWeights(
 
     while (i < 254) {
         const even_data = entries[even_state];
-        var read_bits: usize = 0;
+        var read_bits: u16 = 0;
         const even_bits = huff_bits.readBits(u32, even_data.bits, &read_bits) catch unreachable;
         weights[i] = std.math.cast(u4, even_data.symbol) orelse return error.MalformedHuffmanTree;
         i += 1;

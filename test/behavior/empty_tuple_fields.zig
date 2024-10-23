@@ -9,9 +9,9 @@ test "empty file level struct" {
 
     const T = @import("empty_file_level_struct.zig");
     const info = @typeInfo(T);
-    try std.testing.expectEqual(@as(usize, 1), info.Struct.fields.len);
-    try std.testing.expectEqualStrings("0", info.Struct.fields[0].name);
-    try std.testing.expect(@typeInfo(info.Struct.fields[0].type) == .Struct);
+    try std.testing.expectEqual(@as(usize, 1), info.@"struct".fields.len);
+    try std.testing.expectEqualStrings("0", info.@"struct".fields[0].name);
+    try std.testing.expect(@typeInfo(info.@"struct".fields[0].type) == .@"struct");
 }
 
 test "empty file level union" {
@@ -22,7 +22,7 @@ test "empty file level union" {
 
     const T = @import("empty_file_level_union.zig");
     const info = @typeInfo(T);
-    try std.testing.expectEqual(@as(usize, 1), info.Struct.fields.len);
-    try std.testing.expectEqualStrings("0", info.Struct.fields[0].name);
-    try std.testing.expect(@typeInfo(info.Struct.fields[0].type) == .Union);
+    try std.testing.expectEqual(@as(usize, 1), info.@"struct".fields.len);
+    try std.testing.expectEqualStrings("0", info.@"struct".fields[0].name);
+    try std.testing.expect(@typeInfo(info.@"struct".fields[0].type) == .@"union");
 }

@@ -47,6 +47,10 @@ pub const Message = struct {
             tag: Attribute.Tag,
             specifier: enum { @"struct", @"union", @"enum" },
         },
+        attribute_todo: struct {
+            tag: Attribute.Tag,
+            kind: enum { variables, fields, types, functions },
+        },
         builtin_with_header: struct {
             builtin: Builtin.Tag,
             header: Header,
@@ -210,11 +214,14 @@ pub const Options = struct {
     normalized: Kind = .default,
     @"shift-count-negative": Kind = .default,
     @"shift-count-overflow": Kind = .default,
+    @"constant-conversion": Kind = .default,
+    @"sign-conversion": Kind = .default,
+    nonnull: Kind = .default,
 };
 
 const Diagnostics = @This();
 
-list: std.ArrayListUnmanaged(Message) = .{},
+list: std.ArrayListUnmanaged(Message) = .empty,
 arena: std.heap.ArenaAllocator,
 fatal_errors: bool = false,
 options: Options = .{},
@@ -222,14 +229,14 @@ errors: u32 = 0,
 macro_backtrace_limit: u32 = 6,
 
 pub fn warningExists(name: []const u8) bool {
-    inline for (std.meta.fields(Options)) |f| {
+    inline for (@typeInfo(Options).@"struct".fields) |f| {
         if (mem.eql(u8, f.name, name)) return true;
     }
     return false;
 }
 
 pub fn set(d: *Diagnostics, name: []const u8, to: Kind) !void {
-    inline for (std.meta.fields(Options)) |f| {
+    inline for (@typeInfo(Options).@"struct".fields) |f| {
         if (mem.eql(u8, f.name, name)) {
             @field(d.options, f.name) = to;
             return;
@@ -422,6 +429,10 @@ pub fn renderMessage(comp: *Compilation, m: anytype, msg: Message) void {
             @tagName(msg.extra.ignored_record_attr.tag),
             @tagName(msg.extra.ignored_record_attr.specifier),
         }),
+        .attribute_todo => printRt(m, prop.msg, .{ "{s}", "{s}" }, .{
+            @tagName(msg.extra.attribute_todo.tag),
+            @tagName(msg.extra.attribute_todo.kind),
+        }),
         .builtin_with_header => printRt(m, prop.msg, .{ "{s}", "{s}" }, .{
             @tagName(msg.extra.builtin_with_header.header),
             Builtin.nameFromTag(msg.extra.builtin_with_header.builtin).span(),
@@ -528,7 +539,7 @@ const MsgWriter = struct {
     config: std.io.tty.Config,
 
     fn init(config: std.io.tty.Config) MsgWriter {
-        std.debug.getStderrMutex().lock();
+        std.debug.lockStdErr();
         return .{
             .w = std.io.bufferedWriter(std.io.getStdErr().writer()),
             .config = config,
@@ -537,7 +548,7 @@ const MsgWriter = struct {
 
     pub fn deinit(m: *MsgWriter) void {
         m.w.flush() catch {};
-        std.debug.getStderrMutex().unlock();
+        std.debug.unlockStdErr();
     }
 
     pub fn print(m: *MsgWriter, comptime fmt: []const u8, args: anytype) void {

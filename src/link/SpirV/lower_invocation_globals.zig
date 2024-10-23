@@ -342,9 +342,9 @@ const ModuleBuilder = struct {
     entry_point_new_id_base: u32,
     /// A set of all function types in the new program. SPIR-V mandates that these are unique,
     /// and until a general type deduplication pass is programmed, we just handle it here via this.
-    function_types: std.ArrayHashMapUnmanaged(FunctionType, ResultId, FunctionType.Context, true) = .{},
+    function_types: std.ArrayHashMapUnmanaged(FunctionType, ResultId, FunctionType.Context, true) = .empty,
     /// Maps functions to new information required for creating the module
-    function_new_info: std.AutoArrayHashMapUnmanaged(ResultId, FunctionNewInfo) = .{},
+    function_new_info: std.AutoArrayHashMapUnmanaged(ResultId, FunctionNewInfo) = .empty,
     /// Offset of the functions section in the new binary.
     new_functions_section: ?usize,
 
@@ -403,7 +403,7 @@ const ModuleBuilder = struct {
                 .OpTypeFunction => {
                     // Re-emitted in `emitFunctionTypes()`. We can do this because
                     // OpTypeFunction's may not currently be used anywhere that is not
-                    // directly with an OpFunction. For now we igore Intels function
+                    // directly with an OpFunction. For now we ignore Intels function
                     // pointers extension, that is not a problem with a generalized
                     // pass anyway.
                     continue;
@@ -682,9 +682,8 @@ const ModuleBuilder = struct {
     }
 };
 
-pub fn run(parser: *BinaryModule.Parser, binary: *BinaryModule, progress: *std.Progress.Node) !void {
-    var sub_node = progress.start("Lower invocation globals", 6);
-    sub_node.activate();
+pub fn run(parser: *BinaryModule.Parser, binary: *BinaryModule, progress: std.Progress.Node) !void {
+    const sub_node = progress.start("Lower invocation globals", 6);
     defer sub_node.end();
 
     var arena = std.heap.ArenaAllocator.init(parser.a);

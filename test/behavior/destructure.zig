@@ -23,8 +23,6 @@ test "simple destructure" {
 }
 
 test "destructure with comptime syntax" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     const S = struct {
         fn doTheTest() !void {
             {

@@ -9,7 +9,6 @@ const pwhash = crypto.pwhash;
 const testing = std.testing;
 const HmacSha512 = crypto.auth.hmac.sha2.HmacSha512;
 const Sha512 = crypto.hash.sha2.Sha512;
-const utils = crypto.utils;
 
 const phc_format = @import("phc_encoding.zig");
 
@@ -408,8 +407,14 @@ pub const State = struct {
 
 /// bcrypt parameters
 pub const Params = struct {
+    const Self = @This();
+
     /// log2 of the number of rounds
     rounds_log: u6,
+
+    /// Minimum recommended parameters according to the
+    /// [OWASP cheat sheet](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html).
+    pub const owasp = Self{ .rounds_log = 10 };
 };
 
 /// Compute a hash of a password using 2^rounds_log rounds of the bcrypt key stretching function.
@@ -440,7 +445,7 @@ pub fn bcrypt(
         state.expand0(passwordZ);
         state.expand0(salt[0..]);
     }
-    utils.secureZero(u8, &password_buf);
+    crypto.secureZero(u8, &password_buf);
 
     var cdata = [6]u32{ 0x4f727068, 0x65616e42, 0x65686f6c, 0x64657253, 0x63727944, 0x6f756274 }; // "OrpheanBeholderScryDoubt"
     k = 0;
@@ -490,24 +495,24 @@ const pbkdf_prf = struct {
     hasher: Sha512,
     sha2pass: [Sha512.digest_length]u8,
 
-    fn create(out: *[mac_length]u8, msg: []const u8, key: []const u8) void {
+    pub fn create(out: *[mac_length]u8, msg: []const u8, key: []const u8) void {
         var ctx = Self.init(key);
         ctx.update(msg);
         ctx.final(out);
     }
 
-    fn init(key: []const u8) Self {
+    pub fn init(key: []const u8) Self {
         var self: Self = undefined;
         self.hasher = Sha512.init(.{});
         Sha512.hash(key, &self.sha2pass, .{});
         return self;
     }
 
-    fn update(self: *Self, msg: []const u8) void {
+    pub fn update(self: *Self, msg: []const u8) void {
         self.hasher.update(msg);
     }
 
-    fn final(self: *Self, out: *[mac_length]u8) void {
+    pub fn final(self: *Self, out: *[mac_length]u8) void {
         var sha2salt: [Sha512.digest_length]u8 = undefined;
         self.hasher.final(&sha2salt);
         out.* = hash(self.sha2pass, sha2salt);
@@ -515,12 +520,12 @@ const pbkdf_prf = struct {
 
     /// Matches OpenBSD function
     /// https://github.com/openbsd/src/blob/6df1256b7792691e66c2ed9d86a8c103069f9e34/lib/libutil/bcrypt_pbkdf.c#L98
-    fn hash(sha2pass: [Sha512.digest_length]u8, sha2salt: [Sha512.digest_length]u8) [32]u8 {
+    pub fn hash(sha2pass: [Sha512.digest_length]u8, sha2salt: [Sha512.digest_length]u8) [32]u8 {
         var cdata: [8]u32 = undefined;
         {
             const ciphertext = "OxychromaticBlowfishSwatDynamite";
             var j: usize = 0;
-            for (cdata) |*v| {
+            for (&cdata) |*v| {
                 v.* = State.toWord(ciphertext, &j);
             }
         }
@@ -550,8 +555,8 @@ const pbkdf_prf = struct {
         }
 
         // zap
-        crypto.utils.secureZero(u32, &cdata);
-        crypto.utils.secureZero(State, @as(*[1]State, &state));
+        crypto.secureZero(u32, &cdata);
+        crypto.secureZero(u32, &state.subkeys);
 
         return out;
     }

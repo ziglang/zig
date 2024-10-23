@@ -56,8 +56,6 @@ public:
 
 */
 
-#include <__assert> // all public C++ headers provide the assertion handler
-#include <__availability>
 #include <__config>
 #include <__exception/exception.h>
 #include <__type_traits/is_constant_evaluated.h>
@@ -277,7 +275,20 @@ struct __type_info_implementations {
           __impl;
 };
 
-class _LIBCPP_EXPORTED_FROM_ABI type_info {
+#    if __has_cpp_attribute(_Clang::__ptrauth_vtable_pointer__)
+#      if __has_feature(ptrauth_type_info_vtable_pointer_discrimination)
+#        define _LIBCPP_TYPE_INFO_VTABLE_POINTER_AUTH                                                                  \
+          [[_Clang::__ptrauth_vtable_pointer__(process_independent, address_discrimination, type_discrimination)]]
+#      else
+#        define _LIBCPP_TYPE_INFO_VTABLE_POINTER_AUTH                                                                  \
+          [[_Clang::__ptrauth_vtable_pointer__(                                                                        \
+              process_independent, no_address_discrimination, no_extra_discrimination)]]
+#      endif
+#    else
+#      define _LIBCPP_TYPE_INFO_VTABLE_POINTER_AUTH
+#    endif
+
+class _LIBCPP_EXPORTED_FROM_ABI _LIBCPP_TYPE_INFO_VTABLE_POINTER_AUTH type_info {
   type_info& operator=(const type_info&);
   type_info(const type_info&);
 

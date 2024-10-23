@@ -9,15 +9,15 @@ const normalize = common.normalize;
 pub const panic = common.panic;
 
 comptime {
-    @export(__fmodh, .{ .name = "__fmodh", .linkage = common.linkage, .visibility = common.visibility });
-    @export(fmodf, .{ .name = "fmodf", .linkage = common.linkage, .visibility = common.visibility });
-    @export(fmod, .{ .name = "fmod", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__fmodx, .{ .name = "__fmodx", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__fmodh, .{ .name = "__fmodh", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&fmodf, .{ .name = "fmodf", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&fmod, .{ .name = "fmod", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__fmodx, .{ .name = "__fmodx", .linkage = common.linkage, .visibility = common.visibility });
     if (common.want_ppc_abi) {
-        @export(fmodq, .{ .name = "fmodf128", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&fmodq, .{ .name = "fmodf128", .linkage = common.linkage, .visibility = common.visibility });
     }
-    @export(fmodq, .{ .name = "fmodq", .linkage = common.linkage, .visibility = common.visibility });
-    @export(fmodl, .{ .name = "fmodl", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&fmodq, .{ .name = "fmodq", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&fmodl, .{ .name = "fmodl", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 pub fn __fmodh(x: f16, y: f16) callconv(.C) f16 {
@@ -251,7 +251,7 @@ pub fn fmodq(a: f128, b: f128) callconv(.C) f128 {
 }
 
 pub fn fmodl(a: c_longdouble, b: c_longdouble) callconv(.C) c_longdouble {
-    switch (@typeInfo(c_longdouble).Float.bits) {
+    switch (@typeInfo(c_longdouble).float.bits) {
         16 => return __fmodh(a, b),
         32 => return fmodf(a, b),
         64 => return fmod(a, b),
@@ -262,7 +262,7 @@ pub fn fmodl(a: c_longdouble, b: c_longdouble) callconv(.C) c_longdouble {
 }
 
 inline fn generic_fmod(comptime T: type, x: T, y: T) T {
-    const bits = @typeInfo(T).Float.bits;
+    const bits = @typeInfo(T).float.bits;
     const uint = std.meta.Int(.unsigned, bits);
     comptime assert(T == f32 or T == f64);
     const digits = if (T == f32) 23 else 52;

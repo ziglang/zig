@@ -1,15 +1,17 @@
-/// Delete this to find out where URL escaping needs to be added.
-const missing_feature_url_escape = true;
-
-const gpa = std.heap.wasm_allocator;
-
 const std = @import("std");
 const log = std.log;
 const assert = std.debug.assert;
 const Ast = std.zig.Ast;
-const Walk = @import("Walk.zig");
+const Walk = @import("Walk");
 const markdown = @import("markdown.zig");
-const Decl = @import("Decl.zig");
+const Decl = Walk.Decl;
+
+const fileSourceHtml = @import("html_render.zig").fileSourceHtml;
+const appendEscaped = @import("html_render.zig").appendEscaped;
+const resolveDeclLink = @import("html_render.zig").resolveDeclLink;
+const missing_feature_url_escape = @import("html_render.zig").missing_feature_url_escape;
+
+const gpa = std.heap.wasm_allocator;
 
 const js = struct {
     extern "js" fn log(ptr: [*]const u8, len: usize) void;
@@ -53,13 +55,13 @@ export fn unpack(tar_ptr: [*]u8, tar_len: usize) void {
     const tar_bytes = tar_ptr[0..tar_len];
     //log.debug("received {d} bytes of tar file", .{tar_bytes.len});
 
-    unpack_inner(tar_bytes) catch |err| {
+    unpackInner(tar_bytes) catch |err| {
         fatal("unable to unpack tar: {s}", .{@errorName(err)});
     };
 }
 
-var query_string: std.ArrayListUnmanaged(u8) = .{};
-var query_results: std.ArrayListUnmanaged(Decl.Index) = .{};
+var query_string: std.ArrayListUnmanaged(u8) = .empty;
+var query_results: std.ArrayListUnmanaged(Decl.Index) = .empty;
 
 /// Resizes the query string to be the correct length; returns the pointer to
 /// the query string.
@@ -91,11 +93,11 @@ fn query_exec_fallible(query: []const u8, ignore_case: bool) !void {
         segments: u16,
     };
     const g = struct {
-        var full_path_search_text: std.ArrayListUnmanaged(u8) = .{};
-        var full_path_search_text_lower: std.ArrayListUnmanaged(u8) = .{};
-        var doc_search_text: std.ArrayListUnmanaged(u8) = .{};
+        var full_path_search_text: std.ArrayListUnmanaged(u8) = .empty;
+        var full_path_search_text_lower: std.ArrayListUnmanaged(u8) = .empty;
+        var doc_search_text: std.ArrayListUnmanaged(u8) = .empty;
         /// Each element matches a corresponding query_results element.
-        var scores: std.ArrayListUnmanaged(Score) = .{};
+        var scores: std.ArrayListUnmanaged(Score) = .empty;
     };
 
     // First element stores the size of the list.
@@ -253,8 +255,8 @@ const ErrorIdentifier = packed struct(u64) {
     }
 };
 
-var string_result: std.ArrayListUnmanaged(u8) = .{};
-var error_set_result: std.StringArrayHashMapUnmanaged(ErrorIdentifier) = .{};
+var string_result: std.ArrayListUnmanaged(u8) = .empty;
+var error_set_result: std.StringArrayHashMapUnmanaged(ErrorIdentifier) = .empty;
 
 export fn decl_error_set(decl_index: Decl.Index) Slice(ErrorIdentifier) {
     return Slice(ErrorIdentifier).init(decl_error_set_fallible(decl_index) catch @panic("OOM"));
@@ -272,13 +274,6 @@ export fn fn_error_set_decl(decl_index: Decl.Index, node: Ast.Node.Index) Decl.I
         .alias => |aliasee| fn_error_set_decl(aliasee, aliasee.get().ast_node),
         else => decl_index,
     };
-}
-
-export fn decl_field_count(decl_index: Decl.Index) u32 {
-    switch (decl_index.get().categorize()) {
-        .namespace => |node| return decl_index.get().file.get().field_count(node),
-        else => return 0,
-    }
 }
 
 fn decl_error_set_fallible(decl_index: Decl.Index) Oom![]ErrorIdentifier {
@@ -386,7 +381,7 @@ export fn decl_params(decl_index: Decl.Index) Slice(Ast.Node.Index) {
 
 fn decl_fields_fallible(decl_index: Decl.Index) ![]Ast.Node.Index {
     const g = struct {
-        var result: std.ArrayListUnmanaged(Ast.Node.Index) = .{};
+        var result: std.ArrayListUnmanaged(Ast.Node.Index) = .empty;
     };
     g.result.clearRetainingCapacity();
     const decl = decl_index.get();
@@ -408,7 +403,7 @@ fn decl_fields_fallible(decl_index: Decl.Index) ![]Ast.Node.Index {
 
 fn decl_params_fallible(decl_index: Decl.Index) ![]Ast.Node.Index {
     const g = struct {
-        var result: std.ArrayListUnmanaged(Ast.Node.Index) = .{};
+        var result: std.ArrayListUnmanaged(Ast.Node.Index) = .empty;
     };
     g.result.clearRetainingCapacity();
     const decl = decl_index.get();
@@ -446,7 +441,7 @@ fn decl_field_html_fallible(
     const decl = decl_index.get();
     const ast = decl.file.get_ast();
     try out.appendSlice(gpa, "<pre><code>");
-    try file_source_html(decl.file, out, field_node, .{});
+    try fileSourceHtml(decl.file, out, field_node, .{});
     try out.appendSlice(gpa, "</code></pre>");
 
     const field = ast.fullContainerField(field_node).?;
@@ -485,7 +480,7 @@ fn decl_param_html_fallible(
     try out.appendSlice(gpa, "<pre><code>");
     try appendEscaped(out, name);
     try out.appendSlice(gpa, ": ");
-    try file_source_html(decl.file, out, param_node, .{});
+    try fileSourceHtml(decl.file, out, param_node, .{});
     try out.appendSlice(gpa, "</code></pre>");
 
     if (ast.tokens.items(.tag)[first_doc_comment] == .doc_comment) {
@@ -513,7 +508,7 @@ export fn decl_fn_proto_html(decl_index: Decl.Index, linkify_fn_name: bool) Stri
     };
 
     string_result.clearRetainingCapacity();
-    file_source_html(decl.file, &string_result, proto_node, .{
+    fileSourceHtml(decl.file, &string_result, proto_node, .{
         .skip_doc_comments = true,
         .skip_comments = true,
         .collapse_whitespace = true,
@@ -528,7 +523,7 @@ export fn decl_source_html(decl_index: Decl.Index) String {
     const decl = decl_index.get();
 
     string_result.clearRetainingCapacity();
-    file_source_html(decl.file, &string_result, decl.ast_node, .{}) catch |err| {
+    fileSourceHtml(decl.file, &string_result, decl.ast_node, .{}) catch |err| {
         fatal("unable to render source: {s}", .{@errorName(err)});
     };
     return String.init(string_result.items);
@@ -540,7 +535,7 @@ export fn decl_doctest_html(decl_index: Decl.Index) String {
         return String.init("");
 
     string_result.clearRetainingCapacity();
-    file_source_html(decl.file, &string_result, doctest_ast_node, .{}) catch |err| {
+    fileSourceHtml(decl.file, &string_result, doctest_ast_node, .{}) catch |err| {
         fatal("unable to render source: {s}", .{@errorName(err)});
     };
     return String.init(string_result.items);
@@ -583,7 +578,7 @@ export fn decl_category_name(decl_index: Decl.Index) String {
     const ast = decl.file.get_ast();
     const token_tags = ast.tokens.items(.tag);
     const name = switch (decl.categorize()) {
-        .namespace => |node| {
+        .namespace, .container => |node| {
             const node_tags = ast.nodes.items(.tag);
             if (node_tags[decl.ast_node] == .root)
                 return String.init("struct");
@@ -677,7 +672,7 @@ fn render_docs(
     defer parsed_doc.deinit(gpa);
 
     const g = struct {
-        var link_buffer: std.ArrayListUnmanaged(u8) = .{};
+        var link_buffer: std.ArrayListUnmanaged(u8) = .empty;
     };
 
     const Writer = std.ArrayListUnmanaged(u8).Writer;
@@ -698,7 +693,7 @@ fn render_docs(
                         const content = doc.string(data.text.content);
                         if (resolve_decl_path(r.context, content)) |resolved_decl_index| {
                             g.link_buffer.clearRetainingCapacity();
-                            try resolve_decl_link(resolved_decl_index, &g.link_buffer);
+                            try resolveDeclLink(resolved_decl_index, &g.link_buffer);
 
                             try writer.writeAll("<a href=\"#");
                             _ = missing_feature_url_escape;
@@ -741,7 +736,7 @@ export fn decl_type_html(decl_index: Decl.Index) String {
         if (ast.fullVarDecl(decl.ast_node)) |var_decl| {
             if (var_decl.ast.type_node != 0) {
                 string_result.appendSlice(gpa, "<code>") catch @panic("OOM");
-                file_source_html(decl.file, &string_result, var_decl.ast.type_node, .{
+                fileSourceHtml(decl.file, &string_result, var_decl.ast.type_node, .{
                     .skip_comments = true,
                     .collapse_whitespace = true,
                 }) catch |e| {
@@ -757,7 +752,7 @@ export fn decl_type_html(decl_index: Decl.Index) String {
 
 const Oom = error{OutOfMemory};
 
-fn unpack_inner(tar_bytes: []u8) !void {
+fn unpackInner(tar_bytes: []u8) !void {
     var fbs = std.io.fixedBufferStream(tar_bytes);
     var file_name_buffer: [1024]u8 = undefined;
     var link_name_buffer: [1024]u8 = undefined;
@@ -822,7 +817,7 @@ export fn find_module_root(pkg: Walk.ModuleIndex) Decl.Index {
 }
 
 /// Set by `set_input_string`.
-var input_string: std.ArrayListUnmanaged(u8) = .{};
+var input_string: std.ArrayListUnmanaged(u8) = .empty;
 
 export fn set_input_string(len: usize) [*]u8 {
     input_string.resize(gpa, len) catch @panic("OOM");
@@ -844,7 +839,7 @@ export fn find_decl() Decl.Index {
     if (result != .none) return result;
 
     const g = struct {
-        var match_fqn: std.ArrayListUnmanaged(u8) = .{};
+        var match_fqn: std.ArrayListUnmanaged(u8) = .empty;
     };
     for (Walk.decls.items, 0..) |*decl, decl_index| {
         g.match_fqn.clearRetainingCapacity();
@@ -893,7 +888,7 @@ export fn type_fn_members(parent: Decl.Index, include_private: bool) Slice(Decl.
 
 export fn namespace_members(parent: Decl.Index, include_private: bool) Slice(Decl.Index) {
     const g = struct {
-        var members: std.ArrayListUnmanaged(Decl.Index) = .{};
+        var members: std.ArrayListUnmanaged(Decl.Index) = .empty;
     };
 
     g.members.clearRetainingCapacity();
@@ -907,382 +902,6 @@ export fn namespace_members(parent: Decl.Index, include_private: bool) Slice(Dec
     }
 
     return Slice(Decl.Index).init(g.members.items);
-}
-
-const RenderSourceOptions = struct {
-    skip_doc_comments: bool = false,
-    skip_comments: bool = false,
-    collapse_whitespace: bool = false,
-    fn_link: Decl.Index = .none,
-};
-
-fn file_source_html(
-    file_index: Walk.File.Index,
-    out: *std.ArrayListUnmanaged(u8),
-    root_node: Ast.Node.Index,
-    options: RenderSourceOptions,
-) !void {
-    const ast = file_index.get_ast();
-    const file = file_index.get();
-
-    const g = struct {
-        var field_access_buffer: std.ArrayListUnmanaged(u8) = .{};
-    };
-
-    const token_tags = ast.tokens.items(.tag);
-    const token_starts = ast.tokens.items(.start);
-    const main_tokens = ast.nodes.items(.main_token);
-
-    const start_token = ast.firstToken(root_node);
-    const end_token = ast.lastToken(root_node) + 1;
-
-    var cursor: usize = token_starts[start_token];
-
-    var indent: usize = 0;
-    if (std.mem.lastIndexOf(u8, ast.source[0..cursor], "\n")) |newline_index| {
-        for (ast.source[newline_index + 1 .. cursor]) |c| {
-            if (c == ' ') {
-                indent += 1;
-            } else {
-                break;
-            }
-        }
-    }
-
-    for (
-        token_tags[start_token..end_token],
-        token_starts[start_token..end_token],
-        start_token..,
-    ) |tag, start, token_index| {
-        const between = ast.source[cursor..start];
-        if (std.mem.trim(u8, between, " \t\r\n").len > 0) {
-            if (!options.skip_comments) {
-                try out.appendSlice(gpa, "<span class=\"tok-comment\">");
-                try appendUnindented(out, between, indent);
-                try out.appendSlice(gpa, "</span>");
-            }
-        } else if (between.len > 0) {
-            if (options.collapse_whitespace) {
-                if (out.items.len > 0 and out.items[out.items.len - 1] != ' ')
-                    try out.append(gpa, ' ');
-            } else {
-                try appendUnindented(out, between, indent);
-            }
-        }
-        if (tag == .eof) break;
-        const slice = ast.tokenSlice(token_index);
-        cursor = start + slice.len;
-        switch (tag) {
-            .eof => unreachable,
-
-            .keyword_addrspace,
-            .keyword_align,
-            .keyword_and,
-            .keyword_asm,
-            .keyword_async,
-            .keyword_await,
-            .keyword_break,
-            .keyword_catch,
-            .keyword_comptime,
-            .keyword_const,
-            .keyword_continue,
-            .keyword_defer,
-            .keyword_else,
-            .keyword_enum,
-            .keyword_errdefer,
-            .keyword_error,
-            .keyword_export,
-            .keyword_extern,
-            .keyword_for,
-            .keyword_if,
-            .keyword_inline,
-            .keyword_noalias,
-            .keyword_noinline,
-            .keyword_nosuspend,
-            .keyword_opaque,
-            .keyword_or,
-            .keyword_orelse,
-            .keyword_packed,
-            .keyword_anyframe,
-            .keyword_pub,
-            .keyword_resume,
-            .keyword_return,
-            .keyword_linksection,
-            .keyword_callconv,
-            .keyword_struct,
-            .keyword_suspend,
-            .keyword_switch,
-            .keyword_test,
-            .keyword_threadlocal,
-            .keyword_try,
-            .keyword_union,
-            .keyword_unreachable,
-            .keyword_usingnamespace,
-            .keyword_var,
-            .keyword_volatile,
-            .keyword_allowzero,
-            .keyword_while,
-            .keyword_anytype,
-            .keyword_fn,
-            => {
-                try out.appendSlice(gpa, "<span class=\"tok-kw\">");
-                try appendEscaped(out, slice);
-                try out.appendSlice(gpa, "</span>");
-            },
-
-            .string_literal,
-            .char_literal,
-            .multiline_string_literal_line,
-            => {
-                try out.appendSlice(gpa, "<span class=\"tok-str\">");
-                try appendEscaped(out, slice);
-                try out.appendSlice(gpa, "</span>");
-            },
-
-            .builtin => {
-                try out.appendSlice(gpa, "<span class=\"tok-builtin\">");
-                try appendEscaped(out, slice);
-                try out.appendSlice(gpa, "</span>");
-            },
-
-            .doc_comment,
-            .container_doc_comment,
-            => {
-                if (!options.skip_doc_comments) {
-                    try out.appendSlice(gpa, "<span class=\"tok-comment\">");
-                    try appendEscaped(out, slice);
-                    try out.appendSlice(gpa, "</span>");
-                }
-            },
-
-            .identifier => i: {
-                if (options.fn_link != .none) {
-                    const fn_link = options.fn_link.get();
-                    const fn_token = main_tokens[fn_link.ast_node];
-                    if (token_index == fn_token + 1) {
-                        try out.appendSlice(gpa, "<a class=\"tok-fn\" href=\"#");
-                        _ = missing_feature_url_escape;
-                        try fn_link.fqn(out);
-                        try out.appendSlice(gpa, "\">");
-                        try appendEscaped(out, slice);
-                        try out.appendSlice(gpa, "</a>");
-                        break :i;
-                    }
-                }
-
-                if (token_index > 0 and token_tags[token_index - 1] == .keyword_fn) {
-                    try out.appendSlice(gpa, "<span class=\"tok-fn\">");
-                    try appendEscaped(out, slice);
-                    try out.appendSlice(gpa, "</span>");
-                    break :i;
-                }
-
-                if (Walk.isPrimitiveNonType(slice)) {
-                    try out.appendSlice(gpa, "<span class=\"tok-null\">");
-                    try appendEscaped(out, slice);
-                    try out.appendSlice(gpa, "</span>");
-                    break :i;
-                }
-
-                if (std.zig.primitives.isPrimitive(slice)) {
-                    try out.appendSlice(gpa, "<span class=\"tok-type\">");
-                    try appendEscaped(out, slice);
-                    try out.appendSlice(gpa, "</span>");
-                    break :i;
-                }
-
-                if (file.token_parents.get(token_index)) |field_access_node| {
-                    g.field_access_buffer.clearRetainingCapacity();
-                    try walk_field_accesses(file_index, &g.field_access_buffer, field_access_node);
-                    if (g.field_access_buffer.items.len > 0) {
-                        try out.appendSlice(gpa, "<a href=\"#");
-                        _ = missing_feature_url_escape;
-                        try out.appendSlice(gpa, g.field_access_buffer.items);
-                        try out.appendSlice(gpa, "\">");
-                        try appendEscaped(out, slice);
-                        try out.appendSlice(gpa, "</a>");
-                    } else {
-                        try appendEscaped(out, slice);
-                    }
-                    break :i;
-                }
-
-                {
-                    g.field_access_buffer.clearRetainingCapacity();
-                    try resolve_ident_link(file_index, &g.field_access_buffer, token_index);
-                    if (g.field_access_buffer.items.len > 0) {
-                        try out.appendSlice(gpa, "<a href=\"#");
-                        _ = missing_feature_url_escape;
-                        try out.appendSlice(gpa, g.field_access_buffer.items);
-                        try out.appendSlice(gpa, "\">");
-                        try appendEscaped(out, slice);
-                        try out.appendSlice(gpa, "</a>");
-                        break :i;
-                    }
-                }
-
-                try appendEscaped(out, slice);
-            },
-
-            .number_literal => {
-                try out.appendSlice(gpa, "<span class=\"tok-number\">");
-                try appendEscaped(out, slice);
-                try out.appendSlice(gpa, "</span>");
-            },
-
-            .bang,
-            .pipe,
-            .pipe_pipe,
-            .pipe_equal,
-            .equal,
-            .equal_equal,
-            .equal_angle_bracket_right,
-            .bang_equal,
-            .l_paren,
-            .r_paren,
-            .semicolon,
-            .percent,
-            .percent_equal,
-            .l_brace,
-            .r_brace,
-            .l_bracket,
-            .r_bracket,
-            .period,
-            .period_asterisk,
-            .ellipsis2,
-            .ellipsis3,
-            .caret,
-            .caret_equal,
-            .plus,
-            .plus_plus,
-            .plus_equal,
-            .plus_percent,
-            .plus_percent_equal,
-            .plus_pipe,
-            .plus_pipe_equal,
-            .minus,
-            .minus_equal,
-            .minus_percent,
-            .minus_percent_equal,
-            .minus_pipe,
-            .minus_pipe_equal,
-            .asterisk,
-            .asterisk_equal,
-            .asterisk_asterisk,
-            .asterisk_percent,
-            .asterisk_percent_equal,
-            .asterisk_pipe,
-            .asterisk_pipe_equal,
-            .arrow,
-            .colon,
-            .slash,
-            .slash_equal,
-            .comma,
-            .ampersand,
-            .ampersand_equal,
-            .question_mark,
-            .angle_bracket_left,
-            .angle_bracket_left_equal,
-            .angle_bracket_angle_bracket_left,
-            .angle_bracket_angle_bracket_left_equal,
-            .angle_bracket_angle_bracket_left_pipe,
-            .angle_bracket_angle_bracket_left_pipe_equal,
-            .angle_bracket_right,
-            .angle_bracket_right_equal,
-            .angle_bracket_angle_bracket_right,
-            .angle_bracket_angle_bracket_right_equal,
-            .tilde,
-            => try appendEscaped(out, slice),
-
-            .invalid, .invalid_periodasterisks => return error.InvalidToken,
-        }
-    }
-}
-
-fn unindent(s: []const u8, indent: usize) []const u8 {
-    var indent_idx: usize = 0;
-    for (s) |c| {
-        if (c == ' ' and indent_idx < indent) {
-            indent_idx += 1;
-        } else {
-            break;
-        }
-    }
-    return s[indent_idx..];
-}
-
-fn appendUnindented(out: *std.ArrayListUnmanaged(u8), s: []const u8, indent: usize) !void {
-    var it = std.mem.split(u8, s, "\n");
-    var is_first_line = true;
-    while (it.next()) |line| {
-        if (is_first_line) {
-            try appendEscaped(out, line);
-            is_first_line = false;
-        } else {
-            try out.appendSlice(gpa, "\n");
-            try appendEscaped(out, unindent(line, indent));
-        }
-    }
-}
-
-fn resolve_ident_link(
-    file_index: Walk.File.Index,
-    out: *std.ArrayListUnmanaged(u8),
-    ident_token: Ast.TokenIndex,
-) Oom!void {
-    const decl_index = file_index.get().lookup_token(ident_token);
-    if (decl_index == .none) return;
-    try resolve_decl_link(decl_index, out);
-}
-
-fn resolve_decl_link(decl_index: Decl.Index, out: *std.ArrayListUnmanaged(u8)) Oom!void {
-    const decl = decl_index.get();
-    switch (decl.categorize()) {
-        .alias => |alias_decl| try alias_decl.get().fqn(out),
-        else => try decl.fqn(out),
-    }
-}
-
-fn walk_field_accesses(
-    file_index: Walk.File.Index,
-    out: *std.ArrayListUnmanaged(u8),
-    node: Ast.Node.Index,
-) Oom!void {
-    const ast = file_index.get_ast();
-    const node_tags = ast.nodes.items(.tag);
-    assert(node_tags[node] == .field_access);
-    const node_datas = ast.nodes.items(.data);
-    const main_tokens = ast.nodes.items(.main_token);
-    const object_node = node_datas[node].lhs;
-    const dot_token = main_tokens[node];
-    const field_ident = dot_token + 1;
-    switch (node_tags[object_node]) {
-        .identifier => {
-            const lhs_ident = main_tokens[object_node];
-            try resolve_ident_link(file_index, out, lhs_ident);
-        },
-        .field_access => {
-            try walk_field_accesses(file_index, out, object_node);
-        },
-        else => {},
-    }
-    if (out.items.len > 0) {
-        try out.append(gpa, '.');
-        try out.appendSlice(gpa, ast.tokenSlice(field_ident));
-    }
-}
-
-fn appendEscaped(out: *std.ArrayListUnmanaged(u8), s: []const u8) !void {
-    for (s) |c| {
-        try out.ensureUnusedCapacity(gpa, 6);
-        switch (c) {
-            '&' => out.appendSliceAssumeCapacity("&amp;"),
-            '<' => out.appendSliceAssumeCapacity("&lt;"),
-            '>' => out.appendSliceAssumeCapacity("&gt;"),
-            '"' => out.appendSliceAssumeCapacity("&quot;"),
-            else => out.appendAssumeCapacity(c),
-        }
-    }
 }
 
 fn count_scalar(haystack: []const u8, needle: u8) usize {

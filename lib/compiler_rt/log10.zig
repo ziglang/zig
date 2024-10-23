@@ -15,15 +15,15 @@ const common = @import("common.zig");
 pub const panic = common.panic;
 
 comptime {
-    @export(__log10h, .{ .name = "__log10h", .linkage = common.linkage, .visibility = common.visibility });
-    @export(log10f, .{ .name = "log10f", .linkage = common.linkage, .visibility = common.visibility });
-    @export(log10, .{ .name = "log10", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__log10x, .{ .name = "__log10x", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__log10h, .{ .name = "__log10h", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&log10f, .{ .name = "log10f", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&log10, .{ .name = "log10", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__log10x, .{ .name = "__log10x", .linkage = common.linkage, .visibility = common.visibility });
     if (common.want_ppc_abi) {
-        @export(log10q, .{ .name = "log10f128", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&log10q, .{ .name = "log10f128", .linkage = common.linkage, .visibility = common.visibility });
     }
-    @export(log10q, .{ .name = "log10q", .linkage = common.linkage, .visibility = common.visibility });
-    @export(log10l, .{ .name = "log10l", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&log10q, .{ .name = "log10q", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&log10l, .{ .name = "log10l", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 pub fn __log10h(a: f16) callconv(.C) f16 {
@@ -177,7 +177,7 @@ pub fn log10q(a: f128) callconv(.C) f128 {
 }
 
 pub fn log10l(x: c_longdouble) callconv(.C) c_longdouble {
-    switch (@typeInfo(c_longdouble).Float.bits) {
+    switch (@typeInfo(c_longdouble).float.bits) {
         16 => return __log10h(x),
         32 => return log10f(x),
         64 => return log10(x),

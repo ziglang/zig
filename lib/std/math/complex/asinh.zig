@@ -12,12 +12,11 @@ pub fn asinh(z: anytype) Complex(@TypeOf(z.re, z.im)) {
     return Complex(T).init(r.im, -r.re);
 }
 
-const epsilon = 0.0001;
-
 test asinh {
+    const epsilon = math.floatEps(f32);
     const a = Complex(f32).init(5, 3);
     const c = asinh(a);
 
-    try testing.expect(math.approxEqAbs(f32, c.re, 2.459831, epsilon));
-    try testing.expect(math.approxEqAbs(f32, c.im, 0.533999, epsilon));
+    try testing.expectApproxEqAbs(2.4598298, c.re, epsilon);
+    try testing.expectApproxEqAbs(0.5339993, c.im, epsilon);
 }

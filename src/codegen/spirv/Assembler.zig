@@ -148,7 +148,7 @@ const AsmValueMap = std.StringArrayHashMapUnmanaged(AsmValue);
 gpa: Allocator,
 
 /// A list of errors that occured during processing the assembly.
-errors: std.ArrayListUnmanaged(ErrorMsg) = .{},
+errors: std.ArrayListUnmanaged(ErrorMsg) = .empty,
 
 /// The source code that is being assembled.
 src: []const u8,
@@ -161,7 +161,7 @@ spv: *SpvModule,
 func: *SpvModule.Fn,
 
 /// `self.src` tokenized.
-tokens: std.ArrayListUnmanaged(Token) = .{},
+tokens: std.ArrayListUnmanaged(Token) = .empty,
 
 /// The token that is next during parsing.
 current_token: u32 = 0,
@@ -172,9 +172,9 @@ inst: struct {
     /// The opcode of the current instruction.
     opcode: Opcode = undefined,
     /// Operands of the current instruction.
-    operands: std.ArrayListUnmanaged(Operand) = .{},
+    operands: std.ArrayListUnmanaged(Operand) = .empty,
     /// This is where string data resides. Strings are zero-terminated.
-    string_bytes: std.ArrayListUnmanaged(u8) = .{},
+    string_bytes: std.ArrayListUnmanaged(u8) = .empty,
 
     /// Return a reference to the result of this instruction, if any.
     fn result(self: @This()) ?AsmValue.Ref {
@@ -196,7 +196,7 @@ value_map: AsmValueMap = .{},
 /// This set is used to quickly transform from an opcode name to the
 /// index in its instruction set. The index of the key is the
 /// index in `spec.InstructionSet.core.instructions()`.
-instruction_map: std.StringArrayHashMapUnmanaged(void) = .{},
+instruction_map: std.StringArrayHashMapUnmanaged(void) = .empty,
 
 /// Free the resources owned by this assembler.
 pub fn deinit(self: *Assembler) void {

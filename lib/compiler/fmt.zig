@@ -185,6 +185,7 @@ const FmtError = error{
     BrokenPipe,
     Unexpected,
     WouldBlock,
+    Canceled,
     FileClosed,
     DestinationAddressRequired,
     DiskQuota,
@@ -206,6 +207,7 @@ const FmtError = error{
     LockViolation,
     NetNameDeleted,
     InvalidArgument,
+    ProcessNotFound,
 } || fs.File.OpenError;
 
 fn fmtPath(fmt: *Fmt, file_path: []const u8, check_mode: bool, dir: fs.Dir, sub_path: []const u8) FmtError!void {
@@ -236,7 +238,7 @@ fn fmtPathDir(
     while (try dir_it.next()) |entry| {
         const is_dir = entry.kind == .directory;
 
-        if (is_dir and (mem.eql(u8, entry.name, "zig-cache") or mem.eql(u8, entry.name, "zig-out"))) continue;
+        if (mem.startsWith(u8, entry.name, ".")) continue;
 
         if (is_dir or entry.kind == .file and (mem.endsWith(u8, entry.name, ".zig") or mem.endsWith(u8, entry.name, ".zon"))) {
             const full_path = try fs.path.join(fmt.gpa, &[_][]const u8{ file_path, entry.name });

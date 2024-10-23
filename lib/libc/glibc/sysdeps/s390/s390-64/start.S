@@ -1,5 +1,5 @@
 /* Startup code compliant to the 64 bit S/390 ELF ABI.
-   Copyright (C) 2001-2023 Free Software Foundation, Inc.
+   Copyright (C) 2001-2024 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -60,7 +60,8 @@
 _start:
 	cfi_startproc
 	/* Mark r14 as undefined in order to stop unwinding here!  */
-	cfi_undefined (r14)
+	/* zig patch: r14 -> %r14. revert with llvm 20. */
+	cfi_undefined (%r14)
 	/* Load argc and argv from stack.  */
 	la	%r4,8(%r15)		# get argv
 	lg	%r3,0(%r15)		# get argc
@@ -87,7 +88,8 @@ _start:
 # ifdef SHARED
 	/* Used for dynamic linked position independent executable.
 	   => Scrt1.o  */
-	larl	%r2,main@GOTENT		# load pointer to main
+	/* zig patch: GOTENT -> GOT. revert with llvm 20. */
+	larl	%r2,main@GOT		# load pointer to main
 	lg	%r2,0(%r2)
 # else
 	/* Used for dynamic linked position dependent executable.
@@ -119,7 +121,8 @@ _start:
 	   use of GOT relocations before __libc_start_main is called.  */
 __wrap_main:
 	cfi_startproc
-	larl	%r1,main@GOTENT		# load pointer to main
+	/* zig patch: GOTENT -> GOT. revert with llvm 20. */
+	larl	%r1,main@GOT		# load pointer to main
 	lg	%r1,0(%r1)
 	br	%r1
 	cfi_endproc

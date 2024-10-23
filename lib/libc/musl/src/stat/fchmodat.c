@@ -5,13 +5,16 @@
 
 int fchmodat(int fd, const char *path, mode_t mode, int flag)
 {
-	if (!flag) return syscall(SYS_fchmodat, fd, path, mode, flag);
+	if (!flag) return syscall(SYS_fchmodat, fd, path, mode);
+
+	int ret = __syscall(SYS_fchmodat2, fd, path, mode, flag);
+	if (ret != -ENOSYS) return __syscall_ret(ret);
 
 	if (flag != AT_SYMLINK_NOFOLLOW)
 		return __syscall_ret(-EINVAL);
 
 	struct stat st;
-	int ret, fd2;
+	int fd2;
 	char proc[15+3*sizeof(int)];
 
 	if (fstatat(fd, path, &st, flag))

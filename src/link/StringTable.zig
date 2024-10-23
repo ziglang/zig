@@ -1,5 +1,5 @@
-buffer: std.ArrayListUnmanaged(u8) = .{},
-table: std.HashMapUnmanaged(u32, void, StringIndexContext, std.hash_map.default_max_load_percentage) = .{},
+buffer: std.ArrayListUnmanaged(u8) = .empty,
+table: std.HashMapUnmanaged(u32, void, StringIndexContext, std.hash_map.default_max_load_percentage) = .empty,
 
 pub fn deinit(self: *Self, gpa: Allocator) void {
     self.buffer.deinit(gpa);
@@ -15,7 +15,7 @@ pub fn insert(self: *Self, gpa: Allocator, string: []const u8) !u32 {
     if (gop.found_existing) return gop.key_ptr.*;
 
     try self.buffer.ensureUnusedCapacity(gpa, string.len + 1);
-    const new_off = @as(u32, @intCast(self.buffer.items.len));
+    const new_off: u32 = @intCast(self.buffer.items.len);
 
     self.buffer.appendSliceAssumeCapacity(string);
     self.buffer.appendAssumeCapacity(0);

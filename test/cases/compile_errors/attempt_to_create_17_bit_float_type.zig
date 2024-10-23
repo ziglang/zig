@@ -1,6 +1,6 @@
 const builtin = @import("std").builtin;
 comptime {
-    _ = @Type(.{ .Float = .{ .bits = 17 } });
+    _ = @Type(.{ .float = .{ .bits = 17 } });
 }
 
 // error

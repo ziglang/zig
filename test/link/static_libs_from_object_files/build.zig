@@ -59,7 +59,7 @@ fn add(b: *Build, test_step: *Step, files: []const LazyPath, optimize: std.built
             .name = "test1",
             .root_source_file = b.path("main.zig"),
             .optimize = optimize,
-            .target = b.host,
+            .target = b.graph.host,
         });
 
         for (files) |file| {
@@ -77,12 +77,12 @@ fn add(b: *Build, test_step: *Step, files: []const LazyPath, optimize: std.built
     {
         const lib_a = b.addStaticLibrary(.{
             .name = "test2_a",
-            .target = b.host,
+            .target = b.graph.host,
             .optimize = optimize,
         });
         const lib_b = b.addStaticLibrary(.{
             .name = "test2_b",
-            .target = b.host,
+            .target = b.graph.host,
             .optimize = optimize,
         });
 
@@ -94,7 +94,7 @@ fn add(b: *Build, test_step: *Step, files: []const LazyPath, optimize: std.built
         const exe = b.addExecutable(.{
             .name = "test2",
             .root_source_file = b.path("main.zig"),
-            .target = b.host,
+            .target = b.graph.host,
             .optimize = optimize,
         });
         exe.linkLibrary(lib_a);
@@ -111,19 +111,19 @@ fn add(b: *Build, test_step: *Step, files: []const LazyPath, optimize: std.built
     {
         const lib_a = b.addStaticLibrary(.{
             .name = "test3_a",
-            .target = b.host,
+            .target = b.graph.host,
             .optimize = optimize,
         });
         const lib_b = b.addStaticLibrary(.{
             .name = "test3_b",
-            .target = b.host,
+            .target = b.graph.host,
             .optimize = optimize,
         });
 
         for (files, 1..) |file, i| {
             const obj = b.addObject(.{
                 .name = b.fmt("obj_{}", .{i}),
-                .target = b.host,
+                .target = b.graph.host,
                 .optimize = optimize,
             });
             obj.addCSourceFile(.{ .file = file, .flags = &flags });
@@ -135,7 +135,7 @@ fn add(b: *Build, test_step: *Step, files: []const LazyPath, optimize: std.built
         const exe = b.addExecutable(.{
             .name = "test3",
             .root_source_file = b.path("main.zig"),
-            .target = b.host,
+            .target = b.graph.host,
             .optimize = optimize,
         });
         exe.linkLibrary(lib_a);

@@ -1,9 +1,13 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const wasi = std.os.wasi;
+const linux = std.os.linux;
 const iovec = std.posix.iovec;
 const iovec_const = std.posix.iovec_const;
 const c = std.c;
+
+// TODO: go through this file and delete all the bits that are identical to linux because they can
+// be merged in the std.c namespace.
 
 pub const FILE = c.FILE;
 
@@ -17,130 +21,15 @@ comptime {
     if (builtin.os.tag == .emscripten) {
         if (builtin.mode == .Debug or builtin.mode == .ReleaseSafe) {
             // Emscripten does not provide these symbols, so we must export our own
-            @export(__stack_chk_guard, .{ .name = "__stack_chk_guard", .linkage = .strong });
-            @export(__stack_chk_fail, .{ .name = "__stack_chk_fail", .linkage = .strong });
+            @export(&__stack_chk_guard, .{ .name = "__stack_chk_guard", .linkage = .strong });
+            @export(&__stack_chk_fail, .{ .name = "__stack_chk_fail", .linkage = .strong });
         }
     }
 }
 
-pub const PF = struct {
-    pub const UNSPEC = 0;
-    pub const LOCAL = 1;
-    pub const UNIX = LOCAL;
-    pub const FILE = LOCAL;
-    pub const INET = 2;
-    pub const AX25 = 3;
-    pub const IPX = 4;
-    pub const APPLETALK = 5;
-    pub const NETROM = 6;
-    pub const BRIDGE = 7;
-    pub const ATMPVC = 8;
-    pub const X25 = 9;
-    pub const INET6 = 10;
-    pub const ROSE = 11;
-    pub const DECnet = 12;
-    pub const NETBEUI = 13;
-    pub const SECURITY = 14;
-    pub const KEY = 15;
-    pub const NETLINK = 16;
-    pub const ROUTE = PF.NETLINK;
-    pub const PACKET = 17;
-    pub const ASH = 18;
-    pub const ECONET = 19;
-    pub const ATMSVC = 20;
-    pub const RDS = 21;
-    pub const SNA = 22;
-    pub const IRDA = 23;
-    pub const PPPOX = 24;
-    pub const WANPIPE = 25;
-    pub const LLC = 26;
-    pub const IB = 27;
-    pub const MPLS = 28;
-    pub const CAN = 29;
-    pub const TIPC = 30;
-    pub const BLUETOOTH = 31;
-    pub const IUCV = 32;
-    pub const RXRPC = 33;
-    pub const ISDN = 34;
-    pub const PHONET = 35;
-    pub const IEEE802154 = 36;
-    pub const CAIF = 37;
-    pub const ALG = 38;
-    pub const NFC = 39;
-    pub const VSOCK = 40;
-    pub const KCM = 41;
-    pub const QIPCRTR = 42;
-    pub const SMC = 43;
-    pub const XDP = 44;
-    pub const MAX = 45;
-};
-
-pub const AF = struct {
-    pub const UNSPEC = PF.UNSPEC;
-    pub const LOCAL = PF.LOCAL;
-    pub const UNIX = AF.LOCAL;
-    pub const FILE = AF.LOCAL;
-    pub const INET = PF.INET;
-    pub const AX25 = PF.AX25;
-    pub const IPX = PF.IPX;
-    pub const APPLETALK = PF.APPLETALK;
-    pub const NETROM = PF.NETROM;
-    pub const BRIDGE = PF.BRIDGE;
-    pub const ATMPVC = PF.ATMPVC;
-    pub const X25 = PF.X25;
-    pub const INET6 = PF.INET6;
-    pub const ROSE = PF.ROSE;
-    pub const DECnet = PF.DECnet;
-    pub const NETBEUI = PF.NETBEUI;
-    pub const SECURITY = PF.SECURITY;
-    pub const KEY = PF.KEY;
-    pub const NETLINK = PF.NETLINK;
-    pub const ROUTE = PF.ROUTE;
-    pub const PACKET = PF.PACKET;
-    pub const ASH = PF.ASH;
-    pub const ECONET = PF.ECONET;
-    pub const ATMSVC = PF.ATMSVC;
-    pub const RDS = PF.RDS;
-    pub const SNA = PF.SNA;
-    pub const IRDA = PF.IRDA;
-    pub const PPPOX = PF.PPPOX;
-    pub const WANPIPE = PF.WANPIPE;
-    pub const LLC = PF.LLC;
-    pub const IB = PF.IB;
-    pub const MPLS = PF.MPLS;
-    pub const CAN = PF.CAN;
-    pub const TIPC = PF.TIPC;
-    pub const BLUETOOTH = PF.BLUETOOTH;
-    pub const IUCV = PF.IUCV;
-    pub const RXRPC = PF.RXRPC;
-    pub const ISDN = PF.ISDN;
-    pub const PHONET = PF.PHONET;
-    pub const IEEE802154 = PF.IEEE802154;
-    pub const CAIF = PF.CAIF;
-    pub const ALG = PF.ALG;
-    pub const NFC = PF.NFC;
-    pub const VSOCK = PF.VSOCK;
-    pub const KCM = PF.KCM;
-    pub const QIPCRTR = PF.QIPCRTR;
-    pub const SMC = PF.SMC;
-    pub const XDP = PF.XDP;
-    pub const MAX = PF.MAX;
-};
-
-pub const CLOCK = struct {
-    pub const REALTIME = 0;
-    pub const MONOTONIC = 1;
-    pub const PROCESS_CPUTIME_ID = 2;
-    pub const THREAD_CPUTIME_ID = 3;
-    pub const MONOTONIC_RAW = 4;
-    pub const REALTIME_COARSE = 5;
-    pub const MONOTONIC_COARSE = 6;
-    pub const BOOTTIME = 7;
-    pub const REALTIME_ALARM = 8;
-    pub const BOOTTIME_ALARM = 9;
-    pub const SGI_CYCLE = 10;
-    pub const TAI = 11;
-};
+pub const PF = linux.PF;
+pub const AF = linux.AF;
+pub const CLOCK = linux.CLOCK;
 
 pub const CPU_SETSIZE = 128;
 pub const cpu_set_t = [CPU_SETSIZE / @sizeOf(usize)]usize;
@@ -368,41 +257,7 @@ pub const IOV_MAX = 1024;
 
 pub const IPPORT_RESERVED = 1024;
 
-pub const IPPROTO = struct {
-    pub const IP = 0;
-    pub const HOPOPTS = 0;
-    pub const ICMP = 1;
-    pub const IGMP = 2;
-    pub const IPIP = 4;
-    pub const TCP = 6;
-    pub const EGP = 8;
-    pub const PUP = 12;
-    pub const UDP = 17;
-    pub const IDP = 22;
-    pub const TP = 29;
-    pub const DCCP = 33;
-    pub const IPV6 = 41;
-    pub const ROUTING = 43;
-    pub const FRAGMENT = 44;
-    pub const RSVP = 46;
-    pub const GRE = 47;
-    pub const ESP = 50;
-    pub const AH = 51;
-    pub const ICMPV6 = 58;
-    pub const NONE = 59;
-    pub const DSTOPTS = 60;
-    pub const MTP = 92;
-    pub const BEETPH = 94;
-    pub const ENCAP = 98;
-    pub const PIM = 103;
-    pub const COMP = 108;
-    pub const SCTP = 132;
-    pub const MH = 135;
-    pub const UDPLITE = 136;
-    pub const MPLS = 137;
-    pub const RAW = 255;
-    pub const MAX = 256;
-};
+pub const IPPROTO = linux.IPPROTO;
 
 pub const LOCK = struct {
     pub const SH = 1;
@@ -494,10 +349,7 @@ pub const RLIM = struct {
     pub const SAVED_CUR = INFINITY;
 };
 
-pub const rlimit = extern struct {
-    cur: rlim_t,
-    max: rlim_t,
-};
+pub const rlimit = c.rlimit;
 
 pub const rlimit_resource = enum(c_int) {
     CPU,
@@ -544,8 +396,8 @@ pub const rusage = extern struct {
 };
 
 pub const timeval = extern struct {
-    tv_sec: i64,
-    tv_usec: i32,
+    sec: i64,
+    usec: i32,
 };
 
 pub const REG = struct {
@@ -708,7 +560,7 @@ pub const Sigaction = extern struct {
 };
 
 pub const sigset_t = [1024 / 32]u32;
-pub const empty_sigset = [_]u32{0} ** @typeInfo(sigset_t).Array.len;
+pub const empty_sigset = [_]u32{0} ** @typeInfo(sigset_t).array.len;
 pub const siginfo_t = extern struct {
     signo: i32,
     errno: i32,
@@ -929,112 +781,13 @@ pub const TCP = struct {
     pub const REPAIR_OFF_NO_WP = -1;
 };
 
-pub const TCSA = enum(c_uint) {
-    NOW,
-    DRAIN,
-    FLUSH,
-    _,
-};
+pub const TCSA = std.posix.TCSA;
+pub const addrinfo = c.addrinfo;
 
-pub const addrinfo = extern struct {
-    flags: i32,
-    family: i32,
-    socktype: i32,
-    protocol: i32,
-    addrlen: socklen_t,
-    addr: ?*sockaddr,
-    canonname: ?[*:0]u8,
-    next: ?*addrinfo,
-};
-
-pub const in_port_t = u16;
-pub const sa_family_t = u16;
-pub const socklen_t = u32;
-
-pub const sockaddr = extern struct {
-    family: sa_family_t,
-    data: [14]u8,
-
-    pub const SS_MAXSIZE = 128;
-    pub const storage = extern struct {
-        family: sa_family_t align(8),
-        padding: [SS_MAXSIZE - @sizeOf(sa_family_t)]u8 = undefined,
-
-        comptime {
-            std.debug.assert(@sizeOf(storage) == SS_MAXSIZE);
-            std.debug.assert(@alignOf(storage) == 8);
-        }
-    };
-
-    /// IPv4 socket address
-    pub const in = extern struct {
-        family: sa_family_t = AF.INET,
-        port: in_port_t,
-        addr: u32,
-        zero: [8]u8 = [8]u8{ 0, 0, 0, 0, 0, 0, 0, 0 },
-    };
-
-    /// IPv6 socket address
-    pub const in6 = extern struct {
-        family: sa_family_t = AF.INET6,
-        port: in_port_t,
-        flowinfo: u32,
-        addr: [16]u8,
-        scope_id: u32,
-    };
-
-    /// UNIX domain socket address
-    pub const un = extern struct {
-        family: sa_family_t = AF.UNIX,
-        path: [108]u8,
-    };
-
-    /// Packet socket address
-    pub const ll = extern struct {
-        family: sa_family_t = AF.PACKET,
-        protocol: u16,
-        ifindex: i32,
-        hatype: u16,
-        pkttype: u8,
-        halen: u8,
-        addr: [8]u8,
-    };
-
-    /// Netlink socket address
-    pub const nl = extern struct {
-        family: sa_family_t = AF.NETLINK,
-        __pad1: c_ushort = 0,
-
-        /// port ID
-        pid: u32,
-
-        /// multicast groups mask
-        groups: u32,
-    };
-
-    pub const xdp = extern struct {
-        family: u16 = AF.XDP,
-        flags: u16,
-        ifindex: u32,
-        queue_id: u32,
-        shared_umem_fd: u32,
-    };
-
-    /// Address structure for vSockets
-    pub const vm = extern struct {
-        family: sa_family_t = AF.VSOCK,
-        reserved1: u16 = 0,
-        port: u32,
-        cid: u32,
-        flags: u8,
-
-        /// The total size of this structure should be exactly the same as that of struct sockaddr.
-        zero: [3]u8 = [_]u8{0} ** 3,
-        comptime {
-            std.debug.assert(@sizeOf(vm) == @sizeOf(sockaddr));
-        }
-    };
-};
+pub const in_port_t = c.in_port_t;
+pub const sa_family_t = c.sa_family_t;
+pub const socklen_t = c.socklen_t;
+pub const sockaddr = c.sockaddr;
 
 pub const blksize_t = i32;
 pub const nlink_t = u32;
@@ -1046,16 +799,16 @@ pub const dev_t = u32;
 pub const blkcnt_t = i32;
 
 pub const pid_t = i32;
-pub const fd_t = i32;
+pub const fd_t = c.fd_t;
 pub const uid_t = u32;
 pub const gid_t = u32;
 pub const clock_t = i32;
 
 pub const dl_phdr_info = extern struct {
-    dlpi_addr: usize,
-    dlpi_name: ?[*:0]const u8,
-    dlpi_phdr: [*]std.elf.Phdr,
-    dlpi_phnum: u16,
+    addr: usize,
+    name: ?[*:0]const u8,
+    phdr: [*]std.elf.Phdr,
+    phnum: u16,
 };
 
 pub const mcontext_t = extern struct {
@@ -1065,25 +818,8 @@ pub const mcontext_t = extern struct {
     cr2: usize,
 };
 
-pub const msghdr = extern struct {
-    name: ?*sockaddr,
-    namelen: socklen_t,
-    iov: [*]iovec,
-    iovlen: i32,
-    control: ?*anyopaque,
-    controllen: socklen_t,
-    flags: i32,
-};
-
-pub const msghdr_const = extern struct {
-    name: ?*const sockaddr,
-    namelen: socklen_t,
-    iov: [*]const iovec_const,
-    iovlen: i32,
-    control: ?*const anyopaque,
-    controllen: socklen_t,
-    flags: i32,
-};
+pub const msghdr = std.c.msghdr;
+pub const msghdr_const = std.c.msghdr;
 
 pub const nfds_t = usize;
 pub const pollfd = extern struct {
@@ -1099,13 +835,13 @@ pub const stack_t = extern struct {
 };
 
 pub const timespec = extern struct {
-    tv_sec: time_t,
-    tv_nsec: isize,
+    sec: time_t,
+    nsec: isize,
 };
 
 pub const timezone = extern struct {
-    tz_minuteswest: i32,
-    tz_dsttime: i32,
+    minuteswest: i32,
+    dsttime: i32,
 };
 
 pub const ucontext_t = extern struct {

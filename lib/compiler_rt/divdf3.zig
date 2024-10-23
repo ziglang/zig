@@ -15,9 +15,9 @@ pub const panic = common.panic;
 
 comptime {
     if (common.want_aeabi) {
-        @export(__aeabi_ddiv, .{ .name = "__aeabi_ddiv", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__aeabi_ddiv, .{ .name = "__aeabi_ddiv", .linkage = common.linkage, .visibility = common.visibility });
     } else {
-        @export(__divdf3, .{ .name = "__divdf3", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__divdf3, .{ .name = "__divdf3", .linkage = common.linkage, .visibility = common.visibility });
     }
 }
 

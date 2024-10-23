@@ -9,10 +9,9 @@ pub fn abs(z: anytype) @TypeOf(z.re, z.im) {
     return math.hypot(z.re, z.im);
 }
 
-const epsilon = 0.0001;
-
 test abs {
+    const epsilon = math.floatEps(f32);
     const a = Complex(f32).init(5, 3);
     const c = abs(a);
-    try testing.expect(math.approxEqAbs(f32, c, 5.83095, epsilon));
+    try testing.expectApproxEqAbs(5.8309517, c, epsilon);
 }

@@ -81,7 +81,9 @@ pub fn addCase(self: *CompareOutput, case: TestCase) void {
     const b = self.b;
 
     const write_src = b.addWriteFiles();
-    for (case.sources.items) |src_file| {
+    const first_src = case.sources.items[0];
+    const first_file = write_src.add(first_src.filename, first_src.source);
+    for (case.sources.items[1..]) |src_file| {
         _ = write_src.add(src_file.filename, src_file.source);
     }
 
@@ -96,10 +98,10 @@ pub fn addCase(self: *CompareOutput, case: TestCase) void {
 
             const exe = b.addExecutable(.{
                 .name = "test",
-                .target = b.host,
+                .target = b.graph.host,
                 .optimize = .Debug,
             });
-            exe.addAssemblyFile(write_src.files.items[0].getPath());
+            exe.addAssemblyFile(first_file);
 
             const run = b.addRunArtifact(exe);
             run.setName(annotated_case_name);
@@ -119,9 +121,9 @@ pub fn addCase(self: *CompareOutput, case: TestCase) void {
 
                 const exe = b.addExecutable(.{
                     .name = "test",
-                    .root_source_file = write_src.files.items[0].getPath(),
+                    .root_source_file = first_file,
                     .optimize = optimize,
-                    .target = b.host,
+                    .target = b.graph.host,
                 });
                 if (case.link_libc) {
                     exe.linkSystemLibrary("c");
@@ -145,8 +147,8 @@ pub fn addCase(self: *CompareOutput, case: TestCase) void {
 
             const exe = b.addExecutable(.{
                 .name = "test",
-                .root_source_file = write_src.files.items[0].getPath(),
-                .target = b.host,
+                .root_source_file = first_file,
+                .target = b.graph.host,
                 .optimize = .Debug,
             });
             if (case.link_libc) {

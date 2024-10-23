@@ -1,4 +1,4 @@
-// There is a generic CRC implementation "Crc()" which can be paramterized via
+// There is a generic CRC implementation "Crc()" which can be parameterized via
 // the Algorithm struct for a plethora of uses.
 //
 // The primary interface for all of the standard CRC algorithms is the

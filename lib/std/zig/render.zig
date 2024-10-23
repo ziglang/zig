@@ -17,21 +17,21 @@ const Ais = AutoIndentingStream(std.ArrayList(u8).Writer);
 pub const Fixups = struct {
     /// The key is the mut token (`var`/`const`) of the variable declaration
     /// that should have a `_ = foo;` inserted afterwards.
-    unused_var_decls: std.AutoHashMapUnmanaged(Ast.TokenIndex, void) = .{},
+    unused_var_decls: std.AutoHashMapUnmanaged(Ast.TokenIndex, void) = .empty,
     /// The functions in this unordered set of AST fn decl nodes will render
     /// with a function body of `@trap()` instead, with all parameters
     /// discarded.
-    gut_functions: std.AutoHashMapUnmanaged(Ast.Node.Index, void) = .{},
+    gut_functions: std.AutoHashMapUnmanaged(Ast.Node.Index, void) = .empty,
     /// These global declarations will be omitted.
-    omit_nodes: std.AutoHashMapUnmanaged(Ast.Node.Index, void) = .{},
+    omit_nodes: std.AutoHashMapUnmanaged(Ast.Node.Index, void) = .empty,
     /// These expressions will be replaced with the string value.
-    replace_nodes_with_string: std.AutoHashMapUnmanaged(Ast.Node.Index, []const u8) = .{},
+    replace_nodes_with_string: std.AutoHashMapUnmanaged(Ast.Node.Index, []const u8) = .empty,
     /// The string value will be inserted directly after the node.
-    append_string_after_node: std.AutoHashMapUnmanaged(Ast.Node.Index, []const u8) = .{},
+    append_string_after_node: std.AutoHashMapUnmanaged(Ast.Node.Index, []const u8) = .empty,
     /// These nodes will be replaced with a different node.
-    replace_nodes_with_node: std.AutoHashMapUnmanaged(Ast.Node.Index, Ast.Node.Index) = .{},
+    replace_nodes_with_node: std.AutoHashMapUnmanaged(Ast.Node.Index, Ast.Node.Index) = .empty,
     /// Change all identifier names matching the key to be value instead.
-    rename_identifiers: std.StringArrayHashMapUnmanaged([]const u8) = .{},
+    rename_identifiers: std.StringArrayHashMapUnmanaged([]const u8) = .empty,
 
     /// All `@import` builtin calls which refer to a file path will be prefixed
     /// with this path.
@@ -693,36 +693,24 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
             return renderToken(r, datas[node].rhs, space);
         },
 
-        .@"break" => {
+        .@"break", .@"continue" => {
             const main_token = main_tokens[node];
             const label_token = datas[node].lhs;
             const target = datas[node].rhs;
             if (label_token == 0 and target == 0) {
-                try renderToken(r, main_token, space); // break keyword
+                try renderToken(r, main_token, space); // break/continue
             } else if (label_token == 0 and target != 0) {
-                try renderToken(r, main_token, .space); // break keyword
+                try renderToken(r, main_token, .space); // break/continue
                 try renderExpression(r, target, space);
             } else if (label_token != 0 and target == 0) {
-                try renderToken(r, main_token, .space); // break keyword
-                try renderToken(r, label_token - 1, .none); // colon
+                try renderToken(r, main_token, .space); // break/continue
+                try renderToken(r, label_token - 1, .none); // :
                 try renderIdentifier(r, label_token, space, .eagerly_unquote); // identifier
             } else if (label_token != 0 and target != 0) {
-                try renderToken(r, main_token, .space); // break keyword
-                try renderToken(r, label_token - 1, .none); // colon
+                try renderToken(r, main_token, .space); // break/continue
+                try renderToken(r, label_token - 1, .none); // :
                 try renderIdentifier(r, label_token, .space, .eagerly_unquote); // identifier
                 try renderExpression(r, target, space);
-            }
-        },
-
-        .@"continue" => {
-            const main_token = main_tokens[node];
-            const label = datas[node].lhs;
-            if (label != 0) {
-                try renderToken(r, main_token, .space); // continue
-                try renderToken(r, label - 1, .none); // :
-                return renderIdentifier(r, label, space, .eagerly_unquote); // label
-            } else {
-                return renderToken(r, main_token, space); // continue
             }
         },
 
@@ -845,26 +833,29 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         .@"switch",
         .switch_comma,
         => {
-            const switch_token = main_tokens[node];
-            const condition = datas[node].lhs;
-            const extra = tree.extraData(datas[node].rhs, Ast.Node.SubRange);
-            const cases = tree.extra_data[extra.start..extra.end];
-            const rparen = tree.lastToken(condition) + 1;
+            const full = tree.switchFull(node);
 
-            try renderToken(r, switch_token, .space); // switch keyword
-            try renderToken(r, switch_token + 1, .none); // lparen
-            try renderExpression(r, condition, .none); // condition expression
-            try renderToken(r, rparen, .space); // rparen
+            if (full.label_token) |label_token| {
+                try renderIdentifier(r, label_token, .none, .eagerly_unquote); // label
+                try renderToken(r, label_token + 1, .space); // :
+            }
+
+            const rparen = tree.lastToken(full.ast.condition) + 1;
+
+            try renderToken(r, full.ast.switch_token, .space); // switch
+            try renderToken(r, full.ast.switch_token + 1, .none); // (
+            try renderExpression(r, full.ast.condition, .none); // condition expression
+            try renderToken(r, rparen, .space); // )
 
             ais.pushIndentNextLine();
-            if (cases.len == 0) {
-                try renderToken(r, rparen + 1, .none); // lbrace
+            if (full.ast.cases.len == 0) {
+                try renderToken(r, rparen + 1, .none); // {
             } else {
-                try renderToken(r, rparen + 1, .newline); // lbrace
-                try renderExpressions(r, cases, .comma);
+                try renderToken(r, rparen + 1, .newline); // {
+                try renderExpressions(r, full.ast.cases, .comma);
             }
             ais.popIndent();
-            return renderToken(r, tree.lastToken(node), space); // rbrace
+            return renderToken(r, tree.lastToken(node), space); // }
         },
 
         .switch_case_one,
@@ -961,22 +952,22 @@ fn renderPtrType(r: *Render, ptr_type: Ast.full.PtrType, space: Space) Error!voi
         },
         .Many => {
             if (ptr_type.ast.sentinel == 0) {
-                try renderToken(r, ptr_type.ast.main_token - 1, .none); // lbracket
-                try renderToken(r, ptr_type.ast.main_token, .none); // asterisk
-                try renderToken(r, ptr_type.ast.main_token + 1, .none); // rbracket
+                try renderToken(r, ptr_type.ast.main_token, .none); // lbracket
+                try renderToken(r, ptr_type.ast.main_token + 1, .none); // asterisk
+                try renderToken(r, ptr_type.ast.main_token + 2, .none); // rbracket
             } else {
-                try renderToken(r, ptr_type.ast.main_token - 1, .none); // lbracket
-                try renderToken(r, ptr_type.ast.main_token, .none); // asterisk
-                try renderToken(r, ptr_type.ast.main_token + 1, .none); // colon
+                try renderToken(r, ptr_type.ast.main_token, .none); // lbracket
+                try renderToken(r, ptr_type.ast.main_token + 1, .none); // asterisk
+                try renderToken(r, ptr_type.ast.main_token + 2, .none); // colon
                 try renderExpression(r, ptr_type.ast.sentinel, .none);
                 try renderToken(r, tree.lastToken(ptr_type.ast.sentinel) + 1, .none); // rbracket
             }
         },
         .C => {
-            try renderToken(r, ptr_type.ast.main_token - 1, .none); // lbracket
-            try renderToken(r, ptr_type.ast.main_token, .none); // asterisk
-            try renderToken(r, ptr_type.ast.main_token + 1, .none); // c
-            try renderToken(r, ptr_type.ast.main_token + 2, .none); // rbracket
+            try renderToken(r, ptr_type.ast.main_token, .none); // lbracket
+            try renderToken(r, ptr_type.ast.main_token + 1, .none); // asterisk
+            try renderToken(r, ptr_type.ast.main_token + 2, .none); // c
+            try renderToken(r, ptr_type.ast.main_token + 3, .none); // rbracket
         },
         .Slice => {
             if (ptr_type.ast.sentinel == 0) {
@@ -3179,9 +3170,6 @@ fn discardAllParams(r: *Render, fn_proto_node: Ast.Node.Index) Error!void {
 fn tokenSliceForRender(tree: Ast, token_index: Ast.TokenIndex) []const u8 {
     var ret = tree.tokenSlice(token_index);
     switch (tree.tokens.items(.tag)[token_index]) {
-        .multiline_string_literal_line => {
-            if (ret[ret.len - 1] == '\n') ret.len -= 1;
-        },
         .container_doc_comment, .doc_comment => {
             ret = mem.trimRight(u8, ret, &std.ascii.whitespace);
         },
@@ -3216,7 +3204,7 @@ fn anythingBetween(tree: Ast, start_token: Ast.TokenIndex, end_token: Ast.TokenI
 
 fn writeFixingWhitespace(writer: std.ArrayList(u8).Writer, slice: []const u8) Error!void {
     for (slice) |byte| switch (byte) {
-        '\t' => try writer.writeAll(" " ** 4),
+        '\t' => try writer.writeAll(" " ** indent_delta),
         '\r' => {},
         else => try writer.writeByte(byte),
     };

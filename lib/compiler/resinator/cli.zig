@@ -70,13 +70,13 @@ pub fn writeUsage(writer: anytype, command_name: []const u8) !void {
 }
 
 pub const Diagnostics = struct {
-    errors: std.ArrayListUnmanaged(ErrorDetails) = .{},
+    errors: std.ArrayListUnmanaged(ErrorDetails) = .empty,
     allocator: Allocator,
 
     pub const ErrorDetails = struct {
         arg_index: usize,
         arg_span: ArgSpan = .{},
-        msg: std.ArrayListUnmanaged(u8) = .{},
+        msg: std.ArrayListUnmanaged(u8) = .empty,
         type: Type = .err,
         print_args: bool = true,
 
@@ -108,8 +108,8 @@ pub const Diagnostics = struct {
     }
 
     pub fn renderToStdErr(self: *Diagnostics, args: []const []const u8, config: std.io.tty.Config) void {
-        std.debug.getStderrMutex().lock();
-        defer std.debug.getStderrMutex().unlock();
+        std.debug.lockStdErr();
+        defer std.debug.unlockStdErr();
         const stderr = std.io.getStdErr().writer();
         self.renderToWriter(args, stderr, config) catch return;
     }
@@ -132,13 +132,13 @@ pub const Options = struct {
     allocator: Allocator,
     input_filename: []const u8 = &[_]u8{},
     output_filename: []const u8 = &[_]u8{},
-    extra_include_paths: std.ArrayListUnmanaged([]const u8) = .{},
+    extra_include_paths: std.ArrayListUnmanaged([]const u8) = .empty,
     ignore_include_env_var: bool = false,
     preprocess: Preprocess = .yes,
     default_language_id: ?u16 = null,
     default_code_page: ?CodePage = null,
     verbose: bool = false,
-    symbols: std.StringArrayHashMapUnmanaged(SymbolValue) = .{},
+    symbols: std.StringArrayHashMapUnmanaged(SymbolValue) = .empty,
     null_terminate_string_table_strings: bool = false,
     max_string_literal_codepoints: u15 = lex.default_max_string_literal_codepoints,
     silent_duplicate_control_ids: bool = false,
@@ -846,7 +846,7 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
                     arg_i += 1;
                     break :next_arg;
                 };
-                var tokenizer = std.mem.tokenize(u8, value.slice, "=");
+                var tokenizer = std.mem.tokenizeScalar(u8, value.slice, '=');
                 // guaranteed to exist since an empty value.slice would invoke
                 // the 'missing symbol to define' branch above
                 const symbol = tokenizer.next().?;

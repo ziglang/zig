@@ -220,6 +220,21 @@ pub fn format(
 }
 
 pub const Mnemonic = enum {
+    // Directives
+    @".cfi_def_cfa",
+    @".cfi_def_cfa_register",
+    @".cfi_def_cfa_offset",
+    @".cfi_adjust_cfa_offset",
+    @".cfi_offset",
+    @".cfi_val_offset",
+    @".cfi_rel_offset",
+    @".cfi_register",
+    @".cfi_restore",
+    @".cfi_undefined",
+    @".cfi_same_value",
+    @".cfi_remember_state",
+    @".cfi_restore_state",
+    @".cfi_escape",
     // zig fmt: off
     // General-purpose
     adc, add, @"and",
@@ -442,6 +457,7 @@ pub const Op = enum {
     imm8s, imm16s, imm32s,
     al, ax, eax, rax,
     cl,
+    rip, eip, ip,
     r8, r16, r32, r64,
     rm8, rm16, rm32, rm64,
     r32_m8, r32_m16, r64_m16,
@@ -487,6 +503,12 @@ pub const Op = enum {
                     256 => .ymm,
                     else => unreachable,
                 },
+                .ip => switch (reg) {
+                    .rip => .rip,
+                    .eip => .eip,
+                    .ip => .ip,
+                    else => unreachable,
+                },
             },
 
             .mem => |mem| switch (mem) {
@@ -530,13 +552,15 @@ pub const Op = enum {
                 else
                     .imm64,
             },
+
+            .bytes => unreachable,
         };
     }
 
     pub fn immBitSize(op: Op) u64 {
         return switch (op) {
             .none, .o16, .o32, .o64, .moffs, .m, .sreg => unreachable,
-            .al, .cl, .r8, .rm8, .r32_m8 => unreachable,
+            .al, .cl, .rip, .eip, .ip, .r8, .rm8, .r32_m8 => unreachable,
             .ax, .r16, .rm16 => unreachable,
             .eax, .r32, .rm32, .r32_m16 => unreachable,
             .rax, .r64, .rm64, .r64_m16 => unreachable,
@@ -559,9 +583,9 @@ pub const Op = enum {
             .rel8, .rel16, .rel32 => unreachable,
             .m8, .m16, .m32, .m64, .m80, .m128, .m256 => unreachable,
             .al, .cl, .r8, .rm8 => 8,
-            .ax, .r16, .rm16 => 16,
-            .eax, .r32, .rm32, .r32_m8, .r32_m16 => 32,
-            .rax, .r64, .rm64, .r64_m16, .mm, .mm_m64 => 64,
+            .ax, .ip, .r16, .rm16 => 16,
+            .eax, .eip, .r32, .rm32, .r32_m8, .r32_m16 => 32,
+            .rax, .rip, .r64, .rm64, .r64_m16, .mm, .mm_m64 => 64,
             .st => 80,
             .xmm0, .xmm, .xmm_m8, .xmm_m16, .xmm_m32, .xmm_m64, .xmm_m128 => 128,
             .ymm, .ymm_m256 => 256,
@@ -573,7 +597,7 @@ pub const Op = enum {
             .none, .o16, .o32, .o64, .moffs, .m, .sreg => unreachable,
             .unity, .imm8, .imm8s, .imm16, .imm16s, .imm32, .imm32s, .imm64 => unreachable,
             .rel8, .rel16, .rel32 => unreachable,
-            .al, .cl, .r8, .ax, .r16, .eax, .r32, .rax, .r64 => unreachable,
+            .al, .cl, .r8, .ax, .ip, .r16, .eax, .eip, .r32, .rax, .rip, .r64 => unreachable,
             .st, .mm, .xmm0, .xmm, .ymm => unreachable,
             .m8, .rm8, .r32_m8, .xmm_m8 => 8,
             .m16, .rm16, .r32_m16, .r64_m16, .xmm_m16 => 16,
@@ -601,8 +625,9 @@ pub const Op = enum {
     pub fn isRegister(op: Op) bool {
         // zig fmt: off
         return switch (op) {
-            .cl,
             .al, .ax, .eax, .rax,
+            .cl,
+            .ip, .eip, .rip,
             .r8, .r16, .r32, .r64,
             .rm8, .rm16, .rm32, .rm64,
             .r32_m8, .r32_m16, .r64_m16,
@@ -663,6 +688,7 @@ pub const Op = enum {
             .mm, .mm_m64 => .mmx,
             .xmm0, .xmm, .xmm_m8, .xmm_m16, .xmm_m32, .xmm_m64, .xmm_m128 => .sse,
             .ymm, .ymm_m256 => .sse,
+            .rip, .eip, .ip => .ip,
         };
     }
 
@@ -819,7 +845,7 @@ fn estimateInstructionLength(prefix: Prefix, encoding: Encoding, ops: []const Op
 
 const mnemonic_to_encodings_map = init: {
     @setEvalBranchQuota(5_000);
-    const mnemonic_count = @typeInfo(Mnemonic).Enum.fields.len;
+    const mnemonic_count = @typeInfo(Mnemonic).@"enum".fields.len;
     var mnemonic_map: [mnemonic_count][]Data = .{&.{}} ** mnemonic_count;
     const encodings = @import("encodings.zig");
     for (encodings.table) |entry| mnemonic_map[@intFromEnum(entry[0])].len += 1;
@@ -830,8 +856,8 @@ const mnemonic_to_encodings_map = init: {
         storage_i += value.len;
     }
     var mnemonic_i: [mnemonic_count]usize = .{0} ** mnemonic_count;
-    const ops_len = @typeInfo(std.meta.FieldType(Data, .ops)).Array.len;
-    const opc_len = @typeInfo(std.meta.FieldType(Data, .opc)).Array.len;
+    const ops_len = @typeInfo(std.meta.FieldType(Data, .ops)).array.len;
+    const opc_len = @typeInfo(std.meta.FieldType(Data, .opc)).array.len;
     for (encodings.table) |entry| {
         const i = &mnemonic_i[@intFromEnum(entry[0])];
         mnemonic_map[@intFromEnum(entry[0])][i.*] = .{

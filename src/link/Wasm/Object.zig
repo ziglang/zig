@@ -51,7 +51,7 @@ start: ?u32 = null,
 features: []const types.Feature = &.{},
 /// A table that maps the relocations we must perform where the key represents
 /// the section that the list of relocations applies to.
-relocations: std.AutoArrayHashMapUnmanaged(u32, []types.Relocation) = .{},
+relocations: std.AutoArrayHashMapUnmanaged(u32, []types.Relocation) = .empty,
 /// Table of symbols belonging to this Object file
 symtable: []Symbol = &.{},
 /// Extra metadata about the linking section, such as alignment of segments and their name
@@ -62,7 +62,7 @@ init_funcs: []const types.InitFunc = &.{},
 comdat_info: []const types.Comdat = &.{},
 /// Represents non-synthetic sections that can essentially be mem-cpy'd into place
 /// after performing relocations.
-relocatable_data: std.AutoHashMapUnmanaged(RelocatableData.Tag, []RelocatableData) = .{},
+relocatable_data: std.AutoHashMapUnmanaged(RelocatableData.Tag, []RelocatableData) = .empty,
 /// String table for all strings required by the object file, such as symbol names,
 /// import name, module name and export names. Each string will be deduplicated
 /// and returns an offset into the table.
@@ -220,12 +220,14 @@ pub fn findImport(object: *const Object, sym: Symbol) types.Import {
 }
 
 /// Checks if the object file is an MVP version.
-/// When that's the case, we check if there's an import table definiton with its name
+/// When that's the case, we check if there's an import table definition with its name
 /// set to '__indirect_function_table". When that's also the case,
 /// we initialize a new table symbol that corresponds to that import and return that symbol.
 ///
 /// When the object file is *NOT* MVP, we return `null`.
 fn checkLegacyIndirectFunctionTable(object: *Object, wasm_file: *const Wasm) !?Symbol {
+    const diags = &wasm_file.base.comp.link_diags;
+
     var table_count: usize = 0;
     for (object.symtable) |sym| {
         if (sym.tag == .table) table_count += 1;
@@ -235,27 +237,27 @@ fn checkLegacyIndirectFunctionTable(object: *Object, wasm_file: *const Wasm) !?S
     if (object.imported_tables_count == table_count) return null;
 
     if (table_count != 0) {
-        var err = try wasm_file.addErrorWithNotes(1);
-        try err.addMsg(wasm_file, "Expected a table entry symbol for each of the {d} table(s), but instead got {d} symbols.", .{
+        var err = try diags.addErrorWithNotes(1);
+        try err.addMsg("Expected a table entry symbol for each of the {d} table(s), but instead got {d} symbols.", .{
             object.imported_tables_count,
             table_count,
         });
-        try err.addNote(wasm_file, "defined in '{s}'", .{object.path});
+        try err.addNote("defined in '{s}'", .{object.path});
         return error.MissingTableSymbols;
     }
 
     // MVP object files cannot have any table definitions, only imports (for the indirect function table).
     if (object.tables.len > 0) {
-        var err = try wasm_file.addErrorWithNotes(1);
-        try err.addMsg(wasm_file, "Unexpected table definition without representing table symbols.", .{});
-        try err.addNote(wasm_file, "defined in '{s}'", .{object.path});
+        var err = try diags.addErrorWithNotes(1);
+        try err.addMsg("Unexpected table definition without representing table symbols.", .{});
+        try err.addNote("defined in '{s}'", .{object.path});
         return error.UnexpectedTable;
     }
 
     if (object.imported_tables_count != 1) {
-        var err = try wasm_file.addErrorWithNotes(1);
-        try err.addMsg(wasm_file, "Found more than one table import, but no representing table symbols", .{});
-        try err.addNote(wasm_file, "defined in '{s}'", .{object.path});
+        var err = try diags.addErrorWithNotes(1);
+        try err.addMsg("Found more than one table import, but no representing table symbols", .{});
+        try err.addNote("defined in '{s}'", .{object.path});
         return error.MissingTableSymbols;
     }
 
@@ -266,9 +268,9 @@ fn checkLegacyIndirectFunctionTable(object: *Object, wasm_file: *const Wasm) !?S
     } else unreachable;
 
     if (!std.mem.eql(u8, object.string_table.get(table_import.name), "__indirect_function_table")) {
-        var err = try wasm_file.addErrorWithNotes(1);
-        try err.addMsg(wasm_file, "Non-indirect function table import '{s}' is missing a corresponding symbol", .{object.string_table.get(table_import.name)});
-        try err.addNote(wasm_file, "defined in '{s}'", .{object.path});
+        var err = try diags.addErrorWithNotes(1);
+        try err.addMsg("Non-indirect function table import '{s}' is missing a corresponding symbol", .{object.string_table.get(table_import.name)});
+        try err.addNote("defined in '{s}'", .{object.path});
         return error.MissingTableSymbols;
     }
 
@@ -315,7 +317,7 @@ pub const ParseError = error{
     Overflow,
     /// Found table definitions but no corresponding table symbols
     MissingTableSymbols,
-    /// Did not expect a table definiton, but did find one
+    /// Did not expect a table definition, but did find one
     UnexpectedTable,
     /// Object file contains a feature that is unknown to the linker
     UnknownFeature,
@@ -379,7 +381,7 @@ fn Parser(comptime ReaderType: type) type {
                             try parser.parseFeatures(gpa);
                         } else if (std.mem.startsWith(u8, name, ".debug")) {
                             const gop = try parser.object.relocatable_data.getOrPut(gpa, .custom);
-                            var relocatable_data: std.ArrayListUnmanaged(RelocatableData) = .{};
+                            var relocatable_data: std.ArrayListUnmanaged(RelocatableData) = .empty;
                             defer relocatable_data.deinit(gpa);
                             if (!gop.found_existing) {
                                 gop.value_ptr.* = &.{};
@@ -587,18 +589,19 @@ fn Parser(comptime ReaderType: type) type {
         /// to be able to link.
         /// Logs an info message when an undefined feature is detected.
         fn parseFeatures(parser: *ObjectParser, gpa: Allocator) !void {
+            const diags = &parser.wasm_file.base.comp.link_diags;
             const reader = parser.reader.reader();
             for (try readVec(&parser.object.features, reader, gpa)) |*feature| {
                 const prefix = try readEnum(types.Feature.Prefix, reader);
-                const name_len = try leb.readULEB128(u32, reader);
+                const name_len = try leb.readUleb128(u32, reader);
                 const name = try gpa.alloc(u8, name_len);
                 defer gpa.free(name);
                 try reader.readNoEof(name);
 
                 const tag = types.known_features.get(name) orelse {
-                    var err = try parser.wasm_file.addErrorWithNotes(1);
-                    try err.addMsg(parser.wasm_file, "Object file contains unknown feature: {s}", .{name});
-                    try err.addNote(parser.wasm_file, "defined in '{s}'", .{parser.object.path});
+                    var err = try diags.addErrorWithNotes(1);
+                    try err.addMsg("Object file contains unknown feature: {s}", .{name});
+                    try err.addNote("defined in '{s}'", .{parser.object.path});
                     return error.UnknownFeature;
                 };
                 feature.* = .{
@@ -613,8 +616,8 @@ fn Parser(comptime ReaderType: type) type {
         /// they apply to.
         fn parseRelocations(parser: *ObjectParser, gpa: Allocator) !void {
             const reader = parser.reader.reader();
-            const section = try leb.readULEB128(u32, reader);
-            const count = try leb.readULEB128(u32, reader);
+            const section = try leb.readUleb128(u32, reader);
+            const count = try leb.readUleb128(u32, reader);
             const relocations = try gpa.alloc(types.Relocation, count);
             errdefer gpa.free(relocations);
 
@@ -628,9 +631,9 @@ fn Parser(comptime ReaderType: type) type {
                 const rel_type_enum = std.meta.intToEnum(types.Relocation.RelocationType, rel_type) catch return error.MalformedSection;
                 relocation.* = .{
                     .relocation_type = rel_type_enum,
-                    .offset = try leb.readULEB128(u32, reader),
-                    .index = try leb.readULEB128(u32, reader),
-                    .addend = if (rel_type_enum.addendIsPresent()) try leb.readILEB128(i32, reader) else 0,
+                    .offset = try leb.readUleb128(u32, reader),
+                    .index = try leb.readUleb128(u32, reader),
+                    .addend = if (rel_type_enum.addendIsPresent()) try leb.readIleb128(i32, reader) else 0,
                 };
                 log.debug("Found relocation: type({s}) offset({d}) index({d}) addend({?d})", .{
                     @tagName(relocation.relocation_type),
@@ -651,7 +654,7 @@ fn Parser(comptime ReaderType: type) type {
             var limited = std.io.limitedReader(parser.reader.reader(), payload_size);
             const limited_reader = limited.reader();
 
-            const version = try leb.readULEB128(u32, limited_reader);
+            const version = try leb.readUleb128(u32, limited_reader);
             log.debug("Link meta data version: {d}", .{version});
             if (version != 2) return error.UnsupportedVersion;
 
@@ -667,30 +670,30 @@ fn Parser(comptime ReaderType: type) type {
         /// `parser` is used to provide access to other sections that may be needed,
         /// such as access to the `import` section to find the name of a symbol.
         fn parseSubsection(parser: *ObjectParser, gpa: Allocator, reader: anytype) !void {
-            const sub_type = try leb.readULEB128(u8, reader);
+            const sub_type = try leb.readUleb128(u8, reader);
             log.debug("Found subsection: {s}", .{@tagName(@as(types.SubsectionType, @enumFromInt(sub_type)))});
-            const payload_len = try leb.readULEB128(u32, reader);
+            const payload_len = try leb.readUleb128(u32, reader);
             if (payload_len == 0) return;
 
             var limited = std.io.limitedReader(reader, payload_len);
             const limited_reader = limited.reader();
 
             // every subsection contains a 'count' field
-            const count = try leb.readULEB128(u32, limited_reader);
+            const count = try leb.readUleb128(u32, limited_reader);
 
             switch (@as(types.SubsectionType, @enumFromInt(sub_type))) {
                 .WASM_SEGMENT_INFO => {
                     const segments = try gpa.alloc(types.Segment, count);
                     errdefer gpa.free(segments);
                     for (segments) |*segment| {
-                        const name_len = try leb.readULEB128(u32, reader);
+                        const name_len = try leb.readUleb128(u32, reader);
                         const name = try gpa.alloc(u8, name_len);
                         errdefer gpa.free(name);
                         try reader.readNoEof(name);
                         segment.* = .{
                             .name = name,
-                            .alignment = @enumFromInt(try leb.readULEB128(u32, reader)),
-                            .flags = try leb.readULEB128(u32, reader),
+                            .alignment = @enumFromInt(try leb.readUleb128(u32, reader)),
+                            .flags = try leb.readUleb128(u32, reader),
                         };
                         log.debug("Found segment: {s} align({d}) flags({b})", .{
                             segment.name,
@@ -711,8 +714,8 @@ fn Parser(comptime ReaderType: type) type {
                     errdefer gpa.free(funcs);
                     for (funcs) |*func| {
                         func.* = .{
-                            .priority = try leb.readULEB128(u32, reader),
-                            .symbol_index = try leb.readULEB128(u32, reader),
+                            .priority = try leb.readUleb128(u32, reader),
+                            .symbol_index = try leb.readUleb128(u32, reader),
                         };
                         log.debug("Found function - prio: {d}, index: {d}", .{ func.priority, func.symbol_index });
                     }
@@ -722,23 +725,23 @@ fn Parser(comptime ReaderType: type) type {
                     const comdats = try gpa.alloc(types.Comdat, count);
                     errdefer gpa.free(comdats);
                     for (comdats) |*comdat| {
-                        const name_len = try leb.readULEB128(u32, reader);
+                        const name_len = try leb.readUleb128(u32, reader);
                         const name = try gpa.alloc(u8, name_len);
                         errdefer gpa.free(name);
                         try reader.readNoEof(name);
 
-                        const flags = try leb.readULEB128(u32, reader);
+                        const flags = try leb.readUleb128(u32, reader);
                         if (flags != 0) {
                             return error.UnexpectedValue;
                         }
 
-                        const symbol_count = try leb.readULEB128(u32, reader);
+                        const symbol_count = try leb.readUleb128(u32, reader);
                         const symbols = try gpa.alloc(types.ComdatSym, symbol_count);
                         errdefer gpa.free(symbols);
                         for (symbols) |*symbol| {
                             symbol.* = .{
-                                .kind = @as(types.ComdatSym.Type, @enumFromInt(try leb.readULEB128(u8, reader))),
-                                .index = try leb.readULEB128(u32, reader),
+                                .kind = @as(types.ComdatSym.Type, @enumFromInt(try leb.readUleb128(u8, reader))),
+                                .index = try leb.readUleb128(u32, reader),
                             };
                         }
 
@@ -799,8 +802,8 @@ fn Parser(comptime ReaderType: type) type {
         /// requires access to `Object` to find the name of a symbol when it's
         /// an import and flag `WASM_SYM_EXPLICIT_NAME` is not set.
         fn parseSymbol(parser: *ObjectParser, gpa: Allocator, reader: anytype) !Symbol {
-            const tag = @as(Symbol.Tag, @enumFromInt(try leb.readULEB128(u8, reader)));
-            const flags = try leb.readULEB128(u32, reader);
+            const tag = @as(Symbol.Tag, @enumFromInt(try leb.readUleb128(u8, reader)));
+            const flags = try leb.readUleb128(u32, reader);
             var symbol: Symbol = .{
                 .flags = flags,
                 .tag = tag,
@@ -811,7 +814,7 @@ fn Parser(comptime ReaderType: type) type {
 
             switch (tag) {
                 .data => {
-                    const name_len = try leb.readULEB128(u32, reader);
+                    const name_len = try leb.readUleb128(u32, reader);
                     const name = try gpa.alloc(u8, name_len);
                     defer gpa.free(name);
                     try reader.readNoEof(name);
@@ -819,14 +822,14 @@ fn Parser(comptime ReaderType: type) type {
 
                     // Data symbols only have the following fields if the symbol is defined
                     if (symbol.isDefined()) {
-                        symbol.index = try leb.readULEB128(u32, reader);
+                        symbol.index = try leb.readUleb128(u32, reader);
                         // @TODO: We should verify those values
-                        _ = try leb.readULEB128(u32, reader);
-                        _ = try leb.readULEB128(u32, reader);
+                        _ = try leb.readUleb128(u32, reader);
+                        _ = try leb.readUleb128(u32, reader);
                     }
                 },
                 .section => {
-                    symbol.index = try leb.readULEB128(u32, reader);
+                    symbol.index = try leb.readUleb128(u32, reader);
                     const section_data = parser.object.relocatable_data.get(.custom).?;
                     for (section_data) |*data| {
                         if (data.section_index == symbol.index) {
@@ -837,11 +840,11 @@ fn Parser(comptime ReaderType: type) type {
                     }
                 },
                 else => {
-                    symbol.index = try leb.readULEB128(u32, reader);
+                    symbol.index = try leb.readUleb128(u32, reader);
                     const is_undefined = symbol.isUndefined();
                     const explicit_name = symbol.hasFlag(.WASM_SYM_EXPLICIT_NAME);
                     symbol.name = if (!is_undefined or (is_undefined and explicit_name)) name: {
-                        const name_len = try leb.readULEB128(u32, reader);
+                        const name_len = try leb.readUleb128(u32, reader);
                         const name = try gpa.alloc(u8, name_len);
                         defer gpa.free(name);
                         try reader.readNoEof(name);
@@ -867,13 +870,13 @@ fn ElementType(comptime ptr: type) type {
     return meta.Elem(meta.Child(ptr));
 }
 
-/// Uses either `readILEB128` or `readULEB128` depending on the
+/// Uses either `readIleb128` or `readUleb128` depending on the
 /// signedness of the given type `T`.
 /// Asserts `T` is an integer.
 fn readLeb(comptime T: type, reader: anytype) !T {
-    return switch (@typeInfo(T).Int.signedness) {
-        .signed => try leb.readILEB128(T, reader),
-        .unsigned => try leb.readULEB128(T, reader),
+    return switch (@typeInfo(T).int.signedness) {
+        .signed => try leb.readIleb128(T, reader),
+        .unsigned => try leb.readUleb128(T, reader),
     };
 }
 
@@ -881,7 +884,7 @@ fn readLeb(comptime T: type, reader: anytype) !T {
 /// Asserts `T` is an enum
 fn readEnum(comptime T: type, reader: anytype) !T {
     switch (@typeInfo(T)) {
-        .Enum => |enum_type| return @as(T, @enumFromInt(try readLeb(enum_type.tag_type, reader))),
+        .@"enum" => |enum_type| return @as(T, @enumFromInt(try readLeb(enum_type.tag_type, reader))),
         else => @compileError("T must be an enum. Instead was given type " ++ @typeName(T)),
     }
 }

@@ -1,5 +1,5 @@
 /* `ptrace' debugger support interface.  Linux/AArch64 version.
-   Copyright (C) 1996-2023 Free Software Foundation, Inc.
+   Copyright (C) 1996-2024 Free Software Foundation, Inc.
 
    This file is part of the GNU C Library.
 
@@ -59,6 +59,8 @@ __BEGIN_DECLS
 #undef PTRACE_SECCOMP_GET_METADATA
 #undef PTRACE_GET_SYSCALL_INFO
 #undef PTRACE_GET_RSEQ_CONFIGURATION
+#undef PTRACE_SET_SYSCALL_USER_DISPATCH_CONFIG
+#undef PTRACE_GET_SYSCALL_USER_DISPATCH_CONFIG
 
 /* Type of the REQUEST argument to `ptrace.'  */
 enum __ptrace_request
@@ -195,8 +197,18 @@ enum __ptrace_request
 #define PTRACE_GET_SYSCALL_INFO PTRACE_GET_SYSCALL_INFO
 
   /* Get rseq configuration information.  */
-  PTRACE_GET_RSEQ_CONFIGURATION = 0x420f
+  PTRACE_GET_RSEQ_CONFIGURATION = 0x420f,
 #define PTRACE_GET_RSEQ_CONFIGURATION PTRACE_GET_RSEQ_CONFIGURATION
+
+  /* Set configuration for syscall user dispatch.  */
+  PTRACE_SET_SYSCALL_USER_DISPATCH_CONFIG = 0x4210,
+#define PTRACE_SET_SYSCALL_USER_DISPATCH_CONFIG \
+  PTRACE_SET_SYSCALL_USER_DISPATCH_CONFIG
+
+  /* Get configuration for syscall user dispatch.  */
+  PTRACE_GET_SYSCALL_USER_DISPATCH_CONFIG = 0x4211
+#define PTRACE_GET_SYSCALL_USER_DISPATCH_CONFIG \
+  PTRACE_GET_SYSCALL_USER_DISPATCH_CONFIG
 };
 
 

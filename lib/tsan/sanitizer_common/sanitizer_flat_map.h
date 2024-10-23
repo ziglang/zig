@@ -109,6 +109,10 @@ class TwoLevelMap {
     return *AddressSpaceView::LoadWritable(&map2[idx % kSize2]);
   }
 
+  void Lock() SANITIZER_NO_THREAD_SAFETY_ANALYSIS { mu_.Lock(); }
+
+  void Unlock() SANITIZER_NO_THREAD_SAFETY_ANALYSIS { mu_.Unlock(); }
+
  private:
   constexpr uptr MmapSize() const {
     return RoundUpTo(kSize2 * sizeof(T), GetPageSizeCached());

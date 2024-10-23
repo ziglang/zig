@@ -1,4 +1,4 @@
-/* Copyright (C) 1992-2023 Free Software Foundation, Inc.
+/* Copyright (C) 1992-2024 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -362,6 +362,7 @@ __local_syscall_error:						\
 #define HAVE_CLOCK_GETTIME_VSYSCALL	"__vdso_clock_gettime"
 #define HAVE_CLOCK_GETTIME64_VSYSCALL	"__vdso_clock_gettime64"
 #define HAVE_GETTIMEOFDAY_VSYSCALL	"__vdso_gettimeofday"
+#define HAVE_CLONE3_WRAPPER		1
 
 #define LOAD_ARGS_0()
 #define ASM_ARGS_0

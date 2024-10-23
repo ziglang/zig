@@ -13,7 +13,7 @@ pub fn main() !void {
     _ = it.next() orelse unreachable; // skip binary name
     const child_path = it.next() orelse unreachable;
 
-    var child = std.ChildProcess.init(&.{ child_path, "hello arg" }, gpa);
+    var child = std.process.Child.init(&.{ child_path, "hello arg" }, gpa);
     child.stdin_behavior = .Pipe;
     child.stdout_behavior = .Pipe;
     child.stderr_behavior = .Inherit;

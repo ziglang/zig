@@ -6,7 +6,7 @@
 /// `null` means native.
 cpu_arch: ?Target.Cpu.Arch = null,
 
-cpu_model: CpuModel = CpuModel.determined_by_cpu_arch,
+cpu_model: CpuModel = CpuModel.determined_by_arch_os,
 
 /// Sparse set of CPU features to add to the set from `cpu_model`.
 cpu_features_add: Target.Cpu.Feature.Set = Target.Cpu.Feature.Set.empty,
@@ -48,17 +48,17 @@ pub const CpuModel = union(enum) {
 
     /// If CPU Architecture is native, then the CPU model will be native. Otherwise,
     /// it will be baseline.
-    determined_by_cpu_arch,
+    determined_by_arch_os,
 
     explicit: *const Target.Cpu.Model,
 
     pub fn eql(a: CpuModel, b: CpuModel) bool {
-        const Tag = @typeInfo(CpuModel).Union.tag_type.?;
+        const Tag = @typeInfo(CpuModel).@"union".tag_type.?;
         const a_tag: Tag = a;
         const b_tag: Tag = b;
         if (a_tag != b_tag) return false;
         return switch (a) {
-            .native, .baseline, .determined_by_cpu_arch => true,
+            .native, .baseline, .determined_by_arch_os => true,
             .explicit => |a_model| a_model == b.explicit,
         };
     }
@@ -70,7 +70,7 @@ pub const OsVersion = union(enum) {
     windows: Target.Os.WindowsVersion,
 
     pub fn eql(a: OsVersion, b: OsVersion) bool {
-        const Tag = @typeInfo(OsVersion).Union.tag_type.?;
+        const Tag = @typeInfo(OsVersion).@"union".tag_type.?;
         const a_tag: Tag = a;
         const b_tag: Tag = b;
         if (a_tag != b_tag) return false;
@@ -124,7 +124,7 @@ pub fn fromTarget(target: Target) Query {
 }
 
 fn updateOsVersionRange(self: *Query, os: Target.Os) void {
-    self.os_version_min, self.os_version_max = switch (os.tag.getVersionRangeTag()) {
+    self.os_version_min, self.os_version_max = switch (os.tag.versionRangeTag()) {
         .none => .{ .{ .none = {} }, .{ .none = {} } },
         .semver => .{
             .{ .semver = os.version_range.semver.min },
@@ -349,7 +349,7 @@ test parseVersion {
 
 pub fn isNativeCpu(self: Query) bool {
     return self.cpu_arch == null and
-        (self.cpu_model == .native or self.cpu_model == .determined_by_cpu_arch) and
+        (self.cpu_model == .native or self.cpu_model == .determined_by_arch_os) and
         self.cpu_features_sub.isEmpty() and self.cpu_features_add.isEmpty();
 }
 
@@ -374,7 +374,9 @@ pub fn canDetectLibC(self: Query) bool {
     if (self.isNativeOs()) return true;
     if (self.os_tag) |os| {
         if (builtin.os.tag == .macos and os.isDarwin()) return true;
-        if (os == .linux and self.abi == .android) return true;
+        if (os == .linux) {
+            if (self.abi) |abi| if (abi.isAndroid()) return true;
+        }
     }
     return false;
 }
@@ -459,7 +461,7 @@ pub fn serializeCpu(q: Query, buffer: *std.ArrayList(u8)) Allocator.Error!void {
         .baseline => {
             buffer.appendSliceAssumeCapacity("baseline");
         },
-        .determined_by_cpu_arch => {
+        .determined_by_arch_os => {
             if (q.cpu_arch == null) {
                 buffer.appendSliceAssumeCapacity("native");
             } else {
@@ -521,7 +523,7 @@ fn parseOs(result: *Query, diags: *ParseOptions.Diagnostics, text: []const u8) !
     diags.os_tag = tag;
 
     const version_text = it.rest();
-    if (version_text.len > 0) switch (tag.getVersionRangeTag()) {
+    if (version_text.len > 0) switch (tag.versionRangeTag()) {
         .none => return error.InvalidOperatingSystemVersion,
         .semver, .linux => range: {
             var range_it = mem.splitSequence(u8, version_text, "...");
@@ -588,14 +590,7 @@ test parse {
         const text = try query.zigTriple(std.testing.allocator);
         defer std.testing.allocator.free(text);
 
-        var buf: [256]u8 = undefined;
-        const triple = std.fmt.bufPrint(
-            buf[0..],
-            "native-native-{s}.2.1.1",
-            .{@tagName(builtin.target.abi)},
-        ) catch unreachable;
-
-        try std.testing.expectEqualSlices(u8, triple, text);
+        try std.testing.expectEqualSlices(u8, "native-native-gnu.2.1.1", text);
     }
     {
         const query = try Query.parse(.{

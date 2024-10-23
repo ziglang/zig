@@ -5,7 +5,7 @@ const Emit = @This();
 const std = @import("std");
 const Mir = @import("Mir.zig");
 const link = @import("../../link.zig");
-const Module = @import("../../Module.zig");
+const Zcu = @import("../../Zcu.zig");
 const InternPool = @import("../../InternPool.zig");
 const codegen = @import("../../codegen.zig");
 const leb128 = std.leb;
@@ -16,17 +16,17 @@ mir: Mir,
 bin_file: *link.File.Wasm,
 /// Possible error message. When set, the value is allocated and
 /// must be freed manually.
-error_msg: ?*Module.ErrorMsg = null,
+error_msg: ?*Zcu.ErrorMsg = null,
 /// The binary representation that will be emit by this module.
 code: *std.ArrayList(u8),
 /// List of allocated locals.
 locals: []const u8,
 /// The declaration that code is being generated for.
-decl_index: InternPool.DeclIndex,
+owner_nav: InternPool.Nav.Index,
 
 // Debug information
 /// Holds the debug information for this emission
-dbg_output: codegen.DebugInfoOutput,
+dbg_output: link.File.DebugInfoOutput,
 /// Previous debug info line
 prev_di_line: u32,
 /// Previous debug info column
@@ -252,21 +252,21 @@ fn offset(self: Emit) u32 {
 }
 
 fn fail(emit: *Emit, comptime format: []const u8, args: anytype) InnerError {
-    @setCold(true);
+    @branchHint(.cold);
     std.debug.assert(emit.error_msg == null);
     const comp = emit.bin_file.base.comp;
-    const zcu = comp.module.?;
+    const zcu = comp.zcu.?;
     const gpa = comp.gpa;
-    emit.error_msg = try Module.ErrorMsg.create(gpa, zcu.declPtr(emit.decl_index).srcLoc(zcu), format, args);
+    emit.error_msg = try Zcu.ErrorMsg.create(gpa, zcu.navSrcLoc(emit.owner_nav), format, args);
     return error.EmitFail;
 }
 
 fn emitLocals(emit: *Emit) !void {
     const writer = emit.code.writer();
-    try leb128.writeULEB128(writer, @as(u32, @intCast(emit.locals.len)));
+    try leb128.writeUleb128(writer, @as(u32, @intCast(emit.locals.len)));
     // emit the actual locals amount
     for (emit.locals) |local| {
-        try leb128.writeULEB128(writer, @as(u32, 1));
+        try leb128.writeUleb128(writer, @as(u32, 1));
         try writer.writeByte(local);
     }
 }
@@ -288,16 +288,16 @@ fn emitBrTable(emit: *Emit, inst: Mir.Inst.Index) !void {
     const writer = emit.code.writer();
 
     try emit.code.append(std.wasm.opcode(.br_table));
-    try leb128.writeULEB128(writer, extra.data.length - 1); // Default label is not part of length/depth
+    try leb128.writeUleb128(writer, extra.data.length - 1); // Default label is not part of length/depth
     for (labels) |label| {
-        try leb128.writeULEB128(writer, label);
+        try leb128.writeUleb128(writer, label);
     }
 }
 
 fn emitLabel(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) !void {
     const label = emit.mir.instructions.items(.data)[inst].label;
     try emit.code.append(@intFromEnum(tag));
-    try leb128.writeULEB128(emit.code.writer(), label);
+    try leb128.writeUleb128(emit.code.writer(), label);
 }
 
 fn emitGlobal(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) !void {
@@ -310,7 +310,7 @@ fn emitGlobal(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) !void {
     const global_offset = emit.offset();
     try emit.code.appendSlice(&buf);
 
-    const atom_index = emit.bin_file.zigObjectPtr().?.decls_map.get(emit.decl_index).?.atom;
+    const atom_index = emit.bin_file.zigObjectPtr().?.navs.get(emit.owner_nav).?.atom;
     const atom = emit.bin_file.getAtomPtr(atom_index);
     try atom.relocs.append(gpa, .{
         .index = label,
@@ -322,14 +322,14 @@ fn emitGlobal(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) !void {
 fn emitImm32(emit: *Emit, inst: Mir.Inst.Index) !void {
     const value: i32 = emit.mir.instructions.items(.data)[inst].imm32;
     try emit.code.append(std.wasm.opcode(.i32_const));
-    try leb128.writeILEB128(emit.code.writer(), value);
+    try leb128.writeIleb128(emit.code.writer(), value);
 }
 
 fn emitImm64(emit: *Emit, inst: Mir.Inst.Index) !void {
     const extra_index = emit.mir.instructions.items(.data)[inst].payload;
     const value = emit.mir.extraData(Mir.Imm64, extra_index);
     try emit.code.append(std.wasm.opcode(.i64_const));
-    try leb128.writeILEB128(emit.code.writer(), @as(i64, @bitCast(value.data.toU64())));
+    try leb128.writeIleb128(emit.code.writer(), @as(i64, @bitCast(value.data.toU64())));
 }
 
 fn emitFloat32(emit: *Emit, inst: Mir.Inst.Index) !void {
@@ -355,8 +355,8 @@ fn emitMemArg(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) !void {
 fn encodeMemArg(mem_arg: Mir.MemArg, writer: anytype) !void {
     // wasm encodes alignment as power of 2, rather than natural alignment
     const encoded_alignment = @ctz(mem_arg.alignment);
-    try leb128.writeULEB128(writer, encoded_alignment);
-    try leb128.writeULEB128(writer, mem_arg.offset);
+    try leb128.writeUleb128(writer, encoded_alignment);
+    try leb128.writeUleb128(writer, mem_arg.offset);
 }
 
 fn emitCall(emit: *Emit, inst: Mir.Inst.Index) !void {
@@ -370,7 +370,7 @@ fn emitCall(emit: *Emit, inst: Mir.Inst.Index) !void {
     try emit.code.appendSlice(&buf);
 
     if (label != 0) {
-        const atom_index = emit.bin_file.zigObjectPtr().?.decls_map.get(emit.decl_index).?.atom;
+        const atom_index = emit.bin_file.zigObjectPtr().?.navs.get(emit.owner_nav).?.atom;
         const atom = emit.bin_file.getAtomPtr(atom_index);
         try atom.relocs.append(gpa, .{
             .offset = call_offset,
@@ -390,7 +390,7 @@ fn emitCallIndirect(emit: *Emit, inst: Mir.Inst.Index) !void {
     leb128.writeUnsignedFixed(5, &buf, type_index);
     try emit.code.appendSlice(&buf);
     if (type_index != 0) {
-        const atom_index = emit.bin_file.zigObjectPtr().?.decls_map.get(emit.decl_index).?.atom;
+        const atom_index = emit.bin_file.zigObjectPtr().?.navs.get(emit.owner_nav).?.atom;
         const atom = emit.bin_file.getAtomPtr(atom_index);
         try atom.relocs.append(emit.bin_file.base.comp.gpa, .{
             .offset = call_offset,
@@ -398,7 +398,7 @@ fn emitCallIndirect(emit: *Emit, inst: Mir.Inst.Index) !void {
             .relocation_type = .R_WASM_TYPE_INDEX_LEB,
         });
     }
-    try leb128.writeULEB128(emit.code.writer(), @as(u32, 0)); // TODO: Emit relocation for table index
+    try leb128.writeUleb128(emit.code.writer(), @as(u32, 0)); // TODO: Emit relocation for table index
 }
 
 fn emitFunctionIndex(emit: *Emit, inst: Mir.Inst.Index) !void {
@@ -412,7 +412,7 @@ fn emitFunctionIndex(emit: *Emit, inst: Mir.Inst.Index) !void {
     try emit.code.appendSlice(&buf);
 
     if (symbol_index != 0) {
-        const atom_index = emit.bin_file.zigObjectPtr().?.decls_map.get(emit.decl_index).?.atom;
+        const atom_index = emit.bin_file.zigObjectPtr().?.navs.get(emit.owner_nav).?.atom;
         const atom = emit.bin_file.getAtomPtr(atom_index);
         try atom.relocs.append(gpa, .{
             .offset = index_offset,
@@ -443,7 +443,7 @@ fn emitMemAddress(emit: *Emit, inst: Mir.Inst.Index) !void {
     }
 
     if (mem.pointer != 0) {
-        const atom_index = emit.bin_file.zigObjectPtr().?.decls_map.get(emit.decl_index).?.atom;
+        const atom_index = emit.bin_file.zigObjectPtr().?.navs.get(emit.owner_nav).?.atom;
         const atom = emit.bin_file.getAtomPtr(atom_index);
         try atom.relocs.append(gpa, .{
             .offset = mem_offset,
@@ -459,24 +459,24 @@ fn emitExtended(emit: *Emit, inst: Mir.Inst.Index) !void {
     const opcode = emit.mir.extra[extra_index];
     const writer = emit.code.writer();
     try emit.code.append(std.wasm.opcode(.misc_prefix));
-    try leb128.writeULEB128(writer, opcode);
+    try leb128.writeUleb128(writer, opcode);
     switch (@as(std.wasm.MiscOpcode, @enumFromInt(opcode))) {
         // bulk-memory opcodes
         .data_drop => {
             const segment = emit.mir.extra[extra_index + 1];
-            try leb128.writeULEB128(writer, segment);
+            try leb128.writeUleb128(writer, segment);
         },
         .memory_init => {
             const segment = emit.mir.extra[extra_index + 1];
-            try leb128.writeULEB128(writer, segment);
-            try leb128.writeULEB128(writer, @as(u32, 0)); // memory index
+            try leb128.writeUleb128(writer, segment);
+            try leb128.writeUleb128(writer, @as(u32, 0)); // memory index
         },
         .memory_fill => {
-            try leb128.writeULEB128(writer, @as(u32, 0)); // memory index
+            try leb128.writeUleb128(writer, @as(u32, 0)); // memory index
         },
         .memory_copy => {
-            try leb128.writeULEB128(writer, @as(u32, 0)); // dst memory index
-            try leb128.writeULEB128(writer, @as(u32, 0)); // src memory index
+            try leb128.writeUleb128(writer, @as(u32, 0)); // dst memory index
+            try leb128.writeUleb128(writer, @as(u32, 0)); // src memory index
         },
 
         // nontrapping-float-to-int-conversion opcodes
@@ -498,7 +498,7 @@ fn emitSimd(emit: *Emit, inst: Mir.Inst.Index) !void {
     const opcode = emit.mir.extra[extra_index];
     const writer = emit.code.writer();
     try emit.code.append(std.wasm.opcode(.simd_prefix));
-    try leb128.writeULEB128(writer, opcode);
+    try leb128.writeUleb128(writer, opcode);
     switch (@as(std.wasm.SimdOpcode, @enumFromInt(opcode))) {
         .v128_store,
         .v128_load,
@@ -549,7 +549,7 @@ fn emitAtomic(emit: *Emit, inst: Mir.Inst.Index) !void {
     const opcode = emit.mir.extra[extra_index];
     const writer = emit.code.writer();
     try emit.code.append(std.wasm.opcode(.atomics_prefix));
-    try leb128.writeULEB128(writer, opcode);
+    try leb128.writeUleb128(writer, opcode);
     switch (@as(std.wasm.AtomicsOpcode, @enumFromInt(opcode))) {
         .i32_atomic_load,
         .i64_atomic_load,
@@ -623,7 +623,7 @@ fn emitAtomic(emit: *Emit, inst: Mir.Inst.Index) !void {
             // TODO: When multi-memory proposal is accepted and implemented in the compiler,
             // change this to (user-)specified index, rather than hardcode it to memory index 0.
             const memory_index: u32 = 0;
-            try leb128.writeULEB128(writer, memory_index);
+            try leb128.writeUleb128(writer, memory_index);
         },
         else => |tag| return emit.fail("TODO: Implement atomic instruction: {s}", .{@tagName(tag)}),
     }
@@ -635,7 +635,7 @@ fn emitMemFill(emit: *Emit) !void {
     // When multi-memory proposal reaches phase 4, we
     // can emit a different memory index here.
     // For now we will always emit index 0.
-    try leb128.writeULEB128(emit.code.writer(), @as(u32, 0));
+    try leb128.writeUleb128(emit.code.writer(), @as(u32, 0));
 }
 
 fn emitDbgLine(emit: *Emit, inst: Mir.Inst.Index) !void {

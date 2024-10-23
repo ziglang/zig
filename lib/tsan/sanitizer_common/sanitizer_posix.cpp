@@ -54,12 +54,12 @@ void *MmapOrDie(uptr size, const char *mem_type, bool raw_report) {
   return (void *)res;
 }
 
-void UnmapOrDie(void *addr, uptr size) {
+void UnmapOrDie(void *addr, uptr size, bool raw_report) {
   if (!addr || !size) return;
   uptr res = internal_munmap(addr, size);
   int reserrno;
   if (UNLIKELY(internal_iserror(res, &reserrno)))
-    ReportMunmapFailureAndDie(addr, size, reserrno);
+    ReportMunmapFailureAndDie(addr, size, reserrno, raw_report);
   DecreaseTotalMmap(size);
 }
 
@@ -85,8 +85,8 @@ void *MmapAlignedOrDieOnFatalError(uptr size, uptr alignment,
   CHECK(IsPowerOfTwo(size));
   CHECK(IsPowerOfTwo(alignment));
   uptr map_size = size + alignment;
-  // mmap maps entire pages and rounds up map_size needs to be a an integral 
-  // number of pages. 
+  // mmap maps entire pages and rounds up map_size needs to be a an integral
+  // number of pages.
   // We need to be aware of this size for calculating end and for unmapping
   // fragments before and after the alignment region.
   map_size = RoundUpTo(map_size, GetPageSizeCached());
@@ -130,8 +130,8 @@ static void *MmapFixedImpl(uptr fixed_addr, uptr size, bool tolerate_enomem,
     if (tolerate_enomem && reserrno == ENOMEM)
       return nullptr;
     char mem_type[40];
-    internal_snprintf(mem_type, sizeof(mem_type), "memory at address 0x%zx",
-                      fixed_addr);
+    internal_snprintf(mem_type, sizeof(mem_type), "memory at address %p",
+                      (void *)fixed_addr);
     ReportMmapFailureAndDie(size, mem_type, "allocate", reserrno);
   }
   IncreaseTotalMmap(size);

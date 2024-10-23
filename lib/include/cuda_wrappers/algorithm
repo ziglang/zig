@@ -99,7 +99,7 @@ template <class __T>
 __attribute__((enable_if(true, "")))
 inline _CPP14_CONSTEXPR __host__ __device__ const __T &
 min(const __T &__a, const __T &__b) {
-  return __a < __b ? __a : __b;
+  return __b < __a ? __b : __a;
 }
 
 #pragma pop_macro("_CPP14_CONSTEXPR")

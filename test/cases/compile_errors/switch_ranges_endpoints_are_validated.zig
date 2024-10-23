@@ -17,5 +17,5 @@ pub export fn entr2() void {
 // backend=stage2
 // target=native
 //
-// :4:9: error: range start value is greater than the end value
-// :11:9: error: range start value is greater than the end value
+// :4:10: error: range start value is greater than the end value
+// :11:11: error: range start value is greater than the end value

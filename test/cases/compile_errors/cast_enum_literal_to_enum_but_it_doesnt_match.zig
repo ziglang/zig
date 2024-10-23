@@ -11,5 +11,5 @@ export fn entry() void {
 // backend=stage2
 // target=native
 //
-// :6:21: error: no field named 'c' in enum 'tmp.Foo'
+// :6:21: error: enum 'tmp.Foo' has no member named 'c'
 // :1:13: note: enum declared here

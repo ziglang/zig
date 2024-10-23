@@ -56,7 +56,6 @@ size_t strlen(const char* s);
 
 */
 
-#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
 #include <__type_traits/is_constant_evaluated.h>
 

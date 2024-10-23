@@ -109,7 +109,7 @@ const ReadBlock = struct {
     len: usize,
 };
 
-/// Returns position of continous read block data.
+/// Returns position of continuous read block data.
 fn readBlock(self: *Self, max: usize) ReadBlock {
     const r = self.rp & mask;
     const w = self.wp & mask;

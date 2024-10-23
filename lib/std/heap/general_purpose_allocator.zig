@@ -157,6 +157,7 @@ pub const Config = struct {
 
 pub const Check = enum { ok, leak };
 
+/// Default initialization of this struct is deprecated; use `.init` instead.
 pub fn GeneralPurposeAllocator(comptime config: Config) type {
     return struct {
         backing_allocator: Allocator = std.heap.page_allocator,
@@ -173,6 +174,16 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
         mutex: @TypeOf(mutex_init) = mutex_init,
 
         const Self = @This();
+
+        /// The initial state of a `GeneralPurposeAllocator`, containing no allocations and backed by the system page allocator.
+        pub const init: Self = .{
+            .backing_allocator = std.heap.page_allocator,
+            .buckets = [1]Buckets{.{}} ** small_bucket_count,
+            .cur_buckets = [1]?*BucketHeader{null} ** small_bucket_count,
+            .large_allocations = .{},
+            .empty_buckets = if (config.retain_metadata) .{} else {},
+            .bucket_node_pool = .init(std.heap.page_allocator),
+        };
 
         const total_requested_bytes_init = if (config.enable_memory_limit) @as(usize, 0) else {};
         const requested_memory_limit_init = if (config.enable_memory_limit) @as(usize, math.maxInt(usize)) else {};
@@ -445,8 +456,11 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                     }
                 }
                 // free retained metadata for small allocations
-                var empty_it = self.empty_buckets.inorderIterator();
-                while (empty_it.next()) |node| {
+                while (self.empty_buckets.getMin()) |node| {
+                    // remove the node from the tree before destroying it
+                    var entry = self.empty_buckets.getEntryForExisting(node);
+                    entry.set(null);
+
                     var bucket = node.key;
                     if (config.never_unmap) {
                         // free page that was intentionally leaked by never_unmap
@@ -1454,4 +1468,20 @@ test "bug 9995 fix, large allocs count requested size not backing size" {
     try std.testing.expect(gpa.total_requested_bytes == 1);
     buf = try allocator.realloc(buf, 2);
     try std.testing.expect(gpa.total_requested_bytes == 2);
+}
+
+test "retain metadata and never unmap" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{
+        .safety = true,
+        .never_unmap = true,
+        .retain_metadata = true,
+    }){};
+    defer std.debug.assert(gpa.deinit() == .ok);
+    const allocator = gpa.allocator();
+
+    const alloc = try allocator.alloc(u8, 8);
+    allocator.free(alloc);
+
+    const alloc2 = try allocator.alloc(u8, 8);
+    allocator.free(alloc2);
 }

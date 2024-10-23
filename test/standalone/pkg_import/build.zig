@@ -10,7 +10,7 @@ pub fn build(b: *std.Build) void {
         .name = "test",
         .root_source_file = b.path("test.zig"),
         .optimize = optimize,
-        .target = b.host,
+        .target = b.graph.host,
     });
     exe.root_module.addAnonymousImport("my_pkg", .{ .root_source_file = b.path("pkg.zig") });
 

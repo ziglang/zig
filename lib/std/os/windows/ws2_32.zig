@@ -676,23 +676,27 @@ pub const MSG = struct {
     pub const MAXIOVLEN = 16;
 };
 
-pub const AI = struct {
-    pub const PASSIVE = 1;
-    pub const CANONNAME = 2;
-    pub const NUMERICHOST = 4;
-    pub const NUMERICSERV = 8;
-    pub const DNS_ONLY = 16;
-    pub const ALL = 256;
-    pub const ADDRCONFIG = 1024;
-    pub const V4MAPPED = 2048;
-    pub const NON_AUTHORITATIVE = 16384;
-    pub const SECURE = 32768;
-    pub const RETURN_PREFERRED_NAMES = 65536;
-    pub const FQDN = 131072;
-    pub const FILESERVER = 262144;
-    pub const DISABLE_IDN_ENCODING = 524288;
-    pub const EXTENDED = 2147483648;
-    pub const RESOLUTION_HANDLE = 1073741824;
+pub const AI = packed struct(u32) {
+    PASSIVE: bool = false,
+    CANONNAME: bool = false,
+    NUMERICHOST: bool = false,
+    NUMERICSERV: bool = false,
+    DNS_ONLY: bool = false,
+    _5: u3 = 0,
+    ALL: bool = false,
+    _9: u1 = 0,
+    ADDRCONFIG: bool = false,
+    V4MAPPED: bool = false,
+    _12: u2 = 0,
+    NON_AUTHORITATIVE: bool = false,
+    SECURE: bool = false,
+    RETURN_PREFERRED_NAMES: bool = false,
+    FQDN: bool = false,
+    FILESERVER: bool = false,
+    DISABLE_IDN_ENCODING: bool = false,
+    _20: u10 = 0,
+    RESOLUTION_HANDLE: bool = false,
+    EXTENDED: bool = false,
 };
 
 pub const FIONBIO = -2147195266;
@@ -1068,8 +1072,8 @@ pub const sockproto = extern struct {
 };
 
 pub const linger = extern struct {
-    l_onoff: u16,
-    l_linger: u16,
+    onoff: u16,
+    linger: u16,
 };
 
 pub const WSANETWORKEVENTS = extern struct {
@@ -1080,7 +1084,7 @@ pub const WSANETWORKEVENTS = extern struct {
 pub const addrinfo = addrinfoa;
 
 pub const addrinfoa = extern struct {
-    flags: i32,
+    flags: AI,
     family: i32,
     socktype: i32,
     protocol: i32,
@@ -1091,17 +1095,17 @@ pub const addrinfoa = extern struct {
 };
 
 pub const addrinfoexA = extern struct {
-    ai_flags: i32,
-    ai_family: i32,
-    ai_socktype: i32,
-    ai_protocol: i32,
-    ai_addrlen: usize,
-    ai_canonname: [*:0]u8,
-    ai_addr: *sockaddr,
-    ai_blob: *anyopaque,
-    ai_bloblen: usize,
-    ai_provider: *GUID,
-    ai_next: *addrinfoexA,
+    flags: AI,
+    family: i32,
+    socktype: i32,
+    protocol: i32,
+    addrlen: usize,
+    canonname: [*:0]u8,
+    addr: *sockaddr,
+    blob: *anyopaque,
+    bloblen: usize,
+    provider: *GUID,
+    next: *addrinfoexA,
 };
 
 pub const sockaddr = extern struct {
@@ -1264,8 +1268,8 @@ pub const hostent = extern struct {
 };
 
 pub const timeval = extern struct {
-    tv_sec: LONG,
-    tv_usec: LONG,
+    sec: LONG,
+    usec: LONG,
 };
 
 // https://docs.microsoft.com/en-au/windows/win32/winsock/windows-sockets-error-codes-2

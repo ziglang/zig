@@ -13,15 +13,15 @@ const common = @import("common.zig");
 pub const panic = common.panic;
 
 comptime {
-    @export(__fmah, .{ .name = "__fmah", .linkage = common.linkage, .visibility = common.visibility });
-    @export(fmaf, .{ .name = "fmaf", .linkage = common.linkage, .visibility = common.visibility });
-    @export(fma, .{ .name = "fma", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__fmax, .{ .name = "__fmax", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__fmah, .{ .name = "__fmah", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&fmaf, .{ .name = "fmaf", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&fma, .{ .name = "fma", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__fmax, .{ .name = "__fmax", .linkage = common.linkage, .visibility = common.visibility });
     if (common.want_ppc_abi) {
-        @export(fmaq, .{ .name = "fmaf128", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&fmaq, .{ .name = "fmaf128", .linkage = common.linkage, .visibility = common.visibility });
     }
-    @export(fmaq, .{ .name = "fmaq", .linkage = common.linkage, .visibility = common.visibility });
-    @export(fmal, .{ .name = "fmal", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&fmaq, .{ .name = "fmaq", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&fmal, .{ .name = "fmal", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 pub fn __fmah(x: f16, y: f16, z: f16) callconv(.C) f16 {
@@ -151,7 +151,7 @@ pub fn fmaq(x: f128, y: f128, z: f128) callconv(.C) f128 {
 }
 
 pub fn fmal(x: c_longdouble, y: c_longdouble, z: c_longdouble) callconv(.C) c_longdouble {
-    switch (@typeInfo(c_longdouble).Float.bits) {
+    switch (@typeInfo(c_longdouble).float.bits) {
         16 => return __fmah(x, y, z),
         32 => return fmaf(x, y, z),
         64 => return fma(x, y, z),

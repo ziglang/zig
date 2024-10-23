@@ -178,10 +178,51 @@ pub fn syscall6(
     );
 }
 
-const CloneFn = *const fn (arg: usize) callconv(.C) u8;
-
-/// This matches the libc clone function.
-pub extern fn clone(func: CloneFn, stack: usize, flags: usize, arg: usize, ptid: *i32, tls: usize, ctid: *i32) usize;
+pub fn clone() callconv(.Naked) usize {
+    // __clone(func, stack, flags, arg, ptid, tls, ctid)
+    //         i0,   i1,    i2,    i3,  i4,   i5,  sp
+    //
+    // syscall(SYS_clone, flags, stack, ptid, tls, ctid)
+    //         g1         o0,    o1,    o2,   o3,  o4
+    asm volatile (
+        \\ save %%sp, -192, %%sp
+        \\ # Save the func pointer and the arg pointer
+        \\ mov %%i0, %%g2
+        \\ mov %%i3, %%g3
+        \\ # Shuffle the arguments
+        \\ mov 217, %%g1 // SYS_clone
+        \\ mov %%i2, %%o0
+        \\ # Add some extra space for the initial frame
+        \\ sub %%i1, 176 + 2047, %%o1
+        \\ mov %%i4, %%o2
+        \\ mov %%i5, %%o3
+        \\ ldx [%%fp + 0x8af], %%o4
+        \\ t 0x6d
+        \\ bcs,pn %%xcc, 2f
+        \\ nop
+        \\ # The child pid is returned in o0 while o1 tells if this
+        \\ # process is # the child (=1) or the parent (=0).
+        \\ brnz %%o1, 1f
+        \\ nop
+        \\ # Parent process, return the child pid
+        \\ mov %%o0, %%i0
+        \\ ret
+        \\ restore
+        \\1:
+        \\ # Child process, call func(arg)
+        \\ mov %%g0, %%fp
+        \\ call %%g2
+        \\ mov %%g3, %%o0
+        \\ # Exit
+        \\ mov 1, %%g1 // SYS_exit
+        \\ t 0x6d
+        \\2:
+        \\ # The syscall failed
+        \\ sub %%g0, %%o0, %%i0
+        \\ ret
+        \\ restore
+    );
+}
 
 pub const restore = restore_rt;
 
@@ -216,13 +257,6 @@ pub const F = struct {
     pub const GETOWN_EX = 16;
 
     pub const GETOWNER_UIDS = 17;
-};
-
-pub const LOCK = struct {
-    pub const SH = 1;
-    pub const EX = 2;
-    pub const NB = 4;
-    pub const UN = 8;
 };
 
 pub const VDSO = struct {
@@ -301,13 +335,13 @@ pub const Stat = extern struct {
 };
 
 pub const timeval = extern struct {
-    tv_sec: isize,
-    tv_usec: i32,
+    sec: isize,
+    usec: i32,
 };
 
 pub const timezone = extern struct {
-    tz_minuteswest: i32,
-    tz_dsttime: i32,
+    minuteswest: i32,
+    dsttime: i32,
 };
 
 // TODO I'm not sure if the code below is correct, need someone with more
@@ -412,62 +446,5 @@ pub const ucontext_t = extern struct {
     sigset: sigset_t,
 };
 
-pub const rlimit_resource = enum(c_int) {
-    /// Per-process CPU limit, in seconds.
-    CPU,
-
-    /// Largest file that can be created, in bytes.
-    FSIZE,
-
-    /// Maximum size of data segment, in bytes.
-    DATA,
-
-    /// Maximum size of stack segment, in bytes.
-    STACK,
-
-    /// Largest core file that can be created, in bytes.
-    CORE,
-
-    /// Largest resident set size, in bytes.
-    /// This affects swapping; processes that are exceeding their
-    /// resident set size will be more likely to have physical memory
-    /// taken from them.
-    RSS,
-
-    /// Number of open files.
-    NOFILE,
-
-    /// Number of processes.
-    NPROC,
-
-    /// Locked-in-memory address space.
-    MEMLOCK,
-
-    /// Address space limit.
-    AS,
-
-    /// Maximum number of file locks.
-    LOCKS,
-
-    /// Maximum number of pending signals.
-    SIGPENDING,
-
-    /// Maximum bytes in POSIX message queues.
-    MSGQUEUE,
-
-    /// Maximum nice priority allowed to raise to.
-    /// Nice levels 19 .. -20 correspond to 0 .. 39
-    /// values of this resource limit.
-    NICE,
-
-    /// Maximum realtime priority allowed for non-priviledged
-    /// processes.
-    RTPRIO,
-
-    /// Maximum CPU time in µs that a process scheduled under a real-time
-    /// scheduling policy may consume without making a blocking system
-    /// call before being forcibly descheduled.
-    RTTIME,
-
-    _,
-};
+/// TODO
+pub const getcontext = {};

@@ -109,7 +109,6 @@ template <class OuterA1, class OuterA2, class... InnerAllocs>
 
 */
 
-#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
 #include <__memory/allocator_traits.h>
 #include <__memory/uses_allocator_construction.h>
@@ -314,7 +313,7 @@ false_type __has_outer_allocator_test(const volatile _Alloc& __a);
 
 template <class _Alloc>
 struct __has_outer_allocator
-    : public common_type< decltype(std::__has_outer_allocator_test(std::declval<_Alloc&>())) >::type {};
+    : public common_type< decltype(std::__has_outer_allocator_test(std::declval<_Alloc&>()))>::type {};
 
 template <class _Alloc, bool = __has_outer_allocator<_Alloc>::value>
 struct __outermost {
@@ -334,12 +333,12 @@ struct __outermost<_Alloc, true> {
 template <class _OuterAlloc, class... _InnerAllocs>
 class _LIBCPP_TEMPLATE_VIS scoped_allocator_adaptor<_OuterAlloc, _InnerAllocs...>
     : public __scoped_allocator_storage<_OuterAlloc, _InnerAllocs...> {
-  typedef __scoped_allocator_storage<_OuterAlloc, _InnerAllocs...> base;
+  typedef __scoped_allocator_storage<_OuterAlloc, _InnerAllocs...> _Base;
   typedef allocator_traits<_OuterAlloc> _OuterTraits;
 
 public:
   typedef _OuterAlloc outer_allocator_type;
-  typedef typename base::inner_allocator_type inner_allocator_type;
+  typedef typename _Base::inner_allocator_type inner_allocator_type;
   typedef typename _OuterTraits::size_type size_type;
   typedef typename _OuterTraits::difference_type difference_type;
   typedef typename _OuterTraits::pointer pointer;
@@ -365,35 +364,35 @@ public:
   template <class _OuterA2, __enable_if_t<is_constructible<outer_allocator_type, _OuterA2>::value, int> = 0>
   _LIBCPP_HIDE_FROM_ABI
   scoped_allocator_adaptor(_OuterA2&& __outer_alloc, const _InnerAllocs&... __inner_allocs) _NOEXCEPT
-      : base(std::forward<_OuterA2>(__outer_alloc), __inner_allocs...) {}
+      : _Base(std::forward<_OuterA2>(__outer_alloc), __inner_allocs...) {}
   // scoped_allocator_adaptor(const scoped_allocator_adaptor& __other) = default;
   template <class _OuterA2, __enable_if_t<is_constructible<outer_allocator_type, const _OuterA2&>::value, int> = 0>
   _LIBCPP_HIDE_FROM_ABI
   scoped_allocator_adaptor(const scoped_allocator_adaptor<_OuterA2, _InnerAllocs...>& __other) _NOEXCEPT
-      : base(__other) {}
+      : _Base(__other) {}
   template <class _OuterA2, __enable_if_t<is_constructible<outer_allocator_type, _OuterA2>::value, int> = 0>
   _LIBCPP_HIDE_FROM_ABI
   scoped_allocator_adaptor(scoped_allocator_adaptor<_OuterA2, _InnerAllocs...>&& __other) _NOEXCEPT
-      : base(std::move(__other)) {}
+      : _Base(std::move(__other)) {}
 
   // scoped_allocator_adaptor& operator=(const scoped_allocator_adaptor&) = default;
   // scoped_allocator_adaptor& operator=(scoped_allocator_adaptor&&) = default;
   // ~scoped_allocator_adaptor() = default;
 
-  _LIBCPP_HIDE_FROM_ABI inner_allocator_type& inner_allocator() _NOEXCEPT { return base::inner_allocator(); }
+  _LIBCPP_HIDE_FROM_ABI inner_allocator_type& inner_allocator() _NOEXCEPT { return _Base::inner_allocator(); }
   _LIBCPP_HIDE_FROM_ABI const inner_allocator_type& inner_allocator() const _NOEXCEPT {
-    return base::inner_allocator();
+    return _Base::inner_allocator();
   }
 
-  _LIBCPP_HIDE_FROM_ABI outer_allocator_type& outer_allocator() _NOEXCEPT { return base::outer_allocator(); }
+  _LIBCPP_HIDE_FROM_ABI outer_allocator_type& outer_allocator() _NOEXCEPT { return _Base::outer_allocator(); }
   _LIBCPP_HIDE_FROM_ABI const outer_allocator_type& outer_allocator() const _NOEXCEPT {
-    return base::outer_allocator();
+    return _Base::outer_allocator();
   }
 
-  _LIBCPP_NODISCARD_AFTER_CXX17 _LIBCPP_HIDE_FROM_ABI pointer allocate(size_type __n) {
+  _LIBCPP_NODISCARD _LIBCPP_HIDE_FROM_ABI pointer allocate(size_type __n) {
     return allocator_traits<outer_allocator_type>::allocate(outer_allocator(), __n);
   }
-  _LIBCPP_NODISCARD_AFTER_CXX17 _LIBCPP_HIDE_FROM_ABI pointer allocate(size_type __n, const_void_pointer __hint) {
+  _LIBCPP_NODISCARD _LIBCPP_HIDE_FROM_ABI pointer allocate(size_type __n, const_void_pointer __hint) {
     return allocator_traits<outer_allocator_type>::allocate(outer_allocator(), __n, __hint);
   }
 
@@ -472,13 +471,12 @@ public:
   }
 
   _LIBCPP_HIDE_FROM_ABI scoped_allocator_adaptor select_on_container_copy_construction() const _NOEXCEPT {
-    return base::select_on_container_copy_construction();
+    return _Base::select_on_container_copy_construction();
   }
 
 private:
-  template <class _OuterA2, __enable_if_t<is_constructible<outer_allocator_type, _OuterA2>::value, int> = 0>
-  _LIBCPP_HIDE_FROM_ABI scoped_allocator_adaptor(_OuterA2&& __o, const inner_allocator_type& __i) _NOEXCEPT
-      : base(std::forward<_OuterA2>(__o), __i) {}
+  _LIBCPP_HIDE_FROM_ABI explicit scoped_allocator_adaptor(
+      outer_allocator_type&& __o, inner_allocator_type&& __i) _NOEXCEPT : _Base(std::move(__o), std::move(__i)) {}
 
   template <class _Tp, class... _Args>
   _LIBCPP_HIDE_FROM_ABI void __construct(integral_constant<int, 0>, _Tp* __p, _Args&&... __args) {

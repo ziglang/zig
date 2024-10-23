@@ -1,6 +1,6 @@
 /* Constants and data structures for x86 CPU features.
    This file is part of the GNU C Library.
-   Copyright (C) 2008-2023 Free Software Foundation, Inc.
+   Copyright (C) 2008-2024 Free Software Foundation, Inc.
 
    The GNU C Library is free software; you can redistribute it and/or
    modify it under the terms of the GNU Lesser General Public
@@ -30,7 +30,8 @@ enum
   CPUID_INDEX_80000008,
   CPUID_INDEX_7_ECX_1,
   CPUID_INDEX_19,
-  CPUID_INDEX_14_ECX_0
+  CPUID_INDEX_14_ECX_0,
+  CPUID_INDEX_24_ECX_0
 };
 
 struct cpuid_feature
@@ -312,6 +313,7 @@ enum
   x86_cpu_AVX_NE_CONVERT	= x86_cpu_index_7_ecx_1_edx + 5,
   x86_cpu_AMX_COMPLEX		= x86_cpu_index_7_ecx_1_edx + 8,
   x86_cpu_PREFETCHI		= x86_cpu_index_7_ecx_1_edx + 14,
+  x86_cpu_AVX10			= x86_cpu_index_7_ecx_1_edx + 19,
   x86_cpu_APX_F			= x86_cpu_index_7_ecx_1_edx + 21,
 
   x86_cpu_index_19_ebx
@@ -325,5 +327,13 @@ enum
     = (CPUID_INDEX_14_ECX_0 * 8 * 4 * sizeof (unsigned int)
        + cpuid_register_index_ebx * 8 * sizeof (unsigned int)),
 
-  x86_cpu_PTWRITE		= x86_cpu_index_14_ecx_0_ebx + 4
+  x86_cpu_PTWRITE		= x86_cpu_index_14_ecx_0_ebx + 4,
+
+  x86_cpu_index_24_ecx_0_ebx
+    = (CPUID_INDEX_24_ECX_0 * 8 * 4 * sizeof (unsigned int)
+       + cpuid_register_index_ebx * 8 * sizeof (unsigned int)),
+
+  x86_cpu_AVX10_XMM = x86_cpu_index_24_ecx_0_ebx + 16,
+  x86_cpu_AVX10_YMM = x86_cpu_index_24_ecx_0_ebx + 17,
+  x86_cpu_AVX10_ZMM = x86_cpu_index_24_ecx_0_ebx + 18,
 };

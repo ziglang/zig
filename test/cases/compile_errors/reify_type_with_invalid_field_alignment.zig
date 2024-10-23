@@ -1,6 +1,6 @@
 comptime {
     _ = @Type(.{
-        .Union = .{
+        .@"union" = .{
             .layout = .auto,
             .tag_type = null,
             .fields = &.{
@@ -12,7 +12,7 @@ comptime {
 }
 comptime {
     _ = @Type(.{
-        .Struct = .{
+        .@"struct" = .{
             .layout = .auto,
             .fields = &.{.{
                 .name = "0",
@@ -28,7 +28,7 @@ comptime {
 }
 comptime {
     _ = @Type(.{
-        .Pointer = .{
+        .pointer = .{
             .size = .Many,
             .is_const = true,
             .is_volatile = false,

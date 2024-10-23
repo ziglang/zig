@@ -168,7 +168,7 @@ _IO_putc:
 .weak _IO_putc_unlocked
 .type _IO_putc_unlocked, %function;
 _IO_putc_unlocked:
-#if !defined(ARCH_riscv64) && !defined(ARCH_mips) && !defined(ARCH_mips64) && !defined(ARCH_x86_64) && !defined(ARCH_powerpc) && !defined(ARCH_powerpc64) && !defined(ARCH_aarch64)
+#if !defined(ARCH_riscv64) && !defined(ARCH_mips) && !defined(ARCH_mips64) && !defined(ARCH_x86_64) && !defined(ARCH_powerpc) && !defined(ARCH_powerpc64) && !defined(ARCH_aarch64) && !defined(ARCH_riscv32) && !defined(ARCH_loongarch64)
 .globl ___tls_get_addr
 .type ___tls_get_addr, %function;
 ___tls_get_addr:
@@ -187,7 +187,7 @@ __aio_suspend_time64:
 .globl __assert_fail
 .type __assert_fail, %function;
 __assert_fail:
-#if !defined(ARCH_riscv64) && !defined(ARCH_x86) && !defined(ARCH_x86_64) && !defined(ARCH_powerpc) && !defined(ARCH_powerpc64) && !defined(ARCH_aarch64)
+#if !defined(ARCH_riscv64) && !defined(ARCH_x86) && !defined(ARCH_x86_64) && !defined(ARCH_powerpc) && !defined(ARCH_powerpc64) && !defined(ARCH_aarch64) && !defined(ARCH_riscv32) && !defined(ARCH_loongarch64)
 .globl __cachectl
 .type __cachectl, %function;
 __cachectl:
@@ -498,7 +498,7 @@ __localtime64:
 .type __localtime64_r, %function;
 __localtime64_r:
 #endif
-#if !defined(ARCH_mips) && !defined(ARCH_mips64) && !defined(ARCH_x86) && !defined(ARCH_x86_64) && !defined(ARCH_powerpc) && !defined(ARCH_powerpc64) && !defined(ARCH_aarch64)
+#if !defined(ARCH_mips) && !defined(ARCH_mips64) && !defined(ARCH_x86) && !defined(ARCH_x86_64) && !defined(ARCH_powerpc) && !defined(ARCH_powerpc64) && !defined(ARCH_aarch64) && !defined(ARCH_loongarch64)
 .globl __longjmp
 .type __longjmp, %function;
 __longjmp:
@@ -576,17 +576,17 @@ __recvmmsg_time64:
 .globl __res_state
 .type __res_state, %function;
 __res_state:
-#if !defined(ARCH_mips) && !defined(ARCH_mips64) && !defined(ARCH_x86) && !defined(ARCH_x86_64) && !defined(ARCH_powerpc) && !defined(ARCH_powerpc64) && !defined(ARCH_aarch64)
+#if !defined(ARCH_mips) && !defined(ARCH_mips64) && !defined(ARCH_x86) && !defined(ARCH_x86_64) && !defined(ARCH_powerpc) && !defined(ARCH_powerpc64) && !defined(ARCH_aarch64) && !defined(ARCH_riscv32) && !defined(ARCH_loongarch64)
 .globl __restore
 .type __restore, %function;
 __restore:
 #endif
-#if !defined(ARCH_mips) && !defined(ARCH_mips64) && !defined(ARCH_x86) && !defined(ARCH_x86_64) && !defined(ARCH_powerpc) && !defined(ARCH_powerpc64) && !defined(ARCH_aarch64)
+#if !defined(ARCH_mips) && !defined(ARCH_mips64) && !defined(ARCH_x86) && !defined(ARCH_x86_64) && !defined(ARCH_powerpc) && !defined(ARCH_powerpc64) && !defined(ARCH_aarch64) && !defined(ARCH_riscv32) && !defined(ARCH_loongarch64)
 .globl __restore_rt
 .type __restore_rt, %function;
 __restore_rt:
 #endif
-#if !defined(ARCH_mips) && !defined(ARCH_mips64) && !defined(ARCH_x86) && !defined(ARCH_x86_64) && !defined(ARCH_powerpc) && !defined(ARCH_powerpc64) && !defined(ARCH_aarch64)
+#if !defined(ARCH_mips) && !defined(ARCH_mips64) && !defined(ARCH_x86) && !defined(ARCH_x86_64) && !defined(ARCH_powerpc) && !defined(ARCH_powerpc64) && !defined(ARCH_aarch64) && !defined(ARCH_loongarch64)
 .globl __riscv_flush_icache
 .type __riscv_flush_icache, %function;
 __riscv_flush_icache:
@@ -796,7 +796,7 @@ _dl_debug_state:
 .globl _dlstart
 .type _dlstart, %function;
 _dlstart:
-#if !defined(ARCH_riscv64) && !defined(ARCH_mips) && !defined(ARCH_x86) && !defined(ARCH_x86_64) && !defined(ARCH_powerpc) && !defined(ARCH_powerpc64) && !defined(ARCH_aarch64)
+#if !defined(ARCH_riscv64) && !defined(ARCH_mips) && !defined(ARCH_x86) && !defined(ARCH_x86_64) && !defined(ARCH_powerpc) && !defined(ARCH_powerpc64) && !defined(ARCH_aarch64) && !defined(ARCH_riscv32) && !defined(ARCH_loongarch64)
 .globl _dlstart_data
 .type _dlstart_data, %function;
 _dlstart_data:
@@ -807,7 +807,7 @@ _exit:
 .weak _fini
 .type _fini, %function;
 _fini:
-#if !defined(ARCH_riscv64) && !defined(ARCH_x86) && !defined(ARCH_x86_64) && !defined(ARCH_powerpc) && !defined(ARCH_powerpc64) && !defined(ARCH_aarch64)
+#if !defined(ARCH_riscv64) && !defined(ARCH_x86) && !defined(ARCH_x86_64) && !defined(ARCH_powerpc) && !defined(ARCH_powerpc64) && !defined(ARCH_aarch64) && !defined(ARCH_riscv32) && !defined(ARCH_loongarch64)
 .globl _flush_cache
 .type _flush_cache, %function;
 _flush_cache:
@@ -908,7 +908,7 @@ aligned_alloc:
 .globl alphasort
 .type alphasort, %function;
 alphasort:
-#if !defined(ARCH_riscv64) && !defined(ARCH_mips) && !defined(ARCH_mips64) && !defined(ARCH_powerpc) && !defined(ARCH_powerpc64) && !defined(ARCH_aarch64)
+#if !defined(ARCH_riscv64) && !defined(ARCH_mips) && !defined(ARCH_mips64) && !defined(ARCH_powerpc) && !defined(ARCH_powerpc64) && !defined(ARCH_aarch64) && !defined(ARCH_riscv32) && !defined(ARCH_loongarch64)
 .globl arch_prctl
 .type arch_prctl, %function;
 arch_prctl:
@@ -1033,12 +1033,12 @@ cabsf:
 .globl cabsl
 .type cabsl, %function;
 cabsl:
-#if !defined(ARCH_riscv64) && !defined(ARCH_x86) && !defined(ARCH_x86_64) && !defined(ARCH_powerpc) && !defined(ARCH_powerpc64) && !defined(ARCH_aarch64)
+#if !defined(ARCH_riscv64) && !defined(ARCH_x86) && !defined(ARCH_x86_64) && !defined(ARCH_powerpc) && !defined(ARCH_powerpc64) && !defined(ARCH_aarch64) && !defined(ARCH_riscv32) && !defined(ARCH_loongarch64)
 .weak cachectl
 .type cachectl, %function;
 cachectl:
 #endif
-#if !defined(ARCH_riscv64) && !defined(ARCH_x86) && !defined(ARCH_x86_64) && !defined(ARCH_powerpc) && !defined(ARCH_powerpc64) && !defined(ARCH_aarch64)
+#if !defined(ARCH_riscv64) && !defined(ARCH_x86) && !defined(ARCH_x86_64) && !defined(ARCH_powerpc) && !defined(ARCH_powerpc64) && !defined(ARCH_aarch64) && !defined(ARCH_riscv32) && !defined(ARCH_loongarch64)
 .weak cacheflush
 .type cacheflush, %function;
 cacheflush:
@@ -2549,12 +2549,12 @@ insque:
 .globl ioctl
 .type ioctl, %function;
 ioctl:
-#if !defined(ARCH_riscv64) && !defined(ARCH_mips64) && !defined(ARCH_aarch64)
+#if !defined(ARCH_riscv64) && !defined(ARCH_mips64) && !defined(ARCH_aarch64) && !defined(ARCH_riscv32) && !defined(ARCH_loongarch64)
 .globl ioperm
 .type ioperm, %function;
 ioperm:
 #endif
-#if !defined(ARCH_riscv64) && !defined(ARCH_mips64) && !defined(ARCH_aarch64)
+#if !defined(ARCH_riscv64) && !defined(ARCH_mips64) && !defined(ARCH_aarch64) && !defined(ARCH_riscv32) && !defined(ARCH_loongarch64)
 .globl iopl
 .type iopl, %function;
 iopl:
@@ -3435,6 +3435,9 @@ pread:
 .globl preadv
 .type preadv, %function;
 preadv:
+.globl preadv2
+.type preadv2, %function;
+preadv2:
 .globl printf
 .type printf, %function;
 printf:
@@ -3840,6 +3843,9 @@ pwrite:
 .globl pwritev
 .type pwritev, %function;
 pwritev:
+.globl pwritev2
+.type pwritev2, %function;
+pwritev2:
 .globl qsort
 .type qsort, %function;
 qsort:
@@ -3993,7 +3999,7 @@ rintf:
 .globl rintl
 .type rintl, %function;
 rintl:
-#if !defined(ARCH_mips) && !defined(ARCH_mips64) && !defined(ARCH_x86) && !defined(ARCH_x86_64) && !defined(ARCH_powerpc) && !defined(ARCH_powerpc64) && !defined(ARCH_aarch64)
+#if !defined(ARCH_mips) && !defined(ARCH_mips64) && !defined(ARCH_x86) && !defined(ARCH_x86_64) && !defined(ARCH_powerpc) && !defined(ARCH_powerpc64) && !defined(ARCH_aarch64) && !defined(ARCH_loongarch64)
 .weak riscv_flush_icache
 .type riscv_flush_icache, %function;
 riscv_flush_icache:
@@ -4463,6 +4469,9 @@ statfs:
 .globl statvfs
 .type statvfs, %function;
 statvfs:
+.globl statx
+.type statx, %function;
+statx:
 .globl stime
 .type stime, %function;
 stime:

@@ -178,8 +178,8 @@ const ModuleInfo = struct {
 
 const EntityContext = struct {
     a: Allocator,
-    ptr_map_a: std.AutoArrayHashMapUnmanaged(ResultId, void) = .{},
-    ptr_map_b: std.AutoArrayHashMapUnmanaged(ResultId, void) = .{},
+    ptr_map_a: std.AutoArrayHashMapUnmanaged(ResultId, void) = .empty,
+    ptr_map_b: std.AutoArrayHashMapUnmanaged(ResultId, void) = .empty,
     info: *const ModuleInfo,
     binary: *const BinaryModule,
 
@@ -418,9 +418,8 @@ const EntityHashContext = struct {
     }
 };
 
-pub fn run(parser: *BinaryModule.Parser, binary: *BinaryModule, progress: *std.Progress.Node) !void {
-    var sub_node = progress.start("deduplicate", 0);
-    sub_node.activate();
+pub fn run(parser: *BinaryModule.Parser, binary: *BinaryModule, progress: std.Progress.Node) !void {
+    const sub_node = progress.start("deduplicate", 0);
     defer sub_node.end();
 
     var arena = std.heap.ArenaAllocator.init(parser.a);

@@ -140,28 +140,38 @@ namespace std {
 }
 */
 
-#include <__assert> // all public C++ headers provide the assertion handler
-#include <__compare/common_comparison_category.h>
-#include <__compare/compare_partial_order_fallback.h>
-#include <__compare/compare_strong_order_fallback.h>
-#include <__compare/compare_three_way.h>
-#include <__compare/compare_three_way_result.h>
-#include <__compare/compare_weak_order_fallback.h>
-#include <__compare/is_eq.h>
-#include <__compare/ordering.h>
-#include <__compare/partial_order.h>
-#include <__compare/strong_order.h>
-#include <__compare/synth_three_way.h>
-#include <__compare/three_way_comparable.h>
-#include <__compare/weak_order.h>
 #include <__config>
+
+#if _LIBCPP_STD_VER >= 20
+#  include <__compare/common_comparison_category.h>
+#  include <__compare/compare_partial_order_fallback.h>
+#  include <__compare/compare_strong_order_fallback.h>
+#  include <__compare/compare_three_way.h>
+#  include <__compare/compare_three_way_result.h>
+#  include <__compare/compare_weak_order_fallback.h>
+#  include <__compare/is_eq.h>
+#  include <__compare/ordering.h>
+#  include <__compare/partial_order.h>
+#  include <__compare/strong_order.h>
+#  include <__compare/synth_three_way.h>
+#  include <__compare/three_way_comparable.h>
+#  include <__compare/weak_order.h>
+#endif // _LIBCPP_STD_VER >= 20
+
 #include <version>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
 #endif
 
+#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 17
+#  include <cstddef>
+#  include <cstdint>
+#  include <limits>
+#endif
+
 #if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#  include <cmath>
 #  include <type_traits>
 #endif
 

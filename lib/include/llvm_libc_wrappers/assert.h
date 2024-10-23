@@ -1,4 +1,4 @@
-//===-- Wrapper for C standard assert.h declarations on the GPU ------------===//
+//===-- Wrapper for C standard assert.h declarations on the GPU -*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.

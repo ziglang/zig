@@ -67,8 +67,8 @@ public:
   string message(int __ev) const override;
 };
 
-_LIBCPP_EXPORTED_FROM_ABI const error_category& generic_category() _NOEXCEPT;
-_LIBCPP_EXPORTED_FROM_ABI const error_category& system_category() _NOEXCEPT;
+__attribute__((__const__)) _LIBCPP_EXPORTED_FROM_ABI const error_category& generic_category() _NOEXCEPT;
+__attribute__((__const__)) _LIBCPP_EXPORTED_FROM_ABI const error_category& system_category() _NOEXCEPT;
 
 _LIBCPP_END_NAMESPACE_STD
 

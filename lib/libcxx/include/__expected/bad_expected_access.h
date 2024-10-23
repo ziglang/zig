@@ -27,23 +27,28 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 template <class _Err>
 class bad_expected_access;
 
+_LIBCPP_DIAGNOSTIC_PUSH
+#  if !_LIBCPP_AVAILABILITY_HAS_BAD_EXPECTED_ACCESS_KEY_FUNCTION
+_LIBCPP_CLANG_DIAGNOSTIC_IGNORED("-Wweak-vtables")
+#  endif
 template <>
-class bad_expected_access<void> : public exception {
+class _LIBCPP_EXPORTED_FROM_ABI bad_expected_access<void> : public exception {
 protected:
-  _LIBCPP_HIDE_FROM_ABI bad_expected_access() noexcept                             = default;
-  _LIBCPP_HIDE_FROM_ABI bad_expected_access(const bad_expected_access&)            = default;
-  _LIBCPP_HIDE_FROM_ABI bad_expected_access(bad_expected_access&&)                 = default;
-  _LIBCPP_HIDE_FROM_ABI bad_expected_access& operator=(const bad_expected_access&) = default;
-  _LIBCPP_HIDE_FROM_ABI bad_expected_access& operator=(bad_expected_access&&)      = default;
-  _LIBCPP_HIDE_FROM_ABI_VIRTUAL ~bad_expected_access() override                    = default;
+  _LIBCPP_HIDE_FROM_ABI bad_expected_access() noexcept                                      = default;
+  _LIBCPP_HIDE_FROM_ABI bad_expected_access(const bad_expected_access&) noexcept            = default;
+  _LIBCPP_HIDE_FROM_ABI bad_expected_access(bad_expected_access&&) noexcept                 = default;
+  _LIBCPP_HIDE_FROM_ABI bad_expected_access& operator=(const bad_expected_access&) noexcept = default;
+  _LIBCPP_HIDE_FROM_ABI bad_expected_access& operator=(bad_expected_access&&) noexcept      = default;
+  _LIBCPP_HIDE_FROM_ABI_VIRTUAL ~bad_expected_access() override                             = default;
 
 public:
-  // The way this has been designed (by using a class template below) means that we'll already
-  // have a profusion of these vtables in TUs, and the dynamic linker will already have a bunch
-  // of work to do. So it is not worth hiding the <void> specialization in the dylib, given that
-  // it adds deployment target restrictions.
+#  if _LIBCPP_AVAILABILITY_HAS_BAD_EXPECTED_ACCESS_KEY_FUNCTION
+  const char* what() const noexcept override;
+#  else
   _LIBCPP_HIDE_FROM_ABI_VIRTUAL const char* what() const noexcept override { return "bad access to std::expected"; }
+#  endif
 };
+_LIBCPP_DIAGNOSTIC_POP
 
 template <class _Err>
 class bad_expected_access : public bad_expected_access<void> {

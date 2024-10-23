@@ -316,13 +316,13 @@ class SizeClassAllocator64 {
     Printf(
         "%s %02zd (%6zd): mapped: %6zdK allocs: %7zd frees: %7zd inuse: %6zd "
         "num_freed_chunks %7zd avail: %6zd rss: %6zdK releases: %6zd "
-        "last released: %6lldK region: 0x%zx\n",
+        "last released: %6lldK region: %p\n",
         region->exhausted ? "F" : " ", class_id, ClassIdToSize(class_id),
         region->mapped_user >> 10, region->stats.n_allocated,
         region->stats.n_freed, in_use, region->num_freed_chunks, avail_chunks,
         rss >> 10, region->rtoi.num_releases,
         region->rtoi.last_released_bytes >> 10,
-        SpaceBeg() + kRegionSize * class_id);
+        (void *)(SpaceBeg() + kRegionSize * class_id));
   }
 
   void PrintStats() {
@@ -636,15 +636,17 @@ class SizeClassAllocator64 {
   }
   uptr SpaceEnd() const { return  SpaceBeg() + kSpaceSize; }
   // kRegionSize should be able to satisfy the largest size class.
-  static_assert(kRegionSize >= SizeClassMap::kMaxSize);
+  static_assert(kRegionSize >= SizeClassMap::kMaxSize,
+                "Region size exceed largest size");
   // kRegionSize must be <= 2^36, see CompactPtrT.
-  COMPILER_CHECK((kRegionSize) <= (1ULL << (SANITIZER_WORDSIZE / 2 + 4)));
+  COMPILER_CHECK((kRegionSize) <=
+                 (1ULL << (sizeof(CompactPtrT) * 8 + kCompactPtrScale)));
   // Call mmap for user memory with at least this size.
-  static const uptr kUserMapSize = 1 << 16;
+  static const uptr kUserMapSize = 1 << 18;
   // Call mmap for metadata memory with at least this size.
   static const uptr kMetaMapSize = 1 << 16;
   // Call mmap for free array memory with at least this size.
-  static const uptr kFreeArrayMapSize = 1 << 16;
+  static const uptr kFreeArrayMapSize = 1 << 18;
 
   atomic_sint32_t release_to_os_interval_ms_;
 
@@ -665,7 +667,7 @@ class SizeClassAllocator64 {
     u64 last_released_bytes;
   };
 
-  struct ALIGNED(SANITIZER_CACHE_LINE_SIZE) RegionInfo {
+  struct alignas(SANITIZER_CACHE_LINE_SIZE) RegionInfo {
     Mutex mutex;
     uptr num_freed_chunks;  // Number of elements in the freearray.
     uptr mapped_free_array;  // Bytes mapped for freearray.

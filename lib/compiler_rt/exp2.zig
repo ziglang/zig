@@ -15,15 +15,15 @@ const common = @import("common.zig");
 pub const panic = common.panic;
 
 comptime {
-    @export(__exp2h, .{ .name = "__exp2h", .linkage = common.linkage, .visibility = common.visibility });
-    @export(exp2f, .{ .name = "exp2f", .linkage = common.linkage, .visibility = common.visibility });
-    @export(exp2, .{ .name = "exp2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__exp2x, .{ .name = "__exp2x", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__exp2h, .{ .name = "__exp2h", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&exp2f, .{ .name = "exp2f", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&exp2, .{ .name = "exp2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__exp2x, .{ .name = "__exp2x", .linkage = common.linkage, .visibility = common.visibility });
     if (common.want_ppc_abi) {
-        @export(exp2q, .{ .name = "exp2f128", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&exp2q, .{ .name = "exp2f128", .linkage = common.linkage, .visibility = common.visibility });
     }
-    @export(exp2q, .{ .name = "exp2q", .linkage = common.linkage, .visibility = common.visibility });
-    @export(exp2l, .{ .name = "exp2l", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&exp2q, .{ .name = "exp2q", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&exp2l, .{ .name = "exp2l", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 pub fn __exp2h(x: f16) callconv(.C) f16 {
@@ -55,7 +55,7 @@ pub fn exp2f(x: f32) callconv(.C) f32 {
         // x < -126
         if (u >= 0x80000000) {
             if (u >= 0xC3160000 or u & 0x000FFFF != 0) {
-                mem.doNotOptimizeAway(-0x1.0p-149 / x);
+                if (common.want_float_exceptions) mem.doNotOptimizeAway(-0x1.0p-149 / x);
             }
             // x <= -150
             if (u >= 0x3160000) {
@@ -120,7 +120,7 @@ pub fn exp2(x: f64) callconv(.C) f64 {
         if (ux >> 63 != 0) {
             // underflow
             if (x <= -1075 or x - 0x1.0p52 + 0x1.0p52 != x) {
-                mem.doNotOptimizeAway(@as(f32, @floatCast(-0x1.0p-149 / x)));
+                if (common.want_float_exceptions) mem.doNotOptimizeAway(@as(f32, @floatCast(-0x1.0p-149 / x)));
             }
             if (x <= -1075) {
                 return 0;
@@ -168,7 +168,7 @@ pub fn exp2q(x: f128) callconv(.C) f128 {
 }
 
 pub fn exp2l(x: c_longdouble) callconv(.C) c_longdouble {
-    switch (@typeInfo(c_longdouble).Float.bits) {
+    switch (@typeInfo(c_longdouble).float.bits) {
         16 => return __exp2h(x),
         32 => return exp2f(x),
         64 => return exp2(x),

@@ -188,10 +188,11 @@ template <class T, class Allocator, class Predicate>
 #include <__algorithm/remove.h>
 #include <__algorithm/remove_if.h>
 #include <__algorithm/unwrap_iter.h>
-#include <__assert> // all public C++ headers provide the assertion handler
-#include <__availability>
+#include <__assert>
 #include <__config>
+#include <__debug_utils/sanitizers.h>
 #include <__format/enable_insertable.h>
+#include <__fwd/deque.h>
 #include <__iterator/distance.h>
 #include <__iterator/iterator_traits.h>
 #include <__iterator/next.h>
@@ -213,6 +214,7 @@ template <class T, class Allocator, class Predicate>
 #include <__type_traits/is_allocator.h>
 #include <__type_traits/is_convertible.h>
 #include <__type_traits/is_same.h>
+#include <__type_traits/is_swappable.h>
 #include <__type_traits/type_identity.h>
 #include <__utility/forward.h>
 #include <__utility/move.h>
@@ -243,9 +245,6 @@ _LIBCPP_PUSH_MACROS
 #include <__undef_macros>
 
 _LIBCPP_BEGIN_NAMESPACE_STD
-
-template <class _Tp, class _Allocator = allocator<_Tp> >
-class _LIBCPP_TEMPLATE_VIS deque;
 
 template <class _ValueType, class _DiffType>
 struct __deque_block_size {
@@ -377,10 +376,13 @@ public:
     return __x.__ptr_ == __y.__ptr_;
   }
 
+#if _LIBCPP_STD_VER <= 17
   _LIBCPP_HIDE_FROM_ABI friend bool operator!=(const __deque_iterator& __x, const __deque_iterator& __y) {
     return !(__x == __y);
   }
+#endif
 
+  // TODO(mordante) disable these overloads in the LLVM 20 release.
   _LIBCPP_HIDE_FROM_ABI friend bool operator<(const __deque_iterator& __x, const __deque_iterator& __y) {
     return __x.__m_iter_ < __y.__m_iter_ || (__x.__m_iter_ == __y.__m_iter_ && __x.__ptr_ < __y.__ptr_);
   }
@@ -396,6 +398,29 @@ public:
   _LIBCPP_HIDE_FROM_ABI friend bool operator>=(const __deque_iterator& __x, const __deque_iterator& __y) {
     return !(__x < __y);
   }
+
+#if _LIBCPP_STD_VER >= 20
+  _LIBCPP_HIDE_FROM_ABI friend strong_ordering operator<=>(const __deque_iterator& __x, const __deque_iterator& __y) {
+    if (__x.__m_iter_ < __y.__m_iter_)
+      return strong_ordering::less;
+
+    if (__x.__m_iter_ == __y.__m_iter_) {
+      if constexpr (three_way_comparable<pointer, strong_ordering>) {
+        return __x.__ptr_ <=> __y.__ptr_;
+      } else {
+        if (__x.__ptr_ < __y.__ptr_)
+          return strong_ordering::less;
+
+        if (__x.__ptr_ == __y.__ptr_)
+          return strong_ordering::equal;
+
+        return strong_ordering::greater;
+      }
+    }
+
+    return strong_ordering::greater;
+  }
+#endif // _LIBCPP_STD_VER >= 20
 
 private:
   _LIBCPP_HIDE_FROM_ABI explicit __deque_iterator(__map_iterator __m, pointer __p) _NOEXCEPT
@@ -450,11 +475,11 @@ public:
 
   using value_type = _Tp;
 
-  static_assert((is_same<typename _Allocator::value_type, value_type>::value),
-                "Allocator::value_type must be same type as value_type");
-
   using allocator_type = _Allocator;
   using __alloc_traits = allocator_traits<allocator_type>;
+  static_assert(__check_valid_allocator<allocator_type>::value, "");
+  static_assert(is_same<typename allocator_type::value_type, value_type>::value,
+                "Allocator::value_type must be same type as value_type");
 
   using size_type       = typename __alloc_traits::size_type;
   using difference_type = typename __alloc_traits::difference_type;
@@ -479,15 +504,22 @@ public:
   using reverse_iterator       = std::reverse_iterator<iterator>;
   using const_reverse_iterator = std::reverse_iterator<const_iterator>;
 
-  static_assert(is_same<allocator_type, __rebind_alloc<__alloc_traits, value_type> >::value,
-                "[allocator.requirements] states that rebinding an allocator to the same type should result in the "
-                "original allocator");
+  // A deque contains the following members which may be trivially relocatable:
+  // - __map: is a `__split_buffer`, see `__split_buffer` for more information on when it is trivially relocatable
+  // - size_type: is always trivially relocatable, since it is required to be an integral type
+  // - allocator_type: may not be trivially relocatable, so it's checked
+  // None of these are referencing the `deque` itself, so if all of them are trivially relocatable, `deque` is too.
+  using __trivially_relocatable = __conditional_t<
+      __libcpp_is_trivially_relocatable<__map>::value && __libcpp_is_trivially_relocatable<allocator_type>::value,
+      deque,
+      void>;
+
   static_assert(is_nothrow_default_constructible<allocator_type>::value ==
                     is_nothrow_default_constructible<__pointer_allocator>::value,
-                "rebinding an allocator should not change excpetion guarantees");
+                "rebinding an allocator should not change exception guarantees");
   static_assert(is_nothrow_move_constructible<allocator_type>::value ==
                     is_nothrow_move_constructible<typename __map::allocator_type>::value,
-                "rebinding an allocator should not change excpetion guarantees");
+                "rebinding an allocator should not change exception guarantees");
 
 private:
   struct __deque_block_range {
@@ -581,7 +613,7 @@ public:
 #endif
   _LIBCPP_HIDE_FROM_ABI deque(size_type __n, const value_type& __v);
 
-  template <class = __enable_if_t<__is_allocator<_Allocator>::value> >
+  template <__enable_if_t<__is_allocator<_Allocator>::value, int> = 0>
   _LIBCPP_HIDE_FROM_ABI deque(size_type __n, const value_type& __v, const allocator_type& __a)
       : __map_(__pointer_allocator(__a)), __start_(0), __size_(0, __a) {
     __annotate_new(0);
@@ -623,11 +655,11 @@ public:
     return *this;
   }
 
-  _LIBCPP_HIDE_FROM_ABI deque(deque&& __c) _NOEXCEPT_(is_nothrow_move_constructible<allocator_type>::value);
+  _LIBCPP_HIDE_FROM_ABI deque(deque&& __c) noexcept(is_nothrow_move_constructible<allocator_type>::value);
   _LIBCPP_HIDE_FROM_ABI deque(deque&& __c, const __type_identity_t<allocator_type>& __a);
-  _LIBCPP_HIDE_FROM_ABI deque& operator=(deque&& __c)
-      _NOEXCEPT_(__alloc_traits::propagate_on_container_move_assignment::value&&
-                     is_nothrow_move_assignable<allocator_type>::value);
+  _LIBCPP_HIDE_FROM_ABI deque&
+  operator=(deque&& __c) noexcept(__alloc_traits::propagate_on_container_move_assignment::value &&
+                                  is_nothrow_move_assignable<allocator_type>::value);
 
   _LIBCPP_HIDE_FROM_ABI void assign(initializer_list<value_type> __il) { assign(__il.begin(), __il.end()); }
 #endif // _LIBCPP_CXX03_LANG
@@ -709,7 +741,7 @@ public:
   _LIBCPP_HIDE_FROM_ABI void resize(size_type __n);
   _LIBCPP_HIDE_FROM_ABI void resize(size_type __n, const value_type& __v);
   _LIBCPP_HIDE_FROM_ABI void shrink_to_fit() _NOEXCEPT;
-  _LIBCPP_NODISCARD_AFTER_CXX17 _LIBCPP_HIDE_FROM_ABI bool empty() const _NOEXCEPT { return size() == 0; }
+  _LIBCPP_NODISCARD _LIBCPP_HIDE_FROM_ABI bool empty() const _NOEXCEPT { return size() == 0; }
 
   // element access:
   _LIBCPP_HIDE_FROM_ABI reference operator[](size_type __i) _NOEXCEPT;
@@ -796,7 +828,7 @@ public:
 #if _LIBCPP_STD_VER >= 14
       _NOEXCEPT;
 #else
-      _NOEXCEPT_(!__alloc_traits::propagate_on_container_swap::value || __is_nothrow_swappable<allocator_type>::value);
+      _NOEXCEPT_(!__alloc_traits::propagate_on_container_swap::value || __is_nothrow_swappable_v<allocator_type>);
 #endif
   _LIBCPP_HIDE_FROM_ABI void clear() _NOEXCEPT;
 
@@ -865,33 +897,6 @@ private:
     __asan_front_moved,
     __asan_back_moved,
   };
-
-  // The following functions are no-ops outside of AddressSanitizer mode.
-  // We call annotations for every allocator, unless explicitly disabled.
-  //
-  // To disable annotations for a particular allocator, change value of
-  // __asan_annotate_container_with_allocator to false.
-  // For more details, see the "Using libc++" documentation page or
-  // the documentation for __sanitizer_annotate_contiguous_container.
-  _LIBCPP_HIDE_FROM_ABI void __annotate_double_ended_contiguous_container(
-      const void* __beg,
-      const void* __end,
-      const void* __old_con_beg,
-      const void* __old_con_end,
-      const void* __new_con_beg,
-      const void* __new_con_end) const {
-    (void)__beg;
-    (void)__end;
-    (void)__old_con_beg;
-    (void)__old_con_end;
-    (void)__new_con_beg;
-    (void)__new_con_end;
-#ifndef _LIBCPP_HAS_NO_ASAN
-    if (__beg != nullptr && __asan_annotate_container_with_allocator<_Allocator>::value)
-      __sanitizer_annotate_double_ended_contiguous_container(
-          __beg, __end, __old_con_beg, __old_con_end, __new_con_beg, __new_con_end);
-#endif
-  }
 
   _LIBCPP_HIDE_FROM_ABI void __annotate_from_to(
       size_type __beg,
@@ -992,7 +997,8 @@ private:
       const void* __new_beg = __front ? __new_edge : __old_edge;
       const void* __new_end = __front ? __old_edge : __new_edge;
 
-      __annotate_double_ended_contiguous_container(__mem_beg, __mem_end, __old_beg, __old_end, __new_beg, __new_end);
+      std::__annotate_double_ended_contiguous_container<_Allocator>(
+          __mem_beg, __mem_end, __old_beg, __old_end, __new_beg, __new_end);
     }
 #endif // !_LIBCPP_HAS_NO_ASAN
   }
@@ -1053,11 +1059,7 @@ private:
   }
 
   _LIBCPP_HIDE_FROM_ABI void __annotate_poison_block(const void* __beginning, const void* __end) const _NOEXCEPT {
-    (void)__beginning;
-    (void)__end;
-#ifndef _LIBCPP_HAS_NO_ASAN
-    __annotate_double_ended_contiguous_container(__beginning, __end, __beginning, __end, __end, __end);
-#endif
+    std::__annotate_double_ended_contiguous_container<_Allocator>(__beginning, __end, __beginning, __end, __end, __end);
   }
 
   _LIBCPP_HIDE_FROM_ABI void
@@ -1072,7 +1074,7 @@ private:
     if (__annotation_type == __asan_poison)
       __annotate_poison_block(__block_start, __block_end);
     else {
-      __annotate_double_ended_contiguous_container(
+      std::__annotate_double_ended_contiguous_container<_Allocator>(
           __block_start, __block_end, __block_start, __block_start, __block_start, __block_end);
     }
 #endif
@@ -1330,7 +1332,7 @@ deque<_Tp, _Allocator>::deque(initializer_list<value_type> __il, const allocator
 }
 
 template <class _Tp, class _Allocator>
-inline deque<_Tp, _Allocator>::deque(deque&& __c) _NOEXCEPT_(is_nothrow_move_constructible<allocator_type>::value)
+inline deque<_Tp, _Allocator>::deque(deque&& __c) noexcept(is_nothrow_move_constructible<allocator_type>::value)
     : __map_(std::move(__c.__map_)), __start_(std::move(__c.__start_)), __size_(std::move(__c.__size_)) {
   __c.__start_ = 0;
   __c.__size() = 0;
@@ -1354,8 +1356,9 @@ inline deque<_Tp, _Allocator>::deque(deque&& __c, const __type_identity_t<alloca
 }
 
 template <class _Tp, class _Allocator>
-inline deque<_Tp, _Allocator>& deque<_Tp, _Allocator>::operator=(deque&& __c) _NOEXCEPT_(
-    __alloc_traits::propagate_on_container_move_assignment::value&& is_nothrow_move_assignable<allocator_type>::value) {
+inline deque<_Tp, _Allocator>& deque<_Tp, _Allocator>::operator=(deque&& __c) noexcept(
+    __alloc_traits::propagate_on_container_move_assignment::value &&
+    is_nothrow_move_assignable<allocator_type>::value) {
   __move_assign(__c, integral_constant<bool, __alloc_traits::propagate_on_container_move_assignment::value>());
   return *this;
 }
@@ -1370,8 +1373,8 @@ void deque<_Tp, _Allocator>::__move_assign(deque& __c, false_type) {
 }
 
 template <class _Tp, class _Allocator>
-void deque<_Tp, _Allocator>::__move_assign(deque& __c, true_type)
-    _NOEXCEPT_(is_nothrow_move_assignable<allocator_type>::value) {
+void deque<_Tp, _Allocator>::__move_assign(deque& __c,
+                                           true_type) noexcept(is_nothrow_move_assignable<allocator_type>::value) {
   clear();
   shrink_to_fit();
   __move_assign(__c);
@@ -1487,6 +1490,7 @@ void deque<_Tp, _Allocator>::shrink_to_fit() _NOEXCEPT {
 
 template <class _Tp, class _Allocator>
 inline typename deque<_Tp, _Allocator>::reference deque<_Tp, _Allocator>::operator[](size_type __i) _NOEXCEPT {
+  _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(__i < size(), "deque::operator[] index out of bounds");
   size_type __p = __start_ + __i;
   return *(*(__map_.begin() + __p / __block_size) + __p % __block_size);
 }
@@ -1494,6 +1498,7 @@ inline typename deque<_Tp, _Allocator>::reference deque<_Tp, _Allocator>::operat
 template <class _Tp, class _Allocator>
 inline typename deque<_Tp, _Allocator>::const_reference
 deque<_Tp, _Allocator>::operator[](size_type __i) const _NOEXCEPT {
+  _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(__i < size(), "deque::operator[] index out of bounds");
   size_type __p = __start_ + __i;
   return *(*(__map_.begin() + __p / __block_size) + __p % __block_size);
 }
@@ -1516,22 +1521,26 @@ inline typename deque<_Tp, _Allocator>::const_reference deque<_Tp, _Allocator>::
 
 template <class _Tp, class _Allocator>
 inline typename deque<_Tp, _Allocator>::reference deque<_Tp, _Allocator>::front() _NOEXCEPT {
+  _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(!empty(), "deque::front called on an empty deque");
   return *(*(__map_.begin() + __start_ / __block_size) + __start_ % __block_size);
 }
 
 template <class _Tp, class _Allocator>
 inline typename deque<_Tp, _Allocator>::const_reference deque<_Tp, _Allocator>::front() const _NOEXCEPT {
+  _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(!empty(), "deque::front called on an empty deque");
   return *(*(__map_.begin() + __start_ / __block_size) + __start_ % __block_size);
 }
 
 template <class _Tp, class _Allocator>
 inline typename deque<_Tp, _Allocator>::reference deque<_Tp, _Allocator>::back() _NOEXCEPT {
+  _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(!empty(), "deque::back called on an empty deque");
   size_type __p = size() + __start_ - 1;
   return *(*(__map_.begin() + __p / __block_size) + __p % __block_size);
 }
 
 template <class _Tp, class _Allocator>
 inline typename deque<_Tp, _Allocator>::const_reference deque<_Tp, _Allocator>::back() const _NOEXCEPT {
+  _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(!empty(), "deque::back called on an empty deque");
   size_type __p = size() + __start_ - 1;
   return *(*(__map_.begin() + __p / __block_size) + __p % __block_size);
 }
@@ -2255,6 +2264,7 @@ void deque<_Tp, _Allocator>::__add_back_capacity(size_type __n) {
 
 template <class _Tp, class _Allocator>
 void deque<_Tp, _Allocator>::pop_front() {
+  _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(!empty(), "deque::pop_front called on an empty deque");
   size_type __old_sz    = size();
   size_type __old_start = __start_;
   allocator_type& __a   = __alloc();
@@ -2395,6 +2405,8 @@ void deque<_Tp, _Allocator>::__move_construct_backward_and_check(
 
 template <class _Tp, class _Allocator>
 typename deque<_Tp, _Allocator>::iterator deque<_Tp, _Allocator>::erase(const_iterator __f) {
+  _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(
+      __f != end(), "deque::erase(iterator) called with a non-dereferenceable iterator");
   size_type __old_sz    = size();
   size_type __old_start = __start_;
   iterator __b          = begin();
@@ -2420,6 +2432,7 @@ typename deque<_Tp, _Allocator>::iterator deque<_Tp, _Allocator>::erase(const_it
 
 template <class _Tp, class _Allocator>
 typename deque<_Tp, _Allocator>::iterator deque<_Tp, _Allocator>::erase(const_iterator __f, const_iterator __l) {
+  _LIBCPP_ASSERT_VALID_INPUT_RANGE(__f <= __l, "deque::erase(first, last) called with an invalid range");
   size_type __old_sz    = size();
   size_type __old_start = __start_;
   difference_type __n   = __l - __f;
@@ -2474,7 +2487,7 @@ inline void deque<_Tp, _Allocator>::swap(deque& __c)
 #if _LIBCPP_STD_VER >= 14
     _NOEXCEPT
 #else
-    _NOEXCEPT_(!__alloc_traits::propagate_on_container_swap::value || __is_nothrow_swappable<allocator_type>::value)
+    _NOEXCEPT_(!__alloc_traits::propagate_on_container_swap::value || __is_nothrow_swappable_v<allocator_type>)
 #endif
 {
   __map_.swap(__c.__map_);
@@ -2543,8 +2556,7 @@ inline _LIBCPP_HIDE_FROM_ABI bool operator<=(const deque<_Tp, _Allocator>& __x, 
 template <class _Tp, class _Allocator>
 _LIBCPP_HIDE_FROM_ABI __synth_three_way_result<_Tp>
 operator<=>(const deque<_Tp, _Allocator>& __x, const deque<_Tp, _Allocator>& __y) {
-  return std::lexicographical_compare_three_way(
-      __x.begin(), __x.end(), __y.begin(), __y.end(), std::__synth_three_way<_Tp, _Tp>);
+  return std::lexicographical_compare_three_way(__x.begin(), __x.end(), __y.begin(), __y.end(), std::__synth_three_way);
 }
 
 #endif // _LIBCPP_STD_VER <= 17

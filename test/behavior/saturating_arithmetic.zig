@@ -154,6 +154,109 @@ test "saturating subtraction 128bit" {
     try comptime S.doTheTest();
 }
 
+fn testSatMul(comptime T: type, a: T, b: T, expected: T) !void {
+    const res: T = a *| b;
+    try expect(res == expected);
+}
+
+test "saturating multiplication <= 32 bits" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c and comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .wasm32) {
+        // https://github.com/ziglang/zig/issues/9660
+        return error.SkipZigTest;
+    }
+
+    try testSatMul(u8, 0, maxInt(u8), 0);
+    try testSatMul(u8, 1 << 7, 1 << 7, maxInt(u8));
+    try testSatMul(u8, maxInt(u8) - 1, 2, maxInt(u8));
+    try testSatMul(u8, 1 << 4, 1 << 4, maxInt(u8));
+    try testSatMul(u8, 1 << 4, 1 << 3, 1 << 7);
+    try testSatMul(u8, 1 << 5, 1 << 3, maxInt(u8));
+    try testSatMul(u8, 10, 20, 200);
+
+    try testSatMul(u16, 0, maxInt(u16), 0);
+    try testSatMul(u16, 1 << 15, 1 << 15, maxInt(u16));
+    try testSatMul(u16, maxInt(u16) - 1, 2, maxInt(u16));
+    try testSatMul(u16, 1 << 8, 1 << 8, maxInt(u16));
+    try testSatMul(u16, 1 << 12, 1 << 3, 1 << 15);
+    try testSatMul(u16, 1 << 13, 1 << 3, maxInt(u16));
+    try testSatMul(u16, 10, 20, 200);
+
+    try testSatMul(u32, 0, maxInt(u32), 0);
+    try testSatMul(u32, 1 << 31, 1 << 31, maxInt(u32));
+    try testSatMul(u32, maxInt(u32) - 1, 2, maxInt(u32));
+    try testSatMul(u32, 1 << 16, 1 << 16, maxInt(u32));
+    try testSatMul(u32, 1 << 28, 1 << 3, 1 << 31);
+    try testSatMul(u32, 1 << 29, 1 << 3, maxInt(u32));
+    try testSatMul(u32, 10, 20, 200);
+
+    try testSatMul(i8, 0, maxInt(i8), 0);
+    try testSatMul(i8, 0, minInt(i8), 0);
+    try testSatMul(i8, 1 << 6, 1 << 6, maxInt(i8));
+    try testSatMul(i8, minInt(i8), minInt(i8), maxInt(i8));
+    try testSatMul(i8, maxInt(i8) - 1, 2, maxInt(i8));
+    try testSatMul(i8, minInt(i8) + 1, 2, minInt(i8));
+    try testSatMul(i8, 1 << 4, 1 << 4, maxInt(i8));
+    try testSatMul(i8, minInt(i4), 1 << 4, minInt(i8));
+    try testSatMul(i8, 10, 12, 120);
+    try testSatMul(i8, 10, -12, -120);
+
+    try testSatMul(i16, 0, maxInt(i16), 0);
+    try testSatMul(i16, 0, minInt(i16), 0);
+    try testSatMul(i16, 1 << 14, 1 << 14, maxInt(i16));
+    try testSatMul(i16, minInt(i16), minInt(i16), maxInt(i16));
+    try testSatMul(i16, maxInt(i16) - 1, 2, maxInt(i16));
+    try testSatMul(i16, minInt(i16) + 1, 2, minInt(i16));
+    try testSatMul(i16, 1 << 8, 1 << 8, maxInt(i16));
+    try testSatMul(i16, minInt(i8), 1 << 8, minInt(i16));
+    try testSatMul(i16, 10, 12, 120);
+    try testSatMul(i16, 10, -12, -120);
+
+    try testSatMul(i32, 0, maxInt(i32), 0);
+    try testSatMul(i32, 0, minInt(i32), 0);
+    try testSatMul(i32, 1 << 30, 1 << 30, maxInt(i32));
+    try testSatMul(i32, minInt(i32), minInt(i32), maxInt(i32));
+    try testSatMul(i32, maxInt(i32) - 1, 2, maxInt(i32));
+    try testSatMul(i32, minInt(i32) + 1, 2, minInt(i32));
+    try testSatMul(i32, 1 << 16, 1 << 16, maxInt(i32));
+    try testSatMul(i32, minInt(i16), 1 << 16, minInt(i32));
+    try testSatMul(i32, 10, 12, 120);
+    try testSatMul(i32, 10, -12, -120);
+}
+
+// TODO: remove this test, integrate into general test
+test "saturating mul i64, i128, wasm only" {
+    if (builtin.zig_backend != .stage2_wasm) return error.SkipZigTest;
+
+    try testSatMul(i64, 0, maxInt(i64), 0);
+    try testSatMul(i64, 0, minInt(i64), 0);
+    try testSatMul(i64, 1 << 62, 1 << 62, maxInt(i64));
+    try testSatMul(i64, minInt(i64), minInt(i64), maxInt(i64));
+    try testSatMul(i64, maxInt(i64) - 1, 2, maxInt(i64));
+    try testSatMul(i64, minInt(i64) + 1, 2, minInt(i64));
+    try testSatMul(i64, 1 << 32, 1 << 32, maxInt(i64));
+    try testSatMul(i64, minInt(i32), 1 << 32, minInt(i64));
+    try testSatMul(i64, 10, 12, 120);
+    try testSatMul(i64, 10, -12, -120);
+
+    try testSatMul(i128, 0, maxInt(i128), 0);
+    try testSatMul(i128, 0, minInt(i128), 0);
+    try testSatMul(i128, 1 << 126, 1 << 126, maxInt(i128));
+    try testSatMul(i128, minInt(i128), minInt(i128), maxInt(i128));
+    try testSatMul(i128, maxInt(i128) - 1, 2, maxInt(i128));
+    try testSatMul(i128, minInt(i128) + 1, 2, minInt(i128));
+    try testSatMul(i128, 1 << 64, 1 << 64, maxInt(i128));
+    try testSatMul(i128, minInt(i64), 1 << 64, minInt(i128));
+    try testSatMul(i128, 10, 12, 120);
+    try testSatMul(i128, 10, -12, -120);
+}
+
 test "saturating multiplication" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
@@ -183,23 +286,15 @@ test "saturating multiplication" {
             try testSatMul(u8, 2, 255, 255);
             try testSatMul(u128, maxInt(u128), maxInt(u128), maxInt(u128));
         }
-
-        fn testSatMul(comptime T: type, lhs: T, rhs: T, expected: T) !void {
-            try expect((lhs *| rhs) == expected);
-
-            var x = lhs;
-            x *|= rhs;
-            try expect(x == expected);
-        }
     };
 
     try S.doTheTest();
     try comptime S.doTheTest();
 
-    try comptime S.testSatMul(comptime_int, 0, 0, 0);
-    try comptime S.testSatMul(comptime_int, 3, 2, 6);
-    try comptime S.testSatMul(comptime_int, 651075816498665588400716961808225370057, 468229432685078038144554201546849378455, 304852860194144160265083087140337419215516305999637969803722975979232817921935);
-    try comptime S.testSatMul(comptime_int, 7, -593423721213448152027139550640105366508, -4153966048494137064189976854480737565556);
+    try comptime testSatMul(comptime_int, 0, 0, 0);
+    try comptime testSatMul(comptime_int, 3, 2, 6);
+    try comptime testSatMul(comptime_int, 651075816498665588400716961808225370057, 468229432685078038144554201546849378455, 304852860194144160265083087140337419215516305999637969803722975979232817921935);
+    try comptime testSatMul(comptime_int, 7, -593423721213448152027139550640105366508, -4153966048494137064189976854480737565556);
 }
 
 test "saturating shift-left" {

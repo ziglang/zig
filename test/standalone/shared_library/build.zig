@@ -4,13 +4,8 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Test it");
     b.default_step = test_step;
 
-    if (@import("builtin").os.tag == .windows) {
-        // https://github.com/ziglang/zig/issues/16959
-        return;
-    }
-
     const optimize: std.builtin.OptimizeMode = .Debug;
-    const target = b.host;
+    const target = b.graph.host;
     const lib = b.addSharedLibrary(.{
         .name = "mathtest",
         .root_source_file = b.path("mathtest.zig"),

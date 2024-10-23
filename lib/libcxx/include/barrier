@@ -47,31 +47,28 @@ namespace std
 
 #include <__config>
 
-#ifdef _LIBCPP_HAS_NO_THREADS
-#  error "<barrier> is not supported since libc++ has been configured without support for threads."
-#endif
+#if !defined(_LIBCPP_HAS_NO_THREADS)
 
-#include <__assert> // all public C++ headers provide the assertion handler
-#include <__atomic/atomic_base.h>
-#include <__atomic/memory_order.h>
-#include <__availability>
-#include <__memory/unique_ptr.h>
-#include <__thread/poll_with_backoff.h>
-#include <__thread/timed_backoff_policy.h>
-#include <__utility/move.h>
-#include <cstddef>
-#include <cstdint>
-#include <limits>
-#include <version>
+#  include <__assert>
+#  include <__atomic/atomic_base.h>
+#  include <__atomic/memory_order.h>
+#  include <__memory/unique_ptr.h>
+#  include <__thread/poll_with_backoff.h>
+#  include <__thread/timed_backoff_policy.h>
+#  include <__utility/move.h>
+#  include <cstddef>
+#  include <cstdint>
+#  include <limits>
+#  include <version>
 
-#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#  pragma GCC system_header
-#endif
+#  if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#    pragma GCC system_header
+#  endif
 
 _LIBCPP_PUSH_MACROS
-#include <__undef_macros>
+#  include <__undef_macros>
 
-#if _LIBCPP_STD_VER >= 14
+#  if _LIBCPP_STD_VER >= 14
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -79,7 +76,7 @@ struct __empty_completion {
   inline _LIBCPP_HIDE_FROM_ABI void operator()() noexcept {}
 };
 
-#  ifndef _LIBCPP_HAS_NO_TREE_BARRIER
+#    ifndef _LIBCPP_HAS_NO_TREE_BARRIER
 
 /*
 
@@ -103,10 +100,10 @@ _LIBCPP_AVAILABILITY_SYNC _LIBCPP_EXPORTED_FROM_ABI __barrier_algorithm_base*
 __construct_barrier_algorithm_base(ptrdiff_t& __expected);
 
 _LIBCPP_AVAILABILITY_SYNC _LIBCPP_EXPORTED_FROM_ABI bool
-__arrive_barrier_algorithm_base(__barrier_algorithm_base* __barrier, __barrier_phase_t __old_phase);
+__arrive_barrier_algorithm_base(__barrier_algorithm_base* __barrier, __barrier_phase_t __old_phase) noexcept;
 
 _LIBCPP_AVAILABILITY_SYNC _LIBCPP_EXPORTED_FROM_ABI void
-__destroy_barrier_algorithm_base(__barrier_algorithm_base* __barrier);
+__destroy_barrier_algorithm_base(__barrier_algorithm_base* __barrier) noexcept;
 
 template <class _CompletionF>
 class __barrier_base {
@@ -128,7 +125,7 @@ public:
         __expected_adjustment_(0),
         __completion_(std::move(__completion)),
         __phase_(0) {}
-  [[__nodiscard__]] _LIBCPP_AVAILABILITY_SYNC _LIBCPP_HIDE_FROM_ABI arrival_token arrive(ptrdiff_t __update) {
+  _LIBCPP_NODISCARD _LIBCPP_AVAILABILITY_SYNC _LIBCPP_HIDE_FROM_ABI arrival_token arrive(ptrdiff_t __update) {
     _LIBCPP_ASSERT_ARGUMENT_WITHIN_DOMAIN(
         __update <= __expected_, "update is greater than the expected count for the current barrier phase");
 
@@ -153,7 +150,7 @@ public:
   }
 };
 
-#  else
+#    else
 
 /*
 
@@ -254,10 +251,10 @@ public:
   }
 };
 
-#  endif // !_LIBCPP_HAS_NO_TREE_BARRIER
+#    endif // !_LIBCPP_HAS_NO_TREE_BARRIER
 
 template <class _CompletionF = __empty_completion>
-class barrier {
+class _LIBCPP_DEPRECATED_ATOMIC_SYNC barrier {
   __barrier_base<_CompletionF> __b_;
 
 public:
@@ -265,8 +262,8 @@ public:
 
   static _LIBCPP_HIDE_FROM_ABI constexpr ptrdiff_t max() noexcept { return __barrier_base<_CompletionF>::max(); }
 
-  _LIBCPP_AVAILABILITY_SYNC _LIBCPP_HIDE_FROM_ABI explicit barrier(
-      ptrdiff_t __count, _CompletionF __completion = _CompletionF())
+  _LIBCPP_AVAILABILITY_SYNC
+  _LIBCPP_HIDE_FROM_ABI explicit barrier(ptrdiff_t __count, _CompletionF __completion = _CompletionF())
       : __b_(__count, std::move(__completion)) {
     _LIBCPP_ASSERT_ARGUMENT_WITHIN_DOMAIN(
         __count >= 0,
@@ -280,7 +277,7 @@ public:
   barrier(barrier const&)            = delete;
   barrier& operator=(barrier const&) = delete;
 
-  [[__nodiscard__]] _LIBCPP_AVAILABILITY_SYNC _LIBCPP_HIDE_FROM_ABI arrival_token arrive(ptrdiff_t __update = 1) {
+  _LIBCPP_NODISCARD _LIBCPP_AVAILABILITY_SYNC _LIBCPP_HIDE_FROM_ABI arrival_token arrive(ptrdiff_t __update = 1) {
     _LIBCPP_ASSERT_ARGUMENT_WITHIN_DOMAIN(__update > 0, "barrier:arrive must be called with a value greater than 0");
     return __b_.arrive(__update);
   }
@@ -293,9 +290,11 @@ public:
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // _LIBCPP_STD_VER >= 14
+#  endif // _LIBCPP_STD_VER >= 14
 
 _LIBCPP_POP_MACROS
+
+#endif // !defined(_LIBCPP_HAS_NO_THREADS)
 
 #if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
 #  include <atomic>

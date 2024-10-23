@@ -13,8 +13,7 @@
 #include <__concepts/equality_comparable.h>
 #include <__concepts/totally_ordered.h>
 #include <__config>
-#include <__type_traits/integral_constant.h>
-#include <__type_traits/operation_traits.h>
+#include <__type_traits/desugars_to.h>
 #include <__utility/forward.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -98,7 +97,10 @@ struct greater_equal {
 // For ranges we do not require that the types on each side of the equality
 // operator are of the same type
 template <class _Tp, class _Up>
-struct __desugars_to<__equal_tag, ranges::equal_to, _Tp, _Up> : true_type {};
+inline const bool __desugars_to_v<__equal_tag, ranges::equal_to, _Tp, _Up> = true;
+
+template <class _Tp, class _Up>
+inline const bool __desugars_to_v<__less_tag, ranges::less, _Tp, _Up> = true;
 
 #endif // _LIBCPP_STD_VER >= 20
 

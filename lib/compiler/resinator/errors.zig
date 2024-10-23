@@ -13,10 +13,10 @@ const builtin = @import("builtin");
 const native_endian = builtin.cpu.arch.endian();
 
 pub const Diagnostics = struct {
-    errors: std.ArrayListUnmanaged(ErrorDetails) = .{},
+    errors: std.ArrayListUnmanaged(ErrorDetails) = .empty,
     /// Append-only, cannot handle removing strings.
     /// Expects to own all strings within the list.
-    strings: std.ArrayListUnmanaged([]const u8) = .{},
+    strings: std.ArrayListUnmanaged([]const u8) = .empty,
     allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator) Diagnostics {
@@ -60,8 +60,8 @@ pub const Diagnostics = struct {
     }
 
     pub fn renderToStdErr(self: *Diagnostics, cwd: std.fs.Dir, source: []const u8, tty_config: std.io.tty.Config, source_mappings: ?SourceMappings) void {
-        std.debug.getStderrMutex().lock();
-        defer std.debug.getStderrMutex().unlock();
+        std.debug.lockStdErr();
+        defer std.debug.unlockStdErr();
         const stderr = std.io.getStdErr().writer();
         for (self.errors.items) |err_details| {
             renderErrorMessage(self.allocator, stderr, tty_config, cwd, err_details, source, self.strings.items, source_mappings) catch return;
@@ -250,7 +250,7 @@ pub const ErrorDetails = struct {
         });
 
         pub fn writeCommaSeparated(self: ExpectedTypes, writer: anytype) !void {
-            const struct_info = @typeInfo(ExpectedTypes).Struct;
+            const struct_info = @typeInfo(ExpectedTypes).@"struct";
             const num_real_fields = struct_info.fields.len - 1;
             const num_padding_bits = @bitSizeOf(ExpectedTypes) - num_real_fields;
             const mask = std.math.maxInt(struct_info.backing_integer.?) >> num_padding_bits;
@@ -968,7 +968,7 @@ pub fn renderErrorMessage(allocator: std.mem.Allocator, writer: anytype, tty_con
 const CorrespondingLines = struct {
     worth_printing_note: bool = true,
     worth_printing_lines: bool = true,
-    lines: std.ArrayListUnmanaged(u8) = .{},
+    lines: std.ArrayListUnmanaged(u8) = .empty,
     lines_is_error_message: bool = false,
 
     pub fn init(allocator: std.mem.Allocator, cwd: std.fs.Dir, err_details: ErrorDetails, lines_for_comparison: []const u8, corresponding_span: SourceMappings.CorrespondingSpan, corresponding_file: []const u8) !CorrespondingLines {

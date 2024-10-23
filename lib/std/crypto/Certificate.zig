@@ -345,7 +345,7 @@ pub const Parsed = struct {
     // component or component fragment. E.g., *.a.com matches foo.a.com but
     // not bar.foo.a.com. f*.com matches foo.com but not bar.com.
     fn checkHostName(host_name: []const u8, dns_name: []const u8) bool {
-        if (mem.eql(u8, dns_name, host_name)) {
+        if (std.ascii.eqlIgnoreCase(dns_name, host_name)) {
             return true; // exact match
         }
 
@@ -362,7 +362,7 @@ pub const Parsed = struct {
 
             // If not a wildcard and they dont
             // match then there is no match.
-            if (mem.eql(u8, dns.?, "*") == false and mem.eql(u8, dns.?, host.?) == false) {
+            if (mem.eql(u8, dns.?, "*") == false and std.ascii.eqlIgnoreCase(dns.?, host.?) == false) {
                 return false;
             }
         };
@@ -381,6 +381,9 @@ test "Parsed.checkHostName" {
     try expectEqual(false, Parsed.checkHostName("foo.bar.ziglang.org", "*.ziglang.org"));
     try expectEqual(false, Parsed.checkHostName("ziglang.org", "zig*.org"));
     try expectEqual(false, Parsed.checkHostName("lang.org", "zig*.org"));
+    // host name check should be case insensitive
+    try expectEqual(true, Parsed.checkHostName("ziglang.org", "Ziglang.org"));
+    try expectEqual(true, Parsed.checkHostName("bar.ziglang.org", "*.Ziglang.ORG"));
 }
 
 pub const ParseError = der.Element.ParseElementError || ParseVersionError || ParseTimeError || ParseEnumError || ParseBitStringError;
@@ -974,7 +977,7 @@ pub const rsa = struct {
             //      the hash function (2^61 - 1 octets for SHA-1), output
             //      "inconsistent" and stop.
             // All the cryptographic hash functions in the standard library have a limit of >= 2^61 - 1.
-            // Even then, this check is only there for paranoia. In the context of TLS certifcates, emBit cannot exceed 4096.
+            // Even then, this check is only there for paranoia. In the context of TLS certificates, emBit cannot exceed 4096.
             if (emBit >= 1 << 61) return error.InvalidSignature;
 
             // emLen = \ceil(emBits/8)

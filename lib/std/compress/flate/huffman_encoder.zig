@@ -168,7 +168,7 @@ pub fn HuffmanEncoder(comptime size: usize) type {
                 while (true) {
                     var l = &levels[level];
                     if (l.next_pair_freq == math.maxInt(i32) and l.next_char_freq == math.maxInt(i32)) {
-                        // We've run out of both leafs and pairs.
+                        // We've run out of both leaves and pairs.
                         // End all calculations for this level.
                         // To make sure we never come back to this level or any lower level,
                         // set next_pair_freq impossibly large.
@@ -455,7 +455,7 @@ test "generate a Huffman code for the 30 possible relative distances (LZ77 dista
 // Reverse bit-by-bit a N-bit code.
 fn bitReverse(comptime T: type, value: T, n: usize) T {
     const r = @bitReverse(value);
-    return r >> @as(math.Log2Int(T), @intCast(@typeInfo(T).Int.bits - n));
+    return r >> @as(math.Log2Int(T), @intCast(@typeInfo(T).int.bits - n));
 }
 
 test bitReverse {

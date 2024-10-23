@@ -9,6 +9,7 @@
 //===----------------------------------------------------------------------===//
 INTERFACE_WEAK_FUNCTION(__sanitizer_symbolize_code)
 INTERFACE_WEAK_FUNCTION(__sanitizer_symbolize_data)
+INTERFACE_WEAK_FUNCTION(__sanitizer_symbolize_frame)
 INTERFACE_WEAK_FUNCTION(__sanitizer_symbolize_demangle)
 INTERFACE_WEAK_FUNCTION(__sanitizer_symbolize_flush)
 INTERFACE_WEAK_FUNCTION(__sanitizer_symbolize_set_demangle)

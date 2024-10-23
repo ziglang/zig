@@ -21,21 +21,24 @@
 #include <__memory/compressed_pair.h>
 #include <__type_traits/add_lvalue_reference.h>
 #include <__type_traits/common_type.h>
+#include <__type_traits/conditional.h>
 #include <__type_traits/dependent_type.h>
 #include <__type_traits/integral_constant.h>
 #include <__type_traits/is_array.h>
 #include <__type_traits/is_assignable.h>
 #include <__type_traits/is_constructible.h>
 #include <__type_traits/is_convertible.h>
-#include <__type_traits/is_default_constructible.h>
 #include <__type_traits/is_function.h>
 #include <__type_traits/is_pointer.h>
 #include <__type_traits/is_reference.h>
 #include <__type_traits/is_same.h>
 #include <__type_traits/is_swappable.h>
+#include <__type_traits/is_trivially_relocatable.h>
 #include <__type_traits/is_void.h>
 #include <__type_traits/remove_extent.h>
+#include <__type_traits/remove_pointer.h>
 #include <__type_traits/type_identity.h>
+#include <__utility/declval.h>
 #include <__utility/forward.h>
 #include <__utility/move.h>
 #include <cstddef>
@@ -48,6 +51,17 @@ _LIBCPP_PUSH_MACROS
 #include <__undef_macros>
 
 _LIBCPP_BEGIN_NAMESPACE_STD
+
+#ifndef _LIBCPP_CXX03_LANG
+
+template <class _Ptr>
+struct __is_noexcept_deref_or_void {
+  static constexpr bool value = noexcept(*std::declval<_Ptr>());
+};
+
+template <>
+struct __is_noexcept_deref_or_void<void*> : true_type {};
+#endif
 
 template <class _Tp>
 struct _LIBCPP_TEMPLATE_VIS default_delete {
@@ -129,6 +143,17 @@ public:
 
   static_assert(!is_rvalue_reference<deleter_type>::value, "the specified deleter type cannot be an rvalue reference");
 
+  // A unique_ptr contains the following members which may be trivially relocatable:
+  // - pointer : this may be trivially relocatable, so it's checked
+  // - deleter_type: this may be trivially relocatable, so it's checked
+  //
+  // This unique_ptr implementation only contains a pointer to the unique object and a deleter, so there are no
+  // references to itself. This means that the entire structure is trivially relocatable if its members are.
+  using __trivially_relocatable = __conditional_t<
+      __libcpp_is_trivially_relocatable<pointer>::value && __libcpp_is_trivially_relocatable<deleter_type>::value,
+      unique_ptr,
+      void>;
+
 private:
   __compressed_pair<pointer, deleter_type> __ptr_;
 
@@ -171,8 +196,8 @@ public:
       : __ptr_(__value_init_tag(), __value_init_tag()) {}
 
   template <bool _Dummy = true, class = _EnableIfDeleterDefaultConstructible<_Dummy> >
-  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX23 explicit unique_ptr(pointer __p) _NOEXCEPT
-      : __ptr_(__p, __value_init_tag()) {}
+  _LIBCPP_HIDE_FROM_ABI
+  _LIBCPP_CONSTEXPR_SINCE_CXX23 explicit unique_ptr(pointer __p) _NOEXCEPT : __ptr_(__p, __value_init_tag()) {}
 
   template <bool _Dummy = true, class = _EnableIfDeleterConstructible<_LValRefType<_Dummy> > >
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX23 unique_ptr(pointer __p, _LValRefType<_Dummy> __d) _NOEXCEPT
@@ -240,7 +265,8 @@ public:
     return *this;
   }
 
-  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX23 __add_lvalue_reference_t<_Tp> operator*() const {
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX23 __add_lvalue_reference_t<_Tp> operator*() const
+      _NOEXCEPT_(__is_noexcept_deref_or_void<pointer>::value) {
     return *__ptr_.first();
   }
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX23 pointer operator->() const _NOEXCEPT { return __ptr_.first(); }
@@ -275,6 +301,17 @@ public:
   typedef _Tp element_type;
   typedef _Dp deleter_type;
   typedef typename __pointer<_Tp, deleter_type>::type pointer;
+
+  // A unique_ptr contains the following members which may be trivially relocatable:
+  // - pointer : this may be trivially relocatable, so it's checked
+  // - deleter_type: this may be trivially relocatable, so it's checked
+  //
+  // This unique_ptr implementation only contains a pointer to the unique object and a deleter, so there are no
+  // references to itself. This means that the entire structure is trivially relocatable if its members are.
+  using __trivially_relocatable = __conditional_t<
+      __libcpp_is_trivially_relocatable<pointer>::value && __libcpp_is_trivially_relocatable<deleter_type>::value,
+      unique_ptr,
+      void>;
 
 private:
   __compressed_pair<pointer, deleter_type> __ptr_;
@@ -336,8 +373,8 @@ public:
             bool _Dummy = true,
             class       = _EnableIfDeleterDefaultConstructible<_Dummy>,
             class       = _EnableIfPointerConvertible<_Pp> >
-  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX23 explicit unique_ptr(_Pp __p) _NOEXCEPT
-      : __ptr_(__p, __value_init_tag()) {}
+  _LIBCPP_HIDE_FROM_ABI
+  _LIBCPP_CONSTEXPR_SINCE_CXX23 explicit unique_ptr(_Pp __p) _NOEXCEPT : __ptr_(__p, __value_init_tag()) {}
 
   template <class _Pp,
             bool _Dummy = true,
@@ -448,7 +485,7 @@ public:
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX23 void swap(unique_ptr& __u) _NOEXCEPT { __ptr_.swap(__u.__ptr_); }
 };
 
-template <class _Tp, class _Dp, __enable_if_t<__is_swappable<_Dp>::value, int> = 0>
+template <class _Tp, class _Dp, __enable_if_t<__is_swappable_v<_Dp>, int> = 0>
 inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX23 void
 swap(unique_ptr<_Tp, _Dp>& __x, unique_ptr<_Tp, _Dp>& __y) _NOEXCEPT {
   __x.swap(__y);
@@ -494,8 +531,8 @@ inline _LIBCPP_HIDE_FROM_ABI bool operator>=(const unique_ptr<_T1, _D1>& __x, co
 template <class _T1, class _D1, class _T2, class _D2>
   requires three_way_comparable_with<typename unique_ptr<_T1, _D1>::pointer, typename unique_ptr<_T2, _D2>::pointer>
 _LIBCPP_HIDE_FROM_ABI
-    compare_three_way_result_t<typename unique_ptr<_T1, _D1>::pointer, typename unique_ptr<_T2, _D2>::pointer>
-    operator<=>(const unique_ptr<_T1, _D1>& __x, const unique_ptr<_T2, _D2>& __y) {
+compare_three_way_result_t<typename unique_ptr<_T1, _D1>::pointer, typename unique_ptr<_T2, _D2>::pointer>
+operator<=>(const unique_ptr<_T1, _D1>& __x, const unique_ptr<_T2, _D2>& __y) {
   return compare_three_way()(__x.get(), __y.get());
 }
 #endif

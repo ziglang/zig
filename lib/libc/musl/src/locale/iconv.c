@@ -49,7 +49,7 @@ static const unsigned char charmaps[] =
 "ucs4\0utf32\0\0\313"
 "ucs2\0\0\314"
 "eucjp\0\0\320"
-"shiftjis\0sjis\0\0\321"
+"shiftjis\0sjis\0cp932\0\0\321"
 "iso2022jp\0\0\322"
 "gb18030\0\0\330"
 "gbk\0\0\331"

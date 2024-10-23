@@ -22,8 +22,8 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 #if _LIBCPP_STD_VER <= 17 || defined(_LIBCPP_ENABLE_CXX20_REMOVED_NEGATORS)
 
 template <class _Predicate>
-class _LIBCPP_TEMPLATE_VIS _LIBCPP_DEPRECATED_IN_CXX17 unary_negate
-    : public __unary_function<typename _Predicate::argument_type, bool> {
+class _LIBCPP_TEMPLATE_VIS
+_LIBCPP_DEPRECATED_IN_CXX17 unary_negate : public __unary_function<typename _Predicate::argument_type, bool> {
   _Predicate __pred_;
 
 public:

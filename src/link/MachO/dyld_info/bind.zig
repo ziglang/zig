@@ -1,36 +1,24 @@
-const std = @import("std");
-const assert = std.debug.assert;
-const leb = std.leb;
-const log = std.log.scoped(.link_dyld_info);
-const macho = std.macho;
-const testing = std.testing;
-
-const Allocator = std.mem.Allocator;
-const MachO = @import("../../MachO.zig");
-const Symbol = @import("../Symbol.zig");
-
 pub const Entry = struct {
-    target: Symbol.Index,
+    target: MachO.Ref,
     offset: u64,
     segment_id: u8,
     addend: i64,
 
     pub fn lessThan(ctx: *MachO, entry: Entry, other: Entry) bool {
+        _ = ctx;
         if (entry.segment_id == other.segment_id) {
-            if (entry.target == other.target) {
+            if (entry.target.eql(other.target)) {
                 return entry.offset < other.offset;
             }
-            const entry_name = ctx.getSymbol(entry.target).getName(ctx);
-            const other_name = ctx.getSymbol(other.target).getName(ctx);
-            return std.mem.lessThan(u8, entry_name, other_name);
+            return entry.target.lessThan(other.target);
         }
         return entry.segment_id < other.segment_id;
     }
 };
 
 pub const Bind = struct {
-    entries: std.ArrayListUnmanaged(Entry) = .{},
-    buffer: std.ArrayListUnmanaged(u8) = .{},
+    entries: std.ArrayListUnmanaged(Entry) = .empty,
+    buffer: std.ArrayListUnmanaged(u8) = .empty,
 
     const Self = @This();
 
@@ -39,11 +27,109 @@ pub const Bind = struct {
         self.buffer.deinit(gpa);
     }
 
-    pub fn size(self: Self) u64 {
-        return @intCast(self.buffer.items.len);
+    pub fn updateSize(self: *Self, macho_file: *MachO) !void {
+        const tracy = trace(@src());
+        defer tracy.end();
+
+        const gpa = macho_file.base.comp.gpa;
+        const cpu_arch = macho_file.getTarget().cpu.arch;
+
+        var objects = try std.ArrayList(File.Index).initCapacity(gpa, macho_file.objects.items.len + 2);
+        defer objects.deinit();
+        objects.appendSliceAssumeCapacity(macho_file.objects.items);
+        if (macho_file.getZigObject()) |obj| objects.appendAssumeCapacity(obj.index);
+        if (macho_file.getInternalObject()) |obj| objects.appendAssumeCapacity(obj.index);
+
+        for (objects.items) |index| {
+            const file = macho_file.getFile(index).?;
+            for (file.getAtoms()) |atom_index| {
+                const atom = file.getAtom(atom_index) orelse continue;
+                if (!atom.isAlive()) continue;
+                if (atom.getInputSection(macho_file).isZerofill()) continue;
+                const atom_addr = atom.getAddress(macho_file);
+                const relocs = atom.getRelocs(macho_file);
+                const seg_id = macho_file.sections.items(.segment_id)[atom.out_n_sect];
+                const seg = macho_file.segments.items[seg_id];
+                for (relocs) |rel| {
+                    if (rel.type != .unsigned or rel.meta.length != 3 or rel.tag != .@"extern") continue;
+                    const rel_offset = rel.offset - atom.off;
+                    const addend = rel.addend + rel.getRelocAddend(cpu_arch);
+                    const sym = rel.getTargetSymbol(atom.*, macho_file);
+                    if (sym.isTlvInit(macho_file)) continue;
+                    const entry = Entry{
+                        .target = rel.getTargetSymbolRef(atom.*, macho_file),
+                        .offset = atom_addr + rel_offset - seg.vmaddr,
+                        .segment_id = seg_id,
+                        .addend = addend,
+                    };
+                    if (sym.flags.import or (!(sym.flags.@"export" and sym.flags.weak) and sym.flags.interposable)) {
+                        try self.entries.append(gpa, entry);
+                    }
+                }
+            }
+        }
+
+        if (macho_file.got_sect_index) |sid| {
+            const seg_id = macho_file.sections.items(.segment_id)[sid];
+            const seg = macho_file.segments.items[seg_id];
+            for (macho_file.got.symbols.items, 0..) |ref, idx| {
+                const sym = ref.getSymbol(macho_file).?;
+                const addr = macho_file.got.getAddress(@intCast(idx), macho_file);
+                const entry = Entry{
+                    .target = ref,
+                    .offset = addr - seg.vmaddr,
+                    .segment_id = seg_id,
+                    .addend = 0,
+                };
+                if (sym.flags.import or (sym.flags.@"export" and sym.flags.interposable and !sym.flags.weak)) {
+                    try self.entries.append(gpa, entry);
+                }
+            }
+        }
+
+        if (macho_file.la_symbol_ptr_sect_index) |sid| {
+            const sect = macho_file.sections.items(.header)[sid];
+            const seg_id = macho_file.sections.items(.segment_id)[sid];
+            const seg = macho_file.segments.items[seg_id];
+            for (macho_file.stubs.symbols.items, 0..) |ref, idx| {
+                const sym = ref.getSymbol(macho_file).?;
+                const addr = sect.addr + idx * @sizeOf(u64);
+                const bind_entry = Entry{
+                    .target = ref,
+                    .offset = addr - seg.vmaddr,
+                    .segment_id = seg_id,
+                    .addend = 0,
+                };
+                if (sym.flags.import and sym.flags.weak) {
+                    try self.entries.append(gpa, bind_entry);
+                }
+            }
+        }
+
+        if (macho_file.tlv_ptr_sect_index) |sid| {
+            const seg_id = macho_file.sections.items(.segment_id)[sid];
+            const seg = macho_file.segments.items[seg_id];
+
+            for (macho_file.tlv_ptr.symbols.items, 0..) |ref, idx| {
+                const sym = ref.getSymbol(macho_file).?;
+                const addr = macho_file.tlv_ptr.getAddress(@intCast(idx), macho_file);
+                const entry = Entry{
+                    .target = ref,
+                    .offset = addr - seg.vmaddr,
+                    .segment_id = seg_id,
+                    .addend = 0,
+                };
+                if (sym.flags.import or (sym.flags.@"export" and sym.flags.interposable and !sym.flags.weak)) {
+                    try self.entries.append(gpa, entry);
+                }
+            }
+        }
+
+        try self.finalize(gpa, macho_file);
+        macho_file.dyld_info_cmd.bind_size = mem.alignForward(u32, @intCast(self.buffer.items.len), @alignOf(u64));
     }
 
-    pub fn finalize(self: *Self, gpa: Allocator, ctx: *MachO) !void {
+    fn finalize(self: *Self, gpa: Allocator, ctx: *MachO) !void {
         if (self.entries.items.len == 0) return;
 
         const writer = self.buffer.writer(gpa);
@@ -75,7 +161,7 @@ pub const Bind = struct {
         var addend: i64 = 0;
         var count: usize = 0;
         var skip: u64 = 0;
-        var target: ?Symbol.Index = null;
+        var target: ?MachO.Ref = null;
 
         var state: enum {
             start,
@@ -86,7 +172,7 @@ pub const Bind = struct {
         var i: usize = 0;
         while (i < entries.len) : (i += 1) {
             const current = entries[i];
-            if (target == null or target.? != current.target) {
+            if (target == null or !target.?.eql(current.target)) {
                 switch (state) {
                     .start => {},
                     .bind_single => try doBind(writer),
@@ -95,7 +181,7 @@ pub const Bind = struct {
                 state = .start;
                 target = current.target;
 
-                const sym = ctx.getSymbol(current.target);
+                const sym = current.target.getSymbol(ctx).?;
                 const name = sym.getName(ctx);
                 const flags: u8 = if (sym.weakRef(ctx)) macho.BIND_SYMBOL_FLAGS_WEAK_IMPORT else 0;
                 const ordinal: i16 = ord: {
@@ -178,14 +264,13 @@ pub const Bind = struct {
     }
 
     pub fn write(self: Self, writer: anytype) !void {
-        if (self.size() == 0) return;
         try writer.writeAll(self.buffer.items);
     }
 };
 
 pub const WeakBind = struct {
-    entries: std.ArrayListUnmanaged(Entry) = .{},
-    buffer: std.ArrayListUnmanaged(u8) = .{},
+    entries: std.ArrayListUnmanaged(Entry) = .empty,
+    buffer: std.ArrayListUnmanaged(u8) = .empty,
 
     const Self = @This();
 
@@ -194,11 +279,110 @@ pub const WeakBind = struct {
         self.buffer.deinit(gpa);
     }
 
-    pub fn size(self: Self) u64 {
-        return @intCast(self.buffer.items.len);
+    pub fn updateSize(self: *Self, macho_file: *MachO) !void {
+        const tracy = trace(@src());
+        defer tracy.end();
+
+        const gpa = macho_file.base.comp.gpa;
+        const cpu_arch = macho_file.getTarget().cpu.arch;
+
+        var objects = try std.ArrayList(File.Index).initCapacity(gpa, macho_file.objects.items.len + 2);
+        defer objects.deinit();
+        objects.appendSliceAssumeCapacity(macho_file.objects.items);
+        if (macho_file.getZigObject()) |obj| objects.appendAssumeCapacity(obj.index);
+        if (macho_file.getInternalObject()) |obj| objects.appendAssumeCapacity(obj.index);
+
+        for (objects.items) |index| {
+            const file = macho_file.getFile(index).?;
+            for (file.getAtoms()) |atom_index| {
+                const atom = file.getAtom(atom_index) orelse continue;
+                if (!atom.isAlive()) continue;
+                if (atom.getInputSection(macho_file).isZerofill()) continue;
+                const atom_addr = atom.getAddress(macho_file);
+                const relocs = atom.getRelocs(macho_file);
+                const seg_id = macho_file.sections.items(.segment_id)[atom.out_n_sect];
+                const seg = macho_file.segments.items[seg_id];
+                for (relocs) |rel| {
+                    if (rel.type != .unsigned or rel.meta.length != 3 or rel.tag != .@"extern") continue;
+                    const rel_offset = rel.offset - atom.off;
+                    const addend = rel.addend + rel.getRelocAddend(cpu_arch);
+                    const sym = rel.getTargetSymbol(atom.*, macho_file);
+                    if (sym.isTlvInit(macho_file)) continue;
+                    const entry = Entry{
+                        .target = rel.getTargetSymbolRef(atom.*, macho_file),
+                        .offset = atom_addr + rel_offset - seg.vmaddr,
+                        .segment_id = seg_id,
+                        .addend = addend,
+                    };
+                    if (!sym.isLocal() and sym.flags.weak) {
+                        try self.entries.append(gpa, entry);
+                    }
+                }
+            }
+        }
+
+        if (macho_file.got_sect_index) |sid| {
+            const seg_id = macho_file.sections.items(.segment_id)[sid];
+            const seg = macho_file.segments.items[seg_id];
+            for (macho_file.got.symbols.items, 0..) |ref, idx| {
+                const sym = ref.getSymbol(macho_file).?;
+                const addr = macho_file.got.getAddress(@intCast(idx), macho_file);
+                const entry = Entry{
+                    .target = ref,
+                    .offset = addr - seg.vmaddr,
+                    .segment_id = seg_id,
+                    .addend = 0,
+                };
+                if (sym.flags.weak) {
+                    try self.entries.append(gpa, entry);
+                }
+            }
+        }
+
+        if (macho_file.la_symbol_ptr_sect_index) |sid| {
+            const sect = macho_file.sections.items(.header)[sid];
+            const seg_id = macho_file.sections.items(.segment_id)[sid];
+            const seg = macho_file.segments.items[seg_id];
+
+            for (macho_file.stubs.symbols.items, 0..) |ref, idx| {
+                const sym = ref.getSymbol(macho_file).?;
+                const addr = sect.addr + idx * @sizeOf(u64);
+                const bind_entry = Entry{
+                    .target = ref,
+                    .offset = addr - seg.vmaddr,
+                    .segment_id = seg_id,
+                    .addend = 0,
+                };
+                if (sym.flags.weak) {
+                    try self.entries.append(gpa, bind_entry);
+                }
+            }
+        }
+
+        if (macho_file.tlv_ptr_sect_index) |sid| {
+            const seg_id = macho_file.sections.items(.segment_id)[sid];
+            const seg = macho_file.segments.items[seg_id];
+
+            for (macho_file.tlv_ptr.symbols.items, 0..) |ref, idx| {
+                const sym = ref.getSymbol(macho_file).?;
+                const addr = macho_file.tlv_ptr.getAddress(@intCast(idx), macho_file);
+                const entry = Entry{
+                    .target = ref,
+                    .offset = addr - seg.vmaddr,
+                    .segment_id = seg_id,
+                    .addend = 0,
+                };
+                if (sym.flags.weak) {
+                    try self.entries.append(gpa, entry);
+                }
+            }
+        }
+
+        try self.finalize(gpa, macho_file);
+        macho_file.dyld_info_cmd.weak_bind_size = mem.alignForward(u32, @intCast(self.buffer.items.len), @alignOf(u64));
     }
 
-    pub fn finalize(self: *Self, gpa: Allocator, ctx: *MachO) !void {
+    fn finalize(self: *Self, gpa: Allocator, ctx: *MachO) !void {
         if (self.entries.items.len == 0) return;
 
         const writer = self.buffer.writer(gpa);
@@ -230,7 +414,7 @@ pub const WeakBind = struct {
         var addend: i64 = 0;
         var count: usize = 0;
         var skip: u64 = 0;
-        var target: ?Symbol.Index = null;
+        var target: ?MachO.Ref = null;
 
         var state: enum {
             start,
@@ -241,7 +425,7 @@ pub const WeakBind = struct {
         var i: usize = 0;
         while (i < entries.len) : (i += 1) {
             const current = entries[i];
-            if (target == null or target.? != current.target) {
+            if (target == null or !target.?.eql(current.target)) {
                 switch (state) {
                     .start => {},
                     .bind_single => try doBind(writer),
@@ -250,7 +434,7 @@ pub const WeakBind = struct {
                 state = .start;
                 target = current.target;
 
-                const sym = ctx.getSymbol(current.target);
+                const sym = current.target.getSymbol(ctx).?;
                 const name = sym.getName(ctx);
                 const flags: u8 = 0; // TODO NON_WEAK_DEFINITION
 
@@ -322,15 +506,14 @@ pub const WeakBind = struct {
     }
 
     pub fn write(self: Self, writer: anytype) !void {
-        if (self.size() == 0) return;
         try writer.writeAll(self.buffer.items);
     }
 };
 
 pub const LazyBind = struct {
-    entries: std.ArrayListUnmanaged(Entry) = .{},
-    buffer: std.ArrayListUnmanaged(u8) = .{},
-    offsets: std.ArrayListUnmanaged(u32) = .{},
+    entries: std.ArrayListUnmanaged(Entry) = .empty,
+    buffer: std.ArrayListUnmanaged(u8) = .empty,
+    offsets: std.ArrayListUnmanaged(u32) = .empty,
 
     const Self = @This();
 
@@ -340,11 +523,36 @@ pub const LazyBind = struct {
         self.offsets.deinit(gpa);
     }
 
-    pub fn size(self: Self) u64 {
-        return @intCast(self.buffer.items.len);
+    pub fn updateSize(self: *Self, macho_file: *MachO) !void {
+        const tracy = trace(@src());
+        defer tracy.end();
+
+        const gpa = macho_file.base.comp.gpa;
+
+        const sid = macho_file.la_symbol_ptr_sect_index.?;
+        const sect = macho_file.sections.items(.header)[sid];
+        const seg_id = macho_file.sections.items(.segment_id)[sid];
+        const seg = macho_file.segments.items[seg_id];
+
+        for (macho_file.stubs.symbols.items, 0..) |ref, idx| {
+            const sym = ref.getSymbol(macho_file).?;
+            const addr = sect.addr + idx * @sizeOf(u64);
+            const bind_entry = Entry{
+                .target = ref,
+                .offset = addr - seg.vmaddr,
+                .segment_id = seg_id,
+                .addend = 0,
+            };
+            if ((sym.flags.import and !sym.flags.weak) or (sym.flags.interposable and !sym.flags.weak)) {
+                try self.entries.append(gpa, bind_entry);
+            }
+        }
+
+        try self.finalize(gpa, macho_file);
+        macho_file.dyld_info_cmd.lazy_bind_size = mem.alignForward(u32, @intCast(self.buffer.items.len), @alignOf(u64));
     }
 
-    pub fn finalize(self: *Self, gpa: Allocator, ctx: *MachO) !void {
+    fn finalize(self: *Self, gpa: Allocator, ctx: *MachO) !void {
         try self.offsets.ensureTotalCapacityPrecise(gpa, self.entries.items.len);
 
         const writer = self.buffer.writer(gpa);
@@ -356,7 +564,7 @@ pub const LazyBind = struct {
         for (self.entries.items) |entry| {
             self.offsets.appendAssumeCapacity(@intCast(self.buffer.items.len));
 
-            const sym = ctx.getSymbol(entry.target);
+            const sym = entry.target.getSymbol(ctx).?;
             const name = sym.getName(ctx);
             const flags: u8 = if (sym.weakRef(ctx)) macho.BIND_SYMBOL_FLAGS_WEAK_IMPORT else 0;
             const ordinal: i16 = ord: {
@@ -392,7 +600,7 @@ pub const LazyBind = struct {
 fn setSegmentOffset(segment_id: u8, offset: u64, writer: anytype) !void {
     log.debug(">>> set segment: {d} and offset: {x}", .{ segment_id, offset });
     try writer.writeByte(macho.BIND_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB | @as(u4, @truncate(segment_id)));
-    try std.leb.writeULEB128(writer, offset);
+    try std.leb.writeUleb128(writer, offset);
 }
 
 fn setSymbol(name: []const u8, flags: u8, writer: anytype) !void {
@@ -426,7 +634,7 @@ fn setDylibOrdinal(ordinal: i16, writer: anytype) !void {
             try writer.writeByte(macho.BIND_OPCODE_SET_DYLIB_ORDINAL_IMM | @as(u4, @truncate(cast)));
         } else {
             try writer.writeByte(macho.BIND_OPCODE_SET_DYLIB_ORDINAL_ULEB);
-            try std.leb.writeULEB128(writer, cast);
+            try std.leb.writeUleb128(writer, cast);
         }
     }
 }
@@ -434,7 +642,7 @@ fn setDylibOrdinal(ordinal: i16, writer: anytype) !void {
 fn setAddend(addend: i64, writer: anytype) !void {
     log.debug(">>> set addend: {x}", .{addend});
     try writer.writeByte(macho.BIND_OPCODE_SET_ADDEND_SLEB);
-    try std.leb.writeILEB128(writer, addend);
+    try std.leb.writeIleb128(writer, addend);
 }
 
 fn doBind(writer: anytype) !void {
@@ -454,23 +662,37 @@ fn doBindAddAddr(addr: u64, writer: anytype) !void {
         }
     }
     try writer.writeByte(macho.BIND_OPCODE_DO_BIND_ADD_ADDR_ULEB);
-    try std.leb.writeULEB128(writer, addr);
+    try std.leb.writeUleb128(writer, addr);
 }
 
 fn doBindTimesSkip(count: usize, skip: u64, writer: anytype) !void {
     log.debug(">>> bind with count: {d} and skip: {x}", .{ count, skip });
     try writer.writeByte(macho.BIND_OPCODE_DO_BIND_ULEB_TIMES_SKIPPING_ULEB);
-    try std.leb.writeULEB128(writer, count);
-    try std.leb.writeULEB128(writer, skip);
+    try std.leb.writeUleb128(writer, count);
+    try std.leb.writeUleb128(writer, skip);
 }
 
 fn addAddr(addr: u64, writer: anytype) !void {
     log.debug(">>> add: {x}", .{addr});
     try writer.writeByte(macho.BIND_OPCODE_ADD_ADDR_ULEB);
-    try std.leb.writeULEB128(writer, addr);
+    try std.leb.writeUleb128(writer, addr);
 }
 
 fn done(writer: anytype) !void {
     log.debug(">>> done", .{});
     try writer.writeByte(macho.BIND_OPCODE_DONE);
 }
+
+const assert = std.debug.assert;
+const leb = std.leb;
+const log = std.log.scoped(.link_dyld_info);
+const macho = std.macho;
+const mem = std.mem;
+const testing = std.testing;
+const trace = @import("../../../tracy.zig").trace;
+const std = @import("std");
+
+const Allocator = mem.Allocator;
+const File = @import("../file.zig").File;
+const MachO = @import("../../MachO.zig");
+const Symbol = @import("../Symbol.zig");

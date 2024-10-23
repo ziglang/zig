@@ -141,6 +141,10 @@ pub const Params = struct {
     /// Baseline parameters for offline usage
     pub const sensitive = Self.fromLimits(33554432, 1073741824);
 
+    /// Recommended parameters according to the
+    /// [OWASP cheat sheet](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html).
+    pub const owasp = Self{ .ln = 17, .r = 8, .p = 1 };
+
     /// Create parameters from ops and mem limits, where mem_limit given in bytes
     pub fn fromLimits(ops_limit: u64, mem_limit: usize) Self {
         const ops = @max(32768, ops_limit);

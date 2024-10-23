@@ -10,6 +10,7 @@
 #ifndef _LIBCPP___RANGES_REPEAT_VIEW_H
 #define _LIBCPP___RANGES_REPEAT_VIEW_H
 
+#include <__assert>
 #include <__concepts/constructible.h>
 #include <__concepts/same_as.h>
 #include <__concepts/semiregular.h>
@@ -21,6 +22,7 @@
 #include <__ranges/iota_view.h>
 #include <__ranges/movable_box.h>
 #include <__ranges/view_interface.h>
+#include <__type_traits/decay.h>
 #include <__type_traits/is_object.h>
 #include <__type_traits/make_unsigned.h>
 #include <__type_traits/remove_cv.h>
@@ -126,8 +128,8 @@ private:
   _LIBCPP_NO_UNIQUE_ADDRESS _Bound __bound_ = _Bound();
 };
 
-template <class _Tp, class _Bound>
-repeat_view(_Tp, _Bound) -> repeat_view<_Tp, _Bound>;
+template <class _Tp, class _Bound = unreachable_sentinel_t>
+repeat_view(_Tp, _Bound = _Bound()) -> repeat_view<_Tp, _Bound>;
 
 // [range.repeat.iterator]
 template <move_constructible _Tp, semiregular _Bound>
@@ -228,14 +230,13 @@ namespace views {
 namespace __repeat {
 struct __fn {
   template <class _Tp>
-  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr auto operator()(_Tp&& __value) const
-    noexcept(noexcept(ranges::repeat_view(std::forward<_Tp>(__value))))
-    -> decltype(      ranges::repeat_view(std::forward<_Tp>(__value)))
-    { return          ranges::repeat_view(std::forward<_Tp>(__value)); }
-
+  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI static constexpr auto operator()(_Tp&& __value)
+    noexcept(noexcept(ranges::repeat_view<decay_t<_Tp>>(std::forward<_Tp>(__value))))
+    -> decltype(      ranges::repeat_view<decay_t<_Tp>>(std::forward<_Tp>(__value)))
+    { return          ranges::repeat_view<decay_t<_Tp>>(std::forward<_Tp>(__value)); }
 
   template <class _Tp, class _Bound>
-  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr auto operator()(_Tp&& __value, _Bound&& __bound_sentinel) const
+  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI static constexpr auto operator()(_Tp&& __value, _Bound&& __bound_sentinel)
     noexcept(noexcept(ranges::repeat_view(std::forward<_Tp>(__value), std::forward<_Bound>(__bound_sentinel))))
     -> decltype(      ranges::repeat_view(std::forward<_Tp>(__value), std::forward<_Bound>(__bound_sentinel)))
     { return          ranges::repeat_view(std::forward<_Tp>(__value), std::forward<_Bound>(__bound_sentinel)); }

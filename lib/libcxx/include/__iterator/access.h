@@ -54,8 +54,8 @@ _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX17 auto end(const _Cp& __c) -> 
 #  if _LIBCPP_STD_VER >= 14
 
 template <class _Cp>
-_LIBCPP_HIDE_FROM_ABI constexpr auto cbegin(const _Cp& __c) noexcept(noexcept(std::begin(__c)))
-    -> decltype(std::begin(__c)) {
+_LIBCPP_HIDE_FROM_ABI constexpr auto
+cbegin(const _Cp& __c) noexcept(noexcept(std::begin(__c))) -> decltype(std::begin(__c)) {
   return std::begin(__c);
 }
 

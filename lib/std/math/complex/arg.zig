@@ -9,10 +9,9 @@ pub fn arg(z: anytype) @TypeOf(z.re, z.im) {
     return math.atan2(z.im, z.re);
 }
 
-const epsilon = 0.0001;
-
 test arg {
+    const epsilon = math.floatEps(f32);
     const a = Complex(f32).init(5, 3);
     const c = arg(a);
-    try testing.expect(math.approxEqAbs(f32, c, 0.540420, epsilon));
+    try testing.expectApproxEqAbs(0.5404195, c, epsilon);
 }

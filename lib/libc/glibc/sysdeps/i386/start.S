@@ -1,5 +1,5 @@
 /* Startup code compliant to the ELF i386 ABI.
-   Copyright (C) 1995-2023 Free Software Foundation, Inc.
+   Copyright (C) 1995-2024 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -132,7 +132,6 @@ ENTRY (_start)
 
 #if defined PIC && !defined SHARED
 __wrap_main:
-	_CET_ENDBR
 	jmp	main@PLT
 #endif
 END (_start)

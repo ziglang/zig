@@ -1,5 +1,4 @@
 const std = @import("../std.zig");
-const utils = std.crypto.utils;
 const mem = std.mem;
 const mulWide = std.math.mulWide;
 
@@ -13,7 +12,7 @@ pub const Poly1305 = struct {
     // accumulated hash
     h: [3]u64 = [_]u64{ 0, 0, 0 },
     // random number added at the end (from the secret key)
-    pad: [2]u64,
+    end_pad: [2]u64,
     // how many bytes are waiting to be processed in a partial block
     leftover: usize = 0,
     // partial block buffer
@@ -25,7 +24,7 @@ pub const Poly1305 = struct {
                 mem.readInt(u64, key[0..8], .little) & 0x0ffffffc0fffffff,
                 mem.readInt(u64, key[8..16], .little) & 0x0ffffffc0ffffffc,
             },
-            .pad = [_]u64{
+            .end_pad = [_]u64{
                 mem.readInt(u64, key[16..24], .little),
                 mem.readInt(u64, key[24..32], .little),
             },
@@ -148,7 +147,7 @@ pub const Poly1305 = struct {
             return;
         }
         @memset(st.buf[st.leftover..], 0);
-        st.blocks(&st.buf);
+        st.blocks(&st.buf, false);
         st.leftover = 0;
     }
 
@@ -178,14 +177,14 @@ pub const Poly1305 = struct {
         h1 ^= mask & (h1 ^ h_p1);
 
         // Add the first half of the key, we intentionally don't use @addWithOverflow() here.
-        st.h[0] = h0 +% st.pad[0];
-        const c = ((h0 & st.pad[0]) | ((h0 | st.pad[0]) & ~st.h[0])) >> 63;
-        st.h[1] = h1 +% st.pad[1] +% c;
+        st.h[0] = h0 +% st.end_pad[0];
+        const c = ((h0 & st.end_pad[0]) | ((h0 | st.end_pad[0]) & ~st.h[0])) >> 63;
+        st.h[1] = h1 +% st.end_pad[1] +% c;
 
         mem.writeInt(u64, out[0..8], st.h[0], .little);
         mem.writeInt(u64, out[8..16], st.h[1], .little);
 
-        utils.secureZero(u8, @as([*]u8, @ptrCast(st))[0..@sizeOf(Poly1305)]);
+        std.crypto.secureZero(u8, @as([*]u8, @ptrCast(st))[0..@sizeOf(Poly1305)]);
     }
 
     pub fn create(out: *[mac_length]u8, msg: []const u8, key: *const [key_length]u8) void {

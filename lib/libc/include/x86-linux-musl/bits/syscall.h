@@ -436,6 +436,12 @@
 #define __NR_landlock_create_ruleset	444
 #define __NR_landlock_add_rule	445
 #define __NR_landlock_restrict_self	446
+#define __NR_memfd_secret	447
+#define __NR_process_mrelease	448
+#define __NR_futex_waitv	449
+#define __NR_set_mempolicy_home_node	450
+#define __NR_cachestat		451
+#define __NR_fchmodat2		452
 
 #define SYS_restart_syscall      0
 #define SYS_exit		  1
@@ -873,3 +879,9 @@
 #define SYS_landlock_create_ruleset	444
 #define SYS_landlock_add_rule	445
 #define SYS_landlock_restrict_self	446
+#define SYS_memfd_secret	447
+#define SYS_process_mrelease	448
+#define SYS_futex_waitv	449
+#define SYS_set_mempolicy_home_node	450
+#define SYS_cachestat		451
+#define SYS_fchmodat2		452

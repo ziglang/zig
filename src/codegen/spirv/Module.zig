@@ -8,7 +8,6 @@
 const Module = @This();
 
 const std = @import("std");
-const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 
@@ -36,7 +35,7 @@ pub const Fn = struct {
     /// the end of this function definition.
     body: Section = .{},
     /// The decl dependencies that this function depends on.
-    decl_deps: std.AutoArrayHashMapUnmanaged(Decl.Index, void) = .{},
+    decl_deps: std.AutoArrayHashMapUnmanaged(Decl.Index, void) = .empty,
 
     /// Reset this function without deallocating resources, so that
     /// it may be used to emit code for another function.
@@ -142,7 +141,7 @@ sections: struct {
 next_result_id: Word,
 
 /// Cache for results of OpString instructions.
-strings: std.StringArrayHashMapUnmanaged(IdRef) = .{},
+strings: std.StringArrayHashMapUnmanaged(IdRef) = .empty,
 
 /// Some types shouldn't be emitted more than one time, but cannot be caught by
 /// the `intern_map` during codegen. Sometimes, IDs are compared to check if
@@ -150,25 +149,32 @@ strings: std.StringArrayHashMapUnmanaged(IdRef) = .{},
 /// this is an ad-hoc structure to cache types where required.
 /// According to the SPIR-V specification, section 2.8, this includes all non-aggregate
 /// non-pointer types.
+/// Additionally, this is used for other values which can be cached, for example,
+/// built-in variables.
 cache: struct {
     bool_type: ?IdRef = null,
     void_type: ?IdRef = null,
-    int_types: std.AutoHashMapUnmanaged(std.builtin.Type.Int, IdRef) = .{},
-    float_types: std.AutoHashMapUnmanaged(std.builtin.Type.Float, IdRef) = .{},
+    int_types: std.AutoHashMapUnmanaged(std.builtin.Type.Int, IdRef) = .empty,
+    float_types: std.AutoHashMapUnmanaged(std.builtin.Type.Float, IdRef) = .empty,
+    // This cache is required so that @Vector(X, u1) in direct representation has the
+    // same ID as @Vector(X, bool) in indirect representation.
+    vector_types: std.AutoHashMapUnmanaged(struct { IdRef, u32 }, IdRef) = .empty,
+
+    builtins: std.AutoHashMapUnmanaged(struct { IdRef, spec.BuiltIn }, Decl.Index) = .empty,
 } = .{},
 
 /// Set of Decls, referred to by Decl.Index.
-decls: std.ArrayListUnmanaged(Decl) = .{},
+decls: std.ArrayListUnmanaged(Decl) = .empty,
 
 /// List of dependencies, per decl. This list holds all the dependencies, sliced by the
 /// begin_dep and end_dep in `self.decls`.
-decl_deps: std.ArrayListUnmanaged(Decl.Index) = .{},
+decl_deps: std.ArrayListUnmanaged(Decl.Index) = .empty,
 
 /// The list of entry points that should be exported from this module.
-entry_points: std.ArrayListUnmanaged(EntryPoint) = .{},
+entry_points: std.ArrayListUnmanaged(EntryPoint) = .empty,
 
 /// The list of extended instruction sets that should be imported.
-extended_instruction_set: std.AutoHashMapUnmanaged(spec.InstructionSet, IdRef) = .{},
+extended_instruction_set: std.AutoHashMapUnmanaged(spec.InstructionSet, IdRef) = .empty,
 
 pub fn init(gpa: Allocator) Module {
     return .{
@@ -194,6 +200,8 @@ pub fn deinit(self: *Module) void {
 
     self.cache.int_types.deinit(self.gpa);
     self.cache.float_types.deinit(self.gpa);
+    self.cache.vector_types.deinit(self.gpa);
+    self.cache.builtins.deinit(self.gpa);
 
     self.decls.deinit(self.gpa);
     self.decl_deps.deinit(self.gpa);
@@ -474,13 +482,36 @@ pub fn floatType(self: *Module, bits: u16) !IdRef {
 }
 
 pub fn vectorType(self: *Module, len: u32, child_id: IdRef) !IdRef {
-    const result_id = self.allocId();
-    try self.sections.types_globals_constants.emit(self.gpa, .OpTypeVector, .{
-        .id_result = result_id,
-        .component_type = child_id,
-        .component_count = len,
-    });
-    return result_id;
+    const entry = try self.cache.vector_types.getOrPut(self.gpa, .{ child_id, len });
+    if (!entry.found_existing) {
+        const result_id = self.allocId();
+        entry.value_ptr.* = result_id;
+        try self.sections.types_globals_constants.emit(self.gpa, .OpTypeVector, .{
+            .id_result = result_id,
+            .component_type = child_id,
+            .component_count = len,
+        });
+    }
+    return entry.value_ptr.*;
+}
+
+/// Return a pointer to a builtin variable. `result_ty_id` must be a **pointer**
+/// with storage class `.Input`.
+pub fn builtin(self: *Module, result_ty_id: IdRef, spirv_builtin: spec.BuiltIn) !Decl.Index {
+    const entry = try self.cache.builtins.getOrPut(self.gpa, .{ result_ty_id, spirv_builtin });
+    if (!entry.found_existing) {
+        const decl_index = try self.allocDecl(.global);
+        const result_id = self.declPtr(decl_index).result_id;
+        entry.value_ptr.* = decl_index;
+        try self.sections.types_globals_constants.emit(self.gpa, .OpVariable, .{
+            .id_result_type = result_ty_id,
+            .id_result = result_id,
+            .storage_class = .Input,
+        });
+        try self.decorate(result_id, .{ .BuiltIn = .{ .built_in = spirv_builtin } });
+        try self.declareDeclDeps(decl_index, &.{});
+    }
+    return entry.value_ptr.*;
 }
 
 pub fn constUndef(self: *Module, ty_id: IdRef) !IdRef {

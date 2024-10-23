@@ -23,24 +23,15 @@
 #include <__type_traits/is_assignable.h>
 #include <__type_traits/is_constructible.h>
 #include <__type_traits/is_convertible.h>
-#include <__type_traits/is_copy_assignable.h>
-#include <__type_traits/is_copy_constructible.h>
-#include <__type_traits/is_default_constructible.h>
 #include <__type_traits/is_function.h>
-#include <__type_traits/is_move_assignable.h>
-#include <__type_traits/is_move_constructible.h>
+#include <__type_traits/is_nothrow_assignable.h>
 #include <__type_traits/is_nothrow_constructible.h>
-#include <__type_traits/is_nothrow_copy_assignable.h>
-#include <__type_traits/is_nothrow_copy_constructible.h>
-#include <__type_traits/is_nothrow_default_constructible.h>
-#include <__type_traits/is_nothrow_move_assignable.h>
-#include <__type_traits/is_nothrow_move_constructible.h>
 #include <__type_traits/is_reference.h>
 #include <__type_traits/is_same.h>
 #include <__type_traits/is_swappable.h>
-#include <__type_traits/is_trivially_copy_constructible.h>
+#include <__type_traits/is_trivially_constructible.h>
 #include <__type_traits/is_trivially_destructible.h>
-#include <__type_traits/is_trivially_move_constructible.h>
+#include <__type_traits/is_trivially_relocatable.h>
 #include <__type_traits/is_void.h>
 #include <__type_traits/lazy.h>
 #include <__type_traits/negation.h>
@@ -473,6 +464,11 @@ public:
   using error_type      = _Err;
   using unexpected_type = unexpected<_Err>;
 
+  using __trivially_relocatable =
+      __conditional_t<__libcpp_is_trivially_relocatable<_Tp>::value && __libcpp_is_trivially_relocatable<_Err>::value,
+                      expected,
+                      void>;
+
   template <class _Up>
   using rebind = expected<_Up, error_type>;
 
@@ -511,7 +507,9 @@ private:
       _And< is_constructible<_Tp, _UfQual>,
             is_constructible<_Err, _OtherErrQual>,
             _If<_Not<is_same<remove_cv_t<_Tp>, bool>>::value,
-                _And< _Not<is_constructible<_Tp, expected<_Up, _OtherErr>&>>,
+                _And< 
+                      _Not<_And<is_same<_Tp, _Up>, is_same<_Err, _OtherErr>>>, // use the copy constructor instead, see #92676
+                      _Not<is_constructible<_Tp, expected<_Up, _OtherErr>&>>,
                       _Not<is_constructible<_Tp, expected<_Up, _OtherErr>>>,
                       _Not<is_constructible<_Tp, const expected<_Up, _OtherErr>&>>,
                       _Not<is_constructible<_Tp, const expected<_Up, _OtherErr>>>,

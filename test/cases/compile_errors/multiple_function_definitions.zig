@@ -5,8 +5,7 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
-// :2:1: error: redeclaration of 'a'
-// :1:1: note: other declaration here
+// :1:4: error: duplicate struct member name 'a'
+// :2:4: note: duplicate name here
+// :1:1: note: struct declared here

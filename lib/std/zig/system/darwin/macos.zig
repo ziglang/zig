@@ -303,16 +303,16 @@ test "detect" {
             \\<!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
             \\<plist version="1.0">
             \\<dict>
-            \\	<key>ProductBuildVersion</key>
-            \\	<string>7W98</string>
-            \\	<key>ProductCopyright</key>
-            \\	<string>Apple Computer, Inc. 1983-2004</string>
-            \\	<key>ProductName</key>
-            \\	<string>Mac OS X</string>
-            \\	<key>ProductUserVisibleVersion</key>
-            \\	<string>10.3.9</string>
-            \\	<key>ProductVersion</key>
-            \\	<string>10.3.9</string>
+            \\ <key>ProductBuildVersion</key>
+            \\ <string>7W98</string>
+            \\ <key>ProductCopyright</key>
+            \\ <string>Apple Computer, Inc. 1983-2004</string>
+            \\ <key>ProductName</key>
+            \\ <string>Mac OS X</string>
+            \\ <key>ProductUserVisibleVersion</key>
+            \\ <string>10.3.9</string>
+            \\ <key>ProductVersion</key>
+            \\ <string>10.3.9</string>
             \\</dict>
             \\</plist>
             ,
@@ -323,18 +323,18 @@ test "detect" {
             \\<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
             \\<plist version="1.0">
             \\<dict>
-            \\	<key>ProductBuildVersion</key>
-            \\	<string>19G68</string>
-            \\	<key>ProductCopyright</key>
-            \\	<string>1983-2020 Apple Inc.</string>
-            \\	<key>ProductName</key>
-            \\	<string>Mac OS X</string>
-            \\	<key>ProductUserVisibleVersion</key>
-            \\	<string>10.15.6</string>
-            \\	<key>ProductVersion</key>
-            \\	<string>10.15.6</string>
-            \\	<key>iOSSupportVersion</key>
-            \\	<string>13.6</string>
+            \\ <key>ProductBuildVersion</key>
+            \\ <string>19G68</string>
+            \\ <key>ProductCopyright</key>
+            \\ <string>1983-2020 Apple Inc.</string>
+            \\ <key>ProductName</key>
+            \\ <string>Mac OS X</string>
+            \\ <key>ProductUserVisibleVersion</key>
+            \\ <string>10.15.6</string>
+            \\ <key>ProductVersion</key>
+            \\ <string>10.15.6</string>
+            \\ <key>iOSSupportVersion</key>
+            \\ <string>13.6</string>
             \\</dict>
             \\</plist>
             ,
@@ -345,18 +345,18 @@ test "detect" {
             \\<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
             \\<plist version="1.0">
             \\<dict>
-            \\	<key>ProductBuildVersion</key>
-            \\	<string>20A2408</string>
-            \\	<key>ProductCopyright</key>
-            \\	<string>1983-2020 Apple Inc.</string>
-            \\	<key>ProductName</key>
-            \\	<string>macOS</string>
-            \\	<key>ProductUserVisibleVersion</key>
-            \\	<string>11.0</string>
-            \\	<key>ProductVersion</key>
-            \\	<string>11.0</string>
-            \\	<key>iOSSupportVersion</key>
-            \\	<string>14.2</string>
+            \\ <key>ProductBuildVersion</key>
+            \\ <string>20A2408</string>
+            \\ <key>ProductCopyright</key>
+            \\ <string>1983-2020 Apple Inc.</string>
+            \\ <key>ProductName</key>
+            \\ <string>macOS</string>
+            \\ <key>ProductUserVisibleVersion</key>
+            \\ <string>11.0</string>
+            \\ <key>ProductVersion</key>
+            \\ <string>11.0</string>
+            \\ <key>iOSSupportVersion</key>
+            \\ <string>14.2</string>
             \\</dict>
             \\</plist>
             ,
@@ -367,18 +367,18 @@ test "detect" {
             \\<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
             \\<plist version="1.0">
             \\<dict>
-            \\	<key>ProductBuildVersion</key>
-            \\	<string>20C63</string>
-            \\	<key>ProductCopyright</key>
-            \\	<string>1983-2020 Apple Inc.</string>
-            \\	<key>ProductName</key>
-            \\	<string>macOS</string>
-            \\	<key>ProductUserVisibleVersion</key>
-            \\	<string>11.1</string>
-            \\	<key>ProductVersion</key>
-            \\	<string>11.1</string>
-            \\	<key>iOSSupportVersion</key>
-            \\	<string>14.3</string>
+            \\ <key>ProductBuildVersion</key>
+            \\ <string>20C63</string>
+            \\ <key>ProductCopyright</key>
+            \\ <string>1983-2020 Apple Inc.</string>
+            \\ <key>ProductName</key>
+            \\ <string>macOS</string>
+            \\ <key>ProductUserVisibleVersion</key>
+            \\ <string>11.1</string>
+            \\ <key>ProductVersion</key>
+            \\ <string>11.1</string>
+            \\ <key>iOSSupportVersion</key>
+            \\ <string>14.3</string>
             \\</dict>
             \\</plist>
             ,
@@ -406,7 +406,7 @@ pub fn detectNativeCpuAndFeatures() ?Target.Cpu {
 
     const current_arch = builtin.cpu.arch;
     switch (current_arch) {
-        .aarch64, .aarch64_be, .aarch64_32 => {
+        .aarch64, .aarch64_be => {
             const model = switch (cpu_family) {
                 .ARM_EVEREST_SAWTOOTH => &Target.aarch64.cpu.apple_a16,
                 .ARM_BLIZZARD_AVALANCHE => &Target.aarch64.cpu.apple_a15,
@@ -419,6 +419,11 @@ pub fn detectNativeCpuAndFeatures() ?Target.Cpu {
                 .ARM_TYPHOON => &Target.aarch64.cpu.apple_a8,
                 .ARM_CYCLONE => &Target.aarch64.cpu.cyclone,
                 else => return null,
+                .ARM_COLL => &Target.aarch64.cpu.apple_a17,
+                .ARM_IBIZA => &Target.aarch64.cpu.apple_m3, // base
+                .ARM_LOBOS => &Target.aarch64.cpu.apple_m3, // pro
+                .ARM_PALMA => &Target.aarch64.cpu.apple_m3, // max
+                .ARM_DONAN => &Target.aarch64.cpu.apple_m4,
             };
 
             return Target.Cpu{

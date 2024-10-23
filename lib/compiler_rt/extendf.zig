@@ -3,10 +3,10 @@ const std = @import("std");
 pub inline fn extendf(
     comptime dst_t: type,
     comptime src_t: type,
-    a: std.meta.Int(.unsigned, @typeInfo(src_t).Float.bits),
+    a: std.meta.Int(.unsigned, @typeInfo(src_t).float.bits),
 ) dst_t {
-    const src_rep_t = std.meta.Int(.unsigned, @typeInfo(src_t).Float.bits);
-    const dst_rep_t = std.meta.Int(.unsigned, @typeInfo(dst_t).Float.bits);
+    const src_rep_t = std.meta.Int(.unsigned, @typeInfo(src_t).float.bits);
+    const dst_rep_t = std.meta.Int(.unsigned, @typeInfo(dst_t).float.bits);
     const srcSigBits = std.math.floatMantissaBits(src_t);
     const dstSigBits = std.math.floatMantissaBits(dst_t);
 
@@ -70,8 +70,8 @@ pub inline fn extendf(
     return @bitCast(result);
 }
 
-pub inline fn extend_f80(comptime src_t: type, a: std.meta.Int(.unsigned, @typeInfo(src_t).Float.bits)) f80 {
-    const src_rep_t = std.meta.Int(.unsigned, @typeInfo(src_t).Float.bits);
+pub inline fn extend_f80(comptime src_t: type, a: std.meta.Int(.unsigned, @typeInfo(src_t).float.bits)) f80 {
+    const src_rep_t = std.meta.Int(.unsigned, @typeInfo(src_t).float.bits);
     const src_sig_bits = std.math.floatMantissaBits(src_t);
     const dst_int_bit = 0x8000000000000000;
     const dst_sig_bits = std.math.floatMantissaBits(f80) - 1; // -1 for the integer bit
@@ -131,7 +131,7 @@ pub inline fn extend_f80(comptime src_t: type, a: std.meta.Int(.unsigned, @typeI
     }
 
     dst.exp |= sign;
-    return std.math.make_f80(dst);
+    return dst.toFloat();
 }
 
 test {

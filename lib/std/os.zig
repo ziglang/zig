@@ -21,8 +21,9 @@ const mem = std.mem;
 const elf = std.elf;
 const fs = std.fs;
 const dl = @import("dynamic_library.zig");
-const MAX_PATH_BYTES = std.fs.MAX_PATH_BYTES;
+const max_path_bytes = std.fs.max_path_bytes;
 const posix = std.posix;
+const native_os = builtin.os.tag;
 
 pub const linux = @import("os/linux.zig");
 pub const plan9 = @import("os/plan9.zig");
@@ -33,7 +34,7 @@ pub const windows = @import("os/windows.zig");
 
 test {
     _ = linux;
-    if (builtin.os.tag == .uefi) {
+    if (native_os == .uefi) {
         _ = uefi;
     }
     _ = wasi;
@@ -48,7 +49,7 @@ pub var environ: [][*:0]u8 = undefined;
 /// Populated by startup code before main().
 /// Not available on WASI or Windows without libc. See `std.process.argsAlloc`
 /// or `std.process.argsWithAllocator` for a cross-platform alternative.
-pub var argv: [][*:0]u8 = if (builtin.link_libc) undefined else switch (builtin.os.tag) {
+pub var argv: [][*:0]u8 = if (builtin.link_libc) undefined else switch (native_os) {
     .windows => @compileError("argv isn't supported on Windows: use std.process.argsAlloc instead"),
     .wasi => @compileError("argv isn't supported on WASI: use std.process.argsAlloc instead"),
     else => undefined,
@@ -61,7 +62,7 @@ pub fn accessW(path: [*:0]const u16) windows.GetFileAttributesError!void {
     if (ret != windows.INVALID_FILE_ATTRIBUTES) {
         return;
     }
-    switch (windows.kernel32.GetLastError()) {
+    switch (windows.GetLastError()) {
         .FILE_NOT_FOUND => return error.FileNotFound,
         .PATH_NOT_FOUND => return error.FileNotFound,
         .ACCESS_DENIED => return error.PermissionDenied,
@@ -99,11 +100,11 @@ pub fn isGetFdPathSupportedOnTarget(os: std.Target.Os) bool {
 /// * On other platforms, the result is an opaque sequence of bytes with no particular encoding.
 ///
 /// Calling this function is usually a bug.
-pub fn getFdPath(fd: std.posix.fd_t, out_buffer: *[MAX_PATH_BYTES]u8) std.posix.RealPathError![]u8 {
+pub fn getFdPath(fd: std.posix.fd_t, out_buffer: *[max_path_bytes]u8) std.posix.RealPathError![]u8 {
     if (!comptime isGetFdPathSupportedOnTarget(builtin.os)) {
         @compileError("querying for canonical path of a handle is unsupported on this host");
     }
-    switch (builtin.os.tag) {
+    switch (native_os) {
         .windows => {
             var wide_buf: [windows.PATH_MAX_WIDE]u16 = undefined;
             const wide_slice = try windows.GetFinalPathNameByHandle(fd, .{}, wide_buf[0..]);
@@ -114,7 +115,7 @@ pub fn getFdPath(fd: std.posix.fd_t, out_buffer: *[MAX_PATH_BYTES]u8) std.posix.
         .macos, .ios, .watchos, .tvos, .visionos => {
             // On macOS, we can use F.GETPATH fcntl command to query the OS for
             // the path to the file descriptor.
-            @memset(out_buffer[0..MAX_PATH_BYTES], 0);
+            @memset(out_buffer[0..max_path_bytes], 0);
             switch (posix.errno(posix.system.fcntl(fd, posix.F.GETPATH, out_buffer))) {
                 .SUCCESS => {},
                 .BADF => return error.FileNotFound,
@@ -123,7 +124,7 @@ pub fn getFdPath(fd: std.posix.fd_t, out_buffer: *[MAX_PATH_BYTES]u8) std.posix.
                 // errno values to expect when command is F.GETPATH...
                 else => |err| return posix.unexpectedErrno(err),
             }
-            const len = mem.indexOfScalar(u8, out_buffer[0..], 0) orelse MAX_PATH_BYTES;
+            const len = mem.indexOfScalar(u8, out_buffer[0..], 0) orelse max_path_bytes;
             return out_buffer[0..len];
         },
         .linux => {
@@ -150,6 +151,7 @@ pub fn getFdPath(fd: std.posix.fd_t, out_buffer: *[MAX_PATH_BYTES]u8) std.posix.
             const target = posix.readlinkZ(proc_path, out_buffer) catch |err| switch (err) {
                 error.UnsupportedReparsePointType => unreachable,
                 error.NotLink => unreachable,
+                error.InvalidUtf8 => unreachable, // WASI-only
                 else => |e| return e,
             };
             return target;
@@ -163,7 +165,7 @@ pub fn getFdPath(fd: std.posix.fd_t, out_buffer: *[MAX_PATH_BYTES]u8) std.posix.
                     .BADF => return error.FileNotFound,
                     else => |err| return posix.unexpectedErrno(err),
                 }
-                const len = mem.indexOfScalar(u8, &kfile.path, 0) orelse MAX_PATH_BYTES;
+                const len = mem.indexOfScalar(u8, &kfile.path, 0) orelse max_path_bytes;
                 if (len == 0) return error.NameTooLong;
                 const result = out_buffer[0..len];
                 @memcpy(result, kfile.path[0..len]);
@@ -196,7 +198,7 @@ pub fn getFdPath(fd: std.posix.fd_t, out_buffer: *[MAX_PATH_BYTES]u8) std.posix.
                 while (i < len) {
                     const kf: *align(1) std.c.kinfo_file = @ptrCast(&buf[i]);
                     if (kf.fd == fd) {
-                        len = mem.indexOfScalar(u8, &kf.path, 0) orelse MAX_PATH_BYTES;
+                        len = mem.indexOfScalar(u8, &kf.path, 0) orelse max_path_bytes;
                         if (len == 0) return error.NameTooLong;
                         const result = out_buffer[0..len];
                         @memcpy(result, kf.path[0..len]);
@@ -208,18 +210,18 @@ pub fn getFdPath(fd: std.posix.fd_t, out_buffer: *[MAX_PATH_BYTES]u8) std.posix.
             }
         },
         .dragonfly => {
-            @memset(out_buffer[0..MAX_PATH_BYTES], 0);
+            @memset(out_buffer[0..max_path_bytes], 0);
             switch (posix.errno(std.c.fcntl(fd, posix.F.GETPATH, out_buffer))) {
                 .SUCCESS => {},
                 .BADF => return error.FileNotFound,
                 .RANGE => return error.NameTooLong,
                 else => |err| return posix.unexpectedErrno(err),
             }
-            const len = mem.indexOfScalar(u8, out_buffer[0..], 0) orelse MAX_PATH_BYTES;
+            const len = mem.indexOfScalar(u8, out_buffer[0..], 0) orelse max_path_bytes;
             return out_buffer[0..len];
         },
         .netbsd => {
-            @memset(out_buffer[0..MAX_PATH_BYTES], 0);
+            @memset(out_buffer[0..max_path_bytes], 0);
             switch (posix.errno(std.c.fcntl(fd, posix.F.GETPATH, out_buffer))) {
                 .SUCCESS => {},
                 .ACCES => return error.AccessDenied,
@@ -229,7 +231,7 @@ pub fn getFdPath(fd: std.posix.fd_t, out_buffer: *[MAX_PATH_BYTES]u8) std.posix.
                 .RANGE => return error.NameTooLong,
                 else => |err| return posix.unexpectedErrno(err),
             }
-            const len = mem.indexOfScalar(u8, out_buffer[0..], 0) orelse MAX_PATH_BYTES;
+            const len = mem.indexOfScalar(u8, out_buffer[0..], 0) orelse max_path_bytes;
             return out_buffer[0..len];
         },
         else => unreachable, // made unreachable by isGetFdPathSupportedOnTarget above

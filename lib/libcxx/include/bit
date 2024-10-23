@@ -61,25 +61,34 @@ namespace std {
 
 */
 
-#include <__assert> // all public C++ headers provide the assertion handler
-#include <__bit/bit_cast.h>
-#include <__bit/bit_ceil.h>
-#include <__bit/bit_floor.h>
-#include <__bit/bit_log2.h>
-#include <__bit/bit_width.h>
-#include <__bit/blsr.h>
-#include <__bit/byteswap.h>
-#include <__bit/countl.h>
-#include <__bit/countr.h>
-#include <__bit/endian.h>
-#include <__bit/has_single_bit.h>
-#include <__bit/popcount.h>
-#include <__bit/rotate.h>
 #include <__config>
+
+#if _LIBCPP_STD_VER >= 20
+#  include <__bit/bit_cast.h>
+#  include <__bit/bit_ceil.h>
+#  include <__bit/bit_floor.h>
+#  include <__bit/bit_log2.h>
+#  include <__bit/bit_width.h>
+#  include <__bit/countl.h>
+#  include <__bit/countr.h>
+#  include <__bit/endian.h>
+#  include <__bit/has_single_bit.h>
+#  include <__bit/popcount.h>
+#  include <__bit/rotate.h>
+#endif
+
+#if _LIBCPP_STD_VER >= 23
+#  include <__bit/byteswap.h>
+#endif
+
 #include <version>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
+#endif
+
+#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 17
+#  include <cstdint>
 #endif
 
 #if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20

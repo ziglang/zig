@@ -7,6 +7,7 @@ const log = std.log.scoped(.link);
 const macho = std.macho;
 const mem = std.mem;
 const testing = std.testing;
+const trace = @import("../../tracy.zig").trace;
 const Allocator = mem.Allocator;
 const Hasher = @import("hasher.zig").ParallelHasher;
 const MachO = @import("../MachO.zig");
@@ -52,7 +53,7 @@ const CodeDirectory = struct {
     inner: macho.CodeDirectory,
     ident: []const u8,
     special_slots: [n_special_slots][hash_size]u8,
-    code_slots: std.ArrayListUnmanaged([hash_size]u8) = .{},
+    code_slots: std.ArrayListUnmanaged([hash_size]u8) = .empty,
 
     const n_special_slots: usize = 7;
 
@@ -264,6 +265,9 @@ pub fn writeAdhocSignature(
     opts: WriteOpts,
     writer: anytype,
 ) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
     const allocator = macho_file.base.comp.gpa;
 
     var header: macho.SuperBlob = .{

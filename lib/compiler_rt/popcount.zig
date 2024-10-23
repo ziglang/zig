@@ -13,9 +13,9 @@ const common = @import("common.zig");
 pub const panic = common.panic;
 
 comptime {
-    @export(__popcountsi2, .{ .name = "__popcountsi2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__popcountdi2, .{ .name = "__popcountdi2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__popcountti2, .{ .name = "__popcountti2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__popcountsi2, .{ .name = "__popcountsi2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__popcountdi2, .{ .name = "__popcountdi2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__popcountti2, .{ .name = "__popcountti2", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 pub fn __popcountsi2(a: i32) callconv(.C) i32 {

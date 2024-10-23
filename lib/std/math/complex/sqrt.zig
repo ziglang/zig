@@ -43,7 +43,7 @@ fn sqrt32(z: Complex(f32)) Complex(f32) {
         // sqrt(-inf + i nan)   = nan +- inf i
         // sqrt(-inf + iy)      = 0 + inf i
         if (math.signbit(x)) {
-            return Complex(f32).init(@abs(x - y), math.copysign(x, y));
+            return Complex(f32).init(@abs(y - y), math.copysign(x, y));
         } else {
             return Complex(f32).init(x, math.copysign(y - y, y));
         }
@@ -94,7 +94,7 @@ fn sqrt64(z: Complex(f64)) Complex(f64) {
         // sqrt(-inf + i nan)   = nan +- inf i
         // sqrt(-inf + iy)      = 0 + inf i
         if (math.signbit(x)) {
-            return Complex(f64).init(@abs(x - y), math.copysign(x, y));
+            return Complex(f64).init(@abs(y - y), math.copysign(x, y));
         } else {
             return Complex(f64).init(x, math.copysign(y - y, y));
         }
@@ -127,20 +127,20 @@ fn sqrt64(z: Complex(f64)) Complex(f64) {
     return result;
 }
 
-const epsilon = 0.0001;
-
 test sqrt32 {
+    const epsilon = math.floatEps(f32);
     const a = Complex(f32).init(5, 3);
     const c = sqrt(a);
 
-    try testing.expect(math.approxEqAbs(f32, c.re, 2.327117, epsilon));
-    try testing.expect(math.approxEqAbs(f32, c.im, 0.644574, epsilon));
+    try testing.expectApproxEqAbs(2.3271174, c.re, epsilon);
+    try testing.expectApproxEqAbs(0.6445742, c.im, epsilon);
 }
 
 test sqrt64 {
+    const epsilon = math.floatEps(f64);
     const a = Complex(f64).init(5, 3);
     const c = sqrt(a);
 
-    try testing.expect(math.approxEqAbs(f64, c.re, 2.3271175190399496, epsilon));
-    try testing.expect(math.approxEqAbs(f64, c.im, 0.6445742373246469, epsilon));
+    try testing.expectApproxEqAbs(2.3271175190399496, c.re, epsilon);
+    try testing.expectApproxEqAbs(0.6445742373246469, c.im, epsilon);
 }

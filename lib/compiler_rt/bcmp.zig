@@ -2,7 +2,7 @@ const std = @import("std");
 const common = @import("./common.zig");
 
 comptime {
-    @export(bcmp, .{ .name = "bcmp", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&bcmp, .{ .name = "bcmp", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 pub fn bcmp(vl: [*]allowzero const u8, vr: [*]allowzero const u8, n: usize) callconv(.C) c_int {

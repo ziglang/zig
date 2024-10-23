@@ -22,13 +22,13 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _ForwardIterator, class _Compare>
-_LIBCPP_NODISCARD_EXT inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 bool
+_LIBCPP_NODISCARD inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 bool
 is_sorted(_ForwardIterator __first, _ForwardIterator __last, _Compare __comp) {
   return std::__is_sorted_until<__comp_ref_type<_Compare> >(__first, __last, __comp) == __last;
 }
 
 template <class _ForwardIterator>
-_LIBCPP_NODISCARD_EXT inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 bool
+_LIBCPP_NODISCARD inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 bool
 is_sorted(_ForwardIterator __first, _ForwardIterator __last) {
   return std::is_sorted(__first, __last, __less<>());
 }

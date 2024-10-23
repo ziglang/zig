@@ -1,5 +1,5 @@
 const Foo = @Type(.{
-    .Struct = undefined,
+    .@"struct" = undefined,
 });
 comptime {
     _ = Foo;

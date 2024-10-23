@@ -1,3 +1,12 @@
+//! Program Data Base debugging information format.
+//!
+//! This namespace contains unopinionated types and data definitions only. For
+//! an implementation of parsing and caching PDB information, see
+//! `std.debug.Pdb`.
+//!
+//! Most of this is based on information gathered from LLVM source code,
+//! documentation and/or contributors.
+
 const std = @import("std.zig");
 const io = std.io;
 const math = std.math;
@@ -9,302 +18,299 @@ const debug = std.debug;
 
 const ArrayList = std.ArrayList;
 
-// Note: most of this is based on information gathered from LLVM source code,
-// documentation and/or contributors.
-
-// https://llvm.org/docs/PDB/DbiStream.html#stream-header
+/// https://llvm.org/docs/PDB/DbiStream.html#stream-header
 pub const DbiStreamHeader = extern struct {
-    VersionSignature: i32,
-    VersionHeader: u32,
-    Age: u32,
-    GlobalStreamIndex: u16,
-    BuildNumber: u16,
-    PublicStreamIndex: u16,
-    PdbDllVersion: u16,
-    SymRecordStream: u16,
-    PdbDllRbld: u16,
-    ModInfoSize: u32,
-    SectionContributionSize: u32,
-    SectionMapSize: u32,
-    SourceInfoSize: i32,
-    TypeServerSize: i32,
-    MFCTypeServerIndex: u32,
-    OptionalDbgHeaderSize: i32,
-    ECSubstreamSize: i32,
-    Flags: u16,
-    Machine: u16,
-    Padding: u32,
+    version_signature: i32,
+    version_header: u32,
+    age: u32,
+    global_stream_index: u16,
+    build_number: u16,
+    public_stream_index: u16,
+    pdb_dll_version: u16,
+    sym_record_stream: u16,
+    pdb_dll_rbld: u16,
+    mod_info_size: u32,
+    section_contribution_size: u32,
+    section_map_size: u32,
+    source_info_size: i32,
+    type_server_size: i32,
+    mfc_type_server_index: u32,
+    optional_dbg_header_size: i32,
+    ec_substream_size: i32,
+    flags: u16,
+    machine: u16,
+    padding: u32,
 };
 
 pub const SectionContribEntry = extern struct {
     /// COFF Section index, 1-based
-    Section: u16,
-    Padding1: [2]u8,
-    Offset: u32,
-    Size: u32,
-    Characteristics: u32,
-    ModuleIndex: u16,
-    Padding2: [2]u8,
-    DataCrc: u32,
-    RelocCrc: u32,
+    section: u16,
+    padding1: [2]u8,
+    offset: u32,
+    size: u32,
+    characteristics: u32,
+    module_index: u16,
+    padding2: [2]u8,
+    data_crc: u32,
+    reloc_crc: u32,
 };
 
 pub const ModInfo = extern struct {
-    Unused1: u32,
-    SectionContr: SectionContribEntry,
-    Flags: u16,
-    ModuleSymStream: u16,
-    SymByteSize: u32,
-    C11ByteSize: u32,
-    C13ByteSize: u32,
-    SourceFileCount: u16,
-    Padding: [2]u8,
-    Unused2: u32,
-    SourceFileNameIndex: u32,
-    PdbFilePathNameIndex: u32,
+    unused1: u32,
+    section_contr: SectionContribEntry,
+    flags: u16,
+    module_sym_stream: u16,
+    sym_byte_size: u32,
+    c11_byte_size: u32,
+    c13_byte_size: u32,
+    source_file_count: u16,
+    padding: [2]u8,
+    unused2: u32,
+    source_file_name_index: u32,
+    pdb_file_path_name_index: u32,
     // These fields are variable length
-    //ModuleName: char[],
-    //ObjFileName: char[],
+    //module_name: char[],
+    //obj_file_name: char[],
 };
 
 pub const SectionMapHeader = extern struct {
     /// Number of segment descriptors
-    Count: u16,
+    count: u16,
 
     /// Number of logical segment descriptors
-    LogCount: u16,
+    log_count: u16,
 };
 
 pub const SectionMapEntry = extern struct {
     /// See the SectionMapEntryFlags enum below.
-    Flags: u16,
+    flags: u16,
 
     /// Logical overlay number
-    Ovl: u16,
+    ovl: u16,
 
     /// Group index into descriptor array.
-    Group: u16,
-    Frame: u16,
+    group: u16,
+    frame: u16,
 
     /// Byte index of segment / group name in string table, or 0xFFFF.
-    SectionName: u16,
+    section_name: u16,
 
     /// Byte index of class in string table, or 0xFFFF.
-    ClassName: u16,
+    class_name: u16,
 
     /// Byte offset of the logical segment within physical segment.  If group is set in flags, this is the offset of the group.
-    Offset: u32,
+    offset: u32,
 
     /// Byte count of the segment or group.
-    SectionLength: u32,
+    section_length: u32,
 };
 
 pub const StreamType = enum(u16) {
-    Pdb = 1,
-    Tpi = 2,
-    Dbi = 3,
-    Ipi = 4,
+    pdb = 1,
+    tpi = 2,
+    dbi = 3,
+    ipi = 4,
 };
 
 /// Duplicate copy of SymbolRecordKind, but using the official CV names. Useful
 /// for reference purposes and when dealing with unknown record types.
 pub const SymbolKind = enum(u16) {
-    S_COMPILE = 1,
-    S_REGISTER_16t = 2,
-    S_CONSTANT_16t = 3,
-    S_UDT_16t = 4,
-    S_SSEARCH = 5,
-    S_SKIP = 7,
-    S_CVRESERVE = 8,
-    S_OBJNAME_ST = 9,
-    S_ENDARG = 10,
-    S_COBOLUDT_16t = 11,
-    S_MANYREG_16t = 12,
-    S_RETURN = 13,
-    S_ENTRYTHIS = 14,
-    S_BPREL16 = 256,
-    S_LDATA16 = 257,
-    S_GDATA16 = 258,
-    S_PUB16 = 259,
-    S_LPROC16 = 260,
-    S_GPROC16 = 261,
-    S_THUNK16 = 262,
-    S_BLOCK16 = 263,
-    S_WITH16 = 264,
-    S_LABEL16 = 265,
-    S_CEXMODEL16 = 266,
-    S_VFTABLE16 = 267,
-    S_REGREL16 = 268,
-    S_BPREL32_16t = 512,
-    S_LDATA32_16t = 513,
-    S_GDATA32_16t = 514,
-    S_PUB32_16t = 515,
-    S_LPROC32_16t = 516,
-    S_GPROC32_16t = 517,
-    S_THUNK32_ST = 518,
-    S_BLOCK32_ST = 519,
-    S_WITH32_ST = 520,
-    S_LABEL32_ST = 521,
-    S_CEXMODEL32 = 522,
-    S_VFTABLE32_16t = 523,
-    S_REGREL32_16t = 524,
-    S_LTHREAD32_16t = 525,
-    S_GTHREAD32_16t = 526,
-    S_SLINK32 = 527,
-    S_LPROCMIPS_16t = 768,
-    S_GPROCMIPS_16t = 769,
-    S_PROCREF_ST = 1024,
-    S_DATAREF_ST = 1025,
-    S_ALIGN = 1026,
-    S_LPROCREF_ST = 1027,
-    S_OEM = 1028,
-    S_TI16_MAX = 4096,
-    S_REGISTER_ST = 4097,
-    S_CONSTANT_ST = 4098,
-    S_UDT_ST = 4099,
-    S_COBOLUDT_ST = 4100,
-    S_MANYREG_ST = 4101,
-    S_BPREL32_ST = 4102,
-    S_LDATA32_ST = 4103,
-    S_GDATA32_ST = 4104,
-    S_PUB32_ST = 4105,
-    S_LPROC32_ST = 4106,
-    S_GPROC32_ST = 4107,
-    S_VFTABLE32 = 4108,
-    S_REGREL32_ST = 4109,
-    S_LTHREAD32_ST = 4110,
-    S_GTHREAD32_ST = 4111,
-    S_LPROCMIPS_ST = 4112,
-    S_GPROCMIPS_ST = 4113,
-    S_COMPILE2_ST = 4115,
-    S_MANYREG2_ST = 4116,
-    S_LPROCIA64_ST = 4117,
-    S_GPROCIA64_ST = 4118,
-    S_LOCALSLOT_ST = 4119,
-    S_PARAMSLOT_ST = 4120,
-    S_ANNOTATION = 4121,
-    S_GMANPROC_ST = 4122,
-    S_LMANPROC_ST = 4123,
-    S_RESERVED1 = 4124,
-    S_RESERVED2 = 4125,
-    S_RESERVED3 = 4126,
-    S_RESERVED4 = 4127,
-    S_LMANDATA_ST = 4128,
-    S_GMANDATA_ST = 4129,
-    S_MANFRAMEREL_ST = 4130,
-    S_MANREGISTER_ST = 4131,
-    S_MANSLOT_ST = 4132,
-    S_MANMANYREG_ST = 4133,
-    S_MANREGREL_ST = 4134,
-    S_MANMANYREG2_ST = 4135,
-    S_MANTYPREF = 4136,
-    S_UNAMESPACE_ST = 4137,
-    S_ST_MAX = 4352,
-    S_WITH32 = 4356,
-    S_MANYREG = 4362,
-    S_LPROCMIPS = 4372,
-    S_GPROCMIPS = 4373,
-    S_MANYREG2 = 4375,
-    S_LPROCIA64 = 4376,
-    S_GPROCIA64 = 4377,
-    S_LOCALSLOT = 4378,
-    S_PARAMSLOT = 4379,
-    S_MANFRAMEREL = 4382,
-    S_MANREGISTER = 4383,
-    S_MANSLOT = 4384,
-    S_MANMANYREG = 4385,
-    S_MANREGREL = 4386,
-    S_MANMANYREG2 = 4387,
-    S_UNAMESPACE = 4388,
-    S_DATAREF = 4390,
-    S_ANNOTATIONREF = 4392,
-    S_TOKENREF = 4393,
-    S_GMANPROC = 4394,
-    S_LMANPROC = 4395,
-    S_ATTR_FRAMEREL = 4398,
-    S_ATTR_REGISTER = 4399,
-    S_ATTR_REGREL = 4400,
-    S_ATTR_MANYREG = 4401,
-    S_SEPCODE = 4402,
-    S_LOCAL_2005 = 4403,
-    S_DEFRANGE_2005 = 4404,
-    S_DEFRANGE2_2005 = 4405,
-    S_DISCARDED = 4411,
-    S_LPROCMIPS_ID = 4424,
-    S_GPROCMIPS_ID = 4425,
-    S_LPROCIA64_ID = 4426,
-    S_GPROCIA64_ID = 4427,
-    S_DEFRANGE_HLSL = 4432,
-    S_GDATA_HLSL = 4433,
-    S_LDATA_HLSL = 4434,
-    S_LOCAL_DPC_GROUPSHARED = 4436,
-    S_DEFRANGE_DPC_PTR_TAG = 4439,
-    S_DPC_SYM_TAG_MAP = 4440,
-    S_ARMSWITCHTABLE = 4441,
-    S_POGODATA = 4444,
-    S_INLINESITE2 = 4445,
-    S_MOD_TYPEREF = 4447,
-    S_REF_MINIPDB = 4448,
-    S_PDBMAP = 4449,
-    S_GDATA_HLSL32 = 4450,
-    S_LDATA_HLSL32 = 4451,
-    S_GDATA_HLSL32_EX = 4452,
-    S_LDATA_HLSL32_EX = 4453,
-    S_FASTLINK = 4455,
-    S_INLINEES = 4456,
-    S_END = 6,
-    S_INLINESITE_END = 4430,
-    S_PROC_ID_END = 4431,
-    S_THUNK32 = 4354,
-    S_TRAMPOLINE = 4396,
-    S_SECTION = 4406,
-    S_COFFGROUP = 4407,
-    S_EXPORT = 4408,
-    S_LPROC32 = 4367,
-    S_GPROC32 = 4368,
-    S_LPROC32_ID = 4422,
-    S_GPROC32_ID = 4423,
-    S_LPROC32_DPC = 4437,
-    S_LPROC32_DPC_ID = 4438,
-    S_REGISTER = 4358,
-    S_PUB32 = 4366,
-    S_PROCREF = 4389,
-    S_LPROCREF = 4391,
-    S_ENVBLOCK = 4413,
-    S_INLINESITE = 4429,
-    S_LOCAL = 4414,
-    S_DEFRANGE = 4415,
-    S_DEFRANGE_SUBFIELD = 4416,
-    S_DEFRANGE_REGISTER = 4417,
-    S_DEFRANGE_FRAMEPOINTER_REL = 4418,
-    S_DEFRANGE_SUBFIELD_REGISTER = 4419,
-    S_DEFRANGE_FRAMEPOINTER_REL_FULL_SCOPE = 4420,
-    S_DEFRANGE_REGISTER_REL = 4421,
-    S_BLOCK32 = 4355,
-    S_LABEL32 = 4357,
-    S_OBJNAME = 4353,
-    S_COMPILE2 = 4374,
-    S_COMPILE3 = 4412,
-    S_FRAMEPROC = 4114,
-    S_CALLSITEINFO = 4409,
-    S_FILESTATIC = 4435,
-    S_HEAPALLOCSITE = 4446,
-    S_FRAMECOOKIE = 4410,
-    S_CALLEES = 4442,
-    S_CALLERS = 4443,
-    S_UDT = 4360,
-    S_COBOLUDT = 4361,
-    S_BUILDINFO = 4428,
-    S_BPREL32 = 4363,
-    S_REGREL32 = 4369,
-    S_CONSTANT = 4359,
-    S_MANCONSTANT = 4397,
-    S_LDATA32 = 4364,
-    S_GDATA32 = 4365,
-    S_LMANDATA = 4380,
-    S_GMANDATA = 4381,
-    S_LTHREAD32 = 4370,
-    S_GTHREAD32 = 4371,
+    compile = 1,
+    register_16t = 2,
+    constant_16t = 3,
+    udt_16t = 4,
+    ssearch = 5,
+    skip = 7,
+    cvreserve = 8,
+    objname_st = 9,
+    endarg = 10,
+    coboludt_16t = 11,
+    manyreg_16t = 12,
+    @"return" = 13,
+    entrythis = 14,
+    bprel16 = 256,
+    ldata16 = 257,
+    gdata16 = 258,
+    pub16 = 259,
+    lproc16 = 260,
+    gproc16 = 261,
+    thunk16 = 262,
+    block16 = 263,
+    with16 = 264,
+    label16 = 265,
+    cexmodel16 = 266,
+    vftable16 = 267,
+    regrel16 = 268,
+    bprel32_16t = 512,
+    ldata32_16t = 513,
+    gdata32_16t = 514,
+    pub32_16t = 515,
+    lproc32_16t = 516,
+    gproc32_16t = 517,
+    thunk32_st = 518,
+    block32_st = 519,
+    with32_st = 520,
+    label32_st = 521,
+    cexmodel32 = 522,
+    vftable32_16t = 523,
+    regrel32_16t = 524,
+    lthread32_16t = 525,
+    gthread32_16t = 526,
+    slink32 = 527,
+    lprocmips_16t = 768,
+    gprocmips_16t = 769,
+    procref_st = 1024,
+    dataref_st = 1025,
+    @"align" = 1026,
+    lprocref_st = 1027,
+    oem = 1028,
+    ti16_max = 4096,
+    register_st = 4097,
+    constant_st = 4098,
+    udt_st = 4099,
+    coboludt_st = 4100,
+    manyreg_st = 4101,
+    bprel32_st = 4102,
+    ldata32_st = 4103,
+    gdata32_st = 4104,
+    pub32_st = 4105,
+    lproc32_st = 4106,
+    gproc32_st = 4107,
+    vftable32 = 4108,
+    regrel32_st = 4109,
+    lthread32_st = 4110,
+    gthread32_st = 4111,
+    lprocmips_st = 4112,
+    gprocmips_st = 4113,
+    compile2_st = 4115,
+    manyreg2_st = 4116,
+    lprocia64_st = 4117,
+    gprocia64_st = 4118,
+    localslot_st = 4119,
+    paramslot_st = 4120,
+    annotation = 4121,
+    gmanproc_st = 4122,
+    lmanproc_st = 4123,
+    reserved1 = 4124,
+    reserved2 = 4125,
+    reserved3 = 4126,
+    reserved4 = 4127,
+    lmandata_st = 4128,
+    gmandata_st = 4129,
+    manframerel_st = 4130,
+    manregister_st = 4131,
+    manslot_st = 4132,
+    manmanyreg_st = 4133,
+    manregrel_st = 4134,
+    manmanyreg2_st = 4135,
+    mantypref = 4136,
+    unamespace_st = 4137,
+    st_max = 4352,
+    with32 = 4356,
+    manyreg = 4362,
+    lprocmips = 4372,
+    gprocmips = 4373,
+    manyreg2 = 4375,
+    lprocia64 = 4376,
+    gprocia64 = 4377,
+    localslot = 4378,
+    paramslot = 4379,
+    manframerel = 4382,
+    manregister = 4383,
+    manslot = 4384,
+    manmanyreg = 4385,
+    manregrel = 4386,
+    manmanyreg2 = 4387,
+    unamespace = 4388,
+    dataref = 4390,
+    annotationref = 4392,
+    tokenref = 4393,
+    gmanproc = 4394,
+    lmanproc = 4395,
+    attr_framerel = 4398,
+    attr_register = 4399,
+    attr_regrel = 4400,
+    attr_manyreg = 4401,
+    sepcode = 4402,
+    local_2005 = 4403,
+    defrange_2005 = 4404,
+    defrange2_2005 = 4405,
+    discarded = 4411,
+    lprocmips_id = 4424,
+    gprocmips_id = 4425,
+    lprocia64_id = 4426,
+    gprocia64_id = 4427,
+    defrange_hlsl = 4432,
+    gdata_hlsl = 4433,
+    ldata_hlsl = 4434,
+    local_dpc_groupshared = 4436,
+    defrange_dpc_ptr_tag = 4439,
+    dpc_sym_tag_map = 4440,
+    armswitchtable = 4441,
+    pogodata = 4444,
+    inlinesite2 = 4445,
+    mod_typeref = 4447,
+    ref_minipdb = 4448,
+    pdbmap = 4449,
+    gdata_hlsl32 = 4450,
+    ldata_hlsl32 = 4451,
+    gdata_hlsl32_ex = 4452,
+    ldata_hlsl32_ex = 4453,
+    fastlink = 4455,
+    inlinees = 4456,
+    end = 6,
+    inlinesite_end = 4430,
+    proc_id_end = 4431,
+    thunk32 = 4354,
+    trampoline = 4396,
+    section = 4406,
+    coffgroup = 4407,
+    @"export" = 4408,
+    lproc32 = 4367,
+    gproc32 = 4368,
+    lproc32_id = 4422,
+    gproc32_id = 4423,
+    lproc32_dpc = 4437,
+    lproc32_dpc_id = 4438,
+    register = 4358,
+    pub32 = 4366,
+    procref = 4389,
+    lprocref = 4391,
+    envblock = 4413,
+    inlinesite = 4429,
+    local = 4414,
+    defrange = 4415,
+    defrange_subfield = 4416,
+    defrange_register = 4417,
+    defrange_framepointer_rel = 4418,
+    defrange_subfield_register = 4419,
+    defrange_framepointer_rel_full_scope = 4420,
+    defrange_register_rel = 4421,
+    block32 = 4355,
+    label32 = 4357,
+    objname = 4353,
+    compile2 = 4374,
+    compile3 = 4412,
+    frameproc = 4114,
+    callsiteinfo = 4409,
+    filestatic = 4435,
+    heapallocsite = 4446,
+    framecookie = 4410,
+    callees = 4442,
+    callers = 4443,
+    udt = 4360,
+    coboludt = 4361,
+    buildinfo = 4428,
+    bprel32 = 4363,
+    regrel32 = 4369,
+    constant = 4359,
+    manconstant = 4397,
+    ldata32 = 4364,
+    gdata32 = 4365,
+    lmandata = 4380,
+    gmandata = 4381,
+    lthread32 = 4370,
+    gthread32 = 4371,
 };
 
 pub const TypeIndex = u32;
@@ -314,28 +320,28 @@ pub const TypeIndex = u32;
 // we should define RecordPrefix as part of the ProcSym structure.
 // This might be important when we start generating PDB in self-hosted with our own PE linker.
 pub const ProcSym = extern struct {
-    Parent: u32,
-    End: u32,
-    Next: u32,
-    CodeSize: u32,
-    DbgStart: u32,
-    DbgEnd: u32,
-    FunctionType: TypeIndex,
-    CodeOffset: u32,
-    Segment: u16,
-    Flags: ProcSymFlags,
-    Name: [1]u8, // null-terminated
+    parent: u32,
+    end: u32,
+    next: u32,
+    code_size: u32,
+    dbg_start: u32,
+    dbg_end: u32,
+    function_type: TypeIndex,
+    code_offset: u32,
+    segment: u16,
+    flags: ProcSymFlags,
+    name: [1]u8, // null-terminated
 };
 
 pub const ProcSymFlags = packed struct {
-    HasFP: bool,
-    HasIRET: bool,
-    HasFRET: bool,
-    IsNoReturn: bool,
-    IsUnreachable: bool,
-    HasCustomCallingConv: bool,
-    IsNoInline: bool,
-    HasOptimizedDebugInfo: bool,
+    has_fp: bool,
+    has_iret: bool,
+    has_fret: bool,
+    is_no_return: bool,
+    is_unreachable: bool,
+    has_custom_calling_conv: bool,
+    is_no_inline: bool,
+    has_optimized_debug_info: bool,
 };
 
 pub const SectionContrSubstreamVersion = enum(u32) {
@@ -345,11 +351,11 @@ pub const SectionContrSubstreamVersion = enum(u32) {
 };
 
 pub const RecordPrefix = extern struct {
-    /// Record length, starting from &RecordKind.
-    RecordLen: u16,
+    /// Record length, starting from &record_kind.
+    record_len: u16,
 
     /// Record kind enum (SymRecordKind or TypeRecordKind)
-    RecordKind: SymbolKind,
+    record_kind: SymbolKind,
 };
 
 /// The following variable length array appears immediately after the header.
@@ -358,19 +364,19 @@ pub const RecordPrefix = extern struct {
 /// Each `LineBlockFragmentHeader` as specified below.
 pub const LineFragmentHeader = extern struct {
     /// Code offset of line contribution.
-    RelocOffset: u32,
+    reloc_offset: u32,
 
     /// Code segment of line contribution.
-    RelocSegment: u16,
-    Flags: LineFlags,
+    reloc_segment: u16,
+    flags: LineFlags,
 
     /// Code size of this line contribution.
-    CodeSize: u32,
+    code_size: u32,
 };
 
 pub const LineFlags = packed struct {
     /// CV_LINES_HAVE_COLUMNS
-    LF_HaveColumns: bool,
+    have_columns: bool,
     unused: u15,
 };
 
@@ -383,622 +389,109 @@ pub const LineBlockFragmentHeader = extern struct {
     /// checksums buffer.  The checksum entry then
     /// contains another offset into the string
     /// table of the actual name.
-    NameIndex: u32,
-    NumLines: u32,
+    name_index: u32,
+    num_lines: u32,
 
     /// code size of block, in bytes
-    BlockSize: u32,
+    block_size: u32,
 };
 
 pub const LineNumberEntry = extern struct {
     /// Offset to start of code bytes for line number
-    Offset: u32,
-    Flags: u32,
+    offset: u32,
+    flags: Flags,
 
-    /// TODO runtime crash when I make the actual type of Flags this
-    pub const Flags = packed struct {
+    pub const Flags = packed struct(u32) {
         /// Start line number
-        Start: u24,
+        start: u24,
         /// Delta of lines to the end of the expression. Still unclear.
         // TODO figure out the point of this field.
-        End: u7,
-        IsStatement: bool,
+        end: u7,
+        is_statement: bool,
     };
 };
 
 pub const ColumnNumberEntry = extern struct {
-    StartColumn: u16,
-    EndColumn: u16,
+    start_column: u16,
+    end_column: u16,
 };
 
 /// Checksum bytes follow.
 pub const FileChecksumEntryHeader = extern struct {
     /// Byte offset of filename in global string table.
-    FileNameOffset: u32,
-
+    file_name_offset: u32,
     /// Number of bytes of checksum.
-    ChecksumSize: u8,
-
+    checksum_size: u8,
     /// FileChecksumKind
-    ChecksumKind: u8,
+    checksum_kind: u8,
 };
 
 pub const DebugSubsectionKind = enum(u32) {
-    None = 0,
-    Symbols = 0xf1,
-    Lines = 0xf2,
-    StringTable = 0xf3,
-    FileChecksums = 0xf4,
-    FrameData = 0xf5,
-    InlineeLines = 0xf6,
-    CrossScopeImports = 0xf7,
-    CrossScopeExports = 0xf8,
+    none = 0,
+    symbols = 0xf1,
+    lines = 0xf2,
+    string_table = 0xf3,
+    file_checksums = 0xf4,
+    frame_data = 0xf5,
+    inlinee_lines = 0xf6,
+    cross_scope_imports = 0xf7,
+    cross_scope_exports = 0xf8,
 
     // These appear to relate to .Net assembly info.
-    ILLines = 0xf9,
-    FuncMDTokenMap = 0xfa,
-    TypeMDTokenMap = 0xfb,
-    MergedAssemblyInput = 0xfc,
+    il_lines = 0xf9,
+    func_md_token_map = 0xfa,
+    type_md_token_map = 0xfb,
+    merged_assembly_input = 0xfc,
 
-    CoffSymbolRVA = 0xfd,
+    coff_symbol_rva = 0xfd,
 };
 
 pub const DebugSubsectionHeader = extern struct {
     /// codeview::DebugSubsectionKind enum
-    Kind: DebugSubsectionKind,
+    kind: DebugSubsectionKind,
 
     /// number of bytes occupied by this record.
-    Length: u32,
+    length: u32,
 };
 
-pub const PDBStringTableHeader = extern struct {
+pub const StringTableHeader = extern struct {
     /// PDBStringTableSignature
-    Signature: u32,
-
+    signature: u32,
     /// 1 or 2
-    HashVersion: u32,
-
+    hash_version: u32,
     /// Number of bytes of names buffer.
-    ByteSize: u32,
+    byte_size: u32,
 };
-
-fn readSparseBitVector(stream: anytype, allocator: mem.Allocator) ![]u32 {
-    const num_words = try stream.readInt(u32, .little);
-    var list = ArrayList(u32).init(allocator);
-    errdefer list.deinit();
-    var word_i: u32 = 0;
-    while (word_i != num_words) : (word_i += 1) {
-        const word = try stream.readInt(u32, .little);
-        var bit_i: u5 = 0;
-        while (true) : (bit_i += 1) {
-            if (word & (@as(u32, 1) << bit_i) != 0) {
-                try list.append(word_i * 32 + bit_i);
-            }
-            if (bit_i == std.math.maxInt(u5)) break;
-        }
-    }
-    return try list.toOwnedSlice();
-}
-
-pub const Pdb = struct {
-    in_file: File,
-    msf: Msf,
-    allocator: mem.Allocator,
-    string_table: ?*MsfStream,
-    dbi: ?*MsfStream,
-    modules: []Module,
-    sect_contribs: []SectionContribEntry,
-    guid: [16]u8,
-    age: u32,
-
-    pub const Module = struct {
-        mod_info: ModInfo,
-        module_name: []u8,
-        obj_file_name: []u8,
-        // The fields below are filled on demand.
-        populated: bool,
-        symbols: []u8,
-        subsect_info: []u8,
-        checksum_offset: ?usize,
-
-        pub fn deinit(self: *Module, allocator: mem.Allocator) void {
-            allocator.free(self.module_name);
-            allocator.free(self.obj_file_name);
-            if (self.populated) {
-                allocator.free(self.symbols);
-                allocator.free(self.subsect_info);
-            }
-        }
-    };
-
-    pub fn init(allocator: mem.Allocator, path: []const u8) !Pdb {
-        const file = try fs.cwd().openFile(path, .{});
-        errdefer file.close();
-
-        return Pdb{
-            .in_file = file,
-            .allocator = allocator,
-            .string_table = null,
-            .dbi = null,
-            .msf = try Msf.init(allocator, file),
-            .modules = &[_]Module{},
-            .sect_contribs = &[_]SectionContribEntry{},
-            .guid = undefined,
-            .age = undefined,
-        };
-    }
-
-    pub fn deinit(self: *Pdb) void {
-        self.in_file.close();
-        self.msf.deinit(self.allocator);
-        for (self.modules) |*module| {
-            module.deinit(self.allocator);
-        }
-        self.allocator.free(self.modules);
-        self.allocator.free(self.sect_contribs);
-    }
-
-    pub fn parseDbiStream(self: *Pdb) !void {
-        var stream = self.getStream(StreamType.Dbi) orelse
-            return error.InvalidDebugInfo;
-        const reader = stream.reader();
-
-        const header = try reader.readStruct(DbiStreamHeader);
-        if (header.VersionHeader != 19990903) // V70, only value observed by LLVM team
-            return error.UnknownPDBVersion;
-        // if (header.Age != age)
-        //     return error.UnmatchingPDB;
-
-        const mod_info_size = header.ModInfoSize;
-        const section_contrib_size = header.SectionContributionSize;
-
-        var modules = ArrayList(Module).init(self.allocator);
-        errdefer modules.deinit();
-
-        // Module Info Substream
-        var mod_info_offset: usize = 0;
-        while (mod_info_offset != mod_info_size) {
-            const mod_info = try reader.readStruct(ModInfo);
-            var this_record_len: usize = @sizeOf(ModInfo);
-
-            const module_name = try reader.readUntilDelimiterAlloc(self.allocator, 0, 1024);
-            errdefer self.allocator.free(module_name);
-            this_record_len += module_name.len + 1;
-
-            const obj_file_name = try reader.readUntilDelimiterAlloc(self.allocator, 0, 1024);
-            errdefer self.allocator.free(obj_file_name);
-            this_record_len += obj_file_name.len + 1;
-
-            if (this_record_len % 4 != 0) {
-                const round_to_next_4 = (this_record_len | 0x3) + 1;
-                const march_forward_bytes = round_to_next_4 - this_record_len;
-                try stream.seekBy(@as(isize, @intCast(march_forward_bytes)));
-                this_record_len += march_forward_bytes;
-            }
-
-            try modules.append(Module{
-                .mod_info = mod_info,
-                .module_name = module_name,
-                .obj_file_name = obj_file_name,
-
-                .populated = false,
-                .symbols = undefined,
-                .subsect_info = undefined,
-                .checksum_offset = null,
-            });
-
-            mod_info_offset += this_record_len;
-            if (mod_info_offset > mod_info_size)
-                return error.InvalidDebugInfo;
-        }
-
-        // Section Contribution Substream
-        var sect_contribs = ArrayList(SectionContribEntry).init(self.allocator);
-        errdefer sect_contribs.deinit();
-
-        var sect_cont_offset: usize = 0;
-        if (section_contrib_size != 0) {
-            const version = reader.readEnum(SectionContrSubstreamVersion, .little) catch |err| switch (err) {
-                error.InvalidValue => return error.InvalidDebugInfo,
-                else => |e| return e,
-            };
-            _ = version;
-            sect_cont_offset += @sizeOf(u32);
-        }
-        while (sect_cont_offset != section_contrib_size) {
-            const entry = try sect_contribs.addOne();
-            entry.* = try reader.readStruct(SectionContribEntry);
-            sect_cont_offset += @sizeOf(SectionContribEntry);
-
-            if (sect_cont_offset > section_contrib_size)
-                return error.InvalidDebugInfo;
-        }
-
-        self.modules = try modules.toOwnedSlice();
-        self.sect_contribs = try sect_contribs.toOwnedSlice();
-    }
-
-    pub fn parseInfoStream(self: *Pdb) !void {
-        var stream = self.getStream(StreamType.Pdb) orelse
-            return error.InvalidDebugInfo;
-        const reader = stream.reader();
-
-        // Parse the InfoStreamHeader.
-        const version = try reader.readInt(u32, .little);
-        const signature = try reader.readInt(u32, .little);
-        _ = signature;
-        const age = try reader.readInt(u32, .little);
-        const guid = try reader.readBytesNoEof(16);
-
-        if (version != 20000404) // VC70, only value observed by LLVM team
-            return error.UnknownPDBVersion;
-
-        self.guid = guid;
-        self.age = age;
-
-        // Find the string table.
-        const string_table_index = str_tab_index: {
-            const name_bytes_len = try reader.readInt(u32, .little);
-            const name_bytes = try self.allocator.alloc(u8, name_bytes_len);
-            defer self.allocator.free(name_bytes);
-            try reader.readNoEof(name_bytes);
-
-            const HashTableHeader = extern struct {
-                Size: u32,
-                Capacity: u32,
-
-                fn maxLoad(cap: u32) u32 {
-                    return cap * 2 / 3 + 1;
-                }
-            };
-            const hash_tbl_hdr = try reader.readStruct(HashTableHeader);
-            if (hash_tbl_hdr.Capacity == 0)
-                return error.InvalidDebugInfo;
-
-            if (hash_tbl_hdr.Size > HashTableHeader.maxLoad(hash_tbl_hdr.Capacity))
-                return error.InvalidDebugInfo;
-
-            const present = try readSparseBitVector(&reader, self.allocator);
-            defer self.allocator.free(present);
-            if (present.len != hash_tbl_hdr.Size)
-                return error.InvalidDebugInfo;
-            const deleted = try readSparseBitVector(&reader, self.allocator);
-            defer self.allocator.free(deleted);
-
-            for (present) |_| {
-                const name_offset = try reader.readInt(u32, .little);
-                const name_index = try reader.readInt(u32, .little);
-                if (name_offset > name_bytes.len)
-                    return error.InvalidDebugInfo;
-                const name = mem.sliceTo(name_bytes[name_offset..], 0);
-                if (mem.eql(u8, name, "/names")) {
-                    break :str_tab_index name_index;
-                }
-            }
-            return error.MissingDebugInfo;
-        };
-
-        self.string_table = self.getStreamById(string_table_index) orelse
-            return error.MissingDebugInfo;
-    }
-
-    pub fn getSymbolName(self: *Pdb, module: *Module, address: u64) ?[]const u8 {
-        _ = self;
-        std.debug.assert(module.populated);
-
-        var symbol_i: usize = 0;
-        while (symbol_i != module.symbols.len) {
-            const prefix = @as(*align(1) RecordPrefix, @ptrCast(&module.symbols[symbol_i]));
-            if (prefix.RecordLen < 2)
-                return null;
-            switch (prefix.RecordKind) {
-                .S_LPROC32, .S_GPROC32 => {
-                    const proc_sym = @as(*align(1) ProcSym, @ptrCast(&module.symbols[symbol_i + @sizeOf(RecordPrefix)]));
-                    if (address >= proc_sym.CodeOffset and address < proc_sym.CodeOffset + proc_sym.CodeSize) {
-                        return mem.sliceTo(@as([*:0]u8, @ptrCast(&proc_sym.Name[0])), 0);
-                    }
-                },
-                else => {},
-            }
-            symbol_i += prefix.RecordLen + @sizeOf(u16);
-        }
-
-        return null;
-    }
-
-    pub fn getLineNumberInfo(self: *Pdb, module: *Module, address: u64) !debug.LineInfo {
-        std.debug.assert(module.populated);
-        const subsect_info = module.subsect_info;
-
-        var sect_offset: usize = 0;
-        var skip_len: usize = undefined;
-        const checksum_offset = module.checksum_offset orelse return error.MissingDebugInfo;
-        while (sect_offset != subsect_info.len) : (sect_offset += skip_len) {
-            const subsect_hdr = @as(*align(1) DebugSubsectionHeader, @ptrCast(&subsect_info[sect_offset]));
-            skip_len = subsect_hdr.Length;
-            sect_offset += @sizeOf(DebugSubsectionHeader);
-
-            switch (subsect_hdr.Kind) {
-                .Lines => {
-                    var line_index = sect_offset;
-
-                    const line_hdr = @as(*align(1) LineFragmentHeader, @ptrCast(&subsect_info[line_index]));
-                    if (line_hdr.RelocSegment == 0)
-                        return error.MissingDebugInfo;
-                    line_index += @sizeOf(LineFragmentHeader);
-                    const frag_vaddr_start = line_hdr.RelocOffset;
-                    const frag_vaddr_end = frag_vaddr_start + line_hdr.CodeSize;
-
-                    if (address >= frag_vaddr_start and address < frag_vaddr_end) {
-                        // There is an unknown number of LineBlockFragmentHeaders (and their accompanying line and column records)
-                        // from now on. We will iterate through them, and eventually find a LineInfo that we're interested in,
-                        // breaking out to :subsections. If not, we will make sure to not read anything outside of this subsection.
-                        const subsection_end_index = sect_offset + subsect_hdr.Length;
-
-                        while (line_index < subsection_end_index) {
-                            const block_hdr = @as(*align(1) LineBlockFragmentHeader, @ptrCast(&subsect_info[line_index]));
-                            line_index += @sizeOf(LineBlockFragmentHeader);
-                            const start_line_index = line_index;
-
-                            const has_column = line_hdr.Flags.LF_HaveColumns;
-
-                            // All line entries are stored inside their line block by ascending start address.
-                            // Heuristic: we want to find the last line entry
-                            // that has a vaddr_start <= address.
-                            // This is done with a simple linear search.
-                            var line_i: u32 = 0;
-                            while (line_i < block_hdr.NumLines) : (line_i += 1) {
-                                const line_num_entry = @as(*align(1) LineNumberEntry, @ptrCast(&subsect_info[line_index]));
-                                line_index += @sizeOf(LineNumberEntry);
-
-                                const vaddr_start = frag_vaddr_start + line_num_entry.Offset;
-                                if (address < vaddr_start) {
-                                    break;
-                                }
-                            }
-
-                            // line_i == 0 would mean that no matching LineNumberEntry was found.
-                            if (line_i > 0) {
-                                const subsect_index = checksum_offset + block_hdr.NameIndex;
-                                const chksum_hdr = @as(*align(1) FileChecksumEntryHeader, @ptrCast(&module.subsect_info[subsect_index]));
-                                const strtab_offset = @sizeOf(PDBStringTableHeader) + chksum_hdr.FileNameOffset;
-                                try self.string_table.?.seekTo(strtab_offset);
-                                const source_file_name = try self.string_table.?.reader().readUntilDelimiterAlloc(self.allocator, 0, 1024);
-
-                                const line_entry_idx = line_i - 1;
-
-                                const column = if (has_column) blk: {
-                                    const start_col_index = start_line_index + @sizeOf(LineNumberEntry) * block_hdr.NumLines;
-                                    const col_index = start_col_index + @sizeOf(ColumnNumberEntry) * line_entry_idx;
-                                    const col_num_entry = @as(*align(1) ColumnNumberEntry, @ptrCast(&subsect_info[col_index]));
-                                    break :blk col_num_entry.StartColumn;
-                                } else 0;
-
-                                const found_line_index = start_line_index + line_entry_idx * @sizeOf(LineNumberEntry);
-                                const line_num_entry: *align(1) LineNumberEntry = @ptrCast(&subsect_info[found_line_index]);
-                                const flags: *align(1) LineNumberEntry.Flags = @ptrCast(&line_num_entry.Flags);
-
-                                return debug.LineInfo{
-                                    .file_name = source_file_name,
-                                    .line = flags.Start,
-                                    .column = column,
-                                };
-                            }
-                        }
-
-                        // Checking that we are not reading garbage after the (possibly) multiple block fragments.
-                        if (line_index != subsection_end_index) {
-                            return error.InvalidDebugInfo;
-                        }
-                    }
-                },
-                else => {},
-            }
-
-            if (sect_offset > subsect_info.len)
-                return error.InvalidDebugInfo;
-        }
-
-        return error.MissingDebugInfo;
-    }
-
-    pub fn getModule(self: *Pdb, index: usize) !?*Module {
-        if (index >= self.modules.len)
-            return null;
-
-        const mod = &self.modules[index];
-        if (mod.populated)
-            return mod;
-
-        // At most one can be non-zero.
-        if (mod.mod_info.C11ByteSize != 0 and mod.mod_info.C13ByteSize != 0)
-            return error.InvalidDebugInfo;
-        if (mod.mod_info.C13ByteSize == 0)
-            return error.InvalidDebugInfo;
-
-        const stream = self.getStreamById(mod.mod_info.ModuleSymStream) orelse
-            return error.MissingDebugInfo;
-        const reader = stream.reader();
-
-        const signature = try reader.readInt(u32, .little);
-        if (signature != 4)
-            return error.InvalidDebugInfo;
-
-        mod.symbols = try self.allocator.alloc(u8, mod.mod_info.SymByteSize - 4);
-        errdefer self.allocator.free(mod.symbols);
-        try reader.readNoEof(mod.symbols);
-
-        mod.subsect_info = try self.allocator.alloc(u8, mod.mod_info.C13ByteSize);
-        errdefer self.allocator.free(mod.subsect_info);
-        try reader.readNoEof(mod.subsect_info);
-
-        var sect_offset: usize = 0;
-        var skip_len: usize = undefined;
-        while (sect_offset != mod.subsect_info.len) : (sect_offset += skip_len) {
-            const subsect_hdr = @as(*align(1) DebugSubsectionHeader, @ptrCast(&mod.subsect_info[sect_offset]));
-            skip_len = subsect_hdr.Length;
-            sect_offset += @sizeOf(DebugSubsectionHeader);
-
-            switch (subsect_hdr.Kind) {
-                .FileChecksums => {
-                    mod.checksum_offset = sect_offset;
-                    break;
-                },
-                else => {},
-            }
-
-            if (sect_offset > mod.subsect_info.len)
-                return error.InvalidDebugInfo;
-        }
-
-        mod.populated = true;
-        return mod;
-    }
-
-    pub fn getStreamById(self: *Pdb, id: u32) ?*MsfStream {
-        if (id >= self.msf.streams.len)
-            return null;
-        return &self.msf.streams[id];
-    }
-
-    pub fn getStream(self: *Pdb, stream: StreamType) ?*MsfStream {
-        const id = @intFromEnum(stream);
-        return self.getStreamById(id);
-    }
-};
-
-// see https://llvm.org/docs/PDB/MsfFile.html
-const Msf = struct {
-    directory: MsfStream,
-    streams: []MsfStream,
-
-    fn init(allocator: mem.Allocator, file: File) !Msf {
-        const in = file.reader();
-
-        const superblock = try in.readStruct(SuperBlock);
-
-        // Sanity checks
-        if (!mem.eql(u8, &superblock.FileMagic, SuperBlock.file_magic))
-            return error.InvalidDebugInfo;
-        if (superblock.FreeBlockMapBlock != 1 and superblock.FreeBlockMapBlock != 2)
-            return error.InvalidDebugInfo;
-        const file_len = try file.getEndPos();
-        if (superblock.NumBlocks * superblock.BlockSize != file_len)
-            return error.InvalidDebugInfo;
-        switch (superblock.BlockSize) {
-            // llvm only supports 4096 but we can handle any of these values
-            512, 1024, 2048, 4096 => {},
-            else => return error.InvalidDebugInfo,
-        }
-
-        const dir_block_count = blockCountFromSize(superblock.NumDirectoryBytes, superblock.BlockSize);
-        if (dir_block_count > superblock.BlockSize / @sizeOf(u32))
-            return error.UnhandledBigDirectoryStream; // cf. BlockMapAddr comment.
-
-        try file.seekTo(superblock.BlockSize * superblock.BlockMapAddr);
-        const dir_blocks = try allocator.alloc(u32, dir_block_count);
-        for (dir_blocks) |*b| {
-            b.* = try in.readInt(u32, .little);
-        }
-        var directory = MsfStream.init(
-            superblock.BlockSize,
-            file,
-            dir_blocks,
-        );
-
-        const begin = directory.pos;
-        const stream_count = try directory.reader().readInt(u32, .little);
-        const stream_sizes = try allocator.alloc(u32, stream_count);
-        defer allocator.free(stream_sizes);
-
-        // Microsoft's implementation uses @as(u32, -1) for inexistent streams.
-        // These streams are not used, but still participate in the file
-        // and must be taken into account when resolving stream indices.
-        const Nil = 0xFFFFFFFF;
-        for (stream_sizes) |*s| {
-            const size = try directory.reader().readInt(u32, .little);
-            s.* = if (size == Nil) 0 else blockCountFromSize(size, superblock.BlockSize);
-        }
-
-        const streams = try allocator.alloc(MsfStream, stream_count);
-        for (streams, 0..) |*stream, i| {
-            const size = stream_sizes[i];
-            if (size == 0) {
-                stream.* = MsfStream{
-                    .blocks = &[_]u32{},
-                };
-            } else {
-                var blocks = try allocator.alloc(u32, size);
-                var j: u32 = 0;
-                while (j < size) : (j += 1) {
-                    const block_id = try directory.reader().readInt(u32, .little);
-                    const n = (block_id % superblock.BlockSize);
-                    // 0 is for SuperBlock, 1 and 2 for FPMs.
-                    if (block_id == 0 or n == 1 or n == 2 or block_id * superblock.BlockSize > file_len)
-                        return error.InvalidBlockIndex;
-                    blocks[j] = block_id;
-                }
-
-                stream.* = MsfStream.init(
-                    superblock.BlockSize,
-                    file,
-                    blocks,
-                );
-            }
-        }
-
-        const end = directory.pos;
-        if (end - begin != superblock.NumDirectoryBytes)
-            return error.InvalidStreamDirectory;
-
-        return Msf{
-            .directory = directory,
-            .streams = streams,
-        };
-    }
-
-    fn deinit(self: *Msf, allocator: mem.Allocator) void {
-        allocator.free(self.directory.blocks);
-        for (self.streams) |*stream| {
-            allocator.free(stream.blocks);
-        }
-        allocator.free(self.streams);
-    }
-};
-
-fn blockCountFromSize(size: u32, block_size: u32) u32 {
-    return (size + block_size - 1) / block_size;
-}
 
 // https://llvm.org/docs/PDB/MsfFile.html#the-superblock
 pub const SuperBlock = extern struct {
     /// The LLVM docs list a space between C / C++ but empirically this is not the case.
-    pub const file_magic = "Microsoft C/C++ MSF 7.00\r\n\x1a\x44\x53\x00\x00\x00";
+    pub const expect_magic = "Microsoft C/C++ MSF 7.00\r\n\x1a\x44\x53\x00\x00\x00";
 
-    FileMagic: [file_magic.len]u8,
+    file_magic: [expect_magic.len]u8,
 
     /// The block size of the internal file system. Valid values are 512, 1024,
     /// 2048, and 4096 bytes. Certain aspects of the MSF file layout vary depending
     /// on the block sizes. For the purposes of LLVM, we handle only block sizes of
     /// 4KiB, and all further discussion assumes a block size of 4KiB.
-    BlockSize: u32,
+    block_size: u32,
 
     /// The index of a block within the file, at which begins a bitfield representing
     /// the set of all blocks within the file which are “free” (i.e. the data within
     /// that block is not used). See The Free Block Map for more information. Important:
     /// FreeBlockMapBlock can only be 1 or 2!
-    FreeBlockMapBlock: u32,
+    free_block_map_block: u32,
 
     /// The total number of blocks in the file. NumBlocks * BlockSize should equal the
     /// size of the file on disk.
-    NumBlocks: u32,
+    num_blocks: u32,
 
     /// The size of the stream directory, in bytes. The stream directory contains
     /// information about each stream’s size and the set of blocks that it occupies.
     /// It will be described in more detail later.
-    NumDirectoryBytes: u32,
+    num_directory_bytes: u32,
 
-    Unknown: u32,
+    unknown: u32,
     /// The index of a block within the MSF file. At this block is an array of
     /// ulittle32_t’s listing the blocks that the stream directory resides on.
     /// For large MSF files, the stream directory (which describes the block
@@ -1014,84 +507,5 @@ pub const SuperBlock = extern struct {
     // This would mean the Stream Directory is bigger than BlockSize / sizeof(u32)
     // blocks. We're not even close to this with a 1GB pdb file, and LLVM didn't
     // implement it so we're kind of safe making this assumption for now.
-    BlockMapAddr: u32,
-};
-
-const MsfStream = struct {
-    in_file: File = undefined,
-    pos: u64 = undefined,
-    blocks: []u32 = undefined,
-    block_size: u32 = undefined,
-
-    pub const Error = @typeInfo(@typeInfo(@TypeOf(read)).Fn.return_type.?).ErrorUnion.error_set;
-
-    fn init(block_size: u32, file: File, blocks: []u32) MsfStream {
-        const stream = MsfStream{
-            .in_file = file,
-            .pos = 0,
-            .blocks = blocks,
-            .block_size = block_size,
-        };
-
-        return stream;
-    }
-
-    fn read(self: *MsfStream, buffer: []u8) !usize {
-        var block_id = @as(usize, @intCast(self.pos / self.block_size));
-        if (block_id >= self.blocks.len) return 0; // End of Stream
-        var block = self.blocks[block_id];
-        var offset = self.pos % self.block_size;
-
-        try self.in_file.seekTo(block * self.block_size + offset);
-        const in = self.in_file.reader();
-
-        var size: usize = 0;
-        var rem_buffer = buffer;
-        while (size < buffer.len) {
-            const size_to_read = @min(self.block_size - offset, rem_buffer.len);
-            size += try in.read(rem_buffer[0..size_to_read]);
-            rem_buffer = buffer[size..];
-            offset += size_to_read;
-
-            // If we're at the end of a block, go to the next one.
-            if (offset == self.block_size) {
-                offset = 0;
-                block_id += 1;
-                if (block_id >= self.blocks.len) break; // End of Stream
-                block = self.blocks[block_id];
-                try self.in_file.seekTo(block * self.block_size);
-            }
-        }
-
-        self.pos += buffer.len;
-        return buffer.len;
-    }
-
-    pub fn seekBy(self: *MsfStream, len: i64) !void {
-        self.pos = @as(u64, @intCast(@as(i64, @intCast(self.pos)) + len));
-        if (self.pos >= self.blocks.len * self.block_size)
-            return error.EOF;
-    }
-
-    pub fn seekTo(self: *MsfStream, len: u64) !void {
-        self.pos = len;
-        if (self.pos >= self.blocks.len * self.block_size)
-            return error.EOF;
-    }
-
-    fn getSize(self: *const MsfStream) u64 {
-        return self.blocks.len * self.block_size;
-    }
-
-    fn getFilePos(self: MsfStream) u64 {
-        const block_id = self.pos / self.block_size;
-        const block = self.blocks[block_id];
-        const offset = self.pos % self.block_size;
-
-        return block * self.block_size + offset;
-    }
-
-    pub fn reader(self: *MsfStream) std.io.Reader(*MsfStream, Error, read) {
-        return .{ .context = self };
-    }
+    block_map_addr: u32,
 };

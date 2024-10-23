@@ -36,12 +36,12 @@ pub fn getShift(n: usize) usize {
 /// Note that this function needs a lot of stack space and is marked
 /// cold to hint against inlining into the caller.
 pub fn convertSlow(comptime T: type, s: []const u8) BiasedFp(T) {
-    @setCold(true);
+    @branchHint(.cold);
 
     const MantissaT = mantissaType(T);
     const min_exponent = -(1 << (math.floatExponentBits(T) - 1)) + 1;
     const infinite_power = (1 << math.floatExponentBits(T)) - 1;
-    const mantissa_explicit_bits = math.floatMantissaBits(T);
+    const fractional_bits = math.floatFractionalBits(T);
 
     var d = Decimal(T).parse(s); // no need to recheck underscores
     if (d.num_digits == 0 or d.decimal_point < Decimal(T).min_exponent) {
@@ -97,9 +97,9 @@ pub fn convertSlow(comptime T: type, s: []const u8) BiasedFp(T) {
 
     // Shift the decimal to the hidden bit, and then round the value
     // to get the high mantissa+1 bits.
-    d.leftShift(mantissa_explicit_bits + 1);
+    d.leftShift(fractional_bits + 1);
     var mantissa = d.round();
-    if (mantissa >= (@as(MantissaT, 1) << (mantissa_explicit_bits + 1))) {
+    if (mantissa >= (@as(MantissaT, 1) << (fractional_bits + 1))) {
         // Rounding up overflowed to the carry bit, need to
         // shift back to the hidden bit.
         d.rightShift(1);
@@ -110,10 +110,10 @@ pub fn convertSlow(comptime T: type, s: []const u8) BiasedFp(T) {
         }
     }
     var power2 = exp2 - min_exponent;
-    if (mantissa < (@as(MantissaT, 1) << mantissa_explicit_bits)) {
+    if (mantissa < (@as(MantissaT, 1) << fractional_bits)) {
         power2 -= 1;
     }
-    // Zero out all the bits above the explicit mantissa bits.
-    mantissa &= (@as(MantissaT, 1) << mantissa_explicit_bits) - 1;
+    // Zero out all the bits above the mantissa bits.
+    mantissa &= (@as(MantissaT, 1) << math.floatMantissaBits(T)) - 1;
     return .{ .f = mantissa, .e = power2 };
 }

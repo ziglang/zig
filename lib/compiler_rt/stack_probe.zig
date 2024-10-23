@@ -5,9 +5,6 @@ const arch = builtin.cpu.arch;
 const abi = builtin.abi;
 const is_test = builtin.is_test;
 
-const is_gnu = abi.isGnu();
-const is_mingw = os_tag == .windows and is_gnu;
-
 const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .internal else .weak;
 const strong_linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .internal else .strong;
 pub const panic = @import("common.zig").panic;
@@ -15,17 +12,17 @@ pub const panic = @import("common.zig").panic;
 comptime {
     if (builtin.os.tag == .windows) {
         // Default stack-probe functions emitted by LLVM
-        if (is_mingw) {
-            @export(_chkstk, .{ .name = "_alloca", .linkage = strong_linkage });
-            @export(___chkstk_ms, .{ .name = "___chkstk_ms", .linkage = strong_linkage });
+        if (builtin.target.isMinGW()) {
+            @export(&_chkstk, .{ .name = "_alloca", .linkage = linkage });
+            @export(&___chkstk_ms, .{ .name = "___chkstk_ms", .linkage = linkage });
 
-            if (arch.isAARCH64()) {
-                @export(__chkstk, .{ .name = "__chkstk", .linkage = strong_linkage });
+            if (arch == .thumb or arch == .aarch64) {
+                @export(&__chkstk, .{ .name = "__chkstk", .linkage = linkage });
             }
         } else if (!builtin.link_libc) {
             // This symbols are otherwise exported by MSVCRT.lib
-            @export(_chkstk, .{ .name = "_chkstk", .linkage = strong_linkage });
-            @export(__chkstk, .{ .name = "__chkstk", .linkage = strong_linkage });
+            @export(&_chkstk, .{ .name = "_chkstk", .linkage = linkage });
+            @export(&__chkstk, .{ .name = "__chkstk", .linkage = linkage });
         }
     }
 
@@ -33,7 +30,7 @@ comptime {
         .x86,
         .x86_64,
         => {
-            @export(zig_probe_stack, .{ .name = "__zig_probe_stack", .linkage = linkage });
+            @export(&zig_probe_stack, .{ .name = "__zig_probe_stack", .linkage = linkage });
         },
         else => {},
     }
@@ -100,6 +97,35 @@ fn win_probe_stack_only() void {
     @setRuntimeSafety(false);
 
     switch (arch) {
+        .thumb => {
+            asm volatile (
+                \\ lsl r4, r4, #2
+                \\ mov r12, sp
+                \\ push {r5, r6}
+                \\ mov r5, r4
+                \\1:
+                \\ sub r12, r12, #4096
+                \\ subs r5, r5, #4096
+                \\ ldr r6, [r12]
+                \\ bgt 1b
+                \\ pop {r5, r6}
+                \\ bx lr
+            );
+        },
+        .aarch64 => {
+            asm volatile (
+                \\        lsl    x16, x15, #4
+                \\        mov    x17, sp
+                \\1:
+                \\
+                \\        sub    x17, x17, 4096
+                \\        subs   x16, x16, 4096
+                \\        ldr    xzr, [x17]
+                \\        b.gt   1b
+                \\
+                \\        ret
+            );
+        },
         .x86_64 => {
             asm volatile (
                 \\         push   %%rcx
@@ -143,21 +169,6 @@ fn win_probe_stack_only() void {
             );
         },
         else => {},
-    }
-    if (comptime arch.isAARCH64()) {
-        // NOTE: page size hardcoded to 4096 for now
-        asm volatile (
-            \\        lsl    x16, x15, #4
-            \\        mov    x17, sp
-            \\1:
-            \\
-            \\        sub    x17, x17, 4096
-            \\        subs   x16, x16, 4096
-            \\        ldr    xzr, [x17]
-            \\        b.gt   1b
-            \\
-            \\        ret
-        );
     }
 
     unreachable;
@@ -240,7 +251,7 @@ pub fn _chkstk() callconv(.Naked) void {
 }
 pub fn __chkstk() callconv(.Naked) void {
     @setRuntimeSafety(false);
-    if (comptime arch.isAARCH64()) {
+    if (arch == .thumb or arch == .aarch64) {
         @call(.always_inline, win_probe_stack_only, .{});
     } else switch (arch) {
         .x86 => @call(.always_inline, win_probe_stack_adjust_sp, .{}),

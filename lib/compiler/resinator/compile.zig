@@ -3004,9 +3004,9 @@ test "limitedWriter basic usage" {
 }
 
 pub const FontDir = struct {
-    fonts: std.ArrayListUnmanaged(Font) = .{},
+    fonts: std.ArrayListUnmanaged(Font) = .empty,
     /// To keep track of which ids are set and where they were set from
-    ids: std.AutoHashMapUnmanaged(u16, Token) = .{},
+    ids: std.AutoHashMapUnmanaged(u16, Token) = .empty,
 
     pub const Font = struct {
         id: u16,
@@ -3112,7 +3112,7 @@ pub const StringTablesByLanguage = struct {
     /// when the first STRINGTABLE for the language was defined, and all blocks for a given
     /// language are written contiguously.
     /// Using an ArrayHashMap here gives us this property for free.
-    tables: std.AutoArrayHashMapUnmanaged(res.Language, StringTable) = .{},
+    tables: std.AutoArrayHashMapUnmanaged(res.Language, StringTable) = .empty,
 
     pub fn deinit(self: *StringTablesByLanguage, allocator: Allocator) void {
         self.tables.deinit(allocator);
@@ -3143,10 +3143,10 @@ pub const StringTable = struct {
     /// was added to the block (i.e. `STRINGTABLE { 16 "b" 0 "a" }` would then get written
     /// with block ID 2 (the one with "b") first and block ID 1 (the one with "a") second).
     /// Using an ArrayHashMap here gives us this property for free.
-    blocks: std.AutoArrayHashMapUnmanaged(u16, Block) = .{},
+    blocks: std.AutoArrayHashMapUnmanaged(u16, Block) = .empty,
 
     pub const Block = struct {
-        strings: std.ArrayListUnmanaged(Token) = .{},
+        strings: std.ArrayListUnmanaged(Token) = .empty,
         set_indexes: std.bit_set.IntegerBitSet(16) = .{ .mask = 0 },
         memory_flags: MemoryFlags = MemoryFlags.defaults(res.RT.STRING),
         characteristics: u32,
@@ -3405,7 +3405,7 @@ test "StringTable" {
         }
         break :ids buf;
     };
-    var prng = std.rand.DefaultPrng.init(0);
+    var prng = std.Random.DefaultPrng.init(0);
     var random = prng.random();
     random.shuffle(u16, &ids);
 

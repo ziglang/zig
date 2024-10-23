@@ -1,5 +1,5 @@
 export fn entry() void {
-    _ = @Type(.{ .Pointer = .{
+    _ = @Type(.{ .pointer = .{
         .size = .One,
         .is_const = false,
         .is_volatile = false,

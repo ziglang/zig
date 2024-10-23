@@ -6,4 +6,4 @@ export fn foo(comptime x: anytype, y: i32) i32 {
 // backend=stage2
 // target=native
 //
-// :1:27: error: comptime parameters not allowed in function with calling convention 'C'
+// :1:15: error: comptime parameters not allowed in function with calling convention 'C'

@@ -3,7 +3,7 @@ comptime {
 }
 
 comptime {
-    @setCold(true);
+    @branchHint(.cold);
 }
 
 comptime {
@@ -55,7 +55,7 @@ comptime {
 // target=native
 //
 // :2:5: error: '@setAlignStack' outside function scope
-// :6:5: error: '@setCold' outside function scope
+// :6:5: error: '@branchHint' outside function scope
 // :10:5: error: '@src' outside function scope
 // :14:5: error: '@returnAddress' outside function scope
 // :18:5: error: '@frameAddress' outside function scope
