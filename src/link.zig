@@ -370,9 +370,6 @@ pub const File = struct {
     lock: ?Cache.Lock = null,
     child_pid: ?std.process.Child.Id = null,
 
-    /// Ensure only 1 simultaneous call to `flushTaskQueue`.
-    task_queue_safety: std.debug.SafetyLock = .{},
-
     pub const OpenOptions = struct {
         symbol_count_hint: u64 = 32,
         program_code_size_hint: u64 = 256 * 1024,
@@ -1085,6 +1082,8 @@ pub const File = struct {
     }
 
     pub fn loadInput(base: *File, input: Input) anyerror!void {
+        const use_lld = build_options.have_llvm and base.comp.config.use_lld;
+        if (use_lld) return;
         switch (base.tag) {
             inline .elf => |tag| {
                 dev.check(tag.devFeature());
@@ -1360,151 +1359,182 @@ pub const File = struct {
     pub const Wasm = @import("link/Wasm.zig");
     pub const NvPtx = @import("link/NvPtx.zig");
     pub const Dwarf = @import("link/Dwarf.zig");
+};
 
-    /// Does all the tasks in the queue. Runs in exactly one separate thread
-    /// from the rest of compilation. All tasks performed here are
-    /// single-threaded with respect to one another.
-    pub fn flushTaskQueue(base: *File, parent_prog_node: std.Progress.Node) void {
-        const comp = base.comp;
-        base.task_queue_safety.lock();
-        defer base.task_queue_safety.unlock();
-        const prog_node = parent_prog_node.start("Parse Linker Inputs", 0);
-        defer prog_node.end();
-        while (comp.link_task_queue.check()) |tasks| {
-            for (tasks) |task| doTask(base, task);
-        }
+/// Does all the tasks in the queue. Runs in exactly one separate thread
+/// from the rest of compilation. All tasks performed here are
+/// single-threaded with respect to one another.
+pub fn flushTaskQueue(tid: usize, comp: *Compilation) void {
+    comp.link_task_queue_safety.lock();
+    defer comp.link_task_queue_safety.unlock();
+    const prog_node = comp.work_queue_progress_node.start("Parse Linker Inputs", 0);
+    defer prog_node.end();
+    while (comp.link_task_queue.check()) |tasks| {
+        for (tasks) |task| doTask(comp, tid, task);
     }
+}
 
-    pub const Task = union(enum) {
-        /// Loads the objects, shared objects, and archives that are already
-        /// known from the command line.
-        load_explicitly_provided,
-        /// Loads the shared objects and archives by resolving
-        /// `target_util.libcFullLinkFlags()` against the host libc
-        /// installation.
-        load_host_libc,
-        /// Tells the linker to load an object file by path.
-        load_object: Path,
-        /// Tells the linker to load a static library by path.
-        load_archive: Path,
-        /// Tells the linker to load a shared library, possibly one that is a
-        /// GNU ld script.
-        load_dso: Path,
-        /// Tells the linker to load an input which could be an object file,
-        /// archive, or shared library.
-        load_input: Input,
+pub const Task = union(enum) {
+    /// Loads the objects, shared objects, and archives that are already
+    /// known from the command line.
+    load_explicitly_provided,
+    /// Loads the shared objects and archives by resolving
+    /// `target_util.libcFullLinkFlags()` against the host libc
+    /// installation.
+    load_host_libc,
+    /// Tells the linker to load an object file by path.
+    load_object: Path,
+    /// Tells the linker to load a static library by path.
+    load_archive: Path,
+    /// Tells the linker to load a shared library, possibly one that is a
+    /// GNU ld script.
+    load_dso: Path,
+    /// Tells the linker to load an input which could be an object file,
+    /// archive, or shared library.
+    load_input: Input,
+
+    /// Write the constant value for a Decl to the output file.
+    codegen_nav: InternPool.Nav.Index,
+    /// Write the machine code for a function to the output file.
+    codegen_func: CodegenFunc,
+    codegen_type: InternPool.Index,
+
+    pub const CodegenFunc = struct {
+        /// This will either be a non-generic `func_decl` or a `func_instance`.
+        func: InternPool.Index,
+        /// This `Air` is owned by the `Job` and allocated with `gpa`.
+        /// It must be deinited when the job is processed.
+        air: Air,
     };
+};
 
-    fn doTask(base: *File, task: Task) void {
-        const comp = base.comp;
-        switch (task) {
-            .load_explicitly_provided => {
-                for (comp.link_inputs) |input| {
-                    base.loadInput(input) catch |err| switch (err) {
-                        error.LinkFailure => return, // error reported via link_diags
-                        else => |e| switch (input) {
-                            .dso => |dso| comp.link_diags.addParseError(dso.path, "failed to parse shared library: {s}", .{@errorName(e)}),
-                            .object => |obj| comp.link_diags.addParseError(obj.path, "failed to parse object: {s}", .{@errorName(e)}),
-                            .archive => |obj| comp.link_diags.addParseError(obj.path, "failed to parse archive: {s}", .{@errorName(e)}),
-                            .res => |res| comp.link_diags.addParseError(res.path, "failed to parse Windows resource: {s}", .{@errorName(e)}),
-                            .dso_exact => comp.link_diags.addError("failed to handle dso_exact: {s}", .{@errorName(e)}),
-                        },
-                    };
-                }
-            },
-            .load_host_libc => {
-                const target = comp.root_mod.resolved_target.result;
-                const flags = target_util.libcFullLinkFlags(target);
-                const crt_dir = comp.libc_installation.?.crt_dir.?;
-                const sep = std.fs.path.sep_str;
-                const diags = &comp.link_diags;
-                for (flags) |flag| {
-                    assert(mem.startsWith(u8, flag, "-l"));
-                    const lib_name = flag["-l".len..];
-                    switch (comp.config.link_mode) {
-                        .dynamic => {
-                            const dso_path = Path.initCwd(
-                                std.fmt.allocPrint(comp.arena, "{s}" ++ sep ++ "{s}{s}{s}", .{
-                                    crt_dir, target.libPrefix(), lib_name, target.dynamicLibSuffix(),
-                                }) catch return diags.setAllocFailure(),
-                            );
-                            base.openLoadDso(dso_path, .{
-                                .preferred_mode = .dynamic,
-                                .search_strategy = .paths_first,
-                            }) catch |err| switch (err) {
-                                error.FileNotFound => {
-                                    // Also try static.
-                                    const archive_path = Path.initCwd(
-                                        std.fmt.allocPrint(comp.arena, "{s}" ++ sep ++ "{s}{s}{s}", .{
-                                            crt_dir, target.libPrefix(), lib_name, target.staticLibSuffix(),
-                                        }) catch return diags.setAllocFailure(),
-                                    );
-                                    base.openLoadArchive(archive_path, .{
-                                        .preferred_mode = .dynamic,
-                                        .search_strategy = .paths_first,
-                                    }) catch |archive_err| switch (archive_err) {
-                                        error.LinkFailure => return, // error reported via diags
-                                        else => |e| diags.addParseError(dso_path, "failed to parse archive {}: {s}", .{ archive_path, @errorName(e) }),
-                                    };
-                                },
-                                error.LinkFailure => return, // error reported via diags
-                                else => |e| diags.addParseError(dso_path, "failed to parse shared library: {s}", .{@errorName(e)}),
-                            };
-                        },
-                        .static => {
-                            const path = Path.initCwd(
-                                std.fmt.allocPrint(comp.arena, "{s}" ++ sep ++ "{s}{s}{s}", .{
-                                    crt_dir, target.libPrefix(), lib_name, target.staticLibSuffix(),
-                                }) catch return diags.setAllocFailure(),
-                            );
-                            // glibc sometimes makes even archive files GNU ld scripts.
-                            base.openLoadArchive(path, .{
-                                .preferred_mode = .static,
-                                .search_strategy = .no_fallback,
-                            }) catch |err| switch (err) {
-                                error.LinkFailure => return, // error reported via diags
-                                else => |e| diags.addParseError(path, "failed to parse archive: {s}", .{@errorName(e)}),
-                            };
-                        },
-                    }
-                }
-            },
-            .load_object => |path| {
-                base.openLoadObject(path) catch |err| switch (err) {
-                    error.LinkFailure => return, // error reported via link_diags
-                    else => |e| comp.link_diags.addParseError(path, "failed to parse object: {s}", .{@errorName(e)}),
-                };
-            },
-            .load_archive => |path| {
-                base.openLoadArchive(path, null) catch |err| switch (err) {
-                    error.LinkFailure => return, // error reported via link_diags
-                    else => |e| comp.link_diags.addParseError(path, "failed to parse archive: {s}", .{@errorName(e)}),
-                };
-            },
-            .load_dso => |path| {
-                base.openLoadDso(path, .{
-                    .preferred_mode = .dynamic,
-                    .search_strategy = .paths_first,
-                }) catch |err| switch (err) {
-                    error.LinkFailure => return, // error reported via link_diags
-                    else => |e| comp.link_diags.addParseError(path, "failed to parse shared library: {s}", .{@errorName(e)}),
-                };
-            },
-            .load_input => |input| {
+pub fn doTask(comp: *Compilation, tid: usize, task: Task) void {
+    const diags = &comp.link_diags;
+    switch (task) {
+        .load_explicitly_provided => if (comp.bin_file) |base| {
+            for (comp.link_inputs) |input| {
                 base.loadInput(input) catch |err| switch (err) {
-                    error.LinkFailure => return, // error reported via link_diags
-                    else => |e| {
-                        if (input.path()) |path| {
-                            comp.link_diags.addParseError(path, "failed to parse linker input: {s}", .{@errorName(e)});
-                        } else {
-                            comp.link_diags.addError("failed to {s}: {s}", .{ input.taskName(), @errorName(e) });
-                        }
+                    error.LinkFailure => return, // error reported via diags
+                    else => |e| switch (input) {
+                        .dso => |dso| diags.addParseError(dso.path, "failed to parse shared library: {s}", .{@errorName(e)}),
+                        .object => |obj| diags.addParseError(obj.path, "failed to parse object: {s}", .{@errorName(e)}),
+                        .archive => |obj| diags.addParseError(obj.path, "failed to parse archive: {s}", .{@errorName(e)}),
+                        .res => |res| diags.addParseError(res.path, "failed to parse Windows resource: {s}", .{@errorName(e)}),
+                        .dso_exact => diags.addError("failed to handle dso_exact: {s}", .{@errorName(e)}),
                     },
                 };
-            },
-        }
+            }
+        },
+        .load_host_libc => if (comp.bin_file) |base| {
+            const target = comp.root_mod.resolved_target.result;
+            const flags = target_util.libcFullLinkFlags(target);
+            const crt_dir = comp.libc_installation.?.crt_dir.?;
+            const sep = std.fs.path.sep_str;
+            for (flags) |flag| {
+                assert(mem.startsWith(u8, flag, "-l"));
+                const lib_name = flag["-l".len..];
+                switch (comp.config.link_mode) {
+                    .dynamic => {
+                        const dso_path = Path.initCwd(
+                            std.fmt.allocPrint(comp.arena, "{s}" ++ sep ++ "{s}{s}{s}", .{
+                                crt_dir, target.libPrefix(), lib_name, target.dynamicLibSuffix(),
+                            }) catch return diags.setAllocFailure(),
+                        );
+                        base.openLoadDso(dso_path, .{
+                            .preferred_mode = .dynamic,
+                            .search_strategy = .paths_first,
+                        }) catch |err| switch (err) {
+                            error.FileNotFound => {
+                                // Also try static.
+                                const archive_path = Path.initCwd(
+                                    std.fmt.allocPrint(comp.arena, "{s}" ++ sep ++ "{s}{s}{s}", .{
+                                        crt_dir, target.libPrefix(), lib_name, target.staticLibSuffix(),
+                                    }) catch return diags.setAllocFailure(),
+                                );
+                                base.openLoadArchive(archive_path, .{
+                                    .preferred_mode = .dynamic,
+                                    .search_strategy = .paths_first,
+                                }) catch |archive_err| switch (archive_err) {
+                                    error.LinkFailure => return, // error reported via diags
+                                    else => |e| diags.addParseError(dso_path, "failed to parse archive {}: {s}", .{ archive_path, @errorName(e) }),
+                                };
+                            },
+                            error.LinkFailure => return, // error reported via diags
+                            else => |e| diags.addParseError(dso_path, "failed to parse shared library: {s}", .{@errorName(e)}),
+                        };
+                    },
+                    .static => {
+                        const path = Path.initCwd(
+                            std.fmt.allocPrint(comp.arena, "{s}" ++ sep ++ "{s}{s}{s}", .{
+                                crt_dir, target.libPrefix(), lib_name, target.staticLibSuffix(),
+                            }) catch return diags.setAllocFailure(),
+                        );
+                        // glibc sometimes makes even archive files GNU ld scripts.
+                        base.openLoadArchive(path, .{
+                            .preferred_mode = .static,
+                            .search_strategy = .no_fallback,
+                        }) catch |err| switch (err) {
+                            error.LinkFailure => return, // error reported via diags
+                            else => |e| diags.addParseError(path, "failed to parse archive: {s}", .{@errorName(e)}),
+                        };
+                    },
+                }
+            }
+        },
+        .load_object => |path| if (comp.bin_file) |base| {
+            base.openLoadObject(path) catch |err| switch (err) {
+                error.LinkFailure => return, // error reported via diags
+                else => |e| diags.addParseError(path, "failed to parse object: {s}", .{@errorName(e)}),
+            };
+        },
+        .load_archive => |path| if (comp.bin_file) |base| {
+            base.openLoadArchive(path, null) catch |err| switch (err) {
+                error.LinkFailure => return, // error reported via link_diags
+                else => |e| diags.addParseError(path, "failed to parse archive: {s}", .{@errorName(e)}),
+            };
+        },
+        .load_dso => |path| if (comp.bin_file) |base| {
+            base.openLoadDso(path, .{
+                .preferred_mode = .dynamic,
+                .search_strategy = .paths_first,
+            }) catch |err| switch (err) {
+                error.LinkFailure => return, // error reported via link_diags
+                else => |e| diags.addParseError(path, "failed to parse shared library: {s}", .{@errorName(e)}),
+            };
+        },
+        .load_input => |input| if (comp.bin_file) |base| {
+            base.loadInput(input) catch |err| switch (err) {
+                error.LinkFailure => return, // error reported via link_diags
+                else => |e| {
+                    if (input.path()) |path| {
+                        diags.addParseError(path, "failed to parse linker input: {s}", .{@errorName(e)});
+                    } else {
+                        diags.addError("failed to {s}: {s}", .{ input.taskName(), @errorName(e) });
+                    }
+                },
+            };
+        },
+        .codegen_nav => |nav_index| {
+            const pt: Zcu.PerThread = .{ .zcu = comp.zcu.?, .tid = @enumFromInt(tid) };
+            pt.linkerUpdateNav(nav_index) catch |err| switch (err) {
+                error.OutOfMemory => diags.setAllocFailure(),
+            };
+        },
+        .codegen_func => |func| {
+            const pt: Zcu.PerThread = .{ .zcu = comp.zcu.?, .tid = @enumFromInt(tid) };
+            // This call takes ownership of `func.air`.
+            pt.linkerUpdateFunc(func.func, func.air) catch |err| switch (err) {
+                error.OutOfMemory => diags.setAllocFailure(),
+            };
+        },
+        .codegen_type => |ty| {
+            const pt: Zcu.PerThread = .{ .zcu = comp.zcu.?, .tid = @enumFromInt(tid) };
+            pt.linkerUpdateContainerType(ty) catch |err| switch (err) {
+                error.OutOfMemory => diags.setAllocFailure(),
+            };
+        },
     }
-};
+}
 
 pub fn spawnLld(
     comp: *Compilation,

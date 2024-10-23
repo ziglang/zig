@@ -111,7 +111,9 @@ win32_resource_table: if (dev.env.supports(.win32_resource)) std.AutoArrayHashMa
 } = .{},
 
 link_diags: link.Diags,
-link_task_queue: ThreadSafeQueue(link.File.Task) = .empty,
+link_task_queue: ThreadSafeQueue(link.Task) = .empty,
+/// Ensure only 1 simultaneous call to `flushTaskQueue`.
+link_task_queue_safety: std.debug.SafetyLock = .{},
 
 work_queues: [
     len: {
@@ -122,14 +124,6 @@ work_queues: [
         break :len len;
     }
 ]std.fifo.LinearFifo(Job, .Dynamic),
-
-codegen_work: if (InternPool.single_threaded) void else struct {
-    mutex: std.Thread.Mutex,
-    cond: std.Thread.Condition,
-    queue: std.fifo.LinearFifo(CodegenJob, .Dynamic),
-    job_error: ?JobError,
-    done: bool,
-},
 
 /// These jobs are to invoke the Clang compiler to create an object file, which
 /// gets linked with the Compilation.
@@ -267,7 +261,7 @@ emit_asm: ?EmitLoc,
 emit_llvm_ir: ?EmitLoc,
 emit_llvm_bc: ?EmitLoc,
 
-work_queue_wait_group: WaitGroup = .{},
+link_task_wait_group: WaitGroup = .{},
 work_queue_progress_node: std.Progress.Node = .none,
 
 llvm_opt_bisect_limit: c_int,
@@ -347,16 +341,14 @@ pub const RcIncludes = enum {
 };
 
 const Job = union(enum) {
-    /// Write the constant value for a Decl to the output file.
+    /// Corresponds to the task in `link.Task`.
+    /// Only needed for backends that haven't yet been updated to not race against Sema.
     codegen_nav: InternPool.Nav.Index,
-    /// Write the machine code for a function to the output file.
-    codegen_func: struct {
-        /// This will either be a non-generic `func_decl` or a `func_instance`.
-        func: InternPool.Index,
-        /// This `Air` is owned by the `Job` and allocated with `gpa`.
-        /// It must be deinited when the job is processed.
-        air: Air,
-    },
+    /// Corresponds to the task in `link.Task`.
+    /// Only needed for backends that haven't yet been updated to not race against Sema.
+    codegen_func: link.Task.CodegenFunc,
+    /// Corresponds to the task in `link.Task`.
+    /// Only needed for backends that haven't yet been updated to not race against Sema.
     codegen_type: InternPool.Index,
     /// The `Cau` must be semantically analyzed (and possibly export itself).
     /// This may be its first time being analyzed, or it may be outdated.
@@ -406,17 +398,6 @@ const Job = union(enum) {
         // Job dependencies
         assert(stage(.resolve_type_fully) <= stage(.codegen_func));
     }
-};
-
-const CodegenJob = union(enum) {
-    nav: InternPool.Nav.Index,
-    func: struct {
-        func: InternPool.Index,
-        /// This `Air` is owned by the `Job` and allocated with `gpa`.
-        /// It must be deinited when the job is processed.
-        air: Air,
-    },
-    type: InternPool.Index,
 };
 
 pub const CObject = struct {
@@ -1465,13 +1446,6 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .emit_llvm_ir = options.emit_llvm_ir,
             .emit_llvm_bc = options.emit_llvm_bc,
             .work_queues = .{std.fifo.LinearFifo(Job, .Dynamic).init(gpa)} ** @typeInfo(std.meta.FieldType(Compilation, .work_queues)).array.len,
-            .codegen_work = if (InternPool.single_threaded) {} else .{
-                .mutex = .{},
-                .cond = .{},
-                .queue = std.fifo.LinearFifo(CodegenJob, .Dynamic).init(gpa),
-                .job_error = null,
-                .done = false,
-            },
             .c_object_work_queue = std.fifo.LinearFifo(*CObject, .Dynamic).init(gpa),
             .win32_resource_work_queue = if (dev.env.supports(.win32_resource)) std.fifo.LinearFifo(*Win32Resource, .Dynamic).init(gpa) else .{},
             .astgen_work_queue = std.fifo.LinearFifo(Zcu.File.Index, .Dynamic).init(gpa),
@@ -1923,7 +1897,6 @@ pub fn destroy(comp: *Compilation) void {
     if (comp.zcu) |zcu| zcu.deinit();
     comp.cache_use.deinit();
     for (comp.work_queues) |work_queue| work_queue.deinit();
-    if (!InternPool.single_threaded) comp.codegen_work.queue.deinit();
     comp.c_object_work_queue.deinit();
     comp.win32_resource_work_queue.deinit();
     comp.astgen_work_queue.deinit();
@@ -3485,7 +3458,6 @@ pub fn performAllTheWork(
         zcu.generation += 1;
     };
     try comp.performAllTheWorkInner(main_progress_node);
-    if (!InternPool.single_threaded) if (comp.codegen_work.job_error) |job_error| return job_error;
 }
 
 fn performAllTheWorkInner(
@@ -3497,36 +3469,35 @@ fn performAllTheWorkInner(
     // (at least for now) single-threaded main work queue. However, C object compilation
     // only needs to be finished by the end of this function.
 
-    const work_queue_wait_group = &comp.work_queue_wait_group;
-
-    work_queue_wait_group.reset();
+    var work_queue_wait_group: WaitGroup = .{};
     defer work_queue_wait_group.wait();
 
-    if (comp.bin_file) |lf| {
-        if (comp.link_task_queue.start()) {
-            comp.thread_pool.spawnWg(work_queue_wait_group, link.File.flushTaskQueue, .{ lf, main_progress_node });
-        }
+    comp.link_task_wait_group.reset();
+    defer comp.link_task_wait_group.wait();
+
+    if (comp.link_task_queue.start()) {
+        comp.thread_pool.spawnWgId(&comp.link_task_wait_group, link.flushTaskQueue, .{comp});
     }
 
     if (comp.docs_emit != null) {
         dev.check(.docs_emit);
-        comp.thread_pool.spawnWg(work_queue_wait_group, workerDocsCopy, .{comp});
+        comp.thread_pool.spawnWg(&work_queue_wait_group, workerDocsCopy, .{comp});
         work_queue_wait_group.spawnManager(workerDocsWasm, .{ comp, main_progress_node });
     }
 
     if (comp.job_queued_compiler_rt_lib) {
         comp.job_queued_compiler_rt_lib = false;
-        work_queue_wait_group.spawnManager(buildRt, .{ comp, "compiler_rt.zig", .compiler_rt, .Lib, &comp.compiler_rt_lib, main_progress_node });
+        comp.link_task_wait_group.spawnManager(buildRt, .{ comp, "compiler_rt.zig", .compiler_rt, .Lib, &comp.compiler_rt_lib, main_progress_node });
     }
 
     if (comp.job_queued_compiler_rt_obj) {
         comp.job_queued_compiler_rt_obj = false;
-        work_queue_wait_group.spawnManager(buildRt, .{ comp, "compiler_rt.zig", .compiler_rt, .Obj, &comp.compiler_rt_obj, main_progress_node });
+        comp.link_task_wait_group.spawnManager(buildRt, .{ comp, "compiler_rt.zig", .compiler_rt, .Obj, &comp.compiler_rt_obj, main_progress_node });
     }
 
     if (comp.job_queued_fuzzer_lib) {
         comp.job_queued_fuzzer_lib = false;
-        work_queue_wait_group.spawnManager(buildRt, .{ comp, "fuzzer.zig", .libfuzzer, .Lib, &comp.fuzzer_lib, main_progress_node });
+        comp.link_task_wait_group.spawnManager(buildRt, .{ comp, "fuzzer.zig", .libfuzzer, .Lib, &comp.fuzzer_lib, main_progress_node });
     }
 
     {
@@ -3591,13 +3562,13 @@ fn performAllTheWorkInner(
         }
 
         while (comp.c_object_work_queue.readItem()) |c_object| {
-            comp.thread_pool.spawnWg(work_queue_wait_group, workerUpdateCObject, .{
+            comp.thread_pool.spawnWg(&comp.link_task_wait_group, workerUpdateCObject, .{
                 comp, c_object, main_progress_node,
             });
         }
 
         while (comp.win32_resource_work_queue.readItem()) |win32_resource| {
-            comp.thread_pool.spawnWg(work_queue_wait_group, workerUpdateWin32Resource, .{
+            comp.thread_pool.spawnWg(&comp.link_task_wait_group, workerUpdateWin32Resource, .{
                 comp, win32_resource, main_progress_node,
             });
         }
@@ -3617,18 +3588,12 @@ fn performAllTheWorkInner(
         zcu.codegen_prog_node = main_progress_node.start("Code Generation", 0);
     }
 
-    if (!InternPool.single_threaded) {
-        comp.codegen_work.done = false; // may be `true` from a prior update
-        comp.thread_pool.spawnWgId(work_queue_wait_group, codegenThread, .{comp});
+    if (!comp.separateCodegenThreadOk()) {
+        // Waits until all input files have been parsed.
+        comp.link_task_wait_group.wait();
+        comp.link_task_wait_group.reset();
+        std.log.scoped(.link).debug("finished waiting for link_task_wait_group", .{});
     }
-    defer if (!InternPool.single_threaded) {
-        {
-            comp.codegen_work.mutex.lock();
-            defer comp.codegen_work.mutex.unlock();
-            comp.codegen_work.done = true;
-        }
-        comp.codegen_work.cond.signal();
-    };
 
     work: while (true) {
         for (&comp.work_queues) |*work_queue| if (work_queue.readItem()) |job| {
@@ -3672,16 +3637,14 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job, prog_node: std.Progre
                 }
             }
             assert(nav.status == .resolved);
-            try comp.queueCodegenJob(tid, .{ .nav = nav_index });
+            comp.dispatchCodegenTask(tid, .{ .codegen_nav = nav_index });
         },
         .codegen_func => |func| {
-            // This call takes ownership of `func.air`.
-            try comp.queueCodegenJob(tid, .{ .func = .{
-                .func = func.func,
-                .air = func.air,
-            } });
+            comp.dispatchCodegenTask(tid, .{ .codegen_func = func });
         },
-        .codegen_type => |ty| try comp.queueCodegenJob(tid, .{ .type = ty }),
+        .codegen_type => |ty| {
+            comp.dispatchCodegenTask(tid, .{ .codegen_type = ty });
+        },
         .analyze_func => |func| {
             const named_frame = tracy.namedFrame("analyze_func");
             defer named_frame.end();
@@ -3894,66 +3857,20 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job, prog_node: std.Progre
     }
 }
 
-fn queueCodegenJob(comp: *Compilation, tid: usize, codegen_job: CodegenJob) !void {
-    if (InternPool.single_threaded or
-        !comp.zcu.?.backendSupportsFeature(.separate_thread))
-        return processOneCodegenJob(tid, comp, codegen_job);
-
-    {
-        comp.codegen_work.mutex.lock();
-        defer comp.codegen_work.mutex.unlock();
-        try comp.codegen_work.queue.writeItem(codegen_job);
-    }
-    comp.codegen_work.cond.signal();
-}
-
-fn codegenThread(tid: usize, comp: *Compilation) void {
-    comp.codegen_work.mutex.lock();
-    defer comp.codegen_work.mutex.unlock();
-
-    while (true) {
-        if (comp.codegen_work.queue.readItem()) |codegen_job| {
-            comp.codegen_work.mutex.unlock();
-            defer comp.codegen_work.mutex.lock();
-
-            processOneCodegenJob(tid, comp, codegen_job) catch |job_error| {
-                comp.codegen_work.job_error = job_error;
-                break;
-            };
-            continue;
-        }
-
-        if (comp.codegen_work.done) break;
-
-        comp.codegen_work.cond.wait(&comp.codegen_work.mutex);
+/// The reason for the double-queue here is that the first queue ensures any
+/// resolve_type_fully tasks are complete before this dispatch function is called.
+fn dispatchCodegenTask(comp: *Compilation, tid: usize, link_task: link.Task) void {
+    if (comp.separateCodegenThreadOk()) {
+        comp.queueLinkTasks(&.{link_task});
+    } else {
+        link.doTask(comp, tid, link_task);
     }
 }
 
-fn processOneCodegenJob(tid: usize, comp: *Compilation, codegen_job: CodegenJob) JobError!void {
-    switch (codegen_job) {
-        .nav => |nav_index| {
-            const named_frame = tracy.namedFrame("codegen_nav");
-            defer named_frame.end();
-
-            const pt: Zcu.PerThread = .{ .zcu = comp.zcu.?, .tid = @enumFromInt(tid) };
-            try pt.linkerUpdateNav(nav_index);
-        },
-        .func => |func| {
-            const named_frame = tracy.namedFrame("codegen_func");
-            defer named_frame.end();
-
-            const pt: Zcu.PerThread = .{ .zcu = comp.zcu.?, .tid = @enumFromInt(tid) };
-            // This call takes ownership of `func.air`.
-            try pt.linkerUpdateFunc(func.func, func.air);
-        },
-        .type => |ty| {
-            const named_frame = tracy.namedFrame("codegen_type");
-            defer named_frame.end();
-
-            const pt: Zcu.PerThread = .{ .zcu = comp.zcu.?, .tid = @enumFromInt(tid) };
-            try pt.linkerUpdateContainerType(ty);
-        },
-    }
+fn separateCodegenThreadOk(comp: *const Compilation) bool {
+    if (InternPool.single_threaded) return false;
+    const zcu = comp.zcu orelse return true;
+    return zcu.backendSupportsFeature(.separate_thread);
 }
 
 fn workerDocsCopy(comp: *Compilation) void {
@@ -6465,17 +6382,11 @@ pub fn queueLinkTaskMode(comp: *Compilation, path: Path, output_mode: std.builti
 
 /// Only valid to call during `update`. Automatically handles queuing up a
 /// linker worker task if there is not already one.
-pub fn queueLinkTasks(comp: *Compilation, tasks: []const link.File.Task) void {
-    const use_lld = build_options.have_llvm and comp.config.use_lld;
-    if (use_lld) return;
-    const target = comp.root_mod.resolved_target.result;
-    if (target.ofmt != .elf) return;
+pub fn queueLinkTasks(comp: *Compilation, tasks: []const link.Task) void {
     if (comp.link_task_queue.enqueue(comp.gpa, tasks) catch |err| switch (err) {
         error.OutOfMemory => return comp.setAllocFailure(),
     }) {
-        comp.thread_pool.spawnWg(&comp.work_queue_wait_group, link.File.flushTaskQueue, .{
-            comp.bin_file.?, comp.work_queue_progress_node,
-        });
+        comp.thread_pool.spawnWgId(&comp.link_task_wait_group, link.flushTaskQueue, .{comp});
     }
 }
 
