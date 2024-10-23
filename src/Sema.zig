@@ -876,6 +876,7 @@ const InferredAlloc = struct {
 
 const NeededComptimeReason = struct {
     needed_comptime_reason: []const u8,
+    value_comptime_reason: ?[]const u8 = null,
     block_comptime_reason: ?*const Block.ComptimeReason = null,
 };
 
@@ -2246,7 +2247,7 @@ fn resolveValueAllowVariables(sema: *Sema, inst: Air.Inst.Ref) CompileError!?Val
         }
     };
     const val = Value.fromInterned(ip_index);
-    if (val.isPtrToThreadLocal(pt.zcu)) return null;
+    if (val.isPtrRuntimeValue(pt.zcu)) return null;
     return val;
 }
 
@@ -2272,8 +2273,14 @@ pub fn resolveFinalDeclValue(
     const zcu = sema.pt.zcu;
 
     const val = try sema.resolveValueAllowVariables(air_ref) orelse {
+        const value_comptime_reason: ?[]const u8 = if (air_ref.toInterned()) |_|
+            "thread local and dll imported variables have runtime-known addresses"
+        else
+            null;
+
         return sema.failWithNeededComptime(block, src, .{
             .needed_comptime_reason = "global variable initializer must be comptime-known",
+            .value_comptime_reason = value_comptime_reason,
         });
     };
     if (val.isGenericPoison()) return error.GenericPoison;
@@ -2291,6 +2298,9 @@ fn failWithNeededComptime(sema: *Sema, block: *Block, src: LazySrcLoc, reason: N
         const msg = try sema.errMsg(src, "unable to resolve comptime value", .{});
         errdefer msg.destroy(sema.gpa);
         try sema.errNote(src, msg, "{s}", .{reason.needed_comptime_reason});
+        if (reason.value_comptime_reason) |value_comptime_reason| {
+            try sema.errNote(src, msg, "{s}", .{value_comptime_reason});
+        }
 
         if (reason.block_comptime_reason) |block_comptime_reason| {
             try block_comptime_reason.explain(sema, msg);
@@ -10023,6 +10033,7 @@ fn funcCommon(
             .is_const = true,
             .is_threadlocal = false,
             .is_weak_linkage = false,
+            .is_dll_import = false,
             .alignment = alignment orelse .none,
             .@"addrspace" = address_space orelse .generic,
             .zir_index = sema.getOwnerCauDeclInst(), // `declaration` instruction
@@ -26577,6 +26588,7 @@ fn zirVarExtended(
             .is_const = small.is_const,
             .is_threadlocal = small.is_threadlocal,
             .is_weak_linkage = false,
+            .is_dll_import = false,
             .alignment = alignment,
             .@"addrspace" = @"addrspace",
             .zir_index = sema.getOwnerCauDeclInst(), // `declaration` instruction
@@ -27030,6 +27042,7 @@ fn resolveExternOptions(
     library_name: InternPool.OptionalNullTerminatedString = .none,
     linkage: std.builtin.GlobalLinkage = .strong,
     is_thread_local: bool = false,
+    is_dll_import: bool = false,
 } {
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -27043,6 +27056,7 @@ fn resolveExternOptions(
     const library_src = block.src(.{ .init_field_library = src.offset.node_offset_builtin_call_arg.builtin_call_node });
     const linkage_src = block.src(.{ .init_field_linkage = src.offset.node_offset_builtin_call_arg.builtin_call_node });
     const thread_local_src = block.src(.{ .init_field_thread_local = src.offset.node_offset_builtin_call_arg.builtin_call_node });
+    const dll_import_src = block.src(.{ .init_field_dll_import = src.offset.node_offset_builtin_call_arg.builtin_call_node });
 
     const name_ref = try sema.fieldVal(block, src, options, try ip.getOrPutString(gpa, pt.tid, "name", .no_embedded_nulls), name_src);
     const name = try sema.toConstString(block, name_src, name_ref, .{
@@ -27076,6 +27090,11 @@ fn resolveExternOptions(
         break :library_name library_name;
     } else null;
 
+    const is_dll_import_ref = try sema.fieldVal(block, src, options, try ip.getOrPutString(gpa, pt.tid, "is_dll_import", .no_embedded_nulls), dll_import_src);
+    const is_dll_import_val = try sema.resolveConstDefinedValue(block, dll_import_src, is_dll_import_ref, .{
+        .needed_comptime_reason = "it must be comptime-known if the symbol is imported from a dll",
+    });
+
     if (name.len == 0) {
         return sema.fail(block, name_src, "extern symbol name cannot be empty", .{});
     }
@@ -27089,6 +27108,7 @@ fn resolveExternOptions(
         .library_name = try ip.getOrPutStringOpt(gpa, pt.tid, library_name, .no_embedded_nulls),
         .linkage = linkage,
         .is_thread_local = is_thread_local_val.toBool(),
+        .is_dll_import = is_dll_import_val.toBool(),
     };
 }
 
@@ -27134,6 +27154,7 @@ fn zirBuiltinExtern(
         .is_const = ptr_info.flags.is_const,
         .is_threadlocal = options.is_thread_local,
         .is_weak_linkage = options.linkage == .weak,
+        .is_dll_import = options.is_dll_import,
         .alignment = ptr_info.flags.alignment,
         .@"addrspace" = ptr_info.flags.address_space,
         // This instruction is just for source locations.

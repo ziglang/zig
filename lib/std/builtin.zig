@@ -969,6 +969,7 @@ pub const ExternOptions = struct {
     library_name: ?[]const u8 = null,
     linkage: GlobalLinkage = .strong,
     is_thread_local: bool = false,
+    is_dll_import: bool = false,
 };
 
 /// This data structure is used by the Zig language code generation and
