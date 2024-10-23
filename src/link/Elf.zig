@@ -775,6 +775,9 @@ pub fn loadInput(self: *Elf, input: link.Input) !void {
     const is_static_lib = self.base.isStaticLib();
 
     if (comp.verbose_link) {
+        comp.mutex.lock(); // protect comp.arena
+        defer comp.mutex.unlock();
+
         const argv = &self.dump_argv_list;
         switch (input) {
             .res => unreachable,
