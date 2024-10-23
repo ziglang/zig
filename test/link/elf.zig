@@ -3757,11 +3757,15 @@ fn testTlsOffsetAlignment(b: *Build, opts: Options) *Step {
         \\#include <pthread.h>
         \\#include <dlfcn.h>
         \\#include <assert.h>
+        \\#include <stdio.h>
         \\void *(*verify)(void *);
         \\
         \\int main() {
         \\  void *handle = dlopen("liba.so", RTLD_NOW);
-        \\  assert(handle);
+        \\  if (!handle) {
+        \\    fprintf(stderr, "dlopen failed: %s\n", dlerror());
+        \\    return 1;
+        \\  }
         \\  *(void**)(&verify) = dlsym(handle, "verify");
         \\  assert(verify);
         \\
