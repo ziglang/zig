@@ -315,7 +315,7 @@ pub const io_uring_sqe = extern struct {
 
     pub fn prep_timeout(
         sqe: *linux.io_uring_sqe,
-        ts: *const linux.kernel_timespec,
+        ts: *const linux.timespec,
         count: u32,
         flags: u32,
     ) void {
@@ -344,7 +344,7 @@ pub const io_uring_sqe = extern struct {
 
     pub fn prep_link_timeout(
         sqe: *linux.io_uring_sqe,
-        ts: *const linux.kernel_timespec,
+        ts: *const linux.timespec,
         flags: u32,
     ) void {
         sqe.prep_rw(.LINK_TIMEOUT, -1, @intFromPtr(ts), 1, 0);

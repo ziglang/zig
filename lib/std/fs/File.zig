@@ -522,10 +522,8 @@ pub fn stat(self: File) StatError!Stat {
         };
     }
 
-    if (builtin.os.tag == .wasi and !builtin.link_libc) {
-        const st = try std.os.fstat_wasi(self.handle);
-        return Stat.fromWasi(st);
-    }
+    if (builtin.os.tag == .wasi and !builtin.link_libc)
+        return Stat.fromWasi(try posix.fstatWasi(self.handle));
 
     if (builtin.os.tag == .linux) {
         var stx = std.mem.zeroes(linux.Statx);
@@ -1090,7 +1088,7 @@ pub fn metadata(self: File) MetadataError!Metadata {
                     .statx = stx,
                 };
             },
-            .wasi => .{ .stat = try std.os.fstat_wasi(self.handle) },
+            .wasi => .{ .stat = try posix.fstatWasi(self.handle) },
             else => .{ .stat = try posix.fstat(self.handle) },
         },
     };

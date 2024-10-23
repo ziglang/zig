@@ -11,7 +11,6 @@ const pid_t = linux.pid_t;
 const stack_t = linux.stack_t;
 const sigset_t = linux.sigset_t;
 const sockaddr = linux.sockaddr;
-const timespec = linux.timespec;
 
 pub fn syscall0(number: SYS) usize {
     return asm volatile (
@@ -230,7 +229,7 @@ pub const F = struct {
 };
 
 pub const VDSO = struct {
-    pub const CGT_SYM = "__kernel_clock_gettime";
+    pub const CGT_SYM = "__kernel_clock_gettime64";
     pub const CGT_VER = "LINUX_2.6.15";
 };
 
@@ -270,47 +269,6 @@ pub const off_t = i64;
 pub const ino_t = u64;
 pub const dev_t = u64;
 pub const blkcnt_t = i64;
-
-// The `stat` definition used by the Linux kernel.
-pub const Stat = extern struct {
-    dev: dev_t,
-    ino: ino_t,
-    mode: mode_t,
-    nlink: nlink_t,
-    uid: uid_t,
-    gid: gid_t,
-    rdev: dev_t,
-    __rdev_padding: i16,
-    size: off_t,
-    blksize: blksize_t,
-    blocks: blkcnt_t,
-    atim: timespec,
-    mtim: timespec,
-    ctim: timespec,
-    __unused: [2]u32,
-
-    pub fn atime(self: @This()) timespec {
-        return self.atim;
-    }
-
-    pub fn mtime(self: @This()) timespec {
-        return self.mtim;
-    }
-
-    pub fn ctime(self: @This()) timespec {
-        return self.ctim;
-    }
-};
-
-pub const timeval = extern struct {
-    sec: time_t,
-    usec: isize,
-};
-
-pub const timezone = extern struct {
-    minuteswest: i32,
-    dsttime: i32,
-};
 
 pub const greg_t = u32;
 pub const gregset_t = [48]greg_t;

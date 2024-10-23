@@ -1676,7 +1676,7 @@ pub fn openat(dir_fd: fd_t, file_path: []const u8, flags: O, mode: mode_t) OpenE
         errdefer close(fd);
 
         if (flags.write) {
-            const info = try std.os.fstat_wasi(fd);
+            const info = try fstatWasi(fd);
             if (info.filetype == .DIRECTORY)
                 return error.IsDir;
         }
@@ -4350,12 +4350,16 @@ pub const FStatError = error{
 
 /// Return information about a file descriptor.
 pub fn fstat(fd: fd_t) FStatError!Stat {
-    if (native_os == .wasi and !builtin.link_libc) {
-        return Stat.fromFilestat(try std.os.fstat_wasi(fd));
-    }
-    if (native_os == .windows) {
+    if (native_os == .windows)
         @compileError("fstat is not yet implemented on Windows");
-    }
+    if (native_os == .wasi and !builtin.link_libc)
+        return Stat.fromFilestat(try fstatWasi(fd));
+
+    if (native_os == .linux and !builtin.link_libc)
+        return fstatatLinux(fd, "", AT.EMPTY_PATH) catch |err| switch (err) {
+            error.SymLinkLoop, error.FileNotFound, error.NameTooLong => unreachable,
+            else => |e| e,
+        };
 
     const fstat_sym = if (lfs64_abi) system.fstat64 else system.fstat;
     var stat = mem.zeroes(Stat);
@@ -4367,6 +4371,19 @@ pub fn fstat(fd: fd_t) FStatError!Stat {
         .ACCES => return error.AccessDenied,
         else => |err| return unexpectedErrno(err),
     }
+}
+
+pub fn fstatWasi(fd: fd_t) FStatError!wasi.filestat_t {
+    var stat: wasi.filestat_t = undefined;
+    return switch (wasi.fd_filestat_get(fd, &stat)) {
+        .SUCCESS => stat,
+        .INVAL => unreachable,
+        .BADF => unreachable, // Always a race condition.
+        .NOMEM => return error.SystemResources,
+        .ACCES => return error.AccessDenied,
+        .NOTCAPABLE => return error.AccessDenied,
+        else => |err| return unexpectedErrno(err),
+    };
 }
 
 pub const FStatAtError = FStatError || error{
@@ -4381,51 +4398,109 @@ pub const FStatAtError = FStatError || error{
 /// which is relative to `dirfd` handle.
 /// On WASI, `pathname` should be encoded as valid UTF-8.
 /// On other platforms, `pathname` is an opaque sequence of bytes with no particular encoding.
-/// See also `fstatatZ` and `std.os.fstatat_wasi`.
+/// See also `fstatatZ`.
 pub fn fstatat(dirfd: fd_t, pathname: []const u8, flags: u32) FStatAtError!Stat {
-    if (native_os == .wasi and !builtin.link_libc) {
-        const filestat = try std.os.fstatat_wasi(dirfd, pathname, .{
-            .SYMLINK_FOLLOW = (flags & AT.SYMLINK_NOFOLLOW) == 0,
-        });
-        return Stat.fromFilestat(filestat);
-    } else if (native_os == .windows) {
+    if (native_os == .windows)
         @compileError("fstatat is not yet implemented on Windows");
-    } else {
-        const pathname_c = try toPosixPath(pathname);
-        return fstatatZ(dirfd, &pathname_c, flags);
-    }
+    if (native_os == .wasi and !builtin.link_libc)
+        return Stat.fromFilestat(try fstatatWasi(dirfd, pathname, .{
+            .SYMLINK_FOLLOW = (flags & AT.SYMLINK_NOFOLLOW) == 0,
+        }));
+
+    const pathname_c = try toPosixPath(pathname);
+    return fstatatZ(dirfd, &pathname_c, flags);
 }
 
-/// Same as `fstatat` but `pathname` is null-terminated.
-/// See also `fstatat`.
-pub fn fstatatZ(dirfd: fd_t, pathname: [*:0]const u8, flags: u32) FStatAtError!Stat {
-    if (native_os == .wasi and !builtin.link_libc) {
-        const filestat = try std.os.fstatat_wasi(dirfd, mem.sliceTo(pathname, 0), .{
-            .SYMLINK_FOLLOW = (flags & AT.SYMLINK_NOFOLLOW) == 0,
-        });
-        return Stat.fromFilestat(filestat);
-    }
-
-    const fstatat_sym = if (lfs64_abi) system.fstatat64 else system.fstatat;
-    var stat = mem.zeroes(Stat);
-    switch (errno(fstatat_sym(dirfd, pathname, &stat, flags))) {
+/// Same as `fstatat` but for WASI.
+/// `pathname` should be encoded as a valid UTF-8 string.
+pub fn fstatatWasi(dirfd: fd_t, pathname: []const u8, flags: wasi.lookupflags_t) FStatAtError!wasi.filestat_t {
+    var stat: wasi.filestat_t = undefined;
+    return switch (wasi.path_filestat_get(dirfd, flags, pathname.ptr, pathname.len, &stat)) {
         .SUCCESS => return stat,
         .INVAL => unreachable,
         .BADF => unreachable, // Always a race condition.
         .NOMEM => return error.SystemResources,
         .ACCES => return error.AccessDenied,
-        .PERM => return error.AccessDenied,
         .FAULT => unreachable,
         .NAMETOOLONG => return error.NameTooLong,
-        .LOOP => return error.SymLinkLoop,
         .NOENT => return error.FileNotFound,
         .NOTDIR => return error.FileNotFound,
-        .ILSEQ => |err| if (native_os == .wasi)
-            return error.InvalidUtf8
-        else
-            return unexpectedErrno(err),
+        .NOTCAPABLE => return error.AccessDenied,
+        .ILSEQ => return error.InvalidUtf8,
         else => |err| return unexpectedErrno(err),
-    }
+    };
+}
+
+/// Same as `fstatat` except it uses `statx(2)` if the target does not implement `fstatat(2)`.
+fn fstatatLinux(
+    dirfd: fd_t,
+    pathname: [*:0]const u8,
+    flags: u32,
+) (FStatError || error{ NameTooLong, FileNotFound, SymLinkLoop })!linux.Stat {
+    const buf, const rc = if (linux.has_fstatat) blk: {
+        var stat = mem.zeroes(linux.KernelStat);
+        const rc = linux.fstatat(dirfd, pathname, &stat, flags);
+        break :blk .{ stat, rc };
+    } else blk: {
+        var statx = mem.zeroes(linux.Statx);
+        const rc = linux.statx(dirfd, pathname, flags | AT.NO_AUTOMOUNT, linux.STATX_BASIC_STATS, &statx);
+        break :blk .{ statx, rc };
+    };
+    return switch (errno(rc)) {
+        .SUCCESS => if (linux.has_fstatat)
+            linux.Stat.fromKernel(buf)
+        else
+            linux.Stat.fromStatx(buf),
+        .INVAL => unreachable,
+        .BADF => unreachable, // Always a race condition.
+        .NOMEM => error.SystemResources,
+        .ACCES => error.AccessDenied,
+        .PERM => error.AccessDenied,
+        .FAULT => unreachable,
+        .NAMETOOLONG => error.NameTooLong,
+        .LOOP => error.SymLinkLoop,
+        .NOENT => error.FileNotFound,
+        .NOTDIR => error.FileNotFound,
+        else => |err| unexpectedErrno(err),
+    };
+}
+
+/// Same as `fstatat` but for targets using libc.
+fn fstatatC(dirfd: fd_t, pathname: [*:0]const u8, flags: u32) FStatAtError!Stat {
+    const sym = if (lfs64_abi) system.fstatat64 else system.fstatat;
+    var stat = mem.zeroes(Stat);
+    return switch (errno(sym(dirfd, pathname, &stat, flags))) {
+        .SUCCESS => stat,
+        .INVAL => unreachable,
+        .BADF => unreachable, // Always a race condition.
+        .NOMEM => error.SystemResources,
+        .ACCES => error.AccessDenied,
+        .PERM => error.AccessDenied,
+        .FAULT => unreachable,
+        .NAMETOOLONG => error.NameTooLong,
+        .LOOP => error.SymLinkLoop,
+        .NOENT => error.FileNotFound,
+        .NOTDIR => error.FileNotFound,
+        .ILSEQ => |err| return if (native_os == .wasi)
+            error.InvalidUtf8
+        else
+            unexpectedErrno(err),
+        else => |err| unexpectedErrno(err),
+    };
+}
+
+/// Same as `fstatat` but `pathname` is null-terminated.
+pub inline fn fstatatZ(dirfd: fd_t, pathname: [*:0]const u8, flags: u32) FStatAtError!Stat {
+    return if (native_os == .windows)
+        @compileError("fstatat is not yet implemented on Windows")
+    else if (native_os == .wasi and !builtin.link_libc)
+        Stat.fromFilestat(try fstatatWasi(dirfd, mem.sliceTo(pathname, 0), .{
+            .SYMLINK_FOLLOW = (flags & AT.SYMLINK_NOFOLLOW) == 0,
+        }))
+    else if (native_os == .linux and !builtin.link_libc)
+        fstatatLinux(dirfd, pathname, flags)
+    else
+        fstatatC(dirfd, pathname, flags);
 }
 
 pub const KQueueError = error{
@@ -4865,42 +4940,33 @@ pub fn faccessat(dirfd: fd_t, path: []const u8, mode: u32, flags: u32) AccessErr
         const path_w = try windows.sliceToPrefixedFileW(dirfd, path);
         return faccessatW(dirfd, path_w.span().ptr);
     } else if (native_os == .wasi and !builtin.link_libc) {
-        const resolved: RelativePathWasi = .{ .dir_fd = dirfd, .relative_path = path };
-
-        const st = blk: {
-            break :blk std.os.fstatat_wasi(dirfd, path, .{
-                .SYMLINK_FOLLOW = (flags & AT.SYMLINK_NOFOLLOW) == 0,
-            });
-        } catch |err| switch (err) {
+        const st = fstatatWasi(dirfd, path, .{
+            .SYMLINK_FOLLOW = (flags & AT.SYMLINK_NOFOLLOW) == 0,
+        }) catch |err| switch (err) {
             error.AccessDenied => return error.PermissionDenied,
             else => |e| return e,
         };
 
         if (mode != F_OK) {
             var directory: wasi.fdstat_t = undefined;
-            if (wasi.fd_fdstat_get(resolved.dir_fd, &directory) != .SUCCESS) {
+            if (wasi.fd_fdstat_get(dirfd, &directory) != .SUCCESS)
                 return error.PermissionDenied;
-            }
 
             var rights: wasi.rights_t = .{};
             if (mode & R_OK != 0) {
-                if (st.filetype == .DIRECTORY) {
-                    rights.FD_READDIR = true;
-                } else {
+                if (st.filetype == .DIRECTORY)
+                    rights.FD_READDIR = true
+                else
                     rights.FD_READ = true;
-                }
             }
-            if (mode & W_OK != 0) {
-                rights.FD_WRITE = true;
-            }
+            if (mode & W_OK != 0) rights.FD_WRITE = true;
             // No validation for X_OK
 
             // https://github.com/ziglang/zig/issues/18882
             const rights_int: u64 = @bitCast(rights);
             const inheriting_int: u64 = @bitCast(directory.fs_rights_inheriting);
-            if ((rights_int & inheriting_int) != rights_int) {
+            if ((rights_int & inheriting_int) != rights_int)
                 return error.PermissionDenied;
-            }
         }
         return;
     }
