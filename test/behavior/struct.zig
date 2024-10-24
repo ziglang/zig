@@ -2183,3 +2183,15 @@ test "extern struct @FieldType" {
     comptime assert(@FieldType(S, "b") == f64);
     comptime assert(@FieldType(S, "c") == *S);
 }
+
+test "packed struct @FieldType" {
+    const S = packed struct {
+        a: u32,
+        b: f64,
+        c: *@This(),
+    };
+
+    comptime assert(@FieldType(S, "a") == u32);
+    comptime assert(@FieldType(S, "b") == f64);
+    comptime assert(@FieldType(S, "c") == *S);
+}
