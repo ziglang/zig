@@ -3,16 +3,16 @@ pub fn flushObject(macho_file: *MachO, comp: *Compilation, module_obj_path: ?Pat
     const diags = &macho_file.base.comp.link_diags;
 
     // TODO: "positional arguments" is a CLI concept, not a linker concept. Delete this unnecessary array list.
-    var positionals = std.ArrayList(Compilation.LinkObject).init(gpa);
+    var positionals = std.ArrayList(link.Input).init(gpa);
     defer positionals.deinit();
-    try positionals.ensureUnusedCapacity(comp.objects.len);
-    positionals.appendSliceAssumeCapacity(comp.objects);
+    try positionals.ensureUnusedCapacity(comp.link_inputs.len);
+    positionals.appendSliceAssumeCapacity(comp.link_inputs);
 
     for (comp.c_object_table.keys()) |key| {
-        try positionals.append(.{ .path = key.status.success.object_path });
+        try positionals.append(try link.openObjectInput(diags, key.status.success.object_path));
     }
 
-    if (module_obj_path) |path| try positionals.append(.{ .path = path });
+    if (module_obj_path) |path| try positionals.append(try link.openObjectInput(diags, path));
 
     if (macho_file.getZigObject() == null and positionals.items.len == 1) {
         // Instead of invoking a full-blown `-r` mode on the input which sadly will strip all
@@ -20,7 +20,7 @@ pub fn flushObject(macho_file: *MachO, comp: *Compilation, module_obj_path: ?Pat
         // the *only* input file over.
         // TODO: in the future, when we implement `dsymutil` alternative directly in the Zig
         // compiler, investigate if we can get rid of this `if` prong here.
-        const path = positionals.items[0].path;
+        const path = positionals.items[0].path().?;
         const in_file = try path.root_dir.handle.openFile(path.sub_path, .{});
         const stat = try in_file.stat();
         const amt = try in_file.copyRangeAll(0, macho_file.base.file.?, 0, stat.size);
@@ -28,9 +28,9 @@ pub fn flushObject(macho_file: *MachO, comp: *Compilation, module_obj_path: ?Pat
         return;
     }
 
-    for (positionals.items) |obj| {
-        macho_file.classifyInputFile(obj.path, .{ .path = obj.path }, obj.must_link) catch |err|
-            diags.addParseError(obj.path, "failed to read input file: {s}", .{@errorName(err)});
+    for (positionals.items) |link_input| {
+        macho_file.classifyInputFile(link_input) catch |err|
+            diags.addParseError(link_input.path().?, "failed to read input file: {s}", .{@errorName(err)});
     }
 
     if (diags.hasErrors()) return error.FlushFailure;
@@ -72,25 +72,25 @@ pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?
     const gpa = comp.gpa;
     const diags = &macho_file.base.comp.link_diags;
 
-    var positionals = std.ArrayList(Compilation.LinkObject).init(gpa);
+    var positionals = std.ArrayList(link.Input).init(gpa);
     defer positionals.deinit();
 
-    try positionals.ensureUnusedCapacity(comp.objects.len);
-    positionals.appendSliceAssumeCapacity(comp.objects);
+    try positionals.ensureUnusedCapacity(comp.link_inputs.len);
+    positionals.appendSliceAssumeCapacity(comp.link_inputs);
 
     for (comp.c_object_table.keys()) |key| {
-        try positionals.append(.{ .path = key.status.success.object_path });
+        try positionals.append(try link.openObjectInput(diags, key.status.success.object_path));
     }
 
-    if (module_obj_path) |path| try positionals.append(.{ .path = path });
+    if (module_obj_path) |path| try positionals.append(try link.openObjectInput(diags, path));
 
     if (comp.include_compiler_rt) {
-        try positionals.append(.{ .path = comp.compiler_rt_obj.?.full_object_path });
+        try positionals.append(try link.openObjectInput(diags, comp.compiler_rt_obj.?.full_object_path));
     }
 
-    for (positionals.items) |obj| {
-        macho_file.classifyInputFile(obj.path, .{ .path = obj.path }, obj.must_link) catch |err|
-            diags.addParseError(obj.path, "failed to read input file: {s}", .{@errorName(err)});
+    for (positionals.items) |link_input| {
+        macho_file.classifyInputFile(link_input) catch |err|
+            diags.addParseError(link_input.path().?, "failed to read input file: {s}", .{@errorName(err)});
     }
 
     if (diags.hasErrors()) return error.FlushFailure;
@@ -745,20 +745,15 @@ fn writeHeader(macho_file: *MachO, ncmds: usize, sizeofcmds: usize) !void {
     try macho_file.base.file.?.pwriteAll(mem.asBytes(&header), 0);
 }
 
+const std = @import("std");
+const Path = std.Build.Cache.Path;
+const WaitGroup = std.Thread.WaitGroup;
 const assert = std.debug.assert;
-const build_options = @import("build_options");
-const eh_frame = @import("eh_frame.zig");
-const fat = @import("fat.zig");
-const link = @import("../../link.zig");
-const load_commands = @import("load_commands.zig");
 const log = std.log.scoped(.link);
 const macho = std.macho;
 const math = std.math;
 const mem = std.mem;
 const state_log = std.log.scoped(.link_state);
-const std = @import("std");
-const trace = @import("../../tracy.zig").trace;
-const Path = std.Build.Cache.Path;
 
 const Archive = @import("Archive.zig");
 const Atom = @import("Atom.zig");
@@ -767,3 +762,9 @@ const File = @import("file.zig").File;
 const MachO = @import("../MachO.zig");
 const Object = @import("Object.zig");
 const Symbol = @import("Symbol.zig");
+const build_options = @import("build_options");
+const eh_frame = @import("eh_frame.zig");
+const fat = @import("fat.zig");
+const link = @import("../../link.zig");
+const load_commands = @import("load_commands.zig");
+const trace = @import("../../tracy.zig").trace;
