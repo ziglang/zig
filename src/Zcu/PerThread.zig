@@ -845,6 +845,7 @@ fn ensureFuncBodyAnalyzedInner(
         return .{ .ies_outdated = ies_outdated };
     }
 
+    // This job depends on any resolve_type_fully jobs queued up before it.
     try comp.queueJob(.{ .codegen_func = .{
         .func = func_index,
         .air = air,
@@ -1016,6 +1017,7 @@ fn createFileRootStruct(
     codegen_type: {
         if (zcu.comp.config.use_llvm) break :codegen_type;
         if (file.mod.strip) break :codegen_type;
+        // This job depends on any resolve_type_fully jobs queued up before it.
         try zcu.comp.queueJob(.{ .codegen_type = wip_ty.index });
     }
     zcu.setFileRootType(file_index, wip_ty.index);
@@ -1362,6 +1364,7 @@ fn semaCau(pt: Zcu.PerThread, cau_index: InternPool.Cau.Index) !SemaCauResult {
             if (file.mod.strip) break :queue_codegen;
         }
 
+        // This job depends on any resolve_type_fully jobs queued up before it.
         try zcu.comp.queueJob(.{ .codegen_nav = nav_index });
     }
 
@@ -2593,7 +2596,7 @@ pub fn populateTestFunctions(
     }
 }
 
-pub fn linkerUpdateNav(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) !void {
+pub fn linkerUpdateNav(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) error{OutOfMemory}!void {
     const zcu = pt.zcu;
     const comp = zcu.comp;
     const ip = &zcu.intern_pool;
@@ -3163,6 +3166,7 @@ pub fn navPtrType(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) Allocator.
 pub fn getExtern(pt: Zcu.PerThread, key: InternPool.Key.Extern) Allocator.Error!InternPool.Index {
     const result = try pt.zcu.intern_pool.getExtern(pt.zcu.gpa, pt.tid, key);
     if (result.new_nav.unwrap()) |nav| {
+        // This job depends on any resolve_type_fully jobs queued up before it.
         try pt.zcu.comp.queueJob(.{ .codegen_nav = nav });
     }
     return result.index;

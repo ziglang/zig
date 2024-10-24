@@ -16,7 +16,7 @@ dynamicbase: bool,
 /// default or populated together. They should not be separate fields.
 major_subsystem_version: u16,
 minor_subsystem_version: u16,
-lib_dirs: []const []const u8,
+lib_directories: []const Directory,
 entry: link.File.OpenOptions.Entry,
 entry_addr: ?u32,
 module_definition_file: ?[]const u8,
@@ -297,7 +297,7 @@ pub fn createEmpty(
         .dynamicbase = options.dynamicbase,
         .major_subsystem_version = options.major_subsystem_version orelse 6,
         .minor_subsystem_version = options.minor_subsystem_version orelse 0,
-        .lib_dirs = options.lib_dirs,
+        .lib_directories = options.lib_directories,
         .entry_addr = math.cast(u32, options.entry_addr orelse 0) orelse
             return error.EntryAddressTooBig,
         .module_definition_file = options.module_definition_file,
@@ -2727,6 +2727,7 @@ const mem = std.mem;
 
 const Allocator = std.mem.Allocator;
 const Path = std.Build.Cache.Path;
+const Directory = std.Build.Cache.Directory;
 
 const codegen = @import("../codegen.zig");
 const link = @import("../link.zig");

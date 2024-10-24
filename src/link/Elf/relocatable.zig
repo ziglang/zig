@@ -1,26 +1,6 @@
-pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation, module_obj_path: ?Path) link.File.FlushError!void {
+pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation) link.File.FlushError!void {
     const gpa = comp.gpa;
     const diags = &comp.link_diags;
-
-    for (comp.objects) |obj| {
-        switch (Compilation.classifyFileExt(obj.path.sub_path)) {
-            .object => parseObjectStaticLibReportingFailure(elf_file, obj.path),
-            .static_library => parseArchiveStaticLibReportingFailure(elf_file, obj.path),
-            else => diags.addParseError(obj.path, "unrecognized file extension", .{}),
-        }
-    }
-
-    for (comp.c_object_table.keys()) |key| {
-        parseObjectStaticLibReportingFailure(elf_file, key.status.success.object_path);
-    }
-
-    if (module_obj_path) |path| {
-        parseObjectStaticLibReportingFailure(elf_file, path);
-    }
-
-    if (comp.include_compiler_rt) {
-        parseObjectStaticLibReportingFailure(elf_file, comp.compiler_rt_obj.?.full_object_path);
-    }
 
     if (diags.hasErrors()) return error.FlushFailure;
 
@@ -150,21 +130,8 @@ pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation, module_obj_path: ?Path
     if (diags.hasErrors()) return error.FlushFailure;
 }
 
-pub fn flushObject(elf_file: *Elf, comp: *Compilation, module_obj_path: ?Path) link.File.FlushError!void {
+pub fn flushObject(elf_file: *Elf, comp: *Compilation) link.File.FlushError!void {
     const diags = &comp.link_diags;
-
-    for (comp.objects) |obj| {
-        elf_file.parseInputReportingFailure(obj.path, false, obj.must_link);
-    }
-
-    // This is a set of object files emitted by clang in a single `build-exe` invocation.
-    // For instance, the implicit `a.o` as compiled by `zig build-exe a.c` will end up
-    // in this set.
-    for (comp.c_object_table.keys()) |key| {
-        elf_file.parseObjectReportingFailure(key.status.success.object_path);
-    }
-
-    if (module_obj_path) |path| elf_file.parseObjectReportingFailure(path);
 
     if (diags.hasErrors()) return error.FlushFailure;
 
@@ -213,64 +180,6 @@ pub fn flushObject(elf_file: *Elf, comp: *Compilation, module_obj_path: ?Path) l
     try elf_file.writeElfHeader();
 
     if (diags.hasErrors()) return error.FlushFailure;
-}
-
-fn parseObjectStaticLibReportingFailure(elf_file: *Elf, path: Path) void {
-    const diags = &elf_file.base.comp.link_diags;
-    parseObjectStaticLib(elf_file, path) catch |err| switch (err) {
-        error.LinkFailure => return,
-        else => |e| diags.addParseError(path, "parsing object failed: {s}", .{@errorName(e)}),
-    };
-}
-
-fn parseArchiveStaticLibReportingFailure(elf_file: *Elf, path: Path) void {
-    const diags = &elf_file.base.comp.link_diags;
-    parseArchiveStaticLib(elf_file, path) catch |err| switch (err) {
-        error.LinkFailure => return,
-        else => |e| diags.addParseError(path, "parsing static library failed: {s}", .{@errorName(e)}),
-    };
-}
-
-fn parseObjectStaticLib(elf_file: *Elf, path: Path) Elf.ParseError!void {
-    const gpa = elf_file.base.comp.gpa;
-    const handle = try path.root_dir.handle.openFile(path.sub_path, .{});
-    const fh = try elf_file.addFileHandle(handle);
-
-    const index: File.Index = @intCast(try elf_file.files.addOne(gpa));
-    elf_file.files.set(index, .{ .object = .{
-        .path = .{
-            .root_dir = path.root_dir,
-            .sub_path = try gpa.dupe(u8, path.sub_path),
-        },
-        .file_handle = fh,
-        .index = index,
-    } });
-    try elf_file.objects.append(gpa, index);
-
-    const object = elf_file.file(index).?.object;
-    try object.parseAr(elf_file);
-}
-
-fn parseArchiveStaticLib(elf_file: *Elf, path: Path) Elf.ParseError!void {
-    const gpa = elf_file.base.comp.gpa;
-    const handle = try path.root_dir.handle.openFile(path.sub_path, .{});
-    const fh = try elf_file.addFileHandle(handle);
-
-    var archive = Archive{};
-    defer archive.deinit(gpa);
-    try archive.parse(elf_file, path, fh);
-
-    const objects = try archive.objects.toOwnedSlice(gpa);
-    defer gpa.free(objects);
-
-    for (objects) |extracted| {
-        const index = @as(File.Index, @intCast(try elf_file.files.addOne(gpa)));
-        elf_file.files.set(index, .{ .object = extracted });
-        const object = &elf_file.files.items(.data)[index].object;
-        object.index = index;
-        try object.parseAr(elf_file);
-        try elf_file.objects.append(gpa, index);
-    }
 }
 
 fn claimUnresolved(elf_file: *Elf) void {
@@ -473,11 +382,12 @@ fn writeSyntheticSections(elf_file: *Elf) !void {
         const SortRelocs = struct {
             pub fn lessThan(ctx: void, lhs: elf.Elf64_Rela, rhs: elf.Elf64_Rela) bool {
                 _ = ctx;
+                assert(lhs.r_offset != rhs.r_offset);
                 return lhs.r_offset < rhs.r_offset;
             }
         };
 
-        mem.sort(elf.Elf64_Rela, relocs.items, {}, SortRelocs.lessThan);
+        mem.sortUnstable(elf.Elf64_Rela, relocs.items, {}, SortRelocs.lessThan);
 
         log.debug("writing {s} from 0x{x} to 0x{x}", .{
             elf_file.getShString(shdr.sh_name),

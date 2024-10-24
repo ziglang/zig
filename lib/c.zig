@@ -38,8 +38,6 @@ comptime {
         @export(&strncpy, .{ .name = "strncpy", .linkage = .strong });
         @export(&strcat, .{ .name = "strcat", .linkage = .strong });
         @export(&strncat, .{ .name = "strncat", .linkage = .strong });
-    } else if (is_msvc) {
-        @export(&_fltused, .{ .name = "_fltused", .linkage = .strong });
     }
 }
 
@@ -61,8 +59,6 @@ extern fn main(argc: c_int, argv: [*:null]?[*:0]u8) c_int;
 fn wasm_start() callconv(.C) void {
     _ = main(0, undefined);
 }
-
-var _fltused: c_int = 1;
 
 fn strcpy(dest: [*:0]u8, src: [*:0]const u8) callconv(.C) [*:0]u8 {
     var i: usize = 0;

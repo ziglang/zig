@@ -126,7 +126,7 @@ const Owner = union(enum) {
         const pt = ctx.pt;
         switch (owner) {
             .nav_index => |nav_index| if (ctx.bin_file.cast(.elf)) |elf_file| {
-                return elf_file.zigObjectPtr().?.getOrCreateMetadataForNav(elf_file, nav_index);
+                return elf_file.zigObjectPtr().?.getOrCreateMetadataForNav(pt.zcu, nav_index);
             } else if (ctx.bin_file.cast(.macho)) |macho_file| {
                 return macho_file.getZigObject().?.getOrCreateMetadataForNav(macho_file, nav_index);
             } else if (ctx.bin_file.cast(.coff)) |coff_file| {
@@ -12605,7 +12605,7 @@ fn genCall(self: *Self, info: union(enum) {
                 .func => |func| {
                     if (self.bin_file.cast(.elf)) |elf_file| {
                         const zo = elf_file.zigObjectPtr().?;
-                        const sym_index = try zo.getOrCreateMetadataForNav(elf_file, func.owner_nav);
+                        const sym_index = try zo.getOrCreateMetadataForNav(zcu, func.owner_nav);
                         try self.asmImmediate(.{ ._, .call }, Immediate.rel(.{ .sym_index = sym_index }));
                     } else if (self.bin_file.cast(.coff)) |coff_file| {
                         const atom = try coff_file.getOrCreateAtomForNav(func.owner_nav);

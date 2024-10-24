@@ -133,7 +133,7 @@ const Owner = union(enum) {
         switch (owner) {
             .nav_index => |nav_index| {
                 const elf_file = func.bin_file.cast(.elf).?;
-                return elf_file.zigObjectPtr().?.getOrCreateMetadataForNav(elf_file, nav_index);
+                return elf_file.zigObjectPtr().?.getOrCreateMetadataForNav(pt.zcu, nav_index);
             },
             .lazy_sym => |lazy_sym| {
                 const elf_file = func.bin_file.cast(.elf).?;
@@ -5002,7 +5002,7 @@ fn genCall(
                     .func => |func_val| {
                         if (func.bin_file.cast(.elf)) |elf_file| {
                             const zo = elf_file.zigObjectPtr().?;
-                            const sym_index = try zo.getOrCreateMetadataForNav(elf_file, func_val.owner_nav);
+                            const sym_index = try zo.getOrCreateMetadataForNav(zcu, func_val.owner_nav);
 
                             if (func.mod.pic) {
                                 return func.fail("TODO: genCall pic", .{});
