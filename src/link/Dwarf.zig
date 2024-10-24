@@ -2372,8 +2372,11 @@ pub fn initWipNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool.Nav.In
             try wip_nav.infoAddrSym(sym_index, 0);
             wip_nav.func_high_pc = @intCast(wip_nav.debug_info.items.len);
             try diw.writeInt(u32, 0, dwarf.endian);
-            try uleb128(diw, nav.status.resolved.alignment.toByteUnits() orelse
-                target_info.defaultFunctionAlignment(file.mod.resolved_target.result).toByteUnits().?);
+            const target = file.mod.resolved_target.result;
+            try uleb128(diw, switch (nav.status.resolved.alignment) {
+                .none => target_info.defaultFunctionAlignment(target),
+                else => |a| a.maxStrict(target_info.minFunctionAlignment(target)),
+            }.toByteUnits().?);
             try diw.writeByte(@intFromBool(false));
             try diw.writeByte(@intFromBool(func_type.return_type == .noreturn_type));
 

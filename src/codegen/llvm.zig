@@ -458,10 +458,15 @@ const DataLayoutBuilder = struct {
                 if (idx != size) try writer.print(":{d}", .{idx});
             }
         }
-        if (self.target.cpu.arch.isArmOrThumb()) try writer.writeAll("-Fi8") // for thumb interwork
+        if (self.target.cpu.arch.isArmOrThumb())
+            try writer.writeAll("-Fi8") // for thumb interwork
         else if (self.target.cpu.arch == .powerpc64 and
-            self.target.os.tag != .freebsd and self.target.abi != .musl)
+            self.target.os.tag != .freebsd and
+            self.target.os.tag != .openbsd and
+            !self.target.abi.isMusl())
             try writer.writeAll("-Fi64")
+        else if (self.target.cpu.arch.isPowerPC() and self.target.os.tag == .aix)
+            try writer.writeAll(if (self.target.cpu.arch.isPowerPC64()) "-Fi64" else "-Fi32")
         else if (self.target.cpu.arch.isPowerPC())
             try writer.writeAll("-Fn32");
         if (self.target.cpu.arch != .hexagon) {
@@ -574,6 +579,8 @@ const DataLayoutBuilder = struct {
             self.target.os.tag == .uefi or self.target.os.tag == .windows or
             self.target.cpu.arch == .riscv32)
             try writer.print("-S{d}", .{stack_abi});
+        if (self.target.cpu.arch.isAARCH64())
+            try writer.writeAll("-Fn32");
         switch (self.target.cpu.arch) {
             .hexagon, .ve => {
                 try self.typeAlignment(.vector, 32, 128, 128, true, writer);

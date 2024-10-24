@@ -1388,9 +1388,11 @@ fn updateNavCode(
 
     log.debug("updateNavCode {} 0x{x}", .{ nav.fqn.fmt(ip), nav_index });
 
-    const required_alignment = pt.navAlignment(nav_index).max(
-        target_util.minFunctionAlignment(zcu.navFileScope(nav_index).mod.resolved_target.result),
-    );
+    const target = zcu.navFileScope(nav_index).mod.resolved_target.result;
+    const required_alignment = switch (pt.navAlignment(nav_index)) {
+        .none => target_util.defaultFunctionAlignment(target),
+        else => |a| a.maxStrict(target_util.minFunctionAlignment(target)),
+    };
 
     const nav_metadata = coff.navs.get(nav_index).?;
     const atom_index = nav_metadata.atom;
