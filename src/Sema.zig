@@ -29836,6 +29836,7 @@ fn coerceExtra(
     if (dest_ty.isGenericPoison()) return inst;
     const pt = sema.pt;
     const zcu = pt.zcu;
+    const ip = &zcu.intern_pool;
     const dest_ty_src = inst_src; // TODO better source location
     try dest_ty.resolveFields(pt);
     const inst_ty = sema.typeOf(inst);
@@ -30458,7 +30459,7 @@ fn coerceExtra(
             errdefer msg.destroy(sema.gpa);
 
             const ret_ty_src: LazySrcLoc = .{
-                .base_node_inst = sema.getOwnerFuncDeclInst(),
+                .base_node_inst = ip.getNav(zcu.funcInfo(sema.func_index).owner_nav).srcInst(ip),
                 .offset = .{ .node_offset_fn_type_ret_ty = 0 },
             };
             try sema.errNote(ret_ty_src, msg, "'noreturn' declared here", .{});
@@ -30496,10 +30497,10 @@ fn coerceExtra(
 
         // Add notes about function return type
         if (opts.is_ret and
-            !zcu.test_functions.contains(zcu.funcInfo(sema.owner.unwrap().func).owner_nav))
+            !zcu.test_functions.contains(zcu.funcInfo(sema.func_index).owner_nav))
         {
             const ret_ty_src: LazySrcLoc = .{
-                .base_node_inst = sema.getOwnerFuncDeclInst(),
+                .base_node_inst = ip.getNav(zcu.funcInfo(sema.func_index).owner_nav).srcInst(ip),
                 .offset = .{ .node_offset_fn_type_ret_ty = 0 },
             };
             if (inst_ty.isError(zcu) and !dest_ty.isError(zcu)) {
