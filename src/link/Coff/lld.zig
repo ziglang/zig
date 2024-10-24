@@ -8,6 +8,7 @@ const log = std.log.scoped(.link);
 const mem = std.mem;
 const Cache = std.Build.Cache;
 const Path = std.Build.Cache.Path;
+const Directory = std.Build.Cache.Directory;
 
 const mingw = @import("../../mingw.zig");
 const link = @import("../../link.zig");
@@ -74,10 +75,7 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
 
         comptime assert(Compilation.link_hash_implementation_version == 14);
 
-        for (comp.objects) |obj| {
-            _ = try man.addFilePath(obj.path, null);
-            man.hash.add(obj.must_link);
-        }
+        try link.hashInputs(&man, comp.link_inputs);
         for (comp.c_object_table.keys()) |key| {
             _ = try man.addFilePath(key.status.success.object_path, null);
         }
@@ -88,7 +86,10 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
         man.hash.addOptionalBytes(entry_name);
         man.hash.add(self.base.stack_size);
         man.hash.add(self.image_base);
-        man.hash.addListOfBytes(self.lib_dirs);
+        {
+            // TODO remove this, libraries must instead be resolved by the frontend.
+            for (self.lib_directories) |lib_directory| man.hash.addOptionalBytes(lib_directory.path);
+        }
         man.hash.add(comp.skip_linker_dependencies);
         if (comp.config.link_libc) {
             man.hash.add(comp.libc_installation != null);
@@ -100,7 +101,7 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
                 }
             }
         }
-        try link.hashAddSystemLibs(&man, comp.system_libs);
+        man.hash.addListOfBytes(comp.windows_libs.keys());
         man.hash.addListOfBytes(comp.force_undefined_symbols.keys());
         man.hash.addOptional(self.subsystem);
         man.hash.add(comp.config.is_test);
@@ -148,8 +149,7 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
         // here. TODO: think carefully about how we can avoid this redundant operation when doing
         // build-obj. See also the corresponding TODO in linkAsArchive.
         const the_object_path = blk: {
-            if (comp.objects.len != 0)
-                break :blk comp.objects[0].path;
+            if (link.firstObjectInput(comp.link_inputs)) |obj| break :blk obj.path;
 
             if (comp.c_object_table.count() != 0)
                 break :blk comp.c_object_table.keys()[0].status.success.object_path;
@@ -266,18 +266,24 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
             }
         }
 
-        for (self.lib_dirs) |lib_dir| {
-            try argv.append(try allocPrint(arena, "-LIBPATH:{s}", .{lib_dir}));
+        for (self.lib_directories) |lib_directory| {
+            try argv.append(try allocPrint(arena, "-LIBPATH:{s}", .{lib_directory.path orelse "."}));
         }
 
-        try argv.ensureUnusedCapacity(comp.objects.len);
-        for (comp.objects) |obj| {
-            if (obj.must_link) {
-                argv.appendAssumeCapacity(try allocPrint(arena, "-WHOLEARCHIVE:{}", .{@as(Path, obj.path)}));
-            } else {
-                argv.appendAssumeCapacity(try obj.path.toString(arena));
-            }
-        }
+        try argv.ensureUnusedCapacity(comp.link_inputs.len);
+        for (comp.link_inputs) |link_input| switch (link_input) {
+            .dso_exact => unreachable, // not applicable to PE/COFF
+            inline .dso, .res => |x| {
+                argv.appendAssumeCapacity(try x.path.toString(arena));
+            },
+            .object, .archive => |obj| {
+                if (obj.must_link) {
+                    argv.appendAssumeCapacity(try allocPrint(arena, "-WHOLEARCHIVE:{}", .{@as(Path, obj.path)}));
+                } else {
+                    argv.appendAssumeCapacity(try obj.path.toString(arena));
+                }
+            },
+        };
 
         for (comp.c_object_table.keys()) |key| {
             try argv.append(try key.status.success.object_path.toString(arena));
@@ -484,20 +490,20 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
             if (comp.compiler_rt_lib) |lib| try argv.append(try lib.full_object_path.toString(arena));
         }
 
-        try argv.ensureUnusedCapacity(comp.system_libs.count());
-        for (comp.system_libs.keys()) |key| {
+        try argv.ensureUnusedCapacity(comp.windows_libs.count());
+        for (comp.windows_libs.keys()) |key| {
             const lib_basename = try allocPrint(arena, "{s}.lib", .{key});
             if (comp.crt_files.get(lib_basename)) |crt_file| {
                 argv.appendAssumeCapacity(try crt_file.full_object_path.toString(arena));
                 continue;
             }
-            if (try findLib(arena, lib_basename, self.lib_dirs)) |full_path| {
+            if (try findLib(arena, lib_basename, self.lib_directories)) |full_path| {
                 argv.appendAssumeCapacity(full_path);
                 continue;
             }
             if (target.abi.isGnu()) {
                 const fallback_name = try allocPrint(arena, "lib{s}.dll.a", .{key});
-                if (try findLib(arena, fallback_name, self.lib_dirs)) |full_path| {
+                if (try findLib(arena, fallback_name, self.lib_directories)) |full_path| {
                     argv.appendAssumeCapacity(full_path);
                     continue;
                 }
@@ -530,14 +536,13 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
     }
 }
 
-fn findLib(arena: Allocator, name: []const u8, lib_dirs: []const []const u8) !?[]const u8 {
-    for (lib_dirs) |lib_dir| {
-        const full_path = try fs.path.join(arena, &.{ lib_dir, name });
-        fs.cwd().access(full_path, .{}) catch |err| switch (err) {
+fn findLib(arena: Allocator, name: []const u8, lib_directories: []const Directory) !?[]const u8 {
+    for (lib_directories) |lib_directory| {
+        lib_directory.handle.access(name, .{}) catch |err| switch (err) {
             error.FileNotFound => continue,
             else => |e| return e,
         };
-        return full_path;
+        return try lib_directory.join(arena, &.{name});
     }
     return null;
 }

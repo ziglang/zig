@@ -928,7 +928,7 @@ pub fn getNavVAddr(
             nav.name.toSlice(ip),
             @"extern".lib_name.toSlice(ip),
         ),
-        else => try self.getOrCreateMetadataForNav(elf_file, nav_index),
+        else => try self.getOrCreateMetadataForNav(zcu, nav_index),
     };
     const this_sym = self.symbol(this_sym_index);
     const vaddr = this_sym.address(.{}, elf_file);
@@ -1102,21 +1102,15 @@ pub fn freeNav(self: *ZigObject, elf_file: *Elf, nav_index: InternPool.Nav.Index
     }
 }
 
-pub fn getOrCreateMetadataForNav(
-    self: *ZigObject,
-    elf_file: *Elf,
-    nav_index: InternPool.Nav.Index,
-) !Symbol.Index {
-    const gpa = elf_file.base.comp.gpa;
+pub fn getOrCreateMetadataForNav(self: *ZigObject, zcu: *Zcu, nav_index: InternPool.Nav.Index) !Symbol.Index {
+    const gpa = zcu.gpa;
     const gop = try self.navs.getOrPut(gpa, nav_index);
     if (!gop.found_existing) {
-        const any_non_single_threaded = elf_file.base.comp.config.any_non_single_threaded;
         const symbol_index = try self.newSymbolWithAtom(gpa, 0);
-        const zcu = elf_file.base.comp.zcu.?;
         const nav_val = Value.fromInterned(zcu.intern_pool.getNav(nav_index).status.resolved.val);
         const sym = self.symbol(symbol_index);
         if (nav_val.getVariable(zcu)) |variable| {
-            if (variable.is_threadlocal and any_non_single_threaded) {
+            if (variable.is_threadlocal and zcu.comp.config.any_non_single_threaded) {
                 sym.flags.is_tls = true;
             }
         }
@@ -1425,8 +1419,8 @@ pub fn updateFunc(
 
     log.debug("updateFunc {}({d})", .{ ip.getNav(func.owner_nav).fqn.fmt(ip), func.owner_nav });
 
-    const sym_index = try self.getOrCreateMetadataForNav(elf_file, func.owner_nav);
-    self.symbol(sym_index).atom(elf_file).?.freeRelocs(self);
+    const sym_index = try self.getOrCreateMetadataForNav(zcu, func.owner_nav);
+    self.atom(self.symbol(sym_index).ref.index).?.freeRelocs(self);
 
     var code_buffer = std.ArrayList(u8).init(gpa);
     defer code_buffer.deinit();
@@ -1460,12 +1454,12 @@ pub fn updateFunc(
         ip.getNav(func.owner_nav).fqn.fmt(ip),
     });
     const old_rva, const old_alignment = blk: {
-        const atom_ptr = self.symbol(sym_index).atom(elf_file).?;
+        const atom_ptr = self.atom(self.symbol(sym_index).ref.index).?;
         break :blk .{ atom_ptr.value, atom_ptr.alignment };
     };
     try self.updateNavCode(elf_file, pt, func.owner_nav, sym_index, shndx, code, elf.STT_FUNC);
     const new_rva, const new_alignment = blk: {
-        const atom_ptr = self.symbol(sym_index).atom(elf_file).?;
+        const atom_ptr = self.atom(self.symbol(sym_index).ref.index).?;
         break :blk .{ atom_ptr.value, atom_ptr.alignment };
     };
 
@@ -1477,7 +1471,7 @@ pub fn updateFunc(
             .{
                 .index = sym_index,
                 .addr = @intCast(sym.address(.{}, elf_file)),
-                .size = sym.atom(elf_file).?.size,
+                .size = self.atom(sym.ref.index).?.size,
             },
             wip_nav,
         );
@@ -1500,7 +1494,7 @@ pub fn updateFunc(
             });
             defer gpa.free(name);
             const osec = if (self.text_index) |sect_sym_index|
-                self.symbol(sect_sym_index).atom(elf_file).?.output_section_index
+                self.atom(self.symbol(sect_sym_index).ref.index).?.output_section_index
             else osec: {
                 const osec = try elf_file.addSection(.{
                     .name = try elf_file.insertShString(".text"),
@@ -1565,7 +1559,7 @@ pub fn updateNav(
     };
 
     if (nav_init != .none and Value.fromInterned(nav_init).typeOf(zcu).hasRuntimeBits(zcu)) {
-        const sym_index = try self.getOrCreateMetadataForNav(elf_file, nav_index);
+        const sym_index = try self.getOrCreateMetadataForNav(zcu, nav_index);
         self.symbol(sym_index).atom(elf_file).?.freeRelocs(self);
 
         var code_buffer = std.ArrayList(u8).init(zcu.gpa);
@@ -1789,7 +1783,7 @@ pub fn updateExports(
     const gpa = elf_file.base.comp.gpa;
     const metadata = switch (exported) {
         .nav => |nav| blk: {
-            _ = try self.getOrCreateMetadataForNav(elf_file, nav);
+            _ = try self.getOrCreateMetadataForNav(zcu, nav);
             break :blk self.navs.getPtr(nav).?;
         },
         .uav => |uav| self.uavs.getPtr(uav) orelse blk: {

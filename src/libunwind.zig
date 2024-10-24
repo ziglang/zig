@@ -199,8 +199,10 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         },
     };
 
+    const crt_file = try sub_compilation.toCrtFile();
+    comp.queueLinkTaskMode(crt_file.full_object_path, output_mode);
     assert(comp.libunwind_static_lib == null);
-    comp.libunwind_static_lib = try sub_compilation.toCrtFile();
+    comp.libunwind_static_lib = crt_file;
 }
 
 const unwind_src_list = [_][]const u8{

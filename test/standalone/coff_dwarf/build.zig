@@ -12,11 +12,6 @@ pub fn build(b: *std.Build) void {
     else
         b.resolveTargetQuery(.{ .os_tag = .windows });
 
-    if (builtin.cpu.arch == .aarch64) {
-        // https://github.com/ziglang/zig/issues/18427
-        return;
-    }
-
     const exe = b.addExecutable(.{
         .name = "main",
         .root_source_file = b.path("main.zig"),

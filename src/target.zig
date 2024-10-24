@@ -1,4 +1,6 @@
 const std = @import("std");
+const assert = std.debug.assert;
+
 const Type = @import("Type.zig");
 const AddressSpace = std.builtin.AddressSpace;
 const Alignment = @import("InternPool.zig").Alignment;
@@ -284,40 +286,18 @@ pub fn hasRedZone(target: std.Target) bool {
 pub fn libcFullLinkFlags(target: std.Target) []const []const u8 {
     // The linking order of these is significant and should match the order other
     // c compilers such as gcc or clang use.
-    return switch (target.os.tag) {
-        .netbsd, .openbsd => &[_][]const u8{
-            "-lm",
-            "-lpthread",
-            "-lc",
-            "-lutil",
+    const result: []const []const u8 = switch (target.os.tag) {
+        .netbsd, .openbsd => &.{ "-lm", "-lpthread", "-lc", "-lutil" },
+        // Solaris releases after 10 merged the threading libraries into libc.
+        .solaris, .illumos => &.{ "-lm", "-lsocket", "-lnsl", "-lc" },
+        .haiku => &.{ "-lm", "-lroot", "-lpthread", "-lc", "-lnetwork" },
+        .linux => switch (target.abi) {
+            .android, .androideabi, .ohos, .ohoseabi => &.{ "-lm", "-lc", "-ldl" },
+            else => &.{ "-lm", "-lpthread", "-lc", "-ldl", "-lrt", "-lutil" },
         },
-        .solaris, .illumos => &[_][]const u8{
-            "-lm",
-            "-lsocket",
-            "-lnsl",
-            // Solaris releases after 10 merged the threading libraries into libc.
-            "-lc",
-        },
-        .haiku => &[_][]const u8{
-            "-lm",
-            "-lroot",
-            "-lpthread",
-            "-lc",
-            "-lnetwork",
-        },
-        else => if (target.isAndroid() or target.abi.isOpenHarmony()) &[_][]const u8{
-            "-lm",
-            "-lc",
-            "-ldl",
-        } else &[_][]const u8{
-            "-lm",
-            "-lpthread",
-            "-lc",
-            "-ldl",
-            "-lrt",
-            "-lutil",
-        },
+        else => &.{},
     };
+    return result;
 }
 
 pub fn clangMightShellOutForAssembly(target: std.Target) bool {
@@ -544,13 +524,13 @@ pub fn compilerRtIntAbbrev(bits: u16) []const u8 {
     };
 }
 
-pub fn fnCallConvAllowsZigTypes(target: std.Target, cc: std.builtin.CallingConvention) bool {
+pub fn fnCallConvAllowsZigTypes(cc: std.builtin.CallingConvention) bool {
     return switch (cc) {
-        .Unspecified, .Async, .Inline => true,
+        .auto, .@"async", .@"inline" => true,
         // For now we want to authorize PTX kernel to use zig objects, even if
         // we end up exposing the ABI. The goal is to experiment with more
         // integrated CPU/GPU code.
-        .Kernel => target.cpu.arch == .nvptx or target.cpu.arch == .nvptx64,
+        .nvptx_kernel => true,
         else => false,
     };
 }

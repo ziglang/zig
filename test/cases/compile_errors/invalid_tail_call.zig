@@ -9,4 +9,4 @@ pub export fn entry() void {
 // backend=llvm
 // target=native
 //
-// :5:5: error: unable to perform tail call: type of function being called 'fn (usize) void' does not match type of calling function 'fn () callconv(.C) void'
+// :5:5: error: unable to perform tail call: type of function being called 'fn (usize) void' does not match type of calling function 'fn () callconv(.c) void'

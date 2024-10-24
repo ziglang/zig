@@ -2902,7 +2902,6 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
                 .breakpoint,
                 .disable_instrumentation,
                 .set_float_mode,
-                .set_align_stack,
                 .branch_hint,
                 => break :b true,
                 else => break :b false,
@@ -9319,14 +9318,6 @@ fn builtinCall(
             const float_mode_ty = try gz.addBuiltinValue(node, .float_mode);
             const order = try expr(gz, scope, .{ .rl = .{ .coerced_ty = float_mode_ty } }, params[0]);
             _ = try gz.addExtendedPayload(.set_float_mode, Zir.Inst.UnNode{
-                .node = gz.nodeIndexToRelative(node),
-                .operand = order,
-            });
-            return rvalue(gz, ri, .void_value, node);
-        },
-        .set_align_stack => {
-            const order = try expr(gz, scope, coerced_align_ri, params[0]);
-            _ = try gz.addExtendedPayload(.set_align_stack, Zir.Inst.UnNode{
                 .node = gz.nodeIndexToRelative(node),
                 .operand = order,
             });

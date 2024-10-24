@@ -165,10 +165,9 @@ pub fn updateExports(
         const target = zcu.getTarget();
         const spv_decl_index = try self.object.resolveNav(zcu, nav_index);
         const execution_model = switch (Type.fromInterned(nav_ty).fnCallingConvention(zcu)) {
-            .Vertex => spec.ExecutionModel.Vertex,
-            .Fragment => spec.ExecutionModel.Fragment,
-            .Kernel => spec.ExecutionModel.Kernel,
-            .C => return, // TODO: What to do here?
+            .spirv_vertex => spec.ExecutionModel.Vertex,
+            .spirv_fragment => spec.ExecutionModel.Fragment,
+            .spirv_kernel => spec.ExecutionModel.Kernel,
             else => unreachable,
         };
         const is_vulkan = target.os.tag == .vulkan;

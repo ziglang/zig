@@ -550,12 +550,26 @@ pub const Payload = struct {
             is_var_args: bool,
             name: ?[]const u8,
             linksection_string: ?[]const u8,
-            explicit_callconv: ?std.builtin.CallingConvention,
+            explicit_callconv: ?CallingConvention,
             params: []Param,
             return_type: Node,
             body: ?Node,
             alignment: ?c_uint,
         },
+
+        pub const CallingConvention = enum {
+            c,
+            x86_64_sysv,
+            x86_64_win,
+            x86_stdcall,
+            x86_fastcall,
+            x86_thiscall,
+            x86_vectorcall,
+            aarch64_vfabi,
+            arm_aapcs,
+            arm_aapcs_vfp,
+            m68k_rtd,
+        };
     };
 
     pub const Param = struct {
@@ -2812,14 +2826,52 @@ fn renderFunc(c: *Context, node: Node) !NodeIndex {
     const callconv_expr = if (payload.explicit_callconv) |some| blk: {
         _ = try c.addToken(.keyword_callconv, "callconv");
         _ = try c.addToken(.l_paren, "(");
-        _ = try c.addToken(.period, ".");
-        const res = try c.addNode(.{
-            .tag = .enum_literal,
-            .main_token = try c.addTokenFmt(.identifier, "{s}", .{@tagName(some)}),
-            .data = undefined,
-        });
+        const cc_node = switch (some) {
+            .c => cc_node: {
+                _ = try c.addToken(.period, ".");
+                break :cc_node try c.addNode(.{
+                    .tag = .enum_literal,
+                    .main_token = try c.addToken(.identifier, "c"),
+                    .data = undefined,
+                });
+            },
+            .x86_64_sysv,
+            .x86_64_win,
+            .x86_stdcall,
+            .x86_fastcall,
+            .x86_thiscall,
+            .x86_vectorcall,
+            .aarch64_vfabi,
+            .arm_aapcs,
+            .arm_aapcs_vfp,
+            .m68k_rtd,
+            => cc_node: {
+                // .{ .foo = .{} }
+                _ = try c.addToken(.period, ".");
+                const outer_lbrace = try c.addToken(.l_brace, "{");
+                _ = try c.addToken(.period, ".");
+                _ = try c.addToken(.identifier, @tagName(some));
+                _ = try c.addToken(.equal, "=");
+                _ = try c.addToken(.period, ".");
+                const inner_lbrace = try c.addToken(.l_brace, "{");
+                _ = try c.addToken(.r_brace, "}");
+                _ = try c.addToken(.r_brace, "}");
+                break :cc_node try c.addNode(.{
+                    .tag = .struct_init_dot_two,
+                    .main_token = outer_lbrace,
+                    .data = .{
+                        .lhs = try c.addNode(.{
+                            .tag = .struct_init_dot_two,
+                            .main_token = inner_lbrace,
+                            .data = .{ .lhs = 0, .rhs = 0 },
+                        }),
+                        .rhs = 0,
+                    },
+                });
+            },
+        };
         _ = try c.addToken(.r_paren, ")");
-        break :blk res;
+        break :blk cc_node;
     } else 0;
 
     const return_type_expr = try renderNode(c, payload.return_type);
