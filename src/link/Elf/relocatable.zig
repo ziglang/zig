@@ -217,20 +217,20 @@ fn initSections(elf_file: *Elf) !void {
         if (elf_file.section_indexes.eh_frame == null) {
             elf_file.section_indexes.eh_frame = elf_file.sectionByName(".eh_frame") orelse
                 try elf_file.addSection(.{
-                .name = try elf_file.insertShString(".eh_frame"),
-                .type = if (elf_file.getTarget().cpu.arch == .x86_64)
-                    elf.SHT_X86_64_UNWIND
-                else
-                    elf.SHT_PROGBITS,
-                .flags = elf.SHF_ALLOC,
-                .addralign = elf_file.ptrWidthBytes(),
-            });
+                    .name = try elf_file.insertShString(".eh_frame"),
+                    .type = if (elf_file.getTarget().cpu.arch == .x86_64)
+                        elf.SHT_X86_64_UNWIND
+                    else
+                        elf.SHT_PROGBITS,
+                    .flags = elf.SHF_ALLOC,
+                    .addralign = elf_file.ptrWidthBytes(),
+                });
         }
         elf_file.section_indexes.eh_frame_rela = elf_file.sectionByName(".rela.eh_frame") orelse
             try elf_file.addRelaShdr(
-            try elf_file.insertShString(".rela.eh_frame"),
-            elf_file.section_indexes.eh_frame.?,
-        );
+                try elf_file.insertShString(".rela.eh_frame"),
+                elf_file.section_indexes.eh_frame.?,
+            );
     }
 
     try initComdatGroups(elf_file);

@@ -162,28 +162,28 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
 
     const extensions_payload =
         tls.extension(.supported_versions, [_]u8{
-        0x02, // byte length of supported versions
-        0x03, 0x04, // TLS 1.3
-    }) ++ tls.extension(.signature_algorithms, enum_array(tls.SignatureScheme, &.{
-        .ecdsa_secp256r1_sha256,
-        .ecdsa_secp384r1_sha384,
-        .rsa_pss_rsae_sha256,
-        .rsa_pss_rsae_sha384,
-        .rsa_pss_rsae_sha512,
-        .ed25519,
-    })) ++ tls.extension(.supported_groups, enum_array(tls.NamedGroup, &.{
-        .x25519_ml_kem768,
-        .secp256r1,
-        .x25519,
-    })) ++ tls.extension(
-        .key_share,
-        array(1, int2(@intFromEnum(tls.NamedGroup.x25519)) ++
-            array(1, x25519_kp.public_key) ++
-            int2(@intFromEnum(tls.NamedGroup.secp256r1)) ++
-            array(1, secp256r1_kp.public_key.toUncompressedSec1()) ++
-            int2(@intFromEnum(tls.NamedGroup.x25519_ml_kem768)) ++
-            array(1, x25519_kp.public_key ++ ml_kem768_kp.public_key.toBytes())),
-    ) ++
+            0x02, // byte length of supported versions
+            0x03, 0x04, // TLS 1.3
+        }) ++ tls.extension(.signature_algorithms, enum_array(tls.SignatureScheme, &.{
+            .ecdsa_secp256r1_sha256,
+            .ecdsa_secp384r1_sha384,
+            .rsa_pss_rsae_sha256,
+            .rsa_pss_rsae_sha384,
+            .rsa_pss_rsae_sha512,
+            .ed25519,
+        })) ++ tls.extension(.supported_groups, enum_array(tls.NamedGroup, &.{
+            .x25519_ml_kem768,
+            .secp256r1,
+            .x25519,
+        })) ++ tls.extension(
+            .key_share,
+            array(1, int2(@intFromEnum(tls.NamedGroup.x25519)) ++
+                array(1, x25519_kp.public_key) ++
+                int2(@intFromEnum(tls.NamedGroup.secp256r1)) ++
+                array(1, secp256r1_kp.public_key.toUncompressedSec1()) ++
+                int2(@intFromEnum(tls.NamedGroup.x25519_ml_kem768)) ++
+                array(1, x25519_kp.public_key ++ ml_kem768_kp.public_key.toBytes())),
+        ) ++
         int2(@intFromEnum(tls.ExtensionType.server_name)) ++
         int2(host_len + 5) ++ // byte length of this extension payload
         int2(host_len + 3) ++ // server_name_list byte count
