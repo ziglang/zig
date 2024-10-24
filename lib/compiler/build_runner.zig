@@ -447,10 +447,7 @@ pub fn main() !void {
 
         if (!watch) return cleanExit();
 
-        switch (builtin.os.tag) {
-            .linux, .windows => {},
-            else => fatal("--watch not yet implemented for {s}", .{@tagName(builtin.os.tag)}),
-        }
+        if (!Watch.have_impl) fatal("--watch not yet implemented for {s}", .{@tagName(builtin.os.tag)});
 
         try w.update(gpa, run.step_stack.keys());
 
