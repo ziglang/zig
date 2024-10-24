@@ -2188,14 +2188,13 @@ fn linkWithLLD(coff: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
     }
 }
 
-fn findLib(arena: Allocator, name: []const u8, lib_dirs: []const []const u8) !?[]const u8 {
-    for (lib_dirs) |lib_dir| {
-        const full_path = try fs.path.join(arena, &.{ lib_dir, name });
-        fs.cwd().access(full_path, .{}) catch |err| switch (err) {
+fn findLib(arena: Allocator, name: []const u8, lib_directories: []const Directory) !?[]const u8 {
+    for (lib_directories) |lib_directory| {
+        lib_directory.handle.access(name, .{}) catch |err| switch (err) {
             error.FileNotFound => continue,
             else => |e| return e,
         };
-        return full_path;
+        return try lib_directory.join(arena, &.{name});
     }
     return null;
 }
