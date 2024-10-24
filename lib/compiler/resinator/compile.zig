@@ -1795,7 +1795,7 @@ pub const Compiler = struct {
         if (optional_statement_values.caption) |caption| {
             const parsed = try self.parseQuotedStringAsWideString(caption);
             defer self.allocator.free(parsed);
-            try data_writer.writeAll(std.mem.sliceAsBytes(parsed[0 .. parsed.len + 1]));
+            try data_writer.writeAll(std.mem.sliceAsBytes(parsed));
         } else {
             try data_writer.writeInt(u16, 0, .little);
         }
@@ -2089,7 +2089,7 @@ pub const Compiler = struct {
 
         const typeface = try self.parseQuotedStringAsWideString(node.typeface);
         defer self.allocator.free(typeface);
-        try writer.writeAll(std.mem.sliceAsBytes(typeface[0 .. typeface.len + 1]));
+        try writer.writeAll(std.mem.sliceAsBytes(typeface));
     }
 
     pub fn writeMenu(self: *Compiler, node: *Node.Menu, writer: anytype) !void {
@@ -2191,9 +2191,9 @@ pub const Compiler = struct {
                 var result = evaluateNumberExpression(menu_item.result, self.source, self.input_code_pages);
                 try writer.writeInt(u16, result.asWord(), .little);
 
-                var text = try self.parseQuotedStringAsWideString(menu_item.text);
+                const text = try self.parseQuotedStringAsWideString(menu_item.text);
                 defer self.allocator.free(text);
-                try writer.writeAll(std.mem.sliceAsBytes(text[0 .. text.len + 1]));
+                try writer.writeAll(std.mem.sliceAsBytes(text));
             },
             .popup => {
                 const popup: *Node.Popup = @alignCast(@fieldParentPtr("base", node));
@@ -2206,9 +2206,9 @@ pub const Compiler = struct {
                 if (is_last_of_parent) flags.markLast();
                 try writer.writeInt(u16, flags.value, .little);
 
-                var text = try self.parseQuotedStringAsWideString(popup.text);
+                const text = try self.parseQuotedStringAsWideString(popup.text);
                 defer self.allocator.free(text);
-                try writer.writeAll(std.mem.sliceAsBytes(text[0 .. text.len + 1]));
+                try writer.writeAll(std.mem.sliceAsBytes(text));
 
                 for (popup.items, 0..) |item, i| {
                     const is_last = i == popup.items.len - 1;
@@ -2245,9 +2245,9 @@ pub const Compiler = struct {
                 if (node_type == .popup_ex) flags |= 0x01;
                 try writer.writeInt(u16, flags, .little);
 
-                var text = try self.parseQuotedStringAsWideString(menu_item.text);
+                const text = try self.parseQuotedStringAsWideString(menu_item.text);
                 defer self.allocator.free(text);
-                try writer.writeAll(std.mem.sliceAsBytes(text[0 .. text.len + 1]));
+                try writer.writeAll(std.mem.sliceAsBytes(text));
 
                 // Only the combination of the flags u16 and the text bytes can cause
                 // non-DWORD alignment, so we can just use the byte length of those
@@ -2284,7 +2284,7 @@ pub const Compiler = struct {
         try data_writer.writeInt(u16, 0, .little); // placeholder size
         try data_writer.writeInt(u16, res.FixedFileInfo.byte_len, .little);
         try data_writer.writeInt(u16, res.VersionNode.type_binary, .little);
-        const key_bytes = std.mem.sliceAsBytes(res.FixedFileInfo.key[0 .. res.FixedFileInfo.key.len + 1]);
+        const key_bytes = std.mem.sliceAsBytes(res.FixedFileInfo.key);
         try data_writer.writeAll(key_bytes);
         // The number of bytes written up to this point is always the same, since the name
         // of the node is a constant (FixedFileInfo.key). The total number of bytes
@@ -2421,7 +2421,7 @@ pub const Compiler = struct {
                 defer self.allocator.free(parsed_key);
 
                 const parsed_key_to_first_null = std.mem.sliceTo(parsed_key, 0);
-                try writer.writeAll(std.mem.sliceAsBytes(parsed_key_to_first_null[0 .. parsed_key_to_first_null.len + 1]));
+                try writer.writeAll(std.mem.sliceAsBytes(parsed_key_to_first_null));
 
                 var has_number_value: bool = false;
                 for (block_or_value.values) |value_value_node_uncasted| {
