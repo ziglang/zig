@@ -39,7 +39,6 @@ idata_section_index: ?u16 = null,
 locals: std.ArrayListUnmanaged(coff_util.Symbol) = .empty,
 globals: std.ArrayListUnmanaged(SymbolWithLoc) = .empty,
 resolver: std.StringHashMapUnmanaged(u32) = .empty,
-unresolved: std.AutoArrayHashMapUnmanaged(u32, bool) = .empty,
 need_got_table: std.AutoHashMapUnmanaged(u32, void) = .empty,
 
 locals_free_list: std.ArrayListUnmanaged(u32) = .empty,
@@ -52,9 +51,10 @@ temp_strtab: StringTable = .{},
 
 got_table: TableSection(SymbolWithLoc) = .{},
 
-/// A table of ImportTables partitioned by the library name.
-/// Key is an offset into the interning string table `temp_strtab`.
-import_tables: std.AutoArrayHashMapUnmanaged(u32, ImportTable) = .empty,
+/// List of all imports from all dynamic libraries.
+imports: std.ArrayListUnmanaged(Import) = .empty,
+imports_free_list: std.ArrayListUnmanaged(Import.Index) = .empty,
+imports_lookup: std.AutoHashMapUnmanaged(SymbolWithLoc, Import.Index) = .empty,
 
 got_table_count_dirty: bool = true,
 got_table_contents_dirty: bool = true,
@@ -447,18 +447,14 @@ pub fn deinit(coff: *Coff) void {
         coff.resolver.deinit(gpa);
     }
 
-    coff.unresolved.deinit(gpa);
     coff.locals_free_list.deinit(gpa);
     coff.globals_free_list.deinit(gpa);
     coff.strtab.deinit(gpa);
     coff.temp_strtab.deinit(gpa);
     coff.got_table.deinit(gpa);
-
-    for (coff.import_tables.values()) |*itab| {
-        itab.deinit(gpa);
-    }
-    coff.import_tables.deinit(gpa);
-
+    coff.imports.deinit(gpa);
+    coff.imports_free_list.deinit(gpa);
+    coff.imports_lookup.deinit(gpa);
     coff.lazy_syms.deinit(gpa);
 
     for (coff.navs.values()) |*metadata| {
@@ -1564,11 +1560,15 @@ pub fn updateExports(
         const sym_index = metadata.getExport(coff, exp_name) orelse blk: {
             const sym_index = if (coff.getGlobalIndex(exp_name)) |global_index| ind: {
                 const global = coff.globals.items[global_index];
-                // TODO this is just plain wrong as it all should happen in a single `resolveSymbols`
-                // pass. This will go away once we abstact away Zig's incremental compilation into
-                // its own module.
                 if (global.file == null and coff.getSymbol(global).section_number == .UNDEFINED) {
-                    _ = coff.unresolved.swapRemove(global_index);
+                    // We also free an Import for that symbol since it just got resolved.
+                    if (coff.imports_lookup.fetchRemove(global)) |import_lookup| {
+                        coff.imports.items[import_lookup.value] = .{
+                            .symbol = .{ .sym_index = 0, .file = null },
+                            .lib_name = 0,
+                        };
+                        coff.imports_free_list.append(gpa, import_lookup.value) catch {};
+                    }
                     break :ind global.sym_index;
                 }
                 break :ind try coff.allocateSymbol();
@@ -1638,25 +1638,18 @@ pub fn deleteExport(
 }
 
 fn resolveGlobalSymbol(coff: *Coff, current: SymbolWithLoc) !void {
-    const gpa = coff.base.comp.gpa;
     const sym = coff.getSymbol(current);
     const sym_name = coff.getSymbolName(current);
 
     const gop = try coff.getOrPutGlobalPtr(sym_name);
     if (!gop.found_existing) {
         gop.value_ptr.* = current;
-        if (sym.section_number == .UNDEFINED) {
-            try coff.unresolved.putNoClobber(gpa, coff.getGlobalIndex(sym_name).?, false);
-        }
         return;
     }
 
     log.debug("TODO finish resolveGlobalSymbols implementation", .{});
 
     if (sym.section_number == .UNDEFINED) return;
-
-    _ = coff.unresolved.swapRemove(coff.getGlobalIndex(sym_name).?);
-
     gop.value_ptr.* = current;
 }
 
@@ -2255,22 +2248,6 @@ pub fn flushModule(coff: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
         }
     }
 
-    while (coff.unresolved.popOrNull()) |entry| {
-        assert(entry.value);
-        const global = coff.globals.items[entry.key];
-        const sym = coff.getSymbol(global);
-        const res = try coff.import_tables.getOrPut(gpa, sym.value);
-        const itable = res.value_ptr;
-        if (!res.found_existing) {
-            itable.* = .{};
-        }
-        if (itable.lookup.contains(global)) continue;
-        // TODO: we could technically write the pointer placeholder for to-be-bound import here,
-        // but since this happens in flush, there is currently no point.
-        _ = try itable.addImport(gpa, global);
-        coff.imports_count_dirty = true;
-    }
-
     try coff.writeImportTables();
 
     for (coff.relocs.keys(), coff.relocs.values()) |atom_index, relocs| {
@@ -2314,7 +2291,7 @@ pub fn flushModule(coff: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
 
     if (build_options.enable_logging) {
         coff.logSymtab();
-        coff.logImportTables();
+        coff.logImports();
     }
 
     try coff.writeStrtab();
@@ -2447,9 +2424,9 @@ pub fn getUavVAddr(
     return 0;
 }
 
-pub fn getGlobalSymbol(coff: *Coff, name: []const u8, lib_name_name: ?[]const u8) !u32 {
-    const gop = try coff.getOrPutGlobalPtr(name);
-    const global_index = coff.getGlobalIndex(name).?;
+pub fn getGlobalSymbol(coff: *Coff, symbol_name: []const u8, lib_name: ?[]const u8) !u32 {
+    const gop = try coff.getOrPutGlobalPtr(symbol_name);
+    const global_index = coff.getGlobalIndex(symbol_name).?;
 
     if (gop.found_existing) {
         return global_index;
@@ -2460,17 +2437,22 @@ pub fn getGlobalSymbol(coff: *Coff, name: []const u8, lib_name_name: ?[]const u8
     gop.value_ptr.* = sym_loc;
 
     const gpa = coff.base.comp.gpa;
-    const sym = coff.getSymbolPtr(sym_loc);
-    try coff.setSymbolName(sym, name);
-    sym.storage_class = .EXTERNAL;
+    const symbol = coff.getSymbolPtr(sym_loc);
+    try coff.setSymbolName(symbol, symbol_name);
+    symbol.storage_class = .EXTERNAL;
 
-    if (lib_name_name) |lib_name| {
-        // We repurpose the 'value' of the Symbol struct to store an offset into
-        // temporary string table where we will store the library name hint.
-        sym.value = try coff.temp_strtab.insert(gpa, lib_name);
+    if (lib_name) |name| {
+        // We don't yet know if the symbol will be resolved in an object or a DLL,
+        // so pre-emptively create an Import for this symbol.
+        // TODO the question here is though, should we return an error if the symbol is
+        // resolved not in a library?
+        const imports_gop = try coff.imports_lookup.getOrPut(gpa, sym_loc);
+        if (!imports_gop.found_existing) {
+            imports_gop.value_ptr.* = try coff.addImport(gpa, sym_loc);
+        }
+        coff.imports.items[imports_gop.value_ptr.*].lib_name = try coff.temp_strtab.insert(gpa, name);
+        coff.imports_count_dirty = true;
     }
-
-    try coff.unresolved.putNoClobber(gpa, global_index, true);
 
     return global_index;
 }
@@ -2597,10 +2579,51 @@ fn writeImportTables(coff: *Coff) !void {
     if (coff.idata_section_index == null) return;
     if (!coff.imports_count_dirty) return;
 
+    log.debug("writing import tables", .{});
+
     const gpa = coff.base.comp.gpa;
 
     const ext = ".dll";
     const header = &coff.sections.items(.header)[coff.idata_section_index.?];
+
+    // Allocate Imports within IAT.
+    // We assume IAT will come first thus we can allocate before calculating the
+    // total size of the section.
+    const Iat = struct {
+        rva: u32,
+        imports: std.ArrayList(Import.Index),
+    };
+    var iats = std.AutoArrayHashMap(u32, Iat).init(gpa);
+    defer {
+        for (iats.values()) |*iat| {
+            iat.imports.deinit();
+        }
+        iats.deinit();
+    }
+    for (coff.imports.items, 0..) |*import, i| {
+        const gop = try iats.getOrPut(import.lib_name);
+        if (!gop.found_existing) {
+            gop.value_ptr.* = .{
+                .rva = 0,
+                .imports = std.ArrayList(Import.Index).init(gpa),
+            };
+        }
+        const iat = gop.value_ptr;
+        import.rva = @as(u32, @intCast(iat.imports.items.len)) * @sizeOf(u64);
+        try iat.imports.append(@intCast(i));
+    }
+    {
+        var rva: u32 = 0;
+        for (iats.values()) |*iat| {
+            iat.rva = rva;
+            // Include the sentinel when calculating next rva for the next DLL IAT table.
+            rva += @as(u32, @intCast(iat.imports.items.len + 1)) * @sizeOf(u64);
+        }
+        for (coff.imports.items) |*import| {
+            import.rva += iats.get(import.lib_name).?.rva;
+            coff.markRelocsDirtyByTarget(import.symbol);
+        }
+    }
 
     // Calculate needed size
     var iat_size: u32 = 0;
@@ -2608,14 +2631,14 @@ fn writeImportTables(coff: *Coff) !void {
     var lookup_table_size: u32 = 0;
     var names_table_size: u32 = 0;
     var dll_names_size: u32 = 0;
-    for (coff.import_tables.keys(), 0..) |off, i| {
+    for (iats.keys(), iats.values()) |off, iat| {
         const lib_name = coff.temp_strtab.getAssumeExists(off);
-        const itable = coff.import_tables.values()[i];
-        iat_size += itable.size() + 8;
+        iat_size += @as(u32, @intCast(iat.imports.items.len + 1)) * @sizeOf(u64);
         dir_table_size += @sizeOf(coff_util.ImportDirectoryEntry);
-        lookup_table_size += @as(u32, @intCast(itable.entries.items.len + 1)) * @sizeOf(coff_util.ImportLookupEntry64.ByName);
-        for (itable.entries.items) |entry| {
-            const sym_name = coff.getSymbolName(entry);
+        lookup_table_size += @as(u32, @intCast(iat.imports.items.len + 1)) * @sizeOf(coff_util.ImportLookupEntry64.ByName);
+        for (iat.imports.items) |index| {
+            const import = coff.imports.items[index];
+            const sym_name = import.getSymbolName(coff);
             names_table_size += 2 + mem.alignForward(u32, @as(u32, @intCast(sym_name.len + 1)), 2);
         }
         dll_names_size += @as(u32, @intCast(lib_name.len + ext.len + 1));
@@ -2638,9 +2661,8 @@ fn writeImportTables(coff: *Coff) !void {
     var lookup_table_offset = dir_table_offset + dir_table_size;
     var names_table_offset = lookup_table_offset + lookup_table_size;
     var dll_names_offset = names_table_offset + names_table_size;
-    for (coff.import_tables.keys(), 0..) |off, i| {
+    for (iats.keys(), iats.values()) |off, iat| {
         const lib_name = coff.temp_strtab.getAssumeExists(off);
-        const itable = coff.import_tables.values()[i];
 
         // Lookup table header
         const lookup_header = coff_util.ImportDirectoryEntry{
@@ -2653,8 +2675,9 @@ fn writeImportTables(coff: *Coff) !void {
         @memcpy(buffer.items[dir_table_offset..][0..@sizeOf(coff_util.ImportDirectoryEntry)], mem.asBytes(&lookup_header));
         dir_table_offset += dir_header_size;
 
-        for (itable.entries.items) |entry| {
-            const import_name = coff.getSymbolName(entry);
+        for (iat.imports.items) |index| {
+            const import = coff.imports.items[index];
+            const import_name = import.getSymbolName(coff);
 
             // IAT and lookup table entry
             const lookup = coff_util.ImportLookupEntry64.ByName{ .name_table_rva = @as(u31, @intCast(header.virtual_address + names_table_offset)) };
@@ -3221,15 +3244,12 @@ fn logSections(coff: *Coff) void {
     }
 }
 
-fn logImportTables(coff: *const Coff) void {
-    log.debug("import tables:", .{});
-    for (coff.import_tables.keys(), 0..) |off, i| {
-        const itable = coff.import_tables.values()[i];
-        log.debug("{}", .{itable.fmtDebug(.{
-            .coff = coff,
-            .index = i,
-            .name_off = off,
-        })});
+fn logImports(coff: *const Coff) void {
+    log.debug("imports:", .{});
+    for (coff.imports.items, 0..) |import, i| {
+        log.debug("  {d} => @{x} '{s}' expected in DLL '{s}'", .{
+            i, import.getAddress(coff), import.getSymbolName(coff), import.getLibName(coff),
+        });
     }
 }
 
@@ -3375,14 +3395,9 @@ pub const Relocation = struct {
                 return header.virtual_address + got_index * coff.ptr_width.size();
             },
             .import, .import_page, .import_pageoff => {
-                const sym = coff.getSymbol(reloc.target);
-                const index = coff.import_tables.getIndex(sym.value) orelse return null;
-                const itab = coff.import_tables.values()[index];
-                return itab.getImportAddress(reloc.target, .{
-                    .coff = coff,
-                    .index = index,
-                    .name_off = sym.value,
-                });
+                const import_index = coff.imports_lookup.get(reloc.target) orelse return null;
+                const import = coff.imports.items[import_index];
+                return import.getAddress(coff);
             },
             else => {
                 const target_atom_index = coff.getAtomIndexForSymbol(reloc.target) orelse return null;
@@ -3575,8 +3590,8 @@ fn freeRelocations(coff: *Coff, atom_index: Atom.Index) void {
     if (removed_base_relocs) |*base_relocs| base_relocs.value.deinit(gpa);
 }
 
-/// Represents an import table in the .idata section where each contained pointer
-/// is to a symbol from the same DLL.
+/// Represents an import in the .idata section where each contained pointer
+/// is to a symbol from some DLL.
 ///
 /// The layout of .idata section is as follows:
 ///
@@ -3602,104 +3617,53 @@ fn freeRelocations(coff: *Coff, atom_index: Atom.Index) void {
 ///     DLL#1 name
 ///     DLL#2 name
 /// --- END
-const ImportTable = struct {
-    entries: std.ArrayListUnmanaged(SymbolWithLoc) = .empty,
-    free_list: std.ArrayListUnmanaged(u32) = .empty,
-    lookup: std.AutoHashMapUnmanaged(SymbolWithLoc, u32) = .empty,
+const Import = struct {
+    symbol: SymbolWithLoc,
+    /// An offset into the interning string table `temp_strtab`.
+    lib_name: u32,
+    /// Allocated RVA for the import pointer in the IAT.
+    rva: u32 = 0,
 
-    fn deinit(itab: *ImportTable, allocator: Allocator) void {
-        itab.entries.deinit(allocator);
-        itab.free_list.deinit(allocator);
-        itab.lookup.deinit(allocator);
+    pub fn getLibName(import: Import, coff: *const Coff) []const u8 {
+        return coff.temp_strtab.getAssumeExists(import.lib_name);
     }
 
-    /// Size of the import table does not include the sentinel.
-    fn size(itab: ImportTable) u32 {
-        return @as(u32, @intCast(itab.entries.items.len)) * @sizeOf(u64);
+    pub fn getSymbolName(import: Import, coff: *const Coff) []const u8 {
+        return coff.getSymbolName(import.symbol);
     }
 
-    fn addImport(itab: *ImportTable, allocator: Allocator, target: SymbolWithLoc) !ImportIndex {
-        try itab.entries.ensureUnusedCapacity(allocator, 1);
-        const index: u32 = blk: {
-            if (itab.free_list.popOrNull()) |index| {
-                log.debug("  (reusing import entry index {d})", .{index});
-                break :blk index;
-            } else {
-                log.debug("  (allocating import entry at index {d})", .{itab.entries.items.len});
-                const index = @as(u32, @intCast(itab.entries.items.len));
-                _ = itab.entries.addOneAssumeCapacity();
-                break :blk index;
-            }
-        };
-        itab.entries.items[index] = target;
-        try itab.lookup.putNoClobber(allocator, target, index);
-        return index;
+    pub fn getSymbol(import: Import, coff: *const Coff) *const coff_util.Symbol {
+        return coff.getSymbol(import.symbol);
     }
 
-    const Context = struct {
-        coff: *const Coff,
-        /// Index of this ImportTable in a global list of all tables.
-        /// This is required in order to calculate the base vaddr of this ImportTable.
-        index: usize,
-        /// Offset into the string interning table of the DLL this ImportTable corresponds to.
-        name_off: u32,
-    };
-
-    fn getBaseAddress(ctx: Context) u32 {
-        const header = ctx.coff.sections.items(.header)[ctx.coff.idata_section_index.?];
-        var addr = header.virtual_address;
-        for (ctx.coff.import_tables.values(), 0..) |other_itab, i| {
-            if (ctx.index == i) break;
-            addr += @as(u32, @intCast(other_itab.entries.items.len * @sizeOf(u64))) + 8;
-        }
-        return addr;
+    pub fn getSymbolPtr(import: Import, coff: *Coff) *coff_util.Symbol {
+        return coff.getSymbolPtr(import.symbol);
     }
 
-    fn getImportAddress(itab: *const ImportTable, target: SymbolWithLoc, ctx: Context) ?u32 {
-        const index = itab.lookup.get(target) orelse return null;
-        const base_vaddr = getBaseAddress(ctx);
-        return base_vaddr + index * @sizeOf(u64);
+    pub fn getAddress(import: Import, coff: *const Coff) u32 {
+        const header = coff.sections.items(.header)[coff.idata_section_index.?];
+        return header.virtual_address + import.rva;
     }
 
-    const FormatContext = struct {
-        itab: ImportTable,
-        ctx: Context,
-    };
-
-    fn format(itab: ImportTable, comptime unused_format_string: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
-        _ = itab;
-        _ = unused_format_string;
-        _ = options;
-        _ = writer;
-        @compileError("do not format ImportTable directly; use itab.fmtDebug()");
-    }
-
-    fn format2(
-        fmt_ctx: FormatContext,
-        comptime unused_format_string: []const u8,
-        options: fmt.FormatOptions,
-        writer: anytype,
-    ) @TypeOf(writer).Error!void {
-        _ = options;
-        comptime assert(unused_format_string.len == 0);
-        const lib_name = fmt_ctx.ctx.coff.temp_strtab.getAssumeExists(fmt_ctx.ctx.name_off);
-        const base_vaddr = getBaseAddress(fmt_ctx.ctx);
-        try writer.print("IAT({s}.dll) @{x}:", .{ lib_name, base_vaddr });
-        for (fmt_ctx.itab.entries.items, 0..) |entry, i| {
-            try writer.print("\n  {d}@{?x} => {s}", .{
-                i,
-                fmt_ctx.itab.getImportAddress(entry, fmt_ctx.ctx),
-                fmt_ctx.ctx.coff.getSymbolName(entry),
-            });
-        }
-    }
-
-    fn fmtDebug(itab: ImportTable, ctx: Context) fmt.Formatter(format2) {
-        return .{ .data = .{ .itab = itab, .ctx = ctx } };
-    }
-
-    const ImportIndex = u32;
+    const Index = u32;
 };
+
+fn addImport(coff: *Coff, allocator: Allocator, target: SymbolWithLoc) !Import.Index {
+    try coff.imports.ensureUnusedCapacity(allocator, 1);
+    const index: u32 = blk: {
+        if (coff.imports_free_list.popOrNull()) |index| {
+            log.debug("  (reusing import entry index {d})", .{index});
+            break :blk index;
+        } else {
+            log.debug("  (allocating import entry at index {d})", .{coff.imports.items.len});
+            const index = @as(u32, @intCast(coff.imports.items.len));
+            _ = coff.imports.addOneAssumeCapacity();
+            break :blk index;
+        }
+    };
+    coff.imports.items[index] = .{ .symbol = target, .lib_name = 0 };
+    return index;
+}
 
 const Coff = @This();
 
