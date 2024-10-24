@@ -443,11 +443,8 @@ fn initCstringLiterals(self: *Object, allocator: Allocator, file: File.Handle, m
     for (slice.items(.header), 0..) |sect, n_sect| {
         if (!isCstringLiteral(sect)) continue;
 
-        const sect_size = math.cast(usize, sect.size) orelse return error.Overflow;
-        const data = try allocator.alloc(u8, sect_size);
+        const data = try self.readSectionData(allocator, file, @intCast(n_sect));
         defer allocator.free(data);
-        const amt = try file.preadAll(data, sect.offset + self.offset);
-        if (amt != data.len) return error.InputOutput;
 
         var count: u32 = 0;
         var start: u32 = 0;
@@ -646,13 +643,10 @@ pub fn resolveLiterals(self: *Object, lp: *MachO.LiteralPool, macho_file: *MachO
     }
 
     const slice = self.sections.slice();
-    for (slice.items(.header), slice.items(.subsections)) |header, subs| {
+    for (slice.items(.header), slice.items(.subsections), 0..) |header, subs, n_sect| {
         if (isCstringLiteral(header) or isFixedSizeLiteral(header)) {
-            const sect_size = math.cast(usize, header.size) orelse return error.Overflow;
-            const data = try gpa.alloc(u8, sect_size);
+            const data = try self.readSectionData(gpa, file, @intCast(n_sect));
             defer gpa.free(data);
-            const amt = try file.preadAll(data, header.offset + self.offset);
-            if (amt != data.len) return error.InputOutput;
 
             for (subs.items) |sub| {
                 const atom = self.getAtom(sub.atom).?;
@@ -686,12 +680,7 @@ pub fn resolveLiterals(self: *Object, lp: *MachO.LiteralPool, macho_file: *MachO
                 buffer.resize(target_size) catch unreachable;
                 const gop = try sections_data.getOrPut(target.n_sect);
                 if (!gop.found_existing) {
-                    const target_sect = slice.items(.header)[target.n_sect];
-                    const target_sect_size = math.cast(usize, target_sect.size) orelse return error.Overflow;
-                    const data = try gpa.alloc(u8, target_sect_size);
-                    const amt = try file.preadAll(data, target_sect.offset + self.offset);
-                    if (amt != data.len) return error.InputOutput;
-                    gop.value_ptr.* = data;
+                    gop.value_ptr.* = try self.readSectionData(gpa, file, @intCast(target.n_sect));
                 }
                 const data = gop.value_ptr.*;
                 const target_off = math.cast(usize, target.off) orelse return error.Overflow;
@@ -1000,7 +989,7 @@ fn initRelocs(self: *Object, file: File.Handle, cpu_arch: std.Target.Cpu.Arch, m
     defer tracy.end();
     const slice = self.sections.slice();
 
-    for (slice.items(.header), slice.items(.relocs)) |sect, *out| {
+    for (slice.items(.header), slice.items(.relocs), 0..) |sect, *out, n_sect| {
         if (sect.nreloc == 0) continue;
         // We skip relocs for __DWARF since even in -r mode, the linker is expected to emit
         // debug symbol stabs in the relocatable. This made me curious why that is. For now,
@@ -1009,8 +998,8 @@ fn initRelocs(self: *Object, file: File.Handle, cpu_arch: std.Target.Cpu.Arch, m
             !mem.eql(u8, sect.sectName(), "__compact_unwind")) continue;
 
         switch (cpu_arch) {
-            .x86_64 => try x86_64.parseRelocs(self, sect, out, file, macho_file),
-            .aarch64 => try aarch64.parseRelocs(self, sect, out, file, macho_file),
+            .x86_64 => try x86_64.parseRelocs(self, @intCast(n_sect), sect, out, file, macho_file),
+            .aarch64 => try aarch64.parseRelocs(self, @intCast(n_sect), sect, out, file, macho_file),
             else => unreachable,
         }
 
@@ -1146,11 +1135,8 @@ fn initUnwindRecords(self: *Object, allocator: Allocator, sect_id: u8, file: Fil
     };
 
     const header = self.sections.items(.header)[sect_id];
-    const size = math.cast(usize, header.size) orelse return error.Overflow;
-    const data = try allocator.alloc(u8, size);
+    const data = try self.readSectionData(allocator, file, sect_id);
     defer allocator.free(data);
-    const amt = try file.preadAll(data, header.offset + self.offset);
-    if (amt != data.len) return error.InputOutput;
 
     const nrecs = @divExact(data.len, @sizeOf(macho.compact_unwind_entry));
     const recs = @as([*]align(1) const macho.compact_unwind_entry, @ptrCast(data.ptr))[0..nrecs];
@@ -1359,151 +1345,106 @@ fn parseDebugInfo(self: *Object, macho_file: *MachO) !void {
     defer tracy.end();
 
     const gpa = macho_file.base.comp.gpa;
+    const file = macho_file.getFileHandle(self.file_handle);
 
-    var debug_info_index: ?usize = null;
-    var debug_abbrev_index: ?usize = null;
-    var debug_str_index: ?usize = null;
+    var dwarf: Dwarf = .{};
+    defer dwarf.deinit(gpa);
 
     for (self.sections.items(.header), 0..) |sect, index| {
+        const n_sect: u8 = @intCast(index);
         if (sect.attrs() & macho.S_ATTR_DEBUG == 0) continue;
-        if (mem.eql(u8, sect.sectName(), "__debug_info")) debug_info_index = index;
-        if (mem.eql(u8, sect.sectName(), "__debug_abbrev")) debug_abbrev_index = index;
-        if (mem.eql(u8, sect.sectName(), "__debug_str")) debug_str_index = index;
+        if (mem.eql(u8, sect.sectName(), "__debug_info")) {
+            dwarf.debug_info = try self.readSectionData(gpa, file, n_sect);
+        }
+        if (mem.eql(u8, sect.sectName(), "__debug_abbrev")) {
+            dwarf.debug_abbrev = try self.readSectionData(gpa, file, n_sect);
+        }
+        if (mem.eql(u8, sect.sectName(), "__debug_str")) {
+            dwarf.debug_str = try self.readSectionData(gpa, file, n_sect);
+        }
+        // __debug_str_offs[ets] section is a new addition in DWARFv5 and is generally
+        // required in order to correctly parse strings.
+        if (mem.eql(u8, sect.sectName(), "__debug_str_offs")) {
+            dwarf.debug_str_offsets = try self.readSectionData(gpa, file, n_sect);
+        }
     }
 
-    if (debug_info_index == null or debug_abbrev_index == null) return;
+    if (dwarf.debug_info.len == 0) return;
 
-    const slice = self.sections.slice();
-    const file = macho_file.getFileHandle(self.file_handle);
-    const debug_info = blk: {
-        const sect = slice.items(.header)[debug_info_index.?];
-        const size = math.cast(usize, sect.size) orelse return error.Overflow;
-        const data = try gpa.alloc(u8, size);
-        const amt = try file.preadAll(data, sect.offset + self.offset);
-        if (amt != data.len) return error.InputOutput;
-        break :blk data;
-    };
-    defer gpa.free(debug_info);
-    const debug_abbrev = blk: {
-        const sect = slice.items(.header)[debug_abbrev_index.?];
-        const size = math.cast(usize, sect.size) orelse return error.Overflow;
-        const data = try gpa.alloc(u8, size);
-        const amt = try file.preadAll(data, sect.offset + self.offset);
-        if (amt != data.len) return error.InputOutput;
-        break :blk data;
-    };
-    defer gpa.free(debug_abbrev);
-    const debug_str = if (debug_str_index) |sid| blk: {
-        const sect = slice.items(.header)[sid];
-        const size = math.cast(usize, sect.size) orelse return error.Overflow;
-        const data = try gpa.alloc(u8, size);
-        const amt = try file.preadAll(data, sect.offset + self.offset);
-        if (amt != data.len) return error.InputOutput;
-        break :blk data;
-    } else &[0]u8{};
-    defer gpa.free(debug_str);
-
-    self.compile_unit = self.findCompileUnit(.{
-        .gpa = gpa,
-        .debug_info = debug_info,
-        .debug_abbrev = debug_abbrev,
-        .debug_str = debug_str,
-    }) catch null; // TODO figure out what errors are fatal, and when we silently fail
+    // TODO return error once we fix emitting DWARF in self-hosted backend.
+    // https://github.com/ziglang/zig/issues/21719
+    self.compile_unit = self.findCompileUnit(gpa, dwarf) catch null;
 }
 
-fn findCompileUnit(self: *Object, args: struct {
-    gpa: Allocator,
-    debug_info: []const u8,
-    debug_abbrev: []const u8,
-    debug_str: []const u8,
-}) !CompileUnit {
-    var cu_wip: struct {
-        comp_dir: ?[:0]const u8 = null,
-        tu_name: ?[:0]const u8 = null,
-    } = .{};
-
-    const gpa = args.gpa;
-    var info_reader = dwarf.InfoReader{ .bytes = args.debug_info, .strtab = args.debug_str };
-    var abbrev_reader = dwarf.AbbrevReader{ .bytes = args.debug_abbrev };
+fn findCompileUnit(self: *Object, gpa: Allocator, ctx: Dwarf) !CompileUnit {
+    var info_reader = Dwarf.InfoReader{ .ctx = ctx };
+    var abbrev_reader = Dwarf.AbbrevReader{ .ctx = ctx };
 
     const cuh = try info_reader.readCompileUnitHeader();
     try abbrev_reader.seekTo(cuh.debug_abbrev_offset);
 
-    const cu_decl = (try abbrev_reader.readDecl()) orelse return error.Eof;
-    if (cu_decl.tag != dwarf.TAG.compile_unit) return error.UnexpectedTag;
+    const cu_decl = (try abbrev_reader.readDecl()) orelse return error.UnexpectedEndOfFile;
+    if (cu_decl.tag != Dwarf.TAG.compile_unit) return error.UnexpectedTag;
 
     try info_reader.seekToDie(cu_decl.code, cuh, &abbrev_reader);
 
-    while (try abbrev_reader.readAttr()) |attr| switch (attr.at) {
-        dwarf.AT.name => {
-            cu_wip.tu_name = try info_reader.readString(attr.form, cuh);
-        },
-        dwarf.AT.comp_dir => {
-            cu_wip.comp_dir = try info_reader.readString(attr.form, cuh);
-        },
-        else => switch (attr.form) {
-            dwarf.FORM.sec_offset,
-            dwarf.FORM.ref_addr,
-            => {
-                _ = try info_reader.readOffset(cuh.format);
-            },
-
-            dwarf.FORM.addr => {
-                _ = try info_reader.readNBytes(cuh.address_size);
-            },
-
-            dwarf.FORM.block1,
-            dwarf.FORM.block2,
-            dwarf.FORM.block4,
-            dwarf.FORM.block,
-            => {
-                _ = try info_reader.readBlock(attr.form);
-            },
-
-            dwarf.FORM.exprloc => {
-                _ = try info_reader.readExprLoc();
-            },
-
-            dwarf.FORM.flag_present => {},
-
-            dwarf.FORM.data1,
-            dwarf.FORM.ref1,
-            dwarf.FORM.flag,
-            dwarf.FORM.data2,
-            dwarf.FORM.ref2,
-            dwarf.FORM.data4,
-            dwarf.FORM.ref4,
-            dwarf.FORM.data8,
-            dwarf.FORM.ref8,
-            dwarf.FORM.ref_sig8,
-            dwarf.FORM.udata,
-            dwarf.FORM.ref_udata,
-            dwarf.FORM.sdata,
-            => {
-                _ = try info_reader.readConstant(attr.form);
-            },
-
-            dwarf.FORM.strp,
-            dwarf.FORM.string,
-            => {
-                _ = try info_reader.readString(attr.form, cuh);
-            },
-
-            else => {
-                // TODO actual errors?
-                log.err("unhandled DW_FORM_* value with identifier {x}", .{attr.form});
-                return error.UnhandledForm;
-            },
-        },
+    const Pos = struct {
+        pos: usize,
+        form: Dwarf.Form,
     };
-
-    if (cu_wip.comp_dir == null) return error.MissingCompDir;
-    if (cu_wip.tu_name == null) return error.MissingTuName;
-
-    return .{
-        .comp_dir = try self.addString(gpa, cu_wip.comp_dir.?),
-        .tu_name = try self.addString(gpa, cu_wip.tu_name.?),
+    var saved: struct {
+        tu_name: ?Pos,
+        comp_dir: ?Pos,
+        str_offsets_base: ?Pos,
+    } = .{
+        .tu_name = null,
+        .comp_dir = null,
+        .str_offsets_base = null,
     };
+    while (try abbrev_reader.readAttr()) |attr| {
+        const pos: Pos = .{ .pos = info_reader.pos, .form = attr.form };
+        switch (attr.at) {
+            Dwarf.AT.name => saved.tu_name = pos,
+            Dwarf.AT.comp_dir => saved.comp_dir = pos,
+            Dwarf.AT.str_offsets_base => saved.str_offsets_base = pos,
+            else => {},
+        }
+        try info_reader.skip(attr.form, cuh);
+    }
+
+    if (saved.comp_dir == null) return error.MissingCompileDir;
+    if (saved.tu_name == null) return error.MissingTuName;
+
+    const str_offsets_base: ?u64 = if (saved.str_offsets_base) |str_offsets_base| str_offsets_base: {
+        try info_reader.seekTo(str_offsets_base.pos);
+        break :str_offsets_base try info_reader.readOffset(cuh.format);
+    } else null;
+
+    var cu: CompileUnit = .{ .comp_dir = .{}, .tu_name = .{} };
+    for (&[_]struct { Pos, *MachO.String }{
+        .{ saved.comp_dir.?, &cu.comp_dir },
+        .{ saved.tu_name.?, &cu.tu_name },
+    }) |tuple| {
+        const pos, const str_offset_ptr = tuple;
+        try info_reader.seekTo(pos.pos);
+        str_offset_ptr.* = switch (pos.form) {
+            Dwarf.FORM.strp,
+            Dwarf.FORM.string,
+            => try self.addString(gpa, try info_reader.readString(pos.form, cuh)),
+            Dwarf.FORM.strx,
+            Dwarf.FORM.strx1,
+            Dwarf.FORM.strx2,
+            Dwarf.FORM.strx3,
+            Dwarf.FORM.strx4,
+            => blk: {
+                const base = str_offsets_base orelse return error.MissingStrOffsetsBase;
+                break :blk try self.addString(gpa, try info_reader.readStringIndexed(pos.form, cuh, base));
+            },
+            else => return error.InvalidForm,
+        };
+    }
+
+    return cu;
 }
 
 pub fn resolveSymbols(self: *Object, macho_file: *MachO) !void {
@@ -2561,6 +2502,17 @@ pub fn getUnwindRecord(self: *Object, index: UnwindInfo.Record.Index) *UnwindInf
     return &self.unwind_records.items[index];
 }
 
+/// Caller owns the memory.
+pub fn readSectionData(self: Object, allocator: Allocator, file: File.Handle, n_sect: u8) ![]u8 {
+    const header = self.sections.items(.header)[n_sect];
+    const size = math.cast(usize, header.size) orelse return error.Overflow;
+    const data = try allocator.alloc(u8, size);
+    const amt = try file.preadAll(data, header.offset + self.offset);
+    errdefer allocator.free(data);
+    if (amt != data.len) return error.InputOutput;
+    return data;
+}
+
 pub fn format(
     self: *Object,
     comptime unused_fmt_string: []const u8,
@@ -2848,6 +2800,7 @@ const CompactUnwindCtx = struct {
 const x86_64 = struct {
     fn parseRelocs(
         self: *Object,
+        n_sect: u8,
         sect: macho.section_64,
         out: *std.ArrayListUnmanaged(Relocation),
         handle: File.Handle,
@@ -2857,19 +2810,12 @@ const x86_64 = struct {
 
         const relocs_buffer = try gpa.alloc(u8, sect.nreloc * @sizeOf(macho.relocation_info));
         defer gpa.free(relocs_buffer);
-        {
-            const amt = try handle.preadAll(relocs_buffer, sect.reloff + self.offset);
-            if (amt != relocs_buffer.len) return error.InputOutput;
-        }
+        const amt = try handle.preadAll(relocs_buffer, sect.reloff + self.offset);
+        if (amt != relocs_buffer.len) return error.InputOutput;
         const relocs = @as([*]align(1) const macho.relocation_info, @ptrCast(relocs_buffer.ptr))[0..sect.nreloc];
 
-        const sect_size = math.cast(usize, sect.size) orelse return error.Overflow;
-        const code = try gpa.alloc(u8, sect_size);
+        const code = try self.readSectionData(gpa, handle, n_sect);
         defer gpa.free(code);
-        {
-            const amt = try handle.preadAll(code, sect.offset + self.offset);
-            if (amt != code.len) return error.InputOutput;
-        }
 
         try out.ensureTotalCapacityPrecise(gpa, relocs.len);
 
@@ -3021,6 +2967,7 @@ const x86_64 = struct {
 const aarch64 = struct {
     fn parseRelocs(
         self: *Object,
+        n_sect: u8,
         sect: macho.section_64,
         out: *std.ArrayListUnmanaged(Relocation),
         handle: File.Handle,
@@ -3030,19 +2977,12 @@ const aarch64 = struct {
 
         const relocs_buffer = try gpa.alloc(u8, sect.nreloc * @sizeOf(macho.relocation_info));
         defer gpa.free(relocs_buffer);
-        {
-            const amt = try handle.preadAll(relocs_buffer, sect.reloff + self.offset);
-            if (amt != relocs_buffer.len) return error.InputOutput;
-        }
+        const amt = try handle.preadAll(relocs_buffer, sect.reloff + self.offset);
+        if (amt != relocs_buffer.len) return error.InputOutput;
         const relocs = @as([*]align(1) const macho.relocation_info, @ptrCast(relocs_buffer.ptr))[0..sect.nreloc];
 
-        const sect_size = math.cast(usize, sect.size) orelse return error.Overflow;
-        const code = try gpa.alloc(u8, sect_size);
+        const code = try self.readSectionData(gpa, handle, n_sect);
         defer gpa.free(code);
-        {
-            const amt = try handle.preadAll(code, sect.offset + self.offset);
-            if (amt != code.len) return error.InputOutput;
-        }
 
         try out.ensureTotalCapacityPrecise(gpa, relocs.len);
 
@@ -3219,7 +3159,6 @@ const aarch64 = struct {
 };
 
 const assert = std.debug.assert;
-const dwarf = @import("dwarf.zig");
 const eh_frame = @import("eh_frame.zig");
 const log = std.log.scoped(.link);
 const macho = std.macho;
@@ -3233,6 +3172,7 @@ const Allocator = mem.Allocator;
 const Archive = @import("Archive.zig");
 const Atom = @import("Atom.zig");
 const Cie = eh_frame.Cie;
+const Dwarf = @import("Dwarf.zig");
 const Fde = eh_frame.Fde;
 const File = @import("file.zig").File;
 const LoadCommandIterator = macho.LoadCommandIterator;
