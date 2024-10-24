@@ -1063,6 +1063,7 @@ pub fn orderAgainstZeroInner(
                 }) .gt else .eq,
             },
             .enum_tag => |enum_tag| Value.fromInterned(enum_tag.int).orderAgainstZeroInner(strat, zcu, tid),
+            .err => .gt,
             .float => |float| switch (float.storage) {
                 inline else => |x| std.math.order(x, 0),
             },

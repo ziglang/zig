@@ -1908,7 +1908,7 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .breakpoint => func.airBreakpoint(inst),
         .br => func.airBr(inst),
         .repeat => func.airRepeat(inst),
-        .switch_dispatch => return func.fail("TODO implement `switch_dispatch`", .{}),
+        .switch_dispatch => func.airSwitchDispatch(inst),
         .int_from_bool => func.airIntFromBool(inst),
         .cond_br => func.airCondBr(inst),
         .intcast => func.airIntcast(inst),
@@ -1989,8 +1989,8 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .struct_field_val => func.airStructFieldVal(inst),
         .field_parent_ptr => func.airFieldParentPtr(inst),
 
-        .switch_br => func.airSwitchBr(inst),
-        .loop_switch_br => return func.fail("TODO implement `loop_switch_br`", .{}),
+        .switch_br => func.airSwitchBr(inst, false),
+        .loop_switch_br => func.airSwitchBr(inst, true),
         .trunc => func.airTrunc(inst),
         .unreach => func.airUnreachable(inst),
 
@@ -3446,45 +3446,6 @@ fn emitUndefined(func: *CodeGen, ty: Type) InnerError!WValue {
     }
 }
 
-/// Returns a `Value` as a signed 32 bit value.
-/// It's illegal to provide a value with a type that cannot be represented
-/// as an integer value.
-fn valueAsI32(func: *const CodeGen, val: Value) i32 {
-    const pt = func.pt;
-    const zcu = pt.zcu;
-    const ip = &zcu.intern_pool;
-
-    switch (val.toIntern()) {
-        .bool_true => return 1,
-        .bool_false => return 0,
-        else => return switch (ip.indexToKey(val.ip_index)) {
-            .enum_tag => |enum_tag| intIndexAsI32(ip, enum_tag.int, pt),
-            .int => |int| intStorageAsI32(int.storage, pt),
-            .ptr => |ptr| {
-                assert(ptr.base_addr == .int);
-                return @intCast(ptr.byte_offset);
-            },
-            .err => |err| @bitCast(ip.getErrorValueIfExists(err.name).?),
-            else => unreachable,
-        },
-    }
-}
-
-fn intIndexAsI32(ip: *const InternPool, int: InternPool.Index, pt: Zcu.PerThread) i32 {
-    return intStorageAsI32(ip.indexToKey(int).int.storage, pt);
-}
-
-fn intStorageAsI32(storage: InternPool.Key.Int.Storage, pt: Zcu.PerThread) i32 {
-    const zcu = pt.zcu;
-    return switch (storage) {
-        .i64 => |x| @as(i32, @intCast(x)),
-        .u64 => |x| @as(i32, @bitCast(@as(u32, @intCast(x)))),
-        .big_int => unreachable,
-        .lazy_align => |ty| @as(i32, @bitCast(@as(u32, @intCast(Type.fromInterned(ty).abiAlignment(zcu).toByteUnits() orelse 0)))),
-        .lazy_size => |ty| @as(i32, @bitCast(@as(u32, @intCast(Type.fromInterned(ty).abiSize(zcu))))),
-    };
-}
-
 fn airBlock(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const ty_pl = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = func.air.extraData(Air.Block, ty_pl.payload);
@@ -3492,14 +3453,12 @@ fn airBlock(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn lowerBlock(func: *CodeGen, inst: Air.Inst.Index, block_ty: Type, body: []const Air.Inst.Index) InnerError!void {
-    const pt = func.pt;
-    const wasm_block_ty = genBlockType(block_ty, pt, func.target.*);
-
+    const zcu = func.pt.zcu;
     // if wasm_block_ty is non-empty, we create a register to store the temporary value
-    const block_result: WValue = if (wasm_block_ty != wasm.block_empty) blk: {
-        const ty: Type = if (isByRef(block_ty, pt, func.target.*)) Type.u32 else block_ty;
-        break :blk try func.ensureAllocLocal(ty); // make sure it's a clean local as it may never get overwritten
-    } else .none;
+    const block_result: WValue = if (block_ty.hasRuntimeBitsIgnoreComptime(zcu))
+        try func.allocLocal(block_ty)
+    else
+        .none;
 
     try func.startBlock(.block, wasm.block_empty);
     // Here we set the current block idx, so breaks know the depth to jump
@@ -3720,18 +3679,14 @@ fn airCmpLtErrorsLen(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airBr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const zcu = func.pt.zcu;
     const br = func.air.instructions.items(.data)[@intFromEnum(inst)].br;
     const block = func.blocks.get(br.block_inst).?;
 
     // if operand has codegen bits we should break with a value
-    if (func.typeOf(br.operand).hasRuntimeBitsIgnoreComptime(zcu)) {
+    if (block.value != .none) {
         const operand = try func.resolveInst(br.operand);
         try func.lowerToStack(operand);
-
-        if (block.value != .none) {
-            try func.addLabel(.local_set, block.value.local.value);
-        }
+        try func.addLabel(.local_set, block.value.local.value);
     }
 
     // We map every block to its block index.
@@ -4056,189 +4011,44 @@ fn airStructFieldVal(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     return func.finishAir(inst, result, &.{struct_field.struct_operand});
 }
 
-fn airSwitchBr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
+fn airSwitchBr(func: *CodeGen, inst: Air.Inst.Index, is_dispatch_loop: bool) InnerError!void {
     const pt = func.pt;
     const zcu = pt.zcu;
-    // result type is always 'noreturn'
-    const blocktype = wasm.block_empty;
+
     const switch_br = func.air.unwrapSwitch(inst);
-    const target = try func.resolveInst(switch_br.operand);
     const target_ty = func.typeOf(switch_br.operand);
+
+    assert(target_ty.hasRuntimeBitsIgnoreComptime(func.pt.zcu));
+
+    // swap target value with placeholder local, for dispatching
+    const target = if (is_dispatch_loop) target: {
+        const initial_target = try func.resolveInst(switch_br.operand);
+        const target: WValue = try func.allocLocal(target_ty);
+        try func.lowerToStack(initial_target);
+        try func.addLabel(.local_set, target.local.value);
+
+        try func.startBlock(.loop, wasm.block_empty); // dispatch loop start
+        try func.blocks.putNoClobber(func.gpa, inst, .{
+            .label = func.block_depth,
+            .value = target,
+        });
+
+        break :target target;
+    } else try func.resolveInst(switch_br.operand);
+
     const liveness = try func.liveness.getSwitchBr(func.gpa, inst, switch_br.cases_len + 1);
     defer func.gpa.free(liveness.deaths);
 
-    // a list that maps each value with its value and body based on the order inside the list.
-    const CaseValue = union(enum) {
-        singular: struct { integer: i32, value: Value },
-        range: struct { min: i32, min_value: Value, max: i32, max_value: Value },
-    };
-    var case_list = try std.ArrayList(struct {
-        values: []const CaseValue,
-        body: []const Air.Inst.Index,
-    }).initCapacity(func.gpa, switch_br.cases_len);
-    defer for (case_list.items) |case| {
-        func.gpa.free(case.values);
-    } else case_list.deinit();
+    const has_else_body = switch_br.else_body_len != 0;
+    const branch_count = switch_br.cases_len + 1; // if else branch is missing, we trap when failing all conditions
+    try func.branches.ensureUnusedCapacity(func.gpa, switch_br.cases_len + @intFromBool(has_else_body));
 
-    var lowest_maybe: ?i32 = null;
-    var highest_maybe: ?i32 = null;
-    var it = switch_br.iterateCases();
-    while (it.next()) |case| {
-        const values = try func.gpa.alloc(CaseValue, case.items.len + case.ranges.len);
-        errdefer func.gpa.free(values);
+    if (switch_br.cases_len == 0) {
+        assert(has_else_body);
 
-        for (case.items, 0..) |ref, i| {
-            const item_val = (try func.air.value(ref, pt)).?;
-            const int_val = func.valueAsI32(item_val);
-            if (lowest_maybe == null or int_val < lowest_maybe.?) {
-                lowest_maybe = int_val;
-            }
-            if (highest_maybe == null or int_val > highest_maybe.?) {
-                highest_maybe = int_val;
-            }
-            values[i] = .{ .singular = .{ .integer = int_val, .value = item_val } };
-        }
+        var it = switch_br.iterateCases();
+        const else_body = it.elseBody();
 
-        for (case.ranges, 0..) |range, i| {
-            const min_val = (try func.air.value(range[0], pt)).?;
-            const int_min_val = func.valueAsI32(min_val);
-
-            if (lowest_maybe == null or int_min_val < lowest_maybe.?) {
-                lowest_maybe = int_min_val;
-            }
-
-            const max_val = (try func.air.value(range[1], pt)).?;
-            const int_max_val = func.valueAsI32(max_val);
-
-            if (highest_maybe == null or int_max_val > highest_maybe.?) {
-                highest_maybe = int_max_val;
-            }
-
-            values[i + case.items.len] = .{ .range = .{
-                .min = int_min_val,
-                .min_value = min_val,
-                .max = int_max_val,
-                .max_value = max_val,
-            } };
-        }
-
-        case_list.appendAssumeCapacity(.{ .values = values, .body = case.body });
-        try func.startBlock(.block, blocktype);
-    }
-
-    // When highest and lowest are null, we have no cases and can use a jump table
-    const lowest = lowest_maybe orelse 0;
-    const highest = highest_maybe orelse 0;
-    // When the highest and lowest values are seperated by '50',
-    // we define it as sparse and use an if/else-chain, rather than a jump table.
-    // When the target is an integer size larger than u32, we have no way to use the value
-    // as an index, therefore we also use an if/else-chain for those cases.
-    // TODO: Benchmark this to find a proper value, LLVM seems to draw the line at '40~45'.
-    const is_sparse = highest - lowest > 50 or target_ty.bitSize(zcu) > 32;
-
-    const else_body = it.elseBody();
-    const has_else_body = else_body.len != 0;
-    if (has_else_body) {
-        try func.startBlock(.block, blocktype);
-    }
-
-    if (!is_sparse) {
-        // Generate the jump table 'br_table' when the prongs are not sparse.
-        // The value 'target' represents the index into the table.
-        // Each index in the table represents a label to the branch
-        // to jump to.
-        try func.startBlock(.block, blocktype);
-        try func.emitWValue(target);
-        if (lowest < 0) {
-            // since br_table works using indexes, starting from '0', we must ensure all values
-            // we put inside, are atleast 0.
-            try func.addImm32(@bitCast(lowest * -1));
-            try func.addTag(.i32_add);
-        } else if (lowest > 0) {
-            // make the index start from 0 by substracting the lowest value
-            try func.addImm32(@bitCast(lowest));
-            try func.addTag(.i32_sub);
-        }
-
-        // Account for default branch so always add '1'
-        const depth = @as(u32, @intCast(highest - lowest + @intFromBool(has_else_body))) + 1;
-        const jump_table: Mir.JumpTable = .{ .length = depth };
-        const table_extra_index = try func.addExtra(jump_table);
-        try func.addInst(.{ .tag = .br_table, .data = .{ .payload = table_extra_index } });
-        try func.mir_extra.ensureUnusedCapacity(func.gpa, depth);
-        var value = lowest;
-        while (value <= highest) : (value += 1) {
-            // idx represents the branch we jump to
-            const idx = blk: {
-                for (case_list.items, 0..) |case, idx| {
-                    for (case.values) |case_value| {
-                        switch (case_value) {
-                            .singular => |val| if (val.integer == value) break :blk @as(u32, @intCast(idx)),
-                            .range => |range_val| if (value >= range_val.min and value <= range_val.max) {
-                                break :blk @as(u32, @intCast(idx));
-                            },
-                        }
-                    }
-                }
-                // error sets are almost always sparse so we use the default case
-                // for errors that are not present in any branch. This is fine as this default
-                // case will never be hit for those cases but we do save runtime cost and size
-                // by using a jump table for this instead of if-else chains.
-                break :blk if (has_else_body or target_ty.zigTypeTag(zcu) == .error_set) switch_br.cases_len else unreachable;
-            };
-            func.mir_extra.appendAssumeCapacity(idx);
-        } else if (has_else_body) {
-            func.mir_extra.appendAssumeCapacity(switch_br.cases_len); // default branch
-        }
-        try func.endBlock();
-    }
-
-    try func.branches.ensureUnusedCapacity(func.gpa, case_list.items.len + @intFromBool(has_else_body));
-    for (case_list.items, 0..) |case, index| {
-        // when sparse, we use if/else-chain, so emit conditional checks
-        if (is_sparse) {
-            // for single value prong we can emit a simple condition
-            if (case.values.len == 1 and case.values[0] == .singular) {
-                const val = try func.lowerConstant(case.values[0].singular.value, target_ty);
-                // not equal, because we want to jump out of this block if it does not match the condition.
-                _ = try func.cmp(target, val, target_ty, .neq);
-                try func.addLabel(.br_if, 0);
-            } else {
-                // in multi-value prongs we must check if any prongs match the target value.
-                try func.startBlock(.block, blocktype);
-                for (case.values) |value| {
-                    switch (value) {
-                        .singular => |single_val| {
-                            const val = try func.lowerConstant(single_val.value, target_ty);
-                            _ = try func.cmp(target, val, target_ty, .eq);
-                        },
-                        .range => |range| {
-                            const min_val = try func.lowerConstant(range.min_value, target_ty);
-                            const max_val = try func.lowerConstant(range.max_value, target_ty);
-
-                            const gte = try func.cmp(target, min_val, target_ty, .gte);
-                            const lte = try func.cmp(target, max_val, target_ty, .lte);
-                            _ = try func.binOp(gte, lte, Type.bool, .@"and");
-                        },
-                    }
-                    try func.addLabel(.br_if, 0);
-                }
-                // value did not match any of the prong values
-                try func.addLabel(.br, 1);
-                try func.endBlock();
-            }
-        }
-        func.branches.appendAssumeCapacity(.{});
-        try func.currentBranch().values.ensureUnusedCapacity(func.gpa, liveness.deaths[index].len);
-        defer {
-            var case_branch = func.branches.pop();
-            case_branch.deinit(func.gpa);
-        }
-        try func.genBody(case.body);
-        try func.endBlock();
-    }
-
-    if (has_else_body) {
         func.branches.appendAssumeCapacity(.{});
         const else_deaths = liveness.deaths.len - 1;
         try func.currentBranch().values.ensureUnusedCapacity(func.gpa, liveness.deaths[else_deaths].len);
@@ -4247,9 +4057,202 @@ fn airSwitchBr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             else_branch.deinit(func.gpa);
         }
         try func.genBody(else_body);
-        try func.endBlock();
+
+        if (is_dispatch_loop) {
+            try func.endBlock(); // dispatch loop end
+        }
+        return func.finishAir(inst, .none, &.{});
     }
+
+    const Case = Air.UnwrappedSwitch.CaseIterator.Case;
+    const cases = try func.gpa.alloc(Case, switch_br.cases_len);
+    defer func.gpa.free(cases);
+
+    var tmp_space_0: Value.BigIntSpace = undefined;
+    var tmp_space_1: Value.BigIntSpace = undefined;
+    const BigIntManaged = std.math.big.int.Managed;
+    const limb_count = std.math.big.int.calcTwosCompLimbCount(@intCast(target_ty.bitSize(zcu)));
+    var tmp_bigint = try BigIntManaged.initCapacity(func.gpa, limb_count + 1);
+    defer tmp_bigint.deinit();
+
+    var is_first_value = true;
+    var lowest_ref: Air.Inst.Ref = undefined;
+    var lowest: Value = undefined;
+    var highest: Value = undefined;
+    var branching_size: u32 = 0; // single item +1, range +2
+
+    var it = switch_br.iterateCases();
+    while (it.next()) |case| {
+        cases[case.idx] = case;
+
+        for (case.items) |ref| {
+            const value = (try func.air.value(ref, pt)).?;
+            if (is_first_value or value.order(lowest, zcu) == .lt) {
+                lowest = value;
+                lowest_ref = ref;
+            }
+            if (is_first_value or value.order(highest, zcu) == .gt) {
+                highest = value;
+            }
+            branching_size += 1;
+            is_first_value = false;
+        }
+        for (case.ranges) |range| {
+            const min = (try func.air.value(range[0], pt)).?;
+            const max = (try func.air.value(range[1], pt)).?;
+            if (is_first_value or min.order(lowest, zcu) == .lt) {
+                lowest = min;
+                lowest_ref = range[0];
+            }
+            if (is_first_value or max.order(highest, zcu) == .gt) {
+                highest = max;
+            }
+            branching_size += 2;
+            is_first_value = false;
+        }
+    }
+    assert(!is_first_value);
+
+    const width_maybe: ?u32 = width: {
+        const lowest_bigint = lowest.toBigInt(&tmp_space_0, zcu);
+        const highest_bigint = highest.toBigInt(&tmp_space_1, zcu);
+
+        var width_bigint = tmp_bigint.toMutable();
+        width_bigint.sub(highest_bigint, lowest_bigint);
+        width_bigint.addScalar(width_bigint.toConst(), 1);
+        break :width width_bigint.toConst().to(u32) catch null;
+    };
+
+    try func.startBlock(.block, wasm.block_empty); // whole switch block start
+
+    for (0..branch_count) |_| {
+        try func.startBlock(.block, wasm.block_empty);
+    }
+
+    // Heuristic on deciding when to use .br_table instead of .br_if jump table
+    // 1. Differences between lowest and highest values should fit into u32
+    // 2. .br_table should be applied for "dense" switch, we test it by checking .br_if jumps will need more instructions
+    // 3. Do not use .br_table for tiny switches
+    const use_br_table = cond: {
+        const width = if (width_maybe) |v| v else break :cond false;
+        if (width > 2 * branching_size) break :cond false;
+        if (width < 2 or branch_count < 2) break :cond false;
+        break :cond true;
+    };
+
+    if (use_br_table) {
+        const width = width_maybe.?;
+
+        const lowest_wvalue = try func.resolveInst(lowest_ref);
+        const br_value_original = try func.binOp(target, lowest_wvalue, target_ty, .sub);
+        _ = try func.intcast(br_value_original, target_ty, Type.u32);
+
+        const jump_table: Mir.JumpTable = .{ .length = width + 1 };
+        const table_extra_index = try func.addExtra(jump_table);
+        try func.addInst(.{ .tag = .br_table, .data = .{ .payload = table_extra_index } });
+
+        const branch_list = try func.mir_extra.addManyAsSlice(func.gpa, width + 1);
+        @memset(branch_list, branch_count - 1);
+
+        const lowest_bigint = lowest.toBigInt(&tmp_space_0, zcu);
+        for (cases) |case| {
+            for (case.items) |ref| {
+                const value_bigint = (try func.air.value(ref, pt)).?.toBigInt(&tmp_space_1, zcu);
+                const offset = offset: {
+                    var diff_bigint = tmp_bigint.toMutable();
+                    diff_bigint.sub(value_bigint, lowest_bigint);
+                    break :offset diff_bigint.toConst().to(u32) catch unreachable;
+                };
+                branch_list[offset] = case.idx;
+            }
+            for (case.ranges) |range| {
+                const min_bigint = (try func.air.value(range[0], pt)).?.toBigInt(&tmp_space_1, zcu);
+                const offset_begin = offset: {
+                    var diff_bigint = tmp_bigint.toMutable();
+                    diff_bigint.sub(min_bigint, lowest_bigint);
+                    break :offset diff_bigint.toConst().to(u32) catch unreachable;
+                };
+                const max_bigint = (try func.air.value(range[1], pt)).?.toBigInt(&tmp_space_1, zcu);
+                const offset_end = offset: {
+                    var diff_bigint = tmp_bigint.toMutable();
+                    diff_bigint.sub(max_bigint, lowest_bigint);
+                    break :offset diff_bigint.toConst().to(u32) catch unreachable;
+                };
+                @memset(branch_list[offset_begin .. offset_end + 1], case.idx);
+            }
+        }
+    } else {
+        for (cases) |case| {
+            for (case.items) |ref| {
+                const value = try func.resolveInst(ref);
+                _ = try func.cmp(target, value, target_ty, .eq);
+                try func.addLabel(.br_if, case.idx); // item match found
+            }
+
+            for (case.ranges) |range| {
+                const min_value = try func.resolveInst(range[0]);
+                const max_value = try func.resolveInst(range[1]);
+
+                const gte = try func.cmp(target, min_value, target_ty, .gte);
+                const lte = try func.cmp(target, max_value, target_ty, .lte);
+                _ = try func.binOp(gte, lte, Type.bool, .@"and");
+                try func.addLabel(.br_if, case.idx); // range match found
+            }
+        }
+        try func.addLabel(.br, branch_count - 1);
+    }
+
+    for (cases) |case| {
+        try func.endBlock();
+
+        func.branches.appendAssumeCapacity(.{});
+        try func.currentBranch().values.ensureUnusedCapacity(func.gpa, liveness.deaths[case.idx].len);
+        defer {
+            var case_branch = func.branches.pop();
+            case_branch.deinit(func.gpa);
+        }
+        try func.genBody(case.body);
+
+        try func.addLabel(.br, branch_count - case.idx - 1); // matching case found and executed => exit switch
+    }
+
+    try func.endBlock();
+    if (has_else_body) {
+        const else_body = it.elseBody();
+
+        func.branches.appendAssumeCapacity(.{});
+        const else_deaths = liveness.deaths.len - 1;
+        try func.currentBranch().values.ensureUnusedCapacity(func.gpa, liveness.deaths[else_deaths].len);
+        defer {
+            var else_branch = func.branches.pop();
+            else_branch.deinit(func.gpa);
+        }
+        try func.genBody(else_body);
+    } else {
+        try func.addTag(.@"unreachable");
+    }
+
+    try func.endBlock(); // whole switch block end
+
+    if (is_dispatch_loop) {
+        try func.endBlock(); // dispatch loop end
+    }
+
     return func.finishAir(inst, .none, &.{});
+}
+
+fn airSwitchDispatch(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
+    const br = func.air.instructions.items(.data)[@intFromEnum(inst)].br;
+    const switch_loop = func.blocks.get(br.block_inst).?;
+
+    const operand = try func.resolveInst(br.operand);
+    try func.lowerToStack(operand);
+    try func.addLabel(.local_set, switch_loop.value.local.value);
+
+    const idx: u32 = func.block_depth - switch_loop.label;
+    try func.addLabel(.br, idx);
+
+    return func.finishAir(inst, .none, &.{br.operand});
 }
 
 fn airIsErr(func: *CodeGen, inst: Air.Inst.Index, opcode: wasm.Opcode) InnerError!void {
