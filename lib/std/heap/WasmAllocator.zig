@@ -158,7 +158,7 @@ fn allocBigPages(n: usize) usize {
 }
 
 const test_ally = Allocator{
-    .ptr = undefined,
+    .ptr = mem.dummyPointer(*anyopaque),
     .vtable = &vtable,
 };
 

@@ -69,7 +69,7 @@ const UefiPoolAllocator = struct {
 /// Supports the full Allocator interface, including alignment.
 /// For a direct call of `allocatePool`, see `raw_pool_allocator`.
 pub const pool_allocator = Allocator{
-    .ptr = undefined,
+    .ptr = mem.dummyPointer(*anyopaque),
     .vtable = &pool_allocator_vtable,
 };
 
@@ -81,7 +81,7 @@ const pool_allocator_vtable = Allocator.VTable{
 
 /// Asserts allocations are 8 byte aligned and calls `boot_services.allocatePool`.
 pub const raw_pool_allocator = Allocator{
-    .ptr = undefined,
+    .ptr = mem.dummyPointer(*anyopaque),
     .vtable = &raw_pool_allocator_table,
 };
 

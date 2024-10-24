@@ -150,7 +150,7 @@ const CAllocator = struct {
 /// `malloc_usable_size` if available. For an allocator that directly calls
 /// `malloc`/`free`, see `raw_c_allocator`.
 pub const c_allocator = Allocator{
-    .ptr = undefined,
+    .ptr = mem.dummyPointer(*anyopaque),
     .vtable = &c_allocator_vtable,
 };
 const c_allocator_vtable = Allocator.VTable{
@@ -165,7 +165,7 @@ const c_allocator_vtable = Allocator.VTable{
 /// `ArenaAllocator` for example and is more optimal in such a case
 /// than `c_allocator`.
 pub const raw_c_allocator = Allocator{
-    .ptr = undefined,
+    .ptr = mem.dummyPointer(*anyopaque),
     .vtable = &raw_c_allocator_vtable,
 };
 const raw_c_allocator_vtable = Allocator.VTable{
@@ -231,17 +231,17 @@ pub const page_allocator = if (@hasDecl(root, "os") and
     root.os.heap.page_allocator
 else if (builtin.target.isWasm())
     Allocator{
-        .ptr = undefined,
+        .ptr = mem.dummyPointer(*anyopaque),
         .vtable = &WasmPageAllocator.vtable,
     }
 else if (builtin.target.os.tag == .plan9)
     Allocator{
-        .ptr = undefined,
+        .ptr = mem.dummyPointer(*anyopaque),
         .vtable = &SbrkAllocator(std.os.plan9.sbrk).vtable,
     }
 else
     Allocator{
-        .ptr = undefined,
+        .ptr = mem.dummyPointer(*anyopaque),
         .vtable = &PageAllocator.vtable,
     };
 
@@ -251,7 +251,7 @@ else
 /// and wasm64 architectures.
 /// Until then, it is available here to play with.
 pub const wasm_allocator = Allocator{
-    .ptr = undefined,
+    .ptr = mem.dummyPointer(*anyopaque),
     .vtable = &std.heap.WasmAllocator.vtable,
 };
 

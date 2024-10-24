@@ -101,7 +101,7 @@ pub inline fn rawFree(self: Allocator, buf: []u8, log2_buf_align: u8, ret_addr: 
 /// Returns a pointer to undefined memory.
 /// Call `destroy` with the result to free the memory.
 pub fn create(self: Allocator, comptime T: type) Error!*T {
-    if (@sizeOf(T) == 0) return @as(*T, @ptrFromInt(math.maxInt(usize)));
+    if (@sizeOf(T) == 0) return mem.dummyPointer(*T);
     const ptr: *T = @ptrCast(try self.allocBytesWithAlignment(@alignOf(T), @sizeOf(T), @returnAddress()));
     return ptr;
 }
@@ -218,8 +218,7 @@ fn allocBytesWithAlignment(self: Allocator, comptime alignment: u29, byte_count:
     comptime assert(alignment <= mem.page_size);
 
     if (byte_count == 0) {
-        const ptr = comptime std.mem.alignBackward(usize, math.maxInt(usize), alignment);
-        return @as([*]align(alignment) u8, @ptrFromInt(ptr));
+        return comptime mem.dummyPointer([*]align(alignment) u8);
     }
 
     const byte_ptr = self.rawAlloc(byte_count, log2a(alignment), return_address) orelse return Error.OutOfMemory;
@@ -275,8 +274,8 @@ pub fn reallocAdvanced(
     }
     if (new_n == 0) {
         self.free(old_mem);
-        const ptr = comptime std.mem.alignBackward(usize, math.maxInt(usize), Slice.alignment);
-        return @as([*]align(Slice.alignment) T, @ptrFromInt(ptr))[0..0];
+        const ptr = comptime std.mem.dummyPointer([*]align(Slice.alignment) T);
+        return ptr[0..0];
     }
 
     const old_byte_slice = mem.sliceAsBytes(old_mem);
