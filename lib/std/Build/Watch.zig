@@ -91,6 +91,38 @@ const Os = switch (builtin.os.tag) {
             };
         };
 
+        fn init() !Watch {
+            const fan_fd = std.posix.fanotify_init(.{
+                .CLASS = .NOTIF,
+                .CLOEXEC = true,
+                .NONBLOCK = true,
+                .REPORT_NAME = true,
+                .REPORT_DIR_FID = true,
+                .REPORT_FID = true,
+                .REPORT_TARGET_FID = true,
+            }, 0) catch |err| switch (err) {
+                error.UnsupportedFlags => fatal("fanotify_init failed due to old kernel; requires 5.17+", .{}),
+                else => |e| return e,
+            };
+            return .{
+                .dir_table = .{},
+                .os = switch (builtin.os.tag) {
+                    .linux => .{
+                        .handle_table = .{},
+                        .poll_fds = .{
+                            .{
+                                .fd = fan_fd,
+                                .events = std.posix.POLL.IN,
+                                .revents = undefined,
+                            },
+                        },
+                    },
+                    else => {},
+                },
+                .generation = 0,
+            };
+        }
+
         fn getDirHandle(gpa: Allocator, path: std.Build.Cache.Path) !FileHandle {
             var file_handle_buffer: [@sizeOf(std.os.linux.file_handle) + 128]u8 align(@alignOf(std.os.linux.file_handle)) = undefined;
             var mount_id: i32 = undefined;
@@ -368,6 +400,21 @@ const Os = switch (builtin.os.tag) {
             }
         };
 
+        fn init() !Watch {
+            return .{
+                .dir_table = .{},
+                .os = switch (builtin.os.tag) {
+                    .windows => .{
+                        .handle_table = .{},
+                        .dir_list = .{},
+                        .io_cp = null,
+                    },
+                    else => {},
+                },
+                .generation = 0,
+            };
+        }
+
         fn getFileId(handle: windows.HANDLE) !FileId {
             var file_id: FileId = undefined;
             var io_status: windows.IO_STATUS_BLOCK = undefined;
@@ -572,6 +619,19 @@ const Os = switch (builtin.os.tag) {
             break :f f;
         };
 
+        fn init() !Watch {
+            const kq_fd = try posix.kqueue();
+            errdefer posix.close(kq_fd);
+            return .{
+                .dir_table = .{},
+                .os = .{
+                    .kq_fd = kq_fd,
+                    .reaction_sets = .{},
+                },
+                .generation = 0,
+            };
+        }
+
         fn update(w: *Watch, gpa: Allocator, steps: []const *Step) !void {
             for (steps) |step| {
                 for (step.inputs.table.keys(), step.inputs.table.values()) |path, *files| {
@@ -702,68 +762,7 @@ const Os = switch (builtin.os.tag) {
 };
 
 pub fn init() !Watch {
-    switch (builtin.os.tag) {
-        .linux => {
-            const fan_fd = std.posix.fanotify_init(.{
-                .CLASS = .NOTIF,
-                .CLOEXEC = true,
-                .NONBLOCK = true,
-                .REPORT_NAME = true,
-                .REPORT_DIR_FID = true,
-                .REPORT_FID = true,
-                .REPORT_TARGET_FID = true,
-            }, 0) catch |err| switch (err) {
-                error.UnsupportedFlags => fatal("fanotify_init failed due to old kernel; requires 5.17+", .{}),
-                else => |e| return e,
-            };
-            return .{
-                .dir_table = .{},
-                .os = switch (builtin.os.tag) {
-                    .linux => .{
-                        .handle_table = .{},
-                        .poll_fds = .{
-                            .{
-                                .fd = fan_fd,
-                                .events = std.posix.POLL.IN,
-                                .revents = undefined,
-                            },
-                        },
-                    },
-                    else => {},
-                },
-                .generation = 0,
-            };
-        },
-        .windows => {
-            return .{
-                .dir_table = .{},
-                .os = switch (builtin.os.tag) {
-                    .windows => .{
-                        .handle_table = .{},
-                        .dir_list = .{},
-                        .io_cp = null,
-                    },
-                    else => {},
-                },
-                .generation = 0,
-            };
-        },
-        .dragonfly, .freebsd, .netbsd, .openbsd, .ios, .macos, .tvos, .visionos, .watchos => {
-            const posix = std.posix;
-
-            const kq_fd = try posix.kqueue();
-            errdefer posix.close(kq_fd);
-            return .{
-                .dir_table = .{},
-                .os = .{
-                    .kq_fd = kq_fd,
-                    .reaction_sets = .{},
-                },
-                .generation = 0,
-            };
-        },
-        else => @panic("unimplemented"),
-    }
+    return Os.init();
 }
 
 pub const Match = struct {
