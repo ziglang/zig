@@ -132,7 +132,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                         coff_file.getGlobalByIndex(link.File.Coff.global_symbol_mask & sym_index)
                     else
                         link.File.Coff.SymbolWithLoc{ .sym_index = sym_index, .file = null };
-                    try link.File.Coff.Atom.addRelocation(coff_file, atom_index, .{
+                    try coff_file.addRelocation(atom_index, .{
                         .type = .direct,
                         .target = target,
                         .offset = end_offset - 4,
@@ -230,7 +230,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                         coff_file.getGlobalByIndex(link.File.Coff.global_symbol_mask & sym_index)
                     else
                         link.File.Coff.SymbolWithLoc{ .sym_index = sym_index, .file = null };
-                    try link.File.Coff.Atom.addRelocation(coff_file, atom_index, .{
+                    try coff_file.addRelocation(atom_index, .{
                         .type = switch (lowered_relocs[0].target) {
                             .linker_got => .got,
                             .linker_direct => .direct,
