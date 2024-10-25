@@ -605,7 +605,16 @@ const Os = switch (builtin.os.tag) {
 
         kq_fd: i32,
         /// Indexes correspond 1:1 with `dir_table`.
-        reaction_sets: std.ArrayListUnmanaged(ReactionSet),
+        handles: std.MultiArrayList(struct {
+            rs: ReactionSet,
+            /// If the corresponding dir_table Path has sub_path == "", then it
+            /// suffices as the open directory handle, and this value will be
+            /// -1. Otherwise, it needs to be opened in update(), and will be
+            /// stored here.
+            dir_fd: i32,
+            /// Number of files being watched by this directory handle.
+            ref_count: u32,
+        }),
 
         const dir_open_flags: posix.O = f: {
             var f: posix.O = .{
@@ -619,6 +628,9 @@ const Os = switch (builtin.os.tag) {
             break :f f;
         };
 
+        const EV = std.c.EV;
+        const NOTE = std.c.NOTE;
+
         fn init() !Watch {
             const kq_fd = try posix.kqueue();
             errdefer posix.close(kq_fd);
@@ -626,27 +638,29 @@ const Os = switch (builtin.os.tag) {
                 .dir_table = .{},
                 .os = .{
                     .kq_fd = kq_fd,
-                    .reaction_sets = .{},
+                    .handles = .empty,
                 },
                 .generation = 0,
             };
         }
 
         fn update(w: *Watch, gpa: Allocator, steps: []const *Step) !void {
+            const handles = &w.os.handles;
             for (steps) |step| {
                 for (step.inputs.table.keys(), step.inputs.table.values()) |path, *files| {
                     const reaction_set = rs: {
                         const gop = try w.dir_table.getOrPut(gpa, path);
                         if (!gop.found_existing) {
-                            const dir_fd = if (path.sub_path.len == 0)
+                            const skip_open_dir = path.sub_path.len == 0;
+                            const dir_fd = if (skip_open_dir)
                                 path.root_dir.handle.fd
                             else
                                 posix.openat(path.root_dir.handle.fd, path.sub_path, dir_open_flags, 0) catch |err| {
                                     fatal("failed to open directory {}: {s}", .{ path, @errorName(err) });
                                 };
-                            const EV = std.c.EV;
-                            const NOTE = std.c.NOTE;
-                            var changes = [1]posix.Kevent{.{
+                            // Empirically the dir has to stay open or else no events are triggered.
+                            errdefer if (!skip_open_dir) posix.close(dir_fd);
+                            const changes = [1]posix.Kevent{.{
                                 .ident = @bitCast(@as(isize, dir_fd)),
                                 .filter = std.c.EVFILT.VNODE,
                                 .flags = EV.ADD | EV.ENABLE | EV.CLEAR,
@@ -655,12 +669,16 @@ const Os = switch (builtin.os.tag) {
                                 .udata = gop.index,
                             }};
                             _ = try posix.kevent(w.os.kq_fd, &changes, &.{}, null);
-                            assert(w.os.reaction_sets.items.len == gop.index);
-                            const reaction_set = try w.os.reaction_sets.addOne(gpa);
-                            reaction_set.* = .{};
-                            break :rs reaction_set;
+                            assert(handles.len == gop.index);
+                            try handles.append(gpa, .{
+                                .rs = .{},
+                                .dir_fd = if (skip_open_dir) -1 else dir_fd,
+                                .ref_count = 1,
+                            });
+                        } else {
+                            handles.items(.ref_count)[gop.index] += 1;
                         }
-                        break :rs &w.os.reaction_sets.items[gop.index];
+                        break :rs &handles.items(.rs)[gop.index];
                     };
                     for (files.items) |basename| {
                         const gop = try reaction_set.getOrPut(gpa, basename);
@@ -672,47 +690,86 @@ const Os = switch (builtin.os.tag) {
 
             {
                 // Remove marks for files that are no longer inputs.
-                //var i: usize = 0;
-                //while (i < w.os.handle_table.entries.len) {
-                //    {
-                //        const reaction_set = &w.os.handle_table.values()[i];
-                //        var step_set_i: usize = 0;
-                //        while (step_set_i < reaction_set.entries.len) {
-                //            const step_set = &reaction_set.values()[step_set_i];
-                //            var dirent_i: usize = 0;
-                //            while (dirent_i < step_set.entries.len) {
-                //                const generations = step_set.values();
-                //                if (generations[dirent_i] == w.generation) {
-                //                    dirent_i += 1;
-                //                    continue;
-                //                }
-                //                step_set.swapRemoveAt(dirent_i);
-                //            }
-                //            if (step_set.entries.len > 0) {
-                //                step_set_i += 1;
-                //                continue;
-                //            }
-                //            reaction_set.swapRemoveAt(step_set_i);
-                //        }
-                //        if (reaction_set.entries.len > 0) {
-                //            i += 1;
-                //            continue;
-                //        }
-                //    }
+                var i: usize = 0;
+                while (i < handles.len) {
+                    {
+                        const reaction_set = &handles.items(.rs)[i];
+                        var step_set_i: usize = 0;
+                        while (step_set_i < reaction_set.entries.len) {
+                            const step_set = &reaction_set.values()[step_set_i];
+                            var dirent_i: usize = 0;
+                            while (dirent_i < step_set.entries.len) {
+                                const generations = step_set.values();
+                                if (generations[dirent_i] == w.generation) {
+                                    dirent_i += 1;
+                                    continue;
+                                }
+                                step_set.swapRemoveAt(dirent_i);
+                            }
+                            if (step_set.entries.len > 0) {
+                                step_set_i += 1;
+                                continue;
+                            }
+                            reaction_set.swapRemoveAt(step_set_i);
+                        }
+                        if (reaction_set.entries.len > 0) {
+                            i += 1;
+                            continue;
+                        }
+                    }
 
-                //    const path = w.dir_table.keys()[i];
+                    const ref_count_ptr = &handles.items(.ref_count)[i];
+                    ref_count_ptr.* -= 1;
+                    if (ref_count_ptr.* > 0) continue;
 
-                //    posix.fanotify_mark(fan_fd, .{
-                //        .REMOVE = true,
-                //        .ONLYDIR = true,
-                //    }, fan_mask, path.root_dir.handle.fd, path.subPathOrDot()) catch |err| switch (err) {
-                //        error.FileNotFound => {}, // Expected, harmless.
-                //        else => |e| std.log.warn("unable to unwatch '{}': {s}", .{ path, @errorName(e) }),
-                //    };
+                    // If the sub_path == "" then this patch has already the
+                    // dir fd that we need to use as the ident to remove the
+                    // event. If it was opened above with openat() then we need
+                    // to access that data via the dir_fd field.
+                    const path = w.dir_table.keys()[i];
+                    const dir_fd = if (path.sub_path.len == 0)
+                        path.root_dir.handle.fd
+                    else
+                        handles.items(.dir_fd)[i];
+                    assert(dir_fd != -1);
 
-                //    w.dir_table.swapRemoveAt(i);
-                //    w.os.handle_table.swapRemoveAt(i);
-                //}
+                    // The changelist also needs to update the udata field of the last
+                    // event, since we are doing a swap remove, and we store the dir_table
+                    // index in the udata field.
+                    const last_dir_fd = fd: {
+                        const last_path = w.dir_table.keys()[handles.len - 1];
+                        const last_dir_fd = if (last_path.sub_path.len != 0)
+                            last_path.root_dir.handle.fd
+                        else
+                            handles.items(.dir_fd)[i];
+                        assert(last_dir_fd != -1);
+                        break :fd last_dir_fd;
+                    };
+                    const changes = [_]posix.Kevent{
+                        .{
+                            .ident = @bitCast(@as(isize, dir_fd)),
+                            .filter = std.c.EVFILT.VNODE,
+                            .flags = EV.DELETE,
+                            .fflags = 0,
+                            .data = 0,
+                            .udata = i,
+                        },
+                        .{
+                            .ident = @bitCast(@as(isize, last_dir_fd)),
+                            .filter = std.c.EVFILT.VNODE,
+                            .flags = EV.ADD,
+                            .fflags = NOTE.DELETE | NOTE.WRITE | NOTE.RENAME | NOTE.REVOKE,
+                            .data = 0,
+                            .udata = i,
+                        },
+                    };
+                    const filtered_changes = if (i == handles.len - 1) changes[0..1] else &changes;
+                    _ = try posix.kevent(w.os.kq_fd, filtered_changes, &.{}, null);
+                    if (path.sub_path.len != 0) posix.close(dir_fd);
+
+                    w.dir_table.swapRemoveAt(i);
+                    handles.swapRemove(i);
+                }
                 w.generation +%= 1;
             }
         }
@@ -722,7 +779,7 @@ const Os = switch (builtin.os.tag) {
             var event_buffer: [100]posix.Kevent = undefined;
             var n = try posix.kevent(w.os.kq_fd, &.{}, &event_buffer, timeout.toTimespec(&timespec_buffer));
             if (n == 0) return .timeout;
-            const reaction_sets = w.os.reaction_sets.items;
+            const reaction_sets = w.os.handles.items(.rs);
             var any_dirty = markDirtySteps(gpa, reaction_sets, event_buffer[0..n], false);
             timespec_buffer = .{ .sec = 0, .nsec = 0 };
             while (n == event_buffer.len) {
