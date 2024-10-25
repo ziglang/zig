@@ -1027,7 +1027,7 @@ pub fn abiAlignmentInner(
             },
 
             // represents machine code; not a pointer
-            .func_type => return .{ .scalar = target_util.defaultFunctionAlignment(target) },
+            .func_type => return .{ .scalar = target_util.minFunctionAlignment(target) },
 
             .simple_type => |t| switch (t) {
                 .bool,
