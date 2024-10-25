@@ -1962,6 +1962,7 @@ pub fn destroy(comp: *Compilation) void {
     comp.failed_win32_resources.deinit(gpa);
 
     comp.link_diags.deinit();
+    comp.link_task_queue.deinit(gpa);
 
     comp.clearMiscFailures();
 
