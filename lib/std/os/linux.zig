@@ -2022,8 +2022,8 @@ pub fn llistxattr(path: [*:0]const u8, list: [*]u8, size: usize) usize {
     return syscall3(.llistxattr, @intFromPtr(path), @intFromPtr(list), size);
 }
 
-pub fn flistxattr(fd: usize, list: [*]u8, size: usize) usize {
-    return syscall3(.flistxattr, fd, @intFromPtr(list), size);
+pub fn flistxattr(fd: fd_t, list: [*]u8, size: usize) usize {
+    return syscall3(.flistxattr, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(list), size);
 }
 
 pub fn getxattr(path: [*:0]const u8, name: [*:0]const u8, value: [*]u8, size: usize) usize {
@@ -2034,20 +2034,20 @@ pub fn lgetxattr(path: [*:0]const u8, name: [*:0]const u8, value: [*]u8, size: u
     return syscall4(.lgetxattr, @intFromPtr(path), @intFromPtr(name), @intFromPtr(value), size);
 }
 
-pub fn fgetxattr(fd: usize, name: [*:0]const u8, value: [*]u8, size: usize) usize {
-    return syscall4(.lgetxattr, fd, @intFromPtr(name), @intFromPtr(value), size);
+pub fn fgetxattr(fd: fd_t, name: [*:0]const u8, value: [*]u8, size: usize) usize {
+    return syscall4(.fgetxattr, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(name), @intFromPtr(value), size);
 }
 
-pub fn setxattr(path: [*:0]const u8, name: [*:0]const u8, value: *const void, size: usize, flags: usize) usize {
+pub fn setxattr(path: [*:0]const u8, name: [*:0]const u8, value: [*]const u8, size: usize, flags: usize) usize {
     return syscall5(.setxattr, @intFromPtr(path), @intFromPtr(name), @intFromPtr(value), size, flags);
 }
 
-pub fn lsetxattr(path: [*:0]const u8, name: [*:0]const u8, value: *const void, size: usize, flags: usize) usize {
+pub fn lsetxattr(path: [*:0]const u8, name: [*:0]const u8, value: [*]const u8, size: usize, flags: usize) usize {
     return syscall5(.lsetxattr, @intFromPtr(path), @intFromPtr(name), @intFromPtr(value), size, flags);
 }
 
-pub fn fsetxattr(fd: usize, name: [*:0]const u8, value: *const void, size: usize, flags: usize) usize {
-    return syscall5(.fsetxattr, fd, @intFromPtr(name), @intFromPtr(value), size, flags);
+pub fn fsetxattr(fd: fd_t, name: [*:0]const u8, value: [*]const u8, size: usize, flags: usize) usize {
+    return syscall5(.fsetxattr, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(name), @intFromPtr(value), size, flags);
 }
 
 pub fn removexattr(path: [*:0]const u8, name: [*:0]const u8) usize {
