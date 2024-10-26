@@ -216,7 +216,7 @@ pub fn generateSymbol(
         .error_union_type,
         .simple_type,
         .struct_type,
-        .anon_struct_type,
+        .tuple_type,
         .union_type,
         .opaque_type,
         .enum_type,
@@ -230,7 +230,7 @@ pub fn generateSymbol(
             .undefined,
             .void,
             .null,
-            .empty_struct,
+            .empty_tuple,
             .@"unreachable",
             .generic_poison,
             => unreachable, // non-runtime values
@@ -456,7 +456,7 @@ pub fn generateSymbol(
                     if (padding > 0) try code.appendNTimes(0, padding);
                 }
             },
-            .anon_struct_type => |tuple| {
+            .tuple_type => |tuple| {
                 const struct_begin = code.items.len;
                 for (
                     tuple.types.get(ip),

@@ -931,7 +931,7 @@ fn addNavExports(
                 break;
             }
         }
-        const sym = .{
+        const sym: aout.Sym = .{
             .value = atom.offset.?,
             .type = atom.type.toGlobal(),
             .name = try gpa.dupe(u8, exp_name),

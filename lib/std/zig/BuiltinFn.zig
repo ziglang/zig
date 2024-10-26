@@ -1,5 +1,3 @@
-const std = @import("std");
-
 pub const Tag = enum {
     add_with_overflow,
     addrspace_cast,
@@ -147,7 +145,7 @@ param_count: ?u8,
 
 pub const list = list: {
     @setEvalBranchQuota(3000);
-    break :list std.StaticStringMap(@This()).initComptime(.{
+    break :list std.StaticStringMap(BuiltinFn).initComptime([_]struct { []const u8, BuiltinFn }{
         .{
             "@addWithOverflow",
             .{
@@ -1011,3 +1009,6 @@ pub const list = list: {
         },
     });
 };
+
+const std = @import("std");
+const BuiltinFn = @This();

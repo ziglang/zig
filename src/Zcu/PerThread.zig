@@ -985,7 +985,6 @@ fn createFileRootStruct(
         .fields_len = fields_len,
         .known_non_opv = small.known_non_opv,
         .requires_comptime = if (small.known_comptime_only) .yes else .unknown,
-        .is_tuple = small.is_tuple,
         .any_comptime_fields = small.any_comptime_fields,
         .any_default_inits = small.any_default_inits,
         .inits_resolved = false,
@@ -3191,7 +3190,7 @@ pub fn ensureTypeUpToDate(pt: Zcu.PerThread, ty: InternPool.Index, already_updat
         .struct_type => |key| {
             const struct_obj = ip.loadStructType(ty);
             const outdated = already_updating or o: {
-                const anal_unit = AnalUnit.wrap(.{ .cau = struct_obj.cau.unwrap().? });
+                const anal_unit = AnalUnit.wrap(.{ .cau = struct_obj.cau });
                 const o = zcu.outdated.swapRemove(anal_unit) or
                     zcu.potentially_outdated.swapRemove(anal_unit);
                 if (o) {
@@ -3252,7 +3251,6 @@ fn recreateStructType(
 
     const key = switch (full_key) {
         .reified => unreachable, // never outdated
-        .empty_struct => unreachable, // never outdated
         .generated_tag => unreachable, // not a struct
         .declared => |d| d,
     };
@@ -3283,16 +3281,13 @@ fn recreateStructType(
     if (captures_len != key.captures.owned.len) return error.AnalysisFail;
 
     // The old type will be unused, so drop its dependency information.
-    ip.removeDependenciesForDepender(gpa, AnalUnit.wrap(.{ .cau = struct_obj.cau.unwrap().? }));
-
-    const namespace_index = struct_obj.namespace.unwrap().?;
+    ip.removeDependenciesForDepender(gpa, AnalUnit.wrap(.{ .cau = struct_obj.cau }));
 
     const wip_ty = switch (try ip.getStructType(gpa, pt.tid, .{
         .layout = small.layout,
         .fields_len = fields_len,
         .known_non_opv = small.known_non_opv,
         .requires_comptime = if (small.known_comptime_only) .yes else .unknown,
-        .is_tuple = small.is_tuple,
         .any_comptime_fields = small.any_comptime_fields,
         .any_default_inits = small.any_default_inits,
         .inits_resolved = false,
@@ -3308,17 +3303,17 @@ fn recreateStructType(
     errdefer wip_ty.cancel(ip, pt.tid);
 
     wip_ty.setName(ip, struct_obj.name);
-    const new_cau_index = try ip.createTypeCau(gpa, pt.tid, key.zir_index, namespace_index, wip_ty.index);
+    const new_cau_index = try ip.createTypeCau(gpa, pt.tid, key.zir_index, struct_obj.namespace, wip_ty.index);
     try ip.addDependency(
         gpa,
         AnalUnit.wrap(.{ .cau = new_cau_index }),
         .{ .src_hash = key.zir_index },
     );
-    zcu.namespacePtr(namespace_index).owner_type = wip_ty.index;
+    zcu.namespacePtr(struct_obj.namespace).owner_type = wip_ty.index;
     // No need to re-scan the namespace -- `zirStructDecl` will ultimately do that if the type is still alive.
     try zcu.comp.queueJob(.{ .resolve_type_fully = wip_ty.index });
 
-    const new_ty = wip_ty.finish(ip, new_cau_index.toOptional(), namespace_index);
+    const new_ty = wip_ty.finish(ip, new_cau_index.toOptional(), struct_obj.namespace);
     if (inst_info.inst == .main_struct_inst) {
         // This is the root type of a file! Update the reference.
         zcu.setFileRootType(inst_info.file, new_ty);
@@ -3337,7 +3332,6 @@ fn recreateUnionType(
 
     const key = switch (full_key) {
         .reified => unreachable, // never outdated
-        .empty_struct => unreachable, // never outdated
         .generated_tag => unreachable, // not a union
         .declared => |d| d,
     };
@@ -3429,9 +3423,7 @@ fn recreateEnumType(
     const ip = &zcu.intern_pool;
 
     const key = switch (full_key) {
-        .reified => unreachable, // never outdated
-        .empty_struct => unreachable, // never outdated
-        .generated_tag => unreachable, // never outdated
+        .reified, .generated_tag => unreachable, // never outdated
         .declared => |d| d,
     };
 
@@ -3575,7 +3567,7 @@ pub fn ensureNamespaceUpToDate(pt: Zcu.PerThread, namespace_index: Zcu.Namespace
     };
 
     const key = switch (full_key) {
-        .reified, .empty_struct, .generated_tag => {
+        .reified, .generated_tag => {
             // Namespace always empty, so up-to-date.
             namespace.generation = zcu.generation;
             return;

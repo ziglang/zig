@@ -731,13 +731,15 @@ const NavGen = struct {
             .direct => {
                 const result_ty_id = try self.resolveType(Type.bool, .direct);
                 const result_id = self.spv.allocId();
-                const operands = .{
-                    .id_result_type = result_ty_id,
-                    .id_result = result_id,
-                };
                 switch (value) {
-                    true => try section.emit(self.spv.gpa, .OpConstantTrue, operands),
-                    false => try section.emit(self.spv.gpa, .OpConstantFalse, operands),
+                    inline else => |val_ct| try section.emit(
+                        self.spv.gpa,
+                        if (val_ct) .OpConstantTrue else .OpConstantFalse,
+                        .{
+                            .id_result_type = result_ty_id,
+                            .id_result = result_id,
+                        },
+                    ),
                 }
                 return result_id;
             },
@@ -915,7 +917,7 @@ const NavGen = struct {
                 .error_union_type,
                 .simple_type,
                 .struct_type,
-                .anon_struct_type,
+                .tuple_type,
                 .union_type,
                 .opaque_type,
                 .enum_type,
@@ -937,7 +939,7 @@ const NavGen = struct {
                     .undefined,
                     .void,
                     .null,
-                    .empty_struct,
+                    .empty_tuple,
                     .@"unreachable",
                     .generic_poison,
                     => unreachable, // non-runtime values
@@ -1125,7 +1127,7 @@ const NavGen = struct {
 
                         return try self.constructStruct(ty, types.items, constituents.items);
                     },
-                    .anon_struct_type => unreachable, // TODO
+                    .tuple_type => unreachable, // TODO
                     else => unreachable,
                 },
                 .un => |un| {
@@ -1718,7 +1720,7 @@ const NavGen = struct {
             },
             .@"struct" => {
                 const struct_type = switch (ip.indexToKey(ty.toIntern())) {
-                    .anon_struct_type => |tuple| {
+                    .tuple_type => |tuple| {
                         const member_types = try self.gpa.alloc(IdRef, tuple.values.len);
                         defer self.gpa.free(member_types);
 
@@ -2831,18 +2833,12 @@ const NavGen = struct {
                 }
             },
             .vulkan => {
-                const op_result_ty = blk: {
-                    // Operations return a struct{T, T}
-                    // where T is maybe vectorized.
-                    const types = [2]InternPool.Index{ arith_op_ty.toIntern(), arith_op_ty.toIntern() };
-                    const values = [2]InternPool.Index{ .none, .none };
-                    const index = try ip.getAnonStructType(zcu.gpa, pt.tid, .{
-                        .types = &types,
-                        .values = &values,
-                        .names = &.{},
-                    });
-                    break :blk Type.fromInterned(index);
-                };
+                // Operations return a struct{T, T}
+                // where T is maybe vectorized.
+                const op_result_ty: Type = .fromInterned(try ip.getTupleType(zcu.gpa, pt.tid, .{
+                    .types = &.{ arith_op_ty.toIntern(), arith_op_ty.toIntern() },
+                    .values = &.{ .none, .none },
+                }));
                 const op_result_ty_id = try self.resolveType(op_result_ty, .direct);
 
                 const opcode: Opcode = switch (op) {
@@ -4867,7 +4863,7 @@ const NavGen = struct {
                 var index: usize = 0;
 
                 switch (ip.indexToKey(result_ty.toIntern())) {
-                    .anon_struct_type => |tuple| {
+                    .tuple_type => |tuple| {
                         for (tuple.types.get(ip), elements, 0..) |field_ty, element, i| {
                             if ((try result_ty.structFieldValueComptime(pt, i)) != null) continue;
                             assert(Type.fromInterned(field_ty).hasRuntimeBits(zcu));
@@ -6216,15 +6212,20 @@ const NavGen = struct {
             try self.extractField(Type.anyerror, operand_id, eu_layout.errorFieldIndex());
 
         const result_id = self.spv.allocId();
-        const operands = .{
-            .id_result_type = bool_ty_id,
-            .id_result = result_id,
-            .operand_1 = error_id,
-            .operand_2 = try self.constInt(Type.anyerror, 0, .direct),
-        };
         switch (pred) {
-            .is_err => try self.func.body.emit(self.spv.gpa, .OpINotEqual, operands),
-            .is_non_err => try self.func.body.emit(self.spv.gpa, .OpIEqual, operands),
+            inline else => |pred_ct| try self.func.body.emit(
+                self.spv.gpa,
+                switch (pred_ct) {
+                    .is_err => .OpINotEqual,
+                    .is_non_err => .OpIEqual,
+                },
+                .{
+                    .id_result_type = bool_ty_id,
+                    .id_result = result_id,
+                    .operand_1 = error_id,
+                    .operand_2 = try self.constInt(Type.anyerror, 0, .direct),
+                },
+            ),
         }
         return result_id;
     }

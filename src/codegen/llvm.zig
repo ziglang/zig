@@ -2563,7 +2563,7 @@ pub const Object = struct {
                 }
 
                 switch (ip.indexToKey(ty.toIntern())) {
-                    .anon_struct_type => |tuple| {
+                    .tuple_type => |tuple| {
                         var fields: std.ArrayListUnmanaged(Builder.Metadata) = .empty;
                         defer fields.deinit(gpa);
 
@@ -2582,11 +2582,8 @@ pub const Object = struct {
                             const field_offset = field_align.forward(offset);
                             offset = field_offset + field_size;
 
-                            const field_name = if (tuple.names.len != 0)
-                                tuple.names.get(ip)[i].toSlice(ip)
-                            else
-                                try std.fmt.allocPrintZ(gpa, "{d}", .{i});
-                            defer if (tuple.names.len == 0) gpa.free(field_name);
+                            var name_buf: [32]u8 = undefined;
+                            const field_name = std.fmt.bufPrint(&name_buf, "{d}", .{i}) catch unreachable;
 
                             fields.appendAssumeCapacity(try o.builder.debugMemberType(
                                 try o.builder.metadataString(field_name),
@@ -3426,7 +3423,7 @@ pub const Object = struct {
             .adhoc_inferred_error_set_type,
             => try o.errorIntType(),
             .generic_poison_type,
-            .empty_struct_type,
+            .empty_tuple_type,
             => unreachable,
             // values, not types
             .undef,
@@ -3443,7 +3440,7 @@ pub const Object = struct {
             .null_value,
             .bool_true,
             .bool_false,
-            .empty_struct,
+            .empty_tuple,
             .generic_poison,
             .none,
             => unreachable,
@@ -3610,13 +3607,13 @@ pub const Object = struct {
                     );
                     return ty;
                 },
-                .anon_struct_type => |anon_struct_type| {
+                .tuple_type => |tuple_type| {
                     var llvm_field_types: std.ArrayListUnmanaged(Builder.Type) = .empty;
                     defer llvm_field_types.deinit(o.gpa);
                     // Although we can estimate how much capacity to add, these cannot be
                     // relied upon because of the recursive calls to lowerType below.
-                    try llvm_field_types.ensureUnusedCapacity(o.gpa, anon_struct_type.types.len);
-                    try o.struct_field_map.ensureUnusedCapacity(o.gpa, anon_struct_type.types.len);
+                    try llvm_field_types.ensureUnusedCapacity(o.gpa, tuple_type.types.len);
+                    try o.struct_field_map.ensureUnusedCapacity(o.gpa, tuple_type.types.len);
 
                     comptime assert(struct_layout_version == 2);
                     var offset: u64 = 0;
@@ -3625,8 +3622,8 @@ pub const Object = struct {
                     const struct_size = t.abiSize(zcu);
 
                     for (
-                        anon_struct_type.types.get(ip),
-                        anon_struct_type.values.get(ip),
+                        tuple_type.types.get(ip),
+                        tuple_type.values.get(ip),
                         0..,
                     ) |field_ty, field_val, field_index| {
                         if (field_val != .none) continue;
@@ -3979,7 +3976,7 @@ pub const Object = struct {
             .error_union_type,
             .simple_type,
             .struct_type,
-            .anon_struct_type,
+            .tuple_type,
             .union_type,
             .opaque_type,
             .enum_type,
@@ -3993,7 +3990,7 @@ pub const Object = struct {
                 .undefined => unreachable, // non-runtime value
                 .void => unreachable, // non-runtime value
                 .null => unreachable, // non-runtime value
-                .empty_struct => unreachable, // non-runtime value
+                .empty_tuple => unreachable, // non-runtime value
                 .@"unreachable" => unreachable, // non-runtime value
                 .generic_poison => unreachable, // non-runtime value
 
@@ -4232,7 +4229,7 @@ pub const Object = struct {
                         ),
                     }
                 },
-                .anon_struct_type => |tuple| {
+                .tuple_type => |tuple| {
                     const struct_ty = try o.lowerType(ty);
                     const llvm_len = struct_ty.aggregateLen(&o.builder);
 
@@ -12516,7 +12513,7 @@ fn isByRef(ty: Type, zcu: *Zcu) bool {
         .array, .frame => return ty.hasRuntimeBits(zcu),
         .@"struct" => {
             const struct_type = switch (ip.indexToKey(ty.toIntern())) {
-                .anon_struct_type => |tuple| {
+                .tuple_type => |tuple| {
                     var count: usize = 0;
                     for (tuple.types.get(ip), tuple.values.get(ip)) |field_ty, field_val| {
                         if (field_val != .none or !Type.fromInterned(field_ty).hasRuntimeBits(zcu)) continue;
