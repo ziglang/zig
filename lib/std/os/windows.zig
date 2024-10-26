@@ -644,6 +644,8 @@ pub const WriteFileError = error{
     SystemResources,
     OperationAborted,
     BrokenPipe,
+    // The pipe is being closed
+    NoData,
     NotOpenForWriting,
     /// The process cannot access the file because another process has locked
     /// a portion of the file.
@@ -683,6 +685,7 @@ pub fn WriteFile(
             .NOT_ENOUGH_QUOTA => return error.SystemResources,
             .IO_PENDING => unreachable,
             .BROKEN_PIPE => return error.BrokenPipe,
+            .NO_DATA => return error.NoData,
             .INVALID_HANDLE => return error.NotOpenForWriting,
             .LOCK_VIOLATION => return error.LockViolation,
             .NETNAME_DELETED => return error.ConnectionResetByPeer,
