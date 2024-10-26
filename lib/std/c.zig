@@ -6826,7 +6826,7 @@ pub const pthread_mutex_t = switch (native_os) {
         data: [data_len]u8 align(@alignOf(usize)) = [_]u8{0} ** data_len,
 
         const data_len = switch (native_abi) {
-            .musl, .musleabi, .musleabihf => if (@sizeOf(usize) == 8) 40 else 24,
+            .musl, .musleabi, .musleabihf, .ohos, .ohoseabi => if (@sizeOf(usize) == 8) 40 else 24,
             .gnu, .gnuabin32, .gnuabi64, .gnueabi, .gnueabihf, .gnux32 => switch (native_arch) {
                 .aarch64 => 48,
                 .x86_64 => if (native_abi == .gnux32) 32 else 40,

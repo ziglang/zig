@@ -13,6 +13,7 @@ pub const available_libcs = [_]ArchOsAbi{
     .{ .arch = .arm, .os = .linux, .abi = .gnueabi },
     .{ .arch = .arm, .os = .linux, .abi = .gnueabihf },
     .{ .arch = .arm, .os = .linux, .abi = .musleabi },
+    .{ .arch = .arm, .os = .linux, .abi = .ohoseabi },
     .{ .arch = .arm, .os = .linux, .abi = .musleabihf },
     .{ .arch = .armeb, .os = .linux, .abi = .gnueabi },
     .{ .arch = .armeb, .os = .linux, .abi = .gnueabihf },
@@ -25,6 +26,7 @@ pub const available_libcs = [_]ArchOsAbi{
     .{ .arch = .thumbeb, .os = .linux, .abi = .musleabihf },
     .{ .arch = .aarch64, .os = .linux, .abi = .gnu, .glibc_min = .{ .major = 2, .minor = 17, .patch = 0 } },
     .{ .arch = .aarch64, .os = .linux, .abi = .musl },
+    .{ .arch = .aarch64, .os = .linux, .abi = .ohos },
     .{ .arch = .aarch64, .os = .macos, .abi = .none, .os_ver = .{ .major = 11, .minor = 0, .patch = 0 } },
     .{ .arch = .aarch64, .os = .windows, .abi = .gnu },
     .{ .arch = .aarch64_be, .os = .linux, .abi = .gnu, .glibc_min = .{ .major = 2, .minor = 17, .patch = 0 } },
@@ -74,6 +76,7 @@ pub const available_libcs = [_]ArchOsAbi{
     .{ .arch = .x86_64, .os = .linux, .abi = .gnu },
     .{ .arch = .x86_64, .os = .linux, .abi = .gnux32 },
     .{ .arch = .x86_64, .os = .linux, .abi = .musl },
+    .{ .arch = .x86_64, .os = .linux, .abi = .ohos },
     .{ .arch = .x86_64, .os = .macos, .abi = .none, .os_ver = .{ .major = 10, .minor = 7, .patch = 0 } },
     .{ .arch = .x86_64, .os = .windows, .abi = .gnu },
 };
