@@ -373,12 +373,10 @@ pub fn main() !void {
     };
     const generic_name = try std.fmt.allocPrint(allocator, "generic-{s}", .{abi_name});
 
-    // TODO compiler crashed when I wrote this the canonical way
-    var libc_targets: []const LibCTarget = undefined;
-    switch (vendor) {
-        .musl => libc_targets = &musl_targets,
-        .glibc => libc_targets = &glibc_targets,
-    }
+    const libc_targets: []const LibCTarget = switch (vendor) {
+        .musl => &musl_targets,
+        .glibc => &glibc_targets,
+    };
 
     var path_table = PathTable.init(allocator);
     var hash_to_contents = HashToContents.init(allocator);
