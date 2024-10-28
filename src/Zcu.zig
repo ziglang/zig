@@ -3615,11 +3615,15 @@ pub fn callconvSupported(zcu: *Zcu, cc: std.builtin.CallingConvention) union(enu
                 .aarch64_vfabi,
                 .aarch64_vfabi_sve,
                 .arm_aapcs,
-                .arm_aapcs_vfp,
                 .riscv64_lp64_v,
                 .riscv32_ilp32_v,
                 .m68k_rtd,
                 => |opts| opts.incoming_stack_alignment == null,
+
+                .arm_aapcs_vfp,
+                => |opts| opts.incoming_stack_alignment == null and target.os.tag != .watchos,
+                .arm_aapcs16_vfp,
+                => |opts| opts.incoming_stack_alignment == null and target.os.tag == .watchos,
 
                 .x86_sysv,
                 .x86_win,
