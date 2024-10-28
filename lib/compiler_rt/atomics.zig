@@ -42,7 +42,7 @@ const largest_atomic_size = switch (arch) {
 // Objects smaller than this threshold are implemented in terms of compare-exchange
 // of a larger value.
 const smallest_atomic_fetch_exch_size = switch (arch) {
-    // On AMDGPU, there are no instructions for atomic operations other than load and store
+    // On AMDGCN, there are no instructions for atomic operations other than load and store
     // (as of LLVM 15), and so these need to be implemented in terms of atomic CAS.
     .amdgcn => @sizeOf(u32),
     else => @sizeOf(u8),

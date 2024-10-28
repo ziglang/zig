@@ -390,7 +390,7 @@ const llvm_targets = [_]LlvmTarget{
         },
     },
     .{
-        .zig_name = "amdgpu",
+        .zig_name = "amdgcn",
         .llvm_name = "AMDGPU",
         .td_name = "AMDGPU.td",
         .feature_overrides = &.{
