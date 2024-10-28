@@ -3295,6 +3295,7 @@ pub fn cCallingConvention(target: Target) ?std.builtin.CallingConvention {
         },
         .arm, .armeb, .thumb, .thumbeb => switch (target.os.tag) {
             .netbsd => .{ .arm_apcs = .{} },
+            .watchos => .{ .arm_aapcs16_vfp = .{} },
             else => switch (target.abi.floatAbi()) {
                 .soft => .{ .arm_aapcs = .{} },
                 .hard => .{ .arm_aapcs_vfp = .{} },
