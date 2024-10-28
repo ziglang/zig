@@ -2104,7 +2104,7 @@ pub fn getInstallPath(b: *Build, dir: InstallDir, dest_rel_path: []const u8) []c
 pub const Dependency = struct {
     builder: *Build,
 
-    pub fn artifact(d: *Dependency, name: []const u8) *Step.Compile {
+    pub fn optionalArtifact(d: *Dependency, name: []const u8) ?*Step.Compile {
         var found: ?*Step.Compile = null;
         for (d.builder.install_tls.step.dependencies.items) |dep_step| {
             const inst = dep_step.cast(Step.InstallArtifact) orelse continue;
@@ -2113,7 +2113,11 @@ pub const Dependency = struct {
                 found = inst.artifact;
             }
         }
-        return found orelse {
+        return found;
+    }
+
+    pub fn artifact(d: *Dependency, name: []const u8) *Step.Compile {
+        return d.lazyArtifact(name) orelse {
             for (d.builder.install_tls.step.dependencies.items) |dep_step| {
                 const inst = dep_step.cast(Step.InstallArtifact) orelse continue;
                 log.info("available artifact: '{s}'", .{inst.artifact.name});
@@ -2122,16 +2126,28 @@ pub const Dependency = struct {
         };
     }
 
+    pub fn optionalModule(d: *Dependency, name: []const u8) ?*Module {
+        return d.builder.modules.get(name);
+    }
+
     pub fn module(d: *Dependency, name: []const u8) *Module {
         return d.builder.modules.get(name) orelse {
             panic("unable to find module '{s}'", .{name});
         };
     }
 
+    pub fn optionalNamedWriteFiles(d: *Dependency, name: []const u8) ?*Step.WriteFile {
+        return d.builder.named_writefiles.get(name);
+    }
+
     pub fn namedWriteFiles(d: *Dependency, name: []const u8) *Step.WriteFile {
         return d.builder.named_writefiles.get(name) orelse {
             panic("unable to find named writefiles '{s}'", .{name});
         };
+    }
+
+    pub fn optionalNamedLazyPath(d: *Dependency, name: []const u8) ?LazyPath {
+        return d.builder.named_lazy_paths.get(name);
     }
 
     pub fn namedLazyPath(d: *Dependency, name: []const u8) LazyPath {
