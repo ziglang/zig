@@ -470,7 +470,7 @@ pub const CallingConvention = union(enum(u8)) {
         /// `null` means the default for this calling convention.
         incoming_stack_alignment: ?u64 = null,
         /// The privilege mode.
-        mode: PrivilegeMode = .machine,
+        mode: PrivilegeMode,
 
         pub const PrivilegeMode = enum(u2) {
             supervisor,
