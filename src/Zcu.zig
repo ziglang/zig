@@ -3607,17 +3607,21 @@ pub fn callconvSupported(zcu: *Zcu, cc: std.builtin.CallingConvention) union(enu
                 .x86_64_vectorcall,
                 .x86_64_regcall_v3_sysv,
                 .x86_64_regcall_v4_win,
+                .x86_64_interrupt,
                 .x86_fastcall,
                 .x86_thiscall,
                 .x86_vectorcall,
                 .x86_regcall_v3,
                 .x86_regcall_v4_win,
+                .x86_interrupt,
                 .aarch64_vfabi,
                 .aarch64_vfabi_sve,
                 .arm_aapcs,
+                .csky_interrupt,
                 .riscv64_lp64_v,
                 .riscv32_ilp32_v,
                 .m68k_rtd,
+                .m68k_interrupt,
                 => |opts| opts.incoming_stack_alignment == null,
 
                 .arm_aapcs_vfp,
@@ -3625,10 +3629,25 @@ pub fn callconvSupported(zcu: *Zcu, cc: std.builtin.CallingConvention) union(enu
                 .arm_aapcs16_vfp,
                 => |opts| opts.incoming_stack_alignment == null and target.os.tag == .watchos,
 
+                .arm_interrupt,
+                => |opts| opts.incoming_stack_alignment == null,
+
+                .mips_interrupt,
+                .mips64_interrupt,
+                => |opts| opts.incoming_stack_alignment == null,
+
+                .riscv32_interrupt,
+                .riscv64_interrupt,
+                => |opts| opts.incoming_stack_alignment == null,
+
                 .x86_sysv,
                 .x86_win,
                 .x86_stdcall,
                 => |opts| opts.incoming_stack_alignment == null and opts.register_params == 0,
+
+                .avr_interrupt,
+                .avr_signal,
+                => true,
 
                 .naked => true,
 
