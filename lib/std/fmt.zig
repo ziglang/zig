@@ -664,6 +664,10 @@ pub fn formatType(
             if (max_depth == 0) {
                 return writer.writeAll("{ ... }");
             }
+            if (info.sentinel) |s| {
+                const index = std.mem.indexOfSentinel(info.child, @as(*info.child, @constCast(@ptrCast(s))).*, value[0..]);
+                return formatBuf(value[0..index], options, writer);
+            }
             if (actual_fmt[0] == 's' and info.child == u8) {
                 return formatBuf(&value, options, writer);
             }
