@@ -467,7 +467,7 @@ fn addFromDirInner(
             const target = resolved_target.result;
             for (backends) |backend| {
                 if (backend == .stage2 and
-                    target.cpu.arch != .wasm32 and target.cpu.arch != .x86_64)
+                    target.cpu.arch != .wasm32 and target.cpu.arch != .x86_64 and target.cpu.arch != .spirv64)
                 {
                     // Other backends don't support new liveness format
                     continue;

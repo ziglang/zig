@@ -6253,6 +6253,9 @@ fn resolveAnalyzedBlock(
     for (merges.results.items, merges.src_locs.items) |merge_inst, merge_src| {
         try sema.validateRuntimeValue(child_block, merge_src orelse src, merge_inst);
     }
+
+    try sema.checkMergeAllowed(child_block, type_src, resolved_ty);
+
     const ty_inst = Air.internedToRef(resolved_ty.toIntern());
     switch (block_tag) {
         .block => {
@@ -9686,6 +9689,39 @@ fn checkCallConvSupportsVarArgs(sema: *Sema, block: *Block, src: LazySrcLoc, cc:
             break :msg msg;
         });
     }
+}
+
+fn checkMergeAllowed(sema: *Sema, block: *Block, src: LazySrcLoc, peer_ty: Type) !void {
+    const pt = sema.pt;
+    const zcu = pt.zcu;
+    const target = zcu.getTarget();
+
+    if (!peer_ty.isPtrAtRuntime(zcu)) {
+        return;
+    }
+
+    const as = peer_ty.ptrAddressSpace(zcu);
+    if (!target_util.arePointersLogical(target, as)) {
+        return;
+    }
+
+    return sema.failWithOwnedErrorMsg(block, msg: {
+        const msg = try sema.errMsg(src, "value with non-mergable pointer type '{}' depends on runtime control flow", .{peer_ty.fmt(pt)});
+        errdefer msg.destroy(sema.gpa);
+
+        const runtime_src = block.runtime_cond orelse block.runtime_loop.?;
+        try sema.errNote(runtime_src, msg, "runtime control flow here", .{});
+
+        const backend = target_util.zigBackend(target, zcu.comp.config.use_llvm);
+        try sema.errNote(src, msg, "pointers with address space '{s}' cannot be returned from a branch on target {s}-{s} by compiler backend {s}", .{
+            @tagName(as),
+            target.cpu.arch.genericName(),
+            @tagName(target.os.tag),
+            @tagName(backend),
+        });
+
+        break :msg msg;
+    });
 }
 
 const Section = union(enum) {

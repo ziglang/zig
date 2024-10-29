@@ -19,8 +19,7 @@ pub const simplified_logic =
     builtin.zig_backend == .stage2_aarch64 or
     builtin.zig_backend == .stage2_arm or
     builtin.zig_backend == .stage2_sparc64 or
-    builtin.cpu.arch == .spirv32 or
-    builtin.cpu.arch == .spirv64;
+    builtin.zig_backend == .stage2_spirv64;
 
 comptime {
     // No matter what, we import the root file, so that any export, test, comptime
@@ -37,7 +36,7 @@ comptime {
                 if (!@hasDecl(root, "wWinMainCRTStartup") and !@hasDecl(root, "mainCRTStartup")) {
                     @export(&wWinMainCRTStartup2, .{ .name = "wWinMainCRTStartup" });
                 }
-            } else if (builtin.os.tag == .opencl) {
+            } else if (builtin.os.tag == .opencl or builtin.os.tag == .vulkan) {
                 if (@hasDecl(root, "main"))
                     @export(&spirvMain2, .{ .name = "main" });
             } else {
