@@ -2744,32 +2744,52 @@ fn testRelocatableEhFrame(b: *Build, opts: Options) *Step {
         ,
     });
     obj2.linkLibCpp();
+    const obj3 = addObject(b, opts, .{ .name = "obj3", .cpp_source_bytes = 
+    \\#include <iostream>
+    \\#include <stdexcept>
+    \\extern int try_again();
+    \\int main() {
+    \\  try {
+    \\    try_again();
+    \\  } catch (const std::exception &e) {
+    \\    std::cout << "exception=" << e.what();
+    \\  }
+    \\  return 0;
+    \\}
+    });
+    obj3.linkLibCpp();
 
-    const obj = addObject(b, opts, .{ .name = "obj" });
-    obj.addObject(obj1);
-    obj.addObject(obj2);
-    obj.linkLibCpp();
+    {
+        const obj = addObject(b, opts, .{ .name = "obj" });
+        obj.addObject(obj1);
+        obj.addObject(obj2);
+        obj.linkLibCpp();
 
-    const exe = addExecutable(b, opts, .{ .name = "test1" });
-    addCppSourceBytes(exe,
-        \\#include <iostream>
-        \\#include <stdexcept>
-        \\extern int try_again();
-        \\int main() {
-        \\  try {
-        \\    try_again();
-        \\  } catch (const std::exception &e) {
-        \\    std::cout << "exception=" << e.what();
-        \\  }
-        \\  return 0;
-        \\}
-    , &.{});
-    exe.addObject(obj);
-    exe.linkLibCpp();
+        const exe = addExecutable(b, opts, .{ .name = "test1" });
+        exe.addObject(obj3);
+        exe.addObject(obj);
+        exe.linkLibCpp();
 
-    const run = addRunArtifact(exe);
-    run.expectStdOutEqual("exception=Oh no!");
-    test_step.dependOn(&run.step);
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual("exception=Oh no!");
+        test_step.dependOn(&run.step);
+    }
+    {
+        // Flipping the order should not influence the end result.
+        const obj = addObject(b, opts, .{ .name = "obj" });
+        obj.addObject(obj2);
+        obj.addObject(obj1);
+        obj.linkLibCpp();
+
+        const exe = addExecutable(b, opts, .{ .name = "test2" });
+        exe.addObject(obj3);
+        exe.addObject(obj);
+        exe.linkLibCpp();
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual("exception=Oh no!");
+        test_step.dependOn(&run.step);
+    }
 
     return test_step;
 }
