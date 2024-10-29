@@ -101,7 +101,10 @@ const Os = switch (builtin.os.tag) {
                 .REPORT_FID = true,
                 .REPORT_TARGET_FID = true,
             }, 0) catch |err| switch (err) {
-                error.UnsupportedFlags => fatal("fanotify_init failed due to old kernel; requires 5.17+", .{}),
+                error.UnsupportedFlags => |e| {
+                    std.log.err("fanotify_init failed due to old kernel; requires 5.17+", .{});
+                    return e;
+                },
                 else => |e| return e,
             };
             return .{
