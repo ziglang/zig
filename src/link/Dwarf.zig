@@ -3845,6 +3845,7 @@ pub fn flushModule(dwarf: *Dwarf, pt: Zcu.PerThread) FlushError!void {
         }
         if (global_error_set_names.len > 0) try uleb128(diw, @intFromEnum(AbbrevCode.null));
         try dwarf.debug_info.section.replaceEntry(wip_nav.unit, wip_nav.entry, dwarf, wip_nav.debug_info.items);
+        try wip_nav.flush(.unneeded);
     }
 
     {

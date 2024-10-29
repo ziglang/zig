@@ -398,6 +398,31 @@ pub fn addrSpaceCastIsValid(
     }
 }
 
+/// Under SPIR-V with Vulkan, pointers are not 'real' (physical), but rather 'logical'. Effectively,
+/// this means that all such pointers have to be resolvable to a location at compile time, and places
+/// a number of restrictions on usage of such pointers. For example, a logical pointer may not be
+/// part of a merge (result of a branch) and may not be stored in memory at all. This function returns
+/// for a particular architecture and address space wether such pointers are logical.
+pub fn arePointersLogical(target: std.Target, as: AddressSpace) bool {
+    if (target.os.tag != .vulkan) {
+        return false;
+    }
+
+    return switch (as) {
+        // TODO: Vulkan doesn't support pointers in the generic address space, we
+        // should remove this case but this requires a change in defaultAddressSpace().
+        // For now, at least disable them from being regarded as physical.
+        .generic => true,
+        // For now, all global pointers are represented using PhysicalStorageBuffer, so these are real
+        // pointers.
+        .global => false,
+        // TODO: Allowed with VK_KHR_variable_pointers.
+        .shared => true,
+        .constant, .local, .input, .output, .uniform => true,
+        else => unreachable,
+    };
+}
+
 pub fn llvmMachineAbi(target: std.Target) ?[:0]const u8 {
     // LLD does not support ELFv1. Rather than having LLVM produce ELFv1 code and then linking it
     // into a broken ELFv2 binary, just force LLVM to use ELFv2 as well. This will break when glibc
