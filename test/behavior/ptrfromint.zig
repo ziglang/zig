@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
 test "casting integer address to function pointer" {
@@ -35,8 +36,15 @@ test "@ptrFromInt creates null pointer" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
-    const ptr = @as(?*u32, @ptrFromInt(0));
-    try expectEqual(@as(?*u32, null), ptr);
+    const S = struct {
+        fn doTest(addr: usize) !void {
+            const ptr: ?*u32 = @ptrFromInt(addr);
+            try expectEqual(null, ptr);
+        }
+    };
+
+    try S.doTest(0);
+    comptime try S.doTest(0);
 }
 
 test "@ptrFromInt creates allowzero zero pointer" {
@@ -44,6 +52,29 @@ test "@ptrFromInt creates allowzero zero pointer" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
-    const ptr = @as(*allowzero u32, @ptrFromInt(0));
-    try expectEqual(@as(usize, 0), @intFromPtr(ptr));
+    const S = struct {
+        fn doTest(addr: usize) !void {
+            const ptr: *allowzero const u32 = @ptrFromInt(addr);
+            try expectEqual(addr, @intFromPtr(ptr));
+        }
+    };
+
+    try S.doTest(0);
+    comptime try S.doTest(0);
+}
+
+test "@ptrFromInt creates optional allowzero zero pointer" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn doTest(addr: usize) !void {
+            const ptr: ?*allowzero const u32 = @ptrFromInt(addr);
+            try expect(ptr != null);
+        }
+    };
+
+    try S.doTest(0);
+    comptime try S.doTest(0);
 }

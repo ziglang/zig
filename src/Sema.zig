@@ -23299,10 +23299,13 @@ fn ptrFromIntVal(
         return sema.fail(block, operand_src, "pointer type '{}' requires aligned address", .{ptr_ty.fmt(pt)});
 
     return switch (ptr_ty.zigTypeTag(zcu)) {
-        .optional => Value.fromInterned(try pt.intern(.{ .opt = .{
-            .ty = ptr_ty.toIntern(),
-            .val = if (addr == 0) .none else (try pt.ptrIntValue(ptr_ty.childType(zcu), addr)).toIntern(),
-        } })),
+        .optional => val: {
+            const is_null: bool = addr == 0 and !ptr_ty.childType(zcu).isAllowzeroPtr(zcu);
+            break :val Value.fromInterned(try pt.intern(.{ .opt = .{
+                .ty = ptr_ty.toIntern(),
+                .val = if (is_null) .none else (try pt.ptrIntValue(ptr_ty.childType(zcu), addr)).toIntern(),
+            } }));
+        },
         .pointer => try pt.ptrIntValue(ptr_ty, addr),
         else => unreachable,
     };
