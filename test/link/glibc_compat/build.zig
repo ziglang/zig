@@ -178,16 +178,16 @@ pub fn build(b: *std.Build) void {
         // normal dynamic symbol
         if (glibc_ver.order(.{ .major = 2, .minor = 32, .patch = 0 }) == .lt) {
             check.checkInDynamicSymtab();
-            check.checkExact("0 0 UND FUNC GLOBAL DEFAULT __fxstatat");
+            check.checkExact("0 0 UND FUNC GLOBAL DEFAULT __fxstatat64");
 
             check.checkInSymtab();
             check.checkContains("FUNC LOCAL HIDDEN fstatat");
         } else {
             check.checkInDynamicSymtab();
-            check.checkExact("0 0 UND FUNC GLOBAL DEFAULT fstatat");
+            check.checkExact("0 0 UND FUNC GLOBAL DEFAULT fstatat64");
 
             check.checkInSymtab();
-            check.checkNotPresent("FUNC LOCAL HIDDEN fstatat");
+            check.checkNotPresent("FUNC LOCAL HIDDEN fstatat64");
         }
 
         // before v2.26 reallocarray is not supported
