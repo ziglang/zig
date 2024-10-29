@@ -3928,7 +3928,7 @@ fn createModule(
             try create_module.rpath_list.appendSlice(arena, paths.rpaths.items);
 
             try create_module.lib_directories.ensureUnusedCapacity(arena, paths.lib_dirs.items.len);
-            for (paths.lib_dirs.items) |path| addLibDirectoryWarn(&create_module.lib_directories, path);
+            for (paths.lib_dirs.items) |path| addLibDirectoryWarn2(&create_module.lib_directories, path, true);
         }
 
         if (create_module.libc_paths_file) |paths_file| {
@@ -7479,8 +7479,17 @@ fn anyObjectLinkInputs(link_inputs: []const link.UnresolvedInput) bool {
 }
 
 fn addLibDirectoryWarn(lib_directories: *std.ArrayListUnmanaged(Directory), path: []const u8) void {
+    return addLibDirectoryWarn2(lib_directories, path, false);
+}
+
+fn addLibDirectoryWarn2(
+    lib_directories: *std.ArrayListUnmanaged(Directory),
+    path: []const u8,
+    ignore_not_found: bool,
+) void {
     lib_directories.appendAssumeCapacity(.{
         .handle = fs.cwd().openDir(path, .{}) catch |err| {
+            if (err == error.FileNotFound and ignore_not_found) return;
             warn("unable to open library directory '{s}': {s}", .{ path, @errorName(err) });
             return;
         },
