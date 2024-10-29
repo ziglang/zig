@@ -1181,10 +1181,6 @@ pub const WriteError = error{
     /// a portion of the file. Windows-only.
     LockViolation,
 
-    /// 'The pipe is being closed' may occur when piping to a process that doesn't consume all data e.g head.
-    /// Windows-only.
-    NoData,
-
     /// This error occurs when no global event loop is configured,
     /// and reading from the file descriptor would block.
     WouldBlock,
