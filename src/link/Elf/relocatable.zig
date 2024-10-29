@@ -362,6 +362,14 @@ fn writeSyntheticSections(elf_file: *Elf) !void {
     const gpa = elf_file.base.comp.gpa;
     const slice = elf_file.sections.slice();
 
+    const SortRelocs = struct {
+        pub fn lessThan(ctx: void, lhs: elf.Elf64_Rela, rhs: elf.Elf64_Rela) bool {
+            _ = ctx;
+            assert(lhs.r_offset != rhs.r_offset);
+            return lhs.r_offset < rhs.r_offset;
+        }
+    };
+
     for (slice.items(.shdr), slice.items(.atom_list), 0..) |shdr, atom_list, shndx| {
         if (shdr.sh_type != elf.SHT_RELA) continue;
         if (atom_list.items.len == 0) continue;
@@ -378,15 +386,8 @@ fn writeSyntheticSections(elf_file: *Elf) !void {
             try atom_ptr.writeRelocs(elf_file, &relocs);
         }
         assert(relocs.items.len == num_relocs);
-
-        const SortRelocs = struct {
-            pub fn lessThan(ctx: void, lhs: elf.Elf64_Rela, rhs: elf.Elf64_Rela) bool {
-                _ = ctx;
-                assert(lhs.r_offset != rhs.r_offset);
-                return lhs.r_offset < rhs.r_offset;
-            }
-        };
-
+        // Sort output relocations by r_offset which is usually an expected (and desired) condition
+        // by the linkers.
         mem.sortUnstable(elf.Elf64_Rela, relocs.items, {}, SortRelocs.lessThan);
 
         log.debug("writing {s} from 0x{x} to 0x{x}", .{
@@ -418,16 +419,21 @@ fn writeSyntheticSections(elf_file: *Elf) !void {
     }
     if (elf_file.section_indexes.eh_frame_rela) |shndx| {
         const shdr = slice.items(.shdr)[shndx];
-        const sh_size = math.cast(usize, shdr.sh_size) orelse return error.Overflow;
-        var buffer = try std.ArrayList(u8).initCapacity(gpa, sh_size);
-        defer buffer.deinit();
-        try eh_frame.writeEhFrameRelocs(elf_file, buffer.writer());
-        assert(buffer.items.len == sh_size);
+        const num_relocs = math.cast(usize, @divExact(shdr.sh_size, shdr.sh_entsize)) orelse
+            return error.Overflow;
+        var relocs = try std.ArrayList(elf.Elf64_Rela).initCapacity(gpa, num_relocs);
+        defer relocs.deinit();
+        try eh_frame.writeEhFrameRelocs(elf_file, &relocs);
+        assert(relocs.items.len == num_relocs);
+        // Sort output relocations by r_offset which is usually an expected (and desired) condition
+        // by the linkers.
+        mem.sortUnstable(elf.Elf64_Rela, relocs.items, {}, SortRelocs.lessThan);
+
         log.debug("writing .rela.eh_frame from 0x{x} to 0x{x}", .{
             shdr.sh_offset,
             shdr.sh_offset + shdr.sh_size,
         });
-        try elf_file.base.file.?.pwriteAll(buffer.items, shdr.sh_offset);
+        try elf_file.base.file.?.pwriteAll(mem.sliceAsBytes(relocs.items), shdr.sh_offset);
     }
 
     try writeComdatGroups(elf_file);

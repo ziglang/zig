@@ -398,6 +398,10 @@ fn parseEhFrame(
     defer gpa.free(relocs);
     const rel_start: u32 = @intCast(self.relocs.items.len);
     try self.relocs.appendUnalignedSlice(gpa, relocs);
+
+    // We expect relocations to be sorted by r_offset as per this comment in mold linker:
+    // https://github.com/rui314/mold/blob/8e4f7b53832d8af4f48a633a8385cbc932d1944e/src/input-files.cc#L653
+    // Except for RISCV and Loongarch which do not seem to be uphold this convention.
     if (target.cpu.arch == .riscv64) {
         sortRelocs(self.relocs.items[rel_start..][0..relocs.len]);
     }
