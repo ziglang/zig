@@ -682,7 +682,7 @@ pub fn WriteFile(
             .OPERATION_ABORTED => return error.OperationAborted,
             .NOT_ENOUGH_QUOTA => return error.SystemResources,
             .IO_PENDING => unreachable,
-            .BROKEN_PIPE => return error.BrokenPipe,
+            .NO_DATA => return error.BrokenPipe,
             .INVALID_HANDLE => return error.NotOpenForWriting,
             .LOCK_VIOLATION => return error.LockViolation,
             .NETNAME_DELETED => return error.ConnectionResetByPeer,
