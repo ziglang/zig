@@ -184,6 +184,26 @@ enum wasi_whence {
     wasi_whence_end = 2,
 };
 
+extern uint16_t load16_align0(const uint8_t *ptr);
+extern uint16_t load16_align1(const uint16_t *ptr);
+extern uint32_t load32_align0(const uint8_t *ptr);
+extern uint32_t load32_align1(const uint16_t *ptr);
+extern uint32_t load32_align2(const uint32_t *ptr);
+extern uint64_t load64_align0(const uint8_t *ptr);
+extern uint64_t load64_align1(const uint16_t *ptr);
+extern uint64_t load64_align2(const uint32_t *ptr);
+extern uint64_t load64_align3(const uint64_t *ptr);
+
+extern void store16_align0(uint8_t *ptr, uint16_t val);
+extern void store16_align1(uint16_t *ptr, uint16_t val);
+extern void store32_align0(uint8_t *ptr, uint32_t val);
+extern void store32_align1(uint16_t *ptr, uint32_t val);
+extern void store32_align2(uint32_t *ptr, uint32_t val);
+extern void store64_align0(uint8_t *ptr, uint64_t val);
+extern void store64_align1(uint16_t *ptr, uint64_t val);
+extern void store64_align2(uint32_t *ptr, uint64_t val);
+extern void store64_align3(uint64_t *ptr, uint64_t val);
+
 extern uint8_t **const wasm_memory;
 extern void wasm__start(void);
 
@@ -362,14 +382,14 @@ static enum wasi_errno DirEntry_lookup(uint32_t dir_fd, uint32_t flags, const ch
 }
 
 static void DirEntry_filestat(uint32_t de, struct wasi_filestat *res_filestat) {
-    res_filestat->dev = 0;
-    res_filestat->ino = de;
-    res_filestat->filetype = des[de].filetype;
-    res_filestat->nlink = 1;
-    res_filestat->size = 0;
-    res_filestat->atim = des[de].atim * UINT64_C(1000000000);
-    res_filestat->mtim = des[de].mtim * UINT64_C(1000000000);
-    res_filestat->ctim = des[de].ctim * UINT64_C(1000000000);
+    store64_align3(&res_filestat->dev, 0);
+    store64_align3(&res_filestat->ino, de);
+    store64_align3(&res_filestat->filetype, des[de].filetype);
+    store64_align3(&res_filestat->nlink, 1);
+    store64_align3(&res_filestat->size, 0);
+    store64_align3(&res_filestat->atim, des[de].atim * UINT64_C(1000000000));
+    store64_align3(&res_filestat->mtim, des[de].mtim * UINT64_C(1000000000));
+    store64_align3(&res_filestat->ctim, des[de].ctim * UINT64_C(1000000000));
 }
 
 static void DirEntry_unlink(uint32_t de) {
@@ -394,8 +414,8 @@ uint32_t wasi_snapshot_preview1_args_sizes_get(uint32_t argv_size, uint32_t argv
         if (i == 1) continue;
         size += strlen(c_argv[i]) + 1;
     }
-    *argv_size_ptr = c_argc - 1;
-    *argv_buf_size_ptr = size;
+    store32_align2(argv_size_ptr, c_argc - 1);
+    store32_align2(argv_buf_size_ptr, size);
     return wasi_errno_success;
 }
 
@@ -413,7 +433,7 @@ uint32_t wasi_snapshot_preview1_args_get(uint32_t argv, uint32_t argv_buf) {
     uint32_t argv_buf_i = 0;
     for (int src_i = 0; src_i < c_argc; src_i += 1) {
         if (src_i == 1) continue;
-        argv_ptr[dst_i] = argv_buf + argv_buf_i;
+        store32_align2(&argv_ptr[dst_i], argv_buf + argv_buf_i);
         dst_i += 1;
         strcpy(&argv_buf_ptr[argv_buf_i], c_argv[src_i]);
         argv_buf_i += strlen(c_argv[src_i]) + 1;
@@ -430,8 +450,8 @@ uint32_t wasi_snapshot_preview1_fd_prestat_get(uint32_t fd, uint32_t res_prestat
 
     if (fd >= fd_len || fds[fd].de >= de_len) return wasi_errno_badf;
 
-    res_prestat_ptr[0] = 0;
-    res_prestat_ptr[1] = strlen(des[fds[fd].de].guest_path);
+    store32_align2(&res_prestat_ptr[0], 0);
+    store32_align2(&res_prestat_ptr[1], strlen(des[fds[fd].de].guest_path));
     return wasi_errno_success;
 }
 
@@ -443,7 +463,7 @@ uint32_t wasi_snapshot_preview1_fd_prestat_dir_name(uint32_t fd, uint32_t path, 
 #endif
 
     if (fd >= fd_len || fds[fd].de >= de_len) return wasi_errno_badf;
-    strncpy(path_ptr, des[fds[fd].de].guest_path, path_len);
+        strncpy(path_ptr, des[fds[fd].de].guest_path, path_len);
     return wasi_errno_success;
 }
 
@@ -502,15 +522,16 @@ uint32_t wasi_snapshot_preview1_fd_read(uint32_t fd, uint32_t iovs, uint32_t iov
 
     size_t size = 0;
     for (uint32_t i = 0; i < iovs_len; i += 1) {
+        uint32_t len = load32_align2(&iovs_ptr[i].len);
         size_t read_size = 0;
         if (fds[fd].stream != NULL)
-            read_size = fread(&m[iovs_ptr[i].ptr], 1, iovs_ptr[i].len, fds[fd].stream);
+            read_size = fread(&m[load32_align2(&iovs_ptr[i].ptr)], 1, len, fds[fd].stream);
         size += read_size;
-        if (read_size < iovs_ptr[i].len) break;
+        if (read_size < len) break;
     }
 
     if (size > 0) des[fds[fd].de].atim = time(NULL);
-    *res_size_ptr = size;
+    store32_align2(res_size_ptr, size);
     return wasi_errno_success;
 }
 
@@ -530,7 +551,7 @@ uint32_t wasi_snapshot_preview1_fd_filestat_get(uint32_t fd, uint32_t res_filest
     if (fseek(fds[fd].stream, 0, SEEK_END) < 0) return wasi_errno_io;
     long size = ftell(fds[fd].stream);
     if (size < 0) return wasi_errno_io;
-    res_filestat_ptr->size = size;
+    store64_align3(&res_filestat_ptr->size, size);
     if (fsetpos(fds[fd].stream, &pos) < 0) return wasi_errno_io;
     return wasi_errno_success;
 }
@@ -617,13 +638,14 @@ uint32_t wasi_snapshot_preview1_fd_pwrite(uint32_t fd, uint32_t iovs, uint32_t i
 
     size_t size = 0;
     for (uint32_t i = 0; i < iovs_len; i += 1) {
+        uint32_t len = load32_align2(&iovs_ptr[i].len);
         size_t written_size = 0;
         if (fds[fd].stream != NULL)
-            written_size = fwrite(&m[iovs_ptr[i].ptr], 1, iovs_ptr[i].len, fds[fd].stream);
+            written_size = fwrite(&m[load32_align2(&iovs_ptr[i].ptr)], 1, len, fds[fd].stream);
         else
-            written_size = iovs_ptr[i].len;
+            written_size = len;
         size += written_size;
-        if (written_size < iovs_ptr[i].len) break;
+        if (written_size < len) break;
     }
 
     if (fsetpos(fds[fd].stream, &pos) < 0) return wasi_errno_io;
@@ -633,7 +655,7 @@ uint32_t wasi_snapshot_preview1_fd_pwrite(uint32_t fd, uint32_t iovs, uint32_t i
         des[fds[fd].de].atim = now;
         des[fds[fd].de].mtim = now;
     }
-    *res_size_ptr = size;
+    store32_align2(res_size_ptr, size);
     return wasi_errno_success;
 }
 
@@ -669,8 +691,8 @@ uint32_t wasi_snapshot_preview1_environ_sizes_get(uint32_t environ_size, uint32_
     fprintf(stderr, "wasi_snapshot_preview1_environ_sizes_get()\n");
 #endif
 
-    *environ_size_ptr = 0;
-    *environ_buf_size_ptr = 0;
+    store32_align2(environ_size_ptr, 0);
+    store32_align2(environ_buf_size_ptr, 0);
     return wasi_errno_success;
 }
 
@@ -702,7 +724,7 @@ uint32_t wasi_snapshot_preview1_path_filestat_get(uint32_t fd, uint32_t flags, u
         if (stream != NULL) {
             if (fseek(stream, 0, SEEK_END) >= 0) {
                 long size = ftell(stream);
-                if (size >= 0) res_filestat_ptr->size = size;
+                if (size >= 0) store64_align3(&res_filestat_ptr->size, size);
             }
             fclose(stream);
         }
@@ -718,10 +740,10 @@ uint32_t wasi_snapshot_preview1_fd_fdstat_get(uint32_t fd, uint32_t res_fdstat) 
 #endif
 
     if (fd >= fd_len || fds[fd].de >= de_len) return wasi_errno_badf;
-    res_fdstat_ptr->fs_filetype = des[fds[fd].de].filetype;
-    res_fdstat_ptr->fs_flags = fds[fd].fdflags;
-    res_fdstat_ptr->padding = 0;
-    res_fdstat_ptr->fs_rights_inheriting = fds[fd].fs_rights_inheriting;
+    store16_align1(&res_fdstat_ptr->fs_filetype, des[fds[fd].de].filetype);
+    store16_align1(&res_fdstat_ptr->fs_flags, fds[fd].fdflags);
+    store32_align2(&res_fdstat_ptr->padding, 0);
+    store64_align3(&res_fdstat_ptr->fs_rights_inheriting, fds[fd].fs_rights_inheriting);
     return wasi_errno_success;
 }
 
@@ -757,13 +779,14 @@ uint32_t wasi_snapshot_preview1_fd_write(uint32_t fd, uint32_t iovs, uint32_t io
 
     size_t size = 0;
     for (uint32_t i = 0; i < iovs_len; i += 1) {
+        uint32_t len = load32_align2(&iovs_ptr[i].len);
         size_t written_size = 0;
         if (fds[fd].stream != NULL)
-            written_size = fwrite(&m[iovs_ptr[i].ptr], 1, iovs_ptr[i].len, fds[fd].stream);
+            written_size = fwrite(&m[load32_align2(&iovs_ptr[i].ptr)], 1, len, fds[fd].stream);
         else
-            written_size = iovs_ptr[i].len;
+            written_size = len;
         size += written_size;
-        if (written_size < iovs_ptr[i].len) break;
+        if (written_size < len) break;
     }
 
     if (size > 0) {
@@ -771,7 +794,7 @@ uint32_t wasi_snapshot_preview1_fd_write(uint32_t fd, uint32_t iovs, uint32_t io
         des[fds[fd].de].atim = now;
         des[fds[fd].de].mtim = now;
     }
-    *res_size_ptr = size;
+    store32_align2(res_size_ptr, size);
     return wasi_errno_success;
 }
 
@@ -809,7 +832,7 @@ uint32_t wasi_snapshot_preview1_path_open(uint32_t fd, uint32_t dirflags, uint32
 #if LOG_TRACE
         fprintf(stderr, "fd = %u\n", fd_len);
 #endif
-        *res_fd_ptr = fd_len;
+        store32_align2(res_fd_ptr, fd_len);
         fd_len += 1;
     }
     if (lookup_errno != wasi_errno_noent) return lookup_errno;
@@ -867,7 +890,7 @@ uint32_t wasi_snapshot_preview1_path_open(uint32_t fd, uint32_t dirflags, uint32
     fds[fd_len].fdflags = fdflags;
     fds[fd_len].stream = stream;
     fds[fd_len].fs_rights_inheriting = fs_rights_inheriting;
-    *res_fd_ptr = fd_len;
+    store32_align2(res_fd_ptr, fd_len);
     fd_len += 1;
     return wasi_errno_success;
 }
@@ -882,12 +905,12 @@ uint32_t wasi_snapshot_preview1_clock_time_get(uint32_t id, uint64_t precision, 
 
     switch (id) {
         case wasi_clockid_realtime:
-            *res_timestamp_ptr = time(NULL) * UINT64_C(1000000000);
+            store64_align3(res_timestamp_ptr, time(NULL) * UINT64_C(1000000000));
             break;
         case wasi_clockid_monotonic:
         case wasi_clockid_process_cputime_id:
         case wasi_clockid_thread_cputime_id:
-            *res_timestamp_ptr = clock() * (UINT64_C(1000000000) / CLOCKS_PER_SEC);
+            store64_align3(res_timestamp_ptr, clock() * (UINT64_C(1000000000) / CLOCKS_PER_SEC));
             break;
         default: return wasi_errno_inval;
     }
@@ -947,19 +970,20 @@ uint32_t wasi_snapshot_preview1_fd_pread(uint32_t fd, uint32_t iovs, uint32_t io
 
     size_t size = 0;
     for (uint32_t i = 0; i < iovs_len; i += 1) {
+        uint32_t len = load32_align2(&iovs_ptr[i].len);
         size_t read_size = 0;
         if (fds[fd].stream != NULL)
-            read_size = fread(&m[iovs_ptr[i].ptr], 1, iovs_ptr[i].len, fds[fd].stream);
+            read_size = fread(&m[load32_align2(&iovs_ptr[i].ptr)], 1, len, fds[fd].stream);
         else
             panic("unimplemented");
         size += read_size;
-        if (read_size < iovs_ptr[i].len) break;
+        if (read_size < len) break;
     }
 
     if (fsetpos(fds[fd].stream, &pos) < 0) return wasi_errno_io;
 
     if (size > 0) des[fds[fd].de].atim = time(NULL);
-    *res_size_ptr = size;
+    store32_align2(res_size_ptr, size);
     return wasi_errno_success;
 }
 
@@ -996,7 +1020,7 @@ uint32_t wasi_snapshot_preview1_fd_seek(uint32_t fd, uint64_t in_offset, uint32_
     if (fseek(fds[fd].stream, offset, seek_whence) < 0) return wasi_errno_io;
     long res_offset = ftell(fds[fd].stream);
     if (res_offset < 0) return wasi_errno_io;
-    *res_filesize_ptr = (uint64_t)res_offset;
+    store64_align3(res_filesize_ptr, res_offset);
     return wasi_errno_success;
 }
 

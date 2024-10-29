@@ -1962,7 +1962,8 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
         if (is_exe_or_dyn_lib) {
             // Worst-case, we need an --as-needed argument for every lib, as well
             // as one before and one after.
-            try argv.append("--as-needed");
+            try argv.ensureUnusedCapacity(2 * self.base.comp.link_inputs.len + 2);
+            argv.appendAssumeCapacity("--as-needed");
             var as_needed = true;
 
             for (self.base.comp.link_inputs) |link_input| switch (link_input) {

@@ -3076,6 +3076,50 @@ pub const Object = struct {
             for (cc_info.inreg_param_count..std.math.maxInt(u2)) |param_idx| {
                 _ = try attributes.removeParamAttr(param_idx, .inreg);
             }
+
+            switch (fn_info.cc) {
+                inline .riscv64_interrupt,
+                .riscv32_interrupt,
+                .mips_interrupt,
+                .mips64_interrupt,
+                => |info| {
+                    try attributes.addFnAttr(.{ .string = .{
+                        .kind = try o.builder.string("interrupt"),
+                        .value = try o.builder.string(@tagName(info.mode)),
+                    } }, &o.builder);
+                },
+                .arm_interrupt,
+                => |info| {
+                    try attributes.addFnAttr(.{ .string = .{
+                        .kind = try o.builder.string("interrupt"),
+                        .value = try o.builder.string(switch (info.type) {
+                            .generic => "",
+                            .irq => "IRQ",
+                            .fiq => "FIQ",
+                            .swi => "SWI",
+                            .abort => "ABORT",
+                            .undef => "UNDEF",
+                        }),
+                    } }, &o.builder);
+                },
+                // these function attributes serve as a backup against any mistakes LLVM makes.
+                // clang sets both the function's calling convention and the function attributes
+                // in its backend, so future patches to the AVR backend could end up checking only one,
+                // possibly breaking our support. it's safer to just emit both.
+                .avr_interrupt, .avr_signal, .csky_interrupt => {
+                    try attributes.addFnAttr(.{ .string = .{
+                        .kind = try o.builder.string(switch (fn_info.cc) {
+                            .avr_interrupt,
+                            .csky_interrupt,
+                            => "interrupt",
+                            .avr_signal => "signal",
+                            else => unreachable,
+                        }),
+                        .value = .empty,
+                    } }, &o.builder);
+                },
+                else => {},
+            }
         }
 
         if (resolved.alignment != .none)
@@ -11609,9 +11653,13 @@ pub fn toLlvmCallConv(cc: std.builtin.CallingConvention, target: std.Target) ?Ca
     const incoming_stack_alignment: ?u64, const register_params: u2 = switch (cc) {
         inline else => |pl| switch (@TypeOf(pl)) {
             void => .{ null, 0 },
-            std.builtin.CallingConvention.CommonOptions => .{ pl.incoming_stack_alignment, 0 },
+            std.builtin.CallingConvention.ArmInterruptOptions,
+            std.builtin.CallingConvention.RiscvInterruptOptions,
+            std.builtin.CallingConvention.MipsInterruptOptions,
+            std.builtin.CallingConvention.CommonOptions,
+            => .{ pl.incoming_stack_alignment, 0 },
             std.builtin.CallingConvention.X86RegparmOptions => .{ pl.incoming_stack_alignment, pl.register_params },
-            else => unreachable,
+            else => @compileError("TODO: toLlvmCallConv" ++ @tagName(pl)),
         },
     };
     return .{
@@ -11676,6 +11724,15 @@ fn toLlvmCallConvTag(cc_tag: std.builtin.CallingConvention.Tag, target: std.Targ
         .nvptx_device => .ptx_device,
         .nvptx_kernel => .ptx_kernel,
 
+        // Calling conventions which LLVM uses function attributes for.
+        .riscv64_interrupt,
+        .riscv32_interrupt,
+        .arm_interrupt,
+        .mips64_interrupt,
+        .mips_interrupt,
+        .csky_interrupt,
+        => .ccc,
+
         // All the calling conventions which LLVM does not have a general representation for.
         // Note that these are often still supported through the `cCallingConvention` path above via `ccc`.
         .x86_sysv,
@@ -11685,16 +11742,11 @@ fn toLlvmCallConvTag(cc_tag: std.builtin.CallingConvention.Tag, target: std.Targ
         .aarch64_aapcs_darwin,
         .aarch64_aapcs_win,
         .arm_aapcs16_vfp,
-        .arm_interrupt,
         .mips64_n64,
         .mips64_n32,
-        .mips64_interrupt,
         .mips_o32,
-        .mips_interrupt,
         .riscv64_lp64,
-        .riscv64_interrupt,
         .riscv32_ilp32,
-        .riscv32_interrupt,
         .sparc64_sysv,
         .sparc_sysv,
         .powerpc64_elf,
@@ -11709,7 +11761,6 @@ fn toLlvmCallConvTag(cc_tag: std.builtin.CallingConvention.Tag, target: std.Targ
         .avr_gnu,
         .bpf_std,
         .csky_sysv,
-        .csky_interrupt,
         .hexagon_sysv,
         .hexagon_sysv_hvx,
         .lanai_sysv,

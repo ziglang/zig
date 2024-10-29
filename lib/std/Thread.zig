@@ -1141,8 +1141,7 @@ const LinuxThreadImpl = struct {
 
     fn getCpuCount() !usize {
         const cpu_set = try posix.sched_getaffinity(0);
-        // TODO: should not need this usize cast
-        return @as(usize, posix.CPU_COUNT(cpu_set));
+        return posix.CPU_COUNT(cpu_set);
     }
 
     thread: *ThreadCompletion,
