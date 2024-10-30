@@ -44,22 +44,26 @@ comptime {
     }
 }
 
-/// If not linking libc, returns false.
-/// If linking musl libc, returns true.
-/// If linking gnu libc (glibc), returns true if the target version is greater
-/// than or equal to `glibc_version`.
-/// If linking a libc other than these, returns `false`.
-pub inline fn versionCheck(comptime glibc_version: std.SemanticVersion) bool {
+/// * If not linking libc, returns `false`.
+/// * If linking musl libc, returns `true`.
+/// * If linking GNU libc (glibc), returns `true` if the target version is greater than or equal to
+///   `version`.
+/// * If linking Android libc (bionic), returns `true` if the target API level is greater than or
+///   equal to `version.major`, ignoring other components.
+/// * If linking a libc other than these, returns `false`.
+pub inline fn versionCheck(comptime version: std.SemanticVersion) bool {
     return comptime blk: {
         if (!builtin.link_libc) break :blk false;
         if (native_abi.isMusl()) break :blk true;
         if (builtin.target.isGnuLibC()) {
             const ver = builtin.os.version_range.linux.glibc;
-            const order = ver.order(glibc_version);
+            const order = ver.order(version);
             break :blk switch (order) {
                 .gt, .eq => true,
                 .lt => false,
             };
+        } else if (builtin.abi.isAndroid()) {
+            break :blk builtin.os.version_range.linux.android >= version.major;
         } else {
             break :blk false;
         }

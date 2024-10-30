@@ -286,7 +286,6 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
     };
     try llvm_triple.appendSlice(llvm_abi);
 
-    // This should eventually handle the Android API level too.
     switch (target.os.versionRange()) {
         .none,
         .semver,
@@ -296,7 +295,7 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
             ver.glibc.major,
             ver.glibc.minor,
             ver.glibc.patch,
-        }),
+        }) else if (target.abi.isAndroid()) try llvm_triple.writer().print("{d}", .{ver.android}),
     }
 
     return llvm_triple.toOwnedSlice();

@@ -359,6 +359,8 @@ pub const Os = struct {
     pub const LinuxVersionRange = struct {
         range: std.SemanticVersion.Range,
         glibc: std.SemanticVersion,
+        /// Android API level.
+        android: u32 = 14, // This default value is to be deleted after zig1.wasm is updated.
 
         pub inline fn includesVersion(range: LinuxVersionRange, ver: std.SemanticVersion) bool {
             return range.range.includesVersion(ver);
@@ -480,6 +482,7 @@ pub const Os = struct {
 
                             break :blk default_min;
                         },
+                        .android = 14,
                     },
                 },
                 .rtems => .{
