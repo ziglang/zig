@@ -239,13 +239,20 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
     };
     try llvm_triple.appendSlice(llvm_os);
 
-    if (target.os.tag.isDarwin()) {
-        const min_version = target.os.version_range.semver.min;
-        try llvm_triple.writer().print("{d}.{d}.{d}", .{
-            min_version.major,
-            min_version.minor,
-            min_version.patch,
-        });
+    switch (target.os.versionRange()) {
+        .none,
+        .windows,
+        => {},
+        .semver => |ver| try llvm_triple.writer().print("{d}.{d}.{d}", .{
+            ver.min.major,
+            ver.min.minor,
+            ver.min.patch,
+        }),
+        .linux => |ver| try llvm_triple.writer().print("{d}.{d}.{d}", .{
+            ver.range.min.major,
+            ver.range.min.minor,
+            ver.range.min.patch,
+        }),
     }
     try llvm_triple.append('-');
 
@@ -278,6 +285,19 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .ohoseabi => "ohoseabi",
     };
     try llvm_triple.appendSlice(llvm_abi);
+
+    // This should eventually handle the Android API level too.
+    switch (target.os.versionRange()) {
+        .none,
+        .semver,
+        .windows,
+        => {},
+        .linux => |ver| if (target.abi.isGnu()) try llvm_triple.writer().print("{d}.{d}.{d}", .{
+            ver.glibc.major,
+            ver.glibc.minor,
+            ver.glibc.patch,
+        }),
+    }
 
     return llvm_triple.toOwnedSlice();
 }
