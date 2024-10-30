@@ -1640,7 +1640,9 @@ const NavGen = struct {
                     // can be lowered to ptrAccessChain instead of manually performing the math.
                     return try self.arrayType(1, elem_ty_id);
                 } else {
-                    return try self.arrayType(total_len, elem_ty_id);
+                    const result_id = try self.arrayType(total_len, elem_ty_id);
+                    try self.spv.decorate(result_id, .{ .ArrayStride = .{ .array_stride = @intCast(elem_ty.abiSize(zcu)) } });
+                    return result_id;
                 }
             },
             .@"fn" => switch (repr) {
