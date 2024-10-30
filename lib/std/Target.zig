@@ -160,48 +160,58 @@ pub const Os = struct {
         pub inline fn versionRangeTag(tag: Tag) @typeInfo(TaggedVersionRange).@"union".tag_type.? {
             return switch (tag) {
                 .freestanding,
+                .other,
+
+                .contiki,
+                .elfiamcu,
                 .fuchsia,
-                .ps3,
-                .zos,
-                .haiku,
-                .rtems,
+                .hermit,
+
                 .aix,
-                .cuda,
-                .nvcl,
-                .amdhsa,
+                .haiku,
+                .hurd,
+                .plan9,
+                .rtems,
+                .serenity,
+                .zos,
+
+                // This should use semver once we determine the version history.
+                .bridgeos,
+
+                .illumos,
+
+                .uefi,
+
+                .ps3,
                 .ps4,
                 .ps5,
-                .elfiamcu,
-                .mesa3d,
-                .contiki,
-                .amdpal,
-                .hermit,
-                .hurd,
+
                 .emscripten,
-                .uefi,
+
+                .amdhsa,
+                .amdpal,
+                .cuda,
+                .mesa3d,
+                .nvcl,
                 .opencl, // TODO: OpenCL versions
                 .opengl, // TODO: GLSL versions
                 .vulkan,
-                .plan9,
-                .illumos,
-                .serenity,
-                .other,
                 => .none,
 
-                // This should use semver once we determine the version history.
-                .bridgeos => .none,
+                .dragonfly,
+                .freebsd,
+                .netbsd,
+                .openbsd,
 
                 .driverkit,
-                .freebsd,
                 .macos,
                 .ios,
                 .tvos,
-                .watchos,
                 .visionos,
-                .netbsd,
-                .openbsd,
-                .dragonfly,
+                .watchos,
+
                 .solaris,
+
                 .wasi,
                 => .semver,
 
@@ -391,116 +401,43 @@ pub const Os = struct {
         pub fn default(tag: Tag, arch: Cpu.Arch) VersionRange {
             return switch (tag) {
                 .freestanding,
+                .other,
+
+                .contiki,
+                .elfiamcu,
                 .fuchsia,
-                .ps3,
-                .zos,
-                .haiku,
-                .rtems,
+                .hermit,
+
                 .aix,
-                .cuda,
-                .nvcl,
-                .amdhsa,
+                .haiku,
+                .hurd,
+                .plan9,
+                .rtems,
+                .serenity,
+                .zos,
+
+                // This should use semver once we determine the version history.
+                .bridgeos,
+
+                .illumos,
+
+                .uefi,
+
+                .ps3,
                 .ps4,
                 .ps5,
-                .elfiamcu,
-                .mesa3d,
-                .contiki,
-                .amdpal,
-                .hermit,
-                .hurd,
+
                 .emscripten,
-                .uefi,
+
+                .amdhsa,
+                .amdpal,
+                .cuda,
+                .mesa3d,
+                .nvcl,
                 .opencl, // TODO: OpenCL versions
                 .opengl, // TODO: GLSL versions
                 .vulkan,
-                .plan9,
-                .illumos,
-                .serenity,
-                .bridgeos,
-                .other,
                 => .{ .none = {} },
-
-                .freebsd => .{
-                    .semver = std.SemanticVersion.Range{
-                        .min = .{ .major = 12, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 14, .minor = 0, .patch = 0 },
-                    },
-                },
-                .driverkit => .{
-                    .semver = .{
-                        .min = .{ .major = 19, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 24, .minor = 0, .patch = 0 },
-                    },
-                },
-                .macos => switch (arch) {
-                    .aarch64 => VersionRange{
-                        .semver = .{
-                            .min = .{ .major = 11, .minor = 7, .patch = 1 },
-                            .max = .{ .major = 14, .minor = 6, .patch = 1 },
-                        },
-                    },
-                    .x86_64 => VersionRange{
-                        .semver = .{
-                            .min = .{ .major = 11, .minor = 7, .patch = 1 },
-                            .max = .{ .major = 14, .minor = 6, .patch = 1 },
-                        },
-                    },
-                    else => unreachable,
-                },
-                .ios => .{
-                    .semver = .{
-                        .min = .{ .major = 12, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 17, .minor = 6, .patch = 1 },
-                    },
-                },
-                .watchos => .{
-                    .semver = .{
-                        .min = .{ .major = 6, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 10, .minor = 6, .patch = 0 },
-                    },
-                },
-                .tvos => .{
-                    .semver = .{
-                        .min = .{ .major = 13, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 17, .minor = 6, .patch = 0 },
-                    },
-                },
-                .visionos => .{
-                    .semver = .{
-                        .min = .{ .major = 1, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 1, .minor = 3, .patch = 0 },
-                    },
-                },
-                .netbsd => .{
-                    .semver = .{
-                        .min = .{ .major = 8, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 10, .minor = 0, .patch = 0 },
-                    },
-                },
-                .openbsd => .{
-                    .semver = .{
-                        .min = .{ .major = 7, .minor = 3, .patch = 0 },
-                        .max = .{ .major = 7, .minor = 5, .patch = 0 },
-                    },
-                },
-                .dragonfly => .{
-                    .semver = .{
-                        .min = .{ .major = 5, .minor = 8, .patch = 0 },
-                        .max = .{ .major = 6, .minor = 4, .patch = 0 },
-                    },
-                },
-                .solaris => .{
-                    .semver = .{
-                        .min = .{ .major = 11, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 11, .minor = 4, .patch = 0 },
-                    },
-                },
-                .wasi => .{
-                    .semver = .{
-                        .min = .{ .major = 0, .minor = 1, .patch = 0 },
-                        .max = .{ .major = 0, .minor = 1, .patch = 0 },
-                    },
-                },
 
                 .linux => .{
                     .linux = .{
@@ -526,10 +463,95 @@ pub const Os = struct {
                     },
                 },
 
+                .dragonfly => .{
+                    .semver = .{
+                        .min = .{ .major = 5, .minor = 8, .patch = 0 },
+                        .max = .{ .major = 6, .minor = 4, .patch = 0 },
+                    },
+                },
+                .freebsd => .{
+                    .semver = .{
+                        .min = .{ .major = 12, .minor = 0, .patch = 0 },
+                        .max = .{ .major = 14, .minor = 0, .patch = 0 },
+                    },
+                },
+                .netbsd => .{
+                    .semver = .{
+                        .min = .{ .major = 8, .minor = 0, .patch = 0 },
+                        .max = .{ .major = 10, .minor = 0, .patch = 0 },
+                    },
+                },
+                .openbsd => .{
+                    .semver = .{
+                        .min = .{ .major = 7, .minor = 3, .patch = 0 },
+                        .max = .{ .major = 7, .minor = 5, .patch = 0 },
+                    },
+                },
+
+                .driverkit => .{
+                    .semver = .{
+                        .min = .{ .major = 19, .minor = 0, .patch = 0 },
+                        .max = .{ .major = 24, .minor = 0, .patch = 0 },
+                    },
+                },
+                .macos => switch (arch) {
+                    .aarch64 => .{
+                        .semver = .{
+                            .min = .{ .major = 11, .minor = 7, .patch = 1 },
+                            .max = .{ .major = 14, .minor = 6, .patch = 1 },
+                        },
+                    },
+                    .x86_64 => .{
+                        .semver = .{
+                            .min = .{ .major = 11, .minor = 7, .patch = 1 },
+                            .max = .{ .major = 14, .minor = 6, .patch = 1 },
+                        },
+                    },
+                    else => unreachable,
+                },
+                .ios => .{
+                    .semver = .{
+                        .min = .{ .major = 12, .minor = 0, .patch = 0 },
+                        .max = .{ .major = 17, .minor = 6, .patch = 1 },
+                    },
+                },
+                .tvos => .{
+                    .semver = .{
+                        .min = .{ .major = 13, .minor = 0, .patch = 0 },
+                        .max = .{ .major = 17, .minor = 6, .patch = 0 },
+                    },
+                },
+                .visionos => .{
+                    .semver = .{
+                        .min = .{ .major = 1, .minor = 0, .patch = 0 },
+                        .max = .{ .major = 1, .minor = 3, .patch = 0 },
+                    },
+                },
+                .watchos => .{
+                    .semver = .{
+                        .min = .{ .major = 6, .minor = 0, .patch = 0 },
+                        .max = .{ .major = 10, .minor = 6, .patch = 0 },
+                    },
+                },
+
+                .solaris => .{
+                    .semver = .{
+                        .min = .{ .major = 11, .minor = 0, .patch = 0 },
+                        .max = .{ .major = 11, .minor = 4, .patch = 0 },
+                    },
+                },
+
                 .windows => .{
                     .windows = .{
                         .min = .win10,
                         .max = WindowsVersion.latest,
+                    },
+                },
+
+                .wasi => .{
+                    .semver = .{
+                        .min = .{ .major = 0, .minor = 1, .patch = 0 },
+                        .max = .{ .major = 0, .minor = 1, .patch = 0 },
                     },
                 },
             };
