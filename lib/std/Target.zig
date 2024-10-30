@@ -494,20 +494,11 @@ pub const Os = struct {
                         .max = .{ .major = 24, .minor = 0, .patch = 0 },
                     },
                 },
-                .macos => switch (arch) {
-                    .aarch64 => .{
-                        .semver = .{
-                            .min = .{ .major = 11, .minor = 7, .patch = 1 },
-                            .max = .{ .major = 14, .minor = 6, .patch = 1 },
-                        },
+                .macos => .{
+                    .semver = .{
+                        .min = .{ .major = 11, .minor = 7, .patch = 1 },
+                        .max = .{ .major = 14, .minor = 6, .patch = 1 },
                     },
-                    .x86_64 => .{
-                        .semver = .{
-                            .min = .{ .major = 11, .minor = 7, .patch = 1 },
-                            .max = .{ .major = 14, .minor = 6, .patch = 1 },
-                        },
-                    },
-                    else => unreachable,
                 },
                 .ios => .{
                     .semver = .{
