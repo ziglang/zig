@@ -162,25 +162,16 @@ pub const Os = struct {
                 .freestanding,
                 .other,
 
-                .contiki,
                 .elfiamcu,
-                .fuchsia,
-                .hermit,
 
-                .aix,
                 .haiku,
-                .hurd,
                 .plan9,
-                .rtems,
                 .serenity,
-                .zos,
 
                 // This should use semver once we determine the version history.
                 .bridgeos,
 
                 .illumos,
-
-                .uefi,
 
                 .ps3,
                 .ps4,
@@ -188,15 +179,17 @@ pub const Os = struct {
 
                 .emscripten,
 
-                .amdhsa,
-                .amdpal,
-                .cuda,
                 .mesa3d,
-                .nvcl,
-                .opencl, // TODO: OpenCL versions
-                .opengl, // TODO: GLSL versions
-                .vulkan,
                 => .none,
+
+                .contiki,
+                .fuchsia,
+                .hermit,
+
+                .aix,
+                .hurd,
+                .rtems,
+                .zos,
 
                 .dragonfly,
                 .freebsd,
@@ -212,7 +205,17 @@ pub const Os = struct {
 
                 .solaris,
 
+                .uefi,
+
                 .wasi,
+
+                .amdhsa,
+                .amdpal,
+                .cuda,
+                .nvcl,
+                .opencl,
+                .opengl,
+                .vulkan,
                 => .semver,
 
                 .linux => .linux,
@@ -405,25 +408,16 @@ pub const Os = struct {
                 .freestanding,
                 .other,
 
-                .contiki,
                 .elfiamcu,
-                .fuchsia,
-                .hermit,
 
-                .aix,
                 .haiku,
-                .hurd,
                 .plan9,
-                .rtems,
                 .serenity,
-                .zos,
 
                 // This should use semver once we determine the version history.
                 .bridgeos,
 
                 .illumos,
-
-                .uefi,
 
                 .ps3,
                 .ps4,
@@ -431,16 +425,40 @@ pub const Os = struct {
 
                 .emscripten,
 
-                .amdhsa,
-                .amdpal,
-                .cuda,
                 .mesa3d,
-                .nvcl,
-                .opencl, // TODO: OpenCL versions
-                .opengl, // TODO: GLSL versions
-                .vulkan,
                 => .{ .none = {} },
 
+                .contiki => .{
+                    .semver = .{
+                        .min = .{ .major = 4, .minor = 0, .patch = 0 },
+                        .max = .{ .major = 4, .minor = 9, .patch = 0 },
+                    },
+                },
+                .fuchsia => .{
+                    .semver = .{
+                        .min = .{ .major = 1, .minor = 1, .patch = 0 },
+                        .max = .{ .major = 20, .minor = 1, .patch = 0 },
+                    },
+                },
+                .hermit => .{
+                    .semver = .{
+                        .min = .{ .major = 0, .minor = 4, .patch = 0 },
+                        .max = .{ .major = 0, .minor = 8, .patch = 0 },
+                    },
+                },
+
+                .aix => .{
+                    .semver = .{
+                        .min = .{ .major = 7, .minor = 2, .patch = 5 },
+                        .max = .{ .major = 7, .minor = 3, .patch = 2 },
+                    },
+                },
+                .hurd => .{
+                    .semver = .{
+                        .min = .{ .major = 0, .minor = 9, .patch = 0 },
+                        .max = .{ .major = 0, .minor = 9, .patch = 0 },
+                    },
+                },
                 .linux => .{
                     .linux = .{
                         .range = .{
@@ -462,6 +480,18 @@ pub const Os = struct {
 
                             break :blk default_min;
                         },
+                    },
+                },
+                .rtems => .{
+                    .semver = .{
+                        .min = .{ .major = 5, .minor = 1, .patch = 0 },
+                        .max = .{ .major = 5, .minor = 3, .patch = 0 },
+                    },
+                },
+                .zos => .{
+                    .semver = .{
+                        .min = .{ .major = 2, .minor = 5, .patch = 0 },
+                        .max = .{ .major = 3, .minor = 1, .patch = 0 },
                     },
                 },
 
@@ -540,11 +570,56 @@ pub const Os = struct {
                         .max = WindowsVersion.latest,
                     },
                 },
+                .uefi => .{
+                    .semver = .{
+                        .min = .{ .major = 2, .minor = 0, .patch = 0 },
+                        .max = .{ .major = 2, .minor = 9, .patch = 0 },
+                    },
+                },
 
                 .wasi => .{
                     .semver = .{
                         .min = .{ .major = 0, .minor = 1, .patch = 0 },
                         .max = .{ .major = 0, .minor = 2, .patch = 2 },
+                    },
+                },
+
+                .amdhsa => .{
+                    .semver = .{
+                        .min = .{ .major = 5, .minor = 0, .patch = 2 },
+                        .max = .{ .major = 6, .minor = 2, .patch = 2 },
+                    },
+                },
+                .amdpal => .{
+                    .semver = .{
+                        .min = .{ .major = 1, .minor = 1, .patch = 0 },
+                        .max = .{ .major = 3, .minor = 5, .patch = 0 },
+                    },
+                },
+                .cuda => .{
+                    .semver = .{
+                        .min = .{ .major = 11, .minor = 0, .patch = 1 },
+                        .max = .{ .major = 12, .minor = 6, .patch = 1 },
+                    },
+                },
+                .nvcl,
+                .opencl,
+                => .{
+                    .semver = .{
+                        .min = .{ .major = 2, .minor = 2, .patch = 0 },
+                        .max = .{ .major = 3, .minor = 0, .patch = 0 },
+                    },
+                },
+                .opengl => .{
+                    .semver = .{
+                        .min = .{ .major = 4, .minor = 5, .patch = 0 },
+                        .max = .{ .major = 4, .minor = 6, .patch = 0 },
+                    },
+                },
+                .vulkan => .{
+                    .semver = .{
+                        .min = .{ .major = 1, .minor = 2, .patch = 0 },
+                        .max = .{ .major = 1, .minor = 3, .patch = 0 },
                     },
                 },
             };
