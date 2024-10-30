@@ -6,7 +6,7 @@ int main(void) {
     const char data[] = {
 #embed <foo.data>
     };
-    const char *expected = "This text is the contents of foo.data\n";
+    const char *expected = "This text is the contents of foo.data";
     if (sizeof data == strlen(expected) && memcmp(data, expected, sizeof data) == 0) {
         return EXIT_SUCCESS;
     } else {
