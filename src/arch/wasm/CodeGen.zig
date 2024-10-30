@@ -1291,7 +1291,7 @@ fn genFunc(func: *CodeGen) InnerError!void {
         var prologue = std.ArrayList(Mir.Inst).init(func.gpa);
         defer prologue.deinit();
 
-        const sp = @intFromEnum(func.bin_file.zigObjectPtr().?.stack_pointer_sym);
+        const sp = @intFromEnum(func.bin_file.zig_object.?.stack_pointer_sym);
         // load stack pointer
         try prologue.append(.{ .tag = .global_get, .data = .{ .label = sp } });
         // store stack pointer so we can restore it when we return from the function
@@ -1511,7 +1511,7 @@ fn restoreStackPointer(func: *CodeGen) !void {
     try func.emitWValue(func.initial_stack_value);
 
     // save its value in the global stack pointer
-    try func.addLabel(.global_set, @intFromEnum(func.bin_file.zigObjectPtr().?.stack_pointer_sym));
+    try func.addLabel(.global_set, @intFromEnum(func.bin_file.zig_object.?.stack_pointer_sym));
 }
 
 /// From a given type, will create space on the virtual stack to store the value of such type.
@@ -2262,7 +2262,7 @@ fn airCall(func: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModif
     }
 
     if (callee) |direct| {
-        const atom_index = func.bin_file.zigObjectPtr().?.navs.get(direct).?.atom;
+        const atom_index = func.bin_file.zig_object.?.navs.get(direct).?.atom;
         try func.addLabel(.call, @intFromEnum(func.bin_file.getAtom(atom_index).sym_index));
     } else {
         // in this case we call a function pointer
@@ -2274,7 +2274,7 @@ fn airCall(func: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModif
         var fn_type = try genFunctype(func.gpa, fn_info.cc, fn_info.param_types.get(ip), Type.fromInterned(fn_info.return_type), pt, func.target.*);
         defer fn_type.deinit(func.gpa);
 
-        const fn_type_index = try func.bin_file.zigObjectPtr().?.putOrGetFuncType(func.gpa, fn_type);
+        const fn_type_index = try func.bin_file.zig_object.?.putOrGetFuncType(func.gpa, fn_type);
         try func.addLabel(.call_indirect, fn_type_index);
     }
 
@@ -7178,7 +7178,7 @@ fn callIntrinsic(
     const zcu = pt.zcu;
     var func_type = try genFunctype(func.gpa, .{ .wasm_watc = .{} }, param_types, return_type, pt, func.target.*);
     defer func_type.deinit(func.gpa);
-    const func_type_index = try func.bin_file.zigObjectPtr().?.putOrGetFuncType(func.gpa, func_type);
+    const func_type_index = try func.bin_file.zig_object.?.putOrGetFuncType(func.gpa, func_type);
     try func.bin_file.addOrUpdateImport(name, symbol_index, null, func_type_index);
 
     const want_sret_param = firstParamSRet(.{ .wasm_watc = .{} }, return_type, pt, func.target.*);
