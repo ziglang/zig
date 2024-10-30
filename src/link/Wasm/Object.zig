@@ -3,22 +3,18 @@
 //! the data on correctness. The result can then be used by the linker.
 const Object = @This();
 
-const Atom = @import("Atom.zig");
-const types = @import("types.zig");
-const std = @import("std");
 const Wasm = @import("../Wasm.zig");
+const Atom = Wasm.Atom;
+const Alignment = Wasm.Alignment;
 const Symbol = @import("Symbol.zig");
-const Alignment = types.Alignment;
-const File = @import("file.zig").File;
 
+const std = @import("std");
 const Allocator = std.mem.Allocator;
 const leb = std.leb;
 const meta = std.meta;
 
 const log = std.log.scoped(.object);
 
-/// Index into the list of relocatable object files within the linker driver.
-index: File.Index = .null,
 /// Wasm spec version used for this `Object`
 version: u32 = 0,
 /// The file descriptor that represents the wasm object file.
@@ -28,7 +24,7 @@ path: []const u8,
 /// Parsed type section
 func_types: []const std.wasm.Type = &.{},
 /// A list of all imports for this module
-imports: []const types.Import = &.{},
+imports: []const Wasm.Import = &.{},
 /// Parsed function section
 functions: []const std.wasm.Func = &.{},
 /// Parsed table section
@@ -38,7 +34,7 @@ memories: []const std.wasm.Memory = &.{},
 /// Parsed global section
 globals: []const std.wasm.Global = &.{},
 /// Parsed export section
-exports: []const types.Export = &.{},
+exports: []const Wasm.Export = &.{},
 /// Parsed element section
 elements: []const std.wasm.Element = &.{},
 /// Represents the function ID that must be called on startup.
@@ -48,18 +44,18 @@ start: ?u32 = null,
 /// A slice of features that tell the linker what features are mandatory,
 /// used (or therefore missing) and must generate an error when another
 /// object uses features that are not supported by the other.
-features: []const types.Feature = &.{},
+features: []const Wasm.Feature = &.{},
 /// A table that maps the relocations we must perform where the key represents
 /// the section that the list of relocations applies to.
-relocations: std.AutoArrayHashMapUnmanaged(u32, []types.Relocation) = .empty,
+relocations: std.AutoArrayHashMapUnmanaged(u32, []Wasm.Relocation) = .empty,
 /// Table of symbols belonging to this Object file
 symtable: []Symbol = &.{},
 /// Extra metadata about the linking section, such as alignment of segments and their name
-segment_info: []const types.Segment = &.{},
+segment_info: []const Wasm.NamedSegment = &.{},
 /// A sequence of function initializers that must be called on startup
-init_funcs: []const types.InitFunc = &.{},
+init_funcs: []const Wasm.InitFunc = &.{},
 /// Comdat information
-comdat_info: []const types.Comdat = &.{},
+comdat_info: []const Wasm.Comdat = &.{},
 /// Represents non-synthetic sections that can essentially be mem-cpy'd into place
 /// after performing relocations.
 relocatable_data: std.AutoHashMapUnmanaged(RelocatableData.Tag, []RelocatableData) = .empty,
@@ -75,7 +71,7 @@ imported_globals_count: u32 = 0,
 imported_tables_count: u32 = 0,
 
 /// Represents a single item within a section (depending on its `type`)
-const RelocatableData = struct {
+pub const RelocatableData = struct {
     /// The type of the relocatable data
     type: Tag,
     /// Pointer to the data of the segment, where its length is written to `size`
@@ -209,7 +205,7 @@ pub fn deinit(object: *Object, gpa: Allocator) void {
 
 /// Finds the import within the list of imports from a given kind and index of that kind.
 /// Asserts the import exists
-pub fn findImport(object: *const Object, sym: Symbol) types.Import {
+pub fn findImport(object: *const Object, sym: Symbol) Wasm.Import {
     var i: u32 = 0;
     return for (object.imports) |import| {
         if (std.meta.activeTag(import.kind) == sym.tag.externalType()) {
@@ -261,7 +257,7 @@ fn checkLegacyIndirectFunctionTable(object: *Object, wasm_file: *const Wasm) !?S
         return error.MissingTableSymbols;
     }
 
-    const table_import: types.Import = for (object.imports) |imp| {
+    const table_import: Wasm.Import = for (object.imports) |imp| {
         if (imp.kind == .table) {
             break imp;
         }
@@ -592,13 +588,13 @@ fn Parser(comptime ReaderType: type) type {
             const diags = &parser.wasm_file.base.comp.link_diags;
             const reader = parser.reader.reader();
             for (try readVec(&parser.object.features, reader, gpa)) |*feature| {
-                const prefix = try readEnum(types.Feature.Prefix, reader);
+                const prefix = try readEnum(Wasm.Feature.Prefix, reader);
                 const name_len = try leb.readUleb128(u32, reader);
                 const name = try gpa.alloc(u8, name_len);
                 defer gpa.free(name);
                 try reader.readNoEof(name);
 
-                const tag = types.known_features.get(name) orelse {
+                const tag = Wasm.known_features.get(name) orelse {
                     var err = try diags.addErrorWithNotes(1);
                     try err.addMsg("Object file contains unknown feature: {s}", .{name});
                     try err.addNote("defined in '{s}'", .{parser.object.path});
@@ -618,7 +614,7 @@ fn Parser(comptime ReaderType: type) type {
             const reader = parser.reader.reader();
             const section = try leb.readUleb128(u32, reader);
             const count = try leb.readUleb128(u32, reader);
-            const relocations = try gpa.alloc(types.Relocation, count);
+            const relocations = try gpa.alloc(Wasm.Relocation, count);
             errdefer gpa.free(relocations);
 
             log.debug("Found {d} relocations for section ({d})", .{
@@ -628,7 +624,7 @@ fn Parser(comptime ReaderType: type) type {
 
             for (relocations) |*relocation| {
                 const rel_type = try reader.readByte();
-                const rel_type_enum = std.meta.intToEnum(types.Relocation.RelocationType, rel_type) catch return error.MalformedSection;
+                const rel_type_enum = std.meta.intToEnum(Wasm.Relocation.RelocationType, rel_type) catch return error.MalformedSection;
                 relocation.* = .{
                     .relocation_type = rel_type_enum,
                     .offset = try leb.readUleb128(u32, reader),
@@ -671,7 +667,7 @@ fn Parser(comptime ReaderType: type) type {
         /// such as access to the `import` section to find the name of a symbol.
         fn parseSubsection(parser: *ObjectParser, gpa: Allocator, reader: anytype) !void {
             const sub_type = try leb.readUleb128(u8, reader);
-            log.debug("Found subsection: {s}", .{@tagName(@as(types.SubsectionType, @enumFromInt(sub_type)))});
+            log.debug("Found subsection: {s}", .{@tagName(@as(Wasm.SubsectionType, @enumFromInt(sub_type)))});
             const payload_len = try leb.readUleb128(u32, reader);
             if (payload_len == 0) return;
 
@@ -681,9 +677,9 @@ fn Parser(comptime ReaderType: type) type {
             // every subsection contains a 'count' field
             const count = try leb.readUleb128(u32, limited_reader);
 
-            switch (@as(types.SubsectionType, @enumFromInt(sub_type))) {
+            switch (@as(Wasm.SubsectionType, @enumFromInt(sub_type))) {
                 .WASM_SEGMENT_INFO => {
-                    const segments = try gpa.alloc(types.Segment, count);
+                    const segments = try gpa.alloc(Wasm.NamedSegment, count);
                     errdefer gpa.free(segments);
                     for (segments) |*segment| {
                         const name_len = try leb.readUleb128(u32, reader);
@@ -704,13 +700,13 @@ fn Parser(comptime ReaderType: type) type {
                         // support legacy object files that specified being TLS by the name instead of the TLS flag.
                         if (!segment.isTLS() and (std.mem.startsWith(u8, segment.name, ".tdata") or std.mem.startsWith(u8, segment.name, ".tbss"))) {
                             // set the flag so we can simply check for the flag in the rest of the linker.
-                            segment.flags |= @intFromEnum(types.Segment.Flags.WASM_SEG_FLAG_TLS);
+                            segment.flags |= @intFromEnum(Wasm.NamedSegment.Flags.WASM_SEG_FLAG_TLS);
                         }
                     }
                     parser.object.segment_info = segments;
                 },
                 .WASM_INIT_FUNCS => {
-                    const funcs = try gpa.alloc(types.InitFunc, count);
+                    const funcs = try gpa.alloc(Wasm.InitFunc, count);
                     errdefer gpa.free(funcs);
                     for (funcs) |*func| {
                         func.* = .{
@@ -722,7 +718,7 @@ fn Parser(comptime ReaderType: type) type {
                     parser.object.init_funcs = funcs;
                 },
                 .WASM_COMDAT_INFO => {
-                    const comdats = try gpa.alloc(types.Comdat, count);
+                    const comdats = try gpa.alloc(Wasm.Comdat, count);
                     errdefer gpa.free(comdats);
                     for (comdats) |*comdat| {
                         const name_len = try leb.readUleb128(u32, reader);
@@ -736,11 +732,11 @@ fn Parser(comptime ReaderType: type) type {
                         }
 
                         const symbol_count = try leb.readUleb128(u32, reader);
-                        const symbols = try gpa.alloc(types.ComdatSym, symbol_count);
+                        const symbols = try gpa.alloc(Wasm.ComdatSym, symbol_count);
                         errdefer gpa.free(symbols);
                         for (symbols) |*symbol| {
                             symbol.* = .{
-                                .kind = @as(types.ComdatSym.Type, @enumFromInt(try leb.readUleb128(u8, reader))),
+                                .kind = @as(Wasm.ComdatSym.Type, @enumFromInt(try leb.readUleb128(u8, reader))),
                                 .index = try leb.readUleb128(u32, reader),
                             };
                         }
@@ -920,94 +916,4 @@ fn assertEnd(reader: anytype) !void {
     const len = try reader.read(&buf);
     if (len != 0) return error.MalformedSection;
     if (reader.context.bytes_left != 0) return error.MalformedSection;
-}
-
-/// Parses an object file into atoms, for code and data sections
-pub fn parseSymbolIntoAtom(object: *Object, wasm: *Wasm, symbol_index: Symbol.Index) !Atom.Index {
-    const comp = wasm.base.comp;
-    const gpa = comp.gpa;
-    const symbol = &object.symtable[@intFromEnum(symbol_index)];
-    const relocatable_data: RelocatableData = switch (symbol.tag) {
-        .function => object.relocatable_data.get(.code).?[symbol.index - object.imported_functions_count],
-        .data => object.relocatable_data.get(.data).?[symbol.index],
-        .section => blk: {
-            const data = object.relocatable_data.get(.custom).?;
-            for (data) |dat| {
-                if (dat.section_index == symbol.index) {
-                    break :blk dat;
-                }
-            }
-            unreachable;
-        },
-        else => unreachable,
-    };
-    const final_index = try wasm.getMatchingSegment(object.index, symbol_index);
-    const atom_index = try wasm.createAtom(symbol_index, object.index);
-    try wasm.appendAtomAtIndex(final_index, atom_index);
-
-    const atom = wasm.getAtomPtr(atom_index);
-    atom.size = relocatable_data.size;
-    atom.alignment = relocatable_data.getAlignment(object);
-    atom.code = std.ArrayListUnmanaged(u8).fromOwnedSlice(relocatable_data.data[0..relocatable_data.size]);
-    atom.original_offset = relocatable_data.offset;
-
-    const segment: *Wasm.Segment = &wasm.segments.items[final_index];
-    if (relocatable_data.type == .data) { //code section and custom sections are 1-byte aligned
-        segment.alignment = segment.alignment.max(atom.alignment);
-    }
-
-    if (object.relocations.get(relocatable_data.section_index)) |relocations| {
-        const start = searchRelocStart(relocations, relocatable_data.offset);
-        const len = searchRelocEnd(relocations[start..], relocatable_data.offset + atom.size);
-        atom.relocs = std.ArrayListUnmanaged(types.Relocation).fromOwnedSlice(relocations[start..][0..len]);
-        for (atom.relocs.items) |reloc| {
-            switch (reloc.relocation_type) {
-                .R_WASM_TABLE_INDEX_I32,
-                .R_WASM_TABLE_INDEX_I64,
-                .R_WASM_TABLE_INDEX_SLEB,
-                .R_WASM_TABLE_INDEX_SLEB64,
-                => {
-                    try wasm.function_table.put(gpa, .{
-                        .file = object.index,
-                        .index = @enumFromInt(reloc.index),
-                    }, 0);
-                },
-                .R_WASM_GLOBAL_INDEX_I32,
-                .R_WASM_GLOBAL_INDEX_LEB,
-                => {
-                    const sym = object.symtable[reloc.index];
-                    if (sym.tag != .global) {
-                        try wasm.got_symbols.append(gpa, .{ .file = object.index, .index = @enumFromInt(reloc.index) });
-                    }
-                },
-                else => {},
-            }
-        }
-    }
-
-    return atom_index;
-}
-
-fn searchRelocStart(relocs: []const types.Relocation, address: u32) usize {
-    var min: usize = 0;
-    var max: usize = relocs.len;
-    while (min < max) {
-        const index = (min + max) / 2;
-        const curr = relocs[index];
-        if (curr.offset < address) {
-            min = index + 1;
-        } else {
-            max = index;
-        }
-    }
-    return min;
-}
-
-fn searchRelocEnd(relocs: []const types.Relocation, address: u32) usize {
-    for (relocs, 0..relocs.len) |reloc, index| {
-        if (reloc.offset > address) {
-            return index;
-        }
-    }
-    return relocs.len;
 }

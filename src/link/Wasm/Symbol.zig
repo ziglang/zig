@@ -206,5 +206,4 @@ pub fn format(symbol: Symbol, comptime fmt: []const u8, options: std.fmt.FormatO
 }
 
 const std = @import("std");
-const types = @import("types.zig");
 const Symbol = @This();
