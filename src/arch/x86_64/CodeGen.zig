@@ -24562,23 +24562,29 @@ fn airAtomicRmw(self: *CodeGen, inst: Air.Inst.Index) !void {
 
 fn airAtomicLoad(self: *CodeGen, inst: Air.Inst.Index) !void {
     const atomic_load = self.air.instructions.items(.data)[@intFromEnum(inst)].atomic_load;
+    const result: MCValue = result: {
+        const ptr_ty = self.typeOf(atomic_load.ptr);
+        const ptr_mcv = try self.resolveInst(atomic_load.ptr);
+        const ptr_lock = switch (ptr_mcv) {
+            .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
+            else => null,
+        };
+        defer if (ptr_lock) |lock| self.register_manager.unlockReg(lock);
 
-    const ptr_ty = self.typeOf(atomic_load.ptr);
-    const ptr_mcv = try self.resolveInst(atomic_load.ptr);
-    const ptr_lock = switch (ptr_mcv) {
-        .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
-        else => null,
+        const unused = self.liveness.isUnused(inst);
+
+        const dst_mcv: MCValue = if (unused)
+            .{ .register = try self.register_manager.allocReg(null, self.regSetForType(ptr_ty.childType(self.pt.zcu))) }
+        else if (self.reuseOperand(inst, atomic_load.ptr, 0, ptr_mcv))
+            ptr_mcv
+        else
+            try self.allocRegOrMem(inst, true);
+
+        try self.load(dst_mcv, ptr_ty, ptr_mcv);
+
+        break :result if (unused) .unreach else dst_mcv;
     };
-    defer if (ptr_lock) |lock| self.register_manager.unlockReg(lock);
-
-    const dst_mcv =
-        if (self.reuseOperand(inst, atomic_load.ptr, 0, ptr_mcv))
-        ptr_mcv
-    else
-        try self.allocRegOrMem(inst, true);
-
-    try self.load(dst_mcv, ptr_ty, ptr_mcv);
-    return self.finishAir(inst, dst_mcv, .{ atomic_load.ptr, .none, .none });
+    return self.finishAir(inst, result, .{ atomic_load.ptr, .none, .none });
 }
 
 fn airAtomicStore(self: *CodeGen, inst: Air.Inst.Index, order: std.builtin.AtomicOrder) !void {
