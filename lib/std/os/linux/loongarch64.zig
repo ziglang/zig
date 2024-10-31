@@ -150,11 +150,6 @@ pub const ino_t = u64;
 pub const dev_t = u32;
 pub const blkcnt_t = i64;
 
-pub const timeval = extern struct {
-    tv_sec: time_t,
-    tv_usec: i64,
-};
-
 pub const F = struct {
     pub const DUPFD = 0;
     pub const GETFD = 1;

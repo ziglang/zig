@@ -997,9 +997,8 @@ pub fn pread(fd: fd_t, buf: []u8, offset: u64) PReadError!usize {
         else => maxInt(isize),
     };
 
-    const pread_sym = if (lfs64_abi) system.pread64 else system.pread;
     while (true) {
-        const rc = pread_sym(fd, buf.ptr, @min(buf.len, max_count), @bitCast(offset));
+        const rc = system.pread(fd, buf.ptr, @min(buf.len, max_count), @bitCast(offset));
         switch (errno(rc)) {
             .SUCCESS => return @intCast(rc),
             .INTR => continue,
@@ -1070,9 +1069,8 @@ pub fn ftruncate(fd: fd_t, length: u64) TruncateError!void {
         }
     }
 
-    const ftruncate_sym = if (lfs64_abi) system.ftruncate64 else system.ftruncate;
     while (true) {
-        switch (errno(ftruncate_sym(fd, @bitCast(length)))) {
+        switch (errno(system.ftruncate(fd, @bitCast(length)))) {
             .SUCCESS => return,
             .INTR => continue,
             .FBIG => return error.FileTooBig,
@@ -1135,9 +1133,8 @@ pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) PReadError!usize {
         }
     }
 
-    const preadv_sym = if (lfs64_abi) system.preadv64 else system.preadv;
     while (true) {
-        const rc = preadv_sym(fd, iov.ptr, @min(iov.len, IOV_MAX), @bitCast(offset));
+        const rc = system.preadv(fd, iov.ptr, @min(iov.len, IOV_MAX), @bitCast(offset));
         switch (errno(rc)) {
             .SUCCESS => return @bitCast(rc),
             .INTR => continue,
@@ -1413,9 +1410,8 @@ pub fn pwrite(fd: fd_t, bytes: []const u8, offset: u64) PWriteError!usize {
         else => maxInt(isize),
     };
 
-    const pwrite_sym = if (lfs64_abi) system.pwrite64 else system.pwrite;
     while (true) {
-        const rc = pwrite_sym(fd, bytes.ptr, @min(bytes.len, max_count), @bitCast(offset));
+        const rc = system.pwrite(fd, bytes.ptr, @min(bytes.len, max_count), @bitCast(offset));
         switch (errno(rc)) {
             .SUCCESS => return @intCast(rc),
             .INTR => continue,
@@ -1498,9 +1494,8 @@ pub fn pwritev(fd: fd_t, iov: []const iovec_const, offset: u64) PWriteError!usiz
         }
     }
 
-    const pwritev_sym = if (lfs64_abi) system.pwritev64 else system.pwritev;
     while (true) {
-        const rc = pwritev_sym(fd, iov.ptr, @min(iov.len, IOV_MAX), @bitCast(offset));
+        const rc = system.pwritev(fd, iov.ptr, @min(iov.len, IOV_MAX), @bitCast(offset));
         switch (errno(rc)) {
             .SUCCESS => return @intCast(rc),
             .INTR => continue,
@@ -1618,9 +1613,8 @@ pub fn openZ(file_path: [*:0]const u8, flags: O, perm: mode_t) OpenError!fd_t {
         return open(mem.sliceTo(file_path, 0), flags, perm);
     }
 
-    const open_sym = if (lfs64_abi) system.open64 else system.open;
     while (true) {
-        const rc = open_sym(file_path, flags, perm);
+        const rc = system.open(file_path, flags, perm);
         switch (errno(rc)) {
             .SUCCESS => return @intCast(rc),
             .INTR => continue,
@@ -1676,7 +1670,7 @@ pub fn openat(dir_fd: fd_t, file_path: []const u8, flags: O, mode: mode_t) OpenE
         errdefer close(fd);
 
         if (flags.write) {
-            const info = try std.os.fstat_wasi(fd);
+            const info = try fstatWasi(fd);
             if (info.filetype == .DIRECTORY)
                 return error.IsDir;
         }
@@ -1697,37 +1691,44 @@ pub fn openatWasi(
     base: wasi.rights_t,
     inheriting: wasi.rights_t,
 ) OpenError!fd_t {
-    while (true) {
-        var fd: fd_t = undefined;
-        switch (wasi.path_open(dir_fd, lookup_flags, file_path.ptr, file_path.len, oflags, base, inheriting, fdflags, &fd)) {
-            .SUCCESS => return fd,
-            .INTR => continue,
-
-            .FAULT => unreachable,
-            // Provides INVAL with a linux host on a bad path name, but NOENT on Windows
-            .INVAL => return error.BadPathName,
-            .BADF => unreachable,
-            .ACCES => return error.AccessDenied,
-            .FBIG => return error.FileTooBig,
-            .OVERFLOW => return error.FileTooBig,
-            .ISDIR => return error.IsDir,
-            .LOOP => return error.SymLinkLoop,
-            .MFILE => return error.ProcessFdQuotaExceeded,
-            .NAMETOOLONG => return error.NameTooLong,
-            .NFILE => return error.SystemFdQuotaExceeded,
-            .NODEV => return error.NoDevice,
-            .NOENT => return error.FileNotFound,
-            .NOMEM => return error.SystemResources,
-            .NOSPC => return error.NoSpaceLeft,
-            .NOTDIR => return error.NotDir,
-            .PERM => return error.AccessDenied,
-            .EXIST => return error.PathAlreadyExists,
-            .BUSY => return error.DeviceBusy,
-            .NOTCAPABLE => return error.AccessDenied,
-            .ILSEQ => return error.InvalidUtf8,
-            else => |err| return unexpectedErrno(err),
-        }
-    }
+    var fd: fd_t = undefined;
+    while (true) switch (wasi.path_open(
+        dir_fd,
+        lookup_flags,
+        file_path.ptr,
+        file_path.len,
+        oflags,
+        base,
+        inheriting,
+        fdflags,
+        &fd,
+    )) {
+        .SUCCESS => return fd,
+        .INTR => continue,
+        .FAULT => unreachable,
+        // Provides INVAL with a linux host on a bad path name, but NOENT on Windows
+        .INVAL => return error.BadPathName,
+        .BADF => unreachable,
+        .ACCES => return error.AccessDenied,
+        .FBIG => return error.FileTooBig,
+        .OVERFLOW => return error.FileTooBig,
+        .ISDIR => return error.IsDir,
+        .LOOP => return error.SymLinkLoop,
+        .MFILE => return error.ProcessFdQuotaExceeded,
+        .NAMETOOLONG => return error.NameTooLong,
+        .NFILE => return error.SystemFdQuotaExceeded,
+        .NODEV => return error.NoDevice,
+        .NOENT => return error.FileNotFound,
+        .NOMEM => return error.SystemResources,
+        .NOSPC => return error.NoSpaceLeft,
+        .NOTDIR => return error.NotDir,
+        .PERM => return error.AccessDenied,
+        .EXIST => return error.PathAlreadyExists,
+        .BUSY => return error.DeviceBusy,
+        .NOTCAPABLE => return error.AccessDenied,
+        .ILSEQ => return error.InvalidUtf8,
+        else => |err| return unexpectedErrno(err),
+    };
 }
 
 /// A struct to contain all lookup/rights flags accepted by `wasi.path_open`
@@ -1788,9 +1789,8 @@ pub fn openatZ(dir_fd: fd_t, file_path: [*:0]const u8, flags: O, mode: mode_t) O
         return openat(dir_fd, mem.sliceTo(file_path, 0), flags, mode);
     }
 
-    const openat_sym = if (lfs64_abi) system.openat64 else system.openat;
     while (true) {
-        const rc = openat_sym(dir_fd, file_path, flags, mode);
+        const rc = system.openat(dir_fd, file_path, flags, mode);
         switch (errno(rc)) {
             .SUCCESS => return @intCast(rc),
             .INTR => continue,
@@ -4350,16 +4350,19 @@ pub const FStatError = error{
 
 /// Return information about a file descriptor.
 pub fn fstat(fd: fd_t) FStatError!Stat {
-    if (native_os == .wasi and !builtin.link_libc) {
-        return Stat.fromFilestat(try std.os.fstat_wasi(fd));
-    }
-    if (native_os == .windows) {
+    if (native_os == .windows)
         @compileError("fstat is not yet implemented on Windows");
-    }
+    if (native_os == .wasi and !builtin.link_libc)
+        return Stat.fromFilestat(try fstatWasi(fd));
 
-    const fstat_sym = if (lfs64_abi) system.fstat64 else system.fstat;
+    if (native_os == .linux and !builtin.link_libc)
+        return fstatatLinux(fd, "", AT.EMPTY_PATH) catch |err| switch (err) {
+            error.SymLinkLoop, error.FileNotFound, error.NameTooLong => unreachable,
+            else => |e| e,
+        };
+
     var stat = mem.zeroes(Stat);
-    switch (errno(fstat_sym(fd, &stat))) {
+    switch (errno(system.fstat(fd, &stat))) {
         .SUCCESS => return stat,
         .INVAL => unreachable,
         .BADF => unreachable, // Always a race condition.
@@ -4367,6 +4370,19 @@ pub fn fstat(fd: fd_t) FStatError!Stat {
         .ACCES => return error.AccessDenied,
         else => |err| return unexpectedErrno(err),
     }
+}
+
+pub fn fstatWasi(fd: fd_t) FStatError!wasi.filestat_t {
+    var stat: wasi.filestat_t = undefined;
+    return switch (wasi.fd_filestat_get(fd, &stat)) {
+        .SUCCESS => stat,
+        .INVAL => unreachable,
+        .BADF => unreachable, // Always a race condition.
+        .NOMEM => return error.SystemResources,
+        .ACCES => return error.AccessDenied,
+        .NOTCAPABLE => return error.AccessDenied,
+        else => |err| return unexpectedErrno(err),
+    };
 }
 
 pub const FStatAtError = FStatError || error{
@@ -4381,51 +4397,108 @@ pub const FStatAtError = FStatError || error{
 /// which is relative to `dirfd` handle.
 /// On WASI, `pathname` should be encoded as valid UTF-8.
 /// On other platforms, `pathname` is an opaque sequence of bytes with no particular encoding.
-/// See also `fstatatZ` and `std.os.fstatat_wasi`.
+/// See also `fstatatZ`.
 pub fn fstatat(dirfd: fd_t, pathname: []const u8, flags: u32) FStatAtError!Stat {
-    if (native_os == .wasi and !builtin.link_libc) {
-        const filestat = try std.os.fstatat_wasi(dirfd, pathname, .{
-            .SYMLINK_FOLLOW = (flags & AT.SYMLINK_NOFOLLOW) == 0,
-        });
-        return Stat.fromFilestat(filestat);
-    } else if (native_os == .windows) {
+    if (native_os == .windows)
         @compileError("fstatat is not yet implemented on Windows");
-    } else {
-        const pathname_c = try toPosixPath(pathname);
-        return fstatatZ(dirfd, &pathname_c, flags);
-    }
+    if (native_os == .wasi and !builtin.link_libc)
+        return Stat.fromFilestat(try fstatatWasi(dirfd, pathname, .{
+            .SYMLINK_FOLLOW = (flags & AT.SYMLINK_NOFOLLOW) == 0,
+        }));
+
+    const pathname_c = try toPosixPath(pathname);
+    return fstatatZ(dirfd, &pathname_c, flags);
 }
 
-/// Same as `fstatat` but `pathname` is null-terminated.
-/// See also `fstatat`.
-pub fn fstatatZ(dirfd: fd_t, pathname: [*:0]const u8, flags: u32) FStatAtError!Stat {
-    if (native_os == .wasi and !builtin.link_libc) {
-        const filestat = try std.os.fstatat_wasi(dirfd, mem.sliceTo(pathname, 0), .{
-            .SYMLINK_FOLLOW = (flags & AT.SYMLINK_NOFOLLOW) == 0,
-        });
-        return Stat.fromFilestat(filestat);
-    }
-
-    const fstatat_sym = if (lfs64_abi) system.fstatat64 else system.fstatat;
-    var stat = mem.zeroes(Stat);
-    switch (errno(fstatat_sym(dirfd, pathname, &stat, flags))) {
+/// Same as `fstatat` but for WASI.
+/// `pathname` should be encoded as a valid UTF-8 string.
+pub fn fstatatWasi(dirfd: fd_t, pathname: []const u8, flags: wasi.lookupflags_t) FStatAtError!wasi.filestat_t {
+    var stat: wasi.filestat_t = undefined;
+    return switch (wasi.path_filestat_get(dirfd, flags, pathname.ptr, pathname.len, &stat)) {
         .SUCCESS => return stat,
         .INVAL => unreachable,
         .BADF => unreachable, // Always a race condition.
         .NOMEM => return error.SystemResources,
         .ACCES => return error.AccessDenied,
-        .PERM => return error.AccessDenied,
         .FAULT => unreachable,
         .NAMETOOLONG => return error.NameTooLong,
-        .LOOP => return error.SymLinkLoop,
         .NOENT => return error.FileNotFound,
         .NOTDIR => return error.FileNotFound,
-        .ILSEQ => |err| if (native_os == .wasi)
-            return error.InvalidUtf8
-        else
-            return unexpectedErrno(err),
+        .NOTCAPABLE => return error.AccessDenied,
+        .ILSEQ => return error.InvalidUtf8,
         else => |err| return unexpectedErrno(err),
-    }
+    };
+}
+
+/// Same as `fstatat` except it uses `statx(2)` if the target does not implement `fstatat(2)`.
+fn fstatatLinux(
+    dirfd: fd_t,
+    pathname: [*:0]const u8,
+    flags: u32,
+) (FStatError || error{ NameTooLong, FileNotFound, SymLinkLoop })!linux.Stat {
+    const buf, const rc = if (linux.has_fstatat) blk: {
+        var stat = mem.zeroes(linux.KernelStat);
+        const rc = linux.fstatat(dirfd, pathname, &stat, flags);
+        break :blk .{ stat, rc };
+    } else blk: {
+        var statx = mem.zeroes(linux.Statx);
+        const rc = linux.statx(dirfd, pathname, flags | AT.NO_AUTOMOUNT, linux.STATX_BASIC_STATS, &statx);
+        break :blk .{ statx, rc };
+    };
+    return switch (errno(rc)) {
+        .SUCCESS => if (linux.has_fstatat)
+            linux.Stat.fromKernel(buf)
+        else
+            linux.Stat.fromStatx(buf),
+        .INVAL => unreachable,
+        .BADF => unreachable, // Always a race condition.
+        .NOMEM => error.SystemResources,
+        .ACCES => error.AccessDenied,
+        .PERM => error.AccessDenied,
+        .FAULT => unreachable,
+        .NAMETOOLONG => error.NameTooLong,
+        .LOOP => error.SymLinkLoop,
+        .NOENT => error.FileNotFound,
+        .NOTDIR => error.FileNotFound,
+        else => |err| unexpectedErrno(err),
+    };
+}
+
+/// Same as `fstatat` but for targets using libc.
+fn fstatatC(dirfd: fd_t, pathname: [*:0]const u8, flags: u32) FStatAtError!Stat {
+    var stat = mem.zeroes(Stat);
+    return switch (errno(system.fstatat(dirfd, pathname, &stat, flags))) {
+        .SUCCESS => stat,
+        .INVAL => unreachable,
+        .BADF => unreachable, // Always a race condition.
+        .NOMEM => error.SystemResources,
+        .ACCES => error.AccessDenied,
+        .PERM => error.AccessDenied,
+        .FAULT => unreachable,
+        .NAMETOOLONG => error.NameTooLong,
+        .LOOP => error.SymLinkLoop,
+        .NOENT => error.FileNotFound,
+        .NOTDIR => error.FileNotFound,
+        .ILSEQ => |err| return if (native_os == .wasi)
+            error.InvalidUtf8
+        else
+            unexpectedErrno(err),
+        else => |err| unexpectedErrno(err),
+    };
+}
+
+/// Same as `fstatat` but `pathname` is null-terminated.
+pub inline fn fstatatZ(dirfd: fd_t, pathname: [*:0]const u8, flags: u32) FStatAtError!Stat {
+    return if (native_os == .windows)
+        @compileError("fstatat is not yet implemented on Windows")
+    else if (native_os == .wasi and !builtin.link_libc)
+        Stat.fromFilestat(try fstatatWasi(dirfd, mem.sliceTo(pathname, 0), .{
+            .SYMLINK_FOLLOW = (flags & AT.SYMLINK_NOFOLLOW) == 0,
+        }))
+    else if (native_os == .linux and !builtin.link_libc)
+        fstatatLinux(dirfd, pathname, flags)
+    else
+        fstatatC(dirfd, pathname, flags);
 }
 
 pub const KQueueError = error{
@@ -4722,8 +4795,7 @@ pub fn mmap(
     fd: fd_t,
     offset: u64,
 ) MMapError![]align(mem.page_size) u8 {
-    const mmap_sym = if (lfs64_abi) system.mmap64 else system.mmap;
-    const rc = mmap_sym(ptr, length, prot, @bitCast(flags), fd, @bitCast(offset));
+    const rc = system.mmap(ptr, length, prot, @bitCast(flags), fd, @bitCast(offset));
     const err: E = if (builtin.link_libc) blk: {
         if (rc != std.c.MAP_FAILED) return @as([*]align(mem.page_size) u8, @ptrCast(@alignCast(rc)))[0..length];
         break :blk @enumFromInt(system._errno().*);
@@ -4865,42 +4937,33 @@ pub fn faccessat(dirfd: fd_t, path: []const u8, mode: u32, flags: u32) AccessErr
         const path_w = try windows.sliceToPrefixedFileW(dirfd, path);
         return faccessatW(dirfd, path_w.span().ptr);
     } else if (native_os == .wasi and !builtin.link_libc) {
-        const resolved: RelativePathWasi = .{ .dir_fd = dirfd, .relative_path = path };
-
-        const st = blk: {
-            break :blk std.os.fstatat_wasi(dirfd, path, .{
-                .SYMLINK_FOLLOW = (flags & AT.SYMLINK_NOFOLLOW) == 0,
-            });
-        } catch |err| switch (err) {
+        const st = fstatatWasi(dirfd, path, .{
+            .SYMLINK_FOLLOW = (flags & AT.SYMLINK_NOFOLLOW) == 0,
+        }) catch |err| switch (err) {
             error.AccessDenied => return error.PermissionDenied,
             else => |e| return e,
         };
 
         if (mode != F_OK) {
             var directory: wasi.fdstat_t = undefined;
-            if (wasi.fd_fdstat_get(resolved.dir_fd, &directory) != .SUCCESS) {
+            if (wasi.fd_fdstat_get(dirfd, &directory) != .SUCCESS)
                 return error.PermissionDenied;
-            }
 
             var rights: wasi.rights_t = .{};
             if (mode & R_OK != 0) {
-                if (st.filetype == .DIRECTORY) {
-                    rights.FD_READDIR = true;
-                } else {
+                if (st.filetype == .DIRECTORY)
+                    rights.FD_READDIR = true
+                else
                     rights.FD_READ = true;
-                }
             }
-            if (mode & W_OK != 0) {
-                rights.FD_WRITE = true;
-            }
+            if (mode & W_OK != 0) rights.FD_WRITE = true;
             // No validation for X_OK
 
             // https://github.com/ziglang/zig/issues/18882
             const rights_int: u64 = @bitCast(rights);
             const inheriting_int: u64 = @bitCast(directory.fs_rights_inheriting);
-            if ((rights_int & inheriting_int) != rights_int) {
+            if ((rights_int & inheriting_int) != rights_int)
                 return error.PermissionDenied;
-            }
         }
         return;
     }
@@ -5151,8 +5214,7 @@ pub fn lseek_SET(fd: fd_t, offset: u64) SeekError!void {
         }
     }
 
-    const lseek_sym = if (lfs64_abi) system.lseek64 else system.lseek;
-    switch (errno(lseek_sym(fd, @bitCast(offset), SEEK.SET))) {
+    switch (errno(system.lseek(fd, @bitCast(offset), SEEK.SET))) {
         .SUCCESS => return,
         .BADF => unreachable, // always a race condition
         .INVAL => return error.Unseekable,
@@ -5193,8 +5255,7 @@ pub fn lseek_CUR(fd: fd_t, offset: i64) SeekError!void {
             else => |err| return unexpectedErrno(err),
         }
     }
-    const lseek_sym = if (lfs64_abi) system.lseek64 else system.lseek;
-    switch (errno(lseek_sym(fd, @bitCast(offset), SEEK.CUR))) {
+    switch (errno(system.lseek(fd, @bitCast(offset), SEEK.CUR))) {
         .SUCCESS => return,
         .BADF => unreachable, // always a race condition
         .INVAL => return error.Unseekable,
@@ -5235,8 +5296,7 @@ pub fn lseek_END(fd: fd_t, offset: i64) SeekError!void {
             else => |err| return unexpectedErrno(err),
         }
     }
-    const lseek_sym = if (lfs64_abi) system.lseek64 else system.lseek;
-    switch (errno(lseek_sym(fd, @bitCast(offset), SEEK.END))) {
+    switch (errno(system.lseek(fd, @bitCast(offset), SEEK.END))) {
         .SUCCESS => return,
         .BADF => unreachable, // always a race condition
         .INVAL => return error.Unseekable,
@@ -5277,8 +5337,7 @@ pub fn lseek_CUR_get(fd: fd_t) SeekError!u64 {
             else => |err| return unexpectedErrno(err),
         }
     }
-    const lseek_sym = if (lfs64_abi) system.lseek64 else system.lseek;
-    const rc = lseek_sym(fd, 0, SEEK.CUR);
+    const rc = system.lseek(fd, 0, SEEK.CUR);
     switch (errno(rc)) {
         .SUCCESS => return @bitCast(rc),
         .BADF => unreachable, // always a race condition
@@ -6220,10 +6279,9 @@ pub fn sendfile(
             // Here we match BSD behavior, making a zero count value send as many bytes as possible.
             const adjusted_count = if (in_len == 0) max_count else @min(in_len, max_count);
 
-            const sendfile_sym = if (lfs64_abi) system.sendfile64 else system.sendfile;
             while (true) {
                 var offset: off_t = @bitCast(in_offset);
-                const rc = sendfile_sym(out_fd, in_fd, &offset, adjusted_count);
+                const rc = system.sendfile(out_fd, in_fd, &offset, adjusted_count);
                 switch (errno(rc)) {
                     .SUCCESS => {
                         const amt: usize = @bitCast(rc);
@@ -7038,10 +7096,8 @@ pub fn prctl(option: PR, args: anytype) PrctlError!u31 {
 pub const GetrlimitError = UnexpectedError;
 
 pub fn getrlimit(resource: rlimit_resource) GetrlimitError!rlimit {
-    const getrlimit_sym = if (lfs64_abi) system.getrlimit64 else system.getrlimit;
-
     var limits: rlimit = undefined;
-    switch (errno(getrlimit_sym(resource, &limits))) {
+    switch (errno(system.getrlimit(resource, &limits))) {
         .SUCCESS => return limits,
         .FAULT => unreachable, // bogus pointer
         .INVAL => unreachable,
@@ -7052,15 +7108,13 @@ pub fn getrlimit(resource: rlimit_resource) GetrlimitError!rlimit {
 pub const SetrlimitError = error{ PermissionDenied, LimitTooBig } || UnexpectedError;
 
 pub fn setrlimit(resource: rlimit_resource, limits: rlimit) SetrlimitError!void {
-    const setrlimit_sym = if (lfs64_abi) system.setrlimit64 else system.setrlimit;
-
-    switch (errno(setrlimit_sym(resource, &limits))) {
-        .SUCCESS => return,
+    return switch (errno(system.setrlimit(resource, &limits))) {
+        .SUCCESS => {},
         .FAULT => unreachable, // bogus pointer
-        .INVAL => return error.LimitTooBig, // this could also mean "invalid resource", but that would be unreachable
-        .PERM => return error.PermissionDenied,
-        else => |err| return unexpectedErrno(err),
-    }
+        .INVAL => error.LimitTooBig, // this could also mean "invalid resource", but that would be unreachable
+        .PERM => error.PermissionDenied,
+        else => |err| unexpectedErrno(err),
+    };
 }
 
 pub const MincoreError = error{
@@ -7127,18 +7181,18 @@ pub const MadviseError = error{
 /// Give advice about use of memory.
 /// This syscall is optional and is sometimes configured to be disabled.
 pub fn madvise(ptr: [*]align(mem.page_size) u8, length: usize, advice: u32) MadviseError!void {
-    switch (errno(system.madvise(ptr, length, advice))) {
-        .SUCCESS => return,
-        .PERM => return error.PermissionDenied,
-        .ACCES => return error.AccessDenied,
-        .AGAIN => return error.SystemResources,
+    return switch (errno(system.madvise(ptr, length, advice))) {
+        .SUCCESS => {},
+        .PERM => error.PermissionDenied,
+        .ACCES => error.AccessDenied,
+        .AGAIN => error.SystemResources,
         .BADF => unreachable, // The map exists, but the area maps something that isn't a file.
-        .INVAL => return error.InvalidSyscall,
-        .IO => return error.WouldExceedMaximumResidentSetSize,
-        .NOMEM => return error.OutOfMemory,
-        .NOSYS => return error.MadviseUnavailable,
-        else => |err| return unexpectedErrno(err),
-    }
+        .INVAL => error.InvalidSyscall,
+        .IO => error.WouldExceedMaximumResidentSetSize,
+        .NOMEM => error.OutOfMemory,
+        .NOSYS => error.MadviseUnavailable,
+        else => |err| unexpectedErrno(err),
+    };
 }
 
 pub const PerfEventOpenError = error{
@@ -7389,8 +7443,6 @@ pub fn ioctl_SIOCGIFINDEX(fd: fd_t, ifr: *ifreq) IoCtl_SIOCGIFINDEX_Error!void {
         }
     }
 }
-
-const lfs64_abi = native_os == .linux and builtin.link_libc and builtin.abi.isGnu();
 
 /// Whether or not `error.Unexpected` will print its value and a stack trace.
 ///

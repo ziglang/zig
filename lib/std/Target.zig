@@ -505,11 +505,11 @@ pub const Os = struct {
                 .linux => .{
                     .linux = .{
                         .range = .{
-                            .min = .{ .major = 4, .minor = 19, .patch = 0 },
-                            .max = .{ .major = 6, .minor = 10, .patch = 3 },
+                            .min = .{ .major = 5, .minor = 1, .patch = 0 },
+                            .max = .{ .major = 6, .minor = 11, .patch = 3 },
                         },
                         .glibc = blk: {
-                            const default_min = .{ .major = 2, .minor = 28, .patch = 0 };
+                            const default_min = .{ .major = 2, .minor = 34, .patch = 0 };
 
                             for (std.zig.target.available_libcs) |libc| {
                                 // We don't know the ABI here. We can get away with not checking it

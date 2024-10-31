@@ -237,37 +237,3 @@ pub fn getFdPath(fd: std.posix.fd_t, out_buffer: *[max_path_bytes]u8) std.posix.
         else => unreachable, // made unreachable by isGetFdPathSupportedOnTarget above
     }
 }
-
-/// WASI-only. Same as `fstatat` but targeting WASI.
-/// `pathname` should be encoded as valid UTF-8.
-/// See also `fstatat`.
-pub fn fstatat_wasi(dirfd: posix.fd_t, pathname: []const u8, flags: wasi.lookupflags_t) posix.FStatAtError!wasi.filestat_t {
-    var stat: wasi.filestat_t = undefined;
-    switch (wasi.path_filestat_get(dirfd, flags, pathname.ptr, pathname.len, &stat)) {
-        .SUCCESS => return stat,
-        .INVAL => unreachable,
-        .BADF => unreachable, // Always a race condition.
-        .NOMEM => return error.SystemResources,
-        .ACCES => return error.AccessDenied,
-        .FAULT => unreachable,
-        .NAMETOOLONG => return error.NameTooLong,
-        .NOENT => return error.FileNotFound,
-        .NOTDIR => return error.FileNotFound,
-        .NOTCAPABLE => return error.AccessDenied,
-        .ILSEQ => return error.InvalidUtf8,
-        else => |err| return posix.unexpectedErrno(err),
-    }
-}
-
-pub fn fstat_wasi(fd: posix.fd_t) posix.FStatError!wasi.filestat_t {
-    var stat: wasi.filestat_t = undefined;
-    switch (wasi.fd_filestat_get(fd, &stat)) {
-        .SUCCESS => return stat,
-        .INVAL => unreachable,
-        .BADF => unreachable, // Always a race condition.
-        .NOMEM => return error.SystemResources,
-        .ACCES => return error.AccessDenied,
-        .NOTCAPABLE => return error.AccessDenied,
-        else => |err| return posix.unexpectedErrno(err),
-    }
-}

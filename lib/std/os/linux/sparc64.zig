@@ -12,7 +12,6 @@ const sockaddr = linux.sockaddr;
 const socklen_t = linux.socklen_t;
 const iovec = std.posix.iovec;
 const iovec_const = std.posix.iovec_const;
-const timespec = linux.timespec;
 
 pub fn syscall_pipe(fd: *[2]i32) usize {
     return asm volatile (
@@ -299,50 +298,6 @@ pub const dev_t = usize;
 pub const nlink_t = u32;
 pub const blksize_t = isize;
 pub const blkcnt_t = isize;
-
-// The `stat64` definition used by the kernel.
-pub const Stat = extern struct {
-    dev: u64,
-    ino: u64,
-    nlink: u64,
-
-    mode: u32,
-    uid: u32,
-    gid: u32,
-    __pad0: u32,
-
-    rdev: u64,
-    size: i64,
-    blksize: i64,
-    blocks: i64,
-
-    atim: timespec,
-    mtim: timespec,
-    ctim: timespec,
-    __unused: [3]u64,
-
-    pub fn atime(self: @This()) timespec {
-        return self.atim;
-    }
-
-    pub fn mtime(self: @This()) timespec {
-        return self.mtim;
-    }
-
-    pub fn ctime(self: @This()) timespec {
-        return self.ctim;
-    }
-};
-
-pub const timeval = extern struct {
-    sec: isize,
-    usec: i32,
-};
-
-pub const timezone = extern struct {
-    minuteswest: i32,
-    dsttime: i32,
-};
 
 // TODO I'm not sure if the code below is correct, need someone with more
 // knowledge about sparc64 linux internals to look into.

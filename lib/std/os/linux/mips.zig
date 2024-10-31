@@ -9,7 +9,6 @@ const uid_t = linux.uid_t;
 const gid_t = linux.gid_t;
 const pid_t = linux.pid_t;
 const sockaddr = linux.sockaddr;
-const timespec = linux.timespec;
 
 pub fn syscall0(number: SYS) usize {
     return asm volatile (
@@ -288,7 +287,7 @@ pub const F = struct {
 pub const MMAP2_UNIT = 4096;
 
 pub const VDSO = struct {
-    pub const CGT_SYM = "__vdso_clock_gettime";
+    pub const CGT_SYM = "__vdso_clock_gettime64";
     pub const CGT_VER = "LINUX_2.6";
 };
 
@@ -330,61 +329,6 @@ pub const off_t = i64;
 pub const ino_t = u64;
 pub const dev_t = u64;
 pub const blkcnt_t = i64;
-
-// The `stat64` definition used by the Linux kernel.
-pub const Stat = extern struct {
-    dev: dev_t,
-    __pad0: [2]u32, // -1 because our dev_t is u64 (kernel dev_t is really u32).
-    ino: ino_t,
-    mode: mode_t,
-    nlink: nlink_t,
-    uid: uid_t,
-    gid: gid_t,
-    rdev: dev_t,
-    __pad1: [2]u32, // -1 because our dev_t is u64 (kernel dev_t is really u32).
-    size: off_t,
-    atim: i32,
-    atim_nsec: u32,
-    mtim: i32,
-    mtim_nsec: u32,
-    ctim: i32,
-    ctim_nsec: u32,
-    blksize: blksize_t,
-    __pad3: u32,
-    blocks: blkcnt_t,
-
-    pub fn atime(self: @This()) timespec {
-        return .{
-            .sec = self.atim,
-            .nsec = self.atim_nsec,
-        };
-    }
-
-    pub fn mtime(self: @This()) timespec {
-        return .{
-            .sec = self.mtim,
-            .nsec = self.mtim_nsec,
-        };
-    }
-
-    pub fn ctime(self: @This()) timespec {
-        return .{
-            .sec = self.ctim,
-            .nsec = self.ctim_nsec,
-        };
-    }
-};
-
-pub const timeval = extern struct {
-    sec: isize,
-    usec: isize,
-};
-
-pub const timezone = extern struct {
-    minuteswest: i32,
-    dsttime: i32,
-};
-
 pub const Elf_Symndx = u32;
 
 /// TODO

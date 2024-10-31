@@ -19,6 +19,7 @@ const netbsd = @import("c/netbsd.zig");
 const dragonfly = @import("c/dragonfly.zig");
 const haiku = @import("c/haiku.zig");
 const openbsd = @import("c/openbsd.zig");
+const vlfts = @import("c/vlfts.zig");
 
 // These constants are shared among all operating systems even when not linking
 // libc.
@@ -82,7 +83,7 @@ pub const off_t = switch (native_os) {
 };
 
 pub const timespec = switch (native_os) {
-    .linux => linux.timespec,
+    .linux => linux.timespec64,
     .emscripten => emscripten.timespec,
     .wasi => extern struct {
         sec: time_t,
@@ -5803,22 +5804,44 @@ pub const stack_t = switch (native_os) {
         flags: i32,
     },
 };
+
 pub const time_t = switch (native_os) {
-    .linux => linux.time_t,
+    .linux => if (native_abi.isMusl())
+        i64 // 64-bit since version 1.2.
+    else if (versionCheck(.{ .major = 2, .minor = 34, .patch = 0 }))
+        i64 // Complete Y2038 support since version 2.34.
+    else if (vlfts.time64_abi)
+        i64
+    else
+        // True for:
+        //  - glibc older than 2.34.
+        //  - Musl older than 1.2.
+        //  - Bionic[1], since time_t -> __kernel_time_t -> __kernel_long_t.
+        // [1] https://android.googlesource.com/platform/bionic/+/refs/heads/main/libc/include/bits/timespec.h
+        c_long,
     .emscripten => emscripten.time_t,
     .haiku, .dragonfly => isize,
     else => i64,
 };
+
 pub const suseconds_t = switch (native_os) {
     .solaris, .illumos => i64,
     .freebsd, .dragonfly => c_long,
     .netbsd => c_int,
     .haiku => i32,
+    // See `time_t` above.
+    .linux => if (native_abi.isMusl())
+        i64
+    else if (versionCheck(.{ .major = 2, .minor = 34, .patch = 0 }))
+        i64
+    else if (vlfts.time64_abi)
+        i64
+    else
+        c_long,
     else => void,
 };
 
 pub const timeval = switch (native_os) {
-    .linux => linux.timeval,
     .emscripten => emscripten.timeval,
     .windows => extern struct {
         sec: c_long,
@@ -5838,8 +5861,18 @@ pub const timeval = switch (native_os) {
         sec: time_t,
         usec: c_long,
     },
+    // See `time_t` above.
+    .linux => if (native_abi.isMusl())
+        linux.sock_timeval
+    else if (versionCheck(.{ .major = 2, .minor = 34, .patch = 0 }))
+        linux.sock_timeval
+    else if (vlfts.time64_abi)
+        linux.sock_timeval
+    else
+        linux.timeval,
     else => void,
 };
+
 pub const timezone = switch (native_os) {
     .linux => linux.timezone,
     .emscripten => emscripten.timezone,
@@ -6403,23 +6436,283 @@ pub const EAI = switch (native_os) {
 pub const dl_iterate_phdr_callback = *const fn (info: *dl_phdr_info, size: usize, data: ?*anyopaque) callconv(.C) c_int;
 
 pub const Stat = switch (native_os) {
-    .linux => switch (native_arch) {
+    .linux => if (native_abi.isAndroid())
+        // Android uses Bionic libc, which uses the kernel definitions.
+        linux.KernelStat
+    else if (native_abi.isGnu()) switch (native_arch) {
+        .aarch64, .aarch64_be, .loongarch64 => extern struct {
+            dev: c_ulong,
+            ino: c_ulong,
+            mode: c_uint,
+            nlink: c_uint,
+            uid: c_uint,
+            gid: c_uint,
+            rdev: c_ulong,
+            __pad1: c_ulong = 0,
+            size: c_long,
+            blksize: c_int,
+            blocks: c_long,
+            atim: timespec,
+            mtim: timespec,
+            ctim: timespec,
+            __reserved: [2]c_int,
+
+            pub fn atime(self: @This()) timespec {
+                return self.atim;
+            }
+
+            pub fn mtime(self: @This()) timespec {
+                return self.mtim;
+            }
+
+            pub fn ctime(self: @This()) timespec {
+                return self.ctim;
+            }
+        },
+        .arm, .armeb, .thumb, .thumbeb, .m68k, .x86 => extern struct { // stat64
+            dev: c_ulonglong,
+            __pad1: c_ushort = 0,
+            __ino: c_ulong = 0,
+            mode: c_uint,
+            nlink: c_ulong,
+            uid: c_uint,
+            gid: c_uint,
+            rdev: c_ulonglong,
+            __pad2: c_ushort = 0,
+            size: c_longlong,
+            blksize: c_long,
+            blkcnt: c_longlong,
+            atim: timespec,
+            mtim: timespec,
+            ctim: timespec,
+            ino: c_ulonglong,
+
+            pub fn atime(self: @This()) timespec {
+                return self.atim;
+            }
+
+            pub fn mtime(self: @This()) timespec {
+                return self.mtim;
+            }
+
+            pub fn ctime(self: @This()) timespec {
+                return self.ctim;
+            }
+        },
+        .csky, .riscv32, .riscv64 => extern struct {
+            dev: c_ulonglong,
+            ino: c_ulonglong,
+            mode: c_uint,
+            nlink: c_ulong,
+            uid: c_uint,
+            gid: c_uint,
+            rdev: c_ulonglong,
+            __pad1: c_ulonglong = 0,
+            size: c_longlong,
+            blksize: c_int,
+            __pad2: c_int = 0,
+            blocks: c_longlong,
+            atim: timespec,
+            mtim: timespec,
+            ctim: timespec,
+            __reserved: [2]c_int,
+
+            pub fn atime(self: @This()) timespec {
+                return self.atim;
+            }
+
+            pub fn mtime(self: @This()) timespec {
+                return self.mtim;
+            }
+
+            pub fn ctime(self: @This()) timespec {
+                return self.ctim;
+            }
+        },
+        .mips, .mipsel => extern struct {
+            dev: c_ulong,
+            __pad1: [3]c_long = .{ 0, 0, 0 },
+            ino: c_ulonglong,
+            mode: c_uint,
+            nlink: c_ulong,
+            uid: c_uint,
+            gid: c_uint,
+            rdev: c_ulong,
+            __pad2: [3]c_long = .{ 0, 0, 0 },
+            size: c_longlong,
+            atim: timespec,
+            mtim: timespec,
+            ctim: timespec,
+            blksize: c_long,
+            __pad4: c_long = 0,
+            blocks: c_longlong,
+            __pad5: [14]c_long = [1]c_long{0} ** 14,
+        },
+        .mips64, .mips64el => if (native_abi == .gnuabin32)
+            extern struct {
+                dev: c_ulonglong,
+                __pad1: [3]c_int = .{ 0, 0, 0 },
+                ino: c_ulonglong,
+                mode: c_uint,
+                nlink: c_int,
+                uid: c_uint,
+                gid: c_uint,
+                rdev: c_ulonglong,
+                __pad2: [3]c_int = .{ 0, 0, 0 },
+                size: c_longlong,
+                atim: timespec,
+                mtim: timespec,
+                ctim: timespec,
+                blksize: c_long,
+                __pad4: c_uint = 0,
+                blocks: c_longlong,
+                __pad5: [14]c_int = [1]c_int{0} ** 14,
+
+                pub fn atime(self: @This()) timespec {
+                    return self.atim;
+                }
+
+                pub fn mtime(self: @This()) timespec {
+                    return self.mtim;
+                }
+
+                pub fn ctime(self: @This()) timespec {
+                    return self.ctim;
+                }
+            }
+        else
+            extern struct {
+                dev: c_ulong,
+                __pad1: [3]c_int = .{ 0, 0, 0 },
+                ino: c_ulong,
+                mode: c_uint,
+                nlink: c_ulong,
+                uid: c_uint,
+                gid: c_uint,
+                rdev: c_ulong,
+                __pad2: [3]c_int = .{ 0, 0, 0 },
+                size: c_long,
+                atim: timespec,
+                mtim: timespec,
+                ctim: timespec,
+                blksize: c_long,
+                __pad4: c_uint = 0,
+                blocks: c_long,
+                __pad5: [14]c_int = [1]c_int{0} ** 14,
+
+                pub fn atime(self: @This()) timespec {
+                    return self.atim;
+                }
+
+                pub fn mtime(self: @This()) timespec {
+                    return self.mtim;
+                }
+
+                pub fn ctime(self: @This()) timespec {
+                    return self.ctim;
+                }
+            },
+        .powerpc => extern struct {
+            dev: c_ulonglong,
+            ino: c_ulonglong,
+            mode: c_uint,
+            nlink: c_ulong,
+            uid: c_uint,
+            gid: c_uint,
+            rdev: c_ulonglong,
+            __pad2: c_ushort = 0,
+            size: c_longlong,
+            blksize: c_long,
+            blocks: c_longlong,
+            atim: timespec,
+            mtim: timespec,
+            ctim: timespec,
+            __reserved4: c_ulong,
+            __reserved5: c_ulong,
+
+            pub fn atime(self: @This()) timespec {
+                return self.atim;
+            }
+
+            pub fn mtime(self: @This()) timespec {
+                return self.mtim;
+            }
+
+            pub fn ctime(self: @This()) timespec {
+                return self.ctim;
+            }
+        },
+        .powerpc64, .powerpc64le => extern struct {
+            dev: c_ulong,
+            ino: c_ulong,
+            mode: c_uint,
+            nlink: c_ulong,
+            uid: c_uint,
+            gid: c_uint,
+            __pad2: c_uint = 0,
+            rdev: c_ulong,
+            size: c_long,
+            blksize: c_long,
+            blocks: c_long,
+            atim: timespec,
+            mtim: timespec,
+            ctim: timespec,
+            __reserved: [3]c_ulong = .{ 0, 0, 0 },
+
+            pub fn atime(self: @This()) timespec {
+                return self.atim;
+            }
+
+            pub fn mtime(self: @This()) timespec {
+                return self.mtim;
+            }
+
+            pub fn ctime(self: @This()) timespec {
+                return self.ctim;
+            }
+        },
+        .s390x => extern struct {
+            dev: c_ulong,
+            ino: c_ulong,
+            nlink: c_ulong,
+            mode: c_uint,
+            uid: c_uint,
+            gid: c_uint,
+            __reserved0: c_int = 0,
+            rdev: c_ulong,
+            size: c_long,
+            atim: timespec,
+            mtim: timespec,
+            ctim: timespec,
+            blksize: c_int,
+            blocks: c_long,
+            __reserved: [3]c_long,
+
+            pub fn atime(self: @This()) timespec {
+                return self.atim;
+            }
+
+            pub fn mtime(self: @This()) timespec {
+                return self.mtim;
+            }
+
+            pub fn ctime(self: @This()) timespec {
+                return self.ctim;
+            }
+        },
         .sparc64 => extern struct {
-            dev: u64,
-            __pad1: u16,
-            ino: ino_t,
-            mode: u32,
-            nlink: u32,
-
-            uid: u32,
-            gid: u32,
-            rdev: u64,
-            __pad2: u16,
-
-            size: off_t,
-            blksize: isize,
-            blocks: i64,
-
+            dev: c_ulong,
+            __pad1: c_ushort = 0,
+            ino: c_ulong,
+            mode: c_uint,
+            nlink: c_ulong,
+            uid: c_uint,
+            gid: c_uint,
+            rdev: c_ulong,
+            __pad2: c_ushort = 0,
+            size: c_long,
+            blksize: c_long,
+            blocks: c_long,
             atim: timespec,
             mtim: timespec,
             ctim: timespec,
@@ -6437,54 +6730,22 @@ pub const Stat = switch (native_os) {
                 return self.ctim;
             }
         },
-        .mips, .mipsel => if (builtin.target.isMusl()) extern struct {
-            dev: dev_t,
-            __pad0: [2]i32,
-            ino: ino_t,
-            mode: mode_t,
-            nlink: nlink_t,
-            uid: uid_t,
-            gid: gid_t,
-            rdev: dev_t,
-            __pad1: [2]i32,
-            size: off_t,
+        .x86_64 => extern struct {
+            dev: c_ulong,
+            ino: c_ulong,
+            nlink: c_ulong,
+            mode: c_uint,
+            uid: c_uint,
+            gid: c_uint,
+            __pad0: c_int = 0,
+            rdev: c_ulong,
+            size: c_long,
+            blksize: c_long,
+            blkcnt: c_long,
             atim: timespec,
             mtim: timespec,
             ctim: timespec,
-            blksize: blksize_t,
-            __pad3: i32,
-            blocks: blkcnt_t,
-            __pad4: [14]i32,
-
-            pub fn atime(self: @This()) timespec {
-                return self.atim;
-            }
-
-            pub fn mtime(self: @This()) timespec {
-                return self.mtim;
-            }
-
-            pub fn ctime(self: @This()) timespec {
-                return self.ctim;
-            }
-        } else extern struct {
-            dev: u32,
-            __pad0: [3]u32,
-            ino: ino_t,
-            mode: mode_t,
-            nlink: nlink_t,
-            uid: uid_t,
-            gid: gid_t,
-            rdev: u32,
-            __pad1: [3]u32,
-            size: off_t,
-            atim: timespec,
-            mtim: timespec,
-            ctim: timespec,
-            blksize: blksize_t,
-            __pad3: u32,
-            blocks: blkcnt_t,
-            __pad4: [14]u32,
+            __reserved: [3]c_long = .{ 0, 0, 0 },
 
             pub fn atime(self: @This()) timespec {
                 return self.atim;
@@ -6498,55 +6759,25 @@ pub const Stat = switch (native_os) {
                 return self.ctim;
             }
         },
-        .mips64, .mips64el => if (builtin.target.isMusl()) extern struct {
-            dev: dev_t,
-            __pad0: [3]i32,
-            ino: ino_t,
-            mode: mode_t,
-            nlink: nlink_t,
-            uid: uid_t,
-            gid: gid_t,
-            rdev: dev_t,
-            __pad1: [2]u32,
-            size: off_t,
-            __pad2: i32,
+        else => void,
+    } else if (native_abi.isMusl()) switch (native_arch) {
+        .aarch64, .aarch64_be, .loongarch64 => extern struct {
+            dev: c_ulong,
+            ino: c_ulong,
+            mode: c_uint,
+            nlink: c_uint,
+            uid: c_uint,
+            gid: c_uint,
+            rdev: c_ulong,
+            __pad1: c_ulong = 0,
+            size: c_long,
+            blksize: c_int,
+            __pad2: c_int = 0,
+            blocks: c_long,
             atim: timespec,
             mtim: timespec,
             ctim: timespec,
-            blksize: blksize_t,
-            __pad3: u32,
-            blocks: blkcnt_t,
-            __pad4: [14]i32,
-
-            pub fn atime(self: @This()) timespec {
-                return self.atim;
-            }
-
-            pub fn mtime(self: @This()) timespec {
-                return self.mtim;
-            }
-
-            pub fn ctime(self: @This()) timespec {
-                return self.ctim;
-            }
-        } else extern struct {
-            dev: dev_t,
-            __pad0: [3]u32,
-            ino: ino_t,
-            mode: mode_t,
-            nlink: nlink_t,
-            uid: uid_t,
-            gid: gid_t,
-            rdev: dev_t,
-            __pad1: [3]u32,
-            size: off_t,
-            atim: timespec,
-            mtim: timespec,
-            ctim: timespec,
-            blksize: blksize_t,
-            __pad3: u32,
-            blocks: blkcnt_t,
-            __pad4: [14]i32,
+            __unused: [2]c_int = .{ 0, 0 },
 
             pub fn atime(self: @This()) timespec {
                 return self.atim;
@@ -6560,9 +6791,317 @@ pub const Stat = switch (native_os) {
                 return self.ctim;
             }
         },
+        .arm, .armeb, .thumb, .thumbeb, .x86 => extern struct {
+            dev: c_ulonglong,
+            __dev_padding: c_int = 0,
+            __ino_truncated: c_long = 0,
+            mode: c_uint,
+            nlink: c_uint,
+            uid: c_uint,
+            gid: c_uint,
+            rdev: c_ulonglong,
+            __rdev_pading: c_int = 0,
+            size: c_longlong,
+            blksize: c_long,
+            blocks: c_longlong,
+            __atim32: [2]c_long,
+            __mtim32: [2]c_long,
+            __ctim32: [2]c_long,
+            ino: c_ulonglong,
+            atim: timespec,
+            mtim: timespec,
+            ctim: timespec,
 
-        else => std.os.linux.Stat, // libc stat is the same as kernel stat.
-    },
+            pub fn atime(self: @This()) timespec {
+                return self.atim;
+            }
+
+            pub fn mtime(self: @This()) timespec {
+                return self.mtim;
+            }
+
+            pub fn ctime(self: @This()) timespec {
+                return self.ctim;
+            }
+        },
+        .m68k => extern struct {
+            dev: c_ulonglong,
+            __dev_padding: c_short = 0,
+            __ino_truncated: c_long = 0,
+            mode: c_uint,
+            nlink: c_uint,
+            uid: c_uint,
+            gid: c_uint,
+            rdev: c_ulonglong,
+            __rdev_padding: c_short = 0,
+            size: c_longlong,
+            blksize: c_long,
+            blocks: c_longlong,
+            __atim32: [2]c_long,
+            __mtim32: [2]c_long,
+            __ctim32: [2]c_long,
+            ino: c_ulonglong,
+            atim: timespec,
+            mtim: timespec,
+            ctim: timespec,
+
+            pub fn atime(self: @This()) timespec {
+                return self.atim;
+            }
+
+            pub fn mtime(self: @This()) timespec {
+                return self.mtim;
+            }
+
+            pub fn ctime(self: @This()) timespec {
+                return self.ctim;
+            }
+        },
+        .mips, .mipsel => extern struct {
+            dev: c_longlong,
+            __pad1: [2]c_long = .{ 0, 0 },
+            ino: c_ulonglong,
+            mode: c_uint,
+            nlink: c_uint,
+            uid: c_uint,
+            gid: c_uint,
+            rdev: c_longlong,
+            __pad2: [2]c_long = .{ 0, 0 },
+            size: c_longlong,
+            __atim32: [2]c_long,
+            __mtim32: [2]c_long,
+            __ctim32: [2]c_long,
+            blksize: c_long,
+            __pad3: c_long = 0,
+            blocks: c_longlong,
+            atim: timespec,
+            mtim: timespec,
+            ctim: timespec,
+            __pad4: [2]c_long = .{ 0, 0 },
+
+            pub fn atime(self: @This()) timespec {
+                return self.atim;
+            }
+
+            pub fn mtime(self: @This()) timespec {
+                return self.mtim;
+            }
+
+            pub fn ctime(self: @This()) timespec {
+                return self.ctim;
+            }
+        },
+        .mips64, .mips64el => extern struct {
+            dev: c_ulong,
+            __pad1: [3]c_int = .{ 0, 0, 0 },
+            ino: c_ulong,
+            mode: c_uint,
+            nlink: c_uint,
+            uid: c_uint,
+            gid: c_uint,
+            rdev: c_ulong,
+            __pad2: [2]c_int = .{ 0, 0 },
+            size: c_long,
+            __pad3: c_int = 0,
+            atim: timespec,
+            mtim: timespec,
+            ctim: timespec,
+            blksize: c_long,
+            __pad4: c_uint = 0,
+            blocks: c_long,
+            __pad5: [14]c_int = [1]c_int{0} ** 14,
+
+            pub fn atime(self: @This()) timespec {
+                return self.atim;
+            }
+
+            pub fn mtime(self: @This()) timespec {
+                return self.mtim;
+            }
+
+            pub fn ctime(self: @This()) timespec {
+                return self.ctim;
+            }
+        },
+        .powerpc => extern struct {
+            dev: c_ulonglong,
+            ino: c_ulonglong,
+            mode: c_uint,
+            nlink: c_uint,
+            uid: c_uint,
+            gid: c_uint,
+            rdev: c_ulonglong,
+            __rdev_pading: c_short = 0,
+            size: c_longlong,
+            blksize: c_long,
+            blocks: c_longlong,
+            __atim32: [2]c_long,
+            __mtim32: [2]c_long,
+            __ctim32: [2]c_long,
+            __unused: [2]c_uint = .{ 0, 0 },
+            atim: timespec,
+            mtim: timespec,
+            ctim: timespec,
+
+            pub fn atime(self: @This()) timespec {
+                return self.atim;
+            }
+
+            pub fn mtime(self: @This()) timespec {
+                return self.mtim;
+            }
+
+            pub fn ctime(self: @This()) timespec {
+                return self.ctim;
+            }
+        },
+        .powerpc64, .powerpc64le => extern struct {
+            dev: c_ulong,
+            ino: c_ulong,
+            nlink: c_ulong,
+            mode: c_uint,
+            uid: c_uint,
+            gid: c_uint,
+            rdev: c_ulong,
+            size: c_long,
+            blksize: c_long,
+            blocks: c_long,
+            atim: timespec,
+            mtim: timespec,
+            ctim: timespec,
+            __unused: [3]c_long = .{ 0, 0, 0 },
+
+            pub fn atime(self: @This()) timespec {
+                return self.atim;
+            }
+
+            pub fn mtime(self: @This()) timespec {
+                return self.mtim;
+            }
+
+            pub fn ctime(self: @This()) timespec {
+                return self.ctim;
+            }
+        },
+        .riscv32 => extern struct {
+            dev: c_ulonglong,
+            ino: c_ulonglong,
+            mode: c_uint,
+            nlink: c_uint,
+            uid: c_uint,
+            gid: c_uint,
+            rdev: c_ulonglong,
+            __pad1: c_ulonglong = 0,
+            size: c_longlong,
+            blksize: c_int,
+            __pad2: c_int = 0,
+            blocks: c_longlong,
+            atim: timespec,
+            mtim: timespec,
+            ctim: timespec,
+            __unused: [2]c_uint = .{ 0, 0 },
+
+            pub fn atime(self: @This()) timespec {
+                return self.atim;
+            }
+
+            pub fn mtime(self: @This()) timespec {
+                return self.mtim;
+            }
+
+            pub fn ctime(self: @This()) timespec {
+                return self.ctim;
+            }
+        },
+        .riscv64 => extern struct {
+            dev: c_ulong,
+            ino: c_ulong,
+            mode: c_uint,
+            nlink: c_uint,
+            uid: c_uint,
+            gid: c_uint,
+            rdev: c_ulong,
+            __pad1: c_ulong = 0,
+            size: c_long,
+            blksize: c_int,
+            __pad2: c_int = 0,
+            blocks: c_long,
+            atim: timespec,
+            mtim: timespec,
+            ctim: timespec,
+            __unused: [2]c_uint = .{ 0, 0 },
+
+            pub fn atime(self: @This()) timespec {
+                return self.atim;
+            }
+
+            pub fn mtime(self: @This()) timespec {
+                return self.mtim;
+            }
+
+            pub fn ctime(self: @This()) timespec {
+                return self.ctim;
+            }
+        },
+        .s390x => extern struct {
+            dev: c_ulong,
+            ino: c_ulong,
+            nlink: c_ulong,
+            mode: c_uint,
+            uid: c_uint,
+            gid: c_uint,
+            rdev: c_ulong,
+            size: c_long,
+            atim: timespec,
+            mtim: timespec,
+            ctim: timespec,
+            blksize: c_long,
+            blocks: c_long,
+            __unused: [3]c_ulong = .{ 0, 0, 0 },
+
+            pub fn atime(self: @This()) timespec {
+                return self.atim;
+            }
+
+            pub fn mtime(self: @This()) timespec {
+                return self.mtim;
+            }
+
+            pub fn ctime(self: @This()) timespec {
+                return self.ctim;
+            }
+        },
+        .x86_64 => extern struct {
+            dev: c_ulong,
+            ino: c_ulong,
+            nlink: c_ulong,
+            mode: c_uint,
+            uid: c_uint,
+            gid: c_uint,
+            __pad0: c_uint = 0,
+            rdev: c_ulong,
+            size: c_long,
+            blksize: c_long,
+            blocks: c_long,
+            atim: timespec,
+            mtim: timespec,
+            ctim: timespec,
+            __unused: [3]c_long = .{ 0, 0, 0 },
+
+            pub fn atime(self: @This()) timespec {
+                return self.atim;
+            }
+
+            pub fn mtime(self: @This()) timespec {
+                return self.mtim;
+            }
+
+            pub fn ctime(self: @This()) timespec {
+                return self.ctim;
+            }
+        },
+        else => void,
+    } else void,
     .emscripten => emscripten.Stat,
     .wasi => extern struct {
         dev: dev_t,
@@ -8998,11 +9537,21 @@ pub const close = switch (native_os) {
 
 pub const clock_getres = switch (native_os) {
     .netbsd => private.__clock_getres50,
-    else => private.clock_getres,
+    else => blk: {
+        if (vlfts.time64_abi) {
+            if (native_abi.isGnu()) break :blk vlfts.__clock_getres64;
+            if (native_abi.isMusl()) break :blk vlfts.__clock_getres_time64;
+        }
+        break :blk private.clock_getres;
+    },
 };
 
 pub const clock_gettime = switch (native_os) {
     .netbsd => private.__clock_gettime50,
+    .linux => if (vlfts.time64_abi)
+        vlfts.__clock_gettime64
+    else
+        private.clock_gettime,
     else => private.clock_gettime,
 };
 
@@ -9012,7 +9561,14 @@ pub const fstat = switch (native_os) {
         else => private.fstat,
     },
     .netbsd => private.__fstat50,
-    else => private.fstat,
+    else => blk: {
+        if (vlfts.time64_abi) {
+            if (native_abi.isGnu()) break :blk vlfts.__fstat64_time64;
+            if (native_abi.isMusl()) break :blk vlfts.__fstat_time64;
+        }
+        if (vlfts.largefile_abi) break :blk vlfts.fstat64;
+        break :blk private.fstat;
+    },
 };
 
 pub const fstatat = switch (native_os) {
@@ -9020,31 +9576,30 @@ pub const fstatat = switch (native_os) {
         .x86_64 => private.@"fstatat$INODE64",
         else => private.fstatat,
     },
+    .linux => blk: {
+        if (vlfts.time64_abi) {
+            if (native_abi.isGnu()) break :blk vlfts.__fstatat64_time64;
+            if (native_abi.isMusl()) break :blk vlfts.__fstatat_time64;
+        }
+        if (vlfts.largefile_abi) break :blk vlfts.fstatat64;
+        break :blk private.fstatat;
+    },
     else => private.fstatat,
 };
 
 pub extern "c" fn getpwnam(name: [*:0]const u8) ?*passwd;
 pub extern "c" fn getpwuid(uid: uid_t) ?*passwd;
-pub extern "c" fn getrlimit64(resource: rlimit_resource, rlim: *rlimit) c_int;
-pub extern "c" fn lseek64(fd: fd_t, offset: i64, whence: c_int) i64;
-pub extern "c" fn mmap64(addr: ?*align(std.mem.page_size) anyopaque, len: usize, prot: c_uint, flags: c_uint, fd: fd_t, offset: i64) *anyopaque;
-pub extern "c" fn open64(path: [*:0]const u8, oflag: O, ...) c_int;
-pub extern "c" fn openat64(fd: c_int, path: [*:0]const u8, oflag: O, ...) c_int;
-pub extern "c" fn pread64(fd: fd_t, buf: [*]u8, nbyte: usize, offset: i64) isize;
-pub extern "c" fn preadv64(fd: c_int, iov: [*]const iovec, iovcnt: c_uint, offset: i64) isize;
-pub extern "c" fn pwrite64(fd: fd_t, buf: [*]const u8, nbyte: usize, offset: i64) isize;
-pub extern "c" fn pwritev64(fd: c_int, iov: [*]const iovec_const, iovcnt: c_uint, offset: i64) isize;
-pub extern "c" fn sendfile64(out_fd: fd_t, in_fd: fd_t, offset: ?*i64, count: usize) isize;
-pub extern "c" fn setrlimit64(resource: rlimit_resource, rlim: *const rlimit) c_int;
 
 pub const arc4random_buf = switch (native_os) {
     .dragonfly, .netbsd, .freebsd, .solaris, .openbsd, .macos, .ios, .tvos, .watchos, .visionos => private.arc4random_buf,
     else => {},
 };
+
 pub const getentropy = switch (native_os) {
     .emscripten => private.getentropy,
     else => {},
 };
+
 pub const getrandom = switch (native_os) {
     .freebsd => private.getrandom,
     .linux => if (versionCheck(.{ .major = 2, .minor = 25, .patch = 0 })) private.getrandom else {},
@@ -9065,29 +9620,30 @@ pub extern "c" fn epoll_pwait(
     sigmask: *const sigset_t,
 ) c_int;
 
-pub extern "c" fn timerfd_create(clockid: clockid_t, flags: c_int) c_int;
-pub extern "c" fn timerfd_settime(
-    fd: c_int,
-    flags: c_int,
-    new_value: *const itimerspec,
-    old_value: ?*itimerspec,
-) c_int;
-pub extern "c" fn timerfd_gettime(fd: c_int, curr_value: *itimerspec) c_int;
+pub const timerfd_create = switch (native_os) {
+    .linux, .illumos, .freebsd, .netbsd => private.timerfd_create,
+    else => {},
+};
+pub const timerfd_settime = switch (native_os) {
+    .linux => if (vlfts.time64_abi) vlfts.__timerfd_settime64 else private.timerfd_settime,
+    .illumos, .freebsd, .netbsd => private.timerfd_settime,
+    else => {},
+};
+pub const timerfd_gettime = switch (native_os) {
+    .linux => if (vlfts.time64_abi) vlfts.__timerfd_gettime64 else private.timerfd_gettime,
+    .illumos, .freebsd, .netbsd => private.timerfd_gettime,
+    else => {},
+};
 
 pub extern "c" fn inotify_init1(flags: c_uint) c_int;
 pub extern "c" fn inotify_add_watch(fd: fd_t, pathname: [*:0]const u8, mask: u32) c_int;
 pub extern "c" fn inotify_rm_watch(fd: fd_t, wd: c_int) c_int;
 
-pub extern "c" fn fstat64(fd: fd_t, buf: *Stat) c_int;
-pub extern "c" fn fstatat64(dirfd: fd_t, noalias path: [*:0]const u8, noalias stat_buf: *Stat, flags: u32) c_int;
-pub extern "c" fn fallocate64(fd: fd_t, mode: c_int, offset: off_t, len: off_t) c_int;
-pub extern "c" fn fopen64(noalias filename: [*:0]const u8, noalias modes: [*:0]const u8) ?*FILE;
-pub extern "c" fn ftruncate64(fd: c_int, length: off_t) c_int;
-pub extern "c" fn fallocate(fd: fd_t, mode: c_int, offset: off_t, len: off_t) c_int;
+pub const fallocate = if (vlfts.largefile_abi) vlfts.fallocate64 else private.fallocate;
 pub const sendfile = switch (native_os) {
     .freebsd => freebsd.sendfile,
     .macos, .ios, .tvos, .watchos, .visionos => darwin.sendfile,
-    .linux => private.sendfile,
+    .linux => if (vlfts.largefile_abi) vlfts.sendfile64 else private.sendfile,
     else => {},
 };
 /// See std.elf for constants for this
@@ -9100,7 +9656,10 @@ pub const sigaltstack = switch (native_os) {
     else => private.sigaltstack,
 };
 
-pub extern "c" fn memfd_create(name: [*:0]const u8, flags: c_uint) c_int;
+pub const memfd_create = switch (native_os) {
+    .linux, .freebsd => private.memfd_create,
+    else => {},
+};
 pub const pipe2 = switch (native_os) {
     .dragonfly, .emscripten, .netbsd, .freebsd, .solaris, .illumos, .openbsd, .linux => private.pipe2,
     else => {},
@@ -9113,7 +9672,6 @@ pub const copy_file_range = switch (native_os) {
 
 pub extern "c" fn signalfd(fd: fd_t, mask: *const sigset_t, flags: u32) c_int;
 
-pub extern "c" fn prlimit(pid: pid_t, resource: rlimit_resource, new_limit: *const rlimit, old_limit: *rlimit) c_int;
 pub extern "c" fn mincore(
     addr: *align(std.mem.page_size) anyopaque,
     length: usize,
@@ -9126,24 +9684,39 @@ pub extern "c" fn madvise(
     advice: u32,
 ) c_int;
 
-pub const getdirentries = switch (native_os) {
-    .macos, .ios, .tvos, .watchos, .visionos => private.__getdirentries64,
-    else => private.getdirentries,
-};
+pub const getdirentries = if (native_os.isDarwin())
+    private.__getdirentries64
+else if (vlfts.largefile_abi)
+    vlfts.getdirentries64
+else
+    private.getdirentries;
 
 pub const getdents = switch (native_os) {
     .netbsd => private.__getdents30,
-    else => private.getdents,
+    else => if (vlfts.largefile_abi) vlfts.getdents64 else private.getdents,
 };
 
 pub const getrusage = switch (native_os) {
     .netbsd => private.__getrusage50,
-    else => private.getrusage,
+    else => blk: {
+        if (vlfts.time64_abi) {
+            if (native_abi.isGnu()) break :blk vlfts.__getrusage64;
+            if (native_abi.isMusl()) break :blk vlfts.__getrusage_time64;
+        }
+        if (vlfts.largefile_abi) break :blk vlfts.__getrusage64;
+        break :blk private.getrusage;
+    },
 };
 
 pub const gettimeofday = switch (native_os) {
     .netbsd => private.__gettimeofday50,
-    else => private.gettimeofday,
+    else => blk: {
+        if (vlfts.time64_abi) {
+            if (native_abi.isGnu()) break :blk vlfts.__gettimeofday64;
+            if (native_abi.isMusl()) break :blk vlfts.__gettimeofday_time64;
+        }
+        break :blk private.gettimeofday;
+    },
 };
 
 pub const msync = switch (native_os) {
@@ -9153,7 +9726,13 @@ pub const msync = switch (native_os) {
 
 pub const nanosleep = switch (native_os) {
     .netbsd => private.__nanosleep50,
-    else => private.nanosleep,
+    else => blk: {
+        if (vlfts.time64_abi) {
+            if (native_abi.isGnu()) break :blk vlfts.__nanosleep64;
+            if (native_abi.isMusl()) break :blk vlfts.__nanosleep_time64;
+        }
+        break :blk private.nanosleep;
+    },
 };
 
 pub const readdir = switch (native_os) {
@@ -9162,7 +9741,7 @@ pub const readdir = switch (native_os) {
         else => private.readdir,
     },
     .windows => {},
-    else => private.readdir,
+    else => if (vlfts.largefile_abi) vlfts.readdir64 else private.readdir,
 };
 
 pub const realpath = switch (native_os) {
@@ -9200,7 +9779,14 @@ pub const stat = switch (native_os) {
         .x86_64 => private.@"stat$INODE64",
         else => private.stat,
     },
-    else => private.stat,
+    else => blk: {
+        if (vlfts.time64_abi) {
+            if (builtin.abi.isGnu()) break :blk vlfts.__stat64_time64;
+            if (builtin.abi.isMusl()) break :blk vlfts.__stat_time64;
+        }
+        if (vlfts.largefile_abi) break :blk vlfts.stat64;
+        break :blk private.stat;
+    },
 };
 
 pub const _msize = switch (native_os) {
@@ -9237,7 +9823,7 @@ pub const flock = switch (native_os) {
 
 pub extern "c" var environ: [*:null]?[*:0]u8;
 
-pub extern "c" fn fopen(noalias filename: [*:0]const u8, noalias modes: [*:0]const u8) ?*FILE;
+pub const fopen = if (vlfts.largefile_abi) vlfts.fopen64 else private.fopen;
 pub extern "c" fn fclose(stream: *FILE) c_int;
 pub extern "c" fn fwrite(noalias ptr: [*]const u8, size_of_type: usize, item_count: usize, noalias stream: *FILE) usize;
 pub extern "c" fn fread(noalias ptr: [*]u8, size_of_type: usize, item_count: usize, noalias stream: *FILE) usize;
@@ -9247,20 +9833,20 @@ pub extern "c" fn abort() noreturn;
 pub extern "c" fn exit(code: c_int) noreturn;
 pub extern "c" fn _exit(code: c_int) noreturn;
 pub extern "c" fn isatty(fd: fd_t) c_int;
-pub extern "c" fn lseek(fd: fd_t, offset: off_t, whence: whence_t) off_t;
-pub extern "c" fn open(path: [*:0]const u8, oflag: O, ...) c_int;
-pub extern "c" fn openat(fd: c_int, path: [*:0]const u8, oflag: O, ...) c_int;
-pub extern "c" fn ftruncate(fd: c_int, length: off_t) c_int;
+pub const lseek = if (vlfts.largefile_abi) vlfts.lseek64 else private.lseek;
+pub const open = if (vlfts.largefile_abi) vlfts.open64 else private.open;
+pub const openat = if (vlfts.largefile_abi) vlfts.openat64 else private.openat;
+pub const ftruncate = if (vlfts.largefile_abi) vlfts.ftruncate64 else private.ftruncate;
 pub extern "c" fn raise(sig: c_int) c_int;
 pub extern "c" fn read(fd: fd_t, buf: [*]u8, nbyte: usize) isize;
 pub extern "c" fn readv(fd: c_int, iov: [*]const iovec, iovcnt: c_uint) isize;
-pub extern "c" fn pread(fd: fd_t, buf: [*]u8, nbyte: usize, offset: off_t) isize;
-pub extern "c" fn preadv(fd: c_int, iov: [*]const iovec, iovcnt: c_uint, offset: off_t) isize;
-pub extern "c" fn writev(fd: c_int, iov: [*]const iovec_const, iovcnt: c_uint) isize;
-pub extern "c" fn pwritev(fd: c_int, iov: [*]const iovec_const, iovcnt: c_uint, offset: off_t) isize;
+pub const pread = if (vlfts.largefile_abi) vlfts.pread64 else private.pread;
+pub const preadv = if (vlfts.largefile_abi) vlfts.preadv64 else private.preadv;
 pub extern "c" fn write(fd: fd_t, buf: [*]const u8, nbyte: usize) isize;
-pub extern "c" fn pwrite(fd: fd_t, buf: [*]const u8, nbyte: usize, offset: off_t) isize;
-pub extern "c" fn mmap(addr: ?*align(page_size) anyopaque, len: usize, prot: c_uint, flags: MAP, fd: fd_t, offset: off_t) *anyopaque;
+pub extern "c" fn writev(fd: c_int, iov: [*]const iovec_const, iovcnt: c_uint) isize;
+pub const mmap = if (vlfts.largefile_abi) vlfts.mmap64 else private.mmap;
+pub const pwrite = if (vlfts.largefile_abi) vlfts.pwrite64 else private.pwrite;
+pub const pwritev = if (vlfts.largefile_abi) vlfts.pwritev64 else private.pwritev;
 pub extern "c" fn munmap(addr: *align(page_size) const anyopaque, len: usize) c_int;
 pub extern "c" fn mprotect(addr: *align(page_size) anyopaque, len: usize, prot: c_uint) c_int;
 pub extern "c" fn link(oldpath: [*:0]const u8, newpath: [*:0]const u8) c_int;
@@ -9269,7 +9855,7 @@ pub extern "c" fn unlink(path: [*:0]const u8) c_int;
 pub extern "c" fn unlinkat(dirfd: fd_t, path: [*:0]const u8, flags: c_uint) c_int;
 pub extern "c" fn getcwd(buf: [*]u8, size: usize) ?[*]u8;
 pub extern "c" fn waitpid(pid: pid_t, status: ?*c_int, options: c_int) pid_t;
-pub extern "c" fn wait4(pid: pid_t, status: ?*c_int, options: c_int, ru: ?*rusage) pid_t;
+pub const wait4 = if (vlfts.time64_abi) vlfts.__wait4_time64 else private.wait4;
 pub const fork = switch (native_os) {
     .dragonfly,
     .freebsd,
@@ -9317,8 +9903,14 @@ pub extern "c" fn sysctlbyname(name: [*:0]const u8, oldp: ?*anyopaque, oldlenp: 
 pub extern "c" fn sysctlnametomib(name: [*:0]const u8, mibp: ?*c_int, sizep: ?*usize) c_int;
 pub extern "c" fn tcgetattr(fd: fd_t, termios_p: *termios) c_int;
 pub extern "c" fn tcsetattr(fd: fd_t, optional_action: TCSA, termios_p: *const termios) c_int;
-pub extern "c" fn fcntl(fd: fd_t, cmd: c_int, ...) c_int;
-pub extern "c" fn ioctl(fd: fd_t, request: c_int, ...) c_int;
+pub const fcntl = if (vlfts.time64_abi and native_abi.isGnu())
+    vlfts.__fcntl_time64
+else
+    private.fcntl;
+pub const ioctl = if (vlfts.time64_abi and native_abi.isGnu())
+    vlfts.__ioctl_time64
+else
+    private.ioctl;
 pub extern "c" fn uname(buf: *utsname) c_int;
 
 pub extern "c" fn gethostname(name: [*]u8, len: usize) c_int;
@@ -9331,8 +9923,14 @@ pub extern "c" fn getpeername(sockfd: fd_t, noalias addr: *sockaddr, noalias add
 pub extern "c" fn connect(sockfd: fd_t, sock_addr: *const sockaddr, addrlen: socklen_t) c_int;
 pub extern "c" fn accept(sockfd: fd_t, noalias addr: ?*sockaddr, noalias addrlen: ?*socklen_t) c_int;
 pub extern "c" fn accept4(sockfd: fd_t, noalias addr: ?*sockaddr, noalias addrlen: ?*socklen_t, flags: c_uint) c_int;
-pub extern "c" fn getsockopt(sockfd: fd_t, level: i32, optname: u32, noalias optval: ?*anyopaque, noalias optlen: *socklen_t) c_int;
-pub extern "c" fn setsockopt(sockfd: fd_t, level: i32, optname: u32, optval: ?*const anyopaque, optlen: socklen_t) c_int;
+pub const getsockopt = if (vlfts.time64_abi and native_abi.isGnu())
+    vlfts.__getsockopt64
+else
+    private.getsockopt;
+pub const setsockopt = if (vlfts.time64_abi and native_abi.isGnu())
+    vlfts.__setsockopt64
+else
+    private.setsockopt;
 pub extern "c" fn send(sockfd: fd_t, buf: *const anyopaque, len: usize, flags: u32) isize;
 pub extern "c" fn sendto(
     sockfd: fd_t,
@@ -9342,8 +9940,10 @@ pub extern "c" fn sendto(
     dest_addr: ?*const sockaddr,
     addrlen: socklen_t,
 ) isize;
-pub extern "c" fn sendmsg(sockfd: fd_t, msg: *const msghdr_const, flags: u32) isize;
-
+pub const sendmsg = if (vlfts.time64_abi and native_abi.isGnu())
+    vlfts.__sendmsg64
+else
+    private.sendmsg;
 pub extern "c" fn recv(
     sockfd: fd_t,
     arg1: ?*anyopaque,
@@ -9358,7 +9958,10 @@ pub extern "c" fn recvfrom(
     noalias src_addr: ?*sockaddr,
     noalias addrlen: ?*socklen_t,
 ) if (native_os == .windows) c_int else isize;
-pub extern "c" fn recvmsg(sockfd: fd_t, msg: *msghdr, flags: u32) isize;
+pub const recvmsg = if (vlfts.time64_abi and native_abi.isGnu())
+    vlfts.__recvmsg64
+else
+    private.recvmsg;
 
 pub extern "c" fn kill(pid: pid_t, sig: c_int) c_int;
 
@@ -9376,11 +9979,34 @@ pub extern "c" fn malloc(usize) ?*anyopaque;
 pub extern "c" fn realloc(?*anyopaque, usize) ?*anyopaque;
 pub extern "c" fn free(?*anyopaque) void;
 
-pub extern "c" fn futimes(fd: fd_t, times: *[2]timeval) c_int;
-pub extern "c" fn utimes(path: [*:0]const u8, times: *[2]timeval) c_int;
-
-pub extern "c" fn utimensat(dirfd: fd_t, pathname: [*:0]const u8, times: *[2]timespec, flags: u32) c_int;
-pub extern "c" fn futimens(fd: fd_t, times: *const [2]timespec) c_int;
+pub const utimes = blk: {
+    if (vlfts.time64_abi) {
+        if (native_abi.isGnu()) break :blk vlfts.__utimes64;
+        if (native_abi.isMusl()) break :blk vlfts.__utimes_time64;
+    }
+    break :blk private.utimes;
+};
+pub const futimes = blk: {
+    if (vlfts.time64_abi) {
+        if (native_abi.isGnu()) break :blk vlfts.__futimes64;
+        if (native_abi.isMusl()) break :blk vlfts.__futimes_time64;
+    }
+    break :blk private.futimes;
+};
+pub const utimensat = blk: {
+    if (vlfts.time64_abi) {
+        if (native_abi.isGnu()) break :blk vlfts.__utimensat64;
+        if (native_abi.isMusl()) break :blk vlfts.__utimensat_time64;
+    }
+    break :blk private.utimensat;
+};
+pub const futimens = blk: {
+    if (vlfts.time64_abi) {
+        if (native_abi.isGnu()) break :blk vlfts.__futimens64;
+        if (native_abi.isMusl()) break :blk vlfts.__futimens_time64;
+    }
+    break :blk private.futimens;
+};
 
 pub extern "c" fn pthread_create(
     noalias newthread: *pthread_t,
@@ -9514,7 +10140,13 @@ pub extern "c" fn pthread_mutex_destroy(mutex: *pthread_mutex_t) E;
 
 pub const PTHREAD_COND_INITIALIZER = pthread_cond_t{};
 pub extern "c" fn pthread_cond_wait(noalias cond: *pthread_cond_t, noalias mutex: *pthread_mutex_t) E;
-pub extern "c" fn pthread_cond_timedwait(noalias cond: *pthread_cond_t, noalias mutex: *pthread_mutex_t, noalias abstime: *const timespec) E;
+pub const pthread_cond_timedwait = blk: {
+    if (vlfts.time64_abi) {
+        if (native_abi.isGnu()) break :blk vlfts.__pthread_cond_timedwait64;
+        if (native_abi.isMusl()) break :blk vlfts.__pthread_cond_timedwait_time64;
+    }
+    break :blk private.pthread_cond_timedwait;
+};
 pub extern "c" fn pthread_cond_signal(cond: *pthread_cond_t) E;
 pub extern "c" fn pthread_cond_broadcast(cond: *pthread_cond_t) E;
 pub extern "c" fn pthread_cond_destroy(cond: *pthread_cond_t) E;
@@ -9539,10 +10171,23 @@ pub extern "c" fn syncfs(fd: c_int) c_int;
 pub extern "c" fn fsync(fd: c_int) c_int;
 pub extern "c" fn fdatasync(fd: c_int) c_int;
 
-pub extern "c" fn prctl(option: c_int, ...) c_int;
+pub const prctl = if (vlfts.time64_abi and native_abi.isGnu())
+    vlfts.__prctl_time64
+else
+    private.prctl;
 
-pub extern "c" fn getrlimit(resource: rlimit_resource, rlim: *rlimit) c_int;
-pub extern "c" fn setrlimit(resource: rlimit_resource, rlim: *const rlimit) c_int;
+pub const getrlimit = if (vlfts.time64_abi and native_abi.isGnu())
+    vlfts.getrlimit64
+else
+    private.getrlimit;
+pub const setrlimit = if (vlfts.time64_abi and native_abi.isGnu())
+    vlfts.setrlimit64
+else
+    private.setrlimit;
+pub const prlimit = if (vlfts.time64_abi and native_abi.isGnu())
+    vlfts.prlimit64
+else
+    private.prlimit;
 
 pub extern "c" fn fmemopen(noalias buf: ?*anyopaque, size: usize, noalias mode: [*:0]const u8) ?*FILE;
 
@@ -9881,47 +10526,75 @@ pub const umtx_wakeup = dragonfly.umtx_wakeup;
 
 /// External definitions shared by two or more operating systems.
 const private = struct {
-    extern "c" fn close(fd: fd_t) c_int;
+    extern "c" fn _msize(memblock: ?*anyopaque) usize;
+    extern "c" fn arc4random_buf(buf: [*]u8, len: usize) void;
     extern "c" fn clock_getres(clk_id: clockid_t, tp: *timespec) c_int;
     extern "c" fn clock_gettime(clk_id: clockid_t, tp: *timespec) c_int;
+    extern "c" fn close(fd: fd_t) c_int;
     extern "c" fn copy_file_range(fd_in: fd_t, off_in: ?*i64, fd_out: fd_t, off_out: ?*i64, len: usize, flags: c_uint) isize;
+    extern "c" fn fallocate(fd: fd_t, mode: c_int, offset: off_t, len: off_t) c_int;
+    extern "c" fn fcntl(fd: fd_t, cmd: c_int, ...) c_int;
     extern "c" fn flock(fd: fd_t, operation: c_int) c_int;
+    extern "c" fn fopen(noalias filename: [*:0]const u8, noalias modes: [*:0]const u8) ?*FILE;
     extern "c" fn fork() c_int;
     extern "c" fn fstat(fd: fd_t, buf: *Stat) c_int;
     extern "c" fn fstatat(dirfd: fd_t, path: [*:0]const u8, buf: *Stat, flag: u32) c_int;
-    extern "c" fn getdirentries(fd: fd_t, buf_ptr: [*]u8, nbytes: usize, basep: *i64) isize;
+    extern "c" fn futimens(fd: fd_t, times: *const [2]timespec) c_int;
+    extern "c" fn futimes(fd: fd_t, times: *const [2]timeval) c_int;
+    extern "c" fn getcontext(ucp: *ucontext_t) c_int;
     extern "c" fn getdents(fd: c_int, buf_ptr: [*]u8, nbytes: usize) switch (native_os) {
         .freebsd => isize,
         .solaris, .illumos => usize,
         else => c_int,
     };
+    extern "c" fn ftruncate(fd: c_int, length: off_t) c_int;
+    extern "c" fn getdirentries(fd: fd_t, buf_ptr: [*]u8, nbytes: usize, basep: *i64) isize;
+    extern "c" fn getentropy(buffer: [*]u8, size: usize) c_int;
+    extern "c" fn getrandom(buf_ptr: [*]u8, buf_len: usize, flags: c_uint) isize;
+    extern "c" fn getrlimit(resource: rlimit_resource, rlim: *rlimit) c_int;
     extern "c" fn getrusage(who: c_int, usage: *rusage) c_int;
+    extern "c" fn getsockopt(sockfd: fd_t, level: i32, optname: u32, noalias optval: ?*anyopaque, noalias optlen: *socklen_t) c_int;
     extern "c" fn gettimeofday(noalias tv: ?*timeval, noalias tz: ?*timezone) c_int;
+    extern "c" fn ioctl(fd: fd_t, request: c_int, ...) c_int;
+    extern "c" fn lseek(fd: fd_t, offset: off_t, whence: whence_t) off_t;
+    extern "c" fn malloc_size(?*const anyopaque) usize;
+    extern "c" fn malloc_usable_size(?*const anyopaque) usize;
+    extern "c" fn memfd_create(name: [*:0]const u8, flags: c_uint) c_int;
     extern "c" fn msync(addr: *align(page_size) const anyopaque, len: usize, flags: c_int) c_int;
+    extern "c" fn mmap(addr: ?*align(page_size) anyopaque, len: usize, prot: c_uint, flags: c_uint, fd: fd_t, offset: i64) *anyopaque;
     extern "c" fn nanosleep(rqtp: *const timespec, rmtp: ?*timespec) c_int;
+    extern "c" fn open(path: [*:0]const u8, oflag: O, ...) c_int;
+    extern "c" fn openat(fd: c_int, path: [*:0]const u8, oflag: O, ...) c_int;
     extern "c" fn pipe2(fds: *[2]fd_t, flags: O) c_int;
+    extern "c" fn posix_memalign(memptr: *?*anyopaque, alignment: usize, size: usize) c_int;
+    extern "c" fn prctl(option: c_int, ...) c_int;
+    extern "c" fn pread(fd: fd_t, buf: [*]u8, nbyte: usize, offset: off_t) isize;
+    extern "c" fn preadv(fd: c_int, iov: [*]const iovec, iovcnt: c_uint, offset: off_t) isize;
+    extern "c" fn prlimit(pid: pid_t, resource: rlimit_resource, new_limit: *const rlimit, old_limit: *rlimit) c_int;
+    extern "c" fn pthread_cond_timedwait(noalias cond: *pthread_cond_t, noalias mutex: *pthread_mutex_t, noalias abstime: *const timespec) E;
+    extern "c" fn pthread_setname_np(thread: pthread_t, name: [*:0]const u8) c_int;
+    extern "c" fn pwrite(fd: fd_t, buf: [*]const u8, nbyte: usize, offset: off_t) isize;
+    extern "c" fn pwritev(fd: c_int, iov: [*]const iovec_const, iovcnt: c_uint, offset: off_t) isize;
     extern "c" fn readdir(dir: *DIR) ?*dirent;
     extern "c" fn realpath(noalias file_name: [*:0]const u8, noalias resolved_name: [*]u8) ?[*:0]u8;
+    extern "c" fn recvmsg(sockfd: fd_t, msg: *msghdr, flags: u32) isize;
     extern "c" fn sched_yield() c_int;
     extern "c" fn sendfile(out_fd: fd_t, in_fd: fd_t, offset: ?*off_t, count: usize) isize;
+    extern "c" fn sendmsg(sockfd: fd_t, msg: *const msghdr_const, flags: u32) isize;
+    extern "c" fn setrlimit(resource: rlimit_resource, rlim: *const rlimit) c_int;
+    extern "c" fn setsockopt(sockfd: fd_t, level: i32, optname: u32, optval: ?*const anyopaque, optlen: socklen_t) c_int;
     extern "c" fn sigaction(sig: c_int, noalias act: ?*const Sigaction, noalias oact: ?*Sigaction) c_int;
+    extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
     extern "c" fn sigfillset(set: ?*sigset_t) void;
     extern "c" fn sigprocmask(how: c_int, noalias set: ?*const sigset_t, noalias oset: ?*sigset_t) c_int;
     extern "c" fn socket(domain: c_uint, sock_type: c_uint, protocol: c_uint) c_int;
     extern "c" fn stat(noalias path: [*:0]const u8, noalias buf: *Stat) c_int;
-    extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
-
-    extern "c" fn pthread_setname_np(thread: pthread_t, name: [*:0]const u8) c_int;
-    extern "c" fn getcontext(ucp: *ucontext_t) c_int;
-
-    extern "c" fn getrandom(buf_ptr: [*]u8, buf_len: usize, flags: c_uint) isize;
-    extern "c" fn getentropy(buffer: [*]u8, size: usize) c_int;
-    extern "c" fn arc4random_buf(buf: [*]u8, len: usize) void;
-
-    extern "c" fn _msize(memblock: ?*anyopaque) usize;
-    extern "c" fn malloc_size(?*const anyopaque) usize;
-    extern "c" fn malloc_usable_size(?*const anyopaque) usize;
-    extern "c" fn posix_memalign(memptr: *?*anyopaque, alignment: usize, size: usize) c_int;
+    extern "c" fn timerfd_create(clockid: clockid_t, flags: TFD) c_int;
+    extern "c" fn timerfd_gettime(fd: i32, curr_value: *itimerspec) c_int;
+    extern "c" fn timerfd_settime(fd: i32, flags: TFD.TIMER, new_value: *const itimerspec, old_value: ?*itimerspec) c_int;
+    extern "c" fn utimensat(dirfd: fd_t, pathname: [*:0]const u8, times: *const [2]timespec, flags: u32) c_int;
+    extern "c" fn utimes(path: [*:0]const u8, times: ?*const [2]timeval) c_int;
+    extern "c" fn wait4(pid: pid_t, status: ?*c_int, options: c_int, ru: ?*rusage) pid_t;
 
     /// macos modernized symbols.
     /// x86_64 links to $INODE64 suffix for 64-bit support.
@@ -9932,32 +10605,30 @@ const private = struct {
     extern "c" fn @"stat$INODE64"(noalias path: [*:0]const u8, noalias buf: *Stat) c_int;
 
     /// macos modernized symbols.
-    extern "c" fn @"realpath$DARWIN_EXTSN"(noalias file_name: [*:0]const u8, noalias resolved_name: [*]u8) ?[*:0]u8;
     extern "c" fn __getdirentries64(fd: fd_t, buf_ptr: [*]u8, buf_len: usize, basep: *i64) isize;
-
+    extern "c" fn @"realpath$DARWIN_EXTSN"(noalias file_name: [*:0]const u8, noalias resolved_name: [*]u8) ?[*:0]u8;
     extern "c" fn pthread_threadid_np(thread: ?pthread_t, thread_id: *u64) c_int;
 
     /// netbsd modernized symbols.
     extern "c" fn __clock_getres50(clk_id: clockid_t, tp: *timespec) c_int;
     extern "c" fn __clock_gettime50(clk_id: clockid_t, tp: *timespec) c_int;
     extern "c" fn __fstat50(fd: fd_t, buf: *Stat) c_int;
+    extern "c" fn __getdents30(fd: c_int, buf_ptr: [*]u8, nbytes: usize) c_int;
     extern "c" fn __getrusage50(who: c_int, usage: *rusage) c_int;
     extern "c" fn __gettimeofday50(noalias tv: ?*timeval, noalias tz: ?*timezone) c_int;
     extern "c" fn __libc_thr_yield() c_int;
     extern "c" fn __msync13(addr: *align(std.mem.page_size) const anyopaque, len: usize, flags: c_int) c_int;
     extern "c" fn __nanosleep50(rqtp: *const timespec, rmtp: ?*timespec) c_int;
     extern "c" fn __sigaction14(sig: c_int, noalias act: ?*const Sigaction, noalias oact: ?*Sigaction) c_int;
+    extern "c" fn __sigaltstack14(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
     extern "c" fn __sigfillset14(set: ?*sigset_t) void;
     extern "c" fn __sigprocmask14(how: c_int, noalias set: ?*const sigset_t, noalias oset: ?*sigset_t) c_int;
     extern "c" fn __socket30(domain: c_uint, sock_type: c_uint, protocol: c_uint) c_int;
     extern "c" fn __stat50(path: [*:0]const u8, buf: *Stat) c_int;
-    extern "c" fn __getdents30(fd: c_int, buf_ptr: [*]u8, nbytes: usize) c_int;
-    extern "c" fn __sigaltstack14(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
 
     // Don't forget to add another clown when an OS picks yet another unique
     // symbol name for errno location!
     // 🤡🤡🤡🤡🤡🤡
-
     extern "c" fn ___errno() *c_int;
     extern "c" fn __errno() *c_int;
     extern "c" fn __errno_location() *c_int;

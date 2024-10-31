@@ -44,14 +44,13 @@ test "timer" {
     const timer_fd = linux.timerfd_create(linux.CLOCK.MONOTONIC, .{});
     try expect(linux.E.init(timer_fd) == .SUCCESS);
 
-    const time_interval = linux.timespec{
+    const time_interval = linux.timespec64{
         .sec = 0,
-        .nsec = 2000000,
+        .nsec = 2 * std.time.ns_per_ms,
     };
-
     const new_time = linux.itimerspec{
-        .it_interval = time_interval,
-        .it_value = time_interval,
+        .interval = time_interval,
+        .value = time_interval,
     };
 
     err = linux.E.init(linux.timerfd_settime(@as(i32, @intCast(timer_fd)), .{}, &new_time, null));
@@ -86,9 +85,10 @@ test "statx" {
         else => unreachable,
     }
 
-    if (builtin.cpu.arch == .riscv32) return error.SkipZigTest; // No fstatat, so the rest of the test is meaningless.
+    if (linux.has_fstatat == false)
+        return error.SkipZigTest; // No fstatat, so the rest of the test is meaningless.
 
-    var stat_buf: linux.Stat = undefined;
+    var stat_buf: linux.KernelStat = undefined;
     switch (linux.E.init(linux.fstatat(file.handle, "", &stat_buf, linux.AT.EMPTY_PATH))) {
         .SUCCESS => {},
         else => unreachable,
@@ -97,9 +97,9 @@ test "statx" {
     try expect(stat_buf.mode == statx_buf.mode);
     try expect(@as(u32, @bitCast(stat_buf.uid)) == statx_buf.uid);
     try expect(@as(u32, @bitCast(stat_buf.gid)) == statx_buf.gid);
-    try expect(@as(u64, @bitCast(@as(i64, stat_buf.size))) == statx_buf.size);
-    try expect(@as(u64, @bitCast(@as(i64, stat_buf.blksize))) == statx_buf.blksize);
-    try expect(@as(u64, @bitCast(@as(i64, stat_buf.blocks))) == statx_buf.blocks);
+    try expect(@as(u64, @intCast(stat_buf.size)) == statx_buf.size);
+    try expect(@as(u64, @intCast(stat_buf.blksize)) == statx_buf.blksize);
+    try expect(@as(u64, @intCast(stat_buf.blocks)) == statx_buf.blocks);
 }
 
 test "user and group ids" {

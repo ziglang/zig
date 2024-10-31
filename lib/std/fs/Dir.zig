@@ -2694,10 +2694,9 @@ pub fn statFile(self: Dir, sub_path: []const u8) StatFileError!Stat {
         defer file.close();
         return file.stat();
     }
-    if (native_os == .wasi and !builtin.link_libc) {
-        const st = try std.os.fstatat_wasi(self.fd, sub_path, .{ .SYMLINK_FOLLOW = true });
-        return Stat.fromWasi(st);
-    }
+    if (native_os == .wasi and !builtin.link_libc)
+        return Stat.fromWasi(try posix.fstatatWasi(self.fd, sub_path, .{ .SYMLINK_FOLLOW = true }));
+
     if (native_os == .linux) {
         const sub_path_c = try posix.toPosixPath(sub_path);
         var stx = std.mem.zeroes(linux.Statx);

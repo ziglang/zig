@@ -8,7 +8,6 @@ const gid_t = std.os.linux.gid_t;
 const pid_t = std.os.linux.pid_t;
 const sockaddr = linux.sockaddr;
 const socklen_t = linux.socklen_t;
-const timespec = std.os.linux.timespec;
 const stack_t = std.os.linux.stack_t;
 const sigset_t = std.os.linux.sigset_t;
 
@@ -184,11 +183,6 @@ pub const ino_t = u64;
 pub const dev_t = u64;
 pub const blkcnt_t = i64;
 
-pub const timeval = extern struct {
-    sec: time_t,
-    usec: i64,
-};
-
 pub const Flock = extern struct {
     type: i16,
     whence: i16,
@@ -219,36 +213,6 @@ pub const msghdr_const = extern struct {
     __pad2: i32 = 0,
     controllen: socklen_t,
     flags: i32,
-};
-
-// The `stat` definition used by the Linux kernel.
-pub const Stat = extern struct {
-    dev: dev_t,
-    ino: ino_t,
-    nlink: nlink_t,
-    mode: mode_t,
-    uid: uid_t,
-    gid: gid_t,
-    rdev: dev_t,
-    size: off_t,
-    atim: timespec,
-    mtim: timespec,
-    ctim: timespec,
-    blksize: blksize_t,
-    blocks: blkcnt_t,
-    __unused: [3]c_ulong,
-
-    pub fn atime(self: @This()) timespec {
-        return self.atim;
-    }
-
-    pub fn mtime(self: @This()) timespec {
-        return self.mtim;
-    }
-
-    pub fn ctime(self: @This()) timespec {
-        return self.ctim;
-    }
 };
 
 pub const Elf_Symndx = u64;

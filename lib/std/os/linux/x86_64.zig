@@ -13,7 +13,6 @@ const stack_t = linux.stack_t;
 const sigset_t = linux.sigset_t;
 const sockaddr = linux.sockaddr;
 const socklen_t = linux.socklen_t;
-const timespec = linux.timespec;
 
 pub fn syscall0(number: SYS) usize {
     return asm volatile ("syscall"
@@ -252,50 +251,6 @@ pub const msghdr_const = extern struct {
 pub const off_t = i64;
 pub const ino_t = u64;
 pub const dev_t = u64;
-
-// The `stat` definition used by the Linux kernel.
-pub const Stat = extern struct {
-    dev: dev_t,
-    ino: ino_t,
-    nlink: usize,
-
-    mode: u32,
-    uid: uid_t,
-    gid: gid_t,
-    __pad0: u32,
-    rdev: dev_t,
-    size: off_t,
-    blksize: isize,
-    blocks: i64,
-
-    atim: timespec,
-    mtim: timespec,
-    ctim: timespec,
-    __unused: [3]isize,
-
-    pub fn atime(self: @This()) timespec {
-        return self.atim;
-    }
-
-    pub fn mtime(self: @This()) timespec {
-        return self.mtim;
-    }
-
-    pub fn ctime(self: @This()) timespec {
-        return self.ctim;
-    }
-};
-
-pub const timeval = extern struct {
-    sec: isize,
-    usec: isize,
-};
-
-pub const timezone = extern struct {
-    minuteswest: i32,
-    dsttime: i32,
-};
-
 pub const Elf_Symndx = u32;
 
 pub const greg_t = usize;
