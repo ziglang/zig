@@ -3965,7 +3965,9 @@ fn CopyPtrAttrs(
 }
 
 fn AsBytesReturnType(comptime P: type) type {
-    const size = @sizeOf(std.meta.Child(P));
+    const pointer = @typeInfo(P).pointer;
+    assert(pointer.size == .One);
+    const size = @sizeOf(pointer.child);
     return CopyPtrAttrs(P, .One, [size]u8);
 }
 
