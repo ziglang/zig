@@ -1363,7 +1363,10 @@ pub const Object = struct {
             .large => .Large,
         };
 
-        const float_abi: llvm.ABIType = if (comp.root_mod.resolved_target.result.floatAbi() == .hard) .Hard else .Soft;
+        const float_abi: llvm.TargetMachine.FloatABI = if (comp.root_mod.resolved_target.result.floatAbi() == .hard)
+            .Hard
+        else
+            .Soft;
 
         var target_machine = llvm.TargetMachine.create(
             target,
