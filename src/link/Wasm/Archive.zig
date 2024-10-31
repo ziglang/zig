@@ -1,5 +1,3 @@
-header: ar_hdr,
-
 /// A list of long file names, delimited by a LF character (0x0a).
 /// This is stored as a single slice of bytes, as the header-names
 /// point to the character index of a file name, rather than the index
@@ -110,7 +108,6 @@ pub fn parse(gpa: Allocator, file_contents: []const u8) !Archive {
     errdefer gpa.free(long_file_names);
 
     return .{
-        .header = header,
         .toc = toc,
         .long_file_names = long_file_names,
     };
