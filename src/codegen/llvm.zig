@@ -1593,7 +1593,10 @@ pub const Object = struct {
                                 try attributes.addParamAttr(llvm_arg_i, .@"noalias", &o.builder);
                             }
                         }
-                        if (param_ty.zigTypeTag(zcu) != .optional and !ptr_info.flags.is_allowzero) {
+                        if (param_ty.zigTypeTag(zcu) != .optional and
+                            !ptr_info.flags.is_allowzero and
+                            ptr_info.flags.address_space == .generic)
+                        {
                             try attributes.addParamAttr(llvm_arg_i, .nonnull, &o.builder);
                         }
                         if (ptr_info.flags.is_const) {
@@ -4611,7 +4614,10 @@ pub const Object = struct {
                     try attributes.addParamAttr(llvm_arg_i, .@"noalias", &o.builder);
                 }
             }
-            if (!param_ty.isPtrLikeOptional(zcu) and !ptr_info.flags.is_allowzero) {
+            if (!param_ty.isPtrLikeOptional(zcu) and
+                !ptr_info.flags.is_allowzero and
+                ptr_info.flags.address_space == .generic)
+            {
                 try attributes.addParamAttr(llvm_arg_i, .nonnull, &o.builder);
             }
             switch (fn_info.cc) {
@@ -5660,7 +5666,10 @@ pub const FuncGen = struct {
                             try attributes.addParamAttr(llvm_arg_i, .@"noalias", &o.builder);
                         }
                     }
-                    if (param_ty.zigTypeTag(zcu) != .optional and !ptr_info.flags.is_allowzero) {
+                    if (param_ty.zigTypeTag(zcu) != .optional and
+                        !ptr_info.flags.is_allowzero and
+                        ptr_info.flags.address_space == .generic)
+                    {
                         try attributes.addParamAttr(llvm_arg_i, .nonnull, &o.builder);
                     }
                     if (ptr_info.flags.is_const) {
