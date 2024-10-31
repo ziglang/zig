@@ -1,9 +1,9 @@
 //! ZigObject encapsulates the state of the incrementally compiled Zig module.
 //! It stores the associated input local and global symbols, allocated atoms,
 //! and any relocations that may have been emitted.
-//! Think about this as fake in-memory Object file for the Zig module.
 
-path: []const u8,
+/// For error reporting purposes only.
+path: Path,
 /// Map of all `Nav` that are currently alive.
 /// Each index maps to the corresponding `NavInfo`.
 navs: std.AutoHashMapUnmanaged(InternPool.Nav.Index, NavInfo) = .empty,
@@ -210,7 +210,7 @@ pub fn deinit(zig_object: *ZigObject, wasm: *Wasm) void {
     if (zig_object.dwarf) |*dwarf| {
         dwarf.deinit();
     }
-    gpa.free(zig_object.path);
+    gpa.free(zig_object.path.sub_path);
     zig_object.* = undefined;
 }
 
@@ -1236,6 +1236,7 @@ const codegen = @import("../../codegen.zig");
 const link = @import("../../link.zig");
 const log = std.log.scoped(.zig_object);
 const std = @import("std");
+const Path = std.Build.Cache.Path;
 
 const Air = @import("../../Air.zig");
 const Atom = Wasm.Atom;

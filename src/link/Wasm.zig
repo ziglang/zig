@@ -156,7 +156,7 @@ function_table: std.AutoHashMapUnmanaged(SymbolLoc, u32) = .empty,
 
 /// All archive files that are lazy loaded.
 /// e.g. when an undefined symbol references a symbol from the archive.
-archives: std.ArrayListUnmanaged(Archive) = .empty,
+lazy_archives: std.ArrayListUnmanaged(LazyArchive) = .empty,
 
 /// A map of global names (read: offset into string table) to their symbol location
 globals: std.AutoHashMapUnmanaged(u32, SymbolLoc) = .empty,
@@ -175,6 +175,10 @@ undefs: std.AutoArrayHashMapUnmanaged(u32, SymbolLoc) = .empty,
 /// data of a symbol, such as its size, or its offset to perform a relocation.
 /// Undefined (and synthetic) symbols do not have an Atom and therefore cannot be mapped.
 symbol_atom: std.AutoHashMapUnmanaged(SymbolLoc, Atom.Index) = .empty,
+
+/// `--verbose-link` output.
+/// Initialized on creation, appended to as inputs are added, printed during `flush`.
+dump_argv_list: std.ArrayListUnmanaged([]const u8),
 
 /// Index into objects array or the zig object.
 pub const ObjectId = enum(u16) {
@@ -197,6 +201,18 @@ pub const OptionalObjectId = enum(u16) {
     pub fn unwrap(i: OptionalObjectId) ?ObjectId {
         if (i == .none) return null;
         return @enumFromInt(@intFromEnum(i));
+    }
+};
+
+const LazyArchive = struct {
+    path: Path,
+    file_contents: []const u8,
+    archive: Archive,
+
+    fn deinit(la: *LazyArchive, gpa: Allocator) void {
+        gpa.free(la.path.sub_path);
+        gpa.free(la.file_contents);
+        la.* = undefined;
     }
 };
 
@@ -450,6 +466,7 @@ pub fn createEmpty(
             .named => |name| name,
         },
         .zig_object = null,
+        .dump_argv_list = .empty,
     };
     if (use_llvm and comp.config.have_zcu) {
         wasm.llvm_object = try LlvmObject.create(arena, comp);
@@ -596,7 +613,10 @@ pub fn createEmpty(
             const zig_object = try arena.create(ZigObject);
             wasm.zig_object = zig_object;
             zig_object.* = .{
-                .path = try std.fmt.allocPrint(gpa, "{s}.o", .{std.fs.path.stem(zcu.main_mod.root_src_path)}),
+                .path = .{
+                    .root_dir = std.Build.Cache.Directory.cwd(),
+                    .sub_path = try std.fmt.allocPrint(gpa, "{s}.o", .{fs.path.stem(zcu.main_mod.root_src_path)}),
+                },
                 .stack_pointer_sym = .null,
             };
             try zig_object.init(wasm);
@@ -657,28 +677,34 @@ fn createSyntheticSymbolOffset(wasm: *Wasm, name_offset: u32, tag: Symbol.Tag) !
     return loc;
 }
 
-/// Parses the object file from given path. Returns true when the given file was an object
-/// file and parsed successfully. Returns false when file is not an object file.
-/// May return an error instead when parsing failed.
-fn parseObjectFile(wasm: *Wasm, path: []const u8) !bool {
+fn openParseObjectReportingFailure(wasm: *Wasm, path: Path) void {
     const diags = &wasm.base.comp.link_diags;
-
-    const obj_file = try fs.cwd().openFile(path, .{});
-    errdefer obj_file.close();
-
-    const gpa = wasm.base.comp.gpa;
-    var object = Object.create(wasm, obj_file, path, null) catch |err| switch (err) {
-        error.InvalidMagicByte, error.NotObjectFile => return false,
-        else => |e| {
-            var err_note = try diags.addErrorWithNotes(1);
-            try err_note.addMsg("Failed parsing object file: {s}", .{@errorName(e)});
-            try err_note.addNote("while parsing '{s}'", .{path});
-            return error.FlushFailure;
-        },
+    const obj = link.openObject(path, false, false) catch |err| {
+        switch (diags.failParse(path, "failed to open object: {s}", .{@errorName(err)})) {
+            error.LinkFailure => return,
+        }
     };
-    errdefer object.deinit(gpa);
-    try wasm.objects.append(gpa, object);
-    return true;
+    wasm.parseObject(obj) catch |err| {
+        switch (diags.failParse(path, "failed to parse object: {s}", .{@errorName(err)})) {
+            error.LinkFailure => return,
+        }
+    };
+}
+
+fn parseObject(wasm: *Wasm, obj: link.Input.Object) !void {
+    defer obj.file.close();
+    const gpa = wasm.base.comp.gpa;
+    try wasm.objects.ensureUnusedCapacity(gpa, 1);
+    const stat = try obj.file.stat();
+    const size = std.math.cast(usize, stat.size) orelse return error.FileTooBig;
+
+    const file_contents = try gpa.alloc(u8, size);
+    defer gpa.free(file_contents);
+
+    const n = try obj.file.preadAll(file_contents, 0);
+    if (n != file_contents.len) return error.UnexpectedEndOfFile;
+
+    wasm.objects.appendAssumeCapacity(try Object.create(wasm, file_contents, obj.path, null));
 }
 
 /// Creates a new empty `Atom` and returns its `Atom.Index`
@@ -703,43 +729,37 @@ pub fn getAtomPtr(wasm: *Wasm, index: Atom.Index) *Atom {
     return &wasm.managed_atoms.items[@intFromEnum(index)];
 }
 
-/// Parses an archive file and will then parse each object file
-/// that was found in the archive file.
-/// Returns false when the file is not an archive file.
-/// May return an error instead when parsing failed.
-///
-/// When `force_load` is `true`, it will for link all object files in the archive.
-/// When false, it will only link with object files that contain symbols that
-/// are referenced by other object files or Zig code.
-fn parseArchive(wasm: *Wasm, path: []const u8, force_load: bool) !bool {
+fn parseArchive(wasm: *Wasm, obj: link.Input.Object) !void {
     const gpa = wasm.base.comp.gpa;
-    const diags = &wasm.base.comp.link_diags;
 
-    const archive_file = try fs.cwd().openFile(path, .{});
-    errdefer archive_file.close();
+    defer obj.file.close();
 
-    var archive: Archive = .{
-        .file = archive_file,
-        .name = path,
-    };
-    archive.parse(gpa) catch |err| switch (err) {
-        error.EndOfStream, error.NotArchive => {
-            archive.deinit(gpa);
-            return false;
-        },
-        else => |e| {
-            var err_note = try diags.addErrorWithNotes(1);
-            try err_note.addMsg("Failed parsing archive: {s}", .{@errorName(e)});
-            try err_note.addNote("while parsing archive {s}", .{path});
-            return error.FlushFailure;
-        },
-    };
+    const stat = try obj.file.stat();
+    const size = std.math.cast(usize, stat.size) orelse return error.FileTooBig;
 
-    if (!force_load) {
+    const file_contents = try gpa.alloc(u8, size);
+    var keep_file_contents = false;
+    defer if (!keep_file_contents) gpa.free(file_contents);
+
+    const n = try obj.file.preadAll(file_contents, 0);
+    if (n != file_contents.len) return error.UnexpectedEndOfFile;
+
+    var archive = try Archive.parse(gpa, file_contents);
+
+    if (!obj.must_link) {
         errdefer archive.deinit(gpa);
-        try wasm.archives.append(gpa, archive);
-        return true;
+        try wasm.lazy_archives.append(gpa, .{
+            .path = .{
+                .root_dir = obj.path.root_dir,
+                .sub_path = try gpa.dupe(u8, obj.path.sub_path),
+            },
+            .file_contents = file_contents,
+            .archive = archive,
+        });
+        keep_file_contents = true;
+        return;
     }
+
     defer archive.deinit(gpa);
 
     // In this case we must force link all embedded object files within the archive
@@ -754,16 +774,9 @@ fn parseArchive(wasm: *Wasm, path: []const u8, force_load: bool) !bool {
     }
 
     for (offsets.keys()) |file_offset| {
-        const object = archive.parseObject(wasm, file_offset) catch |e| {
-            var err_note = try diags.addErrorWithNotes(1);
-            try err_note.addMsg("Failed parsing object: {s}", .{@errorName(e)});
-            try err_note.addNote("while parsing object in archive {s}", .{path});
-            return error.FlushFailure;
-        };
+        const object = try archive.parseObject(wasm, file_contents[file_offset..], obj.path);
         try wasm.objects.append(gpa, object);
     }
-
-    return true;
 }
 
 fn requiresTLSReloc(wasm: *const Wasm) bool {
@@ -775,7 +788,7 @@ fn requiresTLSReloc(wasm: *const Wasm) bool {
     return false;
 }
 
-fn objectPath(wasm: *const Wasm, object_id: ObjectId) []const u8 {
+fn objectPath(wasm: *const Wasm, object_id: ObjectId) Path {
     const obj = wasm.objectById(object_id) orelse return wasm.zig_object.?.path;
     return obj.path;
 }
@@ -854,7 +867,7 @@ fn resolveSymbolsInObject(wasm: *Wasm, object_id: ObjectId) !void {
     const gpa = wasm.base.comp.gpa;
     const diags = &wasm.base.comp.link_diags;
     const obj_path = objectPath(wasm, object_id);
-    log.debug("Resolving symbols in object: '{s}'", .{obj_path});
+    log.debug("Resolving symbols in object: '{'}'", .{obj_path});
     const symbols = objectSymbols(wasm, object_id);
 
     for (symbols, 0..) |symbol, i| {
@@ -871,9 +884,7 @@ fn resolveSymbolsInObject(wasm: *Wasm, object_id: ObjectId) !void {
 
         if (symbol.isLocal()) {
             if (symbol.isUndefined()) {
-                var err = try diags.addErrorWithNotes(1);
-                try err.addMsg("Local symbols are not allowed to reference imports", .{});
-                try err.addNote("symbol '{s}' defined in '{s}'", .{ sym_name, obj_path });
+                diags.addParseError(obj_path, "local symbol '{s}' references import", .{sym_name});
             }
             try wasm.resolved_symbols.putNoClobber(gpa, location, {});
             continue;
@@ -892,7 +903,10 @@ fn resolveSymbolsInObject(wasm: *Wasm, object_id: ObjectId) !void {
 
         const existing_loc = maybe_existing.value_ptr.*;
         const existing_sym: *Symbol = wasm.symbolLocSymbol(existing_loc);
-        const existing_file_path = if (existing_loc.file.unwrap()) |id| objectPath(wasm, id) else wasm.name;
+        const existing_file_path: Path = if (existing_loc.file.unwrap()) |id| objectPath(wasm, id) else .{
+            .root_dir = std.Build.Cache.Directory.cwd(),
+            .sub_path = wasm.name,
+        };
 
         if (!existing_sym.isUndefined()) outer: {
             if (!symbol.isUndefined()) inner: {
@@ -905,8 +919,8 @@ fn resolveSymbolsInObject(wasm: *Wasm, object_id: ObjectId) !void {
                 // both are defined and weak, we have a symbol collision.
                 var err = try diags.addErrorWithNotes(2);
                 try err.addMsg("symbol '{s}' defined multiple times", .{sym_name});
-                try err.addNote("first definition in '{s}'", .{existing_file_path});
-                try err.addNote("next definition in '{s}'", .{obj_path});
+                try err.addNote("first definition in '{'}'", .{existing_file_path});
+                try err.addNote("next definition in '{'}'", .{obj_path});
             }
 
             try wasm.discarded.put(gpa, location, existing_loc);
@@ -916,8 +930,8 @@ fn resolveSymbolsInObject(wasm: *Wasm, object_id: ObjectId) !void {
         if (symbol.tag != existing_sym.tag) {
             var err = try diags.addErrorWithNotes(2);
             try err.addMsg("symbol '{s}' mismatching types '{s}' and '{s}'", .{ sym_name, @tagName(symbol.tag), @tagName(existing_sym.tag) });
-            try err.addNote("first definition in '{s}'", .{existing_file_path});
-            try err.addNote("next definition in '{s}'", .{obj_path});
+            try err.addNote("first definition in '{'}'", .{existing_file_path});
+            try err.addNote("next definition in '{'}'", .{obj_path});
         }
 
         if (existing_sym.isUndefined() and symbol.isUndefined()) {
@@ -940,8 +954,8 @@ fn resolveSymbolsInObject(wasm: *Wasm, object_id: ObjectId) !void {
                         existing_name,
                         module_name,
                     });
-                    try err.addNote("first definition in '{s}'", .{existing_file_path});
-                    try err.addNote("next definition in '{s}'", .{obj_path});
+                    try err.addNote("first definition in '{'}'", .{existing_file_path});
+                    try err.addNote("next definition in '{'}'", .{obj_path});
                 }
             }
 
@@ -956,8 +970,8 @@ fn resolveSymbolsInObject(wasm: *Wasm, object_id: ObjectId) !void {
             if (existing_ty.mutable != new_ty.mutable or existing_ty.valtype != new_ty.valtype) {
                 var err = try diags.addErrorWithNotes(2);
                 try err.addMsg("symbol '{s}' mismatching global types", .{sym_name});
-                try err.addNote("first definition in '{s}'", .{existing_file_path});
-                try err.addNote("next definition in '{s}'", .{obj_path});
+                try err.addNote("first definition in '{'}'", .{existing_file_path});
+                try err.addNote("next definition in '{'}'", .{obj_path});
             }
         }
 
@@ -968,8 +982,8 @@ fn resolveSymbolsInObject(wasm: *Wasm, object_id: ObjectId) !void {
                 var err = try diags.addErrorWithNotes(3);
                 try err.addMsg("symbol '{s}' mismatching function signatures.", .{sym_name});
                 try err.addNote("expected signature {}, but found signature {}", .{ existing_ty, new_ty });
-                try err.addNote("first definition in '{s}'", .{existing_file_path});
-                try err.addNote("next definition in '{s}'", .{obj_path});
+                try err.addNote("first definition in '{'}'", .{existing_file_path});
+                try err.addNote("next definition in '{'}'", .{obj_path});
             }
         }
 
@@ -983,8 +997,8 @@ fn resolveSymbolsInObject(wasm: *Wasm, object_id: ObjectId) !void {
 
         // simply overwrite with the new symbol
         log.debug("Overwriting symbol '{s}'", .{sym_name});
-        log.debug("  old definition in '{s}'", .{existing_file_path});
-        log.debug("  new definition in '{s}'", .{obj_path});
+        log.debug("  old definition in '{'}'", .{existing_file_path});
+        log.debug("  new definition in '{'}'", .{obj_path});
         try wasm.discarded.putNoClobber(gpa, existing_loc, location);
         maybe_existing.value_ptr.* = location;
         try wasm.globals.put(gpa, sym_name_index, location);
@@ -997,31 +1011,29 @@ fn resolveSymbolsInObject(wasm: *Wasm, object_id: ObjectId) !void {
 }
 
 fn resolveSymbolsInArchives(wasm: *Wasm) !void {
+    if (wasm.lazy_archives.items.len == 0) return;
     const gpa = wasm.base.comp.gpa;
     const diags = &wasm.base.comp.link_diags;
-    if (wasm.archives.items.len == 0) return;
 
-    log.debug("Resolving symbols in archives", .{});
+    log.debug("Resolving symbols in lazy_archives", .{});
     var index: u32 = 0;
     undef_loop: while (index < wasm.undefs.count()) {
         const sym_name_index = wasm.undefs.keys()[index];
 
-        for (wasm.archives.items) |archive| {
+        for (wasm.lazy_archives.items) |lazy_archive| {
             const sym_name = wasm.string_table.get(sym_name_index);
-            log.debug("Detected symbol '{s}' in archive '{s}', parsing objects..", .{ sym_name, archive.name });
-            const offset = archive.toc.get(sym_name) orelse {
-                // symbol does not exist in this archive
-                continue;
-            };
+            log.debug("Detected symbol '{s}' in archive '{'}', parsing objects..", .{
+                sym_name, lazy_archive.path,
+            });
+            const offset = lazy_archive.archive.toc.get(sym_name) orelse continue; // symbol does not exist in this archive
 
             // Symbol is found in unparsed object file within current archive.
             // Parse object and and resolve symbols again before we check remaining
             // undefined symbols.
-            const object = archive.parseObject(wasm, offset.items[0]) catch |e| {
-                var err_note = try diags.addErrorWithNotes(1);
-                try err_note.addMsg("Failed parsing object: {s}", .{@errorName(e)});
-                try err_note.addNote("while parsing object in archive {s}", .{archive.name});
-                return error.FlushFailure;
+            const file_contents = lazy_archive.file_contents[offset.items[0]..];
+            const object = lazy_archive.archive.parseObject(wasm, file_contents, lazy_archive.path) catch |err| {
+                // TODO this fails to include information to identify which object failed
+                return diags.failParse(lazy_archive.path, "failed to parse object in archive: {s}", .{@errorName(err)});
             };
             try wasm.objects.append(gpa, object);
             try wasm.resolveSymbolsInObject(@enumFromInt(wasm.objects.items.len - 1));
@@ -1323,9 +1335,11 @@ fn validateFeatures(
             allowed[used_index] = is_enabled;
             emit_features_count.* += @intFromBool(is_enabled);
         } else if (is_enabled and !allowed[used_index]) {
-            var err = try diags.addErrorWithNotes(1);
-            try err.addMsg("feature '{}' not allowed, but used by linked object", .{@as(Feature.Tag, @enumFromInt(used_index))});
-            try err.addNote("defined in '{s}'", .{wasm.objects.items[used_set >> 1].path});
+            diags.addParseError(
+                wasm.objects.items[used_set >> 1].path,
+                "feature '{}' not allowed, but used by linked object",
+                .{@as(Feature.Tag, @enumFromInt(used_index))},
+            );
             valid_feature_set = false;
         }
     }
@@ -1337,10 +1351,10 @@ fn validateFeatures(
     if (shared_memory) {
         const disallowed_feature = disallowed[@intFromEnum(Feature.Tag.shared_mem)];
         if (@as(u1, @truncate(disallowed_feature)) != 0) {
-            var err = try diags.addErrorWithNotes(0);
-            try err.addMsg(
-                "shared-memory is disallowed by '{s}' because it wasn't compiled with 'atomics' and 'bulk-memory' features enabled",
-                .{wasm.objects.items[disallowed_feature >> 1].path},
+            diags.addParseError(
+                wasm.objects.items[disallowed_feature >> 1].path,
+                "shared-memory is disallowed because it wasn't compiled with 'atomics' and 'bulk-memory' features enabled",
+                .{},
             );
             valid_feature_set = false;
         }
@@ -1371,8 +1385,8 @@ fn validateFeatures(
             if (@as(u1, @truncate(disallowed_feature)) != 0) {
                 var err = try diags.addErrorWithNotes(2);
                 try err.addMsg("feature '{}' is disallowed, but used by linked object", .{feature.tag});
-                try err.addNote("disallowed by '{s}'", .{wasm.objects.items[disallowed_feature >> 1].path});
-                try err.addNote("used in '{s}'", .{object.path});
+                try err.addNote("disallowed by '{'}'", .{wasm.objects.items[disallowed_feature >> 1].path});
+                try err.addNote("used in '{'}'", .{object.path});
                 valid_feature_set = false;
             }
 
@@ -1385,8 +1399,8 @@ fn validateFeatures(
             if (is_required and !object_used_features[feature_index]) {
                 var err = try diags.addErrorWithNotes(2);
                 try err.addMsg("feature '{}' is required but not used in linked object", .{@as(Feature.Tag, @enumFromInt(feature_index))});
-                try err.addNote("required by '{s}'", .{wasm.objects.items[required_feature >> 1].path});
-                try err.addNote("missing in '{s}'", .{object.path});
+                try err.addNote("required by '{'}'", .{wasm.objects.items[required_feature >> 1].path});
+                try err.addNote("missing in '{'}'", .{object.path});
                 valid_feature_set = false;
             }
         }
@@ -1460,19 +1474,25 @@ fn checkUndefinedSymbols(wasm: *const Wasm) !void {
         const symbol = wasm.symbolLocSymbol(undef);
         if (symbol.tag == .data) {
             found_undefined_symbols = true;
-            const file_name = switch (undef.file) {
-                .zig_object => wasm.zig_object.?.path,
-                .none => wasm.name,
-                _ => wasm.objects.items[@intFromEnum(undef.file)].path,
-            };
             const symbol_name = wasm.symbolLocName(undef);
-            var err = try diags.addErrorWithNotes(1);
-            try err.addMsg("could not resolve undefined symbol '{s}'", .{symbol_name});
-            try err.addNote("defined in '{s}'", .{file_name});
+            switch (undef.file) {
+                .zig_object => {
+                    // TODO: instead of saying the zig compilation unit, attach an actual source location
+                    // to this diagnostic
+                    diags.addError("unresolved symbol in Zig compilation unit: {s}", .{symbol_name});
+                },
+                .none => {
+                    diags.addError("internal linker bug: unresolved synthetic symbol: {s}", .{symbol_name});
+                },
+                _ => {
+                    const path = wasm.objects.items[@intFromEnum(undef.file)].path;
+                    diags.addParseError(path, "unresolved symbol: {s}", .{symbol_name});
+                },
+            }
         }
     }
     if (found_undefined_symbols) {
-        return error.FlushFailure;
+        return error.LinkFailure;
     }
 }
 
@@ -1493,9 +1513,8 @@ pub fn deinit(wasm: *Wasm) void {
         object.deinit(gpa);
     }
 
-    for (wasm.archives.items) |*archive| {
-        archive.deinit(gpa);
-    }
+    for (wasm.lazy_archives.items) |*lazy_archive| lazy_archive.deinit(gpa);
+    wasm.lazy_archives.deinit(gpa);
 
     if (wasm.findGlobalSymbol("__wasm_init_tls")) |loc| {
         const atom = wasm.symbol_atom.get(loc).?;
@@ -1514,7 +1533,6 @@ pub fn deinit(wasm: *Wasm) void {
     wasm.data_segments.deinit(gpa);
     wasm.segment_info.deinit(gpa);
     wasm.objects.deinit(gpa);
-    wasm.archives.deinit(gpa);
 
     // free output sections
     wasm.imports.deinit(gpa);
@@ -1527,6 +1545,7 @@ pub fn deinit(wasm: *Wasm) void {
     wasm.exports.deinit(gpa);
 
     wasm.string_table.deinit(gpa);
+    wasm.dump_argv_list.deinit(gpa);
 }
 
 pub fn updateFunc(wasm: *Wasm, pt: Zcu.PerThread, func_index: InternPool.Index, air: Air, liveness: Liveness) !void {
@@ -2584,7 +2603,7 @@ pub fn getMatchingSegment(wasm: *Wasm, object_id: ObjectId, symbol_index: Symbol
             } else {
                 var err = try diags.addErrorWithNotes(1);
                 try err.addMsg("found unknown section '{s}'", .{section_name});
-                try err.addNote("defined in '{s}'", .{objectPath(wasm, object_id)});
+                try err.addNote("defined in '{'}'", .{objectPath(wasm, object_id)});
                 return error.UnexpectedValue;
             }
         },
@@ -2603,6 +2622,32 @@ fn appendDummySegment(wasm: *Wasm) !void {
     });
 }
 
+pub fn loadInput(wasm: *Wasm, input: link.Input) !void {
+    const comp = wasm.base.comp;
+    const gpa = comp.gpa;
+
+    if (comp.verbose_link) {
+        comp.mutex.lock(); // protect comp.arena
+        defer comp.mutex.unlock();
+
+        const argv = &wasm.dump_argv_list;
+        switch (input) {
+            .res => unreachable,
+            .dso_exact => unreachable,
+            .dso => unreachable,
+            .object, .archive => |obj| try argv.append(gpa, try obj.path.toString(comp.arena)),
+        }
+    }
+
+    switch (input) {
+        .res => unreachable,
+        .dso_exact => unreachable,
+        .dso => unreachable,
+        .object => |obj| try parseObject(wasm, obj),
+        .archive => |obj| try parseArchive(wasm, obj),
+    }
+}
+
 pub fn flush(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
     const comp = wasm.base.comp;
     const use_lld = build_options.have_llvm and comp.config.use_lld;
@@ -2613,7 +2658,6 @@ pub fn flush(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: st
     return wasm.flushModule(arena, tid, prog_node);
 }
 
-/// Uses the in-house linker to link one or multiple object -and archive files into a WebAssembly binary.
 pub fn flushModule(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
     const tracy = trace(@src());
     defer tracy.end();
@@ -2626,85 +2670,22 @@ pub fn flushModule(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
         if (use_lld) return;
     }
 
+    if (comp.verbose_link) Compilation.dump_argv(wasm.dump_argv_list.items);
+
     const sub_prog_node = prog_node.start("Wasm Flush", 0);
     defer sub_prog_node.end();
 
-    const directory = wasm.base.emit.root_dir; // Just an alias to make it shorter to type.
-    const full_out_path = try directory.join(arena, &[_][]const u8{wasm.base.emit.sub_path});
-    const module_obj_path: ?[]const u8 = if (wasm.base.zcu_object_sub_path) |path| blk: {
-        if (fs.path.dirname(full_out_path)) |dirname| {
-            break :blk try fs.path.join(arena, &.{ dirname, path });
-        } else {
-            break :blk path;
-        }
+    const module_obj_path: ?Path = if (wasm.base.zcu_object_sub_path) |path| .{
+        .root_dir = wasm.base.emit.root_dir,
+        .sub_path = if (fs.path.dirname(wasm.base.emit.sub_path)) |dirname|
+            try fs.path.join(arena, &.{ dirname, path })
+        else
+            path,
     } else null;
 
-    // Positional arguments to the linker such as object files and static archives.
-    // TODO: "positional arguments" is a CLI concept, not a linker concept. Delete this unnecessary array list.
-    var positionals = std.ArrayList([]const u8).init(arena);
-    try positionals.ensureUnusedCapacity(comp.link_inputs.len);
+    if (wasm.zig_object) |zig_object| try zig_object.flushModule(wasm, tid);
 
-    const target = comp.root_mod.resolved_target.result;
-    const output_mode = comp.config.output_mode;
-    const link_mode = comp.config.link_mode;
-    const link_libc = comp.config.link_libc;
-    const link_libcpp = comp.config.link_libcpp;
-    const wasi_exec_model = comp.config.wasi_exec_model;
-
-    if (wasm.zig_object) |zig_object| {
-        try zig_object.flushModule(wasm, tid);
-    }
-
-    // When the target os is WASI, we allow linking with WASI-LIBC
-    if (target.os.tag == .wasi) {
-        const is_exe_or_dyn_lib = output_mode == .Exe or
-            (output_mode == .Lib and link_mode == .dynamic);
-        if (is_exe_or_dyn_lib) {
-            for (comp.wasi_emulated_libs) |crt_file| {
-                try positionals.append(try comp.crtFileAsString(
-                    arena,
-                    wasi_libc.emulatedLibCRFileLibName(crt_file),
-                ));
-            }
-
-            if (link_libc) {
-                try positionals.append(try comp.crtFileAsString(
-                    arena,
-                    wasi_libc.execModelCrtFileFullName(wasi_exec_model),
-                ));
-                try positionals.append(try comp.crtFileAsString(arena, "libc.a"));
-            }
-
-            if (link_libcpp) {
-                try positionals.append(try comp.libcxx_static_lib.?.full_object_path.toString(arena));
-                try positionals.append(try comp.libcxxabi_static_lib.?.full_object_path.toString(arena));
-            }
-        }
-    }
-
-    if (module_obj_path) |path| {
-        try positionals.append(path);
-    }
-
-    for (comp.link_inputs) |link_input| switch (link_input) {
-        .object, .archive => |obj| try positionals.append(try obj.path.toString(arena)),
-        .dso => |dso| try positionals.append(try dso.path.toString(arena)),
-        .dso_exact => unreachable, // forbidden by frontend
-        .res => unreachable, // windows only
-    };
-
-    for (comp.c_object_table.keys()) |c_object| {
-        try positionals.append(try c_object.status.success.object_path.toString(arena));
-    }
-
-    if (comp.compiler_rt_lib) |lib| try positionals.append(try lib.full_object_path.toString(arena));
-    if (comp.compiler_rt_obj) |obj| try positionals.append(try obj.full_object_path.toString(arena));
-
-    for (positionals.items) |path| {
-        if (try wasm.parseObjectFile(path)) continue;
-        if (try wasm.parseArchive(path, false)) continue; // load archives lazily
-        log.warn("Unexpected file format at path: '{s}'", .{path});
-    }
+    if (module_obj_path) |path| openParseObjectReportingFailure(wasm, path);
 
     if (wasm.zig_object != null) {
         try wasm.resolveSymbolsInObject(.zig_object);
@@ -3594,7 +3575,7 @@ fn linkWithLLD(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
             // regarding eliding redundant object -> object transformations.
             return error.NoObjectsToLink;
         };
-        try std.fs.Dir.copyFile(
+        try fs.Dir.copyFile(
             the_object_path.root_dir.handle,
             the_object_path.sub_path,
             directory.handle,

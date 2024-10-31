@@ -1085,7 +1085,7 @@ pub const File = struct {
         const use_lld = build_options.have_llvm and base.comp.config.use_lld;
         if (use_lld) return;
         switch (base.tag) {
-            inline .elf => |tag| {
+            inline .elf, .wasm => |tag| {
                 dev.check(tag.devFeature());
                 return @as(*tag.Type(), @fieldParentPtr("base", base)).loadInput(input);
             },
