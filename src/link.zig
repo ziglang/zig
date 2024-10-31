@@ -1214,11 +1214,9 @@ pub const File = struct {
             object_files.items.ptr,
             object_files.items.len,
             switch (target.os.tag) {
-                .linux => .GNU,
-                .freebsd, .openbsd => .BSD,
-                .macos, .ios => .DARWIN,
-                .windows => .GNU,
-                else => .GNU,
+                .aix => .AIXBIG,
+                .windows => .COFF,
+                else => if (target.os.tag.isDarwin()) .DARWIN else .GNU,
             },
         );
         if (bad) return error.UnableToWriteArchive;
