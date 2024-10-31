@@ -1673,6 +1673,7 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
     const data = air.instructions.items(.data)[@intFromEnum(inst)];
     return switch (air.instructions.items(.tag)[@intFromEnum(inst)]) {
         .arg,
+        .assembly,
         .block,
         .loop,
         .repeat,
@@ -1879,14 +1880,6 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .work_group_id,
         => false,
 
-        .assembly => {
-            const extra = air.extraData(Air.Asm, data.ty_pl.payload);
-            const is_volatile = @as(u1, @truncate(extra.data.flags >> 31)) != 0;
-            return is_volatile or if (extra.data.outputs_len == 1)
-                @as(Air.Inst.Ref, @enumFromInt(air.extra[extra.end])) != .none
-            else
-                extra.data.outputs_len > 1;
-        },
         .load => air.typeOf(data.ty_op.operand, ip).isVolatilePtrIp(ip),
         .slice_elem_val, .ptr_elem_val => air.typeOf(data.bin_op.lhs, ip).isVolatilePtrIp(ip),
         .atomic_load => switch (data.atomic_load.order) {
