@@ -1889,7 +1889,10 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         },
         .load => air.typeOf(data.ty_op.operand, ip).isVolatilePtrIp(ip),
         .slice_elem_val, .ptr_elem_val => air.typeOf(data.bin_op.lhs, ip).isVolatilePtrIp(ip),
-        .atomic_load => air.typeOf(data.atomic_load.ptr, ip).isVolatilePtrIp(ip),
+        .atomic_load => switch (data.atomic_load.order) {
+            .unordered, .monotonic => air.typeOf(data.atomic_load.ptr, ip).isVolatilePtrIp(ip),
+            else => true, // Stronger memory orderings have inter-thread side effects.
+        },
     };
 }
 
