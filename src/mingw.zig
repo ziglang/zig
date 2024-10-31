@@ -283,13 +283,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     const lib_final_path_z = try comp.global_cache_directory.joinZ(arena, &.{lib_final_path});
     if (llvm_bindings.WriteImportLibrary(
         def_final_path_z.ptr,
-        @intFromEnum(@as(std.coff.MachineType, switch (target.cpu.arch) {
-            .arm, .armeb, .thumb, .thumbeb => .ARMNT,
-            .aarch64, .aarch64_be => .ARM64,
-            .x86 => .I386,
-            .x86_64 => .X64,
-            else => unreachable,
-        })),
+        @intFromEnum(target.toCoffMachine()),
         lib_final_path_z.ptr,
         true,
     )) {
