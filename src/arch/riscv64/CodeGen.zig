@@ -7737,7 +7737,10 @@ fn airAtomicLoad(func: *Func, inst: Air.Inst.Index) !void {
     const bit_size = elem_ty.bitSize(zcu);
     if (bit_size > 64) return func.fail("TODO: airAtomicLoad > 64 bits", .{});
 
-    const result_mcv = try func.allocRegOrMem(elem_ty, inst, true);
+    const result_mcv: MCValue = if (func.liveness.isUnused(inst))
+        .{ .register = .zero }
+    else
+        try func.allocRegOrMem(elem_ty, inst, true);
     assert(result_mcv == .register); // should be less than 8 bytes
 
     if (order == .seq_cst) {
@@ -7753,11 +7756,10 @@ fn airAtomicLoad(func: *Func, inst: Air.Inst.Index) !void {
     try func.load(result_mcv, ptr_mcv, ptr_ty);
 
     switch (order) {
-        // Don't guarnetee other memory operations to be ordered after the load.
-        .unordered => {},
-        .monotonic => {},
-        // Make sure all previous reads happen before any reading or writing accurs.
-        .seq_cst, .acquire => {
+        // Don't guarantee other memory operations to be ordered after the load.
+        .unordered, .monotonic => {},
+        // Make sure all previous reads happen before any reading or writing occurs.
+        .acquire, .seq_cst => {
             _ = try func.addInst(.{
                 .tag = .fence,
                 .data = .{ .fence = .{
