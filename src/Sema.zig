@@ -17605,6 +17605,24 @@ fn analyzePtrArithmetic(
         } else break :rs ptr_src;
     };
 
+    const target = zcu.getTarget();
+    if (target_util.arePointersLogical(target, ptr_info.flags.address_space)) {
+        return sema.failWithOwnedErrorMsg(block, msg: {
+            const msg = try sema.errMsg(op_src, "illegal pointer arithmetic on pointer of type '{}'", .{ptr_ty.fmt(pt)});
+            errdefer msg.destroy(sema.gpa);
+
+            const backend = target_util.zigBackend(target, zcu.comp.config.use_llvm);
+            try sema.errNote(op_src, msg, "arithmetic cannot be performed on pointers with address space '{s}' on target {s}-{s} by compiler backend {s}", .{
+                @tagName(ptr_info.flags.address_space),
+                target.cpu.arch.genericName(),
+                @tagName(target.os.tag),
+                @tagName(backend),
+            });
+
+            break :msg msg;
+        });
+    }
+
     try sema.requireRuntimeBlock(block, op_src, runtime_src);
     return block.addInst(.{
         .tag = air_tag,
