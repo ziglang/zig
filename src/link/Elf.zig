@@ -823,9 +823,8 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
     const sub_prog_node = prog_node.start("ELF Flush", 0);
     defer sub_prog_node.end();
 
-    const directory = self.base.emit.root_dir; // Just an alias to make it shorter to type.
     const module_obj_path: ?Path = if (self.base.zcu_object_sub_path) |path| .{
-        .root_dir = directory,
+        .root_dir = self.base.emit.root_dir,
         .sub_path = if (fs.path.dirname(self.base.emit.sub_path)) |dirname|
             try fs.path.join(arena, &.{ dirname, path })
         else
@@ -1104,7 +1103,7 @@ fn dumpArgvInit(self: *Elf, arena: Allocator) !void {
 pub fn openParseObjectReportingFailure(self: *Elf, path: Path) void {
     const diags = &self.base.comp.link_diags;
     const obj = link.openObject(path, false, false) catch |err| {
-        switch (diags.failParse(path, "failed to open object {}: {s}", .{ path, @errorName(err) })) {
+        switch (diags.failParse(path, "failed to open object: {s}", .{@errorName(err)})) {
             error.LinkFailure => return,
         }
     };
