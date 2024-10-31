@@ -592,6 +592,11 @@ pub fn StackFallbackAllocator(comptime size: usize) type {
     };
 }
 
+test "Allocator.create alignment with zero-sized type" {
+    const array = try page_allocator.create([0]u64);
+    page_allocator.destroy(array);
+}
+
 test "c_allocator" {
     if (builtin.link_libc) {
         try testAllocator(c_allocator);
