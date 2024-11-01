@@ -636,7 +636,6 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
                         const curve_type = hsd.decode(u8);
                         if (curve_type != 0x03) return error.TlsIllegalParameter; // named_curve
                         const named_group = hsd.decode(tls.NamedGroup);
-                        if (named_group != .secp256r1) return error.TlsIllegalParameter;
                         const key_size = hsd.decode(u8);
                         try hsd.ensure(key_size);
                         const server_pub_key = hsd.slice(key_size);
