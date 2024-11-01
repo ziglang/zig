@@ -51,12 +51,8 @@ pub fn int(input: anytype) @TypeOf(input) {
         const Unsigned = @Type(.{ .int = .{ .signedness = .unsigned, .bits = info.bits } });
         const casted: Unsigned = @bitCast(input);
         return @bitCast(int(casted));
-    } else if (info.bits < 16) {
-        return @truncate(int(@as(u16, input)));
-    } else if (info.bits < 32) {
-        return @truncate(int(@as(u32, input)));
-    } else if (info.bits < 64) {
-        return @truncate(int(@as(u64, input)));
+    } else if (info.bits < 4) {
+        return @truncate(int(@as(u4, input)));
     }
     var x = input;
     switch (info.bits) {
