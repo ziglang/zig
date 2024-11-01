@@ -173,7 +173,7 @@ fn parseNameTable(gpa: Allocator, reader: anytype) ![]const u8 {
 
 /// From a given file offset, starts reading for a file header.
 /// When found, parses the object file into an `Object` and returns it.
-pub fn parseObject(archive: Archive, wasm: *const Wasm, file_contents: []const u8, path: Path) !Object {
+pub fn parseObject(archive: Archive, wasm: *Wasm, file_contents: []const u8, path: Path) !Object {
     var fbs = std.io.fixedBufferStream(file_contents);
     const header = try fbs.reader().readStruct(Header);
 
