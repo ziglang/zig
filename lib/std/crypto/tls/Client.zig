@@ -1735,7 +1735,9 @@ const CertificatePublicKey = struct {
                 const Ecdsa = SchemeEcdsa(comptime_scheme);
                 const sig = try Ecdsa.Signature.fromDer(encoded_sig);
                 const key = try Ecdsa.PublicKey.fromSec1(pub_key);
-                try sig.concatVerify(msg, key);
+                var ver = try sig.verifier(key);
+                for (msg) |part| ver.update(part);
+                try ver.verify();
             },
             inline .rsa_pkcs1_sha256,
             .rsa_pkcs1_sha384,
@@ -1769,7 +1771,9 @@ const CertificatePublicKey = struct {
                 const sig = Eddsa.Signature.fromBytes(encoded_sig[0..Eddsa.Signature.encoded_length].*);
                 if (pub_key.len != Eddsa.PublicKey.encoded_length) return error.InvalidEncoding;
                 const key = try Eddsa.PublicKey.fromBytes(pub_key[0..Eddsa.PublicKey.encoded_length].*);
-                try sig.concatVerify(msg, key);
+                var ver = try sig.verifier(key);
+                for (msg) |part| ver.update(part);
+                try ver.verify();
             },
             else => unreachable,
         }

@@ -101,15 +101,8 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
             /// Return IdentityElement or NonCanonical if the public key or signature are not in the expected range,
             /// or SignatureVerificationError if the signature is invalid for the given message and key.
             pub fn verify(sig: Signature, msg: []const u8, public_key: PublicKey) VerifyError!void {
-                try sig.concatVerify(&.{msg}, public_key);
-            }
-
-            /// Verify the signature against a concatenated message and public key.
-            /// Return IdentityElement or NonCanonical if the public key or signature are not in the expected range,
-            /// or SignatureVerificationError if the signature is invalid for the given message and key.
-            pub fn concatVerify(sig: Signature, msg: []const []const u8, public_key: PublicKey) VerifyError!void {
-                var st = try Verifier.init(sig, public_key);
-                for (msg) |part| st.update(part);
+                var st = try sig.verifier(public_key);
+                st.update(msg);
                 try st.verify();
             }
 
