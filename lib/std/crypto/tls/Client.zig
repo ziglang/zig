@@ -257,7 +257,7 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
                 if (handshake_type != .server_hello) return error.TlsUnexpectedMessage;
                 const length = ptd.decode(u24);
                 var hsd = try ptd.sub(length);
-                try hsd.ensure(2 + 32 + 1 + 32 + 2 + 1);
+                try hsd.ensure(2 + 32 + 1);
                 const legacy_version = hsd.decode(u16);
                 @memcpy(&server_hello_rand, hsd.array(32));
                 if (mem.eql(u8, &server_hello_rand, &tls.hello_retry_request_sequence)) {
@@ -266,8 +266,8 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
                     return error.TlsUnexpectedMessage;
                 }
                 const legacy_session_id_echo_len = hsd.decode(u8);
-                if (legacy_session_id_echo_len != 32) return error.TlsIllegalParameter;
-                const legacy_session_id_echo = hsd.array(32);
+                try hsd.ensure(legacy_session_id_echo_len + 2 + 1);
+                const legacy_session_id_echo = hsd.slice(legacy_session_id_echo_len);
                 cipher_suite_tag = hsd.decode(tls.CipherSuite);
                 hsd.skip(1); // legacy_compression_method
                 var supported_version: ?u16 = null;
