@@ -7728,7 +7728,7 @@ fn airAtomicLoad(func: *Func, inst: Air.Inst.Index) !void {
     const ptr_mcv = try func.resolveInst(atomic_load.ptr);
 
     const bit_size = elem_ty.bitSize(zcu);
-    if (bit_size > 64) return func.fail("TODO: airAtomicStore > 64 bits", .{});
+    if (bit_size > 64) return func.fail("TODO: airAtomicLoad > 64 bits", .{});
 
     const result_mcv = try func.allocRegOrMem(elem_ty, inst, true);
     assert(result_mcv == .register); // should be less than 8 bytes
@@ -7792,6 +7792,17 @@ fn airAtomicStore(func: *Func, inst: Air.Inst.Index, order: std.builtin.AtomicOr
     }
 
     try func.store(ptr_mcv, val_mcv, ptr_ty);
+
+    if (order == .seq_cst) {
+        _ = try func.addInst(.{
+            .tag = .fence,
+            .data = .{ .fence = .{
+                .pred = .rw,
+                .succ = .rw,
+            } },
+        });
+    }
+
     return func.finishAir(inst, .unreach, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
