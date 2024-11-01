@@ -63,10 +63,6 @@ comdat_info: []const Wasm.Comdat = &.{},
 /// Represents non-synthetic sections that can essentially be mem-cpy'd into place
 /// after performing relocations.
 relocatable_data: std.AutoHashMapUnmanaged(RelocatableData.Tag, []RelocatableData) = .empty,
-/// String table for all strings required by the object file, such as symbol names,
-/// import name, module name and export names. Each string will be deduplicated
-/// and returns an offset into the table.
-string_table: Wasm.StringTable = .{},
 /// Amount of functions in the `import` sections.
 imported_functions_count: u32 = 0,
 /// Amount of globals in the `import` section.
@@ -126,7 +122,7 @@ pub const RelocatableData = struct {
 /// When a max size is given, will only parse up to the given size,
 /// else will read until the end of the file.
 pub fn create(
-    wasm: *const Wasm,
+    wasm: *Wasm,
     file_contents: []const u8,
     path: Path,
     archive_member_name: ?[]const u8,
@@ -187,7 +183,6 @@ pub fn deinit(object: *Object, gpa: Allocator) void {
         }
     }
     object.relocatable_data.deinit(gpa);
-    object.string_table.deinit(gpa);
     object.* = undefined;
 }
 
@@ -242,9 +237,9 @@ fn checkLegacyIndirectFunctionTable(object: *Object, wasm: *const Wasm) !?Symbol
         }
     } else unreachable;
 
-    if (!std.mem.eql(u8, object.string_table.get(table_import.name), "__indirect_function_table")) {
+    if (table_import.name != wasm.preloaded_strings.__indirect_function_table) {
         return diags.failParse(object.path, "non-indirect function table import '{s}' is missing a corresponding symbol", .{
-            object.string_table.get(table_import.name),
+            wasm.stringSlice(table_import.name),
         });
     }
 
@@ -264,10 +259,12 @@ const Parser = struct {
     reader: std.io.FixedBufferStream([]const u8),
     /// Object file we're building
     object: *Object,
-    /// Read-only reference to the WebAssembly linker
-    wasm: *const Wasm,
+    /// Mutable so that the string table can be modified.
+    wasm: *Wasm,
 
     fn parseObject(parser: *Parser, gpa: Allocator) anyerror!void {
+        const wasm = parser.wasm;
+
         {
             var magic_bytes: [4]u8 = undefined;
             try parser.reader.reader().readNoEof(&magic_bytes);
@@ -316,7 +313,7 @@ const Parser = struct {
                             .type = .custom,
                             .data = debug_content.ptr,
                             .size = debug_size,
-                            .index = try parser.object.string_table.put(gpa, name),
+                            .index = @intFromEnum(try wasm.internString(name)),
                             .offset = 0, // debug sections only contain 1 entry, so no need to calculate offset
                             .section_index = section_index,
                         });
@@ -375,8 +372,8 @@ const Parser = struct {
                         };
 
                         import.* = .{
-                            .module_name = try parser.object.string_table.put(gpa, module_name),
-                            .name = try parser.object.string_table.put(gpa, name),
+                            .module_name = try wasm.internString(module_name),
+                            .name = try wasm.internString(name),
                             .kind = kind_value,
                         };
                     }
@@ -422,7 +419,7 @@ const Parser = struct {
                         defer gpa.free(name);
                         try reader.readNoEof(name);
                         exp.* = .{
-                            .name = try parser.object.string_table.put(gpa, name),
+                            .name = try wasm.internString(name),
                             .kind = try readEnum(std.wasm.ExternalKind, reader),
                             .index = try readLeb(u32, reader),
                         };
@@ -587,6 +584,7 @@ const Parser = struct {
     /// `parser` is used to provide access to other sections that may be needed,
     /// such as access to the `import` section to find the name of a symbol.
     fn parseSubsection(parser: *Parser, gpa: Allocator, reader: anytype) !void {
+        const wasm = parser.wasm;
         const sub_type = try leb.readUleb128(u8, reader);
         log.debug("Found subsection: {s}", .{@tagName(@as(Wasm.SubsectionType, @enumFromInt(sub_type)))});
         const payload_len = try leb.readUleb128(u32, reader);
@@ -680,7 +678,7 @@ const Parser = struct {
                     symbol.* = try parser.parseSymbol(gpa, reader);
                     log.debug("Found symbol: type({s}) name({s}) flags(0b{b:0>8})", .{
                         @tagName(symbol.tag),
-                        parser.object.string_table.get(symbol.name),
+                        wasm.stringSlice(symbol.name),
                         symbol.flags,
                     });
                 }
@@ -697,15 +695,18 @@ const Parser = struct {
                 if (parser.object.relocatable_data.get(.custom)) |custom_sections| {
                     for (custom_sections) |*data| {
                         if (!data.represented) {
+                            const name = wasm.castToString(data.index);
                             try symbols.append(.{
-                                .name = data.index,
+                                .name = name,
                                 .flags = @intFromEnum(Symbol.Flag.WASM_SYM_BINDING_LOCAL),
                                 .tag = .section,
                                 .virtual_address = 0,
                                 .index = data.section_index,
                             });
                             data.represented = true;
-                            log.debug("Created synthetic custom section symbol for '{s}'", .{parser.object.string_table.get(data.index)});
+                            log.debug("Created synthetic custom section symbol for '{s}'", .{
+                                wasm.stringSlice(name),
+                            });
                         }
                     }
                 }
@@ -719,7 +720,8 @@ const Parser = struct {
     /// requires access to `Object` to find the name of a symbol when it's
     /// an import and flag `WASM_SYM_EXPLICIT_NAME` is not set.
     fn parseSymbol(parser: *Parser, gpa: Allocator, reader: anytype) !Symbol {
-        const tag = @as(Symbol.Tag, @enumFromInt(try leb.readUleb128(u8, reader)));
+        const wasm = parser.wasm;
+        const tag: Symbol.Tag = @enumFromInt(try leb.readUleb128(u8, reader));
         const flags = try leb.readUleb128(u32, reader);
         var symbol: Symbol = .{
             .flags = flags,
@@ -735,7 +737,7 @@ const Parser = struct {
                 const name = try gpa.alloc(u8, name_len);
                 defer gpa.free(name);
                 try reader.readNoEof(name);
-                symbol.name = try parser.object.string_table.put(gpa, name);
+                symbol.name = try wasm.internString(name);
 
                 // Data symbols only have the following fields if the symbol is defined
                 if (symbol.isDefined()) {
@@ -750,7 +752,7 @@ const Parser = struct {
                 const section_data = parser.object.relocatable_data.get(.custom).?;
                 for (section_data) |*data| {
                     if (data.section_index == symbol.index) {
-                        symbol.name = data.index;
+                        symbol.name = wasm.castToString(data.index);
                         data.represented = true;
                         break;
                     }
@@ -765,7 +767,7 @@ const Parser = struct {
                     const name = try gpa.alloc(u8, name_len);
                     defer gpa.free(name);
                     try reader.readNoEof(name);
-                    break :name try parser.object.string_table.put(gpa, name);
+                    break :name try wasm.internString(name);
                 } else parser.object.findImport(symbol).name;
             },
         }
