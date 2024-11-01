@@ -6017,6 +6017,13 @@ pub const utsname = switch (native_os) {
         machine: [256:0]u8,
         domainname: [256:0]u8,
     },
+    .macos => extern struct {
+        sysname: [256:0]u8,
+        nodename: [256:0]u8,
+        release: [256:0]u8,
+        version: [256:0]u8,
+        machine: [256:0]u8,
+    },
     else => void,
 };
 pub const PR = switch (native_os) {
