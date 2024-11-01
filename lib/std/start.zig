@@ -426,7 +426,7 @@ fn _start() callconv(.naked) noreturn {
     );
 }
 
-fn WinStartup() callconv(.withStackAlign(.winapi, 1)) noreturn {
+fn WinStartup() callconv(.withStackAlign(.c, 1)) noreturn {
     if (!builtin.single_threaded and !builtin.link_libc) {
         _ = @import("os/windows/tls.zig");
     }
@@ -436,7 +436,7 @@ fn WinStartup() callconv(.withStackAlign(.winapi, 1)) noreturn {
     std.os.windows.ntdll.RtlExitUserProcess(callMain());
 }
 
-fn wWinMainCRTStartup() callconv(.withStackAlign(.winapi, 1)) noreturn {
+fn wWinMainCRTStartup() callconv(.withStackAlign(.c, 1)) noreturn {
     if (!builtin.single_threaded and !builtin.link_libc) {
         _ = @import("os/windows/tls.zig");
     }
