@@ -589,7 +589,7 @@ const WindowsThreadImpl = struct {
             fn_args: Args,
             thread: ThreadCompletion,
 
-            fn entryFn(raw_ptr: windows.PVOID) callconv(.C) windows.DWORD {
+            fn entryFn(raw_ptr: windows.PVOID) callconv(.winapi) windows.DWORD {
                 const self: *@This() = @ptrCast(@alignCast(raw_ptr));
                 defer switch (self.thread.completion.swap(.completed, .seq_cst)) {
                     .running => {},
@@ -749,7 +749,7 @@ const PosixThreadImpl = struct {
         const allocator = std.heap.c_allocator;
 
         const Instance = struct {
-            fn entryFn(raw_arg: ?*anyopaque) callconv(.C) ?*anyopaque {
+            fn entryFn(raw_arg: ?*anyopaque) callconv(.c) ?*anyopaque {
                 const args_ptr: *Args = @ptrCast(@alignCast(raw_arg));
                 defer allocator.destroy(args_ptr);
                 return callFn(f, args_ptr.*);
@@ -1363,7 +1363,7 @@ const LinuxThreadImpl = struct {
             fn_args: Args,
             thread: ThreadCompletion,
 
-            fn entryFn(raw_arg: usize) callconv(.C) u8 {
+            fn entryFn(raw_arg: usize) callconv(.c) u8 {
                 const self = @as(*@This(), @ptrFromInt(raw_arg));
                 defer switch (self.thread.completion.swap(.completed, .seq_cst)) {
                     .running => {},
