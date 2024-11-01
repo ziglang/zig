@@ -1,39 +1,40 @@
 const Wasm = @This();
+const build_options = @import("build_options");
+
+const builtin = @import("builtin");
+const native_endian = builtin.cpu.arch.endian();
 
 const std = @import("std");
-
-const assert = std.debug.assert;
-const build_options = @import("build_options");
-const builtin = @import("builtin");
-const codegen = @import("../codegen.zig");
-const dev = @import("../dev.zig");
-const fs = std.fs;
-const leb = std.leb;
-const link = @import("../link.zig");
-const lldMain = @import("../main.zig").lldMain;
-const log = std.log.scoped(.link);
-const gc_log = std.log.scoped(.gc);
-const mem = std.mem;
-const trace = @import("../tracy.zig").trace;
-const wasi_libc = @import("../wasi_libc.zig");
-
-const Air = @import("../Air.zig");
 const Allocator = std.mem.Allocator;
-const Archive = @import("Wasm/Archive.zig");
 const Cache = std.Build.Cache;
 const Path = Cache.Path;
+const assert = std.debug.assert;
+const fs = std.fs;
+const gc_log = std.log.scoped(.gc);
+const leb = std.leb;
+const log = std.log.scoped(.link);
+const mem = std.mem;
+
+const Air = @import("../Air.zig");
+const Archive = @import("Wasm/Archive.zig");
 const CodeGen = @import("../arch/wasm/CodeGen.zig");
 const Compilation = @import("../Compilation.zig");
 const Dwarf = @import("Dwarf.zig");
 const InternPool = @import("../InternPool.zig");
 const Liveness = @import("../Liveness.zig");
 const LlvmObject = @import("../codegen/llvm.zig").Object;
-const Zcu = @import("../Zcu.zig");
 const Object = @import("Wasm/Object.zig");
 const Symbol = @import("Wasm/Symbol.zig");
 const Type = @import("../Type.zig");
 const Value = @import("../Value.zig");
+const Zcu = @import("../Zcu.zig");
 const ZigObject = @import("Wasm/ZigObject.zig");
+const codegen = @import("../codegen.zig");
+const dev = @import("../dev.zig");
+const link = @import("../link.zig");
+const lldMain = @import("../main.zig").lldMain;
+const trace = @import("../tracy.zig").trace;
+const wasi_libc = @import("../wasi_libc.zig");
 
 base: link.File,
 /// Null-terminated strings, indexes have type String and string_table provides
@@ -141,6 +142,9 @@ function_table: std.AutoHashMapUnmanaged(SymbolLoc, u32) = .empty,
 
 /// All archive files that are lazy loaded.
 /// e.g. when an undefined symbol references a symbol from the archive.
+/// None of this data is serialized to disk because it is trivially reloaded
+/// from unchanged archive files on the next start of the compiler process,
+/// or if those files have changed, the prelink phase needs to be restarted.
 lazy_archives: std.ArrayListUnmanaged(LazyArchive) = .empty,
 
 /// A map of global names to their symbol location
@@ -283,12 +287,15 @@ pub const OptionalObjectId = enum(u16) {
     }
 };
 
+/// None of this data is serialized since it can be re-loaded from disk, or if
+/// it has been changed, the data must be discarded.
 const LazyArchive = struct {
     path: Path,
     file_contents: []const u8,
     archive: Archive,
 
     fn deinit(la: *LazyArchive, gpa: Allocator) void {
+        la.archive.deinit(gpa);
         gpa.free(la.path.sub_path);
         gpa.free(la.file_contents);
         la.* = undefined;
