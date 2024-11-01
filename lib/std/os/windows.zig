@@ -2824,6 +2824,7 @@ pub const STD_OUTPUT_HANDLE = maxInt(DWORD) - 11 + 1;
 /// The standard error device. Initially, this is the active console screen buffer, CONOUT$.
 pub const STD_ERROR_HANDLE = maxInt(DWORD) - 12 + 1;
 
+/// Deprecated; use `std.builtin.CallingConvention.winapi` instead.
 pub const WINAPI: std.builtin.CallingConvention = .winapi;
 
 pub const BOOL = c_int;
