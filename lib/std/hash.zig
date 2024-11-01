@@ -37,78 +37,83 @@ pub const XxHash3 = xxhash.XxHash3;
 pub const XxHash64 = xxhash.XxHash64;
 pub const XxHash32 = xxhash.XxHash32;
 
-/// Deprecated in favor of `int`.
-pub fn uint32(input: u32) u32 {
-    return int(input);
+/// Easy & fast hash function for integer types
+pub fn int(input: anytype) @TypeOf(input) {
+    // This function is only intended for integer types
+    const info = @typeInfo(@TypeOf(input)).int;
+    const bits = info.bits;
+    // Convert input to unsigned integer (easier to deal with)
+    const Uint = @Type(.{ .int = .{ .bits = bits, .signedness = .unsigned } });
+    const u_input: Uint = @bitCast(input);
+    if (bits > 256) @compileError("bit widths > 256 are unsupported, use std.hash.autoHash functionality.");
+    // For bit widths that don't have a dedicated function, use a heuristic
+    // construction with a multiplier suited to diffusion -
+    // a mod 2^bits where a^2 - 46 * a + 1 = 0 mod 2^(bits + 4),
+    // on Mathematica: bits = 256; BaseForm[Solve[1 - 46 a + a^2 == 0, a, Modulus -> 2^(bits + 4)][[-1]][[1]][[2]], 16]
+    const mult: Uint = @truncate(0xfac2e27ed2036860a062b5f264d80a512b00aa459b448bf1eca24d41c96f59e5b);
+    // The bit width of the input integer determines how to hash it
+    const output = switch (bits) {
+        0...2 => u_input *% mult,
+        16 => uint16(u_input),
+        32 => uint32(u_input),
+        64 => uint64(u_input),
+        else => blk: {
+            var x: Uint = u_input;
+            inline for (0..4) |_| {
+                x ^= x >> (bits / 2);
+                x *%= mult;
+            }
+            break :blk x;
+        },
+    };
+    return @bitCast(output);
 }
 
-/// Applies a bit-mangling transformation to an unsigned integer type `T`.
-/// Optimized per type: for `u16` and `u32`, Skeeto's xorshift-multiply; for `u64`, Maiga's mx3.
-/// Falls back on an avalanche pattern for other integer types, ensuring high entropy.
-pub fn int(input: anytype) @TypeOf(input) {
-    const info = @typeInfo(@TypeOf(input)).int;
-    if (info.signedness == .signed) {
-        const Unsigned = @Type(.{ .int = .{ .signedness = .unsigned, .bits = info.bits } });
-        const casted: Unsigned = @bitCast(input);
-        return @bitCast(int(casted));
-    } else if (info.bits < 4) {
-        return @truncate(int(@as(u4, input)));
-    }
-    var x = input;
-    switch (info.bits) {
-        16 => {
-            // https://github.com/skeeto/hash-prospector
-            // 3-round xorshift-multiply (-Xn3)
-            // bias = 0.0045976709018820602
-            x = (x ^ (x >> 7)) *% 0x2993;
-            x = (x ^ (x >> 5)) *% 0xe877;
-            x = (x ^ (x >> 9)) *% 0x0235;
-            x = x ^ (x >> 10);
-        },
-        32 => {
-            // https://github.com/skeeto/hash-prospector
-            x = (x ^ (x >> 17)) *% 0xed5ad4bb;
-            x = (x ^ (x >> 11)) *% 0xac4c1b51;
-            x = (x ^ (x >> 15)) *% 0x31848bab;
-            x = x ^ (x >> 14);
-        },
-        64 => {
-            // https://github.com/jonmaiga/mx3
-            // https://github.com/jonmaiga/mx3/blob/48924ee743d724aea2cafd2b4249ef8df57fa8b9/mx3.h#L17
-            const c = 0xbea225f9eb34556d;
-            x = (x ^ (x >> 32)) *% c;
-            x = (x ^ (x >> 29)) *% c;
-            x = (x ^ (x >> 32)) *% c;
-            x = x ^ (x >> 29);
-        },
-        else => {
-            // This construction provides robust avalanche properties, but it is not optimal for any given size.
-            const hsize = info.bits >> 1;
-            const c = comptime blk: {
-                const max = (1 << info.bits) - 1;
-                var mul = 1;
-                while (mul * 3 < max) mul *= 3;
-                break :blk ((mul ^ (mul >> hsize)) | 1);
-            };
-            inline for (0..2) |_| {
-                x = (x ^ (x >> hsize + 1)) *% c;
-                x = (x ^ (x >> hsize - 1)) *% c;
-            }
-            x ^= (x >> hsize);
-        },
-    }
+/// Source: https://github.com/skeeto/hash-prospector
+fn uint16(input: u16) u16 {
+    var x: u16 = input;
+    x = (x ^ (x >> 7)) *% 0x2993;
+    x = (x ^ (x >> 5)) *% 0xe877;
+    x = (x ^ (x >> 9)) *% 0x0235;
+    x = x ^ (x >> 10);
+    return x;
+}
+
+/// DEPRECATED: use std.hash.int()
+/// Source: https://github.com/skeeto/hash-prospector
+pub fn uint32(input: u32) u32 {
+    var x: u32 = input;
+    x = (x ^ (x >> 17)) *% 0xed5ad4bb;
+    x = (x ^ (x >> 11)) *% 0xac4c1b51;
+    x = (x ^ (x >> 15)) *% 0x31848bab;
+    x = x ^ (x >> 14);
+    return x;
+}
+
+/// Source: https://github.com/jonmaiga/mx3
+fn uint64(input: u64) u64 {
+    var x: u64 = input;
+    const c = 0xbea225f9eb34556d;
+    x = (x ^ (x >> 32)) *% c;
+    x = (x ^ (x >> 29)) *% c;
+    x = (x ^ (x >> 32)) *% c;
+    x = x ^ (x >> 29);
     return x;
 }
 
 test int {
     const expectEqual = @import("std").testing.expectEqual;
-    try expectEqual(0xC, int(@as(u4, 1)));
-    try expectEqual(0x4F, int(@as(u8, 1)));
-    try expectEqual(0x4F, int(@as(i8, 1)));
+    try expectEqual(0x1, int(@as(u1, 1)));
+    try expectEqual(0x3, int(@as(u2, 1)));
+    try expectEqual(0x4, int(@as(u3, 1)));
+    try expectEqual(0xD6, int(@as(u8, 1)));
     try expectEqual(0x2880, int(@as(u16, 1)));
+    try expectEqual(0x2880, int(@as(i16, 1)));
+    try expectEqual(0x838380, int(@as(u24, 1)));
     try expectEqual(0x42741D6, int(@as(u32, 1)));
+    try expectEqual(0x42741D6, int(@as(i32, 1)));
     try expectEqual(0x71894DE00D9981F, int(@as(u64, 1)));
-    try expectEqual(0x50BC2BB18910C3DE0BAA2CE0D0C5B83E, int(@as(u128, 1)));
+    try expectEqual(0x71894DE00D9981F, int(@as(i64, 1)));
 }
 
 test {
