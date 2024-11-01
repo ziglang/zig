@@ -26256,6 +26256,9 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
     }
 
     const dest_elem_ty = dest_ty.elemType2(zcu);
+    if (!dest_elem_ty.hasRuntimeBits(zcu)) {
+        return;
+    }
     const src_elem_ty = src_ty.elemType2(zcu);
     if (.ok != try sema.coerceInMemoryAllowed(block, dest_elem_ty, src_elem_ty, true, target, dest_src, src_src, null)) {
         return sema.fail(block, src, "TODO: lower @memcpy to a for loop because the element types have different ABI sizes", .{});
