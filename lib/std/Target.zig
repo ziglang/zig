@@ -509,7 +509,7 @@ pub const Os = struct {
                             .max = .{ .major = 6, .minor = 10, .patch = 3 },
                         },
                         .glibc = blk: {
-                            const default_min = .{ .major = 2, .minor = 28, .patch = 0 };
+                            const default_min: std.SemanticVersion = .{ .major = 2, .minor = 28, .patch = 0 };
 
                             for (std.zig.target.available_libcs) |libc| {
                                 // We don't know the ABI here. We can get away with not checking it
@@ -1479,7 +1479,7 @@ pub const Cpu = struct {
                 .fs, .gs, .ss => arch == .x86_64 or arch == .x86,
                 .global, .constant, .local, .shared => is_gpu,
                 .param => is_nvptx,
-                .input, .output, .uniform => is_spirv,
+                .input, .output, .uniform, .push_constant => is_spirv,
                 // TODO this should also check how many flash banks the cpu has
                 .flash, .flash1, .flash2, .flash3, .flash4, .flash5 => arch == .avr,
 

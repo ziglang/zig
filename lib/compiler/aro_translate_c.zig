@@ -749,7 +749,7 @@ fn transType(c: *Context, scope: *Scope, raw_ty: Type, qual_handling: Type.QualH
             const is_const = is_fn_proto or child_type.isConst();
             const is_volatile = child_type.qual.@"volatile";
             const elem_type = try transType(c, scope, child_type, qual_handling, source_loc);
-            const ptr_info = .{
+            const ptr_info: @FieldType(ast.Payload.Pointer, "data") = .{
                 .is_const = is_const,
                 .is_volatile = is_volatile,
                 .elem_type = elem_type,

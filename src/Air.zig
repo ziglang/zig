@@ -962,7 +962,7 @@ pub const Inst = struct {
         anyerror_void_error_union_type = @intFromEnum(InternPool.Index.anyerror_void_error_union_type),
         adhoc_inferred_error_set_type = @intFromEnum(InternPool.Index.adhoc_inferred_error_set_type),
         generic_poison_type = @intFromEnum(InternPool.Index.generic_poison_type),
-        empty_struct_type = @intFromEnum(InternPool.Index.empty_struct_type),
+        empty_tuple_type = @intFromEnum(InternPool.Index.empty_tuple_type),
         undef = @intFromEnum(InternPool.Index.undef),
         zero = @intFromEnum(InternPool.Index.zero),
         zero_usize = @intFromEnum(InternPool.Index.zero_usize),
@@ -977,7 +977,7 @@ pub const Inst = struct {
         null_value = @intFromEnum(InternPool.Index.null_value),
         bool_true = @intFromEnum(InternPool.Index.bool_true),
         bool_false = @intFromEnum(InternPool.Index.bool_false),
-        empty_struct = @intFromEnum(InternPool.Index.empty_struct),
+        empty_tuple = @intFromEnum(InternPool.Index.empty_tuple),
         generic_poison = @intFromEnum(InternPool.Index.generic_poison),
 
         /// This Ref does not correspond to any AIR instruction or constant

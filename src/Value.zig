@@ -3704,7 +3704,7 @@ pub const @"unreachable": Value = .{ .ip_index = .unreachable_value };
 
 pub const generic_poison: Value = .{ .ip_index = .generic_poison };
 pub const generic_poison_type: Value = .{ .ip_index = .generic_poison_type };
-pub const empty_struct: Value = .{ .ip_index = .empty_struct };
+pub const empty_tuple: Value = .{ .ip_index = .empty_tuple };
 
 pub fn makeBool(x: bool) Value {
     return if (x) Value.true else Value.false;

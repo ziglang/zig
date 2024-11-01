@@ -1018,7 +1018,7 @@ fn CreateUniqueTuple(comptime N: comptime_int, comptime types: [N]type) type {
             .type = T,
             .default_value = null,
             .is_comptime = false,
-            .alignment = if (@sizeOf(T) > 0) @alignOf(T) else 0,
+            .alignment = 0,
         };
     }
 

@@ -402,9 +402,7 @@ pub fn resolveString(self: *Module, string: []const u8) !IdRef {
     return id;
 }
 
-pub fn structType(self: *Module, types: []const IdRef, maybe_names: ?[]const []const u8) !IdRef {
-    const result_id = self.allocId();
-
+pub fn structType(self: *Module, result_id: IdResult, types: []const IdRef, maybe_names: ?[]const []const u8) !void {
     try self.sections.types_globals_constants.emit(self.gpa, .OpTypeStruct, .{
         .id_result = result_id,
         .id_ref = types,
@@ -416,8 +414,6 @@ pub fn structType(self: *Module, types: []const IdRef, maybe_names: ?[]const []c
             try self.memberDebugName(result_id, @intCast(i), name);
         }
     }
-
-    return result_id;
 }
 
 pub fn boolType(self: *Module) !IdRef {

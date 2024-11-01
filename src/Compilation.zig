@@ -2081,7 +2081,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
             log.debug("CacheMode.whole cache miss for {s}", .{comp.root_name});
 
             // Compile the artifacts to a temporary directory.
-            const tmp_artifact_directory = d: {
+            const tmp_artifact_directory: Directory = d: {
                 const s = std.fs.path.sep_str;
                 tmp_dir_rand_int = std.crypto.random.int(u64);
                 const tmp_dir_sub_path = "tmp" ++ s ++ std.fmt.hex(tmp_dir_rand_int);
