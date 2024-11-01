@@ -2314,8 +2314,11 @@ fn transStringLiteralInitializer(
             while (i < num_inits) : (i += 1) {
                 init_list[i] = try transCreateCharLitNode(c, false, stmt.getCodeUnit(i));
             }
-            const init_args = .{ .len = num_inits, .elem_type = elem_type };
-            const init_array_type = try if (array_type.tag() == .array_type) Tag.array_type.create(c.arena, init_args) else Tag.null_sentinel_array_type.create(c.arena, init_args);
+            const init_args: ast.Payload.Array.ArrayTypeInfo = .{ .len = num_inits, .elem_type = elem_type };
+            const init_array_type = if (array_type.tag() == .array_type)
+                try Tag.array_type.create(c.arena, init_args)
+            else
+                try Tag.null_sentinel_array_type.create(c.arena, init_args);
             break :blk try Tag.array_init.create(c.arena, .{
                 .cond = init_array_type,
                 .cases = init_list,
@@ -3910,7 +3913,7 @@ fn transCreateCompoundAssign(
 
         if ((is_mod or is_div) and is_signed) {
             if (requires_cast) rhs_node = try transCCast(c, scope, loc, lhs_qt, rhs_qt, rhs_node);
-            const operands = .{ .lhs = lhs_node, .rhs = rhs_node };
+            const operands: @FieldType(ast.Payload.BinOp, "data") = .{ .lhs = lhs_node, .rhs = rhs_node };
             const builtin = if (is_mod)
                 try Tag.signed_remainder.create(c.arena, operands)
             else
@@ -3949,7 +3952,7 @@ fn transCreateCompoundAssign(
     if (is_ptr_op_signed) rhs_node = try usizeCastForWrappingPtrArithmetic(c.arena, rhs_node);
     if ((is_mod or is_div) and is_signed) {
         if (requires_cast) rhs_node = try transCCast(c, scope, loc, lhs_qt, rhs_qt, rhs_node);
-        const operands = .{ .lhs = ref_node, .rhs = rhs_node };
+        const operands: @FieldType(ast.Payload.BinOp, "data") = .{ .lhs = ref_node, .rhs = rhs_node };
         const builtin = if (is_mod)
             try Tag.signed_remainder.create(c.arena, operands)
         else
@@ -4777,7 +4780,7 @@ fn transType(c: *Context, scope: *Scope, ty: *const clang.Type, source_loc: clan
             const is_const = is_fn_proto or child_qt.isConstQualified();
             const is_volatile = child_qt.isVolatileQualified();
             const elem_type = try transQualType(c, scope, child_qt, source_loc);
-            const ptr_info = .{
+            const ptr_info: @FieldType(ast.Payload.Pointer, "data") = .{
                 .is_const = is_const,
                 .is_volatile = is_volatile,
                 .elem_type = elem_type,

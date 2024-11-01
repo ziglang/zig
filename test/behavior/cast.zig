@@ -2600,32 +2600,6 @@ test "result type is preserved into comptime block" {
     try expect(x == 123);
 }
 
-test "implicit cast from ptr to tuple to ptr to struct" {
-    if (builtin.zig_backend == .stage2_x86) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
-    const ComptimeReason = union(enum) {
-        c_import: struct {
-            a: u32,
-        },
-    };
-
-    const Block = struct {
-        reason: ?*const ComptimeReason,
-    };
-
-    var a: u32 = 16;
-    _ = &a;
-    var reason = .{ .c_import = .{ .a = a } };
-    var block = Block{
-        .reason = &reason,
-    };
-    _ = &block;
-    try expect(block.reason.?.c_import.a == 16);
-}
-
 test "bitcast vector" {
     if (builtin.zig_backend == .stage2_x86) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO

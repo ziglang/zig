@@ -6,7 +6,7 @@ const io = std.io;
 const testing = std.testing;
 const assert = std.debug.assert;
 
-pub const std_options = .{
+pub const std_options: std.Options = .{
     .logFn = log,
 };
 

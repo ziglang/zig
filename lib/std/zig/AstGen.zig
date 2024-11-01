@@ -1711,7 +1711,7 @@ fn structInitExpr(
                     return rvalue(gz, ri, val, node);
                 },
                 .none, .ref, .inferred_ptr => {
-                    return rvalue(gz, ri, .empty_struct, node);
+                    return rvalue(gz, ri, .empty_tuple, node);
                 },
                 .destructure => |destructure| {
                     return astgen.failNodeNotes(node, "empty initializer cannot be destructured", .{}, &.{
@@ -1888,6 +1888,8 @@ fn structInitExprAnon(
     const tree = astgen.tree;
 
     const payload_index = try addExtra(astgen, Zir.Inst.StructInitAnon{
+        .abs_node = node,
+        .abs_line = astgen.source_line,
         .fields_len = @intCast(struct_init.ast.fields.len),
     });
     const field_size = @typeInfo(Zir.Inst.StructInitAnon.Item).@"struct".fields.len;
@@ -1919,6 +1921,8 @@ fn structInitExprTyped(
     const tree = astgen.tree;
 
     const payload_index = try addExtra(astgen, Zir.Inst.StructInit{
+        .abs_node = node,
+        .abs_line = astgen.source_line,
         .fields_len = @intCast(struct_init.ast.fields.len),
     });
     const field_size = @typeInfo(Zir.Inst.StructInit.Item).@"struct".fields.len;
@@ -5007,6 +5011,25 @@ fn structDeclInner(
     layout: std.builtin.Type.ContainerLayout,
     backing_int_node: Ast.Node.Index,
 ) InnerError!Zir.Inst.Ref {
+    const astgen = gz.astgen;
+    const gpa = astgen.gpa;
+    const tree = astgen.tree;
+
+    {
+        const is_tuple = for (container_decl.ast.members) |member_node| {
+            const container_field = tree.fullContainerField(member_node) orelse continue;
+            if (container_field.ast.tuple_like) break true;
+        } else false;
+
+        if (is_tuple) {
+            if (node == 0) {
+                return astgen.failTok(0, "file cannot be a tuple", .{});
+            } else {
+                return tupleDecl(gz, scope, node, container_decl, layout, backing_int_node);
+            }
+        }
+    }
+
     const decl_inst = try gz.reserveInstructionIndex();
 
     if (container_decl.ast.members.len == 0 and backing_int_node == 0) {
@@ -5019,7 +5042,6 @@ fn structDeclInner(
             .has_backing_int = false,
             .known_non_opv = false,
             .known_comptime_only = false,
-            .is_tuple = false,
             .any_comptime_fields = false,
             .any_default_inits = false,
             .any_aligned_fields = false,
@@ -5027,10 +5049,6 @@ fn structDeclInner(
         });
         return decl_inst.toRef();
     }
-
-    const astgen = gz.astgen;
-    const gpa = astgen.gpa;
-    const tree = astgen.tree;
 
     var namespace: Scope.Namespace = .{
         .parent = scope,
@@ -5106,46 +5124,6 @@ fn structDeclInner(
     // No defer needed here because it is handled by `wip_members.deinit()` above.
     const bodies_start = astgen.scratch.items.len;
 
-    const node_tags = tree.nodes.items(.tag);
-    const is_tuple = for (container_decl.ast.members) |member_node| {
-        const container_field = tree.fullContainerField(member_node) orelse continue;
-        if (container_field.ast.tuple_like) break true;
-    } else false;
-
-    if (is_tuple) switch (layout) {
-        .auto => {},
-        .@"extern" => return astgen.failNode(node, "extern tuples are not supported", .{}),
-        .@"packed" => return astgen.failNode(node, "packed tuples are not supported", .{}),
-    };
-
-    if (is_tuple) for (container_decl.ast.members) |member_node| {
-        switch (node_tags[member_node]) {
-            .container_field_init,
-            .container_field_align,
-            .container_field,
-            .@"comptime",
-            .test_decl,
-            => continue,
-            else => {
-                const tuple_member = for (container_decl.ast.members) |maybe_tuple| switch (node_tags[maybe_tuple]) {
-                    .container_field_init,
-                    .container_field_align,
-                    .container_field,
-                    => break maybe_tuple,
-                    else => {},
-                } else unreachable;
-                return astgen.failNodeNotes(
-                    member_node,
-                    "tuple declarations cannot contain declarations",
-                    .{},
-                    &[_]u32{
-                        try astgen.errNoteNode(tuple_member, "tuple field here", .{}),
-                    },
-                );
-            },
-        }
-    };
-
     const old_hasher = astgen.src_hasher;
     defer astgen.src_hasher = old_hasher;
     astgen.src_hasher = std.zig.SrcHasher.init(.{});
@@ -5167,16 +5145,10 @@ fn structDeclInner(
 
         astgen.src_hasher.update(tree.getNodeSource(member_node));
 
-        if (!is_tuple) {
-            const field_name = try astgen.identAsString(member.ast.main_token);
-
-            member.convertToNonTupleLike(astgen.tree.nodes);
-            assert(!member.ast.tuple_like);
-
-            wip_members.appendToField(@intFromEnum(field_name));
-        } else if (!member.ast.tuple_like) {
-            return astgen.failTok(member.ast.main_token, "tuple field has a name", .{});
-        }
+        const field_name = try astgen.identAsString(member.ast.main_token);
+        member.convertToNonTupleLike(astgen.tree.nodes);
+        assert(!member.ast.tuple_like);
+        wip_members.appendToField(@intFromEnum(field_name));
 
         const doc_comment_index = try astgen.docCommentAsString(member.firstToken());
         wip_members.appendToField(@intFromEnum(doc_comment_index));
@@ -5270,7 +5242,6 @@ fn structDeclInner(
         .has_backing_int = backing_int_ref != .none,
         .known_non_opv = known_non_opv,
         .known_comptime_only = known_comptime_only,
-        .is_tuple = is_tuple,
         .any_comptime_fields = any_comptime_fields,
         .any_default_inits = any_default_inits,
         .any_aligned_fields = any_aligned_fields,
@@ -5298,6 +5269,106 @@ fn structDeclInner(
 
     block_scope.unstack();
     return decl_inst.toRef();
+}
+
+fn tupleDecl(
+    gz: *GenZir,
+    scope: *Scope,
+    node: Ast.Node.Index,
+    container_decl: Ast.full.ContainerDecl,
+    layout: std.builtin.Type.ContainerLayout,
+    backing_int_node: Ast.Node.Index,
+) InnerError!Zir.Inst.Ref {
+    const astgen = gz.astgen;
+    const gpa = astgen.gpa;
+    const tree = astgen.tree;
+
+    const node_tags = tree.nodes.items(.tag);
+
+    switch (layout) {
+        .auto => {},
+        .@"extern" => return astgen.failNode(node, "extern tuples are not supported", .{}),
+        .@"packed" => return astgen.failNode(node, "packed tuples are not supported", .{}),
+    }
+
+    if (backing_int_node != 0) {
+        return astgen.failNode(backing_int_node, "tuple does not support backing integer type", .{});
+    }
+
+    // We will use the scratch buffer, starting here, for the field data:
+    // 1. fields: { // for every `fields_len` (stored in `extended.small`)
+    //        type: Inst.Ref,
+    //        init: Inst.Ref, // `.none` for non-`comptime` fields
+    //    }
+    const fields_start = astgen.scratch.items.len;
+    defer astgen.scratch.items.len = fields_start;
+
+    try astgen.scratch.ensureUnusedCapacity(gpa, container_decl.ast.members.len * 2);
+
+    for (container_decl.ast.members) |member_node| {
+        const field = tree.fullContainerField(member_node) orelse {
+            const tuple_member = for (container_decl.ast.members) |maybe_tuple| switch (node_tags[maybe_tuple]) {
+                .container_field_init,
+                .container_field_align,
+                .container_field,
+                => break maybe_tuple,
+                else => {},
+            } else unreachable;
+            return astgen.failNodeNotes(
+                member_node,
+                "tuple declarations cannot contain declarations",
+                .{},
+                &.{try astgen.errNoteNode(tuple_member, "tuple field here", .{})},
+            );
+        };
+
+        if (!field.ast.tuple_like) {
+            return astgen.failTok(field.ast.main_token, "tuple field has a name", .{});
+        }
+
+        if (field.ast.align_expr != 0) {
+            return astgen.failTok(field.ast.main_token, "tuple field has alignment", .{});
+        }
+
+        if (field.ast.value_expr != 0 and field.comptime_token == null) {
+            return astgen.failTok(field.ast.main_token, "non-comptime tuple field has default initialization value", .{});
+        }
+
+        if (field.ast.value_expr == 0 and field.comptime_token != null) {
+            return astgen.failTok(field.comptime_token.?, "comptime field without default initialization value", .{});
+        }
+
+        const field_type_ref = try typeExpr(gz, scope, field.ast.type_expr);
+        astgen.scratch.appendAssumeCapacity(@intFromEnum(field_type_ref));
+
+        if (field.ast.value_expr != 0) {
+            const field_init_ref = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = field_type_ref } }, field.ast.value_expr);
+            astgen.scratch.appendAssumeCapacity(@intFromEnum(field_init_ref));
+        } else {
+            astgen.scratch.appendAssumeCapacity(@intFromEnum(Zir.Inst.Ref.none));
+        }
+    }
+
+    const fields_len = std.math.cast(u16, container_decl.ast.members.len) orelse {
+        return astgen.failNode(node, "this compiler implementation only supports 65535 tuple fields", .{});
+    };
+
+    const extra_trail = astgen.scratch.items[fields_start..];
+    assert(extra_trail.len == fields_len * 2);
+    try astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.TupleDecl).@"struct".fields.len + extra_trail.len);
+    const payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.TupleDecl{
+        .src_node = gz.nodeIndexToRelative(node),
+    });
+    astgen.extra.appendSliceAssumeCapacity(extra_trail);
+
+    return gz.add(.{
+        .tag = .extended,
+        .data = .{ .extended = .{
+            .opcode = .tuple_decl,
+            .small = fields_len,
+            .operand = payload_index,
+        } },
+    });
 }
 
 fn unionDeclInner(
@@ -11172,7 +11243,7 @@ fn rvalueInner(
                 as_ty | @intFromEnum(Zir.Inst.Ref.slice_const_u8_sentinel_0_type),
                 as_ty | @intFromEnum(Zir.Inst.Ref.anyerror_void_error_union_type),
                 as_ty | @intFromEnum(Zir.Inst.Ref.generic_poison_type),
-                as_ty | @intFromEnum(Zir.Inst.Ref.empty_struct_type),
+                as_ty | @intFromEnum(Zir.Inst.Ref.empty_tuple_type),
                 as_comptime_int | @intFromEnum(Zir.Inst.Ref.zero),
                 as_comptime_int | @intFromEnum(Zir.Inst.Ref.one),
                 as_comptime_int | @intFromEnum(Zir.Inst.Ref.negative_one),
@@ -13173,7 +13244,6 @@ const GenZir = struct {
         layout: std.builtin.Type.ContainerLayout,
         known_non_opv: bool,
         known_comptime_only: bool,
-        is_tuple: bool,
         any_comptime_fields: bool,
         any_default_inits: bool,
         any_aligned_fields: bool,
@@ -13217,7 +13287,6 @@ const GenZir = struct {
                     .has_backing_int = args.has_backing_int,
                     .known_non_opv = args.known_non_opv,
                     .known_comptime_only = args.known_comptime_only,
-                    .is_tuple = args.is_tuple,
                     .name_strategy = gz.anon_name_strategy,
                     .layout = args.layout,
                     .any_comptime_fields = args.any_comptime_fields,

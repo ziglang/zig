@@ -509,7 +509,7 @@ pub const Os = struct {
                             .max = .{ .major = 6, .minor = 10, .patch = 3 },
                         },
                         .glibc = blk: {
-                            const default_min = .{ .major = 2, .minor = 28, .patch = 0 };
+                            const default_min: std.SemanticVersion = .{ .major = 2, .minor = 28, .patch = 0 };
 
                             for (std.zig.target.available_libcs) |libc| {
                                 // We don't know the ABI here. We can get away with not checking it
