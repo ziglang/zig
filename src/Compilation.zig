@@ -6266,6 +6266,7 @@ pub fn build_crt_file(
     comp: *Compilation,
     root_name: []const u8,
     output_mode: std.builtin.OutputMode,
+    pic: ?bool,
     misc_task_tag: MiscTask,
     prog_node: std.Progress.Node,
     /// These elements have to get mutated to add the owner module after it is
@@ -6318,7 +6319,8 @@ pub fn build_crt_file(
             .omit_frame_pointer = comp.root_mod.omit_frame_pointer,
             .valgrind = false,
             .unwind_tables = false,
-            .pic = comp.root_mod.pic,
+            // Some CRT objects (rcrt1.o, Scrt1.o) are opinionated about PIC.
+            .pic = pic orelse comp.root_mod.pic,
             .optimize_mode = comp.compilerRtOptMode(),
             .structured_cfg = comp.root_mod.structured_cfg,
         },
