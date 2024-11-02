@@ -291,6 +291,12 @@ pub const NamedGroup = enum(u16) {
     _,
 };
 
+pub const PskKeyExchangeMode = enum(u8) {
+    psk_ke = 0,
+    psk_dhe_ke = 1,
+    _,
+};
+
 pub const CipherSuite = enum(u16) {
     RSA_WITH_AES_128_CBC_SHA = 0x002F,
     DHE_RSA_WITH_AES_128_CBC_SHA = 0x0033,
@@ -407,6 +413,11 @@ pub const CipherSuite = enum(u16) {
     }
 };
 
+pub const CompressionMethod = enum(u8) {
+    null = 0,
+    _,
+};
+
 pub const CertificateType = enum(u8) {
     X509 = 0,
     RawPublicKey = 2,
@@ -416,6 +427,11 @@ pub const CertificateType = enum(u8) {
 pub const KeyUpdateRequest = enum(u8) {
     update_not_requested = 0,
     update_requested = 1,
+    _,
+};
+
+pub const ChangeCipherSpecType = enum(u8) {
+    change_cipher_spec = 1,
     _,
 };
 
@@ -560,34 +576,38 @@ pub fn hmac(comptime Hmac: type, message: []const u8, key: [Hmac.key_length]u8) 
     return result;
 }
 
-pub inline fn extension(comptime et: ExtensionType, bytes: anytype) [2 + 2 + bytes.len]u8 {
-    return int2(@intFromEnum(et)) ++ array(1, bytes);
+pub inline fn extension(et: ExtensionType, bytes: anytype) [2 + 2 + bytes.len]u8 {
+    return int(u16, @intFromEnum(et)) ++ array(u16, u8, bytes);
 }
 
-pub inline fn array(comptime elem_size: comptime_int, bytes: anytype) [2 + bytes.len]u8 {
-    comptime assert(bytes.len % elem_size == 0);
-    return int2(bytes.len) ++ bytes;
-}
-
-pub inline fn enum_array(comptime E: type, comptime tags: []const E) [2 + @sizeOf(E) * tags.len]u8 {
-    assert(@sizeOf(E) == 2);
-    var result: [tags.len * 2]u8 = undefined;
-    for (tags, 0..) |elem, i| {
-        result[i * 2] = @as(u8, @truncate(@intFromEnum(elem) >> 8));
-        result[i * 2 + 1] = @as(u8, @truncate(@intFromEnum(elem)));
+pub inline fn array(
+    comptime Len: type,
+    comptime Elem: type,
+    elems: anytype,
+) [@divExact(@bitSizeOf(Len), 8) + @divExact(@bitSizeOf(Elem), 8) * elems.len]u8 {
+    const len_size = @divExact(@bitSizeOf(Len), 8);
+    const elem_size = @divExact(@bitSizeOf(Elem), 8);
+    var arr: [len_size + elem_size * elems.len]u8 = undefined;
+    std.mem.writeInt(Len, arr[0..len_size], @intCast(elem_size * elems.len), .big);
+    const ElemInt = @Type(.{ .int = .{ .signedness = .unsigned, .bits = @bitSizeOf(Elem) } });
+    for (0.., @as([elems.len]Elem, elems)) |index, elem| {
+        std.mem.writeInt(
+            ElemInt,
+            arr[len_size + elem_size * index ..][0..elem_size],
+            switch (@typeInfo(Elem)) {
+                .int => @as(Elem, elem),
+                .@"enum" => @intFromEnum(@as(Elem, elem)),
+                else => @bitCast(@as(Elem, elem)),
+            },
+            .big,
+        );
     }
-    return array(2, result);
-}
-
-pub inline fn int2(int: u16) [2]u8 {
-    var arr: [2]u8 = undefined;
-    std.mem.writeInt(u16, &arr, int, .big);
     return arr;
 }
 
-pub inline fn int3(int: u24) [3]u8 {
-    var arr: [3]u8 = undefined;
-    std.mem.writeInt(u24, &arr, int, .big);
+pub inline fn int(comptime Int: type, val: Int) [@divExact(@bitSizeOf(Int), 8)]u8 {
+    var arr: [@divExact(@bitSizeOf(Int), 8)]u8 = undefined;
+    std.mem.writeInt(Int, &arr, val, .big);
     return arr;
 }
 
@@ -670,9 +690,8 @@ pub const Decoder = struct {
                 else => @compileError("unsupported int type: " ++ @typeName(T)),
             },
             .@"enum" => |info| {
-                const int = d.decode(info.tag_type);
                 if (info.is_exhaustive) @compileError("exhaustive enum cannot be used");
-                return @as(T, @enumFromInt(int));
+                return @enumFromInt(d.decode(info.tag_type));
             },
             else => @compileError("unsupported type: " ++ @typeName(T)),
         }
