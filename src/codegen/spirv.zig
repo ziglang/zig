@@ -1639,7 +1639,11 @@ const NavGen = struct {
                     return try self.arrayType(1, elem_ty_id);
                 } else {
                     const result_id = try self.arrayType(total_len, elem_ty_id);
-                    try self.spv.decorate(result_id, .{ .ArrayStride = .{ .array_stride = @intCast(elem_ty.abiSize(zcu)) } });
+                    if (target.os.tag == .vulkan) {
+                        try self.spv.decorate(result_id, .{ .ArrayStride = .{
+                            .array_stride = @intCast(elem_ty.abiSize(zcu)),
+                        } });
+                    }
                     return result_id;
                 }
             },
@@ -1694,8 +1698,15 @@ const NavGen = struct {
             .pointer => {
                 const ptr_info = ty.ptrInfo(zcu);
 
+                const child_ty = Type.fromInterned(ptr_info.child);
                 const storage_class = self.spvStorageClass(ptr_info.flags.address_space);
-                const ptr_ty_id = try self.ptrType(Type.fromInterned(ptr_info.child), storage_class);
+                const ptr_ty_id = try self.ptrType(child_ty, storage_class);
+
+                if (target.os.tag == .vulkan and ptr_info.flags.size == .Many) {
+                    try self.spv.decorate(ptr_ty_id, .{ .ArrayStride = .{
+                        .array_stride = @intCast(child_ty.abiSize(zcu)),
+                    } });
+                }
 
                 if (ptr_info.flags.size != .Slice) {
                     return ptr_ty_id;
