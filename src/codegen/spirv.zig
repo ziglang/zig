@@ -1662,7 +1662,7 @@ const NavGen = struct {
                         else => unreachable,
                     }
 
-                    // Guaranteed by callConvSupportsVarArgs, there are nog SPIR-V CCs which support
+                    // Guaranteed by callConvSupportsVarArgs, there are no SPIR-V CCs which support
                     // varargs.
                     assert(!fn_info.is_var_args);
 
@@ -6580,8 +6580,16 @@ const NavGen = struct {
             // for the string, we still use the next u32 for the null terminator.
             input_extra_i += (constraint.len + name.len + (2 + 3)) / 4;
 
-            const value = try self.resolve(input);
-            try as.value_map.put(as.gpa, name, .{ .value = value });
+            if (self.typeOf(input).zigTypeTag(zcu) == .type) {
+                // This assembly input is a type instead of a value.
+                // That's fine for now, just make sure to resolve it as such.
+                const val = (try self.air.value(input, self.pt)).?;
+                const ty_id = try self.resolveType(val.toType(), .direct);
+                try as.value_map.put(as.gpa, name, .{ .ty = ty_id });
+            } else {
+                const val_id = try self.resolve(input);
+                try as.value_map.put(as.gpa, name, .{ .value = val_id });
+            }
         }
 
         as.assemble() catch |err| switch (err) {
