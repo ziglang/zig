@@ -1893,6 +1893,7 @@ const NavGen = struct {
             .input => .Input,
             .output => .Output,
             .uniform => .Uniform,
+            .storage_buffer => .StorageBuffer,
             .gs,
             .fs,
             .ss,

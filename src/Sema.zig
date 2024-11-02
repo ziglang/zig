@@ -37852,7 +37852,7 @@ pub fn analyzeAsAddressSpace(
         .gs, .fs, .ss => (arch == .x86 or arch == .x86_64) and ctx == .pointer,
         // TODO: check that .shared and .local are left uninitialized
         .param => is_nv,
-        .input, .output, .uniform, .push_constant => is_spirv,
+        .input, .output, .uniform, .push_constant, .storage_buffer => is_spirv,
         .global, .shared, .local => is_gpu,
         .constant => is_gpu and (ctx == .constant),
         // TODO this should also check how many flash banks the cpu has
