@@ -1396,10 +1396,6 @@ const NavGen = struct {
 
         const child_ty_id = try self.resolveType(child_ty, child_repr);
 
-        if (storage_class == .Uniform or storage_class == .PushConstant) {
-            try self.spv.decorate(child_ty_id, .Block);
-        }
-
         try self.spv.sections.types_globals_constants.emit(self.spv.gpa, .OpTypePointer, .{
             .id_result = result_id,
             .storage_class = storage_class,
@@ -1746,6 +1742,10 @@ const NavGen = struct {
                         defer self.gpa.free(type_name);
                         try self.spv.debugName(result_id, type_name);
 
+                        if (target.os.tag == .vulkan) {
+                            try self.spv.decorate(result_id, .Block); // Decorate all structs as block for now...
+                        }
+
                         return result_id;
                     },
                     .struct_type => ip.loadStructType(ty.toIntern()),
@@ -1790,6 +1790,10 @@ const NavGen = struct {
                 const type_name = try self.resolveTypeName(ty);
                 defer self.gpa.free(type_name);
                 try self.spv.debugName(result_id, type_name);
+
+                if (target.os.tag == .vulkan) {
+                    try self.spv.decorate(result_id, .Block); // Decorate all structs as block for now...
+                }
 
                 return result_id;
             },
