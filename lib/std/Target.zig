@@ -1878,6 +1878,9 @@ pub const Cpu = struct {
             };
         }
 
+        /// Returns the most bare-bones CPU model that is valid for `arch`. Note that this function
+        /// can return CPU models that are understood by LLVM, but *not* understood by Clang. If
+        /// Clang compatibility is important, consider using `baseline` instead.
         pub fn generic(arch: Arch) *const Model {
             const S = struct {
                 const generic_model = Model{
@@ -1887,10 +1890,11 @@ pub const Cpu = struct {
                 };
             };
             return switch (arch) {
+                .amdgcn => &amdgpu.cpu.gfx600,
                 .arc => &arc.cpu.generic,
                 .arm, .armeb, .thumb, .thumbeb => &arm.cpu.generic,
                 .aarch64, .aarch64_be => &aarch64.cpu.generic,
-                .avr => &avr.cpu.avr2,
+                .avr => &avr.cpu.avr1,
                 .bpfel, .bpfeb => &bpf.cpu.generic,
                 .csky => &csky.cpu.generic,
                 .hexagon => &hexagon.cpu.generic,
@@ -1901,13 +1905,10 @@ pub const Cpu = struct {
                 .mips, .mipsel => &mips.cpu.mips32,
                 .mips64, .mips64el => &mips.cpu.mips64,
                 .msp430 => &msp430.cpu.generic,
-                .powerpc => &powerpc.cpu.ppc,
-                .powerpcle => &powerpc.cpu.ppc,
-                .powerpc64 => &powerpc.cpu.ppc64,
-                .powerpc64le => &powerpc.cpu.ppc64le,
+                .powerpc, .powerpcle => &powerpc.cpu.ppc,
+                .powerpc64, .powerpc64le => &powerpc.cpu.ppc64,
                 .propeller1 => &propeller.cpu.generic,
                 .propeller2 => &propeller.cpu.generic,
-                .amdgcn => &amdgpu.cpu.generic,
                 .riscv32 => &riscv.cpu.generic_rv32,
                 .riscv64 => &riscv.cpu.generic_rv64,
                 .spirv, .spirv32, .spirv64 => &spirv.cpu.generic,
@@ -1928,8 +1929,17 @@ pub const Cpu = struct {
             };
         }
 
+        /// Returns a conservative CPU model for `arch` that is expected to be compatible with the
+        /// vast majority of hardware available. This function is guaranteed to return CPU models
+        /// that are understood by both LLVM and Clang, unlike `generic`.
+        ///
+        /// For certain `os` values, this function will additionally bump the baseline higher than
+        /// the baseline would be for `arch` in isolation; for example, for `aarch64-macos`, the
+        /// baseline is considered to be `apple_m1`. To avoid this behavior entirely, pass
+        /// `Os.Tag.freestanding`.
         pub fn baseline(arch: Arch, os: Os) *const Model {
             return switch (arch) {
+                .amdgcn => &amdgpu.cpu.gfx906,
                 .arm, .armeb, .thumb, .thumbeb => &arm.cpu.baseline,
                 .aarch64 => switch (os.tag) {
                     .bridgeos, .driverkit, .macos => &aarch64.cpu.apple_m1,
@@ -1938,14 +1948,31 @@ pub const Cpu = struct {
                     .watchos => &aarch64.cpu.apple_s4,
                     else => generic(arch),
                 },
+                .avr => &avr.cpu.avr2,
+                .bpfel, .bpfeb => &bpf.cpu.v1,
+                .csky => &csky.cpu.ck810, // gcc/clang do not have a generic csky model.
                 .hexagon => &hexagon.cpu.hexagonv60, // gcc/clang do not have a generic hexagon model.
+                .lanai => &lanai.cpu.v11, // clang does not have a generic lanai model.
+                .loongarch64 => &loongarch.cpu.loongarch64,
+                .m68k => &m68k.cpu.M68000,
+                .mips, .mipsel => &mips.cpu.mips32r2,
+                .mips64, .mips64el => &mips.cpu.mips64r2,
+                .msp430 => &msp430.cpu.msp430,
+                .nvptx, .nvptx64 => &nvptx.cpu.sm_52,
+                .powerpc64le => &powerpc.cpu.ppc64le,
                 .riscv32 => &riscv.cpu.baseline_rv32,
                 .riscv64 => &riscv.cpu.baseline_rv64,
-                .x86 => &x86.cpu.pentium4,
-                .nvptx, .nvptx64 => &nvptx.cpu.sm_20,
                 .s390x => &s390x.cpu.arch8, // gcc/clang do not have a generic s390x model.
                 .sparc => &sparc.cpu.v9, // glibc does not work with 'plain' v8.
-                .loongarch64 => &loongarch.cpu.loongarch64,
+                .x86 => &x86.cpu.pentium4,
+                .x86_64 => switch (os.tag) {
+                    .driverkit => &x86.cpu.nehalem,
+                    .ios, .macos, .tvos, .visionos, .watchos => &x86.cpu.core2,
+                    .ps4 => &x86.cpu.btver2,
+                    .ps5 => &x86.cpu.znver2,
+                    else => generic(arch),
+                },
+                .xcore => &xcore.cpu.xs1b_generic,
 
                 else => generic(arch),
             };
