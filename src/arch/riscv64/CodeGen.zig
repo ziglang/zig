@@ -1769,8 +1769,15 @@ fn finishAirBookkeeping(func: *Func) void {
 fn finishAirResult(func: *Func, inst: Air.Inst.Index, result: MCValue) void {
     if (func.liveness.isUnused(inst)) switch (result) {
         .none, .dead, .unreach => {},
-        else => unreachable, // Why didn't the result die?
+        // Why didn't the result die?
+        .register => |r| if (r != .zero) unreachable,
+        else => unreachable,
     } else {
+        switch (result) {
+            .register => |r| if (r == .zero) unreachable, // Why did we discard a used result?
+            else => {},
+        }
+
         tracking_log.debug("%{d} => {} (birth)", .{ inst, result });
         func.inst_tracking.putAssumeCapacityNoClobber(inst, InstTracking.init(result));
         // In some cases, an operand may be reused as the result.
