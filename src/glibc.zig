@@ -1357,3 +1357,10 @@ pub fn needsCrtiCrtn(target: std.Target) bool {
         else => true,
     };
 }
+
+pub fn needsCrt0(output_mode: std.builtin.OutputMode) ?CrtFile {
+    return switch (output_mode) {
+        .Obj, .Lib => null,
+        .Exe => .scrt1_o,
+    };
+}

@@ -1795,8 +1795,8 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                             .{ .glibc_crt_file = .crtn_o },
                         });
                     }
-                    if (!is_dyn_lib) {
-                        try comp.queueJob(.{ .glibc_crt_file = .scrt1_o });
+                    if (glibc.needsCrt0(comp.config.output_mode)) |f| {
+                        try comp.queueJobs(&.{.{ .glibc_crt_file = f }});
                     }
                     try comp.queueJobs(&[_]Job{
                         .{ .glibc_shared_objects = {} },
