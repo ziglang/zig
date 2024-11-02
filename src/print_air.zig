@@ -279,6 +279,7 @@ const Writer = struct {
             .call_always_tail,
             .call_never_tail,
             .call_never_inline,
+            .call_never_intrinsify,
             => try w.writeCall(s, inst),
 
             .dbg_var_ptr,

@@ -482,7 +482,7 @@ pub fn categorizeOperand(
             return .none;
         },
 
-        .call, .call_always_tail, .call_never_tail, .call_never_inline => {
+        .call, .call_always_tail, .call_never_tail, .call_never_inline, .call_never_intrinsify => {
             const inst_data = air_datas[@intFromEnum(inst)].pl_op;
             const callee = inst_data.operand;
             const extra = air.extraData(Air.Call, inst_data.payload);
@@ -1109,7 +1109,7 @@ fn analyzeInst(
             return analyzeOperands(a, pass, data, inst, .{ prefetch.ptr, .none, .none });
         },
 
-        .call, .call_always_tail, .call_never_tail, .call_never_inline => {
+        .call, .call_always_tail, .call_never_tail, .call_never_inline, .call_never_intrinsify => {
             const inst_data = inst_datas[@intFromEnum(inst)].pl_op;
             const callee = inst_data.operand;
             const extra = a.air.extraData(Air.Call, inst_data.payload);

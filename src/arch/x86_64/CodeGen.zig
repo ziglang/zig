@@ -2432,10 +2432,11 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .dbg_arg_inline,
             => try self.airDbgVar(inst),
 
-            .call              => try self.airCall(inst, .auto),
-            .call_always_tail  => try self.airCall(inst, .always_tail),
-            .call_never_tail   => try self.airCall(inst, .never_tail),
-            .call_never_inline => try self.airCall(inst, .never_inline),
+            .call                  => try self.airCall(inst, .auto),
+            .call_always_tail      => try self.airCall(inst, .always_tail),
+            .call_never_tail       => try self.airCall(inst, .never_tail),
+            .call_never_inline     => try self.airCall(inst, .never_inline),
+            .call_never_intrinsify => try self.airCall(inst, .never_intrinsify),
 
             .atomic_store_unordered => try self.airAtomicStore(inst, .unordered),
             .atomic_store_monotonic => try self.airAtomicStore(inst, .monotonic),

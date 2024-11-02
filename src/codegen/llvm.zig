@@ -5435,13 +5435,14 @@ pub const FuncGen = struct {
                     if (self.typeOfIndex(inst).isNoReturn(zcu)) return;
                     break :res res;
                 },
-                .call, .call_always_tail, .call_never_tail, .call_never_inline => |tag| res: {
+                .call, .call_always_tail, .call_never_tail, .call_never_inline, .call_never_intrinsify => |tag| res: {
                     const res = try self.airCall(inst, switch (tag) {
-                        .call              => .auto,
-                        .call_always_tail  => .always_tail,
-                        .call_never_tail   => .never_tail,
-                        .call_never_inline => .never_inline,
-                        else               => unreachable,
+                        .call                  => .auto,
+                        .call_always_tail      => .always_tail,
+                        .call_never_tail       => .never_tail,
+                        .call_never_inline     => .never_inline,
+                        .call_never_intrinsify => .never_intrinsify,
+                        else                   => unreachable,
                     });
                     // TODO: the AIR we emit for calls is a bit weird - the instruction has
                     // type `noreturn`, but there are instructions (and maybe a safety check) following
@@ -5585,6 +5586,7 @@ pub const FuncGen = struct {
         switch (modifier) {
             .auto, .never_tail, .always_tail => {},
             .never_inline => try attributes.addFnAttr(.@"noinline", &o.builder),
+            .never_intrinsify => try attributes.addFnAttr(.nobuiltin, &o.builder),
             .async_kw, .no_async, .always_inline, .compile_time => unreachable,
         }
 
@@ -5794,7 +5796,7 @@ pub const FuncGen = struct {
 
         const call = try self.wip.call(
             switch (modifier) {
-                .auto, .never_inline => .normal,
+                .auto, .never_inline, .never_intrinsify => .normal,
                 .never_tail => .notail,
                 .always_tail => .musttail,
                 .async_kw, .no_async, .always_inline, .compile_time => unreachable,

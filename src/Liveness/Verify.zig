@@ -340,7 +340,7 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
                 }
                 try self.verifyInst(inst);
             },
-            .call, .call_always_tail, .call_never_tail, .call_never_inline => {
+            .call, .call_always_tail, .call_never_tail, .call_never_inline, .call_never_intrinsify => {
                 const pl_op = data[@intFromEnum(inst)].pl_op;
                 const extra = self.air.extraData(Air.Call, pl_op.payload);
                 const args = @as(

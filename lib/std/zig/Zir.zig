@@ -2718,8 +2718,8 @@ pub const Inst = struct {
 
         pub const Flags = packed struct {
             /// std.builtin.CallModifier in packed form
-            pub const PackedModifier = u3;
-            pub const PackedArgsLen = u27;
+            pub const PackedModifier = u4;
+            pub const PackedArgsLen = u26;
 
             packed_modifier: PackedModifier,
             ensure_result_used: bool = false,

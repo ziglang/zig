@@ -1933,6 +1933,7 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .call_always_tail => func.airCall(inst, .always_tail),
         .call_never_tail => func.airCall(inst, .never_tail),
         .call_never_inline => func.airCall(inst, .never_inline),
+        .call_never_intrinsify => func.airCall(inst, .never_intrinsify),
 
         .is_err => func.airIsErr(inst, .i32_ne),
         .is_non_err => func.airIsErr(inst, .i32_eq),

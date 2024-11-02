@@ -1658,10 +1658,11 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
 
             .dbg_inline_block => try func.airDbgInlineBlock(inst),
 
-            .call              => try func.airCall(inst, .auto),
-            .call_always_tail  => try func.airCall(inst, .always_tail),
-            .call_never_tail   => try func.airCall(inst, .never_tail),
-            .call_never_inline => try func.airCall(inst, .never_inline),
+            .call                  => try func.airCall(inst, .auto),
+            .call_always_tail      => try func.airCall(inst, .always_tail),
+            .call_never_tail       => try func.airCall(inst, .never_tail),
+            .call_never_inline     => try func.airCall(inst, .never_inline),
+            .call_never_intrinsify => try func.airCall(inst, .never_intrinsify),
 
             .atomic_store_unordered => try func.airAtomicStore(inst, .unordered),
             .atomic_store_monotonic => try func.airAtomicStore(inst, .monotonic),

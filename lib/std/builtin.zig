@@ -843,6 +843,10 @@ pub const CallModifier = enum {
     /// Evaluates the call at compile-time. If the call cannot be completed at
     /// compile-time, a compile error is emitted instead.
     compile_time,
+
+    /// Prevents intrinsifying to corresponding implementation of builtin
+    /// function.
+    never_intrinsify,
 };
 
 /// This data structure is used by the Zig language code generation and

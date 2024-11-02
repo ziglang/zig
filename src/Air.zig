@@ -314,6 +314,8 @@ pub const Inst = struct {
         call_never_tail,
         /// Same as `call` except with the `never_inline` attribute.
         call_never_inline,
+        /// Same as `call` except with the `never_intrinsify` attribute.
+        call_never_intrinsify,
         /// Count leading zeroes of an integer according to its representation in twos complement.
         /// Result type will always be an unsigned integer big enough to fit the answer.
         /// Uses the `ty_op` field.
@@ -1501,7 +1503,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
 
         .tag_name, .error_name => return Type.slice_const_u8_sentinel_0,
 
-        .call, .call_always_tail, .call_never_tail, .call_never_inline => {
+        .call, .call_always_tail, .call_never_tail, .call_never_inline, .call_never_intrinsify => {
             const callee_ty = air.typeOf(datas[@intFromEnum(inst)].pl_op.operand, ip);
             return Type.fromInterned(ip.funcTypeReturnType(callee_ty.toIntern()));
         },
@@ -1620,6 +1622,7 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .call_always_tail,
         .call_never_tail,
         .call_never_inline,
+        .call_never_intrinsify,
         .cond_br,
         .switch_br,
         .loop_switch_br,

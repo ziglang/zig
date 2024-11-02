@@ -7602,6 +7602,7 @@ fn analyzeCall(
 
         .never_tail => Air.Inst.Tag.call_never_tail,
         .never_inline => Air.Inst.Tag.call_never_inline,
+        .never_intrinsify => Air.Inst.Tag.call_never_intrinsify,
         .always_tail => Air.Inst.Tag.call_always_tail,
 
         .async_kw => return sema.failWithUseOfAsync(block, call_src),
@@ -25719,7 +25720,7 @@ fn zirBuiltinCall(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     var modifier = zcu.toEnum(std.builtin.CallModifier, modifier_val);
     switch (modifier) {
         // These can be upgraded to comptime or nosuspend calls.
-        .auto, .never_tail, .no_async => {
+        .auto, .never_tail, .never_intrinsify, .no_async => {
             if (block.is_comptime) {
                 if (modifier == .never_tail) {
                     return sema.fail(block, modifier_src, "unable to perform 'never_tail' call at compile-time", .{});

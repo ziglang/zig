@@ -3407,10 +3407,11 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             // The instruction has type `noreturn`, but there are instructions (and maybe a safety
             // check) following nonetheless. The `unreachable` or safety check should be emitted by
             // backends instead.
-            .call              => try airCall(f, inst, .auto),
-            .call_always_tail  => .none,
-            .call_never_tail   => try airCall(f, inst, .never_tail),
-            .call_never_inline => try airCall(f, inst, .never_inline),
+            .call                  => try airCall(f, inst, .auto),
+            .call_always_tail      => .none,
+            .call_never_tail       => try airCall(f, inst, .never_tail),
+            .call_never_inline     => try airCall(f, inst, .never_inline),
+            .call_never_intrinsify => try airCall(f, inst, .never_intrinsify),
 
             // zig fmt: on
         };
@@ -4540,7 +4541,7 @@ fn airCall(
                 else => break :known,
             };
             switch (modifier) {
-                .auto, .always_tail => try f.object.dg.renderNavName(writer, fn_nav),
+                .auto, .always_tail, .never_intrinsify => try f.object.dg.renderNavName(writer, fn_nav),
                 inline .never_tail, .never_inline => |m| try writer.writeAll(try f.getLazyFnName(@unionInit(LazyFnKey, @tagName(m), fn_nav))),
                 else => unreachable,
             }
@@ -4550,6 +4551,7 @@ fn airCall(
             .auto, .always_tail => {},
             .never_tail => return f.fail("CBE: runtime callee with never_tail attribute unsupported", .{}),
             .never_inline => return f.fail("CBE: runtime callee with never_inline attribute unsupported", .{}),
+            .never_intrinsify => return f.fail("CBE: runtime callee with never_intrinsify attribute unsupported", .{}),
             else => unreachable,
         }
         // Fall back to function pointer call.
