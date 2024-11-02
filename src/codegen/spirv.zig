@@ -6529,6 +6529,13 @@ const NavGen = struct {
             return self.todo("implement inline asm with more than 1 output", .{});
         }
 
+        var as = SpvAssembler{
+            .gpa = self.gpa,
+            .spv = self.spv,
+            .func = &self.func,
+        };
+        defer as.deinit();
+
         var output_extra_i = extra_i;
         for (outputs) |output| {
             if (output != .none) {
@@ -6541,7 +6548,6 @@ const NavGen = struct {
             // TODO: Record output and use it somewhere.
         }
 
-        var input_extra_i = extra_i;
         for (inputs) |input| {
             const extra_bytes = std.mem.sliceAsBytes(self.air.extra[extra_i..]);
             const constraint = std.mem.sliceTo(extra_bytes, 0);
@@ -6549,36 +6555,6 @@ const NavGen = struct {
             // This equation accounts for the fact that even if we have exactly 4 bytes
             // for the string, we still use the next u32 for the null terminator.
             extra_i += (constraint.len + name.len + (2 + 3)) / 4;
-            // TODO: Record input and use it somewhere.
-            _ = input;
-        }
-
-        {
-            var clobber_i: u32 = 0;
-            while (clobber_i < clobbers_len) : (clobber_i += 1) {
-                const clobber = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra[extra_i..]), 0);
-                extra_i += clobber.len / 4 + 1;
-                // TODO: Record clobber and use it somewhere.
-            }
-        }
-
-        const asm_source = std.mem.sliceAsBytes(self.air.extra[extra_i..])[0..extra.data.source_len];
-
-        var as = SpvAssembler{
-            .gpa = self.gpa,
-            .src = asm_source,
-            .spv = self.spv,
-            .func = &self.func,
-        };
-        defer as.deinit();
-
-        for (inputs) |input| {
-            const extra_bytes = std.mem.sliceAsBytes(self.air.extra[input_extra_i..]);
-            const constraint = std.mem.sliceTo(extra_bytes, 0);
-            const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
-            // This equation accounts for the fact that even if we have exactly 4 bytes
-            // for the string, we still use the next u32 for the null terminator.
-            input_extra_i += (constraint.len + name.len + (2 + 3)) / 4;
 
             if (self.typeOf(input).zigTypeTag(zcu) == .type) {
                 // This assembly input is a type instead of a value.
@@ -6592,7 +6568,18 @@ const NavGen = struct {
             }
         }
 
-        as.assemble() catch |err| switch (err) {
+        {
+            var clobber_i: u32 = 0;
+            while (clobber_i < clobbers_len) : (clobber_i += 1) {
+                const clobber = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra[extra_i..]), 0);
+                extra_i += clobber.len / 4 + 1;
+                // TODO: Record clobber and use it somewhere.
+            }
+        }
+
+        const asm_source = std.mem.sliceAsBytes(self.air.extra[extra_i..])[0..extra.data.source_len];
+
+        as.assemble(asm_source) catch |err| switch (err) {
             error.AssembleFail => {
                 // TODO: For now the compiler only supports a single error message per decl,
                 // so to translate the possible multiple errors from the assembler, emit

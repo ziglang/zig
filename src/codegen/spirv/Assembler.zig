@@ -151,7 +151,8 @@ gpa: Allocator,
 errors: std.ArrayListUnmanaged(ErrorMsg) = .empty,
 
 /// The source code that is being assembled.
-src: []const u8,
+/// This is set when calling `assemble()`.
+src: []const u8 = undefined,
 
 /// The module that this assembly is associated to.
 /// Instructions like OpType*, OpDecorate, etc are emitted into this module.
@@ -211,7 +212,10 @@ pub fn deinit(self: *Assembler) void {
     self.instruction_map.deinit(self.gpa);
 }
 
-pub fn assemble(self: *Assembler) Error!void {
+pub fn assemble(self: *Assembler, src: []const u8) Error!void {
+    self.src = src;
+    self.errors.clearRetainingCapacity();
+
     // Populate the opcode map if it isn't already
     if (self.instruction_map.count() == 0) {
         const instructions = spec.InstructionSet.core.instructions();
@@ -369,6 +373,7 @@ fn processTypeInstruction(self: *Assembler) !AsmValue {
 /// - Function-local instructions are emitted in `self.func`.
 fn processGenericInstruction(self: *Assembler) !?AsmValue {
     const operands = self.inst.operands.items;
+    var maybe_spv_decl_index: ?SpvModule.Decl.Index = null;
     const section = switch (self.inst.opcode.class()) {
         .ConstantCreation => &self.spv.sections.types_globals_constants,
         .Annotation => &self.spv.sections.annotations,
@@ -378,12 +383,15 @@ fn processGenericInstruction(self: *Assembler) !?AsmValue {
             .OpExecutionMode, .OpExecutionModeId => &self.spv.sections.execution_modes,
             .OpVariable => switch (@as(spec.StorageClass, @enumFromInt(operands[2].value))) {
                 .Function => &self.func.prologue,
-                .UniformConstant => &self.spv.sections.types_globals_constants,
-                else => {
-                    // This is currently disabled because global variables are required to be
-                    // emitted in the proper order, and this should be honored in inline assembly
-                    // as well.
-                    return self.todo("global variables", .{});
+                // These don't need to be marked in the dependency system.
+                // Probably we should add them anyway, then filter out PushConstant globals.
+                .PushConstant => &self.spv.sections.types_globals_constants,
+                else => section: {
+                    maybe_spv_decl_index = try self.spv.allocDecl(.global);
+                    try self.func.decl_deps.put(self.spv.gpa, maybe_spv_decl_index.?, {});
+                    // TODO: In theory this can be non-empty if there is an initializer which depends on another global...
+                    try self.spv.declareDeclDeps(maybe_spv_decl_index.?, &.{});
+                    break :section &self.spv.sections.types_globals_constants;
                 },
             },
             // Default case - to be worked out further.
@@ -409,7 +417,10 @@ fn processGenericInstruction(self: *Assembler) !?AsmValue {
                 section.writeDoubleWord(dword);
             },
             .result_id => {
-                maybe_result_id = self.spv.allocId();
+                maybe_result_id = if (maybe_spv_decl_index) |spv_decl_index|
+                    self.spv.declPtr(spv_decl_index).result_id
+                else
+                    self.spv.allocId();
                 try section.ensureUnusedCapacity(self.spv.gpa, 1);
                 section.writeOperand(IdResult, maybe_result_id.?);
             },
@@ -475,8 +486,8 @@ fn resolveRefId(self: *Assembler, ref: AsmValue.Ref) !IdRef {
 /// error message has been emitted into `self.errors`.
 fn parseInstruction(self: *Assembler) !void {
     self.inst.opcode = undefined;
-    self.inst.operands.shrinkRetainingCapacity(0);
-    self.inst.string_bytes.shrinkRetainingCapacity(0);
+    self.inst.operands.clearRetainingCapacity();
+    self.inst.string_bytes.clearRetainingCapacity();
 
     const lhs_result_tok = self.currentToken();
     const maybe_lhs_result: ?AsmValue.Ref = if (self.eatToken(.result_id_assign)) blk: {
@@ -848,6 +859,8 @@ fn tokenText(self: Assembler, tok: Token) []const u8 {
 /// Tokenize `self.src` and put the tokens in `self.tokens`.
 /// Any errors encountered are appended to `self.errors`.
 fn tokenize(self: *Assembler) !void {
+    self.tokens.clearRetainingCapacity();
+
     var offset: u32 = 0;
     while (true) {
         const tok = try self.nextToken(offset);
