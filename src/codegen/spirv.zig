@@ -4370,13 +4370,24 @@ const NavGen = struct {
         defer self.gpa.free(ids);
 
         const result_id = self.spv.allocId();
-        try self.func.body.emit(self.spv.gpa, .OpInBoundsPtrAccessChain, .{
-            .id_result_type = result_ty_id,
-            .id_result = result_id,
-            .base = base,
-            .element = element,
-            .indexes = ids,
-        });
+        const target = self.getTarget();
+        switch (target.os.tag) {
+            .opencl => try self.func.body.emit(self.spv.gpa, .OpInBoundsPtrAccessChain, .{
+                .id_result_type = result_ty_id,
+                .id_result = result_id,
+                .base = base,
+                .element = element,
+                .indexes = ids,
+            }),
+            .vulkan => try self.func.body.emit(self.spv.gpa, .OpPtrAccessChain, .{
+                .id_result_type = result_ty_id,
+                .id_result = result_id,
+                .base = base,
+                .element = element,
+                .indexes = ids,
+            }),
+            else => unreachable,
+        }
         return result_id;
     }
 
