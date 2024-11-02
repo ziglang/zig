@@ -118,9 +118,6 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
             .{ .v6kz, "v6kz" },
             .{ .v6m, "v6m" },
             .{ .v6t2, "v6t2" },
-            // v7k and v7s imply v7a so they have to be tested first.
-            .{ .v7k, "v7k" },
-            .{ .v7s, "v7s" },
             .{ .v7a, "v7a" },
             .{ .v7em, "v7em" },
             .{ .v7m, "v7m" },
