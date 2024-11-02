@@ -1882,7 +1882,7 @@ const NavGen = struct {
                 else => unreachable,
             },
             .shared => .Workgroup,
-            .local => .Private,
+            .local => .Function,
             .global => switch (target.os.tag) {
                 .opencl => .CrossWorkgroup,
                 .vulkan => .PhysicalStorageBuffer,
