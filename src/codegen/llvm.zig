@@ -164,14 +164,34 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
     };
 
     if (llvm_sub_arch) |sub| try llvm_triple.appendSlice(sub);
+    try llvm_triple.append('-');
 
-    // Unlike CPU backends, GPU backends actually care about the vendor tag.
-    try llvm_triple.appendSlice(switch (target.cpu.arch) {
-        .amdgcn => if (target.os.tag == .mesa3d) "-mesa-" else "-amd-",
-        .nvptx, .nvptx64 => "-nvidia-",
-        .spirv64 => if (target.os.tag == .amdhsa) "-amd-" else "-unknown-",
-        else => "-unknown-",
+    try llvm_triple.appendSlice(switch (target.os.tag) {
+        .aix,
+        .zos,
+        => "ibm",
+        .bridgeos,
+        .driverkit,
+        .ios,
+        .macos,
+        .tvos,
+        .visionos,
+        .watchos,
+        => "apple",
+        .ps4,
+        .ps5,
+        => "scei",
+        .amdhsa,
+        .amdpal,
+        => "amd",
+        .cuda,
+        .nvcl,
+        => "nvidia",
+        .mesa3d,
+        => "mesa",
+        else => "unknown",
     });
+    try llvm_triple.append('-');
 
     const llvm_os = switch (target.os.tag) {
         .freestanding => "unknown",
@@ -219,13 +239,20 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
     };
     try llvm_triple.appendSlice(llvm_os);
 
-    if (target.os.tag.isDarwin()) {
-        const min_version = target.os.version_range.semver.min;
-        try llvm_triple.writer().print("{d}.{d}.{d}", .{
-            min_version.major,
-            min_version.minor,
-            min_version.patch,
-        });
+    switch (target.os.versionRange()) {
+        .none,
+        .windows,
+        => {},
+        .semver => |ver| try llvm_triple.writer().print("{d}.{d}.{d}", .{
+            ver.min.major,
+            ver.min.minor,
+            ver.min.patch,
+        }),
+        .linux => |ver| try llvm_triple.writer().print("{d}.{d}.{d}", .{
+            ver.range.min.major,
+            ver.range.min.minor,
+            ver.range.min.patch,
+        }),
     }
     try llvm_triple.append('-');
 
@@ -258,6 +285,18 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .ohoseabi => "ohoseabi",
     };
     try llvm_triple.appendSlice(llvm_abi);
+
+    switch (target.os.versionRange()) {
+        .none,
+        .semver,
+        .windows,
+        => {},
+        .linux => |ver| if (target.abi.isGnu()) try llvm_triple.writer().print("{d}.{d}.{d}", .{
+            ver.glibc.major,
+            ver.glibc.minor,
+            ver.glibc.patch,
+        }) else if (target.abi.isAndroid()) try llvm_triple.writer().print("{d}", .{ver.android}),
+    }
 
     return llvm_triple.toOwnedSlice();
 }

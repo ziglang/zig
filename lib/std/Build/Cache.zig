@@ -221,6 +221,7 @@ pub const HashHelper = struct {
                         hh.add(linux.range.min);
                         hh.add(linux.range.max);
                         hh.add(linux.glibc);
+                        hh.add(linux.android);
                     },
                     .windows => |windows| {
                         hh.add(windows.min);

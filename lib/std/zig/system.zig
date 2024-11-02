@@ -331,6 +331,10 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
         os.version_range.linux.glibc = glibc;
     }
 
+    if (query.android_api_level) |android| {
+        os.version_range.linux.android = android;
+    }
+
     // Until https://github.com/ziglang/zig/issues/4592 is implemented (support detecting the
     // native CPU architecture as being different than the current target), we use this:
     const cpu_arch = query.cpu_arch orelse builtin.cpu.arch;
