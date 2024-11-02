@@ -45,6 +45,9 @@ const Token = struct {
         pipe,
         /// =.
         equals,
+        /// $identifier. This is used (for now) for constant values, like integers.
+        /// These can be used in place of a normal `value`.
+        placeholder,
 
         fn name(self: Tag) []const u8 {
             return switch (self) {
@@ -56,6 +59,7 @@ const Token = struct {
                 .string => "<string literal>",
                 .pipe => "'|'",
                 .equals => "'='",
+                .placeholder => "<placeholder>",
             };
         }
     };
@@ -128,12 +132,19 @@ const AsmValue = union(enum) {
     /// This result-value represents a type registered into the module's type system.
     ty: IdRef,
 
+    /// This is a pre-supplied constant integer value.
+    constant: u32,
+
     /// Retrieve the result-id of this AsmValue. Asserts that this AsmValue
     /// is of a variant that allows the result to be obtained (not an unresolved
     /// forward declaration, not in the process of being declared, etc).
     pub fn resultId(self: AsmValue) IdRef {
         return switch (self) {
-            .just_declared, .unresolved_forward_reference => unreachable,
+            .just_declared,
+            .unresolved_forward_reference,
+            // TODO: Lower this value as constant?
+            .constant,
+            => unreachable,
             .value => |result| result,
             .ty => |result| result,
         };
@@ -383,16 +394,16 @@ fn processGenericInstruction(self: *Assembler) !?AsmValue {
             .OpExecutionMode, .OpExecutionModeId => &self.spv.sections.execution_modes,
             .OpVariable => switch (@as(spec.StorageClass, @enumFromInt(operands[2].value))) {
                 .Function => &self.func.prologue,
-                // These don't need to be marked in the dependency system.
-                // Probably we should add them anyway, then filter out PushConstant globals.
-                .PushConstant => &self.spv.sections.types_globals_constants,
-                else => section: {
+                .Input, .Output => section: {
                     maybe_spv_decl_index = try self.spv.allocDecl(.global);
                     try self.func.decl_deps.put(self.spv.gpa, maybe_spv_decl_index.?, {});
                     // TODO: In theory this can be non-empty if there is an initializer which depends on another global...
                     try self.spv.declareDeclDeps(maybe_spv_decl_index.?, &.{});
                     break :section &self.spv.sections.types_globals_constants;
                 },
+                // These don't need to be marked in the dependency system.
+                // Probably we should add them anyway, then filter out PushConstant globals.
+                else => &self.spv.sections.types_globals_constants,
             },
             // Default case - to be worked out further.
             else => &self.func.body,
@@ -665,6 +676,22 @@ fn parseRefId(self: *Assembler) !void {
 
 fn parseLiteralInteger(self: *Assembler) !void {
     const tok = self.currentToken();
+    if (self.eatToken(.placeholder)) {
+        const name = self.tokenText(tok)[1..];
+        const value = self.value_map.get(name) orelse {
+            return self.fail(tok.start, "invalid placeholder '${s}'", .{name});
+        };
+        switch (value) {
+            .constant => |literal32| {
+                try self.inst.operands.append(self.gpa, .{ .literal32 = literal32 });
+            },
+            else => {
+                return self.fail(tok.start, "value '{s}' cannot be used as placeholder", .{name});
+            },
+        }
+        return;
+    }
+
     try self.expectToken(.value);
     // According to the SPIR-V machine readable grammar, a LiteralInteger
     // may consist of one or more words. From the SPIR-V docs it seems like there
@@ -680,6 +707,22 @@ fn parseLiteralInteger(self: *Assembler) !void {
 
 fn parseLiteralExtInstInteger(self: *Assembler) !void {
     const tok = self.currentToken();
+    if (self.eatToken(.placeholder)) {
+        const name = self.tokenText(tok)[1..];
+        const value = self.value_map.get(name) orelse {
+            return self.fail(tok.start, "invalid placeholder '${s}'", .{name});
+        };
+        switch (value) {
+            .constant => |literal32| {
+                try self.inst.operands.append(self.gpa, .{ .literal32 = literal32 });
+            },
+            else => {
+                return self.fail(tok.start, "value '{s}' cannot be used as placeholder", .{name});
+            },
+        }
+        return;
+    }
+
     try self.expectToken(.value);
     const text = self.tokenText(tok);
     const value = std.fmt.parseInt(u32, text, 0) catch {
@@ -756,6 +799,22 @@ fn parseContextDependentNumber(self: *Assembler) !void {
 
 fn parseContextDependentInt(self: *Assembler, signedness: std.builtin.Signedness, width: u32) !void {
     const tok = self.currentToken();
+    if (self.eatToken(.placeholder)) {
+        const name = self.tokenText(tok)[1..];
+        const value = self.value_map.get(name) orelse {
+            return self.fail(tok.start, "invalid placeholder '${s}'", .{name});
+        };
+        switch (value) {
+            .constant => |literal32| {
+                try self.inst.operands.append(self.gpa, .{ .literal32 = literal32 });
+            },
+            else => {
+                return self.fail(tok.start, "value '{s}' cannot be used as placeholder", .{name});
+            },
+        }
+        return;
+    }
+
     try self.expectToken(.value);
 
     if (width == 0 or width > 2 * @bitSizeOf(spec.Word)) {
@@ -903,6 +962,7 @@ fn nextToken(self: *Assembler, start_offset: u32) !Token {
         string,
         string_end,
         escape,
+        placeholder,
     } = .start;
     var token_start = start_offset;
     var offset = start_offset;
@@ -930,6 +990,10 @@ fn nextToken(self: *Assembler, start_offset: u32) !Token {
                     offset += 1;
                     break;
                 },
+                '$' => {
+                    state = .placeholder;
+                    tag = .placeholder;
+                },
                 else => {
                     state = .value;
                     tag = .value;
@@ -945,11 +1009,11 @@ fn nextToken(self: *Assembler, start_offset: u32) !Token {
                 ' ', '\t', '\r', '\n', '=', '|' => break,
                 else => {},
             },
-            .result_id => switch (c) {
+            .result_id, .placeholder => switch (c) {
                 '_', 'a'...'z', 'A'...'Z', '0'...'9' => {},
                 ' ', '\t', '\r', '\n', '=', '|' => break,
                 else => {
-                    try self.addError(offset, "illegal character in result-id", .{});
+                    try self.addError(offset, "illegal character in result-id or placeholder", .{});
                     // Again, probably a forgotten delimiter here.
                     break;
                 },

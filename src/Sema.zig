@@ -17605,6 +17605,8 @@ fn analyzePtrArithmetic(
         } else break :rs ptr_src;
     };
 
+    try sema.requireRuntimeBlock(block, op_src, runtime_src);
+
     const target = zcu.getTarget();
     if (target_util.arePointersLogical(target, ptr_info.flags.address_space)) {
         return sema.failWithOwnedErrorMsg(block, msg: {
@@ -17623,7 +17625,6 @@ fn analyzePtrArithmetic(
         });
     }
 
-    try sema.requireRuntimeBlock(block, op_src, runtime_src);
     return block.addInst(.{
         .tag = air_tag,
         .data = .{ .ty_pl = .{
