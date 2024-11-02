@@ -699,11 +699,11 @@ const llvm_targets = [_]LlvmTarget{
             },
             .{
                 .llvm_name = "armv7k",
-                .zig_name = "v7k",
+                .omit = true,
             },
             .{
                 .llvm_name = "armv7s",
-                .zig_name = "v7s",
+                .omit = true,
             },
             .{
                 .llvm_name = "armv7ve",
