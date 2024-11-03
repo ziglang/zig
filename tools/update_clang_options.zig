@@ -576,7 +576,7 @@ fn knownOption(name: []const u8) ?[]const u8 {
 
 const cpu_targets = struct {
     pub const aarch64 = std.Target.aarch64;
-    pub const amdgpu = std.Target.amdgpu;
+    pub const amdgcn = std.Target.amdgcn;
     pub const arc = std.Target.arc;
     pub const arm = std.Target.arm;
     pub const avr = std.Target.avr;

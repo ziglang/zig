@@ -7574,13 +7574,13 @@ fn analyzeCall(
     if (try sema.resolveValue(func)) |func_val|
         if (func_val.isUndef(zcu))
             return sema.failWithUseOfUndef(block, call_src);
-    if (cc == .naked) {
+    if (!callConvIsCallable(cc)) {
         const maybe_func_inst = try sema.funcDeclSrcInst(func);
         const msg = msg: {
             const msg = try sema.errMsg(
                 func_src,
-                "unable to call function with naked calling convention",
-                .{},
+                "unable to call function with calling convention '{s}'",
+                .{@tagName(cc)},
             );
             errdefer msg.destroy(sema.gpa);
 
@@ -9762,6 +9762,33 @@ fn checkCallConvSupportsVarArgs(sema: *Sema, block: *Block, src: LazySrcLoc, cc:
             break :msg msg;
         });
     }
+}
+
+fn callConvIsCallable(cc: std.builtin.CallingConvention.Tag) bool {
+    return switch (cc) {
+        .naked,
+
+        .arm_interrupt,
+        .avr_interrupt,
+        .avr_signal,
+        .csky_interrupt,
+        .m68k_interrupt,
+        .mips_interrupt,
+        .mips64_interrupt,
+        .riscv32_interrupt,
+        .riscv64_interrupt,
+        .x86_interrupt,
+        .x86_64_interrupt,
+
+        .amdgcn_kernel,
+        .nvptx_kernel,
+        .spirv_kernel,
+        .spirv_fragment,
+        .spirv_vertex,
+        => false,
+
+        else => true,
+    };
 }
 
 fn checkMergeAllowed(sema: *Sema, block: *Block, src: LazySrcLoc, peer_ty: Type) !void {

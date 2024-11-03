@@ -7622,10 +7622,43 @@ fn toCallingConvention(cc: std.builtin.CallingConvention, zcu: *Zcu) ?[]const u8
 
         .aarch64_vfabi => "aarch64_vector_pcs",
         .aarch64_vfabi_sve => "aarch64_sve_pcs",
+
         .arm_aapcs => "pcs(\"aapcs\")",
-        .arm_aapcs_vfp => "pcs(\"aapcs-vfp\")",
+        .arm_aapcs_vfp, .arm_aapcs16_vfp => "pcs(\"aapcs-vfp\")",
+
+        .arm_interrupt => |opts| switch (opts.type) {
+            .generic => "interrupt",
+            .irq => "interrupt(\"IRQ\")",
+            .fiq => "interrupt(\"FIQ\")",
+            .swi => "interrupt(\"SWI\")",
+            .abort => "interrupt(\"ABORT\")",
+            .undef => "interrupt(\"UNDEF\")",
+        },
+
+        .avr_signal => "signal",
+
+        .mips_interrupt,
+        .mips64_interrupt,
+        => |opts| switch (opts.mode) {
+            inline else => |m| "interrupt(\"" ++ @tagName(m) ++ "\")",
+        },
+
         .riscv64_lp64_v, .riscv32_ilp32_v => "riscv_vector_cc",
+
+        .riscv32_interrupt,
+        .riscv64_interrupt,
+        => |opts| switch (opts.mode) {
+            inline else => |m| "interrupt(\"" ++ @tagName(m) ++ "\")",
+        },
+
         .m68k_rtd => "m68k_rtd",
+
+        .avr_interrupt,
+        .csky_interrupt,
+        .m68k_interrupt,
+        .x86_interrupt,
+        .x86_64_interrupt,
+        => "interrupt",
 
         else => unreachable, // `Zcu.callconvSupported`
     };

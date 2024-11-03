@@ -3415,8 +3415,8 @@ fn updateType(
                     .x86_64_regcall_v3_sysv => .LLVM_X86RegCall,
                     .x86_64_regcall_v4_win => .LLVM_X86RegCall,
                     .x86_64_vectorcall => .LLVM_vectorcall,
-                    .x86_sysv => .nocall,
-                    .x86_win => .nocall,
+                    .x86_sysv => .normal,
+                    .x86_win => .normal,
                     .x86_stdcall => .BORLAND_stdcall,
                     .x86_fastcall => .BORLAND_msfastcall,
                     .x86_thiscall => .BORLAND_thiscall,
@@ -3425,16 +3425,17 @@ fn updateType(
                     .x86_regcall_v4_win => .LLVM_X86RegCall,
                     .x86_vectorcall => .LLVM_vectorcall,
 
-                    .aarch64_aapcs => .LLVM_AAPCS,
-                    .aarch64_aapcs_darwin => .LLVM_AAPCS,
-                    .aarch64_aapcs_win => .LLVM_AAPCS,
+                    .aarch64_aapcs => .normal,
+                    .aarch64_aapcs_darwin => .normal,
+                    .aarch64_aapcs_win => .normal,
                     .aarch64_vfabi => .LLVM_AAPCS,
                     .aarch64_vfabi_sve => .LLVM_AAPCS,
 
-                    .arm_apcs => .nocall,
+                    .arm_apcs => .normal,
                     .arm_aapcs => .LLVM_AAPCS,
-                    .arm_aapcs_vfp => .LLVM_AAPCS_VFP,
-                    .arm_aapcs16_vfp => .nocall,
+                    .arm_aapcs_vfp,
+                    .arm_aapcs16_vfp,
+                    => .LLVM_AAPCS_VFP,
 
                     .riscv64_lp64_v,
                     .riscv32_ilp32_v,
@@ -3442,10 +3443,10 @@ fn updateType(
 
                     .m68k_rtd => .LLVM_M68kRTD,
 
-                    .amdgcn_kernel,
+                    .amdgcn_kernel => .LLVM_OpenCLKernel,
                     .nvptx_kernel,
                     .spirv_kernel,
-                    => .LLVM_OpenCLKernel,
+                    => .nocall,
 
                     .x86_64_interrupt,
                     .x86_interrupt,
