@@ -225,7 +225,6 @@ const targets = [_]std.Target.Query{
     .{ .cpu_arch = .riscv32, .os_tag = .linux, .abi = .gnu },
     .{ .cpu_arch = .riscv32, .os_tag = .linux, .abi = .musl },
     .{ .cpu_arch = .riscv32, .os_tag = .linux, .abi = .none },
-    .{ .cpu_arch = .riscv32, .os_tag = .linux, .abi = .ohos },
     .{ .cpu_arch = .riscv32, .os_tag = .rtems, .abi = .none },
     .{ .cpu_arch = .riscv32, .os_tag = .uefi, .abi = .none },
 
@@ -238,7 +237,6 @@ const targets = [_]std.Target.Query{
     .{ .cpu_arch = .riscv64, .os_tag = .linux, .abi = .gnu },
     .{ .cpu_arch = .riscv64, .os_tag = .linux, .abi = .musl },
     .{ .cpu_arch = .riscv64, .os_tag = .linux, .abi = .none },
-    .{ .cpu_arch = .riscv64, .os_tag = .linux, .abi = .ohos },
     .{ .cpu_arch = .riscv64, .os_tag = .netbsd, .abi = .none },
     .{ .cpu_arch = .riscv64, .os_tag = .openbsd, .abi = .none },
     .{ .cpu_arch = .riscv64, .os_tag = .rtems, .abi = .none },
@@ -326,7 +324,6 @@ const targets = [_]std.Target.Query{
     .{ .cpu_arch = .x86, .os_tag = .linux, .abi = .gnu },
     .{ .cpu_arch = .x86, .os_tag = .linux, .abi = .musl },
     .{ .cpu_arch = .x86, .os_tag = .linux, .abi = .none },
-    .{ .cpu_arch = .x86, .os_tag = .linux, .abi = .ohos },
     .{ .cpu_arch = .x86, .os_tag = .netbsd, .abi = .none },
     .{ .cpu_arch = .x86, .os_tag = .openbsd, .abi = .none },
     .{ .cpu_arch = .x86, .os_tag = .rtems, .abi = .none },
