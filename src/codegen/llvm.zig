@@ -3242,19 +3242,22 @@ pub const Object = struct {
         if (owner_mod.unwind_tables) {
             try attributes.addFnAttr(.{ .uwtable = Builder.Attribute.UwTable.default }, &o.builder);
         }
-        if (comp.skip_linker_dependencies or comp.no_builtin) {
+        const target = owner_mod.resolved_target.result;
+        if (comp.skip_linker_dependencies or comp.no_builtin or target.cpu.arch.isBpf()) {
             // The intent here is for compiler-rt and libc functions to not generate
             // infinite recursion. For example, if we are compiling the memcpy function,
             // and llvm detects that the body is equivalent to memcpy, it may replace the
             // body of memcpy with a call to memcpy, which would then cause a stack
             // overflow instead of performing memcpy.
-            try attributes.addFnAttr(.nobuiltin, &o.builder);
+            try attributes.addFnAttr(.{ .string = .{
+                .kind = try o.builder.string("no-builtins"),
+                .value = .empty,
+            } }, &o.builder);
         }
         if (owner_mod.optimize_mode == .ReleaseSmall) {
             try attributes.addFnAttr(.minsize, &o.builder);
             try attributes.addFnAttr(.optsize, &o.builder);
         }
-        const target = owner_mod.resolved_target.result;
         if (target.cpu.model.llvm_name) |s| {
             try attributes.addFnAttr(.{ .string = .{
                 .kind = try o.builder.string("target-cpu"),
@@ -3265,12 +3268,6 @@ pub const Object = struct {
             try attributes.addFnAttr(.{ .string = .{
                 .kind = try o.builder.string("target-features"),
                 .value = try o.builder.string(std.mem.span(s)),
-            } }, &o.builder);
-        }
-        if (target.cpu.arch.isBpf()) {
-            try attributes.addFnAttr(.{ .string = .{
-                .kind = try o.builder.string("no-builtins"),
-                .value = .empty,
             } }, &o.builder);
         }
         if (target.floatAbi() == .soft) {
