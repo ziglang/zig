@@ -11,6 +11,7 @@
 
 const std = @import("std");
 const mem = std.mem;
+const heap = std.heap;
 const elf = std.elf;
 const math = std.math;
 const assert = std.debug.assert;
@@ -490,7 +491,7 @@ pub fn prepareArea(area: []u8) usize {
 // and LLVM or LLD is not smart enough to lay out the TLS data in a space-conserving way. Anyway, I
 // think it's fine because it's less than 3 pages of memory, and putting it in the ELF like this is
 // equivalent to moving the `mmap` call below into the kernel, avoiding syscall overhead.
-var main_thread_area_buffer: [0x2100]u8 align(mem.page_size) = undefined;
+var main_thread_area_buffer: [0x2100]u8 align(heap.min_page_size) = undefined;
 
 /// Computes the layout of the static TLS area, allocates the area, initializes all of its fields,
 /// and assigns the architecture-specific value to the TP register.
@@ -503,7 +504,7 @@ pub fn initStatic(phdrs: []elf.Phdr) void {
     const area = blk: {
         // Fast path for the common case where the TLS data is really small, avoid an allocation and
         // use our local buffer.
-        if (area_desc.alignment <= mem.page_size and area_desc.size <= main_thread_area_buffer.len) {
+        if (area_desc.alignment <= heap.min_page_size and area_desc.size <= main_thread_area_buffer.len) {
             break :blk main_thread_area_buffer[0..area_desc.size];
         }
 
@@ -517,7 +518,7 @@ pub fn initStatic(phdrs: []elf.Phdr) void {
         );
         if (@as(isize, @bitCast(begin_addr)) < 0) @trap();
 
-        const area_ptr: [*]align(mem.page_size) u8 = @ptrFromInt(begin_addr);
+        const area_ptr: [*]align(heap.min_page_size) u8 = @ptrFromInt(begin_addr);
 
         // Make sure the slice is correctly aligned.
         const begin_aligned_addr = alignForward(begin_addr, area_desc.alignment);

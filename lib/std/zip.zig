@@ -162,7 +162,7 @@ pub fn decompress(
     var total_uncompressed: u64 = 0;
     switch (method) {
         .store => {
-            var buf: [std.mem.page_size]u8 = undefined;
+            var buf: [4096]u8 = undefined;
             while (true) {
                 const len = try reader.read(&buf);
                 if (len == 0) break;
