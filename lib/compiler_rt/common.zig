@@ -29,7 +29,7 @@ pub const want_aeabi = switch (builtin.abi) {
     },
     else => false,
 };
-pub const want_mingw_arm_abi = builtin.cpu.arch.isArmOrThumb() and builtin.target.isMinGW();
+pub const want_mingw_arm_abi = builtin.cpu.arch.isArm() and builtin.target.isMinGW();
 
 pub const want_ppc_abi = builtin.cpu.arch.isPowerPC();
 

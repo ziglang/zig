@@ -496,7 +496,7 @@ const DataLayoutBuilder = struct {
                 if (idx != size) try writer.print(":{d}", .{idx});
             }
         }
-        if (self.target.cpu.arch.isArmOrThumb())
+        if (self.target.cpu.arch.isArm())
             try writer.writeAll("-Fi8") // for thumb interwork
         else if (self.target.cpu.arch == .powerpc64 and
             self.target.os.tag != .freebsd and
@@ -763,7 +763,7 @@ const DataLayoutBuilder = struct {
                     else => {},
                 }
             },
-            .vector => if (self.target.cpu.arch.isArmOrThumb()) {
+            .vector => if (self.target.cpu.arch.isArm()) {
                 switch (size) {
                     128 => abi = 64,
                     else => {},
@@ -829,7 +829,7 @@ const DataLayoutBuilder = struct {
                 else => {},
             },
             .aggregate => if (self.target.os.tag == .uefi or self.target.os.tag == .windows or
-                self.target.cpu.arch.isArmOrThumb())
+                self.target.cpu.arch.isArm())
             {
                 pref = @min(pref, self.target.ptrBitWidth());
             } else switch (self.target.cpu.arch) {

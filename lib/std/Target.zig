@@ -1383,17 +1383,11 @@ pub const Cpu = struct {
             };
         }
 
-        pub inline fn isARM(arch: Arch) bool {
+        /// Note that this includes Thumb.
+        pub inline fn isArm(arch: Arch) bool {
             return switch (arch) {
                 .arm, .armeb => true,
-                else => false,
-            };
-        }
-
-        pub inline fn isAARCH64(arch: Arch) bool {
-            return switch (arch) {
-                .aarch64, .aarch64_be => true,
-                else => false,
+                else => arch.isThumb(),
             };
         }
 
@@ -1404,8 +1398,11 @@ pub const Cpu = struct {
             };
         }
 
-        pub inline fn isArmOrThumb(arch: Arch) bool {
-            return arch.isARM() or arch.isThumb();
+        pub inline fn isAARCH64(arch: Arch) bool {
+            return switch (arch) {
+                .aarch64, .aarch64_be => true,
+                else => false,
+            };
         }
 
         pub inline fn isWasm(arch: Arch) bool {
