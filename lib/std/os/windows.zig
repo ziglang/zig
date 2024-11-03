@@ -2101,39 +2101,41 @@ pub fn UnlockFile(
 
 /// This is a workaround for the C backend until zig has the ability to put
 /// C code in inline assembly.
+extern fn zig_thumb_windows_teb() callconv(.c) *anyopaque;
+extern fn zig_aarch64_windows_teb() callconv(.c) *anyopaque;
 extern fn zig_x86_windows_teb() callconv(.c) *anyopaque;
 extern fn zig_x86_64_windows_teb() callconv(.c) *anyopaque;
 
 pub fn teb() *TEB {
     return switch (native_arch) {
-        .x86 => blk: {
-            if (builtin.zig_backend == .stage2_c) {
-                break :blk @ptrCast(@alignCast(zig_x86_windows_teb()));
-            } else {
-                break :blk asm (
-                    \\ movl %%fs:0x18, %[ptr]
-                    : [ptr] "=r" (-> *TEB),
-                );
-            }
-        },
-        .x86_64 => blk: {
-            if (builtin.zig_backend == .stage2_c) {
-                break :blk @ptrCast(@alignCast(zig_x86_64_windows_teb()));
-            } else {
-                break :blk asm (
-                    \\ movq %%gs:0x30, %[ptr]
-                    : [ptr] "=r" (-> *TEB),
-                );
-            }
-        },
-        .thumb => asm (
-            \\ mrc p15, 0, %[ptr], c13, c0, 2
-            : [ptr] "=r" (-> *TEB),
-        ),
-        .aarch64 => asm (
-            \\ mov %[ptr], x18
-            : [ptr] "=r" (-> *TEB),
-        ),
+        .thumb => if (builtin.zig_backend == .stage2_c)
+            @ptrCast(@alignCast(zig_thumb_windows_teb()))
+        else
+            asm (
+                \\ mrc p15, 0, %[ptr], c13, c0, 2
+                : [ptr] "=r" (-> *TEB),
+            ),
+        .aarch64 => if (builtin.zig_backend == .stage2_c)
+            @ptrCast(@alignCast(zig_aarch64_windows_teb()))
+        else
+            asm (
+                \\ mov %[ptr], x18
+                : [ptr] "=r" (-> *TEB),
+            ),
+        .x86 => if (builtin.zig_backend == .stage2_c)
+            @ptrCast(@alignCast(zig_x86_windows_teb()))
+        else
+            asm (
+                \\ movl %%fs:0x18, %[ptr]
+                : [ptr] "=r" (-> *TEB),
+            ),
+        .x86_64 => if (builtin.zig_backend == .stage2_c)
+            @ptrCast(@alignCast(zig_x86_64_windows_teb()))
+        else
+            asm (
+                \\ movq %%gs:0x30, %[ptr]
+                : [ptr] "=r" (-> *TEB),
+            ),
         else => @compileError("unsupported arch"),
     };
 }
