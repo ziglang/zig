@@ -301,8 +301,9 @@ pub fn reallocAdvanced(
     return mem.bytesAsSlice(T, new_bytes);
 }
 
-/// Free an array allocated with `alloc`. To free a single item,
-/// see `destroy`.
+/// Free an array allocated with `alloc`.
+/// If memory has length 0, free is a no-op.
+/// To free a single item, see `destroy`.
 pub fn free(self: Allocator, memory: anytype) void {
     const Slice = @typeInfo(@TypeOf(memory)).pointer;
     const bytes = mem.sliceAsBytes(memory);
