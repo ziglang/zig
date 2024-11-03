@@ -454,7 +454,7 @@ const test_targets = blk: {
             .target = .{
                 .cpu_arch = .mips64,
                 .os_tag = .linux,
-                .abi = .musl,
+                .abi = .muslabi64,
             },
             .link_libc = true,
         },
@@ -478,7 +478,7 @@ const test_targets = blk: {
             .target = .{
                 .cpu_arch = .mips64el,
                 .os_tag = .linux,
-                .abi = .musl,
+                .abi = .muslabi64,
             },
             .link_libc = true,
         },

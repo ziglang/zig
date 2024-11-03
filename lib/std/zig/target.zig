@@ -46,10 +46,12 @@ pub const available_libcs = [_]ArchOsAbi{
     .{ .arch = .mipsel, .os = .linux, .abi = .musleabihf },
     .{ .arch = .mips64, .os = .linux, .abi = .gnuabi64 },
     .{ .arch = .mips64, .os = .linux, .abi = .gnuabin32 },
-    .{ .arch = .mips64, .os = .linux, .abi = .musl },
+    .{ .arch = .mips64, .os = .linux, .abi = .muslabi64 },
+    .{ .arch = .mips64, .os = .linux, .abi = .muslabin32 },
     .{ .arch = .mips64el, .os = .linux, .abi = .gnuabi64 },
     .{ .arch = .mips64el, .os = .linux, .abi = .gnuabin32 },
-    .{ .arch = .mips64el, .os = .linux, .abi = .musl },
+    .{ .arch = .mips64el, .os = .linux, .abi = .muslabi64 },
+    .{ .arch = .mips64el, .os = .linux, .abi = .muslabin32 },
     .{ .arch = .powerpc, .os = .linux, .abi = .gnueabi },
     .{ .arch = .powerpc, .os = .linux, .abi = .gnueabihf },
     .{ .arch = .powerpc, .os = .linux, .abi = .musleabi },
@@ -74,6 +76,7 @@ pub const available_libcs = [_]ArchOsAbi{
     .{ .arch = .x86_64, .os = .linux, .abi = .gnu },
     .{ .arch = .x86_64, .os = .linux, .abi = .gnux32 },
     .{ .arch = .x86_64, .os = .linux, .abi = .musl },
+    .{ .arch = .x86_64, .os = .linux, .abi = .muslx32 },
     .{ .arch = .x86_64, .os = .macos, .abi = .none, .os_ver = .{ .major = 10, .minor = 7, .patch = 0 } },
     .{ .arch = .x86_64, .os = .windows, .abi = .gnu },
 };
@@ -97,31 +100,43 @@ pub fn canBuildLibC(target: std.Target) bool {
     return false;
 }
 
-pub fn muslArchNameHeaders(arch: std.Target.Cpu.Arch) [:0]const u8 {
-    return switch (arch) {
-        .x86 => return "x86",
-        else => muslArchName(arch),
+pub fn muslArchName(arch: std.Target.Cpu.Arch, abi: std.Target.Abi) [:0]const u8 {
+    return switch (abi) {
+        .muslabin32 => "mipsn32",
+        .muslx32 => "x32",
+        else => switch (arch) {
+            .arm, .armeb, .thumb, .thumbeb => "arm",
+            .aarch64, .aarch64_be => "aarch64",
+            .loongarch64 => "loongarch64",
+            .m68k => "m68k",
+            .mips, .mipsel => "mips",
+            .mips64el, .mips64 => "mips64",
+            .powerpc => "powerpc",
+            .powerpc64, .powerpc64le => "powerpc64",
+            .riscv32 => "riscv32",
+            .riscv64 => "riscv64",
+            .s390x => "s390x",
+            .wasm32, .wasm64 => "wasm",
+            .x86 => "i386",
+            .x86_64 => "x86_64",
+            else => unreachable,
+        },
     };
 }
 
-pub fn muslArchName(arch: std.Target.Cpu.Arch) [:0]const u8 {
-    switch (arch) {
-        .aarch64, .aarch64_be => return "aarch64",
-        .arm, .armeb, .thumb, .thumbeb => return "arm",
-        .x86 => return "i386",
-        .loongarch64 => return "loongarch64",
-        .m68k => return "m68k",
-        .mips, .mipsel => return "mips",
-        .mips64el, .mips64 => return "mips64",
-        .powerpc => return "powerpc",
-        .powerpc64, .powerpc64le => return "powerpc64",
-        .riscv32 => return "riscv32",
-        .riscv64 => return "riscv64",
-        .s390x => return "s390x",
-        .wasm32, .wasm64 => return "wasm",
-        .x86_64 => return "x86_64",
-        else => unreachable,
-    }
+pub fn muslArchNameHeaders(arch: std.Target.Cpu.Arch) [:0]const u8 {
+    return switch (arch) {
+        .x86 => "x86",
+        else => muslArchName(arch, .musl),
+    };
+}
+
+pub fn muslAbiNameHeaders(abi: std.Target.Abi) [:0]const u8 {
+    return switch (abi) {
+        .muslabin32 => "muslabin32",
+        .muslx32 => "muslx32",
+        else => "musl",
+    };
 }
 
 pub fn isLibCLibName(target: std.Target, name: []const u8) bool {
