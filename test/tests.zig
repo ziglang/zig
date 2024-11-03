@@ -309,6 +309,30 @@ const test_targets = blk: {
 
         .{
             .target = .{
+                .cpu_arch = .aarch64_be,
+                .os_tag = .linux,
+                .abi = .none,
+            },
+        },
+        .{
+            .target = .{
+                .cpu_arch = .aarch64_be,
+                .os_tag = .linux,
+                .abi = .musl,
+            },
+            .link_libc = true,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .aarch64_be,
+                .os_tag = .linux,
+                .abi = .gnu,
+            },
+            .link_libc = true,
+        },
+
+        .{
+            .target = .{
                 .cpu_arch = .arm,
                 .os_tag = .linux,
                 .abi = .eabi,
