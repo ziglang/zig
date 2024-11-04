@@ -160,7 +160,11 @@ pub fn clone() callconv(.Naked) usize {
         \\  cmpwi cr7, 3, 0
         \\  bnelr cr7
         \\
-        \\  # we're the child. call fn(arg)
+        \\  # we're the child
+        \\  .cfi_undefined lr
+        \\  li    31, 0
+        \\
+        \\  # call fn(arg)
         \\  ld     3, 16(1)
         \\  ld    12,  8(1)
         \\  mtctr 12

@@ -209,7 +209,11 @@ pub fn clone() callconv(.Naked) usize {
         \\ ret
         \\ restore
         \\1:
-        \\ # Child process, call func(arg)
+        \\ # Child process
+        \\ .cfi_undefined %%i7
+        \\ mov %%g0, %%fp
+        \\
+        \\ # call func(arg)
         \\ mov %%g0, %%fp
         \\ call %%g2
         \\ mov %%g3, %%o0
