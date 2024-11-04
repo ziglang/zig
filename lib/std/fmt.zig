@@ -2613,7 +2613,7 @@ test "vector" {
     const vp: @Vector(4, *const u64) = [_]*const u64{ &x[0], &x[1], &x[2], &x[3] };
     const vop: @Vector(4, ?*const u64) = [_]?*const u64{ &x[0], null, null, &x[3] };
 
-    var expect_buffer: [64]u8 = undefined;
+    var expect_buffer: [@sizeOf(usize) * 2 * 4 + 64]u8 = undefined;
     try expectFmt(try bufPrint(
         &expect_buffer,
         "{{ {}, {}, {}, {} }}",
