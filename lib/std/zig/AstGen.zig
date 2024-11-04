@@ -8922,36 +8922,22 @@ fn numberLiteral(gz: *GenZir, ri: ResultInfo, node: Ast.Node.Index, source_node:
     }
 }
 
-fn failWithNumberError(astgen: *AstGen, err: std.zig.number_literal.Error, token: Ast.TokenIndex, bytes: []const u8) InnerError {
-    const is_float = std.mem.indexOfScalar(u8, bytes, '.') != null;
-    switch (err) {
-        .leading_zero => if (is_float) {
-            return astgen.failTok(token, "number '{s}' has leading zero", .{bytes});
-        } else {
-            return astgen.failTokNotes(token, "number '{s}' has leading zero", .{bytes}, &.{
-                try astgen.errNoteTok(token, "use '0o' prefix for octal literals", .{}),
-            });
-        },
-        .digit_after_base => return astgen.failTok(token, "expected a digit after base prefix", .{}),
-        .upper_case_base => |i| return astgen.failOff(token, @intCast(i), "base prefix must be lowercase", .{}),
-        .invalid_float_base => |i| return astgen.failOff(token, @intCast(i), "invalid base for float literal", .{}),
-        .repeated_underscore => |i| return astgen.failOff(token, @intCast(i), "repeated digit separator", .{}),
-        .invalid_underscore_after_special => |i| return astgen.failOff(token, @intCast(i), "expected digit before digit separator", .{}),
-        .invalid_digit => |info| return astgen.failOff(token, @intCast(info.i), "invalid digit '{c}' for {s} base", .{ bytes[info.i], @tagName(info.base) }),
-        .invalid_digit_exponent => |i| return astgen.failOff(token, @intCast(i), "invalid digit '{c}' in exponent", .{bytes[i]}),
-        .duplicate_exponent => |i| return astgen.failOff(token, @intCast(i), "duplicate exponent", .{}),
-        .exponent_after_underscore => |i| return astgen.failOff(token, @intCast(i), "expected digit before exponent", .{}),
-        .special_after_underscore => |i| return astgen.failOff(token, @intCast(i), "expected digit before '{c}'", .{bytes[i]}),
-        .trailing_special => |i| return astgen.failOff(token, @intCast(i), "expected digit after '{c}'", .{bytes[i - 1]}),
-        .trailing_underscore => |i| return astgen.failOff(token, @intCast(i), "trailing digit separator", .{}),
-        .duplicate_period => unreachable, // Validated by tokenizer
-        .invalid_character => unreachable, // Validated by tokenizer
-        .invalid_exponent_sign => |i| {
-            assert(bytes.len >= 2 and bytes[0] == '0' and bytes[1] == 'x'); // Validated by tokenizer
-            return astgen.failOff(token, @intCast(i), "sign '{c}' cannot follow digit '{c}' in hex base", .{ bytes[i], bytes[i - 1] });
-        },
-        .period_after_exponent => |i| return astgen.failOff(token, @intCast(i), "unexpected period after exponent", .{}),
-    }
+fn failWithNumberError(
+    astgen: *AstGen,
+    err: std.zig.number_literal.Error,
+    token: Ast.TokenIndex,
+    bytes: []const u8,
+) InnerError {
+    const note = err.noteWithSource(bytes);
+    const notes: []const u32 = if (note) |n| &.{try astgen.errNoteTok(token, "{s}", .{n})} else &.{};
+    try astgen.appendErrorTokNotesOff(
+        token,
+        @as(u32, @intCast(err.offset())),
+        "{}",
+        .{err.fmtWithSource(bytes)},
+        notes,
+    );
+    return error.AnalysisFail;
 }
 
 fn asmExpr(
@@ -9446,7 +9432,18 @@ fn builtinCall(
             } else if (str.len == 0) {
                 return astgen.failTok(str_lit_token, "import path cannot be empty", .{});
             }
-            const result = try gz.addStrTok(.import, str.index, str_lit_token);
+            const res_ty = try ri.rl.resultType(gz, node) orelse .none;
+            const payload_index = try addExtra(gz.astgen, Zir.Inst.Import{
+                .res_ty = res_ty,
+                .path = str.index,
+            });
+            const result = try gz.add(.{
+                .tag = .import,
+                .data = .{ .pl_tok = .{
+                    .src_tok = gz.tokenIndexToRelative(str_lit_token),
+                    .payload_index = payload_index,
+                } },
+            });
             const gop = try astgen.imports.getOrPut(astgen.gpa, str.index);
             if (!gop.found_existing) {
                 gop.value_ptr.* = str_lit_token;
@@ -11538,9 +11535,20 @@ fn parseStrLit(
     }
 }
 
-fn failWithStrLitError(astgen: *AstGen, err: std.zig.string_literal.Error, token: Ast.TokenIndex, bytes: []const u8, offset: u32) InnerError {
+fn failWithStrLitError(
+    astgen: *AstGen,
+    err: std.zig.string_literal.Error,
+    token: Ast.TokenIndex,
+    bytes: []const u8,
+    offset: u32,
+) InnerError {
     const raw_string = bytes[offset..];
-    return err.lower(raw_string, offset, AstGen.failOff, .{ astgen, token });
+    return astgen.failOff(
+        token,
+        offset + @as(u32, @intCast(err.offset())),
+        "{}",
+        .{err.fmtWithSource(raw_string)},
+    );
 }
 
 fn failNode(
@@ -11658,7 +11666,7 @@ fn appendErrorTokNotesOff(
     comptime format: []const u8,
     args: anytype,
     notes: []const u32,
-) !void {
+) Allocator.Error!void {
     @branchHint(.cold);
     const gpa = astgen.gpa;
     const string_bytes = &astgen.string_bytes;
@@ -11787,32 +11795,17 @@ fn strLitAsString(astgen: *AstGen, str_lit_token: Ast.TokenIndex) !IndexSlice {
 }
 
 fn strLitNodeAsString(astgen: *AstGen, node: Ast.Node.Index) !IndexSlice {
-    const tree = astgen.tree;
-    const node_datas = tree.nodes.items(.data);
-
-    const start = node_datas[node].lhs;
-    const end = node_datas[node].rhs;
-
     const gpa = astgen.gpa;
+    const data = astgen.tree.nodes.items(.data);
     const string_bytes = &astgen.string_bytes;
     const str_index = string_bytes.items.len;
 
-    // First line: do not append a newline.
-    var tok_i = start;
-    {
-        const slice = tree.tokenSlice(tok_i);
-        const line_bytes = slice[2..];
-        try string_bytes.appendSlice(gpa, line_bytes);
-        tok_i += 1;
+    var parser = std.zig.string_literal.multilineParser(string_bytes.writer(gpa));
+    var tok_i = data[node].lhs;
+    while (tok_i <= data[node].rhs) : (tok_i += 1) {
+        try parser.line(astgen.tree.tokenSlice(tok_i));
     }
-    // Following lines: each line prepends a newline.
-    while (tok_i <= end) : (tok_i += 1) {
-        const slice = tree.tokenSlice(tok_i);
-        const line_bytes = slice[2..];
-        try string_bytes.ensureUnusedCapacity(gpa, line_bytes.len + 1);
-        string_bytes.appendAssumeCapacity('\n');
-        string_bytes.appendSliceAssumeCapacity(line_bytes);
-    }
+
     const len = string_bytes.items.len - str_index;
     try string_bytes.append(gpa, 0);
     return IndexSlice{
