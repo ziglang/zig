@@ -231,6 +231,10 @@ pub fn clone() callconv(.Naked) usize {
         \\  jr $ra
         \\  nop
         \\1:
+        \\  .cfi_undefined $ra
+        \\  move $fp, $zero
+        \\  move $ra, $zero
+        \\
         \\  lw $25, 0($sp)
         \\  lw $4, 4($sp)
         \\  jalr $25
