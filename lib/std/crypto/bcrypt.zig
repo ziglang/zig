@@ -701,7 +701,7 @@ const CryptFormatHasher = struct {
         crypt_format.Codec.Decoder.decode(salt[0..], salt_str[0..]) catch return HasherError.InvalidEncoding;
 
         const wanted_s = crypt_format.strHashInternal(password, salt, .{ .rounds_log = rounds_log }, silently_truncate_password);
-        if (!mem.eql(u8, wanted_s[0..], str[0..])) return HasherError.PasswordVerificationFailed;
+        if (!mem.eql(u8, wanted_s[3..], str[3..])) return HasherError.PasswordVerificationFailed;
     }
 };
 
@@ -802,6 +802,12 @@ test "bcrypt crypt format" {
 
     try strVerify(
         "$2b$08$WUQKyBCaKpziCwUXHiMVvu40dYVjkTxtWJlftl0PpjY2BxWSvFIEe",
+        "The devil himself",
+        verify_options,
+    );
+
+    try strVerify(
+        "$2a$12$boLSkZf6M4hTKZmkSfeKtuJlXWoHd6vXkT8dvXhzjVPZlVnVIk8ki",
         "The devil himself",
         verify_options,
     );
