@@ -7,50 +7,96 @@ pub fn doClientRequest(default: usize, request: usize, a1: usize, a2: usize, a3:
         return default;
     }
 
-    switch (builtin.target.cpu.arch) {
-        .x86 => {
-            return asm volatile (
-                \\ roll $3,  %%edi ; roll $13, %%edi
-                \\ roll $29, %%edi ; roll $19, %%edi
-                \\ xchgl %%ebx,%%ebx
-                : [_] "={edx}" (-> usize),
-                : [_] "{eax}" (&[_]usize{ request, a1, a2, a3, a4, a5 }),
-                  [_] "0" (default),
-                : "cc", "memory"
-            );
-        },
-        .x86_64 => {
-            return asm volatile (
-                \\ rolq $3,  %%rdi ; rolq $13, %%rdi
-                \\ rolq $61, %%rdi ; rolq $51, %%rdi
-                \\ xchgq %%rbx,%%rbx
-                : [_] "={rdx}" (-> usize),
-                : [_] "{rax}" (&[_]usize{ request, a1, a2, a3, a4, a5 }),
-                  [_] "0" (default),
-                : "cc", "memory"
-            );
-        },
-        .aarch64 => {
-            return asm volatile (
-                \\ ror x12, x12, #3  ;  ror x12, x12, #13
-                \\ ror x12, x12, #51 ;  ror x12, x12, #61
-                \\ orr x10, x10, x10
-                : [_] "={x3}" (-> usize),
-                : [_] "{x4}" (&[_]usize{ request, a1, a2, a3, a4, a5 }),
-                  [_] "0" (default),
-                : "cc", "memory"
-            );
-        },
-        // ppc32
-        // ppc64
-        // arm
-        // s390x
-        // mips32
-        // mips64
-        else => {
-            return default;
-        },
-    }
+    const args = &[_]usize{ request, a1, a2, a3, a4, a5 };
+
+    return switch (builtin.cpu.arch) {
+        .arm, .armeb, .thumb, .thumbeb => asm volatile (
+            \\ mov r12, r12, ror #3  ; mov r12, r12, ror #13
+            \\ mov r12, r12, ror #29 ; mov r12, r12, ror #19
+            \\ orr r10, r10, r10
+            : [_] "={r3}" (-> usize),
+            : [_] "{r4}" (args),
+              [_] "{r3}" (default),
+            : "cc", "memory"
+        ),
+        .aarch64, .aarch64_be => asm volatile (
+            \\ ror x12, x12, #3  ; ror x12, x12, #13
+            \\ ror x12, x12, #51 ; ror x12, x12, #61
+            \\ orr x10, x10, x10
+            : [_] "={x3}" (-> usize),
+            : [_] "{x4}" (args),
+              [_] "{x3}" (default),
+            : "cc", "memory"
+        ),
+        .mips, .mipsel => asm volatile (
+            \\ srl $0,  $0,  13
+            \\ srl $0,  $0,  29
+            \\ srl $0,  $0,  3
+            \\ srl $0,  $0,  19
+            \\ or  $13, $13, $13
+            : [_] "={$11}" (-> usize),
+            : [_] "{$12}" (args),
+              [_] "{$11}" (default),
+            : "memory"
+        ),
+        .mips64, .mips64el => asm volatile (
+            \\ dsll $0,  $0,  3   ; dsll $0, $0, 13
+            \\ dsll $0,  $0,  29  ; dsll $0, $0, 19
+            \\ or   $13, $13, $13
+            : [_] "={$11}" (-> usize),
+            : [_] "{$12}" (args),
+              [_] "{$11}" (default),
+            : "memory"
+        ),
+        .powerpc, .powerpcle => asm volatile (
+            \\ rlwinm 0, 0, 3,  0, 31 ; rlwinm 0, 0, 13, 0, 31
+            \\ rlwinm 0, 0, 29, 0, 31 ; rlwinm 0, 0, 19, 0, 31
+            \\ or     1, 1, 1
+            : [_] "={r3}" (-> usize),
+            : [_] "{r4}" (args),
+              [_] "{r3}" (default),
+            : "cc", "memory"
+        ),
+        .powerpc64, .powerpc64le => asm volatile (
+            \\ rotldi 0, 0, 3  ; rotldi 0, 0, 13
+            \\ rotldi 0, 0, 61 ; rotldi 0, 0, 51
+            \\ or     1, 1, 1
+            : [_] "={r3}" (-> usize),
+            : [_] "{r4}" (args),
+              [_] "{r3}" (default),
+            : "cc", "memory"
+        ),
+        .s390x => asm volatile (
+            \\ lr %%r15, %%r15
+            \\ lr %%r1,  %%r1
+            \\ lr %%r2,  %%r2
+            \\ lr %%r3,  %%r3
+            \\ lr %%r2,  %%r2
+            : [_] "={r3}" (-> usize),
+            : [_] "{r2}" (args),
+              [_] "{r3}" (default),
+            : "cc", "memory"
+        ),
+        .x86 => asm volatile (
+            \\ roll  $3,    %%edi ; roll $13, %%edi
+            \\ roll  $29,   %%edi ; roll $19, %%edi
+            \\ xchgl %%ebx, %%ebx
+            : [_] "={edx}" (-> usize),
+            : [_] "{eax}" (args),
+              [_] "{edx}" (default),
+            : "cc", "memory"
+        ),
+        .x86_64 => asm volatile (
+            \\ rolq  $3,    %%rdi ; rolq $13, %%rdi
+            \\ rolq  $61,   %%rdi ; rolq $51, %%rdi
+            \\ xchgq %%rbx, %%rbx
+            : [_] "={rdx}" (-> usize),
+            : [_] "{rax}" (args),
+              [_] "{rdx}" (default),
+            : "cc", "memory"
+        ),
+        else => default,
+    };
 }
 
 pub const ClientRequest = enum(u32) {
