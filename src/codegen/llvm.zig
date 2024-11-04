@@ -12730,6 +12730,8 @@ fn backendSupportsF16(target: std.Target) bool {
         .mips64,
         .mips64el,
         .s390x,
+        .sparc,
+        .sparc64,
         => false,
         .arm,
         .armeb,
