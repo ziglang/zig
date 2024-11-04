@@ -1419,7 +1419,7 @@ pub fn unwindFrameMachO(
                 return unwindFrameMachODwarf(context, ma, eh_frame orelse return error.MissingEhFrame, @intCast(encoding.value.x86_64.dwarf));
             },
         },
-        .aarch64 => switch (encoding.mode.arm64) {
+        .aarch64, .aarch64_be => switch (encoding.mode.arm64) {
             .OLD => return error.UnimplementedUnwindEncoding,
             .FRAMELESS => blk: {
                 const sp = (try regValueNative(context.thread_context, spRegNum(reg_context), reg_context)).*;
@@ -1535,7 +1535,7 @@ pub const UnwindContext = struct {
 /// Some platforms use pointer authentication - the upper bits of instruction pointers contain a signature.
 /// This function clears these signature bits to make the pointer usable.
 pub inline fn stripInstructionPtrAuthCode(ptr: usize) usize {
-    if (native_arch == .aarch64) {
+    if (native_arch.isAARCH64()) {
         // `hint 0x07` maps to `xpaclri` (or `nop` if the hardware doesn't support it)
         // The save / restore is because `xpaclri` operates on x30 (LR)
         return asm (
@@ -1787,11 +1787,11 @@ pub fn supportsUnwinding(target: std.Target) bool {
             .linux, .netbsd, .freebsd, .openbsd, .macos, .ios, .solaris, .illumos => true,
             else => false,
         },
-        .arm => switch (target.os.tag) {
+        .arm, .armeb, .thumb, .thumbeb => switch (target.os.tag) {
             .linux => true,
             else => false,
         },
-        .aarch64 => switch (target.os.tag) {
+        .aarch64, .aarch64_be => switch (target.os.tag) {
             .linux, .netbsd, .freebsd, .macos, .ios => true,
             else => false,
         },
@@ -2194,7 +2194,7 @@ pub const VirtualMachine = struct {
 /// the .undefined rule by default, but allows ABI authors to override that.
 fn getRegDefaultValue(reg_number: u8, context: *UnwindContext, out: []u8) !void {
     switch (builtin.cpu.arch) {
-        .aarch64 => {
+        .aarch64, .aarch64_be => {
             // Callee-saved registers are initialized as if they had the .same_value rule
             if (reg_number >= 19 and reg_number <= 28) {
                 const src = try regBytes(context.thread_context, reg_number, context.reg_context);
