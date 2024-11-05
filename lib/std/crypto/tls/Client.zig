@@ -1840,7 +1840,7 @@ const CertificatePublicKey = struct {
                 const exponent = components.exponent;
                 const modulus = components.modulus;
                 switch (modulus.len) {
-                    inline 128, 256, 512 => |modulus_len| {
+                    inline 128, 256, 384, 512 => |modulus_len| {
                         const key: PublicKey = try .fromBytes(exponent, modulus);
                         const sig = RsaSignature.fromBytes(modulus_len, encoded_sig);
                         try RsaSignature.concatVerify(modulus_len, sig, msg, key, Hash);
