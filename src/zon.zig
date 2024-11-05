@@ -274,17 +274,35 @@ fn expr(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
                         .false => .bool_false,
                     };
                 }
-                return self.fail(.{ .node_abs = node }, "unexpected identifier '{s}'", .{litIdent.bytes});
             }
             return self.fail(.{ .node_abs = node }, "expected bool", .{});
         },
         .int, .comptime_int => {},
         .float, .comptime_float => {},
         .pointer => {},
-        .optional => {},
+        .optional => {
+            if (tags[node] == .identifier) {
+                const token = main_tokens[node];
+                const bytes = self.file.tree.tokenSlice(token);
+                if (std.mem.eql(u8, bytes, "null")) return .null_value;
+            }
+
+            // XXX: this fails, assert(opt.val == .none or ip.indexToKey(opt.ty).opt_type == ip.typeOf(opt.val));
+            // XXX: i think its casue ints arent returned as correct type try on bool to test that theory
+            return self.sema.pt.intern(.{ .opt = .{
+                .ty = res_ty.toIntern(),
+                .val = try self.expr(node, res_ty.optionalChild(self.sema.pt.zcu)),
+            } });
+        },
         .@"enum" => {},
         .@"union" => {},
-        .null => {},
+        .null => {
+            if (tags[node] == .identifier) {
+                const token = main_tokens[node];
+                const bytes = self.file.tree.tokenSlice(token);
+                if (std.mem.eql(u8, bytes, "null")) return .null_value;
+            }
+        },
         .enum_literal => {},
         .@"struct" => {},
         .array => {},
@@ -340,15 +358,13 @@ fn expr(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
             var litIdent = try self.ident(token);
             defer litIdent.deinit(gpa);
 
-            const LitIdent = enum { null, nan, inf };
+            const LitIdent = enum { nan, inf };
             const values = std.StaticStringMap(LitIdent).initComptime(.{
-                .{ "null", .null },
                 .{ "nan", .nan },
                 .{ "inf", .inf },
             });
             if (values.get(litIdent.bytes)) |value| {
                 return switch (value) {
-                    .null => .null_value,
                     .nan => self.sema.pt.intern(.{ .float = .{
                         .ty = try self.sema.pt.intern(.{ .simple_type = .comptime_float }),
                         .storage = .{ .f128 = std.math.nan(f128) },
