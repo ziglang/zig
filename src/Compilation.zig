@@ -6264,6 +6264,7 @@ fn buildOutputFromZig(
 pub const CrtFileOptions = struct {
     function_sections: ?bool = null,
     data_sections: ?bool = null,
+    omit_frame_pointer: ?bool = null,
     pic: ?bool = null,
     no_builtin: ?bool = null,
 };
@@ -6322,7 +6323,8 @@ pub fn build_crt_file(
             .sanitize_c = false,
             .sanitize_thread = false,
             .red_zone = comp.root_mod.red_zone,
-            .omit_frame_pointer = comp.root_mod.omit_frame_pointer,
+            // Some libcs (e.g. musl) are opinionated about -fomit-frame-pointer.
+            .omit_frame_pointer = options.omit_frame_pointer orelse comp.root_mod.omit_frame_pointer,
             .valgrind = false,
             .unwind_tables = false,
             // Some CRT objects (e.g. musl's rcrt1.o and Scrt1.o) are opinionated about PIC.
