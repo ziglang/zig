@@ -21,13 +21,12 @@ sema: *Sema,
 file: *File,
 file_index: Zcu.File.Index,
 
-/// Lowers the given file as ZON. `res_ty` is a hint that's used to add indirection as needed to
-/// match the result type, actual type checking is not done until assignment.
+/// Lowers the given file as ZON.
 pub fn lower(
     sema: *Sema,
     file: *File,
     file_index: Zcu.File.Index,
-    res_ty: ?Type,
+    res_ty: Type,
 ) CompileError!InternPool.Index {
     const lower_zon: LowerZon = .{
         .sema = sema,
@@ -242,43 +241,97 @@ const FieldTypes = union(enum) {
     }
 };
 
-fn expr(self: LowerZon, node: Ast.Node.Index, res_ty: ?Type) !InternPool.Index {
+fn expr(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
     const gpa = self.sema.gpa;
     const ip = &self.sema.pt.zcu.intern_pool;
     const data = self.file.tree.nodes.items(.data);
     const tags = self.file.tree.nodes.items(.tag);
     const main_tokens = self.file.tree.nodes.items(.main_token);
 
+    // Implement this!
+    switch (Type.zigTypeTag(res_ty, self.sema.pt.zcu)) {
+        .void => {
+            if (tags[node] == .block_two and data[node].lhs == 0 and data[node].rhs == 0) {
+                return .void_value;
+            }
+
+            return self.fail(.{ .node_abs = node }, "expected void", .{});
+        },
+        .bool => {
+            if (tags[node] == .identifier) {
+                const token = main_tokens[node];
+                var litIdent = try self.ident(token);
+                defer litIdent.deinit(gpa);
+
+                const BoolIdent = enum { true, false };
+                const values = std.StaticStringMap(BoolIdent).initComptime(.{
+                    .{ "true", .true },
+                    .{ "false", .false },
+                });
+                if (values.get(litIdent.bytes)) |value| {
+                    return switch (value) {
+                        .true => .bool_true,
+                        .false => .bool_false,
+                    };
+                }
+                return self.fail(.{ .node_abs = node }, "unexpected identifier '{s}'", .{litIdent.bytes});
+            }
+            return self.fail(.{ .node_abs = node }, "expected bool", .{});
+        },
+        .int, .comptime_int => {},
+        .float, .comptime_float => {},
+        .pointer => {},
+        .optional => {},
+        .@"enum" => {},
+        .@"union" => {},
+        .null => {},
+        .enum_literal => {},
+        .@"struct" => {},
+        .array => {},
+
+        .type,
+        .noreturn,
+        .undefined,
+        .error_union,
+        .error_set,
+        .@"fn",
+        .@"opaque",
+        .frame,
+        .@"anyframe",
+        .vector,
+        => {
+            @panic("unimplemented");
+        },
+    }
+
     // If the result type is slice, and our AST Node is not a slice, recurse and then take the
     // address of the result so attempt to coerce it into a slice.
-    if (res_ty) |rt| {
-        const result_is_slice = rt.isSlice(self.sema.pt.zcu);
-        const ast_is_pointer = switch (tags[node]) {
-            .string_literal, .multiline_string_literal => true,
-            else => false,
-        };
-        if (result_is_slice and !ast_is_pointer) {
-            const val = try self.expr(node, rt.childType(self.sema.pt.zcu));
-            const val_type = ip.typeOf(val);
-            const ptr_type = try self.sema.pt.ptrTypeSema(.{
-                .child = val_type,
-                .flags = .{
-                    .alignment = .none,
-                    .is_const = true,
-                    .address_space = .generic,
-                },
-            });
-            _ = ptr_type;
-            @panic("unimplemented");
-            // return ip.get(gpa, self.sema.pt.tid, .{ .ptr = .{
-            //     .ty = ptr_type.toIntern(),
-            //     .base_addr = .{ .anon_decl = .{
-            //         .orig_ty = ptr_type.toIntern(),
-            //         .val = val,
-            //     } },
-            //     .byte_offset = 0,
-            // } });
-        }
+    const result_is_slice = res_ty.isSlice(self.sema.pt.zcu);
+    const ast_is_pointer = switch (tags[node]) {
+        .string_literal, .multiline_string_literal => true,
+        else => false,
+    };
+    if (result_is_slice and !ast_is_pointer) {
+        const val = try self.expr(node, res_ty.childType(self.sema.pt.zcu));
+        const val_type = ip.typeOf(val);
+        const ptr_type = try self.sema.pt.ptrTypeSema(.{
+            .child = val_type,
+            .flags = .{
+                .alignment = .none,
+                .is_const = true,
+                .address_space = .generic,
+            },
+        });
+        _ = ptr_type;
+        @panic("unimplemented");
+        // return ip.get(gpa, self.sema.pt.tid, .{ .ptr = .{
+        //     .ty = ptr_type.toIntern(),
+        //     .base_addr = .{ .anon_decl = .{
+        //         .orig_ty = ptr_type.toIntern(),
+        //         .val = val,
+        //     } },
+        //     .byte_offset = 0,
+        // } });
     }
 
     switch (tags[node]) {
@@ -287,18 +340,14 @@ fn expr(self: LowerZon, node: Ast.Node.Index, res_ty: ?Type) !InternPool.Index {
             var litIdent = try self.ident(token);
             defer litIdent.deinit(gpa);
 
-            const LitIdent = enum { true, false, null, nan, inf };
+            const LitIdent = enum { null, nan, inf };
             const values = std.StaticStringMap(LitIdent).initComptime(.{
-                .{ "true", .true },
-                .{ "false", .false },
                 .{ "null", .null },
                 .{ "nan", .nan },
                 .{ "inf", .inf },
             });
             if (values.get(litIdent.bytes)) |value| {
                 return switch (value) {
-                    .true => .bool_true,
-                    .false => .bool_false,
                     .null => .null_value,
                     .nan => self.sema.pt.intern(.{ .float = .{
                         .ty = try self.sema.pt.intern(.{ .simple_type = .comptime_float }),
@@ -424,7 +473,7 @@ fn expr(self: LowerZon, node: Ast.Node.Index, res_ty: ?Type) !InternPool.Index {
                     return self.fail(.{ .token_abs = name_token }, "duplicate field", .{});
                 }
 
-                const elem_ty = rt_field_types.get(name, self.sema.pt.zcu);
+                const elem_ty = rt_field_types.get(name, self.sema.pt.zcu) orelse @panic("unimplemented");
 
                 values[i] = try self.expr(field, elem_ty);
                 types[i] = ip.typeOf(values[i]);
@@ -460,19 +509,19 @@ fn expr(self: LowerZon, node: Ast.Node.Index, res_ty: ?Type) !InternPool.Index {
             const values = try gpa.alloc(InternPool.Index, array_init.ast.elements.len);
             defer gpa.free(values);
             for (array_init.ast.elements, 0..) |elem, i| {
-                const elem_ty = if (res_ty) |rt| b: {
-                    const type_tag = rt.zigTypeTagOrPoison(self.sema.pt.zcu) catch break :b null;
+                const elem_ty = b: {
+                    const type_tag = res_ty.zigTypeTagOrPoison(self.sema.pt.zcu) catch break :b null;
                     switch (type_tag) {
-                        .array => break :b rt.childType(self.sema.pt.zcu),
+                        .array => break :b res_ty.childType(self.sema.pt.zcu),
                         .@"struct" => {
-                            try rt.resolveFully(self.sema.pt);
-                            if (i >= rt.structFieldCount(self.sema.pt.zcu)) break :b null;
-                            break :b rt.fieldType(i, self.sema.pt.zcu);
+                            try res_ty.resolveFully(self.sema.pt);
+                            if (i >= res_ty.structFieldCount(self.sema.pt.zcu)) break :b null;
+                            break :b res_ty.fieldType(i, self.sema.pt.zcu);
                         },
                         else => break :b null,
                     }
-                } else null;
-                values[i] = try self.expr(elem, elem_ty);
+                };
+                values[i] = try self.expr(elem, elem_ty orelse @panic("unimplemented"));
                 types[i] = ip.typeOf(values[i]);
             }
 
@@ -486,11 +535,6 @@ fn expr(self: LowerZon, node: Ast.Node.Index, res_ty: ?Type) !InternPool.Index {
             //     .ty = tuple_type,
             //     .storage = .{ .elems = values },
             // } });
-        },
-        .block_two => if (data[node].lhs == 0 and data[node].rhs == 0) {
-            return .void_value;
-        } else {
-            return self.fail(.{ .node_abs = node }, "invalid ZON value", .{});
         },
         else => {},
     }

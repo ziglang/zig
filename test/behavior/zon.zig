@@ -7,26 +7,21 @@ const expectEqualSlices = std.testing.expectEqualSlices;
 const expectEqualStrings = std.testing.expectEqualStrings;
 
 test "void" {
-    try expectEqual({}, @import("zon/void.zon"));
+    try expectEqual({}, @as(void, @import("zon/void.zon")));
 }
 
 test "bool" {
-    try expectEqual(true, @import("zon/true.zon"));
-    try expectEqual(false, @import("zon/false.zon"));
+    try expectEqual(true, @as(bool, @import("zon/true.zon")));
+    try expectEqual(false, @as(bool, @import("zon/false.zon")));
 }
 
 test "optional" {
-    // Coercion
     const some: ?u32 = @import("zon/some.zon");
     const none: ?u32 = @import("zon/none.zon");
     const @"null": @TypeOf(null) = @import("zon/none.zon");
-    try expectEqual(some, 10);
-    try expectEqual(none, null);
-    try expectEqual(@"null", null);
-
-    // No coercion
-    try expectEqual(some, @import("zon/some.zon"));
-    try expectEqual(none, @import("zon/none.zon"));
+    try expectEqual(@as(u32, 10), some);
+    try expectEqual(@as(?u32, null), none);
+    try expectEqual(null, @"null");
 }
 
 test "union" {
@@ -78,9 +73,9 @@ test "tuple" {
 }
 
 test "char" {
-    try expectEqual('a', @import("zon/a.zon"));
-    try expectEqual('z', @import("zon/z.zon"));
-    try expectEqual(-'a', @import("zon/a_neg.zon"));
+    try expectEqual(@as(u8, 'a'), @as(u8, @import("zon/a.zon")));
+    try expectEqual(@as(u8, 'z'), @as(u8, @import("zon/z.zon")));
+    try expectEqual(@as(i8, -'a'), @as(i8, @import("zon/a_neg.zon")));
 }
 
 test "arrays" {
@@ -158,8 +153,8 @@ test "enum literals" {
         baz,
         @"0\na",
     };
-    try expectEqual(Enum.foo, @import("zon/foo.zon"));
-    try expectEqual(Enum.@"0\na", @import("zon/escaped_enum.zon"));
+    try expectEqual(Enum.foo, @as(Enum, @import("zon/foo.zon")));
+    try expectEqual(Enum.@"0\na", @as(Enum, @import("zon/escaped_enum.zon")));
 }
 
 test "int" {

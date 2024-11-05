@@ -13942,8 +13942,6 @@ fn zirImport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
     const operand_src = block.tokenOffset(inst_data.src_tok);
     const operand = sema.code.nullTerminatedString(extra.path);
 
-    _ = extra.res_ty;
-
     const result = pt.importFile(block.getFileScope(zcu), operand) catch |err| switch (err) {
         error.ImportOutsideModulePath => {
             return sema.fail(block, operand_src, "import of file outside module path: '{s}'", .{operand});
@@ -13974,8 +13972,16 @@ fn zirImport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
                 // retry this and not cache the file system error, which may be transient.
                 return sema.fail(block, operand_src, "unable to open '{s}': {s}", .{ result.file.sub_file_path, @errorName(err) });
             };
-            const res_ty_inst = try sema.resolveInstAllowNone(extra.res_ty);
-            const res_ty = res_ty_inst.toTypeAllowNone();
+
+            if (extra.res_ty == .none) {
+                return sema.fail(block, operand_src, "import ZON must have a known result type", .{});
+            }
+            const res_ty_inst = try sema.resolveInst(extra.res_ty);
+            const res_ty = try sema.analyzeAsType(block, operand_src, res_ty_inst);
+            if (res_ty.isGenericPoison()) {
+                return sema.fail(block, operand_src, "import ZON must have a known result type", .{});
+            }
+
             const interned = try zon.lower(
                 sema,
                 result.file,
