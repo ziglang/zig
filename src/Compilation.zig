@@ -1298,7 +1298,11 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                 },
                 .fully_qualified_name = "compiler_rt",
                 .cc_argv = &.{},
-                .inherited = .{},
+                .inherited = .{
+                    .stack_check = false,
+                    .stack_protector = 0,
+                    .no_builtin = true,
+                },
                 .global = options.config,
                 .parent = options.root_mod,
                 .builtin_mod = options.root_mod.getBuiltinDependency(),
