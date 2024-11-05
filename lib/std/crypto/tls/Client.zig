@@ -662,21 +662,20 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
                                     &.{ "key expansion", &server_hello_rand, &client_hello_rand },
                                     @sizeOf(P.Tls_1_2),
                                 );
-                                const verify_data_len = 12;
                                 const client_verify_cleartext = .{@intFromEnum(tls.HandshakeType.finished)} ++
                                     array(u24, u8, hmacExpandLabel(
                                     P.Hmac,
                                     &master_secret,
                                     &.{ "client finished", &p.transcript_hash.peek() },
-                                    verify_data_len,
+                                    P.verify_data_length,
                                 ));
                                 p.transcript_hash.update(&client_verify_cleartext);
                                 p.version = .{ .tls_1_2 = .{
-                                    .server_verify_data = hmacExpandLabel(
+                                    .expected_server_verify_data = hmacExpandLabel(
                                         P.Hmac,
                                         &master_secret,
                                         &.{ "server finished", &p.transcript_hash.finalResult() },
-                                        verify_data_len,
+                                        P.verify_data_length,
                                     ),
                                     .app_cipher = std.mem.bytesToValue(P.Tls_1_2, &key_block),
                                 } };
@@ -747,10 +746,11 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
                                 .tls_1_3 => {
                                     const pv = &p.version.tls_1_3;
                                     const P = @TypeOf(p.*).A;
+                                    try hsd.ensure(P.Hmac.mac_length);
                                     const finished_digest = p.transcript_hash.peek();
                                     p.transcript_hash.update(wrapped_handshake);
                                     const expected_server_verify_data = tls.hmac(P.Hmac, &finished_digest, pv.server_finished_key);
-                                    if (!mem.eql(u8, &expected_server_verify_data, hsd.buf)) return error.TlsDecryptError;
+                                    if (!std.crypto.timing_safe.eql([P.Hmac.mac_length]u8, expected_server_verify_data, hsd.array(P.Hmac.mac_length).*)) return error.TlsDecryptError;
                                     const handshake_hash = p.transcript_hash.finalResult();
                                     const verify_data = tls.hmac(P.Hmac, &handshake_hash, pv.client_finished_key);
                                     const out_cleartext = .{@intFromEnum(tls.HandshakeType.finished)} ++
@@ -788,8 +788,9 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
                                 },
                                 .tls_1_2 => {
                                     const pv = &p.version.tls_1_2;
-                                    try hsd.ensure(12);
-                                    if (!std.mem.eql(u8, hsd.array(12), &pv.server_verify_data)) return error.TlsDecryptError;
+                                    const P = @TypeOf(p.*).A;
+                                    try hsd.ensure(P.verify_data_length);
+                                    if (!std.crypto.timing_safe.eql([P.verify_data_length]u8, pv.expected_server_verify_data, hsd.array(P.verify_data_length).*)) return error.TlsDecryptError;
                                     break :app_cipher @unionInit(tls.ApplicationCipher, @tagName(tag), .{ .tls_1_2 = pv.app_cipher });
                                 },
                                 else => unreachable,

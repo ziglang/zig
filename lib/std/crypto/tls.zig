@@ -442,7 +442,7 @@ pub fn HandshakeCipherT(comptime AeadType: type, comptime HashType: type, compti
         transcript_hash: A.Hash,
         version: union {
             tls_1_2: struct {
-                server_verify_data: [12]u8,
+                expected_server_verify_data: [A.verify_data_length]u8,
                 app_cipher: A.Tls_1_2,
             },
             tls_1_3: struct {
@@ -479,6 +479,7 @@ pub fn ApplicationCipherT(comptime AeadType: type, comptime HashType: type, comp
         pub const record_iv_length = explicit_iv_length;
         pub const mac_length = AEAD.tag_length;
         pub const mac_key_length = Hmac.key_length_min;
+        pub const verify_data_length = 12;
 
         tls_1_2: Tls_1_2,
         tls_1_3: Tls_1_3,
