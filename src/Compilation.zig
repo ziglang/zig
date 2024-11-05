@@ -6262,6 +6262,8 @@ fn buildOutputFromZig(
 }
 
 pub const CrtFileOptions = struct {
+    function_sections: ?bool = null,
+    data_sections: ?bool = null,
     pic: ?bool = null,
     no_builtin: ?bool = null,
 };
@@ -6356,6 +6358,8 @@ pub fn build_crt_file(
             .directory = null, // Put it in the cache directory.
             .basename = basename,
         },
+        .function_sections = options.function_sections orelse false,
+        .data_sections = options.data_sections orelse false,
         .emit_h = null,
         .c_source_files = c_source_files,
         .verbose_cc = comp.verbose_cc,
