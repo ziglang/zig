@@ -79,19 +79,45 @@ pub fn defaultSingleThreaded(target: std.Target) bool {
     return false;
 }
 
-/// Valgrind supports more, but Zig does not support them yet.
 pub fn hasValgrindSupport(target: std.Target) bool {
-    switch (target.cpu.arch) {
-        .x86,
-        .x86_64,
-        .aarch64,
-        .aarch64_be,
-        => {
-            return target.os.tag == .linux or target.os.tag == .solaris or target.os.tag == .illumos or
-                (target.os.tag == .windows and target.abi.isGnu());
+    // We can't currently output the necessary Valgrind client request assembly when using the C
+    // backend and compiling with an MSVC-like compiler.
+    const ofmt_c_msvc = (target.abi == .msvc or target.abi == .itanium) and target.ofmt == .c;
+
+    return switch (target.cpu.arch) {
+        .arm, .armeb, .thumb, .thumbeb => switch (target.os.tag) {
+            .linux => true,
+            else => false,
         },
-        else => return false,
-    }
+        .aarch64, .aarch64_be => switch (target.os.tag) {
+            .linux, .freebsd => true,
+            else => false,
+        },
+        .mips, .mipsel, .mips64, .mips64el => switch (target.os.tag) {
+            .linux => true,
+            else => false,
+        },
+        .powerpc, .powerpcle, .powerpc64, .powerpc64le => switch (target.os.tag) {
+            .linux => true,
+            else => false,
+        },
+        .s390x => switch (target.os.tag) {
+            .linux => true,
+            else => false,
+        },
+        .x86 => switch (target.os.tag) {
+            .linux, .freebsd, .solaris, .illumos => true,
+            .windows => !ofmt_c_msvc,
+            else => false,
+        },
+        .x86_64 => switch (target.os.tag) {
+            .linux => target.abi != .gnux32 and target.abi != .muslx32,
+            .freebsd, .solaris, .illumos => true,
+            .windows => !ofmt_c_msvc,
+            else => false,
+        },
+        else => false,
+    };
 }
 
 /// The set of targets that LLVM has non-experimental support for.

@@ -90,26 +90,26 @@ pub fn checkMemIsDefined(qzz: []const u8) usize {
 
 /// Do a full memory leak check (like --leak-check=full) mid-execution.
 pub fn doLeakCheck() void {
-    doClientRequestStmt(.DO_LEAK_CHECK, 0, 0, 0, 0, 0);
+    doClientRequestStmt(.DoLeakCheck, 0, 0, 0, 0, 0);
 }
 
 /// Same as doLeakCheck() but only showing the entries for
 /// which there was an increase in leaked bytes or leaked nr of blocks
 /// since the previous leak search.
 pub fn doAddedLeakCheck() void {
-    doClientRequestStmt(.DO_LEAK_CHECK, 0, 1, 0, 0, 0);
+    doClientRequestStmt(.DoLeakCheck, 0, 1, 0, 0, 0);
 }
 
 /// Same as doAddedLeakCheck() but showing entries with
 /// increased or decreased leaked bytes/blocks since previous leak
 /// search.
 pub fn doChangedLeakCheck() void {
-    doClientRequestStmt(.DO_LEAK_CHECK, 0, 2, 0, 0, 0);
+    doClientRequestStmt(.DoLeakCheck, 0, 2, 0, 0, 0);
 }
 
 /// Do a summary memory leak check (like --leak-check=summary) mid-execution.
 pub fn doQuickLeakCheck() void {
-    doClientRequestStmt(.DO_LEAK_CHECK, 1, 0, 0, 0, 0);
+    doClientRequestStmt(.DoLeakCheck, 1, 0, 0, 0, 0);
 }
 
 /// Return number of leaked, dubious, reachable and suppressed bytes found by
@@ -191,7 +191,7 @@ test countLeakBlocks {
 /// impossible to segfault your system by using this call.
 pub fn getVbits(zza: []u8, zzvbits: []u8) u2 {
     std.debug.assert(zzvbits.len >= zza.len / 8);
-    return @as(u2, @intCast(doClientRequestExpr(0, .GetVbits, @intFromPtr(zza.ptr), @intFromPtr(zzvbits), zza.len, 0, 0)));
+    return @as(u2, @intCast(doClientRequestExpr(0, .GetVbits, @intFromPtr(zza.ptr), @intFromPtr(zzvbits.ptr), zza.len, 0, 0)));
 }
 
 /// Set the validity data for addresses zza, copying it
@@ -204,7 +204,7 @@ pub fn getVbits(zza: []u8, zzvbits: []u8) u2 {
 /// impossible to segfault your system by using this call.
 pub fn setVbits(zzvbits: []u8, zza: []u8) u2 {
     std.debug.assert(zzvbits.len >= zza.len / 8);
-    return @as(u2, @intCast(doClientRequestExpr(0, .SetVbits, @intFromPtr(zza.ptr), @intFromPtr(zzvbits), zza.len, 0, 0)));
+    return @as(u2, @intCast(doClientRequestExpr(0, .SetVbits, @intFromPtr(zza.ptr), @intFromPtr(zzvbits.ptr), zza.len, 0, 0)));
 }
 
 /// Disable and re-enable reporting of addressing errors in the
