@@ -95,7 +95,12 @@ counter: u32 = 0,
 expansion_source_loc: Source.Location = undefined,
 poisoned_identifiers: std.StringHashMap(void),
 /// Map from Source.Id to macro name in the `#ifndef` condition which guards the source, if any
-include_guards: std.AutoHashMapUnmanaged(Source.Id, []const u8) = .{},
+include_guards: std.AutoHashMapUnmanaged(Source.Id, []const u8) = .empty,
+
+/// Store `keyword_define` and `keyword_undef` tokens.
+/// Used to implement preprocessor debug dump options
+/// Must be false unless in -E mode (parser does not handle those token types)
+store_macro_tokens: bool = false,
 
 /// Memory is retained to avoid allocation on every single token.
 top_expansion_buf: ExpandBuf,
@@ -266,7 +271,7 @@ fn clearBuffers(pp: *Preprocessor) void {
 pub fn expansionSlice(pp: *Preprocessor, tok: Tree.TokenIndex) []Source.Location {
     const S = struct {
         fn orderTokenIndex(context: Tree.TokenIndex, item: Tree.TokenIndex) std.math.Order {
-            return std.math.order(item, context);
+            return std.math.order(context, item);
         }
     };
 
@@ -384,7 +389,7 @@ fn preprocessExtra(pp: *Preprocessor, source: Source) MacroError!TokenWithExpans
     try pp.ensureTotalTokenCapacity(pp.tokens.len + estimated_token_count);
 
     var if_level: u8 = 0;
-    var if_kind = std.PackedIntArray(u2, 256).init([1]u2{0} ** 256);
+    var if_kind: [64]u8 = .{0} ** 64;
     const until_else = 0;
     const until_endif = 1;
     const until_endif_seen_else = 2;
@@ -425,12 +430,12 @@ fn preprocessExtra(pp: *Preprocessor, source: Source) MacroError!TokenWithExpans
                         if_level = sum;
 
                         if (try pp.expr(&tokenizer)) {
-                            if_kind.set(if_level, until_endif);
+                            std.mem.writePackedIntNative(u2, &if_kind, if_level * 2, until_endif);
                             if (pp.verbose) {
                                 pp.verboseLog(directive, "entering then branch of #if", .{});
                             }
                         } else {
-                            if_kind.set(if_level, until_else);
+                            std.mem.writePackedIntNative(u2, &if_kind, if_level * 2, until_else);
                             try pp.skip(&tokenizer, .until_else);
                             if (pp.verbose) {
                                 pp.verboseLog(directive, "entering else branch of #if", .{});
@@ -446,12 +451,12 @@ fn preprocessExtra(pp: *Preprocessor, source: Source) MacroError!TokenWithExpans
                         const macro_name = (try pp.expectMacroName(&tokenizer)) orelse continue;
                         try pp.expectNl(&tokenizer);
                         if (pp.defines.get(macro_name) != null) {
-                            if_kind.set(if_level, until_endif);
+                            std.mem.writePackedIntNative(u2, &if_kind, if_level * 2, until_endif);
                             if (pp.verbose) {
                                 pp.verboseLog(directive, "entering then branch of #ifdef", .{});
                             }
                         } else {
-                            if_kind.set(if_level, until_else);
+                            std.mem.writePackedIntNative(u2, &if_kind, if_level * 2, until_else);
                             try pp.skip(&tokenizer, .until_else);
                             if (pp.verbose) {
                                 pp.verboseLog(directive, "entering else branch of #ifdef", .{});
@@ -467,9 +472,9 @@ fn preprocessExtra(pp: *Preprocessor, source: Source) MacroError!TokenWithExpans
                         const macro_name = (try pp.expectMacroName(&tokenizer)) orelse continue;
                         try pp.expectNl(&tokenizer);
                         if (pp.defines.get(macro_name) == null) {
-                            if_kind.set(if_level, until_endif);
+                            std.mem.writePackedIntNative(u2, &if_kind, if_level * 2, until_endif);
                         } else {
-                            if_kind.set(if_level, until_else);
+                            std.mem.writePackedIntNative(u2, &if_kind, if_level * 2, until_else);
                             try pp.skip(&tokenizer, .until_else);
                         }
                     },
@@ -477,13 +482,13 @@ fn preprocessExtra(pp: *Preprocessor, source: Source) MacroError!TokenWithExpans
                         if (if_level == 0) {
                             try pp.err(directive, .elif_without_if);
                             if_level += 1;
-                            if_kind.set(if_level, until_else);
+                            std.mem.writePackedIntNative(u2, &if_kind, if_level * 2, until_else);
                         } else if (if_level == 1) {
                             guard_name = null;
                         }
-                        switch (if_kind.get(if_level)) {
+                        switch (std.mem.readPackedIntNative(u2, &if_kind, if_level * 2)) {
                             until_else => if (try pp.expr(&tokenizer)) {
-                                if_kind.set(if_level, until_endif);
+                                std.mem.writePackedIntNative(u2, &if_kind, if_level * 2, until_endif);
                                 if (pp.verbose) {
                                     pp.verboseLog(directive, "entering then branch of #elif", .{});
                                 }
@@ -505,15 +510,15 @@ fn preprocessExtra(pp: *Preprocessor, source: Source) MacroError!TokenWithExpans
                         if (if_level == 0) {
                             try pp.err(directive, .elifdef_without_if);
                             if_level += 1;
-                            if_kind.set(if_level, until_else);
+                            std.mem.writePackedIntNative(u2, &if_kind, if_level * 2, until_else);
                         } else if (if_level == 1) {
                             guard_name = null;
                         }
-                        switch (if_kind.get(if_level)) {
+                        switch (std.mem.readPackedIntNative(u2, &if_kind, if_level * 2)) {
                             until_else => {
                                 const macro_name = try pp.expectMacroName(&tokenizer);
                                 if (macro_name == null) {
-                                    if_kind.set(if_level, until_else);
+                                    std.mem.writePackedIntNative(u2, &if_kind, if_level * 2, until_else);
                                     try pp.skip(&tokenizer, .until_else);
                                     if (pp.verbose) {
                                         pp.verboseLog(directive, "entering else branch of #elifdef", .{});
@@ -521,12 +526,12 @@ fn preprocessExtra(pp: *Preprocessor, source: Source) MacroError!TokenWithExpans
                                 } else {
                                     try pp.expectNl(&tokenizer);
                                     if (pp.defines.get(macro_name.?) != null) {
-                                        if_kind.set(if_level, until_endif);
+                                        std.mem.writePackedIntNative(u2, &if_kind, if_level * 2, until_endif);
                                         if (pp.verbose) {
                                             pp.verboseLog(directive, "entering then branch of #elifdef", .{});
                                         }
                                     } else {
-                                        if_kind.set(if_level, until_else);
+                                        std.mem.writePackedIntNative(u2, &if_kind, if_level * 2, until_else);
                                         try pp.skip(&tokenizer, .until_else);
                                         if (pp.verbose) {
                                             pp.verboseLog(directive, "entering else branch of #elifdef", .{});
@@ -546,15 +551,15 @@ fn preprocessExtra(pp: *Preprocessor, source: Source) MacroError!TokenWithExpans
                         if (if_level == 0) {
                             try pp.err(directive, .elifdef_without_if);
                             if_level += 1;
-                            if_kind.set(if_level, until_else);
+                            std.mem.writePackedIntNative(u2, &if_kind, if_level * 2, until_else);
                         } else if (if_level == 1) {
                             guard_name = null;
                         }
-                        switch (if_kind.get(if_level)) {
+                        switch (std.mem.readPackedIntNative(u2, &if_kind, if_level * 2)) {
                             until_else => {
                                 const macro_name = try pp.expectMacroName(&tokenizer);
                                 if (macro_name == null) {
-                                    if_kind.set(if_level, until_else);
+                                    std.mem.writePackedIntNative(u2, &if_kind, if_level * 2, until_else);
                                     try pp.skip(&tokenizer, .until_else);
                                     if (pp.verbose) {
                                         pp.verboseLog(directive, "entering else branch of #elifndef", .{});
@@ -562,12 +567,12 @@ fn preprocessExtra(pp: *Preprocessor, source: Source) MacroError!TokenWithExpans
                                 } else {
                                     try pp.expectNl(&tokenizer);
                                     if (pp.defines.get(macro_name.?) == null) {
-                                        if_kind.set(if_level, until_endif);
+                                        std.mem.writePackedIntNative(u2, &if_kind, if_level * 2, until_endif);
                                         if (pp.verbose) {
                                             pp.verboseLog(directive, "entering then branch of #elifndef", .{});
                                         }
                                     } else {
-                                        if_kind.set(if_level, until_else);
+                                        std.mem.writePackedIntNative(u2, &if_kind, if_level * 2, until_else);
                                         try pp.skip(&tokenizer, .until_else);
                                         if (pp.verbose) {
                                             pp.verboseLog(directive, "entering else branch of #elifndef", .{});
@@ -591,9 +596,9 @@ fn preprocessExtra(pp: *Preprocessor, source: Source) MacroError!TokenWithExpans
                         } else if (if_level == 1) {
                             guard_name = null;
                         }
-                        switch (if_kind.get(if_level)) {
+                        switch (std.mem.readPackedIntNative(u2, &if_kind, if_level * 2)) {
                             until_else => {
-                                if_kind.set(if_level, until_endif_seen_else);
+                                std.mem.writePackedIntNative(u2, &if_kind, if_level * 2, until_endif_seen_else);
                                 if (pp.verbose) {
                                     pp.verboseLog(directive, "#else branch here", .{});
                                 }
@@ -622,9 +627,12 @@ fn preprocessExtra(pp: *Preprocessor, source: Source) MacroError!TokenWithExpans
                         }
                         if_level -= 1;
                     },
-                    .keyword_define => try pp.define(&tokenizer),
+                    .keyword_define => try pp.define(&tokenizer, directive),
                     .keyword_undef => {
                         const macro_name = (try pp.expectMacroName(&tokenizer)) orelse continue;
+                        if (pp.store_macro_tokens) {
+                            try pp.addToken(tokFromRaw(directive));
+                        }
 
                         _ = pp.defines.remove(macro_name);
                         try pp.expectNl(&tokenizer);
@@ -975,7 +983,7 @@ fn expr(pp: *Preprocessor, tokenizer: *Tokenizer) MacroError!bool {
         .tok_i = @intCast(token_state.tokens_len),
         .arena = pp.arena.allocator(),
         .in_macro = true,
-        .strings = std.ArrayList(u8).init(pp.comp.gpa),
+        .strings = std.ArrayListAligned(u8, 4).init(pp.comp.gpa),
 
         .data = undefined,
         .value_map = undefined,
@@ -1328,19 +1336,41 @@ fn stringify(pp: *Preprocessor, tokens: []const TokenWithExpansionLocs) !void {
                 try pp.char_buf.append(c);
         }
     }
-    if (pp.char_buf.items[pp.char_buf.items.len - 1] == '\\') {
+    try pp.char_buf.ensureUnusedCapacity(2);
+    if (pp.char_buf.items[pp.char_buf.items.len - 1] != '\\') {
+        pp.char_buf.appendSliceAssumeCapacity("\"\n");
+        return;
+    }
+    pp.char_buf.appendAssumeCapacity('"');
+    var tokenizer: Tokenizer = .{
+        .buf = pp.char_buf.items,
+        .index = 0,
+        .source = .generated,
+        .langopts = pp.comp.langopts,
+        .line = 0,
+    };
+    const item = tokenizer.next();
+    if (item.id == .unterminated_string_literal) {
         const tok = tokens[tokens.len - 1];
         try pp.comp.addDiagnostic(.{
             .tag = .invalid_pp_stringify_escape,
             .loc = tok.loc,
         }, tok.expansionSlice());
-        pp.char_buf.items.len -= 1;
+        pp.char_buf.items.len -= 2; // erase unpaired backslash and appended end quote
+        pp.char_buf.appendAssumeCapacity('"');
     }
-    try pp.char_buf.appendSlice("\"\n");
+    pp.char_buf.appendAssumeCapacity('\n');
 }
 
 fn reconstructIncludeString(pp: *Preprocessor, param_toks: []const TokenWithExpansionLocs, embed_args: ?*[]const TokenWithExpansionLocs, first: TokenWithExpansionLocs) !?[]const u8 {
-    assert(param_toks.len != 0);
+    if (param_toks.len == 0) {
+        try pp.comp.addDiagnostic(.{
+            .tag = .expected_filename,
+            .loc = first.loc,
+        }, first.expansionSlice());
+        return null;
+    }
+
     const char_top = pp.char_buf.items.len;
     defer pp.char_buf.items.len = char_top;
 
@@ -1539,11 +1569,13 @@ fn getPasteArgs(args: []const TokenWithExpansionLocs) []const TokenWithExpansion
 
 fn expandFuncMacro(
     pp: *Preprocessor,
-    loc: Source.Location,
+    macro_tok: TokenWithExpansionLocs,
     func_macro: *const Macro,
     args: *const MacroArguments,
     expanded_args: *const MacroArguments,
+    hideset_arg: Hideset.Index,
 ) MacroError!ExpandBuf {
+    var hideset = hideset_arg;
     var buf = ExpandBuf.init(pp.gpa);
     try buf.ensureTotalCapacity(func_macro.tokens.len);
     errdefer buf.deinit();
@@ -1594,16 +1626,21 @@ fn expandFuncMacro(
                     },
                     else => &[1]TokenWithExpansionLocs{tokFromRaw(raw_next)},
                 };
-
                 try pp.pasteTokens(&buf, next);
                 if (next.len != 0) break;
             },
             .macro_param_no_expand => {
+                if (tok_i + 1 < func_macro.tokens.len and func_macro.tokens[tok_i + 1].id == .hash_hash) {
+                    hideset = pp.hideset.get(tokFromRaw(func_macro.tokens[tok_i + 1]).loc);
+                }
                 const slice = getPasteArgs(args.items[raw.end]);
                 const raw_loc = Source.Location{ .id = raw.source, .byte_offset = raw.start, .line = raw.line };
                 try bufCopyTokens(&buf, slice, &.{raw_loc});
             },
             .macro_param => {
+                if (tok_i + 1 < func_macro.tokens.len and func_macro.tokens[tok_i + 1].id == .hash_hash) {
+                    hideset = pp.hideset.get(tokFromRaw(func_macro.tokens[tok_i + 1]).loc);
+                }
                 const arg = expanded_args.items[raw.end];
                 const raw_loc = Source.Location{ .id = raw.source, .byte_offset = raw.start, .line = raw.line };
                 try bufCopyTokens(&buf, arg, &.{raw_loc});
@@ -1642,9 +1679,9 @@ fn expandFuncMacro(
                 const arg = expanded_args.items[0];
                 const result = if (arg.len == 0) blk: {
                     const extra = Diagnostics.Message.Extra{ .arguments = .{ .expected = 1, .actual = 0 } };
-                    try pp.comp.addDiagnostic(.{ .tag = .expected_arguments, .loc = loc, .extra = extra }, &.{});
+                    try pp.comp.addDiagnostic(.{ .tag = .expected_arguments, .loc = macro_tok.loc, .extra = extra }, &.{});
                     break :blk false;
-                } else try pp.handleBuiltinMacro(raw.id, arg, loc);
+                } else try pp.handleBuiltinMacro(raw.id, arg, macro_tok.loc);
                 const start = pp.comp.generated_buf.items.len;
                 const w = pp.comp.generated_buf.writer(pp.gpa);
                 try w.print("{}\n", .{@intFromBool(result)});
@@ -1655,7 +1692,7 @@ fn expandFuncMacro(
                 const not_found = "0\n";
                 const result = if (arg.len == 0) blk: {
                     const extra = Diagnostics.Message.Extra{ .arguments = .{ .expected = 1, .actual = 0 } };
-                    try pp.comp.addDiagnostic(.{ .tag = .expected_arguments, .loc = loc, .extra = extra }, &.{});
+                    try pp.comp.addDiagnostic(.{ .tag = .expected_arguments, .loc = macro_tok.loc, .extra = extra }, &.{});
                     break :blk not_found;
                 } else res: {
                     var invalid: ?TokenWithExpansionLocs = null;
@@ -1687,7 +1724,7 @@ fn expandFuncMacro(
                     if (vendor_ident != null and attr_ident == null) {
                         invalid = vendor_ident;
                     } else if (attr_ident == null and invalid == null) {
-                        invalid = .{ .id = .eof, .loc = loc };
+                        invalid = .{ .id = .eof, .loc = macro_tok.loc };
                     }
                     if (invalid) |some| {
                         try pp.comp.addDiagnostic(
@@ -1731,7 +1768,7 @@ fn expandFuncMacro(
                 const not_found = "0\n";
                 const result = if (arg.len == 0) blk: {
                     const extra = Diagnostics.Message.Extra{ .arguments = .{ .expected = 1, .actual = 0 } };
-                    try pp.comp.addDiagnostic(.{ .tag = .expected_arguments, .loc = loc, .extra = extra }, &.{});
+                    try pp.comp.addDiagnostic(.{ .tag = .expected_arguments, .loc = macro_tok.loc, .extra = extra }, &.{});
                     break :blk not_found;
                 } else res: {
                     var embed_args: []const TokenWithExpansionLocs = &.{};
@@ -1877,11 +1914,11 @@ fn expandFuncMacro(
                         break;
                     },
                 };
-                if (string == null and invalid == null) invalid = .{ .loc = loc, .id = .eof };
+                if (string == null and invalid == null) invalid = .{ .loc = macro_tok.loc, .id = .eof };
                 if (invalid) |some| try pp.comp.addDiagnostic(
                     .{ .tag = .pragma_operator_string_literal, .loc = some.loc },
                     some.expansionSlice(),
-                ) else try pp.pragmaOperator(string.?, loc);
+                ) else try pp.pragmaOperator(string.?, macro_tok.loc);
             },
             .comma => {
                 if (tok_i + 2 < func_macro.tokens.len and func_macro.tokens[tok_i + 1].id == .hash_hash) {
@@ -1929,6 +1966,15 @@ fn expandFuncMacro(
         }
     }
     removePlacemarkers(&buf);
+
+    const macro_expansion_locs = macro_tok.expansionSlice();
+    for (buf.items) |*tok| {
+        try tok.addExpansionLocation(pp.gpa, &.{macro_tok.loc});
+        try tok.addExpansionLocation(pp.gpa, macro_expansion_locs);
+        const tok_hidelist = pp.hideset.get(tok.loc);
+        const new_hidelist = try pp.hideset.@"union"(tok_hidelist, hideset);
+        try pp.hideset.put(tok.loc, new_hidelist);
+    }
 
     return buf;
 }
@@ -2207,8 +2253,10 @@ fn expandMacroExhaustive(
                         else => |e| return e,
                     };
                     assert(r_paren.id == .r_paren);
+                    var free_arg_expansion_locs = false;
                     defer {
                         for (args.items) |item| {
+                            if (free_arg_expansion_locs) for (item) |tok| TokenWithExpansionLocs.free(tok.expansion_locs, pp.gpa);
                             pp.gpa.free(item);
                         }
                         args.deinit();
@@ -2234,6 +2282,7 @@ fn expandMacroExhaustive(
                         .arguments = .{ .expected = @intCast(macro.params.len), .actual = args_count },
                     };
                     if (macro.var_args and args_count < macro.params.len) {
+                        free_arg_expansion_locs = true;
                         try pp.comp.addDiagnostic(
                             .{ .tag = .expected_at_least_arguments, .loc = buf.items[idx].loc, .extra = extra },
                             buf.items[idx].expansionSlice(),
@@ -2243,6 +2292,7 @@ fn expandMacroExhaustive(
                         continue;
                     }
                     if (!macro.var_args and args_count != macro.params.len) {
+                        free_arg_expansion_locs = true;
                         try pp.comp.addDiagnostic(
                             .{ .tag = .expected_arguments, .loc = buf.items[idx].loc, .extra = extra },
                             buf.items[idx].expansionSlice(),
@@ -2264,19 +2314,9 @@ fn expandMacroExhaustive(
                         expanded_args.appendAssumeCapacity(try expand_buf.toOwnedSlice());
                     }
 
-                    var res = try pp.expandFuncMacro(macro_tok.loc, macro, &args, &expanded_args);
+                    var res = try pp.expandFuncMacro(macro_tok, macro, &args, &expanded_args, hs);
                     defer res.deinit();
                     const tokens_added = res.items.len;
-
-                    const macro_expansion_locs = macro_tok.expansionSlice();
-                    for (res.items) |*tok| {
-                        try tok.addExpansionLocation(pp.gpa, &.{macro_tok.loc});
-                        try tok.addExpansionLocation(pp.gpa, macro_expansion_locs);
-                        const tok_hidelist = pp.hideset.get(tok.loc);
-                        const new_hidelist = try pp.hideset.@"union"(tok_hidelist, hs);
-                        try pp.hideset.put(tok.loc, new_hidelist);
-                    }
-
                     const tokens_removed = macro_scan_idx - idx + 1;
                     for (buf.items[idx .. idx + tokens_removed]) |tok| TokenWithExpansionLocs.free(tok.expansion_locs, pp.gpa);
                     try buf.replaceRange(idx, tokens_removed, res.items);
@@ -2476,7 +2516,7 @@ fn makeGeneratedToken(pp: *Preprocessor, start: usize, id: Token.Id, source: Tok
 }
 
 /// Defines a new macro and warns if it is a duplicate
-fn defineMacro(pp: *Preprocessor, name_tok: RawToken, macro: Macro) Error!void {
+fn defineMacro(pp: *Preprocessor, define_tok: RawToken, name_tok: RawToken, macro: Macro) Error!void {
     const name_str = pp.tokSlice(name_tok);
     const gop = try pp.defines.getOrPut(pp.gpa, name_str);
     if (gop.found_existing and !gop.value_ptr.eql(macro, pp)) {
@@ -2497,11 +2537,14 @@ fn defineMacro(pp: *Preprocessor, name_tok: RawToken, macro: Macro) Error!void {
     if (pp.verbose) {
         pp.verboseLog(name_tok, "macro {s} defined", .{name_str});
     }
+    if (pp.store_macro_tokens) {
+        try pp.addToken(tokFromRaw(define_tok));
+    }
     gop.value_ptr.* = macro;
 }
 
 /// Handle a #define directive.
-fn define(pp: *Preprocessor, tokenizer: *Tokenizer) Error!void {
+fn define(pp: *Preprocessor, tokenizer: *Tokenizer, define_tok: RawToken) Error!void {
     // Get macro name and validate it.
     const macro_name = tokenizer.nextNoWS();
     if (macro_name.id == .keyword_defined) {
@@ -2524,7 +2567,7 @@ fn define(pp: *Preprocessor, tokenizer: *Tokenizer) Error!void {
     // Check for function macros and empty defines.
     var first = tokenizer.next();
     switch (first.id) {
-        .nl, .eof => return pp.defineMacro(macro_name, .{
+        .nl, .eof => return pp.defineMacro(define_tok, macro_name, .{
             .params = &.{},
             .tokens = &.{},
             .var_args = false,
@@ -2532,7 +2575,7 @@ fn define(pp: *Preprocessor, tokenizer: *Tokenizer) Error!void {
             .is_func = false,
         }),
         .whitespace => first = tokenizer.next(),
-        .l_paren => return pp.defineFn(tokenizer, macro_name, first),
+        .l_paren => return pp.defineFn(tokenizer, define_tok, macro_name, first),
         else => try pp.err(first, .whitespace_after_macro_name),
     }
     if (first.id == .hash_hash) {
@@ -2591,7 +2634,7 @@ fn define(pp: *Preprocessor, tokenizer: *Tokenizer) Error!void {
     }
 
     const list = try pp.arena.allocator().dupe(RawToken, pp.token_buf.items);
-    try pp.defineMacro(macro_name, .{
+    try pp.defineMacro(define_tok, macro_name, .{
         .loc = tokFromRaw(macro_name).loc,
         .tokens = list,
         .params = undefined,
@@ -2601,7 +2644,7 @@ fn define(pp: *Preprocessor, tokenizer: *Tokenizer) Error!void {
 }
 
 /// Handle a function like #define directive.
-fn defineFn(pp: *Preprocessor, tokenizer: *Tokenizer, macro_name: RawToken, l_paren: RawToken) Error!void {
+fn defineFn(pp: *Preprocessor, tokenizer: *Tokenizer, define_tok: RawToken, macro_name: RawToken, l_paren: RawToken) Error!void {
     assert(macro_name.id.isMacroIdentifier());
     var params = std.ArrayList([]const u8).init(pp.gpa);
     defer params.deinit();
@@ -2778,7 +2821,7 @@ fn defineFn(pp: *Preprocessor, tokenizer: *Tokenizer, macro_name: RawToken, l_pa
 
     const param_list = try pp.arena.allocator().dupe([]const u8, params.items);
     const token_list = try pp.arena.allocator().dupe(RawToken, pp.token_buf.items);
-    try pp.defineMacro(macro_name, .{
+    try pp.defineMacro(define_tok, macro_name, .{
         .is_func = true,
         .params = param_list,
         .var_args = var_args or gnu_var_args.len != 0,
@@ -3241,8 +3284,78 @@ fn printLinemarker(
 // After how many empty lines are needed to replace them with linemarkers.
 const collapse_newlines = 8;
 
+pub const DumpMode = enum {
+    /// Standard preprocessor output; no macros
+    result_only,
+    /// Output only #define directives for all the macros defined during the execution of the preprocessor
+    /// Only macros which are still defined at the end of preprocessing are printed.
+    /// Only the most recent definition is printed
+    /// Defines are printed in arbitrary order
+    macros_only,
+    /// Standard preprocessor output; but additionally output #define's and #undef's for macros as they are encountered
+    macros_and_result,
+    /// Same as macros_and_result, except only the macro name is printed for #define's
+    macro_names_and_result,
+};
+
+/// Pretty-print the macro define or undef at location `loc`.
+/// We re-tokenize the directive because we are printing a macro that may have the same name as one in
+/// `pp.defines` but a different definition (due to being #undef'ed and then redefined)
+fn prettyPrintMacro(pp: *Preprocessor, w: anytype, loc: Source.Location, parts: enum { name_only, name_and_body }) !void {
+    const source = pp.comp.getSource(loc.id);
+    var tokenizer: Tokenizer = .{
+        .buf = source.buf,
+        .langopts = pp.comp.langopts,
+        .source = source.id,
+        .index = loc.byte_offset,
+    };
+    var prev_ws = false; // avoid printing multiple whitespace if /* */ comments are within the macro def
+    var saw_name = false; // do not print comments before the name token is seen.
+    while (true) {
+        const tok = tokenizer.next();
+        switch (tok.id) {
+            .comment => {
+                if (saw_name) {
+                    prev_ws = false;
+                    try w.print("{s}", .{pp.tokSlice(tok)});
+                }
+            },
+            .nl, .eof => break,
+            .whitespace => {
+                if (!prev_ws) {
+                    try w.writeByte(' ');
+                    prev_ws = true;
+                }
+            },
+            else => {
+                prev_ws = false;
+                try w.print("{s}", .{pp.tokSlice(tok)});
+            },
+        }
+        if (tok.id == .identifier or tok.id == .extended_identifier) {
+            if (parts == .name_only) break;
+            saw_name = true;
+        }
+    }
+}
+
+fn prettyPrintMacrosOnly(pp: *Preprocessor, w: anytype) !void {
+    var it = pp.defines.valueIterator();
+    while (it.next()) |macro| {
+        if (macro.is_builtin) continue;
+
+        try w.writeAll("#define ");
+        try pp.prettyPrintMacro(w, macro.loc, .name_and_body);
+        try w.writeByte('\n');
+    }
+}
+
 /// Pretty print tokens and try to preserve whitespace.
-pub fn prettyPrintTokens(pp: *Preprocessor, w: anytype) !void {
+pub fn prettyPrintTokens(pp: *Preprocessor, w: anytype, macro_dump_mode: DumpMode) !void {
+    if (macro_dump_mode == .macros_only) {
+        return pp.prettyPrintMacrosOnly(w);
+    }
+
     const tok_ids = pp.tokens.items(.id);
 
     var i: u32 = 0;
@@ -3334,6 +3447,17 @@ pub fn prettyPrintTokens(pp: *Preprocessor, w: anytype) !void {
                 try pp.printLinemarker(w, line_col.line_no, source, .@"resume");
                 last_nl = true;
             },
+            .keyword_define, .keyword_undef => {
+                switch (macro_dump_mode) {
+                    .macros_and_result, .macro_names_and_result => {
+                        try w.writeByte('#');
+                        try pp.prettyPrintMacro(w, cur.loc, if (macro_dump_mode == .macros_and_result) .name_and_body else .name_only);
+                        last_nl = false;
+                    },
+                    .result_only => unreachable, // `pp.store_macro_tokens` should be false for standard preprocessor output
+                    .macros_only => unreachable, // handled by prettyPrintMacrosOnly
+                }
+            },
             else => {
                 const slice = pp.expandedSlice(cur);
                 try w.writeAll(slice);
@@ -3350,7 +3474,7 @@ test "Preserve pragma tokens sometimes" {
             var buf = std.ArrayList(u8).init(allocator);
             defer buf.deinit();
 
-            var comp = Compilation.init(allocator);
+            var comp = Compilation.init(allocator, std.fs.cwd());
             defer comp.deinit();
 
             try comp.addDefaultPragmaHandlers();
@@ -3364,7 +3488,7 @@ test "Preserve pragma tokens sometimes" {
             const test_runner_macros = try comp.addSourceFromBuffer("<test_runner>", source_text);
             const eof = try pp.preprocess(test_runner_macros);
             try pp.addToken(eof);
-            try pp.prettyPrintTokens(buf.writer());
+            try pp.prettyPrintTokens(buf.writer(), .result_only);
             return allocator.dupe(u8, buf.items);
         }
 
@@ -3410,7 +3534,7 @@ test "destringify" {
             try std.testing.expectEqualStrings(destringified, pp.char_buf.items);
         }
     };
-    var comp = Compilation.init(allocator);
+    var comp = Compilation.init(allocator, std.fs.cwd());
     defer comp.deinit();
     var pp = Preprocessor.init(&comp);
     defer pp.deinit();
@@ -3468,7 +3592,7 @@ test "Include guards" {
         }
 
         fn testIncludeGuard(allocator: std.mem.Allocator, comptime template: []const u8, tok_id: RawToken.Id, expected_guards: u32) !void {
-            var comp = Compilation.init(allocator);
+            var comp = Compilation.init(allocator, std.fs.cwd());
             defer comp.deinit();
             var pp = Preprocessor.init(&comp);
             defer pp.deinit();

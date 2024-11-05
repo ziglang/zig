@@ -1677,13 +1677,11 @@ class piecewise_linear_distribution
 } // std
 */
 
-#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
 #include <__random/bernoulli_distribution.h>
 #include <__random/binomial_distribution.h>
 #include <__random/cauchy_distribution.h>
 #include <__random/chi_squared_distribution.h>
-#include <__random/clamp_to_integral.h>
 #include <__random/default_random_engine.h>
 #include <__random/discard_block_engine.h>
 #include <__random/discrete_distribution.h>
@@ -1695,10 +1693,8 @@ class piecewise_linear_distribution
 #include <__random/geometric_distribution.h>
 #include <__random/independent_bits_engine.h>
 #include <__random/is_seed_sequence.h>
-#include <__random/is_valid.h>
 #include <__random/knuth_b.h>
 #include <__random/linear_congruential_engine.h>
-#include <__random/log2.h>
 #include <__random/lognormal_distribution.h>
 #include <__random/mersenne_twister_engine.h>
 #include <__random/negative_binomial_distribution.h>

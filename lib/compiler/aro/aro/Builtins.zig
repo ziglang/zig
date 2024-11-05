@@ -157,7 +157,7 @@ fn createType(desc: TypeDescription, it: *TypeDescription.TypeIterator, comp: *c
                 .len = element_count,
                 .elem = child_ty,
             };
-            const vector_ty = .{ .specifier = .vector, .data = .{ .array = arr_ty } };
+            const vector_ty: Type = .{ .specifier = .vector, .data = .{ .array = arr_ty } };
             builder.specifier = Type.Builder.fromType(vector_ty);
         },
         .q => {
@@ -350,7 +350,7 @@ test Iterator {
 }
 
 test "All builtins" {
-    var comp = Compilation.init(std.testing.allocator);
+    var comp = Compilation.init(std.testing.allocator, std.fs.cwd());
     defer comp.deinit();
     _ = try comp.generateBuiltinMacros(.include_system_defines);
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -373,7 +373,7 @@ test "All builtins" {
 test "Allocation failures" {
     const Test = struct {
         fn testOne(allocator: std.mem.Allocator) !void {
-            var comp = Compilation.init(allocator);
+            var comp = Compilation.init(allocator, std.fs.cwd());
             defer comp.deinit();
             _ = try comp.generateBuiltinMacros(.include_system_defines);
             var arena = std.heap.ArenaAllocator.init(comp.gpa);

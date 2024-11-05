@@ -82,7 +82,22 @@
 #define PPC64_OPD2
 #endif
 
-#if defined(__aarch64__) && defined(__ARM_FEATURE_BTI_DEFAULT)
+#if defined(__aarch64__)
+#if defined(__ARM_FEATURE_GCS_DEFAULT) && defined(__ARM_FEATURE_BTI_DEFAULT)
+// Set BTI, PAC, and GCS gnu property bits
+#define GNU_PROPERTY 7
+// We indirectly branch to __libunwind_Registers_arm64_jumpto from
+// __unw_phase2_resume, so we need to use bti jc.
+#define AARCH64_BTI bti jc
+#elif defined(__ARM_FEATURE_GCS_DEFAULT)
+// Set GCS gnu property bit
+#define GNU_PROPERTY 4
+#elif defined(__ARM_FEATURE_BTI_DEFAULT)
+// Set BTI and PAC gnu property bits
+#define GNU_PROPERTY 3
+#define AARCH64_BTI bti c
+#endif
+#ifdef GNU_PROPERTY
   .pushsection ".note.gnu.property", "a" SEPARATOR                             \
   .balign 8 SEPARATOR                                                          \
   .long 4 SEPARATOR                                                            \
@@ -91,12 +106,12 @@
   .asciz "GNU" SEPARATOR                                                       \
   .long 0xc0000000 SEPARATOR /* GNU_PROPERTY_AARCH64_FEATURE_1_AND */          \
   .long 4 SEPARATOR                                                            \
-  .long 3 SEPARATOR /* GNU_PROPERTY_AARCH64_FEATURE_1_BTI AND */               \
-                    /* GNU_PROPERTY_AARCH64_FEATURE_1_PAC */                   \
+  .long GNU_PROPERTY SEPARATOR                                                 \
   .long 0 SEPARATOR                                                            \
   .popsection SEPARATOR
-#define AARCH64_BTI  bti c
-#else
+#endif
+#endif
+#if !defined(AARCH64_BTI)
 #define AARCH64_BTI
 #endif
 

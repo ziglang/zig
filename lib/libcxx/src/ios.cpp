@@ -195,6 +195,10 @@ void ios_base::register_callback(event_callback fn, int index) {
 }
 
 ios_base::~ios_base() {
+  // Avoid UB when not properly initialized. See ios_base::ios_base for
+  // more information.
+  if (!__loc_)
+    return;
   __call_callbacks(erase_event);
   locale& loc_storage = *reinterpret_cast<locale*>(&__loc_);
   loc_storage.~locale();

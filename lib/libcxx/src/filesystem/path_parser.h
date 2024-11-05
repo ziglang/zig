@@ -50,14 +50,14 @@ struct PathParser {
 
   const string_view_t Path;
   string_view_t RawEntry;
-  ParserState State;
+  ParserState State_;
 
 private:
-  PathParser(string_view_t P, ParserState State) noexcept : Path(P), State(State) {}
+  PathParser(string_view_t P, ParserState State) noexcept : Path(P), State_(State) {}
 
 public:
   PathParser(string_view_t P, string_view_t E, unsigned char S)
-      : Path(P), RawEntry(E), State(static_cast<ParserState>(S)) {
+      : Path(P), RawEntry(E), State_(static_cast<ParserState>(S)) {
     // S cannot be '0' or PS_BeforeBegin.
   }
 
@@ -84,7 +84,7 @@ public:
     if (Start == End)
       return makeState(PS_AtEnd);
 
-    switch (State) {
+    switch (State_) {
     case PS_BeforeBegin: {
       PosPtr TkEnd = consumeRootName(Start, End);
       if (TkEnd)
@@ -125,7 +125,7 @@ public:
     if (RStart == REnd) // we're decrementing the begin
       return makeState(PS_BeforeBegin);
 
-    switch (State) {
+    switch (State_) {
     case PS_AtEnd: {
       // Try to consume a trailing separator or root directory first.
       if (PosPtr SepEnd = consumeAllSeparators(RStart, REnd)) {
@@ -169,7 +169,7 @@ public:
   /// \brief Return a view with the "preferred representation" of the current
   ///   element. For example trailing separators are represented as a '.'
   string_view_t operator*() const noexcept {
-    switch (State) {
+    switch (State_) {
     case PS_BeforeBegin:
     case PS_AtEnd:
       return PATHSTR("");
@@ -187,7 +187,7 @@ public:
     __libcpp_unreachable();
   }
 
-  explicit operator bool() const noexcept { return State != PS_BeforeBegin && State != PS_AtEnd; }
+  explicit operator bool() const noexcept { return State_ != PS_BeforeBegin && State_ != PS_AtEnd; }
 
   PathParser& operator++() noexcept {
     increment();
@@ -199,21 +199,21 @@ public:
     return *this;
   }
 
-  bool atEnd() const noexcept { return State == PS_AtEnd; }
+  bool atEnd() const noexcept { return State_ == PS_AtEnd; }
 
-  bool inRootDir() const noexcept { return State == PS_InRootDir; }
+  bool inRootDir() const noexcept { return State_ == PS_InRootDir; }
 
-  bool inRootName() const noexcept { return State == PS_InRootName; }
+  bool inRootName() const noexcept { return State_ == PS_InRootName; }
 
   bool inRootPath() const noexcept { return inRootName() || inRootDir(); }
 
 private:
   void makeState(ParserState NewState, PosPtr Start, PosPtr End) noexcept {
-    State    = NewState;
+    State_    = NewState;
     RawEntry = string_view_t(Start, End - Start);
   }
   void makeState(ParserState NewState) noexcept {
-    State    = NewState;
+    State_    = NewState;
     RawEntry = {};
   }
 
@@ -224,7 +224,7 @@ private:
   /// \brief Return a pointer to the first character after the currently
   ///   lexed element.
   PosPtr getNextTokenStartPos() const noexcept {
-    switch (State) {
+    switch (State_) {
     case PS_BeforeBegin:
       return Path.data();
     case PS_InRootName:
@@ -241,7 +241,7 @@ private:
   /// \brief Return a pointer to the first character in the currently lexed
   ///   element.
   PosPtr getCurrentTokenStartPos() const noexcept {
-    switch (State) {
+    switch (State_) {
     case PS_BeforeBegin:
     case PS_InRootName:
       return &Path.front();

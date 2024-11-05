@@ -10,7 +10,7 @@ const mode_t = std.c.mode_t;
 const off_t = std.c.off_t;
 const pid_t = std.c.pid_t;
 const pthread_attr_t = std.c.pthread_attr_t;
-const sigset_t = std.c.segset_t;
+const sigset_t = std.c.sigset_t;
 const timespec = std.c.timespec;
 const sf_hdtr = std.c.sf_hdtr;
 
@@ -23,6 +23,7 @@ pub const mach_port_t = c_uint;
 pub const THREAD_STATE_NONE = switch (native_arch) {
     .aarch64 => 5,
     .x86_64 => 13,
+    else => @compileError("unsupported arch"),
 };
 
 pub const EXC = enum(exception_type_t) {

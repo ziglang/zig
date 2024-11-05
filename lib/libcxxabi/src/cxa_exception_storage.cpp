@@ -12,7 +12,7 @@
 
 #include "cxa_exception.h"
 
-#include <__threading_support>
+#include <__thread/support.h>
 
 #if defined(_LIBCXXABI_HAS_NO_THREADS)
 
@@ -24,7 +24,7 @@ extern "C" {
 } // extern "C"
 } // namespace __cxxabiv1
 
-#elif defined(HAS_THREAD_LOCAL)
+#elif __has_feature(cxx_thread_local)
 
 namespace __cxxabiv1 {
 namespace {

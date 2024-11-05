@@ -71,7 +71,7 @@ pub const Kind = enum {
     pub fn maxCodepoint(kind: Kind, comp: *const Compilation) u21 {
         return @intCast(switch (kind) {
             .char => std.math.maxInt(u7),
-            .wide => @min(0x10FFFF, comp.types.wchar.maxInt(comp)),
+            .wide => @min(0x10FFFF, comp.wcharMax()),
             .utf_8 => std.math.maxInt(u7),
             .utf_16 => std.math.maxInt(u16),
             .utf_32 => 0x10FFFF,
@@ -83,7 +83,7 @@ pub const Kind = enum {
     pub fn maxInt(kind: Kind, comp: *const Compilation) u32 {
         return @intCast(switch (kind) {
             .char, .utf_8 => std.math.maxInt(u8),
-            .wide => comp.types.wchar.maxInt(comp),
+            .wide => comp.wcharMax(),
             .utf_16 => std.math.maxInt(u16),
             .utf_32 => std.math.maxInt(u32),
             .unterminated => unreachable,
@@ -188,7 +188,7 @@ pub const Parser = struct {
     pub fn err(self: *Parser, tag: Diagnostics.Tag, extra: Diagnostics.Message.Extra) void {
         if (self.errored) return;
         self.errored = true;
-        const diagnostic = .{ .tag = tag, .extra = extra };
+        const diagnostic: CharDiagnostic = .{ .tag = tag, .extra = extra };
         if (self.errors_len == self.errors_buffer.len) {
             self.errors_buffer[self.errors_buffer.len - 1] = diagnostic;
         } else {

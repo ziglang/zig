@@ -1602,6 +1602,7 @@ test containsAtLeast {
 /// T specifies the return type, which must be large enough to store
 /// the result.
 pub fn readVarInt(comptime ReturnType: type, bytes: []const u8, endian: Endian) ReturnType {
+    assert(@typeInfo(ReturnType).int.bits >= bytes.len * 8);
     const bits = @typeInfo(ReturnType).int.bits;
     const signedness = @typeInfo(ReturnType).int.signedness;
     const WorkType = std.meta.Int(signedness, @max(16, bits));
@@ -3964,7 +3965,9 @@ fn CopyPtrAttrs(
 }
 
 fn AsBytesReturnType(comptime P: type) type {
-    const size = @sizeOf(std.meta.Child(P));
+    const pointer = @typeInfo(P).pointer;
+    assert(pointer.size == .One);
+    const size = @sizeOf(pointer.child);
     return CopyPtrAttrs(P, .One, [size]u8);
 }
 
@@ -4334,8 +4337,6 @@ pub fn alignForwardLog2(addr: usize, log2_alignment: u8) usize {
     return alignForward(usize, addr, alignment);
 }
 
-pub const alignForwardGeneric = @compileError("renamed to alignForward");
-
 /// Force an evaluation of the expression; this tries to prevent
 /// the compiler from optimizing the computation away even if the
 /// result eventually gets discarded.
@@ -4458,8 +4459,6 @@ pub fn alignBackward(comptime T: type, addr: T, alignment: T) T {
     // 111110000 // binary not
     return addr & ~(alignment - 1);
 }
-
-pub const alignBackwardGeneric = @compileError("renamed to alignBackward");
 
 /// Returns whether `alignment` is a valid alignment, meaning it is
 /// a positive power of 2.

@@ -25,7 +25,6 @@ const Alignment = InternPool.Alignment;
 
 const CodeGenError = codegen.CodeGenError;
 const Result = codegen.Result;
-const DebugInfoOutput = codegen.DebugInfoOutput;
 
 const bits = @import("bits.zig");
 const abi = @import("abi.zig");
@@ -48,7 +47,7 @@ pt: Zcu.PerThread,
 air: Air,
 liveness: Liveness,
 bin_file: *link.File,
-debug_output: DebugInfoOutput,
+debug_output: link.File.DebugInfoOutput,
 target: *const std.Target,
 func_index: InternPool.Index,
 owner_nav: InternPool.Nav.Index,
@@ -63,7 +62,7 @@ stack_align: u32,
 /// MIR Instructions
 mir_instructions: std.MultiArrayList(Mir.Inst) = .{},
 /// MIR extra data
-mir_extra: std.ArrayListUnmanaged(u32) = .{},
+mir_extra: std.ArrayListUnmanaged(u32) = .empty,
 
 /// Byte offset within the source file of the ending curly.
 end_di_line: u32,
@@ -72,13 +71,13 @@ end_di_column: u32,
 /// The value is an offset into the `Function` `code` from the beginning.
 /// To perform the reloc, write 32-bit signed little-endian integer
 /// which is a relative jump, based on the address following the reloc.
-exitlude_jump_relocs: std.ArrayListUnmanaged(usize) = .{},
+exitlude_jump_relocs: std.ArrayListUnmanaged(usize) = .empty,
 
 /// We postpone the creation of debug info for function args and locals
 /// until after all Mir instructions have been generated. Only then we
 /// will know saved_regs_stack_space which is necessary in order to
 /// calculate the right stack offsest with respect to the `.fp` register.
-dbg_info_relocs: std.ArrayListUnmanaged(DbgInfoReloc) = .{},
+dbg_info_relocs: std.ArrayListUnmanaged(DbgInfoReloc) = .empty,
 
 /// Whenever there is a runtime branch, we push a Branch onto this stack,
 /// and pop it off when the runtime branch joins. This provides an "overlay"
@@ -90,11 +89,11 @@ dbg_info_relocs: std.ArrayListUnmanaged(DbgInfoReloc) = .{},
 branch_stack: *std.ArrayList(Branch),
 
 // Key is the block instruction
-blocks: std.AutoHashMapUnmanaged(Air.Inst.Index, BlockData) = .{},
+blocks: std.AutoHashMapUnmanaged(Air.Inst.Index, BlockData) = .empty,
 
 register_manager: RegisterManager = .{},
 /// Maps offset to what is stored there.
-stack: std.AutoHashMapUnmanaged(u32, StackAllocation) = .{},
+stack: std.AutoHashMapUnmanaged(u32, StackAllocation) = .empty,
 /// Tracks the current instruction allocated to the compare flags
 compare_flags_inst: ?Air.Inst.Index = null,
 
@@ -248,7 +247,7 @@ const DbgInfoReloc = struct {
 };
 
 const Branch = struct {
-    inst_table: std.AutoArrayHashMapUnmanaged(Air.Inst.Index, MCValue) = .{},
+    inst_table: std.AutoArrayHashMapUnmanaged(Air.Inst.Index, MCValue) = .empty,
 
     fn deinit(self: *Branch, gpa: Allocator) void {
         self.inst_table.deinit(gpa);
@@ -327,7 +326,7 @@ pub fn generate(
     air: Air,
     liveness: Liveness,
     code: *std.ArrayList(u8),
-    debug_output: DebugInfoOutput,
+    debug_output: link.File.DebugInfoOutput,
 ) CodeGenError!Result {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
@@ -469,7 +468,7 @@ fn gen(self: *Self) !void {
     const pt = self.pt;
     const zcu = pt.zcu;
     const cc = self.fn_type.fnCallingConvention(zcu);
-    if (cc != .Naked) {
+    if (cc != .naked) {
         // stp fp, lr, [sp, #-16]!
         _ = try self.addInst(.{
             .tag = .stp,
@@ -740,7 +739,6 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .breakpoint      => try self.airBreakpoint(),
             .ret_addr        => try self.airRetAddr(inst),
             .frame_addr      => try self.airFrameAddress(inst),
-            .fence           => try self.airFence(),
             .cond_br         => try self.airCondBr(inst),
             .fptrunc         => try self.airFptrunc(inst),
             .fpext           => try self.airFpext(inst),
@@ -4265,11 +4263,6 @@ fn airFrameAddress(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ .none, .none, .none });
 }
 
-fn airFence(self: *Self) !void {
-    return self.fail("TODO implement fence() for {}", .{self.target.cpu.arch});
-    //return self.finishAirBookkeeping();
-}
-
 fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier) !void {
     if (modifier == .always_tail) return self.fail("TODO implement tail calls for aarch64", .{});
     const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
@@ -6236,14 +6229,14 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
     const ret_ty = fn_ty.fnReturnType(zcu);
 
     switch (cc) {
-        .Naked => {
+        .naked => {
             assert(result.args.len == 0);
             result.return_value = .{ .unreach = {} };
             result.stack_byte_count = 0;
             result.stack_align = 1;
             return result;
         },
-        .C => {
+        .aarch64_aapcs, .aarch64_aapcs_darwin, .aarch64_aapcs_win => {
             // ARM64 Procedure Call Standard
             var ncrn: usize = 0; // Next Core Register Number
             var nsaa: u32 = 0; // Next stacked argument address
@@ -6273,7 +6266,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
 
                 // We round up NCRN only for non-Apple platforms which allow the 16-byte aligned
                 // values to spread across odd-numbered registers.
-                if (Type.fromInterned(ty).abiAlignment(zcu) == .@"16" and !self.target.isDarwin()) {
+                if (Type.fromInterned(ty).abiAlignment(zcu) == .@"16" and cc != .aarch64_aapcs_darwin) {
                     // Round up NCRN to the next even number
                     ncrn += ncrn % 2;
                 }
@@ -6305,7 +6298,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
             result.stack_byte_count = nsaa;
             result.stack_align = 16;
         },
-        .Unspecified => {
+        .auto => {
             if (ret_ty.zigTypeTag(zcu) == .noreturn) {
                 result.return_value = .{ .unreach = {} };
             } else if (!ret_ty.hasRuntimeBitsIgnoreComptime(zcu) and !ret_ty.isError(zcu)) {

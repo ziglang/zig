@@ -1072,7 +1072,7 @@ pub fn metadata(self: File) MetadataError!Metadata {
                     &stx,
                 );
 
-                switch (posix.errno(rc)) {
+                switch (linux.E.init(rc)) {
                     .SUCCESS => {},
                     .ACCES => unreachable,
                     .BADF => unreachable,

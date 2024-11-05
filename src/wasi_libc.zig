@@ -6,7 +6,7 @@ const Allocator = std.mem.Allocator;
 const Compilation = @import("Compilation.zig");
 const build_options = @import("build_options");
 
-pub const CRTFile = enum {
+pub const CrtFile = enum {
     crt1_reactor_o,
     crt1_command_o,
     libc_a,
@@ -16,7 +16,7 @@ pub const CRTFile = enum {
     libwasi_emulated_signal_a,
 };
 
-pub fn getEmulatedLibCRTFile(lib_name: []const u8) ?CRTFile {
+pub fn getEmulatedLibCrtFile(lib_name: []const u8) ?CrtFile {
     if (mem.eql(u8, lib_name, "wasi-emulated-process-clocks")) {
         return .libwasi_emulated_process_clocks_a;
     }
@@ -32,7 +32,7 @@ pub fn getEmulatedLibCRTFile(lib_name: []const u8) ?CRTFile {
     return null;
 }
 
-pub fn emulatedLibCRFileLibName(crt_file: CRTFile) []const u8 {
+pub fn emulatedLibCRFileLibName(crt_file: CrtFile) []const u8 {
     return switch (crt_file) {
         .libwasi_emulated_process_clocks_a => "libwasi-emulated-process-clocks.a",
         .libwasi_emulated_getpid_a => "libwasi-emulated-getpid.a",
@@ -42,10 +42,10 @@ pub fn emulatedLibCRFileLibName(crt_file: CRTFile) []const u8 {
     };
 }
 
-pub fn execModelCrtFile(wasi_exec_model: std.builtin.WasiExecModel) CRTFile {
+pub fn execModelCrtFile(wasi_exec_model: std.builtin.WasiExecModel) CrtFile {
     return switch (wasi_exec_model) {
-        .reactor => CRTFile.crt1_reactor_o,
-        .command => CRTFile.crt1_command_o,
+        .reactor => CrtFile.crt1_reactor_o,
+        .command => CrtFile.crt1_command_o,
     };
 }
 
@@ -57,7 +57,7 @@ pub fn execModelCrtFileFullName(wasi_exec_model: std.builtin.WasiExecModel) []co
     };
 }
 
-pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: std.Progress.Node) !void {
+pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progress.Node) !void {
     if (!build_options.have_llvm) {
         return error.ZigCompilerNotBuiltWithLLVMExtensions;
     }
@@ -81,7 +81,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: std.Progre
                     .owner = undefined,
                 },
             };
-            return comp.build_crt_file("crt1-reactor", .Obj, .@"wasi crt1-reactor.o", prog_node, &files);
+            return comp.build_crt_file("crt1-reactor", .Obj, null, .@"wasi crt1-reactor.o", prog_node, &files);
         },
         .crt1_command_o => {
             var args = std.ArrayList([]const u8).init(arena);
@@ -96,7 +96,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: std.Progre
                     .owner = undefined,
                 },
             };
-            return comp.build_crt_file("crt1-command", .Obj, .@"wasi crt1-command.o", prog_node, &files);
+            return comp.build_crt_file("crt1-command", .Obj, null, .@"wasi crt1-command.o", prog_node, &files);
         },
         .libc_a => {
             var libc_sources = std.ArrayList(Compilation.CSourceFile).init(arena);
@@ -150,7 +150,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: std.Progre
                 }
             }
 
-            try comp.build_crt_file("c", .Lib, .@"wasi libc.a", prog_node, libc_sources.items);
+            try comp.build_crt_file("c", .Lib, null, .@"wasi libc.a", prog_node, libc_sources.items);
         },
         .libwasi_emulated_process_clocks_a => {
             var args = std.ArrayList([]const u8).init(arena);
@@ -167,7 +167,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: std.Progre
                     .owner = undefined,
                 });
             }
-            try comp.build_crt_file("wasi-emulated-process-clocks", .Lib, .@"libwasi-emulated-process-clocks.a", prog_node, emu_clocks_sources.items);
+            try comp.build_crt_file("wasi-emulated-process-clocks", .Lib, null, .@"libwasi-emulated-process-clocks.a", prog_node, emu_clocks_sources.items);
         },
         .libwasi_emulated_getpid_a => {
             var args = std.ArrayList([]const u8).init(arena);
@@ -184,7 +184,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: std.Progre
                     .owner = undefined,
                 });
             }
-            try comp.build_crt_file("wasi-emulated-getpid", .Lib, .@"libwasi-emulated-getpid.a", prog_node, emu_getpid_sources.items);
+            try comp.build_crt_file("wasi-emulated-getpid", .Lib, null, .@"libwasi-emulated-getpid.a", prog_node, emu_getpid_sources.items);
         },
         .libwasi_emulated_mman_a => {
             var args = std.ArrayList([]const u8).init(arena);
@@ -201,7 +201,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: std.Progre
                     .owner = undefined,
                 });
             }
-            try comp.build_crt_file("wasi-emulated-mman", .Lib, .@"libwasi-emulated-mman.a", prog_node, emu_mman_sources.items);
+            try comp.build_crt_file("wasi-emulated-mman", .Lib, null, .@"libwasi-emulated-mman.a", prog_node, emu_mman_sources.items);
         },
         .libwasi_emulated_signal_a => {
             var emu_signal_sources = std.ArrayList(Compilation.CSourceFile).init(arena);
@@ -238,7 +238,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: std.Progre
                 }
             }
 
-            try comp.build_crt_file("wasi-emulated-signal", .Lib, .@"libwasi-emulated-signal.a", prog_node, emu_signal_sources.items);
+            try comp.build_crt_file("wasi-emulated-signal", .Lib, null, .@"libwasi-emulated-signal.a", prog_node, emu_signal_sources.items);
         },
     }
 }

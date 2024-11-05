@@ -18,6 +18,7 @@ const Zcu = @import("../../Zcu.zig");
 const Package = @import("../../Package.zig");
 const InternPool = @import("../../InternPool.zig");
 const Compilation = @import("../../Compilation.zig");
+const target_util = @import("../../target.zig");
 const trace = @import("../../tracy.zig").trace;
 const codegen = @import("../../codegen.zig");
 
@@ -32,7 +33,6 @@ const Alignment = InternPool.Alignment;
 
 const CodeGenError = codegen.CodeGenError;
 const Result = codegen.Result;
-const DebugInfoOutput = codegen.DebugInfoOutput;
 
 const bits = @import("bits.zig");
 const abi = @import("abi.zig");
@@ -61,7 +61,7 @@ gpa: Allocator,
 
 mod: *Package.Module,
 target: *const std.Target,
-debug_output: DebugInfoOutput,
+debug_output: link.File.DebugInfoOutput,
 err_msg: ?*ErrorMsg,
 args: []MCValue,
 ret_mcv: InstTracking,
@@ -82,7 +82,7 @@ scope_generation: u32,
 /// The value is an offset into the `Function` `code` from the beginning.
 /// To perform the reloc, write 32-bit signed little-endian integer
 /// which is a relative jump, based on the address following the reloc.
-exitlude_jump_relocs: std.ArrayListUnmanaged(usize) = .{},
+exitlude_jump_relocs: std.ArrayListUnmanaged(usize) = .empty,
 
 /// Whenever there is a runtime branch, we push a Branch onto this stack,
 /// and pop it off when the runtime branch joins. This provides an "overlay"
@@ -98,14 +98,14 @@ avl: ?u64,
 vtype: ?bits.VType,
 
 // Key is the block instruction
-blocks: std.AutoHashMapUnmanaged(Air.Inst.Index, BlockData) = .{},
+blocks: std.AutoHashMapUnmanaged(Air.Inst.Index, BlockData) = .empty,
 register_manager: RegisterManager = .{},
 
 const_tracking: ConstTrackingMap = .{},
 inst_tracking: InstTrackingMap = .{},
 
 frame_allocs: std.MultiArrayList(FrameAlloc) = .{},
-free_frame_indices: std.AutoArrayHashMapUnmanaged(FrameIndex, void) = .{},
+free_frame_indices: std.AutoArrayHashMapUnmanaged(FrameIndex, void) = .empty,
 frame_locs: std.MultiArrayList(Mir.FrameLoc) = .{},
 
 loops: std.AutoHashMapUnmanaged(Air.Inst.Index, struct {
@@ -133,7 +133,7 @@ const Owner = union(enum) {
         switch (owner) {
             .nav_index => |nav_index| {
                 const elf_file = func.bin_file.cast(.elf).?;
-                return elf_file.zigObjectPtr().?.getOrCreateMetadataForNav(elf_file, nav_index);
+                return elf_file.zigObjectPtr().?.getOrCreateMetadataForNav(pt.zcu, nav_index);
             },
             .lazy_sym => |lazy_sym| {
                 const elf_file = func.bin_file.cast(.elf).?;
@@ -343,7 +343,7 @@ const MCValue = union(enum) {
 };
 
 const Branch = struct {
-    inst_table: std.AutoArrayHashMapUnmanaged(Air.Inst.Index, MCValue) = .{},
+    inst_table: std.AutoArrayHashMapUnmanaged(Air.Inst.Index, MCValue) = .empty,
 
     fn deinit(func: *Branch, gpa: Allocator) void {
         func.inst_table.deinit(gpa);
@@ -622,7 +622,7 @@ const FrameAlloc = struct {
 };
 
 const BlockData = struct {
-    relocs: std.ArrayListUnmanaged(Mir.Inst.Index) = .{},
+    relocs: std.ArrayListUnmanaged(Mir.Inst.Index) = .empty,
     state: State,
 
     fn deinit(bd: *BlockData, gpa: Allocator) void {
@@ -760,7 +760,7 @@ pub fn generate(
     air: Air,
     liveness: Liveness,
     code: *std.ArrayList(u8),
-    debug_output: DebugInfoOutput,
+    debug_output: link.File.DebugInfoOutput,
 ) CodeGenError!Result {
     const zcu = pt.zcu;
     const comp = zcu.comp;
@@ -820,10 +820,7 @@ pub fn generate(
     try function.frame_allocs.resize(gpa, FrameIndex.named_count);
     function.frame_allocs.set(
         @intFromEnum(FrameIndex.stack_frame),
-        FrameAlloc.init(.{
-            .size = 0,
-            .alignment = func.analysisUnordered(ip).stack_alignment.max(.@"1"),
-        }),
+        FrameAlloc.init(.{ .size = 0, .alignment = .@"1" }),
     );
     function.frame_allocs.set(
         @intFromEnum(FrameIndex.call_frame),
@@ -928,7 +925,7 @@ pub fn generateLazy(
     src_loc: Zcu.LazySrcLoc,
     lazy_sym: link.File.LazySymbol,
     code: *std.ArrayList(u8),
-    debug_output: DebugInfoOutput,
+    debug_output: link.File.DebugInfoOutput,
 ) CodeGenError!Result {
     const comp = bin_file.comp;
     const gpa = comp.gpa;
@@ -978,7 +975,7 @@ pub fn generateLazy(
             .pt = pt,
             .allocator = gpa,
             .mir = mir,
-            .cc = .Unspecified,
+            .cc = .auto,
             .src_loc = src_loc,
             .output_mode = comp.config.output_mode,
             .link_mode = comp.config.link_mode,
@@ -1037,7 +1034,7 @@ fn formatWipMir(
             .instructions = data.func.mir_instructions.slice(),
             .frame_locs = data.func.frame_locs.slice(),
         },
-        .cc = .Unspecified,
+        .cc = .auto,
         .src_loc = data.func.src_loc,
         .output_mode = comp.config.output_mode,
         .link_mode = comp.config.link_mode,
@@ -1239,7 +1236,7 @@ fn gen(func: *Func) !void {
         }
     }
 
-    if (fn_info.cc != .Naked) {
+    if (fn_info.cc != .naked) {
         _ = try func.addPseudo(.pseudo_dbg_prologue_end);
 
         const backpatch_stack_alloc = try func.addPseudo(.pseudo_dead);
@@ -1594,7 +1591,6 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
             .breakpoint      => try func.airBreakpoint(),
             .ret_addr        => try func.airRetAddr(inst),
             .frame_addr      => try func.airFrameAddress(inst),
-            .fence           => try func.airFence(inst),
             .cond_br         => try func.airCondBr(inst),
             .dbg_stmt        => try func.airDbgStmt(inst),
             .fptrunc         => try func.airFptrunc(inst),
@@ -3365,8 +3361,38 @@ fn airOptionalPayloadPtr(func: *Func, inst: Air.Inst.Index) !void {
 }
 
 fn airOptionalPayloadPtrSet(func: *Func, inst: Air.Inst.Index) !void {
+    const zcu = func.pt.zcu;
+
     const ty_op = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-    const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else return func.fail("TODO implement .optional_payload_ptr_set for {}", .{func.target.cpu.arch});
+    const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else result: {
+        const dst_ty = func.typeOfIndex(inst);
+        const src_ty = func.typeOf(ty_op.operand);
+        const opt_ty = src_ty.childType(zcu);
+        const src_mcv = try func.resolveInst(ty_op.operand);
+
+        if (opt_ty.optionalReprIsPayload(zcu)) {
+            break :result if (func.reuseOperand(inst, ty_op.operand, 0, src_mcv))
+                src_mcv
+            else
+                try func.copyToNewRegister(inst, src_mcv);
+        }
+
+        const dst_mcv: MCValue = if (src_mcv.isRegister() and
+            func.reuseOperand(inst, ty_op.operand, 0, src_mcv))
+            src_mcv
+        else
+            try func.copyToNewRegister(inst, src_mcv);
+
+        const pl_ty = dst_ty.childType(zcu);
+        const pl_abi_size: i32 = @intCast(pl_ty.abiSize(zcu));
+        try func.genSetMem(
+            .{ .reg = dst_mcv.getReg().? },
+            pl_abi_size,
+            Type.bool,
+            .{ .immediate = 1 },
+        );
+        break :result dst_mcv;
+    };
     return func.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
@@ -3868,7 +3894,7 @@ fn airArrayElemVal(func: *Func, inst: Air.Inst.Index) !void {
 
         if (array_ty.isVector(zcu)) {
             // we need to load the vector, vslidedown to get the element we want
-            // and store that element at in a load frame.
+            // and store that element in a load frame.
 
             const src_reg, const src_lock = try func.allocReg(.vector);
             defer func.register_manager.unlockReg(src_lock);
@@ -3941,12 +3967,15 @@ fn airPtrElemVal(func: *Func, inst: Air.Inst.Index) !void {
         };
         defer if (index_lock) |lock| func.register_manager.unlockReg(lock);
 
-        const elem_ptr_reg = if (base_ptr_mcv.isRegister() and func.liveness.operandDies(inst, 0))
-            base_ptr_mcv.register
-        else
-            try func.copyToTmpRegister(base_ptr_ty, base_ptr_mcv);
-        const elem_ptr_lock = func.register_manager.lockRegAssumeUnused(elem_ptr_reg);
-        defer func.register_manager.unlockReg(elem_ptr_lock);
+        const elem_ptr_reg, const elem_ptr_lock = if (base_ptr_mcv.isRegister() and
+            func.liveness.operandDies(inst, 0))
+            .{ base_ptr_mcv.register, null }
+        else blk: {
+            const reg, const lock = try func.allocReg(.int);
+            try func.genSetReg(base_ptr_ty, reg, base_ptr_mcv);
+            break :blk .{ reg, lock };
+        };
+        defer if (elem_ptr_lock) |lock| func.register_manager.unlockReg(lock);
 
         try func.genBinOp(
             .ptr_add,
@@ -4801,26 +4830,6 @@ fn airFrameAddress(func: *Func, inst: Air.Inst.Index) !void {
     return func.finishAir(inst, dst_mcv, .{ .none, .none, .none });
 }
 
-fn airFence(func: *Func, inst: Air.Inst.Index) !void {
-    const order = func.air.instructions.items(.data)[@intFromEnum(inst)].fence;
-    const pred: Mir.Barrier, const succ: Mir.Barrier = switch (order) {
-        .unordered, .monotonic => unreachable,
-        .acquire => .{ .r, .rw },
-        .release => .{ .rw, .r },
-        .acq_rel => .{ .rw, .rw },
-        .seq_cst => .{ .rw, .rw },
-    };
-
-    _ = try func.addInst(.{
-        .tag = if (order == .acq_rel) .fencetso else .fence,
-        .data = .{ .fence = .{
-            .pred = pred,
-            .succ = succ,
-        } },
-    });
-    return func.finishAirBookkeeping();
-}
-
 fn airCall(func: *Func, inst: Air.Inst.Index, modifier: std.builtin.CallModifier) !void {
     if (modifier == .always_tail) return func.fail("TODO implement tail calls for riscv64", .{});
     const pl_op = func.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
@@ -4883,7 +4892,7 @@ fn genCall(
         .lib => |lib| try pt.funcType(.{
             .param_types = lib.param_types,
             .return_type = lib.return_type,
-            .cc = .C,
+            .cc = func.target.cCallingConvention().?,
         }),
     };
 
@@ -4993,7 +5002,7 @@ fn genCall(
                     .func => |func_val| {
                         if (func.bin_file.cast(.elf)) |elf_file| {
                             const zo = elf_file.zigObjectPtr().?;
-                            const sym_index = try zo.getOrCreateMetadataForNav(elf_file, func_val.owner_nav);
+                            const sym_index = try zo.getOrCreateMetadataForNav(zcu, func_val.owner_nav);
 
                             if (func.mod.pic) {
                                 return func.fail("TODO: genCall pic", .{});
@@ -5151,6 +5160,7 @@ fn airCmp(func: *Func, inst: Air.Inst.Index, tag: Air.Inst.Tag) !void {
     const bin_op = func.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
     const pt = func.pt;
     const zcu = pt.zcu;
+    const ip = &zcu.intern_pool;
 
     const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else result: {
         const lhs_ty = func.typeOf(bin_op.lhs);
@@ -5162,6 +5172,7 @@ fn airCmp(func: *Func, inst: Air.Inst.Index, tag: Air.Inst.Tag) !void {
             .pointer,
             .error_set,
             .optional,
+            .@"struct",
             => {
                 const int_ty = switch (lhs_ty.zigTypeTag(zcu)) {
                     .@"enum" => lhs_ty.intTagType(zcu),
@@ -5178,6 +5189,12 @@ fn airCmp(func: *Func, inst: Air.Inst.Index, tag: Air.Inst.Tag) !void {
                         } else {
                             return func.fail("TODO riscv cmp non-pointer optionals", .{});
                         }
+                    },
+                    .@"struct" => blk: {
+                        const struct_obj = ip.loadStructType(lhs_ty.toIntern());
+                        assert(struct_obj.layout == .@"packed");
+                        const backing_index = struct_obj.backingIntTypeUnordered(ip);
+                        break :blk Type.fromInterned(backing_index);
                     },
                     else => unreachable,
                 };
@@ -6194,7 +6211,7 @@ fn airAsm(func: *Func, inst: Air.Inst.Index) !void {
 
     const Label = struct {
         target: Mir.Inst.Index = undefined,
-        pending_relocs: std.ArrayListUnmanaged(Mir.Inst.Index) = .{},
+        pending_relocs: std.ArrayListUnmanaged(Mir.Inst.Index) = .empty,
 
         const Kind = enum { definition, reference };
 
@@ -6218,7 +6235,7 @@ fn airAsm(func: *Func, inst: Air.Inst.Index) !void {
             return name.len > 0;
         }
     };
-    var labels: std.StringHashMapUnmanaged(Label) = .{};
+    var labels: std.StringHashMapUnmanaged(Label) = .empty;
     defer {
         var label_it = labels.valueIterator();
         while (label_it.next()) |label| label.pending_relocs.deinit(func.gpa);
@@ -8270,12 +8287,12 @@ fn resolveCallingConventionValues(
     const ret_ty = Type.fromInterned(fn_info.return_type);
 
     switch (cc) {
-        .Naked => {
+        .naked => {
             assert(result.args.len == 0);
             result.return_value = InstTracking.init(.unreach);
             result.stack_align = .@"8";
         },
-        .C, .Unspecified => {
+        .riscv64_lp64, .auto => {
             if (result.args.len > 8) {
                 return func.fail("RISC-V calling convention does not support more than 8 arguments", .{});
             }
@@ -8340,7 +8357,7 @@ fn resolveCallingConventionValues(
 
             for (param_types, result.args) |ty, *arg| {
                 if (!ty.hasRuntimeBitsIgnoreComptime(zcu)) {
-                    assert(cc == .Unspecified);
+                    assert(cc == .auto);
                     arg.* = .none;
                     continue;
                 }

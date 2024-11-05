@@ -419,6 +419,14 @@ void __tsan_go_atomic32_fetch_add(ThreadState *thr, uptr cpc, uptr pc, u8 *a);
 SANITIZER_INTERFACE_ATTRIBUTE
 void __tsan_go_atomic64_fetch_add(ThreadState *thr, uptr cpc, uptr pc, u8 *a);
 SANITIZER_INTERFACE_ATTRIBUTE
+void __tsan_go_atomic32_fetch_and(ThreadState *thr, uptr cpc, uptr pc, u8 *a);
+SANITIZER_INTERFACE_ATTRIBUTE
+void __tsan_go_atomic64_fetch_and(ThreadState *thr, uptr cpc, uptr pc, u8 *a);
+SANITIZER_INTERFACE_ATTRIBUTE
+void __tsan_go_atomic32_fetch_or(ThreadState *thr, uptr cpc, uptr pc, u8 *a);
+SANITIZER_INTERFACE_ATTRIBUTE
+void __tsan_go_atomic64_fetch_or(ThreadState *thr, uptr cpc, uptr pc, u8 *a);
+SANITIZER_INTERFACE_ATTRIBUTE
 void __tsan_go_atomic32_exchange(ThreadState *thr, uptr cpc, uptr pc, u8 *a);
 SANITIZER_INTERFACE_ATTRIBUTE
 void __tsan_go_atomic64_exchange(ThreadState *thr, uptr cpc, uptr pc, u8 *a);

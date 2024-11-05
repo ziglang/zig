@@ -28,8 +28,10 @@ fn clear_cache(start: usize, end: usize) callconv(.C) void {
         .aarch64, .aarch64_be => true,
         else => false,
     };
-    const loongarch64 = switch (arch) {
-        .loongarch64 => true,
+    const loongarch = switch (arch) {
+        .loongarch32,
+        .loongarch64,
+        => true,
         else => false,
     };
     const mips = switch (arch) {
@@ -163,7 +165,7 @@ fn clear_cache(start: usize, end: usize) callconv(.C) void {
         // On Darwin, sys_icache_invalidate() provides this functionality
         sys_icache_invalidate(start, end - start);
         exportIt();
-    } else if (os == .linux and loongarch64) {
+    } else if (os == .linux and loongarch) {
         // See: https://github.com/llvm/llvm-project/blob/cf54cae26b65fc3201eff7200ffb9b0c9e8f9a13/compiler-rt/lib/builtins/clear_cache.c#L94-L95
         asm volatile (
             \\ ibar 0

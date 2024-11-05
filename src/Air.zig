@@ -734,10 +734,6 @@ pub const Inst = struct {
         cmpxchg_weak,
         /// Uses the `ty_pl` field with payload `Cmpxchg`.
         cmpxchg_strong,
-        /// Lowers to a memory fence instruction.
-        /// Result type is always void.
-        /// Uses the `fence` field.
-        fence,
         /// Atomically load from a pointer.
         /// Result type is the element type of the pointer.
         /// Uses the `atomic_load` field.
@@ -966,7 +962,7 @@ pub const Inst = struct {
         anyerror_void_error_union_type = @intFromEnum(InternPool.Index.anyerror_void_error_union_type),
         adhoc_inferred_error_set_type = @intFromEnum(InternPool.Index.adhoc_inferred_error_set_type),
         generic_poison_type = @intFromEnum(InternPool.Index.generic_poison_type),
-        empty_struct_type = @intFromEnum(InternPool.Index.empty_struct_type),
+        empty_tuple_type = @intFromEnum(InternPool.Index.empty_tuple_type),
         undef = @intFromEnum(InternPool.Index.undef),
         zero = @intFromEnum(InternPool.Index.zero),
         zero_usize = @intFromEnum(InternPool.Index.zero_usize),
@@ -981,7 +977,7 @@ pub const Inst = struct {
         null_value = @intFromEnum(InternPool.Index.null_value),
         bool_true = @intFromEnum(InternPool.Index.bool_true),
         bool_false = @intFromEnum(InternPool.Index.bool_false),
-        empty_struct = @intFromEnum(InternPool.Index.empty_struct),
+        empty_tuple = @intFromEnum(InternPool.Index.empty_tuple),
         generic_poison = @intFromEnum(InternPool.Index.generic_poison),
 
         /// This Ref does not correspond to any AIR instruction or constant
@@ -1066,7 +1062,6 @@ pub const Inst = struct {
             line: u32,
             column: u32,
         },
-        fence: std.builtin.AtomicOrder,
         atomic_load: struct {
             ptr: Ref,
             order: std.builtin.AtomicOrder,
@@ -1478,7 +1473,6 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .dbg_arg_inline,
         .store,
         .store_safe,
-        .fence,
         .atomic_store_unordered,
         .atomic_store_monotonic,
         .atomic_store_release,
@@ -1653,7 +1647,6 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .memcpy,
         .cmpxchg_weak,
         .cmpxchg_strong,
-        .fence,
         .atomic_store_unordered,
         .atomic_store_monotonic,
         .atomic_store_release,

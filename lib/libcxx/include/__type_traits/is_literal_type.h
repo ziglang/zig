@@ -20,8 +20,8 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 #if _LIBCPP_STD_VER <= 17 || defined(_LIBCPP_ENABLE_CXX20_REMOVED_TYPE_TRAITS)
 template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS _LIBCPP_DEPRECATED_IN_CXX17 is_literal_type
-    : public integral_constant<bool, __is_literal_type(_Tp)> {};
+struct _LIBCPP_TEMPLATE_VIS
+_LIBCPP_DEPRECATED_IN_CXX17 is_literal_type : public integral_constant<bool, __is_literal_type(_Tp)> {};
 
 #  if _LIBCPP_STD_VER >= 17
 template <class _Tp>

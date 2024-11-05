@@ -94,10 +94,10 @@ fn LivenessPassData(comptime pass: LivenessPass) type {
             /// body and which we are currently within. Also includes `loop`s which are the target
             /// of a `repeat` instruction, and `loop_switch_br`s which are the target of a
             /// `switch_dispatch` instruction.
-            breaks: std.AutoHashMapUnmanaged(Air.Inst.Index, void) = .{},
+            breaks: std.AutoHashMapUnmanaged(Air.Inst.Index, void) = .empty,
 
             /// The set of operands for which we have seen at least one usage but not their birth.
-            live_set: std.AutoHashMapUnmanaged(Air.Inst.Index, void) = .{},
+            live_set: std.AutoHashMapUnmanaged(Air.Inst.Index, void) = .empty,
 
             fn deinit(self: *@This(), gpa: Allocator) void {
                 self.breaks.deinit(gpa);
@@ -107,15 +107,15 @@ fn LivenessPassData(comptime pass: LivenessPass) type {
 
         .main_analysis => struct {
             /// Every `block` and `loop` currently under analysis.
-            block_scopes: std.AutoHashMapUnmanaged(Air.Inst.Index, BlockScope) = .{},
+            block_scopes: std.AutoHashMapUnmanaged(Air.Inst.Index, BlockScope) = .empty,
 
             /// The set of instructions currently alive in the current control
             /// flow branch.
-            live_set: std.AutoHashMapUnmanaged(Air.Inst.Index, void) = .{},
+            live_set: std.AutoHashMapUnmanaged(Air.Inst.Index, void) = .empty,
 
             /// The extra data initialized by the `loop_analysis` pass for this pass to consume.
             /// Owned by this struct during this pass.
-            old_extra: std.ArrayListUnmanaged(u32) = .{},
+            old_extra: std.ArrayListUnmanaged(u32) = .empty,
 
             const BlockScope = struct {
                 /// If this is a `block`, these instructions are alive upon a `br` to this block.
@@ -345,8 +345,6 @@ pub fn categorizeOperand(
         .work_group_size,
         .work_group_id,
         => return .none,
-
-        .fence => return .write,
 
         .not,
         .bitcast,
@@ -975,7 +973,6 @@ fn analyzeInst(
         .ret_ptr,
         .breakpoint,
         .dbg_stmt,
-        .fence,
         .ret_addr,
         .frame_addr,
         .wasm_memory_size,
@@ -1710,10 +1707,10 @@ fn analyzeInstCondBr(
             // Operands which are alive in one branch but not the other need to die at the start of
             // the peer branch.
 
-            var then_mirrored_deaths: std.ArrayListUnmanaged(Air.Inst.Index) = .{};
+            var then_mirrored_deaths: std.ArrayListUnmanaged(Air.Inst.Index) = .empty;
             defer then_mirrored_deaths.deinit(gpa);
 
-            var else_mirrored_deaths: std.ArrayListUnmanaged(Air.Inst.Index) = .{};
+            var else_mirrored_deaths: std.ArrayListUnmanaged(Air.Inst.Index) = .empty;
             defer else_mirrored_deaths.deinit(gpa);
 
             // Note: this invalidates `else_live`, but expands `then_live` to be their union
@@ -1785,10 +1782,10 @@ fn analyzeInstSwitchBr(
 
     switch (pass) {
         .loop_analysis => {
-            var old_breaks: std.AutoHashMapUnmanaged(Air.Inst.Index, void) = .{};
+            var old_breaks: std.AutoHashMapUnmanaged(Air.Inst.Index, void) = .empty;
             defer old_breaks.deinit(gpa);
 
-            var old_live: std.AutoHashMapUnmanaged(Air.Inst.Index, void) = .{};
+            var old_live: std.AutoHashMapUnmanaged(Air.Inst.Index, void) = .empty;
             defer old_live.deinit(gpa);
 
             if (is_dispatch_loop) {

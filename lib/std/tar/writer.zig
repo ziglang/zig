@@ -84,7 +84,7 @@ pub fn Writer(comptime WriterType: type) type {
 
         /// Writes fs.Dir.WalkerEntry. Uses `mtime` from file system entry and
         /// default for entry mode .
-        pub fn writeEntry(self: *Self, entry: std.fs.Dir.Walker.WalkerEntry) !void {
+        pub fn writeEntry(self: *Self, entry: std.fs.Dir.Walker.Entry) !void {
             switch (entry.kind) {
                 .directory => {
                     try self.writeDir(entry.path, .{ .mtime = try entryMtime(entry) });
@@ -95,7 +95,7 @@ pub fn Writer(comptime WriterType: type) type {
                     try self.writeFile(entry.path, file);
                 },
                 .sym_link => {
-                    var link_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+                    var link_name_buffer: [std.fs.max_path_bytes]u8 = undefined;
                     const link_name = try entry.dir.readLink(entry.basename, &link_name_buffer);
                     try self.writeLink(entry.path, link_name, .{ .mtime = try entryMtime(entry) });
                 },
@@ -133,7 +133,7 @@ pub fn Writer(comptime WriterType: type) type {
             return self.mtime_now;
         }
 
-        fn entryMtime(entry: std.fs.Dir.Walker.WalkerEntry) !u64 {
+        fn entryMtime(entry: std.fs.Dir.Walker.Entry) !u64 {
             const stat = try entry.dir.statFile(entry.basename);
             return @intCast(@divFloor(stat.mtime, std.time.ns_per_s));
         }
@@ -424,8 +424,8 @@ test "write files" {
         .{ .path = "e123456789" ** 11, .content = "e" },
     };
 
-    var file_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-    var link_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    var file_name_buffer: [std.fs.max_path_bytes]u8 = undefined;
+    var link_name_buffer: [std.fs.max_path_bytes]u8 = undefined;
 
     // with root
     {

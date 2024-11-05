@@ -6,8 +6,8 @@
 //! certificate within `bytes`.
 
 /// The key is the contents slice of the subject.
-map: std.HashMapUnmanaged(der.Element.Slice, u32, MapContext, std.hash_map.default_max_load_percentage) = .{},
-bytes: std.ArrayListUnmanaged(u8) = .{},
+map: std.HashMapUnmanaged(der.Element.Slice, u32, MapContext, std.hash_map.default_max_load_percentage) = .empty,
+bytes: std.ArrayListUnmanaged(u8) = .empty,
 
 pub const VerifyError = Certificate.Parsed.VerifyError || error{
     CertificateIssuerNotFound,

@@ -87,8 +87,8 @@ void MaybeStartBackgroudThread() {
   if (!common_flags()->hard_rss_limit_mb &&
       !common_flags()->soft_rss_limit_mb &&
       !common_flags()->heap_profile) return;
-  if (!&real_pthread_create) {
-    VPrintf(1, "%s: real_pthread_create undefined\n", SanitizerToolName);
+  if (!&internal_pthread_create) {
+    VPrintf(1, "%s: internal_pthread_create undefined\n", SanitizerToolName);
     return;  // Can't spawn the thread anyway.
   }
 
@@ -119,8 +119,10 @@ void MaybeStartBackgroudThread() {}
 #endif
 
 void WriteToSyslog(const char *msg) {
+  if (!msg)
+    return;
   InternalScopedString msg_copy;
-  msg_copy.append("%s", msg);
+  msg_copy.Append(msg);
   const char *p = msg_copy.data();
 
   // Print one line at a time.
@@ -167,7 +169,7 @@ void ReserveShadowMemoryRange(uptr beg, uptr end, const char *name,
                      : !MmapFixedNoReserve(beg, size, name)) {
     Report(
         "ReserveShadowMemoryRange failed while trying to map 0x%zx bytes. "
-        "Perhaps you're using ulimit -v\n",
+        "Perhaps you're using ulimit -v or ulimit -d\n",
         size);
     Abort();
   }

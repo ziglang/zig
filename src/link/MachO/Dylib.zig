@@ -1,20 +1,20 @@
 /// Non-zero for fat dylibs
 offset: u64,
-path: []const u8,
+path: Path,
 index: File.Index,
 file_handle: File.HandleIndex,
 tag: enum { dylib, tbd },
 
 exports: std.MultiArrayList(Export) = .{},
-strtab: std.ArrayListUnmanaged(u8) = .{},
+strtab: std.ArrayListUnmanaged(u8) = .empty,
 id: ?Id = null,
 ordinal: u16 = 0,
 
-symbols: std.ArrayListUnmanaged(Symbol) = .{},
-symbols_extra: std.ArrayListUnmanaged(u32) = .{},
-globals: std.ArrayListUnmanaged(MachO.SymbolResolver.Index) = .{},
-dependents: std.ArrayListUnmanaged(Id) = .{},
-rpaths: std.StringArrayHashMapUnmanaged(void) = .{},
+symbols: std.ArrayListUnmanaged(Symbol) = .empty,
+symbols_extra: std.ArrayListUnmanaged(u32) = .empty,
+globals: std.ArrayListUnmanaged(MachO.SymbolResolver.Index) = .empty,
+dependents: std.ArrayListUnmanaged(Id) = .empty,
+rpaths: std.StringArrayHashMapUnmanaged(void) = .empty,
 umbrella: File.Index,
 platform: ?MachO.Platform = null,
 
@@ -28,7 +28,7 @@ referenced: bool = false,
 output_symtab_ctx: MachO.SymtabCtx = .{},
 
 pub fn deinit(self: *Dylib, allocator: Allocator) void {
-    allocator.free(self.path);
+    allocator.free(self.path.sub_path);
     self.exports.deinit(allocator);
     self.strtab.deinit(allocator);
     if (self.id) |*id| id.deinit(allocator);
@@ -61,7 +61,7 @@ fn parseBinary(self: *Dylib, macho_file: *MachO) !void {
     const file = macho_file.getFileHandle(self.file_handle);
     const offset = self.offset;
 
-    log.debug("parsing dylib from binary: {s}", .{self.path});
+    log.debug("parsing dylib from binary: {}", .{@as(Path, self.path)});
 
     var header_buffer: [@sizeOf(macho.mach_header_64)]u8 = undefined;
     {
@@ -267,7 +267,7 @@ fn parseTbd(self: *Dylib, macho_file: *MachO) !void {
 
     const gpa = macho_file.base.comp.gpa;
 
-    log.debug("parsing dylib from stub: {s}", .{self.path});
+    log.debug("parsing dylib from stub: {}", .{self.path});
 
     const file = macho_file.getFileHandle(self.file_handle);
     var lib_stub = LibStub.loadFromFile(gpa, file) catch |err| {
@@ -742,7 +742,7 @@ pub const TargetMatcher = struct {
     allocator: Allocator,
     cpu_arch: std.Target.Cpu.Arch,
     platform: macho.PLATFORM,
-    target_strings: std.ArrayListUnmanaged([]const u8) = .{},
+    target_strings: std.ArrayListUnmanaged([]const u8) = .empty,
 
     pub fn init(allocator: Allocator, cpu_arch: std.Target.Cpu.Arch, platform: macho.PLATFORM) !TargetMatcher {
         var self = TargetMatcher{
@@ -959,8 +959,9 @@ const mem = std.mem;
 const tapi = @import("../tapi.zig");
 const trace = @import("../../tracy.zig").trace;
 const std = @import("std");
-
 const Allocator = mem.Allocator;
+const Path = std.Build.Cache.Path;
+
 const Dylib = @This();
 const File = @import("file.zig").File;
 const LibStub = tapi.LibStub;

@@ -935,6 +935,10 @@ pub const Inst = struct {
         pseudo_dbg_line_line_column,
         /// Start of epilogue
         pseudo_dbg_epilogue_begin_none,
+        /// Start of lexical block
+        pseudo_dbg_enter_block_none,
+        /// End of lexical block
+        pseudo_dbg_leave_block_none,
         /// Start of inline function
         pseudo_dbg_enter_inline_func,
         /// End of inline function

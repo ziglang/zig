@@ -4,8 +4,8 @@ gpa: std.mem.Allocator,
 air: Air,
 liveness: Liveness,
 live: LiveMap = .{},
-blocks: std.AutoHashMapUnmanaged(Air.Inst.Index, LiveMap) = .{},
-loops: std.AutoHashMapUnmanaged(Air.Inst.Index, LiveMap) = .{},
+blocks: std.AutoHashMapUnmanaged(Air.Inst.Index, LiveMap) = .empty,
+loops: std.AutoHashMapUnmanaged(Air.Inst.Index, LiveMap) = .empty,
 intern_pool: *const InternPool,
 
 pub const Error = error{ LivenessInvalid, OutOfMemory };
@@ -56,7 +56,6 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
             .ret_ptr,
             .breakpoint,
             .dbg_stmt,
-            .fence,
             .ret_addr,
             .frame_addr,
             .wasm_memory_size,

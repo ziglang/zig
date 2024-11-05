@@ -9,7 +9,7 @@ export var __xl_a: windows.PIMAGE_TLS_CALLBACK linksection(".CRT$XLA") = null;
 export var __xl_z: windows.PIMAGE_TLS_CALLBACK linksection(".CRT$XLZ") = null;
 
 comptime {
-    if (builtin.cpu.arch == .x86 and builtin.abi == .msvc and builtin.zig_backend != .stage2_c) {
+    if (builtin.cpu.arch == .x86 and !builtin.abi.isGnu() and builtin.zig_backend != .stage2_c) {
         // The __tls_array is the offset of the ThreadLocalStoragePointer field
         // in the TEB block whose base address held in the %fs segment.
         asm (

@@ -22,7 +22,6 @@ const Liveness = @import("../../Liveness.zig");
 const Type = @import("../../Type.zig");
 const CodeGenError = codegen.CodeGenError;
 const Result = @import("../../codegen.zig").Result;
-const DebugInfoOutput = @import("../../codegen.zig").DebugInfoOutput;
 const Endian = std.builtin.Endian;
 const Alignment = InternPool.Alignment;
 
@@ -57,7 +56,7 @@ bin_file: *link.File,
 target: *const std.Target,
 func_index: InternPool.Index,
 code: *std.ArrayList(u8),
-debug_output: DebugInfoOutput,
+debug_output: link.File.DebugInfoOutput,
 err_msg: ?*ErrorMsg,
 args: []MCValue,
 ret_mcv: MCValue,
@@ -69,7 +68,7 @@ stack_align: Alignment,
 /// MIR Instructions
 mir_instructions: std.MultiArrayList(Mir.Inst) = .{},
 /// MIR extra data
-mir_extra: std.ArrayListUnmanaged(u32) = .{},
+mir_extra: std.ArrayListUnmanaged(u32) = .empty,
 
 /// Byte offset within the source file of the ending curly.
 end_di_line: u32,
@@ -78,7 +77,7 @@ end_di_column: u32,
 /// The value is an offset into the `Function` `code` from the beginning.
 /// To perform the reloc, write 32-bit signed little-endian integer
 /// which is a relative jump, based on the address following the reloc.
-exitlude_jump_relocs: std.ArrayListUnmanaged(usize) = .{},
+exitlude_jump_relocs: std.ArrayListUnmanaged(usize) = .empty,
 
 /// Whenever there is a runtime branch, we push a Branch onto this stack,
 /// and pop it off when the runtime branch joins. This provides an "overlay"
@@ -90,12 +89,12 @@ exitlude_jump_relocs: std.ArrayListUnmanaged(usize) = .{},
 branch_stack: *std.ArrayList(Branch),
 
 // Key is the block instruction
-blocks: std.AutoHashMapUnmanaged(Air.Inst.Index, BlockData) = .{},
+blocks: std.AutoHashMapUnmanaged(Air.Inst.Index, BlockData) = .empty,
 
 register_manager: RegisterManager = .{},
 
 /// Maps offset to what is stored there.
-stack: std.AutoHashMapUnmanaged(u32, StackAllocation) = .{},
+stack: std.AutoHashMapUnmanaged(u32, StackAllocation) = .empty,
 
 /// Tracks the current instruction allocated to the condition flags
 condition_flags_inst: ?Air.Inst.Index = null,
@@ -202,7 +201,7 @@ const MCValue = union(enum) {
 };
 
 const Branch = struct {
-    inst_table: std.AutoArrayHashMapUnmanaged(Air.Inst.Index, MCValue) = .{},
+    inst_table: std.AutoArrayHashMapUnmanaged(Air.Inst.Index, MCValue) = .empty,
 
     fn deinit(self: *Branch, gpa: Allocator) void {
         self.inst_table.deinit(gpa);
@@ -268,7 +267,7 @@ pub fn generate(
     air: Air,
     liveness: Liveness,
     code: *std.ArrayList(u8),
-    debug_output: DebugInfoOutput,
+    debug_output: link.File.DebugInfoOutput,
 ) CodeGenError!Result {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
@@ -367,7 +366,7 @@ fn gen(self: *Self) !void {
     const pt = self.pt;
     const zcu = pt.zcu;
     const cc = self.fn_type.fnCallingConvention(zcu);
-    if (cc != .Naked) {
+    if (cc != .naked) {
         // TODO Finish function prologue and epilogue for sparc64.
 
         // save %sp, stack_reserved_area, %sp
@@ -582,7 +581,6 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .breakpoint      => try self.airBreakpoint(),
             .ret_addr        => @panic("TODO try self.airRetAddr(inst)"),
             .frame_addr      => @panic("TODO try self.airFrameAddress(inst)"),
-            .fence           => try self.airFence(inst),
             .cond_br         => try self.airCondBr(inst),
             .fptrunc         => @panic("TODO try self.airFptrunc(inst)"),
             .fpext           => @panic("TODO try self.airFpext(inst)"),
@@ -1692,29 +1690,6 @@ fn airErrUnionPayloadPtrSet(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement .errunion_payload_ptr_set for {}", .{self.target.cpu.arch});
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
-}
-
-fn airFence(self: *Self, inst: Air.Inst.Index) !void {
-    // TODO weaken this as needed, currently this implements the strongest membar form
-    const fence = self.air.instructions.items(.data)[@intFromEnum(inst)].fence;
-    _ = fence;
-
-    // membar #StoreStore | #LoadStore | #StoreLoad | #LoadLoad
-    _ = try self.addInst(.{
-        .tag = .membar,
-        .data = .{
-            .membar_mask = .{
-                .mmask = .{
-                    .store_store = true,
-                    .store_load = true,
-                    .load_store = true,
-                    .load_load = true,
-                },
-            },
-        },
-    });
-
-    return self.finishAir(inst, .dead, .{ .none, .none, .none });
 }
 
 fn airIntFromFloat(self: *Self, inst: Air.Inst.Index) !void {
@@ -3139,7 +3114,7 @@ fn binOpImmediate(
         const reg = try self.register_manager.allocReg(track_inst, gp);
 
         if (track_inst) |inst| {
-            const mcv = .{ .register = reg };
+            const mcv: MCValue = .{ .register = reg };
             log.debug("binOpRegister move lhs %{d} to register: {} -> {}", .{ inst, lhs, mcv });
             branch.inst_table.putAssumeCapacity(inst, mcv);
 
@@ -3277,7 +3252,7 @@ fn binOpRegister(
 
         const reg = try self.register_manager.allocReg(track_inst, gp);
         if (track_inst) |inst| {
-            const mcv = .{ .register = reg };
+            const mcv: MCValue = .{ .register = reg };
             log.debug("binOpRegister move lhs %{d} to register: {} -> {}", .{ inst, lhs, mcv });
             branch.inst_table.putAssumeCapacity(inst, mcv);
 
@@ -3301,7 +3276,7 @@ fn binOpRegister(
 
         const reg = try self.register_manager.allocReg(track_inst, gp);
         if (track_inst) |inst| {
-            const mcv = .{ .register = reg };
+            const mcv: MCValue = .{ .register = reg };
             log.debug("binOpRegister move rhs %{d} to register: {} -> {}", .{ inst, rhs, mcv });
             branch.inst_table.putAssumeCapacity(inst, mcv);
 
@@ -3675,7 +3650,6 @@ fn genLoad(self: *Self, value_reg: Register, addr_reg: Register, comptime off_ty
     assert(off_type == Register or off_type == i13);
 
     const is_imm = (off_type == i13);
-    const rs2_or_imm = if (is_imm) .{ .imm = off } else .{ .rs2 = off };
 
     switch (abi_size) {
         1, 2, 4, 8 => {
@@ -3694,7 +3668,7 @@ fn genLoad(self: *Self, value_reg: Register, addr_reg: Register, comptime off_ty
                         .is_imm = is_imm,
                         .rd = value_reg,
                         .rs1 = addr_reg,
-                        .rs2_or_imm = rs2_or_imm,
+                        .rs2_or_imm = if (is_imm) .{ .imm = off } else .{ .rs2 = off },
                     },
                 },
             });
@@ -4062,7 +4036,6 @@ fn genStore(self: *Self, value_reg: Register, addr_reg: Register, comptime off_t
     assert(off_type == Register or off_type == i13);
 
     const is_imm = (off_type == i13);
-    const rs2_or_imm = if (is_imm) .{ .imm = off } else .{ .rs2 = off };
 
     switch (abi_size) {
         1, 2, 4, 8 => {
@@ -4081,7 +4054,7 @@ fn genStore(self: *Self, value_reg: Register, addr_reg: Register, comptime off_t
                         .is_imm = is_imm,
                         .rd = value_reg,
                         .rs1 = addr_reg,
-                        .rs2_or_imm = rs2_or_imm,
+                        .rs2_or_imm = if (is_imm) .{ .imm = off } else .{ .rs2 = off },
                     },
                 },
             });
@@ -4466,14 +4439,14 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type, role: RegisterView) 
     const ret_ty = fn_ty.fnReturnType(zcu);
 
     switch (cc) {
-        .Naked => {
+        .naked => {
             assert(result.args.len == 0);
             result.return_value = .{ .unreach = {} };
             result.stack_byte_count = 0;
             result.stack_align = .@"1";
             return result;
         },
-        .Unspecified, .C => {
+        .auto, .sparc64_sysv => {
             // SPARC Compliance Definition 2.4.1, Chapter 3
             // Low-Level System Information (64-bit psABI) - Function Calling Sequence
 

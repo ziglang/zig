@@ -895,6 +895,30 @@ void __tsan_go_atomic64_fetch_add(ThreadState *thr, uptr cpc, uptr pc, u8 *a) {
 }
 
 SANITIZER_INTERFACE_ATTRIBUTE
+void __tsan_go_atomic32_fetch_and(ThreadState *thr, uptr cpc, uptr pc, u8 *a) {
+  ATOMIC_RET(FetchAnd, *(a32 *)(a + 16), *(a32 **)a, *(a32 *)(a + 8),
+             mo_acq_rel);
+}
+
+SANITIZER_INTERFACE_ATTRIBUTE
+void __tsan_go_atomic64_fetch_and(ThreadState *thr, uptr cpc, uptr pc, u8 *a) {
+  ATOMIC_RET(FetchAnd, *(a64 *)(a + 16), *(a64 **)a, *(a64 *)(a + 8),
+             mo_acq_rel);
+}
+
+SANITIZER_INTERFACE_ATTRIBUTE
+void __tsan_go_atomic32_fetch_or(ThreadState *thr, uptr cpc, uptr pc, u8 *a) {
+  ATOMIC_RET(FetchOr, *(a32 *)(a + 16), *(a32 **)a, *(a32 *)(a + 8),
+             mo_acq_rel);
+}
+
+SANITIZER_INTERFACE_ATTRIBUTE
+void __tsan_go_atomic64_fetch_or(ThreadState *thr, uptr cpc, uptr pc, u8 *a) {
+  ATOMIC_RET(FetchOr, *(a64 *)(a + 16), *(a64 **)a, *(a64 *)(a + 8),
+             mo_acq_rel);
+}
+
+SANITIZER_INTERFACE_ATTRIBUTE
 void __tsan_go_atomic32_exchange(ThreadState *thr, uptr cpc, uptr pc, u8 *a) {
   ATOMIC_RET(Exchange, *(a32*)(a+16), *(a32**)a, *(a32*)(a+8), mo_acq_rel);
 }

@@ -9,7 +9,6 @@
 #ifndef _LIBCPP___MEMORY_RESOURCE_MEMORY_RESOURCE_H
 #define _LIBCPP___MEMORY_RESOURCE_MEMORY_RESOURCE_H
 
-#include <__availability>
 #include <__config>
 #include <__fwd/memory_resource.h>
 #include <cstddef>
@@ -32,9 +31,8 @@ class _LIBCPP_AVAILABILITY_PMR _LIBCPP_EXPORTED_FROM_ABI memory_resource {
 public:
   virtual ~memory_resource();
 
-  _LIBCPP_NODISCARD_AFTER_CXX17
-  [[using __gnu__: __returns_nonnull__, __alloc_size__(2), __alloc_align__(3)]] _LIBCPP_HIDE_FROM_ABI void*
-  allocate(size_t __bytes, size_t __align = __max_align) {
+  [[nodiscard]] [[using __gnu__: __returns_nonnull__, __alloc_size__(2), __alloc_align__(3)]]
+  _LIBCPP_HIDE_FROM_ABI void* allocate(size_t __bytes, size_t __align = __max_align) {
     return do_allocate(__bytes, __align);
   }
 

@@ -233,7 +233,6 @@ pub fn binNameAlloc(allocator: Allocator, options: BinNameOptions) error{OutOfMe
             }),
         },
         .nvptx => return std.fmt.allocPrint(allocator, "{s}.ptx", .{root_name}),
-        .dxcontainer => return std.fmt.allocPrint(allocator, "{s}.dxil", .{root_name}),
     }
 }
 

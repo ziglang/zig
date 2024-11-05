@@ -141,7 +141,7 @@ pub const ElfDynLib = struct {
     strings: [*:0]u8,
     syms: [*]elf.Sym,
     hashtab: [*]posix.Elf_Symndx,
-    versym: ?[*]u16,
+    versym: ?[*]elf.Versym,
     verdef: ?*elf.Verdef,
     memory: []align(mem.page_size) u8,
 
@@ -319,7 +319,7 @@ pub const ElfDynLib = struct {
         var maybe_strings: ?[*:0]u8 = null;
         var maybe_syms: ?[*]elf.Sym = null;
         var maybe_hashtab: ?[*]posix.Elf_Symndx = null;
-        var maybe_versym: ?[*]u16 = null;
+        var maybe_versym: ?[*]elf.Versym = null;
         var maybe_verdef: ?*elf.Verdef = null;
 
         {
@@ -327,11 +327,11 @@ pub const ElfDynLib = struct {
             while (dynv[i] != 0) : (i += 2) {
                 const p = base + dynv[i + 1];
                 switch (dynv[i]) {
-                    elf.DT_STRTAB => maybe_strings = @as([*:0]u8, @ptrFromInt(p)),
-                    elf.DT_SYMTAB => maybe_syms = @as([*]elf.Sym, @ptrFromInt(p)),
-                    elf.DT_HASH => maybe_hashtab = @as([*]posix.Elf_Symndx, @ptrFromInt(p)),
-                    elf.DT_VERSYM => maybe_versym = @as([*]u16, @ptrFromInt(p)),
-                    elf.DT_VERDEF => maybe_verdef = @as(*elf.Verdef, @ptrFromInt(p)),
+                    elf.DT_STRTAB => maybe_strings = @ptrFromInt(p),
+                    elf.DT_SYMTAB => maybe_syms = @ptrFromInt(p),
+                    elf.DT_HASH => maybe_hashtab = @ptrFromInt(p),
+                    elf.DT_VERSYM => maybe_versym = @ptrFromInt(p),
+                    elf.DT_VERDEF => maybe_verdef = @ptrFromInt(p),
                     else => {},
                 }
             }
@@ -399,18 +399,16 @@ pub const ElfDynLib = struct {
     }
 };
 
-fn checkver(def_arg: *elf.Verdef, vsym_arg: i32, vername: []const u8, strings: [*:0]u8) bool {
+fn checkver(def_arg: *elf.Verdef, vsym_arg: elf.Versym, vername: []const u8, strings: [*:0]u8) bool {
     var def = def_arg;
-    const vsym = @as(u32, @bitCast(vsym_arg)) & 0x7fff;
+    const vsym_index = vsym_arg.VERSION;
     while (true) {
-        if (0 == (def.vd_flags & elf.VER_FLG_BASE) and (def.vd_ndx & 0x7fff) == vsym)
-            break;
-        if (def.vd_next == 0)
-            return false;
-        def = @as(*elf.Verdef, @ptrFromInt(@intFromPtr(def) + def.vd_next));
+        if (0 == (def.flags & elf.VER_FLG_BASE) and @intFromEnum(def.ndx) == vsym_index) break;
+        if (def.next == 0) return false;
+        def = @ptrFromInt(@intFromPtr(def) + def.next);
     }
-    const aux = @as(*elf.Verdaux, @ptrFromInt(@intFromPtr(def) + def.vd_aux));
-    return mem.eql(u8, vername, mem.sliceTo(strings + aux.vda_name, 0));
+    const aux: *elf.Verdaux = @ptrFromInt(@intFromPtr(def) + def.aux);
+    return mem.eql(u8, vername, mem.sliceTo(strings + aux.name, 0));
 }
 
 test "ElfDynLib" {

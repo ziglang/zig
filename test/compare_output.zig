@@ -291,7 +291,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    stdout.print("before\n", .{}) catch unreachable;
         \\    defer stdout.print("defer1\n", .{}) catch unreachable;
         \\    defer stdout.print("defer2\n", .{}) catch unreachable;
-        \\    var gpa = @import("std").heap.GeneralPurposeAllocator(.{}){};
+        \\    var gpa: @import("std").heap.GeneralPurposeAllocator(.{}) = .init;
         \\    defer _ = gpa.deinit();
         \\    var arena = @import("std").heap.ArenaAllocator.init(gpa.allocator());
         \\    defer arena.deinit();
@@ -361,7 +361,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\const os = std.os;
             \\
             \\pub fn main() !void {
-            \\    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+            \\    var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
             \\    defer _ = gpa.deinit();
             \\    var arena = std.heap.ArenaAllocator.init(gpa.allocator());
             \\    defer arena.deinit();
@@ -402,7 +402,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\const os = std.os;
             \\
             \\pub fn main() !void {
-            \\    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+            \\    var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
             \\    defer _ = gpa.deinit();
             \\    var arena = std.heap.ArenaAllocator.init(gpa.allocator());
             \\    defer arena.deinit();
@@ -440,7 +440,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.add("std.log per scope log level override",
         \\const std = @import("std");
         \\
-        \\pub const std_options = .{
+        \\pub const std_options: std.Options = .{
         \\    .log_level = .debug,
         \\    
         \\    .log_scope_levels = &.{
@@ -497,7 +497,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.add("std.heap.LoggingAllocator logs to std.log",
         \\const std = @import("std");
         \\
-        \\pub const std_options = .{
+        \\pub const std_options: std.Options = .{
         \\    .log_level = .debug,
         \\    .logFn = log,
         \\};

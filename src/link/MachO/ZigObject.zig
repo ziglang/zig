@@ -1,20 +1,20 @@
-data: std.ArrayListUnmanaged(u8) = .{},
+data: std.ArrayListUnmanaged(u8) = .empty,
 /// Externally owned memory.
-path: []const u8,
+basename: []const u8,
 index: File.Index,
 
 symtab: std.MultiArrayList(Nlist) = .{},
 strtab: StringTable = .{},
 
-symbols: std.ArrayListUnmanaged(Symbol) = .{},
-symbols_extra: std.ArrayListUnmanaged(u32) = .{},
-globals: std.ArrayListUnmanaged(MachO.SymbolResolver.Index) = .{},
+symbols: std.ArrayListUnmanaged(Symbol) = .empty,
+symbols_extra: std.ArrayListUnmanaged(u32) = .empty,
+globals: std.ArrayListUnmanaged(MachO.SymbolResolver.Index) = .empty,
 /// Maps string index (so name) into nlist index for the global symbol defined within this
 /// module.
-globals_lookup: std.AutoHashMapUnmanaged(u32, u32) = .{},
-atoms: std.ArrayListUnmanaged(Atom) = .{},
-atoms_indexes: std.ArrayListUnmanaged(Atom.Index) = .{},
-atoms_extra: std.ArrayListUnmanaged(u32) = .{},
+globals_lookup: std.AutoHashMapUnmanaged(u32, u32) = .empty,
+atoms: std.ArrayListUnmanaged(Atom) = .empty,
+atoms_indexes: std.ArrayListUnmanaged(Atom.Index) = .empty,
+atoms_extra: std.ArrayListUnmanaged(u32) = .empty,
 
 /// Table of tracked LazySymbols.
 lazy_syms: LazySymbolTable = .{},
@@ -317,7 +317,7 @@ pub fn updateArSize(self: *ZigObject) void {
 pub fn writeAr(self: ZigObject, ar_format: Archive.Format, writer: anytype) !void {
     // Header
     const size = std.math.cast(usize, self.output_ar_state.size) orelse return error.Overflow;
-    try Archive.writeHeader(self.path, size, ar_format, writer);
+    try Archive.writeHeader(self.basename, size, ar_format, writer);
     // Data
     try writer.writeAll(self.data.items);
 }
@@ -364,6 +364,8 @@ pub fn scanRelocs(self: *ZigObject, macho_file: *MachO) !void {
 
 pub fn resolveRelocs(self: *ZigObject, macho_file: *MachO) !void {
     const gpa = macho_file.base.comp.gpa;
+    const diags = &macho_file.base.comp.link_diags;
+
     var has_error = false;
     for (self.getAtoms()) |atom_index| {
         const atom = self.getAtom(atom_index) orelse continue;
@@ -379,17 +381,12 @@ pub fn resolveRelocs(self: *ZigObject, macho_file: *MachO) !void {
         defer gpa.free(code);
         self.getAtomData(macho_file, atom.*, code) catch |err| {
             switch (err) {
-                error.InputOutput => {
-                    try macho_file.reportUnexpectedError("fetching code for '{s}' failed", .{
-                        atom.getName(macho_file),
-                    });
-                },
-                else => |e| {
-                    try macho_file.reportUnexpectedError("unexpected error while fetching code for '{s}': {s}", .{
-                        atom.getName(macho_file),
-                        @errorName(e),
-                    });
-                },
+                error.InputOutput => return diags.fail("fetching code for '{s}' failed", .{
+                    atom.getName(macho_file),
+                }),
+                else => |e| return diags.fail("failed to fetch code for '{s}': {s}", .{
+                    atom.getName(macho_file), @errorName(e),
+                }),
             }
             has_error = true;
             continue;
@@ -398,9 +395,7 @@ pub fn resolveRelocs(self: *ZigObject, macho_file: *MachO) !void {
         atom.resolveRelocs(macho_file, code) catch |err| {
             switch (err) {
                 error.ResolveFailed => {},
-                else => |e| {
-                    try macho_file.reportUnexpectedError("unexpected error while resolving relocations: {s}", .{@errorName(e)});
-                },
+                else => |e| return diags.fail("failed to resolve relocations: {s}", .{@errorName(e)}),
             }
             has_error = true;
             continue;
@@ -426,6 +421,7 @@ pub fn calcNumRelocs(self: *ZigObject, macho_file: *MachO) void {
 
 pub fn writeRelocs(self: *ZigObject, macho_file: *MachO) !void {
     const gpa = macho_file.base.comp.gpa;
+    const diags = &macho_file.base.comp.link_diags;
 
     for (self.getAtoms()) |atom_index| {
         const atom = self.getAtom(atom_index) orelse continue;
@@ -439,21 +435,8 @@ pub fn writeRelocs(self: *ZigObject, macho_file: *MachO) !void {
         const atom_size = std.math.cast(usize, atom.size) orelse return error.Overflow;
         const code = try gpa.alloc(u8, atom_size);
         defer gpa.free(code);
-        self.getAtomData(macho_file, atom.*, code) catch |err| switch (err) {
-            error.InputOutput => {
-                try macho_file.reportUnexpectedError("fetching code for '{s}' failed", .{
-                    atom.getName(macho_file),
-                });
-                return error.FlushFailure;
-            },
-            else => |e| {
-                try macho_file.reportUnexpectedError("unexpected error while fetching code for '{s}': {s}", .{
-                    atom.getName(macho_file),
-                    @errorName(e),
-                });
-                return error.FlushFailure;
-            },
-        };
+        self.getAtomData(macho_file, atom.*, code) catch |err|
+            return diags.fail("failed to fetch code for '{s}': {s}", .{ atom.getName(macho_file), @errorName(err) });
         const file_offset = header.offset + atom.value;
         try atom.writeRelocs(macho_file, code, relocs[extra.rel_out_index..][0..extra.rel_out_count]);
         try macho_file.base.file.?.pwriteAll(code, file_offset);
@@ -633,20 +616,33 @@ pub fn getNavVAddr(
     };
     const sym = self.symbols.items[sym_index];
     const vaddr = sym.getAddress(.{}, macho_file);
-    const parent_atom = self.symbols.items[reloc_info.parent_atom_index].getAtom(macho_file).?;
-    try parent_atom.addReloc(macho_file, .{
-        .tag = .@"extern",
-        .offset = @intCast(reloc_info.offset),
-        .target = sym_index,
-        .addend = reloc_info.addend,
-        .type = .unsigned,
-        .meta = .{
-            .pcrel = false,
-            .has_subtractor = false,
-            .length = 3,
-            .symbolnum = @intCast(sym.nlist_idx),
+    switch (reloc_info.parent) {
+        .atom_index => |atom_index| {
+            const parent_atom = self.symbols.items[atom_index].getAtom(macho_file).?;
+            try parent_atom.addReloc(macho_file, .{
+                .tag = .@"extern",
+                .offset = @intCast(reloc_info.offset),
+                .target = sym_index,
+                .addend = reloc_info.addend,
+                .type = .unsigned,
+                .meta = .{
+                    .pcrel = false,
+                    .has_subtractor = false,
+                    .length = 3,
+                    .symbolnum = @intCast(sym.nlist_idx),
+                },
+            });
         },
-    });
+        .debug_output => |debug_output| switch (debug_output) {
+            .dwarf => |wip_nav| try wip_nav.infoExternalReloc(.{
+                .source_off = @intCast(reloc_info.offset),
+                .target_sym = sym_index,
+                .target_off = reloc_info.addend,
+            }),
+            .plan9 => unreachable,
+            .none => unreachable,
+        },
+    }
     return vaddr;
 }
 
@@ -659,20 +655,33 @@ pub fn getUavVAddr(
     const sym_index = self.uavs.get(uav).?.symbol_index;
     const sym = self.symbols.items[sym_index];
     const vaddr = sym.getAddress(.{}, macho_file);
-    const parent_atom = self.symbols.items[reloc_info.parent_atom_index].getAtom(macho_file).?;
-    try parent_atom.addReloc(macho_file, .{
-        .tag = .@"extern",
-        .offset = @intCast(reloc_info.offset),
-        .target = sym_index,
-        .addend = reloc_info.addend,
-        .type = .unsigned,
-        .meta = .{
-            .pcrel = false,
-            .has_subtractor = false,
-            .length = 3,
-            .symbolnum = @intCast(sym.nlist_idx),
+    switch (reloc_info.parent) {
+        .atom_index => |atom_index| {
+            const parent_atom = self.symbols.items[atom_index].getAtom(macho_file).?;
+            try parent_atom.addReloc(macho_file, .{
+                .tag = .@"extern",
+                .offset = @intCast(reloc_info.offset),
+                .target = sym_index,
+                .addend = reloc_info.addend,
+                .type = .unsigned,
+                .meta = .{
+                    .pcrel = false,
+                    .has_subtractor = false,
+                    .length = 3,
+                    .symbolnum = @intCast(sym.nlist_idx),
+                },
+            });
         },
-    });
+        .debug_output => |debug_output| switch (debug_output) {
+            .dwarf => |wip_nav| try wip_nav.infoExternalReloc(.{
+                .source_off = @intCast(reloc_info.offset),
+                .target_sym = sym_index,
+                .target_off = reloc_info.addend,
+            }),
+            .plan9 => unreachable,
+            .none => unreachable,
+        },
+    }
     return vaddr;
 }
 
@@ -903,8 +912,7 @@ pub fn updateNav(
             zcu.navSrcLoc(nav_index),
             Value.fromInterned(nav_init),
             &code_buffer,
-            if (debug_wip_nav) |*wip_nav| .{ .dwarf = wip_nav } else .none,
-            .{ .parent_atom_index = sym_index },
+            .{ .atom_index = sym_index },
         );
 
         const code = switch (res) {
@@ -954,9 +962,11 @@ fn updateNavCode(
 
     log.debug("updateNavCode {} 0x{x}", .{ nav.fqn.fmt(ip), nav_index });
 
-    const required_alignment = pt.navAlignment(nav_index).max(
-        target_util.minFunctionAlignment(zcu.navFileScope(nav_index).mod.resolved_target.result),
-    );
+    const target = zcu.navFileScope(nav_index).mod.resolved_target.result;
+    const required_alignment = switch (pt.navAlignment(nav_index)) {
+        .none => target_util.defaultFunctionAlignment(target),
+        else => |a| a.maxStrict(target_util.minFunctionAlignment(target)),
+    };
 
     const sect = &macho_file.sections.items(.header)[sect_index];
     const sym = &self.symbols.items[sym_index];
@@ -1212,11 +1222,14 @@ fn lowerConst(
     const name_str = try self.addString(gpa, name);
     const sym_index = try self.newSymbolWithAtom(gpa, name_str, macho_file);
 
-    const res = try codegen.generateSymbol(&macho_file.base, pt, src_loc, val, &code_buffer, .{
-        .none = {},
-    }, .{
-        .parent_atom_index = sym_index,
-    });
+    const res = try codegen.generateSymbol(
+        &macho_file.base,
+        pt,
+        src_loc,
+        val,
+        &code_buffer,
+        .{ .atom_index = sym_index },
+    );
     const code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| return .{ .fail = em },
@@ -1378,7 +1391,7 @@ fn updateLazySymbol(
         &required_alignment,
         &code_buffer,
         .none,
-        .{ .parent_atom_index = symbol_index },
+        .{ .atom_index = symbol_index },
     );
     const code = switch (res) {
         .ok => code_buffer.items,
@@ -1758,7 +1771,7 @@ fn formatAtoms(
 const AvMetadata = struct {
     symbol_index: Symbol.Index,
     /// A list of all exports aliases of this Av.
-    exports: std.ArrayListUnmanaged(Symbol.Index) = .{},
+    exports: std.ArrayListUnmanaged(Symbol.Index) = .empty,
 
     fn @"export"(m: AvMetadata, zig_object: *ZigObject, name: []const u8) ?*u32 {
         for (m.exports.items) |*exp| {

@@ -22,6 +22,8 @@ const stdlib_renames = std.StaticStringMap([]const u8).initComptime(.{
     // ARM EABI/Thumb.
     .{ "arm_sync_file_range", "sync_file_range" },
     .{ "arm_fadvise64_64", "fadvise64_64" },
+    // ARC and Hexagon.
+    .{ "mmap_pgoff", "mmap2" },
 });
 
 // Only for newer architectures where we use the C preprocessor.
@@ -152,6 +154,22 @@ const arch_infos = [_]ArchInfo{
             .filters = .{
                 // The x32 abi syscalls are always at the end.
                 .abiCheckParams = .{ .abi = "x32", .flow = .@"break" },
+                .fixedName = &fixedName,
+                .isReservedNameOld = null,
+            },
+            .header = null,
+            .extra_values = null,
+            .additional_enum = null,
+        },
+    },
+    .{
+        .table = .{
+            .name = "x32",
+            .enum_name = "X32",
+            .file_path = "arch/x86/entry/syscalls/syscall_64.tbl",
+            .process_file = &processTableBasedArch,
+            .filters = .{
+                .abiCheckParams = .{ .abi = "64", .flow = .@"continue" },
                 .fixedName = &fixedName,
                 .isReservedNameOld = null,
             },

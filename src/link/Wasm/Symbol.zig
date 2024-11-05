@@ -8,8 +8,8 @@
 /// Can contain any of the flags defined in `Flag`
 flags: u32,
 /// Symbol name, when the symbol is undefined the name will be taken from the import.
-/// Note: This is an index into the string table.
-name: u32,
+/// Note: This is an index into the wasm string table.
+name: wasm.String,
 /// Index into the list of objects based on set `tag`
 /// NOTE: This will be set to `undefined` when `tag` is `data`
 /// and the symbol is undefined.
@@ -206,5 +206,5 @@ pub fn format(symbol: Symbol, comptime fmt: []const u8, options: std.fmt.FormatO
 }
 
 const std = @import("std");
-const types = @import("types.zig");
 const Symbol = @This();
+const wasm = @import("../Wasm.zig");

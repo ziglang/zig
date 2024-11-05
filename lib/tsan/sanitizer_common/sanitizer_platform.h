@@ -260,6 +260,17 @@
 #  define SANITIZER_ARM64 0
 #endif
 
+#if SANITIZER_WINDOWS64 && SANITIZER_ARM64
+#  define SANITIZER_WINDOWS_ARM64 1
+#  define SANITIZER_WINDOWS_x64 0
+#elif SANITIZER_WINDOWS64 && !SANITIZER_ARM64
+#  define SANITIZER_WINDOWS_ARM64 0
+#  define SANITIZER_WINDOWS_x64 1
+#else
+#  define SANITIZER_WINDOWS_ARM64 0
+#  define SANITIZER_WINDOWS_x64 0
+#endif
+
 #if SANITIZER_SOLARIS && SANITIZER_WORDSIZE == 32
 #  define SANITIZER_SOLARIS32 1
 #else
@@ -284,7 +295,8 @@
 // For such platforms build this code with -DSANITIZER_CAN_USE_ALLOCATOR64=0 or
 // change the definition of SANITIZER_CAN_USE_ALLOCATOR64 here.
 #ifndef SANITIZER_CAN_USE_ALLOCATOR64
-#  if SANITIZER_RISCV64 || SANITIZER_IOS
+#  if (SANITIZER_RISCV64 && !SANITIZER_FUCHSIA && !SANITIZER_LINUX) || \
+      SANITIZER_IOS || SANITIZER_DRIVERKIT
 #    define SANITIZER_CAN_USE_ALLOCATOR64 0
 #  elif defined(__mips64) || defined(__hexagon__)
 #    define SANITIZER_CAN_USE_ALLOCATOR64 0
@@ -303,7 +315,15 @@
 #    define SANITIZER_MMAP_RANGE_SIZE FIRST_32_SECOND_64(1ULL << 32, 1ULL << 40)
 #  endif
 #elif SANITIZER_RISCV64
-#  define SANITIZER_MMAP_RANGE_SIZE FIRST_32_SECOND_64(1ULL << 32, 1ULL << 38)
+// FIXME: Rather than hardcoding the VMA here, we should rely on
+// GetMaxUserVirtualAddress(). This will require some refactoring though since
+// many places either hardcode some value or SANITIZER_MMAP_RANGE_SIZE is
+// assumed to be some constant integer.
+#  if SANITIZER_FUCHSIA
+#    define SANITIZER_MMAP_RANGE_SIZE (1ULL << 38)
+#  else
+#    define SANITIZER_MMAP_RANGE_SIZE FIRST_32_SECOND_64(1ULL << 32, 1ULL << 56)
+#  endif
 #elif defined(__aarch64__)
 #  if SANITIZER_APPLE
 #    if SANITIZER_OSX || SANITIZER_IOSSIM
