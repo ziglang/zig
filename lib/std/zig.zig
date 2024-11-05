@@ -667,7 +667,7 @@ pub fn parseTargetQueryOrReportFatalError(
                 inline for (@typeInfo(std.Target.Cpu.Arch).@"enum".fields) |field| {
                     help_text.writer().print(" {s}\n", .{field.name}) catch break :help;
                 }
-                std.log.info("available architectures:\n{s}\nnative", .{help_text.items});
+                std.log.info("available architectures:\n{s} native\n", .{help_text.items});
             }
             fatal("unknown architecture: '{s}'", .{diags.unknown_architecture_name.?});
         },
