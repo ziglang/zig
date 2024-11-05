@@ -89,7 +89,6 @@ windows_libs: std.StringArrayHashMapUnmanaged(void),
 version: ?std.SemanticVersion,
 libc_installation: ?*const LibCInstallation,
 skip_linker_dependencies: bool,
-no_builtin: bool,
 function_sections: bool,
 data_sections: bool,
 link_eh_frame_hdr: bool,
@@ -852,6 +851,7 @@ pub const cache_helpers = struct {
         hh.add(mod.fuzz);
         hh.add(mod.unwind_tables);
         hh.add(mod.structured_cfg);
+        hh.add(mod.no_builtin);
         hh.addListOfBytes(mod.cc_argv);
     }
 
@@ -1057,7 +1057,6 @@ pub const CreateOptions = struct {
     want_lto: ?bool = null,
     function_sections: bool = false,
     data_sections: bool = false,
-    no_builtin: bool = false,
     time_report: bool = false,
     stack_report: bool = false,
     link_eh_frame_hdr: bool = false,
@@ -1353,7 +1352,6 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         cache.hash.add(options.config.link_mode);
         cache.hash.add(options.function_sections);
         cache.hash.add(options.data_sections);
-        cache.hash.add(options.no_builtin);
         cache.hash.add(link_libc);
         cache.hash.add(options.config.link_libcpp);
         cache.hash.add(options.config.link_libunwind);
@@ -1490,7 +1488,6 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .framework_dirs = options.framework_dirs,
             .llvm_opt_bisect_limit = options.llvm_opt_bisect_limit,
             .skip_linker_dependencies = options.skip_linker_dependencies,
-            .no_builtin = options.no_builtin,
             .job_queued_update_builtin_zig = have_zcu,
             .function_sections = options.function_sections,
             .data_sections = options.data_sections,
@@ -5261,7 +5258,7 @@ pub fn addCCArgs(
         try argv.append("-fdata-sections");
     }
 
-    if (comp.no_builtin) {
+    if (mod.no_builtin) {
         try argv.append("-fno-builtin");
     }
 
@@ -6189,6 +6186,7 @@ fn buildOutputFromZig(
             .pic = comp.root_mod.pic,
             .optimize_mode = optimize_mode,
             .structured_cfg = comp.root_mod.structured_cfg,
+            .no_builtin = true,
             .code_model = comp.root_mod.code_model,
         },
         .global = config,
@@ -6237,7 +6235,6 @@ fn buildOutputFromZig(
         },
         .function_sections = true,
         .data_sections = true,
-        .no_builtin = true,
         .emit_h = null,
         .verbose_cc = comp.verbose_cc,
         .verbose_link = comp.verbose_link,
@@ -6262,16 +6259,21 @@ fn buildOutputFromZig(
     comp.queueLinkTaskMode(crt_file.full_object_path, output_mode);
 }
 
+pub const CrtFileOptions = struct {
+    pic: ?bool = null,
+    no_builtin: ?bool = null,
+};
+
 pub fn build_crt_file(
     comp: *Compilation,
     root_name: []const u8,
     output_mode: std.builtin.OutputMode,
-    pic: ?bool,
     misc_task_tag: MiscTask,
     prog_node: std.Progress.Node,
     /// These elements have to get mutated to add the owner module after it is
     /// created within this function.
     c_source_files: []CSourceFile,
+    options: CrtFileOptions,
 ) !void {
     const tracy_trace = trace(@src());
     defer tracy_trace.end();
@@ -6319,10 +6321,12 @@ pub fn build_crt_file(
             .omit_frame_pointer = comp.root_mod.omit_frame_pointer,
             .valgrind = false,
             .unwind_tables = false,
-            // Some CRT objects (rcrt1.o, Scrt1.o) are opinionated about PIC.
-            .pic = pic orelse comp.root_mod.pic,
+            // Some CRT objects (e.g. musl's rcrt1.o and Scrt1.o) are opinionated about PIC.
+            .pic = options.pic orelse comp.root_mod.pic,
             .optimize_mode = comp.compilerRtOptMode(),
             .structured_cfg = comp.root_mod.structured_cfg,
+            // Some libcs (e.g. musl) are opinionated about -fno-builtin.
+            .no_builtin = options.no_builtin orelse comp.root_mod.no_builtin,
         },
         .global = config,
         .cc_argv = &.{},
