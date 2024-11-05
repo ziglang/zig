@@ -193,6 +193,9 @@ pub const ParseOptions = struct {
 
         /// If error.UnknownCpuFeature is returned, this will be populated.
         unknown_feature_name: ?[]const u8 = null,
+
+        /// If error.UnknownArchitecture is returned, this will be populated.
+        unknown_architecture_name: ?[]const u8 = null,
     };
 };
 
@@ -208,8 +211,10 @@ pub fn parse(args: ParseOptions) !Query {
     const arch_name = it.first();
     const arch_is_native = mem.eql(u8, arch_name, "native");
     if (!arch_is_native) {
-        result.cpu_arch = std.meta.stringToEnum(Target.Cpu.Arch, arch_name) orelse
+        result.cpu_arch = std.meta.stringToEnum(Target.Cpu.Arch, arch_name) orelse {
+            diags.unknown_architecture_name = arch_name;
             return error.UnknownArchitecture;
+        };
     }
     const arch = result.cpu_arch orelse builtin.cpu.arch;
     diags.arch = arch;
