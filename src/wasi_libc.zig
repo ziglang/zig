@@ -279,7 +279,6 @@ fn addCCArgs(
     try args.appendSlice(&[_][]const u8{
         "-std=gnu17",
         "-fno-trapping-math",
-        "-fno-stack-protector",
         "-w", // ignore all warnings
 
         o_arg,

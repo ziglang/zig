@@ -373,7 +373,6 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                     "-fmerge-all-constants",
                     "-frounding-math",
                     "-Wno-unsupported-floating-point-opt", // For targets that don't support -frounding-math.
-                    "-fno-stack-protector",
                     "-fno-common",
                     "-fmath-errno",
                     "-ftls-model=initial-exec",
