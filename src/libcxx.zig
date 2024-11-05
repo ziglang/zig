@@ -195,7 +195,7 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
             .valgrind = false,
             .optimize_mode = optimize_mode,
             .structured_cfg = comp.root_mod.structured_cfg,
-            .pic = comp.root_mod.pic,
+            .pic = if (target_util.supports_fpic(target)) true else null,
         },
         .global = config,
         .cc_argv = &.{},
@@ -278,9 +278,6 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
             try cflags.append("-faligned-allocation");
         }
 
-        if (target_util.supports_fpic(target)) {
-            try cflags.append("-fPIC");
-        }
         try cflags.append("-nostdinc++");
         try cflags.append("-std=c++23");
         try cflags.append("-Wno-user-defined-literals");
