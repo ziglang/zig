@@ -842,12 +842,12 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
         .Exe => {},
     }
 
-    if (diags.hasErrors()) return error.FlushFailure;
+    if (diags.hasErrors()) return error.LinkFailure;
 
     // If we haven't already, create a linker-generated input file comprising of
     // linker-defined synthetic symbols only such as `_DYNAMIC`, etc.
     if (self.linker_defined_index == null) {
-        const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
+        const index: File.Index = @intCast(try self.files.addOne(gpa));
         self.files.set(index, .{ .linker_defined = .{ .index = index } });
         self.linker_defined_index = index;
         const object = self.linkerDefinedPtr().?;
@@ -878,7 +878,7 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
     }
 
     self.checkDuplicates() catch |err| switch (err) {
-        error.HasDuplicates => return error.FlushFailure,
+        error.HasDuplicates => return error.LinkFailure,
         else => |e| return e,
     };
 
@@ -956,14 +956,14 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
                 error.RelocFailure, error.RelaxFailure => has_reloc_errors = true,
                 error.UnsupportedCpuArch => {
                     try self.reportUnsupportedCpuArch();
-                    return error.FlushFailure;
+                    return error.LinkFailure;
                 },
                 else => |e| return e,
             };
             try self.base.file.?.pwriteAll(code, file_offset);
         }
 
-        if (has_reloc_errors) return error.FlushFailure;
+        if (has_reloc_errors) return error.LinkFailure;
     }
 
     try self.writePhdrTable();
@@ -972,10 +972,10 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
     try self.writeMergeSections();
 
     self.writeSyntheticSections() catch |err| switch (err) {
-        error.RelocFailure => return error.FlushFailure,
+        error.RelocFailure => return error.LinkFailure,
         error.UnsupportedCpuArch => {
             try self.reportUnsupportedCpuArch();
-            return error.FlushFailure;
+            return error.LinkFailure;
         },
         else => |e| return e,
     };
@@ -989,7 +989,7 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
         try self.writeElfHeader();
     }
 
-    if (diags.hasErrors()) return error.FlushFailure;
+    if (diags.hasErrors()) return error.LinkFailure;
 }
 
 fn dumpArgvInit(self: *Elf, arena: Allocator) !void {
@@ -1389,7 +1389,7 @@ fn scanRelocs(self: *Elf) !void {
             error.RelaxFailure => unreachable,
             error.UnsupportedCpuArch => {
                 try self.reportUnsupportedCpuArch();
-                return error.FlushFailure;
+                return error.LinkFailure;
             },
             error.RelocFailure => has_reloc_errors = true,
             else => |e| return e,
@@ -1400,7 +1400,7 @@ fn scanRelocs(self: *Elf) !void {
             error.RelaxFailure => unreachable,
             error.UnsupportedCpuArch => {
                 try self.reportUnsupportedCpuArch();
-                return error.FlushFailure;
+                return error.LinkFailure;
             },
             error.RelocFailure => has_reloc_errors = true,
             else => |e| return e,
@@ -1409,7 +1409,7 @@ fn scanRelocs(self: *Elf) !void {
 
     try self.reportUndefinedSymbols(&undefs);
 
-    if (has_reloc_errors) return error.FlushFailure;
+    if (has_reloc_errors) return error.LinkFailure;
 
     if (self.zigObjectPtr()) |zo| {
         try zo.asFile().createSymbolIndirection(self);
@@ -2327,7 +2327,13 @@ pub fn freeNav(self: *Elf, nav: InternPool.Nav.Index) void {
     return self.zigObjectPtr().?.freeNav(self, nav);
 }
 
-pub fn updateFunc(self: *Elf, pt: Zcu.PerThread, func_index: InternPool.Index, air: Air, liveness: Liveness) !void {
+pub fn updateFunc(
+    self: *Elf,
+    pt: Zcu.PerThread,
+    func_index: InternPool.Index,
+    air: Air,
+    liveness: Liveness,
+) link.File.UpdateNavError!void {
     if (build_options.skip_non_native and builtin.object_format != .elf) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
@@ -2426,7 +2432,7 @@ pub fn addCommentString(self: *Elf) !void {
     self.comment_merge_section_index = msec_index;
 }
 
-pub fn resolveMergeSections(self: *Elf) !void {
+pub fn resolveMergeSections(self: *Elf) link.File.FlushError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -2441,7 +2447,7 @@ pub fn resolveMergeSections(self: *Elf) !void {
         };
     }
 
-    if (has_errors) return error.FlushFailure;
+    if (has_errors) return error.LinkFailure;
 
     for (self.objects.items) |index| {
         const object = self.file(index).?.object;
@@ -3658,7 +3664,7 @@ fn writeAtoms(self: *Elf) !void {
         atom_list.write(&buffer, &undefs, self) catch |err| switch (err) {
             error.UnsupportedCpuArch => {
                 try self.reportUnsupportedCpuArch();
-                return error.FlushFailure;
+                return error.LinkFailure;
             },
             error.RelocFailure, error.RelaxFailure => has_reloc_errors = true,
             else => |e| return e,
@@ -3666,7 +3672,7 @@ fn writeAtoms(self: *Elf) !void {
     }
 
     try self.reportUndefinedSymbols(&undefs);
-    if (has_reloc_errors) return error.FlushFailure;
+    if (has_reloc_errors) return error.LinkFailure;
 
     if (self.requiresThunks()) {
         for (self.thunks.items) |th| {

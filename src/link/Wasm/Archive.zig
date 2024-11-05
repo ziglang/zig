@@ -142,7 +142,16 @@ pub fn parse(gpa: Allocator, file_contents: []const u8) !Archive {
 
 /// From a given file offset, starts reading for a file header.
 /// When found, parses the object file into an `Object` and returns it.
-pub fn parseObject(archive: Archive, wasm: *Wasm, file_contents: []const u8, path: Path) !Object {
+pub fn parseObject(
+    archive: Archive,
+    wasm: *Wasm,
+    file_contents: []const u8,
+    path: Path,
+    host_name: Wasm.String,
+    scratch_space: *Object.ScratchSpace,
+    must_link: bool,
+    gc_sections: bool,
+) !Object {
     const header = mem.bytesAsValue(Header, file_contents[0..@sizeOf(Header)]);
     if (!mem.eql(u8, &header.fmag, ARFMAG)) return error.BadHeaderDelimiter;
 
@@ -157,8 +166,9 @@ pub fn parseObject(archive: Archive, wasm: *Wasm, file_contents: []const u8, pat
     };
 
     const object_file_size = try header.parsedSize();
+    const contents = file_contents[@sizeOf(Header)..][0..object_file_size];
 
-    return Object.create(wasm, file_contents[@sizeOf(Header)..][0..object_file_size], path, object_name);
+    return Object.parse(wasm, contents, path, object_name, host_name, scratch_space, must_link, gc_sections);
 }
 
 const Archive = @This();

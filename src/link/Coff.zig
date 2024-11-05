@@ -408,7 +408,7 @@ pub fn createEmpty(
                 max_file_offset = header.pointer_to_raw_data + header.size_of_raw_data;
             }
         }
-        try coff.base.file.?.pwriteAll(&[_]u8{0}, max_file_offset);
+        try coff.pwriteAll(&[_]u8{0}, max_file_offset);
     }
 
     return coff;
@@ -858,7 +858,7 @@ fn writeAtom(coff: *Coff, atom_index: Atom.Index, code: []u8) !void {
     }
 
     coff.resolveRelocs(atom_index, relocs.items, code, coff.image_base);
-    try coff.base.file.?.pwriteAll(code, file_offset);
+    try coff.pwriteAll(code, file_offset);
 
     // Now we can mark the relocs as resolved.
     while (relocs.popOrNull()) |reloc| {
@@ -891,7 +891,7 @@ fn writeOffsetTableEntry(coff: *Coff, index: usize) !void {
     const sect_id = coff.got_section_index.?;
 
     if (coff.got_table_count_dirty) {
-        const needed_size = @as(u32, @intCast(coff.got_table.entries.items.len * coff.ptr_width.size()));
+        const needed_size: u32 = @intCast(coff.got_table.entries.items.len * coff.ptr_width.size());
         try coff.growSection(sect_id, needed_size);
         coff.got_table_count_dirty = false;
     }
@@ -908,13 +908,13 @@ fn writeOffsetTableEntry(coff: *Coff, index: usize) !void {
     switch (coff.ptr_width) {
         .p32 => {
             var buf: [4]u8 = undefined;
-            mem.writeInt(u32, &buf, @as(u32, @intCast(entry_value + coff.image_base)), .little);
-            try coff.base.file.?.pwriteAll(&buf, file_offset);
+            mem.writeInt(u32, &buf, @intCast(entry_value + coff.image_base), .little);
+            try coff.pwriteAll(&buf, file_offset);
         },
         .p64 => {
             var buf: [8]u8 = undefined;
             mem.writeInt(u64, &buf, entry_value + coff.image_base, .little);
-            try coff.base.file.?.pwriteAll(&buf, file_offset);
+            try coff.pwriteAll(&buf, file_offset);
         },
     }
 
@@ -1093,7 +1093,13 @@ fn freeAtom(coff: *Coff, atom_index: Atom.Index) void {
     coff.getAtomPtr(atom_index).sym_index = 0;
 }
 
-pub fn updateFunc(coff: *Coff, pt: Zcu.PerThread, func_index: InternPool.Index, air: Air, liveness: Liveness) !void {
+pub fn updateFunc(
+    coff: *Coff,
+    pt: Zcu.PerThread,
+    func_index: InternPool.Index,
+    air: Air,
+    liveness: Liveness,
+) link.File.UpdateNavError!void {
     if (build_options.skip_non_native and builtin.object_format != .coff) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
@@ -1106,8 +1112,9 @@ pub fn updateFunc(coff: *Coff, pt: Zcu.PerThread, func_index: InternPool.Index, 
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const func = zcu.funcInfo(func_index);
+    const nav_index = func.owner_nav;
 
-    const atom_index = try coff.getOrCreateAtomForNav(func.owner_nav);
+    const atom_index = try coff.getOrCreateAtomForNav(nav_index);
     coff.freeRelocations(atom_index);
 
     coff.navs.getPtr(func.owner_nav).?.section = coff.text_section_index.?;
@@ -1115,25 +1122,38 @@ pub fn updateFunc(coff: *Coff, pt: Zcu.PerThread, func_index: InternPool.Index, 
     var code_buffer = std.ArrayList(u8).init(gpa);
     defer code_buffer.deinit();
 
-    const res = try codegen.generateFunction(
+    const res = codegen.generateFunction(
         &coff.base,
         pt,
-        zcu.navSrcLoc(func.owner_nav),
+        zcu.navSrcLoc(nav_index),
         func_index,
         air,
         liveness,
         &code_buffer,
         .none,
-    );
+    ) catch |err| switch (err) {
+        error.CodegenFail => return error.CodegenFail,
+        error.OutOfMemory => return error.OutOfMemory,
+        else => |e| {
+            try zcu.failed_codegen.putNoClobber(gpa, nav_index, try Zcu.ErrorMsg.create(
+                gpa,
+                zcu.navSrcLoc(nav_index),
+                "unable to codegen: {s}",
+                .{@errorName(e)},
+            ));
+            try zcu.retryable_failures.append(zcu.gpa, AnalUnit.wrap(.{ .func = func_index }));
+            return error.CodegenFail;
+        },
+    };
     const code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| {
-            try zcu.failed_codegen.put(zcu.gpa, func.owner_nav, em);
+            try zcu.failed_codegen.put(zcu.gpa, nav_index, em);
             return;
         },
     };
 
-    try coff.updateNavCode(pt, func.owner_nav, code, .FUNCTION);
+    try coff.updateNavCode(pt, nav_index, code, .FUNCTION);
 
     // Exports will be updated by `Zcu.processExports` after the update.
 }
@@ -1258,9 +1278,11 @@ fn updateLazySymbolAtom(
     sym: link.File.LazySymbol,
     atom_index: Atom.Index,
     section_index: u16,
-) !void {
+) link.File.FlushError!void {
     const zcu = pt.zcu;
-    const gpa = zcu.gpa;
+    const comp = coff.base.comp;
+    const gpa = comp.gpa;
+    const diags = &comp.link_diags;
 
     var required_alignment: InternPool.Alignment = .none;
     var code_buffer = std.ArrayList(u8).init(gpa);
@@ -1276,7 +1298,7 @@ fn updateLazySymbolAtom(
     const local_sym_index = atom.getSymbolIndex().?;
 
     const src = Type.fromInterned(sym.ty).srcLocOrNull(zcu) orelse Zcu.LazySrcLoc.unneeded;
-    const res = try codegen.generateLazySymbol(
+    const res = codegen.generateLazySymbol(
         &coff.base,
         pt,
         src,
@@ -1285,7 +1307,10 @@ fn updateLazySymbolAtom(
         &code_buffer,
         .none,
         .{ .atom_index = local_sym_index },
-    );
+    ) catch |err| switch (err) {
+        error.CodegenFail => return error.LinkFailure,
+        else => |e| return diags.fail("failed to generate lazy symbol: {s}", .{@errorName(e)}),
+    };
     const code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| {
@@ -1387,7 +1412,7 @@ fn updateNavCode(
     nav_index: InternPool.Nav.Index,
     code: []u8,
     complex_type: coff_util.ComplexType,
-) !void {
+) link.File.UpdateNavError!void {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     const nav = ip.getNav(nav_index);
@@ -1405,12 +1430,12 @@ fn updateNavCode(
     const atom = coff.getAtom(atom_index);
     const sym_index = atom.getSymbolIndex().?;
     const sect_index = nav_metadata.section;
-    const code_len = @as(u32, @intCast(code.len));
+    const code_len: u32 = @intCast(code.len);
 
     if (atom.size != 0) {
         const sym = atom.getSymbolPtr(coff);
         try coff.setSymbolName(sym, nav.fqn.toSlice(ip));
-        sym.section_number = @as(coff_util.SectionNumber, @enumFromInt(sect_index + 1));
+        sym.section_number = @enumFromInt(sect_index + 1);
         sym.type = .{ .complex_type = complex_type, .base_type = .NULL };
 
         const capacity = atom.capacity(coff);
@@ -1434,7 +1459,7 @@ fn updateNavCode(
     } else {
         const sym = atom.getSymbolPtr(coff);
         try coff.setSymbolName(sym, nav.fqn.toSlice(ip));
-        sym.section_number = @as(coff_util.SectionNumber, @enumFromInt(sect_index + 1));
+        sym.section_number = @enumFromInt(sect_index + 1);
         sym.type = .{ .complex_type = complex_type, .base_type = .NULL };
 
         const vaddr = try coff.allocateAtom(atom_index, code_len, @intCast(required_alignment.toByteUnits() orelse 0));
@@ -1453,7 +1478,6 @@ pub fn freeNav(coff: *Coff, nav_index: InternPool.NavIndex) void {
     if (coff.llvm_object) |llvm_object| return llvm_object.freeNav(nav_index);
 
     const gpa = coff.base.comp.gpa;
-    log.debug("freeDecl 0x{x}", .{nav_index});
 
     if (coff.decls.fetchOrderedRemove(nav_index)) |const_kv| {
         var kv = const_kv;
@@ -1674,9 +1698,10 @@ pub fn flush(coff: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: st
     if (use_lld) {
         return coff.linkWithLLD(arena, tid, prog_node);
     }
+    const diags = &comp.link_diags;
     switch (comp.config.output_mode) {
         .Exe, .Obj => return coff.flushModule(arena, tid, prog_node),
-        .Lib => return error.TODOImplementWritingLibFiles,
+        .Lib => return diags.fail("writing lib files not yet implemented for COFF", .{}),
     }
 }
 
@@ -2224,7 +2249,7 @@ pub fn flushModule(coff: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
     defer sub_prog_node.end();
 
     const pt: Zcu.PerThread = .activate(
-        comp.zcu orelse return error.LinkingWithoutZigSourceUnimplemented,
+        comp.zcu orelse return diags.fail("linking without zig source is not yet implemented", .{}),
         tid,
     );
     defer pt.deactivate();
@@ -2232,24 +2257,18 @@ pub fn flushModule(coff: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
     if (coff.lazy_syms.getPtr(.anyerror_type)) |metadata| {
         // Most lazy symbols can be updated on first use, but
         // anyerror needs to wait for everything to be flushed.
-        if (metadata.text_state != .unused) coff.updateLazySymbolAtom(
+        if (metadata.text_state != .unused) try coff.updateLazySymbolAtom(
             pt,
             .{ .kind = .code, .ty = .anyerror_type },
             metadata.text_atom,
             coff.text_section_index.?,
-        ) catch |err| return switch (err) {
-            error.CodegenFail => error.FlushFailure,
-            else => |e| e,
-        };
-        if (metadata.rdata_state != .unused) coff.updateLazySymbolAtom(
+        );
+        if (metadata.rdata_state != .unused) try coff.updateLazySymbolAtom(
             pt,
             .{ .kind = .const_data, .ty = .anyerror_type },
             metadata.rdata_atom,
             coff.rdata_section_index.?,
-        ) catch |err| return switch (err) {
-            error.CodegenFail => error.FlushFailure,
-            else => |e| e,
-        };
+        );
     }
     for (coff.lazy_syms.values()) |*metadata| {
         if (metadata.text_state != .unused) metadata.text_state = .flushed;
@@ -2594,7 +2613,7 @@ fn writeBaseRelocations(coff: *Coff) !void {
     const needed_size = @as(u32, @intCast(buffer.items.len));
     try coff.growSection(coff.reloc_section_index.?, needed_size);
 
-    try coff.base.file.?.pwriteAll(buffer.items, header.pointer_to_raw_data);
+    try coff.pwriteAll(buffer.items, header.pointer_to_raw_data);
 
     coff.data_directories[@intFromEnum(coff_util.DirectoryEntry.BASERELOC)] = .{
         .virtual_address = header.virtual_address,
@@ -2727,7 +2746,7 @@ fn writeImportTables(coff: *Coff) !void {
 
     assert(dll_names_offset == needed_size);
 
-    try coff.base.file.?.pwriteAll(buffer.items, header.pointer_to_raw_data);
+    try coff.pwriteAll(buffer.items, header.pointer_to_raw_data);
 
     coff.data_directories[@intFromEnum(coff_util.DirectoryEntry.IMPORT)] = .{
         .virtual_address = header.virtual_address + iat_size,
@@ -2741,20 +2760,22 @@ fn writeImportTables(coff: *Coff) !void {
     coff.imports_count_dirty = false;
 }
 
-fn writeStrtab(coff: *Coff) !void {
+fn writeStrtab(coff: *Coff) link.File.FlushError!void {
     if (coff.strtab_offset == null) return;
 
+    const comp = coff.base.comp;
+    const gpa = comp.gpa;
+    const diags = &comp.link_diags;
     const allocated_size = coff.allocatedSize(coff.strtab_offset.?);
-    const needed_size = @as(u32, @intCast(coff.strtab.buffer.items.len));
+    const needed_size: u32 = @intCast(coff.strtab.buffer.items.len);
 
     if (needed_size > allocated_size) {
         coff.strtab_offset = null;
-        coff.strtab_offset = @as(u32, @intCast(coff.findFreeSpace(needed_size, @alignOf(u32))));
+        coff.strtab_offset = @intCast(coff.findFreeSpace(needed_size, @alignOf(u32)));
     }
 
     log.debug("writing strtab from 0x{x} to 0x{x}", .{ coff.strtab_offset.?, coff.strtab_offset.? + needed_size });
 
-    const gpa = coff.base.comp.gpa;
     var buffer = std.ArrayList(u8).init(gpa);
     defer buffer.deinit();
     try buffer.ensureTotalCapacityPrecise(needed_size);
@@ -2763,17 +2784,19 @@ fn writeStrtab(coff: *Coff) !void {
     // we write the length of the strtab to a temporary buffer that goes to file.
     mem.writeInt(u32, buffer.items[0..4], @as(u32, @intCast(coff.strtab.buffer.items.len)), .little);
 
-    try coff.base.file.?.pwriteAll(buffer.items, coff.strtab_offset.?);
+    coff.pwriteAll(buffer.items, coff.strtab_offset.?) catch |err| {
+        return diags.fail("failed to write: {s}", .{@errorName(err)});
+    };
 }
 
 fn writeSectionHeaders(coff: *Coff) !void {
     const offset = coff.getSectionHeadersOffset();
-    try coff.base.file.?.pwriteAll(mem.sliceAsBytes(coff.sections.items(.header)), offset);
+    try coff.pwriteAll(mem.sliceAsBytes(coff.sections.items(.header)), offset);
 }
 
 fn writeDataDirectoriesHeaders(coff: *Coff) !void {
     const offset = coff.getDataDirectoryHeadersOffset();
-    try coff.base.file.?.pwriteAll(mem.sliceAsBytes(&coff.data_directories), offset);
+    try coff.pwriteAll(mem.sliceAsBytes(&coff.data_directories), offset);
 }
 
 fn writeHeader(coff: *Coff) !void {
@@ -2913,7 +2936,7 @@ fn writeHeader(coff: *Coff) !void {
         },
     }
 
-    try coff.base.file.?.pwriteAll(buffer.items, 0);
+    try coff.pwriteAll(buffer.items, 0);
 }
 
 pub fn padToIdeal(actual_size: anytype) @TypeOf(actual_size) {
@@ -3709,6 +3732,14 @@ const ImportTable = struct {
 
     const ImportIndex = u32;
 };
+
+fn pwriteAll(coff: *Coff, bytes: []const u8, offset: u64) error{LinkFailure}!void {
+    const comp = coff.base.comp;
+    const diags = &comp.link_diags;
+    coff.base.file.?.pwriteAll(bytes, offset) catch |err| {
+        return diags.fail("failed to write: {s}", .{@errorName(err)});
+    };
+}
 
 const Coff = @This();
 

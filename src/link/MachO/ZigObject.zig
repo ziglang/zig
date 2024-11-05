@@ -560,7 +560,7 @@ pub fn flushModule(self: *ZigObject, macho_file: *MachO, tid: Zcu.PerThread.Id) 
             .{ .kind = .code, .ty = .anyerror_type },
             metadata.text_symbol_index,
         ) catch |err| return switch (err) {
-            error.CodegenFail => error.FlushFailure,
+            error.CodegenFail => error.LinkFailure,
             else => |e| e,
         };
         if (metadata.const_state != .unused) self.updateLazySymbol(
@@ -569,7 +569,7 @@ pub fn flushModule(self: *ZigObject, macho_file: *MachO, tid: Zcu.PerThread.Id) 
             .{ .kind = .const_data, .ty = .anyerror_type },
             metadata.const_symbol_index,
         ) catch |err| return switch (err) {
-            error.CodegenFail => error.FlushFailure,
+            error.CodegenFail => error.LinkFailure,
             else => |e| e,
         };
     }

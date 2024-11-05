@@ -14,19 +14,14 @@ const link = @import("link.zig");
 
 const log = std.log.scoped(.register_manager);
 
-pub const AllocateRegistersError = error{
-    /// No registers are available anymore
+pub const AllocationError = error{
     OutOfRegisters,
-    /// Can happen when spilling an instruction in codegen runs out of
-    /// memory, so we propagate that error
     OutOfMemory,
-    /// Can happen when spilling an instruction in codegen triggers integer
-    /// overflow, so we propagate that error
+    /// Compiler was asked to operate on a number larger than supported.
     Overflow,
-    /// Can happen when spilling an instruction triggers a codegen
-    /// error, so we propagate that error
+    /// Indicates the error is already stored in `failed_codegen` on the Zcu.
     CodegenFail,
-} || link.File.UpdateDebugInfoError;
+};
 
 pub fn RegisterManager(
     comptime Function: type,
@@ -281,7 +276,7 @@ pub fn RegisterManager(
             comptime count: comptime_int,
             insts: [count]?Air.Inst.Index,
             register_class: RegisterBitSet,
-        ) AllocateRegistersError![count]Register {
+        ) AllocationError![count]Register {
             comptime assert(count > 0 and count <= tracked_registers.len);
 
             var locked_registers = self.locked_registers;
@@ -338,7 +333,7 @@ pub fn RegisterManager(
             self: *Self,
             inst: ?Air.Inst.Index,
             register_class: RegisterBitSet,
-        ) AllocateRegistersError!Register {
+        ) AllocationError!Register {
             return (try self.allocRegs(1, .{inst}, register_class))[0];
         }
 
@@ -349,7 +344,7 @@ pub fn RegisterManager(
             self: *Self,
             tracked_index: TrackedIndex,
             inst: ?Air.Inst.Index,
-        ) AllocateRegistersError!void {
+        ) AllocationError!void {
             log.debug("getReg {} for inst {?}", .{ regAtTrackedIndex(tracked_index), inst });
             if (!self.isRegIndexFree(tracked_index)) {
                 // Move the instruction that was previously there to a
@@ -362,7 +357,7 @@ pub fn RegisterManager(
             }
             self.getRegIndexAssumeFree(tracked_index, inst);
         }
-        pub fn getReg(self: *Self, reg: Register, inst: ?Air.Inst.Index) AllocateRegistersError!void {
+        pub fn getReg(self: *Self, reg: Register, inst: ?Air.Inst.Index) AllocationError!void {
             log.debug("getting reg: {}", .{reg});
             return self.getRegIndex(indexOfRegIntoTracked(reg) orelse return, inst);
         }
@@ -370,7 +365,7 @@ pub fn RegisterManager(
             self: *Self,
             comptime reg: Register,
             inst: ?Air.Inst.Index,
-        ) AllocateRegistersError!void {
+        ) AllocationError!void {
             return self.getRegIndex((comptime indexOfRegIntoTracked(reg)) orelse return, inst);
         }
 

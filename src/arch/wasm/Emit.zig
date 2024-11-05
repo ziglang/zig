@@ -3,12 +3,13 @@
 
 const Emit = @This();
 const std = @import("std");
+const leb128 = std.leb;
+
 const Mir = @import("Mir.zig");
 const link = @import("../../link.zig");
 const Zcu = @import("../../Zcu.zig");
 const InternPool = @import("../../InternPool.zig");
 const codegen = @import("../../codegen.zig");
-const leb128 = std.leb;
 
 /// Contains our list of instructions
 mir: Mir,
@@ -254,7 +255,8 @@ fn offset(self: Emit) u32 {
 fn fail(emit: *Emit, comptime format: []const u8, args: anytype) InnerError {
     @branchHint(.cold);
     std.debug.assert(emit.error_msg == null);
-    const comp = emit.bin_file.base.comp;
+    const wasm = emit.bin_file;
+    const comp = wasm.base.comp;
     const zcu = comp.zcu.?;
     const gpa = comp.gpa;
     emit.error_msg = try Zcu.ErrorMsg.create(gpa, zcu.navSrcLoc(emit.owner_nav), format, args);
@@ -287,7 +289,7 @@ fn emitBrTable(emit: *Emit, inst: Mir.Inst.Index) !void {
     const labels = emit.mir.extra[extra.end..][0..extra.data.length];
     const writer = emit.code.writer();
 
-    try emit.code.append(std.wasm.opcode(.br_table));
+    try emit.code.append(@intFromEnum(std.wasm.Opcode.br_table));
     try leb128.writeUleb128(writer, extra.data.length - 1); // Default label is not part of length/depth
     for (labels) |label| {
         try leb128.writeUleb128(writer, label);
@@ -301,7 +303,8 @@ fn emitLabel(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) !void {
 }
 
 fn emitGlobal(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) !void {
-    const comp = emit.bin_file.base.comp;
+    const wasm = emit.bin_file;
+    const comp = wasm.base.comp;
     const gpa = comp.gpa;
     const label = emit.mir.instructions.items(.data)[inst].label;
     try emit.code.append(@intFromEnum(tag));
@@ -310,38 +313,38 @@ fn emitGlobal(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) !void {
     const global_offset = emit.offset();
     try emit.code.appendSlice(&buf);
 
-    const atom_index = emit.bin_file.zig_object.?.navs.get(emit.owner_nav).?.atom;
-    const atom = emit.bin_file.getAtomPtr(atom_index);
-    try atom.relocs.append(gpa, .{
+    const zo = wasm.zig_object.?;
+    try zo.relocs.append(gpa, .{
+        .nav_index = emit.nav_index,
         .index = label,
         .offset = global_offset,
-        .relocation_type = .R_WASM_GLOBAL_INDEX_LEB,
+        .tag = .GLOBAL_INDEX_LEB,
     });
 }
 
 fn emitImm32(emit: *Emit, inst: Mir.Inst.Index) !void {
     const value: i32 = emit.mir.instructions.items(.data)[inst].imm32;
-    try emit.code.append(std.wasm.opcode(.i32_const));
+    try emit.code.append(@intFromEnum(std.wasm.Opcode.i32_const));
     try leb128.writeIleb128(emit.code.writer(), value);
 }
 
 fn emitImm64(emit: *Emit, inst: Mir.Inst.Index) !void {
     const extra_index = emit.mir.instructions.items(.data)[inst].payload;
     const value = emit.mir.extraData(Mir.Imm64, extra_index);
-    try emit.code.append(std.wasm.opcode(.i64_const));
+    try emit.code.append(@intFromEnum(std.wasm.Opcode.i64_const));
     try leb128.writeIleb128(emit.code.writer(), @as(i64, @bitCast(value.data.toU64())));
 }
 
 fn emitFloat32(emit: *Emit, inst: Mir.Inst.Index) !void {
     const value: f32 = emit.mir.instructions.items(.data)[inst].float32;
-    try emit.code.append(std.wasm.opcode(.f32_const));
+    try emit.code.append(@intFromEnum(std.wasm.Opcode.f32_const));
     try emit.code.writer().writeInt(u32, @bitCast(value), .little);
 }
 
 fn emitFloat64(emit: *Emit, inst: Mir.Inst.Index) !void {
     const extra_index = emit.mir.instructions.items(.data)[inst].payload;
     const value = emit.mir.extraData(Mir.Float64, extra_index);
-    try emit.code.append(std.wasm.opcode(.f64_const));
+    try emit.code.append(@intFromEnum(std.wasm.Opcode.f64_const));
     try emit.code.writer().writeInt(u64, value.data.toU64(), .little);
 }
 
@@ -360,105 +363,99 @@ fn encodeMemArg(mem_arg: Mir.MemArg, writer: anytype) !void {
 }
 
 fn emitCall(emit: *Emit, inst: Mir.Inst.Index) !void {
-    const comp = emit.bin_file.base.comp;
+    const wasm = emit.bin_file;
+    const comp = wasm.base.comp;
     const gpa = comp.gpa;
     const label = emit.mir.instructions.items(.data)[inst].label;
-    try emit.code.append(std.wasm.opcode(.call));
+    try emit.code.append(@intFromEnum(std.wasm.Opcode.call));
     const call_offset = emit.offset();
     var buf: [5]u8 = undefined;
     leb128.writeUnsignedFixed(5, &buf, label);
     try emit.code.appendSlice(&buf);
 
-    if (label != 0) {
-        const atom_index = emit.bin_file.zig_object.?.navs.get(emit.owner_nav).?.atom;
-        const atom = emit.bin_file.getAtomPtr(atom_index);
-        try atom.relocs.append(gpa, .{
-            .offset = call_offset,
-            .index = label,
-            .relocation_type = .R_WASM_FUNCTION_INDEX_LEB,
-        });
-    }
+    const zo = wasm.zig_object.?;
+    try zo.relocs.append(gpa, .{
+        .offset = call_offset,
+        .index = label,
+        .tag = .FUNCTION_INDEX_LEB,
+    });
 }
 
 fn emitCallIndirect(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const wasm = emit.bin_file;
     const type_index = emit.mir.instructions.items(.data)[inst].label;
-    try emit.code.append(std.wasm.opcode(.call_indirect));
+    try emit.code.append(@intFromEnum(std.wasm.Opcode.call_indirect));
     // NOTE: If we remove unused function types in the future for incremental
     // linking, we must also emit a relocation for this `type_index`
     const call_offset = emit.offset();
     var buf: [5]u8 = undefined;
     leb128.writeUnsignedFixed(5, &buf, type_index);
     try emit.code.appendSlice(&buf);
-    if (type_index != 0) {
-        const atom_index = emit.bin_file.zig_object.?.navs.get(emit.owner_nav).?.atom;
-        const atom = emit.bin_file.getAtomPtr(atom_index);
-        try atom.relocs.append(emit.bin_file.base.comp.gpa, .{
-            .offset = call_offset,
-            .index = type_index,
-            .relocation_type = .R_WASM_TYPE_INDEX_LEB,
-        });
-    }
+
+    const zo = wasm.zig_object.?;
+    try zo.relocs.append(wasm.base.comp.gpa, .{
+        .offset = call_offset,
+        .index = type_index,
+        .tag = .TYPE_INDEX_LEB,
+    });
+
     try leb128.writeUleb128(emit.code.writer(), @as(u32, 0)); // TODO: Emit relocation for table index
 }
 
 fn emitFunctionIndex(emit: *Emit, inst: Mir.Inst.Index) !void {
-    const comp = emit.bin_file.base.comp;
+    const wasm = emit.bin_file;
+    const comp = wasm.base.comp;
     const gpa = comp.gpa;
     const symbol_index = emit.mir.instructions.items(.data)[inst].label;
-    try emit.code.append(std.wasm.opcode(.i32_const));
+    try emit.code.append(@intFromEnum(std.wasm.Opcode.i32_const));
     const index_offset = emit.offset();
     var buf: [5]u8 = undefined;
     leb128.writeUnsignedFixed(5, &buf, symbol_index);
     try emit.code.appendSlice(&buf);
 
-    if (symbol_index != 0) {
-        const atom_index = emit.bin_file.zig_object.?.navs.get(emit.owner_nav).?.atom;
-        const atom = emit.bin_file.getAtomPtr(atom_index);
-        try atom.relocs.append(gpa, .{
-            .offset = index_offset,
-            .index = symbol_index,
-            .relocation_type = .R_WASM_TABLE_INDEX_SLEB,
-        });
-    }
+    const zo = wasm.zig_object.?;
+    try zo.relocs.append(gpa, .{
+        .offset = index_offset,
+        .index = symbol_index,
+        .tag = .TABLE_INDEX_SLEB,
+    });
 }
 
 fn emitMemAddress(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const wasm = emit.bin_file;
     const extra_index = emit.mir.instructions.items(.data)[inst].payload;
     const mem = emit.mir.extraData(Mir.Memory, extra_index).data;
     const mem_offset = emit.offset() + 1;
-    const comp = emit.bin_file.base.comp;
+    const comp = wasm.base.comp;
     const gpa = comp.gpa;
     const target = comp.root_mod.resolved_target.result;
     const is_wasm32 = target.cpu.arch == .wasm32;
     if (is_wasm32) {
-        try emit.code.append(std.wasm.opcode(.i32_const));
+        try emit.code.append(@intFromEnum(std.wasm.Opcode.i32_const));
         var buf: [5]u8 = undefined;
         leb128.writeUnsignedFixed(5, &buf, mem.pointer);
         try emit.code.appendSlice(&buf);
     } else {
-        try emit.code.append(std.wasm.opcode(.i64_const));
+        try emit.code.append(@intFromEnum(std.wasm.Opcode.i64_const));
         var buf: [10]u8 = undefined;
         leb128.writeUnsignedFixed(10, &buf, mem.pointer);
         try emit.code.appendSlice(&buf);
     }
 
-    if (mem.pointer != 0) {
-        const atom_index = emit.bin_file.zig_object.?.navs.get(emit.owner_nav).?.atom;
-        const atom = emit.bin_file.getAtomPtr(atom_index);
-        try atom.relocs.append(gpa, .{
-            .offset = mem_offset,
-            .index = mem.pointer,
-            .relocation_type = if (is_wasm32) .R_WASM_MEMORY_ADDR_LEB else .R_WASM_MEMORY_ADDR_LEB64,
-            .addend = @as(i32, @intCast(mem.offset)),
-        });
-    }
+    const zo = wasm.zig_object.?;
+    try zo.relocs.append(gpa, .{
+        .offset = mem_offset,
+        .index = mem.pointer,
+        .tag = if (is_wasm32) .MEMORY_ADDR_LEB else .MEMORY_ADDR_LEB64,
+        .addend = @as(i32, @intCast(mem.offset)),
+    });
 }
 
 fn emitExtended(emit: *Emit, inst: Mir.Inst.Index) !void {
     const extra_index = emit.mir.instructions.items(.data)[inst].payload;
     const opcode = emit.mir.extra[extra_index];
     const writer = emit.code.writer();
-    try emit.code.append(std.wasm.opcode(.misc_prefix));
+    try emit.code.append(@intFromEnum(std.wasm.Opcode.misc_prefix));
     try leb128.writeUleb128(writer, opcode);
     switch (@as(std.wasm.MiscOpcode, @enumFromInt(opcode))) {
         // bulk-memory opcodes
@@ -497,7 +494,7 @@ fn emitSimd(emit: *Emit, inst: Mir.Inst.Index) !void {
     const extra_index = emit.mir.instructions.items(.data)[inst].payload;
     const opcode = emit.mir.extra[extra_index];
     const writer = emit.code.writer();
-    try emit.code.append(std.wasm.opcode(.simd_prefix));
+    try emit.code.append(@intFromEnum(std.wasm.Opcode.simd_prefix));
     try leb128.writeUleb128(writer, opcode);
     switch (@as(std.wasm.SimdOpcode, @enumFromInt(opcode))) {
         .v128_store,
@@ -548,7 +545,7 @@ fn emitAtomic(emit: *Emit, inst: Mir.Inst.Index) !void {
     const extra_index = emit.mir.instructions.items(.data)[inst].payload;
     const opcode = emit.mir.extra[extra_index];
     const writer = emit.code.writer();
-    try emit.code.append(std.wasm.opcode(.atomics_prefix));
+    try emit.code.append(@intFromEnum(std.wasm.Opcode.atomics_prefix));
     try leb128.writeUleb128(writer, opcode);
     switch (@as(std.wasm.AtomicsOpcode, @enumFromInt(opcode))) {
         .i32_atomic_load,

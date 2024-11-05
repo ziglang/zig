@@ -1722,22 +1722,19 @@ pub fn linkerUpdateFunc(pt: Zcu.PerThread, func_index: InternPool.Index, air: Ai
         // Correcting this failure will involve changing a type this function
         // depends on, hence triggering re-analysis of this function, so this
         // interacts correctly with incremental compilation.
-        // TODO: do we need to mark this failure anywhere? I don't think so, since compilation
-        // will fail due to the type error anyway.
     } else if (comp.bin_file) |lf| {
         lf.updateFunc(pt, func_index, air, liveness) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
-            error.AnalysisFail => {
-                assert(zcu.failed_codegen.contains(nav_index));
-            },
-            else => {
-                try zcu.failed_codegen.putNoClobber(gpa, nav_index, try Zcu.ErrorMsg.create(
+            error.CodegenFail => assert(zcu.failed_codegen.contains(nav_index)),
+            error.LinkFailure => assert(comp.link_diags.hasErrors()),
+            error.Overflow => {
+                try zcu.failed_codegen.putNoClobber(nav_index, try Zcu.ErrorMsg.create(
                     gpa,
                     zcu.navSrcLoc(nav_index),
                     "unable to codegen: {s}",
                     .{@errorName(err)},
                 ));
-                try zcu.retryable_failures.append(zcu.gpa, AnalUnit.wrap(.{ .func = func_index }));
+                // Not a retryable failure.
             },
         };
     } else if (zcu.llvm_object) |llvm_object| {
@@ -3100,6 +3097,7 @@ pub fn populateTestFunctions(
 pub fn linkerUpdateNav(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) error{OutOfMemory}!void {
     const zcu = pt.zcu;
     const comp = zcu.comp;
+    const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
 
     const nav = zcu.intern_pool.getNav(nav_index);
@@ -3113,26 +3111,16 @@ pub fn linkerUpdateNav(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) error
     } else if (comp.bin_file) |lf| {
         lf.updateNav(pt, nav_index) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
-            error.AnalysisFail => {
-                assert(zcu.failed_codegen.contains(nav_index));
-            },
-            else => {
-                const gpa = zcu.gpa;
-                try zcu.failed_codegen.ensureUnusedCapacity(gpa, 1);
-                zcu.failed_codegen.putAssumeCapacityNoClobber(nav_index, try Zcu.ErrorMsg.create(
+            error.CodegenFail => assert(zcu.failed_codegen.contains(nav_index)),
+            error.LinkFailure => assert(comp.link_diags.hasErrors()),
+            error.Overflow => {
+                try zcu.failed_codegen.putNoClobber(nav_index, try Zcu.ErrorMsg.create(
                     gpa,
                     zcu.navSrcLoc(nav_index),
                     "unable to codegen: {s}",
                     .{@errorName(err)},
                 ));
-                if (nav.analysis != null) {
-                    try zcu.retryable_failures.append(zcu.gpa, .wrap(.{ .nav_val = nav_index }));
-                } else {
-                    // TODO: we don't have a way to indicate that this failure is retryable!
-                    // Since these are really rare, we could as a cop-out retry the whole build next update.
-                    // But perhaps we can do better...
-                    @panic("TODO: retryable failure codegenning non-declaration Nav");
-                }
+                // Not a retryable failure.
             },
         };
     } else if (zcu.llvm_object) |llvm_object| {

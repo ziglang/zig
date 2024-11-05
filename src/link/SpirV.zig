@@ -122,7 +122,13 @@ pub fn deinit(self: *SpirV) void {
     self.object.deinit();
 }
 
-pub fn updateFunc(self: *SpirV, pt: Zcu.PerThread, func_index: InternPool.Index, air: Air, liveness: Liveness) !void {
+pub fn updateFunc(
+    self: *SpirV,
+    pt: Zcu.PerThread,
+    func_index: InternPool.Index,
+    air: Air,
+    liveness: Liveness,
+) link.File.UpdateNavError!void {
     if (build_options.skip_non_native) {
         @panic("Attempted to compile for architecture that was disabled by build configuration");
     }
@@ -134,7 +140,7 @@ pub fn updateFunc(self: *SpirV, pt: Zcu.PerThread, func_index: InternPool.Index,
     try self.object.updateFunc(pt, func_index, air, liveness);
 }
 
-pub fn updateNav(self: *SpirV, pt: Zcu.PerThread, nav: InternPool.Nav.Index) !void {
+pub fn updateNav(self: *SpirV, pt: Zcu.PerThread, nav: InternPool.Nav.Index) link.File.UpdateNavError!void {
     if (build_options.skip_non_native) {
         @panic("Attempted to compile for architecture that was disabled by build configuration");
     }
@@ -194,11 +200,6 @@ pub fn updateExports(
     }
 
     // TODO: Export regular functions, variables, etc using Linkage attributes.
-}
-
-pub fn freeDecl(self: *SpirV, decl_index: InternPool.DeclIndex) void {
-    _ = self;
-    _ = decl_index;
 }
 
 pub fn flush(self: *SpirV, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
@@ -266,7 +267,7 @@ pub fn flushModule(self: *SpirV, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
         error.OutOfMemory => return error.OutOfMemory,
         else => |other| {
             log.err("error while linking: {s}", .{@errorName(other)});
-            return error.FlushFailure;
+            return error.LinkFailure;
         },
     };
 

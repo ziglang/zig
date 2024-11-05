@@ -264,7 +264,7 @@ pub fn deinit(self: *ZigObject, allocator: Allocator) void {
     }
 }
 
-pub fn flush(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !void {
+pub fn flush(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) link.File.FlushError!void {
     // Handle any lazy symbols that were emitted by incremental compilation.
     if (self.lazy_syms.getPtr(.anyerror_type)) |metadata| {
         const pt: Zcu.PerThread = .activate(elf_file.base.comp.zcu.?, tid);
@@ -278,7 +278,7 @@ pub fn flush(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !void {
             .{ .kind = .code, .ty = .anyerror_type },
             metadata.text_symbol_index,
         ) catch |err| return switch (err) {
-            error.CodegenFail => error.FlushFailure,
+            error.CodegenFail => error.LinkFailure,
             else => |e| e,
         };
         if (metadata.rodata_state != .unused) self.updateLazySymbol(
@@ -287,7 +287,7 @@ pub fn flush(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !void {
             .{ .kind = .const_data, .ty = .anyerror_type },
             metadata.rodata_symbol_index,
         ) catch |err| return switch (err) {
-            error.CodegenFail => error.FlushFailure,
+            error.CodegenFail => error.LinkFailure,
             else => |e| e,
         };
     }
@@ -933,6 +933,7 @@ pub fn getNavVAddr(
     const this_sym = self.symbol(this_sym_index);
     const vaddr = this_sym.address(.{}, elf_file);
     switch (reloc_info.parent) {
+        .none => unreachable,
         .atom_index => |atom_index| {
             const parent_atom = self.symbol(atom_index).atom(elf_file).?;
             const r_type = relocation.encode(.abs, elf_file.getTarget().cpu.arch);
@@ -965,6 +966,7 @@ pub fn getUavVAddr(
     const sym = self.symbol(sym_index);
     const vaddr = sym.address(.{}, elf_file);
     switch (reloc_info.parent) {
+        .none => unreachable,
         .atom_index => |atom_index| {
             const parent_atom = self.symbol(atom_index).atom(elf_file).?;
             const r_type = relocation.encode(.abs, elf_file.getTarget().cpu.arch);
@@ -1408,7 +1410,7 @@ pub fn updateFunc(
     func_index: InternPool.Index,
     air: Air,
     liveness: Liveness,
-) !void {
+) link.File.UpdateNavError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1615,7 +1617,7 @@ fn updateLazySymbol(
     pt: Zcu.PerThread,
     sym: link.File.LazySymbol,
     symbol_index: Symbol.Index,
-) !void {
+) link.File.FlushError!void {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
 

@@ -21,20 +21,10 @@ debug_rnglists: DebugRngLists,
 debug_str: StringSection,
 
 pub const UpdateError = error{
+    /// Indicates the error is already reported on `failed_codegen` in the Zcu.
     CodegenFail,
-    ReinterpretDeclRef,
-    Unimplemented,
     OutOfMemory,
-    EndOfStream,
-    Overflow,
-    Underflow,
-    UnexpectedEndOfFile,
-} ||
-    std.fs.File.OpenError ||
-    std.fs.File.SetEndPosError ||
-    std.fs.File.CopyRangeError ||
-    std.fs.File.PReadError ||
-    std.fs.File.PWriteError;
+};
 
 pub const FlushError =
     UpdateError ||

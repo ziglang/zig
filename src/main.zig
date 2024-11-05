@@ -75,6 +75,10 @@ pub fn fatal(comptime format: []const u8, args: anytype) noreturn {
     process.exit(1);
 }
 
+/// Shaming all the locations that inappropriately use an O(N) search algorithm.
+/// Please delete this and fix the compilation errors!
+pub const @"bad O(N)" = void;
+
 const normal_usage =
     \\Usage: zig [command] [options]
     \\

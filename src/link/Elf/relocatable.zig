@@ -2,7 +2,7 @@ pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation) link.File.FlushError!v
     const gpa = comp.gpa;
     const diags = &comp.link_diags;
 
-    if (diags.hasErrors()) return error.FlushFailure;
+    if (diags.hasErrors()) return error.LinkFailure;
 
     // First, we flush relocatable object file generated with our backends.
     if (elf_file.zigObjectPtr()) |zig_object| {
@@ -127,13 +127,13 @@ pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation) link.File.FlushError!v
     try elf_file.base.file.?.setEndPos(total_size);
     try elf_file.base.file.?.pwriteAll(buffer.items, 0);
 
-    if (diags.hasErrors()) return error.FlushFailure;
+    if (diags.hasErrors()) return error.LinkFailure;
 }
 
 pub fn flushObject(elf_file: *Elf, comp: *Compilation) link.File.FlushError!void {
     const diags = &comp.link_diags;
 
-    if (diags.hasErrors()) return error.FlushFailure;
+    if (diags.hasErrors()) return error.LinkFailure;
 
     // Now, we are ready to resolve the symbols across all input files.
     // We will first resolve the files in the ZigObject, next in the parsed
@@ -179,7 +179,7 @@ pub fn flushObject(elf_file: *Elf, comp: *Compilation) link.File.FlushError!void
     try elf_file.writeShdrTable();
     try elf_file.writeElfHeader();
 
-    if (diags.hasErrors()) return error.FlushFailure;
+    if (diags.hasErrors()) return error.LinkFailure;
 }
 
 fn claimUnresolved(elf_file: *Elf) void {
@@ -259,7 +259,7 @@ fn initComdatGroups(elf_file: *Elf) !void {
     }
 }
 
-fn updateSectionSizes(elf_file: *Elf) !void {
+fn updateSectionSizes(elf_file: *Elf) link.File.FlushError!void {
     const slice = elf_file.sections.slice();
     for (slice.items(.atom_list_2)) |*atom_list| {
         if (atom_list.atoms.keys().len == 0) continue;

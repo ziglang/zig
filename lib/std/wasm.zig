@@ -4,8 +4,6 @@
 const std = @import("std.zig");
 const testing = std.testing;
 
-// TODO: Add support for multi-byte ops (e.g. table operations)
-
 /// Wasm instruction opcodes
 ///
 /// All instructions are defined as per spec:
@@ -195,27 +193,6 @@ pub const Opcode = enum(u8) {
     _,
 };
 
-/// Returns the integer value of an `Opcode`. Used by the Zig compiler
-/// to write instructions to the wasm binary file
-pub fn opcode(op: Opcode) u8 {
-    return @intFromEnum(op);
-}
-
-test "opcodes" {
-    // Ensure our opcodes values remain intact as certain values are skipped due to them being reserved
-    const i32_const = opcode(.i32_const);
-    const end = opcode(.end);
-    const drop = opcode(.drop);
-    const local_get = opcode(.local_get);
-    const i64_extend32_s = opcode(.i64_extend32_s);
-
-    try testing.expectEqual(@as(u16, 0x41), i32_const);
-    try testing.expectEqual(@as(u16, 0x0B), end);
-    try testing.expectEqual(@as(u16, 0x1A), drop);
-    try testing.expectEqual(@as(u16, 0x20), local_get);
-    try testing.expectEqual(@as(u16, 0xC4), i64_extend32_s);
-}
-
 /// Opcodes that require a prefix `0xFC`.
 /// Each opcode represents a varuint32, meaning
 /// they are encoded as leb128 in binary.
@@ -240,12 +217,6 @@ pub const MiscOpcode = enum(u32) {
     table_fill = 0x11,
     _,
 };
-
-/// Returns the integer value of an `MiscOpcode`. Used by the Zig compiler
-/// to write instructions to the wasm binary file
-pub fn miscOpcode(op: MiscOpcode) u32 {
-    return @intFromEnum(op);
-}
 
 /// Simd opcodes that require a prefix `0xFD`.
 /// Each opcode represents a varuint32, meaning
@@ -512,12 +483,6 @@ pub const SimdOpcode = enum(u32) {
     f32x4_relaxed_dot_bf16x8_add_f32x4 = 0x114,
 };
 
-/// Returns the integer value of an `SimdOpcode`. Used by the Zig compiler
-/// to write instructions to the wasm binary file
-pub fn simdOpcode(op: SimdOpcode) u32 {
-    return @intFromEnum(op);
-}
-
 /// Atomic opcodes that require a prefix `0xFE`.
 /// Each opcode represents a varuint32, meaning
 /// they are encoded as leb128 in binary.
@@ -592,12 +557,6 @@ pub const AtomicsOpcode = enum(u32) {
     i64_atomic_rmw32_cmpxchg_u = 0x4E,
 };
 
-/// Returns the integer value of an `AtomicsOpcode`. Used by the Zig compiler
-/// to write instructions to the wasm binary file
-pub fn atomicsOpcode(op: AtomicsOpcode) u32 {
-    return @intFromEnum(op);
-}
-
 /// Enum representing all Wasm value types as per spec:
 /// https://webassembly.github.io/spec/core/binary/types.html
 pub const Valtype = enum(u8) {
@@ -608,11 +567,6 @@ pub const Valtype = enum(u8) {
     v128 = 0x7B,
 };
 
-/// Returns the integer value of a `Valtype`
-pub fn valtype(value: Valtype) u8 {
-    return @intFromEnum(value);
-}
-
 /// Reference types, where the funcref references to a function regardless of its type
 /// and ref references an object from the embedder.
 pub const RefType = enum(u8) {
@@ -620,41 +574,17 @@ pub const RefType = enum(u8) {
     externref = 0x6F,
 };
 
-/// Returns the integer value of a `Reftype`
-pub fn reftype(value: RefType) u8 {
-    return @intFromEnum(value);
-}
-
-test "valtypes" {
-    const _i32 = valtype(.i32);
-    const _i64 = valtype(.i64);
-    const _f32 = valtype(.f32);
-    const _f64 = valtype(.f64);
-
-    try testing.expectEqual(@as(u8, 0x7F), _i32);
-    try testing.expectEqual(@as(u8, 0x7E), _i64);
-    try testing.expectEqual(@as(u8, 0x7D), _f32);
-    try testing.expectEqual(@as(u8, 0x7C), _f64);
-}
-
 /// Limits classify the size range of resizeable storage associated with memory types and table types.
 pub const Limits = struct {
-    flags: u8,
+    flags: Flags,
     min: u32,
     max: u32,
 
-    pub const Flags = enum(u8) {
-        WASM_LIMITS_FLAG_HAS_MAX = 0x1,
-        WASM_LIMITS_FLAG_IS_SHARED = 0x2,
+    pub const Flags = packed struct(u8) {
+        has_max: bool,
+        is_shared: bool,
+        reserved: u6 = 0,
     };
-
-    pub fn hasFlag(limits: Limits, flag: Flags) bool {
-        return limits.flags & @intFromEnum(flag) != 0;
-    }
-
-    pub fn setFlag(limits: *Limits, flag: Flags) void {
-        limits.flags |= @intFromEnum(flag);
-    }
 };
 
 /// Initialization expressions are used to set the initial value on an object
@@ -667,106 +597,12 @@ pub const InitExpression = union(enum) {
     global_get: u32,
 };
 
-/// Represents a function entry, holding the index to its type
-pub const Func = struct {
-    type_index: u32,
-};
-
-/// Tables are used to hold pointers to opaque objects.
-/// This can either by any function, or an object from the host.
-pub const Table = struct {
-    limits: Limits,
-    reftype: RefType,
-};
-
 /// Describes the layout of the memory where `min` represents
 /// the minimal amount of pages, and the optional `max` represents
 /// the max pages. When `null` will allow the host to determine the
 /// amount of pages.
 pub const Memory = struct {
     limits: Limits,
-};
-
-/// Represents the type of a `Global` or an imported global.
-pub const GlobalType = struct {
-    valtype: Valtype,
-    mutable: bool,
-};
-
-pub const Global = struct {
-    global_type: GlobalType,
-    init: InitExpression,
-};
-
-/// Notates an object to be exported from wasm
-/// to the host.
-pub const Export = struct {
-    name: []const u8,
-    kind: ExternalKind,
-    index: u32,
-};
-
-/// Element describes the layout of the table that can
-/// be found at `table_index`
-pub const Element = struct {
-    table_index: u32,
-    offset: InitExpression,
-    func_indexes: []const u32,
-};
-
-/// Imports are used to import objects from the host
-pub const Import = struct {
-    module_name: []const u8,
-    name: []const u8,
-    kind: Kind,
-
-    pub const Kind = union(ExternalKind) {
-        function: u32,
-        table: Table,
-        memory: Limits,
-        global: GlobalType,
-    };
-};
-
-/// `Type` represents a function signature type containing both
-/// a slice of parameters as well as a slice of return values.
-pub const Type = struct {
-    params: []const Valtype,
-    returns: []const Valtype,
-
-    pub fn format(self: Type, comptime fmt: []const u8, opt: std.fmt.FormatOptions, writer: anytype) !void {
-        if (fmt.len != 0) std.fmt.invalidFmtError(fmt, self);
-        _ = opt;
-        try writer.writeByte('(');
-        for (self.params, 0..) |param, i| {
-            try writer.print("{s}", .{@tagName(param)});
-            if (i + 1 != self.params.len) {
-                try writer.writeAll(", ");
-            }
-        }
-        try writer.writeAll(") -> ");
-        if (self.returns.len == 0) {
-            try writer.writeAll("nil");
-        } else {
-            for (self.returns, 0..) |return_ty, i| {
-                try writer.print("{s}", .{@tagName(return_ty)});
-                if (i + 1 != self.returns.len) {
-                    try writer.writeAll(", ");
-                }
-            }
-        }
-    }
-
-    pub fn eql(self: Type, other: Type) bool {
-        return std.mem.eql(Valtype, self.params, other.params) and
-            std.mem.eql(Valtype, self.returns, other.returns);
-    }
-
-    pub fn deinit(self: *Type, gpa: std.mem.Allocator) void {
-        gpa.free(self.params);
-        gpa.free(self.returns);
-        self.* = undefined;
-    }
 };
 
 /// Wasm module sections as per spec:
@@ -788,11 +624,6 @@ pub const Section = enum(u8) {
     _,
 };
 
-/// Returns the integer value of a given `Section`
-pub fn section(val: Section) u8 {
-    return @intFromEnum(val);
-}
-
 /// The kind of the type when importing or exporting to/from the host environment.
 /// https://webassembly.github.io/spec/core/syntax/modules.html
 pub const ExternalKind = enum(u8) {
@@ -801,11 +632,6 @@ pub const ExternalKind = enum(u8) {
     memory,
     global,
 };
-
-/// Returns the integer value of a given `ExternalKind`
-pub fn externalKind(val: ExternalKind) u8 {
-    return @intFromEnum(val);
-}
 
 /// Defines the enum values for each subsection id for the "Names" custom section
 /// as described by:

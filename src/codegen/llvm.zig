@@ -1059,9 +1059,10 @@ pub const Object = struct {
         lto: Compilation.Config.LtoMode,
     };
 
-    pub fn emit(o: *Object, options: EmitOptions) !void {
+    pub fn emit(o: *Object, options: EmitOptions) error{ LinkFailure, OutOfMemory }!void {
         const zcu = o.pt.zcu;
         const comp = zcu.comp;
+        const diags = &comp.link_diags;
 
         {
             try o.genErrorNameTable();
@@ -1223,27 +1224,30 @@ pub const Object = struct {
             o.builder.clearAndFree();
 
             if (options.pre_bc_path) |path| {
-                var file = try std.fs.cwd().createFile(path, .{});
+                var file = std.fs.cwd().createFile(path, .{}) catch |err|
+                    return diags.fail("failed to create '{s}': {s}", .{ path, @errorName(err) });
                 defer file.close();
 
                 const ptr: [*]const u8 = @ptrCast(bitcode.ptr);
-                try file.writeAll(ptr[0..(bitcode.len * 4)]);
+                file.writeAll(ptr[0..(bitcode.len * 4)]) catch |err|
+                    return diags.fail("failed to write to '{s}': {s}", .{ path, @errorName(err) });
             }
 
             if (options.asm_path == null and options.bin_path == null and
                 options.post_ir_path == null and options.post_bc_path == null) return;
 
             if (options.post_bc_path) |path| {
-                var file = try std.fs.cwd().createFileZ(path, .{});
+                var file = std.fs.cwd().createFileZ(path, .{}) catch |err|
+                    return diags.fail("failed to create '{s}': {s}", .{ path, @errorName(err) });
                 defer file.close();
 
                 const ptr: [*]const u8 = @ptrCast(bitcode.ptr);
-                try file.writeAll(ptr[0..(bitcode.len * 4)]);
+                file.writeAll(ptr[0..(bitcode.len * 4)]) catch |err|
+                    return diags.fail("failed to write to '{s}': {s}", .{ path, @errorName(err) });
             }
 
             if (!build_options.have_llvm or !comp.config.use_lib_llvm) {
-                log.err("emitting without libllvm not implemented", .{});
-                return error.FailedToEmit;
+                return diags.fail("emitting without libllvm not implemented", .{});
             }
 
             initializeLLVMTarget(comp.root_mod.resolved_target.result.cpu.arch);
@@ -1263,8 +1267,7 @@ pub const Object = struct {
 
             var module: *llvm.Module = undefined;
             if (context.parseBitcodeInContext2(bitcode_memory_buffer, &module).toBool() or context.getBrokenDebugInfo()) {
-                log.err("Failed to parse bitcode", .{});
-                return error.FailedToEmit;
+                return diags.fail("Failed to parse bitcode", .{});
             }
             break :emit .{ context, module };
         };
@@ -1274,12 +1277,7 @@ pub const Object = struct {
         var error_message: [*:0]const u8 = undefined;
         if (llvm.Target.getFromTriple(target_triple_sentinel, &target, &error_message).toBool()) {
             defer llvm.disposeMessage(error_message);
-
-            log.err("LLVM failed to parse '{s}': {s}", .{
-                target_triple_sentinel,
-                error_message,
-            });
-            @panic("Invalid LLVM triple");
+            return diags.fail("LLVM failed to parse '{s}': {s}", .{ target_triple_sentinel, error_message });
         }
 
         const optimize_mode = comp.root_mod.optimize_mode;
@@ -1374,10 +1372,9 @@ pub const Object = struct {
         if (options.asm_path != null and options.bin_path != null) {
             if (target_machine.emitToFile(module, &error_message, &lowered_options)) {
                 defer llvm.disposeMessage(error_message);
-                log.err("LLVM failed to emit bin={s} ir={s}: {s}", .{
+                return diags.fail("LLVM failed to emit bin={s} ir={s}: {s}", .{
                     emit_bin_msg, post_llvm_ir_msg, error_message,
                 });
-                return error.FailedToEmit;
             }
             lowered_options.bin_filename = null;
             lowered_options.llvm_ir_filename = null;
@@ -1386,11 +1383,9 @@ pub const Object = struct {
         lowered_options.asm_filename = options.asm_path;
         if (target_machine.emitToFile(module, &error_message, &lowered_options)) {
             defer llvm.disposeMessage(error_message);
-            log.err("LLVM failed to emit asm={s} bin={s} ir={s} bc={s}: {s}", .{
-                emit_asm_msg,  emit_bin_msg, post_llvm_ir_msg, post_llvm_bc_msg,
-                error_message,
+            return diags.fail("LLVM failed to emit asm={s} bin={s} ir={s} bc={s}: {s}", .{
+                emit_asm_msg, emit_bin_msg, post_llvm_ir_msg, post_llvm_bc_msg, error_message,
             });
-            return error.FailedToEmit;
         }
     }
 
@@ -1965,11 +1960,6 @@ pub const Object = struct {
             );
             try alias_index.rename(exp_name, &o.builder);
         }
-    }
-
-    pub fn freeDecl(self: *Object, decl_index: InternPool.DeclIndex) void {
-        const global = self.decl_map.get(decl_index) orelse return;
-        global.delete(&self.builder);
     }
 
     fn getDebugFile(o: *Object, file_index: Zcu.File.Index) Allocator.Error!Builder.Metadata {

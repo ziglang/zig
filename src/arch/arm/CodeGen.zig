@@ -245,7 +245,7 @@ const DbgInfoReloc = struct {
     name: [:0]const u8,
     mcv: MCValue,
 
-    fn genDbgInfo(reloc: DbgInfoReloc, function: Self) !void {
+    fn genDbgInfo(reloc: DbgInfoReloc, function: Self) CodeGenError!void {
         switch (reloc.tag) {
             .arg,
             .dbg_arg_inline,
@@ -259,7 +259,7 @@ const DbgInfoReloc = struct {
         }
     }
 
-    fn genArgDbgInfo(reloc: DbgInfoReloc, function: Self) !void {
+    fn genArgDbgInfo(reloc: DbgInfoReloc, function: Self) CodeGenError!void {
         switch (function.debug_output) {
             .dwarf => |dw| {
                 const loc: link.File.Dwarf.Loc = switch (reloc.mcv) {
@@ -287,7 +287,7 @@ const DbgInfoReloc = struct {
         }
     }
 
-    fn genVarDbgInfo(reloc: DbgInfoReloc, function: Self) !void {
+    fn genVarDbgInfo(reloc: DbgInfoReloc, function: Self) CodeGenError!void {
         switch (function.debug_output) {
             .dwarf => |dw| {
                 const loc: link.File.Dwarf.Loc = switch (reloc.mcv) {

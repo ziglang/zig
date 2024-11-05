@@ -385,7 +385,13 @@ fn addPathComponents(self: *Plan9, path: []const u8, a: *std.ArrayList(u8)) !voi
     }
 }
 
-pub fn updateFunc(self: *Plan9, pt: Zcu.PerThread, func_index: InternPool.Index, air: Air, liveness: Liveness) !void {
+pub fn updateFunc(
+    self: *Plan9,
+    pt: Zcu.PerThread,
+    func_index: InternPool.Index,
+    air: Air,
+    liveness: Liveness,
+) link.File.UpdateNavError!void {
     if (build_options.skip_non_native and builtin.object_format != .plan9) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
@@ -437,7 +443,7 @@ pub fn updateFunc(self: *Plan9, pt: Zcu.PerThread, func_index: InternPool.Index,
     return self.updateFinish(pt, func.owner_nav);
 }
 
-pub fn updateNav(self: *Plan9, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) !void {
+pub fn updateNav(self: *Plan9, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) link.File.UpdateNavError!void {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
@@ -619,7 +625,7 @@ pub fn flushModule(self: *Plan9, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
             .{ .kind = .code, .ty = .anyerror_type },
             metadata.text_atom,
         ) catch |err| return switch (err) {
-            error.CodegenFail => error.FlushFailure,
+            error.CodegenFail => error.LinkFailure,
             else => |e| e,
         };
         if (metadata.rodata_state != .unused) self.updateLazySymbolAtom(
@@ -627,7 +633,7 @@ pub fn flushModule(self: *Plan9, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
             .{ .kind = .const_data, .ty = .anyerror_type },
             metadata.rodata_atom,
         ) catch |err| return switch (err) {
-            error.CodegenFail => error.FlushFailure,
+            error.CodegenFail => error.LinkFailure,
             else => |e| e,
         };
     }
@@ -947,50 +953,6 @@ fn addNavExports(
     }
 }
 
-pub fn freeDecl(self: *Plan9, decl_index: InternPool.DeclIndex) void {
-    const gpa = self.base.comp.gpa;
-    // TODO audit the lifetimes of decls table entries. It's possible to get
-    // freeDecl without any updateDecl in between.
-    const zcu = self.base.comp.zcu.?;
-    const decl = zcu.declPtr(decl_index);
-    const is_fn = decl.val.isFuncBody(zcu);
-    if (is_fn) {
-        const symidx_and_submap = self.fn_decl_table.get(decl.getFileScope(zcu)).?;
-        var submap = symidx_and_submap.functions;
-        if (submap.fetchSwapRemove(decl_index)) |removed_entry| {
-            gpa.free(removed_entry.value.code);
-            gpa.free(removed_entry.value.lineinfo);
-        }
-        if (submap.count() == 0) {
-            self.syms.items[symidx_and_submap.sym_index] = aout.Sym.undefined_symbol;
-            self.syms_index_free_list.append(gpa, symidx_and_submap.sym_index) catch {};
-            submap.deinit(gpa);
-        }
-    } else {
-        if (self.data_decl_table.fetchSwapRemove(decl_index)) |removed_entry| {
-            gpa.free(removed_entry.value);
-        }
-    }
-    if (self.decls.fetchRemove(decl_index)) |const_kv| {
-        var kv = const_kv;
-        const atom = self.getAtom(kv.value.index);
-        if (atom.got_index) |i| {
-            // TODO: if this catch {} is triggered, an assertion in flushModule will be triggered, because got_index_free_list will have the wrong length
-            self.got_index_free_list.append(gpa, i) catch {};
-        }
-        if (atom.sym_index) |i| {
-            self.syms_index_free_list.append(gpa, i) catch {};
-            self.syms.items[i] = aout.Sym.undefined_symbol;
-        }
-        kv.value.exports.deinit(gpa);
-    }
-    {
-        const atom_index = self.decls.get(decl_index).?.index;
-        const relocs = self.relocs.getPtr(atom_index) orelse return;
-        relocs.clearAndFree(gpa);
-        assert(self.relocs.remove(atom_index));
-    }
-}
 fn createAtom(self: *Plan9) !Atom.Index {
     const gpa = self.base.comp.gpa;
     const index = @as(Atom.Index, @intCast(self.atoms.items.len));

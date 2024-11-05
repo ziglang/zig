@@ -82,11 +82,17 @@ pub fn deinit(self: *NvPtx) void {
     self.llvm_object.deinit();
 }
 
-pub fn updateFunc(self: *NvPtx, pt: Zcu.PerThread, func_index: InternPool.Index, air: Air, liveness: Liveness) !void {
+pub fn updateFunc(
+    self: *NvPtx,
+    pt: Zcu.PerThread,
+    func_index: InternPool.Index,
+    air: Air,
+    liveness: Liveness,
+) link.File.UpdateNavError!void {
     try self.llvm_object.updateFunc(pt, func_index, air, liveness);
 }
 
-pub fn updateNav(self: *NvPtx, pt: Zcu.PerThread, nav: InternPool.Nav.Index) !void {
+pub fn updateNav(self: *NvPtx, pt: Zcu.PerThread, nav: InternPool.Nav.Index) link.File.UpdateNavError!void {
     return self.llvm_object.updateNav(pt, nav);
 }
 
@@ -100,10 +106,6 @@ pub fn updateExports(
         @panic("Attempted to compile for object format that was disabled by build configuration");
 
     return self.llvm_object.updateExports(pt, exported, export_indices);
-}
-
-pub fn freeDecl(self: *NvPtx, decl_index: InternPool.DeclIndex) void {
-    return self.llvm_object.freeDecl(decl_index);
 }
 
 pub fn flush(self: *NvPtx, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {

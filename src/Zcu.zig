@@ -524,6 +524,15 @@ pub const Export = struct {
         section: InternPool.OptionalNullTerminatedString = .none,
         visibility: std.builtin.SymbolVisibility = .default,
     };
+
+    /// Index into `all_exports`.
+    pub const Index = enum(u32) {
+        _,
+
+        pub fn ptr(i: Index, zcu: *const Zcu) *Export {
+            return &zcu.all_exports.items[@intFromEnum(i)];
+        }
+    };
 };
 
 pub const Reference = struct {

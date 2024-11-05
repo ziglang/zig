@@ -25,18 +25,19 @@ const Alignment = InternPool.Alignment;
 const dev = @import("dev.zig");
 
 pub const Result = union(enum) {
-    /// The `code` parameter passed to `generateSymbol` has the value ok.
+    /// The `code` parameter passed to `generateSymbol` has the value.
     ok,
-
     /// There was a codegen error.
     fail: *ErrorMsg,
 };
 
 pub const CodeGenError = error{
     OutOfMemory,
+    /// Compiler was asked to operate on a number larger than supported.
     Overflow,
+    /// Indicates the error is already stored in Zcu `failed_codegen`.
     CodegenFail,
-} || link.File.UpdateDebugInfoError;
+};
 
 fn devFeatureForBackend(comptime backend: std.builtin.CompilerBackend) dev.Feature {
     comptime assert(mem.startsWith(u8, @tagName(backend), "stage2_"));
@@ -49,7 +50,6 @@ fn importBackend(comptime backend: std.builtin.CompilerBackend) type {
         .stage2_arm => @import("arch/arm/CodeGen.zig"),
         .stage2_riscv64 => @import("arch/riscv64/CodeGen.zig"),
         .stage2_sparc64 => @import("arch/sparc64/CodeGen.zig"),
-        .stage2_wasm => @import("arch/wasm/CodeGen.zig"),
         .stage2_x86_64 => @import("arch/x86_64/CodeGen.zig"),
         else => unreachable,
     };
@@ -74,7 +74,6 @@ pub fn generateFunction(
         .stage2_arm,
         .stage2_riscv64,
         .stage2_sparc64,
-        .stage2_wasm,
         .stage2_x86_64,
         => |backend| {
             dev.check(devFeatureForBackend(backend));
@@ -96,9 +95,7 @@ pub fn generateLazyFunction(
     const target = zcu.fileByIndex(file).mod.resolved_target.result;
     switch (target_util.zigBackend(target, false)) {
         else => unreachable,
-        inline .stage2_x86_64,
-        .stage2_riscv64,
-        => |backend| {
+        inline .stage2_x86_64, .stage2_riscv64 => |backend| {
             dev.check(devFeatureForBackend(backend));
             return importBackend(backend).generateLazy(lf, pt, src_loc, lazy_sym, code, debug_output);
         },
@@ -694,6 +691,7 @@ fn lowerUavRef(
     offset: u64,
 ) CodeGenError!Result {
     const zcu = pt.zcu;
+    const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
     const target = lf.comp.root_mod.resolved_target.result;
 
@@ -704,7 +702,7 @@ fn lowerUavRef(
     const is_fn_body = uav_ty.zigTypeTag(zcu) == .@"fn";
     if (!is_fn_body and !uav_ty.hasRuntimeBits(zcu)) {
         try code.appendNTimes(0xaa, ptr_width_bytes);
-        return Result.ok;
+        return .ok;
     }
 
     const uav_align = ip.indexToKey(uav.orig_ty).ptr_type.flags.alignment;
@@ -712,6 +710,26 @@ fn lowerUavRef(
     switch (res) {
         .mcv => {},
         .fail => |em| return .{ .fail = em },
+    }
+
+    switch (lf.tag) {
+        .c => unreachable,
+        .spirv => unreachable,
+        .nvptx => unreachable,
+        .wasm => {
+            dev.check(link.File.Tag.wasm.devFeature());
+            const wasm = lf.cast(.wasm).?;
+            assert(reloc_parent == .none);
+            try wasm.relocations.append(gpa, .{
+                .tag = .uav_index,
+                .addend = @intCast(offset),
+                .offset = @intCast(code.items.len),
+                .pointee = .{ .uav_index = uav.val },
+            });
+            try code.appendNTimes(0, ptr_width_bytes);
+            return .ok;
+        },
+        else => {},
     }
 
     const vaddr = try lf.getUavVAddr(uav_val, .{
@@ -741,15 +759,36 @@ fn lowerNavRef(
 ) CodeGenError!Result {
     _ = src_loc;
     const zcu = pt.zcu;
+    const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
     const target = zcu.navFileScope(nav_index).mod.resolved_target.result;
 
-    const ptr_width = target.ptrBitWidth();
+    const ptr_width_bytes = @divExact(target.ptrBitWidth(), 8);
     const nav_ty = Type.fromInterned(ip.getNav(nav_index).typeOf(ip));
     const is_fn_body = nav_ty.zigTypeTag(zcu) == .@"fn";
     if (!is_fn_body and !nav_ty.hasRuntimeBits(zcu)) {
-        try code.appendNTimes(0xaa, @divExact(ptr_width, 8));
+        try code.appendNTimes(0xaa, ptr_width_bytes);
         return Result.ok;
+    }
+
+    switch (lf.tag) {
+        .c => unreachable,
+        .spirv => unreachable,
+        .nvptx => unreachable,
+        .wasm => {
+            dev.check(link.File.Tag.wasm.devFeature());
+            const wasm = lf.cast(.wasm).?;
+            assert(reloc_parent == .none);
+            try wasm.relocations.append(gpa, .{
+                .tag = .nav_index,
+                .addend = @intCast(offset),
+                .offset = @intCast(code.items.len),
+                .pointee = .{ .nav_index = nav_index },
+            });
+            try code.appendNTimes(0, ptr_width_bytes);
+            return .ok;
+        },
+        else => {},
     }
 
     const vaddr = try lf.getNavVAddr(pt, nav_index, .{
@@ -758,14 +797,14 @@ fn lowerNavRef(
         .addend = @intCast(offset),
     });
     const endian = target.cpu.arch.endian();
-    switch (ptr_width) {
-        16 => mem.writeInt(u16, try code.addManyAsArray(2), @intCast(vaddr), endian),
-        32 => mem.writeInt(u32, try code.addManyAsArray(4), @intCast(vaddr), endian),
-        64 => mem.writeInt(u64, try code.addManyAsArray(8), vaddr, endian),
+    switch (ptr_width_bytes) {
+        2 => mem.writeInt(u16, try code.addManyAsArray(2), @intCast(vaddr), endian),
+        4 => mem.writeInt(u32, try code.addManyAsArray(4), @intCast(vaddr), endian),
+        8 => mem.writeInt(u64, try code.addManyAsArray(8), vaddr, endian),
         else => unreachable,
     }
 
-    return Result.ok;
+    return .ok;
 }
 
 /// Helper struct to denote that the value is in memory but requires a linker relocation fixup:

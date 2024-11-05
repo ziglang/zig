@@ -633,42 +633,15 @@ pub const File = struct {
     pub const FlushDebugInfoError = Dwarf.FlushError;
 
     pub const UpdateNavError = error{
-        OutOfMemory,
         Overflow,
-        Underflow,
-        FileTooBig,
-        InputOutput,
-        FilesOpenedWithWrongFlags,
-        IsDir,
-        NoSpaceLeft,
-        Unseekable,
-        PermissionDenied,
-        SwapFile,
-        CorruptedData,
-        SystemResources,
-        OperationAborted,
-        BrokenPipe,
-        ConnectionResetByPeer,
-        ConnectionTimedOut,
-        SocketNotConnected,
-        NotOpenForReading,
-        WouldBlock,
-        Canceled,
-        AccessDenied,
-        Unexpected,
-        DiskQuota,
-        NotOpenForWriting,
-        AnalysisFail,
+        OutOfMemory,
+        /// Indicates the error is already reported and stored in
+        /// `failed_codegen` on the Zcu.
         CodegenFail,
-        EmitFail,
-        NameTooLong,
-        CurrentWorkingDirectoryUnlinked,
-        LockViolation,
-        NetNameDeleted,
-        DeviceBusy,
-        InvalidArgument,
-        HotSwapUnavailableOnHostOperatingSystem,
-    } || UpdateDebugInfoError;
+        /// Indicates the error is already reported and stored in `link_diags`
+        /// on the Compilation.
+        LinkFailure,
+    };
 
     /// Called from within CodeGen to retrieve the symbol index of a global symbol.
     /// If no symbol exists yet with this name, a new undefined global symbol will
@@ -771,83 +744,11 @@ pub const File = struct {
         }
     }
 
-    /// TODO audit this error set. most of these should be collapsed into one error,
-    /// and Diags.Flags should be updated to convey the meaning to the user.
     pub const FlushError = error{
-        CacheCheckFailed,
-        CurrentWorkingDirectoryUnlinked,
-        DivisionByZero,
-        DllImportLibraryNotFound,
-        ExpectedFuncType,
-        FailedToEmit,
-        FileSystem,
-        FilesOpenedWithWrongFlags,
-        /// Deprecated. Use `LinkFailure` instead.
-        /// Formerly used to indicate an error will be present in `Compilation.link_errors`.
-        FlushFailure,
         /// Indicates an error will be present in `Compilation.link_errors`.
         LinkFailure,
-        FunctionSignatureMismatch,
-        GlobalTypeMismatch,
-        HotSwapUnavailableOnHostOperatingSystem,
-        InvalidCharacter,
-        InvalidEntryKind,
-        InvalidFeatureSet,
-        InvalidFormat,
-        InvalidIndex,
-        InvalidInitFunc,
-        InvalidMagicByte,
-        InvalidWasmVersion,
-        LLDCrashed,
-        LLDReportedFailure,
-        LLD_LinkingIsTODO_ForSpirV,
-        LibCInstallationMissingCrtDir,
-        LibCInstallationNotAvailable,
-        LinkingWithoutZigSourceUnimplemented,
-        MalformedArchive,
-        MalformedDwarf,
-        MalformedSection,
-        MemoryTooBig,
-        MemoryTooSmall,
-        MissAlignment,
-        MissingEndForBody,
-        MissingEndForExpression,
-        MissingSymbol,
-        MissingTableSymbols,
-        ModuleNameMismatch,
-        NoObjectsToLink,
-        NotObjectFile,
-        NotSupported,
         OutOfMemory,
-        Overflow,
-        PermissionDenied,
-        StreamTooLong,
-        SwapFile,
-        SymbolCollision,
-        SymbolMismatchingType,
-        TODOImplementPlan9Objs,
-        TODOImplementWritingLibFiles,
-        UnableToSpawnSelf,
-        UnableToSpawnWasm,
-        UnableToWriteArchive,
-        UndefinedLocal,
-        UndefinedSymbol,
-        Underflow,
-        UnexpectedRemainder,
-        UnexpectedTable,
-        UnexpectedValue,
-        UnknownFeature,
-        UnrecognizedVolume,
-        Unseekable,
-        UnsupportedCpuArchitecture,
-        UnsupportedVersion,
-        UnexpectedEndOfFile,
-    } ||
-        fs.File.WriteFileError ||
-        fs.File.OpenError ||
-        std.process.Child.SpawnError ||
-        fs.Dir.CopyFileError ||
-        FlushDebugInfoError;
+    };
 
     /// Commit pending changes and write headers. Takes into account final output mode
     /// and `use_lld`, not only `effectiveOutputMode`.
@@ -864,7 +765,12 @@ pub const File = struct {
             assert(comp.c_object_table.count() == 1);
             const the_key = comp.c_object_table.keys()[0];
             const cached_pp_file_path = the_key.status.success.object_path;
-            try cached_pp_file_path.root_dir.handle.copyFile(cached_pp_file_path.sub_path, emit.root_dir.handle, emit.sub_path, .{});
+            cached_pp_file_path.root_dir.handle.copyFile(cached_pp_file_path.sub_path, emit.root_dir.handle, emit.sub_path, .{}) catch |err| {
+                const diags = &base.comp.link_diags;
+                return diags.fail("failed to copy '{'}' to '{'}': {s}", .{
+                    @as(Path, cached_pp_file_path), @as(Path, emit), @errorName(err),
+                });
+            };
             return;
         }
 
@@ -889,16 +795,6 @@ pub const File = struct {
             inline else => |tag| {
                 dev.check(tag.devFeature());
                 return @as(*tag.Type(), @fieldParentPtr("base", base)).flushModule(arena, tid, prog_node);
-            },
-        }
-    }
-
-    /// Called when a Decl is deleted from the Zcu.
-    pub fn freeDecl(base: *File, decl_index: InternPool.DeclIndex) void {
-        switch (base.tag) {
-            inline else => |tag| {
-                dev.check(tag.devFeature());
-                @as(*tag.Type(), @fieldParentPtr("base", base)).freeDecl(decl_index);
             },
         }
     }
@@ -932,6 +828,7 @@ pub const File = struct {
         addend: u32,
 
         pub const Parent = union(enum) {
+            none,
             atom_index: u32,
             debug_output: DebugInfoOutput,
         };
@@ -948,6 +845,7 @@ pub const File = struct {
             .c => unreachable,
             .spirv => unreachable,
             .nvptx => unreachable,
+            .wasm => unreachable,
             inline else => |tag| {
                 dev.check(tag.devFeature());
                 return @as(*tag.Type(), @fieldParentPtr("base", base)).getNavVAddr(pt, nav_index, reloc_info);
@@ -966,6 +864,7 @@ pub const File = struct {
             .c => unreachable,
             .spirv => unreachable,
             .nvptx => unreachable,
+            .wasm => unreachable,
             inline else => |tag| {
                 dev.check(tag.devFeature());
                 return @as(*tag.Type(), @fieldParentPtr("base", base)).lowerUav(pt, decl_val, decl_align, src_loc);
@@ -978,6 +877,7 @@ pub const File = struct {
             .c => unreachable,
             .spirv => unreachable,
             .nvptx => unreachable,
+            .wasm => unreachable,
             inline else => |tag| {
                 dev.check(tag.devFeature());
                 return @as(*tag.Type(), @fieldParentPtr("base", base)).getUavVAddr(decl_val, reloc_info);
@@ -1094,6 +994,26 @@ pub const File = struct {
             inline .elf, .wasm => |tag| {
                 dev.check(tag.devFeature());
                 return @as(*tag.Type(), @fieldParentPtr("base", base)).loadInput(input);
+            },
+            else => {},
+        }
+    }
+
+    /// Called when all linker inputs have been sent via `loadInput`. After
+    /// this, `loadInput` will not be called anymore.
+    pub fn prelink(base: *File) FlushError!void {
+        const use_lld = build_options.have_llvm and base.comp.config.use_lld;
+        if (use_lld) return;
+
+        // In this case, an object file is created by the LLVM backend, so
+        // there is no prelink phase. The Zig code is linked as a standard
+        // object along with the others.
+        if (base.zcu_object_sub_path != null) return;
+
+        switch (base.tag) {
+            inline .wasm => |tag| {
+                dev.check(tag.devFeature());
+                return @as(*tag.Type(), @fieldParentPtr("base", base)).prelink();
             },
             else => {},
         }

@@ -2682,7 +2682,7 @@ const WasmDumper = struct {
             else => unreachable,
         }
         const end_opcode = try std.leb.readUleb128(u8, reader);
-        if (end_opcode != std.wasm.opcode(.end)) {
+        if (end_opcode != @intFromEnum(std.wasm.Opcode.end)) {
             return step.fail("expected 'end' opcode in init expression", .{});
         }
     }
