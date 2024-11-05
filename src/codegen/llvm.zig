@@ -5576,6 +5576,10 @@ pub const FuncGen = struct {
         var attributes: Builder.FunctionAttributes.Wip = .{};
         defer attributes.deinit(&o.builder);
 
+        if (self.ng.ownerModule().no_builtin) {
+            try attributes.addFnAttr(.nobuiltin, &o.builder);
+        }
+
         switch (modifier) {
             .auto, .never_tail, .always_tail => {},
             .never_inline => try attributes.addFnAttr(.@"noinline", &o.builder),
