@@ -463,9 +463,6 @@ fn addCcArgs(
 
         o_arg,
 
-        "-fno-unwind-tables",
-        "-fno-asynchronous-unwind-tables",
-
         "-Qunused-arguments",
         "-w", // disable all warnings
     });
