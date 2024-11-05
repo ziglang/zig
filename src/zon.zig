@@ -29,19 +29,24 @@ pub fn lower(
     file_index: Zcu.File.Index,
     res_ty: ?Type,
 ) CompileError!InternPool.Index {
-    const lower_zon: LowerZon = .{
-        .sema = sema,
-        .file = file,
-        .file_index = file_index,
-    };
-    const tree = lower_zon.file.getTree(lower_zon.sema.gpa) catch unreachable; // Already validated
-    if (tree.errors.len != 0) {
-        return lower_zon.lowerAstErrors();
-    }
+    _ = sema;
+    _ = file;
+    _ = file_index;
+    _ = res_ty;
+    @panic("unimplemented");
+    // const lower_zon: LowerZon = .{
+    //     .sema = sema,
+    //     .file = file,
+    //     .file_index = file_index,
+    // };
+    // const tree = lower_zon.file.getTree(lower_zon.sema.gpa) catch unreachable; // Already validated
+    // if (tree.errors.len != 0) {
+    //     return lower_zon.lowerAstErrors();
+    // }
 
-    const data = tree.nodes.items(.data);
-    const root = data[0].lhs;
-    return lower_zon.expr(root, res_ty);
+    // const data = tree.nodes.items(.data);
+    // const root = data[0].lhs;
+    // return lower_zon.expr(root, res_ty);
 }
 
 fn lazySrcLoc(self: LowerZon, loc: LazySrcLoc.Offset) !LazySrcLoc {
@@ -61,7 +66,7 @@ fn fail(
     comptime format: []const u8,
     args: anytype,
 ) (Allocator.Error || error{AnalysisFail}) {
-    @setCold(true);
+    @branchHint(.cold);
     const src_loc = try self.lazySrcLoc(loc);
     const err_msg = try Zcu.ErrorMsg.create(self.sema.pt.zcu.gpa, src_loc, format, args);
     try self.sema.pt.zcu.failed_files.putNoClobber(self.sema.pt.zcu.gpa, self.file, err_msg);

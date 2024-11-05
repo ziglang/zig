@@ -359,19 +359,19 @@ test "std.zon parseFromAstNode and parseFromAstNodeNoAlloc" {
 fn requiresAllocator(comptime T: type) bool {
     // Keep in sync with parseFree, stringify, and requiresAllocator.
     return switch (@typeInfo(T)) {
-        .Pointer => true,
-        .Array => |Array| requiresAllocator(Array.child),
-        .Struct => |Struct| inline for (Struct.fields) |field| {
+        .pointer => true,
+        .array => |array| requiresAllocator(array.child),
+        .@"struct" => |@"struct"| inline for (@"struct".fields) |field| {
             if (requiresAllocator(field.type)) {
                 break true;
             }
         } else false,
-        .Union => |Union| inline for (Union.fields) |field| {
+        .@"union" => |@"union"| inline for (@"union".fields) |field| {
             if (requiresAllocator(field.type)) {
                 break true;
             }
         } else false,
-        .Optional => |Optional| requiresAllocator(Optional.child),
+        .optional => |optional| requiresAllocator(optional.child),
         else => false,
     };
 }
@@ -402,25 +402,25 @@ fn maxIdentLength(comptime T: type) usize {
     // Keep in sync with `parseExpr`.
     comptime var max = 0;
     switch (@typeInfo(T)) {
-        .Bool, .Int, .Float, .Null, .Void => {},
-        .Pointer => |Pointer| max = comptime maxIdentLength(Pointer.child),
-        .Array => |Array| if (Array.len > 0) {
-            max = comptime maxIdentLength(Array.child);
+        .bool, .int, .float, .null, .void => {},
+        .pointer => |pointer| max = comptime maxIdentLength(pointer.child),
+        .array => |array| if (array.len > 0) {
+            max = comptime maxIdentLength(array.child);
         },
-        .Struct => |Struct| inline for (Struct.fields) |field| {
-            if (!Struct.is_tuple) {
+        .@"struct" => |@"struct"| inline for (@"struct".fields) |field| {
+            if (!@"struct".is_tuple) {
                 max = @max(max, field.name.len);
             }
             max = @max(max, comptime maxIdentLength(field.type));
         },
-        .Union => |Union| inline for (Union.fields) |field| {
+        .@"union" => |@"union"| inline for (@"union".fields) |field| {
             max = @max(max, field.name.len);
             max = @max(max, comptime maxIdentLength(field.type));
         },
-        .Enum => |Enum| inline for (Enum.fields) |field| {
+        .@"enum" => |@"enum"| inline for (@"enum".fields) |field| {
             max = @max(max, field.name.len);
         },
-        .Optional => |Optional| max = comptime maxIdentLength(Optional.child),
+        .optional => |optional| max = comptime maxIdentLength(optional.child),
         else => unreachable,
     }
     return max;
@@ -493,9 +493,9 @@ pub fn parseFree(gpa: Allocator, value: anytype) void {
 
     // Keep in sync with parseFree, stringify, and requiresAllocator.
     switch (@typeInfo(Value)) {
-        .Bool, .Int, .Float, .Enum => {},
-        .Pointer => |Pointer| {
-            switch (Pointer.size) {
+        .bool, .int, .float, .@"enum" => {},
+        .pointer => |pointer| {
+            switch (pointer.size) {
                 .One, .Many, .C => if (comptime requiresAllocator(Value)) {
                     @compileError(@typeName(Value) ++ ": parseFree cannot free non slice pointers");
                 },
@@ -505,13 +505,13 @@ pub fn parseFree(gpa: Allocator, value: anytype) void {
             }
             return gpa.free(value);
         },
-        .Array => for (value) |item| {
+        .array => for (value) |item| {
             parseFree(gpa, item);
         },
-        .Struct => |Struct| inline for (Struct.fields) |field| {
+        .@"struct" => |@"struct"| inline for (@"struct".fields) |field| {
             parseFree(gpa, @field(value, field.name));
         },
-        .Union => |Union| if (Union.tag_type == null) {
+        .@"union" => |@"union"| if (@"union".tag_type == null) {
             if (comptime requiresAllocator(Value)) {
                 @compileError(@typeName(Value) ++ ": parseFree cannot free untagged unions");
             }
@@ -520,11 +520,11 @@ pub fn parseFree(gpa: Allocator, value: anytype) void {
                 parseFree(gpa, @field(value, @tagName(tag)));
             },
         },
-        .Optional => if (value) |some| {
+        .optional => if (value) |some| {
             parseFree(gpa, some);
         },
-        .Void => {},
-        .Null => {},
+        .void => {},
+        .null => {},
         else => @compileError(@typeName(Value) ++ ": parseFree cannot free this type"),
     }
 }
@@ -546,18 +546,18 @@ fn parseExpr(
 
     // Keep in sync with parseFree, stringify, and requiresAllocator.
     switch (@typeInfo(T)) {
-        .Bool => return self.parseBool(node),
-        .Int, .Float => return self.parseNumber(T, node),
-        .Enum => return self.parseEnumLiteral(T, node),
-        .Pointer => return self.parsePointer(T, options, node),
-        .Array => return self.parseArray(T, options, node),
-        .Struct => |Struct| if (Struct.is_tuple)
+        .bool => return self.parseBool(node),
+        .int, .float => return self.parseNumber(T, node),
+        .@"enum" => return self.parseEnumLiteral(T, node),
+        .pointer => return self.parsePointer(T, options, node),
+        .array => return self.parseArray(T, options, node),
+        .@"struct" => |@"struct"| if (@"struct".is_tuple)
             return self.parseTuple(T, options, node)
         else
             return self.parseStruct(T, options, node),
-        .Union => return self.parseUnion(T, options, node),
-        .Optional => return self.parseOptional(T, options, node),
-        .Void => return self.parseVoid(node),
+        .@"union" => return self.parseUnion(T, options, node),
+        .optional => return self.parseOptional(T, options, node),
+        .void => return self.parseVoid(node),
 
         else => @compileError(@typeName(T) ++ ": cannot parse this type"),
     }
@@ -602,7 +602,7 @@ test "std.zon void" {
 }
 
 fn parseOptional(self: *@This(), comptime T: type, comptime options: ParseOptions, node: NodeIndex) error{ ParserOutOfMemory, Type }!T {
-    const Optional = @typeInfo(T).Optional;
+    const optional = @typeInfo(T).optional;
 
     const tags = self.ast.nodes.items(.tag);
     if (tags[node] == .identifier) {
@@ -614,7 +614,7 @@ fn parseOptional(self: *@This(), comptime T: type, comptime options: ParseOption
         }
     }
 
-    return try self.parseExpr(Optional.child, options, node);
+    return try self.parseExpr(optional.child, options, node);
 }
 
 test "std.zon optional" {
@@ -639,8 +639,8 @@ test "std.zon optional" {
 }
 
 fn parseUnion(self: *@This(), comptime T: type, comptime options: ParseOptions, node: NodeIndex) error{ ParserOutOfMemory, Type }!T {
-    const Union = @typeInfo(T).Union;
-    const field_infos = Union.fields;
+    const @"union" = @typeInfo(T).@"union";
+    const field_infos = @"union".fields;
 
     if (field_infos.len == 0) {
         @compileError(@typeName(T) ++ ": cannot parse unions with no fields");
@@ -661,7 +661,7 @@ fn parseUnion(self: *@This(), comptime T: type, comptime options: ParseOptions, 
     const tags = self.ast.nodes.items(.tag);
     if (tags[node] == .enum_literal) {
         // The union must be tagged for an enum literal to coerce to it
-        if (Union.tag_type == null) {
+        if (@"union".tag_type == null) {
             return self.fail(main_tokens[node], .expected_union);
         }
 
@@ -919,8 +919,8 @@ fn fields(
 }
 
 fn parseStruct(self: *@This(), comptime T: type, comptime options: ParseOptions, node: NodeIndex) error{ ParserOutOfMemory, Type }!T {
-    const Struct = @typeInfo(T).Struct;
-    const field_infos = Struct.fields;
+    const @"struct" = @typeInfo(T).@"struct";
+    const field_infos = @"struct".fields;
 
     // Gather info on the fields
     const field_indices = b: {
@@ -984,7 +984,7 @@ fn parseStruct(self: *@This(), comptime T: type, comptime options: ParseOptions,
     // Fill in any missing default fields
     inline for (field_found, 0..) |found, i| {
         if (!found) {
-            const field_info = Struct.fields[i];
+            const field_info = @"struct".fields[i];
             if (field_info.default_value) |default| {
                 const typed: *const field_info.type = @ptrCast(@alignCast(default));
                 @field(result, field_info.name) = typed.*;
@@ -1177,8 +1177,7 @@ test "std.zon structs" {
 }
 
 fn parseTuple(self: *@This(), comptime T: type, comptime options: ParseOptions, node: NodeIndex) error{ ParserOutOfMemory, Type }!T {
-    const Struct = @typeInfo(T).Struct;
-    const field_infos = Struct.fields;
+    const field_infos = @typeInfo(T).@"struct".fields;
 
     var result: T = undefined;
 
@@ -1287,14 +1286,14 @@ test "std.zon tuples" {
 }
 
 fn parseArray(self: *@This(), comptime T: type, comptime options: ParseOptions, node: NodeIndex) error{ ParserOutOfMemory, Type }!T {
-    const Array = @typeInfo(T).Array;
+    const array_info = @typeInfo(T).array;
     // Parse the array
     var array: T = undefined;
     var buf: [2]NodeIndex = undefined;
     const element_nodes = try self.elements(T, &buf, node);
 
     // Check if the size matches
-    if (element_nodes.len != Array.len) {
+    if (element_nodes.len != array_info.len) {
         const main_tokens = self.ast.nodes.items(.main_token);
         return self.failExpectedContainer(T, main_tokens[node]);
     }
@@ -1308,7 +1307,7 @@ fn parseArray(self: *@This(), comptime T: type, comptime options: ParseOptions, 
             }
         };
 
-        element.* = try self.parseExpr(Array.child, options, element_node);
+        element.* = try self.parseExpr(array_info.child, options, element_node);
     }
     return array;
 }
@@ -1528,9 +1527,9 @@ fn parsePointer(self: *@This(), comptime T: type, comptime options: ParseOptions
 }
 
 fn parseSlice(self: *@This(), comptime T: type, comptime options: ParseOptions, node: NodeIndex) error{ ParserOutOfMemory, Type }!T {
-    const Ptr = @typeInfo(T).Pointer;
+    const pointer = @typeInfo(T).pointer;
     // Make sure we're working with a slice
-    switch (Ptr.size) {
+    switch (pointer.size) {
         .Slice => {},
         .One, .Many, .C => @compileError(@typeName(T) ++ ": non slice pointers not supported"),
     }
@@ -1541,11 +1540,11 @@ fn parseSlice(self: *@This(), comptime T: type, comptime options: ParseOptions, 
     const element_nodes = try self.elements(T, &buf, node);
 
     // Allocate the slice
-    const sentinel = if (Ptr.sentinel) |s| @as(*const Ptr.child, @ptrCast(s)).* else null;
+    const sentinel = if (pointer.sentinel) |s| @as(*const pointer.child, @ptrCast(s)).* else null;
     const slice = self.gpa.allocWithOptions(
-        Ptr.child,
+        pointer.child,
         element_nodes.len,
-        Ptr.alignment,
+        pointer.alignment,
         sentinel,
     ) catch |err| switch (err) {
         error.OutOfMemory => return self.failOutOfMemory(main_tokens[node]),
@@ -1559,15 +1558,15 @@ fn parseSlice(self: *@This(), comptime T: type, comptime options: ParseOptions, 
                 parseFree(self.gpa, slice[i]);
             }
         };
-        element.* = try self.parseExpr(Ptr.child, options, element_node);
+        element.* = try self.parseExpr(pointer.child, options, element_node);
     }
     return slice;
 }
 
 fn parseStringLiteral(self: *@This(), comptime T: type, node: NodeIndex) error{ ParserOutOfMemory, Type }!T {
-    const Pointer = @typeInfo(T).Pointer;
+    const pointer = @typeInfo(T).pointer;
 
-    if (Pointer.size != .Slice) {
+    if (pointer.size != .Slice) {
         @compileError(@typeName(T) ++ ": cannot parse pointers that are not slices");
     }
 
@@ -1575,7 +1574,7 @@ fn parseStringLiteral(self: *@This(), comptime T: type, node: NodeIndex) error{ 
     const token = main_tokens[node];
     const raw = self.ast.tokenSlice(token);
 
-    if (Pointer.child != u8 or !Pointer.is_const or Pointer.alignment != 1) {
+    if (pointer.child != u8 or !pointer.is_const or pointer.alignment != 1) {
         return self.failExpectedContainer(T, token);
     }
     var buf = std.ArrayListUnmanaged(u8){};
@@ -1591,7 +1590,7 @@ fn parseStringLiteral(self: *@This(), comptime T: type, node: NodeIndex) error{ 
         .failure => |reason| return self.failInvalidStringLiteral(token, reason),
     }
 
-    if (Pointer.sentinel) |sentinel| {
+    if (pointer.sentinel) |sentinel| {
         if (@as(*const u8, @ptrCast(sentinel)).* != 0) {
             return self.failExpectedContainer(T, token);
         }
@@ -1608,13 +1607,13 @@ fn parseStringLiteral(self: *@This(), comptime T: type, node: NodeIndex) error{ 
 fn parseMultilineStringLiteral(self: *@This(), comptime T: type, node: NodeIndex) error{ ParserOutOfMemory, Type }!T {
     const main_tokens = self.ast.nodes.items(.main_token);
 
-    const Pointer = @typeInfo(T).Pointer;
+    const pointer = @typeInfo(T).pointer;
 
-    if (Pointer.size != .Slice) {
+    if (pointer.size != .Slice) {
         @compileError(@typeName(T) ++ ": cannot parse pointers that are not slices");
     }
 
-    if (Pointer.child != u8 or !Pointer.is_const or Pointer.alignment != 1) {
+    if (pointer.child != u8 or !pointer.is_const or pointer.alignment != 1) {
         return self.failExpectedContainer(T, main_tokens[node]);
     }
 
@@ -1632,7 +1631,7 @@ fn parseMultilineStringLiteral(self: *@This(), comptime T: type, node: NodeIndex
         };
     }
 
-    if (Pointer.sentinel) |sentinel| {
+    if (pointer.sentinel) |sentinel| {
         if (@as(*const u8, @ptrCast(sentinel)).* != 0) {
             return self.failExpectedContainer(T, main_tokens[node]);
         }
@@ -1878,7 +1877,7 @@ fn parseEnumLiteral(self: @This(), comptime T: type, node: NodeIndex) error{Type
     switch (tags[node]) {
         .enum_literal => {
             // Create a comptime string map for the enum fields
-            const enum_fields = @typeInfo(T).Enum.fields;
+            const enum_fields = @typeInfo(T).@"enum".fields;
             comptime var kvs_list: [enum_fields.len]struct { []const u8, T } = undefined;
             inline for (enum_fields, 0..) |field, i| {
                 kvs_list[i] = .{ field.name, @enumFromInt(field.value) };
@@ -1986,7 +1985,7 @@ test "std.zon enum literals" {
 }
 
 fn fail(self: @This(), token: TokenIndex, reason: ParseFailure.Reason) error{Type} {
-    @setCold(true);
+    @branchHint(.cold);
     if (self.status) |s| s.* = .{ .failure = .{
         .ast = self.ast,
         .token = token,
@@ -2006,35 +2005,35 @@ fn failOutOfMemory(self: *@This(), token: TokenIndex) error{ParserOutOfMemory} {
 }
 
 fn failInvalidStringLiteral(self: @This(), token: TokenIndex, err: StringLiteralError) error{Type} {
-    @setCold(true);
+    @branchHint(.cold);
     return self.fail(token, .{
         .invalid_string_literal = .{ .err = err },
     });
 }
 
 fn failInvalidNumberLiteral(self: @This(), token: TokenIndex, err: NumberLiteralError) error{Type} {
-    @setCold(true);
+    @branchHint(.cold);
     return self.fail(token, .{
         .invalid_number_literal = .{ .err = err },
     });
 }
 
 fn failCannotRepresent(self: @This(), comptime T: type, token: TokenIndex) error{Type} {
-    @setCold(true);
+    @branchHint(.cold);
     return self.fail(token, .{
         .cannot_represent = .{ .type_name = @typeName(T) },
     });
 }
 
 fn failNegativeIntegerZero(self: @This(), token: TokenIndex) error{Type} {
-    @setCold(true);
+    @branchHint(.cold);
     return self.fail(token, .negative_integer_zero);
 }
 
 fn failUnexpectedField(self: @This(), T: type, token: TokenIndex) error{Type} {
-    @setCold(true);
+    @branchHint(.cold);
     switch (@typeInfo(T)) {
-        .Struct, .Union, .Enum => return self.fail(token, .{ .unexpected_field = .{
+        .@"struct", .@"union", .@"enum" => return self.fail(token, .{ .unexpected_field = .{
             .fields = std.meta.fieldNames(T),
         } }),
         else => @compileError("unreachable, should not be called for type " ++ @typeName(T)),
@@ -2042,25 +2041,25 @@ fn failUnexpectedField(self: @This(), T: type, token: TokenIndex) error{Type} {
 }
 
 fn failExpectedContainer(self: @This(), T: type, token: TokenIndex) error{Type} {
-    @setCold(true);
+    @branchHint(.cold);
     switch (@typeInfo(T)) {
-        .Struct => |Struct| if (Struct.is_tuple) {
+        .@"struct" => |@"struct"| if (@"struct".is_tuple) {
             return self.fail(token, .{ .expected_tuple_with_fields = .{
-                .fields = Struct.fields.len,
+                .fields = @"struct".fields.len,
             } });
         } else {
             return self.fail(token, .expected_struct);
         },
-        .Union => return self.fail(token, .expected_union),
-        .Array => |Array| return self.fail(token, .{ .expected_tuple_with_fields = .{
-            .fields = Array.len,
+        .@"union" => return self.fail(token, .expected_union),
+        .array => |array| return self.fail(token, .{ .expected_tuple_with_fields = .{
+            .fields = array.len,
         } }),
-        .Pointer => |Pointer| {
-            if (Pointer.child == u8 and
-                Pointer.size == .Slice and
-                Pointer.is_const and
-                (Pointer.sentinel == null or @as(*const u8, @ptrCast(Pointer.sentinel)).* == 0) and
-                Pointer.alignment == 1)
+        .pointer => |pointer| {
+            if (pointer.child == u8 and
+                pointer.size == .Slice and
+                pointer.is_const and
+                (pointer.sentinel == null or @as(*const u8, @ptrCast(pointer.sentinel)).* == 0) and
+                pointer.alignment == 1)
             {
                 return self.fail(token, .expected_string);
             } else {
@@ -2072,17 +2071,17 @@ fn failExpectedContainer(self: @This(), T: type, token: TokenIndex) error{Type} 
 }
 
 fn failMissingField(self: @This(), name: []const u8, token: TokenIndex) error{Type} {
-    @setCold(true);
+    @branchHint(.cold);
     return self.fail(token, .{ .missing_field = .{ .field_name = name } });
 }
 
 fn failDuplicateField(self: @This(), token: TokenIndex) error{Type} {
-    @setCold(true);
+    @branchHint(.cold);
     return self.fail(token, .duplicate_field);
 }
 
 fn failTypeExpr(self: @This(), token: TokenIndex) error{Type} {
-    @setCold(true);
+    @branchHint(.cold);
     return self.fail(token, .type_expr);
 }
 
@@ -2146,7 +2145,7 @@ fn parseNumber(
         .number_literal => return self.parseNumberLiteral(T, node),
         .char_literal => return self.parseCharLiteral(T, node),
         .identifier => switch (@typeInfo(T)) {
-            .Float => {
+            .float => {
                 const token = main_tokens[num_lit_node];
                 const bytes = self.ast.tokenSlice(token);
                 const Ident = enum { inf, nan };
@@ -2196,7 +2195,7 @@ fn applySignToInt(self: @This(), comptime T: type, node: NodeIndex, int: anytype
             return self.failNegativeIntegerZero(main_tokens[node]);
         }
         switch (@typeInfo(T)) {
-            .Int => |int_type| switch (int_type.signedness) {
+            .int => |int_info| switch (int_info.signedness) {
                 .signed => {
                     const In = @TypeOf(int);
                     if (std.math.maxInt(In) > std.math.maxInt(T) and int == @as(In, std.math.maxInt(T)) + 1) {
@@ -2207,14 +2206,14 @@ fn applySignToInt(self: @This(), comptime T: type, node: NodeIndex, int: anytype
                 },
                 .unsigned => return self.failCannotRepresent(T, main_tokens[node]),
             },
-            .Float => return -@as(T, @floatFromInt(int)),
+            .float => return -@as(T, @floatFromInt(int)),
             else => @compileError("internal error: expected numeric type"),
         }
     } else {
         switch (@typeInfo(T)) {
-            .Int => return std.math.cast(T, int) orelse
+            .int => return std.math.cast(T, int) orelse
                 self.failCannotRepresent(T, main_tokens[node]),
-            .Float => return @as(T, @floatFromInt(int)),
+            .float => return @as(T, @floatFromInt(int)),
             else => @compileError("internal error: expected numeric type"),
         }
     }
@@ -2227,8 +2226,8 @@ fn parseBigNumber(
     base: Base,
 ) error{Type}!T {
     switch (@typeInfo(T)) {
-        .Int => return self.parseBigInt(T, node, base),
-        .Float => {
+        .int => return self.parseBigInt(T, node, base),
+        .float => {
             const result = @as(T, @floatCast(try self.parseFloat(f128, node)));
             if (std.math.isNegativeZero(result)) {
                 const main_tokens = self.ast.nodes.items(.main_token);
@@ -2265,12 +2264,12 @@ fn parseFloat(
     const main_tokens = self.ast.nodes.items(.main_token);
     const num_lit_token = main_tokens[num_lit_node];
     const bytes = self.ast.tokenSlice(num_lit_token);
-    const Float = if (@typeInfo(T) == .Float) T else f128;
+    const Float = if (@typeInfo(T) == .float) T else f128;
     const unsigned_float = std.fmt.parseFloat(Float, bytes) catch unreachable; // Already validated
     const result = if (self.isNegative(node)) -unsigned_float else unsigned_float;
     switch (@typeInfo(T)) {
-        .Float => return @as(T, @floatCast(result)),
-        .Int => return intFromFloatExact(T, result) orelse
+        .float => return @as(T, @floatCast(result)),
+        .int => return intFromFloatExact(T, result) orelse
             return self.failCannotRepresent(T, main_tokens[node]),
         else => @compileError("internal error: expected integer or float type"),
     }
@@ -2301,11 +2300,11 @@ fn numLitNode(self: *const @This(), node: NodeIndex) NodeIndex {
 
 fn intFromFloatExact(comptime T: type, value: anytype) ?T {
     switch (@typeInfo(@TypeOf(value))) {
-        .Float => {},
+        .float => {},
         else => @compileError(@typeName(@TypeOf(value)) ++ " is not a runtime floating point type"),
     }
     switch (@typeInfo(T)) {
-        .Int => {},
+        .int => {},
         else => @compileError(@typeName(T) ++ " is not a runtime integer type"),
     }
 

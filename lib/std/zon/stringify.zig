@@ -129,7 +129,7 @@ fn typeIsRecursiveImpl(comptime T: type, comptime visited_arg: []type) bool {
     }
 
     // Add this type to the stack
-    if (visited.len >= @typeInfo(RecursiveTypeBuffer).Array.len) {
+    if (visited.len >= @typeInfo(RecursiveTypeBuffer).array.len) {
         @compileError("recursion limit");
     }
     visited.ptr[visited.len] = T;
@@ -137,19 +137,19 @@ fn typeIsRecursiveImpl(comptime T: type, comptime visited_arg: []type) bool {
 
     // Recurse
     switch (@typeInfo(T)) {
-        .Pointer => |Pointer| return typeIsRecursiveImpl(Pointer.child, visited),
-        .Array => |Array| return typeIsRecursiveImpl(Array.child, visited),
-        .Struct => |Struct| inline for (Struct.fields) |field| {
+        .pointer => |pointer| return typeIsRecursiveImpl(pointer.child, visited),
+        .array => |array| return typeIsRecursiveImpl(array.child, visited),
+        .@"struct" => |@"struct"| inline for (@"struct".fields) |field| {
             if (typeIsRecursiveImpl(field.type, visited)) {
                 return true;
             }
         },
-        .Union => |Union| inline for (Union.fields) |field| {
+        .@"union" => |@"union"| inline for (@"union".fields) |field| {
             if (typeIsRecursiveImpl(field.type, visited)) {
                 return true;
             }
         },
-        .Optional => |Optional| return typeIsRecursiveImpl(Optional.child, visited),
+        .optional => |optional| return typeIsRecursiveImpl(optional.child, visited),
         else => {},
     }
     return false;
@@ -183,27 +183,27 @@ fn checkValueDepth(val: anytype, depth: usize) error{MaxDepth}!void {
     const child_depth = depth - 1;
 
     switch (@typeInfo(@TypeOf(val))) {
-        .Pointer => |Pointer| switch (Pointer.size) {
+        .pointer => |pointer| switch (pointer.size) {
             .One => try checkValueDepth(val.*, child_depth),
             .Slice => for (val) |item| {
                 try checkValueDepth(item, child_depth);
             },
             .C, .Many => {},
         },
-        .Array => for (val) |item| {
+        .array => for (val) |item| {
             try checkValueDepth(item, child_depth);
         },
-        .Struct => |Struct| inline for (Struct.fields) |field_info| {
+        .@"struct" => |@"struct"| inline for (@"struct".fields) |field_info| {
             try checkValueDepth(@field(val, field_info.name), child_depth);
         },
-        .Union => |Union| if (Union.tag_type == null) {
+        .@"union" => |@"union"| if (@"union".tag_type == null) {
             return;
         } else switch (val) {
             inline else => |payload| {
                 return checkValueDepth(payload, child_depth);
             },
         },
-        .Optional => if (val) |inner| try checkValueDepth(inner, child_depth),
+        .optional => if (val) |inner| try checkValueDepth(inner, child_depth),
         else => {},
     }
 }
@@ -311,9 +311,9 @@ pub fn Stringifier(comptime Writer: type) type {
         /// Serialize a value, similar to `stringifyArbitraryDepth`.
         pub fn valueArbitraryDepth(self: *Self, val: anytype, options: StringifyValueOptions) Writer.Error!void {
             switch (@typeInfo(@TypeOf(val))) {
-                .Int => |Int| if (options.emit_utf8_codepoints and
-                    Int.signedness == .unsigned and
-                    Int.bits <= 21 and std.unicode.utf8ValidCodepoint(val))
+                .int => |int_info| if (options.emit_utf8_codepoints and
+                    int_info.signedness == .unsigned and
+                    int_info.bits <= 21 and std.unicode.utf8ValidCodepoint(val))
                 {
                     self.utf8Codepoint(val) catch |err| switch (err) {
                         error.InvalidCodepoint => unreachable, // Already validated
@@ -322,7 +322,7 @@ pub fn Stringifier(comptime Writer: type) type {
                 } else {
                     try self.int(val);
                 },
-                .ComptimeInt => if (options.emit_utf8_codepoints and
+                .comptime_int => if (options.emit_utf8_codepoints and
                     val > 0 and
                     val <= std.math.maxInt(u21) and
                     std.unicode.utf8ValidCodepoint(val))
@@ -334,23 +334,23 @@ pub fn Stringifier(comptime Writer: type) type {
                 } else {
                     try self.int(val);
                 },
-                .Float, .ComptimeFloat => try self.float(val),
-                .Bool, .Null => try std.fmt.format(self.writer, "{}", .{val}),
-                .EnumLiteral => {
+                .float, .comptime_float => try self.float(val),
+                .bool, .null => try std.fmt.format(self.writer, "{}", .{val}),
+                .enum_literal => {
                     try self.writer.writeByte('.');
                     try self.ident(@tagName(val));
                 },
-                .Enum => |Enum| if (Enum.is_exhaustive) {
+                .@"enum" => |@"enum"| if (@"enum".is_exhaustive) {
                     try self.writer.writeByte('.');
                     try self.ident(@tagName(val));
                 } else {
                     @compileError(@typeName(@TypeOf(val)) ++ ": cannot stringify non-exhaustive enums");
                 },
-                .Void => try self.writer.writeAll("{}"),
-                .Pointer => |Pointer| {
-                    const child_type = switch (@typeInfo(Pointer.child)) {
-                        .Array => |Array| Array.child,
-                        else => if (Pointer.size != .Slice) @compileError(@typeName(@TypeOf(val)) ++ ": cannot stringify pointer to this type") else Pointer.child,
+                .void => try self.writer.writeAll("{}"),
+                .pointer => |pointer| {
+                    const child_type = switch (@typeInfo(pointer.child)) {
+                        .array => |array| array.child,
+                        else => if (pointer.size != .Slice) @compileError(@typeName(@TypeOf(val)) ++ ": cannot stringify pointer to this type") else pointer.child,
                     };
                     if (child_type == u8 and !options.emit_strings_as_containers) {
                         try self.string(val);
@@ -358,15 +358,15 @@ pub fn Stringifier(comptime Writer: type) type {
                         try self.sliceImpl(val, options);
                     }
                 },
-                .Array => {
+                .array => {
                     var container = try self.startTuple(.{ .whitespace_style = .{ .fields = val.len } });
                     for (val) |item_val| {
                         try container.fieldArbitraryDepth(item_val, options);
                     }
                     try container.finish();
                 },
-                .Struct => |StructInfo| if (StructInfo.is_tuple) {
-                    var container = try self.startTuple(.{ .whitespace_style = .{ .fields = StructInfo.fields.len } });
+                .@"struct" => |@"struct"| if (@"struct".is_tuple) {
+                    var container = try self.startTuple(.{ .whitespace_style = .{ .fields = @"struct".fields.len } });
                     inline for (val) |field_value| {
                         try container.fieldArbitraryDepth(field_value, options);
                     }
@@ -374,11 +374,11 @@ pub fn Stringifier(comptime Writer: type) type {
                 } else {
                     // Decide which fields to emit
                     const fields, const skipped = if (options.emit_default_optional_fields) b: {
-                        break :b .{ StructInfo.fields.len, [1]bool{false} ** StructInfo.fields.len };
+                        break :b .{ @"struct".fields.len, [1]bool{false} ** @"struct".fields.len };
                     } else b: {
-                        var fields = StructInfo.fields.len;
-                        var skipped = [1]bool{false} ** StructInfo.fields.len;
-                        inline for (StructInfo.fields, &skipped) |field_info, *skip| {
+                        var fields = @"struct".fields.len;
+                        var skipped = [1]bool{false} ** @"struct".fields.len;
+                        inline for (@"struct".fields, &skipped) |field_info, *skip| {
                             if (field_info.default_value) |default_field_value_opaque| {
                                 const field_value = @field(val, field_info.name);
                                 const default_field_value: *const @TypeOf(field_value) = @ptrCast(@alignCast(default_field_value_opaque));
@@ -393,14 +393,14 @@ pub fn Stringifier(comptime Writer: type) type {
 
                     // Emit those fields
                     var container = try self.startStruct(.{ .whitespace_style = .{ .fields = fields } });
-                    inline for (StructInfo.fields, skipped) |field_info, skip| {
+                    inline for (@"struct".fields, skipped) |field_info, skip| {
                         if (!skip) {
                             try container.fieldArbitraryDepth(field_info.name, @field(val, field_info.name), options);
                         }
                     }
                     try container.finish();
                 },
-                .Union => |Union| if (Union.tag_type == null) {
+                .@"union" => |@"union"| if (@"union".tag_type == null) {
                     @compileError(@typeName(@TypeOf(val)) ++ ": cannot stringify untagged unions");
                 } else {
                     var container = try self.startStruct(.{ .whitespace_style = .{ .fields = 1 } });
@@ -409,7 +409,7 @@ pub fn Stringifier(comptime Writer: type) type {
                     }
                     try container.finish();
                 },
-                .Optional => if (val) |inner| {
+                .optional => if (val) |inner| {
                     try self.valueArbitraryDepth(inner, options);
                 } else {
                     try self.writer.writeAll("null");
@@ -427,7 +427,7 @@ pub fn Stringifier(comptime Writer: type) type {
         /// Serialize a float.
         pub fn float(self: *Self, val: anytype) Writer.Error!void {
             switch (@typeInfo(@TypeOf(val))) {
-                .Float, .ComptimeFloat => if (std.math.isNan(val)) {
+                .float, .comptime_float => if (std.math.isNan(val)) {
                     return self.writer.writeAll("nan");
                 } else if (@as(f128, val) == std.math.inf(f128)) {
                     return self.writer.writeAll("inf");
