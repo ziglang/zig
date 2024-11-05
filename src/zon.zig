@@ -335,37 +335,28 @@ fn expr(self: LowerZon, node: Ast.Node.Index, res_ty: ?Type) !InternPool.Index {
                     );
                 },
             }
-
-            const array_ty = try self.sema.pt.arrayType(.{
+            const string = try ip.getOrPutString(gpa, self.sema.pt.tid, bytes.items, .maybe_embedded_nulls);
+            const array_ty = try self.sema.pt.intern(.{ .array_type = .{
                 .len = bytes.items.len,
                 .sentinel = .zero_u8,
                 .child = .u8_type,
-            });
-            const array_val = try self.sema.pt.intern(.{ .aggregate = .{
-                .ty = array_ty.toIntern(),
-                .storage = .{
-                    .bytes = try ip.getOrPutString(gpa, self.sema.pt.tid, bytes.items, .maybe_embedded_nulls),
-                },
             } });
-            const ptr_ty = try self.sema.pt.ptrTypeSema(.{
-                .child = array_ty.toIntern(),
-                .flags = .{
-                    .alignment = .none,
-                    .is_const = true,
-                    .address_space = .generic,
-                },
-            });
-            _ = array_val;
-            _ = ptr_ty;
-            @panic("unimplemented");
-            // return self.sema.pt.intern(.{ .ptr = .{
-            //     .ty = ptr_ty.toIntern(),
-            //     .base_addr = .{ .anon_decl = .{
-            //         .val = array_val,
-            //         .orig_ty = ptr_ty.toIntern(),
-            //     } },
-            //     .byte_offset = 0,
-            // } });
+            const array_val = try self.sema.pt.intern(.{ .aggregate = .{
+                .ty = array_ty,
+                .storage = .{ .bytes = string },
+            } });
+            return self.sema.pt.intern(.{ .slice = .{
+                .ty = .slice_const_u8_sentinel_0_type,
+                .ptr = try self.sema.pt.intern(.{ .ptr = .{
+                    .ty = .manyptr_const_u8_sentinel_0_type,
+                    .base_addr = .{ .uav = .{
+                        .orig_ty = .slice_const_u8_sentinel_0_type,
+                        .val = array_val,
+                    } },
+                    .byte_offset = 0,
+                } }),
+                .len = (try self.sema.pt.intValue(Type.usize, bytes.items.len)).toIntern(),
+            } });
         },
         .multiline_string_literal => {
             var bytes = std.ArrayListUnmanaged(u8){};
@@ -377,32 +368,28 @@ fn expr(self: LowerZon, node: Ast.Node.Index, res_ty: ?Type) !InternPool.Index {
                 try parser.line(self.file.tree.tokenSlice(tok_i));
             }
 
-            const array_ty = try self.sema.pt.arrayType(.{ .len = bytes.items.len, .sentinel = .zero_u8, .child = .u8_type });
-            const array_val = try self.sema.pt.intern(.{ .aggregate = .{
-                .ty = array_ty.toIntern(),
-                .storage = .{
-                    .bytes = (try ip.getOrPutString(gpa, self.sema.pt.tid, bytes.items, .no_embedded_nulls)).toString(),
-                },
+            const string = try ip.getOrPutString(gpa, self.sema.pt.tid, bytes.items, .maybe_embedded_nulls);
+            const array_ty = try self.sema.pt.intern(.{ .array_type = .{
+                .len = bytes.items.len,
+                .sentinel = .zero_u8,
+                .child = .u8_type,
             } });
-            const ptr_ty = try self.sema.pt.ptrTypeSema(.{
-                .child = array_ty.toIntern(),
-                .flags = .{
-                    .alignment = .none,
-                    .is_const = true,
-                    .address_space = .generic,
-                },
-            });
-            _ = array_val;
-            _ = ptr_ty;
-            @panic("unimplemented");
-            // return self.sema.pt.intern(.{ .ptr = .{
-            //     .ty = ptr_ty.toIntern(),
-            //     .base_addr = .{ .anon_decl = .{
-            //         .val = array_val,
-            //         .orig_ty = ptr_ty.toIntern(),
-            //     } },
-            //     .byte_offset = 0,
-            // } });
+            const array_val = try self.sema.pt.intern(.{ .aggregate = .{
+                .ty = array_ty,
+                .storage = .{ .bytes = string },
+            } });
+            return self.sema.pt.intern(.{ .slice = .{
+                .ty = .slice_const_u8_sentinel_0_type,
+                .ptr = try self.sema.pt.intern(.{ .ptr = .{
+                    .ty = .manyptr_const_u8_sentinel_0_type,
+                    .base_addr = .{ .uav = .{
+                        .orig_ty = .slice_const_u8_sentinel_0_type,
+                        .val = array_val,
+                    } },
+                    .byte_offset = 0,
+                } }),
+                .len = (try self.sema.pt.intValue(Type.usize, bytes.items.len)).toIntern(),
+            } });
         },
         .struct_init_one,
         .struct_init_one_comma,

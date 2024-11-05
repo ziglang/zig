@@ -139,31 +139,27 @@ test "slices, arrays, tuples" {
 }
 
 test "string literals" {
-    return error.SkipZigTest;
-    // // const foo: [3]u8 = "foo".*;
-    // // const bar: []const u8 = &foo;
-    // try expectEqualSlices(u8, "abc", @import("zon/abc.zon"));
-    // try expectEqualSlices(u8, "ab\\c", @import("zon/abc-escaped.zon"));
-    // const zero_terminated: [:0]const u8 = @import("zon/abc.zon");
-    // try expectEqualDeep(zero_terminated, "abc");
-    // try expectEqualStrings(
-    //     \\Hello, world!
-    //     \\This is a multiline string!
-    //     \\ There are no escapes, we can, for example, include \n in the string
-    // , @import("zon/multiline_string.zon"));
-    // try expectEqualStrings("a\nb\x00c", @import("zon/string_embedded_null.zon"));
+    try expectEqualSlices(u8, "abc", @import("zon/abc.zon"));
+    try expectEqualSlices(u8, "ab\\c", @import("zon/abc-escaped.zon"));
+    const zero_terminated: [:0]const u8 = @import("zon/abc.zon");
+    try expectEqualDeep(zero_terminated, "abc");
+    try expectEqualStrings(
+        \\Hello, world!
+        \\This is a multiline string!
+        \\ There are no escapes, we can, for example, include \n in the string
+    , @import("zon/multiline_string.zon"));
+    try expectEqualStrings("a\nb\x00c", @import("zon/string_embedded_null.zon"));
 }
 
 test "enum literals" {
-    return error.SkipZigTest;
-    // const Enum = enum {
-    //     foo,
-    //     bar,
-    //     baz,
-    //     @"0\na",
-    // };
-    // try expectEqual(Enum.foo, @import("zon/foo.zon"));
-    // try expectEqual(Enum.@"0\na", @import("zon/escaped_enum.zon"));
+    const Enum = enum {
+        foo,
+        bar,
+        baz,
+        @"0\na",
+    };
+    try expectEqual(Enum.foo, @import("zon/foo.zon"));
+    try expectEqual(Enum.@"0\na", @import("zon/escaped_enum.zon"));
 }
 
 test "int" {
