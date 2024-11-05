@@ -6155,7 +6155,6 @@ fn buildOutputFromZig(
 
     assert(output_mode != .Exe);
 
-    const unwind_tables = comp.link_eh_frame_hdr;
     const strip = comp.compilerRtStrip();
     const optimize_mode = comp.compilerRtOptMode();
 
@@ -6169,7 +6168,6 @@ fn buildOutputFromZig(
         .root_optimize_mode = optimize_mode,
         .root_strip = strip,
         .link_libc = comp.config.link_libc,
-        .any_unwind_tables = unwind_tables,
     });
 
     const root_mod = try Package.Module.create(arena, .{
@@ -6186,7 +6184,7 @@ fn buildOutputFromZig(
             .stack_protector = 0,
             .red_zone = comp.root_mod.red_zone,
             .omit_frame_pointer = comp.root_mod.omit_frame_pointer,
-            .unwind_tables = unwind_tables,
+            .unwind_tables = comp.root_mod.unwind_tables,
             .pic = comp.root_mod.pic,
             .optimize_mode = optimize_mode,
             .structured_cfg = comp.root_mod.structured_cfg,
