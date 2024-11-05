@@ -29,11 +29,11 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
     const root_name = switch (target.os.tag) {
         // On Apple platforms, we use the same name as LLVM because the
         // TSAN library implementation hard-codes a check for these names.
-        .macos => "clang_rt.tsan_osx_dynamic",
-        .ios => switch (target.abi) {
-            .simulator => "clang_rt.tsan_iossim_dynamic",
-            else => "clang_rt.tsan_ios_dynamic",
-        },
+        .driverkit, .macos => "clang_rt.tsan_osx_dynamic",
+        .ios => if (target.abi == .simulator) "clang_rt.tsan_iossim_dynamic" else "clang_rt.tsan_ios_dynamic",
+        .tvos => if (target.abi == .simulator) "clang_rt.tsan_tvossim_dynamic" else "clang_rt.tsan_tvos_dynamic",
+        .visionos => if (target.abi == .simulator) "clang_rt.tsan_xrossim_dynamic" else "clang_rt.tsan_xros_dynamic",
+        .watchos => if (target.abi == .simulator) "clang_rt.tsan_watchossim_dynamic" else "clang_rt.tsan_watchos_dynamic",
         else => "tsan",
     };
     const link_mode: std.builtin.LinkMode = if (target.isDarwin()) .dynamic else .static;
