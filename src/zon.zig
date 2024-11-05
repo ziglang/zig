@@ -29,24 +29,19 @@ pub fn lower(
     file_index: Zcu.File.Index,
     res_ty: ?Type,
 ) CompileError!InternPool.Index {
-    _ = sema;
-    _ = file;
-    _ = file_index;
-    _ = res_ty;
-    @panic("unimplemented");
-    // const lower_zon: LowerZon = .{
-    //     .sema = sema,
-    //     .file = file,
-    //     .file_index = file_index,
-    // };
-    // const tree = lower_zon.file.getTree(lower_zon.sema.gpa) catch unreachable; // Already validated
-    // if (tree.errors.len != 0) {
-    //     return lower_zon.lowerAstErrors();
-    // }
+    const lower_zon: LowerZon = .{
+        .sema = sema,
+        .file = file,
+        .file_index = file_index,
+    };
+    const tree = lower_zon.file.getTree(lower_zon.sema.gpa) catch unreachable; // Already validated
+    if (tree.errors.len != 0) {
+        return lower_zon.lowerAstErrors();
+    }
 
-    // const data = tree.nodes.items(.data);
-    // const root = data[0].lhs;
-    // return lower_zon.expr(root, res_ty);
+    const data = tree.nodes.items(.data);
+    const root = data[0].lhs;
+    return lower_zon.expr(root, res_ty);
 }
 
 fn lazySrcLoc(self: LowerZon, loc: LazySrcLoc.Offset) !LazySrcLoc {
@@ -215,7 +210,7 @@ const FieldTypes = union(enum) {
         const t = ty orelse return .none;
         const ip = &sema.pt.zcu.intern_pool;
         switch (t.zigTypeTagOrPoison(sema.pt.zcu) catch return .none) {
-            .Struct => {
+            .@"struct" => {
                 try t.resolveFully(sema.pt);
                 const loaded_struct_type = ip.loadStructType(t.toIntern());
                 return .{ .st = .{
@@ -223,7 +218,7 @@ const FieldTypes = union(enum) {
                     .loaded = loaded_struct_type,
                 } };
             },
-            .Union => {
+            .@"union" => {
                 try t.resolveFully(sema.pt);
                 const loaded_union_type = ip.loadUnionType(t.toIntern());
                 const loaded_tag_type = loaded_union_type.loadTagType(ip);
@@ -243,7 +238,7 @@ const FieldTypes = union(enum) {
             .un => |un| .{ un.ty, un.loaded.nameIndex(ip, name) orelse return null },
             .none => return null,
         };
-        return self_ty.structFieldType(index, zcu);
+        return self_ty.fieldType(index, zcu);
     }
 };
 
@@ -273,14 +268,16 @@ fn expr(self: LowerZon, node: Ast.Node.Index, res_ty: ?Type) !InternPool.Index {
                     .address_space = .generic,
                 },
             });
-            return ip.get(gpa, self.sema.pt.tid, .{ .ptr = .{
-                .ty = ptr_type.toIntern(),
-                .base_addr = .{ .anon_decl = .{
-                    .orig_ty = ptr_type.toIntern(),
-                    .val = val,
-                } },
-                .byte_offset = 0,
-            } });
+            _ = ptr_type;
+            @panic("unimplemented");
+            // return ip.get(gpa, self.sema.pt.tid, .{ .ptr = .{
+            //     .ty = ptr_type.toIntern(),
+            //     .base_addr = .{ .anon_decl = .{
+            //         .orig_ty = ptr_type.toIntern(),
+            //         .val = val,
+            //     } },
+            //     .byte_offset = 0,
+            // } });
         }
     }
 
@@ -358,14 +355,17 @@ fn expr(self: LowerZon, node: Ast.Node.Index, res_ty: ?Type) !InternPool.Index {
                     .address_space = .generic,
                 },
             });
-            return self.sema.pt.intern(.{ .ptr = .{
-                .ty = ptr_ty.toIntern(),
-                .base_addr = .{ .anon_decl = .{
-                    .val = array_val,
-                    .orig_ty = ptr_ty.toIntern(),
-                } },
-                .byte_offset = 0,
-            } });
+            _ = array_val;
+            _ = ptr_ty;
+            @panic("unimplemented");
+            // return self.sema.pt.intern(.{ .ptr = .{
+            //     .ty = ptr_ty.toIntern(),
+            //     .base_addr = .{ .anon_decl = .{
+            //         .val = array_val,
+            //         .orig_ty = ptr_ty.toIntern(),
+            //     } },
+            //     .byte_offset = 0,
+            // } });
         },
         .multiline_string_literal => {
             var bytes = std.ArrayListUnmanaged(u8){};
@@ -392,14 +392,17 @@ fn expr(self: LowerZon, node: Ast.Node.Index, res_ty: ?Type) !InternPool.Index {
                     .address_space = .generic,
                 },
             });
-            return self.sema.pt.intern(.{ .ptr = .{
-                .ty = ptr_ty.toIntern(),
-                .base_addr = .{ .anon_decl = .{
-                    .val = array_val,
-                    .orig_ty = ptr_ty.toIntern(),
-                } },
-                .byte_offset = 0,
-            } });
+            _ = array_val;
+            _ = ptr_ty;
+            @panic("unimplemented");
+            // return self.sema.pt.intern(.{ .ptr = .{
+            //     .ty = ptr_ty.toIntern(),
+            //     .base_addr = .{ .anon_decl = .{
+            //         .val = array_val,
+            //         .orig_ty = ptr_ty.toIntern(),
+            //     } },
+            //     .byte_offset = 0,
+            // } });
         },
         .struct_init_one,
         .struct_init_one_comma,
@@ -440,15 +443,16 @@ fn expr(self: LowerZon, node: Ast.Node.Index, res_ty: ?Type) !InternPool.Index {
                 types[i] = ip.typeOf(values[i]);
             }
 
-            const struct_type = try ip.getAnonStructType(gpa, self.sema.pt.tid, .{
-                .types = types,
-                .names = names.entries.items(.key),
-                .values = values,
-            });
-            return ip.get(gpa, self.sema.pt.tid, .{ .aggregate = .{
-                .ty = struct_type,
-                .storage = .{ .elems = values },
-            } });
+            @panic("unimplemented");
+            // const struct_type = try ip.getAnonStructType(gpa, self.sema.pt.tid, .{
+            //     .types = types,
+            //     .names = names.entries.items(.key),
+            //     .values = values,
+            // });
+            // return ip.get(gpa, self.sema.pt.tid, .{ .aggregate = .{
+            //     .ty = struct_type,
+            //     .storage = .{ .elems = values },
+            // } });
         },
         .array_init_one,
         .array_init_one_comma,
@@ -472,11 +476,11 @@ fn expr(self: LowerZon, node: Ast.Node.Index, res_ty: ?Type) !InternPool.Index {
                 const elem_ty = if (res_ty) |rt| b: {
                     const type_tag = rt.zigTypeTagOrPoison(self.sema.pt.zcu) catch break :b null;
                     switch (type_tag) {
-                        .Array => break :b rt.childType(self.sema.pt.zcu),
-                        .Struct => {
+                        .array => break :b rt.childType(self.sema.pt.zcu),
+                        .@"struct" => {
                             try rt.resolveFully(self.sema.pt);
                             if (i >= rt.structFieldCount(self.sema.pt.zcu)) break :b null;
-                            break :b rt.structFieldType(i, self.sema.pt.zcu);
+                            break :b rt.fieldType(i, self.sema.pt.zcu);
                         },
                         else => break :b null,
                     }
@@ -485,15 +489,16 @@ fn expr(self: LowerZon, node: Ast.Node.Index, res_ty: ?Type) !InternPool.Index {
                 types[i] = ip.typeOf(values[i]);
             }
 
-            const tuple_type = try ip.getAnonStructType(gpa, self.sema.pt.tid, .{
-                .types = types,
-                .names = &.{},
-                .values = values,
-            });
-            return ip.get(gpa, self.sema.pt.tid, .{ .aggregate = .{
-                .ty = tuple_type,
-                .storage = .{ .elems = values },
-            } });
+            @panic("unimplemented");
+            // const tuple_type = try ip.getAnonStructType(gpa, self.sema.pt.tid, .{
+            //     .types = types,
+            //     .names = &.{},
+            //     .values = values,
+            // });
+            // return ip.get(gpa, self.sema.pt.tid, .{ .aggregate = .{
+            //     .ty = tuple_type,
+            //     .storage = .{ .elems = values },
+            // } });
         },
         .block_two => if (data[node].lhs == 0 and data[node].rhs == 0) {
             return .void_value;
