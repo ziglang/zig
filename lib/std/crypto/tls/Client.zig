@@ -256,8 +256,8 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
     var main_cert_pub_key: CertificatePublicKey = undefined;
     const now_sec = std.time.timestamp();
 
-    var cleartext_bufs: [2][8000]u8 = undefined;
-    var handshake_buffer: [8000]u8 = undefined;
+    var cleartext_bufs: [2][tls.max_ciphertext_inner_record_len]u8 = undefined;
+    var handshake_buffer: [tls.max_ciphertext_record_len]u8 = undefined;
     var d: tls.Decoder = .{ .buf = &handshake_buffer };
     while (true) {
         try d.readAtLeastOurAmt(stream, tls.record_header_len);
