@@ -7106,20 +7106,23 @@ fn cmdFetch(
             }
         }
 
-        const location_replace = try std.fmt.allocPrint(
-            arena,
-            "\"{}\"",
-            .{std.zig.fmtEscapes(saved_url)},
-        );
-        const hash_replace = try std.fmt.allocPrint(
-            arena,
-            "\"{}\"",
-            .{std.zig.fmtEscapes(&hex_digest)},
-        );
-
         warn("overwriting existing dependency named '{s}'", .{name});
-        try fixups.replace_nodes_with_string.put(gpa, dep.location_node, location_replace);
-        try fixups.replace_nodes_with_string.put(gpa, dep.hash_node, hash_replace);
+        if (dep.location == .url) {
+            const location_replace = try std.fmt.allocPrint(
+                arena,
+                "\"{}\"",
+                .{std.zig.fmtEscapes(saved_url)},
+            );
+            const hash_replace = try std.fmt.allocPrint(
+                arena,
+                "\"{}\"",
+                .{std.zig.fmtEscapes(&hex_digest)},
+            );
+            try fixups.replace_nodes_with_string.put(gpa, dep.location_node, location_replace);
+            try fixups.replace_nodes_with_string.put(gpa, dep.hash_node, hash_replace);
+        } else {
+            try fixups.replace_nodes_with_string.put(gpa, dep.node, new_node_init);
+        }
     } else if (manifest.dependencies.count() > 0) {
         // Add fixup for adding another dependency.
         const deps = manifest.dependencies.values();
