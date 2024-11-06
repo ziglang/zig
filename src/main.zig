@@ -5207,6 +5207,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     .has_build_zig = true,
                     .oom_flag = false,
                     .latest_commit = null,
+                    .actual_path_or_url_kind = undefined,
 
                     .module = build_mod,
                 };
@@ -7107,6 +7108,7 @@ fn cmdFetch(
         .has_build_zig = false,
         .oom_flag = false,
         .latest_commit = null,
+        .actual_path_or_url_kind = undefined,
 
         .module = null,
     };
@@ -7134,10 +7136,13 @@ fn cmdFetch(
             return cleanExit();
         },
         .yes, .exact => |name| name: {
+            if (fetch.actual_path_or_url_kind == .path) {
+                fatal("options '--save' and `--save-exact` cannot be used when fetching by file path", .{});
+            }
+
             if (name) |n| break :name n;
-            const fetched_manifest = fetch.manifest orelse
-                fatal("unable to determine name; fetched package has no build.zig.zon file", .{});
-            break :name fetched_manifest.name;
+            if (fetch.manifest) |fm| break :name fm.name;
+            fatal("unable to determine name; fetched package has no build.zig.zon file", .{});
         },
     };
 
@@ -7163,7 +7168,8 @@ fn cmdFetch(
     var fixups: Ast.Fixups = .{};
     defer fixups.deinit(gpa);
 
-    var saved_path_or_url = path_or_url;
+    var saved_url = path_or_url;
+    assert(fetch.actual_path_or_url_kind == .url);
 
     if (fetch.latest_commit) |latest_commit| resolved: {
         const latest_commit_hex = try std.fmt.allocPrint(arena, "{}", .{latest_commit});
@@ -7188,7 +7194,7 @@ fn cmdFetch(
         uri.fragment = .{ .raw = latest_commit_hex };
 
         switch (save) {
-            .yes => saved_path_or_url = try std.fmt.allocPrint(arena, "{}", .{uri}),
+            .yes => saved_url = try std.fmt.allocPrint(arena, "{}", .{uri}),
             .no, .exact => {}, // keep the original URL
         }
     }
@@ -7199,7 +7205,7 @@ fn cmdFetch(
         \\            .hash = "{}",
         \\        }}
     , .{
-        std.zig.fmtEscapes(saved_path_or_url),
+        std.zig.fmtEscapes(saved_url),
         std.zig.fmtEscapes(&hex_digest),
     });
 
@@ -7219,7 +7225,7 @@ fn cmdFetch(
         if (dep.hash) |h| {
             switch (dep.location) {
                 .url => |u| {
-                    if (mem.eql(u8, h, &hex_digest) and mem.eql(u8, u, saved_path_or_url)) {
+                    if (mem.eql(u8, h, &hex_digest) and mem.eql(u8, u, saved_url)) {
                         std.log.info("existing dependency named '{s}' is up-to-date", .{name});
                         process.exit(0);
                     }
@@ -7231,7 +7237,7 @@ fn cmdFetch(
         const location_replace = try std.fmt.allocPrint(
             arena,
             "\"{}\"",
-            .{std.zig.fmtEscapes(saved_path_or_url)},
+            .{std.zig.fmtEscapes(saved_url)},
         );
         const hash_replace = try std.fmt.allocPrint(
             arena,
