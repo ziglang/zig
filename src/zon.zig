@@ -40,7 +40,7 @@ pub fn lower(
 
     const data = tree.nodes.items(.data);
     const root = data[0].lhs;
-    return lower_zon.expr(root, res_ty);
+    return lower_zon.parseExpr(root, res_ty);
 }
 
 fn lazySrcLoc(self: LowerZon, loc: LazySrcLoc.Offset) !LazySrcLoc {
@@ -241,65 +241,22 @@ const FieldTypes = union(enum) {
     }
 };
 
-fn expr(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
+fn parseExpr(self: LowerZon, node: Ast.Node.Index, res_ty: Type) CompileError!InternPool.Index {
     const gpa = self.sema.gpa;
     const ip = &self.sema.pt.zcu.intern_pool;
     const data = self.file.tree.nodes.items(.data);
     const tags = self.file.tree.nodes.items(.tag);
     const main_tokens = self.file.tree.nodes.items(.main_token);
 
-    // Implement this!
     switch (Type.zigTypeTag(res_ty, self.sema.pt.zcu)) {
-        .void => {
-            if (tags[node] == .block_two and data[node].lhs == 0 and data[node].rhs == 0) {
-                return .void_value;
-            }
-
-            return self.fail(.{ .node_abs = node }, "expected void", .{});
-        },
-        .bool => {
-            if (tags[node] == .identifier) {
-                const token = main_tokens[node];
-                var litIdent = try self.ident(token);
-                defer litIdent.deinit(gpa);
-
-                const BoolIdent = enum { true, false };
-                const values = std.StaticStringMap(BoolIdent).initComptime(.{
-                    .{ "true", .true },
-                    .{ "false", .false },
-                });
-                if (values.get(litIdent.bytes)) |value| {
-                    return switch (value) {
-                        .true => .bool_true,
-                        .false => .bool_false,
-                    };
-                }
-            }
-            return self.fail(.{ .node_abs = node }, "expected bool", .{});
-        },
-        .int, .comptime_int, .float, .comptime_float => return self.number(node, res_ty),
+        .void => return self.parseVoid(node),
+        .bool => return self.parseBool(node),
+        .int, .comptime_int, .float, .comptime_float => return self.parseNumber(node, res_ty),
         .pointer => {},
-        .optional => {
-            if (tags[node] == .identifier) {
-                const token = main_tokens[node];
-                const bytes = self.file.tree.tokenSlice(token);
-                if (std.mem.eql(u8, bytes, "null")) return .null_value;
-            }
-
-            return self.sema.pt.intern(.{ .opt = .{
-                .ty = res_ty.toIntern(),
-                .val = try self.expr(node, res_ty.optionalChild(self.sema.pt.zcu)),
-            } });
-        },
+        .optional => return self.parseOptional(node, res_ty),
         .@"enum" => {},
         .@"union" => {},
-        .null => {
-            if (tags[node] == .identifier) {
-                const token = main_tokens[node];
-                const bytes = self.file.tree.tokenSlice(token);
-                if (std.mem.eql(u8, bytes, "null")) return .null_value;
-            }
-        },
+        .null => return self.parseNull(node),
         .enum_literal => {},
         .@"struct" => {},
         .array => {},
@@ -327,7 +284,7 @@ fn expr(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
         else => false,
     };
     if (result_is_slice and !ast_is_pointer) {
-        const val = try self.expr(node, res_ty.childType(self.sema.pt.zcu));
+        const val = try self.parseExpr(node, res_ty.childType(self.sema.pt.zcu));
         const val_type = ip.typeOf(val);
         const ptr_type = try self.sema.pt.ptrTypeSema(.{
             .child = val_type,
@@ -486,7 +443,7 @@ fn expr(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
 
                 const elem_ty = rt_field_types.get(name, self.sema.pt.zcu) orelse @panic("unimplemented");
 
-                values[i] = try self.expr(field, elem_ty);
+                values[i] = try self.parseExpr(field, elem_ty);
                 types[i] = ip.typeOf(values[i]);
             }
 
@@ -532,7 +489,7 @@ fn expr(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
                         else => break :b null,
                     }
                 };
-                values[i] = try self.expr(elem, elem_ty orelse @panic("unimplemented"));
+                values[i] = try self.parseExpr(elem, elem_ty orelse @panic("unimplemented"));
                 types[i] = ip.typeOf(values[i]);
             }
 
@@ -553,7 +510,43 @@ fn expr(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
     return self.fail(.{ .node_abs = node }, "invalid ZON value", .{});
 }
 
-fn number(
+fn parseVoid(self: LowerZon, node: Ast.Node.Index) !InternPool.Index {
+    const tags = self.file.tree.nodes.items(.tag);
+    const data = self.file.tree.nodes.items(.data);
+
+    if (tags[node] == .block_two and data[node].lhs == 0 and data[node].rhs == 0) {
+        return .void_value;
+    }
+
+    return self.fail(.{ .node_abs = node }, "expected void", .{});
+}
+
+fn parseBool(self: LowerZon, node: Ast.Node.Index) !InternPool.Index {
+    const gpa = self.sema.gpa;
+    const tags = self.file.tree.nodes.items(.tag);
+    const main_tokens = self.file.tree.nodes.items(.main_token);
+
+    if (tags[node] == .identifier) {
+        const token = main_tokens[node];
+        var litIdent = try self.ident(token);
+        defer litIdent.deinit(gpa);
+
+        const BoolIdent = enum { true, false };
+        const values = std.StaticStringMap(BoolIdent).initComptime(.{
+            .{ "true", .true },
+            .{ "false", .false },
+        });
+        if (values.get(litIdent.bytes)) |value| {
+            return switch (value) {
+                .true => .bool_true,
+                .false => .bool_false,
+            };
+        }
+    }
+    return self.fail(.{ .node_abs = node }, "expected bool", .{});
+}
+
+fn parseNumber(
     self: LowerZon,
     node: Ast.Node.Index,
     res_ty: Type,
@@ -802,6 +795,35 @@ fn number(
         },
         else => return self.fail(.{ .node_abs = num_lit_node }, "invalid ZON value", .{}),
     }
+}
+
+fn parseOptional(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
+    const tags = self.file.tree.nodes.items(.tag);
+    const main_tokens = self.file.tree.nodes.items(.main_token);
+
+    if (tags[node] == .identifier) {
+        const token = main_tokens[node];
+        const bytes = self.file.tree.tokenSlice(token);
+        if (std.mem.eql(u8, bytes, "null")) return .null_value;
+    }
+
+    return self.sema.pt.intern(.{ .opt = .{
+        .ty = res_ty.toIntern(),
+        .val = try self.parseExpr(node, res_ty.optionalChild(self.sema.pt.zcu)),
+    } });
+}
+
+fn parseNull(self: LowerZon, node: Ast.Node.Index) !InternPool.Index {
+    const tags = self.file.tree.nodes.items(.tag);
+    const main_tokens = self.file.tree.nodes.items(.main_token);
+
+    if (tags[node] == .identifier) {
+        const token = main_tokens[node];
+        const bytes = self.file.tree.tokenSlice(token);
+        if (std.mem.eql(u8, bytes, "null")) return .null_value;
+    }
+
+    return self.fail(.{ .node_abs = node }, "invalid ZON value", .{});
 }
 
 fn createErrorWithOptionalNote(
