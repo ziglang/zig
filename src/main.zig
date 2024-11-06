@@ -6779,10 +6779,8 @@ const usage_fetch =
     \\  -h, --help                    Print this help and exit
     \\  --global-cache-dir [path]     Override path to global Zig cache directory
     \\  --debug-hash                  Print verbose hash information to stdout
-    \\  --save                        Add the fetched package to build.zig.zon
-    \\  --save=[name]                 Add the fetched package to build.zig.zon as name
-    \\  --save-exact                  Add the fetched package to build.zig.zon, storing the URL verbatim
-    \\  --save-exact=[name]           Add the fetched package to build.zig.zon as name, storing the URL verbatim
+    \\  --save[=name]                 Add the fetched package to build.zig.zon
+    \\  --save-exact[=name]           Add the fetched package to build.zig.zon, storing the URL verbatim
     \\
 ;
 
