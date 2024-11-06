@@ -255,10 +255,10 @@ fn parseExpr(self: LowerZon, node: Ast.Node.Index, res_ty: Type) CompileError!In
         .int, .comptime_int, .float, .comptime_float => return self.parseNumber(node, res_ty),
         .pointer => {},
         .optional => return self.parseOptional(node, res_ty),
-        .@"enum" => {},
         .@"union" => {},
         .null => return self.parseNull(node),
-        .enum_literal => {},
+        .@"enum" => return self.parseEnum(node, res_ty),
+        .enum_literal => return self.parseEnumLiteral(node, res_ty),
         .@"struct" => {},
         .array => return self.parseArray(node, res_ty),
 
@@ -332,9 +332,6 @@ fn parseExpr(self: LowerZon, node: Ast.Node.Index, res_ty: Type) CompileError!In
             }
             return self.fail(.{ .node_abs = node }, "use of unknown identifier '{s}'", .{litIdent.bytes});
         },
-        .enum_literal => return ip.get(gpa, self.sema.pt.tid, .{
-            .enum_literal = try self.identAsNullTerminatedString(main_tokens[node]),
-        }),
         .string_literal => {
             const token = main_tokens[node];
             const raw_string = self.file.tree.tokenSlice(token);
@@ -853,6 +850,43 @@ fn parseArray(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.In
         .ty = res_ty.toIntern(),
         .storage = .{ .elems = elems },
     } });
+}
+
+fn parseEnum(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
+    const main_tokens = self.file.tree.nodes.items(.main_token);
+    const tags = self.file.tree.nodes.items(.tag);
+    const ip = &self.sema.pt.zcu.intern_pool;
+
+    if (tags[node] != .enum_literal) {
+        return self.fail(.{ .node_abs = node }, "expected {}", .{res_ty.fmt(self.sema.pt)});
+    }
+
+    const field_name = try self.identAsNullTerminatedString(main_tokens[node]);
+    const field_index = res_ty.enumFieldIndex(field_name, self.sema.pt.zcu) orelse {
+        return self.fail(.{ .node_abs = node }, "enum {} has no member named '{}'", .{
+            res_ty.fmt(self.sema.pt),
+            field_name.fmt(ip),
+        });
+    };
+
+    const value = try self.sema.pt.enumValueFieldIndex(res_ty, field_index);
+
+    return value.toIntern();
+}
+
+fn parseEnumLiteral(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
+    const main_tokens = self.file.tree.nodes.items(.main_token);
+    const tags = self.file.tree.nodes.items(.tag);
+    const ip = &self.sema.pt.zcu.intern_pool;
+    const gpa = self.sema.gpa;
+
+    if (tags[node] != .enum_literal) {
+        return self.fail(.{ .node_abs = node }, "expected {}", .{res_ty.fmt(self.sema.pt)});
+    }
+
+    return ip.get(gpa, self.sema.pt.tid, .{
+        .enum_literal = try self.identAsNullTerminatedString(main_tokens[node]),
+    });
 }
 
 fn elements(

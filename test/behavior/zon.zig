@@ -156,6 +156,7 @@ test "enum literals" {
         @"0\na",
     };
     try expectEqual(Enum.foo, @as(Enum, @import("zon/foo.zon")));
+    try expectEqual(.foo, @as(@TypeOf(.foo), @import("zon/foo.zon")));
     try expectEqual(Enum.@"0\na", @as(Enum, @import("zon/escaped_enum.zon")));
 }
 
