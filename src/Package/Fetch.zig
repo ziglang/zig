@@ -2244,7 +2244,6 @@ const TestFetchBuilder = struct {
     thread_pool: ThreadPool,
     http_client: std.http.Client,
     global_cache_directory: Cache.Directory,
-    progress: std.Progress,
     job_queue: Fetch.JobQueue,
     fetch: Fetch,
 
@@ -2259,8 +2258,6 @@ const TestFetchBuilder = struct {
         try self.thread_pool.init(.{ .allocator = allocator });
         self.http_client = .{ .allocator = allocator };
         self.global_cache_directory = .{ .handle = cache_dir, .path = null };
-
-        self.progress = .{ .dont_print_on_dumb = true };
 
         self.job_queue = .{
             .http_client = &self.http_client,
@@ -2281,10 +2278,11 @@ const TestFetchBuilder = struct {
             .lazy_status = .eager,
             .parent_package_root = Cache.Path{ .root_dir = Cache.Directory{ .handle = cache_dir, .path = null } },
             .parent_manifest_ast = null,
-            .prog_node = self.progress.start("Fetch", 0),
+            .prog_node = std.Progress.Node.none,
             .job_queue = &self.job_queue,
             .omit_missing_hash_error = true,
             .allow_missing_paths_field = false,
+            .use_latest_commit = true,
 
             .package_root = undefined,
             .error_bundle = undefined,
@@ -2293,6 +2291,8 @@ const TestFetchBuilder = struct {
             .actual_hash = undefined,
             .has_build_zig = false,
             .oom_flag = false,
+            .latest_commit = null,
+
             .module = null,
         };
         return &self.fetch;

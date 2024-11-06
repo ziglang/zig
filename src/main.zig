@@ -34,6 +34,10 @@ const Zcu = @import("Zcu.zig");
 const mingw = @import("mingw.zig");
 const dev = @import("dev.zig");
 
+test {
+    _ = Package;
+}
+
 pub const std_options: std.Options = .{
     .wasiCwd = wasi_cwd,
     .logFn = log,
