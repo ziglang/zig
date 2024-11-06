@@ -260,7 +260,7 @@ fn parseExpr(self: LowerZon, node: Ast.Node.Index, res_ty: Type) CompileError!In
         .array => return self.parseArray(node, res_ty),
         .@"struct" => return self.parseStructOrTuple(node, res_ty),
         .@"union" => {},
-        .pointer => {},
+        .pointer => return self.parsePointer(node, res_ty),
 
         .type,
         .noreturn,
@@ -927,6 +927,87 @@ fn parseTuple(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.In
     return self.sema.pt.intern(.{ .aggregate = .{
         .ty = res_ty.toIntern(),
         .storage = .{ .elems = elems },
+    } });
+}
+
+fn parsePointer(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
+    const tags = self.file.tree.nodes.items(.tag);
+
+    const ptr_info = res_ty.ptrInfo(self.sema.pt.zcu);
+
+    if (ptr_info.flags.size != .Slice) {
+        return self.fail(.{ .node_abs = node }, "ZON import cannot be coerced to non slice pointer", .{});
+    }
+
+    const string_alignment = ptr_info.flags.alignment == .none or ptr_info.flags.alignment == .@"1";
+    const string_sentinel = ptr_info.sentinel == .none or ptr_info.sentinel == .zero_u8;
+    if (string_alignment and ptr_info.child == .u8_type and string_sentinel) {
+        if (tags[node] == .string_literal or tags[node] == .multiline_string_literal) {
+            return self.parseStringLiteral(node, res_ty);
+        }
+    }
+
+    var buf: [2]Ast.Node.Index = undefined;
+    const elem_nodes = try self.elements(res_ty, &buf, node);
+    _ = elem_nodes;
+    @panic("unimplemented");
+}
+
+fn parseStringLiteral(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
+    const gpa = self.sema.gpa;
+    const ip = &self.sema.pt.zcu.intern_pool;
+    const main_tokens = self.file.tree.nodes.items(.main_token);
+    const tags = self.file.tree.nodes.items(.tag);
+    const data = self.file.tree.nodes.items(.data);
+
+    const token = main_tokens[node];
+    const raw_string = self.file.tree.tokenSlice(token);
+
+    var bytes = std.ArrayListUnmanaged(u8){};
+    defer bytes.deinit(gpa);
+    switch (tags[node]) {
+        .string_literal => switch (try std.zig.string_literal.parseWrite(bytes.writer(gpa), raw_string)) {
+            .success => {},
+            .failure => |err| {
+                const offset = self.file.tree.tokens.items(.start)[token];
+                return self.fail(
+                    .{ .byte_abs = offset + @as(u32, @intCast(err.offset())) },
+                    "{}",
+                    .{err.fmtWithSource(raw_string)},
+                );
+            },
+        },
+        .multiline_string_literal => {
+            var parser = std.zig.string_literal.multilineParser(bytes.writer(gpa));
+            var tok_i = data[node].lhs;
+            while (tok_i <= data[node].rhs) : (tok_i += 1) {
+                try parser.line(self.file.tree.tokenSlice(tok_i));
+            }
+        },
+        else => unreachable,
+    }
+
+    const string = try ip.getOrPutString(gpa, self.sema.pt.tid, bytes.items, .maybe_embedded_nulls);
+    const array_ty = try self.sema.pt.intern(.{ .array_type = .{
+        .len = bytes.items.len,
+        .sentinel = .zero_u8,
+        .child = .u8_type,
+    } });
+    const array_val = try self.sema.pt.intern(.{ .aggregate = .{
+        .ty = array_ty,
+        .storage = .{ .bytes = string },
+    } });
+    return self.sema.pt.intern(.{ .slice = .{
+        .ty = res_ty.toIntern(),
+        .ptr = try self.sema.pt.intern(.{ .ptr = .{
+            .ty = .manyptr_const_u8_sentinel_0_type,
+            .base_addr = .{ .uav = .{
+                .orig_ty = .slice_const_u8_sentinel_0_type,
+                .val = array_val,
+            } },
+            .byte_offset = 0,
+        } }),
+        .len = (try self.sema.pt.intValue(Type.usize, bytes.items.len)).toIntern(),
     } });
 }
 

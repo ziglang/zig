@@ -68,9 +68,8 @@ test "struct enum field" {
 }
 
 test "tuple" {
-    return error.SkipZigTest; // Failing because we haven't updated string parsing yet
-    // const Tuple = struct { f32, bool, []const u8, u16 };
-    // try expectEqualDeep(Tuple{ 1.2, true, "hello", 3 }, @as(Tuple, @import("zon/tuple.zon")));
+    const Tuple = struct { f32, bool, []const u8, u16 };
+    try expectEqualDeep(Tuple{ 1.2, true, "hello", 3 }, @as(Tuple, @import("zon/tuple.zon")));
 }
 
 test "char" {
@@ -141,6 +140,7 @@ test "string literals" {
     try expectEqualSlices(u8, "ab\\c", @import("zon/abc-escaped.zon"));
     const zero_terminated: [:0]const u8 = @import("zon/abc.zon");
     try expectEqualDeep(zero_terminated, "abc");
+    try expectEqual(0, zero_terminated[zero_terminated.len]);
     try expectEqualStrings(
         \\Hello, world!
         \\This is a multiline string!
