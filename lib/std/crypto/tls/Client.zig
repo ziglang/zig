@@ -191,14 +191,14 @@ pub fn init(stream: anytype, options: Options) InitError(@TypeOf(stream))!Client
     };
     const host_len: u16 = @intCast(host.len);
 
-    var random_buffer: [128]u8 = undefined;
+    var random_buffer: [176]u8 = undefined;
     crypto.random.bytes(&random_buffer);
     const client_hello_rand = random_buffer[0..32].*;
     var key_seq: u64 = 0;
     var server_hello_rand: [32]u8 = undefined;
     const legacy_session_id = random_buffer[32..64].*;
 
-    var key_share = KeyShare.init(random_buffer[64..128].*) catch |err| switch (err) {
+    var key_share = KeyShare.init(random_buffer[64..176].*) catch |err| switch (err) {
         // Only possible to happen if the seed is all zeroes.
         error.IdentityElement => return error.InsufficientEntropy,
     };
@@ -223,6 +223,7 @@ pub fn init(stream: anytype, options: Options) InitError(@TypeOf(stream))!Client
     })) ++ tls.extension(.supported_groups, array(u16, tls.NamedGroup, .{
         .x25519_ml_kem768,
         .secp256r1,
+        .secp384r1,
         .x25519,
     })) ++ tls.extension(.psk_key_exchange_modes, array(u8, tls.PskKeyExchangeMode, .{
         .psk_dhe_ke,
@@ -233,6 +234,8 @@ pub fn init(stream: anytype, options: Options) InitError(@TypeOf(stream))!Client
             array(u16, u8, key_share.ml_kem768_kp.public_key.toBytes() ++ key_share.x25519_kp.public_key) ++
             int(u16, @intFromEnum(tls.NamedGroup.secp256r1)) ++
             array(u16, u8, key_share.secp256r1_kp.public_key.toUncompressedSec1()) ++
+            int(u16, @intFromEnum(tls.NamedGroup.secp384r1)) ++
+            array(u16, u8, key_share.secp384r1_kp.public_key.toUncompressedSec1()) ++
             int(u16, @intFromEnum(tls.NamedGroup.x25519)) ++
             array(u16, u8, key_share.x25519_kp.public_key),
     ));
@@ -1630,23 +1633,26 @@ inline fn big(x: anytype) @TypeOf(x) {
 }
 
 const KeyShare = struct {
-    x25519_kp: crypto.dh.X25519.KeyPair,
-    secp256r1_kp: crypto.sign.ecdsa.EcdsaP256Sha256.KeyPair,
     ml_kem768_kp: crypto.kem.ml_kem.MLKem768.KeyPair,
+    secp256r1_kp: crypto.sign.ecdsa.EcdsaP256Sha256.KeyPair,
+    secp384r1_kp: crypto.sign.ecdsa.EcdsaP384Sha384.KeyPair,
+    x25519_kp: crypto.dh.X25519.KeyPair,
     sk_buf: [sk_max_len]u8,
     sk_len: std.math.IntFittingRange(0, sk_max_len),
 
     const sk_max_len = @max(
         crypto.dh.X25519.shared_length + crypto.kem.ml_kem.MLKem768.shared_length,
-        crypto.dh.X25519.shared_length,
         crypto.ecc.P256.scalar.encoded_length,
+        crypto.ecc.P384.scalar.encoded_length,
+        crypto.dh.X25519.shared_length,
     );
 
-    fn init(seed: [64]u8) error{IdentityElement}!KeyShare {
+    fn init(seed: [112]u8) error{IdentityElement}!KeyShare {
         return .{
-            .x25519_kp = try .create(seed[0..32].*),
-            .secp256r1_kp = try .create(seed[32..64].*),
             .ml_kem768_kp = try .create(null),
+            .secp256r1_kp = try .create(seed[0..32].*),
+            .secp384r1_kp = try .create(seed[32..80].*),
+            .x25519_kp = try .create(seed[80..112].*),
             .sk_buf = undefined,
             .sk_len = 0,
         };
@@ -1675,6 +1681,15 @@ const KeyShare = struct {
                 const PublicKey = crypto.sign.ecdsa.EcdsaP256Sha256.PublicKey;
                 const pk = PublicKey.fromSec1(server_pub_key) catch return error.TlsDecryptFailure;
                 const mul = pk.p.mulPublic(ks.secp256r1_kp.secret_key.bytes, .big) catch
+                    return error.TlsDecryptFailure;
+                const sk = mul.affineCoordinates().x.toBytes(.big);
+                @memcpy(ks.sk_buf[0..sk.len], &sk);
+                ks.sk_len = sk.len;
+            },
+            .secp384r1 => {
+                const PublicKey = crypto.sign.ecdsa.EcdsaP384Sha384.PublicKey;
+                const pk = PublicKey.fromSec1(server_pub_key) catch return error.TlsDecryptFailure;
+                const mul = pk.p.mulPublic(ks.secp384r1_kp.secret_key.bytes, .big) catch
                     return error.TlsDecryptFailure;
                 const sk = mul.affineCoordinates().x.toBytes(.big);
                 @memcpy(ks.sk_buf[0..sk.len], &sk);
