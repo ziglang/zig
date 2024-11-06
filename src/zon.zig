@@ -14,6 +14,7 @@ const LazySrcLoc = Zcu.LazySrcLoc;
 const Ref = std.zig.Zir.Inst.Ref;
 const NullTerminatedString = InternPool.NullTerminatedString;
 const NumberLiteralError = std.zig.number_literal.Error;
+const NodeIndex = std.zig.Ast.Node.Index;
 
 const LowerZon = @This();
 
@@ -259,7 +260,7 @@ fn parseExpr(self: LowerZon, node: Ast.Node.Index, res_ty: Type) CompileError!In
         .null => return self.parseNull(node),
         .enum_literal => {},
         .@"struct" => {},
-        .array => {},
+        .array => return self.parseArray(node, res_ty),
 
         .type,
         .noreturn,
@@ -824,6 +825,59 @@ fn parseNull(self: LowerZon, node: Ast.Node.Index) !InternPool.Index {
     }
 
     return self.fail(.{ .node_abs = node }, "invalid ZON value", .{});
+}
+
+fn parseArray(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
+    const gpa = self.sema.gpa;
+
+    const array_info = res_ty.arrayInfo(self.sema.pt.zcu);
+    var buf: [2]NodeIndex = undefined;
+    const elem_nodes = try self.elements(res_ty, &buf, node);
+
+    if (elem_nodes.len != array_info.len) {
+        return self.fail(.{ .node_abs = node }, "expected {}", .{res_ty.fmt(self.sema.pt)});
+    }
+
+    const elems = try gpa.alloc(InternPool.Index, array_info.len + @intFromBool(array_info.sentinel != null));
+    defer gpa.free(elems);
+
+    for (elem_nodes, 0..) |elem_node, i| {
+        elems[i] = try self.parseExpr(elem_node, array_info.elem_type);
+    }
+
+    if (array_info.sentinel) |sentinel| {
+        elems[elems.len - 1] = sentinel.toIntern();
+    }
+
+    return self.sema.pt.intern(.{ .aggregate = .{
+        .ty = res_ty.toIntern(),
+        .storage = .{ .elems = elems },
+    } });
+}
+
+fn elements(
+    self: LowerZon,
+    container: Type,
+    buf: *[2]NodeIndex,
+    node: NodeIndex,
+) ![]const NodeIndex {
+    if (self.file.tree.fullArrayInit(buf, node)) |init| {
+        if (init.ast.type_expr != 0) {
+            return self.fail(.{ .node_abs = node }, "ZON cannot contain type expressions", .{});
+        }
+        return init.ast.elements;
+    }
+
+    if (self.file.tree.fullStructInit(buf, node)) |init| {
+        if (init.ast.type_expr != 0) {
+            return self.fail(.{ .node_abs = node }, "ZON cannot contain type expressions", .{});
+        }
+        if (init.ast.fields.len == 0) {
+            return init.ast.fields;
+        }
+    }
+
+    return self.fail(.{ .node_abs = node }, "expected {}", .{container.fmt(self.sema.pt)});
 }
 
 fn createErrorWithOptionalNote(

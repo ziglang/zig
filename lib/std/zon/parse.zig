@@ -883,7 +883,6 @@ fn elements(
         }
     }
 
-    // Fail
     return self.failExpectedContainer(T, main_tokens[node]);
 }
 

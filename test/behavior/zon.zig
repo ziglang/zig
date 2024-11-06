@@ -79,10 +79,12 @@ test "char" {
 }
 
 test "arrays" {
-    return error.SkipZigTest;
-    // try expectEqual([0]u8{}, @import("zon/vec0.zon"));
-    // try expectEqual([4]u8{ 'a', 'b', 'c', 'd' }, @import("zon/array.zon"));
-    // try expectEqual([4:2]u8{ 'a', 'b', 'c', 'd' }, @import("zon/array.zon"));
+    try expectEqual([0]u8{}, @as([0]u8, @import("zon/vec0.zon")));
+    try expectEqual([0:1]u8{}, @as([0:1]u8, @import("zon/vec0.zon")));
+    try expectEqual(1, @as([0:1]u8, @import("zon/vec0.zon"))[0]);
+    try expectEqual([4]u8{ 'a', 'b', 'c', 'd' }, @as([4]u8, @import("zon/array.zon")));
+    try expectEqual([4:2]u8{ 'a', 'b', 'c', 'd' }, @as([4:2]u8, @import("zon/array.zon")));
+    try expectEqual(2, @as([4:2]u8, @import("zon/array.zon"))[4]);
 }
 
 test "slices, arrays, tuples" {
