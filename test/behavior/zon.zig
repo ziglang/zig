@@ -16,15 +16,12 @@ test "bool" {
 }
 
 test "optional" {
-    // const some: ?u32 = @import("zon/some.zon");
+    const some: ?u32 = @import("zon/some.zon");
     const none: ?u32 = @import("zon/none.zon");
     const @"null": @TypeOf(null) = @import("zon/none.zon");
-    // try expectEqual(@as(u32, 10), some);
+    try expectEqual(@as(u32, 10), some);
     try expectEqual(@as(?u32, null), none);
     try expectEqual(null, @"null");
-    // We still need to uncomment the some value tests, to do that we need to fix integer parsing to
-    // return the correct result types
-    return error.SkipZigTest;
 }
 
 test "union" {

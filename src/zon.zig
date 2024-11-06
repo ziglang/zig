@@ -277,8 +277,7 @@ fn expr(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
             }
             return self.fail(.{ .node_abs = node }, "expected bool", .{});
         },
-        .int, .comptime_int => {},
-        .float, .comptime_float => {},
+        .int, .comptime_int, .float, .comptime_float => return self.number(node, res_ty),
         .pointer => {},
         .optional => {
             if (tags[node] == .identifier) {
@@ -287,8 +286,6 @@ fn expr(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
                 if (std.mem.eql(u8, bytes, "null")) return .null_value;
             }
 
-            // XXX: this fails, assert(opt.val == .none or ip.indexToKey(opt.ty).opt_type == ip.typeOf(opt.val));
-            // XXX: i think its casue ints arent returned as correct type try on bool to test that theory
             return self.sema.pt.intern(.{ .opt = .{
                 .ty = res_ty.toIntern(),
                 .val = try self.expr(node, res_ty.optionalChild(self.sema.pt.zcu)),
@@ -377,8 +374,6 @@ fn expr(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
             }
             return self.fail(.{ .node_abs = node }, "use of unknown identifier '{s}'", .{litIdent.bytes});
         },
-        .number_literal, .char_literal => return self.number(node, null),
-        .negation => return self.number(data[node].lhs, node),
         .enum_literal => return ip.get(gpa, self.sema.pt.tid, .{
             .enum_literal = try self.identAsNullTerminatedString(main_tokens[node]),
         }),
@@ -558,13 +553,29 @@ fn expr(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
     return self.fail(.{ .node_abs = node }, "invalid ZON value", .{});
 }
 
-fn number(self: LowerZon, node: Ast.Node.Index, is_negative: ?Ast.Node.Index) !InternPool.Index {
+fn number(
+    self: LowerZon,
+    node: Ast.Node.Index,
+    res_ty: Type,
+) !InternPool.Index {
+    @setFloatMode(.strict);
+
     const gpa = self.sema.gpa;
     const tags = self.file.tree.nodes.items(.tag);
     const main_tokens = self.file.tree.nodes.items(.main_token);
-    switch (tags[node]) {
+    const num_lit_node, const is_negative = if (tags[node] == .negation) b: {
+        const data = self.file.tree.nodes.items(.data);
+        break :b .{
+            data[node].lhs,
+            node,
+        };
+    } else .{
+        node,
+        null,
+    };
+    switch (tags[num_lit_node]) {
         .char_literal => {
-            const token = main_tokens[node];
+            const token = main_tokens[num_lit_node];
             const token_bytes = self.file.tree.tokenSlice(token);
             const char = switch (std.zig.string_literal.parseCharLiteral(token_bytes)) {
                 .success => |char| char,
@@ -577,13 +588,15 @@ fn number(self: LowerZon, node: Ast.Node.Index, is_negative: ?Ast.Node.Index) !I
                     );
                 },
             };
-            return self.sema.pt.zcu.intern_pool.get(gpa, self.sema.pt.tid, .{ .int = .{
-                .ty = try self.sema.pt.intern(.{ .simple_type = .comptime_int }),
-                .storage = .{ .i64 = if (is_negative == null) char else -@as(i64, char) },
-            } });
+            return self.sema.pt.zcu.intern_pool.get(gpa, self.sema.pt.tid, .{
+                .int = .{
+                    .ty = res_ty.toIntern(),
+                    .storage = .{ .i64 = if (is_negative == null) char else -@as(i64, char) },
+                },
+            });
         },
         .number_literal => {
-            const token = main_tokens[node];
+            const token = main_tokens[num_lit_node];
             const token_bytes = self.file.tree.tokenSlice(token);
             const parsed = std.zig.number_literal.parseNumberLiteral(token_bytes);
             switch (parsed) {
@@ -596,18 +609,58 @@ fn number(self: LowerZon, node: Ast.Node.Index, is_negative: ?Ast.Node.Index) !I
                             var result = try std.math.big.int.Managed.initSet(gpa, unsigned);
                             defer result.deinit();
                             result.negate();
+
+                            if (Type.zigTypeTag(res_ty, self.sema.pt.zcu) == .int) {
+                                const int_info = res_ty.intInfo(self.sema.pt.zcu);
+                                if (!result.fitsInTwosComp(int_info.signedness, int_info.bits)) {
+                                    return self.fail(
+                                        .{ .node_abs = num_lit_node },
+                                        "type '{}' cannot represent integer value '-{}'",
+                                        .{ res_ty.fmt(self.sema.pt), unsigned },
+                                    );
+                                }
+                            }
+
                             return self.sema.pt.zcu.intern_pool.get(gpa, self.sema.pt.tid, .{ .int = .{
-                                .ty = .comptime_int_type,
+                                .ty = res_ty.toIntern(),
                                 .storage = .{ .big_int = result.toConst() },
                             } });
                         };
+
+                        if (Type.zigTypeTag(res_ty, self.sema.pt.zcu) == .int) {
+                            const int_info = res_ty.intInfo(self.sema.pt.zcu);
+                            if (std.math.cast(u6, int_info.bits)) |bits| {
+                                const min_int: i64 = if (int_info.signedness == .unsigned) 0 else -(@as(i64, 1) << (bits - 1));
+                                if (signed < min_int) {
+                                    return self.fail(
+                                        .{ .node_abs = num_lit_node },
+                                        "type '{}' cannot represent integer value '{}'",
+                                        .{ res_ty.fmt(self.sema.pt), unsigned },
+                                    );
+                                }
+                            }
+                        }
+
                         return self.sema.pt.zcu.intern_pool.get(gpa, self.sema.pt.tid, .{ .int = .{
-                            .ty = .comptime_int_type,
+                            .ty = res_ty.toIntern(),
                             .storage = .{ .i64 = signed },
                         } });
                     } else {
+                        if (Type.zigTypeTag(res_ty, self.sema.pt.zcu) == .int) {
+                            const int_info = res_ty.intInfo(self.sema.pt.zcu);
+                            if (std.math.cast(u6, int_info.bits)) |bits| {
+                                const max_int: u64 = (@as(u64, 1) << (bits - @intFromBool(int_info.signedness == .signed))) - 1;
+                                if (unsigned > max_int) {
+                                    return self.fail(
+                                        .{ .node_abs = num_lit_node },
+                                        "type '{}' cannot represent integer value '{}'",
+                                        .{ res_ty.fmt(self.sema.pt), unsigned },
+                                    );
+                                }
+                            }
+                        }
                         return self.sema.pt.zcu.intern_pool.get(gpa, self.sema.pt.tid, .{ .int = .{
-                            .ty = .comptime_int_type,
+                            .ty = res_ty.toIntern(),
                             .storage = .{ .u64 = unsigned },
                         } });
                     }
@@ -627,24 +680,92 @@ fn number(self: LowerZon, node: Ast.Node.Index, is_negative: ?Ast.Node.Index) !I
 
                     if (is_negative != null) big_int.negate();
 
+                    if (Type.zigTypeTag(res_ty, self.sema.pt.zcu) == .int) {
+                        const int_info = res_ty.intInfo(self.sema.pt.zcu);
+                        if (!big_int.fitsInTwosComp(int_info.signedness, int_info.bits)) {
+                            return self.fail(
+                                .{ .node_abs = num_lit_node },
+                                "type '{}' cannot represent integer value '{}'",
+                                .{ res_ty.fmt(self.sema.pt), big_int },
+                            );
+                        }
+                    }
+
                     return self.sema.pt.zcu.intern_pool.get(gpa, self.sema.pt.tid, .{ .int = .{
-                        .ty = try self.sema.pt.intern(.{ .simple_type = .comptime_int }),
+                        .ty = res_ty.toIntern(),
                         .storage = .{ .big_int = big_int.toConst() },
                     } });
                 },
                 .float => {
-                    const unsigned_float = std.fmt.parseFloat(f128, token_bytes) catch unreachable; // Already validated
+                    const unsigned_float = std.fmt.parseFloat(f128, token_bytes) catch {
+                        // Validated by tokenizer
+                        unreachable;
+                    };
                     const float = if (is_negative == null) unsigned_float else -unsigned_float;
-                    return self.sema.pt.intern(.{ .float = .{
-                        .ty = try self.sema.pt.intern(.{ .simple_type = .comptime_float }),
-                        .storage = .{ .f128 = float },
-                    } });
+                    switch (Type.zigTypeTag(res_ty, self.sema.pt.zcu)) {
+                        .float, .comptime_float => return self.sema.pt.intern(.{ .float = .{
+                            .ty = res_ty.toIntern(),
+                            .storage = switch (res_ty.floatBits(self.sema.pt.zcu.getTarget())) {
+                                16 => .{ .f16 = @floatCast(float) },
+                                32 => .{ .f32 = @floatCast(float) },
+                                64 => .{ .f64 = @floatCast(float) },
+                                80 => .{ .f80 = @floatCast(float) },
+                                128 => .{ .f128 = float },
+                                else => unreachable,
+                            },
+                        } }),
+                        .int, .comptime_int => {
+                            // Check for fractional components
+                            if (@rem(float, 1) != 0) {
+                                return self.fail(
+                                    .{ .node_abs = num_lit_node },
+                                    "fractional component prevents float value '{}' from coercion to type '{}'",
+                                    .{ float, res_ty.fmt(self.sema.pt) },
+                                );
+                            }
+
+                            // Create a rational representation of the float
+                            var rational = try std.math.big.Rational.init(gpa);
+                            defer rational.deinit();
+                            rational.setFloat(f128, float) catch |err| switch (err) {
+                                error.NonFiniteFloat => unreachable,
+                                error.OutOfMemory => return error.OutOfMemory,
+                            };
+
+                            // The float is reduced in rational.setFloat, so we assert that denominator is equal to one
+                            const big_one = std.math.big.int.Const{ .limbs = &.{1}, .positive = true };
+                            assert(rational.q.toConst().eqlAbs(big_one));
+                            if (is_negative != null) rational.negate();
+
+                            // Check that the result is in range of the result type
+                            const int_info = res_ty.intInfo(self.sema.pt.zcu);
+                            if (!rational.p.fitsInTwosComp(int_info.signedness, int_info.bits)) {
+                                return self.fail(
+                                    .{ .node_abs = num_lit_node },
+                                    "float value '{}' cannot be stored in integer type '{}'",
+                                    .{ float, res_ty.fmt(self.sema.pt) },
+                                );
+                            }
+
+                            return self.sema.pt.zcu.intern_pool.get(gpa, self.sema.pt.tid, .{
+                                .int = .{
+                                    .ty = res_ty.toIntern(),
+                                    .storage = .{ .big_int = rational.p.toConst() },
+                                },
+                            });
+                        },
+                        else => unreachable,
+                    }
                 },
                 .failure => |err| return self.failWithNumberError(token, err),
             }
         },
         .identifier => {
-            const token = main_tokens[node];
+            switch (Type.zigTypeTag(res_ty, self.sema.pt.zcu)) {
+                .float, .comptime_float => {},
+                else => return self.fail(.{ .node_abs = num_lit_node }, "invalid ZON value", .{}),
+            }
+            const token = main_tokens[num_lit_node];
             const bytes = self.file.tree.tokenSlice(token);
             const LitIdent = enum { nan, inf };
             const values = std.StaticStringMap(LitIdent).initComptime(.{
@@ -654,20 +775,32 @@ fn number(self: LowerZon, node: Ast.Node.Index, is_negative: ?Ast.Node.Index) !I
             if (values.get(bytes)) |value| {
                 return switch (value) {
                     .nan => self.sema.pt.intern(.{ .float = .{
-                        .ty = try self.sema.pt.intern(.{ .simple_type = .comptime_float }),
-                        .storage = .{ .f128 = std.math.nan(f128) },
+                        .ty = res_ty.toIntern(),
+                        .storage = switch (res_ty.floatBits(self.sema.pt.zcu.getTarget())) {
+                            16 => .{ .f16 = std.math.nan(f16) },
+                            32 => .{ .f32 = std.math.nan(f32) },
+                            64 => .{ .f64 = std.math.nan(f64) },
+                            80 => .{ .f80 = std.math.nan(f80) },
+                            128 => .{ .f128 = std.math.nan(f128) },
+                            else => unreachable,
+                        },
                     } }),
-                    .inf => try self.sema.pt.intern(.{ .float = .{
-                        .ty = try self.sema.pt.intern(.{ .simple_type = .comptime_float }),
-                        .storage = .{
-                            .f128 = if (is_negative == null) std.math.inf(f128) else -std.math.inf(f128),
+                    .inf => self.sema.pt.intern(.{ .float = .{
+                        .ty = res_ty.toIntern(),
+                        .storage = switch (res_ty.floatBits(self.sema.pt.zcu.getTarget())) {
+                            16 => .{ .f16 = if (is_negative == null) std.math.inf(f16) else -std.math.inf(f16) },
+                            32 => .{ .f32 = if (is_negative == null) std.math.inf(f32) else -std.math.inf(f32) },
+                            64 => .{ .f64 = if (is_negative == null) std.math.inf(f64) else -std.math.inf(f64) },
+                            80 => .{ .f80 = if (is_negative == null) std.math.inf(f80) else -std.math.inf(f80) },
+                            128 => .{ .f128 = if (is_negative == null) std.math.inf(f128) else -std.math.inf(f128) },
+                            else => unreachable,
                         },
                     } }),
                 };
             }
-            return self.fail(.{ .node_abs = node }, "use of unknown identifier '{s}'", .{bytes});
+            return self.fail(.{ .node_abs = num_lit_node }, "use of unknown identifier '{s}'", .{bytes});
         },
-        else => return self.fail(.{ .node_abs = node }, "invalid ZON value", .{}),
+        else => return self.fail(.{ .node_abs = num_lit_node }, "invalid ZON value", .{}),
     }
 }
 
