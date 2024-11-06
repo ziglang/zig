@@ -266,6 +266,17 @@ pub const SignatureScheme = enum(u16) {
     rsa_pkcs1_sha1 = 0x0201,
     ecdsa_sha1 = 0x0203,
 
+    ecdsa_brainpoolP256r1tls13_sha256 = 0x081a,
+    ecdsa_brainpoolP384r1tls13_sha384 = 0x081b,
+    ecdsa_brainpoolP512r1tls13_sha512 = 0x081c,
+
+    rsa_sha224 = 0x0301,
+    dsa_sha224 = 0x0302,
+    ecdsa_sha224 = 0x0303,
+    dsa_sha256 = 0x0402,
+    dsa_sha384 = 0x0502,
+    dsa_sha512 = 0x0602,
+
     _,
 };
 

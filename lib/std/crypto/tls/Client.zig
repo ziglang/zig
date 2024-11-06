@@ -209,9 +209,16 @@ pub fn init(stream: anytype, options: Options) InitError(@TypeOf(stream))!Client
     })) ++ tls.extension(.signature_algorithms, array(u16, tls.SignatureScheme, .{
         .ecdsa_secp256r1_sha256,
         .ecdsa_secp384r1_sha384,
+        .rsa_pkcs1_sha256,
+        .rsa_pkcs1_sha384,
+        .rsa_pkcs1_sha512,
         .rsa_pss_rsae_sha256,
         .rsa_pss_rsae_sha384,
         .rsa_pss_rsae_sha512,
+        .rsa_pss_pss_sha256,
+        .rsa_pss_pss_sha384,
+        .rsa_pss_pss_sha512,
+        .rsa_pkcs1_sha1,
         .ed25519,
     })) ++ tls.extension(.supported_groups, array(u16, tls.NamedGroup, .{
         .x25519_ml_kem768,
