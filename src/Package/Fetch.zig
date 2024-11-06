@@ -976,10 +976,45 @@ fn initResource(f: *Fetch, uri: std.Uri, server_header_buffer: []u8) RunError!Re
     const eb = &f.error_bundle;
 
     if (ascii.eqlIgnoreCase(uri.scheme, "file")) {
-        const path = try uri.path.toRawMaybeAlloc(arena);
-        return .{ .file = f.parent_package_root.openFile(path, .{}) catch |err| {
-            return f.fail(f.location_tok, try eb.printString("unable to open '{f}{s}': {s}", .{
-                f.parent_package_root, path, @errorName(err),
+        var path = try uri.path.toRawMaybeAlloc(arena);
+
+        if (uri.user != null or
+            uri.password != null or
+            uri.port != null or
+            path.len == 0 or path[0] != '/' or
+            uri.query != null)
+        {
+            return f.fail(f.location_tok, try eb.printString(
+                "invalid file URL: {f}",
+                .{uri},
+            ));
+        }
+        if (uri.host) |host| {
+            const raw_host = try host.toRawMaybeAlloc(arena);
+            if (raw_host.len != 0 and !ascii.eqlIgnoreCase(raw_host, "localhost")) {
+                return f.fail(f.location_tok, try eb.printString(
+                    "unable to process non-local file URL: {f}",
+                    .{uri},
+                ));
+            }
+        }
+
+        // On Windows, an absolute path starting with a drive letter gains a leading
+        // slash when encoded as a file URL that must be stripped when decoding.
+        if (native_os == .windows and
+            path.len >= "/C:/".len and
+            std.ascii.isAlphabetic(path[1]) and
+            path[2] == ':' and
+            path[3] == '/')
+        {
+            path = path[1..];
+        }
+
+        assert(std.fs.path.isAbsolute(path));
+
+        return .{ .file = fs.cwd().openFile(path, .{}) catch |err| {
+            return f.fail(f.location_tok, try eb.printString("unable to open '{s}': {s}", .{
+                path, @errorName(err),
             }));
         } };
     }
