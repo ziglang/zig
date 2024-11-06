@@ -68,8 +68,9 @@ test "struct enum field" {
 }
 
 test "tuple" {
-    return error.SkipZigTest;
-    // try expectEqualDeep(.{ 1.2, true, "hello", 3 }, @import("zon/tuple.zon"));
+    // XXX: this is failing because string literals don't match types here for some reason
+    const Tuple = struct { f32, bool, []const u8, u16 };
+    try expectEqualDeep(Tuple{ 1.2, true, "hello", 3 }, @as(Tuple, @import("zon/tuple.zon")));
 }
 
 test "char" {

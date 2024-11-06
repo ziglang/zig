@@ -253,14 +253,14 @@ fn parseExpr(self: LowerZon, node: Ast.Node.Index, res_ty: Type) CompileError!In
         .void => return self.parseVoid(node),
         .bool => return self.parseBool(node),
         .int, .comptime_int, .float, .comptime_float => return self.parseNumber(node, res_ty),
-        .pointer => {},
         .optional => return self.parseOptional(node, res_ty),
-        .@"union" => {},
         .null => return self.parseNull(node),
         .@"enum" => return self.parseEnum(node, res_ty),
         .enum_literal => return self.parseEnumLiteral(node, res_ty),
-        .@"struct" => {},
         .array => return self.parseArray(node, res_ty),
+        .@"struct" => return self.parseStruct(node, res_ty),
+        .@"union" => {},
+        .pointer => {},
 
         .type,
         .noreturn,
@@ -887,6 +887,40 @@ fn parseEnumLiteral(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternP
     return ip.get(gpa, self.sema.pt.tid, .{
         .enum_literal = try self.identAsNullTerminatedString(main_tokens[node]),
     });
+}
+
+fn parseStruct(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
+    const ip = &self.sema.pt.zcu.intern_pool;
+    const gpa = self.sema.gpa;
+
+    // XXX: actually check if is tuple vs struct, probably from outsider so we can make separate functions
+    const tuple_info = ip.indexToKey(res_ty.toIntern()).tuple_type;
+
+    var buf: [2]Ast.Node.Index = undefined;
+    const elem_nodes = try self.elements(res_ty, &buf, node);
+
+    // XXX: keep in mind that default fields are allowed *if comptime*, also make sure packed types work correctly
+    const field_types = tuple_info.types.get(ip);
+    if (elem_nodes.len < field_types.len) {
+        return self.fail(.{ .node_abs = node }, "missing tuple field with index {}", .{elem_nodes.len});
+    } else if (elem_nodes.len > field_types.len) {
+        return self.fail(.{ .node_abs = node }, "index {} outside tuple of length {}", .{
+            field_types.len,
+            elem_nodes[field_types.len],
+        });
+    }
+
+    const elems = try gpa.alloc(InternPool.Index, field_types.len);
+    defer gpa.free(elems);
+
+    for (elems, elem_nodes, field_types) |*elem, elem_node, field_type| {
+        elem.* = try self.parseExpr(elem_node, Type.fromInterned(field_type));
+    }
+
+    return self.sema.pt.intern(.{ .aggregate = .{
+        .ty = res_ty.toIntern(),
+        .storage = .{ .elems = elems },
+    } });
 }
 
 fn elements(
