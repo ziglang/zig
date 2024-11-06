@@ -258,7 +258,7 @@ fn parseExpr(self: LowerZon, node: Ast.Node.Index, res_ty: Type) CompileError!In
         .@"enum" => return self.parseEnum(node, res_ty),
         .enum_literal => return self.parseEnumLiteral(node, res_ty),
         .array => return self.parseArray(node, res_ty),
-        .@"struct" => return self.parseStruct(node, res_ty),
+        .@"struct" => return self.parseStructOrTuple(node, res_ty),
         .@"union" => {},
         .pointer => {},
 
@@ -889,17 +889,24 @@ fn parseEnumLiteral(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternP
     });
 }
 
-fn parseStruct(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
+fn parseStructOrTuple(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
+    const ip = &self.sema.pt.zcu.intern_pool;
+    return switch (ip.indexToKey(res_ty.toIntern())) {
+        .tuple_type => self.parseTuple(node, res_ty),
+        .struct_type => @panic("unimplemented"),
+        else => self.fail(.{ .node_abs = node }, "expected {}", .{res_ty.fmt(self.sema.pt)}),
+    };
+}
+
+fn parseTuple(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
     const ip = &self.sema.pt.zcu.intern_pool;
     const gpa = self.sema.gpa;
 
-    // XXX: actually check if is tuple vs struct, probably from outsider so we can make separate functions
     const tuple_info = ip.indexToKey(res_ty.toIntern()).tuple_type;
 
     var buf: [2]Ast.Node.Index = undefined;
     const elem_nodes = try self.elements(res_ty, &buf, node);
 
-    // XXX: keep in mind that default fields are allowed *if comptime*, also make sure packed types work correctly
     const field_types = tuple_info.types.get(ip);
     if (elem_nodes.len < field_types.len) {
         return self.fail(.{ .node_abs = node }, "missing tuple field with index {}", .{elem_nodes.len});
