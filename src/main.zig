@@ -7041,23 +7041,22 @@ fn cmdFetch(
             }
         }
 
-        const location_replace = try std.fmt.allocPrint(
-            arena,
-            "\"{f}\"",
-            .{std.zig.fmtString(saved_url)},
-        );
-        const hash_replace = try std.fmt.allocPrint(
-            arena,
-            "\"{f}\"",
-            .{std.zig.fmtString(package_hash_slice)},
-        );
-
         warn("overwriting existing dependency named '{s}'", .{name});
-        try fixups.replace_nodes_with_string.put(gpa, dep.location_node, location_replace);
-        if (dep.hash_node.unwrap()) |hash_node| {
-            try fixups.replace_nodes_with_string.put(gpa, hash_node, hash_replace);
+        if (dep.location == .url) {
+            const location_replace = try std.fmt.allocPrint(
+                arena,
+                "\"{f}\"",
+                .{std.zig.fmtString(saved_url)},
+            );
+            const hash_replace = try std.fmt.allocPrint(
+                arena,
+                "\"{f}\"",
+                .{std.zig.fmtString(package_hash_slice)},
+            );
+            try fixups.replace_nodes_with_string.put(gpa, dep.location_node, location_replace);
+            try fixups.replace_nodes_with_string.put(gpa, dep.hash_node.unwrap().?, hash_replace);
         } else {
-            // https://github.com/ziglang/zig/issues/21690
+            try fixups.replace_nodes_with_string.put(gpa, dep.node, new_node_init);
         }
     } else if (manifest.dependencies.count() > 0) {
         // Add fixup for adding another dependency.
