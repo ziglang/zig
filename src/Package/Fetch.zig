@@ -65,6 +65,9 @@ oom_flag: bool,
 /// If the resource pointed to by the location is not a Git-repository, this
 /// will be left unchanged.
 latest_commit: ?git.Oid,
+/// If `location` was `path_or_url`, this will be set to indicate
+/// whether the CLI input was identified as a file path or a URL.
+actual_path_or_url_kind: enum { path, url },
 
 // This field is used by the CLI only, untouched by this file.
 
@@ -344,25 +347,28 @@ pub fn run(f: *Fetch) RunError!void {
         .remote => |remote| remote,
         .path_or_url => |path_or_url| {
             if (fs.cwd().openDir(path_or_url, .{ .iterate = true })) |dir| {
+                f.actual_path_or_url_kind = .path;
                 var resource: Resource = .{ .dir = dir };
                 return f.runResource(path_or_url, &resource, null);
             } else |dir_err| {
                 const file_err = if (dir_err == error.NotDir) e: {
                     if (fs.cwd().openFile(path_or_url, .{})) |file| {
+                        f.actual_path_or_url_kind = .path;
                         var resource: Resource = .{ .file = file };
                         return f.runResource(path_or_url, &resource, null);
                     } else |err| break :e err;
                 } else dir_err;
-
                 const uri = std.Uri.parse(path_or_url) catch |uri_err| {
                     return f.fail(0, try eb.printString(
-                        "'{s}' could not be recognized as a file path ({s}) or an URL ({s})",
+                        "'{s}' could not be recognized as a file path ({s}) or a URL ({s})",
                         .{ path_or_url, @errorName(file_err), @errorName(uri_err) },
                     ));
                 };
+                f.actual_path_or_url_kind = .url;
                 var server_header_buffer: [header_buffer_size]u8 = undefined;
+                const uri_path = try uri.path.toRawMaybeAlloc(arena);
                 var resource = try f.initResource(uri, &server_header_buffer);
-                return f.runResource(try uri.path.toRawMaybeAlloc(arena), &resource, null);
+                return f.runResource(uri_path, &resource, null);
             }
         },
     };
@@ -420,11 +426,12 @@ pub fn run(f: *Fetch) RunError!void {
 
     const uri = std.Uri.parse(remote.url) catch |err| return f.fail(
         f.location_tok,
-        try eb.printString("invalid URI: {s}", .{@errorName(err)}),
+        try eb.printString("invalid URL: {s}", .{@errorName(err)}),
     );
     var server_header_buffer: [header_buffer_size]u8 = undefined;
+    const uri_path = try uri.path.toRawMaybeAlloc(arena);
     var resource = try f.initResource(uri, &server_header_buffer);
-    return f.runResource(try uri.path.toRawMaybeAlloc(arena), &resource, remote.hash);
+    return f.runResource(uri_path, &resource, remote.hash);
 }
 
 pub fn deinit(f: *Fetch) void {
@@ -728,6 +735,7 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
                 .has_build_zig = false,
                 .oom_flag = false,
                 .latest_commit = null,
+                .actual_path_or_url_kind = undefined,
 
                 .module = null,
             };
