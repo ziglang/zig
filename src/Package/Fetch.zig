@@ -1695,7 +1695,7 @@ const HashedFile = struct {
 fn stripRoot(fs_path: []const u8, root_dir: []const u8) []const u8 {
     if (root_dir.len == 0 or fs_path.len <= root_dir.len) return fs_path;
 
-    if (std.mem.eql(u8, fs_path[0..root_dir.len], root_dir) and fs_path[root_dir.len] == fs.path.sep) {
+    if (std.mem.eql(u8, fs_path[0..root_dir.len], root_dir) and fs.path.isSep(fs_path[root_dir.len])) {
         return fs_path[root_dir.len + 1 ..];
     }
 
@@ -1810,8 +1810,8 @@ const FileHeader = struct {
     }
 
     pub fn isExecutable(self: *FileHeader) bool {
-        return std.mem.eql(u8, self.header[0..shebang.len], shebang) or
-            std.mem.eql(u8, self.header[0..elf_magic.len], elf_magic);
+        return std.mem.eql(u8, self.header[0..@min(self.bytes_read, shebang.len)], shebang) or
+            std.mem.eql(u8, self.header[0..@min(self.bytes_read, elf_magic.len)], elf_magic);
     }
 };
 
