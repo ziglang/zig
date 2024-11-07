@@ -1,4 +1,4 @@
-pub fn main() c_int {
+pub export fn main() c_int {
     return 0;
 }
 

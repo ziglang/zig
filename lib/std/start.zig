@@ -608,82 +608,79 @@ fn mainWithoutEnv(c_argc: c_int, c_argv: [*:null]?[*:0]c_char) callconv(.c) c_in
 const bad_main_ret = "expected return type of main to be 'void', '!void', 'noreturn', 'u8', '!u8', or c_int";
 
 // General error message for a malformed C main function
-const bad_c_main = "expected main function returning c_int to accept zero, two, or three arguments";
+const bad_c_main = "expected main function returning c_int to be exported and accept zero, two, or three arguments";
 
 // Same as std.process.argsAlloc but with null sentinal and c_char
-inline fn argvAlloc(arena: std.mem.Allocator) ![:null]?[*:0]c_char {
-    var arg_iter = try process.argsWithAllocator(arena);
-    defer arg_iter.deinit();
+inline fn cArgvAlloc(arena: std.mem.Allocator) ![:null]?[*:0]c_char {
+    if (@bitSizeOf(c_char) != 8) @compileError("cArgvAlloc is not implemented for non-eight bit c_char");
 
-    var arg_data = std.ArrayList(c_char).init(arena);
-    errdefer arg_data.deinit();
-    var arg_addr = std.ArrayList(usize).init(arena);
-    errdefer arg_data.deinit();
+    var offset = std.ArrayList(usize).init(arena);
+    errdefer offset.deinit();
+    var data = std.ArrayList(u8).init(arena);
+    errdefer data.deinit();
 
-    while (arg_iter.next()) |arg_ptr| {
-        try arg_addr.append(arg_data.items.len);
-        try arg_data.appendSlice(@ptrCast(arg_ptr[0 .. arg_ptr.len + 1]));
+    var args = try process.argsWithAllocator(arena);
+    defer args.deinit();
+    while (args.next()) |arg| {
+        try offset.append(data.items.len);
+        try data.appendSlice(arg[0 .. arg.len + 1]);
     }
 
-    const arg_data_owned = try arg_data.toOwnedSlice();
-    for (arg_addr.items) |*addr| {
-        addr.* += @intFromPtr(arg_data_owned.ptr);
+    const addr_owned = try offset.toOwnedSliceSentinel(0);
+    errdefer arena.free(addr_owned);
+    const data_owned = try data.toOwnedSlice();
+    for (addr_owned) |*addr| {
+        addr.* += @intFromPtr(data_owned.ptr);
     }
 
-    return @ptrCast(try arg_addr.toOwnedSliceSentinel(0));
+    return @ptrCast(addr_owned);
 }
 
-inline fn envpAlloc(arena: std.mem.Allocator) ![*:null]?[*:0]c_char {
+inline fn cEnvpAlloc(arena: std.mem.Allocator) ![:null]?[*:0]c_char {
+    if (@bitSizeOf(c_char) != 8) @compileError("cEnvpAlloc is not implemented for non-eight bit c_char");
     var envmap = try std.process.getEnvMap(arena);
     defer envmap.deinit();
     return @ptrCast(try process.createNullDelimitedEnvMap(arena, &envmap));
 }
 
-pub inline fn callMain(c_argv_optional: ?[:null]?[*:0]c_char, c_envp_optional: ?[*:null]?[*:0]c_char) u8 {
-    const main_info = @typeInfo(@TypeOf(root.main));
-    const ReturnType = main_info.@"fn".return_type.?;
+pub inline fn callMain(opt_c_argv: ?[:null]?[*:0]c_char, opt_c_envp: ?[*:null]?[*:0]c_char) u8 {
+    const main_fn = @typeInfo(@TypeOf(root.main)).@"fn";
+    const MainReturn = main_fn.return_type.?;
 
-    switch (ReturnType) {
-        void => {
+    return switch (MainReturn) {
+        void => blk: {
             root.main();
-            return 0;
+            break :blk 0;
         },
-        noreturn, u8 => {
-            return root.main();
-        },
-        c_int => {
-            if (main_info.@"fn".params.len == 0) {
-                return @intCast(root.main() & 0xff);
-            }
+        noreturn, u8 => root.main(),
+        c_int => @intCast(blk: {
+            if (!comptime std.meta.eql(main_fn.calling_convention, .c)) @compileError(bad_c_main);
+
+            if (main_fn.params.len == 0)
+                break :blk root.main();
 
             var arena_ctx = std.heap.ArenaAllocator.init(std.heap.page_allocator);
             defer arena_ctx.deinit();
             const arena = arena_ctx.allocator();
 
-            const c_argv = c_argv_optional orelse (argvAlloc(arena) catch |err|
+            const c_argv = opt_c_argv orelse (cArgvAlloc(arena) catch |err|
                 std.debug.panic("failed to allocate argv: {s}", .{@errorName(err)}));
+            const c_argc = std.math.cast(c_int, c_argv.len) orelse
+                std.debug.panic("too many arguments passed to main ({d})", .{c_argv.len});
 
-            const max_args = std.math.maxInt(c_int);
-            if (c_argv.len > max_args) {
-                std.debug.panic("too many argument passed to main (max {d}, found {d})", .{
-                    max_args,
-                    c_argv.len,
-                });
-            }
+            if (main_fn.params.len == 2)
+                break :blk root.main(c_argc, c_argv.ptr);
 
-            if (main_info.@"fn".params.len == 2) {
-                return @intCast(root.main(@intCast(c_argv.len), @ptrCast(c_argv)) & 0xff);
-            }
+            const c_envp = opt_c_envp orelse (cEnvpAlloc(arena) catch |err|
+                std.debug.panic("failed to allocate envp: {s}", .{@errorName(err)})).ptr;
 
-            const c_envp = c_envp_optional orelse (envpAlloc(arena) catch |err|
-                std.debug.panic("failed to allocate envp: {s}", .{@errorName(err)}));
+            if (main_fn.params.len == 3)
+                break :blk root.main(c_argc, c_argv.ptr, c_envp);
 
-            if (main_info.@"fn".params.len != 3) @compileError(bad_c_main);
-
-            return @intCast(root.main(@intCast(c_argv.len), @ptrCast(c_argv), @ptrCast(c_envp)) & 0xff);
-        },
-        else => {
-            if (@typeInfo(ReturnType) != .error_union) @compileError(bad_main_ret);
+            @compileError(bad_c_main);
+        } & 0xff),
+        else => blk: {
+            if (@typeInfo(MainReturn) != .error_union) @compileError(bad_main_ret);
 
             const result = root.main() catch |err| {
                 if (builtin.zig_backend == .stage2_riscv64) {
@@ -694,16 +691,16 @@ pub inline fn callMain(c_argv_optional: ?[:null]?[*:0]c_char, c_envp_optional: ?
                 if (@errorReturnTrace()) |trace| {
                     std.debug.dumpStackTrace(trace.*);
                 }
-                return 1;
+                break :blk 1;
             };
 
-            return switch (@TypeOf(result)) {
+            break :blk switch (@TypeOf(result)) {
                 void => 0,
                 u8 => result,
                 else => @compileError(bad_main_ret),
             };
         },
-    }
+    };
 }
 
 pub fn call_wWinMain() std.os.windows.INT {
