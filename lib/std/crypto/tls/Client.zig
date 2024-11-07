@@ -1,4 +1,5 @@
 const std = @import("../../std.zig");
+const rsa = @import("../rsa.zig");
 const tls = std.crypto.tls;
 const Client = @This();
 const net = std.net;
@@ -609,15 +610,14 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
                                         return error.TlsBadSignatureScheme;
 
                                     const Hash = SchemeHash(comptime_scheme);
-                                    const rsa = Certificate.rsa;
                                     const components = try rsa.PublicKey.parseDer(main_cert_pub_key);
                                     const exponent = components.exponent;
                                     const modulus = components.modulus;
                                     switch (modulus.len) {
                                         inline 128, 256, 512 => |modulus_len| {
                                             const key = try rsa.PublicKey.fromBytes(exponent, modulus);
-                                            const sig = rsa.PSSSignature.fromBytes(modulus_len, encoded_sig);
-                                            try rsa.PSSSignature.verify(modulus_len, sig, verify_bytes, key, Hash);
+                                            const sig = rsa.PssSignature.fromBytes(modulus_len, encoded_sig);
+                                            try rsa.PssSignature.verify(modulus_len, sig, verify_bytes, key, Hash);
                                         },
                                         else => {
                                             return error.TlsBadRsaSignatureBitCount;
