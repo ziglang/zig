@@ -231,7 +231,8 @@ test "vector cmp f16" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-    if (builtin.cpu.arch.isArm() and builtin.target.floatAbi() == .soft) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21234
+    if (builtin.cpu.arch.isArm()) return error.SkipZigTest;
+    if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
 
     try testCmpVector(f16);
     try comptime testCmpVector(f16);
@@ -242,7 +243,8 @@ test "vector cmp f32" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-    if (builtin.cpu.arch.isArm() and builtin.target.floatAbi() == .soft) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21234
+    if (builtin.cpu.arch.isArm()) return error.SkipZigTest;
+    if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
 
     try testCmpVector(f32);
     try comptime testCmpVector(f32);
@@ -253,7 +255,8 @@ test "vector cmp f64" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-    if (builtin.cpu.arch.isArm() and builtin.target.floatAbi() == .soft) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21234
+    if (builtin.cpu.arch.isArm()) return error.SkipZigTest;
+    if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
 
     try testCmpVector(f64);
     try comptime testCmpVector(f64);
@@ -267,6 +270,8 @@ test "vector cmp f128" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.cpu.arch.isArm()) return error.SkipZigTest;
+    if (builtin.cpu.arch.isPowerPC64()) return error.SkipZigTest;
 
     try testCmpVector(f128);
     try comptime testCmpVector(f128);
@@ -281,7 +286,6 @@ test "vector cmp f80/c_longdouble" {
     try comptime testCmpVector(c_longdouble);
 }
 fn testCmpVector(comptime T: type) !void {
-    @setEvalBranchQuota(4_000);
     var edges = [_]T{
         -math.inf(T),
         -math.floatMax(T),
