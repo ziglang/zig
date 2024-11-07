@@ -194,7 +194,7 @@ fn testCmp(comptime T: type) !void {
         try expect(x <= 2.0);
     }
 
-    @setEvalBranchQuota(2_000);
+    @setEvalBranchQuota(4_000);
     var edges = [_]T{
         -math.inf(T),
         -math.floatMax(T),
@@ -210,6 +210,7 @@ fn testCmp(comptime T: type) !void {
     };
     _ = &edges;
     for (edges, 0..) |rhs, rhs_i| {
+        const rhs_v: @Vector(4, T) = @splat(rhs);
         for (edges, 0..) |lhs, lhs_i| {
             const no_nan = lhs_i != 5 and rhs_i != 5;
             const lhs_order = if (lhs_i < 5) lhs_i else lhs_i - 2;
@@ -220,6 +221,14 @@ fn testCmp(comptime T: type) !void {
             try expect((lhs > rhs) == (no_nan and lhs_order > rhs_order));
             try expect((lhs <= rhs) == (no_nan and lhs_order <= rhs_order));
             try expect((lhs >= rhs) == (no_nan and lhs_order >= rhs_order));
+
+            const lhs_v: @Vector(4, T) = @splat(lhs);
+            try expect(@reduce(.And, (lhs_v == rhs_v)) == (no_nan and lhs_order == rhs_order));
+            try expect(@reduce(.And, (lhs_v != rhs_v)) == !(no_nan and lhs_order == rhs_order));
+            try expect(@reduce(.And, (lhs_v < rhs_v)) == (no_nan and lhs_order < rhs_order));
+            try expect(@reduce(.And, (lhs_v > rhs_v)) == (no_nan and lhs_order > rhs_order));
+            try expect(@reduce(.And, (lhs_v <= rhs_v)) == (no_nan and lhs_order <= rhs_order));
+            try expect(@reduce(.And, (lhs_v >= rhs_v)) == (no_nan and lhs_order >= rhs_order));
         }
     }
 }
