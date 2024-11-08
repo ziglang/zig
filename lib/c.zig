@@ -17,12 +17,8 @@ const is_wasm = switch (native_arch) {
     .wasm32, .wasm64 => true,
     else => false,
 };
-const is_msvc = switch (native_abi) {
-    .msvc => true,
-    else => false,
-};
 const is_freestanding = switch (native_os) {
-    .freestanding => true,
+    .freestanding, .other => true,
     else => false,
 };
 
