@@ -22,7 +22,7 @@ pub const Inst = struct {
         /// ___
         @"_",
 
-        /// Integer __
+        /// Integer ___
         i_,
 
         /// ___ Left

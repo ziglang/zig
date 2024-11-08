@@ -41,12 +41,12 @@ pub fn RegisterManager(
         registers: TrackedRegisters = undefined,
         /// Tracks which registers are free (in which case the
         /// corresponding bit is set to 1)
-        free_registers: RegisterBitSet = RegisterBitSet.initFull(),
+        free_registers: RegisterBitSet = .initFull(),
         /// Tracks all registers allocated in the course of this
         /// function
-        allocated_registers: RegisterBitSet = RegisterBitSet.initEmpty(),
+        allocated_registers: RegisterBitSet = .initEmpty(),
         /// Tracks registers which are locked from being allocated
-        locked_registers: RegisterBitSet = RegisterBitSet.initEmpty(),
+        locked_registers: RegisterBitSet = .initEmpty(),
 
         const Self = @This();
 
@@ -420,8 +420,8 @@ const MockRegister1 = enum(u2) {
         &MockRegister1.allocatable_registers,
     );
 
-    const gp: RM.RegisterBitSet = blk: {
-        var set = RM.RegisterBitSet.initEmpty();
+    const gp = blk: {
+        var set: RM.RegisterBitSet = .initEmpty();
         set.setRangeValue(.{
             .start = 0,
             .end = allocatable_registers.len,
@@ -448,8 +448,8 @@ const MockRegister2 = enum(u2) {
         &MockRegister2.allocatable_registers,
     );
 
-    const gp: RM.RegisterBitSet = blk: {
-        var set = RM.RegisterBitSet.initEmpty();
+    const gp = blk: {
+        var set: RM.RegisterBitSet = .initEmpty();
         set.setRangeValue(.{
             .start = 0,
             .end = allocatable_registers.len,
@@ -489,16 +489,16 @@ const MockRegister3 = enum(u3) {
         &MockRegister3.allocatable_registers,
     );
 
-    const gp: RM.RegisterBitSet = blk: {
-        var set = RM.RegisterBitSet.initEmpty();
+    const gp = blk: {
+        var set: RM.RegisterBitSet = .initEmpty();
         set.setRangeValue(.{
             .start = 0,
             .end = gp_regs.len,
         }, true);
         break :blk set;
     };
-    const ext: RM.RegisterBitSet = blk: {
-        var set = RM.RegisterBitSet.initEmpty();
+    const ext = blk: {
+        var set: RM.RegisterBitSet = .initEmpty();
         set.setRangeValue(.{
             .start = gp_regs.len,
             .end = allocatable_registers.len,
