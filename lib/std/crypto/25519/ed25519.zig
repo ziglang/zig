@@ -151,7 +151,9 @@ pub const Ed25519 = struct {
         a: Curve,
         expected_r: Curve,
 
-        fn init(sig: Signature, public_key: PublicKey) (NonCanonicalError || EncodingError || IdentityElementError)!Verifier {
+        pub const InitError = NonCanonicalError || EncodingError || IdentityElementError;
+
+        fn init(sig: Signature, public_key: PublicKey) InitError!Verifier {
             const r = sig.r;
             const s = sig.s;
             try Curve.scalar.rejectNonCanonical(s);
@@ -173,8 +175,11 @@ pub const Ed25519 = struct {
             self.h.update(msg);
         }
 
+        pub const VerifyError = WeakPublicKeyError || IdentityElementError ||
+            SignatureVerificationError;
+
         /// Verify that the signature is valid for the entire message.
-        pub fn verify(self: *Verifier) (SignatureVerificationError || WeakPublicKeyError || IdentityElementError)!void {
+        pub fn verify(self: *Verifier) VerifyError!void {
             var hram64: [Sha512.digest_length]u8 = undefined;
             self.h.final(&hram64);
             const hram = Curve.scalar.reduce64(hram64);
@@ -197,10 +202,10 @@ pub const Ed25519 = struct {
         s: CompressedScalar,
 
         /// Return the raw signature (r, s) in little-endian format.
-        pub fn toBytes(self: Signature) [encoded_length]u8 {
+        pub fn toBytes(sig: Signature) [encoded_length]u8 {
             var bytes: [encoded_length]u8 = undefined;
-            bytes[0..Curve.encoded_length].* = self.r;
-            bytes[Curve.encoded_length..].* = self.s;
+            bytes[0..Curve.encoded_length].* = sig.r;
+            bytes[Curve.encoded_length..].* = sig.s;
             return bytes;
         }
 
@@ -214,17 +219,19 @@ pub const Ed25519 = struct {
         }
 
         /// Create a Verifier for incremental verification of a signature.
-        pub fn verifier(self: Signature, public_key: PublicKey) (NonCanonicalError || EncodingError || IdentityElementError)!Verifier {
-            return Verifier.init(self, public_key);
+        pub fn verifier(sig: Signature, public_key: PublicKey) Verifier.InitError!Verifier {
+            return Verifier.init(sig, public_key);
         }
+
+        pub const VerifyError = Verifier.InitError || Verifier.VerifyError;
 
         /// Verify the signature against a message and public key.
         /// Return IdentityElement or NonCanonical if the public key or signature are not in the expected range,
         /// or SignatureVerificationError if the signature is invalid for the given message and key.
-        pub fn verify(self: Signature, msg: []const u8, public_key: PublicKey) (IdentityElementError || NonCanonicalError || SignatureVerificationError || EncodingError || WeakPublicKeyError)!void {
-            var st = try Verifier.init(self, public_key);
+        pub fn verify(sig: Signature, msg: []const u8, public_key: PublicKey) VerifyError!void {
+            var st = try sig.verifier(public_key);
             st.update(msg);
-            return st.verify();
+            try st.verify();
         }
     };
 

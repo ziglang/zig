@@ -54,6 +54,8 @@ pub const close_notify_alert = [_]u8{
 };
 
 pub const ProtocolVersion = enum(u16) {
+    tls_1_0 = 0x0301,
+    tls_1_1 = 0x0302,
     tls_1_2 = 0x0303,
     tls_1_3 = 0x0304,
     _,
@@ -69,14 +71,18 @@ pub const ContentType = enum(u8) {
 };
 
 pub const HandshakeType = enum(u8) {
+    hello_request = 0,
     client_hello = 1,
     server_hello = 2,
     new_session_ticket = 4,
     end_of_early_data = 5,
     encrypted_extensions = 8,
     certificate = 11,
+    server_key_exchange = 12,
     certificate_request = 13,
+    server_hello_done = 14,
     certificate_verify = 15,
+    client_key_exchange = 16,
     finished = 20,
     key_update = 24,
     message_hash = 254,
@@ -198,36 +204,36 @@ pub const AlertDescription = enum(u8) {
     _,
 
     pub fn toError(alert: AlertDescription) Error!void {
-        return switch (alert) {
+        switch (alert) {
             .close_notify => {}, // not an error
-            .unexpected_message => error.TlsAlertUnexpectedMessage,
-            .bad_record_mac => error.TlsAlertBadRecordMac,
-            .record_overflow => error.TlsAlertRecordOverflow,
-            .handshake_failure => error.TlsAlertHandshakeFailure,
-            .bad_certificate => error.TlsAlertBadCertificate,
-            .unsupported_certificate => error.TlsAlertUnsupportedCertificate,
-            .certificate_revoked => error.TlsAlertCertificateRevoked,
-            .certificate_expired => error.TlsAlertCertificateExpired,
-            .certificate_unknown => error.TlsAlertCertificateUnknown,
-            .illegal_parameter => error.TlsAlertIllegalParameter,
-            .unknown_ca => error.TlsAlertUnknownCa,
-            .access_denied => error.TlsAlertAccessDenied,
-            .decode_error => error.TlsAlertDecodeError,
-            .decrypt_error => error.TlsAlertDecryptError,
-            .protocol_version => error.TlsAlertProtocolVersion,
-            .insufficient_security => error.TlsAlertInsufficientSecurity,
-            .internal_error => error.TlsAlertInternalError,
-            .inappropriate_fallback => error.TlsAlertInappropriateFallback,
+            .unexpected_message => return error.TlsAlertUnexpectedMessage,
+            .bad_record_mac => return error.TlsAlertBadRecordMac,
+            .record_overflow => return error.TlsAlertRecordOverflow,
+            .handshake_failure => return error.TlsAlertHandshakeFailure,
+            .bad_certificate => return error.TlsAlertBadCertificate,
+            .unsupported_certificate => return error.TlsAlertUnsupportedCertificate,
+            .certificate_revoked => return error.TlsAlertCertificateRevoked,
+            .certificate_expired => return error.TlsAlertCertificateExpired,
+            .certificate_unknown => return error.TlsAlertCertificateUnknown,
+            .illegal_parameter => return error.TlsAlertIllegalParameter,
+            .unknown_ca => return error.TlsAlertUnknownCa,
+            .access_denied => return error.TlsAlertAccessDenied,
+            .decode_error => return error.TlsAlertDecodeError,
+            .decrypt_error => return error.TlsAlertDecryptError,
+            .protocol_version => return error.TlsAlertProtocolVersion,
+            .insufficient_security => return error.TlsAlertInsufficientSecurity,
+            .internal_error => return error.TlsAlertInternalError,
+            .inappropriate_fallback => return error.TlsAlertInappropriateFallback,
             .user_canceled => {}, // not an error
-            .missing_extension => error.TlsAlertMissingExtension,
-            .unsupported_extension => error.TlsAlertUnsupportedExtension,
-            .unrecognized_name => error.TlsAlertUnrecognizedName,
-            .bad_certificate_status_response => error.TlsAlertBadCertificateStatusResponse,
-            .unknown_psk_identity => error.TlsAlertUnknownPskIdentity,
-            .certificate_required => error.TlsAlertCertificateRequired,
-            .no_application_protocol => error.TlsAlertNoApplicationProtocol,
-            _ => error.TlsAlertUnknown,
-        };
+            .missing_extension => return error.TlsAlertMissingExtension,
+            .unsupported_extension => return error.TlsAlertUnsupportedExtension,
+            .unrecognized_name => return error.TlsAlertUnrecognizedName,
+            .bad_certificate_status_response => return error.TlsAlertBadCertificateStatusResponse,
+            .unknown_psk_identity => return error.TlsAlertUnknownPskIdentity,
+            .certificate_required => return error.TlsAlertCertificateRequired,
+            .no_application_protocol => return error.TlsAlertNoApplicationProtocol,
+            _ => return error.TlsAlertUnknown,
+        }
     }
 };
 
@@ -260,6 +266,17 @@ pub const SignatureScheme = enum(u16) {
     rsa_pkcs1_sha1 = 0x0201,
     ecdsa_sha1 = 0x0203,
 
+    ecdsa_brainpoolP256r1tls13_sha256 = 0x081a,
+    ecdsa_brainpoolP384r1tls13_sha384 = 0x081b,
+    ecdsa_brainpoolP512r1tls13_sha512 = 0x081c,
+
+    rsa_sha224 = 0x0301,
+    dsa_sha224 = 0x0302,
+    ecdsa_sha224 = 0x0303,
+    dsa_sha256 = 0x0402,
+    dsa_sha384 = 0x0502,
+    dsa_sha512 = 0x0602,
+
     _,
 };
 
@@ -285,7 +302,27 @@ pub const NamedGroup = enum(u16) {
     _,
 };
 
+pub const PskKeyExchangeMode = enum(u8) {
+    psk_ke = 0,
+    psk_dhe_ke = 1,
+    _,
+};
+
 pub const CipherSuite = enum(u16) {
+    RSA_WITH_AES_128_CBC_SHA = 0x002F,
+    DHE_RSA_WITH_AES_128_CBC_SHA = 0x0033,
+    RSA_WITH_AES_256_CBC_SHA = 0x0035,
+    DHE_RSA_WITH_AES_256_CBC_SHA = 0x0039,
+    RSA_WITH_AES_128_CBC_SHA256 = 0x003C,
+    RSA_WITH_AES_256_CBC_SHA256 = 0x003D,
+    DHE_RSA_WITH_AES_128_CBC_SHA256 = 0x0067,
+    DHE_RSA_WITH_AES_256_CBC_SHA256 = 0x006B,
+    RSA_WITH_AES_128_GCM_SHA256 = 0x009C,
+    RSA_WITH_AES_256_GCM_SHA384 = 0x009D,
+    DHE_RSA_WITH_AES_128_GCM_SHA256 = 0x009E,
+    DHE_RSA_WITH_AES_256_GCM_SHA384 = 0x009F,
+    EMPTY_RENEGOTIATION_INFO_SCSV = 0x00FF,
+
     AES_128_GCM_SHA256 = 0x1301,
     AES_256_GCM_SHA384 = 0x1302,
     CHACHA20_POLY1305_SHA256 = 0x1303,
@@ -293,6 +330,102 @@ pub const CipherSuite = enum(u16) {
     AES_128_CCM_8_SHA256 = 0x1305,
     AEGIS_256_SHA512 = 0x1306,
     AEGIS_128L_SHA256 = 0x1307,
+
+    ECDHE_ECDSA_WITH_AES_128_CBC_SHA = 0xC009,
+    ECDHE_ECDSA_WITH_AES_256_CBC_SHA = 0xC00A,
+    ECDHE_RSA_WITH_AES_128_CBC_SHA = 0xC013,
+    ECDHE_RSA_WITH_AES_256_CBC_SHA = 0xC014,
+    ECDHE_ECDSA_WITH_AES_128_CBC_SHA256 = 0xC023,
+    ECDHE_ECDSA_WITH_AES_256_CBC_SHA384 = 0xC024,
+    ECDHE_RSA_WITH_AES_128_CBC_SHA256 = 0xC027,
+    ECDHE_RSA_WITH_AES_256_CBC_SHA384 = 0xC028,
+    ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 = 0xC02B,
+    ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 = 0xC02C,
+    ECDHE_RSA_WITH_AES_128_GCM_SHA256 = 0xC02F,
+    ECDHE_RSA_WITH_AES_256_GCM_SHA384 = 0xC030,
+
+    ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256 = 0xCCA8,
+    ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256 = 0xCCA9,
+    DHE_RSA_WITH_CHACHA20_POLY1305_SHA256 = 0xCCAA,
+
+    _,
+
+    pub const With = enum {
+        AES_128_CBC_SHA,
+        AES_256_CBC_SHA,
+        AES_128_CBC_SHA256,
+        AES_256_CBC_SHA256,
+        AES_256_CBC_SHA384,
+
+        AES_128_GCM_SHA256,
+        AES_256_GCM_SHA384,
+
+        CHACHA20_POLY1305_SHA256,
+
+        AES_128_CCM_SHA256,
+        AES_128_CCM_8_SHA256,
+
+        AEGIS_256_SHA512,
+        AEGIS_128L_SHA256,
+    };
+
+    pub fn with(cipher_suite: CipherSuite) With {
+        return switch (cipher_suite) {
+            .RSA_WITH_AES_128_CBC_SHA,
+            .DHE_RSA_WITH_AES_128_CBC_SHA,
+            .ECDHE_ECDSA_WITH_AES_128_CBC_SHA,
+            .ECDHE_RSA_WITH_AES_128_CBC_SHA,
+            => .AES_128_CBC_SHA,
+            .RSA_WITH_AES_256_CBC_SHA,
+            .DHE_RSA_WITH_AES_256_CBC_SHA,
+            .ECDHE_ECDSA_WITH_AES_256_CBC_SHA,
+            .ECDHE_RSA_WITH_AES_256_CBC_SHA,
+            => .AES_256_CBC_SHA,
+            .RSA_WITH_AES_128_CBC_SHA256,
+            .DHE_RSA_WITH_AES_128_CBC_SHA256,
+            .ECDHE_ECDSA_WITH_AES_128_CBC_SHA256,
+            .ECDHE_RSA_WITH_AES_128_CBC_SHA256,
+            => .AES_128_CBC_SHA256,
+            .RSA_WITH_AES_256_CBC_SHA256,
+            .DHE_RSA_WITH_AES_256_CBC_SHA256,
+            => .AES_256_CBC_SHA256,
+            .ECDHE_ECDSA_WITH_AES_256_CBC_SHA384,
+            .ECDHE_RSA_WITH_AES_256_CBC_SHA384,
+            => .AES_256_CBC_SHA384,
+
+            .RSA_WITH_AES_128_GCM_SHA256,
+            .DHE_RSA_WITH_AES_128_GCM_SHA256,
+            .AES_128_GCM_SHA256,
+            .ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+            .ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+            => .AES_128_GCM_SHA256,
+            .RSA_WITH_AES_256_GCM_SHA384,
+            .DHE_RSA_WITH_AES_256_GCM_SHA384,
+            .AES_256_GCM_SHA384,
+            .ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+            .ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+            => .AES_256_GCM_SHA384,
+
+            .CHACHA20_POLY1305_SHA256,
+            .ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
+            .ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
+            .DHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
+            => .CHACHA20_POLY1305_SHA256,
+
+            .AES_128_CCM_SHA256 => .AES_128_CCM_SHA256,
+            .AES_128_CCM_8_SHA256 => .AES_128_CCM_8_SHA256,
+
+            .AEGIS_256_SHA512 => .AEGIS_256_SHA512,
+            .AEGIS_128L_SHA256 => .AEGIS_128L_SHA256,
+
+            .EMPTY_RENEGOTIATION_INFO_SCSV => unreachable,
+            _ => unreachable,
+        };
+    }
+};
+
+pub const CompressionMethod = enum(u8) {
+    null = 0,
     _,
 };
 
@@ -308,57 +441,113 @@ pub const KeyUpdateRequest = enum(u8) {
     _,
 };
 
-pub fn HandshakeCipherT(comptime AeadType: type, comptime HashType: type) type {
-    return struct {
-        pub const AEAD = AeadType;
-        pub const Hash = HashType;
-        pub const Hmac = crypto.auth.hmac.Hmac(Hash);
-        pub const Hkdf = crypto.kdf.hkdf.Hkdf(Hmac);
+pub const ChangeCipherSpecType = enum(u8) {
+    change_cipher_spec = 1,
+    _,
+};
 
-        handshake_secret: [Hkdf.prk_length]u8,
-        master_secret: [Hkdf.prk_length]u8,
-        client_handshake_key: [AEAD.key_length]u8,
-        server_handshake_key: [AEAD.key_length]u8,
-        client_finished_key: [Hmac.key_length]u8,
-        server_finished_key: [Hmac.key_length]u8,
-        client_handshake_iv: [AEAD.nonce_length]u8,
-        server_handshake_iv: [AEAD.nonce_length]u8,
-        transcript_hash: Hash,
+pub fn HandshakeCipherT(comptime AeadType: type, comptime HashType: type, comptime explicit_iv_length: comptime_int) type {
+    return struct {
+        pub const A = ApplicationCipherT(AeadType, HashType, explicit_iv_length);
+
+        transcript_hash: A.Hash,
+        version: union {
+            tls_1_2: struct {
+                expected_server_verify_data: [A.verify_data_length]u8,
+                app_cipher: A.Tls_1_2,
+            },
+            tls_1_3: struct {
+                handshake_secret: [A.Hkdf.prk_length]u8,
+                master_secret: [A.Hkdf.prk_length]u8,
+                client_handshake_key: [A.AEAD.key_length]u8,
+                server_handshake_key: [A.AEAD.key_length]u8,
+                client_finished_key: [A.Hmac.key_length]u8,
+                server_finished_key: [A.Hmac.key_length]u8,
+                client_handshake_iv: [A.AEAD.nonce_length]u8,
+                server_handshake_iv: [A.AEAD.nonce_length]u8,
+            },
+        },
     };
 }
 
 pub const HandshakeCipher = union(enum) {
-    AES_128_GCM_SHA256: HandshakeCipherT(crypto.aead.aes_gcm.Aes128Gcm, crypto.hash.sha2.Sha256),
-    AES_256_GCM_SHA384: HandshakeCipherT(crypto.aead.aes_gcm.Aes256Gcm, crypto.hash.sha2.Sha384),
-    CHACHA20_POLY1305_SHA256: HandshakeCipherT(crypto.aead.chacha_poly.ChaCha20Poly1305, crypto.hash.sha2.Sha256),
-    AEGIS_256_SHA512: HandshakeCipherT(crypto.aead.aegis.Aegis256, crypto.hash.sha2.Sha512),
-    AEGIS_128L_SHA256: HandshakeCipherT(crypto.aead.aegis.Aegis128L, crypto.hash.sha2.Sha256),
+    AES_128_GCM_SHA256: HandshakeCipherT(crypto.aead.aes_gcm.Aes128Gcm, crypto.hash.sha2.Sha256, 8),
+    AES_256_GCM_SHA384: HandshakeCipherT(crypto.aead.aes_gcm.Aes256Gcm, crypto.hash.sha2.Sha384, 8),
+    CHACHA20_POLY1305_SHA256: HandshakeCipherT(crypto.aead.chacha_poly.ChaCha20Poly1305, crypto.hash.sha2.Sha256, 0),
+    AEGIS_256_SHA512: HandshakeCipherT(crypto.aead.aegis.Aegis256, crypto.hash.sha2.Sha512, 0),
+    AEGIS_128L_SHA256: HandshakeCipherT(crypto.aead.aegis.Aegis128L, crypto.hash.sha2.Sha256, 0),
 };
 
-pub fn ApplicationCipherT(comptime AeadType: type, comptime HashType: type) type {
-    return struct {
+pub fn ApplicationCipherT(comptime AeadType: type, comptime HashType: type, comptime explicit_iv_length: comptime_int) type {
+    return union {
         pub const AEAD = AeadType;
         pub const Hash = HashType;
         pub const Hmac = crypto.auth.hmac.Hmac(Hash);
         pub const Hkdf = crypto.kdf.hkdf.Hkdf(Hmac);
 
-        client_secret: [Hash.digest_length]u8,
-        server_secret: [Hash.digest_length]u8,
-        client_key: [AEAD.key_length]u8,
-        server_key: [AEAD.key_length]u8,
-        client_iv: [AEAD.nonce_length]u8,
-        server_iv: [AEAD.nonce_length]u8,
+        pub const enc_key_length = AEAD.key_length;
+        pub const fixed_iv_length = AEAD.nonce_length - explicit_iv_length;
+        pub const record_iv_length = explicit_iv_length;
+        pub const mac_length = AEAD.tag_length;
+        pub const mac_key_length = Hmac.key_length_min;
+        pub const verify_data_length = 12;
+
+        tls_1_2: Tls_1_2,
+        tls_1_3: Tls_1_3,
+
+        pub const Tls_1_2 = extern struct {
+            client_write_MAC_key: [mac_key_length]u8,
+            server_write_MAC_key: [mac_key_length]u8,
+            client_write_key: [enc_key_length]u8,
+            server_write_key: [enc_key_length]u8,
+            client_write_IV: [fixed_iv_length]u8,
+            server_write_IV: [fixed_iv_length]u8,
+            // non-standard entropy
+            client_salt: [record_iv_length]u8,
+        };
+
+        pub const Tls_1_3 = struct {
+            client_secret: [Hash.digest_length]u8,
+            server_secret: [Hash.digest_length]u8,
+            client_key: [AEAD.key_length]u8,
+            server_key: [AEAD.key_length]u8,
+            client_iv: [AEAD.nonce_length]u8,
+            server_iv: [AEAD.nonce_length]u8,
+        };
     };
 }
 
 /// Encryption parameters for application traffic.
 pub const ApplicationCipher = union(enum) {
-    AES_128_GCM_SHA256: ApplicationCipherT(crypto.aead.aes_gcm.Aes128Gcm, crypto.hash.sha2.Sha256),
-    AES_256_GCM_SHA384: ApplicationCipherT(crypto.aead.aes_gcm.Aes256Gcm, crypto.hash.sha2.Sha384),
-    CHACHA20_POLY1305_SHA256: ApplicationCipherT(crypto.aead.chacha_poly.ChaCha20Poly1305, crypto.hash.sha2.Sha256),
-    AEGIS_256_SHA512: ApplicationCipherT(crypto.aead.aegis.Aegis256, crypto.hash.sha2.Sha512),
-    AEGIS_128L_SHA256: ApplicationCipherT(crypto.aead.aegis.Aegis128L, crypto.hash.sha2.Sha256),
+    AES_128_GCM_SHA256: ApplicationCipherT(crypto.aead.aes_gcm.Aes128Gcm, crypto.hash.sha2.Sha256, 8),
+    AES_256_GCM_SHA384: ApplicationCipherT(crypto.aead.aes_gcm.Aes256Gcm, crypto.hash.sha2.Sha384, 8),
+    CHACHA20_POLY1305_SHA256: ApplicationCipherT(crypto.aead.chacha_poly.ChaCha20Poly1305, crypto.hash.sha2.Sha256, 0),
+    AEGIS_256_SHA512: ApplicationCipherT(crypto.aead.aegis.Aegis256, crypto.hash.sha2.Sha512, 0),
+    AEGIS_128L_SHA256: ApplicationCipherT(crypto.aead.aegis.Aegis128L, crypto.hash.sha2.Sha256, 0),
 };
+
+pub fn hmacExpandLabel(
+    comptime Hmac: type,
+    secret: []const u8,
+    label_then_seed: []const []const u8,
+    comptime len: usize,
+) [len]u8 {
+    const initial_hmac: Hmac = .init(secret);
+    var a: [Hmac.mac_length]u8 = undefined;
+    var result: [std.mem.alignForwardAnyAlign(usize, len, Hmac.mac_length)]u8 = undefined;
+    var index: usize = 0;
+    while (index < result.len) : (index += Hmac.mac_length) {
+        var a_hmac = initial_hmac;
+        if (index > 0) a_hmac.update(&a) else for (label_then_seed) |part| a_hmac.update(part);
+        a_hmac.final(&a);
+
+        var result_hmac = initial_hmac;
+        result_hmac.update(&a);
+        for (label_then_seed) |part| result_hmac.update(part);
+        result_hmac.final(result[index..][0..Hmac.mac_length]);
+    }
+    return result[0..len].*;
+}
 
 pub fn hkdfExpandLabel(
     comptime Hkdf: type,
@@ -399,38 +588,39 @@ pub fn hmac(comptime Hmac: type, message: []const u8, key: [Hmac.key_length]u8) 
     return result;
 }
 
-pub inline fn extension(comptime et: ExtensionType, bytes: anytype) [2 + 2 + bytes.len]u8 {
-    return int2(@intFromEnum(et)) ++ array(1, bytes);
+pub inline fn extension(et: ExtensionType, bytes: anytype) [2 + 2 + bytes.len]u8 {
+    return int(u16, @intFromEnum(et)) ++ array(u16, u8, bytes);
 }
 
-pub inline fn array(comptime elem_size: comptime_int, bytes: anytype) [2 + bytes.len]u8 {
-    comptime assert(bytes.len % elem_size == 0);
-    return int2(bytes.len) ++ bytes;
-}
-
-pub inline fn enum_array(comptime E: type, comptime tags: []const E) [2 + @sizeOf(E) * tags.len]u8 {
-    assert(@sizeOf(E) == 2);
-    var result: [tags.len * 2]u8 = undefined;
-    for (tags, 0..) |elem, i| {
-        result[i * 2] = @as(u8, @truncate(@intFromEnum(elem) >> 8));
-        result[i * 2 + 1] = @as(u8, @truncate(@intFromEnum(elem)));
+pub inline fn array(
+    comptime Len: type,
+    comptime Elem: type,
+    elems: anytype,
+) [@divExact(@bitSizeOf(Len), 8) + @divExact(@bitSizeOf(Elem), 8) * elems.len]u8 {
+    const len_size = @divExact(@bitSizeOf(Len), 8);
+    const elem_size = @divExact(@bitSizeOf(Elem), 8);
+    var arr: [len_size + elem_size * elems.len]u8 = undefined;
+    std.mem.writeInt(Len, arr[0..len_size], @intCast(elem_size * elems.len), .big);
+    const ElemInt = @Type(.{ .int = .{ .signedness = .unsigned, .bits = @bitSizeOf(Elem) } });
+    for (0.., @as([elems.len]Elem, elems)) |index, elem| {
+        std.mem.writeInt(
+            ElemInt,
+            arr[len_size + elem_size * index ..][0..elem_size],
+            switch (@typeInfo(Elem)) {
+                .int => @as(Elem, elem),
+                .@"enum" => @intFromEnum(@as(Elem, elem)),
+                else => @bitCast(@as(Elem, elem)),
+            },
+            .big,
+        );
     }
-    return array(2, result);
+    return arr;
 }
 
-pub inline fn int2(x: u16) [2]u8 {
-    return .{
-        @as(u8, @truncate(x >> 8)),
-        @as(u8, @truncate(x)),
-    };
-}
-
-pub inline fn int3(x: u24) [3]u8 {
-    return .{
-        @as(u8, @truncate(x >> 16)),
-        @as(u8, @truncate(x >> 8)),
-        @as(u8, @truncate(x)),
-    };
+pub inline fn int(comptime Int: type, val: Int) [@divExact(@bitSizeOf(Int), 8)]u8 {
+    var arr: [@divExact(@bitSizeOf(Int), 8)]u8 = undefined;
+    std.mem.writeInt(Int, &arr, val, .big);
+    return arr;
 }
 
 /// An abstraction to ensure that protocol-parsing code does not perform an
@@ -512,9 +702,8 @@ pub const Decoder = struct {
                 else => @compileError("unsupported int type: " ++ @typeName(T)),
             },
             .@"enum" => |info| {
-                const int = d.decode(info.tag_type);
                 if (info.is_exhaustive) @compileError("exhaustive enum cannot be used");
-                return @as(T, @enumFromInt(int));
+                return @enumFromInt(d.decode(info.tag_type));
             },
             else => @compileError("unsupported type: " ++ @typeName(T)),
         }
