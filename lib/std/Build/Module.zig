@@ -314,26 +314,35 @@ fn addShallowDependencies(m: *Module, dependee: *Module) void {
     if (dependee.root_source_file) |lazy_path| addLazyPathDependencies(m, dependee, lazy_path);
     for (dependee.lib_paths.items) |lib_path| addLazyPathDependencies(m, dependee, lib_path);
     for (dependee.rpaths.items) |rpath| switch (rpath) {
-        .lazy_path => |lp| addLazyPathDependencies(m, dependee, lp),
         .special => {},
+        .lazy_path => |lp| addLazyPathDependencies(m, dependee, lp),
     };
-
-    for (dependee.link_objects.items) |link_object| switch (link_object) {
-        .other_step => |compile| {
-            addStepDependencies(m, dependee, &compile.step);
-            addLazyPathDependenciesOnly(m, compile.getEmittedIncludeTree());
-        },
-
-        .static_path,
-        .assembly_file,
+    for (dependee.include_dirs.items) |dir| switch (dir) {
+        .path,
+        .path_system,
+        .path_after,
+        .framework_path,
+        .framework_path_system,
         => |lp| addLazyPathDependencies(m, dependee, lp),
 
-        .c_source_file => |x| addLazyPathDependencies(m, dependee, x.file),
-        .win32_resource_file => |x| addLazyPathDependencies(m, dependee, x.file),
+        .config_header_step => |c| addStepDependencies(m, dependee, &c.step),
+        .other_step => {}, // Assumed to be done through link_objects
+    };
+    for (dependee.link_objects.items) |link_object| switch (link_object) {
+        .system_lib => {},
+        .static_path, .assembly_file => |lp| addLazyPathDependencies(m, dependee, lp),
+        .c_source_file => |c| addLazyPathDependencies(m, dependee, c.file),
+        .c_source_files => |c| addLazyPathDependencies(m, dependee, c.root),
 
-        .c_source_files,
-        .system_lib,
-        => {},
+        .win32_resource_file => |rc| {
+            addLazyPathDependencies(m, dependee, rc.file);
+            for (rc.include_paths) |lp| addLazyPathDependencies(m, dependee, lp);
+        },
+
+        .other_step => |o| {
+            addStepDependencies(m, dependee, &o.step);
+            addLazyPathDependenciesOnly(m, o.getEmittedIncludeTree());
+        },
     };
 }
 
