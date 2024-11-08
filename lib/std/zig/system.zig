@@ -805,6 +805,7 @@ fn glibcVerFromRPath(rpath: []const u8) !std.SemanticVersion {
         error.InvalidWtf8 => unreachable, // Windows only
         error.BadPathName => unreachable, // Windows only
         error.PipeBusy => unreachable, // Windows-only
+        error.PipeNotAvailable => unreachable, // Windows-only
         error.SharingViolation => unreachable, // Windows-only
         error.NetworkNotFound => unreachable, // Windows-only
         error.AntivirusInterference => unreachable, // Windows-only
@@ -1068,6 +1069,7 @@ fn detectAbiAndDynamicLinker(
                 error.InvalidWtf8 => unreachable, // Windows only
                 error.BadPathName => unreachable,
                 error.PipeBusy => unreachable,
+                error.PipeNotAvailable => unreachable,
                 error.FileLocksNotSupported => unreachable,
                 error.WouldBlock => unreachable,
                 error.FileBusy => unreachable, // opened without write permissions
