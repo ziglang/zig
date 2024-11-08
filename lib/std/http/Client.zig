@@ -1361,7 +1361,13 @@ pub fn connectTcp(client: *Client, host: []const u8, port: u16, protocol: Connec
                 error.OutOfMemory => return error.OutOfMemory,
             };
             defer client.allocator.free(ssl_key_log_path);
-            break :ssl_key_log_file std.fs.cwd().createFile(ssl_key_log_path, .{ .truncate = false }) catch null;
+            break :ssl_key_log_file std.fs.cwd().createFile(ssl_key_log_path, .{
+                .truncate = false,
+                .mode = switch (builtin.os.tag) {
+                    .windows, .wasi => 0,
+                    else => 0o600,
+                },
+            }) catch null;
         } else null;
         errdefer if (ssl_key_log_file) |key_log_file| key_log_file.close();
 
