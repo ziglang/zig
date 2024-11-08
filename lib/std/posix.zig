@@ -2574,6 +2574,7 @@ pub const RenameError = error{
     NoDevice,
     SharingViolation,
     PipeBusy,
+    PipeNotAvailable,
     /// On Windows, `\\server` or `\\server\share` was not found.
     NetworkNotFound,
     /// On Windows, antivirus software is enabled by default. It can be
@@ -2945,6 +2946,7 @@ pub fn mkdiratW(dir_fd: fd_t, sub_path_w: []const u16, mode: u32) MakeDirError!v
     }) catch |err| switch (err) {
         error.IsDir => return error.Unexpected,
         error.PipeBusy => return error.Unexpected,
+        error.PipeNotAvailable => return error.Unexpected,
         error.WouldBlock => return error.Unexpected,
         error.AntivirusInterference => return error.Unexpected,
         else => |e| return e,
@@ -3039,6 +3041,7 @@ pub fn mkdirW(dir_path_w: []const u16, mode: u32) MakeDirError!void {
     }) catch |err| switch (err) {
         error.IsDir => return error.Unexpected,
         error.PipeBusy => return error.Unexpected,
+        error.PipeNotAvailable => return error.Unexpected,
         error.WouldBlock => return error.Unexpected,
         error.AntivirusInterference => return error.Unexpected,
         else => |e| return e,
@@ -5368,6 +5371,7 @@ pub const RealPathError = error{
 
     SharingViolation,
     PipeBusy,
+    PipeNotAvailable,
 
     /// Windows-only; file paths provided by the user must be valid WTF-8.
     /// https://simonsapin.github.io/wtf-8/
