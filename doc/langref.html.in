@@ -2242,7 +2242,7 @@ or
       {#code|test_aligned_struct_fields.zig#}
 
       <p>
-      Equating packed structs results in a comparison of the backing integer, 
+      Equating packed structs results in a comparison of the backing integer,
       and only works for the `==` and `!=` operators.
       </p>
       {#code|test_packed_struct_equality.zig#}
@@ -6790,6 +6790,36 @@ int main(int argc, char **argv) {
 $ ./zig-out/bin/test
 all your base are belong to us{#end_shell_samp#}
       {#see_also|Targets|Zig Build System#}
+      {#header_close#}
+      {#header_open|Main entry in C#}
+      <p>
+        If you are transitioning an existing C project to Zig and your {#syntax#}main{#endsyntax#} function is still in C, you might get the following error:
+</p>
+{#shell_samp#}error: root struct of file 'my_zig_helpers' has no member named 'main'{#end_shell_samp#}
+<p>
+         You can let Zig know not to look for main by assigning void to {#syntax#}_start{#endsyntax#} and {#syntax#}WinMainCRTStartup{#endsyntax#}:
+
+      </p>
+
+        {#syntax_block|zig|my_zig_helpers.zig#}
+pub const _start = void;
+pub const WinMainCRTStartup = void;
+
+export fn times_two(x: c_int) c_int {
+    return x * 2;
+}
+      {#end_syntax_block#}
+      {#syntax_block|c|main.c#}
+#include <stdio.h>
+
+int times_two(int);
+int main(int argc, char **argv) {
+    fprintf(stderr, "3 doubled is %i\n", times_two(3));
+    return 0;
+}
+      {#end_syntax_block#}
+      <p>To compile:</p>
+      {#shell_samp#}$ zig build-exe main.c my_zig_helpers.zig {#end_shell_samp#}
       {#header_close#}
       {#header_close#}
       {#header_open|WebAssembly#}
