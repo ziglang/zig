@@ -104,6 +104,7 @@ pub const SIOCGIFINDEX = system.SIOCGIFINDEX;
 pub const SO = system.SO;
 pub const SOCK = system.SOCK;
 pub const SOL = system.SOL;
+pub const IFF = system.IFF;
 pub const STDERR_FILENO = system.STDERR_FILENO;
 pub const STDIN_FILENO = system.STDIN_FILENO;
 pub const STDOUT_FILENO = system.STDOUT_FILENO;
