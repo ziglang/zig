@@ -474,13 +474,15 @@ pub const Memory = struct {
     };
 
     pub const Mod = union(enum(u1)) {
-        rm: struct {
+        rm: Rm,
+        off: u64,
+
+        pub const Rm = struct {
             size: Size,
             index: Register = .none,
             scale: Scale = .@"1",
             disp: i32 = 0,
-        },
-        off: u64,
+        };
     };
 
     pub const Size = enum(u4) {
