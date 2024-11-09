@@ -458,7 +458,7 @@ pub fn arePointersLogical(target: std.Target, as: AddressSpace) bool {
         .global => false,
         // TODO: Allowed with VK_KHR_variable_pointers.
         .shared => true,
-        .constant, .local, .input, .output, .uniform, .push_constant => true,
+        .constant, .local, .input, .output, .uniform, .push_constant, .storage_buffer => true,
         else => unreachable,
     };
 }

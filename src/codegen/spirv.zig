@@ -1396,10 +1396,6 @@ const NavGen = struct {
 
         const child_ty_id = try self.resolveType(child_ty, child_repr);
 
-        if (storage_class == .Uniform or storage_class == .PushConstant) {
-            try self.spv.decorate(child_ty_id, .Block);
-        }
-
         try self.spv.sections.types_globals_constants.emit(self.spv.gpa, .OpTypePointer, .{
             .id_result = result_id,
             .storage_class = storage_class,
@@ -1643,7 +1639,11 @@ const NavGen = struct {
                     return try self.arrayType(1, elem_ty_id);
                 } else {
                     const result_id = try self.arrayType(total_len, elem_ty_id);
-                    try self.spv.decorate(result_id, .{ .ArrayStride = .{ .array_stride = @intCast(elem_ty.abiSize(zcu)) } });
+                    if (target.os.tag == .vulkan) {
+                        try self.spv.decorate(result_id, .{ .ArrayStride = .{
+                            .array_stride = @intCast(elem_ty.abiSize(zcu)),
+                        } });
+                    }
                     return result_id;
                 }
             },
@@ -1662,7 +1662,7 @@ const NavGen = struct {
                         else => unreachable,
                     }
 
-                    // Guaranteed by callConvSupportsVarArgs, there are nog SPIR-V CCs which support
+                    // Guaranteed by callConvSupportsVarArgs, there are no SPIR-V CCs which support
                     // varargs.
                     assert(!fn_info.is_var_args);
 
@@ -1698,8 +1698,15 @@ const NavGen = struct {
             .pointer => {
                 const ptr_info = ty.ptrInfo(zcu);
 
+                const child_ty = Type.fromInterned(ptr_info.child);
                 const storage_class = self.spvStorageClass(ptr_info.flags.address_space);
-                const ptr_ty_id = try self.ptrType(Type.fromInterned(ptr_info.child), storage_class);
+                const ptr_ty_id = try self.ptrType(child_ty, storage_class);
+
+                if (target.os.tag == .vulkan and ptr_info.flags.size == .Many) {
+                    try self.spv.decorate(ptr_ty_id, .{ .ArrayStride = .{
+                        .array_stride = @intCast(child_ty.abiSize(zcu)),
+                    } });
+                }
 
                 if (ptr_info.flags.size != .Slice) {
                     return ptr_ty_id;
@@ -1746,6 +1753,10 @@ const NavGen = struct {
                         defer self.gpa.free(type_name);
                         try self.spv.debugName(result_id, type_name);
 
+                        if (target.os.tag == .vulkan) {
+                            try self.spv.decorate(result_id, .Block); // Decorate all structs as block for now...
+                        }
+
                         return result_id;
                     },
                     .struct_type => ip.loadStructType(ty.toIntern()),
@@ -1790,6 +1801,10 @@ const NavGen = struct {
                 const type_name = try self.resolveTypeName(ty);
                 defer self.gpa.free(type_name);
                 try self.spv.debugName(result_id, type_name);
+
+                if (target.os.tag == .vulkan) {
+                    try self.spv.decorate(result_id, .Block); // Decorate all structs as block for now...
+                }
 
                 return result_id;
             },
@@ -1882,7 +1897,7 @@ const NavGen = struct {
                 else => unreachable,
             },
             .shared => .Workgroup,
-            .local => .Private,
+            .local => .Function,
             .global => switch (target.os.tag) {
                 .opencl => .CrossWorkgroup,
                 .vulkan => .PhysicalStorageBuffer,
@@ -1893,6 +1908,7 @@ const NavGen = struct {
             .input => .Input,
             .output => .Output,
             .uniform => .Uniform,
+            .storage_buffer => .StorageBuffer,
             .gs,
             .fs,
             .ss,
@@ -4354,13 +4370,24 @@ const NavGen = struct {
         defer self.gpa.free(ids);
 
         const result_id = self.spv.allocId();
-        try self.func.body.emit(self.spv.gpa, .OpInBoundsPtrAccessChain, .{
-            .id_result_type = result_ty_id,
-            .id_result = result_id,
-            .base = base,
-            .element = element,
-            .indexes = ids,
-        });
+        const target = self.getTarget();
+        switch (target.os.tag) {
+            .opencl => try self.func.body.emit(self.spv.gpa, .OpInBoundsPtrAccessChain, .{
+                .id_result_type = result_ty_id,
+                .id_result = result_id,
+                .base = base,
+                .element = element,
+                .indexes = ids,
+            }),
+            .vulkan => try self.func.body.emit(self.spv.gpa, .OpPtrAccessChain, .{
+                .id_result_type = result_ty_id,
+                .id_result = result_id,
+                .base = base,
+                .element = element,
+                .indexes = ids,
+            }),
+            else => unreachable,
+        }
         return result_id;
     }
 
@@ -6529,6 +6556,13 @@ const NavGen = struct {
             return self.todo("implement inline asm with more than 1 output", .{});
         }
 
+        var as = SpvAssembler{
+            .gpa = self.gpa,
+            .spv = self.spv,
+            .func = &self.func,
+        };
+        defer as.deinit();
+
         var output_extra_i = extra_i;
         for (outputs) |output| {
             if (output != .none) {
@@ -6541,7 +6575,6 @@ const NavGen = struct {
             // TODO: Record output and use it somewhere.
         }
 
-        var input_extra_i = extra_i;
         for (inputs) |input| {
             const extra_bytes = std.mem.sliceAsBytes(self.air.extra[extra_i..]);
             const constraint = std.mem.sliceTo(extra_bytes, 0);
@@ -6549,8 +6582,63 @@ const NavGen = struct {
             // This equation accounts for the fact that even if we have exactly 4 bytes
             // for the string, we still use the next u32 for the null terminator.
             extra_i += (constraint.len + name.len + (2 + 3)) / 4;
-            // TODO: Record input and use it somewhere.
-            _ = input;
+
+            const input_ty = self.typeOf(input);
+
+            if (std.mem.eql(u8, constraint, "c")) {
+                // constant
+                const val = (try self.air.value(input, self.pt)) orelse {
+                    return self.fail("assembly inputs with 'c' constraint have to be compile-time known", .{});
+                };
+
+                // TODO: This entire function should be handled a bit better...
+                const ip = &zcu.intern_pool;
+                switch (ip.indexToKey(val.toIntern())) {
+                    .int_type,
+                    .ptr_type,
+                    .array_type,
+                    .vector_type,
+                    .opt_type,
+                    .anyframe_type,
+                    .error_union_type,
+                    .simple_type,
+                    .struct_type,
+                    .union_type,
+                    .opaque_type,
+                    .enum_type,
+                    .func_type,
+                    .error_set_type,
+                    .inferred_error_set_type,
+                    => unreachable, // types, not values
+
+                    .undef => return self.fail("assembly input with 'c' constraint cannot be undefined", .{}),
+
+                    .int => {
+                        try as.value_map.put(as.gpa, name, .{ .constant = @intCast(val.toUnsignedInt(zcu)) });
+                    },
+
+                    else => unreachable, // TODO
+                }
+            } else if (std.mem.eql(u8, constraint, "t")) {
+                // type
+                if (input_ty.zigTypeTag(zcu) == .type) {
+                    // This assembly input is a type instead of a value.
+                    // That's fine for now, just make sure to resolve it as such.
+                    const val = (try self.air.value(input, self.pt)).?;
+                    const ty_id = try self.resolveType(val.toType(), .direct);
+                    try as.value_map.put(as.gpa, name, .{ .ty = ty_id });
+                } else {
+                    const ty_id = try self.resolveType(input_ty, .direct);
+                    try as.value_map.put(as.gpa, name, .{ .ty = ty_id });
+                }
+            } else {
+                if (input_ty.zigTypeTag(zcu) == .type) {
+                    return self.fail("use the 't' constraint to supply types to SPIR-V inline assembly", .{});
+                }
+
+                const val_id = try self.resolve(input);
+                try as.value_map.put(as.gpa, name, .{ .value = val_id });
+            }
         }
 
         {
@@ -6564,27 +6652,7 @@ const NavGen = struct {
 
         const asm_source = std.mem.sliceAsBytes(self.air.extra[extra_i..])[0..extra.data.source_len];
 
-        var as = SpvAssembler{
-            .gpa = self.gpa,
-            .src = asm_source,
-            .spv = self.spv,
-            .func = &self.func,
-        };
-        defer as.deinit();
-
-        for (inputs) |input| {
-            const extra_bytes = std.mem.sliceAsBytes(self.air.extra[input_extra_i..]);
-            const constraint = std.mem.sliceTo(extra_bytes, 0);
-            const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
-            // This equation accounts for the fact that even if we have exactly 4 bytes
-            // for the string, we still use the next u32 for the null terminator.
-            input_extra_i += (constraint.len + name.len + (2 + 3)) / 4;
-
-            const value = try self.resolve(input);
-            try as.value_map.put(as.gpa, name, .{ .value = value });
-        }
-
-        as.assemble() catch |err| switch (err) {
+        as.assemble(asm_source) catch |err| switch (err) {
             error.AssembleFail => {
                 // TODO: For now the compiler only supports a single error message per decl,
                 // so to translate the possible multiple errors from the assembler, emit
@@ -6629,6 +6697,7 @@ const NavGen = struct {
                 .just_declared, .unresolved_forward_reference => unreachable,
                 .ty => return self.fail("cannot return spir-v type as value from assembly", .{}),
                 .value => |ref| return ref,
+                .constant => return self.fail("cannot return constant from assembly", .{}),
             }
 
             // TODO: Multiple results

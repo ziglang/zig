@@ -296,7 +296,7 @@ fn writeCapabilities(spv: *SpvModule, target: std.Target) !void {
     // TODO: Integrate with a hypothetical feature system
     const caps: []const spec.Capability = switch (target.os.tag) {
         .opencl => &.{ .Kernel, .Addresses, .Int8, .Int16, .Int64, .Float64, .Float16, .Vector16, .GenericPointer },
-        .vulkan => &.{ .Shader, .PhysicalStorageBufferAddresses, .Int8, .Int16, .Int64, .Float64, .Float16 },
+        .vulkan => &.{ .Shader, .PhysicalStorageBufferAddresses, .Int8, .Int16, .Int64, .Float64, .Float16, .VariablePointers, .VariablePointersStorageBuffer },
         else => unreachable,
     };
 
