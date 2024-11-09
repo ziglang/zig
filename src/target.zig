@@ -79,19 +79,45 @@ pub fn defaultSingleThreaded(target: std.Target) bool {
     return false;
 }
 
-/// Valgrind supports more, but Zig does not support them yet.
 pub fn hasValgrindSupport(target: std.Target) bool {
-    switch (target.cpu.arch) {
-        .x86,
-        .x86_64,
-        .aarch64,
-        .aarch64_be,
-        => {
-            return target.os.tag == .linux or target.os.tag == .solaris or target.os.tag == .illumos or
-                (target.os.tag == .windows and target.abi.isGnu());
+    // We can't currently output the necessary Valgrind client request assembly when using the C
+    // backend and compiling with an MSVC-like compiler.
+    const ofmt_c_msvc = (target.abi == .msvc or target.abi == .itanium) and target.ofmt == .c;
+
+    return switch (target.cpu.arch) {
+        .arm, .armeb, .thumb, .thumbeb => switch (target.os.tag) {
+            .linux => true,
+            else => false,
         },
-        else => return false,
-    }
+        .aarch64, .aarch64_be => switch (target.os.tag) {
+            .linux, .freebsd => true,
+            else => false,
+        },
+        .mips, .mipsel, .mips64, .mips64el => switch (target.os.tag) {
+            .linux => true,
+            else => false,
+        },
+        .powerpc, .powerpcle, .powerpc64, .powerpc64le => switch (target.os.tag) {
+            .linux => true,
+            else => false,
+        },
+        .s390x => switch (target.os.tag) {
+            .linux => true,
+            else => false,
+        },
+        .x86 => switch (target.os.tag) {
+            .linux, .freebsd, .solaris, .illumos => true,
+            .windows => !ofmt_c_msvc,
+            else => false,
+        },
+        .x86_64 => switch (target.os.tag) {
+            .linux => target.abi != .gnux32 and target.abi != .muslx32,
+            .freebsd, .solaris, .illumos => true,
+            .windows => !ofmt_c_msvc,
+            else => false,
+        },
+        else => false,
+    };
 }
 
 /// The set of targets that LLVM has non-experimental support for.
@@ -315,6 +341,20 @@ pub fn clangAssemblerSupportsMcpuArg(target: std.Target) bool {
     };
 }
 
+/// Some experimental or poorly-maintained LLVM targets do not properly process CPU models in their
+/// Clang driver code. For these, we should omit the `-Xclang -target-cpu -Xclang <model>` flags.
+pub fn clangSupportsTargetCpuArg(target: std.Target) bool {
+    return switch (target.cpu.arch) {
+        .arc,
+        .msp430,
+        .ve,
+        .xcore,
+        .xtensa,
+        => false,
+        else => true,
+    };
+}
+
 pub fn clangSupportsFloatAbiArg(target: std.Target) bool {
     return switch (target.cpu.arch) {
         .arm,
@@ -418,12 +458,22 @@ pub fn arePointersLogical(target: std.Target, as: AddressSpace) bool {
         .global => false,
         // TODO: Allowed with VK_KHR_variable_pointers.
         .shared => true,
-        .constant, .local, .input, .output, .uniform => true,
+        .constant, .local, .input, .output, .uniform, .push_constant => true,
         else => unreachable,
     };
 }
 
 pub fn llvmMachineAbi(target: std.Target) ?[:0]const u8 {
+    // This special-casing should be removed with LLVM 20.
+    switch (target.cpu.arch) {
+        .mips, .mipsel => return "o32",
+        .mips64, .mips64el => return switch (target.abi) {
+            .gnuabin32, .muslabin32 => "n32",
+            else => "n64",
+        },
+        else => {},
+    }
+
     // LLD does not support ELFv1. Rather than having LLVM produce ELFv1 code and then linking it
     // into a broken ELFv2 binary, just force LLVM to use ELFv2 as well. This will break when glibc
     // is linked as glibc only supports ELFv2 for little endian, but there's nothing we can do about

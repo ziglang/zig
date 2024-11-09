@@ -29,7 +29,7 @@ comptime {
     if (simplified_logic) {
         if (builtin.output_mode == .Exe) {
             if ((builtin.link_libc or builtin.object_format == .c) and @hasDecl(root, "main")) {
-                if (@typeInfo(@TypeOf(root.main)).@"fn".calling_convention != .C) {
+                if (!@typeInfo(@TypeOf(root.main)).@"fn".calling_convention.eql(.c)) {
                     @export(&main2, .{ .name = "main" });
                 }
             } else if (builtin.os.tag == .windows) {
@@ -96,7 +96,7 @@ comptime {
 
 // Simplified start code for stage2 until it supports more language features ///
 
-fn main2() callconv(.C) c_int {
+fn main2() callconv(.c) c_int {
     root.main();
     return 0;
 }
@@ -110,11 +110,11 @@ fn callMain2() noreturn {
     exit2(0);
 }
 
-fn spirvMain2() callconv(.Kernel) void {
+fn spirvMain2() callconv(.kernel) void {
     root.main();
 }
 
-fn wWinMainCRTStartup2() callconv(.C) noreturn {
+fn wWinMainCRTStartup2() callconv(.c) noreturn {
     root.main();
     exit2(0);
 }
@@ -172,7 +172,7 @@ fn _DllMainCRTStartup(
     hinstDLL: std.os.windows.HINSTANCE,
     fdwReason: std.os.windows.DWORD,
     lpReserved: std.os.windows.LPVOID,
-) callconv(std.os.windows.WINAPI) std.os.windows.BOOL {
+) callconv(.winapi) std.os.windows.BOOL {
     if (!builtin.single_threaded and !builtin.link_libc) {
         _ = @import("os/windows/tls.zig");
     }
@@ -184,13 +184,13 @@ fn _DllMainCRTStartup(
     return std.os.windows.TRUE;
 }
 
-fn wasm_freestanding_start() callconv(.C) void {
+fn wasm_freestanding_start() callconv(.c) void {
     // This is marked inline because for some reason LLVM in
     // release mode fails to inline it, and we want fewer call frames in stack traces.
     _ = @call(.always_inline, callMain, .{});
 }
 
-fn wasi_start() callconv(.C) void {
+fn wasi_start() callconv(.c) void {
     // The function call is marked inline because for some reason LLVM in
     // release mode fails to inline it, and we want fewer call frames in stack traces.
     switch (builtin.wasi_exec_model) {
@@ -199,7 +199,7 @@ fn wasi_start() callconv(.C) void {
     }
 }
 
-fn EfiMain(handle: uefi.Handle, system_table: *uefi.tables.SystemTable) callconv(.C) usize {
+fn EfiMain(handle: uefi.Handle, system_table: *uefi.tables.SystemTable) callconv(.c) usize {
     uefi.handle = handle;
     uefi.system_table = system_table;
 
@@ -221,7 +221,7 @@ fn EfiMain(handle: uefi.Handle, system_table: *uefi.tables.SystemTable) callconv
     }
 }
 
-fn _start() callconv(.Naked) noreturn {
+fn _start() callconv(.naked) noreturn {
     // TODO set Top of Stack on non x86_64-plan9
     if (native_os == .plan9 and native_arch == .x86_64) {
         // from /sys/src/libc/amd64/main9.s
@@ -426,7 +426,7 @@ fn _start() callconv(.Naked) noreturn {
     );
 }
 
-fn WinStartup() callconv(.withStackAlign(.winapi, 1)) noreturn {
+fn WinStartup() callconv(.withStackAlign(.c, 1)) noreturn {
     if (!builtin.single_threaded and !builtin.link_libc) {
         _ = @import("os/windows/tls.zig");
     }
@@ -436,7 +436,7 @@ fn WinStartup() callconv(.withStackAlign(.winapi, 1)) noreturn {
     std.os.windows.ntdll.RtlExitUserProcess(callMain());
 }
 
-fn wWinMainCRTStartup() callconv(.withStackAlign(.winapi, 1)) noreturn {
+fn wWinMainCRTStartup() callconv(.withStackAlign(.c, 1)) noreturn {
     if (!builtin.single_threaded and !builtin.link_libc) {
         _ = @import("os/windows/tls.zig");
     }
@@ -447,7 +447,7 @@ fn wWinMainCRTStartup() callconv(.withStackAlign(.winapi, 1)) noreturn {
     std.os.windows.ntdll.RtlExitUserProcess(@as(std.os.windows.UINT, @bitCast(result)));
 }
 
-fn posixCallMainAndExit(argc_argv_ptr: [*]usize) callconv(.C) noreturn {
+fn posixCallMainAndExit(argc_argv_ptr: [*]usize) callconv(.c) noreturn {
     // We're not ready to panic until thread local storage is initialized.
     @setRuntimeSafety(false);
     // Code coverage instrumentation might try to use thread local variables.
@@ -495,7 +495,7 @@ fn posixCallMainAndExit(argc_argv_ptr: [*]usize) callconv(.C) noreturn {
             // ARMv6 targets (and earlier) have no support for TLS in hardware.
             // FIXME: Elide the check for targets >= ARMv7 when the target feature API
             // becomes less verbose (and more usable).
-            if (comptime native_arch.isArmOrThumb()) {
+            if (comptime native_arch.isArm()) {
                 if (at_hwcap & std.os.linux.HWCAP.TLS == 0) {
                     // FIXME: Make __aeabi_read_tp call the kernel helper kuser_get_tls
                     // For the time being use a simple trap instead of a @panic call to
@@ -514,11 +514,11 @@ fn posixCallMainAndExit(argc_argv_ptr: [*]usize) callconv(.C) noreturn {
         // to ask for more stack space.
         expandStackSize(phdrs);
 
-        const opt_init_array_start = @extern([*]*const fn () callconv(.C) void, .{
+        const opt_init_array_start = @extern([*]*const fn () callconv(.c) void, .{
             .name = "__init_array_start",
             .linkage = .weak,
         });
-        const opt_init_array_end = @extern([*]*const fn () callconv(.C) void, .{
+        const opt_init_array_end = @extern([*]*const fn () callconv(.c) void, .{
             .name = "__init_array_end",
             .linkage = .weak,
         });
@@ -577,7 +577,7 @@ inline fn callMainWithArgs(argc: usize, argv: [*][*:0]u8, envp: [][*:0]u8) u8 {
     return callMain();
 }
 
-fn main(c_argc: c_int, c_argv: [*][*:0]c_char, c_envp: [*:null]?[*:0]c_char) callconv(.C) c_int {
+fn main(c_argc: c_int, c_argv: [*][*:0]c_char, c_envp: [*:null]?[*:0]c_char) callconv(.c) c_int {
     var env_count: usize = 0;
     while (c_envp[env_count] != null) : (env_count += 1) {}
     const envp = @as([*][*:0]u8, @ptrCast(c_envp))[0..env_count];
@@ -592,7 +592,7 @@ fn main(c_argc: c_int, c_argv: [*][*:0]c_char, c_envp: [*:null]?[*:0]c_char) cal
     return callMainWithArgs(@as(usize, @intCast(c_argc)), @as([*][*:0]u8, @ptrCast(c_argv)), envp);
 }
 
-fn mainWithoutEnv(c_argc: c_int, c_argv: [*][*:0]c_char) callconv(.C) c_int {
+fn mainWithoutEnv(c_argc: c_int, c_argv: [*][*:0]c_char) callconv(.c) c_int {
     std.os.argv = @as([*][*:0]u8, @ptrCast(c_argv))[0..@as(usize, @intCast(c_argc))];
     return callMain();
 }
@@ -702,4 +702,4 @@ fn maybeIgnoreSigpipe() void {
     }
 }
 
-fn noopSigHandler(_: i32) callconv(.C) void {}
+fn noopSigHandler(_: i32) callconv(.c) void {}

@@ -34,7 +34,7 @@ const Zcu = @import("Zcu.zig");
 const mingw = @import("mingw.zig");
 const dev = @import("dev.zig");
 
-pub const std_options = .{
+pub const std_options: std.Options = .{
     .wasiCwd = wasi_cwd,
     .logFn = log,
     .enable_segfault_handler = false,

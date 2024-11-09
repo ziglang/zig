@@ -28,6 +28,7 @@ const TestTarget = struct {
     use_lld: ?bool = null,
     pic: ?bool = null,
     strip: ?bool = null,
+    skip_modules: []const []const u8 = &.{},
 
     // This is intended for targets that are known to be slow to compile. These are acceptable to
     // run in CI, but should not be run on developer machines by default. As an example, at the time
@@ -339,6 +340,70 @@ const test_targets = blk: {
 
         .{
             .target = .{
+                .cpu_arch = .thumb,
+                .os_tag = .linux,
+                .abi = .eabi,
+            },
+        },
+        .{
+            .target = .{
+                .cpu_arch = .thumb,
+                .os_tag = .linux,
+                .abi = .eabihf,
+            },
+        },
+        .{
+            .target = .{
+                .cpu_arch = .thumb,
+                .os_tag = .linux,
+                .abi = .musleabi,
+            },
+            .link_libc = true,
+            .skip_modules = &.{"std"},
+        },
+        .{
+            .target = .{
+                .cpu_arch = .thumb,
+                .os_tag = .linux,
+                .abi = .musleabihf,
+            },
+            .link_libc = true,
+            .skip_modules = &.{"std"},
+        },
+        // Calls are normally lowered to branch instructions that only support +/- 16 MB range when
+        // targeting Thumb. This is not sufficient for the std test binary linked statically with
+        // musl, so use long calls to avoid out-of-range relocations.
+        .{
+            .target = std.Target.Query.parse(.{
+                .arch_os_abi = "thumb-linux-musleabi",
+                .cpu_features = "baseline+long_calls",
+            }) catch @panic("OOM"),
+            .link_libc = true,
+            .pic = false, // Long calls don't work with PIC.
+            .skip_modules = &.{
+                "behavior",
+                "c-import",
+                "compiler-rt",
+                "universal-libc",
+            },
+        },
+        .{
+            .target = std.Target.Query.parse(.{
+                .arch_os_abi = "thumb-linux-musleabihf",
+                .cpu_features = "baseline+long_calls",
+            }) catch @panic("OOM"),
+            .link_libc = true,
+            .pic = false, // Long calls don't work with PIC.
+            .skip_modules = &.{
+                "behavior",
+                "c-import",
+                "compiler-rt",
+                "universal-libc",
+            },
+        },
+
+        .{
+            .target = .{
                 .cpu_arch = .mips,
                 .os_tag = .linux,
                 .abi = .eabi,
@@ -454,7 +519,7 @@ const test_targets = blk: {
             .target = .{
                 .cpu_arch = .mips64,
                 .os_tag = .linux,
-                .abi = .musl,
+                .abi = .muslabi64,
             },
             .link_libc = true,
         },
@@ -478,7 +543,7 @@ const test_targets = blk: {
             .target = .{
                 .cpu_arch = .mips64el,
                 .os_tag = .linux,
-                .abi = .musl,
+                .abi = .muslabi64,
             },
             .link_libc = true,
         },
@@ -1225,7 +1290,13 @@ const ModuleTestOptions = struct {
 pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
     const step = b.step(b.fmt("test-{s}", .{options.name}), options.desc);
 
-    for (test_targets) |test_target| {
+    for_targets: for (test_targets) |test_target| {
+        if (test_target.skip_modules.len > 0) {
+            for (test_target.skip_modules) |skip_mod| {
+                if (std.mem.eql(u8, options.name, skip_mod)) continue :for_targets;
+            }
+        }
+
         if (!options.test_slow_targets and test_target.slow_backend) continue;
 
         if (options.skip_non_native and !test_target.target.isNative())

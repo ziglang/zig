@@ -1795,8 +1795,8 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                             .{ .glibc_crt_file = .crtn_o },
                         });
                     }
-                    if (!is_dyn_lib) {
-                        try comp.queueJob(.{ .glibc_crt_file = .scrt1_o });
+                    if (glibc.needsCrt0(comp.config.output_mode)) |f| {
+                        try comp.queueJobs(&.{.{ .glibc_crt_file = f }});
                     }
                     try comp.queueJobs(&[_]Job{
                         .{ .glibc_shared_objects = {} },
@@ -2081,7 +2081,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
             log.debug("CacheMode.whole cache miss for {s}", .{comp.root_name});
 
             // Compile the artifacts to a temporary directory.
-            const tmp_artifact_directory = d: {
+            const tmp_artifact_directory: Directory = d: {
                 const s = std.fs.path.sep_str;
                 tmp_dir_rand_int = std.crypto.random.int(u64);
                 const tmp_dir_sub_path = "tmp" ++ s ++ std.fmt.hex(tmp_dir_rand_int);
@@ -5371,10 +5371,12 @@ pub fn addCCArgs(
                 try argv.append(include_dir);
             }
 
-            if (target.cpu.model.llvm_name) |llvm_name| {
-                try argv.appendSlice(&[_][]const u8{
-                    "-Xclang", "-target-cpu", "-Xclang", llvm_name,
-                });
+            if (target_util.clangSupportsTargetCpuArg(target)) {
+                if (target.cpu.model.llvm_name) |llvm_name| {
+                    try argv.appendSlice(&[_][]const u8{
+                        "-Xclang", "-target-cpu", "-Xclang", llvm_name,
+                    });
+                }
             }
 
             // It would be really nice if there was a more compact way to communicate this info to Clang.
@@ -5626,8 +5628,8 @@ pub fn addCCArgs(
         try argv.append("-mthumb");
     }
 
-    if (target_util.supports_fpic(target) and mod.pic) {
-        try argv.append("-fPIC");
+    if (target_util.supports_fpic(target)) {
+        try argv.append(if (mod.pic) "-fPIC" else "-fno-PIC");
     }
 
     try argv.ensureUnusedCapacity(2);
@@ -6264,6 +6266,7 @@ pub fn build_crt_file(
     comp: *Compilation,
     root_name: []const u8,
     output_mode: std.builtin.OutputMode,
+    pic: ?bool,
     misc_task_tag: MiscTask,
     prog_node: std.Progress.Node,
     /// These elements have to get mutated to add the owner module after it is
@@ -6316,7 +6319,8 @@ pub fn build_crt_file(
             .omit_frame_pointer = comp.root_mod.omit_frame_pointer,
             .valgrind = false,
             .unwind_tables = false,
-            .pic = comp.root_mod.pic,
+            // Some CRT objects (rcrt1.o, Scrt1.o) are opinionated about PIC.
+            .pic = pic orelse comp.root_mod.pic,
             .optimize_mode = comp.compilerRtOptMode(),
             .structured_cfg = comp.root_mod.structured_cfg,
         },

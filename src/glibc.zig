@@ -221,7 +221,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                     .owner = comp.root_mod,
                 },
             };
-            return comp.build_crt_file("crti", .Obj, .@"glibc crti.o", prog_node, &files);
+            return comp.build_crt_file("crti", .Obj, null, .@"glibc crti.o", prog_node, &files);
         },
         .crtn_o => {
             var args = std.ArrayList([]const u8).init(arena);
@@ -242,7 +242,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                     .owner = undefined,
                 },
             };
-            return comp.build_crt_file("crtn", .Obj, .@"glibc crtn.o", prog_node, &files);
+            return comp.build_crt_file("crtn", .Obj, null, .@"glibc crtn.o", prog_node, &files);
         },
         .scrt1_o => {
             const start_o: Compilation.CSourceFile = blk: {
@@ -295,7 +295,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
             };
             var files = [_]Compilation.CSourceFile{ start_o, abi_note_o, init_o };
             const basename = if (comp.config.output_mode == .Exe and !comp.config.pie) "crt1" else "Scrt1";
-            return comp.build_crt_file(basename, .Obj, .@"glibc Scrt1.o", prog_node, &files);
+            return comp.build_crt_file(basename, .Obj, null, .@"glibc Scrt1.o", prog_node, &files);
         },
         .libc_nonshared_a => {
             const s = path.sep_str;
@@ -413,7 +413,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                 files_index += 1;
             }
             const files = files_buf[0..files_index];
-            return comp.build_crt_file("c_nonshared", .Lib, .@"glibc libc_nonshared.a", prog_node, files);
+            return comp.build_crt_file("c_nonshared", .Lib, null, .@"glibc libc_nonshared.a", prog_node, files);
         },
     }
 }
@@ -440,7 +440,7 @@ fn start_asm_path(comp: *Compilation, arena: Allocator, basename: []const u8) ![
                 try result.appendSlice("sparc" ++ s ++ "sparc32");
             }
         }
-    } else if (arch.isARM()) {
+    } else if (arch.isArm()) {
         try result.appendSlice("arm");
     } else if (arch.isMIPS()) {
         if (!mem.eql(u8, basename, "crti.S") and !mem.eql(u8, basename, "crtn.S")) {
@@ -604,7 +604,7 @@ fn add_include_dirs_arch(
             try args.append("-I");
             try args.append(try path.join(arena, &[_][]const u8{ dir, "x86" }));
         }
-    } else if (arch.isARM()) {
+    } else if (arch.isArm()) {
         if (opt_nptl) |nptl| {
             try args.append("-I");
             try args.append(try path.join(arena, &[_][]const u8{ dir, "arm", nptl }));
@@ -1015,7 +1015,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) !voi
             }
         }
 
-        try stubs_asm.appendSlice(".data\n");
+        try stubs_asm.appendSlice(".rodata\n");
 
         // For some targets, the real `libc.so.6` will contain a weak reference to `_IO_stdin_used`,
         // making the linker put the symbol in the dynamic symbol table. We likewise need to emit a
@@ -1045,6 +1045,8 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) !voi
                 wordDirective(target),
             });
         }
+
+        try stubs_asm.appendSlice(".data\n");
 
         const obj_inclusions_len = try inc_reader.readInt(u16, .little);
 
@@ -1355,5 +1357,12 @@ pub fn needsCrtiCrtn(target: std.Target) bool {
         .riscv32, .riscv64 => false,
         .loongarch64 => false,
         else => true,
+    };
+}
+
+pub fn needsCrt0(output_mode: std.builtin.OutputMode) ?CrtFile {
+    return switch (output_mode) {
+        .Obj, .Lib => null,
+        .Exe => .scrt1_o,
     };
 }

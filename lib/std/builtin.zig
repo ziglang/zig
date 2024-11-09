@@ -293,12 +293,12 @@ pub const CallingConvention = union(enum(u8)) {
     arm_aapcs16_vfp: CommonOptions,
     arm_interrupt: ArmInterruptOptions,
 
-    // Calling conventions for the `mips64` architecture.
+    // Calling conventions for the `mips64` and `mips64el` architectures.
     mips64_n64: CommonOptions,
     mips64_n32: CommonOptions,
     mips64_interrupt: MipsInterruptOptions,
 
-    // Calling conventions for the `mips` architecture.
+    // Calling conventions for the `mips` and `mipsel` architectures.
     mips_o32: CommonOptions,
     mips_interrupt: MipsInterruptOptions,
 
@@ -329,7 +329,7 @@ pub const CallingConvention = union(enum(u8)) {
     powerpc_aix: CommonOptions,
     powerpc_aix_altivec: CommonOptions,
 
-    /// The standard `wasm32`/`wasm64` calling convention, as specified in the WebAssembly Tool Conventions.
+    /// The standard `wasm32` and `wasm64` calling convention, as specified in the WebAssembly Tool Conventions.
     wasm_watc: CommonOptions,
 
     /// The standard `arc` calling convention.
@@ -396,7 +396,7 @@ pub const CallingConvention = union(enum(u8)) {
     amdgcn_kernel,
     amdgcn_cs: CommonOptions,
 
-    // Calling conventions for the `nvptx` architecture.
+    // Calling conventions for the `nvptx` and `nvptx64` architectures.
     nvptx_device,
     nvptx_kernel,
 
@@ -514,6 +514,7 @@ pub const AddressSpace = enum(u5) {
     input,
     output,
     uniform,
+    push_constant,
 
     // AVR address spaces.
     flash,

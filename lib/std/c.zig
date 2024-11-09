@@ -44,22 +44,26 @@ comptime {
     }
 }
 
-/// If not linking libc, returns false.
-/// If linking musl libc, returns true.
-/// If linking gnu libc (glibc), returns true if the target version is greater
-/// than or equal to `glibc_version`.
-/// If linking a libc other than these, returns `false`.
-pub inline fn versionCheck(comptime glibc_version: std.SemanticVersion) bool {
+/// * If not linking libc, returns `false`.
+/// * If linking musl libc, returns `true`.
+/// * If linking GNU libc (glibc), returns `true` if the target version is greater than or equal to
+///   `version`.
+/// * If linking Android libc (bionic), returns `true` if the target API level is greater than or
+///   equal to `version.major`, ignoring other components.
+/// * If linking a libc other than these, returns `false`.
+pub inline fn versionCheck(comptime version: std.SemanticVersion) bool {
     return comptime blk: {
         if (!builtin.link_libc) break :blk false;
         if (native_abi.isMusl()) break :blk true;
         if (builtin.target.isGnuLibC()) {
             const ver = builtin.os.version_range.linux.glibc;
-            const order = ver.order(glibc_version);
+            const order = ver.order(version);
             break :blk switch (order) {
                 .gt, .eq => true,
                 .lt => false,
             };
+        } else if (builtin.abi.isAndroid()) {
+            break :blk builtin.os.version_range.linux.android >= version.major;
         } else {
             break :blk false;
         }
@@ -6017,6 +6021,13 @@ pub const utsname = switch (native_os) {
         machine: [256:0]u8,
         domainname: [256:0]u8,
     },
+    .macos => extern struct {
+        sysname: [256:0]u8,
+        nodename: [256:0]u8,
+        release: [256:0]u8,
+        version: [256:0]u8,
+        machine: [256:0]u8,
+    },
     else => void,
 };
 pub const PR = switch (native_os) {
@@ -9784,6 +9795,8 @@ pub const dispatch_semaphore_signal = darwin.dispatch_semaphore_signal;
 pub const dispatch_semaphore_wait = darwin.dispatch_semaphore_wait;
 pub const dispatch_time = darwin.dispatch_time;
 pub const fcopyfile = darwin.fcopyfile;
+pub const ipc_space_t = darwin.ipc_space_t;
+pub const ipc_space_port_t = darwin.ipc_space_port_t;
 pub const kern_return_t = darwin.kern_return_t;
 pub const kevent64 = darwin.kevent64;
 pub const mach_absolute_time = darwin.mach_absolute_time;
@@ -9801,10 +9814,12 @@ pub const mach_port_t = darwin.mach_port_t;
 pub const mach_task_basic_info = darwin.mach_task_basic_info;
 pub const mach_task_self = darwin.mach_task_self;
 pub const mach_timebase_info = darwin.mach_timebase_info;
+pub const mach_vm_address_t = darwin.mach_vm_address_t;
 pub const mach_vm_protect = darwin.mach_vm_protect;
 pub const mach_vm_read = darwin.mach_vm_read;
 pub const mach_vm_region = darwin.mach_vm_region;
 pub const mach_vm_region_recurse = darwin.mach_vm_region_recurse;
+pub const mach_vm_size_t = darwin.mach_vm_size_t;
 pub const mach_vm_write = darwin.mach_vm_write;
 pub const os_log_create = darwin.os_log_create;
 pub const os_log_type_enabled = darwin.os_log_type_enabled;
@@ -9861,6 +9876,7 @@ pub const thread_set_state = darwin.thread_set_state;
 pub const vm_deallocate = darwin.vm_deallocate;
 pub const vm_machine_attribute = darwin.vm_machine_attribute;
 pub const vm_machine_attribute_val_t = darwin.vm_machine_attribute_val_t;
+pub const vm_map_t = darwin.vm_map_t;
 pub const vm_offset_t = darwin.vm_offset_t;
 pub const vm_prot_t = darwin.vm_prot_t;
 pub const vm_region_basic_info_64 = darwin.vm_region_basic_info_64;
@@ -9870,6 +9886,46 @@ pub const vm_region_recurse_info_t = darwin.vm_region_recurse_info_t;
 pub const vm_region_submap_info_64 = darwin.vm_region_submap_info_64;
 pub const vm_region_submap_short_info_64 = darwin.vm_region_submap_short_info_64;
 pub const vm_region_top_info = darwin.vm_region_top_info;
+
+pub const caddr_t = darwin.caddr_t;
+pub const exception_behavior_array_t = darwin.exception_behavior_array_t;
+pub const exception_behavior_t = darwin.exception_behavior_t;
+pub const exception_data_t = darwin.exception_data_t;
+pub const exception_data_type_t = darwin.exception_data_type_t;
+pub const exception_flavor_array_t = darwin.exception_flavor_array_t;
+pub const exception_handler_array_t = darwin.exception_handler_array_t;
+pub const exception_handler_t = darwin.exception_handler_t;
+pub const exception_mask_array_t = darwin.exception_mask_array_t;
+pub const exception_mask_t = darwin.exception_mask_t;
+pub const exception_port_array_t = darwin.exception_port_array_t;
+pub const exception_port_t = darwin.exception_port_t;
+pub const mach_exception_data_t = darwin.mach_exception_data_t;
+pub const mach_exception_data_type_t = darwin.mach_exception_data_type_t;
+pub const mach_msg_bits_t = darwin.mach_msg_bits_t;
+pub const mach_msg_id_t = darwin.mach_msg_id_t;
+pub const mach_msg_option_t = darwin.mach_msg_option_t;
+pub const mach_msg_size_t = darwin.mach_msg_size_t;
+pub const mach_msg_timeout_t = darwin.mach_msg_timeout_t;
+pub const mach_msg_type_name_t = darwin.mach_msg_type_name_t;
+pub const mach_port_right_t = darwin.mach_port_right_t;
+pub const memory_object_offset_t = darwin.memory_object_offset_t;
+pub const policy_t = darwin.policy_t;
+pub const task_policy_flavor_t = darwin.task_policy_flavor_t;
+pub const task_policy_t = darwin.task_policy_t;
+pub const task_t = darwin.task_t;
+pub const thread_act_t = darwin.thread_act_t;
+pub const thread_flavor_t = darwin.thread_flavor_t;
+pub const thread_port_t = darwin.thread_port_t;
+pub const thread_state_flavor_t = darwin.thread_state_flavor_t;
+pub const thread_state_t = darwin.thread_state_t;
+pub const thread_t = darwin.thread_t;
+pub const time_value_t = darwin.time_value_t;
+pub const vm32_object_id_t = darwin.vm32_object_id_t;
+pub const vm_behavior_t = darwin.vm_behavior_t;
+pub const vm_inherit_t = darwin.vm_inherit_t;
+pub const vm_map_read_t = darwin.vm_map_read_t;
+pub const vm_object_id_t = darwin.vm_object_id_t;
+pub const vm_region_flavor_t = darwin.vm_region_flavor_t;
 
 pub const _ksiginfo = netbsd._ksiginfo;
 pub const _lwp_self = netbsd._lwp_self;
