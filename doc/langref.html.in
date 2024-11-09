@@ -6819,7 +6819,7 @@ int main(int argc, char **argv) {
 }
       {#end_syntax_block#}
       <p>To compile:</p>
-      {#shell_samp#}$ zig build-exe main.c my_zig_helpers.zig {#end_shell_samp#}
+      {#shell_samp#}$ zig build-exe main.c my_zig_helpers.zig -lc {#end_shell_samp#}
       {#header_close#}
       {#header_close#}
       {#header_open|WebAssembly#}
