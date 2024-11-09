@@ -592,11 +592,6 @@ pub fn StackFallbackAllocator(comptime size: usize) type {
     };
 }
 
-test "Allocator.create alignment with zero-sized type" {
-    const array = try page_allocator.create([0]u64);
-    page_allocator.destroy(array);
-}
-
 test "c_allocator" {
     if (builtin.link_libc) {
         try testAllocator(c_allocator);
@@ -791,6 +786,8 @@ pub fn testAllocator(base_allocator: mem.Allocator) !void {
     const zero_bit_ptr = try allocator.create(u0);
     zero_bit_ptr.* = 0;
     allocator.destroy(zero_bit_ptr);
+    const zero_len_array = try allocator.create([0]u64);
+    allocator.destroy(zero_len_array);
 
     const oversize = try allocator.alignedAlloc(u32, null, 5);
     try testing.expect(oversize.len >= 5);
