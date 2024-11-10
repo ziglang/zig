@@ -408,8 +408,8 @@ test spinLoopHint {
     }
 }
 
-pub fn getCacheLineSizeForCpu(cpu: std.Target.Cpu) u16 {
-    return switch (builtin.cpu.arch) {
+pub fn cacheLineForCpu(cpu: std.Target.Cpu) u16 {
+    return switch (cpu.arch) {
         // x86_64: Starting from Intel's Sandy Bridge, the spatial prefetcher pulls in pairs of 64-byte cache lines at a time.
         // - https://www.intel.com/content/dam/www/public/us/en/documents/manuals/64-ia-32-architectures-optimization-manual.pdf
         // - https://github.com/facebook/folly/blob/1b5288e6eea6df074758f877c849b6e73bbb9fbb/folly/lang/Align.h#L107
@@ -484,7 +484,7 @@ pub fn getCacheLineSizeForCpu(cpu: std.Target.Cpu) u16 {
 ///
 /// https://en.wikipedia.org/wiki/False_sharing
 /// https://github.com/golang/go/search?q=CacheLinePadSize
-pub const cache_line = getCacheLineSizeForCpu(builtin.cpu);
+pub const cache_line = cacheLineForCpu(builtin.cpu);
 
 test "current CPU has a cache line size" {
     _ = cache_line;
