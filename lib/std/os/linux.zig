@@ -7121,6 +7121,10 @@ pub const SIOCPROTOPRIVATE = 0x89E0;
 
 pub const IFNAMESIZE = 16;
 
+// Interface flags
+pub const IFF_PROMISC = 256;
+pub const IFF_BROADCAST = 2;
+
 pub const ifmap = extern struct {
     mem_start: usize,
     mem_end: usize,
