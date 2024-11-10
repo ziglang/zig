@@ -213,7 +213,7 @@ fn fmtPath(fmt: *Fmt, file_path: []const u8, check_mode: bool, dir: fs.Dir, sub_
     fmtPathFile(fmt, file_path, check_mode, dir, sub_path) catch |err| switch (err) {
         error.IsDir, error.AccessDenied => return fmtPathDir(fmt, file_path, check_mode, dir, sub_path),
         else => {
-            std.log.err("unable to format '{s}': {s}", .{file_path, @errorName(err)});
+            std.log.err("unable to format '{s}': {s}", .{ file_path, @errorName(err) });
             fmt.any_error = true;
             return;
         },
@@ -247,7 +247,7 @@ fn fmtPathDir(
                 try fmtPathDir(fmt, full_path, check_mode, dir, entry.name);
             } else {
                 fmtPathFile(fmt, full_path, check_mode, dir, entry.name) catch |err| {
-                    std.log.err("unable to format '{s}': {s}", .{full_path, @errorName(err)});
+                    std.log.err("unable to format '{s}': {s}", .{ full_path, @errorName(err) });
                     fmt.any_error = true;
                     return;
                 };
