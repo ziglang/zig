@@ -323,23 +323,26 @@ pub fn getIdCount(pool: *Pool) usize {
 }
 
 inline fn callFn(comptime f: anytype, args: anytype) void {
-    const bad_fn_ret = "expected return type of runFn to be 'void', or '!void'";
+    const bad_fn_ret = "expected return type of runFn to be 'void', '!void', noreturn, or !noreturn";
 
     switch (@typeInfo(@typeInfo(@TypeOf(f)).@"fn".return_type.?)) {
-        .void => {
+        .void, .noreturn => {
             @call(.auto, f, args);
         },
         .error_union => |info| {
-            if (info.payload != void) {
-                @compileError(bad_fn_ret);
+            switch (info.payload) {
+                void, noreturn => {
+                    @call(.auto, f, args) catch |err| {
+                        std.debug.print("error: {s}\n", .{@errorName(err)});
+                        if (@errorReturnTrace()) |trace| {
+                            std.debug.dumpStackTrace(trace.*);
+                        }
+                    };
+                },
+                else => {
+                    @compileError(bad_fn_ret);
+                },
             }
-
-            @call(.auto, f, args) catch |err| {
-                std.debug.print("error: {s}\n", .{@errorName(err)});
-                if (@errorReturnTrace()) |trace| {
-                    std.debug.dumpStackTrace(trace.*);
-                }
-            };
         },
         else => {
             @compileError(bad_fn_ret);
