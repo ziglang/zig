@@ -230,7 +230,7 @@ pub fn innerParse(
             const token = try source.nextAllocMax(allocator, .alloc_if_needed, options.max_value_len.?);
             defer freeAllocated(allocator, token);
             const slice = switch (token) {
-                inline .number, .allocated_number, .string, .allocated_string => |slice| slice,
+                inline .number, .allocated_number => |slice| slice,
                 else => return error.UnexpectedToken,
             };
             return try std.fmt.parseFloat(T, slice);
@@ -240,7 +240,6 @@ pub fn innerParse(
             defer freeAllocated(allocator, token);
             const slice = switch (token) {
                 inline .number, .allocated_number => |slice| slice,
-                .string, .allocated_string => return error.UnexpectedToken,
                 else => return error.UnexpectedToken,
             };
             return sliceToInt(T, slice);
