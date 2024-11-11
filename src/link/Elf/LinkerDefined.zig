@@ -205,7 +205,7 @@ pub fn allocateSymbols(self: *LinkerDefined, elf_file: *Elf) void {
     }.allocSymbol;
 
     // _DYNAMIC
-    if (elf_file.dynamic_section_index) |shndx| {
+    if (elf_file.section_indexes.dynamic) |shndx| {
         const shdr = shdrs[shndx];
         allocSymbol(self, self.dynamic_index.?, shdr.sh_addr, shndx, elf_file);
     }
@@ -236,19 +236,19 @@ pub fn allocateSymbols(self: *LinkerDefined, elf_file: *Elf) void {
 
     // _GLOBAL_OFFSET_TABLE_
     if (elf_file.getTarget().cpu.arch == .x86_64) {
-        if (elf_file.got_plt_section_index) |shndx| {
+        if (elf_file.section_indexes.got_plt) |shndx| {
             const shdr = shdrs[shndx];
             allocSymbol(self, self.got_index.?, shdr.sh_addr, shndx, elf_file);
         }
     } else {
-        if (elf_file.got_section_index) |shndx| {
+        if (elf_file.section_indexes.got) |shndx| {
             const shdr = shdrs[shndx];
             allocSymbol(self, self.got_index.?, shdr.sh_addr, shndx, elf_file);
         }
     }
 
     // _PROCEDURE_LINKAGE_TABLE_
-    if (elf_file.plt_section_index) |shndx| {
+    if (elf_file.section_indexes.plt) |shndx| {
         const shdr = shdrs[shndx];
         allocSymbol(self, self.plt_index.?, shdr.sh_addr, shndx, elf_file);
     }
@@ -262,13 +262,13 @@ pub fn allocateSymbols(self: *LinkerDefined, elf_file: *Elf) void {
     }
 
     // __GNU_EH_FRAME_HDR
-    if (elf_file.eh_frame_hdr_section_index) |shndx| {
+    if (elf_file.section_indexes.eh_frame_hdr) |shndx| {
         const shdr = shdrs[shndx];
         allocSymbol(self, self.gnu_eh_frame_hdr_index.?, shdr.sh_addr, shndx, elf_file);
     }
 
     // __rela_iplt_start, __rela_iplt_end
-    if (elf_file.rela_dyn_section_index) |shndx| blk: {
+    if (elf_file.section_indexes.rela_dyn) |shndx| blk: {
         if (link_mode != .static or comp.config.pie) break :blk;
         const shdr = shdrs[shndx];
         const end_addr = shdr.sh_addr + shdr.sh_size;

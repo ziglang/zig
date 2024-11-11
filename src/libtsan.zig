@@ -342,8 +342,10 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
         },
     };
 
+    const crt_file = try sub_compilation.toCrtFile();
+    comp.queueLinkTaskMode(crt_file.full_object_path, output_mode);
     assert(comp.tsan_lib == null);
-    comp.tsan_lib = try sub_compilation.toCrtFile();
+    comp.tsan_lib = crt_file;
 }
 
 const tsan_sources = [_][]const u8{

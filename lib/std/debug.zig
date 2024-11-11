@@ -61,6 +61,7 @@ pub const sys_can_stack_trace = switch (builtin.cpu.arch) {
     .mipsel,
     .mips64,
     .mips64el,
+    .s390x,
     => false,
 
     // `@returnAddress()` in LLVM 10 gives
@@ -487,7 +488,7 @@ pub fn defaultPanic(
 
             var utf16_buffer: [1000]u16 = undefined;
             const len_minus_3 = std.unicode.utf8ToUtf16Le(&utf16_buffer, msg) catch 0;
-            utf16_buffer[len_minus_3][0..3].* = .{ '\r', '\n', 0 };
+            utf16_buffer[len_minus_3..][0..3].* = .{ '\r', '\n', 0 };
             const len = len_minus_3 + 3;
             const exit_msg = utf16_buffer[0 .. len - 1 :0];
 
@@ -506,7 +507,7 @@ pub fn defaultPanic(
                 // ExitData buffer must be allocated using boot_services.allocatePool (spec: page 220)
                 const exit_data: []u16 = uefi.raw_pool_allocator.alloc(u16, exit_msg.len + 1) catch @trap();
                 @memcpy(exit_data, exit_msg[0..exit_data.len]); // Includes null terminator.
-                _ = bs.exit(uefi.handle, .Aborted, exit_msg.len + 1, exit_data);
+                _ = bs.exit(uefi.handle, .Aborted, exit_data.len, exit_data.ptr);
             }
             @trap();
         },
@@ -655,7 +656,7 @@ pub const StackIterator = struct {
         // The implementation of DWARF unwinding on aarch64-macos is not complete. However, Apple mandates that
         // the frame pointer register is always used, so on this platform we can safely use the FP-based unwinder.
         if (builtin.target.isDarwin() and native_arch == .aarch64)
-            return init(first_address, context.mcontext.ss.fp);
+            return init(first_address, @truncate(context.mcontext.ss.fp));
 
         if (SelfInfo.supports_unwinding) {
             var iterator = init(first_address, null);
@@ -1334,7 +1335,11 @@ fn dumpSegfaultInfoPosix(sig: i32, code: i32, addr: usize, ctx_ptr: ?*anyopaque)
         .x86,
         .x86_64,
         .arm,
+        .armeb,
+        .thumb,
+        .thumbeb,
         .aarch64,
+        .aarch64_be,
         => {
             const ctx: *posix.ucontext_t = @ptrCast(@alignCast(ctx_ptr));
             dumpStackTraceFromBase(ctx);
@@ -1343,7 +1348,7 @@ fn dumpSegfaultInfoPosix(sig: i32, code: i32, addr: usize, ctx_ptr: ?*anyopaque)
     }
 }
 
-fn handleSegfaultWindows(info: *windows.EXCEPTION_POINTERS) callconv(windows.WINAPI) c_long {
+fn handleSegfaultWindows(info: *windows.EXCEPTION_POINTERS) callconv(.winapi) c_long {
     switch (info.ExceptionRecord.ExceptionCode) {
         windows.EXCEPTION_DATATYPE_MISALIGNMENT => handleSegfaultWindowsExtra(info, 0, "Unaligned Memory Access"),
         windows.EXCEPTION_ACCESS_VIOLATION => handleSegfaultWindowsExtra(info, 1, null),

@@ -23,6 +23,12 @@ pub fn MultiArrayList(comptime T: type) type {
         len: usize = 0,
         capacity: usize = 0,
 
+        pub const empty: Self = .{
+            .bytes = undefined,
+            .len = 0,
+            .capacity = 0,
+        };
+
         const Elem = switch (@typeInfo(T)) {
             .@"struct" => T,
             .@"union" => |u| struct {
@@ -340,11 +346,8 @@ pub fn MultiArrayList(comptime T: type) type {
         /// If `new_len` is greater than zero, this may fail to reduce the capacity,
         /// but the data remains intact and the length is updated to new_len.
         pub fn shrinkAndFree(self: *Self, gpa: Allocator, new_len: usize) void {
-            if (new_len == 0) {
-                gpa.free(self.allocatedBytes());
-                self.* = .{};
-                return;
-            }
+            if (new_len == 0) return clearAndFree(self, gpa);
+
             assert(new_len <= self.capacity);
             assert(new_len <= self.len);
 
@@ -385,11 +388,21 @@ pub fn MultiArrayList(comptime T: type) type {
             self.* = other;
         }
 
+        pub fn clearAndFree(self: *Self, gpa: Allocator) void {
+            gpa.free(self.allocatedBytes());
+            self.* = .{};
+        }
+
         /// Reduce length to `new_len`.
         /// Invalidates pointers to elements `items[new_len..]`.
         /// Keeps capacity the same.
         pub fn shrinkRetainingCapacity(self: *Self, new_len: usize) void {
             self.len = new_len;
+        }
+
+        /// Invalidates all element pointers.
+        pub fn clearRetainingCapacity(self: *Self) void {
+            self.len = 0;
         }
 
         /// Modify the array so that it can hold at least `new_capacity` items.
@@ -474,7 +487,7 @@ pub fn MultiArrayList(comptime T: type) type {
                 pub fn swap(sc: @This(), a_index: usize, b_index: usize) void {
                     inline for (fields, 0..) |field_info, i| {
                         if (@sizeOf(field_info.type) != 0) {
-                            const field = @as(Field, @enumFromInt(i));
+                            const field: Field = @enumFromInt(i);
                             const ptr = sc.slice.items(field);
                             mem.swap(field_info.type, &ptr[a_index], &ptr[b_index]);
                         }
@@ -671,6 +684,14 @@ test "basic usage" {
     try testing.expectEqual(@as(u32, 2), list.pop().a);
     try testing.expectEqual(@as(u8, 'a'), list.pop().c);
     try testing.expectEqual(@as(?Foo, null), list.popOrNull());
+
+    list.clearRetainingCapacity();
+    try testing.expectEqual(0, list.len);
+    try testing.expect(list.capacity > 0);
+
+    list.clearAndFree(ally);
+    try testing.expectEqual(0, list.len);
+    try testing.expectEqual(0, list.capacity);
 }
 
 // This was observed to fail on aarch64 with LLVM 11, when the capacityInBytes

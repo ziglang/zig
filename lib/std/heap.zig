@@ -501,8 +501,6 @@ pub const FixedBufferAllocator = struct {
     }
 };
 
-pub const ThreadSafeFixedBufferAllocator = @compileError("ThreadSafeFixedBufferAllocator has been replaced with `threadSafeAllocator` on FixedBufferAllocator");
-
 /// Returns a `StackFallbackAllocator` allocating using either a
 /// `FixedBufferAllocator` on an array of size `size` and falling back to
 /// `fallback_allocator` if that fails.

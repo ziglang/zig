@@ -17,6 +17,13 @@ tid_shift_31: if (single_threaded) u0 else std.math.Log2Int(u32),
 /// Cached shift amount to put a `tid` in the top bits of a 32-bit value.
 tid_shift_32: if (single_threaded) u0 else std.math.Log2Int(u32),
 
+/// Dependencies on whether an entire file gets past AstGen.
+/// These are triggered by `@import`, so that:
+/// * if a file initially fails AstGen, triggering a transitive failure, when a future update
+///   causes it to succeed AstGen, the `@import` is re-analyzed, allowing analysis to proceed
+/// * if a file initially succeds AstGen, but a future update causes the file to fail it,
+///   the `@import` is re-analyzed, registering a transitive failure
+file_deps: std.AutoArrayHashMapUnmanaged(FileIndex, DepEntry.Index),
 /// Dependencies on the source code hash associated with a ZIR instruction.
 /// * For a `declaration`, this is the entire declaration body.
 /// * For a `struct_decl`, `union_decl`, etc, this is the source of the fields (but not declarations).
@@ -70,6 +77,7 @@ pub const empty: InternPool = .{
     .tid_shift_30 = if (single_threaded) 0 else 31,
     .tid_shift_31 = if (single_threaded) 0 else 31,
     .tid_shift_32 = if (single_threaded) 0 else 31,
+    .file_deps = .empty,
     .src_hash_deps = .empty,
     .nav_val_deps = .empty,
     .interned_deps = .empty,
@@ -656,6 +664,7 @@ pub const Nav = struct {
 };
 
 pub const Dependee = union(enum) {
+    file: FileIndex,
     src_hash: TrackedInst.Index,
     nav_val: Nav.Index,
     interned: Index,
@@ -704,6 +713,7 @@ pub const DependencyIterator = struct {
 
 pub fn dependencyIterator(ip: *const InternPool, dependee: Dependee) DependencyIterator {
     const first_entry = switch (dependee) {
+        .file => |x| ip.file_deps.get(x),
         .src_hash => |x| ip.src_hash_deps.get(x),
         .nav_val => |x| ip.nav_val_deps.get(x),
         .interned => |x| ip.interned_deps.get(x),
@@ -740,6 +750,7 @@ pub fn addDependency(ip: *InternPool, gpa: Allocator, depender: AnalUnit, depend
     const new_index: DepEntry.Index = switch (dependee) {
         inline else => |dependee_payload, tag| new_index: {
             const gop = try switch (tag) {
+                .file => ip.file_deps,
                 .src_hash => ip.src_hash_deps,
                 .nav_val => ip.nav_val_deps,
                 .interned => ip.interned_deps,
@@ -1776,10 +1787,11 @@ pub const Key = union(enum) {
     /// or was created with `@Type`. It is unique and based on a declaration.
     /// It may be a tuple, if declared like this: `struct {A, B, C}`.
     struct_type: NamespaceType,
-    /// This is an anonymous struct or tuple type which has no corresponding
-    /// declaration. It is used for types that have no `struct` keyword in the
-    /// source code, and were not created via `@Type`.
-    anon_struct_type: AnonStructType,
+    /// This is a tuple type. Tuples are logically similar to structs, but have some
+    /// important differences in semantics; they do not undergo staged type resolution,
+    /// so cannot be self-referential, and they are not considered container/namespace
+    /// types, so cannot have declarations and have structural equality properties.
+    tuple_type: TupleType,
     union_type: NamespaceType,
     opaque_type: NamespaceType,
     enum_type: NamespaceType,
@@ -1908,27 +1920,10 @@ pub const Key = union(enum) {
         child: Index,
     };
 
-    pub const AnonStructType = struct {
+    pub const TupleType = struct {
         types: Index.Slice,
-        /// This may be empty, indicating this is a tuple.
-        names: NullTerminatedString.Slice,
         /// These elements may be `none`, indicating runtime-known.
         values: Index.Slice,
-
-        pub fn isTuple(self: AnonStructType) bool {
-            return self.names.len == 0;
-        }
-
-        pub fn fieldName(
-            self: AnonStructType,
-            ip: *const InternPool,
-            index: usize,
-        ) OptionalNullTerminatedString {
-            if (self.names.len == 0)
-                return .none;
-
-            return self.names.get(ip)[index].toOptional();
-        }
     };
 
     /// This is the hashmap key. To fetch other data associated with the type, see:
@@ -1954,18 +1949,15 @@ pub const Key = union(enum) {
             /// The union for which this is a tag type.
             union_type: Index,
         },
-        /// This type originates from a reification via `@Type`.
-        /// It is hased based on its ZIR instruction index and fields, attributes, etc.
+        /// This type originates from a reification via `@Type`, or from an anonymous initialization.
+        /// It is hashed based on its ZIR instruction index and fields, attributes, etc.
         /// To avoid making this key overly complex, the type-specific data is hased by Sema.
         reified: struct {
-            /// A `reify` instruction.
+            /// A `reify`, `struct_init`, `struct_init_ref`, or `struct_init_anon` instruction.
             zir_index: TrackedInst.Index,
             /// A hash of this type's attributes, fields, etc, generated by Sema.
             type_hash: u64,
         },
-        /// This type is `@TypeOf(.{})`.
-        /// TODO: can we change the language spec to not special-case this type?
-        empty_struct: void,
     };
 
     pub const FuncType = struct {
@@ -2000,10 +1992,10 @@ pub const Key = union(enum) {
                 a.return_type == b.return_type and
                 a.comptime_bits == b.comptime_bits and
                 a.noalias_bits == b.noalias_bits and
-                a.cc == b.cc and
                 a.is_var_args == b.is_var_args and
                 a.is_generic == b.is_generic and
-                a.is_noinline == b.is_noinline;
+                a.is_noinline == b.is_noinline and
+                std.meta.eql(a.cc, b.cc);
         }
 
         pub fn hash(self: FuncType, hasher: *Hash, ip: *const InternPool) void {
@@ -2043,6 +2035,7 @@ pub const Key = union(enum) {
         is_const: bool,
         is_threadlocal: bool,
         is_weak_linkage: bool,
+        is_dll_import: bool,
         alignment: Alignment,
         @"addrspace": std.builtin.AddressSpace,
         /// The ZIR instruction which created this extern; used only for source locations.
@@ -2485,7 +2478,6 @@ pub const Key = union(enum) {
                         std.hash.autoHash(&hasher, reified.zir_index);
                         std.hash.autoHash(&hasher, reified.type_hash);
                     },
-                    .empty_struct => {},
                 }
                 return hasher.final();
             },
@@ -2558,7 +2550,7 @@ pub const Key = union(enum) {
                 const child = switch (ip.indexToKey(aggregate.ty)) {
                     .array_type => |array_type| array_type.child,
                     .vector_type => |vector_type| vector_type.child,
-                    .anon_struct_type, .struct_type => .none,
+                    .tuple_type, .struct_type => .none,
                     else => unreachable,
                 };
 
@@ -2613,11 +2605,10 @@ pub const Key = union(enum) {
 
             .error_set_type => |x| Hash.hash(seed, std.mem.sliceAsBytes(x.names.get(ip))),
 
-            .anon_struct_type => |anon_struct_type| {
+            .tuple_type => |tuple_type| {
                 var hasher = Hash.init(seed);
-                for (anon_struct_type.types.get(ip)) |elem| std.hash.autoHash(&hasher, elem);
-                for (anon_struct_type.values.get(ip)) |elem| std.hash.autoHash(&hasher, elem);
-                for (anon_struct_type.names.get(ip)) |elem| std.hash.autoHash(&hasher, elem);
+                for (tuple_type.types.get(ip)) |elem| std.hash.autoHash(&hasher, elem);
+                for (tuple_type.values.get(ip)) |elem| std.hash.autoHash(&hasher, elem);
                 return hasher.final();
             },
 
@@ -2664,7 +2655,8 @@ pub const Key = union(enum) {
                 asBytes(&e.ty) ++ asBytes(&e.lib_name) ++
                 asBytes(&e.is_const) ++ asBytes(&e.is_threadlocal) ++
                 asBytes(&e.is_weak_linkage) ++ asBytes(&e.alignment) ++
-                asBytes(&e.@"addrspace") ++ asBytes(&e.zir_index)),
+                asBytes(&e.is_dll_import) ++ asBytes(&e.@"addrspace") ++
+                asBytes(&e.zir_index)),
         };
     }
 
@@ -2760,6 +2752,7 @@ pub const Key = union(enum) {
                     a_info.is_const == b_info.is_const and
                     a_info.is_threadlocal == b_info.is_threadlocal and
                     a_info.is_weak_linkage == b_info.is_weak_linkage and
+                    a_info.is_dll_import == b_info.is_dll_import and
                     a_info.alignment == b_info.alignment and
                     a_info.@"addrspace" == b_info.@"addrspace" and
                     a_info.zir_index == b_info.zir_index;
@@ -2915,7 +2908,6 @@ pub const Key = union(enum) {
                         return a_r.zir_index == b_r.zir_index and
                             a_r.type_hash == b_r.type_hash;
                     },
-                    .empty_struct => return true,
                 }
             },
             .aggregate => |a_info| {
@@ -2967,11 +2959,10 @@ pub const Key = union(enum) {
                     },
                 }
             },
-            .anon_struct_type => |a_info| {
-                const b_info = b.anon_struct_type;
+            .tuple_type => |a_info| {
+                const b_info = b.tuple_type;
                 return std.mem.eql(Index, a_info.types.get(ip), b_info.types.get(ip)) and
-                    std.mem.eql(Index, a_info.values.get(ip), b_info.values.get(ip)) and
-                    std.mem.eql(NullTerminatedString, a_info.names.get(ip), b_info.names.get(ip));
+                    std.mem.eql(Index, a_info.values.get(ip), b_info.values.get(ip));
             },
             .error_set_type => |a_info| {
                 const b_info = b.error_set_type;
@@ -3011,7 +3002,7 @@ pub const Key = union(enum) {
             .union_type,
             .opaque_type,
             .enum_type,
-            .anon_struct_type,
+            .tuple_type,
             .func_type,
             => .type_type,
 
@@ -3040,7 +3031,7 @@ pub const Key = union(enum) {
                 .void => .void_type,
                 .null => .null_type,
                 .false, .true => .bool_type,
-                .empty_struct => .empty_struct_type,
+                .empty_tuple => .empty_tuple_type,
                 .@"unreachable" => .noreturn_type,
                 .generic_poison => .generic_poison_type,
             },
@@ -3397,13 +3388,11 @@ pub const LoadedStructType = struct {
     // TODO: the non-fqn will be needed by the new dwarf structure
     /// The name of this struct type.
     name: NullTerminatedString,
-    /// The `Cau` within which type resolution occurs. `none` when the struct is `@TypeOf(.{})`.
-    cau: Cau.Index.Optional,
-    /// `none` when the struct is `@TypeOf(.{})`.
-    namespace: OptionalNamespaceIndex,
+    /// The `Cau` within which type resolution occurs.
+    cau: Cau.Index,
+    namespace: NamespaceIndex,
     /// Index of the `struct_decl` or `reify` ZIR instruction.
-    /// Only `none` when the struct is `@TypeOf(.{})`.
-    zir_index: TrackedInst.Index.Optional,
+    zir_index: TrackedInst.Index,
     layout: std.builtin.Type.ContainerLayout,
     field_names: NullTerminatedString.Slice,
     field_types: Index.Slice,
@@ -3899,10 +3888,6 @@ pub const LoadedStructType = struct {
         @atomicStore(Tag.TypeStruct.Flags, flags_ptr, flags, .release);
     }
 
-    pub fn isTuple(s: LoadedStructType, ip: *InternPool) bool {
-        return s.layout != .@"packed" and s.flagsUnordered(ip).is_tuple;
-    }
-
     pub fn hasReorderedFields(s: LoadedStructType) bool {
         return s.layout == .auto;
     }
@@ -3994,24 +3979,6 @@ pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
     const item = unwrapped_index.getItem(ip);
     switch (item.tag) {
         .type_struct => {
-            if (item.data == 0) return .{
-                .tid = .main,
-                .extra_index = 0,
-                .name = .empty,
-                .cau = .none,
-                .namespace = .none,
-                .zir_index = .none,
-                .layout = .auto,
-                .field_names = NullTerminatedString.Slice.empty,
-                .field_types = Index.Slice.empty,
-                .field_inits = Index.Slice.empty,
-                .field_aligns = Alignment.Slice.empty,
-                .runtime_order = LoadedStructType.RuntimeOrder.Slice.empty,
-                .comptime_bits = LoadedStructType.ComptimeBits.empty,
-                .offsets = LoadedStructType.Offsets.empty,
-                .names_map = .none,
-                .captures = CaptureValue.Slice.empty,
-            };
             const name: NullTerminatedString = @enumFromInt(extra_items[item.data + std.meta.fieldIndex(Tag.TypeStruct, "name").?]);
             const cau: Cau.Index = @enumFromInt(extra_items[item.data + std.meta.fieldIndex(Tag.TypeStruct, "cau").?]);
             const namespace: NamespaceIndex = @enumFromInt(extra_items[item.data + std.meta.fieldIndex(Tag.TypeStruct, "namespace").?]);
@@ -4031,7 +3998,7 @@ pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
             };
             extra_index += captures_len;
             if (flags.is_reified) {
-                extra_index += 2; // PackedU64
+                extra_index += 2; // type_hash: PackedU64
             }
             const field_types: Index.Slice = .{
                 .tid = unwrapped_index.tid,
@@ -4039,7 +4006,7 @@ pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
                 .len = fields_len,
             };
             extra_index += fields_len;
-            const names_map: OptionalMapIndex, const names = if (!flags.is_tuple) n: {
+            const names_map: OptionalMapIndex, const names = n: {
                 const names_map: OptionalMapIndex = @enumFromInt(extra_list.view().items(.@"0")[extra_index]);
                 extra_index += 1;
                 const names: NullTerminatedString.Slice = .{
@@ -4049,7 +4016,7 @@ pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
                 };
                 extra_index += fields_len;
                 break :n .{ names_map, names };
-            } else .{ .none, NullTerminatedString.Slice.empty };
+            };
             const inits: Index.Slice = if (flags.any_default_inits) i: {
                 const inits: Index.Slice = .{
                     .tid = unwrapped_index.tid,
@@ -4100,9 +4067,9 @@ pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
                 .tid = unwrapped_index.tid,
                 .extra_index = item.data,
                 .name = name,
-                .cau = cau.toOptional(),
-                .namespace = namespace.toOptional(),
-                .zir_index = zir_index.toOptional(),
+                .cau = cau,
+                .namespace = namespace,
+                .zir_index = zir_index,
                 .layout = if (flags.is_extern) .@"extern" else .auto,
                 .field_names = names,
                 .field_types = field_types,
@@ -4164,9 +4131,9 @@ pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
                 .tid = unwrapped_index.tid,
                 .extra_index = item.data,
                 .name = name,
-                .cau = cau.toOptional(),
-                .namespace = namespace.toOptional(),
-                .zir_index = zir_index.toOptional(),
+                .cau = cau,
+                .namespace = namespace,
+                .zir_index = zir_index,
                 .layout = .@"packed",
                 .field_names = field_names,
                 .field_types = field_types,
@@ -4393,9 +4360,9 @@ pub const Item = struct {
 /// `primitives` in AstGen.zig.
 pub const Index = enum(u32) {
     pub const first_type: Index = .u0_type;
-    pub const last_type: Index = .empty_struct_type;
+    pub const last_type: Index = .empty_tuple_type;
     pub const first_value: Index = .undef;
-    pub const last_value: Index = .empty_struct;
+    pub const last_value: Index = .empty_tuple;
 
     u0_type,
     i0_type,
@@ -4452,8 +4419,9 @@ pub const Index = enum(u32) {
     /// Used for the inferred error set of inline/comptime function calls.
     adhoc_inferred_error_set_type,
     generic_poison_type,
-    /// `@TypeOf(.{})`
-    empty_struct_type,
+    /// `@TypeOf(.{})`; a tuple with zero elements.
+    /// This is not the same as `struct {}`, since that is a struct rather than a tuple.
+    empty_tuple_type,
 
     /// `undefined` (untyped)
     undef,
@@ -4483,8 +4451,8 @@ pub const Index = enum(u32) {
     bool_true,
     /// `false`
     bool_false,
-    /// `.{}` (untyped)
-    empty_struct,
+    /// `.{}`
+    empty_tuple,
 
     /// Used for generic parameters where the type and value
     /// is not known until generic function instantiation.
@@ -4592,16 +4560,14 @@ pub const Index = enum(u32) {
                 values: []Index,
             },
         };
-        const DataIsExtraIndexOfTypeStructAnon = struct {
+        const DataIsExtraIndexOfTypeTuple = struct {
             const @"data.fields_len" = opaque {};
-            data: *TypeStructAnon,
+            data: *TypeTuple,
             @"trailing.types.len": *@"data.fields_len",
             @"trailing.values.len": *@"data.fields_len",
-            @"trailing.names.len": *@"data.fields_len",
             trailing: struct {
                 types: []Index,
                 values: []Index,
-                names: []NullTerminatedString,
             },
         };
 
@@ -4635,10 +4601,9 @@ pub const Index = enum(u32) {
         simple_type: void,
         type_opaque: struct { data: *Tag.TypeOpaque },
         type_struct: struct { data: *Tag.TypeStruct },
-        type_struct_anon: DataIsExtraIndexOfTypeStructAnon,
         type_struct_packed: struct { data: *Tag.TypeStructPacked },
         type_struct_packed_inits: struct { data: *Tag.TypeStructPacked },
-        type_tuple_anon: DataIsExtraIndexOfTypeStructAnon,
+        type_tuple: DataIsExtraIndexOfTypeTuple,
         type_union: struct { data: *Tag.TypeUnion },
         type_function: struct {
             const @"data.flags.has_comptime_bits" = opaque {};
@@ -4922,11 +4887,10 @@ pub const static_keys = [_]Key{
     // generic_poison_type
     .{ .simple_type = .generic_poison },
 
-    // empty_struct_type
-    .{ .anon_struct_type = .{
-        .types = Index.Slice.empty,
-        .names = NullTerminatedString.Slice.empty,
-        .values = Index.Slice.empty,
+    // empty_tuple_type
+    .{ .tuple_type = .{
+        .types = .empty,
+        .values = .empty,
     } },
 
     .{ .simple_value = .undefined },
@@ -4977,7 +4941,7 @@ pub const static_keys = [_]Key{
     .{ .simple_value = .null },
     .{ .simple_value = .true },
     .{ .simple_value = .false },
-    .{ .simple_value = .empty_struct },
+    .{ .simple_value = .empty_tuple },
     .{ .simple_value = .generic_poison },
 };
 
@@ -5057,20 +5021,16 @@ pub const Tag = enum(u8) {
     type_opaque,
     /// A non-packed struct type.
     /// data is 0 or extra index of `TypeStruct`.
-    /// data == 0 represents `@TypeOf(.{})`.
     type_struct,
-    /// An AnonStructType which stores types, names, and values for fields.
-    /// data is extra index of `TypeStructAnon`.
-    type_struct_anon,
     /// A packed struct, no fields have any init values.
     /// data is extra index of `TypeStructPacked`.
     type_struct_packed,
     /// A packed struct, one or more fields have init values.
     /// data is extra index of `TypeStructPacked`.
     type_struct_packed_inits,
-    /// An AnonStructType which has only types and values for fields.
-    /// data is extra index of `TypeStructAnon`.
-    type_tuple_anon,
+    /// A `TupleType`.
+    /// data is extra index of `TypeTuple`.
+    type_tuple,
     /// A union type.
     /// `data` is extra index of `TypeUnion`.
     type_union,
@@ -5285,9 +5245,8 @@ pub const Tag = enum(u8) {
             .simple_type => unreachable,
             .type_opaque => TypeOpaque,
             .type_struct => TypeStruct,
-            .type_struct_anon => TypeStructAnon,
             .type_struct_packed, .type_struct_packed_inits => TypeStructPacked,
-            .type_tuple_anon => TypeStructAnon,
+            .type_tuple => TypeTuple,
             .type_union => TypeUnion,
             .type_function => TypeFunction,
 
@@ -5359,7 +5318,8 @@ pub const Tag = enum(u8) {
             is_const: bool,
             is_threadlocal: bool,
             is_weak_linkage: bool,
-            _: u29 = 0,
+            is_dll_import: bool,
+            _: u28 = 0,
         };
     };
 
@@ -5433,7 +5393,7 @@ pub const Tag = enum(u8) {
         flags: Flags,
 
         pub const Flags = packed struct(u32) {
-            cc: std.builtin.CallingConvention,
+            cc: PackedCallingConvention,
             is_var_args: bool,
             is_generic: bool,
             has_comptime_bits: bool,
@@ -5442,7 +5402,7 @@ pub const Tag = enum(u8) {
             cc_is_generic: bool,
             section_is_generic: bool,
             addrspace_is_generic: bool,
-            _: u16 = 0,
+            _: u6 = 0,
         };
     };
 
@@ -5531,18 +5491,15 @@ pub const Tag = enum(u8) {
     /// 1. capture: CaptureValue // for each `captures_len`
     /// 2. type_hash: PackedU64 // if `is_reified`
     /// 3. type: Index for each field in declared order
-    /// 4. if not is_tuple:
-    ///    names_map: MapIndex,
-    ///    name: NullTerminatedString // for each field in declared order
-    /// 5. if any_default_inits:
+    /// 4. if any_default_inits:
     ///    init: Index // for each field in declared order
-    /// 6. if any_aligned_fields:
+    /// 5. if any_aligned_fields:
     ///    align: Alignment // for each field in declared order
-    /// 7. if any_comptime_fields:
+    /// 6. if any_comptime_fields:
     ///    field_is_comptime_bits: u32 // minimal number of u32s needed, LSB is field 0
-    /// 8. if not is_extern:
+    /// 7. if not is_extern:
     ///    field_index: RuntimeOrder // for each field in runtime order
-    /// 9. field_offset: u32 // for each field in declared order, undef until layout_resolved
+    /// 8. field_offset: u32 // for each field in declared order, undef until layout_resolved
     pub const TypeStruct = struct {
         name: NullTerminatedString,
         cau: Cau.Index,
@@ -5557,7 +5514,6 @@ pub const Tag = enum(u8) {
             is_extern: bool = false,
             known_non_opv: bool = false,
             requires_comptime: RequiresComptime = @enumFromInt(0),
-            is_tuple: bool = false,
             assumed_runtime_bits: bool = false,
             assumed_pointer_aligned: bool = false,
             any_comptime_fields: bool = false,
@@ -5582,7 +5538,7 @@ pub const Tag = enum(u8) {
             // which `layout_resolved` does not ensure.
             fully_resolved: bool = false,
             is_reified: bool = false,
-            _: u7 = 0,
+            _: u8 = 0,
         };
     };
 
@@ -5607,12 +5563,11 @@ pub const FuncAnalysis = packed struct(u32) {
     branch_hint: std.builtin.BranchHint,
     is_noinline: bool,
     calls_or_awaits_errorable_fn: bool,
-    stack_alignment: Alignment,
     /// True if this function has an inferred error set.
     inferred_error_set: bool,
     disable_instrumentation: bool,
 
-    _: u17 = 0,
+    _: u23 = 0,
 
     pub const State = enum(u2) {
         /// The runtime function has never been referenced.
@@ -5645,9 +5600,7 @@ pub const Repeated = struct {
 /// Trailing:
 /// 0. type: Index for each fields_len
 /// 1. value: Index for each fields_len
-/// 2. name: NullTerminatedString for each fields_len
-/// The set of field names is omitted when the `Tag` is `type_tuple_anon`.
-pub const TypeStructAnon = struct {
+pub const TypeTuple = struct {
     fields_len: u32,
 };
 
@@ -5694,8 +5647,8 @@ pub const SimpleValue = enum(u32) {
     void = @intFromEnum(Index.void_value),
     /// This is untyped `null`.
     null = @intFromEnum(Index.null_value),
-    /// This is the untyped empty struct literal: `.{}`
-    empty_struct = @intFromEnum(Index.empty_struct),
+    /// This is the untyped empty struct/array literal: `.{}`
+    empty_tuple = @intFromEnum(Index.empty_tuple),
     true = @intFromEnum(Index.bool_true),
     false = @intFromEnum(Index.bool_false),
     @"unreachable" = @intFromEnum(Index.unreachable_value),
@@ -6252,11 +6205,10 @@ pub fn init(ip: *InternPool, gpa: Allocator, available_threads: usize) !void {
     // This inserts all the statically-known values into the intern pool in the
     // order expected.
     for (&static_keys, 0..) |key, key_index| switch (@as(Index, @enumFromInt(key_index))) {
-        .empty_struct_type => assert(try ip.getAnonStructType(gpa, .main, .{
+        .empty_tuple_type => assert(try ip.getTupleType(gpa, .main, .{
             .types = &.{},
-            .names = &.{},
             .values = &.{},
-        }) == .empty_struct_type),
+        }) == .empty_tuple_type),
         else => |expected_index| assert(try ip.get(gpa, .main, key) == expected_index),
     };
 
@@ -6268,6 +6220,7 @@ pub fn init(ip: *InternPool, gpa: Allocator, available_threads: usize) !void {
 }
 
 pub fn deinit(ip: *InternPool, gpa: Allocator) void {
+    ip.file_deps.deinit(gpa);
     ip.src_hash_deps.deinit(gpa);
     ip.nav_val_deps.deinit(gpa);
     ip.interned_deps.deinit(gpa);
@@ -6397,7 +6350,6 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
         } },
 
         .type_struct => .{ .struct_type = ns: {
-            if (data == 0) break :ns .empty_struct;
             const extra_list = unwrapped_index.getExtra(ip);
             const extra_items = extra_list.view().items(.@"0");
             const zir_index: TrackedInst.Index = @enumFromInt(extra_items[data + std.meta.fieldIndex(Tag.TypeStruct, "zir_index").?]);
@@ -6442,8 +6394,7 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
                 } else CaptureValue.Slice.empty },
             } };
         } },
-        .type_struct_anon => .{ .anon_struct_type = extraTypeStructAnon(unwrapped_index.tid, unwrapped_index.getExtra(ip), data) },
-        .type_tuple_anon => .{ .anon_struct_type = extraTypeTupleAnon(unwrapped_index.tid, unwrapped_index.getExtra(ip), data) },
+        .type_tuple => .{ .tuple_type = extraTypeTuple(unwrapped_index.tid, unwrapped_index.getExtra(ip), data) },
         .type_union => .{ .union_type = ns: {
             const extra_list = unwrapped_index.getExtra(ip);
             const extra = extraDataTrail(extra_list, Tag.TypeUnion, data);
@@ -6703,6 +6654,7 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
                 .is_const = extra.flags.is_const,
                 .is_threadlocal = extra.flags.is_threadlocal,
                 .is_weak_linkage = extra.flags.is_weak_linkage,
+                .is_dll_import = extra.flags.is_dll_import,
                 .alignment = nav.status.resolved.alignment,
                 .@"addrspace" = nav.status.resolved.@"addrspace",
                 .zir_index = extra.zir_index,
@@ -6748,10 +6700,10 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
 
                 // There is only one possible value precisely due to the
                 // fact that this values slice is fully populated!
-                .type_struct_anon, .type_tuple_anon => {
-                    const type_struct_anon = extraDataTrail(ty_extra, TypeStructAnon, ty_item.data);
-                    const fields_len = type_struct_anon.data.fields_len;
-                    const values = ty_extra.view().items(.@"0")[type_struct_anon.end + fields_len ..][0..fields_len];
+                .type_tuple => {
+                    const type_tuple = extraDataTrail(ty_extra, TypeTuple, ty_item.data);
+                    const fields_len = type_tuple.data.fields_len;
+                    const values = ty_extra.view().items(.@"0")[type_tuple.end + fields_len ..][0..fields_len];
                     return .{ .aggregate = .{
                         .ty = ty,
                         .storage = .{ .elems = @ptrCast(values) },
@@ -6834,46 +6786,19 @@ fn extraErrorSet(tid: Zcu.PerThread.Id, extra: Local.Extra, extra_index: u32) Ke
     };
 }
 
-fn extraTypeStructAnon(tid: Zcu.PerThread.Id, extra: Local.Extra, extra_index: u32) Key.AnonStructType {
-    const type_struct_anon = extraDataTrail(extra, TypeStructAnon, extra_index);
-    const fields_len = type_struct_anon.data.fields_len;
+fn extraTypeTuple(tid: Zcu.PerThread.Id, extra: Local.Extra, extra_index: u32) Key.TupleType {
+    const type_tuple = extraDataTrail(extra, TypeTuple, extra_index);
+    const fields_len = type_tuple.data.fields_len;
     return .{
         .types = .{
             .tid = tid,
-            .start = type_struct_anon.end,
+            .start = type_tuple.end,
             .len = fields_len,
         },
         .values = .{
             .tid = tid,
-            .start = type_struct_anon.end + fields_len,
+            .start = type_tuple.end + fields_len,
             .len = fields_len,
-        },
-        .names = .{
-            .tid = tid,
-            .start = type_struct_anon.end + fields_len + fields_len,
-            .len = fields_len,
-        },
-    };
-}
-
-fn extraTypeTupleAnon(tid: Zcu.PerThread.Id, extra: Local.Extra, extra_index: u32) Key.AnonStructType {
-    const type_struct_anon = extraDataTrail(extra, TypeStructAnon, extra_index);
-    const fields_len = type_struct_anon.data.fields_len;
-    return .{
-        .types = .{
-            .tid = tid,
-            .start = type_struct_anon.end,
-            .len = fields_len,
-        },
-        .values = .{
-            .tid = tid,
-            .start = type_struct_anon.end + fields_len,
-            .len = fields_len,
-        },
-        .names = .{
-            .tid = tid,
-            .start = 0,
-            .len = 0,
         },
     };
 }
@@ -6900,7 +6825,7 @@ fn extraFuncType(tid: Zcu.PerThread.Id, extra: Local.Extra, extra_index: u32) Ke
         .return_type = type_function.data.return_type,
         .comptime_bits = comptime_bits,
         .noalias_bits = noalias_bits,
-        .cc = type_function.data.flags.cc,
+        .cc = type_function.data.flags.cc.unpack(),
         .is_var_args = type_function.data.flags.is_var_args,
         .is_noinline = type_function.data.flags.is_noinline,
         .cc_is_generic = type_function.data.flags.cc_is_generic,
@@ -7345,7 +7270,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
         },
 
         .struct_type => unreachable, // use getStructType() instead
-        .anon_struct_type => unreachable, // use getAnonStructType() instead
+        .tuple_type => unreachable, // use getTupleType() instead
         .union_type => unreachable, // use getUnionType() instead
         .opaque_type => unreachable, // use getOpaqueType() instead
 
@@ -7369,6 +7294,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
                         .is_const = false,
                         .is_threadlocal = variable.is_threadlocal,
                         .is_weak_linkage = variable.is_weak_linkage,
+                        .is_dll_import = false,
                     },
                 }),
             });
@@ -7452,9 +7378,9 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
                         .field => {
                             assert(base_ptr_type.flags.size == .One);
                             switch (ip.indexToKey(base_ptr_type.child)) {
-                                .anon_struct_type => |anon_struct_type| {
+                                .tuple_type => |tuple_type| {
                                     assert(ptr.base_addr == .field);
-                                    assert(base_index.index < anon_struct_type.types.len);
+                                    assert(base_index.index < tuple_type.types.len);
                                 },
                                 .struct_type => {
                                     assert(ptr.base_addr == .field);
@@ -7791,12 +7717,12 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
             const child = switch (ty_key) {
                 .array_type => |array_type| array_type.child,
                 .vector_type => |vector_type| vector_type.child,
-                .anon_struct_type, .struct_type => .none,
+                .tuple_type, .struct_type => .none,
                 else => unreachable,
             };
             const sentinel = switch (ty_key) {
                 .array_type => |array_type| array_type.sentinel,
-                .vector_type, .anon_struct_type, .struct_type => .none,
+                .vector_type, .tuple_type, .struct_type => .none,
                 else => unreachable,
             };
             const len_including_sentinel = len + @intFromBool(sentinel != .none);
@@ -7828,8 +7754,8 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
                         assert(ip.typeOf(elem) == field_ty);
                     }
                 },
-                .anon_struct_type => |anon_struct_type| {
-                    for (aggregate.storage.values(), anon_struct_type.types.get(ip)) |elem, ty| {
+                .tuple_type => |tuple_type| {
+                    for (aggregate.storage.values(), tuple_type.types.get(ip)) |elem, ty| {
                         assert(ip.typeOf(elem) == ty);
                     }
                 },
@@ -7845,9 +7771,9 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
             }
 
             switch (ty_key) {
-                .anon_struct_type => |anon_struct_type| opv: {
+                .tuple_type => |tuple_type| opv: {
                     switch (aggregate.storage) {
-                        .bytes => |bytes| for (anon_struct_type.values.get(ip), bytes.at(0, ip)..) |value, byte| {
+                        .bytes => |bytes| for (tuple_type.values.get(ip), bytes.at(0, ip)..) |value, byte| {
                             if (value == .none) break :opv;
                             switch (ip.indexToKey(value)) {
                                 .undef => break :opv,
@@ -7860,10 +7786,10 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
                         },
                         .elems => |elems| if (!std.mem.eql(
                             Index,
-                            anon_struct_type.values.get(ip),
+                            tuple_type.values.get(ip),
                             elems,
                         )) break :opv,
-                        .repeated_elem => |elem| for (anon_struct_type.values.get(ip)) |value| {
+                        .repeated_elem => |elem| for (tuple_type.values.get(ip)) |value| {
                             if (value != elem) break :opv;
                         },
                     }
@@ -8227,7 +8153,6 @@ pub const StructTypeInit = struct {
     fields_len: u32,
     known_non_opv: bool,
     requires_comptime: RequiresComptime,
-    is_tuple: bool,
     any_comptime_fields: bool,
     any_default_inits: bool,
     inits_resolved: bool,
@@ -8387,7 +8312,6 @@ pub fn getStructType(
             .is_extern = is_extern,
             .known_non_opv = ini.known_non_opv,
             .requires_comptime = ini.requires_comptime,
-            .is_tuple = ini.is_tuple,
             .assumed_runtime_bits = false,
             .assumed_pointer_aligned = false,
             .any_comptime_fields = ini.any_comptime_fields,
@@ -8425,10 +8349,8 @@ pub fn getStructType(
         },
     }
     extra.appendNTimesAssumeCapacity(.{@intFromEnum(Index.none)}, ini.fields_len);
-    if (!ini.is_tuple) {
-        extra.appendAssumeCapacity(.{@intFromEnum(names_map)});
-        extra.appendNTimesAssumeCapacity(.{@intFromEnum(OptionalNullTerminatedString.none)}, ini.fields_len);
-    }
+    extra.appendAssumeCapacity(.{@intFromEnum(names_map)});
+    extra.appendNTimesAssumeCapacity(.{@intFromEnum(OptionalNullTerminatedString.none)}, ini.fields_len);
     if (ini.any_default_inits) {
         extra.appendNTimesAssumeCapacity(.{@intFromEnum(Index.none)}, ini.fields_len);
     }
@@ -8451,19 +8373,17 @@ pub fn getStructType(
     } };
 }
 
-pub const AnonStructTypeInit = struct {
+pub const TupleTypeInit = struct {
     types: []const Index,
-    /// This may be empty, indicating this is a tuple.
-    names: []const NullTerminatedString,
     /// These elements may be `none`, indicating runtime-known.
     values: []const Index,
 };
 
-pub fn getAnonStructType(
+pub fn getTupleType(
     ip: *InternPool,
     gpa: Allocator,
     tid: Zcu.PerThread.Id,
-    ini: AnonStructTypeInit,
+    ini: TupleTypeInit,
 ) Allocator.Error!Index {
     assert(ini.types.len == ini.values.len);
     for (ini.types) |elem| assert(elem != .none);
@@ -8477,23 +8397,17 @@ pub fn getAnonStructType(
 
     try items.ensureUnusedCapacity(1);
     try extra.ensureUnusedCapacity(
-        @typeInfo(TypeStructAnon).@"struct".fields.len + (fields_len * 3),
+        @typeInfo(TypeTuple).@"struct".fields.len + (fields_len * 3),
     );
 
-    const extra_index = addExtraAssumeCapacity(extra, TypeStructAnon{
+    const extra_index = addExtraAssumeCapacity(extra, TypeTuple{
         .fields_len = fields_len,
     });
     extra.appendSliceAssumeCapacity(.{@ptrCast(ini.types)});
     extra.appendSliceAssumeCapacity(.{@ptrCast(ini.values)});
     errdefer extra.mutate.len = prev_extra_len;
 
-    var gop = try ip.getOrPutKey(gpa, tid, .{
-        .anon_struct_type = if (ini.names.len == 0) extraTypeTupleAnon(tid, extra.list.*, extra_index) else k: {
-            assert(ini.names.len == ini.types.len);
-            extra.appendSliceAssumeCapacity(.{@ptrCast(ini.names)});
-            break :k extraTypeStructAnon(tid, extra.list.*, extra_index);
-        },
-    });
+    var gop = try ip.getOrPutKey(gpa, tid, .{ .tuple_type = extraTypeTuple(tid, extra.list.*, extra_index) });
     defer gop.deinit();
     if (gop == .existing) {
         extra.mutate.len = prev_extra_len;
@@ -8501,7 +8415,7 @@ pub fn getAnonStructType(
     }
 
     items.appendAssumeCapacity(.{
-        .tag = if (ini.names.len == 0) .type_tuple_anon else .type_struct_anon,
+        .tag = .type_tuple,
         .data = extra_index,
     });
     return gop.put();
@@ -8514,7 +8428,7 @@ pub const GetFuncTypeKey = struct {
     comptime_bits: u32 = 0,
     noalias_bits: u32 = 0,
     /// `null` means generic.
-    cc: ?std.builtin.CallingConvention = .Unspecified,
+    cc: ?std.builtin.CallingConvention = .auto,
     is_var_args: bool = false,
     is_generic: bool = false,
     is_noinline: bool = false,
@@ -8552,7 +8466,7 @@ pub fn getFuncType(
         .params_len = params_len,
         .return_type = key.return_type,
         .flags = .{
-            .cc = key.cc orelse .Unspecified,
+            .cc = .pack(key.cc orelse .auto),
             .is_var_args = key.is_var_args,
             .has_comptime_bits = key.comptime_bits != 0,
             .has_noalias_bits = key.noalias_bits != 0,
@@ -8632,6 +8546,7 @@ pub fn getExtern(
             .is_const = key.is_const,
             .is_threadlocal = key.is_threadlocal,
             .is_weak_linkage = key.is_weak_linkage,
+            .is_dll_import = key.is_dll_import,
         },
         .zir_index = key.zir_index,
         .owner_nav = owner_nav,
@@ -8684,7 +8599,6 @@ pub fn getFuncDecl(
             .branch_hint = .none,
             .is_noinline = key.is_noinline,
             .calls_or_awaits_errorable_fn = false,
-            .stack_alignment = .none,
             .inferred_error_set = false,
             .disable_instrumentation = false,
         },
@@ -8788,7 +8702,6 @@ pub fn getFuncDeclIes(
             .branch_hint = .none,
             .is_noinline = key.is_noinline,
             .calls_or_awaits_errorable_fn = false,
-            .stack_alignment = .none,
             .inferred_error_set = true,
             .disable_instrumentation = false,
         },
@@ -8806,7 +8719,7 @@ pub fn getFuncDeclIes(
         .params_len = params_len,
         .return_type = error_union_type,
         .flags = .{
-            .cc = key.cc orelse .Unspecified,
+            .cc = .pack(key.cc orelse .auto),
             .is_var_args = key.is_var_args,
             .has_comptime_bits = key.comptime_bits != 0,
             .has_noalias_bits = key.noalias_bits != 0,
@@ -8980,7 +8893,6 @@ pub fn getFuncInstance(
             .branch_hint = .none,
             .is_noinline = arg.is_noinline,
             .calls_or_awaits_errorable_fn = false,
-            .stack_alignment = .none,
             .inferred_error_set = false,
             .disable_instrumentation = false,
         },
@@ -9080,7 +8992,6 @@ pub fn getFuncInstanceIes(
             .branch_hint = .none,
             .is_noinline = arg.is_noinline,
             .calls_or_awaits_errorable_fn = false,
-            .stack_alignment = .none,
             .inferred_error_set = true,
             .disable_instrumentation = false,
         },
@@ -9098,7 +9009,7 @@ pub fn getFuncInstanceIes(
         .params_len = params_len,
         .return_type = error_union_type,
         .flags = .{
-            .cc = arg.cc,
+            .cc = .pack(arg.cc),
             .is_var_args = false,
             .has_comptime_bits = false,
             .has_noalias_bits = arg.noalias_bits != 0,
@@ -10167,12 +10078,12 @@ pub fn getCoerced(
             direct: {
                 const old_ty_child = switch (ip.indexToKey(old_ty)) {
                     inline .array_type, .vector_type => |seq_type| seq_type.child,
-                    .anon_struct_type, .struct_type => break :direct,
+                    .tuple_type, .struct_type => break :direct,
                     else => unreachable,
                 };
                 const new_ty_child = switch (ip.indexToKey(new_ty)) {
                     inline .array_type, .vector_type => |seq_type| seq_type.child,
-                    .anon_struct_type, .struct_type => break :direct,
+                    .tuple_type, .struct_type => break :direct,
                     else => unreachable,
                 };
                 if (old_ty_child != new_ty_child) break :direct;
@@ -10221,7 +10132,7 @@ pub fn getCoerced(
             for (agg_elems, 0..) |*elem, i| {
                 const new_elem_ty = switch (ip.indexToKey(new_ty)) {
                     inline .array_type, .vector_type => |seq_type| seq_type.child,
-                    .anon_struct_type => |anon_struct_type| anon_struct_type.types.get(ip)[i],
+                    .tuple_type => |tuple_type| tuple_type.types.get(ip)[i],
                     .struct_type => ip.loadStructType(new_ty).field_types.get(ip)[i],
                     else => unreachable,
                 };
@@ -10411,7 +10322,7 @@ pub fn isErrorUnionType(ip: *const InternPool, ty: Index) bool {
 
 pub fn isAggregateType(ip: *const InternPool, ty: Index) bool {
     return switch (ip.indexToKey(ty)) {
-        .array_type, .vector_type, .anon_struct_type, .struct_type => true,
+        .array_type, .vector_type, .tuple_type, .struct_type => true,
         else => false,
     };
 }
@@ -10535,7 +10446,6 @@ fn dumpStatsFallible(ip: *const InternPool, arena: Allocator) anyerror!void {
                     break :b @sizeOf(u32) * ints;
                 },
                 .type_struct => b: {
-                    if (data == 0) break :b 0;
                     const extra = extraDataTrail(extra_list, Tag.TypeStruct, data);
                     const info = extra.data;
                     var ints: usize = @typeInfo(Tag.TypeStruct).@"struct".fields.len;
@@ -10544,10 +10454,8 @@ fn dumpStatsFallible(ip: *const InternPool, arena: Allocator) anyerror!void {
                         ints += 1 + captures_len;
                     }
                     ints += info.fields_len; // types
-                    if (!info.flags.is_tuple) {
-                        ints += 1; // names_map
-                        ints += info.fields_len; // names
-                    }
+                    ints += 1; // names_map
+                    ints += info.fields_len; // names
                     if (info.flags.any_default_inits)
                         ints += info.fields_len; // inits
                     if (info.flags.any_aligned_fields)
@@ -10558,10 +10466,6 @@ fn dumpStatsFallible(ip: *const InternPool, arena: Allocator) anyerror!void {
                         ints += info.fields_len; // runtime order
                     ints += info.fields_len; // offsets
                     break :b @sizeOf(u32) * ints;
-                },
-                .type_struct_anon => b: {
-                    const info = extraData(extra_list, TypeStructAnon, data);
-                    break :b @sizeOf(TypeStructAnon) + (@sizeOf(u32) * 3 * info.fields_len);
                 },
                 .type_struct_packed => b: {
                     const extra = extraDataTrail(extra_list, Tag.TypeStructPacked, data);
@@ -10583,9 +10487,9 @@ fn dumpStatsFallible(ip: *const InternPool, arena: Allocator) anyerror!void {
                         @intFromBool(extra.data.flags.any_captures) + captures_len +
                         extra.data.fields_len * 3);
                 },
-                .type_tuple_anon => b: {
-                    const info = extraData(extra_list, TypeStructAnon, data);
-                    break :b @sizeOf(TypeStructAnon) + (@sizeOf(u32) * 2 * info.fields_len);
+                .type_tuple => b: {
+                    const info = extraData(extra_list, TypeTuple, data);
+                    break :b @sizeOf(TypeTuple) + (@sizeOf(u32) * 2 * info.fields_len);
                 },
 
                 .type_union => b: {
@@ -10746,10 +10650,9 @@ fn dumpAllFallible(ip: *const InternPool) anyerror!void {
                 .type_enum_auto,
                 .type_opaque,
                 .type_struct,
-                .type_struct_anon,
                 .type_struct_packed,
                 .type_struct_packed_inits,
-                .type_tuple_anon,
+                .type_tuple,
                 .type_union,
                 .type_function,
                 .undef,
@@ -11382,7 +11285,7 @@ pub fn typeOf(ip: *const InternPool, index: Index) Index {
         .anyerror_void_error_union_type,
         .adhoc_inferred_error_set_type,
         .generic_poison_type,
-        .empty_struct_type,
+        .empty_tuple_type,
         => .type_type,
 
         .undef => .undefined_type,
@@ -11393,7 +11296,7 @@ pub fn typeOf(ip: *const InternPool, index: Index) Index {
         .unreachable_value => .noreturn_type,
         .null_value => .null_type,
         .bool_true, .bool_false => .bool_type,
-        .empty_struct => .empty_struct_type,
+        .empty_tuple => .empty_tuple_type,
         .generic_poison => .generic_poison_type,
 
         // This optimization on tags is needed so that indexToKey can call
@@ -11422,10 +11325,9 @@ pub fn typeOf(ip: *const InternPool, index: Index) Index {
                 .type_enum_nonexhaustive,
                 .type_opaque,
                 .type_struct,
-                .type_struct_anon,
                 .type_struct_packed,
                 .type_struct_packed_inits,
-                .type_tuple_anon,
+                .type_tuple,
                 .type_union,
                 .type_function,
                 => .type_type,
@@ -11519,7 +11421,7 @@ pub fn toEnum(ip: *const InternPool, comptime E: type, i: Index) E {
 pub fn aggregateTypeLen(ip: *const InternPool, ty: Index) u64 {
     return switch (ip.indexToKey(ty)) {
         .struct_type => ip.loadStructType(ty).field_types.len,
-        .anon_struct_type => |anon_struct_type| anon_struct_type.types.len,
+        .tuple_type => |tuple_type| tuple_type.types.len,
         .array_type => |array_type| array_type.len,
         .vector_type => |vector_type| vector_type.len,
         else => unreachable,
@@ -11529,7 +11431,7 @@ pub fn aggregateTypeLen(ip: *const InternPool, ty: Index) u64 {
 pub fn aggregateTypeLenIncludingSentinel(ip: *const InternPool, ty: Index) u64 {
     return switch (ip.indexToKey(ty)) {
         .struct_type => ip.loadStructType(ty).field_types.len,
-        .anon_struct_type => |anon_struct_type| anon_struct_type.types.len,
+        .tuple_type => |tuple_type| tuple_type.types.len,
         .array_type => |array_type| array_type.lenIncludingSentinel(),
         .vector_type => |vector_type| vector_type.len,
         else => unreachable,
@@ -11694,7 +11596,7 @@ pub fn zigTypeTagOrPoison(ip: *const InternPool, index: Index) error{GenericPois
 
         .optional_noreturn_type => .optional,
         .anyerror_void_error_union_type => .error_union,
-        .empty_struct_type => .@"struct",
+        .empty_tuple_type => .@"struct",
 
         .generic_poison_type => return error.GenericPoison,
 
@@ -11713,7 +11615,7 @@ pub fn zigTypeTagOrPoison(ip: *const InternPool, index: Index) error{GenericPois
         .null_value => unreachable,
         .bool_true => unreachable,
         .bool_false => unreachable,
-        .empty_struct => unreachable,
+        .empty_tuple => unreachable,
         .generic_poison => unreachable,
 
         _ => switch (index.unwrap(ip).getTag(ip)) {
@@ -11754,10 +11656,9 @@ pub fn zigTypeTagOrPoison(ip: *const InternPool, index: Index) error{GenericPois
             .type_opaque => .@"opaque",
 
             .type_struct,
-            .type_struct_anon,
             .type_struct_packed,
             .type_struct_packed_inits,
-            .type_tuple_anon,
+            .type_tuple,
             => .@"struct",
 
             .type_union => .@"union",
@@ -11857,21 +11758,6 @@ fn funcAnalysisPtr(ip: *InternPool, func: Index) *FuncAnalysis {
 
 pub fn funcAnalysisUnordered(ip: *const InternPool, func: Index) FuncAnalysis {
     return @atomicLoad(FuncAnalysis, @constCast(ip).funcAnalysisPtr(func), .unordered);
-}
-
-pub fn funcMaxStackAlignment(ip: *InternPool, func: Index, new_stack_alignment: Alignment) void {
-    const unwrapped_func = func.unwrap(ip);
-    const extra_mutex = &ip.getLocal(unwrapped_func.tid).mutate.extra.mutex;
-    extra_mutex.lock();
-    defer extra_mutex.unlock();
-
-    const analysis_ptr = ip.funcAnalysisPtr(func);
-    var analysis = analysis_ptr.*;
-    analysis.stack_alignment = switch (analysis.stack_alignment) {
-        .none => new_stack_alignment,
-        else => |old_stack_alignment| old_stack_alignment.maxStrict(new_stack_alignment),
-    };
-    @atomicStore(FuncAnalysis, analysis_ptr, analysis, .release);
 }
 
 pub fn funcSetCallsOrAwaitsErrorableFn(ip: *InternPool, func: Index) void {
@@ -12012,14 +11898,6 @@ pub fn unwrapCoercedFunc(ip: *const InternPool, index: Index) Index {
         .func_instance, .func_decl => index,
         else => unreachable,
     };
-}
-
-pub fn anonStructFieldTypes(ip: *const InternPool, i: Index) []const Index {
-    return ip.indexToKey(i).anon_struct_type.types;
-}
-
-pub fn anonStructFieldsLen(ip: *const InternPool, i: Index) u32 {
-    return @intCast(ip.indexToKey(i).anon_struct_type.types.len);
 }
 
 /// Returns the already-existing field with the same name, if any.
@@ -12212,3 +12090,81 @@ pub fn getErrorValue(
 pub fn getErrorValueIfExists(ip: *const InternPool, name: NullTerminatedString) ?Zcu.ErrorInt {
     return @intFromEnum(ip.global_error_set.getErrorValueIfExists(name) orelse return null);
 }
+
+const PackedCallingConvention = packed struct(u18) {
+    tag: std.builtin.CallingConvention.Tag,
+    /// May be ignored depending on `tag`.
+    incoming_stack_alignment: Alignment,
+    /// Interpretation depends on `tag`.
+    extra: u4,
+
+    fn pack(cc: std.builtin.CallingConvention) PackedCallingConvention {
+        return switch (cc) {
+            inline else => |pl, tag| switch (@TypeOf(pl)) {
+                void => .{
+                    .tag = tag,
+                    .incoming_stack_alignment = .none, // unused
+                    .extra = 0, // unused
+                },
+                std.builtin.CallingConvention.CommonOptions => .{
+                    .tag = tag,
+                    .incoming_stack_alignment = .fromByteUnits(pl.incoming_stack_alignment orelse 0),
+                    .extra = 0, // unused
+                },
+                std.builtin.CallingConvention.X86RegparmOptions => .{
+                    .tag = tag,
+                    .incoming_stack_alignment = .fromByteUnits(pl.incoming_stack_alignment orelse 0),
+                    .extra = pl.register_params,
+                },
+                std.builtin.CallingConvention.ArmInterruptOptions => .{
+                    .tag = tag,
+                    .incoming_stack_alignment = .fromByteUnits(pl.incoming_stack_alignment orelse 0),
+                    .extra = @intFromEnum(pl.type),
+                },
+                std.builtin.CallingConvention.MipsInterruptOptions => .{
+                    .tag = tag,
+                    .incoming_stack_alignment = .fromByteUnits(pl.incoming_stack_alignment orelse 0),
+                    .extra = @intFromEnum(pl.mode),
+                },
+                std.builtin.CallingConvention.RiscvInterruptOptions => .{
+                    .tag = tag,
+                    .incoming_stack_alignment = .fromByteUnits(pl.incoming_stack_alignment orelse 0),
+                    .extra = @intFromEnum(pl.mode),
+                },
+                else => comptime unreachable,
+            },
+        };
+    }
+
+    fn unpack(cc: PackedCallingConvention) std.builtin.CallingConvention {
+        return switch (cc.tag) {
+            inline else => |tag| @unionInit(
+                std.builtin.CallingConvention,
+                @tagName(tag),
+                switch (@FieldType(std.builtin.CallingConvention, @tagName(tag))) {
+                    void => {},
+                    std.builtin.CallingConvention.CommonOptions => .{
+                        .incoming_stack_alignment = cc.incoming_stack_alignment.toByteUnits(),
+                    },
+                    std.builtin.CallingConvention.X86RegparmOptions => .{
+                        .incoming_stack_alignment = cc.incoming_stack_alignment.toByteUnits(),
+                        .register_params = @intCast(cc.extra),
+                    },
+                    std.builtin.CallingConvention.ArmInterruptOptions => .{
+                        .incoming_stack_alignment = cc.incoming_stack_alignment.toByteUnits(),
+                        .type = @enumFromInt(cc.extra),
+                    },
+                    std.builtin.CallingConvention.MipsInterruptOptions => .{
+                        .incoming_stack_alignment = cc.incoming_stack_alignment.toByteUnits(),
+                        .mode = @enumFromInt(cc.extra),
+                    },
+                    std.builtin.CallingConvention.RiscvInterruptOptions => .{
+                        .incoming_stack_alignment = cc.incoming_stack_alignment.toByteUnits(),
+                        .mode = @enumFromInt(cc.extra),
+                    },
+                    else => comptime unreachable,
+                },
+            ),
+        };
+    }
+};

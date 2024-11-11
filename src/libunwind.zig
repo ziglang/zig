@@ -136,7 +136,7 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         if (!comp.config.any_non_single_threaded) {
             try cflags.append("-D_LIBUNWIND_HAS_NO_THREADS");
         }
-        if (target.cpu.arch.isArmOrThumb() and target.abi.floatAbi() == .hard) {
+        if (target.cpu.arch.isArm() and target.abi.floatAbi() == .hard) {
             try cflags.append("-DCOMPILER_RT_ARMHF_TARGET");
         }
         try cflags.append("-Wno-bitwise-conditional-parentheses");
@@ -199,8 +199,10 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         },
     };
 
+    const crt_file = try sub_compilation.toCrtFile();
+    comp.queueLinkTaskMode(crt_file.full_object_path, output_mode);
     assert(comp.libunwind_static_lib == null);
-    comp.libunwind_static_lib = try sub_compilation.toCrtFile();
+    comp.libunwind_static_lib = crt_file;
 }
 
 const unwind_src_list = [_][]const u8{

@@ -3610,7 +3610,6 @@ typedef enum memory_order zig_memory_order;
 #define zig_atomicrmw_add_float zig_atomicrmw_add
 #undef  zig_atomicrmw_sub_float
 #define zig_atomicrmw_sub_float zig_atomicrmw_sub
-#define zig_fence(order) atomic_thread_fence(order)
 #elif defined(__GNUC__)
 typedef int zig_memory_order;
 #define zig_memory_order_relaxed __ATOMIC_RELAXED
@@ -3634,7 +3633,6 @@ typedef int zig_memory_order;
 #define    zig_atomic_load(res, obj,      order, Type, ReprType)       __atomic_load      (obj, &(res), order)
 #undef  zig_atomicrmw_xchg_float
 #define zig_atomicrmw_xchg_float zig_atomicrmw_xchg
-#define zig_fence(order) __atomic_thread_fence(order)
 #elif _MSC_VER && (_M_IX86 || _M_X64)
 #define zig_memory_order_relaxed 0
 #define zig_memory_order_acquire 2
@@ -3655,11 +3653,6 @@ typedef int zig_memory_order;
 #define  zig_atomicrmw_max(res, obj, arg, order, Type, ReprType) res = zig_msvc_atomicrmw_max_ ##Type(obj, arg)
 #define   zig_atomic_store(     obj, arg, order, Type, ReprType)       zig_msvc_atomic_store_  ##Type(obj, arg)
 #define    zig_atomic_load(res, obj,      order, Type, ReprType) res = zig_msvc_atomic_load_   ##order##_##Type(obj)
-#if _M_X64
-#define zig_fence(order) __faststorefence()
-#else
-#define zig_fence(order) zig_msvc_atomic_barrier()
-#endif
 /* TODO: _MSC_VER && (_M_ARM || _M_ARM64) */
 #else
 #define zig_memory_order_relaxed 0
@@ -3681,7 +3674,6 @@ typedef int zig_memory_order;
 #define  zig_atomicrmw_max(res, obj, arg, order, Type, ReprType) zig_atomics_unavailable
 #define   zig_atomic_store(     obj, arg, order, Type, ReprType) zig_atomics_unavailable
 #define    zig_atomic_load(res, obj,      order, Type, ReprType) zig_atomics_unavailable
-#define zig_fence(order) zig_fence_unavailable
 #endif
 
 #if _MSC_VER && (_M_IX86 || _M_X64)
@@ -3934,28 +3926,52 @@ static inline void zig_msvc_atomic_store_i128(zig_i128 volatile* obj, zig_i128 a
 
 /* ======================== Special Case Intrinsics ========================= */
 
-#if (_MSC_VER && _M_X64) || defined(__x86_64__)
+#if defined(_M_ARM) || defined(__thumb__)
 
-static inline void* zig_x86_64_windows_teb(void) {
-#if _MSC_VER
-    return (void*)__readgsqword(0x30);
-#else
-    void* teb;
-    __asm volatile(" movq %%gs:0x30, %[ptr]": [ptr]"=r"(teb)::);
-    return teb;
+static inline void* zig_thumb_windows_teb(void) {
+    void* teb = 0;
+#if defined(_MSC_VER)
+    teb = (void*)_MoveFromCoprocessor(15, 0, 13, 0, 2);
+#elif defined(__GNUC__)
+    __asm__ ("mrc p15, 0, %[ptr], c13, c0, 2" : [ptr] "=r" (teb));
 #endif
+    return teb;
 }
 
-#elif (_MSC_VER && _M_IX86) || defined(__i386__) || defined(__X86__)
+#elif defined(_M_ARM64) || defined(__arch64__)
+
+static inline void* zig_aarch64_windows_teb(void) {
+    void* teb = 0;
+#if defined(_MSC_VER)
+    teb = (void*)__readx18qword(0x0);
+#elif defined(__GNUC__)
+    __asm__ ("mov %[ptr], x18" : [ptr] "=r" (teb));
+#endif
+    return teb;
+}
+
+#elif defined(_M_IX86) || defined(__i386__)
 
 static inline void* zig_x86_windows_teb(void) {
-#if _MSC_VER
-    return (void*)__readfsdword(0x18);
-#else
-    void* teb;
-    __asm volatile(" movl %%fs:0x18, %[ptr]": [ptr]"=r"(teb)::);
-    return teb;
+    void* teb = 0;
+#if defined(_MSC_VER)
+    teb = (void*)__readfsdword(0x18);
+#elif defined(__GNUC__)
+    __asm__ ("movl %%fs:0x18, %[ptr]" : [ptr] "=r" (teb));
 #endif
+    return teb;
+}
+
+#elif defined(_M_X64) || defined(__x86_64__)
+
+static inline void* zig_x86_64_windows_teb(void) {
+    void* teb = 0;
+#if defined(_MSC_VER)
+    teb = (void*)__readgsqword(0x30);
+#elif defined(__GNUC__)
+    __asm__ ("movq %%gs:0x30, %[ptr]" : [ptr] "=r" (teb));
+#endif
+    return teb;
 }
 
 #endif

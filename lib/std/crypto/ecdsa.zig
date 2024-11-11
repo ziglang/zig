@@ -91,24 +91,26 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
             s: Curve.scalar.CompressedScalar,
 
             /// Create a Verifier for incremental verification of a signature.
-            pub fn verifier(self: Signature, public_key: PublicKey) (NonCanonicalError || EncodingError || IdentityElementError)!Verifier {
-                return Verifier.init(self, public_key);
+            pub fn verifier(sig: Signature, public_key: PublicKey) Verifier.InitError!Verifier {
+                return Verifier.init(sig, public_key);
             }
+
+            pub const VerifyError = Verifier.InitError || Verifier.VerifyError;
 
             /// Verify the signature against a message and public key.
             /// Return IdentityElement or NonCanonical if the public key or signature are not in the expected range,
             /// or SignatureVerificationError if the signature is invalid for the given message and key.
-            pub fn verify(self: Signature, msg: []const u8, public_key: PublicKey) (IdentityElementError || NonCanonicalError || SignatureVerificationError)!void {
-                var st = try Verifier.init(self, public_key);
+            pub fn verify(sig: Signature, msg: []const u8, public_key: PublicKey) VerifyError!void {
+                var st = try sig.verifier(public_key);
                 st.update(msg);
-                return st.verify();
+                try st.verify();
             }
 
             /// Return the raw signature (r, s) in big-endian format.
-            pub fn toBytes(self: Signature) [encoded_length]u8 {
+            pub fn toBytes(sig: Signature) [encoded_length]u8 {
                 var bytes: [encoded_length]u8 = undefined;
-                @memcpy(bytes[0 .. encoded_length / 2], &self.r);
-                @memcpy(bytes[encoded_length / 2 ..], &self.s);
+                @memcpy(bytes[0 .. encoded_length / 2], &sig.r);
+                @memcpy(bytes[encoded_length / 2 ..], &sig.s);
                 return bytes;
             }
 
@@ -124,23 +126,23 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
             /// Encode the signature using the DER format.
             /// The maximum length of the DER encoding is der_encoded_length_max.
             /// The function returns a slice, that can be shorter than der_encoded_length_max.
-            pub fn toDer(self: Signature, buf: *[der_encoded_length_max]u8) []u8 {
+            pub fn toDer(sig: Signature, buf: *[der_encoded_length_max]u8) []u8 {
                 var fb = io.fixedBufferStream(buf);
                 const w = fb.writer();
-                const r_len = @as(u8, @intCast(self.r.len + (self.r[0] >> 7)));
-                const s_len = @as(u8, @intCast(self.s.len + (self.s[0] >> 7)));
+                const r_len = @as(u8, @intCast(sig.r.len + (sig.r[0] >> 7)));
+                const s_len = @as(u8, @intCast(sig.s.len + (sig.s[0] >> 7)));
                 const seq_len = @as(u8, @intCast(2 + r_len + 2 + s_len));
                 w.writeAll(&[_]u8{ 0x30, seq_len }) catch unreachable;
                 w.writeAll(&[_]u8{ 0x02, r_len }) catch unreachable;
-                if (self.r[0] >> 7 != 0) {
+                if (sig.r[0] >> 7 != 0) {
                     w.writeByte(0x00) catch unreachable;
                 }
-                w.writeAll(&self.r) catch unreachable;
+                w.writeAll(&sig.r) catch unreachable;
                 w.writeAll(&[_]u8{ 0x02, s_len }) catch unreachable;
-                if (self.s[0] >> 7 != 0) {
+                if (sig.s[0] >> 7 != 0) {
                     w.writeByte(0x00) catch unreachable;
                 }
-                w.writeAll(&self.s) catch unreachable;
+                w.writeAll(&sig.s) catch unreachable;
                 return fb.getWritten();
             }
 
@@ -236,7 +238,9 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
             s: Curve.scalar.Scalar,
             public_key: PublicKey,
 
-            fn init(sig: Signature, public_key: PublicKey) (IdentityElementError || NonCanonicalError)!Verifier {
+            pub const InitError = IdentityElementError || NonCanonicalError;
+
+            fn init(sig: Signature, public_key: PublicKey) InitError!Verifier {
                 const r = try Curve.scalar.Scalar.fromBytes(sig.r, .big);
                 const s = try Curve.scalar.Scalar.fromBytes(sig.s, .big);
                 if (r.isZero() or s.isZero()) return error.IdentityElement;
@@ -254,8 +258,11 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
                 self.h.update(data);
             }
 
+            pub const VerifyError = IdentityElementError || NonCanonicalError ||
+                SignatureVerificationError;
+
             /// Verify that the signature is valid for the entire message.
-            pub fn verify(self: *Verifier) (IdentityElementError || NonCanonicalError || SignatureVerificationError)!void {
+            pub fn verify(self: *Verifier) VerifyError!void {
                 const ht = Curve.scalar.encoded_length;
                 const h_len = @max(Hash.digest_length, ht);
                 var h: [h_len]u8 = [_]u8{0} ** h_len;

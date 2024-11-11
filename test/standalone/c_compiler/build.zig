@@ -5,11 +5,6 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Test it");
     b.default_step = test_step;
 
-    if (builtin.os.tag == .windows) {
-        // https://github.com/ziglang/zig/issues/16965
-        return;
-    }
-
     add(b, test_step, "test_c_Debug", "test_cpp_Debug", .Debug);
     add(b, test_step, "test_c_ReleaseFast", "test_cpp_ReleaseFast", .ReleaseFast);
     add(b, test_step, "test_c_ReleaseSmall", "test_cpp_ReleaseSmall", .ReleaseSmall);

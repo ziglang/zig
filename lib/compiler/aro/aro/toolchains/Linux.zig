@@ -40,7 +40,7 @@ fn buildExtraOpts(self: *Linux, tc: *const Toolchain) !void {
         self.extra_opts.appendAssumeCapacity("relro");
     }
 
-    if (target.cpu.arch.isARM() or target.cpu.arch.isAARCH64() or is_android) {
+    if ((target.cpu.arch.isArm() and !target.cpu.arch.isThumb()) or target.cpu.arch.isAARCH64() or is_android) {
         try self.extra_opts.ensureUnusedCapacity(gpa, 2);
         self.extra_opts.appendAssumeCapacity("-z");
         self.extra_opts.appendAssumeCapacity("max-page-size=4096");

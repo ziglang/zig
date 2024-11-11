@@ -18,6 +18,7 @@ const Zcu = @import("../../Zcu.zig");
 const Package = @import("../../Package.zig");
 const InternPool = @import("../../InternPool.zig");
 const Compilation = @import("../../Compilation.zig");
+const target_util = @import("../../target.zig");
 const trace = @import("../../tracy.zig").trace;
 const codegen = @import("../../codegen.zig");
 
@@ -132,7 +133,7 @@ const Owner = union(enum) {
         switch (owner) {
             .nav_index => |nav_index| {
                 const elf_file = func.bin_file.cast(.elf).?;
-                return elf_file.zigObjectPtr().?.getOrCreateMetadataForNav(elf_file, nav_index);
+                return elf_file.zigObjectPtr().?.getOrCreateMetadataForNav(pt.zcu, nav_index);
             },
             .lazy_sym => |lazy_sym| {
                 const elf_file = func.bin_file.cast(.elf).?;
@@ -819,10 +820,7 @@ pub fn generate(
     try function.frame_allocs.resize(gpa, FrameIndex.named_count);
     function.frame_allocs.set(
         @intFromEnum(FrameIndex.stack_frame),
-        FrameAlloc.init(.{
-            .size = 0,
-            .alignment = func.analysisUnordered(ip).stack_alignment.max(.@"1"),
-        }),
+        FrameAlloc.init(.{ .size = 0, .alignment = .@"1" }),
     );
     function.frame_allocs.set(
         @intFromEnum(FrameIndex.call_frame),
@@ -977,7 +975,7 @@ pub fn generateLazy(
             .pt = pt,
             .allocator = gpa,
             .mir = mir,
-            .cc = .Unspecified,
+            .cc = .auto,
             .src_loc = src_loc,
             .output_mode = comp.config.output_mode,
             .link_mode = comp.config.link_mode,
@@ -1036,7 +1034,7 @@ fn formatWipMir(
             .instructions = data.func.mir_instructions.slice(),
             .frame_locs = data.func.frame_locs.slice(),
         },
-        .cc = .Unspecified,
+        .cc = .auto,
         .src_loc = data.func.src_loc,
         .output_mode = comp.config.output_mode,
         .link_mode = comp.config.link_mode,
@@ -1238,7 +1236,7 @@ fn gen(func: *Func) !void {
         }
     }
 
-    if (fn_info.cc != .Naked) {
+    if (fn_info.cc != .naked) {
         _ = try func.addPseudo(.pseudo_dbg_prologue_end);
 
         const backpatch_stack_alloc = try func.addPseudo(.pseudo_dead);
@@ -1593,7 +1591,6 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
             .breakpoint      => try func.airBreakpoint(),
             .ret_addr        => try func.airRetAddr(inst),
             .frame_addr      => try func.airFrameAddress(inst),
-            .fence           => try func.airFence(inst),
             .cond_br         => try func.airCondBr(inst),
             .dbg_stmt        => try func.airDbgStmt(inst),
             .fptrunc         => try func.airFptrunc(inst),
@@ -4833,26 +4830,6 @@ fn airFrameAddress(func: *Func, inst: Air.Inst.Index) !void {
     return func.finishAir(inst, dst_mcv, .{ .none, .none, .none });
 }
 
-fn airFence(func: *Func, inst: Air.Inst.Index) !void {
-    const order = func.air.instructions.items(.data)[@intFromEnum(inst)].fence;
-    const pred: Mir.Barrier, const succ: Mir.Barrier = switch (order) {
-        .unordered, .monotonic => unreachable,
-        .acquire => .{ .r, .rw },
-        .release => .{ .rw, .r },
-        .acq_rel => .{ .rw, .rw },
-        .seq_cst => .{ .rw, .rw },
-    };
-
-    _ = try func.addInst(.{
-        .tag = if (order == .acq_rel) .fencetso else .fence,
-        .data = .{ .fence = .{
-            .pred = pred,
-            .succ = succ,
-        } },
-    });
-    return func.finishAirBookkeeping();
-}
-
 fn airCall(func: *Func, inst: Air.Inst.Index, modifier: std.builtin.CallModifier) !void {
     if (modifier == .always_tail) return func.fail("TODO implement tail calls for riscv64", .{});
     const pl_op = func.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
@@ -4915,7 +4892,7 @@ fn genCall(
         .lib => |lib| try pt.funcType(.{
             .param_types = lib.param_types,
             .return_type = lib.return_type,
-            .cc = .C,
+            .cc = func.target.cCallingConvention().?,
         }),
     };
 
@@ -5025,7 +5002,7 @@ fn genCall(
                     .func => |func_val| {
                         if (func.bin_file.cast(.elf)) |elf_file| {
                             const zo = elf_file.zigObjectPtr().?;
-                            const sym_index = try zo.getOrCreateMetadataForNav(elf_file, func_val.owner_nav);
+                            const sym_index = try zo.getOrCreateMetadataForNav(zcu, func_val.owner_nav);
 
                             if (func.mod.pic) {
                                 return func.fail("TODO: genCall pic", .{});
@@ -5183,6 +5160,7 @@ fn airCmp(func: *Func, inst: Air.Inst.Index, tag: Air.Inst.Tag) !void {
     const bin_op = func.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
     const pt = func.pt;
     const zcu = pt.zcu;
+    const ip = &zcu.intern_pool;
 
     const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else result: {
         const lhs_ty = func.typeOf(bin_op.lhs);
@@ -5194,6 +5172,7 @@ fn airCmp(func: *Func, inst: Air.Inst.Index, tag: Air.Inst.Tag) !void {
             .pointer,
             .error_set,
             .optional,
+            .@"struct",
             => {
                 const int_ty = switch (lhs_ty.zigTypeTag(zcu)) {
                     .@"enum" => lhs_ty.intTagType(zcu),
@@ -5210,6 +5189,12 @@ fn airCmp(func: *Func, inst: Air.Inst.Index, tag: Air.Inst.Tag) !void {
                         } else {
                             return func.fail("TODO riscv cmp non-pointer optionals", .{});
                         }
+                    },
+                    .@"struct" => blk: {
+                        const struct_obj = ip.loadStructType(lhs_ty.toIntern());
+                        assert(struct_obj.layout == .@"packed");
+                        const backing_index = struct_obj.backingIntTypeUnordered(ip);
+                        break :blk Type.fromInterned(backing_index);
                     },
                     else => unreachable,
                 };
@@ -8302,12 +8287,12 @@ fn resolveCallingConventionValues(
     const ret_ty = Type.fromInterned(fn_info.return_type);
 
     switch (cc) {
-        .Naked => {
+        .naked => {
             assert(result.args.len == 0);
             result.return_value = InstTracking.init(.unreach);
             result.stack_align = .@"8";
         },
-        .C, .Unspecified => {
+        .riscv64_lp64, .auto => {
             if (result.args.len > 8) {
                 return func.fail("RISC-V calling convention does not support more than 8 arguments", .{});
             }
@@ -8372,7 +8357,7 @@ fn resolveCallingConventionValues(
 
             for (param_types, result.args) |ty, *arg| {
                 if (!ty.hasRuntimeBitsIgnoreComptime(zcu)) {
-                    assert(cc == .Unspecified);
+                    assert(cc == .auto);
                     arg.* = .none;
                     continue;
                 }

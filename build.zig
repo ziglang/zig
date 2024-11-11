@@ -32,20 +32,17 @@ pub fn build(b: *std.Build) !void {
     const skip_install_langref = b.option(bool, "no-langref", "skip copying of langref to the installation prefix") orelse skip_install_lib_files;
     const std_docs = b.option(bool, "std-docs", "include standard library autodocs") orelse false;
     const no_bin = b.option(bool, "no-bin", "skip emitting compiler binary") orelse false;
-    const enable_tidy = b.option(bool, "enable-tidy", "Check langref output HTML validity") orelse false;
+    const enable_superhtml = b.option(bool, "enable-superhtml", "Check langref output HTML validity") orelse false;
 
     const langref_file = generateLangRef(b);
     const install_langref = b.addInstallFileWithDir(langref_file, .prefix, "doc/langref.html");
-    const check_langref = tidyCheck(b, langref_file);
-    if (enable_tidy) install_langref.step.dependOn(check_langref);
-    // Checking autodocs is disabled because tidy gives a false positive:
-    // line 304 column 9 - Warning: moved <style> tag to <head>! fix-style-tags: no to avoid.
-    // I noticed that `--show-warnings no` still incorrectly causes exit code 1.
-    // I was unable to find an alternative to tidy.
-    //const check_autodocs = tidyCheck(b, b.path("lib/docs/index.html"));
-    if (enable_tidy) {
+    const check_langref = superHtmlCheck(b, langref_file);
+    if (enable_superhtml) install_langref.step.dependOn(check_langref);
+
+    const check_autodocs = superHtmlCheck(b, b.path("lib/docs/index.html"));
+    if (enable_superhtml) {
         test_step.dependOn(check_langref);
-        //test_step.dependOn(check_autodocs);
+        test_step.dependOn(check_autodocs);
     }
     if (!skip_install_langref) {
         b.getInstallStep().dependOn(&install_langref.step);
@@ -577,6 +574,10 @@ pub fn build(b: *std.Build) !void {
     } else {
         update_mingw_step.dependOn(&b.addFail("The -Dmingw-src=... option is required for this step").step);
     }
+
+    const test_incremental_step = b.step("test-incremental", "Run the incremental compilation test cases");
+    try tests.addIncrementalTests(b, test_incremental_step);
+    test_step.dependOn(test_incremental_step);
 }
 
 fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
@@ -643,7 +644,7 @@ fn addCompilerStep(b: *std.Build, options: AddCompilerStepOptions) *std.Build.St
         .root_source_file = b.path("src/main.zig"),
         .target = options.target,
         .optimize = options.optimize,
-        .max_rss = 7_500_000_000,
+        .max_rss = 7_800_000_000,
         .strip = options.strip,
         .sanitize_thread = options.sanitize_thread,
         .single_threaded = options.single_threaded,
@@ -1354,11 +1355,11 @@ fn generateLangRef(b: *std.Build) std.Build.LazyPath {
     return docgen_cmd.addOutputFileArg("langref.html");
 }
 
-fn tidyCheck(b: *std.Build, html_file: std.Build.LazyPath) *std.Build.Step {
-    const run_tidy = b.addSystemCommand(&.{
-        "tidy", "--drop-empty-elements", "no", "-qe",
+fn superHtmlCheck(b: *std.Build, html_file: std.Build.LazyPath) *std.Build.Step {
+    const run_superhtml = b.addSystemCommand(&.{
+        "superhtml", "check",
     });
-    run_tidy.addFileArg(html_file);
-    run_tidy.expectExitCode(0);
-    return &run_tidy.step;
+    run_superhtml.addFileArg(html_file);
+    run_superhtml.expectExitCode(0);
+    return &run_superhtml.step;
 }

@@ -402,6 +402,7 @@ test "bitcast vector to integer and back" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.cpu.arch == .aarch64_be and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
 
     const arr: [16]bool = [_]bool{ true, false } ++ [_]bool{true} ** 14;
     var x: @Vector(16, bool) = @splat(true);
@@ -428,9 +429,6 @@ test "bitcast nan float does not modify signaling bit" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
-    // TODO: https://github.com/ziglang/zig/issues/14366
-    if (builtin.zig_backend == .stage2_llvm and comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest;
 
     const snan_u16: u16 = 0x7D00;
     const snan_u32: u32 = 0x7FA00000;

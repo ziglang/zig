@@ -29,16 +29,12 @@ test {
     }
 }
 
-const syscall_bits = switch (native_arch) {
-    .thumb => @import("linux/thumb.zig"),
-    else => arch_bits,
-};
-
 const arch_bits = switch (native_arch) {
     .x86 => @import("linux/x86.zig"),
     .x86_64 => @import("linux/x86_64.zig"),
-    .aarch64, .aarch64_be => @import("linux/arm64.zig"),
-    .arm, .armeb, .thumb, .thumbeb => @import("linux/arm-eabi.zig"),
+    .aarch64, .aarch64_be => @import("linux/aarch64.zig"),
+    .arm, .armeb, .thumb, .thumbeb => @import("linux/arm.zig"),
+    .hexagon => @import("linux/hexagon.zig"),
     .riscv32 => @import("linux/riscv32.zig"),
     .riscv64 => @import("linux/riscv64.zig"),
     .sparc64 => @import("linux/sparc64.zig"),
@@ -53,6 +49,9 @@ const arch_bits = switch (native_arch) {
         pub const getcontext = {};
     },
 };
+
+const syscall_bits = if (native_arch.isThumb()) @import("linux/thumb.zig") else arch_bits;
+
 pub const syscall0 = syscall_bits.syscall0;
 pub const syscall1 = syscall_bits.syscall1;
 pub const syscall2 = syscall_bits.syscall2;
@@ -116,34 +115,37 @@ pub const user_desc = arch_bits.user_desc;
 pub const getcontext = arch_bits.getcontext;
 
 pub const tls = @import("linux/tls.zig");
-pub const pie = @import("linux/start_pie.zig");
+pub const pie = @import("linux/pie.zig");
 pub const BPF = @import("linux/bpf.zig");
 pub const IOCTL = @import("linux/ioctl.zig");
 pub const SECCOMP = @import("linux/seccomp.zig");
 
 pub const syscalls = @import("linux/syscalls.zig");
 pub const SYS = switch (@import("builtin").cpu.arch) {
-    .x86 => syscalls.X86,
-    .x86_64 => syscalls.X64,
-    .aarch64, .aarch64_be => syscalls.Arm64,
     .arc => syscalls.Arc,
     .arm, .armeb, .thumb, .thumbeb => syscalls.Arm,
+    .aarch64, .aarch64_be => syscalls.Arm64,
     .csky => syscalls.CSky,
     .hexagon => syscalls.Hexagon,
-    .riscv32 => syscalls.RiscV32,
-    .riscv64 => syscalls.RiscV64,
-    .sparc => syscalls.Sparc,
-    .sparc64 => syscalls.Sparc64,
     .loongarch64 => syscalls.LoongArch64,
     .m68k => syscalls.M68k,
     .mips, .mipsel => syscalls.MipsO32,
-    .mips64, .mips64el => if (builtin.abi == .gnuabin32)
-        syscalls.MipsN32
-    else
-        syscalls.MipsN64,
+    .mips64, .mips64el => switch (builtin.abi) {
+        .gnuabin32, .muslabin32 => syscalls.MipsN32,
+        else => syscalls.MipsN64,
+    },
+    .riscv32 => syscalls.RiscV32,
+    .riscv64 => syscalls.RiscV64,
+    .s390x => syscalls.S390x,
+    .sparc => syscalls.Sparc,
+    .sparc64 => syscalls.Sparc64,
     .powerpc, .powerpcle => syscalls.PowerPC,
     .powerpc64, .powerpc64le => syscalls.PowerPC64,
-    .s390x => syscalls.S390x,
+    .x86 => syscalls.X86,
+    .x86_64 => switch (builtin.abi) {
+        .gnux32, .muslx32 => syscalls.X32,
+        else => syscalls.X64,
+    },
     .xtensa => syscalls.Xtensa,
     else => @compileError("The Zig Standard Library is missing syscall definitions for the target CPU architecture"),
 };
@@ -277,7 +279,7 @@ pub const MAP = switch (native_arch) {
         UNINITIALIZED: bool = false,
         _: u5 = 0,
     },
-    .s390x => packed struct(u32) {
+    .hexagon, .s390x => packed struct(u32) {
         TYPE: MAP_TYPE,
         FIXED: bool = false,
         ANONYMOUS: bool = false,
@@ -441,7 +443,7 @@ pub const O = switch (native_arch) {
         TMPFILE: bool = false,
         _: u9 = 0,
     },
-    .s390x => packed struct(u32) {
+    .hexagon, .s390x => packed struct(u32) {
         ACCMODE: ACCMODE = .RDONLY,
         _2: u4 = 0,
         CREAT: bool = false,
@@ -507,7 +509,7 @@ fn getauxvalImpl(index: usize) callconv(.C) usize {
 const require_aligned_register_pair =
     builtin.cpu.arch.isPowerPC32() or
     builtin.cpu.arch.isMIPS32() or
-    builtin.cpu.arch.isArmOrThumb();
+    builtin.cpu.arch.isArm();
 
 // Split a 64bit value into a {LSB,MSB} pair.
 // The LE/BE variants specify the endianness to assume.
@@ -904,7 +906,19 @@ pub fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: MAP, fd: i32, of
             @truncate(@as(u64, @bitCast(offset)) / MMAP2_UNIT),
         );
     } else {
-        return syscall6(
+        // The s390x mmap() syscall existed before Linux supported syscalls with 5+ parameters, so
+        // it takes a single pointer to an array of arguments instead.
+        return if (native_arch == .s390x) syscall1(
+            .mmap,
+            @intFromPtr(&[_]usize{
+                @intFromPtr(address),
+                length,
+                prot,
+                @as(u32, @bitCast(flags)),
+                @bitCast(@as(isize, fd)),
+                @as(u64, @bitCast(offset)),
+            }),
+        ) else syscall6(
             .mmap,
             @intFromPtr(address),
             length,
@@ -2011,8 +2025,8 @@ pub fn llistxattr(path: [*:0]const u8, list: [*]u8, size: usize) usize {
     return syscall3(.llistxattr, @intFromPtr(path), @intFromPtr(list), size);
 }
 
-pub fn flistxattr(fd: usize, list: [*]u8, size: usize) usize {
-    return syscall3(.flistxattr, fd, @intFromPtr(list), size);
+pub fn flistxattr(fd: fd_t, list: [*]u8, size: usize) usize {
+    return syscall3(.flistxattr, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(list), size);
 }
 
 pub fn getxattr(path: [*:0]const u8, name: [*:0]const u8, value: [*]u8, size: usize) usize {
@@ -2023,20 +2037,20 @@ pub fn lgetxattr(path: [*:0]const u8, name: [*:0]const u8, value: [*]u8, size: u
     return syscall4(.lgetxattr, @intFromPtr(path), @intFromPtr(name), @intFromPtr(value), size);
 }
 
-pub fn fgetxattr(fd: usize, name: [*:0]const u8, value: [*]u8, size: usize) usize {
-    return syscall4(.lgetxattr, fd, @intFromPtr(name), @intFromPtr(value), size);
+pub fn fgetxattr(fd: fd_t, name: [*:0]const u8, value: [*]u8, size: usize) usize {
+    return syscall4(.fgetxattr, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(name), @intFromPtr(value), size);
 }
 
-pub fn setxattr(path: [*:0]const u8, name: [*:0]const u8, value: *const void, size: usize, flags: usize) usize {
+pub fn setxattr(path: [*:0]const u8, name: [*:0]const u8, value: [*]const u8, size: usize, flags: usize) usize {
     return syscall5(.setxattr, @intFromPtr(path), @intFromPtr(name), @intFromPtr(value), size, flags);
 }
 
-pub fn lsetxattr(path: [*:0]const u8, name: [*:0]const u8, value: *const void, size: usize, flags: usize) usize {
+pub fn lsetxattr(path: [*:0]const u8, name: [*:0]const u8, value: [*]const u8, size: usize, flags: usize) usize {
     return syscall5(.lsetxattr, @intFromPtr(path), @intFromPtr(name), @intFromPtr(value), size, flags);
 }
 
-pub fn fsetxattr(fd: usize, name: [*:0]const u8, value: *const void, size: usize, flags: usize) usize {
-    return syscall5(.fsetxattr, fd, @intFromPtr(name), @intFromPtr(value), size, flags);
+pub fn fsetxattr(fd: fd_t, name: [*:0]const u8, value: [*]const u8, size: usize, flags: usize) usize {
+    return syscall5(.fsetxattr, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(name), @intFromPtr(value), size, flags);
 }
 
 pub fn removexattr(path: [*:0]const u8, name: [*:0]const u8) usize {
@@ -2320,7 +2334,7 @@ pub fn process_vm_writev(pid: pid_t, local: []const iovec_const, remote: []const
 }
 
 pub fn fadvise(fd: fd_t, offset: i64, len: i64, advice: usize) usize {
-    if (comptime native_arch.isArmOrThumb() or native_arch.isPowerPC32()) {
+    if (comptime native_arch.isArm() or native_arch.isPowerPC32()) {
         // These architectures reorder the arguments so that a register is not skipped to align the
         // register number that `offset` is passed in.
 
@@ -8646,11 +8660,11 @@ pub const AUDIT = struct {
             .mips => .MIPS,
             .mipsel => .MIPSEL,
             .mips64 => switch (native_abi) {
-                .gnuabin32 => .MIPS64N32,
+                .gnuabin32, .muslabin32 => .MIPS64N32,
                 else => .MIPS64,
             },
             .mips64el => switch (native_abi) {
-                .gnuabin32 => .MIPSEL64N32,
+                .gnuabin32, .muslabin32 => .MIPSEL64N32,
                 else => .MIPSEL64,
             },
             .powerpc => .PPC,

@@ -207,6 +207,7 @@ const FmtError = error{
     LockViolation,
     NetNameDeleted,
     InvalidArgument,
+    ProcessNotFound,
 } || fs.File.OpenError;
 
 fn fmtPath(fmt: *Fmt, file_path: []const u8, check_mode: bool, dir: fs.Dir, sub_path: []const u8) FmtError!void {

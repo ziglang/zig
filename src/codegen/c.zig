@@ -891,7 +891,7 @@ pub const DeclGen = struct {
             .error_union_type,
             .simple_type,
             .struct_type,
-            .anon_struct_type,
+            .tuple_type,
             .union_type,
             .opaque_type,
             .enum_type,
@@ -908,7 +908,7 @@ pub const DeclGen = struct {
                 .undefined => unreachable,
                 .void => unreachable,
                 .null => unreachable,
-                .empty_struct => unreachable,
+                .empty_tuple => unreachable,
                 .@"unreachable" => unreachable,
                 .generic_poison => unreachable,
 
@@ -1194,7 +1194,7 @@ pub const DeclGen = struct {
                         try writer.writeByte('}');
                     }
                 },
-                .anon_struct_type => |tuple| {
+                .tuple_type => |tuple| {
                     if (!location.isInitializer()) {
                         try writer.writeByte('(');
                         try dg.renderCType(writer, ctype);
@@ -1605,7 +1605,7 @@ pub const DeclGen = struct {
                         }),
                     }
                 },
-                .anon_struct_type => |anon_struct_info| {
+                .tuple_type => |tuple_info| {
                     if (!location.isInitializer()) {
                         try writer.writeByte('(');
                         try dg.renderCType(writer, ctype);
@@ -1614,9 +1614,9 @@ pub const DeclGen = struct {
 
                     try writer.writeByte('{');
                     var need_comma = false;
-                    for (0..anon_struct_info.types.len) |field_index| {
-                        if (anon_struct_info.values.get(ip)[field_index] != .none) continue;
-                        const field_ty = Type.fromInterned(anon_struct_info.types.get(ip)[field_index]);
+                    for (0..tuple_info.types.len) |field_index| {
+                        if (tuple_info.values.get(ip)[field_index] != .none) continue;
+                        const field_ty = Type.fromInterned(tuple_info.types.get(ip)[field_index]);
                         if (!field_ty.hasRuntimeBitsIgnoreComptime(zcu)) continue;
 
                         if (need_comma) try writer.writeByte(',');
@@ -1783,7 +1783,7 @@ pub const DeclGen = struct {
         const fn_ctype = try dg.ctypeFromType(fn_ty, kind);
 
         const fn_info = zcu.typeToFunc(fn_ty).?;
-        if (fn_info.cc == .Naked) {
+        if (fn_info.cc == .naked) {
             switch (kind) {
                 .forward => try w.writeAll("zig_naked_decl "),
                 .complete => try w.writeAll("zig_naked "),
@@ -1796,7 +1796,7 @@ pub const DeclGen = struct {
 
         var trailing = try renderTypePrefix(dg.pass, &dg.ctype_pool, zcu, w, fn_ctype, .suffix, .{});
 
-        if (toCallingConvention(fn_info.cc)) |call_conv| {
+        if (toCallingConvention(fn_info.cc, zcu)) |call_conv| {
             try w.print("{}zig_callconv({s})", .{ trailing, call_conv });
             trailing = .maybe_space;
         }
@@ -3144,7 +3144,6 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             .breakpoint => try airBreakpoint(f.object.writer()),
             .ret_addr   => try airRetAddr(f, inst),
             .frame_addr => try airFrameAddress(f, inst),
-            .fence      => try airFence(f, inst),
 
             .ptr_add => try airPtrAddSub(f, inst, '+'),
             .ptr_sub => try airPtrAddSub(f, inst, '-'),
@@ -4988,17 +4987,6 @@ fn airFrameAddress(f: *Function, inst: Air.Inst.Index) !CValue {
     return local;
 }
 
-fn airFence(f: *Function, inst: Air.Inst.Index) !CValue {
-    const atomic_order = f.air.instructions.items(.data)[@intFromEnum(inst)].fence;
-    const writer = f.object.writer();
-
-    try writer.writeAll("zig_fence(");
-    try writeMemoryOrder(writer, atomic_order);
-    try writer.writeAll(");\n");
-
-    return .none;
-}
-
 fn airUnreach(f: *Function) !void {
     // Not even allowed to call unreachable in a naked function.
     if (f.object.dg.is_naked_fn) return;
@@ -5202,7 +5190,7 @@ fn asmInputNeedsLocal(f: *Function, constraint: []const u8, value: CValue) bool 
     return switch (constraint[0]) {
         '{' => true,
         'i', 'r' => false,
-        'I' => !target.cpu.arch.isArmOrThumb(),
+        'I' => !target.cpu.arch.isArm(),
         else => switch (value) {
             .constant => |val| switch (dg.pt.zcu.intern_pool.indexToKey(val.toIntern())) {
                 .ptr => |ptr| if (ptr.byte_offset == 0) switch (ptr.base_addr) {
@@ -5423,9 +5411,9 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
             const input_val = try f.resolveInst(input);
             try writer.print("{s}(", .{fmtStringLiteral(if (is_reg) "r" else constraint, null)});
             try f.writeCValue(writer, if (asmInputNeedsLocal(f, constraint, input_val)) local: {
-                const input_local = .{ .local = locals_index };
+                const input_local_idx = locals_index;
                 locals_index += 1;
-                break :local input_local;
+                break :local .{ .local = input_local_idx };
             } else input_val, .Other);
             try writer.writeByte(')');
         }
@@ -5663,15 +5651,12 @@ fn fieldLocation(
                     .begin,
             };
         },
-        .anon_struct_type => |anon_struct_info| return if (!container_ty.hasRuntimeBitsIgnoreComptime(zcu))
+        .tuple_type => return if (!container_ty.hasRuntimeBitsIgnoreComptime(zcu))
             .begin
         else if (!field_ptr_ty.childType(zcu).hasRuntimeBitsIgnoreComptime(zcu))
             .{ .byte_offset = container_ty.structFieldOffset(field_index, zcu) }
         else
-            .{ .field = if (anon_struct_info.fieldName(ip, field_index).unwrap()) |field_name|
-                .{ .identifier = field_name.toSlice(ip) }
-            else
-                .{ .field = field_index } },
+            .{ .field = .{ .field = field_index } },
         .union_type => {
             const loaded_union = ip.loadUnionType(container_ty.toIntern());
             switch (loaded_union.flagsUnordered(ip).layout) {
@@ -5904,10 +5889,7 @@ fn airStructFieldVal(f: *Function, inst: Air.Inst.Index) !CValue {
                 },
             }
         },
-        .anon_struct_type => |anon_struct_info| if (anon_struct_info.fieldName(ip, extra.field_index).unwrap()) |field_name|
-            .{ .identifier = field_name.toSlice(ip) }
-        else
-            .{ .field = extra.field_index },
+        .tuple_type => .{ .field = extra.field_index },
         .union_type => field_name: {
             const loaded_union = ip.loadUnionType(struct_ty.toIntern());
             switch (loaded_union.flagsUnordered(ip).layout) {
@@ -7378,16 +7360,13 @@ fn airAggregateInit(f: *Function, inst: Air.Inst.Index) !CValue {
                 },
             }
         },
-        .anon_struct_type => |anon_struct_info| for (0..anon_struct_info.types.len) |field_index| {
-            if (anon_struct_info.values.get(ip)[field_index] != .none) continue;
-            const field_ty = Type.fromInterned(anon_struct_info.types.get(ip)[field_index]);
+        .tuple_type => |tuple_info| for (0..tuple_info.types.len) |field_index| {
+            if (tuple_info.values.get(ip)[field_index] != .none) continue;
+            const field_ty = Type.fromInterned(tuple_info.types.get(ip)[field_index]);
             if (!field_ty.hasRuntimeBitsIgnoreComptime(zcu)) continue;
 
             const a = try Assignment.start(f, writer, try f.ctypeFromType(field_ty, .complete));
-            try f.writeCValueMember(writer, local, if (anon_struct_info.fieldName(ip, field_index).unwrap()) |field_name|
-                .{ .identifier = field_name.toSlice(ip) }
-            else
-                .{ .field = field_index });
+            try f.writeCValueMember(writer, local, .{ .field = field_index });
             try a.assign(f, writer);
             try f.writeCValue(writer, resolved_elements[field_index], .Other);
             try a.end(f, writer);
@@ -7616,12 +7595,72 @@ fn writeMemoryOrder(w: anytype, order: std.builtin.AtomicOrder) !void {
     return w.writeAll(toMemoryOrder(order));
 }
 
-fn toCallingConvention(call_conv: std.builtin.CallingConvention) ?[]const u8 {
-    return switch (call_conv) {
-        .Stdcall => "stdcall",
-        .Fastcall => "fastcall",
-        .Vectorcall => "vectorcall",
-        else => null,
+fn toCallingConvention(cc: std.builtin.CallingConvention, zcu: *Zcu) ?[]const u8 {
+    if (zcu.getTarget().cCallingConvention()) |ccc| {
+        if (cc.eql(ccc)) {
+            return null;
+        }
+    }
+    return switch (cc) {
+        .auto, .naked => null,
+
+        .x86_64_sysv, .x86_sysv => "sysv_abi",
+        .x86_64_win, .x86_win => "ms_abi",
+        .x86_stdcall => "stdcall",
+        .x86_fastcall => "fastcall",
+        .x86_thiscall => "thiscall",
+
+        .x86_vectorcall,
+        .x86_64_vectorcall,
+        => "vectorcall",
+
+        .x86_64_regcall_v3_sysv,
+        .x86_64_regcall_v4_win,
+        .x86_regcall_v3,
+        .x86_regcall_v4_win,
+        => "regcall",
+
+        .aarch64_vfabi => "aarch64_vector_pcs",
+        .aarch64_vfabi_sve => "aarch64_sve_pcs",
+
+        .arm_aapcs => "pcs(\"aapcs\")",
+        .arm_aapcs_vfp, .arm_aapcs16_vfp => "pcs(\"aapcs-vfp\")",
+
+        .arm_interrupt => |opts| switch (opts.type) {
+            .generic => "interrupt",
+            .irq => "interrupt(\"IRQ\")",
+            .fiq => "interrupt(\"FIQ\")",
+            .swi => "interrupt(\"SWI\")",
+            .abort => "interrupt(\"ABORT\")",
+            .undef => "interrupt(\"UNDEF\")",
+        },
+
+        .avr_signal => "signal",
+
+        .mips_interrupt,
+        .mips64_interrupt,
+        => |opts| switch (opts.mode) {
+            inline else => |m| "interrupt(\"" ++ @tagName(m) ++ "\")",
+        },
+
+        .riscv64_lp64_v, .riscv32_ilp32_v => "riscv_vector_cc",
+
+        .riscv32_interrupt,
+        .riscv64_interrupt,
+        => |opts| switch (opts.mode) {
+            inline else => |m| "interrupt(\"" ++ @tagName(m) ++ "\")",
+        },
+
+        .m68k_rtd => "m68k_rtd",
+
+        .avr_interrupt,
+        .csky_interrupt,
+        .m68k_interrupt,
+        .x86_interrupt,
+        .x86_64_interrupt,
+        => "interrupt",
+
+        else => unreachable, // `Zcu.callconvSupported`
     };
 }
 

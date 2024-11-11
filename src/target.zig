@@ -1,4 +1,6 @@
 const std = @import("std");
+const assert = std.debug.assert;
+
 const Type = @import("Type.zig");
 const AddressSpace = std.builtin.AddressSpace;
 const Alignment = @import("InternPool.zig").Alignment;
@@ -31,7 +33,7 @@ pub fn libcNeedsLibUnwind(target: std.Target) bool {
         .wasi, // Wasm/WASI currently doesn't offer support for libunwind, so don't link it.
         => false,
 
-        .windows => target.abi != .msvc,
+        .windows => target.abi.isGnu(),
         else => true,
     };
 }
@@ -45,8 +47,7 @@ pub fn requiresPIC(target: std.Target, linking_libc: bool) bool {
     return target.isAndroid() or
         target.os.tag == .windows or target.os.tag == .uefi or
         osRequiresLibC(target) or
-        (linking_libc and target.isGnuLibC()) or
-        (target.abi == .ohos and target.cpu.arch == .aarch64);
+        (linking_libc and target.isGnuLibC());
 }
 
 pub fn picLevel(target: std.Target) u32 {
@@ -78,19 +79,45 @@ pub fn defaultSingleThreaded(target: std.Target) bool {
     return false;
 }
 
-/// Valgrind supports more, but Zig does not support them yet.
 pub fn hasValgrindSupport(target: std.Target) bool {
-    switch (target.cpu.arch) {
-        .x86,
-        .x86_64,
-        .aarch64,
-        .aarch64_be,
-        => {
-            return target.os.tag == .linux or target.os.tag == .solaris or target.os.tag == .illumos or
-                (target.os.tag == .windows and target.abi != .msvc);
+    // We can't currently output the necessary Valgrind client request assembly when using the C
+    // backend and compiling with an MSVC-like compiler.
+    const ofmt_c_msvc = (target.abi == .msvc or target.abi == .itanium) and target.ofmt == .c;
+
+    return switch (target.cpu.arch) {
+        .arm, .armeb, .thumb, .thumbeb => switch (target.os.tag) {
+            .linux => true,
+            else => false,
         },
-        else => return false,
-    }
+        .aarch64, .aarch64_be => switch (target.os.tag) {
+            .linux, .freebsd => true,
+            else => false,
+        },
+        .mips, .mipsel, .mips64, .mips64el => switch (target.os.tag) {
+            .linux => true,
+            else => false,
+        },
+        .powerpc, .powerpcle, .powerpc64, .powerpc64le => switch (target.os.tag) {
+            .linux => true,
+            else => false,
+        },
+        .s390x => switch (target.os.tag) {
+            .linux => true,
+            else => false,
+        },
+        .x86 => switch (target.os.tag) {
+            .linux, .freebsd, .solaris, .illumos => true,
+            .windows => !ofmt_c_msvc,
+            else => false,
+        },
+        .x86_64 => switch (target.os.tag) {
+            .linux => target.abi != .gnux32 and target.abi != .muslx32,
+            .freebsd, .solaris, .illumos => true,
+            .windows => !ofmt_c_msvc,
+            else => false,
+        },
+        else => false,
+    };
 }
 
 /// The set of targets that LLVM has non-experimental support for.
@@ -168,6 +195,8 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         // No LLVM backend exists.
         .kalimba,
         .spu_2,
+        .propeller1,
+        .propeller2,
         => false,
     };
 }
@@ -283,40 +312,18 @@ pub fn hasRedZone(target: std.Target) bool {
 pub fn libcFullLinkFlags(target: std.Target) []const []const u8 {
     // The linking order of these is significant and should match the order other
     // c compilers such as gcc or clang use.
-    return switch (target.os.tag) {
-        .netbsd, .openbsd => &[_][]const u8{
-            "-lm",
-            "-lpthread",
-            "-lc",
-            "-lutil",
+    const result: []const []const u8 = switch (target.os.tag) {
+        .netbsd, .openbsd => &.{ "-lm", "-lpthread", "-lc", "-lutil" },
+        // Solaris releases after 10 merged the threading libraries into libc.
+        .solaris, .illumos => &.{ "-lm", "-lsocket", "-lnsl", "-lc" },
+        .haiku => &.{ "-lm", "-lroot", "-lpthread", "-lc", "-lnetwork" },
+        .linux => switch (target.abi) {
+            .android, .androideabi, .ohos, .ohoseabi => &.{ "-lm", "-lc", "-ldl" },
+            else => &.{ "-lm", "-lpthread", "-lc", "-ldl", "-lrt", "-lutil" },
         },
-        .solaris, .illumos => &[_][]const u8{
-            "-lm",
-            "-lsocket",
-            "-lnsl",
-            // Solaris releases after 10 merged the threading libraries into libc.
-            "-lc",
-        },
-        .haiku => &[_][]const u8{
-            "-lm",
-            "-lroot",
-            "-lpthread",
-            "-lc",
-            "-lnetwork",
-        },
-        else => if (target.isAndroid()) &[_][]const u8{
-            "-lm",
-            "-lc",
-            "-ldl",
-        } else &[_][]const u8{
-            "-lm",
-            "-lpthread",
-            "-lc",
-            "-ldl",
-            "-lrt",
-            "-lutil",
-        },
+        else => &.{},
     };
+    return result;
 }
 
 pub fn clangMightShellOutForAssembly(target: std.Target) bool {
@@ -331,6 +338,20 @@ pub fn clangAssemblerSupportsMcpuArg(target: std.Target) bool {
     return switch (target.cpu.arch) {
         .arm, .armeb, .thumb, .thumbeb => true,
         else => false,
+    };
+}
+
+/// Some experimental or poorly-maintained LLVM targets do not properly process CPU models in their
+/// Clang driver code. For these, we should omit the `-Xclang -target-cpu -Xclang <model>` flags.
+pub fn clangSupportsTargetCpuArg(target: std.Target) bool {
+    return switch (target.cpu.arch) {
+        .arc,
+        .msp430,
+        .ve,
+        .xcore,
+        .xtensa,
+        => false,
+        else => true,
     };
 }
 
@@ -417,7 +438,42 @@ pub fn addrSpaceCastIsValid(
     }
 }
 
+/// Under SPIR-V with Vulkan, pointers are not 'real' (physical), but rather 'logical'. Effectively,
+/// this means that all such pointers have to be resolvable to a location at compile time, and places
+/// a number of restrictions on usage of such pointers. For example, a logical pointer may not be
+/// part of a merge (result of a branch) and may not be stored in memory at all. This function returns
+/// for a particular architecture and address space wether such pointers are logical.
+pub fn arePointersLogical(target: std.Target, as: AddressSpace) bool {
+    if (target.os.tag != .vulkan) {
+        return false;
+    }
+
+    return switch (as) {
+        // TODO: Vulkan doesn't support pointers in the generic address space, we
+        // should remove this case but this requires a change in defaultAddressSpace().
+        // For now, at least disable them from being regarded as physical.
+        .generic => true,
+        // For now, all global pointers are represented using PhysicalStorageBuffer, so these are real
+        // pointers.
+        .global => false,
+        // TODO: Allowed with VK_KHR_variable_pointers.
+        .shared => true,
+        .constant, .local, .input, .output, .uniform, .push_constant, .storage_buffer => true,
+        else => unreachable,
+    };
+}
+
 pub fn llvmMachineAbi(target: std.Target) ?[:0]const u8 {
+    // This special-casing should be removed with LLVM 20.
+    switch (target.cpu.arch) {
+        .mips, .mipsel => return "o32",
+        .mips64, .mips64el => return switch (target.abi) {
+            .gnuabin32, .muslabin32 => "n32",
+            else => "n64",
+        },
+        else => {},
+    }
+
     // LLD does not support ELFv1. Rather than having LLVM produce ELFv1 code and then linking it
     // into a broken ELFv2 binary, just force LLVM to use ELFv2 as well. This will break when glibc
     // is linked as glibc only supports ELFv2 for little endian, but there's nothing we can do about
@@ -426,17 +482,14 @@ pub fn llvmMachineAbi(target: std.Target) ?[:0]const u8 {
     // Once our self-hosted linker can handle both ABIs, this hack should go away.
     if (target.cpu.arch == .powerpc64) return "elfv2";
 
-    const have_float = switch (target.abi) {
-        .gnueabihf, .musleabihf, .eabihf => true,
-        else => false,
-    };
-
     switch (target.cpu.arch) {
         .riscv64 => {
             const featureSetHas = std.Target.riscv.featureSetHas;
-            if (featureSetHas(target.cpu.features, .d)) {
+            if (featureSetHas(target.cpu.features, .e)) {
+                return "lp64e";
+            } else if (featureSetHas(target.cpu.features, .d)) {
                 return "lp64d";
-            } else if (have_float) {
+            } else if (featureSetHas(target.cpu.features, .f)) {
                 return "lp64f";
             } else {
                 return "lp64";
@@ -444,12 +497,12 @@ pub fn llvmMachineAbi(target: std.Target) ?[:0]const u8 {
         },
         .riscv32 => {
             const featureSetHas = std.Target.riscv.featureSetHas;
-            if (featureSetHas(target.cpu.features, .d)) {
-                return "ilp32d";
-            } else if (have_float) {
-                return "ilp32f";
-            } else if (featureSetHas(target.cpu.features, .e)) {
+            if (featureSetHas(target.cpu.features, .e)) {
                 return "ilp32e";
+            } else if (featureSetHas(target.cpu.features, .d)) {
+                return "ilp32d";
+            } else if (featureSetHas(target.cpu.features, .f)) {
+                return "ilp32f";
             } else {
                 return "ilp32";
             }
@@ -458,35 +511,88 @@ pub fn llvmMachineAbi(target: std.Target) ?[:0]const u8 {
     }
 }
 
-/// This function returns 1 if function alignment is not observable or settable.
+/// This function returns 1 if function alignment is not observable or settable. Note that this
+/// value will not necessarily match the backend's default function alignment (e.g. for LLVM).
 pub fn defaultFunctionAlignment(target: std.Target) Alignment {
+    // Overrides of the minimum for performance.
     return switch (target.cpu.arch) {
-        .arm, .armeb => .@"4",
-        .aarch64, .aarch64_be => .@"4",
-        .sparc, .sparc64 => .@"4",
-        .riscv64 => .@"2",
-        else => .@"1",
+        .csky,
+        .thumb,
+        .thumbeb,
+        .xcore,
+        => .@"4",
+        .aarch64,
+        .aarch64_be,
+        .hexagon,
+        .powerpc,
+        .powerpcle,
+        .powerpc64,
+        .powerpc64le,
+        .s390x,
+        .x86,
+        .x86_64,
+        => .@"16",
+        .loongarch32,
+        .loongarch64,
+        => .@"32",
+        else => minFunctionAlignment(target),
     };
 }
 
+/// This function returns 1 if function alignment is not observable or settable.
 pub fn minFunctionAlignment(target: std.Target) Alignment {
     return switch (target.cpu.arch) {
+        .riscv32,
+        .riscv64,
+        => if (std.Target.riscv.featureSetHasAny(target.cpu.features, .{ .c, .zca })) .@"2" else .@"4",
+        .thumb,
+        .thumbeb,
+        .csky,
+        .m68k,
+        .msp430,
+        .s390x,
+        .xcore,
+        => .@"2",
+        .arc,
         .arm,
         .armeb,
         .aarch64,
         .aarch64_be,
-        .riscv32,
-        .riscv64,
+        .hexagon,
+        .lanai,
+        .loongarch32,
+        .loongarch64,
+        .mips,
+        .mipsel,
+        .powerpc,
+        .powerpcle,
+        .powerpc64,
+        .powerpc64le,
         .sparc,
         .sparc64,
-        => .@"2",
+        .xtensa,
+        => .@"4",
+        .bpfel,
+        .bpfeb,
+        .mips64,
+        .mips64el,
+        => .@"8",
+        .ve,
+        => .@"16",
         else => .@"1",
     };
 }
 
 pub fn supportsFunctionAlignment(target: std.Target) bool {
     return switch (target.cpu.arch) {
-        .wasm32, .wasm64 => false,
+        .nvptx,
+        .nvptx64,
+        .spirv,
+        .spirv32,
+        .spirv64,
+        .wasm32,
+        .wasm64,
+        => false,
         else => true,
     };
 }
@@ -546,13 +652,13 @@ pub fn compilerRtIntAbbrev(bits: u16) []const u8 {
     };
 }
 
-pub fn fnCallConvAllowsZigTypes(target: std.Target, cc: std.builtin.CallingConvention) bool {
+pub fn fnCallConvAllowsZigTypes(cc: std.builtin.CallingConvention) bool {
     return switch (cc) {
-        .Unspecified, .Async, .Inline => true,
+        .auto, .@"async", .@"inline" => true,
         // For now we want to authorize PTX kernel to use zig objects, even if
         // we end up exposing the ABI. The goal is to experiment with more
         // integrated CPU/GPU code.
-        .Kernel => target.cpu.arch == .nvptx or target.cpu.arch == .nvptx64,
+        .nvptx_kernel => true,
         else => false,
     };
 }

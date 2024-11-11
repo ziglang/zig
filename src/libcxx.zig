@@ -221,7 +221,7 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
     for (libcxx_files) |cxx_src| {
         var cflags = std.ArrayList([]const u8).init(arena);
 
-        if ((target.os.tag == .windows and target.abi == .msvc) or target.os.tag == .wasi) {
+        if ((target.os.tag == .windows and (target.abi == .msvc or target.abi == .itanium)) or target.os.tag == .wasi) {
             // Filesystem stuff isn't supported on WASI and Windows (MSVC).
             if (std.mem.startsWith(u8, cxx_src, "src/filesystem/"))
                 continue;
@@ -355,7 +355,9 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
     };
 
     assert(comp.libcxx_static_lib == null);
-    comp.libcxx_static_lib = try sub_compilation.toCrtFile();
+    const crt_file = try sub_compilation.toCrtFile();
+    comp.libcxx_static_lib = crt_file;
+    comp.queueLinkTaskMode(crt_file.full_object_path, output_mode);
 }
 
 pub fn buildLibCXXABI(comp: *Compilation, prog_node: std.Progress.Node) BuildError!void {
@@ -584,7 +586,9 @@ pub fn buildLibCXXABI(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
     };
 
     assert(comp.libcxxabi_static_lib == null);
-    comp.libcxxabi_static_lib = try sub_compilation.toCrtFile();
+    const crt_file = try sub_compilation.toCrtFile();
+    comp.libcxxabi_static_lib = crt_file;
+    comp.queueLinkTaskMode(crt_file.full_object_path, output_mode);
 }
 
 pub fn hardeningModeFlag(optimize_mode: std.builtin.OptimizeMode) []const u8 {

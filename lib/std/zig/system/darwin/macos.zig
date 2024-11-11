@@ -277,7 +277,7 @@ const SystemVersionTokenizer = struct {
 };
 
 test "detect" {
-    const cases = .{
+    const cases: [5]struct { []const u8, std.SemanticVersion } = .{
         .{
             \\<?xml version="1.0" encoding="UTF-8"?>
             \\<!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -388,8 +388,8 @@ test "detect" {
 
     inline for (cases) |case| {
         const ver0 = try parseSystemVersion(case[0]);
-        const ver1: std.SemanticVersion = case[1];
-        try testing.expectEqual(@as(std.math.Order, .eq), ver0.order(ver1));
+        const ver1 = case[1];
+        try testing.expectEqual(std.math.Order.eq, ver0.order(ver1));
     }
 }
 

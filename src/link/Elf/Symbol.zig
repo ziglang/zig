@@ -22,7 +22,7 @@ esym_index: Index = 0,
 
 /// Index of the source version symbol this symbol references if any.
 /// If the symbol is unversioned it will have either VER_NDX_LOCAL or VER_NDX_GLOBAL.
-version_index: elf.Elf64_Versym = elf.VER_NDX_LOCAL,
+version_index: elf.Versym = .LOCAL,
 
 /// Misc flags for the symbol packaged as packed struct for compression.
 flags: Flags = .{},
@@ -74,7 +74,7 @@ pub fn atom(symbol: Symbol, elf_file: *Elf) ?*Atom {
     return file_ptr.atom(symbol.ref.index);
 }
 
-pub fn mergeSubsection(symbol: Symbol, elf_file: *Elf) ?*MergeSubsection {
+pub fn mergeSubsection(symbol: Symbol, elf_file: *Elf) ?*Merge.Subsection {
     if (!symbol.flags.merge_subsection) return null;
     const msec = elf_file.mergeSection(symbol.ref.file);
     return msec.mergeSubsection(symbol.ref.index);
@@ -87,6 +87,7 @@ pub fn file(symbol: Symbol, elf_file: *Elf) ?File {
 pub fn elfSym(symbol: Symbol, elf_file: *Elf) elf.Elf64_Sym {
     return switch (symbol.file(elf_file).?) {
         .zig_object => |x| x.symtab.items(.elf_sym)[symbol.esym_index],
+        .shared_object => |so| so.parsed.symtab[symbol.esym_index],
         inline else => |x| x.symtab.items[symbol.esym_index],
     };
 }
@@ -112,20 +113,23 @@ pub fn address(symbol: Symbol, opts: struct { plt: bool = true, trampoline: bool
     if (symbol.flags.has_trampoline and opts.trampoline) {
         return symbol.trampolineAddress(elf_file);
     }
-    if (symbol.flags.has_plt and opts.plt) {
-        if (!symbol.flags.is_canonical and symbol.flags.has_got) {
+    if (opts.plt) {
+        if (symbol.flags.has_pltgot) {
+            assert(!symbol.flags.is_canonical);
             // We have a non-lazy bound function pointer, use that!
             return symbol.pltGotAddress(elf_file);
         }
-        // Lazy-bound function it is!
-        return symbol.pltAddress(elf_file);
+        if (symbol.flags.has_plt) {
+            // Lazy-bound function it is!
+            return symbol.pltAddress(elf_file);
+        }
     }
     if (symbol.atom(elf_file)) |atom_ptr| {
         if (!atom_ptr.alive) {
             if (mem.eql(u8, atom_ptr.name(elf_file), ".eh_frame")) {
                 const sym_name = symbol.name(elf_file);
                 const sh_addr, const sh_size = blk: {
-                    const shndx = elf_file.eh_frame_section_index orelse break :blk .{ 0, 0 };
+                    const shndx = elf_file.section_indexes.eh_frame orelse break :blk .{ 0, 0 };
                     const shdr = elf_file.sections.items(.shdr)[shndx];
                     break :blk .{ shdr.sh_addr, shdr.sh_size };
                 };
@@ -171,9 +175,9 @@ pub fn gotAddress(symbol: Symbol, elf_file: *Elf) i64 {
 }
 
 pub fn pltGotAddress(symbol: Symbol, elf_file: *Elf) i64 {
-    if (!(symbol.flags.has_plt and symbol.flags.has_got)) return 0;
+    if (!symbol.flags.has_pltgot) return 0;
     const extras = symbol.extra(elf_file);
-    const shdr = elf_file.sections.items(.shdr)[elf_file.plt_got_section_index.?];
+    const shdr = elf_file.sections.items(.shdr)[elf_file.section_indexes.plt_got.?];
     const cpu_arch = elf_file.getTarget().cpu.arch;
     return @intCast(shdr.sh_addr + extras.plt_got * PltGotSection.entrySize(cpu_arch));
 }
@@ -181,7 +185,7 @@ pub fn pltGotAddress(symbol: Symbol, elf_file: *Elf) i64 {
 pub fn pltAddress(symbol: Symbol, elf_file: *Elf) i64 {
     if (!symbol.flags.has_plt) return 0;
     const extras = symbol.extra(elf_file);
-    const shdr = elf_file.sections.items(.shdr)[elf_file.plt_section_index.?];
+    const shdr = elf_file.sections.items(.shdr)[elf_file.section_indexes.plt.?];
     const cpu_arch = elf_file.getTarget().cpu.arch;
     return @intCast(shdr.sh_addr + extras.plt * PltSection.entrySize(cpu_arch) + PltSection.preambleSize(cpu_arch));
 }
@@ -189,13 +193,13 @@ pub fn pltAddress(symbol: Symbol, elf_file: *Elf) i64 {
 pub fn gotPltAddress(symbol: Symbol, elf_file: *Elf) i64 {
     if (!symbol.flags.has_plt) return 0;
     const extras = symbol.extra(elf_file);
-    const shdr = elf_file.sections.items(.shdr)[elf_file.got_plt_section_index.?];
+    const shdr = elf_file.sections.items(.shdr)[elf_file.section_indexes.got_plt.?];
     return @intCast(shdr.sh_addr + extras.plt * 8 + GotPltSection.preamble_size);
 }
 
 pub fn copyRelAddress(symbol: Symbol, elf_file: *Elf) i64 {
     if (!symbol.flags.has_copy_rel) return 0;
-    const shdr = elf_file.sections.items(.shdr)[elf_file.copy_rel_section_index.?];
+    const shdr = elf_file.sections.items(.shdr)[elf_file.section_indexes.copy_rel.?];
     return @as(i64, @intCast(shdr.sh_addr)) + symbol.value;
 }
 
@@ -232,7 +236,7 @@ pub fn dsoAlignment(symbol: Symbol, elf_file: *Elf) !u64 {
     assert(file_ptr == .shared_object);
     const shared_object = file_ptr.shared_object;
     const esym = symbol.elfSym(elf_file);
-    const shdr = shared_object.shdrs.items[esym.st_shndx];
+    const shdr = shared_object.parsed.sections[esym.st_shndx];
     const alignment = @max(1, shdr.sh_addralign);
     return if (esym.st_value == 0)
         alignment
@@ -286,7 +290,7 @@ pub fn setOutputSym(symbol: Symbol, elf_file: *Elf, out: *elf.Elf64_Sym) void {
         break :blk esym.st_bind();
     };
     const st_shndx: u16 = blk: {
-        if (symbol.flags.has_copy_rel) break :blk @intCast(elf_file.copy_rel_section_index.?);
+        if (symbol.flags.has_copy_rel) break :blk @intCast(elf_file.section_indexes.copy_rel.?);
         if (file_ptr == .shared_object or esym.st_shndx == elf.SHN_UNDEF) break :blk elf.SHN_UNDEF;
         if (elf_file.base.isRelocatable() and esym.st_shndx == elf.SHN_COMMON) break :blk elf.SHN_COMMON;
         if (symbol.mergeSubsection(elf_file)) |msub| break :blk @intCast(msub.mergeSection(elf_file).output_section_index);
@@ -348,8 +352,8 @@ fn formatName(
     const elf_file = ctx.elf_file;
     const symbol = ctx.symbol;
     try writer.writeAll(symbol.name(elf_file));
-    switch (symbol.version_index & elf.VERSYM_VERSION) {
-        elf.VER_NDX_LOCAL, elf.VER_NDX_GLOBAL => {},
+    switch (symbol.version_index.VERSION) {
+        @intFromEnum(elf.VER_NDX.LOCAL), @intFromEnum(elf.VER_NDX.GLOBAL) => {},
         else => {
             const file_ptr = symbol.file(elf_file).?;
             assert(file_ptr == .shared_object);
@@ -430,6 +434,8 @@ pub const Flags = packed struct {
     has_plt: bool = false,
     /// Whether the PLT entry is canonical.
     is_canonical: bool = false,
+    /// Whether the PLT entry is indirected via GOT.
+    has_pltgot: bool = false,
 
     /// Whether the symbol contains COPYREL directive.
     needs_copy_rel: bool = false,
@@ -488,7 +494,7 @@ const File = @import("file.zig").File;
 const GotSection = synthetic_sections.GotSection;
 const GotPltSection = synthetic_sections.GotPltSection;
 const LinkerDefined = @import("LinkerDefined.zig");
-const MergeSubsection = @import("merge_section.zig").MergeSubsection;
+const Merge = @import("Merge.zig");
 const Object = @import("Object.zig");
 const PltSection = synthetic_sections.PltSection;
 const PltGotSection = synthetic_sections.PltGotSection;

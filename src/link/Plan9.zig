@@ -304,7 +304,6 @@ pub fn createEmpty(
             .file = null,
             .disable_lld_caching = options.disable_lld_caching,
             .build_id = options.build_id,
-            .rpath_list = options.rpath_list,
         },
         .sixtyfour_bit = sixtyfour_bit,
         .bases = undefined,
@@ -932,7 +931,7 @@ fn addNavExports(
                 break;
             }
         }
-        const sym = .{
+        const sym: aout.Sym = .{
             .value = atom.offset.?,
             .type = atom.type.toGlobal(),
             .name = try gpa.dupe(u8, exp_name),

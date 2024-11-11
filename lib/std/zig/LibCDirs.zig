@@ -69,7 +69,7 @@ pub fn detect(
     // On windows, instead of the native (mingw) abi, we want to check
     // for the MSVC abi as a fallback.
     const use_system_abi = if (builtin.os.tag == .windows)
-        target.abi == .msvc
+        target.abi == .msvc or target.abi == .itanium
     else
         is_native_abi;
 
@@ -167,21 +167,16 @@ pub fn detectFromBuilding(
     }
 
     const generic_name = libCGenericName(target);
-    // Some architectures are handled by the same set of headers.
+    // Some architecture families are handled by the same set of headers.
     const arch_name = if (target.abi.isMusl())
         std.zig.target.muslArchNameHeaders(target.cpu.arch)
-    else if (target.cpu.arch.isThumb())
-        // ARM headers are valid for Thumb too.
-        switch (target.cpu.arch) {
-            .thumb => "arm",
-            .thumbeb => "armeb",
-            else => unreachable,
-        }
     else
         @tagName(target.cpu.arch);
     const os_name = @tagName(target.os.tag);
-    // Musl's headers are ABI-agnostic and so they all have the "musl" ABI name.
-    const abi_name = if (target.abi.isMusl()) "musl" else @tagName(target.abi);
+    const abi_name = if (target.abi.isMusl())
+        std.zig.target.muslAbiNameHeaders(target.abi)
+    else
+        @tagName(target.abi);
     const arch_include_dir = try std.fmt.allocPrint(
         arena,
         "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "{s}-{s}-{s}",
@@ -237,11 +232,14 @@ fn libCGenericName(target: std.Target) [:0]const u8 {
         .gnuilp32,
         => return "glibc",
         .musl,
+        .muslabin32,
+        .muslabi64,
         .musleabi,
         .musleabihf,
         .muslx32,
         .none,
         .ohos,
+        .ohoseabi,
         => return "musl",
         .code16,
         .eabi,

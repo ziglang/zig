@@ -132,7 +132,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                         coff_file.getGlobalByIndex(link.File.Coff.global_symbol_mask & sym_index)
                     else
                         link.File.Coff.SymbolWithLoc{ .sym_index = sym_index, .file = null };
-                    try link.File.Coff.Atom.addRelocation(coff_file, atom_index, .{
+                    try coff_file.addRelocation(atom_index, .{
                         .type = .direct,
                         .target = target,
                         .offset = end_offset - 4,
@@ -230,7 +230,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                         coff_file.getGlobalByIndex(link.File.Coff.global_symbol_mask & sym_index)
                     else
                         link.File.Coff.SymbolWithLoc{ .sym_index = sym_index, .file = null };
-                    try link.File.Coff.Atom.addRelocation(coff_file, atom_index, .{
+                    try coff_file.addRelocation(atom_index, .{
                         .type = switch (lowered_relocs[0].target) {
                             .linker_got => .got,
                             .linker_direct => .direct,
@@ -282,6 +282,30 @@ pub fn emitMir(emit: *Emit) Error!void {
                                     emit.prev_di_line, emit.prev_di_column,
                                 });
                                 try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
+                            },
+                            .plan9 => {},
+                            .none => {},
+                        }
+                    },
+                    .pseudo_dbg_enter_block_none => {
+                        switch (emit.debug_output) {
+                            .dwarf => |dw| {
+                                log.debug("mirDbgEnterBlock (line={d}, col={d})", .{
+                                    emit.prev_di_line, emit.prev_di_column,
+                                });
+                                try dw.enterBlock(emit.code.items.len);
+                            },
+                            .plan9 => {},
+                            .none => {},
+                        }
+                    },
+                    .pseudo_dbg_leave_block_none => {
+                        switch (emit.debug_output) {
+                            .dwarf => |dw| {
+                                log.debug("mirDbgLeaveBlock (line={d}, col={d})", .{
+                                    emit.prev_di_line, emit.prev_di_column,
+                                });
+                                try dw.leaveBlock(emit.code.items.len);
                             },
                             .plan9 => {},
                             .none => {},
