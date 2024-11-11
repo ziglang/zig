@@ -8723,7 +8723,7 @@ pub const NOTE = switch (native_os) {
         pub const EXIT_DETAIL = 0x02000000;
         /// mask for signal & exit status
         pub const PDATAMASK = 0x000fffff;
-        pub const PCTRLMASK = (~PDATAMASK);
+        pub const PCTRLMASK = 0xf0000000;
         pub const EXIT_DETAIL_MASK = 0x00070000;
         pub const EXIT_DECRYPTFAIL = 0x00010000;
         pub const EXIT_MEMORY = 0x00020000;
@@ -8857,7 +8857,7 @@ pub const NOTE = switch (native_os) {
         pub const EXEC = 0x20000000;
         /// mask for signal & exit status
         pub const PDATAMASK = 0x000fffff;
-        pub const PCTRLMASK = (~PDATAMASK);
+        pub const PCTRLMASK = 0xf0000000;
         /// data is seconds
         pub const SECONDS = 0x00000001;
         /// data is milliseconds
@@ -9579,7 +9579,6 @@ pub const system_info = haiku.system_info;
 pub const team_id = haiku.team_id;
 pub const team_info = haiku.team_info;
 pub const thread_id = haiku.thread_id;
-pub const vregs = haiku.vregs;
 
 pub const AUTH = openbsd.AUTH;
 pub const BI = openbsd.BI;
