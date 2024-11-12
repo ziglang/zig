@@ -259,7 +259,7 @@ fn parseExpr(self: LowerZon, node: Ast.Node.Index, res_ty: Type) CompileError!In
         .enum_literal => return self.parseEnumLiteral(node, res_ty),
         .array => return self.parseArray(node, res_ty),
         .@"struct" => return self.parseStructOrTuple(node, res_ty),
-        .@"union" => {},
+        .@"union" => return self.parseUnion(node, res_ty),
         .pointer => return self.parsePointer(node, res_ty),
 
         .type,
@@ -1009,6 +1009,82 @@ fn parseStringLiteral(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !Inter
         } }),
         .len = (try self.sema.pt.intValue(Type.usize, bytes.items.len)).toIntern(),
     } });
+}
+
+fn parseUnion(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
+    const tags = self.file.tree.nodes.items(.tag);
+    const ip = &self.sema.pt.zcu.intern_pool;
+
+    try res_ty.resolveFully(self.sema.pt);
+    const union_info = self.sema.pt.zcu.typeToUnion(res_ty).?;
+    const enum_tag_info = union_info.loadTagType(ip);
+
+    if (tags[node] == .enum_literal) @panic("unimplemented");
+
+    var buf: [2]Ast.Node.Index = undefined;
+    const field_nodes = try self.fields(res_ty, &buf, node);
+    if (field_nodes.len > 1) {
+        return self.fail(.{ .node_abs = node }, "expected {}", .{res_ty.fmt(self.sema.pt)});
+    }
+    const field_node = field_nodes[0];
+    var field_name = try self.ident(self.file.tree.firstToken(field_node) - 2);
+    defer field_name.deinit(self.sema.gpa);
+    const field_name_string = try ip.getOrPutString(
+        self.sema.pt.zcu.gpa,
+        self.sema.pt.tid,
+        field_name.bytes,
+        .no_embedded_nulls,
+    );
+
+    const name_index = enum_tag_info.nameIndex(ip, field_name_string) orelse {
+        return self.fail(.{ .node_abs = node }, "expected {}", .{res_ty.fmt(self.sema.pt)});
+    };
+    const tag = if (enum_tag_info.values.len == 0) b: {
+        // Fields are auto numbered
+        break :b try self.sema.pt.intern(.{ .enum_tag = .{
+            .ty = union_info.enum_tag_ty,
+            .int = try self.sema.pt.intern(.{ .int = .{
+                .ty = enum_tag_info.tag_ty,
+                .storage = .{ .u64 = name_index },
+            } }),
+        } });
+    } else b: {
+        // Fields are explicitly numbered
+        break :b enum_tag_info.values.get(ip)[name_index];
+    };
+    const field_type = Type.fromInterned(union_info.field_types.get(ip)[name_index]);
+    const val = try self.parseExpr(field_node, field_type);
+    return ip.getUnion(self.sema.pt.zcu.gpa, self.sema.pt.tid, .{
+        .ty = res_ty.toIntern(),
+        .tag = tag,
+        .val = val,
+    });
+}
+
+fn fields(
+    self: LowerZon,
+    container: Type,
+    buf: *[2]NodeIndex,
+    node: NodeIndex,
+) ![]const NodeIndex {
+    if (self.file.tree.fullStructInit(buf, node)) |init| {
+        if (init.ast.type_expr != 0) {
+            return self.fail(.{ .node_abs = node }, "ZON cannot contain type expressions", .{});
+        }
+        return init.ast.fields;
+    }
+
+    if (self.file.tree.fullArrayInit(buf, node)) |init| {
+        if (init.ast.type_expr != 0) {
+            return self.fail(.{ .node_abs = node }, "ZON cannot contain type expressions", .{});
+        }
+        if (init.ast.elements.len != 0) {
+            return self.fail(.{ .node_abs = node }, "expected {}", .{container.fmt(self.sema.pt)});
+        }
+        return init.ast.elements;
+    }
+
+    return self.fail(.{ .node_abs = node }, "expected {}", .{container.fmt(self.sema.pt)});
 }
 
 fn elements(
