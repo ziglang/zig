@@ -59,7 +59,7 @@ pub const EXC = enum(exception_type_t) {
     pub const SOFT_SIGNAL = 0x10003;
 
     pub const MASK = packed struct(u32) {
-        _bit0_unused: bool = false,
+        _0: u1 = 0,
         BAD_ACCESS: bool = false,
         BAD_INSTRUCTION: bool = false,
         ARITHMETIC: bool = false,
@@ -73,7 +73,7 @@ pub const EXC = enum(exception_type_t) {
         RESOURCE: bool = false,
         GUARD: bool = false,
         CORPSE_NOTIFY: bool = false,
-        _pad: u18 = 0,
+        _14: u18 = 0,
 
         pub const MACHINE: MASK = @bitCast(@as(u32, 0));
 
