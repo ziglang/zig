@@ -53,26 +53,23 @@ test "union" {
         try expectEqual(union2.y, true);
     }
 
-    // Skip because explicit tags aren't yet working as expected
-    return error.SkipZigTest;
-
     // Explicit tag
-    // {
-    //     const Tag = enum(i128) {
-    //         x = -1,
-    //         y = 2,
-    //     };
-    //     const Union = union(Tag) {
-    //         x: f32,
-    //         y: bool,
-    //     };
+    {
+        const Tag = enum(i128) {
+            x = -1,
+            y = 2,
+        };
+        const Union = union(Tag) {
+            x: f32,
+            y: bool,
+        };
 
-    //     const union1: Union = @import("zon/union1.zon");
-    //     const union2: Union = @import("zon/union2.zon");
+        const union1: Union = @import("zon/union1.zon");
+        const union2: Union = @import("zon/union2.zon");
 
-    //     try expectEqual(union1.x, 1.5);
-    //     try expectEqual(union2.y, true);
-    // }
+        try expectEqual(union1.x, 1.5);
+        try expectEqual(union2.y, true);
+    }
 }
 
 test "struct" {

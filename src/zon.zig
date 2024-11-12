@@ -1039,19 +1039,20 @@ fn parseUnion(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.In
     const name_index = enum_tag_info.nameIndex(ip, field_name_string) orelse {
         return self.fail(.{ .node_abs = node }, "expected {}", .{res_ty.fmt(self.sema.pt)});
     };
-    const tag = if (enum_tag_info.values.len == 0) b: {
+    const tag_int = if (enum_tag_info.values.len == 0) b: {
         // Fields are auto numbered
-        break :b try self.sema.pt.intern(.{ .enum_tag = .{
-            .ty = union_info.enum_tag_ty,
-            .int = try self.sema.pt.intern(.{ .int = .{
-                .ty = enum_tag_info.tag_ty,
-                .storage = .{ .u64 = name_index },
-            } }),
+        break :b try self.sema.pt.intern(.{ .int = .{
+            .ty = enum_tag_info.tag_ty,
+            .storage = .{ .u64 = name_index },
         } });
     } else b: {
         // Fields are explicitly numbered
         break :b enum_tag_info.values.get(ip)[name_index];
     };
+    const tag = try self.sema.pt.intern(.{ .enum_tag = .{
+        .ty = union_info.enum_tag_ty,
+        .int = tag_int,
+    } });
     const field_type = Type.fromInterned(union_info.field_types.get(ip)[name_index]);
     const val = try self.parseExpr(field_node, field_type);
     return ip.getUnion(self.sema.pt.zcu.gpa, self.sema.pt.tid, .{
