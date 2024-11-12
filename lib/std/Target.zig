@@ -1076,7 +1076,7 @@ pub fn toElfMachine(target: Target) std.elf.EM {
 pub fn toCoffMachine(target: Target) std.coff.MachineType {
     return switch (target.cpu.arch) {
         .arm => .ARM,
-        .thumb => .THUMB,
+        .thumb => .ARMNT,
         .aarch64 => .ARM64,
         .loongarch32 => .LOONGARCH32,
         .loongarch64 => .LOONGARCH64,

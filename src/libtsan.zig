@@ -29,11 +29,11 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
     const root_name = switch (target.os.tag) {
         // On Apple platforms, we use the same name as LLVM because the
         // TSAN library implementation hard-codes a check for these names.
-        .macos => "clang_rt.tsan_osx_dynamic",
-        .ios => switch (target.abi) {
-            .simulator => "clang_rt.tsan_iossim_dynamic",
-            else => "clang_rt.tsan_ios_dynamic",
-        },
+        .driverkit, .macos => "clang_rt.tsan_osx_dynamic",
+        .ios => if (target.abi == .simulator) "clang_rt.tsan_iossim_dynamic" else "clang_rt.tsan_ios_dynamic",
+        .tvos => if (target.abi == .simulator) "clang_rt.tsan_tvossim_dynamic" else "clang_rt.tsan_tvos_dynamic",
+        .visionos => if (target.abi == .simulator) "clang_rt.tsan_xrossim_dynamic" else "clang_rt.tsan_xros_dynamic",
+        .watchos => if (target.abi == .simulator) "clang_rt.tsan_watchossim_dynamic" else "clang_rt.tsan_watchos_dynamic",
         else => "tsan",
     };
     const link_mode: std.builtin.LinkMode = if (target.isDarwin()) .dynamic else .static;
@@ -93,11 +93,12 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
             .sanitize_c = false,
             .sanitize_thread = false,
             .red_zone = comp.root_mod.red_zone,
-            .omit_frame_pointer = comp.root_mod.omit_frame_pointer,
+            .omit_frame_pointer = optimize_mode != .Debug and !target.os.tag.isDarwin(),
             .valgrind = false,
             .optimize_mode = optimize_mode,
             .structured_cfg = comp.root_mod.structured_cfg,
             .pic = true,
+            .no_builtin = true,
         },
         .global = config,
         .cc_argv = &common_flags,
@@ -123,10 +124,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
         try cflags.append("-I");
         try cflags.append(tsan_include_path);
 
-        try cflags.append("-nostdinc++");
-        try cflags.append("-fvisibility-inlines-hidden");
-        try cflags.append("-std=c++17");
-        try cflags.append("-fno-rtti");
+        try addCcArgs(target, &cflags);
 
         c_source_files.appendAssumeCapacity(.{
             .src_path = try comp.zig_lib_directory.join(arena, &.{ "tsan", tsan_src }),
@@ -147,10 +145,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
         try cflags.append("-I");
         try cflags.append(tsan_include_path);
 
-        try cflags.append("-nostdinc++");
-        try cflags.append("-fvisibility-inlines-hidden");
-        try cflags.append("-std=c++17");
-        try cflags.append("-fno-rtti");
+        try addCcArgs(target, &cflags);
 
         c_source_files.appendAssumeCapacity(.{
             .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "tsan", tsan_src }),
@@ -195,10 +190,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
         try cflags.append("-I");
         try cflags.append(tsan_include_path);
 
-        try cflags.append("-nostdinc++");
-        try cflags.append("-fvisibility-inlines-hidden");
-        try cflags.append("-std=c++17");
-        try cflags.append("-fno-rtti");
+        try addCcArgs(target, &cflags);
 
         c_source_files.appendAssumeCapacity(.{
             .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
@@ -222,10 +214,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
         try cflags.append("-I");
         try cflags.append(tsan_include_path);
 
-        try cflags.append("-nostdinc++");
-        try cflags.append("-fvisibility-inlines-hidden");
-        try cflags.append("-std=c++17");
-        try cflags.append("-fno-rtti");
+        try addCcArgs(target, &cflags);
 
         c_source_files.appendAssumeCapacity(.{
             .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
@@ -243,10 +232,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
         try cflags.append("-I");
         try cflags.append(tsan_include_path);
 
-        try cflags.append("-nostdinc++");
-        try cflags.append("-fvisibility-inlines-hidden");
-        try cflags.append("-std=c++17");
-        try cflags.append("-fno-rtti");
+        try addCcArgs(target, &cflags);
 
         c_source_files.appendAssumeCapacity(.{
             .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
@@ -272,10 +258,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
         try cflags.append("-I");
         try cflags.append(tsan_include_path);
 
-        try cflags.append("-nostdinc++");
-        try cflags.append("-fvisibility-inlines-hidden");
-        try cflags.append("-std=c++17");
-        try cflags.append("-fno-rtti");
+        try addCcArgs(target, &cflags);
 
         c_source_files.appendAssumeCapacity(.{
             .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
@@ -346,6 +329,25 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
     comp.queueLinkTaskMode(crt_file.full_object_path, output_mode);
     assert(comp.tsan_lib == null);
     comp.tsan_lib = crt_file;
+}
+
+fn addCcArgs(target: std.Target, args: *std.ArrayList([]const u8)) error{OutOfMemory}!void {
+    try args.appendSlice(&[_][]const u8{
+        "-nostdinc++",
+        "-fvisibility=hidden",
+        "-fvisibility-inlines-hidden",
+        "-std=c++17",
+        "-fno-rtti",
+        "-fno-exceptions",
+    });
+
+    if (target.abi.isAndroid() and target.os.version_range.linux.android >= 29) {
+        try args.append("-fno-emulated-tls");
+    }
+
+    if (target.isMinGW()) {
+        try args.append("-fms-extensions");
+    }
 }
 
 const tsan_sources = [_][]const u8{
