@@ -1935,6 +1935,7 @@ fn buildOutputType(
                             try create_module.cli_link_inputs.append(arena, .{ .name_query = .{
                                 .name = it.only_arg,
                                 .query = .{
+                                    .must_link = must_link,
                                     .needed = needed,
                                     .weak = false,
                                     .preferred_mode = lib_preferred_mode,
