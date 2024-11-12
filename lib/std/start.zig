@@ -230,6 +230,29 @@ fn _start() callconv(.naked) noreturn {
         );
     }
 
+    // This is the first userspace frame. Prevent DWARF-based unwinders from unwinding further. We
+    // prevent FP-based unwinders from unwinding further by zeroing the register further below.
+    asm volatile (switch (native_arch) {
+            .arc => ".cfi_undefined blink",
+            .arm, .armeb, .thumb, .thumbeb => "", // https://github.com/llvm/llvm-project/issues/115891
+            .aarch64, .aarch64_be => ".cfi_undefined lr",
+            .csky => ".cfi_undefined lr",
+            .hexagon => ".cfi_undefined r31",
+            .loongarch32, .loongarch64 => ".cfi_undefined 1",
+            .m68k => ".cfi_undefined pc",
+            .mips, .mipsel, .mips64, .mips64el => ".cfi_undefined $ra",
+            .powerpc, .powerpcle, .powerpc64, .powerpc64le => ".cfi_undefined lr",
+            .riscv32, .riscv64 => if (builtin.zig_backend == .stage2_riscv64)
+                ""
+            else
+                ".cfi_undefined ra",
+            .s390x => ".cfi_undefined %%r14",
+            .sparc, .sparc64 => ".cfi_undefined %%i7",
+            .x86 => ".cfi_undefined %%eip",
+            .x86_64 => ".cfi_undefined %%rip",
+            else => @compileError("unsupported arch"),
+        });
+
     // Move this to the riscv prong below when this is resolved: https://github.com/ziglang/zig/issues/20918
     if (builtin.cpu.arch.isRISCV() and builtin.zig_backend != .stage2_riscv64) asm volatile (
         \\ .weak __global_pointer$
@@ -247,7 +270,6 @@ fn _start() callconv(.naked) noreturn {
     // linker explicitly.
     asm volatile (switch (native_arch) {
             .x86_64 =>
-            \\ .cfi_undefined %%rip
             \\ xorl %%ebp, %%ebp
             \\ movq %%rsp, %%rdi
             \\ andq $-16, %%rsp
