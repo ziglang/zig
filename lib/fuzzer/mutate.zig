@@ -16,6 +16,7 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const Rng = std.Random.DefaultPrng;
 const ArrayList = std.ArrayList;
+const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
 const test_data: [128]u8 = blk: {
     var b: [128]u8 = undefined;
@@ -44,12 +45,16 @@ const Mutation = union(enum) {
 
 const MutationSequence = std.BoundedArray(Mutation, 8);
 
-pub fn mutate(str: *ArrayList(u8), seed: u64, scr: *ArrayList(u8)) error{OutOfMemory}!void {
+pub fn mutate(str: *ArrayListUnmanaged(u8), seed: u64, scr: *ArrayListUnmanaged(u8), gpa: Allocator) error{OutOfMemory}!void {
+    var a = str.toManaged(gpa);
+    var b = scr.toManaged(gpa);
     const muts = generateRandomMutationSequence(Rng.init(seed));
-    try executeMutation(str, muts, scr);
+    try executeMutation(&a, muts, &b);
+    str.* = a.moveToUnmanaged();
+    scr.* = b.moveToUnmanaged();
 }
 
-pub fn mutateReverse(str: *ArrayList(u8), seed: u64, scr: *ArrayList(u8)) void {
+pub fn mutateReverse(str: *ArrayListUnmanaged(u8), seed: u64, scr: *ArrayListUnmanaged(u8)) void {
     const muts = generateRandomMutationSequence(Rng.init(seed));
     executeMutationReverse(str, muts, scr);
 }
@@ -81,13 +86,13 @@ fn executeMutation(str: *ArrayList(u8), muts: MutationSequence, scr: *ArrayList(
             .erase_bytes => |a| try mutateEraseBytes(str, scr, a.index, a.len),
             .insert_byte => |a| try mutateInsertByte(str, a.index, a.byte),
             .insert_repeated_byte => |a| try mutateInsertRepeatedByte(str, a.index, a.len, a.byte),
-            .change_byte => |a| try mutateChangeByte(str, scr, a.index, a.byte),
-            .change_bit => |a| mutateChangeBit(str, a.index, a.bit),
+            .change_byte => |a| try mutateChangeByte(str.items, scr, a.index, a.byte),
+            .change_bit => |a| mutateChangeBit(str.items, a.index, a.bit),
         }
     }
 }
 
-fn executeMutationReverse(str: *ArrayList(u8), muts: MutationSequence, scr: *ArrayList(u8)) void {
+fn executeMutationReverse(str: *ArrayListUnmanaged(u8), muts: MutationSequence, scr: *ArrayListUnmanaged(u8)) void {
     const slice = muts.slice();
     for (0..slice.len) |i| {
         const mut = slice[slice.len - i - 1];
@@ -96,8 +101,8 @@ fn executeMutationReverse(str: *ArrayList(u8), muts: MutationSequence, scr: *Arr
             .erase_bytes => |a| mutateEraseBytesReverse(str, scr, a.index),
             .insert_byte => |a| mutateInsertByteReverse(str, a.index),
             .insert_repeated_byte => |a| mutateInsertRepeatedByteReverse(str, a.index, a.len),
-            .change_byte => |a| mutateChangeByteReverse(str, scr, a.index),
-            .change_bit => |a| mutateChangeBitReverse(str, a.index, a.bit),
+            .change_byte => |a| mutateChangeByteReverse(str.items, scr, a.index),
+            .change_bit => |a| mutateChangeBitReverse(str.items, a.index, a.bit),
         }
     }
 }
@@ -138,13 +143,13 @@ pub fn writeMutation(seed: u64, writer: anytype) !void {
     }
 }
 
-fn mutateChangeBit(str: *ArrayList(u8), index: u32, bit: u3) void {
-    if (str.items.len == 0) return;
+fn mutateChangeBit(str: []u8, index: u32, bit: u3) void {
+    if (str.len == 0) return;
     const mask = @as(u8, 1) << bit;
-    str.items[index % str.items.len] ^= mask;
+    str[index % str.len] ^= mask;
 }
 
-fn mutateChangeBitReverse(str: *ArrayList(u8), index: u32, bit: u3) void {
+fn mutateChangeBitReverse(str: []u8, index: u32, bit: u3) void {
     return mutateChangeBit(str, index, bit);
 }
 
@@ -161,23 +166,23 @@ test "mutate change bit" {
             const index: u32 = @truncate(rng.next());
             const bit: u3 = @truncate(rng.next());
             mutateChangeBit(&str, index, bit);
-            mutateChangeBitReverse(&str, index, bit);
+            mutateChangeBitReverse(str.items, index, bit);
             try std.testing.expectEqualStrings(test_data[0..l], str.items);
             try std.testing.expectEqual(0, scr.items.len);
         }
     }
 }
 
-fn mutateChangeByte(str: *ArrayList(u8), scr: *ArrayList(u8), index: u32, byte: u8) !void {
-    if (str.items.len == 0) return;
-    const target = &str.items[index % str.items.len];
+fn mutateChangeByte(str: []u8, scr: *ArrayList(u8), index: u32, byte: u8) !void {
+    if (str.len == 0) return;
+    const target = &str[index % str.len];
     try scr.append(target.*);
     target.* = byte;
 }
 
-fn mutateChangeByteReverse(str: *ArrayList(u8), scr: *ArrayList(u8), index: u32) void {
-    if (str.items.len == 0) return;
-    str.items[index % str.items.len] = scr.pop();
+fn mutateChangeByteReverse(str: []u8, scr: *ArrayListUnmanaged(u8), index: u32) void {
+    if (str.len == 0) return;
+    str[index % str.len] = scr.pop();
 }
 
 test "mutate change byte" {
@@ -192,7 +197,7 @@ test "mutate change byte" {
         for (0..1000) |_| {
             const index: u32 = @truncate(rng.next());
             const byte: u8 = @truncate(rng.next());
-            try mutateChangeByte(&str, &scr, index, byte);
+            try mutateChangeByte(str.items, &scr, index, byte);
             mutateChangeByteReverse(&str, &scr, index);
             try std.testing.expectEqualStrings(test_data[0..l], str.items);
             try std.testing.expectEqual(0, scr.items.len);
@@ -214,7 +219,7 @@ fn mutateInsertRepeatedByte(str: *ArrayList(u8), index: u32, len_: u8, byte: u8)
     @memset(str.items[insert_index..][0..len], byte);
 }
 
-fn mutateInsertRepeatedByteReverse(str: *ArrayList(u8), index: u32, len_: u8) void {
+fn mutateInsertRepeatedByteReverse(str: *ArrayListUnmanaged(u8), index: u32, len_: u8) void {
     const len = @min(24, @max(1, len_));
     const str_len = str.items.len - len;
     const insert_index = index % (str_len + 1);
@@ -247,7 +252,7 @@ fn mutateInsertByte(str: *ArrayList(u8), index: u32, byte: u8) !void {
     return mutateInsertRepeatedByte(str, index, 1, byte);
 }
 
-fn mutateInsertByteReverse(str: *ArrayList(u8), index: u32) void {
+fn mutateInsertByteReverse(str: *ArrayListUnmanaged(u8), index: u32) void {
     return mutateInsertRepeatedByteReverse(str, index, 1);
 }
 
@@ -292,7 +297,7 @@ fn mutateEraseBytes(str: *ArrayList(u8), scr: *ArrayList(u8), index: u32, len_: 
     str.items.len -= len;
 }
 
-fn mutateEraseBytesReverse(str: *ArrayList(u8), scr: *ArrayList(u8), index: u32) void {
+fn mutateEraseBytesReverse(str: *ArrayListUnmanaged(u8), scr: *ArrayListUnmanaged(u8), index: u32) void {
     const len = scr.pop();
     if (len == 0) return;
     const erase_index = index % (str.items.len + 1);

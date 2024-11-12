@@ -131,12 +131,13 @@ fn accept(ws: *WebServer, connection: std.net.Server.Connection) void {
     }
 }
 
-pub const staticFileMap = std.StaticStringMap(struct { path: []const u8, mime: []const u8 }).initComptime(.{
-    .{ "/", .{ .path = "fuzzer/web/index.html", .mime = "text/html" } },
-    .{ "/debug", .{ .path = "fuzzer/web/index.html", .mime = "text/html" } },
-    .{ "/debug/", .{ .path = "fuzzer/web/index.html", .mime = "text/html" } },
-    .{ "/main.js", .{ .path = "fuzzer/web/main.js", .mime = "application/javascript" } },
-    .{ "/debug/main.js", .{ .path = "fuzzer/web/main.js", .mime = "application/javascript" } },
+const FileMapEntry = struct { path: []const u8, mime: []const u8 };
+pub const staticFileMap = std.StaticStringMap(FileMapEntry).initComptime(&.{
+    .{ "/", FileMapEntry{ .path = "fuzzer/web/index.html", .mime = "text/html" } },
+    .{ "/debug", FileMapEntry{ .path = "fuzzer/web/index.html", .mime = "text/html" } },
+    .{ "/debug/", FileMapEntry{ .path = "fuzzer/web/index.html", .mime = "text/html" } },
+    .{ "/main.js", FileMapEntry{ .path = "fuzzer/web/main.js", .mime = "application/javascript" } },
+    .{ "/debug/main.js", FileMapEntry{ .path = "fuzzer/web/main.js", .mime = "application/javascript" } },
 });
 
 fn serveRequest(ws: *WebServer, request: *std.http.Server.Request) !void {

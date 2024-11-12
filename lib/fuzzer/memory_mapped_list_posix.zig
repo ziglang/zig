@@ -8,7 +8,7 @@
 
 const std = @import("std");
 const assert = std.debug.assert;
-const check = @import("main.zig").check;
+const fatal = std.process.fatal;
 
 pub fn MemoryMappedList(comptime T: type) type {
     return struct {
@@ -21,19 +21,19 @@ pub fn MemoryMappedList(comptime T: type) type {
         const Self = @This();
 
         pub fn init(f: std.fs.File, size: usize) Self {
-            const slice_cap = check(@src(), f.getEndPos(), .{});
+            const slice_cap = f.getEndPos() catch |e| fatal("getendpos failed: {}", .{e});
             const items_cap = @divExact(slice_cap, @sizeOf(T)); // crash here is probably a corrupt file
 
             assert(size >= slice_cap);
 
-            const slice: []align(std.mem.page_size) u8 = check(@src(), std.posix.mmap(
+            const slice: []align(std.mem.page_size) u8 = std.posix.mmap(
                 null,
                 size, // unused virtual address space on linux is cheap
                 std.posix.PROT.READ | std.posix.PROT.WRITE,
                 .{ .TYPE = .SHARED },
                 f.handle,
                 0,
-            ), .{ .len = size, .fd = f.handle });
+            ) catch |e| fatal("mmap(len={},fd={}) failed: {}", .{ size, f.handle, e });
 
             assert(slice.len == size);
 
@@ -55,10 +55,8 @@ pub fn MemoryMappedList(comptime T: type) type {
             // use it until the end of the program. Even this msync is more of
             // a politeness than a necessity:
             // https://stackoverflow.com/questions/31539208/posix-shared-memory-and-msync
-            check(@src(), std.posix.msync(start8[0..len8], std.posix.MSF.ASYNC), .{
-                .ptr = start8,
-                .len = len8,
-            });
+            std.posix.msync(start8[0..len8], std.posix.MSF.ASYNC) catch |e|
+                fatal("msync failed: {}", .{e});
         }
 
         pub fn append(self: *Self, item: T) void {
@@ -84,7 +82,7 @@ pub fn MemoryMappedList(comptime T: type) type {
             const total = self.items.len + additional_count;
 
             const new_size = total * @sizeOf(T);
-            check(@src(), std.posix.ftruncate(self.file.handle, new_size), .{ .size = new_size });
+            std.posix.ftruncate(self.file.handle, new_size) catch |e| fatal("ftruncate failed: {}", .{e});
         }
     };
 }

@@ -13,7 +13,7 @@
 
 const std = @import("std");
 const assert = std.debug.assert;
-const check = @import("main.zig").check;
+const fatal = std.process.fatal;
 const MemoryMappedList = @import("memory_mapped_list.zig").MemoryMappedList;
 
 /// maximum 2GiB of input data should be enough. 32th bit is delete flag
@@ -68,14 +68,14 @@ pub fn init(dir: std.fs.Dir, pc_digest: u64) InputPoolPosix {
 
     const buffer_file_path = "v/" ++ hex_digest ++ "buffer";
     const meta_file_path = "v/" ++ hex_digest ++ "meta";
-    const buffer_file = check(@src(), dir.createFile(buffer_file_path, .{
+    const buffer_file = dir.createFile(buffer_file_path, .{
         .read = true,
         .truncate = false,
-    }), .{ .file = buffer_file_path });
-    const meta_file = check(@src(), dir.createFile(meta_file_path, .{
+    }) catch |e| fatal("create file at '{s}' failed: {}", .{ buffer_file_path, e });
+    const meta_file = dir.createFile(meta_file_path, .{
         .read = true,
         .truncate = false,
-    }), .{ .file = meta_file_path });
+    }) catch |e| fatal("create file at '{s}' failed: {}", .{ meta_file_path, e });
 
     const buffer = MemoryMappedList(u8).init(buffer_file, std.math.maxInt(Index));
     var meta = MemoryMappedList(u32).init(meta_file, std.math.maxInt(Index));

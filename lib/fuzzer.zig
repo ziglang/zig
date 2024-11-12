@@ -3,7 +3,6 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const fatal = std.process.fatal;
-const check = @import("fuzzer/main.zig").check;
 const Fuzzer = @import("fuzzer/main.zig").Fuzzer;
 const Slice = @import("fuzzer/main.zig").Slice;
 const fc = @import("fuzzer/feature_capture.zig");
@@ -11,8 +10,6 @@ const fc = @import("fuzzer/feature_capture.zig");
 // ==== global state ====
 
 var log_file: ?std.fs.File = null;
-
-var general_purpose_allocator: std.heap.GeneralPurposeAllocator(.{}) = .{};
 
 var fuzzer: Fuzzer = undefined;
 
@@ -65,13 +62,20 @@ export fn fuzzer_coverage_id() u64 {
     return fuzzer.coverage_id;
 }
 
-/// Called before each invocation of the user's code
-export fn fuzzer_next(options: *const std.testing.FuzzInputOptions) Slice {
-    // TODO: probably just call fatal instead of propagating errors up here
-    return Slice.fromZig(fuzzer.next(options));
+export fn fuzzer_start(
+    testOne: *const fn ([*]const u8, usize) callconv(.C) void,
+    options: *const std.testing.FuzzInputOptions,
+) void {
+    fuzzer.start(testOne, options.*) catch |e| switch (e) {
+        error.OutOfMemory => {
+            std.debug.print("fuzzer OOM\n", .{});
+            if (@errorReturnTrace()) |trace| {
+                std.debug.dumpStackTrace(trace.*);
+            }
+        },
+    };
 }
 
-/// Called once
 export fn fuzzer_init(cache_dir_struct: Slice) void {
     // setup log file as soon as possible
     const cache_dir_path = cache_dir_struct.toZig();
@@ -110,22 +114,33 @@ export fn fuzzer_init(cache_dir_struct: Slice) void {
 
     const pcs = pcs_start[0 .. pcs_end - pcs_start];
 
-    fuzzer = Fuzzer.init(general_purpose_allocator.allocator(), cache_dir, pc_counters, pcs);
+    fuzzer = Fuzzer.init(
+        cache_dir,
+        pc_counters,
+        pcs,
+    ) catch |e| switch (e) {
+        error.OutOfMemory => {
+            std.debug.print("fuzzer OOM\n", .{});
+            if (@errorReturnTrace()) |trace| {
+                std.debug.dumpStackTrace(trace.*);
+            }
+            std.process.exit(1);
+        },
+    };
 }
 
-export fn fuzzer_deinit() void {
-    fuzzer.deinit();
-}
+export fn fuzzer_deinit() void {}
 
 // ==== log ====
 
-pub const std_options = .{
+pub const std_options = std.Options{
     .logFn = logOverride,
     .log_level = .debug,
 };
 
 fn setupLogFile(cachedir: std.fs.Dir) void {
-    log_file = check(@src(), cachedir.createFile("tmp/libfuzzer.log", .{}), .{});
+    log_file = cachedir.createFile("tmp/libfuzzer.log", .{}) catch
+        @panic("create log file failed"); // cant log details because log file is not setup
 }
 
 fn logOverride(

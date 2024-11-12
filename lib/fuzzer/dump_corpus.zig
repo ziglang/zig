@@ -2,6 +2,7 @@
 // (buffer + meta file pair in the .zig-cache/v/ directory)
 
 const std = @import("std");
+const fatal = std.process.fatal;
 
 const InputPool = @import("input_pool.zig").InputPool;
 
@@ -12,16 +13,16 @@ pub fn main() void {
     const pc_digest_str = args.next();
 
     if (cache_dir_path == null or pc_digest_str == null or args.next() != null) {
-        std.process.fatal("usage: {s} CACHE_DIR PC_DIGEST\n", .{bin.?});
+        fatal("usage: {s} CACHE_DIR PC_DIGEST\n", .{bin.?});
     }
 
     // std.fmt.hex actually produces the hex number in the opposite order than
     // parseInt reads...
     const pc_digest = @byteSwap(std.fmt.parseInt(u64, pc_digest_str.?, 16) catch |e|
-        std.process.fatal("invalid pc digest: {}", .{e}));
+        fatal("invalid pc digest: {}", .{e}));
 
     const cache_dir = std.fs.cwd().makeOpenPath(cache_dir_path.?, .{}) catch |e|
-        std.process.fatal("invalid cache dir: {}", .{e});
+        fatal("invalid cache dir: {}", .{e});
 
     std.log.info("cache_dir: {s}", .{cache_dir_path.?});
     std.log.info("pc_digest: {x}", .{@byteSwap(pc_digest)});
