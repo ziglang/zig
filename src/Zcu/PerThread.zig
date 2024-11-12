@@ -185,11 +185,11 @@ pub fn astGenFile(
             log.debug("AstGen cached success: {s}", .{file.sub_file_path});
 
             if (file.zir.hasCompileErrors()) {
-                {
-                    comp.mutex.lock();
-                    defer comp.mutex.unlock();
-                    try zcu.failed_files.putNoClobber(gpa, file, null);
-                }
+                comp.mutex.lock();
+                defer comp.mutex.unlock();
+                try zcu.failed_files.putNoClobber(gpa, file, null);
+            }
+            if (file.zir.loweringFailed()) {
                 file.status = .astgen_failure;
                 return error.AnalysisFail;
             }
@@ -226,7 +226,7 @@ pub fn astGenFile(
     //    single-threaded context, so we need to keep both versions around
     //    until that point in the pipeline. Previous ZIR data is freed after
     //    that.
-    if (file.zir_loaded and !file.zir.hasCompileErrors()) {
+    if (file.zir_loaded and !file.zir.loweringFailed()) {
         assert(file.prev_zir == null);
         const prev_zir_ptr = try gpa.create(Zir);
         file.prev_zir = prev_zir_ptr;
@@ -321,11 +321,11 @@ pub fn astGenFile(
     };
 
     if (file.zir.hasCompileErrors()) {
-        {
-            comp.mutex.lock();
-            defer comp.mutex.unlock();
-            try zcu.failed_files.putNoClobber(gpa, file, null);
-        }
+        comp.mutex.lock();
+        defer comp.mutex.unlock();
+        try zcu.failed_files.putNoClobber(gpa, file, null);
+    }
+    if (file.zir.loweringFailed()) {
         file.status = .astgen_failure;
         return error.AnalysisFail;
     }
@@ -363,7 +363,7 @@ pub fn updateZirRefs(pt: Zcu.PerThread) Allocator.Error!void {
             .file = file,
             .inst_map = .{},
         };
-        if (!new_zir.hasCompileErrors()) {
+        if (!new_zir.loweringFailed()) {
             try Zcu.mapOldZirToNew(gpa, old_zir.*, file.zir, &gop.value_ptr.inst_map);
         }
     }
@@ -379,20 +379,19 @@ pub fn updateZirRefs(pt: Zcu.PerThread) Allocator.Error!void {
 
             const file = updated_file.file;
 
-            if (file.zir.hasCompileErrors()) {
-                // If we mark this as outdated now, users of this inst will just get a transitive analysis failure.
-                // Ultimately, they would end up throwing out potentially useful analysis results.
-                // So, do nothing. We already have the file failure -- that's sufficient for now!
-                continue;
-            }
             const old_inst = tracked_inst.inst.unwrap() orelse continue; // we can't continue tracking lost insts
             const tracked_inst_index = (InternPool.TrackedInst.Index.Unwrapped{
                 .tid = @enumFromInt(tid),
                 .index = @intCast(tracked_inst_unwrapped_index),
             }).wrap(ip);
             const new_inst = updated_file.inst_map.get(old_inst) orelse {
-                // Tracking failed for this instruction. Invalidate associated `src_hash` deps.
-                log.debug("tracking failed for %{d}", .{old_inst});
+                // Tracking failed for this instruction.
+                // This may be due to changes in the ZIR, or AstGen might have failed due to a very broken file.
+                // Either way, invalidate associated `src_hash` deps.
+                log.debug("tracking failed for %{d}{s}", .{
+                    old_inst,
+                    if (file.zir.loweringFailed()) " due to AstGen failure" else "",
+                });
                 tracked_inst.inst = .lost;
                 try zcu.markDependeeOutdated(.not_marked_po, .{ .src_hash = tracked_inst_index });
                 continue;
@@ -494,8 +493,8 @@ pub fn updateZirRefs(pt: Zcu.PerThread) Allocator.Error!void {
 
     for (updated_files.keys(), updated_files.values()) |file_index, updated_file| {
         const file = updated_file.file;
-        if (file.zir.hasCompileErrors()) {
-            // Keep `prev_zir` around: it's the last non-error ZIR.
+        if (file.zir.loweringFailed()) {
+            // Keep `prev_zir` around: it's the last usable ZIR.
             // Don't update the namespace, as we have no new data to update *to*.
         } else {
             const prev_zir = file.prev_zir.?;

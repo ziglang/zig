@@ -1360,6 +1360,7 @@ fn analyzeBodyInner(
                         i += 1;
                         continue;
                     },
+                    .astgen_error => return error.AnalysisFail,
                 };
             },
 

@@ -6457,7 +6457,7 @@ fn cmdChangelist(
     file.zir_loaded = true;
     defer file.zir.deinit(gpa);
 
-    if (file.zir.hasCompileErrors()) {
+    if (file.zir.loweringFailed()) {
         var wip_errors: std.zig.ErrorBundle.Wip = undefined;
         try wip_errors.init(gpa);
         defer wip_errors.deinit();
@@ -6492,7 +6492,7 @@ fn cmdChangelist(
     file.zir = try AstGen.generate(gpa, new_tree);
     file.zir_loaded = true;
 
-    if (file.zir.hasCompileErrors()) {
+    if (file.zir.loweringFailed()) {
         var wip_errors: std.zig.ErrorBundle.Wip = undefined;
         try wip_errors.init(gpa);
         defer wip_errors.deinit();

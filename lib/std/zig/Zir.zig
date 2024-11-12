@@ -120,7 +120,21 @@ pub fn bodySlice(zir: Zir, start: usize, len: usize) []Inst.Index {
 }
 
 pub fn hasCompileErrors(code: Zir) bool {
-    return code.extra[@intFromEnum(ExtraIndex.compile_errors)] != 0;
+    if (code.extra[@intFromEnum(ExtraIndex.compile_errors)] != 0) {
+        return true;
+    } else {
+        assert(code.instructions.len != 0); // i.e. lowering did not fail
+        return false;
+    }
+}
+
+pub fn loweringFailed(code: Zir) bool {
+    if (code.instructions.len == 0) {
+        assert(code.hasCompileErrors());
+        return true;
+    } else {
+        return false;
+    }
 }
 
 pub fn deinit(code: *Zir, gpa: Allocator) void {
@@ -2089,7 +2103,14 @@ pub const Inst = struct {
         /// `small` is an `Inst.InplaceOp`.
         inplace_arith_result_ty,
         /// Marks a statement that can be stepped to but produces no code.
+        /// `operand` and `small` are ignored.
         dbg_empty_stmt,
+        /// At this point, AstGen encountered a fatal error which terminated ZIR lowering for this body.
+        /// A file-level error has been reported. Sema should terminate semantic analysis.
+        /// `operand` and `small` are ignored.
+        /// This instruction is always `noreturn`, however, it is not considered as such by ZIR-level queries. This allows AstGen to assume that
+        /// any code may have gone here, avoiding false-positive "unreachable code" errors.
+        astgen_error,
 
         pub const InstData = struct {
             opcode: Extended,
@@ -4065,6 +4086,7 @@ fn findDeclsInner(
                 .inplace_arith_result_ty,
                 .tuple_decl,
                 .dbg_empty_stmt,
+                .astgen_error,
                 => return,
 
                 // `@TypeOf` has a body.
