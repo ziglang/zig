@@ -1297,3 +1297,23 @@ test "packed struct contains optional pointer" {
     } = .{};
     try expect(foo.a == null);
 }
+
+test "packed struct equality" {
+    const Foo = packed struct {
+        a: u4,
+        b: u4,
+    };
+
+    const S = struct {
+        fn doTest(x: Foo, y: Foo) !void {
+            try expect(x == y);
+            try expect(!(x != y));
+        }
+    };
+
+    const x: Foo = .{ .a = 1, .b = 2 };
+    const y: Foo = .{ .b = 2, .a = 1 };
+
+    try S.doTest(x, y);
+    comptime try S.doTest(x, y);
+}

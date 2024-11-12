@@ -70,7 +70,7 @@ extern "C" EXCEPTION_DISPOSITION _GCC_specific_handler(PEXCEPTION_RECORD,
 +------------------+--+-----+-----+------------------------+--------------------------+
 | callSiteTableLength | (ULEB128) | Call Site Table length, used to find Action table |
 +---------------------+-----------+---------------------------------------------------+
-#if !defined(__USING_SJLJ_EXCEPTIONS__) && !defined(__USING_WASM_EXCEPTIONS__)
+#if !defined(__USING_SJLJ_EXCEPTIONS__) && !defined(__WASM_EXCEPTIONS__)
 +---------------------+-----------+------------------------------------------------+
 | Beginning of Call Site Table            The current ip lies within the           |
 | ...                                     (start, length) range of one of these    |
@@ -84,7 +84,7 @@ extern "C" EXCEPTION_DISPOSITION _GCC_specific_handler(PEXCEPTION_RECORD,
 | +-------------+---------------------------------+------------------------------+ |
 | ...                                                                              |
 +----------------------------------------------------------------------------------+
-#else  // __USING_SJLJ_EXCEPTIONS__ || __USING_WASM_EXCEPTIONS__
+#else  // __USING_SJLJ_EXCEPTIONS__ || __WASM_EXCEPTIONS__
 +---------------------+-----------+------------------------------------------------+
 | Beginning of Call Site Table            The current ip is a 1-based index into   |
 | ...                                     this table.  Or it is -1 meaning no      |
@@ -97,7 +97,7 @@ extern "C" EXCEPTION_DISPOSITION _GCC_specific_handler(PEXCEPTION_RECORD,
 | +-------------+---------------------------------+------------------------------+ |
 | ...                                                                              |
 +----------------------------------------------------------------------------------+
-#endif // __USING_SJLJ_EXCEPTIONS__ || __USING_WASM_EXCEPTIONS__
+#endif // __USING_SJLJ_EXCEPTIONS__ || __WASM_EXCEPTIONS__
 +---------------------------------------------------------------------+
 | Beginning of Action Table       ttypeIndex == 0 : cleanup           |
 | ...                             ttypeIndex  > 0 : catch             |
@@ -547,7 +547,7 @@ void
 set_registers(_Unwind_Exception* unwind_exception, _Unwind_Context* context,
               const scan_results& results)
 {
-#if defined(__USING_SJLJ_EXCEPTIONS__) || defined(__USING_WASM_EXCEPTIONS__)
+#if defined(__USING_SJLJ_EXCEPTIONS__) || defined(__WASM_EXCEPTIONS__)
 #define __builtin_eh_return_data_regno(regno) regno
 #elif defined(__ibmxl__)
 // IBM xlclang++ compiler does not support __builtin_eh_return_data_regno.
@@ -642,7 +642,7 @@ static void scan_eh_tab(scan_results &results, _Unwind_Action actions,
     // Get beginning current frame's code (as defined by the
     // emitted dwarf code)
     uintptr_t funcStart = _Unwind_GetRegionStart(context);
-#if defined(__USING_SJLJ_EXCEPTIONS__) || defined(__USING_WASM_EXCEPTIONS__)
+#if defined(__USING_SJLJ_EXCEPTIONS__) || defined(__WASM_EXCEPTIONS__)
     if (ip == uintptr_t(-1))
     {
         // no action
@@ -652,9 +652,9 @@ static void scan_eh_tab(scan_results &results, _Unwind_Action actions,
     else if (ip == 0)
         call_terminate(native_exception, unwind_exception);
     // ip is 1-based index into call site table
-#else  // !__USING_SJLJ_EXCEPTIONS__ && !__USING_WASM_EXCEPTIONS__
+#else  // !__USING_SJLJ_EXCEPTIONS__ && !__WASM_EXCEPTIONS__
     uintptr_t ipOffset = ip - funcStart;
-#endif // !__USING_SJLJ_EXCEPTIONS__ && !__USING_WASM_EXCEPTIONS__
+#endif // !__USING_SJLJ_EXCEPTIONS__ && !__WASM_EXCEPTIONS__
     const uint8_t* classInfo = NULL;
     // Note: See JITDwarfEmitter::EmitExceptionTable(...) for corresponding
     //       dwarf emission
@@ -675,7 +675,7 @@ static void scan_eh_tab(scan_results &results, _Unwind_Action actions,
     // Walk call-site table looking for range that
     // includes current PC.
     uint8_t callSiteEncoding = *lsda++;
-#if defined(__USING_SJLJ_EXCEPTIONS__) || defined(__USING_WASM_EXCEPTIONS__)
+#if defined(__USING_SJLJ_EXCEPTIONS__) || defined(__WASM_EXCEPTIONS__)
     (void)callSiteEncoding;  // When using SjLj/Wasm exceptions, callSiteEncoding is never used
 #endif
     uint32_t callSiteTableLength = static_cast<uint32_t>(readULEB128(&lsda));
@@ -686,7 +686,7 @@ static void scan_eh_tab(scan_results &results, _Unwind_Action actions,
     while (callSitePtr < callSiteTableEnd)
     {
         // There is one entry per call site.
-#if !defined(__USING_SJLJ_EXCEPTIONS__) && !defined(__USING_WASM_EXCEPTIONS__)
+#if !defined(__USING_SJLJ_EXCEPTIONS__) && !defined(__WASM_EXCEPTIONS__)
         // The call sites are non-overlapping in [start, start+length)
         // The call sites are ordered in increasing value of start
         uintptr_t start = readEncodedPointer(&callSitePtr, callSiteEncoding);
@@ -694,15 +694,15 @@ static void scan_eh_tab(scan_results &results, _Unwind_Action actions,
         uintptr_t landingPad = readEncodedPointer(&callSitePtr, callSiteEncoding);
         uintptr_t actionEntry = readULEB128(&callSitePtr);
         if ((start <= ipOffset) && (ipOffset < (start + length)))
-#else  // __USING_SJLJ_EXCEPTIONS__ || __USING_WASM_EXCEPTIONS__
+#else  // __USING_SJLJ_EXCEPTIONS__ || __WASM_EXCEPTIONS__
         // ip is 1-based index into this table
         uintptr_t landingPad = readULEB128(&callSitePtr);
         uintptr_t actionEntry = readULEB128(&callSitePtr);
         if (--ip == 0)
-#endif // __USING_SJLJ_EXCEPTIONS__ || __USING_WASM_EXCEPTIONS__
+#endif // __USING_SJLJ_EXCEPTIONS__ || __WASM_EXCEPTIONS__
         {
             // Found the call site containing ip.
-#if !defined(__USING_SJLJ_EXCEPTIONS__) && !defined(__USING_WASM_EXCEPTIONS__)
+#if !defined(__USING_SJLJ_EXCEPTIONS__) && !defined(__WASM_EXCEPTIONS__)
             if (landingPad == 0)
             {
                 // No handler here
@@ -710,16 +710,14 @@ static void scan_eh_tab(scan_results &results, _Unwind_Action actions,
                 return;
             }
             landingPad = (uintptr_t)lpStart + landingPad;
-#else  // __USING_SJLJ_EXCEPTIONS__ || __USING_WASM_EXCEPTIONS__
+#else  // __USING_SJLJ_EXCEPTIONS__ || __WASM_EXCEPTIONS__
             ++landingPad;
-#endif // __USING_SJLJ_EXCEPTIONS__ || __USING_WASM_EXCEPTIONS__
+#endif // __USING_SJLJ_EXCEPTIONS__ || __WASM_EXCEPTIONS__
             results.landingPad = landingPad;
             if (actionEntry == 0)
             {
                 // Found a cleanup
-                results.reason = actions & _UA_SEARCH_PHASE
-                                     ? _URC_CONTINUE_UNWIND
-                                     : _URC_HANDLER_FOUND;
+                results.reason = (actions & _UA_SEARCH_PHASE) ? _URC_CONTINUE_UNWIND : _URC_HANDLER_FOUND;
                 return;
             }
             // Convert 1-based byte offset into
@@ -840,7 +838,7 @@ static void scan_eh_tab(scan_results &results, _Unwind_Action actions,
                 action += actionOffset;
             }  // there is no break out of this loop, only return
         }
-#if !defined(__USING_SJLJ_EXCEPTIONS__) && !defined(__USING_WASM_EXCEPTIONS__)
+#if !defined(__USING_SJLJ_EXCEPTIONS__) && !defined(__WASM_EXCEPTIONS__)
         else if (ipOffset < start)
         {
             // There is no call site for this ip
@@ -848,7 +846,7 @@ static void scan_eh_tab(scan_results &results, _Unwind_Action actions,
             // Possible stack corruption.
             call_terminate(native_exception, unwind_exception);
         }
-#endif // !__USING_SJLJ_EXCEPTIONS__ && !__USING_WASM_EXCEPTIONS__
+#endif // !__USING_SJLJ_EXCEPTIONS__ && !__WASM_EXCEPTIONS__
     }  // there might be some tricky cases which break out of this loop
 
     // It is possible that no eh table entry specify how to handle
@@ -905,7 +903,7 @@ _UA_CLEANUP_PHASE
 */
 
 #if !defined(_LIBCXXABI_ARM_EHABI)
-#ifdef __USING_WASM_EXCEPTIONS__
+#ifdef __WASM_EXCEPTIONS__
 _Unwind_Reason_Code __gxx_personality_wasm0
 #elif defined(__SEH__) && !defined(__USING_SJLJ_EXCEPTIONS__)
 static _Unwind_Reason_Code __gxx_personality_imp
@@ -974,7 +972,7 @@ __gxx_personality_v0
             exc->languageSpecificData = results.languageSpecificData;
             exc->catchTemp = reinterpret_cast<void*>(results.landingPad);
             exc->adjustedPtr = results.adjustedPtr;
-#ifdef __USING_WASM_EXCEPTIONS__
+#ifdef __WASM_EXCEPTIONS__
             // Wasm only uses a single phase (_UA_SEARCH_PHASE), so save the
             // results here.
             set_registers(unwind_exception, context, results);

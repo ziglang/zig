@@ -8,11 +8,11 @@ set -e
 ARCH="$(uname -m)"
 TARGET="$ARCH-linux-musl"
 MCPU="baseline"
-CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.14.0-dev.418+ebd9efa85"
+CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.14.0-dev.1622+2ac543388"
 PREFIX="$HOME/deps/$CACHE_BASENAME"
 ZIG="$PREFIX/bin/zig"
 
-export PATH="$HOME/deps/wasmtime-v10.0.2-$ARCH-linux:$PATH"
+export PATH="$HOME/local/bin:$PATH"
 
 # Make the `zig version` number consistent.
 # This will affect the cmake command below.
@@ -54,15 +54,14 @@ stage3-release/bin/zig build \
   -Dtarget=arm-linux-musleabihf \
   -Dno-lib
 
-# TODO: add -fqemu back to this line
+# No -fqemu and -fwasmtime here as they're covered by the x86_64-linux scripts.
 stage3-release/bin/zig build test docs \
   --maxrss 24696061952 \
-  -fwasmtime \
   -Dstatic-llvm \
   -Dtarget=native-native-musl \
   --search-prefix "$PREFIX" \
   --zig-lib-dir "$PWD/../lib" \
-  -Denable-tidy
+  -Denable-superhtml
 
 # Ensure that stage3 and stage4 are byte-for-byte identical.
 stage3-release/bin/zig build \

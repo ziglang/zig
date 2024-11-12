@@ -48,7 +48,7 @@ _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 _Iter __min_element(_Iter __
 }
 
 template <class _ForwardIterator, class _Compare>
-_LIBCPP_NODISCARD_EXT inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 _ForwardIterator
+_LIBCPP_NODISCARD inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 _ForwardIterator
 min_element(_ForwardIterator __first, _ForwardIterator __last, _Compare __comp) {
   static_assert(
       __has_forward_iterator_category<_ForwardIterator>::value, "std::min_element requires a ForwardIterator");
@@ -59,7 +59,7 @@ min_element(_ForwardIterator __first, _ForwardIterator __last, _Compare __comp) 
 }
 
 template <class _ForwardIterator>
-_LIBCPP_NODISCARD_EXT inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 _ForwardIterator
+_LIBCPP_NODISCARD inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 _ForwardIterator
 min_element(_ForwardIterator __first, _ForwardIterator __last) {
   return std::min_element(__first, __last, __less<>());
 }

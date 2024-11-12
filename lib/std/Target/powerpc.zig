@@ -8,6 +8,8 @@ pub const Feature = enum {
     @"64bit",
     @"64bitregs",
     aix,
+    aix_shared_lib_tls_model_opt,
+    aix_small_local_dynamic_tls,
     aix_small_local_exec_tls,
     allow_unaligned_fp_access,
     altivec,
@@ -111,6 +113,16 @@ pub const all_features = blk: {
     result[@intFromEnum(Feature.aix)] = .{
         .llvm_name = "aix",
         .description = "AIX OS",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.aix_shared_lib_tls_model_opt)] = .{
+        .llvm_name = "aix-shared-lib-tls-model-opt",
+        .description = "Tune TLS model at function level in shared library loaded with the main program (for 64-bit AIX only)",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.aix_small_local_dynamic_tls)] = .{
+        .llvm_name = "aix-small-local-dynamic-tls",
+        .description = "Produce a faster local-dynamic TLS sequence for this function for 64-bit AIX",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.aix_small_local_exec_tls)] = .{
@@ -538,8 +550,7 @@ pub const all_features = blk: {
         .llvm_name = "prefix-instrs",
         .description = "Enable prefixed instructions",
         .dependencies = featureSet(&[_]Feature{
-            .power8_vector,
-            .power9_altivec,
+            .isa_v31_instructions,
         }),
     };
     result[@intFromEnum(Feature.privileged)] = .{
@@ -945,6 +956,54 @@ pub const cpu = struct {
     pub const pwr10 = CpuModel{
         .name = "pwr10",
         .llvm_name = "pwr10",
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
+            .allow_unaligned_fp_access,
+            .bpermd,
+            .cmpb,
+            .crbits,
+            .crypto,
+            .direct_move,
+            .extdiv,
+            .fast_MFLR,
+            .fcpsgn,
+            .fpcvt,
+            .fprnd,
+            .fre,
+            .fres,
+            .frsqrte,
+            .frsqrtes,
+            .fsqrt,
+            .fuse_add_logical,
+            .fuse_arith_add,
+            .fuse_logical,
+            .fuse_logical_add,
+            .fuse_sha3,
+            .fuse_store,
+            .htm,
+            .icbt,
+            .isa_v206_instructions,
+            .isel,
+            .ldbrx,
+            .lfiwax,
+            .mfocrf,
+            .mma,
+            .partword_atomics,
+            .pcrelative_memops,
+            .popcntd,
+            .power10_vector,
+            .ppc_postra_sched,
+            .ppc_prera_sched,
+            .predictable_select_expensive,
+            .quadword_atomics,
+            .recipprec,
+            .stfiwx,
+            .two_const_nr,
+        }),
+    };
+    pub const pwr11 = CpuModel{
+        .name = "pwr11",
+        .llvm_name = "pwr11",
         .features = featureSet(&[_]Feature{
             .@"64bit",
             .allow_unaligned_fp_access,

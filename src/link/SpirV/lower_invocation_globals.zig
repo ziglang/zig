@@ -400,6 +400,15 @@ const ModuleBuilder = struct {
                     self.section.writeWords(inst.operands[2..]);
                     continue;
                 },
+                .OpExecutionMode, .OpExecutionModeId => {
+                    const original_id: ResultId = @enumFromInt(inst.operands[0]);
+                    const new_id_index = info.entry_points.getIndex(original_id).?;
+                    const new_id: ResultId = @enumFromInt(self.entry_point_new_id_base + new_id_index);
+                    try self.section.emitRaw(self.arena, inst.opcode, inst.operands.len);
+                    self.section.writeOperand(ResultId, new_id);
+                    self.section.writeWords(inst.operands[1..]);
+                    continue;
+                },
                 .OpTypeFunction => {
                     // Re-emitted in `emitFunctionTypes()`. We can do this because
                     // OpTypeFunction's may not currently be used anywhere that is not

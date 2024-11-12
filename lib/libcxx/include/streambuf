@@ -107,9 +107,12 @@ protected:
 
 */
 
-#include <__assert> // all public C++ headers provide the assertion handler
+#include <__assert>
 #include <__config>
 #include <__fwd/streambuf.h>
+#include <__locale>
+#include <__type_traits/is_same.h>
+#include <__utility/is_valid_range.h>
 #include <climits>
 #include <ios>
 #include <iosfwd>
@@ -134,7 +137,7 @@ public:
   typedef typename traits_type::pos_type pos_type;
   typedef typename traits_type::off_type off_type;
 
-  static_assert((is_same<_CharT, typename traits_type::char_type>::value),
+  static_assert(is_same<_CharT, typename traits_type::char_type>::value,
                 "traits_type::char_type must be the same type as CharT");
 
   virtual ~basic_streambuf();
@@ -233,6 +236,9 @@ protected:
   inline _LIBCPP_HIDE_FROM_ABI_AFTER_V1 void gbump(int __n) { __ninp_ += __n; }
 
   inline _LIBCPP_HIDE_FROM_ABI_AFTER_V1 void setg(char_type* __gbeg, char_type* __gnext, char_type* __gend) {
+    _LIBCPP_ASSERT_VALID_INPUT_RANGE(std::__is_valid_range(__gbeg, __gnext), "[gbeg, gnext) must be a valid range");
+    _LIBCPP_ASSERT_VALID_INPUT_RANGE(std::__is_valid_range(__gbeg, __gend), "[gbeg, gend) must be a valid range");
+    _LIBCPP_ASSERT_VALID_INPUT_RANGE(std::__is_valid_range(__gnext, __gend), "[gnext, gend) must be a valid range");
     __binp_ = __gbeg;
     __ninp_ = __gnext;
     __einp_ = __gend;
@@ -248,6 +254,7 @@ protected:
   _LIBCPP_HIDE_FROM_ABI void __pbump(streamsize __n) { __nout_ += __n; }
 
   inline _LIBCPP_HIDE_FROM_ABI_AFTER_V1 void setp(char_type* __pbeg, char_type* __pend) {
+    _LIBCPP_ASSERT_VALID_INPUT_RANGE(std::__is_valid_range(__pbeg, __pend), "[pbeg, pend) must be a valid range");
     __bout_ = __nout_ = __pbeg;
     __eout_           = __pend;
   }

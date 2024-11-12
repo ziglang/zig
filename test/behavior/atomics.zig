@@ -5,7 +5,8 @@ const expectEqual = std.testing.expectEqual;
 
 const supports_128_bit_atomics = switch (builtin.cpu.arch) {
     // TODO: Ideally this could be sync'd with the logic in Sema.
-    .aarch64, .aarch64_be => true,
+    .aarch64 => true,
+    .aarch64_be => false, // Fails due to LLVM issues.
     .x86_64 => std.Target.x86.featureSetHas(builtin.cpu.features, .cx16),
     else => false,
 };
@@ -35,16 +36,6 @@ fn testCmpxchg() !void {
 
     try expect(@cmpxchgStrong(i32, &x, 5678, 42, .seq_cst, .seq_cst) == null);
     try expect(x == 42);
-}
-
-test "fence" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
-    var x: i32 = 1234;
-    @fence(.seq_cst);
-    x = 5678;
 }
 
 test "atomicrmw and atomicload" {

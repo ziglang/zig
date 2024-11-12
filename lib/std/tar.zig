@@ -848,6 +848,7 @@ test PaxIterator {
 
 test {
     _ = @import("tar/test.zig");
+    _ = @import("tar/writer.zig");
     _ = Diagnostics;
 }
 

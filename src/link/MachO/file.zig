@@ -23,10 +23,10 @@ pub const File = union(enum) {
         _ = unused_fmt_string;
         _ = options;
         switch (file) {
-            .zig_object => |x| try writer.writeAll(x.path),
+            .zig_object => |zo| try writer.writeAll(zo.basename),
             .internal => try writer.writeAll("internal"),
             .object => |x| try writer.print("{}", .{x.fmtPath()}),
-            .dylib => |x| try writer.writeAll(x.path),
+            .dylib => |dl| try writer.print("{}", .{@as(Path, dl.path)}),
         }
     }
 
@@ -373,13 +373,14 @@ pub const File = union(enum) {
     pub const HandleIndex = Index;
 };
 
+const std = @import("std");
 const assert = std.debug.assert;
 const log = std.log.scoped(.link);
 const macho = std.macho;
-const std = @import("std");
-const trace = @import("../../tracy.zig").trace;
-
 const Allocator = std.mem.Allocator;
+const Path = std.Build.Cache.Path;
+
+const trace = @import("../../tracy.zig").trace;
 const Archive = @import("Archive.zig");
 const Atom = @import("Atom.zig");
 const InternalObject = @import("InternalObject.zig");

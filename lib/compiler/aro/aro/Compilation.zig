@@ -308,7 +308,7 @@ fn generateSystemDefines(comp: *Compilation, w: anytype) !void {
         ),
         else => {},
     }
-    if (comp.target.abi == .android) {
+    if (comp.target.isAndroid()) {
         try w.writeAll("#define __ANDROID__ 1\n");
     }
 

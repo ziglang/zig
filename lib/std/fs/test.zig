@@ -1647,6 +1647,36 @@ test "open file with exclusive nonblocking lock twice (absolute paths)" {
     try testing.expectError(error.WouldBlock, file2);
 }
 
+test "read from locked file" {
+    try testWithAllSupportedPathTypes(struct {
+        fn impl(ctx: *TestContext) !void {
+            const filename = try ctx.transformPath("read_lock_file_test.txt");
+
+            {
+                const f = try ctx.dir.createFile(filename, .{ .read = true });
+                defer f.close();
+                var buffer: [1]u8 = undefined;
+                _ = try f.readAll(&buffer);
+            }
+            {
+                const f = try ctx.dir.createFile(filename, .{
+                    .read = true,
+                    .lock = .exclusive,
+                });
+                defer f.close();
+                const f2 = try ctx.dir.openFile(filename, .{});
+                defer f2.close();
+                var buffer: [1]u8 = undefined;
+                if (builtin.os.tag == .windows) {
+                    try std.testing.expectError(error.LockViolation, f2.readAll(&buffer));
+                } else {
+                    try std.testing.expectEqual(0, f2.readAll(&buffer));
+                }
+            }
+        }
+    }.impl);
+}
+
 test "walker" {
     if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
 

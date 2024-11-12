@@ -1174,10 +1174,6 @@ test "arrays and vectors with big integers" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
-    // TODO: only aarch64-windows didn't pass in the PR that added this code.
-    //       figure out why if you can run this target.
-    if (builtin.os.tag == .windows and builtin.cpu.arch == .aarch64) return error.SkipZigTest;
-
     inline for (.{ u65528, u65529, u65535 }) |Int| {
         var a: [1]Int = undefined;
         a[0] = std.math.maxInt(Int);
@@ -1260,6 +1256,7 @@ test "integer compare <= 64 bits" {
 
 test "integer compare <= 128 bits" {
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     inline for (.{ u65, u96, u127, u128 }) |T| {
         try testUnsignedCmp(T);
@@ -1425,6 +1422,7 @@ test "allocation and looping over 3-byte integer" {
     if (builtin.zig_backend == .stage2_llvm and builtin.os.tag == .macos) {
         return error.SkipZigTest; // TODO
     }
+    if (builtin.cpu.arch == .s390x and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // TODO
 
     try expect(@sizeOf(u24) == 4);
     try expect(@sizeOf([1]u24) == 4);

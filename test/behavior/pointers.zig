@@ -45,6 +45,7 @@ test "pointer-integer arithmetic" {
 
 test "pointer subtraction" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
 
     {
         const a: *u8 = @ptrFromInt(100);
@@ -96,6 +97,21 @@ test "pointer subtraction" {
         const b = &x[15][3];
         try expect(b - a == 951);
     }
+}
+
+test "pointer arithmetic with non-trivial RHS" {
+    var t: bool = undefined;
+    t = true;
+
+    var ptr: [*]const u8 = "Hello, World!";
+    ptr += if (t) 5 else 2;
+    try expect(ptr[0] == ',');
+    ptr += if (!t) 4 else 2;
+    try expect(ptr[0] == 'W');
+    ptr -= if (t) @as(usize, 6) else 3;
+    try expect(ptr[0] == 'e');
+    ptr -= if (!t) @as(usize, 0) else 1;
+    try expect(ptr[0] == 'H');
 }
 
 test "double pointer parsing" {

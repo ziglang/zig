@@ -5,7 +5,7 @@ const assert = std.debug.assert;
 const fatal = std.process.fatal;
 const SeenPcsHeader = std.Build.Fuzz.abi.SeenPcsHeader;
 
-pub const std_options = .{
+pub const std_options = std.Options{
     .logFn = logOverride,
 };
 

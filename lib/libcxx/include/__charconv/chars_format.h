@@ -39,20 +39,17 @@ inline _LIBCPP_HIDE_FROM_ABI constexpr chars_format operator^(chars_format __x, 
   return chars_format(std::__to_underlying(__x) ^ std::__to_underlying(__y));
 }
 
-inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 chars_format&
-operator&=(chars_format& __x, chars_format __y) {
+inline _LIBCPP_HIDE_FROM_ABI constexpr chars_format& operator&=(chars_format& __x, chars_format __y) {
   __x = __x & __y;
   return __x;
 }
 
-inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 chars_format&
-operator|=(chars_format& __x, chars_format __y) {
+inline _LIBCPP_HIDE_FROM_ABI constexpr chars_format& operator|=(chars_format& __x, chars_format __y) {
   __x = __x | __y;
   return __x;
 }
 
-inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 chars_format&
-operator^=(chars_format& __x, chars_format __y) {
+inline _LIBCPP_HIDE_FROM_ABI constexpr chars_format& operator^=(chars_format& __x, chars_format __y) {
   __x = __x ^ __y;
   return __x;
 }

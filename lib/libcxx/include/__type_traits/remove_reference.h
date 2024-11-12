@@ -10,7 +10,6 @@
 #define _LIBCPP___TYPE_TRAITS_REMOVE_REFERENCE_H
 
 #include <__config>
-#include <cstddef>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -26,15 +25,16 @@ struct remove_reference {
 
 template <class _Tp>
 using __libcpp_remove_reference_t = __remove_reference_t(_Tp);
-#else
-// clang-format off
-template <class _Tp> struct _LIBCPP_TEMPLATE_VIS remove_reference        {typedef _LIBCPP_NODEBUG _Tp type;};
-template <class _Tp> struct _LIBCPP_TEMPLATE_VIS remove_reference<_Tp&>  {typedef _LIBCPP_NODEBUG _Tp type;};
-template <class _Tp> struct _LIBCPP_TEMPLATE_VIS remove_reference<_Tp&&> {typedef _LIBCPP_NODEBUG _Tp type;};
-// clang-format on
+#elif __has_builtin(__remove_reference)
+template <class _Tp>
+struct remove_reference {
+  using type _LIBCPP_NODEBUG = __remove_reference(_Tp);
+};
 
 template <class _Tp>
 using __libcpp_remove_reference_t = typename remove_reference<_Tp>::type;
+#else
+#  error "remove_reference not implemented!"
 #endif // __has_builtin(__remove_reference_t)
 
 #if _LIBCPP_STD_VER >= 14

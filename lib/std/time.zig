@@ -8,82 +8,8 @@ const posix = std.posix;
 
 pub const epoch = @import("time/epoch.zig");
 
-/// Spurious wakeups are possible and no precision of timing is guaranteed.
-pub fn sleep(nanoseconds: u64) void {
-    if (builtin.os.tag == .windows) {
-        const big_ms_from_ns = nanoseconds / ns_per_ms;
-        const ms = math.cast(windows.DWORD, big_ms_from_ns) orelse math.maxInt(windows.DWORD);
-        windows.kernel32.Sleep(ms);
-        return;
-    }
-
-    if (builtin.os.tag == .wasi) {
-        const w = std.os.wasi;
-        const userdata: w.userdata_t = 0x0123_45678;
-        const clock: w.subscription_clock_t = .{
-            .id = .MONOTONIC,
-            .timeout = nanoseconds,
-            .precision = 0,
-            .flags = 0,
-        };
-        const in: w.subscription_t = .{
-            .userdata = userdata,
-            .u = .{
-                .tag = .CLOCK,
-                .u = .{ .clock = clock },
-            },
-        };
-
-        var event: w.event_t = undefined;
-        var nevents: usize = undefined;
-        _ = w.poll_oneoff(&in, &event, 1, &nevents);
-        return;
-    }
-
-    if (builtin.os.tag == .uefi) {
-        const boot_services = std.os.uefi.system_table.boot_services.?;
-        const us_from_ns = nanoseconds / ns_per_us;
-        const us = math.cast(usize, us_from_ns) orelse math.maxInt(usize);
-        _ = boot_services.stall(us);
-        return;
-    }
-
-    const s = nanoseconds / ns_per_s;
-    const ns = nanoseconds % ns_per_s;
-
-    // Newer kernel ports don't have old `nanosleep()` and `clock_nanosleep()` has been around
-    // since Linux 2.6 and glibc 2.1 anyway.
-    if (builtin.os.tag == .linux) {
-        const linux = std.os.linux;
-
-        var req: linux.timespec = .{
-            .sec = std.math.cast(linux.time_t, s) orelse std.math.maxInt(linux.time_t),
-            .nsec = std.math.cast(linux.time_t, ns) orelse std.math.maxInt(linux.time_t),
-        };
-        var rem: linux.timespec = undefined;
-
-        while (true) {
-            switch (linux.E.init(linux.clock_nanosleep(.MONOTONIC, .{ .ABSTIME = false }, &req, &rem))) {
-                .SUCCESS => return,
-                .INTR => {
-                    req = rem;
-                    continue;
-                },
-                .FAULT,
-                .INVAL,
-                .OPNOTSUPP,
-                => unreachable,
-                else => return,
-            }
-        }
-    }
-
-    posix.nanosleep(s, ns);
-}
-
-test sleep {
-    sleep(1);
-}
+/// Deprecated: moved to std.Thread.sleep
+pub const sleep = std.Thread.sleep;
 
 /// Get a calendar timestamp, in seconds, relative to UTC 1970-01-01.
 /// Precision of timing depends on the hardware and operating system.
@@ -155,7 +81,7 @@ test milliTimestamp {
     const margin = ns_per_ms * 50;
 
     const time_0 = milliTimestamp();
-    sleep(ns_per_ms);
+    std.Thread.sleep(ns_per_ms);
     const time_1 = milliTimestamp();
     const interval = time_1 - time_0;
     try testing.expect(interval > 0);
@@ -359,7 +285,7 @@ test Timer {
     const margin = ns_per_ms * 150;
 
     var timer = try Timer.start();
-    sleep(10 * ns_per_ms);
+    std.Thread.sleep(10 * ns_per_ms);
     const time_0 = timer.read();
     try testing.expect(time_0 > 0);
     // Tests should not depend on timings: skip test if outside margin.

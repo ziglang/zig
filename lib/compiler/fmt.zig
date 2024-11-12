@@ -3,7 +3,6 @@ const mem = std.mem;
 const fs = std.fs;
 const process = std.process;
 const Allocator = std.mem.Allocator;
-const warn = std.log.warn;
 const Color = std.zig.Color;
 
 const usage_fmt =
@@ -207,13 +206,14 @@ const FmtError = error{
     LockViolation,
     NetNameDeleted,
     InvalidArgument,
+    ProcessNotFound,
 } || fs.File.OpenError;
 
 fn fmtPath(fmt: *Fmt, file_path: []const u8, check_mode: bool, dir: fs.Dir, sub_path: []const u8) FmtError!void {
     fmtPathFile(fmt, file_path, check_mode, dir, sub_path) catch |err| switch (err) {
         error.IsDir, error.AccessDenied => return fmtPathDir(fmt, file_path, check_mode, dir, sub_path),
         else => {
-            warn("unable to format '{s}': {s}", .{ file_path, @errorName(err) });
+            std.log.err("unable to format '{s}': {s}", .{ file_path, @errorName(err) });
             fmt.any_error = true;
             return;
         },
@@ -247,7 +247,7 @@ fn fmtPathDir(
                 try fmtPathDir(fmt, full_path, check_mode, dir, entry.name);
             } else {
                 fmtPathFile(fmt, full_path, check_mode, dir, entry.name) catch |err| {
-                    warn("unable to format '{s}': {s}", .{ full_path, @errorName(err) });
+                    std.log.err("unable to format '{s}': {s}", .{ full_path, @errorName(err) });
                     fmt.any_error = true;
                     return;
                 };

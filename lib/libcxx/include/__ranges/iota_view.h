@@ -22,7 +22,6 @@
 #include <__concepts/semiregular.h>
 #include <__concepts/totally_ordered.h>
 #include <__config>
-#include <__functional/ranges_operations.h>
 #include <__iterator/concepts.h>
 #include <__iterator/incrementable_traits.h>
 #include <__iterator/iterator_traits.h>
@@ -31,7 +30,7 @@
 #include <__ranges/movable_box.h>
 #include <__ranges/view_interface.h>
 #include <__type_traits/conditional.h>
-#include <__type_traits/is_nothrow_copy_constructible.h>
+#include <__type_traits/is_nothrow_constructible.h>
 #include <__type_traits/make_unsigned.h>
 #include <__type_traits/type_identity.h>
 #include <__utility/forward.h>
@@ -313,8 +312,8 @@ public:
       : __value_(std::move(__value)), __bound_sentinel_(std::move(__bound_sentinel)) {
     // Validate the precondition if possible.
     if constexpr (totally_ordered_with<_Start, _BoundSentinel>) {
-      _LIBCPP_ASSERT_UNCATEGORIZED(
-          ranges::less_equal()(__value_, __bound_sentinel_), "Precondition violated: value is greater than bound.");
+      _LIBCPP_ASSERT_VALID_INPUT_RANGE(
+          bool(__value_ <= __bound_sentinel_), "iota_view: bound must be reachable from value");
     }
   }
 
@@ -344,6 +343,8 @@ public:
   {
     return __iterator{__bound_sentinel_};
   }
+
+  _LIBCPP_HIDE_FROM_ABI constexpr bool empty() const { return __value_ == __bound_sentinel_; }
 
   _LIBCPP_HIDE_FROM_ABI constexpr auto size() const
     requires(same_as<_Start, _BoundSentinel> && __advanceable<_Start>) ||

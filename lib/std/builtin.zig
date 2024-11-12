@@ -160,54 +160,340 @@ pub const OptimizeMode = enum {
 /// Deprecated; use OptimizeMode.
 pub const Mode = OptimizeMode;
 
+/// The calling convention of a function defines how arguments and return values are passed, as well
+/// as any other requirements which callers and callees must respect, such as register preservation
+/// and stack alignment.
+///
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
-pub const CallingConvention = enum(u8) {
-    /// This is the default Zig calling convention used when not using `export` on `fn`
-    /// and no other calling convention is specified.
-    Unspecified,
-    /// Matches the C ABI for the target.
-    /// This is the default calling convention when using `export` on `fn`
-    /// and no other calling convention is specified.
-    C,
-    /// This makes a function not have any function prologue or epilogue,
-    /// making the function itself uncallable in regular Zig code.
-    /// This can be useful when integrating with assembly.
-    Naked,
-    /// Functions with this calling convention are called asynchronously,
-    /// as if called as `async function()`.
-    Async,
-    /// Functions with this calling convention are inlined at all call sites.
-    Inline,
-    /// x86-only.
-    Interrupt,
-    Signal,
-    /// x86-only.
-    Stdcall,
-    /// x86-only.
-    Fastcall,
-    /// x86-only.
-    Vectorcall,
-    /// x86-only.
-    Thiscall,
+pub const CallingConvention = union(enum(u8)) {
+    pub const Tag = @typeInfo(CallingConvention).@"union".tag_type.?;
+
+    /// This is an alias for the default C calling convention for this target.
+    /// Functions marked as `extern` or `export` are given this calling convention by default.
+    pub const c = builtin.target.cCallingConvention().?;
+
+    pub const winapi: CallingConvention = switch (builtin.target.cpu.arch) {
+        .x86_64 => .{ .x86_64_win = .{} },
+        .x86 => .{ .x86_stdcall = .{} },
+        .aarch64 => .{ .aarch64_aapcs_win = .{} },
+        .thumb => .{ .arm_aapcs_vfp = .{} },
+        else => unreachable,
+    };
+
+    pub const kernel: CallingConvention = switch (builtin.target.cpu.arch) {
+        .amdgcn => .amdgcn_kernel,
+        .nvptx, .nvptx64 => .nvptx_kernel,
+        .spirv, .spirv32, .spirv64 => .spirv_kernel,
+        else => unreachable,
+    };
+
+    /// Deprecated; use `.auto`.
+    pub const Unspecified: CallingConvention = .auto;
+    /// Deprecated; use `.c`.
+    pub const C: CallingConvention = .c;
+    /// Deprecated; use `.naked`.
+    pub const Naked: CallingConvention = .naked;
+    /// Deprecated; use `.@"async"`.
+    pub const Async: CallingConvention = .@"async";
+    /// Deprecated; use `.@"inline"`.
+    pub const Inline: CallingConvention = .@"inline";
+    /// Deprecated; use `.x86_64_interrupt`, `.x86_interrupt`, or `.avr_interrupt`.
+    pub const Interrupt: CallingConvention = switch (builtin.target.cpu.arch) {
+        .x86_64 => .{ .x86_64_interrupt = .{} },
+        .x86 => .{ .x86_interrupt = .{} },
+        .avr => .avr_interrupt,
+        else => unreachable,
+    };
+    /// Deprecated; use `.avr_signal`.
+    pub const Signal: CallingConvention = .avr_signal;
+    /// Deprecated; use `.x86_stdcall`.
+    pub const Stdcall: CallingConvention = .{ .x86_stdcall = .{} };
+    /// Deprecated; use `.x86_fastcall`.
+    pub const Fastcall: CallingConvention = .{ .x86_fastcall = .{} };
+    /// Deprecated; use `.x86_64_vectorcall`, `.x86_vectorcall`, or `aarch64_vfabi`.
+    pub const Vectorcall: CallingConvention = switch (builtin.target.cpu.arch) {
+        .x86_64 => .{ .x86_64_vectorcall = .{} },
+        .x86 => .{ .x86_vectorcall = .{} },
+        .aarch64, .aarch64_be => .{ .aarch64_vfabi = .{} },
+        else => unreachable,
+    };
+    /// Deprecated; use `.x86_thiscall`.
+    pub const Thiscall: CallingConvention = .{ .x86_thiscall = .{} };
+    /// Deprecated; use `.arm_apcs`.
+    pub const APCS: CallingConvention = .{ .arm_apcs = .{} };
+    /// Deprecated; use `.arm_aapcs`.
+    pub const AAPCS: CallingConvention = .{ .arm_aapcs = .{} };
+    /// Deprecated; use `.arm_aapcs_vfp`.
+    pub const AAPCSVFP: CallingConvention = .{ .arm_aapcs_vfp = .{} };
+    /// Deprecated; use `.x86_64_sysv`.
+    pub const SysV: CallingConvention = .{ .x86_64_sysv = .{} };
+    /// Deprecated; use `.x86_64_win`.
+    pub const Win64: CallingConvention = .{ .x86_64_win = .{} };
+    /// Deprecated; use `.kernel`.
+    pub const Kernel: CallingConvention = .kernel;
+    /// Deprecated; use `.spirv_fragment`.
+    pub const Fragment: CallingConvention = .spirv_fragment;
+    /// Deprecated; use `.spirv_vertex`.
+    pub const Vertex: CallingConvention = .spirv_vertex;
+
+    /// The default Zig calling convention when neither `export` nor `inline` is specified.
+    /// This calling convention makes no guarantees about stack alignment, registers, etc.
+    /// It can only be used within this Zig compilation unit.
+    auto,
+
+    /// The calling convention of a function that can be called with `async` syntax. An `async` call
+    /// of a runtime-known function must target a function with this calling convention.
+    /// Comptime-known functions with other calling conventions may be coerced to this one.
+    @"async",
+
+    /// Functions with this calling convention have no prologue or epilogue, making the function
+    /// uncallable in regular Zig code. This can be useful when integrating with assembly.
+    naked,
+
+    /// This calling convention is exactly equivalent to using the `inline` keyword on a function
+    /// definition. This function will be semantically inlined by the Zig compiler at call sites.
+    /// Pointers to inline functions are comptime-only.
+    @"inline",
+
+    // Calling conventions for the `x86_64` architecture.
+    x86_64_sysv: CommonOptions,
+    x86_64_win: CommonOptions,
+    x86_64_regcall_v3_sysv: CommonOptions,
+    x86_64_regcall_v4_win: CommonOptions,
+    x86_64_vectorcall: CommonOptions,
+    x86_64_interrupt: CommonOptions,
+
+    // Calling conventions for the `x86` architecture.
+    x86_sysv: X86RegparmOptions,
+    x86_win: X86RegparmOptions,
+    x86_stdcall: X86RegparmOptions,
+    x86_fastcall: CommonOptions,
+    x86_thiscall: CommonOptions,
+    x86_thiscall_mingw: CommonOptions,
+    x86_regcall_v3: CommonOptions,
+    x86_regcall_v4_win: CommonOptions,
+    x86_vectorcall: CommonOptions,
+    x86_interrupt: CommonOptions,
+
+    // Calling conventions for the `aarch64` and `aarch64_be` architectures.
+    aarch64_aapcs: CommonOptions,
+    aarch64_aapcs_darwin: CommonOptions,
+    aarch64_aapcs_win: CommonOptions,
+    aarch64_vfabi: CommonOptions,
+    aarch64_vfabi_sve: CommonOptions,
+
+    // Calling convetions for the `arm`, `armeb`, `thumb`, and `thumbeb` architectures.
     /// ARM Procedure Call Standard (obsolete)
-    /// ARM-only.
-    APCS,
-    /// ARM Architecture Procedure Call Standard (current standard)
-    /// ARM-only.
-    AAPCS,
+    arm_apcs: CommonOptions,
+    /// ARM Architecture Procedure Call Standard
+    arm_aapcs: CommonOptions,
     /// ARM Architecture Procedure Call Standard Vector Floating-Point
-    /// ARM-only.
-    AAPCSVFP,
-    /// x86-64-only.
-    SysV,
-    /// x86-64-only.
-    Win64,
-    /// AMD GPU, NVPTX, or SPIR-V kernel
-    Kernel,
-    // Vulkan-only
-    Fragment,
-    Vertex,
+    arm_aapcs_vfp: CommonOptions,
+    arm_aapcs16_vfp: CommonOptions,
+    arm_interrupt: ArmInterruptOptions,
+
+    // Calling conventions for the `mips64` and `mips64el` architectures.
+    mips64_n64: CommonOptions,
+    mips64_n32: CommonOptions,
+    mips64_interrupt: MipsInterruptOptions,
+
+    // Calling conventions for the `mips` and `mipsel` architectures.
+    mips_o32: CommonOptions,
+    mips_interrupt: MipsInterruptOptions,
+
+    // Calling conventions for the `riscv64` architecture.
+    riscv64_lp64: CommonOptions,
+    riscv64_lp64_v: CommonOptions,
+    riscv64_interrupt: RiscvInterruptOptions,
+
+    // Calling conventions for the `riscv32` architecture.
+    riscv32_ilp32: CommonOptions,
+    riscv32_ilp32_v: CommonOptions,
+    riscv32_interrupt: RiscvInterruptOptions,
+
+    // Calling conventions for the `sparc64` architecture.
+    sparc64_sysv: CommonOptions,
+
+    // Calling conventions for the `sparc` architecture.
+    sparc_sysv: CommonOptions,
+
+    // Calling conventions for the `powerpc64` and `powerpc64le` architectures.
+    powerpc64_elf: CommonOptions,
+    powerpc64_elf_altivec: CommonOptions,
+    powerpc64_elf_v2: CommonOptions,
+
+    // Calling conventions for the `powerpc` and `powerpcle` architectures.
+    powerpc_sysv: CommonOptions,
+    powerpc_sysv_altivec: CommonOptions,
+    powerpc_aix: CommonOptions,
+    powerpc_aix_altivec: CommonOptions,
+
+    /// The standard `wasm32` and `wasm64` calling convention, as specified in the WebAssembly Tool Conventions.
+    wasm_watc: CommonOptions,
+
+    /// The standard `arc` calling convention.
+    arc_sysv: CommonOptions,
+
+    // Calling conventions for the `avr` architecture.
+    avr_gnu,
+    avr_builtin,
+    avr_signal,
+    avr_interrupt,
+
+    /// The standard `bpfel`/`bpfeb` calling convention.
+    bpf_std: CommonOptions,
+
+    // Calling conventions for the `csky` architecture.
+    csky_sysv: CommonOptions,
+    csky_interrupt: CommonOptions,
+
+    // Calling conventions for the `hexagon` architecture.
+    hexagon_sysv: CommonOptions,
+    hexagon_sysv_hvx: CommonOptions,
+
+    /// The standard `lanai` calling convention.
+    lanai_sysv: CommonOptions,
+
+    /// The standard `loongarch64` calling convention.
+    loongarch64_lp64: CommonOptions,
+
+    /// The standard `loongarch32` calling convention.
+    loongarch32_ilp32: CommonOptions,
+
+    // Calling conventions for the `m68k` architecture.
+    m68k_sysv: CommonOptions,
+    m68k_gnu: CommonOptions,
+    m68k_rtd: CommonOptions,
+    m68k_interrupt: CommonOptions,
+
+    /// The standard `msp430` calling convention.
+    msp430_eabi: CommonOptions,
+
+    /// The standard `propeller1` calling convention.
+    propeller1_sysv: CommonOptions,
+
+    /// The standard `propeller2` calling convention.
+    propeller2_sysv: CommonOptions,
+
+    // Calling conventions for the `s390x` architecture.
+    s390x_sysv: CommonOptions,
+    s390x_sysv_vx: CommonOptions,
+
+    /// The standard `ve` calling convention.
+    ve_sysv: CommonOptions,
+
+    // Calling conventions for the `xcore` architecture.
+    xcore_xs1: CommonOptions,
+    xcore_xs2: CommonOptions,
+
+    // Calling conventions for the `xtensa` architecture.
+    xtensa_call0: CommonOptions,
+    xtensa_windowed: CommonOptions,
+
+    // Calling conventions for the `amdgcn` architecture.
+    amdgcn_device: CommonOptions,
+    amdgcn_kernel,
+    amdgcn_cs: CommonOptions,
+
+    // Calling conventions for the `nvptx` and `nvptx64` architectures.
+    nvptx_device,
+    nvptx_kernel,
+
+    // Calling conventions for kernels and shaders on the `spirv`, `spirv32`, and `spirv64` architectures.
+    spirv_device,
+    spirv_kernel,
+    spirv_fragment,
+    spirv_vertex,
+
+    /// Options shared across most calling conventions.
+    pub const CommonOptions = struct {
+        /// The boundary the stack is aligned to when the function is called.
+        /// `null` means the default for this calling convention.
+        incoming_stack_alignment: ?u64 = null,
+    };
+
+    /// Options for x86 calling conventions which support the regparm attribute to pass some
+    /// arguments in registers.
+    pub const X86RegparmOptions = struct {
+        /// The boundary the stack is aligned to when the function is called.
+        /// `null` means the default for this calling convention.
+        incoming_stack_alignment: ?u64 = null,
+        /// The number of arguments to pass in registers before passing the remaining arguments
+        /// according to the calling convention.
+        /// Equivalent to `__attribute__((regparm(x)))` in Clang and GCC.
+        register_params: u2 = 0,
+    };
+
+    /// Options for the `arm_interrupt` calling convention.
+    pub const ArmInterruptOptions = struct {
+        /// The boundary the stack is aligned to when the function is called.
+        /// `null` means the default for this calling convention.
+        incoming_stack_alignment: ?u64 = null,
+        /// The kind of interrupt being received.
+        type: InterruptType = .generic,
+
+        pub const InterruptType = enum(u3) {
+            generic,
+            irq,
+            fiq,
+            swi,
+            abort,
+            undef,
+        };
+    };
+
+    /// Options for the `mips_interrupt` and `mips64_interrupt` calling conventions.
+    pub const MipsInterruptOptions = struct {
+        /// The boundary the stack is aligned to when the function is called.
+        /// `null` means the default for this calling convention.
+        incoming_stack_alignment: ?u64 = null,
+        /// The interrupt mode.
+        mode: InterruptMode = .eic,
+
+        pub const InterruptMode = enum(u4) {
+            eic,
+            sw0,
+            sw1,
+            hw0,
+            hw1,
+            hw2,
+            hw3,
+            hw4,
+            hw5,
+        };
+    };
+
+    /// Options for the `riscv32_interrupt` and `riscv64_interrupt` calling conventions.
+    pub const RiscvInterruptOptions = struct {
+        /// The boundary the stack is aligned to when the function is called.
+        /// `null` means the default for this calling convention.
+        incoming_stack_alignment: ?u64 = null,
+        /// The privilege mode.
+        mode: PrivilegeMode,
+
+        pub const PrivilegeMode = enum(u2) {
+            supervisor,
+            machine,
+        };
+    };
+
+    /// Returns the array of `std.Target.Cpu.Arch` to which this `CallingConvention` applies.
+    /// Asserts that `cc` is not `.auto`, `.@"async"`, `.naked`, or `.@"inline"`.
+    pub fn archs(cc: CallingConvention) []const std.Target.Cpu.Arch {
+        return std.Target.Cpu.Arch.fromCallingConvention(cc);
+    }
+
+    pub fn eql(a: CallingConvention, b: CallingConvention) bool {
+        return std.meta.eql(a, b);
+    }
+
+    pub fn withStackAlign(cc: CallingConvention, incoming_stack_alignment: u64) CallingConvention {
+        const tag: CallingConvention.Tag = cc;
+        var result = cc;
+        @field(result, @tagName(tag)).incoming_stack_alignment = incoming_stack_alignment;
+        return result;
+    }
 };
 
 /// This data structure is used by the Zig language code generation and
@@ -228,6 +514,8 @@ pub const AddressSpace = enum(u5) {
     input,
     output,
     uniform,
+    push_constant,
+    storage_buffer,
 
     // AVR address spaces.
     flash,
@@ -236,6 +524,17 @@ pub const AddressSpace = enum(u5) {
     flash3,
     flash4,
     flash5,
+
+    // Propeller address spaces.
+
+    /// This address space only addresses the cog-local ram.
+    cog,
+
+    /// This address space only addresses shared hub ram.
+    hub,
+
+    /// This address space only addresses the "lookup" ram
+    lut,
 };
 
 /// This data structure is used by the Zig language code generation and
@@ -609,6 +908,7 @@ pub const VaList = switch (builtin.cpu.arch) {
     .avr => *anyopaque,
     .bpfel, .bpfeb => *anyopaque,
     .hexagon => if (builtin.target.isMusl()) VaListHexagon else *u8,
+    .loongarch32, .loongarch64 => *anyopaque,
     .mips, .mipsel, .mips64, .mips64el => *anyopaque,
     .riscv32, .riscv64 => *anyopaque,
     .powerpc, .powerpcle => switch (builtin.os.tag) {
@@ -671,6 +971,7 @@ pub const ExternOptions = struct {
     library_name: ?[]const u8 = null,
     linkage: GlobalLinkage = .strong,
     is_thread_local: bool = false,
+    is_dll_import: bool = false,
 };
 
 /// This data structure is used by the Zig language code generation and
@@ -761,201 +1062,54 @@ pub const TestFn = struct {
     func: *const fn () anyerror!void,
 };
 
-/// This function type is used by the Zig language code generation and
-/// therefore must be kept in sync with the compiler implementation.
+/// Deprecated, use the `Panic` namespace instead.
+/// To be deleted after 0.14.0 is released.
 pub const PanicFn = fn ([]const u8, ?*StackTrace, ?usize) noreturn;
+/// Deprecated, use the `Panic` namespace instead.
+/// To be deleted after 0.14.0 is released.
+pub const panic: PanicFn = Panic.call;
 
-/// This function is used by the Zig language code generation and
-/// therefore must be kept in sync with the compiler implementation.
-pub const panic: PanicFn = if (@hasDecl(root, "panic"))
-    root.panic
-else if (@hasDecl(root, "os") and @hasDecl(root.os, "panic"))
-    root.os.panic
+/// This namespace is used by the Zig compiler to emit various kinds of safety
+/// panics. These can be overridden by making a public `Panic` namespace in the
+/// root source file.
+pub const Panic: type = if (@hasDecl(root, "Panic"))
+    root.Panic
+else if (@hasDecl(root, "panic")) // Deprecated, use `Panic` instead.
+    DeprecatedPanic
+else if (builtin.zig_backend == .stage2_riscv64)
+    std.debug.SimplePanic // https://github.com/ziglang/zig/issues/21519
 else
-    default_panic;
+    std.debug.FormattedPanic;
 
-/// This function is used by the Zig language code generation and
-/// therefore must be kept in sync with the compiler implementation.
-pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace, ret_addr: ?usize) noreturn {
-    @branchHint(.cold);
-
-    // For backends that cannot handle the language features depended on by the
-    // default panic handler, we have a simpler panic handler:
-    if (builtin.zig_backend == .stage2_wasm or
-        builtin.zig_backend == .stage2_arm or
-        builtin.zig_backend == .stage2_aarch64 or
-        builtin.zig_backend == .stage2_x86 or
-        (builtin.zig_backend == .stage2_x86_64 and (builtin.target.ofmt != .elf and builtin.target.ofmt != .macho)) or
-        builtin.zig_backend == .stage2_sparc64 or
-        builtin.zig_backend == .stage2_spirv64)
-    {
-        while (true) {
-            @breakpoint();
-        }
-    }
-
-    if (builtin.zig_backend == .stage2_riscv64) {
-        std.debug.print("panic: {s}\n", .{msg});
-        @breakpoint();
-        std.posix.exit(127);
-    }
-
-    switch (builtin.os.tag) {
-        .freestanding => {
-            while (true) {
-                @breakpoint();
-            }
-        },
-        .wasi => {
-            std.debug.print("{s}", .{msg});
-            std.posix.abort();
-        },
-        .uefi => {
-            const uefi = std.os.uefi;
-
-            const Formatter = struct {
-                pub fn fmt(exit_msg: []const u8, out: []u16) ![:0]u16 {
-                    var u8_buf: [256]u8 = undefined;
-                    const slice = try std.fmt.bufPrint(&u8_buf, "err: {s}\r\n", .{exit_msg});
-                    // We pass len - 1 because we need to add a null terminator after
-                    const len = try std.unicode.utf8ToUtf16Le(out[0 .. out.len - 1], slice);
-
-                    out[len] = 0;
-
-                    return out[0..len :0];
-                }
-            };
-
-            const ExitData = struct {
-                pub fn create_exit_data(exit_msg: [:0]u16, exit_size: *usize) ![*:0]u16 {
-                    // Need boot services for pool allocation
-                    if (uefi.system_table.boot_services == null) {
-                        return error.BootServicesUnavailable;
-                    }
-
-                    // ExitData buffer must be allocated using boot_services.allocatePool (spec: page 220)
-                    const exit_data: []u16 = try uefi.raw_pool_allocator.alloc(u16, exit_msg.len + 1);
-
-                    @memcpy(exit_data[0 .. exit_msg.len + 1], exit_msg[0 .. exit_msg.len + 1]);
-                    exit_size.* = exit_msg.len + 1;
-
-                    return @as([*:0]u16, @ptrCast(exit_data.ptr));
-                }
-            };
-
-            var buf: [256]u16 = undefined;
-            const utf16 = Formatter.fmt(msg, &buf) catch null;
-
-            var exit_size: usize = 0;
-            const exit_data = if (utf16) |u|
-                ExitData.create_exit_data(u, &exit_size) catch null
-            else
-                null;
-
-            if (utf16) |str| {
-                // Output to both std_err and con_out, as std_err is easier
-                // to read in stuff like QEMU at times, but, unlike con_out,
-                // isn't visible on actual hardware if directly booted into
-                inline for ([_]?*uefi.protocol.SimpleTextOutput{ uefi.system_table.std_err, uefi.system_table.con_out }) |o| {
-                    if (o) |out| {
-                        _ = out.setAttribute(uefi.protocol.SimpleTextOutput.red);
-                        _ = out.outputString(str);
-                        _ = out.setAttribute(uefi.protocol.SimpleTextOutput.white);
-                    }
-                }
-            }
-
-            if (uefi.system_table.boot_services) |bs| {
-                _ = bs.exit(uefi.handle, .Aborted, exit_size, exit_data);
-            }
-
-            // Didn't have boot_services, just fallback to whatever.
-            std.posix.abort();
-        },
-        .cuda, .amdhsa => std.posix.abort(),
-        .plan9 => {
-            var status: [std.os.plan9.ERRMAX]u8 = undefined;
-            const len = @min(msg.len, status.len - 1);
-            @memcpy(status[0..len], msg[0..len]);
-            status[len] = 0;
-            std.os.plan9.exits(status[0..len :0]);
-        },
-        else => {
-            const first_trace_addr = ret_addr orelse @returnAddress();
-            std.debug.panicImpl(error_return_trace, first_trace_addr, msg);
-        },
-    }
-}
-
-pub fn checkNonScalarSentinel(expected: anytype, actual: @TypeOf(expected)) void {
-    if (!std.meta.eql(expected, actual)) {
-        panicSentinelMismatch(expected, actual);
-    }
-}
-
-pub fn panicSentinelMismatch(expected: anytype, actual: @TypeOf(expected)) noreturn {
-    @branchHint(.cold);
-    std.debug.panicExtra(null, @returnAddress(), "sentinel mismatch: expected {any}, found {any}", .{ expected, actual });
-}
-
-pub fn panicUnwrapError(st: ?*StackTrace, err: anyerror) noreturn {
-    @branchHint(.cold);
-    std.debug.panicExtra(st, @returnAddress(), "attempt to unwrap error: {s}", .{@errorName(err)});
-}
-
-pub fn panicOutOfBounds(index: usize, len: usize) noreturn {
-    @branchHint(.cold);
-    std.debug.panicExtra(null, @returnAddress(), "index out of bounds: index {d}, len {d}", .{ index, len });
-}
-
-pub fn panicStartGreaterThanEnd(start: usize, end: usize) noreturn {
-    @branchHint(.cold);
-    std.debug.panicExtra(null, @returnAddress(), "start index {d} is larger than end index {d}", .{ start, end });
-}
-
-pub fn panicInactiveUnionField(active: anytype, wanted: @TypeOf(active)) noreturn {
-    @branchHint(.cold);
-    std.debug.panicExtra(null, @returnAddress(), "access of union field '{s}' while field '{s}' is active", .{ @tagName(wanted), @tagName(active) });
-}
-
-pub const panic_messages = struct {
-    pub const unreach = "reached unreachable code";
-    pub const unwrap_null = "attempt to use null value";
-    pub const cast_to_null = "cast causes pointer to be null";
-    pub const incorrect_alignment = "incorrect alignment";
-    pub const invalid_error_code = "invalid error code";
-    pub const cast_truncated_data = "integer cast truncated bits";
-    pub const negative_to_unsigned = "attempt to cast negative value to unsigned integer";
-    pub const integer_overflow = "integer overflow";
-    pub const shl_overflow = "left shift overflowed bits";
-    pub const shr_overflow = "right shift overflowed bits";
-    pub const divide_by_zero = "division by zero";
-    pub const exact_division_remainder = "exact division produced remainder";
-    pub const inactive_union_field = "access of inactive union field";
-    pub const integer_part_out_of_bounds = "integer part of floating point value out of bounds";
-    pub const corrupt_switch = "switch on corrupt value";
-    pub const shift_rhs_too_big = "shift amount is greater than the type size";
-    pub const invalid_enum_value = "invalid enum value";
-    pub const sentinel_mismatch = "sentinel mismatch";
-    pub const unwrap_error = "attempt to unwrap error";
-    pub const index_out_of_bounds = "index out of bounds";
-    pub const start_index_greater_than_end = "start index is larger than end index";
-    pub const for_len_mismatch = "for loop over objects with non-equal lengths";
-    pub const memcpy_len_mismatch = "@memcpy arguments have non-equal lengths";
-    pub const memcpy_alias = "@memcpy arguments alias";
-    pub const noreturn_returned = "'noreturn' function returned";
+/// To be deleted after 0.14.0 is released.
+const DeprecatedPanic = struct {
+    pub const call = root.panic;
+    pub const sentinelMismatch = std.debug.FormattedPanic.sentinelMismatch;
+    pub const unwrapError = std.debug.FormattedPanic.unwrapError;
+    pub const outOfBounds = std.debug.FormattedPanic.outOfBounds;
+    pub const startGreaterThanEnd = std.debug.FormattedPanic.startGreaterThanEnd;
+    pub const inactiveUnionField = std.debug.FormattedPanic.inactiveUnionField;
+    pub const messages = std.debug.FormattedPanic.messages;
 };
 
+/// To be deleted after zig1.wasm is updated.
+pub const panicSentinelMismatch = Panic.sentinelMismatch;
+/// To be deleted after zig1.wasm is updated.
+pub const panicUnwrapError = Panic.unwrapError;
+/// To be deleted after zig1.wasm is updated.
+pub const panicOutOfBounds = Panic.outOfBounds;
+/// To be deleted after zig1.wasm is updated.
+pub const panicStartGreaterThanEnd = Panic.startGreaterThanEnd;
+/// To be deleted after zig1.wasm is updated.
+pub const panicInactiveUnionField = Panic.inactiveUnionField;
+/// To be deleted after zig1.wasm is updated.
+pub const panic_messages = Panic.messages;
+
 pub noinline fn returnError(st: *StackTrace) void {
-    @branchHint(.cold);
+    @branchHint(.unlikely);
     @setRuntimeSafety(false);
-    addErrRetTraceAddr(st, @returnAddress());
-}
-
-pub inline fn addErrRetTraceAddr(st: *StackTrace, addr: usize) void {
     if (st.index < st.instruction_addresses.len)
-        st.instruction_addresses[st.index] = addr;
-
+        st.instruction_addresses[st.index] = @returnAddress();
     st.index += 1;
 }
 

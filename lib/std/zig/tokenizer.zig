@@ -535,6 +535,8 @@ pub const Tokenizer = struct {
                 switch (self.buffer[self.index]) {
                     0 => if (self.index == self.buffer.len) {
                         result.tag = .invalid;
+                    } else {
+                        continue :state .invalid;
                     },
                     '\n' => result.tag = .invalid,
                     else => continue :state .invalid,
@@ -1250,6 +1252,7 @@ test "invalid token characters" {
 
 test "invalid literal/comment characters" {
     try testTokenize("\"\x00\"", &.{.invalid});
+    try testTokenize("`\x00`", &.{.invalid});
     try testTokenize("//\x00", &.{.invalid});
     try testTokenize("//\x1f", &.{.invalid});
     try testTokenize("//\x7f", &.{.invalid});

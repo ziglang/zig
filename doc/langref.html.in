@@ -2190,6 +2190,7 @@ or
         <li>An {#link|enum#} field uses exactly the bit width of its integer tag type.</li>
         <li>A {#link|packed union#} field uses exactly the bit width of the union field with
         the largest bit width.</li>
+        <li>Packed structs support equality operators.</li>
       </ul>
       <p>
       This means that a {#syntax#}packed struct{#endsyntax#} can participate
@@ -2239,6 +2240,12 @@ or
       It's also possible to set alignment of struct fields:
       </p>
       {#code|test_aligned_struct_fields.zig#}
+
+      <p>
+      Equating packed structs results in a comparison of the backing integer, 
+      and only works for the `==` and `!=` operators.
+      </p>
+      {#code|test_packed_struct_equality.zig#}
 
       <p>
       Using packed structs with {#link|volatile#} is problematic, and may be a compile error in the future.
@@ -4218,11 +4225,10 @@ pub fn print(self: *Writer, arg0: []const u8, arg1: i32) !void {
       {#header_close#}
 
       {#header_open|Atomics#}
-      <p>TODO: @fence()</p>
       <p>TODO: @atomic rmw</p>
       <p>TODO: builtin atomic memory ordering enum</p>
 
-      {#see_also|@atomicLoad|@atomicStore|@atomicRmw|@fence|@cmpxchgWeak|@cmpxchgStrong#}
+      {#see_also|@atomicLoad|@atomicStore|@atomicRmw|@cmpxchgWeak|@cmpxchgStrong#}
 
       {#header_close#}
 
@@ -4307,7 +4313,7 @@ comptime {
       an integer or an enum.
       </p>
       <p>{#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicOrder{#endsyntax#}.</p>
-      {#see_also|@atomicStore|@atomicRmw|@fence|@cmpxchgWeak|@cmpxchgStrong#}
+      {#see_also|@atomicStore|@atomicRmw||@cmpxchgWeak|@cmpxchgStrong#}
       {#header_close#}
 
       {#header_open|@atomicRmw#}
@@ -4322,7 +4328,7 @@ comptime {
       </p>
       <p>{#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicOrder{#endsyntax#}.</p>
       <p>{#syntax#}AtomicRmwOp{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicRmwOp{#endsyntax#}.</p>
-      {#see_also|@atomicStore|@atomicLoad|@fence|@cmpxchgWeak|@cmpxchgStrong#}
+      {#see_also|@atomicStore|@atomicLoad|@cmpxchgWeak|@cmpxchgStrong#}
       {#header_close#}
 
       {#header_open|@atomicStore#}
@@ -4335,7 +4341,7 @@ comptime {
       an integer or an enum.
       </p>
       <p>{#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicOrder{#endsyntax#}.</p>
-      {#see_also|@atomicLoad|@atomicRmw|@fence|@cmpxchgWeak|@cmpxchgStrong#}
+      {#see_also|@atomicLoad|@atomicRmw|@cmpxchgWeak|@cmpxchgStrong#}
       {#header_close#}
 
       {#header_open|@bitCast#}
@@ -4568,7 +4574,7 @@ comptime {
       </p>
       <p>{#syntax#}@typeInfo(@TypeOf(ptr)).pointer.alignment{#endsyntax#} must be {#syntax#}>= @sizeOf(T).{#endsyntax#}</p>
       <p>{#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicOrder{#endsyntax#}.</p>
-      {#see_also|@atomicStore|@atomicLoad|@atomicRmw|@fence|@cmpxchgWeak#}
+      {#see_also|@atomicStore|@atomicLoad|@atomicRmw|@cmpxchgWeak#}
       {#header_close#}
 
       {#header_open|@cmpxchgWeak#}
@@ -4600,7 +4606,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       </p>
       <p>{#syntax#}@typeInfo(@TypeOf(ptr)).pointer.alignment{#endsyntax#} must be {#syntax#}>= @sizeOf(T).{#endsyntax#}</p>
       <p>{#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicOrder{#endsyntax#}.</p>
-      {#see_also|@atomicStore|@atomicLoad|@atomicRmw|@fence|@cmpxchgStrong#}
+      {#see_also|@atomicStore|@atomicLoad|@atomicRmw|@cmpxchgStrong#}
       {#header_close#}
 
       {#header_open|@compileError#}
@@ -4617,7 +4623,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_close#}
 
       {#header_open|@compileLog#}
-      <pre>{#syntax#}@compileLog(args: ...) void{#endsyntax#}</pre>
+      <pre>{#syntax#}@compileLog(...) void{#endsyntax#}</pre>
       <p>
       This function prints the arguments passed to it at compile-time.
       </p>
@@ -4766,10 +4772,10 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       Converts an integer into an {#link|enum#} value. The return type is the inferred result type.
       </p>
       <p>
-      Attempting to convert an integer with no corresponding value in the enum invokes 
+      Attempting to convert an integer with no corresponding value in the enum invokes
       safety-checked {#link|Undefined Behavior#}.
       Note that a {#link|non-exhaustive enum|Non-exhaustive enum#} has corresponding values for all
-      integers in the enum's integer tag type: the {#syntax#}_{#endsyntax#} value represents all 
+      integers in the enum's integer tag type: the {#syntax#}_{#endsyntax#} value represents all
       the remaining unnamed integers in the enum's tag type.
       </p>
       {#see_also|@intFromEnum#}
@@ -4857,15 +4863,6 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#see_also|@export#}
       {#header_close#}
 
-      {#header_open|@fence#}
-      <pre>{#syntax#}@fence(order: AtomicOrder) void{#endsyntax#}</pre>
-      <p>
-      The {#syntax#}fence{#endsyntax#} function is used to introduce happens-before edges between operations.
-      </p>
-      <p>{#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicOrder{#endsyntax#}.</p>
-      {#see_also|@atomicStore|@atomicLoad|@atomicRmw|@cmpxchgWeak|@cmpxchgStrong#}
-      {#header_close#}
-
       {#header_open|@field#}
       <pre>{#syntax#}@field(lhs: anytype, comptime field_name: []const u8) (field){#endsyntax#}</pre>
       <p>Performs field access by a compile-time string. Works on both fields and declarations.
@@ -4879,6 +4876,13 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       <pre>{#syntax#}@fieldParentPtr(comptime field_name: []const u8, field_ptr: *T) anytype{#endsyntax#}</pre>
       <p>
       Given a pointer to a field, returns the base pointer of a struct.
+      </p>
+      {#header_close#}
+
+      {#header_open|@FieldType#}
+      <pre>{#syntax#}@FieldType(comptime Type: type, comptime field_name: []const u8) type{#endsyntax#}</pre>
+      <p>
+      Given a type and the name of one of its fields, returns the type of that field.
       </p>
       {#header_close#}
 
@@ -5064,12 +5068,12 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_close#}
 
       {#header_open|@max#}
-      <pre>{#syntax#}@max(a: T, b: T) T{#endsyntax#}</pre>
+      <pre>{#syntax#}@max(...) T{#endsyntax#}</pre>
       <p>
-      Returns the maximum value of {#syntax#}a{#endsyntax#} and {#syntax#}b{#endsyntax#}. This builtin accepts integers, floats, and vectors of either. In the latter case, the operation is performed element wise.
+      Takes two or more arguments and returns the biggest value included (the maximum). This builtin accepts integers, floats, and vectors of either. In the latter case, the operation is performed element wise.
       </p>
       <p>
-      NaNs are handled as follows: if one of the operands of a (pairwise) operation is NaN, the other operand is returned. If both operands are NaN, NaN is returned.
+      NaNs are handled as follows: return the biggest non-NaN value included. If all operands are NaN, return NaN.
       </p>
       {#see_also|@min|Vectors#}
       {#header_close#}
@@ -5103,12 +5107,12 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_close#}
 
       {#header_open|@min#}
-      <pre>{#syntax#}@min(a: T, b: T) T{#endsyntax#}</pre>
+      <pre>{#syntax#}@min(...) T{#endsyntax#}</pre>
       <p>
-      Returns the minimum value of {#syntax#}a{#endsyntax#} and {#syntax#}b{#endsyntax#}. This builtin accepts integers, floats, and vectors of either. In the latter case, the operation is performed element wise.
+      Takes two or more arguments and returns the smallest value included (the minimum). This builtin accepts integers, floats, and vectors of either. In the latter case, the operation is performed element wise.
       </p>
       <p>
-      NaNs are handled as follows: if one of the operands of a (pairwise) operation is NaN, the other operand is returned. If both operands are NaN, NaN is returned.
+      NaNs are handled as follows: return the smallest non-NaN value included. If all operands are NaN, return NaN.
       </p>
       {#see_also|@max|Vectors#}
       {#header_close#}
@@ -5289,13 +5293,6 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       Selects values element-wise from {#syntax#}a{#endsyntax#} or {#syntax#}b{#endsyntax#} based on {#syntax#}pred{#endsyntax#}. If {#syntax#}pred[i]{#endsyntax#} is {#syntax#}true{#endsyntax#}, the corresponding element in the result will be {#syntax#}a[i]{#endsyntax#} and otherwise {#syntax#}b[i]{#endsyntax#}.
       </p>
       {#see_also|Vectors#}
-      {#header_close#}
-
-      {#header_open|@setAlignStack#}
-      <pre>{#syntax#}@setAlignStack(comptime alignment: u29) void{#endsyntax#}</pre>
-      <p>
-      Ensures that a function will have a stack alignment of at least {#syntax#}alignment{#endsyntax#} bytes.
-      </p>
       {#header_close#}
 
       {#header_open|@setEvalBranchQuota#}
@@ -5791,7 +5788,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_open|@TypeOf#}
       <pre>{#syntax#}@TypeOf(...) type{#endsyntax#}</pre>
       <p>
-      {#syntax#}@TypeOf{#endsyntax#} is a special builtin function that takes any (nonzero) number of expressions
+      {#syntax#}@TypeOf{#endsyntax#} is a special builtin function that takes any (non-zero) number of expressions
       as parameters and returns the type of the result, using {#link|Peer Type Resolution#}.
       </p>
       <p>
@@ -6242,10 +6239,12 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
           <li>Are you linking libc? In this case, {#syntax#}std.heap.c_allocator{#endsyntax#} is likely
               the right choice, at least for your main allocator.</li>
           <li>
+              Need to use the same allocator in multiple threads? Use one of your choice
+              wrapped around {#syntax#}std.heap.ThreadSafeAllocator{#endsyntax#}
+          </li>
+          <li>
               Is the maximum number of bytes that you will need bounded by a number known at
-              {#link|comptime#}? In this case, use {#syntax#}std.heap.FixedBufferAllocator{#endsyntax#} or
-              {#syntax#}std.heap.ThreadSafeFixedBufferAllocator{#endsyntax#} depending on whether you need
-              thread-safety or not.
+              {#link|comptime#}? In this case, use {#syntax#}std.heap.FixedBufferAllocator{#endsyntax#}.
           </li>
           <li>
               Is your program a command line application which runs from start to end without any fundamental

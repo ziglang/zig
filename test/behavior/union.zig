@@ -986,76 +986,6 @@ test "function call result coerces from tagged union to the tag" {
     try comptime S.doTheTest();
 }
 
-test "cast from anonymous struct to union" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
-    const S = struct {
-        const U = union(enum) {
-            A: u32,
-            B: []const u8,
-            C: void,
-        };
-        fn doTheTest() !void {
-            var y: u32 = 42;
-            _ = &y;
-            const t0 = .{ .A = 123 };
-            const t1 = .{ .B = "foo" };
-            const t2 = .{ .C = {} };
-            const t3 = .{ .A = y };
-            const x0: U = t0;
-            var x1: U = t1;
-            _ = &x1;
-            const x2: U = t2;
-            var x3: U = t3;
-            _ = &x3;
-            try expect(x0.A == 123);
-            try expect(std.mem.eql(u8, x1.B, "foo"));
-            try expect(x2 == .C);
-            try expect(x3.A == y);
-        }
-    };
-    try S.doTheTest();
-    try comptime S.doTheTest();
-}
-
-test "cast from pointer to anonymous struct to pointer to union" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
-    const S = struct {
-        const U = union(enum) {
-            A: u32,
-            B: []const u8,
-            C: void,
-        };
-        fn doTheTest() !void {
-            var y: u32 = 42;
-            _ = &y;
-            const t0 = &.{ .A = 123 };
-            const t1 = &.{ .B = "foo" };
-            const t2 = &.{ .C = {} };
-            const t3 = &.{ .A = y };
-            const x0: *const U = t0;
-            var x1: *const U = t1;
-            _ = &x1;
-            const x2: *const U = t2;
-            var x3: *const U = t3;
-            _ = &x3;
-            try expect(x0.A == 123);
-            try expect(std.mem.eql(u8, x1.B, "foo"));
-            try expect(x2.* == .C);
-            try expect(x3.A == y);
-        }
-    };
-    try S.doTheTest();
-    try comptime S.doTheTest();
-}
-
 test "switching on non exhaustive union" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
@@ -1890,9 +1820,8 @@ test "reinterpret packed union" {
     try comptime S.doTheTest();
 
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.cpu.arch.isPowerPC()) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21050
-    if (builtin.cpu.arch.isMIPS()) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21050
     if (builtin.cpu.arch.isWasm()) return error.SkipZigTest; // TODO
+    if (builtin.cpu.arch.endian() == .big) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21050
     try S.doTheTest();
 }
 
@@ -2337,4 +2266,40 @@ test "signed enum tag with negative value" {
     const e = Union{ .a = i };
 
     try expect(e.a == i);
+}
+
+test "union @FieldType" {
+    const U = union {
+        a: u32,
+        b: f64,
+        c: *@This(),
+    };
+
+    comptime assert(@FieldType(U, "a") == u32);
+    comptime assert(@FieldType(U, "b") == f64);
+    comptime assert(@FieldType(U, "c") == *U);
+}
+
+test "tagged union @FieldType" {
+    const U = union(enum) {
+        a: u32,
+        b: f64,
+        c: *@This(),
+    };
+
+    comptime assert(@FieldType(U, "a") == u32);
+    comptime assert(@FieldType(U, "b") == f64);
+    comptime assert(@FieldType(U, "c") == *U);
+}
+
+test "extern union @FieldType" {
+    const U = extern union {
+        a: u32,
+        b: f64,
+        c: *@This(),
+    };
+
+    comptime assert(@FieldType(U, "a") == u32);
+    comptime assert(@FieldType(U, "b") == f64);
+    comptime assert(@FieldType(U, "c") == *U);
 }

@@ -47,7 +47,7 @@ fn newSymbolAssumeCapacity(self: *LinkerDefined, name_off: u32, elf_file: *Elf) 
     const esym = self.symtab.addOneAssumeCapacity();
     esym.* = .{
         .st_name = name_off,
-        .st_info = elf.STB_GLOBAL << 4,
+        .st_info = elf.STB_WEAK << 4,
         .st_other = @intFromEnum(elf.STV.HIDDEN),
         .st_shndx = elf.SHN_ABS,
         .st_value = 0,
@@ -145,6 +145,7 @@ pub fn initStartStopSymbols(self: *LinkerDefined, elf_file: *Elf) !void {
     try self.symbols_resolver.ensureUnusedCapacity(gpa, nsyms);
 
     for (slice.items(.shdr)) |shdr| {
+        // TODO use getOrPut for incremental so that we don't create duplicates
         if (elf_file.getStartStopBasename(shdr)) |name| {
             const start_name = try std.fmt.allocPrintZ(gpa, "__start_{s}", .{name});
             defer gpa.free(start_name);
@@ -158,7 +159,6 @@ pub fn initStartStopSymbols(self: *LinkerDefined, elf_file: *Elf) !void {
                     .index = index,
                     .file = self.index,
                 }, elf_file);
-                assert(!gop.found_existing);
                 gop.ref.* = .{ .index = index, .file = self.index };
                 self.symbols_resolver.appendAssumeCapacity(gop.index);
             }
@@ -205,7 +205,7 @@ pub fn allocateSymbols(self: *LinkerDefined, elf_file: *Elf) void {
     }.allocSymbol;
 
     // _DYNAMIC
-    if (elf_file.dynamic_section_index) |shndx| {
+    if (elf_file.section_indexes.dynamic) |shndx| {
         const shdr = shdrs[shndx];
         allocSymbol(self, self.dynamic_index.?, shdr.sh_addr, shndx, elf_file);
     }
@@ -236,37 +236,39 @@ pub fn allocateSymbols(self: *LinkerDefined, elf_file: *Elf) void {
 
     // _GLOBAL_OFFSET_TABLE_
     if (elf_file.getTarget().cpu.arch == .x86_64) {
-        if (elf_file.got_plt_section_index) |shndx| {
+        if (elf_file.section_indexes.got_plt) |shndx| {
             const shdr = shdrs[shndx];
             allocSymbol(self, self.got_index.?, shdr.sh_addr, shndx, elf_file);
         }
     } else {
-        if (elf_file.got_section_index) |shndx| {
+        if (elf_file.section_indexes.got) |shndx| {
             const shdr = shdrs[shndx];
             allocSymbol(self, self.got_index.?, shdr.sh_addr, shndx, elf_file);
         }
     }
 
     // _PROCEDURE_LINKAGE_TABLE_
-    if (elf_file.plt_section_index) |shndx| {
+    if (elf_file.section_indexes.plt) |shndx| {
         const shdr = shdrs[shndx];
         allocSymbol(self, self.plt_index.?, shdr.sh_addr, shndx, elf_file);
     }
 
     // __dso_handle
     if (self.dso_handle_index) |index| {
-        const shdr = shdrs[1];
-        allocSymbol(self, index, shdr.sh_addr, 0, elf_file);
+        if (self.resolveSymbol(index, elf_file).file == self.index) {
+            const shdr = shdrs[1];
+            allocSymbol(self, index, shdr.sh_addr, 0, elf_file);
+        }
     }
 
     // __GNU_EH_FRAME_HDR
-    if (elf_file.eh_frame_hdr_section_index) |shndx| {
+    if (elf_file.section_indexes.eh_frame_hdr) |shndx| {
         const shdr = shdrs[shndx];
         allocSymbol(self, self.gnu_eh_frame_hdr_index.?, shdr.sh_addr, shndx, elf_file);
     }
 
     // __rela_iplt_start, __rela_iplt_end
-    if (elf_file.rela_dyn_section_index) |shndx| blk: {
+    if (elf_file.section_indexes.rela_dyn) |shndx| blk: {
         if (link_mode != .static or comp.config.pie) break :blk;
         const shdr = shdrs[shndx];
         const end_addr = shdr.sh_addr + shdr.sh_size;

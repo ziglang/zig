@@ -42,6 +42,16 @@
 # define CFI_RESTORE(reg)
 #endif
 
+#if defined(__aarch64__) && defined(__ARM_FEATURE_BTI_DEFAULT)
+# define ASM_STARTPROC CFI_STARTPROC; hint #34
+# define C_ASM_STARTPROC SANITIZER_STRINGIFY(CFI_STARTPROC) "\nhint #34"
+#else
+# define ASM_STARTPROC CFI_STARTPROC
+# define C_ASM_STARTPROC SANITIZER_STRINGIFY(CFI_STARTPROC)
+#endif
+#define ASM_ENDPROC CFI_ENDPROC
+#define C_ASM_ENDPROC SANITIZER_STRINGIFY(CFI_ENDPROC)
+
 #if defined(__x86_64__) || defined(__i386__) || defined(__sparc__)
 # define ASM_TAIL_CALL jmp
 #elif defined(__arm__) || defined(__aarch64__) || defined(__mips__) || \
@@ -53,6 +63,29 @@
 # define ASM_TAIL_CALL tail
 #endif
 
+// Currently, almost all of the shared libraries rely on the value of
+// $t9 to get the address of current function, instead of PCREL, even
+// on MIPSr6. To be compatiable with them, we have to set $t9 properly.
+// MIPS uses GOT to get the address of preemptible functions.
+#if defined(__mips64)
+#  define C_ASM_TAIL_CALL(t_func, i_func)                       \
+    "lui $t8, %hi(%neg(%gp_rel(" t_func ")))\n"                 \
+    "daddu $t8, $t8, $t9\n"                                     \
+    "daddiu $t8, $t8, %lo(%neg(%gp_rel(" t_func ")))\n"         \
+    "ld $t9, %got_disp(" i_func ")($t8)\n"                      \
+    "jr $t9\n"
+#elif defined(__mips__)
+#  define C_ASM_TAIL_CALL(t_func, i_func)                       \
+    ".set    noreorder\n"                                       \
+    ".cpload $t9\n"                                             \
+    ".set    reorder\n"                                         \
+    "lw $t9, %got(" i_func ")($gp)\n"                           \
+    "jr $t9\n"
+#elif defined(ASM_TAIL_CALL)
+#  define C_ASM_TAIL_CALL(t_func, i_func)                       \
+    SANITIZER_STRINGIFY(ASM_TAIL_CALL) " " i_func
+#endif
+
 #if defined(__ELF__) && defined(__x86_64__) || defined(__i386__) || \
     defined(__riscv)
 # define ASM_PREEMPTIBLE_SYM(sym) sym@plt
@@ -62,7 +95,11 @@
 
 #if !defined(__APPLE__)
 # define ASM_HIDDEN(symbol) .hidden symbol
-# define ASM_TYPE_FUNCTION(symbol) .type symbol, %function
+# if defined(__arm__) || defined(__aarch64__)
+#  define ASM_TYPE_FUNCTION(symbol) .type symbol, %function
+# else
+#  define ASM_TYPE_FUNCTION(symbol) .type symbol, @function
+# endif
 # define ASM_SIZE(symbol) .size symbol, .-symbol
 # define ASM_SYMBOL(symbol) symbol
 # define ASM_SYMBOL_INTERCEPTOR(symbol) symbol
@@ -87,9 +124,9 @@
          .globl __interceptor_trampoline_##name;                               \
          ASM_TYPE_FUNCTION(__interceptor_trampoline_##name);                   \
          __interceptor_trampoline_##name:                                      \
-                 CFI_STARTPROC;                                                \
+                 ASM_STARTPROC;                                                \
                  ASM_TAIL_CALL ASM_PREEMPTIBLE_SYM(__interceptor_##name);      \
-                 CFI_ENDPROC;                                                  \
+                 ASM_ENDPROC;                                                  \
          ASM_SIZE(__interceptor_trampoline_##name)
 #  define ASM_INTERCEPTOR_TRAMPOLINE_SUPPORT 1
 # endif  // Architecture supports interceptor trampoline

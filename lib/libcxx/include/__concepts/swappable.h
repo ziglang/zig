@@ -15,8 +15,8 @@
 #include <__concepts/constructible.h>
 #include <__config>
 #include <__type_traits/extent.h>
-#include <__type_traits/is_nothrow_move_assignable.h>
-#include <__type_traits/is_nothrow_move_constructible.h>
+#include <__type_traits/is_nothrow_assignable.h>
+#include <__type_traits/is_nothrow_constructible.h>
 #include <__type_traits/remove_cvref.h>
 #include <__utility/exchange.h>
 #include <__utility/forward.h>

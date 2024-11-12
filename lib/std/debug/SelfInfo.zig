@@ -184,10 +184,12 @@ fn lookupModuleDyld(self: *SelfInfo, address: usize) !*Module {
                     }
 
                     for (cmd.getSections()) |sect| {
+                        const sect_addr: usize = @intCast(sect.addr);
+                        const sect_size: usize = @intCast(sect.size);
                         if (mem.eql(u8, "__unwind_info", sect.sectName())) {
-                            unwind_info = @as([*]const u8, @ptrFromInt(sect.addr + vmaddr_slide))[0..sect.size];
+                            unwind_info = @as([*]const u8, @ptrFromInt(sect_addr + vmaddr_slide))[0..sect_size];
                         } else if (mem.eql(u8, "__eh_frame", sect.sectName())) {
-                            eh_frame = @as([*]const u8, @ptrFromInt(sect.addr + vmaddr_slide))[0..sect.size];
+                            eh_frame = @as([*]const u8, @ptrFromInt(sect_addr + vmaddr_slide))[0..sect_size];
                         }
                     }
 
@@ -590,7 +592,7 @@ pub const Module = switch (native_os) {
                 const section_bytes = try Dwarf.chopSlice(mapped_mem, sect.offset, sect.size);
                 sections[section_index.?] = .{
                     .data = section_bytes,
-                    .virtual_address = sect.addr,
+                    .virtual_address = @intCast(sect.addr),
                     .owned = false,
                 };
             }
@@ -1417,7 +1419,7 @@ pub fn unwindFrameMachO(
                 return unwindFrameMachODwarf(context, ma, eh_frame orelse return error.MissingEhFrame, @intCast(encoding.value.x86_64.dwarf));
             },
         },
-        .aarch64 => switch (encoding.mode.arm64) {
+        .aarch64, .aarch64_be => switch (encoding.mode.arm64) {
             .OLD => return error.UnimplementedUnwindEncoding,
             .FRAMELESS => blk: {
                 const sp = (try regValueNative(context.thread_context, spRegNum(reg_context), reg_context)).*;
@@ -1533,7 +1535,7 @@ pub const UnwindContext = struct {
 /// Some platforms use pointer authentication - the upper bits of instruction pointers contain a signature.
 /// This function clears these signature bits to make the pointer usable.
 pub inline fn stripInstructionPtrAuthCode(ptr: usize) usize {
-    if (native_arch == .aarch64) {
+    if (native_arch.isAARCH64()) {
         // `hint 0x07` maps to `xpaclri` (or `nop` if the hardware doesn't support it)
         // The save / restore is because `xpaclri` operates on x30 (LR)
         return asm (
@@ -1624,12 +1626,12 @@ pub fn unwindFrameDwarf(
     } else {
         const index = std.sort.binarySearch(Dwarf.FrameDescriptionEntry, di.fde_list.items, context.pc, struct {
             pub fn compareFn(pc: usize, item: Dwarf.FrameDescriptionEntry) std.math.Order {
-                if (pc < item.pc_begin) return .gt;
+                if (pc < item.pc_begin) return .lt;
 
                 const range_end = item.pc_begin + item.pc_range;
                 if (pc < range_end) return .eq;
 
-                return .lt;
+                return .gt;
             }
         }.compareFn);
 
@@ -1785,11 +1787,11 @@ pub fn supportsUnwinding(target: std.Target) bool {
             .linux, .netbsd, .freebsd, .openbsd, .macos, .ios, .solaris, .illumos => true,
             else => false,
         },
-        .arm => switch (target.os.tag) {
+        .arm, .armeb, .thumb, .thumbeb => switch (target.os.tag) {
             .linux => true,
             else => false,
         },
-        .aarch64 => switch (target.os.tag) {
+        .aarch64, .aarch64_be => switch (target.os.tag) {
             .linux, .netbsd, .freebsd, .macos, .ios => true,
             else => false,
         },
@@ -2192,7 +2194,7 @@ pub const VirtualMachine = struct {
 /// the .undefined rule by default, but allows ABI authors to override that.
 fn getRegDefaultValue(reg_number: u8, context: *UnwindContext, out: []u8) !void {
     switch (builtin.cpu.arch) {
-        .aarch64 => {
+        .aarch64, .aarch64_be => {
             // Callee-saved registers are initialized as if they had the .same_value rule
             if (reg_number >= 19 and reg_number <= 28) {
                 const src = try regBytes(context.thread_context, reg_number, context.reg_context);

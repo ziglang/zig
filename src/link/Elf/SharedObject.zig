@@ -1,245 +1,317 @@
-path: []const u8,
+path: Path,
 index: File.Index,
 
-header: ?elf.Elf64_Ehdr = null,
-shdrs: std.ArrayListUnmanaged(elf.Elf64_Shdr) = .empty,
+parsed: Parsed,
 
-symtab: std.ArrayListUnmanaged(elf.Elf64_Sym) = .empty,
-strtab: std.ArrayListUnmanaged(u8) = .empty,
-/// Version symtab contains version strings of the symbols if present.
-versyms: std.ArrayListUnmanaged(elf.Elf64_Versym) = .empty,
-verstrings: std.ArrayListUnmanaged(u32) = .empty,
+symbols: std.ArrayListUnmanaged(Symbol),
+symbols_extra: std.ArrayListUnmanaged(u32),
+symbols_resolver: std.ArrayListUnmanaged(Elf.SymbolResolver.Index),
 
-symbols: std.ArrayListUnmanaged(Symbol) = .empty,
-symbols_extra: std.ArrayListUnmanaged(u32) = .empty,
-symbols_resolver: std.ArrayListUnmanaged(Elf.SymbolResolver.Index) = .empty,
-
-aliases: ?std.ArrayListUnmanaged(u32) = null,
-dynamic_table: std.ArrayListUnmanaged(elf.Elf64_Dyn) = .empty,
+aliases: ?std.ArrayListUnmanaged(u32),
 
 needed: bool,
 alive: bool,
 
-output_symtab_ctx: Elf.SymtabCtx = .{},
+output_symtab_ctx: Elf.SymtabCtx,
 
-pub fn isSharedObject(path: []const u8) !bool {
-    const file = try std.fs.cwd().openFile(path, .{});
-    defer file.close();
-    const reader = file.reader();
-    const header = reader.readStruct(elf.Elf64_Ehdr) catch return false;
-    if (!mem.eql(u8, header.e_ident[0..4], "\x7fELF")) return false;
-    if (header.e_ident[elf.EI_VERSION] != 1) return false;
-    if (header.e_type != elf.ET.DYN) return false;
-    return true;
+pub fn deinit(so: *SharedObject, gpa: Allocator) void {
+    gpa.free(so.path.sub_path);
+    so.parsed.deinit(gpa);
+    so.symbols.deinit(gpa);
+    so.symbols_extra.deinit(gpa);
+    so.symbols_resolver.deinit(gpa);
+    if (so.aliases) |*aliases| aliases.deinit(gpa);
+    so.* = undefined;
 }
 
-pub fn deinit(self: *SharedObject, allocator: Allocator) void {
-    allocator.free(self.path);
-    self.shdrs.deinit(allocator);
-    self.symtab.deinit(allocator);
-    self.strtab.deinit(allocator);
-    self.versyms.deinit(allocator);
-    self.verstrings.deinit(allocator);
-    self.symbols.deinit(allocator);
-    self.symbols_extra.deinit(allocator);
-    self.symbols_resolver.deinit(allocator);
-    if (self.aliases) |*aliases| aliases.deinit(allocator);
-    self.dynamic_table.deinit(allocator);
-}
+pub const Header = struct {
+    dynamic_table: []const elf.Elf64_Dyn,
+    soname_index: ?u32,
+    verdefnum: ?u32,
 
-pub fn parse(self: *SharedObject, elf_file: *Elf, handle: std.fs.File) !void {
-    const comp = elf_file.base.comp;
-    const gpa = comp.gpa;
-    const file_size = (try handle.stat()).size;
+    sections: []const elf.Elf64_Shdr,
+    dynsym_sect_index: ?u32,
+    versym_sect_index: ?u32,
+    verdef_sect_index: ?u32,
 
-    const header_buffer = try Elf.preadAllAlloc(gpa, handle, 0, @sizeOf(elf.Elf64_Ehdr));
-    defer gpa.free(header_buffer);
-    self.header = @as(*align(1) const elf.Elf64_Ehdr, @ptrCast(header_buffer)).*;
+    stat: Stat,
+    strtab: std.ArrayListUnmanaged(u8),
 
-    const em = elf_file.base.comp.root_mod.resolved_target.result.toElfMachine();
-    if (em != self.header.?.e_machine) {
-        try elf_file.reportParseError2(
-            self.index,
-            "invalid ELF machine type: {s}",
-            .{@tagName(self.header.?.e_machine)},
-        );
-        return error.InvalidMachineType;
+    pub fn deinit(header: *Header, gpa: Allocator) void {
+        gpa.free(header.sections);
+        gpa.free(header.dynamic_table);
+        header.strtab.deinit(gpa);
+        header.* = undefined;
     }
 
-    const shoff = std.math.cast(usize, self.header.?.e_shoff) orelse return error.Overflow;
-    const shnum = std.math.cast(usize, self.header.?.e_shnum) orelse return error.Overflow;
-    const shsize = shnum * @sizeOf(elf.Elf64_Shdr);
-    if (file_size < shoff or file_size < shoff + shsize) {
-        try elf_file.reportParseError2(
-            self.index,
-            "corrupted header: section header table extends past the end of file",
-            .{},
-        );
-        return error.MalformedObject;
+    pub fn soname(header: Header) ?[]const u8 {
+        const i = header.soname_index orelse return null;
+        return Elf.stringTableLookup(header.strtab.items, i);
+    }
+};
+
+pub const Parsed = struct {
+    stat: Stat,
+    strtab: []const u8,
+    soname_index: ?u32,
+    sections: []const elf.Elf64_Shdr,
+
+    /// Nonlocal symbols only.
+    symtab: []const elf.Elf64_Sym,
+    /// Version symtab contains version strings of the symbols if present.
+    /// Nonlocal symbols only.
+    versyms: []const elf.Versym,
+    /// Nonlocal symbols only.
+    symbols: []const Parsed.Symbol,
+
+    verstrings: []const u32,
+
+    const Symbol = struct {
+        mangled_name: u32,
+    };
+
+    pub fn deinit(p: *Parsed, gpa: Allocator) void {
+        gpa.free(p.strtab);
+        gpa.free(p.symtab);
+        gpa.free(p.versyms);
+        gpa.free(p.symbols);
+        gpa.free(p.verstrings);
+        p.* = undefined;
     }
 
-    const shdrs_buffer = try Elf.preadAllAlloc(gpa, handle, shoff, shsize);
-    defer gpa.free(shdrs_buffer);
-    const shdrs = @as([*]align(1) const elf.Elf64_Shdr, @ptrCast(shdrs_buffer.ptr))[0..shnum];
-    try self.shdrs.appendUnalignedSlice(gpa, shdrs);
+    pub fn versionString(p: Parsed, index: elf.Versym) [:0]const u8 {
+        return versionStringLookup(p.strtab, p.verstrings, index);
+    }
+
+    pub fn soname(p: Parsed) ?[]const u8 {
+        const i = p.soname_index orelse return null;
+        return Elf.stringTableLookup(p.strtab, i);
+    }
+};
+
+pub fn parseHeader(
+    gpa: Allocator,
+    diags: *Diags,
+    file_path: Path,
+    fs_file: std.fs.File,
+    stat: Stat,
+    target: std.Target,
+) !Header {
+    var ehdr: elf.Elf64_Ehdr = undefined;
+    {
+        const buf = mem.asBytes(&ehdr);
+        const amt = try fs_file.preadAll(buf, 0);
+        if (amt != buf.len) return error.UnexpectedEndOfFile;
+    }
+    if (!mem.eql(u8, ehdr.e_ident[0..4], "\x7fELF")) return error.BadMagic;
+    if (ehdr.e_ident[elf.EI_VERSION] != 1) return error.BadElfVersion;
+    if (ehdr.e_type != elf.ET.DYN) return error.NotSharedObject;
+
+    if (target.toElfMachine() != ehdr.e_machine)
+        return diags.failParse(file_path, "invalid ELF machine type: {s}", .{@tagName(ehdr.e_machine)});
+
+    const shoff = std.math.cast(usize, ehdr.e_shoff) orelse return error.Overflow;
+    const shnum = std.math.cast(u32, ehdr.e_shnum) orelse return error.Overflow;
+
+    const sections = try gpa.alloc(elf.Elf64_Shdr, shnum);
+    errdefer gpa.free(sections);
+    {
+        const buf = mem.sliceAsBytes(sections);
+        const amt = try fs_file.preadAll(buf, shoff);
+        if (amt != buf.len) return error.UnexpectedEndOfFile;
+    }
 
     var dynsym_sect_index: ?u32 = null;
     var dynamic_sect_index: ?u32 = null;
     var versym_sect_index: ?u32 = null;
     var verdef_sect_index: ?u32 = null;
-    for (self.shdrs.items, 0..) |shdr, i| {
-        if (shdr.sh_type != elf.SHT_NOBITS) {
-            if (file_size < shdr.sh_offset or file_size < shdr.sh_offset + shdr.sh_size) {
-                try elf_file.reportParseError2(self.index, "corrupted section header", .{});
-                return error.MalformedObject;
-            }
-        }
+    for (sections, 0..) |shdr, i_usize| {
+        const i: u32 = @intCast(i_usize);
         switch (shdr.sh_type) {
-            elf.SHT_DYNSYM => dynsym_sect_index = @intCast(i),
-            elf.SHT_DYNAMIC => dynamic_sect_index = @intCast(i),
-            elf.SHT_GNU_VERSYM => versym_sect_index = @intCast(i),
-            elf.SHT_GNU_VERDEF => verdef_sect_index = @intCast(i),
-            else => {},
+            elf.SHT_DYNSYM => dynsym_sect_index = i,
+            elf.SHT_DYNAMIC => dynamic_sect_index = i,
+            elf.SHT_GNU_VERSYM => versym_sect_index = i,
+            elf.SHT_GNU_VERDEF => verdef_sect_index = i,
+            else => continue,
         }
     }
 
-    if (dynamic_sect_index) |index| {
-        const shdr = self.shdrs.items[index];
-        const raw = try Elf.preadAllAlloc(gpa, handle, shdr.sh_offset, shdr.sh_size);
-        defer gpa.free(raw);
-        const num = @divExact(raw.len, @sizeOf(elf.Elf64_Dyn));
-        const dyntab = @as([*]align(1) const elf.Elf64_Dyn, @ptrCast(raw.ptr))[0..num];
-        try self.dynamic_table.appendUnalignedSlice(gpa, dyntab);
+    const dynamic_table: []elf.Elf64_Dyn = if (dynamic_sect_index) |index| dt: {
+        const shdr = sections[index];
+        const n = std.math.cast(usize, shdr.sh_size / @sizeOf(elf.Elf64_Dyn)) orelse return error.Overflow;
+        const dynamic_table = try gpa.alloc(elf.Elf64_Dyn, n);
+        errdefer gpa.free(dynamic_table);
+        const buf = mem.sliceAsBytes(dynamic_table);
+        const amt = try fs_file.preadAll(buf, shdr.sh_offset);
+        if (amt != buf.len) return error.UnexpectedEndOfFile;
+        break :dt dynamic_table;
+    } else &.{};
+    errdefer gpa.free(dynamic_table);
+
+    var strtab: std.ArrayListUnmanaged(u8) = .empty;
+    errdefer strtab.deinit(gpa);
+
+    if (dynsym_sect_index) |index| {
+        const dynsym_shdr = sections[index];
+        if (dynsym_shdr.sh_link >= sections.len) return error.BadStringTableIndex;
+        const strtab_shdr = sections[dynsym_shdr.sh_link];
+        const n = std.math.cast(usize, strtab_shdr.sh_size) orelse return error.Overflow;
+        const buf = try strtab.addManyAsSlice(gpa, n);
+        const amt = try fs_file.preadAll(buf, strtab_shdr.sh_offset);
+        if (amt != buf.len) return error.UnexpectedEndOfFile;
     }
 
-    const symtab = if (dynsym_sect_index) |index| blk: {
-        const shdr = self.shdrs.items[index];
-        const buffer = try Elf.preadAllAlloc(gpa, handle, shdr.sh_offset, shdr.sh_size);
-        const nsyms = @divExact(buffer.len, @sizeOf(elf.Elf64_Sym));
-        break :blk @as([*]align(1) const elf.Elf64_Sym, @ptrCast(buffer.ptr))[0..nsyms];
-    } else &[0]elf.Elf64_Sym{};
+    var soname_index: ?u32 = null;
+    var verdefnum: ?u32 = null;
+    for (dynamic_table) |entry| switch (entry.d_tag) {
+        elf.DT_SONAME => {
+            if (entry.d_val >= strtab.items.len) return error.BadSonameIndex;
+            soname_index = @intCast(entry.d_val);
+        },
+        elf.DT_VERDEFNUM => {
+            verdefnum = @intCast(entry.d_val);
+        },
+        else => continue,
+    };
+
+    return .{
+        .dynamic_table = dynamic_table,
+        .soname_index = soname_index,
+        .verdefnum = verdefnum,
+        .sections = sections,
+        .dynsym_sect_index = dynsym_sect_index,
+        .versym_sect_index = versym_sect_index,
+        .verdef_sect_index = verdef_sect_index,
+        .strtab = strtab,
+        .stat = stat,
+    };
+}
+
+pub fn parse(
+    gpa: Allocator,
+    /// Moves resources from header. Caller may unconditionally deinit.
+    header: *Header,
+    fs_file: std.fs.File,
+) !Parsed {
+    const symtab = if (header.dynsym_sect_index) |index| st: {
+        const shdr = header.sections[index];
+        const n = std.math.cast(usize, shdr.sh_size / @sizeOf(elf.Elf64_Sym)) orelse return error.Overflow;
+        const symtab = try gpa.alloc(elf.Elf64_Sym, n);
+        errdefer gpa.free(symtab);
+        const buf = mem.sliceAsBytes(symtab);
+        const amt = try fs_file.preadAll(buf, shdr.sh_offset);
+        if (amt != buf.len) return error.UnexpectedEndOfFile;
+        break :st symtab;
+    } else &.{};
     defer gpa.free(symtab);
 
-    const strtab = if (dynsym_sect_index) |index| blk: {
-        const symtab_shdr = self.shdrs.items[index];
-        const shdr = self.shdrs.items[symtab_shdr.sh_link];
-        const buffer = try Elf.preadAllAlloc(gpa, handle, shdr.sh_offset, shdr.sh_size);
-        break :blk buffer;
-    } else &[0]u8{};
-    defer gpa.free(strtab);
+    var verstrings: std.ArrayListUnmanaged(u32) = .empty;
+    defer verstrings.deinit(gpa);
 
-    try self.parseVersions(elf_file, handle, .{
-        .symtab = symtab,
-        .verdef_sect_index = verdef_sect_index,
-        .versym_sect_index = versym_sect_index,
-    });
-
-    try self.initSymbols(elf_file, .{
-        .symtab = symtab,
-        .strtab = strtab,
-    });
-}
-
-fn parseVersions(self: *SharedObject, elf_file: *Elf, handle: std.fs.File, opts: struct {
-    symtab: []align(1) const elf.Elf64_Sym,
-    verdef_sect_index: ?u32,
-    versym_sect_index: ?u32,
-}) !void {
-    const comp = elf_file.base.comp;
-    const gpa = comp.gpa;
-
-    try self.verstrings.resize(gpa, 2);
-    self.verstrings.items[elf.VER_NDX_LOCAL] = 0;
-    self.verstrings.items[elf.VER_NDX_GLOBAL] = 0;
-
-    if (opts.verdef_sect_index) |shndx| {
-        const shdr = self.shdrs.items[shndx];
-        const verdefs = try Elf.preadAllAlloc(gpa, handle, shdr.sh_offset, shdr.sh_size);
+    if (header.verdef_sect_index) |shndx| {
+        const shdr = header.sections[shndx];
+        const verdefs = try Elf.preadAllAlloc(gpa, fs_file, shdr.sh_offset, shdr.sh_size);
         defer gpa.free(verdefs);
-        const nverdefs = self.verdefNum();
-        try self.verstrings.resize(gpa, self.verstrings.items.len + nverdefs);
 
-        var i: u32 = 0;
         var offset: u32 = 0;
-        while (i < nverdefs) : (i += 1) {
-            const verdef = @as(*align(1) const elf.Elf64_Verdef, @ptrCast(verdefs.ptr + offset)).*;
-            defer offset += verdef.vd_next;
-            if (verdef.vd_flags == elf.VER_FLG_BASE) continue; // Skip BASE entry
-            const vda_name = if (verdef.vd_cnt > 0)
-                @as(*align(1) const elf.Elf64_Verdaux, @ptrCast(verdefs.ptr + offset + verdef.vd_aux)).vda_name
-            else
-                0;
-            self.verstrings.items[verdef.vd_ndx] = vda_name;
+        while (true) {
+            const verdef = mem.bytesAsValue(elf.Verdef, verdefs[offset..][0..@sizeOf(elf.Verdef)]);
+            if (verdef.ndx == .UNSPECIFIED) return error.VerDefSymbolTooLarge;
+
+            if (verstrings.items.len <= @intFromEnum(verdef.ndx))
+                try verstrings.appendNTimes(gpa, 0, @intFromEnum(verdef.ndx) + 1 - verstrings.items.len);
+
+            const aux = mem.bytesAsValue(elf.Verdaux, verdefs[offset + verdef.aux ..][0..@sizeOf(elf.Verdaux)]);
+            verstrings.items[@intFromEnum(verdef.ndx)] = aux.name;
+
+            if (verdef.next == 0) break;
+            offset += verdef.next;
         }
     }
 
-    try self.versyms.ensureTotalCapacityPrecise(gpa, opts.symtab.len);
+    const versyms = if (header.versym_sect_index) |versym_sect_index| vs: {
+        const shdr = header.sections[versym_sect_index];
+        if (shdr.sh_size != symtab.len * @sizeOf(elf.Versym)) return error.BadVerSymSectionSize;
 
-    if (opts.versym_sect_index) |shndx| {
-        const shdr = self.shdrs.items[shndx];
-        const versyms_raw = try Elf.preadAllAlloc(gpa, handle, shdr.sh_offset, shdr.sh_size);
-        defer gpa.free(versyms_raw);
-        const nversyms = @divExact(versyms_raw.len, @sizeOf(elf.Elf64_Versym));
-        const versyms = @as([*]align(1) const elf.Elf64_Versym, @ptrCast(versyms_raw.ptr))[0..nversyms];
-        for (versyms) |ver| {
-            const normalized_ver = if (ver & elf.VERSYM_VERSION >= self.verstrings.items.len - 1)
-                elf.VER_NDX_GLOBAL
-            else
-                ver;
-            self.versyms.appendAssumeCapacity(normalized_ver);
-        }
-    } else for (0..opts.symtab.len) |_| {
-        self.versyms.appendAssumeCapacity(elf.VER_NDX_GLOBAL);
+        const versyms = try gpa.alloc(elf.Versym, symtab.len);
+        errdefer gpa.free(versyms);
+        const buf = mem.sliceAsBytes(versyms);
+        const amt = try fs_file.preadAll(buf, shdr.sh_offset);
+        if (amt != buf.len) return error.UnexpectedEndOfFile;
+        break :vs versyms;
+    } else &.{};
+    defer gpa.free(versyms);
+
+    var nonlocal_esyms: std.ArrayListUnmanaged(elf.Elf64_Sym) = .empty;
+    defer nonlocal_esyms.deinit(gpa);
+
+    var nonlocal_versyms: std.ArrayListUnmanaged(elf.Versym) = .empty;
+    defer nonlocal_versyms.deinit(gpa);
+
+    var nonlocal_symbols: std.ArrayListUnmanaged(Parsed.Symbol) = .empty;
+    defer nonlocal_symbols.deinit(gpa);
+
+    var strtab = header.strtab;
+    header.strtab = .empty;
+    defer strtab.deinit(gpa);
+
+    for (symtab, 0..) |sym, i| {
+        const ver: elf.Versym = if (versyms.len == 0 or sym.st_shndx == elf.SHN_UNDEF)
+            .GLOBAL
+        else
+            .{ .VERSION = versyms[i].VERSION, .HIDDEN = false };
+
+        // https://github.com/ziglang/zig/issues/21678
+        //if (ver == .LOCAL) continue;
+        if (@as(u16, @bitCast(ver)) == 0) continue;
+
+        try nonlocal_esyms.ensureUnusedCapacity(gpa, 1);
+        try nonlocal_versyms.ensureUnusedCapacity(gpa, 1);
+        try nonlocal_symbols.ensureUnusedCapacity(gpa, 1);
+
+        const name = Elf.stringTableLookup(strtab.items, sym.st_name);
+        const is_default = versyms.len == 0 or !versyms[i].HIDDEN;
+        const mangled_name = if (is_default) sym.st_name else mn: {
+            const off: u32 = @intCast(strtab.items.len);
+            const version_string = versionStringLookup(strtab.items, verstrings.items, versyms[i]);
+            try strtab.ensureUnusedCapacity(gpa, name.len + version_string.len + 2);
+            // Reload since the string table might have been resized.
+            const name2 = Elf.stringTableLookup(strtab.items, sym.st_name);
+            const version_string2 = versionStringLookup(strtab.items, verstrings.items, versyms[i]);
+            strtab.appendSliceAssumeCapacity(name2);
+            strtab.appendAssumeCapacity('@');
+            strtab.appendSliceAssumeCapacity(version_string2);
+            strtab.appendAssumeCapacity(0);
+            break :mn off;
+        };
+
+        nonlocal_esyms.appendAssumeCapacity(sym);
+        nonlocal_versyms.appendAssumeCapacity(ver);
+        nonlocal_symbols.appendAssumeCapacity(.{
+            .mangled_name = mangled_name,
+        });
     }
-}
 
-fn initSymbols(self: *SharedObject, elf_file: *Elf, opts: struct {
-    symtab: []align(1) const elf.Elf64_Sym,
-    strtab: []const u8,
-}) !void {
-    const gpa = elf_file.base.comp.gpa;
-    const nsyms = opts.symtab.len;
+    const sections = header.sections;
+    header.sections = &.{};
+    errdefer gpa.free(sections);
 
-    try self.strtab.appendSlice(gpa, opts.strtab);
-    try self.symtab.ensureTotalCapacityPrecise(gpa, nsyms);
-    try self.symbols.ensureTotalCapacityPrecise(gpa, nsyms);
-    try self.symbols_extra.ensureTotalCapacityPrecise(gpa, nsyms * @sizeOf(Symbol.Extra));
-    try self.symbols_resolver.ensureTotalCapacityPrecise(gpa, nsyms);
-    self.symbols_resolver.resize(gpa, nsyms) catch unreachable;
-    @memset(self.symbols_resolver.items, 0);
-
-    for (opts.symtab, 0..) |sym, i| {
-        const hidden = self.versyms.items[i] & elf.VERSYM_HIDDEN != 0;
-        const name = self.getString(sym.st_name);
-        // We need to garble up the name so that we don't pick this symbol
-        // during symbol resolution. Thank you GNU!
-        const name_off = if (hidden) blk: {
-            const mangled = try std.fmt.allocPrint(gpa, "{s}@{s}", .{
-                name,
-                self.versionString(self.versyms.items[i]),
-            });
-            defer gpa.free(mangled);
-            break :blk try self.addString(gpa, mangled);
-        } else sym.st_name;
-        const out_esym_index: u32 = @intCast(self.symtab.items.len);
-        const out_esym = self.symtab.addOneAssumeCapacity();
-        out_esym.* = sym;
-        out_esym.st_name = name_off;
-        const out_sym_index = self.addSymbolAssumeCapacity();
-        const out_sym = &self.symbols.items[out_sym_index];
-        out_sym.value = @intCast(out_esym.st_value);
-        out_sym.name_offset = name_off;
-        out_sym.ref = .{ .index = 0, .file = 0 };
-        out_sym.esym_index = out_esym_index;
-        out_sym.version_index = self.versyms.items[out_esym_index];
-        out_sym.extra_index = self.addSymbolExtraAssumeCapacity(.{});
-    }
+    return .{
+        .sections = sections,
+        .stat = header.stat,
+        .soname_index = header.soname_index,
+        .strtab = try strtab.toOwnedSlice(gpa),
+        .symtab = try nonlocal_esyms.toOwnedSlice(gpa),
+        .versyms = try nonlocal_versyms.toOwnedSlice(gpa),
+        .symbols = try nonlocal_symbols.toOwnedSlice(gpa),
+        .verstrings = try verstrings.toOwnedSlice(gpa),
+    };
 }
 
 pub fn resolveSymbols(self: *SharedObject, elf_file: *Elf) !void {
     const gpa = elf_file.base.comp.gpa;
 
-    for (self.symtab.items, self.symbols_resolver.items, 0..) |esym, *resolv, i| {
+    for (self.parsed.symtab, self.symbols_resolver.items, 0..) |esym, *resolv, i| {
         const gop = try elf_file.resolver.getOrPut(gpa, .{
             .index = @intCast(i),
             .file = self.index,
@@ -262,7 +334,7 @@ pub fn resolveSymbols(self: *SharedObject, elf_file: *Elf) !void {
 }
 
 pub fn markLive(self: *SharedObject, elf_file: *Elf) void {
-    for (self.symtab.items, 0..) |esym, i| {
+    for (self.parsed.symtab, 0..) |esym, i| {
         if (esym.st_shndx != elf.SHN_UNDEF) continue;
 
         const ref = self.resolveSymbol(@intCast(i), elf_file);
@@ -317,29 +389,21 @@ pub fn writeSymtab(self: *SharedObject, elf_file: *Elf) void {
     }
 }
 
-pub fn versionString(self: SharedObject, index: elf.Elf64_Versym) [:0]const u8 {
-    const off = self.verstrings.items[index & elf.VERSYM_VERSION];
-    return self.getString(off);
+pub fn versionString(self: SharedObject, index: elf.Versym) [:0]const u8 {
+    return self.parsed.versionString(index);
+}
+
+fn versionStringLookup(strtab: []const u8, verstrings: []const u32, index: elf.Versym) [:0]const u8 {
+    const off = verstrings[index.VERSION];
+    return Elf.stringTableLookup(strtab, off);
 }
 
 pub fn asFile(self: *SharedObject) File {
     return .{ .shared_object = self };
 }
 
-fn verdefNum(self: *SharedObject) u32 {
-    for (self.dynamic_table.items) |entry| switch (entry.d_tag) {
-        elf.DT_VERDEFNUM => return @as(u32, @intCast(entry.d_val)),
-        else => {},
-    };
-    return 0;
-}
-
 pub fn soname(self: *SharedObject) []const u8 {
-    for (self.dynamic_table.items) |entry| switch (entry.d_tag) {
-        elf.DT_SONAME => return self.getString(@as(u32, @intCast(entry.d_val))),
-        else => {},
-    };
-    return std.fs.path.basename(self.path);
+    return self.parsed.soname() orelse self.path.basename();
 }
 
 pub fn initSymbolAliases(self: *SharedObject, elf_file: *Elf) !void {
@@ -369,7 +433,7 @@ pub fn initSymbolAliases(self: *SharedObject, elf_file: *Elf) !void {
         aliases.appendAssumeCapacity(@intCast(index));
     }
 
-    std.mem.sort(u32, aliases.items, SortAlias{ .so = self, .ef = elf_file }, SortAlias.lessThan);
+    mem.sort(u32, aliases.items, SortAlias{ .so = self, .ef = elf_file }, SortAlias.lessThan);
 
     self.aliases = aliases.moveToUnmanaged();
 }
@@ -393,17 +457,8 @@ pub fn symbolAliases(self: *SharedObject, index: u32, elf_file: *Elf) []const u3
     return aliases.items[start..end];
 }
 
-fn addString(self: *SharedObject, allocator: Allocator, str: []const u8) !u32 {
-    const off: u32 = @intCast(self.strtab.items.len);
-    try self.strtab.ensureUnusedCapacity(allocator, str.len + 1);
-    self.strtab.appendSliceAssumeCapacity(str);
-    self.strtab.appendAssumeCapacity(0);
-    return off;
-}
-
 pub fn getString(self: SharedObject, off: u32) [:0]const u8 {
-    assert(off < self.strtab.items.len);
-    return mem.sliceTo(@as([*:0]const u8, @ptrCast(self.strtab.items.ptr + off)), 0);
+    return Elf.stringTableLookup(self.parsed.strtab, off);
 }
 
 pub fn resolveSymbol(self: SharedObject, index: Symbol.Index, elf_file: *Elf) Elf.Ref {
@@ -411,25 +466,14 @@ pub fn resolveSymbol(self: SharedObject, index: Symbol.Index, elf_file: *Elf) El
     return elf_file.resolver.get(resolv).?;
 }
 
-fn addSymbol(self: *SharedObject, allocator: Allocator) !Symbol.Index {
-    try self.symbols.ensureUnusedCapacity(allocator, 1);
-    return self.addSymbolAssumeCapacity();
-}
-
-fn addSymbolAssumeCapacity(self: *SharedObject) Symbol.Index {
+pub fn addSymbolAssumeCapacity(self: *SharedObject) Symbol.Index {
     const index: Symbol.Index = @intCast(self.symbols.items.len);
     self.symbols.appendAssumeCapacity(.{ .file_index = self.index });
     return index;
 }
 
-pub fn addSymbolExtra(self: *SharedObject, allocator: Allocator, extra: Symbol.Extra) !u32 {
-    const fields = @typeInfo(Symbol.Extra).@"struct".fields;
-    try self.symbols_extra.ensureUnusedCapacity(allocator, fields.len);
-    return self.addSymbolExtraAssumeCapacity(extra);
-}
-
 pub fn addSymbolExtraAssumeCapacity(self: *SharedObject, extra: Symbol.Extra) u32 {
-    const index = @as(u32, @intCast(self.symbols_extra.items.len));
+    const index: u32 = @intCast(self.symbols_extra.items.len);
     const fields = @typeInfo(Symbol.Extra).@"struct".fields;
     inline for (fields) |field| {
         self.symbols_extra.appendAssumeCapacity(switch (field.type) {
@@ -474,7 +518,7 @@ pub fn format(
     _ = unused_fmt_string;
     _ = options;
     _ = writer;
-    @compileError("do not format shared objects directly");
+    @compileError("unreachable");
 }
 
 pub fn fmtSymtab(self: SharedObject, elf_file: *Elf) std.fmt.Formatter(formatSymtab) {
@@ -517,8 +561,11 @@ const assert = std.debug.assert;
 const elf = std.elf;
 const log = std.log.scoped(.elf);
 const mem = std.mem;
-
+const Path = std.Build.Cache.Path;
+const Stat = std.Build.Cache.File.Stat;
 const Allocator = mem.Allocator;
+
 const Elf = @import("../Elf.zig");
 const File = @import("file.zig").File;
 const Symbol = @import("Symbol.zig");
+const Diags = @import("../../link.zig").Diags;

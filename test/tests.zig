@@ -28,6 +28,7 @@ const TestTarget = struct {
     use_lld: ?bool = null,
     pic: ?bool = null,
     strip: ?bool = null,
+    skip_modules: []const []const u8 = &.{},
 
     // This is intended for targets that are known to be slow to compile. These are acceptable to
     // run in CI, but should not be run on developer machines by default. As an example, at the time
@@ -339,6 +340,70 @@ const test_targets = blk: {
 
         .{
             .target = .{
+                .cpu_arch = .thumb,
+                .os_tag = .linux,
+                .abi = .eabi,
+            },
+        },
+        .{
+            .target = .{
+                .cpu_arch = .thumb,
+                .os_tag = .linux,
+                .abi = .eabihf,
+            },
+        },
+        .{
+            .target = .{
+                .cpu_arch = .thumb,
+                .os_tag = .linux,
+                .abi = .musleabi,
+            },
+            .link_libc = true,
+            .skip_modules = &.{"std"},
+        },
+        .{
+            .target = .{
+                .cpu_arch = .thumb,
+                .os_tag = .linux,
+                .abi = .musleabihf,
+            },
+            .link_libc = true,
+            .skip_modules = &.{"std"},
+        },
+        // Calls are normally lowered to branch instructions that only support +/- 16 MB range when
+        // targeting Thumb. This is not sufficient for the std test binary linked statically with
+        // musl, so use long calls to avoid out-of-range relocations.
+        .{
+            .target = std.Target.Query.parse(.{
+                .arch_os_abi = "thumb-linux-musleabi",
+                .cpu_features = "baseline+long_calls",
+            }) catch @panic("OOM"),
+            .link_libc = true,
+            .pic = false, // Long calls don't work with PIC.
+            .skip_modules = &.{
+                "behavior",
+                "c-import",
+                "compiler-rt",
+                "universal-libc",
+            },
+        },
+        .{
+            .target = std.Target.Query.parse(.{
+                .arch_os_abi = "thumb-linux-musleabihf",
+                .cpu_features = "baseline+long_calls",
+            }) catch @panic("OOM"),
+            .link_libc = true,
+            .pic = false, // Long calls don't work with PIC.
+            .skip_modules = &.{
+                "behavior",
+                "c-import",
+                "compiler-rt",
+                "universal-libc",
+            },
+        },
+
+        .{
+            .target = .{
                 .cpu_arch = .mips,
                 .os_tag = .linux,
                 .abi = .eabi,
@@ -454,7 +519,7 @@ const test_targets = blk: {
             .target = .{
                 .cpu_arch = .mips64,
                 .os_tag = .linux,
-                .abi = .musl,
+                .abi = .muslabi64,
             },
             .link_libc = true,
         },
@@ -478,7 +543,7 @@ const test_targets = blk: {
             .target = .{
                 .cpu_arch = .mips64el,
                 .os_tag = .linux,
-                .abi = .musl,
+                .abi = .muslabi64,
             },
             .link_libc = true,
         },
@@ -579,51 +644,114 @@ const test_targets = blk: {
             .link_libc = true,
         },
 
-        // Disabled until LLVM fixes their O(N^2) codegen. Note that this is so bad that we don't
-        // even want to include this in CI with `slow_backend`.
-        // https://github.com/ziglang/zig/issues/18872
-        //.{
-        //    .target = .{
-        //        .cpu_arch = .riscv64,
-        //        .os_tag = .linux,
-        //        .abi = .none,
-        //    },
-        //    .use_llvm = true,
-        //},
-
-        // Disabled until LLVM fixes their O(N^2) codegen. Note that this is so bad that we don't
-        // even want to include this in CI with `slow_backend`.
-        // https://github.com/ziglang/zig/issues/18872
-        //.{
-        //    .target = .{
-        //        .cpu_arch = .riscv64,
-        //        .os_tag = .linux,
-        //        .abi = .musl,
-        //    },
-        //    .link_libc = true,
-        //    .use_llvm = true,
-        //},
+        .{
+            .target = std.Target.Query.parse(.{
+                .arch_os_abi = "riscv32-linux-none",
+                .cpu_features = "baseline-d-f",
+            }) catch unreachable,
+        },
+        .{
+            .target = std.Target.Query.parse(.{
+                .arch_os_abi = "riscv32-linux-musl",
+                .cpu_features = "baseline-d-f",
+            }) catch unreachable,
+            .link_libc = true,
+        },
 
         .{
-            .target = std.Target.Query.parse(
-                .{
-                    .arch_os_abi = "riscv64-linux-musl",
-                    .cpu_features = "baseline+v+zbb",
-                },
-            ) catch @panic("OOM"),
+            .target = .{
+                .cpu_arch = .riscv32,
+                .os_tag = .linux,
+                .abi = .none,
+            },
+        },
+        .{
+            .target = .{
+                .cpu_arch = .riscv32,
+                .os_tag = .linux,
+                .abi = .musl,
+            },
+            .link_libc = true,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .riscv32,
+                .os_tag = .linux,
+                .abi = .gnu,
+            },
+            .link_libc = true,
+        },
+
+        .{
+            .target = std.Target.Query.parse(.{
+                .arch_os_abi = "riscv64-linux-none",
+                .cpu_features = "baseline-d-f",
+            }) catch unreachable,
+        },
+        .{
+            .target = std.Target.Query.parse(.{
+                .arch_os_abi = "riscv64-linux-musl",
+                .cpu_features = "baseline-d-f",
+            }) catch unreachable,
+            .link_libc = true,
+        },
+
+        .{
+            .target = .{
+                .cpu_arch = .riscv64,
+                .os_tag = .linux,
+                .abi = .none,
+            },
+        },
+        .{
+            .target = .{
+                .cpu_arch = .riscv64,
+                .os_tag = .linux,
+                .abi = .musl,
+            },
+            .link_libc = true,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .riscv64,
+                .os_tag = .linux,
+                .abi = .gnu,
+            },
+            .link_libc = true,
+        },
+
+        .{
+            .target = std.Target.Query.parse(.{
+                .arch_os_abi = "riscv64-linux-musl",
+                .cpu_features = "baseline+v+zbb",
+            }) catch unreachable,
             .use_llvm = false,
             .use_lld = false,
         },
 
-        // https://github.com/ziglang/zig/issues/3340
-        //.{
-        //    .target = .{
-        //        .cpu_arch = .riscv64,
-        //        .os = .linux,
-        //        .abi = .gnu,
-        //    },
-        //    .link_libc = true,
-        //},
+        .{
+            .target = .{
+                .cpu_arch = .s390x,
+                .os_tag = .linux,
+                .abi = .none,
+            },
+        },
+        .{
+            .target = .{
+                .cpu_arch = .s390x,
+                .os_tag = .linux,
+                .abi = .musl,
+            },
+            .link_libc = true,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .s390x,
+                .os_tag = .linux,
+                .abi = .gnu,
+            },
+            .link_libc = true,
+        },
 
         .{
             .target = .{
@@ -1162,7 +1290,13 @@ const ModuleTestOptions = struct {
 pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
     const step = b.step(b.fmt("test-{s}", .{options.name}), options.desc);
 
-    for (test_targets) |test_target| {
+    for_targets: for (test_targets) |test_target| {
+        if (test_target.skip_modules.len > 0) {
+            for (test_target.skip_modules) |skip_mod| {
+                if (std.mem.eql(u8, options.name, skip_mod)) continue :for_targets;
+            }
+        }
+
         if (!options.test_slow_targets and test_target.slow_backend) continue;
 
         if (options.skip_non_native and !test_target.target.isNative())
@@ -1210,14 +1344,6 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
         if (target.cpu.arch != .x86_64 and
             test_target.use_llvm == false and mem.eql(u8, options.name, "c-import"))
             continue;
-
-        if (target.cpu.arch == .x86_64 and target.os.tag == .windows and
-            test_target.target.cpu_arch == null and test_target.optimize_mode != .Debug and
-            mem.eql(u8, options.name, "std"))
-        {
-            // https://github.com/ziglang/zig/issues/17902
-            continue;
-        }
 
         const want_this_mode = for (options.optimize_modes) |m| {
             if (m == test_target.optimize_mode) break true;
@@ -1481,4 +1607,32 @@ pub fn addDebuggerTests(b: *std.Build, options: DebuggerContext.Options) ?*Step 
         .test_name_suffix = "x86_64-linux-pic",
     });
     return step;
+}
+
+pub fn addIncrementalTests(b: *std.Build, test_step: *Step) !void {
+    const incr_check = b.addExecutable(.{
+        .name = "incr-check",
+        .root_source_file = b.path("tools/incr-check.zig"),
+        .target = b.graph.host,
+        .optimize = .Debug,
+    });
+
+    var dir = try b.build_root.handle.openDir("test/incremental", .{ .iterate = true });
+    defer dir.close();
+
+    var it = try dir.walk(b.graph.arena);
+    while (try it.next()) |entry| {
+        if (entry.kind != .file) continue;
+
+        const run = b.addRunArtifact(incr_check);
+        run.setName(b.fmt("incr-check '{s}'", .{entry.basename}));
+
+        run.addArg(b.graph.zig_exe);
+        run.addFileArg(b.path("test/incremental/").path(b, entry.path));
+        run.addArgs(&.{ "--zig-lib-dir", b.fmt("{}", .{b.graph.zig_lib_directory}) });
+
+        run.addCheck(.{ .expect_term = .{ .Exited = 0 } });
+
+        test_step.dependOn(&run.step);
+    }
 }

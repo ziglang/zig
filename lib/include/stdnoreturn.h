@@ -10,8 +10,14 @@
 #ifndef __STDNORETURN_H
 #define __STDNORETURN_H
 
+#if defined(__MVS__) && __has_include_next(<stdnoreturn.h>)
+#include_next <stdnoreturn.h>
+#else
+
 #define noreturn _Noreturn
 #define __noreturn_is_defined 1
+
+#endif /* __MVS__ */
 
 #if (defined(__STDC_VERSION__) && __STDC_VERSION__ > 201710L) &&               \
     !defined(_CLANG_DISABLE_CRT_DEPRECATION_WARNINGS)

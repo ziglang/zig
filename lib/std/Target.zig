@@ -38,6 +38,7 @@ pub const Os = struct {
         netbsd,
         openbsd,
 
+        bridgeos,
         driverkit,
         ios,
         macos,
@@ -65,16 +66,17 @@ pub const Os = struct {
         nvcl,
         opencl,
         opengl,
-        shadermodel,
         vulkan,
 
         // LLVM tags deliberately omitted:
         // - darwin
         // - kfreebsd
         // - nacl
+        // - shadermodel
 
         pub inline fn isDarwin(tag: Tag) bool {
             return switch (tag) {
+                .bridgeos,
                 .driverkit,
                 .ios,
                 .macos,
@@ -111,7 +113,7 @@ pub const Os = struct {
 
         pub fn staticLibSuffix(tag: Tag, abi: Abi) [:0]const u8 {
             return switch (abi) {
-                .msvc => ".lib",
+                .msvc, .itanium => ".lib",
                 else => switch (tag) {
                     .windows, .uefi => ".lib",
                     else => ".a",
@@ -122,6 +124,7 @@ pub const Os = struct {
         pub fn dynamicLibSuffix(tag: Tag) [:0]const u8 {
             return switch (tag) {
                 .windows, .uefi => ".dll",
+                .bridgeos,
                 .driverkit,
                 .ios,
                 .macos,
@@ -135,7 +138,7 @@ pub const Os = struct {
 
         pub fn libPrefix(tag: Os.Tag, abi: Abi) [:0]const u8 {
             return switch (abi) {
-                .msvc => "",
+                .msvc, .itanium => "",
                 else => switch (tag) {
                     .windows, .uefi => "",
                     else => "lib",
@@ -154,50 +157,65 @@ pub const Os = struct {
             };
         }
 
-        pub inline fn getVersionRangeTag(tag: Tag) @typeInfo(TaggedVersionRange).@"union".tag_type.? {
+        pub inline fn versionRangeTag(tag: Tag) @typeInfo(TaggedVersionRange).@"union".tag_type.? {
             return switch (tag) {
                 .freestanding,
-                .fuchsia,
-                .ps3,
-                .zos,
+                .other,
+
+                .elfiamcu,
+
                 .haiku,
-                .rtems,
-                .aix,
-                .cuda,
-                .nvcl,
-                .amdhsa,
+                .plan9,
+                .serenity,
+
+                // This should use semver once we determine the version history.
+                .bridgeos,
+
+                .illumos,
+
+                .ps3,
                 .ps4,
                 .ps5,
-                .elfiamcu,
-                .mesa3d,
-                .contiki,
-                .amdpal,
-                .hermit,
-                .hurd,
+
                 .emscripten,
-                .shadermodel,
-                .uefi,
-                .opencl, // TODO: OpenCL versions
-                .opengl, // TODO: GLSL versions
-                .vulkan,
-                .plan9,
-                .illumos,
-                .serenity,
-                .other,
+
+                .mesa3d,
                 => .none,
 
-                .driverkit,
+                .contiki,
+                .fuchsia,
+                .hermit,
+
+                .aix,
+                .hurd,
+                .rtems,
+                .zos,
+
+                .dragonfly,
                 .freebsd,
+                .netbsd,
+                .openbsd,
+
+                .driverkit,
                 .macos,
                 .ios,
                 .tvos,
-                .watchos,
                 .visionos,
-                .netbsd,
-                .openbsd,
-                .dragonfly,
+                .watchos,
+
                 .solaris,
+
+                .uefi,
+
                 .wasi,
+
+                .amdhsa,
+                .amdpal,
+                .cuda,
+                .nvcl,
+                .opencl,
+                .opengl,
+                .vulkan,
                 => .semver,
 
                 .linux => .linux,
@@ -252,10 +270,11 @@ pub const Os = struct {
         win11_zn = 0x0A00000E, //aka win11_21h2
         win11_ga = 0x0A00000F, //aka win11_22h2
         win11_ge = 0x0A000010, //aka win11_23h2
+        win11_dt = 0x0A000011, //aka win11_24h2
         _,
 
         /// Latest Windows version that the Zig Standard Library is aware of
-        pub const latest = WindowsVersion.win11_ge;
+        pub const latest = WindowsVersion.win11_dt;
 
         /// Compared against build numbers reported by the runtime to distinguish win10 versions,
         /// where 0x0A000000 + index corresponds to the WindowsVersion u32 value.
@@ -277,6 +296,7 @@ pub const Os = struct {
             22000, //win11_zn aka win11_21h2
             22621, //win11_ga aka win11_22h2
             22631, //win11_ge aka win11_23h2
+            26100, //win11_dt aka win11_24h2
         };
 
         /// Returns whether the first version `ver` is newer (greater) than or equal to the second version `ver`.
@@ -339,6 +359,8 @@ pub const Os = struct {
     pub const LinuxVersionRange = struct {
         range: std.SemanticVersion.Range,
         glibc: std.SemanticVersion,
+        /// Android API level.
+        android: u32 = 14, // This default value is to be deleted after zig1.wasm is updated.
 
         pub inline fn includesVersion(range: LinuxVersionRange, ver: std.SemanticVersion) bool {
             return range.range.includesVersion(ver);
@@ -386,125 +408,67 @@ pub const Os = struct {
         pub fn default(tag: Tag, arch: Cpu.Arch) VersionRange {
             return switch (tag) {
                 .freestanding,
-                .fuchsia,
-                .ps3,
-                .zos,
+                .other,
+
+                .elfiamcu,
+
                 .haiku,
-                .rtems,
-                .aix,
-                .cuda,
-                .nvcl,
-                .amdhsa,
+                .plan9,
+                .serenity,
+
+                // This should use semver once we determine the version history.
+                .bridgeos,
+
+                .illumos,
+
+                .ps3,
                 .ps4,
                 .ps5,
-                .elfiamcu,
-                .mesa3d,
-                .contiki,
-                .amdpal,
-                .hermit,
-                .hurd,
+
                 .emscripten,
-                .shadermodel,
-                .uefi,
-                .opencl, // TODO: OpenCL versions
-                .opengl, // TODO: GLSL versions
-                .vulkan,
-                .plan9,
-                .illumos,
-                .serenity,
-                .other,
+
+                .mesa3d,
                 => .{ .none = {} },
 
-                .freebsd => .{
-                    .semver = std.SemanticVersion.Range{
-                        .min = .{ .major = 12, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 14, .minor = 0, .patch = 0 },
-                    },
-                },
-                .driverkit => .{
+                .contiki => .{
                     .semver = .{
-                        .min = .{ .major = 19, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 24, .minor = 0, .patch = 0 },
+                        .min = .{ .major = 4, .minor = 0, .patch = 0 },
+                        .max = .{ .major = 4, .minor = 9, .patch = 0 },
                     },
                 },
-                .macos => switch (arch) {
-                    .aarch64 => VersionRange{
-                        .semver = .{
-                            .min = .{ .major = 11, .minor = 7, .patch = 1 },
-                            .max = .{ .major = 14, .minor = 6, .patch = 1 },
-                        },
-                    },
-                    .x86_64 => VersionRange{
-                        .semver = .{
-                            .min = .{ .major = 11, .minor = 7, .patch = 1 },
-                            .max = .{ .major = 14, .minor = 6, .patch = 1 },
-                        },
-                    },
-                    else => unreachable,
-                },
-                .ios => .{
+                .fuchsia => .{
                     .semver = .{
-                        .min = .{ .major = 12, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 17, .minor = 6, .patch = 1 },
+                        .min = .{ .major = 1, .minor = 1, .patch = 0 },
+                        .max = .{ .major = 20, .minor = 1, .patch = 0 },
                     },
                 },
-                .watchos => .{
+                .hermit => .{
                     .semver = .{
-                        .min = .{ .major = 6, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 10, .minor = 6, .patch = 0 },
-                    },
-                },
-                .tvos => .{
-                    .semver = .{
-                        .min = .{ .major = 13, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 17, .minor = 6, .patch = 0 },
-                    },
-                },
-                .visionos => .{
-                    .semver = .{
-                        .min = .{ .major = 1, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 1, .minor = 3, .patch = 0 },
-                    },
-                },
-                .netbsd => .{
-                    .semver = .{
-                        .min = .{ .major = 8, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 10, .minor = 0, .patch = 0 },
-                    },
-                },
-                .openbsd => .{
-                    .semver = .{
-                        .min = .{ .major = 7, .minor = 3, .patch = 0 },
-                        .max = .{ .major = 7, .minor = 5, .patch = 0 },
-                    },
-                },
-                .dragonfly => .{
-                    .semver = .{
-                        .min = .{ .major = 5, .minor = 8, .patch = 0 },
-                        .max = .{ .major = 6, .minor = 4, .patch = 0 },
-                    },
-                },
-                .solaris => .{
-                    .semver = .{
-                        .min = .{ .major = 11, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 11, .minor = 4, .patch = 0 },
-                    },
-                },
-                .wasi => .{
-                    .semver = .{
-                        .min = .{ .major = 0, .minor = 1, .patch = 0 },
-                        .max = .{ .major = 0, .minor = 1, .patch = 0 },
+                        .min = .{ .major = 0, .minor = 4, .patch = 0 },
+                        .max = .{ .major = 0, .minor = 8, .patch = 0 },
                     },
                 },
 
+                .aix => .{
+                    .semver = .{
+                        .min = .{ .major = 7, .minor = 2, .patch = 5 },
+                        .max = .{ .major = 7, .minor = 3, .patch = 2 },
+                    },
+                },
+                .hurd => .{
+                    .semver = .{
+                        .min = .{ .major = 0, .minor = 9, .patch = 0 },
+                        .max = .{ .major = 0, .minor = 9, .patch = 0 },
+                    },
+                },
                 .linux => .{
                     .linux = .{
                         .range = .{
                             .min = .{ .major = 4, .minor = 19, .patch = 0 },
-                            .max = .{ .major = 6, .minor = 10, .patch = 3 },
+                            .max = .{ .major = 6, .minor = 11, .patch = 5 },
                         },
                         .glibc = blk: {
-                            const default_min = .{ .major = 2, .minor = 28, .patch = 0 };
+                            const default_min: std.SemanticVersion = .{ .major = 2, .minor = 28, .patch = 0 };
 
                             for (std.zig.target.available_libcs) |libc| {
                                 // We don't know the ABI here. We can get away with not checking it
@@ -518,6 +482,88 @@ pub const Os = struct {
 
                             break :blk default_min;
                         },
+                        .android = 14,
+                    },
+                },
+                .rtems => .{
+                    .semver = .{
+                        .min = .{ .major = 5, .minor = 1, .patch = 0 },
+                        .max = .{ .major = 5, .minor = 3, .patch = 0 },
+                    },
+                },
+                .zos => .{
+                    .semver = .{
+                        .min = .{ .major = 2, .minor = 5, .patch = 0 },
+                        .max = .{ .major = 3, .minor = 1, .patch = 0 },
+                    },
+                },
+
+                .dragonfly => .{
+                    .semver = .{
+                        .min = .{ .major = 5, .minor = 8, .patch = 0 },
+                        .max = .{ .major = 6, .minor = 4, .patch = 0 },
+                    },
+                },
+                .freebsd => .{
+                    .semver = .{
+                        .min = .{ .major = 12, .minor = 0, .patch = 0 },
+                        .max = .{ .major = 14, .minor = 1, .patch = 0 },
+                    },
+                },
+                .netbsd => .{
+                    .semver = .{
+                        .min = .{ .major = 8, .minor = 0, .patch = 0 },
+                        .max = .{ .major = 10, .minor = 0, .patch = 0 },
+                    },
+                },
+                .openbsd => .{
+                    .semver = .{
+                        .min = .{ .major = 7, .minor = 3, .patch = 0 },
+                        .max = .{ .major = 7, .minor = 6, .patch = 0 },
+                    },
+                },
+
+                .driverkit => .{
+                    .semver = .{
+                        .min = .{ .major = 19, .minor = 0, .patch = 0 },
+                        .max = .{ .major = 24, .minor = 2, .patch = 0 },
+                    },
+                },
+                .macos => .{
+                    .semver = .{
+                        .min = .{ .major = 11, .minor = 7, .patch = 1 },
+                        .max = .{ .major = 15, .minor = 2, .patch = 0 },
+                    },
+                },
+                .ios => .{
+                    .semver = .{
+                        .min = .{ .major = 12, .minor = 0, .patch = 0 },
+                        .max = .{ .major = 18, .minor = 1, .patch = 0 },
+                    },
+                },
+                .tvos => .{
+                    .semver = .{
+                        .min = .{ .major = 13, .minor = 0, .patch = 0 },
+                        .max = .{ .major = 18, .minor = 1, .patch = 0 },
+                    },
+                },
+                .visionos => .{
+                    .semver = .{
+                        .min = .{ .major = 1, .minor = 0, .patch = 0 },
+                        .max = .{ .major = 2, .minor = 1, .patch = 0 },
+                    },
+                },
+                .watchos => .{
+                    .semver = .{
+                        .min = .{ .major = 6, .minor = 0, .patch = 0 },
+                        .max = .{ .major = 11, .minor = 1, .patch = 0 },
+                    },
+                },
+
+                .solaris => .{
+                    .semver = .{
+                        .min = .{ .major = 11, .minor = 0, .patch = 0 },
+                        .max = .{ .major = 11, .minor = 4, .patch = 0 },
                     },
                 },
 
@@ -525,6 +571,58 @@ pub const Os = struct {
                     .windows = .{
                         .min = .win10,
                         .max = WindowsVersion.latest,
+                    },
+                },
+                .uefi => .{
+                    .semver = .{
+                        .min = .{ .major = 2, .minor = 0, .patch = 0 },
+                        .max = .{ .major = 2, .minor = 9, .patch = 0 },
+                    },
+                },
+
+                .wasi => .{
+                    .semver = .{
+                        .min = .{ .major = 0, .minor = 1, .patch = 0 },
+                        .max = .{ .major = 0, .minor = 2, .patch = 2 },
+                    },
+                },
+
+                .amdhsa => .{
+                    .semver = .{
+                        .min = .{ .major = 5, .minor = 0, .patch = 2 },
+                        .max = .{ .major = 6, .minor = 2, .patch = 2 },
+                    },
+                },
+                .amdpal => .{
+                    .semver = .{
+                        .min = .{ .major = 1, .minor = 1, .patch = 0 },
+                        .max = .{ .major = 3, .minor = 5, .patch = 0 },
+                    },
+                },
+                .cuda => .{
+                    .semver = .{
+                        .min = .{ .major = 11, .minor = 0, .patch = 1 },
+                        .max = .{ .major = 12, .minor = 6, .patch = 1 },
+                    },
+                },
+                .nvcl,
+                .opencl,
+                => .{
+                    .semver = .{
+                        .min = .{ .major = 2, .minor = 2, .patch = 0 },
+                        .max = .{ .major = 3, .minor = 0, .patch = 0 },
+                    },
+                },
+                .opengl => .{
+                    .semver = .{
+                        .min = .{ .major = 4, .minor = 5, .patch = 0 },
+                        .max = .{ .major = 4, .minor = 6, .patch = 0 },
+                    },
+                },
+                .vulkan => .{
+                    .semver = .{
+                        .min = .{ .major = 1, .minor = 2, .patch = 0 },
+                        .max = .{ .major = 1, .minor = 3, .patch = 0 },
                     },
                 },
             };
@@ -540,8 +638,8 @@ pub const Os = struct {
 
     /// Provides a tagged union. `Target` does not store the tag because it is
     /// redundant with the OS tag; this function abstracts that part away.
-    pub inline fn getVersionRange(os: Os) TaggedVersionRange {
-        return switch (os.tag.getVersionRangeTag()) {
+    pub inline fn versionRange(os: Os) TaggedVersionRange {
+        return switch (os.tag.versionRangeTag()) {
             .none => .{ .none = {} },
             .semver => .{ .semver = os.version_range.semver },
             .linux => .{ .linux = os.version_range.linux },
@@ -551,12 +649,12 @@ pub const Os = struct {
 
     /// Checks if system is guaranteed to be at least `version` or older than `version`.
     /// Returns `null` if a runtime check is required.
-    pub inline fn isAtLeast(os: Os, comptime tag: Tag, ver: switch (tag.getVersionRangeTag()) {
+    pub inline fn isAtLeast(os: Os, comptime tag: Tag, ver: switch (tag.versionRangeTag()) {
         .none => void,
         .semver, .linux => std.SemanticVersion,
         .windows => WindowsVersion,
     }) ?bool {
-        return if (os.tag != tag) false else switch (tag.getVersionRangeTag()) {
+        return if (os.tag != tag) false else switch (tag.versionRangeTag()) {
             .none => true,
             inline .semver,
             .linux,
@@ -573,6 +671,7 @@ pub const Os = struct {
             .freebsd,
             .aix,
             .netbsd,
+            .bridgeos,
             .driverkit,
             .macos,
             .ios,
@@ -607,7 +706,6 @@ pub const Os = struct {
             .hurd,
             .wasi,
             .emscripten,
-            .shadermodel,
             .uefi,
             .opencl,
             .opengl,
@@ -621,12 +719,13 @@ pub const Os = struct {
 
 pub const aarch64 = @import("Target/aarch64.zig");
 pub const arc = @import("Target/arc.zig");
-pub const amdgpu = @import("Target/amdgpu.zig");
+pub const amdgcn = @import("Target/amdgcn.zig");
 pub const arm = @import("Target/arm.zig");
 pub const avr = @import("Target/avr.zig");
 pub const bpf = @import("Target/bpf.zig");
 pub const csky = @import("Target/csky.zig");
 pub const hexagon = @import("Target/hexagon.zig");
+pub const lanai = @import("Target/lanai.zig");
 pub const loongarch = @import("Target/loongarch.zig");
 pub const m68k = @import("Target/m68k.zig");
 pub const mips = @import("Target/mips.zig");
@@ -640,7 +739,9 @@ pub const s390x = @import("Target/s390x.zig");
 pub const ve = @import("Target/ve.zig");
 pub const wasm = @import("Target/wasm.zig");
 pub const x86 = @import("Target/x86.zig");
+pub const xcore = @import("Target/xcore.zig");
 pub const xtensa = @import("Target/xtensa.zig");
+pub const propeller = @import("Target/propeller.zig");
 
 pub const Abi = enum {
     none,
@@ -658,7 +759,10 @@ pub const Abi = enum {
     eabihf,
     ilp32,
     android,
+    androideabi,
     musl,
+    muslabin32,
+    muslabi64,
     musleabi,
     musleabihf,
     muslx32,
@@ -667,74 +771,145 @@ pub const Abi = enum {
     cygnus,
     simulator,
     macabi,
-    pixel,
-    vertex,
-    geometry,
-    hull,
-    domain,
-    compute,
-    library,
-    raygeneration,
-    intersection,
-    anyhit,
-    closesthit,
-    miss,
-    callable,
-    mesh,
-    amplification,
     ohos,
+    ohoseabi,
 
     // LLVM tags deliberately omitted:
-    // - gnuf64
+    // - amplification
+    // - anyhit
+    // - callable
+    // - closesthit
+    // - compute
     // - coreclr
+    // - domain
+    // - geometry
+    // - gnuf64
+    // - hull
+    // - intersection
+    // - library
+    // - mesh
+    // - miss
+    // - pixel
+    // - raygeneration
+    // - vertex
 
     pub fn default(arch: Cpu.Arch, os: Os) Abi {
         return if (arch.isWasm()) .musl else switch (os.tag) {
-            .freestanding,
-            .dragonfly,
-            .ps3,
+            .freestanding, .other => switch (arch) {
+                // Soft float is usually a sane default for freestanding.
+                .arm,
+                .armeb,
+                .thumb,
+                .thumbeb,
+                .csky,
+                .mips,
+                .mipsel,
+                .powerpc,
+                .powerpcle,
+                => .eabi,
+                else => .none,
+            },
+            .aix => if (arch == .powerpc) .eabihf else .none,
+            .haiku => switch (arch) {
+                .arm,
+                .thumb,
+                .powerpc,
+                => .eabihf,
+                else => .none,
+            },
+            .hurd => .gnu,
+            .linux => switch (arch) {
+                .arm,
+                .armeb,
+                .thumb,
+                .thumbeb,
+                .powerpc,
+                .powerpcle,
+                => .musleabihf,
+                // Soft float tends to be more common for CSKY and MIPS.
+                .csky,
+                => .gnueabi, // No musl support.
+                .mips,
+                .mipsel,
+                => .musleabi,
+                else => .musl,
+            },
+            .rtems => switch (arch) {
+                .arm,
+                .armeb,
+                .thumb,
+                .thumbeb,
+                .mips,
+                .mipsel,
+                => .eabi,
+                .powerpc,
+                => .eabihf,
+                else => .none,
+            },
+            .freebsd => switch (arch) {
+                .arm,
+                .armeb,
+                .thumb,
+                .thumbeb,
+                .powerpc,
+                => .eabihf,
+                // Soft float tends to be more common for MIPS.
+                .mips,
+                .mipsel,
+                => .eabi,
+                else => .none,
+            },
+            .netbsd => switch (arch) {
+                .arm,
+                .armeb,
+                .thumb,
+                .thumbeb,
+                .powerpc,
+                => .eabihf,
+                // Soft float tends to be more common for MIPS.
+                .mips,
+                .mipsel,
+                => .eabi,
+                else => .none,
+            },
+            .openbsd => switch (arch) {
+                .arm,
+                .thumb,
+                => .eabi,
+                .powerpc,
+                => .eabihf,
+                else => .none,
+            },
+            .ios => if (arch == .x86_64) .macabi else .none,
+            .tvos, .visionos, .watchos => if (arch == .x86_64) .simulator else .none,
+            .windows => .gnu,
+            .uefi => .msvc,
+            .wasi, .emscripten => .musl,
+
+            .contiki,
+            .elfiamcu,
+            .fuchsia,
+            .hermit,
+            .plan9,
+            .serenity,
             .zos,
-            .rtems,
-            .aix,
-            .cuda,
-            .nvcl,
-            .amdhsa,
+            .dragonfly,
+            .bridgeos,
+            .driverkit,
+            .macos,
+            .illumos,
+            .solaris,
+            .ps3,
             .ps4,
             .ps5,
-            .elfiamcu,
-            .mesa3d,
-            .contiki,
+            .amdhsa,
             .amdpal,
-            .hermit,
-            .other,
-            => .eabi,
-            .openbsd,
-            .freebsd,
-            .fuchsia,
-            .netbsd,
-            .hurd,
-            .haiku,
-            .windows,
-            => .gnu,
-            .uefi => .msvc,
-            .linux,
-            .wasi,
-            .emscripten,
-            => .musl,
+            .cuda,
+            .mesa3d,
+            .nvcl,
             .opencl,
             .opengl,
             .vulkan,
-            .plan9, // TODO specify abi
-            .macos,
-            .ios,
-            .tvos,
-            .watchos,
-            .visionos,
-            .driverkit,
-            .shadermodel,
-            .solaris,
-            .illumos,
-            .serenity,
             => .none,
         };
     }
@@ -757,19 +932,39 @@ pub const Abi = enum {
 
     pub inline fn isMusl(abi: Abi) bool {
         return switch (abi) {
-            .musl, .musleabi, .musleabihf, .muslx32 => true,
-            .ohos => true,
+            .musl,
+            .muslabin32,
+            .muslabi64,
+            .musleabi,
+            .musleabihf,
+            .muslx32,
+            => true,
+            else => abi.isOpenHarmony(),
+        };
+    }
+
+    pub inline fn isOpenHarmony(abi: Abi) bool {
+        return switch (abi) {
+            .ohos, .ohoseabi => true,
+            else => false,
+        };
+    }
+
+    pub inline fn isAndroid(abi: Abi) bool {
+        return switch (abi) {
+            .android, .androideabi => true,
             else => false,
         };
     }
 
     pub inline fn floatAbi(abi: Abi) FloatAbi {
         return switch (abi) {
+            .androideabi,
             .eabi,
             .gnueabi,
             .musleabi,
             .gnusf,
-            .ohos,
+            .ohoseabi,
             => .soft,
             else => .hard,
         };
@@ -781,8 +976,6 @@ pub const ObjectFormat = enum {
     c,
     /// The Common Object File Format used by Windows and UEFI.
     coff,
-    /// The DirectX Container format containing either DXIL or DXBC.
-    dxcontainer,
     /// The Executable and Linkable Format used by many Unixes.
     elf,
     /// The Generalized Object File Format used by z/OS.
@@ -804,11 +997,13 @@ pub const ObjectFormat = enum {
     /// The eXtended Common Object File Format used by AIX.
     xcoff,
 
+    // LLVM tags deliberately omitted:
+    // - dxcontainer
+
     pub fn fileExt(of: ObjectFormat, arch: Cpu.Arch) [:0]const u8 {
         return switch (of) {
             .c => ".c",
             .coff => ".obj",
-            .dxcontainer => ".dxil",
             .elf, .goff, .macho, .wasm, .xcoff => ".o",
             .hex => ".ihex",
             .nvptx => ".ptx",
@@ -821,12 +1016,11 @@ pub const ObjectFormat = enum {
     pub fn default(os_tag: Os.Tag, arch: Cpu.Arch) ObjectFormat {
         return switch (os_tag) {
             .aix => .xcoff,
-            .driverkit, .ios, .macos, .tvos, .visionos, .watchos => .macho,
+            .bridgeos, .driverkit, .ios, .macos, .tvos, .visionos, .watchos => .macho,
             .plan9 => .plan9,
             .uefi, .windows => .coff,
             .zos => .goff,
             else => switch (arch) {
-                .dxil => .dxcontainer,
                 .nvptx, .nvptx64 => .nvptx,
                 .spirv, .spirv32, .spirv64 => .spirv,
                 .wasm32, .wasm64 => .wasm,
@@ -837,11 +1031,9 @@ pub const ObjectFormat = enum {
 };
 
 pub fn toElfMachine(target: Target) std.elf.EM {
-    if (target.os.tag == .elfiamcu) return .IAMCU;
-
     return switch (target.cpu.arch) {
         .amdgcn => .AMDGPU,
-        .arc => .ARC_COMPACT2,
+        .arc => .ARC_COMPACT,
         .arm, .armeb, .thumb, .thumbeb => .ARM,
         .aarch64, .aarch64_be => .AARCH64,
         .avr => .AVR,
@@ -861,18 +1053,20 @@ pub fn toElfMachine(target: Target) std.elf.EM {
         .sparc => if (Target.sparc.featureSetHas(target.cpu.features, .v9)) .SPARC32PLUS else .SPARC,
         .sparc64 => .SPARCV9,
         .spu_2 => .SPU_2,
-        .x86 => .@"386",
+        .ve => .VE,
+        .x86 => if (target.os.tag == .elfiamcu) .IAMCU else .@"386",
         .x86_64 => .X86_64,
         .xcore => .XCORE,
         .xtensa => .XTENSA,
 
-        .dxil,
+        .propeller1 => .PROPELLER,
+        .propeller2 => .PROPELLER2,
+
         .nvptx,
         .nvptx64,
         .spirv,
         .spirv32,
         .spirv64,
-        .ve,
         .wasm32,
         .wasm64,
         => .NONE,
@@ -882,7 +1076,7 @@ pub fn toElfMachine(target: Target) std.elf.EM {
 pub fn toCoffMachine(target: Target) std.coff.MachineType {
     return switch (target.cpu.arch) {
         .arm => .ARM,
-        .thumb => .THUMB,
+        .thumb => .ARMNT,
         .aarch64 => .ARM64,
         .loongarch32 => .LOONGARCH32,
         .loongarch64 => .LOONGARCH64,
@@ -900,7 +1094,6 @@ pub fn toCoffMachine(target: Target) std.coff.MachineType {
         .bpfel,
         .bpfeb,
         .csky,
-        .dxil,
         .hexagon,
         .kalimba,
         .lanai,
@@ -928,6 +1121,8 @@ pub fn toCoffMachine(target: Target) std.coff.MachineType {
         .wasm64,
         .xcore,
         .xtensa,
+        .propeller1,
+        .propeller2,
         => .UNKNOWN,
     };
 }
@@ -1126,7 +1321,6 @@ pub const Cpu = struct {
         bpfel,
         bpfeb,
         csky,
-        dxil,
         hexagon,
         kalimba,
         lanai,
@@ -1144,6 +1338,8 @@ pub const Cpu = struct {
         powerpcle,
         powerpc64,
         powerpc64le,
+        propeller1,
+        propeller2,
         riscv32,
         riscv64,
         s390x,
@@ -1165,6 +1361,7 @@ pub const Cpu = struct {
         // - aarch64_32
         // - amdil
         // - amdil64
+        // - dxil
         // - le32
         // - le64
         // - r600
@@ -1186,17 +1383,11 @@ pub const Cpu = struct {
             };
         }
 
-        pub inline fn isARM(arch: Arch) bool {
+        /// Note that this includes Thumb.
+        pub inline fn isArm(arch: Arch) bool {
             return switch (arch) {
                 .arm, .armeb => true,
-                else => false,
-            };
-        }
-
-        pub inline fn isAARCH64(arch: Arch) bool {
-            return switch (arch) {
-                .aarch64, .aarch64_be => true,
-                else => false,
+                else => arch.isThumb(),
             };
         }
 
@@ -1207,8 +1398,11 @@ pub const Cpu = struct {
             };
         }
 
-        pub inline fn isArmOrThumb(arch: Arch) bool {
-            return arch.isARM() or arch.isThumb();
+        pub inline fn isAARCH64(arch: Arch) bool {
+            return switch (arch) {
+                .aarch64, .aarch64_be => true,
+                else => false,
+            };
         }
 
         pub inline fn isWasm(arch: Arch) bool {
@@ -1296,6 +1490,14 @@ pub const Cpu = struct {
             };
         }
 
+        /// Returns if the architecture is a Parallax propeller architecture.
+        pub inline fn isPropeller(arch: Arch) bool {
+            return switch (arch) {
+                .propeller1, .propeller2 => true,
+                else => false,
+            };
+        }
+
         pub fn parseCpuModel(arch: Arch, cpu_name: []const u8) !*const Cpu.Model {
             for (arch.allCpuModels()) |cpu| {
                 if (std.mem.eql(u8, cpu_name, cpu.name)) {
@@ -1337,10 +1539,11 @@ pub const Cpu = struct {
                 .spirv,
                 .spirv32,
                 .spirv64,
-                .dxil,
                 .loongarch32,
                 .loongarch64,
                 .arc,
+                .propeller1,
+                .propeller2,
                 => .little,
 
                 .armeb,
@@ -1370,9 +1573,13 @@ pub const Cpu = struct {
                 .fs, .gs, .ss => arch == .x86_64 or arch == .x86,
                 .global, .constant, .local, .shared => is_gpu,
                 .param => is_nvptx,
-                .input, .output, .uniform => is_spirv,
+                .input, .output, .uniform, .push_constant, .storage_buffer => is_spirv,
                 // TODO this should also check how many flash banks the cpu has
                 .flash, .flash1, .flash2, .flash3, .flash4, .flash5 => arch == .avr,
+
+                // Propeller address spaces:
+                .cog, .hub => arch.isPropeller(),
+                .lut => (arch == .propeller2),
             };
         }
 
@@ -1385,7 +1592,6 @@ pub const Cpu = struct {
                 .loongarch32, .loongarch64 => "loongarch",
                 .mips, .mipsel, .mips64, .mips64el => "mips",
                 .powerpc, .powerpcle, .powerpc64, .powerpc64le => "powerpc",
-                .amdgcn => "amdgpu",
                 .riscv32, .riscv64 => "riscv",
                 .sparc, .sparc64 => "sparc",
                 .s390x => "s390x",
@@ -1393,6 +1599,7 @@ pub const Cpu = struct {
                 .nvptx, .nvptx64 => "nvptx",
                 .wasm32, .wasm64 => "wasm",
                 .spirv, .spirv32, .spirv64 => "spirv",
+                .propeller1, .propeller2 => "propeller",
                 else => @tagName(arch),
             };
         }
@@ -1407,17 +1614,19 @@ pub const Cpu = struct {
                 .bpfel, .bpfeb => &bpf.all_features,
                 .csky => &csky.all_features,
                 .hexagon => &hexagon.all_features,
+                .lanai => &lanai.all_features,
                 .loongarch32, .loongarch64 => &loongarch.all_features,
                 .m68k => &m68k.all_features,
                 .mips, .mipsel, .mips64, .mips64el => &mips.all_features,
                 .msp430 => &msp430.all_features,
                 .powerpc, .powerpcle, .powerpc64, .powerpc64le => &powerpc.all_features,
-                .amdgcn => &amdgpu.all_features,
+                .amdgcn => &amdgcn.all_features,
                 .riscv32, .riscv64 => &riscv.all_features,
                 .sparc, .sparc64 => &sparc.all_features,
                 .spirv, .spirv32, .spirv64 => &spirv.all_features,
                 .s390x => &s390x.all_features,
                 .x86, .x86_64 => &x86.all_features,
+                .xcore => &xcore.all_features,
                 .xtensa => &xtensa.all_features,
                 .nvptx, .nvptx64 => &nvptx.all_features,
                 .ve => &ve.all_features,
@@ -1437,17 +1646,19 @@ pub const Cpu = struct {
                 .bpfel, .bpfeb => comptime allCpusFromDecls(bpf.cpu),
                 .csky => comptime allCpusFromDecls(csky.cpu),
                 .hexagon => comptime allCpusFromDecls(hexagon.cpu),
+                .lanai => comptime allCpusFromDecls(lanai.cpu),
                 .loongarch32, .loongarch64 => comptime allCpusFromDecls(loongarch.cpu),
                 .m68k => comptime allCpusFromDecls(m68k.cpu),
                 .mips, .mipsel, .mips64, .mips64el => comptime allCpusFromDecls(mips.cpu),
                 .msp430 => comptime allCpusFromDecls(msp430.cpu),
                 .powerpc, .powerpcle, .powerpc64, .powerpc64le => comptime allCpusFromDecls(powerpc.cpu),
-                .amdgcn => comptime allCpusFromDecls(amdgpu.cpu),
+                .amdgcn => comptime allCpusFromDecls(amdgcn.cpu),
                 .riscv32, .riscv64 => comptime allCpusFromDecls(riscv.cpu),
                 .sparc, .sparc64 => comptime allCpusFromDecls(sparc.cpu),
                 .spirv, .spirv32, .spirv64 => comptime allCpusFromDecls(spirv.cpu),
                 .s390x => comptime allCpusFromDecls(s390x.cpu),
                 .x86, .x86_64 => comptime allCpusFromDecls(x86.cpu),
+                .xcore => comptime allCpusFromDecls(xcore.cpu),
                 .xtensa => comptime allCpusFromDecls(xtensa.cpu),
                 .nvptx, .nvptx64 => comptime allCpusFromDecls(nvptx.cpu),
                 .ve => comptime allCpusFromDecls(ve.cpu),
@@ -1491,6 +1702,165 @@ pub const Cpu = struct {
                 else => ".X",
             };
         }
+
+        /// Returns the array of `Arch` to which a specific `std.builtin.CallingConvention` applies.
+        /// Asserts that `cc` is not `.auto`, `.@"async"`, `.naked`, or `.@"inline"`.
+        pub fn fromCallingConvention(cc: std.builtin.CallingConvention.Tag) []const Arch {
+            return switch (cc) {
+                .auto,
+                .@"async",
+                .naked,
+                .@"inline",
+                => unreachable,
+
+                .x86_64_sysv,
+                .x86_64_win,
+                .x86_64_regcall_v3_sysv,
+                .x86_64_regcall_v4_win,
+                .x86_64_vectorcall,
+                .x86_64_interrupt,
+                => &.{.x86_64},
+
+                .x86_sysv,
+                .x86_win,
+                .x86_stdcall,
+                .x86_fastcall,
+                .x86_thiscall,
+                .x86_thiscall_mingw,
+                .x86_regcall_v3,
+                .x86_regcall_v4_win,
+                .x86_vectorcall,
+                .x86_interrupt,
+                => &.{.x86},
+
+                .aarch64_aapcs,
+                .aarch64_aapcs_darwin,
+                .aarch64_aapcs_win,
+                .aarch64_vfabi,
+                .aarch64_vfabi_sve,
+                => &.{ .aarch64, .aarch64_be },
+
+                .arm_apcs,
+                .arm_aapcs,
+                .arm_aapcs_vfp,
+                .arm_aapcs16_vfp,
+                .arm_interrupt,
+                => &.{ .arm, .armeb, .thumb, .thumbeb },
+
+                .mips64_n64,
+                .mips64_n32,
+                .mips64_interrupt,
+                => &.{ .mips64, .mips64el },
+
+                .mips_o32,
+                .mips_interrupt,
+                => &.{ .mips, .mipsel },
+
+                .riscv64_lp64,
+                .riscv64_lp64_v,
+                .riscv64_interrupt,
+                => &.{.riscv64},
+
+                .riscv32_ilp32,
+                .riscv32_ilp32_v,
+                .riscv32_interrupt,
+                => &.{.riscv32},
+
+                .sparc64_sysv,
+                => &.{.sparc64},
+
+                .sparc_sysv,
+                => &.{.sparc},
+
+                .powerpc64_elf,
+                .powerpc64_elf_altivec,
+                .powerpc64_elf_v2,
+                => &.{ .powerpc64, .powerpc64le },
+
+                .powerpc_sysv,
+                .powerpc_sysv_altivec,
+                .powerpc_aix,
+                .powerpc_aix_altivec,
+                => &.{ .powerpc, .powerpcle },
+
+                .wasm_watc,
+                => &.{ .wasm64, .wasm32 },
+
+                .arc_sysv,
+                => &.{.arc},
+
+                .avr_gnu,
+                .avr_builtin,
+                .avr_signal,
+                .avr_interrupt,
+                => &.{.avr},
+
+                .bpf_std,
+                => &.{ .bpfel, .bpfeb },
+
+                .csky_sysv,
+                .csky_interrupt,
+                => &.{.csky},
+
+                .hexagon_sysv,
+                .hexagon_sysv_hvx,
+                => &.{.hexagon},
+
+                .lanai_sysv,
+                => &.{.lanai},
+
+                .loongarch64_lp64,
+                => &.{.loongarch64},
+
+                .loongarch32_ilp32,
+                => &.{.loongarch32},
+
+                .m68k_sysv,
+                .m68k_gnu,
+                .m68k_rtd,
+                .m68k_interrupt,
+                => &.{.m68k},
+
+                .msp430_eabi,
+                => &.{.msp430},
+
+                .propeller1_sysv,
+                => &.{.propeller1},
+
+                .propeller2_sysv,
+                => &.{.propeller2},
+
+                .s390x_sysv,
+                .s390x_sysv_vx,
+                => &.{.s390x},
+
+                .ve_sysv,
+                => &.{.ve},
+
+                .xcore_xs1,
+                .xcore_xs2,
+                => &.{.xcore},
+
+                .xtensa_call0,
+                .xtensa_windowed,
+                => &.{.xtensa},
+
+                .amdgcn_device,
+                .amdgcn_kernel,
+                .amdgcn_cs,
+                => &.{.amdgcn},
+
+                .nvptx_device,
+                .nvptx_kernel,
+                => &.{ .nvptx, .nvptx64 },
+
+                .spirv_device,
+                .spirv_kernel,
+                .spirv_fragment,
+                .spirv_vertex,
+                => &.{ .spirv, .spirv32, .spirv64 },
+            };
+        }
     };
 
     pub const Model = struct {
@@ -1508,6 +1878,9 @@ pub const Cpu = struct {
             };
         }
 
+        /// Returns the most bare-bones CPU model that is valid for `arch`. Note that this function
+        /// can return CPU models that are understood by LLVM, but *not* understood by Clang. If
+        /// Clang compatibility is important, consider using `baseline` instead.
         pub fn generic(arch: Arch) *const Model {
             const S = struct {
                 const generic_model = Model{
@@ -1517,22 +1890,25 @@ pub const Cpu = struct {
                 };
             };
             return switch (arch) {
+                .amdgcn => &amdgcn.cpu.gfx600,
+                .arc => &arc.cpu.generic,
                 .arm, .armeb, .thumb, .thumbeb => &arm.cpu.generic,
                 .aarch64, .aarch64_be => &aarch64.cpu.generic,
-                .avr => &avr.cpu.avr2,
+                .avr => &avr.cpu.avr1,
                 .bpfel, .bpfeb => &bpf.cpu.generic,
+                .csky => &csky.cpu.generic,
                 .hexagon => &hexagon.cpu.generic,
+                .lanai => &lanai.cpu.generic,
                 .loongarch32 => &loongarch.cpu.generic_la32,
                 .loongarch64 => &loongarch.cpu.generic_la64,
                 .m68k => &m68k.cpu.generic,
                 .mips, .mipsel => &mips.cpu.mips32,
                 .mips64, .mips64el => &mips.cpu.mips64,
                 .msp430 => &msp430.cpu.generic,
-                .powerpc => &powerpc.cpu.ppc,
-                .powerpcle => &powerpc.cpu.ppc,
-                .powerpc64 => &powerpc.cpu.ppc64,
-                .powerpc64le => &powerpc.cpu.ppc64le,
-                .amdgcn => &amdgpu.cpu.generic,
+                .powerpc, .powerpcle => &powerpc.cpu.ppc,
+                .powerpc64, .powerpc64le => &powerpc.cpu.ppc64,
+                .propeller1 => &propeller.cpu.generic,
+                .propeller2 => &propeller.cpu.generic,
                 .riscv32 => &riscv.cpu.generic_rv32,
                 .riscv64 => &riscv.cpu.generic_rv64,
                 .spirv, .spirv32, .spirv64 => &spirv.cpu.generic,
@@ -1544,22 +1920,59 @@ pub const Cpu = struct {
                 .nvptx, .nvptx64 => &nvptx.cpu.sm_20,
                 .ve => &ve.cpu.generic,
                 .wasm32, .wasm64 => &wasm.cpu.generic,
+                .xcore => &xcore.cpu.generic,
+                .xtensa => &xtensa.cpu.generic,
 
-                else => &S.generic_model,
+                .kalimba,
+                .spu_2,
+                => &S.generic_model,
             };
         }
 
-        pub fn baseline(arch: Arch) *const Model {
+        /// Returns a conservative CPU model for `arch` that is expected to be compatible with the
+        /// vast majority of hardware available. This function is guaranteed to return CPU models
+        /// that are understood by both LLVM and Clang, unlike `generic`.
+        ///
+        /// For certain `os` values, this function will additionally bump the baseline higher than
+        /// the baseline would be for `arch` in isolation; for example, for `aarch64-macos`, the
+        /// baseline is considered to be `apple_m1`. To avoid this behavior entirely, pass
+        /// `Os.Tag.freestanding`.
+        pub fn baseline(arch: Arch, os: Os) *const Model {
             return switch (arch) {
+                .amdgcn => &amdgcn.cpu.gfx906,
                 .arm, .armeb, .thumb, .thumbeb => &arm.cpu.baseline,
+                .aarch64 => switch (os.tag) {
+                    .bridgeos, .driverkit, .macos => &aarch64.cpu.apple_m1,
+                    .ios, .tvos => &aarch64.cpu.apple_a7,
+                    .visionos => &aarch64.cpu.apple_m2,
+                    .watchos => &aarch64.cpu.apple_s4,
+                    else => generic(arch),
+                },
+                .avr => &avr.cpu.avr2,
+                .bpfel, .bpfeb => &bpf.cpu.v1,
+                .csky => &csky.cpu.ck810, // gcc/clang do not have a generic csky model.
                 .hexagon => &hexagon.cpu.hexagonv60, // gcc/clang do not have a generic hexagon model.
+                .lanai => &lanai.cpu.v11, // clang does not have a generic lanai model.
+                .loongarch64 => &loongarch.cpu.loongarch64,
+                .m68k => &m68k.cpu.M68000,
+                .mips, .mipsel => &mips.cpu.mips32r2,
+                .mips64, .mips64el => &mips.cpu.mips64r2,
+                .msp430 => &msp430.cpu.msp430,
+                .nvptx, .nvptx64 => &nvptx.cpu.sm_52,
+                .powerpc64le => &powerpc.cpu.ppc64le,
                 .riscv32 => &riscv.cpu.baseline_rv32,
                 .riscv64 => &riscv.cpu.baseline_rv64,
-                .x86 => &x86.cpu.pentium4,
-                .nvptx, .nvptx64 => &nvptx.cpu.sm_20,
                 .s390x => &s390x.cpu.arch8, // gcc/clang do not have a generic s390x model.
                 .sparc => &sparc.cpu.v9, // glibc does not work with 'plain' v8.
-                .loongarch64 => &loongarch.cpu.loongarch64,
+                .x86 => &x86.cpu.pentium4,
+                .x86_64 => switch (os.tag) {
+                    .driverkit => &x86.cpu.nehalem,
+                    .ios, .macos, .tvos, .visionos, .watchos => &x86.cpu.core2,
+                    .ps4 => &x86.cpu.btver2,
+                    .ps5 => &x86.cpu.znver2,
+                    else => generic(arch),
+                },
+                .xcore => &xcore.cpu.xs1b_generic,
 
                 else => generic(arch),
             };
@@ -1568,8 +1981,8 @@ pub const Cpu = struct {
 
     /// The "default" set of CPU features for cross-compiling. A conservative set
     /// of features that is expected to be supported on most available hardware.
-    pub fn baseline(arch: Arch) Cpu {
-        return Model.baseline(arch).toCpu(arch);
+    pub fn baseline(arch: Arch, os: Os) Cpu {
+        return Model.baseline(arch, os).toCpu(arch);
     }
 };
 
@@ -1614,7 +2027,7 @@ pub inline fn isMusl(target: Target) bool {
 }
 
 pub inline fn isAndroid(target: Target) bool {
-    return target.abi == .android;
+    return target.abi.isAndroid();
 }
 
 pub inline fn isWasm(target: Target) bool {
@@ -1627,10 +2040,6 @@ pub inline fn isDarwin(target: Target) bool {
 
 pub inline fn isBSD(target: Target) bool {
     return target.os.tag.isBSD();
-}
-
-pub inline fn isBpfFreestanding(target: Target) bool {
-    return target.cpu.arch.isBpf() and target.os.tag == .freestanding;
 }
 
 pub inline fn isGnuLibC(target: Target) bool {
@@ -1648,30 +2057,6 @@ pub const FloatAbi = enum {
 
 pub inline fn floatAbi(target: Target) FloatAbi {
     return target.abi.floatAbi();
-}
-
-pub inline fn hasDynamicLinker(target: Target) bool {
-    if (target.cpu.arch.isWasm()) {
-        return false;
-    }
-    switch (target.os.tag) {
-        .freestanding,
-        .ios,
-        .tvos,
-        .watchos,
-        .macos,
-        .visionos,
-        .uefi,
-        .windows,
-        .emscripten,
-        .opencl,
-        .opengl,
-        .vulkan,
-        .plan9,
-        .other,
-        => return false,
-        else => return true,
-    }
 }
 
 pub const DynamicLinker = struct {
@@ -1720,161 +2105,487 @@ pub const DynamicLinker = struct {
         return std.mem.eql(u8, lhs.buffer[0..lhs.len], rhs.buffer[0..rhs.len]);
     }
 
-    pub fn standard(cpu: Cpu, os_tag: Os.Tag, abi: Abi) DynamicLinker {
-        return if (abi == .android) initFmt("/system/bin/linker{s}", .{
-            if (ptrBitWidth_cpu_abi(cpu, abi) == 64) "64" else "",
-        }) catch unreachable else if (abi.isMusl()) return initFmt("/lib/ld-musl-{s}{s}.so.1", .{
-            @tagName(switch (cpu.arch) {
-                .thumb => .arm,
-                .thumbeb => .armeb,
-                else => cpu.arch,
-            }),
-            if (cpu.arch.isArmOrThumb() and abi.floatAbi() == .hard) "hf" else "",
-        }) catch unreachable else switch (os_tag) {
-            .freebsd => init("/libexec/ld-elf.so.1"),
-            .netbsd => init("/libexec/ld.elf_so"),
-            .openbsd => init("/usr/libexec/ld.so"),
-            .dragonfly => init("/libexec/ld-elf.so.2"),
-            .solaris, .illumos => init("/lib/64/ld.so.1"),
-            .linux => switch (cpu.arch) {
+    pub const Kind = enum {
+        /// No dynamic linker.
+        none,
+        /// Dynamic linker path is determined by the arch/OS components.
+        arch_os,
+        /// Dynamic linker path is determined by the arch/OS/ABI components.
+        arch_os_abi,
+    };
+
+    pub fn kind(os: Os.Tag) Kind {
+        return switch (os) {
+            .fuchsia,
+
+            .haiku,
+            .serenity,
+
+            .dragonfly,
+            .freebsd,
+            .netbsd,
+            .openbsd,
+
+            .bridgeos,
+            .driverkit,
+            .ios,
+            .macos,
+            .tvos,
+            .visionos,
+            .watchos,
+
+            .illumos,
+            .solaris,
+            => .arch_os,
+            .hurd,
+            .linux,
+            => .arch_os_abi,
+            .freestanding,
+            .other,
+
+            .contiki,
+            .elfiamcu,
+            .hermit,
+
+            .aix,
+            .plan9,
+            .rtems,
+            .zos,
+
+            .uefi,
+            .windows,
+
+            .emscripten,
+            .wasi,
+
+            .amdhsa,
+            .amdpal,
+            .cuda,
+            .mesa3d,
+            .nvcl,
+            .opencl,
+            .opengl,
+            .vulkan,
+
+            .ps3,
+            .ps4,
+            .ps5,
+            => .none,
+        };
+    }
+
+    /// The strictness of this function depends on the value of `kind(os.tag)`:
+    ///
+    /// * `.none`: Ignores all arguments and just returns `none`.
+    /// * `.arch_os`: Ignores `abi` and returns the dynamic linker matching `cpu` and `os`.
+    /// * `.arch_os_abi`: Returns the dynamic linker matching `cpu`, `os`, and `abi`.
+    ///
+    /// In the case of `.arch_os` in particular, callers should be aware that a valid dynamic linker
+    /// being returned only means that the `cpu` + `os` combination represents a platform that
+    /// actually exists and which has an established dynamic linker path that does not change with
+    /// the ABI; it does not necessarily mean that `abi` makes any sense at all for that platform.
+    /// The responsibility for determining whether `abi` is valid in this case rests with the
+    /// caller. `Abi.default()` can be used to pick a best-effort default ABI for such platforms.
+    pub fn standard(cpu: Cpu, os: Os, abi: Abi) DynamicLinker {
+        return switch (os.tag) {
+            .fuchsia => switch (cpu.arch) {
+                .aarch64,
+                .riscv64,
+                .x86_64,
+                => init("ld.so.1"), // Fuchsia is unusual in that `DT_INTERP` is just a basename.
+                else => none,
+            },
+
+            .haiku => switch (cpu.arch) {
+                .arm,
+                .thumb,
+                .aarch64,
+                .m68k,
+                .powerpc,
+                .riscv64,
+                .sparc64,
                 .x86,
-                .sparc,
-                => init("/lib/ld-linux.so.2"),
+                .x86_64,
+                => init("/system/runtime_loader"),
+                else => none,
+            },
 
-                .aarch64 => init("/lib/ld-linux-aarch64.so.1"),
-                .aarch64_be => init("/lib/ld-linux-aarch64_be.so.1"),
+            .hurd => switch (cpu.arch) {
+                .aarch64,
+                .aarch64_be,
+                => |arch| initFmt("/lib/ld-{s}{s}.so.1", .{
+                    @tagName(arch),
+                    switch (abi) {
+                        .gnu => "",
+                        .gnuilp32 => "_ilp32",
+                        else => return none,
+                    },
+                }),
 
+                .x86 => if (abi == .gnu) init("/lib/ld.so.1") else none,
+                .x86_64 => initFmt("/lib/ld-{s}.so.1", .{switch (abi) {
+                    .gnu => "x86-64",
+                    .gnux32 => "x32",
+                    else => return none,
+                }}),
+
+                else => none,
+            },
+
+            .linux => if (abi.isAndroid())
+                switch (cpu.arch) {
+                    .arm,
+                    .thumb,
+                    => if (abi == .androideabi) init("/system/bin/linker") else none,
+
+                    .aarch64,
+                    .riscv64,
+                    .x86,
+                    .x86_64,
+                    => if (abi == .android) initFmt("/system/bin/linker{s}", .{
+                        if (ptrBitWidth_cpu_abi(cpu, abi) == 64) "64" else "",
+                    }) else none,
+
+                    else => none,
+                }
+            else if (abi.isMusl())
+                switch (cpu.arch) {
+                    .arm,
+                    .armeb,
+                    .thumb,
+                    .thumbeb,
+                    => |arch| initFmt("/lib/ld-musl-arm{s}{s}.so.1", .{
+                        if (arch == .armeb or arch == .thumbeb) "eb" else "",
+                        switch (abi) {
+                            .musleabi => "",
+                            .musleabihf => "hf",
+                            else => return none,
+                        },
+                    }),
+
+                    .aarch64,
+                    .aarch64_be,
+                    .loongarch64, // TODO: `-sp` and `-sf` ABI support in LLVM 20.
+                    .m68k,
+                    .powerpc64,
+                    .powerpc64le,
+                    .s390x,
+                    => |arch| if (abi == .musl) initFmt("/lib/ld-musl-{s}.so.1", .{@tagName(arch)}) else none,
+
+                    .mips,
+                    .mipsel,
+                    => |arch| initFmt("/lib/ld-musl-mips{s}{s}{s}.so.1", .{
+                        if (mips.featureSetHas(cpu.features, .mips32r6)) "r6" else "",
+                        if (arch == .mipsel) "el" else "",
+                        switch (abi) {
+                            .musleabi => "-sf",
+                            .musleabihf => "",
+                            else => return none,
+                        },
+                    }),
+
+                    .mips64,
+                    .mips64el,
+                    => |arch| initFmt("/lib/ld-musl-mips{s}{s}{s}.so.1", .{
+                        switch (abi) {
+                            .muslabi64 => "64",
+                            .muslabin32 => "n32",
+                            else => return none,
+                        },
+                        if (mips.featureSetHas(cpu.features, .mips64r6)) "r6" else "",
+                        if (arch == .mips64el) "el" else "",
+                    }),
+
+                    .powerpc => initFmt("/lib/ld-musl-powerpc{s}.so.1", .{switch (abi) {
+                        .musleabi => "-sf",
+                        .musleabihf => "",
+                        else => return none,
+                    }}),
+
+                    .riscv32,
+                    .riscv64,
+                    => |arch| if (abi == .musl) initFmt("/lib/ld-musl-{s}{s}.so.1", .{
+                        @tagName(arch),
+                        if (riscv.featureSetHas(cpu.features, .d))
+                            ""
+                        else if (riscv.featureSetHas(cpu.features, .f))
+                            "-sp"
+                        else
+                            "-sf",
+                    }) else none,
+
+                    .x86 => if (abi == .musl) init("/lib/ld-musl-i386.so.1") else none,
+                    .x86_64 => initFmt("/lib/ld-musl-{s}.so.1", .{switch (abi) {
+                        .musl => "x86_64",
+                        .muslx32 => "x32",
+                        else => return none,
+                    }}),
+
+                    else => none,
+                }
+            else if (abi.isGnu())
+                switch (cpu.arch) {
+                    // TODO: `eb` architecture support.
+                    // TODO: `700` ABI support.
+                    .arc => if (abi == .gnu) init("/lib/ld-linux-arc.so.2") else none,
+
+                    // TODO: OABI support (`/lib/ld-linux.so.2`).
+                    .arm,
+                    .armeb,
+                    .thumb,
+                    .thumbeb,
+                    => initFmt("/lib/ld-linux{s}.so.3", .{switch (abi) {
+                        .gnueabi => "",
+                        .gnueabihf => "-armhf",
+                        else => return none,
+                    }}),
+
+                    .aarch64,
+                    .aarch64_be,
+                    => |arch| initFmt("/lib/ld-linux-{s}{s}.so.1", .{
+                        @tagName(arch),
+                        switch (abi) {
+                            .gnu => "",
+                            .gnuilp32 => "_ilp32",
+                            else => return none,
+                        },
+                    }),
+
+                    // TODO: `-be` architecture support.
+                    .csky => initFmt("/lib/ld-linux-cskyv2{s}.so.1", .{switch (abi) {
+                        .gnueabi => "",
+                        .gnueabihf => "-hf",
+                        else => return none,
+                    }}),
+
+                    .loongarch64 => initFmt("/lib64/ld-linux-loongarch-{s}.so.1", .{switch (abi) {
+                        .gnu => "lp64d",
+                        .gnuf32 => "lp64f",
+                        .gnusf => "lp64s",
+                        else => return none,
+                    }}),
+
+                    .m68k => if (abi == .gnu) init("/lib/ld.so.1") else none,
+
+                    .mips,
+                    .mipsel,
+                    => switch (abi) {
+                        .gnueabi,
+                        .gnueabihf,
+                        => initFmt("/lib/ld{s}.so.1", .{
+                            if (mips.featureSetHas(cpu.features, .nan2008)) "-linux-mipsn8" else "",
+                        }),
+                        else => none,
+                    },
+
+                    .mips64,
+                    .mips64el,
+                    => initFmt("/lib{s}/ld{s}.so.1", .{
+                        switch (abi) {
+                            .gnuabi64 => "64",
+                            .gnuabin32 => "32",
+                            else => return none,
+                        },
+                        if (mips.featureSetHas(cpu.features, .nan2008)) "-linux-mipsn8" else "",
+                    }),
+
+                    .powerpc => switch (abi) {
+                        .gnueabi,
+                        .gnueabihf,
+                        => init("/lib/ld.so.1"),
+                        else => none,
+                    },
+                    // TODO: ELFv2 ABI (`/lib64/ld64.so.2`) opt-in support.
+                    .powerpc64 => if (abi == .gnu) init("/lib64/ld64.so.1") else none,
+                    .powerpc64le => if (abi == .gnu) init("/lib64/ld64.so.2") else none,
+
+                    .riscv32,
+                    .riscv64,
+                    => |arch| if (abi == .gnu) initFmt("/lib/ld-linux-{s}{s}.so.1", .{
+                        switch (arch) {
+                            .riscv32 => "riscv32-ilp32",
+                            .riscv64 => "riscv64-lp64",
+                            else => unreachable,
+                        },
+                        if (riscv.featureSetHas(cpu.features, .d))
+                            "d"
+                        else if (riscv.featureSetHas(cpu.features, .f))
+                            "f"
+                        else
+                            "",
+                    }) else none,
+
+                    .s390x => if (abi == .gnu) init("/lib/ld64.so.1") else none,
+
+                    .sparc => if (abi == .gnu) init("/lib/ld-linux.so.2") else none,
+                    .sparc64 => if (abi == .gnu) init("/lib64/ld-linux.so.2") else none,
+
+                    .x86 => if (abi == .gnu) init("/lib/ld-linux.so.2") else none,
+                    .x86_64 => switch (abi) {
+                        .gnu => init("/lib64/ld-linux-x86-64.so.2"),
+                        .gnux32 => init("/libx32/ld-linux-x32.so.2"),
+                        else => none,
+                    },
+
+                    .xtensa => if (abi == .gnu) init("/lib/ld.so.1") else none,
+
+                    else => none,
+                }
+            else
+                none, // Not a known Linux libc.
+
+            .serenity => switch (cpu.arch) {
+                .aarch64,
+                .riscv64,
+                .x86_64,
+                => init("/usr/lib/Loader.so"),
+                else => none,
+            },
+
+            .dragonfly => if (cpu.arch == .x86_64) initFmt("{s}/libexec/ld-elf.so.2", .{
+                if (os.version_range.semver.isAtLeast(.{ .major = 3, .minor = 8, .patch = 0 }) orelse false)
+                    ""
+                else
+                    "/usr",
+            }) else none,
+
+            .freebsd => switch (cpu.arch) {
                 .arm,
                 .armeb,
                 .thumb,
                 .thumbeb,
-                => initFmt("/lib/ld-linux{s}.so.3", .{switch (abi.floatAbi()) {
-                    .hard => "-armhf",
-                    else => "",
-                }}) catch unreachable,
-
-                .loongarch64 => init("/lib64/ld-linux-loongarch-lp64d.so.1"),
-
+                .aarch64,
                 .mips,
                 .mipsel,
                 .mips64,
                 .mips64el,
-                => initFmt("/lib{s}/{s}", .{
-                    switch (abi) {
-                        .gnuabin32, .gnux32 => "32",
-                        .gnuabi64 => "64",
-                        else => "",
-                    },
-                    if (mips.featureSetHas(cpu.features, .nan2008))
-                        "ld-linux-mipsn8.so.1"
+                .powerpc,
+                .powerpc64,
+                .powerpc64le,
+                .riscv64,
+                .sparc64,
+                .x86,
+                .x86_64,
+                => initFmt("{s}/libexec/ld-elf.so.1", .{
+                    if (os.version_range.semver.isAtLeast(.{ .major = 6, .minor = 0, .patch = 0 }) orelse false)
+                        ""
                     else
-                        "ld.so.1",
-                }) catch unreachable,
-
-                .powerpc, .powerpcle => init("/lib/ld.so.1"),
-                .powerpc64, .powerpc64le => init("/lib64/ld64.so.2"),
-                .s390x => init("/lib64/ld64.so.1"),
-                .sparc64 => init("/lib64/ld-linux.so.2"),
-                .x86_64 => init(switch (abi) {
-                    .gnux32 => "/libx32/ld-linux-x32.so.2",
-                    else => "/lib64/ld-linux-x86-64.so.2",
+                        "/usr",
                 }),
-
-                .riscv32 => init("/lib/ld-linux-riscv32-ilp32d.so.1"),
-                .riscv64 => init("/lib/ld-linux-riscv64-lp64d.so.1"),
-
-                // Architectures in this list have been verified as not having a standard
-                // dynamic linker path.
-                .wasm32,
-                .wasm64,
-                .bpfel,
-                .bpfeb,
-                .nvptx,
-                .nvptx64,
-                .spu_2,
-                .avr,
-                .spirv,
-                .spirv32,
-                .spirv64,
-                => none,
-
-                // TODO go over each item in this list and either move it to the above list, or
-                // implement the standard dynamic linker path code for it.
-                .arc,
-                .csky,
-                .hexagon,
-                .m68k,
-                .msp430,
-                .amdgcn,
-                .xcore,
-                .kalimba,
-                .lanai,
-                .ve,
-                .dxil,
-                .loongarch32,
-                .xtensa,
-                => none,
+                else => none,
             },
 
+            .netbsd => switch (cpu.arch) {
+                .arm,
+                .armeb,
+                .thumb,
+                .thumbeb,
+                .aarch64,
+                .aarch64_be,
+                .m68k,
+                .mips,
+                .mipsel,
+                .mips64,
+                .mips64el,
+                .powerpc,
+                .riscv64,
+                .sparc,
+                .sparc64,
+                .x86,
+                .x86_64,
+                => init("/libexec/ld.elf_so"),
+                else => none,
+            },
+
+            .openbsd => switch (cpu.arch) {
+                .arm,
+                .thumb,
+                .aarch64,
+                .mips64,
+                .mips64el,
+                .powerpc,
+                .powerpc64,
+                .riscv64,
+                .sparc64,
+                .x86,
+                .x86_64,
+                => init("/usr/libexec/ld.so"),
+                else => none,
+            },
+
+            .bridgeos => if (cpu.arch == .aarch64) init("/usr/lib/dyld") else none,
             .driverkit,
             .ios,
-            .tvos,
-            .watchos,
             .macos,
+            .tvos,
             .visionos,
-            => init("/usr/lib/dyld"),
+            .watchos,
+            => switch (cpu.arch) {
+                .aarch64,
+                .x86_64,
+                => init("/usr/lib/dyld"),
+                else => none,
+            },
 
-            .serenity => init("/usr/lib/Loader.so"),
+            .illumos,
+            .solaris,
+            => switch (cpu.arch) {
+                .sparc,
+                .sparc64,
+                .x86,
+                .x86_64,
+                => initFmt("/lib/{s}ld.so.1", .{if (ptrBitWidth_cpu_abi(cpu, .none) == 64) "64/" else ""}),
+                else => none,
+            },
 
             // Operating systems in this list have been verified as not having a standard
             // dynamic linker path.
             .freestanding,
+            .other,
+
+            .contiki,
+            .elfiamcu,
+            .hermit,
+
+            .aix,
+            .plan9,
+            .rtems,
+            .zos,
+
             .uefi,
             .windows,
+
             .emscripten,
             .wasi,
+
+            .amdhsa,
+            .amdpal,
+            .cuda,
+            .mesa3d,
+            .nvcl,
             .opencl,
             .opengl,
             .vulkan,
-            .other,
-            .plan9,
             => none,
-
-            // TODO revisit when multi-arch for Haiku is available
-            .haiku => init("/system/runtime_loader"),
 
             // TODO go over each item in this list and either move it to the above list, or
             // implement the standard dynamic linker path code for it.
-            .fuchsia,
             .ps3,
-            .zos,
-            .rtems,
-            .aix,
-            .cuda,
-            .nvcl,
-            .amdhsa,
             .ps4,
             .ps5,
-            .elfiamcu,
-            .mesa3d,
-            .contiki,
-            .amdpal,
-            .hermit,
-            .hurd,
-            .shadermodel,
             => none,
-        };
+        } catch unreachable;
     }
 };
 
 pub fn standardDynamicLinkerPath(target: Target) DynamicLinker {
-    return DynamicLinker.standard(target.cpu, target.os.tag, target.abi);
+    return DynamicLinker.standard(target.cpu, target.os, target.abi);
 }
 
 pub fn ptrBitWidth_cpu_abi(cpu: Cpu, abi: Abi) u16 {
     switch (abi) {
-        .gnux32, .muslx32, .gnuabin32, .gnuilp32, .ilp32 => return 32,
-        .gnuabi64 => return 64,
+        .gnux32, .muslx32, .gnuabin32, .muslabin32, .gnuilp32, .ilp32 => return 32,
+        .gnuabi64, .muslabi64 => return 64,
         else => {},
     }
     return switch (cpu.arch) {
@@ -1905,8 +2616,9 @@ pub fn ptrBitWidth_cpu_abi(cpu: Cpu, abi: Abi) u16 {
         .sparc,
         .spirv32,
         .loongarch32,
-        .dxil,
         .xtensa,
+        .propeller1,
+        .propeller2,
         => 32,
 
         .aarch64,
@@ -2076,7 +2788,10 @@ pub fn cTypeBitSize(target: Target, c_type: CType) u16 {
                 .char => return 8,
                 .short, .ushort => return 16,
                 .int, .uint, .float => return 32,
-                .long, .ulong => return if (target.abi != .gnuabin32) 64 else 32,
+                .long, .ulong => switch (target.abi) {
+                    .gnuabin32, .muslabin32 => return 32,
+                    else => return 64,
+                },
                 .longlong, .ulonglong, .double => return 64,
                 .longdouble => return 128,
             },
@@ -2109,6 +2824,8 @@ pub fn cTypeBitSize(target: Target, c_type: CType) u16 {
                     .powerpc64le,
                     => switch (target.abi) {
                         .musl,
+                        .muslabin32,
+                        .muslabi64,
                         .musleabi,
                         .musleabihf,
                         .muslx32,
@@ -2164,7 +2881,10 @@ pub fn cTypeBitSize(target: Target, c_type: CType) u16 {
                 .char => return 8,
                 .short, .ushort => return 16,
                 .int, .uint, .float => return 32,
-                .long, .ulong => return if (target.abi != .gnuabin32) 64 else 32,
+                .long, .ulong => switch (target.abi) {
+                    .gnuabin32, .muslabin32 => return 32,
+                    else => return 64,
+                },
                 .longlong, .ulonglong, .double => return 64,
                 .longdouble => if (target.os.tag == .freebsd) return 64 else return 128,
             },
@@ -2195,6 +2915,8 @@ pub fn cTypeBitSize(target: Target, c_type: CType) u16 {
                     .powerpcle,
                     => switch (target.abi) {
                         .musl,
+                        .muslabin32,
+                        .muslabi64,
                         .musleabi,
                         .musleabihf,
                         .muslx32,
@@ -2209,6 +2931,8 @@ pub fn cTypeBitSize(target: Target, c_type: CType) u16 {
                     .powerpc64le,
                     => switch (target.abi) {
                         .musl,
+                        .muslabin32,
+                        .muslabi64,
                         .musleabi,
                         .musleabihf,
                         .muslx32,
@@ -2275,6 +2999,7 @@ pub fn cTypeBitSize(target: Target, c_type: CType) u16 {
             },
         },
 
+        .bridgeos,
         .driverkit,
         .ios,
         .macos,
@@ -2354,7 +3079,6 @@ pub fn cTypeBitSize(target: Target, c_type: CType) u16 {
         .hermit,
         .hurd,
         .opengl,
-        .shadermodel,
         => @panic("TODO specify the C integer and float type sizes for this OS"),
     }
 }
@@ -2388,6 +3112,7 @@ pub fn cTypeAlignment(target: Target, c_type: CType) u16 {
                     .eabi,
                     .eabihf,
                     .android,
+                    .androideabi,
                     .musleabi,
                     .musleabihf,
                     => 8,
@@ -2399,18 +3124,17 @@ pub fn cTypeAlignment(target: Target, c_type: CType) u16 {
             },
 
             .msp430,
-            .avr,
             => 2,
 
             .arc,
             .csky,
             .x86,
             .xcore,
-            .dxil,
-            .loongarch32,
             .kalimba,
             .spu_2,
             .xtensa,
+            .propeller1,
+            .propeller2,
             => 4,
 
             .amdgcn,
@@ -2429,6 +3153,7 @@ pub fn cTypeAlignment(target: Target, c_type: CType) u16 {
 
             .aarch64,
             .aarch64_be,
+            .loongarch32,
             .loongarch64,
             .mips64,
             .mips64el,
@@ -2447,6 +3172,9 @@ pub fn cTypeAlignment(target: Target, c_type: CType) u16 {
             .wasm32,
             .wasm64,
             => 16,
+
+            .avr,
+            => unreachable, // Handled above.
         }),
     );
 }
@@ -2461,6 +3189,7 @@ pub fn cTypePreferredAlignment(target: Target, c_type: CType) u16 {
                 .eabi,
                 .eabihf,
                 .android,
+                .androideabi,
                 .musleabi,
                 .musleabihf,
                 => {},
@@ -2480,12 +3209,7 @@ pub fn cTypePreferredAlignment(target: Target, c_type: CType) u16 {
             .longdouble => return 4,
             else => {},
         },
-        .avr => switch (c_type) {
-            .char, .int, .uint, .long, .ulong, .float, .longdouble => return 1,
-            .short, .ushort => return 2,
-            .double => return 4,
-            .longlong, .ulonglong => return 8,
-        },
+        .avr => return 1,
         .x86 => switch (target.os.tag) {
             .windows, .uefi => switch (c_type) {
                 .longdouble => switch (target.abi) {
@@ -2510,17 +3234,16 @@ pub fn cTypePreferredAlignment(target: Target, c_type: CType) u16 {
 
             .csky,
             .xcore,
-            .dxil,
-            .loongarch32,
             .kalimba,
             .spu_2,
             .xtensa,
+            .propeller1,
+            .propeller2,
             => 4,
 
             .arc,
             .arm,
             .armeb,
-            .avr,
             .thumb,
             .thumbeb,
             .amdgcn,
@@ -2540,6 +3263,7 @@ pub fn cTypePreferredAlignment(target: Target, c_type: CType) u16 {
 
             .aarch64,
             .aarch64_be,
+            .loongarch32,
             .loongarch64,
             .mips64,
             .mips64el,
@@ -2558,143 +3282,82 @@ pub fn cTypePreferredAlignment(target: Target, c_type: CType) u16 {
             .wasm32,
             .wasm64,
             => 16,
+
+            .avr,
+            => unreachable, // Handled above.
         }),
     );
 }
 
-pub fn is_libc_lib_name(target: std.Target, name: []const u8) bool {
-    const ignore_case = target.os.tag == .macos or target.os.tag == .windows;
-
-    if (eqlIgnoreCase(ignore_case, name, "c"))
-        return true;
-
-    if (target.isMinGW()) {
-        if (eqlIgnoreCase(ignore_case, name, "m"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "mingw32"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "msvcrt-os"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "mingwex"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "uuid"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "bits"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "dmoguids"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "dxerr8"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "dxerr9"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "mfuuid"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "msxml2"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "msxml6"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "amstrmid"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "wbemuuid"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "wmcodecdspuuid"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "dxguid"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "ksguid"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "locationapi"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "portabledeviceguids"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "mfuuid"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "dloadhelper"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "strmiids"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "mfuuid"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "adsiid"))
-            return true;
-
-        return false;
-    }
-
-    if (target.abi.isGnu() or target.abi.isMusl()) {
-        if (eqlIgnoreCase(ignore_case, name, "m"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "rt"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "pthread"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "util"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "xnet"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "resolv"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "dl"))
-            return true;
-    }
-
-    if (target.abi.isMusl()) {
-        if (eqlIgnoreCase(ignore_case, name, "crypt"))
-            return true;
-    }
-
-    if (target.os.tag.isDarwin()) {
-        if (eqlIgnoreCase(ignore_case, name, "System"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "c"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "dbm"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "dl"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "info"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "m"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "poll"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "proc"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "pthread"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "rpcsvc"))
-            return true;
-    }
-
-    if (target.os.isAtLeast(.macos, .{ .major = 10, .minor = 8, .patch = 0 }) orelse false) {
-        if (eqlIgnoreCase(ignore_case, name, "mx"))
-            return true;
-    }
-
-    if (target.os.tag == .haiku) {
-        if (eqlIgnoreCase(ignore_case, name, "root"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "network"))
-            return true;
-    }
-
-    return false;
-}
-
-pub fn is_libcpp_lib_name(target: std.Target, name: []const u8) bool {
-    const ignore_case = target.os.tag.isDarwin() or target.os.tag == .windows;
-
-    return eqlIgnoreCase(ignore_case, name, "c++") or
-        eqlIgnoreCase(ignore_case, name, "stdc++") or
-        eqlIgnoreCase(ignore_case, name, "c++abi");
-}
-
-fn eqlIgnoreCase(ignore_case: bool, a: []const u8, b: []const u8) bool {
-    if (ignore_case) {
-        return std.ascii.eqlIgnoreCase(a, b);
-    } else {
-        return std.mem.eql(u8, a, b);
-    }
+pub fn cCallingConvention(target: Target) ?std.builtin.CallingConvention {
+    return switch (target.cpu.arch) {
+        .x86_64 => switch (target.os.tag) {
+            .windows, .uefi => .{ .x86_64_win = .{} },
+            else => .{ .x86_64_sysv = .{} },
+        },
+        .x86 => switch (target.os.tag) {
+            .windows, .uefi => .{ .x86_win = .{} },
+            else => .{ .x86_sysv = .{} },
+        },
+        .aarch64, .aarch64_be => if (target.os.tag.isDarwin()) cc: {
+            break :cc .{ .aarch64_aapcs_darwin = .{} };
+        } else switch (target.os.tag) {
+            .windows => .{ .aarch64_aapcs_win = .{} },
+            else => .{ .aarch64_aapcs = .{} },
+        },
+        .arm, .armeb, .thumb, .thumbeb => switch (target.os.tag) {
+            .netbsd => .{ .arm_apcs = .{} },
+            .watchos => .{ .arm_aapcs16_vfp = .{} },
+            else => switch (target.abi.floatAbi()) {
+                .soft => .{ .arm_aapcs = .{} },
+                .hard => .{ .arm_aapcs_vfp = .{} },
+            },
+        },
+        .mips64, .mips64el => switch (target.abi) {
+            .gnuabin32 => .{ .mips64_n32 = .{} },
+            else => .{ .mips64_n64 = .{} },
+        },
+        .mips, .mipsel => .{ .mips_o32 = .{} },
+        .riscv64 => .{ .riscv64_lp64 = .{} },
+        .riscv32 => .{ .riscv32_ilp32 = .{} },
+        .sparc64 => .{ .sparc64_sysv = .{} },
+        .sparc => .{ .sparc_sysv = .{} },
+        .powerpc64 => if (target.isMusl())
+            .{ .powerpc64_elf_v2 = .{} }
+        else
+            .{ .powerpc64_elf = .{} },
+        .powerpc64le => .{ .powerpc64_elf_v2 = .{} },
+        .powerpc, .powerpcle => switch (target.os.tag) {
+            .aix => .{ .powerpc_aix = .{} },
+            else => .{ .powerpc_sysv = .{} },
+        },
+        .wasm32 => .{ .wasm_watc = .{} },
+        .wasm64 => .{ .wasm_watc = .{} },
+        .arc => .{ .arc_sysv = .{} },
+        .avr => .avr_gnu,
+        .bpfel, .bpfeb => .{ .bpf_std = .{} },
+        .csky => .{ .csky_sysv = .{} },
+        .hexagon => .{ .hexagon_sysv = .{} },
+        .kalimba => null,
+        .lanai => .{ .lanai_sysv = .{} },
+        .loongarch64 => .{ .loongarch64_lp64 = .{} },
+        .loongarch32 => .{ .loongarch32_ilp32 = .{} },
+        .m68k => if (target.abi.isGnu() or target.abi.isMusl())
+            .{ .m68k_gnu = .{} }
+        else
+            .{ .m68k_sysv = .{} },
+        .msp430 => .{ .msp430_eabi = .{} },
+        .propeller1 => .{ .propeller1_sysv = .{} },
+        .propeller2 => .{ .propeller2_sysv = .{} },
+        .s390x => .{ .s390x_sysv = .{} },
+        .spu_2 => null,
+        .ve => .{ .ve_sysv = .{} },
+        .xcore => .{ .xcore_xs1 = .{} },
+        .xtensa => .{ .xtensa_call0 = .{} },
+        .amdgcn => .{ .amdgcn_device = .{} },
+        .nvptx, .nvptx64 => .nvptx_device,
+        .spirv, .spirv32, .spirv64 => .spirv_device,
+    };
 }
 
 pub fn osArchName(target: std.Target) [:0]const u8 {

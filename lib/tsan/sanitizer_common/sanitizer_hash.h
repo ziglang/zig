@@ -62,6 +62,6 @@ class MurMur2Hash64Builder {
     return x;
   }
 };
-}  //namespace __sanitizer
+}  // namespace __sanitizer
 
 #endif  // SANITIZER_HASH_H

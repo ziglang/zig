@@ -247,9 +247,9 @@ pub const Inst = struct {
         /// element type. Emits a compile error if the type is not an indexable pointer.
         /// Uses the `un_node` field.
         indexable_ptr_elem_type,
-        /// Given a vector type, returns its element type.
+        /// Given a vector or array type, returns its element type.
         /// Uses the `un_node` field.
-        vector_elem_type,
+        vec_arr_elem_type,
         /// Given a pointer to an indexable object, returns the len property. This is
         /// used by for loops. This instruction also emits a for-loop specific compile
         /// error if the indexable object is not indexable.
@@ -1065,7 +1065,7 @@ pub const Inst = struct {
                 .vector_type,
                 .elem_type,
                 .indexable_ptr_elem_type,
-                .vector_elem_type,
+                .vec_arr_elem_type,
                 .indexable_ptr_len,
                 .anyframe_type,
                 .as_node,
@@ -1375,7 +1375,7 @@ pub const Inst = struct {
                 .vector_type,
                 .elem_type,
                 .indexable_ptr_elem_type,
-                .vector_elem_type,
+                .vec_arr_elem_type,
                 .indexable_ptr_len,
                 .anyframe_type,
                 .as_node,
@@ -1575,7 +1575,7 @@ pub const Inst = struct {
                 => false,
 
                 .extended => switch (data.extended.opcode) {
-                    .fence, .branch_hint, .breakpoint, .disable_instrumentation => true,
+                    .branch_hint, .breakpoint, .disable_instrumentation => true,
                     else => false,
                 },
             };
@@ -1607,7 +1607,7 @@ pub const Inst = struct {
                 .vector_type = .pl_node,
                 .elem_type = .un_node,
                 .indexable_ptr_elem_type = .un_node,
-                .vector_elem_type = .un_node,
+                .vec_arr_elem_type = .un_node,
                 .indexable_ptr_len = .un_node,
                 .anyframe_type = .un_node,
                 .as_node = .pl_node,
@@ -1887,6 +1887,10 @@ pub const Inst = struct {
         /// `operand` is payload index to `OpaqueDecl`.
         /// `small` is `OpaqueDecl.Small`.
         opaque_decl,
+        /// A tuple type. Note that tuples are not namespace/container types.
+        /// `operand` is payload index to `TupleDecl`.
+        /// `small` is `fields_len: u16`.
+        tuple_decl,
         /// Implements the `@This` builtin.
         /// `operand` is `src_node: i32`.
         this,
@@ -1979,15 +1983,9 @@ pub const Inst = struct {
         /// The `@prefetch` builtin.
         /// `operand` is payload index to `BinNode`.
         prefetch,
-        /// Implements the `@fence` builtin.
-        /// `operand` is payload index to `UnNode`.
-        fence,
         /// Implement builtin `@setFloatMode`.
         /// `operand` is payload index to `UnNode`.
         set_float_mode,
-        /// Implement builtin `@setAlignStack`.
-        /// `operand` is payload index to `UnNode`.
-        set_align_stack,
         /// Implements the `@errorCast` builtin.
         /// `operand` is payload index to `BinNode`. `lhs` is dest type, `rhs` is operand.
         error_cast,
@@ -2086,6 +2084,10 @@ pub const Inst = struct {
         /// `operand` is payload index to `UnNode`.
         /// `small` is unused.
         branch_hint,
+        /// Compute the result type for in-place arithmetic, e.g. `+=`.
+        /// `operand` is `Zir.Inst.Ref` of the loaded LHS (*not* its type).
+        /// `small` is an `Inst.InplaceOp`.
+        inplace_arith_result_ty,
 
         pub const InstData = struct {
             opcode: Extended,
@@ -2189,7 +2191,7 @@ pub const Inst = struct {
         anyerror_void_error_union_type,
         adhoc_inferred_error_set_type,
         generic_poison_type,
-        empty_struct_type,
+        empty_tuple_type,
         undef,
         zero,
         zero_usize,
@@ -2204,7 +2206,7 @@ pub const Inst = struct {
         null_value,
         bool_true,
         bool_false,
-        empty_struct,
+        empty_tuple,
         generic_poison,
 
         /// This Ref does not correspond to any ZIR instruction or constant
@@ -3043,7 +3045,7 @@ pub const Inst = struct {
     ///      0b0X00: whether corresponding field is comptime
     ///      0bX000: whether corresponding field has a type expression
     /// 9. fields: { // for every fields_len
-    ///        field_name: u32, // if !is_tuple
+    ///        field_name: u32,
     ///        doc_comment: NullTerminatedString, // .empty if no doc comment
     ///        field_type: Ref, // if corresponding bit is not set. none means anytype.
     ///        field_type_body_len: u32, // if corresponding bit is set
@@ -3073,13 +3075,12 @@ pub const Inst = struct {
             has_backing_int: bool,
             known_non_opv: bool,
             known_comptime_only: bool,
-            is_tuple: bool,
             name_strategy: NameStrategy,
             layout: std.builtin.Type.ContainerLayout,
             any_default_inits: bool,
             any_comptime_fields: bool,
             any_aligned_fields: bool,
-            _: u2 = undefined,
+            _: u3 = undefined,
         };
     };
 
@@ -3186,6 +3187,11 @@ pub const Inst = struct {
         // Values
         calling_convention_c,
         calling_convention_inline,
+    };
+
+    pub const InplaceOp = enum(u16) {
+        add_eq,
+        sub_eq,
     };
 
     /// Trailing:
@@ -3300,6 +3306,15 @@ pub const Inst = struct {
     };
 
     /// Trailing:
+    /// 1. fields: { // for every `fields_len` (stored in `extended.small`)
+    ///        type: Inst.Ref,
+    ///        init: Inst.Ref, // `.none` for non-`comptime` fields
+    ///    }
+    pub const TupleDecl = struct {
+        src_node: i32, // relative
+    };
+
+    /// Trailing:
     /// { // for every fields_len
     ///      field_name: NullTerminatedString // null terminated string index
     ///     doc_comment: NullTerminatedString // null terminated string index
@@ -3326,6 +3341,11 @@ pub const Inst = struct {
 
     /// Trailing is an item per field.
     pub const StructInit = struct {
+        /// If this is an anonymous initialization (the operand is poison), this instruction becomes the owner of a type.
+        /// To resolve source locations, we need an absolute source node.
+        abs_node: Ast.Node.Index,
+        /// Likewise, we need an absolute line number.
+        abs_line: u32,
         fields_len: u32,
 
         pub const Item = struct {
@@ -3341,6 +3361,11 @@ pub const Inst = struct {
     /// TODO make this instead array of inits followed by array of names because
     /// it will be simpler Sema code and better for CPU cache.
     pub const StructInitAnon = struct {
+        /// This is an anonymous initialization, meaning this instruction becomes the owner of a type.
+        /// To resolve source locations, we need an absolute source node.
+        abs_node: Ast.Node.Index,
+        /// Likewise, we need an absolute line number.
+        abs_line: u32,
         fields_len: u32,
 
         pub const Item = struct {
@@ -3738,6 +3763,8 @@ fn findDeclsInner(
     defers: *std.AutoHashMapUnmanaged(u32, void),
     inst: Inst.Index,
 ) Allocator.Error!void {
+    comptime assert(Zir.inst_tracking_version == 0);
+
     const tags = zir.instructions.items(.tag);
     const datas = zir.instructions.items(.data);
 
@@ -3775,7 +3802,7 @@ fn findDeclsInner(
         .vector_type,
         .elem_type,
         .indexable_ptr_elem_type,
-        .vector_elem_type,
+        .vec_arr_elem_type,
         .indexable_ptr_len,
         .anyframe_type,
         .as_node,
@@ -3881,9 +3908,6 @@ fn findDeclsInner(
         .struct_init_empty,
         .struct_init_empty_result,
         .struct_init_empty_ref_result,
-        .struct_init_anon,
-        .struct_init,
-        .struct_init_ref,
         .validate_struct_init_ty,
         .validate_struct_init_result_ty,
         .validate_ptr_struct_init,
@@ -3975,6 +3999,12 @@ fn findDeclsInner(
         .restore_err_ret_index_fn_entry,
         => return,
 
+        // Struct initializations need tracking, as they may create anonymous struct types.
+        .struct_init,
+        .struct_init_ref,
+        .struct_init_anon,
+        => return list.append(gpa, inst),
+
         .extended => {
             const extended = datas[@intFromEnum(inst)].extended;
             switch (extended.opcode) {
@@ -4005,9 +4035,7 @@ fn findDeclsInner(
                 .wasm_memory_size,
                 .wasm_memory_grow,
                 .prefetch,
-                .fence,
                 .set_float_mode,
-                .set_align_stack,
                 .error_cast,
                 .await_nosuspend,
                 .breakpoint,
@@ -4032,6 +4060,8 @@ fn findDeclsInner(
                 .field_parent_ptr,
                 .builtin_value,
                 .branch_hint,
+                .inplace_arith_result_ty,
+                .tuple_decl,
                 => return,
 
                 // `@TypeOf` has a body.
@@ -4108,8 +4138,7 @@ fn findDeclsInner(
                         const has_type_body = @as(u1, @truncate(cur_bit_bag)) != 0;
                         cur_bit_bag >>= 1;
 
-                        fields_extra_index += @intFromBool(!small.is_tuple); // field_name
-                        fields_extra_index += 1; // doc_comment
+                        fields_extra_index += 2; // field_name, doc_comment
 
                         if (has_type_body) {
                             const field_type_body_len = zir.extra[fields_extra_index];
@@ -4732,5 +4761,37 @@ pub fn getAssociatedSrcHash(zir: Zir, inst: Zir.Inst.Index) ?std.zig.SrcHash {
             });
         },
         else => return null,
+    }
+}
+
+/// When the ZIR update tracking logic must be modified to consider new instructions,
+/// change this constant to trigger compile errors at all relevant locations.
+pub const inst_tracking_version = 0;
+
+/// Asserts that a ZIR instruction is tracked across incremental updates, and
+/// thus may be given an `InternPool.TrackedInst`.
+pub fn assertTrackable(zir: Zir, inst_idx: Zir.Inst.Index) void {
+    comptime assert(Zir.inst_tracking_version == 0);
+    const inst = zir.instructions.get(@intFromEnum(inst_idx));
+    switch (inst.tag) {
+        .struct_init,
+        .struct_init_ref,
+        .struct_init_anon,
+        => {}, // tracked in order, as the owner instructions of anonymous struct types
+        .func,
+        .func_inferred,
+        .func_fancy,
+        => {}, // tracked in order, as the owner instructions of function bodies
+        .declaration => {}, // tracked by correlating names in the namespace of the parent container
+        .extended => switch (inst.data.extended.opcode) {
+            .struct_decl,
+            .union_decl,
+            .enum_decl,
+            .opaque_decl,
+            .reify,
+            => {}, // tracked in order, as the owner instructions of explicit container types
+            else => unreachable, // assertion failure; not trackable
+        },
+        else => unreachable, // assertion failure; not trackable
     }
 }

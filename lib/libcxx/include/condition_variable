@@ -118,8 +118,6 @@ public:
 
 */
 
-#include <__assert> // all public C++ headers provide the assertion handler
-#include <__availability>
 #include <__chrono/duration.h>
 #include <__chrono/steady_clock.h>
 #include <__chrono/time_point.h>

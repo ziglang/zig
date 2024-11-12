@@ -22,13 +22,13 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _RandomAccessIterator, class _Compare>
-_LIBCPP_NODISCARD_EXT inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 bool
+_LIBCPP_NODISCARD inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 bool
 is_heap(_RandomAccessIterator __first, _RandomAccessIterator __last, _Compare __comp) {
   return std::__is_heap_until(__first, __last, static_cast<__comp_ref_type<_Compare> >(__comp)) == __last;
 }
 
 template <class _RandomAccessIterator>
-_LIBCPP_NODISCARD_EXT inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 bool
+_LIBCPP_NODISCARD inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 bool
 is_heap(_RandomAccessIterator __first, _RandomAccessIterator __last) {
   return std::is_heap(__first, __last, __less<>());
 }

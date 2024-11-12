@@ -51,6 +51,7 @@ pub const Feature = enum {
     ptr64,
     single_float,
     soft_float,
+    strict_align,
     sym32,
     use_indirect_jump_hazard,
     use_tcc_in_div,
@@ -354,6 +355,11 @@ pub const all_features = blk: {
     result[@intFromEnum(Feature.soft_float)] = .{
         .llvm_name = "soft-float",
         .description = "Does not support floating point instructions",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.strict_align)] = .{
+        .llvm_name = "strict-align",
+        .description = "Disable unaligned load store for r6",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.sym32)] = .{

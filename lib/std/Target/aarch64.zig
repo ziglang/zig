@@ -5,15 +5,7 @@ const CpuFeature = std.Target.Cpu.Feature;
 const CpuModel = std.Target.Cpu.Model;
 
 pub const Feature = enum {
-    a510,
-    a520,
-    a65,
-    a710,
-    a720,
-    a76,
-    a78,
-    a78c,
-    addr_lsl_fast,
+    addr_lsl_slow_14,
     aes,
     aggressive_fma,
     alternate_sextload_cvt_f32_pattern,
@@ -46,7 +38,6 @@ pub const Feature = enum {
     cmp_bcc_fusion,
     complxnum,
     contextidr_el2,
-    cortex_r82,
     cpa,
     crc,
     crypto,
@@ -77,7 +68,7 @@ pub const Feature = enum {
     fp8dot4,
     fp8fma,
     fp_armv8,
-    fpmr,
+    fpac,
     fptoint,
     fullfp16,
     fuse_address,
@@ -131,6 +122,7 @@ pub const Feature = enum {
     rcpc3,
     rcpc_immo,
     rdm,
+    reserve_lr_for_ra,
     reserve_x1,
     reserve_x10,
     reserve_x11,
@@ -150,7 +142,6 @@ pub const Feature = enum {
     reserve_x27,
     reserve_x28,
     reserve_x3,
-    reserve_x30,
     reserve_x4,
     reserve_x5,
     reserve_x6,
@@ -168,6 +159,7 @@ pub const Feature = enum {
     sme,
     sme2,
     sme2p1,
+    sme_b16b16,
     sme_f16f16,
     sme_f64f64,
     sme_f8f16,
@@ -193,6 +185,7 @@ pub const Feature = enum {
     sve2_sha3,
     sve2_sm4,
     sve2p1,
+    sve_b16b16,
     tagged_globals,
     the,
     tlb_rmi,
@@ -206,6 +199,7 @@ pub const Feature = enum {
     trbe,
     uaops,
     use_experimental_zeroing_pseudos,
+    use_fixed_over_scalable_if_equal_cost,
     use_postra_scheduler,
     use_reciprocal_square_root,
     use_scalar_inc_vl,
@@ -245,112 +239,14 @@ pub const all_features = blk: {
     const len = @typeInfo(Feature).@"enum".fields.len;
     std.debug.assert(len <= CpuFeature.Set.needed_bit_count);
     var result: [len]CpuFeature = undefined;
-    result[@intFromEnum(Feature.a510)] = .{
-        .llvm_name = "a510",
-        .description = "Cortex-A510 ARM processors",
-        .dependencies = featureSet(&[_]Feature{
-            .fuse_adrp_add,
-            .fuse_aes,
-            .use_postra_scheduler,
-        }),
-    };
-    result[@intFromEnum(Feature.a520)] = .{
-        .llvm_name = "a520",
-        .description = "Cortex-A520 ARM processors",
-        .dependencies = featureSet(&[_]Feature{
-            .fuse_adrp_add,
-            .fuse_aes,
-            .use_postra_scheduler,
-        }),
-    };
-    result[@intFromEnum(Feature.a65)] = .{
-        .llvm_name = "a65",
-        .description = "Cortex-A65 ARM processors",
-        .dependencies = featureSet(&[_]Feature{
-            .enable_select_opt,
-            .fuse_address,
-            .fuse_adrp_add,
-            .fuse_aes,
-            .fuse_literals,
-            .predictable_select_expensive,
-        }),
-    };
-    result[@intFromEnum(Feature.a710)] = .{
-        .llvm_name = "a710",
-        .description = "Cortex-A710 ARM processors",
-        .dependencies = featureSet(&[_]Feature{
-            .addr_lsl_fast,
-            .alu_lsl_fast,
-            .cmp_bcc_fusion,
-            .enable_select_opt,
-            .fuse_adrp_add,
-            .fuse_aes,
-            .predictable_select_expensive,
-            .use_postra_scheduler,
-        }),
-    };
-    result[@intFromEnum(Feature.a720)] = .{
-        .llvm_name = "a720",
-        .description = "Cortex-A720 ARM processors",
-        .dependencies = featureSet(&[_]Feature{
-            .addr_lsl_fast,
-            .alu_lsl_fast,
-            .cmp_bcc_fusion,
-            .enable_select_opt,
-            .fuse_adrp_add,
-            .fuse_aes,
-            .predictable_select_expensive,
-            .use_postra_scheduler,
-        }),
-    };
-    result[@intFromEnum(Feature.a76)] = .{
-        .llvm_name = "a76",
-        .description = "Cortex-A76 ARM processors",
-        .dependencies = featureSet(&[_]Feature{
-            .addr_lsl_fast,
-            .alu_lsl_fast,
-            .enable_select_opt,
-            .fuse_adrp_add,
-            .fuse_aes,
-            .predictable_select_expensive,
-        }),
-    };
-    result[@intFromEnum(Feature.a78)] = .{
-        .llvm_name = "a78",
-        .description = "Cortex-A78 ARM processors",
-        .dependencies = featureSet(&[_]Feature{
-            .addr_lsl_fast,
-            .alu_lsl_fast,
-            .cmp_bcc_fusion,
-            .enable_select_opt,
-            .fuse_adrp_add,
-            .fuse_aes,
-            .predictable_select_expensive,
-            .use_postra_scheduler,
-        }),
-    };
-    result[@intFromEnum(Feature.a78c)] = .{
-        .llvm_name = "a78c",
-        .description = "Cortex-A78C ARM processors",
-        .dependencies = featureSet(&[_]Feature{
-            .addr_lsl_fast,
-            .alu_lsl_fast,
-            .cmp_bcc_fusion,
-            .enable_select_opt,
-            .fuse_adrp_add,
-            .fuse_aes,
-            .predictable_select_expensive,
-            .use_postra_scheduler,
-        }),
-    };
-    result[@intFromEnum(Feature.addr_lsl_fast)] = .{
-        .llvm_name = "addr-lsl-fast",
-        .description = "Address operands with logical shift of up to 3 places are cheap",
+    result[@intFromEnum(Feature.addr_lsl_slow_14)] = .{
+        .llvm_name = "addr-lsl-slow-14",
+        .description = "Address operands with shift amount of 1 or 4 are slow",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.aes)] = .{
         .llvm_name = "aes",
-        .description = "Enable AES support (FEAT_AES, FEAT_PMULL)",
+        .description = "Enable AES support",
         .dependencies = featureSet(&[_]Feature{
             .neon,
         }),
@@ -367,7 +263,7 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.altnzcv)] = .{
         .llvm_name = "altnzcv",
-        .description = "Enable alternative NZCV format for floating point comparisons (FEAT_FlagM2)",
+        .description = "Enable alternative NZCV format for floating point comparisons",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.alu_lsl_fast)] = .{
@@ -377,12 +273,12 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.am)] = .{
         .llvm_name = "am",
-        .description = "Enable v8.4-A Activity Monitors extension (FEAT_AMUv1)",
+        .description = "Enable Armv8.4-A Activity Monitors extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.amvs)] = .{
         .llvm_name = "amvs",
-        .description = "Enable v8.6-A Activity Monitors Virtualization support (FEAT_AMUv1p1)",
+        .description = "Enable Armv8.6-A Activity Monitors Virtualization support",
         .dependencies = featureSet(&[_]Feature{
             .am,
         }),
@@ -404,7 +300,7 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.b16b16)] = .{
         .llvm_name = "b16b16",
-        .description = "Enable SVE2.1 or SME2.1 non-widening BFloat16 to BFloat16 instructions (FEAT_B16B16)",
+        .description = "Enable SVE2.1 or SME2.1 non-widening BFloat16 to BFloat16 instructions",
         .dependencies = featureSet(&[_]Feature{
             .bf16,
         }),
@@ -416,17 +312,17 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.bf16)] = .{
         .llvm_name = "bf16",
-        .description = "Enable BFloat16 Extension (FEAT_BF16)",
+        .description = "Enable BFloat16 Extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.brbe)] = .{
         .llvm_name = "brbe",
-        .description = "Enable Branch Record Buffer Extension (FEAT_BRBE)",
+        .description = "Enable Branch Record Buffer Extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.bti)] = .{
         .llvm_name = "bti",
-        .description = "Enable Branch Target Identification (FEAT_BTI)",
+        .description = "Enable Branch Target Identification",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.call_saved_x10)] = .{
@@ -476,27 +372,27 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.ccdp)] = .{
         .llvm_name = "ccdp",
-        .description = "Enable v8.5 Cache Clean to Point of Deep Persistence (FEAT_DPB2)",
+        .description = "Enable Armv8.5-A Cache Clean to Point of Deep Persistence",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.ccidx)] = .{
         .llvm_name = "ccidx",
-        .description = "Enable v8.3-A Extend of the CCSIDR number of sets (FEAT_CCIDX)",
+        .description = "Enable Armv8.3-A Extend of the CCSIDR number of sets",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.ccpp)] = .{
         .llvm_name = "ccpp",
-        .description = "Enable v8.2 data Cache Clean to Point of Persistence (FEAT_DPB)",
+        .description = "Enable Armv8.2-A data Cache Clean to Point of Persistence",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.chk)] = .{
         .llvm_name = "chk",
-        .description = "Enable Armv8.0-A Check Feature Status Extension (FEAT_CHK)",
+        .description = "Enable Armv8.0-A Check Feature Status Extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.clrbhb)] = .{
         .llvm_name = "clrbhb",
-        .description = "Enable Clear BHB instruction (FEAT_CLRBHB)",
+        .description = "Enable Clear BHB instruction",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.cmp_bcc_fusion)] = .{
@@ -506,7 +402,7 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.complxnum)] = .{
         .llvm_name = "complxnum",
-        .description = "Enable v8.3-A Floating-point complex number support (FEAT_FCMA)",
+        .description = "Enable Armv8.3-A Floating-point complex number support",
         .dependencies = featureSet(&[_]Feature{
             .neon,
         }),
@@ -516,21 +412,14 @@ pub const all_features = blk: {
         .description = "Enable RW operand Context ID Register (EL2)",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.cortex_r82)] = .{
-        .llvm_name = "cortex-r82",
-        .description = "Cortex-R82 ARM processors",
-        .dependencies = featureSet(&[_]Feature{
-            .use_postra_scheduler,
-        }),
-    };
     result[@intFromEnum(Feature.cpa)] = .{
         .llvm_name = "cpa",
-        .description = "Enable Armv9.5-A Checked Pointer Arithmetic (FEAT_CPA)",
+        .description = "Enable Armv9.5-A Checked Pointer Arithmetic",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.crc)] = .{
         .llvm_name = "crc",
-        .description = "Enable ARMv8 CRC-32 checksum instructions (FEAT_CRC32)",
+        .description = "Enable Armv8.0-A CRC-32 checksum instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.crypto)] = .{
@@ -543,12 +432,12 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.cssc)] = .{
         .llvm_name = "cssc",
-        .description = "Enable Common Short Sequence Compression (CSSC) instructions (FEAT_CSSC)",
+        .description = "Enable Common Short Sequence Compression (CSSC) instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.d128)] = .{
         .llvm_name = "d128",
-        .description = "Enable Armv9.4-A 128-bit Page Table Descriptors, System Registers and Instructions (FEAT_D128, FEAT_LVA3, FEAT_SYSREG128, FEAT_SYSINSTR128)",
+        .description = "Enable Armv9.4-A 128-bit Page Table Descriptors, System Registers and instructions",
         .dependencies = featureSet(&[_]Feature{
             .lse128,
         }),
@@ -570,17 +459,19 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.dit)] = .{
         .llvm_name = "dit",
-        .description = "Enable v8.4-A Data Independent Timing instructions (FEAT_DIT)",
+        .description = "Enable Armv8.4-A Data Independent Timing instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.dotprod)] = .{
         .llvm_name = "dotprod",
-        .description = "Enable dot product support (FEAT_DotProd)",
-        .dependencies = featureSet(&[_]Feature{}),
+        .description = "Enable dot product support",
+        .dependencies = featureSet(&[_]Feature{
+            .neon,
+        }),
     };
     result[@intFromEnum(Feature.ecv)] = .{
         .llvm_name = "ecv",
-        .description = "Enable enhanced counter virtualization extension (FEAT_ECV)",
+        .description = "Enable enhanced counter virtualization extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.el2vmsa)] = .{
@@ -600,7 +491,7 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.ete)] = .{
         .llvm_name = "ete",
-        .description = "Enable Embedded Trace Extension (FEAT_ETE)",
+        .description = "Enable Embedded Trace Extension",
         .dependencies = featureSet(&[_]Feature{
             .trbe,
         }),
@@ -612,26 +503,26 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.f32mm)] = .{
         .llvm_name = "f32mm",
-        .description = "Enable Matrix Multiply FP32 Extension (FEAT_F32MM)",
+        .description = "Enable Matrix Multiply FP32 Extension",
         .dependencies = featureSet(&[_]Feature{
             .sve,
         }),
     };
     result[@intFromEnum(Feature.f64mm)] = .{
         .llvm_name = "f64mm",
-        .description = "Enable Matrix Multiply FP64 Extension (FEAT_F64MM)",
+        .description = "Enable Matrix Multiply FP64 Extension",
         .dependencies = featureSet(&[_]Feature{
             .sve,
         }),
     };
     result[@intFromEnum(Feature.faminmax)] = .{
         .llvm_name = "faminmax",
-        .description = "Enable FAMIN and FAMAX instructions (FEAT_FAMINMAX)",
+        .description = "Enable FAMIN and FAMAX instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.fgt)] = .{
         .llvm_name = "fgt",
-        .description = "Enable fine grained virtualization traps extension (FEAT_FGT)",
+        .description = "Enable fine grained virtualization traps extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.fix_cortex_a53_835769)] = .{
@@ -641,7 +532,7 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.flagm)] = .{
         .llvm_name = "flagm",
-        .description = "Enable v8.4-A Flag Manipulation Instructions (FEAT_FlagM)",
+        .description = "Enable Armv8.4-A Flag Manipulation instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.fmv)] = .{
@@ -656,49 +547,59 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.fp16fml)] = .{
         .llvm_name = "fp16fml",
-        .description = "Enable FP16 FML instructions (FEAT_FHM)",
+        .description = "Enable FP16 FML instructions",
         .dependencies = featureSet(&[_]Feature{
             .fullfp16,
         }),
     };
     result[@intFromEnum(Feature.fp8)] = .{
         .llvm_name = "fp8",
-        .description = "Enable FP8 instructions (FEAT_FP8)",
-        .dependencies = featureSet(&[_]Feature{}),
+        .description = "Enable FP8 instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .bf16,
+            .faminmax,
+            .lut,
+        }),
     };
     result[@intFromEnum(Feature.fp8dot2)] = .{
         .llvm_name = "fp8dot2",
-        .description = "Enable fp8 2-way dot instructions (FEAT_FP8DOT2)",
-        .dependencies = featureSet(&[_]Feature{}),
+        .description = "Enable FP8 2-way dot instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .fp8dot4,
+        }),
     };
     result[@intFromEnum(Feature.fp8dot4)] = .{
         .llvm_name = "fp8dot4",
-        .description = "Enable fp8 4-way dot instructions (FEAT_FP8DOT4)",
-        .dependencies = featureSet(&[_]Feature{}),
+        .description = "Enable FP8 4-way dot instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .fp8fma,
+        }),
     };
     result[@intFromEnum(Feature.fp8fma)] = .{
         .llvm_name = "fp8fma",
-        .description = "Enable fp8 multiply-add instructions (FEAT_FP8FMA)",
-        .dependencies = featureSet(&[_]Feature{}),
+        .description = "Enable Armv9.5-A FP8 multiply-add instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .fp8,
+        }),
     };
     result[@intFromEnum(Feature.fp_armv8)] = .{
         .llvm_name = "fp-armv8",
-        .description = "Enable ARMv8 FP (FEAT_FP)",
+        .description = "Enable Armv8.0-A Floating Point Extensions",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.fpmr)] = .{
-        .llvm_name = "fpmr",
-        .description = "Enable FPMR Register (FEAT_FPMR)",
+    result[@intFromEnum(Feature.fpac)] = .{
+        .llvm_name = "fpac",
+        .description = "Enable v8.3-A Pointer Authentication Faulting enhancement",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.fptoint)] = .{
         .llvm_name = "fptoint",
-        .description = "Enable FRInt[32|64][Z|X] instructions that round a floating-point number to an integer (in FP format) forcing it to fit into a 32- or 64-bit int (FEAT_FRINTTS)",
+        .description = "Enable FRInt[32|64][Z|X] instructions that round a floating-point number to an integer (in FP format) forcing it to fit into a 32- or 64-bit int",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.fullfp16)] = .{
         .llvm_name = "fullfp16",
-        .description = "Full FP16 (FEAT_FP16)",
+        .description = "Enable half-precision floating-point data processing",
         .dependencies = featureSet(&[_]Feature{
             .fp_armv8,
         }),
@@ -767,29 +668,29 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.hbc)] = .{
         .llvm_name = "hbc",
-        .description = "Enable Armv8.8-A Hinted Conditional Branches Extension (FEAT_HBC)",
+        .description = "Enable Armv8.8-A Hinted Conditional Branches Extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.hcx)] = .{
         .llvm_name = "hcx",
-        .description = "Enable Armv8.7-A HCRX_EL2 system register (FEAT_HCX)",
+        .description = "Enable Armv8.7-A HCRX_EL2 system register",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.i8mm)] = .{
         .llvm_name = "i8mm",
-        .description = "Enable Matrix Multiply Int8 Extension (FEAT_I8MM)",
+        .description = "Enable Matrix Multiply Int8 Extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.ite)] = .{
         .llvm_name = "ite",
-        .description = "Enable Armv9.4-A Instrumentation Extension FEAT_ITE",
+        .description = "Enable Armv9.4-A Instrumentation Extension",
         .dependencies = featureSet(&[_]Feature{
             .ete,
         }),
     };
     result[@intFromEnum(Feature.jsconv)] = .{
         .llvm_name = "jsconv",
-        .description = "Enable v8.3-A JavaScript FP conversion instructions (FEAT_JSCVT)",
+        .description = "Enable Armv8.3-A JavaScript FP conversion instructions",
         .dependencies = featureSet(&[_]Feature{
             .fp_armv8,
         }),
@@ -801,34 +702,34 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.lor)] = .{
         .llvm_name = "lor",
-        .description = "Enables ARM v8.1 Limited Ordering Regions extension (FEAT_LOR)",
+        .description = "Enable Armv8.1-A Limited Ordering Regions extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.ls64)] = .{
         .llvm_name = "ls64",
-        .description = "Enable Armv8.7-A LD64B/ST64B Accelerator Extension (FEAT_LS64, FEAT_LS64_V, FEAT_LS64_ACCDATA)",
+        .description = "Enable Armv8.7-A LD64B/ST64B Accelerator Extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.lse)] = .{
         .llvm_name = "lse",
-        .description = "Enable ARMv8.1 Large System Extension (LSE) atomic instructions (FEAT_LSE)",
+        .description = "Enable Armv8.1-A Large System Extension (LSE) atomic instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.lse128)] = .{
         .llvm_name = "lse128",
-        .description = "Enable Armv9.4-A 128-bit Atomic Instructions (FEAT_LSE128)",
+        .description = "Enable Armv9.4-A 128-bit Atomic instructions",
         .dependencies = featureSet(&[_]Feature{
             .lse,
         }),
     };
     result[@intFromEnum(Feature.lse2)] = .{
         .llvm_name = "lse2",
-        .description = "Enable ARMv8.4 Large System Extension 2 (LSE2) atomicity rules (FEAT_LSE2)",
+        .description = "Enable Armv8.4-A Large System Extension 2 (LSE2) atomicity rules",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.lut)] = .{
         .llvm_name = "lut",
-        .description = "Enable Lookup Table instructions (FEAT_LUT)",
+        .description = "Enable Lookup Table instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.mec)] = .{
@@ -840,29 +741,29 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.mops)] = .{
         .llvm_name = "mops",
-        .description = "Enable Armv8.8-A memcpy and memset acceleration instructions (FEAT_MOPS)",
+        .description = "Enable Armv8.8-A memcpy and memset acceleration instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.mpam)] = .{
         .llvm_name = "mpam",
-        .description = "Enable v8.4-A Memory system Partitioning and Monitoring extension (FEAT_MPAM)",
+        .description = "Enable Armv8.4-A Memory system Partitioning and Monitoring extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.mte)] = .{
         .llvm_name = "mte",
-        .description = "Enable Memory Tagging Extension (FEAT_MTE, FEAT_MTE2)",
+        .description = "Enable Memory Tagging Extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.neon)] = .{
         .llvm_name = "neon",
-        .description = "Enable Advanced SIMD instructions (FEAT_AdvSIMD)",
+        .description = "Enable Advanced SIMD instructions",
         .dependencies = featureSet(&[_]Feature{
             .fp_armv8,
         }),
     };
     result[@intFromEnum(Feature.nmi)] = .{
         .llvm_name = "nmi",
-        .description = "Enable Armv8.8-A Non-maskable Interrupts (FEAT_NMI, FEAT_GICv3_NMI)",
+        .description = "Enable Armv8.8-A Non-maskable Interrupts",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.no_bti_at_return_twice)] = .{
@@ -887,7 +788,7 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.nv)] = .{
         .llvm_name = "nv",
-        .description = "Enable v8.4-A Nested Virtualization Enhancement (FEAT_NV, FEAT_NV2)",
+        .description = "Enable Armv8.4-A Nested Virtualization Enchancement",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.outline_atomics)] = .{
@@ -897,29 +798,29 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.pan)] = .{
         .llvm_name = "pan",
-        .description = "Enables ARM v8.1 Privileged Access-Never extension (FEAT_PAN)",
+        .description = "Enable Armv8.1-A Privileged Access-Never extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.pan_rwv)] = .{
         .llvm_name = "pan-rwv",
-        .description = "Enable v8.2 PAN s1e1R and s1e1W Variants (FEAT_PAN2)",
+        .description = "Enable Armv8.2-A PAN s1e1R and s1e1W Variants",
         .dependencies = featureSet(&[_]Feature{
             .pan,
         }),
     };
     result[@intFromEnum(Feature.pauth)] = .{
         .llvm_name = "pauth",
-        .description = "Enable v8.3-A Pointer Authentication extension (FEAT_PAuth)",
+        .description = "Enable Armv8.3-A Pointer Authentication extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.pauth_lr)] = .{
         .llvm_name = "pauth-lr",
-        .description = "Enable Armv9.5-A PAC enhancements (FEAT_PAuth_LR)",
+        .description = "Enable Armv9.5-A PAC enhancements",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.perfmon)] = .{
         .llvm_name = "perfmon",
-        .description = "Enable Code Generation for ARMv8 PMUv3 Performance Monitors extension (FEAT_PMUv3)",
+        .description = "Enable Armv8.0-A PMUv3 Performance Monitors extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.predictable_select_expensive)] = .{
@@ -929,7 +830,7 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.predres)] = .{
         .llvm_name = "predres",
-        .description = "Enable v8.5a execution and data prediction invalidation instructions (FEAT_SPECRES)",
+        .description = "Enable Armv8.5-A execution and data prediction invalidation instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.prfm_slc_target)] = .{
@@ -939,43 +840,50 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.rand)] = .{
         .llvm_name = "rand",
-        .description = "Enable Random Number generation instructions (FEAT_RNG)",
+        .description = "Enable Random Number generation instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.ras)] = .{
         .llvm_name = "ras",
-        .description = "Enable ARMv8 Reliability, Availability and Serviceability Extensions (FEAT_RAS, FEAT_RASv1p1)",
+        .description = "Enable Armv8.0-A Reliability, Availability and Serviceability Extensions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.rasv2)] = .{
         .llvm_name = "rasv2",
-        .description = "Enable ARMv8.9-A Reliability, Availability and Serviceability Extensions (FEAT_RASv2)",
+        .description = "Enable Armv8.9-A Reliability, Availability and Serviceability Extensions",
         .dependencies = featureSet(&[_]Feature{
             .ras,
         }),
     };
     result[@intFromEnum(Feature.rcpc)] = .{
         .llvm_name = "rcpc",
-        .description = "Enable support for RCPC extension (FEAT_LRCPC)",
+        .description = "Enable support for RCPC extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.rcpc3)] = .{
         .llvm_name = "rcpc3",
-        .description = "Enable Armv8.9-A RCPC instructions for A64 and Advanced SIMD and floating-point instruction set (FEAT_LRCPC3)",
+        .description = "Enable Armv8.9-A RCPC instructions for A64 and Advanced SIMD and floating-point instruction set",
         .dependencies = featureSet(&[_]Feature{
             .rcpc_immo,
         }),
     };
     result[@intFromEnum(Feature.rcpc_immo)] = .{
         .llvm_name = "rcpc-immo",
-        .description = "Enable v8.4-A RCPC instructions with Immediate Offsets (FEAT_LRCPC2)",
+        .description = "Enable Armv8.4-A RCPC instructions with Immediate Offsets",
         .dependencies = featureSet(&[_]Feature{
             .rcpc,
         }),
     };
     result[@intFromEnum(Feature.rdm)] = .{
         .llvm_name = "rdm",
-        .description = "Enable ARMv8.1 Rounding Double Multiply Add/Subtract instructions (FEAT_RDM)",
+        .description = "Enable Armv8.1-A Rounding Double Multiply Add/Subtract instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .neon,
+        }),
+    };
+    result[@intFromEnum(Feature.reserve_lr_for_ra)] = .{
+        .llvm_name = "reserve-lr-for-ra",
+        .description = "Reserve LR for call use only",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.reserve_x1)] = .{
@@ -1073,11 +981,6 @@ pub const all_features = blk: {
         .description = "Reserve X3, making it unavailable as a GPR",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.reserve_x30)] = .{
-        .llvm_name = "reserve-x30",
-        .description = "Reserve X30, making it unavailable as a GPR",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
     result[@intFromEnum(Feature.reserve_x4)] = .{
         .llvm_name = "reserve-x4",
         .description = "Reserve X4, making it unavailable as a GPR",
@@ -1105,29 +1008,29 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.rme)] = .{
         .llvm_name = "rme",
-        .description = "Enable Realm Management Extension (FEAT_RME)",
+        .description = "Enable Realm Management Extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.sb)] = .{
         .llvm_name = "sb",
-        .description = "Enable v8.5 Speculation Barrier (FEAT_SB)",
+        .description = "Enable Armv8.5-A Speculation Barrier",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.sel2)] = .{
         .llvm_name = "sel2",
-        .description = "Enable v8.4-A Secure Exception Level 2 extension (FEAT_SEL2)",
+        .description = "Enable Armv8.4-A Secure Exception Level 2 extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.sha2)] = .{
         .llvm_name = "sha2",
-        .description = "Enable SHA1 and SHA256 support (FEAT_SHA1, FEAT_SHA256)",
+        .description = "Enable SHA1 and SHA256 support",
         .dependencies = featureSet(&[_]Feature{
             .neon,
         }),
     };
     result[@intFromEnum(Feature.sha3)] = .{
         .llvm_name = "sha3",
-        .description = "Enable SHA512 and SHA3 support (FEAT_SHA3, FEAT_SHA512)",
+        .description = "Enable SHA512 and SHA3 support",
         .dependencies = featureSet(&[_]Feature{
             .sha2,
         }),
@@ -1149,14 +1052,14 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.sm4)] = .{
         .llvm_name = "sm4",
-        .description = "Enable SM3 and SM4 support (FEAT_SM4, FEAT_SM3)",
+        .description = "Enable SM3 and SM4 support",
         .dependencies = featureSet(&[_]Feature{
             .neon,
         }),
     };
     result[@intFromEnum(Feature.sme)] = .{
         .llvm_name = "sme",
-        .description = "Enable Scalable Matrix Extension (SME) (FEAT_SME)",
+        .description = "Enable Scalable Matrix Extension (SME)",
         .dependencies = featureSet(&[_]Feature{
             .bf16,
             .use_scalar_inc_vl,
@@ -1171,34 +1074,43 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.sme2p1)] = .{
         .llvm_name = "sme2p1",
-        .description = "Enable Scalable Matrix Extension 2.1 (FEAT_SME2p1) instructions",
+        .description = "Enable Scalable Matrix Extension 2.1 instructions",
         .dependencies = featureSet(&[_]Feature{
+            .sme2,
+        }),
+    };
+    result[@intFromEnum(Feature.sme_b16b16)] = .{
+        .llvm_name = "sme-b16b16",
+        .description = "Enable SME2.1 ZA-targeting non-widening BFloat16 instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .b16b16,
             .sme2,
         }),
     };
     result[@intFromEnum(Feature.sme_f16f16)] = .{
         .llvm_name = "sme-f16f16",
-        .description = "Enable SME2.1 non-widening Float16 instructions (FEAT_SME_F16F16)",
-        .dependencies = featureSet(&[_]Feature{}),
+        .description = "Enable SME non-widening Float16 instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .sme2,
+        }),
     };
     result[@intFromEnum(Feature.sme_f64f64)] = .{
         .llvm_name = "sme-f64f64",
-        .description = "Enable Scalable Matrix Extension (SME) F64F64 instructions (FEAT_SME_F64F64)",
+        .description = "Enable Scalable Matrix Extension (SME) F64F64 instructions",
         .dependencies = featureSet(&[_]Feature{
             .sme,
         }),
     };
     result[@intFromEnum(Feature.sme_f8f16)] = .{
         .llvm_name = "sme-f8f16",
-        .description = "Enable Scalable Matrix Extension (SME) F8F16 instructions(FEAT_SME_F8F16)",
+        .description = "Enable Scalable Matrix Extension (SME) F8F16 instructions",
         .dependencies = featureSet(&[_]Feature{
-            .fp8,
-            .sme2,
+            .sme_f8f32,
         }),
     };
     result[@intFromEnum(Feature.sme_f8f32)] = .{
         .llvm_name = "sme-f8f32",
-        .description = "Enable Scalable Matrix Extension (SME) F8F32 instructions (FEAT_SME_F8F32)",
+        .description = "Enable Scalable Matrix Extension (SME) F8F32 instructions",
         .dependencies = featureSet(&[_]Feature{
             .fp8,
             .sme2,
@@ -1206,7 +1118,7 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.sme_fa64)] = .{
         .llvm_name = "sme-fa64",
-        .description = "Enable the full A64 instruction set in streaming SVE mode (FEAT_SME_FA64)",
+        .description = "Enable the full A64 instruction set in streaming SVE mode",
         .dependencies = featureSet(&[_]Feature{
             .sme,
             .sve2,
@@ -1214,61 +1126,62 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.sme_i16i64)] = .{
         .llvm_name = "sme-i16i64",
-        .description = "Enable Scalable Matrix Extension (SME) I16I64 instructions (FEAT_SME_I16I64)",
+        .description = "Enable Scalable Matrix Extension (SME) I16I64 instructions",
         .dependencies = featureSet(&[_]Feature{
             .sme,
         }),
     };
     result[@intFromEnum(Feature.sme_lutv2)] = .{
         .llvm_name = "sme-lutv2",
-        .description = "Enable Scalable Matrix Extension (SME) LUTv2 instructions (FEAT_SME_LUTv2)",
+        .description = "Enable Scalable Matrix Extension (SME) LUTv2 instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.spe)] = .{
         .llvm_name = "spe",
-        .description = "Enable Statistical Profiling extension (FEAT_SPE)",
+        .description = "Enable Statistical Profiling extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.spe_eef)] = .{
         .llvm_name = "spe-eef",
-        .description = "Enable extra register in the Statistical Profiling Extension (FEAT_SPEv1p2)",
+        .description = "Enable extra register in the Statistical Profiling Extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.specres2)] = .{
         .llvm_name = "specres2",
-        .description = "Enable Speculation Restriction Instruction (FEAT_SPECRES2)",
+        .description = "Enable Speculation Restriction Instruction",
         .dependencies = featureSet(&[_]Feature{
             .predres,
         }),
     };
     result[@intFromEnum(Feature.specrestrict)] = .{
         .llvm_name = "specrestrict",
-        .description = "Enable architectural speculation restriction (FEAT_CSV2_2)",
+        .description = "Enable architectural speculation restriction",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.ssbs)] = .{
         .llvm_name = "ssbs",
-        .description = "Enable Speculative Store Bypass Safe bit (FEAT_SSBS, FEAT_SSBS2)",
+        .description = "Enable Speculative Store Bypass Safe bit",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.ssve_fp8dot2)] = .{
         .llvm_name = "ssve-fp8dot2",
-        .description = "Enable SVE2 fp8 2-way dot product instructions (FEAT_SSVE_FP8DOT2)",
+        .description = "Enable SVE2 FP8 2-way dot product instructions",
         .dependencies = featureSet(&[_]Feature{
-            .sme2,
+            .ssve_fp8dot4,
         }),
     };
     result[@intFromEnum(Feature.ssve_fp8dot4)] = .{
         .llvm_name = "ssve-fp8dot4",
-        .description = "Enable SVE2 fp8 4-way dot product instructions (FEAT_SSVE_FP8DOT4)",
+        .description = "Enable SVE2 FP8 4-way dot product instructions",
         .dependencies = featureSet(&[_]Feature{
-            .sme2,
+            .ssve_fp8fma,
         }),
     };
     result[@intFromEnum(Feature.ssve_fp8fma)] = .{
         .llvm_name = "ssve-fp8fma",
-        .description = "Enable SVE2 fp8 multiply-add instructions (FEAT_SSVE_FP8FMA)",
+        .description = "Enable SVE2 FP8 multiply-add instructions",
         .dependencies = featureSet(&[_]Feature{
+            .fp8,
             .sme2,
         }),
     };
@@ -1289,14 +1202,14 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.sve)] = .{
         .llvm_name = "sve",
-        .description = "Enable Scalable Vector Extension (SVE) instructions (FEAT_SVE)",
+        .description = "Enable Scalable Vector Extension (SVE) instructions",
         .dependencies = featureSet(&[_]Feature{
             .fullfp16,
         }),
     };
     result[@intFromEnum(Feature.sve2)] = .{
         .llvm_name = "sve2",
-        .description = "Enable Scalable Vector Extension 2 (SVE2) instructions (FEAT_SVE2)",
+        .description = "Enable Scalable Vector Extension 2 (SVE2) instructions",
         .dependencies = featureSet(&[_]Feature{
             .sve,
             .use_scalar_inc_vl,
@@ -1304,7 +1217,7 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.sve2_aes)] = .{
         .llvm_name = "sve2-aes",
-        .description = "Enable AES SVE2 instructions (FEAT_SVE_AES, FEAT_SVE_PMULL128)",
+        .description = "Enable AES SVE2 instructions",
         .dependencies = featureSet(&[_]Feature{
             .aes,
             .sve2,
@@ -1312,14 +1225,14 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.sve2_bitperm)] = .{
         .llvm_name = "sve2-bitperm",
-        .description = "Enable bit permutation SVE2 instructions (FEAT_SVE_BitPerm)",
+        .description = "Enable bit permutation SVE2 instructions",
         .dependencies = featureSet(&[_]Feature{
             .sve2,
         }),
     };
     result[@intFromEnum(Feature.sve2_sha3)] = .{
         .llvm_name = "sve2-sha3",
-        .description = "Enable SHA3 SVE2 instructions (FEAT_SVE_SHA3)",
+        .description = "Enable SHA3 SVE2 instructions",
         .dependencies = featureSet(&[_]Feature{
             .sha3,
             .sve2,
@@ -1327,7 +1240,7 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.sve2_sm4)] = .{
         .llvm_name = "sve2-sm4",
-        .description = "Enable SM4 SVE2 instructions (FEAT_SVE_SM4)",
+        .description = "Enable SM4 SVE2 instructions",
         .dependencies = featureSet(&[_]Feature{
             .sm4,
             .sve2,
@@ -1340,6 +1253,13 @@ pub const all_features = blk: {
             .sve2,
         }),
     };
+    result[@intFromEnum(Feature.sve_b16b16)] = .{
+        .llvm_name = "sve-b16b16",
+        .description = "Enable SVE2 non-widening and SME2 Z-targeting non-widening BFloat16 instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .b16b16,
+        }),
+    };
     result[@intFromEnum(Feature.tagged_globals)] = .{
         .llvm_name = "tagged-globals",
         .description = "Use an instruction sequence for taking the address of a global that allows a memory tag in the upper address bits",
@@ -1347,22 +1267,22 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.the)] = .{
         .llvm_name = "the",
-        .description = "Enable Armv8.9-A Translation Hardening Extension (FEAT_THE)",
+        .description = "Enable Armv8.9-A Translation Hardening Extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.tlb_rmi)] = .{
         .llvm_name = "tlb-rmi",
-        .description = "Enable v8.4-A TLB Range and Maintenance Instructions (FEAT_TLBIOS, FEAT_TLBIRANGE)",
+        .description = "Enable Armv8.4-A TLB Range and Maintenance instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.tlbiw)] = .{
         .llvm_name = "tlbiw",
-        .description = "Enable ARMv9.5-A TLBI VMALL for Dirty State (FEAT_TLBIW)",
+        .description = "Enable Armv9.5-A TLBI VMALL for Dirty State",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.tme)] = .{
         .llvm_name = "tme",
-        .description = "Enable Transactional Memory Extension (FEAT_TME)",
+        .description = "Enable Transactional Memory Extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.tpidr_el1)] = .{
@@ -1387,22 +1307,27 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.tracev8_4)] = .{
         .llvm_name = "tracev8.4",
-        .description = "Enable v8.4-A Trace extension (FEAT_TRF)",
+        .description = "Enable Armv8.4-A Trace extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.trbe)] = .{
         .llvm_name = "trbe",
-        .description = "Enable Trace Buffer Extension (FEAT_TRBE)",
+        .description = "Enable Trace Buffer Extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.uaops)] = .{
         .llvm_name = "uaops",
-        .description = "Enable v8.2 UAO PState (FEAT_UAO)",
+        .description = "Enable Armv8.2-A UAO PState",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.use_experimental_zeroing_pseudos)] = .{
         .llvm_name = "use-experimental-zeroing-pseudos",
         .description = "Hint to the compiler that the MOVPRFX instruction is merged with destructive operations",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.use_fixed_over_scalable_if_equal_cost)] = .{
+        .llvm_name = "use-fixed-over-scalable-if-equal-cost",
+        .description = "Prefer fixed width loop vectorization over scalable if the cost-model assigns equal costs",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.use_postra_scheduler)] = .{
@@ -1422,7 +1347,7 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.v8_1a)] = .{
         .llvm_name = "v8.1a",
-        .description = "Support ARM v8.1a instructions",
+        .description = "Support ARM v8.1a architecture",
         .dependencies = featureSet(&[_]Feature{
             .crc,
             .lor,
@@ -1435,7 +1360,7 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.v8_2a)] = .{
         .llvm_name = "v8.2a",
-        .description = "Support ARM v8.2a instructions",
+        .description = "Support ARM v8.2a architecture",
         .dependencies = featureSet(&[_]Feature{
             .ccpp,
             .pan_rwv,
@@ -1446,7 +1371,7 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.v8_3a)] = .{
         .llvm_name = "v8.3a",
-        .description = "Support ARM v8.3a instructions",
+        .description = "Support ARM v8.3a architecture",
         .dependencies = featureSet(&[_]Feature{
             .ccidx,
             .complxnum,
@@ -1458,7 +1383,7 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.v8_4a)] = .{
         .llvm_name = "v8.4a",
-        .description = "Support ARM v8.4a instructions",
+        .description = "Support ARM v8.4a architecture",
         .dependencies = featureSet(&[_]Feature{
             .am,
             .dit,
@@ -1476,7 +1401,7 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.v8_5a)] = .{
         .llvm_name = "v8.5a",
-        .description = "Support ARM v8.5a instructions",
+        .description = "Support ARM v8.5a architecture",
         .dependencies = featureSet(&[_]Feature{
             .altnzcv,
             .bti,
@@ -1491,7 +1416,7 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.v8_6a)] = .{
         .llvm_name = "v8.6a",
-        .description = "Support ARM v8.6a instructions",
+        .description = "Support ARM v8.6a architecture",
         .dependencies = featureSet(&[_]Feature{
             .amvs,
             .bf16,
@@ -1503,7 +1428,7 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.v8_7a)] = .{
         .llvm_name = "v8.7a",
-        .description = "Support ARM v8.7a instructions",
+        .description = "Support ARM v8.7a architecture",
         .dependencies = featureSet(&[_]Feature{
             .hcx,
             .v8_6a,
@@ -1513,7 +1438,7 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.v8_8a)] = .{
         .llvm_name = "v8.8a",
-        .description = "Support ARM v8.8a instructions",
+        .description = "Support ARM v8.8a architecture",
         .dependencies = featureSet(&[_]Feature{
             .hbc,
             .mops,
@@ -1523,7 +1448,7 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.v8_9a)] = .{
         .llvm_name = "v8.9a",
-        .description = "Support ARM v8.9a instructions",
+        .description = "Support ARM v8.9a architecture",
         .dependencies = featureSet(&[_]Feature{
             .chk,
             .clrbhb,
@@ -1536,7 +1461,7 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.v8a)] = .{
         .llvm_name = "v8a",
-        .description = "Support ARM v8.0a instructions",
+        .description = "Support ARM v8a architecture",
         .dependencies = featureSet(&[_]Feature{
             .el2vmsa,
             .el3,
@@ -1545,7 +1470,7 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.v8r)] = .{
         .llvm_name = "v8r",
-        .description = "Support ARM v8r instructions",
+        .description = "Support ARM v8r architecture",
         .dependencies = featureSet(&[_]Feature{
             .ccidx,
             .ccpp,
@@ -1555,6 +1480,7 @@ pub const all_features = blk: {
             .dit,
             .dotprod,
             .flagm,
+            .fp16fml,
             .jsconv,
             .lse,
             .pan_rwv,
@@ -1562,8 +1488,10 @@ pub const all_features = blk: {
             .ras,
             .rcpc_immo,
             .rdm,
+            .sb,
             .sel2,
             .specrestrict,
+            .ssbs,
             .tlb_rmi,
             .tracev8_4,
             .uaops,
@@ -1571,23 +1499,25 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.v9_1a)] = .{
         .llvm_name = "v9.1a",
-        .description = "Support ARM v9.1a instructions",
+        .description = "Support ARM v9.1a architecture",
         .dependencies = featureSet(&[_]Feature{
+            .rme,
             .v8_6a,
             .v9a,
         }),
     };
     result[@intFromEnum(Feature.v9_2a)] = .{
         .llvm_name = "v9.2a",
-        .description = "Support ARM v9.2a instructions",
+        .description = "Support ARM v9.2a architecture",
         .dependencies = featureSet(&[_]Feature{
+            .mec,
             .v8_7a,
             .v9_1a,
         }),
     };
     result[@intFromEnum(Feature.v9_3a)] = .{
         .llvm_name = "v9.3a",
-        .description = "Support ARM v9.3a instructions",
+        .description = "Support ARM v9.3a architecture",
         .dependencies = featureSet(&[_]Feature{
             .v8_8a,
             .v9_2a,
@@ -1595,7 +1525,7 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.v9_4a)] = .{
         .llvm_name = "v9.4a",
-        .description = "Support ARM v9.4a instructions",
+        .description = "Support ARM v9.4a architecture",
         .dependencies = featureSet(&[_]Feature{
             .v8_9a,
             .v9_3a,
@@ -1603,36 +1533,37 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.v9_5a)] = .{
         .llvm_name = "v9.5a",
-        .description = "Support ARM v9.5a instructions",
+        .description = "Support ARM v9.5a architecture",
         .dependencies = featureSet(&[_]Feature{
             .cpa,
+            .faminmax,
+            .lut,
             .v9_4a,
         }),
     };
     result[@intFromEnum(Feature.v9a)] = .{
         .llvm_name = "v9a",
-        .description = "Support ARM v9a instructions",
+        .description = "Support ARM v9a architecture",
         .dependencies = featureSet(&[_]Feature{
-            .mec,
             .sve2,
             .v8_5a,
         }),
     };
     result[@intFromEnum(Feature.vh)] = .{
         .llvm_name = "vh",
-        .description = "Enables ARM v8.1 Virtual Host extension (FEAT_VHE)",
+        .description = "Enable Armv8.1-A Virtual Host extension",
         .dependencies = featureSet(&[_]Feature{
             .contextidr_el2,
         }),
     };
     result[@intFromEnum(Feature.wfxt)] = .{
         .llvm_name = "wfxt",
-        .description = "Enable Armv8.7-A WFET and WFIT instruction (FEAT_WFxT)",
+        .description = "Enable Armv8.7-A WFET and WFIT instruction",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.xs)] = .{
         .llvm_name = "xs",
-        .description = "Enable Armv8.7-A limited-TLB-maintenance instruction (FEAT_XS)",
+        .description = "Enable Armv8.7-A limited-TLB-maintenance instruction",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.zcm)] = .{
@@ -1670,6 +1601,7 @@ pub const cpu = struct {
         .name = "a64fx",
         .llvm_name = "a64fx",
         .features = featureSet(&[_]Feature{
+            .aes,
             .aggressive_fma,
             .arith_bcc_fusion,
             .complxnum,
@@ -1686,13 +1618,14 @@ pub const cpu = struct {
         .name = "ampere1",
         .llvm_name = "ampere1",
         .features = featureSet(&[_]Feature{
-            .addr_lsl_fast,
             .aes,
             .aggressive_fma,
             .alu_lsl_fast,
             .arith_bcc_fusion,
             .cmp_bcc_fusion,
+            .fullfp16,
             .fuse_address,
+            .fuse_adrp_add,
             .fuse_aes,
             .fuse_literals,
             .ldp_aligned_only,
@@ -1709,13 +1642,15 @@ pub const cpu = struct {
         .name = "ampere1a",
         .llvm_name = "ampere1a",
         .features = featureSet(&[_]Feature{
-            .addr_lsl_fast,
             .aes,
             .aggressive_fma,
             .alu_lsl_fast,
             .arith_bcc_fusion,
             .cmp_bcc_fusion,
+            .fullfp16,
             .fuse_address,
+            .fuse_addsub_2reg_const1,
+            .fuse_adrp_add,
             .fuse_aes,
             .fuse_literals,
             .ldp_aligned_only,
@@ -1734,7 +1669,6 @@ pub const cpu = struct {
         .name = "ampere1b",
         .llvm_name = "ampere1b",
         .features = featureSet(&[_]Feature{
-            .addr_lsl_fast,
             .aes,
             .aggressive_fma,
             .alu_lsl_fast,
@@ -1764,11 +1698,11 @@ pub const cpu = struct {
         .name = "apple_a10",
         .llvm_name = "apple-a10",
         .features = featureSet(&[_]Feature{
+            .aes,
             .alternate_sextload_cvt_f32_pattern,
             .arith_bcc_fusion,
             .arith_cbz_fusion,
             .crc,
-            .crypto,
             .disable_latency_sched_heuristic,
             .fuse_aes,
             .fuse_crypto_eor,
@@ -1776,6 +1710,7 @@ pub const cpu = struct {
             .pan,
             .perfmon,
             .rdm,
+            .sha2,
             .store_pair_suppress,
             .v8a,
             .vh,
@@ -1787,15 +1722,16 @@ pub const cpu = struct {
         .name = "apple_a11",
         .llvm_name = "apple-a11",
         .features = featureSet(&[_]Feature{
+            .aes,
             .alternate_sextload_cvt_f32_pattern,
             .arith_bcc_fusion,
             .arith_cbz_fusion,
-            .crypto,
             .disable_latency_sched_heuristic,
             .fullfp16,
             .fuse_aes,
             .fuse_crypto_eor,
             .perfmon,
+            .sha2,
             .store_pair_suppress,
             .v8_2a,
             .zcm,
@@ -1806,15 +1742,16 @@ pub const cpu = struct {
         .name = "apple_a12",
         .llvm_name = "apple-a12",
         .features = featureSet(&[_]Feature{
+            .aes,
             .alternate_sextload_cvt_f32_pattern,
             .arith_bcc_fusion,
             .arith_cbz_fusion,
-            .crypto,
             .disable_latency_sched_heuristic,
             .fullfp16,
             .fuse_aes,
             .fuse_crypto_eor,
             .perfmon,
+            .sha2,
             .store_pair_suppress,
             .v8_3a,
             .zcm,
@@ -1825,10 +1762,10 @@ pub const cpu = struct {
         .name = "apple_a13",
         .llvm_name = "apple-a13",
         .features = featureSet(&[_]Feature{
+            .aes,
             .alternate_sextload_cvt_f32_pattern,
             .arith_bcc_fusion,
             .arith_cbz_fusion,
-            .crypto,
             .disable_latency_sched_heuristic,
             .fp16fml,
             .fuse_aes,
@@ -1845,18 +1782,17 @@ pub const cpu = struct {
         .name = "apple_a14",
         .llvm_name = "apple-a14",
         .features = featureSet(&[_]Feature{
+            .aes,
             .aggressive_fma,
             .alternate_sextload_cvt_f32_pattern,
             .altnzcv,
             .arith_bcc_fusion,
             .arith_cbz_fusion,
             .ccdp,
-            .crypto,
             .disable_latency_sched_heuristic,
             .fp16fml,
             .fptoint,
             .fuse_address,
-            .fuse_adrp_add,
             .fuse_aes,
             .fuse_arith_logic,
             .fuse_crypto_eor,
@@ -1878,10 +1814,10 @@ pub const cpu = struct {
         .name = "apple_a15",
         .llvm_name = "apple-a15",
         .features = featureSet(&[_]Feature{
+            .aes,
             .alternate_sextload_cvt_f32_pattern,
             .arith_bcc_fusion,
             .arith_cbz_fusion,
-            .crypto,
             .disable_latency_sched_heuristic,
             .fp16fml,
             .fuse_address,
@@ -1902,13 +1838,14 @@ pub const cpu = struct {
         .name = "apple_a16",
         .llvm_name = "apple-a16",
         .features = featureSet(&[_]Feature{
+            .aes,
             .alternate_sextload_cvt_f32_pattern,
             .arith_bcc_fusion,
             .arith_cbz_fusion,
-            .crypto,
             .disable_latency_sched_heuristic,
             .fp16fml,
             .fuse_address,
+            .fuse_adrp_add,
             .fuse_aes,
             .fuse_arith_logic,
             .fuse_crypto_eor,
@@ -1927,13 +1864,14 @@ pub const cpu = struct {
         .name = "apple_a17",
         .llvm_name = "apple-a17",
         .features = featureSet(&[_]Feature{
+            .aes,
             .alternate_sextload_cvt_f32_pattern,
             .arith_bcc_fusion,
             .arith_cbz_fusion,
-            .crypto,
             .disable_latency_sched_heuristic,
             .fp16fml,
             .fuse_address,
+            .fuse_adrp_add,
             .fuse_aes,
             .fuse_arith_logic,
             .fuse_crypto_eor,
@@ -1952,14 +1890,15 @@ pub const cpu = struct {
         .name = "apple_a7",
         .llvm_name = "apple-a7",
         .features = featureSet(&[_]Feature{
+            .aes,
             .alternate_sextload_cvt_f32_pattern,
             .arith_bcc_fusion,
             .arith_cbz_fusion,
-            .crypto,
             .disable_latency_sched_heuristic,
             .fuse_aes,
             .fuse_crypto_eor,
             .perfmon,
+            .sha2,
             .store_pair_suppress,
             .v8a,
             .zcm,
@@ -1971,14 +1910,15 @@ pub const cpu = struct {
         .name = "apple_a8",
         .llvm_name = "apple-a8",
         .features = featureSet(&[_]Feature{
+            .aes,
             .alternate_sextload_cvt_f32_pattern,
             .arith_bcc_fusion,
             .arith_cbz_fusion,
-            .crypto,
             .disable_latency_sched_heuristic,
             .fuse_aes,
             .fuse_crypto_eor,
             .perfmon,
+            .sha2,
             .store_pair_suppress,
             .v8a,
             .zcm,
@@ -1990,14 +1930,15 @@ pub const cpu = struct {
         .name = "apple_a9",
         .llvm_name = "apple-a9",
         .features = featureSet(&[_]Feature{
+            .aes,
             .alternate_sextload_cvt_f32_pattern,
             .arith_bcc_fusion,
             .arith_cbz_fusion,
-            .crypto,
             .disable_latency_sched_heuristic,
             .fuse_aes,
             .fuse_crypto_eor,
             .perfmon,
+            .sha2,
             .store_pair_suppress,
             .v8a,
             .zcm,
@@ -2005,47 +1946,21 @@ pub const cpu = struct {
             .zcz_fp_workaround,
         }),
     };
-    pub const apple_latest = CpuModel{
-        .name = "apple_latest",
-        .llvm_name = "apple-latest",
-        .features = featureSet(&[_]Feature{
-            .alternate_sextload_cvt_f32_pattern,
-            .arith_bcc_fusion,
-            .arith_cbz_fusion,
-            .crypto,
-            .disable_latency_sched_heuristic,
-            .fp16fml,
-            .fuse_address,
-            .fuse_aes,
-            .fuse_arith_logic,
-            .fuse_crypto_eor,
-            .fuse_csel,
-            .fuse_literals,
-            .hcx,
-            .perfmon,
-            .sha3,
-            .store_pair_suppress,
-            .v8_6a,
-            .zcm,
-            .zcz,
-        }),
-    };
     pub const apple_m1 = CpuModel{
         .name = "apple_m1",
         .llvm_name = "apple-m1",
         .features = featureSet(&[_]Feature{
+            .aes,
             .aggressive_fma,
             .alternate_sextload_cvt_f32_pattern,
             .altnzcv,
             .arith_bcc_fusion,
             .arith_cbz_fusion,
             .ccdp,
-            .crypto,
             .disable_latency_sched_heuristic,
             .fp16fml,
             .fptoint,
             .fuse_address,
-            .fuse_adrp_add,
             .fuse_aes,
             .fuse_arith_logic,
             .fuse_crypto_eor,
@@ -2067,10 +1982,10 @@ pub const cpu = struct {
         .name = "apple_m2",
         .llvm_name = "apple-m2",
         .features = featureSet(&[_]Feature{
+            .aes,
             .alternate_sextload_cvt_f32_pattern,
             .arith_bcc_fusion,
             .arith_cbz_fusion,
-            .crypto,
             .disable_latency_sched_heuristic,
             .fp16fml,
             .fuse_address,
@@ -2091,13 +2006,14 @@ pub const cpu = struct {
         .name = "apple_m3",
         .llvm_name = "apple-m3",
         .features = featureSet(&[_]Feature{
+            .aes,
             .alternate_sextload_cvt_f32_pattern,
             .arith_bcc_fusion,
             .arith_cbz_fusion,
-            .crypto,
             .disable_latency_sched_heuristic,
             .fp16fml,
             .fuse_address,
+            .fuse_adrp_add,
             .fuse_aes,
             .fuse_arith_logic,
             .fuse_crypto_eor,
@@ -2112,19 +2028,46 @@ pub const cpu = struct {
             .zcz,
         }),
     };
+    pub const apple_m4 = CpuModel{
+        .name = "apple_m4",
+        .llvm_name = "apple-m4",
+        .features = featureSet(&[_]Feature{
+            .aes,
+            .alternate_sextload_cvt_f32_pattern,
+            .arith_bcc_fusion,
+            .arith_cbz_fusion,
+            .disable_latency_sched_heuristic,
+            .fp16fml,
+            .fuse_address,
+            .fuse_aes,
+            .fuse_arith_logic,
+            .fuse_crypto_eor,
+            .fuse_csel,
+            .fuse_literals,
+            .perfmon,
+            .sha3,
+            .sme2,
+            .sme_f64f64,
+            .sme_i16i64,
+            .v8_7a,
+            .zcm,
+            .zcz,
+        }),
+    };
     pub const apple_s4 = CpuModel{
         .name = "apple_s4",
         .llvm_name = "apple-s4",
         .features = featureSet(&[_]Feature{
+            .aes,
             .alternate_sextload_cvt_f32_pattern,
             .arith_bcc_fusion,
             .arith_cbz_fusion,
-            .crypto,
             .disable_latency_sched_heuristic,
             .fullfp16,
             .fuse_aes,
             .fuse_crypto_eor,
             .perfmon,
+            .sha2,
             .store_pair_suppress,
             .v8_3a,
             .zcm,
@@ -2135,15 +2078,16 @@ pub const cpu = struct {
         .name = "apple_s5",
         .llvm_name = "apple-s5",
         .features = featureSet(&[_]Feature{
+            .aes,
             .alternate_sextload_cvt_f32_pattern,
             .arith_bcc_fusion,
             .arith_cbz_fusion,
-            .crypto,
             .disable_latency_sched_heuristic,
             .fullfp16,
             .fuse_aes,
             .fuse_crypto_eor,
             .perfmon,
+            .sha2,
             .store_pair_suppress,
             .v8_3a,
             .zcm,
@@ -2154,18 +2098,40 @@ pub const cpu = struct {
         .name = "carmel",
         .llvm_name = "carmel",
         .features = featureSet(&[_]Feature{
-            .crypto,
+            .aes,
             .fullfp16,
+            .sha2,
             .v8_2a,
+        }),
+    };
+    pub const cobalt_100 = CpuModel{
+        .name = "cobalt_100",
+        .llvm_name = "cobalt-100",
+        .features = featureSet(&[_]Feature{
+            .alu_lsl_fast,
+            .bf16,
+            .enable_select_opt,
+            .ete,
+            .fp16fml,
+            .fuse_adrp_add,
+            .fuse_aes,
+            .i8mm,
+            .mte,
+            .perfmon,
+            .predictable_select_expensive,
+            .sve2_bitperm,
+            .use_postra_scheduler,
+            .v9a,
         }),
     };
     pub const cortex_a34 = CpuModel{
         .name = "cortex_a34",
         .llvm_name = "cortex-a34",
         .features = featureSet(&[_]Feature{
+            .aes,
             .crc,
-            .crypto,
             .perfmon,
+            .sha2,
             .v8a,
         }),
     };
@@ -2173,9 +2139,10 @@ pub const cpu = struct {
         .name = "cortex_a35",
         .llvm_name = "cortex-a35",
         .features = featureSet(&[_]Feature{
+            .aes,
             .crc,
-            .crypto,
             .perfmon,
+            .sha2,
             .v8a,
         }),
     };
@@ -2183,14 +2150,16 @@ pub const cpu = struct {
         .name = "cortex_a510",
         .llvm_name = "cortex-a510",
         .features = featureSet(&[_]Feature{
-            .a510,
             .bf16,
             .ete,
             .fp16fml,
+            .fuse_adrp_add,
+            .fuse_aes,
             .i8mm,
             .mte,
             .perfmon,
             .sve2_bitperm,
+            .use_postra_scheduler,
             .v9a,
         }),
     };
@@ -2198,12 +2167,29 @@ pub const cpu = struct {
         .name = "cortex_a520",
         .llvm_name = "cortex-a520",
         .features = featureSet(&[_]Feature{
-            .a520,
             .ete,
             .fp16fml,
+            .fuse_adrp_add,
+            .fuse_aes,
             .mte,
             .perfmon,
             .sve2_bitperm,
+            .use_postra_scheduler,
+            .v9_2a,
+        }),
+    };
+    pub const cortex_a520ae = CpuModel{
+        .name = "cortex_a520ae",
+        .llvm_name = "cortex-a520ae",
+        .features = featureSet(&[_]Feature{
+            .ete,
+            .fp16fml,
+            .fuse_adrp_add,
+            .fuse_aes,
+            .mte,
+            .perfmon,
+            .sve2_bitperm,
+            .use_postra_scheduler,
             .v9_2a,
         }),
     };
@@ -2211,12 +2197,13 @@ pub const cpu = struct {
         .name = "cortex_a53",
         .llvm_name = "cortex-a53",
         .features = featureSet(&[_]Feature{
+            .aes,
             .balance_fp_ops,
             .crc,
-            .crypto,
             .fuse_adrp_add,
             .fuse_aes,
             .perfmon,
+            .sha2,
             .use_postra_scheduler,
             .v8a,
         }),
@@ -2225,7 +2212,7 @@ pub const cpu = struct {
         .name = "cortex_a55",
         .llvm_name = "cortex-a55",
         .features = featureSet(&[_]Feature{
-            .crypto,
+            .aes,
             .dotprod,
             .fullfp16,
             .fuse_address,
@@ -2233,6 +2220,7 @@ pub const cpu = struct {
             .fuse_aes,
             .perfmon,
             .rcpc,
+            .sha2,
             .use_postra_scheduler,
             .v8_2a,
         }),
@@ -2241,15 +2229,17 @@ pub const cpu = struct {
         .name = "cortex_a57",
         .llvm_name = "cortex-a57",
         .features = featureSet(&[_]Feature{
+            .addr_lsl_slow_14,
+            .aes,
             .balance_fp_ops,
             .crc,
-            .crypto,
             .enable_select_opt,
             .fuse_adrp_add,
             .fuse_aes,
             .fuse_literals,
             .perfmon,
             .predictable_select_expensive,
+            .sha2,
             .use_postra_scheduler,
             .v8a,
         }),
@@ -2258,12 +2248,18 @@ pub const cpu = struct {
         .name = "cortex_a65",
         .llvm_name = "cortex-a65",
         .features = featureSet(&[_]Feature{
-            .a65,
-            .crypto,
+            .aes,
             .dotprod,
+            .enable_select_opt,
             .fullfp16,
+            .fuse_address,
+            .fuse_adrp_add,
+            .fuse_aes,
+            .fuse_literals,
             .perfmon,
+            .predictable_select_expensive,
             .rcpc,
+            .sha2,
             .ssbs,
             .v8_2a,
         }),
@@ -2272,12 +2268,18 @@ pub const cpu = struct {
         .name = "cortex_a65ae",
         .llvm_name = "cortex-a65ae",
         .features = featureSet(&[_]Feature{
-            .a65,
-            .crypto,
+            .aes,
             .dotprod,
+            .enable_select_opt,
             .fullfp16,
+            .fuse_address,
+            .fuse_adrp_add,
+            .fuse_aes,
+            .fuse_literals,
             .perfmon,
+            .predictable_select_expensive,
             .rcpc,
+            .sha2,
             .ssbs,
             .v8_2a,
         }),
@@ -2286,14 +2288,20 @@ pub const cpu = struct {
         .name = "cortex_a710",
         .llvm_name = "cortex-a710",
         .features = featureSet(&[_]Feature{
-            .a710,
+            .alu_lsl_fast,
             .bf16,
+            .cmp_bcc_fusion,
+            .enable_select_opt,
             .ete,
             .fp16fml,
+            .fuse_adrp_add,
+            .fuse_aes,
             .i8mm,
             .mte,
             .perfmon,
+            .predictable_select_expensive,
             .sve2_bitperm,
+            .use_postra_scheduler,
             .v9a,
         }),
     };
@@ -2301,7 +2309,6 @@ pub const cpu = struct {
         .name = "cortex_a715",
         .llvm_name = "cortex-a715",
         .features = featureSet(&[_]Feature{
-            .addr_lsl_fast,
             .alu_lsl_fast,
             .bf16,
             .cmp_bcc_fusion,
@@ -2324,14 +2331,16 @@ pub const cpu = struct {
         .name = "cortex_a72",
         .llvm_name = "cortex-a72",
         .features = featureSet(&[_]Feature{
+            .addr_lsl_slow_14,
+            .aes,
             .crc,
-            .crypto,
             .enable_select_opt,
             .fuse_adrp_add,
             .fuse_aes,
             .fuse_literals,
             .perfmon,
             .predictable_select_expensive,
+            .sha2,
             .v8a,
         }),
     };
@@ -2339,14 +2348,62 @@ pub const cpu = struct {
         .name = "cortex_a720",
         .llvm_name = "cortex-a720",
         .features = featureSet(&[_]Feature{
-            .a720,
+            .alu_lsl_fast,
+            .cmp_bcc_fusion,
+            .enable_select_opt,
             .ete,
             .fp16fml,
+            .fuse_adrp_add,
+            .fuse_aes,
             .mte,
             .perfmon,
+            .predictable_select_expensive,
             .spe,
             .spe_eef,
             .sve2_bitperm,
+            .use_postra_scheduler,
+            .v9_2a,
+        }),
+    };
+    pub const cortex_a720ae = CpuModel{
+        .name = "cortex_a720ae",
+        .llvm_name = "cortex-a720ae",
+        .features = featureSet(&[_]Feature{
+            .alu_lsl_fast,
+            .cmp_bcc_fusion,
+            .enable_select_opt,
+            .ete,
+            .fp16fml,
+            .fuse_adrp_add,
+            .fuse_aes,
+            .mte,
+            .perfmon,
+            .predictable_select_expensive,
+            .spe,
+            .spe_eef,
+            .sve2_bitperm,
+            .use_postra_scheduler,
+            .v9_2a,
+        }),
+    };
+    pub const cortex_a725 = CpuModel{
+        .name = "cortex_a725",
+        .llvm_name = "cortex-a725",
+        .features = featureSet(&[_]Feature{
+            .alu_lsl_fast,
+            .cmp_bcc_fusion,
+            .enable_select_opt,
+            .ete,
+            .fp16fml,
+            .fuse_adrp_add,
+            .fuse_aes,
+            .mte,
+            .perfmon,
+            .predictable_select_expensive,
+            .spe,
+            .spe_eef,
+            .sve2_bitperm,
+            .use_postra_scheduler,
             .v9_2a,
         }),
     };
@@ -2354,13 +2411,15 @@ pub const cpu = struct {
         .name = "cortex_a73",
         .llvm_name = "cortex-a73",
         .features = featureSet(&[_]Feature{
+            .addr_lsl_slow_14,
+            .aes,
             .crc,
-            .crypto,
             .enable_select_opt,
             .fuse_adrp_add,
             .fuse_aes,
             .perfmon,
             .predictable_select_expensive,
+            .sha2,
             .v8a,
         }),
     };
@@ -2368,7 +2427,8 @@ pub const cpu = struct {
         .name = "cortex_a75",
         .llvm_name = "cortex-a75",
         .features = featureSet(&[_]Feature{
-            .crypto,
+            .addr_lsl_slow_14,
+            .aes,
             .dotprod,
             .enable_select_opt,
             .fullfp16,
@@ -2377,6 +2437,7 @@ pub const cpu = struct {
             .perfmon,
             .predictable_select_expensive,
             .rcpc,
+            .sha2,
             .v8_2a,
         }),
     };
@@ -2384,12 +2445,18 @@ pub const cpu = struct {
         .name = "cortex_a76",
         .llvm_name = "cortex-a76",
         .features = featureSet(&[_]Feature{
-            .a76,
-            .crypto,
+            .addr_lsl_slow_14,
+            .aes,
+            .alu_lsl_fast,
             .dotprod,
+            .enable_select_opt,
             .fullfp16,
+            .fuse_adrp_add,
+            .fuse_aes,
             .perfmon,
+            .predictable_select_expensive,
             .rcpc,
+            .sha2,
             .ssbs,
             .v8_2a,
         }),
@@ -2398,12 +2465,18 @@ pub const cpu = struct {
         .name = "cortex_a76ae",
         .llvm_name = "cortex-a76ae",
         .features = featureSet(&[_]Feature{
-            .a76,
-            .crypto,
+            .addr_lsl_slow_14,
+            .aes,
+            .alu_lsl_fast,
             .dotprod,
+            .enable_select_opt,
             .fullfp16,
+            .fuse_adrp_add,
+            .fuse_aes,
             .perfmon,
+            .predictable_select_expensive,
             .rcpc,
+            .sha2,
             .ssbs,
             .v8_2a,
         }),
@@ -2412,10 +2485,10 @@ pub const cpu = struct {
         .name = "cortex_a77",
         .llvm_name = "cortex-a77",
         .features = featureSet(&[_]Feature{
-            .addr_lsl_fast,
+            .addr_lsl_slow_14,
+            .aes,
             .alu_lsl_fast,
             .cmp_bcc_fusion,
-            .crypto,
             .dotprod,
             .enable_select_opt,
             .fullfp16,
@@ -2424,6 +2497,7 @@ pub const cpu = struct {
             .perfmon,
             .predictable_select_expensive,
             .rcpc,
+            .sha2,
             .ssbs,
             .v8_2a,
         }),
@@ -2432,55 +2506,10 @@ pub const cpu = struct {
         .name = "cortex_a78",
         .llvm_name = "cortex-a78",
         .features = featureSet(&[_]Feature{
-            .a78,
-            .crypto,
-            .dotprod,
-            .fullfp16,
-            .perfmon,
-            .rcpc,
-            .spe,
-            .ssbs,
-            .v8_2a,
-        }),
-    };
-    pub const cortex_a78c = CpuModel{
-        .name = "cortex_a78c",
-        .llvm_name = "cortex-a78c",
-        .features = featureSet(&[_]Feature{
-            .a78c,
-            .crypto,
-            .dotprod,
-            .flagm,
-            .fullfp16,
-            .pauth,
-            .perfmon,
-            .rcpc,
-            .spe,
-            .ssbs,
-            .v8_2a,
-        }),
-    };
-    pub const cortex_r82 = CpuModel{
-        .name = "cortex_r82",
-        .llvm_name = "cortex-r82",
-        .features = featureSet(&[_]Feature{
-            .cortex_r82,
-            .fp16fml,
-            .perfmon,
-            .predres,
-            .sb,
-            .ssbs,
-            .v8r,
-        }),
-    };
-    pub const cortex_x1 = CpuModel{
-        .name = "cortex_x1",
-        .llvm_name = "cortex-x1",
-        .features = featureSet(&[_]Feature{
-            .addr_lsl_fast,
+            .addr_lsl_slow_14,
+            .aes,
             .alu_lsl_fast,
             .cmp_bcc_fusion,
-            .crypto,
             .dotprod,
             .enable_select_opt,
             .fullfp16,
@@ -2489,6 +2518,100 @@ pub const cpu = struct {
             .perfmon,
             .predictable_select_expensive,
             .rcpc,
+            .sha2,
+            .spe,
+            .ssbs,
+            .use_postra_scheduler,
+            .v8_2a,
+        }),
+    };
+    pub const cortex_a78ae = CpuModel{
+        .name = "cortex_a78ae",
+        .llvm_name = "cortex-a78ae",
+        .features = featureSet(&[_]Feature{
+            .addr_lsl_slow_14,
+            .aes,
+            .alu_lsl_fast,
+            .cmp_bcc_fusion,
+            .dotprod,
+            .enable_select_opt,
+            .fullfp16,
+            .fuse_adrp_add,
+            .fuse_aes,
+            .perfmon,
+            .predictable_select_expensive,
+            .rcpc,
+            .sha2,
+            .spe,
+            .ssbs,
+            .use_postra_scheduler,
+            .v8_2a,
+        }),
+    };
+    pub const cortex_a78c = CpuModel{
+        .name = "cortex_a78c",
+        .llvm_name = "cortex-a78c",
+        .features = featureSet(&[_]Feature{
+            .addr_lsl_slow_14,
+            .aes,
+            .alu_lsl_fast,
+            .cmp_bcc_fusion,
+            .dotprod,
+            .enable_select_opt,
+            .flagm,
+            .fullfp16,
+            .fuse_adrp_add,
+            .fuse_aes,
+            .pauth,
+            .perfmon,
+            .predictable_select_expensive,
+            .rcpc,
+            .sha2,
+            .spe,
+            .ssbs,
+            .use_postra_scheduler,
+            .v8_2a,
+        }),
+    };
+    pub const cortex_r82 = CpuModel{
+        .name = "cortex_r82",
+        .llvm_name = "cortex-r82",
+        .features = featureSet(&[_]Feature{
+            .ccdp,
+            .perfmon,
+            .predres,
+            .use_postra_scheduler,
+            .v8r,
+        }),
+    };
+    pub const cortex_r82ae = CpuModel{
+        .name = "cortex_r82ae",
+        .llvm_name = "cortex-r82ae",
+        .features = featureSet(&[_]Feature{
+            .ccdp,
+            .perfmon,
+            .predres,
+            .use_postra_scheduler,
+            .v8r,
+        }),
+    };
+    pub const cortex_x1 = CpuModel{
+        .name = "cortex_x1",
+        .llvm_name = "cortex-x1",
+        .features = featureSet(&[_]Feature{
+            .addr_lsl_slow_14,
+            .aes,
+            .alu_lsl_fast,
+            .cmp_bcc_fusion,
+            .dotprod,
+            .enable_select_opt,
+            .fullfp16,
+            .fuse_adrp_add,
+            .fuse_aes,
+            .perfmon,
+            .predictable_select_expensive,
+            .rcpc,
+            .sha2,
             .spe,
             .ssbs,
             .use_postra_scheduler,
@@ -2499,10 +2622,10 @@ pub const cpu = struct {
         .name = "cortex_x1c",
         .llvm_name = "cortex-x1c",
         .features = featureSet(&[_]Feature{
-            .addr_lsl_fast,
+            .addr_lsl_slow_14,
+            .aes,
             .alu_lsl_fast,
             .cmp_bcc_fusion,
-            .crypto,
             .dotprod,
             .enable_select_opt,
             .flagm,
@@ -2514,6 +2637,7 @@ pub const cpu = struct {
             .perfmon,
             .predictable_select_expensive,
             .rcpc_immo,
+            .sha2,
             .spe,
             .ssbs,
             .use_postra_scheduler,
@@ -2524,7 +2648,6 @@ pub const cpu = struct {
         .name = "cortex_x2",
         .llvm_name = "cortex-x2",
         .features = featureSet(&[_]Feature{
-            .addr_lsl_fast,
             .alu_lsl_fast,
             .bf16,
             .cmp_bcc_fusion,
@@ -2546,7 +2669,6 @@ pub const cpu = struct {
         .name = "cortex_x3",
         .llvm_name = "cortex-x3",
         .features = featureSet(&[_]Feature{
-            .addr_lsl_fast,
             .alu_lsl_fast,
             .bf16,
             .enable_select_opt,
@@ -2568,7 +2690,26 @@ pub const cpu = struct {
         .name = "cortex_x4",
         .llvm_name = "cortex-x4",
         .features = featureSet(&[_]Feature{
-            .addr_lsl_fast,
+            .alu_lsl_fast,
+            .enable_select_opt,
+            .ete,
+            .fp16fml,
+            .fuse_adrp_add,
+            .fuse_aes,
+            .mte,
+            .perfmon,
+            .predictable_select_expensive,
+            .spe,
+            .spe_eef,
+            .sve2_bitperm,
+            .use_postra_scheduler,
+            .v9_2a,
+        }),
+    };
+    pub const cortex_x925 = CpuModel{
+        .name = "cortex_x925",
+        .llvm_name = "cortex-x925",
+        .features = featureSet(&[_]Feature{
             .alu_lsl_fast,
             .enable_select_opt,
             .ete,
@@ -2589,14 +2730,15 @@ pub const cpu = struct {
         .name = "cyclone",
         .llvm_name = "cyclone",
         .features = featureSet(&[_]Feature{
+            .aes,
             .alternate_sextload_cvt_f32_pattern,
             .arith_bcc_fusion,
             .arith_cbz_fusion,
-            .crypto,
             .disable_latency_sched_heuristic,
             .fuse_aes,
             .fuse_crypto_eor,
             .perfmon,
+            .sha2,
             .store_pair_suppress,
             .v8a,
             .zcm,
@@ -2651,10 +2793,9 @@ pub const cpu = struct {
         .name = "exynos_m3",
         .llvm_name = "exynos-m3",
         .features = featureSet(&[_]Feature{
-            .addr_lsl_fast,
+            .aes,
             .alu_lsl_fast,
             .crc,
-            .crypto,
             .exynos_cheap_as_move,
             .force_32bit_jump_tables,
             .fuse_address,
@@ -2664,6 +2805,7 @@ pub const cpu = struct {
             .fuse_literals,
             .perfmon,
             .predictable_select_expensive,
+            .sha2,
             .store_pair_suppress,
             .use_postra_scheduler,
             .v8a,
@@ -2673,11 +2815,10 @@ pub const cpu = struct {
         .name = "exynos_m4",
         .llvm_name = "exynos-m4",
         .features = featureSet(&[_]Feature{
-            .addr_lsl_fast,
+            .aes,
             .alu_lsl_fast,
             .arith_bcc_fusion,
             .arith_cbz_fusion,
-            .crypto,
             .dotprod,
             .exynos_cheap_as_move,
             .force_32bit_jump_tables,
@@ -2689,6 +2830,7 @@ pub const cpu = struct {
             .fuse_csel,
             .fuse_literals,
             .perfmon,
+            .sha2,
             .store_pair_suppress,
             .use_postra_scheduler,
             .v8_2a,
@@ -2699,11 +2841,10 @@ pub const cpu = struct {
         .name = "exynos_m5",
         .llvm_name = "exynos-m5",
         .features = featureSet(&[_]Feature{
-            .addr_lsl_fast,
+            .aes,
             .alu_lsl_fast,
             .arith_bcc_fusion,
             .arith_cbz_fusion,
-            .crypto,
             .dotprod,
             .exynos_cheap_as_move,
             .force_32bit_jump_tables,
@@ -2715,6 +2856,7 @@ pub const cpu = struct {
             .fuse_csel,
             .fuse_literals,
             .perfmon,
+            .sha2,
             .store_pair_suppress,
             .use_postra_scheduler,
             .v8_2a,
@@ -2725,13 +2867,13 @@ pub const cpu = struct {
         .name = "falkor",
         .llvm_name = "falkor",
         .features = featureSet(&[_]Feature{
-            .addr_lsl_fast,
+            .aes,
             .alu_lsl_fast,
             .crc,
-            .crypto,
             .perfmon,
             .predictable_select_expensive,
             .rdm,
+            .sha2,
             .slow_strqro_store,
             .store_pair_suppress,
             .use_postra_scheduler,
@@ -2751,16 +2893,40 @@ pub const cpu = struct {
             .use_postra_scheduler,
         }),
     };
+    pub const grace = CpuModel{
+        .name = "grace",
+        .llvm_name = "grace",
+        .features = featureSet(&[_]Feature{
+            .alu_lsl_fast,
+            .bf16,
+            .cmp_bcc_fusion,
+            .enable_select_opt,
+            .ete,
+            .fp16fml,
+            .fuse_adrp_add,
+            .fuse_aes,
+            .i8mm,
+            .mte,
+            .perfmon,
+            .predictable_select_expensive,
+            .rand,
+            .spe,
+            .sve2_bitperm,
+            .use_fixed_over_scalable_if_equal_cost,
+            .use_postra_scheduler,
+            .v9a,
+        }),
+    };
     pub const kryo = CpuModel{
         .name = "kryo",
         .llvm_name = "kryo",
         .features = featureSet(&[_]Feature{
-            .addr_lsl_fast,
+            .aes,
             .alu_lsl_fast,
             .crc,
-            .crypto,
             .perfmon,
             .predictable_select_expensive,
+            .sha2,
             .store_pair_suppress,
             .use_postra_scheduler,
             .v8a,
@@ -2771,11 +2937,10 @@ pub const cpu = struct {
         .name = "neoverse_512tvb",
         .llvm_name = "neoverse-512tvb",
         .features = featureSet(&[_]Feature{
-            .addr_lsl_fast,
+            .aes,
             .alu_lsl_fast,
             .bf16,
             .ccdp,
-            .crypto,
             .enable_select_opt,
             .fp16fml,
             .fuse_adrp_add,
@@ -2784,6 +2949,8 @@ pub const cpu = struct {
             .perfmon,
             .predictable_select_expensive,
             .rand,
+            .sha3,
+            .sm4,
             .spe,
             .ssbs,
             .sve,
@@ -2795,13 +2962,14 @@ pub const cpu = struct {
         .name = "neoverse_e1",
         .llvm_name = "neoverse-e1",
         .features = featureSet(&[_]Feature{
-            .crypto,
+            .aes,
             .dotprod,
             .fullfp16,
             .fuse_adrp_add,
             .fuse_aes,
             .perfmon,
             .rcpc,
+            .sha2,
             .ssbs,
             .use_postra_scheduler,
             .v8_2a,
@@ -2811,9 +2979,9 @@ pub const cpu = struct {
         .name = "neoverse_n1",
         .llvm_name = "neoverse-n1",
         .features = featureSet(&[_]Feature{
-            .addr_lsl_fast,
+            .addr_lsl_slow_14,
+            .aes,
             .alu_lsl_fast,
-            .crypto,
             .dotprod,
             .enable_select_opt,
             .fullfp16,
@@ -2822,6 +2990,7 @@ pub const cpu = struct {
             .perfmon,
             .predictable_select_expensive,
             .rcpc,
+            .sha2,
             .spe,
             .ssbs,
             .use_postra_scheduler,
@@ -2832,11 +3001,11 @@ pub const cpu = struct {
         .name = "neoverse_n2",
         .llvm_name = "neoverse-n2",
         .features = featureSet(&[_]Feature{
-            .addr_lsl_fast,
             .alu_lsl_fast,
             .bf16,
             .enable_select_opt,
             .ete,
+            .fp16fml,
             .fuse_adrp_add,
             .fuse_aes,
             .i8mm,
@@ -2848,15 +3017,36 @@ pub const cpu = struct {
             .v9a,
         }),
     };
+    pub const neoverse_n3 = CpuModel{
+        .name = "neoverse_n3",
+        .llvm_name = "neoverse-n3",
+        .features = featureSet(&[_]Feature{
+            .alu_lsl_fast,
+            .enable_select_opt,
+            .ete,
+            .fp16fml,
+            .fuse_adrp_add,
+            .fuse_aes,
+            .mte,
+            .perfmon,
+            .predictable_select_expensive,
+            .rand,
+            .spe,
+            .spe_eef,
+            .sve2_bitperm,
+            .use_postra_scheduler,
+            .v9_2a,
+        }),
+    };
     pub const neoverse_v1 = CpuModel{
         .name = "neoverse_v1",
         .llvm_name = "neoverse-v1",
         .features = featureSet(&[_]Feature{
-            .addr_lsl_fast,
+            .addr_lsl_slow_14,
+            .aes,
             .alu_lsl_fast,
             .bf16,
             .ccdp,
-            .crypto,
             .enable_select_opt,
             .fp16fml,
             .fuse_adrp_add,
@@ -2866,6 +3056,8 @@ pub const cpu = struct {
             .perfmon,
             .predictable_select_expensive,
             .rand,
+            .sha3,
+            .sm4,
             .spe,
             .ssbs,
             .sve,
@@ -2877,9 +3069,9 @@ pub const cpu = struct {
         .name = "neoverse_v2",
         .llvm_name = "neoverse-v2",
         .features = featureSet(&[_]Feature{
-            .addr_lsl_fast,
             .alu_lsl_fast,
             .bf16,
+            .cmp_bcc_fusion,
             .enable_select_opt,
             .ete,
             .fp16fml,
@@ -2892,19 +3084,86 @@ pub const cpu = struct {
             .rand,
             .spe,
             .sve2_bitperm,
+            .use_fixed_over_scalable_if_equal_cost,
             .use_postra_scheduler,
             .v9a,
+        }),
+    };
+    pub const neoverse_v3 = CpuModel{
+        .name = "neoverse_v3",
+        .llvm_name = "neoverse-v3",
+        .features = featureSet(&[_]Feature{
+            .alu_lsl_fast,
+            .brbe,
+            .enable_select_opt,
+            .ete,
+            .fp16fml,
+            .fuse_adrp_add,
+            .fuse_aes,
+            .ls64,
+            .mte,
+            .perfmon,
+            .predictable_select_expensive,
+            .rand,
+            .spe,
+            .spe_eef,
+            .sve2_bitperm,
+            .use_postra_scheduler,
+            .v9_2a,
+        }),
+    };
+    pub const neoverse_v3ae = CpuModel{
+        .name = "neoverse_v3ae",
+        .llvm_name = "neoverse-v3ae",
+        .features = featureSet(&[_]Feature{
+            .alu_lsl_fast,
+            .brbe,
+            .enable_select_opt,
+            .ete,
+            .fp16fml,
+            .fuse_adrp_add,
+            .fuse_aes,
+            .ls64,
+            .mte,
+            .perfmon,
+            .predictable_select_expensive,
+            .rand,
+            .spe,
+            .spe_eef,
+            .sve2_bitperm,
+            .use_postra_scheduler,
+            .v9_2a,
+        }),
+    };
+    pub const oryon_1 = CpuModel{
+        .name = "oryon_1",
+        .llvm_name = "oryon-1",
+        .features = featureSet(&[_]Feature{
+            .aes,
+            .enable_select_opt,
+            .fp16fml,
+            .fuse_address,
+            .fuse_adrp_add,
+            .fuse_aes,
+            .fuse_crypto_eor,
+            .perfmon,
+            .rand,
+            .sha3,
+            .sm4,
+            .spe,
+            .use_postra_scheduler,
+            .v8_6a,
         }),
     };
     pub const saphira = CpuModel{
         .name = "saphira",
         .llvm_name = "saphira",
         .features = featureSet(&[_]Feature{
-            .addr_lsl_fast,
+            .aes,
             .alu_lsl_fast,
-            .crypto,
             .perfmon,
             .predictable_select_expensive,
+            .sha2,
             .spe,
             .store_pair_suppress,
             .use_postra_scheduler,
@@ -2916,10 +3175,11 @@ pub const cpu = struct {
         .name = "thunderx",
         .llvm_name = "thunderx",
         .features = featureSet(&[_]Feature{
+            .aes,
             .crc,
-            .crypto,
             .perfmon,
             .predictable_select_expensive,
+            .sha2,
             .store_pair_suppress,
             .use_postra_scheduler,
             .v8a,
@@ -2929,10 +3189,11 @@ pub const cpu = struct {
         .name = "thunderx2t99",
         .llvm_name = "thunderx2t99",
         .features = featureSet(&[_]Feature{
+            .aes,
             .aggressive_fma,
             .arith_bcc_fusion,
-            .crypto,
             .predictable_select_expensive,
+            .sha2,
             .store_pair_suppress,
             .use_postra_scheduler,
             .v8_1a,
@@ -2942,12 +3203,13 @@ pub const cpu = struct {
         .name = "thunderx3t110",
         .llvm_name = "thunderx3t110",
         .features = featureSet(&[_]Feature{
+            .aes,
             .aggressive_fma,
             .arith_bcc_fusion,
             .balance_fp_ops,
-            .crypto,
             .perfmon,
             .predictable_select_expensive,
+            .sha2,
             .store_pair_suppress,
             .strict_align,
             .use_postra_scheduler,
@@ -2958,10 +3220,11 @@ pub const cpu = struct {
         .name = "thunderxt81",
         .llvm_name = "thunderxt81",
         .features = featureSet(&[_]Feature{
+            .aes,
             .crc,
-            .crypto,
             .perfmon,
             .predictable_select_expensive,
+            .sha2,
             .store_pair_suppress,
             .use_postra_scheduler,
             .v8a,
@@ -2971,10 +3234,11 @@ pub const cpu = struct {
         .name = "thunderxt83",
         .llvm_name = "thunderxt83",
         .features = featureSet(&[_]Feature{
+            .aes,
             .crc,
-            .crypto,
             .perfmon,
             .predictable_select_expensive,
+            .sha2,
             .store_pair_suppress,
             .use_postra_scheduler,
             .v8a,
@@ -2984,10 +3248,11 @@ pub const cpu = struct {
         .name = "thunderxt88",
         .llvm_name = "thunderxt88",
         .features = featureSet(&[_]Feature{
+            .aes,
             .crc,
-            .crypto,
             .perfmon,
             .predictable_select_expensive,
+            .sha2,
             .store_pair_suppress,
             .use_postra_scheduler,
             .v8a,
@@ -2997,13 +3262,14 @@ pub const cpu = struct {
         .name = "tsv110",
         .llvm_name = "tsv110",
         .features = featureSet(&[_]Feature{
+            .aes,
             .complxnum,
-            .crypto,
             .dotprod,
             .fp16fml,
             .fuse_aes,
             .jsconv,
             .perfmon,
+            .sha2,
             .spe,
             .store_pair_suppress,
             .use_postra_scheduler,

@@ -46,8 +46,8 @@
 namespace __tsan {
 
 #if !SANITIZER_GO
-static char main_thread_state[sizeof(ThreadState)] ALIGNED(
-    SANITIZER_CACHE_LINE_SIZE);
+alignas(SANITIZER_CACHE_LINE_SIZE) static char main_thread_state[sizeof(
+    ThreadState)];
 static ThreadState *dead_thread_state;
 static pthread_key_t thread_state_key;
 
@@ -239,7 +239,10 @@ static uptr longjmp_xor_key = 0;
 void InitializePlatform() {
   DisableCoreDumperIfNecessary();
 #if !SANITIZER_GO
-  CheckAndProtect();
+  if (!CheckAndProtect(true, true, true)) {
+    Printf("FATAL: ThreadSanitizer: found incompatible memory layout.\n");
+    Die();
+  }
 
   InitializeThreadStateStorage();
 

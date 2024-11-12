@@ -154,7 +154,6 @@ pub const socklen_t = system.socklen_t;
 pub const stack_t = system.stack_t;
 pub const time_t = system.time_t;
 pub const timespec = system.timespec;
-pub const timestamp_t = system.timestamp_t;
 pub const timeval = system.timeval;
 pub const timezone = system.timezone;
 pub const ucontext_t = system.ucontext_t;
@@ -798,6 +797,13 @@ pub const ReadError = error{
     /// In WASI, this error occurs when the file descriptor does
     /// not hold the required rights to read from it.
     AccessDenied,
+
+    /// This error occurs in Linux if the process to be read from
+    /// no longer exists.
+    ProcessNotFound,
+
+    /// Unable to read file due to lock.
+    LockViolation,
 } || UnexpectedError;
 
 /// Returns the number of bytes that were read, which can be less than
@@ -854,6 +860,7 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
             .INTR => continue,
             .INVAL => unreachable,
             .FAULT => unreachable,
+            .NOENT => return error.ProcessNotFound,
             .AGAIN => return error.WouldBlock,
             .CANCELED => return error.Canceled,
             .BADF => return error.NotOpenForReading, // Can be a race condition.
@@ -917,6 +924,7 @@ pub fn readv(fd: fd_t, iov: []const iovec) ReadError!usize {
             .INTR => continue,
             .INVAL => unreachable,
             .FAULT => unreachable,
+            .NOENT => return error.ProcessNotFound,
             .AGAIN => return error.WouldBlock,
             .BADF => return error.NotOpenForReading, // can be a race condition
             .IO => return error.InputOutput,
@@ -996,6 +1004,7 @@ pub fn pread(fd: fd_t, buf: []u8, offset: u64) PReadError!usize {
             .INTR => continue,
             .INVAL => unreachable,
             .FAULT => unreachable,
+            .NOENT => return error.ProcessNotFound,
             .AGAIN => return error.WouldBlock,
             .BADF => return error.NotOpenForReading, // Can be a race condition.
             .IO => return error.InputOutput,
@@ -1133,6 +1142,7 @@ pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) PReadError!usize {
             .INTR => continue,
             .INVAL => unreachable,
             .FAULT => unreachable,
+            .NOENT => return error.ProcessNotFound,
             .AGAIN => return error.WouldBlock,
             .BADF => return error.NotOpenForReading, // can be a race condition
             .IO => return error.InputOutput,
@@ -1176,6 +1186,10 @@ pub const WriteError = error{
 
     /// Connection reset by peer.
     ConnectionResetByPeer,
+
+    /// This error occurs in Linux if the process being written to
+    /// no longer exists.
+    ProcessNotFound,
 } || UnexpectedError;
 
 /// Write to a file descriptor.
@@ -1243,6 +1257,7 @@ pub fn write(fd: fd_t, bytes: []const u8) WriteError!usize {
             .INTR => continue,
             .INVAL => return error.InvalidArgument,
             .FAULT => unreachable,
+            .NOENT => return error.ProcessNotFound,
             .AGAIN => return error.WouldBlock,
             .BADF => return error.NotOpenForWriting, // can be a race condition.
             .DESTADDRREQ => unreachable, // `connect` was never called.
@@ -1315,6 +1330,7 @@ pub fn writev(fd: fd_t, iov: []const iovec_const) WriteError!usize {
             .INTR => continue,
             .INVAL => return error.InvalidArgument,
             .FAULT => unreachable,
+            .NOENT => return error.ProcessNotFound,
             .AGAIN => return error.WouldBlock,
             .BADF => return error.NotOpenForWriting, // Can be a race condition.
             .DESTADDRREQ => unreachable, // `connect` was never called.
@@ -1404,6 +1420,7 @@ pub fn pwrite(fd: fd_t, bytes: []const u8, offset: u64) PWriteError!usize {
             .INTR => continue,
             .INVAL => return error.InvalidArgument,
             .FAULT => unreachable,
+            .NOENT => return error.ProcessNotFound,
             .AGAIN => return error.WouldBlock,
             .BADF => return error.NotOpenForWriting, // Can be a race condition.
             .DESTADDRREQ => unreachable, // `connect` was never called.
@@ -1488,6 +1505,7 @@ pub fn pwritev(fd: fd_t, iov: []const iovec_const, offset: u64) PWriteError!usiz
             .INTR => continue,
             .INVAL => return error.InvalidArgument,
             .FAULT => unreachable,
+            .NOENT => return error.ProcessNotFound,
             .AGAIN => return error.WouldBlock,
             .BADF => return error.NotOpenForWriting, // Can be a race condition.
             .DESTADDRREQ => unreachable, // `connect` was never called.
@@ -4544,13 +4562,16 @@ pub const FanotifyInitError = error{
     SystemFdQuotaExceeded,
     SystemResources,
     PermissionDenied,
+    /// The kernel does not recognize the flags passed, likely because it is an
+    /// older version.
+    UnsupportedFlags,
 } || UnexpectedError;
 
 pub fn fanotify_init(flags: std.os.linux.fanotify.InitFlags, event_f_flags: u32) FanotifyInitError!i32 {
     const rc = system.fanotify_init(flags, event_f_flags);
     switch (errno(rc)) {
         .SUCCESS => return @intCast(rc),
-        .INVAL => unreachable,
+        .INVAL => return error.UnsupportedFlags,
         .MFILE => return error.ProcessFdQuotaExceeded,
         .NFILE => return error.SystemFdQuotaExceeded,
         .NOMEM => return error.SystemResources,
@@ -5592,7 +5613,7 @@ pub const ClockGetTimeError = error{UnsupportedClock} || UnexpectedError;
 /// TODO: change this to return the timespec as a return value
 pub fn clock_gettime(clock_id: clockid_t, tp: *timespec) ClockGetTimeError!void {
     if (native_os == .wasi and !builtin.link_libc) {
-        var ts: timestamp_t = undefined;
+        var ts: wasi.timestamp_t = undefined;
         switch (system.clock_time_get(clock_id, 1, &ts)) {
             .SUCCESS => {
                 tp.* = .{
@@ -5633,7 +5654,7 @@ pub fn clock_gettime(clock_id: clockid_t, tp: *timespec) ClockGetTimeError!void 
 
 pub fn clock_getres(clock_id: clockid_t, res: *timespec) ClockGetTimeError!void {
     if (native_os == .wasi and !builtin.link_libc) {
-        var ts: timestamp_t = undefined;
+        var ts: wasi.timestamp_t = undefined;
         switch (system.clock_res_get(@bitCast(clock_id), &ts)) {
             .SUCCESS => res.* = .{
                 .sec = @intCast(ts / std.time.ns_per_s),
@@ -6763,6 +6784,7 @@ pub const MemFdCreateError = error{
     OutOfMemory,
     /// Either the name provided exceeded `NAME_MAX`, or invalid flags were passed.
     NameTooLong,
+    SystemOutdated,
 } || UnexpectedError;
 
 pub fn memfd_createZ(name: [*:0]const u8, flags: u32) MemFdCreateError!fd_t {

@@ -13,10 +13,12 @@
 #include <__compare/ordering.h>
 #include <__compare/strong_order.h>
 #include <__config>
+#include <__math/traits.h>
 #include <__type_traits/decay.h>
+#include <__type_traits/is_floating_point.h>
+#include <__type_traits/is_same.h>
 #include <__utility/forward.h>
 #include <__utility/priority_tag.h>
-#include <cmath>
 
 #ifndef _LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER
 #  pragma GCC system_header
@@ -28,6 +30,8 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 // [cmp.alg]
 namespace __weak_order {
+void weak_order() = delete;
+
 struct __fn {
   // NOLINTBEGIN(libcpp-robust-against-adl) weak_order should use ADL, but only here
   template <class _Tp, class _Up>
@@ -51,10 +55,10 @@ struct __fn {
       return weak_ordering::greater;
     } else {
       // Otherwise, at least one of them is a NaN.
-      bool __t_is_nan      = std::isnan(__t);
-      bool __u_is_nan      = std::isnan(__u);
-      bool __t_is_negative = std::signbit(__t);
-      bool __u_is_negative = std::signbit(__u);
+      bool __t_is_nan      = __math::isnan(__t);
+      bool __u_is_nan      = __math::isnan(__u);
+      bool __t_is_negative = __math::signbit(__t);
+      bool __u_is_negative = __math::signbit(__u);
       if (__t_is_nan && __u_is_nan) {
         return (__u_is_negative <=> __t_is_negative);
       } else if (__t_is_nan) {

@@ -7,7 +7,6 @@ const CpuModel = std.Target.Cpu.Model;
 pub const Feature = enum {
     @"32bit",
     @"64bit",
-    auto_vec,
     d,
     f,
     frecipe,
@@ -18,6 +17,7 @@ pub const Feature = enum {
     lbt,
     lsx,
     lvz,
+    prefer_w_inst,
     relax,
     ual,
 };
@@ -39,11 +39,6 @@ pub const all_features = blk: {
     result[@intFromEnum(Feature.@"64bit")] = .{
         .llvm_name = "64bit",
         .description = "LA64 Basic Integer and Privilege Instruction Set",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@intFromEnum(Feature.auto_vec)] = .{
-        .llvm_name = "auto-vec",
-        .description = "Experimental auto vectorization",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.d)] = .{
@@ -102,6 +97,11 @@ pub const all_features = blk: {
         .description = "'LVZ' (Loongson Virtualization Extension)",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@intFromEnum(Feature.prefer_w_inst)] = .{
+        .llvm_name = "prefer-w-inst",
+        .description = "Prefer instructions with W suffix",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@intFromEnum(Feature.relax)] = .{
         .llvm_name = "relax",
         .description = "Enable Linker relaxation",
@@ -146,6 +146,18 @@ pub const cpu = struct {
         .llvm_name = "la464",
         .features = featureSet(&[_]Feature{
             .@"64bit",
+            .lasx,
+            .lbt,
+            .lvz,
+            .ual,
+        }),
+    };
+    pub const la664 = CpuModel{
+        .name = "la664",
+        .llvm_name = "la664",
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
+            .frecipe,
             .lasx,
             .lbt,
             .lvz,

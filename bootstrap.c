@@ -170,9 +170,7 @@ int main(int argc, char **argv) {
             "-ofmt=c", "-OReleaseSmall",
             "--name", "compiler_rt", "-femit-bin=compiler_rt.c",
             "-target", host_triple,
-            "--dep", "build_options",
             "-Mroot=lib/compiler_rt.zig",
-            "-Mbuild_options=config.zig",
             NULL,
         };
         print_and_run(child_argv);

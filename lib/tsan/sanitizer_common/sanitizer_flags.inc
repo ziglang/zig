@@ -269,3 +269,16 @@ COMMON_FLAG(bool, detect_write_exec, false,
 COMMON_FLAG(bool, test_only_emulate_no_memorymap, false,
             "TEST ONLY fail to read memory mappings to emulate sanitized "
             "\"init\"")
+// With static linking, dladdr((void*)pthread_join) or similar will return the
+// path to the main program. This flag will replace dlopen(<main program,...>
+// with dlopen(NULL,...), which is the correct way to get a handle to the main
+// program.
+COMMON_FLAG(bool, test_only_replace_dlopen_main_program, false,
+            "TEST ONLY replace dlopen(<main program>,...) with dlopen(NULL)")
+
+COMMON_FLAG(bool, enable_symbolizer_markup, SANITIZER_FUCHSIA,
+            "Use sanitizer symbolizer markup, available on Linux "
+            "and always set true for Fuchsia.")
+
+COMMON_FLAG(bool, detect_invalid_join, true,
+            "If set, check invalid joins of threads.")

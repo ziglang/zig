@@ -14,7 +14,7 @@
 
 #include "config.h"
 
-#ifdef __USING_WASM_EXCEPTIONS__
+#ifdef __WASM_EXCEPTIONS__
 
 #include "unwind.h"
 #include <threads.h>
@@ -120,4 +120,4 @@ _Unwind_GetRegionStart(struct _Unwind_Context *context) {
   return 0;
 }
 
-#endif // defined(__USING_WASM_EXCEPTIONS__)
+#endif // defined(__WASM_EXCEPTIONS__)

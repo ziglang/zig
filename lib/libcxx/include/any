@@ -80,8 +80,6 @@ namespace std {
 
 */
 
-#include <__assert> // all public C++ headers provide the assertion handler
-#include <__availability>
 #include <__config>
 #include <__memory/allocator.h>
 #include <__memory/allocator_destructor.h>
@@ -93,9 +91,8 @@ namespace std {
 #include <__type_traits/conditional.h>
 #include <__type_traits/decay.h>
 #include <__type_traits/is_constructible.h>
-#include <__type_traits/is_copy_constructible.h>
 #include <__type_traits/is_function.h>
-#include <__type_traits/is_nothrow_move_constructible.h>
+#include <__type_traits/is_nothrow_constructible.h>
 #include <__type_traits/is_reference.h>
 #include <__type_traits/is_same.h>
 #include <__type_traits/is_void.h>
@@ -208,7 +205,7 @@ public:
   template < class _ValueType,
              class _Tp = decay_t<_ValueType>,
              class     = enable_if_t< !is_same<_Tp, any>::value && !__is_inplace_type<_ValueType>::value &&
-                                  is_copy_constructible<_Tp>::value> >
+                                      is_copy_constructible<_Tp>::value> >
   _LIBCPP_HIDE_FROM_ABI any(_ValueType&& __value);
 
   template <class _ValueType,
@@ -222,7 +219,7 @@ public:
             class... _Args,
             class _Tp = decay_t<_ValueType>,
             class     = enable_if_t< is_constructible<_Tp, initializer_list<_Up>&, _Args...>::value &&
-                                 is_copy_constructible<_Tp>::value> >
+                                     is_copy_constructible<_Tp>::value> >
   _LIBCPP_HIDE_FROM_ABI explicit any(in_place_type_t<_ValueType>, initializer_list<_Up>, _Args&&... __args);
 
   _LIBCPP_HIDE_FROM_ABI ~any() { this->reset(); }
@@ -254,7 +251,7 @@ public:
             class... _Args,
             class _Tp = decay_t<_ValueType>,
             class     = enable_if_t< is_constructible<_Tp, initializer_list<_Up>&, _Args...>::value &&
-                                 is_copy_constructible<_Tp>::value> >
+                                     is_copy_constructible<_Tp>::value> >
   _LIBCPP_HIDE_FROM_ABI _Tp& emplace(initializer_list<_Up>, _Args&&...);
 
   // 6.3.3 any modifiers

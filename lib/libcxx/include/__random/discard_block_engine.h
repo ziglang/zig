@@ -50,8 +50,8 @@ public:
   static const result_type _Min = _Engine::_Min;
   static const result_type _Max = _Engine::_Max;
 #else
-  static _LIBCPP_CONSTEXPR const result_type _Min = _Engine::min();
-  static _LIBCPP_CONSTEXPR const result_type _Max = _Engine::max();
+  static constexpr result_type _Min = _Engine::min();
+  static constexpr result_type _Max = _Engine::max();
 #endif
 
   _LIBCPP_HIDE_FROM_ABI static _LIBCPP_CONSTEXPR result_type min() { return _Engine::min(); }

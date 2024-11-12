@@ -8095,7 +8095,7 @@ fn primaryExpr(p: *Parser) Error!Result {
 
 fn makePredefinedIdentifier(p: *Parser, strings_top: usize) !Result {
     const end: u32 = @intCast(p.strings.items.len);
-    const elem_ty = .{ .specifier = .char, .qual = .{ .@"const" = true } };
+    const elem_ty: Type = .{ .specifier = .char, .qual = .{ .@"const" = true } };
     const arr_ty = try p.arena.create(Type.Array);
     arr_ty.* = .{ .elem = elem_ty, .len = end - strings_top };
     const ty: Type = .{ .specifier = .array, .data = .{ .array = arr_ty } };
