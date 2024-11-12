@@ -1110,7 +1110,7 @@ pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFil
 
 pub const MoveFileError = error{ FileNotFound, AccessDenied, Unexpected };
 
-pub fn MoveFileEx(old_path: []const u8, new_path: []const u8, flags: DWORD) MoveFileError!void {
+pub fn MoveFileEx(old_path: []const u8, new_path: []const u8, flags: DWORD) (MoveFileError || Wtf8ToPrefixedFileWError)!void {
     const old_path_w = try sliceToPrefixedFileW(null, old_path);
     const new_path_w = try sliceToPrefixedFileW(null, new_path);
     return MoveFileExW(old_path_w.span().ptr, new_path_w.span().ptr, flags);
@@ -1518,7 +1518,7 @@ pub const GetFileAttributesError = error{
     Unexpected,
 };
 
-pub fn GetFileAttributes(filename: []const u8) GetFileAttributesError!DWORD {
+pub fn GetFileAttributes(filename: []const u8) (GetFileAttributesError || Wtf8ToPrefixedFileWError)!DWORD {
     const filename_w = try sliceToPrefixedFileW(null, filename);
     return GetFileAttributesW(filename_w.span().ptr);
 }
@@ -1667,7 +1667,7 @@ pub fn getpeername(s: ws2_32.SOCKET, name: *ws2_32.sockaddr, namelen: *ws2_32.so
 
 pub fn sendmsg(
     s: ws2_32.SOCKET,
-    msg: *const ws2_32.WSAMSG,
+    msg: *ws2_32.WSAMSG_const,
     flags: u32,
 ) i32 {
     var bytes_send: DWORD = undefined;
