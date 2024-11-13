@@ -91,30 +91,23 @@ test "union" {
 test "struct" {
     const Vec0 = struct {};
     const Vec1 = struct { x: f32 };
-    // const Vec2 = struct { x: f32, y: f32 };
-    // const Escaped = struct { @"0": f32, foo: f32 };
+    const Vec2 = struct { x: f32, y: f32 };
+    const Escaped = struct { @"0": f32, foo: f32 };
     try expectEqual(Vec0{}, @as(Vec0, @import("zon/vec0.zon")));
     try expectEqual(Vec1{ .x = 1.5 }, @as(Vec1, @import("zon/vec1.zon")));
-    // try expectEqual(Vec2{ .x = 1.5, .y = 2 }, @as(Vec2, @import("zon/vec2.zon")));
-    // try expectEqual(Escaped{ .@"0" = 1.5, .foo = 2 }, @as(Escaped, @import("zon/escaped_struct.zon")));
-
-    // The skipped parts are failing because we need to resolve an issue where we intern whole number
-    // floats incorrectly (they get parsed as integers and then we try to store them that way, they
-    // should just be parsed as floats)
-    return error.SkipZigTest;
+    try expectEqual(Vec2{ .x = 1.5, .y = 2 }, @as(Vec2, @import("zon/vec2.zon")));
+    try expectEqual(Escaped{ .@"0" = 1.5, .foo = 2 }, @as(Escaped, @import("zon/escaped_struct.zon")));
 }
 
 test "struct default fields" {
-    // We're skipping this for the same reason we skip some of the other struct tests
-    return error.SkipZigTest;
-    // const Vec3 = struct {
-    //     x: f32,
-    //     y: f32,
-    //     z: f32 = 123.4,
-    // };
-    // try expectEqual(Vec3{ .x = 1.5, .y = 2.0, .z = 123.4 }, @as(Vec3, @import("zon/vec2.zon")));
-    // const ascribed: Vec3 = @import("zon/vec2.zon");
-    // try expectEqual(Vec3{ .x = 1.5, .y = 2.0, .z = 123.4 }, ascribed);
+    const Vec3 = struct {
+        x: f32,
+        y: f32,
+        z: f32 = 123.4,
+    };
+    try expectEqual(Vec3{ .x = 1.5, .y = 2.0, .z = 123.4 }, @as(Vec3, @import("zon/vec2.zon")));
+    const ascribed: Vec3 = @import("zon/vec2.zon");
+    try expectEqual(Vec3{ .x = 1.5, .y = 2.0, .z = 123.4 }, ascribed);
 }
 
 test "struct enum field" {
@@ -272,42 +265,40 @@ test "int" {
 }
 
 test "floats" {
-    // See issue on disabled struct tests
-    return error.SkipZigTest;
-    // const expected = .{
-    //     // Test decimals
-    //     @as(f16, 0.5),
-    //     @as(f32, 123.456),
-    //     @as(f64, -123.456),
-    //     @as(f128, 42.5),
+    const expected = .{
+        // Test decimals
+        @as(f16, 0.5),
+        @as(f32, 123.456),
+        @as(f64, -123.456),
+        @as(f128, 42.5),
 
-    //     // Test whole numbers with and without decimals
-    //     @as(f16, 5.0),
-    //     @as(f16, 5.0),
-    //     @as(f32, -102),
-    //     @as(f32, -102),
+        // Test whole numbers with and without decimals
+        @as(f16, 5.0),
+        @as(f16, 5.0),
+        @as(f32, -102),
+        @as(f32, -102),
 
-    //     // Test characters and negated characters
-    //     @as(f32, 'a'),
-    //     @as(f32, 'z'),
-    //     @as(f32, -'z'),
+        // Test characters and negated characters
+        @as(f32, 'a'),
+        @as(f32, 'z'),
+        @as(f32, -'z'),
 
-    //     // Test big integers
-    //     @as(f32, 36893488147419103231),
-    //     @as(f32, -36893488147419103231),
-    //     @as(f128, 0x1ffffffffffffffff),
-    //     @as(f32, 0x1ffffffffffffffff),
+        // Test big integers
+        @as(f32, 36893488147419103231),
+        @as(f32, -36893488147419103231),
+        @as(f128, 0x1ffffffffffffffff),
+        @as(f32, 0x1ffffffffffffffff),
 
-    //     // Exponents, underscores
-    //     @as(f32, 123.0E+77),
+        // Exponents, underscores
+        @as(f32, 123.0E+77),
 
-    //     // Hexadecimal
-    //     @as(f32, 0x103.70p-5),
-    //     @as(f32, -0x103.70),
-    //     @as(f32, 0x1234_5678.9ABC_CDEFp-10),
-    // };
-    // const actual: @TypeOf(expected) = @import("zon/floats.zon");
-    // try expectEqual(actual, expected);
+        // Hexadecimal
+        @as(f32, 0x103.70p-5),
+        @as(f32, -0x103.70),
+        @as(f32, 0x1234_5678.9ABC_CDEFp-10),
+    };
+    const actual: @TypeOf(expected) = @import("zon/floats.zon");
+    try expectEqual(actual, expected);
 }
 
 test "inf and nan" {
