@@ -738,7 +738,7 @@ test TagPayload {
 }
 
 /// Compares two of any type for equality. Containers that do not support comparison
-/// are compared on a field-by-field basis. Pointers are not followed.
+/// on their own are compared on a field-by-field basis. Pointers are not followed.
 pub fn eql(a: anytype, b: @TypeOf(a)) bool {
     const T = @TypeOf(a);
 
