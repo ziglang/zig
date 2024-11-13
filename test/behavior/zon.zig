@@ -30,13 +30,18 @@ test "union" {
         const Union = union {
             x: f32,
             y: bool,
+            z: void,
         };
 
         const union1: Union = @import("zon/union1.zon");
         const union2: Union = @import("zon/union2.zon");
+        const union3: Union = @import("zon/union3.zon");
+        const union4: Union = @import("zon/union4.zon");
 
         try expectEqual(union1.x, 1.5);
         try expectEqual(union2.y, true);
+        try expectEqual(union3.z, {});
+        try expectEqual(union4.z, {});
     }
 
     // Inferred tag
@@ -44,13 +49,18 @@ test "union" {
         const Union = union(enum) {
             x: f32,
             y: bool,
+            z: void,
         };
 
         const union1: Union = @import("zon/union1.zon");
         const union2: Union = @import("zon/union2.zon");
+        const union3: Union = @import("zon/union3.zon");
+        const union4: Union = @import("zon/union4.zon");
 
         try expectEqual(union1.x, 1.5);
         try expectEqual(union2.y, true);
+        try expectEqual(union3.z, {});
+        try expectEqual(union4.z, {});
     }
 
     // Explicit tag
@@ -58,17 +68,23 @@ test "union" {
         const Tag = enum(i128) {
             x = -1,
             y = 2,
+            z = 1,
         };
         const Union = union(Tag) {
             x: f32,
             y: bool,
+            z: void,
         };
 
         const union1: Union = @import("zon/union1.zon");
         const union2: Union = @import("zon/union2.zon");
+        const union3: Union = @import("zon/union3.zon");
+        const union4: Union = @import("zon/union4.zon");
 
         try expectEqual(union1.x, 1.5);
         try expectEqual(union2.y, true);
+        try expectEqual(union3.z, {});
+        try expectEqual(union4.z, {});
     }
 }
 

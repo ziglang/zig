@@ -1014,39 +1014,38 @@ fn parseStringLiteral(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !Inter
 fn parseUnion(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
     const tags = self.file.tree.nodes.items(.tag);
     const ip = &self.sema.pt.zcu.intern_pool;
+    const main_tokens = self.file.tree.nodes.items(.main_token);
 
     try res_ty.resolveFully(self.sema.pt);
     const union_info = self.sema.pt.zcu.typeToUnion(res_ty).?;
     const enum_tag_info = union_info.loadTagType(ip);
 
-    if (tags[node] == .enum_literal) @panic("unimplemented");
+    const field_name, const maybe_field_node = if (tags[node] == .enum_literal) b: {
+        const field_name = try self.identAsNullTerminatedString(main_tokens[node]);
+        break :b .{ field_name, null };
+    } else b: {
+        var buf: [2]Ast.Node.Index = undefined;
+        const field_nodes = try self.fields(res_ty, &buf, node);
+        if (field_nodes.len > 1) {
+            return self.fail(.{ .node_abs = node }, "expected {}", .{res_ty.fmt(self.sema.pt)});
+        }
+        const field_node = field_nodes[0];
+        const field_name_token = self.file.tree.firstToken(field_node) - 2;
+        const field_name = try self.identAsNullTerminatedString(field_name_token);
+        break :b .{ field_name, field_node };
+    };
 
-    var buf: [2]Ast.Node.Index = undefined;
-    const field_nodes = try self.fields(res_ty, &buf, node);
-    if (field_nodes.len > 1) {
-        return self.fail(.{ .node_abs = node }, "expected {}", .{res_ty.fmt(self.sema.pt)});
-    }
-    const field_node = field_nodes[0];
-    var field_name = try self.ident(self.file.tree.firstToken(field_node) - 2);
-    defer field_name.deinit(self.sema.gpa);
-    const field_name_string = try ip.getOrPutString(
-        self.sema.pt.zcu.gpa,
-        self.sema.pt.tid,
-        field_name.bytes,
-        .no_embedded_nulls,
-    );
-
-    const name_index = enum_tag_info.nameIndex(ip, field_name_string) orelse {
+    const name_index = enum_tag_info.nameIndex(ip, field_name) orelse {
         return self.fail(.{ .node_abs = node }, "expected {}", .{res_ty.fmt(self.sema.pt)});
     };
     const tag_int = if (enum_tag_info.values.len == 0) b: {
-        // Fields are auto numbered
+        // Auto numbered fields
         break :b try self.sema.pt.intern(.{ .int = .{
             .ty = enum_tag_info.tag_ty,
             .storage = .{ .u64 = name_index },
         } });
     } else b: {
-        // Fields are explicitly numbered
+        // Explicitly numbered fields
         break :b enum_tag_info.values.get(ip)[name_index];
     };
     const tag = try self.sema.pt.intern(.{ .enum_tag = .{
@@ -1054,7 +1053,14 @@ fn parseUnion(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.In
         .int = tag_int,
     } });
     const field_type = Type.fromInterned(union_info.field_types.get(ip)[name_index]);
-    const val = try self.parseExpr(field_node, field_type);
+    const val = if (maybe_field_node) |field_node| b: {
+        break :b try self.parseExpr(field_node, field_type);
+    } else b: {
+        if (field_type.toIntern() != .void_type) {
+            return self.fail(.{ .node_abs = node }, "expected {}", .{field_type.fmt(self.sema.pt)});
+        }
+        break :b .void_value;
+    };
     return ip.getUnion(self.sema.pt.zcu.gpa, self.sema.pt.tid, .{
         .ty = res_ty.toIntern(),
         .tag = tag,
