@@ -25,9 +25,13 @@ os_version_min: ?OsVersion = null,
 /// When `os_tag` is native, `null` means equal to the native OS version.
 os_version_max: ?OsVersion = null,
 
-/// `null` means default when cross compiling, or native when os_tag is native.
+/// `null` means default when cross compiling, or native when `os_tag` is native.
 /// If `isGnuLibC()` is `false`, this must be `null` and is ignored.
 glibc_version: ?SemanticVersion = null,
+
+/// `null` means default when cross compiling, or native when `os_tag` is native.
+/// If `isAndroid()` is `false`, this must be `null` and is ignored.
+android_api_level: ?u32 = null,
 
 /// `null` means the native C ABI, if `os_tag` is native, otherwise it means the default C ABI.
 abi: ?Target.Abi = null,
@@ -98,10 +102,8 @@ pub fn fromTarget(target: Target) Query {
         .os_version_min = undefined,
         .os_version_max = undefined,
         .abi = target.abi,
-        .glibc_version = if (target.isGnuLibC())
-            target.os.version_range.linux.glibc
-        else
-            null,
+        .glibc_version = if (target.isGnuLibC()) target.os.version_range.linux.glibc else null,
+        .android_api_level = if (target.abi.isAndroid()) target.os.version_range.linux.android else null,
     };
     result.updateOsVersionRange(target.os);
 
@@ -147,7 +149,7 @@ pub const ParseOptions = struct {
     /// The fields are, respectively:
     /// * CPU Architecture
     /// * Operating System (and optional version range)
-    /// * C ABI (optional, with optional glibc version)
+    /// * C ABI (optional, with optional glibc version or Android API level)
     /// The string "native" can be used for CPU architecture as well as Operating System.
     /// If the CPU Architecture is specified as "native", then the Operating System and C ABI may be omitted.
     arch_os_abi: []const u8 = "native",
@@ -191,6 +193,9 @@ pub const ParseOptions = struct {
 
         /// If error.UnknownCpuFeature is returned, this will be populated.
         unknown_feature_name: ?[]const u8 = null,
+
+        /// If error.UnknownArchitecture is returned, this will be populated.
+        unknown_architecture_name: ?[]const u8 = null,
     };
 };
 
@@ -206,8 +211,10 @@ pub fn parse(args: ParseOptions) !Query {
     const arch_name = it.first();
     const arch_is_native = mem.eql(u8, arch_name, "native");
     if (!arch_is_native) {
-        result.cpu_arch = std.meta.stringToEnum(Target.Cpu.Arch, arch_name) orelse
+        result.cpu_arch = std.meta.stringToEnum(Target.Cpu.Arch, arch_name) orelse {
+            diags.unknown_architecture_name = arch_name;
             return error.UnknownArchitecture;
+        };
     }
     const arch = result.cpu_arch orelse builtin.cpu.arch;
     diags.arch = arch;
@@ -233,6 +240,11 @@ pub fn parse(args: ParseOptions) !Query {
                 result.glibc_version = parseVersion(abi_ver_text) catch |err| switch (err) {
                     error.Overflow => return error.InvalidAbiVersion,
                     error.InvalidVersion => return error.InvalidAbiVersion,
+                };
+            } else if (abi.isAndroid()) {
+                result.android_api_level = std.fmt.parseUnsigned(u32, abi_ver_text, 10) catch |err| switch (err) {
+                    error.InvalidCharacter => return error.InvalidVersion,
+                    error.Overflow => return error.Overflow,
                 };
             } else {
                 return error.InvalidAbiVersion;
@@ -355,7 +367,7 @@ pub fn isNativeCpu(self: Query) bool {
 
 pub fn isNativeOs(self: Query) bool {
     return self.os_tag == null and self.os_version_min == null and self.os_version_max == null and
-        self.dynamic_linker.get() == null and self.glibc_version == null;
+        self.dynamic_linker.get() == null and self.glibc_version == null and self.android_api_level == null;
 }
 
 pub fn isNativeAbi(self: Query) bool {
@@ -439,6 +451,13 @@ pub fn zigTriple(self: Query, allocator: Allocator) Allocator.Error![]u8 {
         result.appendSliceAssumeCapacity(name);
         result.appendAssumeCapacity('.');
         try formatVersion(v, result.writer());
+    } else if (self.android_api_level) |lvl| {
+        const name = if (self.abi) |abi| @tagName(abi) else "android";
+        try result.ensureUnusedCapacity(name.len + 2);
+        result.appendAssumeCapacity('-');
+        result.appendSliceAssumeCapacity(name);
+        result.appendAssumeCapacity('.');
+        try result.writer().print("{d}", .{lvl});
     } else if (self.abi) |abi| {
         const name = @tagName(abi);
         try result.ensureUnusedCapacity(name.len + 1);
@@ -561,6 +580,7 @@ pub fn eql(a: Query, b: Query) bool {
     if (!OsVersion.eqlOpt(a.os_version_min, b.os_version_min)) return false;
     if (!OsVersion.eqlOpt(a.os_version_max, b.os_version_max)) return false;
     if (!versionEqualOpt(a.glibc_version, b.glibc_version)) return false;
+    if (a.android_api_level != b.android_api_level) return false;
     if (a.abi != b.abi) return false;
     if (!a.dynamic_linker.eql(b.dynamic_linker)) return false;
     if (a.ofmt != b.ofmt) return false;
@@ -591,6 +611,15 @@ test parse {
         defer std.testing.allocator.free(text);
 
         try std.testing.expectEqualSlices(u8, "native-native-gnu.2.1.1", text);
+    }
+    if (builtin.target.abi.isAndroid()) {
+        var query = try Query.parse(.{});
+        query.android_api_level = 30;
+
+        const text = try query.zigTriple(std.testing.allocator);
+        defer std.testing.allocator.free(text);
+
+        try std.testing.expectEqualSlices(u8, "native-native-android.30", text);
     }
     {
         const query = try Query.parse(.{
@@ -676,5 +705,26 @@ test parse {
         const text = try query.zigTriple(std.testing.allocator);
         defer std.testing.allocator.free(text);
         try std.testing.expectEqualSlices(u8, "aarch64-linux.3.10...4.4.1-gnu.2.27", text);
+    }
+    {
+        const query = try Query.parse(.{
+            .arch_os_abi = "aarch64-linux.3.10...4.4.1-android.30",
+        });
+        const target = try std.zig.system.resolveTargetQuery(query);
+
+        try std.testing.expect(target.cpu.arch == .aarch64);
+        try std.testing.expect(target.os.tag == .linux);
+        try std.testing.expect(target.os.version_range.linux.range.min.major == 3);
+        try std.testing.expect(target.os.version_range.linux.range.min.minor == 10);
+        try std.testing.expect(target.os.version_range.linux.range.min.patch == 0);
+        try std.testing.expect(target.os.version_range.linux.range.max.major == 4);
+        try std.testing.expect(target.os.version_range.linux.range.max.minor == 4);
+        try std.testing.expect(target.os.version_range.linux.range.max.patch == 1);
+        try std.testing.expect(target.os.version_range.linux.android == 30);
+        try std.testing.expect(target.abi == .android);
+
+        const text = try query.zigTriple(std.testing.allocator);
+        defer std.testing.allocator.free(text);
+        try std.testing.expectEqualSlices(u8, "aarch64-linux.3.10...4.4.1-android.30", text);
     }
 }

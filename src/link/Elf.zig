@@ -1823,7 +1823,7 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
         }
 
         if (link_mode == .static) {
-            if (target.cpu.arch.isArmOrThumb()) {
+            if (target.cpu.arch.isArm()) {
                 try argv.append("-Bstatic");
             } else {
                 try argv.append("-static");
@@ -4100,21 +4100,21 @@ fn getLDMOption(target: std.Target) ?[]const u8 {
         },
         .mips64 => switch (target.os.tag) {
             .freebsd => switch (target.abi) {
-                .gnuabin32 => "elf32btsmipn32_fbsd",
+                .gnuabin32, .muslabin32 => "elf32btsmipn32_fbsd",
                 else => "elf64btsmip_fbsd",
             },
             else => switch (target.abi) {
-                .gnuabin32 => "elf32btsmipn32",
+                .gnuabin32, .muslabin32 => "elf32btsmipn32",
                 else => "elf64btsmip",
             },
         },
         .mips64el => switch (target.os.tag) {
             .freebsd => switch (target.abi) {
-                .gnuabin32 => "elf32ltsmipn32_fbsd",
+                .gnuabin32, .muslabin32 => "elf32ltsmipn32_fbsd",
                 else => "elf64ltsmip_fbsd",
             },
             else => switch (target.abi) {
-                .gnuabin32 => "elf32ltsmipn32",
+                .gnuabin32, .muslabin32 => "elf32ltsmipn32",
                 else => "elf64ltsmip",
             },
         },

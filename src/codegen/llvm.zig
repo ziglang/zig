@@ -118,9 +118,6 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
             .{ .v6kz, "v6kz" },
             .{ .v6m, "v6m" },
             .{ .v6t2, "v6t2" },
-            // v7k and v7s imply v7a so they have to be tested first.
-            .{ .v7k, "v7k" },
-            .{ .v7s, "v7s" },
             .{ .v7a, "v7a" },
             .{ .v7em, "v7em" },
             .{ .v7m, "v7m" },
@@ -164,14 +161,34 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
     };
 
     if (llvm_sub_arch) |sub| try llvm_triple.appendSlice(sub);
+    try llvm_triple.append('-');
 
-    // Unlike CPU backends, GPU backends actually care about the vendor tag.
-    try llvm_triple.appendSlice(switch (target.cpu.arch) {
-        .amdgcn => if (target.os.tag == .mesa3d) "-mesa-" else "-amd-",
-        .nvptx, .nvptx64 => "-nvidia-",
-        .spirv64 => if (target.os.tag == .amdhsa) "-amd-" else "-unknown-",
-        else => "-unknown-",
+    try llvm_triple.appendSlice(switch (target.os.tag) {
+        .aix,
+        .zos,
+        => "ibm",
+        .bridgeos,
+        .driverkit,
+        .ios,
+        .macos,
+        .tvos,
+        .visionos,
+        .watchos,
+        => "apple",
+        .ps4,
+        .ps5,
+        => "scei",
+        .amdhsa,
+        .amdpal,
+        => "amd",
+        .cuda,
+        .nvcl,
+        => "nvidia",
+        .mesa3d,
+        => "mesa",
+        else => "unknown",
     });
+    try llvm_triple.append('-');
 
     const llvm_os = switch (target.os.tag) {
         .freestanding => "unknown",
@@ -219,13 +236,20 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
     };
     try llvm_triple.appendSlice(llvm_os);
 
-    if (target.os.tag.isDarwin()) {
-        const min_version = target.os.version_range.semver.min;
-        try llvm_triple.writer().print("{d}.{d}.{d}", .{
-            min_version.major,
-            min_version.minor,
-            min_version.patch,
-        });
+    switch (target.os.versionRange()) {
+        .none,
+        .windows,
+        => {},
+        .semver => |ver| try llvm_triple.writer().print("{d}.{d}.{d}", .{
+            ver.min.major,
+            ver.min.minor,
+            ver.min.patch,
+        }),
+        .linux => |ver| try llvm_triple.writer().print("{d}.{d}.{d}", .{
+            ver.range.min.major,
+            ver.range.min.minor,
+            ver.range.min.patch,
+        }),
     }
     try llvm_triple.append('-');
 
@@ -239,13 +263,15 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .gnuf32 => "gnuf32",
         .gnusf => "gnusf",
         .gnux32 => "gnux32",
-        .gnuilp32 => "gnuilp32",
+        .gnuilp32 => "gnu_ilp32",
         .code16 => "code16",
         .eabi => "eabi",
         .eabihf => "eabihf",
         .android => "android",
         .androideabi => "androideabi",
         .musl => "musl",
+        .muslabin32 => "musl", // Should be muslabin32 in LLVM 20.
+        .muslabi64 => "musl", // Should be muslabi64 in LLVM 20.
         .musleabi => "musleabi",
         .musleabihf => "musleabihf",
         .muslx32 => "muslx32",
@@ -258,6 +284,18 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .ohoseabi => "ohoseabi",
     };
     try llvm_triple.appendSlice(llvm_abi);
+
+    switch (target.os.versionRange()) {
+        .none,
+        .semver,
+        .windows,
+        => {},
+        .linux => |ver| if (target.abi.isGnu()) try llvm_triple.writer().print("{d}.{d}.{d}", .{
+            ver.glibc.major,
+            ver.glibc.minor,
+            ver.glibc.patch,
+        }) else if (target.abi.isAndroid()) try llvm_triple.writer().print("{d}", .{ver.android}),
+    }
 
     return llvm_triple.toOwnedSlice();
 }
@@ -458,7 +496,7 @@ const DataLayoutBuilder = struct {
                 if (idx != size) try writer.print(":{d}", .{idx});
             }
         }
-        if (self.target.cpu.arch.isArmOrThumb())
+        if (self.target.cpu.arch.isArm())
             try writer.writeAll("-Fi8") // for thumb interwork
         else if (self.target.cpu.arch == .powerpc64 and
             self.target.os.tag != .freebsd and
@@ -725,7 +763,7 @@ const DataLayoutBuilder = struct {
                     else => {},
                 }
             },
-            .vector => if (self.target.cpu.arch.isArmOrThumb()) {
+            .vector => if (self.target.cpu.arch.isArm()) {
                 switch (size) {
                     128 => abi = 64,
                     else => {},
@@ -791,7 +829,7 @@ const DataLayoutBuilder = struct {
                 else => {},
             },
             .aggregate => if (self.target.os.tag == .uefi or self.target.os.tag == .windows or
-                self.target.cpu.arch.isArmOrThumb())
+                self.target.cpu.arch.isArm())
             {
                 pref = @min(pref, self.target.ptrBitWidth());
             } else switch (self.target.cpu.arch) {
@@ -2563,7 +2601,7 @@ pub const Object = struct {
                 }
 
                 switch (ip.indexToKey(ty.toIntern())) {
-                    .anon_struct_type => |tuple| {
+                    .tuple_type => |tuple| {
                         var fields: std.ArrayListUnmanaged(Builder.Metadata) = .empty;
                         defer fields.deinit(gpa);
 
@@ -2582,11 +2620,8 @@ pub const Object = struct {
                             const field_offset = field_align.forward(offset);
                             offset = field_offset + field_size;
 
-                            const field_name = if (tuple.names.len != 0)
-                                tuple.names.get(ip)[i].toSlice(ip)
-                            else
-                                try std.fmt.allocPrintZ(gpa, "{d}", .{i});
-                            defer if (tuple.names.len == 0) gpa.free(field_name);
+                            var name_buf: [32]u8 = undefined;
+                            const field_name = std.fmt.bufPrint(&name_buf, "{d}", .{i}) catch unreachable;
 
                             fields.appendAssumeCapacity(try o.builder.debugMemberType(
                                 try o.builder.metadataString(field_name),
@@ -3187,8 +3222,6 @@ pub const Object = struct {
         owner_mod: *Package.Module,
         omit_frame_pointer: bool,
     ) Allocator.Error!void {
-        const comp = o.pt.zcu.comp;
-
         if (!owner_mod.red_zone) {
             try attributes.addFnAttr(.noredzone, &o.builder);
         }
@@ -3207,13 +3240,16 @@ pub const Object = struct {
         if (owner_mod.unwind_tables) {
             try attributes.addFnAttr(.{ .uwtable = Builder.Attribute.UwTable.default }, &o.builder);
         }
-        if (comp.skip_linker_dependencies or comp.no_builtin) {
+        if (owner_mod.no_builtin) {
             // The intent here is for compiler-rt and libc functions to not generate
             // infinite recursion. For example, if we are compiling the memcpy function,
             // and llvm detects that the body is equivalent to memcpy, it may replace the
             // body of memcpy with a call to memcpy, which would then cause a stack
             // overflow instead of performing memcpy.
-            try attributes.addFnAttr(.nobuiltin, &o.builder);
+            try attributes.addFnAttr(.{ .string = .{
+                .kind = try o.builder.string("no-builtins"),
+                .value = .empty,
+            } }, &o.builder);
         }
         if (owner_mod.optimize_mode == .ReleaseSmall) {
             try attributes.addFnAttr(.minsize, &o.builder);
@@ -3230,12 +3266,6 @@ pub const Object = struct {
             try attributes.addFnAttr(.{ .string = .{
                 .kind = try o.builder.string("target-features"),
                 .value = try o.builder.string(std.mem.span(s)),
-            } }, &o.builder);
-        }
-        if (target.cpu.arch.isBpf()) {
-            try attributes.addFnAttr(.{ .string = .{
-                .kind = try o.builder.string("no-builtins"),
-                .value = .empty,
             } }, &o.builder);
         }
         if (target.floatAbi() == .soft) {
@@ -3426,7 +3456,7 @@ pub const Object = struct {
             .adhoc_inferred_error_set_type,
             => try o.errorIntType(),
             .generic_poison_type,
-            .empty_struct_type,
+            .empty_tuple_type,
             => unreachable,
             // values, not types
             .undef,
@@ -3443,7 +3473,7 @@ pub const Object = struct {
             .null_value,
             .bool_true,
             .bool_false,
-            .empty_struct,
+            .empty_tuple,
             .generic_poison,
             .none,
             => unreachable,
@@ -3610,13 +3640,13 @@ pub const Object = struct {
                     );
                     return ty;
                 },
-                .anon_struct_type => |anon_struct_type| {
+                .tuple_type => |tuple_type| {
                     var llvm_field_types: std.ArrayListUnmanaged(Builder.Type) = .empty;
                     defer llvm_field_types.deinit(o.gpa);
                     // Although we can estimate how much capacity to add, these cannot be
                     // relied upon because of the recursive calls to lowerType below.
-                    try llvm_field_types.ensureUnusedCapacity(o.gpa, anon_struct_type.types.len);
-                    try o.struct_field_map.ensureUnusedCapacity(o.gpa, anon_struct_type.types.len);
+                    try llvm_field_types.ensureUnusedCapacity(o.gpa, tuple_type.types.len);
+                    try o.struct_field_map.ensureUnusedCapacity(o.gpa, tuple_type.types.len);
 
                     comptime assert(struct_layout_version == 2);
                     var offset: u64 = 0;
@@ -3625,8 +3655,8 @@ pub const Object = struct {
                     const struct_size = t.abiSize(zcu);
 
                     for (
-                        anon_struct_type.types.get(ip),
-                        anon_struct_type.values.get(ip),
+                        tuple_type.types.get(ip),
+                        tuple_type.values.get(ip),
                         0..,
                     ) |field_ty, field_val, field_index| {
                         if (field_val != .none) continue;
@@ -3979,7 +4009,7 @@ pub const Object = struct {
             .error_union_type,
             .simple_type,
             .struct_type,
-            .anon_struct_type,
+            .tuple_type,
             .union_type,
             .opaque_type,
             .enum_type,
@@ -3993,7 +4023,7 @@ pub const Object = struct {
                 .undefined => unreachable, // non-runtime value
                 .void => unreachable, // non-runtime value
                 .null => unreachable, // non-runtime value
-                .empty_struct => unreachable, // non-runtime value
+                .empty_tuple => unreachable, // non-runtime value
                 .@"unreachable" => unreachable, // non-runtime value
                 .generic_poison => unreachable, // non-runtime value
 
@@ -4232,7 +4262,7 @@ pub const Object = struct {
                         ),
                     }
                 },
-                .anon_struct_type => |tuple| {
+                .tuple_type => |tuple| {
                     const struct_ty = try o.lowerType(ty);
                     const llvm_len = struct_ty.aggregateLen(&o.builder);
 
@@ -5545,6 +5575,10 @@ pub const FuncGen = struct {
 
         var attributes: Builder.FunctionAttributes.Wip = .{};
         defer attributes.deinit(&o.builder);
+
+        if (self.ng.ownerModule().no_builtin) {
+            try attributes.addFnAttr(.nobuiltin, &o.builder);
+        }
 
         switch (modifier) {
             .auto, .never_tail, .always_tail => {},
@@ -11560,29 +11594,81 @@ pub const FuncGen = struct {
             template: [:0]const u8,
             constraints: [:0]const u8,
         } = switch (target.cpu.arch) {
-            .x86 => .{
+            .arm, .armeb, .thumb, .thumbeb => .{
                 .template =
-                \\roll $$3,  %edi ; roll $$13, %edi
-                \\roll $$61, %edi ; roll $$51, %edi
-                \\xchgl %ebx,%ebx
+                \\ mov r12, r12, ror #3  ; mov r12, r12, ror #13
+                \\ mov r12, r12, ror #29 ; mov r12, r12, ror #19
+                \\ orr r10, r10, r10
                 ,
-                .constraints = "={edx},{eax},0,~{cc},~{memory}",
-            },
-            .x86_64 => .{
-                .template =
-                \\rolq $$3,  %rdi ; rolq $$13, %rdi
-                \\rolq $$61, %rdi ; rolq $$51, %rdi
-                \\xchgq %rbx,%rbx
-                ,
-                .constraints = "={rdx},{rax},0,~{cc},~{memory}",
+                .constraints = "={r3},{r4},{r3},~{cc},~{memory}",
             },
             .aarch64, .aarch64_be => .{
                 .template =
-                \\ror x12, x12, #3  ;  ror x12, x12, #13
-                \\ror x12, x12, #51 ;  ror x12, x12, #61
-                \\orr x10, x10, x10
+                \\ ror x12, x12, #3  ; ror x12, x12, #13
+                \\ ror x12, x12, #51 ; ror x12, x12, #61
+                \\ orr x10, x10, x10
                 ,
-                .constraints = "={x3},{x4},0,~{cc},~{memory}",
+                .constraints = "={x3},{x4},{x3},~{cc},~{memory}",
+            },
+            .mips, .mipsel => .{
+                .template =
+                \\ srl $$0,  $$0,  13
+                \\ srl $$0,  $$0,  29
+                \\ srl $$0,  $$0,  3
+                \\ srl $$0,  $$0,  19
+                \\ or  $$13, $$13, $$13
+                ,
+                .constraints = "={$11},{$12},{$11},~{memory}",
+            },
+            .mips64, .mips64el => .{
+                .template =
+                \\ dsll $$0,  $$0,  3    ; dsll $$0, $$0, 13
+                \\ dsll $$0,  $$0,  29   ; dsll $$0, $$0, 19
+                \\ or   $$13, $$13, $$13
+                ,
+                .constraints = "={$11},{$12},{$11},~{memory}",
+            },
+            .powerpc, .powerpcle => .{
+                .template =
+                \\ rlwinm 0, 0, 3,  0, 31 ; rlwinm 0, 0, 13, 0, 31
+                \\ rlwinm 0, 0, 29, 0, 31 ; rlwinm 0, 0, 19, 0, 31
+                \\ or     1, 1, 1
+                ,
+                .constraints = "={r3},{r4},{r3},~{cc},~{memory}",
+            },
+            .powerpc64, .powerpc64le => .{
+                .template =
+                \\ rotldi 0, 0, 3  ; rotldi 0, 0, 13
+                \\ rotldi 0, 0, 61 ; rotldi 0, 0, 51
+                \\ or     1, 1, 1
+                ,
+                .constraints = "={r3},{r4},{r3},~{cc},~{memory}",
+            },
+            .s390x => .{
+                .template =
+                \\ lr %r15, %r15
+                \\ lr %r1,  %r1
+                \\ lr %r2,  %r2
+                \\ lr %r3,  %r3
+                \\ lr %r2,  %r2
+                ,
+                .constraints = "={r3},{r2},{r3},~{cc},~{memory}",
+            },
+            .x86 => .{
+                .template =
+                \\ roll  $$3,  %edi ; roll $$13, %edi
+                \\ roll  $$61, %edi ; roll $$51, %edi
+                \\ xchgl %ebx, %ebx
+                ,
+                .constraints = "={edx},{eax},{edx},~{cc},~{memory}",
+            },
+            .x86_64 => .{
+                .template =
+                \\ rolq  $$3,  %rdi ; rolq $$13, %rdi
+                \\ rolq  $$61, %rdi ; rolq $$51, %rdi
+                \\ xchgq %rbx, %rbx
+                ,
+                .constraints = "={rdx},{rax},{edx},~{cc},~{memory}",
             },
             else => unreachable,
         };
@@ -11714,7 +11800,14 @@ fn toLlvmCallConvTag(cc_tag: std.builtin.CallingConvention.Tag, target: std.Targ
         .aarch64_vfabi_sve => .aarch64_sve_vector_pcs,
         .arm_apcs => .arm_apcscc,
         .arm_aapcs => .arm_aapcscc,
-        .arm_aapcs_vfp => .arm_aapcs_vfpcc,
+        .arm_aapcs_vfp => if (target.os.tag != .watchos)
+            .arm_aapcs_vfpcc
+        else
+            null,
+        .arm_aapcs16_vfp => if (target.os.tag == .watchos)
+            .arm_aapcs_vfpcc
+        else
+            null,
         .riscv64_lp64_v => .riscv_vectorcallcc,
         .riscv32_ilp32_v => .riscv_vectorcallcc,
         .avr_builtin => .avr_builtincc,
@@ -11744,7 +11837,6 @@ fn toLlvmCallConvTag(cc_tag: std.builtin.CallingConvention.Tag, target: std.Targ
         .aarch64_aapcs,
         .aarch64_aapcs_darwin,
         .aarch64_aapcs_win,
-        .arm_aapcs16_vfp,
         .mips64_n64,
         .mips64_n32,
         .mips_o32,
@@ -11818,7 +11910,7 @@ fn llvmAddrSpaceInfo(target: std.Target) []const AddrSpaceInfo {
             .{ .zig = null, .llvm = Builder.AddrSpace.x86.ptr64, .size = 64, .abi = 64, .force_in_data_layout = true },
         },
         .nvptx, .nvptx64 => &.{
-            .{ .zig = .generic, .llvm = .default },
+            .{ .zig = .generic, .llvm = Builder.AddrSpace.nvptx.generic },
             .{ .zig = .global, .llvm = Builder.AddrSpace.nvptx.global },
             .{ .zig = .constant, .llvm = Builder.AddrSpace.nvptx.constant },
             .{ .zig = .param, .llvm = Builder.AddrSpace.nvptx.param },
@@ -11835,9 +11927,27 @@ fn llvmAddrSpaceInfo(target: std.Target) []const AddrSpaceInfo {
             .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.constant_32bit, .size = 32, .abi = 32 },
             .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.buffer_fat_pointer, .non_integral = true, .size = 160, .abi = 256, .idx = 32 },
             .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.buffer_resource, .non_integral = true, .size = 128, .abi = 128 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.buffer_strided_pointer, .non_integral = true, .size = 192, .abi = 256, .idx = 32 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_0 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_1 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_2 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_3 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_4 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_5 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_6 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_7 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_8 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_9 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_10 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_11 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_12 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_13 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_14 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_15 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.streamout_register },
         },
         .avr => &.{
-            .{ .zig = .generic, .llvm = .default, .abi = 8 },
+            .{ .zig = .generic, .llvm = Builder.AddrSpace.avr.data, .abi = 8 },
             .{ .zig = .flash, .llvm = Builder.AddrSpace.avr.program, .abi = 8 },
             .{ .zig = .flash1, .llvm = Builder.AddrSpace.avr.program1, .abi = 8 },
             .{ .zig = .flash2, .llvm = Builder.AddrSpace.avr.program2, .abi = 8 },
@@ -11846,7 +11956,7 @@ fn llvmAddrSpaceInfo(target: std.Target) []const AddrSpaceInfo {
             .{ .zig = .flash5, .llvm = Builder.AddrSpace.avr.program5, .abi = 8 },
         },
         .wasm32, .wasm64 => &.{
-            .{ .zig = .generic, .llvm = .default, .force_in_data_layout = true },
+            .{ .zig = .generic, .llvm = Builder.AddrSpace.wasm.default, .force_in_data_layout = true },
             .{ .zig = null, .llvm = Builder.AddrSpace.wasm.variable, .non_integral = true },
             .{ .zig = null, .llvm = Builder.AddrSpace.wasm.externref, .non_integral = true, .size = 8, .abi = 8 },
             .{ .zig = null, .llvm = Builder.AddrSpace.wasm.funcref, .non_integral = true, .size = 8, .abi = 8 },
@@ -11924,7 +12034,7 @@ fn firstParamSRet(fn_info: InternPool.Key.FuncType, zcu: *Zcu, target: std.Targe
         .aarch64_aapcs_darwin,
         .aarch64_aapcs_win,
         => aarch64_c_abi.classifyType(return_type, zcu) == .memory,
-        .arm_aapcs, .arm_aapcs_vfp => switch (arm_c_abi.classifyType(return_type, zcu, .ret)) {
+        .arm_aapcs, .arm_aapcs_vfp, .arm_aapcs16_vfp => switch (arm_c_abi.classifyType(return_type, zcu, .ret)) {
             .memory, .i64_array => true,
             .i32_array => |size| size != 1,
             .byval => false,
@@ -11974,7 +12084,7 @@ fn lowerFnRetTy(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.Error!Bu
             .integer => return o.builder.intType(@intCast(return_type.bitSize(zcu))),
             .double_integer => return o.builder.arrayType(2, .i64),
         },
-        .arm_aapcs, .arm_aapcs_vfp => switch (arm_c_abi.classifyType(return_type, zcu, .ret)) {
+        .arm_aapcs, .arm_aapcs_vfp, .arm_aapcs16_vfp => switch (arm_c_abi.classifyType(return_type, zcu, .ret)) {
             .memory, .i64_array => return .void,
             .i32_array => |len| return if (len == 1) .i32 else .void,
             .byval => return o.lowerType(return_type),
@@ -12223,7 +12333,7 @@ const ParamTypeIterator = struct {
                     .double_integer => return Lowering{ .i64_array = 2 },
                 }
             },
-            .arm_aapcs, .arm_aapcs_vfp => {
+            .arm_aapcs, .arm_aapcs_vfp, .arm_aapcs16_vfp => {
                 it.zig_index += 1;
                 it.llvm_index += 1;
                 switch (arm_c_abi.classifyType(ty, zcu, .arg)) {
@@ -12516,7 +12626,7 @@ fn isByRef(ty: Type, zcu: *Zcu) bool {
         .array, .frame => return ty.hasRuntimeBits(zcu),
         .@"struct" => {
             const struct_type = switch (ip.indexToKey(ty.toIntern())) {
-                .anon_struct_type => |tuple| {
+                .tuple_type => |tuple| {
                     var count: usize = 0;
                     for (tuple.types.get(ip), tuple.values.get(ip)) |field_ty, field_val| {
                         if (field_val != .none or !Type.fromInterned(field_ty).hasRuntimeBits(zcu)) continue;
@@ -12620,6 +12730,8 @@ fn backendSupportsF16(target: std.Target) bool {
         .mips64,
         .mips64el,
         .s390x,
+        .sparc,
+        .sparc64,
         => false,
         .arm,
         .armeb,

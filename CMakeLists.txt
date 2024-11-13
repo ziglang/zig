@@ -376,7 +376,7 @@ set(ZIG_STAGE2_SOURCES
     lib/std/Target.zig
     lib/std/Target/Query.zig
     lib/std/Target/aarch64.zig
-    lib/std/Target/amdgpu.zig
+    lib/std/Target/amdgcn.zig
     lib/std/Target/arm.zig
     lib/std/Target/avr.zig
     lib/std/Target/bpf.zig

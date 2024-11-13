@@ -3259,7 +3259,7 @@ fn lowerConstant(func: *CodeGen, val: Value, ty: Type) InnerError!WValue {
         .error_union_type,
         .simple_type,
         .struct_type,
-        .anon_struct_type,
+        .tuple_type,
         .union_type,
         .opaque_type,
         .enum_type,
@@ -3273,7 +3273,7 @@ fn lowerConstant(func: *CodeGen, val: Value, ty: Type) InnerError!WValue {
             .undefined,
             .void,
             .null,
-            .empty_struct,
+            .empty_tuple,
             .@"unreachable",
             .generic_poison,
             => unreachable, // non-runtime values
@@ -3708,7 +3708,7 @@ fn airCmpLtErrorsLen(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const un_op = func.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
     const operand = try func.resolveInst(un_op);
     const sym_index = try func.bin_file.getGlobalSymbol("__zig_errors_len", null);
-    const errors_len = .{ .memory = @intFromEnum(sym_index) };
+    const errors_len: WValue = .{ .memory = @intFromEnum(sym_index) };
 
     try func.emitWValue(operand);
     const pt = func.pt;

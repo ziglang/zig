@@ -2599,16 +2599,15 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
         .anyframe_type,
         .error_union_type,
         .simple_type,
-        .anon_struct_type,
+        .tuple_type,
         .func_type,
         .error_set_type,
         .inferred_error_set_type,
         => .decl_alias,
         .struct_type => tag: {
             const loaded_struct = ip.loadStructType(nav_val.toIntern());
-            if (loaded_struct.zir_index == .none) break :tag .decl_alias;
 
-            const type_inst_info = loaded_struct.zir_index.unwrap().?.resolveFull(ip).?;
+            const type_inst_info = loaded_struct.zir_index.resolveFull(ip).?;
             if (type_inst_info.file != inst_info.file) break :tag .decl_alias;
 
             const value_inst = value_inst: {
@@ -3349,7 +3348,7 @@ fn updateType(
         .union_type,
         .opaque_type,
         => unreachable,
-        .anon_struct_type => |anon_struct_type| if (anon_struct_type.types.len == 0) {
+        .tuple_type => |tuple_type| if (tuple_type.types.len == 0) {
             try wip_nav.abbrevCode(.namespace_struct_type);
             try wip_nav.strp(name);
             try diw.writeByte(@intFromBool(false));
@@ -3359,15 +3358,15 @@ fn updateType(
             try uleb128(diw, ty.abiSize(zcu));
             try uleb128(diw, ty.abiAlignment(zcu).toByteUnits().?);
             var field_byte_offset: u64 = 0;
-            for (0..anon_struct_type.types.len) |field_index| {
-                const comptime_value = anon_struct_type.values.get(ip)[field_index];
+            for (0..tuple_type.types.len) |field_index| {
+                const comptime_value = tuple_type.values.get(ip)[field_index];
                 try wip_nav.abbrevCode(if (comptime_value != .none) .struct_field_comptime else .struct_field);
-                if (anon_struct_type.fieldName(ip, field_index).unwrap()) |field_name| try wip_nav.strp(field_name.toSlice(ip)) else {
-                    const field_name = try std.fmt.allocPrint(dwarf.gpa, "{d}", .{field_index});
-                    defer dwarf.gpa.free(field_name);
+                {
+                    var name_buf: [32]u8 = undefined;
+                    const field_name = std.fmt.bufPrint(&name_buf, "{d}", .{field_index}) catch unreachable;
                     try wip_nav.strp(field_name);
                 }
-                const field_type = Type.fromInterned(anon_struct_type.types.get(ip)[field_index]);
+                const field_type = Type.fromInterned(tuple_type.types.get(ip)[field_index]);
                 try wip_nav.refType(field_type);
                 if (comptime_value != .none) try wip_nav.blockValue(
                     src_loc,
@@ -3416,8 +3415,8 @@ fn updateType(
                     .x86_64_regcall_v3_sysv => .LLVM_X86RegCall,
                     .x86_64_regcall_v4_win => .LLVM_X86RegCall,
                     .x86_64_vectorcall => .LLVM_vectorcall,
-                    .x86_sysv => .nocall,
-                    .x86_win => .nocall,
+                    .x86_sysv => .normal,
+                    .x86_win => .normal,
                     .x86_stdcall => .BORLAND_stdcall,
                     .x86_fastcall => .BORLAND_msfastcall,
                     .x86_thiscall => .BORLAND_thiscall,
@@ -3426,16 +3425,17 @@ fn updateType(
                     .x86_regcall_v4_win => .LLVM_X86RegCall,
                     .x86_vectorcall => .LLVM_vectorcall,
 
-                    .aarch64_aapcs => .LLVM_AAPCS,
-                    .aarch64_aapcs_darwin => .LLVM_AAPCS,
-                    .aarch64_aapcs_win => .LLVM_AAPCS,
+                    .aarch64_aapcs => .normal,
+                    .aarch64_aapcs_darwin => .normal,
+                    .aarch64_aapcs_win => .normal,
                     .aarch64_vfabi => .LLVM_AAPCS,
                     .aarch64_vfabi_sve => .LLVM_AAPCS,
 
-                    .arm_apcs => .nocall,
+                    .arm_apcs => .normal,
                     .arm_aapcs => .LLVM_AAPCS,
-                    .arm_aapcs_vfp => .LLVM_AAPCS_VFP,
-                    .arm_aapcs16_vfp => .nocall,
+                    .arm_aapcs_vfp,
+                    .arm_aapcs16_vfp,
+                    => .LLVM_AAPCS_VFP,
 
                     .riscv64_lp64_v,
                     .riscv32_ilp32_v,
@@ -3443,10 +3443,10 @@ fn updateType(
 
                     .m68k_rtd => .LLVM_M68kRTD,
 
-                    .amdgcn_kernel,
+                    .amdgcn_kernel => .LLVM_OpenCLKernel,
                     .nvptx_kernel,
                     .spirv_kernel,
-                    => .LLVM_OpenCLKernel,
+                    => .nocall,
 
                     .x86_64_interrupt,
                     .x86_interrupt,
@@ -3595,16 +3595,26 @@ pub fn updateContainerType(dwarf: *Dwarf, pt: Zcu.PerThread, type_index: InternP
         try dwarf.debug_info.section.replaceEntry(wip_nav.unit, wip_nav.entry, dwarf, wip_nav.debug_info.items);
         try wip_nav.flush(ty_src_loc);
     } else {
-        const decl_inst = file.zir.instructions.get(@intFromEnum(inst_info.inst));
-        assert(decl_inst.tag == .extended);
-        if (switch (decl_inst.data.extended.opcode) {
-            .struct_decl => @as(Zir.Inst.StructDecl.Small, @bitCast(decl_inst.data.extended.small)).name_strategy,
-            .enum_decl => @as(Zir.Inst.EnumDecl.Small, @bitCast(decl_inst.data.extended.small)).name_strategy,
-            .union_decl => @as(Zir.Inst.UnionDecl.Small, @bitCast(decl_inst.data.extended.small)).name_strategy,
-            .opaque_decl => @as(Zir.Inst.OpaqueDecl.Small, @bitCast(decl_inst.data.extended.small)).name_strategy,
-            .reify => @as(Zir.Inst.NameStrategy, @enumFromInt(decl_inst.data.extended.small)),
-            else => unreachable,
-        } == .parent) return;
+        {
+            // Note that changes to ZIR instruction tracking only need to update this code
+            // if a newly-tracked instruction can be a type's owner `zir_index`.
+            comptime assert(Zir.inst_tracking_version == 0);
+
+            const decl_inst = file.zir.instructions.get(@intFromEnum(inst_info.inst));
+            const name_strat: Zir.Inst.NameStrategy = switch (decl_inst.tag) {
+                .struct_init, .struct_init_ref, .struct_init_anon => .anon,
+                .extended => switch (decl_inst.data.extended.opcode) {
+                    .struct_decl => @as(Zir.Inst.StructDecl.Small, @bitCast(decl_inst.data.extended.small)).name_strategy,
+                    .enum_decl => @as(Zir.Inst.EnumDecl.Small, @bitCast(decl_inst.data.extended.small)).name_strategy,
+                    .union_decl => @as(Zir.Inst.UnionDecl.Small, @bitCast(decl_inst.data.extended.small)).name_strategy,
+                    .opaque_decl => @as(Zir.Inst.OpaqueDecl.Small, @bitCast(decl_inst.data.extended.small)).name_strategy,
+                    .reify => @as(Zir.Inst.NameStrategy, @enumFromInt(decl_inst.data.extended.small)),
+                    else => unreachable,
+                },
+                else => unreachable,
+            };
+            if (name_strat == .parent) return;
+        }
 
         const unit = try dwarf.getUnit(file.mod);
         const type_gop = try dwarf.types.getOrPut(dwarf.gpa, type_index);

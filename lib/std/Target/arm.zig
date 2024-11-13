@@ -158,10 +158,8 @@ pub const Feature = enum {
     v6t2,
     v7a,
     v7em,
-    v7k,
     v7m,
     v7r,
-    v7s,
     v7ve,
     v8_1a,
     v8_1m_main,
@@ -1177,13 +1175,6 @@ pub const all_features = blk: {
             .thumb_mode,
         }),
     };
-    result[@intFromEnum(Feature.v7k)] = .{
-        .llvm_name = "armv7k",
-        .description = "ARMv7a architecture",
-        .dependencies = featureSet(&[_]Feature{
-            .v7a,
-        }),
-    };
     result[@intFromEnum(Feature.v7m)] = .{
         .llvm_name = "armv7-m",
         .description = "ARMv7m architecture",
@@ -1206,13 +1197,6 @@ pub const all_features = blk: {
             .hwdiv,
             .perfmon,
             .rclass,
-        }),
-    };
-    result[@intFromEnum(Feature.v7s)] = .{
-        .llvm_name = "armv7s",
-        .description = "ARMv7a architecture",
-        .dependencies = featureSet(&[_]Feature{
-            .v7a,
         }),
     };
     result[@intFromEnum(Feature.v7ve)] = .{

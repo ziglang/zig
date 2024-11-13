@@ -532,6 +532,8 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                             },
                             else => unreachable,
                         };
+                    } else {
+                        return lower.fail("TODO: bin format '{s}'", .{@tagName(lower.bin_file.tag)});
                     }
                 },
             },

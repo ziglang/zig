@@ -1350,7 +1350,7 @@ pub const Pool = struct {
             .i0_type,
             .anyopaque_type,
             .void_type,
-            .empty_struct_type,
+            .empty_tuple_type,
             .type_type,
             .comptime_int_type,
             .comptime_float_type,
@@ -1450,7 +1450,7 @@ pub const Pool = struct {
             .null_value,
             .bool_true,
             .bool_false,
-            .empty_struct,
+            .empty_tuple,
             .generic_poison,
             .none,
             => unreachable,
@@ -1730,16 +1730,16 @@ pub const Pool = struct {
                         ),
                     }
                 },
-                .anon_struct_type => |anon_struct_info| {
+                .tuple_type => |tuple_info| {
                     const scratch_top = scratch.items.len;
                     defer scratch.shrinkRetainingCapacity(scratch_top);
-                    try scratch.ensureUnusedCapacity(allocator, anon_struct_info.types.len *
+                    try scratch.ensureUnusedCapacity(allocator, tuple_info.types.len *
                         @typeInfo(Field).@"struct".fields.len);
                     var hasher = Hasher.init;
-                    for (0..anon_struct_info.types.len) |field_index| {
-                        if (anon_struct_info.values.get(ip)[field_index] != .none) continue;
+                    for (0..tuple_info.types.len) |field_index| {
+                        if (tuple_info.values.get(ip)[field_index] != .none) continue;
                         const field_type = Type.fromInterned(
-                            anon_struct_info.types.get(ip)[field_index],
+                            tuple_info.types.get(ip)[field_index],
                         );
                         const field_ctype = try pool.fromType(
                             allocator,
@@ -1750,11 +1750,7 @@ pub const Pool = struct {
                             kind.noParameter(),
                         );
                         if (field_ctype.index == .void) continue;
-                        const field_name = if (anon_struct_info.fieldName(ip, @intCast(field_index))
-                            .unwrap()) |field_name|
-                            try pool.string(allocator, field_name.toSlice(ip))
-                        else
-                            try pool.fmt(allocator, "f{d}", .{field_index});
+                        const field_name = try pool.fmt(allocator, "f{d}", .{field_index});
                         pool.addHashedExtraAssumeCapacityTo(scratch, &hasher, Field, .{
                             .name = field_name.index,
                             .ctype = field_ctype.index,

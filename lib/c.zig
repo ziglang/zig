@@ -11,16 +11,14 @@ const native_os = builtin.os.tag;
 const native_arch = builtin.cpu.arch;
 const native_abi = builtin.abi;
 
+const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .internal else .strong;
+
 const is_wasm = switch (native_arch) {
     .wasm32, .wasm64 => true,
     else => false,
 };
-const is_msvc = switch (native_abi) {
-    .msvc => true,
-    else => false,
-};
 const is_freestanding = switch (native_os) {
-    .freestanding => true,
+    .freestanding, .other => true,
     else => false,
 };
 
@@ -30,14 +28,14 @@ comptime {
     }
 
     if (builtin.link_libc) {
-        @export(&strcmp, .{ .name = "strcmp", .linkage = .strong });
-        @export(&strncmp, .{ .name = "strncmp", .linkage = .strong });
-        @export(&strerror, .{ .name = "strerror", .linkage = .strong });
-        @export(&strlen, .{ .name = "strlen", .linkage = .strong });
-        @export(&strcpy, .{ .name = "strcpy", .linkage = .strong });
-        @export(&strncpy, .{ .name = "strncpy", .linkage = .strong });
-        @export(&strcat, .{ .name = "strcat", .linkage = .strong });
-        @export(&strncat, .{ .name = "strncat", .linkage = .strong });
+        @export(&strcmp, .{ .name = "strcmp", .linkage = linkage });
+        @export(&strncmp, .{ .name = "strncmp", .linkage = linkage });
+        @export(&strerror, .{ .name = "strerror", .linkage = linkage });
+        @export(&strlen, .{ .name = "strlen", .linkage = linkage });
+        @export(&strcpy, .{ .name = "strcpy", .linkage = linkage });
+        @export(&strncpy, .{ .name = "strncpy", .linkage = linkage });
+        @export(&strcat, .{ .name = "strcat", .linkage = linkage });
+        @export(&strncat, .{ .name = "strncat", .linkage = linkage });
     }
 }
 

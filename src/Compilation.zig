@@ -89,7 +89,6 @@ windows_libs: std.StringArrayHashMapUnmanaged(void),
 version: ?std.SemanticVersion,
 libc_installation: ?*const LibCInstallation,
 skip_linker_dependencies: bool,
-no_builtin: bool,
 function_sections: bool,
 data_sections: bool,
 link_eh_frame_hdr: bool,
@@ -852,6 +851,7 @@ pub const cache_helpers = struct {
         hh.add(mod.fuzz);
         hh.add(mod.unwind_tables);
         hh.add(mod.structured_cfg);
+        hh.add(mod.no_builtin);
         hh.addListOfBytes(mod.cc_argv);
     }
 
@@ -1057,7 +1057,6 @@ pub const CreateOptions = struct {
     want_lto: ?bool = null,
     function_sections: bool = false,
     data_sections: bool = false,
-    no_builtin: bool = false,
     time_report: bool = false,
     stack_report: bool = false,
     link_eh_frame_hdr: bool = false,
@@ -1299,7 +1298,11 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                 },
                 .fully_qualified_name = "compiler_rt",
                 .cc_argv = &.{},
-                .inherited = .{},
+                .inherited = .{
+                    .stack_check = false,
+                    .stack_protector = 0,
+                    .no_builtin = true,
+                },
                 .global = options.config,
                 .parent = options.root_mod,
                 .builtin_mod = options.root_mod.getBuiltinDependency(),
@@ -1353,7 +1356,6 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         cache.hash.add(options.config.link_mode);
         cache.hash.add(options.function_sections);
         cache.hash.add(options.data_sections);
-        cache.hash.add(options.no_builtin);
         cache.hash.add(link_libc);
         cache.hash.add(options.config.link_libcpp);
         cache.hash.add(options.config.link_libunwind);
@@ -1490,7 +1492,6 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .framework_dirs = options.framework_dirs,
             .llvm_opt_bisect_limit = options.llvm_opt_bisect_limit,
             .skip_linker_dependencies = options.skip_linker_dependencies,
-            .no_builtin = options.no_builtin,
             .job_queued_update_builtin_zig = have_zcu,
             .function_sections = options.function_sections,
             .data_sections = options.data_sections,
@@ -1795,8 +1796,8 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                             .{ .glibc_crt_file = .crtn_o },
                         });
                     }
-                    if (!is_dyn_lib) {
-                        try comp.queueJob(.{ .glibc_crt_file = .scrt1_o });
+                    if (glibc.needsCrt0(comp.config.output_mode)) |f| {
+                        try comp.queueJobs(&.{.{ .glibc_crt_file = f }});
                     }
                     try comp.queueJobs(&[_]Job{
                         .{ .glibc_shared_objects = {} },
@@ -2081,7 +2082,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
             log.debug("CacheMode.whole cache miss for {s}", .{comp.root_name});
 
             // Compile the artifacts to a temporary directory.
-            const tmp_artifact_directory = d: {
+            const tmp_artifact_directory: Directory = d: {
                 const s = std.fs.path.sep_str;
                 tmp_dir_rand_int = std.crypto.random.int(u64);
                 const tmp_dir_sub_path = "tmp" ++ s ++ std.fmt.hex(tmp_dir_rand_int);
@@ -5261,7 +5262,7 @@ pub fn addCCArgs(
         try argv.append("-fdata-sections");
     }
 
-    if (comp.no_builtin) {
+    if (mod.no_builtin) {
         try argv.append("-fno-builtin");
     }
 
@@ -5371,10 +5372,12 @@ pub fn addCCArgs(
                 try argv.append(include_dir);
             }
 
-            if (target.cpu.model.llvm_name) |llvm_name| {
-                try argv.appendSlice(&[_][]const u8{
-                    "-Xclang", "-target-cpu", "-Xclang", llvm_name,
-                });
+            if (target_util.clangSupportsTargetCpuArg(target)) {
+                if (target.cpu.model.llvm_name) |llvm_name| {
+                    try argv.appendSlice(&[_][]const u8{
+                        "-Xclang", "-target-cpu", "-Xclang", llvm_name,
+                    });
+                }
             }
 
             // It would be really nice if there was a more compact way to communicate this info to Clang.
@@ -5626,8 +5629,8 @@ pub fn addCCArgs(
         try argv.append("-mthumb");
     }
 
-    if (target_util.supports_fpic(target) and mod.pic) {
-        try argv.append("-fPIC");
+    if (target_util.supports_fpic(target)) {
+        try argv.append(if (mod.pic) "-fPIC" else "-fno-PIC");
     }
 
     try argv.ensureUnusedCapacity(2);
@@ -6152,7 +6155,6 @@ fn buildOutputFromZig(
 
     assert(output_mode != .Exe);
 
-    const unwind_tables = comp.link_eh_frame_hdr;
     const strip = comp.compilerRtStrip();
     const optimize_mode = comp.compilerRtOptMode();
 
@@ -6166,7 +6168,6 @@ fn buildOutputFromZig(
         .root_optimize_mode = optimize_mode,
         .root_strip = strip,
         .link_libc = comp.config.link_libc,
-        .any_unwind_tables = unwind_tables,
     });
 
     const root_mod = try Package.Module.create(arena, .{
@@ -6183,10 +6184,11 @@ fn buildOutputFromZig(
             .stack_protector = 0,
             .red_zone = comp.root_mod.red_zone,
             .omit_frame_pointer = comp.root_mod.omit_frame_pointer,
-            .unwind_tables = unwind_tables,
+            .unwind_tables = comp.root_mod.unwind_tables,
             .pic = comp.root_mod.pic,
             .optimize_mode = optimize_mode,
             .structured_cfg = comp.root_mod.structured_cfg,
+            .no_builtin = true,
             .code_model = comp.root_mod.code_model,
         },
         .global = config,
@@ -6235,7 +6237,6 @@ fn buildOutputFromZig(
         },
         .function_sections = true,
         .data_sections = true,
-        .no_builtin = true,
         .emit_h = null,
         .verbose_cc = comp.verbose_cc,
         .verbose_link = comp.verbose_link,
@@ -6260,6 +6261,14 @@ fn buildOutputFromZig(
     comp.queueLinkTaskMode(crt_file.full_object_path, output_mode);
 }
 
+pub const CrtFileOptions = struct {
+    function_sections: ?bool = null,
+    data_sections: ?bool = null,
+    omit_frame_pointer: ?bool = null,
+    pic: ?bool = null,
+    no_builtin: ?bool = null,
+};
+
 pub fn build_crt_file(
     comp: *Compilation,
     root_name: []const u8,
@@ -6269,6 +6278,7 @@ pub fn build_crt_file(
     /// These elements have to get mutated to add the owner module after it is
     /// created within this function.
     c_source_files: []CSourceFile,
+    options: CrtFileOptions,
 ) !void {
     const tracy_trace = trace(@src());
     defer tracy_trace.end();
@@ -6313,12 +6323,16 @@ pub fn build_crt_file(
             .sanitize_c = false,
             .sanitize_thread = false,
             .red_zone = comp.root_mod.red_zone,
-            .omit_frame_pointer = comp.root_mod.omit_frame_pointer,
+            // Some libcs (e.g. musl) are opinionated about -fomit-frame-pointer.
+            .omit_frame_pointer = options.omit_frame_pointer orelse comp.root_mod.omit_frame_pointer,
             .valgrind = false,
             .unwind_tables = false,
-            .pic = comp.root_mod.pic,
+            // Some CRT objects (e.g. musl's rcrt1.o and Scrt1.o) are opinionated about PIC.
+            .pic = options.pic orelse comp.root_mod.pic,
             .optimize_mode = comp.compilerRtOptMode(),
             .structured_cfg = comp.root_mod.structured_cfg,
+            // Some libcs (e.g. musl) are opinionated about -fno-builtin.
+            .no_builtin = options.no_builtin orelse comp.root_mod.no_builtin,
         },
         .global = config,
         .cc_argv = &.{},
@@ -6346,6 +6360,8 @@ pub fn build_crt_file(
             .directory = null, // Put it in the cache directory.
             .basename = basename,
         },
+        .function_sections = options.function_sections orelse false,
+        .data_sections = options.data_sections orelse false,
         .emit_h = null,
         .c_source_files = c_source_files,
         .verbose_cc = comp.verbose_cc,

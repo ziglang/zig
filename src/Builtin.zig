@@ -124,6 +124,7 @@ pub fn append(opts: @This(), buffer: *std.ArrayList(u8)) Allocator.Error!void {
             \\            .minor = {},
             \\            .patch = {},
             \\        }},
+            \\        .android = {},
             \\    }}}},
             \\
         , .{
@@ -138,6 +139,8 @@ pub fn append(opts: @This(), buffer: *std.ArrayList(u8)) Allocator.Error!void {
             linux.glibc.major,
             linux.glibc.minor,
             linux.glibc.patch,
+
+            linux.android,
         }),
         .windows => |windows| try buffer.writer().print(
             \\ .windows = .{{
