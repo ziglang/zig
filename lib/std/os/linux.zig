@@ -2072,7 +2072,7 @@ pub const sched_param = extern struct {
 pub const SCHED = packed struct(i32) {
     pub const Mode = enum(u3) {
         /// normal multi-user scheduling
-        OTHER = 0,
+        NORMAL = 0,
         /// FIFO realtime scheduling
         FIFO = 1,
         /// Round-robin realtime scheduling
@@ -2080,8 +2080,6 @@ pub const SCHED = packed struct(i32) {
         /// For "batch" style execution of processes
         BATCH = 3,
         /// Low latency scheduling
-        ISO = 4,
-        /// For running very low priority background jobs
         IDLE = 5,
         /// Sporadic task model deadline scheduling
         DEADLINE = 6,
@@ -2105,16 +2103,50 @@ pub fn sched_setscheduler(pid: pid_t, policy: SCHED, param: *const sched_param) 
     return syscall3(.sched_setscheduler, @as(usize, @bitCast(@as(isize, pid))), @intCast(@as(u32, @bitCast(policy))), @intFromPtr(param));
 }
 
-pub fn sched_getscheduler(pid: pid_t) SCHED {
-    return @bitCast( @as(u32, @intCast(syscall1(.sched_getscheduler, @as(usize, @bitCast(@as(isize, pid)))))));
+pub fn sched_getscheduler(pid: pid_t) usize {
+    return syscall1(.sched_getscheduler, @as(usize, @bitCast(@as(isize, pid))));
 }
 
-pub fn sched_get_priority_max(policy: SCHED) isize {
-    return @bitCast(syscall1(.sched_get_priority_max,@intCast(@as(u32, @bitCast(policy)))));
+pub fn sched_get_priority_max(policy: SCHED) usize {
+    return syscall1(.sched_get_priority_max, @intCast(@as(u32, @bitCast(policy))));
 }
 
-pub fn sched_get_priority_min(policy: SCHED) isize {
-    return @bitCast(syscall1(.sched_get_priority_min, @intCast(@as(u32, @bitCast(policy)))));
+pub fn sched_get_priority_min(policy: SCHED) usize {
+    return syscall1(.sched_get_priority_min, @intCast(@as(u32, @bitCast(policy))));
+}
+
+pub fn getcpu(cpu: ?*usize, node: ?*usize) usize {
+    return syscall2(.getcpu, @intFromPtr(cpu), @intFromPtr(node));
+}
+
+pub fn sched_getcpu() usize {
+    var cpu: usize = 0;
+    if(getcpu(&cpu, null) != 0) return std.math.maxInt(usize);
+    return cpu;
+}
+
+pub const sched_attr = extern struct {
+    size: u32 = 48,            // Size of this structure
+    schedPolicy: u32 = 0,      // Policy (SCHED_*)
+    schedFlags: u64 = 0,       // Flags
+    schedNice: u32 = 0,        // Nice value (SCHED_OTHER, SCHED_BATCH)
+    sched_priority: u32 = 0,   // Static priority (SCHED_FIFO, SCHED_RR)
+                               // Remaining fields are for SCHED_DEADLINE
+    sched_runtime: u64 = 0,
+    schedDeadline: u64 = 0,
+    schedPeriod: u64 = 0
+};
+
+pub fn sched_setattr(pid: pid_t, attr: *const sched_attr, flags: usize) usize {
+    return syscall3(.sched_setattr, @as(usize, @bitCast(@as(isize, pid))), @intFromPtr(attr), flags);
+}
+
+pub fn sched_getattr(pid: pid_t, attr: *sched_attr, size: usize, flags: usize) usize {
+    return syscall4(.sched_getattr, @as(usize, @bitCast(@as(isize, pid))), @intFromPtr(attr), size, flags);
+}
+
+pub fn sched_rr_get_interval(pid: pid_t, tp: *timespec) usize {
+    return syscall2(.sched_rr_get_interval, @as(usize, @bitCast(@as(isize, pid))), @intFromPtr(tp));
 }
 
 pub fn sched_yield() usize {
