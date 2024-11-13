@@ -656,10 +656,10 @@ const eqlBytes_allowed = switch (builtin.zig_backend) {
 
 /// Compares two slices and returns whether they are equal.
 pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
-    if (!@inComptime() and std.meta.hasUniqueRepresentation(T) and eqlBytes_allowed) return eqlBytes(sliceAsBytes(a), sliceAsBytes(b));
-
     if (a.len != b.len) return false;
-    if (@sizeOf(T) == 0 or a.ptr == b.ptr) return true;
+    if (@sizeOf(T) == 0 or a.len == 0 or a.ptr == b.ptr) return true;
+
+    if (!@inComptime() and std.meta.hasUniqueRepresentation(T) and eqlBytes_allowed) return eqlBytes(sliceAsBytes(a), sliceAsBytes(b));
 
     for (a, b) |a_elem, b_elem| {
         if (a_elem != b_elem) return false;
@@ -668,11 +668,13 @@ pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
 }
 
 /// std.mem.eql heavily optimized for slices of bytes.
+/// asserts that preliminary tests (`len` and `ptr` (in)equality, positive length)
+/// were already done.
 fn eqlBytes(a: []const u8, b: []const u8) bool {
     comptime assert(eqlBytes_allowed);
-
-    if (a.len != b.len) return false;
-    if (a.len == 0 or a.ptr == b.ptr) return true;
+    assert(a.len == b.len);
+    assert(a.ptr != b.ptr);
+    assert(a.len > 0);
 
     if (a.len <= 16) {
         if (a.len < 4) {
