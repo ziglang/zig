@@ -5625,6 +5625,10 @@ pub fn addCCArgs(
         },
     }
 
+    if (comp.mingw_unicode_entry_point) {
+        try argv.append("-municode");
+    }
+
     if (target.cpu.arch.isThumb()) {
         try argv.append("-mthumb");
     }
