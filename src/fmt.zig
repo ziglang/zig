@@ -1,10 +1,3 @@
-const std = @import("std");
-const mem = std.mem;
-const fs = std.fs;
-const process = std.process;
-const Allocator = std.mem.Allocator;
-const Color = std.zig.Color;
-
 const usage_fmt =
     \\Usage: zig fmt [file]...
     \\
@@ -36,14 +29,11 @@ const Fmt = struct {
     const SeenMap = std.AutoHashMap(fs.File.INode, void);
 };
 
-pub fn main() !void {
-    var arena_instance = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena_instance.deinit();
-    const arena = arena_instance.allocator();
-    const gpa = arena;
-
-    const args = try process.argsAlloc(arena);
-
+pub fn run(
+    gpa: Allocator,
+    arena: Allocator,
+    args: []const []const u8,
+) !void {
     var color: Color = .auto;
     var stdin_flag: bool = false;
     var check_flag: bool = false;
@@ -54,7 +44,7 @@ pub fn main() !void {
     defer excluded_files.deinit();
 
     {
-        var i: usize = 1;
+        var i: usize = 0;
         while (i < args.len) : (i += 1) {
             const arg = args[i];
             if (mem.startsWith(u8, arg, "-")) {
@@ -337,7 +327,10 @@ fn fmtPathFile(
     }
 }
 
-fn fatal(comptime format: []const u8, args: anytype) noreturn {
-    std.log.err(format, args);
-    process.exit(1);
-}
+const std = @import("std");
+const mem = std.mem;
+const fs = std.fs;
+const process = std.process;
+const Allocator = std.mem.Allocator;
+const Color = std.zig.Color;
+const fatal = std.process.fatal;
