@@ -2066,7 +2066,7 @@ pub fn fremovexattr(fd: usize, name: [*:0]const u8) usize {
 }
 
 pub const sched_param = extern struct {
-    sched_priority: i32,
+    priority: i32,
 };
 
 pub const SCHED = packed struct(i32) {
@@ -2126,15 +2126,15 @@ pub fn sched_getcpu() usize {
 }
 
 pub const sched_attr = extern struct {
-    size: u32 = 48,            // Size of this structure
-    schedPolicy: u32 = 0,      // Policy (SCHED_*)
-    schedFlags: u64 = 0,       // Flags
-    schedNice: u32 = 0,        // Nice value (SCHED_OTHER, SCHED_BATCH)
-    sched_priority: u32 = 0,   // Static priority (SCHED_FIFO, SCHED_RR)
-                               // Remaining fields are for SCHED_DEADLINE
-    sched_runtime: u64 = 0,
-    schedDeadline: u64 = 0,
-    schedPeriod: u64 = 0
+    size: u32 = 48,      // Size of this structure
+    policy: u32 = 0,     // Policy (SCHED_*)
+    flags: u64 = 0,      // Flags
+    nice: u32 = 0,       // Nice value (SCHED_OTHER, SCHED_BATCH)
+    priority: u32 = 0,   // Static priority (SCHED_FIFO, SCHED_RR)
+                         // Remaining fields are for SCHED_DEADLINE
+    runtime: u64 = 0,
+    deadline: u64 = 0,
+    period: u64 = 0
 };
 
 pub fn sched_setattr(pid: pid_t, attr: *const sched_attr, flags: usize) usize {
