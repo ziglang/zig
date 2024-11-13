@@ -24,6 +24,10 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
     var arena_allocator = std.heap.ArenaAllocator.init(comp.gpa);
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
+    const target = comp.getTarget();
+
+    // The old 32-bit x86 variant of SEH doesn't use tables.
+    const unwind_tables: std.builtin.UnwindTables = if (target.cpu.arch != .x86) .@"async" else .none;
 
     switch (crt_file) {
         .crt2_o => {
@@ -41,7 +45,9 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                     .owner = undefined,
                 },
             };
-            return comp.build_crt_file("crt2", .Obj, .@"mingw-w64 crt2.o", prog_node, &files, .{});
+            return comp.build_crt_file("crt2", .Obj, .@"mingw-w64 crt2.o", prog_node, &files, .{
+                .unwind_tables = unwind_tables,
+            });
         },
 
         .dllcrt2_o => {
@@ -56,7 +62,9 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                     .owner = undefined,
                 },
             };
-            return comp.build_crt_file("dllcrt2", .Obj, .@"mingw-w64 dllcrt2.o", prog_node, &files, .{});
+            return comp.build_crt_file("dllcrt2", .Obj, .@"mingw-w64 dllcrt2.o", prog_node, &files, .{
+                .unwind_tables = unwind_tables,
+            });
         },
 
         .mingw32_lib => {
@@ -73,7 +81,6 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                     .owner = undefined,
                 });
             }
-            const target = comp.getTarget();
             if (target.cpu.arch == .x86 or target.cpu.arch == .x86_64) {
                 for (mingw32_x86_src) |dep| {
                     try c_source_files.append(.{
@@ -118,7 +125,9 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
             } else {
                 @panic("unsupported arch");
             }
-            return comp.build_crt_file("mingw32", .Lib, .@"mingw-w64 mingw32.lib", prog_node, c_source_files.items, .{});
+            return comp.build_crt_file("mingw32", .Lib, .@"mingw-w64 mingw32.lib", prog_node, c_source_files.items, .{
+                .unwind_tables = unwind_tables,
+            });
         },
     }
 }

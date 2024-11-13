@@ -510,6 +510,7 @@ const usage_build_generic =
     \\  -ffuzz                    Enable fuzz testing instrumentation
     \\  -fno-fuzz                 Disable fuzz testing instrumentation
     \\  -funwind-tables           Always produce unwind table entries for all functions
+    \\  -fasync-unwind-tables     Always produce asynchronous unwind table entries for all functions
     \\  -fno-unwind-tables        Never produce unwind table entries
     \\  -ferror-tracing           Enable error tracing in ReleaseFast mode
     \\  -fno-error-tracing        Disable error tracing in Debug and ReleaseSafe mode
@@ -1385,9 +1386,11 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "-fno-lto")) {
                         create_module.opts.lto = false;
                     } else if (mem.eql(u8, arg, "-funwind-tables")) {
-                        mod_opts.unwind_tables = true;
+                        mod_opts.unwind_tables = .sync;
+                    } else if (mem.eql(u8, arg, "-fasync-unwind-tables")) {
+                        mod_opts.unwind_tables = .@"async";
                     } else if (mem.eql(u8, arg, "-fno-unwind-tables")) {
-                        mod_opts.unwind_tables = false;
+                        mod_opts.unwind_tables = .none;
                     } else if (mem.eql(u8, arg, "-fstack-check")) {
                         mod_opts.stack_check = true;
                     } else if (mem.eql(u8, arg, "-fno-stack-check")) {
@@ -1973,8 +1976,27 @@ fn buildOutputType(
                         }
                     },
                     .no_stack_protector => mod_opts.stack_protector = 0,
-                    .unwind_tables => mod_opts.unwind_tables = true,
-                    .no_unwind_tables => mod_opts.unwind_tables = false,
+                    // The way these unwind table options are processed in GCC and Clang is crazy
+                    // convoluted, and we also don't know the target triple here, so this is all
+                    // best-effort.
+                    .unwind_tables => if (mod_opts.unwind_tables) |uwt| switch (uwt) {
+                        .none => {
+                            mod_opts.unwind_tables = .sync;
+                        },
+                        .sync, .@"async" => {},
+                    } else {
+                        mod_opts.unwind_tables = .sync;
+                    },
+                    .no_unwind_tables => mod_opts.unwind_tables = .none,
+                    .asynchronous_unwind_tables => mod_opts.unwind_tables = .@"async",
+                    .no_asynchronous_unwind_tables => if (mod_opts.unwind_tables) |uwt| switch (uwt) {
+                        .none, .sync => {},
+                        .@"async" => {
+                            mod_opts.unwind_tables = .sync;
+                        },
+                    } else {
+                        mod_opts.unwind_tables = .sync;
+                    },
                     .nostdlib => {
                         create_module.opts.ensure_libc_on_non_freestanding = false;
                         create_module.opts.ensure_libcpp_on_non_freestanding = false;
@@ -2788,8 +2810,15 @@ fn buildOutputType(
             create_module.opts.any_sanitize_thread = true;
         if (mod_opts.fuzz == true)
             create_module.opts.any_fuzz = true;
-        if (mod_opts.unwind_tables == true)
-            create_module.opts.any_unwind_tables = true;
+        if (mod_opts.unwind_tables) |uwt| switch (uwt) {
+            .none => {},
+            .sync => if (create_module.opts.any_unwind_tables == .none) {
+                create_module.opts.any_unwind_tables = .sync;
+            },
+            .@"async" => {
+                create_module.opts.any_unwind_tables = .@"async";
+            },
+        };
         if (mod_opts.strip == false)
             create_module.opts.any_non_stripped = true;
         if (mod_opts.error_tracing == true)
@@ -5713,6 +5742,8 @@ pub const ClangArgIterator = struct {
         no_lto,
         unwind_tables,
         no_unwind_tables,
+        asynchronous_unwind_tables,
+        no_asynchronous_unwind_tables,
         nostdlib,
         nostdlib_cpp,
         shared,
@@ -7435,8 +7466,15 @@ fn handleModArg(
         create_module.opts.any_sanitize_thread = true;
     if (mod_opts.fuzz == true)
         create_module.opts.any_fuzz = true;
-    if (mod_opts.unwind_tables == true)
-        create_module.opts.any_unwind_tables = true;
+    if (mod_opts.unwind_tables) |uwt| switch (uwt) {
+        .none => {},
+        .sync => if (create_module.opts.any_unwind_tables == .none) {
+            create_module.opts.any_unwind_tables = .sync;
+        },
+        .@"async" => {
+            create_module.opts.any_unwind_tables = .@"async";
+        },
+    };
     if (mod_opts.strip == false)
         create_module.opts.any_non_stripped = true;
     if (mod_opts.error_tracing == true)
