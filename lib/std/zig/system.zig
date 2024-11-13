@@ -91,16 +91,16 @@ pub fn getExternalExecutor(
             .mips => Executor{ .qemu = "qemu-mips" },
             .mipsel => Executor{ .qemu = "qemu-mipsel" },
             .mips64 => Executor{
-                .qemu = if (candidate.abi == .gnuabin32)
-                    "qemu-mipsn32"
-                else
-                    "qemu-mips64",
+                .qemu = switch (candidate.abi) {
+                    .gnuabin32, .muslabin32 => "qemu-mipsn32",
+                    else => "qemu-mips64",
+                },
             },
             .mips64el => Executor{
-                .qemu = if (candidate.abi == .gnuabin32)
-                    "qemu-mipsn32el"
-                else
-                    "qemu-mips64el",
+                .qemu = switch (candidate.abi) {
+                    .gnuabin32, .muslabin32 => "qemu-mipsn32el",
+                    else => "qemu-mips64el",
+                },
             },
             .powerpc => Executor{ .qemu = "qemu-ppc" },
             .powerpc64 => Executor{ .qemu = "qemu-ppc64" },
@@ -331,6 +331,10 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
         os.version_range.linux.glibc = glibc;
     }
 
+    if (query.android_api_level) |android| {
+        os.version_range.linux.android = android;
+    }
+
     // Until https://github.com/ziglang/zig/issues/4592 is implemented (support detecting the
     // native CPU architecture as being different than the current target), we use this:
     const cpu_arch = query.cpu_arch orelse builtin.cpu.arch;
@@ -397,7 +401,7 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
     }
 
     // https://github.com/llvm/llvm-project/issues/105978
-    if (result.cpu.arch.isArmOrThumb() and result.floatAbi() == .soft) {
+    if (result.cpu.arch.isArm() and result.floatAbi() == .soft) {
         result.cpu.features.removeFeature(@intFromEnum(Target.arm.Feature.vfp2));
     }
 
@@ -963,14 +967,15 @@ fn detectAbiAndDynamicLinker(
     os: Target.Os,
     query: Target.Query,
 ) DetectError!Target {
-    const native_target_has_ld = comptime builtin.target.hasDynamicLinker();
+    const native_target_has_ld = comptime Target.DynamicLinker.kind(builtin.os.tag) != .none;
     const is_linux = builtin.target.os.tag == .linux;
     const is_solarish = builtin.target.os.tag.isSolarish();
+    const is_darwin = builtin.target.os.tag.isDarwin();
     const have_all_info = query.dynamic_linker.get() != null and
         query.abi != null and (!is_linux or query.abi.?.isGnu());
     const os_is_non_native = query.os_tag != null;
     // The Solaris/illumos environment is always the same.
-    if (!native_target_has_ld or have_all_info or os_is_non_native or is_solarish) {
+    if (!native_target_has_ld or have_all_info or os_is_non_native or is_solarish or is_darwin) {
         return defaultAbiAndDynamicLinker(cpu, os, query);
     }
     if (query.abi) |abi| {
@@ -995,26 +1000,33 @@ fn detectAbiAndDynamicLinker(
     };
     var ld_info_list_buffer: [all_abis.len]LdInfo = undefined;
     var ld_info_list_len: usize = 0;
-    const ofmt = query.ofmt orelse Target.ObjectFormat.default(os.tag, cpu.arch);
 
-    for (all_abis) |abi| {
-        // This may be a nonsensical parameter. We detect this with
-        // error.UnknownDynamicLinkerPath and skip adding it to `ld_info_list`.
-        const target: Target = .{
-            .cpu = cpu,
-            .os = os,
-            .abi = abi,
-            .ofmt = ofmt,
-        };
-        const ld = target.standardDynamicLinkerPath();
-        if (ld.get() == null) continue;
+    switch (Target.DynamicLinker.kind(os.tag)) {
+        // The OS has no dynamic linker. Leave the list empty and rely on `Abi.default()` to pick
+        // something sensible in `abiAndDynamicLinkerFromFile()`.
+        .none => {},
+        // The OS has a system-wide dynamic linker. Unfortunately, this implies that there's no
+        // useful ABI information that we can glean from it merely being present. That means the
+        // best we can do for this case (for now) is also `Abi.default()`.
+        .arch_os => {},
+        // The OS can have different dynamic linker paths depending on libc/ABI. In this case, we
+        // need to gather all the valid arch/OS/ABI combinations. `abiAndDynamicLinkerFromFile()`
+        // will then look for a dynamic linker with a matching path on the system and pick the ABI
+        // we associated it with here.
+        .arch_os_abi => for (all_abis) |abi| {
+            const ld = Target.DynamicLinker.standard(cpu, os, abi);
 
-        ld_info_list_buffer[ld_info_list_len] = .{
-            .ld = ld,
-            .abi = abi,
-        };
-        ld_info_list_len += 1;
+            // Does the generated target triple actually have a standard dynamic linker path?
+            if (ld.get() == null) continue;
+
+            ld_info_list_buffer[ld_info_list_len] = .{
+                .ld = ld,
+                .abi = abi,
+            };
+            ld_info_list_len += 1;
+        },
     }
+
     const ld_info_list = ld_info_list_buffer[0..ld_info_list_len];
 
     // Best case scenario: the executable is dynamically linked, and we can iterate

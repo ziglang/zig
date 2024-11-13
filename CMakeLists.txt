@@ -376,7 +376,7 @@ set(ZIG_STAGE2_SOURCES
     lib/std/Target.zig
     lib/std/Target/Query.zig
     lib/std/Target/aarch64.zig
-    lib/std/Target/amdgpu.zig
+    lib/std/Target/amdgcn.zig
     lib/std/Target/arm.zig
     lib/std/Target/avr.zig
     lib/std/Target/bpf.zig
@@ -648,12 +648,9 @@ set(ZIG_STAGE2_SOURCES
     src/link/StringTable.zig
     src/link/Wasm.zig
     src/link/Wasm/Archive.zig
-    src/link/Wasm/Atom.zig
     src/link/Wasm/Object.zig
     src/link/Wasm/Symbol.zig
     src/link/Wasm/ZigObject.zig
-    src/link/Wasm/file.zig
-    src/link/Wasm/types.zig
     src/link/aarch64.zig
     src/link/riscv.zig
     src/link/table_section.zig

@@ -390,7 +390,7 @@ const llvm_targets = [_]LlvmTarget{
         },
     },
     .{
-        .zig_name = "amdgpu",
+        .zig_name = "amdgcn",
         .llvm_name = "AMDGPU",
         .td_name = "AMDGPU.td",
         .feature_overrides = &.{
@@ -699,11 +699,11 @@ const llvm_targets = [_]LlvmTarget{
             },
             .{
                 .llvm_name = "armv7k",
-                .zig_name = "v7k",
+                .omit = true,
             },
             .{
                 .llvm_name = "armv7s",
-                .zig_name = "v7s",
+                .omit = true,
             },
             .{
                 .llvm_name = "armv7ve",

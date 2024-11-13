@@ -72,6 +72,5 @@ pub export fn entry6() void {
 // :18:14: error: missing tuple field with index 1
 // :25:14: error: missing tuple field with index 1
 // :43:14: error: expected at most 2 tuple fields; found 3
-// :50:30: error: index '2' out of bounds of tuple 'struct{comptime comptime_int = 123, u32}'
+// :50:30: error: index '2' out of bounds of tuple 'struct { comptime comptime_int = 123, u32 }'
 // :63:37: error: missing tuple field with index 3
-// :58:32: note: struct declared here

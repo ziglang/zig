@@ -122,27 +122,30 @@ pub const SECCOMP = @import("linux/seccomp.zig");
 
 pub const syscalls = @import("linux/syscalls.zig");
 pub const SYS = switch (@import("builtin").cpu.arch) {
-    .x86 => syscalls.X86,
-    .x86_64 => syscalls.X64,
-    .aarch64, .aarch64_be => syscalls.Arm64,
     .arc => syscalls.Arc,
     .arm, .armeb, .thumb, .thumbeb => syscalls.Arm,
+    .aarch64, .aarch64_be => syscalls.Arm64,
     .csky => syscalls.CSky,
     .hexagon => syscalls.Hexagon,
-    .riscv32 => syscalls.RiscV32,
-    .riscv64 => syscalls.RiscV64,
-    .sparc => syscalls.Sparc,
-    .sparc64 => syscalls.Sparc64,
     .loongarch64 => syscalls.LoongArch64,
     .m68k => syscalls.M68k,
     .mips, .mipsel => syscalls.MipsO32,
-    .mips64, .mips64el => if (builtin.abi == .gnuabin32)
-        syscalls.MipsN32
-    else
-        syscalls.MipsN64,
+    .mips64, .mips64el => switch (builtin.abi) {
+        .gnuabin32, .muslabin32 => syscalls.MipsN32,
+        else => syscalls.MipsN64,
+    },
+    .riscv32 => syscalls.RiscV32,
+    .riscv64 => syscalls.RiscV64,
+    .s390x => syscalls.S390x,
+    .sparc => syscalls.Sparc,
+    .sparc64 => syscalls.Sparc64,
     .powerpc, .powerpcle => syscalls.PowerPC,
     .powerpc64, .powerpc64le => syscalls.PowerPC64,
-    .s390x => syscalls.S390x,
+    .x86 => syscalls.X86,
+    .x86_64 => switch (builtin.abi) {
+        .gnux32, .muslx32 => syscalls.X32,
+        else => syscalls.X64,
+    },
     .xtensa => syscalls.Xtensa,
     else => @compileError("The Zig Standard Library is missing syscall definitions for the target CPU architecture"),
 };
@@ -506,7 +509,7 @@ fn getauxvalImpl(index: usize) callconv(.C) usize {
 const require_aligned_register_pair =
     builtin.cpu.arch.isPowerPC32() or
     builtin.cpu.arch.isMIPS32() or
-    builtin.cpu.arch.isArmOrThumb();
+    builtin.cpu.arch.isArm();
 
 // Split a 64bit value into a {LSB,MSB} pair.
 // The LE/BE variants specify the endianness to assume.
@@ -2331,7 +2334,7 @@ pub fn process_vm_writev(pid: pid_t, local: []const iovec_const, remote: []const
 }
 
 pub fn fadvise(fd: fd_t, offset: i64, len: i64, advice: usize) usize {
-    if (comptime native_arch.isArmOrThumb() or native_arch.isPowerPC32()) {
+    if (comptime native_arch.isArm() or native_arch.isPowerPC32()) {
         // These architectures reorder the arguments so that a register is not skipped to align the
         // register number that `offset` is passed in.
 
@@ -7118,6 +7121,19 @@ pub const SIOCPROTOPRIVATE = 0x89E0;
 
 pub const IFNAMESIZE = 16;
 
+pub const IFF = packed struct(u16) {
+    UP: bool = false,
+    BROADCAST: bool = false,
+    DEBUG: bool = false,
+    LOOPBACK: bool = false,
+    POINTOPOINT: bool = false,
+    NOTRAILERS: bool = false,
+    RUNNING: bool = false,
+    NOARP: bool = false,
+    PROMISC: bool = false,
+    _9: u7 = 0,
+};
+
 pub const ifmap = extern struct {
     mem_start: usize,
     mem_end: usize,
@@ -7137,7 +7153,7 @@ pub const ifreq = extern struct {
         broadaddr: sockaddr,
         netmask: sockaddr,
         hwaddr: sockaddr,
-        flags: i16,
+        flags: IFF,
         ivalue: i32,
         mtu: i32,
         map: ifmap,
@@ -8657,11 +8673,11 @@ pub const AUDIT = struct {
             .mips => .MIPS,
             .mipsel => .MIPSEL,
             .mips64 => switch (native_abi) {
-                .gnuabin32 => .MIPS64N32,
+                .gnuabin32, .muslabin32 => .MIPS64N32,
                 else => .MIPS64,
             },
             .mips64el => switch (native_abi) {
-                .gnuabin32 => .MIPSEL64N32,
+                .gnuabin32, .muslabin32 => .MIPSEL64N32,
                 else => .MIPSEL64,
             },
             .powerpc => .PPC,

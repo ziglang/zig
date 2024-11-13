@@ -1932,6 +1932,7 @@ pub const AddrSpace = enum(u24) {
         pub const constant_32bit: AddrSpace = @enumFromInt(6);
         pub const buffer_fat_pointer: AddrSpace = @enumFromInt(7);
         pub const buffer_resource: AddrSpace = @enumFromInt(8);
+        pub const buffer_strided_pointer: AddrSpace = @enumFromInt(9);
         pub const param_d: AddrSpace = @enumFromInt(6);
         pub const param_i: AddrSpace = @enumFromInt(7);
         pub const constant_buffer_0: AddrSpace = @enumFromInt(8);
@@ -1950,10 +1951,23 @@ pub const AddrSpace = enum(u24) {
         pub const constant_buffer_13: AddrSpace = @enumFromInt(21);
         pub const constant_buffer_14: AddrSpace = @enumFromInt(22);
         pub const constant_buffer_15: AddrSpace = @enumFromInt(23);
+        pub const streamout_register: AddrSpace = @enumFromInt(128);
+    };
+
+    pub const spirv = struct {
+        pub const function: AddrSpace = @enumFromInt(0);
+        pub const cross_workgroup: AddrSpace = @enumFromInt(1);
+        pub const uniform_constant: AddrSpace = @enumFromInt(2);
+        pub const workgroup: AddrSpace = @enumFromInt(3);
+        pub const generic: AddrSpace = @enumFromInt(4);
+        pub const device_only_intel: AddrSpace = @enumFromInt(5);
+        pub const host_only_intel: AddrSpace = @enumFromInt(6);
+        pub const input: AddrSpace = @enumFromInt(7);
     };
 
     // See llvm/include/llvm/CodeGen/WasmAddressSpaces.h
     pub const wasm = struct {
+        pub const default: AddrSpace = @enumFromInt(0);
         pub const variable: AddrSpace = @enumFromInt(1);
         pub const externref: AddrSpace = @enumFromInt(10);
         pub const funcref: AddrSpace = @enumFromInt(20);
@@ -9817,9 +9831,9 @@ pub fn printUnbuffered(
                         });
                         switch (extra.weights) {
                             .none => {},
-                            .unpredictable => try writer.writeAll(", !unpredictable !{}"),
+                            .unpredictable => try writer.writeAll("!unpredictable !{}"),
                             _ => try writer.print("{}", .{
-                                try metadata_formatter.fmt(", !prof ", @as(Metadata, @enumFromInt(@intFromEnum(extra.weights)))),
+                                try metadata_formatter.fmt("!prof ", @as(Metadata, @enumFromInt(@intFromEnum(extra.weights)))),
                             }),
                         }
                     },
@@ -10098,9 +10112,9 @@ pub fn printUnbuffered(
                         try writer.writeAll("  ]");
                         switch (extra.data.weights) {
                             .none => {},
-                            .unpredictable => try writer.writeAll(", !unpredictable !{}"),
+                            .unpredictable => try writer.writeAll("!unpredictable !{}"),
                             _ => try writer.print("{}", .{
-                                try metadata_formatter.fmt(", !prof ", @as(Metadata, @enumFromInt(@intFromEnum(extra.data.weights)))),
+                                try metadata_formatter.fmt("!prof ", @as(Metadata, @enumFromInt(@intFromEnum(extra.data.weights)))),
                             }),
                         }
                     },

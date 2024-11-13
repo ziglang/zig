@@ -419,7 +419,7 @@ test "packed struct 24bits" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.cpu.arch == .wasm32) return error.SkipZigTest; // TODO
-    if (comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest; // TODO
+    if (comptime builtin.cpu.arch.isArm()) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
@@ -818,7 +818,7 @@ test "non-packed struct with u128 entry in union" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c and comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c and comptime builtin.cpu.arch.isArm()) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const U = union(enum) {
@@ -941,7 +941,7 @@ test "tuple assigned to variable" {
 
 test "comptime struct field" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest; // TODO
+    if (comptime builtin.cpu.arch.isArm()) return error.SkipZigTest; // TODO
 
     const T = struct {
         a: i32,
@@ -1011,84 +1011,6 @@ test "struct with 0-length union array field" {
     var s: S = undefined;
     _ = &s;
     try expectEqual(@as(usize, 0), s.zero_length.len);
-}
-
-test "type coercion of anon struct literal to struct" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
-    const S = struct {
-        const S2 = struct {
-            A: u32,
-            B: []const u8,
-            C: void,
-            D: Foo = .{},
-        };
-
-        const Foo = struct {
-            field: i32 = 1234,
-        };
-
-        fn doTheTest() !void {
-            var y: u32 = 42;
-            _ = &y;
-            const t0 = .{ .A = 123, .B = "foo", .C = {} };
-            const t1 = .{ .A = y, .B = "foo", .C = {} };
-            const y0: S2 = t0;
-            const y1: S2 = t1;
-            try expect(y0.A == 123);
-            try expect(std.mem.eql(u8, y0.B, "foo"));
-            try expect(y0.C == {});
-            try expect(y0.D.field == 1234);
-            try expect(y1.A == y);
-            try expect(std.mem.eql(u8, y1.B, "foo"));
-            try expect(y1.C == {});
-            try expect(y1.D.field == 1234);
-        }
-    };
-    try S.doTheTest();
-    try comptime S.doTheTest();
-}
-
-test "type coercion of pointer to anon struct literal to pointer to struct" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
-    const S = struct {
-        const S2 = struct {
-            A: u32,
-            B: []const u8,
-            C: void,
-            D: Foo = .{},
-        };
-
-        const Foo = struct {
-            field: i32 = 1234,
-        };
-
-        fn doTheTest() !void {
-            var y: u32 = 42;
-            _ = &y;
-            const t0 = &.{ .A = 123, .B = "foo", .C = {} };
-            const t1 = &.{ .A = y, .B = "foo", .C = {} };
-            const y0: *const S2 = t0;
-            const y1: *const S2 = t1;
-            try expect(y0.A == 123);
-            try expect(std.mem.eql(u8, y0.B, "foo"));
-            try expect(y0.C == {});
-            try expect(y0.D.field == 1234);
-            try expect(y1.A == y);
-            try expect(std.mem.eql(u8, y1.B, "foo"));
-            try expect(y1.C == {});
-            try expect(y1.D.field == 1234);
-        }
-    };
-    try S.doTheTest();
-    try comptime S.doTheTest();
 }
 
 test "packed struct with undefined initializers" {
@@ -2182,4 +2104,21 @@ test "extern struct @FieldType" {
     comptime assert(@FieldType(S, "a") == u32);
     comptime assert(@FieldType(S, "b") == f64);
     comptime assert(@FieldType(S, "c") == *S);
+}
+
+test "anonymous struct equivalence" {
+    const S = struct {
+        fn anonStructType(comptime x: anytype) type {
+            const val = .{ .a = "hello", .b = x };
+            return @TypeOf(val);
+        }
+    };
+
+    const A = S.anonStructType(123);
+    const B = S.anonStructType(123);
+    const C = S.anonStructType(456);
+
+    comptime assert(A == B);
+    comptime assert(A != C);
+    comptime assert(B != C);
 }

@@ -74,7 +74,7 @@ pub fn print(
         .error_union_type,
         .simple_type,
         .struct_type,
-        .anon_struct_type,
+        .tuple_type,
         .union_type,
         .opaque_type,
         .enum_type,
@@ -85,7 +85,7 @@ pub fn print(
         .undef => try writer.writeAll("undefined"),
         .simple_value => |simple_value| switch (simple_value) {
             .void => try writer.writeAll("{}"),
-            .empty_struct => try writer.writeAll(".{}"),
+            .empty_tuple => try writer.writeAll(".{}"),
             .generic_poison => try writer.writeAll("(generic poison)"),
             else => try writer.writeAll(@tagName(simple_value)),
         },

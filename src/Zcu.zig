@@ -1497,6 +1497,20 @@ pub const SrcLoc = struct {
                     }
                 } else unreachable;
             },
+            .tuple_field_type, .tuple_field_init => |field_info| {
+                const tree = try src_loc.file_scope.getTree(gpa);
+                const node = src_loc.relativeToNodeIndex(0);
+                var buf: [2]Ast.Node.Index = undefined;
+                const container_decl = tree.fullContainerDecl(&buf, node) orelse
+                    return tree.nodeToSpan(node);
+
+                const field = tree.fullContainerField(container_decl.ast.members[field_info.elem_index]).?;
+                return tree.nodeToSpan(switch (src_loc.lazy) {
+                    .tuple_field_type => field.ast.type_expr,
+                    .tuple_field_init => field.ast.value_expr,
+                    else => unreachable,
+                });
+            },
             .init_elem => |init_elem| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const init_node = src_loc.relativeToNodeIndex(init_elem.init_node_offset);
@@ -1939,6 +1953,12 @@ pub const LazySrcLoc = struct {
         container_field_type: u32,
         /// Like `continer_field_name`, but points at the field's alignment.
         container_field_align: u32,
+        /// The source location points to the type of the field at the given index
+        /// of the tuple type declaration at `tuple_decl_node_offset`.
+        tuple_field_type: TupleField,
+        /// The source location points to the default init of the field at the given index
+        /// of the tuple type declaration at `tuple_decl_node_offset`.
+        tuple_field_init: TupleField,
         /// The source location points to the given element/field of a struct or
         /// array initialization expression.
         init_elem: struct {
@@ -2016,10 +2036,17 @@ pub const LazySrcLoc = struct {
             index: u31,
         };
 
-        const ArrayCat = struct {
+        pub const ArrayCat = struct {
             /// Points to the array concat AST node.
             array_cat_offset: i32,
             /// The index of the element the source location points to.
+            elem_index: u32,
+        };
+
+        pub const TupleField = struct {
+            /// Points to the AST node of the tuple type decaration.
+            tuple_decl_node_offset: i32,
+            /// The index of the tuple field the source location points to.
             elem_index: u32,
         };
 
@@ -2052,6 +2079,8 @@ pub const LazySrcLoc = struct {
 
     /// Returns `null` if the ZIR instruction has been lost across incremental updates.
     pub fn resolveBaseNode(base_node_inst: InternPool.TrackedInst.Index, zcu: *Zcu) ?struct { *File, Ast.Node.Index } {
+        comptime assert(Zir.inst_tracking_version == 0);
+
         const ip = &zcu.intern_pool;
         const file_index, const zir_inst = inst: {
             const info = base_node_inst.resolveFull(ip) orelse return null;
@@ -2064,6 +2093,8 @@ pub const LazySrcLoc = struct {
         const inst = zir.instructions.get(@intFromEnum(zir_inst));
         const base_node: Ast.Node.Index = switch (inst.tag) {
             .declaration => inst.data.declaration.src_node,
+            .struct_init, .struct_init_ref => zir.extraData(Zir.Inst.StructInit, inst.data.pl_node.payload_index).data.abs_node,
+            .struct_init_anon => zir.extraData(Zir.Inst.StructInitAnon, inst.data.pl_node.payload_index).data.abs_node,
             .extended => switch (inst.data.extended.opcode) {
                 .struct_decl => zir.extraData(Zir.Inst.StructDecl, inst.data.extended.operand).data.src_node,
                 .union_decl => zir.extraData(Zir.Inst.UnionDecl, inst.data.extended.operand).data.src_node,
@@ -3215,7 +3246,7 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
 
             // If this type has a `Cau` for resolution, it's automatically referenced.
             const resolution_cau: InternPool.Cau.Index.Optional = switch (ip.indexToKey(ty)) {
-                .struct_type => ip.loadStructType(ty).cau,
+                .struct_type => ip.loadStructType(ty).cau.toOptional(),
                 .union_type => ip.loadUnionType(ty).cau.toOptional(),
                 .enum_type => ip.loadEnumType(ty).cau,
                 .opaque_type => .none,
@@ -3576,24 +3607,47 @@ pub fn callconvSupported(zcu: *Zcu, cc: std.builtin.CallingConvention) union(enu
                 .x86_64_vectorcall,
                 .x86_64_regcall_v3_sysv,
                 .x86_64_regcall_v4_win,
+                .x86_64_interrupt,
                 .x86_fastcall,
                 .x86_thiscall,
                 .x86_vectorcall,
                 .x86_regcall_v3,
                 .x86_regcall_v4_win,
+                .x86_interrupt,
                 .aarch64_vfabi,
                 .aarch64_vfabi_sve,
                 .arm_aapcs,
-                .arm_aapcs_vfp,
+                .csky_interrupt,
                 .riscv64_lp64_v,
                 .riscv32_ilp32_v,
                 .m68k_rtd,
+                .m68k_interrupt,
+                => |opts| opts.incoming_stack_alignment == null,
+
+                .arm_aapcs_vfp,
+                => |opts| opts.incoming_stack_alignment == null and target.os.tag != .watchos,
+                .arm_aapcs16_vfp,
+                => |opts| opts.incoming_stack_alignment == null and target.os.tag == .watchos,
+
+                .arm_interrupt,
+                => |opts| opts.incoming_stack_alignment == null,
+
+                .mips_interrupt,
+                .mips64_interrupt,
+                => |opts| opts.incoming_stack_alignment == null,
+
+                .riscv32_interrupt,
+                .riscv64_interrupt,
                 => |opts| opts.incoming_stack_alignment == null,
 
                 .x86_sysv,
                 .x86_win,
                 .x86_stdcall,
                 => |opts| opts.incoming_stack_alignment == null and opts.register_params == 0,
+
+                .avr_interrupt,
+                .avr_signal,
+                => true,
 
                 .naked => true,
 

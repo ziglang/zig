@@ -660,6 +660,17 @@ pub fn parseTargetQueryOrReportFatalError(
             }
             fatal("unknown object format: '{s}'", .{opts.object_format.?});
         },
+        error.UnknownArchitecture => {
+            help: {
+                var help_text = std.ArrayList(u8).init(allocator);
+                defer help_text.deinit();
+                inline for (@typeInfo(std.Target.Cpu.Arch).@"enum".fields) |field| {
+                    help_text.writer().print(" {s}\n", .{field.name}) catch break :help;
+                }
+                std.log.info("available architectures:\n{s} native\n", .{help_text.items});
+            }
+            fatal("unknown architecture: '{s}'", .{diags.unknown_architecture_name.?});
+        },
         else => |e| fatal("unable to parse target query '{s}': {s}", .{
             opts.arch_os_abi, @errorName(e),
         }),

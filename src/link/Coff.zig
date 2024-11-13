@@ -1832,6 +1832,10 @@ fn linkWithLLD(coff: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
         const linker_command = "lld-link";
         try argv.appendSlice(&[_][]const u8{ comp.self_exe_path.?, linker_command });
 
+        if (target.isMinGW()) {
+            try argv.append("-lldmingw");
+        }
+
         try argv.append("-ERRORLIMIT:0");
         try argv.append("-NOLOGO");
         if (comp.config.debug_format != .strip) {
@@ -1865,12 +1869,10 @@ fn linkWithLLD(coff: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
             try argv.append("-MACHINE:X86");
         } else if (target.cpu.arch == .x86_64) {
             try argv.append("-MACHINE:X64");
-        } else if (target.cpu.arch.isARM()) {
-            if (target.ptrBitWidth() == 32) {
-                try argv.append("-MACHINE:ARM");
-            } else {
-                try argv.append("-MACHINE:ARM64");
-            }
+        } else if (target.cpu.arch == .thumb) {
+            try argv.append("-MACHINE:ARM");
+        } else if (target.cpu.arch == .aarch64) {
+            try argv.append("-MACHINE:ARM64");
         }
 
         for (comp.force_undefined_symbols.keys()) |symbol| {
@@ -2055,8 +2057,6 @@ fn linkWithLLD(coff: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
             .win32 => {
                 if (link_in_crt) {
                     if (target.abi.isGnu()) {
-                        try argv.append("-lldmingw");
-
                         if (target.cpu.arch == .x86) {
                             try argv.append("-ALTERNATENAME:__image_base__=___ImageBase");
                         } else {

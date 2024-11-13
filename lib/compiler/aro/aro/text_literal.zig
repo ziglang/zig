@@ -188,7 +188,7 @@ pub const Parser = struct {
     pub fn err(self: *Parser, tag: Diagnostics.Tag, extra: Diagnostics.Message.Extra) void {
         if (self.errored) return;
         self.errored = true;
-        const diagnostic = .{ .tag = tag, .extra = extra };
+        const diagnostic: CharDiagnostic = .{ .tag = tag, .extra = extra };
         if (self.errors_len == self.errors_buffer.len) {
             self.errors_buffer[self.errors_buffer.len - 1] = diagnostic;
         } else {

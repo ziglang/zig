@@ -386,7 +386,7 @@ pub const Parser = struct {
         const original_i = self.iter.i;
         defer self.iter.i = original_i;
 
-        var i = 0;
+        var i: usize = 0;
         var code_point: ?u21 = null;
         while (i <= n) : (i += 1) {
             code_point = self.iter.nextCodepoint();

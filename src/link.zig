@@ -1085,7 +1085,7 @@ pub const File = struct {
         const use_lld = build_options.have_llvm and base.comp.config.use_lld;
         if (use_lld) return;
         switch (base.tag) {
-            inline .elf => |tag| {
+            inline .elf, .wasm => |tag| {
                 dev.check(tag.devFeature());
                 return @as(*tag.Type(), @fieldParentPtr("base", base)).loadInput(input);
             },
@@ -1209,8 +1209,16 @@ pub const File = struct {
         const llvm = @import("codegen/llvm.zig");
         const target = comp.root_mod.resolved_target.result;
         llvm.initializeLLVMTarget(target.cpu.arch);
-        const os_tag = llvm.targetOs(target.os.tag);
-        const bad = llvm_bindings.WriteArchive(full_out_path_z, object_files.items.ptr, object_files.items.len, os_tag);
+        const bad = llvm_bindings.WriteArchive(
+            full_out_path_z,
+            object_files.items.ptr,
+            object_files.items.len,
+            switch (target.os.tag) {
+                .aix => .AIXBIG,
+                .windows => .COFF,
+                else => if (target.os.tag.isDarwin()) .DARWIN else .GNU,
+            },
+        );
         if (bad) return error.UnableToWriteArchive;
 
         if (!base.disable_lld_caching) {

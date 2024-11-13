@@ -453,7 +453,7 @@ fn emitReloc(elf_file: *Elf, r_offset: u64, sym: *const Symbol, rel: elf.Elf64_R
     };
 }
 
-pub fn writeEhFrameRelocs(elf_file: *Elf, writer: anytype) !void {
+pub fn writeEhFrameRelocs(elf_file: *Elf, relocs: *std.ArrayList(elf.Elf64_Rela)) !void {
     relocs_log.debug("{x}: .eh_frame", .{
         elf_file.sections.items(.shdr)[elf_file.section_indexes.eh_frame.?].sh_addr,
     });
@@ -466,8 +466,7 @@ pub fn writeEhFrameRelocs(elf_file: *Elf, writer: anytype) !void {
         for (atom_ptr.relocs(elf_file)) |rel| {
             const ref = zo.resolveSymbol(rel.r_sym(), elf_file);
             const target = elf_file.symbol(ref).?;
-            const out_rel = emitReloc(elf_file, rel.r_offset, target, rel);
-            try writer.writeStruct(out_rel);
+            try relocs.append(emitReloc(elf_file, rel.r_offset, target, rel));
         }
     }
 
@@ -480,8 +479,7 @@ pub fn writeEhFrameRelocs(elf_file: *Elf, writer: anytype) !void {
                 const ref = object.resolveSymbol(rel.r_sym(), elf_file);
                 const sym = elf_file.symbol(ref).?;
                 const r_offset = cie.address(elf_file) + rel.r_offset - cie.offset;
-                const out_rel = emitReloc(elf_file, r_offset, sym, rel);
-                try writer.writeStruct(out_rel);
+                try relocs.append(emitReloc(elf_file, r_offset, sym, rel));
             }
         }
 
@@ -491,8 +489,7 @@ pub fn writeEhFrameRelocs(elf_file: *Elf, writer: anytype) !void {
                 const ref = object.resolveSymbol(rel.r_sym(), elf_file);
                 const sym = elf_file.symbol(ref).?;
                 const r_offset = fde.address(elf_file) + rel.r_offset - fde.offset;
-                const out_rel = emitReloc(elf_file, r_offset, sym, rel);
-                try writer.writeStruct(out_rel);
+                try relocs.append(emitReloc(elf_file, r_offset, sym, rel));
             }
         }
     }

@@ -1532,18 +1532,18 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
     ,
         &.{
             \\(lldb) frame variable --show-types -- list0 list0.len list0.capacity list0[0] list0[1] list0[2] list0.0 list0.1 list0.2
-            \\(std.multi_array_list.MultiArrayList(main.Elem0)) list0 = len=3 capacity=8 {
-            \\  (root.main.Elem0) [0] = {
+            \\(std.multi_array_list.MultiArrayList(struct { u32, u8, u16 })) list0 = len=3 capacity=8 {
+            \\  (std.struct { u32, u8, u16 }) [0] = {
             \\    (u32) .@"0" = 1
             \\    (u8) .@"1" = 2
             \\    (u16) .@"2" = 3
             \\  }
-            \\  (root.main.Elem0) [1] = {
+            \\  (std.struct { u32, u8, u16 }) [1] = {
             \\    (u32) .@"0" = 4
             \\    (u8) .@"1" = 5
             \\    (u16) .@"2" = 6
             \\  }
-            \\  (root.main.Elem0) [2] = {
+            \\  (std.struct { u32, u8, u16 }) [2] = {
             \\    (u32) .@"0" = 7
             \\    (u8) .@"1" = 8
             \\    (u16) .@"2" = 9
@@ -1551,17 +1551,17 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
             \\}
             \\(usize) list0.len = 3
             \\(usize) list0.capacity = 8
-            \\(root.main.Elem0) list0[0] = {
+            \\(std.struct { u32, u8, u16 }) list0[0] = {
             \\  (u32) .@"0" = 1
             \\  (u8) .@"1" = 2
             \\  (u16) .@"2" = 3
             \\}
-            \\(root.main.Elem0) list0[1] = {
+            \\(std.struct { u32, u8, u16 }) list0[1] = {
             \\  (u32) .@"0" = 4
             \\  (u8) .@"1" = 5
             \\  (u16) .@"2" = 6
             \\}
-            \\(root.main.Elem0) list0[2] = {
+            \\(std.struct { u32, u8, u16 }) list0[2] = {
             \\  (u32) .@"0" = 7
             \\  (u8) .@"1" = 8
             \\  (u16) .@"2" = 9
@@ -1582,18 +1582,18 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
             \\  (u16) [2] = 9
             \\}
             \\(lldb) frame variable --show-types -- slice0 slice0.len slice0.capacity slice0[0] slice0[1] slice0[2] slice0.0 slice0.1 slice0.2
-            \\(std.multi_array_list.MultiArrayList(main.Elem0).Slice) slice0 = len=3 capacity=8 {
-            \\  (root.main.Elem0) [0] = {
+            \\(std.multi_array_list.MultiArrayList(struct { u32, u8, u16 }).Slice) slice0 = len=3 capacity=8 {
+            \\  (std.struct { u32, u8, u16 }) [0] = {
             \\    (u32) .@"0" = 1
             \\    (u8) .@"1" = 2
             \\    (u16) .@"2" = 3
             \\  }
-            \\  (root.main.Elem0) [1] = {
+            \\  (std.struct { u32, u8, u16 }) [1] = {
             \\    (u32) .@"0" = 4
             \\    (u8) .@"1" = 5
             \\    (u16) .@"2" = 6
             \\  }
-            \\  (root.main.Elem0) [2] = {
+            \\  (std.struct { u32, u8, u16 }) [2] = {
             \\    (u32) .@"0" = 7
             \\    (u8) .@"1" = 8
             \\    (u16) .@"2" = 9
@@ -1601,17 +1601,17 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
             \\}
             \\(usize) slice0.len = 3
             \\(usize) slice0.capacity = 8
-            \\(root.main.Elem0) slice0[0] = {
+            \\(std.struct { u32, u8, u16 }) slice0[0] = {
             \\  (u32) .@"0" = 1
             \\  (u8) .@"1" = 2
             \\  (u16) .@"2" = 3
             \\}
-            \\(root.main.Elem0) slice0[1] = {
+            \\(std.struct { u32, u8, u16 }) slice0[1] = {
             \\  (u32) .@"0" = 4
             \\  (u8) .@"1" = 5
             \\  (u16) .@"2" = 6
             \\}
-            \\(root.main.Elem0) slice0[2] = {
+            \\(std.struct { u32, u8, u16 }) slice0[2] = {
             \\  (u32) .@"0" = 7
             \\  (u8) .@"1" = 8
             \\  (u16) .@"2" = 9
