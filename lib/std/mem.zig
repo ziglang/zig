@@ -656,11 +656,10 @@ const eqlBytes_allowed = switch (builtin.zig_backend) {
 
 /// Compares two slices and returns whether they are equal.
 pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
-    if (@sizeOf(T) == 0) return true;
     if (!@inComptime() and std.meta.hasUniqueRepresentation(T) and eqlBytes_allowed) return eqlBytes(sliceAsBytes(a), sliceAsBytes(b));
 
     if (a.len != b.len) return false;
-    if (a.len == 0 or a.ptr == b.ptr) return true;
+    if (@sizeOf(T) == 0 or a.ptr == b.ptr) return true;
 
     for (a, b) |a_elem, b_elem| {
         if (a_elem != b_elem) return false;
@@ -3296,6 +3295,8 @@ test eql {
     try testing.expect(eql(u8, "abcd", "abcd"));
     try testing.expect(!eql(u8, "abcdef", "abZdef"));
     try testing.expect(!eql(u8, "abcdefg", "abcdef"));
+    try testing.expect(eql(u0, &.{ 0, 0, 0 }, &.{ 0, 0, 0 }));
+    try testing.expect(!eql(u0, &.{ 0, 0 }, &.{ 0, 0, 0 }));
 }
 
 fn moreReadIntTests() !void {
