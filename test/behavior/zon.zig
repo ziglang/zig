@@ -89,15 +89,23 @@ test "union" {
 }
 
 test "struct" {
+    const Vec0 = struct {};
+    const Vec1 = struct { x: f32 };
+    // const Vec2 = struct { x: f32, y: f32 };
+    // const Escaped = struct { @"0": f32, foo: f32 };
+    try expectEqual(Vec0{}, @as(Vec0, @import("zon/vec0.zon")));
+    try expectEqual(Vec1{ .x = 1.5 }, @as(Vec1, @import("zon/vec1.zon")));
+    // try expectEqual(Vec2{ .x = 1.5, .y = 2 }, @as(Vec2, @import("zon/vec2.zon")));
+    // try expectEqual(Escaped{ .@"0" = 1.5, .foo = 2 }, @as(Escaped, @import("zon/escaped_struct.zon")));
+
+    // The skipped parts are failing because we need to resolve an issue where we intern whole number
+    // floats incorrectly (they get parsed as integers and then we try to store them that way, they
+    // should just be parsed as floats)
     return error.SkipZigTest;
-    // try expectEqual(.{}, @import("zon/vec0.zon"));
-    // try expectEqual(.{ .x = 1.5 }, @import("zon/vec1.zon"));
-    // try expectEqual(.{ .x = 1.5, .y = 2 }, @import("zon/vec2.zon"));
-    // try expectEqual(.{ .@"0" = 1.5, .foo = 2 }, @import("zon/escaped_struct.zon"));
-    // try expectEqual(.{}, @import("zon/empty_struct.zon"));
 }
 
 test "struct default fields" {
+    // We're skipping this for the same reason we skip some of the other struct tests
     return error.SkipZigTest;
     // const Vec3 = struct {
     //     x: f32,
@@ -110,11 +118,10 @@ test "struct default fields" {
 }
 
 test "struct enum field" {
-    return error.SkipZigTest;
-    // const Struct = struct {
-    //     x: enum { x, y, z },
-    // };
-    // try expectEqual(Struct{ .x = .z }, @as(Struct, @import("zon/enum_field.zon")));
+    const Struct = struct {
+        x: enum { x, y, z },
+    };
+    try expectEqual(Struct{ .x = .z }, @as(Struct, @import("zon/enum_field.zon")));
 }
 
 test "tuple" {
@@ -212,60 +219,60 @@ test "enum literals" {
 }
 
 test "int" {
-    return error.SkipZigTest;
-    // const expected = .{
-    //     // Test various numbers and types
-    //     @as(u8, 10),
-    //     @as(i16, 24),
-    //     @as(i14, -4),
-    //     @as(i32, -123),
+    const expected = .{
+        // Test various numbers and types
+        @as(u8, 10),
+        @as(i16, 24),
+        @as(i14, -4),
+        @as(i32, -123),
 
-    //     // Test limits
-    //     @as(i8, 127),
-    //     @as(i8, -128),
+        // Test limits
+        @as(i8, 127),
+        @as(i8, -128),
 
-    //     // Test characters
-    //     @as(u8, 'a'),
-    //     @as(u8, 'z'),
+        // Test characters
+        @as(u8, 'a'),
+        @as(u8, 'z'),
 
-    //     // Test big integers
-    //     @as(u65, 36893488147419103231),
-    //     @as(u65, 36893488147419103231),
-    //     @as(i128, -18446744073709551615), // Only a big int due to negation
-    //     @as(i128, -9223372036854775809), // Only a big int due to negation
+        // Test big integers
+        @as(u65, 36893488147419103231),
+        @as(u65, 36893488147419103231),
+        @as(i128, -18446744073709551615), // Only a big int due to negation
+        @as(i128, -9223372036854775809), // Only a big int due to negation
 
-    //     // Test big integer limits
-    //     @as(i66, 36893488147419103231),
-    //     @as(i66, -36893488147419103232),
+        // Test big integer limits
+        @as(i66, 36893488147419103231),
+        @as(i66, -36893488147419103232),
 
-    //     // Test parsing whole number floats as integers
-    //     @as(i8, -1),
-    //     @as(i8, 123),
+        // Test parsing whole number floats as integers
+        @as(i8, -1),
+        @as(i8, 123),
 
-    //     // Test non-decimal integers
-    //     @as(i16, 0xff),
-    //     @as(i16, -0xff),
-    //     @as(i16, 0o77),
-    //     @as(i16, -0o77),
-    //     @as(i16, 0b11),
-    //     @as(i16, -0b11),
+        // Test non-decimal integers
+        @as(i16, 0xff),
+        @as(i16, -0xff),
+        @as(i16, 0o77),
+        @as(i16, -0o77),
+        @as(i16, 0b11),
+        @as(i16, -0b11),
 
-    //     // Test non-decimal big integers
-    //     @as(u65, 0x1ffffffffffffffff),
-    //     @as(i66, 0x1ffffffffffffffff),
-    //     @as(i66, -0x1ffffffffffffffff),
-    //     @as(u65, 0x1ffffffffffffffff),
-    //     @as(i66, 0x1ffffffffffffffff),
-    //     @as(i66, -0x1ffffffffffffffff),
-    //     @as(u65, 0x1ffffffffffffffff),
-    //     @as(i66, 0x1ffffffffffffffff),
-    //     @as(i66, -0x1ffffffffffffffff),
-    // };
-    // const actual: @TypeOf(expected) = @import("zon/ints.zon");
-    // try expectEqual(expected, actual);
+        // Test non-decimal big integers
+        @as(u65, 0x1ffffffffffffffff),
+        @as(i66, 0x1ffffffffffffffff),
+        @as(i66, -0x1ffffffffffffffff),
+        @as(u65, 0x1ffffffffffffffff),
+        @as(i66, 0x1ffffffffffffffff),
+        @as(i66, -0x1ffffffffffffffff),
+        @as(u65, 0x1ffffffffffffffff),
+        @as(i66, 0x1ffffffffffffffff),
+        @as(i66, -0x1ffffffffffffffff),
+    };
+    const actual: @TypeOf(expected) = @import("zon/ints.zon");
+    try expectEqual(expected, actual);
 }
 
 test "floats" {
+    // See issue on disabled struct tests
     return error.SkipZigTest;
     // const expected = .{
     //     // Test decimals
@@ -304,22 +311,21 @@ test "floats" {
 }
 
 test "inf and nan" {
-    return error.SkipZigTest;
-    // // comptime float
-    // {
-    //     const actual: struct { comptime_float, comptime_float, comptime_float, comptime_float } = @import("zon/inf_and_nan.zon");
-    //     try expect(std.math.isNan(actual[0]));
-    //     try expect(std.math.isNan(actual[1]));
-    //     try expect(std.math.isPositiveInf(@as(f128, @floatCast(actual[2]))));
-    //     try expect(std.math.isNegativeInf(@as(f128, @floatCast(actual[3]))));
-    // }
+    // comptime float
+    {
+        const actual: struct { comptime_float, comptime_float, comptime_float, comptime_float } = @import("zon/inf_and_nan.zon");
+        try expect(std.math.isNan(actual[0]));
+        try expect(std.math.isNan(actual[1]));
+        try expect(std.math.isPositiveInf(@as(f128, @floatCast(actual[2]))));
+        try expect(std.math.isNegativeInf(@as(f128, @floatCast(actual[3]))));
+    }
 
-    // // f32
-    // {
-    //     const actual: struct { f32, f32, f32, f32 } = @import("zon/inf_and_nan.zon");
-    //     try expect(std.math.isNan(actual[0]));
-    //     try expect(std.math.isNan(actual[1]));
-    //     try expect(std.math.isPositiveInf(actual[2]));
-    //     try expect(std.math.isNegativeInf(actual[3]));
-    // }
+    // f32
+    {
+        const actual: struct { f32, f32, f32, f32 } = @import("zon/inf_and_nan.zon");
+        try expect(std.math.isNan(actual[0]));
+        try expect(std.math.isNan(actual[1]));
+        try expect(std.math.isPositiveInf(actual[2]));
+        try expect(std.math.isNegativeInf(actual[3]));
+    }
 }

@@ -893,7 +893,7 @@ fn parseStructOrTuple(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !Inter
     const ip = &self.sema.pt.zcu.intern_pool;
     return switch (ip.indexToKey(res_ty.toIntern())) {
         .tuple_type => self.parseTuple(node, res_ty),
-        .struct_type => @panic("unimplemented"),
+        .struct_type => self.parseStruct(node, res_ty),
         else => self.fail(.{ .node_abs = node }, "expected {}", .{res_ty.fmt(self.sema.pt)}),
     };
 }
@@ -930,13 +930,72 @@ fn parseTuple(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.In
     } });
 }
 
+fn parseStruct(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
+    const ip = &self.sema.pt.zcu.intern_pool;
+    const gpa = self.sema.gpa;
+
+    try res_ty.resolveFully(self.sema.pt);
+    const struct_info = self.sema.pt.zcu.typeToStruct(res_ty).?;
+
+    var buf: [2]Ast.Node.Index = undefined;
+    const field_nodes = try self.fields(res_ty, &buf, node);
+
+    const field_values = try gpa.alloc(InternPool.Index, struct_info.field_names.len);
+    defer gpa.free(field_values);
+
+    const field_defaults = struct_info.field_inits.get(ip);
+    for (0..field_values.len) |i| {
+        field_values[i] = if (i < field_defaults.len) field_defaults[i] else .none;
+    }
+
+    for (field_nodes) |field_node| {
+        const field_name_token = self.file.tree.firstToken(field_node) - 2;
+        const field_name = try self.identAsNullTerminatedString(field_name_token);
+
+        const name_index = struct_info.nameIndex(ip, field_name) orelse {
+            return self.fail(
+                .{ .node_abs = field_node },
+                "unexpected field {}",
+                .{field_name.fmt(ip)},
+            );
+        };
+
+        const field_type = Type.fromInterned(struct_info.field_types.get(ip)[name_index]);
+        if (field_values[name_index] != .none) {
+            return self.fail(
+                .{ .node_abs = field_node },
+                "duplicate field {}",
+                .{field_name.fmt(ip)},
+            );
+        }
+        field_values[name_index] = try self.parseExpr(field_node, field_type);
+    }
+
+    const field_names = struct_info.field_names.get(ip);
+    for (field_values, field_names) |*value, name| {
+        if (value.* == .none) return self.fail(
+            .{ .node_abs = node },
+            "missing field {}",
+            .{name.fmt(ip)},
+        );
+    }
+
+    return self.sema.pt.intern(.{ .aggregate = .{ .ty = res_ty.toIntern(), .storage = .{
+        .elems = field_values,
+    } } });
+}
+
 fn parsePointer(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
     const tags = self.file.tree.nodes.items(.tag);
 
     const ptr_info = res_ty.ptrInfo(self.sema.pt.zcu);
 
     if (ptr_info.flags.size != .Slice) {
-        return self.fail(.{ .node_abs = node }, "ZON import cannot be coerced to non slice pointer", .{});
+        return self.fail(
+            .{ .node_abs = node },
+            "ZON import cannot be coerced to non slice pointer",
+            .{},
+        );
     }
 
     const string_alignment = ptr_info.flags.alignment == .none or ptr_info.flags.alignment == .@"1";
