@@ -2121,20 +2121,20 @@ pub fn getcpu(cpu: ?*usize, node: ?*usize) usize {
 
 pub fn sched_getcpu() usize {
     var cpu: usize = 0;
-    if(getcpu(&cpu, null) != 0) return std.math.maxInt(usize);
+    if (getcpu(&cpu, null) != 0) return std.math.maxInt(usize);
     return cpu;
 }
 
 pub const sched_attr = extern struct {
-    size: u32 = 48,      // Size of this structure
-    policy: u32 = 0,     // Policy (SCHED_*)
-    flags: u64 = 0,      // Flags
-    nice: u32 = 0,       // Nice value (SCHED_OTHER, SCHED_BATCH)
-    priority: u32 = 0,   // Static priority (SCHED_FIFO, SCHED_RR)
-                         // Remaining fields are for SCHED_DEADLINE
+    size: u32 = 48, // Size of this structure
+    policy: u32 = 0, // Policy (SCHED_*)
+    flags: u64 = 0, // Flags
+    nice: u32 = 0, // Nice value (SCHED_OTHER, SCHED_BATCH)
+    priority: u32 = 0, // Static priority (SCHED_FIFO, SCHED_RR)
+    // Remaining fields are for SCHED_DEADLINE
     runtime: u64 = 0,
     deadline: u64 = 0,
-    period: u64 = 0
+    period: u64 = 0,
 };
 
 pub fn sched_setattr(pid: pid_t, attr: *const sched_attr, flags: usize) usize {
