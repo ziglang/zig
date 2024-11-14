@@ -384,7 +384,6 @@ test "parse" {
     try testing.expectEqual("foo".*, try parseFromSliceLeaky([3]u8, testing.allocator, "[102, 111, 111]", .{}));
     try testing.expectEqual(undefined, try parseFromSliceLeaky([0]u8, testing.allocator, "[]", .{}));
 
-
     try testing.expectEqual("12345678901234567890".*, try parseFromSliceLeaky([20]u8, testing.allocator, "\"12345678901234567890\"", .{}));
     try testing.expectEqual(12345678901234567890, try parseFromSliceLeaky(u64, testing.allocator, "12345678901234567890", .{}));
 
