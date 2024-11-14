@@ -38,7 +38,12 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
                     .owner = undefined,
                 },
             };
-            return comp.build_crt_file("crti", .Obj, null, .@"musl crti.o", prog_node, &files);
+            return comp.build_crt_file("crti", .Obj, .@"musl crti.o", prog_node, &files, .{
+                .function_sections = true,
+                .data_sections = true,
+                .omit_frame_pointer = true,
+                .no_builtin = true,
+            });
         },
         .crtn_o => {
             var args = std.ArrayList([]const u8).init(arena);
@@ -50,15 +55,17 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
                     .owner = undefined,
                 },
             };
-            return comp.build_crt_file("crtn", .Obj, null, .@"musl crtn.o", prog_node, &files);
+            return comp.build_crt_file("crtn", .Obj, .@"musl crtn.o", prog_node, &files, .{
+                .function_sections = true,
+                .data_sections = true,
+                .omit_frame_pointer = true,
+                .no_builtin = true,
+            });
         },
         .crt1_o => {
             var args = std.ArrayList([]const u8).init(arena);
             try addCcArgs(comp, arena, &args, false);
-            try args.appendSlice(&[_][]const u8{
-                "-fno-stack-protector",
-                "-DCRT",
-            });
+            try args.append("-DCRT");
             var files = [_]Compilation.CSourceFile{
                 .{
                     .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
@@ -68,15 +75,17 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
                     .owner = undefined,
                 },
             };
-            return comp.build_crt_file("crt1", .Obj, null, .@"musl crt1.o", prog_node, &files);
+            return comp.build_crt_file("crt1", .Obj, .@"musl crt1.o", prog_node, &files, .{
+                .function_sections = true,
+                .data_sections = true,
+                .omit_frame_pointer = true,
+                .no_builtin = true,
+            });
         },
         .rcrt1_o => {
             var args = std.ArrayList([]const u8).init(arena);
             try addCcArgs(comp, arena, &args, false);
-            try args.appendSlice(&[_][]const u8{
-                "-fno-stack-protector",
-                "-DCRT",
-            });
+            try args.append("-DCRT");
             var files = [_]Compilation.CSourceFile{
                 .{
                     .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
@@ -86,15 +95,18 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
                     .owner = undefined,
                 },
             };
-            return comp.build_crt_file("rcrt1", .Obj, true, .@"musl rcrt1.o", prog_node, &files);
+            return comp.build_crt_file("rcrt1", .Obj, .@"musl rcrt1.o", prog_node, &files, .{
+                .function_sections = true,
+                .data_sections = true,
+                .omit_frame_pointer = true,
+                .pic = true,
+                .no_builtin = true,
+            });
         },
         .scrt1_o => {
             var args = std.ArrayList([]const u8).init(arena);
             try addCcArgs(comp, arena, &args, false);
-            try args.appendSlice(&[_][]const u8{
-                "-fno-stack-protector",
-                "-DCRT",
-            });
+            try args.append("-DCRT");
             var files = [_]Compilation.CSourceFile{
                 .{
                     .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
@@ -104,7 +116,13 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
                     .owner = undefined,
                 },
             };
-            return comp.build_crt_file("Scrt1", .Obj, true, .@"musl Scrt1.o", prog_node, &files);
+            return comp.build_crt_file("Scrt1", .Obj, .@"musl Scrt1.o", prog_node, &files, .{
+                .function_sections = true,
+                .data_sections = true,
+                .omit_frame_pointer = true,
+                .pic = true,
+                .no_builtin = true,
+            });
         },
         .libc_a => {
             // When there is a src/<arch>/foo.* then it should substitute for src/foo.*
@@ -197,7 +215,12 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
                     .owner = undefined,
                 };
             }
-            return comp.build_crt_file("c", .Lib, null, .@"musl libc.a", prog_node, c_source_files.items);
+            return comp.build_crt_file("c", .Lib, .@"musl libc.a", prog_node, c_source_files.items, .{
+                .function_sections = true,
+                .data_sections = true,
+                .omit_frame_pointer = true,
+                .no_builtin = true,
+            });
         },
         .libc_so => {
             const optimize_mode = comp.compilerRtOptMode();
@@ -410,7 +433,6 @@ fn addCcArgs(
     try args.appendSlice(&[_][]const u8{
         "-std=c99",
         "-ffreestanding",
-        "-fno-builtin",
         "-fexcess-precision=standard",
         "-frounding-math",
         "-ffp-contract=off",
@@ -440,12 +462,6 @@ fn addCcArgs(
         try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", "include", "generic-musl" }),
 
         o_arg,
-
-        "-fomit-frame-pointer",
-        "-fno-unwind-tables",
-        "-fno-asynchronous-unwind-tables",
-        "-ffunction-sections",
-        "-fdata-sections",
 
         "-Qunused-arguments",
         "-w", // disable all warnings

@@ -2435,6 +2435,7 @@ fn blockExpr(
         if (!block_scope.endsWithNoReturn()) {
             // As our last action before the break, "pop" the error trace if needed
             _ = try gz.addRestoreErrRetIndex(.{ .block = block_inst }, .always, block_node);
+            // No `rvalue` call here, as the block result is always `void`, so we do that below.
             _ = try block_scope.addBreak(.@"break", block_inst, .void_value);
         }
 
@@ -2531,7 +2532,8 @@ fn labeledBlockExpr(
     if (!block_scope.endsWithNoReturn()) {
         // As our last action before the return, "pop" the error trace if needed
         _ = try gz.addRestoreErrRetIndex(.{ .block = block_inst }, .always, block_node);
-        _ = try block_scope.addBreak(.@"break", block_inst, .void_value);
+        const result = try rvalue(gz, block_scope.break_result_info, .void_value, block_node);
+        _ = try block_scope.addBreak(.@"break", block_inst, result);
     }
 
     if (!block_scope.label.?.used) {

@@ -221,7 +221,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                     .owner = comp.root_mod,
                 },
             };
-            return comp.build_crt_file("crti", .Obj, null, .@"glibc crti.o", prog_node, &files);
+            return comp.build_crt_file("crti", .Obj, .@"glibc crti.o", prog_node, &files, .{});
         },
         .crtn_o => {
             var args = std.ArrayList([]const u8).init(arena);
@@ -242,7 +242,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                     .owner = undefined,
                 },
             };
-            return comp.build_crt_file("crtn", .Obj, null, .@"glibc crtn.o", prog_node, &files);
+            return comp.build_crt_file("crtn", .Obj, .@"glibc crtn.o", prog_node, &files, .{});
         },
         .scrt1_o => {
             const start_o: Compilation.CSourceFile = blk: {
@@ -295,7 +295,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
             };
             var files = [_]Compilation.CSourceFile{ start_o, abi_note_o, init_o };
             const basename = if (comp.config.output_mode == .Exe and !comp.config.pie) "crt1" else "Scrt1";
-            return comp.build_crt_file(basename, .Obj, null, .@"glibc Scrt1.o", prog_node, &files);
+            return comp.build_crt_file(basename, .Obj, .@"glibc Scrt1.o", prog_node, &files, .{});
         },
         .libc_nonshared_a => {
             const s = path.sep_str;
@@ -373,7 +373,6 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                     "-fmerge-all-constants",
                     "-frounding-math",
                     "-Wno-unsupported-floating-point-opt", // For targets that don't support -frounding-math.
-                    "-fno-stack-protector",
                     "-fno-common",
                     "-fmath-errno",
                     "-ftls-model=initial-exec",
@@ -413,7 +412,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                 files_index += 1;
             }
             const files = files_buf[0..files_index];
-            return comp.build_crt_file("c_nonshared", .Lib, null, .@"glibc libc_nonshared.a", prog_node, files);
+            return comp.build_crt_file("c_nonshared", .Lib, .@"glibc libc_nonshared.a", prog_node, files, .{});
         },
     }
 }

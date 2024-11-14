@@ -7121,6 +7121,19 @@ pub const SIOCPROTOPRIVATE = 0x89E0;
 
 pub const IFNAMESIZE = 16;
 
+pub const IFF = packed struct(u16) {
+    UP: bool = false,
+    BROADCAST: bool = false,
+    DEBUG: bool = false,
+    LOOPBACK: bool = false,
+    POINTOPOINT: bool = false,
+    NOTRAILERS: bool = false,
+    RUNNING: bool = false,
+    NOARP: bool = false,
+    PROMISC: bool = false,
+    _9: u7 = 0,
+};
+
 pub const ifmap = extern struct {
     mem_start: usize,
     mem_end: usize,
@@ -7140,7 +7153,7 @@ pub const ifreq = extern struct {
         broadaddr: sockaddr,
         netmask: sockaddr,
         hwaddr: sockaddr,
-        flags: i16,
+        flags: IFF,
         ivalue: i32,
         mtu: i32,
         map: ifmap,

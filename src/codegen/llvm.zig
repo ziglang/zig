@@ -3222,8 +3222,6 @@ pub const Object = struct {
         owner_mod: *Package.Module,
         omit_frame_pointer: bool,
     ) Allocator.Error!void {
-        const comp = o.pt.zcu.comp;
-
         if (!owner_mod.red_zone) {
             try attributes.addFnAttr(.noredzone, &o.builder);
         }
@@ -3242,8 +3240,7 @@ pub const Object = struct {
         if (owner_mod.unwind_tables) {
             try attributes.addFnAttr(.{ .uwtable = Builder.Attribute.UwTable.default }, &o.builder);
         }
-        const target = owner_mod.resolved_target.result;
-        if (comp.skip_linker_dependencies or comp.no_builtin or target.cpu.arch.isBpf()) {
+        if (owner_mod.no_builtin) {
             // The intent here is for compiler-rt and libc functions to not generate
             // infinite recursion. For example, if we are compiling the memcpy function,
             // and llvm detects that the body is equivalent to memcpy, it may replace the
@@ -3258,6 +3255,7 @@ pub const Object = struct {
             try attributes.addFnAttr(.minsize, &o.builder);
             try attributes.addFnAttr(.optsize, &o.builder);
         }
+        const target = owner_mod.resolved_target.result;
         if (target.cpu.model.llvm_name) |s| {
             try attributes.addFnAttr(.{ .string = .{
                 .kind = try o.builder.string("target-cpu"),
@@ -5577,6 +5575,10 @@ pub const FuncGen = struct {
 
         var attributes: Builder.FunctionAttributes.Wip = .{};
         defer attributes.deinit(&o.builder);
+
+        if (self.ng.ownerModule().no_builtin) {
+            try attributes.addFnAttr(.nobuiltin, &o.builder);
+        }
 
         switch (modifier) {
             .auto, .never_tail, .always_tail => {},
@@ -12728,6 +12730,8 @@ fn backendSupportsF16(target: std.Target) bool {
         .mips64,
         .mips64el,
         .s390x,
+        .sparc,
+        .sparc64,
         => false,
         .arm,
         .armeb,
