@@ -607,6 +607,7 @@ pub const Type = union(enum) {
         /// The type of the sentinel is the element type of the pointer, which is
         /// the value of the `child` field in this struct. However there is no way
         /// to refer to that type here, so we use pointer to `anyopaque`.
+        /// See `getSentinel` for an easier way to access this value.
         sentinel: ?*const anyopaque,
 
         /// This data structure is used by the Zig language code generation and
@@ -617,6 +618,14 @@ pub const Type = union(enum) {
             Slice,
             C,
         };
+
+        /// Returns the sentinel value casted to the child type
+        /// Asserts that `pointer.size` is `.Many` or `.Slice`
+        /// and that `pointer.sentinel` is non-null
+        pub fn getSentinel(pointer: Pointer) pointer.child {
+            std.debug.assert(pointer.size == .Many or pointer.size == .Slice);
+            return @as(*const pointer.child, @ptrCast(@alignCast(pointer.sentinel.?))).*;
+        }
     };
 
     /// This data structure is used by the Zig language code generation and
@@ -628,7 +637,14 @@ pub const Type = union(enum) {
         /// The type of the sentinel is the element type of the array, which is
         /// the value of the `child` field in this struct. However there is no way
         /// to refer to that type here, so we use pointer to `anyopaque`.
+        /// See `getSentinel` for an easier way to access this value.
         sentinel: ?*const anyopaque,
+
+        /// Returns the sentinel value casted to the child type
+        /// Asserts that `array.sentinel` is non-null
+        pub fn getSentinel(array: Array) array.child {
+            return @as(*const array.child, @ptrCast(@alignCast(array.sentinel.?))).*;
+        }
     };
 
     /// This data structure is used by the Zig language code generation and
