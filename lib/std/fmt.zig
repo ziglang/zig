@@ -310,6 +310,8 @@ pub const Specifier = union(enum) {
     named: []const u8,
 };
 
+/// Intended for parsing std.fmt format strings without having to replicate the
+/// standard library behavior.
 pub const Parser = struct {
     pos: usize = 0,
     iter: std.unicode.Utf8Iterator,
