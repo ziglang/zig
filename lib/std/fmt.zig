@@ -224,7 +224,6 @@ pub const Placeholder = struct {
     pub fn parse(comptime str: anytype) Placeholder {
         const view = std.unicode.Utf8View.initComptime(&str);
         comptime var parser = Parser{
-            .buf = &str,
             .iter = view.iterator(),
         };
 
@@ -312,9 +311,8 @@ pub const Specifier = union(enum) {
 };
 
 pub const Parser = struct {
-    buf: []const u8,
     pos: usize = 0,
-    iter: std.unicode.Utf8Iterator = undefined,
+    iter: std.unicode.Utf8Iterator,
 
     // Returns a decimal number or null if the current character is not a
     // digit
