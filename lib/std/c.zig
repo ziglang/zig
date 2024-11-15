@@ -7028,6 +7028,7 @@ pub const pthread_attr_t = switch (native_os) {
 
 pub const pthread_key_t = switch (native_os) {
     .linux, .emscripten => c_uint,
+    .macos, .ios, .tvos, .watchos, .visionos => c_ulong,
     .openbsd, .solaris, .illumos => c_int,
     else => void,
 };
