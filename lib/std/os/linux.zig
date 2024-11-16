@@ -2119,12 +2119,6 @@ pub fn getcpu(cpu: ?*usize, node: ?*usize) usize {
     return syscall2(.getcpu, @intFromPtr(cpu), @intFromPtr(node));
 }
 
-pub fn sched_getcpu() usize {
-    var cpu: usize = 0;
-    if (getcpu(&cpu, null) != 0) return std.math.maxInt(usize);
-    return cpu;
-}
-
 pub const sched_attr = extern struct {
     size: u32 = 48, // Size of this structure
     policy: u32 = 0, // Policy (SCHED_*)
