@@ -116,7 +116,7 @@ pub fn Complex(comptime T: type) type {
             return @sqrt(self.re * self.re + self.im * self.im);
         }
 
-        /// Returns the quared magnitude of a complex number.
+        /// Returns the squared magnitude of a complex number.
         pub fn sqrtmag(self: Self) T {
             return self.re * self.re + self.im * self.im;
         }
