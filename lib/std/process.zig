@@ -1831,7 +1831,7 @@ pub const CreateEnvironOptions = struct {
     /// `null` means to leave the `ZIG_PROGRESS` environment variable unmodified.
     /// If non-null, negative means to remove the environment variable, and >= 0
     /// means to provide it with the given integer.
-    zig_progress_fd: ?i32 = null,
+    zig_progress_fd: if (native_os == .windows) ?usize else ?i32 = null,
 };
 
 /// Creates a null-delimited environment variable block in the format
@@ -1997,7 +1997,22 @@ test createNullDelimitedEnvMap {
 }
 
 /// Caller must free result.
-pub fn createWindowsEnvBlock(allocator: mem.Allocator, env_map: *const EnvMap) ![]u16 {
+pub fn createWindowsEnvBlock(allocator: mem.Allocator, env_map: *const EnvMap, options: CreateEnvironOptions) ![]u16 {
+    var zig_progress_value: ?[]const u8 = env_map.get("ZIG_PROGRESS");
+
+    const ZigProgressAction = enum { nothing, edit, delete, add };
+    const zig_progress_action: ZigProgressAction = a: {
+        const fd = options.zig_progress_fd orelse break :a .nothing;
+        const contains = zig_progress_value != null;
+        if (fd >= 0) {
+            zig_progress_value = try std.fmt.allocPrintZ(allocator, "{d}", .{fd});
+            break :a if (contains) .edit else .add;
+        } else {
+            if (contains) break :a .delete;
+        }
+        break :a .nothing;
+    };
+
     // count bytes needed
     const max_chars_needed = x: {
         var max_chars_needed: usize = 4; // 4 for the final 4 null bytes
@@ -2007,6 +2022,10 @@ pub fn createWindowsEnvBlock(allocator: mem.Allocator, env_map: *const EnvMap) !
             // +1 for null byte
             max_chars_needed += pair.key_ptr.len + pair.value_ptr.len + 2;
         }
+        switch (zig_progress_action) {
+            .add => max_chars_needed += "ZIG_PROGRESS".len + (zig_progress_value.?).len + 2,
+            .delete, .nothing, .edit => {},
+        }
         break :x max_chars_needed;
     };
     const result = try allocator.alloc(u16, max_chars_needed);
@@ -2014,11 +2033,30 @@ pub fn createWindowsEnvBlock(allocator: mem.Allocator, env_map: *const EnvMap) !
 
     var it = env_map.iterator();
     var i: usize = 0;
+
+    if (zig_progress_action == .add) {
+        i += try unicode.wtf8ToWtf16Le(result[i..], "ZIG_PROGRESS");
+        result[i] = '=';
+        i += 1;
+        i += try unicode.wtf8ToWtf16Le(result[i..], zig_progress_value.?);
+        result[i] = 0;
+        i += 1;
+    }
+
     while (it.next()) |pair| {
+        var value = pair.value_ptr.*;
+        if (mem.eql(u8, pair.key_ptr.*, "ZIG_PROGRESS")) switch (zig_progress_action) {
+            .add => unreachable,
+            .delete => continue,
+            .edit => {
+                value = zig_progress_value.?;
+            },
+            .nothing => {},
+        };
         i += try unicode.wtf8ToWtf16Le(result[i..], pair.key_ptr.*);
         result[i] = '=';
         i += 1;
-        i += try unicode.wtf8ToWtf16Le(result[i..], pair.value_ptr.*);
+        i += try unicode.wtf8ToWtf16Le(result[i..], value);
         result[i] = 0;
         i += 1;
     }

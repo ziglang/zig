@@ -820,6 +820,12 @@ fn spawnWindows(self: *ChildProcess) SpawnError!void {
         windowsDestroyPipe(g_hChildStd_ERR_Rd, g_hChildStd_ERR_Wr);
     };
 
+    var prog_pipe_rd: ?windows.HANDLE = null;
+    var prog_pipe_wr: ?windows.HANDLE = null;
+    if (self.progress_node.index != .none) {
+        try windowsMakeProgressPipe(&prog_pipe_rd, &prog_pipe_wr, &saAttr);
+        errdefer windowsDestroyPipe(prog_pipe_rd, prog_pipe_wr);
+    }
     var siStartInfo = windows.STARTUPINFOW{
         .cb = @sizeOf(windows.STARTUPINFOW),
         .hStdError = g_hChildStd_ERR_Wr,
@@ -847,9 +853,19 @@ fn spawnWindows(self: *ChildProcess) SpawnError!void {
     defer if (cwd_w) |cwd| self.allocator.free(cwd);
     const cwd_w_ptr = if (cwd_w) |cwd| cwd.ptr else null;
 
-    const maybe_envp_buf = if (self.env_map) |env_map| try process.createWindowsEnvBlock(self.allocator, env_map) else null;
-    defer if (maybe_envp_buf) |envp_buf| self.allocator.free(envp_buf);
-    const envp_ptr = if (maybe_envp_buf) |envp_buf| envp_buf.ptr else null;
+    const maybe_envp_buf = m: {
+        const prog_fd: ?usize = if (prog_pipe_wr) |h| @intFromPtr(h) else null;
+        if (self.env_map) |env_map| {
+            break :m try process.createWindowsEnvBlock(self.allocator, env_map, .{ .zig_progress_fd = prog_fd });
+        } else {
+            const env_map = try process.getEnvMap(self.allocator);
+            break :m try process.createWindowsEnvBlock(self.allocator, &env_map, .{ .zig_progress_fd = prog_fd });
+        }
+    };
+    // defer if (maybe_envp_buf) |envp_buf| self.allocator.free(envp_buf);
+    // const envp_ptr = if (maybe_envp_buf) |envp_buf| envp_buf.ptr else null;
+    defer self.allocator.free(maybe_envp_buf);
+    const envp_ptr = maybe_envp_buf.ptr;
 
     const app_name_wtf8 = self.argv[0];
     const app_name_is_absolute = fs.path.isAbsolute(app_name_wtf8);
@@ -998,6 +1014,7 @@ fn spawnWindows(self: *ChildProcess) SpawnError!void {
     if (self.stdout_behavior == StdIo.Pipe) {
         posix.close(g_hChildStd_OUT_Wr.?);
     }
+    if (prog_pipe_rd) |fd| self.progress_node.setIpcFd(fd);
 }
 
 fn setUpChildIo(stdio: StdIo, pipe_fd: i32, std_fileno: i32, dev_null_fd: i32) !void {
@@ -1358,6 +1375,70 @@ fn windowsMakeAsyncPipe(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *cons
         pipe_path.ptr,
         windows.PIPE_ACCESS_INBOUND | windows.FILE_FLAG_OVERLAPPED,
         windows.PIPE_TYPE_BYTE,
+        1,
+        4096,
+        4096,
+        0,
+        sattr,
+    );
+    if (read_handle == windows.INVALID_HANDLE_VALUE) {
+        switch (windows.GetLastError()) {
+            else => |err| return windows.unexpectedError(err),
+        }
+    }
+    errdefer posix.close(read_handle);
+
+    var sattr_copy = sattr.*;
+    const write_handle = windows.kernel32.CreateFileW(
+        pipe_path.ptr,
+        windows.GENERIC_WRITE,
+        0,
+        &sattr_copy,
+        windows.OPEN_EXISTING,
+        windows.FILE_ATTRIBUTE_NORMAL,
+        null,
+    );
+    if (write_handle == windows.INVALID_HANDLE_VALUE) {
+        switch (windows.GetLastError()) {
+            else => |err| return windows.unexpectedError(err),
+        }
+    }
+    errdefer posix.close(write_handle);
+
+    try windows.SetHandleInformation(read_handle, windows.HANDLE_FLAG_INHERIT, 0);
+
+    rd.* = read_handle;
+    wr.* = write_handle;
+}
+
+fn windowsMakeProgressPipe(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *const windows.SECURITY_ATTRIBUTES) !void {
+    var tmp_bufw: [128]u16 = undefined;
+
+    // NOTE: Only difference with windowsMakeAsyncPipe now is windows.PIPE_NOWAIT flag and
+    // pipe name
+
+    // Anonymous pipes are built upon Named pipes.
+    // https://docs.microsoft.com/en-us/windows/win32/api/namedpipeapi/nf-namedpipeapi-createpipe
+    // Asynchronous (overlapped) read and write operations are not supported by anonymous pipes.
+    // https://docs.microsoft.com/en-us/windows/win32/ipc/anonymous-pipe-operations
+    const pipe_path = blk: {
+        var tmp_buf: [128]u8 = undefined;
+        // Forge a random path for the pipe.
+        const pipe_path = std.fmt.bufPrintZ(
+            &tmp_buf,
+            "\\\\.\\pipe\\zig-progress-{d}-{d}",
+            .{ windows.GetCurrentProcessId(), pipe_name_counter.fetchAdd(1, .monotonic) },
+        ) catch unreachable;
+        const len = std.unicode.wtf8ToWtf16Le(&tmp_bufw, pipe_path) catch unreachable;
+        tmp_bufw[len] = 0;
+        break :blk tmp_bufw[0..len :0];
+    };
+
+    // Create the read handle that can be used with overlapped IO ops.
+    const read_handle = windows.kernel32.CreateNamedPipeW(
+        pipe_path.ptr,
+        windows.PIPE_ACCESS_INBOUND | windows.FILE_FLAG_OVERLAPPED,
+        windows.PIPE_TYPE_BYTE | windows.PIPE_NOWAIT,
         1,
         4096,
         4096,

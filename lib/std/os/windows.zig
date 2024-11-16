@@ -631,6 +631,7 @@ pub fn ReadFile(in_hFile: HANDLE, buffer: []u8, offset: ?u64) ReadFileError!usiz
                 .OPERATION_ABORTED => continue,
                 .BROKEN_PIPE => return 0,
                 .HANDLE_EOF => return 0,
+                .NO_DATA => return 0,
                 .NETNAME_DELETED => return error.ConnectionResetByPeer,
                 .LOCK_VIOLATION => return error.LockViolation,
                 else => |err| return unexpectedError(err),

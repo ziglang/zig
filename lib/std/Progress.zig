@@ -103,9 +103,12 @@ pub const Node = struct {
 
         /// Thread-safe.
         fn setIpcFd(s: *Storage, fd: posix.fd_t) void {
+            // NOTE: On Windows we end up casting a HANDLE (potential 64-bit opaque value) to i32,
+            // but it seems the handle values are actually small values, so OK for now, but should perhaps
+            // be handled better
             const integer: u32 = switch (@typeInfo(posix.fd_t)) {
                 .int => @bitCast(fd),
-                .pointer => @intFromPtr(fd),
+                .pointer => @intCast(@intFromPtr(fd)),
                 else => @compileError("unsupported fd_t of " ++ @typeName(posix.fd_t)),
             };
             // `estimated_total_count` max int indicates the special state that
@@ -263,10 +266,12 @@ pub const Node = struct {
     /// Posix-only. Used by `std.process.Child`. Thread-safe.
     pub fn setIpcFd(node: Node, fd: posix.fd_t) void {
         const index = node.index.unwrap() orelse return;
-        assert(fd >= 0);
-        assert(fd != posix.STDOUT_FILENO);
-        assert(fd != posix.STDIN_FILENO);
-        assert(fd != posix.STDERR_FILENO);
+        if (!is_windows) {
+            assert(fd >= 0);
+            assert(fd != posix.STDOUT_FILENO);
+            assert(fd != posix.STDIN_FILENO);
+            assert(fd != posix.STDERR_FILENO);
+        }
         storageByIndex(index).setIpcFd(fd);
     }
 
@@ -379,7 +384,8 @@ pub fn start(options: Options) Node {
     if (noop_impl)
         return Node.none;
 
-    if (std.process.parseEnvVarInt("ZIG_PROGRESS", u31, 10)) |ipc_fd| {
+    const zp_env_type = if (is_windows) usize else u31;
+    if (std.process.parseEnvVarInt("ZIG_PROGRESS", zp_env_type, 10)) |ipc_fd| {
         global_progress.update_thread = std.Thread.spawn(.{}, ipcThreadRun, .{
             @as(posix.fd_t, switch (@typeInfo(posix.fd_t)) {
                 .int => ipc_fd,
@@ -890,6 +896,7 @@ fn serializeIpc(start_serialized_len: usize, serialized_buffer: *Serialized.Buff
             }
             bytes_read += n;
         }
+
         // Ignore all but the last message on the pipe.
         var input: []u8 = pipe_buf[0..bytes_read];
         if (input.len == 0) {
