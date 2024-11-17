@@ -946,13 +946,13 @@ pub const OS_LOG_CATEGORY_POINTS_OF_INTEREST: *const u8 = "PointsOfInterest";
 pub const OS_LOG_CATEGORY_DYNAMIC_TRACING: *const u8 = "DynamicTracing";
 pub const OS_LOG_CATEGORY_DYNAMIC_STACK_TRACING: *const u8 = "DynamicStackTracing";
 
-pub extern "c" fn os_log_create(subsystem: [*]const u8, category: [*]const u8) os_log_t;
-pub extern "c" fn os_log_type_enabled(log: os_log_t, tpe: os_log_type_t) bool;
-pub extern "c" fn os_signpost_id_generate(log: os_log_t) os_signpost_id_t;
-pub extern "c" fn os_signpost_interval_begin(log: os_log_t, signpos: os_signpost_id_t, func: [*]const u8, ...) void;
-pub extern "c" fn os_signpost_interval_end(log: os_log_t, signpos: os_signpost_id_t, func: [*]const u8, ...) void;
-pub extern "c" fn os_signpost_id_make_with_pointer(log: os_log_t, ptr: ?*anyopaque) os_signpost_id_t;
-pub extern "c" fn os_signpost_enabled(log: os_log_t) bool;
+pub extern "c" fn os_log_create(subsystem: [*]const u8, category: [*]const u8) *os_log_t;
+pub extern "c" fn os_log_type_enabled(log: *os_log_t, tpe: os_log_type_t) bool;
+pub extern "c" fn os_signpost_id_generate(log: *os_log_t) os_signpost_id_t;
+pub extern "c" fn os_signpost_interval_begin(log: *os_log_t, signpos: os_signpost_id_t, func: [*]const u8, ...) void;
+pub extern "c" fn os_signpost_interval_end(log: *os_log_t, signpos: os_signpost_id_t, func: [*]const u8, ...) void;
+pub extern "c" fn os_signpost_id_make_with_pointer(log: *os_log_t, ptr: ?*anyopaque) os_signpost_id_t;
+pub extern "c" fn os_signpost_enabled(log: *os_log_t) bool;
 
 pub extern "c" fn pthread_setname_np(name: [*:0]const u8) c_int;
 pub extern "c" fn pthread_attr_set_qos_class_np(attr: *pthread_attr_t, qos_class: qos_class_t, relative_priority: c_int) c_int;
