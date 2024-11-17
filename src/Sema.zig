@@ -35010,6 +35010,7 @@ fn resolvePeerTypesInner(
             // if there were no actual slices. Else, we want the slice index to report a conflict.
             var opt_slice_idx: ?usize = null;
 
+            var any_abi_aligned = false;
             var opt_ptr_info: ?InternPool.Key.PtrType = null;
             var first_idx: usize = undefined;
             var other_idx: usize = undefined; // We sometimes need a second peer index to report a generic error
@@ -35054,17 +35055,14 @@ fn resolvePeerTypesInner(
                 } };
 
                 // Note that the align can be always non-zero; Type.ptr will canonicalize it
-                ptr_info.flags.alignment = Alignment.min(
-                    if (ptr_info.flags.alignment != .none)
-                        ptr_info.flags.alignment
-                    else
-                        try Type.fromInterned(ptr_info.child).abiAlignmentSema(pt),
-
-                    if (peer_info.flags.alignment != .none)
-                        peer_info.flags.alignment
-                    else
-                        try Type.fromInterned(peer_info.child).abiAlignmentSema(pt),
-                );
+                if (peer_info.flags.alignment == .none) {
+                    any_abi_aligned = true;
+                } else if (ptr_info.flags.alignment == .none) {
+                    any_abi_aligned = true;
+                    ptr_info.flags.alignment = peer_info.flags.alignment;
+                } else {
+                    ptr_info.flags.alignment = ptr_info.flags.alignment.minStrict(peer_info.flags.alignment);
+                }
 
                 if (ptr_info.flags.address_space != peer_info.flags.address_space) {
                     return generic_err;
@@ -35310,6 +35308,12 @@ fn resolvePeerTypesInner(
                     } },
                     else => {},
                 },
+            }
+
+            if (any_abi_aligned and opt_ptr_info.?.flags.alignment != .none) {
+                opt_ptr_info.?.flags.alignment = opt_ptr_info.?.flags.alignment.minStrict(
+                    try Type.fromInterned(pointee).abiAlignmentSema(pt),
+                );
             }
 
             return .{ .success = try pt.ptrTypeSema(opt_ptr_info.?) };

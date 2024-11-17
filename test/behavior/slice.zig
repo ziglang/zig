@@ -995,3 +995,11 @@ test "sentinel-terminated 0-length slices" {
     try expect(comptime_known_array_value[0] == 2);
     try expect(runtime_array_value[0] == 2);
 }
+
+test "peer slices keep abi alignment with empty struct" {
+    var cond: bool = undefined;
+    cond = false;
+    const slice = if (cond) &[1]u32{42} else &.{};
+    comptime assert(@TypeOf(slice) == []const u32);
+    try expect(slice.len == 0);
+}
