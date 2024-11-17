@@ -23,7 +23,7 @@ pub const Env = enum {
     sema,
 
     /// - sema
-    /// - `zig build-* -fno-llvm -fno-lld -target x86_64-linux`
+    /// - `zig build-* -fincremental -fno-llvm -fno-lld -target x86_64-linux --listen=-`
     @"x86_64-linux",
 
     /// - sema
@@ -130,6 +130,8 @@ pub const Env = enum {
                 else => Env.ast_gen.supports(feature),
             },
             .@"x86_64-linux" => switch (feature) {
+                .stdio_listen,
+                .incremental,
                 .x86_64_backend,
                 .elf_linker,
                 => true,
