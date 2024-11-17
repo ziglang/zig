@@ -984,6 +984,7 @@ fn buildOutputType(
         .libc_paths_file = try EnvVar.ZIG_LIBC.get(arena),
         .native_system_include_paths = &.{},
     };
+    defer create_module.link_inputs.deinit(gpa);
 
     // before arg parsing, check for the NO_COLOR and CLICOLOR_FORCE environment variables
     // if set, default the color setting to .off or .on, respectively
@@ -3682,7 +3683,7 @@ const CreateModule = struct {
     /// This one is used while collecting CLI options. The set of libs is used
     /// directly after computing the target and used to compute link_libc,
     /// link_libcpp, and then the libraries are filtered into
-    /// `unresolved_linker_inputs` and `windows_libs`.
+    /// `unresolved_link_inputs` and `windows_libs`.
     cli_link_inputs: std.ArrayListUnmanaged(link.UnresolvedInput),
     windows_libs: std.StringArrayHashMapUnmanaged(void),
     /// The local variable `unresolved_link_inputs` is fed into library
@@ -3816,7 +3817,8 @@ fn createModule(
         // to decide whether to trigger native path detection logic.
         // Preserves linker input order.
         var unresolved_link_inputs: std.ArrayListUnmanaged(link.UnresolvedInput) = .empty;
-        try unresolved_link_inputs.ensureUnusedCapacity(arena, create_module.cli_link_inputs.items.len);
+        defer unresolved_link_inputs.deinit(gpa);
+        try unresolved_link_inputs.ensureUnusedCapacity(gpa, create_module.cli_link_inputs.items.len);
         var any_name_queries_remaining = false;
         for (create_module.cli_link_inputs.items) |cli_link_input| switch (cli_link_input) {
             .name_query => |nq| {
