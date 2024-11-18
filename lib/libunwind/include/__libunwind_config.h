@@ -53,6 +53,9 @@
 #    else
 #      define _LIBUNWIND_CURSOR_SIZE 66
 #    endif
+#  elif defined(__ILP32__)
+#    define _LIBUNWIND_CONTEXT_SIZE 21
+#    define _LIBUNWIND_CURSOR_SIZE 28
 #  else
 #    define _LIBUNWIND_CONTEXT_SIZE 21
 #    define _LIBUNWIND_CURSOR_SIZE 33
