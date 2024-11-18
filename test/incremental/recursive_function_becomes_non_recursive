@@ -1,4 +1,4 @@
-//#target=x86_64-linux-selfhosted
+#target=x86_64-linux-selfhosted
 #target=x86_64-linux-cbe
 #target=x86_64-windows-cbe
 #update=initial version
