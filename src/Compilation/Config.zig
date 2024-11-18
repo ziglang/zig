@@ -306,14 +306,6 @@ pub fn resolve(options: Options) ResolveError!Config {
             else => {},
         }
 
-        if (target.cpu.arch.isRISCV()) {
-            // Clang and LLVM currently don't support RISC-V target-abi for LTO.
-            // Compiling with LTO may fail or produce undesired results.
-            // See https://reviews.llvm.org/D71387
-            // See https://reviews.llvm.org/D102582
-            break :b false;
-        }
-
         break :b switch (options.output_mode) {
             .Lib, .Obj => false,
             .Exe => switch (root_optimize_mode) {
