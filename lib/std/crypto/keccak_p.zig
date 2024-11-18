@@ -269,13 +269,33 @@ pub fn State(comptime f: u11, comptime capacity: u11, comptime rounds: u5) type 
         }
 
         /// Squeeze a slice of bytes from the sponge.
-        pub fn squeeze(self: *Self, out: []u8) void {
+        /// The function can be called multiple times.
+        pub fn squeeze(self: *Self, out_: []u8) void {
+            var out = out_;
+            if (self.offset > 0) {
+                @branchHint(.unlikely);
+                var buf: [rate]u8 = undefined;
+                self.st.extractBytes(buf[0..]);
+                const left = @min(rate - self.offset, out.len);
+                @memcpy(out[0..left], buf[self.offset..][0..left]);
+                self.offset += left;
+                if (self.offset == rate) {
+                    self.offset = 0;
+                    self.st.permuteR(rounds);
+                }
+                if (left == out.len) return;
+                out = out[left..];
+            }
             var i: usize = 0;
-            while (i < out.len) : (i += rate) {
-                const left = @min(rate, out.len - i);
-                self.st.extractBytes(out[i..][0..left]);
+            while (i + rate <= out.len) : (i += rate) {
+                self.st.extractBytes(out[i..][0..rate]);
                 self.st.permuteR(rounds);
             }
+            const left = out.len % rate;
+            if (left > 0) {
+                self.st.extractBytes(out[i..][0..left]);
+            }
+            self.offset = left;
         }
     };
 }
@@ -297,4 +317,25 @@ test "Keccak-f800" {
         0x1DB35DF7, 0x5AA60162, 0x358825D5, 0xB3783BAB,
     };
     try std.testing.expectEqualSlices(u32, &st.st, &expected);
+}
+
+test "squeeze" {
+    const st: State(800, 256, 22) = .{ .delim = 0x01 };
+    var out0: [15]u8 = undefined;
+    var out1: [out0.len]u8 = undefined;
+    var st0 = st;
+    st0.squeeze(out0[0..]);
+    var st1 = st;
+    st1.squeeze(out1[0 .. out1.len / 2]);
+    st1.squeeze(out1[out1.len / 2 ..]);
+    try std.testing.expectEqualSlices(u8, &out0, &out1);
+
+    var out2: [100]u8 = undefined;
+    var out3: [out2.len]u8 = undefined;
+    var st2 = st;
+    st2.squeeze(out2[0..]);
+    var st3 = st;
+    st3.squeeze(out3[0 .. out2.len / 2]);
+    st3.squeeze(out3[out2.len / 2 ..]);
+    try std.testing.expectEqualSlices(u8, &out2, &out3);
 }
