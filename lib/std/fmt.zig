@@ -456,10 +456,10 @@ const ANY = "any";
 
 pub fn defaultSpec(comptime T: type) [:0]const u8 {
     switch (@typeInfo(T)) {
-        .array => |_| return ANY,
+        .array, .vector => return ANY,
         .pointer => |ptr_info| switch (ptr_info.size) {
             .One => switch (@typeInfo(ptr_info.child)) {
-                .array => |_| return ANY,
+                .array => return ANY,
                 else => {},
             },
             .Many, .C => return "*",
@@ -680,7 +680,7 @@ pub fn formatType(
             try writer.writeAll("{ ");
             var i: usize = 0;
             while (i < info.len) : (i += 1) {
-                try formatValue(value[i], actual_fmt, options, writer);
+                try formatType(value[i], actual_fmt, options, writer, max_depth - 1);
                 if (i < info.len - 1) {
                     try writer.writeAll(", ");
                 }
@@ -2608,6 +2608,22 @@ test "vector" {
     try expectFmt("{    -2,    -1,    +0,    +1 }", "{d:5}", .{vi64});
     try expectFmt("{ 1000, 2000, 3000, 4000 }", "{}", .{vu64});
     try expectFmt("{ 3e8, 7d0, bb8, fa0 }", "{x}", .{vu64});
+
+    const x: [4]u64 = undefined;
+    const vp: @Vector(4, *const u64) = [_]*const u64{ &x[0], &x[1], &x[2], &x[3] };
+    const vop: @Vector(4, ?*const u64) = [_]?*const u64{ &x[0], null, null, &x[3] };
+
+    var expect_buffer: [@sizeOf(usize) * 2 * 4 + 64]u8 = undefined;
+    try expectFmt(try bufPrint(
+        &expect_buffer,
+        "{{ {}, {}, {}, {} }}",
+        .{ &x[0], &x[1], &x[2], &x[3] },
+    ), "{}", .{vp});
+    try expectFmt(try bufPrint(
+        &expect_buffer,
+        "{{ {?}, null, null, {?} }}",
+        .{ &x[0], &x[3] },
+    ), "{any}", .{vop});
 }
 
 test "enum-literal" {
