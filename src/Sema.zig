@@ -35076,6 +35076,7 @@ fn resolvePeerTypesInner(
 
                 ptr_info.flags.is_const = ptr_info.flags.is_const or peer_info.flags.is_const;
                 ptr_info.flags.is_volatile = ptr_info.flags.is_volatile or peer_info.flags.is_volatile;
+                ptr_info.flags.is_allowzero = ptr_info.flags.is_allowzero or peer_info.flags.is_allowzero;
 
                 const peer_sentinel: InternPool.Index = switch (peer_info.flags.size) {
                     .One => switch (ip.indexToKey(peer_info.child)) {
