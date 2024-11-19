@@ -683,8 +683,8 @@ inline fn sbox_lookup(sbox: *align(64) const [256]u8, idx0: u8, idx1: u8, idx2: 
         const stride = switch (side_channels_mitigations) {
             .none => unreachable,
             .basic => sbox.len / 4,
-            .medium => sbox.len / (sbox.len / cache_line_bytes) * 2,
-            .full => sbox.len / (sbox.len / cache_line_bytes),
+            .medium => @min(sbox.len, 2 * cache_line_bytes),
+            .full => @min(sbox.len, cache_line_bytes),
         };
         const of0 = idx0 % stride;
         const of1 = idx1 % stride;
@@ -722,8 +722,8 @@ inline fn table_lookup(table: *align(64) const [4][256]u32, idx0: u8, idx1: u8, 
         const stride = switch (side_channels_mitigations) {
             .none => unreachable,
             .basic => table[0].len / 4,
-            .medium => table[0].len / (table_bytes / cache_line_bytes) * 2,
-            .full => table[0].len / (table_bytes / cache_line_bytes),
+            .medium => @min(table[0].len, (2 * table_bytes / cache_line_bytes) / 4),
+            .full => @min(table[0].len, (table_bytes / cache_line_bytes) / 4),
         };
         const of0 = idx0 % stride;
         const of1 = idx1 % stride;
