@@ -2,18 +2,23 @@ const std = @import("../../std.zig");
 const builtin = @import("builtin");
 const mem = std.mem;
 const debug = std.debug;
-const BlockVec = @Vector(2, u64);
+
+const has_vaes = builtin.cpu.arch == .x86_64 and std.Target.x86.featureSetHas(builtin.cpu.features, .vaes);
+const has_avx512f = builtin.cpu.arch == .x86_64 and std.Target.x86.featureSetHas(builtin.cpu.features, .avx512f);
 
 /// A single AES block.
 pub const Block = struct {
+    const Repr = @Vector(2, u64);
+
+    /// The length of an AES block in bytes.
     pub const block_length: usize = 16;
 
     /// Internal representation of a block.
-    repr: BlockVec,
+    repr: Repr,
 
     /// Convert a byte sequence into an internal representation.
     pub inline fn fromBytes(bytes: *const [16]u8) Block {
-        const repr = mem.bytesToValue(BlockVec, bytes);
+        const repr = mem.bytesToValue(Repr, bytes);
         return Block{ .repr = repr };
     }
 
@@ -33,7 +38,7 @@ pub const Block = struct {
         return Block{
             .repr = asm (
                 \\ vaesenc %[rk], %[in], %[out]
-                : [out] "=x" (-> BlockVec),
+                : [out] "=x" (-> Repr),
                 : [in] "x" (block.repr),
                   [rk] "x" (round_key.repr),
             ),
@@ -45,7 +50,7 @@ pub const Block = struct {
         return Block{
             .repr = asm (
                 \\ vaesenclast %[rk], %[in], %[out]
-                : [out] "=x" (-> BlockVec),
+                : [out] "=x" (-> Repr),
                 : [in] "x" (block.repr),
                   [rk] "x" (round_key.repr),
             ),
@@ -57,7 +62,7 @@ pub const Block = struct {
         return Block{
             .repr = asm (
                 \\ vaesdec %[rk], %[in], %[out]
-                : [out] "=x" (-> BlockVec),
+                : [out] "=x" (-> Repr),
                 : [in] "x" (block.repr),
                   [rk] "x" (inv_round_key.repr),
             ),
@@ -69,7 +74,7 @@ pub const Block = struct {
         return Block{
             .repr = asm (
                 \\ vaesdeclast %[rk], %[in], %[out]
-                : [out] "=x" (-> BlockVec),
+                : [out] "=x" (-> Repr),
                 : [in] "x" (block.repr),
                   [rk] "x" (inv_round_key.repr),
             ),
@@ -168,17 +173,158 @@ pub const Block = struct {
     };
 };
 
+/// A fixed-size vector of AES blocks.
+/// All operations are performed in parallel, using SIMD instructions when available.
+pub fn BlockVec(comptime blocks_count: comptime_int) type {
+    return struct {
+        const Self = @This();
+
+        /// The number of AES blocks the target architecture can process with a single instruction.
+        pub const native_vector_size = w: {
+            if (has_avx512f and blocks_count % 4 == 0) break :w 4;
+            if (has_vaes and blocks_count % 2 == 0) break :w 2;
+            break :w 1;
+        };
+
+        /// The size of the AES block vector that the target architecture can process with a single instruction, in bytes.
+        pub const native_word_size = native_vector_size * 16;
+
+        const native_words = blocks_count / native_vector_size;
+
+        const Repr = @Vector(native_vector_size * 2, u64);
+
+        /// Internal representation of a block vector.
+        repr: [native_words]Repr,
+
+        /// Length of the block vector in bytes.
+        pub const block_length: usize = blocks_count * 16;
+
+        /// Convert a byte sequence into an internal representation.
+        pub inline fn fromBytes(bytes: *const [blocks_count * 16]u8) Self {
+            var out: Self = undefined;
+            inline for (0..native_words) |i| {
+                out.repr[i] = mem.bytesToValue(Repr, bytes[i * native_word_size ..][0..native_word_size]);
+            }
+            return out;
+        }
+
+        /// Convert the internal representation of a block vector into a byte sequence.
+        pub inline fn toBytes(block_vec: Self) [blocks_count * 16]u8 {
+            var out: [blocks_count * 16]u8 = undefined;
+            inline for (0..native_words) |i| {
+                out[i * native_word_size ..][0..native_word_size].* = mem.toBytes(block_vec.repr[i]);
+            }
+            return out;
+        }
+
+        /// XOR the block vector with a byte sequence.
+        pub inline fn xorBytes(block_vec: Self, bytes: *const [blocks_count * 16]u8) [32]u8 {
+            var out: Self = undefined;
+            inline for (0..native_words) |i| {
+                out.repr[i] = block_vec.repr[i] ^ mem.bytesToValue(Repr, bytes[i * native_word_size ..][0..native_word_size]);
+            }
+            return out;
+        }
+
+        /// Apply the forward AES operation to the block vector with a vector of round keys.
+        pub inline fn encrypt(block_vec: Self, round_key_vec: Self) Self {
+            var out: Self = undefined;
+            inline for (0..native_words) |i| {
+                out.repr[i] = asm (
+                    \\ vaesenc %[rk], %[in], %[out]
+                    : [out] "=x" (-> Repr),
+                    : [in] "x" (block_vec.repr[i]),
+                      [rk] "x" (round_key_vec.repr[i]),
+                );
+            }
+            return out;
+        }
+
+        /// Apply the forward AES operation to the block vector with a vector of last round keys.
+        pub inline fn encryptLast(block_vec: Self, round_key_vec: Self) Self {
+            var out: Self = undefined;
+            inline for (0..native_words) |i| {
+                out.repr[i] = asm (
+                    \\ vaesenclast %[rk], %[in], %[out]
+                    : [out] "=x" (-> Repr),
+                    : [in] "x" (block_vec.repr[i]),
+                      [rk] "x" (round_key_vec.repr[i]),
+                );
+            }
+            return out;
+        }
+
+        /// Apply the inverse AES operation to the block vector with a vector of round keys.
+        pub inline fn decrypt(block_vec: Self, inv_round_key_vec: Self) Self {
+            var out: Self = undefined;
+            inline for (0..native_words) |i| {
+                out.repr[i] = asm (
+                    \\ vaesdec %[rk], %[in], %[out]
+                    : [out] "=x" (-> Repr),
+                    : [in] "x" (block_vec.repr[i]),
+                      [rk] "x" (inv_round_key_vec.repr[i]),
+                );
+            }
+            return out;
+        }
+
+        /// Apply the inverse AES operation to the block vector with a vector of last round keys.
+        pub inline fn decryptLast(block_vec: Self, inv_round_key_vec: Self) Self {
+            var out: Self = undefined;
+            inline for (0..native_words) |i| {
+                out.repr[i] = asm (
+                    \\ vaesdeclast %[rk], %[in], %[out]
+                    : [out] "=x" (-> Repr),
+                    : [in] "x" (block_vec.repr[i]),
+                      [rk] "x" (inv_round_key_vec.repr[i]),
+                );
+            }
+            return out;
+        }
+
+        /// Apply the bitwise XOR operation to the content of two block vectors.
+        pub inline fn xorBlocks(block_vec1: Self, block_vec2: Self) Self {
+            var out: Self = undefined;
+            inline for (0..native_words) |i| {
+                out.repr[i] = block_vec1.repr[i] ^ block_vec2.repr[i];
+            }
+            return out;
+        }
+
+        /// Apply the bitwise AND operation to the content of two block vectors.
+        pub inline fn andBlocks(block_vec1: Self, block_vec2: Self) Self {
+            var out: Self = undefined;
+            inline for (0..native_words) |i| {
+                out.repr[i] = block_vec1.repr[i] & block_vec2.repr[i];
+            }
+            return out;
+        }
+
+        /// Apply the bitwise OR operation to the content of two block vectors.
+        pub inline fn orBlocks(block_vec1: Self, block_vec2: Block) Self {
+            var out: Self = undefined;
+            inline for (0..native_words) |i| {
+                out.repr[i] = block_vec1.repr[i] | block_vec2.repr[i];
+            }
+            return out;
+        }
+    };
+}
+
 fn KeySchedule(comptime Aes: type) type {
     std.debug.assert(Aes.rounds == 10 or Aes.rounds == 14);
     const rounds = Aes.rounds;
 
     return struct {
         const Self = @This();
+
+        const Repr = Aes.block.Repr;
+
         round_keys: [rounds + 1]Block,
 
-        fn drc(comptime second: bool, comptime rc: u8, t: BlockVec, tx: BlockVec) BlockVec {
-            var s: BlockVec = undefined;
-            var ts: BlockVec = undefined;
+        fn drc(comptime second: bool, comptime rc: u8, t: Repr, tx: Repr) Repr {
+            var s: Repr = undefined;
+            var ts: Repr = undefined;
             return asm (
                 \\ vaeskeygenassist %[rc], %[t], %[s]
                 \\ vpslldq $4, %[tx], %[ts]
@@ -187,7 +333,7 @@ fn KeySchedule(comptime Aes: type) type {
                 \\ vpxor   %[ts], %[r], %[r]
                 \\ vpshufd %[mask], %[s], %[ts]
                 \\ vpxor   %[ts], %[r], %[r]
-                : [r] "=&x" (-> BlockVec),
+                : [r] "=&x" (-> Repr),
                   [s] "=&x" (s),
                   [ts] "=&x" (ts),
                 : [rc] "n" (rc),
@@ -234,7 +380,7 @@ fn KeySchedule(comptime Aes: type) type {
                 inv_round_keys[i] = Block{
                     .repr = asm (
                         \\ vaesimc %[rk], %[inv_rk]
-                        : [inv_rk] "=x" (-> BlockVec),
+                        : [inv_rk] "=x" (-> Repr),
                         : [rk] "x" (round_keys[rounds - i].repr),
                     ),
                 };
