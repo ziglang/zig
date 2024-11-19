@@ -270,8 +270,8 @@ pub fn State(comptime f: u11, comptime capacity: u11, comptime rounds: u5) type 
 
         /// Squeeze a slice of bytes from the sponge.
         /// The function can be called multiple times.
-        pub fn squeeze(self: *Self, out_: []u8) void {
-            var out = out_;
+        pub fn squeeze(self: *Self, out: []u8) void {
+            var i: usize = 0;
             if (self.offset > 0) {
                 @branchHint(.unlikely);
                 var buf: [rate]u8 = undefined;
@@ -284,14 +284,13 @@ pub fn State(comptime f: u11, comptime capacity: u11, comptime rounds: u5) type 
                     self.st.permuteR(rounds);
                 }
                 if (left == out.len) return;
-                out = out[left..];
+                i = left;
             }
-            var i: usize = 0;
             while (i + rate <= out.len) : (i += rate) {
                 self.st.extractBytes(out[i..][0..rate]);
                 self.st.permuteR(rounds);
             }
-            const left = out.len % rate;
+            const left = out.len - i;
             if (left > 0) {
                 self.st.extractBytes(out[i..][0..left]);
             }
@@ -321,6 +320,7 @@ test "Keccak-f800" {
 
 test "squeeze" {
     const st: State(800, 256, 22) = .{ .delim = 0x01 };
+
     var out0: [15]u8 = undefined;
     var out1: [out0.len]u8 = undefined;
     var st0 = st;
