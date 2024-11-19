@@ -133,3 +133,43 @@ pub const Config = union(enum) {
         };
     }
 };
+
+/// Registers a global handler function to run if an interrupt signal is catched.
+/// An interrupt signal is usually fired if Ctrl+C is pressed in the terminal that controls the process.
+///
+/// Because this handler won't run if Ctrl+C isn't pressed by the user, registering this handler failed,
+/// or the handler was overwritten by another setInterruptSignalHandler call,
+/// this should be used only for non-critical cleanups or resets of terminal state and such.
+///
+/// A program can only have one handler at a time.
+///
+/// The handler will not exit the program after it runs.
+pub fn setInterruptSignalHandler(comptime handler: fn () void) error{Unexpected}!void {
+    if (builtin.os.tag == .windows) {
+        const handler_routine = struct {
+            fn handler_routine(dwCtrlType: windows.DWORD) callconv(windows.WINAPI) windows.BOOL {
+                if (dwCtrlType == windows.CTRL_C_EVENT) {
+                    handler();
+                    return windows.TRUE;
+                } else {
+                    // Ignore this event.
+                    return windows.FALSE;
+                }
+            }
+        }.handler_routine;
+        try windows.SetConsoleCtrlHandler(handler_routine, true);
+    } else {
+        const internal_handler = struct {
+            fn internal_handler(sig: c_int) callconv(.C) void {
+                std.debug.assert(sig == std.posix.SIG.INT);
+                handler();
+            }
+        }.internal_handler;
+        const act = std.posix.Sigaction{
+            .handler = .{ .handler = internal_handler },
+            .mask = std.posix.empty_sigset,
+            .flags = 0,
+        };
+        std.posix.sigaction(std.posix.SIG.INT, &act, null);
+    }
+}
