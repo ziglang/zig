@@ -259,30 +259,30 @@ pub fn State(comptime f: u11, comptime capacity: u11, comptime rounds: u5) type 
         transition: TransitionTracker = .{},
 
         /// Absorb a slice of bytes into the sponge.
-        pub fn absorb(self: *Self, bytes_: []const u8) void {
+        pub fn absorb(self: *Self, bytes: []const u8) void {
             self.transition.to(.absorb);
-            var bytes = bytes_;
+            var i: usize = 0;
             if (self.offset > 0) {
                 const left = @min(rate - self.offset, bytes.len);
                 @memcpy(self.buf[self.offset..][0..left], bytes[0..left]);
                 self.offset += left;
+                if (left == bytes.len) return;
                 if (self.offset == rate) {
-                    self.offset = 0;
                     self.st.addBytes(self.buf[0..]);
                     self.st.permuteR(rounds);
+                    self.offset = 0;
                 }
-                if (left == bytes.len) return;
-                bytes = bytes[left..];
+                i = left;
             }
-            while (bytes.len >= rate) {
-                self.st.addBytes(bytes[0..rate]);
+            while (i + rate < bytes.len) : (i += rate) {
+                self.st.addBytes(bytes[i..][0..rate]);
                 self.st.permuteR(rounds);
-                bytes = bytes[rate..];
             }
-            if (bytes.len > 0) {
-                @memcpy(self.buf[0..bytes.len], bytes);
-                self.offset = bytes.len;
+            const left = bytes.len - i;
+            if (left > 0) {
+                @memcpy(self.buf[0..left], bytes[i..][0..left]);
             }
+            self.offset = left;
         }
 
         /// Initialize the state from a slice of bytes.
@@ -294,12 +294,17 @@ pub fn State(comptime f: u11, comptime capacity: u11, comptime rounds: u5) type 
 
         /// Permute the state
         pub fn permute(self: *Self) void {
+            if (mode == .Debug) {
+                if (self.transition.op == .absorb and self.offset > 0) {
+                    @panic("cannot permute with pending input - call fillBlock() or pad() instead");
+                }
+            }
             self.transition.to(.updated);
             self.st.permuteR(rounds);
             self.offset = 0;
         }
 
-        /// Align the input to the rate boundary.
+        /// Align the input to the rate boundary and permute.
         pub fn fillBlock(self: *Self) void {
             self.transition.to(.absorb);
             self.st.addBytes(self.buf[0..self.offset]);
@@ -312,6 +317,10 @@ pub fn State(comptime f: u11, comptime capacity: u11, comptime rounds: u5) type 
         pub fn pad(self: *Self) void {
             self.transition.to(.absorb);
             self.st.addBytes(self.buf[0..self.offset]);
+            if (self.offset == rate) {
+                self.st.permuteR(rounds);
+                self.offset = 0;
+            }
             self.st.addByte(self.delim, self.offset);
             self.st.addByte(0x80, rate - 1);
             self.st.permuteR(rounds);
@@ -333,11 +342,11 @@ pub fn State(comptime f: u11, comptime capacity: u11, comptime rounds: u5) type 
                 const left = @min(rate - self.offset, out.len);
                 @memcpy(out[0..left], buf[self.offset..][0..left]);
                 self.offset += left;
+                if (left == out.len) return;
                 if (self.offset == rate) {
                     self.offset = 0;
                     self.st.permuteR(rounds);
                 }
-                if (left == out.len) return;
                 i = left;
             }
             while (i + rate < out.len) : (i += rate) {
