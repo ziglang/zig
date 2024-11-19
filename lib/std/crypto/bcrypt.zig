@@ -582,7 +582,7 @@ pub fn opensshKdf(pass: []const u8, salt: []const u8, key: []u8, rounds_log: u32
     Sha512.hash(pass, &sha2pass, .{});
     const stride = (key.len + tmp.len - 1) / tmp.len;
     var amt = (key.len + stride - 1) / stride;
-    if (key.len >> 32 >= amt) {
+    if (math.shr(usize, key.len, 32) >= amt) {
         return error.InvalidInput;
     }
     var key_remainder = key.len;
