@@ -669,7 +669,7 @@ fn mul(a: u8, b: u8) u8 {
     return @as(u8, @truncate(s));
 }
 
-const cache_line_bytes = 64;
+const cache_line_bytes = std.atomic.cache_line;
 
 inline fn sbox_lookup(sbox: *align(64) const [256]u8, idx0: u8, idx1: u8, idx2: u8, idx3: u8) [4]u8 {
     if (side_channels_mitigations == .none) {
