@@ -355,7 +355,7 @@ pub fn BlockVec(comptime blocks_count: comptime_int) type {
         /// Convert a byte sequence into an internal representation.
         pub inline fn fromBytes(bytes: *const [blocks_count * 16]u8) Self {
             var out: Self = undefined;
-            inline for (0..native_words) |i| {
+            for (0..native_words) |i| {
                 out.repr[i] = Block.fromBytes(bytes[i * native_word_size ..][0..native_word_size]);
             }
             return out;
@@ -364,7 +364,7 @@ pub fn BlockVec(comptime blocks_count: comptime_int) type {
         /// Convert the internal representation of a block vector into a byte sequence.
         pub inline fn toBytes(block_vec: Self) [blocks_count * 16]u8 {
             var out: [blocks_count * 16]u8 = undefined;
-            inline for (0..native_words) |i| {
+            for (0..native_words) |i| {
                 out[i * native_word_size ..][0..native_word_size].* = block_vec.repr[i].toBytes();
             }
             return out;
@@ -373,7 +373,7 @@ pub fn BlockVec(comptime blocks_count: comptime_int) type {
         /// XOR the block vector with a byte sequence.
         pub inline fn xorBytes(block_vec: Self, bytes: *const [blocks_count * 16]u8) [32]u8 {
             var out: Self = undefined;
-            inline for (0..native_words) |i| {
+            for (0..native_words) |i| {
                 out.repr[i] = block_vec.repr[i].xorBytes(bytes[i * native_word_size ..][0..native_word_size]);
             }
             return out;
@@ -382,7 +382,7 @@ pub fn BlockVec(comptime blocks_count: comptime_int) type {
         /// Apply the forward AES operation to the block vector with a vector of round keys.
         pub inline fn encrypt(block_vec: Self, round_key_vec: Self) Self {
             var out: Self = undefined;
-            inline for (0..native_words) |i| {
+            for (0..native_words) |i| {
                 out.repr[i] = block_vec.repr[i].encrypt(round_key_vec.repr[i]);
             }
             return out;
@@ -391,7 +391,7 @@ pub fn BlockVec(comptime blocks_count: comptime_int) type {
         /// Apply the forward AES operation to the block vector with a vector of last round keys.
         pub inline fn encryptLast(block_vec: Self, round_key_vec: Self) Self {
             var out: Self = undefined;
-            inline for (0..native_words) |i| {
+            for (0..native_words) |i| {
                 out.repr[i] = block_vec.repr[i].encryptLast(round_key_vec.repr[i]);
             }
             return out;
@@ -400,7 +400,7 @@ pub fn BlockVec(comptime blocks_count: comptime_int) type {
         /// Apply the inverse AES operation to the block vector with a vector of round keys.
         pub inline fn decrypt(block_vec: Self, inv_round_key_vec: Self) Self {
             var out: Self = undefined;
-            inline for (0..native_words) |i| {
+            for (0..native_words) |i| {
                 out.repr[i] = block_vec.repr[i].decrypt(inv_round_key_vec.repr[i]);
             }
             return out;
@@ -409,7 +409,7 @@ pub fn BlockVec(comptime blocks_count: comptime_int) type {
         /// Apply the inverse AES operation to the block vector with a vector of last round keys.
         pub inline fn decryptLast(block_vec: Self, inv_round_key_vec: Self) Self {
             var out: Self = undefined;
-            inline for (0..native_words) |i| {
+            for (0..native_words) |i| {
                 out.repr[i] = block_vec.repr[i].decryptLast(inv_round_key_vec.repr[i]);
             }
             return out;
@@ -418,7 +418,7 @@ pub fn BlockVec(comptime blocks_count: comptime_int) type {
         /// Apply the bitwise XOR operation to the content of two block vectors.
         pub inline fn xorBlocks(block_vec1: Self, block_vec2: Self) Self {
             var out: Self = undefined;
-            inline for (0..native_words) |i| {
+            for (0..native_words) |i| {
                 out.repr[i] = block_vec1.repr[i].xorBlocks(block_vec2.repr[i]);
             }
             return out;
@@ -427,7 +427,7 @@ pub fn BlockVec(comptime blocks_count: comptime_int) type {
         /// Apply the bitwise AND operation to the content of two block vectors.
         pub inline fn andBlocks(block_vec1: Self, block_vec2: Self) Self {
             var out: Self = undefined;
-            inline for (0..native_words) |i| {
+            for (0..native_words) |i| {
                 out.repr[i] = block_vec1.repr[i].andBlocks(block_vec2.repr[i]);
             }
             return out;
@@ -436,7 +436,7 @@ pub fn BlockVec(comptime blocks_count: comptime_int) type {
         /// Apply the bitwise OR operation to the content of two block vectors.
         pub inline fn orBlocks(block_vec1: Self, block_vec2: Block) Self {
             var out: Self = undefined;
-            inline for (0..native_words) |i| {
+            for (0..native_words) |i| {
                 out.repr[i] = block_vec1.repr[i].orBlocks(block_vec2.repr[i]);
             }
             return out;
