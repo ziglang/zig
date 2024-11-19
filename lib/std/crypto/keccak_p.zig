@@ -272,7 +272,9 @@ pub fn State(comptime f: u11, comptime capacity: u11, comptime rounds: u5) type 
         /// The function can be called multiple times.
         pub fn squeeze(self: *Self, out: []u8) void {
             var i: usize = 0;
-            if (self.offset > 0) {
+            if (self.offset == rate) {
+                self.st.permuteR(rounds);
+            } else if (self.offset > 0) {
                 @branchHint(.unlikely);
                 var buf: [rate]u8 = undefined;
                 self.st.extractBytes(buf[0..]);
@@ -286,7 +288,7 @@ pub fn State(comptime f: u11, comptime capacity: u11, comptime rounds: u5) type 
                 if (left == out.len) return;
                 i = left;
             }
-            while (i + rate <= out.len) : (i += rate) {
+            while (i + rate < out.len) : (i += rate) {
                 self.st.extractBytes(out[i..][0..rate]);
                 self.st.permuteR(rounds);
             }
