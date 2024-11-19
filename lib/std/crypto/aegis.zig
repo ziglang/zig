@@ -644,6 +644,10 @@ fn AegisMac(comptime T: type) type {
 
             var i = len_partial;
             self.off = 0;
+            while (i + block_length * 2 <= b.len) : (i += block_length * 2) {
+                self.state.absorb(b[i..][0..block_length]);
+                self.state.absorb(b[i..][block_length .. block_length * 2]);
+            }
             while (i + block_length <= b.len) : (i += block_length) {
                 self.state.absorb(b[i..][0..block_length]);
             }
