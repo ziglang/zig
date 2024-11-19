@@ -563,13 +563,56 @@ const pbkdf_prf = struct {
 };
 
 /// bcrypt-pbkdf is a key derivation function based on bcrypt.
-/// This is the function used in OpenSSH to derive encryption keys from passphrases.
-///
-/// This implementation is compatible with the OpenBSD implementation (https://github.com/openbsd/src/blob/master/lib/libutil/bcrypt_pbkdf.c).
 ///
 /// Unlike the password hashing function `bcrypt`, this function doesn't silently truncate passwords longer than 72 bytes.
-pub fn pbkdf(pass: []const u8, salt: []const u8, key: []u8, rounds: u32) !void {
-    try crypto.pwhash.pbkdf2(key, pass, salt, rounds, pbkdf_prf);
+pub fn pbkdf(pass: []const u8, salt: []const u8, key: []u8, rounds_log: u32) !void {
+    try crypto.pwhash.pbkdf2(key, pass, salt, rounds_log, pbkdf_prf);
+}
+
+/// The function used in OpenSSH to derive encryption keys from passphrases.
+///
+/// This implementation is compatible with the OpenBSD implementation (https://github.com/openbsd/src/blob/master/lib/libutil/bcrypt_pbkdf.c).
+pub fn opensshKdf(pass: []const u8, salt: []const u8, key: []u8, rounds_log: u32) !void {
+    var tmp: [32]u8 = undefined;
+    var tmp2: [32]u8 = undefined;
+    if (rounds_log < 1 or pass.len == 0 or salt.len == 0 or key.len == 0 or key.len > tmp.len * tmp.len) {
+        return error.InvalidInput;
+    }
+    var sha2pass: [Sha512.digest_length]u8 = undefined;
+    Sha512.hash(pass, &sha2pass, .{});
+    const stride = (key.len + tmp.len - 1) / tmp.len;
+    var amt = (key.len + stride - 1) / stride;
+    if (key.len >> 32 >= amt) {
+        return error.InvalidInput;
+    }
+    var key_remainder = key.len;
+    var count: u32 = 1;
+    while (key_remainder > 0) : (count += 1) {
+        var count_salt: [4]u8 = undefined;
+        std.mem.writeInt(u32, count_salt[0..], count, .big);
+        var sha2salt: [Sha512.digest_length]u8 = undefined;
+        var h = Sha512.init(.{});
+        h.update(salt);
+        h.update(&count_salt);
+        h.final(&sha2salt);
+        tmp2 = pbkdf_prf.hash(sha2pass, sha2salt);
+        tmp = tmp2;
+        for (1..rounds_log) |_| {
+            Sha512.hash(&tmp2, &sha2salt, .{});
+            tmp2 = pbkdf_prf.hash(sha2pass, sha2salt);
+            for (&tmp, tmp2) |*o, t| o.* ^= t;
+        }
+        amt = @min(amt, key_remainder);
+        for (0..amt) |i| {
+            const dest = i * stride + (count - 1);
+            if (dest >= key.len) break;
+            key[dest] = tmp[i];
+        }
+        key_remainder -= amt;
+    }
+    crypto.secureZero(u8, &tmp);
+    crypto.secureZero(u8, &tmp2);
+    crypto.secureZero(u8, &sha2pass);
 }
 
 const crypt_format = struct {
@@ -846,4 +889,14 @@ test "bcrypt phc format" {
         "The devil himself",
         verify_options,
     );
+}
+
+test "openssh kdf" {
+    var key: [100]u8 = undefined;
+    const pass = "password";
+    const salt = "salt";
+    const rounds = 5;
+    try opensshKdf(pass, salt, &key, rounds);
+    const expected = [_]u8{ 65, 207, 68, 58, 55, 252, 114, 141, 255, 65, 216, 175, 5, 92, 235, 68, 220, 92, 118, 161, 40, 13, 241, 190, 56, 152, 69, 136, 41, 214, 51, 205, 37, 221, 101, 59, 105, 73, 133, 36, 14, 59, 94, 212, 111, 107, 109, 237, 213, 235, 246, 119, 59, 76, 45, 130, 142, 81, 178, 231, 161, 158, 138, 108, 18, 162, 26, 50, 218, 251, 23, 66, 2, 232, 20, 202, 216, 46, 12, 250, 247, 246, 252, 23, 155, 74, 77, 195, 120, 113, 57, 88, 126, 81, 9, 249, 72, 18, 208, 160 };
+    try testing.expectEqualSlices(u8, &key, &expected);
 }
