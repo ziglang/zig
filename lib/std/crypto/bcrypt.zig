@@ -603,9 +603,9 @@ pub fn opensshKdf(pass: []const u8, salt: []const u8, key: []u8, rounds_log: u32
             for (&tmp, tmp2) |*o, t| o.* ^= t;
         }
         amt = @min(amt, key_remainder);
-        key_remainder -= rem: for (0..amt) |i| {
+        key_remainder -= for (0..amt) |i| {
             const dest = i * stride + (count - 1);
-            if (dest >= key.len) break :rem i;
+            if (dest >= key.len) break i;
             key[dest] = tmp[i];
         } else amt;
     }
