@@ -718,12 +718,11 @@ inline fn table_lookup(table: *align(64) const [4][256]u32, idx0: u8, idx1: u8, 
             table[3][idx3],
         };
     } else {
-        const table_bytes = @sizeOf(@TypeOf(table[0]));
         const stride = switch (side_channels_mitigations) {
             .none => unreachable,
             .basic => table[0].len / 4,
-            .medium => @min(table[0].len, (2 * table_bytes / cache_line_bytes) / 4),
-            .full => @min(table[0].len, (table_bytes / cache_line_bytes) / 4),
+            .medium => @max(1, @min(table[0].len, 2 * cache_line_bytes / 4)),
+            .full => @max(1, @min(table[0].len, cache_line_bytes / 4)),
         };
         const of0 = idx0 % stride;
         const of1 = idx1 % stride;
