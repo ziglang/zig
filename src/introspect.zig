@@ -6,32 +6,42 @@ const fs = std.fs;
 const Compilation = @import("Compilation.zig");
 const build_options = @import("build_options");
 
-/// Returns the sub_path that worked, or `null` if none did.
-/// The path of the returned Directory is relative to `base`.
-/// The handle of the returned Directory is open.
-fn testZigInstallPrefix(base_dir: fs.Dir) ?Compilation.Directory {
-    const test_index_file = "std" ++ fs.path.sep_str ++ "std.zig";
+/// Both the directory handle and the path are newly allocated resources which the caller now owns.
+fn walkParentsForFileDir(
+    allocator: mem.Allocator,
+    self_exe_path: []const u8,
+    test_dir_paths: []const []const u8,
+    test_file_path: []const u8,
+) error{
+    OutOfMemory,
+    FileNotFound,
+    CurrentWorkingDirectoryUnlinked,
+    Unexpected,
+}!Compilation.Directory {
+    const cwd = fs.cwd();
+    var cur_path: []const u8 = self_exe_path;
+    while (fs.path.dirname(cur_path)) |dirname| : (cur_path = dirname) {
+        var base_dir = cwd.openDir(dirname, .{}) catch continue;
+        defer base_dir.close();
 
-    zig_dir: {
-        // Try lib/zig/std/std.zig
-        const lib_zig = "lib" ++ fs.path.sep_str ++ "zig";
-        var test_zig_dir = base_dir.openDir(lib_zig, .{}) catch break :zig_dir;
-        const file = test_zig_dir.openFile(test_index_file, .{}) catch {
-            test_zig_dir.close();
-            break :zig_dir;
-        };
-        file.close();
-        return Compilation.Directory{ .handle = test_zig_dir, .path = lib_zig };
+        for (test_dir_paths) |test_dir_path| {
+            var test_dir = base_dir.openDir(test_dir_path, .{}) catch continue;
+            const file = test_dir.openFile(test_file_path, .{}) catch {
+                test_dir.close();
+                continue;
+            };
+            file.close();
+
+            const sub_directory = Compilation.Directory{ .handle = test_dir, .path = test_dir_path };
+            const p = try fs.path.join(allocator, &[_][]const u8{ dirname, sub_directory.path.? });
+            defer allocator.free(p);
+            return Compilation.Directory{
+                .handle = sub_directory.handle,
+                .path = try resolvePath(allocator, p),
+            };
+        }
     }
-
-    // Try lib/std/std.zig
-    var test_zig_dir = base_dir.openDir("lib", .{}) catch return null;
-    const file = test_zig_dir.openFile(test_index_file, .{}) catch {
-        test_zig_dir.close();
-        return null;
-    };
-    file.close();
-    return Compilation.Directory{ .handle = test_zig_dir, .path = "lib" };
+    return error.FileNotFound;
 }
 
 /// This is a small wrapper around selfExePathAlloc that adds support for WASI
@@ -62,21 +72,23 @@ pub fn findZigLibDirFromSelfExe(
     CurrentWorkingDirectoryUnlinked,
     Unexpected,
 }!Compilation.Directory {
-    const cwd = fs.cwd();
-    var cur_path: []const u8 = self_exe_path;
-    while (fs.path.dirname(cur_path)) |dirname| : (cur_path = dirname) {
-        var base_dir = cwd.openDir(dirname, .{}) catch continue;
-        defer base_dir.close();
+    const lib_zig = "lib" ++ fs.path.sep_str ++ "zig";
+    const test_index_file = "std" ++ fs.path.sep_str ++ "std.zig";
+    return walkParentsForFileDir(allocator, self_exe_path, &.{ lib_zig, "lib" }, test_index_file);
+}
 
-        const sub_directory = testZigInstallPrefix(base_dir) orelse continue;
-        const p = try fs.path.join(allocator, &[_][]const u8{ dirname, sub_directory.path.? });
-        defer allocator.free(p);
-        return Compilation.Directory{
-            .handle = sub_directory.handle,
-            .path = try resolvePath(allocator, p),
-        };
-    }
-    return error.FileNotFound;
+/// Both the directory handle and the path are newly allocated resources which the caller now owns.
+pub fn findZigSrcDirFromSelfExe(
+    allocator: mem.Allocator,
+    self_exe_path: []const u8,
+    test_file_path: []const u8,
+) error{
+    OutOfMemory,
+    FileNotFound,
+    CurrentWorkingDirectoryUnlinked,
+    Unexpected,
+}!Compilation.Directory {
+    return walkParentsForFileDir(allocator, self_exe_path, &.{"src"}, test_file_path);
 }
 
 /// Caller owns returned memory.
