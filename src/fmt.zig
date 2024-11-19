@@ -29,6 +29,17 @@ const Fmt = struct {
     const SeenMap = std.AutoHashMap(fs.File.INode, void);
 };
 
+pub fn main() !void {
+    var arena_instance = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_instance.deinit();
+    const arena = arena_instance.allocator();
+    const gpa = arena;
+
+    const args = try process.argsAlloc(arena);
+
+    return run(gpa, arena, args[1..]);
+}
+
 pub fn run(
     gpa: Allocator,
     arena: Allocator,
@@ -74,6 +85,10 @@ pub fn run(
                     i += 1;
                     const next_arg = args[i];
                     try excluded_files.append(next_arg);
+                } else if (mem.eql(u8, arg, "-fjit")) {
+                    if (i != 0) {
+                        fatal("-fjit must be the first argument when specified", .{});
+                    }
                 } else {
                     fatal("unrecognized parameter: '{s}'", .{arg});
                 }

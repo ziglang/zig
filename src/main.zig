@@ -309,6 +309,13 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             .server = use_server,
         });
     } else if (mem.eql(u8, cmd, "fmt")) {
+        if (std.mem.eql(u8, cmd_args[0], "-fjit")) {
+            return jitCmd(gpa, arena, cmd_args, .{
+                .cmd_name = "fmt",
+                .root_src_path = "fmt.zig",
+                .try_zig_src_as_root = true,
+            });
+        }
         return @import("fmt.zig").run(gpa, arena, cmd_args);
     } else if (mem.eql(u8, cmd, "objcopy")) {
         return jitCmd(gpa, arena, cmd_args, .{
@@ -5317,6 +5324,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
 const JitCmdOptions = struct {
     cmd_name: []const u8,
     root_src_path: []const u8,
+    try_zig_src_as_root: bool = false,
     prepend_zig_lib_dir_path: bool = false,
     prepend_global_cache_path: bool = false,
     prepend_zig_exe_path: bool = false,
@@ -5379,6 +5387,12 @@ fn jitCmd(
     };
     defer zig_lib_directory.handle.close();
 
+    var zig_src_directory: ?Directory = if (options.try_zig_src_as_root)
+        introspect.findZigSrcDirFromSelfExe(arena, self_exe_path, options.root_src_path) catch null
+    else
+        null;
+    defer if (zig_src_directory != null) zig_src_directory.?.handle.close();
+
     var global_cache_directory: Directory = l: {
         const p = override_global_cache_dir orelse try introspect.resolveGlobalCacheDir(arena);
         break :l .{
@@ -5403,7 +5417,10 @@ fn jitCmd(
     // big block here to ensure the cleanup gets run when we extract out our argv.
     {
         const main_mod_paths: Package.Module.CreateOptions.Paths = .{
-            .root = .{
+            .root = if (zig_src_directory) |zig_src_dir| .{
+                .root_dir = zig_src_dir,
+                .sub_path = "",
+            } else .{
                 .root_dir = zig_lib_directory,
                 .sub_path = "compiler",
             },
