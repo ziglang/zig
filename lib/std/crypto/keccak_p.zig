@@ -4,6 +4,7 @@ const assert = std.debug.assert;
 const math = std.math;
 const mem = std.mem;
 const native_endian = builtin.cpu.arch.endian();
+const mode = @import("builtin").mode;
 
 /// The Keccak-f permutation.
 pub fn KeccakF(comptime f: u11) type {
@@ -199,6 +200,46 @@ pub fn State(comptime f: u11, comptime capacity: u11, comptime rounds: u5) type 
     comptime assert(f >= 200 and f <= 1600 and f % 200 == 0); // invalid state size
     comptime assert(capacity < f and capacity % 8 == 0); // invalid capacity size
 
+    // In debug mode, track transitions to prevent insecure ones.
+    const Op = enum { uninitialized, initialized, updated, absorb, squeeze };
+    const TransitionTracker = if (mode == .Debug) struct {
+        op: Op = .uninitialized,
+
+        fn to(tracker: *@This(), next_op: Op) void {
+            switch (next_op) {
+                .updated => {
+                    switch (tracker.op) {
+                        .uninitialized => @panic("cannot permute before initializing"),
+                        else => {},
+                    }
+                },
+                .absorb => {
+                    switch (tracker.op) {
+                        .squeeze => @panic("cannot absorb right after squeezing"),
+                        else => {},
+                    }
+                },
+                .squeeze => {
+                    switch (tracker.op) {
+                        .uninitialized => @panic("cannot squeeze before initializing"),
+                        .initialized => @panic("cannot squeeze right after initializing"),
+                        .absorb => @panic("cannot squeeze right after absorbing"),
+                        else => {},
+                    }
+                },
+                .uninitialized => @panic("cannot transition to uninitialized"),
+                .initialized => {},
+            }
+            tracker.op = next_op;
+        }
+    } else struct {
+        // No-op in non-debug modes.
+        inline fn to(tracker: *@This(), next_op: Op) void {
+            _ = tracker; // no-op
+            _ = next_op; // no-op
+        }
+    };
+
     return struct {
         const Self = @This();
 
@@ -215,8 +256,11 @@ pub fn State(comptime f: u11, comptime capacity: u11, comptime rounds: u5) type 
 
         st: KeccakF(f) = .{},
 
+        transition: TransitionTracker = .{},
+
         /// Absorb a slice of bytes into the sponge.
         pub fn absorb(self: *Self, bytes_: []const u8) void {
+            self.transition.to(.absorb);
             var bytes = bytes_;
             if (self.offset > 0) {
                 const left = @min(rate - self.offset, bytes.len);
@@ -242,35 +286,43 @@ pub fn State(comptime f: u11, comptime capacity: u11, comptime rounds: u5) type 
         }
 
         /// Initialize the state from a slice of bytes.
-        pub fn init(bytes: [f / 8]u8) Self {
-            return .{ .st = KeccakF(f).init(bytes) };
+        pub fn init(bytes: [f / 8]u8, delim: u8) Self {
+            var st = Self{ .st = KeccakF(f).init(bytes), .delim = delim };
+            st.transition.to(.initialized);
+            return st;
         }
 
         /// Permute the state
         pub fn permute(self: *Self) void {
+            self.transition.to(.updated);
             self.st.permuteR(rounds);
             self.offset = 0;
         }
 
         /// Align the input to the rate boundary.
         pub fn fillBlock(self: *Self) void {
+            self.transition.to(.absorb);
             self.st.addBytes(self.buf[0..self.offset]);
             self.st.permuteR(rounds);
             self.offset = 0;
+            self.transition.to(.updated);
         }
 
         /// Mark the end of the input.
         pub fn pad(self: *Self) void {
+            self.transition.to(.absorb);
             self.st.addBytes(self.buf[0..self.offset]);
             self.st.addByte(self.delim, self.offset);
             self.st.addByte(0x80, rate - 1);
             self.st.permuteR(rounds);
             self.offset = 0;
+            self.transition.to(.updated);
         }
 
         /// Squeeze a slice of bytes from the sponge.
         /// The function can be called multiple times.
         pub fn squeeze(self: *Self, out: []u8) void {
+            self.transition.to(.squeeze);
             var i: usize = 0;
             if (self.offset == rate) {
                 self.st.permuteR(rounds);
@@ -321,10 +373,11 @@ test "Keccak-f800" {
 }
 
 test "squeeze" {
-    const st: State(800, 256, 22) = .{ .delim = 0x01 };
+    var st = State(800, 256, 22).init([_]u8{0x80} ** 100, 0x01);
 
     var out0: [15]u8 = undefined;
     var out1: [out0.len]u8 = undefined;
+    st.permute();
     var st0 = st;
     st0.squeeze(out0[0..]);
     var st1 = st;
