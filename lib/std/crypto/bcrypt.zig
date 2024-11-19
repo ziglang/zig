@@ -565,17 +565,17 @@ const pbkdf_prf = struct {
 /// bcrypt-pbkdf is a key derivation function based on bcrypt.
 ///
 /// Unlike the password hashing function `bcrypt`, this function doesn't silently truncate passwords longer than 72 bytes.
-pub fn pbkdf(pass: []const u8, salt: []const u8, key: []u8, rounds_log: u32) !void {
-    try crypto.pwhash.pbkdf2(key, pass, salt, rounds_log, pbkdf_prf);
+pub fn pbkdf(pass: []const u8, salt: []const u8, key: []u8, rounds: u32) !void {
+    try crypto.pwhash.pbkdf2(key, pass, salt, rounds, pbkdf_prf);
 }
 
 /// The function used in OpenSSH to derive encryption keys from passphrases.
 ///
 /// This implementation is compatible with the OpenBSD implementation (https://github.com/openbsd/src/blob/master/lib/libutil/bcrypt_pbkdf.c).
-pub fn opensshKdf(pass: []const u8, salt: []const u8, key: []u8, rounds_log: u32) !void {
+pub fn opensshKdf(pass: []const u8, salt: []const u8, key: []u8, rounds: u32) !void {
     var tmp: [32]u8 = undefined;
     var tmp2: [32]u8 = undefined;
-    if (rounds_log < 1 or pass.len == 0 or salt.len == 0 or key.len == 0 or key.len > tmp.len * tmp.len) {
+    if (rounds < 1 or pass.len == 0 or salt.len == 0 or key.len == 0 or key.len > tmp.len * tmp.len) {
         return error.InvalidInput;
     }
     var sha2pass: [Sha512.digest_length]u8 = undefined;
@@ -597,7 +597,7 @@ pub fn opensshKdf(pass: []const u8, salt: []const u8, key: []u8, rounds_log: u32
         h.final(&sha2salt);
         tmp2 = pbkdf_prf.hash(sha2pass, sha2salt);
         tmp = tmp2;
-        for (1..rounds_log) |_| {
+        for (1..rounds) |_| {
             Sha512.hash(&tmp2, &sha2salt, .{});
             tmp2 = pbkdf_prf.hash(sha2pass, sha2salt);
             for (&tmp, tmp2) |*o, t| o.* ^= t;
