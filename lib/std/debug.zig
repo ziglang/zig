@@ -16,6 +16,7 @@ const native_endian = native_arch.endian();
 pub const MemoryAccessor = @import("debug/MemoryAccessor.zig");
 pub const FixedBufferReader = @import("debug/FixedBufferReader.zig");
 pub const Dwarf = @import("debug/Dwarf.zig");
+pub const ElfSymTab = @import("debug/ElfSymTab.zig");
 pub const Pdb = @import("debug/Pdb.zig");
 pub const SelfInfo = @import("debug/SelfInfo.zig");
 pub const Info = @import("debug/Info.zig");
@@ -1062,7 +1063,7 @@ fn printUnwindError(debug_info: *SelfInfo, out_stream: anytype, address: usize, 
 
 pub fn printSourceAtAddress(debug_info: *SelfInfo, out_stream: anytype, address: usize, tty_config: io.tty.Config) !void {
     const module = debug_info.getModuleForAddress(address) catch |err| switch (err) {
-        error.MissingDebugInfo, error.InvalidDebugInfo => return printUnknownSource(debug_info, out_stream, address, tty_config),
+        error.MissingDebugInfo => return printUnknownSource(debug_info, out_stream, address, tty_config),
         else => return err,
     };
 
