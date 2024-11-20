@@ -669,7 +669,7 @@ fn mul(a: u8, b: u8) u8 {
     return @as(u8, @truncate(s));
 }
 
-const cache_line_bytes = 64;
+const cache_line_bytes = std.atomic.cache_line;
 
 inline fn sbox_lookup(sbox: *align(64) const [256]u8, idx0: u8, idx1: u8, idx2: u8, idx3: u8) [4]u8 {
     if (side_channels_mitigations == .none) {
@@ -683,8 +683,8 @@ inline fn sbox_lookup(sbox: *align(64) const [256]u8, idx0: u8, idx1: u8, idx2: 
         const stride = switch (side_channels_mitigations) {
             .none => unreachable,
             .basic => sbox.len / 4,
-            .medium => sbox.len / (sbox.len / cache_line_bytes) * 2,
-            .full => sbox.len / (sbox.len / cache_line_bytes),
+            .medium => @min(sbox.len, 2 * cache_line_bytes),
+            .full => @min(sbox.len, cache_line_bytes),
         };
         const of0 = idx0 % stride;
         const of1 = idx1 % stride;
@@ -718,12 +718,11 @@ inline fn table_lookup(table: *align(64) const [4][256]u32, idx0: u8, idx1: u8, 
             table[3][idx3],
         };
     } else {
-        const table_bytes = @sizeOf(@TypeOf(table[0]));
         const stride = switch (side_channels_mitigations) {
             .none => unreachable,
             .basic => table[0].len / 4,
-            .medium => table[0].len / (table_bytes / cache_line_bytes) * 2,
-            .full => table[0].len / (table_bytes / cache_line_bytes),
+            .medium => @max(1, @min(table[0].len, 2 * cache_line_bytes / 4)),
+            .full => @max(1, @min(table[0].len, cache_line_bytes / 4)),
         };
         const of0 = idx0 % stride;
         const of1 = idx1 % stride;
