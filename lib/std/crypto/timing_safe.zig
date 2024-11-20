@@ -133,15 +133,15 @@ pub fn sub(comptime T: type, a: []const T, b: []const T, result: []T, endian: En
 
 fn markSecret(ptr: anytype, comptime action: enum { classify, declassify }) void {
     const t = @typeInfo(@TypeOf(ptr));
-    if (t != .Pointer) @compileError("Pointer expected - Found: " ++ @typeName(@TypeOf(ptr)));
-    const p = t.Pointer;
+    if (t != .pointer) @compileError("Pointer expected - Found: " ++ @typeName(@TypeOf(ptr)));
+    const p = t.pointer;
     if (p.is_allowzero) @compileError("A nullable pointer is always assumed to leak information via side channels");
     const child = @typeInfo(p.child);
 
     switch (child) {
-        .Void, .Null, .ComptimeInt, .ComptimeFloat => return,
-        .Pointer => {
-            if (child.Pointer.size == std.builtin.Type.Pointer.Size.Slice) {
+        .void, .null, .comptime_int, .comptime_float => return,
+        .pointer => {
+            if (child.pointer.size == .Slice) {
                 @compileError("Found pointer to pointer. If the intent was to pass a slice, maybe remove the leading & in the function call");
             }
             @compileError("A pointer value is always assumed leak information via side channels");
