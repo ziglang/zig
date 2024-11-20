@@ -17,6 +17,7 @@ const pdb = std.pdb;
 const assert = std.debug.assert;
 const posix = std.posix;
 const elf = std.elf;
+const ElfSymTab = std.debug.ElfSymTab;
 const Dwarf = std.debug.Dwarf;
 const Pdb = std.debug.Pdb;
 const File = std.fs.File;
@@ -462,8 +463,8 @@ fn lookupModuleDl(self: *SelfInfo, address: usize) !*Module {
         return obj_di;
     }
 
-    const obj_di = try self.allocator.create(Module);
-    errdefer self.allocator.destroy(obj_di);
+    const obj_ei = try self.allocator.create(Module);
+    errdefer self.allocator.destroy(obj_ei);
 
     var sections: Dwarf.SectionArray = Dwarf.null_section_array;
     if (ctx.gnu_eh_frame) |eh_frame_hdr| {
@@ -477,15 +478,23 @@ fn lookupModuleDl(self: *SelfInfo, address: usize) !*Module {
         };
     }
 
-    obj_di.* = try readElfDebugInfo(self.allocator, if (ctx.name.len > 0) ctx.name else null, ctx.build_id, null, &sections, null);
-    obj_di.base_address = ctx.base_address;
+    obj_ei.* = try Elf.readDebugInfo(self.allocator, if (ctx.name.len > 0) ctx.name else null, ctx.build_id, null, &sections, null);
 
-    // Missing unwind info isn't treated as a failure, as the unwinder will fall back to FP-based unwinding
-    obj_di.dwarf.scanAllUnwindInfo(self.allocator, ctx.base_address) catch {};
+    switch (obj_ei.*) {
+        .dwarf => |*dwarf_info| {
+            dwarf_info.base_address = ctx.base_address;
 
-    try self.address_map.putNoClobber(ctx.base_address, obj_di);
+            // Missing unwind info isn't treated as a failure, as the unwinder will fall back to FP-based unwinding
+            dwarf_info.dwarf.scanAllUnwindInfo(self.allocator, ctx.base_address) catch {};
+        },
+        .symtab => |*symtab| {
+            symtab.base_address = ctx.base_address;
+        },
+    }
 
-    return obj_di;
+    try self.address_map.putNoClobber(ctx.base_address, obj_ei);
+
+    return obj_ei;
 }
 
 fn lookupModuleHaiku(self: *SelfInfo, address: usize) !*Module {
@@ -794,7 +803,7 @@ pub const Module = switch (native_os) {
             };
         }
     },
-    .linux, .netbsd, .freebsd, .dragonfly, .openbsd, .haiku, .solaris, .illumos => Dwarf.ElfModule,
+    .linux, .netbsd, .freebsd, .dragonfly, .openbsd, .haiku, .solaris, .illumos => Elf,
     .wasi, .emscripten => struct {
         pub fn deinit(self: *@This(), allocator: Allocator) void {
             _ = self;
@@ -1036,38 +1045,85 @@ fn readCoffDebugInfo(allocator: Allocator, coff_obj: *coff.Coff) !Module {
     }
 }
 
-/// Reads debug info from an ELF file, or the current binary if none in specified.
-/// If the required sections aren't present but a reference to external debug info is,
-/// then this this function will recurse to attempt to load the debug sections from
-/// an external file.
-pub fn readElfDebugInfo(
-    allocator: Allocator,
-    elf_filename: ?[]const u8,
-    build_id: ?[]const u8,
-    expected_crc: ?u32,
-    parent_sections: *Dwarf.SectionArray,
-    parent_mapped_mem: ?[]align(mem.page_size) const u8,
-) !Dwarf.ElfModule {
-    nosuspend {
-        const elf_file = (if (elf_filename) |filename| blk: {
-            break :blk fs.cwd().openFile(filename, .{});
-        } else fs.openSelfExe(.{})) catch |err| switch (err) {
-            error.FileNotFound => return error.MissingDebugInfo,
-            else => return err,
-        };
+pub const Elf = union(enum) {
+    dwarf: Dwarf.ElfModule,
+    symtab: ElfSymTab,
 
-        const mapped_mem = try mapWholeFile(elf_file);
-        return Dwarf.ElfModule.load(
-            allocator,
-            mapped_mem,
-            build_id,
-            expected_crc,
-            parent_sections,
-            parent_mapped_mem,
-            elf_filename,
-        );
+    /// Reads debug info from an ELF file, or the current binary if none in specified.
+    /// If the required sections aren't present but a reference to external debug info is,
+    /// then this this function will recurse to attempt to load the debug sections from
+    /// an external file.
+    pub fn readDebugInfo(
+        allocator: Allocator,
+        elf_filename: ?[]const u8,
+        build_id: ?[]const u8,
+        expected_crc: ?u32,
+        parent_sections: *Dwarf.SectionArray,
+        parent_mapped_mem: ?[]align(mem.page_size) const u8,
+    ) !Elf {
+        nosuspend {
+            const elf_file = (if (elf_filename) |filename| blk: {
+                break :blk fs.cwd().openFile(filename, .{});
+            } else fs.openSelfExe(.{})) catch |err| switch (err) {
+                error.FileNotFound => return error.MissingDebugInfo,
+                else => return err,
+            };
+
+            const mapped_mem = try mapWholeFile(elf_file);
+
+            load_dwarf: {
+                const dwarf_info = Dwarf.ElfModule.load(
+                    allocator,
+                    mapped_mem,
+                    build_id,
+                    expected_crc,
+                    parent_sections,
+                    parent_mapped_mem,
+                    elf_filename,
+                ) catch {
+                    break :load_dwarf;
+                };
+                return Elf{ .dwarf = dwarf_info };
+            }
+
+            load_symtab: {
+                const symtab = ElfSymTab.load(
+                    allocator,
+                    mapped_mem,
+                    expected_crc,
+                ) catch {
+                    break :load_symtab;
+                };
+                return Elf{ .symtab = symtab };
+            }
+
+            return error.MissingDebugInfo;
+        }
     }
-}
+
+    pub fn deinit(this: *@This(), allocator: Allocator) void {
+        return switch (this.*) {
+            .dwarf => |*dwarf_info| dwarf_info.deinit(allocator),
+            .symtab => |*symtab| symtab.deinit(allocator),
+        };
+    }
+
+    pub fn getDwarfInfoForAddress(this: *@This(), allocator: Allocator, address: usize) !?*const Dwarf {
+        _ = allocator;
+        _ = address;
+        return switch (this.*) {
+            .dwarf => |*dwarf_info| &dwarf_info.dwarf,
+            .symtab => null,
+        };
+    }
+
+    pub fn getSymbolAtAddress(this: *@This(), allocator: Allocator, address: usize) !std.debug.Symbol {
+        return switch (this.*) {
+            .dwarf => |*dwarf_info| dwarf_info.getSymbolAtAddress(allocator, address),
+            .symtab => |*symtab| symtab.getSymbolAtAddress(allocator, address),
+        };
+    }
+};
 
 const MachoSymbol = struct {
     strx: u32,
