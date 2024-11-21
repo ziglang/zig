@@ -33,6 +33,7 @@ location_tok: std.zig.Ast.TokenIndex,
 hash_tok: std.zig.Ast.TokenIndex,
 name_tok: std.zig.Ast.TokenIndex,
 lazy_status: LazyStatus,
+no_unpack: ?[]const u8,
 parent_package_root: Cache.Path,
 parent_manifest_ast: ?*const std.zig.Ast,
 prog_node: std.Progress.Node,
@@ -351,12 +352,12 @@ pub fn run(f: *Fetch) RunError!void {
         .path_or_url => |path_or_url| {
             if (fs.cwd().openDir(path_or_url, .{ .iterate = true })) |dir| {
                 var resource: Resource = .{ .dir = dir };
-                return f.runResource(path_or_url, &resource, null);
+                return f.runResource(path_or_url, &resource, null, f.no_unpack);
             } else |dir_err| {
                 const file_err = if (dir_err == error.NotDir) e: {
                     if (fs.cwd().openFile(path_or_url, .{})) |file| {
                         var resource: Resource = .{ .file = file };
-                        return f.runResource(path_or_url, &resource, null);
+                        return f.runResource(path_or_url, &resource, null, f.no_unpack);
                     } else |err| break :e err;
                 } else dir_err;
 
@@ -368,7 +369,7 @@ pub fn run(f: *Fetch) RunError!void {
                 };
                 var server_header_buffer: [header_buffer_size]u8 = undefined;
                 var resource = try f.initResource(uri, &server_header_buffer);
-                return f.runResource(try uri.path.toRawMaybeAlloc(arena), &resource, null);
+                return f.runResource(try uri.path.toRawMaybeAlloc(arena), &resource, null, f.no_unpack);
             }
         },
     };
@@ -434,7 +435,7 @@ pub fn run(f: *Fetch) RunError!void {
     );
     var server_header_buffer: [header_buffer_size]u8 = undefined;
     var resource = try f.initResource(uri, &server_header_buffer);
-    return f.runResource(try uri.path.toRawMaybeAlloc(arena), &resource, remote.hash);
+    return f.runResource(try uri.path.toRawMaybeAlloc(arena), &resource, remote.hash, f.no_unpack);
 }
 
 pub fn deinit(f: *Fetch) void {
@@ -448,6 +449,7 @@ fn runResource(
     uri_path: []const u8,
     resource: *Resource,
     remote_hash: ?Package.Hash,
+    no_unpack: ?[]const u8,
 ) RunError!void {
     defer resource.deinit();
     const arena = f.arena.allocator();
@@ -478,7 +480,7 @@ fn runResource(
         defer tmp_directory.handle.close();
 
         // Fetch and unpack a resource into a temporary directory.
-        var unpack_result = try unpackResource(f, resource, uri_path, tmp_directory);
+        var unpack_result = try unpackResource(f, resource, uri_path, tmp_directory, no_unpack);
 
         var pkg_path: Cache.Path = .{ .root_dir = tmp_directory, .sub_path = unpack_result.root_dir };
 
@@ -746,6 +748,7 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
                 .hash_tok = dep.hash_tok,
                 .name_tok = dep.name_tok,
                 .lazy_status = if (dep.lazy) .available else .eager,
+                .no_unpack = dep.no_unpack,
                 .parent_package_root = f.package_root,
                 .parent_manifest_ast = &f.manifest_ast,
                 .prog_node = f.prog_node,
@@ -1075,8 +1078,43 @@ fn unpackResource(
     resource: *Resource,
     uri_path: []const u8,
     tmp_directory: Cache.Directory,
+    no_unpack: ?[]const u8,
 ) RunError!UnpackResult {
     const eb = &f.error_bundle;
+
+    if (no_unpack) |sub_path| {
+        if (std.fs.path.dirname(sub_path)) |sub_dir| {
+            tmp_directory.handle.makePath(sub_dir) catch |e| return f.fail(
+                f.location_tok,
+                try eb.printString(
+                    "failed to create temporary path '{}{s}' with {s}",
+                    .{ tmp_directory, sub_dir, @errorName(e) },
+                ),
+            );
+        }
+        var out_file = tmp_directory.handle.createFile(
+            sub_path,
+            .{},
+        ) catch |err| return f.fail(f.location_tok, try eb.printString(
+            "failed to create temporary file: {s}",
+            .{@errorName(err)},
+        ));
+        defer out_file.close();
+        var buf: [4096]u8 = undefined;
+        while (true) {
+            const len = resource.reader().readAll(&buf) catch |err| return f.fail(f.location_tok, try eb.printString(
+                "read stream failed: {s}",
+                .{@errorName(err)},
+            ));
+            if (len == 0) break;
+            out_file.writer().writeAll(buf[0..len]) catch |err| return f.fail(f.location_tok, try eb.printString(
+                "write temporary file failed: {s}",
+                .{@errorName(err)},
+            ));
+        }
+        return .{};
+    }
+
     const file_type = switch (resource.*) {
         .file => FileType.fromPath(uri_path) orelse
             return f.fail(f.location_tok, try eb.printString("unknown file type: '{s}'", .{uri_path})),
@@ -2317,6 +2355,7 @@ const TestFetchBuilder = struct {
             .hash_tok = 0,
             .name_tok = 0,
             .lazy_status = .eager,
+            .no_unpack = null,
             .parent_package_root = Cache.Path{ .root_dir = Cache.Directory{ .handle = cache_dir, .path = null } },
             .parent_manifest_ast = null,
             .prog_node = std.Progress.Node.none,

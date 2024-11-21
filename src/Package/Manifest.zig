@@ -22,6 +22,7 @@ pub const Dependency = struct {
     node: Ast.Node.Index,
     name_tok: Ast.TokenIndex,
     lazy: bool,
+    no_unpack: ?[]const u8,
 
     pub const Location = union(enum) {
         url: []const u8,
@@ -139,6 +140,15 @@ pub fn copyErrorsIntoBundle(
             }),
         });
     }
+}
+
+pub fn getNoUnpackProblem(no_unpack: []const u8) ?[]const u8 {
+    if (std.mem.indexOfScalar(u8, no_unpack, '\\') != null) return "may not contain backslashes";
+    var it = std.fs.path.ComponentIterator(.posix, u8).init(no_unpack) catch return "is not a valid path";
+    while (it.next()) |entry| {
+        if (std.mem.eql(u8, entry.name, "..")) return "may not contain '..' components";
+    }
+    return null;
 }
 
 const Parse = struct {
@@ -287,6 +297,7 @@ const Parse = struct {
             .node = node,
             .name_tok = 0,
             .lazy = false,
+            .no_unpack = null,
         };
         var has_location = false;
 
@@ -335,6 +346,19 @@ const Parse = struct {
                     error.ParseFailure => continue,
                     else => |e| return e,
                 };
+            } else if (mem.eql(u8, field_name, "no_unpack")) {
+                if (dep.no_unpack != null) return fail(p, main_tokens[field_init], "dependency should specify only one 'no_unpack' field", .{});
+
+                dep.no_unpack = parseString(p, field_init) catch |err| switch (err) {
+                    error.ParseFailure => continue,
+                    else => |e| return e,
+                };
+                if (getNoUnpackProblem(dep.no_unpack.?)) |problem| return fail(
+                    p,
+                    main_tokens[field_init],
+                    "no_unpack value {s}",
+                    .{problem},
+                );
             } else {
                 // Ignore unknown fields so that we can add fields in future zig
                 // versions without breaking older zig versions.

@@ -69,6 +69,10 @@
         //    // fetched. This makes the dependency only get fetched if it is
         //    // actually used.
         //    .lazy = false,
+        //
+        //    // When set, disables unpacking the package and instead saves it as a single file
+        //    // using the given string as its file path.
+        //    //.no_unpack = "an/example/package",
         //},
     },
 
