@@ -1776,6 +1776,7 @@ comptime {
         @export(__hexagon_divsi3, .{ .name = "__hexagon_divsi3", .linkage = common.linkage, .visibility = common.visibility });
         @export(__hexagon_umodsi3, .{ .name = "__hexagon_umodsi3", .linkage = common.linkage, .visibility = common.visibility });
         @export(__hexagon_sqrtf, .{ .name = "__hexagon_sqrtf", .linkage = common.linkage, .visibility = common.visibility });
+        @export(__hexagon_sqrtf, .{ .name = "__hexagon_fast2_sqrtf", .linkage = common.linkage, .visibility = common.visibility });
         @export(__hexagon_moddi3, .{ .name = "__hexagon_moddi3", .linkage = common.linkage, .visibility = common.visibility });
         @export(__hexagon_divdi3, .{ .name = "__hexagon_divdi3", .linkage = common.linkage, .visibility = common.visibility });
         @export(__hexagon_divsf3, .{ .name = "__hexagon_divsf3", .linkage = common.linkage, .visibility = common.visibility });
