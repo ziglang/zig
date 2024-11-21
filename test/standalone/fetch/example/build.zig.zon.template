@@ -1,0 +1,17 @@
+.{
+    .name = .fetchexample,
+    .version = "0.0.0",
+    .fingerprint = 0xf7fb52913f1f8822,
+    .dependencies = .{
+        .somedependency = .{
+            .url = "file:///<PACKAGE_PATH_ABSOLUTE>/example_dep_file.txt",
+            .hash = "<HASH>",
+            .no_unpack = "<NO_UNPACK>",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "example_dep_file.txt",
+    },
+}

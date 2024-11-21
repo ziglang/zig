@@ -5093,6 +5093,8 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     .hash_tok = .none,
                     .name_tok = 0,
                     .lazy_status = .eager,
+                    .no_unpack = null,
+
                     .parent_package_root = phantom_package_root,
                     .parent_manifest_ast = null,
                     .prog_node = fetch_prog_node,
@@ -6766,6 +6768,8 @@ const usage_fetch =
     \\  --save=[name]                 Add the fetched package to build.zig.zon as name
     \\  --save-exact                  Add the fetched package to build.zig.zon, storing the URL verbatim
     \\  --save-exact=[name]           Add the fetched package to build.zig.zon as name, storing the URL verbatim
+    \\  --no-unpack                   Don't unpack the package
+    \\  --no-unpack=[path]            Don't unpack the package, save to specified path
     \\
 ;
 
@@ -6787,6 +6791,7 @@ fn cmdFetch(
         yes: ?[]const u8,
         exact: ?[]const u8,
     } = .no;
+    var no_unpack: ?union(enum) { url_basename, with_path: []const u8 } = null;
 
     {
         var i: usize = 0;
@@ -6811,6 +6816,13 @@ fn cmdFetch(
                     save = .{ .exact = null };
                 } else if (mem.startsWith(u8, arg, "--save-exact=")) {
                     save = .{ .exact = arg["--save-exact=".len..] };
+                } else if (mem.eql(u8, arg, "--no-unpack")) {
+                    no_unpack = .url_basename;
+                } else if (mem.startsWith(u8, arg, "--no-unpack=")) {
+                    const path = arg["--no-unpack=".len..];
+                    if (Package.Manifest.getNoUnpackProblem(path)) |problem|
+                        fatal("--no-unpack path {s}", .{problem});
+                    no_unpack = .{ .with_path = path };
                 } else {
                     fatal("unrecognized parameter: '{s}'", .{arg});
                 }
@@ -6866,6 +6878,10 @@ fn cmdFetch(
         .hash_tok = .none,
         .name_tok = 0,
         .lazy_status = .eager,
+        .no_unpack = if (no_unpack) |n| switch (n) {
+            .url_basename => std.fs.path.basename(path_or_url),
+            .with_path => |path| path,
+        } else null,
         .parent_package_root = undefined,
         .parent_manifest_ast = null,
         .prog_node = root_prog_node,
