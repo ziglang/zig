@@ -1,0 +1,16 @@
+.{
+    .name = "fetch",
+    .version = "0.0.0",
+    .dependencies = .{
+        .somedependency = .{
+            .url = "file://<PACKAGE_PATH_ABSOLUTE>/example_dep_file.txt",
+            .hash = "12200f68aca70ebc76057200af436aab5720ec53a780713c5dc614825db42a39dbfb",
+            .unpack = false,
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "example_dep_file.txt",
+    },
+}
