@@ -218,12 +218,12 @@ pub fn BlockVec(comptime blocks_count: comptime_int) type {
         }
 
         /// XOR the block vector with a byte sequence.
-        pub inline fn xorBytes(block_vec: Self, bytes: *const [blocks_count * 16]u8) [32]u8 {
-            var out: Self = undefined;
+        pub inline fn xorBytes(block_vec: Self, bytes: *const [blocks_count * 16]u8) [blocks_count * 16]u8 {
+            var x: Self = undefined;
             inline for (0..native_words) |i| {
-                out.repr[i] = block_vec.repr[i] ^ mem.bytesToValue(Repr, bytes[i * native_word_size ..][0..native_word_size]);
+                x.repr[i] = block_vec.repr[i] ^ mem.bytesToValue(Repr, bytes[i * native_word_size ..][0..native_word_size]);
             }
-            return out;
+            return x.toBytes();
         }
 
         /// Apply the forward AES operation to the block vector with a vector of round keys.

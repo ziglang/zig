@@ -2,10 +2,14 @@
 //!
 //! The AEGIS-128* variants have a 128 bit key and a 128 bit nonce.
 //! The AEGIS-256* variants have a 256 bit key and a 256 bit nonce.
-//! Both can compute 128 or 256 bit authentication tags.
+//! All of them can compute 128 and 256 bit authentication tags.
 //!
 //! The AEGIS cipher family offers performance that significantly exceeds that of AES-GCM with
 //! hardware support for parallelizable AES block encryption.
+//!
+//! On high-end Intel CPUs with AVX-512 support, AEGIS-128X4 and AEGIS-256X4 are the fastest options.
+//! On other modern server, desktop and mobile CPUs, AEGIS-128X2 and AEGIS-256X2 are usually the fastest options.
+//! AEGIS-128L and AEGIS-256 perform well on a broad range of platforms, including WebAssembly.
 //!
 //! Unlike with AES-GCM, nonces can be safely chosen at random with no practical limit when using AEGIS-256*.
 //! AEGIS-128* also allows for more messages to be safely encrypted when using random nonces.
