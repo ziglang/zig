@@ -50,6 +50,10 @@
         //    // fetched. This makes the dependency only get fetched if it is
         //    // actually used.
         //    .lazy = false,
+        //
+        //    // When this is set to `false`, the package is not unpacked but kept as a single
+        //    // file.
+        //    .unpack = false,
         //},
     },
 
