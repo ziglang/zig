@@ -814,9 +814,8 @@ fn __hexagon_subdf3() align(32) callconv(.naked) noreturn {
     asm volatile (
         \\ {
         \\   r3 = togglebit(r3,#31)
-        \\   call __hexagon_adddf3
+        \\   jump ##__hexagon_adddf3
         \\ }
-        \\ jumpr r31
     );
 }
 
