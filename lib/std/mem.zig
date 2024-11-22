@@ -654,21 +654,14 @@ const eqlBytes_allowed = switch (builtin.zig_backend) {
     else => !builtin.fuzz,
 };
 
-/// Compares two slices and returns whether they are equal.
+/// Returns true if and only if the slices have the same length and all elements
+/// compare true using equality operator.
 pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
-    switch (@typeInfo(T)) {
-        .Type, .ComptimeInt, .ComptimeFloat => {
-            if (a.len != b.len) return false;
-            inline for (a, b) |a_elem, b_elem| {
-                if (a_elem != b_elem) return false;
-            }
-            return true;
-        },
-        .Null, .Undefined => return a.len == b.len,
-        else => {},
+    if (!@inComptime() and @sizeOf(T) != 0 and std.meta.hasUniqueRepresentation(T) and
+        eqlBytes_allowed)
+    {
+        return eqlBytes(sliceAsBytes(a), sliceAsBytes(b));
     }
-    if (@sizeOf(T) == 0) return a.len == b.len;
-    if (!@inComptime() and std.meta.hasUniqueRepresentation(T) and eqlBytes_allowed) return eqlBytes(sliceAsBytes(a), sliceAsBytes(b));
 
     if (a.len != b.len) return false;
     if (a.len == 0 or a.ptr == b.ptr) return true;
@@ -677,6 +670,25 @@ pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
         if (a_elem != b_elem) return false;
     }
     return true;
+}
+
+test eql {
+    try testing.expect(eql(u8, "abcd", "abcd"));
+    try testing.expect(!eql(u8, "abcdef", "abZdef"));
+    try testing.expect(!eql(u8, "abcdefg", "abcdef"));
+
+    comptime {
+        try testing.expect(eql(type, &.{ bool, f32 }, &.{ bool, f32 }));
+        try testing.expect(!eql(type, &.{ bool, f32 }, &.{ f32, bool }));
+        try testing.expect(!eql(type, &.{ bool, f32 }, &.{bool}));
+
+        try testing.expect(eql(comptime_int, &.{ 1, 2, 3 }, &.{ 1, 2, 3 }));
+        try testing.expect(!eql(comptime_int, &.{ 1, 2, 3 }, &.{ 3, 2, 1 }));
+        try testing.expect(!eql(comptime_int, &.{1}, &.{ 1, 2 }));
+    }
+
+    try testing.expect(eql(void, &.{ {}, {} }, &.{ {}, {} }));
+    try testing.expect(!eql(void, &.{{}}, &.{ {}, {} }));
 }
 
 /// std.mem.eql heavily optimized for slices of bytes.
@@ -3301,32 +3313,6 @@ test concat {
         defer testing.allocator.free(slice);
         try testing.expectEqualSentinel(u32, 2, slice, &[_:2]u32{ 0, 1, 2, 3, 4, 5 });
     }
-}
-
-test eql {
-    try testing.expect(eql(u8, "abcd", "abcd"));
-    try testing.expect(!eql(u8, "abcdef", "abZdef"));
-    try testing.expect(!eql(u8, "abcdefg", "abcdef"));
-
-    try testing.expect(eql(type, &.{ bool, f32 }, &.{ bool, f32 }));
-    try testing.expect(!eql(type, &.{ bool, f32 }, &.{ f32, bool }));
-    try testing.expect(!eql(type, &.{ bool, f32 }, &.{bool}));
-
-    try testing.expect(eql(comptime_int, &.{ 1, 2, 3 }, &.{ 1, 2, 3 }));
-    try testing.expect(!eql(comptime_int, &.{ 1, 2, 3 }, &.{ 3, 2, 1 }));
-    try testing.expect(!eql(comptime_int, &.{1}, &.{ 1, 2 }));
-
-    try testing.expect(eql(@TypeOf(undefined), &.{ undefined, undefined }, &.{ undefined, undefined }));
-    try testing.expect(!eql(@TypeOf(undefined), &.{undefined}, &.{ undefined, undefined }));
-
-    try testing.expect(eql(enum {}, &.{ undefined, undefined }, &.{ undefined, undefined }));
-    try testing.expect(!eql(enum {}, &.{undefined}, &.{ undefined, undefined }));
-
-    try testing.expect(eql(void, &.{ {}, {} }, &.{ {}, {} }));
-    try testing.expect(!eql(void, &.{{}}, &.{ {}, {} }));
-
-    try testing.expect(eql(@TypeOf(null), &.{ null, null }, &.{ null, null }));
-    try testing.expect(!eql(@TypeOf(null), &.{null}, &.{ null, null }));
 }
 
 fn moreReadIntTests() !void {
