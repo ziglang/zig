@@ -539,13 +539,14 @@ pub fn lowerToTranslateCSteps(
     b: *std.Build,
     parent_step: *std.Build.Step,
     test_filters: []const []const u8,
+    test_target_filters: []const []const u8,
     target: std.Build.ResolvedTarget,
     translate_c_options: TranslateCOptions,
 ) void {
     const tests = @import("../tests.zig");
     const test_translate_c_step = b.step("test-translate-c", "Run the C translation tests");
     if (!translate_c_options.skip_translate_c) {
-        tests.addTranslateCTests(b, test_translate_c_step, test_filters);
+        tests.addTranslateCTests(b, test_translate_c_step, test_filters, test_target_filters);
         parent_step.dependOn(test_translate_c_step);
     }
 
@@ -620,6 +621,7 @@ pub fn lowerToBuildSteps(
     b: *std.Build,
     parent_step: *std.Build.Step,
     test_filters: []const []const u8,
+    test_target_filters: []const []const u8,
 ) void {
     const host = std.zig.system.resolveTargetQuery(.{}) catch |err|
         std.debug.panic("unable to detect native host: {s}\n", .{@errorName(err)});
@@ -647,6 +649,14 @@ pub fn lowerToBuildSteps(
         for (test_filters) |test_filter| {
             if (std.mem.indexOf(u8, case.name, test_filter)) |_| break;
         } else if (test_filters.len > 0) continue;
+
+        const triple_txt = case.target.result.zigTriple(b.allocator) catch @panic("OOM");
+
+        if (test_target_filters.len > 0) {
+            for (test_target_filters) |filter| {
+                if (std.mem.indexOf(u8, triple_txt, filter) != null) break;
+            } else continue;
+        }
 
         const writefiles = b.addWriteFiles();
         var file_sources = std.StringHashMap(std.Build.LazyPath).init(b.allocator);
@@ -740,7 +750,7 @@ pub fn lowerToBuildSteps(
                         "--",
                         "-lc",
                         "-target",
-                        case.target.result.zigTriple(b.allocator) catch @panic("OOM"),
+                        triple_txt,
                     });
                     run_c.addArtifactArg(artifact);
                     break :run_step run_c;

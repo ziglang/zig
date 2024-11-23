@@ -1237,18 +1237,22 @@ pub fn addAssembleAndLinkTests(b: *std.Build, test_filters: []const []const u8, 
     return cases.step;
 }
 
-pub fn addTranslateCTests(b: *std.Build, parent_step: *std.Build.Step, test_filters: []const []const u8) void {
+pub fn addTranslateCTests(
+    b: *std.Build,
+    parent_step: *std.Build.Step,
+    test_filters: []const []const u8,
+    test_target_filters: []const []const u8,
+) void {
     const cases = b.allocator.create(TranslateCContext) catch @panic("OOM");
     cases.* = TranslateCContext{
         .b = b,
         .step = parent_step,
         .test_index = 0,
         .test_filters = test_filters,
+        .test_target_filters = test_target_filters,
     };
 
     translate_c.addCases(cases);
-
-    return;
 }
 
 pub fn addRunTranslatedCTests(
@@ -1267,8 +1271,6 @@ pub fn addRunTranslatedCTests(
     };
 
     run_translated_c.addCases(cases);
-
-    return;
 }
 
 const ModuleTestOptions = struct {
@@ -1565,6 +1567,7 @@ pub fn addCases(
     b: *std.Build,
     parent_step: *Step,
     test_filters: []const []const u8,
+    test_target_filters: []const []const u8,
     target: std.Build.ResolvedTarget,
     translate_c_options: @import("src/Cases.zig").TranslateCOptions,
     build_options: @import("cases.zig").BuildOptions,
@@ -1580,12 +1583,13 @@ pub fn addCases(
     cases.addFromDir(dir, b);
     try @import("cases.zig").addCases(&cases, build_options, b);
 
-    cases.lowerToTranslateCSteps(b, parent_step, test_filters, target, translate_c_options);
+    cases.lowerToTranslateCSteps(b, parent_step, test_filters, test_target_filters, target, translate_c_options);
 
     cases.lowerToBuildSteps(
         b,
         parent_step,
         test_filters,
+        test_target_filters,
     );
 }
 
