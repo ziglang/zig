@@ -1133,7 +1133,7 @@ pub fn indexPack(allocator: Allocator, pack: std.fs.File, index_writer: anytype)
     }
     @memset(fan_out_table[fan_out_index..], count);
 
-    var index_hashed_writer = hashedWriter(index_writer, Sha1.init(.{}));
+    var index_hashed_writer = std.compress.hashedWriter(index_writer, Sha1.init(.{}));
     const writer = index_hashed_writer.writer();
     try writer.writeAll(IndexHeader.signature);
     try writer.writeInt(u32, IndexHeader.supported_version, .big);
@@ -1196,7 +1196,7 @@ fn indexPackFirstPass(
             .commit, .tree, .blob, .tag => |object| {
                 var entry_decompress_stream = std.compress.zlib.decompressor(entry_crc32_reader.reader());
                 var entry_counting_reader = std.io.countingReader(entry_decompress_stream.reader());
-                var entry_hashed_writer = hashedWriter(std.io.null_writer, Sha1.init(.{}));
+                var entry_hashed_writer = std.compress.hashedWriter(std.io.null_writer, Sha1.init(.{}));
                 const entry_writer = entry_hashed_writer.writer();
                 // The object header is not included in the pack data but is
                 // part of the object's ID
@@ -1282,7 +1282,7 @@ fn indexPackHashDelta(
     const base_data = try resolveDeltaChain(allocator, pack, base_object, delta_offsets.items, cache);
 
     var entry_hasher = Sha1.init(.{});
-    var entry_hashed_writer = hashedWriter(std.io.null_writer, &entry_hasher);
+    var entry_hashed_writer = std.compress.hashedWriter(std.io.null_writer, &entry_hasher);
     try entry_hashed_writer.writer().print("{s} {}\x00", .{ @tagName(base_object.type), base_data.len });
     entry_hasher.update(base_data);
     return entry_hasher.finalResult();
@@ -1392,36 +1392,6 @@ fn expandDelta(base_object: anytype, delta_reader: anytype, writer: anytype) !vo
             return error.InvalidDeltaInstruction;
         }
     }
-}
-
-fn HashedWriter(
-    comptime WriterType: anytype,
-    comptime HasherType: anytype,
-) type {
-    return struct {
-        child_writer: WriterType,
-        hasher: HasherType,
-
-        const Error = WriterType.Error;
-        const Writer = std.io.Writer(*@This(), Error, write);
-
-        fn write(hashed_writer: *@This(), buf: []const u8) Error!usize {
-            const amt = try hashed_writer.child_writer.write(buf);
-            hashed_writer.hasher.update(buf);
-            return amt;
-        }
-
-        fn writer(hashed_writer: *@This()) Writer {
-            return .{ .context = hashed_writer };
-        }
-    };
-}
-
-fn hashedWriter(
-    writer: anytype,
-    hasher: anytype,
-) HashedWriter(@TypeOf(writer), @TypeOf(hasher)) {
-    return .{ .child_writer = writer, .hasher = hasher };
 }
 
 test "packfile indexing and checkout" {
