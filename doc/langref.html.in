@@ -3311,7 +3311,7 @@ void do_a_thing(struct Foo *foo) {
       </p>
       <p>
       One benefit to this is that functions which take pointers as arguments can
-      be annotated with the "nonnull" attribute, which corresponds to the - <code>__attribute__((nonnull))</code> in
+      be annotated with the "nonnull" attribute, which corresponds to the <code>__attribute__((nonnull))</code> in
       <a href="https://gcc.gnu.org/onlinedocs/gcc-4.0.0/gcc/Function-Attributes.html">GCC</a>.
       The optimizer can sometimes make better decisions knowing that pointer arguments
       cannot be null.
