@@ -552,6 +552,7 @@ pub fn build(b: *std.Build) !void {
     test_step.dependOn(tests.addAssembleAndLinkTests(b, test_filters, optimization_modes));
     if (tests.addDebuggerTests(b, .{
         .test_filters = test_filters,
+        .test_target_filters = test_target_filters,
         .gdb = b.option([]const u8, "gdb", "path to gdb binary"),
         .lldb = b.option([]const u8, "lldb", "path to lldb binary"),
         .optimize_modes = optimization_modes,

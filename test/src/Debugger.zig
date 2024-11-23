@@ -4,6 +4,7 @@ root_step: *std.Build.Step,
 
 pub const Options = struct {
     test_filters: []const []const u8,
+    test_target_filters: []const []const u8,
     gdb: ?[]const u8,
     lldb: ?[]const u8,
     optimize_modes: []const std.builtin.OptimizeMode,
@@ -1987,6 +1988,12 @@ fn addTest(
 ) void {
     for (db.options.test_filters) |test_filter| {
         if (std.mem.indexOf(u8, name, test_filter)) |_| return;
+    }
+    if (db.options.test_target_filters.len > 0) {
+        const triple_txt = target.resolved.result.zigTriple(db.b.allocator) catch @panic("OOM");
+        for (db.options.test_target_filters) |filter| {
+            if (std.mem.indexOf(u8, triple_txt, filter) != null) break;
+        } else return;
     }
     const files_wf = db.b.addWriteFiles();
     const exe = db.b.addExecutable(.{
