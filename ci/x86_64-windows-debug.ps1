@@ -30,6 +30,26 @@ if ((git rev-parse --is-shallow-repository) -eq "true") {
     git fetch --unshallow # `git describe` won't work on a shallow repo
 }
 
+Import-Module "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
+CheckLastExitCode
+
+Enter-VsDevShell -VsInstallPath "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools" `
+  -DevCmdArguments '-arch=x64 -no_logo' `
+  -StartInPath $(Get-Location)
+CheckLastExitCode
+
+# Test building from source without LLVM.
+git clean -fd
+Remove-Item -Path 'zig-out' -Recurse -Force -ErrorAction Ignore
+cl -nologo bootstrap.c /link /OUT:bootstrap.exe
+CheckLastExitCode
+.\bootstrap
+CheckLastExitCode
+.\zig2 build -Dno-lib
+CheckLastExitCode
+.\zig-out\bin\zig test test\behavior.zig
+CheckLastExitCode
+
 Write-Output "Building from source..."
 Remove-Item -Path 'build-debug' -Recurse -Force -ErrorAction Ignore
 New-Item -Path 'build-debug' -ItemType Directory
@@ -92,14 +112,6 @@ CheckLastExitCode
   -target x86_64-windows-msvc `
   -Mroot="..\lib\compiler_rt.zig" `
   -Mbuild_options="config.zig"
-CheckLastExitCode
-
-Import-Module "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
-CheckLastExitCode
-
-Enter-VsDevShell -VsInstallPath "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools" `
-  -DevCmdArguments '-arch=x64 -no_logo' `
-  -StartInPath $(Get-Location)
 CheckLastExitCode
 
 Write-Output "Build and run behavior tests with msvc..."
