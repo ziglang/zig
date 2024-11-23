@@ -507,7 +507,7 @@ fn __hexagon_udivsi3() callconv(.naked) noreturn {
     );
 }
 
-fn __hexagon_adddf3() align(1 << 5) callconv(.naked) noreturn {
+fn __hexagon_adddf3() align(32) callconv(.naked) noreturn {
     asm volatile (
         \\  {
         \\   r4 = extractu(r1,#11,#20)
@@ -819,7 +819,7 @@ fn __hexagon_subdf3() align(32) callconv(.naked) noreturn {
     );
 }
 
-fn __hexagon_divdf3() align(1 << 5) callconv(.naked) noreturn {
+fn __hexagon_divdf3() align(32) callconv(.naked) noreturn {
     asm volatile (
         \\  {
         \\   p2 = dfclass(r1:0,#0x02)
@@ -1187,7 +1187,7 @@ fn __hexagon_divdf3() align(1 << 5) callconv(.naked) noreturn {
     );
 }
 
-fn __hexagon_muldf3() align(1 << 5) callconv(.naked) noreturn {
+fn __hexagon_muldf3() align(32) callconv(.naked) noreturn {
     asm volatile (
         \\  {
         \\   p0 = dfclass(r1:0,#2)
@@ -1492,7 +1492,7 @@ fn __hexagon_muldf3() align(1 << 5) callconv(.naked) noreturn {
     );
 }
 
-fn __hexagon_sqrtdf2() align(1 << 5) callconv(.naked) noreturn {
+fn __hexagon_sqrtdf2() align(32) callconv(.naked) noreturn {
     asm volatile (
         \\  {
         \\   r15:14 = extractu(r1:0,#23 +1,#52 -23)
