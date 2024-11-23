@@ -311,8 +311,8 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
 
     if (query.os_version_min) |min| switch (min) {
         .none => {},
-        .semver => |semver| switch (os.tag) {
-            .linux => os.version_range.linux.range.min = semver,
+        .semver => |semver| switch (os.tag.versionRangeTag()) {
+            inline .hurd, .linux => |t| @field(os.version_range, @tagName(t)).range.min = semver,
             else => os.version_range.semver.min = semver,
         },
         .windows => |win_ver| os.version_range.windows.min = win_ver,
@@ -320,15 +320,18 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
 
     if (query.os_version_max) |max| switch (max) {
         .none => {},
-        .semver => |semver| switch (os.tag) {
-            .linux => os.version_range.linux.range.max = semver,
+        .semver => |semver| switch (os.tag.versionRangeTag()) {
+            inline .hurd, .linux => |t| @field(os.version_range, @tagName(t)).range.max = semver,
             else => os.version_range.semver.max = semver,
         },
         .windows => |win_ver| os.version_range.windows.max = win_ver,
     };
 
     if (query.glibc_version) |glibc| {
-        os.version_range.linux.glibc = glibc;
+        switch (os.tag.versionRangeTag()) {
+            inline .hurd, .linux => |t| @field(os.version_range, @tagName(t)).glibc = glibc,
+            else => {},
+        }
     }
 
     if (query.android_api_level) |android| {

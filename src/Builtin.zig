@@ -142,6 +142,40 @@ pub fn append(opts: @This(), buffer: *std.ArrayList(u8)) Allocator.Error!void {
 
             linux.android,
         }),
+        .hurd => |hurd| try buffer.writer().print(
+            \\ .hurd = .{{
+            \\        .range = .{{
+            \\            .min = .{{
+            \\                .major = {},
+            \\                .minor = {},
+            \\                .patch = {},
+            \\            }},
+            \\            .max = .{{
+            \\                .major = {},
+            \\                .minor = {},
+            \\                .patch = {},
+            \\            }},
+            \\        }},
+            \\        .glibc = .{{
+            \\            .major = {},
+            \\            .minor = {},
+            \\            .patch = {},
+            \\        }},
+            \\    }}}},
+            \\
+        , .{
+            hurd.range.min.major,
+            hurd.range.min.minor,
+            hurd.range.min.patch,
+
+            hurd.range.max.major,
+            hurd.range.max.minor,
+            hurd.range.max.patch,
+
+            hurd.glibc.major,
+            hurd.glibc.minor,
+            hurd.glibc.patch,
+        }),
         .windows => |windows| try buffer.writer().print(
             \\ .windows = .{{
             \\        .min = {c},

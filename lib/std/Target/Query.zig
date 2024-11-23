@@ -102,7 +102,7 @@ pub fn fromTarget(target: Target) Query {
         .os_version_min = undefined,
         .os_version_max = undefined,
         .abi = target.abi,
-        .glibc_version = if (target.isGnuLibC()) target.os.version_range.linux.glibc else null,
+        .glibc_version = target.os.versionRange().gnuLibCVersion(),
         .android_api_level = if (target.abi.isAndroid()) target.os.version_range.linux.android else null,
     };
     result.updateOsVersionRange(target.os);
@@ -132,9 +132,9 @@ fn updateOsVersionRange(self: *Query, os: Target.Os) void {
             .{ .semver = os.version_range.semver.min },
             .{ .semver = os.version_range.semver.max },
         },
-        .linux => .{
-            .{ .semver = os.version_range.linux.range.min },
-            .{ .semver = os.version_range.linux.range.max },
+        inline .hurd, .linux => |t| .{
+            .{ .semver = @field(os.version_range, @tagName(t)).range.min },
+            .{ .semver = @field(os.version_range, @tagName(t)).range.max },
         },
         .windows => .{
             .{ .windows = os.version_range.windows.min },
@@ -544,7 +544,7 @@ fn parseOs(result: *Query, diags: *ParseOptions.Diagnostics, text: []const u8) !
     const version_text = it.rest();
     if (version_text.len > 0) switch (tag.versionRangeTag()) {
         .none => return error.InvalidOperatingSystemVersion,
-        .semver, .linux => range: {
+        .semver, .hurd, .linux => range: {
             var range_it = mem.splitSequence(u8, version_text, "...");
             result.os_version_min = .{
                 .semver = parseVersion(range_it.first()) catch |err| switch (err) {
