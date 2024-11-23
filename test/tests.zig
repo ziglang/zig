@@ -1486,19 +1486,32 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
     return step;
 }
 
-pub fn addCAbiTests(b: *std.Build, skip_non_native: bool, skip_release: bool) *Step {
+const CAbiTestOptions = struct {
+    test_target_filters: []const []const u8,
+    skip_non_native: bool,
+    skip_release: bool,
+};
+
+pub fn addCAbiTests(b: *std.Build, options: CAbiTestOptions) *Step {
     const step = b.step("test-c-abi", "Run the C ABI tests");
 
     const optimize_modes: [3]OptimizeMode = .{ .Debug, .ReleaseSafe, .ReleaseFast };
 
     for (optimize_modes) |optimize_mode| {
-        if (optimize_mode != .Debug and skip_release) continue;
+        if (optimize_mode != .Debug and options.skip_release) continue;
 
         for (c_abi_targets) |c_abi_target| {
-            if (skip_non_native and !c_abi_target.target.isNative()) continue;
+            if (options.skip_non_native and !c_abi_target.target.isNative()) continue;
 
             const resolved_target = b.resolveTargetQuery(c_abi_target.target);
             const target = resolved_target.result;
+            const triple_txt = target.zigTriple(b.allocator) catch @panic("OOM");
+
+            if (options.test_target_filters.len > 0) {
+                for (options.test_target_filters) |filter| {
+                    if (std.mem.indexOf(u8, triple_txt, filter) != null) break;
+                } else continue;
+            }
 
             if (target.os.tag == .windows and target.cpu.arch == .aarch64) {
                 // https://github.com/ziglang/zig/issues/14908
@@ -1507,7 +1520,7 @@ pub fn addCAbiTests(b: *std.Build, skip_non_native: bool, skip_release: bool) *S
 
             const test_step = b.addTest(.{
                 .name = b.fmt("test-c-abi-{s}-{s}-{s}{s}{s}{s}", .{
-                    target.zigTriple(b.allocator) catch @panic("OOM"),
+                    triple_txt,
                     target.cpu.model.name,
                     @tagName(optimize_mode),
                     if (c_abi_target.use_llvm == true)
