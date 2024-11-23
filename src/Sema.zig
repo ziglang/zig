@@ -9098,7 +9098,7 @@ fn zirEnumFromInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
             const dest_int = dest_ty.intTagType(zcu);
             const operand_ty = sema.typeOf(operand);
             const dest_int_info = dest_int.intInfo(zcu);
-            if (operand_ty.toIntern() == .comptime_int_type or operand_ty.intInfo(zcu).bits > dest_int_info.bits or operand_ty.intInfo(zcu).signedness != dest_int_info.signedness) {
+            if (operand_ty.intInfo(zcu).bits > dest_int_info.bits or operand_ty.intInfo(zcu).signedness != dest_int_info.signedness) {
                 const max_int_val = try dest_int.maxIntScalar(pt, operand_ty);
                 const max_int = Air.internedToRef(max_int_val.toIntern());
                 // operand <= max_int
