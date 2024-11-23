@@ -9093,12 +9093,34 @@ fn zirEnumFromInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
 
     try sema.requireRuntimeBlock(block, src, operand_src);
     const result = try block.addTyOp(.intcast, dest_ty, operand);
-    if (block.wantSafety() and !dest_ty.isNonexhaustiveEnum(zcu) and
-        zcu.backendSupportsFeature(.is_named_enum_value))
-    {
-        const ok = try block.addUnOp(.is_named_enum_value, result);
-        try sema.addSafetyCheck(block, src, ok, .invalid_enum_value);
+    if (block.wantSafety()) {
+        if (dest_ty.isNonexhaustiveEnum(zcu)) {
+            const dest_int = dest_ty.intTagType(zcu);
+            const operand_ty = sema.typeOf(operand);
+            const dest_int_info = dest_int.intInfo(zcu);
+            if (operand_ty.toIntern() == .comptime_int_type or operand_ty.intInfo(zcu).bits > dest_int_info.bits or operand_ty.intInfo(zcu).signedness != dest_int_info.signedness) {
+                const max_int_val = try dest_int.maxIntScalar(pt, operand_ty);
+                const max_int = Air.internedToRef(max_int_val.toIntern());
+                // operand <= max_int
+                const le_check = try block.addBinOp(.cmp_lte, operand, max_int);
+                if (operand_ty.intInfo(zcu).signedness == .signed) {
+                    const min_int_val = try dest_int.minIntScalar(pt, operand_ty);
+                    const min_int = Air.internedToRef(min_int_val.toIntern());
+                    // operand >= min_int
+                    const ge_check = try block.addBinOp(.cmp_gte, operand, min_int);
+                    // min_int <= operand <= max_int
+                    const in_range_check = try block.addBinOp(.bool_and, le_check, ge_check);
+                    try sema.addSafetyCheck(block, src, in_range_check, .invalid_enum_value);
+                } else {
+                    try sema.addSafetyCheck(block, src, le_check, .invalid_enum_value);
+                }
+            }
+        } else if (zcu.backendSupportsFeature(.is_named_enum_value)) {
+            const ok = try block.addUnOp(.is_named_enum_value, result);
+            try sema.addSafetyCheck(block, src, ok, .invalid_enum_value);
+        }
     }
+
     return result;
 }
 
