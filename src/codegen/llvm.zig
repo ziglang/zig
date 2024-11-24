@@ -5391,6 +5391,7 @@ pub const FuncGen = struct {
                 .inferred_alloc, .inferred_alloc_comptime => unreachable,
 
                 .dbg_stmt => try self.airDbgStmt(inst),
+                .dbg_empty_stmt => try self.airDbgEmptyStmt(inst),
                 .dbg_var_ptr => try self.airDbgVarPtr(inst),
                 .dbg_var_val => try self.airDbgVarVal(inst, false),
                 .dbg_arg_inline => try self.airDbgVarVal(inst, true),
@@ -7430,6 +7431,12 @@ pub const FuncGen = struct {
             },
         };
 
+        return .none;
+    }
+
+    fn airDbgEmptyStmt(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
+        _ = self;
+        _ = inst;
         return .none;
     }
 

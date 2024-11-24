@@ -1496,7 +1496,7 @@ pub fn updateFunc(
             });
             defer gpa.free(name);
             const osec = if (self.text_index) |sect_sym_index|
-                self.symbol(sect_sym_index).output_section_index
+                self.symbol(sect_sym_index).outputShndx(elf_file).?
             else osec: {
                 const osec = try elf_file.addSection(.{
                     .name = try elf_file.insertShString(".text"),

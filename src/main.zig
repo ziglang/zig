@@ -309,6 +309,7 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             .server = use_server,
         });
     } else if (mem.eql(u8, cmd, "fmt")) {
+        dev.check(.fmt_command);
         return @import("fmt.zig").run(gpa, arena, cmd_args);
     } else if (mem.eql(u8, cmd, "objcopy")) {
         return jitCmd(gpa, arena, cmd_args, .{

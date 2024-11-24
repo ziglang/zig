@@ -1355,6 +1355,11 @@ fn analyzeBodyInner(
                     .field_parent_ptr => try sema.zirFieldParentPtr(block, extended),
                     .builtin_value => try sema.zirBuiltinValue(block, extended),
                     .inplace_arith_result_ty => try sema.zirInplaceArithResultTy(extended),
+                    .dbg_empty_stmt => {
+                        try sema.zirDbgEmptyStmt(block, inst);
+                        i += 1;
+                        continue;
+                    },
                 };
             },
 
@@ -6669,6 +6674,11 @@ fn zirDbgStmt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!voi
             .column = inst_data.column,
         } },
     });
+}
+
+fn zirDbgEmptyStmt(_: *Sema, block: *Block, _: Zir.Inst.Index) CompileError!void {
+    if (block.is_comptime or block.ownerModule().strip) return;
+    _ = try block.addNoOp(.dbg_empty_stmt);
 }
 
 fn zirDbgVar(

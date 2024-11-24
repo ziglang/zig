@@ -2088,6 +2088,8 @@ pub const Inst = struct {
         /// `operand` is `Zir.Inst.Ref` of the loaded LHS (*not* its type).
         /// `small` is an `Inst.InplaceOp`.
         inplace_arith_result_ty,
+        /// Marks a statement that can be stepped to but produces no code.
+        dbg_empty_stmt,
 
         pub const InstData = struct {
             opcode: Extended,
@@ -4062,6 +4064,7 @@ fn findDeclsInner(
                 .branch_hint,
                 .inplace_arith_result_ty,
                 .tuple_decl,
+                .dbg_empty_stmt,
                 => return,
 
                 // `@TypeOf` has a body.
