@@ -8,10 +8,11 @@ pub fn panic(message: []const u8, _: ?*std.builtin.StackTrace, _: ?usize) noretu
 }
 
 pub fn main() void {
+    @setRuntimeSafety(true);
     const E = enum(u4) { _ };
     var invalid: u16 = 16;
     _ = &invalid;
-    std.mem.doNotOptimizeAway(@as(E, @enumFromInt(invalid)));
+    _ = @as(E, @enumFromInt(invalid));
     std.process.exit(1);
 }
 

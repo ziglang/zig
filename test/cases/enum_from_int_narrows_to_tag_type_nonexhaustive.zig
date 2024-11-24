@@ -16,6 +16,9 @@ pub fn main() void {
             const variant = @as(EnumTy, @enumFromInt(v));
             assert(@as(@TypeOf(v), @intCast(@intFromEnum(variant))) == v);
         }
+        const max = std.math.maxInt(TagType);
+        const max_variant = @as(EnumTy, @enumFromInt(max));
+        assert(@as(@TypeOf(max), @intCast(@intFromEnum(max_variant))) == max);
     }
 }
 
