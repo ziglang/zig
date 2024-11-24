@@ -14,3 +14,4 @@ export fn a() void {
 // output_mode=Obj
 // backend=stage2
 // target=spirv64-vulkan
+// emit_bin=false
