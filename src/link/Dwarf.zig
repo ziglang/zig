@@ -1474,6 +1474,11 @@ pub const WipNav = struct {
         try uleb128(dlw, column + 1);
     }
 
+    pub fn negateStmt(wip_nav: *WipNav) error{OutOfMemory}!void {
+        const dlw = wip_nav.debug_line.writer(wip_nav.dwarf.gpa);
+        try dlw.writeByte(DW.LNS.negate_stmt);
+    }
+
     pub fn setPrologueEnd(wip_nav: *WipNav) error{OutOfMemory}!void {
         const dlw = wip_nav.debug_line.writer(wip_nav.dwarf.gpa);
         try dlw.writeByte(DW.LNS.set_prologue_end);

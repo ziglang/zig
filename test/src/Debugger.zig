@@ -809,6 +809,424 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
         },
     );
     db.addLldbTest(
+        "step_single_stmt_loops",
+        target,
+        &.{
+            .{
+                .path = "step_single_stmt_loops.zig",
+                .source =
+                \\pub fn main() void {
+                \\    var x: u32 = 0;
+                \\    for (0..3) |_| {
+                \\        x +%= 1;
+                \\    }
+                \\    {
+                \\        var i: u32 = 0;
+                \\        while (i < 3) : (i +%= 1) {
+                \\            x +%= 1;
+                \\        }
+                \\    }
+                \\    {
+                \\        var i: u32 = 0;
+                \\        while (i < 3) {
+                \\            i +%= 1;
+                \\        }
+                \\    }
+                \\    inline for (0..3) |_| {
+                \\        x +%= 1;
+                \\    }
+                \\    {
+                \\        comptime var i: u32 = 0;
+                \\        inline while (i < 3) : (i +%= 1) {
+                \\            x +%= 1;
+                \\        }
+                \\    }
+                \\    {
+                \\        comptime var i: u32 = 0;
+                \\        inline while (i < 3) {
+                \\            i +%= 1;
+                \\        }
+                \\    }
+                \\    x +%= 1;
+                \\}
+                \\
+                ,
+            },
+        },
+        \\breakpoint set --name step_single_stmt_loops.main
+        \\process launch
+        \\thread step-in
+        \\#00
+        \\frame variable x
+        \\thread step-in
+        \\#01
+        \\frame variable x
+        \\thread step-in
+        \\#02
+        \\frame variable x
+        \\thread step-in
+        \\#03
+        \\frame variable x
+        \\thread step-in
+        \\#04
+        \\frame variable x
+        \\thread step-in
+        \\#05
+        \\frame variable x
+        \\thread step-in
+        \\#06
+        \\frame variable x
+        \\thread step-in
+        \\#07
+        \\frame variable x
+        \\thread step-in
+        \\#08
+        \\frame variable x
+        \\thread step-in
+        \\#09
+        \\frame variable x
+        \\thread step-in
+        \\#10
+        \\frame variable x
+        \\thread step-in
+        \\#11
+        \\frame variable x
+        \\thread step-in
+        \\#12
+        \\frame variable x
+        \\thread step-in
+        \\#13
+        \\frame variable x
+        \\thread step-in
+        \\#14
+        \\frame variable x
+        \\thread step-in
+        \\#15
+        \\frame variable x
+        \\thread step-in
+        \\#16
+        \\frame variable x
+        \\thread step-in
+        \\#17
+        \\frame variable x
+        \\thread step-in
+        \\#18
+        \\frame variable x
+        \\thread step-in
+        \\#19
+        \\frame variable x
+        \\thread step-in
+        \\#20
+        \\frame variable x
+        \\thread step-in
+        \\#21
+        \\frame variable x
+        \\thread step-in
+        \\#22
+        \\frame variable x
+        \\thread step-in
+        \\#23
+        \\frame variable x
+        \\thread step-in
+        \\#24
+        \\frame variable x
+        \\thread step-in
+        \\#25
+        \\frame variable x
+        \\thread step-in
+        \\#26
+        \\frame variable x
+        \\thread step-in
+        \\#27
+        \\frame variable x
+        \\thread step-in
+        \\#28
+        \\frame variable x
+        \\thread step-in
+        \\#29
+        \\frame variable x
+        \\thread step-in
+        \\#30
+        \\frame variable x
+        \\thread step-in
+        \\#31
+        \\frame variable x
+        \\thread step-in
+        \\#32
+        \\frame variable x
+        \\thread step-in
+        \\#33
+        \\frame variable x
+        \\thread step-in
+        \\#34
+        \\frame variable x
+        \\thread step-in
+        \\#35
+        \\frame variable x
+        \\thread step-in
+        \\#36
+        \\frame variable x
+        \\thread step-in
+        \\#37
+        \\frame variable x
+        \\thread step-in
+        \\#38
+        \\frame variable x
+        \\thread step-in
+        \\#39
+        \\frame variable x
+        \\thread step-in
+        \\#40
+        \\frame variable x
+        \\thread step-in
+        \\#41
+        \\frame variable x
+        \\thread step-in
+        \\#42
+        \\frame variable x
+        \\thread step-in
+        \\#43
+        \\frame variable x
+        \\thread step-in
+        \\#44
+        \\frame variable x
+        \\thread step-in
+        \\#45
+        \\frame variable x
+        \\
+    ,
+        &.{
+            \\(lldb) #00
+            \\(lldb) frame variable x
+            \\(u32) x = 0
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #01
+            \\(lldb) frame variable x
+            \\(u32) x = 0
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #02
+            \\(lldb) frame variable x
+            \\(u32) x = 1
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #03
+            \\(lldb) frame variable x
+            \\(u32) x = 1
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #04
+            \\(lldb) frame variable x
+            \\(u32) x = 1
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #05
+            \\(lldb) frame variable x
+            \\(u32) x = 2
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #06
+            \\(lldb) frame variable x
+            \\(u32) x = 2
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #07
+            \\(lldb) frame variable x
+            \\(u32) x = 2
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #08
+            \\(lldb) frame variable x
+            \\(u32) x = 3
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #09
+            \\(lldb) frame variable x
+            \\(u32) x = 3
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #10
+            \\(lldb) frame variable x
+            \\(u32) x = 3
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #11
+            \\(lldb) frame variable x
+            \\(u32) x = 3
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #12
+            \\(lldb) frame variable x
+            \\(u32) x = 3
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #13
+            \\(lldb) frame variable x
+            \\(u32) x = 4
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #14
+            \\(lldb) frame variable x
+            \\(u32) x = 4
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #15
+            \\(lldb) frame variable x
+            \\(u32) x = 4
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #16
+            \\(lldb) frame variable x
+            \\(u32) x = 5
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #17
+            \\(lldb) frame variable x
+            \\(u32) x = 5
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #18
+            \\(lldb) frame variable x
+            \\(u32) x = 5
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #19
+            \\(lldb) frame variable x
+            \\(u32) x = 6
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #20
+            \\(lldb) frame variable x
+            \\(u32) x = 6
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #21
+            \\(lldb) frame variable x
+            \\(u32) x = 6
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #22
+            \\(lldb) frame variable x
+            \\(u32) x = 6
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #23
+            \\(lldb) frame variable x
+            \\(u32) x = 6
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #24
+            \\(lldb) frame variable x
+            \\(u32) x = 6
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #25
+            \\(lldb) frame variable x
+            \\(u32) x = 6
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #26
+            \\(lldb) frame variable x
+            \\(u32) x = 6
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #27
+            \\(lldb) frame variable x
+            \\(u32) x = 6
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #28
+            \\(lldb) frame variable x
+            \\(u32) x = 6
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #29
+            \\(lldb) frame variable x
+            \\(u32) x = 6
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #30
+            \\(lldb) frame variable x
+            \\(u32) x = 6
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #31
+            \\(lldb) frame variable x
+            \\(u32) x = 6
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #32
+            \\(lldb) frame variable x
+            \\(u32) x = 6
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #33
+            \\(lldb) frame variable x
+            \\(u32) x = 7
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #34
+            \\(lldb) frame variable x
+            \\(u32) x = 7
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #35
+            \\(lldb) frame variable x
+            \\(u32) x = 8
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #36
+            \\(lldb) frame variable x
+            \\(u32) x = 8
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #37
+            \\(lldb) frame variable x
+            \\(u32) x = 9
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #38
+            \\(lldb) frame variable x
+            \\(u32) x = 9
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #39
+            \\(lldb) frame variable x
+            \\(u32) x = 10
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #40
+            \\(lldb) frame variable x
+            \\(u32) x = 10
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #41
+            \\(lldb) frame variable x
+            \\(u32) x = 11
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #42
+            \\(lldb) frame variable x
+            \\(u32) x = 11
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #43
+            \\(lldb) frame variable x
+            \\(u32) x = 12
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #44
+            \\(lldb) frame variable x
+            \\(u32) x = 12
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #45
+            \\(lldb) frame variable x
+            \\(u32) x = 12
+        },
+    );
+    db.addLldbTest(
         "inline_call",
         target,
         &.{
