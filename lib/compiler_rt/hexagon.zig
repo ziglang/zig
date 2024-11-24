@@ -938,7 +938,7 @@ fn __hexagon_divdf3() align(32) callconv(.naked) noreturn {
         \\  }
         \\  {
         \\   p0 = cmp.gt(r12,#0)
-        \\   if (p0.new) jump:nt .Lpossible_unf
+        \\   if (p0.new) jump:nt .Ldiv_possible_unf
         \\  }
         \\  {
         \\   r13 = add(clb(r7:6),#-1)
@@ -981,7 +981,7 @@ fn __hexagon_divdf3() align(32) callconv(.naked) noreturn {
         \\  }
         \\
         \\
-        \\ .Lpossible_unf:
+        \\ .Ldiv_possible_unf:
         \\
         \\
         \\  {
@@ -1250,7 +1250,7 @@ fn __hexagon_muldf3() align(32) callconv(.naked) noreturn {
         \\  }
         \\
         \\  .falign
-        \\ .Lpossible_unf:
+        \\ .Lmul_possible_unf:
         \\  {
         \\   p0 = cmp.eq(r0,#0)
         \\   p0 = bitsclr(r1,r4)
@@ -1295,7 +1295,7 @@ fn __hexagon_muldf3() align(32) callconv(.naked) noreturn {
         \\  }
         \\  {
         \\   p0 = cmp.gt(r7,#0)
-        \\   if (p0.new) jump:nt .Lpossible_unf
+        \\   if (p0.new) jump:nt .Lmul_possible_unf
         \\   r5 = sub(r6,r5)
         \\   r28 = #63
         \\  }
@@ -1759,30 +1759,29 @@ fn __hexagon_sqrtdf2() align(32) callconv(.naked) noreturn {
 
 comptime {
     if (builtin.cpu.arch == .hexagon) {
-        @export(__hexagon_adddf3, .{ .name = "__hexagon_adddf3", .linkage = common.linkage, .visibility = common.visibility });
-        @export(__hexagon_adddf3, .{ .name = "__hexagon_fast_adddf3", .linkage = common.linkage, .visibility = common.visibility });
-        @export(__hexagon_subdf3, .{ .name = "__hexagon_subdf3", .linkage = common.linkage, .visibility = common.visibility });
-        @export(__hexagon_subdf3, .{ .name = "__hexagon_fast_subdf3", .linkage = common.linkage, .visibility = common.visibility });
-        @export(__hexagon_divdf3, .{ .name = "__hexagon_divdf3", .linkage = common.linkage, .visibility = common.visibility });
-        @export(__hexagon_divdf3, .{ .name = "__hexagon_fast_divdf3", .linkage = common.linkage, .visibility = common.visibility });
-        @export(__hexagon_muldf3, .{ .name = "__hexagon_muldf3", .linkage = common.linkage, .visibility = common.visibility });
-        @export(__hexagon_muldf3, .{ .name = "__hexagon_fast_muldf3", .linkage = common.linkage, .visibility = common.visibility });
-        @export(__hexagon_sqrtdf2, .{ .name = "__hexagon_sqrtdf2", .linkage = common.linkage, .visibility = common.visibility });
-        @export(__hexagon_sqrtdf2, .{ .name = "__hexagon_fast2_sqrtdf2", .linkage = common.linkage, .visibility = common.visibility });
-        @export(__hexagon_sqrtdf2, .{ .name = "__hexagon_sqrt", .linkage = common.linkage, .visibility = common.visibility });
-        @export(__hexagon_divsf3, .{ .name = "__hexagon_divsf3", .linkage = common.linkage, .visibility = common.visibility });
-        @export(__hexagon_divsf3, .{ .name = "__hexagon_fast_divsf3", .linkage = common.linkage, .visibility = common.visibility });
-        @export(__hexagon_divsi3, .{ .name = "__hexagon_divsi3", .linkage = common.linkage, .visibility = common.visibility });
-        @export(__hexagon_umodsi3, .{ .name = "__hexagon_umodsi3", .linkage = common.linkage, .visibility = common.visibility });
-        @export(__hexagon_sqrtf, .{ .name = "__hexagon_sqrtf", .linkage = common.linkage, .visibility = common.visibility });
-        @export(__hexagon_sqrtf, .{ .name = "__hexagon_fast2_sqrtf", .linkage = common.linkage, .visibility = common.visibility });
-        @export(__hexagon_moddi3, .{ .name = "__hexagon_moddi3", .linkage = common.linkage, .visibility = common.visibility });
-        @export(__hexagon_divdi3, .{ .name = "__hexagon_divdi3", .linkage = common.linkage, .visibility = common.visibility });
-        @export(__hexagon_divsf3, .{ .name = "__hexagon_divsf3", .linkage = common.linkage, .visibility = common.visibility });
-        @export(__hexagon_udivdi3, .{ .name = "__hexagon_udivdi3", .linkage = common.linkage, .visibility = common.visibility });
-        @export(__hexagon_umoddi3, .{ .name = "__hexagon_umoddi3", .linkage = common.linkage, .visibility = common.visibility });
-        @export(__hexagon_modsi3, .{ .name = "__hexagon_modsi3", .linkage = common.linkage, .visibility = common.visibility });
-        @export(__hexagon_memcpy_likely_aligned_min32bytes_mult8bytes, .{ .name = "__hexagon_memcpy_likely_aligned_min32bytes_mult8bytes", .linkage = common.linkage, .visibility = common.visibility });
-        @export(__hexagon_udivsi3, .{ .name = "__hexagon_udivsi3", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__hexagon_adddf3, .{ .name = "__hexagon_adddf3", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__hexagon_adddf3, .{ .name = "__hexagon_fast_adddf3", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__hexagon_subdf3, .{ .name = "__hexagon_subdf3", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__hexagon_subdf3, .{ .name = "__hexagon_fast_subdf3", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__hexagon_divdf3, .{ .name = "__hexagon_divdf3", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__hexagon_divdf3, .{ .name = "__hexagon_fast_divdf3", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__hexagon_muldf3, .{ .name = "__hexagon_muldf3", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__hexagon_muldf3, .{ .name = "__hexagon_fast_muldf3", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__hexagon_sqrtdf2, .{ .name = "__hexagon_sqrtdf2", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__hexagon_sqrtdf2, .{ .name = "__hexagon_fast2_sqrtdf2", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__hexagon_sqrtdf2, .{ .name = "__hexagon_sqrt", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__hexagon_divsf3, .{ .name = "__hexagon_divsf3", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__hexagon_divsf3, .{ .name = "__hexagon_fast_divsf3", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__hexagon_divsi3, .{ .name = "__hexagon_divsi3", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__hexagon_umodsi3, .{ .name = "__hexagon_umodsi3", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__hexagon_sqrtf, .{ .name = "__hexagon_sqrtf", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__hexagon_sqrtf, .{ .name = "__hexagon_fast2_sqrtf", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__hexagon_moddi3, .{ .name = "__hexagon_moddi3", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__hexagon_divdi3, .{ .name = "__hexagon_divdi3", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__hexagon_udivdi3, .{ .name = "__hexagon_udivdi3", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__hexagon_umoddi3, .{ .name = "__hexagon_umoddi3", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__hexagon_modsi3, .{ .name = "__hexagon_modsi3", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__hexagon_memcpy_likely_aligned_min32bytes_mult8bytes, .{ .name = "__hexagon_memcpy_likely_aligned_min32bytes_mult8bytes", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__hexagon_udivsi3, .{ .name = "__hexagon_udivsi3", .linkage = common.linkage, .visibility = common.visibility });
     }
 }
