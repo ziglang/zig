@@ -9,7 +9,6 @@ const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const Options = std.testing.FuzzInputOptions;
-const Prng = std.Random.DefaultPrng;
 const SeenPcsHeader = std.Build.Fuzz.abi.SeenPcsHeader;
 const assert = std.debug.assert;
 const fatal = std.process.fatal;
@@ -21,24 +20,6 @@ const InitialFeatureBufferCap = 64;
 // currently unused
 export threadlocal var __sancov_lowest_stack: usize = std.math.maxInt(usize);
 
-/// Type for passing slices across extern functions where we can't use zig
-/// types
-pub const Slice = extern struct {
-    ptr: [*]const u8,
-    len: usize,
-
-    pub fn toZig(s: Slice) []const u8 {
-        return s.ptr[0..s.len];
-    }
-
-    pub fn fromZig(s: []const u8) Slice {
-        return .{
-            .ptr = s.ptr,
-            .len = s.len,
-        };
-    }
-};
-
 fn createFileBail(dir: std.fs.Dir, sub_path: []const u8, flags: std.fs.File.CreateFlags) std.fs.File {
     return dir.createFile(sub_path, flags) catch |err| switch (err) {
         error.FileNotFound => {
@@ -48,10 +29,6 @@ fn createFileBail(dir: std.fs.Dir, sub_path: []const u8, flags: std.fs.File.Crea
         },
         else => |e| fatal("create file '{s}' failed: {}", .{ sub_path, e }),
     };
-}
-
-fn sort(a: []u32) void {
-    std.mem.sort(u32, a, void{}, std.sort.asc(u32));
 }
 
 /// Deduplicates array of sorted features
@@ -84,7 +61,7 @@ test uniq {
 /// sorted and dedeuplicated
 fn getLastRunFeatures() []u32 {
     var features = feature_capture.values();
-    sort(features);
+    std.mem.sort(u32, features, void{}, std.sort.asc(u32));
     features = uniq(features);
     return features;
 }
@@ -151,7 +128,7 @@ test cmp {
 fn merge(dest: *ArrayList(u32), src: []const u32) error{OutOfMemory}!void {
     // TODO: can be in O(n) time and O(1) extra space
     try dest.appendSlice(src);
-    sort(dest.items);
+    std.mem.sort(u32, dest.items, void{}, std.sort.asc(u32));
     dest.items = uniq(dest.items);
 }
 
@@ -161,8 +138,7 @@ fn hashPCs(pcs: []const usize) u64 {
     return hasher.final();
 }
 
-/// Layout of this file:
-/// - Header
+/// File contains SeenPcsHeader and trailing data:
 /// - list of PC addresses (usize elements)
 /// - list of hit flag, 1 bit per address (stored in u8 elements)
 fn initCoverageFile(cache_dir: std.fs.Dir, coverage_file_path: []const u8, pcs: []const usize) MemoryMappedList(u8) {
@@ -184,8 +160,9 @@ fn initCoverageFile(cache_dir: std.fs.Dir, coverage_file_path: []const u8, pcs: 
     // how long the file actually is
     const existing_len = seen_pcs.items.len;
 
-    if (existing_len != 0 and existing_len != bytes_len)
+    if (existing_len != 0 and existing_len != bytes_len) {
         fatal("coverage file '{s}' is invalid (wrong length)", .{coverage_file_path});
+    }
 
     if (existing_len != 0) {
         // check existing file is ok
@@ -254,31 +231,24 @@ fn incrementNumberOfRuns(seen_pcs: MemoryMappedList(u8)) void {
     _ = @atomicRmw(usize, &header.n_runs, .Add, 1, .monotonic);
 }
 
-fn initialCorpusRandom(ip: *InputPool, rng: *Prng) void {
+fn initialCorpusRandom(ip: *InputPool, rng: std.Random) void {
     var buffer: [256]u8 = undefined;
     for (0..256) |len| {
         const slice = buffer[0..len];
-        rng.fill(slice);
+        rng.bytes(slice);
         ip.insertString(slice);
     }
     // TODO: could prune
 }
 
-fn selectInputIndex(ip: *InputPool, rng: *Prng) InputPool.Index {
-    const len = ip.len();
-    assert(len != 0);
-    const index = rng.next() % len;
-    return @intCast(index);
-}
-
 fn selectAndCopyInput(
     a: Allocator,
     ip: *InputPool,
-    rng: *Prng,
+    rng: std.Random,
     input_: ArrayListUnmanaged(u8),
 ) !ArrayListUnmanaged(u8) {
     var input = input_;
-    const new_input_index = selectInputIndex(ip, rng);
+    const new_input_index = rng.intRangeLessThanBiased(u31, 0, ip.len());
     const new_input = ip.getString(new_input_index);
 
     // manual slice copy since appendSlice doesn't take volatile slice
@@ -357,7 +327,8 @@ fn runInput(
 
         if (feature_capture.is_full()) {
             try growFeatureBuffer(a, feature_buffer);
-            // rerun same input with larger buffer
+            // rerun same input with larger buffer. By doing this we keep the
+            // feature_capture callback function trivial
             continue;
         }
         break;
@@ -399,7 +370,7 @@ pub const Fuzzer = struct {
 
     cache_dir: std.fs.Dir,
 
-    pub fn init(cache_dir: std.fs.Dir, pc_counters: []u8, pcs: []usize) error{OutOfMemory}!Fuzzer {
+    pub fn init(cache_dir: std.fs.Dir, pc_counters: []u8, pcs: []usize) Fuzzer {
         assert(pc_counters.len == pcs.len);
 
         return .{
@@ -411,11 +382,9 @@ pub const Fuzzer = struct {
     }
 
     pub fn start(f: *Fuzzer, test_one: Testee, options: Options) error{OutOfMemory}!void {
-        // we are a well behaved program
-        greet();
-        defer farewell();
+        var rng_impl = std.Random.DefaultPrng.init(0);
+        const rng = rng_impl.random();
 
-        var rng = Prng.init(0);
         var gpa_impl: std.heap.GeneralPurposeAllocator(.{}) = .{};
         const a = gpa_impl.allocator();
 
@@ -447,12 +416,12 @@ pub const Fuzzer = struct {
         std.log.info("Coverage id is {s}", .{&hex_digest});
 
         std.log.info(
-            \\Fuzzer booted with a initial corpus of size {}
+            \\Initial corpus of size {}
             \\F - this input features
             \\T - new unique features
         , .{ip.len()});
         if (ip.len() == 0) {
-            initialCorpusRandom(&ip, &rng);
+            initialCorpusRandom(&ip, rng);
         }
 
         for (options.corpus) |inp| {
@@ -466,8 +435,8 @@ pub const Fuzzer = struct {
         // fuzzer main loop
         while (true) {
             incrementNumberOfRuns(seen_pcs);
-            input = try selectAndCopyInput(a, &ip, &rng, input);
-            const mutation_seed = rng.next();
+            input = try selectAndCopyInput(a, &ip, rng, input);
+            const mutation_seed = rng.int(u64);
             assert(mutate_scratch.items.len == 0);
             try mutate.mutate(&input, mutation_seed, &mutate_scratch, a);
             const input_checksum = checksum(input.items);
@@ -489,20 +458,3 @@ pub const Fuzzer = struct {
         }
     }
 };
-
-fn greet() void {
-    const epoch_seconds = std.time.epoch.EpochSeconds{
-        .secs = @intCast(std.time.timestamp()),
-    };
-    const day_seconds = epoch_seconds.getDaySeconds();
-    const hour_of_day = day_seconds.getHoursIntoDay();
-    std.log.info("Good {s}", .{switch (hour_of_day) {
-        0...11 => "morning",
-        12...19 => "afternoon",
-        else => "evening",
-    }});
-}
-
-fn farewell() void {
-    std.log.info("Farewell", .{});
-}

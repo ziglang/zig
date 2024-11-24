@@ -4,8 +4,18 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const fatal = std.process.fatal;
 const Fuzzer = @import("fuzzer/main.zig").Fuzzer;
-const Slice = @import("fuzzer/main.zig").Slice;
 const fc = @import("fuzzer/feature_capture.zig");
+
+/// Type for passing slices across extern functions where we can't use zig
+/// types
+pub const Slice = extern struct {
+    ptr: [*]const u8,
+    len: usize,
+
+    pub fn toZig(s: Slice) []const u8 {
+        return s.ptr[0..s.len];
+    }
+};
 
 // ==== global state ====
 
@@ -114,22 +124,8 @@ export fn fuzzer_init(cache_dir_struct: Slice) void {
 
     const pcs = pcs_start[0 .. pcs_end - pcs_start];
 
-    fuzzer = Fuzzer.init(
-        cache_dir,
-        pc_counters,
-        pcs,
-    ) catch |e| switch (e) {
-        error.OutOfMemory => {
-            std.debug.print("fuzzer OOM\n", .{});
-            if (@errorReturnTrace()) |trace| {
-                std.debug.dumpStackTrace(trace.*);
-            }
-            std.process.exit(1);
-        },
-    };
+    fuzzer = Fuzzer.init(cache_dir, pc_counters, pcs);
 }
-
-export fn fuzzer_deinit() void {}
 
 // ==== log ====
 

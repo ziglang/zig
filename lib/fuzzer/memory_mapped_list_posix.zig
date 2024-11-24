@@ -5,6 +5,10 @@
 // previously mmaped pages become automatically valid without needing to
 // mremap.
 //
+// The most amazing part is that some other thread can do the ftruncate and our
+// memory region grows without the need to synchronize. The only thing needed
+// is an atomic size inside the file that other threads use to find out the
+// current size. Nobody needs to reallocate anything ever.
 
 const std = @import("std");
 const assert = std.debug.assert;
