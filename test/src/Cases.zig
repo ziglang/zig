@@ -88,6 +88,8 @@ pub const Case = struct {
     expect_exact: bool = false,
     backend: Backend = .stage2,
     link_libc: bool = false,
+    pic: ?bool = null,
+    pie: ?bool = null,
 
     deps: std.ArrayList(DepModule),
 
@@ -425,6 +427,8 @@ fn addFromDirInner(
         const is_test = try manifest.getConfigForKeyAssertSingle("is_test", bool);
         const link_libc = try manifest.getConfigForKeyAssertSingle("link_libc", bool);
         const output_mode = try manifest.getConfigForKeyAssertSingle("output_mode", std.builtin.OutputMode);
+        const pic = try manifest.getConfigForKeyAssertSingle("pic", ?bool);
+        const pie = try manifest.getConfigForKeyAssertSingle("pie", ?bool);
 
         if (manifest.type == .translate_c) {
             for (c_frontends) |c_frontend| {
@@ -488,6 +492,8 @@ fn addFromDirInner(
                     .is_test = is_test,
                     .output_mode = output_mode,
                     .link_libc = link_libc,
+                    .pic = pic,
+                    .pie = pie,
                     .deps = std.ArrayList(DepModule).init(ctx.cases.allocator),
                 });
                 try cases.append(next);
@@ -695,6 +701,8 @@ pub fn lowerToBuildSteps(
         };
 
         if (case.link_libc) artifact.linkLibC();
+        if (case.pic) |pic| artifact.root_module.pic = pic;
+        if (case.pie) |pie| artifact.pie = pie;
 
         switch (case.backend) {
             .stage1 => continue,
@@ -958,6 +966,10 @@ const TestManifestConfigDefaults = struct {
             return "false";
         } else if (std.mem.eql(u8, key, "c_frontend")) {
             return "clang";
+        } else if (std.mem.eql(u8, key, "pic")) {
+            return "null";
+        } else if (std.mem.eql(u8, key, "pie")) {
+            return "null";
         } else unreachable;
     }
 };
@@ -991,6 +1003,8 @@ const TestManifest = struct {
         .{ "c_frontend", {} },
         .{ "link_libc", {} },
         .{ "backend", {} },
+        .{ "pic", {} },
+        .{ "pie", {} },
     });
 
     const Type = enum {
@@ -1219,7 +1233,12 @@ const TestManifest = struct {
                     };
                 }
             }.parse,
-            .@"struct" => @compileError("no default parser for " ++ @typeName(T)),
+            .optional => |o| return struct {
+                fn parse(str: []const u8) anyerror!T {
+                    if (std.mem.eql(u8, str, "null")) return null;
+                    return try getDefaultParser(o.child)(str);
+                }
+            }.parse,
             else => @compileError("no default parser for " ++ @typeName(T)),
         }
     }
