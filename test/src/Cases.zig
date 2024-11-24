@@ -723,6 +723,10 @@ pub fn lowerToBuildSteps(
 
         switch (update.case) {
             .Compile => {
+                // Force the binary to be emitted if requested.
+                if (case.emit_bin) {
+                    _ = artifact.getEmittedBin();
+                }
                 parent_step.dependOn(&artifact.step);
             },
             .CompareObjectFile => |expected_output| {
