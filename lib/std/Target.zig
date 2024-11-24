@@ -862,6 +862,9 @@ pub const Abi = enum {
                 .mips,
                 .mipsel,
                 => .musleabi,
+                .mips64,
+                .mips64el,
+                => .muslabi64,
                 else => .musl,
             },
             .rtems => switch (arch) {
