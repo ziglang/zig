@@ -938,7 +938,7 @@ fn __hexagon_divdf3() align(32) callconv(.naked) noreturn {
         \\  }
         \\  {
         \\   p0 = cmp.gt(r12,#0)
-        \\   if (p0.new) jump:nt .Lpossible_unf
+        \\   if (p0.new) jump:nt .Ldiv_possible_unf
         \\  }
         \\  {
         \\   r13 = add(clb(r7:6),#-1)
@@ -981,7 +981,7 @@ fn __hexagon_divdf3() align(32) callconv(.naked) noreturn {
         \\  }
         \\
         \\
-        \\ .Lpossible_unf:
+        \\ .Ldiv_possible_unf:
         \\
         \\
         \\  {
@@ -1250,7 +1250,7 @@ fn __hexagon_muldf3() align(32) callconv(.naked) noreturn {
         \\  }
         \\
         \\  .falign
-        \\ .Lpossible_unf:
+        \\ .Lmul_possible_unf:
         \\  {
         \\   p0 = cmp.eq(r0,#0)
         \\   p0 = bitsclr(r1,r4)
@@ -1295,7 +1295,7 @@ fn __hexagon_muldf3() align(32) callconv(.naked) noreturn {
         \\  }
         \\  {
         \\   p0 = cmp.gt(r7,#0)
-        \\   if (p0.new) jump:nt .Lpossible_unf
+        \\   if (p0.new) jump:nt .Lmul_possible_unf
         \\   r5 = sub(r6,r5)
         \\   r28 = #63
         \\  }
