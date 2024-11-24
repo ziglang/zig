@@ -429,6 +429,7 @@ fn addFromDirInner(
         const output_mode = try manifest.getConfigForKeyAssertSingle("output_mode", std.builtin.OutputMode);
         const pic = try manifest.getConfigForKeyAssertSingle("pic", ?bool);
         const pie = try manifest.getConfigForKeyAssertSingle("pie", ?bool);
+        const emit_bin = try manifest.getConfigForKeyAssertSingle("emit_bin", bool);
 
         if (manifest.type == .translate_c) {
             for (c_frontends) |c_frontend| {
@@ -489,6 +490,7 @@ fn addFromDirInner(
                     .target = resolved_target,
                     .backend = backend,
                     .updates = std.ArrayList(Cases.Update).init(ctx.cases.allocator),
+                    .emit_bin = emit_bin,
                     .is_test = is_test,
                     .output_mode = output_mode,
                     .link_libc = link_libc,
@@ -964,6 +966,8 @@ const TestManifestConfigDefaults = struct {
                 .run_translated_c => "Obj",
                 .cli => @panic("TODO test harness for CLI tests"),
             };
+        } else if (std.mem.eql(u8, key, "emit_bin")) {
+            return "true";
         } else if (std.mem.eql(u8, key, "is_test")) {
             return "false";
         } else if (std.mem.eql(u8, key, "link_libc")) {
@@ -1001,6 +1005,7 @@ const TestManifest = struct {
     trailing_bytes: []const u8 = "",
 
     const valid_keys = std.StaticStringMap(void).initComptime(.{
+        .{ "emit_bin", {} },
         .{ "is_test", {} },
         .{ "output_mode", {} },
         .{ "target", {} },
