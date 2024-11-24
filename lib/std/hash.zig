@@ -37,7 +37,7 @@ pub const XxHash3 = xxhash.XxHash3;
 pub const XxHash64 = xxhash.XxHash64;
 pub const XxHash32 = xxhash.XxHash32;
 
-/// Easy & fast hash function for integer types
+/// Integer-to-integer hashing for bit widths <= 256.
 pub fn int(input: anytype) @TypeOf(input) {
     // This function is only intended for integer types
     const info = @typeInfo(@TypeOf(input)).int;
