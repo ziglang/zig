@@ -250,9 +250,8 @@ pub fn classifySystemV(ty: Type, zcu: *Zcu, target: std.Target, ctx: Context) [8
             return memory_class;
         },
         .optional => {
-            if (ty.isPtrLikeOptional(zcu)) {
-                result[0] = .integer;
-                return result;
+            if (ty.optionalReprIsPayload(zcu)) {
+                return classifySystemV(ty.optionalChild(zcu), zcu, target, ctx);
             }
             return memory_class;
         },

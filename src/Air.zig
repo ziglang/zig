@@ -893,14 +893,38 @@ pub const Inst = struct {
     pub const Index = enum(u32) {
         _,
 
-        pub fn toRef(i: Index) Inst.Ref {
-            assert(@intFromEnum(i) >> 31 == 0);
-            return @enumFromInt((1 << 31) | @intFromEnum(i));
+        pub fn unwrap(index: Index) union(enum) { ref: Inst.Ref, target: u31 } {
+            const low_index: u31 = @truncate(@intFromEnum(index));
+            return switch (@as(u1, @intCast(@intFromEnum(index) >> 31))) {
+                0 => .{ .ref = @enumFromInt(@as(u32, 1 << 31) | low_index) },
+                1 => .{ .target = low_index },
+            };
         }
 
-        pub fn toTargetIndex(i: Index) u31 {
-            assert(@intFromEnum(i) >> 31 == 1);
-            return @truncate(@intFromEnum(i));
+        pub fn toRef(index: Index) Inst.Ref {
+            return index.unwrap().ref;
+        }
+
+        pub fn fromTargetIndex(index: u31) Index {
+            return @enumFromInt((1 << 31) | @as(u32, index));
+        }
+
+        pub fn toTargetIndex(index: Index) u31 {
+            return index.unwrap().target;
+        }
+
+        pub fn format(
+            index: Index,
+            comptime _: []const u8,
+            _: std.fmt.FormatOptions,
+            writer: anytype,
+        ) @TypeOf(writer).Error!void {
+            try writer.writeByte('%');
+            switch (index.unwrap()) {
+                .ref => {},
+                .target => try writer.writeByte('t'),
+            }
+            try writer.print("{d}", .{@as(u31, @truncate(@intFromEnum(index)))});
         }
     };
 

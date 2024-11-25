@@ -547,7 +547,39 @@ pub const Memory = struct {
         }
     };
 
-    pub const Scale = enum(u2) { @"1", @"2", @"4", @"8" };
+    pub const Scale = enum(u2) {
+        @"1",
+        @"2",
+        @"4",
+        @"8",
+
+        pub fn fromFactor(factor: u4) Scale {
+            return switch (factor) {
+                else => unreachable,
+                1 => .@"1",
+                2 => .@"2",
+                4 => .@"4",
+                8 => .@"8",
+            };
+        }
+
+        pub fn toFactor(scale: Scale) u4 {
+            return switch (scale) {
+                .@"1" => 1,
+                .@"2" => 2,
+                .@"4" => 4,
+                .@"8" => 8,
+            };
+        }
+
+        pub fn fromLog2(log2: u2) Scale {
+            return @enumFromInt(log2);
+        }
+
+        pub fn toLog2(scale: Scale) u2 {
+            return @intFromEnum(scale);
+        }
+    };
 };
 
 pub const Immediate = union(enum) {

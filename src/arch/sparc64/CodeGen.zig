@@ -78,6 +78,8 @@ end_di_column: u32,
 /// which is a relative jump, based on the address following the reloc.
 exitlude_jump_relocs: std.ArrayListUnmanaged(usize) = .empty,
 
+reused_operands: std.StaticBitSet(Liveness.bpi - 1) = undefined,
+
 /// Whenever there is a runtime branch, we push a Branch onto this stack,
 /// and pop it off when the runtime branch joins. This provides an "overlay"
 /// of the table of mappings from instructions to `MCValue` from within the branch.
@@ -493,6 +495,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
         const old_air_bookkeeping = self.air_bookkeeping;
         try self.ensureProcessDeathCapacity(Liveness.bpi);
 
+        self.reused_operands = @TypeOf(self.reused_operands).initEmpty();
         switch (air_tags[@intFromEnum(inst)]) {
             // zig fmt: off
             .ptr_add => try self.airPtrArithmetic(inst, .ptr_add),
@@ -3523,16 +3526,13 @@ fn finishAirBookkeeping(self: *Self) void {
 }
 
 fn finishAir(self: *Self, inst: Air.Inst.Index, result: MCValue, operands: [Liveness.bpi - 1]Air.Inst.Ref) void {
-    var tomb_bits = self.liveness.getTombBits(inst);
-    for (operands) |op| {
-        const dies = @as(u1, @truncate(tomb_bits)) != 0;
-        tomb_bits >>= 1;
-        if (!dies) continue;
-        const op_index = op.toIndex() orelse continue;
-        self.processDeath(op_index);
+    const tomb_bits = self.liveness.getTombBits(inst);
+    for (0.., operands) |op_index, op| {
+        if (tomb_bits & @as(Liveness.Bpi, 1) << @intCast(op_index) == 0) continue;
+        if (self.reused_operands.isSet(op_index)) continue;
+        self.processDeath(op.toIndexAllowNone() orelse continue);
     }
-    const is_used = @as(u1, @truncate(tomb_bits)) == 0;
-    if (is_used) {
+    if (tomb_bits & 1 << (Liveness.bpi - 1) == 0) {
         log.debug("%{d} => {}", .{ inst, result });
         const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
         branch.inst_table.putAssumeCapacityNoClobber(inst, result);
@@ -4568,7 +4568,7 @@ fn reuseOperand(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, op_ind
     }
 
     // Prevent the operand deaths processing code from deallocating it.
-    self.liveness.clearOperandDeath(inst, op_index);
+    self.reused_operands.set(op_index);
 
     // That makes us responsible for doing the rest of the stuff that processDeath would have done.
     const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];

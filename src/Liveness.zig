@@ -202,14 +202,6 @@ pub fn operandDies(l: Liveness, inst: Air.Inst.Index, operand: OperandInt) bool 
     return (l.tomb_bits[usize_index] & mask) != 0;
 }
 
-pub fn clearOperandDeath(l: Liveness, inst: Air.Inst.Index, operand: OperandInt) void {
-    assert(operand < bpi - 1);
-    const usize_index = (@intFromEnum(inst) * bpi) / @bitSizeOf(usize);
-    const mask = @as(usize, 1) <<
-        @as(Log2Int(usize), @intCast((@intFromEnum(inst) % (@bitSizeOf(usize) / bpi)) * bpi + operand));
-    l.tomb_bits[usize_index] &= ~mask;
-}
-
 const OperandCategory = enum {
     /// The operand lives on, but this instruction cannot possibly mutate memory.
     none,
@@ -843,12 +835,6 @@ const Analysis = struct {
     tomb_bits: []usize,
     special: std.AutoHashMapUnmanaged(Air.Inst.Index, u32),
     extra: std.ArrayListUnmanaged(u32),
-
-    fn storeTombBits(a: *Analysis, inst: Air.Inst.Index, tomb_bits: Bpi) void {
-        const usize_index = (inst * bpi) / @bitSizeOf(usize);
-        a.tomb_bits[usize_index] |= @as(usize, tomb_bits) <<
-            @as(Log2Int(usize), @intCast((inst % (@bitSizeOf(usize) / bpi)) * bpi));
-    }
 
     fn addExtra(a: *Analysis, extra: anytype) Allocator.Error!u32 {
         const fields = std.meta.fields(@TypeOf(extra));
