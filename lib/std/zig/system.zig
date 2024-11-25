@@ -805,7 +805,6 @@ fn glibcVerFromRPath(rpath: []const u8) !std.SemanticVersion {
         error.InvalidWtf8 => unreachable, // Windows only
         error.BadPathName => unreachable, // Windows only
         error.PipeBusy => unreachable, // Windows-only
-        error.NoDevice => unreachable, // Windows-only
         error.SharingViolation => unreachable, // Windows-only
         error.NetworkNotFound => unreachable, // Windows-only
         error.AntivirusInterference => unreachable, // Windows-only
