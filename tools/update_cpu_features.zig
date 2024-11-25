@@ -1139,6 +1139,10 @@ const llvm_targets = [_]LlvmTarget{
                 .llvm_name = "winchip2",
                 .extra_deps = &.{"3dnow"},
             },
+            .{
+                .llvm_name = "sse4.2",
+                .extra_deps = &.{"crc32"},
+            },
         },
         // Features removed from LLVM
         .extra_features = &.{
