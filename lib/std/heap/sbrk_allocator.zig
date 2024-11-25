@@ -38,7 +38,7 @@ pub fn SbrkAllocator(comptime sbrk: *const fn (n: usize) usize) type {
 
         // TODO don't do the naive locking strategy
         var lock: std.Thread.Mutex = .{};
-        fn alloc(ctx: *anyopaque, len: usize, log2_align: u8, return_address: usize) ?[*]u8 {
+        fn alloc(ctx: ?*anyopaque, len: usize, log2_align: u8, return_address: usize) ?[*]u8 {
             _ = ctx;
             _ = return_address;
             lock.lock();
@@ -79,7 +79,7 @@ pub fn SbrkAllocator(comptime sbrk: *const fn (n: usize) usize) type {
         }
 
         fn resize(
-            ctx: *anyopaque,
+            ctx: ?*anyopaque,
             buf: []u8,
             log2_buf_align: u8,
             new_len: usize,
@@ -109,7 +109,7 @@ pub fn SbrkAllocator(comptime sbrk: *const fn (n: usize) usize) type {
         }
 
         fn free(
-            ctx: *anyopaque,
+            ctx: ?*anyopaque,
             buf: []u8,
             log2_buf_align: u8,
             return_address: usize,

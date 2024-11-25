@@ -102,7 +102,7 @@ const CAllocator = struct {
     }
 
     fn alloc(
-        _: *anyopaque,
+        _: ?*anyopaque,
         len: usize,
         log2_align: u8,
         return_address: usize,
@@ -113,7 +113,7 @@ const CAllocator = struct {
     }
 
     fn resize(
-        _: *anyopaque,
+        _: ?*anyopaque,
         buf: []u8,
         log2_buf_align: u8,
         new_len: usize,
@@ -134,7 +134,7 @@ const CAllocator = struct {
     }
 
     fn free(
-        _: *anyopaque,
+        _: ?*anyopaque,
         buf: []u8,
         log2_buf_align: u8,
         return_address: usize,
@@ -149,7 +149,7 @@ const CAllocator = struct {
 /// `malloc_usable_size` if available. For an allocator that directly calls
 /// `malloc`/`free`, see `raw_c_allocator`.
 pub const c_allocator = Allocator{
-    .ptr = undefined,
+    .ptr = null,
     .vtable = &c_allocator_vtable,
 };
 const c_allocator_vtable = Allocator.VTable{
@@ -164,7 +164,7 @@ const c_allocator_vtable = Allocator.VTable{
 /// `ArenaAllocator` for example and is more optimal in such a case
 /// than `c_allocator`.
 pub const raw_c_allocator = Allocator{
-    .ptr = undefined,
+    .ptr = null,
     .vtable = &raw_c_allocator_vtable,
 };
 const raw_c_allocator_vtable = Allocator.VTable{
@@ -174,7 +174,7 @@ const raw_c_allocator_vtable = Allocator.VTable{
 };
 
 fn rawCAlloc(
-    _: *anyopaque,
+    _: ?*anyopaque,
     len: usize,
     log2_ptr_align: u8,
     ret_addr: usize,
@@ -191,7 +191,7 @@ fn rawCAlloc(
 }
 
 fn rawCResize(
-    _: *anyopaque,
+    _: ?*anyopaque,
     buf: []u8,
     log2_old_align: u8,
     new_len: usize,
@@ -212,7 +212,7 @@ fn rawCResize(
 }
 
 fn rawCFree(
-    _: *anyopaque,
+    _: ?*anyopaque,
     buf: []u8,
     log2_old_align: u8,
     ret_addr: usize,
@@ -233,13 +233,13 @@ pub const page_allocator: Allocator = if (@hasDecl(root, "os") and
     @hasDecl(root.os.heap, "page_allocator"))
     root.os.heap.page_allocator
 else if (builtin.target.isWasm()) .{
-    .ptr = undefined,
+    .ptr = null,
     .vtable = &WasmAllocator.vtable,
 } else if (builtin.target.os.tag == .plan9) .{
-    .ptr = undefined,
+    .ptr = null,
     .vtable = &SbrkAllocator(std.os.plan9.sbrk).vtable,
 } else .{
-    .ptr = undefined,
+    .ptr = null,
     .vtable = &PageAllocator.vtable,
 };
 
@@ -249,7 +249,7 @@ else if (builtin.target.isWasm()) .{
 /// and wasm64 architectures.
 /// Until then, it is available here to play with.
 pub const wasm_allocator: Allocator = .{
-    .ptr = undefined,
+    .ptr = null,
     .vtable = &WasmAllocator.vtable,
 };
 
@@ -294,13 +294,13 @@ pub const HeapAllocator = switch (builtin.os.tag) {
         }
 
         fn alloc(
-            ctx: *anyopaque,
+            ctx: ?*anyopaque,
             n: usize,
             log2_ptr_align: u8,
             return_address: usize,
         ) ?[*]u8 {
             _ = return_address;
-            const self: *HeapAllocator = @ptrCast(@alignCast(ctx));
+            const self: *HeapAllocator = @ptrCast(@alignCast(ctx.?));
 
             const ptr_align = @as(usize, 1) << @as(Allocator.Log2Align, @intCast(log2_ptr_align));
             const amt = n + ptr_align - 1 + @sizeOf(usize);
@@ -321,7 +321,7 @@ pub const HeapAllocator = switch (builtin.os.tag) {
         }
 
         fn resize(
-            ctx: *anyopaque,
+            ctx: ?*anyopaque,
             buf: []u8,
             log2_buf_align: u8,
             new_size: usize,
@@ -329,7 +329,7 @@ pub const HeapAllocator = switch (builtin.os.tag) {
         ) bool {
             _ = log2_buf_align;
             _ = return_address;
-            const self: *HeapAllocator = @ptrCast(@alignCast(ctx));
+            const self: *HeapAllocator = @ptrCast(@alignCast(ctx.?));
 
             const root_addr = getRecordPtr(buf).*;
             const align_offset = @intFromPtr(buf.ptr) - root_addr;
@@ -346,14 +346,14 @@ pub const HeapAllocator = switch (builtin.os.tag) {
         }
 
         fn free(
-            ctx: *anyopaque,
+            ctx: ?*anyopaque,
             buf: []u8,
             log2_buf_align: u8,
             return_address: usize,
         ) void {
             _ = log2_buf_align;
             _ = return_address;
-            const self: *HeapAllocator = @ptrCast(@alignCast(ctx));
+            const self: *HeapAllocator = @ptrCast(@alignCast(ctx.?));
             windows.HeapFree(self.heap_handle.?, 0, @as(*anyopaque, @ptrFromInt(getRecordPtr(buf).*)));
         }
     },
@@ -421,8 +421,8 @@ pub const FixedBufferAllocator = struct {
         return buf.ptr + buf.len == self.buffer.ptr + self.end_index;
     }
 
-    fn alloc(ctx: *anyopaque, n: usize, log2_ptr_align: u8, ra: usize) ?[*]u8 {
-        const self: *FixedBufferAllocator = @ptrCast(@alignCast(ctx));
+    fn alloc(ctx: ?*anyopaque, n: usize, log2_ptr_align: u8, ra: usize) ?[*]u8 {
+        const self: *FixedBufferAllocator = @ptrCast(@alignCast(ctx.?));
         _ = ra;
         const ptr_align = @as(usize, 1) << @as(Allocator.Log2Align, @intCast(log2_ptr_align));
         const adjust_off = mem.alignPointerOffset(self.buffer.ptr + self.end_index, ptr_align) orelse return null;
@@ -434,13 +434,13 @@ pub const FixedBufferAllocator = struct {
     }
 
     fn resize(
-        ctx: *anyopaque,
+        ctx: ?*anyopaque,
         buf: []u8,
         log2_buf_align: u8,
         new_size: usize,
         return_address: usize,
     ) bool {
-        const self: *FixedBufferAllocator = @ptrCast(@alignCast(ctx));
+        const self: *FixedBufferAllocator = @ptrCast(@alignCast(ctx.?));
         _ = log2_buf_align;
         _ = return_address;
         assert(@inComptime() or self.ownsSlice(buf));
@@ -464,12 +464,12 @@ pub const FixedBufferAllocator = struct {
     }
 
     fn free(
-        ctx: *anyopaque,
+        ctx: ?*anyopaque,
         buf: []u8,
         log2_buf_align: u8,
         return_address: usize,
     ) void {
-        const self: *FixedBufferAllocator = @ptrCast(@alignCast(ctx));
+        const self: *FixedBufferAllocator = @ptrCast(@alignCast(ctx.?));
         _ = log2_buf_align;
         _ = return_address;
         assert(@inComptime() or self.ownsSlice(buf));
@@ -479,8 +479,8 @@ pub const FixedBufferAllocator = struct {
         }
     }
 
-    fn threadSafeAlloc(ctx: *anyopaque, n: usize, log2_ptr_align: u8, ra: usize) ?[*]u8 {
-        const self: *FixedBufferAllocator = @ptrCast(@alignCast(ctx));
+    fn threadSafeAlloc(ctx: ?*anyopaque, n: usize, log2_ptr_align: u8, ra: usize) ?[*]u8 {
+        const self: *FixedBufferAllocator = @ptrCast(@alignCast(ctx.?));
         _ = ra;
         const ptr_align = @as(usize, 1) << @as(Allocator.Log2Align, @intCast(log2_ptr_align));
         var end_index = @atomicLoad(usize, &self.end_index, .seq_cst);
@@ -549,24 +549,24 @@ pub fn StackFallbackAllocator(comptime size: usize) type {
         pub const allocator = @compileError("use 'const allocator = stackFallback(N).get();' instead");
 
         fn alloc(
-            ctx: *anyopaque,
+            ctx: ?*anyopaque,
             len: usize,
             log2_ptr_align: u8,
             ra: usize,
         ) ?[*]u8 {
-            const self: *Self = @ptrCast(@alignCast(ctx));
+            const self: *Self = @ptrCast(@alignCast(ctx.?));
             return FixedBufferAllocator.alloc(&self.fixed_buffer_allocator, len, log2_ptr_align, ra) orelse
                 return self.fallback_allocator.rawAlloc(len, log2_ptr_align, ra);
         }
 
         fn resize(
-            ctx: *anyopaque,
+            ctx: ?*anyopaque,
             buf: []u8,
             log2_buf_align: u8,
             new_len: usize,
             ra: usize,
         ) bool {
-            const self: *Self = @ptrCast(@alignCast(ctx));
+            const self: *Self = @ptrCast(@alignCast(ctx.?));
             if (self.fixed_buffer_allocator.ownsPtr(buf.ptr)) {
                 return FixedBufferAllocator.resize(&self.fixed_buffer_allocator, buf, log2_buf_align, new_len, ra);
             } else {
@@ -575,12 +575,12 @@ pub fn StackFallbackAllocator(comptime size: usize) type {
         }
 
         fn free(
-            ctx: *anyopaque,
+            ctx: ?*anyopaque,
             buf: []u8,
             log2_buf_align: u8,
             ra: usize,
         ) void {
-            const self: *Self = @ptrCast(@alignCast(ctx));
+            const self: *Self = @ptrCast(@alignCast(ctx.?));
             if (self.fixed_buffer_allocator.ownsPtr(buf.ptr)) {
                 return FixedBufferAllocator.free(&self.fixed_buffer_allocator, buf, log2_buf_align, ra);
             } else {

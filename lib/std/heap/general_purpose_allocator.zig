@@ -715,13 +715,13 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
         }
 
         fn resize(
-            ctx: *anyopaque,
+            ctx: ?*anyopaque,
             old_mem: []u8,
             log2_old_align_u8: u8,
             new_size: usize,
             ret_addr: usize,
         ) bool {
-            const self: *Self = @ptrCast(@alignCast(ctx));
+            const self: *Self = @ptrCast(@alignCast(ctx.?));
             const log2_old_align = @as(Allocator.Log2Align, @intCast(log2_old_align_u8));
             self.mutex.lock();
             defer self.mutex.unlock();
@@ -834,12 +834,12 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
         }
 
         fn free(
-            ctx: *anyopaque,
+            ctx: ?*anyopaque,
             old_mem: []u8,
             log2_old_align_u8: u8,
             ret_addr: usize,
         ) void {
-            const self: *Self = @ptrCast(@alignCast(ctx));
+            const self: *Self = @ptrCast(@alignCast(ctx.?));
             const log2_old_align = @as(Allocator.Log2Align, @intCast(log2_old_align_u8));
             self.mutex.lock();
             defer self.mutex.unlock();
@@ -977,8 +977,8 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             return true;
         }
 
-        fn alloc(ctx: *anyopaque, len: usize, log2_ptr_align: u8, ret_addr: usize) ?[*]u8 {
-            const self: *Self = @ptrCast(@alignCast(ctx));
+        fn alloc(ctx: ?*anyopaque, len: usize, log2_ptr_align: u8, ret_addr: usize) ?[*]u8 {
+            const self: *Self = @ptrCast(@alignCast(ctx.?));
             self.mutex.lock();
             defer self.mutex.unlock();
             if (!self.isAllocationAllowed(len)) return null;

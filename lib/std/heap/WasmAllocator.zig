@@ -46,7 +46,7 @@ var frees = [1]usize{0} ** size_class_count;
 /// For each big size class, points to the freed pointer.
 var big_frees = [1]usize{0} ** big_size_class_count;
 
-fn alloc(ctx: *anyopaque, len: usize, log2_align: u8, return_address: usize) ?[*]u8 {
+fn alloc(ctx: ?*anyopaque, len: usize, log2_align: u8, return_address: usize) ?[*]u8 {
     _ = ctx;
     _ = return_address;
     // Make room for the freelist next pointer.
@@ -84,7 +84,7 @@ fn alloc(ctx: *anyopaque, len: usize, log2_align: u8, return_address: usize) ?[*
 }
 
 fn resize(
-    ctx: *anyopaque,
+    ctx: ?*anyopaque,
     buf: []u8,
     log2_buf_align: u8,
     new_len: usize,
@@ -112,7 +112,7 @@ fn resize(
 }
 
 fn free(
-    ctx: *anyopaque,
+    ctx: ?*anyopaque,
     buf: []u8,
     log2_buf_align: u8,
     return_address: usize,
@@ -161,7 +161,7 @@ fn allocBigPages(n: usize) usize {
 }
 
 const test_ally = Allocator{
-    .ptr = undefined,
+    .ptr = null,
     .vtable = &vtable,
 };
 

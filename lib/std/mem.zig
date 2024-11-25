@@ -69,13 +69,13 @@ pub fn ValidationAllocator(comptime T: type) type {
         }
 
         pub fn alloc(
-            ctx: *anyopaque,
+            ctx: ?*anyopaque,
             n: usize,
             log2_ptr_align: u8,
             ret_addr: usize,
         ) ?[*]u8 {
             assert(n > 0);
-            const self: *Self = @ptrCast(@alignCast(ctx));
+            const self: *Self = @ptrCast(@alignCast(ctx.?));
             const underlying = self.getUnderlyingAllocatorPtr();
             const result = underlying.rawAlloc(n, log2_ptr_align, ret_addr) orelse
                 return null;
@@ -84,25 +84,25 @@ pub fn ValidationAllocator(comptime T: type) type {
         }
 
         pub fn resize(
-            ctx: *anyopaque,
+            ctx: ?*anyopaque,
             buf: []u8,
             log2_buf_align: u8,
             new_len: usize,
             ret_addr: usize,
         ) bool {
-            const self: *Self = @ptrCast(@alignCast(ctx));
+            const self: *Self = @ptrCast(@alignCast(ctx.?));
             assert(buf.len > 0);
             const underlying = self.getUnderlyingAllocatorPtr();
             return underlying.rawResize(buf, log2_buf_align, new_len, ret_addr);
         }
 
         pub fn free(
-            ctx: *anyopaque,
+            ctx: ?*anyopaque,
             buf: []u8,
             log2_buf_align: u8,
             ret_addr: usize,
         ) void {
-            const self: *Self = @ptrCast(@alignCast(ctx));
+            const self: *Self = @ptrCast(@alignCast(ctx.?));
             assert(buf.len > 0);
             const underlying = self.getUnderlyingAllocatorPtr();
             underlying.rawFree(buf, log2_buf_align, ret_addr);
@@ -134,7 +134,7 @@ pub fn alignAllocLen(full_len: usize, alloc_len: usize, len_align: u29) usize {
 }
 
 const fail_allocator = Allocator{
-    .ptr = undefined,
+    .ptr = null,
     .vtable = &failAllocator_vtable,
 };
 
@@ -144,7 +144,7 @@ const failAllocator_vtable = Allocator.VTable{
     .free = Allocator.noFree,
 };
 
-fn failAllocatorAlloc(_: *anyopaque, n: usize, log2_alignment: u8, ra: usize) ?[*]u8 {
+fn failAllocatorAlloc(_: ?*anyopaque, n: usize, log2_alignment: u8, ra: usize) ?[*]u8 {
     _ = n;
     _ = log2_alignment;
     _ = ra;

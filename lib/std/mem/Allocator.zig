@@ -10,8 +10,9 @@ const builtin = @import("builtin");
 pub const Error = error{OutOfMemory};
 pub const Log2Align = math.Log2Int(usize);
 
-// The type erased pointer to the allocator implementation
-ptr: *anyopaque,
+/// The type erased pointer to the allocator implementation.
+/// If null, the allocator implementation has no associated state.
+ptr: ?*anyopaque,
 vtable: *const VTable,
 
 pub const VTable = struct {
@@ -20,7 +21,7 @@ pub const VTable = struct {
     /// `ret_addr` is optionally provided as the first return address of the
     /// allocation call stack. If the value is `0` it means no return address
     /// has been provided.
-    alloc: *const fn (ctx: *anyopaque, len: usize, ptr_align: u8, ret_addr: usize) ?[*]u8,
+    alloc: *const fn (ctx: ?*anyopaque, len: usize, ptr_align: u8, ret_addr: usize) ?[*]u8,
 
     /// Attempt to expand or shrink memory in place. `buf.len` must equal the
     /// length requested from the most recent successful call to `alloc` or
@@ -37,7 +38,7 @@ pub const VTable = struct {
     /// `ret_addr` is optionally provided as the first return address of the
     /// allocation call stack. If the value is `0` it means no return address
     /// has been provided.
-    resize: *const fn (ctx: *anyopaque, buf: []u8, buf_align: u8, new_len: usize, ret_addr: usize) bool,
+    resize: *const fn (ctx: ?*anyopaque, buf: []u8, buf_align: u8, new_len: usize, ret_addr: usize) bool,
 
     /// Free and invalidate a buffer.
     ///
@@ -50,11 +51,11 @@ pub const VTable = struct {
     /// `ret_addr` is optionally provided as the first return address of the
     /// allocation call stack. If the value is `0` it means no return address
     /// has been provided.
-    free: *const fn (ctx: *anyopaque, buf: []u8, buf_align: u8, ret_addr: usize) void,
+    free: *const fn (ctx: ?*anyopaque, buf: []u8, buf_align: u8, ret_addr: usize) void,
 };
 
 pub fn noResize(
-    self: *anyopaque,
+    self: ?*anyopaque,
     buf: []u8,
     log2_buf_align: u8,
     new_len: usize,
@@ -69,7 +70,7 @@ pub fn noResize(
 }
 
 pub fn noFree(
-    self: *anyopaque,
+    self: ?*anyopaque,
     buf: []u8,
     log2_buf_align: u8,
     ret_addr: usize,
