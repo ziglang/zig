@@ -1482,7 +1482,7 @@ pub const Object = struct {
         var deinit_wip = true;
         var wip = try Builder.WipFunction.init(&o.builder, .{
             .function = function_index,
-            .strip = owner_mod.strip,
+            .strip = owner_mod.strip == .all or owner_mod.strip == .debuginfo,
         });
         defer if (deinit_wip) wip.deinit();
         wip.cursor = .{ .block = try wip.block(0, "Entry") };
@@ -4829,7 +4829,7 @@ pub const NavGen = struct {
 
             const line_number = zcu.navSrcLine(nav_index) + 1;
 
-            if (!mod.strip) {
+            if (mod.strip == .none) {
                 const debug_file = try o.getDebugFile(file_scope);
 
                 const debug_global_var = try o.builder.debugGlobalVar(

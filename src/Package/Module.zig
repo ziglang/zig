@@ -19,7 +19,7 @@ single_threaded: bool,
 error_tracing: bool,
 valgrind: bool,
 pic: bool,
-strip: bool,
+strip: std.builtin.Strip,
 omit_frame_pointer: bool,
 stack_check: bool,
 stack_protector: u32,
@@ -83,7 +83,7 @@ pub const CreateOptions = struct {
         error_tracing: ?bool = null,
         valgrind: ?bool = null,
         pic: ?bool = null,
-        strip: ?bool = null,
+        strip: ?std.builtin.Strip = null,
         omit_frame_pointer: ?bool = null,
         stack_check: ?bool = null,
         /// null means default.
@@ -138,8 +138,8 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
         }
         if (options.inherited.valgrind) |x| break :b x;
         if (options.parent) |p| break :b p.valgrind;
-        if (strip) break :b false;
-        break :b optimize_mode == .Debug;
+        if (strip == .all) break :b false;
+        break :b optimize_mode != .ReleaseSmall;
     };
 
     const zig_backend = target_util.zigBackend(target, options.global.use_llvm);

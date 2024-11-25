@@ -2646,9 +2646,12 @@ pub fn genTypeDecl(
                 _ = try renderTypePrefix(.flush, global_ctype_pool, zcu, writer, global_ctype, .suffix, .{});
                 try writer.writeByte(';');
                 const file_scope = ty.typeDeclInstAllowGeneratedTag(zcu).?.resolveFile(ip);
-                if (!zcu.fileByIndex(file_scope).mod.strip) try writer.print(" /* {} */", .{
-                    ty.containerTypeName(ip).fmt(ip),
-                });
+                switch (zcu.fileByIndex(file_scope).mod.strip) {
+                    .none => try writer.print(" /* {} */", .{
+                        ty.containerTypeName(ip).fmt(ip),
+                    }),
+                    .all, .debuginfo => {},
+                }
                 try writer.writeByte('\n');
             },
         },

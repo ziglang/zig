@@ -57,7 +57,7 @@ export_memory: bool,
 shared_memory: bool,
 is_test: bool,
 debug_format: DebugFormat,
-root_strip: bool,
+root_strip: std.builtin.Strip,
 root_error_tracing: bool,
 dll_export_fns: bool,
 rdynamic: bool,
@@ -78,7 +78,7 @@ pub const Options = struct {
     have_zcu: bool,
     emit_bin: bool,
     root_optimize_mode: ?std.builtin.OptimizeMode = null,
-    root_strip: ?bool = null,
+    root_strip: ?std.builtin.Strip = null,
     root_error_tracing: ?bool = null,
     link_mode: ?std.builtin.LinkMode = null,
     ensure_libc_on_non_freestanding: bool = false,
@@ -432,15 +432,15 @@ pub fn resolve(options: Options) ResolveError!Config {
         break :b false;
     };
 
-    const root_strip = b: {
+    const root_strip: std.builtin.Strip = b: {
         if (options.root_strip) |x| break :b x;
-        if (root_optimize_mode == .ReleaseSmall) break :b true;
-        if (!target_util.hasDebugInfo(target)) break :b true;
-        break :b false;
+        if (root_optimize_mode == .ReleaseSmall) break :b .none;
+        if (!target_util.hasDebugInfo(target)) break :b .all;
+        break :b .none;
     };
 
     const debug_format: DebugFormat = b: {
-        if (root_strip and !options.any_non_stripped) break :b .strip;
+        if (root_strip == .all and !options.any_non_stripped) break :b .strip;
         if (options.debug_format) |x| break :b x;
         break :b switch (target.ofmt) {
             .elf, .goff, .macho, .wasm, .xcoff => .{ .dwarf = .@"32" },
@@ -458,7 +458,7 @@ pub fn resolve(options: Options) ResolveError!Config {
 
     const root_error_tracing = b: {
         if (options.root_error_tracing) |x| break :b x;
-        if (root_strip) break :b false;
+        if (root_strip != .none) break :b false;
         if (!backend_supports_error_tracing) break :b false;
         break :b switch (root_optimize_mode) {
             .Debug => true,
