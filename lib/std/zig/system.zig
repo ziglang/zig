@@ -1069,7 +1069,6 @@ fn detectAbiAndDynamicLinker(
                 error.InvalidWtf8 => unreachable, // Windows only
                 error.BadPathName => unreachable,
                 error.PipeBusy => unreachable,
-                error.NoDevice => unreachable,
                 error.FileLocksNotSupported => unreachable,
                 error.WouldBlock => unreachable,
                 error.FileBusy => unreachable, // opened without write permissions
