@@ -12,7 +12,7 @@ const posix = std.posix;
 /// We use this as a layer of indirection because global const pointers cannot
 /// point to thread-local variables.
 pub const interface: std.Random = .{
-    .ptr = undefined,
+    .ptr = null,
     .fillFn = tlsCsprngFill,
 };
 

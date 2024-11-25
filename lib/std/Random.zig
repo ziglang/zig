@@ -29,8 +29,10 @@ pub const RomuTrio = @import("Random/RomuTrio.zig");
 pub const SplitMix64 = @import("Random/SplitMix64.zig");
 pub const ziggurat = @import("Random/ziggurat.zig");
 
-ptr: *anyopaque,
-fillFn: *const fn (ptr: *anyopaque, buf: []u8) void,
+/// The type erased pointer to the random implementation.
+/// If null, the random implementation has no associated state.
+ptr: ?*anyopaque,
+fillFn: *const fn (ptr: ?*anyopaque, buf: []u8) void,
 
 pub fn init(pointer: anytype, comptime fillFn: fn (ptr: @TypeOf(pointer), buf: []u8) void) Random {
     const Ptr = @TypeOf(pointer);
@@ -38,8 +40,8 @@ pub fn init(pointer: anytype, comptime fillFn: fn (ptr: @TypeOf(pointer), buf: [
     assert(@typeInfo(Ptr).pointer.size == .one); // Must be a single-item pointer
     assert(@typeInfo(@typeInfo(Ptr).pointer.child) == .@"struct"); // Must point to a struct
     const gen = struct {
-        fn fill(ptr: *anyopaque, buf: []u8) void {
-            const self: Ptr = @ptrCast(@alignCast(ptr));
+        fn fill(ptr: ?*anyopaque, buf: []u8) void {
+            const self: Ptr = @ptrCast(@alignCast(ptr.?));
             fillFn(self, buf);
         }
     };
