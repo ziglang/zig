@@ -1817,6 +1817,7 @@ pub fn openatZ(dir_fd: fd_t, file_path: [*:0]const u8, flags: O, mode: mode_t) O
             .OPNOTSUPP => return error.FileLocksNotSupported,
             .AGAIN => return error.WouldBlock,
             .TXTBSY => return error.FileBusy,
+            .NXIO => return error.NoDevice,
             .ILSEQ => |err| if (native_os == .wasi)
                 return error.InvalidUtf8
             else

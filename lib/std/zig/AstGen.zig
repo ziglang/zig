@@ -6024,7 +6024,7 @@ fn tryExpr(
     if (!parent_gz.is_comptime) {
         try emitDbgNode(parent_gz, node);
     }
-    const try_lc = LineColumn{ astgen.source_line - parent_gz.decl_line, astgen.source_column };
+    const try_lc: LineColumn = .{ astgen.source_line - parent_gz.decl_line, astgen.source_column };
 
     const operand_rl: ResultInfo.Loc, const block_tag: Zir.Inst.Tag = switch (ri.rl) {
         .ref => .{ .ref, .try_ptr },
@@ -6577,6 +6577,7 @@ fn whileExpr(
     const astgen = parent_gz.astgen;
     const tree = astgen.tree;
     const token_tags = tree.tokens.items(.tag);
+    const token_starts = tree.tokens.items(.start);
 
     const need_rl = astgen.nodes_need_rl.contains(node);
     const block_ri: ResultInfo = if (need_rl) ri else .{
@@ -6774,6 +6775,16 @@ fn whileExpr(
     try checkUsed(parent_gz, &then_scope.base, then_sub_scope);
     const break_tag: Zir.Inst.Tag = if (is_inline) .break_inline else .@"break";
     if (!continue_scope.endsWithNoReturn()) {
+        astgen.advanceSourceCursor(token_starts[tree.lastToken(then_node)]);
+        try emitDbgStmt(parent_gz, .{ astgen.source_line - parent_gz.decl_line, astgen.source_column });
+        _ = try parent_gz.add(.{
+            .tag = .extended,
+            .data = .{ .extended = .{
+                .opcode = .dbg_empty_stmt,
+                .small = undefined,
+                .operand = undefined,
+            } },
+        });
         _ = try continue_scope.addBreak(break_tag, continue_block, .void_value);
     }
     try continue_scope.setBlockBody(continue_block);
@@ -6882,6 +6893,7 @@ fn forExpr(
     }
     const tree = astgen.tree;
     const token_tags = tree.tokens.items(.tag);
+    const token_starts = tree.tokens.items(.start);
     const node_tags = tree.nodes.items(.tag);
     const node_data = tree.nodes.items(.data);
     const gpa = astgen.gpa;
@@ -7087,8 +7099,18 @@ fn forExpr(
 
     try checkUsed(parent_gz, &then_scope.base, then_sub_scope);
 
-    const break_tag: Zir.Inst.Tag = if (is_inline) .break_inline else .@"break";
+    astgen.advanceSourceCursor(token_starts[tree.lastToken(then_node)]);
+    try emitDbgStmt(parent_gz, .{ astgen.source_line - parent_gz.decl_line, astgen.source_column });
+    _ = try parent_gz.add(.{
+        .tag = .extended,
+        .data = .{ .extended = .{
+            .opcode = .dbg_empty_stmt,
+            .small = undefined,
+            .operand = undefined,
+        } },
+    });
 
+    const break_tag: Zir.Inst.Tag = if (is_inline) .break_inline else .@"break";
     _ = try then_scope.addBreak(break_tag, cond_block, .void_value);
 
     var else_scope = parent_gz.makeSubBlock(&cond_scope.base);
@@ -7135,6 +7157,7 @@ fn forExpr(
             .lhs = index_ptr,
             .rhs = index_plus_one,
         });
+
         const repeat_tag: Zir.Inst.Tag = if (is_inline) .repeat_inline else .repeat;
         _ = try loop_scope.addNode(repeat_tag, node);
 
@@ -7279,7 +7302,7 @@ fn switchExprErrUnion(
     };
 
     astgen.advanceSourceCursorToNode(operand_node);
-    const operand_lc = LineColumn{ astgen.source_line - parent_gz.decl_line, astgen.source_column };
+    const operand_lc: LineColumn = .{ astgen.source_line - parent_gz.decl_line, astgen.source_column };
 
     const raw_operand = try reachableExpr(parent_gz, scope, operand_ri, operand_node, switch_node);
     const item_ri: ResultInfo = .{ .rl = .none };
@@ -7868,7 +7891,7 @@ fn switchExpr(
     const operand_ri: ResultInfo = .{ .rl = if (any_payload_is_ref) .ref else .none };
 
     astgen.advanceSourceCursorToNode(operand_node);
-    const operand_lc = LineColumn{ astgen.source_line - parent_gz.decl_line, astgen.source_column };
+    const operand_lc: LineColumn = .{ astgen.source_line - parent_gz.decl_line, astgen.source_column };
 
     const raw_operand = try expr(parent_gz, scope, operand_ri, operand_node);
     const item_ri: ResultInfo = .{ .rl = .none };
@@ -8214,7 +8237,7 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
     if (!gz.is_comptime) {
         try emitDbgNode(gz, node);
     }
-    const ret_lc = LineColumn{ astgen.source_line - gz.decl_line, astgen.source_column };
+    const ret_lc: LineColumn = .{ astgen.source_line - gz.decl_line, astgen.source_column };
 
     const defer_outer = &astgen.fn_block.?.base;
 

@@ -296,19 +296,26 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
             /// Secret scalar.
             secret_key: SecretKey,
 
-            /// Create a new random key pair. `crypto.random.bytes` must be supported for the target.
-            pub fn generate() IdentityElementError!KeyPair {
-                var random_seed: [seed_length]u8 = undefined;
-                crypto.random.bytes(&random_seed);
-                return create(random_seed);
-            }
-
-            /// Create a new key pair. The seed must be secret and indistinguishable from random.
-            pub fn create(seed: [seed_length]u8) IdentityElementError!KeyPair {
+            /// Deterministically derive a key pair from a cryptograpically secure secret seed.
+            ///
+            /// Except in tests, applications should generally call `generate()` instead of this function.
+            pub fn generateDeterministic(seed: [seed_length]u8) IdentityElementError!KeyPair {
                 const h = [_]u8{0x00} ** Hash.digest_length;
                 const k0 = [_]u8{0x01} ** SecretKey.encoded_length;
                 const secret_key = deterministicScalar(h, k0, seed).toBytes(.big);
                 return fromSecretKey(SecretKey{ .bytes = secret_key });
+            }
+
+            /// Generate a new, random key pair.
+            pub fn generate() KeyPair {
+                var random_seed: [seed_length]u8 = undefined;
+                while (true) {
+                    crypto.random.bytes(&random_seed);
+                    return generateDeterministic(random_seed) catch {
+                        @branchHint(.unlikely);
+                        continue;
+                    };
+                }
             }
 
             /// Return the public key corresponding to the secret key.
@@ -387,7 +394,7 @@ test "Basic operations over EcdsaP384Sha384" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
 
     const Scheme = EcdsaP384Sha384;
-    const kp = try Scheme.KeyPair.generate();
+    const kp = Scheme.KeyPair.generate();
     const msg = "test";
 
     var noise: [Scheme.noise_length]u8 = undefined;
@@ -403,7 +410,7 @@ test "Basic operations over Secp256k1" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
 
     const Scheme = EcdsaSecp256k1Sha256oSha256;
-    const kp = try Scheme.KeyPair.generate();
+    const kp = Scheme.KeyPair.generate();
     const msg = "test";
 
     var noise: [Scheme.noise_length]u8 = undefined;
@@ -419,7 +426,7 @@ test "Basic operations over EcdsaP384Sha256" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
 
     const Scheme = Ecdsa(crypto.ecc.P384, crypto.hash.sha2.Sha256);
-    const kp = try Scheme.KeyPair.generate();
+    const kp = Scheme.KeyPair.generate();
     const msg = "test";
 
     var noise: [Scheme.noise_length]u8 = undefined;
@@ -893,7 +900,7 @@ test "Sec1 encoding/decoding" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
 
     const Scheme = EcdsaP384Sha384;
-    const kp = try Scheme.KeyPair.generate();
+    const kp = Scheme.KeyPair.generate();
     const pk = kp.public_key;
     const pk_compressed_sec1 = pk.toCompressedSec1();
     const pk_recovered1 = try Scheme.PublicKey.fromSec1(&pk_compressed_sec1);
