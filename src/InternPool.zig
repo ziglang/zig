@@ -1431,14 +1431,10 @@ pub const OptionalMapIndex = enum(u32) {
 pub const MapIndex = enum(u32) {
     _,
 
-    pub fn get(map_index: MapIndex, ip: *InternPool) *FieldMap {
+    pub fn get(map_index: MapIndex, ip: *const InternPool) *FieldMap {
         const unwrapped_map_index = map_index.unwrap(ip);
         const maps = ip.getLocalShared(unwrapped_map_index.tid).maps.acquire();
         return &maps.view().items(.@"0")[unwrapped_map_index.index];
-    }
-
-    pub fn getConst(map_index: MapIndex, ip: *const InternPool) FieldMap {
-        return map_index.get(@constCast(ip)).*;
     }
 
     pub fn toOptional(i: MapIndex) OptionalMapIndex {
@@ -1853,7 +1849,7 @@ pub const Key = union(enum) {
 
         /// Look up field index based on field name.
         pub fn nameIndex(self: ErrorSetType, ip: *const InternPool, name: NullTerminatedString) ?u32 {
-            const map = self.names_map.unwrap().?.getConst(ip);
+            const map = self.names_map.unwrap().?.get(ip);
             const adapter: NullTerminatedString.Adapter = .{ .strings = self.names.get(ip) };
             const field_index = map.getIndexAdapted(name, adapter) orelse return null;
             return @intCast(field_index);
@@ -2101,13 +2097,13 @@ pub const Key = union(enum) {
         comptime_args: Index.Slice,
 
         /// Returns a pointer that becomes invalid after any additions to the `InternPool`.
-        fn analysisPtr(func: Func, ip: *InternPool) *FuncAnalysis {
+        fn analysisPtr(func: Func, ip: *const InternPool) *FuncAnalysis {
             const extra = ip.getLocalShared(func.tid).extra.acquire();
             return @ptrCast(&extra.view().items(.@"0")[func.analysis_extra_index]);
         }
 
         pub fn analysisUnordered(func: Func, ip: *const InternPool) FuncAnalysis {
-            return @atomicLoad(FuncAnalysis, func.analysisPtr(@constCast(ip)), .unordered);
+            return @atomicLoad(FuncAnalysis, func.analysisPtr(ip), .unordered);
         }
 
         pub fn setAnalysisState(func: Func, ip: *InternPool, state: FuncAnalysis.State) void {
@@ -2144,23 +2140,23 @@ pub const Key = union(enum) {
         }
 
         /// Returns a pointer that becomes invalid after any additions to the `InternPool`.
-        fn zirBodyInstPtr(func: Func, ip: *InternPool) *TrackedInst.Index {
+        fn zirBodyInstPtr(func: Func, ip: *const InternPool) *TrackedInst.Index {
             const extra = ip.getLocalShared(func.tid).extra.acquire();
             return @ptrCast(&extra.view().items(.@"0")[func.zir_body_inst_extra_index]);
         }
 
         pub fn zirBodyInstUnordered(func: Func, ip: *const InternPool) TrackedInst.Index {
-            return @atomicLoad(TrackedInst.Index, func.zirBodyInstPtr(@constCast(ip)), .unordered);
+            return @atomicLoad(TrackedInst.Index, func.zirBodyInstPtr(ip), .unordered);
         }
 
         /// Returns a pointer that becomes invalid after any additions to the `InternPool`.
-        fn branchQuotaPtr(func: Func, ip: *InternPool) *u32 {
+        fn branchQuotaPtr(func: Func, ip: *const InternPool) *u32 {
             const extra = ip.getLocalShared(func.tid).extra.acquire();
             return &extra.view().items(.@"0")[func.branch_quota_extra_index];
         }
 
         pub fn branchQuotaUnordered(func: Func, ip: *const InternPool) u32 {
-            return @atomicLoad(u32, func.branchQuotaPtr(@constCast(ip)), .unordered);
+            return @atomicLoad(u32, func.branchQuotaPtr(ip), .unordered);
         }
 
         pub fn maxBranchQuota(func: Func, ip: *InternPool, new_branch_quota: u32) void {
@@ -2173,14 +2169,14 @@ pub const Key = union(enum) {
         }
 
         /// Returns a pointer that becomes invalid after any additions to the `InternPool`.
-        fn resolvedErrorSetPtr(func: Func, ip: *InternPool) *Index {
+        fn resolvedErrorSetPtr(func: Func, ip: *const InternPool) *Index {
             const extra = ip.getLocalShared(func.tid).extra.acquire();
             assert(func.analysisUnordered(ip).inferred_error_set);
             return @ptrCast(&extra.view().items(.@"0")[func.resolved_error_set_extra_index]);
         }
 
         pub fn resolvedErrorSetUnordered(func: Func, ip: *const InternPool) Index {
-            return @atomicLoad(Index, func.resolvedErrorSetPtr(@constCast(ip)), .unordered);
+            return @atomicLoad(Index, func.resolvedErrorSetPtr(ip), .unordered);
         }
 
         pub fn setResolvedErrorSet(func: Func, ip: *InternPool, ies: Index) void {
@@ -3135,14 +3131,14 @@ pub const LoadedUnionType = struct {
     /// This accessor is provided so that the tag type can be mutated, and so that
     /// when it is mutated, the mutations are observed.
     /// The returned pointer expires with any addition to the `InternPool`.
-    fn tagTypePtr(self: LoadedUnionType, ip: *InternPool) *Index {
+    fn tagTypePtr(self: LoadedUnionType, ip: *const InternPool) *Index {
         const extra = ip.getLocalShared(self.tid).extra.acquire();
         const field_index = std.meta.fieldIndex(Tag.TypeUnion, "tag_ty").?;
         return @ptrCast(&extra.view().items(.@"0")[self.extra_index + field_index]);
     }
 
     pub fn tagTypeUnordered(u: LoadedUnionType, ip: *const InternPool) Index {
-        return @atomicLoad(Index, u.tagTypePtr(@constCast(ip)), .unordered);
+        return @atomicLoad(Index, u.tagTypePtr(ip), .unordered);
     }
 
     pub fn setTagType(u: LoadedUnionType, ip: *InternPool, tag_type: Index) void {
@@ -3154,14 +3150,14 @@ pub const LoadedUnionType = struct {
     }
 
     /// The returned pointer expires with any addition to the `InternPool`.
-    fn flagsPtr(self: LoadedUnionType, ip: *InternPool) *Tag.TypeUnion.Flags {
+    fn flagsPtr(self: LoadedUnionType, ip: *const InternPool) *Tag.TypeUnion.Flags {
         const extra = ip.getLocalShared(self.tid).extra.acquire();
         const field_index = std.meta.fieldIndex(Tag.TypeUnion, "flags").?;
         return @ptrCast(&extra.view().items(.@"0")[self.extra_index + field_index]);
     }
 
     pub fn flagsUnordered(u: LoadedUnionType, ip: *const InternPool) Tag.TypeUnion.Flags {
-        return @atomicLoad(Tag.TypeUnion.Flags, u.flagsPtr(@constCast(ip)), .unordered);
+        return @atomicLoad(Tag.TypeUnion.Flags, u.flagsPtr(ip), .unordered);
     }
 
     pub fn setStatus(u: LoadedUnionType, ip: *InternPool, status: Status) void {
@@ -3254,25 +3250,25 @@ pub const LoadedUnionType = struct {
     }
 
     /// The returned pointer expires with any addition to the `InternPool`.
-    fn sizePtr(self: LoadedUnionType, ip: *InternPool) *u32 {
+    fn sizePtr(self: LoadedUnionType, ip: *const InternPool) *u32 {
         const extra = ip.getLocalShared(self.tid).extra.acquire();
         const field_index = std.meta.fieldIndex(Tag.TypeUnion, "size").?;
         return &extra.view().items(.@"0")[self.extra_index + field_index];
     }
 
     pub fn sizeUnordered(u: LoadedUnionType, ip: *const InternPool) u32 {
-        return @atomicLoad(u32, u.sizePtr(@constCast(ip)), .unordered);
+        return @atomicLoad(u32, u.sizePtr(ip), .unordered);
     }
 
     /// The returned pointer expires with any addition to the `InternPool`.
-    fn paddingPtr(self: LoadedUnionType, ip: *InternPool) *u32 {
+    fn paddingPtr(self: LoadedUnionType, ip: *const InternPool) *u32 {
         const extra = ip.getLocalShared(self.tid).extra.acquire();
         const field_index = std.meta.fieldIndex(Tag.TypeUnion, "padding").?;
         return &extra.view().items(.@"0")[self.extra_index + field_index];
     }
 
     pub fn paddingUnordered(u: LoadedUnionType, ip: *const InternPool) u32 {
-        return @atomicLoad(u32, u.paddingPtr(@constCast(ip)), .unordered);
+        return @atomicLoad(u32, u.paddingPtr(ip), .unordered);
     }
 
     pub fn hasTag(self: LoadedUnionType, ip: *const InternPool) bool {
@@ -3480,7 +3476,7 @@ pub const LoadedStructType = struct {
             if (i >= s.field_types.len) return null;
             return i;
         };
-        const map = names_map.getConst(ip);
+        const map = names_map.get(ip);
         const adapter: NullTerminatedString.Adapter = .{ .strings = s.field_names.get(ip) };
         const field_index = map.getIndexAdapted(name, adapter) orelse return null;
         return @intCast(field_index);
@@ -3523,7 +3519,7 @@ pub const LoadedStructType = struct {
 
     /// The returned pointer expires with any addition to the `InternPool`.
     /// Asserts the struct is not packed.
-    fn flagsPtr(s: LoadedStructType, ip: *InternPool) *Tag.TypeStruct.Flags {
+    fn flagsPtr(s: LoadedStructType, ip: *const InternPool) *Tag.TypeStruct.Flags {
         assert(s.layout != .@"packed");
         const extra = ip.getLocalShared(s.tid).extra.acquire();
         const flags_field_index = std.meta.fieldIndex(Tag.TypeStruct, "flags").?;
@@ -3531,12 +3527,12 @@ pub const LoadedStructType = struct {
     }
 
     pub fn flagsUnordered(s: LoadedStructType, ip: *const InternPool) Tag.TypeStruct.Flags {
-        return @atomicLoad(Tag.TypeStruct.Flags, s.flagsPtr(@constCast(ip)), .unordered);
+        return @atomicLoad(Tag.TypeStruct.Flags, s.flagsPtr(ip), .unordered);
     }
 
     /// The returned pointer expires with any addition to the `InternPool`.
     /// Asserts that the struct is packed.
-    fn packedFlagsPtr(s: LoadedStructType, ip: *InternPool) *Tag.TypeStructPacked.Flags {
+    fn packedFlagsPtr(s: LoadedStructType, ip: *const InternPool) *Tag.TypeStructPacked.Flags {
         assert(s.layout == .@"packed");
         const extra = ip.getLocalShared(s.tid).extra.acquire();
         const flags_field_index = std.meta.fieldIndex(Tag.TypeStructPacked, "flags").?;
@@ -3544,7 +3540,7 @@ pub const LoadedStructType = struct {
     }
 
     pub fn packedFlagsUnordered(s: LoadedStructType, ip: *const InternPool) Tag.TypeStructPacked.Flags {
-        return @atomicLoad(Tag.TypeStructPacked.Flags, s.packedFlagsPtr(@constCast(ip)), .unordered);
+        return @atomicLoad(Tag.TypeStructPacked.Flags, s.packedFlagsPtr(ip), .unordered);
     }
 
     /// Reads the non-opv flag calculated during AstGen. Used to short-circuit more
@@ -3794,7 +3790,7 @@ pub const LoadedStructType = struct {
 
     /// The returned pointer expires with any addition to the `InternPool`.
     /// Asserts the struct is not packed.
-    fn sizePtr(s: LoadedStructType, ip: *InternPool) *u32 {
+    fn sizePtr(s: LoadedStructType, ip: *const InternPool) *u32 {
         assert(s.layout != .@"packed");
         const extra = ip.getLocalShared(s.tid).extra.acquire();
         const size_field_index = std.meta.fieldIndex(Tag.TypeStruct, "size").?;
@@ -3802,14 +3798,14 @@ pub const LoadedStructType = struct {
     }
 
     pub fn sizeUnordered(s: LoadedStructType, ip: *const InternPool) u32 {
-        return @atomicLoad(u32, s.sizePtr(@constCast(ip)), .unordered);
+        return @atomicLoad(u32, s.sizePtr(ip), .unordered);
     }
 
     /// The backing integer type of the packed struct. Whether zig chooses
     /// this type or the user specifies it, it is stored here. This will be
     /// set to `none` until the layout is resolved.
     /// Asserts the struct is packed.
-    fn backingIntTypePtr(s: LoadedStructType, ip: *InternPool) *Index {
+    fn backingIntTypePtr(s: LoadedStructType, ip: *const InternPool) *Index {
         assert(s.layout == .@"packed");
         const extra = ip.getLocalShared(s.tid).extra.acquire();
         const field_index = std.meta.fieldIndex(Tag.TypeStructPacked, "backing_int_ty").?;
@@ -3817,7 +3813,7 @@ pub const LoadedStructType = struct {
     }
 
     pub fn backingIntTypeUnordered(s: LoadedStructType, ip: *const InternPool) Index {
-        return @atomicLoad(Index, s.backingIntTypePtr(@constCast(ip)), .unordered);
+        return @atomicLoad(Index, s.backingIntTypePtr(ip), .unordered);
     }
 
     pub fn setBackingIntType(s: LoadedStructType, ip: *InternPool, backing_int_ty: Index) void {
@@ -4190,7 +4186,7 @@ pub const LoadedEnumType = struct {
 
     /// Look up field index based on field name.
     pub fn nameIndex(self: LoadedEnumType, ip: *const InternPool, name: NullTerminatedString) ?u32 {
-        const map = self.names_map.getConst(ip);
+        const map = self.names_map.get(ip);
         const adapter: NullTerminatedString.Adapter = .{ .strings = self.names.get(ip) };
         const field_index = map.getIndexAdapted(name, adapter) orelse return null;
         return @intCast(field_index);
@@ -4210,7 +4206,7 @@ pub const LoadedEnumType = struct {
             else => unreachable,
         };
         if (self.values_map.unwrap()) |values_map| {
-            const map = values_map.getConst(ip);
+            const map = values_map.get(ip);
             const adapter: Index.Adapter = .{ .indexes = self.values.get(ip) };
             const field_index = map.getIndexAdapted(int_tag_val, adapter) orelse return null;
             return @intCast(field_index);
@@ -11731,7 +11727,7 @@ pub fn isFuncBody(ip: *const InternPool, func: Index) bool {
     };
 }
 
-fn funcAnalysisPtr(ip: *InternPool, func: Index) *FuncAnalysis {
+fn funcAnalysisPtr(ip: *const InternPool, func: Index) *FuncAnalysis {
     const unwrapped_func = func.unwrap(ip);
     const extra = unwrapped_func.getExtra(ip);
     const item = unwrapped_func.getItem(ip);
@@ -11757,7 +11753,7 @@ fn funcAnalysisPtr(ip: *InternPool, func: Index) *FuncAnalysis {
 }
 
 pub fn funcAnalysisUnordered(ip: *const InternPool, func: Index) FuncAnalysis {
-    return @atomicLoad(FuncAnalysis, @constCast(ip).funcAnalysisPtr(func), .unordered);
+    return @atomicLoad(FuncAnalysis, ip.funcAnalysisPtr(func), .unordered);
 }
 
 pub fn funcSetCallsOrAwaitsErrorableFn(ip: *InternPool, func: Index) void {
@@ -11833,7 +11829,7 @@ fn iesResolvedPtr(ip: *InternPool, ies_index: Index) *Index {
 /// Returns a mutable pointer to the resolved error set type of an inferred
 /// error set function. The returned pointer is invalidated when anything is
 /// added to `ip`.
-fn funcIesResolvedPtr(ip: *InternPool, func_index: Index) *Index {
+fn funcIesResolvedPtr(ip: *const InternPool, func_index: Index) *Index {
     assert(ip.funcAnalysisUnordered(func_index).inferred_error_set);
     const unwrapped_func = func_index.unwrap(ip);
     const func_extra = unwrapped_func.getExtra(ip);
@@ -11861,7 +11857,7 @@ fn funcIesResolvedPtr(ip: *InternPool, func_index: Index) *Index {
 }
 
 pub fn funcIesResolvedUnordered(ip: *const InternPool, index: Index) Index {
-    return @atomicLoad(Index, @constCast(ip).funcIesResolvedPtr(index), .unordered);
+    return @atomicLoad(Index, ip.funcIesResolvedPtr(index), .unordered);
 }
 
 pub fn funcSetIesResolved(ip: *InternPool, index: Index, ies: Index) void {
