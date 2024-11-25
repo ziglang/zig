@@ -1410,7 +1410,7 @@ pub const all_features = blk: {
 };
 
 pub const cpu = struct {
-    pub const bonaire = CpuModel{
+    pub const bonaire: CpuModel = .{
         .name = "bonaire",
         .llvm_name = "bonaire",
         .features = featureSet(&[_]Feature{
@@ -1418,7 +1418,7 @@ pub const cpu = struct {
             .sea_islands,
         }),
     };
-    pub const carrizo = CpuModel{
+    pub const carrizo: CpuModel = .{
         .name = "carrizo",
         .llvm_name = "carrizo",
         .features = featureSet(&[_]Feature{
@@ -1430,7 +1430,7 @@ pub const cpu = struct {
             .xnack_support,
         }),
     };
-    pub const fiji = CpuModel{
+    pub const fiji: CpuModel = .{
         .name = "fiji",
         .llvm_name = "fiji",
         .features = featureSet(&[_]Feature{
@@ -1439,7 +1439,7 @@ pub const cpu = struct {
             .volcanic_islands,
         }),
     };
-    pub const generic = CpuModel{
+    pub const generic: CpuModel = .{
         .name = "generic",
         .llvm_name = "generic",
         .features = featureSet(&[_]Feature{
@@ -1448,7 +1448,7 @@ pub const cpu = struct {
             .wavefrontsize64,
         }),
     };
-    pub const generic_hsa = CpuModel{
+    pub const generic_hsa: CpuModel = .{
         .name = "generic_hsa",
         .llvm_name = "generic-hsa",
         .features = featureSet(&[_]Feature{
@@ -1458,7 +1458,7 @@ pub const cpu = struct {
             .wavefrontsize64,
         }),
     };
-    pub const gfx1010 = CpuModel{
+    pub const gfx1010: CpuModel = .{
         .name = "gfx1010",
         .llvm_name = "gfx1010",
         .features = featureSet(&[_]Feature{
@@ -1488,7 +1488,7 @@ pub const cpu = struct {
             .xnack_support,
         }),
     };
-    pub const gfx1011 = CpuModel{
+    pub const gfx1011: CpuModel = .{
         .name = "gfx1011",
         .llvm_name = "gfx1011",
         .features = featureSet(&[_]Feature{
@@ -1524,7 +1524,7 @@ pub const cpu = struct {
             .xnack_support,
         }),
     };
-    pub const gfx1012 = CpuModel{
+    pub const gfx1012: CpuModel = .{
         .name = "gfx1012",
         .llvm_name = "gfx1012",
         .features = featureSet(&[_]Feature{
@@ -1560,7 +1560,7 @@ pub const cpu = struct {
             .xnack_support,
         }),
     };
-    pub const gfx1013 = CpuModel{
+    pub const gfx1013: CpuModel = .{
         .name = "gfx1013",
         .llvm_name = "gfx1013",
         .features = featureSet(&[_]Feature{
@@ -1591,7 +1591,7 @@ pub const cpu = struct {
             .xnack_support,
         }),
     };
-    pub const gfx1030 = CpuModel{
+    pub const gfx1030: CpuModel = .{
         .name = "gfx1030",
         .llvm_name = "gfx1030",
         .features = featureSet(&[_]Feature{
@@ -1612,7 +1612,7 @@ pub const cpu = struct {
             .shader_cycles_register,
         }),
     };
-    pub const gfx1031 = CpuModel{
+    pub const gfx1031: CpuModel = .{
         .name = "gfx1031",
         .llvm_name = "gfx1031",
         .features = featureSet(&[_]Feature{
@@ -1633,7 +1633,7 @@ pub const cpu = struct {
             .shader_cycles_register,
         }),
     };
-    pub const gfx1032 = CpuModel{
+    pub const gfx1032: CpuModel = .{
         .name = "gfx1032",
         .llvm_name = "gfx1032",
         .features = featureSet(&[_]Feature{
@@ -1654,7 +1654,7 @@ pub const cpu = struct {
             .shader_cycles_register,
         }),
     };
-    pub const gfx1033 = CpuModel{
+    pub const gfx1033: CpuModel = .{
         .name = "gfx1033",
         .llvm_name = "gfx1033",
         .features = featureSet(&[_]Feature{
@@ -1675,7 +1675,7 @@ pub const cpu = struct {
             .shader_cycles_register,
         }),
     };
-    pub const gfx1034 = CpuModel{
+    pub const gfx1034: CpuModel = .{
         .name = "gfx1034",
         .llvm_name = "gfx1034",
         .features = featureSet(&[_]Feature{
@@ -1696,7 +1696,7 @@ pub const cpu = struct {
             .shader_cycles_register,
         }),
     };
-    pub const gfx1035 = CpuModel{
+    pub const gfx1035: CpuModel = .{
         .name = "gfx1035",
         .llvm_name = "gfx1035",
         .features = featureSet(&[_]Feature{
@@ -1717,7 +1717,7 @@ pub const cpu = struct {
             .shader_cycles_register,
         }),
     };
-    pub const gfx1036 = CpuModel{
+    pub const gfx1036: CpuModel = .{
         .name = "gfx1036",
         .llvm_name = "gfx1036",
         .features = featureSet(&[_]Feature{
@@ -1738,7 +1738,7 @@ pub const cpu = struct {
             .shader_cycles_register,
         }),
     };
-    pub const gfx10_1_generic = CpuModel{
+    pub const gfx10_1_generic: CpuModel = .{
         .name = "gfx10_1_generic",
         .llvm_name = "gfx10-1-generic",
         .features = featureSet(&[_]Feature{
@@ -1769,7 +1769,7 @@ pub const cpu = struct {
             .xnack_support,
         }),
     };
-    pub const gfx10_3_generic = CpuModel{
+    pub const gfx10_3_generic: CpuModel = .{
         .name = "gfx10_3_generic",
         .llvm_name = "gfx10-3-generic",
         .features = featureSet(&[_]Feature{
@@ -1791,7 +1791,7 @@ pub const cpu = struct {
             .shader_cycles_register,
         }),
     };
-    pub const gfx1100 = CpuModel{
+    pub const gfx1100: CpuModel = .{
         .name = "gfx1100",
         .llvm_name = "gfx1100",
         .features = featureSet(&[_]Feature{
@@ -1822,7 +1822,7 @@ pub const cpu = struct {
             .vcmpx_permlane_hazard,
         }),
     };
-    pub const gfx1101 = CpuModel{
+    pub const gfx1101: CpuModel = .{
         .name = "gfx1101",
         .llvm_name = "gfx1101",
         .features = featureSet(&[_]Feature{
@@ -1852,7 +1852,7 @@ pub const cpu = struct {
             .vcmpx_permlane_hazard,
         }),
     };
-    pub const gfx1102 = CpuModel{
+    pub const gfx1102: CpuModel = .{
         .name = "gfx1102",
         .llvm_name = "gfx1102",
         .features = featureSet(&[_]Feature{
@@ -1882,7 +1882,7 @@ pub const cpu = struct {
             .vcmpx_permlane_hazard,
         }),
     };
-    pub const gfx1103 = CpuModel{
+    pub const gfx1103: CpuModel = .{
         .name = "gfx1103",
         .llvm_name = "gfx1103",
         .features = featureSet(&[_]Feature{
@@ -1911,7 +1911,7 @@ pub const cpu = struct {
             .vcmpx_permlane_hazard,
         }),
     };
-    pub const gfx1150 = CpuModel{
+    pub const gfx1150: CpuModel = .{
         .name = "gfx1150",
         .llvm_name = "gfx1150",
         .features = featureSet(&[_]Feature{
@@ -1940,7 +1940,7 @@ pub const cpu = struct {
             .vgpr_singleuse_hint,
         }),
     };
-    pub const gfx1151 = CpuModel{
+    pub const gfx1151: CpuModel = .{
         .name = "gfx1151",
         .llvm_name = "gfx1151",
         .features = featureSet(&[_]Feature{
@@ -1970,7 +1970,7 @@ pub const cpu = struct {
             .vgpr_singleuse_hint,
         }),
     };
-    pub const gfx1152 = CpuModel{
+    pub const gfx1152: CpuModel = .{
         .name = "gfx1152",
         .llvm_name = "gfx1152",
         .features = featureSet(&[_]Feature{
@@ -1999,7 +1999,7 @@ pub const cpu = struct {
             .vgpr_singleuse_hint,
         }),
     };
-    pub const gfx11_generic = CpuModel{
+    pub const gfx11_generic: CpuModel = .{
         .name = "gfx11_generic",
         .llvm_name = "gfx11-generic",
         .features = featureSet(&[_]Feature{
@@ -2031,7 +2031,7 @@ pub const cpu = struct {
             .vcmpx_permlane_hazard,
         }),
     };
-    pub const gfx1200 = CpuModel{
+    pub const gfx1200: CpuModel = .{
         .name = "gfx1200",
         .llvm_name = "gfx1200",
         .features = featureSet(&[_]Feature{
@@ -2071,7 +2071,7 @@ pub const cpu = struct {
             .vgpr_singleuse_hint,
         }),
     };
-    pub const gfx1201 = CpuModel{
+    pub const gfx1201: CpuModel = .{
         .name = "gfx1201",
         .llvm_name = "gfx1201",
         .features = featureSet(&[_]Feature{
@@ -2111,7 +2111,7 @@ pub const cpu = struct {
             .vgpr_singleuse_hint,
         }),
     };
-    pub const gfx12_generic = CpuModel{
+    pub const gfx12_generic: CpuModel = .{
         .name = "gfx12_generic",
         .llvm_name = "gfx12-generic",
         .features = featureSet(&[_]Feature{
@@ -2152,7 +2152,7 @@ pub const cpu = struct {
             .vgpr_singleuse_hint,
         }),
     };
-    pub const gfx600 = CpuModel{
+    pub const gfx600: CpuModel = .{
         .name = "gfx600",
         .llvm_name = "gfx600",
         .features = featureSet(&[_]Feature{
@@ -2161,21 +2161,21 @@ pub const cpu = struct {
             .southern_islands,
         }),
     };
-    pub const gfx601 = CpuModel{
+    pub const gfx601: CpuModel = .{
         .name = "gfx601",
         .llvm_name = "gfx601",
         .features = featureSet(&[_]Feature{
             .southern_islands,
         }),
     };
-    pub const gfx602 = CpuModel{
+    pub const gfx602: CpuModel = .{
         .name = "gfx602",
         .llvm_name = "gfx602",
         .features = featureSet(&[_]Feature{
             .southern_islands,
         }),
     };
-    pub const gfx700 = CpuModel{
+    pub const gfx700: CpuModel = .{
         .name = "gfx700",
         .llvm_name = "gfx700",
         .features = featureSet(&[_]Feature{
@@ -2183,7 +2183,7 @@ pub const cpu = struct {
             .sea_islands,
         }),
     };
-    pub const gfx701 = CpuModel{
+    pub const gfx701: CpuModel = .{
         .name = "gfx701",
         .llvm_name = "gfx701",
         .features = featureSet(&[_]Feature{
@@ -2193,7 +2193,7 @@ pub const cpu = struct {
             .sea_islands,
         }),
     };
-    pub const gfx702 = CpuModel{
+    pub const gfx702: CpuModel = .{
         .name = "gfx702",
         .llvm_name = "gfx702",
         .features = featureSet(&[_]Feature{
@@ -2202,7 +2202,7 @@ pub const cpu = struct {
             .sea_islands,
         }),
     };
-    pub const gfx703 = CpuModel{
+    pub const gfx703: CpuModel = .{
         .name = "gfx703",
         .llvm_name = "gfx703",
         .features = featureSet(&[_]Feature{
@@ -2210,7 +2210,7 @@ pub const cpu = struct {
             .sea_islands,
         }),
     };
-    pub const gfx704 = CpuModel{
+    pub const gfx704: CpuModel = .{
         .name = "gfx704",
         .llvm_name = "gfx704",
         .features = featureSet(&[_]Feature{
@@ -2218,7 +2218,7 @@ pub const cpu = struct {
             .sea_islands,
         }),
     };
-    pub const gfx705 = CpuModel{
+    pub const gfx705: CpuModel = .{
         .name = "gfx705",
         .llvm_name = "gfx705",
         .features = featureSet(&[_]Feature{
@@ -2226,7 +2226,7 @@ pub const cpu = struct {
             .sea_islands,
         }),
     };
-    pub const gfx801 = CpuModel{
+    pub const gfx801: CpuModel = .{
         .name = "gfx801",
         .llvm_name = "gfx801",
         .features = featureSet(&[_]Feature{
@@ -2238,7 +2238,7 @@ pub const cpu = struct {
             .xnack_support,
         }),
     };
-    pub const gfx802 = CpuModel{
+    pub const gfx802: CpuModel = .{
         .name = "gfx802",
         .llvm_name = "gfx802",
         .features = featureSet(&[_]Feature{
@@ -2248,7 +2248,7 @@ pub const cpu = struct {
             .volcanic_islands,
         }),
     };
-    pub const gfx803 = CpuModel{
+    pub const gfx803: CpuModel = .{
         .name = "gfx803",
         .llvm_name = "gfx803",
         .features = featureSet(&[_]Feature{
@@ -2257,7 +2257,7 @@ pub const cpu = struct {
             .volcanic_islands,
         }),
     };
-    pub const gfx805 = CpuModel{
+    pub const gfx805: CpuModel = .{
         .name = "gfx805",
         .llvm_name = "gfx805",
         .features = featureSet(&[_]Feature{
@@ -2267,7 +2267,7 @@ pub const cpu = struct {
             .volcanic_islands,
         }),
     };
-    pub const gfx810 = CpuModel{
+    pub const gfx810: CpuModel = .{
         .name = "gfx810",
         .llvm_name = "gfx810",
         .features = featureSet(&[_]Feature{
@@ -2278,7 +2278,7 @@ pub const cpu = struct {
             .xnack_support,
         }),
     };
-    pub const gfx900 = CpuModel{
+    pub const gfx900: CpuModel = .{
         .name = "gfx900",
         .llvm_name = "gfx900",
         .features = featureSet(&[_]Feature{
@@ -2293,7 +2293,7 @@ pub const cpu = struct {
             .mad_mix_insts,
         }),
     };
-    pub const gfx902 = CpuModel{
+    pub const gfx902: CpuModel = .{
         .name = "gfx902",
         .llvm_name = "gfx902",
         .features = featureSet(&[_]Feature{
@@ -2308,7 +2308,7 @@ pub const cpu = struct {
             .mad_mix_insts,
         }),
     };
-    pub const gfx904 = CpuModel{
+    pub const gfx904: CpuModel = .{
         .name = "gfx904",
         .llvm_name = "gfx904",
         .features = featureSet(&[_]Feature{
@@ -2323,7 +2323,7 @@ pub const cpu = struct {
             .mad_mac_f32_insts,
         }),
     };
-    pub const gfx906 = CpuModel{
+    pub const gfx906: CpuModel = .{
         .name = "gfx906",
         .llvm_name = "gfx906",
         .features = featureSet(&[_]Feature{
@@ -2345,7 +2345,7 @@ pub const cpu = struct {
             .sramecc_support,
         }),
     };
-    pub const gfx908 = CpuModel{
+    pub const gfx908: CpuModel = .{
         .name = "gfx908",
         .llvm_name = "gfx908",
         .features = featureSet(&[_]Feature{
@@ -2376,7 +2376,7 @@ pub const cpu = struct {
             .sramecc_support,
         }),
     };
-    pub const gfx909 = CpuModel{
+    pub const gfx909: CpuModel = .{
         .name = "gfx909",
         .llvm_name = "gfx909",
         .features = featureSet(&[_]Feature{
@@ -2391,7 +2391,7 @@ pub const cpu = struct {
             .mad_mix_insts,
         }),
     };
-    pub const gfx90a = CpuModel{
+    pub const gfx90a: CpuModel = .{
         .name = "gfx90a",
         .llvm_name = "gfx90a",
         .features = featureSet(&[_]Feature{
@@ -2428,7 +2428,7 @@ pub const cpu = struct {
             .sramecc_support,
         }),
     };
-    pub const gfx90c = CpuModel{
+    pub const gfx90c: CpuModel = .{
         .name = "gfx90c",
         .llvm_name = "gfx90c",
         .features = featureSet(&[_]Feature{
@@ -2443,7 +2443,7 @@ pub const cpu = struct {
             .mad_mix_insts,
         }),
     };
-    pub const gfx940 = CpuModel{
+    pub const gfx940: CpuModel = .{
         .name = "gfx940",
         .llvm_name = "gfx940",
         .features = featureSet(&[_]Feature{
@@ -2489,7 +2489,7 @@ pub const cpu = struct {
             .sramecc_support,
         }),
     };
-    pub const gfx941 = CpuModel{
+    pub const gfx941: CpuModel = .{
         .name = "gfx941",
         .llvm_name = "gfx941",
         .features = featureSet(&[_]Feature{
@@ -2535,7 +2535,7 @@ pub const cpu = struct {
             .sramecc_support,
         }),
     };
-    pub const gfx942 = CpuModel{
+    pub const gfx942: CpuModel = .{
         .name = "gfx942",
         .llvm_name = "gfx942",
         .features = featureSet(&[_]Feature{
@@ -2580,7 +2580,7 @@ pub const cpu = struct {
             .sramecc_support,
         }),
     };
-    pub const gfx9_generic = CpuModel{
+    pub const gfx9_generic: CpuModel = .{
         .name = "gfx9_generic",
         .llvm_name = "gfx9-generic",
         .features = featureSet(&[_]Feature{
@@ -2595,14 +2595,14 @@ pub const cpu = struct {
             .requires_cov6,
         }),
     };
-    pub const hainan = CpuModel{
+    pub const hainan: CpuModel = .{
         .name = "hainan",
         .llvm_name = "hainan",
         .features = featureSet(&[_]Feature{
             .southern_islands,
         }),
     };
-    pub const hawaii = CpuModel{
+    pub const hawaii: CpuModel = .{
         .name = "hawaii",
         .llvm_name = "hawaii",
         .features = featureSet(&[_]Feature{
@@ -2612,7 +2612,7 @@ pub const cpu = struct {
             .sea_islands,
         }),
     };
-    pub const iceland = CpuModel{
+    pub const iceland: CpuModel = .{
         .name = "iceland",
         .llvm_name = "iceland",
         .features = featureSet(&[_]Feature{
@@ -2622,7 +2622,7 @@ pub const cpu = struct {
             .volcanic_islands,
         }),
     };
-    pub const kabini = CpuModel{
+    pub const kabini: CpuModel = .{
         .name = "kabini",
         .llvm_name = "kabini",
         .features = featureSet(&[_]Feature{
@@ -2630,7 +2630,7 @@ pub const cpu = struct {
             .sea_islands,
         }),
     };
-    pub const kaveri = CpuModel{
+    pub const kaveri: CpuModel = .{
         .name = "kaveri",
         .llvm_name = "kaveri",
         .features = featureSet(&[_]Feature{
@@ -2638,7 +2638,7 @@ pub const cpu = struct {
             .sea_islands,
         }),
     };
-    pub const mullins = CpuModel{
+    pub const mullins: CpuModel = .{
         .name = "mullins",
         .llvm_name = "mullins",
         .features = featureSet(&[_]Feature{
@@ -2646,21 +2646,21 @@ pub const cpu = struct {
             .sea_islands,
         }),
     };
-    pub const oland = CpuModel{
+    pub const oland: CpuModel = .{
         .name = "oland",
         .llvm_name = "oland",
         .features = featureSet(&[_]Feature{
             .southern_islands,
         }),
     };
-    pub const pitcairn = CpuModel{
+    pub const pitcairn: CpuModel = .{
         .name = "pitcairn",
         .llvm_name = "pitcairn",
         .features = featureSet(&[_]Feature{
             .southern_islands,
         }),
     };
-    pub const polaris10 = CpuModel{
+    pub const polaris10: CpuModel = .{
         .name = "polaris10",
         .llvm_name = "polaris10",
         .features = featureSet(&[_]Feature{
@@ -2669,7 +2669,7 @@ pub const cpu = struct {
             .volcanic_islands,
         }),
     };
-    pub const polaris11 = CpuModel{
+    pub const polaris11: CpuModel = .{
         .name = "polaris11",
         .llvm_name = "polaris11",
         .features = featureSet(&[_]Feature{
@@ -2678,7 +2678,7 @@ pub const cpu = struct {
             .volcanic_islands,
         }),
     };
-    pub const stoney = CpuModel{
+    pub const stoney: CpuModel = .{
         .name = "stoney",
         .llvm_name = "stoney",
         .features = featureSet(&[_]Feature{
@@ -2689,7 +2689,7 @@ pub const cpu = struct {
             .xnack_support,
         }),
     };
-    pub const tahiti = CpuModel{
+    pub const tahiti: CpuModel = .{
         .name = "tahiti",
         .llvm_name = "tahiti",
         .features = featureSet(&[_]Feature{
@@ -2698,7 +2698,7 @@ pub const cpu = struct {
             .southern_islands,
         }),
     };
-    pub const tonga = CpuModel{
+    pub const tonga: CpuModel = .{
         .name = "tonga",
         .llvm_name = "tonga",
         .features = featureSet(&[_]Feature{
@@ -2708,7 +2708,7 @@ pub const cpu = struct {
             .volcanic_islands,
         }),
     };
-    pub const tongapro = CpuModel{
+    pub const tongapro: CpuModel = .{
         .name = "tongapro",
         .llvm_name = "tongapro",
         .features = featureSet(&[_]Feature{
@@ -2718,7 +2718,7 @@ pub const cpu = struct {
             .volcanic_islands,
         }),
     };
-    pub const verde = CpuModel{
+    pub const verde: CpuModel = .{
         .name = "verde",
         .llvm_name = "verde",
         .features = featureSet(&[_]Feature{
