@@ -293,19 +293,16 @@ pub fn killPosix(self: *ChildProcess) !Term {
         error.ProcessNotFound => return error.AlreadyTerminated,
         else => return err,
     };
-    try self.waitUnwrapped();
+    self.waitUnwrapped();
     return self.term.?;
 }
 
+pub const WaitError = SpawnError || std.os.windows.GetProcessMemoryInfoError;
+
 /// Blocks until child process terminates and then cleans up all resources.
-pub fn wait(self: *ChildProcess) !Term {
-    const term = if (native_os == .windows)
-        try self.waitWindows()
-    else
-        try self.waitPosix();
-
+pub fn wait(self: *ChildProcess) WaitError!Term {
+    const term = if (native_os == .windows) try self.waitWindows() else self.waitPosix();
     self.id = undefined;
-
     return term;
 }
 
@@ -408,7 +405,7 @@ pub fn run(args: struct {
     };
 }
 
-fn waitWindows(self: *ChildProcess) !Term {
+fn waitWindows(self: *ChildProcess) WaitError!Term {
     if (self.term) |term| {
         self.cleanupStreams();
         return term;
@@ -418,17 +415,17 @@ fn waitWindows(self: *ChildProcess) !Term {
     return self.term.?;
 }
 
-fn waitPosix(self: *ChildProcess) !Term {
+fn waitPosix(self: *ChildProcess) SpawnError!Term {
     if (self.term) |term| {
         self.cleanupStreams();
         return term;
     }
 
-    try self.waitUnwrapped();
+    self.waitUnwrapped();
     return self.term.?;
 }
 
-fn waitUnwrappedWindows(self: *ChildProcess) !void {
+fn waitUnwrappedWindows(self: *ChildProcess) WaitError!void {
     const result = windows.WaitForSingleObjectEx(self.id, windows.INFINITE, false);
 
     self.term = @as(SpawnError!Term, x: {
@@ -450,7 +447,7 @@ fn waitUnwrappedWindows(self: *ChildProcess) !void {
     return result;
 }
 
-fn waitUnwrapped(self: *ChildProcess) !void {
+fn waitUnwrapped(self: *ChildProcess) void {
     const res: posix.WaitPidResult = res: {
         if (self.request_resource_usage_statistics) {
             switch (native_os) {
