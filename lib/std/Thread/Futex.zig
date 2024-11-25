@@ -264,7 +264,7 @@ const LinuxImpl = struct {
 
         const rc = linux.futex_wait(
             @as(*const i32, @ptrCast(&ptr.raw)),
-            linux.FUTEX.PRIVATE_FLAG | linux.FUTEX.WAIT,
+            linux.FUTEX.WAIT,
             @as(i32, @bitCast(expect)),
             if (timeout != null) &ts else null,
         );

@@ -33,7 +33,7 @@ buffer: MemoryMappedList(u8),
 ///
 /// layout of the meta file (v0):
 /// [0] [3]u8 file signature + u8 format version
-/// [1] u32 for xcmpchg (mutex in the stdlib is not FUTEX_SHARED)
+/// [1] u64 for a lock
 /// [2] u32 deleted bytes
 /// [3] u32 number of strings
 /// [4..] data (string end offsets)
@@ -41,7 +41,7 @@ meta: MemoryMappedList(u32),
 
 const MetaHeader = packed struct {
     signature_version: u32,
-    lock: u32,
+    lock: std.Thread.Mutex,
     deleted_bytes: u32,
     number_of_string: u32,
 };
@@ -83,7 +83,7 @@ pub fn init(dir: std.fs.Dir, pc_digest: u64) InputPoolPosix {
     if (meta.items.len == 0) {
         const header: MetaHeader = .{
             .signature_version = SignatureVersion,
-            .lock = Unlocked,
+            .lock = std.Thread.Mutex{},
             .deleted_bytes = 0,
             .number_of_string = 0,
         };
@@ -97,7 +97,6 @@ pub fn init(dir: std.fs.Dir, pc_digest: u64) InputPoolPosix {
     } else {
         const header = getHeader(meta);
         assert(header.signature_version == SignatureVersion);
-        assert(header.lock == Unlocked or header.lock == Locked);
     }
 
     return .{
@@ -111,31 +110,10 @@ pub fn deinit(ip: *InputPoolPosix) void {
     ip.meta.deinit();
 }
 
-// Primitive spin lock implementation. There is basically no contention on it.
-const Locked: u32 = 1;
-const Unlocked: u32 = 0;
-
-fn lock(ip: *InputPoolPosix) void {
-    const lck: *volatile u32 = &getHeader(ip.meta).lock;
-    while (true) {
-        const res = @cmpxchgWeak(u32, lck, Unlocked, Locked, .acquire, .monotonic);
-        if (res) |v| {
-            assert(v == Locked);
-        } else {
-            return;
-        }
-    }
-}
-
-fn unlock(ip: *InputPoolPosix) void {
-    const lck: *volatile u32 = &getHeader(ip.meta).lock;
-    const res = @atomicRmw(u32, lck, .Xchg, Unlocked, .release);
-    assert(res == Locked);
-}
-
 pub fn insertString(ip: *InputPoolPosix, str: []const u8) void {
-    ip.lock();
-    defer ip.unlock();
+    const header = getHeader(ip.meta);
+    header.lock.lock();
+    defer header.lock.unlock();
 
     assert(ip.buffer.items.len + str.len < std.math.maxInt(Index));
 
