@@ -1805,7 +1805,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
             lp.path = b.fmt("{}", .{output_dir});
         }
 
-        // -femit-bin[=path]         (default) Output machine code
+        // -femit-bin[=path]         (default) Produce and output a binary to an optional path. Defaults to the current working directory.
         if (compile.generated_bin) |bin| {
             bin.path = output_dir.joinString(b.allocator, compile.out_filename) catch @panic("OOM");
         }
