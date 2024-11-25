@@ -101,7 +101,7 @@ fn nPages(memsize: usize) usize {
     return mem.alignForward(usize, memsize, mem.page_size) / mem.page_size;
 }
 
-fn alloc(ctx: *anyopaque, len: usize, log2_align: u8, ra: usize) ?[*]u8 {
+fn alloc(ctx: ?*anyopaque, len: usize, log2_align: u8, ra: usize) ?[*]u8 {
     _ = ctx;
     _ = ra;
     if (len > maxInt(usize) - (mem.page_size - 1)) return null;
@@ -159,7 +159,7 @@ fn freePages(start: usize, end: usize) void {
 }
 
 fn resize(
-    ctx: *anyopaque,
+    ctx: ?*anyopaque,
     buf: []u8,
     log2_buf_align: u8,
     new_len: usize,
@@ -180,7 +180,7 @@ fn resize(
 }
 
 fn free(
-    ctx: *anyopaque,
+    ctx: ?*anyopaque,
     buf: []u8,
     log2_buf_align: u8,
     return_address: usize,

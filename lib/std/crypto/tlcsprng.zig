@@ -44,7 +44,7 @@ var install_atfork_handler = std.once(struct {
 
 threadlocal var wipe_mem: []align(mem.page_size) u8 = &[_]u8{};
 
-fn tlsCsprngFill(_: *anyopaque, buffer: []u8) void {
+fn tlsCsprngFill(_: ?*anyopaque, buffer: []u8) void {
     if (os_has_arc4random) {
         // arc4random is already a thread-local CSPRNG.
         return std.c.arc4random_buf(buffer.ptr, buffer.len);

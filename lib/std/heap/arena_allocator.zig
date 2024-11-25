@@ -173,8 +173,8 @@ pub const ArenaAllocator = struct {
         return buf_node;
     }
 
-    fn alloc(ctx: *anyopaque, n: usize, log2_ptr_align: u8, ra: usize) ?[*]u8 {
-        const self: *ArenaAllocator = @ptrCast(@alignCast(ctx));
+    fn alloc(ctx: ?*anyopaque, n: usize, log2_ptr_align: u8, ra: usize) ?[*]u8 {
+        const self: *ArenaAllocator = @ptrCast(@alignCast(ctx.?));
         _ = ra;
 
         const ptr_align = @as(usize, 1) << @as(Allocator.Log2Align, @intCast(log2_ptr_align));
@@ -207,8 +207,8 @@ pub const ArenaAllocator = struct {
         }
     }
 
-    fn resize(ctx: *anyopaque, buf: []u8, log2_buf_align: u8, new_len: usize, ret_addr: usize) bool {
-        const self: *ArenaAllocator = @ptrCast(@alignCast(ctx));
+    fn resize(ctx: ?*anyopaque, buf: []u8, log2_buf_align: u8, new_len: usize, ret_addr: usize) bool {
+        const self: *ArenaAllocator = @ptrCast(@alignCast(ctx.?));
         _ = log2_buf_align;
         _ = ret_addr;
 
@@ -231,11 +231,11 @@ pub const ArenaAllocator = struct {
         }
     }
 
-    fn free(ctx: *anyopaque, buf: []u8, log2_buf_align: u8, ret_addr: usize) void {
+    fn free(ctx: ?*anyopaque, buf: []u8, log2_buf_align: u8, ret_addr: usize) void {
         _ = log2_buf_align;
         _ = ret_addr;
 
-        const self: *ArenaAllocator = @ptrCast(@alignCast(ctx));
+        const self: *ArenaAllocator = @ptrCast(@alignCast(ctx.?));
 
         const cur_node = self.state.buffer_list.first orelse return;
         const cur_buf = @as([*]u8, @ptrCast(cur_node))[@sizeOf(BufNode)..cur_node.data];
