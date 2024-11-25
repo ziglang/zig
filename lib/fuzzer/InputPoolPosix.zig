@@ -15,6 +15,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const fatal = std.process.fatal;
 const MemoryMappedList = @import("memory_mapped_list.zig").MemoryMappedList;
+const File = std.fs.File;
 
 /// maximum 2GiB of input data should be enough. 32th bit is delete flag
 pub const Index = u31;
@@ -63,20 +64,7 @@ fn getData(m: MemoryMappedList(u32)) []volatile Flags {
     return @ptrCast(rest);
 }
 
-pub fn init(dir: std.fs.Dir, pc_digest: u64) InputPoolPosix {
-    const hex_digest = std.fmt.hex(pc_digest);
-
-    const buffer_file_path = "v/" ++ hex_digest ++ "buffer";
-    const meta_file_path = "v/" ++ hex_digest ++ "meta";
-    const buffer_file = dir.createFile(buffer_file_path, .{
-        .read = true,
-        .truncate = false,
-    }) catch |e| fatal("create file at '{s}' failed: {}", .{ buffer_file_path, e });
-    const meta_file = dir.createFile(meta_file_path, .{
-        .read = true,
-        .truncate = false,
-    }) catch |e| fatal("create file at '{s}' failed: {}", .{ meta_file_path, e });
-
+pub fn init(meta_file: File, buffer_file: File) InputPoolPosix {
     const buffer = MemoryMappedList(u8).init(buffer_file, std.math.maxInt(Index));
     var meta = MemoryMappedList(u32).init(meta_file, std.math.maxInt(Index));
 
@@ -88,7 +76,7 @@ pub fn init(dir: std.fs.Dir, pc_digest: u64) InputPoolPosix {
             .number_of_string = 0,
         };
 
-        // []u8 to []u32
+        // []u8 to []u32 conversion
         const s = std.mem.asBytes(&header);
         const z: [*]const u32 = @ptrCast(s.ptr);
         const size32 = @divExact(@sizeOf(MetaHeader), @sizeOf(u32));
@@ -119,7 +107,7 @@ pub fn insertString(ip: *InputPoolPosix, str: []const u8) void {
 
     ip.buffer.appendSlice(str);
     ip.meta.append(@intCast(ip.buffer.items.len));
-    getHeader(ip.meta).number_of_string += 1;
+    header.number_of_string += 1;
 }
 
 const deleteMask: u32 = 0x8000_0000;

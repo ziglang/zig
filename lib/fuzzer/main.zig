@@ -6,6 +6,8 @@ const MemoryMappedList = @import("memory_mapped_list.zig").MemoryMappedList;
 const feature_capture = @import("feature_capture.zig");
 
 const Allocator = std.mem.Allocator;
+const File = std.fs.File;
+const Dir = std.fs.Dir;
 const ArrayList = std.ArrayList;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const Options = std.testing.FuzzInputOptions;
@@ -19,17 +21,6 @@ const InitialFeatureBufferCap = 64;
 
 // currently unused
 export threadlocal var __sancov_lowest_stack: usize = std.math.maxInt(usize);
-
-fn createFileBail(dir: std.fs.Dir, sub_path: []const u8, flags: std.fs.File.CreateFlags) std.fs.File {
-    return dir.createFile(sub_path, flags) catch |err| switch (err) {
-        error.FileNotFound => {
-            const dir_name = std.fs.path.dirname(sub_path).?;
-            dir.makePath(dir_name) catch |e| fatal("makePath '{s}' failed: {}", .{ dir_name, e });
-            return dir.createFile(sub_path, flags) catch |e| fatal("createFile '{s}' failed: {}", .{ sub_path, e });
-        },
-        else => |e| fatal("create file '{s}' failed: {}", .{ sub_path, e }),
-    };
-}
 
 /// Deduplicates array of sorted features
 fn uniq(a: []u32) []u32 {
@@ -138,15 +129,8 @@ fn hashPCs(pcs: []const usize) u64 {
     return hasher.final();
 }
 
-/// File contains SeenPcsHeader and trailing data:
-/// - list of PC addresses (usize elements)
-/// - list of hit flag, 1 bit per address (stored in u8 elements)
-fn initCoverageFile(cache_dir: std.fs.Dir, coverage_file_path: []const u8, pcs: []const usize) MemoryMappedList(u8) {
-    const coverage_file = createFileBail(cache_dir, coverage_file_path, .{
-        .read = true,
-        .truncate = false,
-    });
-    defer coverage_file.close();
+/// File contains SeenPcsHeader and its trailing data
+fn initCoverageFile(coverage_file: File, pcs: []const usize) MemoryMappedList(u8) {
     const n_bitset_elems = (pcs.len + @bitSizeOf(usize) - 1) / @bitSizeOf(usize);
 
     comptime assert(SeenPcsHeader.trailing[0] == .pc_bits_usize);
@@ -161,7 +145,7 @@ fn initCoverageFile(cache_dir: std.fs.Dir, coverage_file_path: []const u8, pcs: 
     const existing_len = seen_pcs.items.len;
 
     if (existing_len != 0 and existing_len != bytes_len) {
-        fatal("coverage file '{s}' is invalid (wrong length)", .{coverage_file_path});
+        fatal("coverage file is invalid (wrong length, wanted {}, is {})", .{ bytes_len, existing_len });
     }
 
     if (existing_len != 0) {
@@ -170,7 +154,7 @@ fn initCoverageFile(cache_dir: std.fs.Dir, coverage_file_path: []const u8, pcs: 
         const existing_pcs = std.mem.bytesAsSlice(usize, existing_pcs_bytes);
         for (existing_pcs, pcs) |old, new| {
             if (old != new) {
-                fatal("coverage file '{s}' is invalid (pc missmatch)", .{coverage_file_path});
+                fatal("coverage file is invalid (pc missmatch)", .{});
             }
         }
     } else {
@@ -359,6 +343,46 @@ fn mergeInput(
     updateGlobalCoverage(pc_counters, seen_pcs);
 }
 
+const Files = struct { buffer: File, meta: File, coverage: File };
+
+fn setupFilesBail(c: Dir, i: u64) Files {
+    return setupFiles(c, i) catch |e| fatal("Failed to setup files: {}", .{e});
+}
+
+fn cleanupFiles(f: Files) void {
+    f.buffer.close();
+    f.meta.close();
+    f.coverage.close();
+}
+
+fn setupFiles(cache_dir: Dir, coverage_id: u64) !Files {
+    // we create 1 folder and 3 files:
+    // cache/v/
+    // cache/v/***buffer
+    // cache/v/***meta
+    // cache/v/***coverage
+
+    const hex_digest = std.fmt.hex(coverage_id);
+
+    const flags = File.CreateFlags{ .read = true, .truncate = false };
+
+    try cache_dir.makeDir("v");
+
+    const v = try cache_dir.openDir("v", .{});
+    defer v.close();
+
+    const buffer = try v.createFile(hex_digest ++ "buffer", flags);
+    errdefer buffer.close();
+
+    const meta = try v.createFile(hex_digest ++ "meta", flags);
+    errdefer meta.close();
+
+    const coverage = try v.createFile(hex_digest ++ "coverage", flags);
+    errdefer coverage.close();
+
+    return .{ .buffer = buffer, .meta = meta, .coverage = coverage };
+}
+
 pub const Fuzzer = struct {
     // given to us by LLVM
     pcs: []const usize,
@@ -368,9 +392,9 @@ pub const Fuzzer = struct {
     /// information, available to other processes.
     coverage_id: u64,
 
-    cache_dir: std.fs.Dir,
+    cache_dir: Dir,
 
-    pub fn init(cache_dir: std.fs.Dir, pc_counters: []u8, pcs: []usize) Fuzzer {
+    pub fn init(cache_dir: Dir, pc_counters: []u8, pcs: []usize) Fuzzer {
         assert(pc_counters.len == pcs.len);
 
         return .{
@@ -400,10 +424,8 @@ pub const Fuzzer = struct {
         var feature_buffer = try ArrayListUnmanaged(u32).initCapacity(a, InitialFeatureBufferCap);
         defer feature_buffer.deinit(a);
 
-        // Choose a file name for the coverage based on a hash of the PCs that
-        // will be stored within.
-        const hex_digest = std.fmt.hex(f.coverage_id);
-        const coverage_file_path = "v/" ++ hex_digest ++ "coverage";
+        const files = setupFilesBail(f.cache_dir, f.coverage_id);
+        defer cleanupFiles(files);
 
         var ip = InputPool.init(f.cache_dir, f.coverage_id);
         defer ip.deinit();
@@ -411,15 +433,14 @@ pub const Fuzzer = struct {
         // Tracks which PCs have been seen across all runs that do not crash the fuzzer process.
         // Stored in a memory-mapped file so that it can be shared with other
         // processes and viewed while the fuzzer is running.
-        const seen_pcs = initCoverageFile(f.cache_dir, coverage_file_path, f.pcs);
-
-        std.log.info("Coverage id is {s}", .{&hex_digest});
+        const seen_pcs = initCoverageFile(files.coverage, f.pcs);
 
         std.log.info(
             \\Initial corpus of size {}
             \\F - this input features
             \\T - new unique features
         , .{ip.len()});
+
         if (ip.len() == 0) {
             initialCorpusRandom(&ip, rng);
         }
