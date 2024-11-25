@@ -1496,7 +1496,7 @@ pub fn updateFunc(
             });
             defer gpa.free(name);
             const osec = if (self.text_index) |sect_sym_index|
-                self.atom(self.symbol(sect_sym_index).ref.index).?.output_section_index
+                self.symbol(sect_sym_index).outputShndx(elf_file).?
             else osec: {
                 const osec = try elf_file.addSection(.{
                     .name = try elf_file.insertShString(".text"),
@@ -1896,12 +1896,13 @@ pub fn deleteExport(
     } orelse return;
     const zcu = elf_file.base.comp.zcu.?;
     const exp_name = name.toSlice(&zcu.intern_pool);
-    const esym_index = metadata.@"export"(self, exp_name) orelse return;
+    const sym_index = metadata.@"export"(self, exp_name) orelse return;
     log.debug("deleting export '{s}'", .{exp_name});
-    const esym = &self.symtab.items(.elf_sym)[esym_index.*];
+    const esym_index = self.symbol(sym_index.*).esym_index;
+    const esym = &self.symtab.items(.elf_sym)[esym_index];
     _ = self.globals_lookup.remove(esym.st_name);
     esym.* = Elf.null_sym;
-    self.symtab.items(.shndx)[esym_index.*] = elf.SHN_UNDEF;
+    self.symtab.items(.shndx)[esym_index] = elf.SHN_UNDEF;
 }
 
 pub fn getGlobalSymbol(self: *ZigObject, elf_file: *Elf, name: []const u8, lib_name: ?[]const u8) !u32 {

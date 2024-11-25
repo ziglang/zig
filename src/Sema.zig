@@ -1355,6 +1355,11 @@ fn analyzeBodyInner(
                     .field_parent_ptr => try sema.zirFieldParentPtr(block, extended),
                     .builtin_value => try sema.zirBuiltinValue(block, extended),
                     .inplace_arith_result_ty => try sema.zirInplaceArithResultTy(extended),
+                    .dbg_empty_stmt => {
+                        try sema.zirDbgEmptyStmt(block, inst);
+                        i += 1;
+                        continue;
+                    },
                 };
             },
 
@@ -2584,18 +2589,7 @@ fn validateAlign(
     src: LazySrcLoc,
     alignment: u64,
 ) !Alignment {
-    const result = try validateAlignAllowZero(sema, block, src, alignment);
-    if (result == .none) return sema.fail(block, src, "alignment must be >= 1", .{});
-    return result;
-}
-
-fn validateAlignAllowZero(
-    sema: *Sema,
-    block: *Block,
-    src: LazySrcLoc,
-    alignment: u64,
-) !Alignment {
-    if (alignment == 0) return .none;
+    if (alignment == 0) return sema.fail(block, src, "alignment must be >= 1", .{});
     if (!std.math.isPowerOfTwo(alignment)) {
         return sema.fail(block, src, "alignment value '{d}' is not a power of two", .{
             alignment,
@@ -5511,7 +5505,7 @@ fn failWithBadMemberAccess(
         else => unreachable,
     };
     if (agg_ty.typeDeclInst(zcu)) |inst| if ((inst.resolve(ip) orelse return error.AnalysisFail) == .main_struct_inst) {
-        return sema.fail(block, field_src, "root struct of file '{}' has no member named '{}'", .{
+        return sema.fail(block, field_src, "root source file struct '{}' has no member named '{}'", .{
             agg_ty.fmt(pt), field_name.fmt(ip),
         });
     };
@@ -6680,6 +6674,11 @@ fn zirDbgStmt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!voi
             .column = inst_data.column,
         } },
     });
+}
+
+fn zirDbgEmptyStmt(_: *Sema, block: *Block, _: Zir.Inst.Index) CompileError!void {
+    if (block.is_comptime or block.ownerModule().strip) return;
+    _ = try block.addNoOp(.dbg_empty_stmt);
 }
 
 fn zirDbgVar(
@@ -17606,6 +17605,25 @@ fn analyzePtrArithmetic(
     };
 
     try sema.requireRuntimeBlock(block, op_src, runtime_src);
+
+    const target = zcu.getTarget();
+    if (target_util.arePointersLogical(target, ptr_info.flags.address_space)) {
+        return sema.failWithOwnedErrorMsg(block, msg: {
+            const msg = try sema.errMsg(op_src, "illegal pointer arithmetic on pointer of type '{}'", .{ptr_ty.fmt(pt)});
+            errdefer msg.destroy(sema.gpa);
+
+            const backend = target_util.zigBackend(target, zcu.comp.config.use_llvm);
+            try sema.errNote(op_src, msg, "arithmetic cannot be performed on pointers with address space '{s}' on target {s}-{s} by compiler backend {s}", .{
+                @tagName(ptr_info.flags.address_space),
+                target.cpu.arch.genericName(),
+                @tagName(target.os.tag),
+                @tagName(backend),
+            });
+
+            break :msg msg;
+        });
+    }
+
     return block.addInst(.{
         .tag = air_tag,
         .data = .{ .ty_pl = .{
@@ -20477,7 +20495,7 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
             else => {},
         }
         const align_bytes = (try val.getUnsignedIntSema(pt)).?;
-        break :blk try sema.validateAlignAllowZero(block, align_src, align_bytes);
+        break :blk try sema.validateAlign(block, align_src, align_bytes);
     } else .none;
 
     const address_space: std.builtin.AddressSpace = if (inst_data.flags.has_addrspace) blk: {
@@ -26839,7 +26857,7 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         if (val.isGenericPoison()) {
             break :blk null;
         }
-        break :blk try sema.validateAlignAllowZero(block, align_src, try val.toUnsignedIntSema(pt));
+        break :blk try sema.validateAlign(block, align_src, try val.toUnsignedIntSema(pt));
     } else if (extra.data.bits.has_align_ref) blk: {
         const align_ref: Zir.Inst.Ref = @enumFromInt(sema.code.extra[extra_index]);
         extra_index += 1;
@@ -26857,7 +26875,7 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
             error.GenericPoison => break :blk null,
             else => |e| return e,
         };
-        break :blk try sema.validateAlignAllowZero(block, align_src, try align_val.toUnsignedIntSema(pt));
+        break :blk try sema.validateAlign(block, align_src, try align_val.toUnsignedIntSema(pt));
     } else .none;
 
     const @"addrspace": ?std.builtin.AddressSpace = if (extra.data.bits.has_addrspace_body) blk: {
@@ -34991,6 +35009,7 @@ fn resolvePeerTypesInner(
             // if there were no actual slices. Else, we want the slice index to report a conflict.
             var opt_slice_idx: ?usize = null;
 
+            var any_abi_aligned = false;
             var opt_ptr_info: ?InternPool.Key.PtrType = null;
             var first_idx: usize = undefined;
             var other_idx: usize = undefined; // We sometimes need a second peer index to report a generic error
@@ -35035,17 +35054,14 @@ fn resolvePeerTypesInner(
                 } };
 
                 // Note that the align can be always non-zero; Type.ptr will canonicalize it
-                ptr_info.flags.alignment = Alignment.min(
-                    if (ptr_info.flags.alignment != .none)
-                        ptr_info.flags.alignment
-                    else
-                        try Type.fromInterned(ptr_info.child).abiAlignmentSema(pt),
-
-                    if (peer_info.flags.alignment != .none)
-                        peer_info.flags.alignment
-                    else
-                        try Type.fromInterned(peer_info.child).abiAlignmentSema(pt),
-                );
+                if (peer_info.flags.alignment == .none) {
+                    any_abi_aligned = true;
+                } else if (ptr_info.flags.alignment == .none) {
+                    any_abi_aligned = true;
+                    ptr_info.flags.alignment = peer_info.flags.alignment;
+                } else {
+                    ptr_info.flags.alignment = ptr_info.flags.alignment.minStrict(peer_info.flags.alignment);
+                }
 
                 if (ptr_info.flags.address_space != peer_info.flags.address_space) {
                     return generic_err;
@@ -35059,6 +35075,7 @@ fn resolvePeerTypesInner(
 
                 ptr_info.flags.is_const = ptr_info.flags.is_const or peer_info.flags.is_const;
                 ptr_info.flags.is_volatile = ptr_info.flags.is_volatile or peer_info.flags.is_volatile;
+                ptr_info.flags.is_allowzero = ptr_info.flags.is_allowzero or peer_info.flags.is_allowzero;
 
                 const peer_sentinel: InternPool.Index = switch (peer_info.flags.size) {
                     .One => switch (ip.indexToKey(peer_info.child)) {
@@ -35291,6 +35308,12 @@ fn resolvePeerTypesInner(
                     } },
                     else => {},
                 },
+            }
+
+            if (any_abi_aligned and opt_ptr_info.?.flags.alignment != .none) {
+                opt_ptr_info.?.flags.alignment = opt_ptr_info.?.flags.alignment.minStrict(
+                    try Type.fromInterned(pointee).abiAlignmentSema(pt),
+                );
             }
 
             return .{ .success = try pt.ptrTypeSema(opt_ptr_info.?) };
@@ -37833,7 +37856,7 @@ pub fn analyzeAsAddressSpace(
         .gs, .fs, .ss => (arch == .x86 or arch == .x86_64) and ctx == .pointer,
         // TODO: check that .shared and .local are left uninitialized
         .param => is_nv,
-        .input, .output, .uniform, .push_constant => is_spirv,
+        .input, .output, .uniform, .push_constant, .storage_buffer => is_spirv,
         .global, .shared, .local => is_gpu,
         .constant => is_gpu and (ctx == .constant),
         // TODO this should also check how many flash banks the cpu has

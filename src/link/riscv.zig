@@ -70,18 +70,20 @@ fn bitSlice(
     return @truncate((value >> low) & (1 << (high - low + 1)) - 1);
 }
 
-pub const RiscvEflags = packed struct(u32) {
+pub const Eflags = packed struct(u32) {
     rvc: bool,
-    fabi: enum(u2) {
+    fabi: FloatAbi,
+    rve: bool,
+    tso: bool,
+    _reserved: u19 = 0,
+    _unused: u8 = 0,
+
+    pub const FloatAbi = enum(u2) {
         soft = 0b00,
         single = 0b01,
         double = 0b10,
         quad = 0b11,
-    },
-    rve: bool,
-    tso: bool,
-    _reserved: u19,
-    _unused: u8,
+    };
 };
 
 const mem = std.mem;

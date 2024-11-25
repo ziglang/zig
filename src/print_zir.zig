@@ -621,6 +621,8 @@ const Writer = struct {
             .field_parent_ptr => try self.writeFieldParentPtr(stream, extended),
             .builtin_value => try self.writeBuiltinValue(stream, extended),
             .inplace_arith_result_ty => try self.writeInplaceArithResultTy(stream, extended),
+
+            .dbg_empty_stmt => try stream.writeAll("))"),
         }
     }
 

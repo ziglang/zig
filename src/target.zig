@@ -327,9 +327,8 @@ pub fn libcFullLinkFlags(target: std.Target) []const []const u8 {
 }
 
 pub fn clangMightShellOutForAssembly(target: std.Target) bool {
-    // Clang defaults to using the system assembler over the internal one
-    // when targeting a non-BSD OS.
-    return target.cpu.arch.isSPARC();
+    // Clang defaults to using the system assembler in some cases.
+    return target.cpu.arch.isNvptx() or target.cpu.arch == .xcore;
 }
 
 /// Each backend architecture in Clang has a different codepath which may or may not
@@ -458,7 +457,7 @@ pub fn arePointersLogical(target: std.Target, as: AddressSpace) bool {
         .global => false,
         // TODO: Allowed with VK_KHR_variable_pointers.
         .shared => true,
-        .constant, .local, .input, .output, .uniform, .push_constant => true,
+        .constant, .local, .input, .output, .uniform, .push_constant, .storage_buffer => true,
         else => unreachable,
     };
 }

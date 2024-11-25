@@ -104,6 +104,7 @@ pub const SIOCGIFINDEX = system.SIOCGIFINDEX;
 pub const SO = system.SO;
 pub const SOCK = system.SOCK;
 pub const SOL = system.SOL;
+pub const IFF = system.IFF;
 pub const STDERR_FILENO = system.STDERR_FILENO;
 pub const STDIN_FILENO = system.STDIN_FILENO;
 pub const STDOUT_FILENO = system.STDOUT_FILENO;
@@ -154,7 +155,6 @@ pub const socklen_t = system.socklen_t;
 pub const stack_t = system.stack_t;
 pub const time_t = system.time_t;
 pub const timespec = system.timespec;
-pub const timestamp_t = system.timestamp_t;
 pub const timeval = system.timeval;
 pub const timezone = system.timezone;
 pub const ucontext_t = system.ucontext_t;
@@ -1817,6 +1817,7 @@ pub fn openatZ(dir_fd: fd_t, file_path: [*:0]const u8, flags: O, mode: mode_t) O
             .OPNOTSUPP => return error.FileLocksNotSupported,
             .AGAIN => return error.WouldBlock,
             .TXTBSY => return error.FileBusy,
+            .NXIO => return error.NoDevice,
             .ILSEQ => |err| if (native_os == .wasi)
                 return error.InvalidUtf8
             else
@@ -5618,7 +5619,7 @@ pub const ClockGetTimeError = error{UnsupportedClock} || UnexpectedError;
 /// TODO: change this to return the timespec as a return value
 pub fn clock_gettime(clock_id: clockid_t, tp: *timespec) ClockGetTimeError!void {
     if (native_os == .wasi and !builtin.link_libc) {
-        var ts: timestamp_t = undefined;
+        var ts: wasi.timestamp_t = undefined;
         switch (system.clock_time_get(clock_id, 1, &ts)) {
             .SUCCESS => {
                 tp.* = .{
@@ -5659,7 +5660,7 @@ pub fn clock_gettime(clock_id: clockid_t, tp: *timespec) ClockGetTimeError!void 
 
 pub fn clock_getres(clock_id: clockid_t, res: *timespec) ClockGetTimeError!void {
     if (native_os == .wasi and !builtin.link_libc) {
-        var ts: timestamp_t = undefined;
+        var ts: wasi.timestamp_t = undefined;
         switch (system.clock_res_get(@bitCast(clock_id), &ts)) {
             .SUCCESS => res.* = .{
                 .sec = @intCast(ts / std.time.ns_per_s),

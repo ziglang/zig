@@ -59,6 +59,7 @@ pub const EXC = enum(exception_type_t) {
     pub const SOFT_SIGNAL = 0x10003;
 
     pub const MASK = packed struct(u32) {
+        _0: u1 = 0,
         BAD_ACCESS: bool = false,
         BAD_INSTRUCTION: bool = false,
         ARITHMETIC: bool = false,
@@ -72,6 +73,7 @@ pub const EXC = enum(exception_type_t) {
         RESOURCE: bool = false,
         GUARD: bool = false,
         CORPSE_NOTIFY: bool = false,
+        _14: u18 = 0,
 
         pub const MACHINE: MASK = @bitCast(@as(u32, 0));
 
@@ -926,7 +928,7 @@ pub const OS_SIGNPOST_ID_NULL: os_signpost_id_t = 0;
 pub const OS_SIGNPOST_ID_INVALID: os_signpost_id_t = !0;
 pub const OS_SIGNPOST_ID_EXCLUSIVE: os_signpost_id_t = 0xeeeeb0b5b2b2eeee;
 
-pub const os_log_t = opaque {};
+pub const os_log_t = *opaque {};
 pub const os_log_type_t = enum(u8) {
     /// default messages always captures
     OS_LOG_TYPE_DEFAULT = 0x00,
