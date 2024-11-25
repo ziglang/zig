@@ -8,7 +8,6 @@ pub fn panic(message: []const u8, _: ?*std.builtin.StackTrace, _: ?usize) noretu
 }
 
 pub fn main() void {
-    @setRuntimeSafety(true);
     const E = enum(u4) { _ };
     var invalid: u16 = 16;
     _ = &invalid;
@@ -18,3 +17,4 @@ pub fn main() void {
 
 // run
 // backend=stage2,llvm
+// target=native
