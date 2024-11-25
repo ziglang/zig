@@ -646,7 +646,10 @@ pub fn Poller(comptime StreamEnum: type) type {
                 // always check if there's some data waiting to be read first.
                 if (poll_fd.revents & posix.POLL.IN != 0) {
                     const buf = try q.writableWithSize(bump_amt);
-                    const amt = try posix.read(poll_fd.fd, buf);
+                    const amt = posix.read(poll_fd.fd, buf) catch |err| switch (err) {
+                        error.BrokenPipe => 0, // Handle the same as EOF.
+                        else => |e| return e,
+                    };
                     q.update(amt);
                     if (amt == 0) {
                         // Remove the fd when the EOF condition is met.
