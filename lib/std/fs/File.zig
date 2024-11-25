@@ -39,7 +39,7 @@ pub const OpenError = error{
     FileNotFound,
     AccessDenied,
     PipeBusy,
-    PipeNotAvailable,
+    NoDevice,
     NameTooLong,
     /// WASI-only; file paths must be valid UTF-8.
     InvalidUtf8,

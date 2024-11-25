@@ -133,7 +133,7 @@ pub fn astGenFile(
             error.BadPathName => unreachable, // it's a hex encoded name
             error.NameTooLong => unreachable, // it's a fixed size name
             error.PipeBusy => unreachable, // it's not a pipe
-            error.PipeNotAvailable => unreachable, // it's not a pipe
+            error.NoDevice => unreachable, // it's not a pipe
             error.WouldBlock => unreachable, // not asking for non-blocking I/O
             // There are no dir components, so you would think that this was
             // unreachable, however we have observed on macOS two processes racing

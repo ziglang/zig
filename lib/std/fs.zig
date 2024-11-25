@@ -507,7 +507,6 @@ pub const SelfExePathError = error{
     DeviceBusy,
     SharingViolation,
     PipeBusy,
-    PipeNotAvailable,
     NotLink,
     PathAlreadyExists,
 
