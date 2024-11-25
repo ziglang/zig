@@ -1220,31 +1220,37 @@ pub fn main() anyerror!void {
     defer arena_state.deinit();
     const arena = arena_state.allocator();
 
-    const args = try std.process.argsAlloc(arena);
-    if (args.len <= 1) {
-        usageAndExit(std.io.getStdErr(), args[0], 1);
-    }
-    if (std.mem.eql(u8, args[1], "--help")) {
-        usageAndExit(std.io.getStdOut(), args[0], 0);
-    }
-    if (args.len < 4) {
-        usageAndExit(std.io.getStdErr(), args[0], 1);
-    }
+    const stderr = std.io.getStdErr();
+    var args = try std.process.argsWithAllocator(arena);
+    const args0 = args.next().?;
 
-    const llvm_tblgen_exe = args[1];
+    const llvm_tblgen_exe = args.next() orelse
+        usageAndExit(stderr, args0, 1);
+
+    if (std.mem.eql(u8, llvm_tblgen_exe, "--help")) {
+        usageAndExit(std.io.getStdOut(), args0, 0);
+    }
     if (std.mem.startsWith(u8, llvm_tblgen_exe, "-")) {
-        usageAndExit(std.io.getStdErr(), args[0], 1);
+        usageAndExit(stderr, args0, 1);
     }
 
-    const llvm_src_root = args[2];
+    const llvm_src_root = args.next() orelse
+        usageAndExit(stderr, args0, 1);
+
     if (std.mem.startsWith(u8, llvm_src_root, "-")) {
-        usageAndExit(std.io.getStdErr(), args[0], 1);
+        usageAndExit(stderr, args0, 1);
     }
 
-    const zig_src_root = args[3];
+    const zig_src_root = args.next() orelse
+        usageAndExit(stderr, args0, 1);
     if (std.mem.startsWith(u8, zig_src_root, "-")) {
-        usageAndExit(std.io.getStdErr(), args[0], 1);
+        usageAndExit(stderr, args0, 1);
     }
+
+    var filter: ?[]const u8 = null;
+    if (args.next()) |arg| filter = arg;
+
+    if (args.skip()) usageAndExit(stderr, args0, 1);
 
     var zig_src_dir = try fs.cwd().openDir(zig_src_root, .{});
     defer zig_src_dir.close();
@@ -1254,6 +1260,7 @@ pub fn main() anyerror!void {
 
     if (builtin.single_threaded) {
         for (llvm_targets) |llvm_target| {
+            if (filter) |zig_name| if (!std.mem.eql(u8, llvm_target.zig_name, zig_name)) continue;
             try processOneTarget(Job{
                 .llvm_tblgen_exe = llvm_tblgen_exe,
                 .llvm_src_root = llvm_src_root,
@@ -1263,8 +1270,12 @@ pub fn main() anyerror!void {
             });
         }
     } else {
-        var threads = try arena.alloc(std.Thread, llvm_targets.len);
-        for (llvm_targets, 0..) |llvm_target, i| {
+        var pool: std.Thread.Pool = undefined;
+        try pool.init(.{ .allocator = arena, .n_jobs = llvm_targets.len });
+        defer pool.deinit();
+
+        for (llvm_targets) |llvm_target| {
+            if (filter) |zig_name| if (!std.mem.eql(u8, llvm_target.zig_name, zig_name)) continue;
             const job = Job{
                 .llvm_tblgen_exe = llvm_tblgen_exe,
                 .llvm_src_root = llvm_src_root,
@@ -1272,10 +1283,7 @@ pub fn main() anyerror!void {
                 .root_progress = root_progress,
                 .llvm_target = llvm_target,
             };
-            threads[i] = try std.Thread.spawn(.{}, processOneTarget, .{job});
-        }
-        for (threads) |thread| {
-            thread.join();
+            try pool.spawn(processOneTarget, .{job});
         }
     }
 }
@@ -1288,7 +1296,8 @@ const Job = struct {
     llvm_target: LlvmTarget,
 };
 
-fn processOneTarget(job: Job) anyerror!void {
+fn processOneTarget(job: Job) void {
+    errdefer |err| std.debug.panic("panic: {s}", .{@errorName(err)});
     const llvm_target = job.llvm_target;
 
     var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -1522,20 +1531,6 @@ fn processOneTarget(job: Job) anyerror!void {
                     )) orelse continue;
                     try deps.append(feature_zig_name);
                 }
-                for (llvm_target.feature_overrides) |feature_override| {
-                    if (mem.eql(u8, llvm_name, feature_override.llvm_name)) {
-                        if (feature_override.omit) {
-                            continue;
-                        }
-                        if (feature_override.zig_name) |override_name| {
-                            zig_name = override_name;
-                        }
-                        for (feature_override.extra_deps) |extra_dep| {
-                            try deps.append(extra_dep);
-                        }
-                        break;
-                    }
-                }
                 try all_cpus.append(.{
                     .llvm_name = llvm_name,
                     .zig_name = zig_name,
@@ -1756,7 +1751,7 @@ fn processOneTarget(job: Job) anyerror!void {
 
 fn usageAndExit(file: fs.File, arg0: []const u8, code: u8) noreturn {
     file.writer().print(
-        \\Usage: {s} /path/to/llvm-tblgen /path/git/llvm-project /path/git/zig
+        \\Usage: {s} /path/to/llvm-tblgen /path/git/llvm-project /path/git/zig [zig_name filter]
         \\
         \\Updates lib/std/target/<target>.zig from llvm/lib/Target/<Target>/<Target>.td .
         \\
