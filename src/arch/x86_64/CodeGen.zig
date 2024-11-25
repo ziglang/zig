@@ -961,9 +961,16 @@ pub fn generate(
         },
         .debug_output = debug_output,
         .code = code,
+        .prev_di_loc = .{
+            .line = func.lbrace_line,
+            .column = func.lbrace_column,
+            .is_stmt = switch (debug_output) {
+                .dwarf => |dwarf| dwarf.dwarf.debug_line.header.default_is_stmt,
+                .plan9 => undefined,
+                .none => undefined,
+            },
+        },
         .prev_di_pc = 0,
-        .prev_di_line = func.lbrace_line,
-        .prev_di_column = func.lbrace_column,
     };
     defer emit.deinit();
     emit.emitMir() catch |err| switch (err) {
@@ -1066,9 +1073,8 @@ pub fn generateLazy(
         },
         .debug_output = debug_output,
         .code = code,
+        .prev_di_loc = undefined, // no debug info yet
         .prev_di_pc = undefined, // no debug info yet
-        .prev_di_line = undefined, // no debug info yet
-        .prev_di_column = undefined, // no debug info yet
     };
     defer emit.deinit();
     emit.emitMir() catch |err| switch (err) {
@@ -1194,13 +1200,16 @@ fn formatWipMir(
         switch (mir_inst.ops) {
             else => unreachable,
             .pseudo_dbg_prologue_end_none,
-            .pseudo_dbg_line_line_column,
             .pseudo_dbg_epilogue_begin_none,
             .pseudo_dbg_enter_block_none,
             .pseudo_dbg_leave_block_none,
             .pseudo_dbg_var_args_none,
             .pseudo_dead_none,
             => {},
+            .pseudo_dbg_line_stmt_line_column, .pseudo_dbg_line_line_column => try writer.print(
+                " {[line]d}, {[column]d}",
+                mir_inst.data.line_column,
+            ),
             .pseudo_dbg_enter_inline_func, .pseudo_dbg_leave_inline_func => try writer.print(" {}", .{
                 ip.getNav(ip.indexToKey(mir_inst.data.func).func.owner_nav).name.fmt(ip),
             }),
@@ -1281,14 +1290,7 @@ fn addInst(self: *Self, inst: Mir.Inst) error{OutOfMemory}!Mir.Inst.Index {
     try self.mir_instructions.ensureUnusedCapacity(gpa, 1);
     const result_index: Mir.Inst.Index = @intCast(self.mir_instructions.len);
     self.mir_instructions.appendAssumeCapacity(inst);
-    if (inst.tag != .pseudo or switch (inst.ops) {
-        else => true,
-        .pseudo_dbg_prologue_end_none,
-        .pseudo_dbg_line_line_column,
-        .pseudo_dbg_epilogue_begin_none,
-        .pseudo_dead_none,
-        => false,
-    }) wip_mir_log.debug("{}", .{self.fmtWipMir(result_index)});
+    wip_mir_log.debug("{}", .{self.fmtWipMir(result_index)});
     return result_index;
 }
 
@@ -2218,7 +2220,7 @@ fn gen(self: *Self) InnerError!void {
     // Drop them off at the rbrace.
     _ = try self.addInst(.{
         .tag = .pseudo,
-        .ops = .pseudo_dbg_line_line_column,
+        .ops = .pseudo_dbg_line_stmt_line_column,
         .data = .{ .line_column = .{
             .line = self.end_di_line,
             .column = self.end_di_column,
@@ -2426,6 +2428,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .try_ptr_cold    => try self.airTryPtr(inst), // TODO
 
             .dbg_stmt         => try self.airDbgStmt(inst),
+            .dbg_empty_stmt   => try self.airDbgEmptyStmt(),
             .dbg_inline_block => try self.airDbgInlineBlock(inst),
             .dbg_var_ptr,
             .dbg_var_val,
@@ -13281,12 +13284,20 @@ fn airDbgStmt(self: *Self, inst: Air.Inst.Index) !void {
     const dbg_stmt = self.air.instructions.items(.data)[@intFromEnum(inst)].dbg_stmt;
     _ = try self.addInst(.{
         .tag = .pseudo,
-        .ops = .pseudo_dbg_line_line_column,
+        .ops = .pseudo_dbg_line_stmt_line_column,
         .data = .{ .line_column = .{
             .line = dbg_stmt.line,
             .column = dbg_stmt.column,
         } },
     });
+    self.finishAirBookkeeping();
+}
+
+fn airDbgEmptyStmt(self: *Self) !void {
+    if (self.mir_instructions.len > 0 and
+        self.mir_instructions.items(.ops)[self.mir_instructions.len - 1] == .pseudo_dbg_line_stmt_line_column)
+        self.mir_instructions.items(.ops)[self.mir_instructions.len - 1] = .pseudo_dbg_line_line_column;
+    try self.asmOpOnly(.{ ._, .nop });
     self.finishAirBookkeeping();
 }
 

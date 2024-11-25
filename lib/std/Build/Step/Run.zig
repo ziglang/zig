@@ -1369,18 +1369,22 @@ fn spawnChildAndCollect(
         defer if (inherit) std.debug.unlockStdErr();
 
         try child.spawn();
+        errdefer {
+            _ = child.kill() catch {};
+        }
+
         var timer = try std.time.Timer.start();
 
         const result = if (run.stdio == .zig_test)
-            evalZigTest(run, &child, prog_node, fuzz_context)
+            try evalZigTest(run, &child, prog_node, fuzz_context)
         else
-            evalGeneric(run, &child);
+            try evalGeneric(run, &child);
 
         break :t .{ try child.wait(), result, timer.read() };
     };
 
     return .{
-        .stdio = try result,
+        .stdio = result,
         .term = term,
         .elapsed_ns = elapsed_ns,
         .peak_rss = child.resource_usage_statistics.getMaxRss() orelse 0,

@@ -48,7 +48,8 @@ fn read(ma: *MemoryAccessor, address: usize, buf: []u8) bool {
                 switch (linux.E.init(bytes_read)) {
                     .SUCCESS => return bytes_read == buf.len,
                     .FAULT => return false,
-                    .INVAL, .PERM, .SRCH => unreachable, // own pid is always valid
+                    .INVAL, .SRCH => unreachable, // own pid is always valid
+                    .PERM => {}, // Known to happen in containers.
                     .NOMEM => {},
                     .NOSYS => {}, // QEMU is known not to implement this syscall.
                     else => unreachable, // unexpected

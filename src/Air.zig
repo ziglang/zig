@@ -460,6 +460,8 @@ pub const Inst = struct {
         /// Result type is always void.
         /// Uses the `dbg_stmt` field.
         dbg_stmt,
+        /// Marks a statement that can be stepped to but produces no code.
+        dbg_empty_stmt,
         /// A block that represents an inlined function call.
         /// Uses the `ty_pl` field. Payload is `DbgInlineBlock`.
         dbg_inline_block,
@@ -1468,6 +1470,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
 
         .breakpoint,
         .dbg_stmt,
+        .dbg_empty_stmt,
         .dbg_var_ptr,
         .dbg_var_val,
         .dbg_arg_inline,
@@ -1629,6 +1632,7 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .try_ptr,
         .try_ptr_cold,
         .dbg_stmt,
+        .dbg_empty_stmt,
         .dbg_inline_block,
         .dbg_var_ptr,
         .dbg_var_val,

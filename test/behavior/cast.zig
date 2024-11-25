@@ -2200,39 +2200,77 @@ test "peer type resolution: pointer attributes are combined correctly" {
     var buf_a align(4) = "foo".*;
     var buf_b align(4) = "bar".*;
     var buf_c align(4) = "baz".*;
+    var buf_d align(4) = "qux".*;
 
     const a: [*:0]align(4) const u8 = &buf_a;
     const b: *align(2) volatile [3:0]u8 = &buf_b;
     const c: [*:0]align(4) u8 = &buf_c;
+    const d: [*:0]allowzero align(4) u8 = &buf_d;
 
-    comptime assert(@TypeOf(a, b, c) == [*:0]align(2) const volatile u8);
-    comptime assert(@TypeOf(a, c, b) == [*:0]align(2) const volatile u8);
-    comptime assert(@TypeOf(b, a, c) == [*:0]align(2) const volatile u8);
-    comptime assert(@TypeOf(b, c, a) == [*:0]align(2) const volatile u8);
-    comptime assert(@TypeOf(c, a, b) == [*:0]align(2) const volatile u8);
-    comptime assert(@TypeOf(c, b, a) == [*:0]align(2) const volatile u8);
+    comptime assert(@TypeOf(a, b, c, d) == [*:0]allowzero align(2) const volatile u8);
+    comptime assert(@TypeOf(a, b, d, c) == [*:0]allowzero align(2) const volatile u8);
+    comptime assert(@TypeOf(a, c, b, d) == [*:0]allowzero align(2) const volatile u8);
+    comptime assert(@TypeOf(a, c, d, b) == [*:0]allowzero align(2) const volatile u8);
+    comptime assert(@TypeOf(a, d, b, c) == [*:0]allowzero align(2) const volatile u8);
+    comptime assert(@TypeOf(a, d, c, b) == [*:0]allowzero align(2) const volatile u8);
+
+    comptime assert(@TypeOf(b, a, c, d) == [*:0]allowzero align(2) const volatile u8);
+    comptime assert(@TypeOf(b, a, d, c) == [*:0]allowzero align(2) const volatile u8);
+    comptime assert(@TypeOf(b, c, a, d) == [*:0]allowzero align(2) const volatile u8);
+    comptime assert(@TypeOf(b, c, d, a) == [*:0]allowzero align(2) const volatile u8);
+    comptime assert(@TypeOf(b, d, c, a) == [*:0]allowzero align(2) const volatile u8);
+    comptime assert(@TypeOf(b, d, a, c) == [*:0]allowzero align(2) const volatile u8);
+
+    comptime assert(@TypeOf(c, a, b, d) == [*:0]allowzero align(2) const volatile u8);
+    comptime assert(@TypeOf(c, a, d, b) == [*:0]allowzero align(2) const volatile u8);
+    comptime assert(@TypeOf(c, b, a, d) == [*:0]allowzero align(2) const volatile u8);
+    comptime assert(@TypeOf(c, b, d, a) == [*:0]allowzero align(2) const volatile u8);
+    comptime assert(@TypeOf(c, d, b, a) == [*:0]allowzero align(2) const volatile u8);
+    comptime assert(@TypeOf(c, d, a, b) == [*:0]allowzero align(2) const volatile u8);
+
+    comptime assert(@TypeOf(d, a, b, c) == [*:0]allowzero align(2) const volatile u8);
+    comptime assert(@TypeOf(d, a, c, b) == [*:0]allowzero align(2) const volatile u8);
+    comptime assert(@TypeOf(d, b, a, c) == [*:0]allowzero align(2) const volatile u8);
+    comptime assert(@TypeOf(d, b, c, a) == [*:0]allowzero align(2) const volatile u8);
+    comptime assert(@TypeOf(d, c, b, a) == [*:0]allowzero align(2) const volatile u8);
+    comptime assert(@TypeOf(d, c, a, b) == [*:0]allowzero align(2) const volatile u8);
 
     var x: u8 = 0;
     _ = &x;
     const r1 = switch (x) {
         0 => a,
         1 => b,
-        else => c,
+        2 => c,
+        else => d,
     };
     const r2 = switch (x) {
         0 => b,
         1 => a,
-        else => c,
+        2 => c,
+        else => d,
     };
     const r3 = switch (x) {
         0 => c,
         1 => a,
-        else => b,
+        2 => b,
+        else => d,
+    };
+    const r4 = switch (x) {
+        0 => d,
+        1 => a,
+        2 => b,
+        else => c,
     };
 
-    try expectEqualSlices(u8, std.mem.span(@volatileCast(r1)), "foo");
-    try expectEqualSlices(u8, std.mem.span(@volatileCast(r2)), "bar");
-    try expectEqualSlices(u8, std.mem.span(@volatileCast(r3)), "baz");
+    const NonAllowZero = comptime blk: {
+        var ti = @typeInfo(@TypeOf(r1, r2, r3, r4));
+        ti.pointer.is_allowzero = false;
+        break :blk @Type(ti);
+    };
+    try expectEqualSlices(u8, std.mem.span(@volatileCast(@as(NonAllowZero, @ptrCast(r1)))), "foo");
+    try expectEqualSlices(u8, std.mem.span(@volatileCast(@as(NonAllowZero, @ptrCast(r2)))), "bar");
+    try expectEqualSlices(u8, std.mem.span(@volatileCast(@as(NonAllowZero, @ptrCast(r3)))), "baz");
+    try expectEqualSlices(u8, std.mem.span(@volatileCast(@as(NonAllowZero, @ptrCast(r4)))), "qux");
 }
 
 test "peer type resolution: arrays of compatible types" {

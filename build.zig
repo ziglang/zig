@@ -864,6 +864,10 @@ fn addCxxKnownPath(
         }
         return error.RequiredLibraryNotFound;
     }
+    // By default, explicit library paths are not checked for being linker scripts,
+    // but libc++ may very well be one, so force all inputs to be checked when passing
+    // an explicit path to libc++.
+    exe.allow_so_scripts = true;
     exe.addObjectFile(.{ .cwd_relative = path_unpadded });
 
     // TODO a way to integrate with system c++ include files here

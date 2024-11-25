@@ -3289,6 +3289,7 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             .try_ptr_cold => try airTryPtr(f, inst),
 
             .dbg_stmt => try airDbgStmt(f, inst),
+            .dbg_empty_stmt => try airDbgEmptyStmt(f, inst),
             .dbg_var_ptr, .dbg_var_val, .dbg_arg_inline => try airDbgVar(f, inst),
 
             .float_from_int,
@@ -4598,6 +4599,11 @@ fn airDbgStmt(f: *Function, inst: Air.Inst.Index) !CValue {
     // Perhaps an additional compilation option is in order?
     //try writer.print("#line {d}\n", .{dbg_stmt.line + 1});
     try writer.print("/* file:{d}:{d} */\n", .{ dbg_stmt.line + 1, dbg_stmt.column + 1 });
+    return .none;
+}
+
+fn airDbgEmptyStmt(f: *Function, _: Air.Inst.Index) !CValue {
+    try f.object.writer().writeAll("(void)0;\n");
     return .none;
 }
 

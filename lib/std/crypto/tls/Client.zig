@@ -1649,10 +1649,10 @@ const KeyShare = struct {
 
     fn init(seed: [112]u8) error{IdentityElement}!KeyShare {
         return .{
-            .ml_kem768_kp = try .create(null),
-            .secp256r1_kp = try .create(seed[0..32].*),
-            .secp384r1_kp = try .create(seed[32..80].*),
-            .x25519_kp = try .create(seed[80..112].*),
+            .ml_kem768_kp = .generate(),
+            .secp256r1_kp = try .generateDeterministic(seed[0..32].*),
+            .secp384r1_kp = try .generateDeterministic(seed[32..80].*),
+            .x25519_kp = try .generateDeterministic(seed[80..112].*),
             .sk_buf = undefined,
             .sk_len = 0,
         };

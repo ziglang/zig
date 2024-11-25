@@ -812,6 +812,7 @@ const Resource = union(enum) {
     dir: fs.Dir,
 
     const Git = struct {
+        session: git.Session,
         fetch_stream: git.Session.FetchStream,
         want_oid: [git.oid_length]u8,
     };
@@ -820,7 +821,10 @@ const Resource = union(enum) {
         switch (resource.*) {
             .file => |*file| file.close(),
             .http_request => |*req| req.deinit(),
-            .git => |*git_resource| git_resource.fetch_stream.deinit(),
+            .git => |*git_resource| {
+                git_resource.fetch_stream.deinit();
+                git_resource.session.deinit();
+            },
             .dir => |*dir| dir.close(),
         }
         resource.* = undefined;
@@ -961,23 +965,13 @@ fn initResource(f: *Fetch, uri: std.Uri, server_header_buffer: []u8) RunError!Re
     {
         var transport_uri = uri;
         transport_uri.scheme = uri.scheme["git+".len..];
-        var redirect_uri: []u8 = undefined;
-        var session: git.Session = .{ .transport = http_client, .uri = transport_uri };
-        session.discoverCapabilities(gpa, &redirect_uri, server_header_buffer) catch |err| switch (err) {
-            error.Redirected => {
-                defer gpa.free(redirect_uri);
-                return f.fail(f.location_tok, try eb.printString(
-                    "repository moved to {s}",
-                    .{redirect_uri},
-                ));
-            },
-            else => |e| {
-                return f.fail(f.location_tok, try eb.printString(
-                    "unable to discover remote git server capabilities: {s}",
-                    .{@errorName(e)},
-                ));
-            },
+        var session = git.Session.init(gpa, http_client, transport_uri, server_header_buffer) catch |err| {
+            return f.fail(f.location_tok, try eb.printString(
+                "unable to discover remote git server capabilities: {s}",
+                .{@errorName(err)},
+            ));
         };
+        errdefer session.deinit();
 
         const want_oid = want_oid: {
             const want_ref =
@@ -987,7 +981,7 @@ fn initResource(f: *Fetch, uri: std.Uri, server_header_buffer: []u8) RunError!Re
             const want_ref_head = try std.fmt.allocPrint(arena, "refs/heads/{s}", .{want_ref});
             const want_ref_tag = try std.fmt.allocPrint(arena, "refs/tags/{s}", .{want_ref});
 
-            var ref_iterator = session.listRefs(gpa, .{
+            var ref_iterator = session.listRefs(.{
                 .ref_prefixes = &.{ want_ref, want_ref_head, want_ref_tag },
                 .include_peeled = true,
                 .server_header_buffer = server_header_buffer,
@@ -1035,7 +1029,7 @@ fn initResource(f: *Fetch, uri: std.Uri, server_header_buffer: []u8) RunError!Re
         _ = std.fmt.bufPrint(&want_oid_buf, "{}", .{
             std.fmt.fmtSliceHexLower(&want_oid),
         }) catch unreachable;
-        var fetch_stream = session.fetch(gpa, &.{&want_oid_buf}, server_header_buffer) catch |err| {
+        var fetch_stream = session.fetch(&.{&want_oid_buf}, server_header_buffer) catch |err| {
             return f.fail(f.location_tok, try eb.printString(
                 "unable to create fetch stream: {s}",
                 .{@errorName(err)},
@@ -1044,6 +1038,7 @@ fn initResource(f: *Fetch, uri: std.Uri, server_header_buffer: []u8) RunError!Re
         errdefer fetch_stream.deinit();
 
         return .{ .git = .{
+            .session = session,
             .fetch_stream = fetch_stream,
             .want_oid = want_oid,
         } };

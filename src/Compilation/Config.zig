@@ -295,17 +295,15 @@ pub fn resolve(options: Options) ResolveError!Config {
         if (!options.any_c_source_files) break :b false;
 
         // https://github.com/llvm/llvm-project/pull/116537
-        if (target.cpu.arch.isMIPS64()) switch (target.abi) {
-            .gnuabin32, .muslabin32 => break :b false,
+        switch (target.abi) {
+            .gnuabin32,
+            .gnuilp32,
+            .gnux32,
+            .ilp32,
+            .muslabin32,
+            .muslx32,
+            => break :b false,
             else => {},
-        };
-
-        if (target.cpu.arch.isRISCV()) {
-            // Clang and LLVM currently don't support RISC-V target-abi for LTO.
-            // Compiling with LTO may fail or produce undesired results.
-            // See https://reviews.llvm.org/D71387
-            // See https://reviews.llvm.org/D102582
-            break :b false;
         }
 
         break :b switch (options.output_mode) {

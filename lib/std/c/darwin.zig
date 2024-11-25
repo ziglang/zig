@@ -928,7 +928,7 @@ pub const OS_SIGNPOST_ID_NULL: os_signpost_id_t = 0;
 pub const OS_SIGNPOST_ID_INVALID: os_signpost_id_t = !0;
 pub const OS_SIGNPOST_ID_EXCLUSIVE: os_signpost_id_t = 0xeeeeb0b5b2b2eeee;
 
-pub const os_log_t = opaque {};
+pub const os_log_t = *opaque {};
 pub const os_log_type_t = enum(u8) {
     /// default messages always captures
     OS_LOG_TYPE_DEFAULT = 0x00,
