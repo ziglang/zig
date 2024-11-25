@@ -116,8 +116,7 @@ pub fn Complex(comptime T: type) type {
             return @sqrt(self.re * self.re + self.im * self.im);
         }
 
-        /// Returns the squared magnitude of a complex number.
-        pub fn sqrmag(self: Self) T {
+        pub fn squaredMagnitude(self: Self) T {
             return self.re * self.re + self.im * self.im;
         }
     };
@@ -194,9 +193,9 @@ test "magnitude" {
     try testing.expect(math.approxEqAbs(f32, c, 5.83095, epsilon));
 }
 
-test "sqrmag" {
+test "squaredMagnitude" {
     const a = Complex(f32).init(5, 3);
-    const c = a.sqrmag();
+    const c = a.squaredMagnitude();
 
     try testing.expect(math.approxEqAbs(f32, c, math.pow(f32, a.magnitude(), 2), epsilon));
 }
