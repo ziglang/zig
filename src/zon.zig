@@ -41,7 +41,7 @@ pub fn lower(
 
     const data = tree.nodes.items(.data);
     const root = data[0].lhs;
-    return lower_zon.parseExpr(root, res_ty);
+    return lower_zon.lowerExpr(root, res_ty);
 }
 
 fn lazySrcLoc(self: LowerZon, loc: LazySrcLoc.Offset) !LazySrcLoc {
@@ -242,26 +242,20 @@ const FieldTypes = union(enum) {
     }
 };
 
-fn parseExpr(self: LowerZon, node: Ast.Node.Index, res_ty: Type) CompileError!InternPool.Index {
-    const gpa = self.sema.gpa;
-    const ip = &self.sema.pt.zcu.intern_pool;
-    const data = self.file.tree.nodes.items(.data);
-    const tags = self.file.tree.nodes.items(.tag);
-    const main_tokens = self.file.tree.nodes.items(.main_token);
-
+fn lowerExpr(self: LowerZon, node: Ast.Node.Index, res_ty: Type) CompileError!InternPool.Index {
     switch (Type.zigTypeTag(res_ty, self.sema.pt.zcu)) {
-        .void => return self.parseVoid(node),
-        .bool => return self.parseBool(node),
-        .int, .comptime_int => return self.parseInt(node, res_ty),
-        .float, .comptime_float => return self.parseFloat(node, res_ty),
-        .optional => return self.parseOptional(node, res_ty),
-        .null => return self.parseNull(node),
-        .@"enum" => return self.parseEnum(node, res_ty),
-        .enum_literal => return self.parseEnumLiteral(node, res_ty),
-        .array => return self.parseArray(node, res_ty),
-        .@"struct" => return self.parseStructOrTuple(node, res_ty),
-        .@"union" => return self.parseUnion(node, res_ty),
-        .pointer => return self.parsePointer(node, res_ty),
+        .void => return self.lowerVoid(node),
+        .bool => return self.lowerBool(node),
+        .int, .comptime_int => return self.lowerInt(node, res_ty),
+        .float, .comptime_float => return self.lowerFloat(node, res_ty),
+        .optional => return self.lowerOptional(node, res_ty),
+        .null => return self.lowerNull(node),
+        .@"enum" => return self.lowerEnum(node, res_ty),
+        .enum_literal => return self.lowerEnumLiteral(node, res_ty),
+        .array => return self.lowerArray(node, res_ty),
+        .@"struct" => return self.lowerStructOrTuple(node, res_ty),
+        .@"union" => return self.lowerUnion(node, res_ty),
+        .pointer => return self.lowerPointer(node, res_ty),
 
         .type,
         .noreturn,
@@ -273,243 +267,11 @@ fn parseExpr(self: LowerZon, node: Ast.Node.Index, res_ty: Type) CompileError!In
         .frame,
         .@"anyframe",
         .vector,
-        => {
-            @panic("unimplemented");
-        },
+        => return self.fail(.{ .node_abs = node }, "invalid ZON value", .{}),
     }
-
-    // If the result type is slice, and our AST Node is not a slice, recurse and then take the
-    // address of the result so attempt to coerce it into a slice.
-    const result_is_slice = res_ty.isSlice(self.sema.pt.zcu);
-    const ast_is_pointer = switch (tags[node]) {
-        .string_literal, .multiline_string_literal => true,
-        else => false,
-    };
-    if (result_is_slice and !ast_is_pointer) {
-        const val = try self.parseExpr(node, res_ty.childType(self.sema.pt.zcu));
-        const val_type = ip.typeOf(val);
-        const ptr_type = try self.sema.pt.ptrTypeSema(.{
-            .child = val_type,
-            .flags = .{
-                .alignment = .none,
-                .is_const = true,
-                .address_space = .generic,
-            },
-        });
-        _ = ptr_type;
-        @panic("unimplemented");
-        // return ip.get(gpa, self.sema.pt.tid, .{ .ptr = .{
-        //     .ty = ptr_type.toIntern(),
-        //     .base_addr = .{ .anon_decl = .{
-        //         .orig_ty = ptr_type.toIntern(),
-        //         .val = val,
-        //     } },
-        //     .byte_offset = 0,
-        // } });
-    }
-
-    switch (tags[node]) {
-        .identifier => {
-            const token = main_tokens[node];
-            var litIdent = try self.ident(token);
-            defer litIdent.deinit(gpa);
-
-            const LitIdent = enum { nan, inf };
-            const values = std.StaticStringMap(LitIdent).initComptime(.{
-                .{ "nan", .nan },
-                .{ "inf", .inf },
-            });
-            if (values.get(litIdent.bytes)) |value| {
-                return switch (value) {
-                    .nan => self.sema.pt.intern(.{ .float = .{
-                        .ty = try self.sema.pt.intern(.{ .simple_type = .comptime_float }),
-                        .storage = .{ .f128 = std.math.nan(f128) },
-                    } }),
-                    .inf => try self.sema.pt.intern(.{ .float = .{
-                        .ty = try self.sema.pt.intern(.{ .simple_type = .comptime_float }),
-                        .storage = .{ .f128 = std.math.inf(f128) },
-                    } }),
-                };
-            }
-            return self.fail(.{ .node_abs = node }, "use of unknown identifier '{s}'", .{litIdent.bytes});
-        },
-        .string_literal => {
-            const token = main_tokens[node];
-            const raw_string = self.file.tree.tokenSlice(token);
-
-            var bytes = std.ArrayListUnmanaged(u8){};
-            defer bytes.deinit(gpa);
-
-            switch (try std.zig.string_literal.parseWrite(bytes.writer(gpa), raw_string)) {
-                .success => {},
-                .failure => |err| {
-                    const offset = self.file.tree.tokens.items(.start)[token];
-                    return self.fail(
-                        .{ .byte_abs = offset + @as(u32, @intCast(err.offset())) },
-                        "{}",
-                        .{err.fmtWithSource(raw_string)},
-                    );
-                },
-            }
-            const string = try ip.getOrPutString(gpa, self.sema.pt.tid, bytes.items, .maybe_embedded_nulls);
-            const array_ty = try self.sema.pt.intern(.{ .array_type = .{
-                .len = bytes.items.len,
-                .sentinel = .zero_u8,
-                .child = .u8_type,
-            } });
-            const array_val = try self.sema.pt.intern(.{ .aggregate = .{
-                .ty = array_ty,
-                .storage = .{ .bytes = string },
-            } });
-            return self.sema.pt.intern(.{ .slice = .{
-                .ty = .slice_const_u8_sentinel_0_type,
-                .ptr = try self.sema.pt.intern(.{ .ptr = .{
-                    .ty = .manyptr_const_u8_sentinel_0_type,
-                    .base_addr = .{ .uav = .{
-                        .orig_ty = .slice_const_u8_sentinel_0_type,
-                        .val = array_val,
-                    } },
-                    .byte_offset = 0,
-                } }),
-                .len = (try self.sema.pt.intValue(Type.usize, bytes.items.len)).toIntern(),
-            } });
-        },
-        .multiline_string_literal => {
-            var bytes = std.ArrayListUnmanaged(u8){};
-            defer bytes.deinit(gpa);
-
-            var parser = std.zig.string_literal.multilineParser(bytes.writer(gpa));
-            var tok_i = data[node].lhs;
-            while (tok_i <= data[node].rhs) : (tok_i += 1) {
-                try parser.line(self.file.tree.tokenSlice(tok_i));
-            }
-
-            const string = try ip.getOrPutString(gpa, self.sema.pt.tid, bytes.items, .maybe_embedded_nulls);
-            const array_ty = try self.sema.pt.intern(.{ .array_type = .{
-                .len = bytes.items.len,
-                .sentinel = .zero_u8,
-                .child = .u8_type,
-            } });
-            const array_val = try self.sema.pt.intern(.{ .aggregate = .{
-                .ty = array_ty,
-                .storage = .{ .bytes = string },
-            } });
-            return self.sema.pt.intern(.{ .slice = .{
-                .ty = .slice_const_u8_sentinel_0_type,
-                .ptr = try self.sema.pt.intern(.{ .ptr = .{
-                    .ty = .manyptr_const_u8_sentinel_0_type,
-                    .base_addr = .{ .uav = .{
-                        .orig_ty = .slice_const_u8_sentinel_0_type,
-                        .val = array_val,
-                    } },
-                    .byte_offset = 0,
-                } }),
-                .len = (try self.sema.pt.intValue(Type.usize, bytes.items.len)).toIntern(),
-            } });
-        },
-        .struct_init_one,
-        .struct_init_one_comma,
-        .struct_init_dot_two,
-        .struct_init_dot_two_comma,
-        .struct_init_dot,
-        .struct_init_dot_comma,
-        .struct_init,
-        .struct_init_comma,
-        => {
-            var buf: [2]Ast.Node.Index = undefined;
-            const struct_init = self.file.tree.fullStructInit(&buf, node).?;
-            if (struct_init.ast.type_expr != 0) {
-                return self.fail(.{ .node_abs = struct_init.ast.type_expr }, "type expressions not allowed in ZON", .{});
-            }
-            const types = try gpa.alloc(InternPool.Index, struct_init.ast.fields.len);
-            defer gpa.free(types);
-
-            const values = try gpa.alloc(InternPool.Index, struct_init.ast.fields.len);
-            defer gpa.free(values);
-
-            var names = std.AutoArrayHashMapUnmanaged(NullTerminatedString, void){};
-            defer names.deinit(gpa);
-            try names.ensureTotalCapacity(gpa, struct_init.ast.fields.len);
-
-            const rt_field_types = try FieldTypes.init(res_ty, self.sema);
-            for (struct_init.ast.fields, 0..) |field, i| {
-                const name_token = self.file.tree.firstToken(field) - 2;
-                const name = try self.identAsNullTerminatedString(name_token);
-                const gop = names.getOrPutAssumeCapacity(name);
-                if (gop.found_existing) {
-                    return self.fail(.{ .token_abs = name_token }, "duplicate field", .{});
-                }
-
-                const elem_ty = rt_field_types.get(name, self.sema.pt.zcu) orelse @panic("unimplemented");
-
-                values[i] = try self.parseExpr(field, elem_ty);
-                types[i] = ip.typeOf(values[i]);
-            }
-
-            @panic("unimplemented");
-            // const struct_type = try ip.getAnonStructType(gpa, self.sema.pt.tid, .{
-            //     .types = types,
-            //     .names = names.entries.items(.key),
-            //     .values = values,
-            // });
-            // return ip.get(gpa, self.sema.pt.tid, .{ .aggregate = .{
-            //     .ty = struct_type,
-            //     .storage = .{ .elems = values },
-            // } });
-        },
-        .array_init_one,
-        .array_init_one_comma,
-        .array_init_dot_two,
-        .array_init_dot_two_comma,
-        .array_init_dot,
-        .array_init_dot_comma,
-        .array_init,
-        .array_init_comma,
-        => {
-            var buf: [2]Ast.Node.Index = undefined;
-            const array_init = self.file.tree.fullArrayInit(&buf, node).?;
-            if (array_init.ast.type_expr != 0) {
-                return self.fail(.{ .node_abs = array_init.ast.type_expr }, "type expressions not allowed in ZON", .{});
-            }
-            const types = try gpa.alloc(InternPool.Index, array_init.ast.elements.len);
-            defer gpa.free(types);
-            const values = try gpa.alloc(InternPool.Index, array_init.ast.elements.len);
-            defer gpa.free(values);
-            for (array_init.ast.elements, 0..) |elem, i| {
-                const elem_ty = b: {
-                    const type_tag = res_ty.zigTypeTagOrPoison(self.sema.pt.zcu) catch break :b null;
-                    switch (type_tag) {
-                        .array => break :b res_ty.childType(self.sema.pt.zcu),
-                        .@"struct" => {
-                            try res_ty.resolveFully(self.sema.pt);
-                            if (i >= res_ty.structFieldCount(self.sema.pt.zcu)) break :b null;
-                            break :b res_ty.fieldType(i, self.sema.pt.zcu);
-                        },
-                        else => break :b null,
-                    }
-                };
-                values[i] = try self.parseExpr(elem, elem_ty orelse @panic("unimplemented"));
-                types[i] = ip.typeOf(values[i]);
-            }
-
-            @panic("unimplemented");
-            // const tuple_type = try ip.getAnonStructType(gpa, self.sema.pt.tid, .{
-            //     .types = types,
-            //     .names = &.{},
-            //     .values = values,
-            // });
-            // return ip.get(gpa, self.sema.pt.tid, .{ .aggregate = .{
-            //     .ty = tuple_type,
-            //     .storage = .{ .elems = values },
-            // } });
-        },
-        else => {},
-    }
-
-    return self.fail(.{ .node_abs = node }, "invalid ZON value", .{});
 }
 
-fn parseVoid(self: LowerZon, node: Ast.Node.Index) !InternPool.Index {
+fn lowerVoid(self: LowerZon, node: Ast.Node.Index) !InternPool.Index {
     const tags = self.file.tree.nodes.items(.tag);
     const data = self.file.tree.nodes.items(.data);
 
@@ -520,7 +282,7 @@ fn parseVoid(self: LowerZon, node: Ast.Node.Index) !InternPool.Index {
     return self.fail(.{ .node_abs = node }, "expected void", .{});
 }
 
-fn parseBool(self: LowerZon, node: Ast.Node.Index) !InternPool.Index {
+fn lowerBool(self: LowerZon, node: Ast.Node.Index) !InternPool.Index {
     const gpa = self.sema.gpa;
     const tags = self.file.tree.nodes.items(.tag);
     const main_tokens = self.file.tree.nodes.items(.main_token);
@@ -545,7 +307,7 @@ fn parseBool(self: LowerZon, node: Ast.Node.Index) !InternPool.Index {
     return self.fail(.{ .node_abs = node }, "expected bool", .{});
 }
 
-fn parseInt(
+fn lowerInt(
     self: LowerZon,
     node: Ast.Node.Index,
     res_ty: Type,
@@ -744,7 +506,7 @@ fn parseInt(
     }
 }
 
-fn parseFloat(
+fn lowerFloat(
     self: LowerZon,
     node: Ast.Node.Index,
     res_ty: Type,
@@ -862,7 +624,7 @@ fn parseFloat(
     }
 }
 
-fn parseOptional(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
+fn lowerOptional(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
     const tags = self.file.tree.nodes.items(.tag);
     const main_tokens = self.file.tree.nodes.items(.main_token);
 
@@ -874,11 +636,11 @@ fn parseOptional(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool
 
     return self.sema.pt.intern(.{ .opt = .{
         .ty = res_ty.toIntern(),
-        .val = try self.parseExpr(node, res_ty.optionalChild(self.sema.pt.zcu)),
+        .val = try self.lowerExpr(node, res_ty.optionalChild(self.sema.pt.zcu)),
     } });
 }
 
-fn parseNull(self: LowerZon, node: Ast.Node.Index) !InternPool.Index {
+fn lowerNull(self: LowerZon, node: Ast.Node.Index) !InternPool.Index {
     const tags = self.file.tree.nodes.items(.tag);
     const main_tokens = self.file.tree.nodes.items(.main_token);
 
@@ -891,7 +653,7 @@ fn parseNull(self: LowerZon, node: Ast.Node.Index) !InternPool.Index {
     return self.fail(.{ .node_abs = node }, "invalid ZON value", .{});
 }
 
-fn parseArray(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
+fn lowerArray(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
     const gpa = self.sema.gpa;
 
     const array_info = res_ty.arrayInfo(self.sema.pt.zcu);
@@ -906,7 +668,7 @@ fn parseArray(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.In
     defer gpa.free(elems);
 
     for (elem_nodes, 0..) |elem_node, i| {
-        elems[i] = try self.parseExpr(elem_node, array_info.elem_type);
+        elems[i] = try self.lowerExpr(elem_node, array_info.elem_type);
     }
 
     if (array_info.sentinel) |sentinel| {
@@ -919,7 +681,7 @@ fn parseArray(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.In
     } });
 }
 
-fn parseEnum(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
+fn lowerEnum(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
     const main_tokens = self.file.tree.nodes.items(.main_token);
     const tags = self.file.tree.nodes.items(.tag);
     const ip = &self.sema.pt.zcu.intern_pool;
@@ -941,7 +703,7 @@ fn parseEnum(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Ind
     return value.toIntern();
 }
 
-fn parseEnumLiteral(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
+fn lowerEnumLiteral(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
     const main_tokens = self.file.tree.nodes.items(.main_token);
     const tags = self.file.tree.nodes.items(.tag);
     const ip = &self.sema.pt.zcu.intern_pool;
@@ -956,16 +718,16 @@ fn parseEnumLiteral(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternP
     });
 }
 
-fn parseStructOrTuple(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
+fn lowerStructOrTuple(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
     const ip = &self.sema.pt.zcu.intern_pool;
     return switch (ip.indexToKey(res_ty.toIntern())) {
-        .tuple_type => self.parseTuple(node, res_ty),
-        .struct_type => self.parseStruct(node, res_ty),
+        .tuple_type => self.lowerTuple(node, res_ty),
+        .struct_type => self.lowerStruct(node, res_ty),
         else => self.fail(.{ .node_abs = node }, "expected {}", .{res_ty.fmt(self.sema.pt)}),
     };
 }
 
-fn parseTuple(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
+fn lowerTuple(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
     const ip = &self.sema.pt.zcu.intern_pool;
     const gpa = self.sema.gpa;
 
@@ -988,7 +750,7 @@ fn parseTuple(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.In
     defer gpa.free(elems);
 
     for (elems, elem_nodes, field_types) |*elem, elem_node, field_type| {
-        elem.* = try self.parseExpr(elem_node, Type.fromInterned(field_type));
+        elem.* = try self.lowerExpr(elem_node, Type.fromInterned(field_type));
     }
 
     return self.sema.pt.intern(.{ .aggregate = .{
@@ -997,7 +759,7 @@ fn parseTuple(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.In
     } });
 }
 
-fn parseStruct(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
+fn lowerStruct(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
     const ip = &self.sema.pt.zcu.intern_pool;
     const gpa = self.sema.gpa;
 
@@ -1035,7 +797,7 @@ fn parseStruct(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.I
                 .{field_name.fmt(ip)},
             );
         }
-        field_values[name_index] = try self.parseExpr(field_node, field_type);
+        field_values[name_index] = try self.lowerExpr(field_node, field_type);
     }
 
     const field_names = struct_info.field_names.get(ip);
@@ -1052,7 +814,7 @@ fn parseStruct(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.I
     } } });
 }
 
-fn parsePointer(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
+fn lowerPointer(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
     const tags = self.file.tree.nodes.items(.tag);
 
     const ptr_info = res_ty.ptrInfo(self.sema.pt.zcu);
@@ -1069,7 +831,7 @@ fn parsePointer(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.
     const string_sentinel = ptr_info.sentinel == .none or ptr_info.sentinel == .zero_u8;
     if (string_alignment and ptr_info.child == .u8_type and string_sentinel) {
         if (tags[node] == .string_literal or tags[node] == .multiline_string_literal) {
-            return self.parseStringLiteral(node, res_ty);
+            return self.lowerStringLiteral(node, res_ty);
         }
     }
 
@@ -1079,7 +841,7 @@ fn parsePointer(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.
     @panic("unimplemented");
 }
 
-fn parseStringLiteral(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
+fn lowerStringLiteral(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
     const gpa = self.sema.gpa;
     const ip = &self.sema.pt.zcu.intern_pool;
     const main_tokens = self.file.tree.nodes.items(.main_token);
@@ -1137,7 +899,7 @@ fn parseStringLiteral(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !Inter
     } });
 }
 
-fn parseUnion(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
+fn lowerUnion(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
     const tags = self.file.tree.nodes.items(.tag);
     const ip = &self.sema.pt.zcu.intern_pool;
     const main_tokens = self.file.tree.nodes.items(.main_token);
@@ -1180,7 +942,7 @@ fn parseUnion(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.In
     } });
     const field_type = Type.fromInterned(union_info.field_types.get(ip)[name_index]);
     const val = if (maybe_field_node) |field_node| b: {
-        break :b try self.parseExpr(field_node, field_type);
+        break :b try self.lowerExpr(field_node, field_type);
     } else b: {
         if (field_type.toIntern() != .void_type) {
             return self.fail(.{ .node_abs = node }, "expected {}", .{field_type.fmt(self.sema.pt)});
