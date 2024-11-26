@@ -9103,16 +9103,16 @@ fn zirEnumFromInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
             const dest_int_info = dest_tag_ty.intInfo(zcu);
             var ok: ?Air.Inst.Ref = null;
             if (operand_int_info.bits > dest_int_info.bits) {
-                // narrowing cast; operand <= dest_max_int required, and operand >= 0 may be
-                // required if operand is signed and destination int is unsigned
+                // narrowing cast; operand <= dest_max_int required, and operand >= dest_min_int may be
+                // required if operand is signed
                 const dest_max_int = Air.internedToRef((try dest_tag_ty.maxIntScalar(pt, operand_ty)).toIntern());
                 // operand <= maxInt(dest_tag_ty)
                 const le_check = try block.addBinOp(.cmp_lte, operand, dest_max_int);
                 if (operand_int_info.signedness == .signed) {
                     const dest_min_int = Air.internedToRef((try dest_tag_ty.minIntScalar(pt, operand_ty)).toIntern());
-                    const ge_zero_check = try block.addBinOp(.cmp_gte, operand, dest_min_int);
+                    const ge_check = try block.addBinOp(.cmp_gte, operand, dest_min_int);
                     // operand >= minInt(dest_tag_ty) and operand <= maxInt(dest_tag_ty)
-                    ok = try block.addBinOp(.bool_and, le_check, ge_zero_check);
+                    ok = try block.addBinOp(.bool_and, le_check, ge_check);
                 } else {
                     ok = le_check;
                 }
