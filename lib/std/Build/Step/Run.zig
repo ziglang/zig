@@ -1137,7 +1137,7 @@ fn runCommand(
             };
         }
 
-        return step.fail("unable to spawn {s}: {s}", .{ argv[0], @errorName(err) });
+        return step.fail("failed to spawn and capture stdio from {s}: {s}", .{ argv[0], @errorName(err) });
     };
 
     step.result_duration_ns = result.elapsed_ns;

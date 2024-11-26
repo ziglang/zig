@@ -4772,7 +4772,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Pr
                 child.stderr_behavior = .Inherit;
 
                 const term = child.spawnAndWait() catch |err| {
-                    return comp.failCObj(c_object, "unable to spawn {s}: {s}", .{ argv.items[0], @errorName(err) });
+                    return comp.failCObj(c_object, "failed to spawn zig clang (passthrough mode) {s}: {s}", .{ argv.items[0], @errorName(err) });
                 };
                 switch (term) {
                     .Exited => |code| {
@@ -4794,7 +4794,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Pr
                 const stderr = try child.stderr.?.reader().readAllAlloc(arena, std.math.maxInt(usize));
 
                 const term = child.wait() catch |err| {
-                    return comp.failCObj(c_object, "unable to spawn {s}: {s}", .{ argv.items[0], @errorName(err) });
+                    return comp.failCObj(c_object, "failed to spawn zig clang {s}: {s}", .{ argv.items[0], @errorName(err) });
                 };
 
                 switch (term) {
