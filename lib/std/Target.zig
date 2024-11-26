@@ -531,7 +531,7 @@ pub const Os = struct {
                 },
                 .macos => .{
                     .semver = .{
-                        .min = .{ .major = 11, .minor = 7, .patch = 1 },
+                        .min = .{ .major = 13, .minor = 0, .patch = 0 },
                         .max = .{ .major = 15, .minor = 2, .patch = 0 },
                     },
                 },
