@@ -1,5 +1,5 @@
 pub fn main() void {
-    const f: i32 = @import("zon/unknown_ident.zon");
+    const f: struct { value: bool } = @import("zon/unknown_ident.zon");
     _ = f;
 }
 
@@ -8,4 +8,5 @@ pub fn main() void {
 // output_mode=Exe
 // imports=zon/unknown_ident.zon
 //
-// unknown_ident.zon:2:14: error: use of unknown identifier 'truefalse'
+// unknown_ident.zon:2:14: error: expected bool
+// tmp.zig:2:47: note: imported here

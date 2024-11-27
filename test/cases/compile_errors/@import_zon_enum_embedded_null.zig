@@ -1,6 +1,7 @@
 const std = @import("std");
 pub fn main() void {
-    const f = @import("zon/enum_embedded_null.zon");
+    const E = enum { foo };
+    const f: struct { E, E } = @import("zon/enum_embedded_null.zon");
     _ = f;
 }
 
@@ -10,3 +11,4 @@ pub fn main() void {
 // imports=zon/enum_embedded_null.zon
 //
 // enum_embedded_null.zon:2:6: error: identifier cannot contain null bytes
+// tmp.zig:4:40: note: imported here

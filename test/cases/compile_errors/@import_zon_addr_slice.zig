@@ -1,5 +1,5 @@
 pub fn main() void {
-    const f: i32 = @import("zon/addr_slice.zon");
+    const f: struct { value: []const i32 } = @import("zon/addr_slice.zon");
     _ = f;
 }
 

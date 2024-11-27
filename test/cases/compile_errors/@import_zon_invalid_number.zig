@@ -1,5 +1,5 @@
 pub fn main() void {
-    const f = @import("zon/invalid_number.zon");
+    const f: u128 = @import("zon/invalid_number.zon");
     _ = f;
 }
 

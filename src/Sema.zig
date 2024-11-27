@@ -13987,6 +13987,7 @@ fn zirImport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
                 result.file,
                 result.file_index,
                 res_ty,
+                operand_src,
             );
             return Air.internedToRef(interned);
         },

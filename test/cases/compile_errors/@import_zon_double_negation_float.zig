@@ -9,3 +9,4 @@ pub fn main() void {
 // imports=zon/double_negation_float.zon
 //
 // double_negation_float.zon:1:2: error: invalid ZON value
+// tmp.zig:2:28: note: imported here

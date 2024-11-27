@@ -8,4 +8,5 @@ pub fn main() void {
 // output_mode=Exe
 // imports=zon/large_number.zon
 //
-// 2:20: error: type 'i66' cannot represent integer value '36893488147419103232'
+// large_number.zon:1:1: error: type 'i66' cannot represent integer value '36893488147419103232'
+// tmp.zig:2:28: note: imported here

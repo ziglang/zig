@@ -1,5 +1,5 @@
 pub fn main() void {
-    const f = @import("zon/leading_zero_in_integer.zon");
+    const f: u128 = @import("zon/leading_zero_in_integer.zon");
     _ = f;
 }
 

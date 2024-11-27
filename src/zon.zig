@@ -21,6 +21,7 @@ const LowerZon = @This();
 sema: *Sema,
 file: *File,
 file_index: Zcu.File.Index,
+import_loc: LazySrcLoc,
 
 /// Lowers the given file as ZON.
 pub fn lower(
@@ -28,11 +29,13 @@ pub fn lower(
     file: *File,
     file_index: Zcu.File.Index,
     res_ty: Type,
+    import_loc: LazySrcLoc,
 ) CompileError!InternPool.Index {
     const lower_zon: LowerZon = .{
         .sema = sema,
         .file = file,
         .file_index = file_index,
+        .import_loc = import_loc,
     };
     const tree = lower_zon.file.getTree(lower_zon.sema.gpa) catch unreachable; // Already validated
     if (tree.errors.len != 0) {
@@ -64,6 +67,7 @@ fn fail(
     @branchHint(.cold);
     const src_loc = try self.lazySrcLoc(loc);
     const err_msg = try Zcu.ErrorMsg.create(self.sema.pt.zcu.gpa, src_loc, format, args);
+    try self.sema.pt.zcu.errNote(self.import_loc, err_msg, "imported here", .{});
     try self.sema.pt.zcu.failed_files.putNoClobber(self.sema.pt.zcu.gpa, self.file, err_msg);
     return error.AnalysisFail;
 }
@@ -502,7 +506,7 @@ fn lowerInt(
         .identifier => {
             unreachable; // Decide what error to give here
         },
-        else => return self.fail(.{ .node_abs = num_lit_node }, "invalid ZON value", .{}),
+        else => return self.fail(.{ .node_abs = num_lit_node }, "expected integer", .{}),
     }
 }
 
