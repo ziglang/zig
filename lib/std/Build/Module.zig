@@ -21,7 +21,7 @@ rpaths: std.ArrayListUnmanaged(RPath),
 frameworks: std.StringArrayHashMapUnmanaged(LinkFrameworkOptions),
 link_objects: std.ArrayListUnmanaged(LinkObject),
 
-strip: ?bool,
+strip: ?std.builtin.Strip,
 unwind_tables: ?std.builtin.UnwindTables,
 single_threaded: ?bool,
 stack_protector: ?bool,
@@ -217,7 +217,7 @@ pub const CreateOptions = struct {
     /// `null` neither requires nor prevents libc++ from being linked.
     link_libcpp: ?bool = null,
     single_threaded: ?bool = null,
-    strip: ?bool = null,
+    strip: ?std.builtin.Strip = null,
     unwind_tables: ?std.builtin.UnwindTables = null,
     dwarf_format: ?std.dwarf.Format = null,
     code_model: std.builtin.CodeModel = .default,
@@ -674,7 +674,6 @@ pub fn appendZigProcessFlags(
 ) !void {
     const b = m.owner;
 
-    try addFlag(zig_args, m.strip, "-fstrip", "-fno-strip");
     try addFlag(zig_args, m.single_threaded, "-fsingle-threaded", "-fno-single-threaded");
     try addFlag(zig_args, m.stack_check, "-fstack-check", "-fno-stack-check");
     try addFlag(zig_args, m.stack_protector, "-fstack-protector", "-fno-stack-protector");
@@ -686,6 +685,14 @@ pub fn appendZigProcessFlags(
     try addFlag(zig_args, m.valgrind, "-fvalgrind", "-fno-valgrind");
     try addFlag(zig_args, m.pic, "-fPIC", "-fno-PIC");
     try addFlag(zig_args, m.red_zone, "-mred-zone", "-mno-red-zone");
+
+    if (m.strip) |strip| {
+        try zig_args.append(switch (strip) {
+            .none => "-fstrip=none",
+            .debuginfo => "-fstrip=debuginfo",
+            .all => "-fstrip=all",
+        });
+    }
 
     if (m.dwarf_format) |dwarf_format| {
         try zig_args.append(switch (dwarf_format) {

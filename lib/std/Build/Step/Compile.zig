@@ -655,7 +655,7 @@ pub fn producesPdbFile(compile: *Compile) bool {
         else => return false,
     }
     if (target.ofmt == .c) return false;
-    if (compile.root_module.strip == true or
+    if (compile.root_module.strip == .all or
         (compile.root_module.strip == null and compile.root_module.optimize == .ReleaseSmall))
     {
         return false;

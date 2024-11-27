@@ -19,7 +19,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize_mode: std.builtin.Opt
             .root_source_file = b.path("lib.zig"),
             .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
             .optimize = optimize_mode,
-            .strip = false,
+            .strip = .none,
         });
         lib.entry = .disabled;
         lib.use_llvm = false;
@@ -67,7 +67,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize_mode: std.builtin.Opt
             .root_source_file = b.path("lib2.zig"),
             .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
             .optimize = optimize_mode,
-            .strip = false,
+            .strip = .none,
         });
         lib.entry = .disabled;
         lib.use_llvm = false;

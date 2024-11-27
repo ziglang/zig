@@ -172,13 +172,13 @@ pub fn build(b: *std.Build) !void {
     const force_gpa = b.option(bool, "force-gpa", "Force the compiler to use GeneralPurposeAllocator") orelse false;
     const link_libc = b.option(bool, "force-link-libc", "Force self-hosted compiler to link libc") orelse (enable_llvm or only_c);
     const sanitize_thread = b.option(bool, "sanitize-thread", "Enable thread-sanitization") orelse false;
-    const strip = b.option(bool, "strip", "Omit debug information");
+    const strip = b.option(std.builtin.Strip, "strip", "Omit debug information");
     const valgrind = b.option(bool, "valgrind", "Enable valgrind integration");
     const pie = b.option(bool, "pie", "Produce a Position Independent Executable");
     const value_tracing = b.option(bool, "value-tracing", "Enable extra state tracking to help troubleshoot bugs in the compiler (using the std.debug.Trace API)") orelse false;
 
     const mem_leak_frames: u32 = b.option(u32, "mem-leak-frames", "How many stack frames to print when a memory leak occurs. Tests get 2x this amount.") orelse blk: {
-        if (strip == true) break :blk @as(u32, 0);
+        if (strip == .all) break :blk @as(u32, 0);
         if (optimize != .Debug) break :blk 0;
         break :blk 4;
     };
@@ -630,7 +630,7 @@ fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
 const AddCompilerStepOptions = struct {
     optimize: std.builtin.OptimizeMode,
     target: std.Build.ResolvedTarget,
-    strip: ?bool = null,
+    strip: ?std.builtin.Strip = null,
     valgrind: ?bool = null,
     sanitize_thread: ?bool = null,
     single_threaded: ?bool = null,

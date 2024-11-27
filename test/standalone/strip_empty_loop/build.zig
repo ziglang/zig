@@ -12,7 +12,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("main.zig"),
         .optimize = optimize,
         .target = target,
-        .strip = true,
+        .strip = .all,
     });
 
     // TODO: actually check the output

@@ -2422,7 +2422,7 @@ fn addTest(
         .link_libc = target.link_libc,
         .single_threaded = target.single_threaded,
         .pic = target.pic,
-        .strip = false,
+        .strip = .none,
         .use_llvm = false,
         .use_lld = false,
     });
