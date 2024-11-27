@@ -53,6 +53,14 @@ pub fn hashString(s: []const u8) u32 {
     return @as(u32, @truncate(std.hash.Wyhash.hash(0, s)));
 }
 
+/// Deprecated in favor of `ArrayHashMapWithAllocator` (no code changes needed)
+/// or `ArrayHashMapUnmanaged` (will need to update callsites to pass an
+/// allocator). After Zig 0.14.0 is released, `ArrayHashMapWithAllocator` will
+/// be removed and `ArrayHashMapUnmanaged` will be a deprecated alias. After
+/// Zig 0.15.0 is released, the deprecated alias `ArrayHashMapUnmanaged` will
+/// be removed.
+pub const ArrayHashMap = ArrayHashMapWithAllocator;
+
 /// A hash table of keys and values, each stored sequentially.
 ///
 /// Insertion order is preserved. In general, this data structure supports the same
@@ -67,7 +75,7 @@ pub fn hashString(s: []const u8) u32 {
 ///
 /// See `ArrayHashMapUnmanaged` for a variant of this data structure that accepts an
 /// `Allocator` as a parameter when needed rather than storing it.
-pub fn ArrayHashMap(
+pub fn ArrayHashMapWithAllocator(
     comptime K: type,
     comptime V: type,
     /// A namespace that provides these two functions:
