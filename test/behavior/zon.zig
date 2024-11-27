@@ -138,51 +138,50 @@ test "arrays" {
 }
 
 test "slices, arrays, tuples" {
-    return error.SkipZigTest;
-    // {
-    //     const expected_slice: []const u8 = &.{};
-    //     const found_slice: []const u8 = @import("zon/slice-empty.zon");
-    //     try expectEqualSlices(u8, expected_slice, found_slice);
+    {
+        const expected_slice: []const u8 = &.{};
+        const found_slice: []const u8 = @import("zon/slice-empty.zon");
+        try expectEqualSlices(u8, expected_slice, found_slice);
 
-    //     const expected_array: [0]u8 = .{};
-    //     const found_array: [0]u8 = @import("zon/slice-empty.zon");
-    //     try expectEqual(expected_array, found_array);
+        const expected_array: [0]u8 = .{};
+        const found_array: [0]u8 = @import("zon/slice-empty.zon");
+        try expectEqual(expected_array, found_array);
 
-    //     const T = struct {};
-    //     const expected_tuple: T = .{};
-    //     const found_tuple: T = @import("zon/slice-empty.zon");
-    //     try expectEqual(expected_tuple, found_tuple);
-    // }
+        const T = struct {};
+        const expected_tuple: T = .{};
+        const found_tuple: T = @import("zon/slice-empty.zon");
+        try expectEqual(expected_tuple, found_tuple);
+    }
 
-    // {
-    //     const expected_slice: []const u8 = &.{1};
-    //     const found_slice: []const u8 = @import("zon/slice-1.zon");
-    //     try expectEqualSlices(u8, expected_slice, found_slice);
+    {
+        const expected_slice: []const u8 = &.{1};
+        const found_slice: []const u8 = @import("zon/slice-1.zon");
+        try expectEqualSlices(u8, expected_slice, found_slice);
 
-    //     const expected_array: [1]u8 = .{1};
-    //     const found_array: [1]u8 = @import("zon/slice-1.zon");
-    //     try expectEqual(expected_array, found_array);
+        const expected_array: [1]u8 = .{1};
+        const found_array: [1]u8 = @import("zon/slice-1.zon");
+        try expectEqual(expected_array, found_array);
 
-    //     const T = struct { u8 };
-    //     const expected_tuple: T = .{1};
-    //     const found_tuple: T = @import("zon/slice-1.zon");
-    //     try expectEqual(expected_tuple, found_tuple);
-    // }
+        const T = struct { u8 };
+        const expected_tuple: T = .{1};
+        const found_tuple: T = @import("zon/slice-1.zon");
+        try expectEqual(expected_tuple, found_tuple);
+    }
 
-    // {
-    //     const expected_slice: []const u8 = &.{ 'a', 'b', 'c' };
-    //     const found_slice: []const u8 = @import("zon/slice-abc.zon");
-    //     try expectEqualSlices(u8, expected_slice, found_slice);
+    {
+        const expected_slice: []const u8 = &.{ 'a', 'b', 'c' };
+        const found_slice: []const u8 = @import("zon/slice-abc.zon");
+        try expectEqualSlices(u8, expected_slice, found_slice);
 
-    //     const expected_array: [3]u8 = .{ 'a', 'b', 'c' };
-    //     const found_array: [3]u8 = @import("zon/slice-abc.zon");
-    //     try expectEqual(expected_array, found_array);
+        const expected_array: [3]u8 = .{ 'a', 'b', 'c' };
+        const found_array: [3]u8 = @import("zon/slice-abc.zon");
+        try expectEqual(expected_array, found_array);
 
-    //     const T = struct { u8, u8, u8 };
-    //     const expected_tuple: T = .{ 'a', 'b', 'c' };
-    //     const found_tuple: T = @import("zon/slice-abc.zon");
-    //     try expectEqual(expected_tuple, found_tuple);
-    // }
+        const T = struct { u8, u8, u8 };
+        const expected_tuple: T = .{ 'a', 'b', 'c' };
+        const found_tuple: T = @import("zon/slice-abc.zon");
+        try expectEqual(expected_tuple, found_tuple);
+    }
 }
 
 test "string literals" {

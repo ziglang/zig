@@ -664,7 +664,7 @@ fn lowerArray(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.In
         return self.fail(.{ .node_abs = node }, "expected {}", .{res_ty.fmt(self.sema.pt)});
     }
 
-    const elems = try gpa.alloc(InternPool.Index, array_info.len + @intFromBool(array_info.sentinel != null));
+    const elems = try gpa.alloc(InternPool.Index, elem_nodes.len + @intFromBool(array_info.sentinel != null));
     defer gpa.free(elems);
 
     for (elem_nodes, 0..) |elem_node, i| {
@@ -816,6 +816,8 @@ fn lowerStruct(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.I
 
 fn lowerPointer(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
     const tags = self.file.tree.nodes.items(.tag);
+    const ip = &self.sema.pt.zcu.intern_pool;
+    const gpa = self.sema.gpa;
 
     const ptr_info = res_ty.ptrInfo(self.sema.pt.zcu);
 
@@ -827,6 +829,7 @@ fn lowerPointer(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.
         );
     }
 
+    // String literals
     const string_alignment = ptr_info.flags.alignment == .none or ptr_info.flags.alignment == .@"1";
     const string_sentinel = ptr_info.sentinel == .none or ptr_info.sentinel == .zero_u8;
     if (string_alignment and ptr_info.child == .u8_type and string_sentinel) {
@@ -835,10 +838,63 @@ fn lowerPointer(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.
         }
     }
 
-    var buf: [2]Ast.Node.Index = undefined;
+    // Slice literals
+    var buf: [2]NodeIndex = undefined;
     const elem_nodes = try self.elements(res_ty, &buf, node);
-    _ = elem_nodes;
-    @panic("unimplemented");
+
+    const elems = try gpa.alloc(InternPool.Index, elem_nodes.len + @intFromBool(ptr_info.sentinel != .none));
+    defer gpa.free(elems);
+
+    for (elem_nodes, 0..) |elem_node, i| {
+        elems[i] = try self.lowerExpr(elem_node, Type.fromInterned(ptr_info.child));
+    }
+
+    if (ptr_info.sentinel != .none) {
+        elems[elems.len - 1] = ptr_info.sentinel;
+    }
+
+    const array_ty = try self.sema.pt.intern(.{ .array_type = .{
+        .len = elems.len,
+        .sentinel = ptr_info.sentinel,
+        .child = ptr_info.child,
+    } });
+
+    const array = try self.sema.pt.intern(.{ .aggregate = .{
+        .ty = array_ty,
+        .storage = .{ .elems = elems },
+    } });
+
+    const many_item_ptr_type = try ip.get(gpa, self.sema.pt.tid, .{ .ptr_type = .{
+        .child = ptr_info.child,
+        .sentinel = ptr_info.sentinel,
+        .flags = b: {
+            var flags = ptr_info.flags;
+            flags.size = .Many;
+            break :b flags;
+        },
+        .packed_offset = ptr_info.packed_offset,
+    } });
+
+    const many_item_ptr = try ip.get(gpa, self.sema.pt.tid, .{
+        .ptr = .{
+            .ty = many_item_ptr_type,
+            .base_addr = .{
+                .uav = .{
+                    .orig_ty = res_ty.toIntern(),
+                    .val = array,
+                },
+            },
+            .byte_offset = 0,
+        },
+    });
+
+    const len = (try self.sema.pt.intValue(Type.usize, elems.len)).toIntern();
+
+    return ip.get(gpa, self.sema.pt.tid, .{ .slice = .{
+        .ty = res_ty.toIntern(),
+        .ptr = many_item_ptr,
+        .len = len,
+    } });
 }
 
 fn lowerStringLiteral(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
