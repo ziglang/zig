@@ -465,7 +465,7 @@ const WasmImpl = struct {
             @compileError("WASI target missing cpu feature 'atomics'");
         }
         const to: i64 = if (timeout) |to| @intCast(to) else -1;
-        const result = asm (
+        const result = asm volatile (
             \\local.get %[ptr]
             \\local.get %[expected]
             \\local.get %[timeout]
@@ -489,7 +489,7 @@ const WasmImpl = struct {
             @compileError("WASI target missing cpu feature 'atomics'");
         }
         assert(max_waiters != 0);
-        const woken_count = asm (
+        const woken_count = asm volatile (
             \\local.get %[ptr]
             \\local.get %[waiters]
             \\memory.atomic.notify 0
