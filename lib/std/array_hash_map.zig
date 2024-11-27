@@ -621,15 +621,19 @@ pub fn ArrayHashMapUnmanaged(
 
         pub fn init(allocator: Allocator, key_list: []const K, value_list: []const V) !Self {
             var self: Self = .{};
+            errdefer self.deinit(allocator);
+            try self.reinit(allocator, key_list, value_list);
+            return self;
+        }
+
+        pub fn reinit(self: *Self, allocator: Allocator, key_list: []const K, value_list: []const V) !void {
             try self.entries.resize(allocator, key_list.len);
-            errdefer self.entries.deinit(allocator);
             @memcpy(self.keys(), key_list);
             if (@sizeOf(V) != 0) {
                 assert(key_list.len == value_list.len);
                 @memcpy(self.values(), value_list);
             }
             try self.reIndex(allocator);
-            return self;
         }
 
         /// Frees the backing allocation and leaves the map in an undefined state.
