@@ -162,7 +162,7 @@ pub extern "kernel32" fn SetFileCompletionNotificationModes(
 // TODO: `RtlGetCurrentDirectory_U(nBufferLength * 2, lpBuffer)`
 pub extern "kernel32" fn GetCurrentDirectoryW(
     nBufferLength: DWORD,
-    lpBuffer: ?[*]WCHAR,
+    lpBuffer: ?LPWSTR,
 ) callconv(.winapi) DWORD;
 
 // TODO: RtlDosPathNameToNtPathNameU_WithStatus + NtQueryAttributesFile.
@@ -350,7 +350,7 @@ pub extern "kernel32" fn FreeEnvironmentStringsW(
 // TODO: Wrapper around RtlQueryEnvironmentVariable.
 pub extern "kernel32" fn GetEnvironmentVariableW(
     lpName: ?LPCWSTR,
-    lpBuffer: ?[*]WCHAR,
+    lpBuffer: ?LPWSTR,
     nSize: DWORD,
 ) callconv(.winapi) DWORD;
 
@@ -596,7 +596,7 @@ pub extern "kernel32" fn GetProcessHeap() callconv(.winapi) ?HANDLE;
 // TODO: Wrapper around LdrGetDllFullName.
 pub extern "kernel32" fn GetModuleFileNameW(
     hModule: ?HMODULE,
-    lpFilename: [*]WCHAR,
+    lpFilename: LPWSTR,
     nSize: DWORD,
 ) callconv(.winapi) DWORD;
 
