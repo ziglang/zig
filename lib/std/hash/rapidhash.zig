@@ -1,9 +1,5 @@
 const std = @import("std");
 
-const rhc = @cImport({
-    @cInclude("rapidhash.h");
-});
-
 const readInt = std.mem.readInt;
 const assert = std.debug.assert;
 const expect = std.testing.expect;
@@ -41,25 +37,10 @@ test "RapidHash.hash" {
 
     var success: bool = true;
     for (sizes, outcomes) |s, e| {
-        const r = RapidHash.hash(bytes[0..s]);
+        const r = RapidHash.hash(RAPID_SEED, bytes[0..s]);
 
         expectEqual(e, r) catch |err| {
             std.debug.print("Failed on {d}: {!}\n", .{ s, err });
-            success = false;
-        };
-    }
-    try expect(success);
-}
-
-test "RapidHash compare" {
-    const bytes: []const u8 = "a@3F23asdfiojasdfpoij23" ** 128;
-
-    var success: bool = true;
-    for (0..49) |i| {
-        const rh_c = rhc.rapidhash(bytes[0..i].ptr, i);
-        const rh_h = RapidHash.hash(bytes[0..i]);
-
-        expectEqual(rh_c, rh_h) catch {
             success = false;
         };
     }
@@ -145,51 +126,3 @@ inline fn rapidhash_internal(key: []const u8, len: usize, seed: u64, sc: []const
     mum(&a, &b);
     return mix(a ^ sc[0] ^ len, b ^ sc[1]);
 }
-
-test "rapidhash_internal" {
-    const bytes: []const u8 = "abcdefgh" ** 128;
-
-    const sizes: [13]u64 = .{ 0, 1, 2, 3, 4, 8, 16, 32, 64, 128, 256, 512, 1024 };
-    const outcomes: [13]u64 = .{
-        0x5a6ef77074ebc84b,
-        0xc11328477bc0f5d1,
-        0x5644ac035e40d569,
-        0x347080fbf5fcd81,
-        0x56b66b8dc802bcc,
-        0xb6bf9055973aac7c,
-        0xed56d62eead1e402,
-        0xc19072d767da8ffb,
-        0x89bb40a9928a4f0d,
-        0xe0af7c5e7b6e29fd,
-        0x9a3ed35fbedfa11a,
-        0x4c684b2119ca19fb,
-        0x4b575f5bf25600d6,
-    };
-
-    var success: bool = true;
-    for (sizes, outcomes) |s, e| {
-        const r = rapidhash_internal(bytes, s, RAPID_SEED, &RAPID_SECRET);
-
-        expectEqual(e, r) catch {
-            std.debug.print("{}: {x}:{x}\n", .{ s, e, r });
-            success = false;
-        };
-    }
-    try expect(success);
-}
-
-pub fn rapidhash_with_seed(key: []const u8, len: usize, seed: u64) u64 {
-    return rapidhash_internal(key, len, seed, &RAPID_SECRET);
-}
-
-pub fn rapidhash(key: []const u8, len: usize) u64 {
-    return rapidhash_with_seed(key, len, RAPID_SEED);
-}
-
-fn aarch64_ticks() u64 {
-    return asm volatile ("mrs %[ret], CNTVCT_EL0"
-        : [ret] "=r" (-> u64),
-    );
-}
-
-const tick = aarch64_ticks;
