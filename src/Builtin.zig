@@ -250,6 +250,7 @@ pub fn populateFile(comp: *Compilation, mod: *Module, file: *File) !void {
         error.BadPathName => unreachable, // it's always "builtin.zig"
         error.NameTooLong => unreachable, // it's always "builtin.zig"
         error.PipeBusy => unreachable, // it's not a pipe
+        error.NoDevice => unreachable, // it's not a pipe
         error.WouldBlock => unreachable, // not asking for non-blocking I/O
 
         error.FileNotFound => try writeFile(file, mod),

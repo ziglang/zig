@@ -743,6 +743,7 @@ fn spawnWindows(self: *ChildProcess) SpawnError!void {
         }) catch |err| switch (err) {
             error.PathAlreadyExists => return error.Unexpected, // not possible for "NUL"
             error.PipeBusy => return error.Unexpected, // not possible for "NUL"
+            error.NoDevice => return error.Unexpected, // not possible for "NUL"
             error.FileNotFound => return error.Unexpected, // not possible for "NUL"
             error.AccessDenied => return error.Unexpected, // not possible for "NUL"
             error.NameTooLong => return error.Unexpected, // not possible for "NUL"
