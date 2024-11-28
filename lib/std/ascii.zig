@@ -135,10 +135,10 @@ pub fn isPrint(c: u8) bool {
 
 /// Returns whether this character is included in `whitespace`.
 pub fn isWhitespace(c: u8) bool {
-    return for (whitespace) |other| {
-        if (c == other)
-            break true;
-    } else false;
+    return switch (c) {
+        ' ', '\t', '\n', '\r', control_code.vt, control_code.ff => true,
+        else => false,
+    };
 }
 
 /// Whitespace for general use.
