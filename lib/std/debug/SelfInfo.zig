@@ -856,7 +856,7 @@ pub const Module = switch (native_os) {
 
                 const mapped_mem = try mapWholeFile(elf_file);
 
-                load_dwarf: {
+                const load_dwarf_error = load_dwarf: {
                     var sections: Dwarf.SectionArray = Dwarf.null_section_array;
                     if (gnu_eh_frame) |eh_frame_hdr| {
                         // This is a special case - pointer offsets inside .eh_frame_hdr
@@ -877,11 +877,11 @@ pub const Module = switch (native_os) {
                         &sections,
                         parent_mapped_mem,
                         elf_filename,
-                    ) catch {
-                        break :load_dwarf;
+                    ) catch |err| {
+                        break :load_dwarf err;
                     };
                     return @This(){ .dwarf = dwarf_info };
-                }
+                };
 
                 load_symtab: {
                     const symtab = ElfSymTab.load(
@@ -896,7 +896,7 @@ pub const Module = switch (native_os) {
                     return @This(){ .symtab = symtab };
                 }
 
-                return error.MissingDebugInfo;
+                return load_dwarf_error;
             }
         }
 
