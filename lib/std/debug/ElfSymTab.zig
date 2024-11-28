@@ -11,6 +11,8 @@ sections: SectionArray,
 /// Populated by `scanAllSymbols`.
 symbol_list: std.ArrayListUnmanaged(Symbol) = .empty,
 
+eh_frame_hdr: ?Dwarf.ExceptionFrameHeader = null,
+
 pub const Symbol = struct {
     name: []const u8,
     start: u64,
@@ -86,6 +88,7 @@ pub fn load(
     gpa: Allocator,
     mapped_mem: []align(std.heap.page_size_min) const u8,
     expected_crc: ?u32,
+    gnu_eh_frame: ?[]const u8,
 ) LoadError!ElfSymTab {
     if (expected_crc) |crc| if (crc != std.hash.crc.Crc32.hash(mapped_mem)) return error.InvalidDebugInfo;
 
@@ -111,6 +114,18 @@ pub fn load(
     )[0..hdr.e_shnum];
 
     var sections: ElfSymTab.SectionArray = ElfSymTab.null_section_array;
+
+    if (gnu_eh_frame) |eh_frame_hdr| {
+        // This is a special case - pointer offsets inside .eh_frame_hdr
+        // are encoded relative to its base address, so we must use the
+        // version that is already memory mapped, and not the one that
+        // will be mapped separately from the ELF file.
+        sections[@intFromEnum(Section.Id.eh_frame_hdr)] = .{
+            .entry_size = undefined,
+            .data = eh_frame_hdr,
+            .owned = false,
+        };
+    }
 
     for (shdrs) |*shdr| {
         if (shdr.sh_type == elf.SHT_NULL or shdr.sh_type == elf.SHT_NOBITS) continue;
@@ -196,6 +211,8 @@ pub const Section = struct {
     pub const Id = enum {
         strtab,
         symtab,
+        eh_frame_hdr,
+        eh_frame,
     };
 
     // For sections that are not memory mapped by the loader, this is an offset
@@ -228,6 +245,43 @@ pub fn getSymbolAtAddress(self: *@This(), allocator: Allocator, address: usize) 
     return .{};
 }
 
+pub fn scanAllUnwindInfo(this: *@This()) !void {
+    const eh_frame_hdr = this.section(.eh_frame_hdr) orelse return;
+
+    var fbr: FixedBufferReader = .{ .buf = eh_frame_hdr, .endian = native_endian };
+
+    const version = try fbr.readByte();
+    if (version != 1) return;
+
+    const eh_frame_ptr_enc = try fbr.readByte();
+    if (eh_frame_ptr_enc == EH.PE.omit) return;
+    const fde_count_enc = try fbr.readByte();
+    if (fde_count_enc == EH.PE.omit) return;
+    const table_enc = try fbr.readByte();
+    if (table_enc == EH.PE.omit) return;
+
+    const eh_frame_ptr = cast(usize, try Dwarf.readEhPointer(&fbr, eh_frame_ptr_enc, @sizeOf(usize), .{
+        .pc_rel_base = @intFromPtr(&eh_frame_hdr[fbr.pos]),
+        .follow_indirect = true,
+    }) orelse return Dwarf.bad()) orelse return Dwarf.bad();
+
+    const fde_count = cast(usize, try Dwarf.readEhPointer(&fbr, fde_count_enc, @sizeOf(usize), .{
+        .pc_rel_base = @intFromPtr(&eh_frame_hdr[fbr.pos]),
+        .follow_indirect = true,
+    }) orelse return Dwarf.bad()) orelse return Dwarf.bad();
+
+    const entry_size = try Dwarf.ExceptionFrameHeader.entrySize(table_enc);
+    const entries_len = fde_count * entry_size;
+    if (entries_len > eh_frame_hdr.len - fbr.pos) return Dwarf.bad();
+
+    this.eh_frame_hdr = .{
+        .eh_frame_ptr = eh_frame_ptr,
+        .table_enc = table_enc,
+        .fde_count = fde_count,
+        .entries = eh_frame_hdr[fbr.pos..][0..entries_len],
+    };
+}
+
 fn getStringFromTable(string_table: []const u8, pos: usize) ?[]const u8 {
     if (pos == 0) return null;
     const section_name_end = std.mem.indexOfScalarPos(u8, string_table, pos, '\x00') orelse return null;
@@ -252,3 +306,6 @@ const cast = std.math.cast;
 const maxInt = std.math.maxInt;
 const MemoryAccessor = std.debug.MemoryAccessor;
 const FixedBufferReader = std.debug.FixedBufferReader;
+const Dwarf = std.debug.Dwarf;
+const DW = std.dwarf;
+const EH = DW.EH;

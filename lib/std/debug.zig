@@ -842,38 +842,7 @@ pub const StackIterator = struct {
     fn next_unwind(it: *StackIterator) !usize {
         const unwind_state = &it.unwind_state.?;
         const module = try unwind_state.debug_info.getModuleForAddress(unwind_state.dwarf_context.pc);
-        switch (native_os) {
-            .macos, .ios, .watchos, .tvos, .visionos => {
-                // __unwind_info is a requirement for unwinding on Darwin. It may fall back to DWARF, but unwinding
-                // via DWARF before attempting to use the compact unwind info will produce incorrect results.
-                if (module.unwind_info) |unwind_info| {
-                    if (SelfInfo.unwindFrameMachO(
-                        unwind_state.debug_info.allocator,
-                        module.base_address,
-                        &unwind_state.dwarf_context,
-                        &it.ma,
-                        unwind_info,
-                        module.eh_frame,
-                    )) |return_address| {
-                        return return_address;
-                    } else |err| {
-                        if (err != error.RequiresDWARFUnwind) return err;
-                    }
-                } else return error.MissingUnwindInfo;
-            },
-            else => {},
-        }
-
-        if (try module.getDwarfInfoForAddress(unwind_state.debug_info.allocator, unwind_state.dwarf_context.pc)) |di| {
-            return SelfInfo.unwindFrameDwarf(
-                unwind_state.debug_info.allocator,
-                di,
-                module.base_address,
-                &unwind_state.dwarf_context,
-                &it.ma,
-                null,
-            );
-        } else return error.MissingDebugInfo;
+        return module.unwindFrame(unwind_state.debug_info.allocator, &unwind_state.dwarf_context, &it.ma) catch return error.MissingDebugInfo;
     }
 
     fn next_internal(it: *StackIterator) ?usize {

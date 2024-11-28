@@ -463,38 +463,22 @@ fn lookupModuleDl(self: *SelfInfo, address: usize) !*Module {
         return obj_di;
     }
 
-    const obj_ei = try self.allocator.create(Module);
-    errdefer self.allocator.destroy(obj_ei);
+    const module = try self.allocator.create(Module);
+    errdefer self.allocator.destroy(module);
 
-    var sections: Dwarf.SectionArray = Dwarf.null_section_array;
-    if (ctx.gnu_eh_frame) |eh_frame_hdr| {
-        // This is a special case - pointer offsets inside .eh_frame_hdr
-        // are encoded relative to its base address, so we must use the
-        // version that is already memory mapped, and not the one that
-        // will be mapped separately from the ELF file.
-        sections[@intFromEnum(Dwarf.Section.Id.eh_frame_hdr)] = .{
-            .data = eh_frame_hdr,
-            .owned = false,
-        };
+    module.* = try Module.readDebugInfo(self.allocator, if (ctx.name.len > 0) ctx.name else null, ctx.build_id, null, ctx.gnu_eh_frame, null);
+
+    switch (module.*) {
+        .dwarf => |*dwarf_info| dwarf_info.base_address = ctx.base_address,
+        .symtab => |*symtab| symtab.base_address = ctx.base_address,
     }
 
-    obj_ei.* = try Elf.readDebugInfo(self.allocator, if (ctx.name.len > 0) ctx.name else null, ctx.build_id, null, &sections, null);
+    // Missing unwind info isn't treated as a failure, as the unwinder will fall back to FP-based unwinding
+    module.scanAllUnwindInfo(self.allocator, ctx.base_address) catch {};
 
-    switch (obj_ei.*) {
-        .dwarf => |*dwarf_info| {
-            dwarf_info.base_address = ctx.base_address;
+    try self.address_map.putNoClobber(ctx.base_address, module);
 
-            // Missing unwind info isn't treated as a failure, as the unwinder will fall back to FP-based unwinding
-            dwarf_info.dwarf.scanAllUnwindInfo(self.allocator, ctx.base_address) catch {};
-        },
-        .symtab => |*symtab| {
-            symtab.base_address = ctx.base_address;
-        },
-    }
-
-    try self.address_map.putNoClobber(ctx.base_address, obj_ei);
-
-    return obj_ei;
+    return module;
 }
 
 fn lookupModuleHaiku(self: *SelfInfo, address: usize) !*Module {
@@ -716,8 +700,24 @@ pub const Module = switch (native_os) {
             }
         }
 
-        pub fn getDwarfInfoForAddress(self: *@This(), allocator: Allocator, address: usize) !?*Dwarf {
-            return if ((try self.getOFileInfoForAddress(allocator, address)).o_file_info) |o_file_info| &o_file_info.di else null;
+        pub fn unwindFrame(
+            this: *@This(),
+            allocator: std.mem.Allocator,
+            context: *UnwindContext,
+            ma: *std.debug.MemoryAccessor,
+        ) !usize {
+            _ = allocator;
+
+            // __unwind_info is a requirement for unwinding on Darwin. It may fall back to DWARF, but unwinding
+            // via DWARF before attempting to use the compact unwind info will produce incorrect results.
+            const unwind_info = this.unwind_info orelse return error.MissingUnwindInfo;
+            return SelfInfo.unwindFrameMachO(
+                this.base_address,
+                context,
+                ma,
+                unwind_info,
+                this.eh_frame,
+            );
         }
     },
     .uefi, .windows => struct {
@@ -792,18 +792,193 @@ pub const Module = switch (native_os) {
 
             return .{};
         }
+    },
+    .linux, .netbsd, .freebsd, .dragonfly, .openbsd, .haiku, .solaris, .illumos => union(enum) {
+        dwarf: Dwarf.ElfModule,
+        symtab: ElfSymTab,
 
-        pub fn getDwarfInfoForAddress(self: *@This(), allocator: Allocator, address: usize) !?*Dwarf {
-            _ = allocator;
-            _ = address;
+        /// Reads debug info from an ELF file, or the current binary if none in specified.
+        /// If the required sections aren't present but a reference to external debug info is,
+        /// then this this function will recurse to attempt to load the debug sections from
+        /// an external file.
+        pub fn readDebugInfo(
+            allocator: Allocator,
+            elf_filename: ?[]const u8,
+            build_id: ?[]const u8,
+            expected_crc: ?u32,
+            gnu_eh_frame: ?[]const u8,
+            parent_mapped_mem: ?[]align(std.heap.page_size_min) const u8,
+        ) !@This() {
+            nosuspend {
+                const elf_file = (if (elf_filename) |filename| blk: {
+                    break :blk fs.cwd().openFile(filename, .{});
+                } else fs.openSelfExe(.{})) catch |err| switch (err) {
+                    error.FileNotFound => return error.MissingDebugInfo,
+                    else => return err,
+                };
 
-            return switch (self.debug_data) {
-                .dwarf => |*dwarf| dwarf,
-                else => null,
+                const mapped_mem = try mapWholeFile(elf_file);
+
+                load_dwarf: {
+                    var sections: Dwarf.SectionArray = Dwarf.null_section_array;
+                    if (gnu_eh_frame) |eh_frame_hdr| {
+                        // This is a special case - pointer offsets inside .eh_frame_hdr
+                        // are encoded relative to its base address, so we must use the
+                        // version that is already memory mapped, and not the one that
+                        // will be mapped separately from the ELF file.
+                        sections[@intFromEnum(Dwarf.Section.Id.eh_frame_hdr)] = .{
+                            .data = eh_frame_hdr,
+                            .owned = false,
+                        };
+                    }
+
+                    const dwarf_info = Dwarf.ElfModule.load(
+                        allocator,
+                        mapped_mem,
+                        build_id,
+                        expected_crc,
+                        &sections,
+                        parent_mapped_mem,
+                        elf_filename,
+                    ) catch {
+                        break :load_dwarf;
+                    };
+                    return @This(){ .dwarf = dwarf_info };
+                }
+
+                load_symtab: {
+                    const symtab = ElfSymTab.load(
+                        allocator,
+                        mapped_mem,
+                        expected_crc,
+                        // same special case here as for Dwarf
+                        gnu_eh_frame,
+                    ) catch {
+                        break :load_symtab;
+                    };
+                    return @This(){ .symtab = symtab };
+                }
+
+                return error.MissingDebugInfo;
+            }
+        }
+
+        pub fn scanAllUnwindInfo(this: *@This(), allocator: Allocator, base_address: usize) !void {
+            return switch (this.*) {
+                .dwarf => |*dwarf_info| dwarf_info.dwarf.scanAllUnwindInfo(allocator, base_address),
+                .symtab => |*symtab| symtab.scanAllUnwindInfo(),
             };
         }
+
+        pub fn deinit(this: *@This(), allocator: Allocator) void {
+            return switch (this.*) {
+                .dwarf => |*dwarf_info| dwarf_info.deinit(allocator),
+                .symtab => |*symtab| symtab.deinit(allocator),
+            };
+        }
+
+        pub fn getSymbolAtAddress(this: *@This(), allocator: Allocator, address: usize) !std.debug.Symbol {
+            return switch (this.*) {
+                .dwarf => |*dwarf_info| dwarf_info.getSymbolAtAddress(allocator, address),
+                .symtab => |*symtab| symtab.getSymbolAtAddress(allocator, address),
+            };
+        }
+
+        pub fn unwindFrame(
+            this: *@This(),
+            allocator: std.mem.Allocator,
+            context: *UnwindContext,
+            ma: *std.debug.MemoryAccessor,
+        ) !usize {
+            if (!supports_unwinding) return error.UnsupportedCpuArchitecture;
+            if (context.pc == 0) return 0;
+
+            return switch (this.*) {
+                .dwarf => |*dwarf_elf_module| {
+                    const cie, const fde = try findDwarf_CIE_And_FDE(allocator, &dwarf_elf_module.dwarf, dwarf_elf_module.base_address, context, ma);
+                    return unwindFrameDwarf(cie, fde, dwarf_elf_module.dwarf.findCompileUnit(fde.pc_begin) catch null, false, context, ma);
+                },
+                .symtab => |*symtab| {
+                    const eh_frame_header = symtab.eh_frame_hdr orelse return error.MissingFDE;
+                    const eh_frame = symtab.section(.eh_frame) orelse return error.MissingFDE;
+
+                    // Find the FDE and CIE
+                    var cie: Dwarf.CommonInformationEntry = undefined;
+                    var fde: Dwarf.FrameDescriptionEntry = undefined;
+
+                    try eh_frame_header.findEntry(
+                        ma,
+                        eh_frame.len,
+                        @intFromPtr(symtab.section(.eh_frame_hdr).?.ptr),
+                        context.pc,
+                        &cie,
+                        &fde,
+                    );
+
+                    return unwindFrameDwarf(cie, fde, null, false, context, ma);
+                },
+            };
+        }
+
+        fn findDwarf_CIE_And_FDE(
+            allocator: Allocator,
+            di: *Dwarf,
+            base_address: usize,
+            context: *UnwindContext,
+            ma: *std.debug.MemoryAccessor,
+        ) !struct { Dwarf.CommonInformationEntry, Dwarf.FrameDescriptionEntry } {
+            // `.eh_frame_hdr` may be incomplete. We'll try it first, but if the lookup fails, we fall
+            // back to loading `.eh_frame`/`.debug_frame` and using those from that point on.
+
+            if (di.eh_frame_hdr) |header| hdr: {
+                const eh_frame_len = if (di.section(.eh_frame)) |eh_frame| eh_frame.len else null;
+
+                var cie: Dwarf.CommonInformationEntry = undefined;
+                var fde: Dwarf.FrameDescriptionEntry = undefined;
+
+                header.findEntry(
+                    ma,
+                    eh_frame_len,
+                    @intFromPtr(di.section(.eh_frame_hdr).?.ptr),
+                    context.pc,
+                    &cie,
+                    &fde,
+                ) catch |err| switch (err) {
+                    error.InvalidDebugInfo => {
+                        // `.eh_frame_hdr` appears to be incomplete, so go ahead and populate `cie_map`
+                        // and `fde_list`, and fall back to the binary search logic below.
+                        try di.scanCieFdeInfo(allocator, base_address);
+
+                        // Since `.eh_frame_hdr` is incomplete, we're very likely to get more lookup
+                        // failures using it, and we've just built a complete, sorted list of FDEs
+                        // anyway, so just stop using `.eh_frame_hdr` altogether.
+                        di.eh_frame_hdr = null;
+
+                        break :hdr;
+                    },
+                    else => return err,
+                };
+
+                return .{ cie, fde };
+            }
+
+            const index = std.sort.binarySearch(Dwarf.FrameDescriptionEntry, di.fde_list.items, context.pc, struct {
+                pub fn compareFn(pc: usize, item: Dwarf.FrameDescriptionEntry) std.math.Order {
+                    if (pc < item.pc_begin) return .lt;
+
+                    const range_end = item.pc_begin + item.pc_range;
+                    if (pc < range_end) return .eq;
+
+                    return .gt;
+                }
+            }.compareFn);
+
+            const fde = if (index) |i| di.fde_list.items[i] else return error.MissingFDE;
+            const cie = di.cie_map.get(fde.cie_length_offset) orelse return error.MissingCIE;
+
+            return .{ cie, fde };
+        }
     },
-    .linux, .netbsd, .freebsd, .dragonfly, .openbsd, .haiku, .solaris, .illumos => Elf,
     .wasi, .emscripten => struct {
         pub fn deinit(self: *@This(), allocator: Allocator) void {
             _ = self;
@@ -815,13 +990,6 @@ pub const Module = switch (native_os) {
             _ = allocator;
             _ = address;
             return .{};
-        }
-
-        pub fn getDwarfInfoForAddress(self: *@This(), allocator: Allocator, address: usize) !?*Dwarf {
-            _ = self;
-            _ = allocator;
-            _ = address;
-            return null;
         }
     },
     else => Dwarf,
@@ -1212,7 +1380,6 @@ test machoSearchSymbols {
 /// If the compact encoding can't encode a way to unwind a frame, it will
 /// defer unwinding to DWARF, in which case `.eh_frame` will be used if available.
 pub fn unwindFrameMachO(
-    allocator: Allocator,
     base_address: usize,
     context: *UnwindContext,
     ma: *std.debug.MemoryAccessor,
@@ -1473,7 +1640,7 @@ pub fn unwindFrameMachO(
                 break :blk new_ip;
             },
             .DWARF => {
-                return unwindFrameMachODwarf(allocator, base_address, context, ma, eh_frame orelse return error.MissingEhFrame, @intCast(encoding.value.x86_64.dwarf));
+                return unwindFrameMachODwarf(context, ma, eh_frame orelse return error.MissingEhFrame, @intCast(encoding.value.x86_64.dwarf));
             },
         },
         .aarch64, .aarch64_be => switch (encoding.mode.arm64) {
@@ -1487,7 +1654,7 @@ pub fn unwindFrameMachO(
                 break :blk new_ip;
             },
             .DWARF => {
-                return unwindFrameMachODwarf(allocator, base_address, context, ma, eh_frame orelse return error.MissingEhFrame, @intCast(encoding.value.arm64.dwarf));
+                return unwindFrameMachODwarf(context, ma, eh_frame orelse return error.MissingEhFrame, @intCast(encoding.value.arm64.dwarf));
             },
             .FRAME => blk: {
                 const fp = (try regValueNative(context.thread_context, fpRegNum(reg_context), reg_context)).*;
@@ -1619,115 +1786,20 @@ pub inline fn stripInstructionPtrAuthCode(ptr: usize) usize {
 /// `explicit_fde_offset` is for cases where the FDE offset is known, such as when __unwind_info
 /// defers unwinding to DWARF. This is an offset into the `.eh_frame` section.
 pub fn unwindFrameDwarf(
-    allocator: Allocator,
-    di: *Dwarf,
-    base_address: usize,
+    cie: Dwarf.CommonInformationEntry,
+    fde: Dwarf.FrameDescriptionEntry,
+    compile_unit: ?*const Dwarf.CompileUnit,
+    is_macho: bool,
     context: *UnwindContext,
     ma: *std.debug.MemoryAccessor,
-    explicit_fde_offset: ?usize,
 ) !usize {
     if (!supports_unwinding) return error.UnsupportedCpuArchitecture;
     if (context.pc == 0) return 0;
 
-    // Find the FDE and CIE
-    const cie, const fde = if (explicit_fde_offset) |fde_offset| blk: {
-        const dwarf_section: Dwarf.Section.Id = .eh_frame;
-        const frame_section = di.section(dwarf_section) orelse return error.MissingFDE;
-        if (fde_offset >= frame_section.len) return error.MissingFDE;
-
-        var fbr: std.debug.FixedBufferReader = .{
-            .buf = frame_section,
-            .pos = fde_offset,
-            .endian = di.endian,
-        };
-
-        const fde_entry_header = try Dwarf.EntryHeader.read(&fbr, null, dwarf_section);
-        if (fde_entry_header.type != .fde) return error.MissingFDE;
-
-        const cie_offset = fde_entry_header.type.fde;
-        try fbr.seekTo(cie_offset);
-
-        fbr.endian = native_endian;
-        const cie_entry_header = try Dwarf.EntryHeader.read(&fbr, null, dwarf_section);
-        if (cie_entry_header.type != .cie) return Dwarf.bad();
-
-        const cie = try Dwarf.CommonInformationEntry.parse(
-            cie_entry_header.entry_bytes,
-            0,
-            true,
-            cie_entry_header.format,
-            dwarf_section,
-            cie_entry_header.length_offset,
-            @sizeOf(usize),
-            native_endian,
-        );
-        const fde = try Dwarf.FrameDescriptionEntry.parse(
-            fde_entry_header.entry_bytes,
-            0,
-            true,
-            cie,
-            @sizeOf(usize),
-            native_endian,
-        );
-
-        break :blk .{ cie, fde };
-    } else blk: {
-        // `.eh_frame_hdr` may be incomplete. We'll try it first, but if the lookup fails, we fall
-        // back to loading `.eh_frame`/`.debug_frame` and using those from that point on.
-
-        if (di.eh_frame_hdr) |header| hdr: {
-            const eh_frame_len = if (di.section(.eh_frame)) |eh_frame| eh_frame.len else null;
-
-            var cie: Dwarf.CommonInformationEntry = undefined;
-            var fde: Dwarf.FrameDescriptionEntry = undefined;
-
-            header.findEntry(
-                ma,
-                eh_frame_len,
-                @intFromPtr(di.section(.eh_frame_hdr).?.ptr),
-                context.pc,
-                &cie,
-                &fde,
-            ) catch |err| switch (err) {
-                error.InvalidDebugInfo => {
-                    // `.eh_frame_hdr` appears to be incomplete, so go ahead and populate `cie_map`
-                    // and `fde_list`, and fall back to the binary search logic below.
-                    try di.scanCieFdeInfo(allocator, base_address);
-
-                    // Since `.eh_frame_hdr` is incomplete, we're very likely to get more lookup
-                    // failures using it, and we've just built a complete, sorted list of FDEs
-                    // anyway, so just stop using `.eh_frame_hdr` altogether.
-                    di.eh_frame_hdr = null;
-
-                    break :hdr;
-                },
-                else => return err,
-            };
-
-            break :blk .{ cie, fde };
-        }
-
-        const index = std.sort.binarySearch(Dwarf.FrameDescriptionEntry, di.fde_list.items, context.pc, struct {
-            pub fn compareFn(pc: usize, item: Dwarf.FrameDescriptionEntry) std.math.Order {
-                if (pc < item.pc_begin) return .lt;
-
-                const range_end = item.pc_begin + item.pc_range;
-                if (pc < range_end) return .eq;
-
-                return .gt;
-            }
-        }.compareFn);
-
-        const fde = if (index) |i| di.fde_list.items[i] else return error.MissingFDE;
-        const cie = di.cie_map.get(fde.cie_length_offset) orelse return error.MissingCIE;
-
-        break :blk .{ cie, fde };
-    };
-
     var expression_context: Dwarf.expression.Context = .{
         .format = cie.format,
         .memory_accessor = ma,
-        .compile_unit = di.findCompileUnit(fde.pc_begin) catch null,
+        .compile_unit = compile_unit,
         .thread_context = context.thread_context,
         .reg_context = context.reg_context,
         .cfa = context.cfa,
@@ -1735,7 +1807,7 @@ pub fn unwindFrameDwarf(
 
     context.vm.reset();
     context.reg_context.eh_frame = cie.version != 4;
-    context.reg_context.is_macho = di.is_macho;
+    context.reg_context.is_macho = is_macho;
 
     const row = try context.vm.runToNative(context.allocator, context.pc, cie, fde);
     context.cfa = switch (row.cfa.rule) {
@@ -1887,25 +1959,51 @@ pub fn supportsUnwinding(target: std.Target) bool {
 }
 
 fn unwindFrameMachODwarf(
-    allocator: Allocator,
-    base_address: usize,
     context: *UnwindContext,
     ma: *std.debug.MemoryAccessor,
     eh_frame: []const u8,
     fde_offset: usize,
 ) !usize {
-    var di: Dwarf = .{
+    const dwarf_section: Dwarf.Section.Id = .eh_frame;
+    if (fde_offset >= eh_frame.len) return error.MissingFDE;
+
+    var fbr: std.debug.FixedBufferReader = .{
+        .buf = eh_frame,
+        .pos = fde_offset,
         .endian = native_endian,
-        .is_macho = true,
-    };
-    defer di.deinit(context.allocator);
-
-    di.sections[@intFromEnum(Dwarf.Section.Id.eh_frame)] = .{
-        .data = eh_frame,
-        .owned = false,
     };
 
-    return unwindFrameDwarf(allocator, &di, base_address, context, ma, fde_offset);
+    const fde_entry_header = try Dwarf.EntryHeader.read(&fbr, null, dwarf_section);
+    if (fde_entry_header.type != .fde) return error.MissingFDE;
+
+    const cie_offset = fde_entry_header.type.fde;
+    try fbr.seekTo(cie_offset);
+
+    fbr.endian = native_endian;
+    const cie_entry_header = try Dwarf.EntryHeader.read(&fbr, null, dwarf_section);
+    if (cie_entry_header.type != .cie) return Dwarf.bad();
+
+    const cie = try Dwarf.CommonInformationEntry.parse(
+        cie_entry_header.entry_bytes,
+        0,
+        true,
+        cie_entry_header.format,
+        dwarf_section,
+        cie_entry_header.length_offset,
+        @sizeOf(usize),
+        native_endian,
+    );
+
+    const fde = try Dwarf.FrameDescriptionEntry.parse(
+        fde_entry_header.entry_bytes,
+        0,
+        true,
+        cie,
+        @sizeOf(usize),
+        native_endian,
+    );
+
+    return unwindFrameDwarf(cie, fde, null, false, context, ma);
 }
 
 /// This is a virtual machine that runs DWARF call frame instructions.
