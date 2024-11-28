@@ -187,7 +187,6 @@ pub const Os = struct {
                 .hermit,
 
                 .aix,
-                .hurd,
                 .rtems,
                 .zos,
 
@@ -218,6 +217,7 @@ pub const Os = struct {
                 .vulkan,
                 => .semver,
 
+                .hurd => .hurd,
                 .linux => .linux,
 
                 .windows => .windows,
@@ -356,6 +356,21 @@ pub const Os = struct {
         }
     };
 
+    pub const HurdVersionRange = struct {
+        range: std.SemanticVersion.Range,
+        glibc: std.SemanticVersion,
+
+        pub inline fn includesVersion(range: HurdVersionRange, ver: std.SemanticVersion) bool {
+            return range.range.includesVersion(ver);
+        }
+
+        /// Checks if system is guaranteed to be at least `version` or older than `version`.
+        /// Returns `null` if a runtime check is required.
+        pub inline fn isAtLeast(range: HurdVersionRange, ver: std.SemanticVersion) ?bool {
+            return range.range.isAtLeast(ver);
+        }
+    };
+
     pub const LinuxVersionRange = struct {
         range: std.SemanticVersion.Range,
         glibc: std.SemanticVersion,
@@ -400,6 +415,7 @@ pub const Os = struct {
     pub const VersionRange = union {
         none: void,
         semver: std.SemanticVersion.Range,
+        hurd: HurdVersionRange,
         linux: LinuxVersionRange,
         windows: WindowsVersion.Range,
 
@@ -456,9 +472,12 @@ pub const Os = struct {
                     },
                 },
                 .hurd => .{
-                    .semver = .{
-                        .min = .{ .major = 0, .minor = 9, .patch = 0 },
-                        .max = .{ .major = 0, .minor = 9, .patch = 0 },
+                    .hurd = .{
+                        .range = .{
+                            .min = .{ .major = 0, .minor = 9, .patch = 0 },
+                            .max = .{ .major = 0, .minor = 9, .patch = 0 },
+                        },
+                        .glibc = .{ .major = 2, .minor = 28, .patch = 0 },
                     },
                 },
                 .linux => .{
@@ -632,8 +651,17 @@ pub const Os = struct {
     pub const TaggedVersionRange = union(enum) {
         none: void,
         semver: std.SemanticVersion.Range,
+        hurd: HurdVersionRange,
         linux: LinuxVersionRange,
         windows: WindowsVersion.Range,
+
+        pub fn gnuLibCVersion(range: TaggedVersionRange) ?std.SemanticVersion {
+            return switch (range) {
+                .none, .semver, .windows => null,
+                .hurd => |h| h.glibc,
+                .linux => |l| l.glibc,
+            };
+        }
     };
 
     /// Provides a tagged union. `Target` does not store the tag because it is
@@ -642,6 +670,7 @@ pub const Os = struct {
         return switch (os.tag.versionRangeTag()) {
             .none => .{ .none = {} },
             .semver => .{ .semver = os.version_range.semver },
+            .hurd => .{ .hurd = os.version_range.hurd },
             .linux => .{ .linux = os.version_range.linux },
             .windows => .{ .windows = os.version_range.windows },
         };
@@ -651,12 +680,13 @@ pub const Os = struct {
     /// Returns `null` if a runtime check is required.
     pub inline fn isAtLeast(os: Os, comptime tag: Tag, ver: switch (tag.versionRangeTag()) {
         .none => void,
-        .semver, .linux => std.SemanticVersion,
+        .semver, .hurd, .linux => std.SemanticVersion,
         .windows => WindowsVersion,
     }) ?bool {
         return if (os.tag != tag) false else switch (tag.versionRangeTag()) {
             .none => true,
             inline .semver,
+            .hurd,
             .linux,
             .windows,
             => |field| @field(os.version_range, @tagName(field)).isAtLeast(ver),
@@ -832,6 +862,9 @@ pub const Abi = enum {
                 .mips,
                 .mipsel,
                 => .musleabi,
+                .mips64,
+                .mips64el,
+                => .muslabi64,
                 else => .musl,
             },
             .rtems => switch (arch) {
