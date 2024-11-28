@@ -56,9 +56,8 @@ pub inline fn versionCheck(comptime version: std.SemanticVersion) bool {
         if (!builtin.link_libc) break :blk false;
         if (native_abi.isMusl()) break :blk true;
         if (builtin.target.isGnuLibC()) {
-            const ver = builtin.os.version_range.linux.glibc;
-            const order = ver.order(version);
-            break :blk switch (order) {
+            const ver = builtin.os.versionRange().gnuLibCVersion().?;
+            break :blk switch (ver.order(version)) {
                 .gt, .eq => true,
                 .lt => false,
             };

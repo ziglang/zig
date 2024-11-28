@@ -89,12 +89,7 @@ set(ZIG_SHARED_LLVM off CACHE BOOL "Prefer linking against shared LLVM libraries
 set(ZIG_STATIC_LLVM ${ZIG_STATIC} CACHE BOOL "Prefer linking against static LLVM libraries")
 set(ZIG_STATIC_ZLIB ${ZIG_STATIC} CACHE BOOL "Prefer linking against static zlib")
 set(ZIG_STATIC_ZSTD ${ZIG_STATIC} CACHE BOOL "Prefer linking against static zstd")
-if(APPLE AND ZIG_STATIC)
-  set(ZIG_STATIC_CURSES on)
-else()
-  set(ZIG_STATIC_CURSES off)
-endif()
-set(ZIG_STATIC_CURSES ${ZIG_STATIC_CURSES} CACHE BOOL "Prefer linking against static curses")
+set(ZIG_STATIC_CURSES OFF CACHE BOOL "Enable static linking against curses")
 
 if (ZIG_SHARED_LLVM AND ZIG_STATIC_LLVM)
     message(SEND_ERROR "-DZIG_SHARED_LLVM and -DZIG_STATIC_LLVM cannot both be enabled simultaneously")

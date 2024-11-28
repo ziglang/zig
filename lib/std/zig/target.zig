@@ -88,10 +88,10 @@ pub fn canBuildLibC(target: std.Target) bool {
                 const ver = target.os.version_range.semver;
                 return ver.min.order(libc.os_ver.?) != .lt;
             }
-            // Ensure glibc (aka *-linux-gnu) version is supported
+            // Ensure glibc (aka *-(linux,hurd)-gnu) version is supported
             if (target.isGnuLibC()) {
                 const min_glibc_ver = libc.glibc_min orelse return true;
-                const target_glibc_ver = target.os.version_range.linux.glibc;
+                const target_glibc_ver = target.os.versionRange().gnuLibCVersion().?;
                 return target_glibc_ver.order(min_glibc_ver) != .lt;
             }
             return true;

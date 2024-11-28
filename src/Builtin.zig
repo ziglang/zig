@@ -142,6 +142,40 @@ pub fn append(opts: @This(), buffer: *std.ArrayList(u8)) Allocator.Error!void {
 
             linux.android,
         }),
+        .hurd => |hurd| try buffer.writer().print(
+            \\ .hurd = .{{
+            \\        .range = .{{
+            \\            .min = .{{
+            \\                .major = {},
+            \\                .minor = {},
+            \\                .patch = {},
+            \\            }},
+            \\            .max = .{{
+            \\                .major = {},
+            \\                .minor = {},
+            \\                .patch = {},
+            \\            }},
+            \\        }},
+            \\        .glibc = .{{
+            \\            .major = {},
+            \\            .minor = {},
+            \\            .patch = {},
+            \\        }},
+            \\    }}}},
+            \\
+        , .{
+            hurd.range.min.major,
+            hurd.range.min.minor,
+            hurd.range.min.patch,
+
+            hurd.range.max.major,
+            hurd.range.max.minor,
+            hurd.range.max.patch,
+
+            hurd.glibc.major,
+            hurd.glibc.minor,
+            hurd.glibc.patch,
+        }),
         .windows => |windows| try buffer.writer().print(
             \\ .windows = .{{
             \\        .min = {c},
@@ -250,6 +284,7 @@ pub fn populateFile(comp: *Compilation, mod: *Module, file: *File) !void {
         error.BadPathName => unreachable, // it's always "builtin.zig"
         error.NameTooLong => unreachable, // it's always "builtin.zig"
         error.PipeBusy => unreachable, // it's not a pipe
+        error.NoDevice => unreachable, // it's not a pipe
         error.WouldBlock => unreachable, // not asking for non-blocking I/O
 
         error.FileNotFound => try writeFile(file, mod),
