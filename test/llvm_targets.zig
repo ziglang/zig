@@ -16,6 +16,7 @@ const targets = [_]std.Target.Query{
     .{ .cpu_arch = .aarch64, .os_tag = .linux, .abi = .android },
     .{ .cpu_arch = .aarch64, .os_tag = .linux, .abi = .gnu },
     .{ .cpu_arch = .aarch64, .os_tag = .linux, .abi = .gnuilp32 },
+    .{ .cpu_arch = .aarch64, .os_tag = .linux, .abi = .musl },
     .{ .cpu_arch = .aarch64, .os_tag = .linux, .abi = .none },
     .{ .cpu_arch = .aarch64, .os_tag = .linux, .abi = .ohos },
     .{ .cpu_arch = .aarch64, .os_tag = .macos, .abi = .none },
@@ -38,6 +39,7 @@ const targets = [_]std.Target.Query{
     .{ .cpu_arch = .aarch64_be, .os_tag = .freestanding, .abi = .none },
     .{ .cpu_arch = .aarch64_be, .os_tag = .linux, .abi = .gnu },
     .{ .cpu_arch = .aarch64_be, .os_tag = .linux, .abi = .gnuilp32 },
+    .{ .cpu_arch = .aarch64_be, .os_tag = .linux, .abi = .musl },
     .{ .cpu_arch = .aarch64_be, .os_tag = .linux, .abi = .none },
     .{ .cpu_arch = .aarch64_be, .os_tag = .netbsd, .abi = .none },
 
