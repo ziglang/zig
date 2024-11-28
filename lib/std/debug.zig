@@ -754,9 +754,7 @@ pub const StackIterator = struct {
             else => {},
         }
 
-        if (try module.getDwarfInfoForAddress(unwind_state.debug_info.allocator, unwind_state.dwarf_context.pc)) |di| {
-            return SelfInfo.unwindFrameDwarf(di, &unwind_state.dwarf_context, &it.ma, null);
-        } else return error.MissingDebugInfo;
+        return module.unwindFrame(&unwind_state.dwarf_context, &it.ma) catch return error.MissingDebugInfo;
     }
 
     fn next_internal(it: *StackIterator) ?usize {
