@@ -15226,7 +15226,10 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     if (ptr_addrspace) |ptr_as| {
         const alloc_ty = try pt.ptrTypeSema(.{
             .child = result_ty.toIntern(),
-            .flags = .{ .address_space = ptr_as },
+            .flags = .{
+                .address_space = ptr_as,
+                .is_const = true,
+            },
         });
         const alloc = try block.addTy(.alloc, alloc_ty);
         const elem_ptr_ty = try pt.ptrTypeSema(.{
@@ -15558,7 +15561,10 @@ fn zirArrayMul(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     if (ptr_addrspace) |ptr_as| {
         const alloc_ty = try pt.ptrTypeSema(.{
             .child = result_ty.toIntern(),
-            .flags = .{ .address_space = ptr_as },
+            .flags = .{
+                .address_space = ptr_as,
+                .is_const = true,
+            },
         });
         const alloc = try block.addTy(.alloc, alloc_ty);
         const elem_ptr_ty = try pt.ptrTypeSema(.{
