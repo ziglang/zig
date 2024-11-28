@@ -3156,6 +3156,13 @@ pub fn cTypeAlignment(target: Target, c_type: CType) u16 {
             },
             else => {},
         },
+        .wasm32, .wasm64 => switch (target.os.tag) {
+            .emscripten => switch (c_type) {
+                .longdouble => return 8,
+                else => {},
+            },
+            else => {},
+        },
         else => {},
     }
 
@@ -3284,6 +3291,13 @@ pub fn cTypePreferredAlignment(target: Target, c_type: CType) u16 {
                 .longdouble => return 4,
                 else => {},
             },
+        },
+        .wasm32, .wasm64 => switch (target.os.tag) {
+            .emscripten => switch (c_type) {
+                .longdouble => return 8,
+                else => {},
+            },
+            else => {},
         },
         else => {},
     }
