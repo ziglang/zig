@@ -2040,7 +2040,7 @@ const EhPointerContext = struct {
     text_rel_base: ?u64 = null,
     function_rel_base: ?u64 = null,
 };
-fn readEhPointer(fbr: *FixedBufferReader, enc: u8, addr_size_bytes: u8, ctx: EhPointerContext) !?u64 {
+pub fn readEhPointer(fbr: *FixedBufferReader, enc: u8, addr_size_bytes: u8, ctx: EhPointerContext) !?u64 {
     if (enc == EH.PE.omit) return null;
 
     const value: union(enum) {
