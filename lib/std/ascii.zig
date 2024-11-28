@@ -136,7 +136,7 @@ pub fn isPrint(c: u8) bool {
 /// Returns whether this character is included in `whitespace`.
 pub fn isWhitespace(c: u8) bool {
     return switch (c) {
-        '\t'...'\r', ' ' => true,
+        ' ', '\t'...'\r' => true,
         else => false,
     };
 }
