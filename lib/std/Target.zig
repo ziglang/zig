@@ -3069,6 +3069,10 @@ pub fn cTypeBitSize(target: Target, c_type: CType) u16 {
             },
             .longlong, .ulonglong, .double => return 64,
             .longdouble => switch (target.cpu.arch) {
+                .aarch64 => switch (target.os.tag) {
+                    .bridgeos => return 128,
+                    else => return 64,
+                },
                 .x86 => switch (target.abi) {
                     .android => return 64,
                     else => return 80,
