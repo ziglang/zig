@@ -21,7 +21,6 @@ const targets = [_]std.Target.Query{
     .{ .cpu_arch = .aarch64, .os_tag = .macos, .abi = .none },
     .{ .cpu_arch = .aarch64, .os_tag = .netbsd, .abi = .none },
     .{ .cpu_arch = .aarch64, .os_tag = .openbsd, .abi = .none },
-    .{ .cpu_arch = .aarch64, .os_tag = .rtems, .abi = .ilp32 },
     .{ .cpu_arch = .aarch64, .os_tag = .rtems, .abi = .none },
     .{ .cpu_arch = .aarch64, .os_tag = .serenity, .abi = .none },
     .{ .cpu_arch = .aarch64, .os_tag = .tvos, .abi = .none },
