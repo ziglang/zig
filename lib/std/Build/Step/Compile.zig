@@ -229,7 +229,7 @@ is_linking_libc: bool = false,
 /// Computed during make().
 is_linking_libcpp: bool = false,
 
-no_builtin: bool = false,
+no_builtin: ?bool = null,
 
 /// Populated during the make phase when there is a long-lived compiler process.
 /// Managed by the build runner, not user build script.
@@ -1646,8 +1646,8 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
         }
     }
 
-    if (compile.no_builtin) {
-        try zig_args.append("-fno-builtin");
+    if (compile.no_builtin) |enabled| {
+        try zig_args.append(if (enabled) "-fbuiltin" else "-fno-builtin");
     }
 
     if (b.sysroot) |sysroot| {
