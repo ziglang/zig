@@ -123,6 +123,7 @@ const targets = [_]std.Target.Query{
     .{ .cpu_arch = .m68k, .os_tag = .freestanding, .abi = .none },
     .{ .cpu_arch = .m68k, .os_tag = .haiku, .abi = .none },
     .{ .cpu_arch = .m68k, .os_tag = .linux, .abi = .gnu },
+    .{ .cpu_arch = .m68k, .os_tag = .linux, .abi = .musl },
     .{ .cpu_arch = .m68k, .os_tag = .linux, .abi = .none },
     .{ .cpu_arch = .m68k, .os_tag = .netbsd, .abi = .none },
     .{ .cpu_arch = .m68k, .os_tag = .rtems, .abi = .none },
