@@ -7717,7 +7717,7 @@ fn analyzeCall(
         // set to in the `Block`.
         // This block instruction will be used to capture the return value from the
         // inlined function.
-        const need_debug_scope = !is_comptime_call and !block.is_typeof and block.ownerModule().strip != .all;
+        const need_debug_scope = !is_comptime_call and !block.is_typeof and block.ownerModule().strip == .none;
         const block_inst: Air.Inst.Index = @enumFromInt(sema.air_instructions.len);
         try sema.air_instructions.append(gpa, .{
             .tag = if (need_debug_scope) .dbg_inline_block else .block,

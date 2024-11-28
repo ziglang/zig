@@ -434,13 +434,13 @@ pub fn resolve(options: Options) ResolveError!Config {
 
     const root_strip: std.builtin.Strip = b: {
         if (options.root_strip) |x| break :b x;
-        if (root_optimize_mode == .ReleaseSmall) break :b .none;
+        if (root_optimize_mode == .ReleaseSmall) break :b .all;
         if (!target_util.hasDebugInfo(target)) break :b .all;
         break :b .none;
     };
 
     const debug_format: DebugFormat = b: {
-        if (root_strip == .all and !options.any_non_stripped) break :b .strip;
+        if (root_strip != .none and !options.any_non_stripped) break :b .strip;
         if (options.debug_format) |x| break :b x;
         break :b switch (target.ofmt) {
             .elf, .goff, .macho, .wasm, .xcoff => .{ .dwarf = .@"32" },
