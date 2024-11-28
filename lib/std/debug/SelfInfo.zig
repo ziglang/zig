@@ -700,8 +700,61 @@ pub const Module = switch (native_os) {
             }
         }
 
-        pub fn getDwarfInfoForAddress(self: *@This(), allocator: Allocator, address: usize) !?*const Dwarf {
-            return if ((try self.getOFileInfoForAddress(allocator, address)).o_file_info) |o_file_info| &o_file_info.di else null;
+        pub fn unwindFrame(
+            this: *@This(),
+            context: *UnwindContext,
+            ma: *std.debug.MemoryAccessor,
+        ) !usize {
+            // __unwind_info is a requirement for unwinding on Darwin. It may fall back to DWARF, but unwinding
+            // via DWARF before attempting to use the compact unwind info will produce incorrect results.
+            if (this.unwind_info) |unwind_info| {
+                if (SelfInfo.unwindFrameMachO(
+                    context,
+                    ma,
+                    unwind_info,
+                    this.eh_frame,
+                    this.base_address,
+                )) |return_address| {
+                    return return_address;
+                } else |err| {
+                    if (err != error.RequiresDWARFUnwind) return err;
+                }
+            } else return error.MissingUnwindInfo;
+
+            const o_file_info = (try this.getOFileInfoForAddress(context.allocator, context.pc)).o_file_info orelse return error.MissingOFileInfo;
+            const dwarf_info = &o_file_info.di;
+
+            // Find the FDE and CIE
+            var cie: Dwarf.CommonInformationEntry = undefined;
+            var fde: Dwarf.FrameDescriptionEntry = undefined;
+
+            if (dwarf_info.eh_frame_hdr) |header| {
+                const eh_frame_len = if (dwarf_info.section(.eh_frame)) |eh_frame| eh_frame.len else null;
+                try header.findEntry(
+                    ma,
+                    eh_frame_len,
+                    @intFromPtr(dwarf_info.section(.eh_frame_hdr).?.ptr),
+                    context.pc,
+                    &cie,
+                    &fde,
+                );
+            } else {
+                const index = std.sort.binarySearch(Dwarf.FrameDescriptionEntry, dwarf_info.fde_list.items, context.pc, struct {
+                    pub fn compareFn(pc: usize, item: Dwarf.FrameDescriptionEntry) std.math.Order {
+                        if (pc < item.pc_begin) return .lt;
+
+                        const range_end = item.pc_begin + item.pc_range;
+                        if (pc < range_end) return .eq;
+
+                        return .gt;
+                    }
+                }.compareFn);
+
+                fde = if (index) |i| dwarf_info.fde_list.items[i] else return error.MissingFDE;
+                cie = dwarf_info.cie_map.get(fde.cie_length_offset) orelse return error.MissingCIE;
+            }
+
+            return unwindFrameDwarf(cie, fde, dwarf_info.findCompileUnit(fde.pc_begin) catch null, false, context, ma);
         }
     },
     .uefi, .windows => struct {
@@ -1110,15 +1163,6 @@ pub const Elf = union(enum) {
         return switch (this.*) {
             .dwarf => |*dwarf_info| dwarf_info.deinit(allocator),
             .symtab => |*symtab| symtab.deinit(allocator),
-        };
-    }
-
-    pub fn getDwarfInfoForAddress(this: *@This(), allocator: Allocator, address: usize) !?*const Dwarf {
-        _ = allocator;
-        _ = address;
-        return switch (this.*) {
-            .dwarf => |*dwarf_info| &dwarf_info.dwarf,
-            .symtab => null,
         };
     }
 
@@ -1903,7 +1947,7 @@ fn unwindFrameMachODwarf(
         native_endian,
     );
 
-    return unwindFrameDwarf(cie, fde, null, false, context, ma, fde_offset);
+    return unwindFrameDwarf(cie, fde, null, false, context, ma);
 }
 
 /// This is a virtual machine that runs DWARF call frame instructions.
