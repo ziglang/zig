@@ -3062,7 +3062,10 @@ pub fn cTypeBitSize(target: Target, c_type: CType) u16 {
                     .gnux32, .muslx32 => return 32,
                     else => return 64,
                 },
-                else => return 64,
+                else => switch (target.abi) {
+                    .ilp32 => return 32,
+                    else => return 64,
+                },
             },
             .longlong, .ulonglong, .double => return 64,
             .longdouble => switch (target.cpu.arch) {
