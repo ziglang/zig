@@ -15237,6 +15237,76 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             .flags = .{ .address_space = ptr_as },
         });
 
+        // if both the source and destination are arrays
+        // we can hot path via a memcpy.
+        if (lhs_ty.zigTypeTag(zcu) == .pointer and
+            rhs_ty.zigTypeTag(zcu) == .pointer)
+        {
+            const slice_ty = try pt.ptrTypeSema(.{
+                .child = resolved_elem_ty.toIntern(),
+                .flags = .{
+                    .size = .Slice,
+                    .address_space = ptr_as,
+                },
+            });
+            const many_ty = try pt.ptrTypeSema(.{
+                .child = resolved_elem_ty.toIntern(),
+                .flags = .{
+                    .size = .Many,
+                    .address_space = ptr_as,
+                },
+            });
+            const slice_ty_ref = Air.internedToRef(slice_ty.toIntern());
+
+            // lhs_dest_slice = dest[0..lhs.len]
+            const lhs_len_ref = try pt.intRef(Type.usize, lhs_len);
+            const lhs_dest_slice = try block.addInst(.{
+                .tag = .slice,
+                .data = .{ .ty_pl = .{
+                    .ty = slice_ty_ref,
+                    .payload = try sema.addExtra(Air.Bin{
+                        .lhs = alloc,
+                        .rhs = lhs_len_ref,
+                    }),
+                } },
+            });
+            _ = try block.addBinOp(.memcpy, lhs_dest_slice, lhs);
+
+            // rhs_dest_slice = dest[lhs.len..][0..rhs.len]
+            const rhs_len_ref = try pt.intRef(Type.usize, rhs_len);
+            const rhs_dest_offset = try block.addInst(.{
+                .tag = .ptr_add,
+                .data = .{ .ty_pl = .{
+                    .ty = Air.internedToRef(many_ty.toIntern()),
+                    .payload = try sema.addExtra(Air.Bin{
+                        .lhs = alloc,
+                        .rhs = lhs_len_ref,
+                    }),
+                } },
+            });
+            const rhs_dest_slice = try block.addInst(.{
+                .tag = .slice,
+                .data = .{ .ty_pl = .{
+                    .ty = slice_ty_ref,
+                    .payload = try sema.addExtra(Air.Bin{
+                        .lhs = rhs_dest_offset,
+                        .rhs = rhs_len_ref,
+                    }),
+                } },
+            });
+
+            _ = try block.addBinOp(.memcpy, rhs_dest_slice, rhs);
+
+            if (res_sent_val) |sent_val| {
+                const elem_index = try pt.intRef(Type.usize, result_len);
+                const elem_ptr = try block.addPtrElemPtr(alloc, elem_index, elem_ptr_ty);
+                const init = Air.internedToRef((try pt.getCoerced(sent_val, lhs_info.elem_type)).toIntern());
+                try sema.storePtr2(block, src, elem_ptr, src, init, lhs_src, .store);
+            }
+
+            return alloc;
+        }
+
         var elem_i: u32 = 0;
         while (elem_i < lhs_len) : (elem_i += 1) {
             const elem_index = try pt.intRef(Type.usize, elem_i);
