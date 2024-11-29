@@ -204,30 +204,14 @@ pub fn exeFromCompiledC(ctx: *Cases, name: []const u8, target_query: std.Target.
     return &ctx.cases.items[ctx.cases.items.len - 1];
 }
 
-pub fn noEmitUsingLlvmBackend(ctx: *Cases, name: []const u8, target: std.Build.ResolvedTarget) *Case {
+pub fn addObjLlvm(ctx: *Cases, name: []const u8, target: std.Build.ResolvedTarget) *Case {
     ctx.cases.append(Case{
         .name = name,
         .target = target,
         .updates = std.ArrayList(Update).init(ctx.cases.allocator),
         .output_mode = .Obj,
-        .emit_bin = false,
         .deps = std.ArrayList(DepModule).init(ctx.arena),
         .backend = .llvm,
-    }) catch @panic("out of memory");
-    return &ctx.cases.items[ctx.cases.items.len - 1];
-}
-
-/// Adds a test case that uses the LLVM backend to emit an executable.
-/// Currently this implies linking libc, because only then we can generate a testable executable.
-pub fn exeUsingLlvmBackend(ctx: *Cases, name: []const u8, target: std.Build.ResolvedTarget) *Case {
-    ctx.cases.append(Case{
-        .name = name,
-        .target = target,
-        .updates = std.ArrayList(Update).init(ctx.cases.allocator),
-        .output_mode = .Exe,
-        .deps = std.ArrayList(DepModule).init(ctx.arena),
-        .backend = .llvm,
-        .link_libc = true,
     }) catch @panic("out of memory");
     return &ctx.cases.items[ctx.cases.items.len - 1];
 }

@@ -4191,7 +4191,11 @@ pub const Platform = struct {
         return .{
             .os_tag = target.os.tag,
             .abi = target.abi,
-            .version = target.os.version_range.semver.min,
+            // This should use semver once we determine the version history.
+            .version = if (target.os.tag == .bridgeos)
+                .{ .major = 0, .minor = 0, .patch = 0 }
+            else
+                target.os.version_range.semver.min,
         };
     }
 

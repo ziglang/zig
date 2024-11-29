@@ -2884,19 +2884,29 @@ pub fn cTypeBitSize(target: Target, c_type: CType) u16 {
             },
         },
 
+        .elfiamcu,
+        .fuchsia,
+        .hermit,
+
+        .aix,
+        .haiku,
+        .hurd,
         .linux,
+        .plan9,
+        .rtems,
+        .serenity,
+        .zos,
+
         .freebsd,
-        .netbsd,
         .dragonfly,
+        .netbsd,
         .openbsd,
+
+        .illumos,
+        .solaris,
+
         .wasi,
         .emscripten,
-        .plan9,
-        .solaris,
-        .illumos,
-        .haiku,
-        .fuchsia,
-        .serenity,
         => switch (target.cpu.arch) {
             .msp430 => switch (c_type) {
                 .char => return 8,
@@ -2941,7 +2951,10 @@ pub fn cTypeBitSize(target: Target, c_type: CType) u16 {
                 .longdouble => switch (target.cpu.arch) {
                     .x86 => switch (target.abi) {
                         .android => return 64,
-                        else => return 80,
+                        else => switch (target.os.tag) {
+                            .elfiamcu => return 64,
+                            else => return 80,
+                        },
                     },
 
                     .powerpc,
@@ -2955,7 +2968,7 @@ pub fn cTypeBitSize(target: Target, c_type: CType) u16 {
                         .muslx32,
                         => return 64,
                         else => switch (target.os.tag) {
-                            .freebsd, .netbsd, .openbsd => return 64,
+                            .aix, .freebsd, .netbsd, .openbsd => return 64,
                             else => return 128,
                         },
                     },
@@ -2971,7 +2984,7 @@ pub fn cTypeBitSize(target: Target, c_type: CType) u16 {
                         .muslx32,
                         => return 64,
                         else => switch (target.os.tag) {
-                            .freebsd, .openbsd => return 64,
+                            .aix, .freebsd, .openbsd => return 64,
                             else => return 128,
                         },
                     },
@@ -3049,10 +3062,17 @@ pub fn cTypeBitSize(target: Target, c_type: CType) u16 {
                     .gnux32, .muslx32 => return 32,
                     else => return 64,
                 },
-                else => return 64,
+                else => switch (target.abi) {
+                    .ilp32 => return 32,
+                    else => return 64,
+                },
             },
             .longlong, .ulonglong, .double => return 64,
             .longdouble => switch (target.cpu.arch) {
+                .aarch64 => switch (target.os.tag) {
+                    .bridgeos => return 128,
+                    else => return 64,
+                },
                 .x86 => switch (target.abi) {
                     .android => return 64,
                     else => return 80,
@@ -3104,13 +3124,7 @@ pub fn cTypeBitSize(target: Target, c_type: CType) u16 {
         },
 
         .ps3,
-        .zos,
-        .rtems,
-        .aix,
-        .elfiamcu,
         .contiki,
-        .hermit,
-        .hurd,
         .opengl,
         => @panic("TODO specify the C integer and float type sizes for this OS"),
     }
@@ -3121,12 +3135,30 @@ pub fn cTypeAlignment(target: Target, c_type: CType) u16 {
     switch (target.cpu.arch) {
         .avr => return 1,
         .x86 => switch (target.os.tag) {
+            .elfiamcu => switch (c_type) {
+                .longlong, .ulonglong, .double => return 4,
+                else => {},
+            },
             .windows, .uefi => switch (c_type) {
                 .longlong, .ulonglong, .double => return 8,
                 .longdouble => switch (target.abi) {
                     .gnu, .gnuilp32, .ilp32, .cygnus => return 4,
                     else => return 8,
                 },
+                else => {},
+            },
+            else => {},
+        },
+        .powerpc, .powerpcle, .powerpc64, .powerpc64le => switch (target.os.tag) {
+            .aix => switch (c_type) {
+                .double, .longdouble => return 4,
+                else => {},
+            },
+            else => {},
+        },
+        .wasm32, .wasm64 => switch (target.os.tag) {
+            .emscripten => switch (c_type) {
+                .longdouble => return 8,
                 else => {},
             },
             else => {},
@@ -3244,6 +3276,10 @@ pub fn cTypePreferredAlignment(target: Target, c_type: CType) u16 {
         },
         .avr => return 1,
         .x86 => switch (target.os.tag) {
+            .elfiamcu => switch (c_type) {
+                .longlong, .ulonglong, .double, .longdouble => return 4,
+                else => {},
+            },
             .windows, .uefi => switch (c_type) {
                 .longdouble => switch (target.abi) {
                     .gnu, .gnuilp32, .ilp32, .cygnus => return 4,
@@ -3255,6 +3291,13 @@ pub fn cTypePreferredAlignment(target: Target, c_type: CType) u16 {
                 .longdouble => return 4,
                 else => {},
             },
+        },
+        .wasm32, .wasm64 => switch (target.os.tag) {
+            .emscripten => switch (c_type) {
+                .longdouble => return 8,
+                else => {},
+            },
+            else => {},
         },
         else => {},
     }
