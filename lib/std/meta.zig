@@ -1194,6 +1194,7 @@ pub inline fn hasUniqueRepresentation(comptime T: type) bool {
         .@"enum",
         .error_set,
         .@"fn",
+        .void,
         => true,
 
         .bool => false,
@@ -1320,4 +1321,63 @@ test hasUniqueRepresentation {
 
     try testing.expect(hasUniqueRepresentation(@Vector(std.simd.suggestVectorLength(u8) orelse 1, u8)));
     try testing.expect(@sizeOf(@Vector(3, u8)) == 3 or !hasUniqueRepresentation(@Vector(3, u8)));
+}
+
+/// Returns whether the given type is comptime-only
+/// (e.g. `type`, `comptime_int`), result is comptime-known.
+pub inline fn comptimeOnly(comptime T: type) bool {
+    return comptime struct {
+        fn impl(comptime U: type, comptime structs: []const type, comptime unions: []const type) bool {
+            return switch (@typeInfo(U)) {
+                .type, .comptime_float, .comptime_int, .@"fn", .enum_literal, .undefined, .null => true,
+                .void, .bool, .noreturn, .int, .float, .error_set, .@"enum", .@"opaque" => false,
+                .array => |a| impl(a.child, structs, unions),
+                .optional => |o| impl(o.child, structs, unions),
+                .error_union => |e| impl(e.payload, structs, unions),
+                .vector => |v| impl(v.child, structs, unions),
+                .@"struct" => |s| std.mem.indexOfScalar(type, structs, U) == null and for (s.fields) |field| {
+                    if (impl(field.type, structs ++ .{U}, unions)) break true;
+                } else false,
+                .@"union" => |u| std.mem.indexOfScalar(type, unions, U) == null and for (u.fields) |field| {
+                    if (impl(field.type, structs, unions ++ .{U})) break true;
+                } else false,
+                .pointer => |p| impl(p.child, structs, unions) and
+                    // the only case where a container of a comptime-only
+                    // type isn't itself comptime-only: a pointer to one function
+                    // with runtime-available input and output types.
+                    !(p.size == .One and
+                    switch (@typeInfo(p.child)) {
+                    .@"fn" => |f| !f.is_generic and for (f.params) |param| {
+                        if (impl(param.type.?, structs, unions)) break false;
+                    } else !impl(f.return_type.?, structs, unions),
+                    else => false,
+                }),
+                .frame, .@"anyframe" => unreachable, // async types
+            };
+        }
+    }.impl(T, &.{}, &.{});
+}
+
+test comptimeOnly {
+    const S = struct {
+        next: ?*@This(),
+        data: u64,
+
+        const T = struct { u: U };
+        const U = struct { t: *T };
+    };
+
+    try std.testing.expect(comptimeOnly(type));
+    try std.testing.expect(comptimeOnly(comptime_int));
+    try std.testing.expect(comptimeOnly(fn () void));
+    try std.testing.expect(comptimeOnly(*const fn (anytype) void));
+    try std.testing.expect(comptimeOnly(std.builtin.Type));
+
+    try std.testing.expect(!comptimeOnly(u64));
+    try std.testing.expect(!comptimeOnly(*const fn () void));
+    try std.testing.expect(!comptimeOnly(*fn () i386));
+    try std.testing.expect(!comptimeOnly(noreturn));
+    try std.testing.expect(!comptimeOnly(void));
+    try std.testing.expect(!comptimeOnly(S));
+    try std.testing.expect(!comptimeOnly(S.T));
 }
