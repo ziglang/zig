@@ -786,7 +786,7 @@ test "array concatenation peer resolves element types - pointer" {
     var a = [2]u3{ 1, 7 };
     var b = [3]u8{ 200, 225, 255 };
     const c = &a ++ &b;
-    comptime assert(@TypeOf(c) == *[5]u8);
+    comptime assert(@TypeOf(c) == *const [5]u8);
     try expect(c[0] == 1);
     try expect(c[1] == 7);
     try expect(c[2] == 200);
@@ -822,7 +822,7 @@ test "array concatenation sets the sentinel - pointer" {
     var a = [2]u3{ 1, 7 };
     var b = [3:69]u8{ 200, 225, 255 };
     const c = &a ++ &b;
-    comptime assert(@TypeOf(c) == *[5:69]u8);
+    comptime assert(@TypeOf(c) == *const [5:69]u8);
     try expect(c[0] == 1);
     try expect(c[1] == 7);
     try expect(c[2] == 200);
@@ -858,7 +858,7 @@ test "array multiplication sets the sentinel - pointer" {
 
     var a = [2:7]u3{ 1, 6 };
     const b = &a ** 2;
-    comptime assert(@TypeOf(b) == *[4:7]u3);
+    comptime assert(@TypeOf(b) == *const [4:7]u3);
     try expect(b[0] == 1);
     try expect(b[1] == 6);
     try expect(b[2] == 1);
