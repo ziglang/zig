@@ -2012,7 +2012,7 @@ pub const Cpu = struct {
                     else => generic(arch),
                 },
                 .xcore => &xcore.cpu.xs1b_generic,
-                .wasm32, .wasm64 => &wasm.cpu.generic,
+                .wasm32, .wasm64 => &wasm.cpu.lime1,
 
                 else => generic(arch),
             };

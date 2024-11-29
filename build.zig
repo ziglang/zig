@@ -594,15 +594,14 @@ pub fn build(b: *std.Build) !void {
 fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
     const semver = try std.SemanticVersion.parse(version);
 
-    var target_query: std.Target.Query = .{
-        .cpu_arch = .wasm32,
-        .os_tag = .wasi,
-    };
-    target_query.cpu_features_add.addFeature(@intFromEnum(std.Target.wasm.Feature.bulk_memory));
-
     const exe = addCompilerStep(b, .{
         .optimize = .ReleaseSmall,
-        .target = b.resolveTargetQuery(target_query),
+        .target = b.resolveTargetQuery(std.Target.Query.parse(.{
+            .arch_os_abi = "wasm32-wasi",
+            // `extended_const` is not supported by the `wasm-opt` version in CI.
+            // `nontrapping_fptoint` is not supported by `wasm2c`.
+            .cpu_features = "baseline-extended_const-nontrapping_fptoint",
+        }) catch unreachable),
     });
 
     const exe_options = b.addOptions();
@@ -644,6 +643,7 @@ fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
         "wasm-opt",
         "-Oz",
         "--enable-bulk-memory",
+        "--enable-mutable-globals",
         "--enable-sign-ext",
     });
     run_opt.addArtifactArg(exe);

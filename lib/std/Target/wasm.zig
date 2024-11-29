@@ -139,6 +139,18 @@ pub const cpu = struct {
             .sign_ext,
         }),
     };
+    pub const lime1: CpuModel = .{
+        .name = "lime1",
+        .llvm_name = null,
+        .features = featureSet(&[_]Feature{
+            .bulk_memory,
+            .extended_const,
+            .multivalue,
+            .mutable_globals,
+            .nontrapping_fptoint,
+            .sign_ext,
+        }),
+    };
     pub const mvp: CpuModel = .{
         .name = "mvp",
         .llvm_name = "mvp",
