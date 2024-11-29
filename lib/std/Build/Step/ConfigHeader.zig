@@ -423,6 +423,8 @@ fn render_cmake(
                     },
                 }
             };
+        } else if (value == Value.string) {
+            value = Value{ .string = it.rest() };
         } else if (value != Value.undef) {
             value = Value{ .ident = it.rest() };
         }
@@ -570,7 +572,7 @@ fn expand_variables_cmake(
                     }
 
                     const key = contents[curr + 1 .. close_pos];
-                    const value = values.get(key) orelse return error.MissingValue;
+                    const value = values.get(key) orelse Value{ .undef = {} };
                     const missing = contents[source_offset..curr];
                     try result.appendSlice(missing);
                     switch (value) {
