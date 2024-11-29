@@ -245,7 +245,7 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
             ver.min.minor,
             ver.min.patch,
         }),
-        .linux => |ver| try llvm_triple.writer().print("{d}.{d}.{d}", .{
+        inline .linux, .hurd => |ver| try llvm_triple.writer().print("{d}.{d}.{d}", .{
             ver.range.min.major,
             ver.range.min.minor,
             ver.range.min.patch,
@@ -290,11 +290,15 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .semver,
         .windows,
         => {},
-        .linux => |ver| if (target.abi.isGnu()) try llvm_triple.writer().print("{d}.{d}.{d}", .{
-            ver.glibc.major,
-            ver.glibc.minor,
-            ver.glibc.patch,
-        }) else if (target.abi.isAndroid()) try llvm_triple.writer().print("{d}", .{ver.android}),
+        inline .hurd, .linux => |ver| if (target.abi.isGnu()) {
+            try llvm_triple.writer().print("{d}.{d}.{d}", .{
+                ver.glibc.major,
+                ver.glibc.minor,
+                ver.glibc.patch,
+            });
+        } else if (@TypeOf(ver) == std.Target.Os.LinuxVersionRange and target.abi.isAndroid()) {
+            try llvm_triple.writer().print("{d}", .{ver.android});
+        },
     }
 
     return llvm_triple.toOwnedSlice();

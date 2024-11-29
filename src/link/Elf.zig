@@ -2013,7 +2013,7 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
                 } else if (target.isGnuLibC()) {
                     for (glibc.libs) |lib| {
                         if (lib.removed_in) |rem_in| {
-                            if (target.os.version_range.linux.glibc.order(rem_in) != .lt) continue;
+                            if (target.os.versionRange().gnuLibCVersion().?.order(rem_in) != .lt) continue;
                         }
 
                         const lib_path = try std.fmt.allocPrint(arena, "{}{c}lib{s}.so.{d}", .{

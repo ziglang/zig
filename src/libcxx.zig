@@ -262,7 +262,7 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
 
         if (target.isGnuLibC()) {
             // glibc 2.16 introduced aligned_alloc
-            if (target.os.version_range.linux.glibc.order(.{ .major = 2, .minor = 16, .patch = 0 }) == .lt) {
+            if (target.os.versionRange().gnuLibCVersion().?.order(.{ .major = 2, .minor = 16, .patch = 0 }) == .lt) {
                 try cflags.append("-D_LIBCPP_HAS_NO_LIBRARY_ALIGNED_ALLOCATION");
             }
         }
@@ -477,7 +477,7 @@ pub fn buildLibCXXABI(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
             }
             try cflags.append("-D_LIBCXXABI_HAS_NO_THREADS");
         } else if (target.abi.isGnu()) {
-            if (target.os.tag != .linux or !(target.os.version_range.linux.glibc.order(.{ .major = 2, .minor = 18, .patch = 0 }) == .lt))
+            if (target.os.tag != .linux or !(target.os.versionRange().gnuLibCVersion().?.order(.{ .major = 2, .minor = 18, .patch = 0 }) == .lt))
                 try cflags.append("-DHAVE___CXA_THREAD_ATEXIT_IMPL");
         }
 
@@ -500,7 +500,7 @@ pub fn buildLibCXXABI(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
 
         if (target.isGnuLibC()) {
             // glibc 2.16 introduced aligned_alloc
-            if (target.os.version_range.linux.glibc.order(.{ .major = 2, .minor = 16, .patch = 0 }) == .lt) {
+            if (target.os.versionRange().gnuLibCVersion().?.order(.{ .major = 2, .minor = 16, .patch = 0 }) == .lt) {
                 try cflags.append("-D_LIBCPP_HAS_NO_LIBRARY_ALIGNED_ALLOCATION");
             }
         }

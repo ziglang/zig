@@ -894,6 +894,14 @@ pub const VaListX86_64 = extern struct {
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
+pub const VaListXtensa = extern struct {
+    __va_stk: *c_int,
+    __va_reg: *c_int,
+    __va_ndx: c_int,
+};
+
+/// This data structure is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
 pub const VaList = switch (builtin.cpu.arch) {
     .aarch64, .aarch64_be => switch (builtin.os.tag) {
         .windows => *u8,
@@ -925,6 +933,7 @@ pub const VaList = switch (builtin.cpu.arch) {
         .windows => @compileError("disabled due to miscompilations"), // *u8,
         else => VaListX86_64,
     },
+    .xtensa => VaListXtensa,
     else => @compileError("VaList not supported for this target yet"),
 };
 
