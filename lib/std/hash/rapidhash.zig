@@ -90,8 +90,8 @@ inline fn rapidhash_internal(key: []const u8, len: usize, seed: u64, sc: []const
             is[2] = is[0];
             while (remain >= 96) {
                 inline for (0..6) |i| {
-                    const m1 = r64(k[8 * i ..][0..8]);
-                    const m2 = r64(k[8 * (i + 1) ..][0..8]);
+                    const m1 = r64(k[8 * i * 2 ..]);
+                    const m2 = r64(k[8 * (i * 2 + 1) ..]);
                     is[i % 3] = mix(m1 ^ sc[i % 3], m2 ^ is[i % 3]);
                 }
                 k = k[96..];
@@ -99,8 +99,8 @@ inline fn rapidhash_internal(key: []const u8, len: usize, seed: u64, sc: []const
             }
             if (remain >= 48) {
                 inline for (0..3) |i| {
-                    const m1 = r64(k[8 * i ..][0..8]);
-                    const m2 = r64(k[8 * (i + 1) ..][0..8]);
+                    const m1 = r64(k[8 * i * 2 ..]);
+                    const m2 = r64(k[8 * (i * 2 + 1) ..]);
                     is[i] = mix(m1 ^ sc[i], m2 ^ is[i]);
                 }
                 k = k[48..];
@@ -117,8 +117,8 @@ inline fn rapidhash_internal(key: []const u8, len: usize, seed: u64, sc: []const
             }
         }
 
-        a = r64(key[len - 16 .. len - 8]);
-        b = r64(key[len - 8 .. len]);
+        a = r64(key[len - 16 ..]);
+        b = r64(key[len - 8 ..]);
     }
 
     a ^= sc[1];
