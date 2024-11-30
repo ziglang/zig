@@ -9,11 +9,6 @@ pub fn main() !void {
     const zig_src_lib_path = args[1];
     const mingw_src_path = args[2];
 
-    if (std.mem.eql(u8, mingw_src_path, "--missing-mingw-source-directory")) {
-        std.log.err("this build step requires passing -Dmingw-src=[path]", .{});
-        std.process.exit(1);
-    }
-
     const dest_mingw_crt_path = try std.fs.path.join(arena, &.{
         zig_src_lib_path, "libc", "mingw",
     });
