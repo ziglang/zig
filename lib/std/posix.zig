@@ -1270,6 +1270,7 @@ pub fn write(fd: fd_t, bytes: []const u8) WriteError!usize {
             .PIPE => return error.BrokenPipe,
             .CONNRESET => return error.ConnectionResetByPeer,
             .BUSY => return error.DeviceBusy,
+            .NXIO => return error.NoDevice,
             else => |err| return unexpectedErrno(err),
         }
     }
