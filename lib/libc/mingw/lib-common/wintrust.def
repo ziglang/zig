@@ -5,23 +5,28 @@
 ;
 LIBRARY "WINTRUST.dll"
 EXPORTS
+ComputeFirstPageHash
 CryptCATVerifyMember
 CryptSIPGetInfo
 CryptSIPGetRegWorkingFlags
 GenericChainCertificateTrust
 GenericChainFinalProv
 HTTPSCertificateTrust
+SetMessageDigestInfo
 SoftpubDefCertInit
 SoftpubFreeDefUsageCallData
 SoftpubLoadDefUsageCallData
 WTHelperCertFindIssuerCertificate
 AddPersonalTrustDBPages
 CatalogCompactHashDatabase
+ConfigCiFinalPolicy
+ConfigCiPackageFamilyNameCheck
 CryptCATAdminAcquireContext
 CryptCATAdminAcquireContext2
 CryptCATAdminAddCatalog
 CryptCATAdminCalcHashFromFileHandle
 CryptCATAdminCalcHashFromFileHandle2
+CryptCATAdminCalcHashFromFileHandle3
 CryptCATAdminEnumCatalogFromHash
 CryptCATAdminPauseServiceForBackup
 CryptCATAdminReleaseCatalogContext
@@ -60,10 +65,13 @@ CryptSIPGetSignedDataMsg
 CryptSIPPutSignedDataMsg
 CryptSIPRemoveSignedDataMsg
 CryptSIPVerifyIndirectData
+; DllRegisterServer
+; DllUnregisterServer
 DriverCleanupPolicy
 DriverFinalPolicy
 DriverInitializePolicy
 FindCertsByIssuer
+GetAuthenticodeSha256Hash
 HTTPSFinalProv
 IsCatalogFile
 MsCatConstructHashTag
@@ -81,11 +89,15 @@ SoftpubDumpStructure
 SoftpubInitialize
 SoftpubLoadMessage
 SoftpubLoadSignature
+SrpCheckSmartlockerEAandProcessToken
 TrustDecode
 TrustFindIssuerCertificate
 TrustFreeDecode
 TrustIsCertificateSelfSigned
 TrustOpenStores
+WTConvertCertCtxToChainInfo
+WTGetBioSignatureInfo
+WTGetPluginSignatureInfo
 WTGetSignatureInfo
 WTHelperCertCheckValidSignature
 WTHelperCertIsSelfSigned
@@ -103,6 +115,10 @@ WTHelperIsChainedToMicrosoftFromStateData
 WTHelperIsInRootStore
 WTHelperOpenKnownStores
 WTHelperProvDataFromStateData
+WTIsFirstConfigCiResultPreferred
+WTLogConfigCiScriptEvent
+WTLogConfigCiSignerEvent
+WTValidateBioSignaturePolicy
 WVTAsn1CatMemberInfo2Decode
 WVTAsn1CatMemberInfo2Encode
 WVTAsn1CatMemberInfoDecode
@@ -144,6 +160,7 @@ WintrustLoadFunctionPointers
 WintrustRemoveActionID
 WintrustSetDefaultIncludePEPageHashes
 WintrustSetRegPolicyFlags
+WintrustUserWriteabilityCheck
 mscat32DllRegisterServer
 mscat32DllUnregisterServer
 mssip32DllRegisterServer

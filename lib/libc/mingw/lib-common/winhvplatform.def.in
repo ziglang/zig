@@ -1,3 +1,5 @@
+#include "func.def.in"
+
 LIBRARY "winhvplatform.dll"
 EXPORTS
 WHvAcceptPartitionMigration
@@ -18,16 +20,16 @@ WHvDeleteTrigger
 WHvDeleteVirtualProcessor
 WHvDeleteVpciDevice
 WHvGetCapability
-WHvGetInterruptTargetVpSet
+F_X64(WHvGetInterruptTargetVpSet)
 WHvGetPartitionCounters
 WHvGetPartitionProperty
 WHvGetVirtualProcessorCounters
-WHvGetVirtualProcessorCpuidOutput
-WHvGetVirtualProcessorInterruptControllerState
-WHvGetVirtualProcessorInterruptControllerState2
+F_X64(WHvGetVirtualProcessorCpuidOutput)
+F_X64(WHvGetVirtualProcessorInterruptControllerState)
+F_X64(WHvGetVirtualProcessorInterruptControllerState2)
 WHvGetVirtualProcessorRegisters
 WHvGetVirtualProcessorState
-WHvGetVirtualProcessorXsaveState
+F_X64(WHvGetVirtualProcessorXsaveState)
 WHvGetVpciDeviceInterruptTarget
 WHvGetVpciDeviceNotification
 WHvGetVpciDeviceProperty
@@ -48,11 +50,11 @@ WHvRetargetVpciDeviceInterrupt
 WHvRunVirtualProcessor
 WHvSetNotificationPortProperty
 WHvSetPartitionProperty
-WHvSetVirtualProcessorInterruptControllerState
-WHvSetVirtualProcessorInterruptControllerState2
+F_X64(WHvSetVirtualProcessorInterruptControllerState)
+F_X64(WHvSetVirtualProcessorInterruptControllerState2)
 WHvSetVirtualProcessorRegisters
 WHvSetVirtualProcessorState
-WHvSetVirtualProcessorXsaveState
+F_X64(WHvSetVirtualProcessorXsaveState)
 WHvSetVpciDevicePowerState
 WHvSetupPartition
 WHvSignalVirtualProcessorSynicEvent
