@@ -61,7 +61,9 @@ typedef FARPROC (WINAPI *PfnDliHook)(unsigned dliNotify,PDelayLoadInfo pdli);
 ExternC WINBOOL WINAPI __FUnloadDelayLoadedDLL2(LPCSTR szDll);
 ExternC HRESULT WINAPI __HrLoadAllImportsForDll(LPCSTR szDll);
 
+#ifndef FACILITY_VISUALCPP
 #define FACILITY_VISUALCPP ((LONG)0x6d)
+#endif
 #define VcppException(sev,err) ((sev) | (FACILITY_VISUALCPP<<16) | err)
 
 ExternC PfnDliHook __pfnDliNotifyHook2;

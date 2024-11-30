@@ -211,30 +211,44 @@ extern "C" {
 
 #define _tcstof wcstof
 #define _tcstod wcstod
+#define _tcstold wcstold
 #define _tcstol wcstol
 #define _tcstoul wcstoul
+#define _tcstoll wcstoll
+#define _tcstoull wcstoull
 #define _tcstoi64 _wcstoi64
 #define _tcstoui64 _wcstoui64
+#define _tcstoimax wcstoimax
+#define _tcstoumax wcstoumax
 #define _tstof _wtof
 #define _tstol _wtol
 #define _tstoi _wtoi
+#define _tstoll _wtoll
 #define _tstoi64 _wtoi64
 #define _tcstof_l _wcstof_l
 #define _tcstod_l _wcstod_l
+/* TODO: #define _tcstold_l _wcstold_l  */
 #define _tcstol_l _wcstol_l
 #define _tcstoul_l _wcstoul_l
+#define _tcstoll_l _wcstoll_l
+#define _tcstoull_l _wcstoull_l
 #define _tcstoi64_l _wcstoi64_l
 #define _tcstoui64_l _wcstoui64_l
+#define _tcstoimax_l _wcstoimax_l
+#define _tcstoumax_l _wcstoumax_l
 #define _tstof_l _wtof_l
 #define _tstol_l _wtol_l
+#define _tstoll_l _wtoll_l
 #define _tstoi_l _wtoi_l
 #define _tstoi64_l _wtoi64_l
 
 #define _itot _itow
 #define _ltot _ltow
 #define _ultot _ultow
+#define _ttof _wtof
 #define _ttoi _wtoi
 #define _ttol _wtol
+#define _ttoll _wtoll
 
 #define _ttoi64 _wtoi64
 #define _i64tot _i64tow
@@ -254,12 +268,13 @@ extern "C" {
 #define _tcsrchr wcsrchr
 #define _tcsspn wcsspn
 #define _tcsstr wcsstr
-#define _tcstok wcstok
+#define _tcstok _wcstok
 #define _tcstok_l _wcstok_l
 #define _tcserror _wcserror
 #define __tcserror __wcserror
 
 #define _tcsdup _wcsdup
+#define _tcsdup_dbg _wcsdup_dbg
 #define _tcsnset _wcsnset
 #define _tcsnset_l _wcsnset_l
 #define _tcsrev _wcsrev
@@ -317,18 +332,22 @@ extern "C" {
 #define _tstrdate _wstrdate
 #define _tstrtime _wstrtime
 #define _tutime _wutime
-#define _tutime32 _wutime
+#define _tutime32 _wutime32
 #define _tutime64 _wutime64
 #define _tcsftime wcsftime
 #define _tcsftime_l _wcsftime_l
 
 #define _tchdir _wchdir
 #define _tgetcwd _wgetcwd
+#define _tgetcwd_dbg _wgetcwd_dbg
 #define _tgetdcwd _wgetdcwd
+#define _tgetdcwd_dbg _wgetdcwd_dbg
+#define _tgetdcwd_lk_dbg _wgetdcwd_lk_dbg
 #define _tmkdir _wmkdir
 #define _trmdir _wrmdir
 
 #define _tfullpath _wfullpath
+#define _tfullpath_dbg _wfullpath_dbg
 #define _tgetenv _wgetenv
 #define _tmakepath _wmakepath
 #define _tpgmptr _wpgmptr
@@ -344,6 +363,7 @@ extern "C" {
 #define _tperror _wperror
 #define _tpopen _wpopen
 #define _ttempnam _wtempnam
+#define _ttempnam_dbg _wtempnam_dbg
 #define _ttmpnam _wtmpnam
 
 #define _taccess _waccess
@@ -393,6 +413,7 @@ extern "C" {
 #define _tcsnccpy wcsncpy
 #define _tcsnccpy_l _wcsncpy_l
 #define _tcsncset _wcsnset
+#define _tcsncset_l _wcsnset_l
 
 #define _tcsdec _wcsdec
 #define _tcsinc _wcsinc
@@ -456,7 +477,7 @@ extern "C" {
 #define _wcsspnp(_cpc1,_cpc2) (!_cpc1 ? NULL : ((*((_cpc1)+wcsspn(_cpc1,_cpc2))) ? ((_cpc1)+wcsspn(_cpc1,_cpc2)) : NULL))
 #define _wcsncpy_l(_Destination,_Source,_Count,_Locale) (wcsncpy(_Destination,_Source,_Count))
 #define _wcsncat_l(_Destination,_Source,_Count,_Locale) (wcsncat(_Destination,_Source,_Count))
-#define _wcstok_l(_String,_Delimiters,_Locale) (wcstok(_String,_Delimiters))
+#define _wcstok_l(_String,_Delimiters,_Locale) (_wcstok(_String,_Delimiters))
 #define _wcsnset_l(_Destination,_Value,_Count,_Locale) (_wcsnset(_Destination,_Value,_Count))
 #define _wcsset_l(_Destination,_Value,_Locale) (_wcsset(_Destination,_Value))
 
@@ -577,38 +598,53 @@ extern "C" {
 
 #define _tcstof strtof
 #define _tcstod strtod
+#define _tcstold strtold
 #define _tcstol strtol
 #define _tcstoul strtoul
+#define _tcstoll strtoll
+#define _tcstoull strtoull
 #define _tstof atof
 #define _tstol atol
+#define _tstoll atoll
 #define _tstoi atoi
 #define _tstoi64 _atoi64
 #define _tcstof_l _strtof_l
 #define _tcstod_l _strtod_l
+/* TODO: #define _tcstold_l _strtold_l  */
 #define _tcstol_l _strtol_l
 #define _tcstoul_l _strtoul_l
+#define _tcstoll_l _strtoll_l
+#define _tcstoull_l _strtoull_l
 #define _tstof_l _atof_l
 #define _tstol_l _atol_l
 #define _tstoi_l _atoi_l
+#define _tstoll_l _atoll_l
 #define _tstoi64_l _atoi64_l
 
 #define _itot _itoa
 #define _ltot _ltoa
 #define _ultot _ultoa
+#define _ttof atof
 #define _ttoi atoi
 #define _ttol atol
+#define _ttoll atoll
 
 #define _ttoi64 _atoi64
 #define _tcstoi64 _strtoi64
 #define _tcstoi64_l _strtoi64_l
 #define _tcstoui64 _strtoui64
 #define _tcstoui64_l _strtoui64_l
+#define _tcstoimax strtoimax
+#define _tcstoumax strtoumax
+#define _tcstoimax_l _strtoimax_l
+#define _tcstoumax_l _strtoumax_l
 #define _i64tot _i64toa
 #define _ui64tot _ui64toa
 
 #define _tcscat strcat
 #define _tcscpy strcpy
 #define _tcsdup _strdup
+#define _tcsdup_dbg _strdup_dbg
 #define _tcslen strlen
 #define _tcsnlen strnlen
 #define _tcsxfrm strxfrm
@@ -650,11 +686,15 @@ extern "C" {
 
 #define _tchdir _chdir
 #define _tgetcwd _getcwd
+#define _tgetcwd_dbg _getcwd_dbg
 #define _tgetdcwd _getdcwd
+#define _tgetdcwd_dbg _getdcwd_dbg
+#define _tgetdcwd_lk_dbg _getdcwd_lk_dbg
 #define _tmkdir _mkdir
 #define _trmdir _rmdir
 
 #define _tfullpath _fullpath
+#define _tfullpath_dbg _fullpath_dbg
 #define _tgetenv getenv
 #define _tmakepath _makepath
 #define _tpgmptr _pgmptr
@@ -674,6 +714,7 @@ extern "C" {
 #define _tperror perror
 #define _tpopen _popen
 #define _ttempnam _tempnam
+#define _ttempnam_dbg _tempnam_dbg
 #define _ttmpnam tmpnam
 
 #define _tchmod _chmod
@@ -906,6 +947,7 @@ extern "C" {
   _CRTIMP char *__cdecl _tcsnccpy(char *_Dst,const char *_Src,size_t _MaxCount);
   _CRTIMP char *__cdecl _tcsnccpy_l(char *_Dst,const char *_Src,size_t _MaxCount,_locale_t _Locale);
   _CRTIMP char *__cdecl _tcsncset(char *_Str,unsigned int _Val,size_t _MaxCount);
+  _CRTIMP char *__cdecl _tcsncset_l(char *_Str,unsigned int _Val,size_t _MaxCount,_locale_t _Locale);
   _CRTIMP char *__cdecl _tcsdec(const char *_Start,const char *_Pos);
   _CRTIMP char *__cdecl _tcsinc(const char *_Ptr);
   _CRTIMP size_t __cdecl _tcsnbcnt(const char *_Str,size_t _MaxCount);
@@ -1005,6 +1047,7 @@ extern "C" {
 #define _tcsnset_l _strnset_l
 #define _tcsrev _strrev
 #define _tcsset _strset
+#define _tcsset_l _strset_l
 
 #define _tcscmp strcmp
 #define _tcsicmp _stricmp
@@ -1038,6 +1081,7 @@ extern "C" {
 #define _tcsnccpy strncpy
 #define _tcsnccpy_l _strncpy_l
 #define _tcsncset _strnset
+#define _tcsncset_l _strnset_l
 
 #define _tcsdec _strdec
 #define _tcsinc _strinc
