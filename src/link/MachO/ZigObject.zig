@@ -53,7 +53,8 @@ pub fn init(self: *ZigObject, macho_file: *MachO) !void {
     try self.strtab.buffer.append(gpa, 0);
 
     switch (comp.config.debug_format) {
-        .strip => {},
+        .none => {},
+        .symbols => {},
         .dwarf => |v| {
             self.dwarf = Dwarf.init(&macho_file.base, v);
             self.debug_strtab_dirty = true;

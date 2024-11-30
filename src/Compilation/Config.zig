@@ -57,7 +57,6 @@ export_memory: bool,
 shared_memory: bool,
 is_test: bool,
 debug_format: DebugFormat,
-root_strip: std.builtin.Strip,
 root_error_tracing: bool,
 dll_export_fns: bool,
 rdynamic: bool,
@@ -66,7 +65,8 @@ san_cov_trace_pc_guard: bool,
 pub const CFrontend = enum { clang, aro };
 
 pub const DebugFormat = union(enum) {
-    strip,
+    none,
+    symbols,
     dwarf: std.dwarf.Format,
     code_view,
 };
@@ -78,7 +78,6 @@ pub const Options = struct {
     have_zcu: bool,
     emit_bin: bool,
     root_optimize_mode: ?std.builtin.OptimizeMode = null,
-    root_strip: ?std.builtin.Strip = null,
     root_error_tracing: ?bool = null,
     link_mode: ?std.builtin.LinkMode = null,
     ensure_libc_on_non_freestanding: bool = false,
@@ -432,24 +431,22 @@ pub fn resolve(options: Options) ResolveError!Config {
         break :b false;
     };
 
-    const root_strip: std.builtin.Strip = b: {
-        if (options.root_strip) |x| break :b x;
-        if (root_optimize_mode == .ReleaseSmall) break :b .all;
-        if (!target_util.hasDebugInfo(target)) break :b .all;
-        break :b .none;
-    };
-
     const debug_format: DebugFormat = b: {
-        if (root_strip != .none and !options.any_non_stripped) break :b .strip;
         if (options.debug_format) |x| break :b x;
+        if (root_optimize_mode == .ReleaseSmall) break :b .none;
+        if (!target_util.hasDebugInfo(target)) break :b .none;
         break :b switch (target.ofmt) {
-            .elf, .goff, .macho, .wasm, .xcoff => .{ .dwarf = .@"32" },
+            .elf, .goff, .macho, .wasm, .xcoff => switch (root_optimize_mode) {
+                .Debug => .{ .dwarf = .@"32" },
+                .ReleaseSafe, .ReleaseFast => .symbols,
+                .ReleaseSmall => unreachable,
+            },
             .coff => .code_view,
             .c => switch (target.os.tag) {
                 .windows, .uefi => .code_view,
                 else => .{ .dwarf = .@"32" },
             },
-            .spirv, .nvptx, .hex, .raw, .plan9 => .strip,
+            .spirv, .nvptx, .hex, .raw, .plan9 => .none,
         };
     };
 
@@ -458,7 +455,7 @@ pub fn resolve(options: Options) ResolveError!Config {
 
     const root_error_tracing = b: {
         if (options.root_error_tracing) |x| break :b x;
-        if (root_strip != .none) break :b false;
+        if (debug_format == .none or debug_format == .symbols) break :b false;
         if (!backend_supports_error_tracing) break :b false;
         break :b switch (root_optimize_mode) {
             .Debug => true,
@@ -513,7 +510,6 @@ pub fn resolve(options: Options) ResolveError!Config {
         .use_lld = use_lld,
         .wasi_exec_model = wasi_exec_model,
         .debug_format = debug_format,
-        .root_strip = root_strip,
         .dll_export_fns = dll_export_fns,
         .rdynamic = rdynamic,
     };

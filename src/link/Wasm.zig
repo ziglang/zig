@@ -3055,11 +3055,11 @@ fn writeToFile(
         if (data_section_index) |data_index| {
             try wasm.emitDataRelocations(&binary_bytes, data_index, symbol_table);
         }
-    } else if (comp.config.debug_format != .strip) {
+    } else if (comp.config.debug_format != .none) {
         try wasm.emitNameSection(&binary_bytes, arena);
     }
 
-    if (comp.config.debug_format != .strip) {
+    if (comp.config.debug_format != .none) {
         // The build id must be computed on the main sections only,
         // so we have to do it now, before the debug sections.
         switch (wasm.base.build_id) {
@@ -3569,7 +3569,7 @@ fn linkWithLLD(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
             try argv.append("--no-gc-sections");
         }
 
-        if (comp.config.debug_format == .strip) {
+        if (comp.config.debug_format == .none) {
             try argv.append("-s");
         }
 
@@ -4119,7 +4119,7 @@ fn markReferences(wasm: *Wasm) !void {
 
         // Debug sections may require to be parsed and marked when it contains
         // relocations to alive symbols.
-        if (sym.tag == .section and comp.config.debug_format != .strip) {
+        if (sym.tag == .section and comp.config.debug_format != .none) {
             const object_id = sym_loc.file.unwrap() orelse continue; // Incremental debug info is done independently
             _ = try wasm.parseSymbolIntoAtom(object_id, sym_loc.index);
             sym.mark();

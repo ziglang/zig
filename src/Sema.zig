@@ -2913,7 +2913,7 @@ fn zirStructDecl(
     try zcu.comp.queueJob(.{ .resolve_type_fully = wip_ty.index });
     codegen_type: {
         if (zcu.comp.config.use_llvm) break :codegen_type;
-        if (block.ownerModule().strip == .all) break :codegen_type;
+        if (block.ownerModule().debug_format == .none or block.ownerModule().debug_format == .symbols) break :codegen_type;
         // This job depends on any resolve_type_fully jobs queued up before it.
         try zcu.comp.queueJob(.{ .codegen_type = wip_ty.index });
     }
@@ -3164,7 +3164,7 @@ fn zirEnumDecl(
 
     codegen_type: {
         if (zcu.comp.config.use_llvm) break :codegen_type;
-        if (block.ownerModule().strip == .all) break :codegen_type;
+        if (block.ownerModule().debug_format == .none or block.ownerModule().debug_format == .symbols) break :codegen_type;
         // This job depends on any resolve_type_fully jobs queued up before it.
         try zcu.comp.queueJob(.{ .codegen_type = wip_ty.index });
     }
@@ -3288,7 +3288,7 @@ fn zirUnionDecl(
     try zcu.comp.queueJob(.{ .resolve_type_fully = wip_ty.index });
     codegen_type: {
         if (zcu.comp.config.use_llvm) break :codegen_type;
-        if (block.ownerModule().strip == .all) break :codegen_type;
+        if (block.ownerModule().debug_format == .none or block.ownerModule().debug_format == .symbols) break :codegen_type;
         // This job depends on any resolve_type_fully jobs queued up before it.
         try zcu.comp.queueJob(.{ .codegen_type = wip_ty.index });
     }
@@ -3374,7 +3374,7 @@ fn zirOpaqueDecl(
 
     codegen_type: {
         if (zcu.comp.config.use_llvm) break :codegen_type;
-        if (block.ownerModule().strip == .all) break :codegen_type;
+        if (block.ownerModule().debug_format == .none or block.ownerModule().debug_format == .symbols) break :codegen_type;
         // This job depends on any resolve_type_fully jobs queued up before it.
         try zcu.comp.queueJob(.{ .codegen_type = wip_ty.index });
     }
@@ -6650,7 +6650,7 @@ fn zirSwitchContinue(sema: *Sema, start_block: *Block, inst: Zir.Inst.Index) Com
 }
 
 fn zirDbgStmt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
-    if (block.is_comptime or block.ownerModule().strip != .none) return;
+    if (block.is_comptime or block.ownerModule().debug_format == .none or block.ownerModule().debug_format == .symbols) return;
 
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].dbg_stmt;
 
@@ -6676,7 +6676,7 @@ fn zirDbgStmt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!voi
 }
 
 fn zirDbgEmptyStmt(_: *Sema, block: *Block, _: Zir.Inst.Index) CompileError!void {
-    if (block.is_comptime or block.ownerModule().strip != .none) return;
+    if (block.is_comptime or block.ownerModule().debug_format == .none or block.ownerModule().debug_format == .symbols) return;
     _ = try block.addNoOp(.dbg_empty_stmt);
 }
 
@@ -6699,7 +6699,7 @@ fn addDbgVar(
     air_tag: Air.Inst.Tag,
     name: []const u8,
 ) CompileError!void {
-    if (block.is_comptime or block.ownerModule().strip != .none) return;
+    if (block.is_comptime or block.ownerModule().debug_format == .none or block.ownerModule().debug_format == .symbols) return;
 
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -7717,7 +7717,7 @@ fn analyzeCall(
         // set to in the `Block`.
         // This block instruction will be used to capture the return value from the
         // inlined function.
-        const need_debug_scope = !is_comptime_call and !block.is_typeof and block.ownerModule().strip == .none;
+        const need_debug_scope = !is_comptime_call and !block.is_typeof and !(block.ownerModule().debug_format == .none or block.ownerModule().debug_format == .symbols);
         const block_inst: Air.Inst.Index = @enumFromInt(sema.air_instructions.len);
         try sema.air_instructions.append(gpa, .{
             .tag = if (need_debug_scope) .dbg_inline_block else .block,
@@ -8439,7 +8439,7 @@ fn instantiateGenericCall(
                 .tag = .arg,
                 .data = .{ .arg = .{
                     .ty = Air.internedToRef(arg_ty.toIntern()),
-                    .name = if (child_block.ownerModule().strip == .all)
+                    .name = if (child_block.ownerModule().debug_format == .none or child_block.ownerModule().debug_format == .symbols)
                         .none
                     else
                         try sema.appendAirString(fn_zir.nullTerminatedString(param_name)),
@@ -21292,7 +21292,7 @@ fn structInitAnon(
             try zcu.comp.queueJob(.{ .resolve_type_fully = wip.index });
             codegen_type: {
                 if (zcu.comp.config.use_llvm) break :codegen_type;
-                if (block.ownerModule().strip != .none) break :codegen_type;
+                if (block.ownerModule().debug_format == .none or block.ownerModule().debug_format == .symbols) break :codegen_type;
                 try zcu.comp.queueJob(.{ .codegen_type = wip.index });
             }
             break :ty wip.finish(ip, new_cau_index.toOptional(), new_namespace_index);
@@ -22659,7 +22659,7 @@ fn reifyEnum(
 
     codegen_type: {
         if (zcu.comp.config.use_llvm) break :codegen_type;
-        if (block.ownerModule().strip != .none) break :codegen_type;
+        if (block.ownerModule().debug_format == .none or block.ownerModule().debug_format == .symbols) break :codegen_type;
         // This job depends on any resolve_type_fully jobs queued up before it.
         try zcu.comp.queueJob(.{ .codegen_type = wip_ty.index });
     }
@@ -22917,7 +22917,7 @@ fn reifyUnion(
     try zcu.comp.queueJob(.{ .resolve_type_fully = wip_ty.index });
     codegen_type: {
         if (zcu.comp.config.use_llvm) break :codegen_type;
-        if (block.ownerModule().strip != .none) break :codegen_type;
+        if (block.ownerModule().debug_format == .none or block.ownerModule().debug_format == .symbols) break :codegen_type;
         // This job depends on any resolve_type_fully jobs queued up before it.
         try zcu.comp.queueJob(.{ .codegen_type = wip_ty.index });
     }
@@ -23276,7 +23276,7 @@ fn reifyStruct(
     try zcu.comp.queueJob(.{ .resolve_type_fully = wip_ty.index });
     codegen_type: {
         if (zcu.comp.config.use_llvm) break :codegen_type;
-        if (block.ownerModule().strip != .none) break :codegen_type;
+        if (block.ownerModule().debug_format == .none or block.ownerModule().debug_format == .symbols) break :codegen_type;
         // This job depends on any resolve_type_fully jobs queued up before it.
         try zcu.comp.queueJob(.{ .codegen_type = wip_ty.index });
     }

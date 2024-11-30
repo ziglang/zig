@@ -851,7 +851,7 @@ pub const Object = struct {
 
         var builder = try Builder.init(.{
             .allocator = gpa,
-            .strip = comp.config.debug_format == .strip,
+            .strip = comp.config.debug_format == .none or comp.config.debug_format == .symbols,
             .name = comp.root_name,
             .target = target,
             .triple = llvm_target_triple,
@@ -1148,38 +1148,42 @@ pub const Object = struct {
                 ));
             }
 
-            if (!o.builder.strip) {
-                module_flags.appendAssumeCapacity(try o.builder.metadataModuleFlag(
-                    behavior_warning,
-                    try o.builder.metadataString("Debug Info Version"),
-                    try o.builder.metadataConstant(try o.builder.intConst(.i32, 3)),
-                ));
+            switch (comp.config.debug_format) {
+                .none, .symbols => {},
+                .dwarf => |f| {
+                    module_flags.appendAssumeCapacity(try o.builder.metadataModuleFlag(
+                        behavior_warning,
+                        try o.builder.metadataString("Debug Info Version"),
+                        try o.builder.metadataConstant(try o.builder.intConst(.i32, 3)),
+                    ));
 
-                switch (comp.config.debug_format) {
-                    .strip => unreachable,
-                    .dwarf => |f| {
+                    module_flags.appendAssumeCapacity(try o.builder.metadataModuleFlag(
+                        behavior_max,
+                        try o.builder.metadataString("Dwarf Version"),
+                        try o.builder.metadataConstant(try o.builder.intConst(.i32, 4)),
+                    ));
+
+                    if (f == .@"64") {
                         module_flags.appendAssumeCapacity(try o.builder.metadataModuleFlag(
                             behavior_max,
-                            try o.builder.metadataString("Dwarf Version"),
-                            try o.builder.metadataConstant(try o.builder.intConst(.i32, 4)),
-                        ));
-
-                        if (f == .@"64") {
-                            module_flags.appendAssumeCapacity(try o.builder.metadataModuleFlag(
-                                behavior_max,
-                                try o.builder.metadataString("DWARF64"),
-                                try o.builder.metadataConstant(.@"1"),
-                            ));
-                        }
-                    },
-                    .code_view => {
-                        module_flags.appendAssumeCapacity(try o.builder.metadataModuleFlag(
-                            behavior_warning,
-                            try o.builder.metadataString("CodeView"),
+                            try o.builder.metadataString("DWARF64"),
                             try o.builder.metadataConstant(.@"1"),
                         ));
-                    },
-                }
+                    }
+                },
+                .code_view => {
+                    module_flags.appendAssumeCapacity(try o.builder.metadataModuleFlag(
+                        behavior_warning,
+                        try o.builder.metadataString("Debug Info Version"),
+                        try o.builder.metadataConstant(try o.builder.intConst(.i32, 3)),
+                    ));
+
+                    module_flags.appendAssumeCapacity(try o.builder.metadataModuleFlag(
+                        behavior_warning,
+                        try o.builder.metadataString("CodeView"),
+                        try o.builder.metadataConstant(.@"1"),
+                    ));
+                },
             }
 
             const target = comp.root_mod.resolved_target.result;
@@ -1482,7 +1486,7 @@ pub const Object = struct {
         var deinit_wip = true;
         var wip = try Builder.WipFunction.init(&o.builder, .{
             .function = function_index,
-            .strip = owner_mod.strip == .all or owner_mod.strip == .debuginfo,
+            .strip = !(owner_mod.debug_format == .dwarf or owner_mod.debug_format == .code_view),
         });
         defer if (deinit_wip) wip.deinit();
         wip.cursor = .{ .block = try wip.block(0, "Entry") };
@@ -4829,7 +4833,7 @@ pub const NavGen = struct {
 
             const line_number = zcu.navSrcLine(nav_index) + 1;
 
-            if (mod.strip == .none) {
+            if (mod.debug_format == .dwarf or mod.debug_format == .code_view) {
                 const debug_file = try o.getDebugFile(file_scope);
 
                 const debug_global_var = try o.builder.debugGlobalVar(

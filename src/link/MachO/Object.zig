@@ -1745,7 +1745,7 @@ pub fn calcSymtabSize(self: *Object, macho_file: *MachO) void {
         self.output_symtab_ctx.strsize += @as(u32, @intCast(sym.getName(macho_file).len + 1));
     }
 
-    if (macho_file.base.comp.config.debug_format != .strip and self.hasDebugInfo())
+    if (macho_file.base.comp.config.debug_format != .none and self.hasDebugInfo())
         self.calcStabsSize(macho_file);
 }
 
@@ -2009,7 +2009,7 @@ pub fn writeSymtab(self: Object, macho_file: *MachO, ctx: anytype) void {
         n_strx += 1;
     }
 
-    if (macho_file.base.comp.config.debug_format != .strip and self.hasDebugInfo())
+    if (macho_file.base.comp.config.debug_format != .none and self.hasDebugInfo())
         self.writeStabs(n_strx, macho_file, ctx);
 }
 

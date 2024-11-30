@@ -153,7 +153,7 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
     });
 
     const optimize_mode = comp.compilerRtOptMode();
-    const strip = comp.compilerRtStrip();
+    const debug_format = comp.compilerRtDebugFormat();
 
     const config = Compilation.Config.resolve(.{
         .output_mode = output_mode,
@@ -163,7 +163,7 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
         .have_zcu = false,
         .emit_bin = true,
         .root_optimize_mode = optimize_mode,
-        .root_strip = strip,
+        .debug_format = debug_format,
         .link_libc = true,
         .lto = comp.config.lto,
         .any_sanitize_thread = comp.config.any_sanitize_thread,
@@ -185,7 +185,7 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
         .fully_qualified_name = "root",
         .inherited = .{
             .resolved_target = comp.root_mod.resolved_target,
-            .strip = strip,
+            .debug_format = debug_format,
             .stack_check = false,
             .stack_protector = 0,
             .sanitize_c = false,
@@ -396,7 +396,7 @@ pub fn buildLibCXXABI(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
     });
 
     const optimize_mode = comp.compilerRtOptMode();
-    const strip = comp.compilerRtStrip();
+    const debug_format = comp.compilerRtDebugFormat();
 
     const config = Compilation.Config.resolve(.{
         .output_mode = output_mode,
@@ -406,7 +406,7 @@ pub fn buildLibCXXABI(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         .have_zcu = false,
         .emit_bin = true,
         .root_optimize_mode = optimize_mode,
-        .root_strip = strip,
+        .debug_format = debug_format,
         .link_libc = true,
         .lto = comp.config.lto,
         .any_sanitize_thread = comp.config.any_sanitize_thread,
@@ -428,7 +428,7 @@ pub fn buildLibCXXABI(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         .fully_qualified_name = "root",
         .inherited = .{
             .resolved_target = comp.root_mod.resolved_target,
-            .strip = strip,
+            .debug_format = debug_format,
             .stack_check = false,
             .stack_protector = 0,
             .sanitize_c = false,

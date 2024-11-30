@@ -34,7 +34,7 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         .have_zcu = false,
         .emit_bin = true,
         .root_optimize_mode = comp.compilerRtOptMode(),
-        .root_strip = comp.compilerRtStrip(),
+        .debug_format = comp.compilerRtDebugFormat(),
         .link_libc = true,
         // Disable LTO to avoid https://github.com/llvm/llvm-project/issues/56825
         .lto = false,
@@ -56,7 +56,7 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         .fully_qualified_name = "root",
         .inherited = .{
             .resolved_target = comp.root_mod.resolved_target,
-            .strip = comp.compilerRtStrip(),
+            .debug_format = comp.compilerRtDebugFormat(),
             .stack_check = false,
             .stack_protector = 0,
             .red_zone = comp.root_mod.red_zone,

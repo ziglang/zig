@@ -768,7 +768,7 @@ pub fn loadInput(self: *Elf, input: link.Input) !void {
     const gpa = comp.gpa;
     const diags = &comp.link_diags;
     const target = self.getTarget();
-    const debug_fmt_strip = comp.config.debug_format == .strip;
+    const debug_fmt_strip = comp.config.debug_format == .none or comp.config.debug_format == .symbols;
     const default_sym_version = self.default_sym_version;
     const is_static_lib = self.base.isStaticLib();
 
@@ -1085,7 +1085,7 @@ fn dumpArgvInit(self: *Elf, arena: Allocator) !void {
             try argv.append(gpa, "-pie");
         }
 
-        if (comp.config.debug_format == .strip) {
+        if (comp.config.debug_format == .none) {
             try argv.append(gpa, "-s");
         }
 
@@ -1123,7 +1123,7 @@ fn parseObject(self: *Elf, obj: link.Input.Object) !void {
     const gpa = self.base.comp.gpa;
     const diags = &self.base.comp.link_diags;
     const target = self.base.comp.root_mod.resolved_target.result;
-    const debug_fmt_strip = self.base.comp.config.debug_format == .strip;
+    const debug_fmt_strip = self.base.comp.config.debug_format == .none or self.base.comp.config.debug_format == .symbols;
     const default_sym_version = self.default_sym_version;
     const file_handles = &self.file_handles;
 
@@ -1772,7 +1772,7 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
             try argv.append("--export-dynamic");
         }
 
-        if (comp.config.debug_format == .strip) {
+        if (comp.config.debug_format == .none) {
             try argv.append("-s");
         }
 

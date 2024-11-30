@@ -97,7 +97,10 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
     }
 
     switch (comp.config.debug_format) {
-        .strip => {},
+        .none => {},
+        .symbols => {
+            // TODO: make sure symbols are generated
+        },
         .dwarf => |v| {
             var dwarf = Dwarf.init(&elf_file.base, v);
 

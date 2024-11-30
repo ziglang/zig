@@ -213,7 +213,7 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
         },
         .libc_so => {
             const optimize_mode = comp.compilerRtOptMode();
-            const strip = comp.compilerRtStrip();
+            const debug_format = comp.compilerRtDebugFormat();
             const output_mode: std.builtin.OutputMode = .Lib;
             const config = try Compilation.Config.resolve(.{
                 .output_mode = output_mode,
@@ -223,7 +223,7 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
                 .have_zcu = false,
                 .emit_bin = true,
                 .root_optimize_mode = optimize_mode,
-                .root_strip = strip,
+                .debug_format = debug_format,
                 .link_libc = false,
             });
 
@@ -261,7 +261,7 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
                 .fully_qualified_name = "root",
                 .inherited = .{
                     .resolved_target = comp.root_mod.resolved_target,
-                    .strip = strip,
+                    .debug_format = debug_format,
                     .stack_check = false,
                     .stack_protector = 0,
                     .sanitize_c = false,

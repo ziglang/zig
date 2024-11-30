@@ -19,7 +19,7 @@ single_threaded: bool,
 error_tracing: bool,
 valgrind: bool,
 pic: bool,
-strip: std.builtin.Strip,
+debug_format: Compilation.Config.DebugFormat,
 omit_frame_pointer: bool,
 stack_check: bool,
 stack_protector: u32,
@@ -83,7 +83,7 @@ pub const CreateOptions = struct {
         error_tracing: ?bool = null,
         valgrind: ?bool = null,
         pic: ?bool = null,
-        strip: ?std.builtin.Strip = null,
+        debug_format: ?Compilation.Config.DebugFormat = null,
         omit_frame_pointer: ?bool = null,
         stack_check: ?bool = null,
         /// null means default.
@@ -124,10 +124,10 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
     const unwind_tables = options.inherited.unwind_tables orelse
         if (options.parent) |p| p.unwind_tables else options.global.any_unwind_tables;
 
-    const strip = b: {
-        if (options.inherited.strip) |x| break :b x;
-        if (options.parent) |p| break :b p.strip;
-        break :b options.global.root_strip;
+    const debuginfo_format = b: {
+        if (options.inherited.debug_format) |x| break :b x;
+        if (options.parent) |p| break :b p.debug_format;
+        break :b options.global.debug_format;
     };
 
     const valgrind = b: {
@@ -138,7 +138,7 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
         }
         if (options.inherited.valgrind) |x| break :b x;
         if (options.parent) |p| break :b p.valgrind;
-        if (strip == .all) break :b false;
+        if (debuginfo_format == .none) break :b false;
         break :b optimize_mode != .ReleaseSmall;
     };
 
@@ -358,7 +358,7 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
         .error_tracing = error_tracing,
         .valgrind = valgrind,
         .pic = pic,
-        .strip = strip,
+        .debug_format = debuginfo_format,
         .omit_frame_pointer = omit_frame_pointer,
         .stack_check = stack_check,
         .stack_protector = stack_protector,
@@ -394,7 +394,7 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
             .fuzz = fuzz,
             .pic = pic,
             .pie = options.global.pie,
-            .strip = strip,
+            .debug_format = debuginfo_format,
             .code_model = code_model,
             .omit_frame_pointer = omit_frame_pointer,
             .wasi_exec_model = options.global.wasi_exec_model,
@@ -452,7 +452,7 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
             .error_tracing = error_tracing,
             .valgrind = valgrind,
             .pic = pic,
-            .strip = strip,
+            .debug_format = debuginfo_format,
             .omit_frame_pointer = omit_frame_pointer,
             .stack_check = stack_check,
             .stack_protector = stack_protector,
@@ -514,7 +514,7 @@ pub fn createLimited(gpa: Allocator, options: LimitedOptions) Allocator.Error!*P
         .error_tracing = undefined,
         .valgrind = undefined,
         .pic = undefined,
-        .strip = undefined,
+        .debug_format = undefined,
         .omit_frame_pointer = undefined,
         .stack_check = undefined,
         .stack_protector = undefined,
