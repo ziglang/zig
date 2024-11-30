@@ -47,6 +47,17 @@ pub fn vertexIndex(comptime ptr: *addrspace(.input) u32) void {
     );
 }
 
+/// Will make `ptr` contain the index of the instance that is
+/// being processed by the current vertex shader invocation.
+/// `ptr` must be a reference to variable or struct field.
+pub fn instanceIndex(comptime ptr: *addrspace(.input) u32) void {
+    asm volatile (
+        \\OpDecorate %ptr BuiltIn InstanceIndex
+        :
+        : [ptr] "" (ptr),
+    );
+}
+
 /// Output fragment depth from a `Fragment` entrypoint
 /// `ptr` must be a reference to variable or struct field.
 pub fn fragmentCoord(comptime ptr: *addrspace(.input) @Vector(4, f32)) void {

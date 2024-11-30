@@ -460,6 +460,8 @@ pub const Inst = struct {
         /// Result type is always void.
         /// Uses the `dbg_stmt` field.
         dbg_stmt,
+        /// Marks a statement that can be stepped to but produces no code.
+        dbg_empty_stmt,
         /// A block that represents an inlined function call.
         /// Uses the `ty_pl` field. Payload is `DbgInlineBlock`.
         dbg_inline_block,
@@ -962,7 +964,7 @@ pub const Inst = struct {
         anyerror_void_error_union_type = @intFromEnum(InternPool.Index.anyerror_void_error_union_type),
         adhoc_inferred_error_set_type = @intFromEnum(InternPool.Index.adhoc_inferred_error_set_type),
         generic_poison_type = @intFromEnum(InternPool.Index.generic_poison_type),
-        empty_struct_type = @intFromEnum(InternPool.Index.empty_struct_type),
+        empty_tuple_type = @intFromEnum(InternPool.Index.empty_tuple_type),
         undef = @intFromEnum(InternPool.Index.undef),
         zero = @intFromEnum(InternPool.Index.zero),
         zero_usize = @intFromEnum(InternPool.Index.zero_usize),
@@ -977,7 +979,7 @@ pub const Inst = struct {
         null_value = @intFromEnum(InternPool.Index.null_value),
         bool_true = @intFromEnum(InternPool.Index.bool_true),
         bool_false = @intFromEnum(InternPool.Index.bool_false),
-        empty_struct = @intFromEnum(InternPool.Index.empty_struct),
+        empty_tuple = @intFromEnum(InternPool.Index.empty_tuple),
         generic_poison = @intFromEnum(InternPool.Index.generic_poison),
 
         /// This Ref does not correspond to any AIR instruction or constant
@@ -1468,6 +1470,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
 
         .breakpoint,
         .dbg_stmt,
+        .dbg_empty_stmt,
         .dbg_var_ptr,
         .dbg_var_val,
         .dbg_arg_inline,
@@ -1629,6 +1632,7 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .try_ptr,
         .try_ptr_cold,
         .dbg_stmt,
+        .dbg_empty_stmt,
         .dbg_inline_block,
         .dbg_var_ptr,
         .dbg_var_val,

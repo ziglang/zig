@@ -172,7 +172,13 @@ pub const HeadersParser = struct {
                     const data_avail = r.next_chunk_length;
 
                     if (skip) {
-                        try conn.fill();
+                        conn.fill() catch |err| switch (err) {
+                            error.EndOfStream => {
+                                r.done = true;
+                                return 0;
+                            },
+                            else => |e| return e,
+                        };
 
                         const nread = @min(conn.peek().len, data_avail);
                         conn.drop(@intCast(nread));
@@ -196,7 +202,13 @@ pub const HeadersParser = struct {
                     }
                 },
                 .chunk_data_suffix, .chunk_data_suffix_r, .chunk_head_size, .chunk_head_ext, .chunk_head_r => {
-                    try conn.fill();
+                    conn.fill() catch |err| switch (err) {
+                        error.EndOfStream => {
+                            r.done = true;
+                            return 0;
+                        },
+                        else => |e| return e,
+                    };
 
                     const i = r.findChunkedLen(conn.peek());
                     conn.drop(@intCast(i));
@@ -226,7 +238,13 @@ pub const HeadersParser = struct {
                     const out_avail = buffer.len - out_index;
 
                     if (skip) {
-                        try conn.fill();
+                        conn.fill() catch |err| switch (err) {
+                            error.EndOfStream => {
+                                r.done = true;
+                                return 0;
+                            },
+                            else => |e| return e,
+                        };
 
                         const nread = @min(conn.peek().len, data_avail);
                         conn.drop(@intCast(nread));

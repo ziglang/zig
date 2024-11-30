@@ -1597,7 +1597,7 @@ pub const all_features = blk: {
 };
 
 pub const cpu = struct {
-    pub const a64fx = CpuModel{
+    pub const a64fx: CpuModel = .{
         .name = "a64fx",
         .llvm_name = "a64fx",
         .features = featureSet(&[_]Feature{
@@ -1614,7 +1614,7 @@ pub const cpu = struct {
             .v8_2a,
         }),
     };
-    pub const ampere1 = CpuModel{
+    pub const ampere1: CpuModel = .{
         .name = "ampere1",
         .llvm_name = "ampere1",
         .features = featureSet(&[_]Feature{
@@ -1638,7 +1638,7 @@ pub const cpu = struct {
             .v8_6a,
         }),
     };
-    pub const ampere1a = CpuModel{
+    pub const ampere1a: CpuModel = .{
         .name = "ampere1a",
         .llvm_name = "ampere1a",
         .features = featureSet(&[_]Feature{
@@ -1665,7 +1665,7 @@ pub const cpu = struct {
             .v8_6a,
         }),
     };
-    pub const ampere1b = CpuModel{
+    pub const ampere1b: CpuModel = .{
         .name = "ampere1b",
         .llvm_name = "ampere1b",
         .features = featureSet(&[_]Feature{
@@ -1694,7 +1694,7 @@ pub const cpu = struct {
             .v8_7a,
         }),
     };
-    pub const apple_a10 = CpuModel{
+    pub const apple_a10: CpuModel = .{
         .name = "apple_a10",
         .llvm_name = "apple-a10",
         .features = featureSet(&[_]Feature{
@@ -1718,7 +1718,7 @@ pub const cpu = struct {
             .zcz,
         }),
     };
-    pub const apple_a11 = CpuModel{
+    pub const apple_a11: CpuModel = .{
         .name = "apple_a11",
         .llvm_name = "apple-a11",
         .features = featureSet(&[_]Feature{
@@ -1738,7 +1738,7 @@ pub const cpu = struct {
             .zcz,
         }),
     };
-    pub const apple_a12 = CpuModel{
+    pub const apple_a12: CpuModel = .{
         .name = "apple_a12",
         .llvm_name = "apple-a12",
         .features = featureSet(&[_]Feature{
@@ -1758,7 +1758,7 @@ pub const cpu = struct {
             .zcz,
         }),
     };
-    pub const apple_a13 = CpuModel{
+    pub const apple_a13: CpuModel = .{
         .name = "apple_a13",
         .llvm_name = "apple-a13",
         .features = featureSet(&[_]Feature{
@@ -1778,7 +1778,7 @@ pub const cpu = struct {
             .zcz,
         }),
     };
-    pub const apple_a14 = CpuModel{
+    pub const apple_a14: CpuModel = .{
         .name = "apple_a14",
         .llvm_name = "apple-a14",
         .features = featureSet(&[_]Feature{
@@ -1810,7 +1810,7 @@ pub const cpu = struct {
             .zcz,
         }),
     };
-    pub const apple_a15 = CpuModel{
+    pub const apple_a15: CpuModel = .{
         .name = "apple_a15",
         .llvm_name = "apple-a15",
         .features = featureSet(&[_]Feature{
@@ -1834,7 +1834,7 @@ pub const cpu = struct {
             .zcz,
         }),
     };
-    pub const apple_a16 = CpuModel{
+    pub const apple_a16: CpuModel = .{
         .name = "apple_a16",
         .llvm_name = "apple-a16",
         .features = featureSet(&[_]Feature{
@@ -1860,7 +1860,7 @@ pub const cpu = struct {
             .zcz,
         }),
     };
-    pub const apple_a17 = CpuModel{
+    pub const apple_a17: CpuModel = .{
         .name = "apple_a17",
         .llvm_name = "apple-a17",
         .features = featureSet(&[_]Feature{
@@ -1886,7 +1886,7 @@ pub const cpu = struct {
             .zcz,
         }),
     };
-    pub const apple_a7 = CpuModel{
+    pub const apple_a7: CpuModel = .{
         .name = "apple_a7",
         .llvm_name = "apple-a7",
         .features = featureSet(&[_]Feature{
@@ -1906,7 +1906,7 @@ pub const cpu = struct {
             .zcz_fp_workaround,
         }),
     };
-    pub const apple_a8 = CpuModel{
+    pub const apple_a8: CpuModel = .{
         .name = "apple_a8",
         .llvm_name = "apple-a8",
         .features = featureSet(&[_]Feature{
@@ -1926,7 +1926,7 @@ pub const cpu = struct {
             .zcz_fp_workaround,
         }),
     };
-    pub const apple_a9 = CpuModel{
+    pub const apple_a9: CpuModel = .{
         .name = "apple_a9",
         .llvm_name = "apple-a9",
         .features = featureSet(&[_]Feature{
@@ -1946,7 +1946,7 @@ pub const cpu = struct {
             .zcz_fp_workaround,
         }),
     };
-    pub const apple_m1 = CpuModel{
+    pub const apple_m1: CpuModel = .{
         .name = "apple_m1",
         .llvm_name = "apple-m1",
         .features = featureSet(&[_]Feature{
@@ -1978,7 +1978,7 @@ pub const cpu = struct {
             .zcz,
         }),
     };
-    pub const apple_m2 = CpuModel{
+    pub const apple_m2: CpuModel = .{
         .name = "apple_m2",
         .llvm_name = "apple-m2",
         .features = featureSet(&[_]Feature{
@@ -2002,7 +2002,7 @@ pub const cpu = struct {
             .zcz,
         }),
     };
-    pub const apple_m3 = CpuModel{
+    pub const apple_m3: CpuModel = .{
         .name = "apple_m3",
         .llvm_name = "apple-m3",
         .features = featureSet(&[_]Feature{
@@ -2028,7 +2028,7 @@ pub const cpu = struct {
             .zcz,
         }),
     };
-    pub const apple_m4 = CpuModel{
+    pub const apple_m4: CpuModel = .{
         .name = "apple_m4",
         .llvm_name = "apple-m4",
         .features = featureSet(&[_]Feature{
@@ -2054,7 +2054,7 @@ pub const cpu = struct {
             .zcz,
         }),
     };
-    pub const apple_s4 = CpuModel{
+    pub const apple_s4: CpuModel = .{
         .name = "apple_s4",
         .llvm_name = "apple-s4",
         .features = featureSet(&[_]Feature{
@@ -2074,7 +2074,7 @@ pub const cpu = struct {
             .zcz,
         }),
     };
-    pub const apple_s5 = CpuModel{
+    pub const apple_s5: CpuModel = .{
         .name = "apple_s5",
         .llvm_name = "apple-s5",
         .features = featureSet(&[_]Feature{
@@ -2094,7 +2094,7 @@ pub const cpu = struct {
             .zcz,
         }),
     };
-    pub const carmel = CpuModel{
+    pub const carmel: CpuModel = .{
         .name = "carmel",
         .llvm_name = "carmel",
         .features = featureSet(&[_]Feature{
@@ -2104,7 +2104,7 @@ pub const cpu = struct {
             .v8_2a,
         }),
     };
-    pub const cobalt_100 = CpuModel{
+    pub const cobalt_100: CpuModel = .{
         .name = "cobalt_100",
         .llvm_name = "cobalt-100",
         .features = featureSet(&[_]Feature{
@@ -2124,7 +2124,7 @@ pub const cpu = struct {
             .v9a,
         }),
     };
-    pub const cortex_a34 = CpuModel{
+    pub const cortex_a34: CpuModel = .{
         .name = "cortex_a34",
         .llvm_name = "cortex-a34",
         .features = featureSet(&[_]Feature{
@@ -2135,7 +2135,7 @@ pub const cpu = struct {
             .v8a,
         }),
     };
-    pub const cortex_a35 = CpuModel{
+    pub const cortex_a35: CpuModel = .{
         .name = "cortex_a35",
         .llvm_name = "cortex-a35",
         .features = featureSet(&[_]Feature{
@@ -2146,7 +2146,7 @@ pub const cpu = struct {
             .v8a,
         }),
     };
-    pub const cortex_a510 = CpuModel{
+    pub const cortex_a510: CpuModel = .{
         .name = "cortex_a510",
         .llvm_name = "cortex-a510",
         .features = featureSet(&[_]Feature{
@@ -2163,7 +2163,7 @@ pub const cpu = struct {
             .v9a,
         }),
     };
-    pub const cortex_a520 = CpuModel{
+    pub const cortex_a520: CpuModel = .{
         .name = "cortex_a520",
         .llvm_name = "cortex-a520",
         .features = featureSet(&[_]Feature{
@@ -2178,7 +2178,7 @@ pub const cpu = struct {
             .v9_2a,
         }),
     };
-    pub const cortex_a520ae = CpuModel{
+    pub const cortex_a520ae: CpuModel = .{
         .name = "cortex_a520ae",
         .llvm_name = "cortex-a520ae",
         .features = featureSet(&[_]Feature{
@@ -2193,7 +2193,7 @@ pub const cpu = struct {
             .v9_2a,
         }),
     };
-    pub const cortex_a53 = CpuModel{
+    pub const cortex_a53: CpuModel = .{
         .name = "cortex_a53",
         .llvm_name = "cortex-a53",
         .features = featureSet(&[_]Feature{
@@ -2208,7 +2208,7 @@ pub const cpu = struct {
             .v8a,
         }),
     };
-    pub const cortex_a55 = CpuModel{
+    pub const cortex_a55: CpuModel = .{
         .name = "cortex_a55",
         .llvm_name = "cortex-a55",
         .features = featureSet(&[_]Feature{
@@ -2225,7 +2225,7 @@ pub const cpu = struct {
             .v8_2a,
         }),
     };
-    pub const cortex_a57 = CpuModel{
+    pub const cortex_a57: CpuModel = .{
         .name = "cortex_a57",
         .llvm_name = "cortex-a57",
         .features = featureSet(&[_]Feature{
@@ -2244,7 +2244,7 @@ pub const cpu = struct {
             .v8a,
         }),
     };
-    pub const cortex_a65 = CpuModel{
+    pub const cortex_a65: CpuModel = .{
         .name = "cortex_a65",
         .llvm_name = "cortex-a65",
         .features = featureSet(&[_]Feature{
@@ -2264,7 +2264,7 @@ pub const cpu = struct {
             .v8_2a,
         }),
     };
-    pub const cortex_a65ae = CpuModel{
+    pub const cortex_a65ae: CpuModel = .{
         .name = "cortex_a65ae",
         .llvm_name = "cortex-a65ae",
         .features = featureSet(&[_]Feature{
@@ -2284,7 +2284,7 @@ pub const cpu = struct {
             .v8_2a,
         }),
     };
-    pub const cortex_a710 = CpuModel{
+    pub const cortex_a710: CpuModel = .{
         .name = "cortex_a710",
         .llvm_name = "cortex-a710",
         .features = featureSet(&[_]Feature{
@@ -2305,7 +2305,7 @@ pub const cpu = struct {
             .v9a,
         }),
     };
-    pub const cortex_a715 = CpuModel{
+    pub const cortex_a715: CpuModel = .{
         .name = "cortex_a715",
         .llvm_name = "cortex-a715",
         .features = featureSet(&[_]Feature{
@@ -2327,7 +2327,7 @@ pub const cpu = struct {
             .v9a,
         }),
     };
-    pub const cortex_a72 = CpuModel{
+    pub const cortex_a72: CpuModel = .{
         .name = "cortex_a72",
         .llvm_name = "cortex-a72",
         .features = featureSet(&[_]Feature{
@@ -2344,7 +2344,7 @@ pub const cpu = struct {
             .v8a,
         }),
     };
-    pub const cortex_a720 = CpuModel{
+    pub const cortex_a720: CpuModel = .{
         .name = "cortex_a720",
         .llvm_name = "cortex-a720",
         .features = featureSet(&[_]Feature{
@@ -2365,7 +2365,7 @@ pub const cpu = struct {
             .v9_2a,
         }),
     };
-    pub const cortex_a720ae = CpuModel{
+    pub const cortex_a720ae: CpuModel = .{
         .name = "cortex_a720ae",
         .llvm_name = "cortex-a720ae",
         .features = featureSet(&[_]Feature{
@@ -2386,7 +2386,7 @@ pub const cpu = struct {
             .v9_2a,
         }),
     };
-    pub const cortex_a725 = CpuModel{
+    pub const cortex_a725: CpuModel = .{
         .name = "cortex_a725",
         .llvm_name = "cortex-a725",
         .features = featureSet(&[_]Feature{
@@ -2407,7 +2407,7 @@ pub const cpu = struct {
             .v9_2a,
         }),
     };
-    pub const cortex_a73 = CpuModel{
+    pub const cortex_a73: CpuModel = .{
         .name = "cortex_a73",
         .llvm_name = "cortex-a73",
         .features = featureSet(&[_]Feature{
@@ -2423,7 +2423,7 @@ pub const cpu = struct {
             .v8a,
         }),
     };
-    pub const cortex_a75 = CpuModel{
+    pub const cortex_a75: CpuModel = .{
         .name = "cortex_a75",
         .llvm_name = "cortex-a75",
         .features = featureSet(&[_]Feature{
@@ -2441,7 +2441,7 @@ pub const cpu = struct {
             .v8_2a,
         }),
     };
-    pub const cortex_a76 = CpuModel{
+    pub const cortex_a76: CpuModel = .{
         .name = "cortex_a76",
         .llvm_name = "cortex-a76",
         .features = featureSet(&[_]Feature{
@@ -2461,7 +2461,7 @@ pub const cpu = struct {
             .v8_2a,
         }),
     };
-    pub const cortex_a76ae = CpuModel{
+    pub const cortex_a76ae: CpuModel = .{
         .name = "cortex_a76ae",
         .llvm_name = "cortex-a76ae",
         .features = featureSet(&[_]Feature{
@@ -2481,7 +2481,7 @@ pub const cpu = struct {
             .v8_2a,
         }),
     };
-    pub const cortex_a77 = CpuModel{
+    pub const cortex_a77: CpuModel = .{
         .name = "cortex_a77",
         .llvm_name = "cortex-a77",
         .features = featureSet(&[_]Feature{
@@ -2502,7 +2502,7 @@ pub const cpu = struct {
             .v8_2a,
         }),
     };
-    pub const cortex_a78 = CpuModel{
+    pub const cortex_a78: CpuModel = .{
         .name = "cortex_a78",
         .llvm_name = "cortex-a78",
         .features = featureSet(&[_]Feature{
@@ -2525,7 +2525,7 @@ pub const cpu = struct {
             .v8_2a,
         }),
     };
-    pub const cortex_a78ae = CpuModel{
+    pub const cortex_a78ae: CpuModel = .{
         .name = "cortex_a78ae",
         .llvm_name = "cortex-a78ae",
         .features = featureSet(&[_]Feature{
@@ -2548,7 +2548,7 @@ pub const cpu = struct {
             .v8_2a,
         }),
     };
-    pub const cortex_a78c = CpuModel{
+    pub const cortex_a78c: CpuModel = .{
         .name = "cortex_a78c",
         .llvm_name = "cortex-a78c",
         .features = featureSet(&[_]Feature{
@@ -2573,7 +2573,7 @@ pub const cpu = struct {
             .v8_2a,
         }),
     };
-    pub const cortex_r82 = CpuModel{
+    pub const cortex_r82: CpuModel = .{
         .name = "cortex_r82",
         .llvm_name = "cortex-r82",
         .features = featureSet(&[_]Feature{
@@ -2584,7 +2584,7 @@ pub const cpu = struct {
             .v8r,
         }),
     };
-    pub const cortex_r82ae = CpuModel{
+    pub const cortex_r82ae: CpuModel = .{
         .name = "cortex_r82ae",
         .llvm_name = "cortex-r82ae",
         .features = featureSet(&[_]Feature{
@@ -2595,7 +2595,7 @@ pub const cpu = struct {
             .v8r,
         }),
     };
-    pub const cortex_x1 = CpuModel{
+    pub const cortex_x1: CpuModel = .{
         .name = "cortex_x1",
         .llvm_name = "cortex-x1",
         .features = featureSet(&[_]Feature{
@@ -2618,7 +2618,7 @@ pub const cpu = struct {
             .v8_2a,
         }),
     };
-    pub const cortex_x1c = CpuModel{
+    pub const cortex_x1c: CpuModel = .{
         .name = "cortex_x1c",
         .llvm_name = "cortex-x1c",
         .features = featureSet(&[_]Feature{
@@ -2644,7 +2644,7 @@ pub const cpu = struct {
             .v8_2a,
         }),
     };
-    pub const cortex_x2 = CpuModel{
+    pub const cortex_x2: CpuModel = .{
         .name = "cortex_x2",
         .llvm_name = "cortex-x2",
         .features = featureSet(&[_]Feature{
@@ -2665,7 +2665,7 @@ pub const cpu = struct {
             .v9a,
         }),
     };
-    pub const cortex_x3 = CpuModel{
+    pub const cortex_x3: CpuModel = .{
         .name = "cortex_x3",
         .llvm_name = "cortex-x3",
         .features = featureSet(&[_]Feature{
@@ -2686,7 +2686,7 @@ pub const cpu = struct {
             .v9a,
         }),
     };
-    pub const cortex_x4 = CpuModel{
+    pub const cortex_x4: CpuModel = .{
         .name = "cortex_x4",
         .llvm_name = "cortex-x4",
         .features = featureSet(&[_]Feature{
@@ -2706,7 +2706,7 @@ pub const cpu = struct {
             .v9_2a,
         }),
     };
-    pub const cortex_x925 = CpuModel{
+    pub const cortex_x925: CpuModel = .{
         .name = "cortex_x925",
         .llvm_name = "cortex-x925",
         .features = featureSet(&[_]Feature{
@@ -2726,7 +2726,7 @@ pub const cpu = struct {
             .v9_2a,
         }),
     };
-    pub const cyclone = CpuModel{
+    pub const cyclone: CpuModel = .{
         .name = "cyclone",
         .llvm_name = "cyclone",
         .features = featureSet(&[_]Feature{
@@ -2746,7 +2746,7 @@ pub const cpu = struct {
             .zcz_fp_workaround,
         }),
     };
-    pub const emag = CpuModel{
+    pub const emag: CpuModel = .{
         .name = "emag",
         .llvm_name = null,
         .features = featureSet(&[_]Feature{
@@ -2756,7 +2756,7 @@ pub const cpu = struct {
             .v8a,
         }),
     };
-    pub const exynos_m1 = CpuModel{
+    pub const exynos_m1: CpuModel = .{
         .name = "exynos_m1",
         .llvm_name = null,
         .features = featureSet(&[_]Feature{
@@ -2773,7 +2773,7 @@ pub const cpu = struct {
             .v8a,
         }),
     };
-    pub const exynos_m2 = CpuModel{
+    pub const exynos_m2: CpuModel = .{
         .name = "exynos_m2",
         .llvm_name = null,
         .features = featureSet(&[_]Feature{
@@ -2789,7 +2789,7 @@ pub const cpu = struct {
             .v8a,
         }),
     };
-    pub const exynos_m3 = CpuModel{
+    pub const exynos_m3: CpuModel = .{
         .name = "exynos_m3",
         .llvm_name = "exynos-m3",
         .features = featureSet(&[_]Feature{
@@ -2811,7 +2811,7 @@ pub const cpu = struct {
             .v8a,
         }),
     };
-    pub const exynos_m4 = CpuModel{
+    pub const exynos_m4: CpuModel = .{
         .name = "exynos_m4",
         .llvm_name = "exynos-m4",
         .features = featureSet(&[_]Feature{
@@ -2837,7 +2837,7 @@ pub const cpu = struct {
             .zcz,
         }),
     };
-    pub const exynos_m5 = CpuModel{
+    pub const exynos_m5: CpuModel = .{
         .name = "exynos_m5",
         .llvm_name = "exynos-m5",
         .features = featureSet(&[_]Feature{
@@ -2863,7 +2863,7 @@ pub const cpu = struct {
             .zcz,
         }),
     };
-    pub const falkor = CpuModel{
+    pub const falkor: CpuModel = .{
         .name = "falkor",
         .llvm_name = "falkor",
         .features = featureSet(&[_]Feature{
@@ -2881,7 +2881,7 @@ pub const cpu = struct {
             .zcz,
         }),
     };
-    pub const generic = CpuModel{
+    pub const generic: CpuModel = .{
         .name = "generic",
         .llvm_name = "generic",
         .features = featureSet(&[_]Feature{
@@ -2893,7 +2893,7 @@ pub const cpu = struct {
             .use_postra_scheduler,
         }),
     };
-    pub const grace = CpuModel{
+    pub const grace: CpuModel = .{
         .name = "grace",
         .llvm_name = "grace",
         .features = featureSet(&[_]Feature{
@@ -2917,7 +2917,7 @@ pub const cpu = struct {
             .v9a,
         }),
     };
-    pub const kryo = CpuModel{
+    pub const kryo: CpuModel = .{
         .name = "kryo",
         .llvm_name = "kryo",
         .features = featureSet(&[_]Feature{
@@ -2933,7 +2933,7 @@ pub const cpu = struct {
             .zcz,
         }),
     };
-    pub const neoverse_512tvb = CpuModel{
+    pub const neoverse_512tvb: CpuModel = .{
         .name = "neoverse_512tvb",
         .llvm_name = "neoverse-512tvb",
         .features = featureSet(&[_]Feature{
@@ -2958,7 +2958,7 @@ pub const cpu = struct {
             .v8_4a,
         }),
     };
-    pub const neoverse_e1 = CpuModel{
+    pub const neoverse_e1: CpuModel = .{
         .name = "neoverse_e1",
         .llvm_name = "neoverse-e1",
         .features = featureSet(&[_]Feature{
@@ -2975,7 +2975,7 @@ pub const cpu = struct {
             .v8_2a,
         }),
     };
-    pub const neoverse_n1 = CpuModel{
+    pub const neoverse_n1: CpuModel = .{
         .name = "neoverse_n1",
         .llvm_name = "neoverse-n1",
         .features = featureSet(&[_]Feature{
@@ -2997,7 +2997,7 @@ pub const cpu = struct {
             .v8_2a,
         }),
     };
-    pub const neoverse_n2 = CpuModel{
+    pub const neoverse_n2: CpuModel = .{
         .name = "neoverse_n2",
         .llvm_name = "neoverse-n2",
         .features = featureSet(&[_]Feature{
@@ -3017,7 +3017,7 @@ pub const cpu = struct {
             .v9a,
         }),
     };
-    pub const neoverse_n3 = CpuModel{
+    pub const neoverse_n3: CpuModel = .{
         .name = "neoverse_n3",
         .llvm_name = "neoverse-n3",
         .features = featureSet(&[_]Feature{
@@ -3038,7 +3038,7 @@ pub const cpu = struct {
             .v9_2a,
         }),
     };
-    pub const neoverse_v1 = CpuModel{
+    pub const neoverse_v1: CpuModel = .{
         .name = "neoverse_v1",
         .llvm_name = "neoverse-v1",
         .features = featureSet(&[_]Feature{
@@ -3065,7 +3065,7 @@ pub const cpu = struct {
             .v8_4a,
         }),
     };
-    pub const neoverse_v2 = CpuModel{
+    pub const neoverse_v2: CpuModel = .{
         .name = "neoverse_v2",
         .llvm_name = "neoverse-v2",
         .features = featureSet(&[_]Feature{
@@ -3089,7 +3089,7 @@ pub const cpu = struct {
             .v9a,
         }),
     };
-    pub const neoverse_v3 = CpuModel{
+    pub const neoverse_v3: CpuModel = .{
         .name = "neoverse_v3",
         .llvm_name = "neoverse-v3",
         .features = featureSet(&[_]Feature{
@@ -3112,7 +3112,7 @@ pub const cpu = struct {
             .v9_2a,
         }),
     };
-    pub const neoverse_v3ae = CpuModel{
+    pub const neoverse_v3ae: CpuModel = .{
         .name = "neoverse_v3ae",
         .llvm_name = "neoverse-v3ae",
         .features = featureSet(&[_]Feature{
@@ -3135,7 +3135,7 @@ pub const cpu = struct {
             .v9_2a,
         }),
     };
-    pub const oryon_1 = CpuModel{
+    pub const oryon_1: CpuModel = .{
         .name = "oryon_1",
         .llvm_name = "oryon-1",
         .features = featureSet(&[_]Feature{
@@ -3155,7 +3155,7 @@ pub const cpu = struct {
             .v8_6a,
         }),
     };
-    pub const saphira = CpuModel{
+    pub const saphira: CpuModel = .{
         .name = "saphira",
         .llvm_name = "saphira",
         .features = featureSet(&[_]Feature{
@@ -3171,7 +3171,7 @@ pub const cpu = struct {
             .zcz,
         }),
     };
-    pub const thunderx = CpuModel{
+    pub const thunderx: CpuModel = .{
         .name = "thunderx",
         .llvm_name = "thunderx",
         .features = featureSet(&[_]Feature{
@@ -3185,7 +3185,7 @@ pub const cpu = struct {
             .v8a,
         }),
     };
-    pub const thunderx2t99 = CpuModel{
+    pub const thunderx2t99: CpuModel = .{
         .name = "thunderx2t99",
         .llvm_name = "thunderx2t99",
         .features = featureSet(&[_]Feature{
@@ -3199,7 +3199,7 @@ pub const cpu = struct {
             .v8_1a,
         }),
     };
-    pub const thunderx3t110 = CpuModel{
+    pub const thunderx3t110: CpuModel = .{
         .name = "thunderx3t110",
         .llvm_name = "thunderx3t110",
         .features = featureSet(&[_]Feature{
@@ -3216,7 +3216,7 @@ pub const cpu = struct {
             .v8_3a,
         }),
     };
-    pub const thunderxt81 = CpuModel{
+    pub const thunderxt81: CpuModel = .{
         .name = "thunderxt81",
         .llvm_name = "thunderxt81",
         .features = featureSet(&[_]Feature{
@@ -3230,7 +3230,7 @@ pub const cpu = struct {
             .v8a,
         }),
     };
-    pub const thunderxt83 = CpuModel{
+    pub const thunderxt83: CpuModel = .{
         .name = "thunderxt83",
         .llvm_name = "thunderxt83",
         .features = featureSet(&[_]Feature{
@@ -3244,7 +3244,7 @@ pub const cpu = struct {
             .v8a,
         }),
     };
-    pub const thunderxt88 = CpuModel{
+    pub const thunderxt88: CpuModel = .{
         .name = "thunderxt88",
         .llvm_name = "thunderxt88",
         .features = featureSet(&[_]Feature{
@@ -3258,7 +3258,7 @@ pub const cpu = struct {
             .v8a,
         }),
     };
-    pub const tsv110 = CpuModel{
+    pub const tsv110: CpuModel = .{
         .name = "tsv110",
         .llvm_name = "tsv110",
         .features = featureSet(&[_]Feature{
@@ -3276,7 +3276,7 @@ pub const cpu = struct {
             .v8_2a,
         }),
     };
-    pub const xgene1 = CpuModel{
+    pub const xgene1: CpuModel = .{
         .name = "xgene1",
         .llvm_name = null,
         .features = featureSet(&[_]Feature{

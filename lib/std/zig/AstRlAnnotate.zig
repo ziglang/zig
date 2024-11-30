@@ -909,12 +909,10 @@ fn builtinCall(astrl: *AstRlAnnotate, block: ?*Block, ri: ResultInfo, node: Ast.
         .wasm_memory_size,
         .splat,
         .set_float_mode,
-        .set_align_stack,
         .type_info,
         .work_item_id,
         .work_group_size,
         .work_group_id,
-        .field_parent_ptr,
         => {
             _ = try astrl.expr(args[0], block, ResultInfo.type_only);
             return false;
@@ -983,9 +981,15 @@ fn builtinCall(astrl: *AstRlAnnotate, block: ?*Block, ri: ResultInfo, node: Ast.
         .has_decl,
         .has_field,
         .field,
+        .FieldType,
         => {
             _ = try astrl.expr(args[0], block, ResultInfo.type_only);
             _ = try astrl.expr(args[1], block, ResultInfo.type_only);
+            return false;
+        },
+        .field_parent_ptr => {
+            _ = try astrl.expr(args[0], block, ResultInfo.type_only);
+            _ = try astrl.expr(args[1], block, ResultInfo.none);
             return false;
         },
         .wasm_memory_grow => {

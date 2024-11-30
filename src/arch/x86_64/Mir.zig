@@ -930,7 +930,10 @@ pub const Inst = struct {
 
         /// End of prologue
         pseudo_dbg_prologue_end_none,
-        /// Update debug line
+        /// Update debug line with is_stmt register set
+        /// Uses `line_column` payload.
+        pseudo_dbg_line_stmt_line_column,
+        /// Update debug line with is_stmt register clear
         /// Uses `line_column` payload.
         pseudo_dbg_line_line_column,
         /// Start of epilogue

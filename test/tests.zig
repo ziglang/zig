@@ -28,6 +28,7 @@ const TestTarget = struct {
     use_lld: ?bool = null,
     pic: ?bool = null,
     strip: ?bool = null,
+    skip_modules: []const []const u8 = &.{},
 
     // This is intended for targets that are known to be slow to compile. These are acceptable to
     // run in CI, but should not be run on developer machines by default. As an example, at the time
@@ -339,6 +340,70 @@ const test_targets = blk: {
 
         .{
             .target = .{
+                .cpu_arch = .thumb,
+                .os_tag = .linux,
+                .abi = .eabi,
+            },
+        },
+        .{
+            .target = .{
+                .cpu_arch = .thumb,
+                .os_tag = .linux,
+                .abi = .eabihf,
+            },
+        },
+        .{
+            .target = .{
+                .cpu_arch = .thumb,
+                .os_tag = .linux,
+                .abi = .musleabi,
+            },
+            .link_libc = true,
+            .skip_modules = &.{"std"},
+        },
+        .{
+            .target = .{
+                .cpu_arch = .thumb,
+                .os_tag = .linux,
+                .abi = .musleabihf,
+            },
+            .link_libc = true,
+            .skip_modules = &.{"std"},
+        },
+        // Calls are normally lowered to branch instructions that only support +/- 16 MB range when
+        // targeting Thumb. This is not sufficient for the std test binary linked statically with
+        // musl, so use long calls to avoid out-of-range relocations.
+        .{
+            .target = std.Target.Query.parse(.{
+                .arch_os_abi = "thumb-linux-musleabi",
+                .cpu_features = "baseline+long_calls",
+            }) catch @panic("OOM"),
+            .link_libc = true,
+            .pic = false, // Long calls don't work with PIC.
+            .skip_modules = &.{
+                "behavior",
+                "c-import",
+                "compiler-rt",
+                "universal-libc",
+            },
+        },
+        .{
+            .target = std.Target.Query.parse(.{
+                .arch_os_abi = "thumb-linux-musleabihf",
+                .cpu_features = "baseline+long_calls",
+            }) catch @panic("OOM"),
+            .link_libc = true,
+            .pic = false, // Long calls don't work with PIC.
+            .skip_modules = &.{
+                "behavior",
+                "c-import",
+                "compiler-rt",
+                "universal-libc",
+            },
+        },
+
+        .{
+            .target = .{
                 .cpu_arch = .mips,
                 .os_tag = .linux,
                 .abi = .eabi,
@@ -454,7 +519,7 @@ const test_targets = blk: {
             .target = .{
                 .cpu_arch = .mips64,
                 .os_tag = .linux,
-                .abi = .musl,
+                .abi = .muslabi64,
             },
             .link_libc = true,
         },
@@ -478,7 +543,7 @@ const test_targets = blk: {
             .target = .{
                 .cpu_arch = .mips64el,
                 .os_tag = .linux,
-                .abi = .musl,
+                .abi = .muslabi64,
             },
             .link_libc = true,
         },
@@ -1172,18 +1237,22 @@ pub fn addAssembleAndLinkTests(b: *std.Build, test_filters: []const []const u8, 
     return cases.step;
 }
 
-pub fn addTranslateCTests(b: *std.Build, parent_step: *std.Build.Step, test_filters: []const []const u8) void {
+pub fn addTranslateCTests(
+    b: *std.Build,
+    parent_step: *std.Build.Step,
+    test_filters: []const []const u8,
+    test_target_filters: []const []const u8,
+) void {
     const cases = b.allocator.create(TranslateCContext) catch @panic("OOM");
     cases.* = TranslateCContext{
         .b = b,
         .step = parent_step,
         .test_index = 0,
         .test_filters = test_filters,
+        .test_target_filters = test_target_filters,
     };
 
     translate_c.addCases(cases);
-
-    return;
 }
 
 pub fn addRunTranslatedCTests(
@@ -1202,8 +1271,6 @@ pub fn addRunTranslatedCTests(
     };
 
     run_translated_c.addCases(cases);
-
-    return;
 }
 
 const ModuleTestOptions = struct {
@@ -1225,7 +1292,13 @@ const ModuleTestOptions = struct {
 pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
     const step = b.step(b.fmt("test-{s}", .{options.name}), options.desc);
 
-    for (test_targets) |test_target| {
+    for_targets: for (test_targets) |test_target| {
+        if (test_target.skip_modules.len > 0) {
+            for (test_target.skip_modules) |skip_mod| {
+                if (std.mem.eql(u8, options.name, skip_mod)) continue :for_targets;
+            }
+        }
+
         if (!options.test_slow_targets and test_target.slow_backend) continue;
 
         if (options.skip_non_native and !test_target.target.isNative())
@@ -1415,19 +1488,32 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
     return step;
 }
 
-pub fn addCAbiTests(b: *std.Build, skip_non_native: bool, skip_release: bool) *Step {
+const CAbiTestOptions = struct {
+    test_target_filters: []const []const u8,
+    skip_non_native: bool,
+    skip_release: bool,
+};
+
+pub fn addCAbiTests(b: *std.Build, options: CAbiTestOptions) *Step {
     const step = b.step("test-c-abi", "Run the C ABI tests");
 
     const optimize_modes: [3]OptimizeMode = .{ .Debug, .ReleaseSafe, .ReleaseFast };
 
     for (optimize_modes) |optimize_mode| {
-        if (optimize_mode != .Debug and skip_release) continue;
+        if (optimize_mode != .Debug and options.skip_release) continue;
 
         for (c_abi_targets) |c_abi_target| {
-            if (skip_non_native and !c_abi_target.target.isNative()) continue;
+            if (options.skip_non_native and !c_abi_target.target.isNative()) continue;
 
             const resolved_target = b.resolveTargetQuery(c_abi_target.target);
             const target = resolved_target.result;
+            const triple_txt = target.zigTriple(b.allocator) catch @panic("OOM");
+
+            if (options.test_target_filters.len > 0) {
+                for (options.test_target_filters) |filter| {
+                    if (std.mem.indexOf(u8, triple_txt, filter) != null) break;
+                } else continue;
+            }
 
             if (target.os.tag == .windows and target.cpu.arch == .aarch64) {
                 // https://github.com/ziglang/zig/issues/14908
@@ -1436,7 +1522,7 @@ pub fn addCAbiTests(b: *std.Build, skip_non_native: bool, skip_release: bool) *S
 
             const test_step = b.addTest(.{
                 .name = b.fmt("test-c-abi-{s}-{s}-{s}{s}{s}{s}", .{
-                    target.zigTriple(b.allocator) catch @panic("OOM"),
+                    triple_txt,
                     target.cpu.model.name,
                     @tagName(optimize_mode),
                     if (c_abi_target.use_llvm == true)
@@ -1481,6 +1567,7 @@ pub fn addCases(
     b: *std.Build,
     parent_step: *Step,
     test_filters: []const []const u8,
+    test_target_filters: []const []const u8,
     target: std.Build.ResolvedTarget,
     translate_c_options: @import("src/Cases.zig").TranslateCOptions,
     build_options: @import("cases.zig").BuildOptions,
@@ -1496,12 +1583,13 @@ pub fn addCases(
     cases.addFromDir(dir, b);
     try @import("cases.zig").addCases(&cases, build_options, b);
 
-    cases.lowerToTranslateCSteps(b, parent_step, test_filters, target, translate_c_options);
+    cases.lowerToTranslateCSteps(b, parent_step, test_filters, test_target_filters, target, translate_c_options);
 
     cases.lowerToBuildSteps(
         b,
         parent_step,
         test_filters,
+        test_target_filters,
     );
 }
 

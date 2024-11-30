@@ -229,7 +229,7 @@ const WindowsSegfaultMessage = union(enum) {
     illegal_instruction: void,
 };
 
-fn handleSegfaultWindows(info: *windows.EXCEPTION_POINTERS) callconv(windows.WINAPI) c_long {
+fn handleSegfaultWindows(info: *windows.EXCEPTION_POINTERS) callconv(.winapi) c_long {
     switch (info.ExceptionRecord.ExceptionCode) {
         windows.EXCEPTION_DATATYPE_MISALIGNMENT => handleSegfaultWindowsExtra(info, .{ .literal = "Unaligned Memory Access" }),
         windows.EXCEPTION_ACCESS_VIOLATION => handleSegfaultWindowsExtra(info, .segfault),

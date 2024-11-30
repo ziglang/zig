@@ -4,7 +4,6 @@ const assert = std.debug.assert;
 const mem = std.mem;
 const math = std.math;
 const meta = std.meta;
-const CallingConvention = std.builtin.CallingConvention;
 const clang = @import("clang.zig");
 const aro = @import("aro");
 const CToken = aro.Tokenizer.Token;
@@ -2315,8 +2314,11 @@ fn transStringLiteralInitializer(
             while (i < num_inits) : (i += 1) {
                 init_list[i] = try transCreateCharLitNode(c, false, stmt.getCodeUnit(i));
             }
-            const init_args = .{ .len = num_inits, .elem_type = elem_type };
-            const init_array_type = try if (array_type.tag() == .array_type) Tag.array_type.create(c.arena, init_args) else Tag.null_sentinel_array_type.create(c.arena, init_args);
+            const init_args: ast.Payload.Array.ArrayTypeInfo = .{ .len = num_inits, .elem_type = elem_type };
+            const init_array_type = if (array_type.tag() == .array_type)
+                try Tag.array_type.create(c.arena, init_args)
+            else
+                try Tag.null_sentinel_array_type.create(c.arena, init_args);
             break :blk try Tag.array_init.create(c.arena, .{
                 .cond = init_array_type,
                 .cases = init_list,
@@ -3911,7 +3913,7 @@ fn transCreateCompoundAssign(
 
         if ((is_mod or is_div) and is_signed) {
             if (requires_cast) rhs_node = try transCCast(c, scope, loc, lhs_qt, rhs_qt, rhs_node);
-            const operands = .{ .lhs = lhs_node, .rhs = rhs_node };
+            const operands: @FieldType(ast.Payload.BinOp, "data") = .{ .lhs = lhs_node, .rhs = rhs_node };
             const builtin = if (is_mod)
                 try Tag.signed_remainder.create(c.arena, operands)
             else
@@ -3950,7 +3952,7 @@ fn transCreateCompoundAssign(
     if (is_ptr_op_signed) rhs_node = try usizeCastForWrappingPtrArithmetic(c.arena, rhs_node);
     if ((is_mod or is_div) and is_signed) {
         if (requires_cast) rhs_node = try transCCast(c, scope, loc, lhs_qt, rhs_qt, rhs_node);
-        const operands = .{ .lhs = ref_node, .rhs = rhs_node };
+        const operands: @FieldType(ast.Payload.BinOp, "data") = .{ .lhs = ref_node, .rhs = rhs_node };
         const builtin = if (is_mod)
             try Tag.signed_remainder.create(c.arena, operands)
         else
@@ -4778,7 +4780,7 @@ fn transType(c: *Context, scope: *Scope, ty: *const clang.Type, source_loc: clan
             const is_const = is_fn_proto or child_qt.isConstQualified();
             const is_volatile = child_qt.isVolatileQualified();
             const elem_type = try transQualType(c, scope, child_qt, source_loc);
-            const ptr_info = .{
+            const ptr_info: @FieldType(ast.Payload.Pointer, "data") = .{
                 .is_const = is_const,
                 .is_volatile = is_volatile,
                 .elem_type = elem_type,
@@ -5001,17 +5003,20 @@ fn transCC(
     c: *Context,
     fn_ty: *const clang.FunctionType,
     source_loc: clang.SourceLocation,
-) !CallingConvention {
+) !ast.Payload.Func.CallingConvention {
     const clang_cc = fn_ty.getCallConv();
-    switch (clang_cc) {
-        .C => return CallingConvention.C,
-        .X86StdCall => return CallingConvention.Stdcall,
-        .X86FastCall => return CallingConvention.Fastcall,
-        .X86VectorCall, .AArch64VectorCall => return CallingConvention.Vectorcall,
-        .X86ThisCall => return CallingConvention.Thiscall,
-        .AAPCS => return CallingConvention.AAPCS,
-        .AAPCS_VFP => return CallingConvention.AAPCSVFP,
-        .X86_64SysV => return CallingConvention.SysV,
+    return switch (clang_cc) {
+        .C => .c,
+        .X86_64SysV => .x86_64_sysv,
+        .Win64 => .x86_64_win,
+        .X86StdCall => .x86_stdcall,
+        .X86FastCall => .x86_fastcall,
+        .X86ThisCall => .x86_thiscall,
+        .X86VectorCall => .x86_vectorcall,
+        .AArch64VectorCall => .aarch64_vfabi,
+        .AAPCS => .arm_aapcs,
+        .AAPCS_VFP => .arm_aapcs_vfp,
+        .M68kRTD => .m68k_rtd,
         else => return fail(
             c,
             error.UnsupportedType,
@@ -5019,7 +5024,7 @@ fn transCC(
             "unsupported calling convention: {s}",
             .{@tagName(clang_cc)},
         ),
-    }
+    };
 }
 
 fn transFnProto(
@@ -5056,7 +5061,7 @@ fn finishTransFnProto(
     source_loc: clang.SourceLocation,
     fn_decl_context: ?FnDeclContext,
     is_var_args: bool,
-    cc: CallingConvention,
+    cc: ast.Payload.Func.CallingConvention,
     is_pub: bool,
 ) !*ast.Payload.Func {
     const is_export = if (fn_decl_context) |ctx| ctx.is_export else false;
@@ -5104,7 +5109,7 @@ fn finishTransFnProto(
 
     const alignment = if (fn_decl) |decl| ClangAlignment.forFunc(c, decl).zigAlignment() else null;
 
-    const explicit_callconv = if ((is_inline or is_export or is_extern) and cc == .C) null else cc;
+    const explicit_callconv = if ((is_inline or is_export or is_extern) and cc == .c) null else cc;
 
     const return_type_node = blk: {
         if (fn_ty.getNoReturnAttr()) {

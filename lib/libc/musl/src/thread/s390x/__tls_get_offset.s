@@ -5,6 +5,7 @@ __tls_get_offset:
 	aghi  %r15, -160
 
 	la    %r2, 0(%r2, %r12)
+.hidden __tls_get_addr
 	brasl %r14, __tls_get_addr
 
 	ear   %r1, %a0

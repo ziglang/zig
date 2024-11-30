@@ -350,6 +350,7 @@ fn testOpaque() !void {
 
 test "type info: function type info" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     try testFunction();
     try comptime testFunction();
@@ -358,7 +359,7 @@ test "type info: function type info" {
 fn testFunction() !void {
     const foo_fn_type = @TypeOf(typeInfoFoo);
     const foo_fn_info = @typeInfo(foo_fn_type);
-    try expect(foo_fn_info.@"fn".calling_convention == .C);
+    try expect(foo_fn_info.@"fn".calling_convention.eql(.c));
     try expect(!foo_fn_info.@"fn".is_generic);
     try expect(foo_fn_info.@"fn".params.len == 2);
     try expect(foo_fn_info.@"fn".is_var_args);
@@ -374,7 +375,7 @@ fn testFunction() !void {
 
     const aligned_foo_fn_type = @TypeOf(typeInfoFooAligned);
     const aligned_foo_fn_info = @typeInfo(aligned_foo_fn_type);
-    try expect(aligned_foo_fn_info.@"fn".calling_convention == .C);
+    try expect(aligned_foo_fn_info.@"fn".calling_convention.eql(.c));
     try expect(!aligned_foo_fn_info.@"fn".is_generic);
     try expect(aligned_foo_fn_info.@"fn".params.len == 2);
     try expect(aligned_foo_fn_info.@"fn".is_var_args);
@@ -390,8 +391,8 @@ fn testFunction() !void {
     try expect(aligned_foo_ptr_fn_info.pointer.sentinel == null);
 }
 
-extern fn typeInfoFoo(a: usize, b: bool, ...) callconv(.C) usize;
-extern fn typeInfoFooAligned(a: usize, b: bool, ...) align(4) callconv(.C) usize;
+extern fn typeInfoFoo(a: usize, b: bool, ...) callconv(.c) usize;
+extern fn typeInfoFooAligned(a: usize, b: bool, ...) align(4) callconv(.c) usize;
 
 test "type info: generic function types" {
     const G1 = @typeInfo(@TypeOf(generic1));

@@ -1,0 +1,21 @@
+#target=x86_64-linux-selfhosted
+#target=x86_64-linux-cbe
+#target=x86_64-windows-cbe
+#update=initial version with compile error
+#file=main.zig
+comptime {
+    @compileError("this is an error");
+}
+comptime {
+    @compileLog("this is a log");
+}
+#expect_error=ignored
+#update=remove the compile error
+#file=main.zig
+comptime {
+    //@compileError("this is an error");
+}
+comptime {
+    @compileLog("this is a log");
+}
+#expect_error=ignored

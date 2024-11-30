@@ -210,15 +210,6 @@ test "alignment and size of structs with 128-bit fields" {
     }
 }
 
-test "alignstack" {
-    try expect(fnWithAlignedStack() == 1234);
-}
-
-fn fnWithAlignedStack() i32 {
-    @setAlignStack(256);
-    return 1234;
-}
-
 test "implicitly decreasing slice alignment" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -280,11 +271,6 @@ test "page aligned array on stack" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
-    if (builtin.cpu.arch == .aarch64 and builtin.os.tag == .windows) {
-        // https://github.com/ziglang/zig/issues/13679
-        return error.SkipZigTest;
-    }
 
     // Large alignment value to make it hard to accidentally pass.
     var array align(0x1000) = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8 };

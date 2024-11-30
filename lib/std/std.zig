@@ -146,6 +146,11 @@ pub const Options = struct {
     /// make a HTTPS connection.
     http_disable_tls: bool = false,
 
+    /// This enables `std.http.Client` to log ssl secrets to the file specified by the SSLKEYLOGFILE
+    /// env var.  Creating such a log file allows other programs with access to that file to decrypt
+    /// all `std.http.Client` traffic made by this program.
+    http_enable_ssl_key_log_file: bool = @import("builtin").mode == .Debug,
+
     side_channels_mitigations: crypto.SideChannelsMitigations = crypto.default_side_channels_mitigations,
 };
 

@@ -279,8 +279,8 @@ pub const File = union(enum) {
     pub const Index = u32;
 
     pub const Entry = union(enum) {
-        null: void,
-        zig_object: ZigObject,
+        null,
+        zig_object,
         linker_defined: LinkerDefined,
         object: Object,
         shared_object: SharedObject,

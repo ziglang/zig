@@ -133,6 +133,7 @@ pub fn astGenFile(
             error.BadPathName => unreachable, // it's a hex encoded name
             error.NameTooLong => unreachable, // it's a fixed size name
             error.PipeBusy => unreachable, // it's not a pipe
+            error.NoDevice => unreachable, // it's not a pipe
             error.WouldBlock => unreachable, // not asking for non-blocking I/O
             // There are no dir components, so you would think that this was
             // unreachable, however we have observed on macOS two processes racing
@@ -845,6 +846,7 @@ fn ensureFuncBodyAnalyzedInner(
         return .{ .ies_outdated = ies_outdated };
     }
 
+    // This job depends on any resolve_type_fully jobs queued up before it.
     try comp.queueJob(.{ .codegen_func = .{
         .func = func_index,
         .air = air,
@@ -984,7 +986,6 @@ fn createFileRootStruct(
         .fields_len = fields_len,
         .known_non_opv = small.known_non_opv,
         .requires_comptime = if (small.known_comptime_only) .yes else .unknown,
-        .is_tuple = small.is_tuple,
         .any_comptime_fields = small.any_comptime_fields,
         .any_default_inits = small.any_default_inits,
         .inits_resolved = false,
@@ -1016,6 +1017,7 @@ fn createFileRootStruct(
     codegen_type: {
         if (zcu.comp.config.use_llvm) break :codegen_type;
         if (file.mod.strip) break :codegen_type;
+        // This job depends on any resolve_type_fully jobs queued up before it.
         try zcu.comp.queueJob(.{ .codegen_type = wip_ty.index });
     }
     zcu.setFileRootType(file_index, wip_ty.index);
@@ -1362,6 +1364,7 @@ fn semaCau(pt: Zcu.PerThread, cau_index: InternPool.Cau.Index) !SemaCauResult {
             if (file.mod.strip) break :queue_codegen;
         }
 
+        // This job depends on any resolve_type_fully jobs queued up before it.
         try zcu.comp.queueJob(.{ .codegen_nav = nav_index });
     }
 
@@ -2090,7 +2093,7 @@ fn analyzeFnBody(pt: Zcu.PerThread, func_index: InternPool.Index) Zcu.SemaError!
         .code = zir,
         .owner = anal_unit,
         .func_index = func_index,
-        .func_is_naked = fn_ty_info.cc == .Naked,
+        .func_is_naked = fn_ty_info.cc == .naked,
         .fn_ret_ty = Type.fromInterned(fn_ty_info.return_type),
         .fn_ret_ty_ies = null,
         .branch_quota = @max(func.branchQuotaUnordered(ip), Sema.default_branch_quota),
@@ -2593,7 +2596,7 @@ pub fn populateTestFunctions(
     }
 }
 
-pub fn linkerUpdateNav(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) !void {
+pub fn linkerUpdateNav(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) error{OutOfMemory}!void {
     const zcu = pt.zcu;
     const comp = zcu.comp;
     const ip = &zcu.intern_pool;
@@ -2763,6 +2766,7 @@ pub fn getCoerced(pt: Zcu.PerThread, val: Value, new_ty: Type) Allocator.Error!V
                 .is_const = e.is_const,
                 .is_threadlocal = e.is_threadlocal,
                 .is_weak_linkage = e.is_weak_linkage,
+                .is_dll_import = e.is_dll_import,
                 .alignment = e.alignment,
                 .@"addrspace" = e.@"addrspace",
                 .zir_index = e.zir_index,
@@ -3162,6 +3166,7 @@ pub fn navPtrType(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) Allocator.
 pub fn getExtern(pt: Zcu.PerThread, key: InternPool.Key.Extern) Allocator.Error!InternPool.Index {
     const result = try pt.zcu.intern_pool.getExtern(pt.zcu.gpa, pt.tid, key);
     if (result.new_nav.unwrap()) |nav| {
+        // This job depends on any resolve_type_fully jobs queued up before it.
         try pt.zcu.comp.queueJob(.{ .codegen_nav = nav });
     }
     return result.index;
@@ -3186,7 +3191,7 @@ pub fn ensureTypeUpToDate(pt: Zcu.PerThread, ty: InternPool.Index, already_updat
         .struct_type => |key| {
             const struct_obj = ip.loadStructType(ty);
             const outdated = already_updating or o: {
-                const anal_unit = AnalUnit.wrap(.{ .cau = struct_obj.cau.unwrap().? });
+                const anal_unit = AnalUnit.wrap(.{ .cau = struct_obj.cau });
                 const o = zcu.outdated.swapRemove(anal_unit) or
                     zcu.potentially_outdated.swapRemove(anal_unit);
                 if (o) {
@@ -3247,7 +3252,6 @@ fn recreateStructType(
 
     const key = switch (full_key) {
         .reified => unreachable, // never outdated
-        .empty_struct => unreachable, // never outdated
         .generated_tag => unreachable, // not a struct
         .declared => |d| d,
     };
@@ -3278,16 +3282,13 @@ fn recreateStructType(
     if (captures_len != key.captures.owned.len) return error.AnalysisFail;
 
     // The old type will be unused, so drop its dependency information.
-    ip.removeDependenciesForDepender(gpa, AnalUnit.wrap(.{ .cau = struct_obj.cau.unwrap().? }));
-
-    const namespace_index = struct_obj.namespace.unwrap().?;
+    ip.removeDependenciesForDepender(gpa, AnalUnit.wrap(.{ .cau = struct_obj.cau }));
 
     const wip_ty = switch (try ip.getStructType(gpa, pt.tid, .{
         .layout = small.layout,
         .fields_len = fields_len,
         .known_non_opv = small.known_non_opv,
         .requires_comptime = if (small.known_comptime_only) .yes else .unknown,
-        .is_tuple = small.is_tuple,
         .any_comptime_fields = small.any_comptime_fields,
         .any_default_inits = small.any_default_inits,
         .inits_resolved = false,
@@ -3303,17 +3304,17 @@ fn recreateStructType(
     errdefer wip_ty.cancel(ip, pt.tid);
 
     wip_ty.setName(ip, struct_obj.name);
-    const new_cau_index = try ip.createTypeCau(gpa, pt.tid, key.zir_index, namespace_index, wip_ty.index);
+    const new_cau_index = try ip.createTypeCau(gpa, pt.tid, key.zir_index, struct_obj.namespace, wip_ty.index);
     try ip.addDependency(
         gpa,
         AnalUnit.wrap(.{ .cau = new_cau_index }),
         .{ .src_hash = key.zir_index },
     );
-    zcu.namespacePtr(namespace_index).owner_type = wip_ty.index;
+    zcu.namespacePtr(struct_obj.namespace).owner_type = wip_ty.index;
     // No need to re-scan the namespace -- `zirStructDecl` will ultimately do that if the type is still alive.
     try zcu.comp.queueJob(.{ .resolve_type_fully = wip_ty.index });
 
-    const new_ty = wip_ty.finish(ip, new_cau_index.toOptional(), namespace_index);
+    const new_ty = wip_ty.finish(ip, new_cau_index.toOptional(), struct_obj.namespace);
     if (inst_info.inst == .main_struct_inst) {
         // This is the root type of a file! Update the reference.
         zcu.setFileRootType(inst_info.file, new_ty);
@@ -3332,7 +3333,6 @@ fn recreateUnionType(
 
     const key = switch (full_key) {
         .reified => unreachable, // never outdated
-        .empty_struct => unreachable, // never outdated
         .generated_tag => unreachable, // not a union
         .declared => |d| d,
     };
@@ -3424,9 +3424,7 @@ fn recreateEnumType(
     const ip = &zcu.intern_pool;
 
     const key = switch (full_key) {
-        .reified => unreachable, // never outdated
-        .empty_struct => unreachable, // never outdated
-        .generated_tag => unreachable, // never outdated
+        .reified, .generated_tag => unreachable, // never outdated
         .declared => |d| d,
     };
 
@@ -3570,7 +3568,7 @@ pub fn ensureNamespaceUpToDate(pt: Zcu.PerThread, namespace_index: Zcu.Namespace
     };
 
     const key = switch (full_key) {
-        .reified, .empty_struct, .generated_tag => {
+        .reified, .generated_tag => {
             // Namespace always empty, so up-to-date.
             namespace.generation = zcu.generation;
             return;

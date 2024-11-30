@@ -72,6 +72,7 @@ pub const Parsed = struct {
 
     pub fn deinit(p: *Parsed, gpa: Allocator) void {
         gpa.free(p.strtab);
+        gpa.free(p.sections);
         gpa.free(p.symtab);
         gpa.free(p.versyms);
         gpa.free(p.symbols);

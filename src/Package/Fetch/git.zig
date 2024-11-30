@@ -492,26 +492,31 @@ const Packet = union(enum) {
 /// [protocol-v2](https://git-scm.com/docs/protocol-v2).
 pub const Session = struct {
     transport: *std.http.Client,
-    uri: std.Uri,
-    supports_agent: bool = false,
-    supports_shallow: bool = false,
+    location: Location,
+    supports_agent: bool,
+    supports_shallow: bool,
+    allocator: Allocator,
 
     const agent = "zig/" ++ @import("builtin").zig_version_string;
     const agent_capability = std.fmt.comptimePrint("agent={s}\n", .{agent});
 
-    /// Discovers server capabilities. This should be called before using any
-    /// other client functionality, or the client will be forced to default to
-    /// the bare minimum server requirements, which may be considerably less
-    /// efficient (e.g. no shallow fetches).
-    ///
-    /// See the note on `getCapabilities` regarding `redirect_uri`.
-    pub fn discoverCapabilities(
-        session: *Session,
+    /// Initializes a client session and discovers the capabilities of the
+    /// server for optimal transport.
+    pub fn init(
         allocator: Allocator,
-        redirect_uri: *[]u8,
+        transport: *std.http.Client,
+        uri: std.Uri,
         http_headers_buffer: []u8,
-    ) !void {
-        var capability_iterator = try session.getCapabilities(allocator, redirect_uri, http_headers_buffer);
+    ) !Session {
+        var session: Session = .{
+            .transport = transport,
+            .location = try .init(allocator, uri),
+            .supports_agent = false,
+            .supports_shallow = false,
+            .allocator = allocator,
+        };
+        errdefer session.deinit();
+        var capability_iterator = try session.getCapabilities(http_headers_buffer);
         defer capability_iterator.deinit();
         while (try capability_iterator.next()) |capability| {
             if (mem.eql(u8, capability.key, "agent")) {
@@ -525,27 +530,63 @@ pub const Session = struct {
                 }
             }
         }
+        return session;
     }
+
+    pub fn deinit(session: *Session) void {
+        session.location.deinit(session.allocator);
+        session.* = undefined;
+    }
+
+    /// An owned `std.Uri` representing the location of the server (base URI).
+    const Location = struct {
+        uri: std.Uri,
+
+        fn init(allocator: Allocator, uri: std.Uri) !Location {
+            const scheme = try allocator.dupe(u8, uri.scheme);
+            errdefer allocator.free(scheme);
+            const user = if (uri.user) |user| try std.fmt.allocPrint(allocator, "{user}", .{user}) else null;
+            errdefer if (user) |s| allocator.free(s);
+            const password = if (uri.password) |password| try std.fmt.allocPrint(allocator, "{password}", .{password}) else null;
+            errdefer if (password) |s| allocator.free(s);
+            const host = if (uri.host) |host| try std.fmt.allocPrint(allocator, "{host}", .{host}) else null;
+            errdefer if (host) |s| allocator.free(s);
+            const path = try std.fmt.allocPrint(allocator, "{path}", .{uri.path});
+            errdefer allocator.free(path);
+            // The query and fragment are not used as part of the base server URI.
+            return .{
+                .uri = .{
+                    .scheme = scheme,
+                    .user = if (user) |s| .{ .percent_encoded = s } else null,
+                    .password = if (password) |s| .{ .percent_encoded = s } else null,
+                    .host = if (host) |s| .{ .percent_encoded = s } else null,
+                    .port = uri.port,
+                    .path = .{ .percent_encoded = path },
+                },
+            };
+        }
+
+        fn deinit(loc: *Location, allocator: Allocator) void {
+            allocator.free(loc.uri.scheme);
+            if (loc.uri.user) |user| allocator.free(user.percent_encoded);
+            if (loc.uri.password) |password| allocator.free(password.percent_encoded);
+            if (loc.uri.host) |host| allocator.free(host.percent_encoded);
+            allocator.free(loc.uri.path.percent_encoded);
+        }
+    };
 
     /// Returns an iterator over capabilities supported by the server.
     ///
-    /// If the server redirects the request, `error.Redirected` is returned and
-    /// `redirect_uri` is populated with the URI resulting from the redirects.
-    /// When this occurs, the value of `redirect_uri` must be freed with
-    /// `allocator` when the caller is done with it.
-    fn getCapabilities(
-        session: Session,
-        allocator: Allocator,
-        redirect_uri: *[]u8,
-        http_headers_buffer: []u8,
-    ) !CapabilityIterator {
-        var info_refs_uri = session.uri;
+    /// The `session.location` is updated if the server returns a redirect, so
+    /// that subsequent session functions do not need to handle redirects.
+    fn getCapabilities(session: *Session, http_headers_buffer: []u8) !CapabilityIterator {
+        var info_refs_uri = session.location.uri;
         {
-            const session_uri_path = try std.fmt.allocPrint(allocator, "{path}", .{session.uri.path});
-            defer allocator.free(session_uri_path);
-            info_refs_uri.path = .{ .percent_encoded = try std.fs.path.resolvePosix(allocator, &.{ "/", session_uri_path, "info/refs" }) };
+            const session_uri_path = try std.fmt.allocPrint(session.allocator, "{path}", .{session.location.uri.path});
+            defer session.allocator.free(session_uri_path);
+            info_refs_uri.path = .{ .percent_encoded = try std.fs.path.resolvePosix(session.allocator, &.{ "/", session_uri_path, "info/refs" }) };
         }
-        defer allocator.free(info_refs_uri.path.percent_encoded);
+        defer session.allocator.free(info_refs_uri.path.percent_encoded);
         info_refs_uri.query = .{ .percent_encoded = "service=git-upload-pack" };
         info_refs_uri.fragment = null;
 
@@ -565,14 +606,14 @@ pub const Session = struct {
         if (request.response.status != .ok) return error.ProtocolError;
         const any_redirects_occurred = request.redirect_behavior.remaining() < max_redirects;
         if (any_redirects_occurred) {
-            const request_uri_path = try std.fmt.allocPrint(allocator, "{path}", .{request.uri.path});
-            defer allocator.free(request_uri_path);
+            const request_uri_path = try std.fmt.allocPrint(session.allocator, "{path}", .{request.uri.path});
+            defer session.allocator.free(request_uri_path);
             if (!mem.endsWith(u8, request_uri_path, "/info/refs")) return error.UnparseableRedirect;
             var new_uri = request.uri;
             new_uri.path = .{ .percent_encoded = request_uri_path[0 .. request_uri_path.len - "/info/refs".len] };
-            new_uri.query = null;
-            redirect_uri.* = try std.fmt.allocPrint(allocator, "{+/}", .{new_uri});
-            return error.Redirected;
+            const new_location: Location = try .init(session.allocator, new_uri);
+            session.location.deinit(session.allocator);
+            session.location = new_location;
         }
 
         const reader = request.reader();
@@ -649,28 +690,28 @@ pub const Session = struct {
     };
 
     /// Returns an iterator over refs known to the server.
-    pub fn listRefs(session: Session, allocator: Allocator, options: ListRefsOptions) !RefIterator {
-        var upload_pack_uri = session.uri;
+    pub fn listRefs(session: Session, options: ListRefsOptions) !RefIterator {
+        var upload_pack_uri = session.location.uri;
         {
-            const session_uri_path = try std.fmt.allocPrint(allocator, "{path}", .{session.uri.path});
-            defer allocator.free(session_uri_path);
-            upload_pack_uri.path = .{ .percent_encoded = try std.fs.path.resolvePosix(allocator, &.{ "/", session_uri_path, "git-upload-pack" }) };
+            const session_uri_path = try std.fmt.allocPrint(session.allocator, "{path}", .{session.location.uri.path});
+            defer session.allocator.free(session_uri_path);
+            upload_pack_uri.path = .{ .percent_encoded = try std.fs.path.resolvePosix(session.allocator, &.{ "/", session_uri_path, "git-upload-pack" }) };
         }
-        defer allocator.free(upload_pack_uri.path.percent_encoded);
+        defer session.allocator.free(upload_pack_uri.path.percent_encoded);
         upload_pack_uri.query = null;
         upload_pack_uri.fragment = null;
 
         var body: std.ArrayListUnmanaged(u8) = .empty;
-        defer body.deinit(allocator);
-        const body_writer = body.writer(allocator);
+        defer body.deinit(session.allocator);
+        const body_writer = body.writer(session.allocator);
         try Packet.write(.{ .data = "command=ls-refs\n" }, body_writer);
         if (session.supports_agent) {
             try Packet.write(.{ .data = agent_capability }, body_writer);
         }
         try Packet.write(.delimiter, body_writer);
         for (options.ref_prefixes) |ref_prefix| {
-            const ref_prefix_packet = try std.fmt.allocPrint(allocator, "ref-prefix {s}\n", .{ref_prefix});
-            defer allocator.free(ref_prefix_packet);
+            const ref_prefix_packet = try std.fmt.allocPrint(session.allocator, "ref-prefix {s}\n", .{ref_prefix});
+            defer session.allocator.free(ref_prefix_packet);
             try Packet.write(.{ .data = ref_prefix_packet }, body_writer);
         }
         if (options.include_symrefs) {
@@ -753,23 +794,22 @@ pub const Session = struct {
     /// performed if the server supports it.
     pub fn fetch(
         session: Session,
-        allocator: Allocator,
         wants: []const []const u8,
         http_headers_buffer: []u8,
     ) !FetchStream {
-        var upload_pack_uri = session.uri;
+        var upload_pack_uri = session.location.uri;
         {
-            const session_uri_path = try std.fmt.allocPrint(allocator, "{path}", .{session.uri.path});
-            defer allocator.free(session_uri_path);
-            upload_pack_uri.path = .{ .percent_encoded = try std.fs.path.resolvePosix(allocator, &.{ "/", session_uri_path, "git-upload-pack" }) };
+            const session_uri_path = try std.fmt.allocPrint(session.allocator, "{path}", .{session.location.uri.path});
+            defer session.allocator.free(session_uri_path);
+            upload_pack_uri.path = .{ .percent_encoded = try std.fs.path.resolvePosix(session.allocator, &.{ "/", session_uri_path, "git-upload-pack" }) };
         }
-        defer allocator.free(upload_pack_uri.path.percent_encoded);
+        defer session.allocator.free(upload_pack_uri.path.percent_encoded);
         upload_pack_uri.query = null;
         upload_pack_uri.fragment = null;
 
         var body: std.ArrayListUnmanaged(u8) = .empty;
-        defer body.deinit(allocator);
-        const body_writer = body.writer(allocator);
+        defer body.deinit(session.allocator);
+        const body_writer = body.writer(session.allocator);
         try Packet.write(.{ .data = "command=fetch\n" }, body_writer);
         if (session.supports_agent) {
             try Packet.write(.{ .data = agent_capability }, body_writer);

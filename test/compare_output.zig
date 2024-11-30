@@ -440,7 +440,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.add("std.log per scope log level override",
         \\const std = @import("std");
         \\
-        \\pub const std_options = .{
+        \\pub const std_options: std.Options = .{
         \\    .log_level = .debug,
         \\    
         \\    .log_scope_levels = &.{
@@ -497,7 +497,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.add("std.heap.LoggingAllocator logs to std.log",
         \\const std = @import("std");
         \\
-        \\pub const std_options = .{
+        \\pub const std_options: std.Options = .{
         \\    .log_level = .debug,
         \\    .logFn = log,
         \\};

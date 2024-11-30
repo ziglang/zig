@@ -21,7 +21,7 @@ const c_string = @cImport(
 );
 
 // Version of glibc this test is being built to run against
-const glibc_ver = builtin.target.os.version_range.linux.glibc;
+const glibc_ver = builtin.os.versionRange().gnuLibCVersion().?;
 
 // PR #17034 - fstat moved between libc_nonshared and libc
 fn checkStat() !void {

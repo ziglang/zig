@@ -100,7 +100,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// of this ArrayList. Empties this ArrayList.
         pub fn moveToUnmanaged(self: *Self) ArrayListAlignedUnmanaged(T, alignment) {
             const allocator = self.allocator;
-            const result = .{ .items = self.items, .capacity = self.capacity };
+            const result: ArrayListAlignedUnmanaged(T, alignment) = .{ .items = self.items, .capacity = self.capacity };
             self.* = init(allocator);
             return result;
         }

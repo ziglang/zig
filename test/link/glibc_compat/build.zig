@@ -5,10 +5,7 @@ const builtin = @import("builtin");
 // run-time glibc version needs to be new enough.  Check the host's glibc
 // version.  Note that this does not allow for translation/vm/emulation
 // services to run these tests.
-const running_glibc_ver: ?std.SemanticVersion = switch (builtin.os.tag) {
-    .linux => builtin.os.version_range.linux.glibc,
-    else => null,
-};
+const running_glibc_ver = builtin.os.versionRange().gnuLibCVersion();
 
 pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Test");

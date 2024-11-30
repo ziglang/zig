@@ -475,7 +475,7 @@ fn gen(self: *Self) !void {
     const pt = self.pt;
     const zcu = pt.zcu;
     const cc = self.fn_type.fnCallingConvention(zcu);
-    if (cc != .Naked) {
+    if (cc != .naked) {
         // push {fp, lr}
         const push_reloc = try self.addNop();
 
@@ -787,6 +787,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .try_ptr_cold    => try self.airTryPtr(inst),
 
             .dbg_stmt         => try self.airDbgStmt(inst),
+            .dbg_empty_stmt   => self.finishAirBookkeeping(),
             .dbg_inline_block => try self.airDbgInlineBlock(inst),
             .dbg_var_ptr,
             .dbg_var_val,
@@ -6196,14 +6197,14 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
     const ret_ty = fn_ty.fnReturnType(zcu);
 
     switch (cc) {
-        .Naked => {
+        .naked => {
             assert(result.args.len == 0);
             result.return_value = .{ .unreach = {} };
             result.stack_byte_count = 0;
             result.stack_align = 1;
             return result;
         },
-        .C => {
+        .arm_aapcs => {
             // ARM Procedure Call Standard, Chapter 6.5
             var ncrn: usize = 0; // Next Core Register Number
             var nsaa: u32 = 0; // Next stacked argument address
@@ -6254,7 +6255,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
             result.stack_byte_count = nsaa;
             result.stack_align = 8;
         },
-        .Unspecified => {
+        .auto => {
             if (ret_ty.zigTypeTag(zcu) == .noreturn) {
                 result.return_value = .{ .unreach = {} };
             } else if (!ret_ty.hasRuntimeBitsIgnoreComptime(zcu) and !ret_ty.isError(zcu)) {

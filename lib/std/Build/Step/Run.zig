@@ -1137,7 +1137,7 @@ fn runCommand(
             };
         }
 
-        return step.fail("unable to spawn {s}: {s}", .{ argv[0], @errorName(err) });
+        return step.fail("failed to spawn and capture stdio from {s}: {s}", .{ argv[0], @errorName(err) });
     };
 
     step.result_duration_ns = result.elapsed_ns;
@@ -1369,18 +1369,22 @@ fn spawnChildAndCollect(
         defer if (inherit) std.debug.unlockStdErr();
 
         try child.spawn();
+        errdefer {
+            _ = child.kill() catch {};
+        }
+
         var timer = try std.time.Timer.start();
 
         const result = if (run.stdio == .zig_test)
-            evalZigTest(run, &child, prog_node, fuzz_context)
+            try evalZigTest(run, &child, prog_node, fuzz_context)
         else
-            evalGeneric(run, &child);
+            try evalGeneric(run, &child);
 
         break :t .{ try child.wait(), result, timer.read() };
     };
 
     return .{
-        .stdio = try result,
+        .stdio = result,
         .term = term,
         .elapsed_ns = elapsed_ns,
         .peak_rss = child.resource_usage_statistics.getMaxRss() orelse 0,
@@ -1409,12 +1413,23 @@ fn evalZigTest(
     });
     defer poller.deinit();
 
-    if (fuzz_context) |fuzz| {
-        try sendRunTestMessage(child.stdin.?, .start_fuzzing, fuzz.unit_test_index);
-    } else {
+    // If this is `true`, we avoid ever entering the polling loop below, because the stdin pipe has
+    // somehow already closed; instead, we go straight to capturing stderr in case it has anything
+    // useful.
+    const first_write_failed = if (fuzz_context) |fuzz| failed: {
+        sendRunTestMessage(child.stdin.?, .start_fuzzing, fuzz.unit_test_index) catch |err| {
+            try run.step.addError("unable to write stdin: {s}", .{@errorName(err)});
+            break :failed true;
+        };
+        break :failed false;
+    } else failed: {
         run.fuzz_tests.clearRetainingCapacity();
-        try sendMessage(child.stdin.?, .query_test_metadata);
-    }
+        sendMessage(child.stdin.?, .query_test_metadata) catch |err| {
+            try run.step.addError("unable to write stdin: {s}", .{@errorName(err)});
+            break :failed true;
+        };
+        break :failed false;
+    };
 
     const Header = std.zig.Server.Message.Header;
 
@@ -1433,13 +1448,13 @@ fn evalZigTest(
     var sub_prog_node: ?std.Progress.Node = null;
     defer if (sub_prog_node) |n| n.end();
 
-    poll: while (true) {
+    const any_write_failed = first_write_failed or poll: while (true) {
         while (stdout.readableLength() < @sizeOf(Header)) {
-            if (!(try poller.poll())) break :poll;
+            if (!(try poller.poll())) break :poll false;
         }
         const header = stdout.reader().readStruct(Header) catch unreachable;
         while (stdout.readableLength() < header.bytes_len) {
-            if (!(try poller.poll())) break :poll;
+            if (!(try poller.poll())) break :poll false;
         }
         const body = stdout.readableSliceOfLen(header.bytes_len);
 
@@ -1479,7 +1494,10 @@ fn evalZigTest(
                     .prog_node = prog_node,
                 };
 
-                try requestNextTest(child.stdin.?, &metadata.?, &sub_prog_node);
+                requestNextTest(child.stdin.?, &metadata.?, &sub_prog_node) catch |err| {
+                    try run.step.addError("unable to write stdin: {s}", .{@errorName(err)});
+                    break :poll true;
+                };
             },
             .test_results => {
                 assert(fuzz_context == null);
@@ -1514,7 +1532,10 @@ fn evalZigTest(
                     }
                 }
 
-                try requestNextTest(child.stdin.?, &metadata.?, &sub_prog_node);
+                requestNextTest(child.stdin.?, &metadata.?, &sub_prog_node) catch |err| {
+                    try run.step.addError("unable to write stdin: {s}", .{@errorName(err)});
+                    break :poll true;
+                };
             },
             .coverage_id => {
                 const web_server = fuzz_context.?.web_server;
@@ -1548,6 +1569,12 @@ fn evalZigTest(
         }
 
         stdout.discard(body.len);
+    };
+
+    if (any_write_failed) {
+        // The compiler unexpectedly closed stdin; something is very wrong and has probably crashed.
+        // We want to make sure we've captured all of stderr so that it's logged below.
+        while (try poller.poll()) {}
     }
 
     if (stderr.readableLength() > 0) {

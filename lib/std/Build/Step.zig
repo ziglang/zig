@@ -339,7 +339,7 @@ pub fn captureChildProcess(
         .allocator = arena,
         .argv = argv,
         .progress_node = progress_node,
-    }) catch |err| return s.fail("unable to spawn {s}: {s}", .{ argv[0], @errorName(err) });
+    }) catch |err| return s.fail("failed to run {s}: {s}", .{ argv[0], @errorName(err) });
 
     if (result.stderr.len > 0) {
         try s.result_error_msgs.append(arena, result.stderr);
@@ -423,7 +423,7 @@ pub fn evalZigProcess(
     child.request_resource_usage_statistics = true;
     child.progress_node = prog_node;
 
-    child.spawn() catch |err| return s.fail("unable to spawn {s}: {s}", .{
+    child.spawn() catch |err| return s.fail("failed to spawn zig compiler {s}: {s}", .{
         argv[0], @errorName(err),
     });
 

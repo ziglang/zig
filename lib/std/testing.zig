@@ -41,14 +41,14 @@ fn print(comptime fmt: []const u8, args: anytype) void {
 pub fn expectError(expected_error: anyerror, actual_error_union: anytype) !void {
     if (actual_error_union) |actual_payload| {
         print("expected error.{s}, found {any}\n", .{ @errorName(expected_error), actual_payload });
-        return error.TestUnexpectedError;
+        return error.TestExpectedError;
     } else |actual_error| {
         if (expected_error != actual_error) {
             print("expected error.{s}, found error.{s}\n", .{
                 @errorName(expected_error),
                 @errorName(actual_error),
             });
-            return error.TestExpectedError;
+            return error.TestUnexpectedError;
         }
     }
 }

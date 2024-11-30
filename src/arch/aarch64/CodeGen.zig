@@ -468,7 +468,7 @@ fn gen(self: *Self) !void {
     const pt = self.pt;
     const zcu = pt.zcu;
     const cc = self.fn_type.fnCallingConvention(zcu);
-    if (cc != .Naked) {
+    if (cc != .naked) {
         // stp fp, lr, [sp, #-16]!
         _ = try self.addInst(.{
             .tag = .stp,
@@ -800,6 +800,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .try_ptr_cold    => try self.airTryPtr(inst),
 
             .dbg_stmt         => try self.airDbgStmt(inst),
+            .dbg_empty_stmt   => self.finishAirBookkeeping(),
             .dbg_inline_block => try self.airDbgInlineBlock(inst),
             .dbg_var_ptr,
             .dbg_var_val,
@@ -6229,14 +6230,14 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
     const ret_ty = fn_ty.fnReturnType(zcu);
 
     switch (cc) {
-        .Naked => {
+        .naked => {
             assert(result.args.len == 0);
             result.return_value = .{ .unreach = {} };
             result.stack_byte_count = 0;
             result.stack_align = 1;
             return result;
         },
-        .C => {
+        .aarch64_aapcs, .aarch64_aapcs_darwin, .aarch64_aapcs_win => {
             // ARM64 Procedure Call Standard
             var ncrn: usize = 0; // Next Core Register Number
             var nsaa: u32 = 0; // Next stacked argument address
@@ -6266,7 +6267,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
 
                 // We round up NCRN only for non-Apple platforms which allow the 16-byte aligned
                 // values to spread across odd-numbered registers.
-                if (Type.fromInterned(ty).abiAlignment(zcu) == .@"16" and !self.target.isDarwin()) {
+                if (Type.fromInterned(ty).abiAlignment(zcu) == .@"16" and cc != .aarch64_aapcs_darwin) {
                     // Round up NCRN to the next even number
                     ncrn += ncrn % 2;
                 }
@@ -6298,7 +6299,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
             result.stack_byte_count = nsaa;
             result.stack_align = 16;
         },
-        .Unspecified => {
+        .auto => {
             if (ret_ty.zigTypeTag(zcu) == .noreturn) {
                 result.return_value = .{ .unreach = {} };
             } else if (!ret_ty.hasRuntimeBitsIgnoreComptime(zcu) and !ret_ty.isError(zcu)) {

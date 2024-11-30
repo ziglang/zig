@@ -109,7 +109,7 @@ pub const all_features = blk: {
 };
 
 pub const cpu = struct {
-    pub const bleeding_edge = CpuModel{
+    pub const bleeding_edge: CpuModel = .{
         .name = "bleeding_edge",
         .llvm_name = "bleeding-edge",
         .features = featureSet(&[_]Feature{
@@ -129,7 +129,7 @@ pub const cpu = struct {
             .tail_call,
         }),
     };
-    pub const generic = CpuModel{
+    pub const generic: CpuModel = .{
         .name = "generic",
         .llvm_name = "generic",
         .features = featureSet(&[_]Feature{
@@ -139,7 +139,7 @@ pub const cpu = struct {
             .sign_ext,
         }),
     };
-    pub const mvp = CpuModel{
+    pub const mvp: CpuModel = .{
         .name = "mvp",
         .llvm_name = "mvp",
         .features = featureSet(&[_]Feature{}),

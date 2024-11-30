@@ -654,10 +654,14 @@ const eqlBytes_allowed = switch (builtin.zig_backend) {
     else => !builtin.fuzz,
 };
 
-/// Compares two slices and returns whether they are equal.
+/// Returns true if and only if the slices have the same length and all elements
+/// compare true using equality operator.
 pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
-    if (@sizeOf(T) == 0) return true;
-    if (!@inComptime() and std.meta.hasUniqueRepresentation(T) and eqlBytes_allowed) return eqlBytes(sliceAsBytes(a), sliceAsBytes(b));
+    if (!@inComptime() and @sizeOf(T) != 0 and std.meta.hasUniqueRepresentation(T) and
+        eqlBytes_allowed)
+    {
+        return eqlBytes(sliceAsBytes(a), sliceAsBytes(b));
+    }
 
     if (a.len != b.len) return false;
     if (a.len == 0 or a.ptr == b.ptr) return true;
@@ -666,6 +670,25 @@ pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
         if (a_elem != b_elem) return false;
     }
     return true;
+}
+
+test eql {
+    try testing.expect(eql(u8, "abcd", "abcd"));
+    try testing.expect(!eql(u8, "abcdef", "abZdef"));
+    try testing.expect(!eql(u8, "abcdefg", "abcdef"));
+
+    comptime {
+        try testing.expect(eql(type, &.{ bool, f32 }, &.{ bool, f32 }));
+        try testing.expect(!eql(type, &.{ bool, f32 }, &.{ f32, bool }));
+        try testing.expect(!eql(type, &.{ bool, f32 }, &.{bool}));
+
+        try testing.expect(eql(comptime_int, &.{ 1, 2, 3 }, &.{ 1, 2, 3 }));
+        try testing.expect(!eql(comptime_int, &.{ 1, 2, 3 }, &.{ 3, 2, 1 }));
+        try testing.expect(!eql(comptime_int, &.{1}, &.{ 1, 2 }));
+    }
+
+    try testing.expect(eql(void, &.{ {}, {} }, &.{ {}, {} }));
+    try testing.expect(!eql(void, &.{{}}, &.{ {}, {} }));
 }
 
 /// std.mem.eql heavily optimized for slices of bytes.
@@ -3292,12 +3315,6 @@ test concat {
     }
 }
 
-test eql {
-    try testing.expect(eql(u8, "abcd", "abcd"));
-    try testing.expect(!eql(u8, "abcdef", "abZdef"));
-    try testing.expect(!eql(u8, "abcdefg", "abcdef"));
-}
-
 fn moreReadIntTests() !void {
     {
         const bytes = [_]u8{
@@ -3965,7 +3982,9 @@ fn CopyPtrAttrs(
 }
 
 fn AsBytesReturnType(comptime P: type) type {
-    const size = @sizeOf(std.meta.Child(P));
+    const pointer = @typeInfo(P).pointer;
+    assert(pointer.size == .One);
+    const size = @sizeOf(pointer.child);
     return CopyPtrAttrs(P, .One, [size]u8);
 }
 

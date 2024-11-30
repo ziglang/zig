@@ -118,9 +118,6 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
             .{ .v6kz, "v6kz" },
             .{ .v6m, "v6m" },
             .{ .v6t2, "v6t2" },
-            // v7k and v7s imply v7a so they have to be tested first.
-            .{ .v7k, "v7k" },
-            .{ .v7s, "v7s" },
             .{ .v7a, "v7a" },
             .{ .v7em, "v7em" },
             .{ .v7m, "v7m" },
@@ -164,14 +161,34 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
     };
 
     if (llvm_sub_arch) |sub| try llvm_triple.appendSlice(sub);
+    try llvm_triple.append('-');
 
-    // Unlike CPU backends, GPU backends actually care about the vendor tag.
-    try llvm_triple.appendSlice(switch (target.cpu.arch) {
-        .amdgcn => if (target.os.tag == .mesa3d) "-mesa-" else "-amd-",
-        .nvptx, .nvptx64 => "-nvidia-",
-        .spirv64 => if (target.os.tag == .amdhsa) "-amd-" else "-unknown-",
-        else => "-unknown-",
+    try llvm_triple.appendSlice(switch (target.os.tag) {
+        .aix,
+        .zos,
+        => "ibm",
+        .bridgeos,
+        .driverkit,
+        .ios,
+        .macos,
+        .tvos,
+        .visionos,
+        .watchos,
+        => "apple",
+        .ps4,
+        .ps5,
+        => "scei",
+        .amdhsa,
+        .amdpal,
+        => "amd",
+        .cuda,
+        .nvcl,
+        => "nvidia",
+        .mesa3d,
+        => "mesa",
+        else => "unknown",
     });
+    try llvm_triple.append('-');
 
     const llvm_os = switch (target.os.tag) {
         .freestanding => "unknown",
@@ -219,13 +236,20 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
     };
     try llvm_triple.appendSlice(llvm_os);
 
-    if (target.os.tag.isDarwin()) {
-        const min_version = target.os.version_range.semver.min;
-        try llvm_triple.writer().print("{d}.{d}.{d}", .{
-            min_version.major,
-            min_version.minor,
-            min_version.patch,
-        });
+    switch (target.os.versionRange()) {
+        .none,
+        .windows,
+        => {},
+        .semver => |ver| try llvm_triple.writer().print("{d}.{d}.{d}", .{
+            ver.min.major,
+            ver.min.minor,
+            ver.min.patch,
+        }),
+        inline .linux, .hurd => |ver| try llvm_triple.writer().print("{d}.{d}.{d}", .{
+            ver.range.min.major,
+            ver.range.min.minor,
+            ver.range.min.patch,
+        }),
     }
     try llvm_triple.append('-');
 
@@ -239,13 +263,15 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .gnuf32 => "gnuf32",
         .gnusf => "gnusf",
         .gnux32 => "gnux32",
-        .gnuilp32 => "gnuilp32",
+        .gnuilp32 => "gnu_ilp32",
         .code16 => "code16",
         .eabi => "eabi",
         .eabihf => "eabihf",
         .android => "android",
         .androideabi => "androideabi",
         .musl => "musl",
+        .muslabin32 => "musl", // Should be muslabin32 in LLVM 20.
+        .muslabi64 => "musl", // Should be muslabi64 in LLVM 20.
         .musleabi => "musleabi",
         .musleabihf => "musleabihf",
         .muslx32 => "muslx32",
@@ -254,10 +280,25 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .cygnus => "cygnus",
         .simulator => "simulator",
         .macabi => "macabi",
-        .ohos => "ohos",
-        .ohoseabi => "ohoseabi",
+        .ohos, .ohoseabi => "ohos",
     };
     try llvm_triple.appendSlice(llvm_abi);
+
+    switch (target.os.versionRange()) {
+        .none,
+        .semver,
+        .windows,
+        => {},
+        inline .hurd, .linux => |ver| if (target.abi.isGnu()) {
+            try llvm_triple.writer().print("{d}.{d}.{d}", .{
+                ver.glibc.major,
+                ver.glibc.minor,
+                ver.glibc.patch,
+            });
+        } else if (@TypeOf(ver) == std.Target.Os.LinuxVersionRange and target.abi.isAndroid()) {
+            try llvm_triple.writer().print("{d}", .{ver.android});
+        },
+    }
 
     return llvm_triple.toOwnedSlice();
 }
@@ -458,10 +499,15 @@ const DataLayoutBuilder = struct {
                 if (idx != size) try writer.print(":{d}", .{idx});
             }
         }
-        if (self.target.cpu.arch.isArmOrThumb()) try writer.writeAll("-Fi8") // for thumb interwork
+        if (self.target.cpu.arch.isArm())
+            try writer.writeAll("-Fi8") // for thumb interwork
         else if (self.target.cpu.arch == .powerpc64 and
-            self.target.os.tag != .freebsd and self.target.abi != .musl)
+            self.target.os.tag != .freebsd and
+            self.target.os.tag != .openbsd and
+            !self.target.abi.isMusl())
             try writer.writeAll("-Fi64")
+        else if (self.target.cpu.arch.isPowerPC() and self.target.os.tag == .aix)
+            try writer.writeAll(if (self.target.cpu.arch.isPowerPC64()) "-Fi64" else "-Fi32")
         else if (self.target.cpu.arch.isPowerPC())
             try writer.writeAll("-Fn32");
         if (self.target.cpu.arch != .hexagon) {
@@ -574,6 +620,8 @@ const DataLayoutBuilder = struct {
             self.target.os.tag == .uefi or self.target.os.tag == .windows or
             self.target.cpu.arch == .riscv32)
             try writer.print("-S{d}", .{stack_abi});
+        if (self.target.cpu.arch.isAARCH64())
+            try writer.writeAll("-Fn32");
         switch (self.target.cpu.arch) {
             .hexagon, .ve => {
                 try self.typeAlignment(.vector, 32, 128, 128, true, writer);
@@ -718,7 +766,7 @@ const DataLayoutBuilder = struct {
                     else => {},
                 }
             },
-            .vector => if (self.target.cpu.arch.isArmOrThumb()) {
+            .vector => if (self.target.cpu.arch.isArm()) {
                 switch (size) {
                     128 => abi = 64,
                     else => {},
@@ -784,7 +832,7 @@ const DataLayoutBuilder = struct {
                 else => {},
             },
             .aggregate => if (self.target.os.tag == .uefi or self.target.os.tag == .windows or
-                self.target.cpu.arch.isArmOrThumb())
+                self.target.cpu.arch.isArm())
             {
                 pref = @min(pref, self.target.ptrBitWidth());
             } else switch (self.target.cpu.arch) {
@@ -1159,7 +1207,7 @@ pub const Object = struct {
         }
 
         {
-            var module_flags = try std.ArrayList(Builder.Metadata).initCapacity(o.gpa, 6);
+            var module_flags = try std.ArrayList(Builder.Metadata).initCapacity(o.gpa, 7);
             defer module_flags.deinit();
 
             const behavior_error = try o.builder.metadataConstant(try o.builder.intConst(.i32, 1));
@@ -1231,6 +1279,18 @@ pub const Object = struct {
                         ));
                     },
                 }
+            }
+
+            const target = comp.root_mod.resolved_target.result;
+            if (target.os.tag == .windows and (target.cpu.arch == .x86_64 or target.cpu.arch == .x86)) {
+                // Add the "RegCallv4" flag so that any functions using `x86_regcallcc` use regcall
+                // v4, which is essentially a requirement on Windows. See corresponding logic in
+                // `toLlvmCallConvTag`.
+                module_flags.appendAssumeCapacity(try o.builder.metadataModuleFlag(
+                    behavior_max,
+                    try o.builder.metadataString("RegCallv4"),
+                    try o.builder.metadataConstant(.@"1"),
+                ));
             }
 
             try o.builder.metadataNamed(try o.builder.metadataString("llvm.module.flags"), module_flags.items);
@@ -1344,7 +1404,10 @@ pub const Object = struct {
             .large => .Large,
         };
 
-        const float_abi: llvm.ABIType = if (comp.root_mod.resolved_target.result.floatAbi() == .hard) .Hard else .Soft;
+        const float_abi: llvm.TargetMachine.FloatABI = if (comp.root_mod.resolved_target.result.floatAbi() == .hard)
+            .Hard
+        else
+            .Soft;
 
         var target_machine = llvm.TargetMachine.create(
             target,
@@ -1467,14 +1530,6 @@ pub const Object = struct {
             _ = try attributes.removeFnAttr(.@"noinline");
         }
 
-        const stack_alignment = func.analysisUnordered(ip).stack_alignment;
-        if (stack_alignment != .none) {
-            try attributes.addFnAttr(.{ .alignstack = stack_alignment.toLlvm() }, &o.builder);
-            try attributes.addFnAttr(.@"noinline", &o.builder);
-        } else {
-            _ = try attributes.removeFnAttr(.alignstack);
-        }
-
         if (func_analysis.branch_hint == .cold) {
             try attributes.addFnAttr(.cold, &o.builder);
         } else {
@@ -1486,7 +1541,7 @@ pub const Object = struct {
         } else {
             _ = try attributes.removeFnAttr(.sanitize_thread);
         }
-        const is_naked = fn_info.cc == .Naked;
+        const is_naked = fn_info.cc == .naked;
         if (owner_mod.fuzz and !func_analysis.disable_instrumentation and !is_naked) {
             try attributes.addFnAttr(.optforfuzzing, &o.builder);
             _ = try attributes.removeFnAttr(.skipprofile);
@@ -1784,7 +1839,7 @@ pub const Object = struct {
             .liveness = liveness,
             .ng = &ng,
             .wip = wip,
-            .is_naked = fn_info.cc == .Naked,
+            .is_naked = fn_info.cc == .naked,
             .fuzz = fuzz,
             .ret_ptr = ret_ptr,
             .args = args.items,
@@ -2549,7 +2604,7 @@ pub const Object = struct {
                 }
 
                 switch (ip.indexToKey(ty.toIntern())) {
-                    .anon_struct_type => |tuple| {
+                    .tuple_type => |tuple| {
                         var fields: std.ArrayListUnmanaged(Builder.Metadata) = .empty;
                         defer fields.deinit(gpa);
 
@@ -2568,11 +2623,8 @@ pub const Object = struct {
                             const field_offset = field_align.forward(offset);
                             offset = field_offset + field_size;
 
-                            const field_name = if (tuple.names.len != 0)
-                                tuple.names.get(ip)[i].toSlice(ip)
-                            else
-                                try std.fmt.allocPrintZ(gpa, "{d}", .{i});
-                            defer if (tuple.names.len == 0) gpa.free(field_name);
+                            var name_buf: [32]u8 = undefined;
+                            const field_name = std.fmt.bufPrint(&name_buf, "{d}", .{i}) catch unreachable;
 
                             fields.appendAssumeCapacity(try o.builder.debugMemberType(
                                 try o.builder.metadataString(field_name),
@@ -3038,14 +3090,77 @@ pub const Object = struct {
             llvm_arg_i += 1;
         }
 
-        switch (fn_info.cc) {
-            .Unspecified, .Inline => function_index.setCallConv(.fastcc, &o.builder),
-            .Naked => try attributes.addFnAttr(.naked, &o.builder),
-            .Async => {
-                function_index.setCallConv(.fastcc, &o.builder);
-                @panic("TODO: LLVM backend lower async function");
-            },
-            else => function_index.setCallConv(toLlvmCallConv(fn_info.cc, target), &o.builder),
+        if (fn_info.cc == .@"async") {
+            @panic("TODO: LLVM backend lower async function");
+        }
+
+        {
+            const cc_info = toLlvmCallConv(fn_info.cc, target).?;
+
+            function_index.setCallConv(cc_info.llvm_cc, &o.builder);
+
+            if (cc_info.align_stack) {
+                try attributes.addFnAttr(.{ .alignstack = .fromByteUnits(target.stackAlignment()) }, &o.builder);
+            } else {
+                _ = try attributes.removeFnAttr(.alignstack);
+            }
+
+            if (cc_info.naked) {
+                try attributes.addFnAttr(.naked, &o.builder);
+            } else {
+                _ = try attributes.removeFnAttr(.naked);
+            }
+
+            for (0..cc_info.inreg_param_count) |param_idx| {
+                try attributes.addParamAttr(param_idx, .inreg, &o.builder);
+            }
+            for (cc_info.inreg_param_count..std.math.maxInt(u2)) |param_idx| {
+                _ = try attributes.removeParamAttr(param_idx, .inreg);
+            }
+
+            switch (fn_info.cc) {
+                inline .riscv64_interrupt,
+                .riscv32_interrupt,
+                .mips_interrupt,
+                .mips64_interrupt,
+                => |info| {
+                    try attributes.addFnAttr(.{ .string = .{
+                        .kind = try o.builder.string("interrupt"),
+                        .value = try o.builder.string(@tagName(info.mode)),
+                    } }, &o.builder);
+                },
+                .arm_interrupt,
+                => |info| {
+                    try attributes.addFnAttr(.{ .string = .{
+                        .kind = try o.builder.string("interrupt"),
+                        .value = try o.builder.string(switch (info.type) {
+                            .generic => "",
+                            .irq => "IRQ",
+                            .fiq => "FIQ",
+                            .swi => "SWI",
+                            .abort => "ABORT",
+                            .undef => "UNDEF",
+                        }),
+                    } }, &o.builder);
+                },
+                // these function attributes serve as a backup against any mistakes LLVM makes.
+                // clang sets both the function's calling convention and the function attributes
+                // in its backend, so future patches to the AVR backend could end up checking only one,
+                // possibly breaking our support. it's safer to just emit both.
+                .avr_interrupt, .avr_signal, .csky_interrupt => {
+                    try attributes.addFnAttr(.{ .string = .{
+                        .kind = try o.builder.string(switch (fn_info.cc) {
+                            .avr_interrupt,
+                            .csky_interrupt,
+                            => "interrupt",
+                            .avr_signal => "signal",
+                            else => unreachable,
+                        }),
+                        .value = .empty,
+                    } }, &o.builder);
+                },
+                else => {},
+            }
         }
 
         if (resolved.alignment != .none)
@@ -3061,7 +3176,7 @@ pub const Object = struct {
             // suppress generation of the prologue and epilogue, and the prologue is where the
             // frame pointer normally gets set up. At time of writing, this is the case for at
             // least x86 and RISC-V.
-            owner_mod.omit_frame_pointer or fn_info.cc == .Naked,
+            owner_mod.omit_frame_pointer or fn_info.cc == .naked,
         );
 
         if (fn_info.return_type == .noreturn_type) try attributes.addFnAttr(.noreturn, &o.builder);
@@ -3110,8 +3225,6 @@ pub const Object = struct {
         owner_mod: *Package.Module,
         omit_frame_pointer: bool,
     ) Allocator.Error!void {
-        const comp = o.pt.zcu.comp;
-
         if (!owner_mod.red_zone) {
             try attributes.addFnAttr(.noredzone, &o.builder);
         }
@@ -3130,13 +3243,16 @@ pub const Object = struct {
         if (owner_mod.unwind_tables) {
             try attributes.addFnAttr(.{ .uwtable = Builder.Attribute.UwTable.default }, &o.builder);
         }
-        if (comp.skip_linker_dependencies or comp.no_builtin) {
+        if (owner_mod.no_builtin) {
             // The intent here is for compiler-rt and libc functions to not generate
             // infinite recursion. For example, if we are compiling the memcpy function,
             // and llvm detects that the body is equivalent to memcpy, it may replace the
             // body of memcpy with a call to memcpy, which would then cause a stack
             // overflow instead of performing memcpy.
-            try attributes.addFnAttr(.nobuiltin, &o.builder);
+            try attributes.addFnAttr(.{ .string = .{
+                .kind = try o.builder.string("no-builtins"),
+                .value = .empty,
+            } }, &o.builder);
         }
         if (owner_mod.optimize_mode == .ReleaseSmall) {
             try attributes.addFnAttr(.minsize, &o.builder);
@@ -3153,12 +3269,6 @@ pub const Object = struct {
             try attributes.addFnAttr(.{ .string = .{
                 .kind = try o.builder.string("target-features"),
                 .value = try o.builder.string(std.mem.span(s)),
-            } }, &o.builder);
-        }
-        if (target.cpu.arch.isBpf()) {
-            try attributes.addFnAttr(.{ .string = .{
-                .kind = try o.builder.string("no-builtins"),
-                .value = .empty,
             } }, &o.builder);
         }
         if (target.floatAbi() == .soft) {
@@ -3237,10 +3347,10 @@ pub const Object = struct {
         const ip = &zcu.intern_pool;
         const nav = ip.getNav(nav_index);
         const resolved = nav.status.resolved;
-        const is_extern, const is_threadlocal, const is_weak_linkage = switch (ip.indexToKey(resolved.val)) {
-            .variable => |variable| .{ false, variable.is_threadlocal, variable.is_weak_linkage },
-            .@"extern" => |@"extern"| .{ true, @"extern".is_threadlocal, @"extern".is_weak_linkage },
-            else => .{ false, false, false },
+        const is_extern, const is_threadlocal, const is_weak_linkage, const is_dll_import = switch (ip.indexToKey(resolved.val)) {
+            .variable => |variable| .{ false, variable.is_threadlocal, variable.is_weak_linkage, false },
+            .@"extern" => |@"extern"| .{ true, @"extern".is_threadlocal, @"extern".is_weak_linkage, @"extern".is_dll_import },
+            else => .{ false, false, false, false },
         };
 
         const variable_index = try o.builder.addVariable(
@@ -3257,6 +3367,7 @@ pub const Object = struct {
             if (is_threadlocal and !zcu.navFileScope(nav_index).mod.single_threaded)
                 variable_index.setThreadLocal(.generaldynamic, &o.builder);
             if (is_weak_linkage) variable_index.setLinkage(.extern_weak, &o.builder);
+            if (is_dll_import) variable_index.setDllStorageClass(.dllimport, &o.builder);
         } else {
             variable_index.setLinkage(.internal, &o.builder);
             variable_index.setUnnamedAddr(.unnamed_addr, &o.builder);
@@ -3348,7 +3459,7 @@ pub const Object = struct {
             .adhoc_inferred_error_set_type,
             => try o.errorIntType(),
             .generic_poison_type,
-            .empty_struct_type,
+            .empty_tuple_type,
             => unreachable,
             // values, not types
             .undef,
@@ -3365,7 +3476,7 @@ pub const Object = struct {
             .null_value,
             .bool_true,
             .bool_false,
-            .empty_struct,
+            .empty_tuple,
             .generic_poison,
             .none,
             => unreachable,
@@ -3532,13 +3643,13 @@ pub const Object = struct {
                     );
                     return ty;
                 },
-                .anon_struct_type => |anon_struct_type| {
+                .tuple_type => |tuple_type| {
                     var llvm_field_types: std.ArrayListUnmanaged(Builder.Type) = .empty;
                     defer llvm_field_types.deinit(o.gpa);
                     // Although we can estimate how much capacity to add, these cannot be
                     // relied upon because of the recursive calls to lowerType below.
-                    try llvm_field_types.ensureUnusedCapacity(o.gpa, anon_struct_type.types.len);
-                    try o.struct_field_map.ensureUnusedCapacity(o.gpa, anon_struct_type.types.len);
+                    try llvm_field_types.ensureUnusedCapacity(o.gpa, tuple_type.types.len);
+                    try o.struct_field_map.ensureUnusedCapacity(o.gpa, tuple_type.types.len);
 
                     comptime assert(struct_layout_version == 2);
                     var offset: u64 = 0;
@@ -3547,8 +3658,8 @@ pub const Object = struct {
                     const struct_size = t.abiSize(zcu);
 
                     for (
-                        anon_struct_type.types.get(ip),
-                        anon_struct_type.values.get(ip),
+                        tuple_type.types.get(ip),
+                        tuple_type.values.get(ip),
                         0..,
                     ) |field_ty, field_val, field_index| {
                         if (field_val != .none) continue;
@@ -3901,7 +4012,7 @@ pub const Object = struct {
             .error_union_type,
             .simple_type,
             .struct_type,
-            .anon_struct_type,
+            .tuple_type,
             .union_type,
             .opaque_type,
             .enum_type,
@@ -3915,7 +4026,7 @@ pub const Object = struct {
                 .undefined => unreachable, // non-runtime value
                 .void => unreachable, // non-runtime value
                 .null => unreachable, // non-runtime value
-                .empty_struct => unreachable, // non-runtime value
+                .empty_tuple => unreachable, // non-runtime value
                 .@"unreachable" => unreachable, // non-runtime value
                 .generic_poison => unreachable, // non-runtime value
 
@@ -4154,7 +4265,7 @@ pub const Object = struct {
                         ),
                     }
                 },
-                .anon_struct_type => |tuple| {
+                .tuple_type => |tuple| {
                     const struct_ty = try o.lowerType(ty);
                     const llvm_len = struct_ty.aggregateLen(&o.builder);
 
@@ -4618,9 +4729,14 @@ pub const Object = struct {
             if (!param_ty.isPtrLikeOptional(zcu) and !ptr_info.flags.is_allowzero) {
                 try attributes.addParamAttr(llvm_arg_i, .nonnull, &o.builder);
             }
-            if (fn_info.cc == .Interrupt) {
-                const child_type = try lowerType(o, Type.fromInterned(ptr_info.child));
-                try attributes.addParamAttr(llvm_arg_i, .{ .byval = child_type }, &o.builder);
+            switch (fn_info.cc) {
+                else => {},
+                .x86_64_interrupt,
+                .x86_interrupt,
+                => {
+                    const child_type = try lowerType(o, Type.fromInterned(ptr_info.child));
+                    try attributes.addParamAttr(llvm_arg_i, .{ .byval = child_type }, &o.builder);
+                },
             }
             if (ptr_info.flags.is_const) {
                 try attributes.addParamAttr(llvm_arg_i, .readonly, &o.builder);
@@ -4782,10 +4898,10 @@ pub const NavGen = struct {
         const nav = ip.getNav(nav_index);
         const resolved = nav.status.resolved;
 
-        const is_extern, const lib_name, const is_threadlocal, const is_weak_linkage, const is_const, const init_val, const owner_nav = switch (ip.indexToKey(resolved.val)) {
-            .variable => |variable| .{ false, variable.lib_name, variable.is_threadlocal, variable.is_weak_linkage, false, variable.init, variable.owner_nav },
-            .@"extern" => |@"extern"| .{ true, @"extern".lib_name, @"extern".is_threadlocal, @"extern".is_weak_linkage, @"extern".is_const, .none, @"extern".owner_nav },
-            else => .{ false, .none, false, false, true, resolved.val, nav_index },
+        const is_extern, const lib_name, const is_threadlocal, const is_weak_linkage, const is_dll_import, const is_const, const init_val, const owner_nav = switch (ip.indexToKey(resolved.val)) {
+            .variable => |variable| .{ false, variable.lib_name, variable.is_threadlocal, variable.is_weak_linkage, false, false, variable.init, variable.owner_nav },
+            .@"extern" => |@"extern"| .{ true, @"extern".lib_name, @"extern".is_threadlocal, @"extern".is_weak_linkage, @"extern".is_dll_import, @"extern".is_const, .none, @"extern".owner_nav },
+            else => .{ false, .none, false, false, false, true, resolved.val, nav_index },
         };
         const ty = Type.fromInterned(nav.typeOf(ip));
 
@@ -4860,8 +4976,11 @@ pub const NavGen = struct {
             try global_index.rename(decl_name, &o.builder);
             global_index.setLinkage(.external, &o.builder);
             global_index.setUnnamedAddr(.default, &o.builder);
-            if (zcu.comp.config.dll_export_fns)
+            if (is_dll_import) {
+                global_index.setDllStorageClass(.dllimport, &o.builder);
+            } else if (zcu.comp.config.dll_export_fns) {
                 global_index.setDllStorageClass(.default, &o.builder);
+            }
 
             if (is_weak_linkage) global_index.setLinkage(.extern_weak, &o.builder);
         }
@@ -5275,6 +5394,7 @@ pub const FuncGen = struct {
                 .inferred_alloc, .inferred_alloc_comptime => unreachable,
 
                 .dbg_stmt => try self.airDbgStmt(inst),
+                .dbg_empty_stmt => try self.airDbgEmptyStmt(inst),
                 .dbg_var_ptr => try self.airDbgVarPtr(inst),
                 .dbg_var_val => try self.airDbgVarVal(inst, false),
                 .dbg_arg_inline => try self.airDbgVarVal(inst, true),
@@ -5459,6 +5579,10 @@ pub const FuncGen = struct {
 
         var attributes: Builder.FunctionAttributes.Wip = .{};
         defer attributes.deinit(&o.builder);
+
+        if (self.ng.ownerModule().no_builtin) {
+            try attributes.addFnAttr(.nobuiltin, &o.builder);
+        }
 
         switch (modifier) {
             .auto, .never_tail, .always_tail => {},
@@ -5677,7 +5801,7 @@ pub const FuncGen = struct {
                 .always_tail => .musttail,
                 .async_kw, .no_async, .always_inline, .compile_time => unreachable,
             },
-            toLlvmCallConv(fn_info.cc, target),
+            toLlvmCallConvTag(fn_info.cc, target).?,
             try attributes.finish(&o.builder),
             try o.lowerType(zig_fn_ty),
             llvm_fn,
@@ -5756,7 +5880,7 @@ pub const FuncGen = struct {
         _ = try fg.wip.callIntrinsicAssumeCold();
         _ = try fg.wip.call(
             .normal,
-            toLlvmCallConv(fn_info.cc, target),
+            toLlvmCallConvTag(fn_info.cc, target).?,
             .none,
             panic_global.typeOf(&o.builder),
             panic_global.toValue(&o.builder),
@@ -7310,6 +7434,12 @@ pub const FuncGen = struct {
             },
         };
 
+        return .none;
+    }
+
+    fn airDbgEmptyStmt(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
+        _ = self;
+        _ = inst;
         return .none;
     }
 
@@ -11474,29 +11604,81 @@ pub const FuncGen = struct {
             template: [:0]const u8,
             constraints: [:0]const u8,
         } = switch (target.cpu.arch) {
-            .x86 => .{
+            .arm, .armeb, .thumb, .thumbeb => .{
                 .template =
-                \\roll $$3,  %edi ; roll $$13, %edi
-                \\roll $$61, %edi ; roll $$51, %edi
-                \\xchgl %ebx,%ebx
+                \\ mov r12, r12, ror #3  ; mov r12, r12, ror #13
+                \\ mov r12, r12, ror #29 ; mov r12, r12, ror #19
+                \\ orr r10, r10, r10
                 ,
-                .constraints = "={edx},{eax},0,~{cc},~{memory}",
-            },
-            .x86_64 => .{
-                .template =
-                \\rolq $$3,  %rdi ; rolq $$13, %rdi
-                \\rolq $$61, %rdi ; rolq $$51, %rdi
-                \\xchgq %rbx,%rbx
-                ,
-                .constraints = "={rdx},{rax},0,~{cc},~{memory}",
+                .constraints = "={r3},{r4},{r3},~{cc},~{memory}",
             },
             .aarch64, .aarch64_be => .{
                 .template =
-                \\ror x12, x12, #3  ;  ror x12, x12, #13
-                \\ror x12, x12, #51 ;  ror x12, x12, #61
-                \\orr x10, x10, x10
+                \\ ror x12, x12, #3  ; ror x12, x12, #13
+                \\ ror x12, x12, #51 ; ror x12, x12, #61
+                \\ orr x10, x10, x10
                 ,
-                .constraints = "={x3},{x4},0,~{cc},~{memory}",
+                .constraints = "={x3},{x4},{x3},~{cc},~{memory}",
+            },
+            .mips, .mipsel => .{
+                .template =
+                \\ srl $$0,  $$0,  13
+                \\ srl $$0,  $$0,  29
+                \\ srl $$0,  $$0,  3
+                \\ srl $$0,  $$0,  19
+                \\ or  $$13, $$13, $$13
+                ,
+                .constraints = "={$11},{$12},{$11},~{memory}",
+            },
+            .mips64, .mips64el => .{
+                .template =
+                \\ dsll $$0,  $$0,  3    ; dsll $$0, $$0, 13
+                \\ dsll $$0,  $$0,  29   ; dsll $$0, $$0, 19
+                \\ or   $$13, $$13, $$13
+                ,
+                .constraints = "={$11},{$12},{$11},~{memory}",
+            },
+            .powerpc, .powerpcle => .{
+                .template =
+                \\ rlwinm 0, 0, 3,  0, 31 ; rlwinm 0, 0, 13, 0, 31
+                \\ rlwinm 0, 0, 29, 0, 31 ; rlwinm 0, 0, 19, 0, 31
+                \\ or     1, 1, 1
+                ,
+                .constraints = "={r3},{r4},{r3},~{cc},~{memory}",
+            },
+            .powerpc64, .powerpc64le => .{
+                .template =
+                \\ rotldi 0, 0, 3  ; rotldi 0, 0, 13
+                \\ rotldi 0, 0, 61 ; rotldi 0, 0, 51
+                \\ or     1, 1, 1
+                ,
+                .constraints = "={r3},{r4},{r3},~{cc},~{memory}",
+            },
+            .s390x => .{
+                .template =
+                \\ lr %r15, %r15
+                \\ lr %r1,  %r1
+                \\ lr %r2,  %r2
+                \\ lr %r3,  %r3
+                \\ lr %r2,  %r2
+                ,
+                .constraints = "={r3},{r2},{r3},~{cc},~{memory}",
+            },
+            .x86 => .{
+                .template =
+                \\ roll  $$3,  %edi ; roll $$13, %edi
+                \\ roll  $$61, %edi ; roll $$51, %edi
+                \\ xchgl %ebx, %ebx
+                ,
+                .constraints = "={edx},{eax},{edx},~{cc},~{memory}",
+            },
+            .x86_64 => .{
+                .template =
+                \\ rolq  $$3,  %rdi ; rolq $$13, %rdi
+                \\ rolq  $$61, %rdi ; rolq $$51, %rdi
+                \\ xchgq %rbx, %rbx
+                ,
+                .constraints = "={rdx},{rax},{edx},~{cc},~{memory}",
             },
             else => unreachable,
         };
@@ -11554,36 +11736,159 @@ fn toLlvmAtomicRmwBinOp(
     };
 }
 
-fn toLlvmCallConv(cc: std.builtin.CallingConvention, target: std.Target) Builder.CallConv {
-    return switch (cc) {
-        .Unspecified, .Inline, .Async => .fastcc,
-        .C, .Naked => .ccc,
-        .Stdcall => .x86_stdcallcc,
-        .Fastcall => .x86_fastcallcc,
-        .Vectorcall => return switch (target.cpu.arch) {
-            .x86, .x86_64 => .x86_vectorcallcc,
-            .aarch64, .aarch64_be => .aarch64_vector_pcs,
-            else => unreachable,
+const CallingConventionInfo = struct {
+    /// The LLVM calling convention to use.
+    llvm_cc: Builder.CallConv,
+    /// Whether to use an `alignstack` attribute to forcibly re-align the stack pointer in the function's prologue.
+    align_stack: bool,
+    /// Whether the function needs a `naked` attribute.
+    naked: bool,
+    /// How many leading parameters to apply the `inreg` attribute to.
+    inreg_param_count: u2 = 0,
+};
+
+pub fn toLlvmCallConv(cc: std.builtin.CallingConvention, target: std.Target) ?CallingConventionInfo {
+    const llvm_cc = toLlvmCallConvTag(cc, target) orelse return null;
+    const incoming_stack_alignment: ?u64, const register_params: u2 = switch (cc) {
+        inline else => |pl| switch (@TypeOf(pl)) {
+            void => .{ null, 0 },
+            std.builtin.CallingConvention.ArmInterruptOptions,
+            std.builtin.CallingConvention.RiscvInterruptOptions,
+            std.builtin.CallingConvention.MipsInterruptOptions,
+            std.builtin.CallingConvention.CommonOptions,
+            => .{ pl.incoming_stack_alignment, 0 },
+            std.builtin.CallingConvention.X86RegparmOptions => .{ pl.incoming_stack_alignment, pl.register_params },
+            else => @compileError("TODO: toLlvmCallConv" ++ @tagName(pl)),
         },
-        .Thiscall => .x86_thiscallcc,
-        .APCS => .arm_apcscc,
-        .AAPCS => .arm_aapcscc,
-        .AAPCSVFP => .arm_aapcs_vfpcc,
-        .Interrupt => return switch (target.cpu.arch) {
-            .x86, .x86_64 => .x86_intrcc,
-            .avr => .avr_intrcc,
-            .msp430 => .msp430_intrcc,
-            else => unreachable,
-        },
-        .Signal => .avr_signalcc,
-        .SysV => .x86_64_sysvcc,
-        .Win64 => .win64cc,
-        .Kernel => return switch (target.cpu.arch) {
-            .nvptx, .nvptx64 => .ptx_kernel,
-            .amdgcn => .amdgpu_kernel,
-            else => unreachable,
-        },
-        .Vertex, .Fragment => unreachable,
+    };
+    return .{
+        .llvm_cc = llvm_cc,
+        .align_stack = if (incoming_stack_alignment) |a| need_align: {
+            const normal_stack_align = target.stackAlignment();
+            break :need_align a < normal_stack_align;
+        } else false,
+        .naked = cc == .naked,
+        .inreg_param_count = register_params,
+    };
+}
+fn toLlvmCallConvTag(cc_tag: std.builtin.CallingConvention.Tag, target: std.Target) ?Builder.CallConv {
+    if (target.cCallingConvention()) |default_c| {
+        if (cc_tag == default_c) {
+            return .ccc;
+        }
+    }
+    return switch (cc_tag) {
+        .@"inline" => unreachable,
+        .auto, .@"async" => .fastcc,
+        .naked => .ccc,
+        .x86_64_sysv => .x86_64_sysvcc,
+        .x86_64_win => .win64cc,
+        .x86_64_regcall_v3_sysv => if (target.cpu.arch == .x86_64 and target.os.tag != .windows)
+            .x86_regcallcc
+        else
+            null,
+        .x86_64_regcall_v4_win => if (target.cpu.arch == .x86_64 and target.os.tag == .windows)
+            .x86_regcallcc // we use the "RegCallv4" module flag to make this correct
+        else
+            null,
+        .x86_64_vectorcall => .x86_vectorcallcc,
+        .x86_64_interrupt => .x86_intrcc,
+        .x86_stdcall => .x86_stdcallcc,
+        .x86_fastcall => .x86_fastcallcc,
+        .x86_thiscall => .x86_thiscallcc,
+        .x86_regcall_v3 => if (target.cpu.arch == .x86 and target.os.tag != .windows)
+            .x86_regcallcc
+        else
+            null,
+        .x86_regcall_v4_win => if (target.cpu.arch == .x86 and target.os.tag == .windows)
+            .x86_regcallcc // we use the "RegCallv4" module flag to make this correct
+        else
+            null,
+        .x86_vectorcall => .x86_vectorcallcc,
+        .x86_interrupt => .x86_intrcc,
+        .aarch64_vfabi => .aarch64_vector_pcs,
+        .aarch64_vfabi_sve => .aarch64_sve_vector_pcs,
+        .arm_apcs => .arm_apcscc,
+        .arm_aapcs => .arm_aapcscc,
+        .arm_aapcs_vfp => if (target.os.tag != .watchos)
+            .arm_aapcs_vfpcc
+        else
+            null,
+        .arm_aapcs16_vfp => if (target.os.tag == .watchos)
+            .arm_aapcs_vfpcc
+        else
+            null,
+        .riscv64_lp64_v => .riscv_vectorcallcc,
+        .riscv32_ilp32_v => .riscv_vectorcallcc,
+        .avr_builtin => .avr_builtincc,
+        .avr_signal => .avr_signalcc,
+        .avr_interrupt => .avr_intrcc,
+        .m68k_rtd => .m68k_rtdcc,
+        .m68k_interrupt => .m68k_intrcc,
+        .amdgcn_kernel => .amdgpu_kernel,
+        .amdgcn_cs => .amdgpu_cs,
+        .nvptx_device => .ptx_device,
+        .nvptx_kernel => .ptx_kernel,
+
+        // Calling conventions which LLVM uses function attributes for.
+        .riscv64_interrupt,
+        .riscv32_interrupt,
+        .arm_interrupt,
+        .mips64_interrupt,
+        .mips_interrupt,
+        .csky_interrupt,
+        => .ccc,
+
+        // All the calling conventions which LLVM does not have a general representation for.
+        // Note that these are often still supported through the `cCallingConvention` path above via `ccc`.
+        .x86_sysv,
+        .x86_win,
+        .x86_thiscall_mingw,
+        .aarch64_aapcs,
+        .aarch64_aapcs_darwin,
+        .aarch64_aapcs_win,
+        .mips64_n64,
+        .mips64_n32,
+        .mips_o32,
+        .riscv64_lp64,
+        .riscv32_ilp32,
+        .sparc64_sysv,
+        .sparc_sysv,
+        .powerpc64_elf,
+        .powerpc64_elf_altivec,
+        .powerpc64_elf_v2,
+        .powerpc_sysv,
+        .powerpc_sysv_altivec,
+        .powerpc_aix,
+        .powerpc_aix_altivec,
+        .wasm_watc,
+        .arc_sysv,
+        .avr_gnu,
+        .bpf_std,
+        .csky_sysv,
+        .hexagon_sysv,
+        .hexagon_sysv_hvx,
+        .lanai_sysv,
+        .loongarch64_lp64,
+        .loongarch32_ilp32,
+        .m68k_sysv,
+        .m68k_gnu,
+        .msp430_eabi,
+        .propeller1_sysv,
+        .propeller2_sysv,
+        .s390x_sysv,
+        .s390x_sysv_vx,
+        .ve_sysv,
+        .xcore_xs1,
+        .xcore_xs2,
+        .xtensa_call0,
+        .xtensa_windowed,
+        .amdgcn_device,
+        .spirv_device,
+        .spirv_kernel,
+        .spirv_fragment,
+        .spirv_vertex,
+        => null,
     };
 }
 
@@ -11615,7 +11920,7 @@ fn llvmAddrSpaceInfo(target: std.Target) []const AddrSpaceInfo {
             .{ .zig = null, .llvm = Builder.AddrSpace.x86.ptr64, .size = 64, .abi = 64, .force_in_data_layout = true },
         },
         .nvptx, .nvptx64 => &.{
-            .{ .zig = .generic, .llvm = .default },
+            .{ .zig = .generic, .llvm = Builder.AddrSpace.nvptx.generic },
             .{ .zig = .global, .llvm = Builder.AddrSpace.nvptx.global },
             .{ .zig = .constant, .llvm = Builder.AddrSpace.nvptx.constant },
             .{ .zig = .param, .llvm = Builder.AddrSpace.nvptx.param },
@@ -11632,9 +11937,27 @@ fn llvmAddrSpaceInfo(target: std.Target) []const AddrSpaceInfo {
             .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.constant_32bit, .size = 32, .abi = 32 },
             .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.buffer_fat_pointer, .non_integral = true, .size = 160, .abi = 256, .idx = 32 },
             .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.buffer_resource, .non_integral = true, .size = 128, .abi = 128 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.buffer_strided_pointer, .non_integral = true, .size = 192, .abi = 256, .idx = 32 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_0 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_1 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_2 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_3 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_4 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_5 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_6 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_7 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_8 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_9 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_10 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_11 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_12 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_13 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_14 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_15 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.streamout_register },
         },
         .avr => &.{
-            .{ .zig = .generic, .llvm = .default, .abi = 8 },
+            .{ .zig = .generic, .llvm = Builder.AddrSpace.avr.data, .abi = 8 },
             .{ .zig = .flash, .llvm = Builder.AddrSpace.avr.program, .abi = 8 },
             .{ .zig = .flash1, .llvm = Builder.AddrSpace.avr.program1, .abi = 8 },
             .{ .zig = .flash2, .llvm = Builder.AddrSpace.avr.program2, .abi = 8 },
@@ -11643,7 +11966,7 @@ fn llvmAddrSpaceInfo(target: std.Target) []const AddrSpaceInfo {
             .{ .zig = .flash5, .llvm = Builder.AddrSpace.avr.program5, .abi = 8 },
         },
         .wasm32, .wasm64 => &.{
-            .{ .zig = .generic, .llvm = .default, .force_in_data_layout = true },
+            .{ .zig = .generic, .llvm = Builder.AddrSpace.wasm.default, .force_in_data_layout = true },
             .{ .zig = null, .llvm = Builder.AddrSpace.wasm.variable, .non_integral = true },
             .{ .zig = null, .llvm = Builder.AddrSpace.wasm.externref, .non_integral = true, .size = 8, .abi = 8 },
             .{ .zig = null, .llvm = Builder.AddrSpace.wasm.funcref, .non_integral = true, .size = 8, .abi = 8 },
@@ -11711,31 +12034,27 @@ fn firstParamSRet(fn_info: InternPool.Key.FuncType, zcu: *Zcu, target: std.Targe
     if (!return_type.hasRuntimeBitsIgnoreComptime(zcu)) return false;
 
     return switch (fn_info.cc) {
-        .Unspecified, .Inline => returnTypeByRef(zcu, target, return_type),
-        .C => switch (target.cpu.arch) {
-            .mips, .mipsel => switch (mips_c_abi.classifyType(return_type, zcu, .ret)) {
-                .memory, .i32_array => true,
-                .byval => false,
-            },
-            .x86 => isByRef(return_type, zcu),
-            .x86_64 => switch (target.os.tag) {
-                .windows => x86_64_abi.classifyWindows(return_type, zcu) == .memory,
-                else => firstParamSRetSystemV(return_type, zcu, target),
-            },
-            .wasm32 => wasm_c_abi.classifyType(return_type, zcu)[0] == .indirect,
-            .aarch64, .aarch64_be => aarch64_c_abi.classifyType(return_type, zcu) == .memory,
-            .arm, .armeb => switch (arm_c_abi.classifyType(return_type, zcu, .ret)) {
-                .memory, .i64_array => true,
-                .i32_array => |size| size != 1,
-                .byval => false,
-            },
-            .riscv32, .riscv64 => riscv_c_abi.classifyType(return_type, zcu) == .memory,
-            else => false, // TODO investigate C ABI for other architectures
+        .auto => returnTypeByRef(zcu, target, return_type),
+        .x86_64_sysv => firstParamSRetSystemV(return_type, zcu, target),
+        .x86_64_win => x86_64_abi.classifyWindows(return_type, zcu) == .memory,
+        .x86_sysv, .x86_win => isByRef(return_type, zcu),
+        .x86_stdcall => !isScalar(zcu, return_type),
+        .wasm_watc => wasm_c_abi.classifyType(return_type, zcu)[0] == .indirect,
+        .aarch64_aapcs,
+        .aarch64_aapcs_darwin,
+        .aarch64_aapcs_win,
+        => aarch64_c_abi.classifyType(return_type, zcu) == .memory,
+        .arm_aapcs, .arm_aapcs_vfp, .arm_aapcs16_vfp => switch (arm_c_abi.classifyType(return_type, zcu, .ret)) {
+            .memory, .i64_array => true,
+            .i32_array => |size| size != 1,
+            .byval => false,
         },
-        .SysV => firstParamSRetSystemV(return_type, zcu, target),
-        .Win64 => x86_64_abi.classifyWindows(return_type, zcu) == .memory,
-        .Stdcall => !isScalar(zcu, return_type),
-        else => false,
+        .riscv64_lp64, .riscv32_ilp32 => riscv_c_abi.classifyType(return_type, zcu) == .memory,
+        .mips_o32 => switch (mips_c_abi.classifyType(return_type, zcu, .ret)) {
+            .memory, .i32_array => true,
+            .byval => false,
+        },
+        else => false, // TODO: investigate other targets/callconvs
     };
 }
 
@@ -11761,82 +12080,64 @@ fn lowerFnRetTy(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.Error!Bu
     }
     const target = zcu.getTarget();
     switch (fn_info.cc) {
-        .Unspecified,
-        .Inline,
-        => return if (returnTypeByRef(zcu, target, return_type)) .void else o.lowerType(return_type),
+        .@"inline" => unreachable,
+        .auto => return if (returnTypeByRef(zcu, target, return_type)) .void else o.lowerType(return_type),
 
-        .C => {
-            switch (target.cpu.arch) {
-                .mips, .mipsel => {
-                    switch (mips_c_abi.classifyType(return_type, zcu, .ret)) {
-                        .memory, .i32_array => return .void,
-                        .byval => return o.lowerType(return_type),
-                    }
-                },
-                .x86 => return if (isByRef(return_type, zcu)) .void else o.lowerType(return_type),
-                .x86_64 => switch (target.os.tag) {
-                    .windows => return lowerWin64FnRetTy(o, fn_info),
-                    else => return lowerSystemVFnRetTy(o, fn_info),
-                },
-                .wasm32 => {
-                    if (isScalar(zcu, return_type)) {
-                        return o.lowerType(return_type);
-                    }
-                    const classes = wasm_c_abi.classifyType(return_type, zcu);
-                    if (classes[0] == .indirect or classes[0] == .none) {
-                        return .void;
-                    }
-
-                    assert(classes[0] == .direct and classes[1] == .none);
-                    const scalar_type = wasm_c_abi.scalarType(return_type, zcu);
-                    return o.builder.intType(@intCast(scalar_type.abiSize(zcu) * 8));
-                },
-                .aarch64, .aarch64_be => {
-                    switch (aarch64_c_abi.classifyType(return_type, zcu)) {
-                        .memory => return .void,
-                        .float_array => return o.lowerType(return_type),
-                        .byval => return o.lowerType(return_type),
-                        .integer => return o.builder.intType(@intCast(return_type.bitSize(zcu))),
-                        .double_integer => return o.builder.arrayType(2, .i64),
-                    }
-                },
-                .arm, .armeb => {
-                    switch (arm_c_abi.classifyType(return_type, zcu, .ret)) {
-                        .memory, .i64_array => return .void,
-                        .i32_array => |len| return if (len == 1) .i32 else .void,
-                        .byval => return o.lowerType(return_type),
-                    }
-                },
-                .riscv32, .riscv64 => {
-                    switch (riscv_c_abi.classifyType(return_type, zcu)) {
-                        .memory => return .void,
-                        .integer => {
-                            return o.builder.intType(@intCast(return_type.bitSize(zcu)));
-                        },
-                        .double_integer => {
-                            return o.builder.structType(.normal, &.{ .i64, .i64 });
-                        },
-                        .byval => return o.lowerType(return_type),
-                        .fields => {
-                            var types_len: usize = 0;
-                            var types: [8]Builder.Type = undefined;
-                            for (0..return_type.structFieldCount(zcu)) |field_index| {
-                                const field_ty = return_type.fieldType(field_index, zcu);
-                                if (!field_ty.hasRuntimeBitsIgnoreComptime(zcu)) continue;
-                                types[types_len] = try o.lowerType(field_ty);
-                                types_len += 1;
-                            }
-                            return o.builder.structType(.normal, types[0..types_len]);
-                        },
-                    }
-                },
-                // TODO investigate C ABI for other architectures
-                else => return o.lowerType(return_type),
-            }
+        .x86_64_sysv => return lowerSystemVFnRetTy(o, fn_info),
+        .x86_64_win => return lowerWin64FnRetTy(o, fn_info),
+        .x86_stdcall => return if (isScalar(zcu, return_type)) o.lowerType(return_type) else .void,
+        .x86_sysv, .x86_win => return if (isByRef(return_type, zcu)) .void else o.lowerType(return_type),
+        .aarch64_aapcs, .aarch64_aapcs_darwin, .aarch64_aapcs_win => switch (aarch64_c_abi.classifyType(return_type, zcu)) {
+            .memory => return .void,
+            .float_array => return o.lowerType(return_type),
+            .byval => return o.lowerType(return_type),
+            .integer => return o.builder.intType(@intCast(return_type.bitSize(zcu))),
+            .double_integer => return o.builder.arrayType(2, .i64),
         },
-        .Win64 => return lowerWin64FnRetTy(o, fn_info),
-        .SysV => return lowerSystemVFnRetTy(o, fn_info),
-        .Stdcall => return if (isScalar(zcu, return_type)) o.lowerType(return_type) else .void,
+        .arm_aapcs, .arm_aapcs_vfp, .arm_aapcs16_vfp => switch (arm_c_abi.classifyType(return_type, zcu, .ret)) {
+            .memory, .i64_array => return .void,
+            .i32_array => |len| return if (len == 1) .i32 else .void,
+            .byval => return o.lowerType(return_type),
+        },
+        .mips_o32 => switch (mips_c_abi.classifyType(return_type, zcu, .ret)) {
+            .memory, .i32_array => return .void,
+            .byval => return o.lowerType(return_type),
+        },
+        .riscv64_lp64, .riscv32_ilp32 => switch (riscv_c_abi.classifyType(return_type, zcu)) {
+            .memory => return .void,
+            .integer => {
+                return o.builder.intType(@intCast(return_type.bitSize(zcu)));
+            },
+            .double_integer => {
+                return o.builder.structType(.normal, &.{ .i64, .i64 });
+            },
+            .byval => return o.lowerType(return_type),
+            .fields => {
+                var types_len: usize = 0;
+                var types: [8]Builder.Type = undefined;
+                for (0..return_type.structFieldCount(zcu)) |field_index| {
+                    const field_ty = return_type.fieldType(field_index, zcu);
+                    if (!field_ty.hasRuntimeBitsIgnoreComptime(zcu)) continue;
+                    types[types_len] = try o.lowerType(field_ty);
+                    types_len += 1;
+                }
+                return o.builder.structType(.normal, types[0..types_len]);
+            },
+        },
+        .wasm_watc => {
+            if (isScalar(zcu, return_type)) {
+                return o.lowerType(return_type);
+            }
+            const classes = wasm_c_abi.classifyType(return_type, zcu);
+            if (classes[0] == .indirect or classes[0] == .none) {
+                return .void;
+            }
+
+            assert(classes[0] == .direct and classes[1] == .none);
+            const scalar_type = wasm_c_abi.scalarType(return_type, zcu);
+            return o.builder.intType(@intCast(scalar_type.abiSize(zcu) * 8));
+        },
+        // TODO investigate other callconvs
         else => return o.lowerType(return_type),
     }
 }
@@ -11989,7 +12290,8 @@ const ParamTypeIterator = struct {
             return .no_bits;
         }
         switch (it.fn_info.cc) {
-            .Unspecified, .Inline => {
+            .@"inline" => unreachable,
+            .auto => {
                 it.zig_index += 1;
                 it.llvm_index += 1;
                 if (ty.isSlice(zcu) or
@@ -12010,97 +12312,12 @@ const ParamTypeIterator = struct {
                     return .byval;
                 }
             },
-            .Async => {
+            .@"async" => {
                 @panic("TODO implement async function lowering in the LLVM backend");
             },
-            .C => switch (target.cpu.arch) {
-                .mips, .mipsel => {
-                    it.zig_index += 1;
-                    it.llvm_index += 1;
-                    switch (mips_c_abi.classifyType(ty, zcu, .arg)) {
-                        .memory => {
-                            it.byval_attr = true;
-                            return .byref;
-                        },
-                        .byval => return .byval,
-                        .i32_array => |size| return Lowering{ .i32_array = size },
-                    }
-                },
-                .x86_64 => switch (target.os.tag) {
-                    .windows => return it.nextWin64(ty),
-                    else => return it.nextSystemV(ty),
-                },
-                .wasm32 => {
-                    it.zig_index += 1;
-                    it.llvm_index += 1;
-                    if (isScalar(zcu, ty)) {
-                        return .byval;
-                    }
-                    const classes = wasm_c_abi.classifyType(ty, zcu);
-                    if (classes[0] == .indirect) {
-                        return .byref;
-                    }
-                    return .abi_sized_int;
-                },
-                .aarch64, .aarch64_be => {
-                    it.zig_index += 1;
-                    it.llvm_index += 1;
-                    switch (aarch64_c_abi.classifyType(ty, zcu)) {
-                        .memory => return .byref_mut,
-                        .float_array => |len| return Lowering{ .float_array = len },
-                        .byval => return .byval,
-                        .integer => {
-                            it.types_len = 1;
-                            it.types_buffer[0] = .i64;
-                            return .multiple_llvm_types;
-                        },
-                        .double_integer => return Lowering{ .i64_array = 2 },
-                    }
-                },
-                .arm, .armeb => {
-                    it.zig_index += 1;
-                    it.llvm_index += 1;
-                    switch (arm_c_abi.classifyType(ty, zcu, .arg)) {
-                        .memory => {
-                            it.byval_attr = true;
-                            return .byref;
-                        },
-                        .byval => return .byval,
-                        .i32_array => |size| return Lowering{ .i32_array = size },
-                        .i64_array => |size| return Lowering{ .i64_array = size },
-                    }
-                },
-                .riscv32, .riscv64 => {
-                    it.zig_index += 1;
-                    it.llvm_index += 1;
-                    switch (riscv_c_abi.classifyType(ty, zcu)) {
-                        .memory => return .byref_mut,
-                        .byval => return .byval,
-                        .integer => return .abi_sized_int,
-                        .double_integer => return Lowering{ .i64_array = 2 },
-                        .fields => {
-                            it.types_len = 0;
-                            for (0..ty.structFieldCount(zcu)) |field_index| {
-                                const field_ty = ty.fieldType(field_index, zcu);
-                                if (!field_ty.hasRuntimeBitsIgnoreComptime(zcu)) continue;
-                                it.types_buffer[it.types_len] = try it.object.lowerType(field_ty);
-                                it.types_len += 1;
-                            }
-                            it.llvm_index += it.types_len - 1;
-                            return .multiple_llvm_types;
-                        },
-                    }
-                },
-                // TODO investigate C ABI for other architectures
-                else => {
-                    it.zig_index += 1;
-                    it.llvm_index += 1;
-                    return .byval;
-                },
-            },
-            .Win64 => return it.nextWin64(ty),
-            .SysV => return it.nextSystemV(ty),
-            .Stdcall => {
+            .x86_64_sysv => return it.nextSystemV(ty),
+            .x86_64_win => return it.nextWin64(ty),
+            .x86_stdcall => {
                 it.zig_index += 1;
                 it.llvm_index += 1;
 
@@ -12111,6 +12328,80 @@ const ParamTypeIterator = struct {
                     return .byref;
                 }
             },
+            .aarch64_aapcs, .aarch64_aapcs_darwin, .aarch64_aapcs_win => {
+                it.zig_index += 1;
+                it.llvm_index += 1;
+                switch (aarch64_c_abi.classifyType(ty, zcu)) {
+                    .memory => return .byref_mut,
+                    .float_array => |len| return Lowering{ .float_array = len },
+                    .byval => return .byval,
+                    .integer => {
+                        it.types_len = 1;
+                        it.types_buffer[0] = .i64;
+                        return .multiple_llvm_types;
+                    },
+                    .double_integer => return Lowering{ .i64_array = 2 },
+                }
+            },
+            .arm_aapcs, .arm_aapcs_vfp, .arm_aapcs16_vfp => {
+                it.zig_index += 1;
+                it.llvm_index += 1;
+                switch (arm_c_abi.classifyType(ty, zcu, .arg)) {
+                    .memory => {
+                        it.byval_attr = true;
+                        return .byref;
+                    },
+                    .byval => return .byval,
+                    .i32_array => |size| return Lowering{ .i32_array = size },
+                    .i64_array => |size| return Lowering{ .i64_array = size },
+                }
+            },
+            .mips_o32 => {
+                it.zig_index += 1;
+                it.llvm_index += 1;
+                switch (mips_c_abi.classifyType(ty, zcu, .arg)) {
+                    .memory => {
+                        it.byval_attr = true;
+                        return .byref;
+                    },
+                    .byval => return .byval,
+                    .i32_array => |size| return Lowering{ .i32_array = size },
+                }
+            },
+            .riscv64_lp64, .riscv32_ilp32 => {
+                it.zig_index += 1;
+                it.llvm_index += 1;
+                switch (riscv_c_abi.classifyType(ty, zcu)) {
+                    .memory => return .byref_mut,
+                    .byval => return .byval,
+                    .integer => return .abi_sized_int,
+                    .double_integer => return Lowering{ .i64_array = 2 },
+                    .fields => {
+                        it.types_len = 0;
+                        for (0..ty.structFieldCount(zcu)) |field_index| {
+                            const field_ty = ty.fieldType(field_index, zcu);
+                            if (!field_ty.hasRuntimeBitsIgnoreComptime(zcu)) continue;
+                            it.types_buffer[it.types_len] = try it.object.lowerType(field_ty);
+                            it.types_len += 1;
+                        }
+                        it.llvm_index += it.types_len - 1;
+                        return .multiple_llvm_types;
+                    },
+                }
+            },
+            .wasm_watc => {
+                it.zig_index += 1;
+                it.llvm_index += 1;
+                if (isScalar(zcu, ty)) {
+                    return .byval;
+                }
+                const classes = wasm_c_abi.classifyType(ty, zcu);
+                if (classes[0] == .indirect) {
+                    return .byref;
+                }
+                return .abi_sized_int;
+            },
+            // TODO investigate other callconvs
             else => {
                 it.zig_index += 1;
                 it.llvm_index += 1;
@@ -12269,7 +12560,7 @@ fn ccAbiPromoteInt(
 ) ?std.builtin.Signedness {
     const target = zcu.getTarget();
     switch (cc) {
-        .Unspecified, .Inline, .Async => return null,
+        .auto, .@"inline", .@"async" => return null,
         else => {},
     }
     const int_info = switch (ty.zigTypeTag(zcu)) {
@@ -12345,7 +12636,7 @@ fn isByRef(ty: Type, zcu: *Zcu) bool {
         .array, .frame => return ty.hasRuntimeBits(zcu),
         .@"struct" => {
             const struct_type = switch (ip.indexToKey(ty.toIntern())) {
-                .anon_struct_type => |tuple| {
+                .tuple_type => |tuple| {
                     var count: usize = 0;
                     for (tuple.types.get(ip), tuple.values.get(ip)) |field_ty, field_val| {
                         if (field_val != .none or !Type.fromInterned(field_ty).hasRuntimeBits(zcu)) continue;
@@ -12449,6 +12740,8 @@ fn backendSupportsF16(target: std.Target) bool {
         .mips64,
         .mips64el,
         .s390x,
+        .sparc,
+        .sparc64,
         => false,
         .arm,
         .armeb,

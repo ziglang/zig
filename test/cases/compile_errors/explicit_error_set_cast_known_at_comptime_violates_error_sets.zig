@@ -10,4 +10,4 @@ comptime {
 // backend=stage2
 // target=native
 //
-// :5:21: error: 'error.B' not a member of error set 'error{C,A}'
+// :5:21: error: 'error.B' not a member of error set 'error{A,C}'

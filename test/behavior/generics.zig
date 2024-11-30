@@ -532,8 +532,6 @@ test "call generic function with from function called by the generic function" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_llvm and
-        builtin.cpu.arch == .aarch64 and builtin.os.tag == .windows) return error.SkipZigTest;
 
     const GET = struct {
         key: []const u8,

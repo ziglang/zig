@@ -86,7 +86,7 @@ pub fn enumValueWithIndex(r: Random, comptime EnumType: type, comptime Index: ty
     const values = comptime std.enums.values(EnumType);
     comptime assert(values.len > 0); // can't return anything
     comptime assert(maxInt(Index) >= values.len - 1); // can't access all values
-    comptime if (values.len == 1) return values[0];
+    if (values.len == 1) return values[0];
 
     const index = if (comptime values.len - 1 == maxInt(Index))
         r.int(Index)

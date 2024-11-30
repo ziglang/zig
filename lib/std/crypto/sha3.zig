@@ -52,7 +52,7 @@ pub fn Keccak(comptime f: u11, comptime output_bits: u11, comptime default_delim
         st: State,
 
         /// The output length, in bytes.
-        pub const digest_length = output_bits / 8;
+        pub const digest_length = std.math.divCeil(comptime_int, output_bits, 8) catch unreachable;
         /// The block length, or rate, in bytes.
         pub const block_length = State.rate;
         /// The delimiter can be overwritten in the options.

@@ -217,7 +217,7 @@ pub fn updateFunc(
                 .mod = zcu.navFileScope(func.owner_nav).mod,
                 .error_msg = null,
                 .pass = .{ .nav = func.owner_nav },
-                .is_naked_fn = zcu.navValue(func.owner_nav).typeOf(zcu).fnCallingConvention(zcu) == .Naked,
+                .is_naked_fn = zcu.navValue(func.owner_nav).typeOf(zcu).fnCallingConvention(zcu) == .naked,
                 .fwd_decl = fwd_decl.toManaged(gpa),
                 .ctype_pool = ctype_pool.*,
                 .scratch = .{},

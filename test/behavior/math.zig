@@ -780,7 +780,7 @@ test "128-bit multiplication" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c and comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c and comptime builtin.cpu.arch.isArm()) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     {
@@ -1369,7 +1369,7 @@ test "remainder division" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c and comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c and comptime builtin.cpu.arch.isArm()) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     if (builtin.zig_backend == .stage2_llvm and builtin.os.tag == .windows) {
@@ -1522,7 +1522,7 @@ test "@round f80" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c and comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c and comptime builtin.cpu.arch.isArm()) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
@@ -1535,7 +1535,7 @@ test "@round f128" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c and comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c and comptime builtin.cpu.arch.isArm()) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
@@ -1579,7 +1579,7 @@ test "NaN comparison" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-    if (builtin.cpu.arch.isArmOrThumb() and builtin.target.floatAbi() == .soft) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21234
+    if (builtin.cpu.arch.isArm() and builtin.target.floatAbi() == .soft) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21234
 
     try testNanEqNan(f16);
     try testNanEqNan(f32);
@@ -1735,7 +1735,7 @@ test "runtime comparison to NaN is comptime-known" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-    if (builtin.cpu.arch.isArmOrThumb() and builtin.target.floatAbi() == .soft) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21234
+    if (builtin.cpu.arch.isArm() and builtin.target.floatAbi() == .soft) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21234
 
     const S = struct {
         fn doTheTest(comptime F: type, x: F) void {
@@ -1766,7 +1766,7 @@ test "runtime int comparison to inf is comptime-known" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-    if (builtin.cpu.arch.isArmOrThumb() and builtin.target.floatAbi() == .soft) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21234
+    if (builtin.cpu.arch.isArm() and builtin.target.floatAbi() == .soft) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21234
 
     const S = struct {
         fn doTheTest(comptime F: type, x: u32) void {

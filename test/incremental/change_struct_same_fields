@@ -1,0 +1,50 @@
+#target=x86_64-linux-selfhosted
+#target=x86_64-linux-cbe
+#target=x86_64-windows-cbe
+#update=initial version
+#file=main.zig
+const S = extern struct { x: u8, y: u8 };
+pub fn main() !void {
+    const val: S = .{ .x = 100, .y = 200 };
+    try foo(&val);
+}
+fn foo(val: *const S) !void {
+    try std.io.getStdOut().writer().print(
+        "{d} {d}\n",
+        .{ val.x, val.y },
+    );
+}
+const std = @import("std");
+#expect_stdout="100 200\n"
+
+#update=change struct layout
+#file=main.zig
+const S = extern struct { x: u32, y: u32 };
+pub fn main() !void {
+    const val: S = .{ .x = 100, .y = 200 };
+    try foo(&val);
+}
+fn foo(val: *const S) !void {
+    try std.io.getStdOut().writer().print(
+        "{d} {d}\n",
+        .{ val.x, val.y },
+    );
+}
+const std = @import("std");
+#expect_stdout="100 200\n"
+
+#update=change values
+#file=main.zig
+const S = extern struct { x: u32, y: u32 };
+pub fn main() !void {
+    const val: S = .{ .x = 1234, .y = 5678 };
+    try foo(&val);
+}
+fn foo(val: *const S) !void {
+    try std.io.getStdOut().writer().print(
+        "{d} {d}\n",
+        .{ val.x, val.y },
+    );
+}
+const std = @import("std");
+#expect_stdout="1234 5678\n"

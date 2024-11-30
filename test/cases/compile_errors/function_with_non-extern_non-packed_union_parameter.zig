@@ -8,9 +8,8 @@ export fn entry(foo: Foo) void {
 }
 
 // error
-// backend=stage2
-// target=native
+// target=x86_64-linux
 //
-// :6:17: error: parameter of type 'tmp.Foo' not allowed in function with calling convention 'C'
+// :6:17: error: parameter of type 'tmp.Foo' not allowed in function with calling convention 'x86_64_sysv'
 // :6:17: note: only extern unions and ABI sized packed unions are extern compatible
 // :1:13: note: union declared here

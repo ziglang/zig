@@ -374,7 +374,7 @@ fn walk(arena: Allocator, tokenizer: *Tokenizer, out_dir: std.fs.Dir, w: anytype
                             );
                         }
                         _ = try eatToken(tokenizer, .bracket_close);
-                    } else unreachable; // TODO issue #707
+                    };
 
                     const basename = try std.fmt.allocPrint(arena, "{s}.zig", .{name});
 

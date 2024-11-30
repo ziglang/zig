@@ -256,6 +256,8 @@ typedef char bool;
 #define zig_trap() __asm__ volatile("udf #0xfe")
 #elif defined(__arm__) || defined(__aarch64__)
 #define zig_trap() __asm__ volatile("udf #0xfdee")
+#elif defined(__hexagon__)
+#define zig_trap() __asm__ volatile("r27:26 = memd(#0xbadc0fee)")
 #elif defined(__loongarch__) || defined(__powerpc__)
 #define zig_trap() __asm__ volatile(".word 0x0")
 #elif defined(__mips__)
@@ -280,6 +282,8 @@ typedef char bool;
 #define zig_breakpoint() __asm__ volatile("bkpt #0x0")
 #elif defined(__aarch64__)
 #define zig_breakpoint() __asm__ volatile("brk #0xf000")
+#elif defined(__hexagon__)
+#define zig_breakpoint() __asm__ volatile("brkpt")
 #elif defined(__loongarch__)
 #define zig_breakpoint() __asm__ volatile("break 0x0")
 #elif defined(__mips__)
@@ -3926,28 +3930,52 @@ static inline void zig_msvc_atomic_store_i128(zig_i128 volatile* obj, zig_i128 a
 
 /* ======================== Special Case Intrinsics ========================= */
 
-#if (_MSC_VER && _M_X64) || defined(__x86_64__)
+#if defined(_M_ARM) || defined(__thumb__)
 
-static inline void* zig_x86_64_windows_teb(void) {
-#if _MSC_VER
-    return (void*)__readgsqword(0x30);
-#else
-    void* teb;
-    __asm volatile(" movq %%gs:0x30, %[ptr]": [ptr]"=r"(teb)::);
-    return teb;
+static inline void* zig_thumb_windows_teb(void) {
+    void* teb = 0;
+#if defined(_MSC_VER)
+    teb = (void*)_MoveFromCoprocessor(15, 0, 13, 0, 2);
+#elif defined(__GNUC__)
+    __asm__ ("mrc p15, 0, %[ptr], c13, c0, 2" : [ptr] "=r" (teb));
 #endif
+    return teb;
 }
 
-#elif (_MSC_VER && _M_IX86) || defined(__i386__) || defined(__X86__)
+#elif defined(_M_ARM64) || defined(__arch64__)
+
+static inline void* zig_aarch64_windows_teb(void) {
+    void* teb = 0;
+#if defined(_MSC_VER)
+    teb = (void*)__readx18qword(0x0);
+#elif defined(__GNUC__)
+    __asm__ ("mov %[ptr], x18" : [ptr] "=r" (teb));
+#endif
+    return teb;
+}
+
+#elif defined(_M_IX86) || defined(__i386__)
 
 static inline void* zig_x86_windows_teb(void) {
-#if _MSC_VER
-    return (void*)__readfsdword(0x18);
-#else
-    void* teb;
-    __asm volatile(" movl %%fs:0x18, %[ptr]": [ptr]"=r"(teb)::);
-    return teb;
+    void* teb = 0;
+#if defined(_MSC_VER)
+    teb = (void*)__readfsdword(0x18);
+#elif defined(__GNUC__)
+    __asm__ ("movl %%fs:0x18, %[ptr]" : [ptr] "=r" (teb));
 #endif
+    return teb;
+}
+
+#elif defined(_M_X64) || defined(__x86_64__)
+
+static inline void* zig_x86_64_windows_teb(void) {
+    void* teb = 0;
+#if defined(_MSC_VER)
+    teb = (void*)__readgsqword(0x30);
+#elif defined(__GNUC__)
+    __asm__ ("movq %%gs:0x30, %[ptr]" : [ptr] "=r" (teb));
+#endif
+    return teb;
 }
 
 #endif

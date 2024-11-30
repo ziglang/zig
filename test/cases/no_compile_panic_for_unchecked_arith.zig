@@ -13,4 +13,4 @@ export fn entry() usize {
 
 // compile
 // output_mode=Obj
-// backend=stage2,llvm
+// emit_bin=false
