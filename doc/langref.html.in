@@ -2182,11 +2182,12 @@ or
       <ul>
         <li>Fields are arranged in the order declared, from the least to the most significant bits of a backing integer.</li>
         <li>There is no padding between fields.</li>
+        <li>The backing integer has the same bit width as the fields' total bit width.</li>
         <li>The backing integer is subject to the same rules as any integer, including {#link|alignment|Alignment#}, 
         having a maximum bit count of 65535, and the host endianness.
-        On a big endian system, the first declared field will have the highest memory address.
+        On a big endian system, the first declared field will have the highest memory address, and on a little endian system, the lowest.
         </li>
-        <li>The backing integer has the same bit width as the fields' total bit width.</li>
+        <li>Due to {#link|alignment|Alignment#}, the backing integer may require more memory that its bit width. {#link|@bitSizeOf|@bitSizeOf#} and {#link|@sizeOf|@sizeOf#} can interrogate the difference.</li>
         <li>Field access and assignment can be understood as shorthand for bitshifts on the backing integer.</li>
         <li>An {#link|integer|Integers#} field uses exactly as many bits as its bit width. For example, a {#syntax#}u5{#endsyntax#} will use 5 bits of the backing integer.</li>
         <li>A {#link|bool|Primitive Types#} field uses exactly 1 bit.</li>
