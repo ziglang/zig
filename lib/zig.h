@@ -15,14 +15,14 @@
 #include <cpuid.h>
 #endif
 
-#if !defined(__cplusplus) && __STDC_VERSION__ <= 201710L
-#if __STDC_VERSION__ >= 199901L
+#if __STDC_VERSION__ >= 202311L
+/* bool, true, and false are provided by the language. */
+#elif __STDC_VERSION__ >= 199901L
 #include <stdbool.h>
 #else
 typedef char bool;
 #define false 0
 #define true  1
-#endif
 #endif
 
 #if defined(__clang__)
@@ -57,7 +57,9 @@ typedef char bool;
 #define zig_big_endian 1
 #endif
 
-#if __STDC_VERSION__ >= 201112L
+#if __STDC_VERSION__ >= 202311L
+#define zig_threadlocal thread_local
+#elif __STDC_VERSION__ >= 201112L
 #define zig_threadlocal _Thread_local
 #elif defined(__GNUC__)
 #define zig_threadlocal __thread
@@ -140,7 +142,9 @@ typedef char bool;
 #define zig_under_align zig_align_unavailable
 #endif
 
-#if __STDC_VERSION__ >= 201112L
+#if __STDC_VERSION__ >= 202311L
+#define zig_align(alignment) alignas(alignment)
+#elif __STDC_VERSION__ >= 201112L
 #define zig_align(alignment) _Alignas(alignment)
 #else
 #define zig_align(alignment) zig_under_align(alignment)
@@ -332,7 +336,9 @@ typedef char bool;
 #define zig_wasm_memory_grow(index, delta) zig_unimplemented()
 #endif
 
-#if __STDC_VERSION__ >= 201112L
+#if __STDC_VERSION__ >= 202311L
+#define zig_noreturn [[noreturn]]
+#elif __STDC_VERSION__ >= 201112L
 #define zig_noreturn _Noreturn
 #elif zig_has_attribute(noreturn) || defined(zig_gnuc) || defined(zig_tinyc)
 #define zig_noreturn __attribute__((noreturn))
