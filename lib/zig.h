@@ -4,6 +4,7 @@
 #define zig_msvc
 #elif defined(__clang__)
 #define zig_clang
+#define zig_gnuc
 #elif defined(__GNUC__)
 #define zig_gnuc
 #elif defined(__TINYC__)
@@ -65,7 +66,7 @@ typedef char bool;
 #define zig_threadlocal thread_local
 #elif __STDC_VERSION__ >= 201112L
 #define zig_threadlocal _Thread_local
-#elif defined(__GNUC__) || defined(zig_slimcc)
+#elif defined(zig_gnuc) || defined(zig_slimcc)
 #define zig_threadlocal __thread
 #elif defined(zig_msvc)
 #define zig_threadlocal __declspec(thread)
@@ -73,7 +74,7 @@ typedef char bool;
 #define zig_threadlocal zig_threadlocal_unavailable
 #endif
 
-#if defined(zig_gnuc) && (defined(__i386__) || defined(__x86_64__))
+#if !defined(zig_clang) && defined(zig_gnuc) && (defined(__i386__) || defined(__x86_64__))
 #define zig_f128_has_miscompilations 1
 #else
 #define zig_f128_has_miscompilations 0
@@ -132,7 +133,7 @@ typedef char bool;
 
 #if __STDC_VERSION__ >= 199901L
 #define zig_restrict restrict
-#elif defined(__GNUC__) || defined(zig_tinyc)
+#elif defined(zig_gnuc) || defined(zig_tinyc)
 #define zig_restrict __restrict
 #else
 #define zig_restrict
@@ -3626,7 +3627,7 @@ typedef enum memory_order zig_memory_order;
 #define zig_atomicrmw_add_float zig_atomicrmw_add
 #undef  zig_atomicrmw_sub_float
 #define zig_atomicrmw_sub_float zig_atomicrmw_sub
-#elif defined(__GNUC__)
+#elif defined(zig_gnuc)
 typedef int zig_memory_order;
 #define zig_memory_order_relaxed __ATOMIC_RELAXED
 #define zig_memory_order_acquire __ATOMIC_ACQUIRE
@@ -3948,7 +3949,7 @@ static inline void* zig_thumb_windows_teb(void) {
     void* teb = 0;
 #if defined(zig_msvc)
     teb = (void*)_MoveFromCoprocessor(15, 0, 13, 0, 2);
-#elif defined(__GNUC__)
+#elif defined(zig_gnuc)
     __asm__ ("mrc p15, 0, %[ptr], c13, c0, 2" : [ptr] "=r" (teb));
 #endif
     return teb;
@@ -3960,7 +3961,7 @@ static inline void* zig_aarch64_windows_teb(void) {
     void* teb = 0;
 #if defined(zig_msvc)
     teb = (void*)__readx18qword(0x0);
-#elif defined(__GNUC__)
+#elif defined(zig_gnuc)
     __asm__ ("mov %[ptr], x18" : [ptr] "=r" (teb));
 #endif
     return teb;
@@ -3972,7 +3973,7 @@ static inline void* zig_x86_windows_teb(void) {
     void* teb = 0;
 #if defined(zig_msvc)
     teb = (void*)__readfsdword(0x18);
-#elif defined(__GNUC__)
+#elif defined(zig_gnuc)
     __asm__ ("movl %%fs:0x18, %[ptr]" : [ptr] "=r" (teb));
 #endif
     return teb;
@@ -3984,7 +3985,7 @@ static inline void* zig_x86_64_windows_teb(void) {
     void* teb = 0;
 #if defined(zig_msvc)
     teb = (void*)__readgsqword(0x30);
-#elif defined(__GNUC__)
+#elif defined(zig_gnuc)
     __asm__ ("movq %%gs:0x30, %[ptr]" : [ptr] "=r" (teb));
 #endif
     return teb;
