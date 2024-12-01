@@ -25,6 +25,14 @@ typedef char bool;
 #endif
 #endif
 
+#if defined(__clang__)
+#define zig_clang
+#elif defined(__GNUC__)
+#define zig_gnuc
+#elif defined(__TINYC__)
+#define zig_tinyc
+#endif
+
 #define zig_concat(lhs, rhs) lhs##rhs
 #define zig_expand_concat(lhs, rhs) zig_concat(lhs, rhs)
 
@@ -57,12 +65,6 @@ typedef char bool;
 #define zig_threadlocal __declspec(thread)
 #else
 #define zig_threadlocal zig_threadlocal_unavailable
-#endif
-
-#if defined(__clang__)
-#define zig_clang
-#elif defined(__GNUC__)
-#define zig_gnuc
 #endif
 
 #if defined(zig_gnuc) && (defined(__i386__) || defined(__x86_64__))
@@ -124,13 +126,13 @@ typedef char bool;
 
 #if __STDC_VERSION__ >= 199901L
 #define zig_restrict restrict
-#elif defined(__GNUC__)
+#elif defined(__GNUC__) || defined(zig_tinyc)
 #define zig_restrict __restrict
 #else
 #define zig_restrict
 #endif
 
-#if zig_has_attribute(aligned)
+#if zig_has_attribute(aligned) || defined(zig_tinyc)
 #define zig_under_align(alignment) __attribute__((aligned(alignment)))
 #elif _MSC_VER
 #define zig_under_align(alignment) __declspec(align(alignment))
@@ -144,7 +146,7 @@ typedef char bool;
 #define zig_align(alignment) zig_under_align(alignment)
 #endif
 
-#if zig_has_attribute(aligned)
+#if zig_has_attribute(aligned) || defined(zig_tinyc)
 #define zig_align_fn(alignment) __attribute__((aligned(alignment)))
 #elif _MSC_VER
 #define zig_align_fn(alignment)
@@ -152,7 +154,7 @@ typedef char bool;
 #define zig_align_fn zig_align_fn_unavailable
 #endif
 
-#if zig_has_attribute(packed)
+#if zig_has_attribute(packed) || defined(zig_tinyc)
 #define zig_packed(definition) __attribute__((packed)) definition
 #elif _MSC_VER
 #define zig_packed(definition) __pragma(pack(1)) definition __pragma(pack())
@@ -160,7 +162,7 @@ typedef char bool;
 #define zig_packed(definition) zig_packed_unavailable
 #endif
 
-#if zig_has_attribute(section)
+#if zig_has_attribute(section) || defined(zig_tinyc)
 #define zig_linksection(name) __attribute__((section(name)))
 #define zig_linksection_fn zig_linksection
 #elif _MSC_VER
@@ -171,7 +173,7 @@ typedef char bool;
 #define zig_linksection_fn zig_linksection
 #endif
 
-#if zig_has_builtin(unreachable) || defined(zig_gnuc)
+#if zig_has_builtin(unreachable) || defined(zig_gnuc) || defined(zig_tinyc)
 #define zig_unreachable() __builtin_unreachable()
 #else
 #define zig_unreachable()
@@ -197,7 +199,7 @@ typedef char bool;
 #endif /* __APPLE__ */
 #endif /* _MSC_VER */
 
-#if zig_has_attribute(alias) && !__APPLE__
+#if (zig_has_attribute(alias) || defined(zig_tinyc)) && !__APPLE__
 #define zig_export(symbol, name) __attribute__((alias(symbol)))
 #elif _MSC_VER
 #define zig_export(symbol, name) ; \
@@ -235,7 +237,7 @@ typedef char bool;
 #define zig_expand_import_0(Type, fn_name, libc_name, sig_args, call_args) zig_import(Type, fn_name, libc_name, sig_args, call_args)
 #define zig_expand_import_1(Type, fn_name, libc_name, sig_args, call_args) zig_import_builtin(Type, fn_name, libc_name, sig_args, call_args)
 
-#if zig_has_attribute(weak) || defined(zig_gnuc)
+#if zig_has_attribute(weak) || defined(zig_gnuc) || defined(zig_tinyc)
 #define zig_weak_linkage __attribute__((weak))
 #define zig_weak_linkage_fn __attribute__((weak))
 #elif _MSC_VER
@@ -302,7 +304,7 @@ typedef char bool;
 #define zig_breakpoint() zig_breakpoint_unavailable
 #endif
 
-#if zig_has_builtin(return_address) || defined(zig_gnuc)
+#if zig_has_builtin(return_address) || defined(zig_gnuc) || defined(zig_tinyc)
 #define zig_return_address() __builtin_extract_return_addr(__builtin_return_address(0))
 #elif defined(_MSC_VER)
 #define zig_return_address() _ReturnAddress()
@@ -310,7 +312,7 @@ typedef char bool;
 #define zig_return_address() 0
 #endif
 
-#if zig_has_builtin(frame_address) || defined(zig_gnuc)
+#if zig_has_builtin(frame_address) || defined(zig_gnuc) || defined(zig_tinyc)
 #define zig_frame_address() __builtin_frame_address(0)
 #else
 #define zig_frame_address() 0
@@ -332,7 +334,7 @@ typedef char bool;
 
 #if __STDC_VERSION__ >= 201112L
 #define zig_noreturn _Noreturn
-#elif zig_has_attribute(noreturn) || defined(zig_gnuc)
+#elif zig_has_attribute(noreturn) || defined(zig_gnuc) || defined(zig_tinyc)
 #define zig_noreturn __attribute__((noreturn))
 #elif _MSC_VER
 #define zig_noreturn __declspec(noreturn)
@@ -1136,7 +1138,7 @@ static inline int64_t zig_bit_reverse_i64(int64_t val, uint8_t bits) {
     static inline uint8_t zig_popcount_i##w(int##w##_t val, uint8_t bits) { \
         return zig_popcount_u##w((uint##w##_t)val, bits); \
     }
-#if zig_has_builtin(popcount) || defined(zig_gnuc)
+#if zig_has_builtin(popcount) || defined(zig_gnuc) || defined(zig_tinyc)
 #define zig_builtin_popcount(w) \
     static inline uint8_t zig_popcount_u##w(uint##w##_t val, uint8_t bits) { \
         (void)bits; \
@@ -1165,7 +1167,7 @@ zig_builtin_popcount(64)
     static inline uint8_t zig_ctz_i##w(int##w##_t val, uint8_t bits) { \
         return zig_ctz_u##w((uint##w##_t)val, bits); \
     }
-#if zig_has_builtin(ctz) || defined(zig_gnuc)
+#if zig_has_builtin(ctz) || defined(zig_gnuc) || defined(zig_tinyc)
 #define zig_builtin_ctz(w) \
     static inline uint8_t zig_ctz_u##w(uint##w##_t val, uint8_t bits) { \
         if (val == 0) return bits; \
@@ -1190,7 +1192,7 @@ zig_builtin_ctz(64)
     static inline uint8_t zig_clz_i##w(int##w##_t val, uint8_t bits) { \
         return zig_clz_u##w((uint##w##_t)val, bits); \
     }
-#if zig_has_builtin(clz) || defined(zig_gnuc)
+#if zig_has_builtin(clz) || defined(zig_gnuc) || defined(zig_tinyc)
 #define zig_builtin_clz(w) \
     static inline uint8_t zig_clz_u##w(uint##w##_t val, uint8_t bits) { \
         if (val == 0) return bits; \
