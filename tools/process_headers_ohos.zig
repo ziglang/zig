@@ -294,10 +294,14 @@ pub fn main() !void {
     var ohos_common_content = HashToContents.init(allocator);
 
     for (musl_targets) |libc_target| {
+        var abi: []const u8 = "ohos";
+        if (std.mem.eql(u8, libc_target.name, "arm")) {
+            abi = "ohoseabi";
+        }
         const target = try std.fmt.allocPrint(allocator, "{s}-{s}-{s}", .{
             libc_target.name,
             "linux",
-            "ohos",
+            abi,
         });
 
         const arch_generic_hash_content = generateGenericFileMap(allocator, &[_][]const u8{ generic_musl_libc_dir, "arch", libc_target.name }) catch |err| {
@@ -380,17 +384,17 @@ pub fn main() !void {
 
     var it = ohos_common_content.iterator();
     while (it.next()) |entry| {
+        var full_path: []const u8 = "";
         if (entry.value_ptr.hit_count > 1) {
-            const full_path = try std.fs.path.join(allocator, &[_][]const u8{ out_dir, "generic-ohos", entry.value_ptr.path });
-
-            try std.fs.cwd().makePath(std.fs.path.dirname(full_path).?);
-            try std.fs.cwd().writeFile(.{ .sub_path = full_path, .data = entry.value_ptr.bytes });
+            full_path = try std.fs.path.join(allocator, &[_][]const u8{ out_dir, "generic-ohos", entry.value_ptr.path });
         } else {
-            const full_path = try std.fs.path.join(allocator, &[_][]const u8{ out_dir, entry.value_ptr.target, entry.value_ptr.path });
-
-            try std.fs.cwd().makePath(std.fs.path.dirname(full_path).?);
-            try std.fs.cwd().writeFile(.{ .sub_path = full_path, .data = entry.value_ptr.bytes });
+            full_path = try std.fs.path.join(allocator, &[_][]const u8{ out_dir, entry.value_ptr.target, entry.value_ptr.path });
         }
+
+        try std.fs.cwd().makePath(std.fs.path.dirname(full_path).?);
+        const with_newline = try std.mem.concat(allocator, u8, &[_][]const u8{ entry.value_ptr.bytes, "\n" });
+        defer allocator.free(with_newline);
+        try std.fs.cwd().writeFile(.{ .sub_path = full_path, .data = with_newline });
     }
 }
 
