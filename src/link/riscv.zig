@@ -12,7 +12,7 @@ pub fn writeSetSub6(comptime op: enum { set, sub }, code: *[1]u8, addend: anytyp
 pub fn writeAddend(
     comptime Int: type,
     comptime op: enum { add, sub },
-    code: *[@typeInfo(Int).Int.bits / 8]u8,
+    code: *[@typeInfo(Int).int.bits / 8]u8,
     value: anytype,
 ) void {
     var V: Int = mem.readInt(Int, code, .little);
@@ -70,18 +70,20 @@ fn bitSlice(
     return @truncate((value >> low) & (1 << (high - low + 1)) - 1);
 }
 
-pub const RiscvEflags = packed struct(u32) {
+pub const Eflags = packed struct(u32) {
     rvc: bool,
-    fabi: enum(u2) {
+    fabi: FloatAbi,
+    rve: bool,
+    tso: bool,
+    _reserved: u19 = 0,
+    _unused: u8 = 0,
+
+    pub const FloatAbi = enum(u2) {
         soft = 0b00,
         single = 0b01,
         double = 0b10,
         quad = 0b11,
-    },
-    rve: bool,
-    tso: bool,
-    _reserved: u19,
-    _unused: u8,
+    };
 };
 
 const mem = std.mem;

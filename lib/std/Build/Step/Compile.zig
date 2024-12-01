@@ -186,6 +186,15 @@ want_lto: ?bool = null,
 use_llvm: ?bool,
 use_lld: ?bool,
 
+/// Corresponds to the `-fallow-so-scripts` / `-fno-allow-so-scripts` CLI
+/// flags, overriding the global user setting provided to the `zig build`
+/// command.
+///
+/// The compiler defaults this value to off so that users whose system shared
+/// libraries are all ELF files don't have to pay the cost of checking every
+/// file to find out if it is a text file instead.
+allow_so_scripts: ?bool = null,
+
 /// This is an advanced setting that can change the intent of this Compile step.
 /// If this value is non-null, it means that this Compile step exists to
 /// check for compile errors and return *success* if they match, and failure
@@ -218,17 +227,25 @@ no_builtin: bool = false,
 /// Managed by the build runner, not user build script.
 zig_process: ?*Step.ZigProcess,
 
-/// Enables deprecated coverage instrumentation that is only useful if you
-/// are using third party fuzzers that depend on it. Otherwise, slows down
-/// the instrumented binary with unnecessary function calls.
+/// Enables coverage instrumentation that is only useful if you are using third
+/// party fuzzers that depend on it. Otherwise, slows down the instrumented
+/// binary with unnecessary function calls.
 ///
-/// To enable fuzz testing instrumentation on a compilation, see the `fuzz`
-/// flag in `Module`.
+/// This kind of coverage instrumentation is used by AFLplusplus v4.21c,
+/// however, modern fuzzers - including Zig - have switched to using "inline
+/// 8-bit counters" or "inline bool flag" which incurs only a single
+/// instruction for coverage, along with "trace cmp" which instruments
+/// comparisons and reports the operands.
+///
+/// To instead enable fuzz testing instrumentation on a compilation using Zig's
+/// builtin fuzzer, see the `fuzz` flag in `Module`.
 sanitize_coverage_trace_pc_guard: ?bool = null,
 
 pub const ExpectedCompileErrors = union(enum) {
     contains: []const u8,
     exact: []const []const u8,
+    starts_with: []const u8,
+    stderr_contains: []const u8,
 };
 
 pub const Entry = union(enum) {
@@ -604,11 +621,13 @@ pub fn dependsOnSystemLibrary(compile: *const Compile, name: []const u8) bool {
         is_linking_libcpp = is_linking_libcpp or module.link_libcpp == true;
     }
 
-    if (compile.rootModuleTarget().is_libc_lib_name(name)) {
+    const target = compile.rootModuleTarget();
+
+    if (std.zig.target.isLibCLibName(target, name)) {
         return is_linking_libc;
     }
 
-    if (compile.rootModuleTarget().is_libcpp_lib_name(name)) {
+    if (std.zig.target.isLibCxxLibName(target, name)) {
         return is_linking_libcpp;
     }
 
@@ -676,6 +695,7 @@ fn runPkgConfig(compile: *Compile, lib_name: []const u8) !PkgConfigResult {
         // -lSDL2 -> pkg-config sdl2
         // -lgdk-3 -> pkg-config gdk-3.0
         // -latk-1.0 -> pkg-config atk
+        // -lpulse -> pkg-config libpulse
         const pkgs = try getPkgConfigList(b);
 
         // Exact match means instant winner.
@@ -692,13 +712,14 @@ fn runPkgConfig(compile: *Compile, lib_name: []const u8) !PkgConfigResult {
             }
         }
 
-        // Now try appending ".0".
+        // Prefixed "lib" or suffixed ".0".
         for (pkgs) |pkg| {
             if (std.ascii.indexOfIgnoreCase(pkg.name, lib_name)) |pos| {
-                if (pos != 0) continue;
-                if (mem.eql(u8, pkg.name[lib_name.len..], ".0")) {
-                    break :match pkg.name;
-                }
+                const prefix = pkg.name[0..pos];
+                const suffix = pkg.name[pos + lib_name.len ..];
+                if (prefix.len > 0 and !mem.eql(u8, prefix, "lib")) continue;
+                if (suffix.len > 0 and !mem.eql(u8, suffix, ".0")) continue;
+                break :match pkg.name;
             }
         }
 
@@ -1026,6 +1047,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
     if (b.reference_trace) |some| {
         try zig_args.append(try std.fmt.allocPrint(arena, "-freference-trace={d}", .{some}));
     }
+    try addFlag(&zig_args, "allow-so-scripts", compile.allow_so_scripts orelse b.graph.allow_so_scripts);
 
     try addFlag(&zig_args, "llvm", compile.use_llvm);
     try addFlag(&zig_args, "lld", compile.use_lld);
@@ -1064,8 +1086,8 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
         // Stores system libraries that have already been seen for at least one
         // module, along with any arguments that need to be passed to the
         // compiler for each module individually.
-        var seen_system_libs: std.StringHashMapUnmanaged([]const []const u8) = .{};
-        var frameworks: std.StringArrayHashMapUnmanaged(Module.LinkFrameworkOptions) = .{};
+        var seen_system_libs: std.StringHashMapUnmanaged([]const []const u8) = .empty;
+        var frameworks: std.StringArrayHashMapUnmanaged(Module.LinkFrameworkOptions) = .empty;
 
         var prev_has_cflags = false;
         var prev_has_rcflags = false;
@@ -1936,24 +1958,58 @@ fn checkCompileErrors(compile: *Compile) !void {
 
     const arena = compile.step.owner.allocator;
 
-    var actual_stderr_list = std.ArrayList(u8).init(arena);
+    var actual_errors_list = std.ArrayList(u8).init(arena);
     try actual_eb.renderToWriter(.{
         .ttyconf = .no_color,
         .include_reference_trace = false,
         .include_source_line = false,
-    }, actual_stderr_list.writer());
-    const actual_stderr = try actual_stderr_list.toOwnedSlice();
+    }, actual_errors_list.writer());
+    const actual_errors = try actual_errors_list.toOwnedSlice();
 
     // Render the expected lines into a string that we can compare verbatim.
     var expected_generated = std.ArrayList(u8).init(arena);
     const expect_errors = compile.expect_errors.?;
 
-    var actual_line_it = mem.splitScalar(u8, actual_stderr, '\n');
+    var actual_line_it = mem.splitScalar(u8, actual_errors, '\n');
 
     // TODO merge this with the testing.expectEqualStrings logic, and also CheckFile
     switch (expect_errors) {
+        .starts_with => |expect_starts_with| {
+            if (std.mem.startsWith(u8, actual_errors, expect_starts_with)) return;
+            return compile.step.fail(
+                \\
+                \\========= should start with: ============
+                \\{s}
+                \\========= but not found: ================
+                \\{s}
+                \\=========================================
+            , .{ expect_starts_with, actual_errors });
+        },
         .contains => |expect_line| {
             while (actual_line_it.next()) |actual_line| {
+                if (!matchCompileError(actual_line, expect_line)) continue;
+                return;
+            }
+
+            return compile.step.fail(
+                \\
+                \\========= should contain: ===============
+                \\{s}
+                \\========= but not found: ================
+                \\{s}
+                \\=========================================
+            , .{ expect_line, actual_errors });
+        },
+        .stderr_contains => |expect_line| {
+            const actual_stderr: []const u8 = if (compile.step.result_error_msgs.items.len > 0)
+                compile.step.result_error_msgs.items[0]
+            else
+                &.{};
+            compile.step.result_error_msgs.clearRetainingCapacity();
+
+            var stderr_line_it = mem.splitScalar(u8, actual_stderr, '\n');
+
+            while (stderr_line_it.next()) |actual_line| {
                 if (!matchCompileError(actual_line, expect_line)) continue;
                 return;
             }
@@ -1983,7 +2039,7 @@ fn checkCompileErrors(compile: *Compile) !void {
                 try expected_generated.append('\n');
             }
 
-            if (mem.eql(u8, expected_generated.items, actual_stderr)) return;
+            if (mem.eql(u8, expected_generated.items, actual_errors)) return;
 
             return compile.step.fail(
                 \\
@@ -1992,7 +2048,7 @@ fn checkCompileErrors(compile: *Compile) !void {
                 \\========= but found: ====================
                 \\{s}
                 \\=========================================
-            , .{ expected_generated.items, actual_stderr });
+            , .{ expected_generated.items, actual_errors });
         },
     }
 }

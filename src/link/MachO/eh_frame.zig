@@ -29,22 +29,22 @@ pub const Cie = struct {
         for (aug[1..]) |ch| switch (ch) {
             'R' => {
                 const enc = try reader.readByte();
-                if (enc & 0xf != EH_PE.absptr or enc & EH_PE.pcrel == 0) {
+                if (enc != DW_EH_PE.pcrel | DW_EH_PE.absptr) {
                     @panic("unexpected pointer encoding"); // TODO error
                 }
             },
             'P' => {
                 const enc = try reader.readByte();
-                if (enc != EH_PE.pcrel | EH_PE.indirect | EH_PE.sdata4) {
+                if (enc != DW_EH_PE.pcrel | DW_EH_PE.indirect | DW_EH_PE.sdata4) {
                     @panic("unexpected personality pointer encoding"); // TODO error
                 }
                 _ = try reader.readInt(u32, .little); // personality pointer
             },
             'L' => {
                 const enc = try reader.readByte();
-                switch (enc & 0xf) {
-                    EH_PE.sdata4 => cie.lsda_size = .p32,
-                    EH_PE.absptr => cie.lsda_size = .p64,
+                switch (enc & DW_EH_PE.type_mask) {
+                    DW_EH_PE.sdata4 => cie.lsda_size = .p32,
+                    DW_EH_PE.absptr => cie.lsda_size = .p64,
                     else => unreachable, // TODO error
                 }
             },
@@ -538,25 +538,6 @@ pub fn writeRelocs(macho_file: *MachO, code: []u8, relocs: []macho.relocation_in
     assert(relocs.len == i);
 }
 
-pub const EH_PE = struct {
-    pub const absptr = 0x00;
-    pub const uleb128 = 0x01;
-    pub const udata2 = 0x02;
-    pub const udata4 = 0x03;
-    pub const udata8 = 0x04;
-    pub const sleb128 = 0x09;
-    pub const sdata2 = 0x0A;
-    pub const sdata4 = 0x0B;
-    pub const sdata8 = 0x0C;
-    pub const pcrel = 0x10;
-    pub const textrel = 0x20;
-    pub const datarel = 0x30;
-    pub const funcrel = 0x40;
-    pub const aligned = 0x50;
-    pub const indirect = 0x80;
-    pub const omit = 0xFF;
-};
-
 const assert = std.debug.assert;
 const leb = std.leb;
 const macho = std.macho;
@@ -567,6 +548,7 @@ const trace = @import("../../tracy.zig").trace;
 
 const Allocator = std.mem.Allocator;
 const Atom = @import("Atom.zig");
+const DW_EH_PE = std.dwarf.EH.PE;
 const File = @import("file.zig").File;
 const MachO = @import("../MachO.zig");
 const Object = @import("Object.zig");

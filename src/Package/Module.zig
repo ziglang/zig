@@ -31,6 +31,7 @@ unwind_tables: bool,
 cc_argv: []const []const u8,
 /// (SPIR-V) whether to generate a structured control flow graph or not
 structured_cfg: bool,
+no_builtin: bool,
 
 /// If the module is an `@import("builtin")` module, this is the `File` that
 /// is preallocated for it. Otherwise this field is null.
@@ -95,6 +96,7 @@ pub const CreateOptions = struct {
         sanitize_thread: ?bool = null,
         fuzz: ?bool = null,
         structured_cfg: ?bool = null,
+        no_builtin: ?bool = null,
     };
 };
 
@@ -298,23 +300,41 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
         };
     };
 
+    const no_builtin = b: {
+        if (options.inherited.no_builtin) |x| break :b x;
+        if (options.parent) |p| break :b p.no_builtin;
+
+        break :b target.cpu.arch.isBpf();
+    };
+
     const llvm_cpu_features: ?[*:0]const u8 = b: {
         if (resolved_target.llvm_cpu_features) |x| break :b x;
         if (!options.global.use_llvm) break :b null;
 
         var buf = std.ArrayList(u8).init(arena);
-        for (target.cpu.arch.allFeaturesList(), 0..) |feature, index_usize| {
-            const index = @as(std.Target.Cpu.Feature.Set.Index, @intCast(index_usize));
-            const is_enabled = target.cpu.features.isEnabled(index);
+        var disabled_features = std.ArrayList(u8).init(arena);
+        defer disabled_features.deinit();
 
+        // Append disabled features after enabled ones, so that their effects aren't overwritten.
+        for (target.cpu.arch.allFeaturesList()) |feature| {
             if (feature.llvm_name) |llvm_name| {
-                const plus_or_minus = "-+"[@intFromBool(is_enabled)];
-                try buf.ensureUnusedCapacity(2 + llvm_name.len);
-                buf.appendAssumeCapacity(plus_or_minus);
-                buf.appendSliceAssumeCapacity(llvm_name);
-                buf.appendSliceAssumeCapacity(",");
+                const is_enabled = target.cpu.features.isEnabled(feature.index);
+
+                if (is_enabled) {
+                    try buf.ensureUnusedCapacity(2 + llvm_name.len);
+                    buf.appendAssumeCapacity('+');
+                    buf.appendSliceAssumeCapacity(llvm_name);
+                    buf.appendAssumeCapacity(',');
+                } else {
+                    try disabled_features.ensureUnusedCapacity(2 + llvm_name.len);
+                    disabled_features.appendAssumeCapacity('-');
+                    disabled_features.appendSliceAssumeCapacity(llvm_name);
+                    disabled_features.appendAssumeCapacity(',');
+                }
             }
         }
+
+        try buf.appendSlice(disabled_features.items);
         if (buf.items.len == 0) break :b "";
         assert(std.mem.endsWith(u8, buf.items, ","));
         buf.items[buf.items.len - 1] = 0;
@@ -350,6 +370,7 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
         .unwind_tables = unwind_tables,
         .cc_argv = options.cc_argv,
         .structured_cfg = structured_cfg,
+        .no_builtin = no_builtin,
         .builtin_file = null,
     };
 
@@ -442,6 +463,7 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
             .unwind_tables = unwind_tables,
             .cc_argv = &.{},
             .structured_cfg = structured_cfg,
+            .no_builtin = no_builtin,
             .builtin_file = new_file,
         };
         new_file.* = .{
@@ -454,6 +476,7 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
             .tree = undefined,
             .zir = undefined,
             .status = .never_loaded,
+            .prev_status = .never_loaded,
             .mod = new,
         };
         break :b new;
@@ -501,6 +524,7 @@ pub fn createLimited(gpa: Allocator, options: LimitedOptions) Allocator.Error!*P
         .unwind_tables = undefined,
         .cc_argv = undefined,
         .structured_cfg = undefined,
+        .no_builtin = undefined,
         .builtin_file = null,
     };
     return mod;

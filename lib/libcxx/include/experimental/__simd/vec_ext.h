@@ -10,6 +10,7 @@
 #ifndef _LIBCPP_EXPERIMENTAL___SIMD_VEC_EXT_H
 #define _LIBCPP_EXPERIMENTAL___SIMD_VEC_EXT_H
 
+#include <__assert>
 #include <__bit/bit_ceil.h>
 #include <__utility/forward.h>
 #include <__utility/integer_sequence.h>
@@ -79,6 +80,12 @@ struct __simd_operations<_Tp, simd_abi::__vec_ext<_Np>> {
     for (size_t __i = 0; __i < _Np; __i++)
       __s.__data[__i] = static_cast<_Tp>(__mem[__i]);
   }
+
+  template <class _Up>
+  static _LIBCPP_HIDE_FROM_ABI void __store(_SimdStorage __s, _Up* __mem) noexcept {
+    for (size_t __i = 0; __i < _Np; __i++)
+      __mem[__i] = static_cast<_Up>(__s.__data[__i]);
+  }
 };
 
 template <class _Tp, int _Np>
@@ -97,6 +104,11 @@ struct __mask_operations<_Tp, simd_abi::__vec_ext<_Np>> {
   static _LIBCPP_HIDE_FROM_ABI void __load(_MaskStorage& __s, const bool* __mem) noexcept {
     for (size_t __i = 0; __i < _Np; __i++)
       __s.__data[__i] = experimental::__set_all_bits<_Tp>(__mem[__i]);
+  }
+
+  static _LIBCPP_HIDE_FROM_ABI void __store(_MaskStorage __s, bool* __mem) noexcept {
+    for (size_t __i = 0; __i < _Np; __i++)
+      __mem[__i] = static_cast<bool>(__s.__data[__i]);
   }
 };
 

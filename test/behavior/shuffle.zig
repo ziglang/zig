@@ -140,13 +140,6 @@ test "@shuffle bool 1" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_llvm and
-        builtin.cpu.arch == .aarch64 and builtin.os.tag == .windows)
-    {
-        // https://github.com/ziglang/zig/issues/19824
-        return error.SkipZigTest;
-    }
-
     const S = struct {
         fn doTheTest() !void {
             var x: @Vector(4, bool) = [4]bool{ false, true, false, true };
@@ -169,11 +162,6 @@ test "@shuffle bool 2" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
-    if (builtin.zig_backend == .stage2_llvm) {
-        // https://github.com/ziglang/zig/issues/3246
-        return error.SkipZigTest;
-    }
 
     const S = struct {
         fn doTheTest() !void {

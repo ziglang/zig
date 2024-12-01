@@ -15,15 +15,15 @@ const common = @import("common.zig");
 pub const panic = common.panic;
 
 comptime {
-    @export(__trunch, .{ .name = "__trunch", .linkage = common.linkage, .visibility = common.visibility });
-    @export(truncf, .{ .name = "truncf", .linkage = common.linkage, .visibility = common.visibility });
-    @export(trunc, .{ .name = "trunc", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__truncx, .{ .name = "__truncx", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__trunch, .{ .name = "__trunch", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&truncf, .{ .name = "truncf", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&trunc, .{ .name = "trunc", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__truncx, .{ .name = "__truncx", .linkage = common.linkage, .visibility = common.visibility });
     if (common.want_ppc_abi) {
-        @export(truncq, .{ .name = "truncf128", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&truncq, .{ .name = "truncf128", .linkage = common.linkage, .visibility = common.visibility });
     }
-    @export(truncq, .{ .name = "truncq", .linkage = common.linkage, .visibility = common.visibility });
-    @export(truncl, .{ .name = "truncl", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&truncq, .{ .name = "truncq", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&truncl, .{ .name = "truncl", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 pub fn __trunch(x: f16) callconv(.C) f16 {
@@ -100,7 +100,7 @@ pub fn truncq(x: f128) callconv(.C) f128 {
 }
 
 pub fn truncl(x: c_longdouble) callconv(.C) c_longdouble {
-    switch (@typeInfo(c_longdouble).Float.bits) {
+    switch (@typeInfo(c_longdouble).float.bits) {
         16 => return __trunch(x),
         32 => return truncf(x),
         64 => return trunc(x),

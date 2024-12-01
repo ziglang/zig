@@ -89,12 +89,7 @@ set(ZIG_SHARED_LLVM off CACHE BOOL "Prefer linking against shared LLVM libraries
 set(ZIG_STATIC_LLVM ${ZIG_STATIC} CACHE BOOL "Prefer linking against static LLVM libraries")
 set(ZIG_STATIC_ZLIB ${ZIG_STATIC} CACHE BOOL "Prefer linking against static zlib")
 set(ZIG_STATIC_ZSTD ${ZIG_STATIC} CACHE BOOL "Prefer linking against static zstd")
-if(APPLE AND ZIG_STATIC)
-  set(ZIG_STATIC_CURSES on)
-else()
-  set(ZIG_STATIC_CURSES off)
-endif()
-set(ZIG_STATIC_CURSES ${ZIG_STATIC_CURSES} CACHE BOOL "Prefer linking against static curses")
+set(ZIG_STATIC_CURSES OFF CACHE BOOL "Enable static linking against curses")
 
 if (ZIG_SHARED_LLVM AND ZIG_STATIC_LLVM)
     message(SEND_ERROR "-DZIG_SHARED_LLVM and -DZIG_STATIC_LLVM cannot both be enabled simultaneously")
@@ -125,8 +120,8 @@ check_pie_supported(
   OUTPUT_VARIABLE ZIG_PIE_SUPPORTED_BY_CMAKE
   LANGUAGES C CXX
 )
-if(ZIG_PIE AND NOT ZIG_PIE_SUPPORTED_BY_CMAKE)
-  message(SEND_ERROR "ZIG_PIE was requested but CMake does not support it for \"zigcpp\" target")
+if(ZIG_PIE AND NOT CMAKE_CXX_LINK_PIE_SUPPORTED)
+  message(SEND_ERROR "ZIG_PIE was requested but CMake does not support it for \"zigcpp\" target: ${ZIG_PIE_SUPPORTED_BY_CMAKE}")
 endif()
 
 
@@ -137,9 +132,9 @@ else()
     set(ZIG_SYSTEM_LIBCXX "stdc++" CACHE STRING "system libcxx name for build.zig")
 endif()
 
-find_package(llvm 18)
-find_package(clang 18)
-find_package(lld 18)
+find_package(llvm 19)
+find_package(clang 19)
+find_package(lld 19)
 
 if(ZIG_STATIC_ZLIB)
     if (MSVC)
@@ -376,7 +371,7 @@ set(ZIG_STAGE2_SOURCES
     lib/std/Target.zig
     lib/std/Target/Query.zig
     lib/std/Target/aarch64.zig
-    lib/std/Target/amdgpu.zig
+    lib/std/Target/amdgcn.zig
     lib/std/Target/arm.zig
     lib/std/Target/avr.zig
     lib/std/Target/bpf.zig
@@ -522,6 +517,7 @@ set(ZIG_STAGE2_SOURCES
     src/Sema.zig
     src/Sema/bitcast.zig
     src/Sema/comptime_ptr_access.zig
+    src/ThreadSafeQueue.zig
     src/Type.zig
     src/Value.zig
     src/Zcu.zig
@@ -591,29 +587,25 @@ set(ZIG_STAGE2_SOURCES
     src/link.zig
     src/link/C.zig
     src/link/Coff.zig
-    src/link/Coff/Atom.zig
-    src/link/Coff/ImportTable.zig
-    src/link/Coff/Object.zig
-    src/link/Coff/Relocation.zig
-    src/link/Coff/lld.zig
     src/link/Dwarf.zig
     src/link/Elf.zig
     src/link/Elf/Archive.zig
     src/link/Elf/Atom.zig
-    src/link/Elf/LdScript.zig
+    src/link/Elf/AtomList.zig
     src/link/Elf/LinkerDefined.zig
+    src/link/Elf/Merge.zig
     src/link/Elf/Object.zig
     src/link/Elf/SharedObject.zig
     src/link/Elf/Symbol.zig
+    src/link/Elf/Thunk.zig
     src/link/Elf/ZigObject.zig
     src/link/Elf/eh_frame.zig
     src/link/Elf/file.zig
     src/link/Elf/gc.zig
-    src/link/Elf/merge_section.zig
     src/link/Elf/relocatable.zig
     src/link/Elf/relocation.zig
     src/link/Elf/synthetic_sections.zig
-    src/link/Elf/thunks.zig
+    src/link/LdScript.zig
     src/link/MachO.zig
     src/link/MachO/Archive.zig
     src/link/MachO/Atom.zig
@@ -638,7 +630,7 @@ set(ZIG_STAGE2_SOURCES
     src/link/MachO/load_commands.zig
     src/link/MachO/relocatable.zig
     src/link/MachO/synthetic.zig
-    src/link/MachO/thunks.zig
+    src/link/MachO/Thunk.zig
     src/link/MachO/uuid.zig
     src/link/NvPtx.zig
     src/link/Plan9.zig
@@ -651,12 +643,9 @@ set(ZIG_STAGE2_SOURCES
     src/link/StringTable.zig
     src/link/Wasm.zig
     src/link/Wasm/Archive.zig
-    src/link/Wasm/Atom.zig
     src/link/Wasm/Object.zig
     src/link/Wasm/Symbol.zig
     src/link/Wasm/ZigObject.zig
-    src/link/Wasm/file.zig
-    src/link/Wasm/types.zig
     src/link/aarch64.zig
     src/link/riscv.zig
     src/link/table_section.zig
@@ -888,9 +877,7 @@ set(BUILD_COMPILER_RT_ARGS
   --name compiler_rt
   -femit-bin="${ZIG_COMPILER_RT_C_SOURCE}"
   -target "${ZIG_HOST_TARGET_TRIPLE}"
-  --dep "build_options"
   "-Mroot=lib/compiler_rt.zig"
-  "-Mbuild_options=${ZIG_CONFIG_ZIG_OUT}"
 )
 
 add_custom_command(

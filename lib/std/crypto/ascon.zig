@@ -1,6 +1,6 @@
 //! Ascon is a 320-bit permutation, selected as new standard for lightweight cryptography
 //! in the NIST Lightweight Cryptography competition (2019–2023).
-//! https://csrc.nist.gov/News/2023/lightweight-cryptography-nist-selects-ascon
+//! https://csrc.nist.gov/pubs/sp/800/232/ipd
 //!
 //! The permutation is compact, and optimized for timing and side channel resistance,
 //! making it a good choice for embedded applications.
@@ -19,8 +19,9 @@ const native_endian = builtin.cpu.arch.endian();
 ///
 /// The state is represented as 5 64-bit words.
 ///
-/// The NIST submission (v1.2) serializes these words as big-endian,
-/// but software implementations are free to use native endianness.
+/// The original NIST submission (v1.2) serializes these words as big-endian,
+/// but NIST SP 800-232 switched to a little-endian representation.
+/// Software implementations are free to use native endianness with no security degradation.
 pub fn State(comptime endian: std.builtin.Endian) type {
     return struct {
         const Self = @This();
@@ -157,7 +158,7 @@ pub fn State(comptime endian: std.builtin.Endian) type {
 
         /// Apply a reduced-round permutation to the state.
         pub inline fn permuteR(state: *Self, comptime rounds: u4) void {
-            const rks = [12]u64{ 0xf0, 0xe1, 0xd2, 0xc3, 0xb4, 0xa5, 0x96, 0x87, 0x78, 0x69, 0x5a, 0x4b };
+            const rks = [16]u64{ 0x3c, 0x2d, 0x1e, 0x0f, 0xf0, 0xe1, 0xd2, 0xc3, 0xb4, 0xa5, 0x96, 0x87, 0x78, 0x69, 0x5a, 0x4b };
             inline for (rks[rks.len - rounds ..]) |rk| {
                 state.round(rk);
             }

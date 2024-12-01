@@ -7,14 +7,14 @@ pub const panic = common.panic;
 
 comptime {
     if (common.want_ppc_abi) {
-        @export(__getf2, .{ .name = "__gekf2", .linkage = common.linkage, .visibility = common.visibility });
-        @export(__gttf2, .{ .name = "__gtkf2", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__getf2, .{ .name = "__gekf2", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__gttf2, .{ .name = "__gtkf2", .linkage = common.linkage, .visibility = common.visibility });
     } else if (common.want_sparc_abi) {
         // These exports are handled in cmptf2.zig because gt and ge on sparc
         // are based on calling _Qp_cmp.
     }
-    @export(__getf2, .{ .name = "__getf2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__gttf2, .{ .name = "__gttf2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__getf2, .{ .name = "__getf2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__gttf2, .{ .name = "__gttf2", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 /// "These functions return a value greater than or equal to zero if neither

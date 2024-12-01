@@ -13,13 +13,13 @@ fn parse(comptime T: type, allocator: std.mem.Allocator) !void {
 
 fn parseFree(comptime T: type, value: T, allocator: std.mem.Allocator) void {
     switch (@typeInfo(T)) {
-        .Struct => |structInfo| {
+        .@"struct" => |structInfo| {
             inline for (structInfo.fields) |field| {
                 if (!field.is_comptime)
                     parseFree(field.type, undefined, allocator);
             }
         },
-        .Pointer => |ptrInfo| {
+        .pointer => |ptrInfo| {
             switch (ptrInfo.size) {
                 .One => {
                     parseFree(ptrInfo.child, value.*, allocator);

@@ -109,47 +109,47 @@ pub fn getOutput(config_header: *ConfigHeader) std.Build.LazyPath {
 }
 
 fn addValuesInner(config_header: *ConfigHeader, values: anytype) !void {
-    inline for (@typeInfo(@TypeOf(values)).Struct.fields) |field| {
+    inline for (@typeInfo(@TypeOf(values)).@"struct".fields) |field| {
         try putValue(config_header, field.name, field.type, @field(values, field.name));
     }
 }
 
 fn putValue(config_header: *ConfigHeader, field_name: []const u8, comptime T: type, v: T) !void {
     switch (@typeInfo(T)) {
-        .Null => {
+        .null => {
             try config_header.values.put(field_name, .undef);
         },
-        .Void => {
+        .void => {
             try config_header.values.put(field_name, .defined);
         },
-        .Bool => {
+        .bool => {
             try config_header.values.put(field_name, .{ .boolean = v });
         },
-        .Int => {
+        .int => {
             try config_header.values.put(field_name, .{ .int = v });
         },
-        .ComptimeInt => {
+        .comptime_int => {
             try config_header.values.put(field_name, .{ .int = v });
         },
-        .EnumLiteral => {
+        .enum_literal => {
             try config_header.values.put(field_name, .{ .ident = @tagName(v) });
         },
-        .Optional => {
+        .optional => {
             if (v) |x| {
                 return putValue(config_header, field_name, @TypeOf(x), x);
             } else {
                 try config_header.values.put(field_name, .undef);
             }
         },
-        .Pointer => |ptr| {
+        .pointer => |ptr| {
             switch (@typeInfo(ptr.child)) {
-                .Array => |array| {
+                .array => |array| {
                     if (ptr.size == .One and array.child == u8) {
                         try config_header.values.put(field_name, .{ .string = v });
                         return;
                     }
                 },
-                .Int => {
+                .int => {
                     if (ptr.size == .Slice and ptr.child == u8) {
                         try config_header.values.put(field_name, .{ .string = v });
                         return;

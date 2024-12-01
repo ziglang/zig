@@ -26,34 +26,34 @@ base: link.File,
 /// This linker backend does not try to incrementally link output C source code.
 /// Instead, it tracks all declarations in this table, and iterates over it
 /// in the flush function, stitching pre-rendered pieces of C code together.
-navs: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, AvBlock) = .{},
+navs: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, AvBlock) = .empty,
 /// All the string bytes of rendered C code, all squished into one array.
 /// While in progress, a separate buffer is used, and then when finished, the
 /// buffer is copied into this one.
-string_bytes: std.ArrayListUnmanaged(u8) = .{},
+string_bytes: std.ArrayListUnmanaged(u8) = .empty,
 /// Tracks all the anonymous decls that are used by all the decls so they can
 /// be rendered during flush().
-uavs: std.AutoArrayHashMapUnmanaged(InternPool.Index, AvBlock) = .{},
+uavs: std.AutoArrayHashMapUnmanaged(InternPool.Index, AvBlock) = .empty,
 /// Sparse set of uavs that are overaligned. Underaligned anon decls are
 /// lowered the same as ABI-aligned anon decls. The keys here are a subset of
 /// the keys of `uavs`.
-aligned_uavs: std.AutoArrayHashMapUnmanaged(InternPool.Index, Alignment) = .{},
+aligned_uavs: std.AutoArrayHashMapUnmanaged(InternPool.Index, Alignment) = .empty,
 
-exported_navs: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, ExportedBlock) = .{},
-exported_uavs: std.AutoArrayHashMapUnmanaged(InternPool.Index, ExportedBlock) = .{},
+exported_navs: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, ExportedBlock) = .empty,
+exported_uavs: std.AutoArrayHashMapUnmanaged(InternPool.Index, ExportedBlock) = .empty,
 
 /// Optimization, `updateDecl` reuses this buffer rather than creating a new
 /// one with every call.
-fwd_decl_buf: std.ArrayListUnmanaged(u8) = .{},
+fwd_decl_buf: std.ArrayListUnmanaged(u8) = .empty,
 /// Optimization, `updateDecl` reuses this buffer rather than creating a new
 /// one with every call.
-code_buf: std.ArrayListUnmanaged(u8) = .{},
+code_buf: std.ArrayListUnmanaged(u8) = .empty,
 /// Optimization, `flush` reuses this buffer rather than creating a new
 /// one with every call.
-lazy_fwd_decl_buf: std.ArrayListUnmanaged(u8) = .{},
+lazy_fwd_decl_buf: std.ArrayListUnmanaged(u8) = .empty,
 /// Optimization, `flush` reuses this buffer rather than creating a new
 /// one with every call.
-lazy_code_buf: std.ArrayListUnmanaged(u8) = .{},
+lazy_code_buf: std.ArrayListUnmanaged(u8) = .empty,
 
 /// A reference into `string_bytes`.
 const String = extern struct {
@@ -148,7 +148,6 @@ pub fn createEmpty(
             .file = file,
             .disable_lld_caching = options.disable_lld_caching,
             .build_id = options.build_id,
-            .rpath_list = options.rpath_list,
         },
     };
 
@@ -218,7 +217,7 @@ pub fn updateFunc(
                 .mod = zcu.navFileScope(func.owner_nav).mod,
                 .error_msg = null,
                 .pass = .{ .nav = func.owner_nav },
-                .is_naked_fn = zcu.navValue(func.owner_nav).typeOf(zcu).fnCallingConvention(zcu) == .Naked,
+                .is_naked_fn = zcu.navValue(func.owner_nav).typeOf(zcu).fnCallingConvention(zcu) == .naked,
                 .fwd_decl = fwd_decl.toManaged(gpa),
                 .ctype_pool = ctype_pool.*,
                 .scratch = .{},
@@ -327,7 +326,7 @@ pub fn updateNav(self: *C, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) !
         .variable => |variable| variable.init,
         else => nav.status.resolved.val,
     };
-    if (nav_init != .none and !Value.fromInterned(nav_init).typeOf(zcu).hasRuntimeBits(pt)) return;
+    if (nav_init != .none and !Value.fromInterned(nav_init).typeOf(zcu).hasRuntimeBits(zcu)) return;
 
     const gop = try self.navs.getOrPut(gpa, nav_index);
     errdefer _ = self.navs.pop();
@@ -398,7 +397,7 @@ fn abiDefines(self: *C, target: std.Target) !std.ArrayList(u8) {
     errdefer defines.deinit();
     const writer = defines.writer();
     switch (target.abi) {
-        .msvc => try writer.writeAll("#define ZIG_TARGET_ABI_MSVC\n"),
+        .msvc, .itanium => try writer.writeAll("#define ZIG_TARGET_ABI_MSVC\n"),
         else => {},
     }
     try writer.print("#define ZIG_TARGET_MAX_INT_ALIGNMENT {d}\n", .{
@@ -418,7 +417,7 @@ pub fn flushModule(self: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node:
 
     const comp = self.base.comp;
     const gpa = comp.gpa;
-    const zcu = self.base.comp.module.?;
+    const zcu = self.base.comp.zcu.?;
     const ip = &zcu.intern_pool;
     const pt: Zcu.PerThread = .{ .zcu = zcu, .tid = tid };
 
@@ -469,7 +468,7 @@ pub fn flushModule(self: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node:
     // `CType`s, forward decls, and non-functions first.
 
     {
-        var export_names: std.AutoHashMapUnmanaged(InternPool.NullTerminatedString, void) = .{};
+        var export_names: std.AutoHashMapUnmanaged(InternPool.NullTerminatedString, void) = .empty;
         defer export_names.deinit(gpa);
         try export_names.ensureTotalCapacity(gpa, @intCast(zcu.single_exports.count()));
         for (zcu.single_exports.values()) |export_index| {
@@ -559,16 +558,16 @@ pub fn flushModule(self: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node:
 
 const Flush = struct {
     ctype_pool: codegen.CType.Pool,
-    ctype_global_from_decl_map: std.ArrayListUnmanaged(codegen.CType) = .{},
-    ctypes_buf: std.ArrayListUnmanaged(u8) = .{},
+    ctype_global_from_decl_map: std.ArrayListUnmanaged(codegen.CType) = .empty,
+    ctypes_buf: std.ArrayListUnmanaged(u8) = .empty,
 
     lazy_ctype_pool: codegen.CType.Pool,
     lazy_fns: LazyFns = .{},
 
-    asm_buf: std.ArrayListUnmanaged(u8) = .{},
+    asm_buf: std.ArrayListUnmanaged(u8) = .empty,
 
     /// We collect a list of buffers to write, and write them all at once with pwritev 😎
-    all_buffers: std.ArrayListUnmanaged(std.posix.iovec_const) = .{},
+    all_buffers: std.ArrayListUnmanaged(std.posix.iovec_const) = .empty,
     /// Keeps track of the total bytes of `all_buffers`.
     file_size: u64 = 0,
 

@@ -11,27 +11,27 @@ const Order = std.math.Order;
 /// For all other applications, use mem.eql() instead.
 pub fn eql(comptime T: type, a: T, b: T) bool {
     switch (@typeInfo(T)) {
-        .Array => |info| {
+        .array => |info| {
             const C = info.child;
-            if (@typeInfo(C) != .Int) {
+            if (@typeInfo(C) != .int) {
                 @compileError("Elements to be compared must be integers");
             }
             var acc = @as(C, 0);
             for (a, 0..) |x, i| {
                 acc |= x ^ b[i];
             }
-            const s = @typeInfo(C).Int.bits;
+            const s = @typeInfo(C).int.bits;
             const Cu = std.meta.Int(.unsigned, s);
             const Cext = std.meta.Int(.unsigned, s + 1);
             return @as(bool, @bitCast(@as(u1, @truncate((@as(Cext, @as(Cu, @bitCast(acc))) -% 1) >> s))));
         },
-        .Vector => |info| {
+        .vector => |info| {
             const C = info.child;
-            if (@typeInfo(C) != .Int) {
+            if (@typeInfo(C) != .int) {
                 @compileError("Elements to be compared must be integers");
             }
             const acc = @reduce(.Or, a ^ b);
-            const s = @typeInfo(C).Int.bits;
+            const s = @typeInfo(C).int.bits;
             const Cu = std.meta.Int(.unsigned, s);
             const Cext = std.meta.Int(.unsigned, s + 1);
             return @as(bool, @bitCast(@as(u1, @truncate((@as(Cext, @as(Cu, @bitCast(acc))) -% 1) >> s))));
@@ -47,7 +47,7 @@ pub fn eql(comptime T: type, a: T, b: T) bool {
 pub fn compare(comptime T: type, a: []const T, b: []const T, endian: Endian) Order {
     assert(a.len == b.len);
     const bits = switch (@typeInfo(T)) {
-        .Int => |cinfo| if (cinfo.signedness != .unsigned) @compileError("Elements to be compared must be unsigned") else cinfo.bits,
+        .int => |cinfo| if (cinfo.signedness != .unsigned) @compileError("Elements to be compared must be unsigned") else cinfo.bits,
         else => @compileError("Elements to be compared must be integers"),
     };
     const Cext = std.meta.Int(.unsigned, bits + 1);

@@ -10,7 +10,7 @@ const renderErrorMessage = @import("utils.zig").renderErrorMessage;
 const aro = @import("aro");
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
     defer std.debug.assert(gpa.deinit() == .ok);
     const allocator = gpa.allocator();
 
@@ -126,7 +126,7 @@ pub fn main() !void {
             defer aro_arena_state.deinit();
             const aro_arena = aro_arena_state.allocator();
 
-            var comp = aro.Compilation.init(aro_arena);
+            var comp = aro.Compilation.init(aro_arena, std.fs.cwd());
             defer comp.deinit();
 
             var argv = std.ArrayList([]const u8).init(comp.gpa);
@@ -421,7 +421,7 @@ fn cliDiagnosticsToErrorBundle(
     gpa: std.mem.Allocator,
     diagnostics: *cli.Diagnostics,
 ) !ErrorBundle {
-    @setCold(true);
+    @branchHint(.cold);
 
     var bundle: ErrorBundle.Wip = undefined;
     try bundle.init(gpa);
@@ -432,7 +432,7 @@ fn cliDiagnosticsToErrorBundle(
     });
 
     var cur_err: ?ErrorBundle.ErrorMessage = null;
-    var cur_notes: std.ArrayListUnmanaged(ErrorBundle.ErrorMessage) = .{};
+    var cur_notes: std.ArrayListUnmanaged(ErrorBundle.ErrorMessage) = .empty;
     defer cur_notes.deinit(gpa);
     for (diagnostics.errors.items) |err_details| {
         switch (err_details.type) {
@@ -468,16 +468,16 @@ fn diagnosticsToErrorBundle(
     diagnostics: *Diagnostics,
     mappings: SourceMappings,
 ) !ErrorBundle {
-    @setCold(true);
+    @branchHint(.cold);
 
     var bundle: ErrorBundle.Wip = undefined;
     try bundle.init(gpa);
     errdefer bundle.deinit();
 
-    var msg_buf: std.ArrayListUnmanaged(u8) = .{};
+    var msg_buf: std.ArrayListUnmanaged(u8) = .empty;
     defer msg_buf.deinit(gpa);
     var cur_err: ?ErrorBundle.ErrorMessage = null;
-    var cur_notes: std.ArrayListUnmanaged(ErrorBundle.ErrorMessage) = .{};
+    var cur_notes: std.ArrayListUnmanaged(ErrorBundle.ErrorMessage) = .empty;
     defer cur_notes.deinit(gpa);
     for (diagnostics.errors.items) |err_details| {
         switch (err_details.type) {
@@ -559,7 +559,7 @@ fn flushErrorMessageIntoBundle(wip: *ErrorBundle.Wip, msg: ErrorBundle.ErrorMess
 }
 
 fn errorStringToErrorBundle(allocator: std.mem.Allocator, comptime format: []const u8, args: anytype) !ErrorBundle {
-    @setCold(true);
+    @branchHint(.cold);
     var bundle: ErrorBundle.Wip = undefined;
     try bundle.init(allocator);
     errdefer bundle.deinit();
@@ -574,7 +574,7 @@ fn aroDiagnosticsToErrorBundle(
     fail_msg: []const u8,
     comp: *aro.Compilation,
 ) !ErrorBundle {
-    @setCold(true);
+    @branchHint(.cold);
 
     var bundle: ErrorBundle.Wip = undefined;
     try bundle.init(gpa);
@@ -587,7 +587,7 @@ fn aroDiagnosticsToErrorBundle(
     var msg_writer = MsgWriter.init(gpa);
     defer msg_writer.deinit();
     var cur_err: ?ErrorBundle.ErrorMessage = null;
-    var cur_notes: std.ArrayListUnmanaged(ErrorBundle.ErrorMessage) = .{};
+    var cur_notes: std.ArrayListUnmanaged(ErrorBundle.ErrorMessage) = .empty;
     defer cur_notes.deinit(gpa);
     for (comp.diagnostics.list.items) |msg| {
         switch (msg.kind) {

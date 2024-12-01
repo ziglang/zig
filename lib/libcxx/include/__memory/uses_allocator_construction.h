@@ -12,7 +12,7 @@
 #include <__config>
 #include <__memory/construct_at.h>
 #include <__memory/uses_allocator.h>
-#include <__tuple/pair_like.h>
+#include <__tuple/tuple_like_no_subrange.h>
 #include <__type_traits/enable_if.h>
 #include <__type_traits/is_same.h>
 #include <__type_traits/remove_cv.h>
@@ -128,11 +128,7 @@ __uses_allocator_construction_args(const _Alloc& __alloc, const pair<_Up, _Vp>&&
       std::forward_as_tuple(std::get<1>(std::move(__pair))));
 }
 
-template < class _Pair,
-           class _Alloc,
-           __pair_like _PairLike,
-           __enable_if_t<__is_cv_std_pair<_Pair> && !__is_specialization_of_subrange<remove_cvref_t<_PairLike>>::value,
-                         int> = 0>
+template <class _Pair, class _Alloc, __pair_like_no_subrange _PairLike, __enable_if_t<__is_cv_std_pair<_Pair>, int> = 0>
 _LIBCPP_HIDE_FROM_ABI constexpr auto
 __uses_allocator_construction_args(const _Alloc& __alloc, _PairLike&& __p) noexcept {
   return std::__uses_allocator_construction_args<_Pair>(
@@ -161,9 +157,7 @@ inline constexpr bool __convertible_to_const_pair_ref =
 #  if _LIBCPP_STD_VER >= 23
 template <class _Tp, class _Up>
 inline constexpr bool __uses_allocator_constraints =
-    __is_cv_std_pair<_Tp> &&
-    (__is_specialization_of_subrange<remove_cvref_t<_Up>>::value ||
-     (!__pair_like<_Up> && !__convertible_to_const_pair_ref<_Up>));
+    __is_cv_std_pair<_Tp> && !__pair_like_no_subrange<_Up> && !__convertible_to_const_pair_ref<_Up>;
 #  else
 template <class _Tp, class _Up>
 inline constexpr bool __uses_allocator_constraints = __is_cv_std_pair<_Tp> && !__convertible_to_const_pair_ref<_Up>;
@@ -190,20 +184,18 @@ __uses_allocator_construction_args(const _Alloc& __alloc, _Type&& __value) noexc
   struct __pair_constructor {
     using _PairMutable = remove_cv_t<_Pair>;
 
-    _LIBCPP_HIDE_FROM_ABI constexpr auto __do_construct(const _PairMutable& __pair) const {
+    _LIBCPP_HIDDEN constexpr auto __do_construct(const _PairMutable& __pair) const {
       return std::__make_obj_using_allocator<_PairMutable>(__alloc_, __pair);
     }
 
-    _LIBCPP_HIDE_FROM_ABI constexpr auto __do_construct(_PairMutable&& __pair) const {
+    _LIBCPP_HIDDEN constexpr auto __do_construct(_PairMutable&& __pair) const {
       return std::__make_obj_using_allocator<_PairMutable>(__alloc_, std::move(__pair));
     }
 
     const _Alloc& __alloc_;
     _Type& __value_;
 
-    _LIBCPP_HIDE_FROM_ABI constexpr operator _PairMutable() const {
-      return __do_construct(std::forward<_Type>(this->__value_));
-    }
+    _LIBCPP_HIDDEN constexpr operator _PairMutable() const { return __do_construct(std::forward<_Type>(__value_)); }
   };
 
   return std::make_tuple(__pair_constructor{__alloc, __value});

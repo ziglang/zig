@@ -7,8 +7,8 @@ const shl = std.math.shl;
 const max_limbs = std.math.divCeil(usize, 65535, 32) catch unreachable; // max supported type is u65535
 
 comptime {
-    @export(__udivei4, .{ .name = "__udivei4", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__umodei4, .{ .name = "__umodei4", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__udivei4, .{ .name = "__udivei4", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__umodei4, .{ .name = "__umodei4", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 const endian = builtin.cpu.arch.endian();

@@ -16,7 +16,7 @@
 #define __ARM_NEON_TYPES_H
 typedef float float32_t;
 typedef __fp16 float16_t;
-#ifdef __aarch64__
+#if defined(__aarch64__) || defined(__arm64ec__)
 typedef double float64_t;
 #endif
 
@@ -40,7 +40,7 @@ typedef __attribute__((neon_vector_type(4))) float16_t float16x4_t;
 typedef __attribute__((neon_vector_type(8))) float16_t float16x8_t;
 typedef __attribute__((neon_vector_type(2))) float32_t float32x2_t;
 typedef __attribute__((neon_vector_type(4))) float32_t float32x4_t;
-#ifdef __aarch64__
+#if defined(__aarch64__) || defined(__arm64ec__)
 typedef __attribute__((neon_vector_type(1))) float64_t float64x1_t;
 typedef __attribute__((neon_vector_type(2))) float64_t float64x2_t;
 #endif
@@ -125,7 +125,7 @@ typedef struct float32x4x2_t {
   float32x4_t val[2];
 } float32x4x2_t;
 
-#ifdef __aarch64__
+#if defined(__aarch64__) || defined(__arm64ec__)
 typedef struct float64x1x2_t {
   float64x1_t val[2];
 } float64x1x2_t;
@@ -215,7 +215,7 @@ typedef struct float32x4x3_t {
   float32x4_t val[3];
 } float32x4x3_t;
 
-#ifdef __aarch64__
+#if defined(__aarch64__) || defined(__arm64ec__)
 typedef struct float64x1x3_t {
   float64x1_t val[3];
 } float64x1x3_t;
@@ -305,7 +305,7 @@ typedef struct float32x4x4_t {
   float32x4_t val[4];
 } float32x4x4_t;
 
-#ifdef __aarch64__
+#if defined(__aarch64__) || defined(__arm64ec__)
 typedef struct float64x1x4_t {
   float64x1_t val[4];
 } float64x1x4_t;

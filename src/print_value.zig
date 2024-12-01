@@ -62,8 +62,8 @@ pub fn print(
     comptime have_sema: bool,
     sema: if (have_sema) *Sema else void,
 ) (@TypeOf(writer).Error || Zcu.CompileError)!void {
-    const mod = pt.zcu;
-    const ip = &mod.intern_pool;
+    const zcu = pt.zcu;
+    const ip = &zcu.intern_pool;
     switch (ip.indexToKey(val.toIntern())) {
         .int_type,
         .ptr_type,
@@ -74,7 +74,7 @@ pub fn print(
         .error_union_type,
         .simple_type,
         .struct_type,
-        .anon_struct_type,
+        .tuple_type,
         .union_type,
         .opaque_type,
         .enum_type,
@@ -85,7 +85,7 @@ pub fn print(
         .undef => try writer.writeAll("undefined"),
         .simple_value => |simple_value| switch (simple_value) {
             .void => try writer.writeAll("{}"),
-            .empty_struct => try writer.writeAll(".{}"),
+            .empty_tuple => try writer.writeAll(".{}"),
             .generic_poison => try writer.writeAll("(generic poison)"),
             else => try writer.writeAll(@tagName(simple_value)),
         },
@@ -95,11 +95,11 @@ pub fn print(
         .int => |int| switch (int.storage) {
             inline .u64, .i64, .big_int => |x| try writer.print("{}", .{x}),
             .lazy_align => |ty| if (have_sema) {
-                const a = (try Type.fromInterned(ty).abiAlignmentAdvanced(pt, .sema)).scalar;
+                const a = try Type.fromInterned(ty).abiAlignmentSema(pt);
                 try writer.print("{}", .{a.toByteUnits() orelse 0});
             } else try writer.print("@alignOf({})", .{Type.fromInterned(ty).fmt(pt)}),
             .lazy_size => |ty| if (have_sema) {
-                const s = (try Type.fromInterned(ty).abiSizeAdvanced(pt, .sema)).scalar;
+                const s = try Type.fromInterned(ty).abiSizeSema(pt);
                 try writer.print("{}", .{s});
             } else try writer.print("@sizeOf({})", .{Type.fromInterned(ty).fmt(pt)}),
         },
@@ -116,7 +116,7 @@ pub fn print(
             enum_literal.fmt(ip),
         }),
         .enum_tag => |enum_tag| {
-            const enum_type = ip.loadEnumType(val.typeOf(mod).toIntern());
+            const enum_type = ip.loadEnumType(val.typeOf(zcu).toIntern());
             if (enum_type.tagValueIndex(ip, val.toIntern())) |tag_index| {
                 return writer.print(".{i}", .{enum_type.names.get(ip)[tag_index].fmt(ip)});
             }
@@ -173,7 +173,7 @@ pub fn print(
                 return;
             }
             if (un.tag == .none) {
-                const backing_ty = try val.typeOf(mod).unionBackingType(pt);
+                const backing_ty = try val.typeOf(zcu).unionBackingType(pt);
                 try writer.print("@bitCast(@as({}, ", .{backing_ty.fmt(pt)});
                 try print(Value.fromInterned(un.val), writer, level - 1, pt, have_sema, sema);
                 try writer.writeAll("))");
@@ -207,7 +207,7 @@ fn printAggregate(
     const ip = &zcu.intern_pool;
     const ty = Type.fromInterned(aggregate.ty);
     switch (ty.zigTypeTag(zcu)) {
-        .Struct => if (!ty.isTuple(zcu)) {
+        .@"struct" => if (!ty.isTuple(zcu)) {
             if (is_ref) try writer.writeByte('&');
             if (ty.structFieldCount(zcu) == 0) {
                 return writer.writeAll(".{}");
@@ -223,7 +223,7 @@ fn printAggregate(
             try writer.writeAll(" }");
             return;
         },
-        .Array => {
+        .array => {
             switch (aggregate.storage) {
                 .bytes => |bytes| string: {
                     const len = ty.arrayLenIncludingSentinel(zcu);
@@ -245,7 +245,7 @@ fn printAggregate(
                     if (ty.childType(zcu).toIntern() != .u8_type) break :one_byte_str;
                     const elem_val = Value.fromInterned(aggregate.storage.values()[0]);
                     if (elem_val.isUndef(zcu)) break :one_byte_str;
-                    const byte = elem_val.toUnsignedInt(pt);
+                    const byte = elem_val.toUnsignedInt(zcu);
                     try writer.print("\"{}\"", .{std.zig.fmtEscapes(&.{@intCast(byte)})});
                     if (!is_ref) try writer.writeAll(".*");
                     return;
@@ -253,7 +253,7 @@ fn printAggregate(
                 else => {},
             }
         },
-        .Vector => if (ty.arrayLen(zcu) == 0) {
+        .vector => if (ty.arrayLen(zcu) == 0) {
             if (is_ref) try writer.writeByte('&');
             return writer.writeAll(".{}");
         },
@@ -362,17 +362,17 @@ fn printPtrDerivation(
             try printPtrDerivation(field.parent.*, writer, level, pt, have_sema, sema);
             const agg_ty = (try field.parent.ptrType(pt)).childType(zcu);
             switch (agg_ty.zigTypeTag(zcu)) {
-                .Struct => if (agg_ty.structFieldName(field.field_idx, zcu).unwrap()) |field_name| {
+                .@"struct" => if (agg_ty.structFieldName(field.field_idx, zcu).unwrap()) |field_name| {
                     try writer.print(".{i}", .{field_name.fmt(ip)});
                 } else {
                     try writer.print("[{d}]", .{field.field_idx});
                 },
-                .Union => {
+                .@"union" => {
                     const tag_ty = agg_ty.unionTagTypeHypothetical(zcu);
                     const field_name = tag_ty.enumFieldName(field.field_idx, zcu);
                     try writer.print(".{i}", .{field_name.fmt(ip)});
                 },
-                .Pointer => switch (field.field_idx) {
+                .pointer => switch (field.field_idx) {
                     Value.slice_ptr_index => try writer.writeAll(".ptr"),
                     Value.slice_len_index => try writer.writeAll(".len"),
                     else => unreachable,

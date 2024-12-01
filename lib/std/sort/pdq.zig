@@ -203,7 +203,7 @@ fn partitionEqual(a: usize, b: usize, pivot: usize, context: anytype) usize {
 ///
 /// returns `true` if the slice is sorted at the end. This function is `O(n)` worst-case.
 fn partialInsertionSort(a: usize, b: usize, context: anytype) bool {
-    @setCold(true);
+    @branchHint(.cold);
 
     // maximum number of adjacent out-of-order pairs that will get shifted
     const max_steps = 5;
@@ -247,7 +247,7 @@ fn partialInsertionSort(a: usize, b: usize, context: anytype) bool {
 }
 
 fn breakPatterns(a: usize, b: usize, context: anytype) void {
-    @setCold(true);
+    @branchHint(.cold);
 
     const len = b - a;
     if (len < 8) return;

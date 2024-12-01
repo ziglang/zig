@@ -22,6 +22,83 @@ pub const WaitGroup = @import("Thread/WaitGroup.zig");
 
 pub const use_pthreads = native_os != .windows and native_os != .wasi and builtin.link_libc;
 
+/// Spurious wakeups are possible and no precision of timing is guaranteed.
+pub fn sleep(nanoseconds: u64) void {
+    if (builtin.os.tag == .windows) {
+        const big_ms_from_ns = nanoseconds / std.time.ns_per_ms;
+        const ms = math.cast(windows.DWORD, big_ms_from_ns) orelse math.maxInt(windows.DWORD);
+        windows.kernel32.Sleep(ms);
+        return;
+    }
+
+    if (builtin.os.tag == .wasi) {
+        const w = std.os.wasi;
+        const userdata: w.userdata_t = 0x0123_45678;
+        const clock: w.subscription_clock_t = .{
+            .id = .MONOTONIC,
+            .timeout = nanoseconds,
+            .precision = 0,
+            .flags = 0,
+        };
+        const in: w.subscription_t = .{
+            .userdata = userdata,
+            .u = .{
+                .tag = .CLOCK,
+                .u = .{ .clock = clock },
+            },
+        };
+
+        var event: w.event_t = undefined;
+        var nevents: usize = undefined;
+        _ = w.poll_oneoff(&in, &event, 1, &nevents);
+        return;
+    }
+
+    if (builtin.os.tag == .uefi) {
+        const boot_services = std.os.uefi.system_table.boot_services.?;
+        const us_from_ns = nanoseconds / std.time.ns_per_us;
+        const us = math.cast(usize, us_from_ns) orelse math.maxInt(usize);
+        _ = boot_services.stall(us);
+        return;
+    }
+
+    const s = nanoseconds / std.time.ns_per_s;
+    const ns = nanoseconds % std.time.ns_per_s;
+
+    // Newer kernel ports don't have old `nanosleep()` and `clock_nanosleep()` has been around
+    // since Linux 2.6 and glibc 2.1 anyway.
+    if (builtin.os.tag == .linux) {
+        const linux = std.os.linux;
+
+        var req: linux.timespec = .{
+            .sec = std.math.cast(linux.time_t, s) orelse std.math.maxInt(linux.time_t),
+            .nsec = std.math.cast(linux.time_t, ns) orelse std.math.maxInt(linux.time_t),
+        };
+        var rem: linux.timespec = undefined;
+
+        while (true) {
+            switch (linux.E.init(linux.clock_nanosleep(.MONOTONIC, .{ .ABSTIME = false }, &req, &rem))) {
+                .SUCCESS => return,
+                .INTR => {
+                    req = rem;
+                    continue;
+                },
+                .FAULT,
+                .INVAL,
+                .OPNOTSUPP,
+                => unreachable,
+                else => return,
+            }
+        }
+    }
+
+    posix.nanosleep(s, ns);
+}
+
+test sleep {
+    sleep(1);
+}
+
 const Thread = @This();
 const Impl = if (native_os == .windows)
     WindowsThreadImpl
@@ -401,15 +478,15 @@ fn callFn(comptime f: anytype, args: anytype) switch (Impl) {
     const default_value = if (Impl == PosixThreadImpl) null else 0;
     const bad_fn_ret = "expected return type of startFn to be 'u8', 'noreturn', '!noreturn', 'void', or '!void'";
 
-    switch (@typeInfo(@typeInfo(@TypeOf(f)).Fn.return_type.?)) {
-        .NoReturn => {
+    switch (@typeInfo(@typeInfo(@TypeOf(f)).@"fn".return_type.?)) {
+        .noreturn => {
             @call(.auto, f, args);
         },
-        .Void => {
+        .void => {
             @call(.auto, f, args);
             return default_value;
         },
-        .Int => |info| {
+        .int => |info| {
             if (info.bits != 8) {
                 @compileError(bad_fn_ret);
             }
@@ -422,7 +499,7 @@ fn callFn(comptime f: anytype, args: anytype) switch (Impl) {
             // pthreads don't support exit status, ignore value
             return default_value;
         },
-        .ErrorUnion => |info| {
+        .error_union => |info| {
             switch (info.payload) {
                 void, noreturn => {
                     @call(.auto, f, args) catch |err| {
@@ -512,7 +589,7 @@ const WindowsThreadImpl = struct {
             fn_args: Args,
             thread: ThreadCompletion,
 
-            fn entryFn(raw_ptr: windows.PVOID) callconv(.C) windows.DWORD {
+            fn entryFn(raw_ptr: windows.PVOID) callconv(.winapi) windows.DWORD {
                 const self: *@This() = @ptrCast(@alignCast(raw_ptr));
                 defer switch (self.thread.completion.swap(.completed, .seq_cst)) {
                     .running => {},
@@ -672,7 +749,7 @@ const PosixThreadImpl = struct {
         const allocator = std.heap.c_allocator;
 
         const Instance = struct {
-            fn entryFn(raw_arg: ?*anyopaque) callconv(.C) ?*anyopaque {
+            fn entryFn(raw_arg: ?*anyopaque) callconv(.c) ?*anyopaque {
                 const args_ptr: *Args = @ptrCast(@alignCast(raw_arg));
                 defer allocator.destroy(args_ptr);
                 return callFn(f, args_ptr.*);
@@ -850,17 +927,17 @@ const WasiThreadImpl = struct {
             fn entry(ptr: usize) void {
                 const w: *@This() = @ptrFromInt(ptr);
                 const bad_fn_ret = "expected return type of startFn to be 'u8', 'noreturn', 'void', or '!void'";
-                switch (@typeInfo(@typeInfo(@TypeOf(f)).Fn.return_type.?)) {
-                    .NoReturn, .Void => {
+                switch (@typeInfo(@typeInfo(@TypeOf(f)).@"fn".return_type.?)) {
+                    .noreturn, .void => {
                         @call(.auto, f, w.args);
                     },
-                    .Int => |info| {
+                    .int => |info| {
                         if (info.bits != 8) {
                             @compileError(bad_fn_ret);
                         }
                         _ = @call(.auto, f, w.args); // WASI threads don't support exit status, ignore value
                     },
-                    .ErrorUnion => |info| {
+                    .error_union => |info| {
                         if (info.payload != void) {
                             @compileError(bad_fn_ret);
                         }
@@ -1064,8 +1141,7 @@ const LinuxThreadImpl = struct {
 
     fn getCpuCount() !usize {
         const cpu_set = try posix.sched_getaffinity(0);
-        // TODO: should not need this usize cast
-        return @as(usize, posix.CPU_COUNT(cpu_set));
+        return posix.CPU_COUNT(cpu_set);
     }
 
     thread: *ThreadCompletion,
@@ -1221,12 +1297,12 @@ const LinuxThreadImpl = struct {
                     \\  ba 1b
                     \\  restore
                     \\ 2:
-                    \\  mov 73, %%g1 # SYS_munmap
+                    \\  mov 73, %%g1 // SYS_munmap
                     \\  mov %[ptr], %%o0
                     \\  mov %[len], %%o1
                     \\  t 0x3 # ST_FLUSH_WINDOWS
                     \\  t 0x10
-                    \\  mov 1, %%g1 # SYS_exit
+                    \\  mov 1, %%g1 // SYS_exit
                     \\  mov 0, %%o0
                     \\  t 0x10
                     :
@@ -1246,14 +1322,14 @@ const LinuxThreadImpl = struct {
                     \\  ba 1b
                     \\  restore
                     \\ 2:
-                    \\  mov 73, %%g1 # SYS_munmap
+                    \\  mov 73, %%g1 // SYS_munmap
                     \\  mov %[ptr], %%o0
                     \\  mov %[len], %%o1
                     \\  # Flush register window contents to prevent background
                     \\  # memory access before unmapping the stack.
                     \\  flushw
                     \\  t 0x6d
-                    \\  mov 1, %%g1 # SYS_exit
+                    \\  mov 1, %%g1 // SYS_exit
                     \\  mov 0, %%o0
                     \\  t 0x6d
                     :
@@ -1261,7 +1337,7 @@ const LinuxThreadImpl = struct {
                       [len] "r" (self.mapped.len),
                     : "memory"
                 ),
-                .loongarch64 => asm volatile (
+                .loongarch32, .loongarch64 => asm volatile (
                     \\ or      $a0, $zero, %[ptr]
                     \\ or      $a1, $zero, %[len]
                     \\ ori     $a7, $zero, 215     # SYS_munmap
@@ -1287,7 +1363,7 @@ const LinuxThreadImpl = struct {
             fn_args: Args,
             thread: ThreadCompletion,
 
-            fn entryFn(raw_arg: usize) callconv(.C) u8 {
+            fn entryFn(raw_arg: usize) callconv(.c) u8 {
                 const self = @as(*@This(), @ptrFromInt(raw_arg));
                 defer switch (self.thread.completion.swap(.completed, .seq_cst)) {
                     .running => {},

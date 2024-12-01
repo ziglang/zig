@@ -11,13 +11,13 @@ const build_options = @import("build_options");
 const Cache = std.Build.Cache;
 const dev = @import("dev.zig");
 
-pub const CRTFile = enum {
+pub const CrtFile = enum {
     crt2_o,
     dllcrt2_o,
     mingw32_lib,
 };
 
-pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: std.Progress.Node) !void {
+pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progress.Node) !void {
     if (!build_options.have_llvm) {
         return error.ZigCompilerNotBuiltWithLLVMExtensions;
     }
@@ -41,7 +41,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: std.Progre
                     .owner = undefined,
                 },
             };
-            return comp.build_crt_file("crt2", .Obj, .@"mingw-w64 crt2.o", prog_node, &files);
+            return comp.build_crt_file("crt2", .Obj, .@"mingw-w64 crt2.o", prog_node, &files, .{});
         },
 
         .dllcrt2_o => {
@@ -56,7 +56,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: std.Progre
                     .owner = undefined,
                 },
             };
-            return comp.build_crt_file("dllcrt2", .Obj, .@"mingw-w64 dllcrt2.o", prog_node, &files);
+            return comp.build_crt_file("dllcrt2", .Obj, .@"mingw-w64 dllcrt2.o", prog_node, &files, .{});
         },
 
         .mingw32_lib => {
@@ -95,7 +95,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: std.Progre
                         });
                     }
                 }
-            } else if (target.cpu.arch.isARM()) {
+            } else if (target.cpu.arch.isThumb()) {
                 for (mingw32_arm32_src) |dep| {
                     try c_source_files.append(.{
                         .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
@@ -118,7 +118,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: std.Progre
             } else {
                 @panic("unsupported arch");
             }
-            return comp.build_crt_file("mingw32", .Lib, .@"mingw-w64 mingw32.lib", prog_node, c_source_files.items);
+            return comp.build_crt_file("mingw32", .Lib, .@"mingw-w64 mingw32.lib", prog_node, c_source_files.items, .{});
         },
     }
 }
@@ -139,7 +139,7 @@ fn add_cc_args(
     });
 
     const target = comp.getTarget();
-    if (target.cpu.arch.isARM() and target.ptrBitWidth() == 32) {
+    if (target.cpu.arch.isThumb()) {
         try args.append("-mfpu=vfp");
     }
 
@@ -160,7 +160,9 @@ fn add_cc_args(
 pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     dev.check(.build_import_lib);
 
-    var arena_allocator = std.heap.ArenaAllocator.init(comp.gpa);
+    const gpa = comp.gpa;
+
+    var arena_allocator = std.heap.ArenaAllocator.init(gpa);
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
@@ -178,7 +180,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
 
     // Use the global cache directory.
     var cache: Cache = .{
-        .gpa = comp.gpa,
+        .gpa = gpa,
         .manifest_dir = try comp.global_cache_directory.handle.makeOpenPath("h", .{}),
     };
     cache.addPrefix(.{ .path = null, .handle = std.fs.cwd() });
@@ -195,17 +197,18 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
 
     _ = try man.addFile(def_file_path, null);
 
-    const final_lib_basename = try std.fmt.allocPrint(comp.gpa, "{s}.lib", .{lib_name});
-    errdefer comp.gpa.free(final_lib_basename);
+    const final_lib_basename = try std.fmt.allocPrint(gpa, "{s}.lib", .{lib_name});
+    errdefer gpa.free(final_lib_basename);
 
     if (try man.hit()) {
         const digest = man.final();
 
-        try comp.crt_files.ensureUnusedCapacity(comp.gpa, 1);
+        try comp.crt_files.ensureUnusedCapacity(gpa, 1);
         comp.crt_files.putAssumeCapacityNoClobber(final_lib_basename, .{
-            .full_object_path = try comp.global_cache_directory.join(comp.gpa, &[_][]const u8{
-                "o", &digest, final_lib_basename,
-            }),
+            .full_object_path = .{
+                .root_dir = comp.global_cache_directory,
+                .sub_path = try std.fs.path.join(gpa, &.{ "o", &digest, final_lib_basename }),
+            },
             .lock = man.toOwnedLock(),
         });
         return;
@@ -222,15 +225,15 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     });
 
     const target_defines = switch (target.cpu.arch) {
+        .thumb => "#define DEF_ARM32\n",
+        .aarch64 => "#define DEF_ARM64\n",
         .x86 => "#define DEF_I386\n",
         .x86_64 => "#define DEF_X64\n",
-        .arm, .armeb, .thumb, .thumbeb => "#define DEF_ARM32\n",
-        .aarch64, .aarch64_be => "#define DEF_ARM64\n",
         else => unreachable,
     };
 
     const aro = @import("aro");
-    var aro_comp = aro.Compilation.init(comp.gpa);
+    var aro_comp = aro.Compilation.init(gpa, std.fs.cwd());
     defer aro_comp.deinit();
 
     const include_dir = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", "mingw", "def-include" });
@@ -244,7 +247,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
         nosuspend stderr.print("output path: {s}\n", .{def_final_path}) catch break :print;
     }
 
-    try aro_comp.include_dirs.append(comp.gpa, include_dir);
+    try aro_comp.include_dirs.append(gpa, include_dir);
 
     const builtin_macros = try aro_comp.generateBuiltinMacros(.include_system_defines);
     const user_macros = try aro_comp.addSourceFromBuffer("<command line>", target_defines);
@@ -268,21 +271,22 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
         // new scope to ensure definition file is written before passing the path to WriteImportLibrary
         const def_final_file = try o_dir.createFile(final_def_basename, .{ .truncate = true });
         defer def_final_file.close();
-        try pp.prettyPrintTokens(def_final_file.writer());
+        try pp.prettyPrintTokens(def_final_file.writer(), .result_only);
     }
 
-    const lib_final_path = try comp.global_cache_directory.join(comp.gpa, &[_][]const u8{
-        "o", &digest, final_lib_basename,
-    });
-    errdefer comp.gpa.free(lib_final_path);
+    const lib_final_path = try std.fs.path.join(gpa, &.{ "o", &digest, final_lib_basename });
+    errdefer gpa.free(lib_final_path);
 
     if (!build_options.have_llvm) return error.ZigCompilerNotBuiltWithLLVMExtensions;
     const llvm_bindings = @import("codegen/llvm/bindings.zig");
-    const llvm = @import("codegen/llvm.zig");
-    const arch_tag = llvm.targetArch(target.cpu.arch);
     const def_final_path_z = try arena.dupeZ(u8, def_final_path);
-    const lib_final_path_z = try arena.dupeZ(u8, lib_final_path);
-    if (llvm_bindings.WriteImportLibrary(def_final_path_z.ptr, arch_tag, lib_final_path_z.ptr, true)) {
+    const lib_final_path_z = try comp.global_cache_directory.joinZ(arena, &.{lib_final_path});
+    if (llvm_bindings.WriteImportLibrary(
+        def_final_path_z.ptr,
+        @intFromEnum(target.toCoffMachine()),
+        lib_final_path_z.ptr,
+        true,
+    )) {
         // TODO surface a proper error here
         log.err("unable to turn {s}.def into {s}.lib", .{ lib_name, lib_name });
         return error.WritingImportLibFailed;
@@ -292,8 +296,11 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
         log.warn("failed to write cache manifest for DLL import {s}.lib: {s}", .{ lib_name, @errorName(err) });
     };
 
-    try comp.crt_files.putNoClobber(comp.gpa, final_lib_basename, .{
-        .full_object_path = lib_final_path,
+    try comp.crt_files.putNoClobber(gpa, final_lib_basename, .{
+        .full_object_path = .{
+            .root_dir = comp.global_cache_directory,
+            .sub_path = lib_final_path,
+        },
         .lock = man.toOwnedLock(),
     });
 }
@@ -321,10 +328,10 @@ fn findDef(
     lib_name: []const u8,
 ) ![]u8 {
     const lib_path = switch (target.cpu.arch) {
+        .thumb => "libarm32",
+        .aarch64 => "libarm64",
         .x86 => "lib32",
         .x86_64 => "lib64",
-        .arm, .armeb, .thumb, .thumbeb => "libarm32",
-        .aarch64, .aarch64_be => "libarm64",
         else => unreachable,
     };
 

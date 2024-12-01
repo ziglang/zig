@@ -10,13 +10,10 @@
 #define _LIBCPP___TUPLE_TUPLE_LIKE_H
 
 #include <__config>
-#include <__fwd/array.h>
-#include <__fwd/pair.h>
 #include <__fwd/subrange.h>
-#include <__fwd/tuple.h>
-#include <__type_traits/integral_constant.h>
+#include <__tuple/tuple_like_no_subrange.h>
+#include <__tuple/tuple_size.h>
 #include <__type_traits/remove_cvref.h>
-#include <cstddef>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -27,22 +24,16 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 #if _LIBCPP_STD_VER >= 20
 
 template <class _Tp>
-struct __tuple_like_impl : false_type {};
+inline constexpr bool __is_ranges_subrange_v = false;
 
-template <class... _Tp>
-struct __tuple_like_impl<tuple<_Tp...> > : true_type {};
-
-template <class _T1, class _T2>
-struct __tuple_like_impl<pair<_T1, _T2> > : true_type {};
-
-template <class _Tp, size_t _Size>
-struct __tuple_like_impl<array<_Tp, _Size> > : true_type {};
-
-template <class _Ip, class _Sp, ranges::subrange_kind _Kp>
-struct __tuple_like_impl<ranges::subrange<_Ip, _Sp, _Kp> > : true_type {};
+template <class _Iter, class _Sent, ranges::subrange_kind _Kind>
+inline constexpr bool __is_ranges_subrange_v<ranges::subrange<_Iter, _Sent, _Kind>> = true;
 
 template <class _Tp>
-concept __tuple_like = __tuple_like_impl<remove_cvref_t<_Tp>>::value;
+concept __tuple_like = __tuple_like_no_subrange<_Tp> || __is_ranges_subrange_v<remove_cvref_t<_Tp>>;
+
+// As of writing this comment every use of `pair-like` in the standard excludes `ranges::subrange`, so
+// you most likely want to use `__pair_like_no_subrange` if you're looking for `pair-like`.
 
 #endif // _LIBCPP_STD_VER >= 20
 

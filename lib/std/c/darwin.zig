@@ -10,7 +10,7 @@ const mode_t = std.c.mode_t;
 const off_t = std.c.off_t;
 const pid_t = std.c.pid_t;
 const pthread_attr_t = std.c.pthread_attr_t;
-const sigset_t = std.c.segset_t;
+const sigset_t = std.c.sigset_t;
 const timespec = std.c.timespec;
 const sf_hdtr = std.c.sf_hdtr;
 
@@ -23,6 +23,7 @@ pub const mach_port_t = c_uint;
 pub const THREAD_STATE_NONE = switch (native_arch) {
     .aarch64 => 5,
     .x86_64 => 13,
+    else => @compileError("unsupported arch"),
 };
 
 pub const EXC = enum(exception_type_t) {
@@ -54,10 +55,11 @@ pub const EXC = enum(exception_type_t) {
     /// Abnormal process exited to corpse state
     CORPSE_NOTIFY = 13,
 
-    pub const TYPES_COUNT = @typeInfo(EXC).Enum.fields.len;
+    pub const TYPES_COUNT = @typeInfo(EXC).@"enum".fields.len;
     pub const SOFT_SIGNAL = 0x10003;
 
     pub const MASK = packed struct(u32) {
+        _0: u1 = 0,
         BAD_ACCESS: bool = false,
         BAD_INSTRUCTION: bool = false,
         ARITHMETIC: bool = false,
@@ -71,6 +73,7 @@ pub const EXC = enum(exception_type_t) {
         RESOURCE: bool = false,
         GUARD: bool = false,
         CORPSE_NOTIFY: bool = false,
+        _14: u18 = 0,
 
         pub const MACHINE: MASK = @bitCast(@as(u32, 0));
 
@@ -925,7 +928,7 @@ pub const OS_SIGNPOST_ID_NULL: os_signpost_id_t = 0;
 pub const OS_SIGNPOST_ID_INVALID: os_signpost_id_t = !0;
 pub const OS_SIGNPOST_ID_EXCLUSIVE: os_signpost_id_t = 0xeeeeb0b5b2b2eeee;
 
-pub const os_log_t = opaque {};
+pub const os_log_t = *opaque {};
 pub const os_log_type_t = enum(u8) {
     /// default messages always captures
     OS_LOG_TYPE_DEFAULT = 0x00,

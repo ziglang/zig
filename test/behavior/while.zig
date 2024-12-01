@@ -347,7 +347,6 @@ test "try terminating an infinite loop" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     // Test coverage for https://github.com/ziglang/zig/issues/13546
     const Foo = struct {

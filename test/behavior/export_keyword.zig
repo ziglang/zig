@@ -39,3 +39,16 @@ export fn testPackedStuff(a: *const PackedStruct, b: *const PackedUnion) void {
         b;
     }
 }
+
+test "export function alias" {
+    _ = struct {
+        fn foo_internal() callconv(.C) u32 {
+            return 123;
+        }
+        export const foo_exported = foo_internal;
+    };
+    const Import = struct {
+        extern fn foo_exported() u32;
+    };
+    try expect(Import.foo_exported() == 123);
+}

@@ -39,6 +39,7 @@ pub const OpenError = error{
     FileNotFound,
     AccessDenied,
     PipeBusy,
+    NoDevice,
     NameTooLong,
     /// WASI-only; file paths must be valid UTF-8.
     InvalidUtf8,
@@ -1072,7 +1073,7 @@ pub fn metadata(self: File) MetadataError!Metadata {
                     &stx,
                 );
 
-                switch (posix.errno(rc)) {
+                switch (linux.E.init(rc)) {
                     .SUCCESS => {},
                     .ACCES => unreachable,
                     .BADF => unreachable,

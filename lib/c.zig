@@ -11,42 +11,38 @@ const native_os = builtin.os.tag;
 const native_arch = builtin.cpu.arch;
 const native_abi = builtin.abi;
 
+const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .internal else .strong;
+
 const is_wasm = switch (native_arch) {
     .wasm32, .wasm64 => true,
     else => false,
 };
-const is_msvc = switch (native_abi) {
-    .msvc => true,
-    else => false,
-};
 const is_freestanding = switch (native_os) {
-    .freestanding => true,
+    .freestanding, .other => true,
     else => false,
 };
 
 comptime {
     if (is_freestanding and is_wasm and builtin.link_libc) {
-        @export(wasm_start, .{ .name = "_start", .linkage = .strong });
+        @export(&wasm_start, .{ .name = "_start", .linkage = .strong });
     }
 
     if (builtin.link_libc) {
-        @export(strcmp, .{ .name = "strcmp", .linkage = .strong });
-        @export(strncmp, .{ .name = "strncmp", .linkage = .strong });
-        @export(strerror, .{ .name = "strerror", .linkage = .strong });
-        @export(strlen, .{ .name = "strlen", .linkage = .strong });
-        @export(strcpy, .{ .name = "strcpy", .linkage = .strong });
-        @export(strncpy, .{ .name = "strncpy", .linkage = .strong });
-        @export(strcat, .{ .name = "strcat", .linkage = .strong });
-        @export(strncat, .{ .name = "strncat", .linkage = .strong });
-    } else if (is_msvc) {
-        @export(_fltused, .{ .name = "_fltused", .linkage = .strong });
+        @export(&strcmp, .{ .name = "strcmp", .linkage = linkage });
+        @export(&strncmp, .{ .name = "strncmp", .linkage = linkage });
+        @export(&strerror, .{ .name = "strerror", .linkage = linkage });
+        @export(&strlen, .{ .name = "strlen", .linkage = linkage });
+        @export(&strcpy, .{ .name = "strcpy", .linkage = linkage });
+        @export(&strncpy, .{ .name = "strncpy", .linkage = linkage });
+        @export(&strcat, .{ .name = "strcat", .linkage = linkage });
+        @export(&strncat, .{ .name = "strncat", .linkage = linkage });
     }
 }
 
 // Avoid dragging in the runtime safety mechanisms into this .o file,
 // unless we're trying to test this file.
 pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, _: ?usize) noreturn {
-    @setCold(true);
+    @branchHint(.cold);
     _ = error_return_trace;
     if (builtin.is_test) {
         std.debug.panic("{s}", .{msg});
@@ -61,8 +57,6 @@ extern fn main(argc: c_int, argv: [*:null]?[*:0]u8) c_int;
 fn wasm_start() callconv(.C) void {
     _ = main(0, undefined);
 }
-
-var _fltused: c_int = 1;
 
 fn strcpy(dest: [*:0]u8, src: [*:0]const u8) callconv(.C) [*:0]u8 {
     var i: usize = 0;

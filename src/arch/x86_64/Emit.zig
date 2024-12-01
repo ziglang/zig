@@ -3,16 +3,15 @@
 air: Air,
 lower: Lower,
 atom_index: u32,
-debug_output: DebugInfoOutput,
+debug_output: link.File.DebugInfoOutput,
 code: *std.ArrayList(u8),
 
-prev_di_line: u32,
-prev_di_column: u32,
+prev_di_loc: Loc,
 /// Relative to the beginning of `code`.
 prev_di_pc: usize,
 
-code_offset_mapping: std.AutoHashMapUnmanaged(Mir.Inst.Index, usize) = .{},
-relocs: std.ArrayListUnmanaged(Reloc) = .{},
+code_offset_mapping: std.AutoHashMapUnmanaged(Mir.Inst.Index, usize) = .empty,
+relocs: std.ArrayListUnmanaged(Reloc) = .empty,
 
 pub const Error = Lower.Error || error{
     EmitFail,
@@ -30,6 +29,59 @@ pub fn emitMir(emit: *Emit) Error!void {
         var lowered_relocs = lowered.relocs;
         for (lowered.insts, 0..) |lowered_inst, lowered_index| {
             const start_offset: u32 = @intCast(emit.code.items.len);
+            if (lowered_inst.prefix == .directive) {
+                switch (emit.debug_output) {
+                    .dwarf => |dwarf| switch (lowered_inst.encoding.mnemonic) {
+                        .@".cfi_def_cfa" => try dwarf.genDebugFrame(start_offset, .{ .def_cfa = .{
+                            .reg = lowered_inst.ops[0].reg.dwarfNum(),
+                            .off = lowered_inst.ops[1].imm.signed,
+                        } }),
+                        .@".cfi_def_cfa_register" => try dwarf.genDebugFrame(start_offset, .{
+                            .def_cfa_register = lowered_inst.ops[0].reg.dwarfNum(),
+                        }),
+                        .@".cfi_def_cfa_offset" => try dwarf.genDebugFrame(start_offset, .{
+                            .def_cfa_offset = lowered_inst.ops[0].imm.signed,
+                        }),
+                        .@".cfi_adjust_cfa_offset" => try dwarf.genDebugFrame(start_offset, .{
+                            .adjust_cfa_offset = lowered_inst.ops[0].imm.signed,
+                        }),
+                        .@".cfi_offset" => try dwarf.genDebugFrame(start_offset, .{ .offset = .{
+                            .reg = lowered_inst.ops[0].reg.dwarfNum(),
+                            .off = lowered_inst.ops[1].imm.signed,
+                        } }),
+                        .@".cfi_val_offset" => try dwarf.genDebugFrame(start_offset, .{ .val_offset = .{
+                            .reg = lowered_inst.ops[0].reg.dwarfNum(),
+                            .off = lowered_inst.ops[1].imm.signed,
+                        } }),
+                        .@".cfi_rel_offset" => try dwarf.genDebugFrame(start_offset, .{ .rel_offset = .{
+                            .reg = lowered_inst.ops[0].reg.dwarfNum(),
+                            .off = lowered_inst.ops[1].imm.signed,
+                        } }),
+                        .@".cfi_register" => try dwarf.genDebugFrame(start_offset, .{ .register = .{
+                            lowered_inst.ops[0].reg.dwarfNum(),
+                            lowered_inst.ops[1].reg.dwarfNum(),
+                        } }),
+                        .@".cfi_restore" => try dwarf.genDebugFrame(start_offset, .{
+                            .restore = lowered_inst.ops[0].reg.dwarfNum(),
+                        }),
+                        .@".cfi_undefined" => try dwarf.genDebugFrame(start_offset, .{
+                            .undefined = lowered_inst.ops[0].reg.dwarfNum(),
+                        }),
+                        .@".cfi_same_value" => try dwarf.genDebugFrame(start_offset, .{
+                            .same_value = lowered_inst.ops[0].reg.dwarfNum(),
+                        }),
+                        .@".cfi_remember_state" => try dwarf.genDebugFrame(start_offset, .remember_state),
+                        .@".cfi_restore_state" => try dwarf.genDebugFrame(start_offset, .restore_state),
+                        .@".cfi_escape" => try dwarf.genDebugFrame(start_offset, .{
+                            .escape = lowered_inst.ops[0].bytes,
+                        }),
+                        else => unreachable,
+                    },
+                    .plan9 => {},
+                    .none => {},
+                }
+                continue;
+            }
             try lowered_inst.encode(emit.code.writer(), .{});
             const end_offset: u32 = @intCast(emit.code.items.len);
             while (lowered_relocs.len > 0 and
@@ -79,7 +131,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                         coff_file.getGlobalByIndex(link.File.Coff.global_symbol_mask & sym_index)
                     else
                         link.File.Coff.SymbolWithLoc{ .sym_index = sym_index, .file = null };
-                    try link.File.Coff.Atom.addRelocation(coff_file, atom_index, .{
+                    try coff_file.addRelocation(atom_index, .{
                         .type = .direct,
                         .target = target,
                         .offset = end_offset - 4,
@@ -177,7 +229,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                         coff_file.getGlobalByIndex(link.File.Coff.global_symbol_mask & sym_index)
                     else
                         link.File.Coff.SymbolWithLoc{ .sym_index = sym_index, .file = null };
-                    try link.File.Coff.Atom.addRelocation(coff_file, atom_index, .{
+                    try coff_file.addRelocation(atom_index, .{
                         .type = switch (lowered_relocs[0].target) {
                             .linker_got => .got,
                             .linker_direct => .direct,
@@ -210,53 +262,71 @@ pub fn emitMir(emit: *Emit) Error!void {
                 else => unreachable,
                 .pseudo => switch (mir_inst.ops) {
                     else => unreachable,
-                    .pseudo_dbg_prologue_end_none => {
-                        switch (emit.debug_output) {
-                            .dwarf => |dw| try dw.setPrologueEnd(),
-                            .plan9 => {},
-                            .none => {},
-                        }
+                    .pseudo_dbg_prologue_end_none => switch (emit.debug_output) {
+                        .dwarf => |dwarf| try dwarf.setPrologueEnd(),
+                        .plan9 => {},
+                        .none => {},
                     },
-                    .pseudo_dbg_line_line_column => try emit.dbgAdvancePCAndLine(
-                        mir_inst.data.line_column.line,
-                        mir_inst.data.line_column.column,
-                    ),
-                    .pseudo_dbg_epilogue_begin_none => {
-                        switch (emit.debug_output) {
-                            .dwarf => |dw| {
-                                try dw.setEpilogueBegin();
-                                log.debug("mirDbgEpilogueBegin (line={d}, col={d})", .{
-                                    emit.prev_di_line, emit.prev_di_column,
-                                });
-                                try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
-                            },
-                            .plan9 => {},
-                            .none => {},
-                        }
+                    .pseudo_dbg_line_stmt_line_column => try emit.dbgAdvancePCAndLine(.{
+                        .line = mir_inst.data.line_column.line,
+                        .column = mir_inst.data.line_column.column,
+                        .is_stmt = true,
+                    }),
+                    .pseudo_dbg_line_line_column => try emit.dbgAdvancePCAndLine(.{
+                        .line = mir_inst.data.line_column.line,
+                        .column = mir_inst.data.line_column.column,
+                        .is_stmt = false,
+                    }),
+                    .pseudo_dbg_epilogue_begin_none => switch (emit.debug_output) {
+                        .dwarf => |dwarf| {
+                            try dwarf.setEpilogueBegin();
+                            log.debug("mirDbgEpilogueBegin (line={d}, col={d})", .{
+                                emit.prev_di_loc.line, emit.prev_di_loc.column,
+                            });
+                            try emit.dbgAdvancePCAndLine(emit.prev_di_loc);
+                        },
+                        .plan9 => {},
+                        .none => {},
                     },
-                    .pseudo_dbg_enter_inline_func => {
-                        switch (emit.debug_output) {
-                            .dwarf => |dw| {
-                                log.debug("mirDbgEnterInline (line={d}, col={d})", .{
-                                    emit.prev_di_line, emit.prev_di_column,
-                                });
-                                try dw.enterInlineFunc(mir_inst.data.func, emit.code.items.len, emit.prev_di_line, emit.prev_di_column);
-                            },
-                            .plan9 => {},
-                            .none => {},
-                        }
+                    .pseudo_dbg_enter_block_none => switch (emit.debug_output) {
+                        .dwarf => |dwarf| {
+                            log.debug("mirDbgEnterBlock (line={d}, col={d})", .{
+                                emit.prev_di_loc.line, emit.prev_di_loc.column,
+                            });
+                            try dwarf.enterBlock(emit.code.items.len);
+                        },
+                        .plan9 => {},
+                        .none => {},
                     },
-                    .pseudo_dbg_leave_inline_func => {
-                        switch (emit.debug_output) {
-                            .dwarf => |dw| {
-                                log.debug("mirDbgLeaveInline (line={d}, col={d})", .{
-                                    emit.prev_di_line, emit.prev_di_column,
-                                });
-                                try dw.leaveInlineFunc(mir_inst.data.func, emit.code.items.len);
-                            },
-                            .plan9 => {},
-                            .none => {},
-                        }
+                    .pseudo_dbg_leave_block_none => switch (emit.debug_output) {
+                        .dwarf => |dwarf| {
+                            log.debug("mirDbgLeaveBlock (line={d}, col={d})", .{
+                                emit.prev_di_loc.line, emit.prev_di_loc.column,
+                            });
+                            try dwarf.leaveBlock(emit.code.items.len);
+                        },
+                        .plan9 => {},
+                        .none => {},
+                    },
+                    .pseudo_dbg_enter_inline_func => switch (emit.debug_output) {
+                        .dwarf => |dwarf| {
+                            log.debug("mirDbgEnterInline (line={d}, col={d})", .{
+                                emit.prev_di_loc.line, emit.prev_di_loc.column,
+                            });
+                            try dwarf.enterInlineFunc(mir_inst.data.func, emit.code.items.len, emit.prev_di_loc.line, emit.prev_di_loc.column);
+                        },
+                        .plan9 => {},
+                        .none => {},
+                    },
+                    .pseudo_dbg_leave_inline_func => switch (emit.debug_output) {
+                        .dwarf => |dwarf| {
+                            log.debug("mirDbgLeaveInline (line={d}, col={d})", .{
+                                emit.prev_di_loc.line, emit.prev_di_loc.column,
+                            });
+                            try dwarf.leaveInlineFunc(mir_inst.data.func, emit.code.items.len);
+                        },
+                        .plan9 => {},
+                        .none => {},
                     },
                     .pseudo_dbg_local_a,
                     .pseudo_dbg_local_ai_s,
@@ -267,129 +337,125 @@ pub fn emitMir(emit: *Emit) Error!void {
                     .pseudo_dbg_local_aro,
                     .pseudo_dbg_local_af,
                     .pseudo_dbg_local_am,
-                    => {
-                        switch (emit.debug_output) {
-                            .dwarf => |dw| {
-                                var loc_buf: [2]link.File.Dwarf.Loc = undefined;
-                                const air_inst_index, const loc: link.File.Dwarf.Loc = switch (mir_inst.ops) {
+                    => switch (emit.debug_output) {
+                        .dwarf => |dwarf| {
+                            var loc_buf: [2]link.File.Dwarf.Loc = undefined;
+                            const air_inst_index, const loc: link.File.Dwarf.Loc = switch (mir_inst.ops) {
+                                else => unreachable,
+                                .pseudo_dbg_local_a => .{ mir_inst.data.a.air_inst, .empty },
+                                .pseudo_dbg_local_ai_s,
+                                .pseudo_dbg_local_ai_u,
+                                .pseudo_dbg_local_ai_64,
+                                => .{ mir_inst.data.ai.air_inst, .{ .stack_value = stack_value: {
+                                    loc_buf[0] = switch (emit.lower.imm(mir_inst.ops, mir_inst.data.ai.i)) {
+                                        .signed => |s| .{ .consts = s },
+                                        .unsigned => |u| .{ .constu = u },
+                                    };
+                                    break :stack_value &loc_buf[0];
+                                } } },
+                                .pseudo_dbg_local_as => .{ mir_inst.data.as.air_inst, .{ .addr = .{
+                                    .sym = mir_inst.data.as.sym_index,
+                                } } },
+                                .pseudo_dbg_local_aso => loc: {
+                                    const sym_off = emit.lower.mir.extraData(
+                                        bits.SymbolOffset,
+                                        mir_inst.data.ax.payload,
+                                    ).data;
+                                    break :loc .{ mir_inst.data.ax.air_inst, .{ .plus = .{
+                                        sym: {
+                                            loc_buf[0] = .{ .addr = .{ .sym = sym_off.sym_index } };
+                                            break :sym &loc_buf[0];
+                                        },
+                                        off: {
+                                            loc_buf[1] = .{ .consts = sym_off.off };
+                                            break :off &loc_buf[1];
+                                        },
+                                    } } };
+                                },
+                                .pseudo_dbg_local_aro => loc: {
+                                    const air_off = emit.lower.mir.extraData(
+                                        Mir.AirOffset,
+                                        mir_inst.data.rx.payload,
+                                    ).data;
+                                    break :loc .{ air_off.air_inst, .{ .plus = .{
+                                        reg: {
+                                            loc_buf[0] = .{ .breg = mir_inst.data.rx.r1.dwarfNum() };
+                                            break :reg &loc_buf[0];
+                                        },
+                                        off: {
+                                            loc_buf[1] = .{ .consts = air_off.off };
+                                            break :off &loc_buf[1];
+                                        },
+                                    } } };
+                                },
+                                .pseudo_dbg_local_af => loc: {
+                                    const reg_off = emit.lower.mir.resolveFrameAddr(emit.lower.mir.extraData(
+                                        bits.FrameAddr,
+                                        mir_inst.data.ax.payload,
+                                    ).data);
+                                    break :loc .{ mir_inst.data.ax.air_inst, .{ .plus = .{
+                                        reg: {
+                                            loc_buf[0] = .{ .breg = reg_off.reg.dwarfNum() };
+                                            break :reg &loc_buf[0];
+                                        },
+                                        off: {
+                                            loc_buf[1] = .{ .consts = reg_off.off };
+                                            break :off &loc_buf[1];
+                                        },
+                                    } } };
+                                },
+                                .pseudo_dbg_local_am => loc: {
+                                    const mem = emit.lower.mem(mir_inst.data.ax.payload);
+                                    break :loc .{ mir_inst.data.ax.air_inst, .{ .plus = .{
+                                        base: {
+                                            loc_buf[0] = switch (mem.base()) {
+                                                .none => .{ .constu = 0 },
+                                                .reg => |reg| .{ .breg = reg.dwarfNum() },
+                                                .frame => unreachable,
+                                                .reloc => |sym_index| .{ .addr = .{ .sym = sym_index } },
+                                            };
+                                            break :base &loc_buf[0];
+                                        },
+                                        disp: {
+                                            loc_buf[1] = switch (mem.disp()) {
+                                                .signed => |s| .{ .consts = s },
+                                                .unsigned => |u| .{ .constu = u },
+                                            };
+                                            break :disp &loc_buf[1];
+                                        },
+                                    } } };
+                                },
+                            };
+                            const ip = &emit.lower.bin_file.comp.zcu.?.intern_pool;
+                            const air_inst = emit.air.instructions.get(@intFromEnum(air_inst_index));
+                            const name: Air.NullTerminatedString = switch (air_inst.tag) {
+                                else => unreachable,
+                                .arg => air_inst.data.arg.name,
+                                .dbg_var_ptr, .dbg_var_val, .dbg_arg_inline => @enumFromInt(air_inst.data.pl_op.payload),
+                            };
+                            try dwarf.genLocalDebugInfo(
+                                switch (air_inst.tag) {
                                     else => unreachable,
-                                    .pseudo_dbg_local_a => .{ mir_inst.data.a.air_inst, .empty },
-                                    .pseudo_dbg_local_ai_s,
-                                    .pseudo_dbg_local_ai_u,
-                                    .pseudo_dbg_local_ai_64,
-                                    => .{ mir_inst.data.ai.air_inst, .{ .stack_value = stack_value: {
-                                        loc_buf[0] = switch (emit.lower.imm(mir_inst.ops, mir_inst.data.ai.i)) {
-                                            .signed => |s| .{ .consts = s },
-                                            .unsigned => |u| .{ .constu = u },
-                                        };
-                                        break :stack_value &loc_buf[0];
-                                    } } },
-                                    .pseudo_dbg_local_as => .{ mir_inst.data.as.air_inst, .{ .addr = .{
-                                        .sym = mir_inst.data.as.sym_index,
-                                    } } },
-                                    .pseudo_dbg_local_aso => loc: {
-                                        const sym_off = emit.lower.mir.extraData(
-                                            bits.SymbolOffset,
-                                            mir_inst.data.ax.payload,
-                                        ).data;
-                                        break :loc .{ mir_inst.data.ax.air_inst, .{ .plus = .{
-                                            sym: {
-                                                loc_buf[0] = .{ .addr = .{ .sym = sym_off.sym_index } };
-                                                break :sym &loc_buf[0];
-                                            },
-                                            off: {
-                                                loc_buf[1] = .{ .consts = sym_off.off };
-                                                break :off &loc_buf[1];
-                                            },
-                                        } } };
-                                    },
-                                    .pseudo_dbg_local_aro => loc: {
-                                        const air_off = emit.lower.mir.extraData(
-                                            Mir.AirOffset,
-                                            mir_inst.data.rx.payload,
-                                        ).data;
-                                        break :loc .{ air_off.air_inst, .{ .plus = .{
-                                            reg: {
-                                                loc_buf[0] = .{ .breg = mir_inst.data.rx.r1.dwarfNum() };
-                                                break :reg &loc_buf[0];
-                                            },
-                                            off: {
-                                                loc_buf[1] = .{ .consts = air_off.off };
-                                                break :off &loc_buf[1];
-                                            },
-                                        } } };
-                                    },
-                                    .pseudo_dbg_local_af => loc: {
-                                        const reg_off = emit.lower.mir.resolveFrameAddr(emit.lower.mir.extraData(
-                                            bits.FrameAddr,
-                                            mir_inst.data.ax.payload,
-                                        ).data);
-                                        break :loc .{ mir_inst.data.ax.air_inst, .{ .plus = .{
-                                            reg: {
-                                                loc_buf[0] = .{ .breg = reg_off.reg.dwarfNum() };
-                                                break :reg &loc_buf[0];
-                                            },
-                                            off: {
-                                                loc_buf[1] = .{ .consts = reg_off.off };
-                                                break :off &loc_buf[1];
-                                            },
-                                        } } };
-                                    },
-                                    .pseudo_dbg_local_am => loc: {
-                                        const mem = emit.lower.mem(mir_inst.data.ax.payload);
-                                        break :loc .{ mir_inst.data.ax.air_inst, .{ .plus = .{
-                                            base: {
-                                                loc_buf[0] = switch (mem.base()) {
-                                                    .none => .{ .constu = 0 },
-                                                    .reg => |reg| .{ .breg = reg.dwarfNum() },
-                                                    .frame => unreachable,
-                                                    .reloc => |sym_index| .{ .addr = .{ .sym = sym_index } },
-                                                };
-                                                break :base &loc_buf[0];
-                                            },
-                                            disp: {
-                                                loc_buf[1] = switch (mem.disp()) {
-                                                    .signed => |s| .{ .consts = s },
-                                                    .unsigned => |u| .{ .constu = u },
-                                                };
-                                                break :disp &loc_buf[1];
-                                            },
-                                        } } };
-                                    },
-                                };
-                                const ip = &emit.lower.bin_file.comp.module.?.intern_pool;
-                                const air_inst = emit.air.instructions.get(@intFromEnum(air_inst_index));
-                                const name: Air.NullTerminatedString = switch (air_inst.tag) {
+                                    .arg, .dbg_arg_inline => .local_arg,
+                                    .dbg_var_ptr, .dbg_var_val => .local_var,
+                                },
+                                name.toSlice(emit.air),
+                                switch (air_inst.tag) {
                                     else => unreachable,
-                                    .arg => air_inst.data.arg.name,
-                                    .dbg_var_ptr, .dbg_var_val, .dbg_arg_inline => @enumFromInt(air_inst.data.pl_op.payload),
-                                };
-                                try dw.genLocalDebugInfo(
-                                    switch (air_inst.tag) {
-                                        else => unreachable,
-                                        .arg, .dbg_arg_inline => .local_arg,
-                                        .dbg_var_ptr, .dbg_var_val => .local_var,
-                                    },
-                                    name.toSlice(emit.air),
-                                    switch (air_inst.tag) {
-                                        else => unreachable,
-                                        .arg => emit.air.typeOfIndex(air_inst_index, ip),
-                                        .dbg_var_ptr => emit.air.typeOf(air_inst.data.pl_op.operand, ip).childTypeIp(ip),
-                                        .dbg_var_val, .dbg_arg_inline => emit.air.typeOf(air_inst.data.pl_op.operand, ip),
-                                    },
-                                    loc,
-                                );
-                            },
-                            .plan9 => {},
-                            .none => {},
-                        }
+                                    .arg => emit.air.typeOfIndex(air_inst_index, ip),
+                                    .dbg_var_ptr => emit.air.typeOf(air_inst.data.pl_op.operand, ip).childTypeIp(ip),
+                                    .dbg_var_val, .dbg_arg_inline => emit.air.typeOf(air_inst.data.pl_op.operand, ip),
+                                },
+                                loc,
+                            );
+                        },
+                        .plan9 => {},
+                        .none => {},
                     },
-                    .pseudo_dbg_var_args_none => {
-                        switch (emit.debug_output) {
-                            .dwarf => |dw| try dw.genVarArgsDebugInfo(),
-                            .plan9 => {},
-                            .none => {},
-                        }
+                    .pseudo_dbg_var_args_none => switch (emit.debug_output) {
+                        .dwarf => |dwarf| try dwarf.genVarArgsDebugInfo(),
+                        .plan9 => {},
+                        .none => {},
                     },
                     .pseudo_dead_none => {},
                 },
@@ -438,16 +504,22 @@ fn fixupRelocs(emit: *Emit) Error!void {
     }
 }
 
-fn dbgAdvancePCAndLine(emit: *Emit, line: u32, column: u32) Error!void {
-    const delta_line = @as(i33, line) - @as(i33, emit.prev_di_line);
+const Loc = struct {
+    line: u32,
+    column: u32,
+    is_stmt: bool,
+};
+
+fn dbgAdvancePCAndLine(emit: *Emit, loc: Loc) Error!void {
+    const delta_line = @as(i33, loc.line) - @as(i33, emit.prev_di_loc.line);
     const delta_pc: usize = emit.code.items.len - emit.prev_di_pc;
     log.debug("  (advance pc={d} and line={d})", .{ delta_pc, delta_line });
     switch (emit.debug_output) {
-        .dwarf => |dw| {
-            if (column != emit.prev_di_column) try dw.setColumn(column);
-            try dw.advancePCAndLine(delta_line, delta_pc);
-            emit.prev_di_line = line;
-            emit.prev_di_column = column;
+        .dwarf => |dwarf| {
+            if (loc.is_stmt != emit.prev_di_loc.is_stmt) try dwarf.negateStmt();
+            if (loc.column != emit.prev_di_loc.column) try dwarf.setColumn(loc.column);
+            try dwarf.advancePCAndLine(delta_line, delta_pc);
+            emit.prev_di_loc = loc;
             emit.prev_di_pc = emit.code.items.len;
         },
         .plan9 => |dbg_out| {
@@ -476,11 +548,10 @@ fn dbgAdvancePCAndLine(emit: *Emit, line: u32, column: u32) Error!void {
                 // we don't need to do anything, because adding the pc quanta does it for us
             } else unreachable;
             if (dbg_out.start_line == null)
-                dbg_out.start_line = emit.prev_di_line;
-            dbg_out.end_line = line;
+                dbg_out.start_line = emit.prev_di_loc.line;
+            dbg_out.end_line = loc.line;
             // only do this if the pc changed
-            emit.prev_di_line = line;
-            emit.prev_di_column = column;
+            emit.prev_di_loc = loc;
             emit.prev_di_pc = emit.code.items.len;
         },
         .none => {},
@@ -493,7 +564,6 @@ const log = std.log.scoped(.emit);
 const std = @import("std");
 
 const Air = @import("../../Air.zig");
-const DebugInfoOutput = @import("../../codegen.zig").DebugInfoOutput;
 const Emit = @This();
 const Lower = @import("Lower.zig");
 const Mir = @import("Mir.zig");

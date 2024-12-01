@@ -750,7 +750,7 @@ pub const Walker = struct {
 ///
 /// `self` will not be closed after walking it.
 pub fn walk(self: Dir, allocator: Allocator) Allocator.Error!Walker {
-    var stack: std.ArrayListUnmanaged(Walker.StackItem) = .{};
+    var stack: std.ArrayListUnmanaged(Walker.StackItem) = .empty;
 
     try stack.append(allocator, .{
         .iter = self.iterate(),
@@ -804,11 +804,14 @@ pub fn openFile(self: Dir, sub_path: []const u8, flags: File.OpenFlags) File.Ope
     }
     if (native_os == .wasi and !builtin.link_libc) {
         var base: std.os.wasi.rights_t = .{};
+        // POLL_FD_READWRITE only grants extra rights if the corresponding FD_READ and/or FD_WRITE
+        // is also set.
         if (flags.isRead()) {
             base.FD_READ = true;
             base.FD_TELL = true;
             base.FD_SEEK = true;
             base.FD_FILESTAT_GET = true;
+            base.POLL_FD_READWRITE = true;
         }
         if (flags.isWrite()) {
             base.FD_WRITE = true;
@@ -821,6 +824,7 @@ pub fn openFile(self: Dir, sub_path: []const u8, flags: File.OpenFlags) File.Ope
             base.FD_ADVISE = true;
             base.FD_FILESTAT_SET_TIMES = true;
             base.FD_FILESTAT_SET_SIZE = true;
+            base.POLL_FD_READWRITE = true;
         }
         const fd = try posix.openatWasi(self.fd, sub_path, .{}, .{}, .{}, base, .{});
         return .{ .handle = fd };
@@ -982,6 +986,9 @@ pub fn createFile(self: Dir, sub_path: []const u8, flags: File.CreateFlags) File
                 .FD_FILESTAT_SET_TIMES = true,
                 .FD_FILESTAT_SET_SIZE = true,
                 .FD_FILESTAT_GET = true,
+                // POLL_FD_READWRITE only grants extra rights if the corresponding FD_READ and/or
+                // FD_WRITE is also set.
+                .POLL_FD_READWRITE = true,
             }, .{}),
         };
     }
@@ -1127,7 +1134,7 @@ pub fn makeDirZ(self: Dir, sub_path: [*:0]const u8) MakeError!void {
 /// To create multiple directories to make an entire path, see `makePath`.
 /// To operate on only absolute paths, see `makeDirAbsoluteW`.
 pub fn makeDirW(self: Dir, sub_path: [*:0]const u16) MakeError!void {
-    try posix.mkdiratW(self.fd, sub_path, default_mode);
+    try posix.mkdiratW(self.fd, mem.span(sub_path), default_mode);
 }
 
 /// Calls makeDir iteratively to make an entire path
@@ -1756,7 +1763,7 @@ pub fn renameZ(self: Dir, old_sub_path_z: [*:0]const u8, new_sub_path_z: [*:0]co
 /// Same as `rename` except the parameters are WTF16LE, NT prefixed.
 /// This function is Windows-only.
 pub fn renameW(self: Dir, old_sub_path_w: []const u16, new_sub_path_w: []const u16) RenameError!void {
-    return posix.renameatW(self.fd, old_sub_path_w, self.fd, new_sub_path_w);
+    return posix.renameatW(self.fd, old_sub_path_w, self.fd, new_sub_path_w, windows.TRUE);
 }
 
 /// Use with `Dir.symLink`, `Dir.atomicSymLink`, and `symLinkAbsolute` to

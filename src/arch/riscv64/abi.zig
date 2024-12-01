@@ -9,15 +9,15 @@ const assert = std.debug.assert;
 
 pub const Class = enum { memory, byval, integer, double_integer, fields };
 
-pub fn classifyType(ty: Type, pt: Zcu.PerThread) Class {
-    const target = pt.zcu.getTarget();
-    std.debug.assert(ty.hasRuntimeBitsIgnoreComptime(pt));
+pub fn classifyType(ty: Type, zcu: *Zcu) Class {
+    const target = zcu.getTarget();
+    std.debug.assert(ty.hasRuntimeBitsIgnoreComptime(zcu));
 
     const max_byval_size = target.ptrBitWidth() * 2;
-    switch (ty.zigTypeTag(pt.zcu)) {
-        .Struct => {
-            const bit_size = ty.bitSize(pt);
-            if (ty.containerLayout(pt.zcu) == .@"packed") {
+    switch (ty.zigTypeTag(zcu)) {
+        .@"struct" => {
+            const bit_size = ty.bitSize(zcu);
+            if (ty.containerLayout(zcu) == .@"packed") {
                 if (bit_size > max_byval_size) return .memory;
                 return .byval;
             }
@@ -25,12 +25,12 @@ pub fn classifyType(ty: Type, pt: Zcu.PerThread) Class {
             if (std.Target.riscv.featureSetHas(target.cpu.features, .d)) fields: {
                 var any_fp = false;
                 var field_count: usize = 0;
-                for (0..ty.structFieldCount(pt.zcu)) |field_index| {
-                    const field_ty = ty.structFieldType(field_index, pt.zcu);
-                    if (!field_ty.hasRuntimeBitsIgnoreComptime(pt)) continue;
+                for (0..ty.structFieldCount(zcu)) |field_index| {
+                    const field_ty = ty.fieldType(field_index, zcu);
+                    if (!field_ty.hasRuntimeBitsIgnoreComptime(zcu)) continue;
                     if (field_ty.isRuntimeFloat())
                         any_fp = true
-                    else if (!field_ty.isAbiInt(pt.zcu))
+                    else if (!field_ty.isAbiInt(zcu))
                         break :fields;
                     field_count += 1;
                     if (field_count > 2) break :fields;
@@ -44,9 +44,9 @@ pub fn classifyType(ty: Type, pt: Zcu.PerThread) Class {
             if (bit_size > max_byval_size / 2) return .double_integer;
             return .integer;
         },
-        .Union => {
-            const bit_size = ty.bitSize(pt);
-            if (ty.containerLayout(pt.zcu) == .@"packed") {
+        .@"union" => {
+            const bit_size = ty.bitSize(zcu);
+            if (ty.containerLayout(zcu) == .@"packed") {
                 if (bit_size > max_byval_size) return .memory;
                 return .byval;
             }
@@ -55,40 +55,40 @@ pub fn classifyType(ty: Type, pt: Zcu.PerThread) Class {
             if (bit_size > max_byval_size / 2) return .double_integer;
             return .integer;
         },
-        .Bool => return .integer,
-        .Float => return .byval,
-        .Int, .Enum, .ErrorSet => {
-            const bit_size = ty.bitSize(pt);
+        .bool => return .integer,
+        .float => return .byval,
+        .int, .@"enum", .error_set => {
+            const bit_size = ty.bitSize(zcu);
             if (bit_size > max_byval_size) return .memory;
             return .byval;
         },
-        .Vector => {
-            const bit_size = ty.bitSize(pt);
+        .vector => {
+            const bit_size = ty.bitSize(zcu);
             if (bit_size > max_byval_size) return .memory;
             return .integer;
         },
-        .Optional => {
-            std.debug.assert(ty.isPtrLikeOptional(pt.zcu));
+        .optional => {
+            std.debug.assert(ty.isPtrLikeOptional(zcu));
             return .byval;
         },
-        .Pointer => {
-            std.debug.assert(!ty.isSlice(pt.zcu));
+        .pointer => {
+            std.debug.assert(!ty.isSlice(zcu));
             return .byval;
         },
-        .ErrorUnion,
-        .Frame,
-        .AnyFrame,
-        .NoReturn,
-        .Void,
-        .Type,
-        .ComptimeFloat,
-        .ComptimeInt,
-        .Undefined,
-        .Null,
-        .Fn,
-        .Opaque,
-        .EnumLiteral,
-        .Array,
+        .error_union,
+        .frame,
+        .@"anyframe",
+        .noreturn,
+        .void,
+        .type,
+        .comptime_float,
+        .comptime_int,
+        .undefined,
+        .null,
+        .@"fn",
+        .@"opaque",
+        .enum_literal,
+        .array,
         => unreachable,
     }
 }
@@ -97,19 +97,18 @@ pub const SystemClass = enum { integer, float, memory, none };
 
 /// There are a maximum of 8 possible return slots. Returned values are in
 /// the beginning of the array; unused slots are filled with .none.
-pub fn classifySystem(ty: Type, pt: Zcu.PerThread) [8]SystemClass {
-    const zcu = pt.zcu;
+pub fn classifySystem(ty: Type, zcu: *Zcu) [8]SystemClass {
     var result = [1]SystemClass{.none} ** 8;
     const memory_class = [_]SystemClass{
         .memory, .none, .none, .none,
         .none,   .none, .none, .none,
     };
-    switch (ty.zigTypeTag(pt.zcu)) {
-        .Bool, .Void, .NoReturn => {
+    switch (ty.zigTypeTag(zcu)) {
+        .bool, .void, .noreturn => {
             result[0] = .integer;
             return result;
         },
-        .Pointer => switch (ty.ptrSize(pt.zcu)) {
+        .pointer => switch (ty.ptrSize(zcu)) {
             .Slice => {
                 result[0] = .integer;
                 result[1] = .integer;
@@ -120,15 +119,15 @@ pub fn classifySystem(ty: Type, pt: Zcu.PerThread) [8]SystemClass {
                 return result;
             },
         },
-        .Optional => {
-            if (ty.isPtrLikeOptional(pt.zcu)) {
+        .optional => {
+            if (ty.isPtrLikeOptional(zcu)) {
                 result[0] = .integer;
                 return result;
             }
             return memory_class;
         },
-        .Int, .Enum, .ErrorSet => {
-            const int_bits = ty.intInfo(pt.zcu).bits;
+        .int, .@"enum", .error_set => {
+            const int_bits = ty.intInfo(zcu).bits;
             if (int_bits <= 64) {
                 result[0] = .integer;
                 return result;
@@ -140,7 +139,7 @@ pub fn classifySystem(ty: Type, pt: Zcu.PerThread) [8]SystemClass {
             }
             unreachable; // support > 128 bit int arguments
         },
-        .Float => {
+        .float => {
             const target = zcu.getTarget();
             const features = target.cpu.features;
 
@@ -152,9 +151,9 @@ pub fn classifySystem(ty: Type, pt: Zcu.PerThread) [8]SystemClass {
             }
             unreachable; // support split float args
         },
-        .ErrorUnion => {
-            const payload_ty = ty.errorUnionPayload(pt.zcu);
-            const payload_bits = payload_ty.bitSize(pt);
+        .error_union => {
+            const payload_ty = ty.errorUnionPayload(zcu);
+            const payload_bits = payload_ty.bitSize(zcu);
 
             // the error union itself
             result[0] = .integer;
@@ -164,9 +163,9 @@ pub fn classifySystem(ty: Type, pt: Zcu.PerThread) [8]SystemClass {
 
             return memory_class;
         },
-        .Struct, .Union => {
-            const layout = ty.containerLayout(pt.zcu);
-            const ty_size = ty.abiSize(pt);
+        .@"struct", .@"union" => {
+            const layout = ty.containerLayout(zcu);
+            const ty_size = ty.abiSize(zcu);
 
             if (layout == .@"packed") {
                 assert(ty_size <= 16);
@@ -177,8 +176,8 @@ pub fn classifySystem(ty: Type, pt: Zcu.PerThread) [8]SystemClass {
 
             return memory_class;
         },
-        .Array => {
-            const ty_size = ty.abiSize(pt);
+        .array => {
+            const ty_size = ty.abiSize(zcu);
             if (ty_size <= 8) {
                 result[0] = .integer;
                 return result;
@@ -190,9 +189,9 @@ pub fn classifySystem(ty: Type, pt: Zcu.PerThread) [8]SystemClass {
             }
             return memory_class;
         },
-        .Vector => {
+        .vector => {
             // we pass vectors through integer registers if they are small enough to fit.
-            const vec_bits = ty.totalVectorBits(pt);
+            const vec_bits = ty.totalVectorBits(zcu);
             if (vec_bits <= 64) {
                 result[0] = .integer;
                 return result;

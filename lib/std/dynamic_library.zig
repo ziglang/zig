@@ -141,18 +141,82 @@ pub const ElfDynLib = struct {
     strings: [*:0]u8,
     syms: [*]elf.Sym,
     hashtab: [*]posix.Elf_Symndx,
-    versym: ?[*]u16,
+    versym: ?[*]elf.Versym,
     verdef: ?*elf.Verdef,
     memory: []align(mem.page_size) u8,
 
     pub const Error = ElfDynLibError;
 
+    fn openPath(path: []const u8) !std.fs.Dir {
+        if (path.len == 0) return error.NotDir;
+        var parts = std.mem.tokenizeScalar(u8, path, '/');
+        var parent = if (path[0] == '/') try std.fs.cwd().openDir("/", .{}) else std.fs.cwd();
+        while (parts.next()) |part| {
+            const child = try parent.openDir(part, .{});
+            parent.close();
+            parent = child;
+        }
+        return parent;
+    }
+
+    fn resolveFromSearchPath(search_path: []const u8, file_name: []const u8, delim: u8) ?posix.fd_t {
+        var paths = std.mem.tokenizeScalar(u8, search_path, delim);
+        while (paths.next()) |p| {
+            var dir = openPath(p) catch continue;
+            defer dir.close();
+            const fd = posix.openat(dir.fd, file_name, .{
+                .ACCMODE = .RDONLY,
+                .CLOEXEC = true,
+            }, 0) catch continue;
+            return fd;
+        }
+        return null;
+    }
+
+    fn resolveFromParent(dir_path: []const u8, file_name: []const u8) ?posix.fd_t {
+        var dir = std.fs.cwd().openDir(dir_path, .{}) catch return null;
+        defer dir.close();
+        return posix.openat(dir.fd, file_name, .{
+            .ACCMODE = .RDONLY,
+            .CLOEXEC = true,
+        }, 0) catch null;
+    }
+
+    // This implements enough to be able to load system libraries in general
+    // Places where it differs from dlopen:
+    // - DT_RPATH of the calling binary is not used as a search path
+    // - DT_RUNPATH of the calling binary is not used as a search path
+    // - /etc/ld.so.cache is not read
+    fn resolveFromName(path_or_name: []const u8) !posix.fd_t {
+        // If filename contains a slash ("/"), then it is interpreted as a (relative or absolute) pathname
+        if (std.mem.indexOfScalarPos(u8, path_or_name, 0, '/')) |_| {
+            return posix.open(path_or_name, .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
+        }
+
+        // Only read LD_LIBRARY_PATH if the binary is not setuid/setgid
+        if (std.os.linux.geteuid() == std.os.linux.getuid() and
+            std.os.linux.getegid() == std.os.linux.getgid())
+        {
+            if (posix.getenvZ("LD_LIBRARY_PATH")) |ld_library_path| {
+                if (resolveFromSearchPath(ld_library_path, path_or_name, ':')) |fd| {
+                    return fd;
+                }
+            }
+        }
+
+        // Lastly the directories /lib and /usr/lib are searched (in this exact order)
+        if (resolveFromParent("/lib", path_or_name)) |fd| return fd;
+        if (resolveFromParent("/usr/lib", path_or_name)) |fd| return fd;
+        return error.FileNotFound;
+    }
+
     /// Trusts the file. Malicious file will be able to execute arbitrary code.
     pub fn open(path: []const u8) Error!ElfDynLib {
-        const fd = try posix.open(path, .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
+        const fd = try resolveFromName(path);
         defer posix.close(fd);
 
-        const stat = try posix.fstat(fd);
+        const file: std.fs.File = .{ .handle = fd };
+        const stat = try file.stat();
         const size = std.math.cast(usize, stat.size) orelse return error.FileTooBig;
 
         // This one is to read the ELF info. We do more mmapping later
@@ -255,7 +319,7 @@ pub const ElfDynLib = struct {
         var maybe_strings: ?[*:0]u8 = null;
         var maybe_syms: ?[*]elf.Sym = null;
         var maybe_hashtab: ?[*]posix.Elf_Symndx = null;
-        var maybe_versym: ?[*]u16 = null;
+        var maybe_versym: ?[*]elf.Versym = null;
         var maybe_verdef: ?*elf.Verdef = null;
 
         {
@@ -263,11 +327,11 @@ pub const ElfDynLib = struct {
             while (dynv[i] != 0) : (i += 2) {
                 const p = base + dynv[i + 1];
                 switch (dynv[i]) {
-                    elf.DT_STRTAB => maybe_strings = @as([*:0]u8, @ptrFromInt(p)),
-                    elf.DT_SYMTAB => maybe_syms = @as([*]elf.Sym, @ptrFromInt(p)),
-                    elf.DT_HASH => maybe_hashtab = @as([*]posix.Elf_Symndx, @ptrFromInt(p)),
-                    elf.DT_VERSYM => maybe_versym = @as([*]u16, @ptrFromInt(p)),
-                    elf.DT_VERDEF => maybe_verdef = @as(*elf.Verdef, @ptrFromInt(p)),
+                    elf.DT_STRTAB => maybe_strings = @ptrFromInt(p),
+                    elf.DT_SYMTAB => maybe_syms = @ptrFromInt(p),
+                    elf.DT_HASH => maybe_hashtab = @ptrFromInt(p),
+                    elf.DT_VERSYM => maybe_versym = @ptrFromInt(p),
+                    elf.DT_VERDEF => maybe_verdef = @ptrFromInt(p),
                     else => {},
                 }
             }
@@ -335,18 +399,16 @@ pub const ElfDynLib = struct {
     }
 };
 
-fn checkver(def_arg: *elf.Verdef, vsym_arg: i32, vername: []const u8, strings: [*:0]u8) bool {
+fn checkver(def_arg: *elf.Verdef, vsym_arg: elf.Versym, vername: []const u8, strings: [*:0]u8) bool {
     var def = def_arg;
-    const vsym = @as(u32, @bitCast(vsym_arg)) & 0x7fff;
+    const vsym_index = vsym_arg.VERSION;
     while (true) {
-        if (0 == (def.vd_flags & elf.VER_FLG_BASE) and (def.vd_ndx & 0x7fff) == vsym)
-            break;
-        if (def.vd_next == 0)
-            return false;
-        def = @as(*elf.Verdef, @ptrFromInt(@intFromPtr(def) + def.vd_next));
+        if (0 == (def.flags & elf.VER_FLG_BASE) and @intFromEnum(def.ndx) == vsym_index) break;
+        if (def.next == 0) return false;
+        def = @ptrFromInt(@intFromPtr(def) + def.next);
     }
-    const aux = @as(*elf.Verdaux, @ptrFromInt(@intFromPtr(def) + def.vd_aux));
-    return mem.eql(u8, vername, mem.sliceTo(strings + aux.vda_name, 0));
+    const aux: *elf.Verdaux = @ptrFromInt(@intFromPtr(def) + def.aux);
+    return mem.eql(u8, vername, mem.sliceTo(strings + aux.name, 0));
 }
 
 test "ElfDynLib" {

@@ -7,7 +7,7 @@ export fn foo() void {
         wrong_type: []u8 = "foo",
     };
 
-    comptime ignore(@typeInfo(MyStruct).Struct.fields[0]);
+    comptime ignore(@typeInfo(MyStruct).@"struct".fields[0]);
 }
 
 // error

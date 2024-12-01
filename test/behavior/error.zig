@@ -188,9 +188,9 @@ test "error union type " {
 fn testErrorUnionType() !void {
     const x: anyerror!i32 = 1234;
     if (x) |value| try expect(value == 1234) else |_| unreachable;
-    try expect(@typeInfo(@TypeOf(x)) == .ErrorUnion);
-    try expect(@typeInfo(@typeInfo(@TypeOf(x)).ErrorUnion.error_set) == .ErrorSet);
-    try expect(@typeInfo(@TypeOf(x)).ErrorUnion.error_set == anyerror);
+    try expect(@typeInfo(@TypeOf(x)) == .error_union);
+    try expect(@typeInfo(@typeInfo(@TypeOf(x)).error_union.error_set) == .error_set);
+    try expect(@typeInfo(@TypeOf(x)).error_union.error_set == anyerror);
 }
 
 test "error set type" {
@@ -204,7 +204,7 @@ const MyErrSet = error{
 };
 
 fn testErrorSetType() !void {
-    try expect(@typeInfo(MyErrSet).ErrorSet.?.len == 2);
+    try expect(@typeInfo(MyErrSet).error_set.?.len == 2);
 
     const a: MyErrSet!i32 = 5678;
     const b: MyErrSet!i32 = MyErrSet.OutOfMemory;
@@ -653,9 +653,9 @@ test "inferred error set equality" {
         fn quux() anyerror!void {}
     };
 
-    const FooError = @typeInfo(@typeInfo(@TypeOf(S.foo)).Fn.return_type.?).ErrorUnion.error_set;
-    const BarError = @typeInfo(@typeInfo(@TypeOf(S.bar)).Fn.return_type.?).ErrorUnion.error_set;
-    const BazError = @typeInfo(@typeInfo(@TypeOf(S.baz)).Fn.return_type.?).ErrorUnion.error_set;
+    const FooError = @typeInfo(@typeInfo(@TypeOf(S.foo)).@"fn".return_type.?).error_union.error_set;
+    const BarError = @typeInfo(@typeInfo(@TypeOf(S.bar)).@"fn".return_type.?).error_union.error_set;
+    const BazError = @typeInfo(@typeInfo(@TypeOf(S.baz)).@"fn".return_type.?).error_union.error_set;
 
     try expect(BarError != error{Bad});
 
@@ -1040,7 +1040,7 @@ test "generic type constructed from inferred error set of unresolved function" {
             _ = bytes;
             return 0;
         }
-        const T = std.io.Writer(void, @typeInfo(@typeInfo(@TypeOf(write)).Fn.return_type.?).ErrorUnion.error_set, write);
+        const T = std.io.Writer(void, @typeInfo(@typeInfo(@TypeOf(write)).@"fn".return_type.?).error_union.error_set, write);
         fn writer() T {
             return .{ .context = {} };
         }

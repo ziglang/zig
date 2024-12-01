@@ -295,10 +295,9 @@ pub fn dump(step: *Step, file: std.fs.File) void {
         }) catch {};
         return;
     };
-    const ally = debug_info.allocator;
     if (step.getStackTrace()) |stack_trace| {
         w.print("name: '{s}'. creation stack trace:\n", .{step.name}) catch {};
-        std.debug.writeStackTrace(stack_trace, w, ally, debug_info, tty_config) catch |err| {
+        std.debug.writeStackTrace(stack_trace, w, debug_info, tty_config) catch |err| {
             w.print("Unable to dump stack trace: {s}\n", .{@errorName(err)}) catch {};
             return;
         };
@@ -340,7 +339,7 @@ pub fn captureChildProcess(
         .allocator = arena,
         .argv = argv,
         .progress_node = progress_node,
-    }) catch |err| return s.fail("unable to spawn {s}: {s}", .{ argv[0], @errorName(err) });
+    }) catch |err| return s.fail("failed to run {s}: {s}", .{ argv[0], @errorName(err) });
 
     if (result.stderr.len > 0) {
         try s.result_error_msgs.append(arena, result.stderr);
@@ -424,7 +423,7 @@ pub fn evalZigProcess(
     child.request_resource_usage_statistics = true;
     child.progress_node = prog_node;
 
-    child.spawn() catch |err| return s.fail("unable to spawn {s}: {s}", .{
+    child.spawn() catch |err| return s.fail("failed to spawn zig compiler {s}: {s}", .{
         argv[0], @errorName(err),
     });
 
@@ -534,11 +533,11 @@ fn zigProcessUpdate(s: *Step, zp: *ZigProcess, watch: bool) !?Path {
                 }
             },
             .emit_digest => {
-                const EbpHdr = std.zig.Server.Message.EmitDigest;
-                const ebp_hdr = @as(*align(1) const EbpHdr, @ptrCast(body));
-                s.result_cached = ebp_hdr.flags.cache_hit;
-                const digest = body[@sizeOf(EbpHdr)..][0..Cache.bin_digest_len];
-                result = Path{
+                const EmitDigest = std.zig.Server.Message.EmitDigest;
+                const emit_digest = @as(*align(1) const EmitDigest, @ptrCast(body));
+                s.result_cached = emit_digest.flags.cache_hit;
+                const digest = body[@sizeOf(EmitDigest)..][0..Cache.bin_digest_len];
+                result = .{
                     .root_dir = b.cache_root,
                     .sub_path = try arena.dupe(u8, "o" ++ std.fs.path.sep_str ++ Cache.binToHex(digest.*)),
                 };
@@ -715,7 +714,7 @@ pub fn allocPrintCmd2(
     opt_env: ?*const std.process.EnvMap,
     argv: []const []const u8,
 ) Allocator.Error![]u8 {
-    var buf: std.ArrayListUnmanaged(u8) = .{};
+    var buf: std.ArrayListUnmanaged(u8) = .empty;
     if (opt_cwd) |cwd| try buf.writer(arena).print("cd {s} && ", .{cwd});
     if (opt_env) |env| {
         const process_env_map = std.process.getEnvMap(arena) catch std.process.EnvMap.init(arena);

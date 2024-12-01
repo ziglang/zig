@@ -37,7 +37,7 @@ modules: if (native_os == .windows) std.ArrayListUnmanaged(WindowsModule) else v
 pub const OpenError = error{
     MissingDebugInfo,
     UnsupportedOperatingSystem,
-} || @typeInfo(@typeInfo(@TypeOf(SelfInfo.init)).Fn.return_type.?).ErrorUnion.error_set;
+} || @typeInfo(@typeInfo(@TypeOf(SelfInfo.init)).@"fn".return_type.?).error_union.error_set;
 
 pub fn open(allocator: Allocator) OpenError!SelfInfo {
     nosuspend {
@@ -184,10 +184,12 @@ fn lookupModuleDyld(self: *SelfInfo, address: usize) !*Module {
                     }
 
                     for (cmd.getSections()) |sect| {
+                        const sect_addr: usize = @intCast(sect.addr);
+                        const sect_size: usize = @intCast(sect.size);
                         if (mem.eql(u8, "__unwind_info", sect.sectName())) {
-                            unwind_info = @as([*]const u8, @ptrFromInt(sect.addr + vmaddr_slide))[0..sect.size];
+                            unwind_info = @as([*]const u8, @ptrFromInt(sect_addr + vmaddr_slide))[0..sect_size];
                         } else if (mem.eql(u8, "__eh_frame", sect.sectName())) {
-                            eh_frame = @as([*]const u8, @ptrFromInt(sect.addr + vmaddr_slide))[0..sect.size];
+                            eh_frame = @as([*]const u8, @ptrFromInt(sect_addr + vmaddr_slide))[0..sect_size];
                         }
                     }
 
@@ -582,7 +584,7 @@ pub const Module = switch (native_os) {
                 if (!std.mem.eql(u8, "__DWARF", sect.segName())) continue;
 
                 var section_index: ?usize = null;
-                inline for (@typeInfo(Dwarf.Section.Id).Enum.fields, 0..) |section, i| {
+                inline for (@typeInfo(Dwarf.Section.Id).@"enum".fields, 0..) |section, i| {
                     if (mem.eql(u8, "__" ++ section.name, sect.sectName())) section_index = i;
                 }
                 if (section_index == null) continue;
@@ -590,7 +592,7 @@ pub const Module = switch (native_os) {
                 const section_bytes = try Dwarf.chopSlice(mapped_mem, sect.offset, sect.size);
                 sections[section_index.?] = .{
                     .data = section_bytes,
-                    .virtual_address = sect.addr,
+                    .virtual_address = @intCast(sect.addr),
                     .owned = false,
                 };
             }
@@ -732,14 +734,14 @@ pub const Module = switch (native_os) {
         fn getSymbolFromPdb(self: *@This(), relocated_address: usize) !?std.debug.Symbol {
             var coff_section: *align(1) const coff.SectionHeader = undefined;
             const mod_index = for (self.pdb.?.sect_contribs) |sect_contrib| {
-                if (sect_contrib.Section > self.coff_section_headers.len) continue;
+                if (sect_contrib.section > self.coff_section_headers.len) continue;
                 // Remember that SectionContribEntry.Section is 1-based.
-                coff_section = &self.coff_section_headers[sect_contrib.Section - 1];
+                coff_section = &self.coff_section_headers[sect_contrib.section - 1];
 
-                const vaddr_start = coff_section.virtual_address + sect_contrib.Offset;
-                const vaddr_end = vaddr_start + sect_contrib.Size;
+                const vaddr_start = coff_section.virtual_address + sect_contrib.offset;
+                const vaddr_end = vaddr_start + sect_contrib.size;
                 if (relocated_address >= vaddr_start and relocated_address < vaddr_end) {
-                    break sect_contrib.ModuleIndex;
+                    break sect_contrib.module_index;
                 }
             } else {
                 // we have no information to add to the address
@@ -981,7 +983,7 @@ fn readCoffDebugInfo(allocator: Allocator, coff_obj: *coff.Coff) !Module {
             var sections: Dwarf.SectionArray = Dwarf.null_section_array;
             errdefer for (sections) |section| if (section) |s| if (s.owned) allocator.free(s.data);
 
-            inline for (@typeInfo(Dwarf.Section.Id).Enum.fields, 0..) |section, i| {
+            inline for (@typeInfo(Dwarf.Section.Id).@"enum".fields, 0..) |section, i| {
                 sections[i] = if (coff_obj.getSectionByName("." ++ section.name)) |section_header| blk: {
                     break :blk .{
                         .data = try coff_obj.getSectionDataAlloc(section_header, allocator),
@@ -1417,7 +1419,7 @@ pub fn unwindFrameMachO(
                 return unwindFrameMachODwarf(context, ma, eh_frame orelse return error.MissingEhFrame, @intCast(encoding.value.x86_64.dwarf));
             },
         },
-        .aarch64 => switch (encoding.mode.arm64) {
+        .aarch64, .aarch64_be => switch (encoding.mode.arm64) {
             .OLD => return error.UnimplementedUnwindEncoding,
             .FRAMELESS => blk: {
                 const sp = (try regValueNative(context.thread_context, spRegNum(reg_context), reg_context)).*;
@@ -1443,7 +1445,7 @@ pub fn unwindFrameMachO(
                 if (ma.load(usize, new_sp) == null or ma.load(usize, min_reg_addr) == null) return error.InvalidUnwindInfo;
 
                 var reg_addr = fp - @sizeOf(usize);
-                inline for (@typeInfo(@TypeOf(encoding.value.arm64.frame.x_reg_pairs)).Struct.fields, 0..) |field, i| {
+                inline for (@typeInfo(@TypeOf(encoding.value.arm64.frame.x_reg_pairs)).@"struct".fields, 0..) |field, i| {
                     if (@field(encoding.value.arm64.frame.x_reg_pairs, field.name) != 0) {
                         (try regValueNative(context.thread_context, 19 + i, reg_context)).* = @as(*const usize, @ptrFromInt(reg_addr)).*;
                         reg_addr += @sizeOf(usize);
@@ -1452,7 +1454,7 @@ pub fn unwindFrameMachO(
                     }
                 }
 
-                inline for (@typeInfo(@TypeOf(encoding.value.arm64.frame.d_reg_pairs)).Struct.fields, 0..) |field, i| {
+                inline for (@typeInfo(@TypeOf(encoding.value.arm64.frame.d_reg_pairs)).@"struct".fields, 0..) |field, i| {
                     if (@field(encoding.value.arm64.frame.d_reg_pairs, field.name) != 0) {
                         // Only the lower half of the 128-bit V registers are restored during unwinding
                         @memcpy(
@@ -1533,7 +1535,7 @@ pub const UnwindContext = struct {
 /// Some platforms use pointer authentication - the upper bits of instruction pointers contain a signature.
 /// This function clears these signature bits to make the pointer usable.
 pub inline fn stripInstructionPtrAuthCode(ptr: usize) usize {
-    if (native_arch == .aarch64) {
+    if (native_arch.isAARCH64()) {
         // `hint 0x07` maps to `xpaclri` (or `nop` if the hardware doesn't support it)
         // The save / restore is because `xpaclri` operates on x30 (LR)
         return asm (
@@ -1624,12 +1626,12 @@ pub fn unwindFrameDwarf(
     } else {
         const index = std.sort.binarySearch(Dwarf.FrameDescriptionEntry, di.fde_list.items, context.pc, struct {
             pub fn compareFn(pc: usize, item: Dwarf.FrameDescriptionEntry) std.math.Order {
-                if (pc < item.pc_begin) return .gt;
+                if (pc < item.pc_begin) return .lt;
 
                 const range_end = item.pc_begin + item.pc_range;
                 if (pc < range_end) return .eq;
 
-                return .lt;
+                return .gt;
             }
         }.compareFn);
 
@@ -1785,11 +1787,11 @@ pub fn supportsUnwinding(target: std.Target) bool {
             .linux, .netbsd, .freebsd, .openbsd, .macos, .ios, .solaris, .illumos => true,
             else => false,
         },
-        .arm => switch (target.os.tag) {
+        .arm, .armeb, .thumb, .thumbeb => switch (target.os.tag) {
             .linux => true,
             else => false,
         },
-        .aarch64 => switch (target.os.tag) {
+        .aarch64, .aarch64_be => switch (target.os.tag) {
             .linux, .netbsd, .freebsd, .macos, .ios => true,
             else => false,
         },
@@ -1933,8 +1935,8 @@ pub const VirtualMachine = struct {
         len: u8 = 0,
     };
 
-    columns: std.ArrayListUnmanaged(Column) = .{},
-    stack: std.ArrayListUnmanaged(ColumnRange) = .{},
+    columns: std.ArrayListUnmanaged(Column) = .empty,
+    stack: std.ArrayListUnmanaged(ColumnRange) = .empty,
     current_row: Row = .{},
 
     /// The result of executing the CIE's initial_instructions
@@ -2192,7 +2194,7 @@ pub const VirtualMachine = struct {
 /// the .undefined rule by default, but allows ABI authors to override that.
 fn getRegDefaultValue(reg_number: u8, context: *UnwindContext, out: []u8) !void {
     switch (builtin.cpu.arch) {
-        .aarch64 => {
+        .aarch64, .aarch64_be => {
             // Callee-saved registers are initialized as if they had the .same_value rule
             if (reg_number >= 19 and reg_number <= 28) {
                 const src = try regBytes(context.thread_context, reg_number, context.reg_context);

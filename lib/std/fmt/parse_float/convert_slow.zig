@@ -36,7 +36,7 @@ pub fn getShift(n: usize) usize {
 /// Note that this function needs a lot of stack space and is marked
 /// cold to hint against inlining into the caller.
 pub fn convertSlow(comptime T: type, s: []const u8) BiasedFp(T) {
-    @setCold(true);
+    @branchHint(.cold);
 
     const MantissaT = mantissaType(T);
     const min_exponent = -(1 << (math.floatExponentBits(T) - 1)) + 1;

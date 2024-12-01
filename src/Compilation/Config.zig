@@ -294,12 +294,16 @@ pub fn resolve(options: Options) ResolveError!Config {
         if (options.lto) |x| break :b x;
         if (!options.any_c_source_files) break :b false;
 
-        if (target.cpu.arch.isRISCV()) {
-            // Clang and LLVM currently don't support RISC-V target-abi for LTO.
-            // Compiling with LTO may fail or produce undesired results.
-            // See https://reviews.llvm.org/D71387
-            // See https://reviews.llvm.org/D102582
-            break :b false;
+        // https://github.com/llvm/llvm-project/pull/116537
+        switch (target.abi) {
+            .gnuabin32,
+            .gnuilp32,
+            .gnux32,
+            .ilp32,
+            .muslabin32,
+            .muslx32,
+            => break :b false,
+            else => {},
         }
 
         break :b switch (options.output_mode) {
@@ -433,6 +437,7 @@ pub fn resolve(options: Options) ResolveError!Config {
 
     const debug_format: DebugFormat = b: {
         if (root_strip and !options.any_non_stripped) break :b .strip;
+        if (options.debug_format) |x| break :b x;
         break :b switch (target.ofmt) {
             .elf, .goff, .macho, .wasm, .xcoff => .{ .dwarf = .@"32" },
             .coff => .code_view,
@@ -440,7 +445,7 @@ pub fn resolve(options: Options) ResolveError!Config {
                 .windows, .uefi => .code_view,
                 else => .{ .dwarf = .@"32" },
             },
-            .spirv, .nvptx, .dxcontainer, .hex, .raw, .plan9 => .strip,
+            .spirv, .nvptx, .hex, .raw, .plan9 => .strip,
         };
     };
 

@@ -212,8 +212,37 @@ pub const msghdr_const = extern struct {
     flags: i32,
 };
 
-/// No `Stat` structure on this platform, only `Statx`.
-pub const Stat = void;
+// The `stat` definition used by the Linux kernel.
+pub const Stat = extern struct {
+    dev: dev_t,
+    ino: ino_t,
+    mode: mode_t,
+    nlink: nlink_t,
+    uid: uid_t,
+    gid: gid_t,
+    rdev: dev_t,
+    __pad: usize,
+    size: off_t,
+    blksize: blksize_t,
+    __pad2: i32,
+    blocks: blkcnt_t,
+    atim: timespec,
+    mtim: timespec,
+    ctim: timespec,
+    __unused: [2]u32,
+
+    pub fn atime(self: @This()) timespec {
+        return self.atim;
+    }
+
+    pub fn mtime(self: @This()) timespec {
+        return self.mtim;
+    }
+
+    pub fn ctime(self: @This()) timespec {
+        return self.ctim;
+    }
+};
 
 pub const Elf_Symndx = u32;
 

@@ -43,9 +43,9 @@ const dev = @import("dev.zig");
 comptime {
     @setEvalBranchQuota(4000);
     for (
-        @typeInfo(Zir.Inst.Ref).Enum.fields,
-        @typeInfo(Air.Inst.Ref).Enum.fields,
-        @typeInfo(InternPool.Index).Enum.fields,
+        @typeInfo(Zir.Inst.Ref).@"enum".fields,
+        @typeInfo(Air.Inst.Ref).@"enum".fields,
+        @typeInfo(InternPool.Index).@"enum".fields,
     ) |zir_field, air_field, ip_field| {
         assert(mem.eql(u8, zir_field.name, ip_field.name));
         assert(mem.eql(u8, air_field.name, ip_field.name));
@@ -76,14 +76,14 @@ local_zir_cache: Compilation.Directory,
 
 /// This is where all `Export` values are stored. Not all values here are necessarily valid exports;
 /// to enumerate all exports, `single_exports` and `multi_exports` must be consulted.
-all_exports: std.ArrayListUnmanaged(Export) = .{},
+all_exports: std.ArrayListUnmanaged(Export) = .empty,
 /// This is a list of free indices in `all_exports`. These indices may be reused by exports from
 /// future semantic analysis.
-free_exports: std.ArrayListUnmanaged(u32) = .{},
+free_exports: std.ArrayListUnmanaged(u32) = .empty,
 /// Maps from an `AnalUnit` which performs a single export, to the index into `all_exports` of
 /// the export it performs. Note that the key is not the `Decl` being exported, but the `AnalUnit`
 /// whose analysis triggered the export.
-single_exports: std.AutoArrayHashMapUnmanaged(AnalUnit, u32) = .{},
+single_exports: std.AutoArrayHashMapUnmanaged(AnalUnit, u32) = .empty,
 /// Like `single_exports`, but for `AnalUnit`s which perform multiple exports.
 /// The exports are `all_exports.items[index..][0..len]`.
 multi_exports: std.AutoArrayHashMapUnmanaged(AnalUnit, extern struct {
@@ -104,29 +104,29 @@ multi_exports: std.AutoArrayHashMapUnmanaged(AnalUnit, extern struct {
 /// `Compilation.update` of the process for a given `Compilation`.
 ///
 /// Indexes correspond 1:1 to `files`.
-import_table: std.StringArrayHashMapUnmanaged(File.Index) = .{},
+import_table: std.StringArrayHashMapUnmanaged(File.Index) = .empty,
 
 /// The set of all the files which have been loaded with `@embedFile` in the Module.
 /// We keep track of this in order to iterate over it and check which files have been
 /// modified on the file system when an update is requested, as well as to cache
 /// `@embedFile` results.
 /// Keys are fully resolved file paths. This table owns the keys and values.
-embed_table: std.StringArrayHashMapUnmanaged(*EmbedFile) = .{},
+embed_table: std.StringArrayHashMapUnmanaged(*EmbedFile) = .empty,
 
 /// Stores all Type and Value objects.
 /// The idea is that this will be periodically garbage-collected, but such logic
 /// is not yet implemented.
-intern_pool: InternPool = .{},
+intern_pool: InternPool = .empty,
 
-analysis_in_progress: std.AutoArrayHashMapUnmanaged(AnalUnit, void) = .{},
+analysis_in_progress: std.AutoArrayHashMapUnmanaged(AnalUnit, void) = .empty,
 /// The ErrorMsg memory is owned by the `AnalUnit`, using Module's general purpose allocator.
-failed_analysis: std.AutoArrayHashMapUnmanaged(AnalUnit, *ErrorMsg) = .{},
+failed_analysis: std.AutoArrayHashMapUnmanaged(AnalUnit, *ErrorMsg) = .empty,
 /// This `AnalUnit` failed semantic analysis because it required analysis of another `AnalUnit` which itself failed.
-transitive_failed_analysis: std.AutoArrayHashMapUnmanaged(AnalUnit, void) = .{},
+transitive_failed_analysis: std.AutoArrayHashMapUnmanaged(AnalUnit, void) = .empty,
 /// This `Nav` succeeded analysis, but failed codegen.
 /// This may be a simple "value" `Nav`, or it may be a function.
 /// The ErrorMsg memory is owned by the `AnalUnit`, using Module's general purpose allocator.
-failed_codegen: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, *ErrorMsg) = .{},
+failed_codegen: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, *ErrorMsg) = .empty,
 /// Keep track of one `@compileLog` callsite per `AnalUnit`.
 /// The value is the source location of the `@compileLog` call, convertible to a `LazySrcLoc`.
 compile_log_sources: std.AutoArrayHashMapUnmanaged(AnalUnit, extern struct {
@@ -141,14 +141,14 @@ compile_log_sources: std.AutoArrayHashMapUnmanaged(AnalUnit, extern struct {
 }) = .{},
 /// Using a map here for consistency with the other fields here.
 /// The ErrorMsg memory is owned by the `File`, using Module's general purpose allocator.
-failed_files: std.AutoArrayHashMapUnmanaged(*File, ?*ErrorMsg) = .{},
+failed_files: std.AutoArrayHashMapUnmanaged(*File, ?*ErrorMsg) = .empty,
 /// The ErrorMsg memory is owned by the `EmbedFile`, using Module's general purpose allocator.
-failed_embed_files: std.AutoArrayHashMapUnmanaged(*EmbedFile, *ErrorMsg) = .{},
+failed_embed_files: std.AutoArrayHashMapUnmanaged(*EmbedFile, *ErrorMsg) = .empty,
 /// Key is index into `all_exports`.
-failed_exports: std.AutoArrayHashMapUnmanaged(u32, *ErrorMsg) = .{},
+failed_exports: std.AutoArrayHashMapUnmanaged(u32, *ErrorMsg) = .empty,
 /// If analysis failed due to a cimport error, the corresponding Clang errors
 /// are stored here.
-cimport_errors: std.AutoArrayHashMapUnmanaged(AnalUnit, std.zig.ErrorBundle) = .{},
+cimport_errors: std.AutoArrayHashMapUnmanaged(AnalUnit, std.zig.ErrorBundle) = .empty,
 
 /// Maximum amount of distinct error values, set by --error-limit
 error_limit: ErrorInt,
@@ -156,23 +156,27 @@ error_limit: ErrorInt,
 /// Value is the number of PO dependencies of this AnalUnit.
 /// This value will decrease as we perform semantic analysis to learn what is outdated.
 /// If any of these PO deps is outdated, this value will be moved to `outdated`.
-potentially_outdated: std.AutoArrayHashMapUnmanaged(AnalUnit, u32) = .{},
+potentially_outdated: std.AutoArrayHashMapUnmanaged(AnalUnit, u32) = .empty,
 /// Value is the number of PO dependencies of this AnalUnit.
 /// Once this value drops to 0, the AnalUnit is a candidate for re-analysis.
-outdated: std.AutoArrayHashMapUnmanaged(AnalUnit, u32) = .{},
+outdated: std.AutoArrayHashMapUnmanaged(AnalUnit, u32) = .empty,
 /// This contains all `AnalUnit`s in `outdated` whose PO dependency count is 0.
 /// Such `AnalUnit`s are ready for immediate re-analysis.
 /// See `findOutdatedToAnalyze` for details.
-outdated_ready: std.AutoArrayHashMapUnmanaged(AnalUnit, void) = .{},
+outdated_ready: std.AutoArrayHashMapUnmanaged(AnalUnit, void) = .empty,
 /// This contains a list of AnalUnit whose analysis or codegen failed, but the
 /// failure was something like running out of disk space, and trying again may
 /// succeed. On the next update, we will flush this list, marking all members of
 /// it as outdated.
-retryable_failures: std.ArrayListUnmanaged(AnalUnit) = .{},
+retryable_failures: std.ArrayListUnmanaged(AnalUnit) = .empty,
 
 /// These are the modules which we initially queue for analysis in `Compilation.update`.
 /// `resolveReferences` will use these as the root of its reachability traversal.
 analysis_roots: std.BoundedArray(*Package.Module, 3) = .{},
+/// This is the cached result of `Zcu.resolveReferences`. It is computed on-demand, and
+/// reset to `null` when any semantic analysis occurs (since this invalidates the data).
+/// Allocated into `gpa`.
+resolved_references: ?std.AutoHashMapUnmanaged(AnalUnit, ?ResolvedReference) = null,
 
 stage1_flags: packed struct {
     have_winmain: bool = false,
@@ -184,31 +188,31 @@ stage1_flags: packed struct {
     reserved: u2 = 0,
 } = .{},
 
-compile_log_text: std.ArrayListUnmanaged(u8) = .{},
+compile_log_text: std.ArrayListUnmanaged(u8) = .empty,
 
-test_functions: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, void) = .{},
+test_functions: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, void) = .empty,
 
-global_assembly: std.AutoArrayHashMapUnmanaged(InternPool.Cau.Index, []u8) = .{},
+global_assembly: std.AutoArrayHashMapUnmanaged(InternPool.Cau.Index, []u8) = .empty,
 
 /// Key is the `AnalUnit` *performing* the reference. This representation allows
 /// incremental updates to quickly delete references caused by a specific `AnalUnit`.
 /// Value is index into `all_references` of the first reference triggered by the unit.
 /// The `next` field on the `Reference` forms a linked list of all references
 /// triggered by the key `AnalUnit`.
-reference_table: std.AutoArrayHashMapUnmanaged(AnalUnit, u32) = .{},
-all_references: std.ArrayListUnmanaged(Reference) = .{},
+reference_table: std.AutoArrayHashMapUnmanaged(AnalUnit, u32) = .empty,
+all_references: std.ArrayListUnmanaged(Reference) = .empty,
 /// Freelist of indices in `all_references`.
-free_references: std.ArrayListUnmanaged(u32) = .{},
+free_references: std.ArrayListUnmanaged(u32) = .empty,
 
 /// Key is the `AnalUnit` *performing* the reference. This representation allows
 /// incremental updates to quickly delete references caused by a specific `AnalUnit`.
 /// Value is index into `all_type_reference` of the first reference triggered by the unit.
 /// The `next` field on the `TypeReference` forms a linked list of all type references
 /// triggered by the key `AnalUnit`.
-type_reference_table: std.AutoArrayHashMapUnmanaged(AnalUnit, u32) = .{},
-all_type_references: std.ArrayListUnmanaged(TypeReference) = .{},
+type_reference_table: std.AutoArrayHashMapUnmanaged(AnalUnit, u32) = .empty,
+all_type_references: std.ArrayListUnmanaged(TypeReference) = .empty,
 /// Freelist of indices in `all_type_references`.
-free_type_references: std.ArrayListUnmanaged(u32) = .{},
+free_type_references: std.ArrayListUnmanaged(u32) = .empty,
 
 panic_messages: [PanicId.len]InternPool.Nav.Index.Optional = .{.none} ** PanicId.len,
 /// The panic function body.
@@ -220,7 +224,7 @@ generation: u32 = 0,
 pub const PerThread = @import("Zcu/PerThread.zig");
 
 pub const PanicId = enum {
-    unreach,
+    reached_unreachable,
     unwrap_null,
     cast_to_null,
     incorrect_alignment,
@@ -232,21 +236,16 @@ pub const PanicId = enum {
     shr_overflow,
     divide_by_zero,
     exact_division_remainder,
-    inactive_union_field,
     integer_part_out_of_bounds,
     corrupt_switch,
     shift_rhs_too_big,
     invalid_enum_value,
-    sentinel_mismatch,
-    unwrap_error,
-    index_out_of_bounds,
-    start_index_greater_than_end,
     for_len_mismatch,
     memcpy_len_mismatch,
     memcpy_alias,
     noreturn_returned,
 
-    pub const len = @typeInfo(PanicId).Enum.fields.len;
+    pub const len = @typeInfo(PanicId).@"enum".fields.len;
 };
 
 pub const GlobalErrorSet = std.AutoArrayHashMapUnmanaged(InternPool.NullTerminatedString, void);
@@ -338,16 +337,16 @@ pub const Namespace = struct {
     /// Will be a struct, enum, union, or opaque.
     owner_type: InternPool.Index,
     /// Members of the namespace which are marked `pub`.
-    pub_decls: std.ArrayHashMapUnmanaged(InternPool.Nav.Index, void, NavNameContext, true) = .{},
+    pub_decls: std.ArrayHashMapUnmanaged(InternPool.Nav.Index, void, NavNameContext, true) = .empty,
     /// Members of the namespace which are *not* marked `pub`.
-    priv_decls: std.ArrayHashMapUnmanaged(InternPool.Nav.Index, void, NavNameContext, true) = .{},
+    priv_decls: std.ArrayHashMapUnmanaged(InternPool.Nav.Index, void, NavNameContext, true) = .empty,
     /// All `usingnamespace` declarations in this namespace which are marked `pub`.
-    pub_usingnamespace: std.ArrayListUnmanaged(InternPool.Nav.Index) = .{},
+    pub_usingnamespace: std.ArrayListUnmanaged(InternPool.Nav.Index) = .empty,
     /// All `usingnamespace` declarations in this namespace which are *not* marked `pub`.
-    priv_usingnamespace: std.ArrayListUnmanaged(InternPool.Nav.Index) = .{},
+    priv_usingnamespace: std.ArrayListUnmanaged(InternPool.Nav.Index) = .empty,
     /// All `comptime` and `test` declarations in this namespace. We store these purely so that
     /// incremental compilation can re-use the existing `Cau`s when a namespace changes.
-    other_decls: std.ArrayListUnmanaged(InternPool.Cau.Index) = .{},
+    other_decls: std.ArrayListUnmanaged(InternPool.Cau.Index) = .empty,
 
     pub const Index = InternPool.NamespaceIndex;
     pub const OptionalIndex = InternPool.OptionalNamespaceIndex;
@@ -425,13 +424,8 @@ pub const Namespace = struct {
 };
 
 pub const File = struct {
-    status: enum {
-        never_loaded,
-        retryable_failure,
-        parse_failure,
-        astgen_failure,
-        success_zir,
-    },
+    status: Status,
+    prev_status: Status,
     source_loaded: bool,
     tree_loaded: bool,
     zir_loaded: bool,
@@ -451,13 +445,21 @@ pub const File = struct {
     /// Whether this file is a part of multiple packages. This is an error condition which will be reported after AstGen.
     multi_pkg: bool = false,
     /// List of references to this file, used for multi-package errors.
-    references: std.ArrayListUnmanaged(File.Reference) = .{},
+    references: std.ArrayListUnmanaged(File.Reference) = .empty,
 
     /// The most recent successful ZIR for this file, with no errors.
     /// This is only populated when a previously successful ZIR
     /// newly introduces compile errors during an update. When ZIR is
     /// successful, this field is unloaded.
     prev_zir: ?*Zir = null,
+
+    pub const Status = enum {
+        never_loaded,
+        retryable_failure,
+        parse_failure,
+        astgen_failure,
+        success_zir,
+    };
 
     /// A single reference to a file.
     pub const Reference = union(enum) {
@@ -1495,6 +1497,20 @@ pub const SrcLoc = struct {
                     }
                 } else unreachable;
             },
+            .tuple_field_type, .tuple_field_init => |field_info| {
+                const tree = try src_loc.file_scope.getTree(gpa);
+                const node = src_loc.relativeToNodeIndex(0);
+                var buf: [2]Ast.Node.Index = undefined;
+                const container_decl = tree.fullContainerDecl(&buf, node) orelse
+                    return tree.nodeToSpan(node);
+
+                const field = tree.fullContainerField(container_decl.ast.members[field_info.elem_index]).?;
+                return tree.nodeToSpan(switch (src_loc.lazy) {
+                    .tuple_field_type => field.ast.type_expr,
+                    .tuple_field_init => field.ast.value_expr,
+                    else => unreachable,
+                });
+            },
             .init_elem => |init_elem| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const init_node = src_loc.relativeToNodeIndex(init_elem.init_node_offset);
@@ -1520,6 +1536,7 @@ pub const SrcLoc = struct {
             .init_field_cache,
             .init_field_library,
             .init_field_thread_local,
+            .init_field_dll_import,
             => |builtin_call_node| {
                 const wanted = switch (src_loc.lazy) {
                     .init_field_name => "name",
@@ -1531,6 +1548,7 @@ pub const SrcLoc = struct {
                     .init_field_cache => "cache",
                     .init_field_library => "library",
                     .init_field_thread_local => "thread_local",
+                    .init_field_dll_import => "dll_import",
                     else => unreachable,
                 };
                 const tree = try src_loc.file_scope.getTree(gpa);
@@ -1935,6 +1953,12 @@ pub const LazySrcLoc = struct {
         container_field_type: u32,
         /// Like `continer_field_name`, but points at the field's alignment.
         container_field_align: u32,
+        /// The source location points to the type of the field at the given index
+        /// of the tuple type declaration at `tuple_decl_node_offset`.
+        tuple_field_type: TupleField,
+        /// The source location points to the default init of the field at the given index
+        /// of the tuple type declaration at `tuple_decl_node_offset`.
+        tuple_field_init: TupleField,
         /// The source location points to the given element/field of a struct or
         /// array initialization expression.
         init_elem: struct {
@@ -1957,6 +1981,7 @@ pub const LazySrcLoc = struct {
         init_field_cache: i32,
         init_field_library: i32,
         init_field_thread_local: i32,
+        init_field_dll_import: i32,
         /// The source location points to the value of an item in a specific
         /// case of a `switch`.
         switch_case_item: SwitchItem,
@@ -2011,10 +2036,17 @@ pub const LazySrcLoc = struct {
             index: u31,
         };
 
-        const ArrayCat = struct {
+        pub const ArrayCat = struct {
             /// Points to the array concat AST node.
             array_cat_offset: i32,
             /// The index of the element the source location points to.
+            elem_index: u32,
+        };
+
+        pub const TupleField = struct {
+            /// Points to the AST node of the tuple type decaration.
+            tuple_decl_node_offset: i32,
+            /// The index of the tuple field the source location points to.
             elem_index: u32,
         };
 
@@ -2047,6 +2079,8 @@ pub const LazySrcLoc = struct {
 
     /// Returns `null` if the ZIR instruction has been lost across incremental updates.
     pub fn resolveBaseNode(base_node_inst: InternPool.TrackedInst.Index, zcu: *Zcu) ?struct { *File, Ast.Node.Index } {
+        comptime assert(Zir.inst_tracking_version == 0);
+
         const ip = &zcu.intern_pool;
         const file_index, const zir_inst = inst: {
             const info = base_node_inst.resolveFull(ip) orelse return null;
@@ -2059,6 +2093,8 @@ pub const LazySrcLoc = struct {
         const inst = zir.instructions.get(@intFromEnum(zir_inst));
         const base_node: Ast.Node.Index = switch (inst.tag) {
             .declaration => inst.data.declaration.src_node,
+            .struct_init, .struct_init_ref => zir.extraData(Zir.Inst.StructInit, inst.data.pl_node.payload_index).data.abs_node,
+            .struct_init_anon => zir.extraData(Zir.Inst.StructInitAnon, inst.data.pl_node.payload_index).data.abs_node,
             .extended => switch (inst.data.extended.opcode) {
                 .struct_decl => zir.extraData(Zir.Inst.StructDecl, inst.data.extended.operand).data.src_node,
                 .union_decl => zir.extraData(Zir.Inst.UnionDecl, inst.data.extended.operand).data.src_node,
@@ -2109,9 +2145,9 @@ pub const CompileError = error{
     ComptimeBreak,
 };
 
-pub fn init(mod: *Zcu, thread_count: usize) !void {
-    const gpa = mod.gpa;
-    try mod.intern_pool.init(gpa, thread_count);
+pub fn init(zcu: *Zcu, thread_count: usize) !void {
+    const gpa = zcu.gpa;
+    try zcu.intern_pool.init(gpa, thread_count);
 }
 
 pub fn deinit(zcu: *Zcu) void {
@@ -2197,6 +2233,8 @@ pub fn deinit(zcu: *Zcu) void {
     zcu.all_type_references.deinit(gpa);
     zcu.free_type_references.deinit(gpa);
 
+    if (zcu.resolved_references) |*r| r.deinit(gpa);
+
     zcu.intern_pool.deinit(gpa);
 }
 
@@ -2204,8 +2242,8 @@ pub fn namespacePtr(zcu: *Zcu, index: Namespace.Index) *Namespace {
     return zcu.intern_pool.namespacePtr(index);
 }
 
-pub fn namespacePtrUnwrap(mod: *Zcu, index: Namespace.OptionalIndex) ?*Namespace {
-    return mod.namespacePtr(index.unwrap() orelse return null);
+pub fn namespacePtrUnwrap(zcu: *Zcu, index: Namespace.OptionalIndex) ?*Namespace {
+    return zcu.namespacePtr(index.unwrap() orelse return null);
 }
 
 // TODO https://github.com/ziglang/zig/issues/8643
@@ -2551,13 +2589,13 @@ pub fn mapOldZirToNew(
         old_inst: Zir.Inst.Index,
         new_inst: Zir.Inst.Index,
     };
-    var match_stack: std.ArrayListUnmanaged(MatchedZirDecl) = .{};
+    var match_stack: std.ArrayListUnmanaged(MatchedZirDecl) = .empty;
     defer match_stack.deinit(gpa);
 
     // Used as temporary buffers for namespace declaration instructions
-    var old_decls: std.ArrayListUnmanaged(Zir.Inst.Index) = .{};
+    var old_decls: std.ArrayListUnmanaged(Zir.Inst.Index) = .empty;
     defer old_decls.deinit(gpa);
-    var new_decls: std.ArrayListUnmanaged(Zir.Inst.Index) = .{};
+    var new_decls: std.ArrayListUnmanaged(Zir.Inst.Index) = .empty;
     defer new_decls.deinit(gpa);
 
     // Map the main struct inst (and anything in its fields)
@@ -2582,19 +2620,19 @@ pub fn mapOldZirToNew(
         try inst_map.put(gpa, match_item.old_inst, match_item.new_inst);
 
         // Maps decl name to `declaration` instruction.
-        var named_decls: std.StringHashMapUnmanaged(Zir.Inst.Index) = .{};
+        var named_decls: std.StringHashMapUnmanaged(Zir.Inst.Index) = .empty;
         defer named_decls.deinit(gpa);
         // Maps test name to `declaration` instruction.
-        var named_tests: std.StringHashMapUnmanaged(Zir.Inst.Index) = .{};
+        var named_tests: std.StringHashMapUnmanaged(Zir.Inst.Index) = .empty;
         defer named_tests.deinit(gpa);
         // All unnamed tests, in order, for a best-effort match.
-        var unnamed_tests: std.ArrayListUnmanaged(Zir.Inst.Index) = .{};
+        var unnamed_tests: std.ArrayListUnmanaged(Zir.Inst.Index) = .empty;
         defer unnamed_tests.deinit(gpa);
         // All comptime declarations, in order, for a best-effort match.
-        var comptime_decls: std.ArrayListUnmanaged(Zir.Inst.Index) = .{};
+        var comptime_decls: std.ArrayListUnmanaged(Zir.Inst.Index) = .empty;
         defer comptime_decls.deinit(gpa);
         // All usingnamespace declarations, in order, for a best-effort match.
-        var usingnamespace_decls: std.ArrayListUnmanaged(Zir.Inst.Index) = .{};
+        var usingnamespace_decls: std.ArrayListUnmanaged(Zir.Inst.Index) = .empty;
         defer usingnamespace_decls.deinit(gpa);
 
         {
@@ -2682,7 +2720,7 @@ pub fn mapOldZirToNew(
 ///
 /// The caller is responsible for ensuring the function decl itself is already
 /// analyzed, and for ensuring it can exist at runtime (see
-/// `sema.fnHasRuntimeBits`). This function does *not* guarantee that the body
+/// `Type.fnHasRuntimeBitsSema`). This function does *not* guarantee that the body
 /// will be analyzed when it returns: for that, see `ensureFuncBodyAnalyzed`.
 pub fn ensureFuncBodyAnalysisQueued(zcu: *Zcu, func_index: InternPool.Index) !void {
     const ip = &zcu.intern_pool;
@@ -2765,6 +2803,8 @@ pub fn deleteUnitExports(zcu: *Zcu, anal_unit: AnalUnit) void {
 pub fn deleteUnitReferences(zcu: *Zcu, anal_unit: AnalUnit) void {
     const gpa = zcu.gpa;
 
+    zcu.clearCachedResolvedReferences();
+
     unit_refs: {
         const kv = zcu.reference_table.fetchSwapRemove(anal_unit) orelse break :unit_refs;
         var idx = kv.value;
@@ -2797,6 +2837,8 @@ pub fn deleteUnitReferences(zcu: *Zcu, anal_unit: AnalUnit) void {
 pub fn addUnitReference(zcu: *Zcu, src_unit: AnalUnit, referenced_unit: AnalUnit, ref_src: LazySrcLoc) Allocator.Error!void {
     const gpa = zcu.gpa;
 
+    zcu.clearCachedResolvedReferences();
+
     try zcu.reference_table.ensureUnusedCapacity(gpa, 1);
 
     const ref_idx = zcu.free_references.popOrNull() orelse idx: {
@@ -2820,6 +2862,8 @@ pub fn addUnitReference(zcu: *Zcu, src_unit: AnalUnit, referenced_unit: AnalUnit
 pub fn addTypeReference(zcu: *Zcu, src_unit: AnalUnit, referenced_type: InternPool.Index, ref_src: LazySrcLoc) Allocator.Error!void {
     const gpa = zcu.gpa;
 
+    zcu.clearCachedResolvedReferences();
+
     try zcu.type_reference_table.ensureUnusedCapacity(gpa, 1);
 
     const ref_idx = zcu.free_type_references.popOrNull() orelse idx: {
@@ -2840,22 +2884,27 @@ pub fn addTypeReference(zcu: *Zcu, src_unit: AnalUnit, referenced_type: InternPo
     gop.value_ptr.* = @intCast(ref_idx);
 }
 
-pub fn errorSetBits(mod: *Zcu) u16 {
-    if (mod.error_limit == 0) return 0;
-    return @as(u16, std.math.log2_int(ErrorInt, mod.error_limit)) + 1;
+fn clearCachedResolvedReferences(zcu: *Zcu) void {
+    if (zcu.resolved_references) |*r| r.deinit(zcu.gpa);
+    zcu.resolved_references = null;
+}
+
+pub fn errorSetBits(zcu: *const Zcu) u16 {
+    if (zcu.error_limit == 0) return 0;
+    return @as(u16, std.math.log2_int(ErrorInt, zcu.error_limit)) + 1;
 }
 
 pub fn errNote(
-    mod: *Zcu,
+    zcu: *Zcu,
     src_loc: LazySrcLoc,
     parent: *ErrorMsg,
     comptime format: []const u8,
     args: anytype,
 ) error{OutOfMemory}!void {
-    const msg = try std.fmt.allocPrint(mod.gpa, format, args);
-    errdefer mod.gpa.free(msg);
+    const msg = try std.fmt.allocPrint(zcu.gpa, format, args);
+    errdefer zcu.gpa.free(msg);
 
-    parent.notes = try mod.gpa.realloc(parent.notes, parent.notes.len + 1);
+    parent.notes = try zcu.gpa.realloc(parent.notes, parent.notes.len + 1);
     parent.notes[parent.notes.len - 1] = .{
         .src_loc = src_loc,
         .msg = msg,
@@ -2876,14 +2925,14 @@ pub fn optimizeMode(zcu: *const Zcu) std.builtin.OptimizeMode {
     return zcu.root_mod.optimize_mode;
 }
 
-fn lockAndClearFileCompileError(mod: *Zcu, file: *File) void {
+fn lockAndClearFileCompileError(zcu: *Zcu, file: *File) void {
     switch (file.status) {
         .success_zir, .retryable_failure => {},
         .never_loaded, .parse_failure, .astgen_failure => {
-            mod.comp.mutex.lock();
-            defer mod.comp.mutex.unlock();
-            if (mod.failed_files.fetchSwapRemove(file)) |kv| {
-                if (kv.value) |msg| msg.destroy(mod.gpa); // Delete previous error message.
+            zcu.comp.mutex.lock();
+            defer zcu.comp.mutex.unlock();
+            if (zcu.failed_files.fetchSwapRemove(file)) |kv| {
+                if (kv.value) |msg| msg.destroy(zcu.gpa); // Delete previous error message.
             }
         },
     }
@@ -2923,10 +2972,16 @@ pub fn addGlobalAssembly(zcu: *Zcu, cau: InternPool.Cau.Index, source: []const u
 }
 
 pub const Feature = enum {
+    /// When this feature is enabled, Sema will emit calls to
+    /// `std.builtin.Panic` functions for things like safety checks and
+    /// unreachables. Otherwise traps will be emitted.
     panic_fn,
-    panic_unwrap_error,
-    safety_check_formatted,
+    /// When this feature is enabled, Sema will insert tracer functions for gathering a stack
+    /// trace for error returns.
     error_return_trace,
+    /// When this feature is enabled, Sema will emit the `is_named_enum_value` AIR instructions
+    /// and use it to check for corrupt switches. Backends currently need to implement their own
+    /// logic to determine whether an enum value is in the set of named values.
     is_named_enum_value,
     error_set_has_value,
     field_reordering,
@@ -2965,11 +3020,11 @@ pub const AtomicPtrAlignmentDiagnostics = struct {
 // TODO this function does not take into account CPU features, which can affect
 // this value. Audit this!
 pub fn atomicPtrAlignment(
-    mod: *Zcu,
+    zcu: *Zcu,
     ty: Type,
     diags: *AtomicPtrAlignmentDiagnostics,
 ) AtomicPtrAlignmentError!Alignment {
-    const target = mod.getTarget();
+    const target = zcu.getTarget();
     const max_atomic_bits: u16 = switch (target.cpu.arch) {
         .avr,
         .msp430,
@@ -2997,9 +3052,10 @@ pub fn atomicPtrAlignment(
         .wasm32,
         .csky,
         .spirv32,
-        .dxil,
         .loongarch32,
         .xtensa,
+        .propeller1,
+        .propeller2,
         => 32,
 
         .amdgcn,
@@ -3039,8 +3095,8 @@ pub fn atomicPtrAlignment(
         }
         return .none;
     }
-    if (ty.isAbiInt(mod)) {
-        const bit_count = ty.intInfo(mod).bits;
+    if (ty.isAbiInt(zcu)) {
+        const bit_count = ty.intInfo(zcu).bits;
         if (bit_count > max_atomic_bits) {
             diags.* = .{
                 .bits = bit_count,
@@ -3050,7 +3106,7 @@ pub fn atomicPtrAlignment(
         }
         return .none;
     }
-    if (ty.isPtrAtRuntime(mod)) return .none;
+    if (ty.isPtrAtRuntime(zcu)) return .none;
     return error.BadType;
 }
 
@@ -3058,45 +3114,45 @@ pub fn atomicPtrAlignment(
 /// * `@TypeOf(.{})`
 /// * A struct which has no fields (`struct {}`).
 /// * Not a struct.
-pub fn typeToStruct(mod: *Zcu, ty: Type) ?InternPool.LoadedStructType {
+pub fn typeToStruct(zcu: *Zcu, ty: Type) ?InternPool.LoadedStructType {
     if (ty.ip_index == .none) return null;
-    const ip = &mod.intern_pool;
+    const ip = &zcu.intern_pool;
     return switch (ip.indexToKey(ty.ip_index)) {
         .struct_type => ip.loadStructType(ty.ip_index),
         else => null,
     };
 }
 
-pub fn typeToPackedStruct(mod: *Zcu, ty: Type) ?InternPool.LoadedStructType {
-    const s = mod.typeToStruct(ty) orelse return null;
+pub fn typeToPackedStruct(zcu: *Zcu, ty: Type) ?InternPool.LoadedStructType {
+    const s = zcu.typeToStruct(ty) orelse return null;
     if (s.layout != .@"packed") return null;
     return s;
 }
 
-pub fn typeToUnion(mod: *Zcu, ty: Type) ?InternPool.LoadedUnionType {
+pub fn typeToUnion(zcu: *const Zcu, ty: Type) ?InternPool.LoadedUnionType {
     if (ty.ip_index == .none) return null;
-    const ip = &mod.intern_pool;
+    const ip = &zcu.intern_pool;
     return switch (ip.indexToKey(ty.ip_index)) {
         .union_type => ip.loadUnionType(ty.ip_index),
         else => null,
     };
 }
 
-pub fn typeToFunc(mod: *Zcu, ty: Type) ?InternPool.Key.FuncType {
+pub fn typeToFunc(zcu: *const Zcu, ty: Type) ?InternPool.Key.FuncType {
     if (ty.ip_index == .none) return null;
-    return mod.intern_pool.indexToFuncType(ty.toIntern());
+    return zcu.intern_pool.indexToFuncType(ty.toIntern());
 }
 
 pub fn iesFuncIndex(zcu: *const Zcu, ies_index: InternPool.Index) InternPool.Index {
     return zcu.intern_pool.iesFuncIndex(ies_index);
 }
 
-pub fn funcInfo(mod: *Zcu, func_index: InternPool.Index) InternPool.Key.Func {
-    return mod.intern_pool.indexToKey(func_index).func;
+pub fn funcInfo(zcu: *const Zcu, func_index: InternPool.Index) InternPool.Key.Func {
+    return zcu.intern_pool.indexToKey(func_index).func;
 }
 
-pub fn toEnum(mod: *Zcu, comptime E: type, val: Value) E {
-    return mod.intern_pool.toEnum(E, val.toIntern());
+pub fn toEnum(zcu: *const Zcu, comptime E: type, val: Value) E {
+    return zcu.intern_pool.toEnum(E, val.toIntern());
 }
 
 pub const UnionLayout = struct {
@@ -3121,8 +3177,8 @@ pub const UnionLayout = struct {
 };
 
 /// Returns the index of the active field, given the current tag value
-pub fn unionTagFieldIndex(mod: *Zcu, loaded_union: InternPool.LoadedUnionType, enum_tag: Value) ?u32 {
-    const ip = &mod.intern_pool;
+pub fn unionTagFieldIndex(zcu: *const Zcu, loaded_union: InternPool.LoadedUnionType, enum_tag: Value) ?u32 {
+    const ip = &zcu.intern_pool;
     if (enum_tag.toIntern() == .none) return null;
     assert(ip.typeOf(enum_tag.toIntern()) == loaded_union.enum_tag_ty);
     return loaded_union.loadTagType(ip).tagValueIndex(ip, enum_tag.toIntern());
@@ -3136,17 +3192,25 @@ pub const ResolvedReference = struct {
 /// Returns a mapping from an `AnalUnit` to where it is referenced.
 /// If the value is `null`, the `AnalUnit` is a root of analysis.
 /// If an `AnalUnit` is not in the returned map, it is unreferenced.
-pub fn resolveReferences(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?ResolvedReference) {
+/// The returned hashmap is owned by the `Zcu`, so should not be freed by the caller.
+/// This hashmap is cached, so repeated calls to this function are cheap.
+pub fn resolveReferences(zcu: *Zcu) !*const std.AutoHashMapUnmanaged(AnalUnit, ?ResolvedReference) {
+    if (zcu.resolved_references == null) {
+        zcu.resolved_references = try zcu.resolveReferencesInner();
+    }
+    return &zcu.resolved_references.?;
+}
+fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?ResolvedReference) {
     const gpa = zcu.gpa;
     const comp = zcu.comp;
     const ip = &zcu.intern_pool;
 
-    var result: std.AutoHashMapUnmanaged(AnalUnit, ?ResolvedReference) = .{};
+    var result: std.AutoHashMapUnmanaged(AnalUnit, ?ResolvedReference) = .empty;
     errdefer result.deinit(gpa);
 
-    var checked_types: std.AutoArrayHashMapUnmanaged(InternPool.Index, void) = .{};
-    var type_queue: std.AutoArrayHashMapUnmanaged(InternPool.Index, ?ResolvedReference) = .{};
-    var unit_queue: std.AutoArrayHashMapUnmanaged(AnalUnit, ?ResolvedReference) = .{};
+    var checked_types: std.AutoArrayHashMapUnmanaged(InternPool.Index, void) = .empty;
+    var type_queue: std.AutoArrayHashMapUnmanaged(InternPool.Index, ?ResolvedReference) = .empty;
+    var unit_queue: std.AutoArrayHashMapUnmanaged(AnalUnit, ?ResolvedReference) = .empty;
     defer {
         checked_types.deinit(gpa);
         type_queue.deinit(gpa);
@@ -3182,7 +3246,7 @@ pub fn resolveReferences(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolve
 
             // If this type has a `Cau` for resolution, it's automatically referenced.
             const resolution_cau: InternPool.Cau.Index.Optional = switch (ip.indexToKey(ty)) {
-                .struct_type => ip.loadStructType(ty).cau,
+                .struct_type => ip.loadStructType(ty).cau.toOptional(),
                 .union_type => ip.loadUnionType(ty).cau.toOptional(),
                 .enum_type => ip.loadEnumType(ty).cau,
                 .opaque_type => .none,
@@ -3348,7 +3412,7 @@ pub fn resolveReferences(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolve
     return result;
 }
 
-pub fn fileByIndex(zcu: *Zcu, file_index: File.Index) *File {
+pub fn fileByIndex(zcu: *const Zcu, file_index: File.Index) *File {
     return zcu.intern_pool.filePtr(file_index);
 }
 
@@ -3447,6 +3511,10 @@ fn formatDependee(data: struct { dependee: InternPool.Dependee, zcu: *Zcu }, com
     const zcu = data.zcu;
     const ip = &zcu.intern_pool;
     switch (data.dependee) {
+        .file => |file| {
+            const file_path = zcu.fileByIndex(file).sub_file_path;
+            return writer.print("file('{s}')", .{file_path});
+        },
         .src_hash => |ti| {
             const info = ti.resolveFull(ip) orelse {
                 return writer.writeAll("inst(<lost>)");
@@ -3504,4 +3572,132 @@ pub fn maybeUnresolveIes(zcu: *Zcu, func_index: InternPool.Index) !void {
         }
         zcu.intern_pool.funcSetIesResolved(func_index, .none);
     }
+}
+
+pub fn callconvSupported(zcu: *Zcu, cc: std.builtin.CallingConvention) union(enum) {
+    ok,
+    bad_arch: []const std.Target.Cpu.Arch, // value is allowed archs for cc
+    bad_backend: std.builtin.CompilerBackend, // value is current backend
+} {
+    const target = zcu.getTarget();
+    const backend = target_util.zigBackend(target, zcu.comp.config.use_llvm);
+    switch (cc) {
+        .auto, .@"inline" => return .ok,
+        .@"async" => return .{ .bad_backend = backend }, // nothing supports async currently
+        .naked => {}, // depends only on backend
+        else => for (cc.archs()) |allowed_arch| {
+            if (allowed_arch == target.cpu.arch) break;
+        } else return .{ .bad_arch = cc.archs() },
+    }
+    const backend_ok = switch (backend) {
+        .stage1 => unreachable,
+        .other => unreachable,
+        _ => unreachable,
+
+        .stage2_llvm => @import("codegen/llvm.zig").toLlvmCallConv(cc, target) != null,
+        .stage2_c => ok: {
+            if (target.cCallingConvention()) |default_c| {
+                if (cc.eql(default_c)) {
+                    break :ok true;
+                }
+            }
+            break :ok switch (cc) {
+                .x86_64_sysv,
+                .x86_64_win,
+                .x86_64_vectorcall,
+                .x86_64_regcall_v3_sysv,
+                .x86_64_regcall_v4_win,
+                .x86_64_interrupt,
+                .x86_fastcall,
+                .x86_thiscall,
+                .x86_vectorcall,
+                .x86_regcall_v3,
+                .x86_regcall_v4_win,
+                .x86_interrupt,
+                .aarch64_vfabi,
+                .aarch64_vfabi_sve,
+                .arm_aapcs,
+                .csky_interrupt,
+                .riscv64_lp64_v,
+                .riscv32_ilp32_v,
+                .m68k_rtd,
+                .m68k_interrupt,
+                => |opts| opts.incoming_stack_alignment == null,
+
+                .arm_aapcs_vfp,
+                => |opts| opts.incoming_stack_alignment == null and target.os.tag != .watchos,
+                .arm_aapcs16_vfp,
+                => |opts| opts.incoming_stack_alignment == null and target.os.tag == .watchos,
+
+                .arm_interrupt,
+                => |opts| opts.incoming_stack_alignment == null,
+
+                .mips_interrupt,
+                .mips64_interrupt,
+                => |opts| opts.incoming_stack_alignment == null,
+
+                .riscv32_interrupt,
+                .riscv64_interrupt,
+                => |opts| opts.incoming_stack_alignment == null,
+
+                .x86_sysv,
+                .x86_win,
+                .x86_stdcall,
+                => |opts| opts.incoming_stack_alignment == null and opts.register_params == 0,
+
+                .avr_interrupt,
+                .avr_signal,
+                => true,
+
+                .naked => true,
+
+                else => false,
+            };
+        },
+        .stage2_wasm => switch (cc) {
+            .wasm_watc => |opts| opts.incoming_stack_alignment == null,
+            else => false,
+        },
+        .stage2_arm => switch (cc) {
+            .arm_aapcs => |opts| opts.incoming_stack_alignment == null,
+            .naked => true,
+            else => false,
+        },
+        .stage2_x86_64 => switch (cc) {
+            .x86_64_sysv, .x86_64_win, .naked => true, // incoming stack alignment supported
+            else => false,
+        },
+        .stage2_aarch64 => switch (cc) {
+            .aarch64_aapcs,
+            .aarch64_aapcs_darwin,
+            .aarch64_aapcs_win,
+            => |opts| opts.incoming_stack_alignment == null,
+            .naked => true,
+            else => false,
+        },
+        .stage2_x86 => switch (cc) {
+            .x86_sysv,
+            .x86_win,
+            => |opts| opts.incoming_stack_alignment == null and opts.register_params == 0,
+            .naked => true,
+            else => false,
+        },
+        .stage2_riscv64 => switch (cc) {
+            .riscv64_lp64 => |opts| opts.incoming_stack_alignment == null,
+            .naked => true,
+            else => false,
+        },
+        .stage2_sparc64 => switch (cc) {
+            .sparc64_sysv => |opts| opts.incoming_stack_alignment == null,
+            .naked => true,
+            else => false,
+        },
+        .stage2_spirv64 => switch (cc) {
+            .spirv_device, .spirv_kernel => true,
+            .spirv_fragment, .spirv_vertex => target.os.tag == .vulkan,
+            else => false,
+        },
+    };
+    if (!backend_ok) return .{ .bad_backend = backend };
+    return .ok;
 }

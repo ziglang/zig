@@ -2138,6 +2138,7 @@ or
       </p>
       {#code|struct_default_field_values.zig#}
 
+      {#header_open|Faulty Default Field Values#}
       <p>
       Default field values are only appropriate when the data invariants of a struct
       cannot be violated by omitting that field from an initialization.
@@ -2161,6 +2162,7 @@ or
       <p>If a struct value requires a runtime-known value in order to be initialized
       without violating data invariants, then use an initialization method that accepts
       those runtime values, and populates the remaining fields.</p>
+      {#header_close#}
       {#header_close#}
 
       {#header_open|extern struct#}
@@ -2188,6 +2190,7 @@ or
         <li>An {#link|enum#} field uses exactly the bit width of its integer tag type.</li>
         <li>A {#link|packed union#} field uses exactly the bit width of the union field with
         the largest bit width.</li>
+        <li>Packed structs support equality operators.</li>
       </ul>
       <p>
       This means that a {#syntax#}packed struct{#endsyntax#} can participate
@@ -2237,6 +2240,12 @@ or
       It's also possible to set alignment of struct fields:
       </p>
       {#code|test_aligned_struct_fields.zig#}
+
+      <p>
+      Equating packed structs results in a comparison of the backing integer, 
+      and only works for the `==` and `!=` operators.
+      </p>
+      {#code|test_packed_struct_equality.zig#}
 
       <p>
       Using packed structs with {#link|volatile#} is problematic, and may be a compile error in the future.
@@ -2492,6 +2501,53 @@ or
       repetitively specifying {#link|enum#} or {#link|union#} types:
       </p>
       {#code|test_exhaustive_switch.zig#}
+
+      {#header_close#}
+
+      {#header_open|Labeled switch#}
+      <p>
+      When a switch statement is labeled, it can be referenced from a
+      {#syntax#}break{#endsyntax#} or {#syntax#}continue{#endsyntax#}.
+      {#syntax#}break{#endsyntax#} will return a value from the {#syntax#}
+      switch{#endsyntax#}.
+      </p>
+      <p>
+      A {#syntax#}continue{#endsyntax#} targeting a switch must have an
+      operand. When executed, it will jump to the matching prong, as if the
+      {#syntax#}switch{#endsyntax#} were executed again with the {#syntax#}
+      continue{#endsyntax#}'s operand replacing the initial switch value.
+      </p>
+
+      {#code|test_switch_continue.zig#}
+
+      <p>
+      Semantically, this is equivalent to the following loop:
+      </p>
+      {#code|test_switch_continue_equivalent.zig#}
+
+      <p>
+      This can improve clarity of (for example) state machines, where the syntax {#syntax#}continue :sw .next_state{#endsyntax#} is unambiguous, explicit, and immediately understandable.
+      </p>
+      <p>
+      However, the motivating example is a switch on each element of an array, where using a single switch can improve clarity and performance:
+      </p>
+      {#code|test_switch_dispatch_loop.zig#}
+
+      <p>
+      If the operand to {#syntax#}continue{#endsyntax#} is
+      {#link|comptime#}-known, then it can be lowered to an unconditional branch
+      to the relevant case. Such a branch is perfectly predicted, and hence
+      typically very fast to execute.
+      </p>
+
+      <p>
+      If the operand is runtime-known, each {#syntax#}continue{#endsyntax#} can
+      embed a conditional branch inline (ideally through a jump table), which
+      allows a CPU to predict its target independently of any other prong. A
+      loop-based lowering would force every branch through the same dispatch
+      point, hindering branch prediction.
+      </p>
+
 
       {#header_close#}
 
@@ -2996,32 +3052,6 @@ fn createFoo(param: i32) !Foo {
       The {#syntax#}errdefer{#endsyntax#} statement can optionally capture the error:
       </p>
       {#code|test_errdefer_capture.zig#}
-      {#header_close#}
-      {#header_open|Common errdefer Slip-Ups#}
-      <p>
-      It should be noted that {#syntax#}errdefer{#endsyntax#} statements only last until the end of the block
-      they are written in, and therefore are not run if an error is returned outside of that block:
-      </p>
-      {#code|test_errdefer_slip_ups.zig#}
-
-      <p>
-      To ensure that {#syntax#}deallocateFoo{#endsyntax#} is properly called
-      when returning an error, you must add an {#syntax#}errdefer{#endsyntax#} outside of the block:
-      </p>
-      {#code|test_errdefer_block.zig#}
-
-      <p>
-      The fact that errdefers only last for the block they are declared in is
-      especially important when using loops:
-      </p>
-      {#code|test_errdefer_loop_leak.zig#}
-
-      <p>
-      Special care must be taken with code that allocates in a loop
-      to make sure that no memory is leaked when returning an error:
-      </p>
-      {#code|test_errdefer_loop.zig#}
-
       {#header_close#}
       <p>
       A couple of other tidbits about error handling:
@@ -4169,11 +4199,10 @@ pub fn print(self: *Writer, arg0: []const u8, arg1: i32) !void {
       {#header_close#}
 
       {#header_open|Atomics#}
-      <p>TODO: @fence()</p>
       <p>TODO: @atomic rmw</p>
       <p>TODO: builtin atomic memory ordering enum</p>
 
-      {#see_also|@atomicLoad|@atomicStore|@atomicRmw|@fence|@cmpxchgWeak|@cmpxchgStrong#}
+      {#see_also|@atomicLoad|@atomicStore|@atomicRmw|@cmpxchgWeak|@cmpxchgStrong#}
 
       {#header_close#}
 
@@ -4258,7 +4287,7 @@ comptime {
       an integer or an enum.
       </p>
       <p>{#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicOrder{#endsyntax#}.</p>
-      {#see_also|@atomicStore|@atomicRmw|@fence|@cmpxchgWeak|@cmpxchgStrong#}
+      {#see_also|@atomicStore|@atomicRmw||@cmpxchgWeak|@cmpxchgStrong#}
       {#header_close#}
 
       {#header_open|@atomicRmw#}
@@ -4273,7 +4302,7 @@ comptime {
       </p>
       <p>{#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicOrder{#endsyntax#}.</p>
       <p>{#syntax#}AtomicRmwOp{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicRmwOp{#endsyntax#}.</p>
-      {#see_also|@atomicStore|@atomicLoad|@fence|@cmpxchgWeak|@cmpxchgStrong#}
+      {#see_also|@atomicStore|@atomicLoad|@cmpxchgWeak|@cmpxchgStrong#}
       {#header_close#}
 
       {#header_open|@atomicStore#}
@@ -4286,7 +4315,7 @@ comptime {
       an integer or an enum.
       </p>
       <p>{#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicOrder{#endsyntax#}.</p>
-      {#see_also|@atomicLoad|@atomicRmw|@fence|@cmpxchgWeak|@cmpxchgStrong#}
+      {#see_also|@atomicLoad|@atomicRmw|@cmpxchgWeak|@cmpxchgStrong#}
       {#header_close#}
 
       {#header_open|@bitCast#}
@@ -4299,7 +4328,7 @@ comptime {
       Asserts that {#syntax#}@sizeOf(@TypeOf(value)) == @sizeOf(DestType){#endsyntax#}.
       </p>
       <p>
-      Asserts that {#syntax#}@typeInfo(DestType) != .Pointer{#endsyntax#}. Use {#syntax#}@ptrCast{#endsyntax#} or {#syntax#}@ptrFromInt{#endsyntax#} if you need this.
+      Asserts that {#syntax#}@typeInfo(DestType) != .pointer{#endsyntax#}. Use {#syntax#}@ptrCast{#endsyntax#} or {#syntax#}@ptrFromInt{#endsyntax#} if you need this.
       </p>
       <p>
       Can be used for these things for example:
@@ -4338,6 +4367,13 @@ comptime {
       {#syntax#}comptime_int{#endsyntax#} and {#syntax#}type{#endsyntax#}, the result is {#syntax#}0{#endsyntax#}.
       </p>
       {#see_also|@sizeOf|@typeInfo#}
+      {#header_close#}
+
+      {#header_open|@branchHint#}
+      <pre>{#syntax#}@branchHint(hint: BranchHint) void{#endsyntax#}</pre>
+      <p>Hints to the optimizer how likely a given branch of control flow is to be reached.</p>
+      <p>{#syntax#}BranchHint{#endsyntax#} can be found with {#syntax#}@import("std").builtin.BranchHint{#endsyntax#}.</p>
+      <p>This function is only valid as the first statement in a control flow branch, or the first statement in a function.</p>
       {#header_close#}
 
       {#header_open|@breakpoint#}
@@ -4510,9 +4546,9 @@ comptime {
       {#syntax#}T{#endsyntax#} must be a pointer, a {#syntax#}bool{#endsyntax#}, a float,
       an integer or an enum.
       </p>
-      <p>{#syntax#}@typeInfo(@TypeOf(ptr)).Pointer.alignment{#endsyntax#} must be {#syntax#}>= @sizeOf(T).{#endsyntax#}</p>
+      <p>{#syntax#}@typeInfo(@TypeOf(ptr)).pointer.alignment{#endsyntax#} must be {#syntax#}>= @sizeOf(T).{#endsyntax#}</p>
       <p>{#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicOrder{#endsyntax#}.</p>
-      {#see_also|@atomicStore|@atomicLoad|@atomicRmw|@fence|@cmpxchgWeak#}
+      {#see_also|@atomicStore|@atomicLoad|@atomicRmw|@cmpxchgWeak#}
       {#header_close#}
 
       {#header_open|@cmpxchgWeak#}
@@ -4542,9 +4578,9 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#syntax#}T{#endsyntax#} must be a pointer, a {#syntax#}bool{#endsyntax#}, a float,
       an integer or an enum.
       </p>
-      <p>{#syntax#}@typeInfo(@TypeOf(ptr)).Pointer.alignment{#endsyntax#} must be {#syntax#}>= @sizeOf(T).{#endsyntax#}</p>
+      <p>{#syntax#}@typeInfo(@TypeOf(ptr)).pointer.alignment{#endsyntax#} must be {#syntax#}>= @sizeOf(T).{#endsyntax#}</p>
       <p>{#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicOrder{#endsyntax#}.</p>
-      {#see_also|@atomicStore|@atomicLoad|@atomicRmw|@fence|@cmpxchgStrong#}
+      {#see_also|@atomicStore|@atomicLoad|@atomicRmw|@cmpxchgStrong#}
       {#header_close#}
 
       {#header_open|@compileError#}
@@ -4561,7 +4597,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_close#}
 
       {#header_open|@compileLog#}
-      <pre>{#syntax#}@compileLog(args: ...) void{#endsyntax#}</pre>
+      <pre>{#syntax#}@compileLog(...) void{#endsyntax#}</pre>
       <p>
       This function prints the arguments passed to it at compile-time.
       </p>
@@ -4665,7 +4701,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       <p>
       Floored division. Rounds toward negative infinity. For unsigned integers it is
       the same as {#syntax#}numerator / denominator{#endsyntax#}. Caller guarantees {#syntax#}denominator != 0{#endsyntax#} and
-              {#syntax#}!(@typeInfo(T) == .Int and T.is_signed and numerator == std.math.minInt(T) and denominator == -1){#endsyntax#}.
+              {#syntax#}!(@typeInfo(T) == .int and T.is_signed and numerator == std.math.minInt(T) and denominator == -1){#endsyntax#}.
       </p>
       <ul>
           <li>{#syntax#}@divFloor(-5, 3) == -2{#endsyntax#}</li>
@@ -4679,7 +4715,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       <p>
       Truncated division. Rounds toward zero. For unsigned integers it is
       the same as {#syntax#}numerator / denominator{#endsyntax#}. Caller guarantees {#syntax#}denominator != 0{#endsyntax#} and
-              {#syntax#}!(@typeInfo(T) == .Int and T.is_signed and numerator == std.math.minInt(T) and denominator == -1){#endsyntax#}.
+              {#syntax#}!(@typeInfo(T) == .int and T.is_signed and numerator == std.math.minInt(T) and denominator == -1){#endsyntax#}.
       </p>
       <ul>
           <li>{#syntax#}@divTrunc(-5, 3) == -1{#endsyntax#}</li>
@@ -4710,10 +4746,10 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       Converts an integer into an {#link|enum#} value. The return type is the inferred result type.
       </p>
       <p>
-      Attempting to convert an integer with no corresponding value in the enum invokes 
+      Attempting to convert an integer with no corresponding value in the enum invokes
       safety-checked {#link|Undefined Behavior#}.
       Note that a {#link|non-exhaustive enum|Non-exhaustive enum#} has corresponding values for all
-      integers in the enum's integer tag type: the {#syntax#}_{#endsyntax#} value represents all 
+      integers in the enum's integer tag type: the {#syntax#}_{#endsyntax#} value represents all
       the remaining unnamed integers in the enum's tag type.
       </p>
       {#see_also|@intFromEnum#}
@@ -4767,23 +4803,13 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_close#}
 
       {#header_open|@export#}
-      <pre>{#syntax#}@export(declaration, comptime options: std.builtin.ExportOptions) void{#endsyntax#}</pre>
-      <p>
-      Creates a symbol in the output object file.
-      </p>
-      <p>
-      <code>declaration</code> must be one of two things:
-      </p>
-      <ul>
-        <li>An identifier ({#syntax#}x{#endsyntax#}) identifying a {#link|function|Functions#} or a
-          {#link|variable|Container Level Variables#}.</li>
-        <li>Field access ({#syntax#}x.y{#endsyntax#}) looking up a {#link|function|Functions#} or a
-          {#link|variable|Container Level Variables#}.</li>
-      </ul>
+      <pre>{#syntax#}@export(comptime ptr: *const anyopaque, comptime options: std.builtin.ExportOptions) void{#endsyntax#}</pre>
+      <p>Creates a symbol in the output object file which refers to the target of <code>ptr</code>.</p>
+      <p><code>ptr</code> must point to a global variable or a comptime-known constant.</p>
       <p>
       This builtin can be called from a {#link|comptime#} block to conditionally export symbols.
-      When <code>declaration</code> is a function with the C calling convention and
-      {#syntax#}options.linkage{#endsyntax#} is {#syntax#}Strong{#endsyntax#}, this is equivalent to
+      When <code>ptr</code> points to a function with the C calling convention and
+      {#syntax#}options.linkage{#endsyntax#} is {#syntax#}.Strong{#endsyntax#}, this is equivalent to
       the {#syntax#}export{#endsyntax#} keyword used on a function:
       </p>
       {#code|export_builtin.zig#}
@@ -4811,15 +4837,6 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#see_also|@export#}
       {#header_close#}
 
-      {#header_open|@fence#}
-      <pre>{#syntax#}@fence(order: AtomicOrder) void{#endsyntax#}</pre>
-      <p>
-      The {#syntax#}fence{#endsyntax#} function is used to introduce happens-before edges between operations.
-      </p>
-      <p>{#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicOrder{#endsyntax#}.</p>
-      {#see_also|@atomicStore|@atomicLoad|@atomicRmw|@cmpxchgWeak|@cmpxchgStrong#}
-      {#header_close#}
-
       {#header_open|@field#}
       <pre>{#syntax#}@field(lhs: anytype, comptime field_name: []const u8) (field){#endsyntax#}</pre>
       <p>Performs field access by a compile-time string. Works on both fields and declarations.
@@ -4833,6 +4850,13 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       <pre>{#syntax#}@fieldParentPtr(comptime field_name: []const u8, field_ptr: *T) anytype{#endsyntax#}</pre>
       <p>
       Given a pointer to a field, returns the base pointer of a struct.
+      </p>
+      {#header_close#}
+
+      {#header_open|@FieldType#}
+      <pre>{#syntax#}@FieldType(comptime Type: type, comptime field_name: []const u8) type{#endsyntax#}</pre>
+      <p>
+      Given a type and the name of one of its fields, returns the type of that field.
       </p>
       {#header_close#}
 
@@ -5018,12 +5042,12 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_close#}
 
       {#header_open|@max#}
-      <pre>{#syntax#}@max(a: T, b: T) T{#endsyntax#}</pre>
+      <pre>{#syntax#}@max(...) T{#endsyntax#}</pre>
       <p>
-      Returns the maximum value of {#syntax#}a{#endsyntax#} and {#syntax#}b{#endsyntax#}. This builtin accepts integers, floats, and vectors of either. In the latter case, the operation is performed element wise.
+      Takes two or more arguments and returns the biggest value included (the maximum). This builtin accepts integers, floats, and vectors of either. In the latter case, the operation is performed element wise.
       </p>
       <p>
-      NaNs are handled as follows: if one of the operands of a (pairwise) operation is NaN, the other operand is returned. If both operands are NaN, NaN is returned.
+      NaNs are handled as follows: return the biggest non-NaN value included. If all operands are NaN, return NaN.
       </p>
       {#see_also|@min|Vectors#}
       {#header_close#}
@@ -5057,12 +5081,12 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_close#}
 
       {#header_open|@min#}
-      <pre>{#syntax#}@min(a: T, b: T) T{#endsyntax#}</pre>
+      <pre>{#syntax#}@min(...) T{#endsyntax#}</pre>
       <p>
-      Returns the minimum value of {#syntax#}a{#endsyntax#} and {#syntax#}b{#endsyntax#}. This builtin accepts integers, floats, and vectors of either. In the latter case, the operation is performed element wise.
+      Takes two or more arguments and returns the smallest value included (the minimum). This builtin accepts integers, floats, and vectors of either. In the latter case, the operation is performed element wise.
       </p>
       <p>
-      NaNs are handled as follows: if one of the operands of a (pairwise) operation is NaN, the other operand is returned. If both operands are NaN, NaN is returned.
+      NaNs are handled as follows: return the smallest non-NaN value included. If all operands are NaN, return NaN.
       </p>
       {#see_also|@max|Vectors#}
       {#header_close#}
@@ -5245,22 +5269,6 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#see_also|Vectors#}
       {#header_close#}
 
-      {#header_open|@setAlignStack#}
-      <pre>{#syntax#}@setAlignStack(comptime alignment: u29) void{#endsyntax#}</pre>
-      <p>
-      Ensures that a function will have a stack alignment of at least {#syntax#}alignment{#endsyntax#} bytes.
-      </p>
-      {#header_close#}
-
-      {#header_open|@setCold#}
-      <pre>{#syntax#}@setCold(comptime is_cold: bool) void{#endsyntax#}</pre>
-      <p>
-      Tells the optimizer that the current function is (or is not) rarely called.
-
-      This function is only valid within function scope.
-      </p>
-      {#header_close#}
-
       {#header_open|@setEvalBranchQuota#}
       <pre>{#syntax#}@setEvalBranchQuota(comptime new_quota: u32) void{#endsyntax#}</pre>
       <p>
@@ -5332,8 +5340,8 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       any bits that disagree with the resultant sign bit are shifted out.
       </p>
       <p>
-      The type of {#syntax#}shift_amt{#endsyntax#} is an unsigned integer with {#syntax#}log2(@typeInfo(T).Int.bits){#endsyntax#} bits.
-              This is because {#syntax#}shift_amt >= @typeInfo(T).Int.bits{#endsyntax#} is undefined behavior.
+      The type of {#syntax#}shift_amt{#endsyntax#} is an unsigned integer with {#syntax#}log2(@typeInfo(T).int.bits){#endsyntax#} bits.
+              This is because {#syntax#}shift_amt >= @typeInfo(T).int.bits{#endsyntax#} is undefined behavior.
       </p>
       <p>
       {#syntax#}comptime_int{#endsyntax#} is modeled as an integer with an infinite number of bits,
@@ -5349,8 +5357,8 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       Performs {#syntax#}a << b{#endsyntax#} and returns a tuple with the result and a possible overflow bit.
       </p>
       <p>
-      The type of {#syntax#}shift_amt{#endsyntax#} is an unsigned integer with {#syntax#}log2(@typeInfo(@TypeOf(a)).Int.bits){#endsyntax#} bits.
-              This is because {#syntax#}shift_amt >= @typeInfo(@TypeOf(a)).Int.bits{#endsyntax#} is undefined behavior.
+      The type of {#syntax#}shift_amt{#endsyntax#} is an unsigned integer with {#syntax#}log2(@typeInfo(@TypeOf(a)).int.bits){#endsyntax#} bits.
+              This is because {#syntax#}shift_amt >= @typeInfo(@TypeOf(a)).int.bits{#endsyntax#} is undefined behavior.
       </p>
       {#see_also|@shlExact|@shrExact#}
       {#header_close#}
@@ -5362,8 +5370,8 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       that the shift will not shift any 1 bits out.
       </p>
       <p>
-      The type of {#syntax#}shift_amt{#endsyntax#} is an unsigned integer with {#syntax#}log2(@typeInfo(T).Int.bits){#endsyntax#} bits.
-              This is because {#syntax#}shift_amt >= @typeInfo(T).Int.bits{#endsyntax#} is undefined behavior.
+      The type of {#syntax#}shift_amt{#endsyntax#} is an unsigned integer with {#syntax#}log2(@typeInfo(T).int.bits){#endsyntax#} bits.
+              This is because {#syntax#}shift_amt >= @typeInfo(T).int.bits{#endsyntax#} is undefined behavior.
       </p>
       {#see_also|@shlExact|@shlWithOverflow#}
       {#header_close#}
@@ -5417,7 +5425,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       This size may contain padding bytes. If there were two consecutive T in memory, the padding would be the offset
       in bytes between element at index 0 and the element at index 1. For {#link|integer|Integers#},
       consider whether you want to use {#syntax#}@sizeOf(T){#endsyntax#} or
-      {#syntax#}@typeInfo(T).Int.bits{#endsyntax#}.
+      {#syntax#}@typeInfo(T).int.bits{#endsyntax#}.
       </p>
       <p>
       This function measures the size at runtime. For types that are disallowed at runtime, such as
@@ -5754,7 +5762,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_open|@TypeOf#}
       <pre>{#syntax#}@TypeOf(...) type{#endsyntax#}</pre>
       <p>
-      {#syntax#}@TypeOf{#endsyntax#} is a special builtin function that takes any (nonzero) number of expressions
+      {#syntax#}@TypeOf{#endsyntax#} is a special builtin function that takes any (non-zero) number of expressions
       as parameters and returns the type of the result, using {#link|Peer Type Resolution#}.
       </p>
       <p>
@@ -6205,10 +6213,12 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
           <li>Are you linking libc? In this case, {#syntax#}std.heap.c_allocator{#endsyntax#} is likely
               the right choice, at least for your main allocator.</li>
           <li>
+              Need to use the same allocator in multiple threads? Use one of your choice
+              wrapped around {#syntax#}std.heap.ThreadSafeAllocator{#endsyntax#}
+          </li>
+          <li>
               Is the maximum number of bytes that you will need bounded by a number known at
-              {#link|comptime#}? In this case, use {#syntax#}std.heap.FixedBufferAllocator{#endsyntax#} or
-              {#syntax#}std.heap.ThreadSafeFixedBufferAllocator{#endsyntax#} depending on whether you need
-              thread-safety or not.
+              {#link|comptime#}? In this case, use {#syntax#}std.heap.FixedBufferAllocator{#endsyntax#}.
           </li>
           <li>
               Is your program a command line application which runs from start to end without any fundamental

@@ -107,13 +107,90 @@ test "non const ptr to aliased type" {
     try expect(?*int == ?*i32);
 }
 
-test "cold function" {
-    thisIsAColdFn();
-    comptime thisIsAColdFn();
+test "function branch hints" {
+    const S = struct {
+        fn none() void {
+            @branchHint(.none);
+        }
+        fn likely() void {
+            @branchHint(.likely);
+        }
+        fn unlikely() void {
+            @branchHint(.unlikely);
+        }
+        fn cold() void {
+            @branchHint(.cold);
+        }
+        fn unpredictable() void {
+            @branchHint(.unpredictable);
+        }
+    };
+    S.none();
+    S.likely();
+    S.unlikely();
+    S.cold();
+    S.unpredictable();
+    comptime S.none();
+    comptime S.likely();
+    comptime S.unlikely();
+    comptime S.cold();
+    comptime S.unpredictable();
 }
 
-fn thisIsAColdFn() void {
-    @setCold(true);
+test "if branch hints" {
+    var t: bool = undefined;
+    t = true;
+    if (t) {
+        @branchHint(.likely);
+    } else {
+        @branchHint(.cold);
+    }
+}
+
+test "switch branch hints" {
+    var t: bool = undefined;
+    t = true;
+    switch (t) {
+        true => {
+            @branchHint(.likely);
+        },
+        false => {
+            @branchHint(.cold);
+        },
+    }
+}
+
+test "orelse branch hints" {
+    var x: ?u32 = undefined;
+    x = 123;
+    const val = x orelse val: {
+        @branchHint(.cold);
+        break :val 456;
+    };
+    try expect(val == 123);
+}
+
+test "catch branch hints" {
+    var x: error{Bad}!u32 = undefined;
+    x = 123;
+    const val = x catch val: {
+        @branchHint(.cold);
+        break :val 456;
+    };
+    try expect(val == 123);
+}
+
+test "and/or branch hints" {
+    var t: bool = undefined;
+    t = true;
+    try expect(t or b: {
+        @branchHint(.unlikely);
+        break :b false;
+    });
+    try expect(t and b: {
+        @branchHint(.likely);
+        break :b true;
+    });
 }
 
 test "unicode escape in character literal" {
@@ -734,7 +811,7 @@ test "extern variable with non-pointer opaque type" {
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
 
-    @export(var_to_export, .{ .name = "opaque_extern_var" });
+    @export(&var_to_export, .{ .name = "opaque_extern_var" });
     try expect(@as(*align(1) u32, @ptrCast(&opaque_extern_var)).* == 42);
 }
 extern var opaque_extern_var: opaque {};
@@ -1097,10 +1174,6 @@ test "arrays and vectors with big integers" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
-    // TODO: only aarch64-windows didn't pass in the PR that added this code.
-    //       figure out why if you can run this target.
-    if (builtin.os.tag == .windows and builtin.cpu.arch == .aarch64) return error.SkipZigTest;
-
     inline for (.{ u65528, u65529, u65535 }) |Int| {
         var a: [1]Int = undefined;
         a[0] = std.math.maxInt(Int);
@@ -1116,7 +1189,7 @@ test "pointer to struct literal with runtime field is constant" {
     var runtime_zero: usize = 0;
     _ = &runtime_zero;
     const ptr = &S{ .data = runtime_zero };
-    try expect(@typeInfo(@TypeOf(ptr)).Pointer.is_const);
+    try expect(@typeInfo(@TypeOf(ptr)).pointer.is_const);
 }
 
 fn testSignedCmp(comptime T: type) !void {
@@ -1183,6 +1256,7 @@ test "integer compare <= 64 bits" {
 
 test "integer compare <= 128 bits" {
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     inline for (.{ u65, u96, u127, u128 }) |T| {
         try testUnsignedCmp(T);
@@ -1212,7 +1286,7 @@ test "reference to inferred local variable works as expected" {
 
 test "@Type returned from block" {
     const T = comptime b: {
-        break :b @Type(.{ .Int = .{
+        break :b @Type(.{ .int = .{
             .signedness = .unsigned,
             .bits = 8,
         } });
@@ -1227,7 +1301,7 @@ test "comptime variable initialized with addresses of literals" {
     };
     _ = &st;
 
-    inline for (@typeInfo(@TypeOf(st)).Struct.fields) |field| {
+    inline for (@typeInfo(@TypeOf(st)).@"struct".fields) |field| {
         _ = field;
     }
 }
@@ -1244,12 +1318,12 @@ test "proper value is returned from labeled block" {
     const S = struct {
         fn hash(v: *u32, key: anytype) void {
             const Key = @TypeOf(key);
-            if (@typeInfo(Key) == .ErrorSet) {
+            if (@typeInfo(Key) == .error_set) {
                 v.* += 1;
                 return;
             }
             switch (@typeInfo(Key)) {
-                .ErrorUnion => blk: {
+                .error_union => blk: {
                     const payload = key catch |err| {
                         hash(v, err);
                         break :blk;
@@ -1348,10 +1422,7 @@ test "allocation and looping over 3-byte integer" {
     if (builtin.zig_backend == .stage2_llvm and builtin.os.tag == .macos) {
         return error.SkipZigTest; // TODO
     }
-
-    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .wasm32) {
-        return error.SkipZigTest; // TODO
-    }
+    if (builtin.cpu.arch == .s390x and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // TODO
 
     try expect(@sizeOf(u24) == 4);
     try expect(@sizeOf([1]u24) == 4);

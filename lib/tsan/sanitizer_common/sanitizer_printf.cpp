@@ -54,7 +54,7 @@ static int AppendNumber(char **buff, const char *buff_end, u64 absolute_value,
   uptr num_buffer[kMaxLen];
   int pos = 0;
   do {
-    RAW_CHECK_MSG((uptr)pos < kMaxLen, "AppendNumber buffer overflow");
+    RAW_CHECK_MSG((uptr)pos < kMaxLen, "AppendNumber buffer overflow",);
     num_buffer[pos++] = absolute_value % base;
     absolute_value /= base;
   } while (absolute_value > 0);
@@ -337,7 +337,14 @@ int internal_snprintf(char *buffer, uptr length, const char *format, ...) {
   return needed_length;
 }
 
-void InternalScopedString::append(const char *format, ...) {
+void InternalScopedString::Append(const char *str) {
+  uptr prev_len = length();
+  uptr str_len = internal_strlen(str);
+  buffer_.resize(prev_len + str_len + 1);
+  internal_memcpy(buffer_.data() + prev_len, str, str_len + 1);
+}
+
+void InternalScopedString::AppendF(const char *format, ...) {
   uptr prev_len = length();
 
   while (true) {

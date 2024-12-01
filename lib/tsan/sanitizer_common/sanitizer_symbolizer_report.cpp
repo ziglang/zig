@@ -28,14 +28,41 @@
 namespace __sanitizer {
 
 #if !SANITIZER_GO
+
+static bool FrameIsInternal(const SymbolizedStack *frame) {
+  if (!frame)
+    return true;
+  const char *file = frame->info.file;
+  const char *module = frame->info.module;
+  // On Gentoo, the path is g++-*, so there's *not* a missing /.
+  if (file && (internal_strstr(file, "/compiler-rt/lib/") ||
+               internal_strstr(file, "/include/c++/") ||
+               internal_strstr(file, "/include/g++")))
+    return true;
+  if (file && internal_strstr(file, "\\compiler-rt\\lib\\"))
+    return true;
+  if (module && (internal_strstr(module, "libclang_rt.")))
+    return true;
+  if (module && (internal_strstr(module, "clang_rt.")))
+    return true;
+  return false;
+}
+
+const SymbolizedStack *SkipInternalFrames(const SymbolizedStack *frames) {
+  for (const SymbolizedStack *f = frames; f; f = f->next)
+    if (!FrameIsInternal(f))
+      return f;
+  return nullptr;
+}
+
 void ReportErrorSummary(const char *error_type, const AddressInfo &info,
                         const char *alt_tool_name) {
   if (!common_flags()->print_summary) return;
   InternalScopedString buff;
-  buff.append("%s ", error_type);
-  RenderFrame(&buff, "%L %F", 0, info.address, &info,
-              common_flags()->symbolize_vs_style,
-              common_flags()->strip_path_prefix);
+  buff.AppendF("%s ", error_type);
+  StackTracePrinter::GetOrInit()->RenderFrame(
+      &buff, "%L %F", 0, info.address, &info,
+      common_flags()->symbolize_vs_style, common_flags()->strip_path_prefix);
   ReportErrorSummary(buff.data(), alt_tool_name);
 }
 #endif
@@ -75,16 +102,33 @@ void ReportErrorSummary(const char *error_type, const StackTrace *stack,
 #if !SANITIZER_GO
   if (!common_flags()->print_summary)
     return;
-  if (stack->size == 0) {
-    ReportErrorSummary(error_type);
-    return;
+
+  // Find first non-internal stack frame.
+  for (uptr i = 0; i < stack->size; ++i) {
+    uptr pc = StackTrace::GetPreviousInstructionPc(stack->trace[i]);
+    SymbolizedStackHolder symbolized_stack(
+        Symbolizer::GetOrInit()->SymbolizePC(pc));
+    if (const SymbolizedStack *frame = symbolized_stack.get()) {
+      if (const SymbolizedStack *summary_frame = SkipInternalFrames(frame)) {
+        ReportErrorSummary(error_type, summary_frame->info, alt_tool_name);
+        return;
+      }
+    }
   }
-  // Currently, we include the first stack frame into the report summary.
-  // Maybe sometimes we need to choose another frame (e.g. skip memcpy/etc).
-  uptr pc = StackTrace::GetPreviousInstructionPc(stack->trace[0]);
-  SymbolizedStack *frame = Symbolizer::GetOrInit()->SymbolizePC(pc);
-  ReportErrorSummary(error_type, frame->info, alt_tool_name);
-  frame->ClearAll();
+
+  // Fallback to the top one.
+  if (stack->size) {
+    uptr pc = StackTrace::GetPreviousInstructionPc(stack->trace[0]);
+    SymbolizedStackHolder symbolized_stack(
+        Symbolizer::GetOrInit()->SymbolizePC(pc));
+    if (const SymbolizedStack *frame = symbolized_stack.get()) {
+      ReportErrorSummary(error_type, frame->info, alt_tool_name);
+      return;
+    }
+  }
+
+  // Fallback to a summary without location.
+  ReportErrorSummary(error_type);
 #endif
 }
 
@@ -148,22 +192,22 @@ static void MaybeReportNonExecRegion(uptr pc) {
 static void PrintMemoryByte(InternalScopedString *str, const char *before,
                             u8 byte) {
   SanitizerCommonDecorator d;
-  str->append("%s%s%x%x%s ", before, d.MemoryByte(), byte >> 4, byte & 15,
-              d.Default());
+  str->AppendF("%s%s%x%x%s ", before, d.MemoryByte(), byte >> 4, byte & 15,
+               d.Default());
 }
 
 static void MaybeDumpInstructionBytes(uptr pc) {
   if (!common_flags()->dump_instruction_bytes || (pc < GetPageSizeCached()))
     return;
   InternalScopedString str;
-  str.append("First 16 instruction bytes at pc: ");
+  str.AppendF("First 16 instruction bytes at pc: ");
   if (IsAccessibleMemoryRange(pc, 16)) {
     for (int i = 0; i < 16; ++i) {
       PrintMemoryByte(&str, "", ((u8 *)pc)[i]);
     }
-    str.append("\n");
+    str.AppendF("\n");
   } else {
-    str.append("unaccessible\n");
+    str.AppendF("unaccessible\n");
   }
   Report("%s", str.data());
 }

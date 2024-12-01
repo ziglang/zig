@@ -11,7 +11,6 @@
 #define _LIBCPP___FILESYSTEM_U8PATH_H
 
 #include <__algorithm/unwrap_iter.h>
-#include <__availability>
 #include <__config>
 #include <__filesystem/path.h>
 #include <string>

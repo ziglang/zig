@@ -4,8 +4,8 @@ file: fs.File,
 symtab_cmd: macho.symtab_command = .{},
 uuid_cmd: macho.uuid_command = .{ .uuid = [_]u8{0} ** 16 },
 
-segments: std.ArrayListUnmanaged(macho.segment_command_64) = .{},
-sections: std.ArrayListUnmanaged(macho.section_64) = .{},
+segments: std.ArrayListUnmanaged(macho.segment_command_64) = .empty,
+sections: std.ArrayListUnmanaged(macho.section_64) = .empty,
 
 dwarf_segment_cmd_index: ?u8 = null,
 linkedit_segment_cmd_index: ?u8 = null,
@@ -19,11 +19,11 @@ debug_line_str_section_index: ?u8 = null,
 debug_loclists_section_index: ?u8 = null,
 debug_rnglists_section_index: ?u8 = null,
 
-relocs: std.ArrayListUnmanaged(Reloc) = .{},
+relocs: std.ArrayListUnmanaged(Reloc) = .empty,
 
 /// Output synthetic sections
-symtab: std.ArrayListUnmanaged(macho.nlist_64) = .{},
-strtab: std.ArrayListUnmanaged(u8) = .{},
+symtab: std.ArrayListUnmanaged(macho.nlist_64) = .empty,
+strtab: std.ArrayListUnmanaged(u8) = .empty,
 
 pub const Reloc = struct {
     type: enum {
@@ -105,9 +105,7 @@ pub fn growSection(
     const sect = self.getSectionPtr(sect_index);
 
     const allocated_size = self.allocatedSize(sect.offset);
-    if (sect.offset + allocated_size == std.math.maxInt(u64)) {
-        try self.file.setEndPos(sect.offset + needed_size);
-    } else if (needed_size > allocated_size) {
+    if (needed_size > allocated_size) {
         const existing_size = sect.size;
         sect.size = 0; // free the space
         const new_offset = try self.findFreeSpace(needed_size, 1);
@@ -130,6 +128,8 @@ pub fn growSection(
         }
 
         sect.offset = @intCast(new_offset);
+    } else if (sect.offset + allocated_size == std.math.maxInt(u64)) {
+        try self.file.setEndPos(sect.offset + needed_size);
     }
 
     sect.size = needed_size;

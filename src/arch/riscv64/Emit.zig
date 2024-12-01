@@ -2,7 +2,7 @@
 
 bin_file: *link.File,
 lower: Lower,
-debug_output: DebugInfoOutput,
+debug_output: link.File.DebugInfoOutput,
 code: *std.ArrayList(u8),
 
 prev_di_line: u32,
@@ -10,8 +10,8 @@ prev_di_column: u32,
 /// Relative to the beginning of `code`.
 prev_di_pc: usize,
 
-code_offset_mapping: std.AutoHashMapUnmanaged(Mir.Inst.Index, usize) = .{},
-relocs: std.ArrayListUnmanaged(Reloc) = .{},
+code_offset_mapping: std.AutoHashMapUnmanaged(Mir.Inst.Index, usize) = .empty,
+relocs: std.ArrayListUnmanaged(Reloc) = .empty,
 
 pub const Error = Lower.Error || error{
     EmitFail,
@@ -216,7 +216,6 @@ const log = std.log.scoped(.emit);
 const mem = std.mem;
 const std = @import("std");
 
-const DebugInfoOutput = @import("../../codegen.zig").DebugInfoOutput;
 const Emit = @This();
 const Lower = @import("Lower.zig");
 const Mir = @import("Mir.zig");

@@ -879,6 +879,7 @@ pub const Inst = struct {
         /// Probe adjust loop
         /// Uses `rr` payload.
         pseudo_probe_adjust_loop_rr,
+
         /// Push registers
         /// Uses `reg_list` payload.
         pseudo_push_reg_list,
@@ -886,13 +887,61 @@ pub const Inst = struct {
         /// Uses `reg_list` payload.
         pseudo_pop_reg_list,
 
+        /// Define cfa rule as offset from register.
+        /// Uses `ri` payload.
+        pseudo_cfi_def_cfa_ri_s,
+        /// Modify cfa rule register.
+        /// Uses `r` payload.
+        pseudo_cfi_def_cfa_register_r,
+        /// Modify cfa rule offset.
+        /// Uses `i` payload.
+        pseudo_cfi_def_cfa_offset_i_s,
+        /// Offset cfa rule offset.
+        /// Uses `i` payload.
+        pseudo_cfi_adjust_cfa_offset_i_s,
+        /// Define register rule as stored at offset from cfa.
+        /// Uses `ri` payload.
+        pseudo_cfi_offset_ri_s,
+        /// Define register rule as offset from cfa.
+        /// Uses `ri` payload.
+        pseudo_cfi_val_offset_ri_s,
+        /// Define register rule as stored at offset from cfa rule register.
+        /// Uses `ri` payload.
+        pseudo_cfi_rel_offset_ri_s,
+        /// Define register rule as register.
+        /// Uses `rr` payload.
+        pseudo_cfi_register_rr,
+        /// Define register rule from initial.
+        /// Uses `r` payload.
+        pseudo_cfi_restore_r,
+        /// Define register rule as undefined.
+        /// Uses `r` payload.
+        pseudo_cfi_undefined_r,
+        /// Define register rule as itself.
+        /// Uses `r` payload.
+        pseudo_cfi_same_value_r,
+        /// Push cfi state.
+        pseudo_cfi_remember_state_none,
+        /// Pop cfi state.
+        pseudo_cfi_restore_state_none,
+        /// Raw cfi bytes.
+        /// Uses `bytes` payload.
+        pseudo_cfi_escape_bytes,
+
         /// End of prologue
         pseudo_dbg_prologue_end_none,
-        /// Update debug line
+        /// Update debug line with is_stmt register set
+        /// Uses `line_column` payload.
+        pseudo_dbg_line_stmt_line_column,
+        /// Update debug line with is_stmt register clear
         /// Uses `line_column` payload.
         pseudo_dbg_line_line_column,
         /// Start of epilogue
         pseudo_dbg_epilogue_begin_none,
+        /// Start of lexical block
+        pseudo_dbg_enter_block_none,
+        /// End of lexical block
+        pseudo_dbg_leave_block_none,
         /// Start of inline function
         pseudo_dbg_enter_inline_func,
         /// End of inline function
@@ -1028,8 +1077,13 @@ pub const Inst = struct {
             fixes: Fixes = ._,
             payload: u32,
         },
-        ix: struct {
+        bytes: struct {
             payload: u32,
+            len: u32,
+
+            pub fn get(bytes: @This(), mir: Mir) []const u8 {
+                return std.mem.sliceAsBytes(mir.extra[bytes.payload..])[0..bytes.len];
+            }
         },
         a: struct {
             air_inst: Air.Inst.Index,
@@ -1138,8 +1192,8 @@ pub const Memory = struct {
     extra: u32,
 
     pub const Info = packed struct(u32) {
-        base: @typeInfo(bits.Memory.Base).Union.tag_type.?,
-        mod: @typeInfo(bits.Memory.Mod).Union.tag_type.?,
+        base: @typeInfo(bits.Memory.Base).@"union".tag_type.?,
+        mod: @typeInfo(bits.Memory.Mod).@"union".tag_type.?,
         size: bits.Memory.Size,
         index: Register,
         scale: bits.Memory.Scale,
@@ -1187,9 +1241,9 @@ pub const Memory = struct {
             .rm => {
                 if (mem.info.base == .reg and @as(Register, @enumFromInt(mem.base)) == .rip) {
                     assert(mem.info.index == .none and mem.info.scale == .@"1");
-                    return encoder.Instruction.Memory.rip(mem.info.size, @bitCast(mem.off));
+                    return encoder.Instruction.Memory.initRip(mem.info.size, @bitCast(mem.off));
                 }
-                return encoder.Instruction.Memory.sib(mem.info.size, .{
+                return encoder.Instruction.Memory.initSib(mem.info.size, .{
                     .disp = @bitCast(mem.off),
                     .base = switch (mem.info.base) {
                         .none => .none,
@@ -1211,7 +1265,7 @@ pub const Memory = struct {
             },
             .off => {
                 assert(mem.info.base == .reg);
-                return encoder.Instruction.Memory.moffs(
+                return encoder.Instruction.Memory.initMoffs(
                     @enumFromInt(mem.base),
                     @as(u64, mem.extra) << 32 | mem.off,
                 );

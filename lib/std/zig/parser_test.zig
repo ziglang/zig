@@ -107,15 +107,15 @@ test "zig fmt: respect line breaks before functions" {
     );
 }
 
-test "zig fmt: rewrite callconv(.Inline) to the inline keyword" {
+test "zig fmt: rewrite callconv(.@\"inline\") to the inline keyword" {
     try testTransform(
-        \\fn foo() callconv(.Inline) void {}
-        \\const bar = .Inline;
+        \\fn foo() callconv(.@"inline") void {}
+        \\const bar: @import("std").builtin.CallingConvention = .@"inline";
         \\fn foo() callconv(bar) void {}
         \\
     ,
         \\inline fn foo() void {}
-        \\const bar = .Inline;
+        \\const bar: @import("std").builtin.CallingConvention = .@"inline";
         \\fn foo() callconv(bar) void {}
         \\
     );
@@ -2548,7 +2548,7 @@ test "zig fmt: same-line comment after non-block if expression" {
 test "zig fmt: same-line comment on comptime expression" {
     try testCanonical(
         \\test "" {
-        \\    comptime assert(@typeInfo(T) == .Int); // must pass an integer to absInt
+        \\    comptime assert(@typeInfo(T) == .int); // must pass an integer to absInt
         \\}
         \\
     );
@@ -3062,7 +3062,7 @@ test "zig fmt: functions" {
         \\pub export fn puts(s: *const u8) align(2 + 2) c_int;
         \\pub inline fn puts(s: *const u8) align(2 + 2) c_int;
         \\pub noinline fn puts(s: *const u8) align(2 + 2) c_int;
-        \\pub fn callInlineFn(func: fn () callconv(.Inline) void) void {
+        \\pub fn callInlineFn(func: fn () callconv(.@"inline") void) void {
         \\    func();
         \\}
         \\
@@ -3083,6 +3083,22 @@ test "zig fmt: multiline string" {
         \\        \\three
         \\    ;
         \\}
+        \\
+    );
+}
+
+test "zig fmt: multiline string with CRLF line endings" {
+    try testTransform("" ++
+        "const s =\r\n" ++
+        "    \\\\one\r\n" ++
+        "    \\\\two)\r\n" ++
+        "    \\\\three\r\n" ++
+        ";\r\n",
+        \\const s =
+        \\    \\one
+        \\    \\two)
+        \\    \\three
+        \\;
         \\
     );
 }
@@ -4402,6 +4418,28 @@ test "zig fmt: invalid doc comments on comptime and test blocks" {
         .comptime_doc_comment,
         .test_doc_comment,
     });
+}
+
+test "zig fmt: comments with CRLF line endings" {
+    try testTransform("" ++
+        "//! Top-level doc comment\r\n" ++
+        "//! Continuing to another line\r\n" ++
+        "\r\n" ++
+        "/// Regular doc comment\r\n" ++
+        "const S = struct {\r\n" ++
+        "    // Regular comment\r\n" ++
+        "    // More content\r\n" ++
+        "};\r\n",
+        \\//! Top-level doc comment
+        \\//! Continuing to another line
+        \\
+        \\/// Regular doc comment
+        \\const S = struct {
+        \\    // Regular comment
+        \\    // More content
+        \\};
+        \\
+    );
 }
 
 test "zig fmt: else comptime expr" {

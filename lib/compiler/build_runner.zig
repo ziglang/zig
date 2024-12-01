@@ -280,6 +280,10 @@ pub fn main() !void {
                 builder.enable_darling = true;
             } else if (mem.eql(u8, arg, "-fno-darling")) {
                 builder.enable_darling = false;
+            } else if (mem.eql(u8, arg, "-fallow-so-scripts")) {
+                graph.allow_so_scripts = true;
+            } else if (mem.eql(u8, arg, "-fno-allow-so-scripts")) {
+                graph.allow_so_scripts = false;
             } else if (mem.eql(u8, arg, "-freference-trace")) {
                 builder.reference_trace = 256;
             } else if (mem.startsWith(u8, arg, "-freference-trace=")) {
@@ -336,7 +340,7 @@ pub fn main() !void {
     }
 
     if (graph.needed_lazy_dependencies.entries.len != 0) {
-        var buffer: std.ArrayListUnmanaged(u8) = .{};
+        var buffer: std.ArrayListUnmanaged(u8) = .empty;
         for (graph.needed_lazy_dependencies.keys()) |k| {
             try buffer.appendSlice(arena, k);
             try buffer.append(arena, '\n');
@@ -443,10 +447,7 @@ pub fn main() !void {
 
         if (!watch) return cleanExit();
 
-        switch (builtin.os.tag) {
-            .linux, .windows => {},
-            else => fatal("--watch not yet implemented for {s}", .{@tagName(builtin.os.tag)}),
-        }
+        if (!Watch.have_impl) fatal("--watch not yet implemented for {s}", .{@tagName(builtin.os.tag)});
 
         try w.update(gpa, run.step_stack.keys());
 
@@ -1173,7 +1174,7 @@ pub fn printErrorMessages(
     // Provide context for where these error messages are coming from by
     // printing the corresponding Step subtree.
 
-    var step_stack: std.ArrayListUnmanaged(*Step) = .{};
+    var step_stack: std.ArrayListUnmanaged(*Step) = .empty;
     defer step_stack.deinit(gpa);
     try step_stack.append(gpa, failing_step);
     while (step_stack.items[step_stack.items.len - 1].dependants.items.len != 0) {
@@ -1341,6 +1342,8 @@ fn usage(b: *std.Build, out_stream: anytype) !void {
         \\Advanced Options:
         \\  -freference-trace[=num]      How many lines of reference trace should be shown per compile error
         \\  -fno-reference-trace         Disable reference trace
+        \\  -fallow-so-scripts           Allows .so files to be GNU ld scripts
+        \\  -fno-allow-so-scripts        (default) .so files must be ELF files
         \\  --build-file [file]          Override path to build.zig
         \\  --cache-dir [path]           Override path to local Zig cache directory
         \\  --global-cache-dir [path]    Override path to global Zig cache directory

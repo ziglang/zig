@@ -32,7 +32,7 @@ pub fn readByteSigned(fbr: *FixedBufferReader) Error!i8 {
 }
 
 pub fn readInt(fbr: *FixedBufferReader, comptime T: type) Error!T {
-    const size = @divExact(@typeInfo(T).Int.bits, 8);
+    const size = @divExact(@typeInfo(T).int.bits, 8);
     if (fbr.buf.len - fbr.pos < size) return error.EndOfBuffer;
     defer fbr.pos += size;
     return std.mem.readInt(T, fbr.buf[fbr.pos..][0..size], fbr.endian);

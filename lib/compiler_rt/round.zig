@@ -15,15 +15,15 @@ const common = @import("common.zig");
 pub const panic = common.panic;
 
 comptime {
-    @export(__roundh, .{ .name = "__roundh", .linkage = common.linkage, .visibility = common.visibility });
-    @export(roundf, .{ .name = "roundf", .linkage = common.linkage, .visibility = common.visibility });
-    @export(round, .{ .name = "round", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__roundx, .{ .name = "__roundx", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__roundh, .{ .name = "__roundh", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&roundf, .{ .name = "roundf", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&round, .{ .name = "round", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__roundx, .{ .name = "__roundx", .linkage = common.linkage, .visibility = common.visibility });
     if (common.want_ppc_abi) {
-        @export(roundq, .{ .name = "roundf128", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&roundq, .{ .name = "roundf128", .linkage = common.linkage, .visibility = common.visibility });
     }
-    @export(roundq, .{ .name = "roundq", .linkage = common.linkage, .visibility = common.visibility });
-    @export(roundl, .{ .name = "roundl", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&roundq, .{ .name = "roundq", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&roundl, .{ .name = "roundl", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 pub fn __roundh(x: f16) callconv(.C) f16 {
@@ -142,7 +142,7 @@ pub fn roundq(x_: f128) callconv(.C) f128 {
 }
 
 pub fn roundl(x: c_longdouble) callconv(.C) c_longdouble {
-    switch (@typeInfo(c_longdouble).Float.bits) {
+    switch (@typeInfo(c_longdouble).float.bits) {
         16 => return __roundh(x),
         32 => return roundf(x),
         64 => return round(x),

@@ -222,7 +222,7 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
                 if (!checkRef(data.un_op, zcu)) return false;
             },
 
-            .br => {
+            .br, .switch_dispatch => {
                 if (!checkRef(data.br.operand, zcu)) return false;
             },
 
@@ -272,7 +272,7 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
                 const elems_len: usize = @intCast(ty.arrayLen(zcu));
                 const elems: []const Air.Inst.Ref = @ptrCast(air.extra[data.ty_pl.payload..][0..elems_len]);
                 if (!checkType(ty, zcu)) return false;
-                if (ty.zigTypeTag(zcu) == .Struct) {
+                if (ty.zigTypeTag(zcu) == .@"struct") {
                     for (elems, 0..) |elem, elem_idx| {
                         if (ty.structFieldIsComptime(elem_idx, zcu)) continue;
                         if (!checkRef(elem, zcu)) return false;
@@ -344,7 +344,7 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
                 if (!checkRef(data.pl_op.operand, zcu)) return false;
             },
 
-            .@"try" => {
+            .@"try", .try_cold => {
                 const extra = air.extraData(Air.Try, data.pl_op.payload);
                 if (!checkRef(data.pl_op.operand, zcu)) return false;
                 if (!checkBody(
@@ -354,7 +354,7 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
                 )) return false;
             },
 
-            .try_ptr => {
+            .try_ptr, .try_ptr_cold => {
                 const extra = air.extraData(Air.TryPtr, data.ty_pl.payload);
                 if (!checkType(data.ty_pl.ty.toType(), zcu)) return false;
                 if (!checkRef(extra.data.ptr, zcu)) return false;
@@ -380,28 +380,19 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
                 )) return false;
             },
 
-            .switch_br => {
-                const extra = air.extraData(Air.SwitchBr, data.pl_op.payload);
-                if (!checkRef(data.pl_op.operand, zcu)) return false;
-                var extra_index = extra.end;
-                for (0..extra.data.cases_len) |_| {
-                    const case = air.extraData(Air.SwitchBr.Case, extra_index);
-                    extra_index = case.end;
-                    const items: []const Air.Inst.Ref = @ptrCast(air.extra[extra_index..][0..case.data.items_len]);
-                    extra_index += case.data.items_len;
-                    for (items) |item| if (!checkRef(item, zcu)) return false;
-                    if (!checkBody(
-                        air,
-                        @ptrCast(air.extra[extra_index..][0..case.data.body_len]),
-                        zcu,
-                    )) return false;
-                    extra_index += case.data.body_len;
+            .switch_br, .loop_switch_br => {
+                const switch_br = air.unwrapSwitch(inst);
+                if (!checkRef(switch_br.operand, zcu)) return false;
+                var it = switch_br.iterateCases();
+                while (it.next()) |case| {
+                    for (case.items) |item| if (!checkRef(item, zcu)) return false;
+                    for (case.ranges) |range| {
+                        if (!checkRef(range[0], zcu)) return false;
+                        if (!checkRef(range[1], zcu)) return false;
+                    }
+                    if (!checkBody(air, case.body, zcu)) return false;
                 }
-                if (!checkBody(
-                    air,
-                    @ptrCast(air.extra[extra_index..][0..extra.data.else_body_len]),
-                    zcu,
-                )) return false;
+                if (!checkBody(air, it.elseBody(), zcu)) return false;
             },
 
             .assembly => {
@@ -425,10 +416,11 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
             .work_item_id,
             .work_group_size,
             .work_group_id,
-            .fence,
             .dbg_stmt,
+            .dbg_empty_stmt,
             .err_return_trace,
             .save_err_return_trace_index,
+            .repeat,
             => {},
         }
     }
@@ -445,8 +437,10 @@ fn checkRef(ref: Air.Inst.Ref, zcu: *Zcu) bool {
     return checkVal(Value.fromInterned(ip_index), zcu);
 }
 
-fn checkVal(val: Value, zcu: *Zcu) bool {
-    if (!checkType(val.typeOf(zcu), zcu)) return false;
+pub fn checkVal(val: Value, zcu: *Zcu) bool {
+    const ty = val.typeOf(zcu);
+    if (!checkType(ty, zcu)) return false;
+    if (ty.toIntern() == .type_type and !checkType(val.toType(), zcu)) return false;
     // Check for lazy values
     switch (zcu.intern_pool.indexToKey(val.toIntern())) {
         .int => |int| switch (int.storage) {
@@ -459,38 +453,40 @@ fn checkVal(val: Value, zcu: *Zcu) bool {
     }
 }
 
-fn checkType(ty: Type, zcu: *Zcu) bool {
+pub fn checkType(ty: Type, zcu: *Zcu) bool {
     const ip = &zcu.intern_pool;
-    return switch (ty.zigTypeTag(zcu)) {
-        .Type,
-        .Void,
-        .Bool,
-        .NoReturn,
-        .Int,
-        .Float,
-        .ErrorSet,
-        .Enum,
-        .Opaque,
-        .Vector,
+    return switch (ty.zigTypeTagOrPoison(zcu) catch |err| switch (err) {
+        error.GenericPoison => return true,
+    }) {
+        .type,
+        .void,
+        .bool,
+        .noreturn,
+        .int,
+        .float,
+        .error_set,
+        .@"enum",
+        .@"opaque",
+        .vector,
         // These types can appear due to some dummy instructions Sema introduces and expects to be omitted by Liveness.
         // It's a little silly -- but fine, we'll return `true`.
-        .ComptimeFloat,
-        .ComptimeInt,
-        .Undefined,
-        .Null,
-        .EnumLiteral,
+        .comptime_float,
+        .comptime_int,
+        .undefined,
+        .null,
+        .enum_literal,
         => true,
 
-        .Frame,
-        .AnyFrame,
+        .frame,
+        .@"anyframe",
         => @panic("TODO Air.types_resolved.checkType async frames"),
 
-        .Optional => checkType(ty.childType(zcu), zcu),
-        .ErrorUnion => checkType(ty.errorUnionPayload(zcu), zcu),
-        .Pointer => checkType(ty.childType(zcu), zcu),
-        .Array => checkType(ty.childType(zcu), zcu),
+        .optional => checkType(ty.childType(zcu), zcu),
+        .error_union => checkType(ty.errorUnionPayload(zcu), zcu),
+        .pointer => checkType(ty.childType(zcu), zcu),
+        .array => checkType(ty.childType(zcu), zcu),
 
-        .Fn => {
+        .@"fn" => {
             const info = zcu.typeToFunc(ty).?;
             for (0..info.param_types.len) |i| {
                 const param_ty = info.param_types.get(ip)[i];
@@ -498,7 +494,7 @@ fn checkType(ty: Type, zcu: *Zcu) bool {
             }
             return checkType(Type.fromInterned(info.return_type), zcu);
         },
-        .Struct => switch (ip.indexToKey(ty.toIntern())) {
+        .@"struct" => switch (ip.indexToKey(ty.toIntern())) {
             .struct_type => {
                 const struct_obj = zcu.typeToStruct(ty).?;
                 return switch (struct_obj.layout) {
@@ -506,7 +502,7 @@ fn checkType(ty: Type, zcu: *Zcu) bool {
                     .auto, .@"extern" => struct_obj.flagsUnordered(ip).fully_resolved,
                 };
             },
-            .anon_struct_type => |tuple| {
+            .tuple_type => |tuple| {
                 for (0..tuple.types.len) |i| {
                     const field_is_comptime = tuple.values.get(ip)[i] != .none;
                     if (field_is_comptime) continue;
@@ -517,6 +513,6 @@ fn checkType(ty: Type, zcu: *Zcu) bool {
             },
             else => unreachable,
         },
-        .Union => return zcu.typeToUnion(ty).?.flagsUnordered(ip).status == .fully_resolved,
+        .@"union" => return zcu.typeToUnion(ty).?.flagsUnordered(ip).status == .fully_resolved,
     };
 }

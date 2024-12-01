@@ -202,6 +202,7 @@ const Writer = struct {
 
             .trap,
             .breakpoint,
+            .dbg_empty_stmt,
             .unreach,
             .ret_addr,
             .frame_addr,
@@ -296,12 +297,13 @@ const Writer = struct {
             .aggregate_init => try w.writeAggregateInit(s, inst),
             .union_init => try w.writeUnionInit(s, inst),
             .br => try w.writeBr(s, inst),
+            .switch_dispatch => try w.writeBr(s, inst),
+            .repeat => try w.writeRepeat(s, inst),
             .cond_br => try w.writeCondBr(s, inst),
-            .@"try" => try w.writeTry(s, inst),
-            .try_ptr => try w.writeTryPtr(s, inst),
-            .switch_br => try w.writeSwitchBr(s, inst),
+            .@"try", .try_cold => try w.writeTry(s, inst),
+            .try_ptr, .try_ptr_cold => try w.writeTryPtr(s, inst),
+            .loop_switch_br, .switch_br => try w.writeSwitchBr(s, inst),
             .cmpxchg_weak, .cmpxchg_strong => try w.writeCmpxchg(s, inst),
-            .fence => try w.writeFence(s, inst),
             .atomic_load => try w.writeAtomicLoad(s, inst),
             .prefetch => try w.writePrefetch(s, inst),
             .atomic_store_unordered => try w.writeAtomicStore(s, inst, .unordered),
@@ -428,10 +430,10 @@ const Writer = struct {
     }
 
     fn writeAggregateInit(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
-        const mod = w.pt.zcu;
+        const zcu = w.pt.zcu;
         const ty_pl = w.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const vector_ty = ty_pl.ty.toType();
-        const len = @as(usize, @intCast(vector_ty.arrayLen(mod)));
+        const len = @as(usize, @intCast(vector_ty.arrayLen(zcu)));
         const elements = @as([]const Air.Inst.Ref, @ptrCast(w.air.extra[ty_pl.payload..][0..len]));
 
         try w.writeType(s, vector_ty);
@@ -508,11 +510,11 @@ const Writer = struct {
     }
 
     fn writeSelect(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
-        const mod = w.pt.zcu;
+        const zcu = w.pt.zcu;
         const pl_op = w.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const extra = w.air.extraData(Air.Bin, pl_op.payload).data;
 
-        const elem_ty = w.typeOfIndex(inst).childType(mod);
+        const elem_ty = w.typeOfIndex(inst).childType(zcu);
         try w.writeType(s, elem_ty);
         try s.writeAll(", ");
         try w.writeOperand(s, inst, 0, pl_op.operand);
@@ -548,12 +550,6 @@ const Writer = struct {
         try w.writeOperand(s, inst, 1, extra.lhs);
         try s.writeAll(", ");
         try w.writeOperand(s, inst, 2, extra.rhs);
-    }
-
-    fn writeFence(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
-        const atomic_order = w.air.instructions.items(.data)[@intFromEnum(inst)].fence;
-
-        try s.print("{s}", .{@tagName(atomic_order)});
     }
 
     fn writeAtomicLoad(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
@@ -708,6 +704,11 @@ const Writer = struct {
         try w.writeOperand(s, inst, 0, br.operand);
     }
 
+    fn writeRepeat(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
+        const repeat = w.air.instructions.items(.data)[@intFromEnum(inst)].repeat;
+        try w.writeInstIndex(s, repeat.loop_inst, false);
+    }
+
     fn writeTry(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const pl_op = w.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const extra = w.air.extraData(Air.Try, pl_op.payload);
@@ -791,7 +792,14 @@ const Writer = struct {
 
         try w.writeOperand(s, inst, 0, pl_op.operand);
         if (w.skip_body) return s.writeAll(", ...");
-        try s.writeAll(", {\n");
+        try s.writeAll(",");
+        if (extra.data.branch_hints.true != .none) {
+            try s.print(" {s}", .{@tagName(extra.data.branch_hints.true)});
+        }
+        if (extra.data.branch_hints.then_cov != .none) {
+            try s.print(" {s}", .{@tagName(extra.data.branch_hints.then_cov)});
+        }
+        try s.writeAll(" {\n");
         const old_indent = w.indent;
         w.indent += 2;
 
@@ -806,7 +814,14 @@ const Writer = struct {
 
         try w.writeBody(s, then_body);
         try s.writeByteNTimes(' ', old_indent);
-        try s.writeAll("}, {\n");
+        try s.writeAll("},");
+        if (extra.data.branch_hints.false != .none) {
+            try s.print(" {s}", .{@tagName(extra.data.branch_hints.false)});
+        }
+        if (extra.data.branch_hints.else_cov != .none) {
+            try s.print(" {s}", .{@tagName(extra.data.branch_hints.else_cov)});
+        }
+        try s.writeAll(" {\n");
 
         if (liveness_condbr.else_deaths.len != 0) {
             try s.writeByteNTimes(' ', w.indent);
@@ -825,41 +840,46 @@ const Writer = struct {
     }
 
     fn writeSwitchBr(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
-        const pl_op = w.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
-        const switch_br = w.air.extraData(Air.SwitchBr, pl_op.payload);
+        const switch_br = w.air.unwrapSwitch(inst);
+
         const liveness = if (w.liveness) |liveness|
-            liveness.getSwitchBr(w.gpa, inst, switch_br.data.cases_len + 1) catch
+            liveness.getSwitchBr(w.gpa, inst, switch_br.cases_len + 1) catch
                 @panic("out of memory")
         else blk: {
-            const slice = w.gpa.alloc([]const Air.Inst.Index, switch_br.data.cases_len + 1) catch
+            const slice = w.gpa.alloc([]const Air.Inst.Index, switch_br.cases_len + 1) catch
                 @panic("out of memory");
             @memset(slice, &.{});
             break :blk Liveness.SwitchBrTable{ .deaths = slice };
         };
         defer w.gpa.free(liveness.deaths);
-        var extra_index: usize = switch_br.end;
-        var case_i: u32 = 0;
 
-        try w.writeOperand(s, inst, 0, pl_op.operand);
+        try w.writeOperand(s, inst, 0, switch_br.operand);
         if (w.skip_body) return s.writeAll(", ...");
         const old_indent = w.indent;
         w.indent += 2;
 
-        while (case_i < switch_br.data.cases_len) : (case_i += 1) {
-            const case = w.air.extraData(Air.SwitchBr.Case, extra_index);
-            const items = @as([]const Air.Inst.Ref, @ptrCast(w.air.extra[case.end..][0..case.data.items_len]));
-            const case_body: []const Air.Inst.Index = @ptrCast(w.air.extra[case.end + items.len ..][0..case.data.body_len]);
-            extra_index = case.end + case.data.items_len + case_body.len;
-
+        var it = switch_br.iterateCases();
+        while (it.next()) |case| {
             try s.writeAll(", [");
-            for (items, 0..) |item, item_i| {
+            for (case.items, 0..) |item, item_i| {
                 if (item_i != 0) try s.writeAll(", ");
                 try w.writeInstRef(s, item, false);
             }
-            try s.writeAll("] => {\n");
+            for (case.ranges, 0..) |range, range_i| {
+                if (range_i != 0 or case.items.len != 0) try s.writeAll(", ");
+                try w.writeInstRef(s, range[0], false);
+                try s.writeAll("...");
+                try w.writeInstRef(s, range[1], false);
+            }
+            try s.writeAll("] ");
+            const hint = switch_br.getHint(case.idx);
+            if (hint != .none) {
+                try s.print(".{s} ", .{@tagName(hint)});
+            }
+            try s.writeAll("=> {\n");
             w.indent += 2;
 
-            const deaths = liveness.deaths[case_i];
+            const deaths = liveness.deaths[case.idx];
             if (deaths.len != 0) {
                 try s.writeByteNTimes(' ', w.indent);
                 for (deaths, 0..) |operand, i| {
@@ -869,15 +889,20 @@ const Writer = struct {
                 try s.writeAll("\n");
             }
 
-            try w.writeBody(s, case_body);
+            try w.writeBody(s, case.body);
             w.indent -= 2;
             try s.writeByteNTimes(' ', w.indent);
             try s.writeAll("}");
         }
 
-        const else_body: []const Air.Inst.Index = @ptrCast(w.air.extra[extra_index..][0..switch_br.data.else_body_len]);
+        const else_body = it.elseBody();
         if (else_body.len != 0) {
-            try s.writeAll(", else => {\n");
+            try s.writeAll(", else ");
+            const hint = switch_br.getElseHint();
+            if (hint != .none) {
+                try s.print(".{s} ", .{@tagName(hint)});
+            }
+            try s.writeAll("=> {\n");
             w.indent += 2;
 
             const deaths = liveness.deaths[liveness.deaths.len - 1];
@@ -974,7 +999,7 @@ const Writer = struct {
     }
 
     fn typeOfIndex(w: *Writer, inst: Air.Inst.Index) Type {
-        const mod = w.pt.zcu;
-        return w.air.typeOfIndex(inst, &mod.intern_pool);
+        const zcu = w.pt.zcu;
+        return w.air.typeOfIndex(inst, &zcu.intern_pool);
     }
 };

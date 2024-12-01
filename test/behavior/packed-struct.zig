@@ -1186,9 +1186,9 @@ test "packed struct field pointer aligned properly" {
     };
 
     var f1: *align(16) Foo = @alignCast(@as(*align(1) Foo, @ptrCast(&Foo.buffer[0])));
-    try expect(@typeInfo(@TypeOf(f1)).Pointer.alignment == 16);
+    try expect(@typeInfo(@TypeOf(f1)).pointer.alignment == 16);
     try expect(@intFromPtr(f1) == @intFromPtr(&f1.a));
-    try expect(@typeInfo(@TypeOf(&f1.a)).Pointer.alignment == 16);
+    try expect(@typeInfo(@TypeOf(&f1.a)).pointer.alignment == 16);
 }
 
 test "load flag from packed struct in union" {
@@ -1296,4 +1296,24 @@ test "packed struct contains optional pointer" {
         a: ?*@This() = null,
     } = .{};
     try expect(foo.a == null);
+}
+
+test "packed struct equality" {
+    const Foo = packed struct {
+        a: u4,
+        b: u4,
+    };
+
+    const S = struct {
+        fn doTest(x: Foo, y: Foo) !void {
+            try expect(x == y);
+            try expect(!(x != y));
+        }
+    };
+
+    const x: Foo = .{ .a = 1, .b = 2 };
+    const y: Foo = .{ .b = 2, .a = 1 };
+
+    try S.doTest(x, y);
+    comptime try S.doTest(x, y);
 }

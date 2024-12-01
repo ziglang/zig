@@ -41,14 +41,13 @@ inline constexpr bool disable_sized_range = false;
 
 namespace ranges {
 namespace __size {
-void size(auto&)       = delete;
-void size(const auto&) = delete;
+void size() = delete;
 
 template <class _Tp>
 concept __size_enabled = !disable_sized_range<remove_cvref_t<_Tp>>;
 
 template <class _Tp>
-concept __member_size = __size_enabled<_Tp> && __workaround_52970<_Tp> && requires(_Tp&& __t) {
+concept __member_size = __size_enabled<_Tp> && requires(_Tp&& __t) {
   { _LIBCPP_AUTO_CAST(__t.size()) } -> __integer_like;
 };
 

@@ -868,8 +868,8 @@ fn parseManifest(arena: Allocator, source_bytes: []const u8) !Code {
 
     var mode: std.builtin.OptimizeMode = .Debug;
     var link_mode: ?std.builtin.LinkMode = null;
-    var link_objects: std.ArrayListUnmanaged([]const u8) = .{};
-    var additional_options: std.ArrayListUnmanaged([]const u8) = .{};
+    var link_objects: std.ArrayListUnmanaged([]const u8) = .empty;
+    var additional_options: std.ArrayListUnmanaged([]const u8) = .empty;
     var target_str: ?[]const u8 = null;
     var link_libc = false;
     var disable_cache = false;

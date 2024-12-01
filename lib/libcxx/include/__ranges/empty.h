@@ -29,7 +29,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 namespace ranges {
 namespace __empty {
 template <class _Tp>
-concept __member_empty = __workaround_52970<_Tp> && requires(_Tp&& __t) { bool(__t.empty()); };
+concept __member_empty = requires(_Tp&& __t) { bool(__t.empty()); };
 
 template <class _Tp>
 concept __can_invoke_size = !__member_empty<_Tp> && requires(_Tp&& __t) { ranges::size(__t); };

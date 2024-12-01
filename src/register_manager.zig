@@ -516,7 +516,7 @@ fn MockFunction(comptime Register: type) type {
     return struct {
         allocator: Allocator,
         register_manager: Register.RM = .{},
-        spilled: std.ArrayListUnmanaged(Register) = .{},
+        spilled: std.ArrayListUnmanaged(Register) = .empty,
 
         const Self = @This();
 

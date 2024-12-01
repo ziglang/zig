@@ -34,13 +34,13 @@ bases: Bases,
 /// Does not represent the order or amount of symbols in the file
 /// it is just useful for storing symbols. Some other symbols are in
 /// file_segments.
-syms: std.ArrayListUnmanaged(aout.Sym) = .{},
+syms: std.ArrayListUnmanaged(aout.Sym) = .empty,
 
 /// The plan9 a.out format requires segments of
 /// filenames to be deduplicated, so we use this map to
 /// de duplicate it. The value is the value of the path
 /// component
-file_segments: std.StringArrayHashMapUnmanaged(u16) = .{},
+file_segments: std.StringArrayHashMapUnmanaged(u16) = .empty,
 /// The value of a 'f' symbol increments by 1 every time, so that no 2 'f'
 /// symbols have the same value.
 file_segments_i: u16 = 1,
@@ -54,19 +54,19 @@ path_arena: std.heap.ArenaAllocator,
 /// If we group the decls by file, it makes it really easy to do this (put the symbol in the correct place)
 fn_nav_table: std.AutoArrayHashMapUnmanaged(
     Zcu.File.Index,
-    struct { sym_index: u32, functions: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, FnNavOutput) = .{} },
+    struct { sym_index: u32, functions: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, FnNavOutput) = .empty },
 ) = .{},
 /// the code is modified when relocated, so that is why it is mutable
-data_nav_table: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, []u8) = .{},
+data_nav_table: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, []u8) = .empty,
 /// When `updateExports` is called, we store the export indices here, to be used
 /// during flush.
-nav_exports: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, []u32) = .{},
+nav_exports: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, []u32) = .empty,
 
 lazy_syms: LazySymbolTable = .{},
 
-uavs: std.AutoHashMapUnmanaged(InternPool.Index, Atom.Index) = .{},
+uavs: std.AutoHashMapUnmanaged(InternPool.Index, Atom.Index) = .empty,
 
-relocs: std.AutoHashMapUnmanaged(Atom.Index, std.ArrayListUnmanaged(Reloc)) = .{},
+relocs: std.AutoHashMapUnmanaged(Atom.Index, std.ArrayListUnmanaged(Reloc)) = .empty,
 hdr: aout.ExecHdr = undefined,
 
 // relocs: std.
@@ -77,12 +77,12 @@ entry_val: ?u64 = null,
 got_len: usize = 0,
 // A list of all the free got indexes, so when making a new decl
 // don't make a new one, just use one from here.
-got_index_free_list: std.ArrayListUnmanaged(usize) = .{},
+got_index_free_list: std.ArrayListUnmanaged(usize) = .empty,
 
-syms_index_free_list: std.ArrayListUnmanaged(usize) = .{},
+syms_index_free_list: std.ArrayListUnmanaged(usize) = .empty,
 
-atoms: std.ArrayListUnmanaged(Atom) = .{},
-navs: std.AutoHashMapUnmanaged(InternPool.Nav.Index, NavMetadata) = .{},
+atoms: std.ArrayListUnmanaged(Atom) = .empty,
+navs: std.AutoHashMapUnmanaged(InternPool.Nav.Index, NavMetadata) = .empty,
 
 /// Indices of the three "special" symbols into atoms
 etext_edata_end_atom_indices: [3]?Atom.Index = .{ null, null, null },
@@ -152,7 +152,7 @@ pub const Atom = struct {
             return .{ .code_ptr = slice.ptr, .other = .{ .code_len = slice.len } };
         }
         fn getCode(self: CodePtr, plan9: *const Plan9) []u8 {
-            const zcu = plan9.base.comp.module.?;
+            const zcu = plan9.base.comp.zcu.?;
             const ip = &zcu.intern_pool;
             return if (self.code_ptr) |p| p[0..self.other.code_len] else blk: {
                 const nav_index = self.other.nav_index;
@@ -220,7 +220,7 @@ pub const DebugInfoOutput = struct {
 
 const NavMetadata = struct {
     index: Atom.Index,
-    exports: std.ArrayListUnmanaged(usize) = .{},
+    exports: std.ArrayListUnmanaged(usize) = .empty,
 
     fn getExport(m: NavMetadata, p9: *const Plan9, name: []const u8) ?usize {
         for (m.exports.items) |exp| {
@@ -304,7 +304,6 @@ pub fn createEmpty(
             .file = null,
             .disable_lld_caching = options.disable_lld_caching,
             .build_id = options.build_id,
-            .rpath_list = options.rpath_list,
         },
         .sixtyfour_bit = sixtyfour_bit,
         .bases = undefined,
@@ -317,8 +316,8 @@ pub fn createEmpty(
 
 fn putFn(self: *Plan9, nav_index: InternPool.Nav.Index, out: FnNavOutput) !void {
     const gpa = self.base.comp.gpa;
-    const mod = self.base.comp.module.?;
-    const file_scope = mod.navFileScopeIndex(nav_index);
+    const zcu = self.base.comp.zcu.?;
+    const file_scope = zcu.navFileScopeIndex(nav_index);
     const fn_map_res = try self.fn_nav_table.getOrPut(gpa, file_scope);
     if (fn_map_res.found_existing) {
         if (try fn_map_res.value_ptr.functions.fetchPut(gpa, nav_index, out)) |old_entry| {
@@ -326,7 +325,7 @@ fn putFn(self: *Plan9, nav_index: InternPool.Nav.Index, out: FnNavOutput) !void 
             gpa.free(old_entry.value.lineinfo);
         }
     } else {
-        const file = mod.fileByIndex(file_scope);
+        const file = zcu.fileByIndex(file_scope);
         const arena = self.path_arena.allocator();
         // each file gets a symbol
         fn_map_res.value_ptr.* = .{
@@ -391,10 +390,10 @@ pub fn updateFunc(self: *Plan9, pt: Zcu.PerThread, func_index: InternPool.Index,
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
 
-    const mod = pt.zcu;
-    const gpa = mod.gpa;
+    const zcu = pt.zcu;
+    const gpa = zcu.gpa;
     const target = self.base.comp.root_mod.resolved_target.result;
-    const func = mod.funcInfo(func_index);
+    const func = zcu.funcInfo(func_index);
 
     const atom_idx = try self.seeNav(pt, func.owner_nav);
 
@@ -413,7 +412,7 @@ pub fn updateFunc(self: *Plan9, pt: Zcu.PerThread, func_index: InternPool.Index,
     const res = try codegen.generateFunction(
         &self.base,
         pt,
-        mod.navSrcLoc(func.owner_nav),
+        zcu.navSrcLoc(func.owner_nav),
         func_index,
         air,
         liveness,
@@ -422,10 +421,7 @@ pub fn updateFunc(self: *Plan9, pt: Zcu.PerThread, func_index: InternPool.Index,
     );
     const code = switch (res) {
         .ok => try code_buffer.toOwnedSlice(),
-        .fail => |em| {
-            try mod.failed_codegen.put(gpa, func.owner_nav, em);
-            return;
-        },
+        .fail => |em| return zcu.failed_codegen.put(gpa, func.owner_nav, em),
     };
     self.getAtomPtr(atom_idx).code = .{
         .code_ptr = null,
@@ -457,21 +453,23 @@ pub fn updateNav(self: *Plan9, pt: Zcu.PerThread, nav_index: InternPool.Nav.Inde
         else => nav_val,
     };
 
-    if (nav_init.typeOf(zcu).hasRuntimeBits(pt)) {
+    if (nav_init.typeOf(zcu).hasRuntimeBits(zcu)) {
         const atom_idx = try self.seeNav(pt, nav_index);
 
         var code_buffer = std.ArrayList(u8).init(gpa);
         defer code_buffer.deinit();
         // TODO we need the symbol index for symbol in the table of locals for the containing atom
-        const res = try codegen.generateSymbol(&self.base, pt, zcu.navSrcLoc(nav_index), nav_init, &code_buffer, .none, .{
-            .parent_atom_index = @intCast(atom_idx),
-        });
+        const res = try codegen.generateSymbol(
+            &self.base,
+            pt,
+            zcu.navSrcLoc(nav_index),
+            nav_init,
+            &code_buffer,
+            .{ .atom_index = @intCast(atom_idx) },
+        );
         const code = switch (res) {
             .ok => code_buffer.items,
-            .fail => |em| {
-                try zcu.failed_codegen.put(gpa, nav_index, em);
-                return;
-            },
+            .fail => |em| return zcu.failed_codegen.put(gpa, nav_index, em),
         };
         try self.data_nav_table.ensureUnusedCapacity(gpa, 1);
         const duped_code = try gpa.dupe(u8, code);
@@ -607,7 +605,7 @@ pub fn flushModule(self: *Plan9, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
     defer assert(self.hdr.entry != 0x0);
 
     const pt: Zcu.PerThread = .{
-        .zcu = self.base.comp.module orelse return error.LinkingWithoutZigSourceUnimplemented,
+        .zcu = self.base.comp.zcu orelse return error.LinkingWithoutZigSourceUnimplemented,
         .tid = tid,
     };
 
@@ -933,7 +931,7 @@ fn addNavExports(
                 break;
             }
         }
-        const sym = .{
+        const sym: aout.Sym = .{
             .value = atom.offset.?,
             .type = atom.type.toGlobal(),
             .name = try gpa.dupe(u8, exp_name),
@@ -952,11 +950,11 @@ pub fn freeDecl(self: *Plan9, decl_index: InternPool.DeclIndex) void {
     const gpa = self.base.comp.gpa;
     // TODO audit the lifetimes of decls table entries. It's possible to get
     // freeDecl without any updateDecl in between.
-    const mod = self.base.comp.module.?;
-    const decl = mod.declPtr(decl_index);
-    const is_fn = decl.val.isFuncBody(mod);
+    const zcu = self.base.comp.zcu.?;
+    const decl = zcu.declPtr(decl_index);
+    const is_fn = decl.val.isFuncBody(zcu);
     if (is_fn) {
-        const symidx_and_submap = self.fn_decl_table.get(decl.getFileScope(mod)).?;
+        const symidx_and_submap = self.fn_decl_table.get(decl.getFileScope(zcu)).?;
         var submap = symidx_and_submap.functions;
         if (submap.fetchSwapRemove(decl_index)) |removed_entry| {
             gpa.free(removed_entry.value.code);
@@ -1116,7 +1114,7 @@ fn updateLazySymbolAtom(self: *Plan9, pt: Zcu.PerThread, sym: File.LazySymbol, a
         &required_alignment,
         &code_buffer,
         .none,
-        .{ .parent_atom_index = @as(Atom.Index, @intCast(atom_index)) },
+        .{ .atom_index = @intCast(atom_index) },
     );
     const code = switch (res) {
         .ok => code_buffer.items,
@@ -1256,8 +1254,8 @@ pub fn writeSym(self: *Plan9, w: anytype, sym: aout.Sym) !void {
 }
 
 pub fn writeSyms(self: *Plan9, buf: *std.ArrayList(u8)) !void {
-    const mod = self.base.comp.module.?;
-    const ip = &mod.intern_pool;
+    const zcu = self.base.comp.zcu.?;
+    const ip = &zcu.intern_pool;
     const writer = buf.writer();
     // write __GOT
     try self.writeSym(writer, self.syms.items[0]);
@@ -1284,7 +1282,7 @@ pub fn writeSyms(self: *Plan9, buf: *std.ArrayList(u8)) !void {
             try self.writeSym(writer, sym);
             if (self.nav_exports.get(nav_index)) |export_indices| {
                 for (export_indices) |export_idx| {
-                    const exp = mod.all_exports.items[export_idx];
+                    const exp = zcu.all_exports.items[export_idx];
                     if (nav_metadata.getExport(self, exp.opts.name.toSlice(ip))) |exp_i| {
                         try self.writeSym(writer, self.syms.items[exp_i]);
                     }
@@ -1323,7 +1321,7 @@ pub fn writeSyms(self: *Plan9, buf: *std.ArrayList(u8)) !void {
                 try self.writeSym(writer, sym);
                 if (self.nav_exports.get(nav_index)) |export_indices| {
                     for (export_indices) |export_idx| {
-                        const exp = mod.all_exports.items[export_idx];
+                        const exp = zcu.all_exports.items[export_idx];
                         if (nav_metadata.getExport(self, exp.opts.name.toSlice(ip))) |exp_i| {
                             const s = self.syms.items[exp_i];
                             if (mem.eql(u8, s.name, "_start"))
@@ -1373,21 +1371,21 @@ pub fn getNavVAddr(
     log.debug("getDeclVAddr for {}", .{nav.name.fmt(ip)});
     if (ip.indexToKey(nav.status.resolved.val) == .@"extern") {
         if (nav.name.eqlSlice("etext", ip)) {
-            try self.addReloc(reloc_info.parent_atom_index, .{
+            try self.addReloc(reloc_info.parent.atom_index, .{
                 .target = undefined,
                 .offset = reloc_info.offset,
                 .addend = reloc_info.addend,
                 .type = .special_etext,
             });
         } else if (nav.name.eqlSlice("edata", ip)) {
-            try self.addReloc(reloc_info.parent_atom_index, .{
+            try self.addReloc(reloc_info.parent.atom_index, .{
                 .target = undefined,
                 .offset = reloc_info.offset,
                 .addend = reloc_info.addend,
                 .type = .special_edata,
             });
         } else if (nav.name.eqlSlice("end", ip)) {
-            try self.addReloc(reloc_info.parent_atom_index, .{
+            try self.addReloc(reloc_info.parent.atom_index, .{
                 .target = undefined,
                 .offset = reloc_info.offset,
                 .addend = reloc_info.addend,
@@ -1400,7 +1398,7 @@ pub fn getNavVAddr(
     // otherwise, we just add a relocation
     const atom_index = try self.seeNav(pt, nav_index);
     // the parent_atom_index in this case is just the decl_index of the parent
-    try self.addReloc(reloc_info.parent_atom_index, .{
+    try self.addReloc(reloc_info.parent.atom_index, .{
         .target = atom_index,
         .offset = reloc_info.offset,
         .addend = reloc_info.addend,
@@ -1435,7 +1433,7 @@ pub fn lowerUav(
     gop.value_ptr.* = index;
     // we need to free name latex
     var code_buffer = std.ArrayList(u8).init(gpa);
-    const res = try codegen.generateSymbol(&self.base, pt, src_loc, val, &code_buffer, .{ .none = {} }, .{ .parent_atom_index = index });
+    const res = try codegen.generateSymbol(&self.base, pt, src_loc, val, &code_buffer, .{ .atom_index = index });
     const code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| return .{ .fail = em },
@@ -1459,7 +1457,7 @@ pub fn lowerUav(
 
 pub fn getUavVAddr(self: *Plan9, uav: InternPool.Index, reloc_info: link.File.RelocInfo) !u64 {
     const atom_index = self.uavs.get(uav).?;
-    try self.addReloc(reloc_info.parent_atom_index, .{
+    try self.addReloc(reloc_info.parent.atom_index, .{
         .target = atom_index,
         .offset = reloc_info.offset,
         .addend = reloc_info.addend,

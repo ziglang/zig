@@ -14,10 +14,6 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#ifndef __riscv_vector
-#error "Vector intrinsics require the vector extension."
-#endif
-
 #ifdef __cplusplus
 extern "C" {
 #endif

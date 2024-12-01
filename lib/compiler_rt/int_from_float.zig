@@ -4,8 +4,8 @@ const Log2Int = math.Log2Int;
 
 pub inline fn intFromFloat(comptime I: type, a: anytype) I {
     const F = @TypeOf(a);
-    const float_bits = @typeInfo(F).Float.bits;
-    const int_bits = @typeInfo(I).Int.bits;
+    const float_bits = @typeInfo(F).float.bits;
+    const int_bits = @typeInfo(I).int.bits;
     const rep_t = Int(.unsigned, float_bits);
     const sig_bits = math.floatMantissaBits(F);
     const exp_bits = math.floatExponentBits(F);
@@ -26,7 +26,7 @@ pub inline fn intFromFloat(comptime I: type, a: anytype) I {
     if (exponent < 0) return 0;
 
     // If the value is too large for the integer type, saturate.
-    switch (@typeInfo(I).Int.signedness) {
+    switch (@typeInfo(I).int.signedness) {
         .unsigned => {
             if (negative) return 0;
             if (@as(c_uint, @intCast(exponent)) >= @min(int_bits, max_exp)) return math.maxInt(I);
@@ -45,7 +45,7 @@ pub inline fn intFromFloat(comptime I: type, a: anytype) I {
         result = @as(I, @intCast(significand)) << @intCast(exponent - fractional_bits);
     }
 
-    if ((@typeInfo(I).Int.signedness == .signed) and negative)
+    if ((@typeInfo(I).int.signedness == .signed) and negative)
         return ~result +% 1;
     return result;
 }

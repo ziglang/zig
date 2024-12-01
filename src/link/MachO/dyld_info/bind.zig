@@ -17,8 +17,8 @@ pub const Entry = struct {
 };
 
 pub const Bind = struct {
-    entries: std.ArrayListUnmanaged(Entry) = .{},
-    buffer: std.ArrayListUnmanaged(u8) = .{},
+    entries: std.ArrayListUnmanaged(Entry) = .empty,
+    buffer: std.ArrayListUnmanaged(u8) = .empty,
 
     const Self = @This();
 
@@ -269,8 +269,8 @@ pub const Bind = struct {
 };
 
 pub const WeakBind = struct {
-    entries: std.ArrayListUnmanaged(Entry) = .{},
-    buffer: std.ArrayListUnmanaged(u8) = .{},
+    entries: std.ArrayListUnmanaged(Entry) = .empty,
+    buffer: std.ArrayListUnmanaged(u8) = .empty,
 
     const Self = @This();
 
@@ -511,9 +511,9 @@ pub const WeakBind = struct {
 };
 
 pub const LazyBind = struct {
-    entries: std.ArrayListUnmanaged(Entry) = .{},
-    buffer: std.ArrayListUnmanaged(u8) = .{},
-    offsets: std.ArrayListUnmanaged(u32) = .{},
+    entries: std.ArrayListUnmanaged(Entry) = .empty,
+    buffer: std.ArrayListUnmanaged(u8) = .empty,
+    offsets: std.ArrayListUnmanaged(u32) = .empty,
 
     const Self = @This();
 

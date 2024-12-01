@@ -329,9 +329,9 @@ test "empty array to slice" {
             const align_1: []align(1) u8 = empty;
             const align_4: []align(4) u8 = empty;
             const align_16: []align(16) u8 = empty;
-            try expect(1 == @typeInfo(@TypeOf(align_1)).Pointer.alignment);
-            try expect(4 == @typeInfo(@TypeOf(align_4)).Pointer.alignment);
-            try expect(16 == @typeInfo(@TypeOf(align_16)).Pointer.alignment);
+            try expect(1 == @typeInfo(@TypeOf(align_1)).pointer.alignment);
+            try expect(4 == @typeInfo(@TypeOf(align_4)).pointer.alignment);
+            try expect(16 == @typeInfo(@TypeOf(align_16)).pointer.alignment);
         }
     };
 
@@ -994,4 +994,12 @@ test "sentinel-terminated 0-length slices" {
     try expect(array_ptr[0] == 2);
     try expect(comptime_known_array_value[0] == 2);
     try expect(runtime_array_value[0] == 2);
+}
+
+test "peer slices keep abi alignment with empty struct" {
+    var cond: bool = undefined;
+    cond = false;
+    const slice = if (cond) &[1]u32{42} else &.{};
+    comptime assert(@TypeOf(slice) == []const u32);
+    try expect(slice.len == 0);
 }

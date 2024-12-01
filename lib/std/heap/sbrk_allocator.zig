@@ -7,15 +7,13 @@ const assert = std.debug.assert;
 
 pub fn SbrkAllocator(comptime sbrk: *const fn (n: usize) usize) type {
     return struct {
-        pub const vtable = Allocator.VTable{
+        pub const vtable: Allocator.VTable = .{
             .alloc = alloc,
             .resize = resize,
             .free = free,
         };
 
         pub const Error = Allocator.Error;
-
-        lock: std.Thread.Mutex = .{},
 
         const max_usize = math.maxInt(usize);
         const ushift = math.Log2Int(usize);

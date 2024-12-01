@@ -9,6 +9,10 @@
 #ifndef __CLANG_LIMITS_H
 #define __CLANG_LIMITS_H
 
+#if defined(__MVS__) && __has_include_next(<limits.h>)
+#include_next <limits.h>
+#else
+
 /* The system's limits.h may, in turn, try to #include_next GCC's limits.h.
    Avert this #include_next madness. */
 #if defined __GNUC__ && !defined _GCC_LIMITS_H_
@@ -122,4 +126,5 @@
 #define ULONG_LONG_MAX (__LONG_LONG_MAX__*2ULL+1ULL)
 #endif
 
+#endif /* __MVS__ */
 #endif /* __CLANG_LIMITS_H */

@@ -11,11 +11,11 @@ pub fn getAutoHashFn(comptime K: type, comptime Context: type) (fn (Context, K) 
     comptime {
         assert(@hasDecl(std, "StringHashMap")); // detect when the following message needs updated
         if (K == []const u8) {
-            @compileError("std.auto_hash.autoHash does not allow slices here (" ++
+            @compileError("std.hash.autoHash does not allow slices here (" ++
                 @typeName(K) ++
                 ") because the intent is unclear. " ++
                 "Consider using std.StringHashMap for hashing the contents of []const u8. " ++
-                "Alternatively, consider using std.auto_hash.hash or providing your own hash function instead.");
+                "Alternatively, consider using std.hash.autoHashStrat or providing your own hash function instead.");
         }
     }
 
@@ -139,10 +139,10 @@ pub fn verifyContext(
         var Context = RawContext;
         // Make sure the context is a namespace type which may have member functions
         switch (@typeInfo(Context)) {
-            .Struct, .Union, .Enum => {},
-            // Special-case .Opaque for a better error message
-            .Opaque => @compileError("Hash context must be a type with hash and eql member functions.  Cannot use " ++ @typeName(Context) ++ " because it is opaque.  Use a pointer instead."),
-            .Pointer => |ptr| {
+            .@"struct", .@"union", .@"enum" => {},
+            // Special-case .@"opaque" for a better error message
+            .@"opaque" => @compileError("Hash context must be a type with hash and eql member functions.  Cannot use " ++ @typeName(Context) ++ " because it is opaque.  Use a pointer instead."),
+            .pointer => |ptr| {
                 if (ptr.size != .One) {
                     @compileError("Hash context must be a type with hash and eql member functions.  Cannot use " ++ @typeName(Context) ++ " because it is not a single pointer.");
                 }
@@ -150,7 +150,7 @@ pub fn verifyContext(
                 allow_const_ptr = true;
                 allow_mutable_ptr = !ptr.is_const;
                 switch (@typeInfo(Context)) {
-                    .Struct, .Union, .Enum, .Opaque => {},
+                    .@"struct", .@"union", .@"enum", .@"opaque" => {},
                     else => @compileError("Hash context must be a type with hash and eql member functions.  Cannot use " ++ @typeName(Context)),
                 }
             },
@@ -179,8 +179,8 @@ pub fn verifyContext(
         if (@hasDecl(Context, "hash")) {
             const hash = Context.hash;
             const info = @typeInfo(@TypeOf(hash));
-            if (info == .Fn) {
-                const func = info.Fn;
+            if (info == .@"fn") {
+                const func = info.@"fn";
                 if (func.params.len != 2) {
                     errors = errors ++ lazy.err_invalid_hash_signature;
                 } else {
@@ -255,8 +255,8 @@ pub fn verifyContext(
         if (@hasDecl(Context, "eql")) {
             const eql = Context.eql;
             const info = @typeInfo(@TypeOf(eql));
-            if (info == .Fn) {
-                const func = info.Fn;
+            if (info == .@"fn") {
+                const func = info.@"fn";
                 const args_len = if (is_array) 4 else 3;
                 if (func.params.len != args_len) {
                     errors = errors ++ lazy.err_invalid_eql_signature;
@@ -401,7 +401,7 @@ pub fn HashMap(
                 @compileError("Context must be specified! Call initContext(allocator, ctx) instead.");
             }
             return .{
-                .unmanaged = .{},
+                .unmanaged = .empty,
                 .allocator = allocator,
                 .ctx = undefined, // ctx is zero-sized so this is safe.
             };
@@ -410,7 +410,7 @@ pub fn HashMap(
         /// Create a managed hash map with a context
         pub fn initContext(allocator: Allocator, ctx: Context) Self {
             return .{
-                .unmanaged = .{},
+                .unmanaged = .empty,
                 .allocator = allocator,
                 .ctx = ctx,
             };
@@ -691,7 +691,7 @@ pub fn HashMap(
         pub fn move(self: *Self) Self {
             self.unmanaged.pointer_stability.assertUnlocked();
             const result = self.*;
-            self.unmanaged = .{};
+            self.unmanaged = .empty;
             return result;
         }
 
@@ -721,6 +721,8 @@ pub fn HashMap(
 /// the price of handling size with u32, which should be reasonable enough
 /// for almost all uses.
 /// Deletions are achieved with tombstones.
+///
+/// Default initialization of this struct is deprecated; use `.empty` instead.
 pub fn HashMapUnmanaged(
     comptime K: type,
     comptime V: type,
@@ -761,6 +763,13 @@ pub fn HashMapUnmanaged(
         // This is purely empirical and not a /very smart magic constant™/.
         /// Capacity of the first grow when bootstrapping the hashmap.
         const minimal_capacity = 8;
+
+        /// A map containing no keys or values.
+        pub const empty: Self = .{
+            .metadata = null,
+            .size = 0,
+            .available = 0,
+        };
 
         // This hashmap is specially designed for sizes that fit in a u32.
         pub const Size = u32;
@@ -824,8 +833,8 @@ pub fn HashMapUnmanaged(
             }
 
             pub fn takeFingerprint(hash: Hash) FingerPrint {
-                const hash_bits = @typeInfo(Hash).Int.bits;
-                const fp_bits = @typeInfo(FingerPrint).Int.bits;
+                const hash_bits = @typeInfo(Hash).int.bits;
+                const fp_bits = @typeInfo(FingerPrint).int.bits;
                 return @as(FingerPrint, @truncate(hash >> (hash_bits - fp_bits)));
             }
 
@@ -1534,7 +1543,7 @@ pub fn HashMapUnmanaged(
             return self.cloneContext(allocator, @as(Context, undefined));
         }
         pub fn cloneContext(self: Self, allocator: Allocator, new_ctx: anytype) Allocator.Error!HashMapUnmanaged(K, V, @TypeOf(new_ctx), max_load_percentage) {
-            var other = HashMapUnmanaged(K, V, @TypeOf(new_ctx), max_load_percentage){};
+            var other: HashMapUnmanaged(K, V, @TypeOf(new_ctx), max_load_percentage) = .empty;
             if (self.size == 0)
                 return other;
 
@@ -1563,7 +1572,7 @@ pub fn HashMapUnmanaged(
         pub fn move(self: *Self) Self {
             self.pointer_stability.assertUnlocked();
             const result = self.*;
-            self.* = .{};
+            self.* = .empty;
             return result;
         }
 
@@ -1657,7 +1666,7 @@ pub fn HashMapUnmanaged(
         }
 
         fn grow(self: *Self, allocator: Allocator, new_capacity: Size, ctx: Context) Allocator.Error!void {
-            @setCold(true);
+            @branchHint(.cold);
             const new_cap = @max(new_capacity, minimal_capacity);
             assert(new_cap > self.capacity());
             assert(std.math.isPowerOfTwo(new_cap));
@@ -1683,7 +1692,7 @@ pub fn HashMapUnmanaged(
             }
 
             self.size = 0;
-            self.pointer_stability = .{ .state = .unlocked };
+            self.pointer_stability = .{};
             std.mem.swap(Self, self, &map);
             map.deinit(allocator);
         }
@@ -1758,9 +1767,11 @@ pub fn HashMapUnmanaged(
         }
 
         comptime {
-            if (!builtin.strip_debug_info) {
-                _ = &dbHelper;
-            }
+            if (!builtin.strip_debug_info) _ = switch (builtin.zig_backend) {
+                .stage2_llvm => &dbHelper,
+                .stage2_x86_64 => KV,
+                else => {},
+            };
         }
     };
 }
@@ -2349,7 +2360,7 @@ test "removeByPtr 0 sized key" {
 }
 
 test "repeat fetchRemove" {
-    var map = AutoHashMapUnmanaged(u64, void){};
+    var map: AutoHashMapUnmanaged(u64, void) = .empty;
     defer map.deinit(testing.allocator);
 
     try map.ensureTotalCapacity(testing.allocator, 4);
@@ -2373,7 +2384,7 @@ test "repeat fetchRemove" {
 }
 
 test "getOrPut allocation failure" {
-    var map: std.StringHashMapUnmanaged(void) = .{};
+    var map: std.StringHashMapUnmanaged(void) = .empty;
     try testing.expectError(error.OutOfMemory, map.getOrPut(std.testing.failing_allocator, "hello"));
 }
 

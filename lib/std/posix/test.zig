@@ -349,6 +349,7 @@ test "linkat with different directories" {
 }
 
 test "fstatat" {
+    if (builtin.cpu.arch == .riscv32 and builtin.os.tag == .linux and !builtin.link_libc) return error.SkipZigTest; // No `fstatat()`.
     // enable when `fstat` and `fstatat` are implemented on Windows
     if (native_os == .windows) return error.SkipZigTest;
 
@@ -367,6 +368,11 @@ test "fstatat" {
     // now repeat but using `fstatat` instead
     const flags = if (native_os == .wasi) 0x0 else posix.AT.SYMLINK_NOFOLLOW;
     const statat = try posix.fstatat(tmp.dir.fd, "file.txt", flags);
+
+    // s390x-linux does not have nanosecond precision for fstat(), but it does for fstatat(). As a
+    // result, comparing the two structures is doomed to fail.
+    if (builtin.cpu.arch == .s390x and builtin.os.tag == .linux) return error.SkipZigTest;
+
     try expectEqual(stat, statat);
 }
 
@@ -782,7 +788,7 @@ test "fsync" {
 test "getrlimit and setrlimit" {
     if (posix.system.rlimit_resource == void) return error.SkipZigTest;
 
-    inline for (@typeInfo(posix.rlimit_resource).Enum.fields) |field| {
+    inline for (@typeInfo(posix.rlimit_resource).@"enum".fields) |field| {
         const resource: posix.rlimit_resource = @enumFromInt(field.value);
         const limit = try posix.getrlimit(resource);
 
@@ -1264,6 +1270,9 @@ test "fchmodat smoke test" {
         0o644,
     );
     posix.close(fd);
+
+    if (builtin.cpu.arch == .riscv32 and builtin.os.tag == .linux and !builtin.link_libc) return error.SkipZigTest; // No `fstatat()`.
+
     try posix.symlinkat("regfile", tmp.dir.fd, "symlink");
     const sym_mode = blk: {
         const st = try posix.fstatat(tmp.dir.fd, "symlink", posix.AT.SYMLINK_NOFOLLOW);

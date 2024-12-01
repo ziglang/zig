@@ -40,26 +40,29 @@ pub extern var _mh_execute_header: mach_hdr;
 var dummy_execute_header: mach_hdr = undefined;
 comptime {
     if (native_os.isDarwin()) {
-        @export(dummy_execute_header, .{ .name = "_mh_execute_header", .linkage = .weak });
+        @export(&dummy_execute_header, .{ .name = "_mh_execute_header", .linkage = .weak });
     }
 }
 
-/// If not linking libc, returns false.
-/// If linking musl libc, returns true.
-/// If linking gnu libc (glibc), returns true if the target version is greater
-/// than or equal to `glibc_version`.
-/// If linking a libc other than these, returns `false`.
-pub inline fn versionCheck(comptime glibc_version: std.SemanticVersion) bool {
+/// * If not linking libc, returns `false`.
+/// * If linking musl libc, returns `true`.
+/// * If linking GNU libc (glibc), returns `true` if the target version is greater than or equal to
+///   `version`.
+/// * If linking Android libc (bionic), returns `true` if the target API level is greater than or
+///   equal to `version.major`, ignoring other components.
+/// * If linking a libc other than these, returns `false`.
+pub inline fn versionCheck(comptime version: std.SemanticVersion) bool {
     return comptime blk: {
         if (!builtin.link_libc) break :blk false;
         if (native_abi.isMusl()) break :blk true;
         if (builtin.target.isGnuLibC()) {
-            const ver = builtin.os.version_range.linux.glibc;
-            const order = ver.order(glibc_version);
-            break :blk switch (order) {
+            const ver = builtin.os.versionRange().gnuLibCVersion().?;
+            break :blk switch (ver.order(version)) {
                 .gt, .eq => true,
                 .lt => false,
             };
+        } else if (builtin.abi.isAndroid()) {
+            break :blk builtin.os.version_range.linux.android >= version.major;
         } else {
             break :blk false;
         }
@@ -134,7 +137,7 @@ pub const mode_t = switch (native_os) {
     .linux => linux.mode_t,
     .emscripten => emscripten.mode_t,
     .openbsd, .haiku, .netbsd, .solaris, .illumos, .wasi => u32,
-    .freebsd, .macos, .ios, .tvos, .watchos, .visionos => u16,
+    .freebsd, .macos, .ios, .tvos, .watchos, .visionos, .dragonfly => u16,
     else => u0,
 };
 
@@ -177,7 +180,7 @@ pub const passwd = switch (native_os) {
         dir: ?[*:0]const u8, // home directory
         shell: ?[*:0]const u8, // shell program
     },
-    .openbsd => extern struct {
+    .netbsd, .openbsd, .macos => extern struct {
         name: ?[*:0]const u8, // user name
         passwd: ?[*:0]const u8, // encrypted password
         uid: uid_t, // user uid
@@ -2753,6 +2756,19 @@ pub const Sigaction = switch (native_os) {
             restorer: ?*const fn () callconv(.C) void = null,
             __resv: [1]c_int = .{0},
         },
+        .s390x => if (builtin.abi == .gnu) extern struct {
+            pub const handler_fn = *align(1) const fn (i32) callconv(.C) void;
+            pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.C) void;
+
+            handler: extern union {
+                handler: ?handler_fn,
+                sigaction: ?sigaction_fn,
+            },
+            __glibc_reserved0: c_int = 0,
+            flags: c_uint,
+            restorer: ?*const fn () callconv(.C) void = null,
+            mask: sigset_t,
+        } else linux.Sigaction,
         else => linux.Sigaction,
     },
     .emscripten => emscripten.Sigaction,
@@ -3136,6 +3152,72 @@ pub const T = switch (native_os) {
         pub const IOCSWINSZ = 0x80087467;
         pub const IOCUCNTL = 0x80047466;
         pub const IOCXMTFRAME = 0x80087444;
+    },
+    .dragonfly => struct {
+        pub const IOCMODG = 0x40047403;
+        pub const IOCMODS = 0x80047404;
+        pub const IOCM_LE = 0x00000001;
+        pub const IOCM_DTR = 0x00000002;
+        pub const IOCM_RTS = 0x00000004;
+        pub const IOCM_ST = 0x00000008;
+        pub const IOCM_SR = 0x00000010;
+        pub const IOCM_CTS = 0x00000020;
+        pub const IOCM_CAR = 0x00000040;
+        pub const IOCM_CD = 0x00000040;
+        pub const IOCM_RNG = 0x00000080;
+        pub const IOCM_RI = 0x00000080;
+        pub const IOCM_DSR = 0x00000100;
+        pub const IOCEXCL = 0x2000740d;
+        pub const IOCNXCL = 0x2000740e;
+        pub const IOCFLUSH = 0x80047410;
+        pub const IOCGETA = 0x402c7413;
+        pub const IOCSETA = 0x802c7414;
+        pub const IOCSETAW = 0x802c7415;
+        pub const IOCSETAF = 0x802c7416;
+        pub const IOCGETD = 0x4004741a;
+        pub const IOCSETD = 0x8004741b;
+        pub const IOCSBRK = 0x2000747b;
+        pub const IOCCBRK = 0x2000747a;
+        pub const IOCSDTR = 0x20007479;
+        pub const IOCCDTR = 0x20007478;
+        pub const IOCGPGRP = 0x40047477;
+        pub const IOCSPGRP = 0x80047476;
+        pub const IOCOUTQ = 0x40047473;
+        pub const IOCSTI = 0x80017472;
+        pub const IOCNOTTY = 0x20007471;
+        pub const IOCPKT = 0x80047470;
+        pub const IOCPKT_DATA = 0x00000000;
+        pub const IOCPKT_FLUSHREAD = 0x00000001;
+        pub const IOCPKT_FLUSHWRITE = 0x00000002;
+        pub const IOCPKT_STOP = 0x00000004;
+        pub const IOCPKT_START = 0x00000008;
+        pub const IOCPKT_NOSTOP = 0x00000010;
+        pub const IOCPKT_DOSTOP = 0x00000020;
+        pub const IOCPKT_IOCTL = 0x00000040;
+        pub const IOCSTOP = 0x2000746f;
+        pub const IOCSTART = 0x2000746e;
+        pub const IOCMSET = 0x8004746d;
+        pub const IOCMBIS = 0x8004746c;
+        pub const IOCMBIC = 0x8004746b;
+        pub const IOCMGET = 0x4004746a;
+        pub const IOCREMOTE = 0x80047469;
+        pub const IOCGWINSZ = 0x40087468;
+        pub const IOCSWINSZ = 0x80087467;
+        pub const IOCUCNTL = 0x80047466;
+        pub const IOCSTAT = 0x20007465;
+        pub const IOCGSID = 0x40047463;
+        pub const IOCCONS = 0x80047462;
+        pub const IOCSCTTY = 0x20007461;
+        pub const IOCEXT = 0x80047460;
+        pub const IOCSIG = 0x2000745f;
+        pub const IOCDRAIN = 0x2000745e;
+        pub const IOCMSDTRWAIT = 0x8004745b;
+        pub const IOCMGDTRWAIT = 0x4004745a;
+        pub const IOCTIMESTAMP = 0x40107459;
+        pub const IOCDCDTIMESTAMP = 0x40107458;
+        pub const IOCSDRAINWAIT = 0x80047457;
+        pub const IOCGDRAINWAIT = 0x40047456;
+        pub const IOCISPTMASTER = 0x20007455;
     },
     else => void,
 };
@@ -5938,6 +6020,13 @@ pub const utsname = switch (native_os) {
         machine: [256:0]u8,
         domainname: [256:0]u8,
     },
+    .macos => extern struct {
+        sysname: [256:0]u8,
+        nodename: [256:0]u8,
+        release: [256:0]u8,
+        version: [256:0]u8,
+        machine: [256:0]u8,
+    },
     else => void,
 };
 pub const PR = switch (native_os) {
@@ -5946,7 +6035,7 @@ pub const PR = switch (native_os) {
 };
 pub const _errno = switch (native_os) {
     .linux => switch (native_abi) {
-        .android => private.__errno,
+        .android, .androideabi => private.__errno,
         else => private.__errno_location,
     },
     .emscripten => private.__errno_location,
@@ -6389,14 +6478,14 @@ pub const Stat = switch (native_os) {
                 return self.ctim;
             }
         } else extern struct {
-            dev: dev_t,
+            dev: u32,
             __pad0: [3]u32,
             ino: ino_t,
             mode: mode_t,
             nlink: nlink_t,
             uid: uid_t,
             gid: gid_t,
-            rdev: dev_t,
+            rdev: u32,
             __pad1: [3]u32,
             size: off_t,
             atim: timespec,
@@ -6750,11 +6839,11 @@ pub const pthread_mutex_t = switch (native_os) {
             .musl, .musleabi, .musleabihf => if (@sizeOf(usize) == 8) 40 else 24,
             .gnu, .gnuabin32, .gnuabi64, .gnueabi, .gnueabihf, .gnux32 => switch (native_arch) {
                 .aarch64 => 48,
-                .x86_64 => if (native_abi == .gnux32) 40 else 32,
+                .x86_64 => if (native_abi == .gnux32) 32 else 40,
                 .mips64, .powerpc64, .powerpc64le, .sparc64 => 40,
                 else => if (@sizeOf(usize) == 8) 40 else 24,
             },
-            .android => if (@sizeOf(usize) == 8) 40 else 4,
+            .android, .androideabi => if (@sizeOf(usize) == 8) 40 else 4,
             else => @compileError("unsupported ABI"),
         };
     },
@@ -6848,7 +6937,7 @@ pub const pthread_cond_t = switch (native_os) {
 
 pub const pthread_rwlock_t = switch (native_os) {
     .linux => switch (native_abi) {
-        .android => switch (@sizeOf(usize)) {
+        .android, .androideabi => switch (@sizeOf(usize)) {
             4 => extern struct {
                 data: [40]u8 align(@alignOf(usize)) = [_]u8{0} ** 40,
             },
@@ -6938,6 +7027,7 @@ pub const pthread_attr_t = switch (native_os) {
 
 pub const pthread_key_t = switch (native_os) {
     .linux, .emscripten => c_uint,
+    .macos, .ios, .tvos, .watchos, .visionos => c_ulong,
     .openbsd, .solaris, .illumos => c_int,
     else => void,
 };
@@ -8723,7 +8813,7 @@ pub const NOTE = switch (native_os) {
         pub const EXIT_DETAIL = 0x02000000;
         /// mask for signal & exit status
         pub const PDATAMASK = 0x000fffff;
-        pub const PCTRLMASK = (~PDATAMASK);
+        pub const PCTRLMASK = 0xf0000000;
         pub const EXIT_DETAIL_MASK = 0x00070000;
         pub const EXIT_DECRYPTFAIL = 0x00010000;
         pub const EXIT_MEMORY = 0x00020000;
@@ -8857,7 +8947,7 @@ pub const NOTE = switch (native_os) {
         pub const EXEC = 0x20000000;
         /// mask for signal & exit status
         pub const PDATAMASK = 0x000fffff;
-        pub const PCTRLMASK = (~PDATAMASK);
+        pub const PCTRLMASK = 0xf0000000;
         /// data is seconds
         pub const SECONDS = 0x00000001;
         /// data is milliseconds
@@ -9450,7 +9540,7 @@ pub extern "c" fn pthread_rwlock_unlock(rwl: *pthread_rwlock_t) callconv(.C) E;
 pub const pthread_t = *opaque {};
 pub const FILE = opaque {};
 
-pub extern "c" fn dlopen(path: [*:0]const u8, mode: RTLD) ?*anyopaque;
+pub extern "c" fn dlopen(path: ?[*:0]const u8, mode: RTLD) ?*anyopaque;
 pub extern "c" fn dlclose(handle: *anyopaque) c_int;
 pub extern "c" fn dlsym(handle: ?*anyopaque, symbol: [*:0]const u8) ?*anyopaque;
 pub extern "c" fn dlerror() ?[*:0]u8;
@@ -9506,7 +9596,7 @@ else if (native_os == .linux and builtin.target.isMusl())
 else
     private.getcontext;
 
-pub const max_align_t = if (native_abi == .msvc)
+pub const max_align_t = if (native_abi == .msvc or native_abi == .itanium)
     f64
 else if (builtin.target.isDarwin())
     c_longdouble
@@ -9579,7 +9669,6 @@ pub const system_info = haiku.system_info;
 pub const team_id = haiku.team_id;
 pub const team_info = haiku.team_info;
 pub const thread_id = haiku.thread_id;
-pub const vregs = haiku.vregs;
 
 pub const AUTH = openbsd.AUTH;
 pub const BI = openbsd.BI;
@@ -9705,6 +9794,8 @@ pub const dispatch_semaphore_signal = darwin.dispatch_semaphore_signal;
 pub const dispatch_semaphore_wait = darwin.dispatch_semaphore_wait;
 pub const dispatch_time = darwin.dispatch_time;
 pub const fcopyfile = darwin.fcopyfile;
+pub const ipc_space_t = darwin.ipc_space_t;
+pub const ipc_space_port_t = darwin.ipc_space_port_t;
 pub const kern_return_t = darwin.kern_return_t;
 pub const kevent64 = darwin.kevent64;
 pub const mach_absolute_time = darwin.mach_absolute_time;
@@ -9722,10 +9813,12 @@ pub const mach_port_t = darwin.mach_port_t;
 pub const mach_task_basic_info = darwin.mach_task_basic_info;
 pub const mach_task_self = darwin.mach_task_self;
 pub const mach_timebase_info = darwin.mach_timebase_info;
+pub const mach_vm_address_t = darwin.mach_vm_address_t;
 pub const mach_vm_protect = darwin.mach_vm_protect;
 pub const mach_vm_read = darwin.mach_vm_read;
 pub const mach_vm_region = darwin.mach_vm_region;
 pub const mach_vm_region_recurse = darwin.mach_vm_region_recurse;
+pub const mach_vm_size_t = darwin.mach_vm_size_t;
 pub const mach_vm_write = darwin.mach_vm_write;
 pub const os_log_create = darwin.os_log_create;
 pub const os_log_type_enabled = darwin.os_log_type_enabled;
@@ -9782,6 +9875,7 @@ pub const thread_set_state = darwin.thread_set_state;
 pub const vm_deallocate = darwin.vm_deallocate;
 pub const vm_machine_attribute = darwin.vm_machine_attribute;
 pub const vm_machine_attribute_val_t = darwin.vm_machine_attribute_val_t;
+pub const vm_map_t = darwin.vm_map_t;
 pub const vm_offset_t = darwin.vm_offset_t;
 pub const vm_prot_t = darwin.vm_prot_t;
 pub const vm_region_basic_info_64 = darwin.vm_region_basic_info_64;
@@ -9792,9 +9886,53 @@ pub const vm_region_submap_info_64 = darwin.vm_region_submap_info_64;
 pub const vm_region_submap_short_info_64 = darwin.vm_region_submap_short_info_64;
 pub const vm_region_top_info = darwin.vm_region_top_info;
 
+pub const caddr_t = darwin.caddr_t;
+pub const exception_behavior_array_t = darwin.exception_behavior_array_t;
+pub const exception_behavior_t = darwin.exception_behavior_t;
+pub const exception_data_t = darwin.exception_data_t;
+pub const exception_data_type_t = darwin.exception_data_type_t;
+pub const exception_flavor_array_t = darwin.exception_flavor_array_t;
+pub const exception_handler_array_t = darwin.exception_handler_array_t;
+pub const exception_handler_t = darwin.exception_handler_t;
+pub const exception_mask_array_t = darwin.exception_mask_array_t;
+pub const exception_mask_t = darwin.exception_mask_t;
+pub const exception_port_array_t = darwin.exception_port_array_t;
+pub const exception_port_t = darwin.exception_port_t;
+pub const mach_exception_data_t = darwin.mach_exception_data_t;
+pub const mach_exception_data_type_t = darwin.mach_exception_data_type_t;
+pub const mach_msg_bits_t = darwin.mach_msg_bits_t;
+pub const mach_msg_id_t = darwin.mach_msg_id_t;
+pub const mach_msg_option_t = darwin.mach_msg_option_t;
+pub const mach_msg_size_t = darwin.mach_msg_size_t;
+pub const mach_msg_timeout_t = darwin.mach_msg_timeout_t;
+pub const mach_msg_type_name_t = darwin.mach_msg_type_name_t;
+pub const mach_port_right_t = darwin.mach_port_right_t;
+pub const memory_object_offset_t = darwin.memory_object_offset_t;
+pub const policy_t = darwin.policy_t;
+pub const task_policy_flavor_t = darwin.task_policy_flavor_t;
+pub const task_policy_t = darwin.task_policy_t;
+pub const task_t = darwin.task_t;
+pub const thread_act_t = darwin.thread_act_t;
+pub const thread_flavor_t = darwin.thread_flavor_t;
+pub const thread_port_t = darwin.thread_port_t;
+pub const thread_state_flavor_t = darwin.thread_state_flavor_t;
+pub const thread_state_t = darwin.thread_state_t;
+pub const thread_t = darwin.thread_t;
+pub const time_value_t = darwin.time_value_t;
+pub const vm32_object_id_t = darwin.vm32_object_id_t;
+pub const vm_behavior_t = darwin.vm_behavior_t;
+pub const vm_inherit_t = darwin.vm_inherit_t;
+pub const vm_map_read_t = darwin.vm_map_read_t;
+pub const vm_object_id_t = darwin.vm_object_id_t;
+pub const vm_region_flavor_t = darwin.vm_region_flavor_t;
+
 pub const _ksiginfo = netbsd._ksiginfo;
 pub const _lwp_self = netbsd._lwp_self;
 pub const lwpid_t = netbsd.lwpid_t;
+
+pub const lwp_gettid = dragonfly.lwp_gettid;
+pub const umtx_sleep = dragonfly.umtx_sleep;
+pub const umtx_wakeup = dragonfly.umtx_wakeup;
 
 /// External definitions shared by two or more operating systems.
 const private = struct {

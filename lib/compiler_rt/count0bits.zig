@@ -6,15 +6,15 @@ const common = @import("common.zig");
 pub const panic = common.panic;
 
 comptime {
-    @export(__clzsi2, .{ .name = "__clzsi2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__clzdi2, .{ .name = "__clzdi2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__clzti2, .{ .name = "__clzti2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__ctzsi2, .{ .name = "__ctzsi2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__ctzdi2, .{ .name = "__ctzdi2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__ctzti2, .{ .name = "__ctzti2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__ffssi2, .{ .name = "__ffssi2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__ffsdi2, .{ .name = "__ffsdi2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__ffsti2, .{ .name = "__ffsti2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__clzsi2, .{ .name = "__clzsi2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__clzdi2, .{ .name = "__clzdi2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__clzti2, .{ .name = "__clzti2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__ctzsi2, .{ .name = "__ctzsi2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__ctzdi2, .{ .name = "__ctzdi2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__ctzti2, .{ .name = "__ctzti2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__ffssi2, .{ .name = "__ffssi2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__ffsdi2, .{ .name = "__ffsdi2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__ffsti2, .{ .name = "__ffsti2", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 // clz - count leading zeroes
@@ -73,13 +73,13 @@ fn __clzsi2_thumb1() callconv(.Naked) void {
         \\ subs r1, #4
         \\ movs r0, r2
         \\ 1:
-        \\ ldr r3, =LUT
+        \\ ldr r3, .lut
         \\ ldrb r0, [r3, r0]
         \\ subs r0, r1, r0
         \\ bx lr
         \\ .p2align 2
         \\ // Number of bits set in the 0-15 range
-        \\ LUT:
+        \\ .lut:
         \\ .byte 0,1,2,2,3,3,3,3,4,4,4,4,4,4,4,4
     );
 
@@ -203,7 +203,7 @@ pub fn __ctzti2(a: i128) callconv(.C) i32 {
 }
 
 inline fn ffsXi2(comptime T: type, a: T) i32 {
-    var x: std.meta.Int(.unsigned, @typeInfo(T).Int.bits) = @bitCast(a);
+    var x: std.meta.Int(.unsigned, @typeInfo(T).int.bits) = @bitCast(a);
     var n: T = 1;
     // adapted from Number of trailing zeroes (see ctzXi2)
     var mask: @TypeOf(x) = std.math.maxInt(@TypeOf(x));

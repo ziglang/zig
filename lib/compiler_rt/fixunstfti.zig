@@ -6,11 +6,11 @@ pub const panic = common.panic;
 
 comptime {
     if (common.want_windows_v2u64_abi) {
-        @export(__fixunstfti_windows_x86_64, .{ .name = "__fixunstfti", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__fixunstfti_windows_x86_64, .{ .name = "__fixunstfti", .linkage = common.linkage, .visibility = common.visibility });
     } else {
         if (common.want_ppc_abi)
-            @export(__fixunstfti, .{ .name = "__fixunskfti", .linkage = common.linkage, .visibility = common.visibility });
-        @export(__fixunstfti, .{ .name = "__fixunstfti", .linkage = common.linkage, .visibility = common.visibility });
+            @export(&__fixunstfti, .{ .name = "__fixunskfti", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__fixunstfti, .{ .name = "__fixunstfti", .linkage = common.linkage, .visibility = common.visibility });
     }
 }
 

@@ -86,20 +86,21 @@ pub fn getExternalExecutor(
             .arm => Executor{ .qemu = "qemu-arm" },
             .armeb => Executor{ .qemu = "qemu-armeb" },
             .hexagon => Executor{ .qemu = "qemu-hexagon" },
+            .loongarch64 => Executor{ .qemu = "qemu-loongarch64" },
             .m68k => Executor{ .qemu = "qemu-m68k" },
             .mips => Executor{ .qemu = "qemu-mips" },
             .mipsel => Executor{ .qemu = "qemu-mipsel" },
             .mips64 => Executor{
-                .qemu = if (candidate.abi == .gnuabin32)
-                    "qemu-mipsn32"
-                else
-                    "qemu-mips64",
+                .qemu = switch (candidate.abi) {
+                    .gnuabin32, .muslabin32 => "qemu-mipsn32",
+                    else => "qemu-mips64",
+                },
             },
             .mips64el => Executor{
-                .qemu = if (candidate.abi == .gnuabin32)
-                    "qemu-mipsn32el"
-                else
-                    "qemu-mips64el",
+                .qemu = switch (candidate.abi) {
+                    .gnuabin32, .muslabin32 => "qemu-mipsn32el",
+                    else => "qemu-mips64el",
+                },
             },
             .powerpc => Executor{ .qemu = "qemu-ppc" },
             .powerpc64 => Executor{ .qemu = "qemu-ppc64" },
@@ -171,6 +172,7 @@ pub const DetectError = error{
     DeviceBusy,
     OSVersionDetectionFail,
     Unexpected,
+    ProcessNotFound,
 };
 
 /// Given a `Target.Query`, which specifies in detail which parts of the
@@ -309,8 +311,8 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
 
     if (query.os_version_min) |min| switch (min) {
         .none => {},
-        .semver => |semver| switch (os.tag) {
-            .linux => os.version_range.linux.range.min = semver,
+        .semver => |semver| switch (os.tag.versionRangeTag()) {
+            inline .hurd, .linux => |t| @field(os.version_range, @tagName(t)).range.min = semver,
             else => os.version_range.semver.min = semver,
         },
         .windows => |win_ver| os.version_range.windows.min = win_ver,
@@ -318,15 +320,22 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
 
     if (query.os_version_max) |max| switch (max) {
         .none => {},
-        .semver => |semver| switch (os.tag) {
-            .linux => os.version_range.linux.range.max = semver,
+        .semver => |semver| switch (os.tag.versionRangeTag()) {
+            inline .hurd, .linux => |t| @field(os.version_range, @tagName(t)).range.max = semver,
             else => os.version_range.semver.max = semver,
         },
         .windows => |win_ver| os.version_range.windows.max = win_ver,
     };
 
     if (query.glibc_version) |glibc| {
-        os.version_range.linux.glibc = glibc;
+        switch (os.tag.versionRangeTag()) {
+            inline .hurd, .linux => |t| @field(os.version_range, @tagName(t)).glibc = glibc,
+            else => {},
+        }
+    }
+
+    if (query.android_api_level) |android| {
+        os.version_range.linux.android = android;
     }
 
     // Until https://github.com/ziglang/zig/issues/4592 is implemented (support detecting the
@@ -335,14 +344,14 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
 
     const cpu = switch (query.cpu_model) {
         .native => detectNativeCpuAndFeatures(cpu_arch, os, query),
-        .baseline => Target.Cpu.baseline(cpu_arch),
-        .determined_by_cpu_arch => if (query.cpu_arch == null)
+        .baseline => Target.Cpu.baseline(cpu_arch, os),
+        .determined_by_arch_os => if (query.cpu_arch == null)
             detectNativeCpuAndFeatures(cpu_arch, os, query)
         else
-            Target.Cpu.baseline(cpu_arch),
+            Target.Cpu.baseline(cpu_arch, os),
         .explicit => |model| model.toCpu(cpu_arch),
     } orelse backup_cpu_detection: {
-        break :backup_cpu_detection Target.Cpu.baseline(cpu_arch);
+        break :backup_cpu_detection Target.Cpu.baseline(cpu_arch, os);
     };
     var result = try detectAbiAndDynamicLinker(cpu, os, query);
     // For x86, we need to populate some CPU feature flags depending on architecture
@@ -383,6 +392,22 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
         query.cpu_features_add,
         query.cpu_features_sub,
     );
+
+    if (cpu_arch == .hexagon) {
+        // Both LLVM and LLD have broken support for the small data area. Yet LLVM has the feature
+        // on by default for all Hexagon CPUs. Clang sort of solves this by defaulting the `-gpsize`
+        // command line parameter for the Hexagon backend to 0, so that no constants get placed in
+        // the SDA. (This of course breaks down if the user passes `-G <n>` to Clang...) We can't do
+        // the `-gpsize` hack because we can have multiple concurrent LLVM emit jobs, and command
+        // line options in LLVM are shared globally. So just force this feature off. Lovely stuff.
+        result.cpu.features.removeFeature(@intFromEnum(Target.hexagon.Feature.small_data));
+    }
+
+    // https://github.com/llvm/llvm-project/issues/105978
+    if (result.cpu.arch.isArm() and result.floatAbi() == .soft) {
+        result.cpu.features.removeFeature(@intFromEnum(Target.arm.Feature.vfp2));
+    }
+
     return result;
 }
 
@@ -436,6 +461,7 @@ pub const AbiAndDynamicLinkerFromFileError = error{
     Unexpected,
     UnexpectedEndOfFile,
     NameTooLong,
+    ProcessNotFound,
 };
 
 pub fn abiAndDynamicLinkerFromFile(
@@ -824,6 +850,7 @@ fn glibcVerFromRPath(rpath: []const u8) !std.SemanticVersion {
         error.UnableToReadElfFile,
         error.Unexpected,
         error.FileSystem,
+        error.ProcessNotFound,
         => |e| return e,
     };
 }
@@ -943,14 +970,15 @@ fn detectAbiAndDynamicLinker(
     os: Target.Os,
     query: Target.Query,
 ) DetectError!Target {
-    const native_target_has_ld = comptime builtin.target.hasDynamicLinker();
+    const native_target_has_ld = comptime Target.DynamicLinker.kind(builtin.os.tag) != .none;
     const is_linux = builtin.target.os.tag == .linux;
     const is_solarish = builtin.target.os.tag.isSolarish();
+    const is_darwin = builtin.target.os.tag.isDarwin();
     const have_all_info = query.dynamic_linker.get() != null and
         query.abi != null and (!is_linux or query.abi.?.isGnu());
     const os_is_non_native = query.os_tag != null;
     // The Solaris/illumos environment is always the same.
-    if (!native_target_has_ld or have_all_info or os_is_non_native or is_solarish) {
+    if (!native_target_has_ld or have_all_info or os_is_non_native or is_solarish or is_darwin) {
         return defaultAbiAndDynamicLinker(cpu, os, query);
     }
     if (query.abi) |abi| {
@@ -975,26 +1003,33 @@ fn detectAbiAndDynamicLinker(
     };
     var ld_info_list_buffer: [all_abis.len]LdInfo = undefined;
     var ld_info_list_len: usize = 0;
-    const ofmt = query.ofmt orelse Target.ObjectFormat.default(os.tag, cpu.arch);
 
-    for (all_abis) |abi| {
-        // This may be a nonsensical parameter. We detect this with
-        // error.UnknownDynamicLinkerPath and skip adding it to `ld_info_list`.
-        const target: Target = .{
-            .cpu = cpu,
-            .os = os,
-            .abi = abi,
-            .ofmt = ofmt,
-        };
-        const ld = target.standardDynamicLinkerPath();
-        if (ld.get() == null) continue;
+    switch (Target.DynamicLinker.kind(os.tag)) {
+        // The OS has no dynamic linker. Leave the list empty and rely on `Abi.default()` to pick
+        // something sensible in `abiAndDynamicLinkerFromFile()`.
+        .none => {},
+        // The OS has a system-wide dynamic linker. Unfortunately, this implies that there's no
+        // useful ABI information that we can glean from it merely being present. That means the
+        // best we can do for this case (for now) is also `Abi.default()`.
+        .arch_os => {},
+        // The OS can have different dynamic linker paths depending on libc/ABI. In this case, we
+        // need to gather all the valid arch/OS/ABI combinations. `abiAndDynamicLinkerFromFile()`
+        // will then look for a dynamic linker with a matching path on the system and pick the ABI
+        // we associated it with here.
+        .arch_os_abi => for (all_abis) |abi| {
+            const ld = Target.DynamicLinker.standard(cpu, os, abi);
 
-        ld_info_list_buffer[ld_info_list_len] = .{
-            .ld = ld,
-            .abi = abi,
-        };
-        ld_info_list_len += 1;
+            // Does the generated target triple actually have a standard dynamic linker path?
+            if (ld.get() == null) continue;
+
+            ld_info_list_buffer[ld_info_list_len] = .{
+                .ld = ld,
+                .abi = abi,
+            };
+            ld_info_list_len += 1;
+        },
     }
+
     const ld_info_list = ld_info_list_buffer[0..ld_info_list_len];
 
     // Best case scenario: the executable is dynamically linked, and we can iterate
@@ -1070,6 +1105,7 @@ fn detectAbiAndDynamicLinker(
             const len = preadAtLeast(file, &buffer, 0, min_len) catch |err| switch (err) {
                 error.UnexpectedEndOfFile,
                 error.UnableToReadElfFile,
+                error.ProcessNotFound,
                 => return defaultAbiAndDynamicLinker(cpu, os, query),
 
                 else => |e| return e,
@@ -1113,6 +1149,7 @@ fn detectAbiAndDynamicLinker(
         error.SymLinkLoop,
         error.ProcessFdQuotaExceeded,
         error.SystemFdQuotaExceeded,
+        error.ProcessNotFound,
         => |e| return e,
 
         error.UnableToReadElfFile,
@@ -1140,7 +1177,7 @@ fn defaultAbiAndDynamicLinker(cpu: Target.Cpu, os: Target.Os, query: Target.Quer
         .abi = abi,
         .ofmt = query.ofmt orelse Target.ObjectFormat.default(os.tag, cpu.arch),
         .dynamic_linker = if (query.dynamic_linker.get() == null)
-            Target.DynamicLinker.standard(cpu, os.tag, abi)
+            Target.DynamicLinker.standard(cpu, os, abi)
         else
             query.dynamic_linker,
     };
@@ -1169,6 +1206,8 @@ fn preadAtLeast(file: fs.File, buf: []u8, offset: u64, min_read_len: usize) !usi
             error.Unexpected => return error.Unexpected,
             error.InputOutput => return error.FileSystem,
             error.AccessDenied => return error.Unexpected,
+            error.ProcessNotFound => return error.ProcessNotFound,
+            error.LockViolation => return error.UnableToReadElfFile,
         };
         if (len == 0) return error.UnexpectedEndOfFile;
         i += len;

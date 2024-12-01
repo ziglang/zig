@@ -1,7 +1,7 @@
 # pretty printing for the zig language, zig standard library, and zig stage 2 compiler.
 # put commands in ~/.lldbinit to run them automatically when starting lldb
 # `command script import /path/to/zig/tools/lldb_pretty_printers.py` to import this file
-# `type category enable zig` to enable pretty printing for the zig language
+# `type category enable zig.lang` to enable pretty printing for the zig language
 # `type category enable zig.std` to enable pretty printing for the zig standard library
 # `type category enable zig.stage2` to enable pretty printing for the zig stage 2 compiler
 import lldb
@@ -602,7 +602,7 @@ type_tag_handlers = {
     'error_set': lambda payload: type_tag_handlers['error_set_merged'](payload.GetChildMemberWithName('names')),
     'error_set_single': lambda payload: 'error{%s}' % zig_String_AsIdentifier(payload, zig_IsFieldName),
     'error_set_merged': lambda payload: 'error{%s}' % ','.join(zig_String_AsIdentifier(child.GetChildMemberWithName('key'), zig_IsFieldName) for child in payload.GetChildMemberWithName('entries').children),
-    'error_set_inferred': lambda payload: '@typeInfo(@typeInfo(@TypeOf(%s)).Fn.return_type.?).ErrorUnion.error_set' % OwnerDecl_RenderFullyQualifiedName(payload.GetChildMemberWithName('func')),
+    'error_set_inferred': lambda payload: '@typeInfo(@typeInfo(@TypeOf(%s)).@"fn".return_type.?).error_union.error_set' % OwnerDecl_RenderFullyQualifiedName(payload.GetChildMemberWithName('func')),
 
     'enum_full': OwnerDecl_RenderFullyQualifiedName,
     'enum_nonexhaustive': OwnerDecl_RenderFullyQualifiedName,
@@ -688,11 +688,14 @@ def add(debugger, *, category, regex=False, type, identifier=None, synth=False, 
 def MultiArrayList_Entry(type): return '^multi_array_list\\.MultiArrayList\\(%s\\)\\.Entry__struct_[1-9][0-9]*$' % type
 
 def __lldb_init_module(debugger, _=None):
+    # Initialize Zig Categories
+    debugger.HandleCommand('type category define --language c99 zig.lang zig.std')
+
     # Initialize Zig Language
-    add(debugger, category='zig', regex=True, type='^\\[\\]', identifier='zig_Slice', synth=True, expand=True, summary='len=${svar%#}')
-    add(debugger, category='zig', type='[]u8', identifier='zig_String', summary=True)
-    add(debugger, category='zig', regex=True, type='^\\?', identifier='zig_Optional', synth=True, summary=True)
-    add(debugger, category='zig', regex=True, type='^(error{.*}|anyerror)!', identifier='zig_ErrorUnion', synth=True, inline_children=True, summary=True)
+    add(debugger, category='zig.lang', regex=True, type='^\\[\\]', identifier='zig_Slice', synth=True, expand=True, summary='len=${svar%#}')
+    add(debugger, category='zig.lang', type='[]u8', identifier='zig_String', summary=True)
+    add(debugger, category='zig.lang', regex=True, type='^\\?', identifier='zig_Optional', synth=True, summary=True)
+    add(debugger, category='zig.lang', regex=True, type='^(error{.*}|anyerror)!', identifier='zig_ErrorUnion', synth=True, inline_children=True, summary=True)
 
     # Initialize Zig Standard Library
     add(debugger, category='zig.std', type='mem.Allocator', summary='${var.ptr}')

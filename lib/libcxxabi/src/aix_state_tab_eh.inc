@@ -102,8 +102,6 @@ static bool state_tab_dbg() {
 
 namespace __state_table_eh {
 
-using destruct_f = void (*)(void*);
-
 // Definition of flags for the state table entry field 'action flag'.
 enum FSMEntryCount : intptr_t { beginCatch = -1, endCatch = -2, deleteObject = -3, cleanupLabel = -4, terminate = -5 };
 
@@ -145,8 +143,10 @@ struct FSMEntry {
     intptr_t nextStatePtr;
   };
   union {
-    // Address of the destructor function.
-    void (*destructor)(void*, size_t);
+    // Address of the destructor function with 1 argument.
+    void (*destructor)(void*);
+    // Address of the destructor function with 2 arguments.
+    void (*xlCDestructor)(void*, size_t);
     // The address of the catch block or cleanup code.
     void* landingPad;
   };
@@ -191,12 +191,12 @@ static void invoke_destructor(FSMEntry* fsmEntry, void* addr) {
   try {
     if (fsmEntry->elementCount == 1) {
       _LIBCXXABI_TRACE_STATETAB0("calling scalar destructor\n");
-      (*fsmEntry->destructor)(addr, dtorArgument);
+      (*fsmEntry->xlCDestructor)(addr, dtorArgument);
       _LIBCXXABI_TRACE_STATETAB0("returned from scalar destructor\n");
     } else {
       _LIBCXXABI_TRACE_STATETAB0("calling vector destructor\n");
       __cxa_vec_cleanup(addr, reinterpret_cast<size_t>(fsmEntry->elementCount), fsmEntry->elemSize,
-                        reinterpret_cast<destruct_f>(fsmEntry->destructor));
+                        fsmEntry->destructor);
       _LIBCXXABI_TRACE_STATETAB0("returned from vector destructor\n");
     }
   } catch (...) {
@@ -213,7 +213,7 @@ static void invoke_delete(FSMEntry* fsmEntry, void* addr) {
   try {
     _LIBCXXABI_TRACE_STATETAB0("..calling delete()\n");
     // 'destructor' holds a function pointer to delete().
-    (*fsmEntry->destructor)(objectAddress, fsmEntry->elemSize);
+    (*fsmEntry->xlCDestructor)(objectAddress, fsmEntry->elemSize);
     _LIBCXXABI_TRACE_STATETAB0("..returned from delete()\n");
   } catch (...) {
     _LIBCXXABI_TRACE_STATETAB0("Uncaught exception in delete(), terminating\n");
@@ -681,7 +681,7 @@ static uintptr_t* skip_non_cxx_eh_aware_frames(uint32_t* Pc, uintptr_t* Sp) {
 // xlclang++ compiled code. If __xlc_exception_handle() is called by
 // non-C++ EH aware functions, their frames are skipped until a C++ EH aware
 // frame is found.
-// Note: make sure __xlc_excpetion_handle() is a non-leaf function. Currently
+// Note: make sure __xlc_exception_handle() is a non-leaf function. Currently
 // it calls skip_non_cxx_eh_aware_frames(), which in turn calls abort().
 _LIBCXXABI_FUNC_VIS uintptr_t __xlc_exception_handle() {
   // Get the SP of this function, i.e., __xlc_exception_handle().

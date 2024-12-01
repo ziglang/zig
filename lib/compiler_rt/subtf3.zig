@@ -5,11 +5,11 @@ pub const panic = common.panic;
 
 comptime {
     if (common.want_ppc_abi) {
-        @export(__subtf3, .{ .name = "__subkf3", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__subtf3, .{ .name = "__subkf3", .linkage = common.linkage, .visibility = common.visibility });
     } else if (common.want_sparc_abi) {
-        @export(_Qp_sub, .{ .name = "_Qp_sub", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&_Qp_sub, .{ .name = "_Qp_sub", .linkage = common.linkage, .visibility = common.visibility });
     }
-    @export(__subtf3, .{ .name = "__subtf3", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__subtf3, .{ .name = "__subtf3", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 pub fn __subtf3(a: f128, b: f128) callconv(.C) f128 {

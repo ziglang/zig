@@ -16,22 +16,22 @@ const Context = @This();
 
 gpa: mem.Allocator,
 arena: mem.Allocator,
-decl_table: std.AutoArrayHashMapUnmanaged(usize, []const u8) = .{},
+decl_table: std.AutoArrayHashMapUnmanaged(usize, []const u8) = .empty,
 alias_list: AliasList,
 global_scope: *Scope.Root,
 mangle_count: u32 = 0,
 /// Table of record decls that have been demoted to opaques.
-opaque_demotes: std.AutoHashMapUnmanaged(usize, void) = .{},
+opaque_demotes: std.AutoHashMapUnmanaged(usize, void) = .empty,
 /// Table of unnamed enums and records that are child types of typedefs.
-unnamed_typedefs: std.AutoHashMapUnmanaged(usize, []const u8) = .{},
+unnamed_typedefs: std.AutoHashMapUnmanaged(usize, []const u8) = .empty,
 /// Needed to decide if we are parsing a typename
-typedefs: std.StringArrayHashMapUnmanaged(void) = .{},
+typedefs: std.StringArrayHashMapUnmanaged(void) = .empty,
 
 /// This one is different than the root scope's name table. This contains
 /// a list of names that we found by visiting all the top level decls without
 /// translating them. The other maps are updated as we translate; this one is updated
 /// up front in a pre-processing step.
-global_names: std.StringArrayHashMapUnmanaged(void) = .{},
+global_names: std.StringArrayHashMapUnmanaged(void) = .empty,
 
 /// This is similar to `global_names`, but contains names which we would
 /// *like* to use, but do not strictly *have* to if they are unavailable.
@@ -40,7 +40,7 @@ global_names: std.StringArrayHashMapUnmanaged(void) = .{},
 /// may be mangled.
 /// This is distinct from `global_names` so we can detect at a type
 /// declaration whether or not the name is available.
-weak_global_names: std.StringArrayHashMapUnmanaged(void) = .{},
+weak_global_names: std.StringArrayHashMapUnmanaged(void) = .empty,
 
 pattern_list: PatternList,
 tree: Tree,
@@ -168,7 +168,7 @@ pub fn translate(
         context.pattern_list.deinit(gpa);
     }
 
-    inline for (@typeInfo(std.zig.c_builtins).Struct.decls) |decl| {
+    inline for (@typeInfo(std.zig.c_builtins).@"struct".decls) |decl| {
         const builtin_fn = try ZigTag.pub_var_simple.create(arena, .{
             .name = decl.name,
             .init = try ZigTag.import_c_builtin.create(arena, decl.name),
@@ -697,7 +697,7 @@ fn transEnumDecl(c: *Context, scope: *Scope, enum_decl: *const Type.Enum, field_
 }
 
 fn getTypeStr(c: *Context, ty: Type) ![]const u8 {
-    var buf: std.ArrayListUnmanaged(u8) = .{};
+    var buf: std.ArrayListUnmanaged(u8) = .empty;
     defer buf.deinit(c.gpa);
     const w = buf.writer(c.gpa);
     try ty.print(c.mapper, c.comp.langopts, w);
@@ -731,7 +731,6 @@ fn transType(c: *Context, scope: *Scope, raw_ty: Type, qual_handling: Type.QualH
         .float => return ZigTag.type.create(c.arena, "f32"),
         .double => return ZigTag.type.create(c.arena, "f64"),
         .long_double => return ZigTag.type.create(c.arena, "c_longdouble"),
-        .float80 => return ZigTag.type.create(c.arena, "f80"),
         .float128 => return ZigTag.type.create(c.arena, "f128"),
         .@"enum" => {
             const enum_decl = ty.data.@"enum";
@@ -750,7 +749,7 @@ fn transType(c: *Context, scope: *Scope, raw_ty: Type, qual_handling: Type.QualH
             const is_const = is_fn_proto or child_type.isConst();
             const is_volatile = child_type.qual.@"volatile";
             const elem_type = try transType(c, scope, child_type, qual_handling, source_loc);
-            const ptr_info = .{
+            const ptr_info: @FieldType(ast.Payload.Pointer, "data") = .{
                 .is_const = is_const,
                 .is_volatile = is_volatile,
                 .elem_type = elem_type,
@@ -1794,12 +1793,12 @@ pub fn main() !void {
     defer arena_instance.deinit();
     const arena = arena_instance.allocator();
 
-    var general_purpose_allocator: std.heap.GeneralPurposeAllocator(.{}) = .{};
+    var general_purpose_allocator: std.heap.GeneralPurposeAllocator(.{}) = .init;
     const gpa = general_purpose_allocator.allocator();
 
     const args = try std.process.argsAlloc(arena);
 
-    var aro_comp = aro.Compilation.init(gpa);
+    var aro_comp = aro.Compilation.init(gpa, std.fs.cwd());
     defer aro_comp.deinit();
 
     var tree = translate(gpa, &aro_comp, args) catch |err| switch (err) {

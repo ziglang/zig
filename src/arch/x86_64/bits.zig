@@ -371,7 +371,7 @@ pub const Register = enum(u7) {
             .x87 => 33 + @as(u6, reg.enc()),
             .mmx => 41 + @as(u6, reg.enc()),
             .segment => 50 + @as(u6, reg.enc()),
-            .ip => unreachable,
+            .ip => 16,
         };
     }
 };
@@ -423,7 +423,7 @@ pub const FrameIndex = enum(u32) {
     // Other indices are used for local variable stack slots
     _,
 
-    pub const named_count = @typeInfo(FrameIndex).Enum.fields.len;
+    pub const named_count = @typeInfo(FrameIndex).@"enum".fields.len;
 
     pub fn isNamed(fi: FrameIndex) bool {
         return @intFromEnum(fi) < named_count;
@@ -463,7 +463,7 @@ pub const Memory = struct {
         frame: FrameIndex,
         reloc: u32,
 
-        pub const Tag = @typeInfo(Base).Union.tag_type.?;
+        pub const Tag = @typeInfo(Base).@"union".tag_type.?;
 
         pub fn isExtended(self: Base) bool {
             return switch (self) {

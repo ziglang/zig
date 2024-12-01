@@ -203,7 +203,7 @@ const Writer = struct {
             .alloc_comptime_mut,
             .elem_type,
             .indexable_ptr_elem_type,
-            .vector_elem_type,
+            .vec_arr_elem_type,
             .indexable_ptr_len,
             .anyframe_type,
             .bit_not,
@@ -277,6 +277,8 @@ const Writer = struct {
             .opt_eu_base_ptr_init,
             .restore_err_ret_index_unconditional,
             .restore_err_ret_index_fn_entry,
+            .try_operand_ty,
+            .try_ref_operand_ty,
             => try self.writeUnNode(stream, inst),
 
             .ref,
@@ -302,6 +304,7 @@ const Writer = struct {
 
             .@"break",
             .break_inline,
+            .switch_continue,
             => try self.writeBreak(stream, inst),
 
             .slice_start => try self.writeSliceStart(stream, inst),
@@ -429,7 +432,6 @@ const Writer = struct {
             .elem_val_imm => try self.writeElemValImm(stream, inst),
 
             .@"export" => try self.writePlNodeExport(stream, inst),
-            .export_value => try self.writePlNodeExportValue(stream, inst),
 
             .call => try self.writeCall(stream, inst, .direct),
             .field_call => try self.writeCall(stream, inst, .field),
@@ -461,6 +463,8 @@ const Writer = struct {
 
             .field_val,
             .field_ptr,
+            .decl_literal,
+            .decl_literal_no_coerce,
             => try self.writePlNodeField(stream, inst),
 
             .field_ptr_named,
@@ -559,13 +563,12 @@ const Writer = struct {
             .enum_decl => try self.writeEnumDecl(stream, extended),
             .opaque_decl => try self.writeOpaqueDecl(stream, extended),
 
+            .tuple_decl => try self.writeTupleDecl(stream, extended),
+
             .await_nosuspend,
             .c_undef,
             .c_include,
-            .fence,
             .set_float_mode,
-            .set_align_stack,
-            .set_cold,
             .wasm_memory_size,
             .int_from_error,
             .error_from_int,
@@ -574,6 +577,7 @@ const Writer = struct {
             .work_item_id,
             .work_group_size,
             .work_group_id,
+            .branch_hint,
             => {
                 const inst_data = self.code.extraData(Zir.Inst.UnNode, extended.operand).data;
                 try self.writeInstRef(stream, inst_data.operand);
@@ -616,6 +620,9 @@ const Writer = struct {
             .closure_get => try self.writeClosureGet(stream, extended),
             .field_parent_ptr => try self.writeFieldParentPtr(stream, extended),
             .builtin_value => try self.writeBuiltinValue(stream, extended),
+            .inplace_arith_result_ty => try self.writeInplaceArithResultTy(stream, extended),
+
+            .dbg_empty_stmt => try stream.writeAll("))"),
         }
     }
 
@@ -908,7 +915,7 @@ const Writer = struct {
 
     fn writeFieldParentPtr(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
         const extra = self.code.extraData(Zir.Inst.FieldParentPtr, extended.operand).data;
-        const FlagsInt = @typeInfo(Zir.Inst.FullPtrCastFlags).Struct.backing_integer.?;
+        const FlagsInt = @typeInfo(Zir.Inst.FullPtrCastFlags).@"struct".backing_integer.?;
         const flags: Zir.Inst.FullPtrCastFlags = @bitCast(@as(FlagsInt, @truncate(extended.small)));
         if (flags.align_cast) try stream.writeAll("align_cast, ");
         if (flags.addrspace_cast) try stream.writeAll("addrspace_cast, ");
@@ -1007,20 +1014,8 @@ const Writer = struct {
     fn writePlNodeExport(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
         const extra = self.code.extraData(Zir.Inst.Export, inst_data.payload_index).data;
-        const decl_name = self.code.nullTerminatedString(extra.decl_name);
 
-        try self.writeInstRef(stream, extra.namespace);
-        try stream.print(", {p}, ", .{std.zig.fmtId(decl_name)});
-        try self.writeInstRef(stream, extra.options);
-        try stream.writeAll(") ");
-        try self.writeSrcNode(stream, inst_data.src_node);
-    }
-
-    fn writePlNodeExportValue(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
-        const extra = self.code.extraData(Zir.Inst.ExportValue, inst_data.payload_index).data;
-
-        try self.writeInstRef(stream, extra.operand);
+        try self.writeInstRef(stream, extra.exported);
         try stream.writeAll(", ");
         try self.writeInstRef(stream, extra.options);
         try stream.writeAll(") ");
@@ -1078,7 +1073,7 @@ const Writer = struct {
     }
 
     fn writePtrCastFull(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
-        const FlagsInt = @typeInfo(Zir.Inst.FullPtrCastFlags).Struct.backing_integer.?;
+        const FlagsInt = @typeInfo(Zir.Inst.FullPtrCastFlags).@"struct".backing_integer.?;
         const flags: Zir.Inst.FullPtrCastFlags = @bitCast(@as(FlagsInt, @truncate(extended.small)));
         const extra = self.code.extraData(Zir.Inst.BinNode, extended.operand).data;
         if (flags.ptr_cast) try stream.writeAll("ptr_cast, ");
@@ -1094,7 +1089,7 @@ const Writer = struct {
     }
 
     fn writePtrCastNoDest(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
-        const FlagsInt = @typeInfo(Zir.Inst.FullPtrCastFlags).Struct.backing_integer.?;
+        const FlagsInt = @typeInfo(Zir.Inst.FullPtrCastFlags).@"struct".backing_integer.?;
         const flags: Zir.Inst.FullPtrCastFlags = @bitCast(@as(FlagsInt, @truncate(extended.small)));
         const extra = self.code.extraData(Zir.Inst.UnNode, extended.operand).data;
         if (flags.const_cast) try stream.writeAll("const_cast, ");
@@ -1430,7 +1425,6 @@ const Writer = struct {
 
         try self.writeFlag(stream, "known_non_opv, ", small.known_non_opv);
         try self.writeFlag(stream, "known_comptime_only, ", small.known_comptime_only);
-        try self.writeFlag(stream, "tuple, ", small.is_tuple);
 
         try stream.print("{s}, ", .{@tagName(small.name_strategy)});
 
@@ -1515,11 +1509,8 @@ const Writer = struct {
                     const has_type_body = @as(u1, @truncate(cur_bit_bag)) != 0;
                     cur_bit_bag >>= 1;
 
-                    var field_name_index: Zir.NullTerminatedString = .empty;
-                    if (!small.is_tuple) {
-                        field_name_index = @enumFromInt(self.code.extra[extra_index]);
-                        extra_index += 1;
-                    }
+                    const field_name_index: Zir.NullTerminatedString = @enumFromInt(self.code.extra[extra_index]);
+                    extra_index += 1;
                     const doc_comment_index: Zir.NullTerminatedString = @enumFromInt(self.code.extra[extra_index]);
                     extra_index += 1;
 
@@ -1955,6 +1946,32 @@ const Writer = struct {
             try stream.writeAll("}) ");
         }
         try self.writeSrcNode(stream, 0);
+    }
+
+    fn writeTupleDecl(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
+        const fields_len = extended.small;
+        assert(fields_len != 0);
+        const extra = self.code.extraData(Zir.Inst.TupleDecl, extended.operand);
+
+        var extra_index = extra.end;
+
+        try stream.writeAll("{ ");
+
+        for (0..fields_len) |field_idx| {
+            if (field_idx != 0) try stream.writeAll(", ");
+
+            const field_ty, const field_init = self.code.extra[extra_index..][0..2].*;
+            extra_index += 2;
+
+            try stream.print("@\"{d}\": ", .{field_idx});
+            try self.writeInstRef(stream, @enumFromInt(field_ty));
+            try stream.writeAll(" = ");
+            try self.writeInstRef(stream, @enumFromInt(field_init));
+        }
+
+        try stream.writeAll(" }) ");
+
+        try self.writeSrcNode(stream, extra.data.src_node);
     }
 
     fn writeErrorSetDecl(
@@ -2787,6 +2804,12 @@ const Writer = struct {
         const val: Zir.Inst.BuiltinValue = @enumFromInt(extended.small);
         try stream.print("{s})) ", .{@tagName(val)});
         try self.writeSrcNode(stream, @bitCast(extended.operand));
+    }
+
+    fn writeInplaceArithResultTy(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
+        const op: Zir.Inst.InplaceOp = @enumFromInt(extended.small);
+        try self.writeInstRef(stream, @enumFromInt(extended.operand));
+        try stream.print(", {s}))", .{@tagName(op)});
     }
 
     fn writeInstRef(self: *Writer, stream: anytype, ref: Zir.Inst.Ref) !void {

@@ -275,8 +275,7 @@ test "forced tail call" {
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     if (builtin.zig_backend == .stage2_llvm) {
-        // Only attempt this test on targets we know have tail call support in LLVM.
-        if (builtin.cpu.arch != .x86_64 and builtin.cpu.arch != .aarch64) {
+        if (builtin.cpu.arch.isMIPS() or builtin.cpu.arch.isPowerPC() or builtin.cpu.arch.isWasm()) {
             return error.SkipZigTest;
         }
     }
@@ -311,8 +310,7 @@ test "inline call preserves tail call" {
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     if (builtin.zig_backend == .stage2_llvm) {
-        // Only attempt this test on targets we know have tail call support in LLVM.
-        if (builtin.cpu.arch != .x86_64 and builtin.cpu.arch != .aarch64) {
+        if (builtin.cpu.arch.isMIPS() or builtin.cpu.arch.isPowerPC() or builtin.cpu.arch.isWasm()) {
             return error.SkipZigTest;
         }
     }
@@ -374,7 +372,7 @@ test "Enum constructed by @Type passed as generic argument" {
             try expect(@intFromEnum(a) == b);
         }
     };
-    inline for (@typeInfo(S.E).Enum.fields, 0..) |_, i| {
+    inline for (@typeInfo(S.E).@"enum".fields, 0..) |_, i| {
         try S.foo(@as(S.E, @enumFromInt(i)), i);
     }
 }
@@ -549,7 +547,7 @@ test "call function pointer in comptime field" {
         auto: [max_len]u8 = undefined,
         offset: u64 = 0,
 
-        comptime capacity: *const fn () u64 = capacity,
+        comptime capacityFn: *const fn () u64 = capacity,
 
         const max_len: u64 = 32;
 
@@ -558,9 +556,9 @@ test "call function pointer in comptime field" {
         }
     };
 
-    const a: Auto = .{ .offset = 16, .capacity = Auto.capacity };
-    try std.testing.expect(a.capacity() == 32);
-    try std.testing.expect((a.capacity)() == 32);
+    const a: Auto = .{ .offset = 16, .capacityFn = Auto.capacity };
+    try std.testing.expect(a.capacityFn() == 32);
+    try std.testing.expect((a.capacityFn)() == 32);
 }
 
 test "generic function pointer can be called" {
@@ -578,11 +576,11 @@ test "generic function pointer can be called" {
 test "value returned from comptime function is comptime known" {
     const S = struct {
         fn fields(comptime T: type) switch (@typeInfo(T)) {
-            .Struct => []const std.builtin.Type.StructField,
+            .@"struct" => []const std.builtin.Type.StructField,
             else => unreachable,
         } {
             return switch (@typeInfo(T)) {
-                .Struct => |info| info.fields,
+                .@"struct" => |info| info.fields,
                 else => unreachable,
             };
         }

@@ -233,7 +233,6 @@ pub fn binNameAlloc(allocator: Allocator, options: BinNameOptions) error{OutOfMe
             }),
         },
         .nvptx => return std.fmt.allocPrint(allocator, "{s}.ptx", .{root_name}),
-        .dxcontainer => return std.fmt.allocPrint(allocator, "{s}.dxil", .{root_name}),
     }
 }
 
@@ -246,7 +245,7 @@ pub const BuildId = union(enum) {
     hexstring: HexString,
 
     pub fn eql(a: BuildId, b: BuildId) bool {
-        const Tag = @typeInfo(BuildId).Union.tag_type.?;
+        const Tag = @typeInfo(BuildId).@"union".tag_type.?;
         const a_tag: Tag = a;
         const b_tag: Tag = b;
         if (a_tag != b_tag) return false;
@@ -654,12 +653,23 @@ pub fn parseTargetQueryOrReportFatalError(
             help: {
                 var help_text = std.ArrayList(u8).init(allocator);
                 defer help_text.deinit();
-                inline for (@typeInfo(std.Target.ObjectFormat).Enum.fields) |field| {
+                inline for (@typeInfo(std.Target.ObjectFormat).@"enum".fields) |field| {
                     help_text.writer().print(" {s}\n", .{field.name}) catch break :help;
                 }
                 std.log.info("available object formats:\n{s}", .{help_text.items});
             }
             fatal("unknown object format: '{s}'", .{opts.object_format.?});
+        },
+        error.UnknownArchitecture => {
+            help: {
+                var help_text = std.ArrayList(u8).init(allocator);
+                defer help_text.deinit();
+                inline for (@typeInfo(std.Target.Cpu.Arch).@"enum".fields) |field| {
+                    help_text.writer().print(" {s}\n", .{field.name}) catch break :help;
+                }
+                std.log.info("available architectures:\n{s} native\n", .{help_text.items});
+            }
+            fatal("unknown architecture: '{s}'", .{diags.unknown_architecture_name.?});
         },
         else => |e| fatal("unable to parse target query '{s}': {s}", .{
             opts.arch_os_abi, @errorName(e),

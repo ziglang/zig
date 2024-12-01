@@ -12,7 +12,7 @@ src_loc: Zcu.LazySrcLoc,
 result_insts_len: u8 = undefined,
 result_relocs_len: u8 = undefined,
 result_insts: [
-    std.mem.max(usize, &.{
+    @max(
         1, // non-pseudo instructions
         3, // (ELF only) TLS local dynamic (LD) sequence in PIC mode
         2, // cmovcc: cmovcc \ cmovcc
@@ -22,18 +22,18 @@ result_insts: [
         pseudo_probe_adjust_unrolled_max_insts,
         pseudo_probe_adjust_setup_insts,
         pseudo_probe_adjust_loop_insts,
-        abi.Win64.callee_preserved_regs.len, // push_regs/pop_regs
-        abi.SysV.callee_preserved_regs.len, // push_regs/pop_regs
-    })
+        abi.Win64.callee_preserved_regs.len * 2, // push_regs/pop_regs
+        abi.SysV.callee_preserved_regs.len * 2, // push_regs/pop_regs
+    )
 ]Instruction = undefined,
 result_relocs: [
-    std.mem.max(usize, &.{
+    @max(
         1, // jmp/jcc/call/mov/lea: jmp/jcc/call/mov/lea
         2, // jcc: jcc \ jcc
         2, // test \ jcc \ probe \ sub \ jmp
         1, // probe \ sub \ jcc
         3, // (ELF only) TLS local dynamic (LD) sequence in PIC mode
-    })
+    )
 ]Reloc = undefined,
 
 pub const pseudo_probe_align_insts = 5; // test \ jcc \ probe \ sub \ jmp
@@ -200,13 +200,13 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                 });
                 try lower.emit(.none, .lea, &.{
                     .{ .reg = inst.data.ri.r1 },
-                    .{ .mem = Memory.sib(.qword, .{
+                    .{ .mem = Memory.initSib(.qword, .{
                         .base = .{ .reg = inst.data.ri.r1 },
                         .disp = -page_size,
                     }) },
                 });
                 try lower.emit(.none, .@"test", &.{
-                    .{ .mem = Memory.sib(.dword, .{
+                    .{ .mem = Memory.initSib(.dword, .{
                         .base = .{ .reg = inst.data.ri.r1 },
                     }) },
                     .{ .reg = inst.data.ri.r1.to32() },
@@ -220,7 +220,7 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                 var offset = page_size;
                 while (offset < @as(i32, @bitCast(inst.data.ri.i))) : (offset += page_size) {
                     try lower.emit(.none, .@"test", &.{
-                        .{ .mem = Memory.sib(.dword, .{
+                        .{ .mem = Memory.initSib(.dword, .{
                             .base = .{ .reg = inst.data.ri.r1 },
                             .disp = -offset,
                         }) },
@@ -246,7 +246,7 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
             },
             .pseudo_probe_adjust_loop_rr => {
                 try lower.emit(.none, .@"test", &.{
-                    .{ .mem = Memory.sib(.dword, .{
+                    .{ .mem = Memory.initSib(.dword, .{
                         .base = .{ .reg = inst.data.rr.r1 },
                         .scale_index = .{ .scale = 1, .index = inst.data.rr.r2 },
                         .disp = -page_size,
@@ -265,9 +265,56 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
             .pseudo_push_reg_list => try lower.pushPopRegList(.push, inst),
             .pseudo_pop_reg_list => try lower.pushPopRegList(.pop, inst),
 
+            .pseudo_cfi_def_cfa_ri_s => try lower.emit(.directive, .@".cfi_def_cfa", &.{
+                .{ .reg = inst.data.ri.r1 },
+                .{ .imm = lower.imm(.ri_s, inst.data.ri.i) },
+            }),
+            .pseudo_cfi_def_cfa_register_r => try lower.emit(.directive, .@".cfi_def_cfa_register", &.{
+                .{ .reg = inst.data.r.r1 },
+            }),
+            .pseudo_cfi_def_cfa_offset_i_s => try lower.emit(.directive, .@".cfi_def_cfa_offset", &.{
+                .{ .imm = lower.imm(.i_s, inst.data.i.i) },
+            }),
+            .pseudo_cfi_adjust_cfa_offset_i_s => try lower.emit(.directive, .@".cfi_adjust_cfa_offset", &.{
+                .{ .imm = lower.imm(.i_s, inst.data.i.i) },
+            }),
+            .pseudo_cfi_offset_ri_s => try lower.emit(.directive, .@".cfi_offset", &.{
+                .{ .reg = inst.data.ri.r1 },
+                .{ .imm = lower.imm(.ri_s, inst.data.ri.i) },
+            }),
+            .pseudo_cfi_val_offset_ri_s => try lower.emit(.directive, .@".cfi_val_offset", &.{
+                .{ .reg = inst.data.ri.r1 },
+                .{ .imm = lower.imm(.ri_s, inst.data.ri.i) },
+            }),
+            .pseudo_cfi_rel_offset_ri_s => try lower.emit(.directive, .@".cfi_rel_offset", &.{
+                .{ .reg = inst.data.ri.r1 },
+                .{ .imm = lower.imm(.ri_s, inst.data.ri.i) },
+            }),
+            .pseudo_cfi_register_rr => try lower.emit(.directive, .@".cfi_register", &.{
+                .{ .reg = inst.data.rr.r1 },
+                .{ .reg = inst.data.rr.r2 },
+            }),
+            .pseudo_cfi_restore_r => try lower.emit(.directive, .@".cfi_restore", &.{
+                .{ .reg = inst.data.r.r1 },
+            }),
+            .pseudo_cfi_undefined_r => try lower.emit(.directive, .@".cfi_undefined", &.{
+                .{ .reg = inst.data.r.r1 },
+            }),
+            .pseudo_cfi_same_value_r => try lower.emit(.directive, .@".cfi_same_value", &.{
+                .{ .reg = inst.data.r.r1 },
+            }),
+            .pseudo_cfi_remember_state_none => try lower.emit(.directive, .@".cfi_remember_state", &.{}),
+            .pseudo_cfi_restore_state_none => try lower.emit(.directive, .@".cfi_restore_state", &.{}),
+            .pseudo_cfi_escape_bytes => try lower.emit(.directive, .@".cfi_escape", &.{
+                .{ .bytes = inst.data.bytes.get(lower.mir) },
+            }),
+
             .pseudo_dbg_prologue_end_none,
+            .pseudo_dbg_line_stmt_line_column,
             .pseudo_dbg_line_line_column,
             .pseudo_dbg_epilogue_begin_none,
+            .pseudo_dbg_enter_block_none,
+            .pseudo_dbg_leave_block_none,
             .pseudo_dbg_enter_inline_func,
             .pseudo_dbg_leave_inline_func,
             .pseudo_dbg_local_a,
@@ -280,6 +327,7 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
             .pseudo_dbg_local_af,
             .pseudo_dbg_local_am,
             .pseudo_dbg_var_args_none,
+
             .pseudo_dead_none,
             => {},
             else => unreachable,
@@ -293,7 +341,7 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
 }
 
 pub fn fail(lower: *Lower, comptime format: []const u8, args: anytype) Error {
-    @setCold(true);
+    @branchHint(.cold);
     assert(lower.err_msg == null);
     lower.err_msg = try Zcu.ErrorMsg.create(lower.allocator, lower.src_loc, format, args);
     return error.LowerFail;
@@ -372,7 +420,7 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                                 lower.result_insts[lower.result_insts_len] =
                                     try Instruction.new(.none, .lea, &[_]Operand{
                                     .{ .reg = .rdi },
-                                    .{ .mem = Memory.rip(mem_op.sib.ptr_size, 0) },
+                                    .{ .mem = Memory.initRip(mem_op.sib.ptr_size, 0) },
                                 });
                                 lower.result_insts_len += 1;
                                 _ = lower.reloc(.{
@@ -385,7 +433,7 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                                 lower.result_insts_len += 1;
                                 _ = lower.reloc(.{ .linker_dtpoff = sym_index }, 0);
                                 emit_mnemonic = .lea;
-                                break :op .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{
+                                break :op .{ .mem = Memory.initSib(mem_op.sib.ptr_size, .{
                                     .base = .{ .reg = .rax },
                                     .disp = std.math.minInt(i32),
                                 }) };
@@ -394,12 +442,12 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                                 lower.result_insts[lower.result_insts_len] =
                                     try Instruction.new(.none, .mov, &[_]Operand{
                                     .{ .reg = .rax },
-                                    .{ .mem = Memory.sib(.qword, .{ .base = .{ .reg = .fs } }) },
+                                    .{ .mem = Memory.initSib(.qword, .{ .base = .{ .reg = .fs } }) },
                                 });
                                 lower.result_insts_len += 1;
                                 _ = lower.reloc(.{ .linker_reloc = sym_index }, 0);
                                 emit_mnemonic = .lea;
-                                break :op .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{
+                                break :op .{ .mem = Memory.initSib(mem_op.sib.ptr_size, .{
                                     .base = .{ .reg = .rax },
                                     .disp = std.math.minInt(i32),
                                 }) };
@@ -410,7 +458,7 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                         if (lower.pic) switch (mnemonic) {
                             .lea => {
                                 if (elf_sym.flags.is_extern_ptr) emit_mnemonic = .mov;
-                                break :op .{ .mem = Memory.rip(mem_op.sib.ptr_size, 0) };
+                                break :op .{ .mem = Memory.initRip(mem_op.sib.ptr_size, 0) };
                             },
                             .mov => {
                                 if (elf_sym.flags.is_extern_ptr) {
@@ -418,25 +466,25 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                                     lower.result_insts[lower.result_insts_len] =
                                         try Instruction.new(.none, .mov, &[_]Operand{
                                         .{ .reg = reg.to64() },
-                                        .{ .mem = Memory.rip(.qword, 0) },
+                                        .{ .mem = Memory.initRip(.qword, 0) },
                                     });
                                     lower.result_insts_len += 1;
-                                    break :op .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{ .base = .{
+                                    break :op .{ .mem = Memory.initSib(mem_op.sib.ptr_size, .{ .base = .{
                                         .reg = reg.to64(),
                                     } }) };
                                 }
-                                break :op .{ .mem = Memory.rip(mem_op.sib.ptr_size, 0) };
+                                break :op .{ .mem = Memory.initRip(mem_op.sib.ptr_size, 0) };
                             },
                             else => unreachable,
                         } else switch (mnemonic) {
-                            .call => break :op .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{
+                            .call => break :op .{ .mem = Memory.initSib(mem_op.sib.ptr_size, .{
                                 .base = .{ .reg = .ds },
                             }) },
                             .lea => {
                                 emit_mnemonic = .mov;
                                 break :op .{ .imm = Immediate.s(0) };
                             },
-                            .mov => break :op .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{
+                            .mov => break :op .{ .mem = Memory.initSib(mem_op.sib.ptr_size, .{
                                 .base = .{ .reg = .ds },
                             }) },
                             else => unreachable,
@@ -450,12 +498,12 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                             lower.result_insts[lower.result_insts_len] =
                                 try Instruction.new(.none, .mov, &[_]Operand{
                                 .{ .reg = .rdi },
-                                .{ .mem = Memory.rip(mem_op.sib.ptr_size, 0) },
+                                .{ .mem = Memory.initRip(mem_op.sib.ptr_size, 0) },
                             });
                             lower.result_insts_len += 1;
                             lower.result_insts[lower.result_insts_len] =
                                 try Instruction.new(.none, .call, &[_]Operand{
-                                .{ .mem = Memory.sib(.qword, .{ .base = .{ .reg = .rdi } }) },
+                                .{ .mem = Memory.initSib(.qword, .{ .base = .{ .reg = .rdi } }) },
                             });
                             lower.result_insts_len += 1;
                             emit_mnemonic = .mov;
@@ -466,7 +514,7 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                         break :op switch (mnemonic) {
                             .lea => {
                                 if (macho_sym.flags.is_extern_ptr) emit_mnemonic = .mov;
-                                break :op .{ .mem = Memory.rip(mem_op.sib.ptr_size, 0) };
+                                break :op .{ .mem = Memory.initRip(mem_op.sib.ptr_size, 0) };
                             },
                             .mov => {
                                 if (macho_sym.flags.is_extern_ptr) {
@@ -474,17 +522,19 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                                     lower.result_insts[lower.result_insts_len] =
                                         try Instruction.new(.none, .mov, &[_]Operand{
                                         .{ .reg = reg.to64() },
-                                        .{ .mem = Memory.rip(.qword, 0) },
+                                        .{ .mem = Memory.initRip(.qword, 0) },
                                     });
                                     lower.result_insts_len += 1;
-                                    break :op .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{ .base = .{
+                                    break :op .{ .mem = Memory.initSib(mem_op.sib.ptr_size, .{ .base = .{
                                         .reg = reg.to64(),
                                     } }) };
                                 }
-                                break :op .{ .mem = Memory.rip(mem_op.sib.ptr_size, 0) };
+                                break :op .{ .mem = Memory.initRip(mem_op.sib.ptr_size, 0) };
                             },
                             else => unreachable,
                         };
+                    } else {
+                        return lower.fail("TODO: bin format '{s}'", .{@tagName(lower.bin_file.tag)});
                     }
                 },
             },
@@ -526,7 +576,7 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
         @setEvalBranchQuota(2_000);
 
         comptime var max_len = 0;
-        inline for (@typeInfo(Mnemonic).Enum.fields) |field| max_len = @max(field.name.len, max_len);
+        inline for (@typeInfo(Mnemonic).@"enum".fields) |field| max_len = @max(field.name.len, max_len);
         var buf: [max_len]u8 = undefined;
 
         const fixes_name = @tagName(fixes);
@@ -656,7 +706,7 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
             }, extra.off);
             break :ops &.{
                 .{ .reg = reg },
-                .{ .mem = Memory.rip(Memory.PtrSize.fromBitSize(reg.bitSize()), 0) },
+                .{ .mem = Memory.initRip(Memory.PtrSize.fromBitSize(reg.bitSize()), 0) },
             };
         },
         else => return lower.fail("TODO lower {s} {s}", .{ @tagName(inst.tag), @tagName(inst.ops) }),
@@ -665,12 +715,43 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
 
 fn pushPopRegList(lower: *Lower, comptime mnemonic: Mnemonic, inst: Mir.Inst) Error!void {
     const callee_preserved_regs = abi.getCalleePreservedRegs(lower.cc);
-    var it = inst.data.reg_list.iterator(.{ .direction = switch (mnemonic) {
-        .push => .reverse,
-        .pop => .forward,
+    var off: i32 = switch (mnemonic) {
+        .push => 0,
+        .pop => undefined,
         else => unreachable,
-    } });
-    while (it.next()) |i| try lower.emit(.none, mnemonic, &.{.{ .reg = callee_preserved_regs[i] }});
+    };
+    {
+        var it = inst.data.reg_list.iterator(.{ .direction = switch (mnemonic) {
+            .push => .reverse,
+            .pop => .forward,
+            else => unreachable,
+        } });
+        while (it.next()) |i| {
+            try lower.emit(.none, mnemonic, &.{.{
+                .reg = callee_preserved_regs[i],
+            }});
+            switch (mnemonic) {
+                .push => off -= 8,
+                .pop => {},
+                else => unreachable,
+            }
+        }
+    }
+    switch (mnemonic) {
+        .push => {
+            var it = inst.data.reg_list.iterator(.{});
+            while (it.next()) |i| {
+                try lower.emit(.directive, .@".cfi_rel_offset", &.{
+                    .{ .reg = callee_preserved_regs[i] },
+                    .{ .imm = Immediate.s(off) },
+                });
+                off += 8;
+            }
+            assert(off == 0);
+        },
+        .pop => {},
+        else => unreachable,
+    }
 }
 
 const page_size: i32 = 1 << 12;

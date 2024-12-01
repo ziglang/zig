@@ -149,12 +149,12 @@ test "packed union initialized with a runtime value" {
         value: u63,
         fields: Fields,
 
-        fn value() i64 {
+        fn getValue() i64 {
             return 1341;
         }
     };
 
-    const timestamp: i64 = ID.value();
+    const timestamp: i64 = ID.getValue();
     const id = ID{ .fields = Fields{
         .timestamp = @as(u50, @intCast(timestamp)),
         .random_bits = 420,

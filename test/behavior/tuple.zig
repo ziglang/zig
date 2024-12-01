@@ -32,16 +32,16 @@ test "tuple multiplication" {
         fn doTheTest() !void {
             {
                 const t = .{} ** 4;
-                try expect(@typeInfo(@TypeOf(t)).Struct.fields.len == 0);
+                try expect(@typeInfo(@TypeOf(t)).@"struct".fields.len == 0);
             }
             {
                 const t = .{'a'} ** 4;
-                try expect(@typeInfo(@TypeOf(t)).Struct.fields.len == 4);
+                try expect(@typeInfo(@TypeOf(t)).@"struct".fields.len == 4);
                 inline for (t) |x| try expect(x == 'a');
             }
             {
                 const t = .{ 1, 2, 3 } ** 4;
-                try expect(@typeInfo(@TypeOf(t)).Struct.fields.len == 12);
+                try expect(@typeInfo(@TypeOf(t)).@"struct".fields.len == 12);
                 inline for (t, 0..) |x, i| try expect(x == 1 + i % 3);
             }
         }
@@ -133,7 +133,7 @@ test "array-like initializer for tuple types" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const T = @Type(.{
-        .Struct = .{
+        .@"struct" = .{
             .is_tuple = true,
             .layout = .auto,
             .decls = &.{},
@@ -150,7 +150,7 @@ test "array-like initializer for tuple types" {
                     .type = u8,
                     .default_value = null,
                     .is_comptime = false,
-                    .alignment = @alignOf(i32),
+                    .alignment = @alignOf(u8),
                 },
             },
         },
@@ -323,7 +323,7 @@ test "zero sized struct in tuple handled correctly" {
     const State = struct {
         const Self = @This();
         data: @Type(.{
-            .Struct = .{
+            .@"struct" = .{
                 .is_tuple = true,
                 .layout = .auto,
                 .decls = &.{},
@@ -474,7 +474,7 @@ test "coerce anon tuple to tuple" {
 }
 
 test "empty tuple type" {
-    const S = @Type(.{ .Struct = .{
+    const S = @Type(.{ .@"struct" = .{
         .layout = .auto,
         .fields = &.{},
         .decls = &.{},
@@ -566,16 +566,28 @@ test "comptime fields in tuple can be initialized" {
     _ = &a;
 }
 
-test "tuple default values" {
-    const T = struct {
-        usize,
-        usize = 123,
-        usize = 456,
-    };
+test "empty struct in tuple" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
-    const t: T = .{1};
+    const T = struct { struct {} };
+    const info = @typeInfo(T);
+    try std.testing.expectEqual(@as(usize, 1), info.@"struct".fields.len);
+    try std.testing.expectEqualStrings("0", info.@"struct".fields[0].name);
+    try std.testing.expect(@typeInfo(info.@"struct".fields[0].type) == .@"struct");
+}
 
-    try expectEqual(1, t[0]);
-    try expectEqual(123, t[1]);
-    try expectEqual(456, t[2]);
+test "empty union in tuple" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+
+    const T = struct { union {} };
+    const info = @typeInfo(T);
+    try std.testing.expectEqual(@as(usize, 1), info.@"struct".fields.len);
+    try std.testing.expectEqualStrings("0", info.@"struct".fields[0].name);
+    try std.testing.expect(@typeInfo(info.@"struct".fields[0].type) == .@"union");
 }
