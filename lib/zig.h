@@ -41,7 +41,7 @@ typedef char bool;
 #define zig_has_attribute(attribute) 0
 #endif
 
-#if __LITTLE_ENDIAN__ || _MSC_VER
+#if defined(_MSC_VER) || __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
 #define zig_little_endian 1
 #define zig_big_endian 0
 #else
