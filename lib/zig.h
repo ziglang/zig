@@ -31,6 +31,8 @@ typedef char bool;
 #define zig_gnuc
 #elif defined(__TINYC__)
 #define zig_tinyc
+#elif defined(__slimcc__)
+#define zig_slimcc
 #endif
 
 #define zig_concat(lhs, rhs) lhs##rhs
@@ -61,7 +63,7 @@ typedef char bool;
 #define zig_threadlocal thread_local
 #elif __STDC_VERSION__ >= 201112L
 #define zig_threadlocal _Thread_local
-#elif defined(__GNUC__)
+#elif defined(__GNUC__) || defined(zig_slimcc)
 #define zig_threadlocal __thread
 #elif _MSC_VER
 #define zig_threadlocal __declspec(thread)
