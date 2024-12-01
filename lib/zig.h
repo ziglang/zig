@@ -237,6 +237,8 @@ typedef char bool;
 
 #if zig_has_builtin(unreachable) || defined(zig_gnuc) || defined(zig_tinyc)
 #define zig_unreachable() __builtin_unreachable()
+#elif defined(zig_msvc)
+#define zig_unreachable() __assume(0)
 #else
 #define zig_unreachable()
 #endif
