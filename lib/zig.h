@@ -376,6 +376,8 @@ typedef char bool;
 
 #if zig_has_builtin(frame_address) || defined(zig_gnuc) || defined(zig_tinyc)
 #define zig_frame_address() __builtin_frame_address(0)
+#elif defined(zig_msvc)
+#define zig_frame_address() _AddressOfReturnAddress()
 #else
 #define zig_frame_address() 0
 #endif
