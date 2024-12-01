@@ -41,42 +41,9 @@ const Blake3 = std.crypto.hash.Blake3;
 
 const LibCTarget = struct {
     name: []const u8,
-    arch: MultiArch,
-    abi: MultiAbi,
-};
-
-const MultiArch = union(enum) {
-    aarch64,
-    arm,
-    x86_64,
-    specific: Arch,
-
-    fn eql(a: MultiArch, b: MultiArch) bool {
-        if (@intFromEnum(a) != @intFromEnum(b))
-            return false;
-        if (a != .specific)
-            return true;
-        return a.specific == b.specific;
-    }
-};
-
-const MultiAbi = union(enum) {
-    musl,
-    specific: Abi,
-
-    fn eql(a: MultiAbi, b: MultiAbi) bool {
-        if (@intFromEnum(a) != @intFromEnum(b))
-            return false;
-        if (std.meta.Tag(MultiAbi)(a) != .specific)
-            return true;
-        return a.specific == b.specific;
-    }
-};
-
-const targets_dirs = &[_][]const u8{
-    "aarch64-linux-ohos",
-    "arm-linux-ohos",
-    "x86_64-linux-ohos",
+    arch: Arch,
+    abi: Abi,
+    abi_name: []const u8,
 };
 
 fn is_in_array(value: []const u8, array: []const []const u8) bool {
@@ -89,21 +56,10 @@ fn is_in_array(value: []const u8, array: []const []const u8) bool {
 }
 
 const musl_targets = [_]LibCTarget{
-    LibCTarget{
-        .name = "aarch64",
-        .arch = MultiArch.aarch64,
-        .abi = MultiAbi.musl,
-    },
-    LibCTarget{
-        .name = "arm",
-        .arch = MultiArch.arm,
-        .abi = MultiAbi.musl,
-    },
-    LibCTarget{
-        .name = "x86_64",
-        .arch = MultiArch.x86_64,
-        .abi = MultiAbi.musl,
-    },
+    LibCTarget{ .name = "aarch64", .arch = Arch.aarch64, .abi = Abi.ohos, .abi_name = "ohos" },
+    // Note: for older version of zig, ohoseabi is not exist.
+    LibCTarget{ .name = "arm", .arch = Arch.arm, .abi = Abi.ohoseabi, .abi_name = "ohoseabi" },
+    LibCTarget{ .name = "x86_64", .arch = Arch.x86_64, .abi = Abi.ohos, .abi_name = "ohos" },
 };
 
 const Contents = struct {
@@ -294,14 +250,10 @@ pub fn main() !void {
     var ohos_common_content = HashToContents.init(allocator);
 
     for (musl_targets) |libc_target| {
-        var abi: []const u8 = "ohos";
-        if (std.mem.eql(u8, libc_target.name, "arm")) {
-            abi = "ohoseabi";
-        }
         const target = try std.fmt.allocPrint(allocator, "{s}-{s}-{s}", .{
             libc_target.name,
             "linux",
-            abi,
+            libc_target.abi_name,
         });
 
         const arch_generic_hash_content = generateGenericFileMap(allocator, &[_][]const u8{ generic_musl_libc_dir, "arch", libc_target.name }) catch |err| {
