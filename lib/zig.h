@@ -79,8 +79,6 @@
 
 #if defined(zig_msvc)
 #include <intrin.h>
-#elif defined(zig_x86)
-#include <cpuid.h>
 #endif
 
 #if __STDC_VERSION__ >= 202311L
@@ -4058,19 +4056,29 @@ static inline void zig_x86_cpuid(uint32_t leaf_id, uint32_t subid, uint32_t* eax
     *ebx = (uint32_t)cpu_info[1];
     *ecx = (uint32_t)cpu_info[2];
     *edx = (uint32_t)cpu_info[3];
+#elif defined(zig_gnuc) || defined(zig_tinyc) || defined(zig_slimcc)
+    __asm__("cpuid" : "=a"(*eax), "=b"(*ebx), "=c"(*ecx), "=d"(*edx) : "a"(leaf_id), "c"(subid));
 #else
-    __cpuid_count(leaf_id, subid, *eax, *ebx, *ecx, *edx);
+    *eax = 0;
+    *ebx = 0;
+    *ecx = 0;
+    *edx = 0;
 #endif
 }
 
 static inline uint32_t zig_x86_get_xcr0(void) {
 #if defined(zig_msvc)
     return (uint32_t)_xgetbv(0);
-#else
+#elif defined(zig_gnuc) || defined(zig_tinyc) || defined(zig_slimcc)
     uint32_t eax;
     uint32_t edx;
     __asm__("xgetbv" : "=a"(eax), "=d"(edx) : "c"(0));
     return eax;
+#else
+    *eax = 0;
+    *ebx = 0;
+    *ecx = 0;
+    *edx = 0;
 #endif
 }
 
