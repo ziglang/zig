@@ -287,7 +287,7 @@ typedef char bool;
 
 #if zig_has_builtin(debugtrap)
 #define zig_breakpoint() __builtin_debugtrap()
-#elif defined(zig_msvc) || defined(__MINGW32__) || defined(__MINGW64__)
+#elif defined(zig_msvc)
 #define zig_breakpoint() __debugbreak()
 #elif defined(__arm__)
 #define zig_breakpoint() __asm__ volatile("bkpt #0x0")
