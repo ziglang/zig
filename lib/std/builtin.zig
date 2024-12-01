@@ -135,10 +135,12 @@ pub const AtomicRmwOp = enum {
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
-pub const Strip = enum {
+pub const DebugFormat = enum {
     none,
-    debuginfo,
-    all,
+    symbols,
+    dwarf32,
+    dwarf64,
+    code_view,
 };
 
 /// The code model puts constraints on the location of symbols and the size of code and data.

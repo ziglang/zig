@@ -21,7 +21,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize_mode: std.builtin.Opt
             .os_tag = .freestanding,
         }),
         .optimize = optimize_mode,
-        .strip = .none,
+        .debuginfo = .dwarf32,
         .single_threaded = false,
     });
     exe.entry = .disabled;

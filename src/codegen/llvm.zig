@@ -1150,7 +1150,7 @@ pub const Object = struct {
 
             switch (comp.config.debug_format) {
                 .none, .symbols => {},
-                .dwarf => |f| {
+                .dwarf32, .dwarf64 => |f| {
                     module_flags.appendAssumeCapacity(try o.builder.metadataModuleFlag(
                         behavior_warning,
                         try o.builder.metadataString("Debug Info Version"),
@@ -1163,7 +1163,7 @@ pub const Object = struct {
                         try o.builder.metadataConstant(try o.builder.intConst(.i32, 4)),
                     ));
 
-                    if (f == .@"64") {
+                    if (f == .dwarf64) {
                         module_flags.appendAssumeCapacity(try o.builder.metadataModuleFlag(
                             behavior_max,
                             try o.builder.metadataString("DWARF64"),
@@ -1486,7 +1486,7 @@ pub const Object = struct {
         var deinit_wip = true;
         var wip = try Builder.WipFunction.init(&o.builder, .{
             .function = function_index,
-            .strip = !(owner_mod.debug_format == .dwarf or owner_mod.debug_format == .code_view),
+            .strip = !(owner_mod.debug_format == .dwarf32 or owner_mod.debug_format == .dwarf64 or owner_mod.debug_format == .code_view),
         });
         defer if (deinit_wip) wip.deinit();
         wip.cursor = .{ .block = try wip.block(0, "Entry") };
@@ -4833,7 +4833,7 @@ pub const NavGen = struct {
 
             const line_number = zcu.navSrcLine(nav_index) + 1;
 
-            if (mod.debug_format == .dwarf or mod.debug_format == .code_view) {
+            if (mod.debug_format == .dwarf32 or mod.debug_format == .dwarf64 or mod.debug_format == .code_view) {
                 const debug_file = try o.getDebugFile(file_scope);
 
                 const debug_global_var = try o.builder.debugGlobalVar(

@@ -172,13 +172,13 @@ pub fn build(b: *std.Build) !void {
     const force_gpa = b.option(bool, "force-gpa", "Force the compiler to use GeneralPurposeAllocator") orelse false;
     const link_libc = b.option(bool, "force-link-libc", "Force self-hosted compiler to link libc") orelse (enable_llvm or only_c);
     const sanitize_thread = b.option(bool, "sanitize-thread", "Enable thread-sanitization") orelse false;
-    const strip = b.option(std.builtin.Strip, "strip", "Omit debug information");
+    const debuginfo = b.option(std.builtin.DebugFormat, "debuginfo", "Format to use for debuginfo");
     const valgrind = b.option(bool, "valgrind", "Enable valgrind integration");
     const pie = b.option(bool, "pie", "Produce a Position Independent Executable");
     const value_tracing = b.option(bool, "value-tracing", "Enable extra state tracking to help troubleshoot bugs in the compiler (using the std.debug.Trace API)") orelse false;
 
     const mem_leak_frames: u32 = b.option(u32, "mem-leak-frames", "How many stack frames to print when a memory leak occurs. Tests get 2x this amount.") orelse blk: {
-        if (strip == .all) break :blk @as(u32, 0);
+        if (debuginfo != null and debuginfo.? == .none) break :blk @as(u32, 0);
         if (optimize != .Debug) break :blk 0;
         break :blk 4;
     };
@@ -186,7 +186,7 @@ pub fn build(b: *std.Build) !void {
     const exe = addCompilerStep(b, .{
         .optimize = optimize,
         .target = target,
-        .strip = strip,
+        .debuginfo = debuginfo,
         .valgrind = valgrind,
         .sanitize_thread = sanitize_thread,
         .single_threaded = single_threaded,
@@ -630,7 +630,7 @@ fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
 const AddCompilerStepOptions = struct {
     optimize: std.builtin.OptimizeMode,
     target: std.Build.ResolvedTarget,
-    strip: ?std.builtin.Strip = null,
+    debuginfo: ?std.builtin.DebugFormat = null,
     valgrind: ?bool = null,
     sanitize_thread: ?bool = null,
     single_threaded: ?bool = null,
@@ -643,7 +643,7 @@ fn addCompilerStep(b: *std.Build, options: AddCompilerStepOptions) *std.Build.St
         .target = options.target,
         .optimize = options.optimize,
         .max_rss = 7_800_000_000,
-        .strip = options.strip,
+        .debuginfo = options.debuginfo,
         .sanitize_thread = options.sanitize_thread,
         .single_threaded = options.single_threaded,
         .code_model = switch (options.target.result.cpu.arch) {

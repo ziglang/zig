@@ -12,7 +12,6 @@ import_table: std.StringArrayHashMapUnmanaged(*Module),
 
 resolved_target: ?std.Build.ResolvedTarget = null,
 optimize: ?std.builtin.OptimizeMode = null,
-dwarf_format: ?std.dwarf.Format,
 
 c_macros: std.ArrayListUnmanaged([]const u8),
 include_dirs: std.ArrayListUnmanaged(IncludeDir),
@@ -21,7 +20,7 @@ rpaths: std.ArrayListUnmanaged(RPath),
 frameworks: std.StringArrayHashMapUnmanaged(LinkFrameworkOptions),
 link_objects: std.ArrayListUnmanaged(LinkObject),
 
-strip: ?std.builtin.Strip,
+debuginfo: ?std.builtin.DebugFormat,
 unwind_tables: ?std.builtin.UnwindTables,
 single_threaded: ?bool,
 stack_protector: ?bool,
@@ -217,7 +216,7 @@ pub const CreateOptions = struct {
     /// `null` neither requires nor prevents libc++ from being linked.
     link_libcpp: ?bool = null,
     single_threaded: ?bool = null,
-    strip: ?std.builtin.Strip = null,
+    debuginfo: ?std.builtin.DebugFormat = null,
     unwind_tables: ?std.builtin.UnwindTables = null,
     dwarf_format: ?std.dwarf.Format = null,
     code_model: std.builtin.CodeModel = .default,
@@ -254,14 +253,13 @@ pub fn init(m: *Module, owner: *std.Build, options: CreateOptions, compile: ?*St
         .optimize = options.optimize,
         .link_libc = options.link_libc,
         .link_libcpp = options.link_libcpp,
-        .dwarf_format = options.dwarf_format,
         .c_macros = .{},
         .include_dirs = .{},
         .lib_paths = .{},
         .rpaths = .{},
         .frameworks = .{},
         .link_objects = .{},
-        .strip = options.strip,
+        .debuginfo = options.debuginfo,
         .unwind_tables = options.unwind_tables,
         .single_threaded = options.single_threaded,
         .stack_protector = options.stack_protector,
@@ -686,18 +684,13 @@ pub fn appendZigProcessFlags(
     try addFlag(zig_args, m.pic, "-fPIC", "-fno-PIC");
     try addFlag(zig_args, m.red_zone, "-mred-zone", "-mno-red-zone");
 
-    if (m.strip) |strip| {
-        try zig_args.append(switch (strip) {
-            .none => "-fstrip=none",
-            .debuginfo => "-fstrip=debuginfo",
-            .all => "-fstrip=all",
-        });
-    }
-
-    if (m.dwarf_format) |dwarf_format| {
-        try zig_args.append(switch (dwarf_format) {
-            .@"32" => "-gdwarf32",
-            .@"64" => "-gdwarf64",
+    if (m.debuginfo) |debuginfo| {
+        try zig_args.append(switch (debuginfo) {
+            .none => "-fdebuginfo=none",
+            .symbols => "-fdebuginfo=symbols",
+            .dwarf32 => "-fdebuginfo=dwarf32",
+            .dwarf64 => "-fdebuginfo=dwarf64",
+            .code_view => "-fdebuginfo=code_view",
         });
     }
 

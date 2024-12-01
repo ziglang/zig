@@ -18,7 +18,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         .root_source_file = b.path("lib.zig"),
         .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
         .optimize = optimize,
-        .strip = .none,
+        .debuginfo = .dwarf32,
     });
     exe.entry = .disabled;
     exe.use_llvm = false;

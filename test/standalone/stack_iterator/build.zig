@@ -68,7 +68,7 @@ pub fn build(b: *std.Build) void {
             .name = "c_shared_lib",
             .target = target,
             .optimize = optimize,
-            .strip = .none,
+            .debuginfo = .dwarf32,
         });
 
         if (target.result.os.tag == .windows)

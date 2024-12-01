@@ -55,8 +55,12 @@ pub fn init(self: *ZigObject, macho_file: *MachO) !void {
     switch (comp.config.debug_format) {
         .none => {},
         .symbols => {},
-        .dwarf => |v| {
-            self.dwarf = Dwarf.init(&macho_file.base, v);
+        .dwarf32, .dwarf64 => |v| {
+            self.dwarf = Dwarf.init(&macho_file.base, switch (v) {
+                .dwarf32 => .@"32",
+                .dwarf64 => .@"64",
+                else => unreachable,
+            });
             self.debug_strtab_dirty = true;
             self.debug_abbrev_dirty = true;
             self.debug_aranges_dirty = true;

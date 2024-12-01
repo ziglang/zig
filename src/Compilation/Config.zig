@@ -56,20 +56,13 @@ import_memory: bool,
 export_memory: bool,
 shared_memory: bool,
 is_test: bool,
-debug_format: DebugFormat,
+debug_format: std.builtin.DebugFormat,
 root_error_tracing: bool,
 dll_export_fns: bool,
 rdynamic: bool,
 san_cov_trace_pc_guard: bool,
 
 pub const CFrontend = enum { clang, aro };
-
-pub const DebugFormat = union(enum) {
-    none,
-    symbols,
-    dwarf: std.dwarf.Format,
-    code_view,
-};
 
 pub const Options = struct {
     output_mode: std.builtin.OutputMode,
@@ -106,7 +99,7 @@ pub const Options = struct {
     import_memory: ?bool = null,
     export_memory: ?bool = null,
     shared_memory: ?bool = null,
-    debug_format: ?DebugFormat = null,
+    debug_format: ?std.builtin.DebugFormat = null,
     dll_export_fns: ?bool = null,
     rdynamic: ?bool = null,
     san_cov_trace_pc_guard: bool = false,
@@ -431,20 +424,20 @@ pub fn resolve(options: Options) ResolveError!Config {
         break :b false;
     };
 
-    const debug_format: DebugFormat = b: {
+    const debug_format: std.builtin.DebugFormat = b: {
         if (options.debug_format) |x| break :b x;
         if (root_optimize_mode == .ReleaseSmall) break :b .none;
         if (!target_util.hasDebugInfo(target)) break :b .none;
         break :b switch (target.ofmt) {
             .elf, .goff, .macho, .wasm, .xcoff => switch (root_optimize_mode) {
-                .Debug => .{ .dwarf = .@"32" },
+                .Debug => .dwarf32,
                 .ReleaseSafe, .ReleaseFast => .symbols,
                 .ReleaseSmall => unreachable,
             },
             .coff => .code_view,
             .c => switch (target.os.tag) {
                 .windows, .uefi => .code_view,
-                else => .{ .dwarf = .@"32" },
+                else => .dwarf32,
             },
             .spirv, .nvptx, .hex, .raw, .plan9 => .none,
         };

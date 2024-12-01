@@ -1539,9 +1539,9 @@ fn buildOutputType(
                         } else if (mem.eql(u8, debuginfo_format_str, "symbols")) {
                             mod_opts.debug_format = .symbols;
                         } else if (mem.eql(u8, debuginfo_format_str, "dwarf32")) {
-                            mod_opts.debug_format = .{ .dwarf = .@"32" };
+                            mod_opts.debug_format = .dwarf32;
                         } else if (mem.eql(u8, debuginfo_format_str, "dwarf64")) {
-                            mod_opts.debug_format = .{ .dwarf = .@"64" };
+                            mod_opts.debug_format = .dwarf64;
                         } else if (mem.eql(u8, debuginfo_format_str, "code_view")) {
                             mod_opts.debug_format = .code_view;
                         } else {
@@ -2154,7 +2154,7 @@ fn buildOutputType(
                         }
                     },
                     .debug => {
-                        mod_opts.debug_format = .{ .dwarf = .@"32" };
+                        mod_opts.debug_format = .dwarf32;
                         if (mem.eql(u8, it.only_arg, "g")) {
                             // We handled with strip = false above.
                         } else if (mem.eql(u8, it.only_arg, "g1") or
@@ -2166,8 +2166,8 @@ fn buildOutputType(
                             try cc_argv.appendSlice(arena, it.other_args);
                         }
                     },
-                    .gdwarf32 => mod_opts.debug_format = .{ .dwarf = .@"32" },
-                    .gdwarf64 => mod_opts.debug_format = .{ .dwarf = .@"64" },
+                    .gdwarf32 => mod_opts.debug_format = .dwarf32,
+                    .gdwarf64 => mod_opts.debug_format = .dwarf64,
                     .sanitize => {
                         var san_it = std.mem.splitScalar(u8, it.only_arg, ',');
                         var recognized_any = false;
@@ -5405,10 +5405,10 @@ fn jitCmd(
         .Debug
     else
         .ReleaseFast;
-    const debuginfo_format: Compilation.Config.DebugFormat = switch (optimize_mode) {
-        .Debug => .{ .dwarf = .@"32" },
+    const debuginfo_format: std.builtin.DebugFormat = switch (optimize_mode) {
+        .Debug, .ReleaseSafe => .dwarf32,
+        .ReleaseFast => .symbols,
         .ReleaseSmall => .none,
-        else => .symbols,
     };
     const override_lib_dir: ?[]const u8 = try EnvVar.ZIG_LIB_DIR.get(arena);
     const override_global_cache_dir: ?[]const u8 = try EnvVar.ZIG_GLOBAL_CACHE_DIR.get(arena);

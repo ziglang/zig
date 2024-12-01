@@ -101,8 +101,12 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
         .symbols => {
             // TODO: make sure symbols are generated
         },
-        .dwarf => |v| {
-            var dwarf = Dwarf.init(&elf_file.base, v);
+        .dwarf32, .dwarf64 => |v| {
+            var dwarf = Dwarf.init(&elf_file.base, switch (v) {
+                .dwarf32 => .@"32",
+                .dwarf64 => .@"64",
+                else => unreachable,
+            });
 
             const addSectionSymbolWithAtom = struct {
                 fn addSectionSymbolWithAtom(

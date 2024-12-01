@@ -2422,7 +2422,7 @@ fn addTest(
         .link_libc = target.link_libc,
         .single_threaded = target.single_threaded,
         .pic = target.pic,
-        .strip = .none,
+        .debuginfo = .dwarf32,
         .use_llvm = false,
         .use_lld = false,
     });

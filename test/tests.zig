@@ -29,7 +29,7 @@ const TestTarget = struct {
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     pic: ?bool = null,
-    strip: ?std.builtin.Strip = null,
+    debuginfo: ?std.builtin.DebugFormat = null,
     skip_modules: []const []const u8 = &.{},
 
     // This is intended for targets that are known to be slow to compile. These are acceptable to
@@ -123,7 +123,7 @@ const test_targets = blk: {
             },
             .use_llvm = false,
             .use_lld = false,
-            .strip = .all,
+            .debuginfo = .none,
         },
         // Doesn't support new liveness
         //.{
@@ -963,7 +963,7 @@ const CAbiTarget = struct {
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     pic: ?bool = null,
-    strip: ?std.builtin.Strip = null,
+    debuginfo: ?std.builtin.DebugFormat = null,
     c_defines: []const []const u8 = &.{},
 };
 
@@ -995,7 +995,7 @@ const c_abi_targets = [_]CAbiTarget{
         },
         .use_llvm = false,
         .use_lld = false,
-        .strip = .all,
+        .debuginfo = .none,
         .c_defines = &.{"ZIG_BACKEND_STAGE2_X86_64"},
     },
     .{
@@ -1274,11 +1274,11 @@ pub fn addCliTests(b: *std.Build) *Step {
 
         // This is intended to be the exact CLI usage used by godbolt.org.
         const run = b.addSystemCommand(&.{
-            b.graph.zig_exe, "build-obj",
-            "--cache-dir",   tmp_path,
-            "--name",        "example",
-            "-fno-emit-bin", "-fno-emit-h",
-            "-fstrip",       "-OReleaseFast",
+            b.graph.zig_exe,    "build-obj",
+            "--cache-dir",      tmp_path,
+            "--name",           "example",
+            "-fno-emit-bin",    "-fno-emit-h",
+            "-fdebuginfo=none", "-OReleaseFast",
         });
         run.addFileArg(example_zig);
         const example_s = run.addPrefixedOutputFileArg("-femit-asm=", "example.s");
@@ -1552,7 +1552,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             .use_lld = test_target.use_lld,
             .zig_lib_dir = b.path("lib"),
             .pic = test_target.pic,
-            .strip = test_target.strip,
+            .debuginfo = test_target.debuginfo,
         });
         if (options.no_builtin) these_tests.no_builtin = true;
         if (options.build_options) |build_options| {
@@ -1725,7 +1725,7 @@ pub fn addCAbiTests(b: *std.Build, options: CAbiTestOptions) *Step {
                 .use_llvm = c_abi_target.use_llvm,
                 .use_lld = c_abi_target.use_lld,
                 .pic = c_abi_target.pic,
-                .strip = c_abi_target.strip,
+                .debuginfo = c_abi_target.debuginfo,
             });
             test_step.addCSourceFile(.{
                 .file = b.path("test/c_abi/cfuncs.c"),

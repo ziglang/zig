@@ -9,7 +9,7 @@ pub const Options = struct {
     optimize: std.builtin.OptimizeMode = .Debug,
     use_llvm: bool = true,
     use_lld: bool = false,
-    strip: ?std.builtin.Strip = null,
+    debuginfo: ?std.builtin.DebugFormat = null,
 };
 
 pub fn addTestStep(b: *Build, prefix: []const u8, opts: Options) *Step {
@@ -17,11 +17,13 @@ pub fn addTestStep(b: *Build, prefix: []const u8, opts: Options) *Step {
     const optimize = @tagName(opts.optimize);
     const use_llvm = if (opts.use_llvm) "llvm" else "no-llvm";
     const use_lld = if (opts.use_lld) "lld" else "no-lld";
-    if (opts.strip) |strip| {
-        const s = switch (strip) {
-            .all => "strip-all",
-            .debuginfo => "strip-debuginfo",
-            .none => "strip-none",
+    if (opts.debuginfo) |debuginfo| {
+        const s = switch (debuginfo) {
+            .none => "debuginfo-none",
+            .symbols => "debuginfo-symbols",
+            .dwarf32 => "debuginfo-dwarf32",
+            .dwarf64 => "debuginfo-dwarf64",
+            .code_view => "debuginfo-code_view",
         };
         const name = std.fmt.allocPrint(b.allocator, "test-{s}-{s}-{s}-{s}-{s}-{s}", .{
             prefix, target, optimize, use_llvm, use_lld, s,
@@ -47,7 +49,7 @@ const OverlayOptions = struct {
     objcpp_source_flags: []const []const u8 = &.{},
     zig_source_bytes: ?[]const u8 = null,
     pic: ?bool = null,
-    strip: ?std.builtin.Strip = null,
+    debuginfo: ?std.builtin.DebugFormat = null,
 };
 
 pub fn addExecutable(b: *std.Build, base: Options, overlay: OverlayOptions) *Compile {
@@ -83,7 +85,7 @@ fn addCompileStep(
                 break :rsf b.addWriteFiles().add(name, bytes);
             },
             .pic = overlay.pic,
-            .strip = if (base.strip) |s| s else overlay.strip,
+            .debuginfo = if (base.debuginfo) |d| d else overlay.debuginfo,
         },
         .use_llvm = base.use_llvm,
         .use_lld = base.use_lld,

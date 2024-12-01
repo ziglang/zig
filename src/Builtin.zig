@@ -14,7 +14,7 @@ sanitize_thread: bool,
 fuzz: bool,
 pic: bool,
 pie: bool,
-debug_format: Compilation.Config.DebugFormat,
+debug_format: std.builtin.DebugFormat,
 code_model: std.builtin.CodeModel,
 omit_frame_pointer: bool,
 wasi_exec_model: std.builtin.WasiExecModel,
@@ -228,6 +228,7 @@ pub fn append(opts: @This(), buffer: *std.ArrayList(u8)) Allocator.Error!void {
         \\pub const fuzz = {};
         \\pub const position_independent_code = {};
         \\pub const position_independent_executable = {};
+        \\pub const debug_format = std.builtin.DebugFormat.{p_};
         \\pub const strip_debug_info = {};
         \\pub const code_model: std.builtin.CodeModel = .{p_};
         \\pub const omit_frame_pointer = {};
@@ -243,6 +244,7 @@ pub fn append(opts: @This(), buffer: *std.ArrayList(u8)) Allocator.Error!void {
         opts.fuzz,
         opts.pic,
         opts.pie,
+        std.zig.fmtId(@tagName(opts.debug_format)),
         opts.debug_format == .none,
         std.zig.fmtId(@tagName(opts.code_model)),
         opts.omit_frame_pointer,

@@ -842,7 +842,7 @@ pub const cache_helpers = struct {
         hh.add(mod.error_tracing);
         hh.add(mod.valgrind);
         hh.add(mod.pic);
-        addDebugFormat(hh, mod.debug_format);
+        hh.add(mod.debug_format);
         hh.add(mod.omit_frame_pointer);
         hh.add(mod.stack_check);
         hh.add(mod.red_zone);
@@ -882,16 +882,7 @@ pub const cache_helpers = struct {
 
     pub fn addOptionalDebugFormat(hh: *Cache.HashHelper, x: ?Config.DebugFormat) void {
         hh.add(x != null);
-        addDebugFormat(hh, x orelse return);
-    }
-
-    pub fn addDebugFormat(hh: *Cache.HashHelper, x: Config.DebugFormat) void {
-        const tag: @typeInfo(Config.DebugFormat).@"union".tag_type.? = x;
-        hh.add(tag);
-        switch (x) {
-            .none, .symbols, .code_view => {},
-            .dwarf => |f| hh.add(f),
-        }
+        hh.add(x orelse return);
     }
 
     pub fn hashCSource(self: *Cache.Manifest, c_source: CSourceFile) !void {
@@ -1364,7 +1355,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         cache.hash.add(options.config.link_libcpp);
         cache.hash.add(options.config.link_libunwind);
         cache.hash.add(output_mode);
-        cache_helpers.addDebugFormat(&cache.hash, options.config.debug_format);
+        cache.hash.add(options.config.debug_format);
         cache_helpers.addOptionalEmitLoc(&cache.hash, options.emit_bin);
         cache_helpers.addOptionalEmitLoc(&cache.hash, options.emit_implib);
         cache_helpers.addOptionalEmitLoc(&cache.hash, options.emit_docs);
@@ -5334,12 +5325,13 @@ pub fn addCCArgs(
             // generation, it only changes the type of information generated.
             argv.appendSliceAssumeCapacity(&.{ "-g", "-gcodeview" });
         },
-        .dwarf => |f| {
+        .dwarf32 => {
             argv.appendAssumeCapacity("-gdwarf-4");
-            switch (f) {
-                .@"32" => argv.appendAssumeCapacity("-gdwarf32"),
-                .@"64" => argv.appendAssumeCapacity("-gdwarf64"),
-            }
+            argv.appendAssumeCapacity("-gdwarf32");
+        },
+        .dwarf64 => {
+            argv.appendAssumeCapacity("-gdwarf-4");
+            argv.appendAssumeCapacity("-gdwarf64");
         },
     }
 
@@ -6581,6 +6573,6 @@ pub fn compilerRtOptMode(comp: Compilation) std.builtin.OptimizeMode {
 
 /// This decides whether to strip debug info for all zig-provided libraries, including
 /// compiler-rt, libcxx, libc, libunwind, etc.
-pub fn compilerRtDebugFormat(comp: Compilation) Compilation.Config.DebugFormat {
+pub fn compilerRtDebugFormat(comp: Compilation) std.builtin.DebugFormat {
     return comp.root_mod.debug_format;
 }
