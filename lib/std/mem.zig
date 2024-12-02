@@ -1771,6 +1771,28 @@ test readInt {
     try comptime moreReadIntTests();
 }
 
+/// Reads an integer with the same size as the given enum's tag type. If the integer matches an enum
+/// tag, casts the integer to the enum tag and returns it. Otherwise, returns an
+/// `error.InvalidValue`. Marked inline to propagate the comptimeness of `endian`.
+/// TODO optimization taking advantage of most fields being in order
+pub inline fn readEnum(
+    comptime Enum: type,
+    buffer: *const [@divExact(@typeInfo(@typeInfo(Enum).@"enum".tag_type).int.bits, 8)]u8,
+    endian: Endian
+) error{InvalidValue}!Enum {
+    const type_info = @typeInfo(Enum).@"enum";
+    const tag = readInt(type_info.tag_type, buffer, endian);
+
+    inline for (std.meta.fields(Enum)) |field| {
+        if (tag == field.value) {
+            return @field(Enum, field.name);
+        }
+    }
+
+    return error.InvalidValue;
+}
+
+
 fn readPackedIntLittle(comptime T: type, bytes: []const u8, bit_offset: usize) T {
     const uN = std.meta.Int(.unsigned, @bitSizeOf(T));
     const Log2N = std.math.Log2Int(T);
