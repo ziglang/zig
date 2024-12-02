@@ -110,10 +110,10 @@ inline fn mum(a: *u64, b: *u64) void {
 }
 
 inline fn mix(a: u64, b: u64) u64 {
-    var _a = a;
-    var _b = b;
-    mum(&_a, &_b);
-    return _a ^ _b;
+    var copy_a = a;
+    var copy_b = b;
+    mum(&copy_a, &copy_b);
+    return copy_a ^ copy_b;
 }
 
 inline fn r64(p: []const u8) u64 {
