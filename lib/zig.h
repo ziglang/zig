@@ -81,15 +81,51 @@
 #define zig_big_endian 1
 #endif
 
-#if defined(_WIN32)
+#if defined(_AIX)
+#define zig_aix
+#elif defined(__MACH__)
+#define zig_darwin
+#elif defined(__DragonFly__)
+#define zig_dragonfly
+#define zig_bsd
+#elif defined(__EMSCRIPTEN__)
+#define zig_emscripten
+#elif defined(__FreeBSD__)
+#define zig_freebsd
+#define zig_bsd
+#elif defined(__Fuchsia__)
+#define zig_fuchsia
+#elif defined(__HAIKU__)
+#define zig_haiku
+#elif defined(__gnu_hurd__)
+#define zig_hurd
+#elif defined(__linux__)
+#define zig_linux
+#elif defined(__NetBSD__)
+#define zig_netbsd
+#define zig_bsd
+#elif defined(__OpenBSD__)
+#define zig_openbsd
+#define zig_bsd
+#elif defined(__SVR4)
+#define zig_solaris
+#elif defined(__wasi__)
+#define zig_wasi
+#elif defined(_WIN32)
+#define zig_windows
+#elif defined(__MVS__)
+#define zig_zos
+#endif
+
+#if defined(zig_windows)
 #define zig_coff
 #elif defined(__ELF__)
 #define zig_elf
-#elif defined(__MVS__)
+#elif defined(zig_zos)
 #define zig_goff
-#elif defined(__MACH__)
+#elif defined(zig_darwin)
 #define zig_macho
-#elif defined(_AIX)
+#elif defined(zig_aix)
 #define zig_xcoff
 #endif
 
@@ -3163,7 +3199,7 @@ typedef uint16_t zig_f16;
 #undef zig_init_special_f16
 #define zig_init_special_f16(sign, name, arg, repr) repr
 #endif
-#if defined(__APPLE__) && defined(zig_x86)
+#if defined(zig_darwin) && defined(zig_x86)
 typedef uint16_t zig_compiler_rt_f16;
 #else
 typedef zig_f16 zig_compiler_rt_f16;
@@ -3302,7 +3338,7 @@ typedef __float128 zig_f128;
 #define zig_has_f128 0
 #undef zig_make_special_f128
 #undef zig_init_special_f128
-#if __APPLE__ || defined(zig_aarch64)
+#if defined(zig_darwin) || defined(zig_aarch64)
 typedef __attribute__((__vector_size__(2 * sizeof(uint64_t)))) uint64_t zig_v2u64;
 zig_basic_operator(zig_v2u64, xor_v2u64, ^)
 #define zig_repr_f128 v2u64
