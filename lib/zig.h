@@ -4002,7 +4002,7 @@ static inline void* zig_thumb_windows_teb(void) {
     void* teb = 0;
 #if defined(zig_msvc)
     teb = (void*)_MoveFromCoprocessor(15, 0, 13, 0, 2);
-#elif defined(zig_gnuc)
+#elif defined(zig_gnuc) || defined(zig_tinyc) || defined(zig_slimcc)
     __asm__ ("mrc p15, 0, %[ptr], c13, c0, 2" : [ptr] "=r" (teb));
 #endif
     return teb;
@@ -4014,7 +4014,7 @@ static inline void* zig_aarch64_windows_teb(void) {
     void* teb = 0;
 #if defined(zig_msvc)
     teb = (void*)__readx18qword(0x0);
-#elif defined(zig_gnuc)
+#elif defined(zig_gnuc) || defined(zig_tinyc) || defined(zig_slimcc)
     __asm__ ("mov %[ptr], x18" : [ptr] "=r" (teb));
 #endif
     return teb;
@@ -4026,7 +4026,7 @@ static inline void* zig_x86_windows_teb(void) {
     void* teb = 0;
 #if defined(zig_msvc)
     teb = (void*)__readfsdword(0x18);
-#elif defined(zig_gnuc)
+#elif defined(zig_gnuc) || defined(zig_tinyc) || defined(zig_slimcc)
     __asm__ ("movl %%fs:0x18, %[ptr]" : [ptr] "=r" (teb));
 #endif
     return teb;
@@ -4038,7 +4038,7 @@ static inline void* zig_x86_64_windows_teb(void) {
     void* teb = 0;
 #if defined(zig_msvc)
     teb = (void*)__readgsqword(0x30);
-#elif defined(zig_gnuc)
+#elif defined(zig_gnuc) || defined(zig_tinyc) || defined(zig_slimcc)
     __asm__ ("movq %%gs:0x30, %[ptr]" : [ptr] "=r" (teb));
 #endif
     return teb;
