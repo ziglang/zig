@@ -344,8 +344,8 @@ pub fn readStructEndian(self: Self, comptime T: type, endian: std.builtin.Endian
 /// an enum tag, casts the integer to the enum tag and returns it. Otherwise, returns an `error.InvalidValue`.
 /// TODO optimization taking advantage of most fields being in order
 pub fn readEnum(self: Self, comptime Enum: type, endian: std.builtin.Endian) anyerror!Enum {
-        const buf = try self.readBytesNoEof(@divExact(@typeInfo(@typeInfo(Enum).@"enum".tag_type).int.bits, 8));
-        return std.mem.readEnum(Enum, &buf, endian);
+    const buf = try self.readBytesNoEof(@divExact(@typeInfo(@typeInfo(Enum).@"enum".tag_type).int.bits, 8));
+    return std.mem.readEnum(Enum, &buf, endian);
 }
 
 /// Reads the stream until the end, ignoring all the data.

@@ -1778,7 +1778,7 @@ test readInt {
 pub inline fn readEnum(
     comptime Enum: type,
     buffer: *const [@divExact(@typeInfo(@typeInfo(Enum).@"enum".tag_type).int.bits, 8)]u8,
-    endian: Endian
+    endian: Endian,
 ) error{InvalidValue}!Enum {
     const type_info = @typeInfo(Enum).@"enum";
     const tag = readInt(type_info.tag_type, buffer, endian);
@@ -1791,7 +1791,6 @@ pub inline fn readEnum(
 
     return error.InvalidValue;
 }
-
 
 fn readPackedIntLittle(comptime T: type, bytes: []const u8, bit_offset: usize) T {
     const uN = std.meta.Int(.unsigned, @bitSizeOf(T));
