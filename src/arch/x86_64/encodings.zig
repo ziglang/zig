@@ -1287,6 +1287,16 @@ pub const table = [_]Entry{
     .{ .sha256rnds2, .rm0, &.{ .xmm, .xmm_m128, .xmm0 }, &.{ 0x0f, 0x38, 0xcb }, 0, .none, .sha },
 
     // AVX
+    .{ .rorx, .rmi, &.{ .r32, .rm32, .imm8 }, &.{ 0xf2, 0x0f, 0x3a }, 0, .vex_lz_w0, .bmi2 },
+    .{ .rorx, .rmi, &.{ .r64, .rm64, .imm8 }, &.{ 0xf2, 0x0f, 0x3a }, 0, .vex_lz_w1, .bmi2 },
+
+    .{ .sarx, .rmv, &.{ .r32, .rm32, .r32 }, &.{ 0xf3, 0x0f, 0x38, 0xf7 }, 0, .vex_lz_w0, .bmi2 },
+    .{ .shlx, .rmv, &.{ .r32, .rm32, .r32 }, &.{ 0x66, 0x0f, 0x38, 0xf7 }, 0, .vex_lz_w0, .bmi2 },
+    .{ .shrx, .rmv, &.{ .r32, .rm32, .r32 }, &.{ 0xf2, 0x0f, 0x38, 0xf7 }, 0, .vex_lz_w0, .bmi2 },
+    .{ .sarx, .rmv, &.{ .r64, .rm64, .r64 }, &.{ 0xf3, 0x0f, 0x38, 0xf7 }, 0, .vex_lz_w1, .bmi2 },
+    .{ .shlx, .rmv, &.{ .r64, .rm64, .r64 }, &.{ 0x66, 0x0f, 0x38, 0xf7 }, 0, .vex_lz_w1, .bmi2 },
+    .{ .shrx, .rmv, &.{ .r64, .rm64, .r64 }, &.{ 0xf2, 0x0f, 0x38, 0xf7 }, 0, .vex_lz_w1, .bmi2 },
+
     .{ .vaddpd, .rvm, &.{ .xmm, .xmm, .xmm_m128 }, &.{ 0x66, 0x0f, 0x58 }, 0, .vex_128_wig, .avx },
     .{ .vaddpd, .rvm, &.{ .ymm, .ymm, .ymm_m256 }, &.{ 0x66, 0x0f, 0x58 }, 0, .vex_256_wig, .avx },
 

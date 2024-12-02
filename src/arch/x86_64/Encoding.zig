@@ -177,7 +177,7 @@ pub fn format(
             try writer.print("+{s} ", .{tag});
         },
         .m, .mi, .m1, .mc, .vmi => try writer.print("/{d} ", .{encoding.modRmExt()}),
-        .mr, .rm, .rmi, .mri, .mrc, .rm0, .rvm, .rvmr, .rvmi, .mvr => try writer.writeAll("/r "),
+        .mr, .rm, .rmi, .mri, .mrc, .rm0, .rvm, .rvmr, .rvmi, .mvr, .rmv => try writer.writeAll("/r "),
     }
 
     switch (encoding.data.op_en) {
@@ -202,7 +202,7 @@ pub fn format(
             try writer.print("{s} ", .{tag});
         },
         .rvmr => try writer.writeAll("/is4 "),
-        .zo, .fd, .td, .o, .m, .m1, .mc, .mr, .rm, .mrc, .rm0, .rvm, .mvr => {},
+        .zo, .fd, .td, .o, .m, .m1, .mc, .mr, .rm, .mrc, .rm0, .rvm, .mvr, .rmv => {},
     }
 
     try writer.print("{s} ", .{@tagName(encoding.mnemonic)});
@@ -260,10 +260,10 @@ pub const Mnemonic = enum {
     neg, nop, not,
     @"or",
     pause, pop, popcnt, popfq, push, pushfq,
-    rcl, rcr, ret, rol, ror,
-    sal, sar, sbb,
+    rcl, rcr, ret, rol, ror, rorx,
+    sal, sar, sarx, sbb,
     scas, scasb, scasd, scasq, scasw,
-    shl, shld, shr, shrd, sub, syscall,
+    shl, shld, shlx, shr, shrd, shrx, sub, syscall,
     seta, setae, setb, setbe, setc, sete, setg, setge, setl, setle, setna, setnae,
     setnb, setnbe, setnc, setne, setng, setnge, setnl, setnle, setno, setnp, setns,
     setnz, seto, setp, setpe, setpo, sets, setz,
@@ -444,7 +444,7 @@ pub const OpEn = enum {
     fd, td,
     m1, mc, mi, mr, rm,
     rmi, mri, mrc,
-    rm0, vmi, rvm, rvmr, rvmi, mvr,
+    rm0, vmi, rvm, rvmr, rvmi, mvr, rmv,
     // zig fmt: on
 };
 
@@ -808,6 +808,7 @@ pub const Feature = enum {
     avx,
     avx2,
     bmi,
+    bmi2,
     f16c,
     fma,
     lzcnt,

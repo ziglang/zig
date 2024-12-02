@@ -1229,7 +1229,7 @@ pub const VectorCmp = struct {
     op: u32,
 
     pub fn compareOperator(self: VectorCmp) std.math.CompareOperator {
-        return @as(std.math.CompareOperator, @enumFromInt(@as(u3, @truncate(self.op))));
+        return @enumFromInt(@as(u3, @intCast(self.op)));
     }
 
     pub fn encodeOp(compare_operator: std.math.CompareOperator) u32 {
@@ -1274,11 +1274,11 @@ pub const Cmpxchg = struct {
     flags: u32,
 
     pub fn successOrder(self: Cmpxchg) std.builtin.AtomicOrder {
-        return @as(std.builtin.AtomicOrder, @enumFromInt(@as(u3, @truncate(self.flags))));
+        return @enumFromInt(@as(u3, @truncate(self.flags)));
     }
 
     pub fn failureOrder(self: Cmpxchg) std.builtin.AtomicOrder {
-        return @as(std.builtin.AtomicOrder, @enumFromInt(@as(u3, @truncate(self.flags >> 3))));
+        return @enumFromInt(@as(u3, @intCast(self.flags >> 3)));
     }
 };
 
@@ -1289,11 +1289,11 @@ pub const AtomicRmw = struct {
     flags: u32,
 
     pub fn ordering(self: AtomicRmw) std.builtin.AtomicOrder {
-        return @as(std.builtin.AtomicOrder, @enumFromInt(@as(u3, @truncate(self.flags))));
+        return @enumFromInt(@as(u3, @truncate(self.flags)));
     }
 
     pub fn op(self: AtomicRmw) std.builtin.AtomicRmwOp {
-        return @as(std.builtin.AtomicRmwOp, @enumFromInt(@as(u4, @truncate(self.flags >> 3))));
+        return @enumFromInt(@as(u4, @intCast(self.flags >> 3)));
     }
 };
 

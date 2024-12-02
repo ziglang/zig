@@ -112,6 +112,9 @@ pub fn RegisterManager(
         pub fn indexOfRegIntoTracked(reg: Register) ?TrackedIndex {
             return indexOfReg(tracked_registers, reg);
         }
+        pub inline fn indexOfKnownRegIntoTracked(comptime reg: Register) ?TrackedIndex {
+            return comptime indexOfRegIntoTracked(reg);
+        }
 
         pub fn regAtTrackedIndex(tracked_index: TrackedIndex) Register {
             return tracked_registers[tracked_index];
@@ -123,6 +126,9 @@ pub fn RegisterManager(
         }
         pub fn isRegFree(self: Self, reg: Register) bool {
             return self.isRegIndexFree(indexOfRegIntoTracked(reg) orelse return true);
+        }
+        pub fn isKnownRegFree(self: Self, comptime reg: Register) bool {
+            return self.isRegIndexFree(indexOfKnownRegIntoTracked(reg) orelse return true);
         }
 
         /// Returns whether this register was allocated in the course
@@ -142,6 +148,9 @@ pub fn RegisterManager(
         }
         pub fn isRegLocked(self: Self, reg: Register) bool {
             return self.isRegIndexLocked(indexOfRegIntoTracked(reg) orelse return false);
+        }
+        pub fn isKnownRegLocked(self: Self, comptime reg: Register) bool {
+            return self.isRegIndexLocked(indexOfKnownRegIntoTracked(reg) orelse return false);
         }
 
         pub const RegisterLock = struct { tracked_index: TrackedIndex };
@@ -175,6 +184,9 @@ pub fn RegisterManager(
         }
         pub fn lockRegAssumeUnused(self: *Self, reg: Register) RegisterLock {
             return self.lockRegIndexAssumeUnused(indexOfRegIntoTracked(reg) orelse unreachable);
+        }
+        pub fn lockKnownRegAssumeUnused(self: *Self, comptime reg: Register) RegisterLock {
+            return self.lockRegIndexAssumeUnused(indexOfKnownRegIntoTracked(reg) orelse unreachable);
         }
 
         /// Like `lockReg` but locks multiple registers.
@@ -366,7 +378,7 @@ pub fn RegisterManager(
             comptime reg: Register,
             inst: ?Air.Inst.Index,
         ) AllocationError!void {
-            return self.getRegIndex((comptime indexOfRegIntoTracked(reg)) orelse return, inst);
+            return self.getRegIndex(indexOfKnownRegIntoTracked(reg) orelse return, inst);
         }
 
         /// Allocates the specified register with the specified

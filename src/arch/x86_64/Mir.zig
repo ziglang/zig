@@ -29,10 +29,14 @@ pub const Inst = struct {
         _l,
         /// ___ Left Double
         _ld,
+        /// ___ Left Without Affecting Flags
+        _lx,
         /// ___ Right
         _r,
         /// ___ Right Double
         _rd,
+        /// ___ Right Without Affecting Flags
+        _rx,
 
         /// ___ Above
         _a,
@@ -401,9 +405,11 @@ pub const Inst = struct {
         ret,
         /// Rotate left
         /// Rotate right
+        /// Rotate right logical without affecting flags
         ro,
         /// Arithmetic shift left
         /// Arithmetic shift right
+        /// Shift left arithmetic without affecting flags
         sa,
         /// Integer subtraction with borrow
         sbb,
@@ -417,6 +423,8 @@ pub const Inst = struct {
         /// Double precision shift left
         /// Logical shift right
         /// Double precision shift right
+        /// Shift left logical without affecting flags
+        /// Shift right logical without affecting flags
         sh,
         /// Subtract
         /// Subtract packed integers

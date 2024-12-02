@@ -242,8 +242,12 @@ pub fn classifySystemV(ty: Type, zcu: *Zcu, target: std.Target, ctx: Context) [8
                 .sse,   .sseup, .sseup, .sseup,
                 .sseup, .sseup, .sseup, .none,
             };
-            // LLVM always returns vectors byval
-            if (bits <= 512 or ctx == .ret) return .{
+            if (bits <= 512 or (ctx == .ret and bits <= @as(u64, if (std.Target.x86.featureSetHas(target.cpu.features, .avx512f))
+                2048
+            else if (std.Target.x86.featureSetHas(target.cpu.features, .avx))
+                1024
+            else
+                512))) return .{
                 .sse,   .sseup, .sseup, .sseup,
                 .sseup, .sseup, .sseup, .sseup,
             };
@@ -416,7 +420,7 @@ pub const SysV = struct {
     pub const c_abi_int_param_regs = [_]Register{ .rdi, .rsi, .rdx, .rcx, .r8, .r9 };
     pub const c_abi_sse_param_regs = sse_avx_regs[0..8].*;
     pub const c_abi_int_return_regs = [_]Register{ .rax, .rdx };
-    pub const c_abi_sse_return_regs = sse_avx_regs[0..2].*;
+    pub const c_abi_sse_return_regs = sse_avx_regs[0..4].*;
 };
 
 pub const Win64 = struct {
@@ -496,7 +500,7 @@ pub fn getCAbiSseReturnRegs(cc: std.builtin.CallingConvention) []const Register 
 }
 
 const gp_regs = [_]Register{
-    .rax, .rcx, .rdx, .rbx, .rsi, .rdi, .r8, .r9, .r10, .r11, .r12, .r13, .r14, .r15,
+    .rax, .rdx, .rbx, .rcx, .rsi, .rdi, .r8, .r9, .r10, .r11, .r12, .r13, .r14, .r15,
 };
 const x87_regs = [_]Register{
     .st0, .st1, .st2, .st3, .st4, .st5, .st6, .st7,

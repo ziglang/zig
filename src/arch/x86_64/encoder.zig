@@ -403,7 +403,7 @@ pub const Instruction = struct {
             else => {
                 const mem_op = switch (data.op_en) {
                     .m, .mi, .m1, .mc, .mr, .mri, .mrc, .mvr => inst.ops[0],
-                    .rm, .rmi, .rm0, .vmi => inst.ops[1],
+                    .rm, .rmi, .rm0, .vmi, .rmv => inst.ops[1],
                     .rvm, .rvmr, .rvmi => inst.ops[2],
                     else => unreachable,
                 };
@@ -412,7 +412,7 @@ pub const Instruction = struct {
                         const rm = switch (data.op_en) {
                             .m, .mi, .m1, .mc, .vmi => enc.modRmExt(),
                             .mr, .mri, .mrc => inst.ops[1].reg.lowEnc(),
-                            .rm, .rmi, .rm0, .rvm, .rvmr, .rvmi => inst.ops[0].reg.lowEnc(),
+                            .rm, .rmi, .rm0, .rvm, .rvmr, .rvmi, .rmv => inst.ops[0].reg.lowEnc(),
                             .mvr => inst.ops[2].reg.lowEnc(),
                             else => unreachable,
                         };
@@ -422,7 +422,7 @@ pub const Instruction = struct {
                         const op = switch (data.op_en) {
                             .m, .mi, .m1, .mc, .vmi => .none,
                             .mr, .mri, .mrc => inst.ops[1],
-                            .rm, .rmi, .rm0, .rvm, .rvmr, .rvmi => inst.ops[0],
+                            .rm, .rmi, .rm0, .rvm, .rvmr, .rvmi, .rmv => inst.ops[0],
                             .mvr => inst.ops[2],
                             else => unreachable,
                         };
@@ -493,7 +493,7 @@ pub const Instruction = struct {
                 }
             else
                 null,
-            .vmi, .rvm, .rvmr, .rvmi, .mvr => unreachable,
+            .vmi, .rvm, .rvmr, .rvmi, .mvr, .rmv => unreachable,
         };
         if (segment_override) |seg| {
             legacy.setSegmentOverride(seg);
@@ -512,9 +512,9 @@ pub const Instruction = struct {
         switch (op_en) {
             .zo, .i, .zi, .fd, .td, .d => {},
             .o, .oi => rex.b = inst.ops[0].reg.isExtended(),
-            .m, .mi, .m1, .mc, .mr, .rm, .rmi, .mri, .mrc, .rm0 => {
+            .m, .mi, .m1, .mc, .mr, .rm, .rmi, .mri, .mrc, .rm0, .rmv => {
                 const r_op = switch (op_en) {
-                    .rm, .rmi, .rm0 => inst.ops[0],
+                    .rm, .rmi, .rm0, .rmv => inst.ops[0],
                     .mr, .mri, .mrc => inst.ops[1],
                     else => .none,
                 };
@@ -546,9 +546,9 @@ pub const Instruction = struct {
         switch (op_en) {
             .zo, .i, .zi, .fd, .td, .d => {},
             .o, .oi => vex.b = inst.ops[0].reg.isExtended(),
-            .m, .mi, .m1, .mc, .mr, .rm, .rmi, .mri, .mrc, .rm0, .vmi, .rvm, .rvmr, .rvmi, .mvr => {
+            .m, .mi, .m1, .mc, .mr, .rm, .rmi, .mri, .mrc, .rm0, .vmi, .rvm, .rvmr, .rvmi, .mvr, .rmv => {
                 const r_op = switch (op_en) {
-                    .rm, .rmi, .rm0, .rvm, .rvmr, .rvmi => inst.ops[0],
+                    .rm, .rmi, .rm0, .rvm, .rvmr, .rvmi, .rmv => inst.ops[0],
                     .mr, .mri, .mrc => inst.ops[1],
                     .mvr => inst.ops[2],
                     .m, .mi, .m1, .mc, .vmi => .none,
@@ -557,7 +557,7 @@ pub const Instruction = struct {
                 vex.r = r_op.isBaseExtended();
 
                 const b_x_op = switch (op_en) {
-                    .rm, .rmi, .rm0, .vmi => inst.ops[1],
+                    .rm, .rmi, .rm0, .vmi, .rmv => inst.ops[1],
                     .m, .mi, .m1, .mc, .mr, .mri, .mrc, .mvr => inst.ops[0],
                     .rvm, .rvmr, .rvmi => inst.ops[2],
                     else => unreachable,
@@ -588,6 +588,7 @@ pub const Instruction = struct {
             else => {},
             .vmi => vex.v = inst.ops[0].reg,
             .rvm, .rvmr, .rvmi => vex.v = inst.ops[1].reg,
+            .rmv => vex.v = inst.ops[2].reg,
         }
 
         try encoder.vex(vex);

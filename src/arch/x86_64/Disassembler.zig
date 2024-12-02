@@ -223,7 +223,7 @@ pub fn next(dis: *Disassembler) Error!?Instruction {
                 .op3 = op3,
             });
         },
-        .rm0, .vmi, .rvm, .rvmr, .rvmi, .mvr => unreachable, // TODO
+        .rm0, .vmi, .rvm, .rvmr, .rvmi, .mvr, .rmv => unreachable, // TODO
     }
 }
 
