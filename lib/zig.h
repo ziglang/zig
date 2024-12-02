@@ -68,9 +68,16 @@
 #define zig_x86
 #endif
 
+#if defined(__has_include)
+#define zig_has_include(include) __has_include(include)
+#else
+#define zig_has_include(include) 0
+#endif
+
 #ifndef __STDC_WANT_IEC_60559_TYPES_EXT__
 #define __STDC_WANT_IEC_60559_TYPES_EXT__
 #endif
+
 #include <float.h>
 #include <limits.h>
 #include <stdarg.h>
@@ -82,7 +89,7 @@
 
 #if __STDC_VERSION__ >= 202311L
 /* bool, true, and false are provided by the language. */
-#elif __STDC_VERSION__ >= 199901L
+#elif __STDC_VERSION__ >= 199901L || zig_has_include(<stdbool.h>)
 #include <stdbool.h>
 #else
 typedef char bool;
@@ -428,7 +435,7 @@ zig_extern void *memset (void *, int, size_t);
 
 /* ===================== 8/16/32/64-bit Integer Support ===================== */
 
-#if __STDC_VERSION__ >= 199901L || defined(zig_msvc)
+#if __STDC_VERSION__ >= 199901L || defined(zig_msvc) || zig_has_include(<stdint.h>)
 #include <stdint.h>
 #else
 
@@ -3655,7 +3662,7 @@ zig_float_builtins(64)
     res = zig_atomicrmw_expected; \
 } while (0)
 
-#if __STDC_VERSION__ >= 201112L && !defined(__STDC_NO_ATOMICS__)
+#if (__STDC_VERSION__ >= 201112L || (zig_has_include(<stdatomic.h>) && !defined(zig_msvc))) && !defined(__STDC_NO_ATOMICS__)
 #include <stdatomic.h>
 typedef enum memory_order zig_memory_order;
 #define zig_memory_order_relaxed memory_order_relaxed
