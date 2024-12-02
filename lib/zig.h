@@ -10,6 +10,8 @@
 #define zig_gnuc
 #elif defined(__GNUC__)
 #define zig_gnuc
+#elif defined(__IBMC__)
+#define zig_xlc
 #elif defined(__TINYC__)
 #define zig_tinyc
 #elif defined(__slimcc__)
@@ -77,6 +79,18 @@
 #else
 #define zig_little_endian 0
 #define zig_big_endian 1
+#endif
+
+#if defined(_WIN32)
+#define zig_coff
+#elif defined(__ELF__)
+#define zig_elf
+#elif defined(__MVS__)
+#define zig_goff
+#elif defined(__MACH__)
+#define zig_macho
+#elif defined(_AIX)
+#define zig_xcoff
 #endif
 
 #define zig_concat(lhs, rhs) lhs##rhs
@@ -236,14 +250,14 @@
 #define zig_mangle_c(symbol) "_" symbol
 #endif /* zig_x86_64 */
 #else /* zig_msvc */
-#if __APPLE__
+#if defined(zig_macho)
 #define zig_mangle_c(symbol) "_" symbol
-#else /* __APPLE__ */
+#else /* zig_macho */
 #define zig_mangle_c(symbol) symbol
-#endif /* __APPLE__ */
+#endif /* zig_macho */
 #endif /* zig_msvc */
 
-#if (zig_has_attribute(alias) || defined(zig_tinyc)) && !__APPLE__
+#if (zig_has_attribute(alias) || defined(zig_tinyc)) && !defined(zig_macho)
 #define zig_export(symbol, name) __attribute__((alias(symbol)))
 #elif defined(zig_msvc)
 #define zig_export(symbol, name) ; \
