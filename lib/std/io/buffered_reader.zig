@@ -13,6 +13,7 @@ pub fn BufferedReader(comptime buffer_size: usize, comptime ReaderType: type) ty
 
         pub const Error = ReaderType.Error;
         pub const Reader = io.Reader(*Self, Error, read);
+        pub const GenericPeeker = io.GenericPeeker(*Self, Error, peek);
 
         const Self = @This();
 
@@ -40,7 +41,57 @@ pub fn BufferedReader(comptime buffer_size: usize, comptime ReaderType: type) ty
             return to_transfer;
         }
 
+        /// Returns at most `buffer_size` bytes of data into `dest` without advancing the stream
+        /// pointer, the data read is still available in the stream. Returning fewer than `dest.len`
+        /// bytes is not an error. `0` is returned if the end of the stream has been reached.
+        pub fn peek(self: *Self, dest: []u8) Error!usize {
+            const nb_buffered_bytes = self.end - self.start;
+
+            if (dest.len <= nb_buffered_bytes) {
+                // Fulfill the peek from the buffer.
+                @memcpy(dest, self.buf[self.start..self.end][0..dest.len]);
+                return dest.len;
+            }
+
+            // Trying to fulfill the peek by reading more into the buffer without moving is not a
+            // worthwhile tradeoff. This always leads to more calls to `read`, in the worst case,
+            // syscalls, which we would like to avoid. `copyForwards` is cheap in comparison. In the
+            // best case, read doesn't require a syscall, and most likely, peek is already
+            // implemented by the unbuffered reader.
+
+            // Move the available data to the start of the buffer.
+            if (self.start != 0)
+                std.mem.copyForwards(u8, self.buf[0..nb_buffered_bytes], self.buf[self.start..self.end]);
+
+            self.end = nb_buffered_bytes;
+            self.start = 0;
+
+            // Because peeking isn't a stream, we can't simply ask the user to re-peek if `read`
+            // returns fewer bytes than is required for `dest` to be filled, so, we always try to
+            // read repeatedly for `dest` to be full. However, in line with `read`, we do not try to
+            // fill the buffer completely by calling read repeatedly.
+
+            const desired_minimum_nb_bytes_read = dest.len - nb_buffered_bytes;
+
+            while (self.end - nb_buffered_bytes < desired_minimum_nb_bytes_read) {
+                const nb_bytes_read = try self.unbuffered_reader.read(self.buf[self.end..]);
+
+                if (nb_bytes_read == 0)
+                    break; // EOS
+
+                self.end += nb_bytes_read;
+            }
+
+            const nb_bytes_result = @min(self.end, dest.len);
+            @memcpy(dest[0..nb_bytes_result], self.buf[0..nb_bytes_result]);
+            return nb_bytes_result;
+        }
+
         pub fn reader(self: *Self) Reader {
+            return .{ .context = self };
+        }
+
+        pub fn peeker(self: *Self) GenericPeeker {
             return .{ .context = self };
         }
     };
@@ -198,4 +249,36 @@ test "Block" {
         try testing.expectEqualSlices(u8, &out_buf, block);
         try testing.expectEqual(try reader.readAll(&out_buf), 0);
     }
+}
+
+test "peek BufferedReader with FixedBufferStream" {
+    var fbs = io.fixedBufferStream("meow mrow grrr");
+    var test_buf = bufferedReaderSize(5, fbs.reader());
+    var tmp: [5]u8 = undefined;
+
+    try std.testing.expectEqual(try test_buf.peek(tmp[0..1]), 1);
+    try std.testing.expectEqualStrings(tmp[0..1], "m");
+
+    try std.testing.expectEqual(try test_buf.peek(tmp[0..2]), 2);
+    try std.testing.expectEqualStrings(tmp[0..2], "me");
+
+    try std.testing.expectEqual(try test_buf.peek(tmp[0..5]), 5);
+    try std.testing.expectEqualStrings(tmp[0..5], "meow ");
+
+    try std.testing.expectEqual(try test_buf.read(tmp[0..1]), 1);
+    try std.testing.expectEqualStrings(tmp[0..1], "m");
+
+    try std.testing.expectEqual(try test_buf.peek(tmp[0..4]), 4);
+    try std.testing.expectEqualStrings(tmp[0..4], "eow ");
+
+    // requires move and read
+    try std.testing.expectEqual(try test_buf.peek(tmp[0..5]), 5);
+    try std.testing.expectEqualStrings(tmp[0..5], "eow m");
+
+    // clear buffer completely
+    try std.testing.expectEqual(try test_buf.read(tmp[0..5]), 5);
+    try std.testing.expectEqualStrings(tmp[0..5], "eow m");
+
+    try std.testing.expectEqual(try test_buf.peek(tmp[0..5]), 5);
+    try std.testing.expectEqualStrings(tmp[0..5], "row g");
 }
