@@ -32,8 +32,7 @@ pub const CityHash64 = cityhash.CityHash64;
 const wyhash = @import("hash/wyhash.zig");
 pub const Wyhash = wyhash.Wyhash;
 
-const rapidhash = @import("hash/rapidhash.zig");
-pub const RapidHash = rapidhash.RapidHash;
+pub const RapidHash = @import("hash/RapidHash.zig");
 
 const xxhash = @import("hash/xxhash.zig");
 pub const XxHash3 = xxhash.XxHash3;
