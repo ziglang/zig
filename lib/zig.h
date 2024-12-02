@@ -1,5 +1,8 @@
 #undef linux
 
+#include <stdarg.h>
+#include <stddef.h>
+
 #if defined(_MSC_VER)
 #define zig_msvc
 #elif defined(__clang__)
@@ -68,37 +71,22 @@
 #define zig_x86
 #endif
 
+#if defined(zig_msvc) || __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+#define zig_little_endian 1
+#define zig_big_endian 0
+#else
+#define zig_little_endian 0
+#define zig_big_endian 1
+#endif
+
+#define zig_concat(lhs, rhs) lhs##rhs
+#define zig_expand_concat(lhs, rhs) zig_concat(lhs, rhs)
+
 #if defined(__has_include)
 #define zig_has_include(include) __has_include(include)
 #else
 #define zig_has_include(include) 0
 #endif
-
-#ifndef __STDC_WANT_IEC_60559_TYPES_EXT__
-#define __STDC_WANT_IEC_60559_TYPES_EXT__
-#endif
-
-#include <float.h>
-#include <limits.h>
-#include <stdarg.h>
-#include <stddef.h>
-
-#if defined(zig_msvc)
-#include <intrin.h>
-#endif
-
-#if __STDC_VERSION__ >= 202311L
-/* bool, true, and false are provided by the language. */
-#elif __STDC_VERSION__ >= 199901L || zig_has_include(<stdbool.h>)
-#include <stdbool.h>
-#else
-typedef char bool;
-#define false 0
-#define true  1
-#endif
-
-#define zig_concat(lhs, rhs) lhs##rhs
-#define zig_expand_concat(lhs, rhs) zig_concat(lhs, rhs)
 
 #if defined(__has_builtin)
 #define zig_has_builtin(builtin) __has_builtin(__builtin_##builtin)
@@ -113,14 +101,6 @@ typedef char bool;
 #define zig_has_attribute(attribute) 0
 #endif
 
-#if defined(zig_msvc) || __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
-#define zig_little_endian 1
-#define zig_big_endian 0
-#else
-#define zig_little_endian 0
-#define zig_big_endian 1
-#endif
-
 #if __STDC_VERSION__ >= 202311L
 #define zig_threadlocal thread_local
 #elif __STDC_VERSION__ >= 201112L
@@ -131,12 +111,6 @@ typedef char bool;
 #define zig_threadlocal __declspec(thread)
 #else
 #define zig_threadlocal zig_threadlocal_unavailable
-#endif
-
-#if !defined(zig_clang) && defined(zig_gnuc) && defined(zig_x86)
-#define zig_f128_has_miscompilations 1
-#else
-#define zig_f128_has_miscompilations 0
 #endif
 
 #if defined(zig_msvc)
@@ -416,8 +390,6 @@ typedef char bool;
 #define zig_noreturn
 #endif
 
-#define zig_bitSizeOf(T) (CHAR_BIT * sizeof(T))
-
 #define zig_compiler_rt_abbrev_uint32_t si
 #define zig_compiler_rt_abbrev_int32_t  si
 #define zig_compiler_rt_abbrev_uint64_t di
@@ -433,12 +405,25 @@ typedef char bool;
 zig_extern void *memcpy (void *zig_restrict, void const *zig_restrict, size_t);
 zig_extern void *memset (void *, int, size_t);
 
-/* ===================== 8/16/32/64-bit Integer Support ===================== */
+/* ================ Bool and 8/16/32/64-bit Integer Support ================= */
+
+#include <limits.h>
+
+#define zig_bitSizeOf(T) (CHAR_BIT * sizeof(T))
+
+#if __STDC_VERSION__ >= 202311L
+/* bool, true, and false are provided by the language. */
+#elif __STDC_VERSION__ >= 199901L || zig_has_include(<stdbool.h>)
+#include <stdbool.h>
+#else
+typedef char bool;
+#define false 0
+#define true  1
+#endif
 
 #if __STDC_VERSION__ >= 199901L || defined(zig_msvc) || zig_has_include(<stdint.h>)
 #include <stdint.h>
 #else
-
 #if SCHAR_MIN == ~0x7F && SCHAR_MAX == 0x7F && UCHAR_MAX == 0xFF
 typedef unsigned      char uint8_t;
 typedef   signed      char  int8_t;
@@ -3096,6 +3081,12 @@ static inline uint16_t zig_popcount_big(const void *val, bool is_signed, uint16_
 
 /* ========================= Floating Point Support ========================= */
 
+#ifndef __STDC_WANT_IEC_60559_TYPES_EXT__
+#define __STDC_WANT_IEC_60559_TYPES_EXT__
+#endif
+
+#include <float.h>
+
 #if defined(zig_msvc)
 float __cdecl nanf(char const* input);
 double __cdecl nan(char const* input);
@@ -3261,6 +3252,12 @@ typedef zig_u128 zig_f80;
 #define zig_make_special_f80(sign, name, arg, repr) repr
 #undef zig_init_special_f80
 #define zig_init_special_f80(sign, name, arg, repr) repr
+#endif
+
+#if !defined(zig_clang) && defined(zig_gnuc) && defined(zig_x86)
+#define zig_f128_has_miscompilations 1
+#else
+#define zig_f128_has_miscompilations 0
 #endif
 
 #define zig_has_f128 1
@@ -4005,6 +4002,10 @@ static inline void zig_msvc_atomic_store_i128(zig_i128 volatile* obj, zig_i128 a
 #endif /* zig_msvc && zig_x86 */
 
 /* ======================== Special Case Intrinsics ========================= */
+
+#if defined(zig_msvc)
+#include <intrin.h>
+#endif
 
 #if defined(zig_thumb)
 
