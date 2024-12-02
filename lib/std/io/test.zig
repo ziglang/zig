@@ -188,3 +188,50 @@ test "GenericReader methods can return error.EndOfStream" {
         fbs.reader().isBytes("foo"),
     );
 }
+
+test "peek with GenericPeeker with BufferedReader with FixedBufferStream" {
+    var fbs = io.fixedBufferStream("meow mrow grrr woem");
+    var test_buf = std.io.bufferedReaderSize(5, fbs.reader());
+    const peeker = test_buf.peeker();
+
+    {
+        var tmp: [2]u8 = undefined;
+        try std.testing.expectEqual(try peeker.peek(&tmp), 2);
+        try std.testing.expectEqualStrings(&tmp, "me");
+        try peeker.peekNoEof(&tmp);
+        try std.testing.expectEqualStrings(&tmp, "me");
+    }
+
+    try std.testing.expectEqualStrings(&(try peeker.peekBytes(2)), "me");
+
+    {
+        var alist = std.ArrayList(u8).init(std.testing.allocator);
+        defer alist.deinit();
+        try peeker.peekArrayList(&alist, 256);
+        try std.testing.expectEqualStrings("meow ", alist.items);
+    }
+
+    {
+        var alist = std.ArrayListAligned(u8, 8).init(std.testing.allocator);
+        defer alist.deinit();
+        try std.testing.expectError(error.StreamTooLong, peeker.peekArrayListAligned(8, &alist, 4));
+        alist.shrinkAndFree(0);
+        try peeker.peekArrayListAligned(8, &alist, 256);
+        try std.testing.expectEqualStrings("meow ", alist.items);
+    }
+
+    {
+        const all = try peeker.peekAlloc(std.testing.allocator, 256);
+        defer std.testing.allocator.free(all);
+        try std.testing.expectEqualStrings("meow ", all);
+    }
+
+    try std.testing.expectEqual(try peeker.peekByte(), 'm');
+    try std.testing.expectEqual(try peeker.peekByteSigned(), 'm');
+    try std.testing.expectEqual(try peeker.peekInt(u32, .big), std.mem.readInt(u32, "meow", .big));
+    try std.testing.expect(try peeker.isBytes(5, "meow "));
+    try std.testing.expect(try peeker.isByteSlice("meow "));
+    try std.testing.expectEqual((try peeker.peekStruct(extern struct { m: u8 })).m, 'm');
+    try std.testing.expectEqual((try peeker.peekStructEndian(extern struct { m: u16 }, .big)).m, std.mem.readInt(u16, "me", .big));
+    try std.testing.expectEqual(try peeker.peekEnum(enum(u8) { m = 'm' }, .big), .m);
+}
