@@ -5,6 +5,7 @@ const c = std.c;
 const is_windows = builtin.os.tag == .windows;
 const windows = std.os.windows;
 const posix = std.posix;
+const native_endian = @import("builtin").target.cpu.arch.endian();
 
 const math = std.math;
 const assert = std.debug.assert;
@@ -358,6 +359,270 @@ pub fn GenericWriter(
         fn typeErasedWriteFn(context: *const anyopaque, bytes: []const u8) anyerror!usize {
             const ptr: *const Context = @alignCast(@ptrCast(context));
             return writeFn(ptr.*, bytes);
+        }
+    };
+}
+
+/// A stream which has a certain number of bytes available to be read before `read` is called on
+/// `std.io.`(`Any`)`Reader`. Retrieving the available data is referred to as "peeking". A "peek"
+/// does not have any effect, other than possibly making more data available for reading before
+/// `read` is called. Future `read` calls, however, do change what data is available for
+/// peeking. Keep this in mind when using (`Any`)`Peeker` and an (`Any`)`Reader` on the same
+/// underlying stream.
+//
+// Design considerations:
+//
+// - A `getMaximumAvailableBytes` function returning the maximum number of bytes that will be
+// available for peeking. This would remove the need for guesswork and inefficient copies in
+// functions like `peekArrayList`, but also increase the size of `AnyPeeker` if a virtual table
+// approach like in `std.mem.Allocator` is not used. It's unclear whether all peekable streams can
+// support such a function, and it is not necessary for the basic functionality provided by a
+// peekable stream, so it is not yet included.
+// - Having `peekFn` reference an internal buffer. This is more performant, but very bug-prone,
+// *especially* since (`Any`)`Reader` and (`Any`)`Peeker` can be separated. Much like with
+// `SeekableStream`, this makes little sense and adds clunkiness. As before, it's not clear if it
+// can be applied to all peekable streams, and not required.
+// - Instead of the number of bytes fulfilled, `peekFn` could return the number of bytes
+// available. This could be unreliable though, since sometimes, the number of bytes that are
+// avaiable and the number of bytes that could be available are not equal.
+// - Revisit 0 bytes available being an EOF condition.
+// - An `ungetc`-like API is intentionally not provided, to allow for read-only streams.
+pub const AnyPeeker = struct {
+    context: *const anyopaque,
+    peekFn: *const fn (context: *const anyopaque, buffer: []u8) anyerror!usize,
+
+    /// Returns the number of bytes peeked. It may be less than `buffer.len`, this indicates that no
+    /// more bytes are available. If the number of bytes peeked is 0, it means end of stream.  End
+    /// of stream is not an error condition.
+    pub fn peek(self: AnyPeeker, buffer: []u8) anyerror!usize {
+        return self.peekFn(self.context, buffer);
+    }
+
+    /// If the number of bytes available is smaller than `buffer.len`, `error.NotEnoughData` is
+    /// returned instead.
+    pub fn peekNoEof(self: AnyPeeker, buffer: []u8) anyerror!void {
+        const nb_fulfilled = try self.peek(buffer);
+        if (nb_fulfilled < buffer.len) return error.NotEnoughData;
+    }
+
+    /// Peeks exactly `n` bytes. If the number of bytes available is smaller than `n`,
+    /// `error.NotEnoughData` is returned instead.
+    pub fn peekBytes(self: AnyPeeker, comptime n: usize) anyerror![n]u8 {
+        var buf: [n]u8 = undefined;
+        try self.peekNoEof(&buf);
+        return buf;
+    }
+
+    /// Append up to `max_len` available bytes into `buf`. `error.StreamTooLong` is returned if more
+    /// than `max_len` bytes are available.
+    pub fn peekArrayList(self: AnyPeeker, buf: *std.ArrayList(u8), max_len: usize) anyerror!void {
+        return self.peekArrayListAligned(null, buf, max_len);
+    }
+
+    /// Append up to `max_len` available bytes into `buf`. `error.StreamTooLong` is returned if more
+    /// than `max_len` bytes are available.
+    pub fn peekArrayListAligned(
+        self: AnyPeeker,
+        comptime alignment: ?u29,
+        buf: *std.ArrayListAligned(u8, alignment),
+        max_len: usize,
+    ) anyerror!void {
+        // Initial guess and other implementation details from `std.io.AnyReader.readAllArrayList`.
+        try buf.ensureTotalCapacity(@min(max_len, 4096));
+        const cursor = buf.items.len;
+
+        while (true) {
+            buf.expandToCapacity();
+
+            const dest = buf.items[cursor..];
+
+            const nb_peeked = try self.peek(dest);
+            buf.shrinkRetainingCapacity(cursor + nb_peeked);
+
+            if (nb_peeked > max_len)
+                return error.StreamTooLong;
+
+            if (nb_peeked <= dest.len)
+                return;
+
+            try buf.ensureUnusedCapacity(1);
+        }
+    }
+
+    /// Reads and allocates up to `max_len` available bytes. `error.StreamTooLong` is returned if
+    /// more than `max_len` bytes are available.
+    pub fn peekAlloc(self: AnyPeeker, allocator: std.mem.Allocator, max_len: usize) anyerror![]u8 {
+        var alist = std.ArrayList(u8).init(allocator);
+        try self.peekArrayList(&alist, max_len);
+        return try alist.toOwnedSlice();
+    }
+
+    /// Returns the next available byte or `error.NotEnoughData.`.
+    pub fn peekByte(self: AnyPeeker) anyerror!u8 {
+        const buf = try self.peekBytes(1);
+        return buf[0];
+    }
+
+    /// Returns the next available byte, interpreted as a signed integer, or `error.NotEnoughData`.
+    pub fn peekByteSigned(self: AnyPeeker) anyerror!i8 {
+        return @bitCast(try self.peekByte());
+    }
+
+    /// Returns the next available integer `Int` using `endian` or `error.NotEnoughData`. Marked
+    /// `inline` to propagate the comptimeness of `endian`.
+    pub inline fn peekInt(self: AnyPeeker, comptime Int: type, endian: std.builtin.Endian) anyerror!Int {
+        const buf = try self.peekBytes(@divExact(@bitSizeOf(Int), std.mem.byte_size_in_bits));
+        return std.mem.readInt(Int, &buf, endian);
+    }
+
+    /// Peeks `n` bytes and returns if they are equal to `array_p` or `error.NotEnoughData`.
+    pub fn isBytes(self: AnyPeeker, comptime n: usize, array_p: *const [n]u8) anyerror!bool {
+        const buf = try self.peekBytes(n);
+        return std.mem.eql(u8, &buf, array_p);
+    }
+
+    /// Peeks `slice.len` bytes and returns if they are equal to `slice` or `error.NotEnoughData`.
+    pub fn isByteSlice(self: AnyPeeker, comptime slice: []const u8) anyerror!bool {
+        return self.isBytes(slice.len, slice[0..slice.len]);
+    }
+
+    /// Peeks one struct of type `T`, which must have a defined layout, using the native endianness.
+    pub fn peekStruct(self: AnyPeeker, comptime T: type) anyerror!T {
+        // Only extern and packed structs have defined in-memory layout.
+        comptime std.debug.assert(@typeInfo(T).@"struct".layout != .auto);
+        return @bitCast(try self.peekBytes(@sizeOf(T)));
+    }
+
+    /// Peeks one struct of type `T`, which must have a defined layout, using `endian`. Marked
+    /// `inline` to propagate the comptimeness of `endian`.
+    pub inline fn peekStructEndian(self: AnyPeeker, comptime T: type, endian: std.builtin.Endian) anyerror!T {
+        var res = try self.peekStruct(T);
+        if (native_endian != endian) {
+            std.mem.byteSwapAllFields(T, &res);
+        }
+        return res;
+    }
+
+    /// Peeks one enum of type `Enum`, rounding up to the nearest 8 bits if necessary.
+    pub inline fn peekEnum(self: AnyPeeker, comptime Enum: type, endian: std.builtin.Endian) anyerror!Enum {
+        const buf = try self.peekBytes(@divExact(@typeInfo(@typeInfo(Enum).@"enum".tag_type).int.bits, 8));
+        return  std.mem.readEnum(Enum, &buf, endian);
+    }
+};
+
+pub fn GenericPeeker(
+    comptime Context: type,
+    comptime PeekError: type,
+    comptime peekFn: fn (context: Context, buffer: []u8) PeekError!usize,
+) type {
+    return struct {
+        context: Context,
+
+        pub const Error = PeekError;
+        pub const NotEnoughDataError = PeekError || error{
+            NotEnoughData,
+        };
+
+        pub const StreamTooLongError = PeekError || error{
+            StreamTooLong,
+        };
+
+        pub inline fn any(self: *const Self) AnyPeeker {
+            return .{
+                .context = @ptrCast(&self.context),
+                .peekFn = typeErasedPeekFn,
+            };
+        }
+
+        const Self = @This();
+
+        fn typeErasedPeekFn(context: *const anyopaque, buffer: []u8) anyerror!usize {
+            const ptr: *const Context = @alignCast(@ptrCast(context));
+            return peekFn(ptr.*, buffer);
+        }
+
+        /// Returns the number of bytes peeked. It may be less than `buffer.len`, this indicates that no
+        /// more bytes are available. If the number of bytes peeked is 0, it means end of stream.  End
+        /// of stream is not an error condition.
+        pub inline fn peek(self: Self, buffer: []u8) PeekError!usize {
+            return peekFn(self.context, buffer);
+        }
+
+        /// If the number of bytes available is smaller than `buffer.len`, `error.NotEnoughData` is
+        /// returned instead.
+        pub inline fn peekNoEof(self: Self, buffer: []u8) NotEnoughDataError!void {
+            return @errorCast(self.any().peekNoEof(buffer));
+        }
+
+        /// Peeks exactly `n` bytes. If the number of bytes available is smaller than `n`,
+        /// `error.NotEnoughData` is returned instead.
+        pub inline fn peekBytes(self: Self, comptime n: usize) NotEnoughDataError![n]u8 {
+            return @errorCast(self.any().peekBytes(n));
+        }
+
+        /// Append up to `max_len` available bytes into `buf`. `error.StreamTooLong` is returned if more
+        /// than `max_len` bytes are available.
+        pub inline fn peekArrayList(self: Self, buf: *std.ArrayList(u8), max_len: usize) StreamTooLongError!void {
+            return @errorCast(self.any().peekArrayList(buf, max_len));
+        }
+
+        /// Append up to `max_len` available bytes into `buf`. `error.StreamTooLong` is returned if more
+        /// than `max_len` bytes are available.
+        pub inline fn peekArrayListAligned(
+            self: Self,
+            comptime alignment: ?u29,
+            buf: *std.ArrayListAligned(u8, alignment),
+            max_len: usize,
+        ) StreamTooLongError!void {
+            return @errorCast(self.any().peekArrayListAligned(alignment, buf, max_len));
+        }
+
+        /// Reads and allocates up to `max_len` available bytes. `error.StreamTooLong` is returned if
+        /// more than `max_len` bytes are available.
+        pub inline fn peekAlloc(self: Self, allocator: std.mem.Allocator, max_len: usize) StreamTooLongError![]u8 {
+            return @errorCast(self.any().peekAlloc(allocator, max_len));
+        }
+
+        /// Returns the next available byte or `error.NotEnoughData.`.
+        pub inline fn peekByte(self: Self) NotEnoughDataError!u8 {
+            return @errorCast(self.any().peekByte());
+        }
+
+        /// Returns the next available byte, interpreted as a signed integer, or `error.NotEnoughData`.
+        pub inline fn peekByteSigned(self: Self) NotEnoughDataError!i8 {
+            return @errorCast(self.any().peekByteSigned());
+        }
+
+        /// Returns the next available integer `Int` using `endian` or `error.NotEnoughData`. Marked
+        /// `inline` to propagate the comptimeness of `endian`.
+        pub inline fn peekInt(self: Self, comptime Int: type, endian: std.builtin.Endian) NotEnoughDataError!Int {
+            return @errorCast(self.any().peekInt(Int, endian));
+        }
+
+        /// Peeks `n` bytes and returns if they are equal to `array_p` or `error.NotEnoughData`.
+        pub fn isBytes(self: Self, comptime n: usize, array_p: *const [n]u8) NotEnoughDataError!bool {
+            return @errorCast(self.any().isBytes(n, array_p));
+        }
+
+        /// Peeks `slice.len` bytes and returns if they are equal to `slice` or `error.NotEnoughData`.
+        pub fn isByteSlice(self: Self, comptime slice: []const u8) NotEnoughDataError!bool {
+            return @errorCast(self.any().isByteSlice(slice));
+        }
+
+        /// Peeks one struct of type `T`, which must have a defined layout, using the native endianness.
+        pub fn peekStruct(self: Self, comptime T: type) NotEnoughDataError!T {
+            return @errorCast(self.any().peekStruct(T));
+        }
+
+        /// Peeks one struct of type `T`, which must have a defined layout, using `endian`. Marked
+        /// `inline` to propagate the comptimeness of `endian`.
+        pub inline fn peekStructEndian(self: Self, comptime T: type, endian: std.builtin.Endian) NotEnoughDataError!T {
+            return @errorCast(self.any().peekStructEndian(T, endian));
+        }
+
+        /// Peeks one enum of type `Enum`, rounding up to the nearest 8 bits if necessary.
+        pub inline fn peekEnum(self: Self, comptime Enum: type, endian: std.builtin.Endian) NotEnoughDataError!Enum {
+            return @errorCast(self.any().peekEnum(Enum, endian));
         }
     };
 }
