@@ -503,10 +503,12 @@ pub const AnyPeeker = struct {
         return res;
     }
 
-    /// Peeks one enum of type `Enum`, rounding up to the nearest 8 bits if necessary.
+    /// Reads an integer with the same size as the given enum's tag type. If the integer matches an enum
+    /// tag, casts the integer to the enum tag and returns it. Otherwise, returns an
+    /// `error.InvalidValue`. Marked inline to propagate the comptimeness of `endian`.
     pub inline fn peekEnum(self: AnyPeeker, comptime Enum: type, endian: std.builtin.Endian) anyerror!Enum {
         const buf = try self.peekBytes(@divExact(@typeInfo(@typeInfo(Enum).@"enum".tag_type).int.bits, 8));
-        return  std.mem.readEnum(Enum, &buf, endian);
+        return try std.mem.readEnum(Enum, &buf, endian);
     }
 };
 
@@ -525,6 +527,11 @@ pub fn GenericPeeker(
 
         pub const StreamTooLongError = PeekError || error{
             StreamTooLong,
+        };
+
+        pub const PeekEnumError = NotEnoughDataError || error{
+            /// An integer was read, but it did not match any of the tags in the supplied enum.
+            InvalidValue,
         };
 
         pub inline fn any(self: *const Self) AnyPeeker {
@@ -621,7 +628,7 @@ pub fn GenericPeeker(
         }
 
         /// Peeks one enum of type `Enum`, rounding up to the nearest 8 bits if necessary.
-        pub inline fn peekEnum(self: Self, comptime Enum: type, endian: std.builtin.Endian) NotEnoughDataError!Enum {
+        pub inline fn peekEnum(self: Self, comptime Enum: type, endian: std.builtin.Endian) PeekEnumError!Enum {
             return @errorCast(self.any().peekEnum(Enum, endian));
         }
     };
