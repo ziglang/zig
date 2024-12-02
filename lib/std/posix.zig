@@ -1191,6 +1191,9 @@ pub const WriteError = error{
     /// This error occurs in Linux if the process being written to
     /// no longer exists.
     ProcessNotFound,
+    /// This error occurs when a device gets disconnected before or mid-flush
+    /// while it's being written to - errno(6): No such device or address.
+    NoDevice,
 } || UnexpectedError;
 
 /// Write to a file descriptor.
