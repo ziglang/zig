@@ -308,8 +308,7 @@ fn lowerBool(self: LowerZon, node: Ast.Node.Index) !InternPool.Index {
             };
         }
     }
-    const span = self.file.tree.nodeToSpan(node);
-    return self.fail(.{ .token_abs = span.start }, "expected type 'bool'", .{});
+    return self.fail(.{ .node_abs = node }, "expected type 'bool'", .{});
 }
 
 fn lowerInt(
@@ -507,7 +506,7 @@ fn lowerInt(
         .identifier => {
             unreachable; // Decide what error to give here
         },
-        else => return self.fail(.{ .node_abs = num_lit_node }, "expected type '{}'", .{res_ty.fmt(self.sema.pt)}),
+        else => return self.fail(.{ .node_abs = node }, "expected type '{}'", .{res_ty.fmt(self.sema.pt)}),
     }
 }
 
@@ -625,7 +624,7 @@ fn lowerFloat(
             }
             return self.fail(.{ .node_abs = num_lit_node }, "use of unknown identifier '{s}'", .{bytes});
         },
-        else => return self.fail(.{ .node_abs = num_lit_node }, "invalid ZON value", .{}),
+        else => return self.fail(.{ .node_abs = node }, "invalid ZON value", .{}),
     }
 }
 

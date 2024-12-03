@@ -8,4 +8,5 @@ pub fn main() void {
 // output_mode=Exe
 // imports=zon/double_negation_int.zon
 //
-// double_negation_int.zon:1:2: error: invalid ZON value
+// double_negation_int.zon:1:1: error: expected type 'i32'
+// tmp.zig:2:28: note: imported here

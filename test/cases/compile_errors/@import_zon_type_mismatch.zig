@@ -8,5 +8,5 @@ pub fn main() void {
 // output_mode=Exe
 // imports=zon/struct.zon
 //
-// struct.zon:1:1: error: expected type 'bool'
+// struct.zon:1:2: error: expected type 'bool'
 // tmp.zig:2:29: note: imported here

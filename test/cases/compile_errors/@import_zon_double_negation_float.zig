@@ -1,5 +1,5 @@
 pub fn main() void {
-    const f: i32 = @import("zon/double_negation_float.zon");
+    const f: f32 = @import("zon/double_negation_float.zon");
     _ = f;
 }
 
@@ -8,5 +8,5 @@ pub fn main() void {
 // output_mode=Exe
 // imports=zon/double_negation_float.zon
 //
-// double_negation_float.zon:1:2: error: invalid ZON value
+// double_negation_float.zon:1:1: error: invalid ZON value
 // tmp.zig:2:28: note: imported here
