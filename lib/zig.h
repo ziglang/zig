@@ -342,13 +342,23 @@
 #define zig_weak_linkage_fn zig_weak_linkage_unavailable
 #endif
 
+#if defined(zig_gnuc) || defined(zig_tinyc) || defined(zig_slimcc)
+#define zig_gnuc_asm
+#endif
+
 #if zig_has_builtin(trap)
 #define zig_trap() __builtin_trap()
-#elif defined(zig_msvc) && defined(zig_x86)
-#define zig_trap() __ud2()
 #elif defined(zig_msvc)
+
+#if defined(zig_x86)
+#define zig_trap() __ud2()
+#else
 #define zig_trap() __fastfail(7)
-#elif defined(zig_thumb)
+#endif
+
+#elif defined(zig_gnuc_asm)
+
+#if defined(zig_thumb)
 #define zig_trap() __asm__ volatile("udf #0xfe")
 #elif defined(zig_arm) || defined(zig_aarch64)
 #define zig_trap() __asm__ volatile("udf #0xfdee")
@@ -370,11 +380,17 @@
 #define zig_trap() zig_trap_unavailable
 #endif
 
+#else
+#define zig_trap() zig_trap_unavailable
+#endif
+
 #if zig_has_builtin(debugtrap)
 #define zig_breakpoint() __builtin_debugtrap()
 #elif defined(zig_msvc)
 #define zig_breakpoint() __debugbreak()
-#elif defined(zig_arm)
+#elif defined(zig_gnuc_asm)
+
+#if defined(zig_arm)
 #define zig_breakpoint() __asm__ volatile("bkpt #0x0")
 #elif defined(zig_aarch64)
 #define zig_breakpoint() __asm__ volatile("brk #0xf000")
@@ -394,6 +410,10 @@
 #define zig_breakpoint() __asm__ volatile("ta 0x1")
 #elif defined(zig_x86)
 #define zig_breakpoint() __asm__ volatile("int $0x3")
+#else
+#define zig_breakpoint() zig_breakpoint_unavailable
+#endif
+
 #else
 #define zig_breakpoint() zig_breakpoint_unavailable
 #endif
@@ -4063,7 +4083,7 @@ static inline void* zig_thumb_windows_teb(void) {
     void* teb = 0;
 #if defined(zig_msvc)
     teb = (void*)_MoveFromCoprocessor(15, 0, 13, 0, 2);
-#elif defined(zig_gnuc) || defined(zig_tinyc) || defined(zig_slimcc)
+#elif defined(zig_gnuc_asm)
     __asm__ ("mrc p15, 0, %[ptr], c13, c0, 2" : [ptr] "=r" (teb));
 #endif
     return teb;
@@ -4075,7 +4095,7 @@ static inline void* zig_aarch64_windows_teb(void) {
     void* teb = 0;
 #if defined(zig_msvc)
     teb = (void*)__readx18qword(0x0);
-#elif defined(zig_gnuc) || defined(zig_tinyc) || defined(zig_slimcc)
+#elif defined(zig_gnuc_asm)
     __asm__ ("mov %[ptr], x18" : [ptr] "=r" (teb));
 #endif
     return teb;
@@ -4087,7 +4107,7 @@ static inline void* zig_x86_windows_teb(void) {
     void* teb = 0;
 #if defined(zig_msvc)
     teb = (void*)__readfsdword(0x18);
-#elif defined(zig_gnuc) || defined(zig_tinyc) || defined(zig_slimcc)
+#elif defined(zig_gnuc_asm)
     __asm__ ("movl %%fs:0x18, %[ptr]" : [ptr] "=r" (teb));
 #endif
     return teb;
@@ -4099,7 +4119,7 @@ static inline void* zig_x86_64_windows_teb(void) {
     void* teb = 0;
 #if defined(zig_msvc)
     teb = (void*)__readgsqword(0x30);
-#elif defined(zig_gnuc) || defined(zig_tinyc) || defined(zig_slimcc)
+#elif defined(zig_gnuc_asm)
     __asm__ ("movq %%gs:0x30, %[ptr]" : [ptr] "=r" (teb));
 #endif
     return teb;
@@ -4117,7 +4137,7 @@ static inline void zig_x86_cpuid(uint32_t leaf_id, uint32_t subid, uint32_t* eax
     *ebx = (uint32_t)cpu_info[1];
     *ecx = (uint32_t)cpu_info[2];
     *edx = (uint32_t)cpu_info[3];
-#elif defined(zig_gnuc) || defined(zig_tinyc) || defined(zig_slimcc)
+#elif defined(zig_gnuc_asm)
     __asm__("cpuid" : "=a"(*eax), "=b"(*ebx), "=c"(*ecx), "=d"(*edx) : "a"(leaf_id), "c"(subid));
 #else
     *eax = 0;
@@ -4130,7 +4150,7 @@ static inline void zig_x86_cpuid(uint32_t leaf_id, uint32_t subid, uint32_t* eax
 static inline uint32_t zig_x86_get_xcr0(void) {
 #if defined(zig_msvc)
     return (uint32_t)_xgetbv(0);
-#elif defined(zig_gnuc) || defined(zig_tinyc) || defined(zig_slimcc)
+#elif defined(zig_gnuc_asm)
     uint32_t eax;
     uint32_t edx;
     __asm__("xgetbv" : "=a"(eax), "=d"(edx) : "c"(0));
