@@ -39,27 +39,17 @@ const DataSegmentIndex = enum(u32) {
 
 pub fn clear(f: *Flush) void {
     f.binary_bytes.clearRetainingCapacity();
-    f.function_imports.clearRetainingCapacity();
-    f.global_imports.clearRetainingCapacity();
-    f.functions.clearRetainingCapacity();
-    f.globals.clearRetainingCapacity();
     f.data_segments.clearRetainingCapacity();
     f.data_segment_groups.clearRetainingCapacity();
     f.indirect_function_table.clearRetainingCapacity();
-    f.function_exports.clearRetainingCapacity();
     f.global_exports.clearRetainingCapacity();
 }
 
 pub fn deinit(f: *Flush, gpa: Allocator) void {
     f.binary_bytes.deinit(gpa);
-    f.function_imports.deinit(gpa);
-    f.global_imports.deinit(gpa);
-    f.functions.deinit(gpa);
-    f.globals.deinit(gpa);
     f.data_segments.deinit(gpa);
     f.data_segment_groups.deinit(gpa);
     f.indirect_function_table.deinit(gpa);
-    f.function_exports.deinit(gpa);
     f.global_exports.deinit(gpa);
     f.* = undefined;
 }
@@ -79,28 +69,32 @@ pub fn finish(f: *Flush, wasm: *Wasm, arena: Allocator) anyerror!void {
 
     if (wasm.any_exports_updated) {
         wasm.any_exports_updated = false;
+
         wasm.function_exports.shrinkRetainingCapacity(wasm.function_exports_len);
         wasm.global_exports.shrinkRetainingCapacity(wasm.global_exports_len);
 
         const entry_name = if (wasm.entry_resolution.isNavOrUnresolved(wasm)) wasm.entry_name else .none;
 
         try f.missing_exports.reinit(gpa, wasm.missing_exports_init, &.{});
+        try wasm.function_imports.reinit(gpa, wasm.function_imports_init_keys, wasm.function_imports_init_vals);
+        try wasm.global_imports.reinit(gpa, wasm.global_imports_init_keys, wasm.global_imports_init_vals);
+
         for (wasm.nav_exports.keys()) |*nav_export| {
             if (ip.isFunctionType(ip.getNav(nav_export.nav_index).typeOf(ip))) {
-                try wasm.function_exports.append(gpa, .fromNav(nav_export.nav_index, wasm));
-                if (nav_export.name.toOptional() == entry_name) {
-                    wasm.entry_resolution = .pack(wasm, .{ .nav = nav_export.nav_index });
-                } else {
-                    f.missing_exports.swapRemove(nav_export.name);
-                }
+                try wasm.function_exports.append(gpa, Wasm.FunctionIndex.fromIpNav(wasm, nav_export.nav_index).?);
+                _ = f.missing_exports.swapRemove(nav_export.name);
+                _ = wasm.function_imports.swapRemove(nav_export.name);
+
+                if (nav_export.name.toOptional() == entry_name)
+                    wasm.entry_resolution = .fromIpNav(wasm, nav_export.nav_index);
             } else {
-                try wasm.global_exports.append(gpa, .fromNav(nav_export.nav_index));
-                f.missing_exports.swapRemove(nav_export.name);
+                try wasm.global_exports.append(gpa, Wasm.GlobalIndex.fromIpNav(wasm, nav_export.nav_index).?);
+                _ = f.missing_exports.swapRemove(nav_export.name);
+                _ = wasm.global_imports.swapRemove(nav_export.name);
             }
         }
 
         for (f.missing_exports.keys()) |exp_name| {
-            if (exp_name != .none) continue;
             diags.addError("manually specified export name '{s}' undefined", .{exp_name.slice(wasm)});
         }
 
@@ -112,28 +106,31 @@ pub fn finish(f: *Flush, wasm: *Wasm, arena: Allocator) anyerror!void {
     }
 
     if (!allow_undefined) {
-        for (wasm.function_imports.keys()) |function_import_id| {
-            const name, const src_loc = function_import_id.nameAndLoc(wasm);
-            diags.addSrcError(src_loc, "undefined function: {s}", .{name.slice(wasm)});
+        for (wasm.function_imports.keys(), wasm.function_imports.values()) |name, function_import_id| {
+            const src_loc = function_import_id.sourceLocation(wasm);
+            src_loc.addError(wasm, "undefined function: {s}", .{name.slice(wasm)});
         }
-        for (wasm.global_imports.keys()) |global_import_id| {
-            const name, const src_loc = global_import_id.nameAndLoc(wasm);
-            diags.addSrcError(src_loc, "undefined global: {s}", .{name.slice(wasm)});
+        for (wasm.global_imports.keys(), wasm.global_imports.values()) |name, global_import_id| {
+            const src_loc = global_import_id.sourceLocation(wasm);
+            src_loc.addError(wasm, "undefined global: {s}", .{name.slice(wasm)});
         }
-        for (wasm.table_imports.keys()) |table_import_id| {
-            const name, const src_loc = table_import_id.nameAndLoc(wasm);
-            diags.addSrcError(src_loc, "undefined table: {s}", .{name.slice(wasm)});
+        for (wasm.table_imports.keys(), wasm.table_imports.values()) |name, table_import_id| {
+            const src_loc = table_import_id.ptr(wasm).source_location;
+            src_loc.addError(wasm, "undefined table: {s}", .{name.slice(wasm)});
         }
     }
 
     if (diags.hasErrors()) return error.LinkFailure;
+
+    wasm.functions.shrinkRetainingCapacity(wasm.functions_len);
+    wasm.globals.shrinkRetainingCapacity(wasm.globals_len);
 
     // TODO only include init functions for objects with must_link=true or
     // which have any alive functions inside them.
     if (wasm.object_init_funcs.items.len > 0) {
         // Zig has no constructors so these are only for object file inputs.
         mem.sortUnstable(Wasm.InitFunc, wasm.object_init_funcs.items, {}, Wasm.InitFunc.lessThan);
-        try f.functions.put(gpa, .__wasm_call_ctors, {});
+        try wasm.functions.put(gpa, .__wasm_call_ctors, {});
     }
 
     var any_passive_inits = false;
@@ -149,7 +146,7 @@ pub fn finish(f: *Flush, wasm: *Wasm, arena: Allocator) anyerror!void {
         });
     }
 
-    try f.functions.ensureUnusedCapacity(gpa, 3);
+    try wasm.functions.ensureUnusedCapacity(gpa, 3);
 
     // Passive segments are used to avoid memory being reinitialized on each
     // thread's instantiation. These passive segments are initialized and
@@ -157,14 +154,14 @@ pub fn finish(f: *Flush, wasm: *Wasm, arena: Allocator) anyerror!void {
     // We also initialize bss segments (using memory.fill) as part of this
     // function.
     if (any_passive_inits) {
-        f.functions.putAssumeCapacity(.__wasm_init_memory, {});
+        wasm.functions.putAssumeCapacity(.__wasm_init_memory, {});
     }
 
     // When we have TLS GOT entries and shared memory is enabled,
     // we must perform runtime relocations or else we don't create the function.
     if (shared_memory) {
-        if (f.need_tls_relocs) f.functions.putAssumeCapacity(.__wasm_apply_global_tls_relocs, {});
-        f.functions.putAssumeCapacity(gpa, .__wasm_init_tls, {});
+        if (f.need_tls_relocs) wasm.functions.putAssumeCapacity(.__wasm_apply_global_tls_relocs, {});
+        wasm.functions.putAssumeCapacity(gpa, .__wasm_init_tls, {});
     }
 
     // Sort order:
@@ -611,11 +608,11 @@ pub fn finish(f: *Flush, wasm: *Wasm, arena: Allocator) anyerror!void {
     }
 
     // Code section.
-    if (f.functions.count() != 0) {
+    if (wasm.functions.count() != 0) {
         const header_offset = try reserveVecSectionHeader(gpa, binary_bytes);
         const start_offset = binary_bytes.items.len - 5; // minus 5 so start offset is 5 to include entry count
 
-        for (f.functions.keys()) |resolution| switch (resolution.unpack()) {
+        for (wasm.functions.keys()) |resolution| switch (resolution.unpack()) {
             .unresolved => unreachable,
             .__wasm_apply_global_tls_relocs => @panic("TODO lower __wasm_apply_global_tls_relocs"),
             .__wasm_call_ctors => @panic("TODO lower __wasm_call_ctors"),

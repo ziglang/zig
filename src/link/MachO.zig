@@ -434,7 +434,7 @@ pub fn flushModule(self: *MachO, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
     // libc/libSystem dep
     self.resolveLibSystem(arena, comp, &system_libs) catch |err| switch (err) {
         error.MissingLibSystem => {}, // already reported
-        else => |e| return e, // TODO: convert into an error
+        else => |e| return diags.fail("failed to resolve libSystem: {s}", .{@errorName(e)}),
     };
 
     for (comp.link_inputs) |link_input| switch (link_input) {
@@ -494,7 +494,10 @@ pub fn flushModule(self: *MachO, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
 
     try self.resolveSymbols();
     try self.convertTentativeDefsAndResolveSpecialSymbols();
-    try self.dedupLiterals();
+    self.dedupLiterals() catch |err| switch (err) {
+        error.LinkFailure => return error.LinkFailure,
+        else => |e| return diags.fail("failed to deduplicate literals: {s}", .{@errorName(e)}),
+    };
 
     if (self.base.gc_sections) {
         try dead_strip.gcAtoms(self);
@@ -551,7 +554,11 @@ pub fn flushModule(self: *MachO, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
 
     try self.writeSectionsToFile();
     try self.allocateLinkeditSegment();
-    try self.writeLinkeditSectionsToFile();
+    self.writeLinkeditSectionsToFile() catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        error.LinkFailure => return error.LinkFailure,
+        else => |e| return diags.fail("failed to write linkedit sections to file: {s}", .{@errorName(e)}),
+    };
 
     var codesig: ?CodeSignature = if (self.requiresCodeSig()) blk: {
         // Preallocate space for the code signature.
@@ -561,7 +568,8 @@ pub fn flushModule(self: *MachO, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
         // where the code signature goes into.
         var codesig = CodeSignature.init(self.getPageSize());
         codesig.code_directory.ident = fs.path.basename(self.base.emit.sub_path);
-        if (self.entitlements) |path| try codesig.addEntitlements(gpa, path);
+        if (self.entitlements) |path| codesig.addEntitlements(gpa, path) catch |err|
+            return diags.fail("failed to add entitlements from {s}: {s}", .{ path, @errorName(err) });
         try self.writeCodeSignaturePadding(&codesig);
         break :blk codesig;
     } else null;
@@ -573,13 +581,29 @@ pub fn flushModule(self: *MachO, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
         self.getPageSize(),
     );
 
-    const ncmds, const sizeofcmds, const uuid_cmd_offset = try self.writeLoadCommands();
+    const ncmds, const sizeofcmds, const uuid_cmd_offset = self.writeLoadCommands() catch |err| switch (err) {
+        error.NoSpaceLeft => unreachable,
+        error.OutOfMemory => return error.OutOfMemory,
+        error.LinkFailure => return error.LinkFailure,
+    };
     try self.writeHeader(ncmds, sizeofcmds);
-    try self.writeUuid(uuid_cmd_offset, self.requiresCodeSig());
-    if (self.getDebugSymbols()) |dsym| try dsym.flushModule(self);
+    self.writeUuid(uuid_cmd_offset, self.requiresCodeSig()) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        error.LinkFailure => return error.LinkFailure,
+        else => |e| return diags.fail("failed to calculate and write uuid: {s}", .{@errorName(e)}),
+    };
+    if (self.getDebugSymbols()) |dsym| dsym.flushModule(self) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => |e| return diags.fail("failed to get debug symbols: {s}", .{@errorName(e)}),
+    };
 
+    // Code signing always comes last.
     if (codesig) |*csig| {
-        try self.writeCodeSignature(csig); // code signing always comes last
+        self.writeCodeSignature(csig) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.LinkFailure => return error.LinkFailure,
+            else => |e| return diags.fail("failed to write code signature: {s}", .{@errorName(e)}),
+        };
         const emit = self.base.emit;
         try invalidateKernelCache(emit.root_dir.handle, emit.sub_path);
     }
@@ -2171,7 +2195,7 @@ fn allocateSections(self: *MachO) !void {
             fileoff = mem.alignForward(u32, fileoff, page_size);
         }
 
-        const alignment = try math.powi(u32, 2, header.@"align");
+        const alignment = try self.alignPow(header.@"align");
 
         vmaddr = mem.alignForward(u64, vmaddr, alignment);
         header.addr = vmaddr;
@@ -2327,7 +2351,7 @@ fn allocateLinkeditSegment(self: *MachO) !void {
     seg.vmaddr = mem.alignForward(u64, vmaddr, page_size);
     seg.fileoff = mem.alignForward(u64, fileoff, page_size);
 
-    var off = math.cast(u32, seg.fileoff) orelse return error.Overflow;
+    var off = try self.cast(u32, seg.fileoff);
     // DYLD_INFO_ONLY
     {
         const cmd = &self.dyld_info_cmd;
@@ -2392,7 +2416,7 @@ fn resizeSections(self: *MachO) !void {
         if (header.isZerofill()) continue;
         if (self.isZigSection(@intCast(n_sect))) continue; // TODO this is horrible
         const cpu_arch = self.getTarget().cpu.arch;
-        const size = math.cast(usize, header.size) orelse return error.Overflow;
+        const size = try self.cast(usize, header.size);
         try out.resize(self.base.comp.gpa, size);
         const padding_byte: u8 = if (header.isCode() and cpu_arch == .x86_64) 0xcc else 0;
         @memset(out.items, padding_byte);
@@ -2489,7 +2513,7 @@ fn writeThunkWorker(self: *MachO, thunk: Thunk) void {
 
     const doWork = struct {
         fn doWork(th: Thunk, buffer: []u8, macho_file: *MachO) !void {
-            const off = math.cast(usize, th.value) orelse return error.Overflow;
+            const off = try macho_file.cast(usize, th.value);
             const size = th.size();
             var stream = std.io.fixedBufferStream(buffer[off..][0..size]);
             try th.write(macho_file, stream.writer());
@@ -2601,7 +2625,7 @@ fn writeSectionsToFile(self: *MachO) !void {
 
     const slice = self.sections.slice();
     for (slice.items(.header), slice.items(.out)) |header, out| {
-        try self.base.file.?.pwriteAll(out.items, header.offset);
+        try self.pwriteAll(out.items, header.offset);
     }
 }
 
@@ -2644,7 +2668,7 @@ fn writeDyldInfo(self: *MachO) !void {
     try self.lazy_bind_section.write(writer);
     try stream.seekTo(cmd.export_off - base_off);
     try self.export_trie.write(writer);
-    try self.base.file.?.pwriteAll(buffer, cmd.rebase_off);
+    try self.pwriteAll(buffer, cmd.rebase_off);
 }
 
 pub fn writeDataInCode(self: *MachO) !void {
@@ -2655,7 +2679,7 @@ pub fn writeDataInCode(self: *MachO) !void {
     var buffer = try std.ArrayList(u8).initCapacity(gpa, self.data_in_code.size());
     defer buffer.deinit();
     try self.data_in_code.write(self, buffer.writer());
-    try self.base.file.?.pwriteAll(buffer.items, cmd.dataoff);
+    try self.pwriteAll(buffer.items, cmd.dataoff);
 }
 
 fn writeIndsymtab(self: *MachO) !void {
@@ -2667,15 +2691,15 @@ fn writeIndsymtab(self: *MachO) !void {
     var buffer = try std.ArrayList(u8).initCapacity(gpa, needed_size);
     defer buffer.deinit();
     try self.indsymtab.write(self, buffer.writer());
-    try self.base.file.?.pwriteAll(buffer.items, cmd.indirectsymoff);
+    try self.pwriteAll(buffer.items, cmd.indirectsymoff);
 }
 
 pub fn writeSymtabToFile(self: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
     const cmd = self.symtab_cmd;
-    try self.base.file.?.pwriteAll(mem.sliceAsBytes(self.symtab.items), cmd.symoff);
-    try self.base.file.?.pwriteAll(self.strtab.items, cmd.stroff);
+    try self.pwriteAll(mem.sliceAsBytes(self.symtab.items), cmd.symoff);
+    try self.pwriteAll(self.strtab.items, cmd.stroff);
 }
 
 fn writeUnwindInfo(self: *MachO) !void {
@@ -2686,20 +2710,20 @@ fn writeUnwindInfo(self: *MachO) !void {
 
     if (self.eh_frame_sect_index) |index| {
         const header = self.sections.items(.header)[index];
-        const size = math.cast(usize, header.size) orelse return error.Overflow;
+        const size = try self.cast(usize, header.size);
         const buffer = try gpa.alloc(u8, size);
         defer gpa.free(buffer);
         eh_frame.write(self, buffer);
-        try self.base.file.?.pwriteAll(buffer, header.offset);
+        try self.pwriteAll(buffer, header.offset);
     }
 
     if (self.unwind_info_sect_index) |index| {
         const header = self.sections.items(.header)[index];
-        const size = math.cast(usize, header.size) orelse return error.Overflow;
+        const size = try self.cast(usize, header.size);
         const buffer = try gpa.alloc(u8, size);
         defer gpa.free(buffer);
         try self.unwind_info.write(self, buffer);
-        try self.base.file.?.pwriteAll(buffer, header.offset);
+        try self.pwriteAll(buffer, header.offset);
     }
 }
 
@@ -2890,7 +2914,7 @@ fn writeLoadCommands(self: *MachO) !struct { usize, usize, u64 } {
 
     assert(stream.pos == needed_size);
 
-    try self.base.file.?.pwriteAll(buffer, @sizeOf(macho.mach_header_64));
+    try self.pwriteAll(buffer, @sizeOf(macho.mach_header_64));
 
     return .{ ncmds, buffer.len, uuid_cmd_offset };
 }
@@ -2944,7 +2968,7 @@ fn writeHeader(self: *MachO, ncmds: usize, sizeofcmds: usize) !void {
 
     log.debug("writing Mach-O header {}", .{header});
 
-    try self.base.file.?.pwriteAll(mem.asBytes(&header), 0);
+    try self.pwriteAll(mem.asBytes(&header), 0);
 }
 
 fn writeUuid(self: *MachO, uuid_cmd_offset: u64, has_codesig: bool) !void {
@@ -2954,7 +2978,7 @@ fn writeUuid(self: *MachO, uuid_cmd_offset: u64, has_codesig: bool) !void {
     } else self.codesig_cmd.dataoff;
     try calcUuid(self.base.comp, self.base.file.?, file_size, &self.uuid_cmd.uuid);
     const offset = uuid_cmd_offset + @sizeOf(macho.load_command);
-    try self.base.file.?.pwriteAll(&self.uuid_cmd.uuid, offset);
+    try self.pwriteAll(&self.uuid_cmd.uuid, offset);
 }
 
 pub fn writeCodeSignaturePadding(self: *MachO, code_sig: *CodeSignature) !void {
@@ -2968,7 +2992,7 @@ pub fn writeCodeSignaturePadding(self: *MachO, code_sig: *CodeSignature) !void {
     log.debug("writing code signature padding from 0x{x} to 0x{x}", .{ offset, offset + needed_size });
     // Pad out the space. We need to do this to calculate valid hashes for everything in the file
     // except for code signature data.
-    try self.base.file.?.pwriteAll(&[_]u8{0}, offset + needed_size - 1);
+    try self.pwriteAll(&[_]u8{0}, offset + needed_size - 1);
 
     self.codesig_cmd.dataoff = @as(u32, @intCast(offset));
     self.codesig_cmd.datasize = @as(u32, @intCast(needed_size));
@@ -2995,7 +3019,7 @@ pub fn writeCodeSignature(self: *MachO, code_sig: *CodeSignature) !void {
         offset + buffer.items.len,
     });
 
-    try self.base.file.?.pwriteAll(buffer.items, offset);
+    try self.pwriteAll(buffer.items, offset);
 }
 
 pub fn updateFunc(
@@ -3109,7 +3133,7 @@ fn detectAllocCollision(self: *MachO, start: u64, size: u64) !?u64 {
         }
     }
 
-    if (at_end) try self.base.file.?.setEndPos(end);
+    if (at_end) try self.setEndPos(end);
     return null;
 }
 
@@ -3193,22 +3217,25 @@ pub fn findFreeSpaceVirtual(self: *MachO, object_size: u64, min_alignment: u32) 
     return start;
 }
 
-pub fn copyRangeAll(self: *MachO, old_offset: u64, new_offset: u64, size: u64) !void {
+pub fn copyRangeAll(self: *MachO, old_offset: u64, new_offset: u64, size: u64) error{LinkFailure}!void {
+    const diags = &self.base.comp.link_diags;
     const file = self.base.file.?;
-    const amt = try file.copyRangeAll(old_offset, file, new_offset, size);
-    if (amt != size) return error.InputOutput;
+    const amt = file.copyRangeAll(old_offset, file, new_offset, size) catch |err|
+        return diags.fail("failed to copy file range: {s}", .{@errorName(err)});
+    if (amt != size)
+        return diags.fail("unexpected short write in copy file range", .{});
 }
 
 /// Like File.copyRangeAll but also ensures the source region is zeroed out after copy.
 /// This is so that we guarantee zeroed out regions for mapping of zerofill sections by the loader.
-fn copyRangeAllZeroOut(self: *MachO, old_offset: u64, new_offset: u64, size: u64) !void {
+fn copyRangeAllZeroOut(self: *MachO, old_offset: u64, new_offset: u64, size: u64) error{ LinkFailure, OutOfMemory }!void {
     const gpa = self.base.comp.gpa;
     try self.copyRangeAll(old_offset, new_offset, size);
-    const size_u = math.cast(usize, size) orelse return error.Overflow;
-    const zeroes = try gpa.alloc(u8, size_u);
+    const size_u = try self.cast(usize, size);
+    const zeroes = try gpa.alloc(u8, size_u); // TODO no need to allocate here.
     defer gpa.free(zeroes);
     @memset(zeroes, 0);
-    try self.base.file.?.pwriteAll(zeroes, old_offset);
+    try self.pwriteAll(zeroes, old_offset);
 }
 
 const InitMetadataOptions = struct {
@@ -3312,10 +3339,9 @@ fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
     const allocSect = struct {
         fn allocSect(macho_file: *MachO, sect_id: u8, size: u64) !void {
             const sect = &macho_file.sections.items(.header)[sect_id];
-            const alignment = try math.powi(u32, 2, sect.@"align");
+            const alignment = try macho_file.alignPow(sect.@"align");
             if (!sect.isZerofill()) {
-                sect.offset = math.cast(u32, try macho_file.findFreeSpace(size, alignment)) orelse
-                    return error.Overflow;
+                sect.offset = try macho_file.cast(u32, try macho_file.findFreeSpace(size, alignment));
             }
             sect.addr = macho_file.findFreeSpaceVirtual(size, alignment);
             sect.size = size;
@@ -3397,7 +3423,7 @@ fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
     };
 }
 
-pub fn growSection(self: *MachO, sect_index: u8, needed_size: u64) !void {
+pub fn growSection(self: *MachO, sect_index: u8, needed_size: u64) error{ OutOfMemory, LinkFailure }!void {
     if (self.base.isRelocatable()) {
         try self.growSectionRelocatable(sect_index, needed_size);
     } else {
@@ -3405,7 +3431,7 @@ pub fn growSection(self: *MachO, sect_index: u8, needed_size: u64) !void {
     }
 }
 
-fn growSectionNonRelocatable(self: *MachO, sect_index: u8, needed_size: u64) !void {
+fn growSectionNonRelocatable(self: *MachO, sect_index: u8, needed_size: u64) error{ OutOfMemory, LinkFailure }!void {
     const diags = &self.base.comp.link_diags;
     const sect = &self.sections.items(.header)[sect_index];
 
@@ -3433,7 +3459,7 @@ fn growSectionNonRelocatable(self: *MachO, sect_index: u8, needed_size: u64) !vo
 
             sect.offset = @intCast(new_offset);
         } else if (sect.offset + allocated_size == std.math.maxInt(u64)) {
-            try self.base.file.?.setEndPos(sect.offset + needed_size);
+            try self.setEndPos(sect.offset + needed_size);
         }
         seg.filesize = needed_size;
     }
@@ -3454,7 +3480,7 @@ fn growSectionNonRelocatable(self: *MachO, sect_index: u8, needed_size: u64) !vo
     seg.vmsize = needed_size;
 }
 
-fn growSectionRelocatable(self: *MachO, sect_index: u8, needed_size: u64) !void {
+fn growSectionRelocatable(self: *MachO, sect_index: u8, needed_size: u64) error{ OutOfMemory, LinkFailure }!void {
     const sect = &self.sections.items(.header)[sect_index];
 
     if (!sect.isZerofill()) {
@@ -3464,7 +3490,7 @@ fn growSectionRelocatable(self: *MachO, sect_index: u8, needed_size: u64) !void 
             sect.size = 0;
 
             // Must move the entire section.
-            const alignment = try math.powi(u32, 2, sect.@"align");
+            const alignment = try self.alignPow(sect.@"align");
             const new_offset = try self.findFreeSpace(needed_size, alignment);
             const new_addr = self.findFreeSpaceVirtual(needed_size, alignment);
 
@@ -3482,7 +3508,7 @@ fn growSectionRelocatable(self: *MachO, sect_index: u8, needed_size: u64) !void 
             sect.offset = @intCast(new_offset);
             sect.addr = new_addr;
         } else if (sect.offset + allocated_size == std.math.maxInt(u64)) {
-            try self.base.file.?.setEndPos(sect.offset + needed_size);
+            try self.setEndPos(sect.offset + needed_size);
         }
     }
     sect.size = needed_size;
@@ -5314,6 +5340,40 @@ fn isReachable(atom: *const Atom, rel: Relocation, macho_file: *MachO) bool {
     const taddr: i64 = @intCast(rel.getTargetAddress(atom.*, macho_file));
     _ = math.cast(i28, taddr + rel.addend - saddr) orelse return false;
     return true;
+}
+
+pub fn pwriteAll(macho_file: *MachO, bytes: []const u8, offset: u64) error{LinkFailure}!void {
+    const comp = macho_file.base.comp;
+    const diags = &comp.link_diags;
+    macho_file.base.file.?.pwriteAll(bytes, offset) catch |err| {
+        return diags.fail("failed to write: {s}", .{@errorName(err)});
+    };
+}
+
+pub fn setEndPos(macho_file: *MachO, length: u64) error{LinkFailure}!void {
+    const comp = macho_file.base.comp;
+    const diags = &comp.link_diags;
+    macho_file.base.file.?.setEndPos(length) catch |err| {
+        return diags.fail("failed to set file end pos: {s}", .{@errorName(err)});
+    };
+}
+
+pub fn cast(macho_file: *MachO, comptime T: type, x: anytype) error{LinkFailure}!T {
+    return std.math.cast(T, x) orelse {
+        const comp = macho_file.base.comp;
+        const diags = &comp.link_diags;
+        return diags.fail("encountered {d}, overflowing {d}-bit value", .{ x, @bitSizeOf(T) });
+    };
+}
+
+pub fn alignPow(macho_file: *MachO, x: u32) error{LinkFailure}!u32 {
+    const result, const ov = @shlWithOverflow(@as(u32, 1), try cast(macho_file, u5, x));
+    if (ov != 0) {
+        const comp = macho_file.base.comp;
+        const diags = &comp.link_diags;
+        return diags.fail("alignment overflow", .{});
+    }
+    return result;
 }
 
 /// Branch instruction has 26 bits immediate but is 4 byte aligned.

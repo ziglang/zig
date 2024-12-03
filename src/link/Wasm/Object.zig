@@ -26,12 +26,14 @@ start_function: Wasm.OptionalObjectFunctionIndex,
 /// (or therefore missing) and must generate an error when another object uses
 /// features that are not supported by the other.
 features: Wasm.Feature.Set,
-/// Points into Wasm functions
+/// Points into Wasm object_functions
 functions: RelativeSlice,
-/// Points into Wasm object_globals_imports
-globals_imports: RelativeSlice,
-/// Points into Wasm object_tables_imports
-tables_imports: RelativeSlice,
+/// Points into Wasm object_function_imports
+function_imports: RelativeSlice,
+/// Points into Wasm object_global_imports
+global_imports: RelativeSlice,
+/// Points into Wasm object_table_imports
+table_imports: RelativeSlice,
 /// Points into Wasm object_custom_segments
 custom_segments: RelativeSlice,
 /// For calculating local section index from `Wasm.SectionIndex`.
@@ -180,13 +182,13 @@ fn parse(
 
     const data_segment_start: u32 = @intCast(wasm.object_data_segments.items.len);
     const custom_segment_start: u32 = @intCast(wasm.object_custom_segments.items.len);
-    const imports_start: u32 = @intCast(wasm.object_imports.items.len);
     const functions_start: u32 = @intCast(wasm.object_functions.items.len);
     const tables_start: u32 = @intCast(wasm.object_tables.items.len);
     const memories_start: u32 = @intCast(wasm.object_memories.items.len);
     const globals_start: u32 = @intCast(wasm.object_globals.items.len);
     const init_funcs_start: u32 = @intCast(wasm.object_init_funcs.items.len);
     const comdats_start: u32 = @intCast(wasm.object_comdats.items.len);
+    const function_imports_start: u32 = @intCast(wasm.object_function_imports.items.len);
     const global_imports_start: u32 = @intCast(wasm.object_global_imports.items.len);
     const table_imports_start: u32 = @intCast(wasm.object_table_imports.items.len);
     const local_section_index_base = wasm.object_total_sections;
@@ -504,7 +506,7 @@ fn parse(
                     switch (kind) {
                         .function => {
                             const function, pos = readLeb(u32, bytes, pos);
-                            try ss.function_imports.append(gpa, .{
+                            try ss.func_imports.append(gpa, .{
                                 .module_name = interned_module_name,
                                 .name = interned_name,
                                 .index = function,
@@ -854,13 +856,13 @@ fn parse(
         .archive_member_name = archive_member_name,
         .start_function = start_function,
         .features = features,
-        .imports = .{
-            .off = imports_start,
-            .len = @intCast(wasm.object_imports.items.len - imports_start),
-        },
         .functions = .{
             .off = functions_start,
-            .len = @intCast(wasm.functions.items.len - functions_start),
+            .len = @intCast(wasm.object_functions.items.len - functions_start),
+        },
+        .globals = .{
+            .off = globals_start,
+            .len = @intCast(wasm.object_globals.items.len - globals_start),
         },
         .tables = .{
             .off = tables_start,
@@ -870,9 +872,17 @@ fn parse(
             .off = memories_start,
             .len = @intCast(wasm.object_memories.items.len - memories_start),
         },
-        .globals = .{
-            .off = globals_start,
-            .len = @intCast(wasm.object_globals.items.len - globals_start),
+        .function_imports = .{
+            .off = function_imports_start,
+            .len = @intCast(wasm.object_function_imports.items.len - function_imports_start),
+        },
+        .global_imports = .{
+            .off = global_imports_start,
+            .len = @intCast(wasm.object_global_imports.items.len - global_imports_start),
+        },
+        .table_imports = .{
+            .off = table_imports_start,
+            .len = @intCast(wasm.object_table_imports.items.len - table_imports_start),
         },
         .init_funcs = .{
             .off = init_funcs_start,

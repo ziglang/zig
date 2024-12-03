@@ -745,7 +745,7 @@ pub const File = struct {
     }
 
     pub const FlushError = error{
-        /// Indicates an error will be present in `Compilation.link_errors`.
+        /// Indicates an error will be present in `Compilation.link_diags`.
         LinkFailure,
         OutOfMemory,
     };

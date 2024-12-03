@@ -754,7 +754,7 @@ fn allocateGlobal(coff: *Coff) !u32 {
     return index;
 }
 
-fn addGotEntry(coff: *Coff, target: SymbolWithLoc) !void {
+fn addGotEntry(coff: *Coff, target: SymbolWithLoc) error{ OutOfMemory, LinkFailure }!void {
     const gpa = coff.base.comp.gpa;
     if (coff.got_table.lookup.contains(target)) return;
     const got_index = try coff.got_table.allocateEntry(gpa, target);
@@ -780,7 +780,7 @@ pub fn createAtom(coff: *Coff) !Atom.Index {
     return atom_index;
 }
 
-fn growAtom(coff: *Coff, atom_index: Atom.Index, new_atom_size: u32, alignment: u32) !u32 {
+fn growAtom(coff: *Coff, atom_index: Atom.Index, new_atom_size: u32, alignment: u32) link.File.UpdateNavError!u32 {
     const atom = coff.getAtom(atom_index);
     const sym = atom.getSymbol(coff);
     const align_ok = mem.alignBackward(u32, sym.value, alignment) == sym.value;
@@ -1313,10 +1313,7 @@ fn updateLazySymbolAtom(
     };
     const code = switch (res) {
         .ok => code_buffer.items,
-        .fail => |em| {
-            log.err("{s}", .{em.msg});
-            return error.CodegenFail;
-        },
+        .fail => |em| return diags.fail("failed to generate code: {s}", .{em.msg}),
     };
 
     const code_len: u32 = @intCast(code.len);

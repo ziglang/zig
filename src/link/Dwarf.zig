@@ -23,6 +23,8 @@ debug_str: StringSection,
 pub const UpdateError = error{
     /// Indicates the error is already reported on `failed_codegen` in the Zcu.
     CodegenFail,
+    /// Indicates the error is already reported on `link_diags` in the Compilation.
+    LinkFailure,
     OutOfMemory,
 };
 
@@ -590,12 +592,14 @@ const Unit = struct {
 
     fn move(unit: *Unit, sec: *Section, dwarf: *Dwarf, new_off: u32) UpdateError!void {
         if (unit.off == new_off) return;
-        if (try dwarf.getFile().?.copyRangeAll(
+        const diags = &dwarf.bin_file.base.comp.link_diags;
+        const n = dwarf.getFile().?.copyRangeAll(
             sec.off(dwarf) + unit.off,
             dwarf.getFile().?,
             sec.off(dwarf) + new_off,
             unit.len,
-        ) != unit.len) return error.InputOutput;
+        ) catch |err| return diags.fail("failed to copy file range: {s}", .{@errorName(err)});
+        if (n != unit.len) return diags.fail("unexpected short write from copy file range", .{});
         unit.off = new_off;
     }
 

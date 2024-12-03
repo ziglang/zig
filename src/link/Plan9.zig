@@ -535,16 +535,21 @@ fn allocateGotIndex(self: *Plan9) usize {
     }
 }
 
-pub fn flush(self: *Plan9, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
+pub fn flush(
+    self: *Plan9,
+    arena: Allocator,
+    tid: Zcu.PerThread.Id,
+    prog_node: std.Progress.Node,
+) link.File.FlushError!void {
     const comp = self.base.comp;
+    const diags = &comp.link_diags;
     const use_lld = build_options.have_llvm and comp.config.use_lld;
     assert(!use_lld);
 
     switch (link.File.effectiveOutputMode(use_lld, comp.config.output_mode)) {
         .Exe => {},
-        // plan9 object files are totally different
-        .Obj => return error.TODOImplementPlan9Objs,
-        .Lib => return error.TODOImplementWritingLibFiles,
+        .Obj => return diags.fail("writing plan9 object files unimplemented", .{}),
+        .Lib => return diags.fail("writing plan9 lib files unimplemented", .{}),
     }
     return self.flushModule(arena, tid, prog_node);
 }
@@ -589,7 +594,13 @@ fn atomCount(self: *Plan9) usize {
     return data_nav_count + fn_nav_count + lazy_atom_count + extern_atom_count + uav_atom_count;
 }
 
-pub fn flushModule(self: *Plan9, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
+pub fn flushModule(
+    self: *Plan9,
+    arena: Allocator,
+    /// TODO: stop using this
+    tid: Zcu.PerThread.Id,
+    prog_node: std.Progress.Node,
+) link.File.FlushError!void {
     if (build_options.skip_non_native and builtin.object_format != .plan9) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
@@ -600,6 +611,7 @@ pub fn flushModule(self: *Plan9, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
     _ = arena; // Has the same lifetime as the call to Compilation.update.
 
     const comp = self.base.comp;
+    const diags = &comp.link_diags;
     const gpa = comp.gpa;
     const target = comp.root_mod.resolved_target.result;
 
@@ -611,7 +623,7 @@ pub fn flushModule(self: *Plan9, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
     defer assert(self.hdr.entry != 0x0);
 
     const pt: Zcu.PerThread = .activate(
-        self.base.comp.zcu orelse return error.LinkingWithoutZigSourceUnimplemented,
+        self.base.comp.zcu orelse return diags.fail("linking without zig source unimplemented", .{}),
         tid,
     );
     defer pt.deactivate();
@@ -620,22 +632,16 @@ pub fn flushModule(self: *Plan9, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
     if (self.lazy_syms.getPtr(.none)) |metadata| {
         // Most lazy symbols can be updated on first use, but
         // anyerror needs to wait for everything to be flushed.
-        if (metadata.text_state != .unused) self.updateLazySymbolAtom(
+        if (metadata.text_state != .unused) try self.updateLazySymbolAtom(
             pt,
             .{ .kind = .code, .ty = .anyerror_type },
             metadata.text_atom,
-        ) catch |err| return switch (err) {
-            error.CodegenFail => error.LinkFailure,
-            else => |e| e,
-        };
-        if (metadata.rodata_state != .unused) self.updateLazySymbolAtom(
+        );
+        if (metadata.rodata_state != .unused) try self.updateLazySymbolAtom(
             pt,
             .{ .kind = .const_data, .ty = .anyerror_type },
             metadata.rodata_atom,
-        ) catch |err| return switch (err) {
-            error.CodegenFail => error.LinkFailure,
-            else => |e| e,
-        };
+        );
     }
     for (self.lazy_syms.values()) |*metadata| {
         if (metadata.text_state != .unused) metadata.text_state = .flushed;
@@ -908,8 +914,7 @@ pub fn flushModule(self: *Plan9, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
             }
         }
     }
-    // write it all!
-    try file.pwritevAll(iovecs, 0);
+    file.pwritevAll(iovecs, 0) catch |err| return diags.fail("failed to write file: {s}", .{@errorName(err)});
 }
 fn addNavExports(
     self: *Plan9,
@@ -1047,8 +1052,15 @@ pub fn getOrCreateAtomForLazySymbol(self: *Plan9, pt: Zcu.PerThread, lazy_sym: F
     return atom;
 }
 
-fn updateLazySymbolAtom(self: *Plan9, pt: Zcu.PerThread, sym: File.LazySymbol, atom_index: Atom.Index) !void {
+fn updateLazySymbolAtom(
+    self: *Plan9,
+    pt: Zcu.PerThread,
+    sym: File.LazySymbol,
+    atom_index: Atom.Index,
+) error{ LinkFailure, OutOfMemory }!void {
     const gpa = pt.zcu.gpa;
+    const comp = self.base.comp;
+    const diags = &comp.link_diags;
 
     var required_alignment: InternPool.Alignment = .none;
     var code_buffer = std.ArrayList(u8).init(gpa);
@@ -1069,7 +1081,7 @@ fn updateLazySymbolAtom(self: *Plan9, pt: Zcu.PerThread, sym: File.LazySymbol, a
 
     // generate the code
     const src = Type.fromInterned(sym.ty).srcLocOrNull(pt.zcu) orelse Zcu.LazySrcLoc.unneeded;
-    const res = try codegen.generateLazySymbol(
+    const res = codegen.generateLazySymbol(
         &self.base,
         pt,
         src,
@@ -1078,13 +1090,14 @@ fn updateLazySymbolAtom(self: *Plan9, pt: Zcu.PerThread, sym: File.LazySymbol, a
         &code_buffer,
         .none,
         .{ .atom_index = @intCast(atom_index) },
-    );
+    ) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        error.CodegenFail => return error.LinkFailure,
+        error.Overflow => return diags.fail("codegen failure: encountered number too big for compiler", .{}),
+    };
     const code = switch (res) {
         .ok => code_buffer.items,
-        .fail => |em| {
-            log.err("{s}", .{em.msg});
-            return error.CodegenFail;
-        },
+        .fail => |em| return diags.fail("codegen failure: {s}", .{em.msg}),
     };
     // duped_code is freed when the atom is freed
     const duped_code = try gpa.dupe(u8, code);

@@ -290,12 +290,15 @@ pub fn dedupLiterals(self: *ZigObject, lp: MachO.LiteralPool, macho_file: *MachO
 /// We need this so that we can write to an archive.
 /// TODO implement writing ZigObject data directly to a buffer instead.
 pub fn readFileContents(self: *ZigObject, macho_file: *MachO) !void {
+    const diags = &macho_file.base.comp.link_diags;
     // Size of the output object file is always the offset + size of the strtab
     const size = macho_file.symtab_cmd.stroff + macho_file.symtab_cmd.strsize;
     const gpa = macho_file.base.comp.gpa;
     try self.data.resize(gpa, size);
-    const amt = try macho_file.base.file.?.preadAll(self.data.items, 0);
-    if (amt != size) return error.InputOutput;
+    const amt = macho_file.base.file.?.preadAll(self.data.items, 0) catch |err|
+        return diags.fail("failed to read output file: {s}", .{@errorName(err)});
+    if (amt != size)
+        return diags.fail("unexpected EOF reading from output file", .{});
 }
 
 pub fn updateArSymtab(self: ZigObject, ar_symtab: *Archive.ArSymtab, macho_file: *MachO) error{OutOfMemory}!void {
@@ -376,7 +379,7 @@ pub fn resolveRelocs(self: *ZigObject, macho_file: *MachO) !void {
         if (atom.getRelocs(macho_file).len == 0) continue;
         // TODO: we will resolve and write ZigObject's TLS data twice:
         // once here, and once in writeAtoms
-        const atom_size = std.math.cast(usize, atom.size) orelse return error.Overflow;
+        const atom_size = try macho_file.cast(usize, atom.size);
         const code = try gpa.alloc(u8, atom_size);
         defer gpa.free(code);
         self.getAtomData(macho_file, atom.*, code) catch |err| {
@@ -400,7 +403,7 @@ pub fn resolveRelocs(self: *ZigObject, macho_file: *MachO) !void {
             has_error = true;
             continue;
         };
-        try macho_file.base.file.?.pwriteAll(code, file_offset);
+        try macho_file.pwriteAll(code, file_offset);
     }
 
     if (has_error) return error.ResolveFailed;
@@ -419,7 +422,7 @@ pub fn calcNumRelocs(self: *ZigObject, macho_file: *MachO) void {
     }
 }
 
-pub fn writeRelocs(self: *ZigObject, macho_file: *MachO) !void {
+pub fn writeRelocs(self: *ZigObject, macho_file: *MachO) error{ LinkFailure, OutOfMemory }!void {
     const gpa = macho_file.base.comp.gpa;
     const diags = &macho_file.base.comp.link_diags;
 
@@ -432,14 +435,14 @@ pub fn writeRelocs(self: *ZigObject, macho_file: *MachO) !void {
         if (!macho_file.isZigSection(atom.out_n_sect) and !macho_file.isDebugSection(atom.out_n_sect)) continue;
         if (atom.getRelocs(macho_file).len == 0) continue;
         const extra = atom.getExtra(macho_file);
-        const atom_size = std.math.cast(usize, atom.size) orelse return error.Overflow;
+        const atom_size = try macho_file.cast(usize, atom.size);
         const code = try gpa.alloc(u8, atom_size);
         defer gpa.free(code);
         self.getAtomData(macho_file, atom.*, code) catch |err|
             return diags.fail("failed to fetch code for '{s}': {s}", .{ atom.getName(macho_file), @errorName(err) });
         const file_offset = header.offset + atom.value;
         try atom.writeRelocs(macho_file, code, relocs[extra.rel_out_index..][0..extra.rel_out_count]);
-        try macho_file.base.file.?.pwriteAll(code, file_offset);
+        try macho_file.pwriteAll(code, file_offset);
     }
 }
 
@@ -457,8 +460,8 @@ pub fn writeAtomsRelocatable(self: *ZigObject, macho_file: *MachO) !void {
         if (sect.isZerofill()) continue;
         if (macho_file.isZigSection(atom.out_n_sect)) continue;
         if (atom.getRelocs(macho_file).len == 0) continue;
-        const off = std.math.cast(usize, atom.value) orelse return error.Overflow;
-        const size = std.math.cast(usize, atom.size) orelse return error.Overflow;
+        const off = try macho_file.cast(usize, atom.value);
+        const size = try macho_file.cast(usize, atom.size);
         const buffer = macho_file.sections.items(.out)[atom.out_n_sect].items;
         try self.getAtomData(macho_file, atom.*, buffer[off..][0..size]);
         const relocs = macho_file.sections.items(.relocs)[atom.out_n_sect].items;
@@ -480,8 +483,8 @@ pub fn writeAtoms(self: *ZigObject, macho_file: *MachO) !void {
         const sect = atom.getInputSection(macho_file);
         if (sect.isZerofill()) continue;
         if (macho_file.isZigSection(atom.out_n_sect)) continue;
-        const off = std.math.cast(usize, atom.value) orelse return error.Overflow;
-        const size = std.math.cast(usize, atom.size) orelse return error.Overflow;
+        const off = try macho_file.cast(usize, atom.value);
+        const size = try macho_file.cast(usize, atom.size);
         const buffer = macho_file.sections.items(.out)[atom.out_n_sect].items;
         try self.getAtomData(macho_file, atom.*, buffer[off..][0..size]);
         try atom.resolveRelocs(macho_file, buffer[off..][0..size]);
@@ -546,7 +549,9 @@ pub fn getInputSection(self: ZigObject, atom: Atom, macho_file: *MachO) macho.se
     return sect;
 }
 
-pub fn flushModule(self: *ZigObject, macho_file: *MachO, tid: Zcu.PerThread.Id) !void {
+pub fn flushModule(self: *ZigObject, macho_file: *MachO, tid: Zcu.PerThread.Id) link.File.FlushError!void {
+    const diags = &macho_file.base.comp.link_diags;
+
     // Handle any lazy symbols that were emitted by incremental compilation.
     if (self.lazy_syms.getPtr(.anyerror_type)) |metadata| {
         const pt: Zcu.PerThread = .activate(macho_file.base.comp.zcu.?, tid);
@@ -554,24 +559,18 @@ pub fn flushModule(self: *ZigObject, macho_file: *MachO, tid: Zcu.PerThread.Id) 
 
         // Most lazy symbols can be updated on first use, but
         // anyerror needs to wait for everything to be flushed.
-        if (metadata.text_state != .unused) self.updateLazySymbol(
+        if (metadata.text_state != .unused) try self.updateLazySymbol(
             macho_file,
             pt,
             .{ .kind = .code, .ty = .anyerror_type },
             metadata.text_symbol_index,
-        ) catch |err| return switch (err) {
-            error.CodegenFail => error.LinkFailure,
-            else => |e| e,
-        };
-        if (metadata.const_state != .unused) self.updateLazySymbol(
+        );
+        if (metadata.const_state != .unused) try self.updateLazySymbol(
             macho_file,
             pt,
             .{ .kind = .const_data, .ty = .anyerror_type },
             metadata.const_symbol_index,
-        ) catch |err| return switch (err) {
-            error.CodegenFail => error.LinkFailure,
-            else => |e| e,
-        };
+        );
     }
     for (self.lazy_syms.values()) |*metadata| {
         if (metadata.text_state != .unused) metadata.text_state = .flushed;
@@ -581,7 +580,11 @@ pub fn flushModule(self: *ZigObject, macho_file: *MachO, tid: Zcu.PerThread.Id) 
     if (self.dwarf) |*dwarf| {
         const pt: Zcu.PerThread = .activate(macho_file.base.comp.zcu.?, tid);
         defer pt.deactivate();
-        try dwarf.flushModule(pt);
+        dwarf.flushModule(pt) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.CodegenFail => return error.LinkFailure,
+            else => |e| return diags.fail("failed to flush dwarf module: {s}", .{@errorName(e)}),
+        };
 
         self.debug_abbrev_dirty = false;
         self.debug_aranges_dirty = false;
@@ -616,6 +619,7 @@ pub fn getNavVAddr(
     const sym = self.symbols.items[sym_index];
     const vaddr = sym.getAddress(.{}, macho_file);
     switch (reloc_info.parent) {
+        .none => unreachable,
         .atom_index => |atom_index| {
             const parent_atom = self.symbols.items[atom_index].getAtom(macho_file).?;
             try parent_atom.addReloc(macho_file, .{
@@ -655,6 +659,7 @@ pub fn getUavVAddr(
     const sym = self.symbols.items[sym_index];
     const vaddr = sym.getAddress(.{}, macho_file);
     switch (reloc_info.parent) {
+        .none => unreachable,
         .atom_index => |atom_index| {
             const parent_atom = self.symbols.items[atom_index].getAtom(macho_file).?;
             try parent_atom.addReloc(macho_file, .{
@@ -766,7 +771,7 @@ pub fn updateFunc(
     func_index: InternPool.Index,
     air: Air,
     liveness: Liveness,
-) !void {
+) link.File.UpdateNavError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -936,7 +941,7 @@ fn updateNavCode(
     sym_index: Symbol.Index,
     sect_index: u8,
     code: []const u8,
-) !void {
+) link.File.UpdateNavError!void {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
@@ -950,6 +955,7 @@ fn updateNavCode(
         else => |a| a.maxStrict(target_util.minFunctionAlignment(target)),
     };
 
+    const diags = &macho_file.base.comp.link_diags;
     const sect = &macho_file.sections.items(.header)[sect_index];
     const sym = &self.symbols.items[sym_index];
     const nlist = &self.symtab.items(.nlist)[sym.nlist_idx];
@@ -978,7 +984,7 @@ fn updateNavCode(
         const need_realloc = code.len > capacity or !required_alignment.check(atom.value);
 
         if (need_realloc) {
-            try atom.grow(macho_file);
+            atom.grow(macho_file) catch |err| return diags.fail("failed to grow atom: {s}", .{@errorName(err)});
             log.debug("growing {} from 0x{x} to 0x{x}", .{ nav.fqn.fmt(ip), old_vaddr, atom.value });
             if (old_vaddr != atom.value) {
                 sym.value = 0;
@@ -1000,7 +1006,7 @@ fn updateNavCode(
 
     if (!sect.isZerofill()) {
         const file_offset = sect.offset + atom.value;
-        try macho_file.base.file.?.pwriteAll(code, file_offset);
+        try macho_file.pwriteAll(code, file_offset);
     }
 }
 
@@ -1236,7 +1242,7 @@ fn lowerConst(
 
     const sect = macho_file.sections.items(.header)[output_section_index];
     const file_offset = sect.offset + atom.value;
-    try macho_file.base.file.?.pwriteAll(code, file_offset);
+    try macho_file.pwriteAll(code, file_offset);
 
     return .{ .ok = sym_index };
 }
@@ -1347,9 +1353,10 @@ fn updateLazySymbol(
     pt: Zcu.PerThread,
     lazy_sym: link.File.LazySymbol,
     symbol_index: Symbol.Index,
-) !void {
+) error{ OutOfMemory, LinkFailure }!void {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
+    const diags = &macho_file.base.comp.link_diags;
 
     var required_alignment: Atom.Alignment = .none;
     var code_buffer = std.ArrayList(u8).init(gpa);
@@ -1365,7 +1372,7 @@ fn updateLazySymbol(
     };
 
     const src = Type.fromInterned(lazy_sym.ty).srcLocOrNull(zcu) orelse Zcu.LazySrcLoc.unneeded;
-    const res = try codegen.generateLazySymbol(
+    const res = codegen.generateLazySymbol(
         &macho_file.base,
         pt,
         src,
@@ -1374,13 +1381,14 @@ fn updateLazySymbol(
         &code_buffer,
         .none,
         .{ .atom_index = symbol_index },
-    );
+    ) catch |err| switch (err) {
+        error.CodegenFail => return error.LinkFailure,
+        error.OutOfMemory => return error.OutOfMemory,
+        else => |e| return diags.fail("failed to codegen symbol: {s}", .{@errorName(e)}),
+    };
     const code = switch (res) {
         .ok => code_buffer.items,
-        .fail => |em| {
-            log.err("{s}", .{em.msg});
-            return error.CodegenFail;
-        },
+        .fail => |em| return diags.fail("codegen failure: {s}", .{em.msg}),
     };
 
     const output_section_index = switch (lazy_sym.kind) {
@@ -1412,7 +1420,7 @@ fn updateLazySymbol(
 
     const sect = macho_file.sections.items(.header)[output_section_index];
     const file_offset = sect.offset + atom.value;
-    try macho_file.base.file.?.pwriteAll(code, file_offset);
+    try macho_file.pwriteAll(code, file_offset);
 }
 
 pub fn updateLineNumber(self: *ZigObject, pt: Zcu.PerThread, ti_id: InternPool.TrackedInst.Index) !void {
@@ -1486,7 +1494,7 @@ fn writeTrampoline(tr_sym: Symbol, target: Symbol, macho_file: *MachO) !void {
         .x86_64 => try x86_64.writeTrampolineCode(source_addr, target_addr, &buf),
         else => @panic("TODO implement write trampoline for this CPU arch"),
     };
-    try macho_file.base.file.?.pwriteAll(out, fileoff);
+    try macho_file.pwriteAll(out, fileoff);
 }
 
 pub fn getOrCreateMetadataForNav(

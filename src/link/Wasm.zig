@@ -1,3 +1,14 @@
+//! The overall strategy here is to load all the object file data into memory
+//! as inputs are parsed. During `prelink`, as much linking as possible is
+//! performed without any knowledge of functions and globals provided by the
+//! Zcu. If there is no Zcu, effectively all linking is done in `prelink`.
+//!
+//! `updateFunc`, `updateNav`, `updateExports`, and `deleteExport` are handled
+//! by merely tracking references to the relevant functions and globals. All
+//! the linking logic between objects and Zcu happens in `flush`. Many
+//! components of the final output are computed on-the-fly at this time rather
+//! than being precomputed and stored separately.
+
 const Wasm = @This();
 const Archive = @import("Wasm/Archive.zig");
 const Object = @import("Wasm/Object.zig");
@@ -164,10 +175,12 @@ functions: std.AutoArrayHashMapUnmanaged(FunctionImport.Resolution, void) = .emp
 functions_len: u32 = 0,
 /// Immutable after prelink. The undefined functions coming only from all object files.
 /// The Zcu must satisfy these.
-function_imports_init: []FunctionImportId = &.{},
-/// Initialized as copy of `function_imports_init`; entries are deleted as
-/// they are satisfied by the Zcu.
-function_imports: std.AutoArrayHashMapUnmanaged(FunctionImportId, void) = .empty,
+function_imports_init_keys: []String = &.{},
+function_imports_init_vals: []FunctionImportId = &.{},
+/// Initialized as copy of `function_imports_init_keys` and
+/// `function_import_init_vals`; entries are deleted as they are satisfied by
+/// the Zcu.
+function_imports: std.AutoArrayHashMapUnmanaged(String, FunctionImportId) = .empty,
 
 /// Ordered list of non-import globals that will appear in the final binary.
 /// Empty until prelink.
@@ -175,37 +188,52 @@ globals: std.AutoArrayHashMapUnmanaged(GlobalImport.Resolution, void) = .empty,
 /// Tracks the value at the end of prelink, at which point `globals`
 /// contains only object file globals, and nothing from the Zcu yet.
 globals_len: u32 = 0,
-global_imports_init: []GlobalImportId = &.{},
-global_imports: std.AutoArrayHashMapUnmanaged(GlobalImportId, void) = .empty,
+global_imports_init_keys: []String = &.{},
+global_imports_init_vals: []GlobalImportId = &.{},
+global_imports: std.AutoArrayHashMapUnmanaged(String, GlobalImportId) = .empty,
 
 /// Ordered list of non-import tables that will appear in the final binary.
 /// Empty until prelink.
 tables: std.AutoArrayHashMapUnmanaged(TableImport.Resolution, void) = .empty,
-table_imports: std.AutoArrayHashMapUnmanaged(ObjectTableImportIndex, void) = .empty,
+table_imports: std.AutoArrayHashMapUnmanaged(String, ObjectTableImportIndex) = .empty,
 
 any_exports_updated: bool = true,
+
+/// Index into `objects`.
+pub const ObjectIndex = enum(u32) {
+    _,
+};
 
 /// Index into `functions`.
 pub const FunctionIndex = enum(u32) {
     _,
 
-    pub fn fromNav(nav_index: InternPool.Nav.Index, wasm: *const Wasm) FunctionIndex {
-        return @enumFromInt(wasm.functions.getIndex(.pack(wasm, .{ .nav = nav_index })).?);
+    pub fn fromIpNav(wasm: *const Wasm, nav_index: InternPool.Nav.Index) ?FunctionIndex {
+        const i = wasm.functions.getIndex(.fromIpNav(wasm, nav_index)) orelse return null;
+        return @enumFromInt(i);
     }
 };
 
 /// 0. Index into `function_imports`
 /// 1. Index into `functions`.
+///
+/// Note that function_imports indexes are subject to swap removals during
+/// `flush`.
 pub const OutputFunctionIndex = enum(u32) {
     _,
 };
 
 /// Index into `globals`.
-const GlobalIndex = enum(u32) {
+pub const GlobalIndex = enum(u32) {
     _,
 
     fn key(index: GlobalIndex, f: *const Flush) *Wasm.GlobalImport.Resolution {
         return &f.globals.items[@intFromEnum(index)];
+    }
+
+    pub fn fromIpNav(wasm: *const Wasm, nav_index: InternPool.Nav.Index) ?GlobalIndex {
+        const i = wasm.globals.getIndex(.fromIpNav(wasm, nav_index)) orelse return null;
+        return @enumFromInt(i);
     }
 };
 
@@ -218,6 +246,38 @@ pub const SourceLocation = enum(u32) {
     zig_object_nofile = std.math.maxInt(u32) - 1,
     none = std.math.maxInt(u32),
     _,
+
+    /// Index into `source_locations`.
+    pub const Index = enum(u32) {
+        _,
+    };
+
+    pub const Unpacked = union(enum) {
+        none,
+        zig_object_nofile,
+        object_index: ObjectIndex,
+        source_location_index: Index,
+    };
+
+    pub fn pack(unpacked: Unpacked, wasm: *const Wasm) SourceLocation {
+        _ = wasm;
+        return switch (unpacked) {
+            .zig_object_nofile => .zig_object_nofile,
+            .none => .none,
+            .object_index => |object_index| @enumFromInt(@intFromEnum(object_index)),
+            .source_location_index => @panic("TODO"),
+        };
+    }
+
+    pub fn addError(sl: SourceLocation, wasm: *Wasm, comptime f: []const u8, args: anytype) void {
+        const diags = &wasm.base.comp.link_diags;
+        switch (sl.unpack(wasm)) {
+            .none => unreachable,
+            .zig_object_nofile => diags.addError("zig compilation unit: " ++ f, args),
+            .object_index => |i| diags.addError("{}: " ++ f, .{wasm.objects.items[i].path} ++ args),
+            .source_location_index => @panic("TODO"),
+        }
+    }
 };
 
 /// The lower bits of this ABI-match the flags here:
@@ -445,6 +505,10 @@ pub const FunctionImport = extern struct {
             };
         }
 
+        pub fn fromIpNav(wasm: *const Wasm, ip_nav: InternPool.Nav.Index) Resolution {
+            return pack(wasm, .{ .nav = @enumFromInt(wasm.navs.getIndex(ip_nav).?) });
+        }
+
         pub fn isNavOrUnresolved(r: Resolution, wasm: *const Wasm) bool {
             return switch (r.unpack(wasm)) {
                 .unresolved, .nav => true,
@@ -587,6 +651,10 @@ pub const ObjectGlobalImportIndex = enum(u32) {
 /// Index into `object_table_imports`.
 pub const ObjectTableImportIndex = enum(u32) {
     _,
+
+    pub fn ptr(index: ObjectTableImportIndex, wasm: *const Wasm) *TableImport {
+        return &wasm.object_table_imports.items[@intFromEnum(index)];
+    }
 };
 
 /// Index into `object_tables`.
@@ -797,12 +865,48 @@ pub const ValtypeList = enum(u32) {
 /// 1. Index into `imports`.
 pub const FunctionImportId = enum(u32) {
     _,
+
+    /// This function is allowed O(N) lookup because it is only called during
+    /// diagnostic generation.
+    pub fn sourceLocation(id: FunctionImportId, wasm: *const Wasm) SourceLocation {
+        switch (id.unpack(wasm)) {
+            .object_function_import => |obj_func_index| {
+                // TODO binary search
+                for (wasm.objects.items, 0..) |o, i| {
+                    if (o.function_imports.off <= obj_func_index and
+                        o.function_imports.off + o.function_imports.len > obj_func_index)
+                    {
+                        return .pack(wasm, .{ .object_index = @enumFromInt(i) });
+                    }
+                } else unreachable;
+            },
+            .zcu_import => return .zig_object_nofile, // TODO give a better source location
+        }
+    }
 };
 
 /// 0. Index into `object_global_imports`.
 /// 1. Index into `imports`.
 pub const GlobalImportId = enum(u32) {
     _,
+
+    /// This function is allowed O(N) lookup because it is only called during
+    /// diagnostic generation.
+    pub fn sourceLocation(id: GlobalImportId, wasm: *const Wasm) SourceLocation {
+        switch (id.unpack(wasm)) {
+            .object_global_import => |obj_func_index| {
+                // TODO binary search
+                for (wasm.objects.items, 0..) |o, i| {
+                    if (o.global_imports.off <= obj_func_index and
+                        o.global_imports.off + o.global_imports.len > obj_func_index)
+                    {
+                        return .pack(wasm, .{ .object_index = @enumFromInt(i) });
+                    }
+                } else unreachable;
+            },
+            .zcu_import => return .zig_object_nofile, // TODO give a better source location
+        }
+    }
 };
 
 pub const Relocation = struct {
@@ -897,7 +1001,7 @@ pub const InitFunc = extern struct {
     priority: u32,
     function_index: ObjectFunctionIndex,
 
-    fn lessThan(ctx: void, lhs: InitFunc, rhs: InitFunc) bool {
+    pub fn lessThan(ctx: void, lhs: InitFunc, rhs: InitFunc) bool {
         _ = ctx;
         if (lhs.priority == rhs.priority) {
             return @intFromEnum(lhs.function_index) < @intFromEnum(rhs.function_index);
@@ -1237,18 +1341,19 @@ pub fn deinit(wasm: *Wasm) void {
     wasm.object_comdat_symbols.deinit(gpa);
     wasm.objects.deinit(gpa);
 
-    wasm.atoms.deinit(gpa);
-
     wasm.synthetic_symbols.deinit(gpa);
-    wasm.globals.deinit(gpa);
     wasm.undefs.deinit(gpa);
     wasm.discarded.deinit(gpa);
     wasm.segments.deinit(gpa);
     wasm.segment_info.deinit(gpa);
 
-    wasm.global_imports.deinit(gpa);
     wasm.func_types.deinit(gpa);
+    wasm.function_exports.deinit(gpa);
+    wasm.function_imports.deinit(gpa);
     wasm.functions.deinit(gpa);
+    wasm.globals.deinit(gpa);
+    wasm.global_imports.deinit(gpa);
+    wasm.table_imports.deinit(gpa);
     wasm.output_globals.deinit(gpa);
     wasm.exports.deinit(gpa);
 
@@ -1340,13 +1445,19 @@ pub fn updateNav(wasm: *Wasm, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index
 
     if (!nav_init.typeOf(zcu).hasRuntimeBits(zcu)) {
         _ = wasm.imports.swapRemove(nav_index);
-        _ = wasm.navs.swapRemove(nav_index); // TODO reclaim resources
+        if (wasm.navs.swapRemove(nav_index)) |old| {
+            _ = old;
+            @panic("TODO reclaim resources");
+        }
         return;
     }
 
     if (is_extern) {
         try wasm.imports.put(nav_index, {});
-        _ = wasm.navs.swapRemove(nav_index); // TODO reclaim resources
+        if (wasm.navs.swapRemove(nav_index)) |old| {
+            _ = old;
+            @panic("TODO reclaim resources");
+        }
         return;
     }
 
@@ -1528,7 +1639,8 @@ pub fn prelink(wasm: *Wasm, prog_node: std.Progress.Node) link.File.FlushError!v
         }
     }
     wasm.functions_len = @intCast(wasm.functions.items.len);
-    wasm.function_imports_init = try gpa.dupe(FunctionImportId, wasm.functions.keys());
+    wasm.function_imports_init_keys = try gpa.dupe(String, wasm.function_imports.keys());
+    wasm.function_imports_init_vals = try gpa.dupe(FunctionImportId, wasm.function_imports.vals());
     wasm.function_exports_len = @intCast(wasm.function_exports.items.len);
 
     for (wasm.object_global_imports.keys(), wasm.object_global_imports.values(), 0..) |name, *import, i| {
@@ -1538,12 +1650,13 @@ pub fn prelink(wasm: *Wasm, prog_node: std.Progress.Node) link.File.FlushError!v
         }
     }
     wasm.globals_len = @intCast(wasm.globals.items.len);
-    wasm.global_imports_init = try gpa.dupe(GlobalImportId, wasm.globals.keys());
+    wasm.global_imports_init_keys = try gpa.dupe(String, wasm.global_imports.keys());
+    wasm.global_imports_init_vals = try gpa.dupe(GlobalImportId, wasm.global_imports.values());
     wasm.global_exports_len = @intCast(wasm.global_exports.items.len);
 
-    for (wasm.object_table_imports.keys(), wasm.object_table_imports.values(), 0..) |name, *import, i| {
+    for (wasm.object_table_imports.items, 0..) |*import, i| {
         if (import.flags.isIncluded(rdynamic)) {
-            try markTable(wasm, name, import, @enumFromInt(i));
+            try markTable(wasm, import.name, import, @enumFromInt(i));
             continue;
         }
     }
@@ -1581,7 +1694,7 @@ fn markFunction(
             import.resolution = .__wasm_init_tls;
             wasm.functions.putAssumeCapacity(.__wasm_init_tls, {});
         } else {
-            try wasm.function_imports.put(gpa, .fromObject(func_index), {});
+            try wasm.function_imports.put(gpa, name, .fromObject(func_index));
         }
     } else {
         const gop = wasm.functions.getOrPutAssumeCapacity(import.resolution);
@@ -1631,7 +1744,7 @@ fn markGlobal(
             import.resolution = .__tls_size;
             wasm.globals.putAssumeCapacity(.__tls_size, {});
         } else {
-            try wasm.global_imports.put(gpa, .fromObject(global_index), {});
+            try wasm.global_imports.put(gpa, name, .fromObject(global_index));
         }
     } else {
         const gop = wasm.globals.getOrPutAssumeCapacity(import.resolution);
@@ -1663,7 +1776,7 @@ fn markTable(
             import.resolution = .__indirect_function_table;
             wasm.tables.putAssumeCapacity(.__indirect_function_table, {});
         } else {
-            try wasm.table_imports.put(gpa, .fromObject(table_index), {});
+            try wasm.table_imports.put(gpa, name, .fromObject(table_index));
         }
     } else {
         wasm.tables.putAssumeCapacity(import.resolution, {});
@@ -1722,7 +1835,6 @@ pub fn flushModule(
     defer sub_prog_node.end();
 
     wasm.flush_buffer.clear();
-    defer wasm.flush_buffer.subsequent = true;
     return wasm.flush_buffer.finish(wasm, arena);
 }
 

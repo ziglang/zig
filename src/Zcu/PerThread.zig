@@ -1728,7 +1728,7 @@ pub fn linkerUpdateFunc(pt: Zcu.PerThread, func_index: InternPool.Index, air: Ai
             error.CodegenFail => assert(zcu.failed_codegen.contains(nav_index)),
             error.LinkFailure => assert(comp.link_diags.hasErrors()),
             error.Overflow => {
-                try zcu.failed_codegen.putNoClobber(nav_index, try Zcu.ErrorMsg.create(
+                try zcu.failed_codegen.putNoClobber(gpa, nav_index, try Zcu.ErrorMsg.create(
                     gpa,
                     zcu.navSrcLoc(nav_index),
                     "unable to codegen: {s}",
@@ -3114,7 +3114,7 @@ pub fn linkerUpdateNav(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) error
             error.CodegenFail => assert(zcu.failed_codegen.contains(nav_index)),
             error.LinkFailure => assert(comp.link_diags.hasErrors()),
             error.Overflow => {
-                try zcu.failed_codegen.putNoClobber(nav_index, try Zcu.ErrorMsg.create(
+                try zcu.failed_codegen.putNoClobber(gpa, nav_index, try Zcu.ErrorMsg.create(
                     gpa,
                     zcu.navSrcLoc(nav_index),
                     "unable to codegen: {s}",

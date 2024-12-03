@@ -206,7 +206,17 @@ pub fn flush(self: *SpirV, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
     return self.flushModule(arena, tid, prog_node);
 }
 
-pub fn flushModule(self: *SpirV, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
+pub fn flushModule(
+    self: *SpirV,
+    arena: Allocator,
+    tid: Zcu.PerThread.Id,
+    prog_node: std.Progress.Node,
+) link.File.FlushError!void {
+    // The goal is to never use this because it's only needed if we need to
+    // write to InternPool, but flushModule is too late to be writing to the
+    // InternPool.
+    _ = tid;
+
     if (build_options.skip_non_native) {
         @panic("Attempted to compile for architecture that was disabled by build configuration");
     }
@@ -217,12 +227,11 @@ pub fn flushModule(self: *SpirV, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
     const sub_prog_node = prog_node.start("Flush Module", 0);
     defer sub_prog_node.end();
 
-    const spv = &self.object.spv;
-
     const comp = self.base.comp;
+    const spv = &self.object.spv;
+    const diags = &comp.link_diags;
     const gpa = comp.gpa;
     const target = comp.getTarget();
-    _ = tid;
 
     try writeCapabilities(spv, target);
     try writeMemoryModel(spv, target);
@@ -265,13 +274,11 @@ pub fn flushModule(self: *SpirV, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
 
     const linked_module = self.linkModule(arena, module, sub_prog_node) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
-        else => |other| {
-            log.err("error while linking: {s}", .{@errorName(other)});
-            return error.LinkFailure;
-        },
+        else => |other| return diags.fail("error while linking: {s}", .{@errorName(other)}),
     };
 
-    try self.base.file.?.writeAll(std.mem.sliceAsBytes(linked_module));
+    self.base.file.?.writeAll(std.mem.sliceAsBytes(linked_module)) catch |err|
+        return diags.fail("failed to write: {s}", .{@errorName(err)});
 }
 
 fn linkModule(self: *SpirV, a: Allocator, module: []Word, progress: std.Progress.Node) ![]Word {
