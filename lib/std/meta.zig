@@ -1320,4 +1320,12 @@ test hasUniqueRepresentation {
 
     try testing.expect(hasUniqueRepresentation(@Vector(std.simd.suggestVectorLength(u8) orelse 1, u8)));
     try testing.expect(@sizeOf(@Vector(3, u8)) == 3 or !hasUniqueRepresentation(@Vector(3, u8)));
+
+    const StructWithComptimeFields = struct {
+        comptime should_be_ignored: u64 = 42,
+        comptime should_also_be_ignored: [*:0]const u8 = "hope you're having a good day :)",
+        field: u32,
+    };
+
+    try testing.expect(hasUniqueRepresentation(StructWithComptimeFields));
 }
