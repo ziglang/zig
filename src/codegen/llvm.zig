@@ -1011,7 +1011,6 @@ pub const Object = struct {
                 .{ .optimized = comp.root_mod.optimize_mode != .Debug },
             );
 
-
             try builder.metadataNamed(try builder.metadataString("llvm.dbg.cu"), &.{debug_compile_unit});
             break :debug_info .{ debug_compile_unit, debug_enums_fwd_ref, debug_globals_fwd_ref, debug_imports_fwd_ref };
         } else .{.none} ** 4;
@@ -2585,10 +2584,7 @@ pub const Object = struct {
             .frame => @panic("TODO implement lowerDebugType for Frame types"),
             .@"anyframe" => @panic("TODO implement lowerDebugType for AnyFrame types"),
             // These are the types that need a correct scope.
-            .@"enum",
-            .@"struct",
-            .@"union",
-            .@"opaque" => {}
+            .@"enum", .@"struct", .@"union", .@"opaque" => {},
         }
         const fwd_ref = try o.builder.debugForwardReference();
         try o.debug_type_map.put(gpa, ty, fwd_ref);
@@ -2614,7 +2610,9 @@ pub const Object = struct {
 
             const owner_decl_index = ty.typeDeclInstAllowGeneratedTag(zcu);
             const file = if (owner_decl_index) |owner|
-            try o.getDebugFile(owner.resolveFile(ip)) else .none;
+                try o.getDebugFile(owner.resolveFile(ip))
+            else
+                .none;
             const scope = if (ty.getParentNamespace(zcu).unwrap()) |parent_namespace|
                 try o.namespaceToDebugScope(parent_namespace)
             else
@@ -2633,7 +2631,7 @@ pub const Object = struct {
                 const total_len = namespace.pub_decls.keys().len + namespace.priv_decls.keys().len;
                 try fields.ensureUnusedCapacity(gpa, total_len);
 
-                for ([2]@TypeOf(namespace.pub_decls){namespace.pub_decls, namespace.priv_decls}) |decl_set| {
+                for ([2]@TypeOf(namespace.pub_decls){ namespace.pub_decls, namespace.priv_decls }) |decl_set| {
                     for (decl_set.keys()) |nav_index| {
                         const nav = ip.getNav(nav_index);
                         const nav_name = nav.name.toSlice(ip);
@@ -2674,7 +2672,7 @@ pub const Object = struct {
             }
 
             if (!required_by_runtime) {
-                const res = try o.makeNamespaceDebugType(ty, fields.items);
+                const res = try o.makeNamespaceDebugType(name, file, scope, line, fields.items);
                 o.builder.debugForwardReferenceSetType(fwd_ref, res);
                 continue;
             }
@@ -2682,7 +2680,7 @@ pub const Object = struct {
             const res = switch (ty.zigTypeTag(zcu)) {
                 .@"enum" => res: {
                     if (!ty.hasRuntimeBitsIgnoreComptime(zcu)) {
-                        break :res try o.makeNamespaceDebugType(ty, fields.items);
+                        break :res try o.makeNamespaceDebugType(name, file, scope, line, fields.items);
                     }
 
                     const enum_type = ip.loadEnumType(ty.toIntern());
@@ -2819,12 +2817,12 @@ pub const Object = struct {
                     }
 
                     if (!ty.hasRuntimeBitsIgnoreComptime(zcu)) {
-                        break :res try o.makeNamespaceDebugType(ty, fields.items);
+                        break :res try o.makeNamespaceDebugType(name, file, scope, line, fields.items);
                     }
                     const struct_type = zcu.typeToStruct(ty).?;
 
                     if (!struct_type.haveLayout(ip) or !struct_type.haveFieldTypes(ip)) {
-                        break :res try o.makeNamespaceDebugType(ty, fields.items);
+                        break :res try o.makeNamespaceDebugType(name, file, scope, line, fields.items);
                     }
 
                     try fields.ensureUnusedCapacity(gpa, struct_type.field_types.len);
@@ -2902,7 +2900,7 @@ pub const Object = struct {
                         !ty.hasRuntimeBitsIgnoreComptime(zcu) or
                         !union_type.haveLayout(ip))
                     {
-                        break :res try o.makeNamespaceDebugType(ty, fields.items);
+                        break :res try o.makeNamespaceDebugType(name, file, scope, line, fields.items);
                     }
 
                     const layout = Type.getUnionLayout(union_type, zcu);
@@ -3052,22 +3050,19 @@ pub const Object = struct {
         return o.lowerDebugType(Type.fromInterned(namespace.owner_type), false);
     }
 
-    fn makeNamespaceDebugType(o: *Object, ty: Type, fields: []const Builder.Metadata) !Builder.Metadata {
-        const zcu = o.pt.zcu;
-        const ip = &zcu.intern_pool;
-        const file = if (ty.typeDeclInstAllowGeneratedTag(zcu)) |decl|
-            try o.getDebugFile(decl.resolveFile(ip))
-        else
-            .none;
-        const scope = if (ty.getParentNamespace(zcu).unwrap()) |parent_namespace|
-            try o.namespaceToDebugScope(parent_namespace)
-        else
-            file;
+    fn makeNamespaceDebugType(
+        o: *Object,
+        name: []const u8,
+        file: Builder.Metadata,
+        scope: Builder.Metadata,
+        line: u32,
+        fields: []const Builder.Metadata,
+    ) !Builder.Metadata {
         return o.builder.debugStructType(
-            try o.builder.metadataString(ty.containerTypeName(ip).toSlice(ip)), // TODO use fully qualified name
+            try o.builder.metadataString(name),
             file,
             scope,
-            ty.typeDeclSrcLine(zcu).? + 1,
+            line,
             .none,
             0,
             0,
