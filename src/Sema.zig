@@ -10252,6 +10252,7 @@ fn finishFunc(
             "function with comptime-only return type '{}' requires all parameters to be comptime",
             .{return_type.fmt(pt)},
         );
+        errdefer msg.destroy(sema.gpa);
         try sema.explainWhyTypeIsComptime(msg, ret_ty_src, return_type);
 
         const tags = sema.code.instructions.items(.tag);
