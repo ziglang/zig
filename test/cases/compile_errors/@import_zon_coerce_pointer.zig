@@ -8,4 +8,5 @@ pub fn main() void {
 // output_mode=Exe
 // imports=zon/array.zon
 //
-// found 'struct{comptime comptime_int = 97, comptime comptime_int = 98, comptime comptime_int = 99}'
+// zon/array.zon:1:2: error: ZON import cannot be coerced to non slice pointer
+// tmp.zig:2:47: note: imported here

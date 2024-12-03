@@ -8,4 +8,5 @@ pub fn main() void {
 // output_mode=Exe
 // imports=zon/struct.zon
 //
-// 2:21: error: expected type 'bool', found 'struct{comptime boolean: bool = true, comptime number: comptime_int = 123}'
+// struct.zon:1:1: error: expected type 'bool'
+// tmp.zig:2:29: note: imported here

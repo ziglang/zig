@@ -8,4 +8,5 @@ pub fn main() void {
 // output_mode=Exe
 // imports=zon/type_expr_fn.zon
 //
-// type_expr_fn.zon:1:1: error: type expressions not allowed in ZON
+// type_expr_fn.zon:1:1: error: expected type 'i8'
+// tmp.zig:2:28: note: imported here

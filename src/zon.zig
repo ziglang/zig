@@ -283,7 +283,7 @@ fn lowerVoid(self: LowerZon, node: Ast.Node.Index) !InternPool.Index {
         return .void_value;
     }
 
-    return self.fail(.{ .node_abs = node }, "expected void", .{});
+    return self.fail(.{ .node_abs = node }, "expected type 'void'", .{});
 }
 
 fn lowerBool(self: LowerZon, node: Ast.Node.Index) !InternPool.Index {
@@ -308,7 +308,8 @@ fn lowerBool(self: LowerZon, node: Ast.Node.Index) !InternPool.Index {
             };
         }
     }
-    return self.fail(.{ .node_abs = node }, "expected bool", .{});
+    const span = self.file.tree.nodeToSpan(node);
+    return self.fail(.{ .token_abs = span.start }, "expected type 'bool'", .{});
 }
 
 fn lowerInt(
@@ -506,7 +507,7 @@ fn lowerInt(
         .identifier => {
             unreachable; // Decide what error to give here
         },
-        else => return self.fail(.{ .node_abs = num_lit_node }, "expected integer", .{}),
+        else => return self.fail(.{ .node_abs = num_lit_node }, "expected type '{}'", .{res_ty.fmt(self.sema.pt)}),
     }
 }
 
@@ -665,7 +666,7 @@ fn lowerArray(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.In
     const elem_nodes = try self.elements(res_ty, &buf, node);
 
     if (elem_nodes.len != array_info.len) {
-        return self.fail(.{ .node_abs = node }, "expected {}", .{res_ty.fmt(self.sema.pt)});
+        return self.fail(.{ .node_abs = node }, "expected type '{}'", .{res_ty.fmt(self.sema.pt)});
     }
 
     const elems = try gpa.alloc(InternPool.Index, elem_nodes.len + @intFromBool(array_info.sentinel != null));
@@ -691,7 +692,7 @@ fn lowerEnum(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Ind
     const ip = &self.sema.pt.zcu.intern_pool;
 
     if (tags[node] != .enum_literal) {
-        return self.fail(.{ .node_abs = node }, "expected {}", .{res_ty.fmt(self.sema.pt)});
+        return self.fail(.{ .node_abs = node }, "expected type '{}'", .{res_ty.fmt(self.sema.pt)});
     }
 
     const field_name = try self.identAsNullTerminatedString(main_tokens[node]);
@@ -714,7 +715,7 @@ fn lowerEnumLiteral(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternP
     const gpa = self.sema.gpa;
 
     if (tags[node] != .enum_literal) {
-        return self.fail(.{ .node_abs = node }, "expected {}", .{res_ty.fmt(self.sema.pt)});
+        return self.fail(.{ .node_abs = node }, "expected type '{}'", .{res_ty.fmt(self.sema.pt)});
     }
 
     return ip.get(gpa, self.sema.pt.tid, .{
@@ -727,7 +728,7 @@ fn lowerStructOrTuple(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !Inter
     return switch (ip.indexToKey(res_ty.toIntern())) {
         .tuple_type => self.lowerTuple(node, res_ty),
         .struct_type => self.lowerStruct(node, res_ty),
-        else => self.fail(.{ .node_abs = node }, "expected {}", .{res_ty.fmt(self.sema.pt)}),
+        else => self.fail(.{ .node_abs = node }, "expected type '{}'", .{res_ty.fmt(self.sema.pt)}),
     };
 }
 
@@ -788,7 +789,7 @@ fn lowerStruct(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.I
         const name_index = struct_info.nameIndex(ip, field_name) orelse {
             return self.fail(
                 .{ .node_abs = field_node },
-                "unexpected field {}",
+                "unexpected field '{}'",
                 .{field_name.fmt(ip)},
             );
         };
@@ -796,8 +797,8 @@ fn lowerStruct(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.I
         const field_type = Type.fromInterned(struct_info.field_types.get(ip)[name_index]);
         if (field_values[name_index] != .none) {
             return self.fail(
-                .{ .node_abs = field_node },
-                "duplicate field {}",
+                .{ .token_abs = field_name_token },
+                "duplicate field '{}'",
                 .{field_name.fmt(ip)},
             );
         }
@@ -975,7 +976,7 @@ fn lowerUnion(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.In
         var buf: [2]Ast.Node.Index = undefined;
         const field_nodes = try self.fields(res_ty, &buf, node);
         if (field_nodes.len > 1) {
-            return self.fail(.{ .node_abs = node }, "expected {}", .{res_ty.fmt(self.sema.pt)});
+            return self.fail(.{ .node_abs = node }, "expected type '{}'", .{res_ty.fmt(self.sema.pt)});
         }
         const field_node = field_nodes[0];
         const field_name_token = self.file.tree.firstToken(field_node) - 2;
@@ -984,7 +985,7 @@ fn lowerUnion(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.In
     };
 
     const name_index = enum_tag_info.nameIndex(ip, field_name) orelse {
-        return self.fail(.{ .node_abs = node }, "expected {}", .{res_ty.fmt(self.sema.pt)});
+        return self.fail(.{ .node_abs = node }, "expected type '{}'", .{res_ty.fmt(self.sema.pt)});
     };
     const tag_int = if (enum_tag_info.values.len == 0) b: {
         // Auto numbered fields
@@ -1005,7 +1006,7 @@ fn lowerUnion(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.In
         break :b try self.lowerExpr(field_node, field_type);
     } else b: {
         if (field_type.toIntern() != .void_type) {
-            return self.fail(.{ .node_abs = node }, "expected {}", .{field_type.fmt(self.sema.pt)});
+            return self.fail(.{ .node_abs = node }, "expected type '{}'", .{field_type.fmt(self.sema.pt)});
         }
         break :b .void_value;
     };
@@ -1024,22 +1025,34 @@ fn fields(
 ) ![]const NodeIndex {
     if (self.file.tree.fullStructInit(buf, node)) |init| {
         if (init.ast.type_expr != 0) {
-            return self.fail(.{ .node_abs = node }, "ZON cannot contain type expressions", .{});
+            return self.fail(
+                .{ .node_abs = init.ast.type_expr },
+                "ZON cannot contain type expressions",
+                .{},
+            );
         }
         return init.ast.fields;
     }
 
     if (self.file.tree.fullArrayInit(buf, node)) |init| {
         if (init.ast.type_expr != 0) {
-            return self.fail(.{ .node_abs = node }, "ZON cannot contain type expressions", .{});
+            return self.fail(
+                .{ .node_abs = init.ast.type_expr },
+                "ZON cannot contain type expressions",
+                .{},
+            );
         }
         if (init.ast.elements.len != 0) {
-            return self.fail(.{ .node_abs = node }, "expected {}", .{container.fmt(self.sema.pt)});
+            return self.fail(
+                .{ .node_abs = node },
+                "expected type '{}'",
+                .{container.fmt(self.sema.pt)},
+            );
         }
         return init.ast.elements;
     }
 
-    return self.fail(.{ .node_abs = node }, "expected {}", .{container.fmt(self.sema.pt)});
+    return self.fail(.{ .node_abs = node }, "expected type '{}'", .{container.fmt(self.sema.pt)});
 }
 
 fn elements(
@@ -1050,21 +1063,29 @@ fn elements(
 ) ![]const NodeIndex {
     if (self.file.tree.fullArrayInit(buf, node)) |init| {
         if (init.ast.type_expr != 0) {
-            return self.fail(.{ .node_abs = node }, "ZON cannot contain type expressions", .{});
+            return self.fail(
+                .{ .node_abs = init.ast.type_expr },
+                "ZON cannot contain type expressions",
+                .{},
+            );
         }
         return init.ast.elements;
     }
 
     if (self.file.tree.fullStructInit(buf, node)) |init| {
         if (init.ast.type_expr != 0) {
-            return self.fail(.{ .node_abs = node }, "ZON cannot contain type expressions", .{});
+            return self.fail(
+                .{ .node_abs = init.ast.type_expr },
+                "ZON cannot contain type expressions",
+                .{},
+            );
         }
         if (init.ast.fields.len == 0) {
             return init.ast.fields;
         }
     }
 
-    return self.fail(.{ .node_abs = node }, "expected {}", .{container.fmt(self.sema.pt)});
+    return self.fail(.{ .node_abs = node }, "expected type '{}'", .{container.fmt(self.sema.pt)});
 }
 
 fn createErrorWithOptionalNote(

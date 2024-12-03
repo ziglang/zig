@@ -8,4 +8,5 @@ pub fn main() void {
 // output_mode=Exe
 // imports=zon/addr_slice.zon
 //
-// addr_slice.zon:2:14: error: invalid ZON value
+// addr_slice.zon:2:14: error: expected type '[]const i32'
+// tmp.zig:2:54: note: imported here

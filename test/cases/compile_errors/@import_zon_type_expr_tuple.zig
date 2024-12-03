@@ -1,5 +1,5 @@
 pub fn main() void {
-    const f: i32 = @import("zon/type_expr_tuple.zon");
+    const f: struct { f32, f32 } = @import("zon/type_expr_tuple.zon");
     _ = f;
 }
 
@@ -8,4 +8,5 @@ pub fn main() void {
 // output_mode=Exe
 // imports=zon/type_expr_tuple.zon
 //
-// type_expr_tuple.zon:1:1: error: type expressions not allowed in ZON
+// type_expr_tuple.zon:1:1: error: ZON cannot contain type expressions
+// tmp.zig:2:44: note: imported here

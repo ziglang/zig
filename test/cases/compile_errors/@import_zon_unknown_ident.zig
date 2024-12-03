@@ -8,5 +8,5 @@ pub fn main() void {
 // output_mode=Exe
 // imports=zon/unknown_ident.zon
 //
-// unknown_ident.zon:2:14: error: expected bool
+// unknown_ident.zon:2:14: error: expected type 'bool'
 // tmp.zig:2:47: note: imported here

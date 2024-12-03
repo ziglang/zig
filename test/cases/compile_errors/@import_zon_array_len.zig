@@ -8,5 +8,5 @@ pub fn main() void {
 // output_mode=Exe
 // imports=zon/array.zon
 //
-// array.zon:1:2: error: expected [4]u8
+// array.zon:1:2: error: expected type '[4]u8'
 // tmp.zig:2:30: note: imported here
