@@ -1937,8 +1937,8 @@ pub fn allocateAtom(self: *ZigObject, atom_ptr: *Atom, requires_padding: bool, e
     const shdr = &slice.items(.shdr)[atom_ptr.output_section_index];
     const last_atom_ref = &slice.items(.last_atom)[atom_ptr.output_section_index];
 
-    // FIXME:JK this only works if this atom is the only atom in the output section
-    // In every other case, we need to redo the prev/next links
+    // This only works if this atom is the only atom in the output section. In
+    // every other case, we need to redo the prev/next links.
     if (last_atom_ref.eql(atom_ptr.ref())) last_atom_ref.* = .{};
 
     const alloc_res = try elf_file.allocateChunk(.{

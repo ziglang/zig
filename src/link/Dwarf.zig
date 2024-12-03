@@ -23,8 +23,6 @@ debug_str: StringSection,
 pub const UpdateError = error{
     /// Indicates the error is already reported on `failed_codegen` in the Zcu.
     CodegenFail,
-    /// Indicates the error is already reported on `link_diags` in the Compilation.
-    LinkFailure,
     OutOfMemory,
 };
 
@@ -443,7 +441,6 @@ pub const Section = struct {
             const zo = elf_file.zigObjectPtr().?;
             const atom = zo.symbol(sec.index).atom(elf_file).?;
             if (atom.prevAtom(elf_file)) |_| {
-                // FIXME:JK trimming/shrinking has to be reworked on ZigObject/Elf level
                 atom.value += len;
             } else {
                 const shdr = &elf_file.sections.items(.shdr)[atom.output_section_index];

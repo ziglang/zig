@@ -3127,9 +3127,6 @@ pub fn sortShdrs(
             fileLookup(files, ref.file, zig_object_ptr).?.atom(ref.index).?.output_section_index = atom_list.output_section_index;
         }
         if (shdr.sh_type == elf.SHT_RELA) {
-            // FIXME:JK we should spin up .symtab potentially earlier, or set all non-dynamic RELA sections
-            // to point at symtab
-            // shdr.sh_link = backlinks[shdr.sh_link];
             shdr.sh_link = section_indexes.symtab.?;
             shdr.sh_info = backlinks[shdr.sh_info];
         }
@@ -3217,7 +3214,7 @@ fn updateSectionSizes(self: *Elf) !void {
             atom_list.dirty = false;
         }
 
-        // FIXME:JK this will hopefully not be needed once we create a link from Atom/Thunk to AtomList.
+        // This might not be needed if there was a link from Atom/Thunk to AtomList.
         for (self.thunks.items) |*th| {
             th.value += slice.items(.atom_list_2)[th.output_section_index].value;
         }
@@ -3303,7 +3300,6 @@ fn updateSectionSizes(self: *Elf) !void {
     self.updateShStrtabSize();
 }
 
-// FIXME:JK this is very much obsolete, remove!
 pub fn updateShStrtabSize(self: *Elf) void {
     if (self.section_indexes.shstrtab) |index| {
         self.sections.items(.shdr)[index].sh_size = self.shstrtab.items.len;
@@ -3914,7 +3910,6 @@ fn writeSyntheticSections(self: *Elf) !void {
     try self.writeShStrtab();
 }
 
-// FIXME:JK again, why is this needed?
 pub fn writeShStrtab(self: *Elf) !void {
     if (self.section_indexes.shstrtab) |index| {
         const shdr = self.sections.items(.shdr)[index];
