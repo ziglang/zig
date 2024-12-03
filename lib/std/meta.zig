@@ -1336,6 +1336,7 @@ pub inline fn comptimeOnly(comptime T: type) bool {
                 .error_union => |e| impl(e.payload, structs, unions),
                 .vector => |v| impl(v.child, structs, unions),
                 .@"struct" => |s| std.mem.indexOfScalar(type, structs, U) == null and for (s.fields) |field| {
+                    if (field.is_comptime) continue;
                     if (impl(field.type, structs ++ .{U}, unions)) break true;
                 } else false,
                 .@"union" => |u| std.mem.indexOfScalar(type, unions, U) == null and for (u.fields) |field| {
