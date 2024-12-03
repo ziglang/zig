@@ -9,3 +9,4 @@ pub fn main() void {
 // imports=zon/negative_zero.zon
 //
 // negative_zero.zon:1:1: error: integer literal '-0' is ambiguous
+// tmp.zig:2:27: note: imported here

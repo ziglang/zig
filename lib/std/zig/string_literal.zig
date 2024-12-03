@@ -427,18 +427,22 @@ pub fn MultilineParser(comptime Writer: type) type {
             };
         }
 
-        /// Parse one line of a multiline string, writing the result to the writer prepending a newline if necessary.
+        /// Parse one line of a multiline string, writing the result to the writer prepending a
+        /// newline if necessary.
         ///
-        /// Asserts bytes begins with "\\". The line may be terminated with '\n' or  "\r\n", but may not contain any interior newlines.
-        /// contain any interior newlines.
+        /// Asserts bytes begins with "\\". The line may be terminated with '\n' or  "\r\n", but may
+        /// not contain any interior newlines.
         pub fn line(self: *@This(), bytes: []const u8) Writer.Error!void {
             assert(bytes.len >= 2 and bytes[0] == '\\' and bytes[1] == '\\');
+            var terminator_len: usize = 0;
+            terminator_len += @intFromBool(bytes[bytes.len - 1] == '\n');
+            terminator_len += @intFromBool(bytes[bytes.len - 2] == '\r');
             if (self.first_line) {
                 self.first_line = false;
             } else {
                 try self.writer.writeByte('\n');
             }
-            try self.writer.writeAll(bytes[2..]);
+            try self.writer.writeAll(bytes[2 .. bytes.len - terminator_len]);
         }
     };
 }
@@ -462,12 +466,18 @@ test "parse multiline" {
         }
 
         {
+            const temp =
+                \\foo
+                \\bar
+            ;
+            try std.testing.expectEqualStrings("foo\nbar", temp);
             var parsed = std.ArrayList(u8).init(std.testing.allocator);
             defer parsed.deinit();
             const writer = parsed.writer();
             var parser = multilineParser(writer);
             try parser.line("\\\\foo");
             try std.testing.expectEqualStrings("foo", parsed.items);
+            // XXX: this adds the newline but like...does the input ever actually have a newline there?
             try parser.line("\\\\bar\n");
             try std.testing.expectEqualStrings("foo\nbar", parsed.items);
         }
