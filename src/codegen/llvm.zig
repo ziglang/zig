@@ -167,7 +167,6 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .aix,
         .zos,
         => "ibm",
-        .bridgeos,
         .driverkit,
         .ios,
         .macos,
@@ -218,7 +217,6 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .hurd => "hurd",
         .wasi => "wasi",
         .emscripten => "emscripten",
-        .bridgeos => "bridgeos",
         .macos => "macosx",
         .ios => "ios",
         .tvos => "tvos",
@@ -340,7 +338,6 @@ pub fn targetOs(os_tag: std.Target.Os.Tag) llvm.OSType {
         .driverkit => .DriverKit,
         .vulkan => .Vulkan,
         .serenity => .Serenity,
-        .bridgeos => .BridgeOS,
 
         .opengl,
         .plan9,
