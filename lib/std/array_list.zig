@@ -128,7 +128,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         pub fn toOwnedSliceSentinel(self: *Self, comptime sentinel: T) Allocator.Error!SentinelSlice(sentinel) {
             // This addition can never overflow because `self.items` can never occupy the whole address space
             try self.ensureTotalCapacityPrecise(self.items.len + 1);
-            self.appendAssumeCapacity(sentinel);
+            self.appendReserved(sentinel);
             const result = try self.toOwnedSlice();
             return result[0 .. result.len - 1 :sentinel];
         }
@@ -136,7 +136,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// Creates a copy of this ArrayList, using the same allocator.
         pub fn clone(self: Self) Allocator.Error!Self {
             var cloned = try Self.initCapacity(self.allocator, self.capacity);
-            cloned.appendSliceAssumeCapacity(self.items);
+            cloned.appendSliceReserved(self.items);
             return cloned;
         }
 
@@ -150,13 +150,16 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             dst[0] = item;
         }
 
+        /// Deprecated. To be removed after 0.14.0 is tagged.
+        pub const insertAssumeCapacity = insertReserved;
+
         /// Insert `item` at index `i`. Moves `list[i .. list.len]` to higher indices to make room.
         /// If `i` is equal to the length of the list this operation is
-        /// equivalent to appendAssumeCapacity.
+        /// equivalent to `appendReserved`.
         /// This operation is O(N).
         /// Asserts that there is enough capacity for the new item.
         /// Asserts that the index is in bounds or equal to the length.
-        pub fn insertAssumeCapacity(self: *Self, i: usize, item: T) void {
+        pub fn insertReserved(self: *Self, i: usize, item: T) void {
             assert(self.items.len < self.capacity);
             self.items.len += 1;
 
@@ -176,7 +179,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             const new_len = try addOrOom(self.items.len, count);
 
             if (self.capacity >= new_len)
-                return addManyAtAssumeCapacity(self, index, count);
+                return addManyAtReserved(self, index, count);
 
             // Here we avoid copying allocated but unused bytes by
             // attempting a resize in place, and falling back to allocating
@@ -187,7 +190,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             const old_memory = self.allocatedSlice();
             if (self.allocator.resize(old_memory, new_capacity)) {
                 self.capacity = new_capacity;
-                return addManyAtAssumeCapacity(self, index, count);
+                return addManyAtReserved(self, index, count);
             }
 
             // Make a new allocation, avoiding `ensureTotalCapacity` in order
@@ -204,6 +207,9 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             return new_memory[index..][0..count];
         }
 
+        /// Deprecated. To be removed after 0.14.0 is tagged.
+        pub const addManyAtAssumeCapacity = addManyAtReserved;
+
         /// Add `count` new elements at position `index`, which have
         /// `undefined` values. Returns a slice pointing to the newly allocated
         /// elements, which becomes invalid after various `ArrayList`
@@ -212,7 +218,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// Invalidates pre-existing pointers to elements at and after `index`, but
         /// does not invalidate any before that.
         /// Asserts that the index is in bounds or equal to the length.
-        pub fn addManyAtAssumeCapacity(self: *Self, index: usize, count: usize) []T {
+        pub fn addManyAtReserved(self: *Self, index: usize, count: usize) []T {
             const new_len = self.items.len + count;
             assert(self.capacity >= new_len);
             const to_move = self.items[index..];
@@ -247,13 +253,16 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             return unmanaged.replaceRange(self.allocator, start, len, new_items);
         }
 
+        /// Deprecated. To be removed after 0.14.0 is tagged.
+        pub const replaceRangeAssumeCapacity = replaceRangeReserved;
+
         /// Grows or shrinks the list as necessary.
         /// Never invalidates element pointers.
         /// Asserts the capacity is enough for additional items.
-        pub fn replaceRangeAssumeCapacity(self: *Self, start: usize, len: usize, new_items: []const T) void {
+        pub fn replaceRangeReserved(self: *Self, start: usize, len: usize, new_items: []const T) void {
             var unmanaged = self.moveToUnmanaged();
             defer self.* = unmanaged.toManaged(self.allocator);
-            return unmanaged.replaceRangeAssumeCapacity(start, len, new_items);
+            return unmanaged.replaceRangeReserved(start, len, new_items);
         }
 
         /// Extends the list by 1 element. Allocates more memory as necessary.
@@ -263,11 +272,14 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             new_item_ptr.* = item;
         }
 
+        /// Deprecated. To be removed after 0.14.0 is tagged.
+        pub const appendAssumeCapacity = appendReserved;
+
         /// Extends the list by 1 element.
         /// Never invalidates element pointers.
         /// Asserts that the list can hold one additional item.
-        pub fn appendAssumeCapacity(self: *Self, item: T) void {
-            const new_item_ptr = self.addOneAssumeCapacity();
+        pub fn appendReserved(self: *Self, item: T) void {
+            const new_item_ptr = self.addOneReserved();
             new_item_ptr.* = item;
         }
 
@@ -280,7 +292,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// Asserts that the list is not empty.
         pub fn orderedRemove(self: *Self, i: usize) T {
             const old_item = self.items[i];
-            self.replaceRangeAssumeCapacity(i, 1, &.{});
+            self.replaceRangeReserved(i, 1, &.{});
             return old_item;
         }
 
@@ -303,13 +315,16 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// Invalidates element pointers if additional memory is needed.
         pub fn appendSlice(self: *Self, items: []const T) Allocator.Error!void {
             try self.ensureUnusedCapacity(items.len);
-            self.appendSliceAssumeCapacity(items);
+            self.appendSliceReserved(items);
         }
+
+        /// Deprecated. To be removed after 0.14.0 is tagged.
+        pub const appendSliceAssumeCapacity = appendSliceReserved;
 
         /// Append the slice of items to the list.
         /// Never invalidates element pointers.
         /// Asserts that the list can hold the additional items.
-        pub fn appendSliceAssumeCapacity(self: *Self, items: []const T) void {
+        pub fn appendSliceReserved(self: *Self, items: []const T) void {
             const old_len = self.items.len;
             const new_len = old_len + items.len;
             assert(new_len <= self.capacity);
@@ -323,16 +338,19 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// Invalidates element pointers if additional memory is needed.
         pub fn appendUnalignedSlice(self: *Self, items: []align(1) const T) Allocator.Error!void {
             try self.ensureUnusedCapacity(items.len);
-            self.appendUnalignedSliceAssumeCapacity(items);
+            self.appendUnalignedSliceReserved(items);
         }
+
+        /// Deprecated. To be removed after 0.14.0 is tagged.
+        pub const appendUnalignedSliceAssumeCapacity = appendUnalignedSliceReserved;
 
         /// Append the slice of items to the list.
         /// Never invalidates element pointers.
         /// This function is only needed when calling
-        /// `appendSliceAssumeCapacity` instead would be a compile error due to the
+        /// `appendSliceReserved` instead would be a compile error due to the
         /// alignment of the `items` parameter.
         /// Asserts that the list can hold the additional items.
-        pub fn appendUnalignedSliceAssumeCapacity(self: *Self, items: []align(1) const T) void {
+        pub fn appendUnalignedSliceReserved(self: *Self, items: []align(1) const T) void {
             const old_len = self.items.len;
             const new_len = old_len + items.len;
             assert(new_len <= self.capacity);
@@ -373,7 +391,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             if (m.len > available_capacity)
                 return error.OutOfMemory;
 
-            self.appendSliceAssumeCapacity(m);
+            self.appendSliceReserved(m);
             return m.len;
         }
 
@@ -388,12 +406,15 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             @memset(self.items[old_len..self.items.len], value);
         }
 
+        /// Deprecated. To be removed after 0.14.0 is tagged.
+        pub const appendNTimesAssumeCapacity = appendNTimesReserved;
+
         /// Append a value to the list `n` times.
         /// Never invalidates element pointers.
         /// The function is inline so that a comptime-known `value` parameter will
         /// have a more optimal memset codegen in case it has a repeated byte pattern.
         /// Asserts that the list can hold the additional items.
-        pub inline fn appendNTimesAssumeCapacity(self: *Self, value: T, n: usize) void {
+        pub inline fn appendNTimesReserved(self: *Self, value: T, n: usize) void {
             const new_len = self.items.len + n;
             assert(new_len <= self.capacity);
             @memset(self.items.ptr[self.items.len..new_len], value);
@@ -499,14 +520,17 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             // This can never overflow because `self.items` can never occupy the whole address space
             const newlen = self.items.len + 1;
             try self.ensureTotalCapacity(newlen);
-            return self.addOneAssumeCapacity();
+            return self.addOneReserved();
         }
+
+        /// Deprecated. To be removed after 0.14.0 is tagged.
+        pub const addOneAssumeCapacity = addOneReserved;
 
         /// Increase length by 1, returning pointer to the new item.
         /// The returned pointer becomes invalid when the list is resized.
         /// Never invalidates element pointers.
         /// Asserts that the list can hold one additional item.
-        pub fn addOneAssumeCapacity(self: *Self) *T {
+        pub fn addOneReserved(self: *Self) *T {
             assert(self.items.len < self.capacity);
             self.items.len += 1;
             return &self.items[self.items.len - 1];
@@ -522,12 +546,15 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             return self.items[prev_len..][0..n];
         }
 
+        /// Deprecated. To be removed after 0.14.0 is tagged.
+        pub const addManyAsArrayAssumeCapacity = addManyAsArrayReserved;
+
         /// Resize the array, adding `n` new elements, which have `undefined` values.
         /// The return value is an array pointing to the newly allocated elements.
         /// Never invalidates element pointers.
         /// The returned pointer becomes invalid when the list is resized.
         /// Asserts that the list can hold the additional items.
-        pub fn addManyAsArrayAssumeCapacity(self: *Self, comptime n: usize) *[n]T {
+        pub fn addManyAsArrayReserved(self: *Self, comptime n: usize) *[n]T {
             assert(self.items.len + n <= self.capacity);
             const prev_len = self.items.len;
             self.items.len += n;
@@ -544,12 +571,15 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             return self.items[prev_len..][0..n];
         }
 
+        /// Deprecated. To be removed after 0.14.0 is tagged.
+        pub const addManyAsSliceAssumeCapacity = addManyAsSliceReserved;
+
         /// Resize the array, adding `n` new elements, which have `undefined` values.
         /// The return value is a slice pointing to the newly allocated elements.
         /// Never invalidates element pointers.
         /// The returned pointer becomes invalid when the list is resized.
         /// Asserts that the list can hold the additional items.
-        pub fn addManyAsSliceAssumeCapacity(self: *Self, n: usize) []T {
+        pub fn addManyAsSliceReserved(self: *Self, n: usize) []T {
             assert(self.items.len + n <= self.capacity);
             const prev_len = self.items.len;
             self.items.len += n;
@@ -725,7 +755,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         pub fn toOwnedSliceSentinel(self: *Self, allocator: Allocator, comptime sentinel: T) Allocator.Error!SentinelSlice(sentinel) {
             // This addition can never overflow because `self.items` can never occupy the whole address space
             try self.ensureTotalCapacityPrecise(allocator, self.items.len + 1);
-            self.appendAssumeCapacity(sentinel);
+            self.appendReserved(sentinel);
             const result = try self.toOwnedSlice(allocator);
             return result[0 .. result.len - 1 :sentinel];
         }
@@ -733,7 +763,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// Creates a copy of this ArrayList.
         pub fn clone(self: Self, allocator: Allocator) Allocator.Error!Self {
             var cloned = try Self.initCapacity(allocator, self.capacity);
-            cloned.appendSliceAssumeCapacity(self.items);
+            cloned.appendSliceReserved(self.items);
             return cloned;
         }
 
@@ -747,12 +777,15 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             dst[0] = item;
         }
 
+        /// Deprecated. To be removed after 0.14.0 is tagged.
+        pub const insertAssumeCapacity = insertReserved;
+
         /// Insert `item` at index `i`. Moves `list[i .. list.len]` to higher indices to make room.
         /// If in` is equal to the length of the list this operation is equivalent to append.
         /// This operation is O(N).
         /// Asserts that the list has capacity for one additional item.
         /// Asserts that the index is in bounds or equal to the length.
-        pub fn insertAssumeCapacity(self: *Self, i: usize, item: T) void {
+        pub fn insertReserved(self: *Self, i: usize, item: T) void {
             assert(self.items.len < self.capacity);
             self.items.len += 1;
 
@@ -779,6 +812,9 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             return managed.addManyAt(index, count);
         }
 
+        /// Deprecated. To be removed after 0.14.0 is tagged.
+        pub const addManyAtAssumeCapacity = addManyAtReserved;
+
         /// Add `count` new elements at position `index`, which have
         /// `undefined` values. Returns a slice pointing to the newly allocated
         /// elements, which becomes invalid after various `ArrayList`
@@ -787,7 +823,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// does not invalidate any before that.
         /// Asserts that the list has capacity for the additional items.
         /// Asserts that the index is in bounds or equal to the length.
-        pub fn addManyAtAssumeCapacity(self: *Self, index: usize, count: usize) []T {
+        pub fn addManyAtReserved(self: *Self, index: usize, count: usize) []T {
             const new_len = self.items.len + count;
             assert(self.capacity >= new_len);
             const to_move = self.items[index..];
@@ -836,14 +872,17 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
                 @memcpy(range[0..first.len], first);
                 try self.insertSlice(allocator, after_range, rest);
             } else {
-                self.replaceRangeAssumeCapacity(start, len, new_items);
+                self.replaceRangeReserved(start, len, new_items);
             }
         }
+
+        /// Deprecated. To be removed after 0.14.0 is tagged.
+        pub const replaceRangeAssumeCapacity = replaceRangeReserved;
 
         /// Grows or shrinks the list as necessary.
         /// Never invalidates element pointers.
         /// Asserts the capacity is enough for additional items.
-        pub fn replaceRangeAssumeCapacity(self: *Self, start: usize, len: usize, new_items: []const T) void {
+        pub fn replaceRangeReserved(self: *Self, start: usize, len: usize, new_items: []const T) void {
             const after_range = start + len;
             const range = self.items[start..after_range];
 
@@ -853,7 +892,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
                 const first = new_items[0..range.len];
                 const rest = new_items[range.len..];
                 @memcpy(range[0..first.len], first);
-                const dst = self.addManyAtAssumeCapacity(after_range, rest.len);
+                const dst = self.addManyAtReserved(after_range, rest.len);
                 @memcpy(dst, rest);
             } else {
                 const extra = range.len - new_items.len;
@@ -875,11 +914,14 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             new_item_ptr.* = item;
         }
 
+        /// Deprecated. To be removed after 0.14.0 is tagged.
+        pub const appendAssumeCapacity = appendReserved;
+
         /// Extend the list by 1 element.
         /// Never invalidates element pointers.
         /// Asserts that the list can hold one additional item.
-        pub fn appendAssumeCapacity(self: *Self, item: T) void {
-            const new_item_ptr = self.addOneAssumeCapacity();
+        pub fn appendReserved(self: *Self, item: T) void {
+            const new_item_ptr = self.addOneReserved();
             new_item_ptr.* = item;
         }
 
@@ -890,7 +932,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// Asserts that the index is in bounds.
         pub fn orderedRemove(self: *Self, i: usize) T {
             const old_item = self.items[i];
-            self.replaceRangeAssumeCapacity(i, 1, &.{});
+            self.replaceRangeReserved(i, 1, &.{});
             return old_item;
         }
 
@@ -913,12 +955,15 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// Invalidates element pointers if additional memory is needed.
         pub fn appendSlice(self: *Self, allocator: Allocator, items: []const T) Allocator.Error!void {
             try self.ensureUnusedCapacity(allocator, items.len);
-            self.appendSliceAssumeCapacity(items);
+            self.appendSliceReserved(items);
         }
+
+        /// Deprecated. To be removed after 0.14.0 is tagged.
+        pub const appendSliceAssumeCapacity = appendSliceReserved;
 
         /// Append the slice of items to the list.
         /// Asserts that the list can hold the additional items.
-        pub fn appendSliceAssumeCapacity(self: *Self, items: []const T) void {
+        pub fn appendSliceReserved(self: *Self, items: []const T) void {
             const old_len = self.items.len;
             const new_len = old_len + items.len;
             assert(new_len <= self.capacity);
@@ -932,14 +977,17 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// Invalidates element pointers if additional memory is needed.
         pub fn appendUnalignedSlice(self: *Self, allocator: Allocator, items: []align(1) const T) Allocator.Error!void {
             try self.ensureUnusedCapacity(allocator, items.len);
-            self.appendUnalignedSliceAssumeCapacity(items);
+            self.appendUnalignedSliceReserved(items);
         }
 
+        /// Deprecated. To be removed after 0.14.0 is tagged.
+        pub const appendUnalignedSliceAssumeCapacity = appendUnalignedSliceReserved;
+
         /// Append an unaligned slice of items to the list.
-        /// Only call this function if a call to `appendSliceAssumeCapacity`
+        /// Only call this function if a call to `appendSliceReserved`
         /// instead would be a compile error.
         /// Asserts that the list can hold the additional items.
-        pub fn appendUnalignedSliceAssumeCapacity(self: *Self, items: []align(1) const T) void {
+        pub fn appendUnalignedSliceReserved(self: *Self, items: []align(1) const T) void {
             const old_len = self.items.len;
             const new_len = old_len + items.len;
             assert(new_len <= self.capacity);
@@ -986,7 +1034,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             if (m.len > available_capacity)
                 return error.OutOfMemory;
 
-            self.appendSliceAssumeCapacity(m);
+            self.appendSliceReserved(m);
             return m.len;
         }
 
@@ -1006,7 +1054,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// The function is inline so that a comptime-known `value` parameter will
         /// have better memset codegen in case it has a repeated byte pattern.
         /// Asserts that the list can hold the additional items.
-        pub inline fn appendNTimesAssumeCapacity(self: *Self, value: T, n: usize) void {
+        pub inline fn appendNTimesReserved(self: *Self, value: T, n: usize) void {
             const new_len = self.items.len + n;
             assert(new_len <= self.capacity);
             @memset(self.items.ptr[self.items.len..new_len], value);
@@ -1135,14 +1183,17 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             // This can never overflow because `self.items` can never occupy the whole address space
             const newlen = self.items.len + 1;
             try self.ensureTotalCapacity(allocator, newlen);
-            return self.addOneAssumeCapacity();
+            return self.addOneReserved();
         }
+
+        /// Deprecated. To be removed after 0.14.0 is tagged.
+        pub const addOneAssumeCapacity = addOneReserved;
 
         /// Increase length by 1, returning pointer to the new item.
         /// Never invalidates element pointers.
         /// The returned element pointer becomes invalid when the list is resized.
         /// Asserts that the list can hold one additional item.
-        pub fn addOneAssumeCapacity(self: *Self) *T {
+        pub fn addOneReserved(self: *Self) *T {
             assert(self.items.len < self.capacity);
 
             self.items.len += 1;
@@ -1158,12 +1209,15 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             return self.items[prev_len..][0..n];
         }
 
+        /// Deprecated. To be removed after 0.14.0 is tagged.
+        pub const addManyAsArrayAssumeCapacity = addManyAsArrayReserved;
+
         /// Resize the array, adding `n` new elements, which have `undefined` values.
         /// The return value is an array pointing to the newly allocated elements.
         /// Never invalidates element pointers.
         /// The returned pointer becomes invalid when the list is resized.
         /// Asserts that the list can hold the additional items.
-        pub fn addManyAsArrayAssumeCapacity(self: *Self, comptime n: usize) *[n]T {
+        pub fn addManyAsArrayReserved(self: *Self, comptime n: usize) *[n]T {
             assert(self.items.len + n <= self.capacity);
             const prev_len = self.items.len;
             self.items.len += n;
@@ -1180,12 +1234,15 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             return self.items[prev_len..][0..n];
         }
 
+        /// Deprecated. To be removed after 0.14.0 is tagged.
+        pub const addManyAsSliceAssumeCapacity = addManyAsSliceReserved;
+
         /// Resize the array, adding `n` new elements, which have `undefined` values.
         /// The return value is a slice pointing to the newly allocated elements.
         /// Never invalidates element pointers.
         /// The returned pointer becomes invalid when the list is resized.
         /// Asserts that the list can hold the additional items.
-        pub fn addManyAsSliceAssumeCapacity(self: *Self, n: usize) []T {
+        pub fn addManyAsSliceReserved(self: *Self, n: usize) []T {
             assert(self.items.len + n <= self.capacity);
             const prev_len = self.items.len;
             self.items.len += n;
@@ -1731,7 +1788,7 @@ test "ArrayList.replaceRange" {
     }
 }
 
-test "ArrayList.replaceRangeAssumeCapacity" {
+test "ArrayList.replaceRangeReserved" {
     const a = testing.allocator;
 
     {
@@ -1739,7 +1796,7 @@ test "ArrayList.replaceRangeAssumeCapacity" {
         defer list.deinit();
         try list.appendSlice(&[_]i32{ 1, 2, 3, 4, 5 });
 
-        list.replaceRangeAssumeCapacity(1, 0, &[_]i32{ 0, 0, 0 });
+        list.replaceRangeReserved(1, 0, &[_]i32{ 0, 0, 0 });
 
         try testing.expectEqualSlices(i32, &[_]i32{ 1, 0, 0, 0, 2, 3, 4, 5 }, list.items);
     }
@@ -1748,7 +1805,7 @@ test "ArrayList.replaceRangeAssumeCapacity" {
         defer list.deinit();
         try list.appendSlice(&[_]i32{ 1, 2, 3, 4, 5 });
 
-        list.replaceRangeAssumeCapacity(1, 1, &[_]i32{ 0, 0, 0 });
+        list.replaceRangeReserved(1, 1, &[_]i32{ 0, 0, 0 });
 
         try testing.expectEqualSlices(
             i32,
@@ -1761,7 +1818,7 @@ test "ArrayList.replaceRangeAssumeCapacity" {
         defer list.deinit();
         try list.appendSlice(&[_]i32{ 1, 2, 3, 4, 5 });
 
-        list.replaceRangeAssumeCapacity(1, 2, &[_]i32{ 0, 0, 0 });
+        list.replaceRangeReserved(1, 2, &[_]i32{ 0, 0, 0 });
 
         try testing.expectEqualSlices(i32, &[_]i32{ 1, 0, 0, 0, 4, 5 }, list.items);
     }
@@ -1770,7 +1827,7 @@ test "ArrayList.replaceRangeAssumeCapacity" {
         defer list.deinit();
         try list.appendSlice(&[_]i32{ 1, 2, 3, 4, 5 });
 
-        list.replaceRangeAssumeCapacity(1, 3, &[_]i32{ 0, 0, 0 });
+        list.replaceRangeReserved(1, 3, &[_]i32{ 0, 0, 0 });
 
         try testing.expectEqualSlices(i32, &[_]i32{ 1, 0, 0, 0, 5 }, list.items);
     }
@@ -1779,7 +1836,7 @@ test "ArrayList.replaceRangeAssumeCapacity" {
         defer list.deinit();
         try list.appendSlice(&[_]i32{ 1, 2, 3, 4, 5 });
 
-        list.replaceRangeAssumeCapacity(1, 4, &[_]i32{ 0, 0, 0 });
+        list.replaceRangeReserved(1, 4, &[_]i32{ 0, 0, 0 });
 
         try testing.expectEqualSlices(i32, &[_]i32{ 1, 0, 0, 0 }, list.items);
     }
@@ -1839,7 +1896,7 @@ test "ArrayListUnmanaged.replaceRange" {
     }
 }
 
-test "ArrayListUnmanaged.replaceRangeAssumeCapacity" {
+test "ArrayListUnmanaged.replaceRangeReserved" {
     const a = testing.allocator;
 
     {
@@ -1847,7 +1904,7 @@ test "ArrayListUnmanaged.replaceRangeAssumeCapacity" {
         defer list.deinit(a);
         try list.appendSlice(a, &[_]i32{ 1, 2, 3, 4, 5 });
 
-        list.replaceRangeAssumeCapacity(1, 0, &[_]i32{ 0, 0, 0 });
+        list.replaceRangeReserved(1, 0, &[_]i32{ 0, 0, 0 });
 
         try testing.expectEqualSlices(i32, &[_]i32{ 1, 0, 0, 0, 2, 3, 4, 5 }, list.items);
     }
@@ -1856,7 +1913,7 @@ test "ArrayListUnmanaged.replaceRangeAssumeCapacity" {
         defer list.deinit(a);
         try list.appendSlice(a, &[_]i32{ 1, 2, 3, 4, 5 });
 
-        list.replaceRangeAssumeCapacity(1, 1, &[_]i32{ 0, 0, 0 });
+        list.replaceRangeReserved(1, 1, &[_]i32{ 0, 0, 0 });
 
         try testing.expectEqualSlices(
             i32,
@@ -1869,7 +1926,7 @@ test "ArrayListUnmanaged.replaceRangeAssumeCapacity" {
         defer list.deinit(a);
         try list.appendSlice(a, &[_]i32{ 1, 2, 3, 4, 5 });
 
-        list.replaceRangeAssumeCapacity(1, 2, &[_]i32{ 0, 0, 0 });
+        list.replaceRangeReserved(1, 2, &[_]i32{ 0, 0, 0 });
 
         try testing.expectEqualSlices(i32, &[_]i32{ 1, 0, 0, 0, 4, 5 }, list.items);
     }
@@ -1878,7 +1935,7 @@ test "ArrayListUnmanaged.replaceRangeAssumeCapacity" {
         defer list.deinit(a);
         try list.appendSlice(a, &[_]i32{ 1, 2, 3, 4, 5 });
 
-        list.replaceRangeAssumeCapacity(1, 3, &[_]i32{ 0, 0, 0 });
+        list.replaceRangeReserved(1, 3, &[_]i32{ 0, 0, 0 });
 
         try testing.expectEqualSlices(i32, &[_]i32{ 1, 0, 0, 0, 5 }, list.items);
     }
@@ -1887,7 +1944,7 @@ test "ArrayListUnmanaged.replaceRangeAssumeCapacity" {
         defer list.deinit(a);
         try list.appendSlice(a, &[_]i32{ 1, 2, 3, 4, 5 });
 
-        list.replaceRangeAssumeCapacity(1, 4, &[_]i32{ 0, 0, 0 });
+        list.replaceRangeReserved(1, 4, &[_]i32{ 0, 0, 0 });
 
         try testing.expectEqualSlices(i32, &[_]i32{ 1, 0, 0, 0 }, list.items);
     }
@@ -2021,7 +2078,7 @@ test "addManyAsArray" {
 
         (try list.addManyAsArray(4)).* = "aoeu".*;
         try list.ensureTotalCapacity(8);
-        list.addManyAsArrayAssumeCapacity(4).* = "asdf".*;
+        list.addManyAsArrayReserved(4).* = "asdf".*;
 
         try testing.expectEqualSlices(u8, list.items, "aoeuasdf");
     }
@@ -2031,7 +2088,7 @@ test "addManyAsArray" {
 
         (try list.addManyAsArray(a, 4)).* = "aoeu".*;
         try list.ensureTotalCapacity(a, 8);
-        list.addManyAsArrayAssumeCapacity(4).* = "asdf".*;
+        list.addManyAsArrayReserved(4).* = "asdf".*;
 
         try testing.expectEqualSlices(u8, list.items, "aoeuasdf");
     }
