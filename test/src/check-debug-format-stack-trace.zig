@@ -38,6 +38,23 @@ pub fn main() !void {
         process_lines: while (it.next()) |line| {
             if (line.len == 0) continue;
 
+            if (mem.startsWith(u8, line, "thread ")) {
+                const pos_after_thread = "thread ".len;
+                const end_of_thread_id = mem.indexOfScalarPos(u8, line, pos_after_thread, ' ') orelse {
+                    // unexpected pattern: emit raw line and cont
+                    try buf.appendSlice(line);
+                    try buf.appendSlice("\n");
+                    continue :process_lines;
+                };
+
+                // emit substituted line
+                try buf.appendSlice(line[0..pos_after_thread]);
+                try buf.appendSlice("[thread_id]");
+                try buf.appendSlice(line[end_of_thread_id..]);
+                try buf.appendSlice("\n");
+                continue :process_lines;
+            }
+
             // offset search past `[drive]:` on windows
             var pos: usize = if (builtin.os.tag == .windows) 2 else 0;
             // locate delims/anchor
