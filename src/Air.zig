@@ -1116,6 +1116,7 @@ pub const Inst = struct {
         },
         repeat: struct {
             loop_inst: Index,
+            loop_hint: std.builtin.LoopHint,
         },
         pl_op: struct {
             operand: Ref,
