@@ -58,20 +58,9 @@ pub const auth = struct {
     pub const siphash = @import("crypto/siphash.zig");
     pub const aegis = struct {
         const variants = @import("crypto/aegis.zig");
-        pub const Aegis128X4Mac = variants.Aegis128X4Mac;
-        pub const Aegis128X2Mac = variants.Aegis128X2Mac;
         pub const Aegis128LMac = variants.Aegis128LMac;
-
-        pub const Aegis256X4Mac = variants.Aegis256X4Mac;
-        pub const Aegis256X2Mac = variants.Aegis256X2Mac;
         pub const Aegis256Mac = variants.Aegis256Mac;
-
-        pub const Aegis128X4Mac_128 = variants.Aegis128X4Mac_128;
-        pub const Aegis128X2Mac_128 = variants.Aegis128X2Mac_128;
         pub const Aegis128LMac_128 = variants.Aegis128LMac_128;
-
-        pub const Aegis256X4Mac_128 = variants.Aegis256X4Mac_128;
-        pub const Aegis256X2Mac_128 = variants.Aegis256X2Mac_128;
         pub const Aegis256Mac_128 = variants.Aegis256Mac_128;
     };
     pub const cmac = @import("crypto/cmac.zig");
