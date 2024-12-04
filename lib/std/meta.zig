@@ -1217,10 +1217,11 @@ pub inline fn hasUniqueRepresentation(comptime T: type) bool {
 
             var sum_size = @as(usize, 0);
 
-            inline for (info.fields) |field| if (!field.is_comptime) {
+            inline for (info.fields) |field| {
+                if (field.is_comptime) continue;
                 if (!hasUniqueRepresentation(field.type)) return false;
                 sum_size += @sizeOf(field.type);
-            };
+            }
 
             return @sizeOf(T) == sum_size;
         },
