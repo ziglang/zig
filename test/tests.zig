@@ -8,6 +8,7 @@ const Step = std.Build.Step;
 // Cases
 const compare_output = @import("compare_output.zig");
 const stack_traces = @import("stack_traces.zig");
+const debug_format_stack_traces = @import("debug_format_stack_traces.zig");
 const assemble_and_link = @import("assemble_and_link.zig");
 const translate_c = @import("translate_c.zig");
 const run_translated_c = @import("run_translated_c.zig");
@@ -16,6 +17,7 @@ const run_translated_c = @import("run_translated_c.zig");
 pub const TranslateCContext = @import("src/TranslateC.zig");
 pub const RunTranslatedCContext = @import("src/RunTranslatedC.zig");
 pub const CompareOutputContext = @import("src/CompareOutput.zig");
+pub const DebugFormatStackTraceContext = @import("src/DebugFormatStackTrace.zig");
 pub const StackTracesContext = @import("src/StackTrace.zig");
 pub const DebuggerContext = @import("src/Debugger.zig");
 
@@ -1122,6 +1124,29 @@ pub fn addStackTraceTests(
     };
 
     stack_traces.addCases(cases);
+
+    return cases.step;
+}
+
+pub fn addDebugFormatStackTraceTests(
+    b: *std.Build,
+) *Step {
+    const check_exe = b.addExecutable(.{
+        .name = "check-debug-format-stack-trace",
+        .root_source_file = b.path("test/src/check-debug-format-stack-trace.zig"),
+        .target = b.graph.host,
+        .optimize = .Debug,
+    });
+
+    const cases = b.allocator.create(DebugFormatStackTraceContext) catch @panic("OOM");
+    cases.* = .{
+        .b = b,
+        .step = b.step("test-debug-format-stack-traces", "Run the debug format stack trace tests"),
+        .test_index = 0,
+        .check_exe = check_exe,
+    };
+
+    debug_format_stack_traces.addCases(cases);
 
     return cases.step;
 }
