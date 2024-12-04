@@ -559,18 +559,26 @@ pub fn flushModule(self: *ZigObject, macho_file: *MachO, tid: Zcu.PerThread.Id) 
 
         // Most lazy symbols can be updated on first use, but
         // anyerror needs to wait for everything to be flushed.
-        if (metadata.text_state != .unused) try self.updateLazySymbol(
+        if (metadata.text_state != .unused) self.updateLazySymbol(
             macho_file,
             pt,
             .{ .kind = .code, .ty = .anyerror_type },
             metadata.text_symbol_index,
-        );
-        if (metadata.const_state != .unused) try self.updateLazySymbol(
+        ) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.LinkFailure => return error.LinkFailure,
+            else => |e| return diags.fail("failed to update lazy symbol: {s}", .{@errorName(e)}),
+        };
+        if (metadata.const_state != .unused) self.updateLazySymbol(
             macho_file,
             pt,
             .{ .kind = .const_data, .ty = .anyerror_type },
             metadata.const_symbol_index,
-        );
+        ) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.LinkFailure => return error.LinkFailure,
+            else => |e| return diags.fail("failed to update lazy symbol: {s}", .{@errorName(e)}),
+        };
     }
     for (self.lazy_syms.values()) |*metadata| {
         if (metadata.text_state != .unused) metadata.text_state = .flushed;
@@ -803,7 +811,7 @@ pub fn updateFunc(
         .ok => code_buffer.items,
         .fail => |em| {
             try zcu.failed_codegen.put(gpa, func.owner_nav, em);
-            return;
+            return error.CodegenFail;
         },
     };
 
@@ -855,7 +863,8 @@ pub fn updateFunc(
         }
         const target_sym = self.symbols.items[sym_index];
         const source_sym = self.symbols.items[target_sym.getExtra(macho_file).trampoline];
-        try writeTrampoline(source_sym, target_sym, macho_file);
+        writeTrampoline(source_sym, target_sym, macho_file) catch |err|
+            return macho_file.base.cgFail(func.owner_nav, "failed to write trampoline: {s}", .{@errorName(err)});
     }
 }
 
@@ -955,7 +964,6 @@ fn updateNavCode(
         else => |a| a.maxStrict(target_util.minFunctionAlignment(target)),
     };
 
-    const diags = &macho_file.base.comp.link_diags;
     const sect = &macho_file.sections.items(.header)[sect_index];
     const sym = &self.symbols.items[sym_index];
     const nlist = &self.symtab.items(.nlist)[sym.nlist_idx];
@@ -984,7 +992,8 @@ fn updateNavCode(
         const need_realloc = code.len > capacity or !required_alignment.check(atom.value);
 
         if (need_realloc) {
-            atom.grow(macho_file) catch |err| return diags.fail("failed to grow atom: {s}", .{@errorName(err)});
+            atom.grow(macho_file) catch |err|
+                return macho_file.base.cgFail(nav_index, "failed to grow atom: {s}", .{@errorName(err)});
             log.debug("growing {} from 0x{x} to 0x{x}", .{ nav.fqn.fmt(ip), old_vaddr, atom.value });
             if (old_vaddr != atom.value) {
                 sym.value = 0;
@@ -997,7 +1006,8 @@ fn updateNavCode(
             sect.size = needed_size;
         }
     } else {
-        try atom.allocate(macho_file);
+        atom.allocate(macho_file) catch |err|
+            return macho_file.base.cgFail(nav_index, "failed to allocate atom: {s}", .{@errorName(err)});
         errdefer self.freeNavMetadata(macho_file, sym_index);
 
         sym.value = 0;
@@ -1006,7 +1016,8 @@ fn updateNavCode(
 
     if (!sect.isZerofill()) {
         const file_offset = sect.offset + atom.value;
-        try macho_file.pwriteAll(code, file_offset);
+        macho_file.base.file.?.pwriteAll(code, file_offset) catch |err|
+            return macho_file.base.cgFail(nav_index, "failed to write output file: {s}", .{@errorName(err)});
     }
 }
 
@@ -1353,7 +1364,7 @@ fn updateLazySymbol(
     pt: Zcu.PerThread,
     lazy_sym: link.File.LazySymbol,
     symbol_index: Symbol.Index,
-) error{ OutOfMemory, LinkFailure }!void {
+) !void {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const diags = &macho_file.base.comp.link_diags;
@@ -1494,7 +1505,7 @@ fn writeTrampoline(tr_sym: Symbol, target: Symbol, macho_file: *MachO) !void {
         .x86_64 => try x86_64.writeTrampolineCode(source_addr, target_addr, &buf),
         else => @panic("TODO implement write trampoline for this CPU arch"),
     };
-    try macho_file.pwriteAll(out, fileoff);
+    try macho_file.base.file.?.pwriteAll(out, fileoff);
 }
 
 pub fn getOrCreateMetadataForNav(

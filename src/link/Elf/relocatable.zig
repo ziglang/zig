@@ -1,4 +1,4 @@
-pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation) link.File.FlushError!void {
+pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation) !void {
     const gpa = comp.gpa;
     const diags = &comp.link_diags;
 
@@ -130,7 +130,7 @@ pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation) link.File.FlushError!v
     if (diags.hasErrors()) return error.LinkFailure;
 }
 
-pub fn flushObject(elf_file: *Elf, comp: *Compilation) link.File.FlushError!void {
+pub fn flushObject(elf_file: *Elf, comp: *Compilation) !void {
     const diags = &comp.link_diags;
 
     if (diags.hasErrors()) return error.LinkFailure;
@@ -259,7 +259,7 @@ fn initComdatGroups(elf_file: *Elf) !void {
     }
 }
 
-fn updateSectionSizes(elf_file: *Elf) link.File.FlushError!void {
+fn updateSectionSizes(elf_file: *Elf) !void {
     const slice = elf_file.sections.slice();
     for (slice.items(.atom_list_2)) |*atom_list| {
         if (atom_list.atoms.keys().len == 0) continue;

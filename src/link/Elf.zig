@@ -807,7 +807,6 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
     defer tracy.end();
 
     const comp = self.base.comp;
-    const gpa = comp.gpa;
     const diags = &comp.link_diags;
 
     if (self.llvm_object) |llvm_object| {
@@ -820,6 +819,18 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
 
     const sub_prog_node = prog_node.start("ELF Flush", 0);
     defer sub_prog_node.end();
+
+    return flushModuleInner(self, arena, tid) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        error.LinkFailure => return error.LinkFailure,
+        else => |e| return diags.fail("ELF flush failed: {s}", .{@errorName(e)}),
+    };
+}
+
+fn flushModuleInner(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id) !void {
+    const comp = self.base.comp;
+    const gpa = comp.gpa;
+    const diags = &comp.link_diags;
 
     const module_obj_path: ?Path = if (self.base.zcu_object_sub_path) |path| .{
         .root_dir = self.base.emit.root_dir,
@@ -2432,7 +2443,7 @@ pub fn addCommentString(self: *Elf) !void {
     self.comment_merge_section_index = msec_index;
 }
 
-pub fn resolveMergeSections(self: *Elf) link.File.FlushError!void {
+pub fn resolveMergeSections(self: *Elf) !void {
     const tracy = trace(@src());
     defer tracy.end();
 

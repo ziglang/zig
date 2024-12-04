@@ -26,9 +26,7 @@ pub const UpdateError = error{
     OutOfMemory,
 };
 
-pub const FlushError =
-    UpdateError ||
-    std.process.GetCwdError;
+pub const FlushError = UpdateError || std.process.GetCwdError;
 
 pub const RelocError =
     std.fs.File.PWriteError;
@@ -4312,7 +4310,7 @@ fn refAbbrevCode(dwarf: *Dwarf, abbrev_code: AbbrevCode) UpdateError!@typeInfo(A
     return @intFromEnum(abbrev_code);
 }
 
-pub fn flushModule(dwarf: *Dwarf, pt: Zcu.PerThread) FlushError!void {
+pub fn flushModule(dwarf: *Dwarf, pt: Zcu.PerThread) !void {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
 

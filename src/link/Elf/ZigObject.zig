@@ -264,7 +264,7 @@ pub fn deinit(self: *ZigObject, allocator: Allocator) void {
     }
 }
 
-pub fn flush(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) link.File.FlushError!void {
+pub fn flush(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !void {
     // Handle any lazy symbols that were emitted by incremental compilation.
     if (self.lazy_syms.getPtr(.anyerror_type)) |metadata| {
         const pt: Zcu.PerThread = .activate(elf_file.base.comp.zcu.?, tid);
@@ -279,7 +279,7 @@ pub fn flush(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) link.File.
             metadata.text_symbol_index,
         ) catch |err| return switch (err) {
             error.CodegenFail => error.LinkFailure,
-            else => |e| e,
+            else => |e| return e,
         };
         if (metadata.rodata_state != .unused) self.updateLazySymbol(
             elf_file,
@@ -288,7 +288,7 @@ pub fn flush(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) link.File.
             metadata.rodata_symbol_index,
         ) catch |err| return switch (err) {
             error.CodegenFail => error.LinkFailure,
-            else => |e| e,
+            else => |e| return e,
         };
     }
     for (self.lazy_syms.values()) |*metadata| {
@@ -1263,7 +1263,7 @@ fn updateNavCode(
     shdr_index: u32,
     code: []const u8,
     stt_bits: u8,
-) !void {
+) link.File.UpdateNavError!void {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
@@ -1342,7 +1342,7 @@ fn updateNavCode(
     const shdr = elf_file.sections.items(.shdr)[shdr_index];
     if (shdr.sh_type != elf.SHT_NOBITS) {
         const file_offset = atom_ptr.offset(elf_file);
-        try elf_file.base.file.?.pwriteAll(code, file_offset);
+        try elf_file.pwriteAll(code, file_offset);
         log.debug("writing {} from 0x{x} to 0x{x}", .{ nav.fqn.fmt(ip), file_offset, file_offset + code.len });
     }
 }
@@ -1355,7 +1355,7 @@ fn updateTlv(
     sym_index: Symbol.Index,
     shndx: u32,
     code: []const u8,
-) !void {
+) link.File.UpdateNavError!void {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     const gpa = zcu.gpa;
@@ -1394,7 +1394,7 @@ fn updateTlv(
     const shdr = elf_file.sections.items(.shdr)[shndx];
     if (shdr.sh_type != elf.SHT_NOBITS) {
         const file_offset = atom_ptr.offset(elf_file);
-        try elf_file.base.file.?.pwriteAll(code, file_offset);
+        try elf_file.pwriteAll(code, file_offset);
         log.debug("writing TLV {s} from 0x{x} to 0x{x}", .{
             atom_ptr.name(elf_file),
             file_offset,
@@ -1617,7 +1617,7 @@ fn updateLazySymbol(
     pt: Zcu.PerThread,
     sym: link.File.LazySymbol,
     symbol_index: Symbol.Index,
-) link.File.FlushError!void {
+) !void {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
 
@@ -1698,7 +1698,7 @@ fn updateLazySymbol(
     local_sym.value = 0;
     local_esym.st_value = 0;
 
-    try elf_file.base.file.?.pwriteAll(code, atom_ptr.offset(elf_file));
+    try elf_file.pwriteAll(code, atom_ptr.offset(elf_file));
 }
 
 const LowerConstResult = union(enum) {
@@ -1750,7 +1750,7 @@ fn lowerConst(
     try self.allocateAtom(atom_ptr, true, elf_file);
     errdefer self.freeNavMetadata(elf_file, sym_index);
 
-    try elf_file.base.file.?.pwriteAll(code, atom_ptr.offset(elf_file));
+    try elf_file.pwriteAll(code, atom_ptr.offset(elf_file));
 
     return .{ .ok = sym_index };
 }
@@ -1898,7 +1898,7 @@ fn trampolineSize(cpu_arch: std.Target.Cpu.Arch) u64 {
     return len;
 }
 
-fn writeTrampoline(tr_sym: Symbol, target: Symbol, elf_file: *Elf) !void {
+fn writeTrampoline(tr_sym: Symbol, target: Symbol, elf_file: *Elf) link.File.UpdateNavError!void {
     const atom_ptr = tr_sym.atom(elf_file).?;
     const fileoff = atom_ptr.offset(elf_file);
     const source_addr = tr_sym.address(.{}, elf_file);
@@ -1908,7 +1908,7 @@ fn writeTrampoline(tr_sym: Symbol, target: Symbol, elf_file: *Elf) !void {
         .x86_64 => try x86_64.writeTrampolineCode(source_addr, target_addr, &buf),
         else => @panic("TODO implement write trampoline for this CPU arch"),
     };
-    try elf_file.base.file.?.pwriteAll(out, fileoff);
+    try elf_file.pwriteAll(out, fileoff);
 
     if (elf_file.base.child_pid) |pid| {
         switch (builtin.os.tag) {

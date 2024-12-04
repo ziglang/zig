@@ -632,15 +632,14 @@ pub const File = struct {
     pub const UpdateDebugInfoError = Dwarf.UpdateError;
     pub const FlushDebugInfoError = Dwarf.FlushError;
 
+    /// Note that `LinkFailure` is not a member of this error set because the error message
+    /// must be attached to `Zcu.failed_codegen` rather than `Compilation.link_diags`.
     pub const UpdateNavError = error{
         Overflow,
         OutOfMemory,
         /// Indicates the error is already reported and stored in
         /// `failed_codegen` on the Zcu.
         CodegenFail,
-        /// Indicates the error is already reported and stored in `link_diags`
-        /// on the Compilation.
-        LinkFailure,
     };
 
     /// Called from within CodeGen to retrieve the symbol index of a global symbol.
@@ -1282,6 +1281,20 @@ pub const File = struct {
             .directory = null,
             .basename = base.zcu_object_sub_path.?,
         }, llvm_object, prog_node);
+    }
+
+    pub fn cgFail(
+        base: *File,
+        nav_index: InternPool.Nav.Index,
+        comptime format: []const u8,
+        args: anytype,
+    ) error{ CodegenFail, OutOfMemory } {
+        @branchHint(.cold);
+        const zcu = base.comp.zcu.?;
+        const gpa = zcu.gpa;
+        try zcu.failed_codegen.ensureUnusedCapacity(gpa, 1);
+        const msg = try Zcu.ErrorMsg.create(gpa, zcu.navSrcLoc(nav_index), format, args);
+        zcu.failed_codegen.putAssumeCapacityNoClobber(gpa, nav_index, msg);
     }
 
     pub const C = @import("link/C.zig");

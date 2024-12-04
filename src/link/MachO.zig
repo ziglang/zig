@@ -3423,7 +3423,7 @@ fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
     };
 }
 
-pub fn growSection(self: *MachO, sect_index: u8, needed_size: u64) error{ OutOfMemory, LinkFailure }!void {
+pub fn growSection(self: *MachO, sect_index: u8, needed_size: u64) !void {
     if (self.base.isRelocatable()) {
         try self.growSectionRelocatable(sect_index, needed_size);
     } else {
@@ -3431,7 +3431,7 @@ pub fn growSection(self: *MachO, sect_index: u8, needed_size: u64) error{ OutOfM
     }
 }
 
-fn growSectionNonRelocatable(self: *MachO, sect_index: u8, needed_size: u64) error{ OutOfMemory, LinkFailure }!void {
+fn growSectionNonRelocatable(self: *MachO, sect_index: u8, needed_size: u64) !void {
     const diags = &self.base.comp.link_diags;
     const sect = &self.sections.items(.header)[sect_index];
 
@@ -3480,7 +3480,7 @@ fn growSectionNonRelocatable(self: *MachO, sect_index: u8, needed_size: u64) err
     seg.vmsize = needed_size;
 }
 
-fn growSectionRelocatable(self: *MachO, sect_index: u8, needed_size: u64) error{ OutOfMemory, LinkFailure }!void {
+fn growSectionRelocatable(self: *MachO, sect_index: u8, needed_size: u64) !void {
     const sect = &self.sections.items(.header)[sect_index];
 
     if (!sect.isZerofill()) {
@@ -3490,7 +3490,7 @@ fn growSectionRelocatable(self: *MachO, sect_index: u8, needed_size: u64) error{
             sect.size = 0;
 
             // Must move the entire section.
-            const alignment = try self.alignPow(sect.@"align");
+            const alignment = try math.powi(u32, 2, sect.@"align");
             const new_offset = try self.findFreeSpace(needed_size, alignment);
             const new_addr = self.findFreeSpaceVirtual(needed_size, alignment);
 
