@@ -21,6 +21,7 @@ pub fn addCases(cases: *tests.DebugFormatStackTraceContext) void {
         \\ }
         ,
         .symbols = .{
+            .exclude_os = &.{ .macos, .windows },
             .expect =
             \\???:?:?: [address] in source.bar (???)
             \\???:?:?: [address] in source.main (???)
