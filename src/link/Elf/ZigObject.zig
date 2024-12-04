@@ -1437,7 +1437,7 @@ pub fn updateFunc(
     var debug_wip_nav = if (self.dwarf) |*dwarf| try dwarf.initWipNav(pt, func.owner_nav, sym_index) else null;
     defer if (debug_wip_nav) |*wip_nav| wip_nav.deinit();
 
-    const res = try codegen.generateFunction(
+    try codegen.generateFunction(
         &elf_file.base,
         pt,
         zcu.navSrcLoc(func.owner_nav),
@@ -1447,14 +1447,7 @@ pub fn updateFunc(
         &code_buffer,
         if (debug_wip_nav) |*dn| .{ .dwarf = dn } else .none,
     );
-
-    const code = switch (res) {
-        .ok => code_buffer.items,
-        .fail => |em| {
-            try zcu.failed_codegen.put(gpa, func.owner_nav, em);
-            return;
-        },
-    };
+    const code = code_buffer.items;
 
     const shndx = try self.getNavShdrIndex(elf_file, zcu, func.owner_nav, sym_index, code);
     log.debug("setting shdr({x},{s}) for {}", .{
@@ -1574,7 +1567,7 @@ pub fn updateNav(
         var debug_wip_nav = if (self.dwarf) |*dwarf| try dwarf.initWipNav(pt, nav_index, sym_index) else null;
         defer if (debug_wip_nav) |*wip_nav| wip_nav.deinit();
 
-        const res = try codegen.generateSymbol(
+        try codegen.generateSymbol(
             &elf_file.base,
             pt,
             zcu.navSrcLoc(nav_index),
@@ -1582,14 +1575,7 @@ pub fn updateNav(
             &code_buffer,
             .{ .atom_index = sym_index },
         );
-
-        const code = switch (res) {
-            .ok => code_buffer.items,
-            .fail => |em| {
-                try zcu.failed_codegen.put(zcu.gpa, nav_index, em);
-                return;
-            },
-        };
+        const code = code_buffer.items;
 
         const shndx = try self.getNavShdrIndex(elf_file, zcu, nav_index, sym_index, code);
         log.debug("setting shdr({x},{s}) for {}", .{
@@ -1612,7 +1598,7 @@ pub fn updateContainerType(
     self: *ZigObject,
     pt: Zcu.PerThread,
     ty: InternPool.Index,
-) link.File.UpdateNavError!void {
+) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1643,7 +1629,7 @@ fn updateLazySymbol(
     };
 
     const src = Type.fromInterned(sym.ty).srcLocOrNull(zcu) orelse Zcu.LazySrcLoc.unneeded;
-    const res = try codegen.generateLazySymbol(
+    try codegen.generateLazySymbol(
         &elf_file.base,
         pt,
         src,
@@ -1653,13 +1639,7 @@ fn updateLazySymbol(
         .none,
         .{ .atom_index = symbol_index },
     );
-    const code = switch (res) {
-        .ok => code_buffer.items,
-        .fail => |em| {
-            log.err("{s}", .{em.msg});
-            return error.CodegenFail;
-        },
-    };
+    const code = code_buffer.items;
 
     const output_section_index = switch (sym.kind) {
         .code => if (self.text_index) |sym_index|
@@ -1732,7 +1712,7 @@ fn lowerConst(
     const name_off = try self.addString(gpa, name);
     const sym_index = try self.newSymbolWithAtom(gpa, name_off);
 
-    const res = try codegen.generateSymbol(
+    try codegen.generateSymbol(
         &elf_file.base,
         pt,
         src_loc,
@@ -1740,10 +1720,7 @@ fn lowerConst(
         &code_buffer,
         .{ .atom_index = sym_index },
     );
-    const code = switch (res) {
-        .ok => code_buffer.items,
-        .fail => |em| return .{ .fail = em },
-    };
+    const code = code_buffer.items;
 
     const local_sym = self.symbol(sym_index);
     const local_esym = &self.symtab.items(.elf_sym)[local_sym.esym_index];

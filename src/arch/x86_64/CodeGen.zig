@@ -19,7 +19,6 @@ const Allocator = mem.Allocator;
 const CodeGenError = codegen.CodeGenError;
 const Compilation = @import("../../Compilation.zig");
 const ErrorMsg = Zcu.ErrorMsg;
-const Result = codegen.Result;
 const Emit = @import("Emit.zig");
 const Liveness = @import("../../Liveness.zig");
 const Lower = @import("Lower.zig");
@@ -59,7 +58,6 @@ target: *const std.Target,
 owner: Owner,
 inline_func: InternPool.Index,
 mod: *Package.Module,
-err_msg: ?*ErrorMsg,
 arg_index: u32,
 args: []MCValue,
 va_info: union {
@@ -821,7 +819,7 @@ pub fn generate(
     liveness: Liveness,
     code: *std.ArrayList(u8),
     debug_output: link.File.DebugInfoOutput,
-) CodeGenError!Result {
+) CodeGenError!void {
     const zcu = pt.zcu;
     const comp = zcu.comp;
     const gpa = zcu.gpa;
@@ -841,7 +839,6 @@ pub fn generate(
         .debug_output = debug_output,
         .owner = .{ .nav_index = func.owner_nav },
         .inline_func = func_index,
-        .err_msg = null,
         .arg_index = undefined,
         .args = undefined, // populated after `resolveCallingConventionValues`
         .va_info = undefined, // populated after `resolveCallingConventionValues`
@@ -881,15 +878,7 @@ pub fn generate(
     const fn_info = zcu.typeToFunc(fn_type).?;
     const cc = abi.resolveCallingConvention(fn_info.cc, function.target.*);
     var call_info = function.resolveCallingConventionValues(fn_info, &.{}, .args_frame) catch |err| switch (err) {
-        error.CodegenFail => return Result{ .fail = function.err_msg.? },
-        error.OutOfRegisters => return Result{
-            .fail = try ErrorMsg.create(
-                gpa,
-                src_loc,
-                "CodeGen ran out of registers. This is a bug in the Zig compiler.",
-                .{},
-            ),
-        },
+        error.CodegenFail => return error.CodegenFail,
         else => |e| return e,
     };
     defer call_info.deinit(&function);
@@ -926,10 +915,8 @@ pub fn generate(
     };
 
     function.gen() catch |err| switch (err) {
-        error.CodegenFail => return Result{ .fail = function.err_msg.? },
-        error.OutOfRegisters => return Result{
-            .fail = try ErrorMsg.create(gpa, src_loc, "CodeGen ran out of registers. This is a bug in the Zig compiler.", .{}),
-        },
+        error.CodegenFail => return error.CodegenFail,
+        error.OutOfRegisters => return function.fail("ran out of registers (Zig compiler bug)", .{}),
         else => |e| return e,
     };
 
@@ -953,10 +940,7 @@ pub fn generate(
             .pic = mod.pic,
         },
         .atom_index = function.owner.getSymbolIndex(&function) catch |err| switch (err) {
-            error.CodegenFail => return Result{ .fail = function.err_msg.? },
-            error.OutOfRegisters => return Result{
-                .fail = try ErrorMsg.create(gpa, src_loc, "CodeGen ran out of registers. This is a bug in the Zig compiler.", .{}),
-            },
+            error.CodegenFail => return error.CodegenFail,
             else => |e| return e,
         },
         .debug_output = debug_output,
@@ -974,29 +958,11 @@ pub fn generate(
     };
     defer emit.deinit();
     emit.emitMir() catch |err| switch (err) {
-        error.LowerFail, error.EmitFail => return Result{ .fail = emit.lower.err_msg.? },
-        error.InvalidInstruction, error.CannotEncode => |e| {
-            const msg = switch (e) {
-                error.InvalidInstruction => "CodeGen failed to find a viable instruction.",
-                error.CannotEncode => "CodeGen failed to encode the instruction.",
-            };
-            return Result{
-                .fail = try ErrorMsg.create(
-                    gpa,
-                    src_loc,
-                    "{s} This is a bug in the Zig compiler.",
-                    .{msg},
-                ),
-            };
-        },
-        else => |e| return e,
-    };
+        error.LowerFail, error.EmitFail => return function.failMsg(emit.lower.err_msg.?),
 
-    if (function.err_msg) |em| {
-        return Result{ .fail = em };
-    } else {
-        return Result.ok;
-    }
+        error.InvalidInstruction, error.CannotEncode => |e| return function.fail("emit MIR failed: {s} (Zig compiler bug)", .{@errorName(e)}),
+        else => |e| return function.fail("emit MIR failed: {s}", .{@errorName(e)}),
+    };
 }
 
 pub fn generateLazy(
@@ -1006,7 +972,7 @@ pub fn generateLazy(
     lazy_sym: link.File.LazySymbol,
     code: *std.ArrayList(u8),
     debug_output: link.File.DebugInfoOutput,
-) CodeGenError!Result {
+) CodeGenError!void {
     const comp = bin_file.comp;
     const gpa = comp.gpa;
     // This function is for generating global code, so we use the root module.
@@ -1022,7 +988,6 @@ pub fn generateLazy(
         .debug_output = debug_output,
         .owner = .{ .lazy_sym = lazy_sym },
         .inline_func = undefined,
-        .err_msg = null,
         .arg_index = undefined,
         .args = undefined,
         .va_info = undefined,
@@ -1038,10 +1003,8 @@ pub fn generateLazy(
     }
 
     function.genLazy(lazy_sym) catch |err| switch (err) {
-        error.CodegenFail => return Result{ .fail = function.err_msg.? },
-        error.OutOfRegisters => return Result{
-            .fail = try ErrorMsg.create(gpa, src_loc, "CodeGen ran out of registers. This is a bug in the Zig compiler.", .{}),
-        },
+        error.CodegenFail => return error.CodegenFail,
+        error.OutOfRegisters => return function.fail("ran out of registers (Zig compiler bug)", .{}),
         else => |e| return e,
     };
 
@@ -1065,10 +1028,7 @@ pub fn generateLazy(
             .pic = mod.pic,
         },
         .atom_index = function.owner.getSymbolIndex(&function) catch |err| switch (err) {
-            error.CodegenFail => return Result{ .fail = function.err_msg.? },
-            error.OutOfRegisters => return Result{
-                .fail = try ErrorMsg.create(gpa, src_loc, "CodeGen ran out of registers. This is a bug in the Zig compiler.", .{}),
-            },
+            error.CodegenFail => return error.CodegenFail,
             else => |e| return e,
         },
         .debug_output = debug_output,
@@ -1078,29 +1038,11 @@ pub fn generateLazy(
     };
     defer emit.deinit();
     emit.emitMir() catch |err| switch (err) {
-        error.LowerFail, error.EmitFail => return Result{ .fail = emit.lower.err_msg.? },
-        error.InvalidInstruction, error.CannotEncode => |e| {
-            const msg = switch (e) {
-                error.InvalidInstruction => "CodeGen failed to find a viable instruction.",
-                error.CannotEncode => "CodeGen failed to encode the instruction.",
-            };
-            return Result{
-                .fail = try ErrorMsg.create(
-                    gpa,
-                    src_loc,
-                    "{s} This is a bug in the Zig compiler.",
-                    .{msg},
-                ),
-            };
-        },
-        else => |e| return e,
+        error.LowerFail, error.EmitFail => return function.failMsg(emit.lower.err_msg.?),
+        error.InvalidInstruction => return function.fail("failed to find a viable x86 instruction (Zig compiler bug)", .{}),
+        error.CannotEncode => return function.fail("failed to find encode x86 instruction (Zig compiler bug)", .{}),
+        else => |e| return function.fail("failed to emit MIR: {s}", .{@errorName(e)}),
     };
-
-    if (function.err_msg) |em| {
-        return Result{ .fail = em };
-    } else {
-        return Result.ok;
-    }
 }
 
 const FormatNavData = struct {
@@ -19276,10 +19218,7 @@ fn genTypedValue(self: *Self, val: Value) InnerError!MCValue {
             .load_got => |sym_index| .{ .lea_got = sym_index },
             .load_tlv => |sym_index| .{ .lea_tlv = sym_index },
         },
-        .fail => |msg| {
-            self.err_msg = msg;
-            return error.CodegenFail;
-        },
+        .fail => |msg| return self.failMsg(msg),
     };
 }
 
@@ -19592,11 +19531,23 @@ fn resolveCallingConventionValues(
     return result;
 }
 
-fn fail(self: *Self, comptime format: []const u8, args: anytype) InnerError {
+fn fail(self: *Self, comptime format: []const u8, args: anytype) error{ OutOfMemory, CodegenFail } {
     @branchHint(.cold);
-    assert(self.err_msg == null);
-    const gpa = self.gpa;
-    self.err_msg = try ErrorMsg.create(gpa, self.src_loc, format, args);
+    const zcu = self.pt.zcu;
+    switch (self.owner) {
+        .nav_index => |i| return zcu.codegenFail(i, format, args),
+        .lazy_sym => |s| return zcu.codegenFailType(s.ty, format, args),
+    }
+    return error.CodegenFail;
+}
+
+fn failMsg(self: *Self, msg: *ErrorMsg) error{ OutOfMemory, CodegenFail } {
+    @branchHint(.cold);
+    const zcu = self.pt.zcu;
+    switch (self.owner) {
+        .nav_index => |i| return zcu.codegenFailMsg(i, msg),
+        .lazy_sym => |s| return zcu.codegenFailTypeMsg(s.ty, msg),
+    }
     return error.CodegenFail;
 }
 

@@ -24,7 +24,6 @@ const build_options = @import("build_options");
 const Alignment = InternPool.Alignment;
 
 const CodeGenError = codegen.CodeGenError;
-const Result = codegen.Result;
 
 const bits = @import("bits.zig");
 const abi = @import("abi.zig");
@@ -51,7 +50,6 @@ debug_output: link.File.DebugInfoOutput,
 target: *const std.Target,
 func_index: InternPool.Index,
 owner_nav: InternPool.Nav.Index,
-err_msg: ?*ErrorMsg,
 args: []MCValue,
 ret_mcv: MCValue,
 fn_type: Type,
@@ -167,7 +165,7 @@ const DbgInfoReloc = struct {
     name: [:0]const u8,
     mcv: MCValue,
 
-    fn genDbgInfo(reloc: DbgInfoReloc, function: Self) CodeGenError!void {
+    fn genDbgInfo(reloc: DbgInfoReloc, function: Self) !void {
         switch (reloc.tag) {
             .arg,
             .dbg_arg_inline,
@@ -181,7 +179,7 @@ const DbgInfoReloc = struct {
         }
     }
 
-    fn genArgDbgInfo(reloc: DbgInfoReloc, function: Self) CodeGenError!void {
+    fn genArgDbgInfo(reloc: DbgInfoReloc, function: Self) !void {
         switch (function.debug_output) {
             .dwarf => |dw| {
                 const loc: link.File.Dwarf.Loc = switch (reloc.mcv) {
@@ -209,7 +207,7 @@ const DbgInfoReloc = struct {
         }
     }
 
-    fn genVarDbgInfo(reloc: DbgInfoReloc, function: Self) CodeGenError!void {
+    fn genVarDbgInfo(reloc: DbgInfoReloc, function: Self) !void {
         switch (function.debug_output) {
             .dwarf => |dwarf| {
                 const loc: link.File.Dwarf.Loc = switch (reloc.mcv) {
@@ -327,7 +325,7 @@ pub fn generate(
     liveness: Liveness,
     code: *std.ArrayList(u8),
     debug_output: link.File.DebugInfoOutput,
-) CodeGenError!Result {
+) CodeGenError!void {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const func = zcu.funcInfo(func_index);
@@ -353,7 +351,6 @@ pub fn generate(
         .bin_file = lf,
         .func_index = func_index,
         .owner_nav = func.owner_nav,
-        .err_msg = null,
         .args = undefined, // populated after `resolveCallingConventionValues`
         .ret_mcv = undefined, // populated after `resolveCallingConventionValues`
         .fn_type = fn_type,
@@ -370,10 +367,7 @@ pub fn generate(
     defer function.dbg_info_relocs.deinit(gpa);
 
     var call_info = function.resolveCallingConventionValues(fn_type) catch |err| switch (err) {
-        error.CodegenFail => return Result{ .fail = function.err_msg.? },
-        error.OutOfRegisters => return Result{
-            .fail = try ErrorMsg.create(gpa, src_loc, "CodeGen ran out of registers. This is a bug in the Zig compiler.", .{}),
-        },
+        error.CodegenFail => return error.CodegenFail,
         else => |e| return e,
     };
     defer call_info.deinit(&function);
@@ -384,15 +378,14 @@ pub fn generate(
     function.max_end_stack = call_info.stack_byte_count;
 
     function.gen() catch |err| switch (err) {
-        error.CodegenFail => return Result{ .fail = function.err_msg.? },
-        error.OutOfRegisters => return Result{
-            .fail = try ErrorMsg.create(gpa, src_loc, "CodeGen ran out of registers. This is a bug in the Zig compiler.", .{}),
-        },
+        error.CodegenFail => return error.CodegenFail,
+        error.OutOfRegisters => return function.fail("ran out of registers (Zig compiler bug)", .{}),
         else => |e| return e,
     };
 
     for (function.dbg_info_relocs.items) |reloc| {
-        try reloc.genDbgInfo(function);
+        reloc.genDbgInfo(function) catch |err|
+            return function.fail("failed to generate debug info: {s}", .{@errorName(err)});
     }
 
     var mir: Mir = .{
@@ -417,15 +410,9 @@ pub fn generate(
     defer emit.deinit();
 
     emit.emitMir() catch |err| switch (err) {
-        error.EmitFail => return Result{ .fail = emit.err_msg.? },
+        error.EmitFail => return function.failMsg(emit.err_msg.?),
         else => |e| return e,
     };
-
-    if (function.err_msg) |em| {
-        return Result{ .fail = em };
-    } else {
-        return Result.ok;
-    }
 }
 
 fn addInst(self: *Self, inst: Mir.Inst) error{OutOfMemory}!Mir.Inst.Index {
@@ -567,7 +554,7 @@ fn gen(self: *Self) !void {
                 .data = .{ .rr_imm12_sh = .{ .rd = .sp, .rn = .sp, .imm12 = size } },
             });
         } else {
-            return self.failSymbol("TODO AArch64: allow larger stacks", .{});
+            @panic("TODO AArch64: allow larger stacks");
         }
 
         _ = try self.addInst(.{
@@ -6191,10 +6178,7 @@ fn genTypedValue(self: *Self, val: Value) InnerError!MCValue {
             .load_direct => |sym_index| .{ .linker_load = .{ .type = .direct, .sym_index = sym_index } },
             .load_symbol, .load_tlv, .lea_symbol, .lea_direct => unreachable, // TODO
         },
-        .fail => |msg| {
-            self.err_msg = msg;
-            return error.CodegenFail;
-        },
+        .fail => |msg| return self.failMsg(msg),
     };
     return mcv;
 }
@@ -6355,18 +6339,14 @@ fn wantSafety(self: *Self) bool {
     };
 }
 
-fn fail(self: *Self, comptime format: []const u8, args: anytype) InnerError {
+fn fail(self: *Self, comptime format: []const u8, args: anytype) error{ OutOfMemory, CodegenFail } {
     @branchHint(.cold);
-    assert(self.err_msg == null);
-    self.err_msg = try ErrorMsg.create(self.gpa, self.src_loc, format, args);
-    return error.CodegenFail;
+    return self.pt.zcu.codegenFail(self.owner_nav, format, args);
 }
 
-fn failSymbol(self: *Self, comptime format: []const u8, args: anytype) InnerError {
+fn failMsg(self: *Self, msg: *ErrorMsg) error{ OutOfMemory, CodegenFail } {
     @branchHint(.cold);
-    assert(self.err_msg == null);
-    self.err_msg = try ErrorMsg.create(self.gpa, self.src_loc, format, args);
-    return error.CodegenFail;
+    return self.pt.zcu.codegenFailMsg(self.owner_nav, msg);
 }
 
 fn parseRegName(name: []const u8) ?Register {

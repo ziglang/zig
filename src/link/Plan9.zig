@@ -465,7 +465,7 @@ pub fn updateNav(self: *Plan9, pt: Zcu.PerThread, nav_index: InternPool.Nav.Inde
         var code_buffer = std.ArrayList(u8).init(gpa);
         defer code_buffer.deinit();
         // TODO we need the symbol index for symbol in the table of locals for the containing atom
-        const res = try codegen.generateSymbol(
+        try codegen.generateSymbol(
             &self.base,
             pt,
             zcu.navSrcLoc(nav_index),
@@ -473,10 +473,7 @@ pub fn updateNav(self: *Plan9, pt: Zcu.PerThread, nav_index: InternPool.Nav.Inde
             &code_buffer,
             .{ .atom_index = @intCast(atom_idx) },
         );
-        const code = switch (res) {
-            .ok => code_buffer.items,
-            .fail => |em| return zcu.failed_codegen.put(gpa, nav_index, em),
-        };
+        const code = code_buffer.items;
         try self.data_nav_table.ensureUnusedCapacity(gpa, 1);
         const duped_code = try gpa.dupe(u8, code);
         self.getAtomPtr(self.navs.get(nav_index).?.index).code = .{ .code_ptr = null, .other = .{ .nav_index = nav_index } };
@@ -1081,7 +1078,7 @@ fn updateLazySymbolAtom(
 
     // generate the code
     const src = Type.fromInterned(sym.ty).srcLocOrNull(pt.zcu) orelse Zcu.LazySrcLoc.unneeded;
-    const res = codegen.generateLazySymbol(
+    codegen.generateLazySymbol(
         &self.base,
         pt,
         src,
@@ -1095,10 +1092,7 @@ fn updateLazySymbolAtom(
         error.CodegenFail => return error.LinkFailure,
         error.Overflow => return diags.fail("codegen failure: encountered number too big for compiler", .{}),
     };
-    const code = switch (res) {
-        .ok => code_buffer.items,
-        .fail => |em| return diags.fail("codegen failure: {s}", .{em.msg}),
-    };
+    const code = code_buffer.items;
     // duped_code is freed when the atom is freed
     const duped_code = try gpa.dupe(u8, code);
     errdefer gpa.free(duped_code);
@@ -1408,11 +1402,8 @@ pub fn lowerUav(
     gop.value_ptr.* = index;
     // we need to free name latex
     var code_buffer = std.ArrayList(u8).init(gpa);
-    const res = try codegen.generateSymbol(&self.base, pt, src_loc, val, &code_buffer, .{ .atom_index = index });
-    const code = switch (res) {
-        .ok => code_buffer.items,
-        .fail => |em| return .{ .fail = em },
-    };
+    try codegen.generateSymbol(&self.base, pt, src_loc, val, &code_buffer, .{ .atom_index = index });
+    const code = code_buffer.items;
     const atom_ptr = self.getAtomPtr(index);
     atom_ptr.* = .{
         .type = .d,

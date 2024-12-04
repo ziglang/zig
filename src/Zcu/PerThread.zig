@@ -1726,7 +1726,6 @@ pub fn linkerUpdateFunc(pt: Zcu.PerThread, func_index: InternPool.Index, air: Ai
         lf.updateFunc(pt, func_index, air, liveness) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             error.CodegenFail => assert(zcu.failed_codegen.contains(nav_index)),
-            error.LinkFailure => assert(comp.link_diags.hasErrors()),
             error.Overflow => {
                 try zcu.failed_codegen.putNoClobber(gpa, nav_index, try Zcu.ErrorMsg.create(
                     gpa,
@@ -3112,7 +3111,6 @@ pub fn linkerUpdateNav(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) error
         lf.updateNav(pt, nav_index) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             error.CodegenFail => assert(zcu.failed_codegen.contains(nav_index)),
-            error.LinkFailure => assert(comp.link_diags.hasErrors()),
             error.Overflow => {
                 try zcu.failed_codegen.putNoClobber(gpa, nav_index, try Zcu.ErrorMsg.create(
                     gpa,
@@ -3139,7 +3137,7 @@ pub fn linkerUpdateContainerType(pt: Zcu.PerThread, ty: InternPool.Index) error{
     const codegen_prog_node = zcu.codegen_prog_node.start(Type.fromInterned(ty).containerTypeName(ip).toSlice(ip), 0);
     defer codegen_prog_node.end();
 
-    if (zcu.failed_types.fetchSwapRemove(ty)) |entry| entry.deinit();
+    if (zcu.failed_types.fetchSwapRemove(ty)) |*entry| entry.value.deinit(gpa);
 
     if (!Air.typeFullyResolved(Type.fromInterned(ty), zcu)) {
         // This type failed to resolve. This is a transitive failure.
@@ -3148,12 +3146,7 @@ pub fn linkerUpdateContainerType(pt: Zcu.PerThread, ty: InternPool.Index) error{
 
     if (comp.bin_file) |lf| lf.updateContainerType(pt, ty) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
-        else => |e| try zcu.failed_types.putNoClobber(gpa, ty, try Zcu.ErrorMsg.create(
-            gpa,
-            zcu.typeSrcLoc(ty),
-            "failed to update container type: {s}",
-            .{@errorName(e)},
-        )),
+        error.TypeFailureReported => assert(zcu.failed_types.contains(ty)),
     };
 }
 

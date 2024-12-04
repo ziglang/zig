@@ -673,7 +673,13 @@ pub const File = struct {
         }
     }
 
-    pub fn updateContainerType(base: *File, pt: Zcu.PerThread, ty: InternPool.Index) UpdateNavError!void {
+    pub const UpdateContainerTypeError = error{
+        OutOfMemory,
+        /// `Zcu.failed_types` is already populated with the error message.
+        TypeFailureReported,
+    };
+
+    pub fn updateContainerType(base: *File, pt: Zcu.PerThread, ty: InternPool.Index) UpdateContainerTypeError!void {
         switch (base.tag) {
             else => {},
             inline .elf => |tag| {

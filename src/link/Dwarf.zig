@@ -21,7 +21,6 @@ debug_rnglists: DebugRngLists,
 debug_str: StringSection,
 
 pub const UpdateError = error{
-    CodegenFail,
     ReinterpretDeclRef,
     Unimplemented,
     OutOfMemory,
@@ -1893,17 +1892,15 @@ pub const WipNav = struct {
         if (bytes == 0) return;
         var dim = wip_nav.debug_info.toManaged(wip_nav.dwarf.gpa);
         defer wip_nav.debug_info = dim.moveToUnmanaged();
-        switch (try codegen.generateSymbol(
+        try codegen.generateSymbol(
             wip_nav.dwarf.bin_file,
             wip_nav.pt,
             src_loc,
             val,
             &dim,
             .{ .debug_output = .{ .dwarf = wip_nav } },
-        )) {
-            .ok => assert(dim.items.len == wip_nav.debug_info.items.len + bytes),
-            .fail => unreachable,
-        }
+        );
+        assert(dim.items.len == wip_nav.debug_info.items.len + bytes);
     }
 
     const AbbrevCodeForForm = struct {
@@ -2346,7 +2343,6 @@ pub fn initWipNav(
 ) error{ OutOfMemory, CodegenFail }!?WipNav {
     return initWipNavInner(dwarf, pt, nav_index, sym_index) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
-        error.CodegenFail => return error.CodegenFail,
         else => |e| return pt.zcu.codegenFail(nav_index, "failed to init dwarf: {s}", .{@errorName(e)}),
     };
 }
@@ -2669,7 +2665,6 @@ pub fn finishWipNav(
 ) error{ OutOfMemory, CodegenFail }!void {
     return finishWipNavInner(dwarf, pt, nav_index, wip_nav) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
-        error.CodegenFail => return error.CodegenFail,
         else => |e| return pt.zcu.codegenFail(nav_index, "failed to finish dwarf: {s}", .{@errorName(e)}),
     };
 }
@@ -2701,7 +2696,6 @@ fn finishWipNavInner(
 pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) error{ OutOfMemory, CodegenFail }!void {
     return updateComptimeNavInner(dwarf, pt, nav_index) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
-        error.CodegenFail => return error.CodegenFail,
         else => |e| return pt.zcu.codegenFail(nav_index, "failed to update dwarf: {s}", .{@errorName(e)}),
     };
 }

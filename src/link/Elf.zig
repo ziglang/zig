@@ -2368,12 +2368,25 @@ pub fn updateContainerType(
     self: *Elf,
     pt: Zcu.PerThread,
     ty: InternPool.Index,
-) link.File.UpdateNavError!void {
+) link.File.UpdateContainerTypeError!void {
     if (build_options.skip_non_native and builtin.object_format != .elf) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
     if (self.llvm_object) |_| return;
-    return self.zigObjectPtr().?.updateContainerType(pt, ty);
+    const zcu = pt.zcu;
+    const gpa = zcu.gpa;
+    return self.zigObjectPtr().?.updateContainerType(pt, ty) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => |e| {
+            try zcu.failed_types.putNoClobber(gpa, ty, try Zcu.ErrorMsg.create(
+                gpa,
+                zcu.typeSrcLoc(ty),
+                "failed to update container type: {s}",
+                .{@errorName(e)},
+            ));
+            return error.TypeFailureReported;
+        },
+    };
 }
 
 pub fn updateExports(
