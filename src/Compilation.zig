@@ -3208,6 +3208,10 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
             if (!zcu.navFileScope(nav).okToReportErrors()) continue;
             try addModuleErrorMsg(zcu, &bundle, error_msg.*);
         }
+        for (zcu.failed_types.keys(), zcu.failed_types.values()) |ty_index, error_msg| {
+            if (!zcu.typeFileScope(ty_index).okToReportErrors()) continue;
+            try addModuleErrorMsg(zcu, &bundle, error_msg.*);
+        }
         for (zcu.failed_exports.values()) |value| {
             try addModuleErrorMsg(zcu, &bundle, value.*);
         }

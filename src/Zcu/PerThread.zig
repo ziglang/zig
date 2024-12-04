@@ -3130,24 +3130,31 @@ pub fn linkerUpdateNav(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) error
     }
 }
 
-pub fn linkerUpdateContainerType(pt: Zcu.PerThread, ty: InternPool.Index) !void {
+pub fn linkerUpdateContainerType(pt: Zcu.PerThread, ty: InternPool.Index) error{OutOfMemory}!void {
     const zcu = pt.zcu;
+    const gpa = zcu.gpa;
     const comp = zcu.comp;
     const ip = &zcu.intern_pool;
 
     const codegen_prog_node = zcu.codegen_prog_node.start(Type.fromInterned(ty).containerTypeName(ip).toSlice(ip), 0);
     defer codegen_prog_node.end();
 
+    if (zcu.failed_types.fetchSwapRemove(ty)) |entry| entry.deinit();
+
     if (!Air.typeFullyResolved(Type.fromInterned(ty), zcu)) {
         // This type failed to resolve. This is a transitive failure.
-        // TODO: do we need to mark this failure anywhere? I don't think so, since compilation
-        // will fail due to the type error anyway.
-    } else if (comp.bin_file) |lf| {
-        lf.updateContainerType(pt, ty) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
-            else => |e| log.err("codegen type failed: {s}", .{@errorName(e)}),
-        };
+        return;
     }
+
+    if (comp.bin_file) |lf| lf.updateContainerType(pt, ty) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => |e| try zcu.failed_types.putNoClobber(gpa, ty, try Zcu.ErrorMsg.create(
+            gpa,
+            zcu.typeSrcLoc(ty),
+            "failed to update container type: {s}",
+            .{@errorName(e)},
+        )),
+    };
 }
 
 pub fn linkerUpdateLineNumber(pt: Zcu.PerThread, ti: InternPool.TrackedInst.Index) !void {

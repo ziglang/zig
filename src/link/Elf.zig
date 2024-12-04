@@ -575,7 +575,7 @@ fn detectAllocCollision(self: *Elf, start: u64, size: u64) !?u64 {
         }
     }
 
-    if (at_end) try self.setEndPos(end);
+    if (at_end) try self.base.file.?.setEndPos(end);
     return null;
 }
 
@@ -638,7 +638,7 @@ pub fn growSection(self: *Elf, shdr_index: u32, needed_size: u64, min_alignment:
 
             shdr.sh_offset = new_offset;
         } else if (shdr.sh_offset + allocated_size == std.math.maxInt(u64)) {
-            try self.setEndPos(shdr.sh_offset + needed_size);
+            try self.base.file.?.setEndPos(shdr.sh_offset + needed_size);
         }
     }
 

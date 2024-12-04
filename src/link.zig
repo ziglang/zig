@@ -1290,11 +1290,7 @@ pub const File = struct {
         args: anytype,
     ) error{ CodegenFail, OutOfMemory } {
         @branchHint(.cold);
-        const zcu = base.comp.zcu.?;
-        const gpa = zcu.gpa;
-        try zcu.failed_codegen.ensureUnusedCapacity(gpa, 1);
-        const msg = try Zcu.ErrorMsg.create(gpa, zcu.navSrcLoc(nav_index), format, args);
-        zcu.failed_codegen.putAssumeCapacityNoClobber(gpa, nav_index, msg);
+        return base.comp.zcu.?.codegenFail(nav_index, format, args);
     }
 
     pub const C = @import("link/C.zig");

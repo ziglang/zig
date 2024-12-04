@@ -1300,7 +1300,9 @@ fn updateNavCode(
         const capacity = atom_ptr.capacity(elf_file);
         const need_realloc = code.len > capacity or !required_alignment.check(@intCast(atom_ptr.value));
         if (need_realloc) {
-            try self.allocateAtom(atom_ptr, true, elf_file);
+            self.allocateAtom(atom_ptr, true, elf_file) catch |err|
+                return elf_file.base.cgFail(nav_index, "failed to allocate atom: {s}", .{@errorName(err)});
+
             log.debug("growing {} from 0x{x} to 0x{x}", .{ nav.fqn.fmt(ip), old_vaddr, atom_ptr.value });
             if (old_vaddr != atom_ptr.value) {
                 sym.value = 0;
@@ -1310,7 +1312,9 @@ fn updateNavCode(
             // TODO shrink section size
         }
     } else {
-        try self.allocateAtom(atom_ptr, true, elf_file);
+        self.allocateAtom(atom_ptr, true, elf_file) catch |err|
+            return elf_file.base.cgFail(nav_index, "failed to allocate atom: {s}", .{@errorName(err)});
+
         errdefer self.freeNavMetadata(elf_file, sym_index);
         sym.value = 0;
         esym.st_value = 0;
@@ -1342,7 +1346,8 @@ fn updateNavCode(
     const shdr = elf_file.sections.items(.shdr)[shdr_index];
     if (shdr.sh_type != elf.SHT_NOBITS) {
         const file_offset = atom_ptr.offset(elf_file);
-        try elf_file.pwriteAll(code, file_offset);
+        elf_file.base.file.?.pwriteAll(code, file_offset) catch |err|
+            return elf_file.base.cgFail(nav_index, "failed to write to output file: {s}", .{@errorName(err)});
         log.debug("writing {} from 0x{x} to 0x{x}", .{ nav.fqn.fmt(ip), file_offset, file_offset + code.len });
     }
 }
@@ -1385,7 +1390,8 @@ fn updateTlv(
     const gop = try self.tls_variables.getOrPut(gpa, atom_ptr.atom_index);
     assert(!gop.found_existing); // TODO incremental updates
 
-    try self.allocateAtom(atom_ptr, true, elf_file);
+    self.allocateAtom(atom_ptr, true, elf_file) catch |err|
+        return elf_file.base.cgFail(nav_index, "failed to allocate atom: {s}", .{@errorName(err)});
     sym.value = 0;
     esym.st_value = 0;
 
@@ -1394,7 +1400,8 @@ fn updateTlv(
     const shdr = elf_file.sections.items(.shdr)[shndx];
     if (shdr.sh_type != elf.SHT_NOBITS) {
         const file_offset = atom_ptr.offset(elf_file);
-        try elf_file.pwriteAll(code, file_offset);
+        elf_file.base.file.?.pwriteAll(code, file_offset) catch |err|
+            return elf_file.base.cgFail(nav_index, "failed to write to output file: {s}", .{@errorName(err)});
         log.debug("writing TLV {s} from 0x{x} to 0x{x}", .{
             atom_ptr.name(elf_file),
             file_offset,
@@ -1513,7 +1520,8 @@ pub fn updateFunc(
             target_sym.flags.has_trampoline = true;
         }
         const target_sym = self.symbol(sym_index);
-        try writeTrampoline(self.symbol(target_sym.extra(elf_file).trampoline).*, target_sym.*, elf_file);
+        writeTrampoline(self.symbol(target_sym.extra(elf_file).trampoline).*, target_sym.*, elf_file) catch |err|
+            return elf_file.base.cgFail(func.owner_nav, "failed to write trampoline: {s}", .{@errorName(err)});
     }
 }
 
@@ -1898,7 +1906,7 @@ fn trampolineSize(cpu_arch: std.Target.Cpu.Arch) u64 {
     return len;
 }
 
-fn writeTrampoline(tr_sym: Symbol, target: Symbol, elf_file: *Elf) link.File.UpdateNavError!void {
+fn writeTrampoline(tr_sym: Symbol, target: Symbol, elf_file: *Elf) !void {
     const atom_ptr = tr_sym.atom(elf_file).?;
     const fileoff = atom_ptr.offset(elf_file);
     const source_addr = tr_sym.address(.{}, elf_file);
@@ -1908,7 +1916,7 @@ fn writeTrampoline(tr_sym: Symbol, target: Symbol, elf_file: *Elf) link.File.Upd
         .x86_64 => try x86_64.writeTrampolineCode(source_addr, target_addr, &buf),
         else => @panic("TODO implement write trampoline for this CPU arch"),
     };
-    try elf_file.pwriteAll(out, fileoff);
+    try elf_file.base.file.?.pwriteAll(out, fileoff);
 
     if (elf_file.base.child_pid) |pid| {
         switch (builtin.os.tag) {

@@ -55,7 +55,10 @@ pub fn flushObject(macho_file: *MachO, comp: *Compilation, module_obj_path: ?Pat
     try calcSectionSizes(macho_file);
 
     try createSegment(macho_file);
-    try allocateSections(macho_file);
+    allocateSections(macho_file) catch |err| switch (err) {
+        error.LinkFailure => return error.LinkFailure,
+        else => |e| return diags.fail("failed to allocate sections: {s}", .{@errorName(e)}),
+    };
     allocateSegment(macho_file);
 
     if (build_options.enable_logging) {

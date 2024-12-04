@@ -127,6 +127,7 @@ transitive_failed_analysis: std.AutoArrayHashMapUnmanaged(AnalUnit, void) = .emp
 /// This may be a simple "value" `Nav`, or it may be a function.
 /// The ErrorMsg memory is owned by the `AnalUnit`, using Module's general purpose allocator.
 failed_codegen: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, *ErrorMsg) = .empty,
+failed_types: std.AutoArrayHashMapUnmanaged(InternPool.Index, *ErrorMsg) = .empty,
 /// Keep track of one `@compileLog` callsite per `AnalUnit`.
 /// The value is the source location of the `@compileLog` call, convertible to a `LazySrcLoc`.
 compile_log_sources: std.AutoArrayHashMapUnmanaged(AnalUnit, extern struct {
@@ -2448,16 +2449,14 @@ pub fn deinit(zcu: *Zcu) void {
         zcu.local_zir_cache.handle.close();
         zcu.global_zir_cache.handle.close();
 
-        for (zcu.failed_analysis.values()) |value| {
-            value.destroy(gpa);
-        }
-        for (zcu.failed_codegen.values()) |value| {
-            value.destroy(gpa);
-        }
+        for (zcu.failed_analysis.values()) |value| value.destroy(gpa);
+        for (zcu.failed_codegen.values()) |value| value.destroy(gpa);
+        for (zcu.failed_types.values()) |value| value.destroy(gpa);
         zcu.analysis_in_progress.deinit(gpa);
         zcu.failed_analysis.deinit(gpa);
         zcu.transitive_failed_analysis.deinit(gpa);
         zcu.failed_codegen.deinit(gpa);
+        zcu.failed_types.deinit(gpa);
 
         for (zcu.failed_files.values()) |value| {
             if (value) |msg| msg.destroy(gpa);
@@ -3800,6 +3799,18 @@ pub fn navSrcLoc(zcu: *const Zcu, nav_index: InternPool.Nav.Index) LazySrcLoc {
     };
 }
 
+pub fn typeSrcLoc(zcu: *const Zcu, ty_index: InternPool.Index) LazySrcLoc {
+    _ = zcu;
+    _ = ty_index;
+    @panic("TODO");
+}
+
+pub fn typeFileScope(zcu: *Zcu, ty_index: InternPool.Index) *File {
+    _ = zcu;
+    _ = ty_index;
+    @panic("TODO");
+}
+
 pub fn navSrcLine(zcu: *Zcu, nav_index: InternPool.Nav.Index) u32 {
     const ip = &zcu.intern_pool;
     const inst_info = ip.getNav(nav_index).srcInst(ip).resolveFull(ip).?;
@@ -4059,4 +4070,17 @@ pub fn navValIsConst(zcu: *const Zcu, val: InternPool.Index) bool {
         .@"extern" => |e| e.is_const,
         else => true,
     };
+}
+
+pub fn codegenFail(
+    zcu: *Zcu,
+    nav_index: InternPool.Nav.Index,
+    comptime format: []const u8,
+    args: anytype,
+) error{ CodegenFail, OutOfMemory } {
+    const gpa = zcu.gpa;
+    try zcu.failed_codegen.ensureUnusedCapacity(gpa, 1);
+    const msg = try Zcu.ErrorMsg.create(gpa, zcu.navSrcLoc(nav_index), format, args);
+    zcu.failed_codegen.putAssumeCapacityNoClobber(nav_index, msg);
+    return error.CodegenFail;
 }

@@ -532,7 +532,10 @@ pub fn flushModule(self: *MachO, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
     try self.generateUnwindInfo();
 
     try self.initSegments();
-    try self.allocateSections();
+    self.allocateSections() catch |err| switch (err) {
+        error.LinkFailure => return error.LinkFailure,
+        else => |e| return diags.fail("failed to allocate sections: {s}", .{@errorName(e)}),
+    };
     self.allocateSegments();
     self.allocateSyntheticSymbols();
 
@@ -3133,7 +3136,7 @@ fn detectAllocCollision(self: *MachO, start: u64, size: u64) !?u64 {
         }
     }
 
-    if (at_end) try self.setEndPos(end);
+    if (at_end) try self.base.file.?.setEndPos(end);
     return null;
 }
 
@@ -3217,25 +3220,22 @@ pub fn findFreeSpaceVirtual(self: *MachO, object_size: u64, min_alignment: u32) 
     return start;
 }
 
-pub fn copyRangeAll(self: *MachO, old_offset: u64, new_offset: u64, size: u64) error{LinkFailure}!void {
-    const diags = &self.base.comp.link_diags;
+pub fn copyRangeAll(self: *MachO, old_offset: u64, new_offset: u64, size: u64) !void {
     const file = self.base.file.?;
-    const amt = file.copyRangeAll(old_offset, file, new_offset, size) catch |err|
-        return diags.fail("failed to copy file range: {s}", .{@errorName(err)});
-    if (amt != size)
-        return diags.fail("unexpected short write in copy file range", .{});
+    const amt = try file.copyRangeAll(old_offset, file, new_offset, size);
+    if (amt != size) return error.InputOutput;
 }
 
 /// Like File.copyRangeAll but also ensures the source region is zeroed out after copy.
 /// This is so that we guarantee zeroed out regions for mapping of zerofill sections by the loader.
-fn copyRangeAllZeroOut(self: *MachO, old_offset: u64, new_offset: u64, size: u64) error{ LinkFailure, OutOfMemory }!void {
+fn copyRangeAllZeroOut(self: *MachO, old_offset: u64, new_offset: u64, size: u64) !void {
     const gpa = self.base.comp.gpa;
     try self.copyRangeAll(old_offset, new_offset, size);
-    const size_u = try self.cast(usize, size);
+    const size_u = math.cast(usize, size) orelse return error.Overflow;
     const zeroes = try gpa.alloc(u8, size_u); // TODO no need to allocate here.
     defer gpa.free(zeroes);
     @memset(zeroes, 0);
-    try self.pwriteAll(zeroes, old_offset);
+    try self.base.file.?.pwriteAll(zeroes, old_offset);
 }
 
 const InitMetadataOptions = struct {
@@ -3459,7 +3459,7 @@ fn growSectionNonRelocatable(self: *MachO, sect_index: u8, needed_size: u64) !vo
 
             sect.offset = @intCast(new_offset);
         } else if (sect.offset + allocated_size == std.math.maxInt(u64)) {
-            try self.setEndPos(sect.offset + needed_size);
+            try self.base.file.?.setEndPos(sect.offset + needed_size);
         }
         seg.filesize = needed_size;
     }
@@ -3508,7 +3508,7 @@ fn growSectionRelocatable(self: *MachO, sect_index: u8, needed_size: u64) !void 
             sect.offset = @intCast(new_offset);
             sect.addr = new_addr;
         } else if (sect.offset + allocated_size == std.math.maxInt(u64)) {
-            try self.setEndPos(sect.offset + needed_size);
+            try self.base.file.?.setEndPos(sect.offset + needed_size);
         }
     }
     sect.size = needed_size;
