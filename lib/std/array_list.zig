@@ -63,7 +63,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// Deinitialize with `deinit` or use `toOwnedSlice`.
         pub fn initCapacity(allocator: Allocator, num: usize) Allocator.Error!Self {
             var self = Self.init(allocator);
-            try self.ensureTotalCapacityPrecise(num);
+            try self.reserveTotalPrecise(num);
             return self;
         }
 
@@ -127,7 +127,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// The caller owns the returned memory. Empties this ArrayList.
         pub fn toOwnedSliceSentinel(self: *Self, comptime sentinel: T) Allocator.Error!SentinelSlice(sentinel) {
             // This addition can never overflow because `self.items` can never occupy the whole address space
-            try self.ensureTotalCapacityPrecise(self.items.len + 1);
+            try self.reserveTotalPrecise(self.items.len + 1);
             self.appendReserved(sentinel);
             const result = try self.toOwnedSlice();
             return result[0 .. result.len - 1 :sentinel];
@@ -193,8 +193,8 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
                 return addManyAtReserved(self, index, count);
             }
 
-            // Make a new allocation, avoiding `ensureTotalCapacity` in order
-            // to avoid extra memory copies.
+            // Make a new allocation, avoiding extra memory copies by avoiding
+            // `reserveTotal`.
             const new_memory = try self.allocator.alignedAlloc(T, alignment, new_capacity);
             const to_move = self.items[index..];
             @memcpy(new_memory[0..index], self.items[0..index]);
@@ -314,7 +314,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// memory as necessary.
         /// Invalidates element pointers if additional memory is needed.
         pub fn appendSlice(self: *Self, items: []const T) Allocator.Error!void {
-            try self.ensureUnusedCapacity(items.len);
+            try self.reserveUnused(items.len);
             self.appendSliceReserved(items);
         }
 
@@ -337,7 +337,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// `appendSlice` instead would be a compile error.
         /// Invalidates element pointers if additional memory is needed.
         pub fn appendUnalignedSlice(self: *Self, items: []align(1) const T) Allocator.Error!void {
-            try self.ensureUnusedCapacity(items.len);
+            try self.reserveUnused(items.len);
             self.appendUnalignedSliceReserved(items);
         }
 
@@ -425,7 +425,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// Additional elements contain the value `undefined`.
         /// Invalidates element pointers if additional memory is needed.
         pub fn resize(self: *Self, new_len: usize) Allocator.Error!void {
-            try self.ensureTotalCapacity(new_len);
+            try self.reserveTotal(new_len);
             self.items.len = new_len;
         }
 
@@ -458,10 +458,13 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             self.capacity = 0;
         }
 
+        /// Deprecated. To be removed after 0.14.0 is tagged.
+        pub const ensureTotalCapacity = reserveTotal;
+
         /// If the current capacity is less than `new_capacity`, this function will
         /// modify the array so that it can hold at least `new_capacity` items.
         /// Invalidates element pointers if additional memory is needed.
-        pub fn ensureTotalCapacity(self: *Self, new_capacity: usize) Allocator.Error!void {
+        pub fn reserveTotal(self: *Self, new_capacity: usize) Allocator.Error!void {
             if (@sizeOf(T) == 0) {
                 self.capacity = math.maxInt(usize);
                 return;
@@ -470,13 +473,16 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             if (self.capacity >= new_capacity) return;
 
             const better_capacity = growCapacity(self.capacity, new_capacity);
-            return self.ensureTotalCapacityPrecise(better_capacity);
+            return self.reserveTotalPrecise(better_capacity);
         }
+
+        /// Deprecated. To be removed after 0.14.0 is tagged.
+        pub const ensureTotalCapacityPrecise = reserveTotalPrecise;
 
         /// If the current capacity is less than `new_capacity`, this function will
         /// modify the array so that it can hold exactly `new_capacity` items.
         /// Invalidates element pointers if additional memory is needed.
-        pub fn ensureTotalCapacityPrecise(self: *Self, new_capacity: usize) Allocator.Error!void {
+        pub fn reserveTotalPrecise(self: *Self, new_capacity: usize) Allocator.Error!void {
             if (@sizeOf(T) == 0) {
                 self.capacity = math.maxInt(usize);
                 return;
@@ -501,10 +507,13 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             }
         }
 
+        /// Deprecated. To be removed after 0.14.0 is tagged.
+        pub const ensureUnusedCapacity = reserveUnused;
+
         /// Modify the array so that it can hold at least `additional_count` **more** items.
         /// Invalidates element pointers if additional memory is needed.
-        pub fn ensureUnusedCapacity(self: *Self, additional_count: usize) Allocator.Error!void {
-            return self.ensureTotalCapacity(try addOrOom(self.items.len, additional_count));
+        pub fn reserveUnused(self: *Self, additional_count: usize) Allocator.Error!void {
+            return self.reserveTotal(try addOrOom(self.items.len, additional_count));
         }
 
         /// Increases the array's length to match the full capacity that is already allocated.
@@ -519,7 +528,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         pub fn addOne(self: *Self) Allocator.Error!*T {
             // This can never overflow because `self.items` can never occupy the whole address space
             const newlen = self.items.len + 1;
-            try self.ensureTotalCapacity(newlen);
+            try self.reserveTotal(newlen);
             return self.addOneReserved();
         }
 
@@ -687,7 +696,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// Deinitialize with `deinit` or use `toOwnedSlice`.
         pub fn initCapacity(allocator: Allocator, num: usize) Allocator.Error!Self {
             var self = Self{};
-            try self.ensureTotalCapacityPrecise(allocator, num);
+            try self.reserveTotalPrecise(allocator, num);
             return self;
         }
 
@@ -754,7 +763,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// The caller owns the returned memory. ArrayList becomes empty.
         pub fn toOwnedSliceSentinel(self: *Self, allocator: Allocator, comptime sentinel: T) Allocator.Error!SentinelSlice(sentinel) {
             // This addition can never overflow because `self.items` can never occupy the whole address space
-            try self.ensureTotalCapacityPrecise(allocator, self.items.len + 1);
+            try self.reserveTotalPrecise(allocator, self.items.len + 1);
             self.appendReserved(sentinel);
             const result = try self.toOwnedSlice(allocator);
             return result[0 .. result.len - 1 :sentinel];
@@ -954,7 +963,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// memory as necessary.
         /// Invalidates element pointers if additional memory is needed.
         pub fn appendSlice(self: *Self, allocator: Allocator, items: []const T) Allocator.Error!void {
-            try self.ensureUnusedCapacity(allocator, items.len);
+            try self.reserveUnused(allocator, items.len);
             self.appendSliceReserved(items);
         }
 
@@ -976,7 +985,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// be a compile error.
         /// Invalidates element pointers if additional memory is needed.
         pub fn appendUnalignedSlice(self: *Self, allocator: Allocator, items: []align(1) const T) Allocator.Error!void {
-            try self.ensureUnusedCapacity(allocator, items.len);
+            try self.reserveUnused(allocator, items.len);
             self.appendUnalignedSliceReserved(items);
         }
 
@@ -1049,6 +1058,9 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             @memset(self.items[old_len..self.items.len], value);
         }
 
+        /// Deprecated. To be removed after 0.14.0 is tagged.
+        pub const appendNTimesAssumeCapacity = appendNTimesReserved;
+
         /// Append a value to the list `n` times.
         /// Never invalidates element pointers.
         /// The function is inline so that a comptime-known `value` parameter will
@@ -1065,7 +1077,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// Additional elements contain the value `undefined`.
         /// Invalidates element pointers if additional memory is needed.
         pub fn resize(self: *Self, allocator: Allocator, new_len: usize) Allocator.Error!void {
-            try self.ensureTotalCapacity(allocator, new_len);
+            try self.reserveTotal(allocator, new_len);
             self.items.len = new_len;
         }
 
@@ -1122,20 +1134,26 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             self.capacity = 0;
         }
 
+        /// Deprecated. To be removed after 0.14.0 is tagged.
+        pub const ensureTotalCapacity = reserveTotal;
+
         /// If the current capacity is less than `new_capacity`, this function will
         /// modify the array so that it can hold at least `new_capacity` items.
         /// Invalidates element pointers if additional memory is needed.
-        pub fn ensureTotalCapacity(self: *Self, allocator: Allocator, new_capacity: usize) Allocator.Error!void {
+        pub fn reserveTotal(self: *Self, allocator: Allocator, new_capacity: usize) Allocator.Error!void {
             if (self.capacity >= new_capacity) return;
 
             const better_capacity = growCapacity(self.capacity, new_capacity);
-            return self.ensureTotalCapacityPrecise(allocator, better_capacity);
+            return self.reserveTotalPrecise(allocator, better_capacity);
         }
+
+        /// Deprecated. To be removed after 0.14.0 is tagged.
+        pub const ensureTotalCapacityPrecise = reserveTotalPrecise;
 
         /// If the current capacity is less than `new_capacity`, this function will
         /// modify the array so that it can hold exactly `new_capacity` items.
         /// Invalidates element pointers if additional memory is needed.
-        pub fn ensureTotalCapacityPrecise(self: *Self, allocator: Allocator, new_capacity: usize) Allocator.Error!void {
+        pub fn reserveTotalPrecise(self: *Self, allocator: Allocator, new_capacity: usize) Allocator.Error!void {
             if (@sizeOf(T) == 0) {
                 self.capacity = math.maxInt(usize);
                 return;
@@ -1160,14 +1178,13 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             }
         }
 
+        /// Deprecated. To be removed after 0.14.0 is tagged.
+        pub const ensureUnusedCapacity = reserveUnused;
+
         /// Modify the array so that it can hold at least `additional_count` **more** items.
         /// Invalidates element pointers if additional memory is needed.
-        pub fn ensureUnusedCapacity(
-            self: *Self,
-            allocator: Allocator,
-            additional_count: usize,
-        ) Allocator.Error!void {
-            return self.ensureTotalCapacity(allocator, try addOrOom(self.items.len, additional_count));
+        pub fn reserveUnused(self: *Self, allocator: Allocator, additional_count: usize) Allocator.Error!void {
+            return self.reserveTotal(allocator, try addOrOom(self.items.len, additional_count));
         }
 
         /// Increases the array's length to match the full capacity that is already allocated.
@@ -1182,7 +1199,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         pub fn addOne(self: *Self, allocator: Allocator) Allocator.Error!*T {
             // This can never overflow because `self.items` can never occupy the whole address space
             const newlen = self.items.len + 1;
-            try self.ensureTotalCapacity(allocator, newlen);
+            try self.reserveTotal(allocator, newlen);
             return self.addOneReserved();
         }
 
@@ -2077,7 +2094,7 @@ test "addManyAsArray" {
         defer list.deinit();
 
         (try list.addManyAsArray(4)).* = "aoeu".*;
-        try list.ensureTotalCapacity(8);
+        try list.reserveTotal(8);
         list.addManyAsArrayReserved(4).* = "asdf".*;
 
         try testing.expectEqualSlices(u8, list.items, "aoeuasdf");
@@ -2087,7 +2104,7 @@ test "addManyAsArray" {
         defer list.deinit(a);
 
         (try list.addManyAsArray(a, 4)).* = "aoeu".*;
-        try list.ensureTotalCapacity(a, 8);
+        try list.reserveTotal(a, 8);
         list.addManyAsArrayReserved(4).* = "asdf".*;
 
         try testing.expectEqualSlices(u8, list.items, "aoeuasdf");
@@ -2304,7 +2321,7 @@ test "return OutOfMemory when capacity would exceed maximum usize integer value"
         try testing.expectError(error.OutOfMemory, list.addManyAsArray(a, 2));
         try testing.expectError(error.OutOfMemory, list.addManyAsSlice(a, 2));
         try testing.expectError(error.OutOfMemory, list.insertSlice(a, 0, items));
-        try testing.expectError(error.OutOfMemory, list.ensureUnusedCapacity(a, 2));
+        try testing.expectError(error.OutOfMemory, list.reserveUnused(a, 2));
     }
 
     {
@@ -2322,7 +2339,7 @@ test "return OutOfMemory when capacity would exceed maximum usize integer value"
         try testing.expectError(error.OutOfMemory, list.addManyAsArray(2));
         try testing.expectError(error.OutOfMemory, list.addManyAsSlice(2));
         try testing.expectError(error.OutOfMemory, list.insertSlice(0, items));
-        try testing.expectError(error.OutOfMemory, list.ensureUnusedCapacity(2));
+        try testing.expectError(error.OutOfMemory, list.reserveUnused(2));
     }
 }
 
