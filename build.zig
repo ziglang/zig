@@ -551,7 +551,7 @@ pub fn build(b: *std.Build) !void {
     }));
     test_step.dependOn(tests.addLinkTests(b, enable_macos_sdk, enable_ios_sdk, enable_symlinks_windows));
     test_step.dependOn(tests.addStackTraceTests(b, test_filters, optimization_modes));
-    test_step.dependOn(tests.addDebugFormatStackTraceTests(b));
+    test_step.dependOn(tests.addDebugFormatStackTraceTests(b, optimization_modes));
     test_step.dependOn(tests.addCliTests(b));
     test_step.dependOn(tests.addAssembleAndLinkTests(b, test_filters, optimization_modes));
     if (tests.addDebuggerTests(b, .{
