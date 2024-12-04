@@ -3,11 +3,6 @@ const std = @import("std");
 const mem = std.mem;
 const fs = std.fs;
 
-const DebugFormat = enum {
-    symbols,
-    dwarf32,
-};
-
 pub fn main() !void {
     var arena_instance = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena_instance.deinit();
@@ -19,7 +14,7 @@ pub fn main() !void {
     const debug_format_text = args[2];
 
     const input_bytes = try std.fs.cwd().readFileAlloc(arena, input_path, 5 * 1024 * 1024);
-    const debug_format = std.meta.stringToEnum(DebugFormat, debug_format_text).?;
+    const debug_format = std.meta.stringToEnum(std.builtin.DebugFormat, debug_format_text).?;
     _ = debug_format;
 
     var stderr = input_bytes;

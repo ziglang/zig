@@ -18,11 +18,6 @@ const Config = struct {
     };
 };
 
-const DebugFormat = enum {
-    symbols,
-    dwarf32,
-};
-
 pub fn addCase(this: *@This(), config: Config) void {
     if (config.symbols) |per_format|
         this.addExpect(config.name, config.source, .symbols, per_format);
@@ -35,7 +30,7 @@ fn addExpect(
     this: *@This(),
     name: []const u8,
     source: []const u8,
-    debug_format: DebugFormat,
+    debug_format: std.builtin.DebugFormat,
     mode_config: Config.PerFormat,
 ) void {
     for (mode_config.exclude_os) |tag| if (tag == builtin.os.tag) return;
@@ -56,21 +51,10 @@ fn addExpect(
             .root_source_file = source_zig,
             .target = b.graph.host,
             .optimize = mode,
+            .debuginfo = debug_format,
         });
-        exe.root_module.strip = false;
 
-        const exe_path_to_run: std.Build.LazyPath = switch (debug_format) {
-            .symbols => blk: {
-                const debug_stripped_exe = exe.addObjCopy(.{
-                    .strip = .debug,
-                });
-                break :blk debug_stripped_exe.getOutput();
-            },
-            .dwarf32 => exe.getEmittedBin(),
-        };
-
-        const run = std.Build.Step.Run.create(b, "test");
-        run.addFileArg(exe_path_to_run);
+        const run = b.addRunArtifact(exe);
         run.removeEnvironmentVariable("CLICOLOR_FORCE");
         run.setEnvironmentVariable("NO_COLOR", "1");
 
