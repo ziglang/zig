@@ -3993,7 +3993,7 @@ fn performFn(start_value: i32) i32 {
       </p>
       <p>
       What if we fix the base case, but put the wrong value in the
-      {#syntax#}expect{#endsyntax#} line?
+      {#syntax#}assert{#endsyntax#} line?
       </p>
       {#code|test_fibonacci_comptime_unreachable.zig#}
 
