@@ -448,6 +448,7 @@ pub fn deinit(coff: *Coff) void {
     }
 
     coff.unresolved.deinit(gpa);
+    coff.need_got_table.deinit(gpa);
     coff.locals_free_list.deinit(gpa);
     coff.globals_free_list.deinit(gpa);
     coff.strtab.deinit(gpa);

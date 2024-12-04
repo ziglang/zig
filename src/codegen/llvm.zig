@@ -280,8 +280,7 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .cygnus => "cygnus",
         .simulator => "simulator",
         .macabi => "macabi",
-        .ohos => "ohos",
-        .ohoseabi => "ohoseabi",
+        .ohos, .ohoseabi => "ohos",
     };
     try llvm_triple.appendSlice(llvm_abi);
 

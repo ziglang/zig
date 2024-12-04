@@ -2451,7 +2451,10 @@ pub fn fadvise(fd: fd_t, offset: i64, len: i64, advice: usize) usize {
         const length_halves = splitValue64(len);
 
         return syscall6(
-            .fadvise64_64,
+            switch (builtin.abi) {
+                .gnuabin32, .gnux32, .muslabin32, .muslx32 => .fadvise64,
+                else => .fadvise64_64,
+            },
             @as(usize, @bitCast(@as(isize, fd))),
             offset_halves[0],
             offset_halves[1],

@@ -8,4 +8,4 @@ export fn entry() void {
 // backend=stage2
 // target=native
 //
-// :3:10: error: expected type 'error{Hi}', found '@TypeOf(.enum_literal)'
+// :3:10: error: expected type 'error{Hi}', found '@Type(.enum_literal)'
