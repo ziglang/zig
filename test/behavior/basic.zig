@@ -194,6 +194,107 @@ test "and/or branch hints" {
     });
 }
 
+test "for loop hints" {
+    const S = struct {
+        fn doTheTest() !void {
+            {
+                var x: u32 = 0;
+                for (0..10) |i| {
+                    @loopHint(.{ .unroll = .auto });
+                    x += @intCast(i);
+                }
+                try expect(x == 45);
+            }
+
+            {
+                var x: u32 = 0;
+                for (0..10) |_| {
+                    @loopHint(.{ .unroll = .disable });
+                    x += 1;
+                }
+                try expect(x == 10);
+            }
+
+            {
+                var x: u32 = 0;
+                for ([_]u32{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 }) |i| {
+                    @loopHint(.{ .unroll = .{ .count = 5 } });
+                    x += i;
+                }
+                try expect(x == 45);
+            }
+
+            {
+                var x: u32 = 0;
+                for ([_]u32{ 0, 1, 2, 3, 4 }, [_]u32{ 5, 6, 7, 8, 9 }) |i, j| {
+                    @loopHint(.{ .unroll = .auto });
+                    x += i + j;
+                }
+                try expect(x == 45);
+            }
+
+            {
+                for (0..3) |_| {
+                    @loopHint(.{ .unroll = .disable });
+                    @branchHint(.unlikely);
+                }
+
+                for (0..3) |_| {
+                    @branchHint(.unlikely);
+                    @loopHint(.{ .unroll = .{ .count = 5 } });
+                }
+            }
+        }
+    };
+
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}
+
+test "while loop hints" {
+    const S = struct {
+        fn doTheTest() !void {
+            {
+                var x: u32 = 0;
+                var i: u32 = 0;
+                while (i < 10) : (i += 1) {
+                    @loopHint(.{ .unroll = .auto });
+                    x += i;
+                }
+                try expect(x == 45);
+            }
+
+            {
+                var x: u32 = 0;
+                var i: u32 = 0;
+                while (i < 10) {
+                    @loopHint(.{ .unroll = .disable });
+                    x += i;
+                    i += 1;
+                }
+                try expect(x == 45);
+            }
+
+            {
+                var i: u32 = 0;
+                while (i < 10) : (i += 1) {
+                    @branchHint(.unlikely);
+                    @loopHint(.{ .unroll = .{ .count = 5 } });
+                }
+
+                i = 0;
+                while (i < 10) : (i += 1) {
+                    @loopHint(.{ .unroll = .auto });
+                    @branchHint(.unlikely);
+                }
+            }
+        }
+    };
+
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}
+
 test "unicode escape in character literal" {
     var a: u24 = '\u{01f4a9}';
     _ = &a;

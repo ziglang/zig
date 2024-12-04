@@ -13,6 +13,7 @@ pub const Tag = enum {
     int_from_bool,
     bit_size_of,
     branch_hint,
+    loop_hint,
     breakpoint,
     disable_instrumentation,
     disable_intrinsics,
@@ -244,6 +245,14 @@ pub const list = list: {
             "@branchHint",
             .{
                 .tag = .branch_hint,
+                .param_count = 1,
+                .illegal_outside_function = true,
+            },
+        },
+        .{
+            "@loopHint",
+            .{
+                .tag = .loop_hint,
                 .param_count = 1,
                 .illegal_outside_function = true,
             },
