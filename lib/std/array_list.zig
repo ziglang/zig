@@ -63,7 +63,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// Deinitialize with `deinit` or use `toOwnedSlice`.
         pub fn initCapacity(allocator: Allocator, num: usize) Allocator.Error!Self {
             var self = Self.init(allocator);
-            try self.reserveTotalPrecise(num);
+            try self.reserveTotalExact(num);
             return self;
         }
 
@@ -127,7 +127,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// The caller owns the returned memory. Empties this ArrayList.
         pub fn toOwnedSliceSentinel(self: *Self, comptime sentinel: T) Allocator.Error!SentinelSlice(sentinel) {
             // This addition can never overflow because `self.items` can never occupy the whole address space
-            try self.reserveTotalPrecise(self.items.len + 1);
+            try self.reserveTotalExact(self.items.len + 1);
             self.appendReserved(sentinel);
             const result = try self.toOwnedSlice();
             return result[0 .. result.len - 1 :sentinel];
@@ -473,16 +473,16 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             if (self.capacity >= new_capacity) return;
 
             const better_capacity = growCapacity(self.capacity, new_capacity);
-            return self.reserveTotalPrecise(better_capacity);
+            return self.reserveTotalExact(better_capacity);
         }
 
         /// Deprecated. To be removed after 0.14.0 is tagged.
-        pub const ensureTotalCapacityPrecise = reserveTotalPrecise;
+        pub const ensureTotalCapacityPrecise = reserveTotalExact;
 
         /// If the current capacity is less than `new_capacity`, this function will
         /// modify the array so that it can hold exactly `new_capacity` items.
         /// Invalidates element pointers if additional memory is needed.
-        pub fn reserveTotalPrecise(self: *Self, new_capacity: usize) Allocator.Error!void {
+        pub fn reserveTotalExact(self: *Self, new_capacity: usize) Allocator.Error!void {
             if (@sizeOf(T) == 0) {
                 self.capacity = math.maxInt(usize);
                 return;
@@ -696,7 +696,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// Deinitialize with `deinit` or use `toOwnedSlice`.
         pub fn initCapacity(allocator: Allocator, num: usize) Allocator.Error!Self {
             var self = Self{};
-            try self.reserveTotalPrecise(allocator, num);
+            try self.reserveTotalExact(allocator, num);
             return self;
         }
 
@@ -763,7 +763,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// The caller owns the returned memory. ArrayList becomes empty.
         pub fn toOwnedSliceSentinel(self: *Self, allocator: Allocator, comptime sentinel: T) Allocator.Error!SentinelSlice(sentinel) {
             // This addition can never overflow because `self.items` can never occupy the whole address space
-            try self.reserveTotalPrecise(allocator, self.items.len + 1);
+            try self.reserveTotalExact(allocator, self.items.len + 1);
             self.appendReserved(sentinel);
             const result = try self.toOwnedSlice(allocator);
             return result[0 .. result.len - 1 :sentinel];
@@ -1144,16 +1144,16 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             if (self.capacity >= new_capacity) return;
 
             const better_capacity = growCapacity(self.capacity, new_capacity);
-            return self.reserveTotalPrecise(allocator, better_capacity);
+            return self.reserveTotalExact(allocator, better_capacity);
         }
 
         /// Deprecated. To be removed after 0.14.0 is tagged.
-        pub const ensureTotalCapacityPrecise = reserveTotalPrecise;
+        pub const ensureTotalCapacityPrecise = reserveTotalExact;
 
         /// If the current capacity is less than `new_capacity`, this function will
         /// modify the array so that it can hold exactly `new_capacity` items.
         /// Invalidates element pointers if additional memory is needed.
-        pub fn reserveTotalPrecise(self: *Self, allocator: Allocator, new_capacity: usize) Allocator.Error!void {
+        pub fn reserveTotalExact(self: *Self, allocator: Allocator, new_capacity: usize) Allocator.Error!void {
             if (@sizeOf(T) == 0) {
                 self.capacity = math.maxInt(usize);
                 return;
