@@ -1130,6 +1130,7 @@ pub fn addStackTraceTests(
 
 pub fn addDebugFormatStackTraceTests(
     b: *std.Build,
+    optimize_modes: []const OptimizeMode,
 ) *Step {
     const check_exe = b.addExecutable(.{
         .name = "check-debug-format-stack-trace",
@@ -1144,6 +1145,7 @@ pub fn addDebugFormatStackTraceTests(
         .step = b.step("test-debug-format-stack-traces", "Run the debug format stack trace tests"),
         .test_index = 0,
         .check_exe = check_exe,
+        .optimize_modes = optimize_modes,
     };
 
     debug_format_stack_traces.addCases(cases);
