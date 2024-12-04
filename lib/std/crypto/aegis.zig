@@ -562,28 +562,6 @@ pub const Aegis128X2Mac = AegisMac(Aegis128X2_256);
 /// - It has a large security margin against internal collisions.
 pub const Aegis128LMac = AegisMac(Aegis128L_256);
 
-/// The `Aegis256X4Mac` message authentication function has a 256-bit key size,
-/// and outputs 256 bit tags. Unless theoretical multi-target attacks are a
-/// concern, the AEGIS-128L variant should be preferred.
-/// AEGIS' large state, non-linearity and non-invertibility provides the
-/// following properties:
-/// - 256 bit security against forgery.
-/// - Recovering the secret key from the state would require ~2^256 attempts,
-///   which is infeasible for any practical adversary.
-/// - It has a large security margin against internal collisions.
-pub const Aegis256X4Mac = AegisMac(Aegis256X4_256);
-
-/// The `Aegis256X2Mac` message authentication function has a 256-bit key size,
-/// and outputs 256 bit tags. Unless theoretical multi-target attacks are a
-/// concern, the AEGIS-128L variant should be preferred.
-/// AEGIS' large state, non-linearity and non-invertibility provides the
-/// following properties:
-/// - 256 bit security against forgery.
-/// - Recovering the secret key from the state would require ~2^256 attempts,
-///   which is infeasible for any practical adversary.
-/// - It has a large security margin against internal collisions.
-pub const Aegis256X2Mac = AegisMac(Aegis256X2_256);
-
 /// The `Aegis256Mac` message authentication function has a 256-bit key size,
 /// and outputs 256 bit tags. Unless theoretical multi-target attacks are a
 /// concern, the AEGIS-128L variant should be preferred.
@@ -595,20 +573,8 @@ pub const Aegis256X2Mac = AegisMac(Aegis256X2_256);
 /// - It has a large security margin against internal collisions.
 pub const Aegis256Mac = AegisMac(Aegis256_256);
 
-/// AEGIS-128X4 MAC with 128-bit tags
-pub const Aegis128X4Mac_128 = AegisMac(Aegis128X4);
-
-/// AEGIS-128X2 MAC with 128-bit tags
-pub const Aegis128X2Mac_128 = AegisMac(Aegis128X2);
-
 /// AEGIS-128L MAC with 128-bit tags
 pub const Aegis128LMac_128 = AegisMac(Aegis128L);
-
-/// AEGIS-256X4 MAC with 128-bit tags
-pub const Aegis256X4Mac_128 = AegisMac(Aegis256X4);
-
-/// AEGIS-256X2 MAC with 128-bit tags
-pub const Aegis256X2Mac_128 = AegisMac(Aegis256X2);
 
 /// AEGIS-256 MAC with 128-bit tags
 pub const Aegis256Mac_128 = AegisMac(Aegis256);
