@@ -72,13 +72,19 @@ pub fn main() !void {
                 break;
             }
 
+            // On Windows specifically, the compile unit can end with `.exe` or `.exe.obj`
+            const source_compile_unit_extension_stripped = if (mem.indexOfScalar(u8, source_compile_unit, '.')) |idot|
+                source_compile_unit[0..idot]
+            else
+                source_compile_unit;
+
             // emit substituted line
             try buf.writer().print("{s}:{s}:{s}: [address] in {s} ({s})", .{
                 source_file_basename,
                 source_line,
                 source_column,
                 source_symbol,
-                source_compile_unit,
+                source_compile_unit_extension_stripped,
             });
 
             try buf.appendSlice("\n");
