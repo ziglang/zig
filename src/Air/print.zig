@@ -765,6 +765,13 @@ const Writer = struct {
     fn writeRepeat(w: *Writer, s: *std.io.Writer, inst: Air.Inst.Index) Error!void {
         const repeat = w.air.instructions.items(.data)[@intFromEnum(inst)].repeat;
         try w.writeInstIndex(s, repeat.loop_inst, false);
+        if (!repeat.loop_hint.isNone()) {
+            switch (repeat.loop_hint.unroll) {
+                .auto => try s.writeAll(", unroll=auto"),
+                .disable => try s.writeAll(", unroll=no"),
+                .count => |c| try s.print(", unroll={d}", .{c}),
+            }
+        }
     }
 
     fn writeTry(w: *Writer, s: *std.io.Writer, inst: Air.Inst.Index) Error!void {

@@ -1148,7 +1148,7 @@ fn scalarizeBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, comptime form:
                 });
                 _ = loop_cond_br.then_block.add(l, .{
                     .tag = .repeat,
-                    .data = .{ .repeat = .{ .loop_inst = loop.inst } },
+                    .data = .{ .repeat = .{ .loop_inst = loop.inst, .loop_hint = .none } },
                 });
             }
             loop_cond_br.else_block = .init(loop_cond_br.then_block.stealRemainingCapacity());
@@ -1261,7 +1261,7 @@ fn scalarizeBitcastToArrayBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) 
                 });
                 _ = loop_cond_br.then_block.add(l, .{
                     .tag = .repeat,
-                    .data = .{ .repeat = .{ .loop_inst = loop.inst } },
+                    .data = .{ .repeat = .{ .loop_inst = loop.inst, .loop_hint = .none } },
                 });
             }
             loop_cond_br.else_block = .init(loop_cond_br.then_block.stealRemainingCapacity());
@@ -1413,7 +1413,7 @@ fn scalarizeBitcastOperandBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) 
                 });
                 _ = loop_cond_br.then_block.add(l, .{
                     .tag = .repeat,
-                    .data = .{ .repeat = .{ .loop_inst = loop.inst } },
+                    .data = .{ .repeat = .{ .loop_inst = loop.inst, .loop_hint = .none } },
                 });
             }
             loop_cond_br.else_block = .init(loop_cond_br.then_block.stealRemainingCapacity());
@@ -1543,7 +1543,7 @@ fn scalarizeBitcastResultArrayBlockPayload(l: *Legalize, orig_inst: Air.Inst.Ind
                 });
                 _ = loop_cond_br.then_block.add(l, .{
                     .tag = .repeat,
-                    .data = .{ .repeat = .{ .loop_inst = loop.inst } },
+                    .data = .{ .repeat = .{ .loop_inst = loop.inst, .loop_hint = .none } },
                 });
             }
             loop_cond_br.else_block = .init(loop_cond_br.then_block.stealRemainingCapacity());
@@ -1673,7 +1673,7 @@ fn scalarizeBitcastResultVectorBlockPayload(l: *Legalize, orig_inst: Air.Inst.In
                 });
                 _ = loop_cond_br.then_block.add(l, .{
                     .tag = .repeat,
-                    .data = .{ .repeat = .{ .loop_inst = loop.inst } },
+                    .data = .{ .repeat = .{ .loop_inst = loop.inst, .loop_hint = .none } },
                 });
             }
             loop_cond_br.else_block = .init(loop_cond_br.then_block.stealRemainingCapacity());
@@ -1843,7 +1843,7 @@ fn scalarizeOverflowBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Error!
                 });
                 _ = loop_cond_br.then_block.add(l, .{
                     .tag = .repeat,
-                    .data = .{ .repeat = .{ .loop_inst = loop.inst } },
+                    .data = .{ .repeat = .{ .loop_inst = loop.inst, .loop_hint = .none } },
                 });
             }
             loop_cond_br.else_block = .init(loop_cond_br.then_block.stealRemainingCapacity());

@@ -831,7 +831,7 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
         => {
             var buf: [2]Ast.Node.Index = undefined;
             const params = tree.builtinCallParams(&buf, node).?;
-            return builtinCall(gz, scope, ri, node, params, false);
+            return builtinCall(gz, scope, ri, node, params, .none);
         },
 
         .call_one,
@@ -2383,7 +2383,7 @@ fn fullBodyExpr(
     return rvalue(gz, ri, .void_value, node);
 }
 
-const BlockKind = enum { normal, allow_branch_hint };
+const BlockKind = enum { normal, allow_branch_hint, loop };
 
 fn blockExpr(
     gz: *GenZir,
@@ -2535,6 +2535,51 @@ fn labeledBlockExpr(
     }
 }
 
+const AllowedBlockHints = struct {
+    branch: enum { yes, no, seen },
+    loop: enum { yes, no, seen },
+
+    const loop_hints: AllowedBlockHints = .{ .branch = .yes, .loop = .yes };
+    const branch_hints: AllowedBlockHints = .{ .branch = .yes, .loop = .no };
+    const none: AllowedBlockHints = .{ .branch = .no, .loop = .no };
+
+    fn update(
+        hint: *AllowedBlockHints,
+        gz: *GenZir,
+        node: Ast.Node.Index,
+    ) InnerError!void {
+        const astgen = gz.astgen;
+        const tree = astgen.tree;
+
+        switch (tree.nodeTag(node)) {
+            .builtin_call_two,
+            .builtin_call_two_comma,
+            .builtin_call,
+            .builtin_call_comma,
+            => {
+                const builtin_name = tree.tokenSlice(tree.nodeMainToken(node));
+
+                const info = BuiltinFn.list.get(builtin_name) orelse {
+                    return astgen.failNode(node, "invalid builtin function: '{s}'", .{
+                        builtin_name,
+                    });
+                };
+
+                switch (info.tag) {
+                    .branch_hint => {
+                        hint.branch = .seen;
+                    },
+                    .loop_hint => {
+                        hint.loop = .seen;
+                    },
+                    else => hint.* = .{ .branch = .no, .loop = .no },
+                }
+            },
+            else => hint.* = .{ .branch = .no, .loop = .no },
+        }
+    }
+};
+
 fn blockExprStmts(gz: *GenZir, parent_scope: *Scope, statements: []const Ast.Node.Index, block_kind: BlockKind) !void {
     const astgen = gz.astgen;
     const tree = astgen.tree;
@@ -2547,7 +2592,13 @@ fn blockExprStmts(gz: *GenZir, parent_scope: *Scope, statements: []const Ast.Nod
 
     var noreturn_src_node: Ast.Node.OptionalIndex = .none;
     var scope = parent_scope;
-    for (statements, 0..) |statement, stmt_idx| {
+    var allow_hint: AllowedBlockHints = switch (block_kind) {
+        .normal => .none,
+        .allow_branch_hint => .branch_hints,
+        .loop => .loop_hints,
+    };
+
+    for (statements) |statement| {
         if (noreturn_src_node.unwrap()) |src_node| {
             try astgen.appendErrorNodeNotes(
                 statement,
@@ -2562,10 +2613,7 @@ fn blockExprStmts(gz: *GenZir, parent_scope: *Scope, statements: []const Ast.Nod
                 },
             );
         }
-        const allow_branch_hint = switch (block_kind) {
-            .normal => false,
-            .allow_branch_hint => stmt_idx == 0,
-        };
+
         var inner_node = statement;
         while (true) {
             switch (tree.nodeTag(inner_node)) {
@@ -2620,7 +2668,7 @@ fn blockExprStmts(gz: *GenZir, parent_scope: *Scope, statements: []const Ast.Nod
                     const params = tree.builtinCallParams(&buf, inner_node).?;
 
                     try emitDbgNode(gz, inner_node);
-                    const result = try builtinCall(gz, scope, .{ .rl = .none }, inner_node, params, allow_branch_hint);
+                    const result = try builtinCall(gz, scope, .{ .rl = .none }, inner_node, params, allow_hint);
                     noreturn_src_node = try addEnsureResult(gz, result, inner_node);
                 },
 
@@ -2628,6 +2676,7 @@ fn blockExprStmts(gz: *GenZir, parent_scope: *Scope, statements: []const Ast.Nod
             }
             break;
         }
+        try allow_hint.update(gz, statement);
     }
 
     if (noreturn_src_node == .none) {
@@ -2884,6 +2933,7 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
                 .disable_intrinsics,
                 .set_float_mode,
                 .branch_hint,
+                .loop_hint,
                 => break :b true,
                 else => break :b false,
             },
@@ -6724,7 +6774,7 @@ fn whileExpr(
     continue_scope.instructions_top = continue_scope.instructions.items.len;
     {
         try emitDbgNode(&continue_scope, then_node);
-        const unused_result = try fullBodyExpr(&continue_scope, &continue_scope.base, .{ .rl = .none }, then_node, .allow_branch_hint);
+        const unused_result = try fullBodyExpr(&continue_scope, &continue_scope.base, .{ .rl = .none }, then_node, .loop);
         _ = try addEnsureResult(&continue_scope, unused_result, then_node);
     }
     try checkUsed(parent_gz, &then_scope.base, then_sub_scope);
@@ -7041,7 +7091,7 @@ fn forExpr(
         break :blk capture_sub_scope;
     };
 
-    const then_result = try fullBodyExpr(&then_scope, then_sub_scope, .{ .rl = .none }, then_node, .allow_branch_hint);
+    const then_result = try fullBodyExpr(&then_scope, then_sub_scope, .{ .rl = .none }, then_node, .loop);
     _ = try addEnsureResult(&then_scope, then_result, then_node);
 
     try checkUsed(parent_gz, &then_scope.base, then_sub_scope);
@@ -9154,7 +9204,7 @@ fn builtinCall(
     ri: ResultInfo,
     node: Ast.Node.Index,
     params: []const Ast.Node.Index,
-    allow_branch_hint: bool,
+    allow_hints: AllowedBlockHints,
 ) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
     const tree = astgen.tree;
@@ -9188,12 +9238,34 @@ fn builtinCall(
 
     switch (info.tag) {
         .branch_hint => {
-            if (!allow_branch_hint) {
-                return astgen.failNode(node, "'@branchHint' must appear as the first statement in a function or conditional branch", .{});
+            switch (allow_hints.branch) {
+                .yes => {},
+                .no => return astgen.failNode(node, "'@branchHint' must appear before non-hint statements in a function or conditional branch", .{}),
+                .seen => return astgen.failNode(node, "duplicate '@branchHint' call; only one is allowed per function or conditional branch", .{}),
             }
             const hint_ty = try gz.addBuiltinValue(node, .branch_hint);
             const hint_val = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = hint_ty } }, params[0], .operand_branchHint);
             _ = try gz.addExtendedPayload(.branch_hint, Zir.Inst.UnNode{
+                .node = gz.nodeIndexToRelative(node),
+                .operand = hint_val,
+            });
+            return rvalue(gz, ri, .void_value, node);
+        },
+        .loop_hint => {
+            switch (allow_hints.loop) {
+                .yes => {},
+                .no => return astgen.failNode(node, "'@loopHint' must appear before non-hint statements in a loop body", .{}),
+                .seen => return astgen.failNode(node, "duplicate '@loopHint' call; only one is allowed per loop", .{}),
+            }
+            const hint_ty = try gz.addBuiltinValue(node, .loop_hint);
+            const hint_val = try comptimeExpr(
+                gz,
+                scope,
+                .{ .rl = .{ .coerced_ty = hint_ty } },
+                params[0],
+                .operand_loopHint,
+            );
+            _ = try gz.addExtendedPayload(.loop_hint, Zir.Inst.UnNode{
                 .node = gz.nodeIndexToRelative(node),
                 .operand = hint_val,
             });

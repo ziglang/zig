@@ -1001,6 +1001,21 @@ pub const BranchHint = enum(u3) {
     unpredictable,
 };
 
+pub const LoopHint = struct {
+    unroll: union(enum) {
+        auto,
+        disable,
+        count: u16,
+    },
+
+    /// Equivalent to no hint given.
+    pub const none: LoopHint = .{ .unroll = .auto };
+
+    pub fn isNone(hint: LoopHint) bool {
+        return hint.unroll == .auto;
+    }
+};
+
 /// This enum is set by the compiler and communicates which compiler backend is
 /// used to produce machine code.
 /// Think carefully before deciding to observe this value. Nearly all code should

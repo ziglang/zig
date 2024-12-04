@@ -825,7 +825,7 @@ fn builtinCall(astrl: *AstRlAnnotate, block: ?*Block, ri: ResultInfo, node: Ast.
     }
     switch (info.tag) {
         .import => return false,
-        .branch_hint => {
+        .branch_hint, .loop_hint => {
             _ = try astrl.expr(args[0], block, ResultInfo.type_only);
             return false;
         },
