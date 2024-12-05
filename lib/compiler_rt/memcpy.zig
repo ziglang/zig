@@ -18,7 +18,7 @@ comptime {
     }
 }
 
-const Element = if (std.simd.suggestVectorLength(u8)) |vec_size|
+pub const Element = if (std.simd.suggestVectorLength(u8)) |vec_size|
     @Type(.{ .vector = .{
         .child = u8,
         .len = vec_size,
