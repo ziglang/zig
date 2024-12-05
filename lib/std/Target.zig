@@ -2746,6 +2746,7 @@ pub fn charSignedness(target: Target) std.builtin.Signedness {
         .aarch64_be,
         .arc,
         .csky,
+        .hexagon,
         .msp430,
         .powerpc,
         .powerpcle,
