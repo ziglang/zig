@@ -155,7 +155,7 @@ pub fn updateExports(
     self: *SpirV,
     pt: Zcu.PerThread,
     exported: Zcu.Exported,
-    export_indices: []const u32,
+    export_indices: []const Zcu.Export.Index,
 ) !void {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
@@ -190,7 +190,7 @@ pub fn updateExports(
         };
 
         for (export_indices) |export_idx| {
-            const exp = zcu.all_exports.items[export_idx];
+            const exp = export_idx.ptr(zcu);
             try self.object.spv.declareEntryPoint(
                 spv_decl_index,
                 exp.opts.name.toSlice(ip),

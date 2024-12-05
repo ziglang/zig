@@ -60,7 +60,7 @@ fn_nav_table: std.AutoArrayHashMapUnmanaged(
 data_nav_table: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, []u8) = .empty,
 /// When `updateExports` is called, we store the export indices here, to be used
 /// during flush.
-nav_exports: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, []u32) = .empty,
+nav_exports: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, []Zcu.Export.Index) = .empty,
 
 lazy_syms: LazySymbolTable = .{},
 
@@ -1007,7 +1007,7 @@ pub fn updateExports(
     self: *Plan9,
     pt: Zcu.PerThread,
     exported: Zcu.Exported,
-    export_indices: []const u32,
+    export_indices: []const Zcu.Export.Index,
 ) !void {
     const gpa = self.base.comp.gpa;
     switch (exported) {
@@ -1018,7 +1018,7 @@ pub fn updateExports(
                 gpa.free(kv.value);
             }
             try self.nav_exports.ensureUnusedCapacity(gpa, 1);
-            const duped_indices = try gpa.dupe(u32, export_indices);
+            const duped_indices = try gpa.dupe(Zcu.Export.Index, export_indices);
             self.nav_exports.putAssumeCapacityNoClobber(nav, duped_indices);
         },
     }

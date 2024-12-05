@@ -1,7 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
-const ArrayList = std.ArrayList;
 const assert = std.debug.assert;
 const testing = std.testing;
 const leb = std.leb;
@@ -631,7 +630,7 @@ blocks: std.AutoArrayHashMapUnmanaged(Air.Inst.Index, struct {
 /// Maps `loop` instructions to their label. `br` to here repeats the loop.
 loops: std.AutoHashMapUnmanaged(Air.Inst.Index, u32) = .empty,
 /// `bytes` contains the wasm bytecode belonging to the 'code' section.
-code: *ArrayList(u8),
+code: *std.ArrayListUnmanaged(u8),
 /// The index the next local generated will have
 /// NOTE: arguments share the index with locals therefore the first variable
 /// will have the index that comes after the last argument's index
@@ -639,8 +638,6 @@ local_index: u32 = 0,
 /// The index of the current argument.
 /// Used to track which argument is being referenced in `airArg`.
 arg_index: u32 = 0,
-/// If codegen fails, an error messages will be allocated and saved in `err_msg`
-err_msg: *Zcu.ErrorMsg,
 /// List of all locals' types generated throughout this declaration
 /// used to emit locals count at start of 'code' section.
 locals: std.ArrayListUnmanaged(u8),
@@ -732,10 +729,9 @@ pub fn deinit(func: *CodeGen) void {
     func.* = undefined;
 }
 
-/// Sets `err_msg` on `CodeGen` and returns `error.CodegenFail` which is caught in link/Wasm.zig
-fn fail(func: *CodeGen, comptime fmt: []const u8, args: anytype) InnerError {
-    func.err_msg = try Zcu.ErrorMsg.create(func.gpa, func.src_loc, fmt, args);
-    return error.CodegenFail;
+fn fail(func: *CodeGen, comptime fmt: []const u8, args: anytype) error{ OutOfMemory, CodegenFail } {
+    const msg = try Zcu.ErrorMsg.create(func.gpa, func.src_loc, fmt, args);
+    return func.pt.zcu.codegenFailMsg(func.owner_nav, msg);
 }
 
 /// Resolves the `WValue` for the given instruction `inst`
@@ -1173,9 +1169,9 @@ pub fn generate(
     func_index: InternPool.Index,
     air: Air,
     liveness: Liveness,
-    code: *std.ArrayList(u8),
+    code: *std.ArrayListUnmanaged(u8),
     debug_output: link.File.DebugInfoOutput,
-) codegen.CodeGenError!codegen.Result {
+) codegen.CodeGenError!void {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const func = zcu.funcInfo(func_index);
@@ -1189,7 +1185,6 @@ pub fn generate(
         .code = code,
         .owner_nav = func.owner_nav,
         .src_loc = src_loc,
-        .err_msg = undefined,
         .locals = .{},
         .target = target,
         .bin_file = bin_file.cast(.wasm).?,
@@ -1199,11 +1194,9 @@ pub fn generate(
     defer code_gen.deinit();
 
     genFunc(&code_gen) catch |err| switch (err) {
-        error.CodegenFail => return codegen.Result{ .fail = code_gen.err_msg },
-        else => |e| return e,
+        error.CodegenFail => return error.CodegenFail,
+        else => |e| return code_gen.fail("failed to generate function: {s}", .{@errorName(e)}),
     };
-
-    return codegen.Result.ok;
 }
 
 fn genFunc(func: *CodeGen) InnerError!void {

@@ -817,7 +817,7 @@ pub const File = struct {
         base: *File,
         pt: Zcu.PerThread,
         exported: Zcu.Exported,
-        export_indices: []const u32,
+        export_indices: []const Zcu.Export.Index,
     ) UpdateExportsError!void {
         switch (base.tag) {
             inline else => |tag| {

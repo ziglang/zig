@@ -137,13 +137,12 @@ pub fn finish(f: *Flush, wasm: *Wasm, arena: Allocator) anyerror!void {
 
     // Merge and order the data segments. Depends on garbage collection so that
     // unused segments can be omitted.
-    try f.ensureUnusedCapacity(gpa, wasm.object_data_segments.items.len);
+    try f.data_segments.ensureUnusedCapacity(gpa, wasm.object_data_segments.items.len);
     for (wasm.object_data_segments.items, 0..) |*ds, i| {
         if (!ds.flags.alive) continue;
+        const data_segment_index: Wasm.DataSegment.Index = @enumFromInt(i);
         any_passive_inits = any_passive_inits or ds.flags.is_passive or (import_memory and !isBss(wasm, ds.name));
-        f.data_segments.putAssumeCapacityNoClobber(@intCast(i), .{
-            .offset = undefined,
-        });
+        f.data_segments.putAssumeCapacityNoClobber(data_segment_index, .{ .offset = undefined });
     }
 
     try wasm.functions.ensureUnusedCapacity(gpa, 3);
@@ -1082,8 +1081,8 @@ fn emitProducerSection(gpa: Allocator, binary_bytes: *std.ArrayListUnmanaged(u8)
 //    try writeCustomSectionHeader(binary_bytes.items, header_offset, size);
 //}
 
-fn isBss(wasm: *Wasm, name: String) bool {
-    const s = name.slice(wasm);
+fn isBss(wasm: *Wasm, optional_name: Wasm.OptionalString) bool {
+    const s = optional_name.slice(wasm) orelse return false;
     return mem.eql(u8, s, ".bss") or mem.startsWith(u8, s, ".bss.");
 }
 

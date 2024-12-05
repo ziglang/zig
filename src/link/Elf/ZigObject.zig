@@ -1745,7 +1745,7 @@ pub fn updateExports(
     elf_file: *Elf,
     pt: Zcu.PerThread,
     exported: Zcu.Exported,
-    export_indices: []const u32,
+    export_indices: []const Zcu.Export.Index,
 ) link.File.UpdateExportsError!void {
     const tracy = trace(@src());
     defer tracy.end();

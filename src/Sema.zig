@@ -38298,7 +38298,7 @@ pub fn flushExports(sema: *Sema) !void {
     // So, pick up and delete any existing exports. This strategy performs
     // redundant work, but that's okay, because this case is exceedingly rare.
     if (zcu.single_exports.get(sema.owner)) |export_idx| {
-        try sema.exports.append(gpa, zcu.all_exports.items[export_idx]);
+        try sema.exports.append(gpa, export_idx.ptr(zcu).*);
     } else if (zcu.multi_exports.get(sema.owner)) |info| {
         try sema.exports.appendSlice(gpa, zcu.all_exports.items[info.index..][0..info.len]);
     }
@@ -38307,12 +38307,12 @@ pub fn flushExports(sema: *Sema) !void {
     // `sema.exports` is completed; store the data into the `Zcu`.
     if (sema.exports.items.len == 1) {
         try zcu.single_exports.ensureUnusedCapacity(gpa, 1);
-        const export_idx = zcu.free_exports.popOrNull() orelse idx: {
+        const export_idx: Zcu.Export.Index = zcu.free_exports.popOrNull() orelse idx: {
             _ = try zcu.all_exports.addOne(gpa);
-            break :idx zcu.all_exports.items.len - 1;
+            break :idx @enumFromInt(zcu.all_exports.items.len - 1);
         };
-        zcu.all_exports.items[export_idx] = sema.exports.items[0];
-        zcu.single_exports.putAssumeCapacityNoClobber(sema.owner, @intCast(export_idx));
+        export_idx.ptr(zcu).* = sema.exports.items[0];
+        zcu.single_exports.putAssumeCapacityNoClobber(sema.owner, export_idx);
     } else {
         try zcu.multi_exports.ensureUnusedCapacity(gpa, 1);
         const exports_base = zcu.all_exports.items.len;

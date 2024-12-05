@@ -80,15 +80,15 @@ pub const Inst = struct {
         ///
         /// Uses `nop`
         @"return" = 0x0F,
-        /// Calls a function using `nav_index`.
-        call_nav,
-        /// Calls a function using `func_index`.
-        call_func,
         /// Calls a function pointer by its function signature
         /// and index into the function table.
         ///
         /// Uses `label`
         call_indirect = 0x11,
+        /// Calls a function using `nav_index`.
+        call_nav,
+        /// Calls a function using `func_index`.
+        call_func,
         /// Calls a function by its index.
         ///
         /// The function is the auto-generated tag name function for the type

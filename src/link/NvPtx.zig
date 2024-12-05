@@ -100,7 +100,7 @@ pub fn updateExports(
     self: *NvPtx,
     pt: Zcu.PerThread,
     exported: Zcu.Exported,
-    export_indices: []const u32,
+    export_indices: []const Zcu.Export.Index,
 ) !void {
     if (build_options.skip_non_native and builtin.object_format != .nvptx)
         @panic("Attempted to compile for object format that was disabled by build configuration");

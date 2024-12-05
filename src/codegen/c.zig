@@ -3052,12 +3052,12 @@ pub fn genDeclValue(
     try w.writeAll(";\n");
 }
 
-pub fn genExports(dg: *DeclGen, exported: Zcu.Exported, export_indices: []const u32) !void {
+pub fn genExports(dg: *DeclGen, exported: Zcu.Exported, export_indices: []const Zcu.Export.Index) !void {
     const zcu = dg.pt.zcu;
     const ip = &zcu.intern_pool;
     const fwd = dg.fwdDeclWriter();
 
-    const main_name = zcu.all_exports.items[export_indices[0]].opts.name;
+    const main_name = export_indices[0].ptr(zcu).opts.name;
     try fwd.writeAll("#define ");
     switch (exported) {
         .nav => |nav| try dg.renderNavName(fwd, nav),
@@ -3069,7 +3069,7 @@ pub fn genExports(dg: *DeclGen, exported: Zcu.Exported, export_indices: []const 
 
     const exported_val = exported.getValue(zcu);
     if (ip.isFunctionType(exported_val.typeOf(zcu).toIntern())) return for (export_indices) |export_index| {
-        const @"export" = &zcu.all_exports.items[export_index];
+        const @"export" = export_index.ptr(zcu);
         try fwd.writeAll("zig_extern ");
         if (@"export".opts.linkage == .weak) try fwd.writeAll("zig_weak_linkage_fn ");
         try dg.renderFunctionSignature(
@@ -3091,7 +3091,7 @@ pub fn genExports(dg: *DeclGen, exported: Zcu.Exported, export_indices: []const 
         else => true,
     };
     for (export_indices) |export_index| {
-        const @"export" = &zcu.all_exports.items[export_index];
+        const @"export" = export_index.ptr(zcu);
         try fwd.writeAll("zig_extern ");
         if (@"export".opts.linkage == .weak) try fwd.writeAll("zig_weak_linkage ");
         const extern_name = @"export".opts.name.toSlice(ip);

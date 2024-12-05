@@ -56,6 +56,10 @@ base: link.File,
 /// string_table entries for them. Alternately those sites could be moved to
 /// use a different byte array for this purpose.
 string_bytes: std.ArrayListUnmanaged(u8),
+/// Sometimes we have logic that wants to borrow string bytes to store
+/// arbitrary things in there. In this case it is not allowed to intern new
+/// strings during this time. This safety lock is used to detect misuses.
+string_bytes_lock: std.debug.SafetyLock = .{},
 /// Omitted when serializing linker state.
 string_table: String.Table,
 /// Symbol name of the entry function to export
@@ -202,6 +206,10 @@ any_exports_updated: bool = true,
 /// Index into `objects`.
 pub const ObjectIndex = enum(u32) {
     _,
+
+    pub fn ptr(index: ObjectIndex, wasm: *const Wasm) *Object {
+        return &wasm.objects.items[@intFromEnum(index)];
+    }
 };
 
 /// Index into `functions`.
@@ -269,12 +277,26 @@ pub const SourceLocation = enum(u32) {
         };
     }
 
+    pub fn unpack(sl: SourceLocation, wasm: *const Wasm) Unpacked {
+        return switch (sl) {
+            .zig_object_nofile => .zig_object_nofile,
+            .none => .none,
+            _ => {
+                const i = @intFromEnum(sl);
+                if (i < wasm.objects.items.len) return .{ .object_index = @enumFromInt(i) };
+                const sl_index = i - wasm.objects.items.len;
+                _ = sl_index;
+                @panic("TODO");
+            },
+        };
+    }
+
     pub fn addError(sl: SourceLocation, wasm: *Wasm, comptime f: []const u8, args: anytype) void {
         const diags = &wasm.base.comp.link_diags;
         switch (sl.unpack(wasm)) {
             .none => unreachable,
             .zig_object_nofile => diags.addError("zig compilation unit: " ++ f, args),
-            .object_index => |i| diags.addError("{}: " ++ f, .{wasm.objects.items[i].path} ++ args),
+            .object_index => |i| diags.addError("{}: " ++ f, .{i.ptr(wasm).path} ++ args),
             .source_location_index => @panic("TODO"),
         }
     }
@@ -520,6 +542,10 @@ pub const FunctionImport = extern struct {
     /// Index into `object_function_imports`.
     pub const Index = enum(u32) {
         _,
+
+        pub fn ptr(index: FunctionImport.Index, wasm: *const Wasm) *FunctionImport {
+            return &wasm.object_function_imports.items[@intFromEnum(index)];
+        }
     };
 };
 
@@ -543,7 +569,8 @@ pub const GlobalImport = extern struct {
     source_location: SourceLocation,
     resolution: Resolution,
 
-    /// Represents a synthetic global, or a global from an object.
+    /// Represents a synthetic global, a global from an object, or a global
+    /// from the Zcu.
     pub const Resolution = enum(u32) {
         unresolved,
         __heap_base,
@@ -556,6 +583,68 @@ pub const GlobalImport = extern struct {
         // Next, index into `object_globals`.
         // Next, index into `navs`.
         _,
+
+        const first_object_global = @intFromEnum(Resolution.__zig_error_name_table) + 1;
+
+        pub const Unpacked = union(enum) {
+            unresolved,
+            __heap_base,
+            __heap_end,
+            __stack_pointer,
+            __tls_align,
+            __tls_base,
+            __tls_size,
+            __zig_error_name_table,
+            object_global: ObjectGlobalIndex,
+            nav: Nav.Index,
+        };
+
+        pub fn unpack(r: Resolution, wasm: *const Wasm) Unpacked {
+            return switch (r) {
+                .unresolved => .unresolved,
+                .__wasm_apply_global_tls_relocs => .__wasm_apply_global_tls_relocs,
+                .__wasm_call_ctors => .__wasm_call_ctors,
+                .__wasm_init_memory => .__wasm_init_memory,
+                .__wasm_init_tls => .__wasm_init_tls,
+                .__zig_error_names => .__zig_error_names,
+                _ => {
+                    const i: u32 = @intFromEnum(r);
+                    const object_global_index = i - first_object_global;
+                    if (object_global_index < wasm.object_globals.items.len)
+                        return .{ .object_global = @enumFromInt(object_global_index) };
+                    const nav_index = object_global_index - wasm.object_globals.items.len;
+                    return .{ .nav = @enumFromInt(nav_index) };
+                },
+            };
+        }
+
+        pub fn pack(wasm: *const Wasm, unpacked: Unpacked) Resolution {
+            return switch (unpacked) {
+                .unresolved => .unresolved,
+                .__heap_base => .__heap_base,
+                .__heap_end => .__heap_end,
+                .__stack_pointer => .__stack_pointer,
+                .__tls_align => .__tls_align,
+                .__tls_base => .__tls_base,
+                .__tls_size => .__tls_size,
+                .__zig_error_name_table => .__zig_error_name_table,
+                .object_global => |i| @enumFromInt(first_object_global + @intFromEnum(i)),
+                .nav => |i| @enumFromInt(first_object_global + wasm.object_globals.items.len + @intFromEnum(i)),
+            };
+        }
+
+        pub fn fromIpNav(wasm: *const Wasm, ip_nav: InternPool.Nav.Index) Resolution {
+            return pack(wasm, .{ .nav = @enumFromInt(wasm.navs.getIndex(ip_nav).?) });
+        }
+    };
+
+    /// Index into `object_global_imports`.
+    pub const Index = enum(u32) {
+        _,
+
+        pub fn ptr(index: Index, wasm: *const Wasm) *GlobalImport {
+            return &wasm.object_global_imports.items[@intFromEnum(index)];
+        }
     };
 };
 
@@ -631,20 +720,6 @@ pub const Table = extern struct {
 /// Uniquely identifies a section across all objects. Each Object has a section_start field.
 /// By subtracting that value from this one, the Object section index is obtained.
 pub const ObjectSectionIndex = enum(u32) {
-    _,
-};
-
-/// Index into `object_function_imports`.
-pub const ObjectFunctionImportIndex = enum(u32) {
-    _,
-
-    pub fn ptr(index: ObjectFunctionImportIndex, wasm: *const Wasm) *FunctionImport {
-        return &wasm.object_function_imports.items[@intFromEnum(index)];
-    }
-};
-
-/// Index into `object_global_imports`.
-pub const ObjectGlobalImportIndex = enum(u32) {
     _,
 };
 
@@ -861,10 +936,34 @@ pub const ValtypeList = enum(u32) {
     }
 };
 
+/// Index into `imports`.
+pub const ZcuImportIndex = enum(u32) {
+    _,
+};
+
 /// 0. Index into `object_function_imports`.
 /// 1. Index into `imports`.
 pub const FunctionImportId = enum(u32) {
     _,
+
+    pub const Unpacked = union(enum) {
+        object_function_import: FunctionImport.Index,
+        zcu_import: ZcuImportIndex,
+    };
+
+    pub fn pack(unpacked: Unpacked, wasm: *const Wasm) FunctionImportId {
+        return switch (unpacked) {
+            .object_function_import => |i| @enumFromInt(@intFromEnum(i)),
+            .zcu_import => |i| @enumFromInt(@intFromEnum(i) - wasm.object_function_imports.entries.len),
+        };
+    }
+
+    pub fn unpack(id: FunctionImportId, wasm: *const Wasm) Unpacked {
+        const i = @intFromEnum(id);
+        if (i < wasm.object_function_imports.entries.len) return .{ .object_function_import = @enumFromInt(i) };
+        const zcu_import_i = i - wasm.object_function_imports.entries.len;
+        return .{ .zcu_import = @enumFromInt(zcu_import_i) };
+    }
 
     /// This function is allowed O(N) lookup because it is only called during
     /// diagnostic generation.
@@ -873,10 +972,10 @@ pub const FunctionImportId = enum(u32) {
             .object_function_import => |obj_func_index| {
                 // TODO binary search
                 for (wasm.objects.items, 0..) |o, i| {
-                    if (o.function_imports.off <= obj_func_index and
-                        o.function_imports.off + o.function_imports.len > obj_func_index)
+                    if (o.function_imports.off <= @intFromEnum(obj_func_index) and
+                        o.function_imports.off + o.function_imports.len > @intFromEnum(obj_func_index))
                     {
-                        return .pack(wasm, .{ .object_index = @enumFromInt(i) });
+                        return .pack(.{ .object_index = @enumFromInt(i) }, wasm);
                     }
                 } else unreachable;
             },
@@ -890,17 +989,36 @@ pub const FunctionImportId = enum(u32) {
 pub const GlobalImportId = enum(u32) {
     _,
 
+    pub const Unpacked = union(enum) {
+        object_global_import: GlobalImport.Index,
+        zcu_import: ZcuImportIndex,
+    };
+
+    pub fn pack(unpacked: Unpacked, wasm: *const Wasm) GlobalImportId {
+        return switch (unpacked) {
+            .object_global_import => |i| @enumFromInt(@intFromEnum(i)),
+            .zcu_import => |i| @enumFromInt(@intFromEnum(i) - wasm.object_global_imports.entries.len),
+        };
+    }
+
+    pub fn unpack(id: GlobalImportId, wasm: *const Wasm) Unpacked {
+        const i = @intFromEnum(id);
+        if (i < wasm.object_global_imports.entries.len) return .{ .object_global_import = @enumFromInt(i) };
+        const zcu_import_i = i - wasm.object_global_imports.entries.len;
+        return .{ .zcu_import = @enumFromInt(zcu_import_i) };
+    }
+
     /// This function is allowed O(N) lookup because it is only called during
     /// diagnostic generation.
     pub fn sourceLocation(id: GlobalImportId, wasm: *const Wasm) SourceLocation {
         switch (id.unpack(wasm)) {
-            .object_global_import => |obj_func_index| {
+            .object_global_import => |obj_global_index| {
                 // TODO binary search
                 for (wasm.objects.items, 0..) |o, i| {
-                    if (o.global_imports.off <= obj_func_index and
-                        o.global_imports.off + o.global_imports.len > obj_func_index)
+                    if (o.global_imports.off <= @intFromEnum(obj_global_index) and
+                        o.global_imports.off + o.global_imports.len > @intFromEnum(obj_global_index))
                     {
-                        return .pack(wasm, .{ .object_index = @enumFromInt(i) });
+                        return .pack(.{ .object_index = @enumFromInt(i) }, wasm);
                     }
                 } else unreachable;
             },
@@ -1330,22 +1448,12 @@ pub fn deinit(wasm: *Wasm) void {
     wasm.object_memories.deinit(gpa);
 
     wasm.object_data_segments.deinit(gpa);
-    wasm.object_relocatable_codes.deinit(gpa);
     wasm.object_custom_segments.deinit(gpa);
-    wasm.object_symbols.deinit(gpa);
-    wasm.object_named_segments.deinit(gpa);
     wasm.object_init_funcs.deinit(gpa);
     wasm.object_comdats.deinit(gpa);
-    wasm.object_relocations.deinit(gpa);
     wasm.object_relocations_table.deinit(gpa);
     wasm.object_comdat_symbols.deinit(gpa);
     wasm.objects.deinit(gpa);
-
-    wasm.synthetic_symbols.deinit(gpa);
-    wasm.undefs.deinit(gpa);
-    wasm.discarded.deinit(gpa);
-    wasm.segments.deinit(gpa);
-    wasm.segment_info.deinit(gpa);
 
     wasm.func_types.deinit(gpa);
     wasm.function_exports.deinit(gpa);
@@ -1354,8 +1462,6 @@ pub fn deinit(wasm: *Wasm) void {
     wasm.globals.deinit(gpa);
     wasm.global_imports.deinit(gpa);
     wasm.table_imports.deinit(gpa);
-    wasm.output_globals.deinit(gpa);
-    wasm.exports.deinit(gpa);
 
     wasm.string_bytes.deinit(gpa);
     wasm.string_table.deinit(gpa);
@@ -1374,12 +1480,11 @@ pub fn updateFunc(wasm: *Wasm, pt: Zcu.PerThread, func_index: InternPool.Index, 
     const nav_index = func.owner_nav;
 
     const code_start: u32 = @intCast(wasm.string_bytes.items.len);
-    const relocs_start: u32 = @intCast(wasm.relocations.items.len);
+    const relocs_start: u32 = @intCast(wasm.relocations.len);
     wasm.string_bytes_lock.lock();
 
-    const wasm_codegen = @import("../../arch/wasm/CodeGen.zig");
     dev.check(.wasm_backend);
-    const result = try wasm_codegen.generate(
+    try CodeGen.generate(
         &wasm.base,
         pt,
         zcu.navSrcLoc(nav_index),
@@ -1391,18 +1496,12 @@ pub fn updateFunc(wasm: *Wasm, pt: Zcu.PerThread, func_index: InternPool.Index, 
     );
 
     const code_len: u32 = @intCast(wasm.string_bytes.items.len - code_start);
-    const relocs_len: u32 = @intCast(wasm.relocations.items.len - relocs_start);
+    const relocs_len: u32 = @intCast(wasm.relocations.len - relocs_start);
     wasm.string_bytes_lock.unlock();
 
-    const code: Nav.Code = switch (result) {
-        .ok => .{
-            .off = code_start,
-            .len = code_len,
-        },
-        .fail => |em| {
-            try pt.zcu.failed_codegen.put(gpa, nav_index, em);
-            return;
-        },
+    const code: Nav.Code = .{
+        .off = code_start,
+        .len = code_len,
     };
 
     const gop = try wasm.navs.getOrPut(gpa, nav_index);
@@ -1445,24 +1544,22 @@ pub fn updateNav(wasm: *Wasm, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index
 
     if (!nav_init.typeOf(zcu).hasRuntimeBits(zcu)) {
         _ = wasm.imports.swapRemove(nav_index);
-        if (wasm.navs.swapRemove(nav_index)) |old| {
-            _ = old;
+        if (wasm.navs.swapRemove(nav_index)) {
             @panic("TODO reclaim resources");
         }
         return;
     }
 
     if (is_extern) {
-        try wasm.imports.put(nav_index, {});
-        if (wasm.navs.swapRemove(nav_index)) |old| {
-            _ = old;
+        try wasm.imports.put(gpa, nav_index, {});
+        if (wasm.navs.swapRemove(nav_index)) {
             @panic("TODO reclaim resources");
         }
         return;
     }
 
     const code_start: u32 = @intCast(wasm.string_bytes.items.len);
-    const relocs_start: u32 = @intCast(wasm.relocations.items.len);
+    const relocs_start: u32 = @intCast(wasm.relocations.len);
     wasm.string_bytes_lock.lock();
 
     const res = try codegen.generateSymbol(
@@ -1475,7 +1572,7 @@ pub fn updateNav(wasm: *Wasm, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index
     );
 
     const code_len: u32 = @intCast(wasm.string_bytes.items.len - code_start);
-    const relocs_len: u32 = @intCast(wasm.relocations.items.len - relocs_start);
+    const relocs_len: u32 = @intCast(wasm.relocations.len - relocs_start);
     wasm.string_bytes_lock.unlock();
 
     const code: Nav.Code = switch (res) {
@@ -1531,7 +1628,7 @@ pub fn updateExports(
     wasm: *Wasm,
     pt: Zcu.PerThread,
     exported: Zcu.Exported,
-    export_indices: []const u32,
+    export_indices: []const Zcu.Export.Index,
 ) !void {
     if (build_options.skip_non_native and builtin.object_format != .wasm) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
@@ -1668,7 +1765,7 @@ fn markFunction(
     wasm: *Wasm,
     name: String,
     import: *FunctionImport,
-    func_index: ObjectFunctionImportIndex,
+    func_index: FunctionImport.Index,
 ) error{OutOfMemory}!void {
     if (import.flags.alive) return;
     import.flags.alive = true;
@@ -1712,7 +1809,7 @@ fn markGlobal(
     wasm: *Wasm,
     name: String,
     import: *GlobalImport,
-    global_index: ObjectGlobalImportIndex,
+    global_index: GlobalImport.Index,
 ) !void {
     if (import.flags.alive) return;
     import.flags.alive = true;
