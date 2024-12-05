@@ -8614,6 +8614,16 @@ pub fn getFuncDecl(
     defer gop.deinit();
     if (gop == .existing) {
         extra.mutate.len = prev_extra_len;
+
+        const zir_body_inst_ptr = ip.funcDeclInfo(gop.existing).zirBodyInstPtr(ip);
+        if (zir_body_inst_ptr.* != key.zir_body_inst) {
+            // Since this function's `owner_nav` matches `key`, this *is* the function we're talking
+            // about. The only way it could have a different ZIR `func` instruction is if the old
+            // instruction has been lost and replaced with a new `TrackedInst.Index`.
+            assert(zir_body_inst_ptr.resolve(ip) == null);
+            zir_body_inst_ptr.* = key.zir_body_inst;
+        }
+
         return gop.existing;
     }
 
@@ -8760,6 +8770,16 @@ pub fn getFuncDeclIes(
         // An existing function type was found; undo the additions to our two arrays.
         items.mutate.len -= 4;
         extra.mutate.len = prev_extra_len;
+
+        const zir_body_inst_ptr = ip.funcDeclInfo(func_gop.existing).zirBodyInstPtr(ip);
+        if (zir_body_inst_ptr.* != key.zir_body_inst) {
+            // Since this function's `owner_nav` matches `key`, this *is* the function we're talking
+            // about. The only way it could have a different ZIR `func` instruction is if the old
+            // instruction has been lost and replaced with a new `TrackedInst.Index`.
+            assert(zir_body_inst_ptr.resolve(ip) == null);
+            zir_body_inst_ptr.* = key.zir_body_inst;
+        }
+
         return func_gop.existing;
     }
     func_gop.putTentative(func_index);

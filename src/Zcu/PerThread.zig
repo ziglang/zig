@@ -538,7 +538,7 @@ pub fn ensureCauAnalyzed(pt: Zcu.PerThread, cau_index: InternPool.Cau.Index) Zcu
     const anal_unit = AnalUnit.wrap(.{ .cau = cau_index });
     const cau = ip.getCau(cau_index);
 
-    log.debug("ensureCauAnalyzed {d}", .{@intFromEnum(cau_index)});
+    log.debug("ensureCauAnalyzed {}", .{zcu.fmtAnalUnit(anal_unit)});
 
     assert(!zcu.analysis_in_progress.contains(anal_unit));
 
@@ -576,13 +576,19 @@ pub fn ensureCauAnalyzed(pt: Zcu.PerThread, cau_index: InternPool.Cau.Index) Zcu
     }
 
     const sema_result: SemaCauResult, const analysis_fail = if (pt.ensureCauAnalyzedInner(cau_index, cau_outdated)) |result|
-        .{ result, false }
+        // This `Cau` has gone from failed to success, so even if the value of the owner `Nav` didn't actually
+        // change, we need to invalidate the dependencies anyway.
+        .{ .{
+            .invalidate_decl_val = result.invalidate_decl_val or prev_failed,
+            .invalidate_decl_ref = result.invalidate_decl_ref or prev_failed,
+        }, false }
     else |err| switch (err) {
         error.AnalysisFail => res: {
             if (!zcu.failed_analysis.contains(anal_unit)) {
                 // If this `Cau` caused the error, it would have an entry in `failed_analysis`.
                 // Since it does not, this must be a transitive failure.
                 try zcu.transitive_failed_analysis.put(gpa, anal_unit, {});
+                log.debug("mark transitive analysis failure for {}", .{zcu.fmtAnalUnit(anal_unit)});
             }
             // We consider this `Cau` to be outdated if:
             // * Previous analysis succeeded; in this case, we need to re-analyze dependants to ensure
@@ -707,12 +713,12 @@ pub fn ensureFuncBodyAnalyzed(pt: Zcu.PerThread, maybe_coerced_func_index: Inter
 
     // We only care about the uncoerced function.
     const func_index = ip.unwrapCoercedFunc(maybe_coerced_func_index);
+    const anal_unit = AnalUnit.wrap(.{ .func = func_index });
+
+    log.debug("ensureFuncBodyAnalyzed {}", .{zcu.fmtAnalUnit(anal_unit)});
 
     const func = zcu.funcInfo(maybe_coerced_func_index);
 
-    log.debug("ensureFuncBodyAnalyzed {d}", .{@intFromEnum(func_index)});
-
-    const anal_unit = AnalUnit.wrap(.{ .func = func_index });
     const func_outdated = zcu.outdated.swapRemove(anal_unit) or
         zcu.potentially_outdated.swapRemove(anal_unit);
 
@@ -740,6 +746,7 @@ pub fn ensureFuncBodyAnalyzed(pt: Zcu.PerThread, maybe_coerced_func_index: Inter
                 // If this function caused the error, it would have an entry in `failed_analysis`.
                 // Since it does not, this must be a transitive failure.
                 try zcu.transitive_failed_analysis.put(gpa, anal_unit, {});
+                log.debug("mark transitive analysis failure for {}", .{zcu.fmtAnalUnit(anal_unit)});
             }
             // We consider the IES to be outdated if the function previously succeeded analysis; in this case,
             // we need to re-analyze dependants to ensure they hit a transitive error here, rather than reporting
@@ -751,10 +758,8 @@ pub fn ensureFuncBodyAnalyzed(pt: Zcu.PerThread, maybe_coerced_func_index: Inter
 
     if (func_outdated) {
         if (ies_outdated) {
-            log.debug("func IES invalidated ('{d}')", .{@intFromEnum(func_index)});
             try zcu.markDependeeOutdated(.marked_po, .{ .interned = func_index });
         } else {
-            log.debug("func IES up-to-date ('{d}')", .{@intFromEnum(func_index)});
             try zcu.markPoDependeeUpToDate(.{ .interned = func_index });
         }
     }
@@ -779,6 +784,7 @@ fn ensureFuncBodyAnalyzedInner(
     // results in the worst case.
 
     if (func.generic_owner == .none) {
+        // Among another things, this ensures that the function's `zir_body_inst` is correct.
         try pt.ensureCauAnalyzed(ip.getNav(func.owner_nav).analysis_owner.unwrap().?);
         if (ip.getNav(func.owner_nav).status.resolved.val != func_index) {
             // This function is no longer referenced! There's no point in re-analyzing it.
@@ -787,6 +793,7 @@ fn ensureFuncBodyAnalyzedInner(
         }
     } else {
         const go_nav = zcu.funcInfo(func.generic_owner).owner_nav;
+        // Among another things, this ensures that the function's `zir_body_inst` is correct.
         try pt.ensureCauAnalyzed(ip.getNav(go_nav).analysis_owner.unwrap().?);
         if (ip.getNav(go_nav).status.resolved.val != func.generic_owner) {
             // The generic owner is no longer referenced, so this function is also unreferenced.
@@ -824,8 +831,8 @@ fn ensureFuncBodyAnalyzedInner(
         }
     }
 
-    log.debug("analyze and generate fn body '{d}'; reason='{s}'", .{
-        @intFromEnum(func_index),
+    log.debug("analyze and generate fn body {}; reason='{s}'", .{
+        zcu.fmtAnalUnit(anal_unit),
         if (func_outdated) "outdated" else "never analyzed",
     });
 
@@ -1164,7 +1171,7 @@ fn semaCau(pt: Zcu.PerThread, cau_index: InternPool.Cau.Index) !SemaCauResult {
         .none, .type => false,
     };
 
-    log.debug("semaCau '{d}'", .{@intFromEnum(cau_index)});
+    log.debug("semaCau {}", .{zcu.fmtAnalUnit(anal_unit)});
 
     try zcu.analysis_in_progress.put(gpa, anal_unit, {});
     errdefer _ = zcu.analysis_in_progress.swapRemove(anal_unit);
@@ -2307,16 +2314,14 @@ pub fn getErrorValueFromSlice(pt: Zcu.PerThread, name: []const u8) Allocator.Err
     return pt.getErrorValue(try pt.zcu.intern_pool.getOrPutString(pt.zcu.gpa, name));
 }
 
+/// Removes any entry from `Zcu.failed_files` associated with `file`. Acquires `Compilation.mutex` as needed.
+/// `file.zir` must be unchanged from the last update, as it is used to determine if there is such an entry.
 fn lockAndClearFileCompileError(pt: Zcu.PerThread, file: *Zcu.File) void {
-    switch (file.status) {
-        .success_zir, .retryable_failure => {},
-        .never_loaded, .parse_failure, .astgen_failure => {
-            pt.zcu.comp.mutex.lock();
-            defer pt.zcu.comp.mutex.unlock();
-            if (pt.zcu.failed_files.fetchSwapRemove(file)) |kv| {
-                if (kv.value) |msg| msg.destroy(pt.zcu.gpa); // Delete previous error message.
-            }
-        },
+    if (!file.zir_loaded or !file.zir.hasCompileErrors()) return;
+    pt.zcu.comp.mutex.lock();
+    defer pt.zcu.comp.mutex.unlock();
+    if (pt.zcu.failed_files.fetchSwapRemove(file)) |kv| {
+        if (kv.value) |msg| msg.destroy(pt.zcu.gpa); // Delete previous error message.
     }
 }
 

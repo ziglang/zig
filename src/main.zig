@@ -6096,11 +6096,18 @@ fn cmdAstCheck(
         var error_bundle = try wip_errors.toOwnedBundle("");
         defer error_bundle.deinit(gpa);
         error_bundle.renderToStdErr(color.renderOptions());
-        process.exit(1);
+
+        if (file.zir.loweringFailed()) {
+            process.exit(1);
+        }
     }
 
     if (!want_output_text) {
-        return cleanExit();
+        if (file.zir.hasCompileErrors()) {
+            process.exit(1);
+        } else {
+            return cleanExit();
+        }
     }
     if (!build_options.enable_debug_extensions) {
         fatal("-t option only available in builds of zig with debug extensions", .{});
@@ -6144,7 +6151,13 @@ fn cmdAstCheck(
         // zig fmt: on
     }
 
-    return @import("print_zir.zig").renderAsTextToFile(gpa, &file, io.getStdOut());
+    try @import("print_zir.zig").renderAsTextToFile(gpa, &file, io.getStdOut());
+
+    if (file.zir.hasCompileErrors()) {
+        process.exit(1);
+    } else {
+        return cleanExit();
+    }
 }
 
 fn cmdDetectCpu(
