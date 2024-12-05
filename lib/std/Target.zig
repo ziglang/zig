@@ -38,7 +38,6 @@ pub const Os = struct {
         netbsd,
         openbsd,
 
-        bridgeos,
         driverkit,
         ios,
         macos,
@@ -69,6 +68,7 @@ pub const Os = struct {
         vulkan,
 
         // LLVM tags deliberately omitted:
+        // - bridgeos
         // - darwin
         // - kfreebsd
         // - nacl
@@ -76,7 +76,6 @@ pub const Os = struct {
 
         pub inline fn isDarwin(tag: Tag) bool {
             return switch (tag) {
-                .bridgeos,
                 .driverkit,
                 .ios,
                 .macos,
@@ -124,7 +123,6 @@ pub const Os = struct {
         pub fn dynamicLibSuffix(tag: Tag) [:0]const u8 {
             return switch (tag) {
                 .windows, .uefi => ".dll",
-                .bridgeos,
                 .driverkit,
                 .ios,
                 .macos,
@@ -167,9 +165,6 @@ pub const Os = struct {
                 .haiku,
                 .plan9,
                 .serenity,
-
-                // This should use semver once we determine the version history.
-                .bridgeos,
 
                 .illumos,
 
@@ -431,9 +426,6 @@ pub const Os = struct {
                 .haiku,
                 .plan9,
                 .serenity,
-
-                // This should use semver once we determine the version history.
-                .bridgeos,
 
                 .illumos,
 
@@ -701,7 +693,6 @@ pub const Os = struct {
             .freebsd,
             .aix,
             .netbsd,
-            .bridgeos,
             .driverkit,
             .macos,
             .ios,
@@ -927,7 +918,6 @@ pub const Abi = enum {
             .serenity,
             .zos,
             .dragonfly,
-            .bridgeos,
             .driverkit,
             .macos,
             .illumos,
@@ -1049,7 +1039,7 @@ pub const ObjectFormat = enum {
     pub fn default(os_tag: Os.Tag, arch: Cpu.Arch) ObjectFormat {
         return switch (os_tag) {
             .aix => .xcoff,
-            .bridgeos, .driverkit, .ios, .macos, .tvos, .visionos, .watchos => .macho,
+            .driverkit, .ios, .macos, .tvos, .visionos, .watchos => .macho,
             .plan9 => .plan9,
             .uefi, .windows => .coff,
             .zos => .goff,
@@ -1975,7 +1965,7 @@ pub const Cpu = struct {
                 .amdgcn => &amdgcn.cpu.gfx906,
                 .arm, .armeb, .thumb, .thumbeb => &arm.cpu.baseline,
                 .aarch64 => switch (os.tag) {
-                    .bridgeos, .driverkit, .macos => &aarch64.cpu.apple_m1,
+                    .driverkit, .macos => &aarch64.cpu.apple_m1,
                     .ios, .tvos => &aarch64.cpu.apple_a7,
                     .visionos => &aarch64.cpu.apple_m2,
                     .watchos => &aarch64.cpu.apple_s4,
@@ -2159,7 +2149,6 @@ pub const DynamicLinker = struct {
             .netbsd,
             .openbsd,
 
-            .bridgeos,
             .driverkit,
             .ios,
             .macos,
@@ -2546,7 +2535,6 @@ pub const DynamicLinker = struct {
                 else => none,
             },
 
-            .bridgeos => if (cpu.arch == .aarch64) init("/usr/lib/dyld") else none,
             .driverkit,
             .ios,
             .macos,
@@ -3045,7 +3033,6 @@ pub fn cTypeBitSize(target: Target, c_type: CType) u16 {
             },
         },
 
-        .bridgeos,
         .driverkit,
         .ios,
         .macos,
@@ -3069,10 +3056,7 @@ pub fn cTypeBitSize(target: Target, c_type: CType) u16 {
             },
             .longlong, .ulonglong, .double => return 64,
             .longdouble => switch (target.cpu.arch) {
-                .aarch64 => switch (target.os.tag) {
-                    .bridgeos => return 128,
-                    else => return 64,
-                },
+                .aarch64 => return 64,
                 .x86 => switch (target.abi) {
                     .android => return 64,
                     else => return 80,
