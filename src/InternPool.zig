@@ -5968,8 +5968,22 @@ pub const FuncAnalysis = packed struct(u32) {
     /// True if this function has an inferred error set.
     inferred_error_set: bool,
     disable_instrumentation: bool,
+    disable_intrinsics: bool,
 
-    _: u24 = 0,
+    _: u23 = 0,
+
+    pub const State = enum(u2) {
+        /// The runtime function has never been referenced.
+        /// As such, it has never been analyzed, nor is it queued for analysis.
+        unreferenced,
+        /// The runtime function has been referenced, but has not yet been analyzed.
+        /// Its semantic analysis is queued.
+        queued,
+        /// The runtime function has been (or is currently being) semantically analyzed.
+        /// To know if analysis succeeded, consult `zcu.[transitive_]failed_analysis`.
+        /// To know if analysis is up-to-date, consult `zcu.[potentially_]outdated`.
+        analyzed,
+    };
 };
 
 pub const Bytes = struct {
@@ -8999,6 +9013,7 @@ pub fn getFuncDecl(
             .has_error_trace = false,
             .inferred_error_set = false,
             .disable_instrumentation = false,
+            .disable_intrinsics = false,
         },
         .owner_nav = key.owner_nav,
         .ty = key.ty,
@@ -9108,6 +9123,7 @@ pub fn getFuncDeclIes(
             .has_error_trace = false,
             .inferred_error_set = true,
             .disable_instrumentation = false,
+            .disable_intrinsics = false,
         },
         .owner_nav = key.owner_nav,
         .ty = func_ty,
@@ -9304,6 +9320,7 @@ pub fn getFuncInstance(
             .has_error_trace = false,
             .inferred_error_set = false,
             .disable_instrumentation = false,
+            .disable_intrinsics = false,
         },
         // This is populated after we create the Nav below. It is not read
         // by equality or hashing functions.
@@ -9402,6 +9419,7 @@ pub fn getFuncInstanceIes(
             .has_error_trace = false,
             .inferred_error_set = true,
             .disable_instrumentation = false,
+            .disable_intrinsics = false,
         },
         // This is populated after we create the Nav below. It is not read
         // by equality or hashing functions.
@@ -12184,6 +12202,18 @@ pub fn funcSetDisableInstrumentation(ip: *InternPool, func: Index) void {
     const analysis_ptr = ip.funcAnalysisPtr(func);
     var analysis = analysis_ptr.*;
     analysis.disable_instrumentation = true;
+    @atomicStore(FuncAnalysis, analysis_ptr, analysis, .release);
+}
+
+pub fn funcSetDisableIntrinsics(ip: *InternPool, func: Index) void {
+    const unwrapped_func = func.unwrap(ip);
+    const extra_mutex = &ip.getLocal(unwrapped_func.tid).mutate.extra.mutex;
+    extra_mutex.lock();
+    defer extra_mutex.unlock();
+
+    const analysis_ptr = ip.funcAnalysisPtr(func);
+    var analysis = analysis_ptr.*;
+    analysis.disable_intrinsics = true;
     @atomicStore(FuncAnalysis, analysis_ptr, analysis, .release);
 }
 
