@@ -1447,6 +1447,19 @@ pub const Object = struct {
             try attributes.addFnAttr(.nosanitize_coverage, &o.builder);
         }
 
+        const disable_intrinsics = func_analysis.disable_intrinsics or owner_mod.no_builtin;
+        if (disable_intrinsics) {
+            // The intent here is for compiler-rt and libc functions to not generate
+            // infinite recursion. For example, if we are compiling the memcpy function,
+            // and llvm detects that the body is equivalent to memcpy, it may replace the
+            // body of memcpy with a call to memcpy, which would then cause a stack
+            // overflow instead of performing memcpy.
+            try attributes.addFnAttr(.{ .string = .{
+                .kind = try o.builder.string("no-builtins"),
+                .value = .empty,
+            } }, &o.builder);
+        }
+
         // TODO: disable this if safety is off for the function scope
         const ssp_buf_size = owner_mod.stack_protector;
         if (ssp_buf_size != 0) {
@@ -1750,6 +1763,7 @@ pub const Object = struct {
             .prev_dbg_line = 0,
             .prev_dbg_column = 0,
             .err_ret_trace = err_ret_trace,
+            .disable_intrinsics = disable_intrinsics,
         };
         defer fg.deinit();
         deinit_wip = false;
@@ -3128,17 +3142,6 @@ pub const Object = struct {
                 .{ .uwtable = if (owner_mod.unwind_tables == .@"async") .@"async" else .sync },
                 &o.builder,
             );
-        }
-        if (owner_mod.no_builtin) {
-            // The intent here is for compiler-rt and libc functions to not generate
-            // infinite recursion. For example, if we are compiling the memcpy function,
-            // and llvm detects that the body is equivalent to memcpy, it may replace the
-            // body of memcpy with a call to memcpy, which would then cause a stack
-            // overflow instead of performing memcpy.
-            try attributes.addFnAttr(.{ .string = .{
-                .kind = try o.builder.string("no-builtins"),
-                .value = .empty,
-            } }, &o.builder);
         }
         if (owner_mod.optimize_mode == .ReleaseSmall) {
             try attributes.addFnAttr(.minsize, &o.builder);
@@ -4918,6 +4921,8 @@ pub const FuncGen = struct {
 
     sync_scope: Builder.SyncScope,
 
+    disable_intrinsics: bool,
+
     const Fuzz = struct {
         counters_variable: Builder.Variable.Index,
         pcs: std.ArrayListUnmanaged(Builder.Constant),
@@ -5443,7 +5448,7 @@ pub const FuncGen = struct {
         var attributes: Builder.FunctionAttributes.Wip = .{};
         defer attributes.deinit(&o.builder);
 
-        if (self.ng.ownerModule().no_builtin) {
+        if (self.disable_intrinsics) {
             try attributes.addFnAttr(.nobuiltin, &o.builder);
         }
 
@@ -5770,7 +5775,7 @@ pub const FuncGen = struct {
                     try o.builder.intValue(.i8, 0xaa),
                     len,
                     if (ptr_ty.isVolatilePtr(zcu)) .@"volatile" else .normal,
-                    self.ng.ownerModule().no_builtin,
+                    self.disable_intrinsics,
                 );
                 const owner_mod = self.ng.ownerModule();
                 if (owner_mod.valgrind) {
@@ -5821,7 +5826,7 @@ pub const FuncGen = struct {
                 try o.builder.intValue(.i8, 0xaa),
                 len,
                 .normal,
-                self.ng.ownerModule().no_builtin,
+                self.disable_intrinsics,
             );
             const owner_mod = self.ng.ownerModule();
             if (owner_mod.valgrind) {
@@ -9735,7 +9740,7 @@ pub const FuncGen = struct {
                 if (safety) try o.builder.intValue(.i8, 0xaa) else try o.builder.undefValue(.i8),
                 len,
                 if (ptr_ty.isVolatilePtr(zcu)) .@"volatile" else .normal,
-                self.ng.ownerModule().no_builtin,
+                self.disable_intrinsics,
             );
             if (safety and owner_mod.valgrind) {
                 try self.valgrindMarkUndef(dest_ptr, len);
@@ -10057,7 +10062,7 @@ pub const FuncGen = struct {
                         fill_byte,
                         len,
                         access_kind,
-                        self.ng.ownerModule().no_builtin,
+                        self.disable_intrinsics,
                     );
                 }
                 const owner_mod = self.ng.ownerModule();
@@ -10089,7 +10094,7 @@ pub const FuncGen = struct {
                         fill_byte,
                         len,
                         access_kind,
-                        self.ng.ownerModule().no_builtin,
+                        self.disable_intrinsics,
                     );
                 }
                 return .none;
@@ -10119,7 +10124,7 @@ pub const FuncGen = struct {
                     fill_byte,
                     len,
                     access_kind,
-                    self.ng.ownerModule().no_builtin,
+                    self.disable_intrinsics,
                 );
             }
             return .none;
@@ -10172,7 +10177,7 @@ pub const FuncGen = struct {
                 elem_abi_align.toLlvm(),
                 try o.builder.intValue(llvm_usize_ty, elem_abi_size),
                 access_kind,
-                self.ng.ownerModule().no_builtin,
+                self.disable_intrinsics,
             );
         } else _ = try self.wip.store(access_kind, value, it_ptr.toValue(), it_ptr_align);
         const next_ptr = try self.wip.gep(.inbounds, elem_llvm_ty, it_ptr.toValue(), &.{
@@ -10206,7 +10211,7 @@ pub const FuncGen = struct {
             fill_byte,
             len,
             access_kind,
-            self.ng.ownerModule().no_builtin,
+            self.disable_intrinsics,
         );
         _ = try self.wip.br(end_block);
         self.wip.cursor = .{ .block = end_block };
@@ -10249,7 +10254,7 @@ pub const FuncGen = struct {
                 src_ptr_ty.ptrAlignment(zcu).toLlvm(),
                 len,
                 access_kind,
-                self.ng.ownerModule().no_builtin,
+                self.disable_intrinsics,
             );
             _ = try self.wip.br(end_block);
             self.wip.cursor = .{ .block = end_block };
@@ -10263,7 +10268,7 @@ pub const FuncGen = struct {
             src_ptr_ty.ptrAlignment(zcu).toLlvm(),
             len,
             access_kind,
-            self.ng.ownerModule().no_builtin,
+            self.disable_intrinsics,
         );
         return .none;
     }
@@ -11397,7 +11402,7 @@ pub const FuncGen = struct {
             ptr_alignment,
             try o.builder.intValue(try o.lowerType(Type.usize), size_bytes),
             access_kind,
-            fg.ng.ownerModule().no_builtin,
+            fg.disable_intrinsics,
         );
         return result_ptr;
     }
@@ -11565,7 +11570,7 @@ pub const FuncGen = struct {
             elem_ty.abiAlignment(zcu).toLlvm(),
             try o.builder.intValue(try o.lowerType(Type.usize), elem_ty.abiSize(zcu)),
             access_kind,
-            self.ng.ownerModule().no_builtin,
+            self.disable_intrinsics,
         );
     }
 

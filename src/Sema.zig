@@ -1409,6 +1409,11 @@ fn analyzeBodyInner(
                         i += 1;
                         continue;
                     },
+                    .disable_intrinsics => {
+                        try sema.zirDisableIntrinsics();
+                        i += 1;
+                        continue;
+                    },
                     .restore_err_ret_index => {
                         try sema.zirRestoreErrRetIndex(block, extended);
                         i += 1;
@@ -6639,6 +6644,23 @@ fn zirDisableInstrumentation(sema: *Sema) CompileError!void {
         => return, // does nothing outside a function
     };
     ip.funcSetDisableInstrumentation(func);
+    sema.allow_memoize = false;
+}
+
+fn zirDisableIntrinsics(sema: *Sema) CompileError!void {
+    const pt = sema.pt;
+    const zcu = pt.zcu;
+    const ip = &zcu.intern_pool;
+    const func = switch (sema.owner.unwrap()) {
+        .func => |func| func,
+        .@"comptime",
+        .nav_val,
+        .nav_ty,
+        .type,
+        .memoized_state,
+        => return, // does nothing outside a function
+    };
+    ip.funcSetDisableIntrinsics(func);
     sema.allow_memoize = false;
 }
 
