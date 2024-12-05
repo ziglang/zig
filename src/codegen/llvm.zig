@@ -5979,7 +5979,11 @@ pub const FuncGen = struct {
         const repeat = self.air.instructions.items(.data)[@intFromEnum(inst)].repeat;
         const loop_bb = self.loops.get(repeat.loop_inst).?;
         loop_bb.ptr(&self.wip).incoming += 1;
-        _ = try self.wip.br(loop_bb);
+        if (repeat.loop_hint.isNone()) {
+            _ = try self.wip.br(loop_bb);
+        } else {
+            _ = try self.wip.brLoop(loop_bb, repeat.loop_hint);
+        }
     }
 
     fn lowerSwitchDispatch(
