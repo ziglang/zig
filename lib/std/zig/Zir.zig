@@ -998,6 +998,8 @@ pub const Inst = struct {
         /// and then `resolve_inferred_alloc` triggers peer type resolution on the set.
         /// The operand is a `alloc_inferred` or `alloc_inferred_mut` instruction, which
         /// is the allocation that needs to have its type inferred.
+        /// Results in the final resolved pointer. The `alloc_inferred[_comptime][_mut]`
+        /// instruction should never be referred to after this instruction.
         /// Uses the `un_node` field. The AST node is the var decl.
         resolve_inferred_alloc,
         /// Turns a pointer coming from an `alloc` or `Extended.alloc` into a constant
@@ -1301,18 +1303,6 @@ pub const Inst = struct {
             };
         }
 
-        pub fn isParam(tag: Tag) bool {
-            return switch (tag) {
-                .param,
-                .param_comptime,
-                .param_anytype,
-                .param_anytype_comptime,
-                => true,
-
-                else => false,
-            };
-        }
-
         /// AstGen uses this to find out if `Ref.void_value` should be used in place
         /// of the result of a given instruction. This allows Sema to forego adding
         /// the instruction to the map after analysis.
@@ -1328,7 +1318,6 @@ pub const Inst = struct {
                 .atomic_store,
                 .store_node,
                 .store_to_inferred_ptr,
-                .resolve_inferred_alloc,
                 .validate_deref,
                 .validate_destructure,
                 .@"export",
@@ -1367,6 +1356,7 @@ pub const Inst = struct {
                 .alloc_inferred_mut,
                 .alloc_inferred_comptime,
                 .alloc_inferred_comptime_mut,
+                .resolve_inferred_alloc,
                 .make_ptr_const,
                 .array_cat,
                 .array_mul,
