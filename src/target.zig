@@ -267,7 +267,9 @@ pub fn classifyCompilerRtLibName(target: std.Target, name: []const u8) CompilerR
         // the linker unable to find `_Unwind_RaiseException` and other related symbols.
         return .both;
     }
-    if (std.mem.eql(u8, name, "compiler_rt")) {
+    if (std.mem.eql(u8, name, "compiler_rt") or
+        std.mem.eql(u8, name, "atomic"))
+    {
         return .only_compiler_rt;
     }
     if (std.mem.eql(u8, name, "unwind")) {
