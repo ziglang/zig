@@ -272,7 +272,9 @@ pub fn classifyCompilerRtLibName(name: []const u8) CompilerRtClassification {
     {
         return .only_compiler_rt;
     }
-    if (std.mem.eql(u8, name, "unwind")) {
+    if (std.mem.eql(u8, name, "unwind") or
+        std.mem.eql(u8, name, "gcc_eh"))
+    {
         return .only_libunwind;
     }
     return .none;
