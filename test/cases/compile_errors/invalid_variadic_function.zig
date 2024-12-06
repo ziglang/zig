@@ -15,8 +15,8 @@ comptime {
 // error
 // target=x86_64-linux
 //
-// :1:1: error: variadic function does not support 'auto' calling convention
-// :1:1: note: supported calling conventions: 'x86_64_sysv', 'x86_64_win'
-// :1:1: error: variadic function does not support 'inline' calling convention
-// :1:1: note: supported calling conventions: 'x86_64_sysv', 'x86_64_win'
+// :1:8: error: variadic function does not support 'auto' calling convention
+// :1:8: note: supported calling conventions: 'x86_64_sysv', 'x86_64_win'
 // :2:1: error: generic function cannot be variadic
+// :3:16: error: variadic function does not support 'inline' calling convention
+// :3:16: note: supported calling conventions: 'x86_64_sysv', 'x86_64_win'
