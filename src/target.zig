@@ -269,7 +269,8 @@ pub fn classifyCompilerRtLibName(name: []const u8) CompilerRtClassification {
     }
     if (std.mem.eql(u8, name, "compiler_rt") or
         std.mem.eql(u8, name, "gcc") or
-        std.mem.eql(u8, name, "atomic"))
+        std.mem.eql(u8, name, "atomic") or
+        std.mem.eql(u8, name, "ssp"))
     {
         return .only_compiler_rt;
     }
