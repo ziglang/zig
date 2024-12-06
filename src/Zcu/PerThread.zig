@@ -2511,6 +2511,19 @@ pub fn populateTestFunctions(
 
         for (test_fn_vals, zcu.test_functions.keys()) |*test_fn_val, test_nav_index| {
             const test_nav = ip.getNav(test_nav_index);
+
+            {
+                // The test declaration might have failed; if that's the case, just return, as we'll
+                // be emitting a compile error anyway.
+                const cau = test_nav.analysis_owner.unwrap().?;
+                const anal_unit: AnalUnit = .wrap(.{ .cau = cau });
+                if (zcu.failed_analysis.contains(anal_unit) or
+                    zcu.transitive_failed_analysis.contains(anal_unit))
+                {
+                    return;
+                }
+            }
+
             const test_nav_name = test_nav.fqn;
             const test_nav_name_len = test_nav_name.length(ip);
             const test_name_anon_decl: InternPool.Key.Ptr.BaseAddr.Uav = n: {
