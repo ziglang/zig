@@ -710,7 +710,7 @@ stack_size: u32 = 0,
 /// The stack alignment, which is 16 bytes by default. This is specified by the
 /// tool-conventions: https://github.com/WebAssembly/tool-conventions/blob/main/BasicCABI.md
 /// and also what the llvm backend will emit.
-/// However, local variables or the usage of `@setAlignStack` can overwrite this default.
+/// However, local variables or the usage of `incoming_stack_alignment` in a `CallingConvention` can overwrite this default.
 stack_alignment: Alignment = .@"16",
 
 // For each individual Wasm valtype we store a seperate free list which
@@ -1160,7 +1160,7 @@ fn genFunctype(
     if (firstParamSRet(cc, return_type, pt, target)) {
         try temp_params.append(.i32); // memory address is always a 32-bit handle
     } else if (return_type.hasRuntimeBitsIgnoreComptime(zcu)) {
-        if (cc == .C) {
+        if (cc == .wasm_watc) {
             const res_classes = abi.classifyType(return_type, zcu);
             assert(res_classes[0] == .direct and res_classes[1] == .none);
             const scalar_type = abi.scalarType(return_type, zcu);
@@ -1178,7 +1178,7 @@ fn genFunctype(
         if (!param_type.hasRuntimeBitsIgnoreComptime(zcu)) continue;
 
         switch (cc) {
-            .C => {
+            .wasm_watc => {
                 const param_classes = abi.classifyType(param_type, zcu);
                 if (param_classes[1] == .none) {
                     if (param_classes[0] == .direct) {
@@ -1291,7 +1291,7 @@ fn genFunc(func: *CodeGen) InnerError!void {
         var prologue = std.ArrayList(Mir.Inst).init(func.gpa);
         defer prologue.deinit();
 
-        const sp = @intFromEnum(func.bin_file.zigObjectPtr().?.stack_pointer_sym);
+        const sp = @intFromEnum(func.bin_file.zig_object.?.stack_pointer_sym);
         // load stack pointer
         try prologue.append(.{ .tag = .global_get, .data = .{ .label = sp } });
         // store stack pointer so we can restore it when we return from the function
@@ -1367,7 +1367,7 @@ fn resolveCallingConventionValues(func: *CodeGen, fn_ty: Type) InnerError!CallWV
         .args = &.{},
         .return_value = .none,
     };
-    if (cc == .Naked) return result;
+    if (cc == .naked) return result;
 
     var args = std.ArrayList(WValue).init(func.gpa);
     defer args.deinit();
@@ -1382,7 +1382,7 @@ fn resolveCallingConventionValues(func: *CodeGen, fn_ty: Type) InnerError!CallWV
     }
 
     switch (cc) {
-        .Unspecified => {
+        .auto => {
             for (fn_info.param_types.get(ip)) |ty| {
                 if (!Type.fromInterned(ty).hasRuntimeBitsIgnoreComptime(zcu)) {
                     continue;
@@ -1392,7 +1392,7 @@ fn resolveCallingConventionValues(func: *CodeGen, fn_ty: Type) InnerError!CallWV
                 func.local_index += 1;
             }
         },
-        .C => {
+        .wasm_watc => {
             for (fn_info.param_types.get(ip)) |ty| {
                 const ty_classes = abi.classifyType(Type.fromInterned(ty), zcu);
                 for (ty_classes) |class| {
@@ -1410,8 +1410,9 @@ fn resolveCallingConventionValues(func: *CodeGen, fn_ty: Type) InnerError!CallWV
 
 fn firstParamSRet(cc: std.builtin.CallingConvention, return_type: Type, pt: Zcu.PerThread, target: std.Target) bool {
     switch (cc) {
-        .Unspecified, .Inline => return isByRef(return_type, pt, target),
-        .C => {
+        .@"inline" => unreachable,
+        .auto => return isByRef(return_type, pt, target),
+        .wasm_watc => {
             const ty_classes = abi.classifyType(return_type, pt.zcu);
             if (ty_classes[0] == .indirect) return true;
             if (ty_classes[0] == .direct and ty_classes[1] == .direct) return true;
@@ -1424,7 +1425,7 @@ fn firstParamSRet(cc: std.builtin.CallingConvention, return_type: Type, pt: Zcu.
 /// Lowers a Zig type and its value based on a given calling convention to ensure
 /// it matches the ABI.
 fn lowerArg(func: *CodeGen, cc: std.builtin.CallingConvention, ty: Type, value: WValue) !void {
-    if (cc != .C) {
+    if (cc != .wasm_watc) {
         return func.lowerToStack(value);
     }
 
@@ -1510,7 +1511,7 @@ fn restoreStackPointer(func: *CodeGen) !void {
     try func.emitWValue(func.initial_stack_value);
 
     // save its value in the global stack pointer
-    try func.addLabel(.global_set, @intFromEnum(func.bin_file.zigObjectPtr().?.stack_pointer_sym));
+    try func.addLabel(.global_set, @intFromEnum(func.bin_file.zig_object.?.stack_pointer_sym));
 }
 
 /// From a given type, will create space on the virtual stack to store the value of such type.
@@ -1923,6 +1924,7 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .try_ptr_cold => func.airTryPtr(inst),
 
         .dbg_stmt => func.airDbgStmt(inst),
+        .dbg_empty_stmt => try func.finishAir(inst, .none, &.{}),
         .dbg_inline_block => func.airDbgInlineBlock(inst),
         .dbg_var_ptr => func.airDbgVar(inst, .local_var, true),
         .dbg_var_val => func.airDbgVar(inst, .local_var, false),
@@ -2040,7 +2042,6 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .atomic_rmw => func.airAtomicRmw(inst),
         .cmpxchg_weak => func.airCmpxchg(inst),
         .cmpxchg_strong => func.airCmpxchg(inst),
-        .fence => func.airFence(inst),
 
         .add_optimized,
         .sub_optimized,
@@ -2109,7 +2110,7 @@ fn airRet(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     // to the stack instead
     if (func.return_value != .none) {
         try func.store(func.return_value, operand, ret_ty, 0);
-    } else if (fn_info.cc == .C and ret_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
+    } else if (fn_info.cc == .wasm_watc and ret_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
         switch (ret_ty.zigTypeTag(zcu)) {
             // Aggregate types can be lowered as a singular value
             .@"struct", .@"union" => {
@@ -2262,7 +2263,7 @@ fn airCall(func: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModif
     }
 
     if (callee) |direct| {
-        const atom_index = func.bin_file.zigObjectPtr().?.navs.get(direct).?.atom;
+        const atom_index = func.bin_file.zig_object.?.navs.get(direct).?.atom;
         try func.addLabel(.call, @intFromEnum(func.bin_file.getAtom(atom_index).sym_index));
     } else {
         // in this case we call a function pointer
@@ -2274,7 +2275,7 @@ fn airCall(func: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModif
         var fn_type = try genFunctype(func.gpa, fn_info.cc, fn_info.param_types.get(ip), Type.fromInterned(fn_info.return_type), pt, func.target.*);
         defer fn_type.deinit(func.gpa);
 
-        const fn_type_index = try func.bin_file.zigObjectPtr().?.putOrGetFuncType(func.gpa, fn_type);
+        const fn_type_index = try func.bin_file.zig_object.?.putOrGetFuncType(func.gpa, fn_type);
         try func.addLabel(.call_indirect, fn_type_index);
     }
 
@@ -2287,7 +2288,7 @@ fn airCall(func: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModif
         } else if (first_param_sret) {
             break :result_value sret;
             // TODO: Make this less fragile and optimize
-        } else if (zcu.typeToFunc(fn_ty).?.cc == .C and ret_ty.zigTypeTag(zcu) == .@"struct" or ret_ty.zigTypeTag(zcu) == .@"union") {
+        } else if (zcu.typeToFunc(fn_ty).?.cc == .wasm_watc and ret_ty.zigTypeTag(zcu) == .@"struct" or ret_ty.zigTypeTag(zcu) == .@"union") {
             const result_local = try func.allocLocal(ret_ty);
             try func.addLabel(.local_set, result_local.local.value);
             const scalar_type = abi.scalarType(ret_ty, zcu);
@@ -2566,7 +2567,7 @@ fn airArg(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const arg = func.args[arg_index];
     const cc = zcu.typeToFunc(zcu.navValue(func.owner_nav).typeOf(zcu)).?.cc;
     const arg_ty = func.typeOfIndex(inst);
-    if (cc == .C) {
+    if (cc == .wasm_watc) {
         const arg_classes = abi.classifyType(arg_ty, zcu);
         for (arg_classes) |class| {
             if (class != .none) {
@@ -2784,6 +2785,7 @@ const FloatOp = enum {
             .sqrt => .sqrt,
             .sub => .sub,
             .trunc => .trunc,
+            .rem => .fmod,
             else => unreachable,
         };
     }
@@ -3258,7 +3260,7 @@ fn lowerConstant(func: *CodeGen, val: Value, ty: Type) InnerError!WValue {
         .error_union_type,
         .simple_type,
         .struct_type,
-        .anon_struct_type,
+        .tuple_type,
         .union_type,
         .opaque_type,
         .enum_type,
@@ -3272,7 +3274,7 @@ fn lowerConstant(func: *CodeGen, val: Value, ty: Type) InnerError!WValue {
             .undefined,
             .void,
             .null,
-            .empty_struct,
+            .empty_tuple,
             .@"unreachable",
             .generic_poison,
             => unreachable, // non-runtime values
@@ -3707,7 +3709,7 @@ fn airCmpLtErrorsLen(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const un_op = func.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
     const operand = try func.resolveInst(un_op);
     const sym_index = try func.bin_file.getGlobalSymbol("__zig_errors_len", null);
-    const errors_len = .{ .memory = @intFromEnum(sym_index) };
+    const errors_len: WValue = .{ .memory = @intFromEnum(sym_index) };
 
     try func.emitWValue(operand);
     const pt = func.pt;
@@ -6809,30 +6811,37 @@ fn airMod(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const lhs = try func.resolveInst(bin_op.lhs);
     const rhs = try func.resolveInst(bin_op.rhs);
 
-    if (ty.isUnsignedInt(zcu)) {
-        _ = try func.binOp(lhs, rhs, ty, .rem);
-    } else if (ty.isSignedInt(zcu)) {
-        // The wasm rem instruction gives the remainder after truncating division (rounding towards
-        // 0), equivalent to @rem.
-        // We make use of the fact that:
-        // @mod(a, b) = @rem(@rem(a, b) + b, b)
-        const int_bits = ty.intInfo(zcu).bits;
-        const wasm_bits = toWasmBits(int_bits) orelse {
-            return func.fail("TODO: `@mod` for signed integers larger than 64 bits ({d} bits requested)", .{int_bits});
-        };
-
-        if (wasm_bits > 64) {
-            return func.fail("TODO: `@mod` for signed integers larger than 64 bits ({d} bits requested)", .{int_bits});
+    const result = result: {
+        if (ty.isUnsignedInt(zcu)) {
+            break :result try func.binOp(lhs, rhs, ty, .rem);
         }
+        if (ty.isSignedInt(zcu)) {
+            // The wasm rem instruction gives the remainder after truncating division (rounding towards
+            // 0), equivalent to @rem.
+            // We make use of the fact that:
+            // @mod(a, b) = @rem(@rem(a, b) + b, b)
+            const int_bits = ty.intInfo(zcu).bits;
+            const wasm_bits = toWasmBits(int_bits) orelse {
+                return func.fail("TODO: `@mod` for signed integers larger than 64 bits ({d} bits requested)", .{int_bits});
+            };
 
-        _ = try func.binOp(lhs, rhs, ty, .rem);
-        _ = try func.binOp(.stack, rhs, ty, .add);
-        _ = try func.binOp(.stack, rhs, ty, .rem);
-    } else {
-        return func.fail("TODO: implement `@mod` on floating point types for {}", .{func.target.cpu.arch});
-    }
+            if (wasm_bits > 64) {
+                return func.fail("TODO: `@mod` for signed integers larger than 64 bits ({d} bits requested)", .{int_bits});
+            }
 
-    return func.finishAir(inst, .stack, &.{ bin_op.lhs, bin_op.rhs });
+            _ = try func.binOp(lhs, rhs, ty, .rem);
+            _ = try func.binOp(.stack, rhs, ty, .add);
+            break :result try func.binOp(.stack, rhs, ty, .rem);
+        }
+        if (ty.isAnyFloat()) {
+            const rem = try func.binOp(lhs, rhs, ty, .rem);
+            const add = try func.binOp(rem, rhs, ty, .add);
+            break :result try func.binOp(add, rhs, ty, .rem);
+        }
+        return func.fail("TODO: @mod for {}", .{ty.fmt(pt)});
+    };
+
+    return func.finishAir(inst, result, &.{ bin_op.lhs, bin_op.rhs });
 }
 
 fn airSatMul(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
@@ -7168,12 +7177,12 @@ fn callIntrinsic(
     // Always pass over C-ABI
     const pt = func.pt;
     const zcu = pt.zcu;
-    var func_type = try genFunctype(func.gpa, .C, param_types, return_type, pt, func.target.*);
+    var func_type = try genFunctype(func.gpa, .{ .wasm_watc = .{} }, param_types, return_type, pt, func.target.*);
     defer func_type.deinit(func.gpa);
-    const func_type_index = try func.bin_file.zigObjectPtr().?.putOrGetFuncType(func.gpa, func_type);
+    const func_type_index = try func.bin_file.zig_object.?.putOrGetFuncType(func.gpa, func_type);
     try func.bin_file.addOrUpdateImport(name, symbol_index, null, func_type_index);
 
-    const want_sret_param = firstParamSRet(.C, return_type, pt, func.target.*);
+    const want_sret_param = firstParamSRet(.{ .wasm_watc = .{} }, return_type, pt, func.target.*);
     // if we want return as first param, we allocate a pointer to stack,
     // and emit it as our first argument
     const sret = if (want_sret_param) blk: {
@@ -7186,7 +7195,7 @@ fn callIntrinsic(
     for (args, 0..) |arg, arg_i| {
         assert(!(want_sret_param and arg == .stack));
         assert(Type.fromInterned(param_types[arg_i]).hasRuntimeBitsIgnoreComptime(zcu));
-        try func.lowerArg(.C, Type.fromInterned(param_types[arg_i]), arg);
+        try func.lowerArg(.{ .wasm_watc = .{} }, Type.fromInterned(param_types[arg_i]), arg);
     }
 
     // Actually call our intrinsic
@@ -7740,20 +7749,6 @@ fn airAtomicRmw(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
         return func.finishAir(inst, result, &.{ pl_op.operand, extra.operand });
     }
-}
-
-fn airFence(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const pt = func.pt;
-    const zcu = pt.zcu;
-    // Only when the atomic feature is enabled, and we're not building
-    // for a single-threaded build, can we emit the `fence` instruction.
-    // In all other cases, we emit no instructions for a fence.
-    const single_threaded = zcu.navFileScope(func.owner_nav).mod.single_threaded;
-    if (func.useAtomicFeature() and !single_threaded) {
-        try func.addAtomicTag(.atomic_fence);
-    }
-
-    return func.finishAir(inst, .none, &.{});
 }
 
 fn airAtomicStore(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {

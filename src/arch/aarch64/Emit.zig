@@ -942,7 +942,7 @@ fn mirLoadMemoryPie(emit: *Emit, inst: Mir.Inst.Index) !void {
             .load_memory_import => coff_file.getGlobalByIndex(data.sym_index),
             else => unreachable,
         };
-        try link.File.Coff.Atom.addRelocation(coff_file, atom_index, .{
+        try coff_file.addRelocation(atom_index, .{
             .target = target,
             .offset = offset,
             .addend = 0,
@@ -959,7 +959,7 @@ fn mirLoadMemoryPie(emit: *Emit, inst: Mir.Inst.Index) !void {
                 else => unreachable,
             },
         });
-        try link.File.Coff.Atom.addRelocation(coff_file, atom_index, .{
+        try coff_file.addRelocation(atom_index, .{
             .target = target,
             .offset = offset + 4,
             .addend = 0,

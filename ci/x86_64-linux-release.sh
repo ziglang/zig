@@ -12,7 +12,7 @@ CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.14.0-dev.1622+2ac543388"
 PREFIX="$HOME/deps/$CACHE_BASENAME"
 ZIG="$PREFIX/bin/zig"
 
-export PATH="$HOME/deps/wasmtime-v10.0.2-$ARCH-linux:$HOME/deps/qemu-linux-x86_64-8.2.1/bin:$PATH"
+export PATH="$HOME/deps/wasmtime-v10.0.2-$ARCH-linux:$HOME/deps/qemu-linux-x86_64-9.2.0-rc1/bin:$HOME/local/bin:$PATH"
 
 # Make the `zig version` number consistent.
 # This will affect the cmake command below.
@@ -64,14 +64,14 @@ stage3-release/bin/zig build \
 
 stage3-release/bin/zig build test docs \
   --maxrss 21000000000 \
-  -Dlldb=$HOME/deps/lldb-zig/Release-4a44163df/bin/lldb \
+  -Dlldb=$HOME/deps/lldb-zig/Release-bfeada333/bin/lldb \
   -fqemu \
   -fwasmtime \
   -Dstatic-llvm \
   -Dtarget=native-native-musl \
   --search-prefix "$PREFIX" \
   --zig-lib-dir "$PWD/../lib" \
-  -Denable-tidy
+  -Denable-superhtml
 
 # Ensure that stage3 and stage4 are byte-for-byte identical.
 stage3-release/bin/zig build \

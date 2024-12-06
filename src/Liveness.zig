@@ -334,6 +334,7 @@ pub fn categorizeOperand(
         .repeat,
         .switch_dispatch,
         .dbg_stmt,
+        .dbg_empty_stmt,
         .unreach,
         .ret_addr,
         .frame_addr,
@@ -345,8 +346,6 @@ pub fn categorizeOperand(
         .work_group_size,
         .work_group_id,
         => return .none,
-
-        .fence => return .write,
 
         .not,
         .bitcast,
@@ -975,7 +974,7 @@ fn analyzeInst(
         .ret_ptr,
         .breakpoint,
         .dbg_stmt,
-        .fence,
+        .dbg_empty_stmt,
         .ret_addr,
         .frame_addr,
         .wasm_memory_size,

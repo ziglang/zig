@@ -4,6 +4,7 @@ root_step: *std.Build.Step,
 
 pub const Options = struct {
     test_filters: []const []const u8,
+    test_target_filters: []const []const u8,
     gdb: ?[]const u8,
     lldb: ?[]const u8,
     optimize_modes: []const std.builtin.OptimizeMode,
@@ -113,70 +114,70 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
         &.{
             \\(lldb) frame variable --show-types -- basic
             \\(root.basic.Basic) basic = {
-            \\  (void) void = {}
-            \\  (bool) bool_false = false
-            \\  (bool) bool_true = true
-            \\  (u0) u0_0 = 0
-            \\  (u1) u1_0 = 0
-            \\  (u1) u1_1 = 1
-            \\  (u2) u2_0 = 0
-            \\  (u2) u2_3 = 3
-            \\  (u3) u3_0 = 0
-            \\  (u3) u3_7 = 7
-            \\  (u4) u4_0 = 0
-            \\  (u4) u4_15 = 15
-            \\  (u5) u5_0 = 0
-            \\  (u5) u5_31 = 31
-            \\  (u6) u6_0 = 0
-            \\  (u6) u6_63 = 63
-            \\  (u7) u7_0 = 0
-            \\  (u7) u7_127 = 127
-            \\  (u8) u8_0 = 0
-            \\  (u8) u8_255 = 255
-            \\  (u16) u16_0 = 0
-            \\  (u16) u16_65535 = 65535
-            \\  (u24) u24_0 = 0
-            \\  (u24) u24_16777215 = 16777215
-            \\  (u32) u32_0 = 0
-            \\  (u32) u32_4294967295 = 4294967295
-            \\  (i0) i0_0 = 0
-            \\  (i1) i1_-1 = -1
-            \\  (i1) i1_0 = 0
-            \\  (i2) i2_-2 = -2
-            \\  (i2) i2_0 = 0
-            \\  (i2) i2_1 = 1
-            \\  (i3) i3_-4 = -4
-            \\  (i3) i3_0 = 0
-            \\  (i3) i3_3 = 3
-            \\  (i4) i4_-8 = -8
-            \\  (i4) i4_0 = 0
-            \\  (i4) i4_7 = 7
-            \\  (i5) i5_-16 = -16
-            \\  (i5) i5_0 = 0
-            \\  (i5) i5_15 = 15
-            \\  (i6) i6_-32 = -32
-            \\  (i6) i6_0 = 0
-            \\  (i6) i6_31 = 31
-            \\  (i7) i7_-64 = -64
-            \\  (i7) i7_0 = 0
-            \\  (i7) i7_63 = 63
-            \\  (i8) i8_-128 = -128
-            \\  (i8) i8_0 = 0
-            \\  (i8) i8_127 = 127
-            \\  (i16) i16_-32768 = -32768
-            \\  (i16) i16_0 = 0
-            \\  (i16) i16_32767 = 32767
-            \\  (i24) i24_-8388608 = -8388608
-            \\  (i24) i24_0 = 0
-            \\  (i24) i24_8388607 = 8388607
-            \\  (i32) i32_-2147483648 = -2147483648
-            \\  (i32) i32_0 = 0
-            \\  (i32) i32_2147483647 = 2147483647
-            \\  (f16) f16_42.625 = 42.625
-            \\  (f32) f32_-2730.65625 = -2730.65625
-            \\  (f64) f64_357913941.33203125 = 357913941.33203125
-            \\  (f80) f80_-91625968981.3330078125 = -91625968981.3330078125
-            \\  (f128) f128_384307168202282325.333332061767578125 = 384307168202282325.333332061767578125
+            \\  (void) .void = {}
+            \\  (bool) .bool_false = false
+            \\  (bool) .bool_true = true
+            \\  (u0) .u0_0 = 0
+            \\  (u1) .u1_0 = 0
+            \\  (u1) .u1_1 = 1
+            \\  (u2) .u2_0 = 0
+            \\  (u2) .u2_3 = 3
+            \\  (u3) .u3_0 = 0
+            \\  (u3) .u3_7 = 7
+            \\  (u4) .u4_0 = 0
+            \\  (u4) .u4_15 = 15
+            \\  (u5) .u5_0 = 0
+            \\  (u5) .u5_31 = 31
+            \\  (u6) .u6_0 = 0
+            \\  (u6) .u6_63 = 63
+            \\  (u7) .u7_0 = 0
+            \\  (u7) .u7_127 = 127
+            \\  (u8) .u8_0 = 0
+            \\  (u8) .u8_255 = 255
+            \\  (u16) .u16_0 = 0
+            \\  (u16) .u16_65535 = 65535
+            \\  (u24) .u24_0 = 0
+            \\  (u24) .u24_16777215 = 16777215
+            \\  (u32) .u32_0 = 0
+            \\  (u32) .u32_4294967295 = 4294967295
+            \\  (i0) .i0_0 = 0
+            \\  (i1) .@"i1_-1" = -1
+            \\  (i1) .i1_0 = 0
+            \\  (i2) .@"i2_-2" = -2
+            \\  (i2) .i2_0 = 0
+            \\  (i2) .i2_1 = 1
+            \\  (i3) .@"i3_-4" = -4
+            \\  (i3) .i3_0 = 0
+            \\  (i3) .i3_3 = 3
+            \\  (i4) .@"i4_-8" = -8
+            \\  (i4) .i4_0 = 0
+            \\  (i4) .i4_7 = 7
+            \\  (i5) .@"i5_-16" = -16
+            \\  (i5) .i5_0 = 0
+            \\  (i5) .i5_15 = 15
+            \\  (i6) .@"i6_-32" = -32
+            \\  (i6) .i6_0 = 0
+            \\  (i6) .i6_31 = 31
+            \\  (i7) .@"i7_-64" = -64
+            \\  (i7) .i7_0 = 0
+            \\  (i7) .i7_63 = 63
+            \\  (i8) .@"i8_-128" = -128
+            \\  (i8) .i8_0 = 0
+            \\  (i8) .i8_127 = 127
+            \\  (i16) .@"i16_-32768" = -32768
+            \\  (i16) .i16_0 = 0
+            \\  (i16) .i16_32767 = 32767
+            \\  (i24) .@"i24_-8388608" = -8388608
+            \\  (i24) .i24_0 = 0
+            \\  (i24) .i24_8388607 = 8388607
+            \\  (i32) .@"i32_-2147483648" = -2147483648
+            \\  (i32) .i32_0 = 0
+            \\  (i32) .i32_2147483647 = 2147483647
+            \\  (f16) .@"f16_42.625" = 42.625
+            \\  (f32) .@"f32_-2730.65625" = -2730.65625
+            \\  (f64) .@"f64_357913941.33203125" = 357913941.33203125
+            \\  (f80) .@"f80_-91625968981.3330078125" = -91625968981.3330078125
+            \\  (f128) .@"f128_384307168202282325.333332061767578125" = 384307168202282325.333332061767578125
             \\}
             \\(lldb) breakpoint delete --force 1
             \\1 breakpoints deleted; 0 breakpoint locations disabled.
@@ -249,57 +250,57 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
         &.{
             \\(lldb) frame variable --show-types -- pointers
             \\(root.pointers.Pointers) pointers = {
-            \\  (*u32) single = 0x0000000000001010
-            \\  (*const u32) single_const = 0x0000000000001014
-            \\  (*volatile u32) single_volatile = 0x0000000000001018
-            \\  (*const volatile u32) single_const_volatile = 0x000000000000101c
-            \\  (*allowzero u32) single_allowzero = 0x0000000000001020
-            \\  (*allowzero const u32) single_allowzero_const = 0x0000000000001024
-            \\  (*allowzero volatile u32) single_allowzero_volatile = 0x0000000000001028
-            \\  (*allowzero const volatile u32) single_allowzero_const_volatile = 0x000000000000102c
-            \\  ([*]u32) many = 0x0000000000002010
-            \\  ([*]const u32) many_const = 0x0000000000002014
-            \\  ([*]volatile u32) many_volatile = 0x0000000000002018
-            \\  ([*]const volatile u32) many_const_volatile = 0x000000000000201c
-            \\  ([*]allowzero u32) many_allowzero = 0x0000000000002020
-            \\  ([*]allowzero const u32) many_allowzero_const = 0x0000000000002024
-            \\  ([*]allowzero volatile u32) many_allowzero_volatile = 0x0000000000002028
-            \\  ([*]allowzero const volatile u32) many_allowzero_const_volatile = 0x000000000000202c
-            \\  ([]u32) slice = len=1 {
+            \\  (*u32) .single = 0x0000000000001010
+            \\  (*const u32) .single_const = 0x0000000000001014
+            \\  (*volatile u32) .single_volatile = 0x0000000000001018
+            \\  (*const volatile u32) .single_const_volatile = 0x000000000000101c
+            \\  (*allowzero u32) .single_allowzero = 0x0000000000001020
+            \\  (*allowzero const u32) .single_allowzero_const = 0x0000000000001024
+            \\  (*allowzero volatile u32) .single_allowzero_volatile = 0x0000000000001028
+            \\  (*allowzero const volatile u32) .single_allowzero_const_volatile = 0x000000000000102c
+            \\  ([*]u32) .many = 0x0000000000002010
+            \\  ([*]const u32) .many_const = 0x0000000000002014
+            \\  ([*]volatile u32) .many_volatile = 0x0000000000002018
+            \\  ([*]const volatile u32) .many_const_volatile = 0x000000000000201c
+            \\  ([*]allowzero u32) .many_allowzero = 0x0000000000002020
+            \\  ([*]allowzero const u32) .many_allowzero_const = 0x0000000000002024
+            \\  ([*]allowzero volatile u32) .many_allowzero_volatile = 0x0000000000002028
+            \\  ([*]allowzero const volatile u32) .many_allowzero_const_volatile = 0x000000000000202c
+            \\  ([]u32) .slice = len=1 {
             \\    (u32) [0] = 3010
             \\  }
-            \\  ([]const u32) slice_const = len=2 {
+            \\  ([]const u32) .slice_const = len=2 {
             \\    (u32) [0] = 3010
             \\    (u32) [1] = 3014
             \\  }
-            \\  ([]volatile u32) slice_volatile = len=3 {
+            \\  ([]volatile u32) .slice_volatile = len=3 {
             \\    (u32) [0] = 3010
             \\    (u32) [1] = 3014
             \\    (u32) [2] = 3018
             \\  }
-            \\  ([]const volatile u32) slice_const_volatile = len=4 {
+            \\  ([]const volatile u32) .slice_const_volatile = len=4 {
             \\    (u32) [0] = 3010
             \\    (u32) [1] = 3014
             \\    (u32) [2] = 3018
             \\    (u32) [3] = 3022
             \\  }
-            \\  ([]allowzero u32) slice_allowzero = len=0 {}
-            \\  ([]allowzero const u32) slice_allowzero_const = len=1 {
+            \\  ([]allowzero u32) .slice_allowzero = len=0 {}
+            \\  ([]allowzero const u32) .slice_allowzero_const = len=1 {
             \\    (u32) [0] = 3026
             \\  }
-            \\  ([]allowzero volatile u32) slice_allowzero_volatile = len=2 {
+            \\  ([]allowzero volatile u32) .slice_allowzero_volatile = len=2 {
             \\    (u32) [0] = 3026
             \\    (u32) [1] = 3030
             \\  }
-            \\  ([]allowzero const volatile u32) slice_allowzero_const_volatile = len=3 {
+            \\  ([]allowzero const volatile u32) .slice_allowzero_const_volatile = len=3 {
             \\    (u32) [0] = 3026
             \\    (u32) [1] = 3030
             \\    (u32) [2] = 3034
             \\  }
-            \\  ([*c]u32) c = 0x0000000000004010
-            \\  ([*c]const u32) c_const = 0x0000000000004014
-            \\  ([*c]volatile u32) c_volatile = 0x0000000000004018
-            \\  ([*c]const volatile u32) c_const_volatile = 0x000000000000401c
+            \\  ([*c]u32) .c = 0x0000000000004010
+            \\  ([*c]const u32) .c_const = 0x0000000000004014
+            \\  ([*c]volatile u32) .c_volatile = 0x0000000000004018
+            \\  ([*c]const volatile u32) .c_const_volatile = 0x000000000000401c
             \\}
             \\(lldb) breakpoint delete --force 1
             \\1 breakpoints deleted; 0 breakpoint locations disabled.
@@ -362,10 +363,10 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
             \\}
             \\(lldb) frame variable --show-types --format c-string -- strings
             \\(root.strings.Strings) strings = {
-            \\  ([*c]const u8) c_ptr = "c_ptr\x07\x08\t"
-            \\  ([*:0]const u8) many_ptr = "many_ptr\n\x0b\x0c"
-            \\  (*const [12:0]u8) ptr_array = "ptr_array\x00\r\x1b"
-            \\  ([:0]const u8) slice = "slice\"\'\\\x00" len=9 {
+            \\  ([*c]const u8) .c_ptr = "c_ptr\x07\x08\t"
+            \\  ([*:0]const u8) .many_ptr = "many_ptr\n\x0b\x0c"
+            \\  (*const [12:0]u8) .ptr_array = "ptr_array\x00\r\x1b"
+            \\  ([:0]const u8) .slice = "slice\"\'\\\x00" len=9 {
             \\    (u8) [0] = "s"
             \\    (u8) [1] = "l"
             \\    (u8) [2] = "i"
@@ -434,10 +435,10 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
             \\}
             \\(lldb) frame variable --show-types -- enums
             \\(root.enums.Enums) enums = {
-            \\  (root.enums.Enums.Zero) zero = @enumFromInt(13)
-            \\  (root.enums.Enums.One) one = .first
-            \\  (root.enums.Enums.Two) two = @enumFromInt(-1234)
-            \\  (root.enums.Enums.Three) three = .second
+            \\  (root.enums.Enums.Zero) .zero = @enumFromInt(13)
+            \\  (root.enums.Enums.One) .one = .first
+            \\  (root.enums.Enums.Two) .two = @enumFromInt(-1234)
+            \\  (root.enums.Enums.Three) .three = .second
             \\}
             \\(lldb) breakpoint delete --force 1
             \\1 breakpoints deleted; 0 breakpoint locations disabled.
@@ -498,15 +499,15 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
             \\}
             \\(lldb) frame variable --show-types -- errors
             \\(root.errors.Errors) errors = {
-            \\  (error{One}) one = error.One
-            \\  (error{One,Two}) two = error.Two
-            \\  (error{One,Two,Three}) three = error.Three
-            \\  (anyerror) any = error.Any
-            \\  (anyerror!void) any_void = {
-            \\    (anyerror) error = error.NotVoid
+            \\  (error{One}) .one = error.One
+            \\  (error{One,Two}) .two = error.Two
+            \\  (error{One,Two,Three}) .three = error.Three
+            \\  (anyerror) .any = error.Any
+            \\  (anyerror!void) .any_void = {
+            \\    (anyerror) .error = error.NotVoid
             \\  }
-            \\  (error{One}!u32) any_u32 = {
-            \\    (u32) value = 42
+            \\  (error{One}!u32) .any_u32 = {
+            \\    (u32) .value = 42
             \\  }
             \\}
             \\(lldb) breakpoint delete --force 1
@@ -630,17 +631,17 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
             \\}
             \\(lldb) frame variable --show-types -- unions
             \\(root.unions.Unions) unions = {
-            \\  (root.unions.Unions.Untagged) untagged = {
-            \\    (u32) u32 = 3217031168
-            \\    (i32) i32 = -1077936128
-            \\    (f32) f32 = -1.5
+            \\  (root.unions.Unions.Untagged) .untagged = {
+            \\    (u32) .u32 = 3217031168
+            \\    (i32) .i32 = -1077936128
+            \\    (f32) .f32 = -1.5
             \\  }
-            \\  (root.unions.Unions.SafetyTagged) safety_tagged = {
-            \\    (root.unions.Unions.Enum) en = .second
+            \\  (root.unions.Unions.SafetyTagged) .safety_tagged = {
+            \\    (root.unions.Unions.Enum) .en = .second
             \\  }
-            \\  (root.unions.Unions.Tagged) tagged = {
-            \\    (error{Error}!root.unions.Unions.Enum) eu = {
-            \\      (error{Error}) error = error.Error
+            \\  (root.unions.Unions.Tagged) .tagged = {
+            \\    (error{Error}!root.unions.Unions.Enum) .eu = {
+            \\      (error{Error}) .error = error.Error
             \\    }
             \\  }
             \\}
@@ -719,6 +720,511 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
             \\(u64) local_var = 0x5d14df51c80685a4
             \\(lldb) breakpoint delete --force 1
             \\1 breakpoints deleted; 0 breakpoint locations disabled.
+        },
+    );
+    db.addLldbTest(
+        "if_blocks",
+        target,
+        &.{
+            .{
+                .path = "if_blocks.zig",
+                .source =
+                \\pub fn main() void {
+                \\    for (0..2) |i| {
+                \\        if (i == 0) {
+                \\            var x: u32 = 123;
+                \\            _ = &x;
+                \\        } else {
+                \\            var x: f32 = 4.5;
+                \\            _ = &x;
+                \\        }
+                \\    }
+                \\}
+                \\
+                ,
+            },
+        },
+        \\breakpoint set --file if_blocks.zig --source-pattern-regexp '_ = &x;'
+        \\process launch
+        \\frame variable
+        \\process continue
+        \\frame variable
+        \\breakpoint delete --force 1
+    ,
+        &.{
+            \\(lldb) frame variable
+            \\(usize) i = 0
+            \\(u32) x = 123
+            \\(lldb) process continue
+            ,
+            \\(lldb) frame variable
+            \\(usize) i = 1
+            \\(f32) x = 4.5
+            \\(lldb) breakpoint delete --force 1
+            \\1 breakpoints deleted; 0 breakpoint locations disabled.
+        },
+    );
+    db.addLldbTest(
+        "switch_blocks",
+        target,
+        &.{
+            .{
+                .path = "switch_blocks.zig",
+                .source =
+                \\pub fn main() void {
+                \\    for (0..2) |i| {
+                \\        switch (i) {
+                \\            0 => {
+                \\                var x: u32 = 123;
+                \\                _ = &x;
+                \\            },
+                \\            else => {
+                \\                var x: f32 = 4.5;
+                \\                _ = &x;
+                \\            },
+                \\        }
+                \\    }
+                \\}
+                \\
+                ,
+            },
+        },
+        \\breakpoint set --file switch_blocks.zig --source-pattern-regexp '_ = &x;'
+        \\process launch
+        \\frame variable
+        \\process continue
+        \\frame variable
+        \\breakpoint delete --force 1
+    ,
+        &.{
+            \\(lldb) frame variable
+            \\(usize) i = 0
+            \\(u32) x = 123
+            \\(lldb) process continue
+            ,
+            \\(lldb) frame variable
+            \\(usize) i = 1
+            \\(f32) x = 4.5
+            \\(lldb) breakpoint delete --force 1
+            \\1 breakpoints deleted; 0 breakpoint locations disabled.
+        },
+    );
+    db.addLldbTest(
+        "step_single_stmt_loops",
+        target,
+        &.{
+            .{
+                .path = "step_single_stmt_loops.zig",
+                .source =
+                \\pub fn main() void {
+                \\    var x: u32 = 0;
+                \\    for (0..3) |_| {
+                \\        x +%= 1;
+                \\    }
+                \\    {
+                \\        var i: u32 = 0;
+                \\        while (i < 3) : (i +%= 1) {
+                \\            x +%= 1;
+                \\        }
+                \\    }
+                \\    {
+                \\        var i: u32 = 0;
+                \\        while (i < 3) {
+                \\            i +%= 1;
+                \\        }
+                \\    }
+                \\    inline for (0..3) |_| {
+                \\        x +%= 1;
+                \\    }
+                \\    {
+                \\        comptime var i: u32 = 0;
+                \\        inline while (i < 3) : (i +%= 1) {
+                \\            x +%= 1;
+                \\        }
+                \\    }
+                \\    {
+                \\        comptime var i: u32 = 0;
+                \\        inline while (i < 3) {
+                \\            i +%= 1;
+                \\        }
+                \\    }
+                \\    x +%= 1;
+                \\}
+                \\
+                ,
+            },
+        },
+        \\breakpoint set --name step_single_stmt_loops.main
+        \\process launch
+        \\thread step-in
+        \\#00
+        \\frame variable x
+        \\thread step-in
+        \\#01
+        \\frame variable x
+        \\thread step-in
+        \\#02
+        \\frame variable x
+        \\thread step-in
+        \\#03
+        \\frame variable x
+        \\thread step-in
+        \\#04
+        \\frame variable x
+        \\thread step-in
+        \\#05
+        \\frame variable x
+        \\thread step-in
+        \\#06
+        \\frame variable x
+        \\thread step-in
+        \\#07
+        \\frame variable x
+        \\thread step-in
+        \\#08
+        \\frame variable x
+        \\thread step-in
+        \\#09
+        \\frame variable x
+        \\thread step-in
+        \\#10
+        \\frame variable x
+        \\thread step-in
+        \\#11
+        \\frame variable x
+        \\thread step-in
+        \\#12
+        \\frame variable x
+        \\thread step-in
+        \\#13
+        \\frame variable x
+        \\thread step-in
+        \\#14
+        \\frame variable x
+        \\thread step-in
+        \\#15
+        \\frame variable x
+        \\thread step-in
+        \\#16
+        \\frame variable x
+        \\thread step-in
+        \\#17
+        \\frame variable x
+        \\thread step-in
+        \\#18
+        \\frame variable x
+        \\thread step-in
+        \\#19
+        \\frame variable x
+        \\thread step-in
+        \\#20
+        \\frame variable x
+        \\thread step-in
+        \\#21
+        \\frame variable x
+        \\thread step-in
+        \\#22
+        \\frame variable x
+        \\thread step-in
+        \\#23
+        \\frame variable x
+        \\thread step-in
+        \\#24
+        \\frame variable x
+        \\thread step-in
+        \\#25
+        \\frame variable x
+        \\thread step-in
+        \\#26
+        \\frame variable x
+        \\thread step-in
+        \\#27
+        \\frame variable x
+        \\thread step-in
+        \\#28
+        \\frame variable x
+        \\thread step-in
+        \\#29
+        \\frame variable x
+        \\thread step-in
+        \\#30
+        \\frame variable x
+        \\thread step-in
+        \\#31
+        \\frame variable x
+        \\thread step-in
+        \\#32
+        \\frame variable x
+        \\thread step-in
+        \\#33
+        \\frame variable x
+        \\thread step-in
+        \\#34
+        \\frame variable x
+        \\thread step-in
+        \\#35
+        \\frame variable x
+        \\thread step-in
+        \\#36
+        \\frame variable x
+        \\thread step-in
+        \\#37
+        \\frame variable x
+        \\thread step-in
+        \\#38
+        \\frame variable x
+        \\thread step-in
+        \\#39
+        \\frame variable x
+        \\thread step-in
+        \\#40
+        \\frame variable x
+        \\thread step-in
+        \\#41
+        \\frame variable x
+        \\thread step-in
+        \\#42
+        \\frame variable x
+        \\thread step-in
+        \\#43
+        \\frame variable x
+        \\thread step-in
+        \\#44
+        \\frame variable x
+        \\thread step-in
+        \\#45
+        \\frame variable x
+        \\
+    ,
+        &.{
+            \\(lldb) #00
+            \\(lldb) frame variable x
+            \\(u32) x = 0
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #01
+            \\(lldb) frame variable x
+            \\(u32) x = 0
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #02
+            \\(lldb) frame variable x
+            \\(u32) x = 1
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #03
+            \\(lldb) frame variable x
+            \\(u32) x = 1
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #04
+            \\(lldb) frame variable x
+            \\(u32) x = 1
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #05
+            \\(lldb) frame variable x
+            \\(u32) x = 2
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #06
+            \\(lldb) frame variable x
+            \\(u32) x = 2
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #07
+            \\(lldb) frame variable x
+            \\(u32) x = 2
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #08
+            \\(lldb) frame variable x
+            \\(u32) x = 3
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #09
+            \\(lldb) frame variable x
+            \\(u32) x = 3
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #10
+            \\(lldb) frame variable x
+            \\(u32) x = 3
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #11
+            \\(lldb) frame variable x
+            \\(u32) x = 3
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #12
+            \\(lldb) frame variable x
+            \\(u32) x = 3
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #13
+            \\(lldb) frame variable x
+            \\(u32) x = 4
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #14
+            \\(lldb) frame variable x
+            \\(u32) x = 4
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #15
+            \\(lldb) frame variable x
+            \\(u32) x = 4
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #16
+            \\(lldb) frame variable x
+            \\(u32) x = 5
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #17
+            \\(lldb) frame variable x
+            \\(u32) x = 5
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #18
+            \\(lldb) frame variable x
+            \\(u32) x = 5
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #19
+            \\(lldb) frame variable x
+            \\(u32) x = 6
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #20
+            \\(lldb) frame variable x
+            \\(u32) x = 6
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #21
+            \\(lldb) frame variable x
+            \\(u32) x = 6
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #22
+            \\(lldb) frame variable x
+            \\(u32) x = 6
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #23
+            \\(lldb) frame variable x
+            \\(u32) x = 6
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #24
+            \\(lldb) frame variable x
+            \\(u32) x = 6
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #25
+            \\(lldb) frame variable x
+            \\(u32) x = 6
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #26
+            \\(lldb) frame variable x
+            \\(u32) x = 6
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #27
+            \\(lldb) frame variable x
+            \\(u32) x = 6
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #28
+            \\(lldb) frame variable x
+            \\(u32) x = 6
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #29
+            \\(lldb) frame variable x
+            \\(u32) x = 6
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #30
+            \\(lldb) frame variable x
+            \\(u32) x = 6
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #31
+            \\(lldb) frame variable x
+            \\(u32) x = 6
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #32
+            \\(lldb) frame variable x
+            \\(u32) x = 6
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #33
+            \\(lldb) frame variable x
+            \\(u32) x = 7
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #34
+            \\(lldb) frame variable x
+            \\(u32) x = 7
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #35
+            \\(lldb) frame variable x
+            \\(u32) x = 8
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #36
+            \\(lldb) frame variable x
+            \\(u32) x = 8
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #37
+            \\(lldb) frame variable x
+            \\(u32) x = 9
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #38
+            \\(lldb) frame variable x
+            \\(u32) x = 9
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #39
+            \\(lldb) frame variable x
+            \\(u32) x = 10
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #40
+            \\(lldb) frame variable x
+            \\(u32) x = 10
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #41
+            \\(lldb) frame variable x
+            \\(u32) x = 11
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #42
+            \\(lldb) frame variable x
+            \\(u32) x = 11
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #43
+            \\(lldb) frame variable x
+            \\(u32) x = 12
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #44
+            \\(lldb) frame variable x
+            \\(u32) x = 12
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #45
+            \\(lldb) frame variable x
+            \\(u32) x = 12
         },
     );
     db.addLldbTest(
@@ -1370,24 +1876,24 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
             \\(lldb) frame variable --show-types -- map.unmanaged
             \\(std.hash_map.HashMapUnmanaged(u32,u32,main.Context,63)) map.unmanaged = len=5 capacity=16 {
             \\  (std.hash_map.HashMapUnmanaged(u32,u32,main.Context,63).KV) [0] = {
-            \\    (u32) key = 0
-            \\    (u32) value = 1
+            \\    (u32) .key = 0
+            \\    (u32) .value = 1
             \\  }
             \\  (std.hash_map.HashMapUnmanaged(u32,u32,main.Context,63).KV) [1] = {
-            \\    (u32) key = 2
-            \\    (u32) value = 3
+            \\    (u32) .key = 2
+            \\    (u32) .value = 3
             \\  }
             \\  (std.hash_map.HashMapUnmanaged(u32,u32,main.Context,63).KV) [2] = {
-            \\    (u32) key = 4
-            \\    (u32) value = 5
+            \\    (u32) .key = 4
+            \\    (u32) .value = 5
             \\  }
             \\  (std.hash_map.HashMapUnmanaged(u32,u32,main.Context,63).KV) [3] = {
-            \\    (u32) key = 6
-            \\    (u32) value = 7
+            \\    (u32) .key = 6
+            \\    (u32) .value = 7
             \\  }
             \\  (std.hash_map.HashMapUnmanaged(u32,u32,main.Context,63).KV) [4] = {
-            \\    (u32) key = 8
-            \\    (u32) value = 9
+            \\    (u32) .key = 8
+            \\    (u32) .value = 9
             \\  }
             \\}
             \\(lldb) breakpoint delete --force 1
@@ -1445,39 +1951,39 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
     ,
         &.{
             \\(lldb) frame variable --show-types -- list0 list0.len list0.capacity list0[0] list0[1] list0[2] list0.0 list0.1 list0.2
-            \\(std.multi_array_list.MultiArrayList(main.Elem0)) list0 = len=3 capacity=8 {
-            \\  (root.main.Elem0) [0] = {
-            \\    (u32) 0 = 1
-            \\    (u8) 1 = 2
-            \\    (u16) 2 = 3
+            \\(std.multi_array_list.MultiArrayList(struct { u32, u8, u16 })) list0 = len=3 capacity=8 {
+            \\  (struct { u32, u8, u16 }) [0] = {
+            \\    (u32) .@"0" = 1
+            \\    (u8) .@"1" = 2
+            \\    (u16) .@"2" = 3
             \\  }
-            \\  (root.main.Elem0) [1] = {
-            \\    (u32) 0 = 4
-            \\    (u8) 1 = 5
-            \\    (u16) 2 = 6
+            \\  (struct { u32, u8, u16 }) [1] = {
+            \\    (u32) .@"0" = 4
+            \\    (u8) .@"1" = 5
+            \\    (u16) .@"2" = 6
             \\  }
-            \\  (root.main.Elem0) [2] = {
-            \\    (u32) 0 = 7
-            \\    (u8) 1 = 8
-            \\    (u16) 2 = 9
+            \\  (struct { u32, u8, u16 }) [2] = {
+            \\    (u32) .@"0" = 7
+            \\    (u8) .@"1" = 8
+            \\    (u16) .@"2" = 9
             \\  }
             \\}
             \\(usize) list0.len = 3
             \\(usize) list0.capacity = 8
-            \\(root.main.Elem0) list0[0] = {
-            \\  (u32) 0 = 1
-            \\  (u8) 1 = 2
-            \\  (u16) 2 = 3
+            \\(struct { u32, u8, u16 }) list0[0] = {
+            \\  (u32) .@"0" = 1
+            \\  (u8) .@"1" = 2
+            \\  (u16) .@"2" = 3
             \\}
-            \\(root.main.Elem0) list0[1] = {
-            \\  (u32) 0 = 4
-            \\  (u8) 1 = 5
-            \\  (u16) 2 = 6
+            \\(struct { u32, u8, u16 }) list0[1] = {
+            \\  (u32) .@"0" = 4
+            \\  (u8) .@"1" = 5
+            \\  (u16) .@"2" = 6
             \\}
-            \\(root.main.Elem0) list0[2] = {
-            \\  (u32) 0 = 7
-            \\  (u8) 1 = 8
-            \\  (u16) 2 = 9
+            \\(struct { u32, u8, u16 }) list0[2] = {
+            \\  (u32) .@"0" = 7
+            \\  (u8) .@"1" = 8
+            \\  (u16) .@"2" = 9
             \\}
             \\([3]u32) list0.0 = {
             \\  (u32) [0] = 1
@@ -1495,39 +2001,39 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
             \\  (u16) [2] = 9
             \\}
             \\(lldb) frame variable --show-types -- slice0 slice0.len slice0.capacity slice0[0] slice0[1] slice0[2] slice0.0 slice0.1 slice0.2
-            \\(std.multi_array_list.MultiArrayList(main.Elem0).Slice) slice0 = len=3 capacity=8 {
-            \\  (root.main.Elem0) [0] = {
-            \\    (u32) 0 = 1
-            \\    (u8) 1 = 2
-            \\    (u16) 2 = 3
+            \\(std.multi_array_list.MultiArrayList(struct { u32, u8, u16 }).Slice) slice0 = len=3 capacity=8 {
+            \\  (struct { u32, u8, u16 }) [0] = {
+            \\    (u32) .@"0" = 1
+            \\    (u8) .@"1" = 2
+            \\    (u16) .@"2" = 3
             \\  }
-            \\  (root.main.Elem0) [1] = {
-            \\    (u32) 0 = 4
-            \\    (u8) 1 = 5
-            \\    (u16) 2 = 6
+            \\  (struct { u32, u8, u16 }) [1] = {
+            \\    (u32) .@"0" = 4
+            \\    (u8) .@"1" = 5
+            \\    (u16) .@"2" = 6
             \\  }
-            \\  (root.main.Elem0) [2] = {
-            \\    (u32) 0 = 7
-            \\    (u8) 1 = 8
-            \\    (u16) 2 = 9
+            \\  (struct { u32, u8, u16 }) [2] = {
+            \\    (u32) .@"0" = 7
+            \\    (u8) .@"1" = 8
+            \\    (u16) .@"2" = 9
             \\  }
             \\}
             \\(usize) slice0.len = 3
             \\(usize) slice0.capacity = 8
-            \\(root.main.Elem0) slice0[0] = {
-            \\  (u32) 0 = 1
-            \\  (u8) 1 = 2
-            \\  (u16) 2 = 3
+            \\(struct { u32, u8, u16 }) slice0[0] = {
+            \\  (u32) .@"0" = 1
+            \\  (u8) .@"1" = 2
+            \\  (u16) .@"2" = 3
             \\}
-            \\(root.main.Elem0) slice0[1] = {
-            \\  (u32) 0 = 4
-            \\  (u8) 1 = 5
-            \\  (u16) 2 = 6
+            \\(struct { u32, u8, u16 }) slice0[1] = {
+            \\  (u32) .@"0" = 4
+            \\  (u8) .@"1" = 5
+            \\  (u16) .@"2" = 6
             \\}
-            \\(root.main.Elem0) slice0[2] = {
-            \\  (u32) 0 = 7
-            \\  (u8) 1 = 8
-            \\  (u16) 2 = 9
+            \\(struct { u32, u8, u16 }) slice0[2] = {
+            \\  (u32) .@"0" = 7
+            \\  (u8) .@"1" = 8
+            \\  (u16) .@"2" = 9
             \\}
             \\([3]u32) slice0.0 = {
             \\  (u32) [0] = 1
@@ -1547,37 +2053,37 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
             \\(lldb) frame variable --show-types -- list1 list1.len list1.capacity list1[0] list1[1] list1[2] list1.a list1.b list1.c
             \\(std.multi_array_list.MultiArrayList(main.Elem1)) list1 = len=3 capacity=12 {
             \\  (root.main.Elem1) [0] = {
-            \\    (u32) a = 1
-            \\    (u8) b = 2
-            \\    (u16) c = 3
+            \\    (u32) .a = 1
+            \\    (u8) .b = 2
+            \\    (u16) .c = 3
             \\  }
             \\  (root.main.Elem1) [1] = {
-            \\    (u32) a = 4
-            \\    (u8) b = 5
-            \\    (u16) c = 6
+            \\    (u32) .a = 4
+            \\    (u8) .b = 5
+            \\    (u16) .c = 6
             \\  }
             \\  (root.main.Elem1) [2] = {
-            \\    (u32) a = 7
-            \\    (u8) b = 8
-            \\    (u16) c = 9
+            \\    (u32) .a = 7
+            \\    (u8) .b = 8
+            \\    (u16) .c = 9
             \\  }
             \\}
             \\(usize) list1.len = 3
             \\(usize) list1.capacity = 12
             \\(root.main.Elem1) list1[0] = {
-            \\  (u32) a = 1
-            \\  (u8) b = 2
-            \\  (u16) c = 3
+            \\  (u32) .a = 1
+            \\  (u8) .b = 2
+            \\  (u16) .c = 3
             \\}
             \\(root.main.Elem1) list1[1] = {
-            \\  (u32) a = 4
-            \\  (u8) b = 5
-            \\  (u16) c = 6
+            \\  (u32) .a = 4
+            \\  (u8) .b = 5
+            \\  (u16) .c = 6
             \\}
             \\(root.main.Elem1) list1[2] = {
-            \\  (u32) a = 7
-            \\  (u8) b = 8
-            \\  (u16) c = 9
+            \\  (u32) .a = 7
+            \\  (u8) .b = 8
+            \\  (u16) .c = 9
             \\}
             \\([3]u32) list1.a = {
             \\  (u32) [0] = 1
@@ -1597,37 +2103,37 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
             \\(lldb) frame variable --show-types -- slice1 slice1.len slice1.capacity slice1[0] slice1[1] slice1[2] slice1.a slice1.b slice1.c
             \\(std.multi_array_list.MultiArrayList(main.Elem1).Slice) slice1 = len=3 capacity=12 {
             \\  (root.main.Elem1) [0] = {
-            \\    (u32) a = 1
-            \\    (u8) b = 2
-            \\    (u16) c = 3
+            \\    (u32) .a = 1
+            \\    (u8) .b = 2
+            \\    (u16) .c = 3
             \\  }
             \\  (root.main.Elem1) [1] = {
-            \\    (u32) a = 4
-            \\    (u8) b = 5
-            \\    (u16) c = 6
+            \\    (u32) .a = 4
+            \\    (u8) .b = 5
+            \\    (u16) .c = 6
             \\  }
             \\  (root.main.Elem1) [2] = {
-            \\    (u32) a = 7
-            \\    (u8) b = 8
-            \\    (u16) c = 9
+            \\    (u32) .a = 7
+            \\    (u8) .b = 8
+            \\    (u16) .c = 9
             \\  }
             \\}
             \\(usize) slice1.len = 3
             \\(usize) slice1.capacity = 12
             \\(root.main.Elem1) slice1[0] = {
-            \\  (u32) a = 1
-            \\  (u8) b = 2
-            \\  (u16) c = 3
+            \\  (u32) .a = 1
+            \\  (u8) .b = 2
+            \\  (u16) .c = 3
             \\}
             \\(root.main.Elem1) slice1[1] = {
-            \\  (u32) a = 4
-            \\  (u8) b = 5
-            \\  (u16) c = 6
+            \\  (u32) .a = 4
+            \\  (u8) .b = 5
+            \\  (u16) .c = 6
             \\}
             \\(root.main.Elem1) slice1[2] = {
-            \\  (u32) a = 7
-            \\  (u8) b = 8
-            \\  (u16) c = 9
+            \\  (u32) .a = 7
+            \\  (u8) .b = 8
+            \\  (u16) .c = 9
             \\}
             \\([3]u32) slice1.a = {
             \\  (u32) [0] = 1
@@ -1900,6 +2406,12 @@ fn addTest(
 ) void {
     for (db.options.test_filters) |test_filter| {
         if (std.mem.indexOf(u8, name, test_filter)) |_| return;
+    }
+    if (db.options.test_target_filters.len > 0) {
+        const triple_txt = target.resolved.result.zigTriple(db.b.allocator) catch @panic("OOM");
+        for (db.options.test_target_filters) |filter| {
+            if (std.mem.indexOf(u8, triple_txt, filter) != null) break;
+        } else return;
     }
     const files_wf = db.b.addWriteFiles();
     const exe = db.b.addExecutable(.{

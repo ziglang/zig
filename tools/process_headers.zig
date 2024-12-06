@@ -19,268 +19,65 @@ const Blake3 = std.crypto.hash.Blake3;
 
 const LibCTarget = struct {
     name: []const u8,
-    arch: MultiArch,
-    abi: MultiAbi,
-};
-
-const MultiArch = union(enum) {
-    aarch64,
-    arm,
-    mips,
-    mips64,
-    powerpc64,
-    specific: Arch,
-
-    fn eql(a: MultiArch, b: MultiArch) bool {
-        if (@intFromEnum(a) != @intFromEnum(b))
-            return false;
-        if (a != .specific)
-            return true;
-        return a.specific == b.specific;
-    }
-};
-
-const MultiAbi = union(enum) {
-    musl,
-    specific: Abi,
-
-    fn eql(a: MultiAbi, b: MultiAbi) bool {
-        if (@intFromEnum(a) != @intFromEnum(b))
-            return false;
-        if (std.meta.Tag(MultiAbi)(a) != .specific)
-            return true;
-        return a.specific == b.specific;
-    }
+    arch: Arch,
+    abi: Abi,
 };
 
 const glibc_targets = [_]LibCTarget{
-    LibCTarget{
-        .name = "aarch64_be-linux-gnu",
-        .arch = MultiArch{ .specific = Arch.aarch64_be },
-        .abi = MultiAbi{ .specific = Abi.gnu },
-    },
-    LibCTarget{
-        .name = "aarch64-linux-gnu",
-        .arch = MultiArch{ .specific = Arch.aarch64 },
-        .abi = MultiAbi{ .specific = Abi.gnu },
-    },
-    LibCTarget{
-        .name = "armeb-linux-gnueabi",
-        .arch = MultiArch{ .specific = Arch.armeb },
-        .abi = MultiAbi{ .specific = Abi.gnueabi },
-    },
-    LibCTarget{
-        .name = "armeb-linux-gnueabihf",
-        .arch = MultiArch{ .specific = Arch.armeb },
-        .abi = MultiAbi{ .specific = Abi.gnueabihf },
-    },
-    LibCTarget{
-        .name = "arm-linux-gnueabi",
-        .arch = MultiArch{ .specific = Arch.arm },
-        .abi = MultiAbi{ .specific = Abi.gnueabi },
-    },
-    LibCTarget{
-        .name = "arm-linux-gnueabihf",
-        .arch = MultiArch{ .specific = Arch.arm },
-        .abi = MultiAbi{ .specific = Abi.gnueabihf },
-    },
-    LibCTarget{
-        .name = "arc-linux-gnu",
-        .arch = MultiArch{ .specific = Arch.arc },
-        .abi = MultiAbi{ .specific = Abi.gnu },
-    },
-    LibCTarget{
-        .name = "csky-linux-gnuabiv2",
-        .arch = MultiArch{ .specific = Arch.csky },
-        .abi = MultiAbi{ .specific = Abi.gnueabihf },
-    },
-    LibCTarget{
-        .name = "csky-linux-gnuabiv2-soft",
-        .arch = MultiArch{ .specific = Arch.csky },
-        .abi = MultiAbi{ .specific = Abi.gnueabi },
-    },
-    LibCTarget{
-        .name = "i686-linux-gnu",
-        .arch = MultiArch{ .specific = Arch.x86 },
-        .abi = MultiAbi{ .specific = Abi.gnu },
-    },
-    LibCTarget{
-        .name = "mips64el-linux-gnu-n32",
-        .arch = MultiArch{ .specific = Arch.mips64el },
-        .abi = MultiAbi{ .specific = Abi.gnuabin32 },
-    },
-    LibCTarget{
-        .name = "mips64el-linux-gnu-n64",
-        .arch = MultiArch{ .specific = Arch.mips64el },
-        .abi = MultiAbi{ .specific = Abi.gnuabi64 },
-    },
-    LibCTarget{
-        .name = "mips64-linux-gnu-n32",
-        .arch = MultiArch{ .specific = Arch.mips64 },
-        .abi = MultiAbi{ .specific = Abi.gnuabin32 },
-    },
-    LibCTarget{
-        .name = "mips64-linux-gnu-n64",
-        .arch = MultiArch{ .specific = Arch.mips64 },
-        .abi = MultiAbi{ .specific = Abi.gnuabi64 },
-    },
-    LibCTarget{
-        .name = "mipsel-linux-gnu",
-        .arch = MultiArch{ .specific = Arch.mipsel },
-        .abi = MultiAbi{ .specific = Abi.gnueabihf },
-    },
-    LibCTarget{
-        .name = "mipsel-linux-gnu-soft",
-        .arch = MultiArch{ .specific = Arch.mipsel },
-        .abi = MultiAbi{ .specific = Abi.gnueabi },
-    },
-    LibCTarget{
-        .name = "mips-linux-gnu",
-        .arch = MultiArch{ .specific = Arch.mips },
-        .abi = MultiAbi{ .specific = Abi.gnueabihf },
-    },
-    LibCTarget{
-        .name = "mips-linux-gnu-soft",
-        .arch = MultiArch{ .specific = Arch.mips },
-        .abi = MultiAbi{ .specific = Abi.gnueabi },
-    },
-    LibCTarget{
-        .name = "powerpc64le-linux-gnu",
-        .arch = MultiArch{ .specific = Arch.powerpc64le },
-        .abi = MultiAbi{ .specific = Abi.gnu },
-    },
-    LibCTarget{
-        .name = "powerpc64-linux-gnu",
-        .arch = MultiArch{ .specific = Arch.powerpc64 },
-        .abi = MultiAbi{ .specific = Abi.gnu },
-    },
-    LibCTarget{
-        .name = "powerpc-linux-gnu",
-        .arch = MultiArch{ .specific = Arch.powerpc },
-        .abi = MultiAbi{ .specific = Abi.gnueabihf },
-    },
-    LibCTarget{
-        .name = "powerpc-linux-gnu-soft",
-        .arch = MultiArch{ .specific = Arch.powerpc },
-        .abi = MultiAbi{ .specific = Abi.gnueabi },
-    },
-    LibCTarget{
-        .name = "riscv32-linux-gnu-rv32imafdc-ilp32d",
-        .arch = MultiArch{ .specific = Arch.riscv32 },
-        .abi = MultiAbi{ .specific = Abi.gnu },
-    },
-    LibCTarget{
-        .name = "riscv64-linux-gnu-rv64imafdc-lp64d",
-        .arch = MultiArch{ .specific = Arch.riscv64 },
-        .abi = MultiAbi{ .specific = Abi.gnu },
-    },
-    LibCTarget{
-        .name = "s390x-linux-gnu",
-        .arch = MultiArch{ .specific = Arch.s390x },
-        .abi = MultiAbi{ .specific = Abi.gnu },
-    },
-    LibCTarget{
-        .name = "sparcv9-linux-gnu",
-        .arch = MultiArch{ .specific = Arch.sparc },
-        .abi = MultiAbi{ .specific = Abi.gnu },
-    },
-    LibCTarget{
-        .name = "sparc64-linux-gnu",
-        .arch = MultiArch{ .specific = Arch.sparc64 },
-        .abi = MultiAbi{ .specific = Abi.gnu },
-    },
-    LibCTarget{
-        .name = "x86_64-linux-gnu",
-        .arch = MultiArch{ .specific = Arch.x86_64 },
-        .abi = MultiAbi{ .specific = Abi.gnu },
-    },
-    LibCTarget{
-        .name = "x86_64-linux-gnu-x32",
-        .arch = MultiArch{ .specific = Arch.x86_64 },
-        .abi = MultiAbi{ .specific = Abi.gnux32 },
-    },
-    LibCTarget{
-        .name = "m68k-linux-gnu",
-        .arch = MultiArch{ .specific = Arch.m68k },
-        .abi = MultiAbi{ .specific = Abi.gnu },
-    },
-    LibCTarget{
-        .name = "loongarch64-linux-gnu-lp64d",
-        .arch = MultiArch{ .specific = .loongarch64 },
-        .abi = MultiAbi{ .specific = Abi.gnu },
-    },
+    .{ .name = "arc-linux-gnu", .arch = .arc, .abi = .gnu },
+    .{ .name = "arm-linux-gnueabi", .arch = .arm, .abi = .gnueabi },
+    .{ .name = "arm-linux-gnueabihf", .arch = .arm, .abi = .gnueabihf },
+    .{ .name = "armeb-linux-gnueabi", .arch = .armeb, .abi = .gnueabi },
+    .{ .name = "armeb-linux-gnueabihf", .arch = .armeb, .abi = .gnueabihf },
+    .{ .name = "aarch64-linux-gnu", .arch = .aarch64, .abi = .gnu },
+    .{ .name = "aarch64_be-linux-gnu", .arch = .aarch64_be, .abi = .gnu },
+    .{ .name = "csky-linux-gnuabiv2-soft", .arch = .csky, .abi = .gnueabi },
+    .{ .name = "csky-linux-gnuabiv2", .arch = .csky, .abi = .gnueabihf },
+    .{ .name = "loongarch64-linux-gnu-lp64d", .arch = .loongarch64, .abi = .gnu },
+    .{ .name = "loongarch64-linux-gnu-lp64s", .arch = .loongarch64, .abi = .gnusf },
+    .{ .name = "m68k-linux-gnu", .arch = .m68k, .abi = .gnu },
+    .{ .name = "mips-linux-gnu", .arch = .mips, .abi = .gnueabihf },
+    .{ .name = "mips-linux-gnu-soft", .arch = .mips, .abi = .gnueabi },
+    .{ .name = "mipsel-linux-gnu-soft", .arch = .mipsel, .abi = .gnueabi },
+    .{ .name = "mipsel-linux-gnu", .arch = .mipsel, .abi = .gnueabihf },
+    .{ .name = "mips64-linux-gnu-n64", .arch = .mips64, .abi = .gnuabi64 },
+    .{ .name = "mips64-linux-gnu-n32", .arch = .mips64, .abi = .gnuabin32 },
+    .{ .name = "mips64el-linux-gnu-n64", .arch = .mips64el, .abi = .gnuabi64 },
+    .{ .name = "mips64el-linux-gnu-n32", .arch = .mips64el, .abi = .gnuabin32 },
+    .{ .name = "powerpc-linux-gnu-soft", .arch = .powerpc, .abi = .gnueabi },
+    .{ .name = "powerpc-linux-gnu", .arch = .powerpc, .abi = .gnueabihf },
+    .{ .name = "powerpc64-linux-gnu", .arch = .powerpc64, .abi = .gnu },
+    .{ .name = "powerpc64le-linux-gnu", .arch = .powerpc64le, .abi = .gnu },
+    .{ .name = "riscv32-linux-gnu-rv32imafdc-ilp32d", .arch = .riscv32, .abi = .gnu },
+    .{ .name = "riscv64-linux-gnu-rv64imafdc-lp64d", .arch = .riscv64, .abi = .gnu },
+    .{ .name = "s390x-linux-gnu", .arch = .s390x, .abi = .gnu },
+    .{ .name = "sparcv9-linux-gnu", .arch = .sparc, .abi = .gnu },
+    .{ .name = "sparc64-linux-gnu", .arch = .sparc64, .abi = .gnu },
+    .{ .name = "i686-linux-gnu", .arch = .x86, .abi = .gnu },
+    .{ .name = "x86_64-linux-gnu", .arch = .x86_64, .abi = .gnu },
+    .{ .name = "x86_64-linux-gnu-x32", .arch = .x86_64, .abi = .gnux32 },
 };
 
 const musl_targets = [_]LibCTarget{
-    LibCTarget{
-        .name = "aarch64",
-        .arch = MultiArch.aarch64,
-        .abi = MultiAbi.musl,
-    },
-    LibCTarget{
-        .name = "arm",
-        .arch = MultiArch.arm,
-        .abi = MultiAbi.musl,
-    },
-    LibCTarget{
-        .name = "i386",
-        .arch = MultiArch{ .specific = .x86 },
-        .abi = MultiAbi.musl,
-    },
-    LibCTarget{
-        .name = "loongarch64",
-        .arch = MultiArch{ .specific = .loongarch64 },
-        .abi = MultiAbi.musl,
-    },
-    LibCTarget{
-        .name = "mips",
-        .arch = MultiArch.mips,
-        .abi = MultiAbi.musl,
-    },
-    LibCTarget{
-        .name = "mips64",
-        .arch = MultiArch.mips64,
-        .abi = MultiAbi.musl,
-    },
-    LibCTarget{
-        .name = "powerpc",
-        .arch = MultiArch{ .specific = .powerpc },
-        .abi = MultiAbi.musl,
-    },
-    LibCTarget{
-        .name = "powerpc64",
-        .arch = MultiArch.powerpc64,
-        .abi = MultiAbi.musl,
-    },
-    LibCTarget{
-        .name = "riscv32",
-        .arch = MultiArch{ .specific = .riscv32 },
-        .abi = MultiAbi.musl,
-    },
-    LibCTarget{
-        .name = "riscv64",
-        .arch = MultiArch{ .specific = .riscv64 },
-        .abi = MultiAbi.musl,
-    },
-    LibCTarget{
-        .name = "s390x",
-        .arch = MultiArch{ .specific = .s390x },
-        .abi = MultiAbi.musl,
-    },
-    LibCTarget{
-        .name = "x86_64",
-        .arch = MultiArch{ .specific = .x86_64 },
-        .abi = MultiAbi.musl,
-    },
-    LibCTarget{
-        .name = "m68k",
-        .arch = MultiArch{ .specific = .m68k },
-        .abi = MultiAbi{ .specific = .musl },
-    },
+    .{ .name = "arm", .arch = .arm, .abi = .musl },
+    .{ .name = "aarch64", .arch = .aarch64, .abi = .musl },
+    .{ .name = "loongarch64", .arch = .loongarch64, .abi = .musl },
+    .{ .name = "m68k", .arch = .m68k, .abi = .musl },
+    .{ .name = "mips", .arch = .mips, .abi = .musl },
+    .{ .name = "mips64", .arch = .mips64, .abi = .musl },
+    .{ .name = "mipsn32", .arch = .mips64, .abi = .muslabin32 },
+    .{ .name = "powerpc", .arch = .powerpc, .abi = .musl },
+    .{ .name = "powerpc64", .arch = .powerpc64, .abi = .musl },
+    .{ .name = "riscv32", .arch = .riscv32, .abi = .musl },
+    .{ .name = "riscv64", .arch = .riscv64, .abi = .musl },
+    .{ .name = "s390x", .arch = .s390x, .abi = .musl },
+    .{ .name = "i386", .arch = .x86, .abi = .musl },
+    .{ .name = "x86_64", .arch = .x86_64, .abi = .musl },
+    .{ .name = "x32", .arch = .x86_64, .abi = .muslx32 },
 };
 
 const DestTarget = struct {
-    arch: MultiArch,
+    arch: Arch,
     os: OsTag,
     abi: Abi,
 
@@ -295,7 +92,7 @@ const DestTarget = struct {
         pub fn eql(self: @This(), a: DestTarget, b: DestTarget, b_index: usize) bool {
             _ = self;
             _ = b_index;
-            return a.arch.eql(b.arch) and
+            return a.arch == b.arch and
                 a.os == b.os and
                 a.abi == b.abi;
         }
@@ -358,22 +155,16 @@ pub fn main() !void {
 
     const out_dir = opt_out_dir orelse usageAndExit(args[0]);
     const abi_name = opt_abi orelse usageAndExit(args[0]);
-    const vendor = if (std.mem.eql(u8, abi_name, "musl"))
-        LibCVendor.musl
-    else if (std.mem.eql(u8, abi_name, "glibc"))
-        LibCVendor.glibc
-    else {
+    const vendor = std.meta.stringToEnum(LibCVendor, abi_name) orelse {
         std.debug.print("unrecognized C ABI: {s}\n", .{abi_name});
         usageAndExit(args[0]);
     };
-    const generic_name = try std.fmt.allocPrint(allocator, "generic-{s}", .{abi_name});
 
-    // TODO compiler crashed when I wrote this the canonical way
-    var libc_targets: []const LibCTarget = undefined;
-    switch (vendor) {
-        .musl => libc_targets = &musl_targets,
-        .glibc => libc_targets = &glibc_targets,
-    }
+    const generic_name = try std.fmt.allocPrint(allocator, "generic-{s}", .{abi_name});
+    const libc_targets = switch (vendor) {
+        .glibc => &glibc_targets,
+        .musl => &musl_targets,
+    };
 
     var path_table = PathTable.init(allocator);
     var hash_to_contents = HashToContents.init(allocator);
@@ -385,22 +176,15 @@ pub fn main() !void {
     for (libc_targets) |libc_target| {
         const dest_target = DestTarget{
             .arch = libc_target.arch,
-            .abi = switch (vendor) {
-                .musl => .musl,
-                .glibc => libc_target.abi.specific,
-            },
             .os = .linux,
+            .abi = libc_target.abi,
         };
+
         search: for (search_paths.items) |search_path| {
-            var sub_path: []const []const u8 = undefined;
-            switch (vendor) {
-                .musl => {
-                    sub_path = &[_][]const u8{ search_path, libc_target.name, "usr", "local", "musl", "include" };
-                },
-                .glibc => {
-                    sub_path = &[_][]const u8{ search_path, libc_target.name, "usr", "include" };
-                },
-            }
+            const sub_path = switch (vendor) {
+                .glibc => &[_][]const u8{ search_path, libc_target.name, "usr", "include" },
+                .musl => &[_][]const u8{ search_path, libc_target.name, "usr", "local", "musl", "include" },
+            };
             const target_include_dir = try std.fs.path.join(allocator, sub_path);
             var dir_stack = std.ArrayList([]const u8).init(allocator);
             try dir_stack.append(target_include_dir);
@@ -510,12 +294,8 @@ pub fn main() !void {
             if (contents.is_generic) continue;
 
             const dest_target = hash_kv.key_ptr.*;
-            const arch_name = switch (dest_target.arch) {
-                .specific => |a| @tagName(a),
-                else => @tagName(dest_target.arch),
-            };
             const out_subpath = try std.fmt.allocPrint(allocator, "{s}-{s}-{s}", .{
-                arch_name,
+                @tagName(dest_target.arch),
                 @tagName(dest_target.os),
                 @tagName(dest_target.abi),
             });

@@ -142,6 +142,9 @@ pub const hasher_init: Hasher = Hasher.init(&[_]u8{
 pub const File = struct {
     prefixed_path: PrefixedPath,
     max_file_size: ?usize,
+    /// Populated if the user calls `addOpenedFile`.
+    /// The handle is not owned here.
+    handle: ?fs.File,
     stat: Stat,
     bin_digest: BinDigest,
     contents: ?[]const u8,
@@ -150,6 +153,14 @@ pub const File = struct {
         inode: fs.File.INode,
         size: u64,
         mtime: i128,
+
+        pub fn fromFs(fs_stat: fs.File.Stat) Stat {
+            return .{
+                .inode = fs_stat.inode,
+                .size = fs_stat.size,
+                .mtime = fs_stat.mtime,
+            };
+        }
     };
 
     pub fn deinit(self: *File, gpa: Allocator) void {
@@ -164,6 +175,11 @@ pub const File = struct {
     pub fn updateMaxSize(file: *File, new_max_size: ?usize) void {
         const new = new_max_size orelse return;
         file.max_file_size = if (file.max_file_size) |old| @max(old, new) else new;
+    }
+
+    pub fn updateHandle(file: *File, new_handle: ?fs.File) void {
+        const handle = new_handle orelse return;
+        file.handle = handle;
     }
 };
 
@@ -201,10 +217,16 @@ pub const HashHelper = struct {
             },
             std.Target.Os.TaggedVersionRange => {
                 switch (x) {
+                    .hurd => |hurd| {
+                        hh.add(hurd.range.min);
+                        hh.add(hurd.range.max);
+                        hh.add(hurd.glibc);
+                    },
                     .linux => |linux| {
                         hh.add(linux.range.min);
                         hh.add(linux.range.max);
                         hh.add(linux.glibc);
+                        hh.add(linux.android);
                     },
                     .windows => |windows| {
                         hh.add(windows.min);
@@ -355,15 +377,20 @@ pub const Manifest = struct {
     /// var file_contents = cache_hash.files.keys()[file_index].contents.?;
     /// ```
     pub fn addFilePath(m: *Manifest, file_path: Path, max_file_size: ?usize) !usize {
+        return addOpenedFile(m, file_path, null, max_file_size);
+    }
+
+    /// Same as `addFilePath` except the file has already been opened.
+    pub fn addOpenedFile(m: *Manifest, path: Path, handle: ?fs.File, max_file_size: ?usize) !usize {
         const gpa = m.cache.gpa;
         try m.files.ensureUnusedCapacity(gpa, 1);
         const resolved_path = try fs.path.resolve(gpa, &.{
-            file_path.root_dir.path orelse ".",
-            file_path.subPathOrDot(),
+            path.root_dir.path orelse ".",
+            path.subPathOrDot(),
         });
         errdefer gpa.free(resolved_path);
         const prefixed_path = try m.cache.findPrefixResolved(resolved_path);
-        return addFileInner(m, prefixed_path, max_file_size);
+        return addFileInner(m, prefixed_path, handle, max_file_size);
     }
 
     /// Deprecated; use `addFilePath`.
@@ -375,13 +402,14 @@ pub const Manifest = struct {
         const prefixed_path = try self.cache.findPrefix(file_path);
         errdefer gpa.free(prefixed_path.sub_path);
 
-        return addFileInner(self, prefixed_path, max_file_size);
+        return addFileInner(self, prefixed_path, null, max_file_size);
     }
 
-    fn addFileInner(self: *Manifest, prefixed_path: PrefixedPath, max_file_size: ?usize) !usize {
+    fn addFileInner(self: *Manifest, prefixed_path: PrefixedPath, handle: ?fs.File, max_file_size: ?usize) usize {
         const gop = self.files.getOrPutAssumeCapacityAdapted(prefixed_path, FilesAdapter{});
         if (gop.found_existing) {
             gop.key_ptr.updateMaxSize(max_file_size);
+            gop.key_ptr.updateHandle(handle);
             return gop.index;
         }
         gop.key_ptr.* = .{
@@ -390,6 +418,7 @@ pub const Manifest = struct {
             .max_file_size = max_file_size,
             .stat = undefined,
             .bin_digest = undefined,
+            .handle = handle,
         };
 
         self.hash.add(prefixed_path.prefix);
@@ -398,10 +427,17 @@ pub const Manifest = struct {
         return gop.index;
     }
 
+    /// Deprecated, use `addOptionalFilePath`.
     pub fn addOptionalFile(self: *Manifest, optional_file_path: ?[]const u8) !void {
         self.hash.add(optional_file_path != null);
         const file_path = optional_file_path orelse return;
         _ = try self.addFile(file_path, null);
+    }
+
+    pub fn addOptionalFilePath(self: *Manifest, optional_file_path: ?Path) !void {
+        self.hash.add(optional_file_path != null);
+        const file_path = optional_file_path orelse return;
+        _ = try self.addFilePath(file_path, null);
     }
 
     pub fn addListOfFiles(self: *Manifest, list_of_files: []const []const u8) !void {
@@ -550,6 +586,7 @@ pub const Manifest = struct {
                             },
                             .contents = null,
                             .max_file_size = null,
+                            .handle = null,
                             .stat = .{
                                 .size = stat_size,
                                 .inode = stat_inode,
@@ -693,12 +730,19 @@ pub const Manifest = struct {
     }
 
     fn populateFileHash(self: *Manifest, ch_file: *File) !void {
-        const pp = ch_file.prefixed_path;
-        const dir = self.cache.prefixes()[pp.prefix].handle;
-        const file = try dir.openFile(pp.sub_path, .{});
-        defer file.close();
+        if (ch_file.handle) |handle| {
+            return populateFileHashHandle(self, ch_file, handle);
+        } else {
+            const pp = ch_file.prefixed_path;
+            const dir = self.cache.prefixes()[pp.prefix].handle;
+            const handle = try dir.openFile(pp.sub_path, .{});
+            defer handle.close();
+            return populateFileHashHandle(self, ch_file, handle);
+        }
+    }
 
-        const actual_stat = try file.stat();
+    fn populateFileHashHandle(self: *Manifest, ch_file: *File, handle: fs.File) !void {
+        const actual_stat = try handle.stat();
         ch_file.stat = .{
             .size = actual_stat.size,
             .mtime = actual_stat.mtime,
@@ -724,8 +768,7 @@ pub const Manifest = struct {
             var hasher = hasher_init;
             var off: usize = 0;
             while (true) {
-                // give me everything you've got, captain
-                const bytes_read = try file.read(contents[off..]);
+                const bytes_read = try handle.pread(contents[off..], off);
                 if (bytes_read == 0) break;
                 hasher.update(contents[off..][0..bytes_read]);
                 off += bytes_read;
@@ -734,7 +777,7 @@ pub const Manifest = struct {
 
             ch_file.contents = contents;
         } else {
-            try hashFile(file, &ch_file.bin_digest);
+            try hashFile(handle, &ch_file.bin_digest);
         }
 
         self.hash.hasher.update(&ch_file.bin_digest);
@@ -798,6 +841,7 @@ pub const Manifest = struct {
         gop.key_ptr.* = .{
             .prefixed_path = prefixed_path,
             .max_file_size = null,
+            .handle = null,
             .stat = undefined,
             .bin_digest = undefined,
             .contents = null,
@@ -836,6 +880,7 @@ pub const Manifest = struct {
         new_file.* = .{
             .prefixed_path = prefixed_path,
             .max_file_size = null,
+            .handle = null,
             .stat = stat,
             .bin_digest = undefined,
             .contents = null,
@@ -1052,6 +1097,7 @@ pub const Manifest = struct {
             gop.key_ptr.* = .{
                 .prefixed_path = prefixed_path,
                 .max_file_size = file.max_file_size,
+                .handle = file.handle,
                 .stat = file.stat,
                 .bin_digest = file.bin_digest,
                 .contents = null,
@@ -1088,14 +1134,14 @@ pub fn writeSmallFile(dir: fs.Dir, sub_path: []const u8, data: []const u8) !void
 
 fn hashFile(file: fs.File, bin_digest: *[Hasher.mac_length]u8) !void {
     var buf: [1024]u8 = undefined;
-
     var hasher = hasher_init;
+    var off: u64 = 0;
     while (true) {
-        const bytes_read = try file.read(&buf);
+        const bytes_read = try file.pread(&buf, off);
         if (bytes_read == 0) break;
         hasher.update(buf[0..bytes_read]);
+        off += bytes_read;
     }
-
     hasher.final(bin_digest);
 }
 

@@ -437,9 +437,18 @@ pub fn ldEmulationOption(target: std.Target, arm_endianness: ?std.builtin.Endian
         .loongarch64 => "elf64loongarch",
         .mips => "elf32btsmip",
         .mipsel => "elf32ltsmip",
-        .mips64 => if (target.abi == .gnuabin32) "elf32btsmipn32" else "elf64btsmip",
-        .mips64el => if (target.abi == .gnuabin32) "elf32ltsmipn32" else "elf64ltsmip",
-        .x86_64 => if (target.abi == .gnux32 or target.abi == .muslx32) "elf32_x86_64" else "elf_x86_64",
+        .mips64 => switch (target.abi) {
+            .gnuabin32, .muslabin32 => "elf32btsmipn32",
+            else => "elf64btsmip",
+        },
+        .mips64el => switch (target.abi) {
+            .gnuabin32, .muslabin32 => "elf32ltsmipn32",
+            else => "elf64ltsmip",
+        },
+        .x86_64 => switch (target.abi) {
+            .gnux32, .muslx32 => "elf32_x86_64",
+            else => "elf_x86_64",
+        },
         .ve => "elf64ve",
         .csky => "cskyelf_linux",
         else => null,
@@ -652,10 +661,8 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .tvos => "tvos",
         .watchos => "watchos",
         .driverkit => "driverkit",
-        .shadermodel => "shadermodel",
         .visionos => "xros",
         .serenity => "serenity",
-        .bridgeos => "bridgeos",
         .opencl,
         .opengl,
         .vulkan,
@@ -685,13 +692,15 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .gnuf32 => "gnuf32",
         .gnusf => "gnusf",
         .gnux32 => "gnux32",
-        .gnuilp32 => "gnuilp32",
+        .gnuilp32 => "gnu_ilp32",
         .code16 => "code16",
         .eabi => "eabi",
         .eabihf => "eabihf",
         .android => "android",
         .androideabi => "androideabi",
         .musl => "musl",
+        .muslabin32 => "muslabin32",
+        .muslabi64 => "muslabi64",
         .musleabi => "musleabi",
         .musleabihf => "musleabihf",
         .muslx32 => "muslx32",
@@ -700,7 +709,8 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .cygnus => "cygnus",
         .simulator => "simulator",
         .macabi => "macabi",
-        .ohos => "openhos",
+        .ohos => "ohos",
+        .ohoseabi => "ohoseabi",
     };
     writer.writeAll(llvm_abi) catch unreachable;
     return stream.getWritten();
@@ -709,8 +719,8 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
 test "alignment functions - smoke test" {
     var target: std.Target = undefined;
     const x86 = std.Target.Cpu.Arch.x86_64;
-    target.cpu = std.Target.Cpu.baseline(x86);
     target.os = std.Target.Os.Tag.defaultVersionRange(.linux, x86);
+    target.cpu = std.Target.Cpu.baseline(x86, target.os);
     target.abi = std.Target.Abi.default(x86, target.os);
 
     try std.testing.expect(isTlsSupported(target));
@@ -722,8 +732,8 @@ test "alignment functions - smoke test" {
     try std.testing.expect(systemCompiler(target) == .gcc);
 
     const arm = std.Target.Cpu.Arch.arm;
-    target.cpu = std.Target.Cpu.baseline(arm);
     target.os = std.Target.Os.Tag.defaultVersionRange(.ios, arm);
+    target.cpu = std.Target.Cpu.baseline(arm, target.os);
     target.abi = std.Target.Abi.default(arm, target.os);
 
     try std.testing.expect(!isTlsSupported(target));

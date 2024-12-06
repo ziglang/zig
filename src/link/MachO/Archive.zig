@@ -4,8 +4,9 @@ pub fn deinit(self: *Archive, allocator: Allocator) void {
     self.objects.deinit(allocator);
 }
 
-pub fn unpack(self: *Archive, macho_file: *MachO, path: []const u8, handle_index: File.HandleIndex, fat_arch: ?fat.Arch) !void {
+pub fn unpack(self: *Archive, macho_file: *MachO, path: Path, handle_index: File.HandleIndex, fat_arch: ?fat.Arch) !void {
     const gpa = macho_file.base.comp.gpa;
+    const diags = &macho_file.base.comp.link_diags;
 
     var arena = std.heap.ArenaAllocator.init(gpa);
     defer arena.deinit();
@@ -28,10 +29,9 @@ pub fn unpack(self: *Archive, macho_file: *MachO, path: []const u8, handle_index
         pos += @sizeOf(ar_hdr);
 
         if (!mem.eql(u8, &hdr.ar_fmag, ARFMAG)) {
-            try macho_file.reportParseError(path, "invalid header delimiter: expected '{s}', found '{s}'", .{
+            return diags.failParse(path, "invalid header delimiter: expected '{s}', found '{s}'", .{
                 std.fmt.fmtSliceEscapeLower(ARFMAG), std.fmt.fmtSliceEscapeLower(&hdr.ar_fmag),
             });
-            return error.MalformedArchive;
         }
 
         var hdr_size = try hdr.size();
@@ -55,20 +55,23 @@ pub fn unpack(self: *Archive, macho_file: *MachO, path: []const u8, handle_index
             mem.eql(u8, name, SYMDEF_SORTED) or
             mem.eql(u8, name, SYMDEF64_SORTED)) continue;
 
-        const object = Object{
+        const object: Object = .{
             .offset = pos,
             .in_archive = .{
-                .path = try gpa.dupe(u8, path),
+                .path = .{
+                    .root_dir = path.root_dir,
+                    .sub_path = try gpa.dupe(u8, path.sub_path),
+                },
                 .size = hdr_size,
             },
-            .path = try gpa.dupe(u8, name),
+            .path = Path.initCwd(try gpa.dupe(u8, name)),
             .file_handle = handle_index,
             .index = undefined,
             .alive = false,
             .mtime = hdr.date() catch 0,
         };
 
-        log.debug("extracting object '{s}' from archive '{s}'", .{ object.path, path });
+        log.debug("extracting object '{}' from archive '{}'", .{ object.path, path });
 
         try self.objects.append(gpa, object);
     }
@@ -301,8 +304,9 @@ const log = std.log.scoped(.link);
 const macho = std.macho;
 const mem = std.mem;
 const std = @import("std");
-
 const Allocator = mem.Allocator;
+const Path = std.Build.Cache.Path;
+
 const Archive = @This();
 const File = @import("file.zig").File;
 const MachO = @import("../MachO.zig");

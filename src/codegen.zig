@@ -216,7 +216,7 @@ pub fn generateSymbol(
         .error_union_type,
         .simple_type,
         .struct_type,
-        .anon_struct_type,
+        .tuple_type,
         .union_type,
         .opaque_type,
         .enum_type,
@@ -230,7 +230,7 @@ pub fn generateSymbol(
             .undefined,
             .void,
             .null,
-            .empty_struct,
+            .empty_tuple,
             .@"unreachable",
             .generic_poison,
             => unreachable, // non-runtime values
@@ -456,7 +456,7 @@ pub fn generateSymbol(
                     if (padding > 0) try code.appendNTimes(0, padding);
                 }
             },
-            .anon_struct_type => |tuple| {
+            .tuple_type => |tuple| {
                 const struct_begin = code.items.len;
                 for (
                     tuple.types.get(ip),
@@ -866,7 +866,7 @@ fn genNavRef(
             zo.symbol(sym_index).flags.is_extern_ptr = true;
             return .{ .mcv = .{ .lea_symbol = sym_index } };
         }
-        const sym_index = try zo.getOrCreateMetadataForNav(elf_file, nav_index);
+        const sym_index = try zo.getOrCreateMetadataForNav(zcu, nav_index);
         if (!single_threaded and is_threadlocal) {
             return .{ .mcv = .{ .load_tlv = sym_index } };
         }

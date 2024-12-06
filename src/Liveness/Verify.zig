@@ -56,7 +56,7 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
             .ret_ptr,
             .breakpoint,
             .dbg_stmt,
-            .fence,
+            .dbg_empty_stmt,
             .ret_addr,
             .frame_addr,
             .wasm_memory_size,

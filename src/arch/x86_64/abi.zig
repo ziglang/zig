@@ -440,9 +440,9 @@ pub fn resolveCallingConvention(
     target: std.Target,
 ) std.builtin.CallingConvention {
     return switch (cc) {
-        .Unspecified, .C => switch (target.os.tag) {
-            else => .SysV,
-            .windows => .Win64,
+        .auto => switch (target.os.tag) {
+            else => .{ .x86_64_sysv = .{} },
+            .windows => .{ .x86_64_win = .{} },
         },
         else => cc,
     };
@@ -450,48 +450,48 @@ pub fn resolveCallingConvention(
 
 pub fn getCalleePreservedRegs(cc: std.builtin.CallingConvention) []const Register {
     return switch (cc) {
-        .SysV => &SysV.callee_preserved_regs,
-        .Win64 => &Win64.callee_preserved_regs,
+        .x86_64_sysv => &SysV.callee_preserved_regs,
+        .x86_64_win => &Win64.callee_preserved_regs,
         else => unreachable,
     };
 }
 
 pub fn getCallerPreservedRegs(cc: std.builtin.CallingConvention) []const Register {
     return switch (cc) {
-        .SysV => &SysV.caller_preserved_regs,
-        .Win64 => &Win64.caller_preserved_regs,
+        .x86_64_sysv => &SysV.caller_preserved_regs,
+        .x86_64_win => &Win64.caller_preserved_regs,
         else => unreachable,
     };
 }
 
 pub fn getCAbiIntParamRegs(cc: std.builtin.CallingConvention) []const Register {
     return switch (cc) {
-        .SysV => &SysV.c_abi_int_param_regs,
-        .Win64 => &Win64.c_abi_int_param_regs,
+        .x86_64_sysv => &SysV.c_abi_int_param_regs,
+        .x86_64_win => &Win64.c_abi_int_param_regs,
         else => unreachable,
     };
 }
 
 pub fn getCAbiSseParamRegs(cc: std.builtin.CallingConvention) []const Register {
     return switch (cc) {
-        .SysV => &SysV.c_abi_sse_param_regs,
-        .Win64 => &Win64.c_abi_sse_param_regs,
+        .x86_64_sysv => &SysV.c_abi_sse_param_regs,
+        .x86_64_win => &Win64.c_abi_sse_param_regs,
         else => unreachable,
     };
 }
 
 pub fn getCAbiIntReturnRegs(cc: std.builtin.CallingConvention) []const Register {
     return switch (cc) {
-        .SysV => &SysV.c_abi_int_return_regs,
-        .Win64 => &Win64.c_abi_int_return_regs,
+        .x86_64_sysv => &SysV.c_abi_int_return_regs,
+        .x86_64_win => &Win64.c_abi_int_return_regs,
         else => unreachable,
     };
 }
 
 pub fn getCAbiSseReturnRegs(cc: std.builtin.CallingConvention) []const Register {
     return switch (cc) {
-        .SysV => &SysV.c_abi_sse_return_regs,
-        .Win64 => &Win64.c_abi_sse_return_regs,
+        .x86_64_sysv => &SysV.c_abi_sse_return_regs,
+        .x86_64_win => &Win64.c_abi_sse_return_regs,
         else => unreachable,
     };
 }

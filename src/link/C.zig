@@ -148,7 +148,6 @@ pub fn createEmpty(
             .file = file,
             .disable_lld_caching = options.disable_lld_caching,
             .build_id = options.build_id,
-            .rpath_list = options.rpath_list,
         },
     };
 
@@ -218,7 +217,7 @@ pub fn updateFunc(
                 .mod = zcu.navFileScope(func.owner_nav).mod,
                 .error_msg = null,
                 .pass = .{ .nav = func.owner_nav },
-                .is_naked_fn = zcu.navValue(func.owner_nav).typeOf(zcu).fnCallingConvention(zcu) == .Naked,
+                .is_naked_fn = zcu.navValue(func.owner_nav).typeOf(zcu).fnCallingConvention(zcu) == .naked,
                 .fwd_decl = fwd_decl.toManaged(gpa),
                 .ctype_pool = ctype_pool.*,
                 .scratch = .{},
@@ -398,7 +397,7 @@ fn abiDefines(self: *C, target: std.Target) !std.ArrayList(u8) {
     errdefer defines.deinit();
     const writer = defines.writer();
     switch (target.abi) {
-        .msvc => try writer.writeAll("#define ZIG_TARGET_ABI_MSVC\n"),
+        .msvc, .itanium => try writer.writeAll("#define ZIG_TARGET_ABI_MSVC\n"),
         else => {},
     }
     try writer.print("#define ZIG_TARGET_MAX_INT_ALIGNMENT {d}\n", .{

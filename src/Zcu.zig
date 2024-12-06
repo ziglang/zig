@@ -173,6 +173,10 @@ retryable_failures: std.ArrayListUnmanaged(AnalUnit) = .empty,
 /// These are the modules which we initially queue for analysis in `Compilation.update`.
 /// `resolveReferences` will use these as the root of its reachability traversal.
 analysis_roots: std.BoundedArray(*Package.Module, 3) = .{},
+/// This is the cached result of `Zcu.resolveReferences`. It is computed on-demand, and
+/// reset to `null` when any semantic analysis occurs (since this invalidates the data).
+/// Allocated into `gpa`.
+resolved_references: ?std.AutoHashMapUnmanaged(AnalUnit, ?ResolvedReference) = null,
 
 stage1_flags: packed struct {
     have_winmain: bool = false,
@@ -420,13 +424,8 @@ pub const Namespace = struct {
 };
 
 pub const File = struct {
-    status: enum {
-        never_loaded,
-        retryable_failure,
-        parse_failure,
-        astgen_failure,
-        success_zir,
-    },
+    status: Status,
+    prev_status: Status,
     source_loaded: bool,
     tree_loaded: bool,
     zir_loaded: bool,
@@ -453,6 +452,14 @@ pub const File = struct {
     /// newly introduces compile errors during an update. When ZIR is
     /// successful, this field is unloaded.
     prev_zir: ?*Zir = null,
+
+    pub const Status = enum {
+        never_loaded,
+        retryable_failure,
+        parse_failure,
+        astgen_failure,
+        success_zir,
+    };
 
     /// A single reference to a file.
     pub const Reference = union(enum) {
@@ -1490,6 +1497,20 @@ pub const SrcLoc = struct {
                     }
                 } else unreachable;
             },
+            .tuple_field_type, .tuple_field_init => |field_info| {
+                const tree = try src_loc.file_scope.getTree(gpa);
+                const node = src_loc.relativeToNodeIndex(0);
+                var buf: [2]Ast.Node.Index = undefined;
+                const container_decl = tree.fullContainerDecl(&buf, node) orelse
+                    return tree.nodeToSpan(node);
+
+                const field = tree.fullContainerField(container_decl.ast.members[field_info.elem_index]).?;
+                return tree.nodeToSpan(switch (src_loc.lazy) {
+                    .tuple_field_type => field.ast.type_expr,
+                    .tuple_field_init => field.ast.value_expr,
+                    else => unreachable,
+                });
+            },
             .init_elem => |init_elem| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const init_node = src_loc.relativeToNodeIndex(init_elem.init_node_offset);
@@ -1515,6 +1536,7 @@ pub const SrcLoc = struct {
             .init_field_cache,
             .init_field_library,
             .init_field_thread_local,
+            .init_field_dll_import,
             => |builtin_call_node| {
                 const wanted = switch (src_loc.lazy) {
                     .init_field_name => "name",
@@ -1526,6 +1548,7 @@ pub const SrcLoc = struct {
                     .init_field_cache => "cache",
                     .init_field_library => "library",
                     .init_field_thread_local => "thread_local",
+                    .init_field_dll_import => "dll_import",
                     else => unreachable,
                 };
                 const tree = try src_loc.file_scope.getTree(gpa);
@@ -1930,6 +1953,12 @@ pub const LazySrcLoc = struct {
         container_field_type: u32,
         /// Like `continer_field_name`, but points at the field's alignment.
         container_field_align: u32,
+        /// The source location points to the type of the field at the given index
+        /// of the tuple type declaration at `tuple_decl_node_offset`.
+        tuple_field_type: TupleField,
+        /// The source location points to the default init of the field at the given index
+        /// of the tuple type declaration at `tuple_decl_node_offset`.
+        tuple_field_init: TupleField,
         /// The source location points to the given element/field of a struct or
         /// array initialization expression.
         init_elem: struct {
@@ -1952,6 +1981,7 @@ pub const LazySrcLoc = struct {
         init_field_cache: i32,
         init_field_library: i32,
         init_field_thread_local: i32,
+        init_field_dll_import: i32,
         /// The source location points to the value of an item in a specific
         /// case of a `switch`.
         switch_case_item: SwitchItem,
@@ -2006,10 +2036,17 @@ pub const LazySrcLoc = struct {
             index: u31,
         };
 
-        const ArrayCat = struct {
+        pub const ArrayCat = struct {
             /// Points to the array concat AST node.
             array_cat_offset: i32,
             /// The index of the element the source location points to.
+            elem_index: u32,
+        };
+
+        pub const TupleField = struct {
+            /// Points to the AST node of the tuple type decaration.
+            tuple_decl_node_offset: i32,
+            /// The index of the tuple field the source location points to.
             elem_index: u32,
         };
 
@@ -2042,6 +2079,8 @@ pub const LazySrcLoc = struct {
 
     /// Returns `null` if the ZIR instruction has been lost across incremental updates.
     pub fn resolveBaseNode(base_node_inst: InternPool.TrackedInst.Index, zcu: *Zcu) ?struct { *File, Ast.Node.Index } {
+        comptime assert(Zir.inst_tracking_version == 0);
+
         const ip = &zcu.intern_pool;
         const file_index, const zir_inst = inst: {
             const info = base_node_inst.resolveFull(ip) orelse return null;
@@ -2054,6 +2093,8 @@ pub const LazySrcLoc = struct {
         const inst = zir.instructions.get(@intFromEnum(zir_inst));
         const base_node: Ast.Node.Index = switch (inst.tag) {
             .declaration => inst.data.declaration.src_node,
+            .struct_init, .struct_init_ref => zir.extraData(Zir.Inst.StructInit, inst.data.pl_node.payload_index).data.abs_node,
+            .struct_init_anon => zir.extraData(Zir.Inst.StructInitAnon, inst.data.pl_node.payload_index).data.abs_node,
             .extended => switch (inst.data.extended.opcode) {
                 .struct_decl => zir.extraData(Zir.Inst.StructDecl, inst.data.extended.operand).data.src_node,
                 .union_decl => zir.extraData(Zir.Inst.UnionDecl, inst.data.extended.operand).data.src_node,
@@ -2191,6 +2232,8 @@ pub fn deinit(zcu: *Zcu) void {
     zcu.type_reference_table.deinit(gpa);
     zcu.all_type_references.deinit(gpa);
     zcu.free_type_references.deinit(gpa);
+
+    if (zcu.resolved_references) |*r| r.deinit(gpa);
 
     zcu.intern_pool.deinit(gpa);
 }
@@ -2760,6 +2803,8 @@ pub fn deleteUnitExports(zcu: *Zcu, anal_unit: AnalUnit) void {
 pub fn deleteUnitReferences(zcu: *Zcu, anal_unit: AnalUnit) void {
     const gpa = zcu.gpa;
 
+    zcu.clearCachedResolvedReferences();
+
     unit_refs: {
         const kv = zcu.reference_table.fetchSwapRemove(anal_unit) orelse break :unit_refs;
         var idx = kv.value;
@@ -2792,6 +2837,8 @@ pub fn deleteUnitReferences(zcu: *Zcu, anal_unit: AnalUnit) void {
 pub fn addUnitReference(zcu: *Zcu, src_unit: AnalUnit, referenced_unit: AnalUnit, ref_src: LazySrcLoc) Allocator.Error!void {
     const gpa = zcu.gpa;
 
+    zcu.clearCachedResolvedReferences();
+
     try zcu.reference_table.ensureUnusedCapacity(gpa, 1);
 
     const ref_idx = zcu.free_references.popOrNull() orelse idx: {
@@ -2815,6 +2862,8 @@ pub fn addUnitReference(zcu: *Zcu, src_unit: AnalUnit, referenced_unit: AnalUnit
 pub fn addTypeReference(zcu: *Zcu, src_unit: AnalUnit, referenced_type: InternPool.Index, ref_src: LazySrcLoc) Allocator.Error!void {
     const gpa = zcu.gpa;
 
+    zcu.clearCachedResolvedReferences();
+
     try zcu.type_reference_table.ensureUnusedCapacity(gpa, 1);
 
     const ref_idx = zcu.free_type_references.popOrNull() orelse idx: {
@@ -2833,6 +2882,11 @@ pub fn addTypeReference(zcu: *Zcu, src_unit: AnalUnit, referenced_type: InternPo
     };
 
     gop.value_ptr.* = @intCast(ref_idx);
+}
+
+fn clearCachedResolvedReferences(zcu: *Zcu) void {
+    if (zcu.resolved_references) |*r| r.deinit(zcu.gpa);
+    zcu.resolved_references = null;
 }
 
 pub fn errorSetBits(zcu: *const Zcu) u16 {
@@ -3000,6 +3054,8 @@ pub fn atomicPtrAlignment(
         .spirv32,
         .loongarch32,
         .xtensa,
+        .propeller1,
+        .propeller2,
         => 32,
 
         .amdgcn,
@@ -3136,7 +3192,15 @@ pub const ResolvedReference = struct {
 /// Returns a mapping from an `AnalUnit` to where it is referenced.
 /// If the value is `null`, the `AnalUnit` is a root of analysis.
 /// If an `AnalUnit` is not in the returned map, it is unreferenced.
-pub fn resolveReferences(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?ResolvedReference) {
+/// The returned hashmap is owned by the `Zcu`, so should not be freed by the caller.
+/// This hashmap is cached, so repeated calls to this function are cheap.
+pub fn resolveReferences(zcu: *Zcu) !*const std.AutoHashMapUnmanaged(AnalUnit, ?ResolvedReference) {
+    if (zcu.resolved_references == null) {
+        zcu.resolved_references = try zcu.resolveReferencesInner();
+    }
+    return &zcu.resolved_references.?;
+}
+fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?ResolvedReference) {
     const gpa = zcu.gpa;
     const comp = zcu.comp;
     const ip = &zcu.intern_pool;
@@ -3182,7 +3246,7 @@ pub fn resolveReferences(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolve
 
             // If this type has a `Cau` for resolution, it's automatically referenced.
             const resolution_cau: InternPool.Cau.Index.Optional = switch (ip.indexToKey(ty)) {
-                .struct_type => ip.loadStructType(ty).cau,
+                .struct_type => ip.loadStructType(ty).cau.toOptional(),
                 .union_type => ip.loadUnionType(ty).cau.toOptional(),
                 .enum_type => ip.loadEnumType(ty).cau,
                 .opaque_type => .none,
@@ -3447,6 +3511,10 @@ fn formatDependee(data: struct { dependee: InternPool.Dependee, zcu: *Zcu }, com
     const zcu = data.zcu;
     const ip = &zcu.intern_pool;
     switch (data.dependee) {
+        .file => |file| {
+            const file_path = zcu.fileByIndex(file).sub_file_path;
+            return writer.print("file('{s}')", .{file_path});
+        },
         .src_hash => |ti| {
             const info = ti.resolveFull(ip) orelse {
                 return writer.writeAll("inst(<lost>)");
@@ -3504,4 +3572,132 @@ pub fn maybeUnresolveIes(zcu: *Zcu, func_index: InternPool.Index) !void {
         }
         zcu.intern_pool.funcSetIesResolved(func_index, .none);
     }
+}
+
+pub fn callconvSupported(zcu: *Zcu, cc: std.builtin.CallingConvention) union(enum) {
+    ok,
+    bad_arch: []const std.Target.Cpu.Arch, // value is allowed archs for cc
+    bad_backend: std.builtin.CompilerBackend, // value is current backend
+} {
+    const target = zcu.getTarget();
+    const backend = target_util.zigBackend(target, zcu.comp.config.use_llvm);
+    switch (cc) {
+        .auto, .@"inline" => return .ok,
+        .@"async" => return .{ .bad_backend = backend }, // nothing supports async currently
+        .naked => {}, // depends only on backend
+        else => for (cc.archs()) |allowed_arch| {
+            if (allowed_arch == target.cpu.arch) break;
+        } else return .{ .bad_arch = cc.archs() },
+    }
+    const backend_ok = switch (backend) {
+        .stage1 => unreachable,
+        .other => unreachable,
+        _ => unreachable,
+
+        .stage2_llvm => @import("codegen/llvm.zig").toLlvmCallConv(cc, target) != null,
+        .stage2_c => ok: {
+            if (target.cCallingConvention()) |default_c| {
+                if (cc.eql(default_c)) {
+                    break :ok true;
+                }
+            }
+            break :ok switch (cc) {
+                .x86_64_sysv,
+                .x86_64_win,
+                .x86_64_vectorcall,
+                .x86_64_regcall_v3_sysv,
+                .x86_64_regcall_v4_win,
+                .x86_64_interrupt,
+                .x86_fastcall,
+                .x86_thiscall,
+                .x86_vectorcall,
+                .x86_regcall_v3,
+                .x86_regcall_v4_win,
+                .x86_interrupt,
+                .aarch64_vfabi,
+                .aarch64_vfabi_sve,
+                .arm_aapcs,
+                .csky_interrupt,
+                .riscv64_lp64_v,
+                .riscv32_ilp32_v,
+                .m68k_rtd,
+                .m68k_interrupt,
+                => |opts| opts.incoming_stack_alignment == null,
+
+                .arm_aapcs_vfp,
+                => |opts| opts.incoming_stack_alignment == null and target.os.tag != .watchos,
+                .arm_aapcs16_vfp,
+                => |opts| opts.incoming_stack_alignment == null and target.os.tag == .watchos,
+
+                .arm_interrupt,
+                => |opts| opts.incoming_stack_alignment == null,
+
+                .mips_interrupt,
+                .mips64_interrupt,
+                => |opts| opts.incoming_stack_alignment == null,
+
+                .riscv32_interrupt,
+                .riscv64_interrupt,
+                => |opts| opts.incoming_stack_alignment == null,
+
+                .x86_sysv,
+                .x86_win,
+                .x86_stdcall,
+                => |opts| opts.incoming_stack_alignment == null and opts.register_params == 0,
+
+                .avr_interrupt,
+                .avr_signal,
+                => true,
+
+                .naked => true,
+
+                else => false,
+            };
+        },
+        .stage2_wasm => switch (cc) {
+            .wasm_watc => |opts| opts.incoming_stack_alignment == null,
+            else => false,
+        },
+        .stage2_arm => switch (cc) {
+            .arm_aapcs => |opts| opts.incoming_stack_alignment == null,
+            .naked => true,
+            else => false,
+        },
+        .stage2_x86_64 => switch (cc) {
+            .x86_64_sysv, .x86_64_win, .naked => true, // incoming stack alignment supported
+            else => false,
+        },
+        .stage2_aarch64 => switch (cc) {
+            .aarch64_aapcs,
+            .aarch64_aapcs_darwin,
+            .aarch64_aapcs_win,
+            => |opts| opts.incoming_stack_alignment == null,
+            .naked => true,
+            else => false,
+        },
+        .stage2_x86 => switch (cc) {
+            .x86_sysv,
+            .x86_win,
+            => |opts| opts.incoming_stack_alignment == null and opts.register_params == 0,
+            .naked => true,
+            else => false,
+        },
+        .stage2_riscv64 => switch (cc) {
+            .riscv64_lp64 => |opts| opts.incoming_stack_alignment == null,
+            .naked => true,
+            else => false,
+        },
+        .stage2_sparc64 => switch (cc) {
+            .sparc64_sysv => |opts| opts.incoming_stack_alignment == null,
+            .naked => true,
+            else => false,
+        },
+        .stage2_spirv64 => switch (cc) {
+            .spirv_device, .spirv_kernel => true,
+            .spirv_fragment, .spirv_vertex => target.os.tag == .vulkan,
+            else => false,
+        },
+    };
+    if (!backend_ok) return .{ .bad_backend = backend };
+    return .ok;
 }

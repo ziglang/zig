@@ -195,7 +195,7 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
             .valgrind = false,
             .optimize_mode = optimize_mode,
             .structured_cfg = comp.root_mod.structured_cfg,
-            .pic = comp.root_mod.pic,
+            .pic = if (target_util.supports_fpic(target)) true else null,
         },
         .global = config,
         .cc_argv = &.{},
@@ -221,7 +221,7 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
     for (libcxx_files) |cxx_src| {
         var cflags = std.ArrayList([]const u8).init(arena);
 
-        if ((target.os.tag == .windows and target.abi == .msvc) or target.os.tag == .wasi) {
+        if ((target.os.tag == .windows and (target.abi == .msvc or target.abi == .itanium)) or target.os.tag == .wasi) {
             // Filesystem stuff isn't supported on WASI and Windows (MSVC).
             if (std.mem.startsWith(u8, cxx_src, "src/filesystem/"))
                 continue;
@@ -262,7 +262,7 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
 
         if (target.isGnuLibC()) {
             // glibc 2.16 introduced aligned_alloc
-            if (target.os.version_range.linux.glibc.order(.{ .major = 2, .minor = 16, .patch = 0 }) == .lt) {
+            if (target.os.versionRange().gnuLibCVersion().?.order(.{ .major = 2, .minor = 16, .patch = 0 }) == .lt) {
                 try cflags.append("-D_LIBCPP_HAS_NO_LIBRARY_ALIGNED_ALLOCATION");
             }
         }
@@ -278,9 +278,6 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
             try cflags.append("-faligned-allocation");
         }
 
-        if (target_util.supports_fpic(target)) {
-            try cflags.append("-fPIC");
-        }
         try cflags.append("-nostdinc++");
         try cflags.append("-std=c++23");
         try cflags.append("-Wno-user-defined-literals");
@@ -355,7 +352,9 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
     };
 
     assert(comp.libcxx_static_lib == null);
-    comp.libcxx_static_lib = try sub_compilation.toCrtFile();
+    const crt_file = try sub_compilation.toCrtFile();
+    comp.libcxx_static_lib = crt_file;
+    comp.queueLinkTaskMode(crt_file.full_object_path, output_mode);
 }
 
 pub fn buildLibCXXABI(comp: *Compilation, prog_node: std.Progress.Node) BuildError!void {
@@ -478,7 +477,7 @@ pub fn buildLibCXXABI(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
             }
             try cflags.append("-D_LIBCXXABI_HAS_NO_THREADS");
         } else if (target.abi.isGnu()) {
-            if (target.os.tag != .linux or !(target.os.version_range.linux.glibc.order(.{ .major = 2, .minor = 18, .patch = 0 }) == .lt))
+            if (target.os.tag != .linux or !(target.os.versionRange().gnuLibCVersion().?.order(.{ .major = 2, .minor = 18, .patch = 0 }) == .lt))
                 try cflags.append("-DHAVE___CXA_THREAD_ATEXIT_IMPL");
         }
 
@@ -501,7 +500,7 @@ pub fn buildLibCXXABI(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
 
         if (target.isGnuLibC()) {
             // glibc 2.16 introduced aligned_alloc
-            if (target.os.version_range.linux.glibc.order(.{ .major = 2, .minor = 16, .patch = 0 }) == .lt) {
+            if (target.os.versionRange().gnuLibCVersion().?.order(.{ .major = 2, .minor = 16, .patch = 0 }) == .lt) {
                 try cflags.append("-D_LIBCPP_HAS_NO_LIBRARY_ALIGNED_ALLOCATION");
             }
         }
@@ -584,7 +583,9 @@ pub fn buildLibCXXABI(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
     };
 
     assert(comp.libcxxabi_static_lib == null);
-    comp.libcxxabi_static_lib = try sub_compilation.toCrtFile();
+    const crt_file = try sub_compilation.toCrtFile();
+    comp.libcxxabi_static_lib = crt_file;
+    comp.queueLinkTaskMode(crt_file.full_object_path, output_mode);
 }
 
 pub fn hardeningModeFlag(optimize_mode: std.builtin.OptimizeMode) []const u8 {

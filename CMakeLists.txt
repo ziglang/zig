@@ -89,12 +89,7 @@ set(ZIG_SHARED_LLVM off CACHE BOOL "Prefer linking against shared LLVM libraries
 set(ZIG_STATIC_LLVM ${ZIG_STATIC} CACHE BOOL "Prefer linking against static LLVM libraries")
 set(ZIG_STATIC_ZLIB ${ZIG_STATIC} CACHE BOOL "Prefer linking against static zlib")
 set(ZIG_STATIC_ZSTD ${ZIG_STATIC} CACHE BOOL "Prefer linking against static zstd")
-if(APPLE AND ZIG_STATIC)
-  set(ZIG_STATIC_CURSES on)
-else()
-  set(ZIG_STATIC_CURSES off)
-endif()
-set(ZIG_STATIC_CURSES ${ZIG_STATIC_CURSES} CACHE BOOL "Prefer linking against static curses")
+set(ZIG_STATIC_CURSES OFF CACHE BOOL "Enable static linking against curses")
 
 if (ZIG_SHARED_LLVM AND ZIG_STATIC_LLVM)
     message(SEND_ERROR "-DZIG_SHARED_LLVM and -DZIG_STATIC_LLVM cannot both be enabled simultaneously")
@@ -125,8 +120,8 @@ check_pie_supported(
   OUTPUT_VARIABLE ZIG_PIE_SUPPORTED_BY_CMAKE
   LANGUAGES C CXX
 )
-if(ZIG_PIE AND NOT ZIG_PIE_SUPPORTED_BY_CMAKE)
-  message(SEND_ERROR "ZIG_PIE was requested but CMake does not support it for \"zigcpp\" target")
+if(ZIG_PIE AND NOT CMAKE_CXX_LINK_PIE_SUPPORTED)
+  message(SEND_ERROR "ZIG_PIE was requested but CMake does not support it for \"zigcpp\" target: ${ZIG_PIE_SUPPORTED_BY_CMAKE}")
 endif()
 
 
@@ -376,7 +371,7 @@ set(ZIG_STAGE2_SOURCES
     lib/std/Target.zig
     lib/std/Target/Query.zig
     lib/std/Target/aarch64.zig
-    lib/std/Target/amdgpu.zig
+    lib/std/Target/amdgcn.zig
     lib/std/Target/arm.zig
     lib/std/Target/avr.zig
     lib/std/Target/bpf.zig
@@ -522,6 +517,7 @@ set(ZIG_STAGE2_SOURCES
     src/Sema.zig
     src/Sema/bitcast.zig
     src/Sema/comptime_ptr_access.zig
+    src/ThreadSafeQueue.zig
     src/Type.zig
     src/Value.zig
     src/Zcu.zig
@@ -591,35 +587,31 @@ set(ZIG_STAGE2_SOURCES
     src/link.zig
     src/link/C.zig
     src/link/Coff.zig
-    src/link/Coff/Atom.zig
-    src/link/Coff/ImportTable.zig
-    src/link/Coff/Object.zig
-    src/link/Coff/Relocation.zig
-    src/link/Coff/lld.zig
     src/link/Dwarf.zig
     src/link/Elf.zig
     src/link/Elf/Archive.zig
     src/link/Elf/Atom.zig
     src/link/Elf/AtomList.zig
-    src/link/Elf/LdScript.zig
     src/link/Elf/LinkerDefined.zig
+    src/link/Elf/Merge.zig
     src/link/Elf/Object.zig
     src/link/Elf/SharedObject.zig
     src/link/Elf/Symbol.zig
+    src/link/Elf/Thunk.zig
     src/link/Elf/ZigObject.zig
     src/link/Elf/eh_frame.zig
     src/link/Elf/file.zig
     src/link/Elf/gc.zig
-    src/link/Elf/merge_section.zig
     src/link/Elf/relocatable.zig
     src/link/Elf/relocation.zig
     src/link/Elf/synthetic_sections.zig
-    src/link/Elf/Thunk.zig
+    src/link/LdScript.zig
     src/link/MachO.zig
     src/link/MachO/Archive.zig
     src/link/MachO/Atom.zig
     src/link/MachO/CodeSignature.zig
     src/link/MachO/DebugSymbols.zig
+    src/link/MachO/Dwarf.zig
     src/link/MachO/Dylib.zig
     src/link/MachO/InternalObject.zig
     src/link/MachO/Object.zig
@@ -631,7 +623,6 @@ set(ZIG_STAGE2_SOURCES
     src/link/MachO/dyld_info/Rebase.zig
     src/link/MachO/dyld_info/Trie.zig
     src/link/MachO/dyld_info/bind.zig
-    src/link/MachO/dwarf.zig
     src/link/MachO/eh_frame.zig
     src/link/MachO/fat.zig
     src/link/MachO/file.zig
@@ -652,12 +643,9 @@ set(ZIG_STAGE2_SOURCES
     src/link/StringTable.zig
     src/link/Wasm.zig
     src/link/Wasm/Archive.zig
-    src/link/Wasm/Atom.zig
     src/link/Wasm/Object.zig
     src/link/Wasm/Symbol.zig
     src/link/Wasm/ZigObject.zig
-    src/link/Wasm/file.zig
-    src/link/Wasm/types.zig
     src/link/aarch64.zig
     src/link/riscv.zig
     src/link/table_section.zig
@@ -832,11 +820,6 @@ else()
   else()
     set(ZIG2_LINK_FLAGS "-Wl,-z,stack-size=0x10000000")
   endif()
-endif()
-
-option(ZIG2_NO_RTLIB "Build zig2 without linking to a compiler runtime library (for `zig cc` only)" OFF)
-if(ZIG2_NO_RTLIB)
-  set(ZIG2_LINK_FLAGS "${ZIG2_LINK_FLAGS} -rtlib=none")
 endif()
 
 set(ZIG1_WASM_MODULE "${PROJECT_SOURCE_DIR}/stage1/zig1.wasm")

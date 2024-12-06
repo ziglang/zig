@@ -240,8 +240,6 @@ pub fn Sentinel(comptime T: type, comptime sentinel_val: Elem(T)) type {
     @compileError("Unable to derive a sentinel pointer type from " ++ @typeName(T));
 }
 
-pub const assumeSentinel = @compileError("This function has been removed, consider using std.mem.sliceTo() or if needed a @ptrCast()");
-
 pub fn containerLayout(comptime T: type) Type.ContainerLayout {
     return switch (@typeInfo(T)) {
         .@"struct" => |info| info.layout,
@@ -628,7 +626,7 @@ pub fn DeclEnum(comptime T: type) type {
     }
     return @Type(.{
         .@"enum" = .{
-            .tag_type = std.math.IntFittingRange(0, fieldInfos.len - 1),
+            .tag_type = std.math.IntFittingRange(0, if (fieldInfos.len == 0) 0 else fieldInfos.len - 1),
             .fields = &enumDecls,
             .decls = &decls,
             .is_exhaustive = true,
@@ -654,9 +652,12 @@ test DeclEnum {
         pub const b: void = {};
         pub const c: f32 = 0;
     };
+    const D = struct {};
+
     try expectEqualEnum(enum { a }, DeclEnum(A));
     try expectEqualEnum(enum { a, b, c }, DeclEnum(B));
     try expectEqualEnum(enum { a, b, c }, DeclEnum(C));
+    try expectEqualEnum(enum {}, DeclEnum(D));
 }
 
 pub fn Tag(comptime T: type) type {
@@ -736,13 +737,15 @@ test TagPayload {
     try testing.expect(MovedEvent == @TypeOf(e.Moved));
 }
 
-/// Compares two of any type for equality. Containers are compared on a field-by-field basis,
-/// where possible. Pointers are not followed.
+/// Compares two of any type for equality. Containers that do not support comparison
+/// on their own are compared on a field-by-field basis. Pointers are not followed.
 pub fn eql(a: anytype, b: @TypeOf(a)) bool {
     const T = @TypeOf(a);
 
     switch (@typeInfo(T)) {
         .@"struct" => |info| {
+            if (info.layout == .@"packed") return a == b;
+
             inline for (info.fields) |field_info| {
                 if (!eql(@field(a, field_info.name), @field(b, field_info.name))) return false;
             }
@@ -930,8 +933,6 @@ pub fn fieldIndex(comptime T: type, comptime name: []const u8) ?comptime_int {
     return null;
 }
 
-pub const refAllDecls = @compileError("refAllDecls has been moved from std.meta to std.testing");
-
 /// Returns a slice of pointers to public declarations of a namespace.
 pub fn declList(comptime Namespace: type, comptime Decl: type) []const *const Decl {
     const S = struct {
@@ -950,8 +951,6 @@ pub fn declList(comptime Namespace: type, comptime Decl: type) []const *const De
         return &array;
     }
 }
-
-pub const IntType = @compileError("replaced by std.meta.Int");
 
 pub fn Int(comptime signedness: std.builtin.Signedness, comptime bit_count: u16) type {
     return @Type(.{
@@ -1021,7 +1020,7 @@ fn CreateUniqueTuple(comptime N: comptime_int, comptime types: [N]type) type {
             .type = T,
             .default_value = null,
             .is_comptime = false,
-            .alignment = if (@sizeOf(T) > 0) @alignOf(T) else 0,
+            .alignment = 0,
         };
     }
 

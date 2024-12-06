@@ -46,6 +46,7 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         );
         return error.SubCompilationFailed;
     };
+    const target = comp.root_mod.resolved_target.result;
     const root_mod = Module.create(arena, .{
         .global_cache_directory = comp.global_cache_directory,
         .paths = .{
@@ -63,8 +64,9 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
             .valgrind = false,
             .sanitize_c = false,
             .sanitize_thread = false,
-            .unwind_tables = false,
-            .pic = comp.root_mod.pic,
+            // necessary so that libunwind can unwind through its own stack frames
+            .unwind_tables = true,
+            .pic = if (target_util.supports_fpic(target)) true else null,
             .optimize_mode = comp.compilerRtOptMode(),
         },
         .global = config,
@@ -83,7 +85,6 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
 
     const root_name = "unwind";
     const link_mode = .static;
-    const target = comp.root_mod.resolved_target.result;
     const basename = try std.zig.binNameAlloc(arena, .{
         .root_name = root_name,
         .target = target,
@@ -114,16 +115,11 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         try cflags.append("-fno-exceptions");
         try cflags.append("-I");
         try cflags.append(try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libunwind", "include" }));
-        if (target_util.supports_fpic(target)) {
-            try cflags.append("-fPIC");
-        }
         try cflags.append("-D_LIBUNWIND_DISABLE_VISIBILITY_ANNOTATIONS");
         try cflags.append("-Wa,--noexecstack");
         try cflags.append("-fvisibility=hidden");
         try cflags.append("-fvisibility-inlines-hidden");
         try cflags.append("-fvisibility-global-new-delete=force-hidden");
-        // necessary so that libunwind can unwind through its own stack frames
-        try cflags.append("-funwind-tables");
 
         // This is intentionally always defined because the macro definition means, should it only
         // build for the target specified by compiler defines. Since we pass -target the compiler
@@ -136,7 +132,7 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         if (!comp.config.any_non_single_threaded) {
             try cflags.append("-D_LIBUNWIND_HAS_NO_THREADS");
         }
-        if (target.cpu.arch.isArmOrThumb() and target.abi.floatAbi() == .hard) {
+        if (target.cpu.arch.isArm() and target.abi.floatAbi() == .hard) {
             try cflags.append("-DCOMPILER_RT_ARMHF_TARGET");
         }
         try cflags.append("-Wno-bitwise-conditional-parentheses");
@@ -199,8 +195,10 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         },
     };
 
+    const crt_file = try sub_compilation.toCrtFile();
+    comp.queueLinkTaskMode(crt_file.full_object_path, output_mode);
     assert(comp.libunwind_static_lib == null);
-    comp.libunwind_static_lib = try sub_compilation.toCrtFile();
+    comp.libunwind_static_lib = crt_file;
 }
 
 const unwind_src_list = [_][]const u8{

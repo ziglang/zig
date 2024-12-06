@@ -416,8 +416,8 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
             .work_item_id,
             .work_group_size,
             .work_group_id,
-            .fence,
             .dbg_stmt,
+            .dbg_empty_stmt,
             .err_return_trace,
             .save_err_return_trace_index,
             .repeat,
@@ -502,7 +502,7 @@ pub fn checkType(ty: Type, zcu: *Zcu) bool {
                     .auto, .@"extern" => struct_obj.flagsUnordered(ip).fully_resolved,
                 };
             },
-            .anon_struct_type => |tuple| {
+            .tuple_type => |tuple| {
                 for (0..tuple.types.len) |i| {
                     const field_is_comptime = tuple.values.get(ip)[i] != .none;
                     if (field_is_comptime) continue;
