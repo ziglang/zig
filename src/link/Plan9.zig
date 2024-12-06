@@ -345,6 +345,7 @@ fn putFn(self: *Plan9, nav_index: InternPool.Nav.Index, out: FnNavOutput) !void 
         try a.writer().writeInt(u16, 1, .big);
 
         // getting the full file path
+        // TODO don't call getcwd here, that is inappropriate
         var buf: [std.fs.max_path_bytes]u8 = undefined;
         const full_path = try std.fs.path.join(arena, &.{
             file.mod.root.root_dir.path orelse try std.posix.getcwd(&buf),
@@ -415,7 +416,7 @@ pub fn updateFunc(
     };
     defer dbg_info_output.dbg_line.deinit();
 
-    const res = try codegen.generateFunction(
+    try codegen.generateFunction(
         &self.base,
         pt,
         zcu.navSrcLoc(func.owner_nav),
@@ -425,10 +426,7 @@ pub fn updateFunc(
         &code_buffer,
         .{ .plan9 = &dbg_info_output },
     );
-    const code = switch (res) {
-        .ok => try code_buffer.toOwnedSlice(),
-        .fail => |em| return zcu.failed_codegen.put(gpa, func.owner_nav, em),
-    };
+    const code = try code_buffer.toOwnedSlice();
     self.getAtomPtr(atom_idx).code = .{
         .code_ptr = null,
         .other = .{ .nav_index = func.owner_nav },
@@ -439,7 +437,9 @@ pub fn updateFunc(
         .start_line = dbg_info_output.start_line.?,
         .end_line = dbg_info_output.end_line,
     };
-    try self.putFn(func.owner_nav, out);
+    // The awkward error handling here is due to putFn calling `std.posix.getcwd` which it should not do.
+    self.putFn(func.owner_nav, out) catch |err|
+        return zcu.codegenFail(func.owner_nav, "failed to put fn: {s}", .{@errorName(err)});
     return self.updateFinish(pt, func.owner_nav);
 }
 
@@ -915,25 +915,25 @@ pub fn flushModule(
 }
 fn addNavExports(
     self: *Plan9,
-    mod: *Zcu,
+    zcu: *Zcu,
     nav_index: InternPool.Nav.Index,
-    export_indices: []const u32,
+    export_indices: []const Zcu.Export.Index,
 ) !void {
     const gpa = self.base.comp.gpa;
     const metadata = self.navs.getPtr(nav_index).?;
     const atom = self.getAtom(metadata.index);
 
     for (export_indices) |export_idx| {
-        const exp = mod.all_exports.items[export_idx];
-        const exp_name = exp.opts.name.toSlice(&mod.intern_pool);
+        const exp = export_idx.ptr(zcu);
+        const exp_name = exp.opts.name.toSlice(&zcu.intern_pool);
         // plan9 does not support custom sections
         if (exp.opts.section.unwrap()) |section_name| {
-            if (!section_name.eqlSlice(".text", &mod.intern_pool) and
-                !section_name.eqlSlice(".data", &mod.intern_pool))
+            if (!section_name.eqlSlice(".text", &zcu.intern_pool) and
+                !section_name.eqlSlice(".data", &zcu.intern_pool))
             {
-                try mod.failed_exports.put(mod.gpa, export_idx, try Zcu.ErrorMsg.create(
+                try zcu.failed_exports.put(zcu.gpa, export_idx, try Zcu.ErrorMsg.create(
                     gpa,
-                    mod.navSrcLoc(nav_index),
+                    zcu.navSrcLoc(nav_index),
                     "plan9 does not support extra sections",
                     .{},
                 ));
@@ -1252,7 +1252,7 @@ pub fn writeSyms(self: *Plan9, buf: *std.ArrayList(u8)) !void {
             try self.writeSym(writer, sym);
             if (self.nav_exports.get(nav_index)) |export_indices| {
                 for (export_indices) |export_idx| {
-                    const exp = zcu.all_exports.items[export_idx];
+                    const exp = export_idx.ptr(zcu);
                     if (nav_metadata.getExport(self, exp.opts.name.toSlice(ip))) |exp_i| {
                         try self.writeSym(writer, self.syms.items[exp_i]);
                     }
@@ -1291,7 +1291,7 @@ pub fn writeSyms(self: *Plan9, buf: *std.ArrayList(u8)) !void {
                 try self.writeSym(writer, sym);
                 if (self.nav_exports.get(nav_index)) |export_indices| {
                     for (export_indices) |export_idx| {
-                        const exp = zcu.all_exports.items[export_idx];
+                        const exp = export_idx.ptr(zcu);
                         if (nav_metadata.getExport(self, exp.opts.name.toSlice(ip))) |exp_i| {
                             const s = self.syms.items[exp_i];
                             if (mem.eql(u8, s.name, "_start"))

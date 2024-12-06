@@ -469,7 +469,7 @@ pub fn flushModule(self: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node:
         defer export_names.deinit(gpa);
         try export_names.ensureTotalCapacity(gpa, @intCast(zcu.single_exports.count()));
         for (zcu.single_exports.values()) |export_index| {
-            export_names.putAssumeCapacity(zcu.all_exports.items[export_index].opts.name, {});
+            export_names.putAssumeCapacity(export_index.ptr(zcu).opts.name, {});
         }
         for (zcu.multi_exports.values()) |info| {
             try export_names.ensureUnusedCapacity(gpa, info.len);

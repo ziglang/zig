@@ -1040,7 +1040,7 @@ pub fn generateLazy(
     emit.emitMir() catch |err| switch (err) {
         error.LowerFail, error.EmitFail => return function.failMsg(emit.lower.err_msg.?),
         error.InvalidInstruction => return function.fail("failed to find a viable x86 instruction (Zig compiler bug)", .{}),
-        error.CannotEncode => return function.fail("failed to find encode x86 instruction (Zig compiler bug)", .{}),
+        error.CannotEncode => return function.fail("failed to encode x86 instruction (Zig compiler bug)", .{}),
         else => |e| return function.fail("failed to emit MIR: {s}", .{@errorName(e)}),
     };
 }

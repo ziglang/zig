@@ -10,10 +10,12 @@ const Mir = @This();
 const InternPool = @import("../../InternPool.zig");
 const Wasm = @import("../../link/Wasm.zig");
 
+const builtin = @import("builtin");
 const std = @import("std");
+const assert = std.debug.assert;
 
-/// A struct of array that represents each individual wasm
-instructions: std.MultiArrayList(Inst).Slice,
+instruction_tags: []const Inst.Tag,
+instruction_datas: []const Inst.Data,
 /// A slice of indexes where the meaning of the data is determined by the
 /// `Inst.Tag` value.
 extra: []const u32,
@@ -28,13 +30,7 @@ pub const Inst = struct {
     /// The position of a given MIR isntruction with the instruction list.
     pub const Index = u32;
 
-    /// Contains all possible wasm opcodes the Zig compiler may emit
-    /// Rather than re-using std.wasm.Opcode, we only declare the opcodes
-    /// we need, and also use this possibility to document how to access
-    /// their payload.
-    ///
-    /// Note: Uses its actual opcode value representation to easily convert
-    /// to and from its binary representation.
+    /// Some tags match wasm opcode values to facilitate trivial lowering.
     pub const Tag = enum(u8) {
         /// Uses `nop`
         @"unreachable" = 0x00,
@@ -46,19 +42,27 @@ pub const Inst = struct {
         ///
         /// Type of the loop is given in data `block_type`
         loop = 0x03,
+        /// Lowers to an i32_const (wasm32) or i64_const (wasm64) which is the
+        /// memory address of an unnamed constant. When emitting an object
+        /// file, this adds a relocation.
+        ///
+        /// Data is `ip_index`.
+        uav_ref,
+        /// Lowers to an i32_const (wasm32) or i64_const (wasm64) which is the
+        /// memory address of an unnamed constant, offset by an integer value.
+        /// When emitting an object file, this adds a relocation.
+        ///
+        /// Data is `payload` pointing to a `UavRefOff`.
+        uav_ref_off,
         /// Inserts debug information about the current line and column
         /// of the source code
         ///
         /// Uses `payload` of which the payload type is `DbgLineColumn`
         dbg_line = 0x06,
-        /// Emits epilogue begin debug information
+        /// Emits epilogue begin debug information. Marks the end of the function.
         ///
         /// Uses `nop`
         dbg_epilogue_begin = 0x07,
-        /// Emits prologue end debug information
-        ///
-        /// Uses `nop`
-        dbg_prologue_end = 0x08,
         /// Represents the end of a function body or an initialization expression
         ///
         /// Payload is `nop`
@@ -80,13 +84,13 @@ pub const Inst = struct {
         ///
         /// Uses `nop`
         @"return" = 0x0F,
+        /// Calls a function using `nav_index`.
+        call_nav,
         /// Calls a function pointer by its function signature
         /// and index into the function table.
         ///
-        /// Uses `label`
+        /// Uses `func_ty`
         call_indirect = 0x11,
-        /// Calls a function using `nav_index`.
-        call_nav,
         /// Calls a function using `func_index`.
         call_func,
         /// Calls a function by its index.
@@ -94,9 +98,11 @@ pub const Inst = struct {
         /// The function is the auto-generated tag name function for the type
         /// provided in `ip_index`.
         call_tag_name,
-        /// Contains a symbol to a function pointer
-        /// uses `label`
+        /// Lowers to an i32_const containing the index of a function.
+        /// When emitting an object file, this adds a relocation.
+        /// Uses `ip_index`.
         function_index,
+
         /// Pops three values from the stack and pushes
         /// the first or second value dependent on the third value.
         /// Uses `tag`
@@ -115,15 +121,11 @@ pub const Inst = struct {
         ///
         /// Uses `label`
         local_tee = 0x22,
-        /// Loads a (mutable) global at given index onto the stack
+        /// Pops a value from the stack and sets the stack pointer global.
+        /// The value must be the same type as the stack pointer global.
         ///
-        /// Uses `label`
-        global_get = 0x23,
-        /// Pops a value from the stack and sets the global at given index.
-        /// Note: Both types must be equal and global must be marked mutable.
-        ///
-        /// Uses `label`.
-        global_set = 0x24,
+        /// Uses `tag` (no additional data).
+        global_set_sp,
         /// Loads a 32-bit integer from memory (data section) onto the stack
         /// Pops the value from the stack which represents the offset into memory.
         ///
@@ -259,19 +261,19 @@ pub const Inst = struct {
         /// Loads a 32-bit signed immediate value onto the stack
         ///
         /// Uses `imm32`
-        i32_const = 0x41,
+        i32_const,
         /// Loads a i64-bit signed immediate value onto the stack
         ///
         /// uses `payload` of type `Imm64`
-        i64_const = 0x42,
+        i64_const,
         /// Loads a 32-bit float value onto the stack.
         ///
         /// Uses `float32`
-        f32_const = 0x43,
+        f32_const,
         /// Loads a 64-bit float value onto the stack.
         ///
         /// Uses `payload` of type `Float64`
-        f64_const = 0x44,
+        f64_const,
         /// Uses `tag`
         i32_eqz = 0x45,
         /// Uses `tag`
@@ -525,25 +527,19 @@ pub const Inst = struct {
         ///
         /// The `data` field depends on the extension instruction and
         /// may contain additional data.
-        misc_prefix = 0xFC,
+        misc_prefix,
         /// The instruction consists of a simd opcode.
         /// The actual simd-opcode is found at payload's index.
         ///
         /// The `data` field depends on the simd instruction and
         /// may contain additional data.
-        simd_prefix = 0xFD,
+        simd_prefix,
         /// The instruction consists of an atomics opcode.
         /// The actual atomics-opcode is found at payload's index.
         ///
         /// The `data` field depends on the atomics instruction and
         /// may contain additional data.
         atomics_prefix = 0xFE,
-        /// Contains a symbol to a memory address
-        /// Uses `label`
-        ///
-        /// Note: This uses `0xFF` as value as it is unused and not reserved
-        /// by the wasm specification, making it safe to use.
-        memory_address = 0xFF,
 
         /// From a given wasm opcode, returns a MIR tag.
         pub fn fromOpcode(opcode: std.wasm.Opcode) Tag {
@@ -563,30 +559,38 @@ pub const Inst = struct {
         /// Uses no additional data
         tag: void,
         /// Contains the result type of a block
-        ///
-        /// Used by `block` and `loop`
         block_type: u8,
-        /// Contains an u32 index into a wasm section entry, such as a local.
-        /// Note: This is not an index to another instruction.
-        ///
-        /// Used by e.g. `local_get`, `local_set`, etc.
+        /// Label: Each structured control instruction introduces an implicit label.
+        /// Labels are targets for branch instructions that reference them with
+        /// label indices. Unlike with other index spaces, indexing of labels
+        /// is relative by nesting depth, that is, label 0 refers to the
+        /// innermost structured control instruction enclosing the referring
+        /// branch instruction, while increasing indices refer to those farther
+        /// out. Consequently, labels can only be referenced from within the
+        /// associated structured control instruction.
         label: u32,
+        /// Local: The index space for locals is only accessible inside a function and
+        /// includes the parameters of that function, which precede the local
+        /// variables.
+        local: u32,
         /// A 32-bit immediate value.
-        ///
-        /// Used by `i32_const`
         imm32: i32,
         /// A 32-bit float value
-        ///
-        /// Used by `f32_float`
         float32: f32,
         /// Index into `extra`. Meaning of what can be found there is context-dependent.
-        ///
-        /// Used by e.g. `br_table`
         payload: u32,
 
         ip_index: InternPool.Index,
         nav_index: InternPool.Nav.Index,
         func_index: Wasm.FunctionIndex,
+        func_ty: Wasm.FunctionType.Index,
+
+        comptime {
+            switch (builtin.mode) {
+                .Debug, .ReleaseSafe => {},
+                .ReleaseFast, .ReleaseSmall => assert(@sizeOf(Data) == 4),
+            }
+        }
     };
 };
 
@@ -616,28 +620,19 @@ pub const JumpTable = struct {
     length: u32,
 };
 
-/// Stores an unsigned 64bit integer
-/// into a 32bit most significant bits field
-/// and a 32bit least significant bits field.
-///
-/// This uses an unsigned integer rather than a signed integer
-/// as we can easily store those into `extra`
 pub const Imm64 = struct {
     msb: u32,
     lsb: u32,
 
-    pub fn fromU64(imm: u64) Imm64 {
+    pub fn init(full: u64) Imm64 {
         return .{
-            .msb = @as(u32, @truncate(imm >> 32)),
-            .lsb = @as(u32, @truncate(imm)),
+            .msb = @truncate(full >> 32),
+            .lsb = @truncate(full),
         };
     }
 
-    pub fn toU64(self: Imm64) u64 {
-        var result: u64 = 0;
-        result |= @as(u64, self.msb) << 32;
-        result |= @as(u64, self.lsb);
-        return result;
+    pub fn toInt(i: Imm64) u64 {
+        return (@as(u64, i.msb) << 32) | @as(u64, i.lsb);
     }
 };
 
@@ -645,23 +640,16 @@ pub const Float64 = struct {
     msb: u32,
     lsb: u32,
 
-    pub fn fromFloat64(float: f64) Float64 {
-        const tmp = @as(u64, @bitCast(float));
+    pub fn init(f: f64) Float64 {
+        const int: u64 = @bitCast(f);
         return .{
-            .msb = @as(u32, @truncate(tmp >> 32)),
-            .lsb = @as(u32, @truncate(tmp)),
+            .msb = @truncate(int >> 32),
+            .lsb = @truncate(int),
         };
     }
 
-    pub fn toF64(self: Float64) f64 {
-        @as(f64, @bitCast(self.toU64()));
-    }
-
-    pub fn toU64(self: Float64) u64 {
-        var result: u64 = 0;
-        result |= @as(u64, self.msb) << 32;
-        result |= @as(u64, self.lsb);
-        return result;
+    pub fn toInt(f: Float64) u64 {
+        return (@as(u64, f.msb) << 32) | @as(u64, f.lsb);
     }
 };
 
@@ -670,11 +658,9 @@ pub const MemArg = struct {
     alignment: u32,
 };
 
-/// Represents a memory address, which holds both the pointer
-/// or the parent pointer and the offset to it.
-pub const Memory = struct {
-    pointer: u32,
-    offset: u32,
+pub const UavRefOff = struct {
+    ip_index: InternPool.Index,
+    offset: i32,
 };
 
 /// Maps a source line with wasm bytecode

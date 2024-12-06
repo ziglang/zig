@@ -1,9 +1,9 @@
-//! Contains all logic to lower wasm MIR into its binary
-//! or textual representation.
-
 const Emit = @This();
+
 const std = @import("std");
-const leb128 = std.leb;
+const assert = std.debug.assert;
+const Allocator = std.mem.Allocator;
+const leb = std.leb;
 
 const Mir = @import("Mir.zig");
 const link = @import("../../link.zig");
@@ -11,660 +11,611 @@ const Zcu = @import("../../Zcu.zig");
 const InternPool = @import("../../InternPool.zig");
 const codegen = @import("../../codegen.zig");
 
-/// Contains our list of instructions
 mir: Mir,
-/// Reference to the Wasm module linker
-bin_file: *link.File.Wasm,
-/// Possible error message. When set, the value is allocated and
-/// must be freed manually.
-error_msg: ?*Zcu.ErrorMsg = null,
-/// The binary representation that will be emit by this module.
-code: *std.ArrayList(u8),
-/// List of allocated locals.
-locals: []const u8,
-/// The declaration that code is being generated for.
-owner_nav: InternPool.Nav.Index,
+wasm: *link.File.Wasm,
+/// The binary representation that will be emitted by this module.
+code: *std.ArrayListUnmanaged(u8),
 
-// Debug information
-/// Holds the debug information for this emission
-dbg_output: link.File.DebugInfoOutput,
-/// Previous debug info line
-prev_di_line: u32,
-/// Previous debug info column
-prev_di_column: u32,
-/// Previous offset relative to code section
-prev_di_offset: u32,
-
-const InnerError = error{
+pub const Error = error{
     OutOfMemory,
-    EmitFail,
 };
 
-pub fn emitMir(emit: *Emit) InnerError!void {
-    const mir_tags = emit.mir.instructions.items(.tag);
-    // write the locals in the prologue of the function body
-    // before we emit the function body when lowering MIR
-    try emit.emitLocals();
-
-    for (mir_tags, 0..) |tag, index| {
-        const inst = @as(u32, @intCast(index));
-        switch (tag) {
-            // block instructions
-            .block => try emit.emitBlock(tag, inst),
-            .loop => try emit.emitBlock(tag, inst),
-
-            .dbg_line => try emit.emitDbgLine(inst),
-            .dbg_epilogue_begin => try emit.emitDbgEpilogueBegin(),
-            .dbg_prologue_end => try emit.emitDbgPrologueEnd(),
-
-            // branch instructions
-            .br_if => try emit.emitLabel(tag, inst),
-            .br_table => try emit.emitBrTable(inst),
-            .br => try emit.emitLabel(tag, inst),
-
-            // relocatables
-            .call => try emit.emitCall(inst),
-            .call_indirect => try emit.emitCallIndirect(inst),
-            .global_get => try emit.emitGlobal(tag, inst),
-            .global_set => try emit.emitGlobal(tag, inst),
-            .function_index => try emit.emitFunctionIndex(inst),
-            .memory_address => try emit.emitMemAddress(inst),
-
-            // immediates
-            .f32_const => try emit.emitFloat32(inst),
-            .f64_const => try emit.emitFloat64(inst),
-            .i32_const => try emit.emitImm32(inst),
-            .i64_const => try emit.emitImm64(inst),
-
-            // memory instructions
-            .i32_load => try emit.emitMemArg(tag, inst),
-            .i64_load => try emit.emitMemArg(tag, inst),
-            .f32_load => try emit.emitMemArg(tag, inst),
-            .f64_load => try emit.emitMemArg(tag, inst),
-            .i32_load8_s => try emit.emitMemArg(tag, inst),
-            .i32_load8_u => try emit.emitMemArg(tag, inst),
-            .i32_load16_s => try emit.emitMemArg(tag, inst),
-            .i32_load16_u => try emit.emitMemArg(tag, inst),
-            .i64_load8_s => try emit.emitMemArg(tag, inst),
-            .i64_load8_u => try emit.emitMemArg(tag, inst),
-            .i64_load16_s => try emit.emitMemArg(tag, inst),
-            .i64_load16_u => try emit.emitMemArg(tag, inst),
-            .i64_load32_s => try emit.emitMemArg(tag, inst),
-            .i64_load32_u => try emit.emitMemArg(tag, inst),
-            .i32_store => try emit.emitMemArg(tag, inst),
-            .i64_store => try emit.emitMemArg(tag, inst),
-            .f32_store => try emit.emitMemArg(tag, inst),
-            .f64_store => try emit.emitMemArg(tag, inst),
-            .i32_store8 => try emit.emitMemArg(tag, inst),
-            .i32_store16 => try emit.emitMemArg(tag, inst),
-            .i64_store8 => try emit.emitMemArg(tag, inst),
-            .i64_store16 => try emit.emitMemArg(tag, inst),
-            .i64_store32 => try emit.emitMemArg(tag, inst),
-
-            // Instructions with an index that do not require relocations
-            .local_get => try emit.emitLabel(tag, inst),
-            .local_set => try emit.emitLabel(tag, inst),
-            .local_tee => try emit.emitLabel(tag, inst),
-            .memory_grow => try emit.emitLabel(tag, inst),
-            .memory_size => try emit.emitLabel(tag, inst),
-
-            // no-ops
-            .end => try emit.emitTag(tag),
-            .@"return" => try emit.emitTag(tag),
-            .@"unreachable" => try emit.emitTag(tag),
-
-            .select => try emit.emitTag(tag),
-
-            // arithmetic
-            .i32_eqz => try emit.emitTag(tag),
-            .i32_eq => try emit.emitTag(tag),
-            .i32_ne => try emit.emitTag(tag),
-            .i32_lt_s => try emit.emitTag(tag),
-            .i32_lt_u => try emit.emitTag(tag),
-            .i32_gt_s => try emit.emitTag(tag),
-            .i32_gt_u => try emit.emitTag(tag),
-            .i32_le_s => try emit.emitTag(tag),
-            .i32_le_u => try emit.emitTag(tag),
-            .i32_ge_s => try emit.emitTag(tag),
-            .i32_ge_u => try emit.emitTag(tag),
-            .i64_eqz => try emit.emitTag(tag),
-            .i64_eq => try emit.emitTag(tag),
-            .i64_ne => try emit.emitTag(tag),
-            .i64_lt_s => try emit.emitTag(tag),
-            .i64_lt_u => try emit.emitTag(tag),
-            .i64_gt_s => try emit.emitTag(tag),
-            .i64_gt_u => try emit.emitTag(tag),
-            .i64_le_s => try emit.emitTag(tag),
-            .i64_le_u => try emit.emitTag(tag),
-            .i64_ge_s => try emit.emitTag(tag),
-            .i64_ge_u => try emit.emitTag(tag),
-            .f32_eq => try emit.emitTag(tag),
-            .f32_ne => try emit.emitTag(tag),
-            .f32_lt => try emit.emitTag(tag),
-            .f32_gt => try emit.emitTag(tag),
-            .f32_le => try emit.emitTag(tag),
-            .f32_ge => try emit.emitTag(tag),
-            .f64_eq => try emit.emitTag(tag),
-            .f64_ne => try emit.emitTag(tag),
-            .f64_lt => try emit.emitTag(tag),
-            .f64_gt => try emit.emitTag(tag),
-            .f64_le => try emit.emitTag(tag),
-            .f64_ge => try emit.emitTag(tag),
-            .i32_add => try emit.emitTag(tag),
-            .i32_sub => try emit.emitTag(tag),
-            .i32_mul => try emit.emitTag(tag),
-            .i32_div_s => try emit.emitTag(tag),
-            .i32_div_u => try emit.emitTag(tag),
-            .i32_and => try emit.emitTag(tag),
-            .i32_or => try emit.emitTag(tag),
-            .i32_xor => try emit.emitTag(tag),
-            .i32_shl => try emit.emitTag(tag),
-            .i32_shr_s => try emit.emitTag(tag),
-            .i32_shr_u => try emit.emitTag(tag),
-            .i64_add => try emit.emitTag(tag),
-            .i64_sub => try emit.emitTag(tag),
-            .i64_mul => try emit.emitTag(tag),
-            .i64_div_s => try emit.emitTag(tag),
-            .i64_div_u => try emit.emitTag(tag),
-            .i64_and => try emit.emitTag(tag),
-            .i64_or => try emit.emitTag(tag),
-            .i64_xor => try emit.emitTag(tag),
-            .i64_shl => try emit.emitTag(tag),
-            .i64_shr_s => try emit.emitTag(tag),
-            .i64_shr_u => try emit.emitTag(tag),
-            .f32_abs => try emit.emitTag(tag),
-            .f32_neg => try emit.emitTag(tag),
-            .f32_ceil => try emit.emitTag(tag),
-            .f32_floor => try emit.emitTag(tag),
-            .f32_trunc => try emit.emitTag(tag),
-            .f32_nearest => try emit.emitTag(tag),
-            .f32_sqrt => try emit.emitTag(tag),
-            .f32_add => try emit.emitTag(tag),
-            .f32_sub => try emit.emitTag(tag),
-            .f32_mul => try emit.emitTag(tag),
-            .f32_div => try emit.emitTag(tag),
-            .f32_min => try emit.emitTag(tag),
-            .f32_max => try emit.emitTag(tag),
-            .f32_copysign => try emit.emitTag(tag),
-            .f64_abs => try emit.emitTag(tag),
-            .f64_neg => try emit.emitTag(tag),
-            .f64_ceil => try emit.emitTag(tag),
-            .f64_floor => try emit.emitTag(tag),
-            .f64_trunc => try emit.emitTag(tag),
-            .f64_nearest => try emit.emitTag(tag),
-            .f64_sqrt => try emit.emitTag(tag),
-            .f64_add => try emit.emitTag(tag),
-            .f64_sub => try emit.emitTag(tag),
-            .f64_mul => try emit.emitTag(tag),
-            .f64_div => try emit.emitTag(tag),
-            .f64_min => try emit.emitTag(tag),
-            .f64_max => try emit.emitTag(tag),
-            .f64_copysign => try emit.emitTag(tag),
-            .i32_wrap_i64 => try emit.emitTag(tag),
-            .i64_extend_i32_s => try emit.emitTag(tag),
-            .i64_extend_i32_u => try emit.emitTag(tag),
-            .i32_extend8_s => try emit.emitTag(tag),
-            .i32_extend16_s => try emit.emitTag(tag),
-            .i64_extend8_s => try emit.emitTag(tag),
-            .i64_extend16_s => try emit.emitTag(tag),
-            .i64_extend32_s => try emit.emitTag(tag),
-            .f32_demote_f64 => try emit.emitTag(tag),
-            .f64_promote_f32 => try emit.emitTag(tag),
-            .i32_reinterpret_f32 => try emit.emitTag(tag),
-            .i64_reinterpret_f64 => try emit.emitTag(tag),
-            .f32_reinterpret_i32 => try emit.emitTag(tag),
-            .f64_reinterpret_i64 => try emit.emitTag(tag),
-            .i32_trunc_f32_s => try emit.emitTag(tag),
-            .i32_trunc_f32_u => try emit.emitTag(tag),
-            .i32_trunc_f64_s => try emit.emitTag(tag),
-            .i32_trunc_f64_u => try emit.emitTag(tag),
-            .i64_trunc_f32_s => try emit.emitTag(tag),
-            .i64_trunc_f32_u => try emit.emitTag(tag),
-            .i64_trunc_f64_s => try emit.emitTag(tag),
-            .i64_trunc_f64_u => try emit.emitTag(tag),
-            .f32_convert_i32_s => try emit.emitTag(tag),
-            .f32_convert_i32_u => try emit.emitTag(tag),
-            .f32_convert_i64_s => try emit.emitTag(tag),
-            .f32_convert_i64_u => try emit.emitTag(tag),
-            .f64_convert_i32_s => try emit.emitTag(tag),
-            .f64_convert_i32_u => try emit.emitTag(tag),
-            .f64_convert_i64_s => try emit.emitTag(tag),
-            .f64_convert_i64_u => try emit.emitTag(tag),
-            .i32_rem_s => try emit.emitTag(tag),
-            .i32_rem_u => try emit.emitTag(tag),
-            .i64_rem_s => try emit.emitTag(tag),
-            .i64_rem_u => try emit.emitTag(tag),
-            .i32_popcnt => try emit.emitTag(tag),
-            .i64_popcnt => try emit.emitTag(tag),
-            .i32_clz => try emit.emitTag(tag),
-            .i32_ctz => try emit.emitTag(tag),
-            .i64_clz => try emit.emitTag(tag),
-            .i64_ctz => try emit.emitTag(tag),
-
-            .misc_prefix => try emit.emitExtended(inst),
-            .simd_prefix => try emit.emitSimd(inst),
-            .atomics_prefix => try emit.emitAtomic(inst),
-        }
-    }
-}
-
-fn offset(self: Emit) u32 {
-    return @as(u32, @intCast(self.code.items.len));
-}
-
-fn fail(emit: *Emit, comptime format: []const u8, args: anytype) InnerError {
-    @branchHint(.cold);
-    std.debug.assert(emit.error_msg == null);
-    const wasm = emit.bin_file;
-    const comp = wasm.base.comp;
-    const zcu = comp.zcu.?;
-    const gpa = comp.gpa;
-    emit.error_msg = try Zcu.ErrorMsg.create(gpa, zcu.navSrcLoc(emit.owner_nav), format, args);
-    return error.EmitFail;
-}
-
-fn emitLocals(emit: *Emit) !void {
-    const writer = emit.code.writer();
-    try leb128.writeUleb128(writer, @as(u32, @intCast(emit.locals.len)));
-    // emit the actual locals amount
-    for (emit.locals) |local| {
-        try leb128.writeUleb128(writer, @as(u32, 1));
-        try writer.writeByte(local);
-    }
-}
-
-fn emitTag(emit: *Emit, tag: Mir.Inst.Tag) !void {
-    try emit.code.append(@intFromEnum(tag));
-}
-
-fn emitBlock(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) !void {
-    const block_type = emit.mir.instructions.items(.data)[inst].block_type;
-    try emit.code.append(@intFromEnum(tag));
-    try emit.code.append(block_type);
-}
-
-fn emitBrTable(emit: *Emit, inst: Mir.Inst.Index) !void {
-    const extra_index = emit.mir.instructions.items(.data)[inst].payload;
-    const extra = emit.mir.extraData(Mir.JumpTable, extra_index);
-    const labels = emit.mir.extra[extra.end..][0..extra.data.length];
-    const writer = emit.code.writer();
-
-    try emit.code.append(@intFromEnum(std.wasm.Opcode.br_table));
-    try leb128.writeUleb128(writer, extra.data.length - 1); // Default label is not part of length/depth
-    for (labels) |label| {
-        try leb128.writeUleb128(writer, label);
-    }
-}
-
-fn emitLabel(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) !void {
-    const label = emit.mir.instructions.items(.data)[inst].label;
-    try emit.code.append(@intFromEnum(tag));
-    try leb128.writeUleb128(emit.code.writer(), label);
-}
-
-fn emitGlobal(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) !void {
-    const wasm = emit.bin_file;
+pub fn lowerToCode(emit: *Emit) Error!void {
+    const mir = &emit.mir;
+    const code = emit.code;
+    const wasm = emit.wasm;
     const comp = wasm.base.comp;
     const gpa = comp.gpa;
-    const label = emit.mir.instructions.items(.data)[inst].label;
-    try emit.code.append(@intFromEnum(tag));
-    var buf: [5]u8 = undefined;
-    leb128.writeUnsignedFixed(5, &buf, label);
-    const global_offset = emit.offset();
-    try emit.code.appendSlice(&buf);
+    const is_obj = comp.config.output_mode == .Obj;
 
-    const zo = wasm.zig_object.?;
-    try zo.relocs.append(gpa, .{
-        .nav_index = emit.nav_index,
-        .index = label,
-        .offset = global_offset,
-        .tag = .GLOBAL_INDEX_LEB,
-    });
+    const tags = mir.instructions.items(.tag);
+    const datas = mir.instructions.items(.data);
+    var inst: u32 = 0;
+
+    loop: switch (tags[inst]) {
+        .block, .loop => {
+            const block_type = datas[inst].block_type;
+            try code.ensureUnusedCapacity(gpa, 2);
+            code.appendAssumeCapacity(@intFromEnum(tags[inst]));
+            code.appendAssumeCapacity(block_type);
+
+            inst += 1;
+            continue :loop tags[inst];
+        },
+
+        .uav_ref => {
+            try uavRefOff(wasm, code, .{ .ip_index = datas[inst].ip_index, .offset = 0 });
+
+            inst += 1;
+            continue :loop tags[inst];
+        },
+        .uav_ref_off => {
+            try uavRefOff(wasm, code, mir.extraData(Mir.UavRefOff, datas[inst].payload).data);
+
+            inst += 1;
+            continue :loop tags[inst];
+        },
+
+        .dbg_line => {
+            inst += 1;
+            continue :loop tags[inst];
+        },
+        .dbg_epilogue_begin => {
+            return;
+        },
+
+        .br_if, .br, .memory_grow, .memory_size => {
+            try code.ensureUnusedCapacity(gpa, 11);
+            code.appendAssumeCapacity(@intFromEnum(tags[inst]));
+            leb.writeUleb128(code.fixedWriter(), datas[inst].label) catch unreachable;
+
+            inst += 1;
+            continue :loop tags[inst];
+        },
+
+        .local_get, .local_set, .local_tee => {
+            try code.ensureUnusedCapacity(gpa, 11);
+            code.appendAssumeCapacity(@intFromEnum(tags[inst]));
+            leb.writeUleb128(code.fixedWriter(), datas[inst].local) catch unreachable;
+
+            inst += 1;
+            continue :loop tags[inst];
+        },
+
+        .br_table => {
+            const extra_index = mir.instructions.items(.data)[inst].payload;
+            const extra = mir.extraData(Mir.JumpTable, extra_index);
+            const labels = mir.extra[extra.end..][0..extra.data.length];
+            try code.ensureUnusedCapacity(gpa, 11 + 10 * labels.len);
+            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.br_table));
+            // -1 because default label is not part of length/depth.
+            leb.writeUleb128(code.fixedWriter(), extra.data.length - 1) catch unreachable;
+            for (labels) |label| leb.writeUleb128(code.fixedWriter(), label) catch unreachable;
+
+            inst += 1;
+            continue :loop tags[inst];
+        },
+
+        .call_nav => {
+            try code.ensureUnusedCapacity(gpa, 6);
+            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.call));
+            if (is_obj) {
+                try wasm.out_relocs.append(gpa, .{
+                    .offset = @intCast(code.items.len),
+                    .index = try wasm.navSymbolIndex(datas[inst].nav_index),
+                    .tag = .FUNCTION_INDEX_LEB,
+                    .addend = 0,
+                });
+                code.appendNTimesAssumeCapacity(0, 5);
+            } else {
+                const func_index = try wasm.navFunctionIndex(datas[inst].nav_index);
+                leb.writeUleb128(code.fixedWriter(), @intFromEnum(func_index)) catch unreachable;
+            }
+
+            inst += 1;
+            continue :loop tags[inst];
+        },
+
+        .call_indirect => {
+            try code.ensureUnusedCapacity(gpa, 11);
+            const func_ty_index = datas[inst].func_ty;
+            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.call_indirect));
+            if (is_obj) {
+                try wasm.out_relocs.append(gpa, .{
+                    .offset = @intCast(code.items.len),
+                    .index = func_ty_index,
+                    .tag = .TYPE_INDEX_LEB,
+                    .addend = 0,
+                });
+                code.appendNTimesAssumeCapacity(0, 5);
+            } else {
+                leb.writeUleb128(code.fixedWriter(), @intFromEnum(func_ty_index)) catch unreachable;
+            }
+            leb.writeUleb128(code.fixedWriter(), @as(u32, 0)) catch unreachable; // table index
+
+            inst += 1;
+            continue :loop tags[inst];
+        },
+
+        .global_set => {
+            try code.ensureUnusedCapacity(gpa, 6);
+            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.global_set));
+            if (is_obj) {
+                try wasm.out_relocs.append(gpa, .{
+                    .offset = @intCast(code.items.len),
+                    .index = try wasm.stackPointerSymbolIndex(),
+                    .tag = .GLOBAL_INDEX_LEB,
+                    .addend = 0,
+                });
+                code.appendNTimesAssumeCapacity(0, 5);
+            } else {
+                const sp_global = try wasm.stackPointerGlobalIndex();
+                std.leb.writeULEB128(code.fixedWriter(), @intFromEnum(sp_global)) catch unreachable;
+            }
+
+            inst += 1;
+            continue :loop tags[inst];
+        },
+
+        .function_index => {
+            try code.ensureUnusedCapacity(gpa, 6);
+            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.i32_const));
+            if (is_obj) {
+                try wasm.out_relocs.append(gpa, .{
+                    .offset = @intCast(code.items.len),
+                    .index = try wasm.functionSymbolIndex(datas[inst].ip_index),
+                    .tag = .TABLE_INDEX_SLEB,
+                    .addend = 0,
+                });
+                code.appendNTimesAssumeCapacity(0, 5);
+            } else {
+                const func_index = try wasm.functionIndex(datas[inst].ip_index);
+                std.leb.writeULEB128(code.fixedWriter(), @intFromEnum(func_index)) catch unreachable;
+            }
+
+            inst += 1;
+            continue :loop tags[inst];
+        },
+
+        .f32_const => {
+            try code.ensureUnusedCapacity(gpa, 5);
+            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.f32_const));
+            std.mem.writeInt(u32, code.addManyAsArrayAssumeCapacity(4), @bitCast(datas[inst].float32), .little);
+
+            inst += 1;
+            continue :loop tags[inst];
+        },
+
+        .f64_const => {
+            try code.ensureUnusedCapacity(gpa, 9);
+            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.f64_const));
+            const float64 = mir.extraData(Mir.Float64, datas[inst].payload).data;
+            std.mem.writeInt(u64, code.addManyAsArrayAssumeCapacity(8), float64.toInt(), .little);
+
+            inst += 1;
+            continue :loop tags[inst];
+        },
+        .i32_const => {
+            try code.ensureUnusedCapacity(gpa, 6);
+            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.i32_const));
+            leb.writeIleb128(code.fixedWriter(), datas[inst].imm32) catch unreachable;
+
+            inst += 1;
+            continue :loop tags[inst];
+        },
+        .i64_const => {
+            try code.ensureUnusedCapacity(gpa, 11);
+            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.i64_const));
+            const int64: i64 = @bitCast(mir.extraData(Mir.Imm64, datas[inst].payload).data.toInt());
+            leb.writeIleb128(code.writer(), int64) catch unreachable;
+
+            inst += 1;
+            continue :loop tags[inst];
+        },
+
+        .i32_load,
+        .i64_load,
+        .f32_load,
+        .f64_load,
+        .i32_load8_s,
+        .i32_load8_u,
+        .i32_load16_s,
+        .i32_load16_u,
+        .i64_load8_s,
+        .i64_load8_u,
+        .i64_load16_s,
+        .i64_load16_u,
+        .i64_load32_s,
+        .i64_load32_u,
+        .i32_store,
+        .i64_store,
+        .f32_store,
+        .f64_store,
+        .i32_store8,
+        .i32_store16,
+        .i64_store8,
+        .i64_store16,
+        .i64_store32,
+        => {
+            try code.ensureUnusedCapacity(gpa, 1 + 20);
+            code.appendAssumeCapacity(@intFromEnum(tags[inst]));
+            encodeMemArg(code, mir.extraData(Mir.MemArg, datas[inst]).data);
+            inst += 1;
+            continue :loop tags[inst];
+        },
+
+        .end,
+        .@"return",
+        .@"unreachable",
+        .select,
+        .i32_eqz,
+        .i32_eq,
+        .i32_ne,
+        .i32_lt_s,
+        .i32_lt_u,
+        .i32_gt_s,
+        .i32_gt_u,
+        .i32_le_s,
+        .i32_le_u,
+        .i32_ge_s,
+        .i32_ge_u,
+        .i64_eqz,
+        .i64_eq,
+        .i64_ne,
+        .i64_lt_s,
+        .i64_lt_u,
+        .i64_gt_s,
+        .i64_gt_u,
+        .i64_le_s,
+        .i64_le_u,
+        .i64_ge_s,
+        .i64_ge_u,
+        .f32_eq,
+        .f32_ne,
+        .f32_lt,
+        .f32_gt,
+        .f32_le,
+        .f32_ge,
+        .f64_eq,
+        .f64_ne,
+        .f64_lt,
+        .f64_gt,
+        .f64_le,
+        .f64_ge,
+        .i32_add,
+        .i32_sub,
+        .i32_mul,
+        .i32_div_s,
+        .i32_div_u,
+        .i32_and,
+        .i32_or,
+        .i32_xor,
+        .i32_shl,
+        .i32_shr_s,
+        .i32_shr_u,
+        .i64_add,
+        .i64_sub,
+        .i64_mul,
+        .i64_div_s,
+        .i64_div_u,
+        .i64_and,
+        .i64_or,
+        .i64_xor,
+        .i64_shl,
+        .i64_shr_s,
+        .i64_shr_u,
+        .f32_abs,
+        .f32_neg,
+        .f32_ceil,
+        .f32_floor,
+        .f32_trunc,
+        .f32_nearest,
+        .f32_sqrt,
+        .f32_add,
+        .f32_sub,
+        .f32_mul,
+        .f32_div,
+        .f32_min,
+        .f32_max,
+        .f32_copysign,
+        .f64_abs,
+        .f64_neg,
+        .f64_ceil,
+        .f64_floor,
+        .f64_trunc,
+        .f64_nearest,
+        .f64_sqrt,
+        .f64_add,
+        .f64_sub,
+        .f64_mul,
+        .f64_div,
+        .f64_min,
+        .f64_max,
+        .f64_copysign,
+        .i32_wrap_i64,
+        .i64_extend_i32_s,
+        .i64_extend_i32_u,
+        .i32_extend8_s,
+        .i32_extend16_s,
+        .i64_extend8_s,
+        .i64_extend16_s,
+        .i64_extend32_s,
+        .f32_demote_f64,
+        .f64_promote_f32,
+        .i32_reinterpret_f32,
+        .i64_reinterpret_f64,
+        .f32_reinterpret_i32,
+        .f64_reinterpret_i64,
+        .i32_trunc_f32_s,
+        .i32_trunc_f32_u,
+        .i32_trunc_f64_s,
+        .i32_trunc_f64_u,
+        .i64_trunc_f32_s,
+        .i64_trunc_f32_u,
+        .i64_trunc_f64_s,
+        .i64_trunc_f64_u,
+        .f32_convert_i32_s,
+        .f32_convert_i32_u,
+        .f32_convert_i64_s,
+        .f32_convert_i64_u,
+        .f64_convert_i32_s,
+        .f64_convert_i32_u,
+        .f64_convert_i64_s,
+        .f64_convert_i64_u,
+        .i32_rem_s,
+        .i32_rem_u,
+        .i64_rem_s,
+        .i64_rem_u,
+        .i32_popcnt,
+        .i64_popcnt,
+        .i32_clz,
+        .i32_ctz,
+        .i64_clz,
+        .i64_ctz,
+        => {
+            try code.append(gpa, @intFromEnum(tags[inst]));
+            inst += 1;
+            continue :loop tags[inst];
+        },
+
+        .misc_prefix => {
+            try code.ensureUnusedCapacity(gpa, 6 + 6);
+            const extra_index = datas[inst].payload;
+            const opcode = mir.extra[extra_index];
+            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.misc_prefix));
+            leb.writeUleb128(code.fixedWriter(), opcode) catch unreachable;
+            switch (@as(std.wasm.MiscOpcode, @enumFromInt(opcode))) {
+                // bulk-memory opcodes
+                .data_drop => {
+                    const segment = mir.extra[extra_index + 1];
+                    leb.writeUleb128(code.fixedWriter(), segment) catch unreachable;
+
+                    inst += 1;
+                    continue :loop tags[inst];
+                },
+                .memory_init => {
+                    const segment = mir.extra[extra_index + 1];
+                    leb.writeUleb128(code.fixedWriter(), segment) catch unreachable;
+                    leb.writeUleb128(code.fixedWriter(), @as(u32, 0)) catch unreachable; // memory index
+
+                    inst += 1;
+                    continue :loop tags[inst];
+                },
+                .memory_fill => {
+                    leb.writeUleb128(code.fixedWriter(), @as(u32, 0)) catch unreachable; // memory index
+
+                    inst += 1;
+                    continue :loop tags[inst];
+                },
+                .memory_copy => {
+                    leb.writeUleb128(code.fixedWriter(), @as(u32, 0)) catch unreachable; // dst memory index
+                    leb.writeUleb128(code.fixedWriter(), @as(u32, 0)) catch unreachable; // src memory index
+
+                    inst += 1;
+                    continue :loop tags[inst];
+                },
+
+                // nontrapping-float-to-int-conversion opcodes
+                .i32_trunc_sat_f32_s,
+                .i32_trunc_sat_f32_u,
+                .i32_trunc_sat_f64_s,
+                .i32_trunc_sat_f64_u,
+                .i64_trunc_sat_f32_s,
+                .i64_trunc_sat_f32_u,
+                .i64_trunc_sat_f64_s,
+                .i64_trunc_sat_f64_u,
+                => {
+                    inst += 1;
+                    continue :loop tags[inst];
+                },
+
+                _ => unreachable,
+            }
+            unreachable;
+        },
+        .simd_prefix => {
+            try code.ensureUnusedCapacity(gpa, 6 + 20);
+            const extra_index = mir.instructions.items(.data)[inst].payload;
+            const opcode = mir.extra[extra_index];
+            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.simd_prefix));
+            leb.writeUleb128(code.fixedWriter(), opcode) catch unreachable;
+            switch (@as(std.wasm.SimdOpcode, @enumFromInt(opcode))) {
+                .v128_store,
+                .v128_load,
+                .v128_load8_splat,
+                .v128_load16_splat,
+                .v128_load32_splat,
+                .v128_load64_splat,
+                => {
+                    encodeMemArg(code, mir.extraData(Mir.MemArg, extra_index + 1).data);
+                    inst += 1;
+                    continue :loop tags[inst];
+                },
+                .v128_const, .i8x16_shuffle => {
+                    code.appendSliceAssumeCapacity(std.mem.asBytes(mir.extra[extra_index + 1 ..][0..4]));
+                    inst += 1;
+                    continue :loop tags[inst];
+                },
+                .i8x16_extract_lane_s,
+                .i8x16_extract_lane_u,
+                .i8x16_replace_lane,
+                .i16x8_extract_lane_s,
+                .i16x8_extract_lane_u,
+                .i16x8_replace_lane,
+                .i32x4_extract_lane,
+                .i32x4_replace_lane,
+                .i64x2_extract_lane,
+                .i64x2_replace_lane,
+                .f32x4_extract_lane,
+                .f32x4_replace_lane,
+                .f64x2_extract_lane,
+                .f64x2_replace_lane,
+                => {
+                    code.appendAssumeCapacity(@intCast(mir.extra[extra_index + 1]));
+                    inst += 1;
+                    continue :loop tags[inst];
+                },
+                .i8x16_splat,
+                .i16x8_splat,
+                .i32x4_splat,
+                .i64x2_splat,
+                .f32x4_splat,
+                .f64x2_splat,
+                => {
+                    inst += 1;
+                    continue :loop tags[inst];
+                },
+                _ => unreachable,
+            }
+            unreachable;
+        },
+        .atomics_prefix => {
+            try code.ensureUnusedCapacity(gpa, 6 + 20);
+
+            const extra_index = mir.instructions.items(.data)[inst].payload;
+            const opcode = mir.extra[extra_index];
+            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.atomics_prefix));
+            leb.writeUleb128(code.fixedWriter(), opcode) catch unreachable;
+            switch (@as(std.wasm.AtomicsOpcode, @enumFromInt(opcode))) {
+                .i32_atomic_load,
+                .i64_atomic_load,
+                .i32_atomic_load8_u,
+                .i32_atomic_load16_u,
+                .i64_atomic_load8_u,
+                .i64_atomic_load16_u,
+                .i64_atomic_load32_u,
+                .i32_atomic_store,
+                .i64_atomic_store,
+                .i32_atomic_store8,
+                .i32_atomic_store16,
+                .i64_atomic_store8,
+                .i64_atomic_store16,
+                .i64_atomic_store32,
+                .i32_atomic_rmw_add,
+                .i64_atomic_rmw_add,
+                .i32_atomic_rmw8_add_u,
+                .i32_atomic_rmw16_add_u,
+                .i64_atomic_rmw8_add_u,
+                .i64_atomic_rmw16_add_u,
+                .i64_atomic_rmw32_add_u,
+                .i32_atomic_rmw_sub,
+                .i64_atomic_rmw_sub,
+                .i32_atomic_rmw8_sub_u,
+                .i32_atomic_rmw16_sub_u,
+                .i64_atomic_rmw8_sub_u,
+                .i64_atomic_rmw16_sub_u,
+                .i64_atomic_rmw32_sub_u,
+                .i32_atomic_rmw_and,
+                .i64_atomic_rmw_and,
+                .i32_atomic_rmw8_and_u,
+                .i32_atomic_rmw16_and_u,
+                .i64_atomic_rmw8_and_u,
+                .i64_atomic_rmw16_and_u,
+                .i64_atomic_rmw32_and_u,
+                .i32_atomic_rmw_or,
+                .i64_atomic_rmw_or,
+                .i32_atomic_rmw8_or_u,
+                .i32_atomic_rmw16_or_u,
+                .i64_atomic_rmw8_or_u,
+                .i64_atomic_rmw16_or_u,
+                .i64_atomic_rmw32_or_u,
+                .i32_atomic_rmw_xor,
+                .i64_atomic_rmw_xor,
+                .i32_atomic_rmw8_xor_u,
+                .i32_atomic_rmw16_xor_u,
+                .i64_atomic_rmw8_xor_u,
+                .i64_atomic_rmw16_xor_u,
+                .i64_atomic_rmw32_xor_u,
+                .i32_atomic_rmw_xchg,
+                .i64_atomic_rmw_xchg,
+                .i32_atomic_rmw8_xchg_u,
+                .i32_atomic_rmw16_xchg_u,
+                .i64_atomic_rmw8_xchg_u,
+                .i64_atomic_rmw16_xchg_u,
+                .i64_atomic_rmw32_xchg_u,
+
+                .i32_atomic_rmw_cmpxchg,
+                .i64_atomic_rmw_cmpxchg,
+                .i32_atomic_rmw8_cmpxchg_u,
+                .i32_atomic_rmw16_cmpxchg_u,
+                .i64_atomic_rmw8_cmpxchg_u,
+                .i64_atomic_rmw16_cmpxchg_u,
+                .i64_atomic_rmw32_cmpxchg_u,
+                => {
+                    const mem_arg = mir.extraData(Mir.MemArg, extra_index + 1).data;
+                    encodeMemArg(code, mem_arg);
+                    inst += 1;
+                    continue :loop tags[inst];
+                },
+                .atomic_fence => {
+                    // Hard-codes memory index 0 since multi-memory proposal is
+                    // not yet accepted nor implemented.
+                    const memory_index: u32 = 0;
+                    leb.writeUleb128(code.fixedWriter(), memory_index) catch unreachable;
+                    inst += 1;
+                    continue :loop tags[inst];
+                },
+            }
+            unreachable;
+        },
+    }
+    unreachable;
 }
 
-fn emitImm32(emit: *Emit, inst: Mir.Inst.Index) !void {
-    const value: i32 = emit.mir.instructions.items(.data)[inst].imm32;
-    try emit.code.append(@intFromEnum(std.wasm.Opcode.i32_const));
-    try leb128.writeIleb128(emit.code.writer(), value);
-}
-
-fn emitImm64(emit: *Emit, inst: Mir.Inst.Index) !void {
-    const extra_index = emit.mir.instructions.items(.data)[inst].payload;
-    const value = emit.mir.extraData(Mir.Imm64, extra_index);
-    try emit.code.append(@intFromEnum(std.wasm.Opcode.i64_const));
-    try leb128.writeIleb128(emit.code.writer(), @as(i64, @bitCast(value.data.toU64())));
-}
-
-fn emitFloat32(emit: *Emit, inst: Mir.Inst.Index) !void {
-    const value: f32 = emit.mir.instructions.items(.data)[inst].float32;
-    try emit.code.append(@intFromEnum(std.wasm.Opcode.f32_const));
-    try emit.code.writer().writeInt(u32, @bitCast(value), .little);
-}
-
-fn emitFloat64(emit: *Emit, inst: Mir.Inst.Index) !void {
-    const extra_index = emit.mir.instructions.items(.data)[inst].payload;
-    const value = emit.mir.extraData(Mir.Float64, extra_index);
-    try emit.code.append(@intFromEnum(std.wasm.Opcode.f64_const));
-    try emit.code.writer().writeInt(u64, value.data.toU64(), .little);
-}
-
-fn emitMemArg(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) !void {
-    const extra_index = emit.mir.instructions.items(.data)[inst].payload;
-    const mem_arg = emit.mir.extraData(Mir.MemArg, extra_index).data;
-    try emit.code.append(@intFromEnum(tag));
-    try encodeMemArg(mem_arg, emit.code.writer());
-}
-
-fn encodeMemArg(mem_arg: Mir.MemArg, writer: anytype) !void {
-    // wasm encodes alignment as power of 2, rather than natural alignment
+/// Assert 20 unused capacity.
+fn encodeMemArg(code: *std.ArrayListUnmanaged(u8), mem_arg: Mir.MemArg) void {
+    assert(code.unusedCapacitySlice().len >= 20);
+    // Wasm encodes alignment as power of 2, rather than natural alignment.
     const encoded_alignment = @ctz(mem_arg.alignment);
-    try leb128.writeUleb128(writer, encoded_alignment);
-    try leb128.writeUleb128(writer, mem_arg.offset);
+    leb.writeUleb128(code.fixedWriter(), encoded_alignment) catch unreachable;
+    leb.writeUleb128(code.fixedWriter(), mem_arg.offset) catch unreachable;
 }
 
-fn emitCall(emit: *Emit, inst: Mir.Inst.Index) !void {
-    const wasm = emit.bin_file;
-    const comp = wasm.base.comp;
-    const gpa = comp.gpa;
-    const label = emit.mir.instructions.items(.data)[inst].label;
-    try emit.code.append(@intFromEnum(std.wasm.Opcode.call));
-    const call_offset = emit.offset();
-    var buf: [5]u8 = undefined;
-    leb128.writeUnsignedFixed(5, &buf, label);
-    try emit.code.appendSlice(&buf);
-
-    const zo = wasm.zig_object.?;
-    try zo.relocs.append(gpa, .{
-        .offset = call_offset,
-        .index = label,
-        .tag = .FUNCTION_INDEX_LEB,
-    });
-}
-
-fn emitCallIndirect(emit: *Emit, inst: Mir.Inst.Index) !void {
-    const wasm = emit.bin_file;
-    const type_index = emit.mir.instructions.items(.data)[inst].label;
-    try emit.code.append(@intFromEnum(std.wasm.Opcode.call_indirect));
-    // NOTE: If we remove unused function types in the future for incremental
-    // linking, we must also emit a relocation for this `type_index`
-    const call_offset = emit.offset();
-    var buf: [5]u8 = undefined;
-    leb128.writeUnsignedFixed(5, &buf, type_index);
-    try emit.code.appendSlice(&buf);
-
-    const zo = wasm.zig_object.?;
-    try zo.relocs.append(wasm.base.comp.gpa, .{
-        .offset = call_offset,
-        .index = type_index,
-        .tag = .TYPE_INDEX_LEB,
-    });
-
-    try leb128.writeUleb128(emit.code.writer(), @as(u32, 0)); // TODO: Emit relocation for table index
-}
-
-fn emitFunctionIndex(emit: *Emit, inst: Mir.Inst.Index) !void {
-    const wasm = emit.bin_file;
-    const comp = wasm.base.comp;
-    const gpa = comp.gpa;
-    const symbol_index = emit.mir.instructions.items(.data)[inst].label;
-    try emit.code.append(@intFromEnum(std.wasm.Opcode.i32_const));
-    const index_offset = emit.offset();
-    var buf: [5]u8 = undefined;
-    leb128.writeUnsignedFixed(5, &buf, symbol_index);
-    try emit.code.appendSlice(&buf);
-
-    const zo = wasm.zig_object.?;
-    try zo.relocs.append(gpa, .{
-        .offset = index_offset,
-        .index = symbol_index,
-        .tag = .TABLE_INDEX_SLEB,
-    });
-}
-
-fn emitMemAddress(emit: *Emit, inst: Mir.Inst.Index) !void {
-    const wasm = emit.bin_file;
-    const extra_index = emit.mir.instructions.items(.data)[inst].payload;
-    const mem = emit.mir.extraData(Mir.Memory, extra_index).data;
-    const mem_offset = emit.offset() + 1;
+fn uavRefOff(wasm: *link.File.Wasm, code: *std.ArrayListUnmanaged(u8), data: Mir.UavRefOff) !void {
     const comp = wasm.base.comp;
     const gpa = comp.gpa;
     const target = comp.root_mod.resolved_target.result;
     const is_wasm32 = target.cpu.arch == .wasm32;
-    if (is_wasm32) {
-        try emit.code.append(@intFromEnum(std.wasm.Opcode.i32_const));
-        var buf: [5]u8 = undefined;
-        leb128.writeUnsignedFixed(5, &buf, mem.pointer);
-        try emit.code.appendSlice(&buf);
-    } else {
-        try emit.code.append(@intFromEnum(std.wasm.Opcode.i64_const));
-        var buf: [10]u8 = undefined;
-        leb128.writeUnsignedFixed(10, &buf, mem.pointer);
-        try emit.code.appendSlice(&buf);
+    const is_obj = comp.config.output_mode == .Obj;
+    const opcode: std.wasm.Opcode = if (is_wasm32) .i32_const else .i64_const;
+
+    try code.ensureUnusedCapacity(gpa, 11);
+    code.appendAssumeCapacity(@intFromEnum(opcode));
+
+    // If outputting an object file, this needs to be a relocation, since global
+    // constant data may be mixed with other object files in the final link.
+    if (is_obj) {
+        try wasm.out_relocs.append(gpa, .{
+            .offset = @intCast(code.items.len),
+            .index = try wasm.uavSymbolIndex(data.ip_index),
+            .tag = if (is_wasm32) .MEMORY_ADDR_LEB else .MEMORY_ADDR_LEB64,
+            .addend = data.offset,
+        });
+        code.appendNTimesAssumeCapacity(0, if (is_wasm32) 5 else 10);
+        return;
     }
 
-    const zo = wasm.zig_object.?;
-    try zo.relocs.append(gpa, .{
-        .offset = mem_offset,
-        .index = mem.pointer,
-        .tag = if (is_wasm32) .MEMORY_ADDR_LEB else .MEMORY_ADDR_LEB64,
-        .addend = @as(i32, @intCast(mem.offset)),
-    });
-}
-
-fn emitExtended(emit: *Emit, inst: Mir.Inst.Index) !void {
-    const extra_index = emit.mir.instructions.items(.data)[inst].payload;
-    const opcode = emit.mir.extra[extra_index];
-    const writer = emit.code.writer();
-    try emit.code.append(@intFromEnum(std.wasm.Opcode.misc_prefix));
-    try leb128.writeUleb128(writer, opcode);
-    switch (@as(std.wasm.MiscOpcode, @enumFromInt(opcode))) {
-        // bulk-memory opcodes
-        .data_drop => {
-            const segment = emit.mir.extra[extra_index + 1];
-            try leb128.writeUleb128(writer, segment);
-        },
-        .memory_init => {
-            const segment = emit.mir.extra[extra_index + 1];
-            try leb128.writeUleb128(writer, segment);
-            try leb128.writeUleb128(writer, @as(u32, 0)); // memory index
-        },
-        .memory_fill => {
-            try leb128.writeUleb128(writer, @as(u32, 0)); // memory index
-        },
-        .memory_copy => {
-            try leb128.writeUleb128(writer, @as(u32, 0)); // dst memory index
-            try leb128.writeUleb128(writer, @as(u32, 0)); // src memory index
-        },
-
-        // nontrapping-float-to-int-conversion opcodes
-        .i32_trunc_sat_f32_s,
-        .i32_trunc_sat_f32_u,
-        .i32_trunc_sat_f64_s,
-        .i32_trunc_sat_f64_u,
-        .i64_trunc_sat_f32_s,
-        .i64_trunc_sat_f32_u,
-        .i64_trunc_sat_f64_s,
-        .i64_trunc_sat_f64_u,
-        => {}, // opcode already written
-        else => |tag| return emit.fail("TODO: Implement extension instruction: {s}\n", .{@tagName(tag)}),
-    }
-}
-
-fn emitSimd(emit: *Emit, inst: Mir.Inst.Index) !void {
-    const extra_index = emit.mir.instructions.items(.data)[inst].payload;
-    const opcode = emit.mir.extra[extra_index];
-    const writer = emit.code.writer();
-    try emit.code.append(@intFromEnum(std.wasm.Opcode.simd_prefix));
-    try leb128.writeUleb128(writer, opcode);
-    switch (@as(std.wasm.SimdOpcode, @enumFromInt(opcode))) {
-        .v128_store,
-        .v128_load,
-        .v128_load8_splat,
-        .v128_load16_splat,
-        .v128_load32_splat,
-        .v128_load64_splat,
-        => {
-            const mem_arg = emit.mir.extraData(Mir.MemArg, extra_index + 1).data;
-            try encodeMemArg(mem_arg, writer);
-        },
-        .v128_const,
-        .i8x16_shuffle,
-        => {
-            const simd_value = emit.mir.extra[extra_index + 1 ..][0..4];
-            try writer.writeAll(std.mem.asBytes(simd_value));
-        },
-        .i8x16_extract_lane_s,
-        .i8x16_extract_lane_u,
-        .i8x16_replace_lane,
-        .i16x8_extract_lane_s,
-        .i16x8_extract_lane_u,
-        .i16x8_replace_lane,
-        .i32x4_extract_lane,
-        .i32x4_replace_lane,
-        .i64x2_extract_lane,
-        .i64x2_replace_lane,
-        .f32x4_extract_lane,
-        .f32x4_replace_lane,
-        .f64x2_extract_lane,
-        .f64x2_replace_lane,
-        => {
-            try writer.writeByte(@as(u8, @intCast(emit.mir.extra[extra_index + 1])));
-        },
-        .i8x16_splat,
-        .i16x8_splat,
-        .i32x4_splat,
-        .i64x2_splat,
-        .f32x4_splat,
-        .f64x2_splat,
-        => {}, // opcode already written
-        else => |tag| return emit.fail("TODO: Implement simd instruction: {s}", .{@tagName(tag)}),
-    }
-}
-
-fn emitAtomic(emit: *Emit, inst: Mir.Inst.Index) !void {
-    const extra_index = emit.mir.instructions.items(.data)[inst].payload;
-    const opcode = emit.mir.extra[extra_index];
-    const writer = emit.code.writer();
-    try emit.code.append(@intFromEnum(std.wasm.Opcode.atomics_prefix));
-    try leb128.writeUleb128(writer, opcode);
-    switch (@as(std.wasm.AtomicsOpcode, @enumFromInt(opcode))) {
-        .i32_atomic_load,
-        .i64_atomic_load,
-        .i32_atomic_load8_u,
-        .i32_atomic_load16_u,
-        .i64_atomic_load8_u,
-        .i64_atomic_load16_u,
-        .i64_atomic_load32_u,
-        .i32_atomic_store,
-        .i64_atomic_store,
-        .i32_atomic_store8,
-        .i32_atomic_store16,
-        .i64_atomic_store8,
-        .i64_atomic_store16,
-        .i64_atomic_store32,
-        .i32_atomic_rmw_add,
-        .i64_atomic_rmw_add,
-        .i32_atomic_rmw8_add_u,
-        .i32_atomic_rmw16_add_u,
-        .i64_atomic_rmw8_add_u,
-        .i64_atomic_rmw16_add_u,
-        .i64_atomic_rmw32_add_u,
-        .i32_atomic_rmw_sub,
-        .i64_atomic_rmw_sub,
-        .i32_atomic_rmw8_sub_u,
-        .i32_atomic_rmw16_sub_u,
-        .i64_atomic_rmw8_sub_u,
-        .i64_atomic_rmw16_sub_u,
-        .i64_atomic_rmw32_sub_u,
-        .i32_atomic_rmw_and,
-        .i64_atomic_rmw_and,
-        .i32_atomic_rmw8_and_u,
-        .i32_atomic_rmw16_and_u,
-        .i64_atomic_rmw8_and_u,
-        .i64_atomic_rmw16_and_u,
-        .i64_atomic_rmw32_and_u,
-        .i32_atomic_rmw_or,
-        .i64_atomic_rmw_or,
-        .i32_atomic_rmw8_or_u,
-        .i32_atomic_rmw16_or_u,
-        .i64_atomic_rmw8_or_u,
-        .i64_atomic_rmw16_or_u,
-        .i64_atomic_rmw32_or_u,
-        .i32_atomic_rmw_xor,
-        .i64_atomic_rmw_xor,
-        .i32_atomic_rmw8_xor_u,
-        .i32_atomic_rmw16_xor_u,
-        .i64_atomic_rmw8_xor_u,
-        .i64_atomic_rmw16_xor_u,
-        .i64_atomic_rmw32_xor_u,
-        .i32_atomic_rmw_xchg,
-        .i64_atomic_rmw_xchg,
-        .i32_atomic_rmw8_xchg_u,
-        .i32_atomic_rmw16_xchg_u,
-        .i64_atomic_rmw8_xchg_u,
-        .i64_atomic_rmw16_xchg_u,
-        .i64_atomic_rmw32_xchg_u,
-
-        .i32_atomic_rmw_cmpxchg,
-        .i64_atomic_rmw_cmpxchg,
-        .i32_atomic_rmw8_cmpxchg_u,
-        .i32_atomic_rmw16_cmpxchg_u,
-        .i64_atomic_rmw8_cmpxchg_u,
-        .i64_atomic_rmw16_cmpxchg_u,
-        .i64_atomic_rmw32_cmpxchg_u,
-        => {
-            const mem_arg = emit.mir.extraData(Mir.MemArg, extra_index + 1).data;
-            try encodeMemArg(mem_arg, writer);
-        },
-        .atomic_fence => {
-            // TODO: When multi-memory proposal is accepted and implemented in the compiler,
-            // change this to (user-)specified index, rather than hardcode it to memory index 0.
-            const memory_index: u32 = 0;
-            try leb128.writeUleb128(writer, memory_index);
-        },
-        else => |tag| return emit.fail("TODO: Implement atomic instruction: {s}", .{@tagName(tag)}),
-    }
-}
-
-fn emitMemFill(emit: *Emit) !void {
-    try emit.code.append(0xFC);
-    try emit.code.append(0x0B);
-    // When multi-memory proposal reaches phase 4, we
-    // can emit a different memory index here.
-    // For now we will always emit index 0.
-    try leb128.writeUleb128(emit.code.writer(), @as(u32, 0));
-}
-
-fn emitDbgLine(emit: *Emit, inst: Mir.Inst.Index) !void {
-    const extra_index = emit.mir.instructions.items(.data)[inst].payload;
-    const dbg_line = emit.mir.extraData(Mir.DbgLineColumn, extra_index).data;
-    try emit.dbgAdvancePCAndLine(dbg_line.line, dbg_line.column);
-}
-
-fn dbgAdvancePCAndLine(emit: *Emit, line: u32, column: u32) !void {
-    if (emit.dbg_output != .dwarf) return;
-
-    const delta_line = @as(i32, @intCast(line)) - @as(i32, @intCast(emit.prev_di_line));
-    const delta_pc = emit.offset() - emit.prev_di_offset;
-    // TODO: This must emit a relocation to calculate the offset relative
-    // to the code section start.
-    try emit.dbg_output.dwarf.advancePCAndLine(delta_line, delta_pc);
-
-    emit.prev_di_line = line;
-    emit.prev_di_column = column;
-    emit.prev_di_offset = emit.offset();
-}
-
-fn emitDbgPrologueEnd(emit: *Emit) !void {
-    if (emit.dbg_output != .dwarf) return;
-
-    try emit.dbg_output.dwarf.setPrologueEnd();
-    try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
-}
-
-fn emitDbgEpilogueBegin(emit: *Emit) !void {
-    if (emit.dbg_output != .dwarf) return;
-
-    try emit.dbg_output.dwarf.setEpilogueBegin();
-    try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
+    // When linking into the final binary, no relocation mechanism is necessary.
+    const addr: i64 = try wasm.uavAddr(data.ip_index);
+    leb.writeUleb128(code.fixedWriter(), addr + data.offset) catch unreachable;
 }

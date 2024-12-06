@@ -1478,7 +1478,7 @@ pub fn updateExports(
     coff: *Coff,
     pt: Zcu.PerThread,
     exported: Zcu.Exported,
-    export_indices: []const u32,
+    export_indices: []const Zcu.Export.Index,
 ) link.File.UpdateExportsError!void {
     if (build_options.skip_non_native and builtin.object_format != .coff) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
@@ -1493,7 +1493,7 @@ pub fn updateExports(
         // Even in the case of LLVM, we need to notice certain exported symbols in order to
         // detect the default subsystem.
         for (export_indices) |export_idx| {
-            const exp = zcu.all_exports.items[export_idx];
+            const exp = export_idx.ptr(zcu);
             const exported_nav_index = switch (exp.exported) {
                 .nav => |nav| nav,
                 .uav => continue,
@@ -1536,7 +1536,7 @@ pub fn updateExports(
             break :blk coff.navs.getPtr(nav).?;
         },
         .uav => |uav| coff.uavs.getPtr(uav) orelse blk: {
-            const first_exp = zcu.all_exports.items[export_indices[0]];
+            const first_exp = export_indices[0].ptr(zcu);
             const res = try coff.lowerUav(pt, uav, .none, first_exp.src);
             switch (res) {
                 .mcv => {},
@@ -1555,7 +1555,7 @@ pub fn updateExports(
     const atom = coff.getAtom(atom_index);
 
     for (export_indices) |export_idx| {
-        const exp = zcu.all_exports.items[export_idx];
+        const exp = export_idx.ptr(zcu);
         log.debug("adding new export '{}'", .{exp.opts.name.fmt(&zcu.intern_pool)});
 
         if (exp.opts.section.toSlice(&zcu.intern_pool)) |section_name| {

@@ -1838,11 +1838,11 @@ pub const Object = struct {
         o: *Object,
         zcu: *Zcu,
         exported_value: InternPool.Index,
-        export_indices: []const u32,
+        export_indices: []const Zcu.Export.Index,
     ) link.File.UpdateExportsError!void {
         const gpa = zcu.gpa;
         const ip = &zcu.intern_pool;
-        const main_exp_name = try o.builder.strtabString(zcu.all_exports.items[export_indices[0]].opts.name.toSlice(ip));
+        const main_exp_name = try o.builder.strtabString(export_indices[0].ptr(zcu).opts.name.toSlice(ip));
         const global_index = i: {
             const gop = try o.uav_map.getOrPut(gpa, exported_value);
             if (gop.found_existing) {
@@ -1873,11 +1873,11 @@ pub const Object = struct {
         o: *Object,
         zcu: *Zcu,
         global_index: Builder.Global.Index,
-        export_indices: []const u32,
+        export_indices: []const Zcu.Export.Index,
     ) link.File.UpdateExportsError!void {
         const comp = zcu.comp;
         const ip = &zcu.intern_pool;
-        const first_export = zcu.all_exports.items[export_indices[0]];
+        const first_export = export_indices[0].ptr(zcu);
 
         // We will rename this global to have a name matching `first_export`.
         // Successive exports become aliases.
@@ -1934,7 +1934,7 @@ pub const Object = struct {
         // Until then we iterate over existing aliases and make them point
         // to the correct decl, or otherwise add a new alias. Old aliases are leaked.
         for (export_indices[1..]) |export_idx| {
-            const exp = zcu.all_exports.items[export_idx];
+            const exp = export_idx.ptr(zcu);
             const exp_name = try o.builder.strtabString(exp.opts.name.toSlice(ip));
             if (o.builder.getGlobal(exp_name)) |global| {
                 switch (global.ptrConst(&o.builder).kind) {

@@ -30,6 +30,7 @@ const log = std.log.scoped(.link);
 const mem = std.mem;
 
 const Air = @import("../Air.zig");
+const Mir = @import("../arch/wasm/Mir.zig");
 const CodeGen = @import("../arch/wasm/CodeGen.zig");
 const Compilation = @import("../Compilation.zig");
 const Dwarf = @import("Dwarf.zig");
@@ -151,6 +152,7 @@ dump_argv_list: std.ArrayListUnmanaged([]const u8),
 preloaded_strings: PreloadedStrings,
 
 navs: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, Nav) = .empty,
+zcu_funcs: std.AutoArrayHashMapUnmanaged(InternPool.Index, ZcuFunc) = .empty,
 nav_exports: std.AutoArrayHashMapUnmanaged(NavExport, Zcu.Export.Index) = .empty,
 uav_exports: std.AutoArrayHashMapUnmanaged(UavExport, Zcu.Export.Index) = .empty,
 imports: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, void) = .empty,
@@ -202,6 +204,13 @@ tables: std.AutoArrayHashMapUnmanaged(TableImport.Resolution, void) = .empty,
 table_imports: std.AutoArrayHashMapUnmanaged(String, ObjectTableImportIndex) = .empty,
 
 any_exports_updated: bool = true,
+
+/// All MIR instructions for all Zcu functions.
+mir_instructions: std.MultiArrayList(Mir.Inst) = .{},
+/// Corresponds to `mir_instructions`.
+mir_extra: std.ArrayListUnmanaged(u32) = .empty,
+/// All local types for all Zcu functions.
+all_zcu_locals: std.ArrayListUnmanaged(u8) = .empty,
 
 /// Index into `objects`.
 pub const ObjectIndex = enum(u32) {
@@ -435,6 +444,24 @@ pub const Nav = extern struct {
 
         pub fn value(i: @This(), wasm: *const Wasm) *Nav {
             return &wasm.navs.values()[@intFromEnum(i)];
+        }
+    };
+};
+
+pub const ZcuFunc = extern struct {
+    function: CodeGen.Function,
+
+    /// Index into `zcu_funcs`.
+    /// Note that swapRemove is sometimes performed on `zcu_funcs`.
+    pub const Index = enum(u32) {
+        _,
+
+        pub fn key(i: @This(), wasm: *const Wasm) *InternPool.Index {
+            return &wasm.zcu_funcs.keys()[@intFromEnum(i)];
+        }
+
+        pub fn value(i: @This(), wasm: *const Wasm) *ZcuFunc {
+            return &wasm.zcu_funcs.values()[@intFromEnum(i)];
         }
     };
 };
@@ -932,7 +959,7 @@ pub const ValtypeList = enum(u32) {
     }
 
     pub fn slice(index: ValtypeList, wasm: *const Wasm) []const std.wasm.Valtype {
-        return @bitCast(String.slice(@enumFromInt(@intFromEnum(index)), wasm));
+        return @ptrCast(String.slice(@enumFromInt(@intFromEnum(index)), wasm));
     }
 };
 
@@ -1430,11 +1457,16 @@ pub fn deinit(wasm: *Wasm) void {
     if (wasm.llvm_object) |llvm_object| llvm_object.deinit();
 
     wasm.navs.deinit(gpa);
+    wasm.zcu_funcs.deinit(gpa);
     wasm.nav_exports.deinit(gpa);
     wasm.uav_exports.deinit(gpa);
     wasm.imports.deinit(gpa);
 
     wasm.flush_buffer.deinit(gpa);
+
+    wasm.mir_instructions.deinit(gpa);
+    wasm.mir_extra.deinit(gpa);
+    wasm.all_zcu_locals.deinit(gpa);
 
     if (wasm.dwarf) |*dwarf| dwarf.deinit();
 
@@ -1474,49 +1506,11 @@ pub fn updateFunc(wasm: *Wasm, pt: Zcu.PerThread, func_index: InternPool.Index, 
     }
     if (wasm.llvm_object) |llvm_object| return llvm_object.updateFunc(pt, func_index, air, liveness);
 
-    const zcu = pt.zcu;
-    const gpa = zcu.gpa;
-    const func = pt.zcu.funcInfo(func_index);
-    const nav_index = func.owner_nav;
-
-    const code_start: u32 = @intCast(wasm.string_bytes.items.len);
-    const relocs_start: u32 = @intCast(wasm.relocations.len);
-    wasm.string_bytes_lock.lock();
-
     dev.check(.wasm_backend);
-    try CodeGen.generate(
-        &wasm.base,
-        pt,
-        zcu.navSrcLoc(nav_index),
-        func_index,
-        air,
-        liveness,
-        &wasm.string_bytes,
-        .none,
-    );
 
-    const code_len: u32 = @intCast(wasm.string_bytes.items.len - code_start);
-    const relocs_len: u32 = @intCast(wasm.relocations.len - relocs_start);
-    wasm.string_bytes_lock.unlock();
-
-    const code: Nav.Code = .{
-        .off = code_start,
-        .len = code_len,
-    };
-
-    const gop = try wasm.navs.getOrPut(gpa, nav_index);
-    if (gop.found_existing) {
-        @panic("TODO reuse these resources");
-    } else {
-        _ = wasm.imports.swapRemove(nav_index);
-    }
-    gop.value_ptr.* = .{
-        .code = code,
-        .relocs = .{
-            .off = relocs_start,
-            .len = relocs_len,
-        },
-    };
+    try wasm.zcu_funcs.put(pt.zcu.gpa, func_index, .{
+        .function = try CodeGen.function(wasm, pt, func_index, air, liveness),
+    });
 }
 
 // Generate code for the "Nav", storing it in memory to be later written to
@@ -1642,8 +1636,8 @@ pub fn updateExports(
         const exp = export_idx.ptr(zcu);
         const name = try wasm.internString(exp.opts.name.toSlice(ip));
         switch (exported) {
-            .nav => |nav_index| wasm.nav_exports.put(gpa, .{ .nav_index = nav_index, .name = name }, export_idx),
-            .uav => |uav_index| wasm.uav_exports.put(gpa, .{ .uav_index = uav_index, .name = name }, export_idx),
+            .nav => |nav_index| try wasm.nav_exports.put(gpa, .{ .nav_index = nav_index, .name = name }, export_idx),
+            .uav => |uav_index| try wasm.uav_exports.put(gpa, .{ .uav_index = uav_index, .name = name }, export_idx),
         }
     }
     wasm.any_exports_updated = true;
@@ -1713,9 +1707,9 @@ pub fn prelink(wasm: *Wasm, prog_node: std.Progress.Node) link.File.FlushError!v
                     continue;
                 }
             }
-            try wasm.missing_exports.put(exp_name_interned, {});
+            try missing_exports.put(gpa, exp_name_interned, {});
         }
-        wasm.missing_exports_init = try gpa.dupe(String, wasm.missing_exports.keys());
+        wasm.missing_exports_init = try gpa.dupe(String, missing_exports.keys());
     }
 
     if (wasm.entry_name.unwrap()) |entry_name| {
@@ -2345,14 +2339,6 @@ fn linkWithLLD(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
         // other processes clobbering it.
         wasm.base.lock = man.toOwnedLock();
     }
-}
-
-/// Returns the symbol index of the error name table.
-///
-/// When the symbol does not yet exist, it will create a new one instead.
-pub fn getErrorTableSymbol(wasm: *Wasm, pt: Zcu.PerThread) !u32 {
-    const sym_index = try wasm.zig_object.?.getErrorTableSymbol(wasm, pt);
-    return @intFromEnum(sym_index);
 }
 
 fn defaultEntrySymbolName(
