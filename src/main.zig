@@ -3832,16 +3832,13 @@ fn createModule(
                     create_module.opts.link_libcpp = true;
                     continue;
                 }
-                switch (target_util.classifyCompilerRtLibName(target, lib_name)) {
+                switch (target_util.classifyCompilerRtLibName(lib_name)) {
                     .none => {},
                     .only_libunwind, .both => {
                         create_module.opts.link_libunwind = true;
                         continue;
                     },
-                    .only_compiler_rt => {
-                        warn("ignoring superfluous library '{s}': this dependency is fulfilled instead by compiler-rt which zig unconditionally provides", .{lib_name});
-                        continue;
-                    },
+                    .only_compiler_rt => continue,
                 }
 
                 if (target.isMinGW()) {

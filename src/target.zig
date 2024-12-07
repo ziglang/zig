@@ -260,17 +260,23 @@ pub fn supportsReturnAddress(target: std.Target) bool {
 
 pub const CompilerRtClassification = enum { none, only_compiler_rt, only_libunwind, both };
 
-pub fn classifyCompilerRtLibName(target: std.Target, name: []const u8) CompilerRtClassification {
-    if (target.abi.isGnu() and std.mem.eql(u8, name, "gcc_s")) {
+pub fn classifyCompilerRtLibName(name: []const u8) CompilerRtClassification {
+    if (std.mem.eql(u8, name, "gcc_s")) {
         // libgcc_s includes exception handling functions, so if linking this library
         // is requested, zig needs to instead link libunwind. Otherwise we end up with
         // the linker unable to find `_Unwind_RaiseException` and other related symbols.
         return .both;
     }
-    if (std.mem.eql(u8, name, "compiler_rt")) {
+    if (std.mem.eql(u8, name, "compiler_rt") or
+        std.mem.eql(u8, name, "gcc") or
+        std.mem.eql(u8, name, "atomic") or
+        std.mem.eql(u8, name, "ssp"))
+    {
         return .only_compiler_rt;
     }
-    if (std.mem.eql(u8, name, "unwind")) {
+    if (std.mem.eql(u8, name, "unwind") or
+        std.mem.eql(u8, name, "gcc_eh"))
+    {
         return .only_libunwind;
     }
     return .none;

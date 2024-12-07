@@ -5890,7 +5890,9 @@ pub fn hasObjectExt(filename: []const u8) bool {
 }
 
 pub fn hasStaticLibraryExt(filename: []const u8) bool {
-    return mem.endsWith(u8, filename, ".a") or mem.endsWith(u8, filename, ".lib");
+    return mem.endsWith(u8, filename, ".a") or
+        mem.endsWith(u8, filename, ".lib") or
+        mem.endsWith(u8, filename, ".rlib");
 }
 
 pub fn hasCExt(filename: []const u8) bool {
