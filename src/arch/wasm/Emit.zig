@@ -33,6 +33,9 @@ pub fn lowerToCode(emit: *Emit) Error!void {
     var inst: u32 = 0;
 
     loop: switch (tags[inst]) {
+        .dbg_epilogue_begin => {
+            return;
+        },
         .block, .loop => {
             const block_type = datas[inst].block_type;
             try code.ensureUnusedCapacity(gpa, 2);
@@ -42,16 +45,23 @@ pub fn lowerToCode(emit: *Emit) Error!void {
             inst += 1;
             continue :loop tags[inst];
         },
-
         .uav_ref => {
             try uavRefOff(wasm, code, .{ .ip_index = datas[inst].ip_index, .offset = 0 });
-
             inst += 1;
             continue :loop tags[inst];
         },
         .uav_ref_off => {
             try uavRefOff(wasm, code, mir.extraData(Mir.UavRefOff, datas[inst].payload).data);
-
+            inst += 1;
+            continue :loop tags[inst];
+        },
+        .nav_ref => {
+            try navRefOff(wasm, code, .{ .ip_index = datas[inst].ip_index, .offset = 0 });
+            inst += 1;
+            continue :loop tags[inst];
+        },
+        .nav_ref_off => {
+            try navRefOff(wasm, code, mir.extraData(Mir.NavRefOff, datas[inst].payload).data);
             inst += 1;
             continue :loop tags[inst];
         },
@@ -60,10 +70,6 @@ pub fn lowerToCode(emit: *Emit) Error!void {
             inst += 1;
             continue :loop tags[inst];
         },
-        .dbg_epilogue_begin => {
-            return;
-        },
-
         .br_if, .br, .memory_grow, .memory_size => {
             try code.ensureUnusedCapacity(gpa, 11);
             code.appendAssumeCapacity(@intFromEnum(tags[inst]));
@@ -431,7 +437,7 @@ pub fn lowerToCode(emit: *Emit) Error!void {
 
                 _ => unreachable,
             }
-            unreachable;
+            comptime unreachable;
         },
         .simd_prefix => {
             try code.ensureUnusedCapacity(gpa, 6 + 20);
@@ -487,7 +493,7 @@ pub fn lowerToCode(emit: *Emit) Error!void {
                 },
                 _ => unreachable,
             }
-            unreachable;
+            comptime unreachable;
         },
         .atomics_prefix => {
             try code.ensureUnusedCapacity(gpa, 6 + 20);
@@ -576,13 +582,13 @@ pub fn lowerToCode(emit: *Emit) Error!void {
                     continue :loop tags[inst];
                 },
             }
-            unreachable;
+            comptime unreachable;
         },
     }
-    unreachable;
+    comptime unreachable;
 }
 
-/// Assert 20 unused capacity.
+/// Asserts 20 unused capacity.
 fn encodeMemArg(code: *std.ArrayListUnmanaged(u8), mem_arg: Mir.MemArg) void {
     assert(code.unusedCapacitySlice().len >= 20);
     // Wasm encodes alignment as power of 2, rather than natural alignment.
@@ -618,4 +624,49 @@ fn uavRefOff(wasm: *link.File.Wasm, code: *std.ArrayListUnmanaged(u8), data: Mir
     // When linking into the final binary, no relocation mechanism is necessary.
     const addr: i64 = try wasm.uavAddr(data.ip_index);
     leb.writeUleb128(code.fixedWriter(), addr + data.offset) catch unreachable;
+}
+
+fn navRefOff(wasm: *link.File.Wasm, code: *std.ArrayListUnmanaged(u8), data: Mir.NavRefOff) !void {
+    const comp = wasm.base.comp;
+    const zcu = comp.zcu.?;
+    const ip = &zcu.intern_pool;
+    const gpa = comp.gpa;
+    const is_obj = comp.config.output_mode == .Obj;
+    const target = &comp.root_mod.resolved_target.result;
+    const nav_ty = ip.getNav(data.nav_index).typeOf(ip);
+
+    try code.ensureUnusedCapacity(gpa, 11);
+
+    if (ip.isFunctionType(nav_ty)) {
+        code.appendAssumeCapacity(std.wasm.Opcode.i32_const);
+        assert(data.offset == 0);
+        if (is_obj) {
+            try wasm.out_relocs.append(gpa, .{
+                .offset = @intCast(code.items.len),
+                .index = try wasm.navSymbolIndex(data.nav_index),
+                .tag = .TABLE_INDEX_SLEB,
+                .addend = data.offset,
+            });
+            code.appendNTimesAssumeCapacity(0, 5);
+        } else {
+            const addr: i64 = try wasm.navAddr(data.nav_index);
+            leb.writeUleb128(code.fixedWriter(), addr + data.offset) catch unreachable;
+        }
+    } else {
+        const is_wasm32 = target.cpu.arch == .wasm32;
+        const opcode: std.wasm.Opcode = if (is_wasm32) .i32_const else .i64_const;
+        code.appendAssumeCapacity(@intFromEnum(opcode));
+        if (is_obj) {
+            try wasm.out_relocs.append(gpa, .{
+                .offset = @intCast(code.items.len),
+                .index = try wasm.navSymbolIndex(data.nav_index),
+                .tag = if (is_wasm32) .MEMORY_ADDR_LEB else .MEMORY_ADDR_LEB64,
+                .addend = data.offset,
+            });
+            code.appendNTimesAssumeCapacity(0, if (is_wasm32) 5 else 10);
+        } else {
+            const addr: i64 = try wasm.navAddr(data.nav_index);
+            leb.writeUleb128(code.fixedWriter(), addr + data.offset) catch unreachable;
+        }
+    }
 }

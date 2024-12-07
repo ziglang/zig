@@ -1508,6 +1508,10 @@ pub fn updateFunc(wasm: *Wasm, pt: Zcu.PerThread, func_index: InternPool.Index, 
 
     dev.check(.wasm_backend);
 
+    // This converts AIR to MIR but does not yet lower to wasm code.
+    // That lowering happens during `flush`, after garbage collection, which
+    // can affect function and global indexes, which affects the LEB integer
+    // encoding, which affects the output binary size.
     try wasm.zcu_funcs.put(pt.zcu.gpa, func_index, .{
         .function = try CodeGen.function(wasm, pt, func_index, air, liveness),
     });
@@ -1729,7 +1733,7 @@ pub fn prelink(wasm: *Wasm, prog_node: std.Progress.Node) link.File.FlushError!v
             continue;
         }
     }
-    wasm.functions_len = @intCast(wasm.functions.items.len);
+    wasm.functions_len = @intCast(wasm.functions.entries.len);
     wasm.function_imports_init_keys = try gpa.dupe(String, wasm.function_imports.keys());
     wasm.function_imports_init_vals = try gpa.dupe(FunctionImportId, wasm.function_imports.vals());
     wasm.function_exports_len = @intCast(wasm.function_exports.items.len);

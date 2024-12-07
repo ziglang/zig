@@ -4120,3 +4120,14 @@ pub fn codegenFailTypeMsg(zcu: *Zcu, ty_index: InternPool.Index, msg: *ErrorMsg)
     zcu.failed_types.putAssumeCapacityNoClobber(ty_index, msg);
     return error.CodegenFail;
 }
+
+/// Check if nav is an alias to a function, in which case we want to lower the
+/// actual nav, rather than the alias itself.
+pub fn chaseNav(zcu: *const Zcu, nav: InternPool.Nav.Index) InternPool.Nav.Index {
+    return switch (zcu.intern_pool.indexToKey(zcu.navValue(nav).toIntern())) {
+        .func => |f| f.owner_nav,
+        .variable => |variable| variable.owner_nav,
+        .@"extern" => |@"extern"| @"extern".owner_nav,
+        else => nav,
+    };
+}

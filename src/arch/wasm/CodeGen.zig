@@ -146,19 +146,14 @@ const WValue = union(enum) {
     float32: f32,
     /// A constant 64bit float value
     float64: f64,
-    /// A value that represents a pointer to the data section.
-    memory: InternPool.Index,
-    /// A value that represents a parent pointer and an offset
-    /// from that pointer. i.e. when slicing with constant values.
-    memory_offset: struct {
-        pointer: InternPool.Index,
-        /// Offset will be set as addend when relocating
-        offset: u32,
+    nav_ref: struct {
+        nav_index: InternPool.Nav.Index,
+        offset: i32 = 0,
     },
-    /// Represents a function pointer
-    /// In wasm function pointers are indexes into a function table,
-    /// rather than an address in the data section.
-    function_index: InternPool.Index,
+    uav_ref: struct {
+        ip_index: InternPool.Index,
+        offset: i32 = 0,
+    },
     /// Offset from the bottom of the virtual stack, with the offset
     /// pointing to where the value lives.
     stack_offset: struct {
@@ -752,7 +747,7 @@ fn resolveInst(func: *CodeGen, ref: Air.Inst.Ref) InnerError!WValue {
     const ty = func.typeOf(ref);
     if (!ty.hasRuntimeBitsIgnoreComptime(zcu) and !ty.isInt(zcu) and !ty.isError(zcu)) {
         gop.value_ptr.* = .none;
-        return gop.value_ptr.*;
+        return .none;
     }
 
     // When we need to pass the value by reference (such as a struct), we will
@@ -762,7 +757,7 @@ fn resolveInst(func: *CodeGen, ref: Air.Inst.Ref) InnerError!WValue {
     // In the other cases, we will simply lower the constant to a value that fits
     // into a single local (such as a pointer, integer, bool, etc).
     const result: WValue = if (isByRef(ty, pt, func.target))
-        .{ .memory = val.toIntern() }
+        .{ .uav_ref = .{ .ip_index = val.toIntern() } }
     else
         try func.lowerConstant(val, ty);
 
@@ -956,6 +951,7 @@ fn addExtraAssumeCapacity(func: *CodeGen, extra: anytype) error{OutOfMemory}!u32
             u32 => @field(extra, field.name),
             i32 => @bitCast(@field(extra, field.name)),
             InternPool.Index => @intFromEnum(@field(extra, field.name)),
+            InternPool.Nav.Index => @intFromEnum(@field(extra, field.name)),
             else => |field_type| @compileError("Unsupported field type " ++ @typeName(field_type)),
         });
     }
@@ -1028,17 +1024,36 @@ fn emitWValue(func: *CodeGen, value: WValue) InnerError!void {
         .imm128 => |val| try func.addImm128(val),
         .float32 => |val| try func.addInst(.{ .tag = .f32_const, .data = .{ .float32 = val } }),
         .float64 => |val| try func.addFloat64(val),
-        .memory => |ptr| try func.addInst(.{ .tag = .uav_ref, .data = .{ .ip_index = ptr } }),
-        .memory_offset => |mo| try func.addInst(.{
-            .tag = .uav_ref_off,
-            .data = .{
-                .payload = try func.addExtra(Mir.UavRefOff{
-                    .ip_index = mo.pointer,
-                    .offset = @intCast(mo.offset), // TODO should not be an assert
-                }),
-            },
-        }),
-        .function_index => |index| try func.addIpIndex(.function_index, index),
+        .nav_ref => |nav_ref| {
+            if (nav_ref.offset == 0) {
+                try func.addInst(.{ .tag = .nav_ref, .data = .{ .nav_index = nav_ref.nav_index } });
+            } else {
+                try func.addInst(.{
+                    .tag = .nav_ref_off,
+                    .data = .{
+                        .payload = try func.addExtra(Mir.NavRefOff{
+                            .nav_index = nav_ref.nav_index,
+                            .offset = nav_ref.offset,
+                        }),
+                    },
+                });
+            }
+        },
+        .uav_ref => |uav| {
+            if (uav.offset == 0) {
+                try func.addInst(.{ .tag = .uav_ref, .data = .{ .ip_index = uav.ip_index } });
+            } else {
+                try func.addInst(.{
+                    .tag = .uav_ref_off,
+                    .data = .{
+                        .payload = try func.addExtra(Mir.UavRefOff{
+                            .ip_index = uav.ip_index,
+                            .offset = uav.offset,
+                        }),
+                    },
+                });
+            }
+        },
         .stack_offset => try func.addLabel(.local_get, func.bottom_stack_value.local.value), // caller must ensure to address the offset
     }
 }
@@ -1466,10 +1481,7 @@ fn lowerArg(func: *CodeGen, cc: std.builtin.CallingConvention, ty: Type, value: 
             assert(ty_classes[0] == .direct);
             const scalar_type = abi.scalarType(ty, zcu);
             switch (value) {
-                .memory,
-                .memory_offset,
-                .stack_offset,
-                => _ = try func.load(value, scalar_type, 0),
+                .nav_ref, .stack_offset => _ = try func.load(value, scalar_type, 0),
                 .dead => unreachable,
                 else => try func.emitWValue(value),
             }
@@ -3117,8 +3129,8 @@ fn lowerPtr(func: *CodeGen, ptr_val: InternPool.Index, prev_offset: u64) InnerEr
     const ptr = zcu.intern_pool.indexToKey(ptr_val).ptr;
     const offset: u64 = prev_offset + ptr.byte_offset;
     return switch (ptr.base_addr) {
-        .nav => |nav| return func.lowerNavRef(nav, @intCast(offset)),
-        .uav => |uav| return func.lowerUavRef(uav, @intCast(offset)),
+        .nav => |nav| return .{ .nav_ref = .{ .nav_index = zcu.chaseNav(nav), .offset = @intCast(offset) } },
+        .uav => |uav| return .{ .uav_ref = .{ .ip_index = uav.val, .offset = @intCast(offset) } },
         .int => return func.lowerConstant(try pt.intValue(Type.usize, offset), Type.usize),
         .eu_payload => return func.fail("Wasm TODO: lower error union payload pointer", .{}),
         .opt_payload => |opt_ptr| return func.lowerPtr(opt_ptr, offset),
@@ -3160,51 +3172,6 @@ fn lowerPtr(func: *CodeGen, ptr_val: InternPool.Index, prev_offset: u64) InnerEr
         },
         .arr_elem, .comptime_field, .comptime_alloc => unreachable,
     };
-}
-
-fn lowerUavRef(
-    func: *CodeGen,
-    uav: InternPool.Key.Ptr.BaseAddr.Uav,
-    offset: u32,
-) InnerError!WValue {
-    const pt = func.pt;
-    const zcu = pt.zcu;
-    const ty = Type.fromInterned(zcu.intern_pool.typeOf(uav.val));
-
-    const is_fn_body = ty.zigTypeTag(zcu) == .@"fn";
-    if (!is_fn_body and !ty.hasRuntimeBitsIgnoreComptime(zcu)) {
-        return .{ .imm32 = 0xaaaaaaaa };
-    }
-
-    return if (is_fn_body) .{
-        .function_index = uav.val,
-    } else if (offset == 0) .{
-        .memory = uav.val,
-    } else .{ .memory_offset = .{
-        .pointer = uav.val,
-        .offset = offset,
-    } };
-}
-
-fn lowerNavRef(func: *CodeGen, nav_index: InternPool.Nav.Index, offset: u32) InnerError!WValue {
-    const pt = func.pt;
-    const zcu = pt.zcu;
-    const ip = &zcu.intern_pool;
-
-    const nav_ty = ip.getNav(nav_index).typeOf(ip);
-    if (!ip.isFunctionType(nav_ty) and !Type.fromInterned(nav_ty).hasRuntimeBitsIgnoreComptime(zcu)) {
-        return .{ .imm32 = 0xaaaaaaaa };
-    }
-
-    const atom_index = try func.wasm.getOrCreateAtomForNav(pt, nav_index);
-    const atom = func.wasm.getAtom(atom_index);
-
-    const target_sym_index = @intFromEnum(atom.sym_index);
-    if (ip.isFunctionType(nav_ty)) {
-        return .{ .function_index = target_sym_index };
-    } else if (offset == 0) {
-        return .{ .memory = target_sym_index };
-    } else return .{ .memory_offset = .{ .pointer = target_sym_index, .offset = offset } };
 }
 
 /// Asserts that `isByRef` returns `false` for `ty`.
@@ -3307,7 +3274,7 @@ fn lowerConstant(func: *CodeGen, val: Value, ty: Type) InnerError!WValue {
             .f64 => |f64_val| return .{ .float64 = f64_val },
             else => unreachable,
         },
-        .slice => return .{ .memory = val.toIntern() },
+        .slice => unreachable, // isByRef == true
         .ptr => return func.lowerPtr(val.toIntern(), 0),
         .opt => if (ty.optionalReprIsPayload(zcu)) {
             const pl_ty = ty.optionalChild(zcu);

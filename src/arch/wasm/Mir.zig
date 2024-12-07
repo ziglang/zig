@@ -32,8 +32,12 @@ pub const Inst = struct {
 
     /// Some tags match wasm opcode values to facilitate trivial lowering.
     pub const Tag = enum(u8) {
-        /// Uses `nop`
+        /// Uses `tag`.
         @"unreachable" = 0x00,
+        /// Emits epilogue begin debug information. Marks the end of the function.
+        ///
+        /// Uses `tag` (no additional data).
+        dbg_epilogue_begin,
         /// Creates a new block that can be jump from.
         ///
         /// Type of the block is given in data `block_type`
@@ -46,34 +50,51 @@ pub const Inst = struct {
         /// memory address of an unnamed constant. When emitting an object
         /// file, this adds a relocation.
         ///
-        /// Data is `ip_index`.
+        /// This may not refer to a function.
+        ///
+        /// Uses `ip_index`.
         uav_ref,
         /// Lowers to an i32_const (wasm32) or i64_const (wasm64) which is the
         /// memory address of an unnamed constant, offset by an integer value.
         /// When emitting an object file, this adds a relocation.
         ///
-        /// Data is `payload` pointing to a `UavRefOff`.
+        /// This may not refer to a function.
+        ///
+        /// Uses `payload` pointing to a `UavRefOff`.
         uav_ref_off,
+        /// Lowers to an i32_const (wasm32) or i64_const (wasm64) which is the
+        /// memory address of a named constant.
+        ///
+        /// When this refers to a function, this always lowers to an i32_const
+        /// which is the function index. When emitting an object file, this
+        /// adds a `Wasm.Relocation.Tag.TABLE_INDEX_SLEB` relocation.
+        ///
+        /// Uses `nav_index`.
+        nav_ref,
+        /// Lowers to an i32_const (wasm32) or i64_const (wasm64) which is the
+        /// memory address of named constant, offset by an integer value.
+        /// When emitting an object file, this adds a relocation.
+        ///
+        /// This may not refer to a function.
+        ///
+        /// Uses `payload` pointing to a `NavRefOff`.
+        nav_ref_off,
         /// Inserts debug information about the current line and column
         /// of the source code
         ///
         /// Uses `payload` of which the payload type is `DbgLineColumn`
-        dbg_line = 0x06,
-        /// Emits epilogue begin debug information. Marks the end of the function.
-        ///
-        /// Uses `nop`
-        dbg_epilogue_begin = 0x07,
+        dbg_line,
         /// Represents the end of a function body or an initialization expression
         ///
-        /// Payload is `nop`
+        /// Uses `tag` (no additional data).
         end = 0x0B,
         /// Breaks from the current block to a label
         ///
-        /// Data is `label` where index represents the label to jump to
+        /// Uses `label` where index represents the label to jump to
         br = 0x0C,
         /// Breaks from the current block if the stack value is non-zero
         ///
-        /// Data is `label` where index represents the label to jump to
+        /// Uses `label` where index represents the label to jump to
         br_if = 0x0D,
         /// Jump table that takes the stack value as an index where each value
         /// represents the label to jump to.
@@ -82,7 +103,7 @@ pub const Inst = struct {
         br_table = 0x0E,
         /// Returns from the function
         ///
-        /// Uses `nop`
+        /// Uses `tag`.
         @"return" = 0x0F,
         /// Calls a function using `nav_index`.
         call_nav,
@@ -98,10 +119,6 @@ pub const Inst = struct {
         /// The function is the auto-generated tag name function for the type
         /// provided in `ip_index`.
         call_tag_name,
-        /// Lowers to an i32_const containing the index of a function.
-        /// When emitting an object file, this adds a relocation.
-        /// Uses `ip_index`.
-        function_index,
 
         /// Pops three values from the stack and pushes
         /// the first or second value dependent on the third value.
@@ -660,6 +677,11 @@ pub const MemArg = struct {
 
 pub const UavRefOff = struct {
     ip_index: InternPool.Index,
+    offset: i32,
+};
+
+pub const NavRefOff = struct {
+    nav_index: InternPool.Nav.Index,
     offset: i32,
 };
 
