@@ -3539,7 +3539,7 @@ pub fn requiresCodeSig(self: MachO) bool {
     const target = self.getTarget();
     return switch (target.cpu.arch) {
         .aarch64 => switch (target.os.tag) {
-            .bridgeos, .driverkit, .macos => true,
+            .driverkit, .macos => true,
             .ios, .tvos, .visionos, .watchos => target.abi == .simulator,
             else => false,
         },
@@ -4143,7 +4143,6 @@ pub const Platform = struct {
                 const cmd = lc.cast(macho.build_version_command).?;
                 return .{
                     .os_tag = switch (cmd.platform) {
-                        .BRIDGEOS => .bridgeos,
                         .DRIVERKIT => .driverkit,
                         .IOS, .IOSSIMULATOR => .ios,
                         .MACCATALYST => .ios,
@@ -4191,11 +4190,7 @@ pub const Platform = struct {
         return .{
             .os_tag = target.os.tag,
             .abi = target.abi,
-            // This should use semver once we determine the version history.
-            .version = if (target.os.tag == .bridgeos)
-                .{ .major = 0, .minor = 0, .patch = 0 }
-            else
-                target.os.version_range.semver.min,
+            .version = target.os.version_range.semver.min,
         };
     }
 
@@ -4205,7 +4200,6 @@ pub const Platform = struct {
 
     pub fn toApplePlatform(plat: Platform) macho.PLATFORM {
         return switch (plat.os_tag) {
-            .bridgeos => .BRIDGEOS,
             .driverkit => .DRIVERKIT,
             .ios => switch (plat.abi) {
                 .macabi => .MACCATALYST,
@@ -4284,7 +4278,6 @@ const SupportedPlatforms = struct {
 // Source: https://github.com/apple-oss-distributions/ld64/blob/59a99ab60399c5e6c49e6945a9e1049c42b71135/src/ld/PlatformSupport.cpp#L52
 // zig fmt: off
 const supported_platforms = [_]SupportedPlatforms{
-    .{ .bridgeos,  .none,      0x010000, 0x010000 },
     .{ .driverkit, .none,      0x130000, 0x130000 },
     .{ .ios,       .none,      0x0C0000, 0x070000 },
     .{ .ios,       .macabi,    0x0D0000, 0x0D0000 },

@@ -667,11 +667,11 @@ fn addCompilerStep(b: *std.Build, options: AddCompilerStepOptions) *std.Build.St
             //
             // relocation R_LARCH_B26 out of range
             //
-            // error when linking a loongarch64 zig binary.
+            // error when linking a loongarch32/loongarch64 zig binary.
             //
             // Here we explicitly set code model to `medium' to avoid this
             // error.
-            .loongarch64 => .medium,
+            .loongarch32, .loongarch64 => .medium,
             else => .default,
         },
     });
