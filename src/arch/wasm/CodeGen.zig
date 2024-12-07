@@ -64,6 +64,7 @@ arg_index: u32 = 0,
 simd_immediates: std.ArrayListUnmanaged([16]u8) = .empty,
 /// The Target we're emitting (used to call intInfo)
 target: *const std.Target,
+ptr_size: enum { wasm32, wasm64 },
 wasm: *link.File.Wasm,
 pt: Zcu.PerThread,
 /// List of MIR Instructions
@@ -1310,6 +1311,11 @@ pub fn function(
         .liveness = liveness,
         .owner_nav = func.owner_nav,
         .target = target,
+        .ptr_size = switch (target.cpu.arch) {
+            .wasm32 => .wasm32,
+            .wasm64 => .wasm64,
+            else => unreachable,
+        },
         .wasm = wasm,
         .func_index = func_index,
         .args = cc_result.args,
@@ -1510,7 +1516,7 @@ fn lowerToStack(func: *CodeGen, value: WValue) !void {
         .stack_offset => |offset| {
             try func.emitWValue(value);
             if (offset.value > 0) {
-                switch (func.arch()) {
+                switch (func.ptr_size) {
                     .wasm32 => {
                         try func.addImm32(offset.value);
                         try func.addTag(.i32_add);
@@ -1519,7 +1525,6 @@ fn lowerToStack(func: *CodeGen, value: WValue) !void {
                         try func.addImm64(offset.value);
                         try func.addTag(.i64_add);
                     },
-                    else => unreachable,
                 }
             }
         },
@@ -1650,7 +1655,7 @@ fn memcpy(func: *CodeGen, dst: WValue, src: WValue, len: WValue) !void {
                 try func.emitWValue(dst);
                 // load byte from src's address
                 try func.emitWValue(src);
-                switch (func.arch()) {
+                switch (func.ptr_size) {
                     .wasm32 => {
                         try func.addMemArg(.i32_load8_u, .{ .offset = rhs_base + offset, .alignment = 1 });
                         try func.addMemArg(.i32_store8, .{ .offset = lhs_base + offset, .alignment = 1 });
@@ -1659,7 +1664,6 @@ fn memcpy(func: *CodeGen, dst: WValue, src: WValue, len: WValue) !void {
                         try func.addMemArg(.i64_load8_u, .{ .offset = rhs_base + offset, .alignment = 1 });
                         try func.addMemArg(.i64_store8, .{ .offset = lhs_base + offset, .alignment = 1 });
                     },
-                    else => unreachable,
                 }
             }
             return;
@@ -1671,10 +1675,9 @@ fn memcpy(func: *CodeGen, dst: WValue, src: WValue, len: WValue) !void {
     // This to ensure that inside loops we correctly re-set the counter.
     var offset = try func.allocLocal(Type.usize); // local for counter
     defer offset.free(func);
-    switch (func.arch()) {
+    switch (func.ptr_size) {
         .wasm32 => try func.addImm32(0),
         .wasm64 => try func.addImm64(0),
-        else => unreachable,
     }
     try func.addLabel(.local_set, offset.local.value);
 
@@ -1686,10 +1689,9 @@ fn memcpy(func: *CodeGen, dst: WValue, src: WValue, len: WValue) !void {
     {
         try func.emitWValue(offset);
         try func.emitWValue(len);
-        switch (func.arch()) {
+        switch (func.ptr_size) {
             .wasm32 => try func.addTag(.i32_eq),
             .wasm64 => try func.addTag(.i64_eq),
-            else => unreachable,
         }
         try func.addLabel(.br_if, 1); // jump out of loop into outer block (finished)
     }
@@ -1698,10 +1700,9 @@ fn memcpy(func: *CodeGen, dst: WValue, src: WValue, len: WValue) !void {
     {
         try func.emitWValue(dst);
         try func.emitWValue(offset);
-        switch (func.arch()) {
+        switch (func.ptr_size) {
             .wasm32 => try func.addTag(.i32_add),
             .wasm64 => try func.addTag(.i64_add),
-            else => unreachable,
         }
     }
 
@@ -1709,7 +1710,7 @@ fn memcpy(func: *CodeGen, dst: WValue, src: WValue, len: WValue) !void {
     {
         try func.emitWValue(src);
         try func.emitWValue(offset);
-        switch (func.arch()) {
+        switch (func.ptr_size) {
             .wasm32 => {
                 try func.addTag(.i32_add);
                 try func.addMemArg(.i32_load8_u, .{ .offset = src.offset(), .alignment = 1 });
@@ -1720,14 +1721,13 @@ fn memcpy(func: *CodeGen, dst: WValue, src: WValue, len: WValue) !void {
                 try func.addMemArg(.i64_load8_u, .{ .offset = src.offset(), .alignment = 1 });
                 try func.addMemArg(.i64_store8, .{ .offset = dst.offset(), .alignment = 1 });
             },
-            else => unreachable,
         }
     }
 
     // increment loop counter
     {
         try func.emitWValue(offset);
-        switch (func.arch()) {
+        switch (func.ptr_size) {
             .wasm32 => {
                 try func.addImm32(1);
                 try func.addTag(.i32_add);
@@ -1736,7 +1736,6 @@ fn memcpy(func: *CodeGen, dst: WValue, src: WValue, len: WValue) !void {
                 try func.addImm64(1);
                 try func.addTag(.i64_add);
             },
-            else => unreachable,
         }
         try func.addLabel(.local_set, offset.local.value);
         try func.addLabel(.br, 0); // jump to start of loop
@@ -1747,10 +1746,6 @@ fn memcpy(func: *CodeGen, dst: WValue, src: WValue, len: WValue) !void {
 
 fn ptrSize(func: *const CodeGen) u16 {
     return @divExact(func.target.ptrBitWidth(), 8);
-}
-
-fn arch(func: *const CodeGen) std.Target.Cpu.Arch {
-    return func.target.cpu.arch;
 }
 
 /// For a given `Type`, will return true when the type will be passed
@@ -1851,7 +1846,7 @@ fn buildPointerOffset(func: *CodeGen, ptr_value: WValue, offset: u64, action: en
     };
     try func.emitWValue(ptr_value);
     if (offset + ptr_value.offset() > 0) {
-        switch (func.arch()) {
+        switch (func.ptr_size) {
             .wasm32 => {
                 try func.addImm32(@intCast(offset + ptr_value.offset()));
                 try func.addTag(.i32_add);
@@ -1860,7 +1855,6 @@ fn buildPointerOffset(func: *CodeGen, ptr_value: WValue, offset: u64, action: en
                 try func.addImm64(offset + ptr_value.offset());
                 try func.addTag(.i64_add);
             },
-            else => unreachable,
         }
     }
     try func.addLabel(.local_set, result_ptr.local.value);
@@ -3350,10 +3344,9 @@ fn emitUndefined(func: *CodeGen, ty: Type) InnerError!WValue {
             64 => return .{ .float64 = @as(f64, @bitCast(@as(u64, 0xaaaaaaaaaaaaaaaa))) },
             else => unreachable,
         },
-        .pointer => switch (func.arch()) {
+        .pointer => switch (func.ptr_size) {
             .wasm32 => return .{ .imm32 = 0xaaaaaaaa },
             .wasm64 => return .{ .imm64 = 0xaaaaaaaaaaaaaaaa },
-            else => unreachable,
         },
         .optional => {
             const pl_ty = ty.optionalChild(zcu);
@@ -4428,10 +4421,9 @@ fn isNull(func: *CodeGen, operand: WValue, optional_ty: Type, opcode: std.wasm.O
             try func.addMemArg(.i32_load8_u, .{ .offset = operand.offset() + offset, .alignment = 1 });
         }
     } else if (payload_ty.isSlice(zcu)) {
-        switch (func.arch()) {
+        switch (func.ptr_size) {
             .wasm32 => try func.addMemArg(.i32_load, .{ .offset = operand.offset(), .alignment = 4 }),
             .wasm64 => try func.addMemArg(.i64_load, .{ .offset = operand.offset(), .alignment = 8 }),
-            else => unreachable,
         }
     }
 
@@ -4867,7 +4859,7 @@ fn memset(func: *CodeGen, elem_ty: Type, ptr: WValue, len: WValue, value: WValue
         else => if (abi_size != 1) blk: {
             const new_len = try func.ensureAllocLocal(Type.usize);
             try func.emitWValue(len);
-            switch (func.arch()) {
+            switch (func.ptr_size) {
                 .wasm32 => {
                     try func.emitWValue(.{ .imm32 = abi_size });
                     try func.addTag(.i32_mul);
@@ -4876,7 +4868,6 @@ fn memset(func: *CodeGen, elem_ty: Type, ptr: WValue, len: WValue, value: WValue
                     try func.emitWValue(.{ .imm64 = abi_size });
                     try func.addTag(.i64_mul);
                 },
-                else => unreachable,
             }
             try func.addLabel(.local_set, new_len.local.value);
             break :blk new_len;
@@ -4891,10 +4882,9 @@ fn memset(func: *CodeGen, elem_ty: Type, ptr: WValue, len: WValue, value: WValue
     // get the loop conditional: if current pointer address equals final pointer's address
     try func.lowerToStack(ptr);
     try func.emitWValue(final_len);
-    switch (func.arch()) {
+    switch (func.ptr_size) {
         .wasm32 => try func.addTag(.i32_add),
         .wasm64 => try func.addTag(.i64_add),
-        else => unreachable,
     }
     try func.addLabel(.local_set, end_ptr.local.value);
 
@@ -4905,10 +4895,9 @@ fn memset(func: *CodeGen, elem_ty: Type, ptr: WValue, len: WValue, value: WValue
     // check for condition for loop end
     try func.emitWValue(new_ptr);
     try func.emitWValue(end_ptr);
-    switch (func.arch()) {
+    switch (func.ptr_size) {
         .wasm32 => try func.addTag(.i32_eq),
         .wasm64 => try func.addTag(.i64_eq),
-        else => unreachable,
     }
     try func.addLabel(.br_if, 1); // jump out of loop into outer block (finished)
 
@@ -4917,7 +4906,7 @@ fn memset(func: *CodeGen, elem_ty: Type, ptr: WValue, len: WValue, value: WValue
 
     // move the pointer to the next element
     try func.emitWValue(new_ptr);
-    switch (func.arch()) {
+    switch (func.ptr_size) {
         .wasm32 => {
             try func.emitWValue(.{ .imm32 = abi_size });
             try func.addTag(.i32_add);
@@ -4926,7 +4915,6 @@ fn memset(func: *CodeGen, elem_ty: Type, ptr: WValue, len: WValue, value: WValue
             try func.emitWValue(.{ .imm64 = abi_size });
             try func.addTag(.i64_add);
         },
-        else => unreachable,
     }
     try func.addLabel(.local_set, new_ptr.local.value);
 
@@ -5101,7 +5089,7 @@ fn airSplat(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             // when the operand lives in the linear memory section, we can directly
             // load and splat the value at once. Meaning we do not first have to load
             // the scalar value onto the stack.
-            .stack_offset, .memory, .memory_offset => {
+            .stack_offset, .nav_ref, .uav_ref => {
                 const opcode = switch (elem_ty.bitSize(zcu)) {
                     8 => @intFromEnum(std.wasm.SimdOpcode.v128_load8_splat),
                     16 => @intFromEnum(std.wasm.SimdOpcode.v128_load16_splat),
@@ -5110,8 +5098,7 @@ fn airSplat(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                     else => break :blk, // Cannot make use of simd-instructions
                 };
                 try func.emitWValue(operand);
-                // TODO: Add helper functions for simd opcodes
-                const extra_index = @as(u32, @intCast(func.mir_extra.items.len));
+                const extra_index: u32 = @intCast(func.mir_extra.items.len);
                 // stores as := opcode, offset, alignment (opcode::memarg)
                 try func.mir_extra.appendSlice(func.gpa, &[_]u32{
                     opcode,
@@ -5759,10 +5746,9 @@ fn airMemcpy(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
 fn airRetAddr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     // TODO: Implement this properly once stack serialization is solved
-    return func.finishAir(inst, switch (func.arch()) {
+    return func.finishAir(inst, switch (func.ptr_size) {
         .wasm32 => .{ .imm32 = 0 },
         .wasm64 => .{ .imm64 = 0 },
-        else => unreachable,
     }, &.{});
 }
 
@@ -5937,7 +5923,7 @@ fn airErrorName(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const error_name_value: WValue = .{ .memory = error_table_symbol }; // emitting this will create a relocation
     try func.emitWValue(error_name_value);
     try func.emitWValue(operand);
-    switch (func.arch()) {
+    switch (func.ptr_size) {
         .wasm32 => {
             try func.addImm32(@intCast(abi_size));
             try func.addTag(.i32_mul);
@@ -5948,7 +5934,6 @@ fn airErrorName(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             try func.addTag(.i64_mul);
             try func.addTag(.i64_add);
         },
-        else => unreachable,
     }
 
     return func.finishAir(inst, .stack, &.{un_op});
