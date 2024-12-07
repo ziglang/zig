@@ -84,6 +84,10 @@ pub const Inst = struct {
         ///
         /// Uses `payload` of which the payload type is `DbgLineColumn`
         dbg_line,
+        /// Lowers to an i32_const containing the number of unique Zig error
+        /// names.
+        /// Uses `tag`.
+        errors_len,
         /// Represents the end of a function body or an initialization expression
         ///
         /// Uses `tag` (no additional data).

@@ -3634,14 +3634,12 @@ fn airCmpVector(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 fn airCmpLtErrorsLen(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const un_op = func.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
     const operand = try func.resolveInst(un_op);
-    const sym_index = try func.wasm.getGlobalSymbol("__zig_errors_len", null);
-    const errors_len: WValue = .{ .memory = @intFromEnum(sym_index) };
 
     try func.emitWValue(operand);
     const pt = func.pt;
     const err_int_ty = try pt.errorIntType();
-    const errors_len_val = try func.load(errors_len, err_int_ty, 0);
-    const result = try func.cmp(.stack, errors_len_val, err_int_ty, .lt);
+    try func.addTag(.errors_len);
+    const result = try func.cmp(.stack, .stack, err_int_ty, .lt);
 
     return func.finishAir(inst, result, &.{un_op});
 }

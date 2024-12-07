@@ -70,6 +70,16 @@ pub fn lowerToCode(emit: *Emit) Error!void {
             inst += 1;
             continue :loop tags[inst];
         },
+        .errors_len => {
+            try code.ensureUnusedCapacity(gpa, 6);
+            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.i32_const));
+            // MIR is lowered during flush, so there is indeed only one thread at this time.
+            const errors_len = 1 + comp.zcu.?.intern_pool.global_error_set.getNamesFromMainThread().len;
+            leb.writeIleb128(code.fixedWriter(), errors_len) catch unreachable;
+
+            inst += 1;
+            continue :loop tags[inst];
+        },
         .br_if, .br, .memory_grow, .memory_size => {
             try code.ensureUnusedCapacity(gpa, 11);
             code.appendAssumeCapacity(@intFromEnum(tags[inst]));
