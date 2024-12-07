@@ -5900,12 +5900,7 @@ fn airBitReverse(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
 fn airErrorName(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const un_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
-
     const operand = try cg.resolveInst(un_op);
-    // First retrieve the symbol index to the error name table
-    // that will be used to emit a relocation for the pointer
-    // to the error name table.
-    //
     // Each entry to this table is a slice (ptr+len).
     // The operand in this instruction represents the index within this table.
     // This means to get the final name, we emit the base pointer and then perform
@@ -5914,12 +5909,11 @@ fn airErrorName(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     // As the names are global and the slice elements are constant, we do not have
     // to make a copy of the ptr+value but can point towards them directly.
     const pt = cg.pt;
-    const error_table_symbol = try cg.wasm.getErrorTableSymbol(pt);
     const name_ty = Type.slice_const_u8_sentinel_0;
     const abi_size = name_ty.abiSize(pt.zcu);
 
-    const error_name_value: WValue = .{ .memory = error_table_symbol }; // emitting this will create a relocation
-    try cg.emitWValue(error_name_value);
+    // Lowers to a i32.const or i64.const with the error table memory address.
+    try cg.addTag(.error_name_table_ref);
     try cg.emitWValue(operand);
     switch (cg.ptr_size) {
         .wasm32 => {

@@ -27,6 +27,8 @@ pub fn lowerToCode(emit: *Emit) Error!void {
     const comp = wasm.base.comp;
     const gpa = comp.gpa;
     const is_obj = comp.config.output_mode == .Obj;
+    const target = &comp.root_mod.resolved_target.result;
+    const is_wasm32 = target.cpu.arch == .wasm32;
 
     const tags = mir.instructions.items(.tag);
     const datas = mir.instructions.items(.data);
@@ -56,12 +58,12 @@ pub fn lowerToCode(emit: *Emit) Error!void {
             continue :loop tags[inst];
         },
         .nav_ref => {
-            try navRefOff(wasm, code, .{ .ip_index = datas[inst].ip_index, .offset = 0 });
+            try navRefOff(wasm, code, .{ .ip_index = datas[inst].ip_index, .offset = 0 }, is_wasm32);
             inst += 1;
             continue :loop tags[inst];
         },
         .nav_ref_off => {
-            try navRefOff(wasm, code, mir.extraData(Mir.NavRefOff, datas[inst].payload).data);
+            try navRefOff(wasm, code, mir.extraData(Mir.NavRefOff, datas[inst].payload).data, is_wasm32);
             inst += 1;
             continue :loop tags[inst];
         },
@@ -79,6 +81,29 @@ pub fn lowerToCode(emit: *Emit) Error!void {
 
             inst += 1;
             continue :loop tags[inst];
+        },
+        .error_name_table_ref => {
+            try code.ensureUnusedCapacity(gpa, 11);
+            const opcode: std.wasm.Opcode = if (is_wasm32) .i32_const else .i64_const;
+            code.appendAssumeCapacity(@intFromEnum(opcode));
+            if (is_obj) {
+                try wasm.out_relocs.append(gpa, .{
+                    .offset = @intCast(code.items.len),
+                    .index = try wasm.errorNameTableSymbolIndex(),
+                    .tag = if (is_wasm32) .MEMORY_ADDR_LEB else .MEMORY_ADDR_LEB64,
+                    .addend = 0,
+                });
+                code.appendNTimesAssumeCapacity(0, if (is_wasm32) 5 else 10);
+
+                inst += 1;
+                continue :loop tags[inst];
+            } else {
+                const addr = try wasm.errorNameTableAddr();
+                leb.writeIleb128(code.fixedWriter(), addr) catch unreachable;
+
+                inst += 1;
+                continue :loop tags[inst];
+            }
         },
         .br_if, .br, .memory_grow, .memory_size => {
             try code.ensureUnusedCapacity(gpa, 11);
@@ -607,11 +632,9 @@ fn encodeMemArg(code: *std.ArrayListUnmanaged(u8), mem_arg: Mir.MemArg) void {
     leb.writeUleb128(code.fixedWriter(), mem_arg.offset) catch unreachable;
 }
 
-fn uavRefOff(wasm: *link.File.Wasm, code: *std.ArrayListUnmanaged(u8), data: Mir.UavRefOff) !void {
+fn uavRefOff(wasm: *link.File.Wasm, code: *std.ArrayListUnmanaged(u8), data: Mir.UavRefOff, is_wasm32: bool) !void {
     const comp = wasm.base.comp;
     const gpa = comp.gpa;
-    const target = comp.root_mod.resolved_target.result;
-    const is_wasm32 = target.cpu.arch == .wasm32;
     const is_obj = comp.config.output_mode == .Obj;
     const opcode: std.wasm.Opcode = if (is_wasm32) .i32_const else .i64_const;
 
@@ -636,13 +659,12 @@ fn uavRefOff(wasm: *link.File.Wasm, code: *std.ArrayListUnmanaged(u8), data: Mir
     leb.writeUleb128(code.fixedWriter(), addr + data.offset) catch unreachable;
 }
 
-fn navRefOff(wasm: *link.File.Wasm, code: *std.ArrayListUnmanaged(u8), data: Mir.NavRefOff) !void {
+fn navRefOff(wasm: *link.File.Wasm, code: *std.ArrayListUnmanaged(u8), data: Mir.NavRefOff, is_wasm32: bool) !void {
     const comp = wasm.base.comp;
     const zcu = comp.zcu.?;
     const ip = &zcu.intern_pool;
     const gpa = comp.gpa;
     const is_obj = comp.config.output_mode == .Obj;
-    const target = &comp.root_mod.resolved_target.result;
     const nav_ty = ip.getNav(data.nav_index).typeOf(ip);
 
     try code.ensureUnusedCapacity(gpa, 11);
@@ -663,7 +685,6 @@ fn navRefOff(wasm: *link.File.Wasm, code: *std.ArrayListUnmanaged(u8), data: Mir
             leb.writeUleb128(code.fixedWriter(), addr + data.offset) catch unreachable;
         }
     } else {
-        const is_wasm32 = target.cpu.arch == .wasm32;
         const opcode: std.wasm.Opcode = if (is_wasm32) .i32_const else .i64_const;
         code.appendAssumeCapacity(@intFromEnum(opcode));
         if (is_obj) {

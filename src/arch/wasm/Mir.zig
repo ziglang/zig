@@ -88,6 +88,12 @@ pub const Inst = struct {
         /// names.
         /// Uses `tag`.
         errors_len,
+        /// Lowers to an i32_const (wasm32) or i64_const (wasm64) containing
+        /// the base address of the table of error code names, with each
+        /// element being a null-terminated slice.
+        ///
+        /// Uses `tag`.
+        error_name_table_ref,
         /// Represents the end of a function body or an initialization expression
         ///
         /// Uses `tag` (no additional data).
