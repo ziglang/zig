@@ -8999,7 +8999,7 @@ fn zirIntFromEnum(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                     block,
                     operand_src,
                     "untagged union '{}' cannot be converted to integer",
-                    .{src},
+                    .{operand_ty.fmt(pt)},
                 );
             };
 
