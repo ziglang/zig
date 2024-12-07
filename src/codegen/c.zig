@@ -48,6 +48,60 @@ pub const CValue = union(enum) {
     payload_identifier: []const u8,
     /// Rendered with fmtCTypePoolString
     ctype_pool_string: CType.Pool.String,
+
+    fn eql(lhs: CValue, rhs: CValue) bool {
+        return switch (lhs) {
+            .none => rhs == .none,
+            .new_local, .local => |lhs_local| switch (rhs) {
+                .new_local, .local => |rhs_local| lhs_local == rhs_local,
+                else => false,
+            },
+            .local_ref => |lhs_local| switch (rhs) {
+                .local_ref => |rhs_local| lhs_local == rhs_local,
+                else => false,
+            },
+            .constant => |lhs_val| switch (rhs) {
+                .constant => |rhs_val| lhs_val.toIntern() == rhs_val.toIntern(),
+                else => false,
+            },
+            .arg => |lhs_arg_index| switch (rhs) {
+                .arg => |rhs_arg_index| lhs_arg_index == rhs_arg_index,
+                else => false,
+            },
+            .arg_array => |lhs_arg_index| switch (rhs) {
+                .arg_array => |rhs_arg_index| lhs_arg_index == rhs_arg_index,
+                else => false,
+            },
+            .field => |lhs_field_index| switch (rhs) {
+                .field => |rhs_field_index| lhs_field_index == rhs_field_index,
+                else => false,
+            },
+            .nav => |lhs_nav| switch (rhs) {
+                .nav => |rhs_nav| lhs_nav == rhs_nav,
+                else => false,
+            },
+            .nav_ref => |lhs_nav| switch (rhs) {
+                .nav_ref => |rhs_nav| lhs_nav == rhs_nav,
+                else => false,
+            },
+            .undef => |lhs_ty| switch (rhs) {
+                .undef => |rhs_ty| lhs_ty.toIntern() == rhs_ty.toIntern(),
+                else => false,
+            },
+            .identifier => |lhs_id| switch (rhs) {
+                .identifier => |rhs_id| std.mem.eql(u8, lhs_id, rhs_id),
+                else => false,
+            },
+            .payload_identifier => |lhs_id| switch (rhs) {
+                .payload_identifier => |rhs_id| std.mem.eql(u8, lhs_id, rhs_id),
+                else => false,
+            },
+            .ctype_pool_string => |lhs_str| switch (rhs) {
+                .ctype_pool_string => |rhs_str| lhs_str.index == rhs_str.index,
+                else => false,
+            },
+        };
+    }
 };
 
 const BlockData = struct {
@@ -4219,17 +4273,23 @@ fn airCmpOp(
     const writer = f.object.writer();
     const local = try f.allocLocal(inst, inst_ty);
     const v = try Vectorize.start(f, inst, writer, lhs_ty);
+    const a = try Assignment.start(f, writer, try f.ctypeFromType(scalar_ty, .complete));
     try f.writeCValue(writer, local, .Other);
     try v.elem(f, writer);
-    try writer.writeAll(" = ");
-    if (need_cast) try writer.writeAll("(void*)");
-    try f.writeCValue(writer, lhs, .Other);
-    try v.elem(f, writer);
-    try writer.writeAll(compareOperatorC(operator));
-    if (need_cast) try writer.writeAll("(void*)");
-    try f.writeCValue(writer, rhs, .Other);
-    try v.elem(f, writer);
-    try writer.writeAll(";\n");
+    try a.assign(f, writer);
+    if (lhs != .undef and lhs.eql(rhs)) try writer.writeAll(switch (operator) {
+        .lt, .neq, .gt => "false",
+        .lte, .eq, .gte => "true",
+    }) else {
+        if (need_cast) try writer.writeAll("(void*)");
+        try f.writeCValue(writer, lhs, .Other);
+        try v.elem(f, writer);
+        try writer.writeAll(compareOperatorC(operator));
+        if (need_cast) try writer.writeAll("(void*)");
+        try f.writeCValue(writer, rhs, .Other);
+        try v.elem(f, writer);
+    }
+    try a.end(f, writer);
     try v.end(f, inst, writer);
 
     return local;
@@ -4270,7 +4330,11 @@ fn airEquality(
     try a.assign(f, writer);
 
     const operand_ctype = try f.ctypeFromType(operand_ty, .complete);
-    switch (operand_ctype.info(ctype_pool)) {
+    if (lhs != .undef and lhs.eql(rhs)) try writer.writeAll(switch (operator) {
+        .lt, .lte, .gte, .gt => unreachable,
+        .neq => "false",
+        .eq => "true",
+    }) else switch (operand_ctype.info(ctype_pool)) {
         .basic, .pointer => {
             try f.writeCValue(writer, lhs, .Other);
             try writer.writeAll(compareOperatorC(operator));

@@ -668,3 +668,32 @@ test "address of function parameter is consistent in function addrspace" {
     };
     S.paramAddrMatch(1);
 }
+
+test "function parameter self equality" {
+    const S = struct {
+        fn equal(x: u32) bool {
+            return x == x;
+        }
+        fn notEqual(x: u32) bool {
+            return x != x;
+        }
+        fn lessThan(x: u32) bool {
+            return x < x;
+        }
+        fn lessThanOrEqual(x: u32) bool {
+            return x <= x;
+        }
+        fn greaterThan(x: u32) bool {
+            return x > x;
+        }
+        fn greaterThanOrEqual(x: u32) bool {
+            return x >= x;
+        }
+    };
+    try expect(S.equal(42));
+    try expect(!S.notEqual(42));
+    try expect(!S.lessThan(42));
+    try expect(S.lessThanOrEqual(42));
+    try expect(!S.greaterThan(42));
+    try expect(S.greaterThanOrEqual(42));
+}
