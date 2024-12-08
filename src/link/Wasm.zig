@@ -1560,7 +1560,7 @@ pub fn updateNav(wasm: *Wasm, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index
     const relocs_start: u32 = @intCast(wasm.relocations.len);
     wasm.string_bytes_lock.lock();
 
-    const res = try codegen.generateSymbol(
+    try codegen.generateSymbol(
         &wasm.base,
         pt,
         zcu.navSrcLoc(nav_index),
@@ -1573,15 +1573,9 @@ pub fn updateNav(wasm: *Wasm, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index
     const relocs_len: u32 = @intCast(wasm.relocations.len - relocs_start);
     wasm.string_bytes_lock.unlock();
 
-    const code: Nav.Code = switch (res) {
-        .ok => .{
-            .off = code_start,
-            .len = code_len,
-        },
-        .fail => |em| {
-            try zcu.failed_codegen.put(gpa, nav_index, em);
-            return;
-        },
+    const code: Nav.Code = .{
+        .off = code_start,
+        .len = code_len,
     };
 
     const gop = try wasm.navs.getOrPut(gpa, nav_index);

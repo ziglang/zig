@@ -1890,17 +1890,16 @@ pub const WipNav = struct {
         const bytes = if (ty.hasRuntimeBits(wip_nav.pt.zcu)) ty.abiSize(wip_nav.pt.zcu) else 0;
         try uleb128(diw, bytes);
         if (bytes == 0) return;
-        var dim = wip_nav.debug_info.toManaged(wip_nav.dwarf.gpa);
-        defer wip_nav.debug_info = dim.moveToUnmanaged();
+        const old_len = wip_nav.debug_info.items.len;
         try codegen.generateSymbol(
             wip_nav.dwarf.bin_file,
             wip_nav.pt,
             src_loc,
             val,
-            &dim,
+            &wip_nav.debug_info,
             .{ .debug_output = .{ .dwarf = wip_nav } },
         );
-        assert(dim.items.len == wip_nav.debug_info.items.len + bytes);
+        assert(old_len + bytes == wip_nav.debug_info.items.len);
     }
 
     const AbbrevCodeForForm = struct {

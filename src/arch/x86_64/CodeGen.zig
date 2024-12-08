@@ -817,7 +817,7 @@ pub fn generate(
     func_index: InternPool.Index,
     air: Air,
     liveness: Liveness,
-    code: *std.ArrayList(u8),
+    code: *std.ArrayListUnmanaged(u8),
     debug_output: link.File.DebugInfoOutput,
 ) CodeGenError!void {
     const zcu = pt.zcu;
@@ -970,7 +970,7 @@ pub fn generateLazy(
     pt: Zcu.PerThread,
     src_loc: Zcu.LazySrcLoc,
     lazy_sym: link.File.LazySymbol,
-    code: *std.ArrayList(u8),
+    code: *std.ArrayListUnmanaged(u8),
     debug_output: link.File.DebugInfoOutput,
 ) CodeGenError!void {
     const comp = bin_file.comp;

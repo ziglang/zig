@@ -4,7 +4,7 @@ air: Air,
 lower: Lower,
 atom_index: u32,
 debug_output: link.File.DebugInfoOutput,
-code: *std.ArrayList(u8),
+code: *std.ArrayListUnmanaged(u8),
 
 prev_di_loc: Loc,
 /// Relative to the beginning of `code`.
@@ -18,6 +18,7 @@ pub const Error = Lower.Error || error{
 } || link.File.UpdateDebugInfoError;
 
 pub fn emitMir(emit: *Emit) Error!void {
+    const gpa = emit.lower.bin_file.comp.gpa;
     for (0..emit.lower.mir.instructions.len) |mir_i| {
         const mir_index: Mir.Inst.Index = @intCast(mir_i);
         try emit.code_offset_mapping.putNoClobber(
@@ -82,7 +83,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                 }
                 continue;
             }
-            try lowered_inst.encode(emit.code.writer(), .{});
+            try lowered_inst.encode(emit.code.writer(gpa), .{});
             const end_offset: u32 = @intCast(emit.code.items.len);
             while (lowered_relocs.len > 0 and
                 lowered_relocs[0].lowered_inst_index == lowered_index) : ({
@@ -100,7 +101,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                     const zo = elf_file.zigObjectPtr().?;
                     const atom_ptr = zo.symbol(emit.atom_index).atom(elf_file).?;
                     const r_type = @intFromEnum(std.elf.R_X86_64.PLT32);
-                    try atom_ptr.addReloc(elf_file.base.comp.gpa, .{
+                    try atom_ptr.addReloc(gpa, .{
                         .r_offset = end_offset - 4,
                         .r_info = (@as(u64, @intCast(sym_index)) << 32) | r_type,
                         .r_addend = lowered_relocs[0].off - 4,
@@ -147,7 +148,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                     const zo = elf_file.zigObjectPtr().?;
                     const atom = zo.symbol(emit.atom_index).atom(elf_file).?;
                     const r_type = @intFromEnum(std.elf.R_X86_64.TLSLD);
-                    try atom.addReloc(elf_file.base.comp.gpa, .{
+                    try atom.addReloc(gpa, .{
                         .r_offset = end_offset - 4,
                         .r_info = (@as(u64, @intCast(sym_index)) << 32) | r_type,
                         .r_addend = lowered_relocs[0].off - 4,
@@ -158,7 +159,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                     const zo = elf_file.zigObjectPtr().?;
                     const atom = zo.symbol(emit.atom_index).atom(elf_file).?;
                     const r_type = @intFromEnum(std.elf.R_X86_64.DTPOFF32);
-                    try atom.addReloc(elf_file.base.comp.gpa, .{
+                    try atom.addReloc(gpa, .{
                         .r_offset = end_offset - 4,
                         .r_info = (@as(u64, @intCast(sym_index)) << 32) | r_type,
                         .r_addend = lowered_relocs[0].off,
@@ -173,7 +174,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                             @intFromEnum(std.elf.R_X86_64.GOTPCREL)
                         else
                             @intFromEnum(std.elf.R_X86_64.PC32);
-                        try atom.addReloc(elf_file.base.comp.gpa, .{
+                        try atom.addReloc(gpa, .{
                             .r_offset = end_offset - 4,
                             .r_info = (@as(u64, @intCast(sym_index)) << 32) | r_type,
                             .r_addend = lowered_relocs[0].off - 4,
@@ -183,7 +184,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                             @intFromEnum(std.elf.R_X86_64.TPOFF32)
                         else
                             @intFromEnum(std.elf.R_X86_64.@"32");
-                        try atom.addReloc(elf_file.base.comp.gpa, .{
+                        try atom.addReloc(gpa, .{
                             .r_offset = end_offset - 4,
                             .r_info = (@as(u64, @intCast(sym_index)) << 32) | r_type,
                             .r_addend = lowered_relocs[0].off,

@@ -404,8 +404,8 @@ pub fn updateFunc(
 
     const atom_idx = try self.seeNav(pt, func.owner_nav);
 
-    var code_buffer = std.ArrayList(u8).init(gpa);
-    defer code_buffer.deinit();
+    var code_buffer: std.ArrayListUnmanaged(u8) = .empty;
+    defer code_buffer.deinit(gpa);
     var dbg_info_output: DebugInfoOutput = .{
         .dbg_line = std.ArrayList(u8).init(gpa),
         .start_line = null,
@@ -426,7 +426,7 @@ pub fn updateFunc(
         &code_buffer,
         .{ .plan9 = &dbg_info_output },
     );
-    const code = try code_buffer.toOwnedSlice();
+    const code = try code_buffer.toOwnedSlice(gpa);
     self.getAtomPtr(atom_idx).code = .{
         .code_ptr = null,
         .other = .{ .nav_index = func.owner_nav },
@@ -462,8 +462,8 @@ pub fn updateNav(self: *Plan9, pt: Zcu.PerThread, nav_index: InternPool.Nav.Inde
     if (nav_init.typeOf(zcu).hasRuntimeBits(zcu)) {
         const atom_idx = try self.seeNav(pt, nav_index);
 
-        var code_buffer = std.ArrayList(u8).init(gpa);
-        defer code_buffer.deinit();
+        var code_buffer: std.ArrayListUnmanaged(u8) = .empty;
+        defer code_buffer.deinit(gpa);
         // TODO we need the symbol index for symbol in the table of locals for the containing atom
         try codegen.generateSymbol(
             &self.base,
@@ -1060,8 +1060,8 @@ fn updateLazySymbolAtom(
     const diags = &comp.link_diags;
 
     var required_alignment: InternPool.Alignment = .none;
-    var code_buffer = std.ArrayList(u8).init(gpa);
-    defer code_buffer.deinit();
+    var code_buffer: std.ArrayListUnmanaged(u8) = .empty;
+    defer code_buffer.deinit(gpa);
 
     // create the symbol for the name
     const name = try std.fmt.allocPrint(gpa, "__lazy_{s}_{}", .{
@@ -1401,16 +1401,16 @@ pub fn lowerUav(
     const got_index = self.allocateGotIndex();
     gop.value_ptr.* = index;
     // we need to free name latex
-    var code_buffer = std.ArrayList(u8).init(gpa);
+    var code_buffer: std.ArrayListUnmanaged(u8) = .empty;
+    defer code_buffer.deinit(gpa);
     try codegen.generateSymbol(&self.base, pt, src_loc, val, &code_buffer, .{ .atom_index = index });
-    const code = code_buffer.items;
     const atom_ptr = self.getAtomPtr(index);
     atom_ptr.* = .{
         .type = .d,
         .offset = undefined,
         .sym_index = null,
         .got_index = got_index,
-        .code = Atom.CodePtr.fromSlice(code),
+        .code = Atom.CodePtr.fromSlice(try code_buffer.toOwnedSlice(gpa)),
     };
     _ = try atom_ptr.getOrCreateSymbolTableEntry(self);
     self.syms.items[atom_ptr.sym_index.?] = .{

@@ -54,7 +54,7 @@ liveness: Liveness,
 bin_file: *link.File,
 target: *const std.Target,
 func_index: InternPool.Index,
-code: *std.ArrayList(u8),
+code: *std.ArrayListUnmanaged(u8),
 debug_output: link.File.DebugInfoOutput,
 err_msg: ?*ErrorMsg,
 args: []MCValue,
@@ -265,7 +265,7 @@ pub fn generate(
     func_index: InternPool.Index,
     air: Air,
     liveness: Liveness,
-    code: *std.ArrayList(u8),
+    code: *std.ArrayListUnmanaged(u8),
     debug_output: link.File.DebugInfoOutput,
 ) CodeGenError!void {
     const zcu = pt.zcu;
@@ -283,7 +283,7 @@ pub fn generate(
     }
     try branch_stack.append(.{});
 
-    var function = Self{
+    var function: Self = .{
         .gpa = gpa,
         .pt = pt,
         .air = air,
@@ -331,7 +331,7 @@ pub fn generate(
     };
     defer mir.deinit(gpa);
 
-    var emit = Emit{
+    var emit: Emit = .{
         .mir = mir,
         .bin_file = lf,
         .debug_output = debug_output,

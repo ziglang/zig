@@ -1431,8 +1431,8 @@ pub fn updateFunc(
     const sym_index = try self.getOrCreateMetadataForNav(zcu, func.owner_nav);
     self.atom(self.symbol(sym_index).ref.index).?.freeRelocs(self);
 
-    var code_buffer = std.ArrayList(u8).init(gpa);
-    defer code_buffer.deinit();
+    var code_buffer: std.ArrayListUnmanaged(u8) = .empty;
+    defer code_buffer.deinit(gpa);
 
     var debug_wip_nav = if (self.dwarf) |*dwarf| try dwarf.initWipNav(pt, func.owner_nav, sym_index) else null;
     defer if (debug_wip_nav) |*wip_nav| wip_nav.deinit();
@@ -1561,8 +1561,8 @@ pub fn updateNav(
         const sym_index = try self.getOrCreateMetadataForNav(zcu, nav_index);
         self.symbol(sym_index).atom(elf_file).?.freeRelocs(self);
 
-        var code_buffer = std.ArrayList(u8).init(zcu.gpa);
-        defer code_buffer.deinit();
+        var code_buffer: std.ArrayListUnmanaged(u8) = .empty;
+        defer code_buffer.deinit(zcu.gpa);
 
         var debug_wip_nav = if (self.dwarf) |*dwarf| try dwarf.initWipNav(pt, nav_index, sym_index) else null;
         defer if (debug_wip_nav) |*wip_nav| wip_nav.deinit();
@@ -1616,8 +1616,8 @@ fn updateLazySymbol(
     const gpa = zcu.gpa;
 
     var required_alignment: InternPool.Alignment = .none;
-    var code_buffer = std.ArrayList(u8).init(gpa);
-    defer code_buffer.deinit();
+    var code_buffer: std.ArrayListUnmanaged(u8) = .empty;
+    defer code_buffer.deinit(gpa);
 
     const name_str_index = blk: {
         const name = try std.fmt.allocPrint(gpa, "__lazy_{s}_{}", .{
@@ -1706,8 +1706,8 @@ fn lowerConst(
 ) !LowerConstResult {
     const gpa = pt.zcu.gpa;
 
-    var code_buffer = std.ArrayList(u8).init(gpa);
-    defer code_buffer.deinit();
+    var code_buffer: std.ArrayListUnmanaged(u8) = .empty;
+    defer code_buffer.deinit(gpa);
 
     const name_off = try self.addString(gpa, name);
     const sym_index = try self.newSymbolWithAtom(gpa, name_off);
