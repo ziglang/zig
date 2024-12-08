@@ -480,7 +480,7 @@ pub fn defaultPanic(
     }
 
     switch (builtin.os.tag) {
-        .freestanding => {
+        .freestanding, .other => {
             @trap();
         },
         .uefi => {
@@ -1531,9 +1531,9 @@ pub fn ConfigurableTrace(comptime size: usize, comptime stack_frame_count: usize
 }
 
 pub const SafetyLock = struct {
-    state: State = .unlocked,
+    state: State = if (runtime_safety) .unlocked else .unknown,
 
-    pub const State = if (runtime_safety) enum { unlocked, locked } else enum { unlocked };
+    pub const State = if (runtime_safety) enum { unlocked, locked } else enum { unknown };
 
     pub fn lock(l: *SafetyLock) void {
         if (!runtime_safety) return;
@@ -1551,7 +1551,21 @@ pub const SafetyLock = struct {
         if (!runtime_safety) return;
         assert(l.state == .unlocked);
     }
+
+    pub fn assertLocked(l: SafetyLock) void {
+        if (!runtime_safety) return;
+        assert(l.state == .locked);
+    }
 };
+
+test SafetyLock {
+    var safety_lock: SafetyLock = .{};
+    safety_lock.assertUnlocked();
+    safety_lock.lock();
+    safety_lock.assertLocked();
+    safety_lock.unlock();
+    safety_lock.assertUnlocked();
+}
 
 /// Detect whether the program is being executed in the Valgrind virtual machine.
 ///

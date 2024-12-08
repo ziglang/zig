@@ -1817,6 +1817,7 @@ pub fn openatZ(dir_fd: fd_t, file_path: [*:0]const u8, flags: O, mode: mode_t) O
             .OPNOTSUPP => return error.FileLocksNotSupported,
             .AGAIN => return error.WouldBlock,
             .TXTBSY => return error.FileBusy,
+            .NXIO => return error.NoDevice,
             .ILSEQ => |err| if (native_os == .wasi)
                 return error.InvalidUtf8
             else
@@ -2945,6 +2946,7 @@ pub fn mkdiratW(dir_fd: fd_t, sub_path_w: []const u16, mode: u32) MakeDirError!v
     }) catch |err| switch (err) {
         error.IsDir => return error.Unexpected,
         error.PipeBusy => return error.Unexpected,
+        error.NoDevice => return error.Unexpected,
         error.WouldBlock => return error.Unexpected,
         error.AntivirusInterference => return error.Unexpected,
         else => |e| return e,
@@ -3039,6 +3041,7 @@ pub fn mkdirW(dir_path_w: []const u16, mode: u32) MakeDirError!void {
     }) catch |err| switch (err) {
         error.IsDir => return error.Unexpected,
         error.PipeBusy => return error.Unexpected,
+        error.NoDevice => return error.Unexpected,
         error.WouldBlock => return error.Unexpected,
         error.AntivirusInterference => return error.Unexpected,
         else => |e| return e,

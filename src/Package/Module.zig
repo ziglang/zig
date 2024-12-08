@@ -205,8 +205,8 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
     const omit_frame_pointer = b: {
         if (options.inherited.omit_frame_pointer) |x| break :b x;
         if (options.parent) |p| break :b p.omit_frame_pointer;
-        if (optimize_mode == .Debug) break :b false;
-        break :b true;
+        if (optimize_mode == .ReleaseSmall) break :b true;
+        break :b false;
     };
 
     const sanitize_thread = b: {
@@ -312,18 +312,29 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
         if (!options.global.use_llvm) break :b null;
 
         var buf = std.ArrayList(u8).init(arena);
-        for (target.cpu.arch.allFeaturesList(), 0..) |feature, index_usize| {
-            const index = @as(std.Target.Cpu.Feature.Set.Index, @intCast(index_usize));
-            const is_enabled = target.cpu.features.isEnabled(index);
+        var disabled_features = std.ArrayList(u8).init(arena);
+        defer disabled_features.deinit();
 
+        // Append disabled features after enabled ones, so that their effects aren't overwritten.
+        for (target.cpu.arch.allFeaturesList()) |feature| {
             if (feature.llvm_name) |llvm_name| {
-                const plus_or_minus = "-+"[@intFromBool(is_enabled)];
-                try buf.ensureUnusedCapacity(2 + llvm_name.len);
-                buf.appendAssumeCapacity(plus_or_minus);
-                buf.appendSliceAssumeCapacity(llvm_name);
-                buf.appendSliceAssumeCapacity(",");
+                const is_enabled = target.cpu.features.isEnabled(feature.index);
+
+                if (is_enabled) {
+                    try buf.ensureUnusedCapacity(2 + llvm_name.len);
+                    buf.appendAssumeCapacity('+');
+                    buf.appendSliceAssumeCapacity(llvm_name);
+                    buf.appendAssumeCapacity(',');
+                } else {
+                    try disabled_features.ensureUnusedCapacity(2 + llvm_name.len);
+                    disabled_features.appendAssumeCapacity('-');
+                    disabled_features.appendSliceAssumeCapacity(llvm_name);
+                    disabled_features.appendAssumeCapacity(',');
+                }
             }
         }
+
+        try buf.appendSlice(disabled_features.items);
         if (buf.items.len == 0) break :b "";
         assert(std.mem.endsWith(u8, buf.items, ","));
         buf.items[buf.items.len - 1] = 0;

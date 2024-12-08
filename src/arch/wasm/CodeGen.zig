@@ -1924,6 +1924,7 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .try_ptr_cold => func.airTryPtr(inst),
 
         .dbg_stmt => func.airDbgStmt(inst),
+        .dbg_empty_stmt => try func.finishAir(inst, .none, &.{}),
         .dbg_inline_block => func.airDbgInlineBlock(inst),
         .dbg_var_ptr => func.airDbgVar(inst, .local_var, true),
         .dbg_var_val => func.airDbgVar(inst, .local_var, false),

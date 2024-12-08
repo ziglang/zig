@@ -113,8 +113,6 @@ thunks: std.ArrayListUnmanaged(Thunk) = .empty,
 merge_sections: std.ArrayListUnmanaged(Merge.Section) = .empty,
 comment_merge_section_index: ?Merge.Section.Index = null,
 
-first_eflags: ?elf.Word = null,
-
 /// `--verbose-link` output.
 /// Initialized on creation, appended to as inputs are added, printed during `flush`.
 dump_argv_list: std.ArrayListUnmanaged([]const u8),
@@ -791,7 +789,7 @@ pub fn loadInput(self: *Elf, input: link.Input) !void {
         .res => unreachable,
         .dso_exact => @panic("TODO"),
         .object => |obj| try parseObject(self, obj),
-        .archive => |obj| try parseArchive(gpa, diags, &self.file_handles, &self.files, &self.first_eflags, target, debug_fmt_strip, default_sym_version, &self.objects, obj, is_static_lib),
+        .archive => |obj| try parseArchive(gpa, diags, &self.file_handles, &self.files, target, debug_fmt_strip, default_sym_version, &self.objects, obj, is_static_lib),
         .dso => |dso| try parseDso(gpa, diags, dso, &self.shared_objects, &self.files, target),
     }
 }
@@ -1124,7 +1122,6 @@ fn parseObject(self: *Elf, obj: link.Input.Object) !void {
 
     const gpa = self.base.comp.gpa;
     const diags = &self.base.comp.link_diags;
-    const first_eflags = &self.first_eflags;
     const target = self.base.comp.root_mod.resolved_target.result;
     const debug_fmt_strip = self.base.comp.config.debug_format == .strip;
     const default_sym_version = self.default_sym_version;
@@ -1145,7 +1142,7 @@ fn parseObject(self: *Elf, obj: link.Input.Object) !void {
     try self.objects.append(gpa, index);
 
     const object = self.file(index).?.object;
-    try object.parseCommon(gpa, diags, obj.path, handle, target, first_eflags);
+    try object.parseCommon(gpa, diags, obj.path, handle, target);
     if (!self.base.isStaticLib()) {
         try object.parse(gpa, diags, obj.path, handle, target, debug_fmt_strip, default_sym_version);
     }
@@ -1156,7 +1153,6 @@ fn parseArchive(
     diags: *Diags,
     file_handles: *std.ArrayListUnmanaged(File.Handle),
     files: *std.MultiArrayList(File.Entry),
-    first_eflags: *?elf.Word,
     target: std.Target,
     debug_fmt_strip: bool,
     default_sym_version: elf.Versym,
@@ -1179,7 +1175,7 @@ fn parseArchive(
         const object = &files.items(.data)[index].object;
         object.index = index;
         object.alive = init_alive;
-        try object.parseCommon(gpa, diags, obj.path, obj.file, target, first_eflags);
+        try object.parseCommon(gpa, diags, obj.path, obj.file, target);
         if (!is_static_lib)
             try object.parse(gpa, diags, obj.path, obj.file, target, debug_fmt_strip, default_sym_version);
         try objects.append(gpa, index);
@@ -2017,7 +2013,7 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
                 } else if (target.isGnuLibC()) {
                     for (glibc.libs) |lib| {
                         if (lib.removed_in) |rem_in| {
-                            if (target.os.version_range.linux.glibc.order(rem_in) != .lt) continue;
+                            if (target.os.versionRange().gnuLibCVersion().?.order(rem_in) != .lt) continue;
                         }
 
                         const lib_path = try std.fmt.allocPrint(arena, "{}{c}lib{s}.so.{d}", .{

@@ -1593,6 +1593,7 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
             .frame_addr      => try func.airFrameAddress(inst),
             .cond_br         => try func.airCondBr(inst),
             .dbg_stmt        => try func.airDbgStmt(inst),
+            .dbg_empty_stmt  => func.finishAirBookkeeping(),
             .fptrunc         => try func.airFptrunc(inst),
             .fpext           => try func.airFpext(inst),
             .intcast         => try func.airIntCast(inst),

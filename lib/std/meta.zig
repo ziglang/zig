@@ -737,13 +737,15 @@ test TagPayload {
     try testing.expect(MovedEvent == @TypeOf(e.Moved));
 }
 
-/// Compares two of any type for equality. Containers are compared on a field-by-field basis,
-/// where possible. Pointers are not followed.
+/// Compares two of any type for equality. Containers that do not support comparison
+/// on their own are compared on a field-by-field basis. Pointers are not followed.
 pub fn eql(a: anytype, b: @TypeOf(a)) bool {
     const T = @TypeOf(a);
 
     switch (@typeInfo(T)) {
         .@"struct" => |info| {
+            if (info.layout == .@"packed") return a == b;
+
             inline for (info.fields) |field_info| {
                 if (!eql(@field(a, field_info.name), @field(b, field_info.name))) return false;
             }

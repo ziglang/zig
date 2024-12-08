@@ -309,6 +309,7 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             .server = use_server,
         });
     } else if (mem.eql(u8, cmd, "fmt")) {
+        dev.check(.fmt_command);
         return @import("fmt.zig").run(gpa, arena, cmd_args);
     } else if (mem.eql(u8, cmd, "objcopy")) {
         return jitCmd(gpa, arena, cmd_args, .{
@@ -984,6 +985,7 @@ fn buildOutputType(
         .libc_paths_file = try EnvVar.ZIG_LIBC.get(arena),
         .native_system_include_paths = &.{},
     };
+    defer create_module.link_inputs.deinit(gpa);
 
     // before arg parsing, check for the NO_COLOR and CLICOLOR_FORCE environment variables
     // if set, default the color setting to .off or .on, respectively
@@ -3682,7 +3684,7 @@ const CreateModule = struct {
     /// This one is used while collecting CLI options. The set of libs is used
     /// directly after computing the target and used to compute link_libc,
     /// link_libcpp, and then the libraries are filtered into
-    /// `unresolved_linker_inputs` and `windows_libs`.
+    /// `unresolved_link_inputs` and `windows_libs`.
     cli_link_inputs: std.ArrayListUnmanaged(link.UnresolvedInput),
     windows_libs: std.StringArrayHashMapUnmanaged(void),
     /// The local variable `unresolved_link_inputs` is fed into library
@@ -3816,7 +3818,8 @@ fn createModule(
         // to decide whether to trigger native path detection logic.
         // Preserves linker input order.
         var unresolved_link_inputs: std.ArrayListUnmanaged(link.UnresolvedInput) = .empty;
-        try unresolved_link_inputs.ensureUnusedCapacity(arena, create_module.cli_link_inputs.items.len);
+        defer unresolved_link_inputs.deinit(gpa);
+        try unresolved_link_inputs.ensureUnusedCapacity(gpa, create_module.cli_link_inputs.items.len);
         var any_name_queries_remaining = false;
         for (create_module.cli_link_inputs.items) |cli_link_input| switch (cli_link_input) {
             .name_query => |nq| {
@@ -3829,16 +3832,13 @@ fn createModule(
                     create_module.opts.link_libcpp = true;
                     continue;
                 }
-                switch (target_util.classifyCompilerRtLibName(target, lib_name)) {
+                switch (target_util.classifyCompilerRtLibName(lib_name)) {
                     .none => {},
                     .only_libunwind, .both => {
                         create_module.opts.link_libunwind = true;
                         continue;
                     },
-                    .only_compiler_rt => {
-                        warn("ignoring superfluous library '{s}': this dependency is fulfilled instead by compiler-rt which zig unconditionally provides", .{lib_name});
-                        continue;
-                    },
+                    .only_compiler_rt => continue,
                 }
 
                 if (target.isMinGW()) {
@@ -5241,7 +5241,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                 std.debug.lockStdErr();
                 defer std.debug.unlockStdErr();
                 break :t child.spawnAndWait() catch |err| {
-                    fatal("unable to spawn {s}: {s}", .{ child_argv.items[0], @errorName(err) });
+                    fatal("failed to spawn build runner {s}: {s}", .{ child_argv.items[0], @errorName(err) });
                 };
             };
 

@@ -401,133 +401,133 @@ pub const all_features = blk: {
 };
 
 pub const cpu = struct {
-    pub const generic = CpuModel{
+    pub const generic: CpuModel = .{
         .name = "generic",
         .llvm_name = "generic",
         .features = featureSet(&[_]Feature{
             .mips32,
         }),
     };
-    pub const mips1 = CpuModel{
+    pub const mips1: CpuModel = .{
         .name = "mips1",
         .llvm_name = "mips1",
         .features = featureSet(&[_]Feature{
             .mips1,
         }),
     };
-    pub const mips2 = CpuModel{
+    pub const mips2: CpuModel = .{
         .name = "mips2",
         .llvm_name = "mips2",
         .features = featureSet(&[_]Feature{
             .mips2,
         }),
     };
-    pub const mips3 = CpuModel{
+    pub const mips3: CpuModel = .{
         .name = "mips3",
         .llvm_name = "mips3",
         .features = featureSet(&[_]Feature{
             .mips3,
         }),
     };
-    pub const mips32 = CpuModel{
+    pub const mips32: CpuModel = .{
         .name = "mips32",
         .llvm_name = "mips32",
         .features = featureSet(&[_]Feature{
             .mips32,
         }),
     };
-    pub const mips32r2 = CpuModel{
+    pub const mips32r2: CpuModel = .{
         .name = "mips32r2",
         .llvm_name = "mips32r2",
         .features = featureSet(&[_]Feature{
             .mips32r2,
         }),
     };
-    pub const mips32r3 = CpuModel{
+    pub const mips32r3: CpuModel = .{
         .name = "mips32r3",
         .llvm_name = "mips32r3",
         .features = featureSet(&[_]Feature{
             .mips32r3,
         }),
     };
-    pub const mips32r5 = CpuModel{
+    pub const mips32r5: CpuModel = .{
         .name = "mips32r5",
         .llvm_name = "mips32r5",
         .features = featureSet(&[_]Feature{
             .mips32r5,
         }),
     };
-    pub const mips32r6 = CpuModel{
+    pub const mips32r6: CpuModel = .{
         .name = "mips32r6",
         .llvm_name = "mips32r6",
         .features = featureSet(&[_]Feature{
             .mips32r6,
         }),
     };
-    pub const mips4 = CpuModel{
+    pub const mips4: CpuModel = .{
         .name = "mips4",
         .llvm_name = "mips4",
         .features = featureSet(&[_]Feature{
             .mips4,
         }),
     };
-    pub const mips5 = CpuModel{
+    pub const mips5: CpuModel = .{
         .name = "mips5",
         .llvm_name = "mips5",
         .features = featureSet(&[_]Feature{
             .mips5,
         }),
     };
-    pub const mips64 = CpuModel{
+    pub const mips64: CpuModel = .{
         .name = "mips64",
         .llvm_name = "mips64",
         .features = featureSet(&[_]Feature{
             .mips64,
         }),
     };
-    pub const mips64r2 = CpuModel{
+    pub const mips64r2: CpuModel = .{
         .name = "mips64r2",
         .llvm_name = "mips64r2",
         .features = featureSet(&[_]Feature{
             .mips64r2,
         }),
     };
-    pub const mips64r3 = CpuModel{
+    pub const mips64r3: CpuModel = .{
         .name = "mips64r3",
         .llvm_name = "mips64r3",
         .features = featureSet(&[_]Feature{
             .mips64r3,
         }),
     };
-    pub const mips64r5 = CpuModel{
+    pub const mips64r5: CpuModel = .{
         .name = "mips64r5",
         .llvm_name = "mips64r5",
         .features = featureSet(&[_]Feature{
             .mips64r5,
         }),
     };
-    pub const mips64r6 = CpuModel{
+    pub const mips64r6: CpuModel = .{
         .name = "mips64r6",
         .llvm_name = "mips64r6",
         .features = featureSet(&[_]Feature{
             .mips64r6,
         }),
     };
-    pub const octeon = CpuModel{
+    pub const octeon: CpuModel = .{
         .name = "octeon",
         .llvm_name = "octeon",
         .features = featureSet(&[_]Feature{
             .cnmips,
         }),
     };
-    pub const @"octeon+" = CpuModel{
+    pub const @"octeon+": CpuModel = .{
         .name = "octeon+",
         .llvm_name = "octeon+",
         .features = featureSet(&[_]Feature{
             .cnmipsp,
         }),
     };
-    pub const p5600 = CpuModel{
+    pub const p5600: CpuModel = .{
         .name = "p5600",
         .llvm_name = "p5600",
         .features = featureSet(&[_]Feature{

@@ -217,6 +217,11 @@ pub const HashHelper = struct {
             },
             std.Target.Os.TaggedVersionRange => {
                 switch (x) {
+                    .hurd => |hurd| {
+                        hh.add(hurd.range.min);
+                        hh.add(hurd.range.max);
+                        hh.add(hurd.glibc);
+                    },
                     .linux => |linux| {
                         hh.add(linux.range.min);
                         hh.add(linux.range.max);
