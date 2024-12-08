@@ -314,7 +314,9 @@ pub fn rehashTrackedInsts(
 
     // We know how big each shard must be, so ensure we have the capacity we need.
     for (ip.shards) |*shard| {
-        const want_capacity = std.math.ceilPowerOfTwo(u32, shard.mutate.tracked_inst_map.len * 5 / 3) catch unreachable;
+        const want_capacity = if (shard.mutate.tracked_inst_map.len == 0) 0 else cap: {
+            break :cap std.math.ceilPowerOfTwo(u32, shard.mutate.tracked_inst_map.len * 5 / 3) catch unreachable;
+        };
         const have_capacity = shard.shared.tracked_inst_map.header().capacity; // no acquire because we hold the mutex
         if (have_capacity >= want_capacity) {
             @memset(shard.shared.tracked_inst_map.entries[0..have_capacity], .{ .value = .none, .hash = undefined });
