@@ -3828,6 +3828,7 @@ fn createModule(
                 if (target.os.tag == .wasi) {
                     if (wasi_libc.getEmulatedLibCrtFile(lib_name)) |crt_file| {
                         try create_module.wasi_emulated_libs.append(arena, crt_file);
+                        create_module.opts.link_libc = true;
                         continue;
                     }
                 }
