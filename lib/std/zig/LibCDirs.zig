@@ -187,7 +187,7 @@ pub fn detectFromBuilding(
         "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "generic-{s}",
         .{ zig_lib_dir, generic_name },
     );
-    const generic_arch_name = target.osArchName();
+    const generic_arch_name = std.zig.target.osArchName(target);
     const arch_os_include_dir = try std.fmt.allocPrint(
         arena,
         "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "{s}-{s}-any",

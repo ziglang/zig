@@ -218,23 +218,6 @@ pub const Os = struct {
                 .windows => .windows,
             };
         }
-
-        pub fn archName(tag: Tag, arch: Cpu.Arch) [:0]const u8 {
-            return switch (tag) {
-                .linux => switch (arch) {
-                    .arm, .armeb, .thumb, .thumbeb => "arm",
-                    .aarch64, .aarch64_be => "aarch64",
-                    .loongarch32, .loongarch64 => "loongarch",
-                    .mips, .mipsel, .mips64, .mips64el => "mips",
-                    .powerpc, .powerpcle, .powerpc64, .powerpc64le => "powerpc",
-                    .riscv32, .riscv64 => "riscv",
-                    .sparc, .sparc64 => "sparc",
-                    .x86, .x86_64 => "x86",
-                    else => @tagName(arch),
-                },
-                else => @tagName(arch),
-            };
-        }
     };
 
     /// Based on NTDDI version constants from
@@ -3355,10 +3338,6 @@ pub fn cCallingConvention(target: Target) ?std.builtin.CallingConvention {
         .nvptx, .nvptx64 => .nvptx_device,
         .spirv, .spirv32, .spirv64 => .spirv_device,
     };
-}
-
-pub fn osArchName(target: std.Target) [:0]const u8 {
-    return target.os.tag.archName(target.cpu.arch);
 }
 
 const Target = @This();
