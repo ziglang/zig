@@ -5254,17 +5254,10 @@ pub fn addCCArgs(
         try argv.append("-fno-caret-diagnostics");
     }
 
-    if (comp.function_sections) {
-        try argv.append("-ffunction-sections");
-    }
+    try argv.append(if (comp.function_sections) "-ffunction-sections" else "-fno-function-sections");
+    try argv.append(if (comp.data_sections) "-fdata-sections" else "-fno-data-sections");
 
-    if (comp.data_sections) {
-        try argv.append("-fdata-sections");
-    }
-
-    if (mod.no_builtin) {
-        try argv.append("-fno-builtin");
-    }
+    try argv.append(if (mod.no_builtin) "-fno-builtin" else "-fbuiltin");
 
     if (comp.config.link_libcpp) {
         const libcxx_include_path = try std.fs.path.join(arena, &[_][]const u8{
@@ -5482,17 +5475,11 @@ pub fn addCCArgs(
                 }
             }
 
-            if (mod.red_zone) {
-                try argv.append("-mred-zone");
-            } else if (target_util.hasRedZone(target)) {
-                try argv.append("-mno-red-zone");
+            if (target_util.hasRedZone(target)) {
+                try argv.append(if (mod.red_zone) "-mred-zone" else "-mno-red-zone");
             }
 
-            if (mod.omit_frame_pointer) {
-                try argv.append("-fomit-frame-pointer");
-            } else {
-                try argv.append("-fno-omit-frame-pointer");
-            }
+            try argv.append(if (mod.omit_frame_pointer) "-fomit-frame-pointer" else "-fno-omit-frame-pointer");
 
             const ssp_buf_size = mod.stack_protector;
             if (ssp_buf_size != 0) {
@@ -5629,8 +5616,8 @@ pub fn addCCArgs(
         try argv.append("-municode");
     }
 
-    if (target.cpu.arch.isThumb()) {
-        try argv.append("-mthumb");
+    if (target.cpu.arch.isArm()) {
+        try argv.append(if (target.cpu.arch.isThumb()) "-mthumb" else "-mno-thumb");
     }
 
     if (target_util.supports_fpic(target)) {
