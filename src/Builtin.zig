@@ -38,15 +38,15 @@ pub fn append(opts: @This(), buffer: *std.ArrayList(u8)) Allocator.Error!void {
         \\pub const zig_version_string = "{s}";
         \\pub const zig_backend = std.builtin.CompilerBackend.{p_};
         \\
-        \\pub const output_mode = std.builtin.OutputMode.{p_};
-        \\pub const link_mode = std.builtin.LinkMode.{p_};
+        \\pub const output_mode: std.builtin.OutputMode = .{p_};
+        \\pub const link_mode: std.builtin.LinkMode = .{p_};
         \\pub const is_test = {};
         \\pub const single_threaded = {};
-        \\pub const abi = std.Target.Abi.{p_};
+        \\pub const abi: std.Target.Abi = .{p_};
         \\pub const cpu: std.Target.Cpu = .{{
         \\    .arch = .{p_},
         \\    .model = &std.Target.{p_}.cpu.{p_},
-        \\    .features = std.Target.{p_}.featureSet(&[_]std.Target.{p_}.Feature{{
+        \\    .features = std.Target.{p_}.featureSet(&.{{
         \\
     , .{
         build_options.version,
@@ -60,7 +60,6 @@ pub fn append(opts: @This(), buffer: *std.ArrayList(u8)) Allocator.Error!void {
         std.zig.fmtId(generic_arch_name),
         std.zig.fmtId(target.cpu.model.name),
         std.zig.fmtId(generic_arch_name),
-        std.zig.fmtId(generic_arch_name),
     });
 
     for (target.cpu.arch.allFeaturesList(), 0..) |feature, index_usize| {
@@ -73,7 +72,7 @@ pub fn append(opts: @This(), buffer: *std.ArrayList(u8)) Allocator.Error!void {
     try buffer.writer().print(
         \\    }}),
         \\}};
-        \\pub const os = std.Target.Os{{
+        \\pub const os: std.Target.Os = .{{
         \\    .tag = .{p_},
         \\    .version_range = .{{
     ,
@@ -196,13 +195,13 @@ pub fn append(opts: @This(), buffer: *std.ArrayList(u8)) Allocator.Error!void {
 
     if (target.dynamic_linker.get()) |dl| {
         try buffer.writer().print(
-            \\    .dynamic_linker = std.Target.DynamicLinker.init("{s}"),
+            \\    .dynamic_linker = .init("{s}"),
             \\}};
             \\
         , .{dl});
     } else {
         try buffer.appendSlice(
-            \\    .dynamic_linker = std.Target.DynamicLinker.none,
+            \\    .dynamic_linker = .none,
             \\};
             \\
         );
@@ -216,8 +215,8 @@ pub fn append(opts: @This(), buffer: *std.ArrayList(u8)) Allocator.Error!void {
     const link_libc = opts.link_libc;
 
     try buffer.writer().print(
-        \\pub const object_format = std.Target.ObjectFormat.{p_};
-        \\pub const mode = std.builtin.OptimizeMode.{p_};
+        \\pub const object_format: std.Target.ObjectFormat = .{p_};
+        \\pub const mode: std.builtin.OptimizeMode = .{p_};
         \\pub const link_libc = {};
         \\pub const link_libcpp = {};
         \\pub const have_error_return_tracing = {};
@@ -227,7 +226,7 @@ pub fn append(opts: @This(), buffer: *std.ArrayList(u8)) Allocator.Error!void {
         \\pub const position_independent_code = {};
         \\pub const position_independent_executable = {};
         \\pub const strip_debug_info = {};
-        \\pub const code_model = std.builtin.CodeModel.{p_};
+        \\pub const code_model: std.builtin.CodeModel = .{p_};
         \\pub const omit_frame_pointer = {};
         \\
     , .{
@@ -248,7 +247,7 @@ pub fn append(opts: @This(), buffer: *std.ArrayList(u8)) Allocator.Error!void {
 
     if (target.os.tag == .wasi) {
         try buffer.writer().print(
-            \\pub const wasi_exec_model = std.builtin.WasiExecModel.{p_};
+            \\pub const wasi_exec_model: std.builtin.WasiExecModel = .{p_};
             \\
         , .{std.zig.fmtId(@tagName(opts.wasi_exec_model))});
     }
