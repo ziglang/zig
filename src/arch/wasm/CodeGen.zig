@@ -18,7 +18,6 @@ const Compilation = @import("../../Compilation.zig");
 const link = @import("../../link.zig");
 const Air = @import("../../Air.zig");
 const Liveness = @import("../../Liveness.zig");
-const target_util = @import("../../target.zig");
 const Mir = @import("Mir.zig");
 const Emit = @import("Emit.zig");
 const abi = @import("abi.zig");
@@ -26,6 +25,12 @@ const Alignment = InternPool.Alignment;
 const errUnionPayloadOffset = codegen.errUnionPayloadOffset;
 const errUnionErrorOffset = codegen.errUnionErrorOffset;
 const Wasm = link.File.Wasm;
+
+const target_util = @import("../../target.zig");
+const libcFloatPrefix = target_util.libcFloatPrefix;
+const libcFloatSuffix = target_util.libcFloatSuffix;
+const compilerRtFloatAbbrev = target_util.compilerRtFloatAbbrev;
+const compilerRtIntAbbrev = target_util.compilerRtIntAbbrev;
 
 /// Reference to the function declaration the code
 /// section belongs to
@@ -854,7 +859,6 @@ fn processDeath(cg: *CodeGen, ref: Air.Inst.Ref) void {
     }
 }
 
-/// Appends a MIR instruction and returns its index within the list of instructions
 fn addInst(cg: *CodeGen, inst: Mir.Inst) error{OutOfMemory}!void {
     try cg.mir_instructions.append(cg.gpa, inst);
 }
@@ -871,14 +875,6 @@ fn addExtended(cg: *CodeGen, opcode: std.wasm.MiscOpcode) error{OutOfMemory}!voi
 
 fn addLabel(cg: *CodeGen, tag: Mir.Inst.Tag, label: u32) error{OutOfMemory}!void {
     try cg.addInst(.{ .tag = tag, .data = .{ .label = label } });
-}
-
-fn addIpIndex(cg: *CodeGen, tag: Mir.Inst.Tag, i: InternPool.Index) Allocator.Error!void {
-    try cg.addInst(.{ .tag = tag, .data = .{ .ip_index = i } });
-}
-
-fn addNav(cg: *CodeGen, tag: Mir.Inst.Tag, i: InternPool.Nav.Index) Allocator.Error!void {
-    try cg.addInst(.{ .tag = tag, .data = .{ .nav_index = i } });
 }
 
 /// Accepts an unsigned 32bit integer rather than a signed integer to
@@ -1887,8 +1883,8 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .shl_sat => cg.airShlSat(inst),
         .shr, .shr_exact => cg.airBinOp(inst, .shr),
         .xor => cg.airBinOp(inst, .xor),
-        .max => cg.airMaxMin(inst, .max),
-        .min => cg.airMaxMin(inst, .min),
+        .max => cg.airMaxMin(inst, .fmax, .gt),
+        .min => cg.airMaxMin(inst, .fmin, .lt),
         .mul_add => cg.airMulAdd(inst),
 
         .sqrt => cg.airUnaryFloatOp(inst, .sqrt),
@@ -2263,7 +2259,7 @@ fn airCall(cg: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModifie
     }
 
     if (callee) |nav_index| {
-        try cg.addNav(.call_nav, nav_index);
+        try cg.addInst(.{ .tag = .call_nav, .data = .{ .nav_index = nav_index } });
     } else {
         // in this case we call a function pointer
         // so load its value onto the stack
@@ -2669,20 +2665,20 @@ fn binOpBigInt(cg: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, op: Op) InnerEr
     }
 
     switch (op) {
-        .mul => return cg.callIntrinsic("__multi3", &.{ ty.toIntern(), ty.toIntern() }, ty, &.{ lhs, rhs }),
+        .mul => return cg.callIntrinsic(.__multi3, &.{ ty.toIntern(), ty.toIntern() }, ty, &.{ lhs, rhs }),
         .div => switch (int_info.signedness) {
-            .signed => return cg.callIntrinsic("__divti3", &.{ ty.toIntern(), ty.toIntern() }, ty, &.{ lhs, rhs }),
-            .unsigned => return cg.callIntrinsic("__udivti3", &.{ ty.toIntern(), ty.toIntern() }, ty, &.{ lhs, rhs }),
+            .signed => return cg.callIntrinsic(.__divti3, &.{ ty.toIntern(), ty.toIntern() }, ty, &.{ lhs, rhs }),
+            .unsigned => return cg.callIntrinsic(.__udivti3, &.{ ty.toIntern(), ty.toIntern() }, ty, &.{ lhs, rhs }),
         },
         .rem => switch (int_info.signedness) {
-            .signed => return cg.callIntrinsic("__modti3", &.{ ty.toIntern(), ty.toIntern() }, ty, &.{ lhs, rhs }),
-            .unsigned => return cg.callIntrinsic("__umodti3", &.{ ty.toIntern(), ty.toIntern() }, ty, &.{ lhs, rhs }),
+            .signed => return cg.callIntrinsic(.__modti3, &.{ ty.toIntern(), ty.toIntern() }, ty, &.{ lhs, rhs }),
+            .unsigned => return cg.callIntrinsic(.__umodti3, &.{ ty.toIntern(), ty.toIntern() }, ty, &.{ lhs, rhs }),
         },
         .shr => switch (int_info.signedness) {
-            .signed => return cg.callIntrinsic("__ashrti3", &.{ ty.toIntern(), .i32_type }, ty, &.{ lhs, rhs }),
-            .unsigned => return cg.callIntrinsic("__lshrti3", &.{ ty.toIntern(), .i32_type }, ty, &.{ lhs, rhs }),
+            .signed => return cg.callIntrinsic(.__ashrti3, &.{ ty.toIntern(), .i32_type }, ty, &.{ lhs, rhs }),
+            .unsigned => return cg.callIntrinsic(.__lshrti3, &.{ ty.toIntern(), .i32_type }, ty, &.{ lhs, rhs }),
         },
-        .shl => return cg.callIntrinsic("__ashlti3", &.{ ty.toIntern(), .i32_type }, ty, &.{ lhs, rhs }),
+        .shl => return cg.callIntrinsic(.__ashlti3, &.{ ty.toIntern(), .i32_type }, ty, &.{ lhs, rhs }),
         .@"and", .@"or", .xor => {
             const result = try cg.allocStack(ty);
             try cg.emitWValue(result);
@@ -2802,6 +2798,46 @@ const FloatOp = enum {
             => null,
         };
     }
+
+    fn intrinsic(op: FloatOp, bits: u16) Mir.Intrinsic {
+        return switch (op) {
+            inline .add, .sub, .div, .mul => |ct_op| switch (bits) {
+                inline 16, 80, 128 => |ct_bits| @field(
+                    Mir.Intrinsic,
+                    "__" ++ @tagName(ct_op) ++ compilerRtFloatAbbrev(ct_bits) ++ "f3",
+                ),
+                else => unreachable,
+            },
+
+            inline .ceil,
+            .cos,
+            .exp,
+            .exp2,
+            .fabs,
+            .floor,
+            .fma,
+            .fmax,
+            .fmin,
+            .fmod,
+            .log,
+            .log10,
+            .log2,
+            .round,
+            .sin,
+            .sqrt,
+            .tan,
+            .trunc,
+            => |ct_op| switch (bits) {
+                inline 16, 80, 128 => |ct_bits| @field(
+                    Mir.Intrinsic,
+                    libcFloatPrefix(ct_bits) ++ @tagName(ct_op) ++ libcFloatSuffix(ct_bits),
+                ),
+                else => unreachable,
+            },
+
+            .neg => unreachable,
+        };
+    }
 };
 
 fn airAbs(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
@@ -2919,44 +2955,12 @@ fn floatOp(cg: *CodeGen, float_op: FloatOp, ty: Type, args: []const WValue) Inne
         }
     }
 
-    var fn_name_buf: [64]u8 = undefined;
-    const fn_name = switch (float_op) {
-        .add,
-        .sub,
-        .div,
-        .mul,
-        => std.fmt.bufPrint(&fn_name_buf, "__{s}{s}f3", .{
-            @tagName(float_op), target_util.compilerRtFloatAbbrev(float_bits),
-        }) catch unreachable,
-
-        .ceil,
-        .cos,
-        .exp,
-        .exp2,
-        .fabs,
-        .floor,
-        .fma,
-        .fmax,
-        .fmin,
-        .fmod,
-        .log,
-        .log10,
-        .log2,
-        .round,
-        .sin,
-        .sqrt,
-        .tan,
-        .trunc,
-        => std.fmt.bufPrint(&fn_name_buf, "{s}{s}{s}", .{
-            target_util.libcFloatPrefix(float_bits), @tagName(float_op), target_util.libcFloatSuffix(float_bits),
-        }) catch unreachable,
-        .neg => unreachable, // handled above
-    };
+    const intrinsic = float_op.intrinsic(float_bits);
 
     // fma requires three operands
     var param_types_buffer: [3]InternPool.Index = .{ ty.ip_index, ty.ip_index, ty.ip_index };
     const param_types = param_types_buffer[0..args.len];
-    return cg.callIntrinsic(fn_name, param_types, ty, args);
+    return cg.callIntrinsic(intrinsic, param_types, ty, args);
 }
 
 /// NOTE: The result value remains on top of the stack.
@@ -3605,12 +3609,8 @@ fn cmpFloat(cg: *CodeGen, ty: Type, lhs: WValue, rhs: WValue, cmp_op: std.math.C
             return .stack;
         },
         80, 128 => {
-            var fn_name_buf: [32]u8 = undefined;
-            const fn_name = std.fmt.bufPrint(&fn_name_buf, "__{s}{s}f2", .{
-                @tagName(op), target_util.compilerRtFloatAbbrev(float_bits),
-            }) catch unreachable;
-
-            const result = try cg.callIntrinsic(fn_name, &.{ ty.ip_index, ty.ip_index }, Type.bool, &.{ lhs, rhs });
+            const intrinsic = floatCmpIntrinsic(cmp_op, float_bits);
+            const result = try cg.callIntrinsic(intrinsic, &.{ ty.ip_index, ty.ip_index }, Type.bool, &.{ lhs, rhs });
             return cg.cmp(result, .{ .imm32 = 0 }, Type.i32, cmp_op);
         },
         else => unreachable,
@@ -5001,19 +5001,26 @@ fn airIntFromFloat(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     }
 
     if ((op_bits != 32 and op_bits != 64) or dest_info.bits > 64) {
-        const dest_bitsize = if (dest_info.bits <= 16) 16 else std.math.ceilPowerOfTwoAssert(u16, dest_info.bits);
+        const dest_bitsize = if (dest_info.bits <= 32) 32 else std.math.ceilPowerOfTwoAssert(u16, dest_info.bits);
 
-        var fn_name_buf: [16]u8 = undefined;
-        const fn_name = std.fmt.bufPrint(&fn_name_buf, "__fix{s}{s}f{s}i", .{
-            switch (dest_info.signedness) {
-                .signed => "",
-                .unsigned => "uns",
+        const intrinsic = switch (dest_info.signedness) {
+            inline .signed, .unsigned => |ct_s| switch (op_bits) {
+                inline 16, 32, 64, 80, 128 => |ct_op_bits| switch (dest_bitsize) {
+                    inline 32, 64, 128 => |ct_dest_bits| @field(
+                        Mir.Intrinsic,
+                        "__fix" ++ switch (ct_s) {
+                            .signed => "",
+                            .unsigned => "uns",
+                        } ++
+                            compilerRtFloatAbbrev(ct_op_bits) ++ "f" ++
+                            compilerRtIntAbbrev(ct_dest_bits) ++ "i",
+                    ),
+                    else => unreachable,
+                },
+                else => unreachable,
             },
-            target_util.compilerRtFloatAbbrev(op_bits),
-            target_util.compilerRtIntAbbrev(dest_bitsize),
-        }) catch unreachable;
-
-        const result = try cg.callIntrinsic(fn_name, &.{op_ty.ip_index}, dest_ty, &.{operand});
+        };
+        const result = try cg.callIntrinsic(intrinsic, &.{op_ty.ip_index}, dest_ty, &.{operand});
         return cg.finishAir(inst, result, &.{ty_op.operand});
     }
 
@@ -5046,19 +5053,27 @@ fn airFloatFromInt(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     }
 
     if (op_info.bits > 64 or (dest_bits > 64 or dest_bits < 32)) {
-        const op_bitsize = if (op_info.bits <= 16) 16 else std.math.ceilPowerOfTwoAssert(u16, op_info.bits);
+        const op_bitsize = if (op_info.bits <= 32) 32 else std.math.ceilPowerOfTwoAssert(u16, op_info.bits);
 
-        var fn_name_buf: [16]u8 = undefined;
-        const fn_name = std.fmt.bufPrint(&fn_name_buf, "__float{s}{s}i{s}f", .{
-            switch (op_info.signedness) {
-                .signed => "",
-                .unsigned => "un",
+        const intrinsic = switch (op_info.signedness) {
+            inline .signed, .unsigned => |ct_s| switch (op_bitsize) {
+                inline 32, 64, 128 => |ct_int_bits| switch (dest_bits) {
+                    inline 16, 32, 64, 80, 128 => |ct_float_bits| @field(
+                        Mir.Intrinsic,
+                        "__float" ++ switch (ct_s) {
+                            .signed => "",
+                            .unsigned => "un",
+                        } ++
+                            compilerRtIntAbbrev(ct_int_bits) ++ "i" ++
+                            compilerRtFloatAbbrev(ct_float_bits) ++ "f",
+                    ),
+                    else => unreachable,
+                },
+                else => unreachable,
             },
-            target_util.compilerRtIntAbbrev(op_bitsize),
-            target_util.compilerRtFloatAbbrev(dest_bits),
-        }) catch unreachable;
+        };
 
-        const result = try cg.callIntrinsic(fn_name, &.{op_ty.ip_index}, dest_ty, &.{operand});
+        const result = try cg.callIntrinsic(intrinsic, &.{op_ty.ip_index}, dest_ty, &.{operand});
         return cg.finishAir(inst, result, &.{ty_op.operand});
     }
 
@@ -5577,39 +5592,49 @@ fn airFpext(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     return cg.finishAir(inst, result, &.{ty_op.operand});
 }
 
-/// Extends a float from a given `Type` to a larger wanted `Type`
-/// NOTE: Leaves the result on the stack
+/// Extends a float from a given `Type` to a larger wanted `Type`, leaving the
+/// result on the stack.
 fn fpext(cg: *CodeGen, operand: WValue, given: Type, wanted: Type) InnerError!WValue {
     const given_bits = given.floatBits(cg.target.*);
     const wanted_bits = wanted.floatBits(cg.target.*);
 
-    if (wanted_bits == 64 and given_bits == 32) {
-        try cg.emitWValue(operand);
-        try cg.addTag(.f64_promote_f32);
-        return .stack;
-    } else if (given_bits == 16 and wanted_bits <= 64) {
-        // call __extendhfsf2(f16) f32
-        const f32_result = try cg.callIntrinsic(
-            "__extendhfsf2",
-            &.{.f16_type},
-            Type.f32,
-            &.{operand},
-        );
-        assert(f32_result == .stack);
-
-        if (wanted_bits == 64) {
-            try cg.addTag(.f64_promote_f32);
-        }
-        return .stack;
-    }
-
-    var fn_name_buf: [13]u8 = undefined;
-    const fn_name = std.fmt.bufPrint(&fn_name_buf, "__extend{s}f{s}f2", .{
-        target_util.compilerRtFloatAbbrev(given_bits),
-        target_util.compilerRtFloatAbbrev(wanted_bits),
-    }) catch unreachable;
-
-    return cg.callIntrinsic(fn_name, &.{given.ip_index}, wanted, &.{operand});
+    const intrinsic: Mir.Intrinsic = switch (given_bits) {
+        16 => switch (wanted_bits) {
+            32 => {
+                assert(.stack == try cg.callIntrinsic(.__extendhfsf2, &.{.f16_type}, Type.f32, &.{operand}));
+                return .stack;
+            },
+            64 => {
+                assert(.stack == try cg.callIntrinsic(.__extendhfsf2, &.{.f16_type}, Type.f32, &.{operand}));
+                try cg.addTag(.f64_promote_f32);
+                return .stack;
+            },
+            80 => .__extendhfxf2,
+            128 => .__extendhftf2,
+            else => unreachable,
+        },
+        32 => switch (wanted_bits) {
+            64 => {
+                try cg.emitWValue(operand);
+                try cg.addTag(.f64_promote_f32);
+                return .stack;
+            },
+            80 => .__extendsfxf2,
+            128 => .__extendsftf2,
+            else => unreachable,
+        },
+        64 => switch (wanted_bits) {
+            80 => .__extenddfxf2,
+            128 => .__extenddftf2,
+            else => unreachable,
+        },
+        80 => switch (wanted_bits) {
+            128 => .__extendxftf2,
+            else => unreachable,
+        },
+        else => unreachable,
+    };
+    return cg.callIntrinsic(intrinsic, &.{given.ip_index}, wanted, &.{operand});
 }
 
 fn airFptrunc(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
@@ -5621,34 +5646,48 @@ fn airFptrunc(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     return cg.finishAir(inst, result, &.{ty_op.operand});
 }
 
-/// Truncates a float from a given `Type` to its wanted `Type`
-/// NOTE: The result value remains on the stack
+/// Truncates a float from a given `Type` to its wanted `Type`, leaving the
+/// result on the stack.
 fn fptrunc(cg: *CodeGen, operand: WValue, given: Type, wanted: Type) InnerError!WValue {
     const given_bits = given.floatBits(cg.target.*);
     const wanted_bits = wanted.floatBits(cg.target.*);
 
-    if (wanted_bits == 32 and given_bits == 64) {
-        try cg.emitWValue(operand);
-        try cg.addTag(.f32_demote_f64);
-        return .stack;
-    } else if (wanted_bits == 16 and given_bits <= 64) {
-        const op: WValue = if (given_bits == 64) blk: {
-            try cg.emitWValue(operand);
-            try cg.addTag(.f32_demote_f64);
-            break :blk .stack;
-        } else operand;
-
-        // call __truncsfhf2(f32) f16
-        return cg.callIntrinsic("__truncsfhf2", &.{.f32_type}, Type.f16, &.{op});
-    }
-
-    var fn_name_buf: [12]u8 = undefined;
-    const fn_name = std.fmt.bufPrint(&fn_name_buf, "__trunc{s}f{s}f2", .{
-        target_util.compilerRtFloatAbbrev(given_bits),
-        target_util.compilerRtFloatAbbrev(wanted_bits),
-    }) catch unreachable;
-
-    return cg.callIntrinsic(fn_name, &.{given.ip_index}, wanted, &.{operand});
+    const intrinsic: Mir.Intrinsic = switch (given_bits) {
+        32 => switch (wanted_bits) {
+            16 => {
+                return cg.callIntrinsic(.__truncsfhf2, &.{.f32_type}, Type.f16, &.{operand});
+            },
+            else => unreachable,
+        },
+        64 => switch (wanted_bits) {
+            16 => {
+                try cg.emitWValue(operand);
+                try cg.addTag(.f32_demote_f64);
+                return cg.callIntrinsic(.__truncsfhf2, &.{.f32_type}, Type.f16, &.{.stack});
+            },
+            32 => {
+                try cg.emitWValue(operand);
+                try cg.addTag(.f32_demote_f64);
+                return .stack;
+            },
+            else => unreachable,
+        },
+        80 => switch (wanted_bits) {
+            16 => .__truncxfhf2,
+            32 => .__truncxfsf2,
+            64 => .__truncxfdf2,
+            else => unreachable,
+        },
+        128 => switch (wanted_bits) {
+            16 => .__trunctfhf2,
+            32 => .__trunctfsf2,
+            64 => .__trunctfdf2,
+            80 => .__trunctfxf2,
+            else => unreachable,
+        },
+        else => unreachable,
+    };
+    return cg.callIntrinsic(intrinsic, &.{given.ip_index}, wanted, &.{operand});
 }
 
 fn airErrUnionPayloadPtrSet(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
@@ -5823,7 +5862,7 @@ fn airBitReverse(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     switch (wasm_bits) {
         32 => {
             const intrin_ret = try cg.callIntrinsic(
-                "__bitreversesi2",
+                .__bitreversesi2,
                 &.{.u32_type},
                 Type.u32,
                 &.{operand},
@@ -5836,7 +5875,7 @@ fn airBitReverse(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         },
         64 => {
             const intrin_ret = try cg.callIntrinsic(
-                "__bitreversedi2",
+                .__bitreversedi2,
                 &.{.u64_type},
                 Type.u64,
                 &.{operand},
@@ -5853,7 +5892,7 @@ fn airBitReverse(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             try cg.emitWValue(result);
             const first_half = try cg.load(operand, Type.u64, 8);
             const intrin_ret_first = try cg.callIntrinsic(
-                "__bitreversedi2",
+                .__bitreversedi2,
                 &.{.u64_type},
                 Type.u64,
                 &.{first_half},
@@ -5866,7 +5905,7 @@ fn airBitReverse(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             try cg.emitWValue(result);
             const second_half = try cg.load(operand, Type.u64, 0);
             const intrin_ret_second = try cg.callIntrinsic(
-                "__bitreversedi2",
+                .__bitreversedi2,
                 &.{.u64_type},
                 Type.u64,
                 &.{second_half},
@@ -6114,19 +6153,19 @@ fn airMulWithOverflow(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         defer rhs_msb.free(cg);
 
         const cross_1 = try cg.callIntrinsic(
-            "__multi3",
+            .__multi3,
             &[_]InternPool.Index{.i64_type} ** 4,
             Type.i128,
             &.{ lhs_msb, zero, rhs_lsb, zero },
         );
         const cross_2 = try cg.callIntrinsic(
-            "__multi3",
+            .__multi3,
             &[_]InternPool.Index{.i64_type} ** 4,
             Type.i128,
             &.{ rhs_msb, zero, lhs_lsb, zero },
         );
         const mul_lsb = try cg.callIntrinsic(
-            "__multi3",
+            .__multi3,
             &[_]InternPool.Index{.i64_type} ** 4,
             Type.i128,
             &.{ rhs_lsb, zero, lhs_lsb, zero },
@@ -6165,7 +6204,7 @@ fn airMulWithOverflow(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     } else if (int_info.bits == 128 and int_info.signedness == .signed) blk: {
         const overflow_ret = try cg.allocStack(Type.i32);
         const res = try cg.callIntrinsic(
-            "__muloti4",
+            .__muloti4,
             &[_]InternPool.Index{ .i128_type, .i128_type, .usize_type },
             Type.i128,
             &.{ lhs, rhs, overflow_ret },
@@ -6185,8 +6224,12 @@ fn airMulWithOverflow(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     return cg.finishAir(inst, result, &.{ extra.lhs, extra.rhs });
 }
 
-fn airMaxMin(cg: *CodeGen, inst: Air.Inst.Index, op: Op) InnerError!void {
-    assert(op == .max or op == .min);
+fn airMaxMin(
+    cg: *CodeGen,
+    inst: Air.Inst.Index,
+    op: enum { fmax, fmin },
+    cmp_op: std.math.CompareOperator,
+) InnerError!void {
     const pt = cg.pt;
     const zcu = pt.zcu;
     const bin_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
@@ -6204,20 +6247,22 @@ fn airMaxMin(cg: *CodeGen, inst: Air.Inst.Index, op: Op) InnerError!void {
     const rhs = try cg.resolveInst(bin_op.rhs);
 
     if (ty.zigTypeTag(zcu) == .float) {
-        var fn_name_buf: [64]u8 = undefined;
-        const float_bits = ty.floatBits(cg.target.*);
-        const fn_name = std.fmt.bufPrint(&fn_name_buf, "{s}f{s}{s}", .{
-            target_util.libcFloatPrefix(float_bits),
-            @tagName(op),
-            target_util.libcFloatSuffix(float_bits),
-        }) catch unreachable;
-        const result = try cg.callIntrinsic(fn_name, &.{ ty.ip_index, ty.ip_index }, ty, &.{ lhs, rhs });
+        const intrinsic = switch (op) {
+            inline .fmin, .fmax => |ct_op| switch (ty.floatBits(cg.target.*)) {
+                inline 16, 32, 64, 80, 128 => |bits| @field(
+                    Mir.Intrinsic,
+                    libcFloatPrefix(bits) ++ @tagName(ct_op) ++ libcFloatSuffix(bits),
+                ),
+                else => unreachable,
+            },
+        };
+        const result = try cg.callIntrinsic(intrinsic, &.{ ty.ip_index, ty.ip_index }, ty, &.{ lhs, rhs });
         try cg.lowerToStack(result);
     } else {
         // operands to select from
         try cg.lowerToStack(lhs);
         try cg.lowerToStack(rhs);
-        _ = try cg.cmp(lhs, rhs, ty, if (op == .max) .gt else .lt);
+        _ = try cg.cmp(lhs, rhs, ty, cmp_op);
 
         // based on the result from comparison, return operand 0 or 1.
         try cg.addTag(.select);
@@ -6247,7 +6292,7 @@ fn airMulAdd(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         const addend_ext = try cg.fpext(addend, ty, Type.f32);
         // call to compiler-rt `fn fmaf(f32, f32, f32) f32`
         const result = try cg.callIntrinsic(
-            "fmaf",
+            .fmaf,
             &.{ .f32_type, .f32_type, .f32_type },
             Type.f32,
             &.{ rhs_ext, lhs_ext, addend_ext },
@@ -6508,7 +6553,7 @@ fn airByteSwap(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         switch (wasm_bits) {
             32 => {
                 const intrin_ret = try cg.callIntrinsic(
-                    "__bswapsi2",
+                    .__bswapsi2,
                     &.{.u32_type},
                     Type.u32,
                     &.{operand},
@@ -6520,7 +6565,7 @@ fn airByteSwap(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             },
             64 => {
                 const intrin_ret = try cg.callIntrinsic(
-                    "__bswapdi2",
+                    .__bswapdi2,
                     &.{.u64_type},
                     Type.u64,
                     &.{operand},
@@ -6777,7 +6822,7 @@ fn airSatMul(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             }
             const overflow_ret = try cg.allocStack(Type.i32);
             _ = try cg.callIntrinsic(
-                "__mulodi4",
+                .__mulodi4,
                 &[_]InternPool.Index{ .i64_type, .i64_type, .usize_type },
                 Type.i64,
                 &.{ lhs, rhs, overflow_ret },
@@ -6795,7 +6840,7 @@ fn airSatMul(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             }
             const overflow_ret = try cg.allocStack(Type.i32);
             const ret = try cg.callIntrinsic(
-                "__muloti4",
+                .__muloti4,
                 &[_]InternPool.Index{ .i128_type, .i128_type, .usize_type },
                 Type.i128,
                 &.{ lhs, rhs, overflow_ret },
@@ -7044,17 +7089,14 @@ fn airShlSat(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 /// May leave the return value on the stack.
 fn callIntrinsic(
     cg: *CodeGen,
-    name: []const u8,
+    intrinsic: Mir.Intrinsic,
     param_types: []const InternPool.Index,
     return_type: Type,
     args: []const WValue,
 ) InnerError!WValue {
     assert(param_types.len == args.len);
-    const wasm = cg.wasm;
     const pt = cg.pt;
     const zcu = pt.zcu;
-    const func_type_index = try genFunctype(wasm, .{ .wasm_watc = .{} }, param_types, return_type, pt, cg.target);
-    const func_index = wasm.getOutputFunction(try wasm.internString(name), func_type_index);
 
     // Always pass over C-ABI
 
@@ -7074,8 +7116,7 @@ fn callIntrinsic(
         try cg.lowerArg(.{ .wasm_watc = .{} }, Type.fromInterned(param_types[arg_i]), arg);
     }
 
-    // Actually call our intrinsic
-    try cg.addLabel(.call_func, func_index);
+    try cg.addInst(.{ .tag = .call_intrinsic, .data = .{ .intrinsic = intrinsic } });
 
     if (!return_type.hasRuntimeBitsIgnoreComptime(zcu)) {
         return .none;
@@ -7097,7 +7138,7 @@ fn airTagName(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const result_ptr = try cg.allocStack(cg.typeOfIndex(inst));
     try cg.lowerToStack(result_ptr);
     try cg.emitWValue(operand);
-    try cg.addIpIndex(.call_tag_name, enum_ty.toIntern());
+    try cg.addInst(.{ .tag = .call_tag_name, .data = .{ .ip_index = enum_ty.toIntern() } });
 
     return cg.finishAir(inst, result_ptr, &.{un_op});
 }
@@ -7513,4 +7554,39 @@ fn typeOfIndex(cg: *CodeGen, inst: Air.Inst.Index) Type {
     const pt = cg.pt;
     const zcu = pt.zcu;
     return cg.air.typeOfIndex(inst, &zcu.intern_pool);
+}
+
+fn floatCmpIntrinsic(op: std.math.CompareOperator, bits: u16) Mir.Intrinsic {
+    return switch (op) {
+        .lt => switch (bits) {
+            80 => .__ltxf2,
+            128 => .__lttf2,
+            else => unreachable,
+        },
+        .lte => switch (bits) {
+            80 => .__lexf2,
+            128 => .__letf2,
+            else => unreachable,
+        },
+        .eq => switch (bits) {
+            80 => .__eqxf2,
+            128 => .__eqtf2,
+            else => unreachable,
+        },
+        .neq => switch (bits) {
+            80 => .__nexf2,
+            128 => .__netf2,
+            else => unreachable,
+        },
+        .gte => switch (bits) {
+            80 => .__gexf2,
+            128 => .__getf2,
+            else => unreachable,
+        },
+        .gt => switch (bits) {
+            80 => .__gtxf2,
+            128 => .__gttf2,
+            else => unreachable,
+        },
+    };
 }

@@ -178,6 +178,51 @@ pub fn lowerToCode(emit: *Emit) Error!void {
             continue :loop tags[inst];
         },
 
+        .call_tag_name => {
+            try code.ensureUnusedCapacity(gpa, 6);
+            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.call));
+            if (is_obj) {
+                try wasm.out_relocs.append(gpa, .{
+                    .offset = @intCast(code.items.len),
+                    .index = try wasm.tagNameSymbolIndex(datas[inst].ip_index),
+                    .tag = .FUNCTION_INDEX_LEB,
+                    .addend = 0,
+                });
+                code.appendNTimesAssumeCapacity(0, 5);
+            } else {
+                const func_index = try wasm.tagNameFunctionIndex(datas[inst].ip_index);
+                leb.writeUleb128(code.fixedWriter(), @intFromEnum(func_index)) catch unreachable;
+            }
+
+            inst += 1;
+            continue :loop tags[inst];
+        },
+
+        .call_intrinsic => {
+            // Although this currently uses `wasm.internString`, note that it
+            // *could* be changed to directly index into a preloaded strings
+            // table initialized based on the `Mir.Intrinsic` enum.
+            const symbol_name = try wasm.internString(@tagName(datas[inst].intrinsic));
+
+            try code.ensureUnusedCapacity(gpa, 6);
+            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.call));
+            if (is_obj) {
+                try wasm.out_relocs.append(gpa, .{
+                    .offset = @intCast(code.items.len),
+                    .index = try wasm.symbolNameIndex(symbol_name),
+                    .tag = .FUNCTION_INDEX_LEB,
+                    .addend = 0,
+                });
+                code.appendNTimesAssumeCapacity(0, 5);
+            } else {
+                const func_index = try wasm.symbolNameFunctionIndex(symbol_name);
+                leb.writeUleb128(code.fixedWriter(), @intFromEnum(func_index)) catch unreachable;
+            }
+
+            inst += 1;
+            continue :loop tags[inst];
+        },
+
         .global_set => {
             try code.ensureUnusedCapacity(gpa, 6);
             code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.global_set));
