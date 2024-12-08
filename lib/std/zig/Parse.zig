@@ -205,6 +205,40 @@ pub fn parseZon(p: *Parse) !void {
     };
 }
 
+pub fn findUnmatchedParen(gpa: Allocator, token_tags: []const Token.Tag) !?TokenIndex {
+    var stack = std.ArrayList(struct {
+        tag: Token.Tag,
+        idx: TokenIndex,
+    }).init(gpa);
+    defer stack.deinit();
+
+    for (token_tags, 0..) |t, i| {
+        switch (t) {
+            .l_paren, .l_brace, .l_bracket => try stack.append(.{ .tag = t, .idx = @intCast(i) }),
+            .r_paren, .r_brace, .r_bracket => {
+                if (stack.items.len == 0)
+                    return @intCast(i);
+                const opening = stack.pop();
+                if (t != closingParen(opening.tag))
+                    return opening.idx;
+            },
+            else => {},
+        }
+    }
+    if (stack.items.len > 0)
+        return stack.pop().idx;
+    return null;
+}
+
+fn closingParen(a: Token.Tag) Token.Tag {
+    return switch (a) {
+        .l_paren => .r_paren,
+        .l_brace => .r_brace,
+        .l_bracket => .r_bracket,
+        else => unreachable,
+    };
+}
+
 /// ContainerMembers <- ContainerDeclaration* (ContainerField COMMA)* (ContainerField / ContainerDeclaration*)
 ///
 /// ContainerDeclaration <- TestDecl / ComptimeDecl / doc_comment? KEYWORD_pub? Decl
