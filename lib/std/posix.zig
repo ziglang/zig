@@ -24,6 +24,7 @@ const maxInt = std.math.maxInt;
 const cast = std.math.cast;
 const assert = std.debug.assert;
 const native_os = builtin.os.tag;
+const native_abi = builtin.abi;
 
 test {
     _ = @import("posix/test.zig");
@@ -4765,6 +4766,66 @@ pub fn munmap(memory: []align(mem.page_size) const u8) void {
         .NOMEM => unreachable, // Attempted to unmap a region in the middle of an existing mapping.
         else => unreachable,
     }
+}
+
+pub const MRemapError = error{
+    /// "Segmanetation Fault".
+    /// The passed in slice is not a valid virtual address
+    /// for the process.
+    PageFault,
+
+    LockedMemoryLimitExceeded,
+    OutOfMemory,
+} || UnexpectedError;
+
+pub fn mremap(
+    memory: []align(mem.page_size) const u8,
+    new_len: usize,
+    may_move: bool,
+) MRemapError![]align(mem.page_size) u8 {
+    const err: E = blk: {
+        if (use_libc) {
+            if (native_os.isGnuLibC(native_abi)) {
+                const rc = system.mremap(
+                    memory.ptr,
+                    memory.len,
+                    new_len,
+                    .{ .MAYMOVE = may_move },
+                );
+                if (rc != std.c.MAP_FAILED) {
+                    const head: [*]align(mem.page_size) u8 = @ptrCast(@alignCast(rc));
+                    return head[0..new_len];
+                } else {
+                    break :blk @enumFromInt(system._errno().*);
+                }
+            }
+        } else if (native_os == .linux) {
+            const rc = system.mremap(
+                memory.ptr,
+                memory.len,
+                new_len,
+                .{ .MAYMOVE = may_move },
+                undefined,
+            );
+            switch (errno(rc)) {
+                .SUCCESS => {
+                    const head: [*]align(mem.page_size) u8 = @ptrFromInt(rc);
+                    return head[0..new_len];
+                },
+                else => |err| break :blk err,
+            }
+        }
+        @compileError("mremap is not available on this target");
+    };
+
+    return switch (err) {
+        .SUCCESS => unreachable, // Handled above
+        .INVAL => unreachable, // Invalid parameters
+        .AGAIN => error.LockedMemoryLimitExceeded,
+        .FAULT => error.PageFault,
+        .NOMEM => error.OutOfMemory,
+        else => unexpectedErrno(err),
+    };
 }
 
 pub const MSyncError = error{
