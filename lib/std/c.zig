@@ -7640,6 +7640,25 @@ pub const MAP = switch (native_os) {
     else => void,
 };
 
+pub const REMAP = blk: {
+    if (native_os.isGnuLibC(native_abi)) {
+        if (versionCheck(.{ .major = 2, .minor = 4 })) {
+            packed struct(c_uint) {
+                MAYMOVE: bool = false,
+                FIXED: bool = false,
+                DONTUNMAP: bool = false,
+                _: u29 = 0,
+            };
+        } else {
+            break :blk packed struct(c_uint) {
+                MAYMOVE: bool = false,
+                _: u31 = 0,
+            };
+        }
+    }
+    break :blk void;
+};
+
 /// Used by libc to communicate failure. Not actually part of the underlying syscall.
 pub const MAP_FAILED: *anyopaque = @ptrFromInt(maxInt(usize));
 
