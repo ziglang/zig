@@ -617,3 +617,83 @@ test "inline function with comptime-known comptime-only return type called at ru
     try expectEqual(111, a);
     try expectEqual(f32, T);
 }
+
+test "address of function parameter is consistent" {
+    const S = struct {
+        fn paramAddrMatch(x: u8) bool {
+            return &x == &x;
+        }
+    };
+    try expect(S.paramAddrMatch(0));
+    comptime assert(S.paramAddrMatch(0));
+}
+
+test "address of function parameter is consistent in other parameter type" {
+    const S = struct {
+        fn paramAddrMatch(comptime x: u8, y: if (&x != &x) unreachable else u8) void {
+            _ = y;
+        }
+    };
+    S.paramAddrMatch(1, 2);
+}
+
+test "address of function parameter is consistent in function align" {
+    switch (builtin.target.cpu.arch) {
+        .wasm32, .wasm64 => return, // function alignment not supported
+        else => {},
+    }
+    const S = struct {
+        fn paramAddrMatch(comptime x: u8) align(if (&x != &x) unreachable else 1) void {}
+    };
+    S.paramAddrMatch(1);
+}
+
+test "address of function parameter is consistent in function callconv" {
+    const S = struct {
+        fn paramAddrMatch(comptime x: u8) callconv(if (&x != &x) unreachable else .auto) void {}
+    };
+    S.paramAddrMatch(1);
+}
+
+test "address of function parameter is consistent in function return type" {
+    const S = struct {
+        fn paramAddrMatch(comptime x: u8) if (&x != &x) unreachable else void {}
+    };
+    S.paramAddrMatch(1);
+}
+
+test "address of function parameter is consistent in function addrspace" {
+    const S = struct {
+        fn paramAddrMatch(comptime x: u8) addrspace(if (&x != &x) unreachable else .generic) void {}
+    };
+    S.paramAddrMatch(1);
+}
+
+test "function parameter self equality" {
+    const S = struct {
+        fn equal(x: u32) bool {
+            return x == x;
+        }
+        fn notEqual(x: u32) bool {
+            return x != x;
+        }
+        fn lessThan(x: u32) bool {
+            return x < x;
+        }
+        fn lessThanOrEqual(x: u32) bool {
+            return x <= x;
+        }
+        fn greaterThan(x: u32) bool {
+            return x > x;
+        }
+        fn greaterThanOrEqual(x: u32) bool {
+            return x >= x;
+        }
+    };
+    try expect(S.equal(42));
+    try expect(!S.notEqual(42));
+    try expect(!S.lessThan(42));
+    try expect(S.lessThanOrEqual(42));
+    try expect(!S.greaterThan(42));
+    try expect(S.greaterThanOrEqual(42));
+}

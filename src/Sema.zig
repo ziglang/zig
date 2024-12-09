@@ -1051,6 +1051,7 @@ fn analyzeBodyInner(
             .alloc_inferred_mut           => try sema.zirAllocInferred(block, false),
             .alloc_inferred_comptime      => try sema.zirAllocInferredComptime(true),
             .alloc_inferred_comptime_mut  => try sema.zirAllocInferredComptime(false),
+            .resolve_inferred_alloc       => try sema.zirResolveInferredAlloc(block, inst),
             .alloc_mut                    => try sema.zirAllocMut(block, inst),
             .alloc_comptime_mut           => try sema.zirAllocComptime(block, inst),
             .make_ptr_const               => try sema.zirMakePtrConst(block, inst),
@@ -1415,11 +1416,6 @@ fn analyzeBodyInner(
             },
             .store_to_inferred_ptr => {
                 try sema.zirStoreToInferredPtr(block, inst);
-                i += 1;
-                continue;
-            },
-            .resolve_inferred_alloc => {
-                try sema.zirResolveInferredAlloc(block, inst);
                 i += 1;
                 continue;
             },
@@ -4158,7 +4154,7 @@ fn zirAllocInferred(
     return result_index.toRef();
 }
 
-fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
+fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -4175,7 +4171,7 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
     switch (sema.air_instructions.items(.tag)[@intFromEnum(ptr_inst)]) {
         .inferred_alloc_comptime => {
             // The work was already done for us by `Sema.storeToInferredAllocComptime`.
-            // All we need to do is remap the pointer.
+            // All we need to do is return the pointer.
             const iac = sema.air_instructions.items(.data)[@intFromEnum(ptr_inst)].inferred_alloc_comptime;
             const resolved_ptr = iac.ptr;
 
@@ -4200,8 +4196,7 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
                 }
             }
 
-            // Remap the ZIR operand to the resolved pointer value
-            sema.inst_map.putAssumeCapacity(inst_data.operand.toIndex().?, Air.internedToRef(resolved_ptr));
+            return Air.internedToRef(resolved_ptr);
         },
         .inferred_alloc => {
             const ia1 = sema.air_instructions.items(.data)[@intFromEnum(ptr_inst)].inferred_alloc;
@@ -4228,15 +4223,12 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
                 const const_ptr_ty = try sema.makePtrTyConst(final_ptr_ty);
                 const new_const_ptr = try pt.getCoerced(Value.fromInterned(ptr_val), const_ptr_ty);
 
-                // Remap the ZIR operand to the resolved pointer value
-                sema.inst_map.putAssumeCapacity(inst_data.operand.toIndex().?, Air.internedToRef(new_const_ptr.toIntern()));
-
                 // Unless the block is comptime, `alloc_inferred` always produces
                 // a runtime constant. The final inferred type needs to be
                 // fully resolved so it can be lowered in codegen.
                 try final_elem_ty.resolveFully(pt);
 
-                return;
+                return Air.internedToRef(new_const_ptr.toIntern());
             }
 
             if (try final_elem_ty.comptimeOnlySema(pt)) {
@@ -4254,11 +4246,6 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
                 .tag = .alloc,
                 .data = .{ .ty = final_ptr_ty },
             });
-
-            if (ia1.is_const) {
-                // Remap the ZIR operand to the pointer const
-                sema.inst_map.putAssumeCapacity(inst_data.operand.toIndex().?, try sema.makePtrConst(block, ptr));
-            }
 
             // Now we need to go back over all the store instructions, and do the logic as if
             // the new result ptr type was available.
@@ -4296,6 +4283,12 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
                     } },
                 });
                 sema.air_extra.appendSliceAssumeCapacity(@ptrCast(replacement_block.instructions.items));
+            }
+
+            if (ia1.is_const) {
+                return sema.makePtrConst(block, ptr);
+            } else {
+                return ptr;
             }
         },
         else => unreachable,
@@ -33044,7 +33037,9 @@ fn analyzeRef(
         }
     }
 
-    try sema.requireRuntimeBlock(block, src, null);
+    // No `requireRuntimeBlock`; it's okay to `ref` to a runtime value in a comptime context,
+    // it's just that we can only use the *type* of the result, since the value is runtime-known.
+
     const address_space = target_util.defaultAddressSpace(zcu.getTarget(), .local);
     const ptr_type = try pt.ptrTypeSema(.{
         .child = operand_ty.toIntern(),
@@ -33058,10 +33053,17 @@ fn analyzeRef(
         .flags = .{ .address_space = address_space },
     });
     const alloc = try block.addTy(.alloc, mut_ptr_type);
-    try sema.storePtr(block, src, alloc, operand);
 
-    // TODO: Replace with sema.coerce when that supports adding pointer constness.
-    return sema.bitCast(block, ptr_type, alloc, src, null);
+    // In a comptime context, the store would fail, since the operand is runtime-known. But that's
+    // okay; we don't actually need this store to succeed, since we're creating a runtime value in a
+    // comptime scope, so the value can never be used aside from to get its type.
+    if (!block.is_comptime) {
+        try sema.storePtr(block, src, alloc, operand);
+    }
+
+    // Cast to the constant pointer type. We do this directly rather than going via `coerce` to
+    // avoid errors in the `block.is_comptime` case.
+    return block.addBitCast(ptr_type, alloc);
 }
 
 fn analyzeLoad(
