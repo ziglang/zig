@@ -1131,6 +1131,7 @@ pub fn addStackTraceTests(
 pub fn addDebugFormatStackTraceTests(
     b: *std.Build,
     optimize_modes: []const OptimizeMode,
+    skip_non_native: bool,
 ) *Step {
     const check_exe = b.addExecutable(.{
         .name = "check-debug-format-stack-trace",
@@ -1139,13 +1140,32 @@ pub fn addDebugFormatStackTraceTests(
         .optimize = .Debug,
     });
 
+    const targets = blk: {
+        var targets = std.ArrayListUnmanaged(DebugFormatStackTraceContext.Target){};
+        for (optimize_modes) |optimize_mode| {
+            targets.append(b.allocator, .{
+                .optimize_mode = optimize_mode,
+                .target = .{},
+            }) catch @panic("OOM");
+
+            if (skip_non_native) continue;
+
+            targets.appendSlice(b.allocator, &.{
+                .{ .optimize_mode = optimize_mode, .target = .{ .os_tag = .linux } },
+                .{ .optimize_mode = optimize_mode, .target = .{ .os_tag = .windows } },
+                .{ .optimize_mode = optimize_mode, .target = .{ .os_tag = .macos } },
+            }) catch @panic("OOM");
+        }
+        break :blk targets.toOwnedSlice(b.allocator) catch @panic("OOM");
+    };
+
     const cases = b.allocator.create(DebugFormatStackTraceContext) catch @panic("OOM");
     cases.* = .{
         .b = b,
         .step = b.step("test-debug-format-stack-traces", "Run the debug format stack trace tests"),
         .test_index = 0,
         .check_exe = check_exe,
-        .optimize_modes = optimize_modes,
+        .targets = targets,
     };
 
     debug_format_stack_traces.addCases(cases);

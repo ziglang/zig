@@ -1,8 +1,13 @@
 b: *std.Build,
 step: *Step,
 test_index: usize,
-optimize_modes: []const OptimizeMode,
+targets: []const Target,
 check_exe: *std.Build.Step.Compile,
+
+pub const Target = struct {
+    target: std.Target.Query,
+    optimize_mode: OptimizeMode,
+};
 
 const Config = struct {
     name: []const u8,
@@ -33,24 +38,28 @@ fn addExpect(
     debug_format: std.builtin.DebugFormat,
     mode_config: Config.PerFormat,
 ) void {
-    for (mode_config.exclude_os) |tag| if (tag == builtin.os.tag) return;
-
     const b = this.b;
     const write_files = b.addWriteFiles();
     const source_zig = write_files.add("source.zig", source);
 
-    for (this.optimize_modes) |mode| {
-        if (mem.indexOfScalar(std.builtin.OptimizeMode, mode_config.exclude_optimize_mode, mode)) |_| continue;
+    add_target_loop: for (this.targets) |target| {
+        if (mem.indexOfScalar(std.builtin.OptimizeMode, mode_config.exclude_optimize_mode, target.optimize_mode)) |_| continue :add_target_loop;
 
-        const annotated_case_name = fmt.allocPrint(b.allocator, "check {s} ({s},{s})", .{
-            name, @tagName(debug_format), @tagName(mode),
+        const resolved_target = b.resolveTargetQuery(target.target);
+        for (mode_config.exclude_os) |tag| if (tag == resolved_target.result.os.tag) continue :add_target_loop;
+
+        const annotated_case_name = fmt.allocPrint(b.allocator, "check {s}-{s}-{s}-{s}", .{
+            name,
+            @tagName(debug_format),
+            @tagName(target.optimize_mode),
+            resolved_target.result.linuxTriple(b.allocator) catch @panic("OOM"),
         }) catch @panic("OOM");
 
         const exe = b.addExecutable(.{
             .name = "test",
             .root_source_file = source_zig,
-            .target = b.graph.host,
-            .optimize = mode,
+            .target = resolved_target,
+            .optimize = target.optimize_mode,
             .debuginfo = debug_format,
         });
 
@@ -60,7 +69,7 @@ fn addExpect(
 
         // make sure to add term check fist, as `expectStdOutEqual` will detect no expectation for term and make it check for exit code 0
         if (mode_config.expect_panic) {
-            switch (builtin.os.tag) {
+            switch (resolved_target.result.os.tag) {
                 // Expect exit code 3 on abort: https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/abort?view=msvc-170
                 .windows => run.addCheck(.{ .expect_term = .{ .Exited = 3 } }),
                 else => run.addCheck(.{ .expect_term = .{ .Signal = 6 } }),
@@ -81,7 +90,6 @@ fn addExpect(
 }
 
 const std = @import("std");
-const builtin = @import("builtin");
 const OptimizeMode = std.builtin.OptimizeMode;
 const Step = std.Build.Step;
 const fmt = std.fmt;
