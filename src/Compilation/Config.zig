@@ -430,8 +430,8 @@ pub fn resolve(options: Options) ResolveError!Config {
         if (!target_util.hasDebugInfo(target)) break :b .none;
         break :b switch (target.ofmt) {
             .elf, .goff, .macho, .wasm, .xcoff => switch (root_optimize_mode) {
-                .Debug => .dwarf32,
-                .ReleaseSafe, .ReleaseFast => .symbols,
+                .Debug, .ReleaseSafe => .dwarf32,
+                .ReleaseFast => .symbols,
                 .ReleaseSmall => unreachable,
             },
             .coff => .code_view,
