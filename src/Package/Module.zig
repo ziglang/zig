@@ -205,8 +205,8 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
     const omit_frame_pointer = b: {
         if (options.inherited.omit_frame_pointer) |x| break :b x;
         if (options.parent) |p| break :b p.omit_frame_pointer;
-        if (optimize_mode == .Debug) break :b false;
-        break :b true;
+        if (optimize_mode == .ReleaseSmall) break :b true;
+        break :b false;
     };
 
     const sanitize_thread = b: {

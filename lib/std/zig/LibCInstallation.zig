@@ -182,7 +182,7 @@ pub fn findNative(args: FindNativeOptions) FindError!LibCInstallation {
         });
         return self;
     } else if (is_windows) {
-        const sdk = std.zig.WindowsSdk.find(args.allocator) catch |err| switch (err) {
+        const sdk = std.zig.WindowsSdk.find(args.allocator, args.target.cpu.arch) catch |err| switch (err) {
             error.NotFound => return error.WindowsSdkNotFound,
             error.PathTooLong => return error.WindowsSdkNotFound,
             error.OutOfMemory => return error.OutOfMemory,
