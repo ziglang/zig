@@ -3824,6 +3824,15 @@ fn createModule(
         for (create_module.cli_link_inputs.items) |cli_link_input| switch (cli_link_input) {
             .name_query => |nq| {
                 const lib_name = nq.name;
+
+                if (target.os.tag == .wasi) {
+                    if (wasi_libc.getEmulatedLibCrtFile(lib_name)) |crt_file| {
+                        try create_module.wasi_emulated_libs.append(arena, crt_file);
+                        create_module.opts.link_libc = true;
+                        continue;
+                    }
+                }
+
                 if (std.zig.target.isLibCLibName(target, lib_name)) {
                     create_module.opts.link_libc = true;
                     continue;
@@ -3832,6 +3841,7 @@ fn createModule(
                     create_module.opts.link_libcpp = true;
                     continue;
                 }
+
                 switch (target_util.classifyCompilerRtLibName(lib_name)) {
                     .none => {},
                     .only_libunwind, .both => {
@@ -3857,12 +3867,6 @@ fn createModule(
                     fatal("cannot use absolute path as a system library: {s}", .{lib_name});
                 }
 
-                if (target.os.tag == .wasi) {
-                    if (wasi_libc.getEmulatedLibCrtFile(lib_name)) |crt_file| {
-                        try create_module.wasi_emulated_libs.append(arena, crt_file);
-                        continue;
-                    }
-                }
                 unresolved_link_inputs.appendAssumeCapacity(cli_link_input);
                 any_name_queries_remaining = true;
             },
