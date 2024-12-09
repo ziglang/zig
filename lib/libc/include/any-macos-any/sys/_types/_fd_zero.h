@@ -26,5 +26,6 @@
  * @APPLE_OSREFERENCE_LICENSE_HEADER_END@
  */
 #ifndef FD_ZERO
+#include <sys/_types/_fd_def.h>
 #define FD_ZERO(p)      __DARWIN_FD_ZERO(p)
 #endif /* FD_ZERO */
