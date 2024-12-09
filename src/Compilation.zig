@@ -3223,17 +3223,29 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
         }
     }
 
-    if (comp.zcu) |zcu| {
-        if (comp.incremental and bundle.root_list.items.len == 0) {
-            const should_have_error = for (zcu.transitive_failed_analysis.keys()) |failed_unit| {
-                const refs = try zcu.resolveReferences();
-                if (refs.contains(failed_unit)) break true;
-            } else false;
-            if (should_have_error) {
-                @panic("referenced transitive analysis errors, but none actually emitted");
+    // TODO: eventually, this should be behind `std.debug.runtime_safety`. But right now, this is a
+    // very common way for incremental compilation bugs to manifest, so let's always check it.
+    if (comp.zcu) |zcu| if (comp.incremental and bundle.root_list.items.len == 0) {
+        for (zcu.transitive_failed_analysis.keys()) |failed_unit| {
+            const refs = try zcu.resolveReferences();
+            var ref = refs.get(failed_unit) orelse continue;
+            // This AU is referenced and has a transitive compile error, meaning it referenced something with a compile error.
+            // However, we haven't reported any such error.
+            // This is a compiler bug.
+            const stderr = std.io.getStdErr().writer();
+            try stderr.writeAll("referenced transitive analysis errors, but none actually emitted\n");
+            try stderr.print("{} [transitive failure]\n", .{zcu.fmtAnalUnit(failed_unit)});
+            while (ref) |r| {
+                try stderr.print("referenced by: {}{s}\n", .{
+                    zcu.fmtAnalUnit(r.referencer),
+                    if (zcu.transitive_failed_analysis.contains(r.referencer)) " [transitive failure]" else "",
+                });
+                ref = refs.get(r.referencer).?;
             }
+
+            @panic("referenced transitive analysis errors, but none actually emitted");
         }
-    }
+    };
 
     const compile_log_text = if (comp.zcu) |m| m.compile_log_text.items else "";
     return bundle.toOwnedBundle(compile_log_text);

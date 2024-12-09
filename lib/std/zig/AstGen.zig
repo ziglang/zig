@@ -172,9 +172,9 @@ pub fn generate(gpa: Allocator, tree: Ast) Allocator.Error!Zir {
     };
     defer gz_instructions.deinit(gpa);
 
-    // The AST -> ZIR lowering process assumes an AST that does not have any
-    // parse errors.
-    if (tree.errors.len == 0) {
+    // The AST -> ZIR lowering process assumes an AST that does not have any parse errors.
+    // Parse errors, or AstGen errors in the root struct, are considered "fatal", so we emit no ZIR.
+    const fatal = if (tree.errors.len == 0) fatal: {
         if (AstGen.structDeclInner(
             &gen_scope,
             &gen_scope.base,
@@ -184,13 +184,15 @@ pub fn generate(gpa: Allocator, tree: Ast) Allocator.Error!Zir {
             0,
         )) |struct_decl_ref| {
             assert(struct_decl_ref.toIndex().? == .main_struct_inst);
+            break :fatal false;
         } else |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
-            error.AnalysisFail => {}, // Handled via compile_errors below.
+            error.AnalysisFail => break :fatal true, // Handled via compile_errors below.
         }
-    } else {
+    } else fatal: {
         try lowerAstErrors(&astgen);
-    }
+        break :fatal true;
+    };
 
     const err_index = @intFromEnum(Zir.ExtraIndex.compile_errors);
     if (astgen.compile_errors.items.len == 0) {
@@ -228,8 +230,8 @@ pub fn generate(gpa: Allocator, tree: Ast) Allocator.Error!Zir {
         }
     }
 
-    return Zir{
-        .instructions = astgen.instructions.toOwnedSlice(),
+    return .{
+        .instructions = if (fatal) .empty else astgen.instructions.toOwnedSlice(),
         .string_bytes = try astgen.string_bytes.toOwnedSlice(gpa),
         .extra = try astgen.extra.toOwnedSlice(gpa),
     };
@@ -2110,7 +2112,7 @@ fn comptimeExprAst(
 ) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
     if (gz.is_comptime) {
-        return astgen.failNode(node, "redundant comptime keyword in already comptime scope", .{});
+        try astgen.appendErrorNode(node, "redundant comptime keyword in already comptime scope", .{});
     }
     const tree = astgen.tree;
     const node_datas = tree.nodes.items(.data);
@@ -3269,6 +3271,9 @@ fn varDecl(
                 try astgen.appendErrorTok(comptime_token, "'comptime const' is redundant; instead wrap the initialization expression with 'comptime'", .{});
             }
 
+            // `comptime const` is a non-fatal error; treat it like the init was marked `comptime`.
+            const force_comptime = var_decl.comptime_token != null;
+
             // Depending on the type of AST the initialization expression is, we may need an lvalue
             // or an rvalue as a result location. If it is an rvalue, we can use the instruction as
             // the variable, no memory location needed.
@@ -3282,7 +3287,7 @@ fn varDecl(
                 } else .{ .rl = .none, .ctx = .const_init };
                 const prev_anon_name_strategy = gz.anon_name_strategy;
                 gz.anon_name_strategy = .dbg_var;
-                const init_inst = try reachableExpr(gz, scope, result_info, var_decl.ast.init_node, node);
+                const init_inst = try reachableExprComptime(gz, scope, result_info, var_decl.ast.init_node, node, force_comptime);
                 gz.anon_name_strategy = prev_anon_name_strategy;
 
                 try gz.addDbgVar(.dbg_var_val, ident_name, init_inst);
@@ -3348,7 +3353,7 @@ fn varDecl(
             const prev_anon_name_strategy = gz.anon_name_strategy;
             gz.anon_name_strategy = .dbg_var;
             defer gz.anon_name_strategy = prev_anon_name_strategy;
-            const init_inst = try reachableExpr(gz, scope, init_result_info, var_decl.ast.init_node, node);
+            const init_inst = try reachableExprComptime(gz, scope, init_result_info, var_decl.ast.init_node, node, force_comptime);
 
             // The const init expression may have modified the error return trace, so signal
             // to Sema that it should save the new index for restoring later.
@@ -3491,7 +3496,7 @@ fn assignDestructure(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerErro
 
     const full = tree.assignDestructure(node);
     if (full.comptime_token != null and gz.is_comptime) {
-        return astgen.failNode(node, "redundant comptime keyword in already comptime scope", .{});
+        return astgen.appendErrorNode(node, "redundant comptime keyword in already comptime scope", .{});
     }
 
     // If this expression is marked comptime, we must wrap the whole thing in a comptime block.
@@ -3550,7 +3555,7 @@ fn assignDestructureMaybeDecls(
 
     const full = tree.assignDestructure(node);
     if (full.comptime_token != null and gz.is_comptime) {
-        return astgen.failNode(node, "redundant comptime keyword in already comptime scope", .{});
+        try astgen.appendErrorNode(node, "redundant comptime keyword in already comptime scope", .{});
     }
 
     const is_comptime = full.comptime_token != null or gz.is_comptime;
@@ -3664,6 +3669,7 @@ fn assignDestructureMaybeDecls(
 
     if (full.comptime_token != null and !any_non_const_variables) {
         try astgen.appendErrorTok(full.comptime_token.?, "'comptime const' is redundant; instead wrap the initialization expression with 'comptime'", .{});
+        // Note that this is non-fatal; we will still evaluate at comptime.
     }
 
     // If this expression is marked comptime, we must wrap it in a comptime block.
@@ -4112,8 +4118,8 @@ fn fnDecl(
     // The source slice is added towards the *end* of this function.
     astgen.src_hasher.update(std.mem.asBytes(&astgen.source_column));
 
-    // missing function name already happened in scanContainer()
-    const fn_name_token = fn_proto.name_token orelse return error.AnalysisFail;
+    // missing function name already checked in scanContainer()
+    const fn_name_token = fn_proto.name_token.?;
 
     // We insert this at the beginning so that its instruction index marks the
     // start of the top level declaration.
@@ -5182,8 +5188,7 @@ fn structDeclInner(
 
         if (is_comptime) {
             switch (layout) {
-                .@"packed" => return astgen.failTok(member.comptime_token.?, "packed struct fields cannot be marked comptime", .{}),
-                .@"extern" => return astgen.failTok(member.comptime_token.?, "extern struct fields cannot be marked comptime", .{}),
+                .@"packed", .@"extern" => return astgen.failTok(member.comptime_token.?, "{s} struct fields cannot be marked comptime", .{@tagName(layout)}),
                 .auto => any_comptime_fields = true,
             }
         } else {
@@ -5210,7 +5215,7 @@ fn structDeclInner(
 
         if (have_align) {
             if (layout == .@"packed") {
-                try astgen.appendErrorNode(member.ast.align_expr, "unable to override alignment of packed struct fields", .{});
+                return astgen.failNode(member.ast.align_expr, "unable to override alignment of packed struct fields", .{});
             }
             any_aligned_fields = true;
             const align_ref = try expr(&block_scope, &namespace.base, coerced_align_ri, member.ast.align_expr);
@@ -5304,8 +5309,7 @@ fn tupleDecl(
 
     switch (layout) {
         .auto => {},
-        .@"extern" => return astgen.failNode(node, "extern tuples are not supported", .{}),
-        .@"packed" => return astgen.failNode(node, "packed tuples are not supported", .{}),
+        .@"extern", .@"packed" => return astgen.failNode(node, "{s} tuples are not supported", .{@tagName(layout)}),
     }
 
     if (backing_int_node != 0) {
@@ -5688,7 +5692,7 @@ fn containerDecl(
                 };
             };
             if (counts.nonexhaustive_node != 0 and container_decl.ast.arg == 0) {
-                try astgen.appendErrorNodeNotes(
+                return astgen.failNodeNotes(
                     node,
                     "non-exhaustive enum missing integer tag type",
                     .{},
@@ -5911,9 +5915,19 @@ fn containerMember(
             const full = tree.fullFnProto(&buf, member_node).?;
             const body = if (node_tags[member_node] == .fn_decl) node_datas[member_node].rhs else 0;
 
+            const prev_decl_index = wip_members.decl_index;
             astgen.fnDecl(gz, scope, wip_members, member_node, body, full) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
-                error.AnalysisFail => {},
+                error.AnalysisFail => {
+                    wip_members.decl_index = prev_decl_index;
+                    try addFailedDeclaration(
+                        wip_members,
+                        gz,
+                        .{ .named = full.name_token.? },
+                        full.ast.proto_node,
+                        full.visib_token != null,
+                    );
+                },
             };
         },
 
@@ -5922,28 +5936,77 @@ fn containerMember(
         .simple_var_decl,
         .aligned_var_decl,
         => {
-            astgen.globalVarDecl(gz, scope, wip_members, member_node, tree.fullVarDecl(member_node).?) catch |err| switch (err) {
+            const full = tree.fullVarDecl(member_node).?;
+            const prev_decl_index = wip_members.decl_index;
+            astgen.globalVarDecl(gz, scope, wip_members, member_node, full) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
-                error.AnalysisFail => {},
+                error.AnalysisFail => {
+                    wip_members.decl_index = prev_decl_index;
+                    try addFailedDeclaration(
+                        wip_members,
+                        gz,
+                        .{ .named = full.ast.mut_token + 1 },
+                        member_node,
+                        full.visib_token != null,
+                    );
+                },
             };
         },
 
         .@"comptime" => {
+            const prev_decl_index = wip_members.decl_index;
             astgen.comptimeDecl(gz, scope, wip_members, member_node) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
-                error.AnalysisFail => {},
+                error.AnalysisFail => {
+                    wip_members.decl_index = prev_decl_index;
+                    try addFailedDeclaration(
+                        wip_members,
+                        gz,
+                        .@"comptime",
+                        member_node,
+                        false,
+                    );
+                },
             };
         },
         .@"usingnamespace" => {
+            const prev_decl_index = wip_members.decl_index;
             astgen.usingnamespaceDecl(gz, scope, wip_members, member_node) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
-                error.AnalysisFail => {},
+                error.AnalysisFail => {
+                    wip_members.decl_index = prev_decl_index;
+                    try addFailedDeclaration(
+                        wip_members,
+                        gz,
+                        .@"usingnamespace",
+                        member_node,
+                        is_pub: {
+                            const main_tokens = tree.nodes.items(.main_token);
+                            const token_tags = tree.tokens.items(.tag);
+                            const main_token = main_tokens[member_node];
+                            break :is_pub main_token > 0 and token_tags[main_token - 1] == .keyword_pub;
+                        },
+                    );
+                },
             };
         },
         .test_decl => {
+            const prev_decl_index = wip_members.decl_index;
+            // We need to have *some* decl here so that the decl count matches what's expected.
+            // Since it doesn't strictly matter *what* this is, let's save ourselves the trouble
+            // of duplicating the test name logic, and just assume this is an unnamed test.
             astgen.testDecl(gz, scope, wip_members, member_node) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
-                error.AnalysisFail => {},
+                error.AnalysisFail => {
+                    wip_members.decl_index = prev_decl_index;
+                    try addFailedDeclaration(
+                        wip_members,
+                        gz,
+                        .unnamed_test,
+                        member_node,
+                        false,
+                    );
+                },
             };
         },
         else => unreachable,
@@ -6155,7 +6218,7 @@ fn orelseCatchExpr(
         const payload = payload_token orelse break :blk &else_scope.base;
         const err_str = tree.tokenSlice(payload);
         if (mem.eql(u8, err_str, "_")) {
-            return astgen.failTok(payload, "discard of error capture; omit it instead", .{});
+            try astgen.appendErrorTok(payload, "discard of error capture; omit it instead", .{});
         }
         const err_name = try astgen.identAsString(payload);
 
@@ -6614,7 +6677,7 @@ fn whileExpr(
 
     const is_inline = while_full.inline_token != null;
     if (parent_gz.is_comptime and is_inline) {
-        return astgen.failTok(while_full.inline_token.?, "redundant inline keyword in comptime scope", .{});
+        try astgen.appendErrorTok(while_full.inline_token.?, "redundant inline keyword in comptime scope", .{});
     }
     const loop_tag: Zir.Inst.Tag = if (is_inline) .block_inline else .loop;
     const loop_block = try parent_gz.makeBlockInst(loop_tag, node);
@@ -6904,7 +6967,7 @@ fn forExpr(
 
     const is_inline = for_full.inline_token != null;
     if (parent_gz.is_comptime and is_inline) {
-        return astgen.failTok(for_full.inline_token.?, "redundant inline keyword in comptime scope", .{});
+        try astgen.appendErrorTok(for_full.inline_token.?, "redundant inline keyword in comptime scope", .{});
     }
     const tree = astgen.tree;
     const token_tags = tree.tokens.items(.tag);
@@ -6965,7 +7028,7 @@ fn forExpr(
                     .none;
 
                 if (end_val == .none and is_discard) {
-                    return astgen.failTok(ident_tok, "discard of unbounded counter", .{});
+                    try astgen.appendErrorTok(ident_tok, "discard of unbounded counter", .{});
                 }
 
                 const start_is_zero = nodeIsTriviallyZero(tree, start_node);
@@ -7467,6 +7530,7 @@ fn switchExprErrUnion(
     const err_name = blk: {
         const err_str = tree.tokenSlice(error_payload);
         if (mem.eql(u8, err_str, "_")) {
+            // This is fatal because we already know we're switching on the captured error.
             return astgen.failTok(error_payload, "discard of error capture; omit it instead", .{});
         }
         const err_name = try astgen.identAsString(error_payload);
@@ -7521,7 +7585,7 @@ fn switchExprErrUnion(
 
             const capture_slice = tree.tokenSlice(capture_token);
             if (mem.eql(u8, capture_slice, "_")) {
-                return astgen.failTok(capture_token, "discard of error capture; omit it instead", .{});
+                try astgen.appendErrorTok(capture_token, "discard of error capture; omit it instead", .{});
             }
             const tag_name = try astgen.identAsString(capture_token);
             try astgen.detectLocalShadowing(&case_scope.base, tag_name, capture_token, capture_slice, .capture);
@@ -7992,7 +8056,7 @@ fn switchExpr(
                 break :blk payload_sub_scope;
             const tag_slice = tree.tokenSlice(tag_token);
             if (mem.eql(u8, tag_slice, "_")) {
-                return astgen.failTok(tag_token, "discard of tag capture; omit it instead", .{});
+                try astgen.appendErrorTok(tag_token, "discard of tag capture; omit it instead", .{});
             } else if (case.inline_token == null) {
                 return astgen.failTok(tag_token, "tag capture on non-inline prong", .{});
             }
@@ -13678,6 +13742,8 @@ fn scanContainer(
     const main_tokens = tree.nodes.items(.main_token);
     const token_tags = tree.tokens.items(.tag);
 
+    var any_invalid_declarations = false;
+
     // This type forms a linked list of source tokens declaring the same name.
     const NameEntry = struct {
         tok: Ast.TokenIndex,
@@ -13737,6 +13803,7 @@ fn scanContainer(
                 const ident = main_tokens[member_node] + 1;
                 if (token_tags[ident] != .identifier) {
                     try astgen.appendErrorNode(member_node, "missing function name", .{});
+                    any_invalid_declarations = true;
                     continue;
                 }
                 break :blk .{ .decl, ident };
@@ -13832,6 +13899,7 @@ fn scanContainer(
                     token_bytes,
                 }),
             });
+            any_invalid_declarations = true;
             continue;
         }
 
@@ -13849,6 +13917,7 @@ fn scanContainer(
                             .{},
                         ),
                     });
+                    any_invalid_declarations = true;
                     break;
                 }
                 s = local_val.parent;
@@ -13865,6 +13934,7 @@ fn scanContainer(
                             .{},
                         ),
                     });
+                    any_invalid_declarations = true;
                     break;
                 }
                 s = local_ptr.parent;
@@ -13876,7 +13946,10 @@ fn scanContainer(
         };
     }
 
-    if (!any_duplicates) return decl_count;
+    if (!any_duplicates) {
+        if (any_invalid_declarations) return error.AnalysisFail;
+        return decl_count;
+    }
 
     for (names.keys(), names.values()) |name, first| {
         if (first.next == null) continue;
@@ -13888,6 +13961,7 @@ fn scanContainer(
         try notes.append(astgen.arena, try astgen.errNoteNode(namespace.node, "{s} declared here", .{@tagName(container_kind)}));
         const name_duped = try astgen.arena.dupe(u8, mem.span(astgen.nullTerminatedString(name)));
         try astgen.appendErrorTokNotes(first.tok, "duplicate {s} member name '{s}'", .{ @tagName(container_kind), name_duped }, notes.items);
+        any_invalid_declarations = true;
     }
 
     for (test_names.keys(), test_names.values()) |name, first| {
@@ -13900,6 +13974,7 @@ fn scanContainer(
         try notes.append(astgen.arena, try astgen.errNoteNode(namespace.node, "{s} declared here", .{@tagName(container_kind)}));
         const name_duped = try astgen.arena.dupe(u8, mem.span(astgen.nullTerminatedString(name)));
         try astgen.appendErrorTokNotes(first.tok, "duplicate test name '{s}'", .{name_duped}, notes.items);
+        any_invalid_declarations = true;
     }
 
     for (decltest_names.keys(), decltest_names.values()) |name, first| {
@@ -13912,9 +13987,11 @@ fn scanContainer(
         try notes.append(astgen.arena, try astgen.errNoteNode(namespace.node, "{s} declared here", .{@tagName(container_kind)}));
         const name_duped = try astgen.arena.dupe(u8, mem.span(astgen.nullTerminatedString(name)));
         try astgen.appendErrorTokNotes(first.tok, "duplicate decltest '{s}'", .{name_duped}, notes.items);
+        any_invalid_declarations = true;
     }
 
-    return decl_count;
+    assert(any_invalid_declarations);
+    return error.AnalysisFail;
 }
 
 /// Assumes capacity for body has already been added. Needed capacity taking into
@@ -14069,6 +14146,37 @@ const DeclarationName = union(enum) {
     @"comptime",
     @"usingnamespace",
 };
+
+fn addFailedDeclaration(
+    wip_members: *WipMembers,
+    gz: *GenZir,
+    name: DeclarationName,
+    src_node: Ast.Node.Index,
+    is_pub: bool,
+) !void {
+    const decl_inst = try gz.makeDeclaration(src_node);
+    wip_members.nextDecl(decl_inst);
+    var decl_gz = gz.makeSubBlock(&gz.base); // scope doesn't matter here
+    _ = try decl_gz.add(.{
+        .tag = .extended,
+        .data = .{ .extended = .{
+            .opcode = .astgen_error,
+            .small = undefined,
+            .operand = undefined,
+        } },
+    });
+    try setDeclaration(
+        decl_inst,
+        @splat(0), // use a fixed hash to represent an AstGen failure; we don't care about source changes if AstGen still failed!
+        name,
+        gz.astgen.source_line,
+        is_pub,
+        false, // we don't care about exports since semantic analysis will fail
+        .empty,
+        &decl_gz,
+        null,
+    );
+}
 
 /// Sets all extra data for a `declaration` instruction.
 /// Unstacks `value_gz`, `align_gz`, `linksection_gz`, and `addrspace_gz`.
