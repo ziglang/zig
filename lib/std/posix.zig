@@ -4778,11 +4778,15 @@ pub const MRemapError = error{
     OutOfMemory,
 } || UnexpectedError;
 
+/// Change the size of memory which was mapped via `mmap`.
+/// Neither `memory.len` nor `new_len` does not need to be aligned.
+/// Only available on linux or glibc targets.
 pub fn mremap(
-    memory: []align(mem.page_size) const u8,
+    memory: []align(mem.page_size) u8,
     new_len: usize,
     may_move: bool,
 ) MRemapError![]align(mem.page_size) u8 {
+    // TODO: better support for REMAP_FIXED
     const err: E = blk: {
         if (use_libc) {
             if (native_os.isGnuLibC(native_abi)) {

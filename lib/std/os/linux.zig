@@ -964,6 +964,7 @@ pub fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: MAP, fd: i32, of
 
 pub fn mremap(address: ?[*]u8, old_length: usize, new_length: usize, flags: REMAP, new_addr: [*]u8) usize {
     return syscall5(
+        .mremap,
         @intFromPtr(address),
         old_length,
         new_length,
