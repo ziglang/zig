@@ -7640,23 +7640,12 @@ pub const MAP = switch (native_os) {
     else => void,
 };
 
-pub const REMAP = blk: {
-    if (native_os.isGnuLibC(native_abi)) {
-        if (versionCheck(.{ .major = 2, .minor = 4 })) {
-            packed struct(c_uint) {
-                MAYMOVE: bool = false,
-                FIXED: bool = false,
-                DONTUNMAP: bool = false,
-                _: u29 = 0,
-            };
-        } else {
-            break :blk packed struct(c_uint) {
-                MAYMOVE: bool = false,
-                _: u31 = 0,
-            };
-        }
-    }
-    break :blk void;
+pub const REMAP = switch (native_os.isGnuLibC(native_abi)) {
+    true => packed struct(u32) {
+        MAYMOVE: bool = false,
+        _: u31 = 0,
+    },
+    false => void,
 };
 
 /// Used by libc to communicate failure. Not actually part of the underlying syscall.
@@ -9292,6 +9281,7 @@ pub extern "c" fn write(fd: fd_t, buf: [*]const u8, nbyte: usize) isize;
 pub extern "c" fn pwrite(fd: fd_t, buf: [*]const u8, nbyte: usize, offset: off_t) isize;
 pub extern "c" fn mmap(addr: ?*align(page_size) anyopaque, len: usize, prot: c_uint, flags: MAP, fd: fd_t, offset: off_t) *anyopaque;
 pub extern "c" fn munmap(addr: *align(page_size) const anyopaque, len: usize) c_int;
+pub extern "c" fn mremap(addr: *align(page_size) const anyopaque, old_len: usize, new_len: usize, flags: REMAP) *anyopaque;
 pub extern "c" fn mprotect(addr: *align(page_size) anyopaque, len: usize, prot: c_uint) c_int;
 pub extern "c" fn link(oldpath: [*:0]const u8, newpath: [*:0]const u8) c_int;
 pub extern "c" fn linkat(oldfd: fd_t, oldpath: [*:0]const u8, newfd: fd_t, newpath: [*:0]const u8, flags: c_int) c_int;
