@@ -232,6 +232,18 @@ struct proc_workqueueinfo {
 #define WQ_EXCEEDED_CONSTRAINED_THREAD_LIMIT 0x1
 #define WQ_EXCEEDED_TOTAL_THREAD_LIMIT 0x2
 #define WQ_FLAGS_AVAILABLE 0x4
+/*
+ * WQ_EXCEEDED_COOPERATIVE_THREAD_LIMIT is set if wq has scheduled cooperative
+ * threads upto the cooperative thread pool limit and there is still more work
+ * pending in the cooperative pool that require a thread.
+ */
+#define WQ_EXCEEDED_COOPERATIVE_THREAD_LIMIT 0x8
+/*
+ * WQ_EXCEEDED_ACTIVE_CONSTRAINED_THREAD_LIMIT is set when wq has pending thread
+ * requests for the constrained thread pool; but, has failed the allowance check
+ * because of active thread limit.
+ */
+#define WQ_EXCEEDED_ACTIVE_CONSTRAINED_THREAD_LIMIT 0x10
 
 struct proc_fileinfo {
 	uint32_t                fi_openflags;

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2007, 2010 Apple Inc. All rights reserved.
+ * Copyright (c) 2000, 2007, 2010, 2023 Apple Inc. All rights reserved.
  *
  * @APPLE_LICENSE_HEADER_START@
  * 
@@ -58,43 +58,10 @@
 #ifndef _STRINGS_H_
 #define _STRINGS_H_
 
-#include <_types.h>
+#include <_strings.h>
 
-#include <sys/cdefs.h>
-#include <Availability.h>
-#include <sys/_types/_size_t.h>
-
-__BEGIN_DECLS
-/* Removed in Issue 7 */
-#if !defined(_POSIX_C_SOURCE) || _POSIX_C_SOURCE < 200809L
-int	 bcmp(const void *, const void *, size_t) __POSIX_C_DEPRECATED(200112L);
-void	 bcopy(const void *, void *, size_t) __POSIX_C_DEPRECATED(200112L);
-void	 bzero(void *, size_t) __POSIX_C_DEPRECATED(200112L);
-char	*index(const char *, int) __POSIX_C_DEPRECATED(200112L);
-char	*rindex(const char *, int) __POSIX_C_DEPRECATED(200112L);
-#endif
-
-int	 ffs(int);
-int	 strcasecmp(const char *, const char *);
-int	 strncasecmp(const char *, const char *, size_t);
-__END_DECLS
-
-/* Darwin extensions */
 #if __DARWIN_C_LEVEL >= __DARWIN_C_FULL
-__BEGIN_DECLS
-int	 ffsl(long) __OSX_AVAILABLE_STARTING(__MAC_10_5, __IPHONE_2_0);
-int	 ffsll(long long) __OSX_AVAILABLE_STARTING(__MAC_10_9, __IPHONE_7_0);
-int	 fls(int) __OSX_AVAILABLE_STARTING(__MAC_10_5, __IPHONE_2_0);
-int	 flsl(long) __OSX_AVAILABLE_STARTING(__MAC_10_5, __IPHONE_2_0);
-int	 flsll(long long) __OSX_AVAILABLE_STARTING(__MAC_10_9, __IPHONE_7_0);
-__END_DECLS
-
 #include <string.h>
-#endif
-
-#if defined (__GNUC__) && _FORTIFY_SOURCE > 0 && !defined (__cplusplus)
-/* Security checking functions.  */
-#include <secure/_strings.h>
 #endif
 
 #endif  /* _STRINGS_H_ */

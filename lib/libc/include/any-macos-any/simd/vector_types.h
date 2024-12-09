@@ -310,6 +310,55 @@ typedef __attribute__((__ext_vector_type__(16),__aligned__(16))) unsigned short 
  *  simd_packed_ushort32 instead.                                             */
 typedef __attribute__((__ext_vector_type__(32),__aligned__(16))) unsigned short simd_ushort32;
 
+/*! @abstract A scalar 16-bit floating-point number.                          */
+typedef _Float16 simd_half1;
+
+/*! @abstract A vector of two 16-bit floating-point numbers.
+ *  @description In C++ and Metal, this type is also available as
+ *  simd::half2. The alignment of this type is greater than the alignment of
+ *  _Float16; if you need to operate on data buffers that may not be
+ *  suitably aligned, you should access them using simd_packed_half2
+ *  instead.                                                                  */
+typedef __attribute__((__ext_vector_type__(2))) _Float16 simd_half2;
+
+/*! @abstract A vector of three 16-bit floating-point numbers.
+ *  @description In C++ and Metal, this type is also available as
+ *  simd::half3. Note that vectors of this type are padded to have the same
+ *  size and alignment as simd_half4.                                         */
+typedef __attribute__((__ext_vector_type__(3))) _Float16 simd_half3;
+
+/*! @abstract A vector of four 16-bit floating-point numbers.
+ *  @description In C++ and Metal, this type is also available as
+ *  simd::half4. The alignment of this type is greater than the alignment of
+ *  _Float16; if you need to operate on data buffers that may not be
+ *  suitably aligned, you should access them using simd_packed_half4
+ *  instead.                                                                  */
+typedef __attribute__((__ext_vector_type__(4))) _Float16 simd_half4;
+
+/*! @abstract A vector of eight 16-bit floating-point numbers.
+ *  @description In C++ this type is also available as simd::half8. This
+ *  type is not available in Metal. The alignment of this type is greater
+ *  than the alignment of _Float16; if you need to operate on data buffers
+ *  that may not be suitably aligned, you should access them using
+ *  simd_packed_half8 instead.                                                */
+typedef __attribute__((__ext_vector_type__(8))) _Float16 simd_half8;
+
+/*! @abstract A vector of sixteen 16-bit floating-point numbers.
+ *  @description In C++ this type is also available as simd::half16. This
+ *  type is not available in Metal. The alignment of this type is greater
+ *  than the alignment of _Float16; if you need to operate on data buffers
+ *  that may not be suitably aligned, you should access them using
+ *  simd_packed_half16 instead.                                               */
+typedef __attribute__((__ext_vector_type__(16),__aligned__(16))) _Float16 simd_half16;
+
+/*! @abstract A vector of thirty-two 16-bit floating-point numbers.
+ *  @description In C++ this type is also available as simd::half32. This
+ *  type is not available in Metal. The alignment of this type is greater
+ *  than the alignment of _Float16; if you need to operate on data buffers
+ *  that may not be suitably aligned, you should access them using
+ *  simd_packed_half32 instead.                                               */
+typedef __attribute__((__ext_vector_type__(32),__aligned__(16))) _Float16 simd_half32;
+
 /*! @abstract A scalar 32-bit signed (twos-complement) integer.               */
 typedef int simd_int1;
 
@@ -768,6 +817,57 @@ typedef ::simd_ushort16 ushort16;
    *  on data buffers that may not be suitably aligned, you should access
    *  them using simd::packed_ushort32 instead.                               */
 typedef ::simd_ushort32 ushort32;
+  
+  /*! @abstract A scalar 16-bit floating-point number.
+   *  @discussion In C and Objective-C, this type is available as
+   *  simd_half1.                                                             */
+typedef ::simd_half1 half1;
+  
+  /*! @abstract A vector of two 16-bit floating-point numbers.
+   *  @description In C or Objective-C, this type is available as
+   *  simd_half2. The alignment of this type is greater than the alignment
+   *  of _Float16; if you need to operate on data buffers that may not be
+   *  suitably aligned, you should access them using simd::packed_half2
+   *  instead.                                                                */
+typedef ::simd_half2 half2;
+  
+  /*! @abstract A vector of three 16-bit floating-point numbers.
+   *  @description In C or Objective-C, this type is available as
+   *  simd_half3. Vectors of this type are padded to have the same size and
+   *  alignment as simd_half4.                                                */
+typedef ::simd_half3 half3;
+  
+  /*! @abstract A vector of four 16-bit floating-point numbers.
+   *  @description In C or Objective-C, this type is available as
+   *  simd_half4. The alignment of this type is greater than the alignment
+   *  of _Float16; if you need to operate on data buffers that may not be
+   *  suitably aligned, you should access them using simd::packed_half4
+   *  instead.                                                                */
+typedef ::simd_half4 half4;
+  
+  /*! @abstract A vector of eight 16-bit floating-point numbers.
+   *  @description This type is not available in Metal. In C or Objective-C,
+   *  this type is available as simd_half8. The alignment of this type is
+   *  greater than the alignment of _Float16; if you need to operate on data
+   *  buffers that may not be suitably aligned, you should access them using
+   *  simd::packed_half8 instead.                                             */
+typedef ::simd_half8 half8;
+  
+  /*! @abstract A vector of sixteen 16-bit floating-point numbers.
+   *  @description This type is not available in Metal. In C or Objective-C,
+   *  this type is available as simd_half16. The alignment of this type is
+   *  greater than the alignment of _Float16; if you need to operate on data
+   *  buffers that may not be suitably aligned, you should access them using
+   *  simd::packed_half16 instead.                                            */
+typedef ::simd_half16 half16;
+  
+  /*! @abstract A vector of thirty-two 16-bit floating-point numbers.
+   *  @description This type is not available in Metal. In C or Objective-C,
+   *  this type is available as simd_half32. The alignment of this type is
+   *  greater than the alignment of _Float16; if you need to operate on data
+   *  buffers that may not be suitably aligned, you should access them using
+   *  simd::packed_half32 instead.                                            */
+typedef ::simd_half32 half32;
   
   /*! @abstract A scalar 32-bit signed (twos-complement) integer.
    *  @discussion In C and Objective-C, this type is available as simd_int1.  */
