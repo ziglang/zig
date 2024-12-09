@@ -2,7 +2,6 @@ const std = @import("std");
 const build_options = @import("build_options");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
-const leb128 = std.leb;
 const link = @import("link.zig");
 const log = std.log.scoped(.codegen);
 const mem = std.mem;
@@ -643,15 +642,19 @@ fn lowerUavRef(
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
-    const target = lf.comp.root_mod.resolved_target.result;
-
+    const comp = lf.comp;
+    const target = &comp.root_mod.resolved_target.result;
     const ptr_width_bytes = @divExact(target.ptrBitWidth(), 8);
+    const is_obj = comp.config.output_mode == .Obj;
     const uav_val = uav.val;
     const uav_ty = Type.fromInterned(ip.typeOf(uav_val));
-    log.debug("lowerUavRef: ty = {}", .{uav_ty.fmt(pt)});
     const is_fn_body = uav_ty.zigTypeTag(zcu) == .@"fn";
+
+    log.debug("lowerUavRef: ty = {}", .{uav_ty.fmt(pt)});
+    try code.ensureUnusedCapacity(gpa, ptr_width_bytes);
+
     if (!is_fn_body and !uav_ty.hasRuntimeBits(zcu)) {
-        try code.appendNTimes(gpa, 0xaa, ptr_width_bytes);
+        code.appendNTimesAssumeCapacity(0xaa, ptr_width_bytes);
         return;
     }
 
@@ -663,13 +666,20 @@ fn lowerUavRef(
             dev.check(link.File.Tag.wasm.devFeature());
             const wasm = lf.cast(.wasm).?;
             assert(reloc_parent == .none);
-            try wasm.relocations.append(gpa, .{
-                .tag = .uav_index,
-                .addend = @intCast(offset),
-                .offset = @intCast(code.items.len),
-                .pointee = .{ .uav_index = uav.val },
-            });
-            try code.appendNTimes(gpa, 0, ptr_width_bytes);
+            if (is_obj) {
+                try wasm.out_relocs.append(gpa, .{
+                    .offset = @intCast(code.items.len),
+                    .pointee = .{ .symbol_index = try wasm.uavSymbolIndex(uav.val) },
+                    .tag = if (ptr_width_bytes == 4) .MEMORY_ADDR_I32 else .MEMORY_ADDR_I64,
+                    .addend = @intCast(offset),
+                });
+            } else {
+                try wasm.uav_fixups.append(gpa, .{
+                    .ip_index = uav.val,
+                    .offset = @intCast(code.items.len),
+                });
+            }
+            code.appendNTimesAssumeCapacity(0, ptr_width_bytes);
             return;
         },
         else => {},
@@ -688,9 +698,9 @@ fn lowerUavRef(
     });
     const endian = target.cpu.arch.endian();
     switch (ptr_width_bytes) {
-        2 => mem.writeInt(u16, try code.addManyAsArray(gpa, 2), @intCast(vaddr), endian),
-        4 => mem.writeInt(u32, try code.addManyAsArray(gpa, 4), @intCast(vaddr), endian),
-        8 => mem.writeInt(u64, try code.addManyAsArray(gpa, 8), vaddr, endian),
+        2 => mem.writeInt(u16, code.addManyAsArrayAssumeCapacity(2), @intCast(vaddr), endian),
+        4 => mem.writeInt(u32, code.addManyAsArrayAssumeCapacity(4), @intCast(vaddr), endian),
+        8 => mem.writeInt(u64, code.addManyAsArrayAssumeCapacity(8), vaddr, endian),
         else => unreachable,
     }
 }
@@ -709,12 +719,15 @@ fn lowerNavRef(
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
     const target = zcu.navFileScope(nav_index).mod.resolved_target.result;
-
     const ptr_width_bytes = @divExact(target.ptrBitWidth(), 8);
+    const is_obj = lf.comp.config.output_mode == .Obj;
     const nav_ty = Type.fromInterned(ip.getNav(nav_index).typeOf(ip));
     const is_fn_body = nav_ty.zigTypeTag(zcu) == .@"fn";
+
+    try code.ensureUnusedCapacity(gpa, ptr_width_bytes);
+
     if (!is_fn_body and !nav_ty.hasRuntimeBits(zcu)) {
-        try code.appendNTimes(gpa, 0xaa, ptr_width_bytes);
+        code.appendNTimesAssumeCapacity(0xaa, ptr_width_bytes);
         return;
     }
 
@@ -726,13 +739,20 @@ fn lowerNavRef(
             dev.check(link.File.Tag.wasm.devFeature());
             const wasm = lf.cast(.wasm).?;
             assert(reloc_parent == .none);
-            try wasm.relocations.append(gpa, .{
-                .tag = .nav_index,
-                .addend = @intCast(offset),
-                .offset = @intCast(code.items.len),
-                .pointee = .{ .nav_index = nav_index },
-            });
-            try code.appendNTimes(gpa, 0, ptr_width_bytes);
+            if (is_obj) {
+                try wasm.out_relocs.append(gpa, .{
+                    .offset = @intCast(code.items.len),
+                    .pointee = .{ .symbol_index = try wasm.navSymbolIndex(nav_index) },
+                    .tag = if (ptr_width_bytes == 4) .MEMORY_ADDR_I32 else .MEMORY_ADDR_I64,
+                    .addend = @intCast(offset),
+                });
+            } else {
+                try wasm.nav_fixups.append(gpa, .{
+                    .nav_index = nav_index,
+                    .offset = @intCast(code.items.len),
+                });
+            }
+            code.appendNTimesAssumeCapacity(0, ptr_width_bytes);
             return;
         },
         else => {},
@@ -745,9 +765,9 @@ fn lowerNavRef(
     }) catch @panic("TODO rework getNavVAddr");
     const endian = target.cpu.arch.endian();
     switch (ptr_width_bytes) {
-        2 => mem.writeInt(u16, try code.addManyAsArray(gpa, 2), @intCast(vaddr), endian),
-        4 => mem.writeInt(u32, try code.addManyAsArray(gpa, 4), @intCast(vaddr), endian),
-        8 => mem.writeInt(u64, try code.addManyAsArray(gpa, 8), vaddr, endian),
+        2 => mem.writeInt(u16, code.addManyAsArrayAssumeCapacity(2), @intCast(vaddr), endian),
+        4 => mem.writeInt(u32, code.addManyAsArrayAssumeCapacity(4), @intCast(vaddr), endian),
+        8 => mem.writeInt(u64, code.addManyAsArrayAssumeCapacity(8), vaddr, endian),
         else => unreachable,
     }
 }

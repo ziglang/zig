@@ -42,7 +42,6 @@ pub fn clear(f: *Flush) void {
     f.data_segments.clearRetainingCapacity();
     f.data_segment_groups.clearRetainingCapacity();
     f.indirect_function_table.clearRetainingCapacity();
-    f.global_exports.clearRetainingCapacity();
 }
 
 pub fn deinit(f: *Flush, gpa: Allocator) void {
@@ -50,11 +49,10 @@ pub fn deinit(f: *Flush, gpa: Allocator) void {
     f.data_segments.deinit(gpa);
     f.data_segment_groups.deinit(gpa);
     f.indirect_function_table.deinit(gpa);
-    f.global_exports.deinit(gpa);
     f.* = undefined;
 }
 
-pub fn finish(f: *Flush, wasm: *Wasm, arena: Allocator) anyerror!void {
+pub fn finish(f: *Flush, wasm: *Wasm, arena: Allocator) !void {
     const comp = wasm.base.comp;
     const shared_memory = comp.config.shared_memory;
     const diags = &comp.link_diags;
@@ -115,7 +113,7 @@ pub fn finish(f: *Flush, wasm: *Wasm, arena: Allocator) anyerror!void {
             src_loc.addError(wasm, "undefined global: {s}", .{name.slice(wasm)});
         }
         for (wasm.table_imports.keys(), wasm.table_imports.values()) |name, table_import_id| {
-            const src_loc = table_import_id.ptr(wasm).source_location;
+            const src_loc = table_import_id.value(wasm).source_location;
             src_loc.addError(wasm, "undefined table: {s}", .{name.slice(wasm)});
         }
     }
@@ -142,7 +140,7 @@ pub fn finish(f: *Flush, wasm: *Wasm, arena: Allocator) anyerror!void {
         if (!ds.flags.alive) continue;
         const data_segment_index: Wasm.DataSegment.Index = @enumFromInt(i);
         any_passive_inits = any_passive_inits or ds.flags.is_passive or (import_memory and !isBss(wasm, ds.name));
-        f.data_segments.putAssumeCapacityNoClobber(data_segment_index, .{ .offset = undefined });
+        f.data_segments.putAssumeCapacityNoClobber(data_segment_index, @as(u32, undefined));
     }
 
     try wasm.functions.ensureUnusedCapacity(gpa, 3);
@@ -159,8 +157,10 @@ pub fn finish(f: *Flush, wasm: *Wasm, arena: Allocator) anyerror!void {
     // When we have TLS GOT entries and shared memory is enabled,
     // we must perform runtime relocations or else we don't create the function.
     if (shared_memory) {
-        if (f.need_tls_relocs) wasm.functions.putAssumeCapacity(.__wasm_apply_global_tls_relocs, {});
-        wasm.functions.putAssumeCapacity(gpa, .__wasm_init_tls, {});
+        // This logic that checks `any_tls_relocs` is missing the part where it
+        // also notices threadlocal globals from Zcu code.
+        if (wasm.any_tls_relocs) wasm.functions.putAssumeCapacity(.__wasm_apply_global_tls_relocs, {});
+        wasm.functions.putAssumeCapacity(.__wasm_init_tls, {});
     }
 
     // Sort order:
@@ -178,14 +178,14 @@ pub fn finish(f: *Flush, wasm: *Wasm, arena: Allocator) anyerror!void {
         pub fn lessThan(ctx: @This(), lhs: usize, rhs: usize) bool {
             const lhs_segment_index = ctx.segments[lhs];
             const rhs_segment_index = ctx.segments[rhs];
-            const lhs_segment = lhs_segment_index.ptr(wasm);
-            const rhs_segment = rhs_segment_index.ptr(wasm);
+            const lhs_segment = lhs_segment_index.ptr(ctx.wasm);
+            const rhs_segment = rhs_segment_index.ptr(ctx.wasm);
             const lhs_tls = @intFromBool(lhs_segment.flags.tls);
             const rhs_tls = @intFromBool(rhs_segment.flags.tls);
             if (lhs_tls < rhs_tls) return true;
             if (lhs_tls > rhs_tls) return false;
-            const lhs_prefix, const lhs_suffix = splitSegmentName(lhs_segment.name.unwrap().slice(ctx.wasm));
-            const rhs_prefix, const rhs_suffix = splitSegmentName(rhs_segment.name.unwrap().slice(ctx.wasm));
+            const lhs_prefix, const lhs_suffix = splitSegmentName(lhs_segment.name.unwrap().?.slice(ctx.wasm));
+            const rhs_prefix, const rhs_suffix = splitSegmentName(rhs_segment.name.unwrap().?.slice(ctx.wasm));
             switch (mem.order(u8, lhs_prefix, rhs_prefix)) {
                 .lt => return true,
                 .gt => return false,
@@ -213,14 +213,14 @@ pub fn finish(f: *Flush, wasm: *Wasm, arena: Allocator) anyerror!void {
     const heap_alignment: Alignment = .@"16"; // wasm's heap alignment as specified by tool-convention
     const pointer_alignment: Alignment = .@"4";
     // Always place the stack at the start by default unless the user specified the global-base flag.
-    const place_stack_first, var memory_ptr: u32 = if (wasm.global_base) |base| .{ false, base } else .{ true, 0 };
+    const place_stack_first, var memory_ptr: u64 = if (wasm.global_base) |base| .{ false, base } else .{ true, 0 };
 
     const VirtualAddrs = struct {
         stack_pointer: u32,
         heap_base: u32,
         heap_end: u32,
         tls_base: ?u32,
-        tls_align: ?u32,
+        tls_align: Alignment,
         tls_size: ?u32,
         init_memory_flag: ?u32,
     };
@@ -229,7 +229,7 @@ pub fn finish(f: *Flush, wasm: *Wasm, arena: Allocator) anyerror!void {
         .heap_base = undefined,
         .heap_end = undefined,
         .tls_base = null,
-        .tls_align = null,
+        .tls_align = .none,
         .tls_size = null,
         .init_memory_flag = null,
     };
@@ -237,7 +237,7 @@ pub fn finish(f: *Flush, wasm: *Wasm, arena: Allocator) anyerror!void {
     if (place_stack_first and !is_obj) {
         memory_ptr = stack_alignment.forward(memory_ptr);
         memory_ptr += wasm.base.stack_size;
-        virtual_addrs.stack_pointer = memory_ptr;
+        virtual_addrs.stack_pointer = @intCast(memory_ptr);
     }
 
     const segment_indexes = f.data_segments.keys();
@@ -247,27 +247,27 @@ pub fn finish(f: *Flush, wasm: *Wasm, arena: Allocator) anyerror!void {
         var seen_tls: enum { before, during, after } = .before;
         var offset: u32 = 0;
         for (segment_indexes, segment_offsets, 0..) |segment_index, *segment_offset, i| {
-            const segment = segment_index.ptr(f);
-            memory_ptr = segment.alignment.forward(memory_ptr);
+            const segment = segment_index.ptr(wasm);
+            memory_ptr = segment.flags.alignment.forward(memory_ptr);
 
             const want_new_segment = b: {
                 if (is_obj) break :b false;
                 switch (seen_tls) {
                     .before => if (segment.flags.tls) {
-                        virtual_addrs.tls_base = if (shared_memory) 0 else memory_ptr;
+                        virtual_addrs.tls_base = if (shared_memory) 0 else @intCast(memory_ptr);
                         virtual_addrs.tls_align = segment.flags.alignment;
                         seen_tls = .during;
                         break :b true;
                     },
                     .during => if (!segment.flags.tls) {
-                        virtual_addrs.tls_size = memory_ptr - virtual_addrs.tls_base;
+                        virtual_addrs.tls_size = @intCast(memory_ptr - virtual_addrs.tls_base.?);
                         virtual_addrs.tls_align = virtual_addrs.tls_align.maxStrict(segment.flags.alignment);
                         seen_tls = .after;
                         break :b true;
                     },
                     .after => {},
                 }
-                break :b i >= 1 and !wasm.wantSegmentMerge(segment_indexes[i - 1], segment_index);
+                break :b i >= 1 and !wantSegmentMerge(wasm, segment_indexes[i - 1], segment_index);
             };
             if (want_new_segment) {
                 if (offset > 0) try f.data_segment_groups.append(gpa, offset);
@@ -275,26 +275,26 @@ pub fn finish(f: *Flush, wasm: *Wasm, arena: Allocator) anyerror!void {
             }
 
             segment_offset.* = offset;
-            offset += segment.size;
-            memory_ptr += segment.size;
+            offset += segment.payload.len;
+            memory_ptr += segment.payload.len;
         }
         if (offset > 0) try f.data_segment_groups.append(gpa, offset);
     }
 
     if (shared_memory and any_passive_inits) {
         memory_ptr = pointer_alignment.forward(memory_ptr);
-        virtual_addrs.init_memory_flag = memory_ptr;
+        virtual_addrs.init_memory_flag = @intCast(memory_ptr);
         memory_ptr += 4;
     }
 
     if (!place_stack_first and !is_obj) {
         memory_ptr = stack_alignment.forward(memory_ptr);
         memory_ptr += wasm.base.stack_size;
-        virtual_addrs.stack_pointer = memory_ptr;
+        virtual_addrs.stack_pointer = @intCast(memory_ptr);
     }
 
     memory_ptr = heap_alignment.forward(memory_ptr);
-    virtual_addrs.heap_base = memory_ptr;
+    virtual_addrs.heap_base = @intCast(memory_ptr);
 
     if (wasm.initial_memory) |initial_memory| {
         if (!mem.isAlignedGeneric(u64, initial_memory, page_size)) {
@@ -311,7 +311,7 @@ pub fn finish(f: *Flush, wasm: *Wasm, arena: Allocator) anyerror!void {
     } else {
         memory_ptr = mem.alignForward(u64, memory_ptr, std.wasm.page_size);
     }
-    virtual_addrs.heap_end = memory_ptr;
+    virtual_addrs.heap_end = @intCast(memory_ptr);
 
     // In case we do not import memory, but define it ourselves, set the
     // minimum amount of pages on the memory section.
@@ -326,7 +326,7 @@ pub fn finish(f: *Flush, wasm: *Wasm, arena: Allocator) anyerror!void {
             diags.addError("maximum memory value {d} insufficient; minimum {d}", .{ max_memory, memory_ptr });
         }
         if (max_memory > std.math.maxInt(u32)) {
-            diags.addError("maximum memory exceeds 32-bit address space", .{max_memory});
+            diags.addError("maximum memory value {d} exceeds 32-bit address space", .{max_memory});
         }
         if (diags.hasErrors()) return error.LinkFailure;
         wasm.memories.limits.max = @intCast(max_memory / page_size);
@@ -346,24 +346,26 @@ pub fn finish(f: *Flush, wasm: *Wasm, arena: Allocator) anyerror!void {
     const binary_bytes = &f.binary_bytes;
     assert(binary_bytes.items.len == 0);
 
-    try binary_bytes.appendSlice(gpa, std.wasm.magic ++ std.wasm.version);
+    try binary_bytes.appendSlice(gpa, &std.wasm.magic ++ &std.wasm.version);
     assert(binary_bytes.items.len == 8);
 
     const binary_writer = binary_bytes.writer(gpa);
 
     // Type section
-    if (wasm.func_types.items.len != 0) {
+    if (wasm.func_types.entries.len != 0) {
         const header_offset = try reserveVecSectionHeader(gpa, binary_bytes);
-        log.debug("Writing type section. Count: ({d})", .{wasm.func_types.items.len});
-        for (wasm.func_types.items) |func_type| {
+        log.debug("Writing type section. Count: ({d})", .{wasm.func_types.entries.len});
+        for (wasm.func_types.keys()) |func_type| {
             try leb.writeUleb128(binary_writer, std.wasm.function_type);
-            try leb.writeUleb128(binary_writer, @as(u32, @intCast(func_type.params.len)));
-            for (func_type.params) |param_ty| {
-                try leb.writeUleb128(binary_writer, std.wasm.valtype(param_ty));
+            const params = func_type.params.slice(wasm);
+            try leb.writeUleb128(binary_writer, @as(u32, @intCast(params.len)));
+            for (params) |param_ty| {
+                try leb.writeUleb128(binary_writer, @intFromEnum(param_ty));
             }
-            try leb.writeUleb128(binary_writer, @as(u32, @intCast(func_type.returns.len)));
-            for (func_type.returns) |ret_ty| {
-                try leb.writeUleb128(binary_writer, std.wasm.valtype(ret_ty));
+            const returns = func_type.returns.slice(wasm);
+            try leb.writeUleb128(binary_writer, @as(u32, @intCast(returns.len)));
+            for (returns) |ret_ty| {
+                try leb.writeUleb128(binary_writer, @intFromEnum(ret_ty));
             }
         }
 
@@ -372,19 +374,19 @@ pub fn finish(f: *Flush, wasm: *Wasm, arena: Allocator) anyerror!void {
             header_offset,
             .type,
             @intCast(binary_bytes.items.len - header_offset - header_size),
-            @intCast(wasm.func_types.items.len),
+            @intCast(wasm.func_types.entries.len),
         );
         section_index += 1;
     }
 
     // Import section
-    const total_imports_len = wasm.function_imports.items.len + wasm.global_imports.items.len +
-        wasm.table_imports.items.len + wasm.memory_imports.items.len + @intFromBool(import_memory);
+    const total_imports_len = wasm.function_imports.entries.len + wasm.global_imports.entries.len +
+        wasm.table_imports.entries.len + wasm.memory_imports.items.len + @intFromBool(import_memory);
 
     if (total_imports_len > 0) {
         const header_offset = try reserveVecSectionHeader(gpa, binary_bytes);
 
-        for (wasm.function_imports.items) |*function_import| {
+        for (wasm.function_imports.values()) |*function_import| {
             const module_name = function_import.module_name.slice(wasm);
             try leb.writeUleb128(binary_writer, @as(u32, @intCast(module_name.len)));
             try binary_writer.writeAll(module_name);
@@ -397,7 +399,7 @@ pub fn finish(f: *Flush, wasm: *Wasm, arena: Allocator) anyerror!void {
             try leb.writeUleb128(binary_writer, function_import.index);
         }
 
-        for (wasm.table_imports.items) |*table_import| {
+        for (wasm.table_imports.values()) |*table_import| {
             const module_name = table_import.module_name.slice(wasm);
             try leb.writeUleb128(binary_writer, @as(u32, @intCast(module_name.len)));
             try binary_writer.writeAll(module_name);
@@ -424,7 +426,7 @@ pub fn finish(f: *Flush, wasm: *Wasm, arena: Allocator) anyerror!void {
             });
         }
 
-        for (wasm.global_imports.items) |*global_import| {
+        for (wasm.global_imports.values()) |*global_import| {
             const module_name = global_import.module_name.slice(wasm);
             try leb.writeUleb128(binary_writer, @as(u32, @intCast(module_name.len)));
             try binary_writer.writeAll(module_name);
@@ -504,7 +506,7 @@ pub fn finish(f: *Flush, wasm: *Wasm, arena: Allocator) anyerror!void {
         const header_offset = try reserveVecSectionHeader(gpa, binary_bytes);
 
         for (wasm.output_globals.items) |global| {
-            try binary_writer.writeByte(std.wasm.valtype(global.global_type.valtype));
+            try binary_writer.writeByte(@intFromEnum(global.global_type.valtype));
             try binary_writer.writeByte(@intFromBool(global.global_type.mutable));
             try emitInit(binary_writer, global.init);
         }
@@ -841,7 +843,7 @@ fn writeCustomSectionHeader(buffer: []u8, offset: u32, size: u32) !void {
     buffer[offset..][0..buf.len].* = buf;
 }
 
-fn reserveCustomSectionHeader(gpa: Allocator, bytes: *std.ArrayListUnmanaged(u8)) error{OutOfMemory}!u32 {
+fn reserveCustomSectionHeader(gpa: Allocator, bytes: *std.ArrayListUnmanaged(u8)) Allocator.Error!u32 {
     // unlike regular section, we don't emit the count
     const header_size = 1 + 5;
     try bytes.appendNTimes(gpa, 0, header_size);
@@ -1099,12 +1101,12 @@ fn wantSegmentMerge(wasm: *const Wasm, a_index: Wasm.DataSegment.Index, b_index:
     if (a.flags.tls != b.flags.tls) return false;
     if (a.flags.is_passive != b.flags.is_passive) return false;
     if (a.name == b.name) return true;
-    const a_prefix, _ = splitSegmentName(a.name.slice(wasm));
-    const b_prefix, _ = splitSegmentName(b.name.slice(wasm));
+    const a_prefix, _ = splitSegmentName(a.name.slice(wasm).?);
+    const b_prefix, _ = splitSegmentName(b.name.slice(wasm).?);
     return a_prefix.len > 0 and mem.eql(u8, a_prefix, b_prefix);
 }
 
-fn reserveVecSectionHeader(gpa: Allocator, bytes: *std.ArrayListUnmanaged(u8)) error{OutOfMemory}!u32 {
+fn reserveVecSectionHeader(gpa: Allocator, bytes: *std.ArrayListUnmanaged(u8)) Allocator.Error!u32 {
     // section id + fixed leb contents size + fixed leb vector length
     const header_size = 1 + 5 + 5;
     try bytes.appendNTimes(gpa, 0, header_size);
@@ -1125,7 +1127,7 @@ fn emitLimits(writer: anytype, limits: std.wasm.Limits) !void {
     if (limits.flags.has_max) try leb.writeUleb128(writer, limits.max);
 }
 
-fn emitMemoryImport(wasm: *Wasm, writer: anytype, memory_import: *const Wasm.MemoryImport) error{OutOfMemory}!void {
+fn emitMemoryImport(wasm: *Wasm, writer: anytype, memory_import: *const Wasm.MemoryImport) Allocator.Error!void {
     const module_name = memory_import.module_name.slice(wasm);
     try leb.writeUleb128(writer, @as(u32, @intCast(module_name.len)));
     try writer.writeAll(module_name);

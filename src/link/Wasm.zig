@@ -100,7 +100,7 @@ object_global_imports: std.AutoArrayHashMapUnmanaged(String, GlobalImport) = .em
 object_globals: std.ArrayListUnmanaged(Global) = .empty,
 
 /// All table imports for all objects.
-object_table_imports: std.ArrayListUnmanaged(TableImport) = .empty,
+object_table_imports: std.AutoArrayHashMapUnmanaged(String, TableImport) = .empty,
 /// All parsed table sections for all objects.
 object_tables: std.ArrayListUnmanaged(Table) = .empty,
 
@@ -109,12 +109,28 @@ object_memory_imports: std.ArrayListUnmanaged(MemoryImport) = .empty,
 /// All parsed memory sections for all objects.
 object_memories: std.ArrayListUnmanaged(std.wasm.Memory) = .empty,
 
+/// All relocations from all objects concatenated. `relocs_start` marks the end
+/// point of object relocations and start point of Zcu relocations.
+object_relocations: std.MultiArrayList(ObjectRelocation) = .empty,
+
 /// List of initialization functions. These must be called in order of priority
 /// by the (synthetic) __wasm_call_ctors function.
 object_init_funcs: std.ArrayListUnmanaged(InitFunc) = .empty,
-/// All relocations from all objects concatenated. `relocs_start` marks the end
-/// point of object relocations and start point of Zcu relocations.
-relocations: std.MultiArrayList(Relocation) = .empty,
+
+/// Relocations to be emitted into an object file. Remains empty when not
+/// emitting an object file.
+out_relocs: std.MultiArrayList(OutReloc) = .empty,
+/// List of locations within `string_bytes` that must be patched with the virtual
+/// memory address of a Uav during `flush`.
+/// When emitting an object file, `out_relocs` is used instead.
+uav_fixups: std.ArrayListUnmanaged(UavFixup) = .empty,
+/// List of locations within `string_bytes` that must be patched with the virtual
+/// memory address of a Nav during `flush`.
+/// When emitting an object file, `out_relocs` is used instead.
+nav_fixups: std.ArrayListUnmanaged(NavFixup) = .empty,
+/// Symbols to be emitted into an object file. Remains empty when not emitting
+/// an object file.
+symbol_table: std.AutoArrayHashMapUnmanaged(String, void) = .empty,
 
 /// Non-synthetic section that can essentially be mem-cpy'd into place after performing relocations.
 object_data_segments: std.ArrayListUnmanaged(DataSegment) = .empty,
@@ -125,7 +141,7 @@ object_custom_segments: std.AutoArrayHashMapUnmanaged(ObjectSectionIndex, Custom
 object_comdats: std.ArrayListUnmanaged(Comdat) = .empty,
 /// A table that maps the relocations to be performed where the key represents
 /// the section (across all objects) that the slice of relocations applies to.
-object_relocations_table: std.AutoArrayHashMapUnmanaged(ObjectSectionIndex, Relocation.Slice) = .empty,
+object_relocations_table: std.AutoArrayHashMapUnmanaged(ObjectSectionIndex, ObjectRelocation.Slice) = .empty,
 /// Incremented across all objects in order to enable calculation of `ObjectSectionIndex` values.
 object_total_sections: u32 = 0,
 /// All comdat symbols from all objects concatenated.
@@ -151,7 +167,10 @@ dump_argv_list: std.ArrayListUnmanaged([]const u8),
 
 preloaded_strings: PreloadedStrings,
 
-navs: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, Nav) = .empty,
+/// This field is used when emitting an object; `navs_exe` used otherwise.
+navs_obj: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, NavObj) = .empty,
+/// This field is unused when emitting an object; `navs_exe` used otherwise.
+navs_exe: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, NavExe) = .empty,
 zcu_funcs: std.AutoArrayHashMapUnmanaged(InternPool.Index, ZcuFunc) = .empty,
 nav_exports: std.AutoArrayHashMapUnmanaged(NavExport, Zcu.Export.Index) = .empty,
 uav_exports: std.AutoArrayHashMapUnmanaged(UavExport, Zcu.Export.Index) = .empty,
@@ -201,9 +220,14 @@ global_imports: std.AutoArrayHashMapUnmanaged(String, GlobalImportId) = .empty,
 /// Ordered list of non-import tables that will appear in the final binary.
 /// Empty until prelink.
 tables: std.AutoArrayHashMapUnmanaged(TableImport.Resolution, void) = .empty,
-table_imports: std.AutoArrayHashMapUnmanaged(String, ObjectTableImportIndex) = .empty,
+table_imports: std.AutoArrayHashMapUnmanaged(String, TableImport.Index) = .empty,
 
 any_exports_updated: bool = true,
+/// Set to true if any `GLOBAL_INDEX` relocation is encountered with
+/// `SymbolFlags.tls` set to true. This is for objects only; final
+/// value must be this OR'd with the same logic for zig functions
+/// (set to true if any threadlocal global is used).
+any_tls_relocs: bool = false,
 
 /// All MIR instructions for all Zcu functions.
 mir_instructions: std.MultiArrayList(Mir.Inst) = .{},
@@ -211,6 +235,18 @@ mir_instructions: std.MultiArrayList(Mir.Inst) = .{},
 mir_extra: std.ArrayListUnmanaged(u32) = .empty,
 /// All local types for all Zcu functions.
 all_zcu_locals: std.ArrayListUnmanaged(u8) = .empty,
+
+pub const UavFixup = extern struct {
+    ip_index: InternPool.Index,
+    /// Index into `string_bytes`.
+    offset: u32,
+};
+
+pub const NavFixup = extern struct {
+    nav_index: InternPool.Nav.Index,
+    /// Index into `string_bytes`.
+    offset: u32,
+};
 
 /// Index into `objects`.
 pub const ObjectIndex = enum(u32) {
@@ -300,6 +336,10 @@ pub const SourceLocation = enum(u32) {
         };
     }
 
+    pub fn fromObject(object_index: ObjectIndex, wasm: *const Wasm) SourceLocation {
+        return pack(.{ .object_index = object_index }, wasm);
+    }
+
     pub fn addError(sl: SourceLocation, wasm: *Wasm, comptime f: []const u8, args: anytype) void {
         const diags = &wasm.base.comp.link_diags;
         switch (sl.unpack(wasm)) {
@@ -345,7 +385,7 @@ pub const SymbolFlags = packed struct(u32) {
 
     // Above here matches the tooling conventions ABI.
 
-    padding1: u8 = 0,
+    padding1: u5 = 0,
     /// Zig-specific. Dead things are allowed to be garbage collected.
     alive: bool = false,
     /// Zig-specific. Segments only. Signals that the segment contains only
@@ -360,6 +400,12 @@ pub const SymbolFlags = packed struct(u32) {
     alignment: Alignment = .none,
     /// Zig-specific. Globals only.
     global_type: Global.Type = .zero,
+    /// Zig-specific. Tables only.
+    limits_has_max: bool = false,
+    /// Zig-specific. Tables only.
+    limits_is_shared: bool = false,
+    /// Zig-specific. Tables only.
+    ref_type: RefType1 = .funcref,
 
     pub const Binding = enum(u2) {
         strong = 0,
@@ -378,13 +424,16 @@ pub const SymbolFlags = packed struct(u32) {
     };
 
     pub fn initZigSpecific(flags: *SymbolFlags, must_link: bool, no_strip: bool) void {
+        flags.no_strip = no_strip;
         flags.alive = false;
         flags.strings = false;
         flags.must_link = must_link;
-        flags.no_strip = no_strip;
+        flags.is_passive = false;
         flags.alignment = .none;
         flags.global_type = .zero;
-        flags.is_passive = false;
+        flags.limits_has_max = false;
+        flags.limits_is_shared = false;
+        flags.ref_type = .funcref;
     }
 
     pub fn isIncluded(flags: SymbolFlags, is_dynamic: bool) bool {
@@ -427,11 +476,10 @@ pub const SymbolFlags = packed struct(u32) {
     }
 };
 
-pub const Nav = extern struct {
+pub const NavObj = extern struct {
     code: DataSegment.Payload,
-    relocs: Relocation.Slice,
-
-    pub const Code = DataSegment.Payload;
+    /// Empty if not emitting an object.
+    relocs: OutReloc.Slice,
 
     /// Index into `navs`.
     /// Note that swapRemove is sometimes performed on `navs`.
@@ -439,11 +487,29 @@ pub const Nav = extern struct {
         _,
 
         pub fn key(i: @This(), wasm: *const Wasm) *InternPool.Nav.Index {
-            return &wasm.navs.keys()[@intFromEnum(i)];
+            return &wasm.navs_obj.keys()[@intFromEnum(i)];
         }
 
-        pub fn value(i: @This(), wasm: *const Wasm) *Nav {
-            return &wasm.navs.values()[@intFromEnum(i)];
+        pub fn value(i: @This(), wasm: *const Wasm) *NavObj {
+            return &wasm.navs_obj.values()[@intFromEnum(i)];
+        }
+    };
+};
+
+pub const NavExe = extern struct {
+    code: DataSegment.Payload,
+
+    /// Index into `navs`.
+    /// Note that swapRemove is sometimes performed on `navs`.
+    pub const Index = enum(u32) {
+        _,
+
+        pub fn key(i: @This(), wasm: *const Wasm) *InternPool.Nav.Index {
+            return &wasm.navs_exe.keys()[@intFromEnum(i)];
+        }
+
+        pub fn value(i: @This(), wasm: *const Wasm) *NavExe {
+            return &wasm.navs_exe.values()[@intFromEnum(i)];
         }
     };
 };
@@ -506,7 +572,7 @@ pub const FunctionImport = extern struct {
         __wasm_init_tls,
         __zig_error_names,
         // Next, index into `object_functions`.
-        // Next, index into `navs`.
+        // Next, index into `navs_exe` or `navs_obj` depending on whether emitting an object.
         _,
 
         const first_object_function = @intFromEnum(Resolution.__zig_error_names) + 1;
@@ -519,7 +585,8 @@ pub const FunctionImport = extern struct {
             __wasm_init_tls,
             __zig_error_names,
             object_function: ObjectFunctionIndex,
-            nav: Nav.Index,
+            nav_exe: NavExe.Index,
+            nav_obj: NavExe.Index,
         };
 
         pub fn unpack(r: Resolution, wasm: *const Wasm) Unpacked {
@@ -535,8 +602,14 @@ pub const FunctionImport = extern struct {
                     const object_function_index = i - first_object_function;
                     if (object_function_index < wasm.object_functions.items.len)
                         return .{ .object_function = @enumFromInt(object_function_index) };
+                    const comp = wasm.base.comp;
+                    const is_obj = comp.config.output_mode == .Obj;
                     const nav_index = object_function_index - wasm.object_functions.items.len;
-                    return .{ .nav = @enumFromInt(nav_index) };
+                    return if (is_obj) .{
+                        .nav_obj = @enumFromInt(nav_index),
+                    } else .{
+                        .nav_exe = @enumFromInt(nav_index),
+                    };
                 },
             };
         }
@@ -550,17 +623,24 @@ pub const FunctionImport = extern struct {
                 .__wasm_init_tls => .__wasm_init_tls,
                 .__zig_error_names => .__zig_error_names,
                 .object_function => |i| @enumFromInt(first_object_function + @intFromEnum(i)),
-                .nav => |i| @enumFromInt(first_object_function + wasm.object_functions.items.len + @intFromEnum(i)),
+                .nav_obj => |i| @enumFromInt(first_object_function + wasm.object_functions.items.len + @intFromEnum(i)),
+                .nav_exe => |i| @enumFromInt(first_object_function + wasm.object_functions.items.len + @intFromEnum(i)),
             };
         }
 
         pub fn fromIpNav(wasm: *const Wasm, ip_nav: InternPool.Nav.Index) Resolution {
-            return pack(wasm, .{ .nav = @enumFromInt(wasm.navs.getIndex(ip_nav).?) });
+            const comp = wasm.base.comp;
+            const is_obj = comp.config.output_mode == .Obj;
+            return pack(wasm, if (is_obj) .{
+                .nav_obj = @enumFromInt(wasm.navs_obj.getIndex(ip_nav).?),
+            } else .{
+                .nav_exe = @enumFromInt(wasm.navs_exe.getIndex(ip_nav).?),
+            });
         }
 
         pub fn isNavOrUnresolved(r: Resolution, wasm: *const Wasm) bool {
             return switch (r.unpack(wasm)) {
-                .unresolved, .nav => true,
+                .unresolved, .nav_obj, .nav_exe => true,
                 else => false,
             };
         }
@@ -608,7 +688,7 @@ pub const GlobalImport = extern struct {
         __tls_size,
         __zig_error_name_table,
         // Next, index into `object_globals`.
-        // Next, index into `navs`.
+        // Next, index into `navs_obj` or `navs_exe` depending on whether emitting an object.
         _,
 
         const first_object_global = @intFromEnum(Resolution.__zig_error_name_table) + 1;
@@ -623,7 +703,8 @@ pub const GlobalImport = extern struct {
             __tls_size,
             __zig_error_name_table,
             object_global: ObjectGlobalIndex,
-            nav: Nav.Index,
+            nav_exe: NavExe.Index,
+            nav_obj: NavObj.Index,
         };
 
         pub fn unpack(r: Resolution, wasm: *const Wasm) Unpacked {
@@ -639,8 +720,14 @@ pub const GlobalImport = extern struct {
                     const object_global_index = i - first_object_global;
                     if (object_global_index < wasm.object_globals.items.len)
                         return .{ .object_global = @enumFromInt(object_global_index) };
+                    const comp = wasm.base.comp;
+                    const is_obj = comp.config.output_mode == .Obj;
                     const nav_index = object_global_index - wasm.object_globals.items.len;
-                    return .{ .nav = @enumFromInt(nav_index) };
+                    return if (is_obj) .{
+                        .nav_obj = @enumFromInt(nav_index),
+                    } else .{
+                        .nav_exe = @enumFromInt(nav_index),
+                    };
                 },
             };
         }
@@ -656,12 +743,19 @@ pub const GlobalImport = extern struct {
                 .__tls_size => .__tls_size,
                 .__zig_error_name_table => .__zig_error_name_table,
                 .object_global => |i| @enumFromInt(first_object_global + @intFromEnum(i)),
-                .nav => |i| @enumFromInt(first_object_global + wasm.object_globals.items.len + @intFromEnum(i)),
+                .nav_obj => |i| @enumFromInt(first_object_global + wasm.object_globals.items.len + @intFromEnum(i)),
+                .nav_exe => |i| @enumFromInt(first_object_global + wasm.object_globals.items.len + @intFromEnum(i)),
             };
         }
 
         pub fn fromIpNav(wasm: *const Wasm, ip_nav: InternPool.Nav.Index) Resolution {
-            return pack(wasm, .{ .nav = @enumFromInt(wasm.navs.getIndex(ip_nav).?) });
+            const comp = wasm.base.comp;
+            const is_obj = comp.config.output_mode == .Obj;
+            return pack(wasm, if (is_obj) .{
+                .nav_obj = @enumFromInt(wasm.navs_obj.getIndex(ip_nav).?),
+            } else .{
+                .nav_exe = @enumFromInt(wasm.navs_exe.getIndex(ip_nav).?),
+            });
         }
     };
 
@@ -717,11 +811,32 @@ pub const Global = extern struct {
     };
 };
 
+pub const RefType1 = enum(u1) {
+    funcref,
+    externref,
+
+    pub fn from(rt: std.wasm.RefType) RefType1 {
+        return switch (rt) {
+            .funcref => .funcref,
+            .externref => .externref,
+        };
+    }
+
+    pub fn to(rt: RefType1) std.wasm.RefType {
+        return switch (rt) {
+            .funcref => .funcref,
+            .externref => .externref,
+        };
+    }
+};
+
 pub const TableImport = extern struct {
     flags: SymbolFlags,
     module_name: String,
     source_location: SourceLocation,
     resolution: Resolution,
+    limits_min: u32,
+    limits_max: u32,
 
     /// Represents a synthetic table, or a table from an object.
     pub const Resolution = enum(u32) {
@@ -730,33 +845,34 @@ pub const TableImport = extern struct {
         // Next, index into `object_tables`.
         _,
     };
+
+    /// Index into `object_table_imports`.
+    pub const Index = enum(u32) {
+        _,
+
+        pub fn key(index: Index, wasm: *const Wasm) *String {
+            return &wasm.object_table_imports.keys()[@intFromEnum(index)];
+        }
+
+        pub fn value(index: Index, wasm: *const Wasm) *TableImport {
+            return &wasm.object_table_imports.values()[@intFromEnum(index)];
+        }
+    };
 };
 
 pub const Table = extern struct {
-    module_name: String,
-    name: String,
+    module_name: OptionalString,
+    name: OptionalString,
     flags: SymbolFlags,
     limits_min: u32,
     limits_max: u32,
-    limits_has_max: bool,
-    limits_is_shared: bool,
-    reftype: std.wasm.RefType,
-    padding: [1]u8 = .{0},
 };
 
-/// Uniquely identifies a section across all objects. Each Object has a section_start field.
-/// By subtracting that value from this one, the Object section index is obtained.
+/// Uniquely identifies a section across all objects. By subtracting
+/// `Object.local_section_index_base` from this one, the Object section index
+/// is obtained.
 pub const ObjectSectionIndex = enum(u32) {
     _,
-};
-
-/// Index into `object_table_imports`.
-pub const ObjectTableImportIndex = enum(u32) {
-    _,
-
-    pub fn ptr(index: ObjectTableImportIndex, wasm: *const Wasm) *TableImport {
-        return &wasm.object_table_imports.items[@intFromEnum(index)];
-    }
 };
 
 /// Index into `object_tables`.
@@ -820,13 +936,18 @@ pub const DataSegment = extern struct {
         len: u32,
 
         fn slice(p: DataSegment.Payload, wasm: *const Wasm) []const u8 {
+            assert(p.off != p.len);
             return wasm.string_bytes.items[p.off..][0..p.len];
         }
     };
 
-    /// Index into `object_data_segments`.
+    /// Index into `Wasm.object_data_segments`.
     pub const Index = enum(u32) {
         _,
+
+        pub fn ptr(i: Index, wasm: *const Wasm) *DataSegment {
+            return &wasm.object_data_segments.items[@intFromEnum(i)];
+        }
     };
 };
 
@@ -992,6 +1113,10 @@ pub const FunctionImportId = enum(u32) {
         return .{ .zcu_import = @enumFromInt(zcu_import_i) };
     }
 
+    pub fn fromObject(function_import_index: FunctionImport.Index, wasm: *const Wasm) FunctionImportId {
+        return pack(.{ .object_function_import = function_import_index }, wasm);
+    }
+
     /// This function is allowed O(N) lookup because it is only called during
     /// diagnostic generation.
     pub fn sourceLocation(id: FunctionImportId, wasm: *const Wasm) SourceLocation {
@@ -1035,6 +1160,10 @@ pub const GlobalImportId = enum(u32) {
         return .{ .zcu_import = @enumFromInt(zcu_import_i) };
     }
 
+    pub fn fromObject(object_global_import: GlobalImport.Index, wasm: *const Wasm) GlobalImportId {
+        return pack(.{ .object_global_import = object_global_import }, wasm);
+    }
+
     /// This function is allowed O(N) lookup because it is only called during
     /// diagnostic generation.
     pub fn sourceLocation(id: GlobalImportId, wasm: *const Wasm) SourceLocation {
@@ -1054,7 +1183,38 @@ pub const GlobalImportId = enum(u32) {
     }
 };
 
-pub const Relocation = struct {
+/// Index into `Wasm.symbol_table`.
+pub const SymbolTableIndex = enum(u32) {
+    _,
+
+    pub fn key(i: @This(), wasm: *const Wasm) *String {
+        return &wasm.symbol_table.keys()[@intFromEnum(i)];
+    }
+};
+
+pub const OutReloc = struct {
+    tag: ObjectRelocation.Tag,
+    offset: u32,
+    pointee: Pointee,
+    addend: i32,
+
+    pub const Pointee = union {
+        symbol_index: SymbolTableIndex,
+        type_index: FunctionType.Index,
+    };
+
+    pub const Slice = extern struct {
+        /// Index into `out_relocs`.
+        off: u32,
+        len: u32,
+
+        pub fn slice(s: Slice, wasm: *const Wasm) []OutReloc {
+            return wasm.relocations.items[s.off..][0..s.len];
+        }
+    };
+};
+
+pub const ObjectRelocation = struct {
     tag: Tag,
     /// Offset of the value to rewrite relative to the relevant section's contents.
     /// When `offset` is zero, its position is immediately after the id and size of the section.
@@ -1067,8 +1227,6 @@ pub const Relocation = struct {
         symbol_name: String,
         type_index: FunctionType.Index,
         section: ObjectSectionIndex,
-        nav_index: InternPool.Nav.Index,
-        uav_index: InternPool.Index,
     };
 
     pub const Slice = extern struct {
@@ -1076,7 +1234,7 @@ pub const Relocation = struct {
         off: u32,
         len: u32,
 
-        pub fn slice(s: Slice, wasm: *const Wasm) []Relocation {
+        pub fn slice(s: Slice, wasm: *const Wasm) []ObjectRelocation {
             return wasm.relocations.items[s.off..][0..s.len];
         }
     };
@@ -1122,11 +1280,6 @@ pub const Relocation = struct {
         // Above here, the tags correspond to symbol table ABI described in
         // https://github.com/WebAssembly/tool-conventions/blob/main/Linking.md
         // Below, the tags are compiler-internal.
-
-        /// Uses `nav_index`. 4 or 8 bytes depending on wasm32 or wasm64.
-        nav_index,
-        /// Uses `uav_index`. 4 or 8 bytes depending on wasm32 or wasm64.
-        uav_index,
     };
 };
 
@@ -1456,7 +1609,8 @@ pub fn deinit(wasm: *Wasm) void {
     const gpa = wasm.base.comp.gpa;
     if (wasm.llvm_object) |llvm_object| llvm_object.deinit();
 
-    wasm.navs.deinit(gpa);
+    wasm.navs_exe.deinit(gpa);
+    wasm.navs_obj.deinit(gpa);
     wasm.zcu_funcs.deinit(gpa);
     wasm.nav_exports.deinit(gpa);
     wasm.uav_exports.deinit(gpa);
@@ -1478,7 +1632,7 @@ pub fn deinit(wasm: *Wasm) void {
     wasm.object_tables.deinit(gpa);
     wasm.object_memory_imports.deinit(gpa);
     wasm.object_memories.deinit(gpa);
-
+    wasm.object_relocations.deinit(gpa);
     wasm.object_data_segments.deinit(gpa);
     wasm.object_custom_segments.deinit(gpa);
     wasm.object_init_funcs.deinit(gpa);
@@ -1492,8 +1646,13 @@ pub fn deinit(wasm: *Wasm) void {
     wasm.function_imports.deinit(gpa);
     wasm.functions.deinit(gpa);
     wasm.globals.deinit(gpa);
+    wasm.global_exports.deinit(gpa);
     wasm.global_imports.deinit(gpa);
     wasm.table_imports.deinit(gpa);
+    wasm.symbol_table.deinit(gpa);
+    wasm.out_relocs.deinit(gpa);
+    wasm.uav_fixups.deinit(gpa);
+    wasm.nav_fixups.deinit(gpa);
 
     wasm.string_bytes.deinit(gpa);
     wasm.string_table.deinit(gpa);
@@ -1527,7 +1686,9 @@ pub fn updateNav(wasm: *Wasm, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     const nav = ip.getNav(nav_index);
-    const gpa = wasm.base.comp.gpa;
+    const comp = wasm.base.comp;
+    const gpa = comp.gpa;
+    const is_obj = comp.config.output_mode == .Obj;
 
     const nav_val = zcu.navValue(nav_index);
     const is_extern, const nav_init = switch (ip.indexToKey(nav_val.toIntern())) {
@@ -1542,22 +1703,26 @@ pub fn updateNav(wasm: *Wasm, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index
 
     if (!nav_init.typeOf(zcu).hasRuntimeBits(zcu)) {
         _ = wasm.imports.swapRemove(nav_index);
-        if (wasm.navs.swapRemove(nav_index)) {
-            @panic("TODO reclaim resources");
+        if (is_obj) {
+            if (wasm.navs_obj.swapRemove(nav_index)) @panic("TODO reclaim resources");
+        } else {
+            if (wasm.navs_exe.swapRemove(nav_index)) @panic("TODO reclaim resources");
         }
         return;
     }
 
     if (is_extern) {
         try wasm.imports.put(gpa, nav_index, {});
-        if (wasm.navs.swapRemove(nav_index)) {
-            @panic("TODO reclaim resources");
+        if (is_obj) {
+            if (wasm.navs_obj.swapRemove(nav_index)) @panic("TODO reclaim resources");
+        } else {
+            if (wasm.navs_exe.swapRemove(nav_index)) @panic("TODO reclaim resources");
         }
         return;
     }
 
     const code_start: u32 = @intCast(wasm.string_bytes.items.len);
-    const relocs_start: u32 = @intCast(wasm.relocations.len);
+    const relocs_start: u32 = @intCast(wasm.out_relocs.len);
     wasm.string_bytes_lock.lock();
 
     try codegen.generateSymbol(
@@ -1570,15 +1735,45 @@ pub fn updateNav(wasm: *Wasm, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index
     );
 
     const code_len: u32 = @intCast(wasm.string_bytes.items.len - code_start);
-    const relocs_len: u32 = @intCast(wasm.relocations.len - relocs_start);
+    const relocs_len: u32 = @intCast(wasm.out_relocs.len - relocs_start);
     wasm.string_bytes_lock.unlock();
 
-    const code: Nav.Code = .{
+    const naive_code: DataSegment.Payload = .{
         .off = code_start,
         .len = code_len,
     };
 
-    const gop = try wasm.navs.getOrPut(gpa, nav_index);
+    // Only nonzero init values need to take up space in the output.
+    const all_zeroes = std.mem.allEqual(u8, naive_code.slice(wasm), 0);
+    const code: DataSegment.Payload = if (!all_zeroes) naive_code else c: {
+        wasm.string_bytes.shrinkRetainingCapacity(code_start);
+        // Indicate empty by making off and len the same value, however, still
+        // transmit the data size by using the size as that value.
+        break :c .{
+            .off = naive_code.len,
+            .len = naive_code.len,
+        };
+    };
+
+    if (is_obj) {
+        const gop = try wasm.navs_obj.getOrPut(gpa, nav_index);
+        if (gop.found_existing) {
+            @panic("TODO reuse these resources");
+        } else {
+            _ = wasm.imports.swapRemove(nav_index);
+        }
+        gop.value_ptr.* = .{
+            .code = code,
+            .relocs = .{
+                .off = relocs_start,
+                .len = relocs_len,
+            },
+        };
+    }
+
+    assert(relocs_len == 0);
+
+    const gop = try wasm.navs_exe.getOrPut(gpa, nav_index);
     if (gop.found_existing) {
         @panic("TODO reuse these resources");
     } else {
@@ -1586,10 +1781,6 @@ pub fn updateNav(wasm: *Wasm, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index
     }
     gop.value_ptr.* = .{
         .code = code,
-        .relocs = .{
-            .off = relocs_start,
-            .len = relocs_len,
-        },
     };
 }
 
@@ -1705,6 +1896,12 @@ pub fn prelink(wasm: *Wasm, prog_node: std.Progress.Node) link.File.FlushError!v
                     continue;
                 }
             }
+            if (wasm.object_table_imports.getPtr(exp_name_interned)) |import| {
+                if (import.resolution != .unresolved) {
+                    import.flags.exported = true;
+                    continue;
+                }
+            }
             try missing_exports.put(gpa, exp_name_interned, {});
         }
         wasm.missing_exports_init = try gpa.dupe(String, missing_exports.keys());
@@ -1724,32 +1921,28 @@ pub fn prelink(wasm: *Wasm, prog_node: std.Progress.Node) link.File.FlushError!v
     for (wasm.object_function_imports.keys(), wasm.object_function_imports.values(), 0..) |name, *import, i| {
         if (import.flags.isIncluded(rdynamic)) {
             try markFunction(wasm, name, import, @enumFromInt(i));
-            continue;
         }
     }
     wasm.functions_len = @intCast(wasm.functions.entries.len);
     wasm.function_imports_init_keys = try gpa.dupe(String, wasm.function_imports.keys());
-    wasm.function_imports_init_vals = try gpa.dupe(FunctionImportId, wasm.function_imports.vals());
+    wasm.function_imports_init_vals = try gpa.dupe(FunctionImportId, wasm.function_imports.values());
     wasm.function_exports_len = @intCast(wasm.function_exports.items.len);
 
     for (wasm.object_global_imports.keys(), wasm.object_global_imports.values(), 0..) |name, *import, i| {
         if (import.flags.isIncluded(rdynamic)) {
             try markGlobal(wasm, name, import, @enumFromInt(i));
-            continue;
         }
     }
-    wasm.globals_len = @intCast(wasm.globals.items.len);
+    wasm.globals_len = @intCast(wasm.globals.entries.len);
     wasm.global_imports_init_keys = try gpa.dupe(String, wasm.global_imports.keys());
     wasm.global_imports_init_vals = try gpa.dupe(GlobalImportId, wasm.global_imports.values());
     wasm.global_exports_len = @intCast(wasm.global_exports.items.len);
 
-    for (wasm.object_table_imports.items, 0..) |*import, i| {
+    for (wasm.object_table_imports.keys(), wasm.object_table_imports.values(), 0..) |name, *import, i| {
         if (import.flags.isIncluded(rdynamic)) {
-            try markTable(wasm, import.name, import, @enumFromInt(i));
-            continue;
+            try markTable(wasm, name, import, @enumFromInt(i));
         }
     }
-    wasm.tables_len = @intCast(wasm.tables.items.len);
 }
 
 /// Recursively mark alive everything referenced by the function.
@@ -1758,7 +1951,7 @@ fn markFunction(
     name: String,
     import: *FunctionImport,
     func_index: FunctionImport.Index,
-) error{OutOfMemory}!void {
+) Allocator.Error!void {
     if (import.flags.alive) return;
     import.flags.alive = true;
 
@@ -1783,15 +1976,15 @@ fn markFunction(
             import.resolution = .__wasm_init_tls;
             wasm.functions.putAssumeCapacity(.__wasm_init_tls, {});
         } else {
-            try wasm.function_imports.put(gpa, name, .fromObject(func_index));
+            try wasm.function_imports.put(gpa, name, .fromObject(func_index, wasm));
         }
     } else {
         const gop = wasm.functions.getOrPutAssumeCapacity(import.resolution);
 
         if (!is_obj and import.flags.isExported(rdynamic))
-            try wasm.function_exports.append(gpa, @intCast(gop.index));
+            try wasm.function_exports.append(gpa, @enumFromInt(gop.index));
 
-        for (wasm.functionResolutionRelocSlice(import.resolution)) |reloc|
+        for (try wasm.functionResolutionRelocSlice(import.resolution)) |reloc|
             try wasm.markReloc(reloc);
     }
 }
@@ -1833,15 +2026,15 @@ fn markGlobal(
             import.resolution = .__tls_size;
             wasm.globals.putAssumeCapacity(.__tls_size, {});
         } else {
-            try wasm.global_imports.put(gpa, name, .fromObject(global_index));
+            try wasm.global_imports.put(gpa, name, .fromObject(global_index, wasm));
         }
     } else {
         const gop = wasm.globals.getOrPutAssumeCapacity(import.resolution);
 
         if (!is_obj and import.flags.isExported(rdynamic))
-            try wasm.global_exports.append(gpa, @intCast(gop.index));
+            try wasm.global_exports.append(gpa, @enumFromInt(gop.index));
 
-        for (wasm.globalResolutionRelocSlice(import.resolution)) |reloc|
+        for (try wasm.globalResolutionRelocSlice(import.resolution)) |reloc|
             try wasm.markReloc(reloc);
     }
 }
@@ -1850,7 +2043,7 @@ fn markTable(
     wasm: *Wasm,
     name: String,
     import: *TableImport,
-    table_index: ObjectTableImportIndex,
+    table_index: TableImport.Index,
 ) !void {
     if (import.flags.alive) return;
     import.flags.alive = true;
@@ -1865,7 +2058,7 @@ fn markTable(
             import.resolution = .__indirect_function_table;
             wasm.tables.putAssumeCapacity(.__indirect_function_table, {});
         } else {
-            try wasm.table_imports.put(gpa, name, .fromObject(table_index));
+            try wasm.table_imports.put(gpa, name, table_index);
         }
     } else {
         wasm.tables.putAssumeCapacity(import.resolution, {});
@@ -1873,15 +2066,21 @@ fn markTable(
     }
 }
 
-fn globalResolutionRelocSlice(wasm: *Wasm, resolution: GlobalImport.Resolution) ![]const Relocation {
-    assert(resolution != .none);
+fn globalResolutionRelocSlice(wasm: *Wasm, resolution: GlobalImport.Resolution) ![]const ObjectRelocation {
+    assert(resolution != .unresolved);
     _ = wasm;
     @panic("TODO");
 }
 
-fn functionResolutionRelocSlice(wasm: *Wasm, resolution: FunctionImport.Resolution) ![]const Relocation {
-    assert(resolution != .none);
+fn functionResolutionRelocSlice(wasm: *Wasm, resolution: FunctionImport.Resolution) ![]const ObjectRelocation {
+    assert(resolution != .unresolved);
     _ = wasm;
+    @panic("TODO");
+}
+
+fn markReloc(wasm: *Wasm, reloc: ObjectRelocation) !void {
+    _ = wasm;
+    _ = reloc;
     @panic("TODO");
 }
 
@@ -2349,8 +2548,10 @@ fn defaultEntrySymbolName(
     };
 }
 
-pub fn internString(wasm: *Wasm, bytes: []const u8) error{OutOfMemory}!String {
+pub fn internString(wasm: *Wasm, bytes: []const u8) Allocator.Error!String {
     assert(mem.indexOfScalar(u8, bytes, 0) == null);
+    wasm.string_bytes_lock.lock();
+    defer wasm.string_bytes_lock.unlock();
     const gpa = wasm.base.comp.gpa;
     const gop = try wasm.string_table.getOrPutContextAdapted(
         gpa,
@@ -2371,6 +2572,13 @@ pub fn internString(wasm: *Wasm, bytes: []const u8) error{OutOfMemory}!String {
     return new_off;
 }
 
+// TODO implement instead by appending to string_bytes
+pub fn internStringFmt(wasm: *Wasm, comptime format: []const u8, args: anytype) Allocator.Error!String {
+    var buffer: [32]u8 = undefined;
+    const slice = std.fmt.bufPrint(&buffer, format, args) catch unreachable;
+    return internString(wasm, slice);
+}
+
 pub fn getExistingString(wasm: *const Wasm, bytes: []const u8) ?String {
     assert(mem.indexOfScalar(u8, bytes, 0) == null);
     return wasm.string_table.getKeyAdapted(bytes, @as(String.TableIndexAdapter, .{
@@ -2378,17 +2586,17 @@ pub fn getExistingString(wasm: *const Wasm, bytes: []const u8) ?String {
     }));
 }
 
-pub fn internValtypeList(wasm: *Wasm, valtype_list: []const std.wasm.Valtype) error{OutOfMemory}!ValtypeList {
+pub fn internValtypeList(wasm: *Wasm, valtype_list: []const std.wasm.Valtype) Allocator.Error!ValtypeList {
     return .fromString(try internString(wasm, @ptrCast(valtype_list)));
 }
 
-pub fn addFuncType(wasm: *Wasm, ft: FunctionType) error{OutOfMemory}!FunctionType.Index {
+pub fn addFuncType(wasm: *Wasm, ft: FunctionType) Allocator.Error!FunctionType.Index {
     const gpa = wasm.base.comp.gpa;
     const gop = try wasm.func_types.getOrPut(gpa, ft);
     return @enumFromInt(gop.index);
 }
 
-pub fn addExpr(wasm: *Wasm, bytes: []const u8) error{OutOfMemory}!Expr {
+pub fn addExpr(wasm: *Wasm, bytes: []const u8) Allocator.Error!Expr {
     const gpa = wasm.base.comp.gpa;
     // We can't use string table deduplication here since these expressions can
     // have null bytes in them however it may be interesting to explore since
@@ -2398,8 +2606,29 @@ pub fn addExpr(wasm: *Wasm, bytes: []const u8) error{OutOfMemory}!Expr {
     return @enumFromInt(wasm.string_bytes.items.len - bytes.len);
 }
 
-pub fn addRelocatableDataPayload(wasm: *Wasm, bytes: []const u8) error{OutOfMemory}!DataSegment.Payload {
+pub fn addRelocatableDataPayload(wasm: *Wasm, bytes: []const u8) Allocator.Error!DataSegment.Payload {
     const gpa = wasm.base.comp.gpa;
     try wasm.string_bytes.appendSlice(gpa, bytes);
     return @enumFromInt(wasm.string_bytes.items.len - bytes.len);
+}
+
+pub fn uavSymbolIndex(wasm: *Wasm, ip_index: InternPool.Index) Allocator.Error!SymbolTableIndex {
+    const comp = wasm.base.comp;
+    assert(comp.config.output_mode == .Obj);
+    const gpa = comp.gpa;
+    const name = try wasm.internStringFmt("__anon_{d}", .{@intFromEnum(ip_index)});
+    const gop = try wasm.symbol_table.getOrPut(gpa, name);
+    return @enumFromInt(gop.index);
+}
+
+pub fn navSymbolIndex(wasm: *Wasm, nav_index: InternPool.Nav.Index) Allocator.Error!SymbolTableIndex {
+    const comp = wasm.base.comp;
+    assert(comp.config.output_mode == .Obj);
+    const zcu = comp.zcu.?;
+    const ip = &zcu.intern_pool;
+    const gpa = comp.gpa;
+    const nav = ip.getNav(nav_index);
+    const name = try wasm.internString(nav.fqn.toSlice(ip));
+    const gop = try wasm.symbol_table.getOrPut(gpa, name);
+    return @enumFromInt(gop.index);
 }
