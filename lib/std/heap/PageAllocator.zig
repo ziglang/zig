@@ -89,7 +89,7 @@ fn mapGrow(memory: []align(mem.page_size) u8, new_size: usize) bool {
 
     if (use_mremap) {
         const slice = posix.mremap(
-            memory[0..old_size_aligned],
+            memory.ptr[0..old_size_aligned],
             new_size_aligned,
             false,
         ) catch return false;
@@ -153,7 +153,7 @@ fn free(_: *anyopaque, slice: []u8, log2_buf_align: u8, return_address: usize) v
     _ = return_address;
 
     const aligned_len = mem.alignForward(usize, slice.len, mem.page_size);
-    const head: []align(mem.page_size) u8 = @alignCast(slice[0..aligned_len]);
+    const head: []align(mem.page_size) u8 = @alignCast(slice.ptr[0..aligned_len]);
     mapFree(head, .free);
     const tail: [*]align(mem.page_size) u8 = @alignCast(head.ptr + head.len);
     _ = next_mmap_addr_hint.cmpxchgStrong(tail, head.ptr, .monotonic, .monotonic);
