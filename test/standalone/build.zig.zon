@@ -24,6 +24,9 @@
         .mix_c_files = .{
             .path = "mix_c_files",
         },
+        .mix_lang_files = .{
+            .path = "mix_lang_files",
+        },
         .global_linkage = .{
             .path = "global_linkage",
         },
