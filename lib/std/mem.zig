@@ -778,7 +778,7 @@ fn eqlBytes(a: []const u8, b: []const u8) bool {
 /// the other, the length of the former is returned.
 pub inline fn indexOfDiff(comptime T: type, a: []const T, b: []const T) ?usize {
     return struct {
-        fn impl(x: []const T, y: []const T) union { res: bool, force_comptime: T } {
+        fn impl(x: []const T, y: []const T) union { res: ?usize, force_comptime: T } {
             const short = @min(x.len, y.len);
 
             // pointer equality optimisation disabled for floating point
