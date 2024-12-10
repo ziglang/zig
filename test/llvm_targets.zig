@@ -2,7 +2,6 @@ const std = @import("std");
 const Cases = @import("src/Cases.zig");
 
 const targets = [_]std.Target.Query{
-    .{ .cpu_arch = .aarch64, .os_tag = .bridgeos, .abi = .none },
     .{ .cpu_arch = .aarch64, .os_tag = .driverkit, .abi = .none },
     .{ .cpu_arch = .aarch64, .os_tag = .freebsd, .abi = .none },
     .{ .cpu_arch = .aarch64, .os_tag = .freestanding, .abi = .none },

@@ -3824,6 +3824,15 @@ fn createModule(
         for (create_module.cli_link_inputs.items) |cli_link_input| switch (cli_link_input) {
             .name_query => |nq| {
                 const lib_name = nq.name;
+
+                if (target.os.tag == .wasi) {
+                    if (wasi_libc.getEmulatedLibCrtFile(lib_name)) |crt_file| {
+                        try create_module.wasi_emulated_libs.append(arena, crt_file);
+                        create_module.opts.link_libc = true;
+                        continue;
+                    }
+                }
+
                 if (std.zig.target.isLibCLibName(target, lib_name)) {
                     create_module.opts.link_libc = true;
                     continue;
@@ -3832,16 +3841,14 @@ fn createModule(
                     create_module.opts.link_libcpp = true;
                     continue;
                 }
-                switch (target_util.classifyCompilerRtLibName(target, lib_name)) {
+
+                switch (target_util.classifyCompilerRtLibName(lib_name)) {
                     .none => {},
                     .only_libunwind, .both => {
                         create_module.opts.link_libunwind = true;
                         continue;
                     },
-                    .only_compiler_rt => {
-                        warn("ignoring superfluous library '{s}': this dependency is fulfilled instead by compiler-rt which zig unconditionally provides", .{lib_name});
-                        continue;
-                    },
+                    .only_compiler_rt => continue,
                 }
 
                 if (target.isMinGW()) {
@@ -3860,12 +3867,6 @@ fn createModule(
                     fatal("cannot use absolute path as a system library: {s}", .{lib_name});
                 }
 
-                if (target.os.tag == .wasi) {
-                    if (wasi_libc.getEmulatedLibCrtFile(lib_name)) |crt_file| {
-                        try create_module.wasi_emulated_libs.append(arena, crt_file);
-                        continue;
-                    }
-                }
                 unresolved_link_inputs.appendAssumeCapacity(cli_link_input);
                 any_name_queries_remaining = true;
             },
@@ -6096,11 +6097,18 @@ fn cmdAstCheck(
         var error_bundle = try wip_errors.toOwnedBundle("");
         defer error_bundle.deinit(gpa);
         error_bundle.renderToStdErr(color.renderOptions());
-        process.exit(1);
+
+        if (file.zir.loweringFailed()) {
+            process.exit(1);
+        }
     }
 
     if (!want_output_text) {
-        return cleanExit();
+        if (file.zir.hasCompileErrors()) {
+            process.exit(1);
+        } else {
+            return cleanExit();
+        }
     }
     if (!build_options.enable_debug_extensions) {
         fatal("-t option only available in builds of zig with debug extensions", .{});
@@ -6144,7 +6152,13 @@ fn cmdAstCheck(
         // zig fmt: on
     }
 
-    return @import("print_zir.zig").renderAsTextToFile(gpa, &file, io.getStdOut());
+    try @import("print_zir.zig").renderAsTextToFile(gpa, &file, io.getStdOut());
+
+    if (file.zir.hasCompileErrors()) {
+        process.exit(1);
+    } else {
+        return cleanExit();
+    }
 }
 
 fn cmdDetectCpu(
@@ -6457,7 +6471,7 @@ fn cmdChangelist(
     file.zir_loaded = true;
     defer file.zir.deinit(gpa);
 
-    if (file.zir.hasCompileErrors()) {
+    if (file.zir.loweringFailed()) {
         var wip_errors: std.zig.ErrorBundle.Wip = undefined;
         try wip_errors.init(gpa);
         defer wip_errors.deinit();
@@ -6492,7 +6506,7 @@ fn cmdChangelist(
     file.zir = try AstGen.generate(gpa, new_tree);
     file.zir_loaded = true;
 
-    if (file.zir.hasCompileErrors()) {
+    if (file.zir.loweringFailed()) {
         var wip_errors: std.zig.ErrorBundle.Wip = undefined;
         try wip_errors.init(gpa);
         defer wip_errors.deinit();
