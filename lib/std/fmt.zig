@@ -340,14 +340,14 @@ pub const Parser = struct {
 
     // Returns a substring of the input starting from the current position
     // and ending where `ch` is found or until the end if not found
-    pub fn until(comptime self: *@This(), ch: u21) []const u8 {
-        var result: []const u8 = &[_]u8{};
+    pub fn until(self: *@This(), ch: u21) []const u8 {
+        const start = self.iter.i;
         while (self.peek(0)) |code_point| {
             if (code_point == ch)
                 break;
-            result = result ++ (self.iter.nextCodepointSlice() orelse &[_]u8{});
+            _ = self.iter.nextCodepoint();
         }
-        return result;
+        return self.iter.bytes[start..self.iter.i];
     }
 
     // Returns one character, if available
