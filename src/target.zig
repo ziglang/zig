@@ -305,10 +305,16 @@ pub fn defaultCompilerRtOptimizeMode(target: std.Target) std.builtin.OptimizeMod
 
 pub fn hasRedZone(target: std.Target) bool {
     return switch (target.cpu.arch) {
-        .x86_64,
-        .x86,
         .aarch64,
         .aarch64_be,
+        .powerpc,
+        .powerpcle,
+        .powerpc64,
+        .powerpc64le,
+        .wasm32,
+        .wasm64,
+        .x86_64,
+        .x86,
         => true,
 
         else => false,

@@ -120,7 +120,21 @@ pub fn bodySlice(zir: Zir, start: usize, len: usize) []Inst.Index {
 }
 
 pub fn hasCompileErrors(code: Zir) bool {
-    return code.extra[@intFromEnum(ExtraIndex.compile_errors)] != 0;
+    if (code.extra[@intFromEnum(ExtraIndex.compile_errors)] != 0) {
+        return true;
+    } else {
+        assert(code.instructions.len != 0); // i.e. lowering did not fail
+        return false;
+    }
+}
+
+pub fn loweringFailed(code: Zir) bool {
+    if (code.instructions.len == 0) {
+        assert(code.hasCompileErrors());
+        return true;
+    } else {
+        return false;
+    }
 }
 
 pub fn deinit(code: *Zir, gpa: Allocator) void {
@@ -998,6 +1012,8 @@ pub const Inst = struct {
         /// and then `resolve_inferred_alloc` triggers peer type resolution on the set.
         /// The operand is a `alloc_inferred` or `alloc_inferred_mut` instruction, which
         /// is the allocation that needs to have its type inferred.
+        /// Results in the final resolved pointer. The `alloc_inferred[_comptime][_mut]`
+        /// instruction should never be referred to after this instruction.
         /// Uses the `un_node` field. The AST node is the var decl.
         resolve_inferred_alloc,
         /// Turns a pointer coming from an `alloc` or `Extended.alloc` into a constant
@@ -1301,18 +1317,6 @@ pub const Inst = struct {
             };
         }
 
-        pub fn isParam(tag: Tag) bool {
-            return switch (tag) {
-                .param,
-                .param_comptime,
-                .param_anytype,
-                .param_anytype_comptime,
-                => true,
-
-                else => false,
-            };
-        }
-
         /// AstGen uses this to find out if `Ref.void_value` should be used in place
         /// of the result of a given instruction. This allows Sema to forego adding
         /// the instruction to the map after analysis.
@@ -1328,7 +1332,6 @@ pub const Inst = struct {
                 .atomic_store,
                 .store_node,
                 .store_to_inferred_ptr,
-                .resolve_inferred_alloc,
                 .validate_deref,
                 .validate_destructure,
                 .@"export",
@@ -1367,6 +1370,7 @@ pub const Inst = struct {
                 .alloc_inferred_mut,
                 .alloc_inferred_comptime,
                 .alloc_inferred_comptime_mut,
+                .resolve_inferred_alloc,
                 .make_ptr_const,
                 .array_cat,
                 .array_mul,
@@ -2089,7 +2093,14 @@ pub const Inst = struct {
         /// `small` is an `Inst.InplaceOp`.
         inplace_arith_result_ty,
         /// Marks a statement that can be stepped to but produces no code.
+        /// `operand` and `small` are ignored.
         dbg_empty_stmt,
+        /// At this point, AstGen encountered a fatal error which terminated ZIR lowering for this body.
+        /// A file-level error has been reported. Sema should terminate semantic analysis.
+        /// `operand` and `small` are ignored.
+        /// This instruction is always `noreturn`, however, it is not considered as such by ZIR-level queries. This allows AstGen to assume that
+        /// any code may have gone here, avoiding false-positive "unreachable code" errors.
+        astgen_error,
 
         pub const InstData = struct {
             opcode: Extended,
@@ -3594,145 +3605,155 @@ pub const DeclIterator = struct {
 };
 
 pub fn declIterator(zir: Zir, decl_inst: Zir.Inst.Index) DeclIterator {
-    const tags = zir.instructions.items(.tag);
-    const datas = zir.instructions.items(.data);
-    switch (tags[@intFromEnum(decl_inst)]) {
-        // Functions are allowed and yield no iterations.
-        // This is because they are returned by `findDecls`.
-        .func, .func_inferred, .func_fancy => return .{
-            .extra_index = undefined,
-            .decls_remaining = 0,
-            .zir = zir,
-        },
+    const inst = zir.instructions.get(@intFromEnum(decl_inst));
+    assert(inst.tag == .extended);
+    const extended = inst.data.extended;
+    switch (extended.opcode) {
+        .struct_decl => {
+            const small: Inst.StructDecl.Small = @bitCast(extended.small);
+            var extra_index: u32 = @intCast(extended.operand + @typeInfo(Inst.StructDecl).@"struct".fields.len);
+            const captures_len = if (small.has_captures_len) captures_len: {
+                const captures_len = zir.extra[extra_index];
+                extra_index += 1;
+                break :captures_len captures_len;
+            } else 0;
+            extra_index += @intFromBool(small.has_fields_len);
+            const decls_len = if (small.has_decls_len) decls_len: {
+                const decls_len = zir.extra[extra_index];
+                extra_index += 1;
+                break :decls_len decls_len;
+            } else 0;
 
-        .extended => {
-            const extended = datas[@intFromEnum(decl_inst)].extended;
-            switch (extended.opcode) {
-                // Reifications are allowed and yield no iterations.
-                // This is because they are returned by `findDecls`.
-                .reify => return .{
-                    .extra_index = undefined,
-                    .decls_remaining = 0,
-                    .zir = zir,
-                },
-                .struct_decl => {
-                    const small: Inst.StructDecl.Small = @bitCast(extended.small);
-                    var extra_index: u32 = @intCast(extended.operand + @typeInfo(Inst.StructDecl).@"struct".fields.len);
-                    const captures_len = if (small.has_captures_len) captures_len: {
-                        const captures_len = zir.extra[extra_index];
-                        extra_index += 1;
-                        break :captures_len captures_len;
-                    } else 0;
-                    extra_index += @intFromBool(small.has_fields_len);
-                    const decls_len = if (small.has_decls_len) decls_len: {
-                        const decls_len = zir.extra[extra_index];
-                        extra_index += 1;
-                        break :decls_len decls_len;
-                    } else 0;
+            extra_index += captures_len;
 
-                    extra_index += captures_len;
-
-                    if (small.has_backing_int) {
-                        const backing_int_body_len = zir.extra[extra_index];
-                        extra_index += 1; // backing_int_body_len
-                        if (backing_int_body_len == 0) {
-                            extra_index += 1; // backing_int_ref
-                        } else {
-                            extra_index += backing_int_body_len; // backing_int_body_inst
-                        }
-                    }
-
-                    return .{
-                        .extra_index = extra_index,
-                        .decls_remaining = decls_len,
-                        .zir = zir,
-                    };
-                },
-                .enum_decl => {
-                    const small: Inst.EnumDecl.Small = @bitCast(extended.small);
-                    var extra_index: u32 = @intCast(extended.operand + @typeInfo(Inst.EnumDecl).@"struct".fields.len);
-                    extra_index += @intFromBool(small.has_tag_type);
-                    const captures_len = if (small.has_captures_len) captures_len: {
-                        const captures_len = zir.extra[extra_index];
-                        extra_index += 1;
-                        break :captures_len captures_len;
-                    } else 0;
-                    extra_index += @intFromBool(small.has_body_len);
-                    extra_index += @intFromBool(small.has_fields_len);
-                    const decls_len = if (small.has_decls_len) decls_len: {
-                        const decls_len = zir.extra[extra_index];
-                        extra_index += 1;
-                        break :decls_len decls_len;
-                    } else 0;
-
-                    extra_index += captures_len;
-
-                    return .{
-                        .extra_index = extra_index,
-                        .decls_remaining = decls_len,
-                        .zir = zir,
-                    };
-                },
-                .union_decl => {
-                    const small: Inst.UnionDecl.Small = @bitCast(extended.small);
-                    var extra_index: u32 = @intCast(extended.operand + @typeInfo(Inst.UnionDecl).@"struct".fields.len);
-                    extra_index += @intFromBool(small.has_tag_type);
-                    const captures_len = if (small.has_captures_len) captures_len: {
-                        const captures_len = zir.extra[extra_index];
-                        extra_index += 1;
-                        break :captures_len captures_len;
-                    } else 0;
-                    extra_index += @intFromBool(small.has_body_len);
-                    extra_index += @intFromBool(small.has_fields_len);
-                    const decls_len = if (small.has_decls_len) decls_len: {
-                        const decls_len = zir.extra[extra_index];
-                        extra_index += 1;
-                        break :decls_len decls_len;
-                    } else 0;
-
-                    extra_index += captures_len;
-
-                    return .{
-                        .extra_index = extra_index,
-                        .decls_remaining = decls_len,
-                        .zir = zir,
-                    };
-                },
-                .opaque_decl => {
-                    const small: Inst.OpaqueDecl.Small = @bitCast(extended.small);
-                    var extra_index: u32 = @intCast(extended.operand + @typeInfo(Inst.OpaqueDecl).@"struct".fields.len);
-                    const decls_len = if (small.has_decls_len) decls_len: {
-                        const decls_len = zir.extra[extra_index];
-                        extra_index += 1;
-                        break :decls_len decls_len;
-                    } else 0;
-                    const captures_len = if (small.has_captures_len) captures_len: {
-                        const captures_len = zir.extra[extra_index];
-                        extra_index += 1;
-                        break :captures_len captures_len;
-                    } else 0;
-
-                    extra_index += captures_len;
-
-                    return .{
-                        .extra_index = extra_index,
-                        .decls_remaining = decls_len,
-                        .zir = zir,
-                    };
-                },
-                else => unreachable,
+            if (small.has_backing_int) {
+                const backing_int_body_len = zir.extra[extra_index];
+                extra_index += 1; // backing_int_body_len
+                if (backing_int_body_len == 0) {
+                    extra_index += 1; // backing_int_ref
+                } else {
+                    extra_index += backing_int_body_len; // backing_int_body_inst
+                }
             }
+
+            return .{
+                .extra_index = extra_index,
+                .decls_remaining = decls_len,
+                .zir = zir,
+            };
+        },
+        .enum_decl => {
+            const small: Inst.EnumDecl.Small = @bitCast(extended.small);
+            var extra_index: u32 = @intCast(extended.operand + @typeInfo(Inst.EnumDecl).@"struct".fields.len);
+            extra_index += @intFromBool(small.has_tag_type);
+            const captures_len = if (small.has_captures_len) captures_len: {
+                const captures_len = zir.extra[extra_index];
+                extra_index += 1;
+                break :captures_len captures_len;
+            } else 0;
+            extra_index += @intFromBool(small.has_body_len);
+            extra_index += @intFromBool(small.has_fields_len);
+            const decls_len = if (small.has_decls_len) decls_len: {
+                const decls_len = zir.extra[extra_index];
+                extra_index += 1;
+                break :decls_len decls_len;
+            } else 0;
+
+            extra_index += captures_len;
+
+            return .{
+                .extra_index = extra_index,
+                .decls_remaining = decls_len,
+                .zir = zir,
+            };
+        },
+        .union_decl => {
+            const small: Inst.UnionDecl.Small = @bitCast(extended.small);
+            var extra_index: u32 = @intCast(extended.operand + @typeInfo(Inst.UnionDecl).@"struct".fields.len);
+            extra_index += @intFromBool(small.has_tag_type);
+            const captures_len = if (small.has_captures_len) captures_len: {
+                const captures_len = zir.extra[extra_index];
+                extra_index += 1;
+                break :captures_len captures_len;
+            } else 0;
+            extra_index += @intFromBool(small.has_body_len);
+            extra_index += @intFromBool(small.has_fields_len);
+            const decls_len = if (small.has_decls_len) decls_len: {
+                const decls_len = zir.extra[extra_index];
+                extra_index += 1;
+                break :decls_len decls_len;
+            } else 0;
+
+            extra_index += captures_len;
+
+            return .{
+                .extra_index = extra_index,
+                .decls_remaining = decls_len,
+                .zir = zir,
+            };
+        },
+        .opaque_decl => {
+            const small: Inst.OpaqueDecl.Small = @bitCast(extended.small);
+            var extra_index: u32 = @intCast(extended.operand + @typeInfo(Inst.OpaqueDecl).@"struct".fields.len);
+            const decls_len = if (small.has_decls_len) decls_len: {
+                const decls_len = zir.extra[extra_index];
+                extra_index += 1;
+                break :decls_len decls_len;
+            } else 0;
+            const captures_len = if (small.has_captures_len) captures_len: {
+                const captures_len = zir.extra[extra_index];
+                extra_index += 1;
+                break :captures_len captures_len;
+            } else 0;
+
+            extra_index += captures_len;
+
+            return .{
+                .extra_index = extra_index,
+                .decls_remaining = decls_len,
+                .zir = zir,
+            };
         },
         else => unreachable,
     }
 }
 
-/// Find all type declarations, recursively, within a `declaration` instruction. Does not recurse through
-/// said type declarations' declarations; to find all declarations, call this function on the declarations
-/// of the discovered types recursively.
-/// The iterator would have to allocate memory anyway to iterate, so an `ArrayList` is populated as the result.
-pub fn findDecls(zir: Zir, gpa: Allocator, list: *std.ArrayListUnmanaged(Inst.Index), decl_inst: Zir.Inst.Index) !void {
-    list.clearRetainingCapacity();
+/// `DeclContents` contains all "interesting" instructions found within a declaration by `findTrackable`.
+/// These instructions are partitioned into a few different sets, since this makes ZIR instruction mapping
+/// more effective.
+pub const DeclContents = struct {
+    /// This is a simple optional because ZIR guarantees that a `func`/`func_inferred`/`func_fancy` instruction
+    /// can only occur once per `declaration`.
+    func_decl: ?Inst.Index,
+    explicit_types: std.ArrayListUnmanaged(Inst.Index),
+    other: std.ArrayListUnmanaged(Inst.Index),
+
+    pub const init: DeclContents = .{
+        .func_decl = null,
+        .explicit_types = .empty,
+        .other = .empty,
+    };
+
+    pub fn clear(contents: *DeclContents) void {
+        contents.func_decl = null;
+        contents.explicit_types.clearRetainingCapacity();
+        contents.other.clearRetainingCapacity();
+    }
+
+    pub fn deinit(contents: *DeclContents, gpa: Allocator) void {
+        contents.explicit_types.deinit(gpa);
+        contents.other.deinit(gpa);
+    }
+};
+
+/// Find all tracked ZIR instructions, recursively, within a `declaration` instruction. Does not recurse through
+/// nested declarations; to find all declarations, call this function recursively on the type declarations discovered
+/// in `contents.explicit_types`.
+///
+/// This populates an `ArrayListUnmanaged` because an iterator would need to allocate memory anyway.
+pub fn findTrackable(zir: Zir, gpa: Allocator, contents: *DeclContents, decl_inst: Zir.Inst.Index) !void {
+    contents.clear();
+
     const declaration, const extra_end = zir.getDeclaration(decl_inst);
     const bodies = declaration.getBodies(extra_end, zir);
 
@@ -3741,27 +3762,27 @@ pub fn findDecls(zir: Zir, gpa: Allocator, list: *std.ArrayListUnmanaged(Inst.In
     var found_defers: std.AutoHashMapUnmanaged(u32, void) = .empty;
     defer found_defers.deinit(gpa);
 
-    try zir.findDeclsBody(gpa, list, &found_defers, bodies.value_body);
-    if (bodies.align_body) |b| try zir.findDeclsBody(gpa, list, &found_defers, b);
-    if (bodies.linksection_body) |b| try zir.findDeclsBody(gpa, list, &found_defers, b);
-    if (bodies.addrspace_body) |b| try zir.findDeclsBody(gpa, list, &found_defers, b);
+    try zir.findTrackableBody(gpa, contents, &found_defers, bodies.value_body);
+    if (bodies.align_body) |b| try zir.findTrackableBody(gpa, contents, &found_defers, b);
+    if (bodies.linksection_body) |b| try zir.findTrackableBody(gpa, contents, &found_defers, b);
+    if (bodies.addrspace_body) |b| try zir.findTrackableBody(gpa, contents, &found_defers, b);
 }
 
-/// Like `findDecls`, but only considers the `main_struct_inst` instruction. This may return more than
+/// Like `findTrackable`, but only considers the `main_struct_inst` instruction. This may return more than
 /// just that instruction because it will also traverse fields.
-pub fn findDeclsRoot(zir: Zir, gpa: Allocator, list: *std.ArrayListUnmanaged(Inst.Index)) !void {
-    list.clearRetainingCapacity();
+pub fn findTrackableRoot(zir: Zir, gpa: Allocator, contents: *DeclContents) !void {
+    contents.clear();
 
     var found_defers: std.AutoHashMapUnmanaged(u32, void) = .empty;
     defer found_defers.deinit(gpa);
 
-    try zir.findDeclsInner(gpa, list, &found_defers, .main_struct_inst);
+    try zir.findTrackableInner(gpa, contents, &found_defers, .main_struct_inst);
 }
 
-fn findDeclsInner(
+fn findTrackableInner(
     zir: Zir,
     gpa: Allocator,
-    list: *std.ArrayListUnmanaged(Inst.Index),
+    contents: *DeclContents,
     defers: *std.AutoHashMapUnmanaged(u32, void),
     inst: Inst.Index,
 ) Allocator.Error!void {
@@ -4005,7 +4026,7 @@ fn findDeclsInner(
         .struct_init,
         .struct_init_ref,
         .struct_init_anon,
-        => return list.append(gpa, inst),
+        => return contents.other.append(gpa, inst),
 
         .extended => {
             const extended = datas[@intFromEnum(inst)].extended;
@@ -4065,21 +4086,22 @@ fn findDeclsInner(
                 .inplace_arith_result_ty,
                 .tuple_decl,
                 .dbg_empty_stmt,
+                .astgen_error,
                 => return,
 
                 // `@TypeOf` has a body.
                 .typeof_peer => {
                     const extra = zir.extraData(Zir.Inst.TypeOfPeer, extended.operand);
                     const body = zir.bodySlice(extra.data.body_index, extra.data.body_len);
-                    try zir.findDeclsBody(gpa, list, defers, body);
+                    try zir.findTrackableBody(gpa, contents, defers, body);
                 },
 
                 // Reifications and opaque declarations need tracking, but have no body.
-                .reify, .opaque_decl => return list.append(gpa, inst),
+                .reify, .opaque_decl => return contents.other.append(gpa, inst),
 
                 // Struct declarations need tracking and have bodies.
                 .struct_decl => {
-                    try list.append(gpa, inst);
+                    try contents.explicit_types.append(gpa, inst);
 
                     const small: Zir.Inst.StructDecl.Small = @bitCast(extended.small);
                     const extra = zir.extraData(Zir.Inst.StructDecl, extended.operand);
@@ -4108,7 +4130,7 @@ fn findDeclsInner(
                         } else {
                             const body = zir.bodySlice(extra_index, backing_int_body_len);
                             extra_index += backing_int_body_len;
-                            try zir.findDeclsBody(gpa, list, defers, body);
+                            try zir.findTrackableBody(gpa, contents, defers, body);
                         }
                     }
                     extra_index += decls_len;
@@ -4164,12 +4186,12 @@ fn findDeclsInner(
 
                     // Now, `fields_extra_index` points to `bodies`. Let's treat this as one big body.
                     const merged_bodies = zir.bodySlice(fields_extra_index, total_bodies_len);
-                    try zir.findDeclsBody(gpa, list, defers, merged_bodies);
+                    try zir.findTrackableBody(gpa, contents, defers, merged_bodies);
                 },
 
                 // Union declarations need tracking and have a body.
                 .union_decl => {
-                    try list.append(gpa, inst);
+                    try contents.explicit_types.append(gpa, inst);
 
                     const small: Zir.Inst.UnionDecl.Small = @bitCast(extended.small);
                     const extra = zir.extraData(Zir.Inst.UnionDecl, extended.operand);
@@ -4194,12 +4216,12 @@ fn findDeclsInner(
                     extra_index += captures_len;
                     extra_index += decls_len;
                     const body = zir.bodySlice(extra_index, body_len);
-                    try zir.findDeclsBody(gpa, list, defers, body);
+                    try zir.findTrackableBody(gpa, contents, defers, body);
                 },
 
                 // Enum declarations need tracking and have a body.
                 .enum_decl => {
-                    try list.append(gpa, inst);
+                    try contents.explicit_types.append(gpa, inst);
 
                     const small: Zir.Inst.EnumDecl.Small = @bitCast(extended.small);
                     const extra = zir.extraData(Zir.Inst.EnumDecl, extended.operand);
@@ -4224,7 +4246,7 @@ fn findDeclsInner(
                     extra_index += captures_len;
                     extra_index += decls_len;
                     const body = zir.bodySlice(extra_index, body_len);
-                    try zir.findDeclsBody(gpa, list, defers, body);
+                    try zir.findTrackableBody(gpa, contents, defers, body);
                 },
             }
         },
@@ -4233,7 +4255,8 @@ fn findDeclsInner(
         .func,
         .func_inferred,
         => {
-            try list.append(gpa, inst);
+            assert(contents.func_decl == null);
+            contents.func_decl = inst;
 
             const inst_data = datas[@intFromEnum(inst)].pl_node;
             const extra = zir.extraData(Inst.Func, inst_data.payload_index);
@@ -4244,14 +4267,15 @@ fn findDeclsInner(
                 else => {
                     const body = zir.bodySlice(extra_index, extra.data.ret_body_len);
                     extra_index += body.len;
-                    try zir.findDeclsBody(gpa, list, defers, body);
+                    try zir.findTrackableBody(gpa, contents, defers, body);
                 },
             }
             const body = zir.bodySlice(extra_index, extra.data.body_len);
-            return zir.findDeclsBody(gpa, list, defers, body);
+            return zir.findTrackableBody(gpa, contents, defers, body);
         },
         .func_fancy => {
-            try list.append(gpa, inst);
+            assert(contents.func_decl == null);
+            contents.func_decl = inst;
 
             const inst_data = datas[@intFromEnum(inst)].pl_node;
             const extra = zir.extraData(Inst.FuncFancy, inst_data.payload_index);
@@ -4262,7 +4286,7 @@ fn findDeclsInner(
                 const body_len = zir.extra[extra_index];
                 extra_index += 1;
                 const body = zir.bodySlice(extra_index, body_len);
-                try zir.findDeclsBody(gpa, list, defers, body);
+                try zir.findTrackableBody(gpa, contents, defers, body);
                 extra_index += body.len;
             } else if (extra.data.bits.has_align_ref) {
                 extra_index += 1;
@@ -4272,7 +4296,7 @@ fn findDeclsInner(
                 const body_len = zir.extra[extra_index];
                 extra_index += 1;
                 const body = zir.bodySlice(extra_index, body_len);
-                try zir.findDeclsBody(gpa, list, defers, body);
+                try zir.findTrackableBody(gpa, contents, defers, body);
                 extra_index += body.len;
             } else if (extra.data.bits.has_addrspace_ref) {
                 extra_index += 1;
@@ -4282,7 +4306,7 @@ fn findDeclsInner(
                 const body_len = zir.extra[extra_index];
                 extra_index += 1;
                 const body = zir.bodySlice(extra_index, body_len);
-                try zir.findDeclsBody(gpa, list, defers, body);
+                try zir.findTrackableBody(gpa, contents, defers, body);
                 extra_index += body.len;
             } else if (extra.data.bits.has_section_ref) {
                 extra_index += 1;
@@ -4292,7 +4316,7 @@ fn findDeclsInner(
                 const body_len = zir.extra[extra_index];
                 extra_index += 1;
                 const body = zir.bodySlice(extra_index, body_len);
-                try zir.findDeclsBody(gpa, list, defers, body);
+                try zir.findTrackableBody(gpa, contents, defers, body);
                 extra_index += body.len;
             } else if (extra.data.bits.has_cc_ref) {
                 extra_index += 1;
@@ -4302,7 +4326,7 @@ fn findDeclsInner(
                 const body_len = zir.extra[extra_index];
                 extra_index += 1;
                 const body = zir.bodySlice(extra_index, body_len);
-                try zir.findDeclsBody(gpa, list, defers, body);
+                try zir.findTrackableBody(gpa, contents, defers, body);
                 extra_index += body.len;
             } else if (extra.data.bits.has_ret_ty_ref) {
                 extra_index += 1;
@@ -4311,7 +4335,7 @@ fn findDeclsInner(
             extra_index += @intFromBool(extra.data.bits.has_any_noalias);
 
             const body = zir.bodySlice(extra_index, extra.data.body_len);
-            return zir.findDeclsBody(gpa, list, defers, body);
+            return zir.findTrackableBody(gpa, contents, defers, body);
         },
 
         // Block instructions, recurse over the bodies.
@@ -4326,24 +4350,24 @@ fn findDeclsInner(
             const inst_data = datas[@intFromEnum(inst)].pl_node;
             const extra = zir.extraData(Inst.Block, inst_data.payload_index);
             const body = zir.bodySlice(extra.end, extra.data.body_len);
-            return zir.findDeclsBody(gpa, list, defers, body);
+            return zir.findTrackableBody(gpa, contents, defers, body);
         },
         .condbr, .condbr_inline => {
             const inst_data = datas[@intFromEnum(inst)].pl_node;
             const extra = zir.extraData(Inst.CondBr, inst_data.payload_index);
             const then_body = zir.bodySlice(extra.end, extra.data.then_body_len);
             const else_body = zir.bodySlice(extra.end + then_body.len, extra.data.else_body_len);
-            try zir.findDeclsBody(gpa, list, defers, then_body);
-            try zir.findDeclsBody(gpa, list, defers, else_body);
+            try zir.findTrackableBody(gpa, contents, defers, then_body);
+            try zir.findTrackableBody(gpa, contents, defers, else_body);
         },
         .@"try", .try_ptr => {
             const inst_data = datas[@intFromEnum(inst)].pl_node;
             const extra = zir.extraData(Inst.Try, inst_data.payload_index);
             const body = zir.bodySlice(extra.end, extra.data.body_len);
-            try zir.findDeclsBody(gpa, list, defers, body);
+            try zir.findTrackableBody(gpa, contents, defers, body);
         },
-        .switch_block, .switch_block_ref => return zir.findDeclsSwitch(gpa, list, defers, inst, .normal),
-        .switch_block_err_union => return zir.findDeclsSwitch(gpa, list, defers, inst, .err_union),
+        .switch_block, .switch_block_ref => return zir.findTrackableSwitch(gpa, contents, defers, inst, .normal),
+        .switch_block_err_union => return zir.findTrackableSwitch(gpa, contents, defers, inst, .err_union),
 
         .suspend_block => @panic("TODO iterate suspend block"),
 
@@ -4351,7 +4375,7 @@ fn findDeclsInner(
             const inst_data = datas[@intFromEnum(inst)].pl_tok;
             const extra = zir.extraData(Inst.Param, inst_data.payload_index);
             const body = zir.bodySlice(extra.end, extra.data.body_len);
-            try zir.findDeclsBody(gpa, list, defers, body);
+            try zir.findTrackableBody(gpa, contents, defers, body);
         },
 
         inline .call, .field_call => |tag| {
@@ -4367,7 +4391,7 @@ fn findDeclsInner(
                 const first_arg_start_off = args_len;
                 const final_arg_end_off = zir.extra[extra.end + args_len - 1];
                 const args_body = zir.bodySlice(extra.end + first_arg_start_off, final_arg_end_off - first_arg_start_off);
-                try zir.findDeclsBody(gpa, list, defers, args_body);
+                try zir.findTrackableBody(gpa, contents, defers, args_body);
             }
         },
         .@"defer" => {
@@ -4375,7 +4399,7 @@ fn findDeclsInner(
             const gop = try defers.getOrPut(gpa, inst_data.index);
             if (!gop.found_existing) {
                 const body = zir.bodySlice(inst_data.index, inst_data.len);
-                try zir.findDeclsBody(gpa, list, defers, body);
+                try zir.findTrackableBody(gpa, contents, defers, body);
             }
         },
         .defer_err_code => {
@@ -4384,16 +4408,16 @@ fn findDeclsInner(
             const gop = try defers.getOrPut(gpa, extra.index);
             if (!gop.found_existing) {
                 const body = zir.bodySlice(extra.index, extra.len);
-                try zir.findDeclsBody(gpa, list, defers, body);
+                try zir.findTrackableBody(gpa, contents, defers, body);
             }
         },
     }
 }
 
-fn findDeclsSwitch(
+fn findTrackableSwitch(
     zir: Zir,
     gpa: Allocator,
-    list: *std.ArrayListUnmanaged(Inst.Index),
+    contents: *DeclContents,
     defers: *std.AutoHashMapUnmanaged(u32, void),
     inst: Inst.Index,
     /// Distinguishes between `switch_block[_ref]` and `switch_block_err_union`.
@@ -4429,7 +4453,7 @@ fn findDeclsSwitch(
             const body = zir.bodySlice(extra_index, prong_info.body_len);
             extra_index += body.len;
 
-            try zir.findDeclsBody(gpa, list, defers, body);
+            try zir.findTrackableBody(gpa, contents, defers, body);
 
             break :has_special extra.data.bits.has_else;
         },
@@ -4441,7 +4465,7 @@ fn findDeclsSwitch(
         const body = zir.bodySlice(extra_index, prong_info.body_len);
         extra_index += body.len;
 
-        try zir.findDeclsBody(gpa, list, defers, body);
+        try zir.findTrackableBody(gpa, contents, defers, body);
     }
 
     {
@@ -4453,7 +4477,7 @@ fn findDeclsSwitch(
             const body = zir.bodySlice(extra_index, prong_info.body_len);
             extra_index += body.len;
 
-            try zir.findDeclsBody(gpa, list, defers, body);
+            try zir.findTrackableBody(gpa, contents, defers, body);
         }
     }
     {
@@ -4470,20 +4494,20 @@ fn findDeclsSwitch(
             const body = zir.bodySlice(extra_index, prong_info.body_len);
             extra_index += body.len;
 
-            try zir.findDeclsBody(gpa, list, defers, body);
+            try zir.findTrackableBody(gpa, contents, defers, body);
         }
     }
 }
 
-fn findDeclsBody(
+fn findTrackableBody(
     zir: Zir,
     gpa: Allocator,
-    list: *std.ArrayListUnmanaged(Inst.Index),
+    contents: *DeclContents,
     defers: *std.AutoHashMapUnmanaged(u32, void),
     body: []const Inst.Index,
 ) Allocator.Error!void {
     for (body) |member| {
-        try zir.findDeclsInner(gpa, list, defers, member);
+        try zir.findTrackableInner(gpa, contents, defers, member);
     }
 }
 
