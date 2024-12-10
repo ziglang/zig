@@ -5886,7 +5886,8 @@ pub const FileExt = enum {
 pub fn hasObjectExt(filename: []const u8) bool {
     return mem.endsWith(u8, filename, ".o") or
         mem.endsWith(u8, filename, ".lo") or
-        mem.endsWith(u8, filename, ".obj");
+        mem.endsWith(u8, filename, ".obj") or
+        mem.endsWith(u8, filename, ".rmeta");
 }
 
 pub fn hasStaticLibraryExt(filename: []const u8) bool {
