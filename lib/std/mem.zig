@@ -664,26 +664,24 @@ const eqlBytes_allowed = switch (builtin.zig_backend) {
 /// (according to `std.meta.hasUniqueRepresentation`) may still be
 /// compared, even if they do not support the `==` operator. Such
 /// types are compared bitwise.
-pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
-    // slices with different lengths are always unequal
-    if (a.len != b.len) return false;
+pub inline fn eql(comptime T: type, a: []const T, b: []const T) bool {
+    return struct {
+        fn impl(x: []const T, y: []const T) union { res: bool, force_comptime: T } {
+            // slices with different lengths are always unequal
+            if (x.len != y.len) return .{ .res = false };
 
-    // pointer equality optimisation disabled for floating point
-    // numbers, as they may compare unequal to themselves: NaN != NaN
-    if (@typeInfo(T) != .float and a.ptr == b.ptr) return true;
+            // pointer equality optimisation disabled for floating point
+            // numbers, as they may compare unequal to themselves: NaN != NaN
+            if (@typeInfo(T) != .float and x.ptr == y.ptr) return .{ .res = true };
 
-    // inline loop for comptime-only types
-    if (std.meta.comptimeOnly(T))
-        return inline for (a, b) |a_elem, b_elem| {
-            if (a_elem != b_elem) break false;
-        } else true;
+            if (!@inComptime() and std.meta.hasUniqueRepresentation(T) and eqlBytes_allowed)
+                return .{ .res = eqlBytes(sliceAsBytes(x), sliceAsBytes(y)) };
 
-    if (!@inComptime() and std.meta.hasUniqueRepresentation(T) and eqlBytes_allowed)
-        return eqlBytes(sliceAsBytes(a), sliceAsBytes(b));
-
-    return for (a, b) |a_elem, b_elem| {
-        if (a_elem != b_elem) break false;
-    } else true;
+            return for (x, y) |x_elem, y_elem| {
+                if (x_elem != y_elem) break .{ .res = false };
+            } else .{ .res = true };
+        }
+    }.impl(a, b).res;
 }
 
 test eql {
@@ -716,8 +714,7 @@ test eql {
 fn eqlBytes(a: []const u8, b: []const u8) bool {
     comptime assert(eqlBytes_allowed);
 
-    if (a.len != b.len) return false;
-    if (a.len == 0 or a.ptr == b.ptr) return true;
+    if (a.len == 0) return true;
 
     if (a.len <= 16) {
         if (a.len < 4) {
@@ -779,23 +776,21 @@ fn eqlBytes(a: []const u8, b: []const u8) bool {
 /// Elements are tested according to the `==` operator, if one slice is
 /// a [proper prefix](https://en.wikipedia.org/wiki/Substring#Prefix) of
 /// the other, the length of the former is returned.
-pub fn indexOfDiff(comptime T: type, a: []const T, b: []const T) ?usize {
-    const short = @min(a.len, b.len);
+pub inline fn indexOfDiff(comptime T: type, a: []const T, b: []const T) ?usize {
+    return struct {
+        fn impl(x: []const T, y: []const T) union { res: bool, force_comptime: T } {
+            const short = @min(x.len, y.len);
 
-    // pointer equality optimisation disabled for floating point
-    // numbers, as they may compare unequal to themselves: NaN != NaN
-    if (@typeInfo(T) != .float and a.ptr == b.ptr)
-        return if (a.len == b.len) null else short;
+            // pointer equality optimisation disabled for floating point
+            // numbers, as they may compare unequal to themselves: NaN != NaN
+            if (@typeInfo(T) != .float and x.ptr == y.ptr)
+                return .{ .res = if (x.len == y.len) null else short };
 
-    // inline loop for comptime-only types
-    if (std.meta.comptimeOnly(T))
-        return inline for (a[0..short], b[0..short], 0..) |a_elem, b_elem, i| {
-            if (a_elem != b_elem) break i;
-        } else if (a.len == b.len) null else short;
-
-    return for (a[0..short], b[0..short], 0..) |a_elem, b_elem, i| {
-        if (a_elem != b_elem) break i;
-    } else if (a.len == b.len) null else short;
+            return for (x.ptr, y.ptr, 0..short) |x_elem, y_elem, i| {
+                if (x_elem != y_elem) break .{ .res = i };
+            } else .{ .res = if (x.len == y.len) null else short };
+        }
+    }.impl(a, b).res;
 }
 
 test indexOfDiff {
