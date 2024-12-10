@@ -20,21 +20,6 @@ pub const vtable = Allocator.VTable{
 /// Whether `posix.mremap` may be used
 const use_mremap = @hasDecl(posix.system, "REMAP") and posix.system.REMAP != void;
 
-fn mmapAlloc(bytes: usize, hint: ?[*]align(mem.page_size) u8) ![]align(mem.page_size) u8 {
-    return posix.mmap(
-        hint,
-        bytes,
-        posix.PROT.READ | posix.PROT.WRITE,
-        .{ .TYPE = .PRIVATE, .ANONYMOUS = true },
-        -1,
-        0,
-    );
-}
-
-fn mapUnget(memory: []align(mem.page_size) u8) void {
-    std.posix.munmap(memory);
-}
-
 fn alloc(_: *anyopaque, n: usize, log2_align: u8, ra: usize) ?[*]u8 {
     _ = ra;
     _ = log2_align;
