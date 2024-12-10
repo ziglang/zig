@@ -1237,10 +1237,18 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
                                 },
                             }
                         },
-                        .assembly_file => |asm_file| l: {
+                        .assembly_file, .c_source_file, .c_source_files => l: {
                             if (!my_responsibility) break :l;
 
-                            if (asm_file.flags.len == 0) {
+                            const path, const files, const language, const flags =
+                                switch (link_object) {
+                                .assembly_file => |asm_file| .{ asm_file.file, null, if (asm_file.lang) |lang| lang.getName() else null, asm_file.flags },
+                                .c_source_file => |c_source_file| .{ c_source_file.file, null, if (c_source_file.lang) |lang| lang.getName() else null, c_source_file.flags },
+                                .c_source_files => |c_source_files| .{ c_source_files.root, c_source_files.files, if (c_source_files.lang) |lang| lang.getName() else null, c_source_files.flags },
+                                else => unreachable,
+                            };
+
+                            if (flags.len == 0) {
                                 if (prev_has_cflags) {
                                     try zig_args.append("-cflags");
                                     try zig_args.append("--");
@@ -1248,77 +1256,17 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
                                 }
                             } else {
                                 try zig_args.append("-cflags");
-                                for (asm_file.flags) |arg| {
-                                    try zig_args.append(arg);
-                                }
-                                try zig_args.append("--");
-                                prev_has_cflags = true;
-                            }
-                            if (asm_file.lang) |lang| {
-                                try zig_args.append("-x");
-                                try zig_args.append(lang.getName());
-                                prev_has_xflag = true;
-                            } else if (prev_has_xflag) {
-                                try zig_args.append("-x");
-                                try zig_args.append("none");
-                                prev_has_xflag = false;
-                            }
-
-                            try zig_args.append(asm_file.file.getPath2(mod.owner, step));
-                            total_linker_objects += 1;
-                        },
-
-                        .c_source_file => |c_source_file| l: {
-                            if (!my_responsibility) break :l;
-
-                            if (c_source_file.flags.len == 0) {
-                                if (prev_has_cflags) {
-                                    try zig_args.append("-cflags");
-                                    try zig_args.append("--");
-                                    prev_has_cflags = false;
-                                }
-                            } else {
-                                try zig_args.append("-cflags");
-                                for (c_source_file.flags) |arg| {
-                                    try zig_args.append(arg);
-                                }
-                                try zig_args.append("--");
-                                prev_has_cflags = true;
-                            }
-                            if (c_source_file.lang) |lang| {
-                                try zig_args.append("-x");
-                                try zig_args.append(lang.getName());
-                                prev_has_xflag = true;
-                            } else if (prev_has_xflag) {
-                                try zig_args.append("-x");
-                                try zig_args.append("none");
-                                prev_has_xflag = false;
-                            }
-
-                            try zig_args.append(c_source_file.file.getPath2(mod.owner, step));
-                            total_linker_objects += 1;
-                        },
-
-                        .c_source_files => |c_source_files| l: {
-                            if (!my_responsibility) break :l;
-
-                            if (c_source_files.flags.len == 0) {
-                                if (prev_has_cflags) {
-                                    try zig_args.append("-cflags");
-                                    try zig_args.append("--");
-                                    prev_has_cflags = false;
-                                }
-                            } else {
-                                try zig_args.append("-cflags");
-                                for (c_source_files.flags) |flag| {
+                                for (flags) |flag| {
                                     try zig_args.append(flag);
                                 }
+
                                 try zig_args.append("--");
                                 prev_has_cflags = true;
                             }
-                            if (c_source_files.lang) |lang| {
+
+                            if (language) |lang| {
                                 try zig_args.append("-x");
-                                try zig_args.append(lang.getName());
+                                try zig_args.append(lang);
                                 prev_has_xflag = true;
                             } else if (prev_has_xflag) {
                                 try zig_args.append("-x");
@@ -1326,12 +1274,16 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
                                 prev_has_xflag = false;
                             }
 
-                            const root_path = c_source_files.root.getPath2(mod.owner, step);
-                            for (c_source_files.files) |file| {
-                                try zig_args.append(b.pathJoin(&.{ root_path, file }));
+                            const root_path = path.getPath2(mod.owner, step);
+                            if (files) |names| {
+                                for (names) |file| {
+                                    try zig_args.append(b.pathJoin(&.{ root_path, file }));
+                                }
+                            } else {
+                                try zig_args.append(root_path);
                             }
 
-                            total_linker_objects += c_source_files.files.len;
+                            total_linker_objects += if (files) |f| f.len else 1;
                         },
 
                         .win32_resource_file => |rc_source_file| l: {
