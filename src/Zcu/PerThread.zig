@@ -135,10 +135,14 @@ pub fn astGenFile(
             error.PipeBusy => unreachable, // it's not a pipe
             error.NoDevice => unreachable, // it's not a pipe
             error.WouldBlock => unreachable, // not asking for non-blocking I/O
-            // There are no dir components, so you would think that this was
-            // unreachable, however we have observed on macOS two processes racing
-            // to do openat() with O_CREAT manifest in ENOENT.
-            error.FileNotFound => continue,
+            error.FileNotFound => {
+                // Since there are no dir components this could only occur if
+                // `zir_dir` is deleted after the compiler process obtains an
+                // open directory handle.
+                std.process.fatal("cache directory '{}' unexpectedly removed during compiler execution", .{
+                    cache_directory,
+                });
+            },
 
             else => |e| return e, // Retryable errors are handled at callsite.
         };

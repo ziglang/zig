@@ -1537,6 +1537,10 @@ pub const OpenError = error{
     ProcessFdQuotaExceeded,
     SystemFdQuotaExceeded,
     NoDevice,
+    /// Either:
+    /// * One of the path components does not exist.
+    /// * Cwd was used, but cwd has been deleted.
+    /// * The path associated with the open directory handle has been deleted.
     FileNotFound,
 
     /// The path exceeded `max_path_bytes` bytes.

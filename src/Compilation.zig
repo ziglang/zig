@@ -2048,15 +2048,30 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
             whole.cache_manifest = &man;
             try addNonIncrementalStuffToCacheManifest(comp, arena, &man);
 
-            const is_hit = man.hit() catch |err| {
-                const i = man.failed_file_index orelse return err;
-                const pp = man.files.keys()[i].prefixed_path;
-                const prefix = man.cache.prefixes()[pp.prefix];
-                return comp.setMiscFailure(
+            const is_hit = man.hit() catch |err| switch (err) {
+                error.CacheCheckFailed => switch (man.diagnostic) {
+                    .none => unreachable,
+                    .manifest_create, .manifest_read, .manifest_lock => |e| return comp.setMiscFailure(
+                        .check_whole_cache,
+                        "failed to check cache: {s} {s}",
+                        .{ @tagName(man.diagnostic), @errorName(e) },
+                    ),
+                    .file_open, .file_stat, .file_read, .file_hash => |op| {
+                        const pp = man.files.keys()[op.file_index].prefixed_path;
+                        const prefix = man.cache.prefixes()[pp.prefix];
+                        return comp.setMiscFailure(
+                            .check_whole_cache,
+                            "failed to check cache: '{}{s}' {s} {s}",
+                            .{ prefix, pp.sub_path, @tagName(man.diagnostic), @errorName(op.err) },
+                        );
+                    },
+                },
+                error.OutOfMemory => return error.OutOfMemory,
+                error.InvalidFormat => return comp.setMiscFailure(
                     .check_whole_cache,
-                    "unable to check cache: stat file '{}{s}' failed: {s}",
-                    .{ prefix, pp.sub_path, @errorName(err) },
-                );
+                    "failed check cache: invalid manifest file format",
+                    .{},
+                ),
             };
             if (is_hit) {
                 // In this case the cache hit contains the full set of file system inputs. Nice!
