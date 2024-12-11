@@ -528,6 +528,43 @@ pub const Manifest = struct {
                     };
                     break;
                 },
+                error.FileNotFound => {
+                    // There are no dir components, so the only possibility
+                    // should be that the directory behind the handle has been
+                    // deleted, however we have observed on macOS two processes
+                    // racing to do openat() with O_CREAT manifest in ENOENT.
+                    //
+                    // As a workaround, we retry with exclusive=true which
+                    // disambiguates by returning EEXIST, indicating original
+                    // failure was a race, or ENOENT, indicating deletion of
+                    // the directory of our open handle.
+                    if (builtin.os.tag != .macos) {
+                        self.diagnostic = .{ .manifest_create = error.FileNotFound };
+                        return error.CacheCheckFailed;
+                    }
+
+                    if (self.cache.manifest_dir.createFile(&manifest_file_path, .{
+                        .read = true,
+                        .truncate = false,
+                        .lock = .exclusive,
+                        .lock_nonblocking = self.want_shared_lock,
+                        .exclusive = true,
+                    })) |manifest_file| {
+                        self.manifest_file = manifest_file;
+                        self.have_exclusive_lock = true;
+                        break;
+                    } else |excl_err| switch (excl_err) {
+                        error.WouldBlock, error.PathAlreadyExists => continue,
+                        error.FileNotFound => {
+                            self.diagnostic = .{ .manifest_create = error.FileNotFound };
+                            return error.CacheCheckFailed;
+                        },
+                        else => |e| {
+                            self.diagnostic = .{ .manifest_create = e };
+                            return error.CacheCheckFailed;
+                        },
+                    }
+                },
                 else => |e| {
                     self.diagnostic = .{ .manifest_create = e };
                     return error.CacheCheckFailed;

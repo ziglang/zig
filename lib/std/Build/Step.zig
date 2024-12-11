@@ -770,7 +770,7 @@ fn failWithCacheError(s: *Step, man: *const Build.Cache.Manifest, err: Build.Cac
             },
         },
         error.OutOfMemory => return error.OutOfMemory,
-        error.InvalidFormat => return s.fail("failed check cache: invalid manifest file format", .{}),
+        error.InvalidFormat => return s.fail("failed to check cache: invalid manifest file format", .{}),
     }
 }
 

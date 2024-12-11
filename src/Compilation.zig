@@ -2069,7 +2069,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.InvalidFormat => return comp.setMiscFailure(
                     .check_whole_cache,
-                    "failed check cache: invalid manifest file format",
+                    "failed to check cache: invalid manifest file format",
                     .{},
                 ),
             };
