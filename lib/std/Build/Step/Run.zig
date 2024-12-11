@@ -1719,15 +1719,12 @@ fn evalGeneric(run: *Run, child: *std.process.Child) !StdIoResult {
 
 fn addPathForDynLibs(run: *Run, artifact: *Step.Compile) void {
     const b = run.step.owner;
-    var it = artifact.root_module.iterateDependencies(artifact, true);
-    while (it.next()) |item| {
-        const other = item.compile.?;
-        if (item.module == other.root_module) {
-            if (item.module.resolved_target.?.result.os.tag == .windows and
-                other.isDynamicLibrary())
-            {
-                addPathDir(run, fs.path.dirname(other.getEmittedBin().getPath2(b, &run.step)).?);
-            }
+    const compiles = artifact.getCompileDependencies(true);
+    for (compiles) |compile| {
+        if (compile.root_module.resolved_target.?.result.os.tag == .windows and
+            compile.isDynamicLibrary())
+        {
+            addPathDir(run, fs.path.dirname(compile.getEmittedBin().getPath2(b, &run.step)).?);
         }
     }
 }
