@@ -3172,7 +3172,8 @@ fn deferStmt(
     const sub_scope = if (!have_err_code) &defer_gen.base else blk: {
         const ident_name = try gz.astgen.identAsString(payload_token);
         if (std.mem.eql(u8, tree.tokenSlice(payload_token), "_")) {
-            return gz.astgen.failTok(payload_token, "discard of error capture; omit it instead", .{});
+            try gz.astgen.appendErrorTok(payload_token, "discard of error capture; omit it instead", .{});
+            break :blk &defer_gen.base;
         }
         const remapped_err_code: Zir.Inst.Index = @enumFromInt(gz.astgen.instructions.len);
         opt_remapped_err_code = remapped_err_code.toOptional();
@@ -6219,6 +6220,7 @@ fn orelseCatchExpr(
         const err_str = tree.tokenSlice(payload);
         if (mem.eql(u8, err_str, "_")) {
             try astgen.appendErrorTok(payload, "discard of error capture; omit it instead", .{});
+            break :blk &else_scope.base;
         }
         const err_name = try astgen.identAsString(payload);
 
