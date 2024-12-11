@@ -135,10 +135,36 @@ pub fn astGenFile(
             error.PipeBusy => unreachable, // it's not a pipe
             error.NoDevice => unreachable, // it's not a pipe
             error.WouldBlock => unreachable, // not asking for non-blocking I/O
-            // There are no dir components, so you would think that this was
-            // unreachable, however we have observed on macOS two processes racing
-            // to do openat() with O_CREAT manifest in ENOENT.
-            error.FileNotFound => continue,
+            error.FileNotFound => {
+                // There are no dir components, so the only possibility should
+                // be that the directory behind the handle has been deleted,
+                // however we have observed on macOS two processes racing to do
+                // openat() with O_CREAT manifest in ENOENT.
+                //
+                // As a workaround, we retry with exclusive=true which
+                // disambiguates by returning EEXIST, indicating original
+                // failure was a race, or ENOENT, indicating deletion of the
+                // directory of our open handle.
+                if (builtin.os.tag != .macos) {
+                    std.process.fatal("cache directory '{}' unexpectedly removed during compiler execution", .{
+                        cache_directory,
+                    });
+                }
+                break zir_dir.createFile(&hex_digest, .{
+                    .read = true,
+                    .truncate = false,
+                    .lock = lock,
+                    .exclusive = true,
+                }) catch |excl_err| switch (excl_err) {
+                    error.PathAlreadyExists => continue,
+                    error.FileNotFound => {
+                        std.process.fatal("cache directory '{}' unexpectedly removed during compiler execution", .{
+                            cache_directory,
+                        });
+                    },
+                    else => |e| return e,
+                };
+            },
 
             else => |e| return e, // Retryable errors are handled at callsite.
         };

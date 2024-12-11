@@ -1537,6 +1537,12 @@ pub const OpenError = error{
     ProcessFdQuotaExceeded,
     SystemFdQuotaExceeded,
     NoDevice,
+    /// Either:
+    /// * One of the path components does not exist.
+    /// * Cwd was used, but cwd has been deleted.
+    /// * The path associated with the open directory handle has been deleted.
+    /// * On macOS, multiple processes or threads raced to create the same file
+    ///   with `O.EXCL` set to `false`.
     FileNotFound,
 
     /// The path exceeded `max_path_bytes` bytes.
