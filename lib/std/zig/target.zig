@@ -4,8 +4,10 @@ pub const ArchOsAbi = struct {
     abi: std.Target.Abi,
     os_ver: ?std.SemanticVersion = null,
 
-    // Minimum glibc version that provides support for the arch/os when ABI is GNU.
+    /// Minimum glibc version that provides support for the arch/os when ABI is GNU.
     glibc_min: ?std.SemanticVersion = null,
+    /// Override for `glibcRuntimeTriple` when glibc has an unusual directory name for the target.
+    glibc_triple: ?[]const u8 = null,
 };
 
 pub const available_libcs = [_]ArchOsAbi{
@@ -29,44 +31,44 @@ pub const available_libcs = [_]ArchOsAbi{
     .{ .arch = .aarch64, .os = .windows, .abi = .gnu },
     .{ .arch = .aarch64_be, .os = .linux, .abi = .gnu, .glibc_min = .{ .major = 2, .minor = 17, .patch = 0 } },
     .{ .arch = .aarch64_be, .os = .linux, .abi = .musl },
-    .{ .arch = .csky, .os = .linux, .abi = .gnueabi, .glibc_min = .{ .major = 2, .minor = 29, .patch = 0 } },
-    .{ .arch = .csky, .os = .linux, .abi = .gnueabihf, .glibc_min = .{ .major = 2, .minor = 29, .patch = 0 } },
-    .{ .arch = .loongarch64, .os = .linux, .abi = .gnu, .glibc_min = .{ .major = 2, .minor = 36, .patch = 0 } },
-    .{ .arch = .loongarch64, .os = .linux, .abi = .gnusf, .glibc_min = .{ .major = 2, .minor = 36, .patch = 0 } },
+    .{ .arch = .csky, .os = .linux, .abi = .gnueabi, .glibc_min = .{ .major = 2, .minor = 29, .patch = 0 }, .glibc_triple = "csky-linux-gnuabiv2-soft" },
+    .{ .arch = .csky, .os = .linux, .abi = .gnueabihf, .glibc_min = .{ .major = 2, .minor = 29, .patch = 0 }, .glibc_triple = "csky-linux-gnuabiv2" },
+    .{ .arch = .loongarch64, .os = .linux, .abi = .gnu, .glibc_min = .{ .major = 2, .minor = 36, .patch = 0 }, .glibc_triple = "loongarch64-linux-gnu-lp64d" },
+    .{ .arch = .loongarch64, .os = .linux, .abi = .gnusf, .glibc_min = .{ .major = 2, .minor = 36, .patch = 0 }, .glibc_triple = "loongarch64-linux-gnu-lp64s" },
     .{ .arch = .loongarch64, .os = .linux, .abi = .musl },
     .{ .arch = .m68k, .os = .linux, .abi = .gnu },
     .{ .arch = .m68k, .os = .linux, .abi = .musl },
-    .{ .arch = .mips, .os = .linux, .abi = .gnueabi },
-    .{ .arch = .mips, .os = .linux, .abi = .gnueabihf },
+    .{ .arch = .mips, .os = .linux, .abi = .gnueabi, .glibc_triple = "mips-linux-gnu-soft" },
+    .{ .arch = .mips, .os = .linux, .abi = .gnueabihf, .glibc_triple = "mips-linux-gnu" },
     .{ .arch = .mips, .os = .linux, .abi = .musleabi },
     .{ .arch = .mips, .os = .linux, .abi = .musleabihf },
-    .{ .arch = .mipsel, .os = .linux, .abi = .gnueabi },
-    .{ .arch = .mipsel, .os = .linux, .abi = .gnueabihf },
+    .{ .arch = .mipsel, .os = .linux, .abi = .gnueabi, .glibc_triple = "mipsel-linux-gnu-soft" },
+    .{ .arch = .mipsel, .os = .linux, .abi = .gnueabihf, .glibc_triple = "mipsel-linux-gnu" },
     .{ .arch = .mipsel, .os = .linux, .abi = .musleabi },
     .{ .arch = .mipsel, .os = .linux, .abi = .musleabihf },
-    .{ .arch = .mips64, .os = .linux, .abi = .gnuabi64 },
-    .{ .arch = .mips64, .os = .linux, .abi = .gnuabin32 },
+    .{ .arch = .mips64, .os = .linux, .abi = .gnuabi64, .glibc_triple = "mips64-linux-gnu-n64" },
+    .{ .arch = .mips64, .os = .linux, .abi = .gnuabin32, .glibc_triple = "mips64-linux-gnu-n32" },
     .{ .arch = .mips64, .os = .linux, .abi = .muslabi64 },
     .{ .arch = .mips64, .os = .linux, .abi = .muslabin32 },
-    .{ .arch = .mips64el, .os = .linux, .abi = .gnuabi64 },
-    .{ .arch = .mips64el, .os = .linux, .abi = .gnuabin32 },
+    .{ .arch = .mips64el, .os = .linux, .abi = .gnuabi64, .glibc_triple = "mips64el-linux-gnu-n64" },
+    .{ .arch = .mips64el, .os = .linux, .abi = .gnuabin32, .glibc_triple = "mips64el-linux-gnu-n32" },
     .{ .arch = .mips64el, .os = .linux, .abi = .muslabi64 },
     .{ .arch = .mips64el, .os = .linux, .abi = .muslabin32 },
-    .{ .arch = .powerpc, .os = .linux, .abi = .gnueabi },
-    .{ .arch = .powerpc, .os = .linux, .abi = .gnueabihf },
+    .{ .arch = .powerpc, .os = .linux, .abi = .gnueabi, .glibc_triple = "powerpc-linux-gnu-soft" },
+    .{ .arch = .powerpc, .os = .linux, .abi = .gnueabihf, .glibc_triple = "powerpc-linux-gnu" },
     .{ .arch = .powerpc, .os = .linux, .abi = .musleabi },
     .{ .arch = .powerpc, .os = .linux, .abi = .musleabihf },
     .{ .arch = .powerpc64, .os = .linux, .abi = .gnu },
     .{ .arch = .powerpc64, .os = .linux, .abi = .musl },
     .{ .arch = .powerpc64le, .os = .linux, .abi = .gnu, .glibc_min = .{ .major = 2, .minor = 19, .patch = 0 } },
     .{ .arch = .powerpc64le, .os = .linux, .abi = .musl },
-    .{ .arch = .riscv32, .os = .linux, .abi = .gnu, .glibc_min = .{ .major = 2, .minor = 33, .patch = 0 } },
+    .{ .arch = .riscv32, .os = .linux, .abi = .gnu, .glibc_min = .{ .major = 2, .minor = 33, .patch = 0 }, .glibc_triple = "riscv32-linux-gnu-rv32imafdc-ilp32d" },
     .{ .arch = .riscv32, .os = .linux, .abi = .musl },
-    .{ .arch = .riscv64, .os = .linux, .abi = .gnu, .glibc_min = .{ .major = 2, .minor = 27, .patch = 0 } },
+    .{ .arch = .riscv64, .os = .linux, .abi = .gnu, .glibc_min = .{ .major = 2, .minor = 27, .patch = 0 }, .glibc_triple = "riscv64-linux-gnu-rv64imafdc-lp64d" },
     .{ .arch = .riscv64, .os = .linux, .abi = .musl },
     .{ .arch = .s390x, .os = .linux, .abi = .gnu },
     .{ .arch = .s390x, .os = .linux, .abi = .musl },
-    .{ .arch = .sparc, .os = .linux, .abi = .gnu },
+    .{ .arch = .sparc, .os = .linux, .abi = .gnu, .glibc_triple = "sparcv9-linux-gnu" },
     .{ .arch = .sparc64, .os = .linux, .abi = .gnu },
     .{ .arch = .wasm32, .os = .freestanding, .abi = .musl },
     .{ .arch = .wasm32, .os = .wasi, .abi = .musl },
@@ -74,7 +76,7 @@ pub const available_libcs = [_]ArchOsAbi{
     .{ .arch = .x86, .os = .linux, .abi = .musl },
     .{ .arch = .x86, .os = .windows, .abi = .gnu },
     .{ .arch = .x86_64, .os = .linux, .abi = .gnu },
-    .{ .arch = .x86_64, .os = .linux, .abi = .gnux32 },
+    .{ .arch = .x86_64, .os = .linux, .abi = .gnux32, .glibc_triple = "x86_64-linux-gnu-x32" },
     .{ .arch = .x86_64, .os = .linux, .abi = .musl },
     .{ .arch = .x86_64, .os = .linux, .abi = .muslx32 },
     .{ .arch = .x86_64, .os = .macos, .abi = .none, .os_ver = .{ .major = 10, .minor = 7, .patch = 0 } },
@@ -98,6 +100,31 @@ pub fn canBuildLibC(target: std.Target) bool {
         }
     }
     return false;
+}
+
+/// Returns the subdirectory triple to be used to find the correct glibc for the given `arch`, `os`,
+/// and `abi` in an installation directory created by glibc's `build-many-glibcs.py` script.
+///
+/// `os` must be `.linux` or `.hurd`. `abi` must be a GNU ABI, i.e. `.isGnu()`.
+pub fn glibcRuntimeTriple(
+    allocator: Allocator,
+    arch: std.Target.Cpu.Arch,
+    os: std.Target.Os.Tag,
+    abi: std.Target.Abi,
+) Allocator.Error![]const u8 {
+    assert(abi.isGnu());
+
+    for (available_libcs) |libc| {
+        if (libc.arch == arch and libc.os == os and libc.abi == abi) {
+            if (libc.glibc_triple) |triple| return allocator.dupe(u8, triple);
+        }
+    }
+
+    return switch (os) {
+        .hurd => std.Target.hurdTupleSimple(allocator, arch, abi),
+        .linux => std.Target.linuxTripleSimple(allocator, arch, os, abi),
+        else => unreachable,
+    };
 }
 
 pub fn muslArchName(arch: std.Target.Cpu.Arch, abi: std.Target.Abi) [:0]const u8 {
@@ -285,3 +312,5 @@ fn eqlIgnoreCase(ignore_case: bool, a: []const u8, b: []const u8) bool {
 }
 
 const std = @import("std");
+const assert = std.debug.assert;
+const Allocator = std.mem.Allocator;
