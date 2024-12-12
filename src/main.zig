@@ -211,14 +211,38 @@ fn verifyLibcxxCorrectlyLinked() void {
     }
 }
 
-fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
+fn mainArgs(gpa: Allocator, arena: Allocator, args_base: []const []const u8) !void {
     const tr = tracy.trace(@src());
     defer tr.end();
 
-    if (args.len <= 1) {
+    const bin_name = fs.path.basename(args_base[0]);
+    const regular_name: bool = mem.eql(u8, bin_name, "zig");
+    // std.log.info("BIN_NAME: {s}", .{bin_name});
+
+    if (args_base.len <= 1) {
         std.log.info("{s}", .{usage});
         fatal("expected command argument", .{});
     }
+
+    var new_args: [][]const u8 = &[_][]const u8{};
+    if (!regular_name) {
+        new_args = try arena.alloc([]u8, args_base.len + 1);
+        for (args_base, 0..) |item, i| {
+            new_args[i] = item;
+            std.log.info("base[{d}]: {s}", .{i, item});
+        }
+
+        new_args[args_base.len] = "zig";
+        std.mem.rotate([]const u8, new_args, new_args.len - 1);
+
+        new_args[1] = if (mem.eql(u8, bin_name, "zig-cc"))
+                      "cc"
+                 else if (mem.eql(u8, bin_name, "zig-c++"))
+                      "c++"
+                 else
+                      args_base[0];
+    }
+    const args = if (regular_name) args_base else new_args;
 
     if (process.can_execv and std.posix.getenvZ("ZIG_IS_DETECTING_LIBC_PATHS") != null) {
         dev.check(.cc_command);
@@ -374,6 +398,10 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     } else {
         std.log.info("{s}", .{usage});
         fatal("unknown command: {s}", .{args[1]});
+    }
+
+    if (!regular_name) {
+        arena.free(new_args);
     }
 }
 
