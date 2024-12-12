@@ -79,14 +79,20 @@ pub fn finish(f: *Flush, wasm: *Wasm, arena: Allocator) !void {
 
         for (wasm.nav_exports.keys()) |*nav_export| {
             if (ip.isFunctionType(ip.getNav(nav_export.nav_index).typeOf(ip))) {
-                try wasm.function_exports.append(gpa, Wasm.FunctionIndex.fromIpNav(wasm, nav_export.nav_index).?);
+                try wasm.function_exports.append(gpa, .{
+                    .name = nav_export.name,
+                    .function_index = Wasm.FunctionIndex.fromIpNav(wasm, nav_export.nav_index).?,
+                });
                 _ = f.missing_exports.swapRemove(nav_export.name);
                 _ = wasm.function_imports.swapRemove(nav_export.name);
 
                 if (nav_export.name.toOptional() == entry_name)
                     wasm.entry_resolution = .fromIpNav(wasm, nav_export.nav_index);
             } else {
-                try wasm.global_exports.append(gpa, Wasm.GlobalIndex.fromIpNav(wasm, nav_export.nav_index).?);
+                try wasm.global_exports.append(gpa, .{
+                    .name = nav_export.name,
+                    .global_index = Wasm.GlobalIndex.fromIpNav(wasm, nav_export.nav_index).?,
+                });
                 _ = f.missing_exports.swapRemove(nav_export.name);
                 _ = wasm.global_imports.swapRemove(nav_export.name);
             }
@@ -437,8 +443,12 @@ pub fn finish(f: *Flush, wasm: *Wasm, arena: Allocator) !void {
         }
         total_imports += wasm.global_imports.entries.len;
 
-        replaceVecSectionHeader(binary_bytes, header_offset, .import, @intCast(total_imports));
-        section_index += 1;
+        if (total_imports > 0) {
+            replaceVecSectionHeader(binary_bytes, header_offset, .import, @intCast(total_imports));
+            section_index += 1;
+        } else {
+            binary_bytes.shrinkRetainingCapacity(header_offset);
+        }
     }
 
     // Function section
@@ -474,7 +484,8 @@ pub fn finish(f: *Flush, wasm: *Wasm, arena: Allocator) !void {
     }
 
     // Global section (used to emit stack pointer)
-    if (wasm.globals.entries.len > 0) {
+    const globals_len: u32 = @intCast(wasm.globals.entries.len);
+    if (globals_len > 0) {
         const header_offset = try reserveVecSectionHeader(gpa, binary_bytes);
 
         for (wasm.globals.keys()) |global_resolution| {
@@ -498,32 +509,50 @@ pub fn finish(f: *Flush, wasm: *Wasm, arena: Allocator) !void {
             }
         }
 
-        replaceVecSectionHeader(binary_bytes, header_offset, .global, @intCast(wasm.globals.entries.len));
+        replaceVecSectionHeader(binary_bytes, header_offset, .global, globals_len);
         section_index += 1;
     }
 
     // Export section
-    if (wasm.exports.items.len != 0 or export_memory) {
+    {
         const header_offset = try reserveVecSectionHeader(gpa, binary_bytes);
+        var exports_len: usize = 0;
 
-        for (wasm.exports.items) |exp| {
+        for (wasm.function_exports.items) |exp| {
             const name = exp.name.slice(wasm);
             try leb.writeUleb128(binary_writer, @as(u32, @intCast(name.len)));
-            try binary_writer.writeAll(name);
-            try leb.writeUleb128(binary_writer, @intFromEnum(exp.kind));
-            try leb.writeUleb128(binary_writer, exp.index);
+            try binary_bytes.appendSlice(gpa, name);
+            try binary_bytes.append(gpa, @intFromEnum(std.wasm.ExternalKind.function));
+            try leb.writeUleb128(binary_writer, @as(u32, @intCast(wasm.function_imports.entries.len + @intFromEnum(exp.function_index))));
         }
+        exports_len += wasm.function_exports.items.len;
+
+        // No table exports.
 
         if (export_memory) {
-            try leb.writeUleb128(binary_writer, @as(u32, @intCast("memory".len)));
-            try binary_writer.writeAll("memory");
-            try binary_writer.writeByte(std.wasm.externalKind(.memory));
+            const name = "memory";
+            try leb.writeUleb128(binary_writer, @as(u32, @intCast(name.len)));
+            try binary_bytes.appendSlice(gpa, name);
+            try binary_bytes.append(gpa, @intFromEnum(std.wasm.ExternalKind.memory));
             try leb.writeUleb128(binary_writer, @as(u32, 0));
+            exports_len += 1;
         }
 
-        const n_items: u32 = @intCast(wasm.exports.items.len + @intFromBool(export_memory));
-        replaceVecSectionHeader(binary_bytes, header_offset, .@"export", n_items);
-        section_index += 1;
+        for (wasm.global_exports.items) |exp| {
+            const name = exp.name.slice(wasm);
+            try leb.writeUleb128(binary_writer, @as(u32, @intCast(name.len)));
+            try binary_bytes.appendSlice(gpa, name);
+            try binary_bytes.append(gpa, @intFromEnum(std.wasm.ExternalKind.global));
+            try leb.writeUleb128(binary_writer, @as(u32, @intCast(wasm.global_imports.entries.len + @intFromEnum(exp.global_index))));
+        }
+        exports_len += wasm.global_exports.items.len;
+
+        if (exports_len > 0) {
+            replaceVecSectionHeader(binary_bytes, header_offset, .@"export", @intCast(exports_len));
+            section_index += 1;
+        } else {
+            binary_bytes.shrinkRetainingCapacity(header_offset);
+        }
     }
 
     if (Wasm.FunctionIndex.fromResolution(wasm.entry_resolution)) |entry_index| {

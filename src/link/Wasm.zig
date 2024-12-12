@@ -187,10 +187,10 @@ missing_exports_init: []String = &.{},
 entry_resolution: FunctionImport.Resolution = .unresolved,
 
 /// Empty when outputting an object.
-function_exports: std.ArrayListUnmanaged(FunctionIndex) = .empty,
+function_exports: std.ArrayListUnmanaged(FunctionExport) = .empty,
 /// Tracks the value at the end of prelink.
 function_exports_len: u32 = 0,
-global_exports: std.ArrayListUnmanaged(GlobalIndex) = .empty,
+global_exports: std.ArrayListUnmanaged(GlobalExport) = .empty,
 /// Tracks the value at the end of prelink.
 global_exports_len: u32 = 0,
 
@@ -262,14 +262,28 @@ pub const ObjectIndex = enum(u32) {
     }
 };
 
-/// Index into `functions`.
+/// Index into `Wasm.functions`.
 pub const FunctionIndex = enum(u32) {
     _,
+
+    pub fn ptr(index: FunctionIndex, wasm: *const Wasm) *FunctionImport.Resolution {
+        return &wasm.functions.keys()[@intFromEnum(index)];
+    }
 
     pub fn fromIpNav(wasm: *const Wasm, nav_index: InternPool.Nav.Index) ?FunctionIndex {
         const i = wasm.functions.getIndex(.fromIpNav(wasm, nav_index)) orelse return null;
         return @enumFromInt(i);
     }
+};
+
+pub const FunctionExport = extern struct {
+    name: String,
+    function_index: FunctionIndex,
+};
+
+pub const GlobalExport = extern struct {
+    name: String,
+    global_index: GlobalIndex,
 };
 
 /// 0. Index into `function_imports`
@@ -2232,8 +2246,10 @@ fn markFunction(
     } else {
         const gop = wasm.functions.getOrPutAssumeCapacity(import.resolution);
 
-        if (!is_obj and import.flags.isExported(rdynamic))
-            try wasm.function_exports.append(gpa, @enumFromInt(gop.index));
+        if (!is_obj and import.flags.isExported(rdynamic)) try wasm.function_exports.append(gpa, .{
+            .name = name,
+            .function_index = @enumFromInt(gop.index),
+        });
 
         for (try wasm.functionResolutionRelocSlice(import.resolution)) |reloc|
             try wasm.markReloc(reloc);
@@ -2282,8 +2298,10 @@ fn markGlobal(
     } else {
         const gop = wasm.globals.getOrPutAssumeCapacity(import.resolution);
 
-        if (!is_obj and import.flags.isExported(rdynamic))
-            try wasm.global_exports.append(gpa, @enumFromInt(gop.index));
+        if (!is_obj and import.flags.isExported(rdynamic)) try wasm.global_exports.append(gpa, .{
+            .name = name,
+            .global_index = @enumFromInt(gop.index),
+        });
 
         for (try wasm.globalResolutionRelocSlice(import.resolution)) |reloc|
             try wasm.markReloc(reloc);
