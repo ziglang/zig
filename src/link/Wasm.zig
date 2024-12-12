@@ -404,7 +404,7 @@ pub const SymbolFlags = packed struct(u32) {
     /// Zig-specific. Data segments only.
     alignment: Alignment = .none,
     /// Zig-specific. Globals only.
-    global_type: Global.Type = .zero,
+    global_type: GlobalType4 = .zero,
     /// Zig-specific. Tables only.
     limits_has_max: bool = false,
     /// Zig-specific. Tables only.
@@ -478,6 +478,48 @@ pub const SymbolFlags = packed struct(u32) {
         var copy = flags;
         copy.initZigSpecific(false, false);
         return @bitCast(copy);
+    }
+};
+
+pub const GlobalType4 = packed struct(u4) {
+    valtype: Valtype3,
+    mutable: bool,
+
+    pub const zero: GlobalType4 = @bitCast(@as(u4, 0));
+
+    pub fn to(gt: GlobalType4) Global.Type {
+        return .{
+            .valtype = gt.valtype.to(),
+            .mutable = gt.mutable,
+        };
+    }
+};
+
+pub const Valtype3 = enum(u3) {
+    i32,
+    i64,
+    f32,
+    f64,
+    v128,
+
+    pub fn from(v: std.wasm.Valtype) Valtype3 {
+        return switch (v) {
+            .i32 => .i32,
+            .i64 => .i64,
+            .f32 => .f32,
+            .f64 => .f64,
+            .v128 => .v128,
+        };
+    }
+
+    pub fn to(v: Valtype3) std.wasm.Valtype {
+        return switch (v) {
+            .i32 => .i32,
+            .i64 => .i64,
+            .f32 => .f32,
+            .f64 => .f64,
+            .v128 => .v128,
+        };
     }
 };
 
@@ -591,7 +633,7 @@ pub const FunctionImport = extern struct {
             __zig_error_names,
             object_function: ObjectFunctionIndex,
             nav_exe: NavExe.Index,
-            nav_obj: NavExe.Index,
+            nav_obj: NavObj.Index,
         };
 
         pub fn unpack(r: Resolution, wasm: *const Wasm) Unpacked {
@@ -647,6 +689,20 @@ pub const FunctionImport = extern struct {
             return switch (r.unpack(wasm)) {
                 .unresolved, .nav_obj, .nav_exe => true,
                 else => false,
+            };
+        }
+
+        pub fn typeIndex(r: Resolution, wasm: *const Wasm) FunctionType.Index {
+            return switch (unpack(r, wasm)) {
+                .unresolved => unreachable,
+                .__wasm_apply_global_tls_relocs => @panic("TODO"),
+                .__wasm_call_ctors => @panic("TODO"),
+                .__wasm_init_memory => @panic("TODO"),
+                .__wasm_init_tls => @panic("TODO"),
+                .__zig_error_names => @panic("TODO"),
+                .object_function => |i| i.ptr(wasm).type_index,
+                .nav_exe => @panic("TODO"),
+                .nav_obj => @panic("TODO"),
             };
         }
     };
@@ -731,11 +787,13 @@ pub const GlobalImport = extern struct {
         pub fn unpack(r: Resolution, wasm: *const Wasm) Unpacked {
             return switch (r) {
                 .unresolved => .unresolved,
-                .__wasm_apply_global_tls_relocs => .__wasm_apply_global_tls_relocs,
-                .__wasm_call_ctors => .__wasm_call_ctors,
-                .__wasm_init_memory => .__wasm_init_memory,
-                .__wasm_init_tls => .__wasm_init_tls,
-                .__zig_error_names => .__zig_error_names,
+                .__heap_base => .__heap_base,
+                .__heap_end => .__heap_end,
+                .__stack_pointer => .__stack_pointer,
+                .__tls_align => .__tls_align,
+                .__tls_base => .__tls_base,
+                .__tls_size => .__tls_size,
+                .__zig_error_name_table => .__zig_error_name_table,
                 _ => {
                     const i: u32 = @intFromEnum(r);
                     const object_global_index = i - first_object_global;
@@ -780,12 +838,28 @@ pub const GlobalImport = extern struct {
         }
     };
 
-    /// Index into `object_global_imports`.
+    /// Index into `Wasm.object_global_imports`.
     pub const Index = enum(u32) {
         _,
 
-        pub fn ptr(index: Index, wasm: *const Wasm) *GlobalImport {
-            return &wasm.object_global_imports.items[@intFromEnum(index)];
+        pub fn key(index: Index, wasm: *const Wasm) *String {
+            return &wasm.object_global_imports.keys()[@intFromEnum(index)];
+        }
+
+        pub fn value(index: Index, wasm: *const Wasm) *GlobalImport {
+            return &wasm.object_global_imports.values()[@intFromEnum(index)];
+        }
+
+        pub fn name(index: Index, wasm: *const Wasm) String {
+            return index.key(wasm).*;
+        }
+
+        pub fn moduleName(index: Index, wasm: *const Wasm) String {
+            return index.value(wasm).module_name;
+        }
+
+        pub fn globalType(index: Index, wasm: *const Wasm) Global.Type {
+            return value(index, wasm).flags.global_type.to();
         }
     };
 };
@@ -796,39 +870,9 @@ pub const Global = extern struct {
     flags: SymbolFlags,
     expr: Expr,
 
-    pub const Type = packed struct(u4) {
-        valtype: Valtype,
+    pub const Type = struct {
+        valtype: std.wasm.Valtype,
         mutable: bool,
-
-        pub const zero: Type = @bitCast(@as(u4, 0));
-    };
-
-    pub const Valtype = enum(u3) {
-        i32,
-        i64,
-        f32,
-        f64,
-        v128,
-
-        pub fn from(v: std.wasm.Valtype) Valtype {
-            return switch (v) {
-                .i32 => .i32,
-                .i64 => .i64,
-                .f32 => .f32,
-                .f64 => .f64,
-                .v128 => .v128,
-            };
-        }
-
-        pub fn to(v: Valtype) std.wasm.Valtype {
-            return switch (v) {
-                .i32 => .i32,
-                .i64 => .i64,
-                .f32 => .f32,
-                .f64 => .f64,
-                .v128 => .v128,
-            };
-        }
     };
 };
 
@@ -865,6 +909,38 @@ pub const TableImport = extern struct {
         __indirect_function_table,
         // Next, index into `object_tables`.
         _,
+
+        const first_object_table = @intFromEnum(Resolution.__indirect_function_table) + 1;
+
+        pub const Unpacked = union(enum) {
+            unresolved,
+            __indirect_function_table,
+            object_table: ObjectTableIndex,
+        };
+
+        pub fn unpack(r: Resolution) Unpacked {
+            return switch (r) {
+                .unresolved => .unresolved,
+                .__indirect_function_table => .__indirect_function_table,
+                _ => .{ .object_table = @enumFromInt(@intFromEnum(r) - first_object_table) },
+            };
+        }
+
+        pub fn refType(r: Resolution, wasm: *const Wasm) std.wasm.RefType {
+            return switch (unpack(r)) {
+                .unresolved => unreachable,
+                .__indirect_function_table => @panic("TODO"),
+                .object_table => |i| i.ptr(wasm).flags.ref_type.to(),
+            };
+        }
+
+        pub fn limits(r: Resolution, wasm: *const Wasm) std.wasm.Limits {
+            return switch (unpack(r)) {
+                .unresolved => unreachable,
+                .__indirect_function_table => @panic("TODO"),
+                .object_table => |i| i.ptr(wasm).limits(),
+            };
+        }
     };
 
     /// Index into `object_table_imports`.
@@ -878,7 +954,26 @@ pub const TableImport = extern struct {
         pub fn value(index: Index, wasm: *const Wasm) *TableImport {
             return &wasm.object_table_imports.values()[@intFromEnum(index)];
         }
+
+        pub fn name(index: Index, wasm: *const Wasm) String {
+            return index.key(wasm).*;
+        }
+
+        pub fn moduleName(index: Index, wasm: *const Wasm) String {
+            return index.value(wasm).module_name;
+        }
     };
+
+    pub fn limits(ti: *const TableImport) std.wasm.Limits {
+        return .{
+            .flags = .{
+                .has_max = ti.flags.limits_has_max,
+                .is_shared = ti.flags.limits_is_shared,
+            },
+            .min = ti.limits_min,
+            .max = ti.limits_max,
+        };
+    }
 };
 
 pub const Table = extern struct {
@@ -887,6 +982,17 @@ pub const Table = extern struct {
     flags: SymbolFlags,
     limits_min: u32,
     limits_max: u32,
+
+    pub fn limits(t: *const Table) std.wasm.Limits {
+        return .{
+            .flags = .{
+                .has_max = t.flags.limits_has_max,
+                .is_shared = t.flags.limits_is_shared,
+            },
+            .min = t.limits_min,
+            .max = t.limits_max,
+        };
+    }
 };
 
 /// Uniquely identifies a section across all objects. By subtracting
@@ -910,9 +1016,13 @@ pub const GlobalImportIndex = enum(u32) {
     _,
 };
 
-/// Index into `object_globals`.
+/// Index into `Wasm.object_globals`.
 pub const ObjectGlobalIndex = enum(u32) {
     _,
+
+    pub fn ptr(index: ObjectGlobalIndex, wasm: *const Wasm) *Global {
+        return &wasm.object_globals.items[@intFromEnum(index)];
+    }
 };
 
 /// Index into `Wasm.object_memories`.
@@ -992,6 +1102,16 @@ pub const CustomSegment = extern struct {
 /// An index into string_bytes where a wasm expression is found.
 pub const Expr = enum(u32) {
     _,
+
+    pub const end = @intFromEnum(std.wasm.Opcode.end);
+
+    pub fn slice(index: Expr, wasm: *const Wasm) [:end]const u8 {
+        const start_slice = wasm.string_bytes.items[@intFromEnum(index)..];
+        const end_pos = Object.exprEndPos(start_slice, 0) catch |err| switch (err) {
+            error.InvalidInitOpcode => unreachable,
+        };
+        return start_slice[0..end_pos :end];
+    }
 };
 
 pub const FunctionType = extern struct {
@@ -1162,6 +1282,12 @@ pub const ZcuImportIndex = enum(u32) {
         const fn_info = zcu.typeToFunc(.fromInterned(ext.ty)).?;
         return getExistingFunctionType(wasm, fn_info.cc, fn_info.param_types.get(ip), .fromInterned(fn_info.return_type), target).?;
     }
+
+    pub fn globalType(index: ZcuImportIndex, wasm: *const Wasm) Global.Type {
+        _ = index;
+        _ = wasm;
+        unreachable; // Zig has no way to create Wasm globals yet.
+    }
 };
 
 /// 0. Index into `object_function_imports`.
@@ -1274,6 +1400,24 @@ pub const GlobalImportId = enum(u32) {
             .zcu_import => return .zig_object_nofile, // TODO give a better source location
         }
     }
+
+    pub fn name(id: GlobalImportId, wasm: *const Wasm) String {
+        return switch (unpack(id, wasm)) {
+            inline .object_global_import, .zcu_import => |i| i.name(wasm),
+        };
+    }
+
+    pub fn moduleName(id: GlobalImportId, wasm: *const Wasm) String {
+        return switch (unpack(id, wasm)) {
+            inline .object_global_import, .zcu_import => |i| i.moduleName(wasm),
+        };
+    }
+
+    pub fn globalType(id: GlobalImportId, wasm: *Wasm) Global.Type {
+        return switch (unpack(id, wasm)) {
+            inline .object_global_import, .zcu_import => |i| i.globalType(wasm),
+        };
+    }
 };
 
 /// Index into `Wasm.symbol_table`.
@@ -1384,6 +1528,17 @@ pub const MemoryImport = extern struct {
     limits_has_max: bool,
     limits_is_shared: bool,
     padding: [2]u8 = .{ 0, 0 },
+
+    pub fn limits(mi: *const MemoryImport) std.wasm.Limits {
+        return .{
+            .flags = .{
+                .has_max = mi.limits_has_max,
+                .is_shared = mi.limits_is_shared,
+            },
+            .min = mi.limits_min,
+            .max = mi.limits_max,
+        };
+    }
 };
 
 pub const Alignment = InternPool.Alignment;

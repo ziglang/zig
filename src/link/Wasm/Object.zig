@@ -1040,9 +1040,9 @@ fn readInit(wasm: *Wasm, bytes: []const u8, pos: usize) !struct { Wasm.Expr, usi
     return .{ try wasm.addExpr(bytes[pos..end_pos]), end_pos };
 }
 
-fn skipInit(bytes: []const u8, pos: usize) !usize {
+pub fn exprEndPos(bytes: []const u8, pos: usize) error{InvalidInitOpcode}!usize {
     const opcode = bytes[pos];
-    const end_pos = switch (@as(std.wasm.Opcode, @enumFromInt(opcode))) {
+    return switch (@as(std.wasm.Opcode, @enumFromInt(opcode))) {
         .i32_const => readLeb(i32, bytes, pos + 1)[1],
         .i64_const => readLeb(i64, bytes, pos + 1)[1],
         .f32_const => pos + 5,
@@ -1050,6 +1050,10 @@ fn skipInit(bytes: []const u8, pos: usize) !usize {
         .global_get => readLeb(u32, bytes, pos + 1)[1],
         else => return error.InvalidInitOpcode,
     };
+}
+
+fn skipInit(bytes: []const u8, pos: usize) !usize {
+    const end_pos = try exprEndPos(bytes, pos);
     const op, const final_pos = readEnum(std.wasm.Opcode, bytes, end_pos);
     if (op != .end) return error.InitExprMissingEnd;
     return final_pos;

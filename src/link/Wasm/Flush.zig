@@ -335,8 +335,6 @@ pub fn finish(f: *Flush, wasm: *Wasm, arena: Allocator) !void {
         log.debug("maximum memory pages: {?d}", .{wasm.memories.limits.max});
     }
 
-    // Size of each section header
-    const header_size = 5 + 1;
     var section_index: u32 = 0;
     // Index of the code section. Used to tell relocation table where the section lives.
     var code_section_index: ?u32 = null;
@@ -369,54 +367,50 @@ pub fn finish(f: *Flush, wasm: *Wasm, arena: Allocator) !void {
             }
         }
 
-        try writeVecSectionHeader(
-            binary_bytes.items,
-            header_offset,
-            .type,
-            @intCast(binary_bytes.items.len - header_offset - header_size),
-            @intCast(wasm.func_types.entries.len),
-        );
+        replaceVecSectionHeader(binary_bytes, header_offset, .type, @intCast(wasm.func_types.entries.len));
         section_index += 1;
     }
 
     // Import section
-    const total_imports_len = wasm.function_imports.entries.len + wasm.global_imports.entries.len +
-        wasm.table_imports.entries.len + wasm.object_memory_imports.items.len + @intFromBool(import_memory);
-
-    if (total_imports_len > 0) {
+    {
+        var total_imports: usize = 0;
         const header_offset = try reserveVecSectionHeader(gpa, binary_bytes);
 
-        for (wasm.function_imports.values()) |*function_import| {
-            const module_name = function_import.moduleName(wasm).slice(wasm);
+        for (wasm.function_imports.values()) |id| {
+            const module_name = id.moduleName(wasm).slice(wasm);
             try leb.writeUleb128(binary_writer, @as(u32, @intCast(module_name.len)));
             try binary_writer.writeAll(module_name);
 
-            const name = function_import.name(wasm).slice(wasm);
+            const name = id.name(wasm).slice(wasm);
             try leb.writeUleb128(binary_writer, @as(u32, @intCast(name.len)));
             try binary_writer.writeAll(name);
 
             try binary_writer.writeByte(@intFromEnum(std.wasm.ExternalKind.function));
-            try leb.writeUleb128(binary_writer, @intFromEnum(function_import.functionType(wasm)));
+            try leb.writeUleb128(binary_writer, @intFromEnum(id.functionType(wasm)));
         }
+        total_imports += wasm.function_imports.entries.len;
 
-        for (wasm.table_imports.values()) |*table_import| {
-            const module_name = table_import.moduleName(wasm).slice(wasm);
+        for (wasm.table_imports.values()) |id| {
+            const table_import = id.value(wasm);
+            const module_name = table_import.module_name.slice(wasm);
             try leb.writeUleb128(binary_writer, @as(u32, @intCast(module_name.len)));
             try binary_writer.writeAll(module_name);
 
-            const name = table_import.name(wasm).slice(wasm);
+            const name = id.key(wasm).slice(wasm);
             try leb.writeUleb128(binary_writer, @as(u32, @intCast(name.len)));
             try binary_writer.writeAll(name);
 
             try binary_writer.writeByte(@intFromEnum(std.wasm.ExternalKind.table));
-            try leb.writeUleb128(binary_writer, std.wasm.reftype(table_import.reftype));
-            try emitLimits(binary_writer, table_import.limits);
+            try leb.writeUleb128(binary_writer, @intFromEnum(@as(std.wasm.RefType, table_import.flags.ref_type.to())));
+            try emitLimits(gpa, binary_bytes, table_import.limits());
         }
+        total_imports += wasm.table_imports.entries.len;
 
         for (wasm.object_memory_imports.items) |*memory_import| {
-            try emitMemoryImport(wasm, binary_writer, memory_import);
+            try emitMemoryImport(wasm, binary_bytes, memory_import);
+            total_imports += 1;
         } else if (import_memory) {
-            try emitMemoryImport(wasm, binary_writer, &.{
+            try emitMemoryImport(wasm, binary_bytes, &.{
                 .module_name = wasm.host_name,
                 .name = if (is_obj) wasm.preloaded_strings.__linear_memory else wasm.preloaded_strings.memory,
                 .limits_min = wasm.memories.limits.min,
@@ -424,100 +418,87 @@ pub fn finish(f: *Flush, wasm: *Wasm, arena: Allocator) !void {
                 .limits_has_max = wasm.memories.limits.flags.has_max,
                 .limits_is_shared = wasm.memories.limits.flags.is_shared,
             });
+            total_imports += 1;
         }
 
-        for (wasm.global_imports.values()) |*global_import| {
-            const module_name = global_import.module_name.slice(wasm);
+        for (wasm.global_imports.values()) |id| {
+            const module_name = id.moduleName(wasm).slice(wasm);
             try leb.writeUleb128(binary_writer, @as(u32, @intCast(module_name.len)));
             try binary_writer.writeAll(module_name);
 
-            const name = global_import.name.slice(wasm);
+            const name = id.name(wasm).slice(wasm);
             try leb.writeUleb128(binary_writer, @as(u32, @intCast(name.len)));
             try binary_writer.writeAll(name);
 
             try binary_writer.writeByte(@intFromEnum(std.wasm.ExternalKind.global));
-            try leb.writeUleb128(binary_writer, @intFromEnum(global_import.valtype));
-            try binary_writer.writeByte(@intFromBool(global_import.mutable));
+            const global_type = id.globalType(wasm);
+            try leb.writeUleb128(binary_writer, @intFromEnum(@as(std.wasm.Valtype, global_type.valtype)));
+            try binary_writer.writeByte(@intFromBool(global_type.mutable));
         }
+        total_imports += wasm.global_imports.entries.len;
 
-        try writeVecSectionHeader(
-            binary_bytes.items,
-            header_offset,
-            .import,
-            @intCast(binary_bytes.items.len - header_offset - header_size),
-            @intCast(total_imports_len),
-        );
+        replaceVecSectionHeader(binary_bytes, header_offset, .import, @intCast(total_imports));
         section_index += 1;
     }
 
     // Function section
     if (wasm.functions.count() != 0) {
         const header_offset = try reserveVecSectionHeader(gpa, binary_bytes);
-        for (wasm.functions.values()) |function| {
-            try leb.writeUleb128(binary_writer, function.func.type_index);
+        for (wasm.functions.keys()) |function| {
+            try leb.writeUleb128(binary_writer, @intFromEnum(function.typeIndex(wasm)));
         }
 
-        try writeVecSectionHeader(
-            binary_bytes.items,
-            header_offset,
-            .function,
-            @intCast(binary_bytes.items.len - header_offset - header_size),
-            @intCast(wasm.functions.count()),
-        );
+        replaceVecSectionHeader(binary_bytes, header_offset, .function, @intCast(wasm.functions.count()));
         section_index += 1;
     }
 
     // Table section
-    if (wasm.tables.items.len > 0) {
+    if (wasm.tables.entries.len > 0) {
         const header_offset = try reserveVecSectionHeader(gpa, binary_bytes);
 
-        for (wasm.tables.items) |table| {
-            try leb.writeUleb128(binary_writer, std.wasm.reftype(table.reftype));
-            try emitLimits(binary_writer, table.limits);
+        for (wasm.tables.keys()) |table| {
+            try leb.writeUleb128(binary_writer, @intFromEnum(@as(std.wasm.RefType, table.refType(wasm))));
+            try emitLimits(gpa, binary_bytes, table.limits(wasm));
         }
 
-        try writeVecSectionHeader(
-            binary_bytes.items,
-            header_offset,
-            .table,
-            @intCast(binary_bytes.items.len - header_offset - header_size),
-            @intCast(wasm.tables.items.len),
-        );
+        replaceVecSectionHeader(binary_bytes, header_offset, .table, @intCast(wasm.tables.entries.len));
         section_index += 1;
     }
 
-    // Memory section
+    // Memory section. wasm currently only supports 1 linear memory segment.
     if (!import_memory) {
         const header_offset = try reserveVecSectionHeader(gpa, binary_bytes);
-
-        try emitLimits(binary_writer, wasm.memories.limits);
-        try writeVecSectionHeader(
-            binary_bytes.items,
-            header_offset,
-            .memory,
-            @intCast(binary_bytes.items.len - header_offset - header_size),
-            1, // wasm currently only supports 1 linear memory segment
-        );
+        try emitLimits(gpa, binary_bytes, wasm.memories.limits);
+        replaceVecSectionHeader(binary_bytes, header_offset, .memory, 1);
         section_index += 1;
     }
 
     // Global section (used to emit stack pointer)
-    if (wasm.output_globals.items.len > 0) {
+    if (wasm.globals.entries.len > 0) {
         const header_offset = try reserveVecSectionHeader(gpa, binary_bytes);
 
-        for (wasm.output_globals.items) |global| {
-            try binary_writer.writeByte(@intFromEnum(global.global_type.valtype));
-            try binary_writer.writeByte(@intFromBool(global.global_type.mutable));
-            try emitInit(binary_writer, global.init);
+        for (wasm.globals.keys()) |global_resolution| {
+            switch (global_resolution.unpack(wasm)) {
+                .unresolved => unreachable,
+                .__heap_base => @panic("TODO"),
+                .__heap_end => @panic("TODO"),
+                .__stack_pointer => @panic("TODO"),
+                .__tls_align => @panic("TODO"),
+                .__tls_base => @panic("TODO"),
+                .__tls_size => @panic("TODO"),
+                .__zig_error_name_table => @panic("TODO"),
+                .object_global => |i| {
+                    const global = i.ptr(wasm);
+                    try binary_writer.writeByte(@intFromEnum(@as(std.wasm.Valtype, global.flags.global_type.valtype.to())));
+                    try binary_writer.writeByte(@intFromBool(global.flags.global_type.mutable));
+                    try emitExpr(wasm, binary_bytes, global.expr);
+                },
+                .nav_exe => @panic("TODO"),
+                .nav_obj => @panic("TODO"),
+            }
         }
 
-        try writeVecSectionHeader(
-            binary_bytes.items,
-            header_offset,
-            .global,
-            @intCast(binary_bytes.items.len - header_offset - header_size),
-            @intCast(wasm.output_globals.items.len),
-        );
+        replaceVecSectionHeader(binary_bytes, header_offset, .global, @intCast(wasm.globals.entries.len));
         section_index += 1;
     }
 
@@ -540,25 +521,14 @@ pub fn finish(f: *Flush, wasm: *Wasm, arena: Allocator) !void {
             try leb.writeUleb128(binary_writer, @as(u32, 0));
         }
 
-        try writeVecSectionHeader(
-            binary_bytes.items,
-            header_offset,
-            .@"export",
-            @intCast(binary_bytes.items.len - header_offset - header_size),
-            @intCast(wasm.exports.items.len + @intFromBool(export_memory)),
-        );
+        const n_items: u32 = @intCast(wasm.exports.items.len + @intFromBool(export_memory));
+        replaceVecSectionHeader(binary_bytes, header_offset, .@"export", n_items);
         section_index += 1;
     }
 
-    if (wasm.entry) |entry_index| {
+    if (Wasm.FunctionIndex.fromResolution(wasm.entry_resolution)) |entry_index| {
         const header_offset = try reserveVecSectionHeader(gpa, binary_bytes);
-        try writeVecSectionHeader(
-            binary_bytes.items,
-            header_offset,
-            .start,
-            @intCast(binary_bytes.items.len - header_offset - header_size),
-            entry_index,
-        );
+        replaceVecSectionHeader(binary_bytes, header_offset, .start, @intFromEnum(entry_index));
     }
 
     // element section (function table)
@@ -586,26 +556,14 @@ pub fn finish(f: *Flush, wasm: *Wasm, arena: Allocator) !void {
             try leb.writeUleb128(binary_writer, sym.index);
         }
 
-        try writeVecSectionHeader(
-            binary_bytes.items,
-            header_offset,
-            .element,
-            @intCast(binary_bytes.items.len - header_offset - header_size),
-            1,
-        );
+        replaceVecSectionHeader(binary_bytes, header_offset, .element, 1);
         section_index += 1;
     }
 
     // When the shared-memory option is enabled, we *must* emit the 'data count' section.
     if (f.data_segment_groups.items.len > 0 and shared_memory) {
         const header_offset = try reserveVecSectionHeader(gpa, binary_bytes);
-        try writeVecSectionHeader(
-            binary_bytes.items,
-            header_offset,
-            .data_count,
-            @intCast(binary_bytes.items.len - header_offset - header_size),
-            @intCast(f.data_segment_groups.items.len),
-        );
+        replaceVecSectionHeader(binary_bytes, header_offset, .data_count, @intCast(f.data_segment_groups.items.len));
     }
 
     // Code section.
@@ -636,13 +594,7 @@ pub fn finish(f: *Flush, wasm: *Wasm, arena: Allocator) !void {
             },
         };
 
-        try writeVecSectionHeader(
-            binary_bytes.items,
-            header_offset,
-            .code,
-            @intCast(binary_bytes.items.len - header_offset - header_size),
-            @intCast(wasm.functions.count()),
-        );
+        replaceVecSectionHeader(binary_bytes, header_offset, .code, @intCast(wasm.functions.entries.len));
         code_section_index = section_index;
         section_index += 1;
     }
@@ -682,13 +634,7 @@ pub fn finish(f: *Flush, wasm: *Wasm, arena: Allocator) !void {
         }
         assert(group_index == f.data_segment_groups.items.len);
 
-        try writeVecSectionHeader(
-            binary_bytes.items,
-            header_offset,
-            .data,
-            @intCast(binary_bytes.items.len - header_offset - header_size),
-            group_index,
-        );
+        replaceVecSectionHeader(binary_bytes, header_offset, .data, group_index);
         data_section_index = section_index;
         section_index += 1;
     }
@@ -768,7 +714,7 @@ fn emitNameSection(wasm: *Wasm, binary_bytes: *std.ArrayListUnmanaged(u8), arena
     };
 
     var globals: std.MultiArrayList(NamedIndex) = .empty;
-    try globals.ensureTotalCapacityPrecise(arena, wasm.output_globals.items.len + wasm.global_imports.items.len);
+    try globals.ensureTotalCapacityPrecise(arena, wasm.globals.items.len + wasm.global_imports.items.len);
 
     var segments: std.MultiArrayList(NamedIndex) = .empty;
     try segments.ensureTotalCapacityPrecise(arena, wasm.data_segments.count());
@@ -844,10 +790,8 @@ fn writeCustomSectionHeader(buffer: []u8, offset: u32, size: u32) !void {
 }
 
 fn reserveCustomSectionHeader(gpa: Allocator, bytes: *std.ArrayListUnmanaged(u8)) Allocator.Error!u32 {
-    // unlike regular section, we don't emit the count
-    const header_size = 1 + 5;
-    try bytes.appendNTimes(gpa, 0, header_size);
-    return @intCast(bytes.items.len - header_size);
+    try bytes.appendNTimes(gpa, 0, section_header_size);
+    return @intCast(bytes.items.len - section_header_size);
 }
 
 fn emitNameSubsection(
@@ -1106,38 +1050,57 @@ fn wantSegmentMerge(wasm: *const Wasm, a_index: Wasm.DataSegment.Index, b_index:
     return a_prefix.len > 0 and mem.eql(u8, a_prefix, b_prefix);
 }
 
+/// section id + fixed leb contents size + fixed leb vector length
+const section_header_reserve_size = 1 + 5 + 5;
+const section_header_size = 5 + 1;
+
 fn reserveVecSectionHeader(gpa: Allocator, bytes: *std.ArrayListUnmanaged(u8)) Allocator.Error!u32 {
-    // section id + fixed leb contents size + fixed leb vector length
-    const header_size = 1 + 5 + 5;
-    try bytes.appendNTimes(gpa, 0, header_size);
-    return @intCast(bytes.items.len - header_size);
+    try bytes.appendNTimes(gpa, 0, section_header_reserve_size);
+    return @intCast(bytes.items.len - section_header_reserve_size);
 }
 
-fn writeVecSectionHeader(buffer: []u8, offset: u32, section: std.wasm.Section, size: u32, items: u32) !void {
-    var buf: [1 + 5 + 5]u8 = undefined;
-    buf[0] = @intFromEnum(section);
-    leb.writeUnsignedFixed(5, buf[1..6], size);
-    leb.writeUnsignedFixed(5, buf[6..], items);
-    buffer[offset..][0..buf.len].* = buf;
+fn replaceVecSectionHeader(
+    bytes: *std.ArrayListUnmanaged(u8),
+    offset: u32,
+    section: std.wasm.Section,
+    n_items: u32,
+) void {
+    const size: u32 = @intCast(bytes.items.len - offset - section_header_size);
+    var buf: [section_header_reserve_size]u8 = undefined;
+    var fbw = std.io.fixedBufferStream(&buf);
+    const w = fbw.writer();
+    w.writeByte(@intFromEnum(section)) catch unreachable;
+    leb.writeUleb128(w, size) catch unreachable;
+    leb.writeUleb128(w, n_items) catch unreachable;
+    bytes.replaceRangeAssumeCapacity(offset, section_header_reserve_size, fbw.getWritten());
 }
 
-fn emitLimits(writer: anytype, limits: std.wasm.Limits) !void {
-    try writer.writeByte(limits.flags);
-    try leb.writeUleb128(writer, limits.min);
-    if (limits.flags.has_max) try leb.writeUleb128(writer, limits.max);
+fn emitLimits(
+    gpa: Allocator,
+    binary_bytes: *std.ArrayListUnmanaged(u8),
+    limits: std.wasm.Limits,
+) Allocator.Error!void {
+    try binary_bytes.append(gpa, @bitCast(limits.flags));
+    try leb.writeUleb128(binary_bytes.writer(gpa), limits.min);
+    if (limits.flags.has_max) try leb.writeUleb128(binary_bytes.writer(gpa), limits.max);
 }
 
-fn emitMemoryImport(wasm: *Wasm, writer: anytype, memory_import: *const Wasm.MemoryImport) Allocator.Error!void {
+fn emitMemoryImport(
+    wasm: *Wasm,
+    binary_bytes: *std.ArrayListUnmanaged(u8),
+    memory_import: *const Wasm.MemoryImport,
+) Allocator.Error!void {
+    const gpa = wasm.base.comp.gpa;
     const module_name = memory_import.module_name.slice(wasm);
-    try leb.writeUleb128(writer, @as(u32, @intCast(module_name.len)));
-    try writer.writeAll(module_name);
+    try leb.writeUleb128(binary_bytes.writer(gpa), @as(u32, @intCast(module_name.len)));
+    try binary_bytes.appendSlice(gpa, module_name);
 
     const name = memory_import.name.slice(wasm);
-    try leb.writeUleb128(writer, @as(u32, @intCast(name.len)));
-    try writer.writeAll(name);
+    try leb.writeUleb128(binary_bytes.writer(gpa), @as(u32, @intCast(name.len)));
+    try binary_bytes.appendSlice(gpa, name);
 
-    try writer.writeByte(@intFromEnum(std.wasm.ExternalKind.memory));
-    try emitLimits(writer, memory_import.limits());
+    try binary_bytes.append(gpa, @intFromEnum(std.wasm.ExternalKind.memory));
+    try emitLimits(gpa, binary_bytes, memory_import.limits());
 }
 
 pub fn emitInit(writer: anytype, init_expr: std.wasm.InitExpression) !void {
@@ -1164,6 +1127,12 @@ pub fn emitInit(writer: anytype, init_expr: std.wasm.InitExpression) !void {
         },
     }
     try writer.writeByte(@intFromEnum(std.wasm.Opcode.end));
+}
+
+pub fn emitExpr(wasm: *const Wasm, binary_bytes: *std.ArrayListUnmanaged(u8), expr: Wasm.Expr) Allocator.Error!void {
+    const gpa = wasm.base.comp.gpa;
+    const slice = expr.slice(wasm);
+    try binary_bytes.appendSlice(gpa, slice[0 .. slice.len + 1]); // +1 to include end opcode
 }
 
 //fn emitLinkSection(
