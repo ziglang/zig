@@ -3360,6 +3360,10 @@ pub const LoadedUnionType = struct {
         return flags.status == .field_types_wip;
     }
 
+    pub fn requiresComptime(u: LoadedUnionType, ip: *const InternPool) RequiresComptime {
+        return u.flagsUnordered(ip).requires_comptime;
+    }
+
     pub fn setRequiresComptimeWip(u: LoadedUnionType, ip: *InternPool) RequiresComptime {
         const extra_mutex = &ip.getLocal(u.tid).mutate.extra.mutex;
         extra_mutex.lock();
@@ -4014,7 +4018,7 @@ pub const LoadedStructType = struct {
         }
     }
 
-    pub fn haveLayout(s: LoadedStructType, ip: *InternPool) bool {
+    pub fn haveLayout(s: LoadedStructType, ip: *const InternPool) bool {
         return switch (s.layout) {
             .@"packed" => s.backingIntTypeUnordered(ip) != .none,
             .auto, .@"extern" => s.flagsUnordered(ip).layout_resolved,
