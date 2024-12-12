@@ -381,30 +381,30 @@ pub fn finish(f: *Flush, wasm: *Wasm, arena: Allocator) !void {
 
     // Import section
     const total_imports_len = wasm.function_imports.entries.len + wasm.global_imports.entries.len +
-        wasm.table_imports.entries.len + wasm.memory_imports.items.len + @intFromBool(import_memory);
+        wasm.table_imports.entries.len + wasm.object_memory_imports.items.len + @intFromBool(import_memory);
 
     if (total_imports_len > 0) {
         const header_offset = try reserveVecSectionHeader(gpa, binary_bytes);
 
         for (wasm.function_imports.values()) |*function_import| {
-            const module_name = function_import.module_name.slice(wasm);
+            const module_name = function_import.moduleName(wasm).slice(wasm);
             try leb.writeUleb128(binary_writer, @as(u32, @intCast(module_name.len)));
             try binary_writer.writeAll(module_name);
 
-            const name = function_import.name.slice(wasm);
+            const name = function_import.name(wasm).slice(wasm);
             try leb.writeUleb128(binary_writer, @as(u32, @intCast(name.len)));
             try binary_writer.writeAll(name);
 
             try binary_writer.writeByte(@intFromEnum(std.wasm.ExternalKind.function));
-            try leb.writeUleb128(binary_writer, function_import.index);
+            try leb.writeUleb128(binary_writer, @intFromEnum(function_import.functionType(wasm)));
         }
 
         for (wasm.table_imports.values()) |*table_import| {
-            const module_name = table_import.module_name.slice(wasm);
+            const module_name = table_import.moduleName(wasm).slice(wasm);
             try leb.writeUleb128(binary_writer, @as(u32, @intCast(module_name.len)));
             try binary_writer.writeAll(module_name);
 
-            const name = table_import.name.slice(wasm);
+            const name = table_import.name(wasm).slice(wasm);
             try leb.writeUleb128(binary_writer, @as(u32, @intCast(name.len)));
             try binary_writer.writeAll(name);
 
@@ -413,7 +413,7 @@ pub fn finish(f: *Flush, wasm: *Wasm, arena: Allocator) !void {
             try emitLimits(binary_writer, table_import.limits);
         }
 
-        for (wasm.memory_imports.items) |*memory_import| {
+        for (wasm.object_memory_imports.items) |*memory_import| {
             try emitMemoryImport(wasm, binary_writer, memory_import);
         } else if (import_memory) {
             try emitMemoryImport(wasm, binary_writer, &.{

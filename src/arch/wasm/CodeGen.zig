@@ -760,7 +760,7 @@ fn resolveInst(cg: *CodeGen, ref: Air.Inst.Ref) InnerError!WValue {
     //
     // In the other cases, we will simply lower the constant to a value that fits
     // into a single local (such as a pointer, integer, bool, etc).
-    const result: WValue = if (isByRef(ty, pt, cg.target))
+    const result: WValue = if (isByRef(ty, zcu, cg.target))
         .{ .uav_ref = .{ .ip_index = val.toIntern() } }
     else
         try cg.lowerConstant(val, ty);
@@ -953,9 +953,8 @@ fn addExtraAssumeCapacity(cg: *CodeGen, extra: anytype) error{OutOfMemory}!u32 {
     return result;
 }
 
-/// Using a given `Type`, returns the corresponding valtype for .auto callconv
-fn typeToValtype(ty: Type, pt: Zcu.PerThread, target: *const std.Target) std.wasm.Valtype {
-    const zcu = pt.zcu;
+/// For `std.builtin.CallingConvention.auto`.
+pub fn typeToValtype(ty: Type, zcu: *const Zcu, target: *const std.Target) std.wasm.Valtype {
     const ip = &zcu.intern_pool;
     return switch (ty.zigTypeTag(zcu)) {
         .float => switch (ty.floatBits(target.*)) {
@@ -973,19 +972,20 @@ fn typeToValtype(ty: Type, pt: Zcu.PerThread, target: *const std.Target) std.was
         .@"struct" => blk: {
             if (zcu.typeToPackedStruct(ty)) |packed_struct| {
                 const backing_int_ty = Type.fromInterned(packed_struct.backingIntTypeUnordered(ip));
-                break :blk typeToValtype(backing_int_ty, pt, target);
+                break :blk typeToValtype(backing_int_ty, zcu, target);
             } else {
                 break :blk .i32;
             }
         },
-        .vector => switch (determineSimdStoreStrategy(ty, zcu, target)) {
+        .vector => switch (CodeGen.determineSimdStoreStrategy(ty, zcu, target)) {
             .direct => .v128,
             .unrolled => .i32,
         },
         .@"union" => switch (ty.containerLayout(zcu)) {
-            .@"packed" => blk: {
-                const int_ty = pt.intType(.unsigned, @as(u16, @intCast(ty.bitSize(zcu)))) catch @panic("out of memory");
-                break :blk typeToValtype(int_ty, pt, target);
+            .@"packed" => switch (ty.bitSize(zcu)) {
+                0...32 => .i32,
+                33...64 => .i64,
+                else => .i32,
             },
             else => .i32,
         },
@@ -994,17 +994,17 @@ fn typeToValtype(ty: Type, pt: Zcu.PerThread, target: *const std.Target) std.was
 }
 
 /// Using a given `Type`, returns the byte representation of its wasm value type
-fn genValtype(ty: Type, pt: Zcu.PerThread, target: *const std.Target) u8 {
-    return @intFromEnum(typeToValtype(ty, pt, target));
+fn genValtype(ty: Type, zcu: *const Zcu, target: *const std.Target) u8 {
+    return @intFromEnum(typeToValtype(ty, zcu, target));
 }
 
 /// Using a given `Type`, returns the corresponding wasm value type
 /// Differently from `genValtype` this also allows `void` to create a block
 /// with no return type
-fn genBlockType(ty: Type, pt: Zcu.PerThread, target: *const std.Target) u8 {
+fn genBlockType(ty: Type, zcu: *const Zcu, target: *const std.Target) u8 {
     return switch (ty.ip_index) {
         .void_type, .noreturn_type => std.wasm.block_empty,
-        else => genValtype(ty, pt, target),
+        else => genValtype(ty, zcu, target),
     };
 }
 
@@ -1086,8 +1086,8 @@ fn getResolvedInst(cg: *CodeGen, ref: Air.Inst.Ref) *WValue {
 /// Creates one locals for a given `Type`.
 /// Returns a corresponding `Wvalue` with `local` as active tag
 fn allocLocal(cg: *CodeGen, ty: Type) InnerError!WValue {
-    const pt = cg.pt;
-    const valtype = typeToValtype(ty, pt, cg.target);
+    const zcu = cg.pt.zcu;
+    const valtype = typeToValtype(ty, zcu, cg.target);
     const index_or_null = switch (valtype) {
         .i32 => cg.free_locals_i32.popOrNull(),
         .i64 => cg.free_locals_i64.popOrNull(),
@@ -1106,72 +1106,11 @@ fn allocLocal(cg: *CodeGen, ty: Type) InnerError!WValue {
 /// Ensures a new local will be created. This is useful when it's useful
 /// to use a zero-initialized local.
 fn ensureAllocLocal(cg: *CodeGen, ty: Type) InnerError!WValue {
-    const pt = cg.pt;
-    try cg.locals.append(cg.gpa, genValtype(ty, pt, cg.target));
+    const zcu = cg.pt.zcu;
+    try cg.locals.append(cg.gpa, genValtype(ty, zcu, cg.target));
     const initial_index = cg.local_index;
     cg.local_index += 1;
     return .{ .local = .{ .value = initial_index, .references = 1 } };
-}
-
-fn genFunctype(
-    wasm: *link.File.Wasm,
-    cc: std.builtin.CallingConvention,
-    params: []const InternPool.Index,
-    return_type: Type,
-    pt: Zcu.PerThread,
-    target: *const std.Target,
-) !link.File.Wasm.FunctionType.Index {
-    const zcu = pt.zcu;
-    const gpa = zcu.gpa;
-    var temp_params: std.ArrayListUnmanaged(std.wasm.Valtype) = .empty;
-    defer temp_params.deinit(gpa);
-    var returns: std.ArrayListUnmanaged(std.wasm.Valtype) = .empty;
-    defer returns.deinit(gpa);
-
-    if (firstParamSRet(cc, return_type, pt, target)) {
-        try temp_params.append(gpa, .i32); // memory address is always a 32-bit handle
-    } else if (return_type.hasRuntimeBitsIgnoreComptime(zcu)) {
-        if (cc == .wasm_watc) {
-            const res_classes = abi.classifyType(return_type, zcu);
-            assert(res_classes[0] == .direct and res_classes[1] == .none);
-            const scalar_type = abi.scalarType(return_type, zcu);
-            try returns.append(gpa, typeToValtype(scalar_type, pt, target));
-        } else {
-            try returns.append(gpa, typeToValtype(return_type, pt, target));
-        }
-    } else if (return_type.isError(zcu)) {
-        try returns.append(gpa, .i32);
-    }
-
-    // param types
-    for (params) |param_type_ip| {
-        const param_type = Type.fromInterned(param_type_ip);
-        if (!param_type.hasRuntimeBitsIgnoreComptime(zcu)) continue;
-
-        switch (cc) {
-            .wasm_watc => {
-                const param_classes = abi.classifyType(param_type, zcu);
-                if (param_classes[1] == .none) {
-                    if (param_classes[0] == .direct) {
-                        const scalar_type = abi.scalarType(param_type, zcu);
-                        try temp_params.append(gpa, typeToValtype(scalar_type, pt, target));
-                    } else {
-                        try temp_params.append(gpa, typeToValtype(param_type, pt, target));
-                    }
-                } else {
-                    // i128/f128
-                    try temp_params.append(gpa, .i64);
-                    try temp_params.append(gpa, .i64);
-                }
-            },
-            else => try temp_params.append(gpa, typeToValtype(param_type, pt, target)),
-        }
-    }
-
-    return wasm.addFuncType(.{
-        .params = try wasm.internValtypeList(temp_params.items),
-        .returns = try wasm.internValtypeList(returns.items),
-    });
 }
 
 pub const Function = extern struct {
@@ -1291,7 +1230,7 @@ pub fn function(
     const fn_ty = zcu.navValue(cg.owner_nav).typeOf(zcu);
     const fn_info = zcu.typeToFunc(fn_ty).?;
     const ip = &zcu.intern_pool;
-    const fn_ty_index = try genFunctype(wasm, fn_info.cc, fn_info.param_types.get(ip), Type.fromInterned(fn_info.return_type), pt, target);
+    const fn_ty_index = try wasm.internFunctionType(fn_info.cc, fn_info.param_types.get(ip), .fromInterned(fn_info.return_type), target);
     const returns = fn_ty_index.ptr(wasm).returns.slice(wasm);
     const any_returns = returns.len != 0;
 
@@ -1409,7 +1348,7 @@ fn resolveCallingConventionValues(
 
     // Check if we store the result as a pointer to the stack rather than
     // by value
-    if (firstParamSRet(fn_info.cc, Type.fromInterned(fn_info.return_type), pt, target)) {
+    if (firstParamSRet(fn_info.cc, Type.fromInterned(fn_info.return_type), zcu, target)) {
         // the sret arg will be passed as first argument, therefore we
         // set the `return_value` before allocating locals for regular args.
         result.return_value = .{ .local = .{ .value = result.local_index, .references = 1 } };
@@ -1443,17 +1382,17 @@ fn resolveCallingConventionValues(
     return result;
 }
 
-fn firstParamSRet(
+pub fn firstParamSRet(
     cc: std.builtin.CallingConvention,
     return_type: Type,
-    pt: Zcu.PerThread,
+    zcu: *const Zcu,
     target: *const std.Target,
 ) bool {
     switch (cc) {
         .@"inline" => unreachable,
-        .auto => return isByRef(return_type, pt, target),
+        .auto => return isByRef(return_type, zcu, target),
         .wasm_watc => {
-            const ty_classes = abi.classifyType(return_type, pt.zcu);
+            const ty_classes = abi.classifyType(return_type, zcu);
             if (ty_classes[0] == .indirect) return true;
             if (ty_classes[0] == .direct and ty_classes[1] == .direct) return true;
             return false;
@@ -1744,8 +1683,7 @@ fn ptrSize(cg: *const CodeGen) u16 {
 
 /// For a given `Type`, will return true when the type will be passed
 /// by reference, rather than by value
-fn isByRef(ty: Type, pt: Zcu.PerThread, target: *const std.Target) bool {
-    const zcu = pt.zcu;
+fn isByRef(ty: Type, zcu: *const Zcu, target: *const std.Target) bool {
     const ip = &zcu.intern_pool;
     switch (ty.zigTypeTag(zcu)) {
         .type,
@@ -1778,7 +1716,7 @@ fn isByRef(ty: Type, pt: Zcu.PerThread, target: *const std.Target) bool {
         },
         .@"struct" => {
             if (zcu.typeToPackedStruct(ty)) |packed_struct| {
-                return isByRef(Type.fromInterned(packed_struct.backingIntTypeUnordered(ip)), pt, target);
+                return isByRef(Type.fromInterned(packed_struct.backingIntTypeUnordered(ip)), zcu, target);
             }
             return ty.hasRuntimeBitsIgnoreComptime(zcu);
         },
@@ -1816,7 +1754,7 @@ const SimdStoreStrategy = enum {
 /// This means when a given type is 128 bits and either the simd128 or relaxed-simd
 /// features are enabled, the function will return `.direct`. This would allow to store
 /// it using a instruction, rather than an unrolled version.
-fn determineSimdStoreStrategy(ty: Type, zcu: *Zcu, target: *const std.Target) SimdStoreStrategy {
+pub fn determineSimdStoreStrategy(ty: Type, zcu: *const Zcu, target: *const std.Target) SimdStoreStrategy {
     assert(ty.zigTypeTag(zcu) == .vector);
     if (ty.bitSize(zcu) != 128) return .unrolled;
     const hasFeature = std.Target.wasm.featureSetHas;
@@ -2144,7 +2082,7 @@ fn airRet(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                     .op = .load,
                     .width = @as(u8, @intCast(scalar_type.abiSize(zcu) * 8)),
                     .signedness = if (scalar_type.isSignedInt(zcu)) .signed else .unsigned,
-                    .valtype1 = typeToValtype(scalar_type, pt, cg.target),
+                    .valtype1 = typeToValtype(scalar_type, zcu, cg.target),
                 });
                 try cg.addMemArg(Mir.Inst.Tag.fromOpcode(opcode), .{
                     .offset = operand.offset(),
@@ -2177,7 +2115,7 @@ fn airRetPtr(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         }
 
         const fn_info = zcu.typeToFunc(zcu.navValue(cg.owner_nav).typeOf(zcu)).?;
-        if (firstParamSRet(fn_info.cc, Type.fromInterned(fn_info.return_type), pt, cg.target)) {
+        if (firstParamSRet(fn_info.cc, Type.fromInterned(fn_info.return_type), zcu, cg.target)) {
             break :result cg.return_value;
         }
 
@@ -2199,7 +2137,7 @@ fn airRetLoad(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         if (ret_ty.isError(zcu)) {
             try cg.addImm32(0);
         }
-    } else if (!firstParamSRet(fn_info.cc, Type.fromInterned(fn_info.return_type), pt, cg.target)) {
+    } else if (!firstParamSRet(fn_info.cc, Type.fromInterned(fn_info.return_type), zcu, cg.target)) {
         // leave on the stack
         _ = try cg.load(operand, ret_ty, 0);
     }
@@ -2227,7 +2165,7 @@ fn airCall(cg: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModifie
     };
     const ret_ty = fn_ty.fnReturnType(zcu);
     const fn_info = zcu.typeToFunc(fn_ty).?;
-    const first_param_sret = firstParamSRet(fn_info.cc, Type.fromInterned(fn_info.return_type), pt, cg.target);
+    const first_param_sret = firstParamSRet(fn_info.cc, Type.fromInterned(fn_info.return_type), zcu, cg.target);
 
     const callee: ?InternPool.Nav.Index = blk: {
         const func_val = (try cg.air.value(pl_op.operand, pt)) orelse break :blk null;
@@ -2267,7 +2205,7 @@ fn airCall(cg: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModifie
         const operand = try cg.resolveInst(pl_op.operand);
         try cg.emitWValue(operand);
 
-        const fn_type_index = try genFunctype(wasm, fn_info.cc, fn_info.param_types.get(ip), Type.fromInterned(fn_info.return_type), pt, cg.target);
+        const fn_type_index = try wasm.internFunctionType(fn_info.cc, fn_info.param_types.get(ip), .fromInterned(fn_info.return_type), cg.target);
         try cg.addLabel(.call_indirect, @intFromEnum(fn_type_index));
     }
 
@@ -2328,7 +2266,7 @@ fn airStore(cg: *CodeGen, inst: Air.Inst.Index, safety: bool) InnerError!void {
         // load the value, and then shift+or the rhs into the result location.
         const int_elem_ty = try pt.intType(.unsigned, ptr_info.packed_offset.host_size * 8);
 
-        if (isByRef(int_elem_ty, pt, cg.target)) {
+        if (isByRef(int_elem_ty, zcu, cg.target)) {
             return cg.fail("TODO: airStore for pointers to bitfields with backing type larger than 64bits", .{});
         }
 
@@ -2394,7 +2332,7 @@ fn store(cg: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErr
             const len = @as(u32, @intCast(abi_size));
             return cg.memcpy(lhs, rhs, .{ .imm32 = len });
         },
-        .@"struct", .array, .@"union" => if (isByRef(ty, pt, cg.target)) {
+        .@"struct", .array, .@"union" => if (isByRef(ty, zcu, cg.target)) {
             const len = @as(u32, @intCast(abi_size));
             return cg.memcpy(lhs, rhs, .{ .imm32 = len });
         },
@@ -2456,7 +2394,7 @@ fn store(cg: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErr
     // into lhs, so we calculate that and emit that instead
     try cg.lowerToStack(rhs);
 
-    const valtype = typeToValtype(ty, pt, cg.target);
+    const valtype = typeToValtype(ty, zcu, cg.target);
     const opcode = buildOpcode(.{
         .valtype1 = valtype,
         .width = @as(u8, @intCast(abi_size * 8)),
@@ -2485,7 +2423,7 @@ fn airLoad(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     if (!ty.hasRuntimeBitsIgnoreComptime(zcu)) return cg.finishAir(inst, .none, &.{ty_op.operand});
 
     const result = result: {
-        if (isByRef(ty, pt, cg.target)) {
+        if (isByRef(ty, zcu, cg.target)) {
             const new_local = try cg.allocStack(ty);
             try cg.store(new_local, operand, ty, 0);
             break :result new_local;
@@ -2535,7 +2473,7 @@ fn load(cg: *CodeGen, operand: WValue, ty: Type, offset: u32) InnerError!WValue 
 
     const abi_size: u8 = @intCast(ty.abiSize(zcu));
     const opcode = buildOpcode(.{
-        .valtype1 = typeToValtype(ty, pt, cg.target),
+        .valtype1 = typeToValtype(ty, zcu, cg.target),
         .width = abi_size * 8,
         .op = .load,
         .signedness = if (ty.isSignedInt(zcu)) .signed else .unsigned,
@@ -2632,7 +2570,7 @@ fn binOp(cg: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, op: Op) InnerError!WV
         return cg.floatOp(float_op, ty, &.{ lhs, rhs });
     }
 
-    if (isByRef(ty, pt, cg.target)) {
+    if (isByRef(ty, zcu, cg.target)) {
         if (ty.zigTypeTag(zcu) == .int) {
             return cg.binOpBigInt(lhs, rhs, ty, op);
         } else {
@@ -2645,7 +2583,7 @@ fn binOp(cg: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, op: Op) InnerError!WV
 
     const opcode: std.wasm.Opcode = buildOpcode(.{
         .op = op,
-        .valtype1 = typeToValtype(ty, pt, cg.target),
+        .valtype1 = typeToValtype(ty, zcu, cg.target),
         .signedness = if (ty.isSignedInt(zcu)) .signed else .unsigned,
     });
     try cg.emitWValue(lhs);
@@ -2949,7 +2887,7 @@ fn floatOp(cg: *CodeGen, float_op: FloatOp, ty: Type, args: []const WValue) Inne
             for (args) |operand| {
                 try cg.emitWValue(operand);
             }
-            const opcode = buildOpcode(.{ .op = op, .valtype1 = typeToValtype(ty, pt, cg.target) });
+            const opcode = buildOpcode(.{ .op = op, .valtype1 = typeToValtype(ty, zcu, cg.target) });
             try cg.addTag(Mir.Inst.Tag.fromOpcode(opcode));
             return .stack;
         }
@@ -3174,7 +3112,7 @@ fn lowerPtr(cg: *CodeGen, ptr_val: InternPool.Index, prev_offset: u64) InnerErro
 fn lowerConstant(cg: *CodeGen, val: Value, ty: Type) InnerError!WValue {
     const pt = cg.pt;
     const zcu = pt.zcu;
-    assert(!isByRef(ty, pt, cg.target));
+    assert(!isByRef(ty, zcu, cg.target));
     const ip = &zcu.intern_pool;
     if (val.isUndefDeep(zcu)) return cg.emitUndefined(ty);
 
@@ -3415,11 +3353,12 @@ fn airBlock(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
 fn lowerBlock(cg: *CodeGen, inst: Air.Inst.Index, block_ty: Type, body: []const Air.Inst.Index) InnerError!void {
     const pt = cg.pt;
-    const wasm_block_ty = genBlockType(block_ty, pt, cg.target);
+    const zcu = pt.zcu;
+    const wasm_block_ty = genBlockType(block_ty, zcu, cg.target);
 
     // if wasm_block_ty is non-empty, we create a register to store the temporary value
     const block_result: WValue = if (wasm_block_ty != std.wasm.block_empty) blk: {
-        const ty: Type = if (isByRef(block_ty, pt, cg.target)) Type.u32 else block_ty;
+        const ty: Type = if (isByRef(block_ty, zcu, cg.target)) Type.u32 else block_ty;
         break :blk try cg.ensureAllocLocal(ty); // make sure it's a clean local as it may never get overwritten
     } else .none;
 
@@ -3544,7 +3483,7 @@ fn cmp(cg: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, op: std.math.CompareOpe
         }
     } else if (ty.isAnyFloat()) {
         return cg.cmpFloat(ty, lhs, rhs, op);
-    } else if (isByRef(ty, pt, cg.target)) {
+    } else if (isByRef(ty, zcu, cg.target)) {
         return cg.cmpBigInt(lhs, rhs, ty, op);
     }
 
@@ -3562,7 +3501,7 @@ fn cmp(cg: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, op: std.math.CompareOpe
     try cg.lowerToStack(rhs);
 
     const opcode: std.wasm.Opcode = buildOpcode(.{
-        .valtype1 = typeToValtype(ty, pt, cg.target),
+        .valtype1 = typeToValtype(ty, zcu, cg.target),
         .op = switch (op) {
             .lt => .lt,
             .lte => .le,
@@ -3769,7 +3708,7 @@ fn airBitcast(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             break :result try cg.bitcast(wanted_ty, given_ty, operand);
         }
 
-        if (isByRef(given_ty, pt, cg.target) and !isByRef(wanted_ty, pt, cg.target)) {
+        if (isByRef(given_ty, zcu, cg.target) and !isByRef(wanted_ty, zcu, cg.target)) {
             const loaded_memory = try cg.load(operand, wanted_ty, 0);
             if (needs_wrapping) {
                 break :result try cg.wrapOperand(loaded_memory, wanted_ty);
@@ -3777,7 +3716,7 @@ fn airBitcast(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                 break :result loaded_memory;
             }
         }
-        if (!isByRef(given_ty, pt, cg.target) and isByRef(wanted_ty, pt, cg.target)) {
+        if (!isByRef(given_ty, zcu, cg.target) and isByRef(wanted_ty, zcu, cg.target)) {
             const stack_memory = try cg.allocStack(wanted_ty);
             try cg.store(stack_memory, operand, given_ty, 0);
             if (needs_wrapping) {
@@ -3807,8 +3746,8 @@ fn bitcast(cg: *CodeGen, wanted_ty: Type, given_ty: Type, operand: WValue) Inner
 
     const opcode = buildOpcode(.{
         .op = .reinterpret,
-        .valtype1 = typeToValtype(wanted_ty, pt, cg.target),
-        .valtype2 = typeToValtype(given_ty, pt, cg.target),
+        .valtype1 = typeToValtype(wanted_ty, zcu, cg.target),
+        .valtype2 = typeToValtype(given_ty, zcu, cg.target),
     });
     try cg.emitWValue(operand);
     try cg.addTag(Mir.Inst.Tag.fromOpcode(opcode));
@@ -3930,8 +3869,8 @@ fn airStructFieldVal(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                 break :result try cg.trunc(shifted_value, field_ty, backing_ty);
             },
             .@"union" => result: {
-                if (isByRef(struct_ty, pt, cg.target)) {
-                    if (!isByRef(field_ty, pt, cg.target)) {
+                if (isByRef(struct_ty, zcu, cg.target)) {
+                    if (!isByRef(field_ty, zcu, cg.target)) {
                         break :result try cg.load(operand, field_ty, 0);
                     } else {
                         const new_stack_val = try cg.allocStack(field_ty);
@@ -3957,7 +3896,7 @@ fn airStructFieldVal(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             const offset = std.math.cast(u32, struct_ty.structFieldOffset(field_index, zcu)) orelse {
                 return cg.fail("Field type '{}' too big to fit into stack frame", .{field_ty.fmt(pt)});
             };
-            if (isByRef(field_ty, pt, cg.target)) {
+            if (isByRef(field_ty, zcu, cg.target)) {
                 switch (operand) {
                     .stack_offset => |stack_offset| {
                         break :result .{ .stack_offset = .{ .value = stack_offset.value + offset, .references = 1 } };
@@ -4220,7 +4159,7 @@ fn airUnwrapErrUnionPayload(cg: *CodeGen, inst: Air.Inst.Index, op_is_ptr: bool)
         }
 
         const pl_offset = @as(u32, @intCast(errUnionPayloadOffset(payload_ty, zcu)));
-        if (op_is_ptr or isByRef(payload_ty, pt, cg.target)) {
+        if (op_is_ptr or isByRef(payload_ty, zcu, cg.target)) {
             break :result try cg.buildPointerOffset(operand, pl_offset, .new);
         }
 
@@ -4446,7 +4385,7 @@ fn airOptionalPayload(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         const operand = try cg.resolveInst(ty_op.operand);
         if (opt_ty.optionalReprIsPayload(zcu)) break :result cg.reuseOperand(ty_op.operand, operand);
 
-        if (isByRef(payload_ty, pt, cg.target)) {
+        if (isByRef(payload_ty, zcu, cg.target)) {
             break :result try cg.buildPointerOffset(operand, 0, .new);
         }
 
@@ -4580,7 +4519,7 @@ fn airSliceElemVal(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     try cg.addTag(.i32_mul);
     try cg.addTag(.i32_add);
 
-    const elem_result = if (isByRef(elem_ty, pt, cg.target))
+    const elem_result = if (isByRef(elem_ty, zcu, cg.target))
         .stack
     else
         try cg.load(.stack, elem_ty, 0);
@@ -4739,7 +4678,7 @@ fn airPtrElemVal(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     try cg.addTag(.i32_mul);
     try cg.addTag(.i32_add);
 
-    const elem_result = if (isByRef(elem_ty, pt, cg.target))
+    const elem_result = if (isByRef(elem_ty, zcu, cg.target))
         .stack
     else
         try cg.load(.stack, elem_ty, 0);
@@ -4790,7 +4729,7 @@ fn airPtrBinOp(cg: *CodeGen, inst: Air.Inst.Index, op: Op) InnerError!void {
         else => ptr_ty.childType(zcu),
     };
 
-    const valtype = typeToValtype(Type.usize, pt, cg.target);
+    const valtype = typeToValtype(Type.usize, zcu, cg.target);
     const mul_opcode = buildOpcode(.{ .valtype1 = valtype, .op = .mul });
     const bin_opcode = buildOpcode(.{ .valtype1 = valtype, .op = op });
 
@@ -4933,7 +4872,7 @@ fn airArrayElemVal(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const elem_ty = array_ty.childType(zcu);
     const elem_size = elem_ty.abiSize(zcu);
 
-    if (isByRef(array_ty, pt, cg.target)) {
+    if (isByRef(array_ty, zcu, cg.target)) {
         try cg.lowerToStack(array);
         try cg.emitWValue(index);
         try cg.addImm32(@intCast(elem_size));
@@ -4976,7 +4915,7 @@ fn airArrayElemVal(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         }
     }
 
-    const elem_result = if (isByRef(elem_ty, pt, cg.target))
+    const elem_result = if (isByRef(elem_ty, zcu, cg.target))
         .stack
     else
         try cg.load(.stack, elem_ty, 0);
@@ -5027,8 +4966,8 @@ fn airIntFromFloat(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     try cg.emitWValue(operand);
     const op = buildOpcode(.{
         .op = .trunc,
-        .valtype1 = typeToValtype(dest_ty, pt, cg.target),
-        .valtype2 = typeToValtype(op_ty, pt, cg.target),
+        .valtype1 = typeToValtype(dest_ty, zcu, cg.target),
+        .valtype2 = typeToValtype(op_ty, zcu, cg.target),
         .signedness = dest_info.signedness,
     });
     try cg.addTag(Mir.Inst.Tag.fromOpcode(op));
@@ -5080,8 +5019,8 @@ fn airFloatFromInt(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     try cg.emitWValue(operand);
     const op = buildOpcode(.{
         .op = .convert,
-        .valtype1 = typeToValtype(dest_ty, pt, cg.target),
-        .valtype2 = typeToValtype(op_ty, pt, cg.target),
+        .valtype1 = typeToValtype(dest_ty, zcu, cg.target),
+        .valtype2 = typeToValtype(op_ty, zcu, cg.target),
         .signedness = op_info.signedness,
     });
     try cg.addTag(Mir.Inst.Tag.fromOpcode(op));
@@ -5180,7 +5119,7 @@ fn airShuffle(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const elem_size = child_ty.abiSize(zcu);
 
     // TODO: One of them could be by ref; handle in loop
-    if (isByRef(cg.typeOf(extra.a), pt, cg.target) or isByRef(inst_ty, pt, cg.target)) {
+    if (isByRef(cg.typeOf(extra.a), zcu, cg.target) or isByRef(inst_ty, zcu, cg.target)) {
         const result = try cg.allocStack(inst_ty);
 
         for (0..mask_len) |index| {
@@ -5256,7 +5195,7 @@ fn airAggregateInit(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                 // When the element type is by reference, we must copy the entire
                 // value. It is therefore safer to move the offset pointer and store
                 // each value individually, instead of using store offsets.
-                if (isByRef(elem_ty, pt, cg.target)) {
+                if (isByRef(elem_ty, zcu, cg.target)) {
                     // copy stack pointer into a temporary local, which is
                     // moved for each element to store each value in the right position.
                     const offset = try cg.buildPointerOffset(result, 0, .new);
@@ -5286,7 +5225,7 @@ fn airAggregateInit(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             },
             .@"struct" => switch (result_ty.containerLayout(zcu)) {
                 .@"packed" => {
-                    if (isByRef(result_ty, pt, cg.target)) {
+                    if (isByRef(result_ty, zcu, cg.target)) {
                         return cg.fail("TODO: airAggregateInit for packed structs larger than 64 bits", .{});
                     }
                     const packed_struct = zcu.typeToPackedStruct(result_ty).?;
@@ -5389,15 +5328,15 @@ fn airUnionInit(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             if (layout.tag_size == 0) {
                 break :result .none;
             }
-            assert(!isByRef(union_ty, pt, cg.target));
+            assert(!isByRef(union_ty, zcu, cg.target));
             break :result tag_int;
         }
 
-        if (isByRef(union_ty, pt, cg.target)) {
+        if (isByRef(union_ty, zcu, cg.target)) {
             const result_ptr = try cg.allocStack(union_ty);
             const payload = try cg.resolveInst(extra.init);
             if (layout.tag_align.compare(.gte, layout.payload_align)) {
-                if (isByRef(field_ty, pt, cg.target)) {
+                if (isByRef(field_ty, zcu, cg.target)) {
                     const payload_ptr = try cg.buildPointerOffset(result_ptr, layout.tag_size, .new);
                     try cg.store(payload_ptr, payload, field_ty, 0);
                 } else {
@@ -5478,7 +5417,7 @@ fn cmpOptionals(cg: *CodeGen, lhs: WValue, rhs: WValue, operand_ty: Type, op: st
 
     _ = try cg.load(lhs, payload_ty, 0);
     _ = try cg.load(rhs, payload_ty, 0);
-    const opcode = buildOpcode(.{ .op = .ne, .valtype1 = typeToValtype(payload_ty, pt, cg.target) });
+    const opcode = buildOpcode(.{ .op = .ne, .valtype1 = typeToValtype(payload_ty, zcu, cg.target) });
     try cg.addTag(Mir.Inst.Tag.fromOpcode(opcode));
     try cg.addLabel(.br_if, 0);
 
@@ -6521,7 +6460,7 @@ fn lowerTry(
     }
 
     const pl_offset: u32 = @intCast(errUnionPayloadOffset(pl_ty, zcu));
-    if (isByRef(pl_ty, pt, cg.target)) {
+    if (isByRef(pl_ty, zcu, cg.target)) {
         return buildPointerOffset(cg, err_union, pl_offset, .new);
     }
     const payload = try cg.load(err_union, pl_ty, pl_offset);
@@ -7100,7 +7039,7 @@ fn callIntrinsic(
 
     // Always pass over C-ABI
 
-    const want_sret_param = firstParamSRet(.{ .wasm_watc = .{} }, return_type, pt, cg.target);
+    const want_sret_param = firstParamSRet(.{ .wasm_watc = .{} }, return_type, zcu, cg.target);
     // if we want return as first param, we allocate a pointer to stack,
     // and emit it as our first argument
     const sret = if (want_sret_param) blk: {
@@ -7282,7 +7221,7 @@ fn airCmpxchg(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         break :val ptr_val;
     };
 
-    const result = if (isByRef(result_ty, pt, cg.target)) val: {
+    const result = if (isByRef(result_ty, zcu, cg.target)) val: {
         try cg.emitWValue(cmp_result);
         try cg.addImm32(~@as(u32, 0));
         try cg.addTag(.i32_xor);

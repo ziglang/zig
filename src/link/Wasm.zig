@@ -32,6 +32,7 @@ const mem = std.mem;
 const Air = @import("../Air.zig");
 const Mir = @import("../arch/wasm/Mir.zig");
 const CodeGen = @import("../arch/wasm/CodeGen.zig");
+const abi = @import("../arch/wasm/abi.zig");
 const Compilation = @import("../Compilation.zig");
 const Dwarf = @import("Dwarf.zig");
 const InternPool = @import("../InternPool.zig");
@@ -45,6 +46,7 @@ const lldMain = @import("../main.zig").lldMain;
 const trace = @import("../tracy.zig").trace;
 const wasi_libc = @import("../wasi_libc.zig");
 const Value = @import("../Value.zig");
+const ZcuType = @import("../Type.zig");
 
 base: link.File,
 /// Null-terminated strings, indexes have type String and string_table provides
@@ -235,6 +237,9 @@ mir_instructions: std.MultiArrayList(Mir.Inst) = .{},
 mir_extra: std.ArrayListUnmanaged(u32) = .empty,
 /// All local types for all Zcu functions.
 all_zcu_locals: std.ArrayListUnmanaged(u8) = .empty,
+
+params_scratch: std.ArrayListUnmanaged(std.wasm.Valtype) = .empty,
+returns_scratch: std.ArrayListUnmanaged(std.wasm.Valtype) = .empty,
 
 pub const UavFixup = extern struct {
     ip_index: InternPool.Index,
@@ -650,8 +655,24 @@ pub const FunctionImport = extern struct {
     pub const Index = enum(u32) {
         _,
 
-        pub fn ptr(index: FunctionImport.Index, wasm: *const Wasm) *FunctionImport {
-            return &wasm.object_function_imports.items[@intFromEnum(index)];
+        pub fn key(index: Index, wasm: *const Wasm) *String {
+            return &wasm.object_function_imports.keys()[@intFromEnum(index)];
+        }
+
+        pub fn value(index: Index, wasm: *const Wasm) *FunctionImport {
+            return &wasm.object_function_imports.values()[@intFromEnum(index)];
+        }
+
+        pub fn name(index: Index, wasm: *const Wasm) String {
+            return index.key(wasm).*;
+        }
+
+        pub fn moduleName(index: Index, wasm: *const Wasm) String {
+            return index.value(wasm).module_name;
+        }
+
+        pub fn functionType(index: Index, wasm: *const Wasm) FunctionType.Index {
+            return value(index, wasm).type;
         }
     };
 };
@@ -1093,9 +1114,54 @@ pub const ValtypeList = enum(u32) {
     }
 };
 
-/// Index into `imports`.
+/// Index into `Wasm.imports`.
 pub const ZcuImportIndex = enum(u32) {
     _,
+
+    pub fn ptr(index: ZcuImportIndex, wasm: *const Wasm) *InternPool.Nav.Index {
+        return &wasm.imports.keys()[@intFromEnum(index)];
+    }
+
+    pub fn name(index: ZcuImportIndex, wasm: *const Wasm) String {
+        const zcu = wasm.base.comp.zcu.?;
+        const ip = &zcu.intern_pool;
+        const nav_index = index.ptr(wasm).*;
+        const nav = ip.getNav(nav_index);
+        const ext = switch (ip.indexToKey(nav.status.resolved.val)) {
+            .@"extern" => |*ext| ext,
+            else => unreachable,
+        };
+        const name_slice = ext.name.toSlice(ip);
+        return wasm.getExistingString(name_slice).?;
+    }
+
+    pub fn moduleName(index: ZcuImportIndex, wasm: *const Wasm) String {
+        const zcu = wasm.base.comp.zcu.?;
+        const ip = &zcu.intern_pool;
+        const nav_index = index.ptr(wasm).*;
+        const nav = ip.getNav(nav_index);
+        const ext = switch (ip.indexToKey(nav.status.resolved.val)) {
+            .@"extern" => |*ext| ext,
+            else => unreachable,
+        };
+        const lib_name = ext.lib_name.toSlice(ip) orelse return wasm.host_name;
+        return wasm.getExistingString(lib_name).?;
+    }
+
+    pub fn functionType(index: ZcuImportIndex, wasm: *Wasm) FunctionType.Index {
+        const comp = wasm.base.comp;
+        const target = &comp.root_mod.resolved_target.result;
+        const zcu = comp.zcu.?;
+        const ip = &zcu.intern_pool;
+        const nav_index = index.ptr(wasm).*;
+        const nav = ip.getNav(nav_index);
+        const ext = switch (ip.indexToKey(nav.status.resolved.val)) {
+            .@"extern" => |*ext| ext,
+            else => unreachable,
+        };
+        const fn_info = zcu.typeToFunc(.fromInterned(ext.ty)).?;
+        return getExistingFunctionType(wasm, fn_info.cc, fn_info.param_types.get(ip), .fromInterned(fn_info.return_type), target).?;
+    }
 };
 
 /// 0. Index into `object_function_imports`.
@@ -1142,6 +1208,24 @@ pub const FunctionImportId = enum(u32) {
             },
             .zcu_import => return .zig_object_nofile, // TODO give a better source location
         }
+    }
+
+    pub fn name(id: FunctionImportId, wasm: *const Wasm) String {
+        return switch (unpack(id, wasm)) {
+            inline .object_function_import, .zcu_import => |i| i.name(wasm),
+        };
+    }
+
+    pub fn moduleName(id: FunctionImportId, wasm: *const Wasm) String {
+        return switch (unpack(id, wasm)) {
+            inline .object_function_import, .zcu_import => |i| i.moduleName(wasm),
+        };
+    }
+
+    pub fn functionType(id: FunctionImportId, wasm: *Wasm) FunctionType.Index {
+        return switch (unpack(id, wasm)) {
+            inline .object_function_import, .zcu_import => |i| i.functionType(wasm),
+        };
     }
 };
 
@@ -1666,6 +1750,9 @@ pub fn deinit(wasm: *Wasm) void {
     wasm.string_bytes.deinit(gpa);
     wasm.string_table.deinit(gpa);
     wasm.dump_argv_list.deinit(gpa);
+
+    wasm.params_scratch.deinit(gpa);
+    wasm.returns_scratch.deinit(gpa);
 }
 
 pub fn updateFunc(wasm: *Wasm, pt: Zcu.PerThread, func_index: InternPool.Index, air: Air, liveness: Liveness) !void {
@@ -2599,10 +2686,49 @@ pub fn internValtypeList(wasm: *Wasm, valtype_list: []const std.wasm.Valtype) Al
     return .fromString(try internString(wasm, @ptrCast(valtype_list)));
 }
 
+pub fn getExistingValtypeList(wasm: *Wasm, valtype_list: []const std.wasm.Valtype) ?ValtypeList {
+    return .fromString(getExistingString(wasm, @ptrCast(valtype_list)) orelse return null);
+}
+
 pub fn addFuncType(wasm: *Wasm, ft: FunctionType) Allocator.Error!FunctionType.Index {
     const gpa = wasm.base.comp.gpa;
     const gop = try wasm.func_types.getOrPut(gpa, ft);
     return @enumFromInt(gop.index);
+}
+
+pub fn getExistingFuncType(wasm: *Wasm, ft: FunctionType) ?FunctionType.Index {
+    const index = wasm.func_types.getIndex(ft) orelse return null;
+    return @enumFromInt(index);
+}
+
+pub fn internFunctionType(
+    wasm: *Wasm,
+    cc: std.builtin.CallingConvention,
+    params: []const InternPool.Index,
+    return_type: ZcuType,
+    target: *const std.Target,
+) Allocator.Error!FunctionType.Index {
+    try convertZcuFnType(wasm, cc, params, return_type, target, &wasm.params_scratch, &wasm.returns_scratch);
+    return wasm.addFuncType(.{
+        .params = try wasm.internValtypeList(wasm.params_scratch.items),
+        .returns = try wasm.internValtypeList(wasm.returns_scratch.items),
+    });
+}
+
+pub fn getExistingFunctionType(
+    wasm: *Wasm,
+    cc: std.builtin.CallingConvention,
+    params: []const InternPool.Index,
+    return_type: ZcuType,
+    target: *const std.Target,
+) ?FunctionType.Index {
+    convertZcuFnType(wasm, cc, params, return_type, target, &wasm.params_scratch, &wasm.returns_scratch) catch |err| switch (err) {
+        error.OutOfMemory => return null,
+    };
+    return wasm.getExistingFuncType(.{
+        .params = wasm.getExistingValtypeList(wasm.params_scratch.items) orelse return null,
+        .returns = wasm.getExistingValtypeList(wasm.returns_scratch.items) orelse return null,
+    });
 }
 
 pub fn addExpr(wasm: *Wasm, bytes: []const u8) Allocator.Error!Expr {
@@ -2643,4 +2769,61 @@ pub fn navSymbolIndex(wasm: *Wasm, nav_index: InternPool.Nav.Index) Allocator.Er
     const name = try wasm.internString(nav.fqn.toSlice(ip));
     const gop = try wasm.symbol_table.getOrPut(gpa, name);
     return @enumFromInt(gop.index);
+}
+
+fn convertZcuFnType(
+    wasm: *Wasm,
+    cc: std.builtin.CallingConvention,
+    params: []const InternPool.Index,
+    return_type: ZcuType,
+    target: *const std.Target,
+    params_buffer: *std.ArrayListUnmanaged(std.wasm.Valtype),
+    returns_buffer: *std.ArrayListUnmanaged(std.wasm.Valtype),
+) Allocator.Error!void {
+    params_buffer.clearRetainingCapacity();
+    returns_buffer.clearRetainingCapacity();
+
+    const comp = wasm.base.comp;
+    const gpa = comp.gpa;
+    const zcu = comp.zcu.?;
+
+    if (CodeGen.firstParamSRet(cc, return_type, zcu, target)) {
+        try params_buffer.append(gpa, .i32); // memory address is always a 32-bit handle
+    } else if (return_type.hasRuntimeBitsIgnoreComptime(zcu)) {
+        if (cc == .wasm_watc) {
+            const res_classes = abi.classifyType(return_type, zcu);
+            assert(res_classes[0] == .direct and res_classes[1] == .none);
+            const scalar_type = abi.scalarType(return_type, zcu);
+            try returns_buffer.append(gpa, CodeGen.typeToValtype(scalar_type, zcu, target));
+        } else {
+            try returns_buffer.append(gpa, CodeGen.typeToValtype(return_type, zcu, target));
+        }
+    } else if (return_type.isError(zcu)) {
+        try returns_buffer.append(gpa, .i32);
+    }
+
+    // param types
+    for (params) |param_type_ip| {
+        const param_type = ZcuType.fromInterned(param_type_ip);
+        if (!param_type.hasRuntimeBitsIgnoreComptime(zcu)) continue;
+
+        switch (cc) {
+            .wasm_watc => {
+                const param_classes = abi.classifyType(param_type, zcu);
+                if (param_classes[1] == .none) {
+                    if (param_classes[0] == .direct) {
+                        const scalar_type = abi.scalarType(param_type, zcu);
+                        try params_buffer.append(gpa, CodeGen.typeToValtype(scalar_type, zcu, target));
+                    } else {
+                        try params_buffer.append(gpa, CodeGen.typeToValtype(param_type, zcu, target));
+                    }
+                } else {
+                    // i128/f128
+                    try params_buffer.append(gpa, .i64);
+                    try params_buffer.append(gpa, .i64);
+                }
+            },
+            else => try params_buffer.append(gpa, CodeGen.typeToValtype(param_type, zcu, target)),
+        }
+    }
 }
