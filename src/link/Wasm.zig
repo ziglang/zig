@@ -894,6 +894,15 @@ pub const ObjectGlobalIndex = enum(u32) {
     _,
 };
 
+/// Index into `Wasm.object_memories`.
+pub const ObjectMemoryIndex = enum(u32) {
+    _,
+
+    pub fn ptr(index: ObjectMemoryIndex, wasm: *const Wasm) *std.wasm.Memory {
+        return &wasm.object_memories.items[@intFromEnum(index)];
+    }
+};
+
 /// Index into `object_functions`.
 pub const ObjectFunctionIndex = enum(u32) {
     _,
@@ -2609,7 +2618,10 @@ pub fn addExpr(wasm: *Wasm, bytes: []const u8) Allocator.Error!Expr {
 pub fn addRelocatableDataPayload(wasm: *Wasm, bytes: []const u8) Allocator.Error!DataSegment.Payload {
     const gpa = wasm.base.comp.gpa;
     try wasm.string_bytes.appendSlice(gpa, bytes);
-    return @enumFromInt(wasm.string_bytes.items.len - bytes.len);
+    return .{
+        .off = @intCast(wasm.string_bytes.items.len - bytes.len),
+        .len = @intCast(bytes.len),
+    };
 }
 
 pub fn uavSymbolIndex(wasm: *Wasm, ip_index: InternPool.Index) Allocator.Error!SymbolTableIndex {

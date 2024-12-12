@@ -122,6 +122,19 @@ pub const ScratchSpace = struct {
     func_imports: std.ArrayListUnmanaged(FunctionImport) = .empty,
     symbol_table: std.ArrayListUnmanaged(Symbol) = .empty,
     segment_info: std.ArrayListUnmanaged(SegmentInfo) = .empty,
+    exports: std.ArrayListUnmanaged(Export) = .empty,
+
+    const Export = struct {
+        name: Wasm.String,
+        pointee: Pointee,
+
+        const Pointee = union(std.wasm.ExternalKind) {
+            function: Wasm.ObjectFunctionIndex,
+            table: Wasm.ObjectTableIndex,
+            memory: Wasm.ObjectMemoryIndex,
+            global: Wasm.ObjectGlobalIndex,
+        };
+    };
 
     /// Index into `func_imports`.
     const FuncImportIndex = enum(u32) {
@@ -142,6 +155,7 @@ pub const ScratchSpace = struct {
     };
 
     pub fn deinit(ss: *ScratchSpace, gpa: Allocator) void {
+        ss.exports.deinit(gpa);
         ss.func_types.deinit(gpa);
         ss.func_type_indexes.deinit(gpa);
         ss.func_imports.deinit(gpa);
@@ -151,6 +165,7 @@ pub const ScratchSpace = struct {
     }
 
     fn clear(ss: *ScratchSpace) void {
+        ss.exports.clearRetainingCapacity();
         ss.func_types.clearRetainingCapacity();
         ss.func_type_indexes.clearRetainingCapacity();
         ss.func_imports.clearRetainingCapacity();
@@ -622,24 +637,22 @@ pub fn parse(
             },
             .@"export" => {
                 const exports_len, pos = readLeb(u32, bytes, pos);
-                // TODO: instead, read into scratch space, and then later
-                // add this data as if it were extra symbol table entries,
-                // but allow merging with existing symbol table data if the name matches.
-                for (try wasm.object_exports.addManyAsSlice(gpa, exports_len)) |*exp| {
+                // Read into scratch space, and then later add this data as if
+                // it were extra symbol table entries, but allow merging with
+                // existing symbol table data if the name matches.
+                for (try ss.exports.addManyAsSlice(gpa, exports_len)) |*exp| {
                     const name, pos = readBytes(bytes, pos);
                     const kind: std.wasm.ExternalKind = @enumFromInt(bytes[pos]);
                     pos += 1;
                     const index, pos = readLeb(u32, bytes, pos);
-                    const rebased_index = index + switch (kind) {
-                        .function => functions_start,
-                        .table => tables_start,
-                        .memory => memories_start,
-                        .global => globals_start,
-                    };
                     exp.* = .{
                         .name = try wasm.internString(name),
-                        .kind = kind,
-                        .index = rebased_index,
+                        .pointee = switch (kind) {
+                            .function => .{ .function = @enumFromInt(functions_start + index) },
+                            .table => .{ .table = @enumFromInt(tables_start + index) },
+                            .memory => .{ .memory = @enumFromInt(memories_start + index) },
+                            .global => .{ .global = @enumFromInt(globals_start + index) },
+                        },
                     };
                 }
             },
@@ -827,6 +840,21 @@ pub fn parse(
             ptr.size = data.size;
         },
     };
+
+    // Apply export section info. This is done after the symbol table above so
+    // that the symbol table can take precedence, overriding the export name.
+    for (ss.exports.items) |*exp| {
+        switch (exp.pointee) {
+            inline .function, .table, .memory, .global => |index| {
+                const ptr = index.ptr(wasm);
+                if (ptr.name == .none) {
+                    // Missng symbol table entry; use defaults for exported things.
+                    ptr.name = exp.name.toOptional();
+                    ptr.flags.exported = true;
+                }
+            },
+        }
+    }
 
     // Apply segment_info.
     for (wasm.object_data_segments.items[data_segment_start..], ss.segment_info.items) |*data, info| {
