@@ -135,10 +135,36 @@ pub fn astGenFile(
             error.PipeBusy => unreachable, // it's not a pipe
             error.NoDevice => unreachable, // it's not a pipe
             error.WouldBlock => unreachable, // not asking for non-blocking I/O
-            // There are no dir components, so you would think that this was
-            // unreachable, however we have observed on macOS two processes racing
-            // to do openat() with O_CREAT manifest in ENOENT.
-            error.FileNotFound => continue,
+            error.FileNotFound => {
+                // There are no dir components, so the only possibility should
+                // be that the directory behind the handle has been deleted,
+                // however we have observed on macOS two processes racing to do
+                // openat() with O_CREAT manifest in ENOENT.
+                //
+                // As a workaround, we retry with exclusive=true which
+                // disambiguates by returning EEXIST, indicating original
+                // failure was a race, or ENOENT, indicating deletion of the
+                // directory of our open handle.
+                if (builtin.os.tag != .macos) {
+                    std.process.fatal("cache directory '{}' unexpectedly removed during compiler execution", .{
+                        cache_directory,
+                    });
+                }
+                break zir_dir.createFile(&hex_digest, .{
+                    .read = true,
+                    .truncate = false,
+                    .lock = lock,
+                    .exclusive = true,
+                }) catch |excl_err| switch (excl_err) {
+                    error.PathAlreadyExists => continue,
+                    error.FileNotFound => {
+                        std.process.fatal("cache directory '{}' unexpectedly removed during compiler execution", .{
+                            cache_directory,
+                        });
+                    },
+                    else => |e| return e,
+                };
+            },
 
             else => |e| return e, // Retryable errors are handled at callsite.
         };
@@ -185,11 +211,11 @@ pub fn astGenFile(
             log.debug("AstGen cached success: {s}", .{file.sub_file_path});
 
             if (file.zir.hasCompileErrors()) {
-                {
-                    comp.mutex.lock();
-                    defer comp.mutex.unlock();
-                    try zcu.failed_files.putNoClobber(gpa, file, null);
-                }
+                comp.mutex.lock();
+                defer comp.mutex.unlock();
+                try zcu.failed_files.putNoClobber(gpa, file, null);
+            }
+            if (file.zir.loweringFailed()) {
                 file.status = .astgen_failure;
                 return error.AnalysisFail;
             }
@@ -226,7 +252,7 @@ pub fn astGenFile(
     //    single-threaded context, so we need to keep both versions around
     //    until that point in the pipeline. Previous ZIR data is freed after
     //    that.
-    if (file.zir_loaded and !file.zir.hasCompileErrors()) {
+    if (file.zir_loaded and !file.zir.loweringFailed()) {
         assert(file.prev_zir == null);
         const prev_zir_ptr = try gpa.create(Zir);
         file.prev_zir = prev_zir_ptr;
@@ -321,11 +347,11 @@ pub fn astGenFile(
     };
 
     if (file.zir.hasCompileErrors()) {
-        {
-            comp.mutex.lock();
-            defer comp.mutex.unlock();
-            try zcu.failed_files.putNoClobber(gpa, file, null);
-        }
+        comp.mutex.lock();
+        defer comp.mutex.unlock();
+        try zcu.failed_files.putNoClobber(gpa, file, null);
+    }
+    if (file.zir.loweringFailed()) {
         file.status = .astgen_failure;
         return error.AnalysisFail;
     }
@@ -363,7 +389,7 @@ pub fn updateZirRefs(pt: Zcu.PerThread) Allocator.Error!void {
             .file = file,
             .inst_map = .{},
         };
-        if (!new_zir.hasCompileErrors()) {
+        if (!new_zir.loweringFailed()) {
             try Zcu.mapOldZirToNew(gpa, old_zir.*, file.zir, &gop.value_ptr.inst_map);
         }
     }
@@ -379,20 +405,19 @@ pub fn updateZirRefs(pt: Zcu.PerThread) Allocator.Error!void {
 
             const file = updated_file.file;
 
-            if (file.zir.hasCompileErrors()) {
-                // If we mark this as outdated now, users of this inst will just get a transitive analysis failure.
-                // Ultimately, they would end up throwing out potentially useful analysis results.
-                // So, do nothing. We already have the file failure -- that's sufficient for now!
-                continue;
-            }
             const old_inst = tracked_inst.inst.unwrap() orelse continue; // we can't continue tracking lost insts
             const tracked_inst_index = (InternPool.TrackedInst.Index.Unwrapped{
                 .tid = @enumFromInt(tid),
                 .index = @intCast(tracked_inst_unwrapped_index),
             }).wrap(ip);
             const new_inst = updated_file.inst_map.get(old_inst) orelse {
-                // Tracking failed for this instruction. Invalidate associated `src_hash` deps.
-                log.debug("tracking failed for %{d}", .{old_inst});
+                // Tracking failed for this instruction.
+                // This may be due to changes in the ZIR, or AstGen might have failed due to a very broken file.
+                // Either way, invalidate associated `src_hash` deps.
+                log.debug("tracking failed for %{d}{s}", .{
+                    old_inst,
+                    if (file.zir.loweringFailed()) " due to AstGen failure" else "",
+                });
                 tracked_inst.inst = .lost;
                 try zcu.markDependeeOutdated(.not_marked_po, .{ .src_hash = tracked_inst_index });
                 continue;
@@ -494,8 +519,8 @@ pub fn updateZirRefs(pt: Zcu.PerThread) Allocator.Error!void {
 
     for (updated_files.keys(), updated_files.values()) |file_index, updated_file| {
         const file = updated_file.file;
-        if (file.zir.hasCompileErrors()) {
-            // Keep `prev_zir` around: it's the last non-error ZIR.
+        if (file.zir.loweringFailed()) {
+            // Keep `prev_zir` around: it's the last usable ZIR.
             // Don't update the namespace, as we have no new data to update *to*.
         } else {
             const prev_zir = file.prev_zir.?;
@@ -539,7 +564,7 @@ pub fn ensureCauAnalyzed(pt: Zcu.PerThread, cau_index: InternPool.Cau.Index) Zcu
     const anal_unit = AnalUnit.wrap(.{ .cau = cau_index });
     const cau = ip.getCau(cau_index);
 
-    log.debug("ensureCauAnalyzed {d}", .{@intFromEnum(cau_index)});
+    log.debug("ensureCauAnalyzed {}", .{zcu.fmtAnalUnit(anal_unit)});
 
     assert(!zcu.analysis_in_progress.contains(anal_unit));
 
@@ -577,13 +602,19 @@ pub fn ensureCauAnalyzed(pt: Zcu.PerThread, cau_index: InternPool.Cau.Index) Zcu
     }
 
     const sema_result: SemaCauResult, const analysis_fail = if (pt.ensureCauAnalyzedInner(cau_index, cau_outdated)) |result|
-        .{ result, false }
+        // This `Cau` has gone from failed to success, so even if the value of the owner `Nav` didn't actually
+        // change, we need to invalidate the dependencies anyway.
+        .{ .{
+            .invalidate_decl_val = result.invalidate_decl_val or prev_failed,
+            .invalidate_decl_ref = result.invalidate_decl_ref or prev_failed,
+        }, false }
     else |err| switch (err) {
         error.AnalysisFail => res: {
             if (!zcu.failed_analysis.contains(anal_unit)) {
                 // If this `Cau` caused the error, it would have an entry in `failed_analysis`.
                 // Since it does not, this must be a transitive failure.
                 try zcu.transitive_failed_analysis.put(gpa, anal_unit, {});
+                log.debug("mark transitive analysis failure for {}", .{zcu.fmtAnalUnit(anal_unit)});
             }
             // We consider this `Cau` to be outdated if:
             // * Previous analysis succeeded; in this case, we need to re-analyze dependants to ensure
@@ -708,12 +739,12 @@ pub fn ensureFuncBodyAnalyzed(pt: Zcu.PerThread, maybe_coerced_func_index: Inter
 
     // We only care about the uncoerced function.
     const func_index = ip.unwrapCoercedFunc(maybe_coerced_func_index);
+    const anal_unit = AnalUnit.wrap(.{ .func = func_index });
+
+    log.debug("ensureFuncBodyAnalyzed {}", .{zcu.fmtAnalUnit(anal_unit)});
 
     const func = zcu.funcInfo(maybe_coerced_func_index);
 
-    log.debug("ensureFuncBodyAnalyzed {d}", .{@intFromEnum(func_index)});
-
-    const anal_unit = AnalUnit.wrap(.{ .func = func_index });
     const func_outdated = zcu.outdated.swapRemove(anal_unit) or
         zcu.potentially_outdated.swapRemove(anal_unit);
 
@@ -741,6 +772,7 @@ pub fn ensureFuncBodyAnalyzed(pt: Zcu.PerThread, maybe_coerced_func_index: Inter
                 // If this function caused the error, it would have an entry in `failed_analysis`.
                 // Since it does not, this must be a transitive failure.
                 try zcu.transitive_failed_analysis.put(gpa, anal_unit, {});
+                log.debug("mark transitive analysis failure for {}", .{zcu.fmtAnalUnit(anal_unit)});
             }
             // We consider the IES to be outdated if the function previously succeeded analysis; in this case,
             // we need to re-analyze dependants to ensure they hit a transitive error here, rather than reporting
@@ -752,10 +784,8 @@ pub fn ensureFuncBodyAnalyzed(pt: Zcu.PerThread, maybe_coerced_func_index: Inter
 
     if (func_outdated) {
         if (ies_outdated) {
-            log.debug("func IES invalidated ('{d}')", .{@intFromEnum(func_index)});
             try zcu.markDependeeOutdated(.marked_po, .{ .interned = func_index });
         } else {
-            log.debug("func IES up-to-date ('{d}')", .{@intFromEnum(func_index)});
             try zcu.markPoDependeeUpToDate(.{ .interned = func_index });
         }
     }
@@ -780,6 +810,7 @@ fn ensureFuncBodyAnalyzedInner(
     // results in the worst case.
 
     if (func.generic_owner == .none) {
+        // Among another things, this ensures that the function's `zir_body_inst` is correct.
         try pt.ensureCauAnalyzed(ip.getNav(func.owner_nav).analysis_owner.unwrap().?);
         if (ip.getNav(func.owner_nav).status.resolved.val != func_index) {
             // This function is no longer referenced! There's no point in re-analyzing it.
@@ -788,6 +819,7 @@ fn ensureFuncBodyAnalyzedInner(
         }
     } else {
         const go_nav = zcu.funcInfo(func.generic_owner).owner_nav;
+        // Among another things, this ensures that the function's `zir_body_inst` is correct.
         try pt.ensureCauAnalyzed(ip.getNav(go_nav).analysis_owner.unwrap().?);
         if (ip.getNav(go_nav).status.resolved.val != func.generic_owner) {
             // The generic owner is no longer referenced, so this function is also unreferenced.
@@ -825,8 +857,8 @@ fn ensureFuncBodyAnalyzedInner(
         }
     }
 
-    log.debug("analyze and generate fn body '{d}'; reason='{s}'", .{
-        @intFromEnum(func_index),
+    log.debug("analyze and generate fn body {}; reason='{s}'", .{
+        zcu.fmtAnalUnit(anal_unit),
         if (func_outdated) "outdated" else "never analyzed",
     });
 
@@ -1165,7 +1197,7 @@ fn semaCau(pt: Zcu.PerThread, cau_index: InternPool.Cau.Index) !SemaCauResult {
         .none, .type => false,
     };
 
-    log.debug("semaCau '{d}'", .{@intFromEnum(cau_index)});
+    log.debug("semaCau {}", .{zcu.fmtAnalUnit(anal_unit)});
 
     try zcu.analysis_in_progress.put(gpa, anal_unit, {});
     errdefer _ = zcu.analysis_in_progress.swapRemove(anal_unit);
@@ -2308,16 +2340,14 @@ pub fn getErrorValueFromSlice(pt: Zcu.PerThread, name: []const u8) Allocator.Err
     return pt.getErrorValue(try pt.zcu.intern_pool.getOrPutString(pt.zcu.gpa, name));
 }
 
+/// Removes any entry from `Zcu.failed_files` associated with `file`. Acquires `Compilation.mutex` as needed.
+/// `file.zir` must be unchanged from the last update, as it is used to determine if there is such an entry.
 fn lockAndClearFileCompileError(pt: Zcu.PerThread, file: *Zcu.File) void {
-    switch (file.status) {
-        .success_zir, .retryable_failure => {},
-        .never_loaded, .parse_failure, .astgen_failure => {
-            pt.zcu.comp.mutex.lock();
-            defer pt.zcu.comp.mutex.unlock();
-            if (pt.zcu.failed_files.fetchSwapRemove(file)) |kv| {
-                if (kv.value) |msg| msg.destroy(pt.zcu.gpa); // Delete previous error message.
-            }
-        },
+    if (!file.zir_loaded or !file.zir.hasCompileErrors()) return;
+    pt.zcu.comp.mutex.lock();
+    defer pt.zcu.comp.mutex.unlock();
+    if (pt.zcu.failed_files.fetchSwapRemove(file)) |kv| {
+        if (kv.value) |msg| msg.destroy(pt.zcu.gpa); // Delete previous error message.
     }
 }
 
@@ -2507,6 +2537,19 @@ pub fn populateTestFunctions(
 
         for (test_fn_vals, zcu.test_functions.keys()) |*test_fn_val, test_nav_index| {
             const test_nav = ip.getNav(test_nav_index);
+
+            {
+                // The test declaration might have failed; if that's the case, just return, as we'll
+                // be emitting a compile error anyway.
+                const cau = test_nav.analysis_owner.unwrap().?;
+                const anal_unit: AnalUnit = .wrap(.{ .cau = cau });
+                if (zcu.failed_analysis.contains(anal_unit) or
+                    zcu.transitive_failed_analysis.contains(anal_unit))
+                {
+                    return;
+                }
+            }
+
             const test_nav_name = test_nav.fqn;
             const test_nav_name_len = test_nav_name.length(ip);
             const test_name_anon_decl: InternPool.Key.Ptr.BaseAddr.Uav = n: {

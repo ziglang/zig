@@ -2048,15 +2048,30 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
             whole.cache_manifest = &man;
             try addNonIncrementalStuffToCacheManifest(comp, arena, &man);
 
-            const is_hit = man.hit() catch |err| {
-                const i = man.failed_file_index orelse return err;
-                const pp = man.files.keys()[i].prefixed_path;
-                const prefix = man.cache.prefixes()[pp.prefix];
-                return comp.setMiscFailure(
+            const is_hit = man.hit() catch |err| switch (err) {
+                error.CacheCheckFailed => switch (man.diagnostic) {
+                    .none => unreachable,
+                    .manifest_create, .manifest_read, .manifest_lock => |e| return comp.setMiscFailure(
+                        .check_whole_cache,
+                        "failed to check cache: {s} {s}",
+                        .{ @tagName(man.diagnostic), @errorName(e) },
+                    ),
+                    .file_open, .file_stat, .file_read, .file_hash => |op| {
+                        const pp = man.files.keys()[op.file_index].prefixed_path;
+                        const prefix = man.cache.prefixes()[pp.prefix];
+                        return comp.setMiscFailure(
+                            .check_whole_cache,
+                            "failed to check cache: '{}{s}' {s} {s}",
+                            .{ prefix, pp.sub_path, @tagName(man.diagnostic), @errorName(op.err) },
+                        );
+                    },
+                },
+                error.OutOfMemory => return error.OutOfMemory,
+                error.InvalidFormat => return comp.setMiscFailure(
                     .check_whole_cache,
-                    "unable to check cache: stat file '{}{s}' failed: {s}",
-                    .{ prefix, pp.sub_path, @errorName(err) },
-                );
+                    "failed to check cache: invalid manifest file format",
+                    .{},
+                ),
             };
             if (is_hit) {
                 // In this case the cache hit contains the full set of file system inputs. Nice!
@@ -3223,17 +3238,29 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
         }
     }
 
-    if (comp.zcu) |zcu| {
-        if (comp.incremental and bundle.root_list.items.len == 0) {
-            const should_have_error = for (zcu.transitive_failed_analysis.keys()) |failed_unit| {
-                const refs = try zcu.resolveReferences();
-                if (refs.contains(failed_unit)) break true;
-            } else false;
-            if (should_have_error) {
-                @panic("referenced transitive analysis errors, but none actually emitted");
+    // TODO: eventually, this should be behind `std.debug.runtime_safety`. But right now, this is a
+    // very common way for incremental compilation bugs to manifest, so let's always check it.
+    if (comp.zcu) |zcu| if (comp.incremental and bundle.root_list.items.len == 0) {
+        for (zcu.transitive_failed_analysis.keys()) |failed_unit| {
+            const refs = try zcu.resolveReferences();
+            var ref = refs.get(failed_unit) orelse continue;
+            // This AU is referenced and has a transitive compile error, meaning it referenced something with a compile error.
+            // However, we haven't reported any such error.
+            // This is a compiler bug.
+            const stderr = std.io.getStdErr().writer();
+            try stderr.writeAll("referenced transitive analysis errors, but none actually emitted\n");
+            try stderr.print("{} [transitive failure]\n", .{zcu.fmtAnalUnit(failed_unit)});
+            while (ref) |r| {
+                try stderr.print("referenced by: {}{s}\n", .{
+                    zcu.fmtAnalUnit(r.referencer),
+                    if (zcu.transitive_failed_analysis.contains(r.referencer)) " [transitive failure]" else "",
+                });
+                ref = refs.get(r.referencer).?;
             }
+
+            @panic("referenced transitive analysis errors, but none actually emitted");
         }
-    }
+    };
 
     const compile_log_text = if (comp.zcu) |m| m.compile_log_text.items else "";
     return bundle.toOwnedBundle(compile_log_text);
@@ -5254,17 +5281,10 @@ pub fn addCCArgs(
         try argv.append("-fno-caret-diagnostics");
     }
 
-    if (comp.function_sections) {
-        try argv.append("-ffunction-sections");
-    }
+    try argv.append(if (comp.function_sections) "-ffunction-sections" else "-fno-function-sections");
+    try argv.append(if (comp.data_sections) "-fdata-sections" else "-fno-data-sections");
 
-    if (comp.data_sections) {
-        try argv.append("-fdata-sections");
-    }
-
-    if (mod.no_builtin) {
-        try argv.append("-fno-builtin");
-    }
+    try argv.append(if (mod.no_builtin) "-fno-builtin" else "-fbuiltin");
 
     if (comp.config.link_libcpp) {
         const libcxx_include_path = try std.fs.path.join(arena, &[_][]const u8{
@@ -5482,17 +5502,11 @@ pub fn addCCArgs(
                 }
             }
 
-            if (mod.red_zone) {
-                try argv.append("-mred-zone");
-            } else if (target_util.hasRedZone(target)) {
-                try argv.append("-mno-red-zone");
+            if (target_util.hasRedZone(target)) {
+                try argv.append(if (mod.red_zone) "-mred-zone" else "-mno-red-zone");
             }
 
-            if (mod.omit_frame_pointer) {
-                try argv.append("-fomit-frame-pointer");
-            } else {
-                try argv.append("-fno-omit-frame-pointer");
-            }
+            try argv.append(if (mod.omit_frame_pointer) "-fomit-frame-pointer" else "-fno-omit-frame-pointer");
 
             const ssp_buf_size = mod.stack_protector;
             if (ssp_buf_size != 0) {
@@ -5629,8 +5643,8 @@ pub fn addCCArgs(
         try argv.append("-municode");
     }
 
-    if (target.cpu.arch.isThumb()) {
-        try argv.append("-mthumb");
+    if (target.cpu.arch.isArm()) {
+        try argv.append(if (target.cpu.arch.isThumb()) "-mthumb" else "-mno-thumb");
     }
 
     if (target_util.supports_fpic(target)) {
@@ -5886,7 +5900,8 @@ pub const FileExt = enum {
 pub fn hasObjectExt(filename: []const u8) bool {
     return mem.endsWith(u8, filename, ".o") or
         mem.endsWith(u8, filename, ".lo") or
-        mem.endsWith(u8, filename, ".obj");
+        mem.endsWith(u8, filename, ".obj") or
+        mem.endsWith(u8, filename, ".rmeta");
 }
 
 pub fn hasStaticLibraryExt(filename: []const u8) bool {

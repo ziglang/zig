@@ -2593,25 +2593,43 @@ pub fn mapOldZirToNew(
     defer match_stack.deinit(gpa);
 
     // Used as temporary buffers for namespace declaration instructions
-    var old_decls: std.ArrayListUnmanaged(Zir.Inst.Index) = .empty;
-    defer old_decls.deinit(gpa);
-    var new_decls: std.ArrayListUnmanaged(Zir.Inst.Index) = .empty;
-    defer new_decls.deinit(gpa);
+    var old_contents: Zir.DeclContents = .init;
+    defer old_contents.deinit(gpa);
+    var new_contents: Zir.DeclContents = .init;
+    defer new_contents.deinit(gpa);
 
     // Map the main struct inst (and anything in its fields)
     {
-        try old_zir.findDeclsRoot(gpa, &old_decls);
-        try new_zir.findDeclsRoot(gpa, &new_decls);
+        try old_zir.findTrackableRoot(gpa, &old_contents);
+        try new_zir.findTrackableRoot(gpa, &new_contents);
 
-        assert(old_decls.items[0] == .main_struct_inst);
-        assert(new_decls.items[0] == .main_struct_inst);
+        assert(old_contents.explicit_types.items[0] == .main_struct_inst);
+        assert(new_contents.explicit_types.items[0] == .main_struct_inst);
 
-        // We don't have any smart way of matching up these type declarations, so we always
-        // correlate them based on source order.
-        const n = @min(old_decls.items.len, new_decls.items.len);
-        try match_stack.ensureUnusedCapacity(gpa, n);
-        for (old_decls.items[0..n], new_decls.items[0..n]) |old_inst, new_inst| {
+        assert(old_contents.func_decl == null);
+        assert(new_contents.func_decl == null);
+
+        // We don't have any smart way of matching up these instructions, so we correlate them based on source order
+        // in their respective arrays.
+
+        const num_explicit_types = @min(old_contents.explicit_types.items.len, new_contents.explicit_types.items.len);
+        try match_stack.ensureUnusedCapacity(gpa, @intCast(num_explicit_types));
+        for (
+            old_contents.explicit_types.items[0..num_explicit_types],
+            new_contents.explicit_types.items[0..num_explicit_types],
+        ) |old_inst, new_inst| {
+            // Here we use `match_stack`, so that we will recursively consider declarations on these types.
             match_stack.appendAssumeCapacity(.{ .old_inst = old_inst, .new_inst = new_inst });
+        }
+
+        const num_other = @min(old_contents.other.items.len, new_contents.other.items.len);
+        try inst_map.ensureUnusedCapacity(gpa, @intCast(num_other));
+        for (
+            old_contents.other.items[0..num_other],
+            new_contents.other.items[0..num_other],
+        ) |old_inst, new_inst| {
+            // These instructions don't have declarations, so we just modify `inst_map` directly.
+            inst_map.putAssumeCapacity(old_inst, new_inst);
         }
     }
 
@@ -2700,16 +2718,38 @@ pub fn mapOldZirToNew(
             // Match the `declaration` instruction
             try inst_map.put(gpa, old_decl_inst, new_decl_inst);
 
-            // Find container type declarations within this declaration
-            try old_zir.findDecls(gpa, &old_decls, old_decl_inst);
-            try new_zir.findDecls(gpa, &new_decls, new_decl_inst);
+            // Find trackable instructions within this declaration
+            try old_zir.findTrackable(gpa, &old_contents, old_decl_inst);
+            try new_zir.findTrackable(gpa, &new_contents, new_decl_inst);
 
-            // We don't have any smart way of matching up these type declarations, so we always
-            // correlate them based on source order.
-            const n = @min(old_decls.items.len, new_decls.items.len);
-            try match_stack.ensureUnusedCapacity(gpa, n);
-            for (old_decls.items[0..n], new_decls.items[0..n]) |old_inst, new_inst| {
+            // We don't have any smart way of matching up these instructions, so we correlate them based on source order
+            // in their respective arrays.
+
+            const num_explicit_types = @min(old_contents.explicit_types.items.len, new_contents.explicit_types.items.len);
+            try match_stack.ensureUnusedCapacity(gpa, @intCast(num_explicit_types));
+            for (
+                old_contents.explicit_types.items[0..num_explicit_types],
+                new_contents.explicit_types.items[0..num_explicit_types],
+            ) |old_inst, new_inst| {
+                // Here we use `match_stack`, so that we will recursively consider declarations on these types.
                 match_stack.appendAssumeCapacity(.{ .old_inst = old_inst, .new_inst = new_inst });
+            }
+
+            const num_other = @min(old_contents.other.items.len, new_contents.other.items.len);
+            try inst_map.ensureUnusedCapacity(gpa, @intCast(num_other));
+            for (
+                old_contents.other.items[0..num_other],
+                new_contents.other.items[0..num_other],
+            ) |old_inst, new_inst| {
+                // These instructions don't have declarations, so we just modify `inst_map` directly.
+                inst_map.putAssumeCapacity(old_inst, new_inst);
+            }
+
+            if (old_contents.func_decl) |old_func_inst| {
+                if (new_contents.func_decl) |new_func_inst| {
+                    // There are no declarations on a function either, so again, we just directly add it to `inst_map`.
+                    try inst_map.put(gpa, old_func_inst, new_func_inst);
+                }
             }
         }
     }

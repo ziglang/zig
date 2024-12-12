@@ -218,12 +218,21 @@ pub fn isLibCLibName(target: std.Target, name: []const u8) bool {
             return true;
         if (eqlIgnoreCase(ignore_case, name, "xnet"))
             return true;
+
+        if (target.os.tag == .wasi) {
+            if (eqlIgnoreCase(ignore_case, name, "wasi-emulated-getpid"))
+                return true;
+            if (eqlIgnoreCase(ignore_case, name, "wasi-emulated-mman"))
+                return true;
+            if (eqlIgnoreCase(ignore_case, name, "wasi-emulated-process-clocks"))
+                return true;
+            if (eqlIgnoreCase(ignore_case, name, "wasi-emulated-signal"))
+                return true;
+        }
     }
 
     if (target.os.tag.isDarwin()) {
         if (eqlIgnoreCase(ignore_case, name, "System"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "c"))
             return true;
         if (eqlIgnoreCase(ignore_case, name, "dbm"))
             return true;
