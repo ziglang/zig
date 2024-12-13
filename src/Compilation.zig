@@ -5925,21 +5925,42 @@ pub fn hasCExt(filename: []const u8) bool {
     return mem.endsWith(u8, filename, ".c");
 }
 
+pub fn hasCHExt(filename: []const u8) bool {
+    return mem.endsWith(u8, filename, ".h");
+}
+
 pub fn hasCppExt(filename: []const u8) bool {
     return mem.endsWith(u8, filename, ".C") or
         mem.endsWith(u8, filename, ".cc") or
+        mem.endsWith(u8, filename, ".cp") or
+        mem.endsWith(u8, filename, ".CPP") or
         mem.endsWith(u8, filename, ".cpp") or
         mem.endsWith(u8, filename, ".cxx") or
         mem.endsWith(u8, filename, ".c++") or
         mem.endsWith(u8, filename, ".stub");
 }
 
+pub fn hasCppHExt(filename: []const u8) bool {
+    return mem.endsWith(u8, filename, ".hh") or
+        mem.endsWith(u8, filename, ".hpp") or
+        mem.endsWith(u8, filename, ".hxx");
+}
+
 pub fn hasObjCExt(filename: []const u8) bool {
     return mem.endsWith(u8, filename, ".m");
 }
 
+pub fn hasObjCHExt(filename: []const u8) bool {
+    return mem.endsWith(u8, filename, ".hm");
+}
+
 pub fn hasObjCppExt(filename: []const u8) bool {
-    return mem.endsWith(u8, filename, ".mm");
+    return mem.endsWith(u8, filename, ".M") or
+        mem.endsWith(u8, filename, ".mm");
+}
+
+pub fn hasObjCppHExt(filename: []const u8) bool {
+    return mem.endsWith(u8, filename, ".hmm");
 }
 
 pub fn hasSharedLibraryExt(filename: []const u8) bool {
@@ -5972,12 +5993,20 @@ pub fn hasSharedLibraryExt(filename: []const u8) bool {
 pub fn classifyFileExt(filename: []const u8) FileExt {
     if (hasCExt(filename)) {
         return .c;
+    } else if (hasCHExt(filename)) {
+        return .h;
     } else if (hasCppExt(filename)) {
         return .cpp;
+    } else if (hasCppHExt(filename)) {
+        return .hpp;
     } else if (hasObjCExt(filename)) {
         return .m;
+    } else if (hasObjCHExt(filename)) {
+        return .hm;
     } else if (hasObjCppExt(filename)) {
         return .mm;
+    } else if (hasObjCppHExt(filename)) {
+        return .hmm;
     } else if (mem.endsWith(u8, filename, ".ll")) {
         return .ll;
     } else if (mem.endsWith(u8, filename, ".bc")) {
@@ -5986,8 +6015,6 @@ pub fn classifyFileExt(filename: []const u8) FileExt {
         return .assembly;
     } else if (mem.endsWith(u8, filename, ".S")) {
         return .assembly_with_cpp;
-    } else if (mem.endsWith(u8, filename, ".h")) {
-        return .h;
     } else if (mem.endsWith(u8, filename, ".zig")) {
         return .zig;
     } else if (hasSharedLibraryExt(filename)) {
