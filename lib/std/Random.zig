@@ -271,11 +271,10 @@ pub fn float(r: Random, comptime T: type) T {
             const rand = r.int(u64);
             var rand_lz = @clz(rand);
             if (rand_lz >= 41) {
-                // TODO: when #5177 or #489 is implemented,
-                // tell the compiler it is unlikely (1/2^41) to reach this point.
-                // (Same for the if branch and the f64 calculations below.)
+                @branchHint(.unlikely);
                 rand_lz = 41 + @clz(r.int(u64));
                 if (rand_lz == 41 + 64) {
+                    @branchHint(.unlikely);
                     // It is astronomically unlikely to reach this point.
                     rand_lz += @clz(r.int(u32) | 0x7FF);
                 }
@@ -297,6 +296,7 @@ pub fn float(r: Random, comptime T: type) T {
                     const addl_rand_lz = @clz(r.int(u64));
                     rand_lz += addl_rand_lz;
                     if (addl_rand_lz != 64) {
+                        @branchHint(.likely);
                         break;
                     }
                     if (rand_lz >= 1022) {
