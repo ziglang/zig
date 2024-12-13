@@ -5891,12 +5891,11 @@ pub const FileExt = enum {
 
     pub fn clangSupportsDepFile(ext: FileExt) bool {
         return switch (ext) {
-            .c, .cpp, .h, .hpp, .hm, .hmm, .m, .mm, .cu => true,
+            .assembly_with_cpp, .c, .cpp, .h, .hpp, .hm, .hmm, .m, .mm, .cu => true,
 
             .ll,
             .bc,
             .assembly,
-            .assembly_with_cpp,
             .shared_library,
             .object,
             .static_library,
