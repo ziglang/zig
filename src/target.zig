@@ -74,7 +74,7 @@ pub fn defaultSingleThreaded(target: std.Target) bool {
         else => {},
     }
     switch (target.os.tag) {
-        .haiku => return true,
+        .haiku, .uefi => return true,
         else => {},
     }
     return false;

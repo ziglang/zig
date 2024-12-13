@@ -1,5 +1,7 @@
 const std = @import("../std.zig");
 
+pub const posix = @import("uefi/posix.zig");
+
 /// A protocol is an interface identified by a GUID.
 pub const protocol = @import("uefi/protocol.zig");
 pub const DevicePath = @import("uefi/device_path.zig").DevicePath;
@@ -13,8 +15,31 @@ pub const tables = @import("uefi/tables.zig");
 /// Defaults to .LoaderData, the default data allocation type
 /// used by UEFI applications to allocate pool memory.
 pub var efi_pool_memory_type: tables.MemoryType = .LoaderData;
-pub const pool_allocator = @import("uefi/pool_allocator.zig").pool_allocator;
-pub const raw_pool_allocator = @import("uefi/pool_allocator.zig").raw_pool_allocator;
+
+const allocator = @import("uefi/allocator.zig");
+pub const PageAllocator = allocator.Page;
+pub const PoolAllocator = allocator.Pool;
+pub const RawPoolAllocator = allocator.RawPool;
+
+pub var global_page_allocator = PageAllocator{};
+pub var global_pool_allocator = PoolAllocator{};
+
+pub var working_directory: fd_t = .none;
+
+pub const AT = posix.AT;
+pub const CLOCK = posix.CLOCK;
+pub const LOCK = posix.LOCK;
+pub const NAME_MAX = posix.NAME_MAX;
+pub const O = posix.O;
+pub const PATH_MAX = posix.PATH_MAX;
+pub const PATH_MAX_WIDE = posix.PATH_MAX_WIDE;
+pub const S = posix.S;
+
+pub const utsname = posix.utsname;
+pub const Stat = posix.Stat;
+pub const fd_t = posix.fd_t;
+pub const ino_t = posix.ino_t;
+pub const mode_t = posix.mode_t;
 
 /// The EFI image's handle that is passed to its entry point.
 pub var handle: Handle = undefined;

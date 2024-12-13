@@ -129,6 +129,8 @@ pub fn getModuleForAddress(self: *SelfInfo, address: usize) !*Module {
         return self.lookupModuleHaiku(address);
     } else if (comptime builtin.target.isWasm()) {
         return self.lookupModuleWasm(address);
+    } else if (native_os == .uefi) {
+        return self.lookupModuleUefi(address);
     } else {
         return self.lookupModuleDl(address);
     }
@@ -145,6 +147,8 @@ pub fn getModuleNameForAddress(self: *SelfInfo, address: usize) ?[]const u8 {
     } else if (native_os == .haiku) {
         return null;
     } else if (comptime builtin.target.isWasm()) {
+        return null;
+    } else if (native_os == .uefi) {
         return null;
     } else {
         return self.lookupModuleNameDl(address);
@@ -498,6 +502,12 @@ fn lookupModuleWasm(self: *SelfInfo, address: usize) !*Module {
     _ = self;
     _ = address;
     @panic("TODO implement lookup module for Wasm");
+}
+
+fn lookupModuleUefi(self: *SelfInfo, address: usize) !*Module {
+    _ = self;
+    _ = address;
+    @panic("TODO implement lookup module for UEFI");
 }
 
 pub const Module = switch (native_os) {

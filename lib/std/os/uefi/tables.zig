@@ -86,10 +86,27 @@ pub const EfiInterfaceType = enum(u32) {
     EfiNativeInterface,
 };
 
-pub const AllocateType = enum(u32) {
-    AllocateAnyPages,
-    AllocateMaxAddress,
-    AllocateAddress,
+pub const AllocateType = union(Enum) {
+    pub const Enum = enum(u32) {
+        /// Allocate any available range of pages that satisfies the request.
+        any = 0,
+
+        /// Allocate any available range of pages whose uppermost address is less than or equal to a specified
+        /// address.
+        max_address = 1,
+
+        /// Allocate pages at a specified address.
+        at_address = 2,
+    };
+
+    /// Allocate any available range of pages that satisfies the request.
+    any: void,
+
+    /// Allocate any available range of pages whose uppermost address is less than or equal to a specified address.
+    max_address: EfiPhysicalAddress,
+
+    /// Allocate pages at a specified address.
+    at_address: EfiPhysicalAddress,
 };
 
 pub const EfiPhysicalAddress = u64;
