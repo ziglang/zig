@@ -1219,6 +1219,12 @@ pub const Cpu = struct {
                 } else true;
             }
 
+            pub fn count(set: Set) std.math.IntFittingRange(0, needed_bit_count) {
+                var sum: usize = 0;
+                for (set.ints) |x| sum += @popCount(x);
+                return @intCast(sum);
+            }
+
             pub fn isEnabled(set: Set, arch_feature_index: Index) bool {
                 const usize_index = arch_feature_index / @bitSizeOf(usize);
                 const bit_index: ShiftInt = @intCast(arch_feature_index % @bitSizeOf(usize));

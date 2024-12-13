@@ -59,7 +59,7 @@ pub fn finish(f: *Flush, wasm: *Wasm, arena: Allocator) !void {
     const gpa = comp.gpa;
     const import_memory = comp.config.import_memory;
     const export_memory = comp.config.export_memory;
-    const target = comp.root_mod.resolved_target.result;
+    const target = &comp.root_mod.resolved_target.result;
     const is_obj = comp.config.output_mode == .Obj;
     const allow_undefined = is_obj or wasm.import_symbols;
     const zcu = wasm.base.comp.zcu.?;
@@ -523,7 +523,7 @@ pub fn finish(f: *Flush, wasm: *Wasm, arena: Allocator) !void {
             try leb.writeUleb128(binary_writer, @as(u32, @intCast(name.len)));
             try binary_bytes.appendSlice(gpa, name);
             try binary_bytes.append(gpa, @intFromEnum(std.wasm.ExternalKind.function));
-            try leb.writeUleb128(binary_writer, @as(u32, @intCast(wasm.function_imports.entries.len + @intFromEnum(exp.function_index))));
+            try leb.writeUleb128(binary_writer, @intFromEnum(exp.function_index));
         }
         exports_len += wasm.function_exports.items.len;
 
@@ -543,7 +543,7 @@ pub fn finish(f: *Flush, wasm: *Wasm, arena: Allocator) !void {
             try leb.writeUleb128(binary_writer, @as(u32, @intCast(name.len)));
             try binary_bytes.appendSlice(gpa, name);
             try binary_bytes.append(gpa, @intFromEnum(std.wasm.ExternalKind.global));
-            try leb.writeUleb128(binary_writer, @as(u32, @intCast(wasm.global_imports.entries.len + @intFromEnum(exp.global_index))));
+            try leb.writeUleb128(binary_writer, @intFromEnum(exp.global_index));
         }
         exports_len += wasm.global_exports.items.len;
 
@@ -555,38 +555,39 @@ pub fn finish(f: *Flush, wasm: *Wasm, arena: Allocator) !void {
         }
     }
 
-    if (Wasm.FunctionIndex.fromResolution(wasm.entry_resolution)) |entry_index| {
+    if (Wasm.FunctionIndex.fromResolution(wasm, wasm.entry_resolution)) |entry_index| {
         const header_offset = try reserveVecSectionHeader(gpa, binary_bytes);
         replaceVecSectionHeader(binary_bytes, header_offset, .start, @intFromEnum(entry_index));
     }
 
     // element section (function table)
-    if (wasm.function_table.count() > 0) {
-        const header_offset = try reserveVecSectionHeader(gpa, binary_bytes);
+    if (f.indirect_function_table.count() > 0) {
+        @panic("TODO");
+        //const header_offset = try reserveVecSectionHeader(gpa, binary_bytes);
 
-        const table_loc = wasm.globals.get(wasm.preloaded_strings.__indirect_function_table).?;
-        const table_sym = wasm.finalSymbolByLoc(table_loc);
+        //const table_loc = wasm.globals.get(wasm.preloaded_strings.__indirect_function_table).?;
+        //const table_sym = wasm.finalSymbolByLoc(table_loc);
 
-        const flags: u32 = if (table_sym.index == 0) 0x0 else 0x02; // passive with implicit 0-index table or set table index manually
-        try leb.writeUleb128(binary_writer, flags);
-        if (flags == 0x02) {
-            try leb.writeUleb128(binary_writer, table_sym.index);
-        }
-        try emitInit(binary_writer, .{ .i32_const = 1 }); // We start at index 1, so unresolved function pointers are invalid
-        if (flags == 0x02) {
-            try leb.writeUleb128(binary_writer, @as(u8, 0)); // represents funcref
-        }
-        try leb.writeUleb128(binary_writer, @as(u32, @intCast(wasm.function_table.count())));
-        var symbol_it = wasm.function_table.keyIterator();
-        while (symbol_it.next()) |symbol_loc_ptr| {
-            const sym = wasm.finalSymbolByLoc(symbol_loc_ptr.*);
-            assert(sym.flags.alive);
-            assert(sym.index < wasm.functions.count() + wasm.imported_functions_count);
-            try leb.writeUleb128(binary_writer, sym.index);
-        }
+        //const flags: u32 = if (table_sym.index == 0) 0x0 else 0x02; // passive with implicit 0-index table or set table index manually
+        //try leb.writeUleb128(binary_writer, flags);
+        //if (flags == 0x02) {
+        //    try leb.writeUleb128(binary_writer, table_sym.index);
+        //}
+        //try emitInit(binary_writer, .{ .i32_const = 1 }); // We start at index 1, so unresolved function pointers are invalid
+        //if (flags == 0x02) {
+        //    try leb.writeUleb128(binary_writer, @as(u8, 0)); // represents funcref
+        //}
+        //try leb.writeUleb128(binary_writer, @as(u32, @intCast(f.indirect_function_table.count())));
+        //var symbol_it = f.indirect_function_table.keyIterator();
+        //while (symbol_it.next()) |symbol_loc_ptr| {
+        //    const sym = wasm.finalSymbolByLoc(symbol_loc_ptr.*);
+        //    assert(sym.flags.alive);
+        //    assert(sym.index < wasm.functions.count() + wasm.imported_functions_count);
+        //    try leb.writeUleb128(binary_writer, sym.index);
+        //}
 
-        replaceVecSectionHeader(binary_bytes, header_offset, .element, 1);
-        section_index += 1;
+        //replaceVecSectionHeader(binary_bytes, header_offset, .element, 1);
+        //section_index += 1;
     }
 
     // When the shared-memory option is enabled, we *must* emit the 'data count' section.
@@ -600,7 +601,7 @@ pub fn finish(f: *Flush, wasm: *Wasm, arena: Allocator) !void {
         const header_offset = try reserveVecSectionHeader(gpa, binary_bytes);
         const start_offset = binary_bytes.items.len - 5; // minus 5 so start offset is 5 to include entry count
 
-        for (wasm.functions.keys()) |resolution| switch (resolution.unpack()) {
+        for (wasm.functions.keys()) |resolution| switch (resolution.unpack(wasm)) {
             .unresolved => unreachable,
             .__wasm_apply_global_tls_relocs => @panic("TODO lower __wasm_apply_global_tls_relocs"),
             .__wasm_call_ctors => @panic("TODO lower __wasm_call_ctors"),
@@ -614,10 +615,19 @@ pub fn finish(f: *Flush, wasm: *Wasm, arena: Allocator) !void {
                 //try leb.writeUleb128(binary_writer, atom.code.len);
                 //try binary_bytes.appendSlice(gpa, atom.code.slice(wasm));
             },
-            .nav => |i| {
+            .nav_exe => |i| {
+                assert(!is_obj);
                 _ = i;
                 _ = start_offset;
-                @panic("TODO lower nav code and apply relocations");
+                @panic("TODO lower nav exe code and apply relocations");
+                //try leb.writeUleb128(binary_writer, atom.code.len);
+                //try binary_bytes.appendSlice(gpa, atom.code.slice(wasm));
+            },
+            .nav_obj => |i| {
+                assert(is_obj);
+                _ = i;
+                _ = start_offset;
+                @panic("TODO lower nav obj code and apply relocations");
                 //try leb.writeUleb128(binary_writer, atom.code.len);
                 //try binary_bytes.appendSlice(gpa, atom.code.slice(wasm));
             },
@@ -636,7 +646,8 @@ pub fn finish(f: *Flush, wasm: *Wasm, arena: Allocator) !void {
         var offset: u32 = undefined;
         for (segment_indexes, segment_offsets) |segment_index, segment_offset| {
             const segment = segment_index.ptr(wasm);
-            if (segment.size == 0) continue;
+            const segment_payload = segment.payload.slice(wasm);
+            if (segment_payload.len == 0) continue;
             if (!import_memory and isBss(wasm, segment.name)) {
                 // It counted for virtual memory but it does not go into the binary.
                 continue;
@@ -657,8 +668,8 @@ pub fn finish(f: *Flush, wasm: *Wasm, arena: Allocator) !void {
 
             try binary_bytes.appendNTimes(gpa, 0, segment_offset - offset);
             offset = segment_offset;
-            try binary_bytes.appendSlice(gpa, segment.payload.slice(wasm));
-            offset += segment.payload.len;
+            try binary_bytes.appendSlice(gpa, segment_payload);
+            offset += @intCast(segment_payload.len);
             if (true) @panic("TODO apply data segment relocations");
         }
         assert(group_index == f.data_segment_groups.items.len);
@@ -680,7 +691,7 @@ pub fn finish(f: *Flush, wasm: *Wasm, arena: Allocator) !void {
         //        try wasm.emitDataRelocations(binary_bytes, data_index, symbol_table);
         //}
     } else if (comp.config.debug_format != .strip) {
-        try wasm.emitNameSection(binary_bytes, arena);
+        try emitNameSection(wasm, binary_bytes, arena);
     }
 
     if (comp.config.debug_format != .strip) {
@@ -699,14 +710,14 @@ pub fn finish(f: *Flush, wasm: *Wasm, arena: Allocator) !void {
                     std.fmt.fmtSliceHexLower(id[8..10]),
                     std.fmt.fmtSliceHexLower(id[10..]),
                 });
-                try emitBuildIdSection(binary_bytes, &uuid);
+                try emitBuildIdSection(gpa, binary_bytes, &uuid);
             },
             .hexstring => |hs| {
                 var buffer: [32 * 2]u8 = undefined;
                 const str = std.fmt.bufPrint(&buffer, "{s}", .{
                     std.fmt.fmtSliceHexLower(hs.toSlice()),
                 }) catch unreachable;
-                try emitBuildIdSection(binary_bytes, str);
+                try emitBuildIdSection(gpa, binary_bytes, str);
             },
             else => |mode| {
                 var err = try diags.addErrorWithNotes(0);
@@ -717,9 +728,8 @@ pub fn finish(f: *Flush, wasm: *Wasm, arena: Allocator) !void {
         var debug_bytes = std.ArrayList(u8).init(gpa);
         defer debug_bytes.deinit();
 
-        try emitProducerSection(binary_bytes);
-        if (!target.cpu.features.isEmpty())
-            try emitFeaturesSection(binary_bytes, target.cpu.features);
+        try emitProducerSection(gpa, binary_bytes);
+        try emitFeaturesSection(gpa, binary_bytes, target);
     }
 
     // Finally, write the entire binary into the file.
@@ -729,6 +739,10 @@ pub fn finish(f: *Flush, wasm: *Wasm, arena: Allocator) !void {
 }
 
 fn emitNameSection(wasm: *Wasm, binary_bytes: *std.ArrayListUnmanaged(u8), arena: Allocator) !void {
+    if (true) {
+        std.log.warn("TODO emit name section", .{});
+        return;
+    }
     const comp = wasm.base.comp;
     const gpa = comp.gpa;
     const import_memory = comp.config.import_memory;
@@ -796,31 +810,15 @@ fn emitNameSection(wasm: *Wasm, binary_bytes: *std.ArrayListUnmanaged(u8), arena
     // Data segments are already ordered.
 
     const header_offset = try reserveCustomSectionHeader(gpa, binary_bytes);
-    const writer = binary_bytes.writer();
+    defer writeCustomSectionHeader(binary_bytes, header_offset);
+
+    const writer = binary_bytes.writer(gpa);
     try leb.writeUleb128(writer, @as(u32, @intCast("name".len)));
     try writer.writeAll("name");
 
     try emitNameSubsection(wasm, binary_bytes, .function, funcs.keys(), funcs.values());
     try emitNameSubsection(wasm, binary_bytes, .global, globals.items(.index), globals.items(.name));
     try emitNameSubsection(wasm, binary_bytes, .data_segment, segments.items(.index), segments.items(.name));
-
-    try writeCustomSectionHeader(
-        binary_bytes.items,
-        header_offset,
-        @as(u32, @intCast(binary_bytes.items.len - header_offset - 6)),
-    );
-}
-
-fn writeCustomSectionHeader(buffer: []u8, offset: u32, size: u32) !void {
-    var buf: [1 + 5]u8 = undefined;
-    buf[0] = 0; // 0 = 'custom' section
-    leb.writeUnsignedFixed(5, buf[1..6], size);
-    buffer[offset..][0..buf.len].* = buf;
-}
-
-fn reserveCustomSectionHeader(gpa: Allocator, bytes: *std.ArrayListUnmanaged(u8)) Allocator.Error!u32 {
-    try bytes.appendNTimes(gpa, 0, section_header_size);
-    return @intCast(bytes.items.len - section_header_size);
 }
 
 fn emitNameSubsection(
@@ -856,35 +854,40 @@ fn emitNameSubsection(
 fn emitFeaturesSection(
     gpa: Allocator,
     binary_bytes: *std.ArrayListUnmanaged(u8),
-    features: []const Wasm.Feature,
-) !void {
-    const header_offset = try reserveCustomSectionHeader(gpa, binary_bytes);
+    target: *const std.Target,
+) Allocator.Error!void {
+    const feature_count = target.cpu.features.count();
+    if (feature_count == 0) return;
 
-    const writer = binary_bytes.writer();
+    const header_offset = try reserveCustomSectionHeader(gpa, binary_bytes);
+    defer writeCustomSectionHeader(binary_bytes, header_offset);
+
+    const writer = binary_bytes.writer(gpa);
     const target_features = "target_features";
     try leb.writeUleb128(writer, @as(u32, @intCast(target_features.len)));
     try writer.writeAll(target_features);
 
-    try leb.writeUleb128(writer, @as(u32, @intCast(features.len)));
-    for (features) |feature| {
-        assert(feature.prefix != .invalid);
-        try leb.writeUleb128(writer, @tagName(feature.prefix)[0]);
-        const name = @tagName(feature.tag);
-        try leb.writeUleb128(writer, @as(u32, name.len));
+    try leb.writeUleb128(writer, @as(u32, @intCast(feature_count)));
+
+    var safety_count = feature_count;
+    for (target.cpu.arch.allFeaturesList(), 0..) |*feature, i| {
+        if (!std.Target.wasm.featureSetHas(target.cpu.features, @enumFromInt(i))) continue;
+        safety_count -= 1;
+
+        try leb.writeUleb128(writer, @as(u32, '+'));
+        // Depends on llvm_name for the hyphenated version that matches wasm tooling conventions.
+        const name = feature.llvm_name.?;
+        try leb.writeUleb128(writer, @as(u32, @intCast(name.len)));
         try writer.writeAll(name);
     }
-
-    try writeCustomSectionHeader(
-        binary_bytes.items,
-        header_offset,
-        @as(u32, @intCast(binary_bytes.items.len - header_offset - 6)),
-    );
+    assert(safety_count == 0);
 }
 
 fn emitBuildIdSection(gpa: Allocator, binary_bytes: *std.ArrayListUnmanaged(u8), build_id: []const u8) !void {
     const header_offset = try reserveCustomSectionHeader(gpa, binary_bytes);
+    defer writeCustomSectionHeader(binary_bytes, header_offset);
 
-    const writer = binary_bytes.writer();
+    const writer = binary_bytes.writer(gpa);
     const hdr_build_id = "build_id";
     try leb.writeUleb128(writer, @as(u32, @intCast(hdr_build_id.len)));
     try writer.writeAll(hdr_build_id);
@@ -892,18 +895,13 @@ fn emitBuildIdSection(gpa: Allocator, binary_bytes: *std.ArrayListUnmanaged(u8),
     try leb.writeUleb128(writer, @as(u32, 1));
     try leb.writeUleb128(writer, @as(u32, @intCast(build_id.len)));
     try writer.writeAll(build_id);
-
-    try writeCustomSectionHeader(
-        binary_bytes.items,
-        header_offset,
-        @as(u32, @intCast(binary_bytes.items.len - header_offset - 6)),
-    );
 }
 
 fn emitProducerSection(gpa: Allocator, binary_bytes: *std.ArrayListUnmanaged(u8)) !void {
     const header_offset = try reserveCustomSectionHeader(gpa, binary_bytes);
+    defer writeCustomSectionHeader(binary_bytes, header_offset);
 
-    const writer = binary_bytes.writer();
+    const writer = binary_bytes.writer(gpa);
     const producers = "producers";
     try leb.writeUleb128(writer, @as(u32, @intCast(producers.len)));
     try writer.writeAll(producers);
@@ -947,12 +945,6 @@ fn emitProducerSection(gpa: Allocator, binary_bytes: *std.ArrayListUnmanaged(u8)
             try writer.writeAll(build_options.version);
         }
     }
-
-    try writeCustomSectionHeader(
-        binary_bytes.items,
-        header_offset,
-        @as(u32, @intCast(binary_bytes.items.len - header_offset - 6)),
-    );
 }
 
 ///// For each relocatable section, emits a custom "relocation.<section_name>" section
@@ -965,7 +957,7 @@ fn emitProducerSection(gpa: Allocator, binary_bytes: *std.ArrayListUnmanaged(u8)
 //    const comp = wasm.base.comp;
 //    const gpa = comp.gpa;
 //    const code_index = wasm.code_section_index.unwrap() orelse return;
-//    const writer = binary_bytes.writer();
+//    const writer = binary_bytes.writer(gpa);
 //    const header_offset = try reserveCustomSectionHeader(gpa, binary_bytes);
 //
 //    // write custom section information
@@ -1001,8 +993,7 @@ fn emitProducerSection(gpa: Allocator, binary_bytes: *std.ArrayListUnmanaged(u8)
 //    var buf: [5]u8 = undefined;
 //    leb.writeUnsignedFixed(5, &buf, count);
 //    try binary_bytes.insertSlice(reloc_start, &buf);
-//    const size: u32 = @intCast(binary_bytes.items.len - header_offset - 6);
-//    try writeCustomSectionHeader(binary_bytes.items, header_offset, size);
+//    writeCustomSectionHeader(binary_bytes, header_offset);
 //}
 
 //fn emitDataRelocations(
@@ -1013,7 +1004,7 @@ fn emitProducerSection(gpa: Allocator, binary_bytes: *std.ArrayListUnmanaged(u8)
 //) !void {
 //    const comp = wasm.base.comp;
 //    const gpa = comp.gpa;
-//    const writer = binary_bytes.writer();
+//    const writer = binary_bytes.writer(gpa);
 //    const header_offset = try reserveCustomSectionHeader(gpa, binary_bytes);
 //
 //    // write custom section information
@@ -1052,8 +1043,7 @@ fn emitProducerSection(gpa: Allocator, binary_bytes: *std.ArrayListUnmanaged(u8)
 //    var buf: [5]u8 = undefined;
 //    leb.writeUnsignedFixed(5, &buf, count);
 //    try binary_bytes.insertSlice(reloc_start, &buf);
-//    const size = @as(u32, @intCast(binary_bytes.items.len - header_offset - 6));
-//    try writeCustomSectionHeader(binary_bytes.items, header_offset, size);
+//    writeCustomSectionHeader(binary_bytes, header_offset);
 //}
 
 fn isBss(wasm: *Wasm, optional_name: Wasm.OptionalString) bool {
@@ -1102,6 +1092,21 @@ fn replaceVecSectionHeader(
     leb.writeUleb128(w, size) catch unreachable;
     leb.writeUleb128(w, n_items) catch unreachable;
     bytes.replaceRangeAssumeCapacity(offset, section_header_reserve_size, fbw.getWritten());
+}
+
+fn reserveCustomSectionHeader(gpa: Allocator, bytes: *std.ArrayListUnmanaged(u8)) Allocator.Error!u32 {
+    try bytes.appendNTimes(gpa, 0, section_header_size);
+    return @intCast(bytes.items.len - section_header_size);
+}
+
+fn writeCustomSectionHeader(bytes: *std.ArrayListUnmanaged(u8), offset: u32) void {
+    const size: u32 = @intCast(bytes.items.len - offset - section_header_size);
+    var buf: [section_header_size]u8 = undefined;
+    var fbw = std.io.fixedBufferStream(&buf);
+    const w = fbw.writer();
+    w.writeByte(0) catch unreachable; // 0 = 'custom' section
+    leb.writeUleb128(w, size) catch unreachable;
+    bytes.replaceRangeAssumeCapacity(offset, section_header_size, fbw.getWritten());
 }
 
 fn emitLimits(
@@ -1171,7 +1176,7 @@ pub fn emitExpr(wasm: *const Wasm, binary_bytes: *std.ArrayListUnmanaged(u8), ex
 //) !void {
 //    const gpa = wasm.base.comp.gpa;
 //    const offset = try reserveCustomSectionHeader(gpa, binary_bytes);
-//    const writer = binary_bytes.writer();
+//    const writer = binary_bytes.writer(gpa);
 //    // emit "linking" custom section name
 //    const section_name = "linking";
 //    try leb.writeUleb128(writer, section_name.len);
@@ -1186,11 +1191,12 @@ pub fn emitExpr(wasm: *const Wasm, binary_bytes: *std.ArrayListUnmanaged(u8), ex
 //    try wasm.emitSegmentInfo(binary_bytes);
 //
 //    const size: u32 = @intCast(binary_bytes.items.len - offset - 6);
-//    try writeCustomSectionHeader(binary_bytes.items, offset, size);
+//    writeCustomSectionHeader(binary_bytes, offset, size);
 //}
 
 fn emitSegmentInfo(wasm: *Wasm, binary_bytes: *std.ArrayList(u8)) !void {
-    const writer = binary_bytes.writer();
+    const gpa = wasm.base.comp.gpa;
+    const writer = binary_bytes.writer(gpa);
     try leb.writeUleb128(writer, @intFromEnum(Wasm.SubsectionType.segment_info));
     const segment_offset = binary_bytes.items.len;
 
@@ -1370,7 +1376,7 @@ fn emitSegmentInfo(wasm: *Wasm, binary_bytes: *std.ArrayList(u8)) !void {
 //        .TABLE_INDEX_I64,
 //        .TABLE_INDEX_SLEB,
 //        .TABLE_INDEX_SLEB64,
-//        => wasm.function_table.get(.{ .file = atom.file, .index = @enumFromInt(relocation.index) }) orelse 0,
+//        => wasm.indirect_function_table.get(.{ .file = atom.file, .index = @enumFromInt(relocation.index) }) orelse 0,
 //
 //        .TYPE_INDEX_LEB => unreachable, // handled above
 //        .GLOBAL_INDEX_I32, .GLOBAL_INDEX_LEB => if (symbol.flags.undefined)

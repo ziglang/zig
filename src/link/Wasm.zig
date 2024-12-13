@@ -270,8 +270,16 @@ pub const FunctionIndex = enum(u32) {
         return &wasm.functions.keys()[@intFromEnum(index)];
     }
 
+    pub fn toOutputFunctionIndex(index: FunctionIndex, wasm: *const Wasm) OutputFunctionIndex {
+        return @enumFromInt(wasm.function_imports.entries.len + @intFromEnum(index));
+    }
+
     pub fn fromIpNav(wasm: *const Wasm, nav_index: InternPool.Nav.Index) ?FunctionIndex {
-        const i = wasm.functions.getIndex(.fromIpNav(wasm, nav_index)) orelse return null;
+        return fromResolution(wasm, .fromIpNav(wasm, nav_index));
+    }
+
+    pub fn fromResolution(wasm: *const Wasm, resolution: FunctionImport.Resolution) ?FunctionIndex {
+        const i = wasm.functions.getIndex(resolution) orelse return null;
         return @enumFromInt(i);
     }
 };
@@ -295,11 +303,11 @@ pub const OutputFunctionIndex = enum(u32) {
     _,
 };
 
-/// Index into `globals`.
+/// Index into `Wasm.globals`.
 pub const GlobalIndex = enum(u32) {
     _,
 
-    fn key(index: GlobalIndex, f: *const Flush) *Wasm.GlobalImport.Resolution {
+    pub fn ptr(index: GlobalIndex, f: *const Flush) *Wasm.GlobalImport.Resolution {
         return &f.globals.items[@intFromEnum(index)];
     }
 
@@ -1089,7 +1097,7 @@ pub const DataSegment = extern struct {
         /// The size in bytes of the data representing the segment within the section.
         len: u32,
 
-        fn slice(p: DataSegment.Payload, wasm: *const Wasm) []const u8 {
+        pub fn slice(p: DataSegment.Payload, wasm: *const Wasm) []const u8 {
             assert(p.off != p.len);
             return wasm.string_bytes.items[p.off..][0..p.len];
         }
@@ -2365,6 +2373,7 @@ pub fn flushModule(
     _ = tid;
     const comp = wasm.base.comp;
     const use_lld = build_options.have_llvm and comp.config.use_lld;
+    const diags = &comp.link_diags;
 
     if (wasm.llvm_object) |llvm_object| {
         try wasm.base.emitLlvmObject(arena, llvm_object, prog_node);
@@ -2392,7 +2401,11 @@ pub fn flushModule(
     defer sub_prog_node.end();
 
     wasm.flush_buffer.clear();
-    return wasm.flush_buffer.finish(wasm, arena);
+    return wasm.flush_buffer.finish(wasm, arena) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        error.LinkFailure => return error.LinkFailure,
+        else => |e| return diags.fail("failed to flush wasm: {s}", .{@errorName(e)}),
+    };
 }
 
 fn linkWithLLD(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) !void {
