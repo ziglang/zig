@@ -4687,19 +4687,19 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Pr
 
         try argv.appendSlice(&[_][]const u8{ self_exe_path, "clang" });
         // if "ext" is explicit, add "-x <lang>". Otherwise let clang do its thing.
-        if (c_object.src.ext != null) {
+        if (c_object.src.ext != null or ext.clangNeedsLanguageOverride()) {
             try argv.appendSlice(&[_][]const u8{ "-x", switch (ext) {
                 .assembly => "assembler",
                 .assembly_with_cpp => "assembler-with-cpp",
                 .c => "c",
-                .cpp => "c++",
                 .h => "c-header",
+                .cpp => "c++",
                 .hpp => "c++-header",
+                .m => "objective-c",
                 .hm => "objective-c-header",
+                .mm => "objective-c++",
                 .hmm => "objective-c++-header",
                 .cu => "cuda",
-                .m => "objective-c",
-                .mm => "objective-c++",
                 else => fatal("language '{s}' is unsupported in this context", .{@tagName(ext)}),
             } });
         }
@@ -5839,6 +5839,36 @@ pub const FileExt = enum {
     res,
     manifest,
     unknown,
+
+    pub fn clangNeedsLanguageOverride(ext: FileExt) bool {
+        return switch (ext) {
+            .h,
+            .hpp,
+            .hm,
+            .hmm,
+            => true,
+
+            .c,
+            .cpp,
+            .cu,
+            .m,
+            .mm,
+            .ll,
+            .bc,
+            .assembly,
+            .assembly_with_cpp,
+            .shared_library,
+            .object,
+            .static_library,
+            .zig,
+            .def,
+            .rc,
+            .res,
+            .manifest,
+            .unknown,
+            => false,
+        };
+    }
 
     pub fn clangSupportsDiagnostics(ext: FileExt) bool {
         return switch (ext) {
