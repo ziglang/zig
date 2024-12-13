@@ -308,8 +308,8 @@ pub fn resolve(options: Options) ResolveError!Config {
         }
 
         break :b switch (options.output_mode) {
-            .Lib, .Obj => false,
-            .Exe => switch (root_optimize_mode) {
+            .Obj => false,
+            .Lib, .Exe => switch (root_optimize_mode) {
                 .Debug => false,
                 .ReleaseSafe, .ReleaseFast, .ReleaseSmall => true,
             },
