@@ -4,6 +4,7 @@ const assert = std.debug.assert;
 const Type = @import("Type.zig");
 const AddressSpace = std.builtin.AddressSpace;
 const Alignment = @import("InternPool.zig").Alignment;
+const Compilation = @import("Compilation.zig");
 const Feature = @import("Zcu.zig").Feature;
 
 pub const default_stack_protector_buffer_size = 4;
@@ -408,8 +409,16 @@ pub fn clangSupportsNoImplicitFloatArg(target: std.Target) bool {
     };
 }
 
-pub fn needUnwindTables(target: std.Target) bool {
-    return target.os.tag == .windows or target.isDarwin() or std.debug.Dwarf.abi.supportsUnwinding(target);
+pub fn needUnwindTables(target: std.Target, libunwind: bool, libtsan: bool) std.builtin.UnwindTables {
+    if (target.os.tag == .windows) {
+        // The old 32-bit x86 variant of SEH doesn't use tables.
+        return if (target.cpu.arch != .x86) .@"async" else .none;
+    }
+    if (target.os.tag.isDarwin()) return .@"async";
+    if (libunwind) return .@"async";
+    if (libtsan) return .@"async";
+    if (std.debug.Dwarf.abi.supportsUnwinding(target)) return .@"async";
+    return .none;
 }
 
 pub fn defaultAddressSpace(

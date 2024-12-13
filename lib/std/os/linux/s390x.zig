@@ -133,7 +133,12 @@ pub fn clone() callconv(.Naked) usize {
         \\ltgr %%r2, %%r2
         \\bnzr %%r14
         \\
-        \\# we're the child. call fn(arg)
+        \\# we're the child
+        \\.cfi_undefined %%r14
+        \\lghi %%r11, 0
+        \\lghi %%r14, 0
+        \\
+        \\# call fn(arg)
         \\lg   %%r1,  8(%%r15)
         \\lg   %%r2, 16(%%r15)
         \\basr %%r14, %%r1

@@ -23,7 +23,8 @@ __clone:
 	l.jr	r9
 	 l.nop
 
-1:	l.lwz	r11, 0(r1)
+1:	l.ori	r2, r0, 0
+	l.lwz	r11, 0(r1)
 	l.jalr	r11
 	 l.lwz	r3, 4(r1)
 

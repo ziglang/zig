@@ -397,7 +397,6 @@ pub fn buildLibCXXABI(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
 
     const optimize_mode = comp.compilerRtOptMode();
     const strip = comp.compilerRtStrip();
-    const unwind_tables = true;
 
     const config = Compilation.Config.resolve(.{
         .output_mode = output_mode,
@@ -409,7 +408,6 @@ pub fn buildLibCXXABI(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         .root_optimize_mode = optimize_mode,
         .root_strip = strip,
         .link_libc = true,
-        .any_unwind_tables = unwind_tables,
         .lto = comp.config.lto,
         .any_sanitize_thread = comp.config.any_sanitize_thread,
     }) catch |err| {
@@ -440,7 +438,12 @@ pub fn buildLibCXXABI(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
             .valgrind = false,
             .optimize_mode = optimize_mode,
             .structured_cfg = comp.root_mod.structured_cfg,
-            .unwind_tables = unwind_tables,
+            // See the `-fno-exceptions` logic for WASI.
+            // The old 32-bit x86 variant of SEH doesn't use tables.
+            .unwind_tables = if (target.os.tag == .wasi or (target.cpu.arch == .x86 and target.os.tag == .windows))
+                .none
+            else
+                .@"async",
             .pic = comp.root_mod.pic,
         },
         .global = config,

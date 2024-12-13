@@ -1261,12 +1261,15 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         // The "any" values provided by resolved config only account for
         // explicitly-provided settings. We now make them additionally account
         // for default setting resolution.
-        const any_unwind_tables = options.config.any_unwind_tables or options.root_mod.unwind_tables;
+        const any_unwind_tables = switch (options.config.any_unwind_tables) {
+            .none => options.root_mod.unwind_tables,
+            .sync, .@"async" => |uwt| uwt,
+        };
         const any_non_single_threaded = options.config.any_non_single_threaded or !options.root_mod.single_threaded;
         const any_sanitize_thread = options.config.any_sanitize_thread or options.root_mod.sanitize_thread;
         const any_fuzz = options.config.any_fuzz or options.root_mod.fuzz;
 
-        const link_eh_frame_hdr = options.link_eh_frame_hdr or any_unwind_tables;
+        const link_eh_frame_hdr = options.link_eh_frame_hdr or any_unwind_tables != .none;
         const build_id = options.build_id orelse .none;
 
         const link_libc = options.config.link_libc;
@@ -1354,6 +1357,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         cache.hash.add(options.config.pie);
         cache.hash.add(options.config.lto);
         cache.hash.add(options.config.link_mode);
+        cache.hash.add(options.config.any_unwind_tables);
         cache.hash.add(options.function_sections);
         cache.hash.add(options.data_sections);
         cache.hash.add(link_libc);
@@ -5553,10 +5557,17 @@ pub fn addCCArgs(
                 try argv.append("-Werror=date-time");
             }
 
-            if (mod.unwind_tables) {
-                try argv.append("-funwind-tables");
-            } else {
-                try argv.append("-fno-unwind-tables");
+            switch (mod.unwind_tables) {
+                .none => {
+                    try argv.append("-fno-unwind-tables");
+                    try argv.append("-fno-asynchronous-unwind-tables");
+                },
+                .sync => {
+                    // Need to override Clang's convoluted default logic.
+                    try argv.append("-fno-asynchronous-unwind-tables");
+                    try argv.append("-funwind-tables");
+                },
+                .@"async" => try argv.append("-fasynchronous-unwind-tables"),
             }
         },
         .shared_library, .ll, .bc, .unknown, .static_library, .object, .def, .zig, .res, .manifest => {},
@@ -6288,6 +6299,7 @@ pub const CrtFileOptions = struct {
     function_sections: ?bool = null,
     data_sections: ?bool = null,
     omit_frame_pointer: ?bool = null,
+    unwind_tables: ?std.builtin.UnwindTables = null,
     pic: ?bool = null,
     no_builtin: ?bool = null,
 };
@@ -6349,7 +6361,8 @@ pub fn build_crt_file(
             // Some libcs (e.g. musl) are opinionated about -fomit-frame-pointer.
             .omit_frame_pointer = options.omit_frame_pointer orelse comp.root_mod.omit_frame_pointer,
             .valgrind = false,
-            .unwind_tables = false,
+            // Some libcs (e.g. MinGW) are opinionated about -funwind-tables.
+            .unwind_tables = options.unwind_tables orelse .none,
             // Some CRT objects (e.g. musl's rcrt1.o and Scrt1.o) are opinionated about PIC.
             .pic = options.pic orelse comp.root_mod.pic,
             .optimize_mode = comp.compilerRtOptMode(),
