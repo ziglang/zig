@@ -1813,6 +1813,7 @@ fn analyzeBodyInner(
                 const extra = sema.code.extraData(Zir.Inst.DeferErrCode, inst_data.payload_index).data;
                 const defer_body = sema.code.bodySlice(extra.index, extra.len);
                 const err_code = try sema.resolveInst(inst_data.err_code);
+                try map.ensureSpaceForInstructions(sema.gpa, defer_body);
                 map.putAssumeCapacity(extra.remapped_err_code, err_code);
                 if (sema.analyzeBodyInner(block, defer_body)) |_| {
                     // The defer terminated noreturn - no more analysis needed.
