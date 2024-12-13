@@ -1683,10 +1683,14 @@ fn resolveGlobalSymbol(coff: *Coff, current: SymbolWithLoc) !void {
 pub fn flush(coff: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
     const comp = coff.base.comp;
     const use_lld = build_options.have_llvm and comp.config.use_lld;
-    if (use_lld) {
-        return coff.linkWithLLD(arena, tid, prog_node);
-    }
     const diags = &comp.link_diags;
+    if (use_lld) {
+        return coff.linkWithLLD(arena, tid, prog_node) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.LinkFailure => return error.LinkFailure,
+            else => |e| return diags.fail("failed to link with LLD: {s}", .{@errorName(e)}),
+        };
+    }
     switch (comp.config.output_mode) {
         .Exe, .Obj => return coff.flushModule(arena, tid, prog_node),
         .Lib => return diags.fail("writing lib files not yet implemented for COFF", .{}),

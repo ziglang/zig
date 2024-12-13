@@ -1031,6 +1031,17 @@ pub const File = struct {
         defer tracy.end();
 
         const comp = base.comp;
+        const diags = &comp.link_diags;
+
+        return linkAsArchiveInner(base, arena, tid, prog_node) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.LinkFailure => return error.LinkFailure,
+            else => |e| return diags.fail("failed to link as archive: {s}", .{@errorName(e)}),
+        };
+    }
+
+    fn linkAsArchiveInner(base: *File, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) !void {
+        const comp = base.comp;
 
         const directory = base.emit.root_dir; // Just an alias to make it shorter to type.
         const full_out_path = try directory.join(arena, &[_][]const u8{base.emit.sub_path});
@@ -1528,7 +1539,7 @@ pub fn spawnLld(
         const exit_code = try lldMain(arena, argv, false);
         if (exit_code == 0) return;
         if (comp.clang_passthrough_mode) std.process.exit(exit_code);
-        return error.LLDReportedFailure;
+        return error.LinkFailure;
     }
 
     var stderr: []u8 = &.{};
@@ -1605,17 +1616,16 @@ pub fn spawnLld(
         return error.UnableToSpawnSelf;
     };
 
+    const diags = &comp.link_diags;
     switch (term) {
         .Exited => |code| if (code != 0) {
             if (comp.clang_passthrough_mode) std.process.exit(code);
-            const diags = &comp.link_diags;
             diags.lockAndParseLldStderr(argv[1], stderr);
-            return error.LLDReportedFailure;
+            return error.LinkFailure;
         },
         else => {
             if (comp.clang_passthrough_mode) std.process.abort();
-            log.err("{s} terminated with stderr:\n{s}", .{ argv[0], stderr });
-            return error.LLDCrashed;
+            return diags.fail("{s} terminated with stderr:\n{s}", .{ argv[0], stderr });
         },
     }
 

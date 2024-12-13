@@ -795,9 +795,15 @@ pub fn loadInput(self: *Elf, input: link.Input) !void {
 }
 
 pub fn flush(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
-    const use_lld = build_options.have_llvm and self.base.comp.config.use_lld;
+    const comp = self.base.comp;
+    const use_lld = build_options.have_llvm and comp.config.use_lld;
+    const diags = &comp.link_diags;
     if (use_lld) {
-        return self.linkWithLLD(arena, tid, prog_node);
+        return self.linkWithLLD(arena, tid, prog_node) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.LinkFailure => return error.LinkFailure,
+            else => |e| return diags.fail("failed to link with LLD: {s}", .{@errorName(e)}),
+        };
     }
     try self.flushModule(arena, tid, prog_node);
 }

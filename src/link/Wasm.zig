@@ -2134,9 +2134,14 @@ pub fn loadInput(wasm: *Wasm, input: link.Input) !void {
 pub fn flush(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
     const comp = wasm.base.comp;
     const use_lld = build_options.have_llvm and comp.config.use_lld;
+    const diags = &comp.link_diags;
 
     if (use_lld) {
-        return wasm.linkWithLLD(arena, tid, prog_node);
+        return wasm.linkWithLLD(arena, tid, prog_node) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.LinkFailure => return error.LinkFailure,
+            else => |e| return diags.fail("failed to link with LLD: {s}", .{@errorName(e)}),
+        };
     }
     return wasm.flushModule(arena, tid, prog_node);
 }
@@ -2415,6 +2420,7 @@ fn linkWithLLD(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
     defer tracy.end();
 
     const comp = wasm.base.comp;
+    const diags = &comp.link_diags;
     const shared_memory = comp.config.shared_memory;
     const export_memory = comp.config.export_memory;
     const import_memory = comp.config.import_memory;
@@ -2468,7 +2474,7 @@ fn linkWithLLD(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
         }
         try man.addOptionalFile(module_obj_path);
         try man.addOptionalFilePath(compiler_rt_path);
-        man.hash.addOptionalBytes(wasm.optionalStringSlice(wasm.entry_name));
+        man.hash.addOptionalBytes(wasm.entry_name.slice(wasm));
         man.hash.add(wasm.base.stack_size);
         man.hash.add(wasm.base.build_id);
         man.hash.add(import_memory);
@@ -2617,7 +2623,7 @@ fn linkWithLLD(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
             try argv.append("--export-dynamic");
         }
 
-        if (wasm.optionalStringSlice(wasm.entry_name)) |entry_name| {
+        if (wasm.entry_name.slice(wasm)) |entry_name| {
             try argv.appendSlice(&.{ "--entry", entry_name });
         } else {
             try argv.append("--no-entry");
@@ -2759,14 +2765,12 @@ fn linkWithLLD(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
                 switch (term) {
                     .Exited => |code| {
                         if (code != 0) {
-                            const diags = &comp.link_diags;
                             diags.lockAndParseLldStderr(linker_command, stderr);
-                            return error.LLDReportedFailure;
+                            return error.LinkFailure;
                         }
                     },
                     else => {
-                        log.err("{s} terminated with stderr:\n{s}", .{ argv.items[0], stderr });
-                        return error.LLDCrashed;
+                        return diags.fail("{s} terminated with stderr:\n{s}", .{ argv.items[0], stderr });
                     },
                 }
 
@@ -2780,7 +2784,7 @@ fn linkWithLLD(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
                 if (comp.clang_passthrough_mode) {
                     std.process.exit(exit_code);
                 } else {
-                    return error.LLDReportedFailure;
+                    return diags.fail("{s} returned exit code {d}:\n{s}", .{ argv.items[0], exit_code });
                 }
             }
         }
