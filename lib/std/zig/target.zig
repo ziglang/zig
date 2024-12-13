@@ -86,15 +86,17 @@ pub const available_libcs = [_]ArchOsAbi{
 pub fn canBuildLibC(target: std.Target) bool {
     for (available_libcs) |libc| {
         if (target.cpu.arch == libc.arch and target.os.tag == libc.os and target.abi == libc.abi) {
-            if (target.os.tag == .macos) {
-                const ver = target.os.version_range.semver;
-                return ver.min.order(libc.os_ver.?) != .lt;
+            if (libc.os_ver) |libc_os_ver| {
+                if (switch (target.os.versionRange()) {
+                    .semver => |v| v,
+                    .linux => |v| v.range,
+                    else => null,
+                }) |ver| {
+                    if (ver.min.order(libc_os_ver) == .lt) return false;
+                }
             }
-            // Ensure glibc (aka *-(linux,hurd)-gnu) version is supported
-            if (target.isGnuLibC()) {
-                const min_glibc_ver = libc.glibc_min orelse return true;
-                const target_glibc_ver = target.os.versionRange().gnuLibCVersion().?;
-                return target_glibc_ver.order(min_glibc_ver) != .lt;
+            if (libc.glibc_min) |glibc_min| {
+                if (target.os.versionRange().gnuLibCVersion().?.order(glibc_min) == .lt) return false;
             }
             return true;
         }
