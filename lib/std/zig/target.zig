@@ -173,17 +173,15 @@ pub fn isLibCLibName(target: std.Target, name: []const u8) bool {
         return true;
 
     if (target.isMinGW()) {
-        if (eqlIgnoreCase(ignore_case, name, "m"))
+        if (eqlIgnoreCase(ignore_case, name, "adsiid"))
             return true;
-        if (eqlIgnoreCase(ignore_case, name, "mingw32"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "msvcrt-os"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "mingwex"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "uuid"))
+        if (eqlIgnoreCase(ignore_case, name, "amstrmid"))
             return true;
         if (eqlIgnoreCase(ignore_case, name, "bits"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "delayimp"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "dloadhelper"))
             return true;
         if (eqlIgnoreCase(ignore_case, name, "dmoguids"))
             return true;
@@ -191,35 +189,53 @@ pub fn isLibCLibName(target: std.Target, name: []const u8) bool {
             return true;
         if (eqlIgnoreCase(ignore_case, name, "dxerr9"))
             return true;
+        if (eqlIgnoreCase(ignore_case, name, "dxguid"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "ksguid"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "ksuser"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "largeint"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "locationapi"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "m"))
+            return true;
         if (eqlIgnoreCase(ignore_case, name, "mfuuid"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "mingw32"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "mingwex"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "mingwthrd"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "moldname"))
             return true;
         if (eqlIgnoreCase(ignore_case, name, "msxml2"))
             return true;
         if (eqlIgnoreCase(ignore_case, name, "msxml6"))
             return true;
-        if (eqlIgnoreCase(ignore_case, name, "amstrmid"))
+        if (eqlIgnoreCase(ignore_case, name, "msvcrt-os"))
             return true;
-        if (eqlIgnoreCase(ignore_case, name, "wbemuuid"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "wmcodecdspuuid"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "dxguid"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "ksguid"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "locationapi"))
+        if (eqlIgnoreCase(ignore_case, name, "ntoskrnl"))
             return true;
         if (eqlIgnoreCase(ignore_case, name, "portabledeviceguids"))
             return true;
-        if (eqlIgnoreCase(ignore_case, name, "mfuuid"))
+        if (eqlIgnoreCase(ignore_case, name, "pthread"))
             return true;
-        if (eqlIgnoreCase(ignore_case, name, "dloadhelper"))
+        if (eqlIgnoreCase(ignore_case, name, "scrnsave"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "scrnsavw"))
             return true;
         if (eqlIgnoreCase(ignore_case, name, "strmiids"))
             return true;
-        if (eqlIgnoreCase(ignore_case, name, "mfuuid"))
+        if (eqlIgnoreCase(ignore_case, name, "uuid"))
             return true;
-        if (eqlIgnoreCase(ignore_case, name, "adsiid"))
+        if (eqlIgnoreCase(ignore_case, name, "wbemuuid"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "winpthread"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "wmcodecdspuuid"))
             return true;
 
         return false;

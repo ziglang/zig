@@ -115,15 +115,7 @@ extern "C" {
 #endif
 #endif
 
-#if defined(__3dNOW__) || defined(__MINGW_FORCE_SYS_INTRINS)
-#if defined(__cplusplus)
-extern "C" {
-#endif
-#include <mm3dnow.h>
-#if defined(__cplusplus)
-}
-#endif
-#endif
+/* Note: mm3dnow.h intentionally not included; 3DNow! is deprecated. */
 
 /* NOTE: it's not included by MS version, but we do it to try work around C++/C linkage differences */
 #if defined(__SSE__) || defined(__MINGW_FORCE_SYS_INTRINS)
@@ -158,18 +150,6 @@ extern "C" {
 
 #endif
 
-#if (defined(_X86_) && !defined(__x86_64))
-#if defined(__cplusplus)
-extern "C" {
-#endif
-
-#include <mm3dnow.h>
-
-#if defined(__cplusplus)
-}
-#endif
-
-#endif
 
 #define __MACHINEX64 __MACHINE
 #define __MACHINEARMX __MACHINE

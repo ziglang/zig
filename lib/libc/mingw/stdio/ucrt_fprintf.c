@@ -13,7 +13,7 @@ int __cdecl fprintf(FILE * __restrict__ _File,const char * __restrict__ _Format,
   __builtin_va_list ap;
   int ret;
   __builtin_va_start(ap, _Format);
-  ret = __stdio_common_vfprintf(0, _File, _Format, NULL, ap);
+  ret = __stdio_common_vfprintf(_CRT_INTERNAL_LOCAL_PRINTF_OPTIONS, _File, _Format, NULL, ap);
   __builtin_va_end(ap);
   return ret;
 }
