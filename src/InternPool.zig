@@ -9822,6 +9822,7 @@ test "basic usage" {
     const gpa = std.testing.allocator;
 
     var ip: InternPool = .empty;
+    try ip.init(gpa, 1);
     defer ip.deinit(gpa);
 
     const i32_type = try ip.get(gpa, .main, .{ .int_type = .{

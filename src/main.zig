@@ -34,6 +34,10 @@ const Zcu = @import("Zcu.zig");
 const mingw = @import("mingw.zig");
 const dev = @import("dev.zig");
 
+test {
+    _ = Package;
+}
+
 pub const std_options: std.Options = .{
     .wasiCwd = wasi_cwd,
     .logFn = log,
@@ -7033,8 +7037,8 @@ fn cmdFetch(
 
     var saved_path_or_url = path_or_url;
 
-    if (fetch.latest_commit) |*latest_commit| resolved: {
-        const latest_commit_hex = try std.fmt.allocPrint(arena, "{}", .{std.fmt.fmtSliceHexLower(latest_commit)});
+    if (fetch.latest_commit) |latest_commit| resolved: {
+        const latest_commit_hex = try std.fmt.allocPrint(arena, "{}", .{latest_commit});
 
         var uri = try std.Uri.parse(path_or_url);
 

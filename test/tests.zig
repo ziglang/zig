@@ -1303,6 +1303,7 @@ const ModuleTestOptions = struct {
     skip_libc: bool,
     max_rss: usize = 0,
     no_builtin: bool = false,
+    build_options: ?*std.Build.Step.Options = null,
 };
 
 pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
@@ -1392,6 +1393,9 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             .strip = test_target.strip,
         });
         if (options.no_builtin) these_tests.no_builtin = true;
+        if (options.build_options) |build_options| {
+            these_tests.root_module.addOptions("build_options", build_options);
+        }
         const single_threaded_suffix = if (test_target.single_threaded == true) "-single" else "";
         const backend_suffix = if (test_target.use_llvm == true)
             "-llvm"
