@@ -15,11 +15,11 @@ comptime {
             @export(&__aeabi_unwind_cpp_pr1, .{ .name = "__aeabi_unwind_cpp_pr1", .linkage = common.linkage, .visibility = common.visibility });
             @export(&__aeabi_unwind_cpp_pr2, .{ .name = "__aeabi_unwind_cpp_pr2", .linkage = common.linkage, .visibility = common.visibility });
 
-            @export(&__aeabi_ldivmod, .{ .name = if (target.isMinGW()) "__rt_sdiv64" else "__aeabi_ldivmod", .linkage = common.linkage, .visibility = common.visibility });
-            @export(&__aeabi_uldivmod, .{ .name = if (target.isMinGW()) "__rt_udiv64" else "__aeabi_uldivmod", .linkage = common.linkage, .visibility = common.visibility });
+            @export(&__aeabi_ldivmod, .{ .name = if (common.want_windows_arm_abi) "__rt_sdiv64" else "__aeabi_ldivmod", .linkage = common.linkage, .visibility = common.visibility });
+            @export(&__aeabi_uldivmod, .{ .name = if (common.want_windows_arm_abi) "__rt_udiv64" else "__aeabi_uldivmod", .linkage = common.linkage, .visibility = common.visibility });
 
-            @export(&__aeabi_idivmod, .{ .name = if (target.isMinGW()) "__rt_sdiv" else "__aeabi_idivmod", .linkage = common.linkage, .visibility = common.visibility });
-            @export(&__aeabi_uidivmod, .{ .name = if (target.isMinGW()) "__rt_udiv" else "__aeabi_uidivmod", .linkage = common.linkage, .visibility = common.visibility });
+            @export(&__aeabi_idivmod, .{ .name = if (common.want_windows_arm_abi) "__rt_sdiv" else "__aeabi_idivmod", .linkage = common.linkage, .visibility = common.visibility });
+            @export(&__aeabi_uidivmod, .{ .name = if (common.want_windows_arm_abi) "__rt_udiv" else "__aeabi_uidivmod", .linkage = common.linkage, .visibility = common.visibility });
 
             @export(&__aeabi_memcpy, .{ .name = "__aeabi_memcpy", .linkage = common.linkage, .visibility = common.visibility });
             @export(&__aeabi_memcpy4, .{ .name = "__aeabi_memcpy4", .linkage = common.linkage, .visibility = common.visibility });
