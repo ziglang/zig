@@ -59,7 +59,7 @@ pub fn build(b: *std.Build) !void {
 
     // Only target the MSVC ABI if MSVC/Windows SDK is available
     const has_msvc = has_msvc: {
-        const sdk = std.zig.WindowsSdk.find(b.allocator) catch |err| switch (err) {
+        const sdk = std.zig.WindowsSdk.find(b.allocator, builtin.cpu.arch) catch |err| switch (err) {
             error.OutOfMemory => @panic("oom"),
             else => break :has_msvc false,
         };

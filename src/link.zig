@@ -768,7 +768,7 @@ pub const File = struct {
     /// TODO audit this error set. most of these should be collapsed into one error,
     /// and Diags.Flags should be updated to convey the meaning to the user.
     pub const FlushError = error{
-        CacheUnavailable,
+        CacheCheckFailed,
         CurrentWorkingDirectoryUnlinked,
         DivisionByZero,
         DllImportLibraryNotFound,
@@ -1648,7 +1648,7 @@ pub fn spawnLld(
             },
             else => first_err,
         };
-        log.err("unable to spawn {s}: {s}", .{ argv[0], @errorName(err) });
+        log.err("unable to spawn LLD {s}: {s}", .{ argv[0], @errorName(err) });
         return error.UnableToSpawnSelf;
     };
 

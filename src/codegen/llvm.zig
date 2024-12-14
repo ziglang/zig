@@ -167,7 +167,6 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .aix,
         .zos,
         => "ibm",
-        .bridgeos,
         .driverkit,
         .ios,
         .macos,
@@ -218,7 +217,6 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .hurd => "hurd",
         .wasi => "wasi",
         .emscripten => "emscripten",
-        .bridgeos => "bridgeos",
         .macos => "macosx",
         .ios => "ios",
         .tvos => "tvos",
@@ -245,7 +243,7 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
             ver.min.minor,
             ver.min.patch,
         }),
-        .linux => |ver| try llvm_triple.writer().print("{d}.{d}.{d}", .{
+        inline .linux, .hurd => |ver| try llvm_triple.writer().print("{d}.{d}.{d}", .{
             ver.range.min.major,
             ver.range.min.minor,
             ver.range.min.patch,
@@ -280,8 +278,7 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .cygnus => "cygnus",
         .simulator => "simulator",
         .macabi => "macabi",
-        .ohos => "ohos",
-        .ohoseabi => "ohoseabi",
+        .ohos, .ohoseabi => "ohos",
     };
     try llvm_triple.appendSlice(llvm_abi);
 
@@ -290,111 +287,18 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .semver,
         .windows,
         => {},
-        .linux => |ver| if (target.abi.isGnu()) try llvm_triple.writer().print("{d}.{d}.{d}", .{
-            ver.glibc.major,
-            ver.glibc.minor,
-            ver.glibc.patch,
-        }) else if (target.abi.isAndroid()) try llvm_triple.writer().print("{d}", .{ver.android}),
+        inline .hurd, .linux => |ver| if (target.abi.isGnu()) {
+            try llvm_triple.writer().print("{d}.{d}.{d}", .{
+                ver.glibc.major,
+                ver.glibc.minor,
+                ver.glibc.patch,
+            });
+        } else if (@TypeOf(ver) == std.Target.Os.LinuxVersionRange and target.abi.isAndroid()) {
+            try llvm_triple.writer().print("{d}", .{ver.android});
+        },
     }
 
     return llvm_triple.toOwnedSlice();
-}
-
-pub fn targetOs(os_tag: std.Target.Os.Tag) llvm.OSType {
-    return switch (os_tag) {
-        .freestanding => .UnknownOS,
-        .windows, .uefi => .Win32,
-        .dragonfly => .DragonFly,
-        .freebsd => .FreeBSD,
-        .fuchsia => .Fuchsia,
-        .ios => .IOS,
-        .linux => .Linux,
-        .ps3 => .Lv2,
-        .macos => .MacOSX,
-        .netbsd => .NetBSD,
-        .openbsd => .OpenBSD,
-        .solaris, .illumos => .Solaris,
-        .zos => .ZOS,
-        .haiku => .Haiku,
-        .rtems => .RTEMS,
-        .aix => .AIX,
-        .cuda => .CUDA,
-        .nvcl => .NVCL,
-        .amdhsa => .AMDHSA,
-        .opencl => .UnknownOS, // https://llvm.org/docs/SPIRVUsage.html#target-triples
-        .ps4 => .PS4,
-        .ps5 => .PS5,
-        .elfiamcu => .ELFIAMCU,
-        .tvos => .TvOS,
-        .watchos => .WatchOS,
-        .visionos => .XROS,
-        .mesa3d => .Mesa3D,
-        .amdpal => .AMDPAL,
-        .hermit => .HermitCore,
-        .hurd => .Hurd,
-        .wasi => .WASI,
-        .emscripten => .Emscripten,
-        .driverkit => .DriverKit,
-        .vulkan => .Vulkan,
-        .serenity => .Serenity,
-        .bridgeos => .BridgeOS,
-
-        .opengl,
-        .plan9,
-        .contiki,
-        .other,
-        => .UnknownOS,
-    };
-}
-
-pub fn targetArch(arch_tag: std.Target.Cpu.Arch) llvm.ArchType {
-    return switch (arch_tag) {
-        .arm => .arm,
-        .armeb => .armeb,
-        .aarch64 => .aarch64,
-        .aarch64_be => .aarch64_be,
-        .arc => .arc,
-        .avr => .avr,
-        .bpfel => .bpfel,
-        .bpfeb => .bpfeb,
-        .csky => .csky,
-        .hexagon => .hexagon,
-        .loongarch32 => .loongarch32,
-        .loongarch64 => .loongarch64,
-        .m68k => .m68k,
-        .mips => .mips,
-        .mipsel => .mipsel,
-        .mips64 => .mips64,
-        .mips64el => .mips64el,
-        .msp430 => .msp430,
-        .powerpc => .ppc,
-        .powerpcle => .ppcle,
-        .powerpc64 => .ppc64,
-        .powerpc64le => .ppc64le,
-        .amdgcn => .amdgcn,
-        .riscv32 => .riscv32,
-        .riscv64 => .riscv64,
-        .sparc => .sparc,
-        .sparc64 => .sparcv9, // In LLVM, sparc64 == sparcv9.
-        .s390x => .systemz,
-        .thumb => .thumb,
-        .thumbeb => .thumbeb,
-        .x86 => .x86,
-        .x86_64 => .x86_64,
-        .xcore => .xcore,
-        .xtensa => .xtensa,
-        .nvptx => .nvptx,
-        .nvptx64 => .nvptx64,
-        .spirv => .spirv,
-        .spirv32 => .spirv32,
-        .spirv64 => .spirv64,
-        .kalimba => .kalimba,
-        .lanai => .lanai,
-        .wasm32 => .wasm32,
-        .wasm64 => .wasm64,
-        .ve => .ve,
-        .propeller1, .propeller2, .spu_2 => .UnknownArch,
-    };
 }
 
 pub fn supportsTailCall(target: std.Target) bool {
@@ -3237,8 +3141,11 @@ pub const Object = struct {
             } }, &o.builder);
         }
         try attributes.addFnAttr(.nounwind, &o.builder);
-        if (owner_mod.unwind_tables) {
-            try attributes.addFnAttr(.{ .uwtable = Builder.Attribute.UwTable.default }, &o.builder);
+        if (owner_mod.unwind_tables != .none) {
+            try attributes.addFnAttr(
+                .{ .uwtable = if (owner_mod.unwind_tables == .@"async") .@"async" else .sync },
+                &o.builder,
+            );
         }
         if (owner_mod.no_builtin) {
             // The intent here is for compiler-rt and libc functions to not generate

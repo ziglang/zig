@@ -623,6 +623,7 @@ const Writer = struct {
             .inplace_arith_result_ty => try self.writeInplaceArithResultTy(stream, extended),
 
             .dbg_empty_stmt => try stream.writeAll("))"),
+            .astgen_error => try stream.writeAll("))"),
         }
     }
 

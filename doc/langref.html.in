@@ -3053,32 +3053,6 @@ fn createFoo(param: i32) !Foo {
       </p>
       {#code|test_errdefer_capture.zig#}
       {#header_close#}
-      {#header_open|Common errdefer Slip-Ups#}
-      <p>
-      It should be noted that {#syntax#}errdefer{#endsyntax#} statements only last until the end of the block
-      they are written in, and therefore are not run if an error is returned outside of that block:
-      </p>
-      {#code|test_errdefer_slip_ups.zig#}
-
-      <p>
-      To ensure that {#syntax#}deallocateFoo{#endsyntax#} is properly called
-      when returning an error, you must add an {#syntax#}errdefer{#endsyntax#} outside of the block:
-      </p>
-      {#code|test_errdefer_block.zig#}
-
-      <p>
-      The fact that errdefers only last for the block they are declared in is
-      especially important when using loops:
-      </p>
-      {#code|test_errdefer_loop_leak.zig#}
-
-      <p>
-      Special care must be taken with code that allocates in a loop
-      to make sure that no memory is leaked when returning an error:
-      </p>
-      {#code|test_errdefer_loop.zig#}
-
-      {#header_close#}
       <p>
       A couple of other tidbits about error handling:
       </p>

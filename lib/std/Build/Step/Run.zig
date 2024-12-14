@@ -1009,7 +1009,8 @@ fn runCommand(
                 else => break :interpret,
             }
 
-            const need_cross_glibc = exe.rootModuleTarget().isGnuLibC() and
+            const root_target = exe.rootModuleTarget();
+            const need_cross_glibc = root_target.isGnuLibC() and
                 exe.is_linking_libc;
             const other_target = exe.root_module.resolved_target.?.result;
             switch (std.zig.system.getExternalExecutor(b.graph.host.result, &other_target, .{
@@ -1039,23 +1040,16 @@ fn runCommand(
                         try interp_argv.append(bin_name);
 
                         if (glibc_dir_arg) |dir| {
-                            // TODO look into making this a call to `linuxTriple`. This
-                            // needs the directory to be called "i686" rather than
-                            // "x86" which is why we do it manually here.
-                            const fmt_str = "{s}" ++ fs.path.sep_str ++ "{s}-{s}-{s}";
-                            const cpu_arch = exe.rootModuleTarget().cpu.arch;
-                            const os_tag = exe.rootModuleTarget().os.tag;
-                            const abi = exe.rootModuleTarget().abi;
-                            const cpu_arch_name: []const u8 = if (cpu_arch == .x86)
-                                "i686"
-                            else
-                                @tagName(cpu_arch);
-                            const full_dir = try std.fmt.allocPrint(b.allocator, fmt_str, .{
-                                dir, cpu_arch_name, @tagName(os_tag), @tagName(abi),
-                            });
-
                             try interp_argv.append("-L");
-                            try interp_argv.append(full_dir);
+                            try interp_argv.append(b.pathJoin(&.{
+                                dir,
+                                try std.zig.target.glibcRuntimeTriple(
+                                    b.allocator,
+                                    root_target.cpu.arch,
+                                    root_target.os.tag,
+                                    root_target.abi,
+                                ),
+                            }));
                         }
 
                         try interp_argv.appendSlice(argv);
@@ -1113,7 +1107,7 @@ fn runCommand(
                     if (allow_skip) return error.MakeSkipped;
 
                     const host_name = try b.graph.host.result.zigTriple(b.allocator);
-                    const foreign_name = try exe.rootModuleTarget().zigTriple(b.allocator);
+                    const foreign_name = try root_target.zigTriple(b.allocator);
 
                     return step.fail("the host system ({s}) is unable to execute binaries from the target ({s})", .{
                         host_name, foreign_name,
@@ -1121,7 +1115,7 @@ fn runCommand(
                 },
             }
 
-            if (exe.rootModuleTarget().os.tag == .windows) {
+            if (root_target.os.tag == .windows) {
                 // On Windows we don't have rpaths so we have to add .dll search paths to PATH
                 run.addPathForDynLibs(exe);
             }
@@ -1137,7 +1131,7 @@ fn runCommand(
             };
         }
 
-        return step.fail("unable to spawn {s}: {s}", .{ argv[0], @errorName(err) });
+        return step.fail("failed to spawn and capture stdio from {s}: {s}", .{ argv[0], @errorName(err) });
     };
 
     step.result_duration_ns = result.elapsed_ns;
@@ -1413,12 +1407,23 @@ fn evalZigTest(
     });
     defer poller.deinit();
 
-    if (fuzz_context) |fuzz| {
-        try sendRunTestMessage(child.stdin.?, .start_fuzzing, fuzz.unit_test_index);
-    } else {
+    // If this is `true`, we avoid ever entering the polling loop below, because the stdin pipe has
+    // somehow already closed; instead, we go straight to capturing stderr in case it has anything
+    // useful.
+    const first_write_failed = if (fuzz_context) |fuzz| failed: {
+        sendRunTestMessage(child.stdin.?, .start_fuzzing, fuzz.unit_test_index) catch |err| {
+            try run.step.addError("unable to write stdin: {s}", .{@errorName(err)});
+            break :failed true;
+        };
+        break :failed false;
+    } else failed: {
         run.fuzz_tests.clearRetainingCapacity();
-        try sendMessage(child.stdin.?, .query_test_metadata);
-    }
+        sendMessage(child.stdin.?, .query_test_metadata) catch |err| {
+            try run.step.addError("unable to write stdin: {s}", .{@errorName(err)});
+            break :failed true;
+        };
+        break :failed false;
+    };
 
     const Header = std.zig.Server.Message.Header;
 
@@ -1437,13 +1442,13 @@ fn evalZigTest(
     var sub_prog_node: ?std.Progress.Node = null;
     defer if (sub_prog_node) |n| n.end();
 
-    poll: while (true) {
+    const any_write_failed = first_write_failed or poll: while (true) {
         while (stdout.readableLength() < @sizeOf(Header)) {
-            if (!(try poller.poll())) break :poll;
+            if (!(try poller.poll())) break :poll false;
         }
         const header = stdout.reader().readStruct(Header) catch unreachable;
         while (stdout.readableLength() < header.bytes_len) {
-            if (!(try poller.poll())) break :poll;
+            if (!(try poller.poll())) break :poll false;
         }
         const body = stdout.readableSliceOfLen(header.bytes_len);
 
@@ -1483,7 +1488,10 @@ fn evalZigTest(
                     .prog_node = prog_node,
                 };
 
-                try requestNextTest(child.stdin.?, &metadata.?, &sub_prog_node);
+                requestNextTest(child.stdin.?, &metadata.?, &sub_prog_node) catch |err| {
+                    try run.step.addError("unable to write stdin: {s}", .{@errorName(err)});
+                    break :poll true;
+                };
             },
             .test_results => {
                 assert(fuzz_context == null);
@@ -1518,7 +1526,10 @@ fn evalZigTest(
                     }
                 }
 
-                try requestNextTest(child.stdin.?, &metadata.?, &sub_prog_node);
+                requestNextTest(child.stdin.?, &metadata.?, &sub_prog_node) catch |err| {
+                    try run.step.addError("unable to write stdin: {s}", .{@errorName(err)});
+                    break :poll true;
+                };
             },
             .coverage_id => {
                 const web_server = fuzz_context.?.web_server;
@@ -1552,6 +1563,12 @@ fn evalZigTest(
         }
 
         stdout.discard(body.len);
+    };
+
+    if (any_write_failed) {
+        // The compiler unexpectedly closed stdin; something is very wrong and has probably crashed.
+        // We want to make sure we've captured all of stderr so that it's logged below.
+        while (try poller.poll()) {}
     }
 
     if (stderr.readableLength() > 0) {

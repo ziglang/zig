@@ -116,8 +116,10 @@ pub fn clone() callconv(.Naked) usize {
         \\      testq %%rax,%%rax
         \\      jz 1f
         \\      retq
+        \\
         \\1:    .cfi_undefined %%rip
         \\      xorl %%ebp,%%ebp
+        \\
         \\      popq %%rdi
         \\      callq *%%r9
         \\      movl %%eax,%%edi

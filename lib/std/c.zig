@@ -56,9 +56,8 @@ pub inline fn versionCheck(comptime version: std.SemanticVersion) bool {
         if (!builtin.link_libc) break :blk false;
         if (native_abi.isMusl()) break :blk true;
         if (builtin.target.isGnuLibC()) {
-            const ver = builtin.os.version_range.linux.glibc;
-            const order = ver.order(version);
-            break :blk switch (order) {
+            const ver = builtin.os.versionRange().gnuLibCVersion().?;
+            break :blk switch (ver.order(version)) {
                 .gt, .eq => true,
                 .lt => false,
             };
@@ -9814,6 +9813,7 @@ pub const mach_port_t = darwin.mach_port_t;
 pub const mach_task_basic_info = darwin.mach_task_basic_info;
 pub const mach_task_self = darwin.mach_task_self;
 pub const mach_timebase_info = darwin.mach_timebase_info;
+pub const mach_timebase_info_data = darwin.mach_timebase_info_data;
 pub const mach_vm_address_t = darwin.mach_vm_address_t;
 pub const mach_vm_protect = darwin.mach_vm_protect;
 pub const mach_vm_read = darwin.mach_vm_read;

@@ -695,6 +695,7 @@ fn runPkgConfig(compile: *Compile, lib_name: []const u8) !PkgConfigResult {
         // -lSDL2 -> pkg-config sdl2
         // -lgdk-3 -> pkg-config gdk-3.0
         // -latk-1.0 -> pkg-config atk
+        // -lpulse -> pkg-config libpulse
         const pkgs = try getPkgConfigList(b);
 
         // Exact match means instant winner.
@@ -711,13 +712,14 @@ fn runPkgConfig(compile: *Compile, lib_name: []const u8) !PkgConfigResult {
             }
         }
 
-        // Now try appending ".0".
+        // Prefixed "lib" or suffixed ".0".
         for (pkgs) |pkg| {
             if (std.ascii.indexOfIgnoreCase(pkg.name, lib_name)) |pos| {
-                if (pos != 0) continue;
-                if (mem.eql(u8, pkg.name[lib_name.len..], ".0")) {
-                    break :match pkg.name;
-                }
+                const prefix = pkg.name[0..pos];
+                const suffix = pkg.name[pos + lib_name.len ..];
+                if (prefix.len > 0 and !mem.eql(u8, prefix, "lib")) continue;
+                if (suffix.len > 0 and !mem.eql(u8, suffix, ".0")) continue;
+                break :match pkg.name;
             }
         }
 

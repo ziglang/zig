@@ -23,7 +23,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("unwind.zig"),
             .target = target,
             .optimize = optimize,
-            .unwind_tables = if (target.result.isDarwin()) true else null,
+            .unwind_tables = if (target.result.isDarwin()) .@"async" else null,
             .omit_frame_pointer = false,
         });
 
@@ -46,7 +46,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("unwind.zig"),
             .target = target,
             .optimize = optimize,
-            .unwind_tables = true,
+            .unwind_tables = .@"async",
             .omit_frame_pointer = true,
         });
 
@@ -85,7 +85,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("shared_lib_unwind.zig"),
             .target = target,
             .optimize = optimize,
-            .unwind_tables = if (target.result.isDarwin()) true else null,
+            .unwind_tables = if (target.result.isDarwin()) .@"async" else null,
             .omit_frame_pointer = true,
         });
 
@@ -113,13 +113,14 @@ pub fn build(b: *std.Build) void {
     // Unwinding without libc/posix
     //
     // No "getcontext" or "ucontext_t"
-    {
+    const no_os_targets = [_]std.Target.Os.Tag{ .freestanding, .other };
+    inline for (no_os_targets) |os_tag| {
         const exe = b.addExecutable(.{
             .name = "unwind_freestanding",
             .root_source_file = b.path("unwind_freestanding.zig"),
             .target = b.resolveTargetQuery(.{
                 .cpu_arch = .x86_64,
-                .os_tag = .freestanding,
+                .os_tag = os_tag,
             }),
             .optimize = optimize,
             .unwind_tables = null,

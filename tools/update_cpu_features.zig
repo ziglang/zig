@@ -426,23 +426,6 @@ const llvm_targets = [_]LlvmTarget{
         .llvm_name = "ARM",
         .td_name = "ARM.td",
         .branch_quota = 10000,
-        .extra_cpus = &.{
-            .{
-                .llvm_name = "generic",
-                .zig_name = "baseline",
-                .features = &.{"v7a"},
-            },
-            .{
-                .llvm_name = null,
-                .zig_name = "exynos_m1",
-                .features = &.{ "v8a", "exynos" },
-            },
-            .{
-                .llvm_name = null,
-                .zig_name = "exynos_m2",
-                .features = &.{ "v8a", "exynos" },
-            },
-        },
         .feature_overrides = &.{
             .{
                 .llvm_name = "exynos",
@@ -902,6 +885,23 @@ const llvm_targets = [_]LlvmTarget{
                 .zig_name = "has_v9_5a",
             },
         },
+        .extra_cpus = &.{
+            .{
+                .llvm_name = "generic",
+                .zig_name = "baseline",
+                .features = &.{"v7a"},
+            },
+            .{
+                .llvm_name = null,
+                .zig_name = "exynos_m1",
+                .features = &.{ "v8a", "exynos" },
+            },
+            .{
+                .llvm_name = null,
+                .zig_name = "exynos_m2",
+                .features = &.{ "v8a", "exynos" },
+            },
+        },
         // LLVM removed support for v2 and v3 but zig wants to support targeting old hardware
         .extra_features = &.{
             .{
@@ -1139,6 +1139,10 @@ const llvm_targets = [_]LlvmTarget{
                 .llvm_name = "winchip2",
                 .extra_deps = &.{"3dnow"},
             },
+            .{
+                .llvm_name = "sse4.2",
+                .extra_deps = &.{"crc32"},
+            },
         },
         // Features removed from LLVM
         .extra_features = &.{
@@ -1220,31 +1224,38 @@ pub fn main() anyerror!void {
     defer arena_state.deinit();
     const arena = arena_state.allocator();
 
-    const args = try std.process.argsAlloc(arena);
-    if (args.len <= 1) {
-        usageAndExit(std.io.getStdErr(), args[0], 1);
-    }
-    if (std.mem.eql(u8, args[1], "--help")) {
-        usageAndExit(std.io.getStdOut(), args[0], 0);
-    }
-    if (args.len < 4) {
-        usageAndExit(std.io.getStdErr(), args[0], 1);
-    }
+    var args = try std.process.argsWithAllocator(arena);
+    const args0 = args.next().?;
 
-    const llvm_tblgen_exe = args[1];
+    const llvm_tblgen_exe = args.next() orelse
+        usageAndExit(args0, 1);
+
+    if (std.mem.eql(u8, llvm_tblgen_exe, "--help")) {
+        usageAndExit(args0, 0);
+    }
     if (std.mem.startsWith(u8, llvm_tblgen_exe, "-")) {
-        usageAndExit(std.io.getStdErr(), args[0], 1);
+        usageAndExit(args0, 1);
     }
 
-    const llvm_src_root = args[2];
+    const llvm_src_root = args.next() orelse
+        usageAndExit(args0, 1);
+
     if (std.mem.startsWith(u8, llvm_src_root, "-")) {
-        usageAndExit(std.io.getStdErr(), args[0], 1);
+        usageAndExit(args0, 1);
     }
 
-    const zig_src_root = args[3];
+    const zig_src_root = args.next() orelse
+        usageAndExit(args0, 1);
+
     if (std.mem.startsWith(u8, zig_src_root, "-")) {
-        usageAndExit(std.io.getStdErr(), args[0], 1);
+        usageAndExit(args0, 1);
     }
+
+    var filter: ?[]const u8 = null;
+    if (args.next()) |arg| filter = arg;
+
+    // there shouldn't be any more argument after the optional filter
+    if (args.skip()) usageAndExit(args0, 1);
 
     var zig_src_dir = try fs.cwd().openDir(zig_src_root, .{});
     defer zig_src_dir.close();
@@ -1254,7 +1265,8 @@ pub fn main() anyerror!void {
 
     if (builtin.single_threaded) {
         for (llvm_targets) |llvm_target| {
-            try processOneTarget(Job{
+            if (filter) |zig_name| if (!std.mem.eql(u8, llvm_target.zig_name, zig_name)) continue;
+            try processOneTarget(.{
                 .llvm_tblgen_exe = llvm_tblgen_exe,
                 .llvm_src_root = llvm_src_root,
                 .zig_src_dir = zig_src_dir,
@@ -1263,8 +1275,12 @@ pub fn main() anyerror!void {
             });
         }
     } else {
-        var threads = try arena.alloc(std.Thread, llvm_targets.len);
-        for (llvm_targets, 0..) |llvm_target, i| {
+        var pool: std.Thread.Pool = undefined;
+        try pool.init(.{ .allocator = arena, .n_jobs = llvm_targets.len });
+        defer pool.deinit();
+
+        for (llvm_targets) |llvm_target| {
+            if (filter) |zig_name| if (!std.mem.eql(u8, llvm_target.zig_name, zig_name)) continue;
             const job = Job{
                 .llvm_tblgen_exe = llvm_tblgen_exe,
                 .llvm_src_root = llvm_src_root,
@@ -1272,10 +1288,7 @@ pub fn main() anyerror!void {
                 .root_progress = root_progress,
                 .llvm_target = llvm_target,
             };
-            threads[i] = try std.Thread.spawn(.{}, processOneTarget, .{job});
-        }
-        for (threads) |thread| {
-            thread.join();
+            try pool.spawn(processOneTarget, .{job});
         }
     }
 }
@@ -1288,7 +1301,8 @@ const Job = struct {
     llvm_target: LlvmTarget,
 };
 
-fn processOneTarget(job: Job) anyerror!void {
+fn processOneTarget(job: Job) void {
+    errdefer |err| std.debug.panic("panic: {s}", .{@errorName(err)});
     const llvm_target = job.llvm_target;
 
     var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -1298,7 +1312,7 @@ fn processOneTarget(job: Job) anyerror!void {
     const progress_node = job.root_progress.start(llvm_target.zig_name, 3);
     defer progress_node.end();
 
-    const tblgen_progress = progress_node.start("invoke llvm-tblgen", 0);
+    const tblgen_progress = progress_node.start("running llvm-tblgen", 0);
 
     const child_args = [_][]const u8{
         job.llvm_tblgen_exe,
@@ -1335,16 +1349,16 @@ fn processOneTarget(job: Job) anyerror!void {
         },
     };
 
-    const json_parse_progress = progress_node.start("parse JSON", 0);
+    const json_parse_progress = progress_node.start("parsing JSON", 0);
 
     const parsed = try json.parseFromSlice(json.Value, arena, json_text, .{});
     defer parsed.deinit();
     const root_map = &parsed.value.object;
     json_parse_progress.end();
 
-    const render_progress = progress_node.start("render zig code", 0);
+    const render_progress = progress_node.start("rendering Zig code", 0);
 
-    // So far LLVM has only had a few aliases for the same CPU.
+    // So far, LLVM only has a few aliases for the same CPU.
     var cpu_aliases = std.StringHashMap(std.SegmentedList(struct {
         llvm: []const u8,
         zig: []const u8,
@@ -1418,7 +1432,7 @@ fn processOneTarget(job: Job) anyerror!void {
                 const implies = kv.value_ptr.object.get("Implies").?.array;
                 for (implies.items) |imply| {
                     const other_key = imply.object.get("def").?.string;
-                    const other_obj = &root_map.getPtr(other_key).?.object;
+                    const other_obj = root_map.get(other_key).?.object;
                     const other_llvm_name = other_obj.get("Name").?.string;
                     const other_zig_name = (try llvmFeatureNameToZigNameOmit(
                         arena,
@@ -1435,7 +1449,7 @@ fn processOneTarget(job: Job) anyerror!void {
                 if (kv.value_ptr.object.get("DefaultExts")) |exts_val| {
                     for (exts_val.array.items) |ext| {
                         const other_key = ext.object.get("def").?.string;
-                        const other_obj = &root_map.getPtr(other_key).?.object;
+                        const other_obj = root_map.get(other_key).?.object;
                         const other_llvm_name = other_obj.get("Name").?.string;
                         const other_zig_name = (try llvmFeatureNameToZigNameOmit(
                             arena,
@@ -1492,7 +1506,7 @@ fn processOneTarget(job: Job) anyerror!void {
                 const features = kv.value_ptr.object.get("Features").?.array;
                 for (features.items) |feature| {
                     const feature_key = feature.object.get("def").?.string;
-                    const feature_obj = &root_map.getPtr(feature_key).?.object;
+                    const feature_obj = root_map.get(feature_key).?.object;
                     const feature_llvm_name = feature_obj.get("Name").?.string;
                     if (feature_llvm_name.len == 0) continue;
                     const feature_zig_name = (try llvmFeatureNameToZigNameOmit(
@@ -1512,7 +1526,7 @@ fn processOneTarget(job: Job) anyerror!void {
                 const tune_features = kv.value_ptr.object.get("TuneFeatures").?.array;
                 for (tune_features.items) |feature| {
                     const feature_key = feature.object.get("def").?.string;
-                    const feature_obj = &root_map.getPtr(feature_key).?.object;
+                    const feature_obj = root_map.get(feature_key).?.object;
                     const feature_llvm_name = feature_obj.get("Name").?.string;
                     if (feature_llvm_name.len == 0) continue;
                     const feature_zig_name = (try llvmFeatureNameToZigNameOmit(
@@ -1521,20 +1535,6 @@ fn processOneTarget(job: Job) anyerror!void {
                         feature_llvm_name,
                     )) orelse continue;
                     try deps.append(feature_zig_name);
-                }
-                for (llvm_target.feature_overrides) |feature_override| {
-                    if (mem.eql(u8, llvm_name, feature_override.llvm_name)) {
-                        if (feature_override.omit) {
-                            continue;
-                        }
-                        if (feature_override.zig_name) |override_name| {
-                            zig_name = override_name;
-                        }
-                        for (feature_override.extra_deps) |extra_dep| {
-                            try deps.append(extra_dep);
-                        }
-                        break;
-                    }
                 }
                 try all_cpus.append(.{
                     .llvm_name = llvm_name,
@@ -1570,12 +1570,10 @@ fn processOneTarget(job: Job) anyerror!void {
     mem.sort(Feature, all_features.items, {}, featureLessThan);
     mem.sort(Cpu, all_cpus.items, {}, cpuLessThan);
 
-    const target_sub_path = try fs.path.join(arena, &.{ "lib", "std", "Target" });
-    var target_dir = try job.zig_src_dir.makeOpenPath(target_sub_path, .{});
+    var target_dir = try job.zig_src_dir.openDir("lib/std/Target", .{});
     defer target_dir.close();
 
     const zig_code_basename = try std.fmt.allocPrint(arena, "{s}.zig", .{llvm_target.zig_name});
-
     var zig_code_file = try target_dir.createFile(zig_code_basename, .{});
     defer zig_code_file.close();
 
@@ -1706,7 +1704,7 @@ fn processOneTarget(job: Job) anyerror!void {
         mem.sort([]const u8, cpu_features.items, {}, asciiLessThan);
         if (cpu.llvm_name) |llvm_name| {
             try w.print(
-                \\    pub const {} = CpuModel{{
+                \\    pub const {}: CpuModel = .{{
                 \\        .name = "{}",
                 \\        .llvm_name = "{}",
                 \\        .features = featureSet(&[_]Feature{{
@@ -1717,7 +1715,7 @@ fn processOneTarget(job: Job) anyerror!void {
             });
         } else {
             try w.print(
-                \\    pub const {} = CpuModel{{
+                \\    pub const {}: CpuModel = .{{
                 \\        .name = "{}",
                 \\        .llvm_name = null,
                 \\        .features = featureSet(&[_]Feature{{
@@ -1754,9 +1752,10 @@ fn processOneTarget(job: Job) anyerror!void {
     render_progress.end();
 }
 
-fn usageAndExit(file: fs.File, arg0: []const u8, code: u8) noreturn {
-    file.writer().print(
-        \\Usage: {s} /path/to/llvm-tblgen /path/git/llvm-project /path/git/zig
+fn usageAndExit(arg0: []const u8, code: u8) noreturn {
+    const stderr = std.io.getStdErr();
+    stderr.writer().print(
+        \\Usage: {s} /path/to/llvm-tblgen /path/git/llvm-project /path/git/zig [zig_name filter]
         \\
         \\Updates lib/std/target/<target>.zig from llvm/lib/Target/<Target>/<Target>.td .
         \\
@@ -1766,18 +1765,15 @@ fn usageAndExit(file: fs.File, arg0: []const u8, code: u8) noreturn {
     std.process.exit(code);
 }
 
-fn featureLessThan(context: void, a: Feature, b: Feature) bool {
-    _ = context;
+fn featureLessThan(_: void, a: Feature, b: Feature) bool {
     return std.ascii.lessThanIgnoreCase(a.zig_name, b.zig_name);
 }
 
-fn cpuLessThan(context: void, a: Cpu, b: Cpu) bool {
-    _ = context;
+fn cpuLessThan(_: void, a: Cpu, b: Cpu) bool {
     return std.ascii.lessThanIgnoreCase(a.zig_name, b.zig_name);
 }
 
-fn asciiLessThan(context: void, a: []const u8, b: []const u8) bool {
-    _ = context;
+fn asciiLessThan(_: void, a: []const u8, b: []const u8) bool {
     return std.ascii.lessThanIgnoreCase(a, b);
 }
 
@@ -1804,7 +1800,7 @@ fn llvmFeatureNameToZigNameOmit(
     return try llvmNameToZigName(arena, llvm_name);
 }
 
-fn hasSuperclass(obj: *json.ObjectMap, class_name: []const u8) bool {
+fn hasSuperclass(obj: *const json.ObjectMap, class_name: []const u8) bool {
     const superclasses_json = obj.get("!superclasses") orelse return false;
     for (superclasses_json.array.items) |superclass_json| {
         const superclass = superclass_json.string;

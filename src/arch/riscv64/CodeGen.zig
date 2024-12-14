@@ -8442,6 +8442,10 @@ fn failSymbol(func: *Func, comptime format: []const u8, args: anytype) InnerErro
 }
 
 fn parseRegName(name: []const u8) ?Register {
+    // The `fp` alias for `s0` is awkward to fit into the current `Register` scheme, so for now we
+    // special-case it here.
+    if (std.mem.eql(u8, name, "fp")) return .s0;
+
     return std.meta.stringToEnum(Register, name);
 }
 

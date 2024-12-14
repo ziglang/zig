@@ -53,6 +53,14 @@ pub fn hashString(s: []const u8) u32 {
     return @as(u32, @truncate(std.hash.Wyhash.hash(0, s)));
 }
 
+/// Deprecated in favor of `ArrayHashMapWithAllocator` (no code changes needed)
+/// or `ArrayHashMapUnmanaged` (will need to update callsites to pass an
+/// allocator). After Zig 0.14.0 is released, `ArrayHashMapWithAllocator` will
+/// be removed and `ArrayHashMapUnmanaged` will be a deprecated alias. After
+/// Zig 0.15.0 is released, the deprecated alias `ArrayHashMapUnmanaged` will
+/// be removed.
+pub const ArrayHashMap = ArrayHashMapWithAllocator;
+
 /// A hash table of keys and values, each stored sequentially.
 ///
 /// Insertion order is preserved. In general, this data structure supports the same
@@ -67,13 +75,15 @@ pub fn hashString(s: []const u8) u32 {
 ///
 /// See `ArrayHashMapUnmanaged` for a variant of this data structure that accepts an
 /// `Allocator` as a parameter when needed rather than storing it.
-pub fn ArrayHashMap(
+pub fn ArrayHashMapWithAllocator(
     comptime K: type,
     comptime V: type,
     /// A namespace that provides these two functions:
     /// * `pub fn hash(self, K) u32`
-    /// * `pub fn eql(self, K, K) bool`
+    /// * `pub fn eql(self, K, K, usize) bool`
     ///
+    /// The final `usize` in the `eql` function represents the index of the key
+    /// that's already inside the map.
     comptime Context: type,
     /// When `false`, this data structure is biased towards cheap `eql`
     /// functions and avoids storing each key's hash in the table. Setting
@@ -517,7 +527,10 @@ pub fn ArrayHashMapUnmanaged(
     comptime V: type,
     /// A namespace that provides these two functions:
     /// * `pub fn hash(self, K) u32`
-    /// * `pub fn eql(self, K, K) bool`
+    /// * `pub fn eql(self, K, K, usize) bool`
+    ///
+    /// The final `usize` in the `eql` function represents the index of the key
+    /// that's already inside the map.
     comptime Context: type,
     /// When `false`, this data structure is biased towards cheap `eql`
     /// functions and avoids storing each key's hash in the table. Setting
@@ -604,42 +617,48 @@ pub fn ArrayHashMapUnmanaged(
             ordered,
         };
 
+        const Oom = Allocator.Error;
+
         /// Convert from an unmanaged map to a managed map.  After calling this,
         /// the promoted map should no longer be used.
-        pub fn promote(self: Self, allocator: Allocator) Managed {
+        pub fn promote(self: Self, gpa: Allocator) Managed {
             if (@sizeOf(Context) != 0)
                 @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call promoteContext instead.");
-            return self.promoteContext(allocator, undefined);
+            return self.promoteContext(gpa, undefined);
         }
-        pub fn promoteContext(self: Self, allocator: Allocator, ctx: Context) Managed {
+        pub fn promoteContext(self: Self, gpa: Allocator, ctx: Context) Managed {
             return .{
                 .unmanaged = self,
-                .allocator = allocator,
+                .allocator = gpa,
                 .ctx = ctx,
             };
         }
 
-        pub fn init(allocator: Allocator, key_list: []const K, value_list: []const V) !Self {
+        pub fn init(gpa: Allocator, key_list: []const K, value_list: []const V) Oom!Self {
             var self: Self = .{};
-            try self.entries.resize(allocator, key_list.len);
-            errdefer self.entries.deinit(allocator);
+            errdefer self.deinit(gpa);
+            try self.reinit(gpa, key_list, value_list);
+            return self;
+        }
+
+        pub fn reinit(self: *Self, gpa: Allocator, key_list: []const K, value_list: []const V) Oom!void {
+            try self.entries.resize(gpa, key_list.len);
             @memcpy(self.keys(), key_list);
             if (@sizeOf(V) != 0) {
                 assert(key_list.len == value_list.len);
                 @memcpy(self.values(), value_list);
             }
-            try self.reIndex(allocator);
-            return self;
+            try self.reIndex(gpa);
         }
 
         /// Frees the backing allocation and leaves the map in an undefined state.
         /// Note that this does not free keys or values.  You must take care of that
         /// before calling this function, if it is needed.
-        pub fn deinit(self: *Self, allocator: Allocator) void {
+        pub fn deinit(self: *Self, gpa: Allocator) void {
             self.pointer_stability.assertUnlocked();
-            self.entries.deinit(allocator);
+            self.entries.deinit(gpa);
             if (self.index_header) |header| {
-                header.free(allocator);
+                header.free(gpa);
             }
             self.* = undefined;
         }
@@ -677,13 +696,13 @@ pub fn ArrayHashMapUnmanaged(
         }
 
         /// Clears the map and releases the backing allocation
-        pub fn clearAndFree(self: *Self, allocator: Allocator) void {
+        pub fn clearAndFree(self: *Self, gpa: Allocator) void {
             self.pointer_stability.lock();
             defer self.pointer_stability.unlock();
 
-            self.entries.shrinkAndFree(allocator, 0);
+            self.entries.shrinkAndFree(gpa, 0);
             if (self.index_header) |header| {
-                header.free(allocator);
+                header.free(gpa);
                 self.index_header = null;
             }
         }
@@ -746,25 +765,25 @@ pub fn ArrayHashMapUnmanaged(
         /// Otherwise, puts a new item with undefined value, and
         /// the `Entry` pointer points to it. Caller should then initialize
         /// the value (but not the key).
-        pub fn getOrPut(self: *Self, allocator: Allocator, key: K) !GetOrPutResult {
+        pub fn getOrPut(self: *Self, gpa: Allocator, key: K) Oom!GetOrPutResult {
             if (@sizeOf(Context) != 0)
                 @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call getOrPutContext instead.");
-            return self.getOrPutContext(allocator, key, undefined);
+            return self.getOrPutContext(gpa, key, undefined);
         }
-        pub fn getOrPutContext(self: *Self, allocator: Allocator, key: K, ctx: Context) !GetOrPutResult {
-            const gop = try self.getOrPutContextAdapted(allocator, key, ctx, ctx);
+        pub fn getOrPutContext(self: *Self, gpa: Allocator, key: K, ctx: Context) Oom!GetOrPutResult {
+            const gop = try self.getOrPutContextAdapted(gpa, key, ctx, ctx);
             if (!gop.found_existing) {
                 gop.key_ptr.* = key;
             }
             return gop;
         }
-        pub fn getOrPutAdapted(self: *Self, allocator: Allocator, key: anytype, key_ctx: anytype) !GetOrPutResult {
+        pub fn getOrPutAdapted(self: *Self, gpa: Allocator, key: anytype, key_ctx: anytype) Oom!GetOrPutResult {
             if (@sizeOf(Context) != 0)
                 @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call getOrPutContextAdapted instead.");
-            return self.getOrPutContextAdapted(allocator, key, key_ctx, undefined);
+            return self.getOrPutContextAdapted(gpa, key, key_ctx, undefined);
         }
-        pub fn getOrPutContextAdapted(self: *Self, allocator: Allocator, key: anytype, key_ctx: anytype, ctx: Context) !GetOrPutResult {
-            self.ensureTotalCapacityContext(allocator, self.entries.len + 1, ctx) catch |err| {
+        pub fn getOrPutContextAdapted(self: *Self, gpa: Allocator, key: anytype, key_ctx: anytype, ctx: Context) Oom!GetOrPutResult {
+            self.ensureTotalCapacityContext(gpa, self.entries.len + 1, ctx) catch |err| {
                 // "If key exists this function cannot fail."
                 const index = self.getIndexAdapted(key, key_ctx) orelse return err;
                 const slice = self.entries.slice();
@@ -844,13 +863,13 @@ pub fn ArrayHashMapUnmanaged(
             }
         }
 
-        pub fn getOrPutValue(self: *Self, allocator: Allocator, key: K, value: V) !GetOrPutResult {
+        pub fn getOrPutValue(self: *Self, gpa: Allocator, key: K, value: V) Oom!GetOrPutResult {
             if (@sizeOf(Context) != 0)
                 @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call getOrPutValueContext instead.");
-            return self.getOrPutValueContext(allocator, key, value, undefined);
+            return self.getOrPutValueContext(gpa, key, value, undefined);
         }
-        pub fn getOrPutValueContext(self: *Self, allocator: Allocator, key: K, value: V, ctx: Context) !GetOrPutResult {
-            const res = try self.getOrPutContextAdapted(allocator, key, ctx, ctx);
+        pub fn getOrPutValueContext(self: *Self, gpa: Allocator, key: K, value: V, ctx: Context) Oom!GetOrPutResult {
+            const res = try self.getOrPutContextAdapted(gpa, key, ctx, ctx);
             if (!res.found_existing) {
                 res.key_ptr.* = key;
                 res.value_ptr.* = value;
@@ -860,32 +879,32 @@ pub fn ArrayHashMapUnmanaged(
 
         /// Increases capacity, guaranteeing that insertions up until the
         /// `expected_count` will not cause an allocation, and therefore cannot fail.
-        pub fn ensureTotalCapacity(self: *Self, allocator: Allocator, new_capacity: usize) !void {
+        pub fn ensureTotalCapacity(self: *Self, gpa: Allocator, new_capacity: usize) Oom!void {
             if (@sizeOf(ByIndexContext) != 0)
                 @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call ensureTotalCapacityContext instead.");
-            return self.ensureTotalCapacityContext(allocator, new_capacity, undefined);
+            return self.ensureTotalCapacityContext(gpa, new_capacity, undefined);
         }
-        pub fn ensureTotalCapacityContext(self: *Self, allocator: Allocator, new_capacity: usize, ctx: Context) !void {
+        pub fn ensureTotalCapacityContext(self: *Self, gpa: Allocator, new_capacity: usize, ctx: Context) Oom!void {
             self.pointer_stability.lock();
             defer self.pointer_stability.unlock();
 
             if (new_capacity <= linear_scan_max) {
-                try self.entries.ensureTotalCapacity(allocator, new_capacity);
+                try self.entries.ensureTotalCapacity(gpa, new_capacity);
                 return;
             }
 
             if (self.index_header) |header| {
                 if (new_capacity <= header.capacity()) {
-                    try self.entries.ensureTotalCapacity(allocator, new_capacity);
+                    try self.entries.ensureTotalCapacity(gpa, new_capacity);
                     return;
                 }
             }
 
-            try self.entries.ensureTotalCapacity(allocator, new_capacity);
+            try self.entries.ensureTotalCapacity(gpa, new_capacity);
             const new_bit_index = try IndexHeader.findBitIndex(new_capacity);
-            const new_header = try IndexHeader.alloc(allocator, new_bit_index);
+            const new_header = try IndexHeader.alloc(gpa, new_bit_index);
 
-            if (self.index_header) |old_header| old_header.free(allocator);
+            if (self.index_header) |old_header| old_header.free(gpa);
             self.insertAllEntriesIntoNewHeader(if (store_hash) {} else ctx, new_header);
             self.index_header = new_header;
         }
@@ -895,20 +914,20 @@ pub fn ArrayHashMapUnmanaged(
         /// therefore cannot fail.
         pub fn ensureUnusedCapacity(
             self: *Self,
-            allocator: Allocator,
+            gpa: Allocator,
             additional_capacity: usize,
-        ) !void {
+        ) Oom!void {
             if (@sizeOf(Context) != 0)
                 @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call ensureTotalCapacityContext instead.");
-            return self.ensureUnusedCapacityContext(allocator, additional_capacity, undefined);
+            return self.ensureUnusedCapacityContext(gpa, additional_capacity, undefined);
         }
         pub fn ensureUnusedCapacityContext(
             self: *Self,
-            allocator: Allocator,
+            gpa: Allocator,
             additional_capacity: usize,
             ctx: Context,
-        ) !void {
-            return self.ensureTotalCapacityContext(allocator, self.count() + additional_capacity, ctx);
+        ) Oom!void {
+            return self.ensureTotalCapacityContext(gpa, self.count() + additional_capacity, ctx);
         }
 
         /// Returns the number of total elements which may be present before it is
@@ -922,25 +941,25 @@ pub fn ArrayHashMapUnmanaged(
 
         /// Clobbers any existing data. To detect if a put would clobber
         /// existing data, see `getOrPut`.
-        pub fn put(self: *Self, allocator: Allocator, key: K, value: V) !void {
+        pub fn put(self: *Self, gpa: Allocator, key: K, value: V) Oom!void {
             if (@sizeOf(Context) != 0)
                 @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call putContext instead.");
-            return self.putContext(allocator, key, value, undefined);
+            return self.putContext(gpa, key, value, undefined);
         }
-        pub fn putContext(self: *Self, allocator: Allocator, key: K, value: V, ctx: Context) !void {
-            const result = try self.getOrPutContext(allocator, key, ctx);
+        pub fn putContext(self: *Self, gpa: Allocator, key: K, value: V, ctx: Context) Oom!void {
+            const result = try self.getOrPutContext(gpa, key, ctx);
             result.value_ptr.* = value;
         }
 
         /// Inserts a key-value pair into the hash map, asserting that no previous
         /// entry with the same key is already present
-        pub fn putNoClobber(self: *Self, allocator: Allocator, key: K, value: V) !void {
+        pub fn putNoClobber(self: *Self, gpa: Allocator, key: K, value: V) Oom!void {
             if (@sizeOf(Context) != 0)
                 @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call putNoClobberContext instead.");
-            return self.putNoClobberContext(allocator, key, value, undefined);
+            return self.putNoClobberContext(gpa, key, value, undefined);
         }
-        pub fn putNoClobberContext(self: *Self, allocator: Allocator, key: K, value: V, ctx: Context) !void {
-            const result = try self.getOrPutContext(allocator, key, ctx);
+        pub fn putNoClobberContext(self: *Self, gpa: Allocator, key: K, value: V, ctx: Context) Oom!void {
+            const result = try self.getOrPutContext(gpa, key, ctx);
             assert(!result.found_existing);
             result.value_ptr.* = value;
         }
@@ -973,13 +992,13 @@ pub fn ArrayHashMapUnmanaged(
         }
 
         /// Inserts a new `Entry` into the hash map, returning the previous one, if any.
-        pub fn fetchPut(self: *Self, allocator: Allocator, key: K, value: V) !?KV {
+        pub fn fetchPut(self: *Self, gpa: Allocator, key: K, value: V) Oom!?KV {
             if (@sizeOf(Context) != 0)
                 @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call fetchPutContext instead.");
-            return self.fetchPutContext(allocator, key, value, undefined);
+            return self.fetchPutContext(gpa, key, value, undefined);
         }
-        pub fn fetchPutContext(self: *Self, allocator: Allocator, key: K, value: V, ctx: Context) !?KV {
-            const gop = try self.getOrPutContext(allocator, key, ctx);
+        pub fn fetchPutContext(self: *Self, gpa: Allocator, key: K, value: V, ctx: Context) Oom!?KV {
+            const gop = try self.getOrPutContext(gpa, key, ctx);
             var result: ?KV = null;
             if (gop.found_existing) {
                 result = KV{
@@ -1265,20 +1284,20 @@ pub fn ArrayHashMapUnmanaged(
         /// Create a copy of the hash map which can be modified separately.
         /// The copy uses the same context as this instance, but is allocated
         /// with the provided allocator.
-        pub fn clone(self: Self, allocator: Allocator) !Self {
+        pub fn clone(self: Self, gpa: Allocator) Oom!Self {
             if (@sizeOf(ByIndexContext) != 0)
                 @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call cloneContext instead.");
-            return self.cloneContext(allocator, undefined);
+            return self.cloneContext(gpa, undefined);
         }
-        pub fn cloneContext(self: Self, allocator: Allocator, ctx: Context) !Self {
+        pub fn cloneContext(self: Self, gpa: Allocator, ctx: Context) Oom!Self {
             var other: Self = .{};
-            other.entries = try self.entries.clone(allocator);
-            errdefer other.entries.deinit(allocator);
+            other.entries = try self.entries.clone(gpa);
+            errdefer other.entries.deinit(gpa);
 
             if (self.index_header) |header| {
                 // TODO: I'm pretty sure this could be memcpy'd instead of
                 // doing all this work.
-                const new_header = try IndexHeader.alloc(allocator, header.bit_index);
+                const new_header = try IndexHeader.alloc(gpa, header.bit_index);
                 other.insertAllEntriesIntoNewHeader(if (store_hash) {} else ctx, new_header);
                 other.index_header = new_header;
             }
@@ -1304,13 +1323,13 @@ pub fn ArrayHashMapUnmanaged(
         /// directly without going through the methods of this map.
         ///
         /// The time complexity of this operation is O(n).
-        pub fn reIndex(self: *Self, allocator: Allocator) !void {
+        pub fn reIndex(self: *Self, gpa: Allocator) Oom!void {
             if (@sizeOf(ByIndexContext) != 0)
                 @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call reIndexContext instead.");
-            return self.reIndexContext(allocator, undefined);
+            return self.reIndexContext(gpa, undefined);
         }
 
-        pub fn reIndexContext(self: *Self, allocator: Allocator, ctx: Context) !void {
+        pub fn reIndexContext(self: *Self, gpa: Allocator, ctx: Context) Oom!void {
             // Recompute all hashes.
             if (store_hash) {
                 for (self.keys(), self.entries.items(.hash)) |key, *hash| {
@@ -1323,8 +1342,8 @@ pub fn ArrayHashMapUnmanaged(
                 // We're going to rebuild the index header and replace the existing one (if any). The
                 // indexes should sized such that they will be at most 60% full.
                 const bit_index = try IndexHeader.findBitIndex(self.entries.capacity);
-                const new_header = try IndexHeader.alloc(allocator, bit_index);
-                if (self.index_header) |header| header.free(allocator);
+                const new_header = try IndexHeader.alloc(gpa, bit_index);
+                if (self.index_header) |header| header.free(gpa);
                 self.insertAllEntriesIntoNewHeader(if (store_hash) {} else ctx, new_header);
                 self.index_header = new_header;
             }
@@ -1416,10 +1435,10 @@ pub fn ArrayHashMapUnmanaged(
         /// performing hash and equality checks. It is a bug to call this
         /// function if the discarded entries require deinitialization. For
         /// that use case, `shrinkRetainingCapacity` can be used instead.
-        pub fn shrinkAndFree(self: *Self, allocator: Allocator, new_len: usize) void {
+        pub fn shrinkAndFree(self: *Self, gpa: Allocator, new_len: usize) void {
             if (@sizeOf(ByIndexContext) != 0)
                 @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call shrinkAndFreeContext instead.");
-            return self.shrinkAndFreeContext(allocator, new_len, undefined);
+            return self.shrinkAndFreeContext(gpa, new_len, undefined);
         }
 
         /// Shrinks the underlying `Entry` array to `new_len` elements and
@@ -1430,7 +1449,7 @@ pub fn ArrayHashMapUnmanaged(
         /// function if the discarded entries require deinitialization. For
         /// that use case, `shrinkRetainingCapacityContext` can be used
         /// instead.
-        pub fn shrinkAndFreeContext(self: *Self, allocator: Allocator, new_len: usize, ctx: Context) void {
+        pub fn shrinkAndFreeContext(self: *Self, gpa: Allocator, new_len: usize, ctx: Context) void {
             self.pointer_stability.lock();
             defer self.pointer_stability.unlock();
 
@@ -1442,7 +1461,7 @@ pub fn ArrayHashMapUnmanaged(
                 while (i < self.entries.len) : (i += 1)
                     self.removeFromIndexByIndex(i, if (store_hash) {} else ctx, header);
             }
-            self.entries.shrinkAndFree(allocator, new_len);
+            self.entries.shrinkAndFree(gpa, new_len);
         }
 
         /// Removes the last inserted `Entry` in the hash map and returns it.
@@ -2086,7 +2105,7 @@ const IndexHeader = struct {
         return @as(u32, @intCast(self.length() - 1));
     }
 
-    fn findBitIndex(desired_capacity: usize) !u8 {
+    fn findBitIndex(desired_capacity: usize) Allocator.Error!u8 {
         if (desired_capacity > max_capacity) return error.OutOfMemory;
         var new_bit_index = @as(u8, @intCast(std.math.log2_int_ceil(usize, desired_capacity)));
         if (desired_capacity > index_capacities[new_bit_index]) new_bit_index += 1;
@@ -2097,11 +2116,11 @@ const IndexHeader = struct {
 
     /// Allocates an index header, and fills the entryIndexes array with empty.
     /// The distance array contents are undefined.
-    fn alloc(allocator: Allocator, new_bit_index: u8) !*IndexHeader {
+    fn alloc(gpa: Allocator, new_bit_index: u8) Allocator.Error!*IndexHeader {
         const len = @as(usize, 1) << @as(math.Log2Int(usize), @intCast(new_bit_index));
         const index_size = hash_map.capacityIndexSize(new_bit_index);
         const nbytes = @sizeOf(IndexHeader) + index_size * len;
-        const bytes = try allocator.alignedAlloc(u8, @alignOf(IndexHeader), nbytes);
+        const bytes = try gpa.alignedAlloc(u8, @alignOf(IndexHeader), nbytes);
         @memset(bytes[@sizeOf(IndexHeader)..], 0xff);
         const result: *IndexHeader = @alignCast(@ptrCast(bytes.ptr));
         result.* = .{
@@ -2111,11 +2130,11 @@ const IndexHeader = struct {
     }
 
     /// Releases the memory for a header and its associated arrays.
-    fn free(header: *IndexHeader, allocator: Allocator) void {
+    fn free(header: *IndexHeader, gpa: Allocator) void {
         const index_size = hash_map.capacityIndexSize(header.bit_index);
         const ptr: [*]align(@alignOf(IndexHeader)) u8 = @ptrCast(header);
         const slice = ptr[0 .. @sizeOf(IndexHeader) + header.length() * index_size];
-        allocator.free(slice);
+        gpa.free(slice);
     }
 
     /// Puts an IndexHeader into the state that it would be in after being freshly allocated.

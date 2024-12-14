@@ -221,7 +221,23 @@ const test_targets = blk: {
             .target = .{
                 .cpu_arch = .x86_64,
                 .os_tag = .linux,
+                .abi = .gnux32,
+            },
+            .link_libc = true,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .x86_64,
+                .os_tag = .linux,
                 .abi = .musl,
+            },
+            .link_libc = true,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .x86_64,
+                .os_tag = .linux,
+                .abi = .muslx32,
             },
             .link_libc = true,
         },
@@ -1237,18 +1253,22 @@ pub fn addAssembleAndLinkTests(b: *std.Build, test_filters: []const []const u8, 
     return cases.step;
 }
 
-pub fn addTranslateCTests(b: *std.Build, parent_step: *std.Build.Step, test_filters: []const []const u8) void {
+pub fn addTranslateCTests(
+    b: *std.Build,
+    parent_step: *std.Build.Step,
+    test_filters: []const []const u8,
+    test_target_filters: []const []const u8,
+) void {
     const cases = b.allocator.create(TranslateCContext) catch @panic("OOM");
     cases.* = TranslateCContext{
         .b = b,
         .step = parent_step,
         .test_index = 0,
         .test_filters = test_filters,
+        .test_target_filters = test_target_filters,
     };
 
     translate_c.addCases(cases);
-
-    return;
 }
 
 pub fn addRunTranslatedCTests(
@@ -1267,8 +1287,6 @@ pub fn addRunTranslatedCTests(
     };
 
     run_translated_c.addCases(cases);
-
-    return;
 }
 
 const ModuleTestOptions = struct {
@@ -1285,6 +1303,7 @@ const ModuleTestOptions = struct {
     skip_libc: bool,
     max_rss: usize = 0,
     no_builtin: bool = false,
+    build_options: ?*std.Build.Step.Options = null,
 };
 
 pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
@@ -1374,6 +1393,9 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             .strip = test_target.strip,
         });
         if (options.no_builtin) these_tests.no_builtin = true;
+        if (options.build_options) |build_options| {
+            these_tests.root_module.addOptions("build_options", build_options);
+        }
         const single_threaded_suffix = if (test_target.single_threaded == true) "-single" else "";
         const backend_suffix = if (test_target.use_llvm == true)
             "-llvm"
@@ -1486,19 +1508,32 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
     return step;
 }
 
-pub fn addCAbiTests(b: *std.Build, skip_non_native: bool, skip_release: bool) *Step {
+const CAbiTestOptions = struct {
+    test_target_filters: []const []const u8,
+    skip_non_native: bool,
+    skip_release: bool,
+};
+
+pub fn addCAbiTests(b: *std.Build, options: CAbiTestOptions) *Step {
     const step = b.step("test-c-abi", "Run the C ABI tests");
 
     const optimize_modes: [3]OptimizeMode = .{ .Debug, .ReleaseSafe, .ReleaseFast };
 
     for (optimize_modes) |optimize_mode| {
-        if (optimize_mode != .Debug and skip_release) continue;
+        if (optimize_mode != .Debug and options.skip_release) continue;
 
         for (c_abi_targets) |c_abi_target| {
-            if (skip_non_native and !c_abi_target.target.isNative()) continue;
+            if (options.skip_non_native and !c_abi_target.target.isNative()) continue;
 
             const resolved_target = b.resolveTargetQuery(c_abi_target.target);
             const target = resolved_target.result;
+            const triple_txt = target.zigTriple(b.allocator) catch @panic("OOM");
+
+            if (options.test_target_filters.len > 0) {
+                for (options.test_target_filters) |filter| {
+                    if (std.mem.indexOf(u8, triple_txt, filter) != null) break;
+                } else continue;
+            }
 
             if (target.os.tag == .windows and target.cpu.arch == .aarch64) {
                 // https://github.com/ziglang/zig/issues/14908
@@ -1507,7 +1542,7 @@ pub fn addCAbiTests(b: *std.Build, skip_non_native: bool, skip_release: bool) *S
 
             const test_step = b.addTest(.{
                 .name = b.fmt("test-c-abi-{s}-{s}-{s}{s}{s}{s}", .{
-                    target.zigTriple(b.allocator) catch @panic("OOM"),
+                    triple_txt,
                     target.cpu.model.name,
                     @tagName(optimize_mode),
                     if (c_abi_target.use_llvm == true)
@@ -1552,6 +1587,7 @@ pub fn addCases(
     b: *std.Build,
     parent_step: *Step,
     test_filters: []const []const u8,
+    test_target_filters: []const []const u8,
     target: std.Build.ResolvedTarget,
     translate_c_options: @import("src/Cases.zig").TranslateCOptions,
     build_options: @import("cases.zig").BuildOptions,
@@ -1567,12 +1603,13 @@ pub fn addCases(
     cases.addFromDir(dir, b);
     try @import("cases.zig").addCases(&cases, build_options, b);
 
-    cases.lowerToTranslateCSteps(b, parent_step, test_filters, target, translate_c_options);
+    cases.lowerToTranslateCSteps(b, parent_step, test_filters, test_target_filters, target, translate_c_options);
 
     cases.lowerToBuildSteps(
         b,
         parent_step,
         test_filters,
+        test_target_filters,
     );
 }
 

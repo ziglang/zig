@@ -89,12 +89,7 @@ set(ZIG_SHARED_LLVM off CACHE BOOL "Prefer linking against shared LLVM libraries
 set(ZIG_STATIC_LLVM ${ZIG_STATIC} CACHE BOOL "Prefer linking against static LLVM libraries")
 set(ZIG_STATIC_ZLIB ${ZIG_STATIC} CACHE BOOL "Prefer linking against static zlib")
 set(ZIG_STATIC_ZSTD ${ZIG_STATIC} CACHE BOOL "Prefer linking against static zstd")
-if(APPLE AND ZIG_STATIC)
-  set(ZIG_STATIC_CURSES on)
-else()
-  set(ZIG_STATIC_CURSES off)
-endif()
-set(ZIG_STATIC_CURSES ${ZIG_STATIC_CURSES} CACHE BOOL "Prefer linking against static curses")
+set(ZIG_STATIC_CURSES OFF CACHE BOOL "Enable static linking against curses")
 
 if (ZIG_SHARED_LLVM AND ZIG_STATIC_LLVM)
     message(SEND_ERROR "-DZIG_SHARED_LLVM and -DZIG_STATIC_LLVM cannot both be enabled simultaneously")
@@ -616,6 +611,7 @@ set(ZIG_STAGE2_SOURCES
     src/link/MachO/Atom.zig
     src/link/MachO/CodeSignature.zig
     src/link/MachO/DebugSymbols.zig
+    src/link/MachO/Dwarf.zig
     src/link/MachO/Dylib.zig
     src/link/MachO/InternalObject.zig
     src/link/MachO/Object.zig
@@ -627,7 +623,6 @@ set(ZIG_STAGE2_SOURCES
     src/link/MachO/dyld_info/Rebase.zig
     src/link/MachO/dyld_info/Trie.zig
     src/link/MachO/dyld_info/bind.zig
-    src/link/MachO/dwarf.zig
     src/link/MachO/eh_frame.zig
     src/link/MachO/fat.zig
     src/link/MachO/file.zig

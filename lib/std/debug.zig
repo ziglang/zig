@@ -480,7 +480,7 @@ pub fn defaultPanic(
     }
 
     switch (builtin.os.tag) {
-        .freestanding => {
+        .freestanding, .other => {
             @trap();
         },
         .uefi => {
