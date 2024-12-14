@@ -496,6 +496,7 @@ pub fn kdf(
     if (password.len > max_int) return KdfError.WeakParameters;
     if (salt.len < 8 or salt.len > max_int) return KdfError.WeakParameters;
     if (params.t < 1 or params.p < 1) return KdfError.WeakParameters;
+    if (params.m / 8 < params.p) return KdfError.WeakParameters;
 
     var h0 = initHash(password, salt, params, derived_key.len, mode);
     const memory = @max(
