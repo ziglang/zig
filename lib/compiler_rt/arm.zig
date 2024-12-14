@@ -136,11 +136,14 @@ pub fn __aeabi_uidivmod() callconv(.Naked) void {
         \\ push {lr}
         \\ sub sp, #4
         \\ mov r2, sp
-        \\ bl  __udivmodsi4
+        \\ bl  %[__udivmodsi4]
         \\ ldr r1, [sp]
         \\ add sp, #4
         \\ pop {pc}
-        ::: "memory");
+        :
+        : [__udivmodsi4] "X" (&__udivmodsi4),
+        : "memory"
+    );
     unreachable;
 }
 
@@ -152,12 +155,15 @@ pub fn __aeabi_uldivmod() callconv(.Naked) void {
         \\ sub sp, #16
         \\ add r4, sp, #8
         \\ str r4, [sp]
-        \\ bl  __udivmoddi4
+        \\ bl  %[__udivmoddi4]
         \\ ldr r2, [sp, #8]
         \\ ldr r3, [sp, #12]
         \\ add sp, #16
         \\ pop {r4, pc}
-        ::: "memory");
+        :
+        : [__udivmoddi4] "X" (&__udivmoddi4),
+        : "memory"
+    );
     unreachable;
 }
 
@@ -168,11 +174,14 @@ pub fn __aeabi_idivmod() callconv(.Naked) void {
         \\ push {lr}
         \\ sub sp, #4
         \\ mov r2, sp
-        \\ bl  __divmodsi4
+        \\ bl  %[__divmodsi4]
         \\ ldr r1, [sp]
         \\ add sp, #4
         \\ pop {pc}
-        ::: "memory");
+        :
+        : [__divmodsi4] "X" (&__divmodsi4),
+        : "memory"
+    );
     unreachable;
 }
 
@@ -184,12 +193,15 @@ pub fn __aeabi_ldivmod() callconv(.Naked) void {
         \\ sub sp, #16
         \\ add r4, sp, #8
         \\ str r4, [sp]
-        \\ bl  __divmoddi4
+        \\ bl  %[__divmoddi4]
         \\ ldr r2, [sp, #8]
         \\ ldr r3, [sp, #12]
         \\ add sp, #16
         \\ pop {r4, pc}
-        ::: "memory");
+        :
+        : [__divmoddi4] "X" (&__divmoddi4),
+        : "memory"
+    );
     unreachable;
 }
 
