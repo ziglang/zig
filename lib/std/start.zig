@@ -571,6 +571,7 @@ fn posixCallMainAndExit(argc_argv_ptr: [*]usize) callconv(.c) noreturn {
     std.posix.exit(callMainWithArgs(argc, argv, envp));
 }
 
+// This code should be kept in sync with stage1/wasi.c.
 fn expandStackSize(phdrs: []elf.Phdr) void {
     for (phdrs) |*phdr| {
         switch (phdr.p_type) {

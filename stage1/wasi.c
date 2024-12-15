@@ -5,6 +5,18 @@
 #include <string.h>
 #include <time.h>
 
+#if defined(__linux__)
+#include <elf.h>
+#include <sys/auxv.h>
+#include <sys/resource.h>
+
+#if ULONG_MAX == 0xffffffff
+typedef Elf32_Phdr Elf_Phdr;
+#else
+typedef Elf64_Phdr Elf_Phdr;
+#endif
+#endif
+
 #include "panic.h"
 
 #define LOG_TRACE 0
@@ -236,6 +248,28 @@ static void *dupe(const void *data, size_t len) {
 }
 
 int main(int argc, char **argv) {
+    // This stack size code should be kept in sync with `expandStackSize` in lib/std/start.zig.
+#if defined(__linux__)
+    Elf_Phdr *at_phdr = (Elf_Phdr *)getauxval(AT_PHDR);
+    unsigned long at_phnum = getauxval(AT_PHNUM);
+
+    for (Elf_Phdr *phdr = at_phdr; phdr < at_phdr + at_phnum; phdr++) {
+        if (phdr->p_type != PT_GNU_STACK) continue;
+        if (phdr->p_memsz == 0) break;
+
+        struct rlimit limit;
+        if (getrlimit(RLIMIT_STACK, &limit) != 0) break;
+
+        rlim_t stack_size = phdr->p_memsz < limit.rlim_max ? phdr->p_memsz : limit.rlim_max;
+        if (stack_size > limit.rlim_cur) {
+            limit.rlim_cur = stack_size;
+            setrlimit(RLIMIT_STACK, &limit);
+        }
+
+        break;
+    }
+#endif
+
     if (argc < 2) {
         fprintf(stderr, "usage: %s <zig-lib-path> <args...>\n", argv[0]);
         return 1;
