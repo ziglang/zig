@@ -462,7 +462,7 @@ pub fn updateZirRefs(pt: Zcu.PerThread) Allocator.Error!void {
                 while (it.next()) |decl_inst| {
                     const decl_name = old_zir.getDeclaration(decl_inst)[0].name;
                     switch (decl_name) {
-                        .@"comptime", .@"usingnamespace", .unnamed_test, .decltest => continue,
+                        .@"comptime", .@"usingnamespace", .unnamed_test => continue,
                         _ => if (decl_name.isNamedTest(old_zir)) continue,
                     }
                     const name_zir = decl_name.toString(old_zir).?;
@@ -481,7 +481,7 @@ pub fn updateZirRefs(pt: Zcu.PerThread) Allocator.Error!void {
                 while (it.next()) |decl_inst| {
                     const decl_name = new_zir.getDeclaration(decl_inst)[0].name;
                     switch (decl_name) {
-                        .@"comptime", .@"usingnamespace", .unnamed_test, .decltest => continue,
+                        .@"comptime", .@"usingnamespace", .unnamed_test => continue,
                         _ => if (decl_name.isNamedTest(new_zir)) continue,
                     }
                     const name_zir = decl_name.toString(new_zir).?;
@@ -1929,22 +1929,12 @@ const ScanDeclIter = struct {
                     false,
                 };
             },
-            .decltest => info: {
-                // We consider these to be unnamed since the decl name can be adjusted to avoid conflicts if necessary.
-                if (iter.pass != .unnamed) return;
-                assert(declaration.flags.has_doc_comment);
-                const name = zir.nullTerminatedString(@enumFromInt(zir.extra[extra.end]));
-                break :info .{
-                    (try iter.avoidNameConflict("decltest.{s}", .{name})).toOptional(),
-                    .@"test",
-                    true,
-                };
-            },
             _ => if (declaration.name.isNamedTest(zir)) info: {
                 // We consider these to be unnamed since the decl name can be adjusted to avoid conflicts if necessary.
                 if (iter.pass != .unnamed) return;
+                const prefix = if (declaration.flags.test_is_decltest) "decltest" else "test";
                 break :info .{
-                    (try iter.avoidNameConflict("test.{s}", .{zir.nullTerminatedString(declaration.name.toString(zir).?)})).toOptional(),
+                    (try iter.avoidNameConflict("{s}.{s}", .{ prefix, zir.nullTerminatedString(declaration.name.toString(zir).?) })).toOptional(),
                     .@"test",
                     true,
                 };

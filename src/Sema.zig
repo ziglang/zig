@@ -3399,8 +3399,8 @@ fn zirErrorSetDecl(
     try names.ensureUnusedCapacity(sema.arena, extra.data.fields_len);
 
     var extra_index: u32 = @intCast(extra.end);
-    const extra_index_end = extra_index + (extra.data.fields_len * 2);
-    while (extra_index < extra_index_end) : (extra_index += 2) { // +2 to skip over doc_string
+    const extra_index_end = extra_index + extra.data.fields_len;
+    while (extra_index < extra_index_end) : (extra_index += 1) {
         const name_index: Zir.NullTerminatedString = @enumFromInt(sema.code.extra[extra_index]);
         const name = sema.code.nullTerminatedString(name_index);
         const name_ip = try zcu.intern_pool.getOrPutString(gpa, pt.tid, name, .no_embedded_nulls);
@@ -36801,7 +36801,7 @@ fn structFields(
             if (is_comptime) struct_type.setFieldComptime(ip, field_i);
 
             const field_name_zir: [:0]const u8 = zir.nullTerminatedString(@enumFromInt(zir.extra[extra_index]));
-            extra_index += 2; // field_name, doc_comment
+            extra_index += 1; // field_name
 
             fields[field_i] = .{};
 
@@ -36981,7 +36981,7 @@ fn structFieldInits(
             const has_type_body = @as(u1, @truncate(cur_bit_bag)) != 0;
             cur_bit_bag >>= 1;
 
-            extra_index += 2; // field_name, doc_comment
+            extra_index += 1; // field_name
 
             fields[field_i] = .{};
 
@@ -37200,9 +37200,6 @@ fn unionFields(
 
         const field_name_index: Zir.NullTerminatedString = @enumFromInt(zir.extra[extra_index]);
         const field_name_zir = zir.nullTerminatedString(field_name_index);
-        extra_index += 1;
-
-        // doc_comment
         extra_index += 1;
 
         const field_type_ref: Zir.Inst.Ref = if (has_type) blk: {
@@ -39069,7 +39066,7 @@ pub fn resolveDeclaredEnum(
 
         const field_name_index: Zir.NullTerminatedString = @enumFromInt(zir.extra[extra_index]);
         const field_name_zir = zir.nullTerminatedString(field_name_index);
-        extra_index += 2; // field name, doc comment
+        extra_index += 1; // field name
 
         const field_name = try ip.getOrPutString(gpa, pt.tid, field_name_zir, .no_embedded_nulls);
 

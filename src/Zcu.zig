@@ -2643,6 +2643,9 @@ pub fn mapOldZirToNew(
         // Maps test name to `declaration` instruction.
         var named_tests: std.StringHashMapUnmanaged(Zir.Inst.Index) = .empty;
         defer named_tests.deinit(gpa);
+        // Maps test name to `declaration` instruction.
+        var named_decltests: std.StringHashMapUnmanaged(Zir.Inst.Index) = .empty;
+        defer named_decltests.deinit(gpa);
         // All unnamed tests, in order, for a best-effort match.
         var unnamed_tests: std.ArrayListUnmanaged(Zir.Inst.Index) = .empty;
         defer unnamed_tests.deinit(gpa);
@@ -2660,12 +2663,16 @@ pub fn mapOldZirToNew(
                 switch (old_decl.name) {
                     .@"comptime" => try comptime_decls.append(gpa, old_decl_inst),
                     .@"usingnamespace" => try usingnamespace_decls.append(gpa, old_decl_inst),
-                    .unnamed_test, .decltest => try unnamed_tests.append(gpa, old_decl_inst),
+                    .unnamed_test => try unnamed_tests.append(gpa, old_decl_inst),
                     _ => {
                         const name_nts = old_decl.name.toString(old_zir).?;
                         const name = old_zir.nullTerminatedString(name_nts);
                         if (old_decl.name.isNamedTest(old_zir)) {
-                            try named_tests.put(gpa, name, old_decl_inst);
+                            if (old_decl.flags.test_is_decltest) {
+                                try named_decltests.put(gpa, name, old_decl_inst);
+                            } else {
+                                try named_tests.put(gpa, name, old_decl_inst);
+                            }
                         } else {
                             try named_decls.put(gpa, name, old_decl_inst);
                         }
@@ -2683,8 +2690,8 @@ pub fn mapOldZirToNew(
             const new_decl, _ = new_zir.getDeclaration(new_decl_inst);
             // Attempt to match this to a declaration in the old ZIR:
             // * For named declarations (`const`/`var`/`fn`), we match based on name.
-            // * For named tests (`test "foo"`), we also match based on name.
-            // * For unnamed tests and decltests, we match based on order.
+            // * For named tests (`test "foo"`) and decltests (`test foo`), we also match based on name.
+            // * For unnamed tests, we match based on order.
             // * For comptime blocks, we match based on order.
             // * For usingnamespace decls, we match based on order.
             // If we cannot match this declaration, we can't match anything nested inside of it either, so we just `continue`.
@@ -2699,7 +2706,7 @@ pub fn mapOldZirToNew(
                     defer usingnamespace_decl_idx += 1;
                     break :inst usingnamespace_decls.items[usingnamespace_decl_idx];
                 },
-                .unnamed_test, .decltest => inst: {
+                .unnamed_test => inst: {
                     if (unnamed_test_idx == unnamed_tests.items.len) continue;
                     defer unnamed_test_idx += 1;
                     break :inst unnamed_tests.items[unnamed_test_idx];
@@ -2708,7 +2715,11 @@ pub fn mapOldZirToNew(
                     const name_nts = new_decl.name.toString(new_zir).?;
                     const name = new_zir.nullTerminatedString(name_nts);
                     if (new_decl.name.isNamedTest(new_zir)) {
-                        break :inst named_tests.get(name) orelse continue;
+                        if (new_decl.flags.test_is_decltest) {
+                            break :inst named_decltests.get(name) orelse continue;
+                        } else {
+                            break :inst named_tests.get(name) orelse continue;
+                        }
                     } else {
                         break :inst named_decls.get(name) orelse continue;
                     }
@@ -3329,7 +3340,7 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                     else => a: {
                         if (!comp.config.is_test) break :a false;
                         if (file.mod != zcu.main_mod) break :a false;
-                        if (declaration.name.isNamedTest(zir) or declaration.name == .decltest) {
+                        if (declaration.name.isNamedTest(zir)) {
                             const nav = ip.getCau(cau).owner.unwrap().nav;
                             const fqn_slice = ip.getNav(nav).fqn.toSlice(ip);
                             for (comp.test_filters) |test_filter| {

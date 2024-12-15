@@ -2207,7 +2207,6 @@ pub fn initWipNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool.Nav.In
                         .@"comptime",
                         .@"usingnamespace",
                         .unnamed_test,
-                        .decltest,
                         => DW.ACCESS.private,
                         _ => if (decl_extra.name.isNamedTest(file.zir))
                             DW.ACCESS.private
@@ -2257,7 +2256,6 @@ pub fn initWipNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool.Nav.In
                         .@"comptime",
                         .@"usingnamespace",
                         .unnamed_test,
-                        .decltest,
                         => DW.ACCESS.private,
                         _ => if (decl_extra.name.isNamedTest(file.zir))
                             DW.ACCESS.private
@@ -2305,7 +2303,6 @@ pub fn initWipNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool.Nav.In
                         .@"comptime",
                         .@"usingnamespace",
                         .unnamed_test,
-                        .decltest,
                         => DW.ACCESS.private,
                         _ => if (decl_extra.name.isNamedTest(file.zir))
                             DW.ACCESS.private
@@ -2547,7 +2544,7 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
     const decl_extra = file.zir.extraData(Zir.Inst.Declaration, decl_inst.data.declaration.payload_index);
 
     const is_test = switch (decl_extra.data.name) {
-        .unnamed_test, .decltest => true,
+        .unnamed_test => true,
         .@"comptime", .@"usingnamespace" => false,
         _ => decl_extra.data.name.isNamedTest(file.zir),
     };
