@@ -6,14 +6,14 @@
 #ifndef _INC_NEW
 #define _INC_NEW
 
+#include <corecrt.h>
+
 #ifdef __cplusplus
-
 #include <new>
-
 #include <crtdefs.h>
-
 #pragma push_macro("new")
 #undef new
+#endif
 
 #ifndef __NOTHROW_T_DEFINED
 #define __NOTHROW_T_DEFINED
@@ -40,6 +40,8 @@ _CRTIMP _PNH __cdecl _set_new_handler(_PNH _NewHandler);
 #define _NO_ANSI_NH_DEFINED
 #endif
 
+#ifdef __cplusplus
 #pragma pop_macro("new")
 #endif
+
 #endif

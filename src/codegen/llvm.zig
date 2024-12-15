@@ -3141,8 +3141,11 @@ pub const Object = struct {
             } }, &o.builder);
         }
         try attributes.addFnAttr(.nounwind, &o.builder);
-        if (owner_mod.unwind_tables) {
-            try attributes.addFnAttr(.{ .uwtable = Builder.Attribute.UwTable.default }, &o.builder);
+        if (owner_mod.unwind_tables != .none) {
+            try attributes.addFnAttr(
+                .{ .uwtable = if (owner_mod.unwind_tables == .@"async") .@"async" else .sync },
+                &o.builder,
+            );
         }
         if (owner_mod.no_builtin) {
             // The intent here is for compiler-rt and libc functions to not generate

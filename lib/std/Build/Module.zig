@@ -22,7 +22,7 @@ frameworks: std.StringArrayHashMapUnmanaged(LinkFrameworkOptions),
 link_objects: std.ArrayListUnmanaged(LinkObject),
 
 strip: ?bool,
-unwind_tables: ?bool,
+unwind_tables: ?std.builtin.UnwindTables,
 single_threaded: ?bool,
 stack_protector: ?bool,
 stack_check: ?bool,
@@ -218,7 +218,7 @@ pub const CreateOptions = struct {
     link_libcpp: ?bool = null,
     single_threaded: ?bool = null,
     strip: ?bool = null,
-    unwind_tables: ?bool = null,
+    unwind_tables: ?std.builtin.UnwindTables = null,
     dwarf_format: ?std.dwarf.Format = null,
     code_model: std.builtin.CodeModel = .default,
     stack_protector: ?bool = null,
@@ -675,7 +675,6 @@ pub fn appendZigProcessFlags(
     const b = m.owner;
 
     try addFlag(zig_args, m.strip, "-fstrip", "-fno-strip");
-    try addFlag(zig_args, m.unwind_tables, "-funwind-tables", "-fno-unwind-tables");
     try addFlag(zig_args, m.single_threaded, "-fsingle-threaded", "-fno-single-threaded");
     try addFlag(zig_args, m.stack_check, "-fstack-check", "-fno-stack-check");
     try addFlag(zig_args, m.stack_protector, "-fstack-protector", "-fno-stack-protector");
@@ -692,6 +691,14 @@ pub fn appendZigProcessFlags(
         try zig_args.append(switch (dwarf_format) {
             .@"32" => "-gdwarf32",
             .@"64" => "-gdwarf64",
+        });
+    }
+
+    if (m.unwind_tables) |unwind_tables| {
+        try zig_args.append(switch (unwind_tables) {
+            .none => "-fno-unwind-tables",
+            .sync => "-funwind-tables",
+            .@"async" => "-fasync-unwind-tables",
         });
     }
 

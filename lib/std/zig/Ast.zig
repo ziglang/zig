@@ -205,9 +205,11 @@ pub fn extraData(tree: Ast, index: usize, comptime T: type) T {
 }
 
 pub fn rootDecls(tree: Ast) []const Node.Index {
-    // Root is always index 0.
     const nodes_data = tree.nodes.items(.data);
-    return tree.extra_data[nodes_data[0].lhs..nodes_data[0].rhs];
+    return switch (tree.mode) {
+        .zig => tree.extra_data[nodes_data[0].lhs..nodes_data[0].rhs],
+        .zon => (&nodes_data[0].lhs)[0..1],
+    };
 }
 
 pub fn renderError(tree: Ast, parse_error: Error, stream: anytype) !void {

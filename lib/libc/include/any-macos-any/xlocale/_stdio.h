@@ -25,7 +25,7 @@
 #define _XLOCALE__STDIO_H_
 
 #include <_stdio.h>
-#include <_xlocale.h>
+#include <__xlocale.h>
 
 __BEGIN_DECLS
 

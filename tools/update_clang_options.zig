@@ -111,6 +111,14 @@ const known_options = [_]KnownOpt{
         .ident = "no_unwind_tables",
     },
     .{
+        .name = "fasynchronous-unwind-tables",
+        .ident = "asynchronous_unwind_tables",
+    },
+    .{
+        .name = "fno-asynchronous-unwind-tables",
+        .ident = "no_asynchronous_unwind_tables",
+    },
+    .{
         .name = "nolibc",
         .ident = "nostdlib",
     },

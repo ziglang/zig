@@ -120,7 +120,11 @@ pub fn clone() callconv(.Naked) usize {
         \\    ret
         \\
         \\    # Child
-        \\1:  lw a1, 0(sp)
+        \\1:  .cfi_undefined ra
+        \\    mv fp, zero
+        \\    mv ra, zero
+        \\
+        \\    lw a1, 0(sp)
         \\    lw a0, 4(sp)
         \\    jalr a1
         \\

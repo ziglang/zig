@@ -148,19 +148,22 @@ pub fn clone() callconv(.Naked) usize {
         \\  movl $120,%%eax // SYS_clone
         \\  int $128
         \\  testl %%eax,%%eax
-        \\  jnz 1f
-        \\  popl %%eax
-        \\  xorl %%ebp,%%ebp
-        \\  calll *%%eax
-        \\  movl %%eax,%%ebx
-        \\  movl $1,%%eax // SYS_exit
-        \\  int $128
-        \\1:
+        \\  jz 1f
         \\  popl %%edi
         \\  popl %%esi
         \\  popl %%ebx
         \\  popl %%ebp
         \\  retl
+        \\
+        \\1:
+        \\  .cfi_undefined %%eip
+        \\  xorl %%ebp,%%ebp
+        \\
+        \\  popl %%eax
+        \\  calll *%%eax
+        \\  movl %%eax,%%ebx
+        \\  movl $1,%%eax // SYS_exit
+        \\  int $128
     );
 }
 

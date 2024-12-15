@@ -211,6 +211,7 @@
 #define MADV_FREE_REUSE         8       /* caller wants to reuse those pages */
 #define MADV_CAN_REUSE          9
 #define MADV_PAGEOUT            10      /* page out now (internal only) */
+#define MADV_ZERO               11      /* zero pages without faulting in additional pages */
 
 /*
  * Return bits from mincore

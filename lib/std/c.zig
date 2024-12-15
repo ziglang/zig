@@ -9813,6 +9813,7 @@ pub const mach_port_t = darwin.mach_port_t;
 pub const mach_task_basic_info = darwin.mach_task_basic_info;
 pub const mach_task_self = darwin.mach_task_self;
 pub const mach_timebase_info = darwin.mach_timebase_info;
+pub const mach_timebase_info_data = darwin.mach_timebase_info_data;
 pub const mach_vm_address_t = darwin.mach_vm_address_t;
 pub const mach_vm_protect = darwin.mach_vm_protect;
 pub const mach_vm_read = darwin.mach_vm_read;
