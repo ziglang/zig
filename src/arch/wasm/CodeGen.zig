@@ -711,7 +711,6 @@ pub fn deinit(cg: *CodeGen) void {
     cg.branches.deinit(gpa);
     cg.blocks.deinit(gpa);
     cg.loops.deinit(gpa);
-    cg.locals.deinit(gpa);
     cg.simd_immediates.deinit(gpa);
     cg.free_locals_i32.deinit(gpa);
     cg.free_locals_i64.deinit(gpa);
