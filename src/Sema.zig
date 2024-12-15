@@ -3628,6 +3628,10 @@ fn zirAllocExtended(
         }
     }
 
+    if (small.has_type and try var_ty.comptimeOnlySema(pt)) {
+        return sema.analyzeComptimeAlloc(block, var_ty, alignment);
+    }
+
     if (small.has_type) {
         if (!small.is_const) {
             try sema.validateVarType(block, ty_src, var_ty, false);
@@ -4075,7 +4079,7 @@ fn zirAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
     const ty_src = block.src(.{ .node_offset_var_decl_ty = inst_data.src_node });
 
     const var_ty = try sema.resolveType(block, ty_src, inst_data.operand);
-    if (block.is_comptime) {
+    if (block.is_comptime or try var_ty.comptimeOnlySema(pt)) {
         return sema.analyzeComptimeAlloc(block, var_ty, .none);
     }
     if (sema.func_is_naked and try var_ty.hasRuntimeBitsSema(pt)) {
@@ -31937,6 +31941,17 @@ fn storePtr2(
             return;
         } else break :rs ptr_src;
     } else ptr_src;
+
+    // We're performing the store at runtime; as such, we need to make sure the pointee type
+    // is not comptime-only. We can hit this case with a `@ptrFromInt` pointer.
+    if (try elem_ty.comptimeOnlySema(pt)) {
+        return sema.failWithOwnedErrorMsg(block, msg: {
+            const msg = try sema.errMsg(src, "cannot store comptime-only type '{}' at runtime", .{elem_ty.fmt(pt)});
+            errdefer msg.destroy(sema.gpa);
+            try sema.errNote(ptr_src, msg, "operation is runtime due to this pointer", .{});
+            break :msg msg;
+        });
+    }
 
     // We do this after the possible comptime store above, for the case of field_ptr stores
     // to unions because we want the comptime tag to be set, even if the field type is void.
