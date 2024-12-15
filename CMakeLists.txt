@@ -805,19 +805,24 @@ if(MSVC)
   set(ZIG_WASM2C_COMPILE_FLAGS "")
   set(ZIG1_COMPILE_FLAGS "/Os")
   set(ZIG2_COMPILE_FLAGS "/Od")
+  set(ZIG1_LINK_FLAGS "/STACK:16777216")
   set(ZIG2_LINK_FLAGS "/STACK:16777216 /FORCE:MULTIPLE")
 else()
   set(ZIG_WASM2C_COMPILE_FLAGS "-std=c99 -O2")
   set(ZIG1_COMPILE_FLAGS "-std=c99 -Os")
   set(ZIG2_COMPILE_FLAGS "-std=c99 -O0 -fno-stack-protector")
   if(APPLE)
+    set(ZIG1_LINK_FLAGS "-Wl,-stack_size,0x1000000")
     set(ZIG2_LINK_FLAGS "-Wl,-stack_size,0x10000000")
   elseif(MINGW)
+    set(ZIG1_LINK_FLAGS "-Wl,--stack,0x1000000")
     set(ZIG2_LINK_FLAGS "-Wl,--stack,0x10000000")
   # Solaris/illumos ld(1) does not provide a --stack-size option.
   elseif(CMAKE_HOST_SOLARIS)
+    unset(ZIG1_LINK_FLAGS)
     unset(ZIG2_LINK_FLAGS)
   else()
+    set(ZIG1_LINK_FLAGS "-Wl,-z,stack-size=0x1000000")
     set(ZIG2_LINK_FLAGS "-Wl,-z,stack-size=0x10000000")
   endif()
 endif()
@@ -839,7 +844,10 @@ add_custom_command(
 )
 
 add_executable(zig1 ${ZIG1_C_SOURCE} stage1/wasi.c)
-set_target_properties(zig1 PROPERTIES COMPILE_FLAGS ${ZIG1_COMPILE_FLAGS})
+set_target_properties(zig1 PROPERTIES
+  COMPILE_FLAGS ${ZIG1_COMPILE_FLAGS}
+  LINK_FLAGS "${ZIG1_LINK_FLAGS}"
+)
 
 if(MSVC)
   target_link_options(zig1 PRIVATE /STACK:0x10000000)

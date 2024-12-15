@@ -114,7 +114,14 @@ int main(int argc, char **argv) {
     }
     {
         const char *child_argv[] = {
-            cc, "-o", "zig1", "zig1.c", "stage1/wasi.c", "-std=c99", "-Os", "-lm", NULL,
+            cc, "-o", "zig1", "zig1.c", "stage1/wasi.c",
+            "-std=c99", "-Os", "-lm",
+#if defined(__APPLE__)
+            "-Wl,-stack_size,0x1000000",
+#else
+            "-Wl,-z,stack-size=0x1000000",
+#endif
+            NULL,
         };
         print_and_run(child_argv);
     }
