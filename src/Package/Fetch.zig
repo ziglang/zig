@@ -2057,6 +2057,7 @@ test "zip" {
     defer fb.deinit();
 
     try fetch.run();
+    try std.testing.expectEqual(.path, fetch.actual_path_or_url_kind);
 
     var out = try fb.packageDir();
     defer out.close();
@@ -2090,6 +2091,7 @@ test "zip with one root folder" {
     defer fb.deinit();
 
     try fetch.run();
+    try std.testing.expectEqual(.path, fetch.actual_path_or_url_kind);
 
     var out = try fb.packageDir();
     defer out.close();
@@ -2164,6 +2166,7 @@ test "tarball with excluded duplicate paths" {
         "12200bafe035cbb453dd717741b66e9f9d1e6c674069d06121dafa1b2e62eb6b22da",
         &hex_digest,
     );
+    try std.testing.expectEqual(.path, fetch.actual_path_or_url_kind);
 
     const expected_files: []const []const u8 = &.{
         "build.zig",
@@ -2208,6 +2211,7 @@ test "tarball without root folder" {
         "12209f939bfdcb8b501a61bb4a43124dfa1b2848adc60eec1e4624c560357562b793",
         &hex_digest,
     );
+    try std.testing.expectEqual(.path, fetch.actual_path_or_url_kind);
 
     const expected_files: []const []const u8 = &.{
         "build.zig",
@@ -2246,6 +2250,7 @@ test "set executable bit based on file content" {
         "1220fecb4c06a9da8673c87fe8810e15785f1699212f01728eadce094d21effeeef3",
         &Manifest.hexDigest(fetch.actual_hash),
     );
+    try std.testing.expectEqual(.path, fetch.actual_path_or_url_kind);
 
     var out = try fb.packageDir();
     defer out.close();
@@ -2330,6 +2335,7 @@ const TestFetchBuilder = struct {
             .has_build_zig = false,
             .oom_flag = false,
             .latest_commit = null,
+            .actual_path_or_url_kind = undefined,
 
             .module = null,
         };
