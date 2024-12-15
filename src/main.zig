@@ -406,11 +406,10 @@ const usage_build_generic =
     \\                           .s    Target-specific assembly source code
     \\                           .S    Assembly with C preprocessor (requires LLVM extensions)
     \\                           .c    C source code (requires LLVM extensions)
-    \\  .cxx .cc .C .cpp .c++ .stub    C++ source code (requires LLVM extensions)
+    \\        .cxx .cc .C .cpp .c++    C++ source code (requires LLVM extensions)
     \\                           .m    Objective-C source code (requires LLVM extensions)
     \\                          .mm    Objective-C++ source code (requires LLVM extensions)
     \\                          .bc    LLVM IR Module (requires LLVM extensions)
-    \\                          .cu    Cuda source code (requires LLVM extensions)
     \\
     \\General Options:
     \\  -h, --help                Print this help and exit
@@ -1770,7 +1769,7 @@ fn buildOutputType(
                             fatal("only one manifest file can be specified, found '{s}' after '{s}'", .{ arg, other });
                         } else manifest_file = arg;
                     },
-                    .assembly, .assembly_with_cpp, .c, .cpp, .h, .hpp, .hm, .hmm, .ll, .bc, .m, .mm, .cu => {
+                    .assembly, .assembly_with_cpp, .c, .cpp, .h, .hpp, .hm, .hmm, .ll, .bc, .m, .mm => {
                         try create_module.c_source_files.append(arena, .{
                             // Populated after module creation.
                             .owner = undefined,
@@ -1867,7 +1866,7 @@ fn buildOutputType(
                         try cc_argv.appendSlice(arena, it.other_args);
                     },
                     .positional => switch (file_ext orelse Compilation.classifyFileExt(mem.sliceTo(it.only_arg, 0))) {
-                        .assembly, .assembly_with_cpp, .c, .cpp, .ll, .bc, .h, .hpp, .hm, .hmm, .m, .mm, .cu => {
+                        .assembly, .assembly_with_cpp, .c, .cpp, .ll, .bc, .h, .hpp, .hm, .hmm, .m, .mm => {
                             try create_module.c_source_files.append(arena, .{
                                 // Populated after module creation.
                                 .owner = undefined,
