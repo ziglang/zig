@@ -419,6 +419,7 @@ pub const Section = struct {
             } else {
                 const shdr = &elf_file.sections.items(.shdr)[atom.output_section_index];
                 shdr.sh_offset += len;
+                shdr.sh_size -= len;
                 atom.value = 0;
             }
             atom.size -= len;
@@ -428,7 +429,7 @@ pub const Section = struct {
             else
                 &macho_file.sections.items(.header)[sec.index];
             header.offset += @intCast(len);
-            header.size = sec.len;
+            header.size -= len;
         }
     }
 
