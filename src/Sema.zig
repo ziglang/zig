@@ -31958,6 +31958,14 @@ fn storePtr2(
         });
     }
 
+    // Don't allow stores to element types that have no comptime size.
+    switch (elem_ty.zigTypeTag(zcu)) {
+        .@"fn",
+        .@"opaque",
+        => return sema.fail(block, ptr_src, "pointer element type must have a comptime-known size", .{}),
+        else => {},
+    }
+
     const store_inst = if (is_ret)
         try block.addBinOp(.store, ptr, operand)
     else
