@@ -1162,7 +1162,7 @@ pub const Object = struct {
                         module_flags.appendAssumeCapacity(try o.builder.metadataModuleFlag(
                             behavior_max,
                             try o.builder.metadataString("Dwarf Version"),
-                            try o.builder.metadataConstant(try o.builder.intConst(.i32, 4)),
+                            try o.builder.metadataConstant(try o.builder.intConst(.i32, 5)),
                         ));
 
                         if (f == .@"64") {

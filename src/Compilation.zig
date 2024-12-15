@@ -5561,7 +5561,7 @@ pub fn addCCArgs(
             argv.appendSliceAssumeCapacity(&.{ "-g", "-gcodeview" });
         },
         .dwarf => |f| {
-            argv.appendAssumeCapacity("-gdwarf-4");
+            argv.appendAssumeCapacity("-gdwarf-5");
             switch (f) {
                 .@"32" => argv.appendAssumeCapacity("-gdwarf32"),
                 .@"64" => argv.appendAssumeCapacity("-gdwarf64"),
