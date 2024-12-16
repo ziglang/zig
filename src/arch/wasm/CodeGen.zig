@@ -1233,7 +1233,7 @@ pub fn function(
     const returns = fn_ty_index.ptr(wasm).returns.slice(wasm);
     const any_returns = returns.len != 0;
 
-    var cc_result = try resolveCallingConventionValues(pt, fn_ty, target);
+    var cc_result = try resolveCallingConventionValues(zcu, fn_ty, target);
     defer cc_result.deinit(gpa);
 
     var code_gen: CodeGen = .{
@@ -1267,8 +1267,7 @@ pub fn function(
 
 fn functionInner(cg: *CodeGen, any_returns: bool) InnerError!Function {
     const wasm = cg.wasm;
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
 
     const start_mir_off: u32 = @intCast(wasm.mir_instructions.len);
     const start_mir_extra_off: u32 = @intCast(wasm.mir_extra.items.len);
@@ -1325,11 +1324,10 @@ const CallWValues = struct {
 };
 
 fn resolveCallingConventionValues(
-    pt: Zcu.PerThread,
+    zcu: *const Zcu,
     fn_ty: Type,
     target: *const std.Target,
 ) Allocator.Error!CallWValues {
-    const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
     const fn_info = zcu.typeToFunc(fn_ty).?;
@@ -1407,8 +1405,7 @@ fn lowerArg(cg: *CodeGen, cc: std.builtin.CallingConvention, ty: Type, value: WV
         return cg.lowerToStack(value);
     }
 
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     const ty_classes = abi.classifyType(ty, zcu);
     assert(ty_classes[0] != .none);
     switch (ty.zigTypeTag(zcu)) {
@@ -1494,7 +1491,8 @@ fn restoreStackPointer(cg: *CodeGen) !void {
 ///
 /// Asserts Type has codegenbits
 fn allocStack(cg: *CodeGen, ty: Type) !WValue {
-    const zcu = cg.pt.zcu;
+    const pt = cg.pt;
+    const zcu = pt.zcu;
     assert(ty.hasRuntimeBitsIgnoreComptime(zcu));
     if (cg.initial_stack_value == .none) {
         try cg.initializeStack();
@@ -1502,7 +1500,7 @@ fn allocStack(cg: *CodeGen, ty: Type) !WValue {
 
     const abi_size = std.math.cast(u32, ty.abiSize(zcu)) orelse {
         return cg.fail("Type {} with ABI size of {d} exceeds stack frame size", .{
-            ty.fmt(cg.pt), ty.abiSize(zcu),
+            ty.fmt(pt), ty.abiSize(zcu),
         });
     };
     const abi_align = ty.abiAlignment(zcu);
@@ -2038,8 +2036,7 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     const ip = &zcu.intern_pool;
 
     for (body) |inst| {
@@ -2060,8 +2057,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
 }
 
 fn airRet(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     const un_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
     const operand = try cg.resolveInst(un_op);
     const fn_info = zcu.typeToFunc(zcu.navValue(cg.owner_nav).typeOf(zcu)).?;
@@ -2104,8 +2100,7 @@ fn airRet(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airRetPtr(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     const child_type = cg.typeOfIndex(inst).childType(zcu);
 
     const result = result: {
@@ -2125,8 +2120,7 @@ fn airRetPtr(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airRetLoad(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     const un_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
     const operand = try cg.resolveInst(un_op);
     const ret_ty = cg.typeOf(un_op).childType(zcu);
@@ -2452,8 +2446,7 @@ fn airLoad(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 /// Loads an operand from the linear memory section.
 /// NOTE: Leaves the value on the stack.
 fn load(cg: *CodeGen, operand: WValue, ty: Type, offset: u32) InnerError!WValue {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     // load local's value from memory by its stack position
     try cg.emitWValue(operand);
 
@@ -2526,8 +2519,7 @@ fn airArg(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airBinOp(cg: *CodeGen, inst: Air.Inst.Index, op: Op) InnerError!void {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     const bin_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
     const lhs = try cg.resolveInst(bin_op.lhs);
     const rhs = try cg.resolveInst(bin_op.rhs);
@@ -2594,8 +2586,7 @@ fn binOp(cg: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, op: Op) InnerError!WV
 }
 
 fn binOpBigInt(cg: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, op: Op) InnerError!WValue {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     const int_info = ty.intInfo(zcu);
     if (int_info.bits > 128) {
         return cg.fail("TODO: Implement binary operation for big integers larger than 128 bits", .{});
@@ -2877,8 +2868,7 @@ fn airUnaryFloatOp(cg: *CodeGen, inst: Air.Inst.Index, op: FloatOp) InnerError!v
 }
 
 fn floatOp(cg: *CodeGen, float_op: FloatOp, ty: Type, args: []const WValue) InnerError!WValue {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     if (ty.zigTypeTag(zcu) == .vector) {
         return cg.fail("TODO: Implement floatOps for vectors", .{});
     }
@@ -2952,8 +2942,7 @@ fn floatNeg(cg: *CodeGen, ty: Type, arg: WValue) InnerError!WValue {
 }
 
 fn airWrapBinOp(cg: *CodeGen, inst: Air.Inst.Index, op: Op) InnerError!void {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     const bin_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
 
     const lhs = try cg.resolveInst(bin_op.lhs);
@@ -3000,8 +2989,7 @@ fn wrapBinOp(cg: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, op: Op) InnerErro
 /// Asserts `Type` is <= 128 bits.
 /// NOTE: When the Type is <= 64 bits, leaves the value on top of the stack, if wrapping was needed.
 fn wrapOperand(cg: *CodeGen, operand: WValue, ty: Type) InnerError!WValue {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     assert(ty.abiSize(zcu) <= 16);
     const int_bits: u16 = @intCast(ty.bitSize(zcu)); // TODO use ty.intInfo(zcu).bits
     const wasm_bits = toWasmBits(int_bits) orelse {
@@ -3275,8 +3263,7 @@ fn storeSimdImmd(cg: *CodeGen, value: [16]u8) !WValue {
 }
 
 fn emitUndefined(cg: *CodeGen, ty: Type) InnerError!WValue {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     const ip = &zcu.intern_pool;
     switch (ty.zigTypeTag(zcu)) {
         .bool, .error_set => return .{ .imm32 = 0xaaaaaaaa },
@@ -3317,16 +3304,15 @@ fn emitUndefined(cg: *CodeGen, ty: Type) InnerError!WValue {
 /// It's illegal to provide a value with a type that cannot be represented
 /// as an integer value.
 fn valueAsI32(cg: *const CodeGen, val: Value) i32 {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     const ip = &zcu.intern_pool;
 
     switch (val.toIntern()) {
         .bool_true => return 1,
         .bool_false => return 0,
         else => return switch (ip.indexToKey(val.ip_index)) {
-            .enum_tag => |enum_tag| intIndexAsI32(ip, enum_tag.int, pt),
-            .int => |int| intStorageAsI32(int.storage, pt),
+            .enum_tag => |enum_tag| intIndexAsI32(ip, enum_tag.int, zcu),
+            .int => |int| intStorageAsI32(int.storage, zcu),
             .ptr => |ptr| {
                 assert(ptr.base_addr == .int);
                 return @intCast(ptr.byte_offset);
@@ -3337,12 +3323,11 @@ fn valueAsI32(cg: *const CodeGen, val: Value) i32 {
     }
 }
 
-fn intIndexAsI32(ip: *const InternPool, int: InternPool.Index, pt: Zcu.PerThread) i32 {
-    return intStorageAsI32(ip.indexToKey(int).int.storage, pt);
+fn intIndexAsI32(ip: *const InternPool, int: InternPool.Index, zcu: *const Zcu) i32 {
+    return intStorageAsI32(ip.indexToKey(int).int.storage, zcu);
 }
 
-fn intStorageAsI32(storage: InternPool.Key.Int.Storage, pt: Zcu.PerThread) i32 {
-    const zcu = pt.zcu;
+fn intStorageAsI32(storage: InternPool.Key.Int.Storage, zcu: *const Zcu) i32 {
     return switch (storage) {
         .i64 => |x| @as(i32, @intCast(x)),
         .u64 => |x| @as(i32, @bitCast(@as(u32, @intCast(x)))),
@@ -3359,8 +3344,7 @@ fn airBlock(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn lowerBlock(cg: *CodeGen, inst: Air.Inst.Index, block_ty: Type, body: []const Air.Inst.Index) InnerError!void {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     const wasm_block_ty = genBlockType(block_ty, zcu, cg.target);
 
     // if wasm_block_ty is non-empty, we create a register to store the temporary value
@@ -3478,8 +3462,7 @@ fn airCmp(cg: *CodeGen, inst: Air.Inst.Index, op: std.math.CompareOperator) Inne
 /// NOTE: This leaves the result on top of the stack, rather than a new local.
 fn cmp(cg: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, op: std.math.CompareOperator) InnerError!WValue {
     assert(!(lhs != .stack and rhs == .stack));
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     if (ty.zigTypeTag(zcu) == .optional and !ty.optionalReprIsPayload(zcu)) {
         const payload_ty = ty.optionalChild(zcu);
         if (payload_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
@@ -3699,8 +3682,7 @@ fn airUnreachable(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airBitcast(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     const ty_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
     const operand = try cg.resolveInst(ty_op.operand);
     const wanted_ty = cg.typeOfIndex(inst);
@@ -3743,8 +3725,7 @@ fn airBitcast(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn bitcast(cg: *CodeGen, wanted_ty: Type, given_ty: Type, operand: WValue) InnerError!WValue {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     // if we bitcast a float to or from an integer we must use the 'reinterpret' instruction
     if (!(wanted_ty.isAnyFloat() or given_ty.isAnyFloat())) return operand;
     if (wanted_ty.ip_index == .f16_type or given_ty.ip_index == .f16_type) return operand;
@@ -3762,8 +3743,7 @@ fn bitcast(cg: *CodeGen, wanted_ty: Type, given_ty: Type, operand: WValue) Inner
 }
 
 fn airStructFieldPtr(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     const ty_pl = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = cg.air.extraData(Air.StructField, ty_pl.payload);
 
@@ -3775,8 +3755,7 @@ fn airStructFieldPtr(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airStructFieldPtrIndex(cg: *CodeGen, inst: Air.Inst.Index, index: u32) InnerError!void {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     const ty_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
     const struct_ptr = try cg.resolveInst(ty_op.operand);
     const struct_ptr_ty = cg.typeOf(ty_op.operand);
@@ -4115,8 +4094,7 @@ fn airSwitchBr(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airIsErr(cg: *CodeGen, inst: Air.Inst.Index, opcode: std.wasm.Opcode) InnerError!void {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     const un_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
     const operand = try cg.resolveInst(un_op);
     const err_union_ty = cg.typeOf(un_op);
@@ -4148,8 +4126,7 @@ fn airIsErr(cg: *CodeGen, inst: Air.Inst.Index, opcode: std.wasm.Opcode) InnerEr
 }
 
 fn airUnwrapErrUnionPayload(cg: *CodeGen, inst: Air.Inst.Index, op_is_ptr: bool) InnerError!void {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     const ty_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
     const operand = try cg.resolveInst(ty_op.operand);
@@ -4176,8 +4153,7 @@ fn airUnwrapErrUnionPayload(cg: *CodeGen, inst: Air.Inst.Index, op_is_ptr: bool)
 }
 
 fn airUnwrapErrUnionError(cg: *CodeGen, inst: Air.Inst.Index, op_is_ptr: bool) InnerError!void {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     const ty_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
     const operand = try cg.resolveInst(ty_op.operand);
@@ -4230,8 +4206,7 @@ fn airWrapErrUnionPayload(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airWrapErrUnionErr(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     const ty_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
     const operand = try cg.resolveInst(ty_op.operand);
@@ -4263,8 +4238,7 @@ fn airIntcast(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const ty = ty_op.ty.toType();
     const operand = try cg.resolveInst(ty_op.operand);
     const operand_ty = cg.typeOf(ty_op.operand);
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     if (ty.zigTypeTag(zcu) == .vector or operand_ty.zigTypeTag(zcu) == .vector) {
         return cg.fail("todo Wasm intcast for vectors", .{});
     }
@@ -4287,8 +4261,7 @@ fn airIntcast(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 /// Asserts type's bitsize <= 128
 /// NOTE: May leave the result on the top of the stack.
 fn intcast(cg: *CodeGen, operand: WValue, given: Type, wanted: Type) InnerError!WValue {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     const given_bitsize = @as(u16, @intCast(given.bitSize(zcu)));
     const wanted_bitsize = @as(u16, @intCast(wanted.bitSize(zcu)));
     assert(given_bitsize <= 128);
@@ -4337,8 +4310,7 @@ fn intcast(cg: *CodeGen, operand: WValue, given: Type, wanted: Type) InnerError!
 }
 
 fn airIsNull(cg: *CodeGen, inst: Air.Inst.Index, opcode: std.wasm.Opcode, op_kind: enum { value, ptr }) InnerError!void {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     const un_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
     const operand = try cg.resolveInst(un_op);
 
@@ -4379,8 +4351,7 @@ fn isNull(cg: *CodeGen, operand: WValue, optional_ty: Type, opcode: std.wasm.Opc
 }
 
 fn airOptionalPayload(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     const ty_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
     const opt_ty = cg.typeOf(ty_op.operand);
     const payload_ty = cg.typeOfIndex(inst);
@@ -4402,8 +4373,7 @@ fn airOptionalPayload(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airOptionalPayloadPtr(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     const ty_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
     const operand = try cg.resolveInst(ty_op.operand);
     const opt_ty = cg.typeOf(ty_op.operand).childType(zcu);
@@ -4507,8 +4477,7 @@ fn airSliceLen(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airSliceElemVal(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     const bin_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
 
     const slice_ty = cg.typeOf(bin_op.lhs);
@@ -4535,8 +4504,7 @@ fn airSliceElemVal(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airSliceElemPtr(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     const ty_pl = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const bin_op = cg.air.extraData(Air.Bin, ty_pl.payload).data;
 
@@ -4579,8 +4547,7 @@ fn airTrunc(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const operand = try cg.resolveInst(ty_op.operand);
     const wanted_ty: Type = ty_op.ty.toType();
     const op_ty = cg.typeOf(ty_op.operand);
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
 
     if (wanted_ty.zigTypeTag(zcu) == .vector or op_ty.zigTypeTag(zcu) == .vector) {
         return cg.fail("TODO: trunc for vectors", .{});
@@ -4597,8 +4564,7 @@ fn airTrunc(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 /// Truncates a given operand to a given type, discarding any overflown bits.
 /// NOTE: Resulting value is left on the stack.
 fn trunc(cg: *CodeGen, operand: WValue, wanted_ty: Type, given_ty: Type) InnerError!WValue {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     const given_bits = @as(u16, @intCast(given_ty.bitSize(zcu)));
     if (toWasmBits(given_bits) == null) {
         return cg.fail("TODO: Implement wasm integer truncation for integer bitsize: {d}", .{given_bits});
@@ -4622,8 +4588,7 @@ fn airIntFromBool(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airArrayToSlice(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     const ty_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
     const operand = try cg.resolveInst(ty_op.operand);
@@ -4646,8 +4611,7 @@ fn airArrayToSlice(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airIntFromPtr(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     const un_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
     const operand = try cg.resolveInst(un_op);
     const ptr_ty = cg.typeOf(un_op);
@@ -4662,8 +4626,7 @@ fn airIntFromPtr(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airPtrElemVal(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     const bin_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
 
     const ptr_ty = cg.typeOf(bin_op.lhs);
@@ -4694,8 +4657,7 @@ fn airPtrElemVal(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airPtrElemPtr(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     const ty_pl = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const bin_op = cg.air.extraData(Air.Bin, ty_pl.payload).data;
 
@@ -4723,8 +4685,7 @@ fn airPtrElemPtr(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airPtrBinOp(cg: *CodeGen, inst: Air.Inst.Index, op: Op) InnerError!void {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     const ty_pl = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const bin_op = cg.air.extraData(Air.Bin, ty_pl.payload).data;
 
@@ -4750,8 +4711,7 @@ fn airPtrBinOp(cg: *CodeGen, inst: Air.Inst.Index, op: Op) InnerError!void {
 }
 
 fn airMemset(cg: *CodeGen, inst: Air.Inst.Index, safety: bool) InnerError!void {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     if (safety) {
         // TODO if the value is undef, write 0xaa bytes to dest
     } else {
@@ -4784,8 +4744,8 @@ fn airMemset(cg: *CodeGen, inst: Air.Inst.Index, safety: bool) InnerError!void {
 /// this to wasm's memset instruction. When the feature is not present,
 /// we implement it manually.
 fn memset(cg: *CodeGen, elem_ty: Type, ptr: WValue, len: WValue, value: WValue) InnerError!void {
-    const pt = cg.pt;
-    const abi_size = @as(u32, @intCast(elem_ty.abiSize(pt.zcu)));
+    const zcu = cg.pt.zcu;
+    const abi_size = @as(u32, @intCast(elem_ty.abiSize(zcu)));
 
     // When bulk_memory is enabled, we lower it to wasm's memset instruction.
     // If not, we lower it ourselves.
@@ -4869,8 +4829,7 @@ fn memset(cg: *CodeGen, elem_ty: Type, ptr: WValue, len: WValue, value: WValue) 
 }
 
 fn airArrayElemVal(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     const bin_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
 
     const array_ty = cg.typeOf(bin_op.lhs);
@@ -4931,8 +4890,7 @@ fn airArrayElemVal(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airIntFromFloat(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     const ty_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
     const operand = try cg.resolveInst(ty_op.operand);
@@ -4983,8 +4941,7 @@ fn airIntFromFloat(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airFloatFromInt(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     const ty_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
     const operand = try cg.resolveInst(ty_op.operand);
@@ -5036,8 +4993,7 @@ fn airFloatFromInt(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airSplat(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     const ty_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
     const operand = try cg.resolveInst(ty_op.operand);
     const ty = cg.typeOfIndex(inst);
@@ -5405,8 +5361,7 @@ fn airWasmMemoryGrow(cg: *CodeGen, inst: Air.Inst.Index) !void {
 }
 
 fn cmpOptionals(cg: *CodeGen, lhs: WValue, rhs: WValue, operand_ty: Type, op: std.math.CompareOperator) InnerError!WValue {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     assert(operand_ty.hasRuntimeBitsIgnoreComptime(zcu));
     assert(op == .eq or op == .neq);
     const payload_ty = operand_ty.optionalChild(zcu);
@@ -5442,8 +5397,7 @@ fn cmpOptionals(cg: *CodeGen, lhs: WValue, rhs: WValue, operand_ty: Type, op: st
 /// NOTE: Leaves the result of the comparison on top of the stack.
 /// TODO: Lower this to compiler_rt call when bitsize > 128
 fn cmpBigInt(cg: *CodeGen, lhs: WValue, rhs: WValue, operand_ty: Type, op: std.math.CompareOperator) InnerError!WValue {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     assert(operand_ty.abiSize(zcu) >= 16);
     assert(!(lhs != .stack and rhs == .stack));
     if (operand_ty.bitSize(zcu) > 128) {
@@ -5637,8 +5591,7 @@ fn fptrunc(cg: *CodeGen, operand: WValue, given: Type, wanted: Type) InnerError!
 }
 
 fn airErrUnionPayloadPtrSet(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     const ty_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
     const err_set_ty = cg.typeOf(ty_op.operand).childType(zcu);
@@ -5664,8 +5617,7 @@ fn airErrUnionPayloadPtrSet(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void 
 }
 
 fn airFieldParentPtr(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     const ty_pl = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = cg.air.extraData(Air.FieldParentPtr, ty_pl.payload).data;
 
@@ -5686,8 +5638,7 @@ fn airFieldParentPtr(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn sliceOrArrayPtr(cg: *CodeGen, ptr: WValue, ptr_ty: Type) InnerError!WValue {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     if (ptr_ty.isSlice(zcu)) {
         return cg.slicePtr(ptr);
     } else {
@@ -5696,8 +5647,7 @@ fn sliceOrArrayPtr(cg: *CodeGen, ptr: WValue, ptr_ty: Type) InnerError!WValue {
 }
 
 fn airMemcpy(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     const bin_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
     const dst = try cg.resolveInst(bin_op.lhs);
     const dst_ty = cg.typeOf(bin_op.lhs);
@@ -5788,8 +5738,7 @@ fn airPopcount(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airBitReverse(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     const ty_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
     const operand = try cg.resolveInst(ty_op.operand);
@@ -6176,8 +6125,7 @@ fn airMaxMin(
     op: enum { fmax, fmin },
     cmp_op: std.math.CompareOperator,
 ) InnerError!void {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     const bin_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
 
     const ty = cg.typeOfIndex(inst);
@@ -6218,8 +6166,7 @@ fn airMaxMin(
 }
 
 fn airMulAdd(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     const pl_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
     const bin_op = cg.air.extraData(Air.Bin, pl_op.payload).data;
 
@@ -6253,8 +6200,7 @@ fn airMulAdd(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airClz(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     const ty_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
     const ty = cg.typeOf(ty_op.operand);
@@ -6304,8 +6250,7 @@ fn airClz(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airCtz(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     const ty_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
     const ty = cg.typeOf(ty_op.operand);
@@ -6406,8 +6351,7 @@ fn airTry(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airTryPtr(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     const ty_pl = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = cg.air.extraData(Air.TryPtr, ty_pl.payload);
     const err_union_ptr = try cg.resolveInst(extra.data.ptr);
@@ -6425,8 +6369,7 @@ fn lowerTry(
     err_union_ty: Type,
     operand_is_ptr: bool,
 ) InnerError!WValue {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     if (operand_is_ptr) {
         return cg.fail("TODO: lowerTry for pointers", .{});
     }
@@ -6475,8 +6418,7 @@ fn lowerTry(
 }
 
 fn airByteSwap(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     const ty_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
     const ty = cg.typeOfIndex(inst);
@@ -6558,8 +6500,7 @@ fn airDivTrunc(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 fn airDivFloor(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const bin_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
 
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     const ty = cg.typeOfIndex(inst);
     const lhs = try cg.resolveInst(bin_op.lhs);
     const rhs = try cg.resolveInst(bin_op.rhs);
@@ -6819,8 +6760,7 @@ fn airSatBinOp(cg: *CodeGen, inst: Air.Inst.Index, op: Op) InnerError!void {
     assert(op == .add or op == .sub);
     const bin_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
 
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     const ty = cg.typeOfIndex(inst);
     const lhs = try cg.resolveInst(bin_op.lhs);
     const rhs = try cg.resolveInst(bin_op.rhs);
@@ -7041,8 +6981,7 @@ fn callIntrinsic(
     args: []const WValue,
 ) InnerError!WValue {
     assert(param_types.len == args.len);
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
 
     // Always pass over C-ABI
 
@@ -7090,8 +7029,7 @@ fn airTagName(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airErrorSetHasValue(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     const ip = &zcu.intern_pool;
     const ty_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
@@ -7177,8 +7115,7 @@ inline fn useAtomicFeature(cg: *const CodeGen) bool {
 }
 
 fn airCmpxchg(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     const ty_pl = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = cg.air.extraData(Air.Cmpxchg, ty_pl.payload).data;
 
@@ -7251,13 +7188,13 @@ fn airCmpxchg(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airAtomicLoad(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const pt = cg.pt;
+    const zcu = cg.pt.zcu;
     const atomic_load = cg.air.instructions.items(.data)[@intFromEnum(inst)].atomic_load;
     const ptr = try cg.resolveInst(atomic_load.ptr);
     const ty = cg.typeOfIndex(inst);
 
     if (cg.useAtomicFeature()) {
-        const tag: std.wasm.AtomicsOpcode = switch (ty.abiSize(pt.zcu)) {
+        const tag: std.wasm.AtomicsOpcode = switch (ty.abiSize(zcu)) {
             1 => .i32_atomic_load8_u,
             2 => .i32_atomic_load16_u,
             4 => .i32_atomic_load,
@@ -7267,7 +7204,7 @@ fn airAtomicLoad(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         try cg.emitWValue(ptr);
         try cg.addAtomicMemArg(tag, .{
             .offset = ptr.offset(),
-            .alignment = @intCast(ty.abiAlignment(pt.zcu).toByteUnits().?),
+            .alignment = @intCast(ty.abiAlignment(zcu).toByteUnits().?),
         });
     } else {
         _ = try cg.load(ptr, ty, 0);
@@ -7277,8 +7214,7 @@ fn airAtomicLoad(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airAtomicRmw(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     const pl_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
     const extra = cg.air.extraData(Air.AtomicRmw, pl_op.payload).data;
 
@@ -7452,8 +7388,7 @@ fn airAtomicRmw(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airAtomicStore(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     const bin_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
 
     const ptr = try cg.resolveInst(bin_op.lhs);
@@ -7491,14 +7426,12 @@ fn airFrameAddress(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn typeOf(cg: *CodeGen, inst: Air.Inst.Ref) Type {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     return cg.air.typeOf(inst, &zcu.intern_pool);
 }
 
 fn typeOfIndex(cg: *CodeGen, inst: Air.Inst.Index) Type {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
+    const zcu = cg.pt.zcu;
     return cg.air.typeOfIndex(inst, &zcu.intern_pool);
 }
 
