@@ -2632,7 +2632,7 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
 
             const type_gop = try dwarf.types.getOrPut(dwarf.gpa, nav_val.toIntern());
             if (type_gop.found_existing) {
-                dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(type_gop.value_ptr.*).clear();
+                if (dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(type_gop.value_ptr.*).len > 0) break :tag .decl_alias;
                 nav_gop.value_ptr.* = type_gop.value_ptr.*;
             } else {
                 if (nav_gop.found_existing)
@@ -2733,7 +2733,7 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
 
             const type_gop = try dwarf.types.getOrPut(dwarf.gpa, nav_val.toIntern());
             if (type_gop.found_existing) {
-                dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(type_gop.value_ptr.*).clear();
+                if (dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(type_gop.value_ptr.*).len > 0) break :tag .decl_alias;
                 nav_gop.value_ptr.* = type_gop.value_ptr.*;
             } else {
                 if (nav_gop.found_existing)
@@ -2788,7 +2788,7 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
 
             const type_gop = try dwarf.types.getOrPut(dwarf.gpa, nav_val.toIntern());
             if (type_gop.found_existing) {
-                dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(type_gop.value_ptr.*).clear();
+                if (dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(type_gop.value_ptr.*).len > 0) break :tag .decl_alias;
                 nav_gop.value_ptr.* = type_gop.value_ptr.*;
             } else {
                 if (nav_gop.found_existing)
@@ -2879,7 +2879,7 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
 
             const type_gop = try dwarf.types.getOrPut(dwarf.gpa, nav_val.toIntern());
             if (type_gop.found_existing) {
-                dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(type_gop.value_ptr.*).clear();
+                if (dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(type_gop.value_ptr.*).len > 0) break :tag .decl_alias;
                 nav_gop.value_ptr.* = type_gop.value_ptr.*;
             } else {
                 if (nav_gop.found_existing)
