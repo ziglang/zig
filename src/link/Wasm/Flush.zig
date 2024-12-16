@@ -1038,7 +1038,7 @@ fn replaceVecSectionHeader(
     section: std.wasm.Section,
     n_items: u32,
 ) void {
-    const size: u32 = @intCast(bytes.items.len - offset - section_header_size);
+    const size: u32 = @intCast(bytes.items.len - offset - section_header_reserve_size + uleb128size(n_items));
     var buf: [section_header_reserve_size]u8 = undefined;
     var fbw = std.io.fixedBufferStream(&buf);
     const w = fbw.writer();
@@ -1395,14 +1395,9 @@ fn emitSegmentInfo(wasm: *Wasm, binary_bytes: *std.ArrayList(u8)) !void {
 //    }
 //}
 
-fn getUleb128Size(uint_value: anytype) u32 {
-    const T = @TypeOf(uint_value);
-    const U = if (@typeInfo(T).int.bits < 8) u8 else T;
-    var value = @as(U, @intCast(uint_value));
-
+fn uleb128size(x: u32) u32 {
+    var value = x;
     var size: u32 = 0;
-    while (value != 0) : (size += 1) {
-        value >>= 7;
-    }
+    while (value != 0) : (size += 1) value >>= 7;
     return size;
 }
