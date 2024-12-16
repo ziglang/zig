@@ -1164,6 +1164,7 @@ pub const CPUFAMILY = enum(u32) {
     ARM_LOBOS = 0x5f4dea93,
     ARM_PALMA = 0x72015832,
     ARM_DONAN = 0x6f5129ac,
+    ARM_BRAVA = 0x17d5b93a,
     _,
 };
 
