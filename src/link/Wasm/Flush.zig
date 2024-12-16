@@ -79,6 +79,7 @@ pub fn finish(f: *Flush, wasm: *Wasm, arena: Allocator) !void {
 
         for (wasm.nav_exports.keys()) |*nav_export| {
             if (ip.isFunctionType(ip.getNav(nav_export.nav_index).typeOf(ip))) {
+                log.debug("flush export '{s}' nav={d}", .{ nav_export.name.slice(wasm), nav_export.nav_index });
                 try wasm.function_exports.append(gpa, .{
                     .name = nav_export.name,
                     .function_index = Wasm.FunctionIndex.fromIpNav(wasm, nav_export.nav_index).?,
@@ -103,9 +104,11 @@ pub fn finish(f: *Flush, wasm: *Wasm, arena: Allocator) !void {
         }
 
         if (entry_name.unwrap()) |name| {
-            var err = try diags.addErrorWithNotes(1);
-            try err.addMsg("entry symbol '{s}' missing", .{name.slice(wasm)});
-            try err.addNote("'-fno-entry' suppresses this error", .{});
+            if (wasm.entry_resolution == .unresolved) {
+                var err = try diags.addErrorWithNotes(1);
+                try err.addMsg("entry symbol '{s}' missing", .{name.slice(wasm)});
+                try err.addNote("'-fno-entry' suppresses this error", .{});
+            }
         }
     }
 
@@ -615,19 +618,10 @@ pub fn finish(f: *Flush, wasm: *Wasm, arena: Allocator) !void {
                 //try leb.writeUleb128(binary_writer, atom.code.len);
                 //try binary_bytes.appendSlice(gpa, atom.code.slice(wasm));
             },
-            .nav_exe => |i| {
-                assert(!is_obj);
+            .zcu_func => |i| {
                 _ = i;
                 _ = start_offset;
-                @panic("TODO lower nav exe code and apply relocations");
-                //try leb.writeUleb128(binary_writer, atom.code.len);
-                //try binary_bytes.appendSlice(gpa, atom.code.slice(wasm));
-            },
-            .nav_obj => |i| {
-                assert(is_obj);
-                _ = i;
-                _ = start_offset;
-                @panic("TODO lower nav obj code and apply relocations");
+                @panic("TODO lower zcu_func code and apply relocations");
                 //try leb.writeUleb128(binary_writer, atom.code.len);
                 //try binary_bytes.appendSlice(gpa, atom.code.slice(wasm));
             },

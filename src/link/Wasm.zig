@@ -586,7 +586,7 @@ pub const NavExe = extern struct {
 pub const ZcuFunc = extern struct {
     function: CodeGen.Function,
 
-    /// Index into `zcu_funcs`.
+    /// Index into `Wasm.zcu_funcs`.
     /// Note that swapRemove is sometimes performed on `zcu_funcs`.
     pub const Index = enum(u32) {
         _,
@@ -641,7 +641,7 @@ pub const FunctionImport = extern struct {
         __wasm_init_tls,
         __zig_error_names,
         // Next, index into `object_functions`.
-        // Next, index into `navs_exe` or `navs_obj` depending on whether emitting an object.
+        // Next, index into `zcu_funcs`.
         _,
 
         const first_object_function = @intFromEnum(Resolution.__zig_error_names) + 1;
@@ -654,8 +654,7 @@ pub const FunctionImport = extern struct {
             __wasm_init_tls,
             __zig_error_names,
             object_function: ObjectFunctionIndex,
-            nav_exe: NavExe.Index,
-            nav_obj: NavObj.Index,
+            zcu_func: ZcuFunc.Index,
         };
 
         pub fn unpack(r: Resolution, wasm: *const Wasm) Unpacked {
@@ -669,16 +668,13 @@ pub const FunctionImport = extern struct {
                 _ => {
                     const i: u32 = @intFromEnum(r);
                     const object_function_index = i - first_object_function;
-                    if (object_function_index < wasm.object_functions.items.len)
+                    if (object_function_index < wasm.object_functions.items.len) {
                         return .{ .object_function = @enumFromInt(object_function_index) };
-                    const comp = wasm.base.comp;
-                    const is_obj = comp.config.output_mode == .Obj;
-                    const nav_index = object_function_index - wasm.object_functions.items.len;
-                    return if (is_obj) .{
-                        .nav_obj = @enumFromInt(nav_index),
-                    } else .{
-                        .nav_exe = @enumFromInt(nav_index),
-                    };
+                    } else {
+                        return .{
+                            .zcu_func = @enumFromInt(object_function_index - wasm.object_functions.items.len),
+                        };
+                    }
                 },
             };
         }
@@ -692,24 +688,22 @@ pub const FunctionImport = extern struct {
                 .__wasm_init_tls => .__wasm_init_tls,
                 .__zig_error_names => .__zig_error_names,
                 .object_function => |i| @enumFromInt(first_object_function + @intFromEnum(i)),
-                .nav_obj => |i| @enumFromInt(first_object_function + wasm.object_functions.items.len + @intFromEnum(i)),
-                .nav_exe => |i| @enumFromInt(first_object_function + wasm.object_functions.items.len + @intFromEnum(i)),
+                .zcu_func => |i| @enumFromInt(first_object_function + wasm.object_functions.items.len + @intFromEnum(i)),
             };
         }
 
-        pub fn fromIpNav(wasm: *const Wasm, ip_nav: InternPool.Nav.Index) Resolution {
-            const comp = wasm.base.comp;
-            const is_obj = comp.config.output_mode == .Obj;
-            return pack(wasm, if (is_obj) .{
-                .nav_obj = @enumFromInt(wasm.navs_obj.getIndex(ip_nav).?),
-            } else .{
-                .nav_exe = @enumFromInt(wasm.navs_exe.getIndex(ip_nav).?),
+        pub fn fromIpNav(wasm: *const Wasm, nav_index: InternPool.Nav.Index) Resolution {
+            const zcu = wasm.base.comp.zcu.?;
+            const ip = &zcu.intern_pool;
+            const nav = ip.getNav(nav_index);
+            return pack(wasm, .{
+                .zcu_func = @enumFromInt(wasm.zcu_funcs.getIndex(nav.status.resolved.val).?),
             });
         }
 
         pub fn isNavOrUnresolved(r: Resolution, wasm: *const Wasm) bool {
             return switch (r.unpack(wasm)) {
-                .unresolved, .nav_obj, .nav_exe => true,
+                .unresolved, .zcu_func => true,
                 else => false,
             };
         }
@@ -723,8 +717,7 @@ pub const FunctionImport = extern struct {
                 .__wasm_init_tls => @panic("TODO"),
                 .__zig_error_names => @panic("TODO"),
                 .object_function => |i| i.ptr(wasm).type_index,
-                .nav_exe => @panic("TODO"),
-                .nav_obj => @panic("TODO"),
+                .zcu_func => @panic("TODO"),
             };
         }
     };
@@ -1940,13 +1933,18 @@ pub fn updateFunc(wasm: *Wasm, pt: Zcu.PerThread, func_index: InternPool.Index, 
 
     dev.check(.wasm_backend);
 
+    const gpa = pt.zcu.gpa;
+    try wasm.functions.ensureUnusedCapacity(gpa, 1);
+    try wasm.zcu_funcs.ensureUnusedCapacity(gpa, 1);
+
     // This converts AIR to MIR but does not yet lower to wasm code.
     // That lowering happens during `flush`, after garbage collection, which
     // can affect function and global indexes, which affects the LEB integer
     // encoding, which affects the output binary size.
-    try wasm.zcu_funcs.put(pt.zcu.gpa, func_index, .{
+    wasm.zcu_funcs.putAssumeCapacity(func_index, .{
         .function = try CodeGen.function(wasm, pt, func_index, air, liveness),
     });
+    wasm.functions.putAssumeCapacity(.pack(wasm, .{ .zcu_func = @enumFromInt(wasm.zcu_funcs.entries.len - 1) }), {});
 }
 
 // Generate code for the "Nav", storing it in memory to be later written to
@@ -1963,19 +1961,14 @@ pub fn updateNav(wasm: *Wasm, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index
     const gpa = comp.gpa;
     const is_obj = comp.config.output_mode == .Obj;
 
-    const nav_val = zcu.navValue(nav_index);
-    const is_extern, const nav_init = switch (ip.indexToKey(nav_val.toIntern())) {
-        .variable => |variable| .{ false, Value.fromInterned(variable.init) },
-        .func => unreachable,
-        .@"extern" => b: {
-            assert(!ip.isFunctionType(nav.typeOf(ip)));
-            break :b .{ true, nav_val };
-        },
-        else => .{ false, nav_val },
+    const is_extern, const nav_init = switch (ip.indexToKey(nav.status.resolved.val)) {
+        .func => return,
+        .@"extern" => .{ true, .none },
+        .variable => |variable| .{ false, variable.init },
+        else => .{ false, nav.status.resolved.val },
     };
-
-    if (!nav_init.typeOf(zcu).hasRuntimeBits(zcu)) {
-        _ = wasm.imports.swapRemove(nav_index);
+    if (is_extern) {
+        try wasm.imports.put(gpa, nav_index, {});
         if (is_obj) {
             if (wasm.navs_obj.swapRemove(nav_index)) @panic("TODO reclaim resources");
         } else {
@@ -1983,9 +1976,9 @@ pub fn updateNav(wasm: *Wasm, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index
         }
         return;
     }
+    _ = wasm.imports.swapRemove(nav_index);
 
-    if (is_extern) {
-        try wasm.imports.put(gpa, nav_index, {});
+    if (nav_init != .none and !Value.fromInterned(nav_init).typeOf(zcu).hasRuntimeBits(zcu)) {
         if (is_obj) {
             if (wasm.navs_obj.swapRemove(nav_index)) @panic("TODO reclaim resources");
         } else {
@@ -2002,7 +1995,7 @@ pub fn updateNav(wasm: *Wasm, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index
         &wasm.base,
         pt,
         zcu.navSrcLoc(nav_index),
-        nav_init,
+        Value.fromInterned(nav_init),
         &wasm.string_bytes,
         .none,
     );
@@ -2030,11 +2023,6 @@ pub fn updateNav(wasm: *Wasm, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index
 
     if (is_obj) {
         const gop = try wasm.navs_obj.getOrPut(gpa, nav_index);
-        if (gop.found_existing) {
-            @panic("TODO reuse these resources");
-        } else {
-            _ = wasm.imports.swapRemove(nav_index);
-        }
         gop.value_ptr.* = .{
             .code = code,
             .relocs = .{
@@ -2047,11 +2035,6 @@ pub fn updateNav(wasm: *Wasm, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index
     assert(relocs_len == 0);
 
     const gop = try wasm.navs_exe.getOrPut(gpa, nav_index);
-    if (gop.found_existing) {
-        @panic("TODO reuse these resources");
-    } else {
-        _ = wasm.imports.swapRemove(nav_index);
-    }
     gop.value_ptr.* = .{
         .code = code,
     };
@@ -2072,9 +2055,13 @@ pub fn deleteExport(
 
     const zcu = wasm.base.comp.zcu.?;
     const ip = &zcu.intern_pool;
-    const export_name = wasm.getExistingString(name.toSlice(ip)).?;
+    const name_slice = name.toSlice(ip);
+    const export_name = wasm.getExistingString(name_slice).?;
     switch (exported) {
-        .nav => |nav_index| assert(wasm.nav_exports.swapRemove(.{ .nav_index = nav_index, .name = export_name })),
+        .nav => |nav_index| {
+            log.debug("deleteExport '{s}' nav={d}", .{ name_slice, @intFromEnum(nav_index) });
+            assert(wasm.nav_exports.swapRemove(.{ .nav_index = nav_index, .name = export_name }));
+        },
         .uav => |uav_index| assert(wasm.uav_exports.swapRemove(.{ .uav_index = uav_index, .name = export_name })),
     }
     wasm.any_exports_updated = true;
@@ -2096,9 +2083,13 @@ pub fn updateExports(
     const ip = &zcu.intern_pool;
     for (export_indices) |export_idx| {
         const exp = export_idx.ptr(zcu);
-        const name = try wasm.internString(exp.opts.name.toSlice(ip));
+        const name_slice = exp.opts.name.toSlice(ip);
+        const name = try wasm.internString(name_slice);
         switch (exported) {
-            .nav => |nav_index| try wasm.nav_exports.put(gpa, .{ .nav_index = nav_index, .name = name }, export_idx),
+            .nav => |nav_index| {
+                log.debug("updateExports '{s}' nav={d}", .{ name_slice, @intFromEnum(nav_index) });
+                try wasm.nav_exports.put(gpa, .{ .nav_index = nav_index, .name = name }, export_idx);
+            },
             .uav => |uav_index| try wasm.uav_exports.put(gpa, .{ .uav_index = uav_index, .name = name }, export_idx),
         }
     }
