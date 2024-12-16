@@ -997,7 +997,7 @@ fn markRelocsDirtyByAddress(coff: *Coff, addr: u32) void {
     }
 }
 
-fn resolveRelocs(coff: *Coff, atom_index: Atom.Index, relocs: []*const Relocation, code: []u8, image_base: u64) void {
+fn resolveRelocs(coff: *Coff, atom_index: Atom.Index, relocs: []const *const Relocation, code: []u8, image_base: u64) void {
     log.debug("relocating '{s}'", .{coff.getAtom(atom_index).getName(coff)});
     for (relocs) |reloc| {
         reloc.resolve(atom_index, code, image_base, coff);

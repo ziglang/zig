@@ -1364,20 +1364,20 @@ fn usage(b: *std.Build, out_stream: anytype) !void {
     );
 }
 
-fn nextArg(args: [][:0]const u8, idx: *usize) ?[:0]const u8 {
+fn nextArg(args: []const [:0]const u8, idx: *usize) ?[:0]const u8 {
     if (idx.* >= args.len) return null;
     defer idx.* += 1;
     return args[idx.*];
 }
 
-fn nextArgOrFatal(args: [][:0]const u8, idx: *usize) [:0]const u8 {
+fn nextArgOrFatal(args: []const [:0]const u8, idx: *usize) [:0]const u8 {
     return nextArg(args, idx) orelse {
         std.debug.print("expected argument after '{s}'\n  access the help menu with 'zig build -h'\n", .{args[idx.* - 1]});
         process.exit(1);
     };
 }
 
-fn argsRest(args: [][:0]const u8, idx: usize) ?[][:0]const u8 {
+fn argsRest(args: []const [:0]const u8, idx: usize) ?[]const [:0]const u8 {
     if (idx >= args.len) return null;
     return args[idx..];
 }
