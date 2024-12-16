@@ -7,9 +7,27 @@
 import lldb
 import re
 
+# Helpers
+
 page_size = 1 << 12
 
 def log2_int(i): return i.bit_length() - 1
+
+def create_struct(name, struct_type, **inits):
+    struct_bytes = bytearray(struct_type.size)
+    struct_data = lldb.SBData()
+    for field in struct_type.fields:
+        field_size = field.type.size
+        field_bytes = inits[field.name].data.uint8[:field_size]
+        match struct_data.byte_order:
+            case lldb.eByteOrderLittle:
+                field_start = field.byte_offset
+                struct_bytes[field_start:field_start + len(field_bytes)] = field_bytes
+            case lldb.eByteOrderBig:
+                field_end = field.byte_offset + field_size
+                struct_bytes[field_end - len(field_bytes):field_end] = field_bytes
+    struct_data.SetData(lldb.SBError(), struct_bytes, struct_data.byte_order, struct_data.GetAddressByteSize())
+    return next(iter(inits.values())).CreateValueFromData(name, struct_data, struct_type)
 
 # Define Zig Language
 
@@ -678,6 +696,22 @@ value_tag_handlers = {
     'lazy_size': lambda payload: '@sizeOf(%s)' % type_Type_SummaryProvider(payload),
 }
 
+# Define Zig Stage2 Compiler (compiled with the self-hosted backend)
+
+class root_InternPool_Local_List_SynthProvider:
+    def __init__(self, value, _=None): self.value = value
+    def update(self):
+        capacity = self.value.EvaluateExpression('@as(*@This().Header, @alignCast(@ptrCast(@this().bytes - @This().bytes_offset))).capacity')
+        self.view = create_struct('view', self.value.EvaluateExpression('@This().View').GetValueAsType(), bytes=self.value.GetChildMemberWithName('bytes'), len=capacity, capacity=capacity).GetNonSyntheticValue()
+    def has_children(self): return True
+    def num_children(self): return 1
+    def get_child_index(self, name):
+        try: return ('view',).index(name)
+        except: pass
+    def get_child_at_index(self, index):
+        try: return (self.view,)[index]
+        except: pass
+
 # Initialize
 
 def add(debugger, *, category, regex=False, type, identifier=None, synth=False, inline_children=False, expand=False, summary=False):
@@ -729,3 +763,6 @@ def __lldb_init_module(debugger, _=None):
     add(debugger, category='zig.stage2', type='InternPool.Key.Ptr.Addr', identifier='zig_TaggedUnion', synth=True)
     add(debugger, category='zig.stage2', type='InternPool.Key.Aggregate.Storage', identifier='zig_TaggedUnion', synth=True)
     add(debugger, category='zig.stage2', type='arch.x86_64.CodeGen.MCValue', identifier='zig_TaggedUnion', synth=True, inline_children=True, summary=True)
+
+    # Initialize Zig Stage2 Compiler (compiled with the self-hosted backend)
+    add(debugger, category='zig', regex=True, type='^root\\.InternPool\\.Local\\.List\\(.*\\)$', identifier='root_InternPool_Local_List', synth=True, expand=True, summary='capacity=${var%#}')
