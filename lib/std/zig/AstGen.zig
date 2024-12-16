@@ -130,6 +130,8 @@ fn appendRefsAssumeCapacity(astgen: *AstGen, refs: []const Zir.Inst.Ref) void {
 }
 
 pub fn generate(gpa: Allocator, tree: Ast) Allocator.Error!Zir {
+    assert(tree.mode == .zig);
+
     var arena = std.heap.ArenaAllocator.init(gpa);
     defer arena.deinit();
 
@@ -11413,83 +11415,7 @@ fn parseStrLit(
 
 fn failWithStrLitError(astgen: *AstGen, err: std.zig.string_literal.Error, token: Ast.TokenIndex, bytes: []const u8, offset: u32) InnerError {
     const raw_string = bytes[offset..];
-    switch (err) {
-        .invalid_escape_character => |bad_index| {
-            return astgen.failOff(
-                token,
-                offset + @as(u32, @intCast(bad_index)),
-                "invalid escape character: '{c}'",
-                .{raw_string[bad_index]},
-            );
-        },
-        .expected_hex_digit => |bad_index| {
-            return astgen.failOff(
-                token,
-                offset + @as(u32, @intCast(bad_index)),
-                "expected hex digit, found '{c}'",
-                .{raw_string[bad_index]},
-            );
-        },
-        .empty_unicode_escape_sequence => |bad_index| {
-            return astgen.failOff(
-                token,
-                offset + @as(u32, @intCast(bad_index)),
-                "empty unicode escape sequence",
-                .{},
-            );
-        },
-        .expected_hex_digit_or_rbrace => |bad_index| {
-            return astgen.failOff(
-                token,
-                offset + @as(u32, @intCast(bad_index)),
-                "expected hex digit or '}}', found '{c}'",
-                .{raw_string[bad_index]},
-            );
-        },
-        .invalid_unicode_codepoint => |bad_index| {
-            return astgen.failOff(
-                token,
-                offset + @as(u32, @intCast(bad_index)),
-                "unicode escape does not correspond to a valid unicode scalar value",
-                .{},
-            );
-        },
-        .expected_lbrace => |bad_index| {
-            return astgen.failOff(
-                token,
-                offset + @as(u32, @intCast(bad_index)),
-                "expected '{{', found '{c}",
-                .{raw_string[bad_index]},
-            );
-        },
-        .expected_rbrace => |bad_index| {
-            return astgen.failOff(
-                token,
-                offset + @as(u32, @intCast(bad_index)),
-                "expected '}}', found '{c}",
-                .{raw_string[bad_index]},
-            );
-        },
-        .expected_single_quote => |bad_index| {
-            return astgen.failOff(
-                token,
-                offset + @as(u32, @intCast(bad_index)),
-                "expected single quote ('), found '{c}",
-                .{raw_string[bad_index]},
-            );
-        },
-        .invalid_character => |bad_index| {
-            return astgen.failOff(
-                token,
-                offset + @as(u32, @intCast(bad_index)),
-                "invalid byte in string or character literal: '{c}'",
-                .{raw_string[bad_index]},
-            );
-        },
-        .empty_char_literal => {
-            return astgen.failOff(token, offset, "empty character literal", .{});
-        },
-    }
+    return err.lower(raw_string, offset, AstGen.failOff, .{ astgen, token });
 }
 
 fn failNode(
@@ -14019,11 +13945,9 @@ fn emitDbgStmtForceCurrentIndex(gz: *GenZir, lc: LineColumn) !void {
 }
 
 fn lowerAstErrors(astgen: *AstGen) !void {
+    const gpa = astgen.gpa;
     const tree = astgen.tree;
     assert(tree.errors.len > 0);
-
-    const gpa = astgen.gpa;
-    const parse_err = tree.errors[0];
 
     var msg: std.ArrayListUnmanaged(u8) = .empty;
     defer msg.deinit(gpa);
@@ -14031,18 +13955,30 @@ fn lowerAstErrors(astgen: *AstGen) !void {
     var notes: std.ArrayListUnmanaged(u32) = .empty;
     defer notes.deinit(gpa);
 
-    for (tree.errors[1..]) |note| {
-        if (!note.is_note) break;
+    var cur_err = tree.errors[0];
+    for (tree.errors[1..]) |err| {
+        if (err.is_note) {
+            try tree.renderError(err, msg.writer(gpa));
+            try notes.append(gpa, try astgen.errNoteTok(err.token, "{s}", .{msg.items}));
+        } else {
+            // Flush error
+            const extra_offset = tree.errorOffset(cur_err);
+            try tree.renderError(cur_err, msg.writer(gpa));
+            try astgen.appendErrorTokNotesOff(cur_err.token, extra_offset, "{s}", .{msg.items}, notes.items);
+            notes.clearRetainingCapacity();
+            cur_err = err;
 
+            // TODO: `Parse` currently does not have good error recovery mechanisms, so the remaining errors could be bogus.
+            // As such, we'll ignore all remaining errors for now. We should improve `Parse` so that we can report all the errors.
+            return;
+        }
         msg.clearRetainingCapacity();
-        try tree.renderError(note, msg.writer(gpa));
-        try notes.append(gpa, try astgen.errNoteTok(note.token, "{s}", .{msg.items}));
     }
 
-    const extra_offset = tree.errorOffset(parse_err);
-    msg.clearRetainingCapacity();
-    try tree.renderError(parse_err, msg.writer(gpa));
-    try astgen.appendErrorTokNotesOff(parse_err.token, extra_offset, "{s}", .{msg.items}, notes.items);
+    // Flush error
+    const extra_offset = tree.errorOffset(cur_err);
+    try tree.renderError(cur_err, msg.writer(gpa));
+    try astgen.appendErrorTokNotesOff(cur_err.token, extra_offset, "{s}", .{msg.items}, notes.items);
 }
 
 const DeclarationName = union(enum) {
