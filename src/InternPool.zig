@@ -4704,9 +4704,45 @@ pub const Index = enum(u32) {
     }
 
     comptime {
-        if (builtin.zig_backend == .stage2_llvm and !builtin.strip_debug_info) {
-            _ = &dbHelper;
-        }
+        if (!builtin.strip_debug_info) switch (builtin.zig_backend) {
+            .stage2_llvm => _ = &dbHelper,
+            .stage2_x86_64 => {
+                for (@typeInfo(Tag).@"enum".fields) |tag| {
+                    if (!@hasField(@TypeOf(Tag.encodings), tag.name)) {
+                        if (false) @compileLog("missing: " ++ @typeName(Tag) ++ ".encodings." ++ tag.name);
+                        continue;
+                    }
+                    const encoding = @field(Tag.encodings, tag.name);
+                    for (@typeInfo(encoding.trailing).@"struct".fields) |field| {
+                        struct {
+                            fn checkConfig(name: []const u8) void {
+                                if (!@hasField(@TypeOf(encoding.config), name)) @compileError("missing field: " ++ @typeName(Tag) ++ ".encodings." ++ tag.name ++ ".config.@\"" ++ name ++ "\"");
+                                const FieldType = @TypeOf(@field(encoding.config, name));
+                                if (@typeInfo(FieldType) != .enum_literal) @compileError("expected enum literal: " ++ @typeName(Tag) ++ ".encodings." ++ tag.name ++ ".config.@\"" ++ name ++ "\": " ++ @typeName(FieldType));
+                            }
+                            fn checkField(name: []const u8, Type: type) void {
+                                switch (@typeInfo(Type)) {
+                                    .int => {},
+                                    .@"enum" => {},
+                                    .@"struct" => |info| assert(info.layout == .@"packed"),
+                                    .optional => |info| {
+                                        checkConfig(name ++ ".?");
+                                        checkField(name ++ ".?", info.child);
+                                    },
+                                    .pointer => |info| {
+                                        assert(info.size == .Slice);
+                                        checkConfig(name ++ ".len");
+                                        checkField(name ++ "[0]", info.child);
+                                    },
+                                    else => @compileError("unsupported type: " ++ @typeName(Tag) ++ ".encodings." ++ tag.name ++ "." ++ name ++ ": " ++ @typeName(Type)),
+                                }
+                            }
+                        }.checkField("trailing." ++ field.name, field.type);
+                    }
+                }
+            },
+            else => {},
+        };
     }
 };
 
@@ -5301,6 +5337,39 @@ pub const Tag = enum(u8) {
             .memoized_call => MemoizedCall,
         };
     }
+
+    const encodings = .{
+        .type_struct = .{
+            .payload = TypeStruct,
+            .trailing = struct {
+                captures_len: ?u32,
+                captures: ?[]CaptureValue,
+                type_hash: ?u64,
+                field_types: []Index,
+                field_inits: ?[]Index,
+                field_aligns: ?[]Alignment,
+                field_is_comptime_bits: ?[]u32,
+                field_index: ?[]LoadedStructType.RuntimeOrder,
+                field_offset: []u32,
+            },
+            .config = .{
+                .@"trailing.captures_len.?" = .@"payload.flags.any_captures",
+                .@"trailing.captures.?" = .@"payload.flags.any_captures",
+                .@"trailing.captures.?.len" = .@"trailing.captures_len",
+                .@"trailing.type_hash.?" = .@"payload.flags.is_reified",
+                .@"trailing.field_types.len" = .@"payload.fields_len",
+                .@"trailing.field_inits.?" = .@"payload.flags.any_default_inits",
+                .@"trailing.field_inits.?.len" = .@"payload.fields_len",
+                .@"trailing.field_aligns.?" = .@"payload.flags.any_aligned_fields",
+                .@"trailing.field_aligns.?.len" = .@"payload.fields_len",
+                .@"trailing.field_is_comptime_bits.?" = .@"payload.flags.any_comptime_fields",
+                .@"trailing.field_is_comptime_bits.?.len" = .@"(payload.fields_len + 31) / 32",
+                .@"trailing.field_index.?" = .@"!payload.flags.is_extern",
+                .@"trailing.field_index.?.len" = .@"!payload.flags.is_extern",
+                .@"trailing.field_offset.len" = .@"payload.fields_len",
+            },
+        },
+    };
 
     pub const Variable = struct {
         ty: Index,
