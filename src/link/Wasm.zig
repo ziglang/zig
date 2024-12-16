@@ -550,7 +550,7 @@ pub const NavObj = extern struct {
     /// Empty if not emitting an object.
     relocs: OutReloc.Slice,
 
-    /// Index into `navs`.
+    /// Index into `Wasm.navs_obj`.
     /// Note that swapRemove is sometimes performed on `navs`.
     pub const Index = enum(u32) {
         _,
@@ -562,13 +562,20 @@ pub const NavObj = extern struct {
         pub fn value(i: @This(), wasm: *const Wasm) *NavObj {
             return &wasm.navs_obj.values()[@intFromEnum(i)];
         }
+
+        pub fn name(i: @This(), wasm: *const Wasm) [:0]const u8 {
+            const zcu = wasm.base.comp.zcu.?;
+            const ip = &zcu.intern_pool;
+            const nav = ip.getNav(i.key(wasm).*);
+            return nav.fqn.toSlice(ip);
+        }
     };
 };
 
 pub const NavExe = extern struct {
     code: DataSegment.Payload,
 
-    /// Index into `navs`.
+    /// Index into `Wasm.navs_exe`.
     /// Note that swapRemove is sometimes performed on `navs`.
     pub const Index = enum(u32) {
         _,
@@ -579,6 +586,13 @@ pub const NavExe = extern struct {
 
         pub fn value(i: @This(), wasm: *const Wasm) *NavExe {
             return &wasm.navs_exe.values()[@intFromEnum(i)];
+        }
+
+        pub fn name(i: @This(), wasm: *const Wasm) [:0]const u8 {
+            const zcu = wasm.base.comp.zcu.?;
+            const ip = &zcu.intern_pool;
+            const nav = ip.getNav(i.key(wasm).*);
+            return nav.fqn.toSlice(ip);
         }
     };
 };
@@ -597,6 +611,14 @@ pub const ZcuFunc = extern struct {
 
         pub fn value(i: @This(), wasm: *const Wasm) *ZcuFunc {
             return &wasm.zcu_funcs.values()[@intFromEnum(i)];
+        }
+
+        pub fn name(i: @This(), wasm: *const Wasm) [:0]const u8 {
+            const zcu = wasm.base.comp.zcu.?;
+            const ip = &zcu.intern_pool;
+            const func = ip.toFunc(i.key(wasm).*);
+            const nav = ip.getNav(func.owner_nav);
+            return nav.fqn.toSlice(ip);
         }
     };
 };
@@ -718,6 +740,19 @@ pub const FunctionImport = extern struct {
                 .__zig_error_names => @panic("TODO"),
                 .object_function => |i| i.ptr(wasm).type_index,
                 .zcu_func => @panic("TODO"),
+            };
+        }
+
+        pub fn name(r: Resolution, wasm: *const Wasm) ?[]const u8 {
+            return switch (unpack(r, wasm)) {
+                .unresolved => unreachable,
+                .__wasm_apply_global_tls_relocs => @tagName(Unpacked.__wasm_apply_global_tls_relocs),
+                .__wasm_call_ctors => @tagName(Unpacked.__wasm_call_ctors),
+                .__wasm_init_memory => @tagName(Unpacked.__wasm_init_memory),
+                .__wasm_init_tls => @tagName(Unpacked.__wasm_init_tls),
+                .__zig_error_names => @tagName(Unpacked.__zig_error_names),
+                .object_function => |i| i.ptr(wasm).name.slice(wasm),
+                .zcu_func => |i| i.name(wasm),
             };
         }
     };
@@ -850,6 +885,22 @@ pub const GlobalImport = extern struct {
             } else .{
                 .nav_exe = @enumFromInt(wasm.navs_exe.getIndex(ip_nav).?),
             });
+        }
+
+        pub fn name(r: Resolution, wasm: *const Wasm) ?[]const u8 {
+            return switch (unpack(r, wasm)) {
+                .unresolved => unreachable,
+                .__heap_base => @tagName(Unpacked.__heap_base),
+                .__heap_end => @tagName(Unpacked.__heap_end),
+                .__stack_pointer => @tagName(Unpacked.__stack_pointer),
+                .__tls_align => @tagName(Unpacked.__tls_align),
+                .__tls_base => @tagName(Unpacked.__tls_base),
+                .__tls_size => @tagName(Unpacked.__tls_size),
+                .__zig_error_name_table => @tagName(Unpacked.__zig_error_name_table),
+                .object_global => |i| i.name(wasm).slice(wasm),
+                .nav_obj => |i| i.name(wasm),
+                .nav_exe => |i| i.name(wasm),
+            };
         }
     };
 
@@ -1038,6 +1089,10 @@ pub const ObjectGlobalIndex = enum(u32) {
     pub fn ptr(index: ObjectGlobalIndex, wasm: *const Wasm) *Global {
         return &wasm.object_globals.items[@intFromEnum(index)];
     }
+
+    pub fn name(index: ObjectGlobalIndex, wasm: *const Wasm) OptionalString {
+        return index.ptr(wasm).name;
+    }
 };
 
 /// Index into `Wasm.object_memories`.
@@ -1049,7 +1104,7 @@ pub const ObjectMemoryIndex = enum(u32) {
     }
 };
 
-/// Index into `object_functions`.
+/// Index into `Wasm.object_functions`.
 pub const ObjectFunctionIndex = enum(u32) {
     _,
 
@@ -2397,7 +2452,7 @@ pub fn flushModule(
     defer sub_prog_node.end();
 
     wasm.flush_buffer.clear();
-    return wasm.flush_buffer.finish(wasm, arena) catch |err| switch (err) {
+    return wasm.flush_buffer.finish(wasm) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         error.LinkFailure => return error.LinkFailure,
         else => |e| return diags.fail("failed to flush wasm: {s}", .{@errorName(e)}),

@@ -11801,6 +11801,10 @@ pub fn toEnum(ip: *const InternPool, comptime E: type, i: Index) E {
     return @enumFromInt(ip.indexToKey(int).int.storage.u64);
 }
 
+pub fn toFunc(ip: *const InternPool, i: Index) Key.Func {
+    return ip.indexToKey(i).func;
+}
+
 pub fn aggregateTypeLen(ip: *const InternPool, ty: Index) u64 {
     return switch (ip.indexToKey(ty)) {
         .struct_type => ip.loadStructType(ty).field_types.len,

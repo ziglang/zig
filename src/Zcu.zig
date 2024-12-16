@@ -3483,7 +3483,7 @@ pub fn iesFuncIndex(zcu: *const Zcu, ies_index: InternPool.Index) InternPool.Ind
 }
 
 pub fn funcInfo(zcu: *const Zcu, func_index: InternPool.Index) InternPool.Key.Func {
-    return zcu.intern_pool.indexToKey(func_index).func;
+    return zcu.intern_pool.toFunc(func_index);
 }
 
 pub fn toEnum(zcu: *const Zcu, comptime E: type, val: Value) E {
