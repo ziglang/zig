@@ -129,9 +129,6 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
 
     if (diags.hasErrors()) return error.LinkFailure;
 
-    wasm.functions.shrinkRetainingCapacity(wasm.functions_len);
-    wasm.globals.shrinkRetainingCapacity(wasm.globals_len);
-
     // TODO only include init functions for objects with must_link=true or
     // which have any alive functions inside them.
     if (wasm.object_init_funcs.items.len > 0) {

@@ -199,7 +199,7 @@ global_exports_len: u32 = 0,
 functions: std.AutoArrayHashMapUnmanaged(FunctionImport.Resolution, void) = .empty,
 /// Tracks the value at the end of prelink, at which point `functions`
 /// contains only object file functions, and nothing from the Zcu yet.
-functions_len: u32 = 0,
+functions_end_prelink: u32 = 0,
 /// Immutable after prelink. The undefined functions coming only from all object files.
 /// The Zcu must satisfy these.
 function_imports_init_keys: []String = &.{},
@@ -214,7 +214,7 @@ function_imports: std.AutoArrayHashMapUnmanaged(String, FunctionImportId) = .emp
 globals: std.AutoArrayHashMapUnmanaged(GlobalImport.Resolution, void) = .empty,
 /// Tracks the value at the end of prelink, at which point `globals`
 /// contains only object file globals, and nothing from the Zcu yet.
-globals_len: u32 = 0,
+globals_end_prelink: u32 = 0,
 global_imports_init_keys: []String = &.{},
 global_imports_init_vals: []GlobalImportId = &.{},
 global_imports: std.AutoArrayHashMapUnmanaged(String, GlobalImportId) = .empty,
@@ -620,6 +620,17 @@ pub const ZcuFunc = extern struct {
             const nav = ip.getNav(func.owner_nav);
             return nav.fqn.toSlice(ip);
         }
+
+        pub fn typeIndex(i: @This(), wasm: *Wasm) ?FunctionType.Index {
+            const comp = wasm.base.comp;
+            const zcu = comp.zcu.?;
+            const target = &comp.root_mod.resolved_target.result;
+            const ip = &zcu.intern_pool;
+            const func = ip.toFunc(i.key(wasm).*);
+            const fn_ty = zcu.navValue(func.owner_nav).typeOf(zcu);
+            const fn_info = zcu.typeToFunc(fn_ty).?;
+            return wasm.getExistingFunctionType(fn_info.cc, fn_info.param_types.get(ip), .fromInterned(fn_info.return_type), target);
+        }
     };
 };
 
@@ -730,7 +741,7 @@ pub const FunctionImport = extern struct {
             };
         }
 
-        pub fn typeIndex(r: Resolution, wasm: *const Wasm) FunctionType.Index {
+        pub fn typeIndex(r: Resolution, wasm: *Wasm) FunctionType.Index {
             return switch (unpack(r, wasm)) {
                 .unresolved => unreachable,
                 .__wasm_apply_global_tls_relocs => @panic("TODO"),
@@ -739,7 +750,7 @@ pub const FunctionImport = extern struct {
                 .__wasm_init_tls => @panic("TODO"),
                 .__zig_error_names => @panic("TODO"),
                 .object_function => |i| i.ptr(wasm).type_index,
-                .zcu_func => @panic("TODO"),
+                .zcu_func => |i| i.typeIndex(wasm).?,
             };
         }
 
@@ -2247,7 +2258,7 @@ pub fn prelink(wasm: *Wasm, prog_node: std.Progress.Node) link.File.FlushError!v
             try markFunction(wasm, name, import, @enumFromInt(i));
         }
     }
-    wasm.functions_len = @intCast(wasm.functions.entries.len);
+    wasm.functions_end_prelink = @intCast(wasm.functions.entries.len);
     wasm.function_imports_init_keys = try gpa.dupe(String, wasm.function_imports.keys());
     wasm.function_imports_init_vals = try gpa.dupe(FunctionImportId, wasm.function_imports.values());
     wasm.function_exports_len = @intCast(wasm.function_exports.items.len);
@@ -2257,7 +2268,7 @@ pub fn prelink(wasm: *Wasm, prog_node: std.Progress.Node) link.File.FlushError!v
             try markGlobal(wasm, name, import, @enumFromInt(i));
         }
     }
-    wasm.globals_len = @intCast(wasm.globals.entries.len);
+    wasm.globals_end_prelink = @intCast(wasm.globals.entries.len);
     wasm.global_imports_init_keys = try gpa.dupe(String, wasm.global_imports.keys());
     wasm.global_imports_init_vals = try gpa.dupe(GlobalImportId, wasm.global_imports.values());
     wasm.global_exports_len = @intCast(wasm.global_exports.items.len);
@@ -2451,7 +2462,14 @@ pub fn flushModule(
     const sub_prog_node = prog_node.start("Wasm Flush", 0);
     defer sub_prog_node.end();
 
+    const functions_end_zcu: u32 = @intCast(wasm.functions.entries.len);
+    defer wasm.functions.shrinkRetainingCapacity(functions_end_zcu);
+
+    const globals_end_zcu: u32 = @intCast(wasm.globals.entries.len);
+    defer wasm.globals.shrinkRetainingCapacity(globals_end_zcu);
+
     wasm.flush_buffer.clear();
+
     return wasm.flush_buffer.finish(wasm) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         error.LinkFailure => return error.LinkFailure,
@@ -2932,7 +2950,7 @@ pub fn addFuncType(wasm: *Wasm, ft: FunctionType) Allocator.Error!FunctionType.I
     return @enumFromInt(gop.index);
 }
 
-pub fn getExistingFuncType(wasm: *Wasm, ft: FunctionType) ?FunctionType.Index {
+pub fn getExistingFuncType(wasm: *const Wasm, ft: FunctionType) ?FunctionType.Index {
     const index = wasm.func_types.getIndex(ft) orelse return null;
     return @enumFromInt(index);
 }
@@ -2944,7 +2962,7 @@ pub fn internFunctionType(
     return_type: ZcuType,
     target: *const std.Target,
 ) Allocator.Error!FunctionType.Index {
-    try convertZcuFnType(wasm, cc, params, return_type, target, &wasm.params_scratch, &wasm.returns_scratch);
+    try convertZcuFnType(wasm.base.comp, cc, params, return_type, target, &wasm.params_scratch, &wasm.returns_scratch);
     return wasm.addFuncType(.{
         .params = try wasm.internValtypeList(wasm.params_scratch.items),
         .returns = try wasm.internValtypeList(wasm.returns_scratch.items),
@@ -2958,7 +2976,7 @@ pub fn getExistingFunctionType(
     return_type: ZcuType,
     target: *const std.Target,
 ) ?FunctionType.Index {
-    convertZcuFnType(wasm, cc, params, return_type, target, &wasm.params_scratch, &wasm.returns_scratch) catch |err| switch (err) {
+    convertZcuFnType(wasm.base.comp, cc, params, return_type, target, &wasm.params_scratch, &wasm.returns_scratch) catch |err| switch (err) {
         error.OutOfMemory => return null,
     };
     return wasm.getExistingFuncType(.{
@@ -3008,7 +3026,7 @@ pub fn navSymbolIndex(wasm: *Wasm, nav_index: InternPool.Nav.Index) Allocator.Er
 }
 
 fn convertZcuFnType(
-    wasm: *Wasm,
+    comp: *Compilation,
     cc: std.builtin.CallingConvention,
     params: []const InternPool.Index,
     return_type: ZcuType,
@@ -3019,7 +3037,6 @@ fn convertZcuFnType(
     params_buffer.clearRetainingCapacity();
     returns_buffer.clearRetainingCapacity();
 
-    const comp = wasm.base.comp;
     const gpa = comp.gpa;
     const zcu = comp.zcu.?;
 
