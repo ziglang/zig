@@ -9,22 +9,27 @@ pub fn build(b: *std.Build) void {
 
     const obj = b.addObject(.{
         .name = "base64",
-        .root_source_file = b.path("base64.zig"),
-        .optimize = optimize,
-        .target = target,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("base64.zig"),
+            .optimize = optimize,
+            .target = target,
+        }),
     });
 
     const exe = b.addExecutable(.{
         .name = "test",
-        .optimize = optimize,
-        .target = target,
+        .root_module = b.createModule(.{
+            .root_source_file = null,
+            .optimize = optimize,
+            .target = target,
+            .link_libc = true,
+        }),
     });
-    exe.addCSourceFile(.{
+    exe.root_module.addCSourceFile(.{
         .file = b.path("test.c"),
         .flags = &[_][]const u8{"-std=c99"},
     });
-    exe.addObject(obj);
-    exe.linkSystemLibrary("c");
+    exe.root_module.addObject(obj);
 
     b.default_step.dependOn(&exe.step);
 

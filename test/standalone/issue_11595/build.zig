@@ -15,9 +15,11 @@ pub fn build(b: *std.Build) void {
 
     const exe = b.addExecutable(.{
         .name = "zigtest",
-        .root_source_file = b.path("main.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("main.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
     });
     b.installArtifact(exe);
 
@@ -25,8 +27,8 @@ pub fn build(b: *std.Build) void {
         "test.c",
     };
 
-    exe.addCSourceFiles(.{ .files = &c_sources });
-    exe.linkLibC();
+    exe.root_module.addCSourceFiles(.{ .files = &c_sources });
+    exe.root_module.link_libc = true;
 
     var i: i32 = 0;
     while (i < 1000) : (i += 1) {

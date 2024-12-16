@@ -8,22 +8,28 @@ pub fn build(b: *std.Build) void {
 
     const obj = b.addObject(.{
         .name = "exports",
-        .root_source_file = b.path("exports.zig"),
-        .target = b.graph.host,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("exports.zig"),
+            .target = b.graph.host,
+            .optimize = optimize,
+        }),
     });
     const shared = b.addSharedLibrary(.{
         .name = "shared",
-        .target = b.graph.host,
-        .optimize = optimize,
-        .link_libc = true,
+        .root_module = b.createModule(.{
+            .root_source_file = null,
+            .target = b.graph.host,
+            .optimize = optimize,
+            .link_libc = true,
+        }),
     });
     if (b.graph.host.result.abi == .msvc) shared.root_module.addCMacro("API", "__declspec(dllexport)");
-    shared.addCSourceFile(.{ .file = b.path("shared.c"), .flags = &.{} });
-    const test_exe = b.addTest(.{
+    shared.root_module.addCSourceFile(.{ .file = b.path("shared.c"), .flags = &.{} });
+    const test_exe = b.addTest(.{ .root_module = b.createModule(.{
         .root_source_file = b.path("main.zig"),
+        .target = b.graph.host,
         .optimize = optimize,
-    });
+    }) });
     test_exe.addObject(obj);
     test_exe.linkLibrary(shared);
 
