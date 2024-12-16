@@ -2747,25 +2747,33 @@ const FloatOp = enum {
             },
 
             inline .ceil,
-            .cos,
-            .exp,
-            .exp2,
             .fabs,
             .floor,
-            .fma,
             .fmax,
             .fmin,
+            .round,
+            .sqrt,
+            .trunc,
+            => |ct_op| switch (bits) {
+                inline 16, 80, 128 => |ct_bits| @field(
+                    Mir.Intrinsic,
+                    libcFloatPrefix(ct_bits) ++ @tagName(ct_op) ++ libcFloatSuffix(ct_bits),
+                ),
+                else => unreachable,
+            },
+
+            inline .cos,
+            .exp,
+            .exp2,
+            .fma,
             .fmod,
             .log,
             .log10,
             .log2,
-            .round,
             .sin,
-            .sqrt,
             .tan,
-            .trunc,
             => |ct_op| switch (bits) {
-                inline 16, 80, 128 => |ct_bits| @field(
+                inline 16, 32, 64, 80, 128 => |ct_bits| @field(
                     Mir.Intrinsic,
                     libcFloatPrefix(ct_bits) ++ @tagName(ct_op) ++ libcFloatSuffix(ct_bits),
                 ),
