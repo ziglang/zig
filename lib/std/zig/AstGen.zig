@@ -1377,7 +1377,7 @@ fn fnProtoExpr(
                 const tag: Zir.Inst.Tag = if (is_comptime) .param_comptime else .param;
                 // We pass `prev_param_insts` as `&.{}` here because a function prototype can't refer to previous
                 // arguments (we haven't set up scopes here).
-                const param_inst = try block_scope.addParam(&param_gz, &.{}, tag, name_token, param_name, param.first_doc_comment);
+                const param_inst = try block_scope.addParam(&param_gz, &.{}, tag, name_token, param_name);
                 assert(param_inst_expected == param_inst);
             }
         }
@@ -4172,8 +4172,6 @@ fn fnDecl(
         break :blk token_tags[maybe_noinline_token] == .keyword_noinline;
     };
 
-    const doc_comment_index = try astgen.docCommentAsString(fn_proto.firstToken());
-
     wip_members.nextDecl(decl_inst);
 
     // Note that the capacity here may not be sufficient, as this does not include `anytype` parameters.
@@ -4263,7 +4261,7 @@ fn fnDecl(
                 const main_tokens = tree.nodes.items(.main_token);
                 const name_token = param.name_token orelse main_tokens[param_type_node];
                 const tag: Zir.Inst.Tag = if (is_comptime) .param_comptime else .param;
-                const param_inst = try decl_gz.addParam(&param_gz, param_insts.items, tag, name_token, param_name, param.first_doc_comment);
+                const param_inst = try decl_gz.addParam(&param_gz, param_insts.items, tag, name_token, param_name);
                 assert(param_inst_expected == param_inst);
                 break :param param_inst.toRef();
             };
@@ -4525,7 +4523,6 @@ fn fnDecl(
         decl_gz.decl_line,
         is_pub,
         is_export,
-        doc_comment_index,
         &decl_gz,
         // align, linksection, and addrspace are passed in the func instruction in this case.
         // TODO: move them from the function instruction to the declaration instruction?
@@ -4597,8 +4594,6 @@ fn globalVarDecl(
         }
         break :blk lib_name_str.index;
     } else .empty;
-
-    const doc_comment_index = try astgen.docCommentAsString(var_decl.firstToken());
 
     assert(var_decl.comptime_token == null); // handled by parser
 
@@ -4698,7 +4693,6 @@ fn globalVarDecl(
         block_scope.decl_line,
         is_pub,
         is_export,
-        doc_comment_index,
         &block_scope,
         .{
             .align_gz = &align_gz,
@@ -4756,7 +4750,6 @@ fn comptimeDecl(
         decl_block.decl_line,
         false,
         false,
-        .empty,
         &decl_block,
         null,
     );
@@ -4814,7 +4807,6 @@ fn usingnamespaceDecl(
         decl_block.decl_line,
         is_pub,
         false,
-        .empty,
         &decl_block,
         null,
     );
@@ -4932,7 +4924,7 @@ fn testDecl(
                 return astgen.failTok(test_name_token, "use of undeclared identifier '{s}'", .{ident_name});
             }
 
-            break :blk .{ .decltest = name_str_index };
+            break :blk .{ .decltest = test_name_token };
         },
     };
 
@@ -5021,7 +5013,6 @@ fn testDecl(
         decl_block.decl_line,
         false,
         false,
-        .empty,
         &decl_block,
         null,
     );
@@ -5173,9 +5164,6 @@ fn structDeclInner(
         member.convertToNonTupleLike(astgen.tree.nodes);
         assert(!member.ast.tuple_like);
         wip_members.appendToField(@intFromEnum(field_name));
-
-        const doc_comment_index = try astgen.docCommentAsString(member.firstToken());
-        wip_members.appendToField(@intFromEnum(doc_comment_index));
 
         if (member.ast.type_expr == 0) {
             return astgen.failTok(member.ast.main_token, "struct field missing type", .{});
@@ -5448,7 +5436,7 @@ fn unionDeclInner(
         .none;
 
     const bits_per_field = 4;
-    const max_field_size = 5;
+    const max_field_size = 4;
     var any_aligned_fields = false;
     var wip_members = try WipMembers.init(gpa, &astgen.scratch, decl_count, field_count, bits_per_field, max_field_size);
     defer wip_members.deinit();
@@ -5478,9 +5466,6 @@ fn unionDeclInner(
 
         const field_name = try astgen.identAsString(member.ast.main_token);
         wip_members.appendToField(@intFromEnum(field_name));
-
-        const doc_comment_index = try astgen.docCommentAsString(member.firstToken());
-        wip_members.appendToField(@intFromEnum(doc_comment_index));
 
         const have_type = member.ast.type_expr != 0;
         const have_align = member.ast.align_expr != 0;
@@ -5744,7 +5729,7 @@ fn containerDecl(
                 .none;
 
             const bits_per_field = 1;
-            const max_field_size = 3;
+            const max_field_size = 2;
             var wip_members = try WipMembers.init(gpa, &astgen.scratch, @intCast(counts.decls), @intCast(counts.total_fields), bits_per_field, max_field_size);
             defer wip_members.deinit();
 
@@ -5771,9 +5756,6 @@ fn containerDecl(
 
                 const field_name = try astgen.identAsString(member.ast.main_token);
                 wip_members.appendToField(@intFromEnum(field_name));
-
-                const doc_comment_index = try astgen.docCommentAsString(member.firstToken());
-                wip_members.appendToField(@intFromEnum(doc_comment_index));
 
                 const have_value = member.ast.value_expr != 0;
                 wip_members.nextField(bits_per_field, .{have_value});
@@ -6054,10 +6036,7 @@ fn errorSetDecl(gz: *GenZir, ri: ResultInfo, node: Ast.Node.Index) InnerError!Zi
                     }
                     gop.value_ptr.* = tok_i;
 
-                    try astgen.extra.ensureUnusedCapacity(gpa, 2);
-                    astgen.extra.appendAssumeCapacity(@intFromEnum(str_index));
-                    const doc_comment_index = try astgen.docCommentAsString(tok_i);
-                    astgen.extra.appendAssumeCapacity(@intFromEnum(doc_comment_index));
+                    try astgen.extra.append(gpa, @intFromEnum(str_index));
                     fields_len += 1;
                 },
                 .r_brace => break,
@@ -11719,73 +11698,6 @@ fn identAsString(astgen: *AstGen, ident_token: Ast.TokenIndex) !Zir.NullTerminat
     }
 }
 
-/// Adds a doc comment block to `string_bytes` by walking backwards from `end_token`.
-/// `end_token` must point at the first token after the last doc comment line.
-/// Returns 0 if no doc comment is present.
-fn docCommentAsString(astgen: *AstGen, end_token: Ast.TokenIndex) !Zir.NullTerminatedString {
-    if (end_token == 0) return .empty;
-
-    const token_tags = astgen.tree.tokens.items(.tag);
-
-    var tok = end_token - 1;
-    while (token_tags[tok] == .doc_comment) {
-        if (tok == 0) break;
-        tok -= 1;
-    } else {
-        tok += 1;
-    }
-
-    return docCommentAsStringFromFirst(astgen, end_token, tok);
-}
-
-/// end_token must be > the index of the last doc comment.
-fn docCommentAsStringFromFirst(
-    astgen: *AstGen,
-    end_token: Ast.TokenIndex,
-    start_token: Ast.TokenIndex,
-) !Zir.NullTerminatedString {
-    if (start_token == end_token) return .empty;
-
-    const gpa = astgen.gpa;
-    const string_bytes = &astgen.string_bytes;
-    const str_index: u32 = @intCast(string_bytes.items.len);
-    const token_starts = astgen.tree.tokens.items(.start);
-    const token_tags = astgen.tree.tokens.items(.tag);
-
-    const total_bytes = token_starts[end_token] - token_starts[start_token];
-    try string_bytes.ensureUnusedCapacity(gpa, total_bytes);
-
-    var current_token = start_token;
-    while (current_token < end_token) : (current_token += 1) {
-        switch (token_tags[current_token]) {
-            .doc_comment => {
-                const tok_bytes = astgen.tree.tokenSlice(current_token)[3..];
-                string_bytes.appendSliceAssumeCapacity(tok_bytes);
-                if (current_token != end_token - 1) {
-                    string_bytes.appendAssumeCapacity('\n');
-                }
-            },
-            else => break,
-        }
-    }
-
-    const key: []const u8 = string_bytes.items[str_index..];
-    const gop = try astgen.string_table.getOrPutContextAdapted(gpa, key, StringIndexAdapter{
-        .bytes = string_bytes,
-    }, StringIndexContext{
-        .bytes = string_bytes,
-    });
-
-    if (gop.found_existing) {
-        string_bytes.shrinkRetainingCapacity(str_index);
-        return @enumFromInt(gop.key_ptr.*);
-    } else {
-        gop.key_ptr.* = str_index;
-        try string_bytes.append(gpa, 0);
-        return @enumFromInt(str_index);
-    }
-}
-
 const IndexSlice = struct { index: Zir.NullTerminatedString, len: u32 };
 
 fn strLitAsString(astgen: *AstGen, str_lit_token: Ast.TokenIndex) !IndexSlice {
@@ -12722,7 +12634,6 @@ const GenZir = struct {
         /// Absolute token index. This function does the conversion to Decl offset.
         abs_tok_index: Ast.TokenIndex,
         name: Zir.NullTerminatedString,
-        first_doc_comment: ?Ast.TokenIndex,
     ) !Zir.Inst.Index {
         const gpa = gz.astgen.gpa;
         const param_body = param_gz.instructionsSlice();
@@ -12730,14 +12641,8 @@ const GenZir = struct {
         try gz.astgen.instructions.ensureUnusedCapacity(gpa, 1);
         try gz.astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.Param).@"struct".fields.len + body_len);
 
-        const doc_comment_index = if (first_doc_comment) |first|
-            try gz.astgen.docCommentAsStringFromFirst(abs_tok_index, first)
-        else
-            .empty;
-
         const payload_index = gz.astgen.addExtraAssumeCapacity(Zir.Inst.Param{
             .name = name,
-            .doc_comment = doc_comment_index,
             .body_len = @intCast(body_len),
         });
         gz.astgen.appendBodyWithFixupsExtraRefsArrayList(&gz.astgen.extra, param_body, prev_param_insts);
@@ -14143,8 +14048,8 @@ fn lowerAstErrors(astgen: *AstGen) !void {
 const DeclarationName = union(enum) {
     named: Ast.TokenIndex,
     named_test: Ast.TokenIndex,
+    decltest: Ast.TokenIndex,
     unnamed_test,
-    decltest: Zir.NullTerminatedString,
     @"comptime",
     @"usingnamespace",
 };
@@ -14174,7 +14079,6 @@ fn addFailedDeclaration(
         gz.astgen.source_line,
         is_pub,
         false, // we don't care about exports since semantic analysis will fail
-        .empty,
         &decl_gz,
         null,
     );
@@ -14189,7 +14093,6 @@ fn setDeclaration(
     src_line: u32,
     is_pub: bool,
     is_export: bool,
-    doc_comment: Zir.NullTerminatedString,
     value_gz: *GenZir,
     /// May be `null` if all these blocks would be empty.
     /// If `null`, then `value_gz` must have nothing stacked on it.
@@ -14218,11 +14121,6 @@ fn setDeclaration(
     const linksection_len = astgen.countBodyLenAfterFixups(linksection_body);
     const addrspace_len = astgen.countBodyLenAfterFixups(addrspace_body);
 
-    const true_doc_comment: Zir.NullTerminatedString = switch (name) {
-        .decltest => |test_name| test_name,
-        else => doc_comment,
-    };
-
     const src_hash_arr: [4]u32 = @bitCast(src_hash);
 
     const extra: Zir.Inst.Declaration = .{
@@ -14233,8 +14131,14 @@ fn setDeclaration(
         .name = switch (name) {
             .named => |tok| @enumFromInt(@intFromEnum(try astgen.identAsString(tok))),
             .named_test => |tok| @enumFromInt(@intFromEnum(try astgen.testNameString(tok))),
+            .decltest => |tok| @enumFromInt(str_idx: {
+                const idx = astgen.string_bytes.items.len;
+                try astgen.string_bytes.append(gpa, 0); // indicates this is a test
+                try astgen.appendIdentStr(tok, &astgen.string_bytes);
+                try astgen.string_bytes.append(gpa, 0); // end of the string
+                break :str_idx idx;
+            }),
             .unnamed_test => .unnamed_test,
-            .decltest => .decltest,
             .@"comptime" => .@"comptime",
             .@"usingnamespace" => .@"usingnamespace",
         },
@@ -14243,14 +14147,11 @@ fn setDeclaration(
             .value_body_len = @intCast(value_len),
             .is_pub = is_pub,
             .is_export = is_export,
-            .has_doc_comment = true_doc_comment != .empty,
+            .test_is_decltest = name == .decltest,
             .has_align_linksection_addrspace = align_len != 0 or linksection_len != 0 or addrspace_len != 0,
         },
     };
     astgen.instructions.items(.data)[@intFromEnum(decl_inst)].declaration.payload_index = try astgen.addExtra(extra);
-    if (extra.flags.has_doc_comment) {
-        try astgen.extra.append(gpa, @intFromEnum(true_doc_comment));
-    }
     if (extra.flags.has_align_linksection_addrspace) {
         try astgen.extra.appendSlice(gpa, &.{
             align_len,
