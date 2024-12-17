@@ -12,13 +12,14 @@ link_libunwind: bool,
 /// True if and only if the c_source_files field will have nonzero length when
 /// calling Compilation.create.
 any_c_source_files: bool,
-/// This is true if any Module has unwind_tables set explicitly to true. Until
-/// Compilation.create is called, it is possible for this to be false while in
-/// fact all Module instances have unwind_tables=true due to the default
-/// being unwind_tables=true. After Compilation.create is called this will
-/// also take into account the default setting, making this value true if and
-/// only if any Module has unwind_tables set to true.
-any_unwind_tables: bool,
+/// This is not `.none` if any `Module` has `unwind_tables` set explicitly to a
+/// value other than `.none`. Until `Compilation.create()` is called, it is
+/// possible for this to be `.none` while in fact all `Module` instances have
+/// `unwind_tables != .none` due to the default. After `Compilation.create()` is
+/// called, this will also take into account the default setting, making this
+/// value `.sync` or `.@"async"` if and only if any `Module` has
+/// `unwind_tables != .none`.
+any_unwind_tables: std.builtin.UnwindTables,
 /// This is true if any Module has single_threaded set explicitly to false. Until
 /// Compilation.create is called, it is possible for this to be false while in
 /// fact all Module instances have single_threaded=false due to the default
@@ -85,7 +86,7 @@ pub const Options = struct {
     any_non_single_threaded: bool = false,
     any_sanitize_thread: bool = false,
     any_fuzz: bool = false,
-    any_unwind_tables: bool = false,
+    any_unwind_tables: std.builtin.UnwindTables = .none,
     any_dyn_libs: bool = false,
     any_c_source_files: bool = false,
     any_non_stripped: bool = false,
@@ -356,8 +357,11 @@ pub fn resolve(options: Options) ResolveError!Config {
         break :b false;
     };
 
-    const any_unwind_tables = options.any_unwind_tables or
-        link_libunwind or target_util.needUnwindTables(target);
+    const any_unwind_tables = b: {
+        if (options.any_unwind_tables != .none) break :b options.any_unwind_tables;
+
+        break :b target_util.needUnwindTables(target, link_libunwind, options.any_sanitize_thread);
+    };
 
     const link_mode = b: {
         const explicitly_exe_or_dyn_lib = switch (options.output_mode) {

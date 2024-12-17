@@ -768,7 +768,7 @@ pub const File = struct {
     /// TODO audit this error set. most of these should be collapsed into one error,
     /// and Diags.Flags should be updated to convey the meaning to the user.
     pub const FlushError = error{
-        CacheUnavailable,
+        CacheCheckFailed,
         CurrentWorkingDirectoryUnlinked,
         DivisionByZero,
         DllImportLibraryNotFound,

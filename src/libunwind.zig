@@ -65,7 +65,8 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
             .sanitize_c = false,
             .sanitize_thread = false,
             // necessary so that libunwind can unwind through its own stack frames
-            .unwind_tables = true,
+            // The old 32-bit x86 variant of SEH doesn't use tables.
+            .unwind_tables = if (target.cpu.arch == .x86 and target.os.tag == .windows) .none else .@"async",
             .pic = if (target_util.supports_fpic(target)) true else null,
             .optimize_mode = comp.compilerRtOptMode(),
         },

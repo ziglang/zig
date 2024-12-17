@@ -815,7 +815,7 @@ pub const Abi = enum {
     // - vertex
 
     pub fn default(arch: Cpu.Arch, os: Os) Abi {
-        return if (arch.isWasm()) .musl else switch (os.tag) {
+        return switch (os.tag) {
             .freestanding, .other => switch (arch) {
                 // Soft float is usually a sane default for freestanding.
                 .arm,
@@ -2011,6 +2011,14 @@ pub const Cpu = struct {
 
 pub fn zigTriple(target: Target, allocator: Allocator) Allocator.Error![]u8 {
     return Query.fromTarget(target).zigTriple(allocator);
+}
+
+pub fn hurdTupleSimple(allocator: Allocator, arch: Cpu.Arch, abi: Abi) ![]u8 {
+    return std.fmt.allocPrint(allocator, "{s}-{s}", .{ @tagName(arch), @tagName(abi) });
+}
+
+pub fn hurdTuple(target: Target, allocator: Allocator) ![]u8 {
+    return hurdTupleSimple(allocator, target.cpu.arch, target.abi);
 }
 
 pub fn linuxTripleSimple(allocator: Allocator, arch: Cpu.Arch, os_tag: Os.Tag, abi: Abi) ![]u8 {

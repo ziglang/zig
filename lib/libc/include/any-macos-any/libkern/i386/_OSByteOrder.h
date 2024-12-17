@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2006-2012 Apple Inc. All rights reserved.
+ * Copyright (c) 2006-2023 Apple Inc. All rights reserved.
  *
  * @APPLE_OSREFERENCE_LICENSE_HEADER_START@
  *
@@ -28,6 +28,10 @@
 
 #ifndef _OS__OSBYTEORDERI386_H
 #define _OS__OSBYTEORDERI386_H
+
+#if defined(__i386__) || defined(__x86_64__)
+
+#include <sys/_types.h>
 
 #if !defined(__DARWIN_OS_INLINE)
 # if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901L
@@ -100,5 +104,7 @@ _OSSwapInt64(
 #else
 #error Unknown architecture
 #endif
+
+#endif /* defined(__i386__) || defined(__x86_64__) */
 
 #endif /* ! _OS__OSBYTEORDERI386_H */

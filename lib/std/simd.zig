@@ -462,6 +462,7 @@ pub fn prefixScan(comptime op: std.builtin.ReduceOp, comptime hop: isize, vec: a
 
 test "vector prefix scan" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.cpu.arch == .armeb and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/22060
     if (builtin.cpu.arch == .aarch64_be and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21893
 
     if (comptime builtin.cpu.arch.isMIPS()) {

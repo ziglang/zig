@@ -22,7 +22,8 @@ __clone:
 	rtsd    r15, 8
 	nop
 
-1:	lwi     r3, r1, 0
+1:	add     r19, r0, r0
+	lwi     r3, r1, 0
 	lwi     r5, r1, 4
 	brald   r15, r3
 	nop

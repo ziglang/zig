@@ -726,7 +726,7 @@ fn resolveDynAbsReloc(
         .copyrel,
         .cplt,
         .none,
-        => try writer.writeInt(i32, @as(i32, @truncate(S + A)), .little),
+        => try writer.writeInt(i64, S + A, .little),
 
         .dyn_copyrel => {
             if (is_writeable or elf_file.z_nocopyreloc) {
@@ -739,7 +739,7 @@ fn resolveDynAbsReloc(
                 });
                 try applyDynamicReloc(A, elf_file, writer);
             } else {
-                try writer.writeInt(i32, @as(i32, @truncate(S + A)), .little);
+                try writer.writeInt(i64, S + A, .little);
             }
         },
 
@@ -754,7 +754,7 @@ fn resolveDynAbsReloc(
                 });
                 try applyDynamicReloc(A, elf_file, writer);
             } else {
-                try writer.writeInt(i32, @as(i32, @truncate(S + A)), .little);
+                try writer.writeInt(i64, S + A, .little);
             }
         },
 

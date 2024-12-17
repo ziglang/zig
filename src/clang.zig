@@ -2224,8 +2224,8 @@ pub const ErrorMsg = extern struct {
 
 pub const LoadFromCommandLine = ZigClangLoadFromCommandLine;
 extern fn ZigClangLoadFromCommandLine(
-    args_begin: [*]?[*]const u8,
-    args_end: [*]?[*]const u8,
+    args_begin: [*]?[*:0]const u8,
+    args_end: [*]?[*:0]const u8,
     errors_ptr: *[*]ErrorMsg,
     errors_len: *usize,
     resources_path: [*:0]const u8,

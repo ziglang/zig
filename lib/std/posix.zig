@@ -1191,6 +1191,9 @@ pub const WriteError = error{
     /// This error occurs in Linux if the process being written to
     /// no longer exists.
     ProcessNotFound,
+    /// This error occurs when a device gets disconnected before or mid-flush
+    /// while it's being written to - errno(6): No such device or address.
+    NoDevice,
 } || UnexpectedError;
 
 /// Write to a file descriptor.
@@ -1270,6 +1273,7 @@ pub fn write(fd: fd_t, bytes: []const u8) WriteError!usize {
             .PIPE => return error.BrokenPipe,
             .CONNRESET => return error.ConnectionResetByPeer,
             .BUSY => return error.DeviceBusy,
+            .NXIO => return error.NoDevice,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -1533,6 +1537,12 @@ pub const OpenError = error{
     ProcessFdQuotaExceeded,
     SystemFdQuotaExceeded,
     NoDevice,
+    /// Either:
+    /// * One of the path components does not exist.
+    /// * Cwd was used, but cwd has been deleted.
+    /// * The path associated with the open directory handle has been deleted.
+    /// * On macOS, multiple processes or threads raced to create the same file
+    ///   with `O.EXCL` set to `false`.
     FileNotFound,
 
     /// The path exceeded `max_path_bytes` bytes.

@@ -1232,16 +1232,16 @@ pub extern "c" fn posix_spawn(
     path: [*:0]const u8,
     actions: ?*const posix_spawn_file_actions_t,
     attr: ?*const posix_spawnattr_t,
-    argv: [*:null]?[*:0]const u8,
-    env: [*:null]?[*:0]const u8,
+    argv: [*:null]const ?[*:0]const u8,
+    env: [*:null]const ?[*:0]const u8,
 ) c_int;
 pub extern "c" fn posix_spawnp(
     pid: *pid_t,
     path: [*:0]const u8,
     actions: ?*const posix_spawn_file_actions_t,
     attr: ?*const posix_spawnattr_t,
-    argv: [*:null]?[*:0]const u8,
-    env: [*:null]?[*:0]const u8,
+    argv: [*:null]const ?[*:0]const u8,
+    env: [*:null]const ?[*:0]const u8,
 ) c_int;
 
 pub const E = enum(u16) {

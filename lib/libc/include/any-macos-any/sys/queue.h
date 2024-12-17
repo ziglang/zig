@@ -118,30 +118,30 @@
  * For details on the use of these macros, see the queue(3) manual page.
  *
  *
- *				SLIST	LIST	STAILQ	TAILQ	CIRCLEQ
- * _HEAD			+	+	+	+	+
- * _HEAD_INITIALIZER		+	+	+	+	-
- * _ENTRY			+	+	+	+	+
- * _INIT			+	+	+	+	+
- * _EMPTY			+	+	+	+	+
- * _FIRST			+	+	+	+	+
- * _NEXT			+	+	+	+	+
- * _PREV			-	-	-	+	+
- * _LAST			-	-	+	+	+
- * _FOREACH			+	+	+	+	+
- * _FOREACH_SAFE		+	+	+	+	-
- * _FOREACH_REVERSE		-	-	-	+	-
- * _FOREACH_REVERSE_SAFE	-	-	-	+	-
- * _INSERT_HEAD			+	+	+	+	+
- * _INSERT_BEFORE		-	+	-	+	+
- * _INSERT_AFTER		+	+	+	+	+
- * _INSERT_TAIL			-	-	+	+	+
- * _CONCAT			-	-	+	+	-
- * _REMOVE_AFTER		+	-	+	-	-
- * _REMOVE_HEAD			+	-	+	-	-
- * _REMOVE_HEAD_UNTIL		-	-	+	-	-
- * _REMOVE			+	+	+	+	+
- * _SWAP			-	+	+	+	-
+ *                        SLIST   LIST   STAILQ   TAILQ   CIRCLEQ
+ * _HEAD                   +       +      +        +       +
+ * _HEAD_INITIALIZER       +       +      +        +       -
+ * _ENTRY                  +       +      +        +       +
+ * _INIT                   +       +      +        +       +
+ * _EMPTY                  +       +      +        +       +
+ * _FIRST                  +       +      +        +       +
+ * _NEXT                   +       +      +        +       +
+ * _PREV                   -       -      -        +       +
+ * _LAST                   -       -      +        +       +
+ * _FOREACH                +       +      +        +       +
+ * _FOREACH_SAFE           +       +      +        +       -
+ * _FOREACH_REVERSE        -       -      -        +       -
+ * _FOREACH_REVERSE_SAFE   -       -      -        +       -
+ * _INSERT_HEAD            +       +      +        +       +
+ * _INSERT_BEFORE          -       +      -        +       +
+ * _INSERT_AFTER           +       +      +        +       +
+ * _INSERT_TAIL            -       -      +        +       +
+ * _CONCAT                 -       -      +        +       -
+ * _REMOVE_AFTER           +       -      +        -       -
+ * _REMOVE_HEAD            +       -      +        -       -
+ * _REMOVE_HEAD_UNTIL      -       -      +        -       -
+ * _REMOVE                 +       +      +        +       +
+ * _SWAP                   -       +      +        +       -
  *
  */
 #ifdef QUEUE_MACRO_DEBUG

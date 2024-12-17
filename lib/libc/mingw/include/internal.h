@@ -59,7 +59,7 @@ extern "C" {
 #define _tm_unicode_safe(i) (_pioinfo_safe(i)->unicode)
 
 #ifndef __badioinfo
-  extern ioinfo ** __MINGW_IMP_SYMBOL(__badioinfo)[];
+  extern ioinfo * __MINGW_IMP_SYMBOL(__badioinfo);
 #define __badioinfo (* __MINGW_IMP_SYMBOL(__badioinfo))
 #endif
 
@@ -96,17 +96,13 @@ extern "C" {
   extern int _dowildcard;
   extern int _newmode;
 
-#ifndef __winitenv
-extern wchar_t *** __MINGW_IMP_SYMBOL(__winitenv);
-#define __winitenv (* __MINGW_IMP_SYMBOL(__winitenv))
-#endif
+  _CRTIMP wchar_t *** __cdecl __p___winitenv(void);
+#define __winitenv (*__p___winitenv())
 
-#if !defined(__initenv)
-extern char *** __MINGW_IMP_SYMBOL(__initenv);
-#define __initenv (* __MINGW_IMP_SYMBOL(__initenv))
-#endif
+  _CRTIMP char *** __cdecl __p___initenv(void);
+#define __initenv (*__p___initenv())
 
-  _CRTIMP void __cdecl _amsg_exit(int);
+  _CRTIMP void __cdecl _amsg_exit(int) __MINGW_ATTRIB_NORETURN;
 
   int __CRTDECL _setargv(void);
   int __CRTDECL __setargv(void);
@@ -149,6 +145,14 @@ extern char *** __MINGW_IMP_SYMBOL(__initenv);
   BOOL __cdecl _ValidateImageBase (PBYTE pImageBase);
   PIMAGE_SECTION_HEADER __cdecl _FindPESection (PBYTE pImageBase, DWORD_PTR rva);
   BOOL __cdecl _IsNonwritableInCurrentImage (PBYTE pTarget);
+
+#if defined(__SSE__)
+# define __mingw_has_sse()  1
+#elif defined(__i386__)
+  int __mingw_has_sse(void);
+#else
+# define __mingw_has_sse()  0
+#endif
 
 #ifdef __cplusplus
 }

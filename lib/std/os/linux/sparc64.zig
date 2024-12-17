@@ -198,29 +198,34 @@ pub fn clone() callconv(.Naked) usize {
         \\ mov %%i5, %%o3
         \\ ldx [%%fp + 0x8af], %%o4
         \\ t 0x6d
-        \\ bcs,pn %%xcc, 2f
+        \\ bcs,pn %%xcc, 1f
         \\ nop
         \\ # The child pid is returned in o0 while o1 tells if this
         \\ # process is # the child (=1) or the parent (=0).
-        \\ brnz %%o1, 1f
+        \\ brnz %%o1, 2f
         \\ nop
         \\ # Parent process, return the child pid
         \\ mov %%o0, %%i0
         \\ ret
         \\ restore
         \\1:
-        \\ # Child process, call func(arg)
+        \\ # The syscall failed
+        \\ sub %%g0, %%o0, %%i0
+        \\ ret
+        \\ restore
+        \\2:
+        \\ # Child process
+        \\ .cfi_undefined %%i7
+        \\ mov %%g0, %%fp
+        \\ mov %%g0, %%i7
+        \\
+        \\ # call func(arg)
         \\ mov %%g0, %%fp
         \\ call %%g2
         \\ mov %%g3, %%o0
         \\ # Exit
         \\ mov 1, %%g1 // SYS_exit
         \\ t 0x6d
-        \\2:
-        \\ # The syscall failed
-        \\ sub %%g0, %%o0, %%i0
-        \\ ret
-        \\ restore
     );
 }
 

@@ -135,10 +135,36 @@ pub fn astGenFile(
             error.PipeBusy => unreachable, // it's not a pipe
             error.NoDevice => unreachable, // it's not a pipe
             error.WouldBlock => unreachable, // not asking for non-blocking I/O
-            // There are no dir components, so you would think that this was
-            // unreachable, however we have observed on macOS two processes racing
-            // to do openat() with O_CREAT manifest in ENOENT.
-            error.FileNotFound => continue,
+            error.FileNotFound => {
+                // There are no dir components, so the only possibility should
+                // be that the directory behind the handle has been deleted,
+                // however we have observed on macOS two processes racing to do
+                // openat() with O_CREAT manifest in ENOENT.
+                //
+                // As a workaround, we retry with exclusive=true which
+                // disambiguates by returning EEXIST, indicating original
+                // failure was a race, or ENOENT, indicating deletion of the
+                // directory of our open handle.
+                if (builtin.os.tag != .macos) {
+                    std.process.fatal("cache directory '{}' unexpectedly removed during compiler execution", .{
+                        cache_directory,
+                    });
+                }
+                break zir_dir.createFile(&hex_digest, .{
+                    .read = true,
+                    .truncate = false,
+                    .lock = lock,
+                    .exclusive = true,
+                }) catch |excl_err| switch (excl_err) {
+                    error.PathAlreadyExists => continue,
+                    error.FileNotFound => {
+                        std.process.fatal("cache directory '{}' unexpectedly removed during compiler execution", .{
+                            cache_directory,
+                        });
+                    },
+                    else => |e| return e,
+                };
+            },
 
             else => |e| return e, // Retryable errors are handled at callsite.
         };
@@ -436,7 +462,7 @@ pub fn updateZirRefs(pt: Zcu.PerThread) Allocator.Error!void {
                 while (it.next()) |decl_inst| {
                     const decl_name = old_zir.getDeclaration(decl_inst)[0].name;
                     switch (decl_name) {
-                        .@"comptime", .@"usingnamespace", .unnamed_test, .decltest => continue,
+                        .@"comptime", .@"usingnamespace", .unnamed_test => continue,
                         _ => if (decl_name.isNamedTest(old_zir)) continue,
                     }
                     const name_zir = decl_name.toString(old_zir).?;
@@ -455,7 +481,7 @@ pub fn updateZirRefs(pt: Zcu.PerThread) Allocator.Error!void {
                 while (it.next()) |decl_inst| {
                     const decl_name = new_zir.getDeclaration(decl_inst)[0].name;
                     switch (decl_name) {
-                        .@"comptime", .@"usingnamespace", .unnamed_test, .decltest => continue,
+                        .@"comptime", .@"usingnamespace", .unnamed_test => continue,
                         _ => if (decl_name.isNamedTest(new_zir)) continue,
                     }
                     const name_zir = decl_name.toString(new_zir).?;
@@ -1903,22 +1929,12 @@ const ScanDeclIter = struct {
                     false,
                 };
             },
-            .decltest => info: {
-                // We consider these to be unnamed since the decl name can be adjusted to avoid conflicts if necessary.
-                if (iter.pass != .unnamed) return;
-                assert(declaration.flags.has_doc_comment);
-                const name = zir.nullTerminatedString(@enumFromInt(zir.extra[extra.end]));
-                break :info .{
-                    (try iter.avoidNameConflict("decltest.{s}", .{name})).toOptional(),
-                    .@"test",
-                    true,
-                };
-            },
             _ => if (declaration.name.isNamedTest(zir)) info: {
                 // We consider these to be unnamed since the decl name can be adjusted to avoid conflicts if necessary.
                 if (iter.pass != .unnamed) return;
+                const prefix = if (declaration.flags.test_is_decltest) "decltest" else "test";
                 break :info .{
-                    (try iter.avoidNameConflict("test.{s}", .{zir.nullTerminatedString(declaration.name.toString(zir).?)})).toOptional(),
+                    (try iter.avoidNameConflict("{s}.{s}", .{ prefix, zir.nullTerminatedString(declaration.name.toString(zir).?) })).toOptional(),
                     .@"test",
                     true,
                 };

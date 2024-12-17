@@ -952,11 +952,6 @@ const Writer = struct {
             std.zig.fmtEscapes(self.code.nullTerminatedString(extra.data.name)),
         });
 
-        if (extra.data.doc_comment != .empty) {
-            try stream.writeAll("\n");
-            try self.writeDocComment(stream, extra.data.doc_comment);
-            try stream.writeByteNTimes(' ', self.indent);
-        }
         try self.writeBracedBody(stream, body);
         try stream.writeAll(") ");
         try self.writeSrcTok(stream, inst_data.src_tok);
@@ -1482,7 +1477,6 @@ const Writer = struct {
             const fields_per_u32 = 32 / bits_per_field;
             const bit_bags_count = std.math.divCeil(usize, fields_len, fields_per_u32) catch unreachable;
             const Field = struct {
-                doc_comment_index: Zir.NullTerminatedString,
                 type_len: u32 = 0,
                 align_len: u32 = 0,
                 init_len: u32 = 0,
@@ -1512,11 +1506,8 @@ const Writer = struct {
 
                     const field_name_index: Zir.NullTerminatedString = @enumFromInt(self.code.extra[extra_index]);
                     extra_index += 1;
-                    const doc_comment_index: Zir.NullTerminatedString = @enumFromInt(self.code.extra[extra_index]);
-                    extra_index += 1;
 
                     fields[field_i] = .{
-                        .doc_comment_index = doc_comment_index,
                         .is_comptime = is_comptime,
                         .name = field_name_index,
                     };
@@ -1544,7 +1535,6 @@ const Writer = struct {
             self.indent += 2;
 
             for (fields, 0..) |field, i| {
-                try self.writeDocComment(stream, field.doc_comment_index);
                 try stream.writeByteNTimes(' ', self.indent);
                 try self.writeFlag(stream, "comptime ", field.is_comptime);
                 if (field.name != .empty) {
@@ -1721,10 +1711,7 @@ const Writer = struct {
             const field_name_index: Zir.NullTerminatedString = @enumFromInt(self.code.extra[extra_index]);
             const field_name = self.code.nullTerminatedString(field_name_index);
             extra_index += 1;
-            const doc_comment_index: Zir.NullTerminatedString = @enumFromInt(self.code.extra[extra_index]);
-            extra_index += 1;
 
-            try self.writeDocComment(stream, doc_comment_index);
             try stream.writeByteNTimes(' ', self.indent);
             try stream.print("{p}", .{std.zig.fmtId(field_name)});
 
@@ -1870,11 +1857,6 @@ const Writer = struct {
                 const field_name = self.code.nullTerminatedString(@enumFromInt(self.code.extra[extra_index]));
                 extra_index += 1;
 
-                const doc_comment_index: Zir.NullTerminatedString = @enumFromInt(self.code.extra[extra_index]);
-                extra_index += 1;
-
-                try self.writeDocComment(stream, doc_comment_index);
-
                 try stream.writeByteNTimes(' ', self.indent);
                 try stream.print("{p}", .{std.zig.fmtId(field_name)});
 
@@ -1987,12 +1969,10 @@ const Writer = struct {
         self.indent += 2;
 
         var extra_index = @as(u32, @intCast(extra.end));
-        const extra_index_end = extra_index + (extra.data.fields_len * 2);
-        while (extra_index < extra_index_end) : (extra_index += 2) {
+        const extra_index_end = extra_index + extra.data.fields_len;
+        while (extra_index < extra_index_end) : (extra_index += 1) {
             const name_index: Zir.NullTerminatedString = @enumFromInt(self.code.extra[extra_index]);
             const name = self.code.nullTerminatedString(name_index);
-            const doc_comment_index: Zir.NullTerminatedString = @enumFromInt(self.code.extra[extra_index + 1]);
-            try self.writeDocComment(stream, doc_comment_index);
             try stream.writeByteNTimes(' ', self.indent);
             try stream.print("{p},\n", .{std.zig.fmtId(name)});
         }
@@ -2740,9 +2720,6 @@ const Writer = struct {
     fn writeDeclaration(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].declaration;
         const extra = self.code.extraData(Zir.Inst.Declaration, inst_data.payload_index);
-        const doc_comment: ?Zir.NullTerminatedString = if (extra.data.flags.has_doc_comment) dc: {
-            break :dc @enumFromInt(self.code.extra[extra.end]);
-        } else null;
 
         const prev_parent_decl_node = self.parent_decl_node;
         defer self.parent_decl_node = prev_parent_decl_node;
@@ -2754,10 +2731,11 @@ const Writer = struct {
             .@"comptime" => try stream.writeAll("comptime"),
             .@"usingnamespace" => try stream.writeAll("usingnamespace"),
             .unnamed_test => try stream.writeAll("test"),
-            .decltest => try stream.print("decltest '{s}'", .{self.code.nullTerminatedString(doc_comment.?)}),
             _ => {
                 const name = extra.data.name.toString(self.code).?;
-                const prefix = if (extra.data.name.isNamedTest(self.code)) "test " else "";
+                const prefix = if (extra.data.name.isNamedTest(self.code)) p: {
+                    break :p if (extra.data.flags.test_is_decltest) "decltest " else "test ";
+                } else "";
                 try stream.print("{s}'{s}'", .{ prefix, self.code.nullTerminatedString(name) });
             },
         }
@@ -2960,17 +2938,6 @@ const Writer = struct {
             try stream.writeAll("..");
             try self.writeInstIndex(stream, body[body.len - 1]);
             try stream.writeByte('}');
-        }
-    }
-
-    fn writeDocComment(self: *Writer, stream: anytype, doc_comment_index: Zir.NullTerminatedString) !void {
-        if (doc_comment_index != .empty) {
-            const doc_comment = self.code.nullTerminatedString(doc_comment_index);
-            var it = std.mem.tokenizeScalar(u8, doc_comment, '\n');
-            while (it.next()) |doc_line| {
-                try stream.writeByteNTimes(' ', self.indent);
-                try stream.print("///{s}\n", .{doc_line});
-            }
         }
     }
 

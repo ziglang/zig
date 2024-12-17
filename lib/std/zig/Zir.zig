@@ -2612,20 +2612,19 @@ pub const Inst = struct {
     };
 
     /// Trailing:
-    /// 0. doc_comment: u32          // if `has_doc_comment`; null-terminated string index
-    /// 1. align_body_len: u32       // if `has_align_linksection_addrspace`; 0 means no `align`
-    /// 2. linksection_body_len: u32 // if `has_align_linksection_addrspace`; 0 means no `linksection`
-    /// 3. addrspace_body_len: u32   // if `has_align_linksection_addrspace`; 0 means no `addrspace`
-    /// 4. value_body_inst: Zir.Inst.Index
+    /// 0. align_body_len: u32       // if `has_align_linksection_addrspace`; 0 means no `align`
+    /// 1. linksection_body_len: u32 // if `has_align_linksection_addrspace`; 0 means no `linksection`
+    /// 2. addrspace_body_len: u32   // if `has_align_linksection_addrspace`; 0 means no `addrspace`
+    /// 3. value_body_inst: Zir.Inst.Index
     ///    - for each `value_body_len`
     ///    - body to be exited via `break_inline` to this `declaration` instruction
-    /// 5. align_body_inst: Zir.Inst.Index
+    /// 4. align_body_inst: Zir.Inst.Index
     ///    - for each `align_body_len`
     ///    - body to be exited via `break_inline` to this `declaration` instruction
-    /// 6. linksection_body_inst: Zir.Inst.Index
+    /// 5. linksection_body_inst: Zir.Inst.Index
     ///    - for each `linksection_body_len`
     ///    - body to be exited via `break_inline` to this `declaration` instruction
-    /// 7. addrspace_body_inst: Zir.Inst.Index
+    /// 6. addrspace_body_inst: Zir.Inst.Index
     ///    - for each `addrspace_body_len`
     ///    - body to be exited via `break_inline` to this `declaration` instruction
     pub const Declaration = struct {
@@ -2643,7 +2642,7 @@ pub const Inst = struct {
             value_body_len: u28,
             is_pub: bool,
             is_export: bool,
-            has_doc_comment: bool,
+            test_is_decltest: bool,
             has_align_linksection_addrspace: bool,
         };
 
@@ -2651,9 +2650,6 @@ pub const Inst = struct {
             @"comptime" = std.math.maxInt(u32),
             @"usingnamespace" = std.math.maxInt(u32) - 1,
             unnamed_test = std.math.maxInt(u32) - 2,
-            /// In this case, `has_doc_comment` will be true, and the doc
-            /// comment body is the identifier name.
-            decltest = std.math.maxInt(u32) - 3,
             /// Other values are `NullTerminatedString` values, i.e. index into
             /// `string_bytes`. If the byte referenced is 0, the decl is a named
             /// test, and the actual name begins at the following byte.
@@ -2661,13 +2657,13 @@ pub const Inst = struct {
 
             pub fn isNamedTest(name: Name, zir: Zir) bool {
                 return switch (name) {
-                    .@"comptime", .@"usingnamespace", .unnamed_test, .decltest => false,
+                    .@"comptime", .@"usingnamespace", .unnamed_test => false,
                     _ => zir.string_bytes[@intFromEnum(name)] == 0,
                 };
             }
             pub fn toString(name: Name, zir: Zir) ?NullTerminatedString {
                 switch (name) {
-                    .@"comptime", .@"usingnamespace", .unnamed_test, .decltest => return null,
+                    .@"comptime", .@"usingnamespace", .unnamed_test => return null,
                     _ => {},
                 }
                 const idx: u32 = @intFromEnum(name);
@@ -2688,7 +2684,6 @@ pub const Inst = struct {
 
         pub fn getBodies(declaration: Declaration, extra_end: u32, zir: Zir) Bodies {
             var extra_index: u32 = extra_end;
-            extra_index += @intFromBool(declaration.flags.has_doc_comment);
             const value_body_len = declaration.flags.value_body_len;
             const align_body_len, const linksection_body_len, const addrspace_body_len = lens: {
                 if (!declaration.flags.has_align_linksection_addrspace) {
@@ -3059,7 +3054,6 @@ pub const Inst = struct {
     ///      0bX000: whether corresponding field has a type expression
     /// 9. fields: { // for every fields_len
     ///        field_name: u32,
-    ///        doc_comment: NullTerminatedString, // .empty if no doc comment
     ///        field_type: Ref, // if corresponding bit is not set. none means anytype.
     ///        field_type_body_len: u32, // if corresponding bit is set
     ///        align_body_len: u32, // if corresponding bit is set
@@ -3220,7 +3214,6 @@ pub const Inst = struct {
     ///    - the bit is whether corresponding field has an value expression
     /// 9. fields: { // for every fields_len
     ///        field_name: u32,
-    ///        doc_comment: u32, // .empty if no doc_comment
     ///        value: Ref, // if corresponding bit is set
     ///    }
     pub const EnumDecl = struct {
@@ -3263,9 +3256,7 @@ pub const Inst = struct {
     ///      0bX000: unused
     /// 9. fields: { // for every fields_len
     ///        field_name: NullTerminatedString, // null terminated string index
-    ///        doc_comment: NullTerminatedString, // .empty if no doc comment
     ///        field_type: Ref, // if corresponding bit is set
-    ///        - if none, means `anytype`.
     ///        align: Ref, // if corresponding bit is set
     ///        tag_value: Ref, // if corresponding bit is set
     ///    }
@@ -3328,10 +3319,7 @@ pub const Inst = struct {
     };
 
     /// Trailing:
-    /// { // for every fields_len
-    ///      field_name: NullTerminatedString // null terminated string index
-    ///     doc_comment: NullTerminatedString // null terminated string index
-    /// }
+    /// 0. field_name: NullTerminatedString // for every fields_len
     pub const ErrorSetDecl = struct {
         fields_len: u32,
     };
@@ -3474,8 +3462,6 @@ pub const Inst = struct {
     pub const Param = struct {
         /// Null-terminated string index.
         name: NullTerminatedString,
-        /// Null-terminated string index.
-        doc_comment: NullTerminatedString,
         /// The body contains the type of the parameter.
         body_len: u32,
     };
@@ -4163,7 +4149,7 @@ fn findTrackableInner(
                         const has_type_body = @as(u1, @truncate(cur_bit_bag)) != 0;
                         cur_bit_bag >>= 1;
 
-                        fields_extra_index += 2; // field_name, doc_comment
+                        fields_extra_index += 1; // field_name
 
                         if (has_type_body) {
                             const field_type_body_len = zir.extra[fields_extra_index];

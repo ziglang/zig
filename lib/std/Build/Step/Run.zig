@@ -1009,7 +1009,8 @@ fn runCommand(
                 else => break :interpret,
             }
 
-            const need_cross_glibc = exe.rootModuleTarget().isGnuLibC() and
+            const root_target = exe.rootModuleTarget();
+            const need_cross_glibc = root_target.isGnuLibC() and
                 exe.is_linking_libc;
             const other_target = exe.root_module.resolved_target.?.result;
             switch (std.zig.system.getExternalExecutor(b.graph.host.result, &other_target, .{
@@ -1039,23 +1040,16 @@ fn runCommand(
                         try interp_argv.append(bin_name);
 
                         if (glibc_dir_arg) |dir| {
-                            // TODO look into making this a call to `linuxTriple`. This
-                            // needs the directory to be called "i686" rather than
-                            // "x86" which is why we do it manually here.
-                            const fmt_str = "{s}" ++ fs.path.sep_str ++ "{s}-{s}-{s}";
-                            const cpu_arch = exe.rootModuleTarget().cpu.arch;
-                            const os_tag = exe.rootModuleTarget().os.tag;
-                            const abi = exe.rootModuleTarget().abi;
-                            const cpu_arch_name: []const u8 = if (cpu_arch == .x86)
-                                "i686"
-                            else
-                                @tagName(cpu_arch);
-                            const full_dir = try std.fmt.allocPrint(b.allocator, fmt_str, .{
-                                dir, cpu_arch_name, @tagName(os_tag), @tagName(abi),
-                            });
-
                             try interp_argv.append("-L");
-                            try interp_argv.append(full_dir);
+                            try interp_argv.append(b.pathJoin(&.{
+                                dir,
+                                try std.zig.target.glibcRuntimeTriple(
+                                    b.allocator,
+                                    root_target.cpu.arch,
+                                    root_target.os.tag,
+                                    root_target.abi,
+                                ),
+                            }));
                         }
 
                         try interp_argv.appendSlice(argv);
@@ -1113,7 +1107,7 @@ fn runCommand(
                     if (allow_skip) return error.MakeSkipped;
 
                     const host_name = try b.graph.host.result.zigTriple(b.allocator);
-                    const foreign_name = try exe.rootModuleTarget().zigTriple(b.allocator);
+                    const foreign_name = try root_target.zigTriple(b.allocator);
 
                     return step.fail("the host system ({s}) is unable to execute binaries from the target ({s})", .{
                         host_name, foreign_name,
@@ -1121,7 +1115,7 @@ fn runCommand(
                 },
             }
 
-            if (exe.rootModuleTarget().os.tag == .windows) {
+            if (root_target.os.tag == .windows) {
                 // On Windows we don't have rpaths so we have to add .dll search paths to PATH
                 run.addPathForDynLibs(exe);
             }
