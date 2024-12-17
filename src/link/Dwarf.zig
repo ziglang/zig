@@ -2668,23 +2668,6 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
             const type_inst_info = loaded_struct.zir_index.resolveFull(ip).?;
             if (type_inst_info.file != inst_info.file) break :tag .decl_alias;
 
-            const value_inst = value_inst: {
-                const decl_value_body = decl_extra.data.getBodies(@intCast(decl_extra.end), file.zir).value_body;
-                const break_inst = file.zir.instructions.get(@intFromEnum(decl_value_body[decl_value_body.len - 1]));
-                if (break_inst.tag != .break_inline) break :value_inst null;
-                assert(file.zir.extraData(Zir.Inst.Break, break_inst.data.@"break".payload_index).data.block_inst == inst_info.inst);
-                var value_inst = break_inst.data.@"break".operand.toIndex();
-                while (value_inst) |value_inst_index| switch (file.zir.instructions.items(.tag)[@intFromEnum(value_inst_index)]) {
-                    else => break,
-                    .as_node => value_inst = file.zir.extraData(
-                        Zir.Inst.As,
-                        file.zir.instructions.items(.data)[@intFromEnum(value_inst_index)].pl_node.payload_index,
-                    ).data.operand.toIndex(),
-                };
-                break :value_inst value_inst;
-            };
-            if (type_inst_info.inst != value_inst) break :tag .decl_alias;
-
             const type_gop = try dwarf.types.getOrPut(dwarf.gpa, nav_val.toIntern());
             if (type_gop.found_existing) {
                 if (dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(type_gop.value_ptr.*).len > 0) break :tag .decl_alias;
@@ -2791,23 +2774,6 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
             const type_inst_info = loaded_enum.zir_index.unwrap().?.resolveFull(ip).?;
             if (type_inst_info.file != inst_info.file) break :tag .decl_alias;
 
-            const value_inst = value_inst: {
-                const decl_value_body = decl_extra.data.getBodies(@intCast(decl_extra.end), file.zir).value_body;
-                const break_inst = file.zir.instructions.get(@intFromEnum(decl_value_body[decl_value_body.len - 1]));
-                if (break_inst.tag != .break_inline) break :value_inst null;
-                assert(file.zir.extraData(Zir.Inst.Break, break_inst.data.@"break".payload_index).data.block_inst == inst_info.inst);
-                var value_inst = break_inst.data.@"break".operand.toIndex();
-                while (value_inst) |value_inst_index| switch (file.zir.instructions.items(.tag)[@intFromEnum(value_inst_index)]) {
-                    else => break,
-                    .as_node => value_inst = file.zir.extraData(
-                        Zir.Inst.As,
-                        file.zir.instructions.items(.data)[@intFromEnum(value_inst_index)].pl_node.payload_index,
-                    ).data.operand.toIndex(),
-                };
-                break :value_inst value_inst;
-            };
-            if (type_inst_info.inst != value_inst) break :tag .decl_alias;
-
             const type_gop = try dwarf.types.getOrPut(dwarf.gpa, nav_val.toIntern());
             if (type_gop.found_existing) {
                 if (dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(type_gop.value_ptr.*).len > 0) break :tag .decl_alias;
@@ -2845,23 +2811,6 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
 
             const type_inst_info = loaded_union.zir_index.resolveFull(ip).?;
             if (type_inst_info.file != inst_info.file) break :tag .decl_alias;
-
-            const value_inst = value_inst: {
-                const decl_value_body = decl_extra.data.getBodies(@intCast(decl_extra.end), file.zir).value_body;
-                const break_inst = file.zir.instructions.get(@intFromEnum(decl_value_body[decl_value_body.len - 1]));
-                if (break_inst.tag != .break_inline) break :value_inst null;
-                assert(file.zir.extraData(Zir.Inst.Break, break_inst.data.@"break".payload_index).data.block_inst == inst_info.inst);
-                var value_inst = break_inst.data.@"break".operand.toIndex();
-                while (value_inst) |value_inst_index| switch (file.zir.instructions.items(.tag)[@intFromEnum(value_inst_index)]) {
-                    else => break,
-                    .as_node => value_inst = file.zir.extraData(
-                        Zir.Inst.As,
-                        file.zir.instructions.items(.data)[@intFromEnum(value_inst_index)].pl_node.payload_index,
-                    ).data.operand.toIndex(),
-                };
-                break :value_inst value_inst;
-            };
-            if (type_inst_info.inst != value_inst) break :tag .decl_alias;
 
             const type_gop = try dwarf.types.getOrPut(dwarf.gpa, nav_val.toIntern());
             if (type_gop.found_existing) {
@@ -2936,23 +2885,6 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
 
             const type_inst_info = loaded_opaque.zir_index.resolveFull(ip).?;
             if (type_inst_info.file != inst_info.file) break :tag .decl_alias;
-
-            const value_inst = value_inst: {
-                const decl_value_body = decl_extra.data.getBodies(@intCast(decl_extra.end), file.zir).value_body;
-                const break_inst = file.zir.instructions.get(@intFromEnum(decl_value_body[decl_value_body.len - 1]));
-                if (break_inst.tag != .break_inline) break :value_inst null;
-                assert(file.zir.extraData(Zir.Inst.Break, break_inst.data.@"break".payload_index).data.block_inst == inst_info.inst);
-                var value_inst = break_inst.data.@"break".operand.toIndex();
-                while (value_inst) |value_inst_index| switch (file.zir.instructions.items(.tag)[@intFromEnum(value_inst_index)]) {
-                    else => break,
-                    .as_node => value_inst = file.zir.extraData(
-                        Zir.Inst.As,
-                        file.zir.instructions.items(.data)[@intFromEnum(value_inst_index)].pl_node.payload_index,
-                    ).data.operand.toIndex(),
-                };
-                break :value_inst value_inst;
-            };
-            if (type_inst_info.inst != value_inst) break :tag .decl_alias;
 
             const type_gop = try dwarf.types.getOrPut(dwarf.gpa, nav_val.toIntern());
             if (type_gop.found_existing) {
