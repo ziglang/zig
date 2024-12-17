@@ -11,6 +11,7 @@ const unicode = std.unicode;
 const meta = std.meta;
 const lossyCast = math.lossyCast;
 const expectFmt = std.testing.expectFmt;
+const testing = std.testing;
 
 pub const default_max_depth = 3;
 
@@ -315,7 +316,6 @@ pub const Specifier = union(enum) {
 /// Allows to implement formatters compatible with std.fmt without replicating
 /// the standard library behavior.
 pub const Parser = struct {
-    pos: usize = 0,
     iter: std.unicode.Utf8Iterator,
 
     // Returns a decimal number or null if the current character is not a
@@ -2760,5 +2760,49 @@ test hex {
         const s = "[" ++ hex(@as(u64, 0x12345678_abcdef00)) ++ "]";
         try std.testing.expect(s.len == 18);
         try std.testing.expectEqualStrings("[00efcdab78563412]", s);
+    }
+}
+
+test "parser until" {
+    { // return substring till ':'
+        var parser: Parser = .{
+            .iter = .{ .bytes = "abc:1234", .i = 0 },
+        };
+        try testing.expectEqualStrings("abc", parser.until(':'));
+    }
+
+    { // return the entire string - `ch` not found
+        var parser: Parser = .{
+            .iter = .{ .bytes = "abc1234", .i = 0 },
+        };
+        try testing.expectEqualStrings("abc1234", parser.until(':'));
+    }
+
+    { // substring is empty - `ch` is the only character
+        var parser: Parser = .{
+            .iter = .{ .bytes = ":", .i = 0 },
+        };
+        try testing.expectEqualStrings("", parser.until(':'));
+    }
+
+    { // empty string and `ch` not found
+        var parser: Parser = .{
+            .iter = .{ .bytes = "", .i = 0 },
+        };
+        try testing.expectEqualStrings("", parser.until(':'));
+    }
+
+    { // substring starts at index 2 and goes upto `ch`
+        var parser: Parser = .{
+            .iter = .{ .bytes = "abc:1234", .i = 2 },
+        };
+        try testing.expectEqualStrings("c", parser.until(':'));
+    }
+
+    { // substring starts at index 4 and goes upto the end - `ch` not found
+        var parser: Parser = .{
+            .iter = .{ .bytes = "abc1234", .i = 4 },
+        };
+        try testing.expectEqualStrings("234", parser.until(':'));
     }
 }
