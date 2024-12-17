@@ -2018,7 +2018,6 @@ pub const Key = union(enum) {
         ty: Index,
         init: Index,
         owner_nav: Nav.Index,
-        lib_name: OptionalNullTerminatedString,
         is_threadlocal: bool,
         is_weak_linkage: bool,
     };
@@ -2741,7 +2740,6 @@ pub const Key = union(enum) {
                 return a_info.owner_nav == b_info.owner_nav and
                     a_info.ty == b_info.ty and
                     a_info.init == b_info.init and
-                    a_info.lib_name == b_info.lib_name and
                     a_info.is_threadlocal == b_info.is_threadlocal and
                     a_info.is_weak_linkage == b_info.is_weak_linkage;
             },
@@ -5573,9 +5571,6 @@ pub const Tag = enum(u8) {
         /// May be `none`.
         init: Index,
         owner_nav: Nav.Index,
-        /// Library name if specified.
-        /// For example `extern "c" var stderrp = ...` would have 'c' as library name.
-        lib_name: OptionalNullTerminatedString,
         flags: Flags,
 
         pub const Flags = packed struct(u32) {
@@ -6928,7 +6923,6 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
                 .ty = extra.ty,
                 .init = extra.init,
                 .owner_nav = extra.owner_nav,
-                .lib_name = extra.lib_name,
                 .is_threadlocal = extra.flags.is_threadlocal,
                 .is_weak_linkage = extra.flags.is_weak_linkage,
             } };
@@ -7575,7 +7569,6 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
                     .ty = variable.ty,
                     .init = variable.init,
                     .owner_nav = variable.owner_nav,
-                    .lib_name = variable.lib_name,
                     .flags = .{
                         .is_const = false,
                         .is_threadlocal = variable.is_threadlocal,

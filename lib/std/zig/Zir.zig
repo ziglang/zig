@@ -1868,10 +1868,6 @@ pub const Inst = struct {
     /// Rarer instructions are here; ones that do not fit in the 8-bit `Tag` enum.
     /// `noreturn` instructions may not go here; they must be part of the main `Tag` enum.
     pub const Extended = enum(u16) {
-        /// Declares a global variable.
-        /// `operand` is payload index to `ExtendedVar`.
-        /// `small` is `ExtendedVar.Small`.
-        variable,
         /// A struct type definition. Contains references to ZIR instructions for
         /// the field types, defaults, and alignments.
         /// `operand` is payload index to `StructDecl`.
@@ -2493,26 +2489,25 @@ pub const Inst = struct {
     };
 
     /// Trailing:
-    /// 0. lib_name: NullTerminatedString, // null terminated string index, if has_lib_name is set
     /// if (has_cc_ref and !has_cc_body) {
-    ///   1. cc: Ref,
+    ///   0. cc: Ref,
     /// }
     /// if (has_cc_body) {
-    ///   2. cc_body_len: u32
-    ///   3. cc_body: u32 // for each cc_body_len
+    ///   1. cc_body_len: u32
+    ///   2. cc_body: u32 // for each cc_body_len
     /// }
     /// if (has_ret_ty_ref and !has_ret_ty_body) {
-    ///   4. ret_ty: Ref,
+    ///   3. ret_ty: Ref,
     /// }
     /// if (has_ret_ty_body) {
-    ///   5. ret_ty_body_len: u32
-    ///   6. ret_ty_body: u32 // for each ret_ty_body_len
+    ///   4. ret_ty_body_len: u32
+    ///   5. ret_ty_body: u32 // for each ret_ty_body_len
     /// }
-    /// 7. noalias_bits: u32 // if has_any_noalias
+    /// 6. noalias_bits: u32 // if has_any_noalias
     ///    - each bit starting with LSB corresponds to parameter indexes
-    /// 8. body: Index // for each body_len
-    /// 9. src_locs: Func.SrcLocs // if body_len != 0
-    /// 10. proto_hash: std.zig.SrcHash // if body_len != 0; hash of function prototype
+    /// 7. body: Index // for each body_len
+    /// 8. src_locs: Func.SrcLocs // if body_len != 0
+    /// 9. proto_hash: std.zig.SrcHash // if body_len != 0; hash of function prototype
     pub const FuncFancy = struct {
         /// Points to the block that contains the param instructions for this function.
         /// If this is a `declaration`, it refers to the declaration's value body.
@@ -2522,38 +2517,16 @@ pub const Inst = struct {
 
         /// If both has_cc_ref and has_cc_body are false, it means auto calling convention.
         /// If both has_ret_ty_ref and has_ret_ty_body are false, it means void return type.
-        pub const Bits = packed struct {
+        pub const Bits = packed struct(u32) {
             is_var_args: bool,
             is_inferred_error: bool,
-            is_test: bool,
-            is_extern: bool,
             is_noinline: bool,
             has_cc_ref: bool,
             has_cc_body: bool,
             has_ret_ty_ref: bool,
             has_ret_ty_body: bool,
-            has_lib_name: bool,
             has_any_noalias: bool,
-            _: u21 = undefined,
-        };
-    };
-
-    /// Trailing:
-    /// 0. lib_name: NullTerminatedString, // null terminated string index, if has_lib_name is set
-    /// 1. align: Ref, // if has_align is set
-    /// 2. init: Ref // if has_init is set
-    /// The source node is obtained from the containing `block_inline`.
-    pub const ExtendedVar = struct {
-        var_type: Ref,
-
-        pub const Small = packed struct {
-            has_lib_name: bool,
-            has_align: bool,
-            has_init: bool,
-            is_extern: bool,
-            is_const: bool,
-            is_threadlocal: bool,
-            _: u10 = undefined,
+            _: u24 = undefined,
         };
     };
 
@@ -2582,39 +2555,301 @@ pub const Inst = struct {
     };
 
     /// Trailing:
-    /// 0. align_body_len: u32       // if `has_align_linksection_addrspace`; 0 means no `align`
-    /// 1. linksection_body_len: u32 // if `has_align_linksection_addrspace`; 0 means no `linksection`
-    /// 2. addrspace_body_len: u32   // if `has_align_linksection_addrspace`; 0 means no `addrspace`
-    /// 3. value_body_inst: Zir.Inst.Index
-    ///    - for each `value_body_len`
+    /// 0. name: NullTerminatedString      // if `flags.id.hasName()`
+    /// 1. lib_name: NullTerminatedString  // if `flags.id.hasLibName()`
+    /// 2. type_body_len: u32              // if `flags.id.hasTypeBody()`
+    /// 3. align_body_len: u32             // if `flags.id.hasSpecialBodies()`
+    /// 4. linksection_body_len: u32       // if `flags.id.hasSpecialBodies()`
+    /// 5. addrspace_body_len: u32         // if `flags.id.hasSpecialBodies()`
+    /// 6. value_body_len: u32             // if `flags.id.hasValueBody()`
+    /// 7. type_body_inst: Zir.Inst.Index
+    ///    - for each `type_body_len`
     ///    - body to be exited via `break_inline` to this `declaration` instruction
-    /// 4. align_body_inst: Zir.Inst.Index
+    /// 8. align_body_inst: Zir.Inst.Index
     ///    - for each `align_body_len`
     ///    - body to be exited via `break_inline` to this `declaration` instruction
-    /// 5. linksection_body_inst: Zir.Inst.Index
+    /// 9. linksection_body_inst: Zir.Inst.Index
     ///    - for each `linksection_body_len`
     ///    - body to be exited via `break_inline` to this `declaration` instruction
-    /// 6. addrspace_body_inst: Zir.Inst.Index
+    /// 10. addrspace_body_inst: Zir.Inst.Index
     ///    - for each `addrspace_body_len`
     ///    - body to be exited via `break_inline` to this `declaration` instruction
+    /// 11. value_body_inst: Zir.Inst.Index
+    ///    - for each `value_body_len`
+    ///    - body to be exited via `break_inline` to this `declaration` instruction
+    ///    - within this body, the `declaration` instruction refers to the resolved type from the type body
     pub const Declaration = struct {
         // These fields should be concatenated and reinterpreted as a `std.zig.SrcHash`.
         src_hash_0: u32,
         src_hash_1: u32,
         src_hash_2: u32,
         src_hash_3: u32,
-        /// The name of this `Decl`. Also indicates whether it is a test, comptime block, etc.
-        name: Name,
-        src_line: u32,
-        src_column: u32,
-        flags: Flags,
+        // These fields should be concatenated and reinterpreted as a `Flags`.
+        flags_0: u32,
+        flags_1: u32,
 
-        pub const Flags = packed struct(u32) {
-            value_body_len: u28,
+        pub const Unwrapped = struct {
+            pub const Kind = enum {
+                unnamed_test,
+                @"test",
+                decltest,
+                @"comptime",
+                @"usingnamespace",
+                @"const",
+                @"var",
+            };
+
+            pub const Linkage = enum {
+                normal,
+                @"extern",
+                @"export",
+            };
+
+            src_node: Ast.Node.Index,
+
+            src_line: u32,
+            src_column: u32,
+
+            kind: Kind,
+            /// Always `.empty` for `kind` of `unnamed_test`, `.@"comptime"`, `.@"usingnamespace"`.
+            name: NullTerminatedString,
+            /// Always `false` for `kind` of `unnamed_test`, `.@"test"`, `.decltest`, `.@"comptime"`.
             is_pub: bool,
-            is_export: bool,
-            test_is_decltest: bool,
-            has_align_linksection_addrspace: bool,
+            /// Always `false` for `kind != .@"var"`.
+            is_threadlocal: bool,
+            /// Always `.normal` for `kind != .@"const" and kind != .@"var"`.
+            linkage: Linkage,
+            /// Always `.empty` for `linkage != .@"extern"`.
+            lib_name: NullTerminatedString,
+
+            /// Always populated for `linkage == .@"extern".
+            type_body: ?[]const Inst.Index,
+            align_body: ?[]const Inst.Index,
+            linksection_body: ?[]const Inst.Index,
+            addrspace_body: ?[]const Inst.Index,
+            /// Always populated for `linkage != .@"extern".
+            value_body: ?[]const Inst.Index,
+        };
+
+        pub const Flags = packed struct(u64) {
+            src_line: u30,
+            src_column: u29,
+            id: Id,
+
+            pub const Id = enum(u5) {
+                unnamed_test,
+                @"test",
+                decltest,
+                @"comptime",
+
+                @"usingnamespace",
+                pub_usingnamespace,
+
+                const_simple,
+                const_typed,
+                @"const",
+                pub_const_simple,
+                pub_const_typed,
+                pub_const,
+
+                extern_const_simple,
+                extern_const,
+                pub_extern_const_simple,
+                pub_extern_const,
+
+                export_const,
+                pub_export_const,
+
+                var_simple,
+                @"var",
+                var_threadlocal,
+                pub_var_simple,
+                pub_var,
+                pub_var_threadlocal,
+
+                extern_var,
+                extern_var_threadlocal,
+                pub_extern_var,
+                pub_extern_var_threadlocal,
+
+                export_var,
+                export_var_threadlocal,
+                pub_export_var,
+                pub_export_var_threadlocal,
+
+                pub fn hasName(id: Id) bool {
+                    return switch (id) {
+                        .unnamed_test,
+                        .@"comptime",
+                        .@"usingnamespace",
+                        .pub_usingnamespace,
+                        => false,
+                        else => true,
+                    };
+                }
+
+                pub fn hasLibName(id: Id) bool {
+                    return switch (id) {
+                        .extern_const,
+                        .pub_extern_const,
+                        .extern_var,
+                        .extern_var_threadlocal,
+                        .pub_extern_var,
+                        .pub_extern_var_threadlocal,
+                        => true,
+                        else => false,
+                    };
+                }
+
+                pub fn hasTypeBody(id: Id) bool {
+                    return switch (id) {
+                        .unnamed_test,
+                        .@"test",
+                        .decltest,
+                        .@"comptime",
+                        .@"usingnamespace",
+                        .pub_usingnamespace,
+                        => false, // these constructs are untyped
+                        .const_simple,
+                        .pub_const_simple,
+                        .var_simple,
+                        .pub_var_simple,
+                        => false, // these reprs omit type bodies
+                        else => true,
+                    };
+                }
+
+                pub fn hasValueBody(id: Id) bool {
+                    return switch (id) {
+                        .extern_const_simple,
+                        .extern_const,
+                        .pub_extern_const_simple,
+                        .pub_extern_const,
+                        .extern_var,
+                        .extern_var_threadlocal,
+                        .pub_extern_var,
+                        .pub_extern_var_threadlocal,
+                        => false, // externs do not have values
+                        else => true,
+                    };
+                }
+
+                pub fn hasSpecialBodies(id: Id) bool {
+                    return switch (id) {
+                        .unnamed_test,
+                        .@"test",
+                        .decltest,
+                        .@"comptime",
+                        .@"usingnamespace",
+                        .pub_usingnamespace,
+                        => false, // these constructs are untyped
+                        .const_simple,
+                        .const_typed,
+                        .pub_const_simple,
+                        .pub_const_typed,
+                        .extern_const_simple,
+                        .pub_extern_const_simple,
+                        .var_simple,
+                        .pub_var_simple,
+                        => false, // these reprs omit special bodies
+                        else => true,
+                    };
+                }
+
+                pub fn linkage(id: Id) Declaration.Unwrapped.Linkage {
+                    return switch (id) {
+                        .extern_const_simple,
+                        .extern_const,
+                        .pub_extern_const_simple,
+                        .pub_extern_const,
+                        .extern_var,
+                        .extern_var_threadlocal,
+                        .pub_extern_var,
+                        .pub_extern_var_threadlocal,
+                        => .@"extern",
+                        .export_const,
+                        .pub_export_const,
+                        .export_var,
+                        .export_var_threadlocal,
+                        .pub_export_var,
+                        .pub_export_var_threadlocal,
+                        => .@"export",
+                        else => .normal,
+                    };
+                }
+
+                pub fn kind(id: Id) Declaration.Unwrapped.Kind {
+                    return switch (id) {
+                        .unnamed_test => .unnamed_test,
+                        .@"test" => .@"test",
+                        .decltest => .decltest,
+                        .@"comptime" => .@"comptime",
+                        .@"usingnamespace", .pub_usingnamespace => .@"usingnamespace",
+                        .const_simple,
+                        .const_typed,
+                        .@"const",
+                        .pub_const_simple,
+                        .pub_const_typed,
+                        .pub_const,
+                        .extern_const_simple,
+                        .extern_const,
+                        .pub_extern_const_simple,
+                        .pub_extern_const,
+                        .export_const,
+                        .pub_export_const,
+                        => .@"const",
+                        .var_simple,
+                        .@"var",
+                        .var_threadlocal,
+                        .pub_var_simple,
+                        .pub_var,
+                        .pub_var_threadlocal,
+                        .extern_var,
+                        .extern_var_threadlocal,
+                        .pub_extern_var,
+                        .pub_extern_var_threadlocal,
+                        .export_var,
+                        .export_var_threadlocal,
+                        .pub_export_var,
+                        .pub_export_var_threadlocal,
+                        => .@"var",
+                    };
+                }
+
+                pub fn isPub(id: Id) bool {
+                    return switch (id) {
+                        .pub_usingnamespace,
+                        .pub_const_simple,
+                        .pub_const_typed,
+                        .pub_const,
+                        .pub_extern_const_simple,
+                        .pub_extern_const,
+                        .pub_export_const,
+                        .pub_var_simple,
+                        .pub_var,
+                        .pub_var_threadlocal,
+                        .pub_extern_var,
+                        .pub_extern_var_threadlocal,
+                        .pub_export_var,
+                        .pub_export_var_threadlocal,
+                        => true,
+                        else => false,
+                    };
+                }
+
+                pub fn isThreadlocal(id: Id) bool {
+                    return switch (id) {
+                        .var_threadlocal,
+                        .pub_var_threadlocal,
+                        .extern_var_threadlocal,
+                        .pub_extern_var_threadlocal,
+                        .export_var_threadlocal,
+                        .pub_export_var_threadlocal,
+                        => true,
+                        else => false,
+                    };
+                }
+            };
         };
 
         pub const Name = enum(u32) {
@@ -2647,17 +2882,24 @@ pub const Inst = struct {
         };
 
         pub const Bodies = struct {
-            value_body: []const Index,
+            type_body: ?[]const Index,
             align_body: ?[]const Index,
             linksection_body: ?[]const Index,
             addrspace_body: ?[]const Index,
+            value_body: ?[]const Index,
         };
 
         pub fn getBodies(declaration: Declaration, extra_end: u32, zir: Zir) Bodies {
             var extra_index: u32 = extra_end;
-            const value_body_len = declaration.flags.value_body_len;
+            const value_body_len = declaration.value_body_len;
+            const type_body_len: u32 = len: {
+                if (!declaration.flags().kind.hasTypeBody()) break :len 0;
+                const len = zir.extra[extra_index];
+                extra_index += 1;
+                break :len len;
+            };
             const align_body_len, const linksection_body_len, const addrspace_body_len = lens: {
-                if (!declaration.flags.has_align_linksection_addrspace) {
+                if (!declaration.flags.kind.hasSpecialBodies()) {
                     break :lens .{ 0, 0, 0 };
                 }
                 const lens = zir.extra[extra_index..][0..3].*;
@@ -2665,21 +2907,30 @@ pub const Inst = struct {
                 break :lens lens;
             };
             return .{
-                .value_body = b: {
-                    defer extra_index += value_body_len;
-                    break :b zir.bodySlice(extra_index, value_body_len);
+                .type_body = if (type_body_len == 0) null else b: {
+                    const b = zir.bodySlice(extra_index, type_body_len);
+                    extra_index += type_body_len;
+                    break :b b;
                 },
                 .align_body = if (align_body_len == 0) null else b: {
-                    defer extra_index += align_body_len;
-                    break :b zir.bodySlice(extra_index, align_body_len);
+                    const b = zir.bodySlice(extra_index, align_body_len);
+                    extra_index += align_body_len;
+                    break :b b;
                 },
                 .linksection_body = if (linksection_body_len == 0) null else b: {
-                    defer extra_index += linksection_body_len;
-                    break :b zir.bodySlice(extra_index, linksection_body_len);
+                    const b = zir.bodySlice(extra_index, linksection_body_len);
+                    extra_index += linksection_body_len;
+                    break :b b;
                 },
                 .addrspace_body = if (addrspace_body_len == 0) null else b: {
-                    defer extra_index += addrspace_body_len;
-                    break :b zir.bodySlice(extra_index, addrspace_body_len);
+                    const b = zir.bodySlice(extra_index, addrspace_body_len);
+                    extra_index += addrspace_body_len;
+                    break :b b;
+                },
+                .value_body = if (value_body_len == 0) null else b: {
+                    const b = zir.bodySlice(extra_index, value_body_len);
+                    extra_index += value_body_len;
+                    break :b b;
                 },
             };
         }
@@ -3711,18 +3962,18 @@ pub const DeclContents = struct {
 pub fn findTrackable(zir: Zir, gpa: Allocator, contents: *DeclContents, decl_inst: Zir.Inst.Index) !void {
     contents.clear();
 
-    const declaration, const extra_end = zir.getDeclaration(decl_inst);
-    const bodies = declaration.getBodies(extra_end, zir);
+    const decl = zir.getDeclaration(decl_inst);
 
     // `defer` instructions duplicate the same body arbitrarily many times, but we only want to traverse
     // their contents once per defer. So, we store the extra index of the body here to deduplicate.
     var found_defers: std.AutoHashMapUnmanaged(u32, void) = .empty;
     defer found_defers.deinit(gpa);
 
-    try zir.findTrackableBody(gpa, contents, &found_defers, bodies.value_body);
-    if (bodies.align_body) |b| try zir.findTrackableBody(gpa, contents, &found_defers, b);
-    if (bodies.linksection_body) |b| try zir.findTrackableBody(gpa, contents, &found_defers, b);
-    if (bodies.addrspace_body) |b| try zir.findTrackableBody(gpa, contents, &found_defers, b);
+    if (decl.type_body) |b| try zir.findTrackableBody(gpa, contents, &found_defers, b);
+    if (decl.align_body) |b| try zir.findTrackableBody(gpa, contents, &found_defers, b);
+    if (decl.linksection_body) |b| try zir.findTrackableBody(gpa, contents, &found_defers, b);
+    if (decl.addrspace_body) |b| try zir.findTrackableBody(gpa, contents, &found_defers, b);
+    if (decl.value_body) |b| try zir.findTrackableBody(gpa, contents, &found_defers, b);
 }
 
 /// Like `findTrackable`, but only considers the `main_struct_inst` instruction. This may return more than
@@ -3991,7 +4242,6 @@ fn findTrackableInner(
                 .value_placeholder => unreachable,
 
                 // Once again, we start with the boring tags.
-                .variable,
                 .this,
                 .ret_addr,
                 .builtin_src,
@@ -4237,7 +4487,6 @@ fn findTrackableInner(
             const inst_data = datas[@intFromEnum(inst)].pl_node;
             const extra = zir.extraData(Inst.FuncFancy, inst_data.payload_index);
             var extra_index: usize = extra.end;
-            extra_index += @intFromBool(extra.data.bits.has_lib_name);
 
             if (extra.data.bits.has_cc_body) {
                 const body_len = zir.extra[extra_index];
@@ -4470,8 +4719,7 @@ pub fn getParamBody(zir: Zir, fn_inst: Inst.Index) []const Zir.Inst.Index {
             return zir.bodySlice(param_block.end, param_block.data.body_len);
         },
         .declaration => {
-            const decl, const extra_end = zir.getDeclaration(param_block_index);
-            return decl.getBodies(extra_end, zir).value_body;
+            return zir.getDeclaration(param_block_index).value_body.?;
         },
         else => unreachable,
     }
@@ -4526,7 +4774,6 @@ pub fn getFnInfo(zir: Zir, fn_inst: Inst.Index) FnInfo {
             var ret_ty_ref: Inst.Ref = .void_type;
             var ret_ty_body: []const Inst.Index = &.{};
 
-            extra_index += @intFromBool(extra.data.bits.has_lib_name);
             if (extra.data.bits.has_cc_body) {
                 extra_index += zir.extra[extra_index] + 1;
             } else if (extra.data.bits.has_cc_ref) {
@@ -4555,17 +4802,7 @@ pub fn getFnInfo(zir: Zir, fn_inst: Inst.Index) FnInfo {
         },
         else => unreachable,
     };
-    const param_body = switch (tags[@intFromEnum(info.param_block)]) {
-        .block, .block_comptime, .block_inline => param_body: {
-            const param_block = zir.extraData(Inst.Block, datas[@intFromEnum(info.param_block)].pl_node.payload_index);
-            break :param_body zir.bodySlice(param_block.end, param_block.data.body_len);
-        },
-        .declaration => param_body: {
-            const decl, const extra_end = zir.getDeclaration(info.param_block);
-            break :param_body decl.getBodies(extra_end, zir).value_body;
-        },
-        else => unreachable,
-    };
+    const param_body = zir.getParamBody(fn_inst);
     var total_params_len: u32 = 0;
     for (param_body) |inst| {
         switch (tags[@intFromEnum(inst)]) {
@@ -4585,13 +4822,74 @@ pub fn getFnInfo(zir: Zir, fn_inst: Inst.Index) FnInfo {
     };
 }
 
-pub fn getDeclaration(zir: Zir, inst: Zir.Inst.Index) struct { Inst.Declaration, u32 } {
+pub fn getDeclaration(zir: Zir, inst: Zir.Inst.Index) Inst.Declaration.Unwrapped {
     assert(zir.instructions.items(.tag)[@intFromEnum(inst)] == .declaration);
     const pl_node = zir.instructions.items(.data)[@intFromEnum(inst)].declaration;
     const extra = zir.extraData(Inst.Declaration, pl_node.payload_index);
+
+    const flags_vals: [2]u32 = .{ extra.data.flags_0, extra.data.flags_1 };
+    const flags: Inst.Declaration.Flags = @bitCast(flags_vals);
+
+    var extra_index = extra.end;
+
+    const name: NullTerminatedString = if (flags.id.hasName()) name: {
+        const name = zir.extra[extra_index];
+        extra_index += 1;
+        break :name @enumFromInt(name);
+    } else .empty;
+
+    const lib_name: NullTerminatedString = if (flags.id.hasLibName()) lib_name: {
+        const lib_name = zir.extra[extra_index];
+        extra_index += 1;
+        break :lib_name @enumFromInt(lib_name);
+    } else .empty;
+
+    const type_body_len: u32 = if (flags.id.hasTypeBody()) len: {
+        const len = zir.extra[extra_index];
+        extra_index += 1;
+        break :len len;
+    } else 0;
+    const align_body_len: u32, const linksection_body_len: u32, const addrspace_body_len: u32 = lens: {
+        if (!flags.id.hasSpecialBodies()) break :lens .{ 0, 0, 0 };
+        const lens = zir.extra[extra_index..][0..3].*;
+        extra_index += 3;
+        break :lens lens;
+    };
+    const value_body_len: u32 = if (flags.id.hasValueBody()) len: {
+        const len = zir.extra[extra_index];
+        extra_index += 1;
+        break :len len;
+    } else 0;
+
+    const type_body = zir.bodySlice(extra_index, type_body_len);
+    extra_index += type_body_len;
+    const align_body = zir.bodySlice(extra_index, align_body_len);
+    extra_index += align_body_len;
+    const linksection_body = zir.bodySlice(extra_index, linksection_body_len);
+    extra_index += linksection_body_len;
+    const addrspace_body = zir.bodySlice(extra_index, addrspace_body_len);
+    extra_index += addrspace_body_len;
+    const value_body = zir.bodySlice(extra_index, value_body_len);
+    extra_index += value_body_len;
+
     return .{
-        extra.data,
-        @intCast(extra.end),
+        .src_node = pl_node.src_node,
+
+        .src_line = flags.src_line,
+        .src_column = flags.src_column,
+
+        .kind = flags.id.kind(),
+        .name = name,
+        .is_pub = flags.id.isPub(),
+        .is_threadlocal = flags.id.isThreadlocal(),
+        .linkage = flags.id.linkage(),
+        .lib_name = lib_name,
+
+        .type_body = if (type_body_len == 0) null else type_body,
+        .align_body = if (align_body_len == 0) null else align_body,
+        .linksection_body = if (linksection_body_len == 0) null else linksection_body,
+        .addrspace_body = if (addrspace_body_len == 0) null else addrspace_body,
+        .value_body = if (value_body_len == 0) null else value_body,
     };
 }
 
@@ -4636,7 +4934,6 @@ pub fn getAssociatedSrcHash(zir: Zir, inst: Zir.Inst.Index) ?std.zig.SrcHash {
             }
             const bits = extra.data.bits;
             var extra_index = extra.end;
-            extra_index += @intFromBool(bits.has_lib_name);
             if (bits.has_cc_body) {
                 const body_len = zir.extra[extra_index];
                 extra_index += 1 + body_len;

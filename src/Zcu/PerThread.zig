@@ -469,12 +469,8 @@ pub fn updateZirRefs(pt: Zcu.PerThread) Allocator.Error!void {
             {
                 var it = old_zir.declIterator(old_inst);
                 while (it.next()) |decl_inst| {
-                    const decl_name = old_zir.getDeclaration(decl_inst)[0].name;
-                    switch (decl_name) {
-                        .@"comptime", .@"usingnamespace", .unnamed_test => continue,
-                        _ => if (decl_name.isNamedTest(old_zir)) continue,
-                    }
-                    const name_zir = decl_name.toString(old_zir).?;
+                    const name_zir = old_zir.getDeclaration(decl_inst).name;
+                    if (name_zir == .empty) continue;
                     const name_ip = try zcu.intern_pool.getOrPutString(
                         zcu.gpa,
                         pt.tid,
@@ -488,12 +484,8 @@ pub fn updateZirRefs(pt: Zcu.PerThread) Allocator.Error!void {
             {
                 var it = new_zir.declIterator(new_inst);
                 while (it.next()) |decl_inst| {
-                    const decl_name = new_zir.getDeclaration(decl_inst)[0].name;
-                    switch (decl_name) {
-                        .@"comptime", .@"usingnamespace", .unnamed_test => continue,
-                        _ => if (decl_name.isNamedTest(new_zir)) continue,
-                    }
-                    const name_zir = decl_name.toString(new_zir).?;
+                    const name_zir = new_zir.getDeclaration(decl_inst).name;
+                    if (name_zir == .empty) continue;
                     const name_ip = try zcu.intern_pool.getOrPutString(
                         zcu.gpa,
                         pt.tid,
@@ -1252,10 +1244,7 @@ fn semaCau(pt: Zcu.PerThread, cau_index: InternPool.Cau.Index) !SemaCauResult {
     };
     defer block.instructions.deinit(gpa);
 
-    const zir_decl: Zir.Inst.Declaration, const decl_bodies: Zir.Inst.Declaration.Bodies = decl: {
-        const decl, const extra_end = zir.getDeclaration(inst_info.inst);
-        break :decl .{ decl, decl.getBodies(extra_end, zir) };
-    };
+    const zir_decl = zir.getDeclaration(inst_info.inst);
 
     // We have to fetch this state before resolving the body because of the `nav_already_populated`
     // case below. We might change the language in future so that align/linksection/etc for functions
@@ -1265,7 +1254,134 @@ fn semaCau(pt: Zcu.PerThread, cau_index: InternPool.Cau.Index) !SemaCauResult {
         .nav => |nav| ip.getNav(nav),
     };
 
-    const result_ref = try sema.resolveInlineBody(&block, decl_bodies.value_body, inst_info.inst);
+    const align_src = block.src(.{ .node_offset_var_decl_align = 0 });
+    const section_src = block.src(.{ .node_offset_var_decl_section = 0 });
+    const addrspace_src = block.src(.{ .node_offset_var_decl_addrspace = 0 });
+    const ty_src = block.src(.{ .node_offset_var_decl_ty = 0 });
+    const init_src = block.src(.{ .node_offset_var_decl_init = 0 });
+
+    // First, we must resolve the declaration's type. To do this, we analyze the type body if available,
+    // or otherwise, we analyze the value body, populating `early_val` in the process.
+
+    const decl_ty: Type, const early_val: ?Value = if (zir_decl.type_body) |type_body| ty: {
+        // We evaluate only the type now; no need for the value yet.
+        const uncoerced_type_ref = try sema.resolveInlineBody(&block, type_body, inst_info.inst);
+        const type_ref = try sema.coerce(&block, .type, uncoerced_type_ref, ty_src);
+        break :ty .{ .fromInterned(type_ref.toInterned().?), null };
+    } else ty: {
+        // We don't have a type body, so we need to evaluate the value immediately.
+        const value_body = zir_decl.value_body.?;
+        const result_ref = try sema.resolveInlineBody(&block, value_body, inst_info.inst);
+        const val = try sema.resolveFinalDeclValue(&block, init_src, result_ref);
+        break :ty .{ val.typeOf(zcu), val };
+    };
+
+    switch (zir_decl.kind) {
+        .unnamed_test, .@"test", .decltest => assert(decl_ty.zigTypeTag(zcu) == .@"fn"),
+        .@"comptime" => assert(decl_ty.toIntern() == .void_type),
+        .@"usingnamespace" => {},
+        .@"const" => {},
+        .@"var" => try sema.validateVarType(
+            &block,
+            if (zir_decl.type_body != null) ty_src else init_src,
+            decl_ty,
+            zir_decl.linkage == .@"extern",
+        ),
+    }
+
+    // Now that we know the type, we can evaluate the alignment, linksection, and addrspace, to determine
+    // the full pointer type of this declaration.
+
+    const alignment: InternPool.Alignment = a: {
+        const align_body = zir_decl.align_body orelse break :a .none;
+        const align_ref = try sema.resolveInlineBody(&block, align_body, inst_info.inst);
+        break :a try sema.analyzeAsAlign(&block, align_src, align_ref);
+    };
+
+    const @"linksection": InternPool.OptionalNullTerminatedString = ls: {
+        const linksection_body = zir_decl.linksection_body orelse break :ls .none;
+        const linksection_ref = try sema.resolveInlineBody(&block, linksection_body, inst_info.inst);
+        const bytes = try sema.toConstString(&block, section_src, linksection_ref, .{
+            .needed_comptime_reason = "linksection must be comptime-known",
+        });
+        if (std.mem.indexOfScalar(u8, bytes, 0) != null) {
+            return sema.fail(&block, section_src, "linksection cannot contain null bytes", .{});
+        } else if (bytes.len == 0) {
+            return sema.fail(&block, section_src, "linksection cannot be empty", .{});
+        }
+        break :ls try ip.getOrPutStringOpt(gpa, pt.tid, bytes, .no_embedded_nulls);
+    };
+
+    const @"addrspace": std.builtin.AddressSpace = as: {
+        const addrspace_ctx: Sema.AddressSpaceContext = switch (zir_decl.kind) {
+            .@"var" => .variable,
+            else => switch (decl_ty.zigTypeTag(zcu)) {
+                .@"fn" => .function,
+                else => .constant,
+            },
+        };
+        const target = zcu.getTarget();
+        const addrspace_body = zir_decl.addrspace_body orelse break :as switch (addrspace_ctx) {
+            .function => target_util.defaultAddressSpace(target, .function),
+            .variable => target_util.defaultAddressSpace(target, .global_mutable),
+            .constant => target_util.defaultAddressSpace(target, .global_constant),
+            else => unreachable,
+        };
+        const addrspace_ref = try sema.resolveInlineBody(&block, addrspace_body, inst_info.inst);
+        break :as try sema.analyzeAsAddressSpace(&block, addrspace_src, addrspace_ref, addrspace_ctx);
+    };
+
+    // Lastly, we must evaluate the value if we have not already done so. Note, however, that extern declarations
+    // don't have an associated value body.
+
+    const final_val: ?Value = early_val orelse if (zir_decl.value_body) |value_body| val: {
+        // Put the resolved type into `inst_map` to be used as the result type of the init.
+        try sema.inst_map.ensureSpaceForInstructions(gpa, &.{inst_info.inst});
+        sema.inst_map.putAssumeCapacity(inst_info.inst, Air.internedToRef(decl_ty.toIntern()));
+        const uncoerced_result_ref = try sema.resolveInlineBody(&block, value_body, inst_info.inst);
+        assert(sema.inst_map.remove(inst_info.inst));
+
+        const result_ref = try sema.coerce(&block, decl_ty, uncoerced_result_ref, init_src);
+        break :val try sema.resolveFinalDeclValue(&block, init_src, result_ref);
+    } else null;
+
+    // TODO: missing validation?
+
+    const decl_val: Value = switch (zir_decl.linkage) {
+        .normal, .@"export" => switch (zir_decl.kind) {
+            .@"var" => .fromInterned(try pt.intern(.{ .variable = .{
+                .ty = decl_ty.toIntern(),
+                .init = final_val.?.toIntern(),
+                .owner_nav = cau.owner.unwrap().nav,
+                .is_threadlocal = zir_decl.is_threadlocal,
+                .is_weak_linkage = false,
+            } })),
+            else => final_val.?,
+        },
+        .@"extern" => val: {
+            assert(final_val == null); // extern decls do not have a value body
+            const lib_name: ?[]const u8 = if (zir_decl.lib_name != .empty) l: {
+                break :l zir.nullTerminatedString(zir_decl.lib_name);
+            } else null;
+            if (lib_name) |l| {
+                const lib_name_src = block.src(.{ .node_offset_lib_name = 0 });
+                try sema.handleExternLibName(&block, lib_name_src, l);
+            }
+            break :val .fromInterned(try pt.getExtern(.{
+                .name = old_nav_info.name,
+                .ty = decl_ty.toIntern(),
+                .lib_name = try ip.getOrPutStringOpt(gpa, pt.tid, lib_name, .no_embedded_nulls),
+                .is_const = zir_decl.kind == .@"const",
+                .is_threadlocal = zir_decl.is_threadlocal,
+                .is_weak_linkage = false,
+                .is_dll_import = false,
+                .alignment = alignment,
+                .@"addrspace" = @"addrspace",
+                .zir_index = cau.zir_index, // `declaration` instruction
+                .owner_nav = undefined, // ignored by `getExtern`
+            }));
+        },
+    };
 
     const nav_index = switch (cau.owner.unwrap()) {
         .none => {
@@ -1281,15 +1397,6 @@ fn semaCau(pt: Zcu.PerThread, cau_index: InternPool.Cau.Index) !SemaCauResult {
         .nav => |nav| nav, // We will resolve this `Nav` below.
         .type => unreachable, // Handled at top of function.
     };
-
-    const align_src = block.src(.{ .node_offset_var_decl_align = 0 });
-    const section_src = block.src(.{ .node_offset_var_decl_section = 0 });
-    const addrspace_src = block.src(.{ .node_offset_var_decl_addrspace = 0 });
-    const ty_src = block.src(.{ .node_offset_var_decl_ty = 0 });
-    const init_src = block.src(.{ .node_offset_var_decl_init = 0 });
-
-    const decl_val = try sema.resolveFinalDeclValue(&block, init_src, result_ref);
-    const decl_ty = decl_val.typeOf(zcu);
 
     switch (decl_val.toIntern()) {
         .generic_poison => unreachable, // assertion failure
@@ -1331,50 +1438,10 @@ fn semaCau(pt: Zcu.PerThread, cau_index: InternPool.Cau.Index) !SemaCauResult {
     };
 
     // Keep in sync with logic in `Sema.zirVarExtended`.
-    const alignment: InternPool.Alignment = a: {
-        const align_body = decl_bodies.align_body orelse break :a .none;
-        const align_ref = try sema.resolveInlineBody(&block, align_body, inst_info.inst);
-        break :a try sema.analyzeAsAlign(&block, align_src, align_ref);
-    };
-
-    const @"linksection": InternPool.OptionalNullTerminatedString = ls: {
-        const linksection_body = decl_bodies.linksection_body orelse break :ls .none;
-        const linksection_ref = try sema.resolveInlineBody(&block, linksection_body, inst_info.inst);
-        const bytes = try sema.toConstString(&block, section_src, linksection_ref, .{
-            .needed_comptime_reason = "linksection must be comptime-known",
-        });
-        if (std.mem.indexOfScalar(u8, bytes, 0) != null) {
-            return sema.fail(&block, section_src, "linksection cannot contain null bytes", .{});
-        } else if (bytes.len == 0) {
-            return sema.fail(&block, section_src, "linksection cannot be empty", .{});
-        }
-        break :ls try ip.getOrPutStringOpt(gpa, pt.tid, bytes, .no_embedded_nulls);
-    };
-
-    const @"addrspace": std.builtin.AddressSpace = as: {
-        const addrspace_ctx: Sema.AddressSpaceContext = switch (ip.indexToKey(decl_val.toIntern())) {
-            .func => .function,
-            .variable => .variable,
-            .@"extern" => |e| if (ip.indexToKey(e.ty) == .func_type)
-                .function
-            else
-                .variable,
-            else => .constant,
-        };
-        const target = zcu.getTarget();
-        const addrspace_body = decl_bodies.addrspace_body orelse break :as switch (addrspace_ctx) {
-            .function => target_util.defaultAddressSpace(target, .function),
-            .variable => target_util.defaultAddressSpace(target, .global_mutable),
-            .constant => target_util.defaultAddressSpace(target, .global_constant),
-            else => unreachable,
-        };
-        const addrspace_ref = try sema.resolveInlineBody(&block, addrspace_body, inst_info.inst);
-        break :as try sema.analyzeAsAddressSpace(&block, addrspace_src, addrspace_ref, addrspace_ctx);
-    };
 
     if (is_owned_fn) {
         // linksection etc are legal, except some targets do not support function alignment.
-        if (decl_bodies.align_body != null and !target_util.supportsFunctionAlignment(zcu.getTarget())) {
+        if (zir_decl.align_body != null and !target_util.supportsFunctionAlignment(zcu.getTarget())) {
             return sema.fail(&block, align_src, "target does not support function alignment", .{});
         }
     } else if (try decl_ty.comptimeOnlySema(pt)) {
@@ -1383,13 +1450,13 @@ fn semaCau(pt: Zcu.PerThread, cau_index: InternPool.Cau.Index) !SemaCauResult {
             .func => "function alias", // slightly clearer message, since you *can* specify these on function *declarations*
             else => "comptime-only type",
         };
-        if (decl_bodies.align_body != null) {
+        if (zir_decl.align_body != null) {
             return sema.fail(&block, align_src, "cannot specify alignment of {s}", .{reason});
         }
-        if (decl_bodies.linksection_body != null) {
+        if (zir_decl.linksection_body != null) {
             return sema.fail(&block, section_src, "cannot specify linksection of {s}", .{reason});
         }
-        if (decl_bodies.addrspace_body != null) {
+        if (zir_decl.addrspace_body != null) {
             return sema.fail(&block, addrspace_src, "cannot specify addrspace of {s}", .{reason});
         }
     }
@@ -1404,9 +1471,9 @@ fn semaCau(pt: Zcu.PerThread, cau_index: InternPool.Cau.Index) !SemaCauResult {
     // Mark the `Cau` as completed before evaluating the export!
     assert(zcu.analysis_in_progress.swapRemove(anal_unit));
 
-    if (zir_decl.flags.is_export) {
-        const export_src = block.src(.{ .token_offset = @intFromBool(zir_decl.flags.is_pub) });
-        const name_slice = zir.nullTerminatedString(zir_decl.name.toString(zir).?);
+    if (zir_decl.linkage == .@"export") {
+        const export_src = block.src(.{ .token_offset = @intFromBool(zir_decl.is_pub) });
+        const name_slice = zir.nullTerminatedString(zir_decl.name);
         const name_ip = try ip.getOrPutString(gpa, pt.tid, name_slice, .no_embedded_nulls);
         try sema.analyzeExport(&block, export_src, .{ .name = name_ip }, nav_index);
     }
@@ -1919,13 +1986,11 @@ const ScanDeclIter = struct {
         const zir = file.zir;
         const ip = &zcu.intern_pool;
 
-        const inst_data = zir.instructions.items(.data)[@intFromEnum(decl_inst)].declaration;
-        const extra = zir.extraData(Zir.Inst.Declaration, inst_data.payload_index);
-        const declaration = extra.data;
+        const decl = zir.getDeclaration(decl_inst);
 
         const Kind = enum { @"comptime", @"usingnamespace", @"test", named };
 
-        const maybe_name: InternPool.OptionalNullTerminatedString, const kind: Kind, const is_named_test: bool = switch (declaration.name) {
+        const maybe_name: InternPool.OptionalNullTerminatedString, const kind: Kind, const is_named_test: bool = switch (decl.kind) {
             .@"comptime" => info: {
                 if (iter.pass != .unnamed) return;
                 break :info .{
@@ -1954,21 +2019,22 @@ const ScanDeclIter = struct {
                     false,
                 };
             },
-            _ => if (declaration.name.isNamedTest(zir)) info: {
+            .@"test", .decltest => |kind| info: {
                 // We consider these to be unnamed since the decl name can be adjusted to avoid conflicts if necessary.
                 if (iter.pass != .unnamed) return;
-                const prefix = if (declaration.flags.test_is_decltest) "decltest" else "test";
+                const prefix = @tagName(kind);
                 break :info .{
-                    (try iter.avoidNameConflict("{s}.{s}", .{ prefix, zir.nullTerminatedString(declaration.name.toString(zir).?) })).toOptional(),
+                    (try iter.avoidNameConflict("{s}.{s}", .{ prefix, zir.nullTerminatedString(decl.name) })).toOptional(),
                     .@"test",
                     true,
                 };
-            } else info: {
+            },
+            .@"const", .@"var" => info: {
                 if (iter.pass != .named) return;
                 const name = try ip.getOrPutString(
                     gpa,
                     pt.tid,
-                    zir.nullTerminatedString(declaration.name.toString(zir).?),
+                    zir.nullTerminatedString(decl.name),
                     .no_embedded_nulls,
                 );
                 try iter.seen_decls.putNoClobber(gpa, name, {});
@@ -2030,7 +2096,7 @@ const ScanDeclIter = struct {
                         if (comp.incremental) {
                             @panic("'usingnamespace' is not supported by incremental compilation");
                         }
-                        if (declaration.flags.is_pub) {
+                        if (decl.is_pub) {
                             try namespace.pub_usingnamespace.append(gpa, nav);
                         } else {
                             try namespace.priv_usingnamespace.append(gpa, nav);
@@ -2056,7 +2122,7 @@ const ScanDeclIter = struct {
                         break :a true;
                     },
                     .named => a: {
-                        if (declaration.flags.is_pub) {
+                        if (decl.is_pub) {
                             try namespace.pub_decls.putContext(gpa, nav, {}, .{ .zcu = zcu });
                         } else {
                             try namespace.priv_decls.putContext(gpa, nav, {}, .{ .zcu = zcu });
@@ -2068,7 +2134,7 @@ const ScanDeclIter = struct {
             },
         };
 
-        if (existing_cau == null and (want_analysis or declaration.flags.is_export)) {
+        if (existing_cau == null and (want_analysis or decl.linkage == .@"export")) {
             log.debug(
                 "scanDecl queue analyze_cau file='{s}' cau_index={d}",
                 .{ namespace.fileScope(zcu).sub_file_path, cau },

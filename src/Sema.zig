@@ -1284,7 +1284,6 @@ fn analyzeBodyInner(
                 const extended = datas[@intFromEnum(inst)].extended;
                 break :ext switch (extended.opcode) {
                     // zig fmt: off
-                    .variable           => try sema.zirVarExtended(       block, extended),
                     .struct_decl        => try sema.zirStructDecl(        block, extended, inst),
                     .enum_decl          => try sema.zirEnumDecl(          block, extended, inst),
                     .union_decl         => try sema.zirUnionDecl(         block, extended, inst),
@@ -2114,13 +2113,33 @@ pub fn setupErrorReturnTrace(sema: *Sema, block: *Block, last_arg_index: usize) 
 }
 
 /// Return the Value corresponding to a given AIR ref, or `null` if it refers to a runtime value.
-/// InternPool key `variable` is considered a runtime value.
 /// Generic poison causes `error.GenericPoison` to be returned.
 fn resolveValue(sema: *Sema, inst: Air.Inst.Ref) CompileError!?Value {
-    const val = (try sema.resolveValueAllowVariables(inst)) orelse return null;
-    if (val.isGenericPoison()) return error.GenericPoison;
-    if (sema.pt.zcu.intern_pool.isVariable(val.toIntern())) return null;
-    return val;
+    const zcu = sema.pt.zcu;
+    assert(inst != .none);
+
+    if (try sema.typeHasOnePossibleValue(sema.typeOf(inst))) |opv| {
+        return opv;
+    }
+
+    if (inst.toInterned()) |ip_index| {
+        const val: Value = .fromInterned(ip_index);
+
+        assert(val.getVariable(zcu) == null);
+        if (val.isPtrRuntimeValue(zcu)) return null;
+        if (val.isGenericPoison()) return error.GenericPoison;
+
+        return val;
+    } else {
+        // Runtime-known value.
+        const air_tags = sema.air_instructions.items(.tag);
+        switch (air_tags[@intFromEnum(inst.toIndex().?)]) {
+            .inferred_alloc => unreachable, // assertion failure
+            .inferred_alloc_comptime => unreachable, // assertion failure
+            else => {},
+        }
+        return null;
+    }
 }
 
 /// Like `resolveValue`, but emits an error if the value is not comptime-known.
@@ -2183,35 +2202,6 @@ fn resolveValueIntable(sema: *Sema, inst: Air.Inst.Ref) CompileError!?Value {
     return try sema.resolveLazyValue(val);
 }
 
-/// Returns all InternPool keys representing values, including `variable`, `undef`, and `generic_poison`.
-fn resolveValueAllowVariables(sema: *Sema, inst: Air.Inst.Ref) CompileError!?Value {
-    const pt = sema.pt;
-    assert(inst != .none);
-    // First section of indexes correspond to a set number of constant values.
-    if (@intFromEnum(inst) < InternPool.static_len) {
-        return Value.fromInterned(@as(InternPool.Index, @enumFromInt(@intFromEnum(inst))));
-    }
-
-    const air_tags = sema.air_instructions.items(.tag);
-    if (try sema.typeHasOnePossibleValue(sema.typeOf(inst))) |opv| {
-        if (inst.toInterned()) |ip_index| {
-            const val = Value.fromInterned(ip_index);
-            if (val.getVariable(pt.zcu) != null) return val;
-        }
-        return opv;
-    }
-    const ip_index = inst.toInterned() orelse {
-        switch (air_tags[@intFromEnum(inst.toIndex().?)]) {
-            .inferred_alloc => unreachable,
-            .inferred_alloc_comptime => unreachable,
-            else => return null,
-        }
-    };
-    const val = Value.fromInterned(ip_index);
-    if (val.isPtrRuntimeValue(pt.zcu)) return null;
-    return val;
-}
-
 /// Value Tag may be `undef` or `variable`.
 pub fn resolveFinalDeclValue(
     sema: *Sema,
@@ -2221,8 +2211,13 @@ pub fn resolveFinalDeclValue(
 ) CompileError!Value {
     const zcu = sema.pt.zcu;
 
-    const val = try sema.resolveValueAllowVariables(air_ref) orelse {
-        const value_comptime_reason: ?[]const u8 = if (air_ref.toInterned()) |_|
+    const val = try sema.resolveValue(air_ref) orelse {
+        const is_runtime_ptr = rt_ptr: {
+            const ip_index = air_ref.toInterned() orelse break :rt_ptr false;
+            const val: Value = .fromInterned(ip_index);
+            break :rt_ptr val.isPtrRuntimeValue(zcu);
+        };
+        const value_comptime_reason: ?[]const u8 = if (is_runtime_ptr)
             "thread local and dll imported variables have runtime-known addresses"
         else
             null;
@@ -2232,10 +2227,8 @@ pub fn resolveFinalDeclValue(
             .value_comptime_reason = value_comptime_reason,
         });
     };
-    if (val.isGenericPoison()) return error.GenericPoison;
 
-    const init_val: Value = if (val.getVariable(zcu)) |v| .fromInterned(v.init) else val;
-    if (init_val.canMutateComptimeVarState(zcu)) {
+    if (val.canMutateComptimeVarState(zcu)) {
         return sema.fail(block, src, "global variable contains reference to comptime var", .{});
     }
 
@@ -9525,8 +9518,8 @@ fn zirFunc(
         } else sema.owner.unwrap().cau;
         const fn_is_exported = exported: {
             const decl_inst = ip.getCau(func_decl_cau).zir_index.resolve(ip) orelse return error.AnalysisFail;
-            const zir_decl = sema.code.getDeclaration(decl_inst)[0];
-            break :exported zir_decl.flags.is_export;
+            const zir_decl = sema.code.getDeclaration(decl_inst);
+            break :exported zir_decl.linkage == .@"export";
         };
         if (fn_is_exported) {
             break :cc target.cCallingConvention() orelse {
@@ -9557,10 +9550,8 @@ fn zirFunc(
         ret_ty,
         false,
         inferred_error_set,
-        false,
         has_body,
         src_locs,
-        null,
         0,
         false,
     );
@@ -9619,7 +9610,7 @@ fn resolveGenericBody(
 /// respective `Decl` (either `ExternFn` or `Var`).
 /// The liveness of the duped library name is tied to liveness of `Zcu`.
 /// To deallocate, call `deinit` on the respective `Decl` (`ExternFn` or `Var`).
-fn handleExternLibName(
+pub fn handleExternLibName(
     sema: *Sema,
     block: *Block,
     src_loc: LazySrcLoc,
@@ -9843,10 +9834,8 @@ fn funcCommon(
     bare_return_type: Type,
     var_args: bool,
     inferred_error_set: bool,
-    is_extern: bool,
     has_body: bool,
     src_locs: Zir.Inst.Func.SrcLocs,
-    opt_lib_name: ?[]const u8,
     noalias_bits: u32,
     is_noinline: bool,
 ) CompileError!Air.Inst.Ref {
@@ -9998,7 +9987,6 @@ fn funcCommon(
     }
 
     if (inferred_error_set) {
-        assert(!is_extern);
         assert(has_body);
         if (!ret_poison)
             try sema.validateErrorUnionPayloadType(block, bare_return_type, ret_ty_src);
@@ -10049,32 +10037,6 @@ fn funcCommon(
         .is_generic = final_is_generic,
         .is_noinline = is_noinline,
     });
-
-    if (is_extern) {
-        assert(comptime_bits == 0);
-        assert(!is_generic);
-        if (opt_lib_name) |lib_name| try sema.handleExternLibName(block, block.src(.{
-            .node_offset_lib_name = src_node_offset,
-        }), lib_name);
-        const extern_func_index = try sema.resolveExternDecl(block, .fromInterned(func_ty), opt_lib_name, true, false);
-        return finishFunc(
-            sema,
-            block,
-            extern_func_index,
-            func_ty,
-            ret_poison,
-            bare_return_type,
-            ret_ty_src,
-            cc,
-            is_source_decl,
-            ret_ty_requires_comptime,
-            func_inst,
-            cc_src,
-            is_noinline,
-            is_generic,
-            final_is_generic,
-        );
-    }
 
     if (has_body) {
         const func_index = try ip.getFuncDecl(gpa, pt.tid, .{
@@ -26711,135 +26673,6 @@ fn zirAwaitNosuspend(
     return sema.failWithUseOfAsync(block, src);
 }
 
-fn zirVarExtended(
-    sema: *Sema,
-    block: *Block,
-    extended: Zir.Inst.Extended.InstData,
-) CompileError!Air.Inst.Ref {
-    const pt = sema.pt;
-    const zcu = pt.zcu;
-    const ip = &zcu.intern_pool;
-    const extra = sema.code.extraData(Zir.Inst.ExtendedVar, extended.operand);
-    const ty_src = block.src(.{ .node_offset_var_decl_ty = 0 });
-    const init_src = block.src(.{ .node_offset_var_decl_init = 0 });
-    const small: Zir.Inst.ExtendedVar.Small = @bitCast(extended.small);
-
-    var extra_index: usize = extra.end;
-
-    const lib_name = if (small.has_lib_name) lib_name: {
-        const lib_name_index: Zir.NullTerminatedString = @enumFromInt(sema.code.extra[extra_index]);
-        const lib_name = sema.code.nullTerminatedString(lib_name_index);
-        extra_index += 1;
-        try sema.handleExternLibName(block, ty_src, lib_name);
-        break :lib_name lib_name;
-    } else null;
-
-    // ZIR supports encoding this information but it is not used; the information
-    // is encoded via the Decl entry.
-    assert(!small.has_align);
-
-    const uncasted_init: Air.Inst.Ref = if (small.has_init) blk: {
-        const init_ref: Zir.Inst.Ref = @enumFromInt(sema.code.extra[extra_index]);
-        extra_index += 1;
-        break :blk try sema.resolveInst(init_ref);
-    } else .none;
-
-    const have_ty = extra.data.var_type != .none;
-    const var_ty = if (have_ty)
-        try sema.resolveType(block, ty_src, extra.data.var_type)
-    else
-        sema.typeOf(uncasted_init);
-
-    const init_val = if (uncasted_init != .none) blk: {
-        const init = if (have_ty)
-            try sema.coerce(block, var_ty, uncasted_init, init_src)
-        else
-            uncasted_init;
-
-        break :blk ((try sema.resolveValue(init)) orelse {
-            return sema.failWithNeededComptime(block, init_src, .{
-                .needed_comptime_reason = "container level variable initializers must be comptime-known",
-            });
-        }).toIntern();
-    } else .none;
-
-    try sema.validateVarType(block, ty_src, var_ty, small.is_extern);
-
-    if (small.is_extern) {
-        const extern_val = try sema.resolveExternDecl(block, var_ty, lib_name, small.is_const, small.is_threadlocal);
-        return Air.internedToRef(extern_val);
-    }
-    assert(!small.is_const); // non-const non-extern variable is not legal
-    return Air.internedToRef(try pt.intern(.{ .variable = .{
-        .ty = var_ty.toIntern(),
-        .init = init_val,
-        .owner_nav = sema.getOwnerCauNav(),
-        .lib_name = try ip.getOrPutStringOpt(sema.gpa, pt.tid, lib_name, .no_embedded_nulls),
-        .is_threadlocal = small.is_threadlocal,
-        .is_weak_linkage = false,
-    } }));
-}
-
-fn resolveExternDecl(
-    sema: *Sema,
-    block: *Block,
-    ty: Type,
-    opt_lib_name: ?[]const u8,
-    is_const: bool,
-    is_threadlocal: bool,
-) CompileError!InternPool.Index {
-    const pt = sema.pt;
-    const zcu = pt.zcu;
-    const ip = &zcu.intern_pool;
-
-    // We need to resolve the alignment and addrspace early.
-    // Keep in sync with logic in `Zcu.PerThread.semaCau`.
-    const align_src = block.src(.{ .node_offset_var_decl_align = 0 });
-    const addrspace_src = block.src(.{ .node_offset_var_decl_addrspace = 0 });
-
-    const decl_inst, const decl_bodies = decl: {
-        const decl_inst = sema.getOwnerCauDeclInst().resolve(ip) orelse return error.AnalysisFail;
-        const zir_decl, const extra_end = sema.code.getDeclaration(decl_inst);
-        break :decl .{ decl_inst, zir_decl.getBodies(extra_end, sema.code) };
-    };
-
-    const alignment: InternPool.Alignment = a: {
-        const align_body = decl_bodies.align_body orelse break :a .none;
-        const align_ref = try sema.resolveInlineBody(block, align_body, decl_inst);
-        break :a try sema.analyzeAsAlign(block, align_src, align_ref);
-    };
-
-    const @"addrspace": std.builtin.AddressSpace = as: {
-        const addrspace_ctx: Sema.AddressSpaceContext = switch (ip.indexToKey(ty.toIntern())) {
-            .func_type => .function,
-            else => .variable,
-        };
-        const target = zcu.getTarget();
-        const addrspace_body = decl_bodies.addrspace_body orelse break :as switch (addrspace_ctx) {
-            .function => target_util.defaultAddressSpace(target, .function),
-            .variable => target_util.defaultAddressSpace(target, .global_mutable),
-            .constant => target_util.defaultAddressSpace(target, .global_constant),
-            else => unreachable,
-        };
-        const addrspace_ref = try sema.resolveInlineBody(block, addrspace_body, decl_inst);
-        break :as try sema.analyzeAsAddressSpace(block, addrspace_src, addrspace_ref, addrspace_ctx);
-    };
-
-    return pt.getExtern(.{
-        .name = sema.getOwnerCauNavName(),
-        .ty = ty.toIntern(),
-        .lib_name = try ip.getOrPutStringOpt(sema.gpa, pt.tid, opt_lib_name, .no_embedded_nulls),
-        .is_const = is_const,
-        .is_threadlocal = is_threadlocal,
-        .is_weak_linkage = false,
-        .is_dll_import = false,
-        .alignment = alignment,
-        .@"addrspace" = @"addrspace",
-        .zir_index = sema.getOwnerCauDeclInst(), // `declaration` instruction
-        .owner_nav = undefined, // ignored by `getExtern`
-    });
-}
-
 fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
@@ -26856,13 +26689,6 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     const has_body = extra.data.body_len != 0;
 
     var extra_index: usize = extra.end;
-
-    const lib_name: ?[]const u8 = if (extra.data.bits.has_lib_name) blk: {
-        const lib_name_index: Zir.NullTerminatedString = @enumFromInt(sema.code.extra[extra_index]);
-        const lib_name = sema.code.nullTerminatedString(lib_name_index);
-        extra_index += 1;
-        break :blk lib_name;
-    } else null;
 
     const cc: std.builtin.CallingConvention = if (extra.data.bits.has_cc_body) blk: {
         const body_len = sema.code.extra[extra_index];
@@ -26895,8 +26721,8 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
                 break :decl_inst cau.zir_index;
             } else sema.getOwnerCauDeclInst(); // not an instantiation so we're analyzing a function declaration Cau
 
-            const zir_decl = sema.code.getDeclaration(decl_inst.resolve(&zcu.intern_pool) orelse return error.AnalysisFail)[0];
-            if (zir_decl.flags.is_export) {
+            const zir_decl = sema.code.getDeclaration(decl_inst.resolve(&zcu.intern_pool) orelse return error.AnalysisFail);
+            if (zir_decl.linkage == .@"export") {
                 break :cc target.cCallingConvention() orelse {
                     // This target has no default C calling convention. We sometimes trigger a similar
                     // error by trying to evaluate `std.builtin.CallingConvention.c`, so for consistency,
@@ -26958,7 +26784,6 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
 
     const is_var_args = extra.data.bits.is_var_args;
     const is_inferred_error = extra.data.bits.is_inferred_error;
-    const is_extern = extra.data.bits.is_extern;
     const is_noinline = extra.data.bits.is_noinline;
 
     return sema.funcCommon(
@@ -26969,10 +26794,8 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         ret_ty,
         is_var_args,
         is_inferred_error,
-        is_extern,
         has_body,
         src_locs,
-        lib_name,
         noalias_bits,
         is_noinline,
     );
@@ -27467,7 +27290,7 @@ fn requireRuntimeBlock(sema: *Sema, block: *Block, src: LazySrcLoc, runtime_src:
 }
 
 /// Emit a compile error if type cannot be used for a runtime variable.
-fn validateVarType(
+pub fn validateVarType(
     sema: *Sema,
     block: *Block,
     src: LazySrcLoc,
@@ -29881,7 +29704,7 @@ fn elemPtrSlice(
     return block.addSliceElemPtr(slice, elem_index, elem_ptr_ty);
 }
 
-fn coerce(
+pub fn coerce(
     sema: *Sema,
     block: *Block,
     dest_ty_unresolved: Type,
@@ -38841,13 +38664,6 @@ pub fn flushExports(sema: *Sema) !void {
 fn getOwnerCauNav(sema: *Sema) InternPool.Nav.Index {
     const cau = sema.owner.unwrap().cau;
     return sema.pt.zcu.intern_pool.getCau(cau).owner.unwrap().nav;
-}
-
-/// Given that this `Sema` is owned by the `Cau` of a `declaration`, fetches
-/// the declaration name from its corresponding `Nav`.
-fn getOwnerCauNavName(sema: *Sema) InternPool.NullTerminatedString {
-    const nav = sema.getOwnerCauNav();
-    return sema.pt.zcu.intern_pool.getNav(nav).name;
 }
 
 /// Given that this `Sema` is owned by the `Cau` of a `declaration`, fetches

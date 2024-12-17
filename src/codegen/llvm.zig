@@ -2939,7 +2939,6 @@ pub const Object = struct {
         const sret = firstParamSRet(fn_info, zcu, target);
 
         const is_extern, const lib_name = switch (ip.indexToKey(val.toIntern())) {
-            .variable => |variable| .{ false, variable.lib_name },
             .@"extern" => |@"extern"| .{ true, @"extern".lib_name },
             else => .{ false, .none },
         };
@@ -4803,7 +4802,7 @@ pub const NavGen = struct {
         const resolved = nav.status.resolved;
 
         const is_extern, const lib_name, const is_threadlocal, const is_weak_linkage, const is_dll_import, const is_const, const init_val, const owner_nav = switch (ip.indexToKey(resolved.val)) {
-            .variable => |variable| .{ false, variable.lib_name, variable.is_threadlocal, variable.is_weak_linkage, false, false, variable.init, variable.owner_nav },
+            .variable => |variable| .{ false, .none, variable.is_threadlocal, variable.is_weak_linkage, false, false, variable.init, variable.owner_nav },
             .@"extern" => |@"extern"| .{ true, @"extern".lib_name, @"extern".is_threadlocal, @"extern".is_weak_linkage, @"extern".is_dll_import, @"extern".is_const, .none, @"extern".owner_nav },
             else => .{ false, .none, false, false, false, true, resolved.val, nav_index },
         };

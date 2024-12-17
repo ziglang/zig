@@ -241,7 +241,7 @@ pub fn updateNav(
 
     const nav_val = zcu.navValue(nav_index);
     const is_extern, const lib_name, const nav_init = switch (ip.indexToKey(nav_val.toIntern())) {
-        .variable => |variable| .{ false, variable.lib_name, Value.fromInterned(variable.init) },
+        .variable => |variable| .{ false, .none, Value.fromInterned(variable.init) },
         .func => return,
         .@"extern" => |@"extern"| if (ip.isFunctionType(nav.typeOf(ip)))
             return

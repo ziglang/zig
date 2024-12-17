@@ -853,7 +853,7 @@ fn genNavRef(
 
     const nav_index, const is_extern, const lib_name, const is_threadlocal = switch (ip.indexToKey(zcu.navValue(ref_nav_index).toIntern())) {
         .func => |func| .{ func.owner_nav, false, .none, false },
-        .variable => |variable| .{ variable.owner_nav, false, variable.lib_name, variable.is_threadlocal },
+        .variable => |variable| .{ variable.owner_nav, false, .none, variable.is_threadlocal },
         .@"extern" => |@"extern"| .{ @"extern".owner_nav, true, @"extern".lib_name, @"extern".is_threadlocal },
         else => .{ ref_nav_index, false, .none, false },
     };

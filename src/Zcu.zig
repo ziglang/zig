@@ -2679,24 +2679,14 @@ pub fn mapOldZirToNew(
         {
             var old_decl_it = old_zir.declIterator(match_item.old_inst);
             while (old_decl_it.next()) |old_decl_inst| {
-                const old_decl, _ = old_zir.getDeclaration(old_decl_inst);
-                switch (old_decl.name) {
+                const old_decl = old_zir.getDeclaration(old_decl_inst);
+                switch (old_decl.kind) {
                     .@"comptime" => try comptime_decls.append(gpa, old_decl_inst),
                     .@"usingnamespace" => try usingnamespace_decls.append(gpa, old_decl_inst),
                     .unnamed_test => try unnamed_tests.append(gpa, old_decl_inst),
-                    _ => {
-                        const name_nts = old_decl.name.toString(old_zir).?;
-                        const name = old_zir.nullTerminatedString(name_nts);
-                        if (old_decl.name.isNamedTest(old_zir)) {
-                            if (old_decl.flags.test_is_decltest) {
-                                try named_decltests.put(gpa, name, old_decl_inst);
-                            } else {
-                                try named_tests.put(gpa, name, old_decl_inst);
-                            }
-                        } else {
-                            try named_decls.put(gpa, name, old_decl_inst);
-                        }
-                    },
+                    .@"test" => try named_tests.put(gpa, old_zir.nullTerminatedString(old_decl.name), old_decl_inst),
+                    .decltest => try named_decltests.put(gpa, old_zir.nullTerminatedString(old_decl.name), old_decl_inst),
+                    .@"const", .@"var" => try named_decls.put(gpa, old_zir.nullTerminatedString(old_decl.name), old_decl_inst),
                 }
             }
         }
@@ -2707,7 +2697,7 @@ pub fn mapOldZirToNew(
 
         var new_decl_it = new_zir.declIterator(match_item.new_inst);
         while (new_decl_it.next()) |new_decl_inst| {
-            const new_decl, _ = new_zir.getDeclaration(new_decl_inst);
+            const new_decl = new_zir.getDeclaration(new_decl_inst);
             // Attempt to match this to a declaration in the old ZIR:
             // * For named declarations (`const`/`var`/`fn`), we match based on name.
             // * For named tests (`test "foo"`) and decltests (`test foo`), we also match based on name.
@@ -2715,7 +2705,7 @@ pub fn mapOldZirToNew(
             // * For comptime blocks, we match based on order.
             // * For usingnamespace decls, we match based on order.
             // If we cannot match this declaration, we can't match anything nested inside of it either, so we just `continue`.
-            const old_decl_inst = switch (new_decl.name) {
+            const old_decl_inst = switch (new_decl.kind) {
                 .@"comptime" => inst: {
                     if (comptime_decl_idx == comptime_decls.items.len) continue;
                     defer comptime_decl_idx += 1;
@@ -2731,18 +2721,17 @@ pub fn mapOldZirToNew(
                     defer unnamed_test_idx += 1;
                     break :inst unnamed_tests.items[unnamed_test_idx];
                 },
-                _ => inst: {
-                    const name_nts = new_decl.name.toString(new_zir).?;
-                    const name = new_zir.nullTerminatedString(name_nts);
-                    if (new_decl.name.isNamedTest(new_zir)) {
-                        if (new_decl.flags.test_is_decltest) {
-                            break :inst named_decltests.get(name) orelse continue;
-                        } else {
-                            break :inst named_tests.get(name) orelse continue;
-                        }
-                    } else {
-                        break :inst named_decls.get(name) orelse continue;
-                    }
+                .@"test" => inst: {
+                    const name = new_zir.nullTerminatedString(new_decl.name);
+                    break :inst named_tests.get(name) orelse continue;
+                },
+                .decltest => inst: {
+                    const name = new_zir.nullTerminatedString(new_decl.name);
+                    break :inst named_decltests.get(name) orelse continue;
+                },
+                .@"const", .@"var" => inst: {
+                    const name = new_zir.nullTerminatedString(new_decl.name);
+                    break :inst named_decls.get(name) orelse continue;
                 },
             };
 
@@ -3353,20 +3342,20 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                 const file = zcu.fileByIndex(inst_info.file);
                 // If the file failed AstGen, the TrackedInst refers to the old ZIR.
                 const zir = if (file.status == .success_zir) file.zir else file.prev_zir.?.*;
-                const declaration = zir.getDeclaration(inst_info.inst)[0];
-                const want_analysis = switch (declaration.name) {
+                const decl = zir.getDeclaration(inst_info.inst);
+                const want_analysis = switch (decl.kind) {
                     .@"usingnamespace" => unreachable,
+                    .@"const", .@"var" => unreachable,
                     .@"comptime" => true,
-                    else => a: {
+                    .unnamed_test => comp.config.is_test and file.mod == zcu.main_mod,
+                    .@"test", .decltest => a: {
                         if (!comp.config.is_test) break :a false;
                         if (file.mod != zcu.main_mod) break :a false;
-                        if (declaration.name.isNamedTest(zir)) {
-                            const nav = ip.getCau(cau).owner.unwrap().nav;
-                            const fqn_slice = ip.getNav(nav).fqn.toSlice(ip);
-                            for (comp.test_filters) |test_filter| {
-                                if (std.mem.indexOf(u8, fqn_slice, test_filter) != null) break;
-                            } else break :a false;
-                        }
+                        const nav = ip.getCau(cau).owner.unwrap().nav;
+                        const fqn_slice = ip.getNav(nav).fqn.toSlice(ip);
+                        for (comp.test_filters) |test_filter| {
+                            if (std.mem.indexOf(u8, fqn_slice, test_filter) != null) break;
+                        } else break :a false;
                         break :a true;
                     },
                 };
@@ -3388,8 +3377,8 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                 const file = zcu.fileByIndex(inst_info.file);
                 // If the file failed AstGen, the TrackedInst refers to the old ZIR.
                 const zir = if (file.status == .success_zir) file.zir else file.prev_zir.?.*;
-                const declaration = zir.getDeclaration(inst_info.inst)[0];
-                if (declaration.flags.is_export) {
+                const decl = zir.getDeclaration(inst_info.inst);
+                if (decl.linkage == .@"export") {
                     const unit = AnalUnit.wrap(.{ .cau = cau });
                     if (!result.contains(unit)) {
                         log.debug("type '{}': ref cau %{}", .{
@@ -3407,8 +3396,8 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                 const file = zcu.fileByIndex(inst_info.file);
                 // If the file failed AstGen, the TrackedInst refers to the old ZIR.
                 const zir = if (file.status == .success_zir) file.zir else file.prev_zir.?.*;
-                const declaration = zir.getDeclaration(inst_info.inst)[0];
-                if (declaration.flags.is_export) {
+                const decl = zir.getDeclaration(inst_info.inst);
+                if (decl.linkage == .@"export") {
                     const unit = AnalUnit.wrap(.{ .cau = cau });
                     if (!result.contains(unit)) {
                         log.debug("type '{}': ref cau %{}", .{
@@ -3522,9 +3511,7 @@ pub fn navSrcLine(zcu: *Zcu, nav_index: InternPool.Nav.Index) u32 {
     const ip = &zcu.intern_pool;
     const inst_info = ip.getNav(nav_index).srcInst(ip).resolveFull(ip).?;
     const zir = zcu.fileByIndex(inst_info.file).zir;
-    const inst = zir.instructions.get(@intFromEnum(inst_info.inst));
-    assert(inst.tag == .declaration);
-    return zir.extraData(Zir.Inst.Declaration, inst.data.declaration.payload_index).data.src_line;
+    return zir.getDeclaration(inst_info.inst).src_line;
 }
 
 pub fn navValue(zcu: *const Zcu, nav_index: InternPool.Nav.Index) Value {
