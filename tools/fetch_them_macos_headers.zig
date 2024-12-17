@@ -350,8 +350,6 @@ fn fetchTarget(
     });
     try cc_argv.appendSlice(args);
 
-    // TODO instead of calling `cc` as a child process here,
-    // hook in directly to `zig cc` API.
     const res = try std.process.Child.run(.{
         .allocator = arena,
         .argv = cc_argv.items,
