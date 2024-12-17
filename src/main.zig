@@ -19,6 +19,7 @@ const Directory = std.Build.Cache.Directory;
 const EnvVar = std.zig.EnvVar;
 const LibCInstallation = std.zig.LibCInstallation;
 const AstGen = std.zig.AstGen;
+const ZonGen = std.zig.ZonGen;
 const Server = std.zig.Server;
 
 const tracy = @import("tracy.zig");
@@ -406,11 +407,10 @@ const usage_build_generic =
     \\                           .s    Target-specific assembly source code
     \\                           .S    Assembly with C preprocessor (requires LLVM extensions)
     \\                           .c    C source code (requires LLVM extensions)
-    \\  .cxx .cc .C .cpp .c++ .stub    C++ source code (requires LLVM extensions)
+    \\        .cxx .cc .C .cpp .c++    C++ source code (requires LLVM extensions)
     \\                           .m    Objective-C source code (requires LLVM extensions)
     \\                          .mm    Objective-C++ source code (requires LLVM extensions)
     \\                          .bc    LLVM IR Module (requires LLVM extensions)
-    \\                          .cu    Cuda source code (requires LLVM extensions)
     \\
     \\General Options:
     \\  -h, --help                Print this help and exit
@@ -1770,7 +1770,7 @@ fn buildOutputType(
                             fatal("only one manifest file can be specified, found '{s}' after '{s}'", .{ arg, other });
                         } else manifest_file = arg;
                     },
-                    .assembly, .assembly_with_cpp, .c, .cpp, .h, .hpp, .hm, .hmm, .ll, .bc, .m, .mm, .cu => {
+                    .assembly, .assembly_with_cpp, .c, .cpp, .h, .hpp, .hm, .hmm, .ll, .bc, .m, .mm => {
                         try create_module.c_source_files.append(arena, .{
                             // Populated after module creation.
                             .owner = undefined,
@@ -1867,7 +1867,7 @@ fn buildOutputType(
                         try cc_argv.appendSlice(arena, it.other_args);
                     },
                     .positional => switch (file_ext orelse Compilation.classifyFileExt(mem.sliceTo(it.only_arg, 0))) {
-                        .assembly, .assembly_with_cpp, .c, .cpp, .ll, .bc, .h, .hpp, .hm, .hmm, .m, .mm, .cu => {
+                        .assembly, .assembly_with_cpp, .c, .cpp, .ll, .bc, .h, .hpp, .hm, .hmm, .m, .mm => {
                             try create_module.c_source_files.append(arena, .{
                                 // Populated after module creation.
                                 .owner = undefined,
@@ -6007,15 +6007,16 @@ fn parseCodeModel(arg: []const u8) std.builtin.CodeModel {
 const usage_ast_check =
     \\Usage: zig ast-check [file]
     \\
-    \\    Given a .zig source file, reports any compile errors that can be
-    \\    ascertained on the basis of the source code alone, without target
-    \\    information or type checking.
+    \\    Given a .zig source file or .zon file, reports any compile errors
+    \\    that can be ascertained on the basis of the source code alone,
+    \\    without target information or type checking.
     \\
     \\    If [file] is omitted, stdin is used.
     \\
     \\Options:
     \\  -h, --help            Print this help and exit
     \\  --color [auto|off|on] Enable or disable colored error messages
+    \\  --zon                 Treat the input file as ZON, regardless of file extension
     \\  -t                    (debug option) Output ZIR in text form to stdout
     \\
     \\
@@ -6032,6 +6033,7 @@ fn cmdAstCheck(
 
     var color: Color = .auto;
     var want_output_text = false;
+    var force_zon = false;
     var zig_source_file: ?[]const u8 = null;
 
     var i: usize = 0;
@@ -6043,6 +6045,8 @@ fn cmdAstCheck(
                 return cleanExit();
             } else if (mem.eql(u8, arg, "-t")) {
                 want_output_text = true;
+            } else if (mem.eql(u8, arg, "--zon")) {
+                force_zon = true;
             } else if (mem.eql(u8, arg, "--color")) {
                 if (i + 1 >= args.len) {
                     fatal("expected [auto|on|off] after --color", .{});
@@ -6110,89 +6114,136 @@ fn cmdAstCheck(
         file.stat.size = source.len;
     }
 
+    const mode: Ast.Mode = mode: {
+        if (force_zon) break :mode .zon;
+        if (zig_source_file) |name| {
+            if (mem.endsWith(u8, name, ".zon")) {
+                break :mode .zon;
+            }
+        }
+        break :mode .zig;
+    };
+
     file.mod = try Package.Module.createLimited(arena, .{
         .root = Path.cwd(),
         .root_src_path = file.sub_file_path,
         .fully_qualified_name = "root",
     });
 
-    file.tree = try Ast.parse(gpa, file.source, .zig);
+    file.tree = try Ast.parse(gpa, file.source, mode);
     file.tree_loaded = true;
     defer file.tree.deinit(gpa);
 
-    file.zir = try AstGen.generate(gpa, file.tree);
-    file.zir_loaded = true;
-    defer file.zir.deinit(gpa);
+    switch (mode) {
+        .zig => {
+            file.zir = try AstGen.generate(gpa, file.tree);
+            file.zir_loaded = true;
+            defer file.zir.deinit(gpa);
 
-    if (file.zir.hasCompileErrors()) {
-        var wip_errors: std.zig.ErrorBundle.Wip = undefined;
-        try wip_errors.init(gpa);
-        defer wip_errors.deinit();
-        try Compilation.addZirErrorMessages(&wip_errors, &file);
-        var error_bundle = try wip_errors.toOwnedBundle("");
-        defer error_bundle.deinit(gpa);
-        error_bundle.renderToStdErr(color.renderOptions());
+            if (file.zir.hasCompileErrors()) {
+                var wip_errors: std.zig.ErrorBundle.Wip = undefined;
+                try wip_errors.init(gpa);
+                defer wip_errors.deinit();
+                try Compilation.addZirErrorMessages(&wip_errors, &file);
+                var error_bundle = try wip_errors.toOwnedBundle("");
+                defer error_bundle.deinit(gpa);
+                error_bundle.renderToStdErr(color.renderOptions());
 
-        if (file.zir.loweringFailed()) {
-            process.exit(1);
-        }
-    }
+                if (file.zir.loweringFailed()) {
+                    process.exit(1);
+                }
+            }
 
-    if (!want_output_text) {
-        if (file.zir.hasCompileErrors()) {
-            process.exit(1);
-        } else {
+            if (!want_output_text) {
+                if (file.zir.hasCompileErrors()) {
+                    process.exit(1);
+                } else {
+                    return cleanExit();
+                }
+            }
+            if (!build_options.enable_debug_extensions) {
+                fatal("-t option only available in builds of zig with debug extensions", .{});
+            }
+
+            {
+                const token_bytes = @sizeOf(Ast.TokenList) +
+                    file.tree.tokens.len * (@sizeOf(std.zig.Token.Tag) + @sizeOf(Ast.ByteOffset));
+                const tree_bytes = @sizeOf(Ast) + file.tree.nodes.len *
+                    (@sizeOf(Ast.Node.Tag) +
+                    @sizeOf(Ast.Node.Data) +
+                    @sizeOf(Ast.TokenIndex));
+                const instruction_bytes = file.zir.instructions.len *
+                    // Here we don't use @sizeOf(Zir.Inst.Data) because it would include
+                    // the debug safety tag but we want to measure release size.
+                    (@sizeOf(Zir.Inst.Tag) + 8);
+                const extra_bytes = file.zir.extra.len * @sizeOf(u32);
+                const total_bytes = @sizeOf(Zir) + instruction_bytes + extra_bytes +
+                    file.zir.string_bytes.len * @sizeOf(u8);
+                const stdout = io.getStdOut();
+                const fmtIntSizeBin = std.fmt.fmtIntSizeBin;
+                // zig fmt: off
+                try stdout.writer().print(
+                    \\# Source bytes:       {}
+                    \\# Tokens:             {} ({})
+                    \\# AST Nodes:          {} ({})
+                    \\# Total ZIR bytes:    {}
+                    \\# Instructions:       {d} ({})
+                    \\# String Table Bytes: {}
+                    \\# Extra Data Items:   {d} ({})
+                    \\
+                , .{
+                    fmtIntSizeBin(file.source.len),
+                    file.tree.tokens.len, fmtIntSizeBin(token_bytes),
+                    file.tree.nodes.len, fmtIntSizeBin(tree_bytes),
+                    fmtIntSizeBin(total_bytes),
+                    file.zir.instructions.len, fmtIntSizeBin(instruction_bytes),
+                    fmtIntSizeBin(file.zir.string_bytes.len),
+                    file.zir.extra.len, fmtIntSizeBin(extra_bytes),
+                });
+                // zig fmt: on
+            }
+
+            try @import("print_zir.zig").renderAsTextToFile(gpa, &file, io.getStdOut());
+
+            if (file.zir.hasCompileErrors()) {
+                process.exit(1);
+            } else {
+                return cleanExit();
+            }
+        },
+        .zon => {
+            const zoir = try ZonGen.generate(gpa, file.tree);
+            defer zoir.deinit(gpa);
+
+            if (zoir.hasCompileErrors()) {
+                var wip_errors: std.zig.ErrorBundle.Wip = undefined;
+                try wip_errors.init(gpa);
+                defer wip_errors.deinit();
+
+                {
+                    const src_path = try file.fullPath(gpa);
+                    defer gpa.free(src_path);
+                    try wip_errors.addZoirErrorMessages(zoir, file.tree, file.source, src_path);
+                }
+
+                var error_bundle = try wip_errors.toOwnedBundle("");
+                defer error_bundle.deinit(gpa);
+                error_bundle.renderToStdErr(color.renderOptions());
+
+                process.exit(1);
+            }
+
+            if (!want_output_text) {
+                return cleanExit();
+            }
+
+            if (!build_options.enable_debug_extensions) {
+                fatal("-t option only available in builds of zig with debug extensions", .{});
+            }
+
+            try @import("print_zoir.zig").renderToFile(zoir, arena, io.getStdOut());
             return cleanExit();
-        }
-    }
-    if (!build_options.enable_debug_extensions) {
-        fatal("-t option only available in builds of zig with debug extensions", .{});
-    }
-
-    {
-        const token_bytes = @sizeOf(Ast.TokenList) +
-            file.tree.tokens.len * (@sizeOf(std.zig.Token.Tag) + @sizeOf(Ast.ByteOffset));
-        const tree_bytes = @sizeOf(Ast) + file.tree.nodes.len *
-            (@sizeOf(Ast.Node.Tag) +
-            @sizeOf(Ast.Node.Data) +
-            @sizeOf(Ast.TokenIndex));
-        const instruction_bytes = file.zir.instructions.len *
-            // Here we don't use @sizeOf(Zir.Inst.Data) because it would include
-            // the debug safety tag but we want to measure release size.
-            (@sizeOf(Zir.Inst.Tag) + 8);
-        const extra_bytes = file.zir.extra.len * @sizeOf(u32);
-        const total_bytes = @sizeOf(Zir) + instruction_bytes + extra_bytes +
-            file.zir.string_bytes.len * @sizeOf(u8);
-        const stdout = io.getStdOut();
-        const fmtIntSizeBin = std.fmt.fmtIntSizeBin;
-        // zig fmt: off
-        try stdout.writer().print(
-            \\# Source bytes:       {}
-            \\# Tokens:             {} ({})
-            \\# AST Nodes:          {} ({})
-            \\# Total ZIR bytes:    {}
-            \\# Instructions:       {d} ({})
-            \\# String Table Bytes: {}
-            \\# Extra Data Items:   {d} ({})
-            \\
-        , .{
-            fmtIntSizeBin(file.source.len),
-            file.tree.tokens.len, fmtIntSizeBin(token_bytes),
-            file.tree.nodes.len, fmtIntSizeBin(tree_bytes),
-            fmtIntSizeBin(total_bytes),
-            file.zir.instructions.len, fmtIntSizeBin(instruction_bytes),
-            fmtIntSizeBin(file.zir.string_bytes.len),
-            file.zir.extra.len, fmtIntSizeBin(extra_bytes),
-        });
-        // zig fmt: on
-    }
-
-    try @import("print_zir.zig").renderAsTextToFile(gpa, &file, io.getStdOut());
-
-    if (file.zir.hasCompileErrors()) {
-        process.exit(1);
-    } else {
-        return cleanExit();
+        },
     }
 }
 

@@ -1164,6 +1164,7 @@ pub const CPUFAMILY = enum(u32) {
     ARM_LOBOS = 0x5f4dea93,
     ARM_PALMA = 0x72015832,
     ARM_DONAN = 0x6f5129ac,
+    ARM_BRAVA = 0x17d5b93a,
     _,
 };
 
@@ -1232,16 +1233,16 @@ pub extern "c" fn posix_spawn(
     path: [*:0]const u8,
     actions: ?*const posix_spawn_file_actions_t,
     attr: ?*const posix_spawnattr_t,
-    argv: [*:null]?[*:0]const u8,
-    env: [*:null]?[*:0]const u8,
+    argv: [*:null]const ?[*:0]const u8,
+    env: [*:null]const ?[*:0]const u8,
 ) c_int;
 pub extern "c" fn posix_spawnp(
     pid: *pid_t,
     path: [*:0]const u8,
     actions: ?*const posix_spawn_file_actions_t,
     attr: ?*const posix_spawnattr_t,
-    argv: [*:null]?[*:0]const u8,
-    env: [*:null]?[*:0]const u8,
+    argv: [*:null]const ?[*:0]const u8,
+    env: [*:null]const ?[*:0]const u8,
 ) c_int;
 
 pub const E = enum(u16) {

@@ -305,7 +305,6 @@ pub const LangToExt = std.StaticStringMap(FileExt).initComptime(.{
     .{ "objective-c++-header", .hmm },
     .{ "assembler", .assembly },
     .{ "assembler-with-cpp", .assembly_with_cpp },
-    .{ "cuda", .cu },
 });
 
 /// For passing to a C compiler.
@@ -4699,7 +4698,6 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Pr
                 .hm => "objective-c-header",
                 .mm => "objective-c++",
                 .hmm => "objective-c++-header",
-                .cu => "cuda",
                 else => fatal("language '{s}' is unsupported in this context", .{@tagName(ext)}),
             } });
         }
@@ -5583,7 +5581,6 @@ pub fn addCCArgs(
         .hm,
         .mm,
         .hmm,
-        .cu,
         => {
             try argv.append("-fno-spell-checking");
 
@@ -5821,7 +5818,6 @@ fn failWin32ResourceWithOwnedBundle(
 pub const FileExt = enum {
     c,
     cpp,
-    cu,
     h,
     hpp,
     hm,
@@ -5852,7 +5848,6 @@ pub const FileExt = enum {
 
             .c,
             .cpp,
-            .cu,
             .m,
             .mm,
             .ll,
@@ -5874,7 +5869,7 @@ pub const FileExt = enum {
 
     pub fn clangSupportsDiagnostics(ext: FileExt) bool {
         return switch (ext) {
-            .c, .cpp, .h, .hpp, .hm, .hmm, .m, .mm, .cu, .ll, .bc => true,
+            .c, .cpp, .h, .hpp, .hm, .hmm, .m, .mm, .ll, .bc => true,
 
             .assembly,
             .assembly_with_cpp,
@@ -5893,7 +5888,7 @@ pub const FileExt = enum {
 
     pub fn clangSupportsDepFile(ext: FileExt) bool {
         return switch (ext) {
-            .assembly_with_cpp, .c, .cpp, .h, .hpp, .hm, .hmm, .m, .mm, .cu => true,
+            .assembly_with_cpp, .c, .cpp, .h, .hpp, .hm, .hmm, .m, .mm => true,
 
             .ll,
             .bc,
@@ -5915,7 +5910,6 @@ pub const FileExt = enum {
         return switch (ext) {
             .c => ".c",
             .cpp => ".cpp",
-            .cu => ".cu",
             .h => ".h",
             .hpp => ".hpp",
             .hm => ".hm",
@@ -5967,8 +5961,7 @@ pub fn hasCppExt(filename: []const u8) bool {
         mem.endsWith(u8, filename, ".CPP") or
         mem.endsWith(u8, filename, ".cpp") or
         mem.endsWith(u8, filename, ".cxx") or
-        mem.endsWith(u8, filename, ".c++") or
-        mem.endsWith(u8, filename, ".stub");
+        mem.endsWith(u8, filename, ".c++");
 }
 
 pub fn hasCppHExt(filename: []const u8) bool {
@@ -6054,8 +6047,6 @@ pub fn classifyFileExt(filename: []const u8) FileExt {
         return .static_library;
     } else if (hasObjectExt(filename)) {
         return .object;
-    } else if (mem.endsWith(u8, filename, ".cu")) {
-        return .cu;
     } else if (mem.endsWith(u8, filename, ".def")) {
         return .def;
     } else if (std.ascii.endsWithIgnoreCase(filename, ".rc")) {

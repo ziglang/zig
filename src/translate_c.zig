@@ -79,8 +79,8 @@ pub const Context = struct {
 
 pub fn translate(
     gpa: mem.Allocator,
-    args_begin: [*]?[*]const u8,
-    args_end: [*]?[*]const u8,
+    args_begin: [*]?[*:0]const u8,
+    args_end: [*]?[*:0]const u8,
     errors: *std.zig.ErrorBundle,
     resources_path: [*:0]const u8,
 ) !std.zig.Ast {

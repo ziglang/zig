@@ -3399,8 +3399,8 @@ fn zirErrorSetDecl(
     try names.ensureUnusedCapacity(sema.arena, extra.data.fields_len);
 
     var extra_index: u32 = @intCast(extra.end);
-    const extra_index_end = extra_index + (extra.data.fields_len * 2);
-    while (extra_index < extra_index_end) : (extra_index += 2) { // +2 to skip over doc_string
+    const extra_index_end = extra_index + extra.data.fields_len;
+    while (extra_index < extra_index_end) : (extra_index += 1) {
         const name_index: Zir.NullTerminatedString = @enumFromInt(sema.code.extra[extra_index]);
         const name = sema.code.nullTerminatedString(name_index);
         const name_ip = try zcu.intern_pool.getOrPutString(gpa, pt.tid, name, .no_embedded_nulls);
@@ -30834,7 +30834,8 @@ const InMemoryCoercionResult = union(enum) {
     ptr_addrspace: AddressSpace,
     ptr_sentinel: Sentinel,
     ptr_size: Size,
-    ptr_qualifiers: Qualifiers,
+    ptr_const: Pair,
+    ptr_volatile: Pair,
     ptr_allowzero: Pair,
     ptr_bit_range: BitRange,
     ptr_alignment: AlignPair,
@@ -30896,13 +30897,6 @@ const InMemoryCoercionResult = union(enum) {
     const Size = struct {
         actual: std.builtin.Type.Pointer.Size,
         wanted: std.builtin.Type.Pointer.Size,
-    };
-
-    const Qualifiers = struct {
-        actual_const: bool,
-        wanted_const: bool,
-        actual_volatile: bool,
-        wanted_volatile: bool,
     };
 
     const AddressSpace = struct {
@@ -31104,16 +31098,6 @@ const InMemoryCoercionResult = union(enum) {
                 try sema.errNote(src, msg, "a {s} pointer cannot cast into a {s} pointer", .{ pointerSizeString(size.actual), pointerSizeString(size.wanted) });
                 break;
             },
-            .ptr_qualifiers => |qualifiers| {
-                const ok_const = !qualifiers.actual_const or qualifiers.wanted_const;
-                const ok_volatile = !qualifiers.actual_volatile or qualifiers.wanted_volatile;
-                if (!ok_const) {
-                    try sema.errNote(src, msg, "cast discards const qualifier", .{});
-                } else if (!ok_volatile) {
-                    try sema.errNote(src, msg, "cast discards volatile qualifier", .{});
-                }
-                break;
-            },
             .ptr_allowzero => |pair| {
                 const wanted_allow_zero = pair.wanted.ptrAllowsZero(pt.zcu);
                 const actual_allow_zero = pair.actual.ptrAllowsZero(pt.zcu);
@@ -31122,8 +31106,32 @@ const InMemoryCoercionResult = union(enum) {
                         pair.actual.fmt(pt), pair.wanted.fmt(pt),
                     });
                 } else {
-                    try sema.errNote(src, msg, "mutable '{}' allows illegal null values stored to type '{}'", .{
-                        pair.actual.fmt(pt), pair.wanted.fmt(pt),
+                    try sema.errNote(src, msg, "mutable '{}' would allow illegal null values stored to type '{}'", .{
+                        pair.wanted.fmt(pt), pair.actual.fmt(pt),
+                    });
+                }
+                break;
+            },
+            .ptr_const => |pair| {
+                const wanted_const = pair.wanted.isConstPtr(pt.zcu);
+                const actual_const = pair.actual.isConstPtr(pt.zcu);
+                if (actual_const and !wanted_const) {
+                    try sema.errNote(src, msg, "cast discards const qualifier", .{});
+                } else {
+                    try sema.errNote(src, msg, "mutable '{}' would allow illegal const pointers stored to type '{}'", .{
+                        pair.wanted.fmt(pt), pair.actual.fmt(pt),
+                    });
+                }
+                break;
+            },
+            .ptr_volatile => |pair| {
+                const wanted_volatile = pair.wanted.isVolatilePtr(pt.zcu);
+                const actual_volatile = pair.actual.isVolatilePtr(pt.zcu);
+                if (actual_volatile and !wanted_volatile) {
+                    try sema.errNote(src, msg, "cast discards volatile qualifier", .{});
+                } else {
+                    try sema.errNote(src, msg, "mutable '{}' would allow illegal volatile pointers stored to type '{}'", .{
+                        pair.wanted.fmt(pt), pair.actual.fmt(pt),
                     });
                 }
                 break;
@@ -31173,20 +31181,22 @@ fn pointerSizeString(size: std.builtin.Type.Pointer.Size) []const u8 {
     };
 }
 
-/// If pointers have the same representation in runtime memory, a bitcast AIR instruction
-/// may be used for the coercion.
-/// * `const` attribute can be gained
-/// * `volatile` attribute can be gained
-/// * `allowzero` attribute can be gained (whether from explicit attribute, C pointer, or optional pointer) but only if !dest_is_mut
-/// * alignment can be decreased
-/// * bit offset attributes must match exactly
-/// * `*`/`[*]` must match exactly, but `[*c]` matches either one
-/// * sentinel-terminated pointers can coerce into `[*]`
+/// If types `A` and `B` have identical representations in runtime memory, they are considered
+/// "in-memory coercible". This is a subset of normal coercions. Not only can `A` coerce to `B`, but
+/// also, coercions can happen through pointers. For instance, `*const A` can coerce to `*const B`.
+///
+/// If this function is called, the coercion must be applied, or a compile error emitted if `.ok`
+/// is not returned. This is because this function may modify inferred error sets to make a
+/// coercion possible, even if `.ok` is not returned.
 pub fn coerceInMemoryAllowed(
     sema: *Sema,
     block: *Block,
     dest_ty: Type,
     src_ty: Type,
+    /// If `true`, this query comes from an attempted coercion of the form `*Src` -> `*Dest`, where
+    /// both pointers are mutable. If this coercion is allowed, one could store to the `*Dest` and
+    /// load from the `*Src` to effectively perform an in-memory coercion from `Dest` to `Src`.
+    /// Therefore, when `dest_is_mut`, the in-memory coercion must be valid in *both directions*.
     dest_is_mut: bool,
     target: std.Target,
     dest_src: LazySrcLoc,
@@ -31261,7 +31271,7 @@ pub fn coerceInMemoryAllowed(
 
     // Functions
     if (dest_tag == .@"fn" and src_tag == .@"fn") {
-        return try sema.coerceInMemoryAllowedFns(block, dest_ty, src_ty, target, dest_src, src_src);
+        return try sema.coerceInMemoryAllowedFns(block, dest_ty, src_ty, dest_is_mut, target, dest_src, src_src);
     }
 
     // Error Unions
@@ -31270,7 +31280,7 @@ pub fn coerceInMemoryAllowed(
         const src_payload = src_ty.errorUnionPayload(zcu);
         const child = try sema.coerceInMemoryAllowed(block, dest_payload, src_payload, dest_is_mut, target, dest_src, src_src, null);
         if (child != .ok) {
-            return InMemoryCoercionResult{ .error_union_payload = .{
+            return .{ .error_union_payload = .{
                 .child = try child.dupe(sema.arena),
                 .actual = src_payload,
                 .wanted = dest_payload,
@@ -31281,7 +31291,11 @@ pub fn coerceInMemoryAllowed(
 
     // Error Sets
     if (dest_tag == .error_set and src_tag == .error_set) {
-        return try sema.coerceInMemoryAllowedErrorSets(block, dest_ty, src_ty, dest_src, src_src);
+        const res1 = try sema.coerceInMemoryAllowedErrorSets(block, dest_ty, src_ty, dest_src, src_src);
+        if (!dest_is_mut or res1 != .ok) return res1;
+        // src -> dest is okay, but `dest_is_mut`, so it needs to be allowed in the other direction.
+        const res2 = try sema.coerceInMemoryAllowedErrorSets(block, src_ty, dest_ty, src_src, dest_src);
+        return res2;
     }
 
     // Arrays
@@ -31289,7 +31303,7 @@ pub fn coerceInMemoryAllowed(
         const dest_info = dest_ty.arrayInfo(zcu);
         const src_info = src_ty.arrayInfo(zcu);
         if (dest_info.len != src_info.len) {
-            return InMemoryCoercionResult{ .array_len = .{
+            return .{ .array_len = .{
                 .actual = src_info.len,
                 .wanted = dest_info.len,
             } };
@@ -31300,7 +31314,7 @@ pub fn coerceInMemoryAllowed(
             .ok => {},
             .no_match => return child,
             else => {
-                return InMemoryCoercionResult{ .array_elem = .{
+                return .{ .array_elem = .{
                     .child = try child.dupe(sema.arena),
                     .actual = src_info.elem_type,
                     .wanted = dest_info.elem_type,
@@ -31316,7 +31330,7 @@ pub fn coerceInMemoryAllowed(
             zcu,
         ));
         if (!ok_sent) {
-            return InMemoryCoercionResult{ .array_sentinel = .{
+            return .{ .array_sentinel = .{
                 .actual = src_info.sentinel orelse Value.@"unreachable",
                 .wanted = dest_info.sentinel orelse Value.@"unreachable",
                 .ty = dest_info.elem_type,
@@ -31330,7 +31344,7 @@ pub fn coerceInMemoryAllowed(
         const dest_len = dest_ty.vectorLen(zcu);
         const src_len = src_ty.vectorLen(zcu);
         if (dest_len != src_len) {
-            return InMemoryCoercionResult{ .vector_len = .{
+            return .{ .vector_len = .{
                 .actual = src_len,
                 .wanted = dest_len,
             } };
@@ -31340,7 +31354,7 @@ pub fn coerceInMemoryAllowed(
         const src_elem_ty = src_ty.scalarType(zcu);
         const child = try sema.coerceInMemoryAllowed(block, dest_elem_ty, src_elem_ty, dest_is_mut, target, dest_src, src_src, null);
         if (child != .ok) {
-            return InMemoryCoercionResult{ .vector_elem = .{
+            return .{ .vector_elem = .{
                 .child = try child.dupe(sema.arena),
                 .actual = src_elem_ty,
                 .wanted = dest_elem_ty,
@@ -31357,7 +31371,7 @@ pub fn coerceInMemoryAllowed(
         const dest_len = dest_ty.arrayLen(zcu);
         const src_len = src_ty.arrayLen(zcu);
         if (dest_len != src_len) {
-            return InMemoryCoercionResult{ .array_len = .{
+            return .{ .array_len = .{
                 .actual = src_len,
                 .wanted = dest_len,
             } };
@@ -31367,7 +31381,7 @@ pub fn coerceInMemoryAllowed(
         const src_elem_ty = src_ty.childType(zcu);
         const child = try sema.coerceInMemoryAllowed(block, dest_elem_ty, src_elem_ty, dest_is_mut, target, dest_src, src_src, null);
         if (child != .ok) {
-            return InMemoryCoercionResult{ .array_elem = .{
+            return .{ .array_elem = .{
                 .child = try child.dupe(sema.arena),
                 .actual = src_elem_ty,
                 .wanted = dest_elem_ty,
@@ -31377,7 +31391,7 @@ pub fn coerceInMemoryAllowed(
         if (dest_tag == .array) {
             const dest_info = dest_ty.arrayInfo(zcu);
             if (dest_info.sentinel != null) {
-                return InMemoryCoercionResult{ .array_sentinel = .{
+                return .{ .array_sentinel = .{
                     .actual = Value.@"unreachable",
                     .wanted = dest_info.sentinel.?,
                     .ty = dest_info.elem_type,
@@ -31397,7 +31411,7 @@ pub fn coerceInMemoryAllowed(
     // Optionals
     if (dest_tag == .optional and src_tag == .optional) {
         if ((maybe_dest_ptr_ty != null) != (maybe_src_ptr_ty != null)) {
-            return InMemoryCoercionResult{ .optional_shape = .{
+            return .{ .optional_shape = .{
                 .actual = src_ty,
                 .wanted = dest_ty,
             } };
@@ -31407,7 +31421,7 @@ pub fn coerceInMemoryAllowed(
 
         const child = try sema.coerceInMemoryAllowed(block, dest_child_type, src_child_type, dest_is_mut, target, dest_src, src_src, null);
         if (child != .ok) {
-            return InMemoryCoercionResult{ .optional_child = .{
+            return .{ .optional_child = .{
                 .child = try child.dupe(sema.arena),
                 .actual = src_child_type,
                 .wanted = dest_child_type,
@@ -31419,7 +31433,6 @@ pub fn coerceInMemoryAllowed(
 
     // Tuples (with in-memory-coercible fields)
     if (dest_ty.isTuple(zcu) and src_ty.isTuple(zcu)) tuple: {
-        if (dest_ty.containerLayout(zcu) != src_ty.containerLayout(zcu)) break :tuple;
         if (dest_ty.structFieldCount(zcu) != src_ty.structFieldCount(zcu)) break :tuple;
         const field_count = dest_ty.structFieldCount(zcu);
         for (0..field_count) |field_idx| {
@@ -31433,7 +31446,7 @@ pub fn coerceInMemoryAllowed(
         return .ok;
     }
 
-    return InMemoryCoercionResult{ .no_match = .{
+    return .{ .no_match = .{
         .actual = dest_ty,
         .wanted = src_ty,
     } };
@@ -31542,6 +31555,8 @@ fn coerceInMemoryAllowedFns(
     block: *Block,
     dest_ty: Type,
     src_ty: Type,
+    /// If set, the coercion must be valid in both directions.
+    dest_is_mut: bool,
     target: std.Target,
     dest_src: LazySrcLoc,
     src_src: LazySrcLoc,
@@ -31562,40 +31577,49 @@ fn coerceInMemoryAllowedFns(
             return InMemoryCoercionResult{ .fn_generic = dest_info.is_generic };
         }
 
-        if (!callconvCoerceAllowed(target, src_info.cc, dest_info.cc)) {
+        const callconv_ok = callconvCoerceAllowed(target, src_info.cc, dest_info.cc) and
+            (!dest_is_mut or callconvCoerceAllowed(target, dest_info.cc, src_info.cc));
+
+        if (!callconv_ok) {
             return .{ .fn_cc = .{
                 .actual = src_info.cc,
                 .wanted = dest_info.cc,
             } };
         }
 
-        switch (src_info.return_type) {
-            .noreturn_type, .generic_poison_type => {},
-            else => {
-                const dest_return_type = Type.fromInterned(dest_info.return_type);
-                const src_return_type = Type.fromInterned(src_info.return_type);
-                const rt = try sema.coerceInMemoryAllowed(block, dest_return_type, src_return_type, false, target, dest_src, src_src, null);
-                if (rt != .ok) {
-                    return InMemoryCoercionResult{ .fn_return_type = .{
-                        .child = try rt.dupe(sema.arena),
-                        .actual = src_return_type,
-                        .wanted = dest_return_type,
-                    } };
-                }
-            },
+        if (!switch (src_info.return_type) {
+            .generic_poison_type => true,
+            .noreturn_type => !dest_is_mut,
+            else => false,
+        }) {
+            const rt = try sema.coerceInMemoryAllowed(
+                block,
+                .fromInterned(dest_info.return_type),
+                .fromInterned(src_info.return_type),
+                dest_is_mut,
+                target,
+                dest_src,
+                src_src,
+                null,
+            );
+            if (rt != .ok) return .{ .fn_return_type = .{
+                .child = try rt.dupe(sema.arena),
+                .actual = .fromInterned(src_info.return_type),
+                .wanted = .fromInterned(dest_info.return_type),
+            } };
         }
     }
 
     const params_len = params_len: {
         if (dest_info.param_types.len != src_info.param_types.len) {
-            return InMemoryCoercionResult{ .fn_param_count = .{
+            return .{ .fn_param_count = .{
                 .actual = src_info.param_types.len,
                 .wanted = dest_info.param_types.len,
             } };
         }
 
         if (dest_info.noalias_bits != src_info.noalias_bits) {
-            return InMemoryCoercionResult{ .fn_param_noalias = .{
+            return .{ .fn_param_noalias = .{
                 .actual = src_info.noalias_bits,
                 .wanted = dest_info.noalias_bits,
             } };
@@ -31605,14 +31629,15 @@ fn coerceInMemoryAllowedFns(
     };
 
     for (0..params_len) |param_i| {
-        const dest_param_ty = Type.fromInterned(dest_info.param_types.get(ip)[param_i]);
-        const src_param_ty = Type.fromInterned(src_info.param_types.get(ip)[param_i]);
+        const dest_param_ty: Type = .fromInterned(dest_info.param_types.get(ip)[param_i]);
+        const src_param_ty: Type = .fromInterned(src_info.param_types.get(ip)[param_i]);
 
-        const param_i_small: u5 = @intCast(param_i);
-        if (dest_info.paramIsComptime(param_i_small) != src_info.paramIsComptime(param_i_small)) {
-            return InMemoryCoercionResult{ .fn_param_comptime = .{
+        const src_is_comptime = src_info.paramIsComptime(@intCast(param_i));
+        const dest_is_comptime = dest_info.paramIsComptime(@intCast(param_i));
+        if (src_is_comptime != dest_is_comptime) {
+            return .{ .fn_param_comptime = .{
                 .index = param_i,
-                .wanted = dest_info.paramIsComptime(param_i_small),
+                .wanted = dest_is_comptime,
             } };
         }
 
@@ -31620,9 +31645,9 @@ fn coerceInMemoryAllowedFns(
             .generic_poison_type => {},
             else => {
                 // Note: Cast direction is reversed here.
-                const param = try sema.coerceInMemoryAllowed(block, src_param_ty, dest_param_ty, false, target, dest_src, src_src, null);
+                const param = try sema.coerceInMemoryAllowed(block, src_param_ty, dest_param_ty, dest_is_mut, target, dest_src, src_src, null);
                 if (param != .ok) {
-                    return InMemoryCoercionResult{ .fn_param = .{
+                    return .{ .fn_param = .{
                         .child = try param.dupe(sema.arena),
                         .actual = src_param_ty,
                         .wanted = dest_param_ty,
@@ -31681,6 +31706,7 @@ fn coerceInMemoryAllowedPtrs(
     src_ty: Type,
     dest_ptr_ty: Type,
     src_ptr_ty: Type,
+    /// If set, the coercion must be valid in both directions.
     dest_is_mut: bool,
     target: std.Target,
     dest_src: LazySrcLoc,
@@ -31700,21 +31726,34 @@ fn coerceInMemoryAllowedPtrs(
         } };
     }
 
-    const ok_cv_qualifiers =
-        (!src_info.flags.is_const or dest_info.flags.is_const) and
-        (!src_info.flags.is_volatile or dest_info.flags.is_volatile);
+    const ok_const = src_info.flags.is_const == dest_info.flags.is_const or
+        (!dest_is_mut and dest_info.flags.is_const);
 
-    if (!ok_cv_qualifiers) {
-        return InMemoryCoercionResult{ .ptr_qualifiers = .{
-            .actual_const = src_info.flags.is_const,
-            .wanted_const = dest_info.flags.is_const,
-            .actual_volatile = src_info.flags.is_volatile,
-            .wanted_volatile = dest_info.flags.is_volatile,
-        } };
-    }
+    if (!ok_const) return .{ .ptr_const = .{
+        .actual = src_ty,
+        .wanted = dest_ty,
+    } };
+
+    const ok_volatile = src_info.flags.is_volatile == dest_info.flags.is_volatile or
+        (!dest_is_mut and dest_info.flags.is_volatile);
+
+    if (!ok_volatile) return .{ .ptr_volatile = .{
+        .actual = src_ty,
+        .wanted = dest_ty,
+    } };
+
+    const dest_allowzero = dest_ty.ptrAllowsZero(zcu);
+    const src_allowzero = src_ty.ptrAllowsZero(zcu);
+    const ok_allowzero = src_allowzero == dest_allowzero or
+        (!dest_is_mut and dest_allowzero);
+
+    if (!ok_allowzero) return .{ .ptr_allowzero = .{
+        .actual = src_ty,
+        .wanted = dest_ty,
+    } };
 
     if (dest_info.flags.address_space != src_info.flags.address_space) {
-        return InMemoryCoercionResult{ .ptr_addrspace = .{
+        return .{ .ptr_addrspace = .{
             .actual = src_info.flags.address_space,
             .wanted = dest_info.flags.address_space,
         } };
@@ -31722,8 +31761,28 @@ fn coerceInMemoryAllowedPtrs(
 
     const dest_child = Type.fromInterned(dest_info.child);
     const src_child = Type.fromInterned(src_info.child);
-    const child = try sema.coerceInMemoryAllowed(block, dest_child, src_child, !dest_info.flags.is_const, target, dest_src, src_src, null);
-    if (child != .ok) allow: {
+    const child = try sema.coerceInMemoryAllowed(
+        block,
+        dest_child,
+        src_child,
+        // We must also include `dest_is_mut`.
+        // Otherwise, this code is valid:
+        //
+        // const b: B = ...;
+        // var pa: *const A = undefined;
+        // const ppa: **const A = &pa;
+        // const ppb: **const B = ppa; // <-- this is what that allows
+        // ppb.* = &b;
+        // const a: A = pa.*;
+        //
+        // ...effectively performing an in-memory coercion from B to A.
+        dest_is_mut or !dest_info.flags.is_const,
+        target,
+        dest_src,
+        src_src,
+        null,
+    );
+    if (child != .ok and !dest_is_mut) allow: {
         // As a special case, we also allow coercing `*[n:s]T` to `*[n]T`, akin to dropping the sentinel from a slice.
         // `*[n:s]T` cannot coerce in memory to `*[n]T` since they have different sizes.
         if (src_child.zigTypeTag(zcu) == .array and dest_child.zigTypeTag(zcu) == .array and
@@ -31732,30 +31791,17 @@ fn coerceInMemoryAllowedPtrs(
         {
             break :allow;
         }
-        return InMemoryCoercionResult{ .ptr_child = .{
+        return .{ .ptr_child = .{
             .child = try child.dupe(sema.arena),
-            .actual = Type.fromInterned(src_info.child),
-            .wanted = Type.fromInterned(dest_info.child),
-        } };
-    }
-
-    const dest_allow_zero = dest_ty.ptrAllowsZero(zcu);
-    const src_allow_zero = src_ty.ptrAllowsZero(zcu);
-
-    const ok_allows_zero = (dest_allow_zero and
-        (src_allow_zero or !dest_is_mut)) or
-        (!dest_allow_zero and !src_allow_zero);
-    if (!ok_allows_zero) {
-        return InMemoryCoercionResult{ .ptr_allowzero = .{
-            .actual = src_ty,
-            .wanted = dest_ty,
+            .actual = .fromInterned(src_info.child),
+            .wanted = .fromInterned(dest_info.child),
         } };
     }
 
     if (src_info.packed_offset.host_size != dest_info.packed_offset.host_size or
         src_info.packed_offset.bit_offset != dest_info.packed_offset.bit_offset)
     {
-        return InMemoryCoercionResult{ .ptr_bit_range = .{
+        return .{ .ptr_bit_range = .{
             .actual_host = src_info.packed_offset.host_size,
             .wanted_host = dest_info.packed_offset.host_size,
             .actual_offset = src_info.packed_offset.bit_offset,
@@ -31763,11 +31809,20 @@ fn coerceInMemoryAllowedPtrs(
         } };
     }
 
-    const ok_sent = dest_info.sentinel == .none or src_info.flags.size == .C or
-        (src_info.sentinel != .none and
-        dest_info.sentinel == try zcu.intern_pool.getCoerced(sema.gpa, pt.tid, src_info.sentinel, dest_info.child));
-    if (!ok_sent) {
-        return InMemoryCoercionResult{ .ptr_sentinel = .{
+    const sentinel_ok = ok: {
+        const ss = src_info.sentinel;
+        const ds = dest_info.sentinel;
+        if (ss == .none and ds == .none) break :ok true;
+        if (ss != .none and ds != .none) {
+            if (ds == try zcu.intern_pool.getCoerced(sema.gpa, pt.tid, ss, dest_info.child)) break :ok true;
+        }
+        if (src_info.flags.size == .C) break :ok true;
+        if (!dest_is_mut and dest_info.sentinel == .none) break :ok true;
+        break :ok false;
+    };
+
+    if (!sentinel_ok) {
+        return .{ .ptr_sentinel = .{
             .actual = switch (src_info.sentinel) {
                 .none => Value.@"unreachable",
                 else => Value.fromInterned(src_info.sentinel),
@@ -31797,7 +31852,7 @@ fn coerceInMemoryAllowedPtrs(
         else
             try Type.fromInterned(dest_info.child).abiAlignmentSema(pt);
 
-        if (dest_align.compare(.gt, src_align)) {
+        if (dest_align.compare(if (dest_is_mut) .neq else .gt, src_align)) {
             return InMemoryCoercionResult{ .ptr_alignment = .{
                 .actual = src_align,
                 .wanted = dest_align,
@@ -32289,19 +32344,23 @@ fn checkPtrAttributes(sema: *Sema, dest_ty: Type, inst_ty: Type, in_memory_resul
         (Type.fromInterned(inst_info.child).arrayLen(zcu) == 0 and dest_info.sentinel == .none and dest_info.flags.size != .C and dest_info.flags.size != .Many))) or
         (Type.fromInterned(inst_info.child).isTuple(zcu) and Type.fromInterned(inst_info.child).structFieldCount(zcu) == 0);
 
-    const ok_cv_qualifiers =
-        ((!inst_info.flags.is_const or dest_info.flags.is_const) or len0) and
-        (!inst_info.flags.is_volatile or dest_info.flags.is_volatile);
-
-    if (!ok_cv_qualifiers) {
-        in_memory_result.* = .{ .ptr_qualifiers = .{
-            .actual_const = inst_info.flags.is_const,
-            .wanted_const = dest_info.flags.is_const,
-            .actual_volatile = inst_info.flags.is_volatile,
-            .wanted_volatile = dest_info.flags.is_volatile,
+    const ok_const = (!inst_info.flags.is_const or dest_info.flags.is_const) or len0;
+    const ok_volatile = !inst_info.flags.is_volatile or dest_info.flags.is_volatile;
+    if (!ok_const) {
+        in_memory_result.* = .{ .ptr_const = .{
+            .actual = inst_ty,
+            .wanted = dest_ty,
         } };
         return false;
     }
+    if (!ok_volatile) {
+        in_memory_result.* = .{ .ptr_volatile = .{
+            .actual = inst_ty,
+            .wanted = dest_ty,
+        } };
+        return false;
+    }
+
     if (dest_info.flags.address_space != inst_info.flags.address_space) {
         in_memory_result.* = .{ .ptr_addrspace = .{
             .actual = inst_info.flags.address_space,
@@ -35478,11 +35537,11 @@ fn resolvePeerTypesInner(
                     .peer_idx_b = i,
                 } };
                 // ty -> cur_ty
-                if (.ok == try sema.coerceInMemoryAllowedFns(block, cur_ty, ty, target, src, src)) {
+                if (.ok == try sema.coerceInMemoryAllowedFns(block, cur_ty, ty, false, target, src, src)) {
                     continue;
                 }
                 // cur_ty -> ty
-                if (.ok == try sema.coerceInMemoryAllowedFns(block, ty, cur_ty, target, src, src)) {
+                if (.ok == try sema.coerceInMemoryAllowedFns(block, ty, cur_ty, false, target, src, src)) {
                     opt_cur_ty = ty;
                     continue;
                 }
@@ -35871,12 +35930,12 @@ fn resolvePairInMemoryCoercible(sema: *Sema, block: *Block, src: LazySrcLoc, ty_
     const target = sema.pt.zcu.getTarget();
 
     // ty_b -> ty_a
-    if (.ok == try sema.coerceInMemoryAllowed(block, ty_a, ty_b, true, target, src, src, null)) {
+    if (.ok == try sema.coerceInMemoryAllowed(block, ty_a, ty_b, false, target, src, src, null)) {
         return ty_a;
     }
 
     // ty_a -> ty_b
-    if (.ok == try sema.coerceInMemoryAllowed(block, ty_b, ty_a, true, target, src, src, null)) {
+    if (.ok == try sema.coerceInMemoryAllowed(block, ty_b, ty_a, false, target, src, src, null)) {
         return ty_b;
     }
 
@@ -36864,7 +36923,7 @@ fn structFields(
             if (is_comptime) struct_type.setFieldComptime(ip, field_i);
 
             const field_name_zir: [:0]const u8 = zir.nullTerminatedString(@enumFromInt(zir.extra[extra_index]));
-            extra_index += 2; // field_name, doc_comment
+            extra_index += 1; // field_name
 
             fields[field_i] = .{};
 
@@ -37044,7 +37103,7 @@ fn structFieldInits(
             const has_type_body = @as(u1, @truncate(cur_bit_bag)) != 0;
             cur_bit_bag >>= 1;
 
-            extra_index += 2; // field_name, doc_comment
+            extra_index += 1; // field_name
 
             fields[field_i] = .{};
 
@@ -37263,9 +37322,6 @@ fn unionFields(
 
         const field_name_index: Zir.NullTerminatedString = @enumFromInt(zir.extra[extra_index]);
         const field_name_zir = zir.nullTerminatedString(field_name_index);
-        extra_index += 1;
-
-        // doc_comment
         extra_index += 1;
 
         const field_type_ref: Zir.Inst.Ref = if (has_type) blk: {
@@ -39132,7 +39188,7 @@ pub fn resolveDeclaredEnum(
 
         const field_name_index: Zir.NullTerminatedString = @enumFromInt(zir.extra[extra_index]);
         const field_name_zir = zir.nullTerminatedString(field_name_index);
-        extra_index += 2; // field name, doc comment
+        extra_index += 1; // field name
 
         const field_name = try ip.getOrPutString(gpa, pt.tid, field_name_zir, .no_embedded_nulls);
 

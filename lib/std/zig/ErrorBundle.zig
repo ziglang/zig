@@ -507,7 +507,7 @@ pub const Wip = struct {
             }
 
             if (item.data.notes != 0) {
-                const notes_start = try eb.reserveNotes(item.data.notes);
+                const notes_start = try eb.reserveNotes(item.data.notesLen(zir));
                 const block = zir.extraData(Zir.Inst.Block, item.data.notes);
                 const body = zir.extra[block.end..][0..block.data.body_len];
                 for (notes_start.., body) |note_i, body_elem| {
@@ -543,6 +543,77 @@ pub const Wip = struct {
                     }));
                     eb.extra.items[note_i] = note_index;
                 }
+            }
+        }
+    }
+
+    pub fn addZoirErrorMessages(
+        eb: *ErrorBundle.Wip,
+        zoir: std.zig.Zoir,
+        tree: std.zig.Ast,
+        source: [:0]const u8,
+        src_path: []const u8,
+    ) !void {
+        assert(zoir.hasCompileErrors());
+
+        for (zoir.compile_errors) |err| {
+            const err_span: std.zig.Ast.Span = span: {
+                if (err.token == std.zig.Zoir.CompileError.invalid_token) {
+                    break :span tree.nodeToSpan(err.node_or_offset);
+                }
+                const token_start = tree.tokens.items(.start)[err.token];
+                const start = token_start + err.node_or_offset;
+                const end = token_start + @as(u32, @intCast(tree.tokenSlice(err.token).len));
+                break :span .{ .start = start, .end = end, .main = start };
+            };
+            const err_loc = std.zig.findLineColumn(source, err_span.main);
+
+            try eb.addRootErrorMessage(.{
+                .msg = try eb.addString(err.msg.get(zoir)),
+                .src_loc = try eb.addSourceLocation(.{
+                    .src_path = try eb.addString(src_path),
+                    .span_start = err_span.start,
+                    .span_main = err_span.main,
+                    .span_end = err_span.end,
+                    .line = @intCast(err_loc.line),
+                    .column = @intCast(err_loc.column),
+                    .source_line = try eb.addString(err_loc.source_line),
+                }),
+                .notes_len = err.note_count,
+            });
+
+            const notes_start = try eb.reserveNotes(err.note_count);
+            for (notes_start.., err.first_note.., 0..err.note_count) |eb_note_idx, zoir_note_idx, _| {
+                const note = zoir.error_notes[zoir_note_idx];
+                const note_span: std.zig.Ast.Span = span: {
+                    if (note.token == std.zig.Zoir.CompileError.invalid_token) {
+                        break :span tree.nodeToSpan(note.node_or_offset);
+                    }
+                    const token_start = tree.tokens.items(.start)[note.token];
+                    const start = token_start + note.node_or_offset;
+                    const end = token_start + @as(u32, @intCast(tree.tokenSlice(note.token).len));
+                    break :span .{ .start = start, .end = end, .main = start };
+                };
+                const note_loc = std.zig.findLineColumn(source, note_span.main);
+
+                // This line can cause `wip.extra.items` to be resized.
+                const note_index = @intFromEnum(try eb.addErrorMessage(.{
+                    .msg = try eb.addString(note.msg.get(zoir)),
+                    .src_loc = try eb.addSourceLocation(.{
+                        .src_path = try eb.addString(src_path),
+                        .span_start = note_span.start,
+                        .span_main = note_span.main,
+                        .span_end = note_span.end,
+                        .line = @intCast(note_loc.line),
+                        .column = @intCast(note_loc.column),
+                        .source_line = if (note_loc.eql(err_loc))
+                            0
+                        else
+                            try eb.addString(note_loc.source_line),
+                    }),
+                    .notes_len = 0,
+                }));
+                eb.extra.items[eb_note_idx] = note_index;
             }
         }
     }

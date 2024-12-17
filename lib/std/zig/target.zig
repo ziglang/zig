@@ -70,7 +70,6 @@ pub const available_libcs = [_]ArchOsAbi{
     .{ .arch = .s390x, .os = .linux, .abi = .musl },
     .{ .arch = .sparc, .os = .linux, .abi = .gnu, .glibc_triple = "sparcv9-linux-gnu" },
     .{ .arch = .sparc64, .os = .linux, .abi = .gnu },
-    .{ .arch = .wasm32, .os = .freestanding, .abi = .musl },
     .{ .arch = .wasm32, .os = .wasi, .abi = .musl },
     .{ .arch = .x86, .os = .linux, .abi = .gnu },
     .{ .arch = .x86, .os = .linux, .abi = .musl },
