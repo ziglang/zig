@@ -315,8 +315,8 @@ fn fetchTarget(
     ver: Version,
     tmp: std.testing.TmpDir,
 ) !void {
-    const tmp_filename = "headers";
-    const headers_list_filename = "headers.o.d";
+    const tmp_filename = "macos-headers";
+    const headers_list_filename = "macos-headers.o.d";
     const tmp_path = try tmp.dir.realpathAlloc(arena, ".");
     const tmp_file_path = try fs.path.join(arena, &[_][]const u8{ tmp_path, tmp_filename });
     const headers_list_path = try fs.path.join(arena, &[_][]const u8{ tmp_path, headers_list_filename });
