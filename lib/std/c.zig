@@ -9201,7 +9201,7 @@ pub const getentropy = switch (native_os) {
 };
 pub const getrandom = switch (native_os) {
     .freebsd => private.getrandom,
-    .linux => if (versionCheck(.{ .major = 2, .minor = 25, .patch = 0 })) private.getrandom else {},
+    .linux => if (!builtin.abi.isAndroid() and versionCheck(.{ .major = 2, .minor = 25, .patch = 0 })) private.getrandom else if (builtin.abi.isAndroid() and versionCheck(.{ .major = 28, .minor = 0, .patch = 0 })) private.getrandom else {},
     else => {},
 };
 
