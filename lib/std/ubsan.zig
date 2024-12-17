@@ -146,7 +146,7 @@ fn overflowHandler(
 
             const is_signed = data.type_descriptor.isSigned();
             const fmt = "{s} integer overflow: " ++ "{} " ++
-                operator ++ " {} cannot be represented in type {s}\n";
+                operator ++ " {} cannot be represented in type {s}";
 
             logMessage(fmt, .{
                 if (is_signed) "signed" else "unsigned",
@@ -166,7 +166,7 @@ fn negationHandler(
 ) callconv(.C) noreturn {
     const old_value = old_value_handle.getValue(data);
     logMessage(
-        "negation of {} cannot be represented in type {s}\n",
+        "negation of {} cannot be represented in type {s}",
         .{ old_value, data.type_descriptor.getName() },
     );
 }
@@ -182,10 +182,10 @@ fn divRemHandler(
 
     if (is_signed and rhs.getSignedInteger() == -1) {
         logMessage(
-            "division of {} by -1 cannot be represented in type {s}\n",
+            "division of {} by -1 cannot be represented in type {s}",
             .{ lhs, data.type_descriptor.getName() },
         );
-    } else logMessage("division by zero\n", .{});
+    } else logMessage("division by zero", .{});
 }
 
 const AlignmentAssumptionData = extern struct {
@@ -212,12 +212,12 @@ fn alignmentAssumptionHandler(
 
     if (maybe_offset) |offset| {
         logMessage(
-            "assumption of {} byte alignment (with offset of {} byte) for pointer of type {s} failed\n",
+            "assumption of {} byte alignment (with offset of {} byte) for pointer of type {s} failed",
             .{ alignment.getValue(data), @intFromPtr(offset), data.type_descriptor.getName() },
         );
     } else {
         logMessage(
-            "assumption of {} byte alignment for pointer of type {s} failed\n",
+            "assumption of {} byte alignment for pointer of type {s} failed",
             .{ alignment.getValue(data), data.type_descriptor.getName() },
         );
     }
@@ -241,19 +241,19 @@ fn shiftOob(
         rhs.getPositiveInteger() >= data.lhs_type.getIntegerSize())
     {
         if (rhs.isNegative()) {
-            logMessage("shift exponent {} is negative\n", .{rhs});
+            logMessage("shift exponent {} is negative", .{rhs});
         } else {
             logMessage(
-                "shift exponent {} is too large for {}-bit type {s}\n",
+                "shift exponent {} is too large for {}-bit type {s}",
                 .{ rhs, data.lhs_type.getIntegerSize(), data.lhs_type.getName() },
             );
         }
     } else {
         if (lhs.isNegative()) {
-            logMessage("left shift of negative value {}\n", .{lhs});
+            logMessage("left shift of negative value {}", .{lhs});
         } else {
             logMessage(
-                "left shift of {} by {} places cannot be represented in type {s}\n",
+                "left shift of {} by {} places cannot be represented in type {s}",
                 .{ lhs, rhs, data.lhs_type.getName() },
             );
         }
@@ -269,7 +269,7 @@ const OutOfBoundsData = extern struct {
 fn outOfBounds(data: *const OutOfBoundsData, index_handle: ValueHandle) callconv(.C) noreturn {
     const index: Value = .{ .handle = index_handle, .type_descriptor = data.index_type };
     logMessage(
-        "index {} out of bounds for type {s}\n",
+        "index {} out of bounds for type {s}",
         .{ index, data.array_type.getName() },
     );
 }
@@ -285,14 +285,14 @@ fn pointerOverflow(
 ) callconv(.C) noreturn {
     if (base == 0) {
         if (result == 0) {
-            logMessage("applying zero offset to null pointer\n", .{});
+            logMessage("applying zero offset to null pointer", .{});
         } else {
-            logMessage("applying non-zero offset {} to null pointer\n", .{result});
+            logMessage("applying non-zero offset {} to null pointer", .{result});
         }
     } else {
         if (result == 0) {
             logMessage(
-                "applying non-zero offset to non-null pointer 0x{x} produced null pointer\n",
+                "applying non-zero offset to non-null pointer 0x{x} produced null pointer",
                 .{base},
             );
         } else {
@@ -335,9 +335,7 @@ fn simpleHandler(
 }
 
 inline fn logMessage(comptime fmt: []const u8, args: anytype) noreturn {
-    std.debug.print(fmt, args);
-    std.debug.dumpCurrentStackTrace(@returnAddress());
-    std.posix.abort();
+    std.debug.panicExtra(null, @returnAddress(), fmt, args);
 }
 
 fn exportHandler(
