@@ -5916,7 +5916,7 @@ pub fn addCCArgs(
                     // These args have to be added after the `-fsanitize` arg or
                     // they won't take effect.
                     if (mod.sanitize_c) {
-                        try argv.append("-fsanitize-trap=undefined");
+                        try argv.append("-fno-sanitize=vptr");
                         // It is very common, and well-defined, for a pointer on one side of a C ABI
                         // to have a different but compatible element type. Examples include:
                         // `char*` vs `uint8_t*` on a system with 8-bit bytes
