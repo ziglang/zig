@@ -1462,16 +1462,6 @@ pub const MapIndex = enum(u32) {
     }
 };
 
-pub const RuntimeIndex = enum(u32) {
-    zero = 0,
-    comptime_field_ptr = std.math.maxInt(u32),
-    _,
-
-    pub fn increment(ri: *RuntimeIndex) void {
-        ri.* = @enumFromInt(@intFromEnum(ri.*) + 1);
-    }
-};
-
 pub const ComptimeAllocIndex = enum(u32) { _ };
 
 pub const NamespaceIndex = enum(u32) {
@@ -9788,7 +9778,6 @@ fn addExtraAssumeCapacity(extra: Local.Extra.Mutable, item: anytype) u32 {
             OptionalNamespaceIndex,
             MapIndex,
             OptionalMapIndex,
-            RuntimeIndex,
             String,
             NullTerminatedString,
             OptionalNullTerminatedString,
@@ -9852,7 +9841,6 @@ fn extraDataTrail(extra: Local.Extra, comptime T: type, index: u32) struct { dat
             OptionalNamespaceIndex,
             MapIndex,
             OptionalMapIndex,
-            RuntimeIndex,
             String,
             NullTerminatedString,
             OptionalNullTerminatedString,

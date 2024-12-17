@@ -122,9 +122,19 @@ allow_memoize: bool = true,
 /// This state is on `Sema` so that `cold` hints can be propagated up through blocks with less special handling.
 branch_hint: ?std.builtin.BranchHint = null,
 
+const RuntimeIndex = enum(u32) {
+    zero = 0,
+    comptime_field_ptr = std.math.maxInt(u32),
+    _,
+
+    pub fn increment(ri: *RuntimeIndex) void {
+        ri.* = @enumFromInt(@intFromEnum(ri.*) + 1);
+    }
+};
+
 const MaybeComptimeAlloc = struct {
     /// The runtime index of the `alloc` instruction.
-    runtime_index: Value.RuntimeIndex,
+    runtime_index: RuntimeIndex,
     /// Backed by sema.arena. Tracks all comptime-known stores to this `alloc`. Due to
     /// RLS, a single comptime-known allocation may have arbitrarily many stores.
     /// This list also contains `set_union_tag`, `optional_payload_ptr_set`, and
@@ -144,7 +154,7 @@ const ComptimeAlloc = struct {
     /// This is the `runtime_index` at the point of this allocation. If an store
     /// to this alloc ever occurs with a runtime index greater than this one, it
     /// is behind a runtime condition, so a compile error will be emitted.
-    runtime_index: Value.RuntimeIndex,
+    runtime_index: RuntimeIndex,
 };
 
 fn newComptimeAlloc(sema: *Sema, block: *Block, ty: Type, alignment: Alignment) !ComptimeAllocIndex {
@@ -364,7 +374,7 @@ pub const Block = struct {
     runtime_loop: ?LazySrcLoc = null,
     /// Non zero if a non-inline loop or a runtime conditional have been encountered.
     /// Stores to comptime variables are only allowed when var.runtime_index <= runtime_index.
-    runtime_index: Value.RuntimeIndex = .zero,
+    runtime_index: RuntimeIndex = .zero,
     inline_block: Zir.Inst.OptionalIndex = .none,
 
     comptime_reason: ?*const ComptimeReason = null,
