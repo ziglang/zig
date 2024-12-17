@@ -2636,6 +2636,7 @@ pub const Inst = struct {
         /// The name of this `Decl`. Also indicates whether it is a test, comptime block, etc.
         name: Name,
         src_line: u32,
+        src_column: u32,
         flags: Flags,
 
         pub const Flags = packed struct(u32) {

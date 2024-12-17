@@ -4151,6 +4151,8 @@ fn fnDecl(
     };
     defer fn_gz.unstack();
 
+    const decl_column = astgen.source_column;
+
     // Set this now, since parameter types, return type, etc may be generic.
     const prev_within_fn = astgen.within_fn;
     defer astgen.within_fn = prev_within_fn;
@@ -4523,6 +4525,7 @@ fn fnDecl(
         hash,
         .{ .named = fn_name_token },
         decl_gz.decl_line,
+        decl_column,
         is_pub,
         is_export,
         &decl_gz,
@@ -4567,6 +4570,8 @@ fn globalVarDecl(
         .instructions_top = gz.instructions.items.len,
     };
     defer block_scope.unstack();
+
+    const decl_column = astgen.source_column;
 
     const is_pub = var_decl.visib_token != null;
     const is_export = blk: {
@@ -4693,6 +4698,7 @@ fn globalVarDecl(
         hash,
         .{ .named = name_token },
         block_scope.decl_line,
+        decl_column,
         is_pub,
         is_export,
         &block_scope,
@@ -4738,6 +4744,8 @@ fn comptimeDecl(
     };
     defer decl_block.unstack();
 
+    const decl_column = astgen.source_column;
+
     const block_result = try fullBodyExpr(&decl_block, &decl_block.base, .{ .rl = .none }, body_node, .normal);
     if (decl_block.isEmpty() or !decl_block.refIsNoReturn(block_result)) {
         _ = try decl_block.addBreak(.break_inline, decl_inst, .void_value);
@@ -4750,6 +4758,7 @@ fn comptimeDecl(
         hash,
         .@"comptime",
         decl_block.decl_line,
+        decl_column,
         false,
         false,
         &decl_block,
@@ -4797,6 +4806,8 @@ fn usingnamespaceDecl(
     };
     defer decl_block.unstack();
 
+    const decl_column = astgen.source_column;
+
     const namespace_inst = try typeExpr(&decl_block, &decl_block.base, type_expr);
     _ = try decl_block.addBreak(.break_inline, decl_inst, namespace_inst);
 
@@ -4807,6 +4818,7 @@ fn usingnamespaceDecl(
         hash,
         .@"usingnamespace",
         decl_block.decl_line,
+        decl_column,
         is_pub,
         false,
         &decl_block,
@@ -4848,6 +4860,8 @@ fn testDecl(
         .instructions_top = gz.instructions.items.len,
     };
     defer decl_block.unstack();
+
+    const decl_column = astgen.source_column;
 
     const main_tokens = tree.nodes.items(.main_token);
     const token_tags = tree.tokens.items(.tag);
@@ -5013,6 +5027,7 @@ fn testDecl(
         hash,
         test_name,
         decl_block.decl_line,
+        decl_column,
         false,
         false,
         &decl_block,
@@ -14013,6 +14028,7 @@ fn addFailedDeclaration(
         @splat(0), // use a fixed hash to represent an AstGen failure; we don't care about source changes if AstGen still failed!
         name,
         gz.astgen.source_line,
+        gz.astgen.source_column,
         is_pub,
         false, // we don't care about exports since semantic analysis will fail
         &decl_gz,
@@ -14027,6 +14043,7 @@ fn setDeclaration(
     src_hash: std.zig.SrcHash,
     name: DeclarationName,
     src_line: u32,
+    src_column: u32,
     is_pub: bool,
     is_export: bool,
     value_gz: *GenZir,
@@ -14079,6 +14096,7 @@ fn setDeclaration(
             .@"usingnamespace" => .@"usingnamespace",
         },
         .src_line = src_line,
+        .src_column = src_column,
         .flags = .{
             .value_body_len = @intCast(value_len),
             .is_pub = is_pub,
