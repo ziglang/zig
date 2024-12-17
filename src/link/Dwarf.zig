@@ -2277,12 +2277,10 @@ pub fn initWipNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool.Nav.In
                         => DW.ACCESS.private,
                         _ => if (decl_extra.name.isNamedTest(file.zir))
                             DW.ACCESS.private
-                        else if (parent_namespace_ptr.pub_decls.containsContext(nav_index, .{ .zcu = zcu }))
+                        else if (decl_extra.flags.is_pub)
                             DW.ACCESS.public
-                        else if (parent_namespace_ptr.priv_decls.containsContext(nav_index, .{ .zcu = zcu }))
-                            DW.ACCESS.private
                         else
-                            unreachable,
+                            DW.ACCESS.private,
                     },
                 };
             } else .{ zcu.fileRootType(inst_info.file), DW.ACCESS.private };
@@ -2326,12 +2324,10 @@ pub fn initWipNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool.Nav.In
                         => DW.ACCESS.private,
                         _ => if (decl_extra.name.isNamedTest(file.zir))
                             DW.ACCESS.private
-                        else if (parent_namespace_ptr.pub_decls.containsContext(nav_index, .{ .zcu = zcu }))
+                        else if (decl_extra.flags.is_pub)
                             DW.ACCESS.public
-                        else if (parent_namespace_ptr.priv_decls.containsContext(nav_index, .{ .zcu = zcu }))
-                            DW.ACCESS.private
                         else
-                            unreachable,
+                            DW.ACCESS.private,
                     },
                 };
             } else .{ zcu.fileRootType(inst_info.file), DW.ACCESS.private };
@@ -2373,12 +2369,10 @@ pub fn initWipNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool.Nav.In
                         => DW.ACCESS.private,
                         _ => if (decl_extra.name.isNamedTest(file.zir))
                             DW.ACCESS.private
-                        else if (parent_namespace_ptr.pub_decls.containsContext(nav_index, .{ .zcu = zcu }))
+                        else if (decl_extra.flags.is_pub)
                             DW.ACCESS.public
-                        else if (parent_namespace_ptr.priv_decls.containsContext(nav_index, .{ .zcu = zcu }))
-                            DW.ACCESS.private
                         else
-                            unreachable,
+                            DW.ACCESS.private,
                     },
                 };
             } else .{ zcu.fileRootType(inst_info.file), DW.ACCESS.private };
@@ -2624,12 +2618,7 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
         const parent_namespace_ptr = ip.namespacePtr(ip.getCau(cau).namespace);
         break :parent .{
             parent_namespace_ptr.owner_type,
-            if (parent_namespace_ptr.pub_decls.containsContext(nav_index, .{ .zcu = zcu }))
-                DW.ACCESS.public
-            else if (parent_namespace_ptr.priv_decls.containsContext(nav_index, .{ .zcu = zcu }))
-                DW.ACCESS.private
-            else
-                unreachable,
+            if (decl_extra.data.flags.is_pub) DW.ACCESS.public else DW.ACCESS.private,
         };
     } else .{ zcu.fileRootType(inst_info.file), DW.ACCESS.private };
 
