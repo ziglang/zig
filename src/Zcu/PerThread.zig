@@ -1314,11 +1314,11 @@ fn semaCau(pt: Zcu.PerThread, cau_index: InternPool.Cau.Index) !SemaCauResult {
         };
     }
 
-    const queue_linker_work = switch (ip.indexToKey(decl_val.toIntern())) {
-        .func => true, // mote that this lets function aliases reach codegen
-        .variable => |v| v.owner_nav == nav_index,
-        .@"extern" => false,
-        else => true,
+    const queue_linker_work, const is_owned_fn = switch (ip.indexToKey(decl_val.toIntern())) {
+        .func => |f| .{ true, f.owner_nav == nav_index }, // note that this lets function aliases reach codegen
+        .variable => |v| .{ v.owner_nav == nav_index, false },
+        .@"extern" => |e| .{ false, Type.fromInterned(e.ty).zigTypeTag(zcu) == .@"fn" },
+        else => .{ true, false },
     };
 
     // Keep in sync with logic in `Sema.zirVarExtended`.
@@ -1362,6 +1362,28 @@ fn semaCau(pt: Zcu.PerThread, cau_index: InternPool.Cau.Index) !SemaCauResult {
         const addrspace_ref = try sema.resolveInlineBody(&block, addrspace_body, inst_info.inst);
         break :as try sema.analyzeAsAddressSpace(&block, addrspace_src, addrspace_ref, addrspace_ctx);
     };
+
+    if (is_owned_fn) {
+        // linksection etc are legal, except some targets do not support function alignment.
+        if (decl_bodies.align_body != null and !target_util.supportsFunctionAlignment(zcu.getTarget())) {
+            return sema.fail(&block, align_src, "target does not support function alignment", .{});
+        }
+    } else if (try decl_ty.comptimeOnlySema(pt)) {
+        // alignment, linksection, addrspace annotations are not allowed for comptime-only types.
+        const reason: []const u8 = switch (ip.indexToKey(decl_val.toIntern())) {
+            .func => "function alias", // slightly clearer message, since you *can* specify these on function *declarations*
+            else => "comptime-only type",
+        };
+        if (decl_bodies.align_body != null) {
+            return sema.fail(&block, align_src, "cannot specify alignment of {s}", .{reason});
+        }
+        if (decl_bodies.linksection_body != null) {
+            return sema.fail(&block, section_src, "cannot specify linksection of {s}", .{reason});
+        }
+        if (decl_bodies.addrspace_body != null) {
+            return sema.fail(&block, addrspace_src, "cannot specify addrspace of {s}", .{reason});
+        }
+    }
 
     ip.resolveNavValue(nav_index, .{
         .val = decl_val.toIntern(),
