@@ -5365,7 +5365,7 @@ pub const Tag = enum(u8) {
                 .@"trailing.field_is_comptime_bits.?" = .@"payload.flags.any_comptime_fields",
                 .@"trailing.field_is_comptime_bits.?.len" = .@"(payload.fields_len + 31) / 32",
                 .@"trailing.field_index.?" = .@"!payload.flags.is_extern",
-                .@"trailing.field_index.?.len" = .@"!payload.flags.is_extern",
+                .@"trailing.field_index.?.len" = .@"payload.fields_len",
                 .@"trailing.field_offset.len" = .@"payload.fields_len",
             },
         },
