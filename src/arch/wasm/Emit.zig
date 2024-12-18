@@ -30,6 +30,7 @@ pub fn lowerToCode(emit: *Emit) Error!void {
     const is_obj = comp.config.output_mode == .Obj;
     const target = &comp.root_mod.resolved_target.result;
     const is_wasm32 = target.cpu.arch == .wasm32;
+    const function_imports_len: u32 = @intCast(wasm.function_imports.entries.len);
 
     const tags = mir.instruction_tags;
     const datas = mir.instruction_datas;
@@ -158,8 +159,8 @@ pub fn lowerToCode(emit: *Emit) Error!void {
                 });
                 code.appendNTimesAssumeCapacity(0, 5);
             } else {
-                const func_index = try wasm.navFunctionIndex(datas[inst].nav_index);
-                leb.writeUleb128(code.fixedWriter(), @intFromEnum(func_index)) catch unreachable;
+                const func_index = Wasm.FunctionIndex.fromIpNav(wasm, datas[inst].nav_index).?;
+                leb.writeUleb128(code.fixedWriter(), function_imports_len + @intFromEnum(func_index)) catch unreachable;
             }
 
             inst += 1;
@@ -199,8 +200,8 @@ pub fn lowerToCode(emit: *Emit) Error!void {
                 });
                 code.appendNTimesAssumeCapacity(0, 5);
             } else {
-                const func_index = try wasm.tagNameFunctionIndex(datas[inst].ip_index);
-                leb.writeUleb128(code.fixedWriter(), @intFromEnum(func_index)) catch unreachable;
+                const func_index = Wasm.FunctionIndex.fromTagNameType(wasm, datas[inst].ip_index).?;
+                leb.writeUleb128(code.fixedWriter(), function_imports_len + @intFromEnum(func_index)) catch unreachable;
             }
 
             inst += 1;
@@ -224,8 +225,8 @@ pub fn lowerToCode(emit: *Emit) Error!void {
                 });
                 code.appendNTimesAssumeCapacity(0, 5);
             } else {
-                const func_index = try wasm.symbolNameFunctionIndex(symbol_name);
-                leb.writeUleb128(code.fixedWriter(), @intFromEnum(func_index)) catch unreachable;
+                const func_index = Wasm.FunctionIndex.fromSymbolName(wasm, symbol_name).?;
+                leb.writeUleb128(code.fixedWriter(), function_imports_len + @intFromEnum(func_index)) catch unreachable;
             }
 
             inst += 1;
@@ -282,7 +283,7 @@ pub fn lowerToCode(emit: *Emit) Error!void {
             try code.ensureUnusedCapacity(gpa, 11);
             code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.i64_const));
             const int64: i64 = @bitCast(mir.extraData(Mir.Imm64, datas[inst].payload).data.toInt());
-            leb.writeIleb128(code.writer(), int64) catch unreachable;
+            leb.writeIleb128(code.fixedWriter(), int64) catch unreachable;
 
             inst += 1;
             continue :loop tags[inst];
@@ -314,7 +315,7 @@ pub fn lowerToCode(emit: *Emit) Error!void {
         => {
             try code.ensureUnusedCapacity(gpa, 1 + 20);
             code.appendAssumeCapacity(@intFromEnum(tags[inst]));
-            encodeMemArg(code, mir.extraData(Mir.MemArg, datas[inst]).data);
+            encodeMemArg(code, mir.extraData(Mir.MemArg, datas[inst].payload).data);
             inst += 1;
             continue :loop tags[inst];
         },
@@ -504,6 +505,13 @@ pub fn lowerToCode(emit: *Emit) Error!void {
                     continue :loop tags[inst];
                 },
 
+                .table_init => @panic("TODO"),
+                .elem_drop => @panic("TODO"),
+                .table_copy => @panic("TODO"),
+                .table_grow => @panic("TODO"),
+                .table_size => @panic("TODO"),
+                .table_fill => @panic("TODO"),
+
                 _ => unreachable,
             }
             comptime unreachable;
@@ -560,7 +568,236 @@ pub fn lowerToCode(emit: *Emit) Error!void {
                     inst += 1;
                     continue :loop tags[inst];
                 },
-                _ => unreachable,
+
+                .v128_load8x8_s => @panic("TODO"),
+                .v128_load8x8_u => @panic("TODO"),
+                .v128_load16x4_s => @panic("TODO"),
+                .v128_load16x4_u => @panic("TODO"),
+                .v128_load32x2_s => @panic("TODO"),
+                .v128_load32x2_u => @panic("TODO"),
+                .i8x16_swizzle => @panic("TODO"),
+                .i8x16_eq => @panic("TODO"),
+                .i16x8_eq => @panic("TODO"),
+                .i32x4_eq => @panic("TODO"),
+                .i8x16_ne => @panic("TODO"),
+                .i16x8_ne => @panic("TODO"),
+                .i32x4_ne => @panic("TODO"),
+                .i8x16_lt_s => @panic("TODO"),
+                .i16x8_lt_s => @panic("TODO"),
+                .i32x4_lt_s => @panic("TODO"),
+                .i8x16_lt_u => @panic("TODO"),
+                .i16x8_lt_u => @panic("TODO"),
+                .i32x4_lt_u => @panic("TODO"),
+                .i8x16_gt_s => @panic("TODO"),
+                .i16x8_gt_s => @panic("TODO"),
+                .i32x4_gt_s => @panic("TODO"),
+                .i8x16_gt_u => @panic("TODO"),
+                .i16x8_gt_u => @panic("TODO"),
+                .i32x4_gt_u => @panic("TODO"),
+                .i8x16_le_s => @panic("TODO"),
+                .i16x8_le_s => @panic("TODO"),
+                .i32x4_le_s => @panic("TODO"),
+                .i8x16_le_u => @panic("TODO"),
+                .i16x8_le_u => @panic("TODO"),
+                .i32x4_le_u => @panic("TODO"),
+                .i8x16_ge_s => @panic("TODO"),
+                .i16x8_ge_s => @panic("TODO"),
+                .i32x4_ge_s => @panic("TODO"),
+                .i8x16_ge_u => @panic("TODO"),
+                .i16x8_ge_u => @panic("TODO"),
+                .i32x4_ge_u => @panic("TODO"),
+                .f32x4_eq => @panic("TODO"),
+                .f64x2_eq => @panic("TODO"),
+                .f32x4_ne => @panic("TODO"),
+                .f64x2_ne => @panic("TODO"),
+                .f32x4_lt => @panic("TODO"),
+                .f64x2_lt => @panic("TODO"),
+                .f32x4_gt => @panic("TODO"),
+                .f64x2_gt => @panic("TODO"),
+                .f32x4_le => @panic("TODO"),
+                .f64x2_le => @panic("TODO"),
+                .f32x4_ge => @panic("TODO"),
+                .f64x2_ge => @panic("TODO"),
+                .v128_not => @panic("TODO"),
+                .v128_and => @panic("TODO"),
+                .v128_andnot => @panic("TODO"),
+                .v128_or => @panic("TODO"),
+                .v128_xor => @panic("TODO"),
+                .v128_bitselect => @panic("TODO"),
+                .v128_any_true => @panic("TODO"),
+                .v128_load8_lane => @panic("TODO"),
+                .v128_load16_lane => @panic("TODO"),
+                .v128_load32_lane => @panic("TODO"),
+                .v128_load64_lane => @panic("TODO"),
+                .v128_store8_lane => @panic("TODO"),
+                .v128_store16_lane => @panic("TODO"),
+                .v128_store32_lane => @panic("TODO"),
+                .v128_store64_lane => @panic("TODO"),
+                .v128_load32_zero => @panic("TODO"),
+                .v128_load64_zero => @panic("TODO"),
+                .f32x4_demote_f64x2_zero => @panic("TODO"),
+                .f64x2_promote_low_f32x4 => @panic("TODO"),
+                .i8x16_abs => @panic("TODO"),
+                .i16x8_abs => @panic("TODO"),
+                .i32x4_abs => @panic("TODO"),
+                .i64x2_abs => @panic("TODO"),
+                .i8x16_neg => @panic("TODO"),
+                .i16x8_neg => @panic("TODO"),
+                .i32x4_neg => @panic("TODO"),
+                .i64x2_neg => @panic("TODO"),
+                .i8x16_popcnt => @panic("TODO"),
+                .i16x8_q15mulr_sat_s => @panic("TODO"),
+                .i8x16_all_true => @panic("TODO"),
+                .i16x8_all_true => @panic("TODO"),
+                .i32x4_all_true => @panic("TODO"),
+                .i64x2_all_true => @panic("TODO"),
+                .i8x16_bitmask => @panic("TODO"),
+                .i16x8_bitmask => @panic("TODO"),
+                .i32x4_bitmask => @panic("TODO"),
+                .i64x2_bitmask => @panic("TODO"),
+                .i8x16_narrow_i16x8_s => @panic("TODO"),
+                .i16x8_narrow_i32x4_s => @panic("TODO"),
+                .i8x16_narrow_i16x8_u => @panic("TODO"),
+                .i16x8_narrow_i32x4_u => @panic("TODO"),
+                .f32x4_ceil => @panic("TODO"),
+                .i16x8_extend_low_i8x16_s => @panic("TODO"),
+                .i32x4_extend_low_i16x8_s => @panic("TODO"),
+                .i64x2_extend_low_i32x4_s => @panic("TODO"),
+                .f32x4_floor => @panic("TODO"),
+                .i16x8_extend_high_i8x16_s => @panic("TODO"),
+                .i32x4_extend_high_i16x8_s => @panic("TODO"),
+                .i64x2_extend_high_i32x4_s => @panic("TODO"),
+                .f32x4_trunc => @panic("TODO"),
+                .i16x8_extend_low_i8x16_u => @panic("TODO"),
+                .i32x4_extend_low_i16x8_u => @panic("TODO"),
+                .i64x2_extend_low_i32x4_u => @panic("TODO"),
+                .f32x4_nearest => @panic("TODO"),
+                .i16x8_extend_high_i8x16_u => @panic("TODO"),
+                .i32x4_extend_high_i16x8_u => @panic("TODO"),
+                .i64x2_extend_high_i32x4_u => @panic("TODO"),
+                .i8x16_shl => @panic("TODO"),
+                .i16x8_shl => @panic("TODO"),
+                .i32x4_shl => @panic("TODO"),
+                .i64x2_shl => @panic("TODO"),
+                .i8x16_shr_s => @panic("TODO"),
+                .i16x8_shr_s => @panic("TODO"),
+                .i32x4_shr_s => @panic("TODO"),
+                .i64x2_shr_s => @panic("TODO"),
+                .i8x16_shr_u => @panic("TODO"),
+                .i16x8_shr_u => @panic("TODO"),
+                .i32x4_shr_u => @panic("TODO"),
+                .i64x2_shr_u => @panic("TODO"),
+                .i8x16_add => @panic("TODO"),
+                .i16x8_add => @panic("TODO"),
+                .i32x4_add => @panic("TODO"),
+                .i64x2_add => @panic("TODO"),
+                .i8x16_add_sat_s => @panic("TODO"),
+                .i16x8_add_sat_s => @panic("TODO"),
+                .i8x16_add_sat_u => @panic("TODO"),
+                .i16x8_add_sat_u => @panic("TODO"),
+                .i8x16_sub => @panic("TODO"),
+                .i16x8_sub => @panic("TODO"),
+                .i32x4_sub => @panic("TODO"),
+                .i64x2_sub => @panic("TODO"),
+                .i8x16_sub_sat_s => @panic("TODO"),
+                .i16x8_sub_sat_s => @panic("TODO"),
+                .i8x16_sub_sat_u => @panic("TODO"),
+                .i16x8_sub_sat_u => @panic("TODO"),
+                .f64x2_ceil => @panic("TODO"),
+                .f64x2_nearest => @panic("TODO"),
+                .f64x2_floor => @panic("TODO"),
+                .i16x8_mul => @panic("TODO"),
+                .i32x4_mul => @panic("TODO"),
+                .i64x2_mul => @panic("TODO"),
+                .i8x16_min_s => @panic("TODO"),
+                .i16x8_min_s => @panic("TODO"),
+                .i32x4_min_s => @panic("TODO"),
+                .i64x2_eq => @panic("TODO"),
+                .i8x16_min_u => @panic("TODO"),
+                .i16x8_min_u => @panic("TODO"),
+                .i32x4_min_u => @panic("TODO"),
+                .i64x2_ne => @panic("TODO"),
+                .i8x16_max_s => @panic("TODO"),
+                .i16x8_max_s => @panic("TODO"),
+                .i32x4_max_s => @panic("TODO"),
+                .i64x2_lt_s => @panic("TODO"),
+                .i8x16_max_u => @panic("TODO"),
+                .i16x8_max_u => @panic("TODO"),
+                .i32x4_max_u => @panic("TODO"),
+                .i64x2_gt_s => @panic("TODO"),
+                .f64x2_trunc => @panic("TODO"),
+                .i32x4_dot_i16x8_s => @panic("TODO"),
+                .i64x2_le_s => @panic("TODO"),
+                .i8x16_avgr_u => @panic("TODO"),
+                .i16x8_avgr_u => @panic("TODO"),
+                .i64x2_ge_s => @panic("TODO"),
+                .i16x8_extadd_pairwise_i8x16_s => @panic("TODO"),
+                .i16x8_extmul_low_i8x16_s => @panic("TODO"),
+                .i32x4_extmul_low_i16x8_s => @panic("TODO"),
+                .i64x2_extmul_low_i32x4_s => @panic("TODO"),
+                .i16x8_extadd_pairwise_i8x16_u => @panic("TODO"),
+                .i16x8_extmul_high_i8x16_s => @panic("TODO"),
+                .i32x4_extmul_high_i16x8_s => @panic("TODO"),
+                .i64x2_extmul_high_i32x4_s => @panic("TODO"),
+                .i32x4_extadd_pairwise_i16x8_s => @panic("TODO"),
+                .i16x8_extmul_low_i8x16_u => @panic("TODO"),
+                .i32x4_extmul_low_i16x8_u => @panic("TODO"),
+                .i64x2_extmul_low_i32x4_u => @panic("TODO"),
+                .i32x4_extadd_pairwise_i16x8_u => @panic("TODO"),
+                .i16x8_extmul_high_i8x16_u => @panic("TODO"),
+                .i32x4_extmul_high_i16x8_u => @panic("TODO"),
+                .i64x2_extmul_high_i32x4_u => @panic("TODO"),
+                .f32x4_abs => @panic("TODO"),
+                .f64x2_abs => @panic("TODO"),
+                .f32x4_neg => @panic("TODO"),
+                .f64x2_neg => @panic("TODO"),
+                .f32x4_sqrt => @panic("TODO"),
+                .f64x2_sqrt => @panic("TODO"),
+                .f32x4_add => @panic("TODO"),
+                .f64x2_add => @panic("TODO"),
+                .f32x4_sub => @panic("TODO"),
+                .f64x2_sub => @panic("TODO"),
+                .f32x4_mul => @panic("TODO"),
+                .f64x2_mul => @panic("TODO"),
+                .f32x4_div => @panic("TODO"),
+                .f64x2_div => @panic("TODO"),
+                .f32x4_min => @panic("TODO"),
+                .f64x2_min => @panic("TODO"),
+                .f32x4_max => @panic("TODO"),
+                .f64x2_max => @panic("TODO"),
+                .f32x4_pmin => @panic("TODO"),
+                .f64x2_pmin => @panic("TODO"),
+                .f32x4_pmax => @panic("TODO"),
+                .f64x2_pmax => @panic("TODO"),
+                .i32x4_trunc_sat_f32x4_s => @panic("TODO"),
+                .i32x4_trunc_sat_f32x4_u => @panic("TODO"),
+                .f32x4_convert_i32x4_s => @panic("TODO"),
+                .f32x4_convert_i32x4_u => @panic("TODO"),
+                .i32x4_trunc_sat_f64x2_s_zero => @panic("TODO"),
+                .i32x4_trunc_sat_f64x2_u_zero => @panic("TODO"),
+                .f64x2_convert_low_i32x4_s => @panic("TODO"),
+                .f64x2_convert_low_i32x4_u => @panic("TODO"),
+                .i8x16_relaxed_swizzle => @panic("TODO"),
+                .i32x4_relaxed_trunc_f32x4_s => @panic("TODO"),
+                .i32x4_relaxed_trunc_f32x4_u => @panic("TODO"),
+                .i32x4_relaxed_trunc_f64x2_s_zero => @panic("TODO"),
+                .i32x4_relaxed_trunc_f64x2_u_zero => @panic("TODO"),
+                .f32x4_relaxed_madd => @panic("TODO"),
+                .f32x4_relaxed_nmadd => @panic("TODO"),
+                .f64x2_relaxed_madd => @panic("TODO"),
+                .f64x2_relaxed_nmadd => @panic("TODO"),
+                .i8x16_relaxed_laneselect => @panic("TODO"),
+                .i16x8_relaxed_laneselect => @panic("TODO"),
+                .i32x4_relaxed_laneselect => @panic("TODO"),
+                .i64x2_relaxed_laneselect => @panic("TODO"),
+                .f32x4_relaxed_min => @panic("TODO"),
+                .f32x4_relaxed_max => @panic("TODO"),
+                .f64x2_relaxed_min => @panic("TODO"),
+                .f64x2_relaxed_max => @panic("TODO"),
+                .i16x8_relaxed_q15mulr_s => @panic("TODO"),
+                .i16x8_relaxed_dot_i8x16_i7x16_s => @panic("TODO"),
+                .i32x4_relaxed_dot_i8x16_i7x16_add_s => @panic("TODO"),
+                .f32x4_relaxed_dot_bf16x8_add_f32x4 => @panic("TODO"),
             }
             comptime unreachable;
         },
@@ -650,6 +887,9 @@ pub fn lowerToCode(emit: *Emit) Error!void {
                     inst += 1;
                     continue :loop tags[inst];
                 },
+                .memory_atomic_notify => @panic("TODO"),
+                .memory_atomic_wait32 => @panic("TODO"),
+                .memory_atomic_wait64 => @panic("TODO"),
             }
             comptime unreachable;
         },

@@ -291,6 +291,16 @@ pub const FunctionIndex = enum(u32) {
         return fromResolution(wasm, .fromIpNav(wasm, nav_index));
     }
 
+    pub fn fromTagNameType(wasm: *const Wasm, tag_type: InternPool.Index) ?FunctionIndex {
+        const zcu_func: ZcuFunc.Index = @enumFromInt(wasm.zcu_funcs.getIndex(tag_type) orelse return null);
+        return fromResolution(wasm, .pack(wasm, .{ .zcu_func = zcu_func }));
+    }
+
+    pub fn fromSymbolName(wasm: *const Wasm, name: String) ?FunctionIndex {
+        const import = wasm.object_function_imports.getPtr(name) orelse return null;
+        return fromResolution(wasm, import.resolution);
+    }
+
     pub fn fromResolution(wasm: *const Wasm, resolution: FunctionImport.Resolution) ?FunctionIndex {
         const i = wasm.functions.getIndex(resolution) orelse return null;
         return @enumFromInt(i);
@@ -749,15 +759,14 @@ pub const FunctionImport = extern struct {
                 .__wasm_init_tls => .__wasm_init_tls,
                 .__zig_error_names => .__zig_error_names,
                 _ => {
-                    const i: u32 = @intFromEnum(r);
-                    const object_function_index = i - first_object_function;
-                    if (object_function_index < wasm.object_functions.items.len) {
-                        return .{ .object_function = @enumFromInt(object_function_index) };
-                    } else {
-                        return .{
-                            .zcu_func = @enumFromInt(object_function_index - wasm.object_functions.items.len),
-                        };
-                    }
+                    const object_function_index = @intFromEnum(r) - first_object_function;
+
+                    const zcu_func_index = if (object_function_index < wasm.object_functions.items.len)
+                        return .{ .object_function = @enumFromInt(object_function_index) }
+                    else
+                        object_function_index - wasm.object_functions.items.len;
+
+                    return .{ .zcu_func = @enumFromInt(zcu_func_index) };
                 },
             };
         }
@@ -1281,7 +1290,7 @@ pub const DataSegment = extern struct {
                         return .{ .nav_obj = @enumFromInt(nav_index) };
                     } else {
                         const nav_index = if (uav_index < wasm.uavs_exe.entries.len)
-                            return .{ .uav_obj = @enumFromInt(uav_index) }
+                            return .{ .uav_exe = @enumFromInt(uav_index) }
                         else
                             uav_index - wasm.uavs_exe.entries.len;
 
@@ -1297,7 +1306,7 @@ pub const DataSegment = extern struct {
                 .object => |i| {
                     const ptr = i.ptr(wasm);
                     if (ptr.flags.tls) return .tls;
-                    if (isBss(wasm, ptr.name)) return .zero;
+                    if (wasm.isBss(ptr.name)) return .zero;
                     return .data;
                 },
                 inline .uav_exe, .uav_obj => |i| if (i.value(wasm).code.off == .none) .zero else .data,
@@ -1324,6 +1333,10 @@ pub const DataSegment = extern struct {
                     return nav.isThreadLocal(ip);
                 },
             };
+        }
+
+        pub fn isBss(id: Id, wasm: *const Wasm) bool {
+            return id.category(wasm) == .zero;
         }
 
         pub fn name(id: Id, wasm: *const Wasm) []const u8 {
@@ -1368,10 +1381,11 @@ pub const DataSegment = extern struct {
         }
 
         pub fn isPassive(id: Id, wasm: *const Wasm) bool {
+            if (wasm.base.comp.config.import_memory and !id.isBss(wasm)) return true;
             return switch (unpack(id, wasm)) {
-                .__zig_error_name_table => true,
+                .__zig_error_name_table => false,
                 .object => |i| i.ptr(wasm).flags.is_passive,
-                .uav_exe, .uav_obj, .nav_exe, .nav_obj => true,
+                .uav_exe, .uav_obj, .nav_exe, .nav_obj => false,
             };
         }
 
@@ -3226,6 +3240,7 @@ pub fn uavSymbolIndex(wasm: *Wasm, ip_index: InternPool.Index) Allocator.Error!S
     const gpa = comp.gpa;
     const name = try wasm.internStringFmt("__anon_{d}", .{@intFromEnum(ip_index)});
     const gop = try wasm.symbol_table.getOrPut(gpa, name);
+    gop.value_ptr.* = {};
     return @enumFromInt(gop.index);
 }
 
@@ -3238,6 +3253,7 @@ pub fn navSymbolIndex(wasm: *Wasm, nav_index: InternPool.Nav.Index) Allocator.Er
     const nav = ip.getNav(nav_index);
     const name = try wasm.internString(nav.fqn.toSlice(ip));
     const gop = try wasm.symbol_table.getOrPut(gpa, name);
+    gop.value_ptr.* = {};
     return @enumFromInt(gop.index);
 }
 
@@ -3246,6 +3262,34 @@ pub fn errorNameTableSymbolIndex(wasm: *Wasm) Allocator.Error!SymbolTableIndex {
     assert(comp.config.output_mode == .Obj);
     const gpa = comp.gpa;
     const gop = try wasm.symbol_table.getOrPut(gpa, wasm.preloaded_strings.__zig_error_name_table);
+    gop.value_ptr.* = {};
+    return @enumFromInt(gop.index);
+}
+
+pub fn stackPointerSymbolIndex(wasm: *Wasm) Allocator.Error!SymbolTableIndex {
+    const comp = wasm.base.comp;
+    assert(comp.config.output_mode == .Obj);
+    const gpa = comp.gpa;
+    const gop = try wasm.symbol_table.getOrPut(gpa, wasm.preloaded_strings.__stack_pointer);
+    gop.value_ptr.* = {};
+    return @enumFromInt(gop.index);
+}
+
+pub fn tagNameSymbolIndex(wasm: *Wasm, ip_index: InternPool.Index) Allocator.Error!SymbolTableIndex {
+    const comp = wasm.base.comp;
+    assert(comp.config.output_mode == .Obj);
+    const gpa = comp.gpa;
+    const name = try wasm.internStringFmt("__zig_tag_name_{d}", .{@intFromEnum(ip_index)});
+    const gop = try wasm.symbol_table.getOrPut(gpa, name);
+    gop.value_ptr.* = {};
+    return @enumFromInt(gop.index);
+}
+
+pub fn symbolNameIndex(wasm: *Wasm, name: String) Allocator.Error!SymbolTableIndex {
+    const comp = wasm.base.comp;
+    assert(comp.config.output_mode == .Obj);
+    const gpa = comp.gpa;
+    const gop = try wasm.symbol_table.getOrPut(gpa, name);
     gop.value_ptr.* = {};
     return @enumFromInt(gop.index);
 }
@@ -3276,7 +3320,7 @@ pub fn refUavExe(wasm: *Wasm, pt: Zcu.PerThread, ip_index: InternPool.Index) !Ua
         };
     }
     const uav_index: UavsExeIndex = @enumFromInt(gop.index);
-    wasm.data_segments.putAssumeCapacity(.pack(wasm, .{ .uav_exe = uav_index }), @as(u32, undefined));
+    try wasm.data_segments.put(gpa, .pack(wasm, .{ .uav_exe = uav_index }), @as(u32, undefined));
     return uav_index;
 }
 

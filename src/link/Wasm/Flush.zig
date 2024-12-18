@@ -643,10 +643,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
         var group_index: u32 = 0;
         var offset: u32 = undefined;
         for (segment_ids, segment_offsets) |segment_id, segment_offset| {
-            const segment = segment_id.ptr(wasm);
-            const segment_payload = segment.payload.slice(wasm);
-            if (segment_payload.len == 0) continue;
-            if (!import_memory and wasm.isBss(segment.name)) {
+            if (!import_memory and segment_id.isBss(wasm)) {
                 // It counted for virtual memory but it does not go into the binary.
                 continue;
             }
@@ -655,7 +652,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
                 group_index += 1;
                 offset = 0;
 
-                const flags: Object.DataSegmentFlags = if (segment.flags.is_passive) .passive else .active;
+                const flags: Object.DataSegmentFlags = if (segment_id.isPassive(wasm)) .passive else .active;
                 try leb.writeUleb128(binary_writer, @intFromEnum(flags));
                 // when a segment is passive, it's initialized during runtime.
                 if (flags != .passive) {
@@ -666,8 +663,21 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
 
             try binary_bytes.appendNTimes(gpa, 0, segment_offset - offset);
             offset = segment_offset;
-            try binary_bytes.appendSlice(gpa, segment_payload);
-            offset += @intCast(segment_payload.len);
+
+            const code_start = binary_bytes.items.len;
+            append: {
+                const code = switch (segment_id.unpack(wasm)) {
+                    .__zig_error_name_table => {
+                        if (true) @panic("TODO lower zig error name table");
+                        break :append;
+                    },
+                    .object => |i| i.ptr(wasm).payload,
+                    inline .uav_exe, .uav_obj, .nav_exe, .nav_obj => |i| i.value(wasm).code,
+                };
+                try binary_bytes.appendSlice(gpa, code.slice(wasm));
+            }
+            offset += @intCast(binary_bytes.items.len - code_start);
+
             if (true) @panic("TODO apply data segment relocations");
         }
         assert(group_index == f.data_segment_groups.items.len);
@@ -738,7 +748,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
 
 fn emitNameSection(
     wasm: *Wasm,
-    data_segments: *const std.AutoArrayHashMapUnmanaged(Wasm.DataSegment.Index, u32),
+    data_segments: *const std.AutoArrayHashMapUnmanaged(Wasm.DataSegment.Id, u32),
     binary_bytes: *std.ArrayListUnmanaged(u8),
 ) !void {
     const comp = wasm.base.comp;
@@ -801,7 +811,7 @@ fn emitNameSection(
         try leb.writeUleb128(binary_bytes.writer(gpa), total_globals);
 
         for (data_segments.keys(), 0..) |ds, i| {
-            const name = ds.ptr(wasm).name.slice(wasm).?;
+            const name = ds.name(wasm);
             try leb.writeUleb128(binary_bytes.writer(gpa), @as(u32, @intCast(i)));
             try leb.writeUleb128(binary_bytes.writer(gpa), @as(u32, @intCast(name.len)));
             try binary_bytes.appendSlice(gpa, name);
