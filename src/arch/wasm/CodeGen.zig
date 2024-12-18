@@ -190,7 +190,7 @@ const WValue = union(enum) {
         switch (value) {
             .stack => {
                 const new_local = try gen.allocLocal(ty);
-                try gen.addLabel(.local_set, new_local.local.value);
+                try gen.addLocal(.local_set, new_local.local.value);
                 return new_local;
             },
             .local, .stack_offset => return value,
@@ -237,9 +237,6 @@ const Op = enum {
     call_indirect,
     drop,
     select,
-    local_get,
-    local_set,
-    local_tee,
     global_get,
     global_set,
     load,
@@ -318,9 +315,6 @@ fn buildOpcode(args: OpcodeBuildArguments) std.wasm.Opcode {
         .call_indirect => unreachable,
         .drop => unreachable,
         .select => unreachable,
-        .local_get => unreachable,
-        .local_set => unreachable,
-        .local_tee => unreachable,
         .global_get => unreachable,
         .global_set => unreachable,
 
@@ -681,13 +675,11 @@ test "Wasm - buildOpcode" {
     // Make sure buildOpcode is referenced, and test some examples
     const i32_const = buildOpcode(.{ .op = .@"const", .valtype1 = .i32 });
     const end = buildOpcode(.{ .op = .end });
-    const local_get = buildOpcode(.{ .op = .local_get });
     const i64_extend32_s = buildOpcode(.{ .op = .extend, .valtype1 = .i64, .width = 32, .signedness = .signed });
     const f64_reinterpret_i64 = buildOpcode(.{ .op = .reinterpret, .valtype1 = .f64, .valtype2 = .i64 });
 
     try testing.expectEqual(@as(std.wasm.Opcode, .i32_const), i32_const);
     try testing.expectEqual(@as(std.wasm.Opcode, .end), end);
-    try testing.expectEqual(@as(std.wasm.Opcode, .local_get), local_get);
     try testing.expectEqual(@as(std.wasm.Opcode, .i64_extend32_s), i64_extend32_s);
     try testing.expectEqual(@as(std.wasm.Opcode, .f64_reinterpret_i64), f64_reinterpret_i64);
 }
@@ -876,6 +868,10 @@ fn addLabel(cg: *CodeGen, tag: Mir.Inst.Tag, label: u32) error{OutOfMemory}!void
     try cg.addInst(.{ .tag = tag, .data = .{ .label = label } });
 }
 
+fn addLocal(cg: *CodeGen, tag: Mir.Inst.Tag, local: u32) error{OutOfMemory}!void {
+    try cg.addInst(.{ .tag = tag, .data = .{ .local = local } });
+}
+
 /// Accepts an unsigned 32bit integer rather than a signed integer to
 /// prevent us from having to bitcast multiple times as most values
 /// within codegen are represented as unsigned rather than signed.
@@ -1015,7 +1011,7 @@ fn emitWValue(cg: *CodeGen, value: WValue) InnerError!void {
     switch (value) {
         .dead => unreachable, // reference to free'd `WValue` (missing reuseOperand?)
         .none, .stack => {}, // no-op
-        .local => |idx| try cg.addLabel(.local_get, idx.value),
+        .local => |idx| try cg.addLocal(.local_get, idx.value),
         .imm32 => |val| try cg.addImm32(val),
         .imm64 => |val| try cg.addImm64(val),
         .imm128 => |val| try cg.addImm128(val),
@@ -1063,7 +1059,7 @@ fn emitWValue(cg: *CodeGen, value: WValue) InnerError!void {
                 });
             }
         },
-        .stack_offset => try cg.addLabel(.local_get, cg.bottom_stack_value.local.value), // caller must ensure to address the offset
+        .stack_offset => try cg.addLocal(.local_get, cg.bottom_stack_value.local.value), // caller must ensure to address the offset
     }
 }
 
@@ -1624,7 +1620,7 @@ fn memcpy(cg: *CodeGen, dst: WValue, src: WValue, len: WValue) !void {
         .wasm32 => try cg.addImm32(0),
         .wasm64 => try cg.addImm64(0),
     }
-    try cg.addLabel(.local_set, offset.local.value);
+    try cg.addLocal(.local_set, offset.local.value);
 
     // outer block to jump to when loop is done
     try cg.startBlock(.block, std.wasm.block_empty);
@@ -1682,7 +1678,7 @@ fn memcpy(cg: *CodeGen, dst: WValue, src: WValue, len: WValue) !void {
                 try cg.addTag(.i64_add);
             },
         }
-        try cg.addLabel(.local_set, offset.local.value);
+        try cg.addLocal(.local_set, offset.local.value);
         try cg.addLabel(.br, 0); // jump to start of loop
     }
     try cg.endBlock(); // close off loop block
@@ -1801,7 +1797,7 @@ fn buildPointerOffset(cg: *CodeGen, ptr_value: WValue, offset: u64, action: enum
             },
         }
     }
-    try cg.addLabel(.local_set, result_ptr.local.value);
+    try cg.addLocal(.local_set, result_ptr.local.value);
     return result_ptr;
 }
 
@@ -2228,14 +2224,14 @@ fn airCall(cg: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModifie
             // TODO: Make this less fragile and optimize
         } else if (zcu.typeToFunc(fn_ty).?.cc == .wasm_watc and ret_ty.zigTypeTag(zcu) == .@"struct" or ret_ty.zigTypeTag(zcu) == .@"union") {
             const result_local = try cg.allocLocal(ret_ty);
-            try cg.addLabel(.local_set, result_local.local.value);
+            try cg.addLocal(.local_set, result_local.local.value);
             const scalar_type = abi.scalarType(ret_ty, zcu);
             const result = try cg.allocStack(scalar_type);
             try cg.store(result, result_local, scalar_type, 0);
             break :result_value result;
         } else {
             const result_local = try cg.allocLocal(ret_ty);
-            try cg.addLabel(.local_set, result_local.local.value);
+            try cg.addLocal(.local_set, result_local.local.value);
             break :result_value result_local;
         }
     };
@@ -2817,7 +2813,7 @@ fn airAbs(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
                     var tmp = try cg.allocLocal(ty);
                     defer tmp.free(cg);
-                    try cg.addLabel(.local_tee, tmp.local.value);
+                    try cg.addLocal(.local_tee, tmp.local.value);
 
                     try cg.emitWValue(operand);
                     try cg.addTag(.i32_xor);
@@ -2833,7 +2829,7 @@ fn airAbs(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
                     var tmp = try cg.allocLocal(ty);
                     defer tmp.free(cg);
-                    try cg.addLabel(.local_tee, tmp.local.value);
+                    try cg.addLocal(.local_tee, tmp.local.value);
 
                     try cg.emitWValue(operand);
                     try cg.addTag(.i64_xor);
@@ -2852,7 +2848,7 @@ fn airAbs(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
                     var tmp = try cg.allocLocal(Type.u64);
                     defer tmp.free(cg);
-                    try cg.addLabel(.local_tee, tmp.local.value);
+                    try cg.addLocal(.local_tee, tmp.local.value);
                     try cg.store(.stack, .stack, Type.u64, mask.offset() + 0);
                     try cg.emitWValue(tmp);
                     try cg.store(.stack, .stack, Type.u64, mask.offset() + 8);
@@ -3590,7 +3586,7 @@ fn airBr(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         try cg.lowerToStack(operand);
 
         if (block.value != .none) {
-            try cg.addLabel(.local_set, block.value.local.value);
+            try cg.addLocal(.local_set, block.value.local.value);
         }
     }
 
@@ -3625,7 +3621,7 @@ fn airNot(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             try cg.emitWValue(operand);
             try cg.addTag(.i32_eqz);
             const not_tmp = try cg.allocLocal(operand_ty);
-            try cg.addLabel(.local_set, not_tmp.local.value);
+            try cg.addLocal(.local_set, not_tmp.local.value);
             break :result not_tmp;
         } else {
             const int_info = operand_ty.intInfo(zcu);
@@ -4788,7 +4784,7 @@ fn memset(cg: *CodeGen, elem_ty: Type, ptr: WValue, len: WValue, value: WValue) 
                     try cg.addTag(.i64_mul);
                 },
             }
-            try cg.addLabel(.local_set, new_len.local.value);
+            try cg.addLocal(.local_set, new_len.local.value);
             break :blk new_len;
         } else len,
     };
@@ -4805,7 +4801,7 @@ fn memset(cg: *CodeGen, elem_ty: Type, ptr: WValue, len: WValue, value: WValue) 
         .wasm32 => try cg.addTag(.i32_add),
         .wasm64 => try cg.addTag(.i64_add),
     }
-    try cg.addLabel(.local_set, end_ptr.local.value);
+    try cg.addLocal(.local_set, end_ptr.local.value);
 
     // outer block to jump to when loop is done
     try cg.startBlock(.block, std.wasm.block_empty);
@@ -4835,7 +4831,7 @@ fn memset(cg: *CodeGen, elem_ty: Type, ptr: WValue, len: WValue, value: WValue) 
             try cg.addTag(.i64_add);
         },
     }
-    try cg.addLabel(.local_set, new_ptr.local.value);
+    try cg.addLocal(.local_set, new_ptr.local.value);
 
     // end of loop
     try cg.addLabel(.br, 0); // jump to start of loop
@@ -5216,7 +5212,7 @@ fn airAggregateInit(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                         try cg.addImm32(0)
                     else
                         try cg.addImm64(0);
-                    try cg.addLabel(.local_set, result.local.value);
+                    try cg.addLocal(.local_set, result.local.value);
 
                     var current_bit: u16 = 0;
                     for (elements, 0..) |elem, elem_index| {
@@ -5243,7 +5239,7 @@ fn airAggregateInit(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                         } else extended_val;
                         // we ignore the result as we keep it on the stack to assign it directly to `result`
                         _ = try cg.binOp(.stack, shifted, backing_type, .@"or");
-                        try cg.addLabel(.local_set, result.local.value);
+                        try cg.addLocal(.local_set, result.local.value);
                         current_bit += value_bit_size;
                     }
                     break :result_value result;
@@ -5399,7 +5395,7 @@ fn cmpOptionals(cg: *CodeGen, lhs: WValue, rhs: WValue, operand_ty: Type, op: st
     try cg.addLabel(.br_if, 0);
 
     try cg.addImm32(1);
-    try cg.addLabel(.local_set, result.local.value);
+    try cg.addLocal(.local_set, result.local.value);
     try cg.endBlock();
 
     try cg.emitWValue(result);
@@ -5642,10 +5638,10 @@ fn airFieldParentPtr(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
     const result = if (field_offset != 0) result: {
         const base = try cg.buildPointerOffset(field_ptr, 0, .new);
-        try cg.addLabel(.local_get, base.local.value);
+        try cg.addLocal(.local_get, base.local.value);
         try cg.addImm32(@intCast(field_offset));
         try cg.addTag(.i32_sub);
-        try cg.addLabel(.local_set, base.local.value);
+        try cg.addLocal(.local_set, base.local.value);
         break :result base;
     } else cg.reuseOperand(extra.field_ptr, field_ptr);
 
@@ -5676,7 +5672,7 @@ fn airMemcpy(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                 try cg.emitWValue(slice_len);
                 try cg.emitWValue(.{ .imm32 = @as(u32, @intCast(ptr_elem_ty.abiSize(zcu))) });
                 try cg.addTag(.i32_mul);
-                try cg.addLabel(.local_set, slice_len.local.value);
+                try cg.addLocal(.local_set, slice_len.local.value);
             }
             break :blk slice_len;
         },
@@ -5827,7 +5823,7 @@ fn airBitReverse(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             } else {
                 var tmp = try cg.allocLocal(Type.u64);
                 defer tmp.free(cg);
-                try cg.addLabel(.local_tee, tmp.local.value);
+                try cg.addLocal(.local_tee, tmp.local.value);
                 try cg.emitWValue(.{ .imm64 = 128 - bits });
                 if (ty.isSignedInt(zcu)) {
                     try cg.addTag(.i64_shr_s);
@@ -5835,7 +5831,7 @@ fn airBitReverse(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                     try cg.addTag(.i64_shr_u);
                 }
                 try cg.store(.stack, .stack, Type.u64, result.offset() + 8);
-                try cg.addLabel(.local_get, tmp.local.value);
+                try cg.addLocal(.local_get, tmp.local.value);
                 try cg.emitWValue(.{ .imm64 = bits - 64 });
                 try cg.addTag(.i64_shl);
                 try cg.addTag(.i64_or);
@@ -6042,7 +6038,7 @@ fn airMulWithOverflow(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         const res = try (try cg.trunc(bin_op, ty, new_ty)).toLocal(cg, ty);
         const res_upcast = try cg.intcast(res, ty, new_ty);
         _ = try cg.cmp(res_upcast, bin_op, new_ty, .neq);
-        try cg.addLabel(.local_set, overflow_bit.local.value);
+        try cg.addLocal(.local_set, overflow_bit.local.value);
         break :blk res;
     } else if (wasm_bits == 64) blk: {
         const new_ty = if (int_info.signedness == .signed) Type.i128 else Type.u128;
@@ -6052,7 +6048,7 @@ fn airMulWithOverflow(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         const res = try (try cg.trunc(bin_op, ty, new_ty)).toLocal(cg, ty);
         const res_upcast = try cg.intcast(res, ty, new_ty);
         _ = try cg.cmp(res_upcast, bin_op, new_ty, .neq);
-        try cg.addLabel(.local_set, overflow_bit.local.value);
+        try cg.addLocal(.local_set, overflow_bit.local.value);
         break :blk res;
     } else if (int_info.bits == 128 and int_info.signedness == .unsigned) blk: {
         var lhs_lsb = try (try cg.load(lhs, Type.u64, 0)).toLocal(cg, Type.u64);
@@ -6105,7 +6101,7 @@ fn airMulWithOverflow(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
         // result for overflow bit
         _ = try cg.binOp(cond_2, add_overflow, Type.bool, .@"or");
-        try cg.addLabel(.local_set, overflow_bit.local.value);
+        try cg.addLocal(.local_set, overflow_bit.local.value);
 
         const tmp_result = try cg.allocStack(Type.u128);
         try cg.emitWValue(tmp_result);
@@ -6122,7 +6118,7 @@ fn airMulWithOverflow(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             &.{ lhs, rhs, overflow_ret },
         );
         _ = try cg.load(overflow_ret, Type.i32, 0);
-        try cg.addLabel(.local_set, overflow_bit.local.value);
+        try cg.addLocal(.local_set, overflow_bit.local.value);
         break :blk res;
     } else return cg.fail("TODO: @mulWithOverflow for {}", .{ty.fmt(pt)});
     var bin_op_local = try mul.toLocal(cg, ty);
@@ -6543,7 +6539,7 @@ fn airDivFloor(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         // tee leaves the value on the stack and stores it in a local.
         const quotient = try cg.allocLocal(ty);
         _ = try cg.binOp(lhs, rhs, ty, .div);
-        try cg.addLabel(.local_tee, quotient.local.value);
+        try cg.addLocal(.local_tee, quotient.local.value);
 
         // select takes a 32 bit value as the condition, so in the 64 bit case we use eqz to narrow
         // the 64 bit value we want to use as the condition to 32 bits.
@@ -6704,7 +6700,7 @@ fn airSatMul(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
                 var tmp = try cg.allocLocal(upcast_ty);
                 defer tmp.free(cg);
-                try cg.addLabel(.local_set, tmp.local.value);
+                try cg.addLocal(.local_set, tmp.local.value);
 
                 const imm_min: WValue = .{ .imm64 = ~@as(u64, 0) << @intCast(int_info.bits - 1) };
                 try cg.emitWValue(tmp);
@@ -6850,13 +6846,13 @@ fn signedSat(cg: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, op: Op) InnerErro
         try cg.emitWValue(max_wvalue);
         _ = try cg.cmp(bin_result, max_wvalue, ext_ty, .lt);
         try cg.addTag(.select);
-        try cg.addLabel(.local_set, bin_result.local.value); // re-use local
+        try cg.addLocal(.local_set, bin_result.local.value); // re-use local
 
         try cg.emitWValue(bin_result);
         try cg.emitWValue(min_wvalue);
         _ = try cg.cmp(bin_result, min_wvalue, ext_ty, .gt);
         try cg.addTag(.select);
-        try cg.addLabel(.local_set, bin_result.local.value); // re-use local
+        try cg.addLocal(.local_set, bin_result.local.value); // re-use local
         return (try cg.wrapOperand(bin_result, ty)).toLocal(cg, ty);
     } else {
         const zero: WValue = switch (wasm_bits) {
@@ -6874,7 +6870,7 @@ fn signedSat(cg: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, op: Op) InnerErro
         const cmp_bin_result = try cg.cmp(bin_result, lhs, ty, .lt);
         _ = try cg.binOp(cmp_zero_result, cmp_bin_result, Type.u32, .xor); // comparisons always return i32, so provide u32 as type to xor.
         try cg.addTag(.select);
-        try cg.addLabel(.local_set, bin_result.local.value); // re-use local
+        try cg.addLocal(.local_set, bin_result.local.value); // re-use local
         return bin_result;
     }
 }
@@ -6928,7 +6924,7 @@ fn airShlSat(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         try cg.emitWValue(shl);
         _ = try cg.cmp(lhs, shr, ty, .neq);
         try cg.addTag(.select);
-        try cg.addLabel(.local_set, result.local.value);
+        try cg.addLocal(.local_set, result.local.value);
     } else {
         const shift_size = wasm_bits - int_info.bits;
         const shift_value: WValue = switch (wasm_bits) {
@@ -6973,12 +6969,12 @@ fn airShlSat(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         try cg.emitWValue(shl);
         _ = try cg.cmp(shl_res, shr, ext_ty, .neq);
         try cg.addTag(.select);
-        try cg.addLabel(.local_set, result.local.value);
+        try cg.addLocal(.local_set, result.local.value);
         var shift_result = try cg.binOp(result, shift_value, ext_ty, .shr);
         if (is_signed) {
             shift_result = try cg.wrapOperand(shift_result, ty);
         }
-        try cg.addLabel(.local_set, result.local.value);
+        try cg.addLocal(.local_set, result.local.value);
     }
 
     return cg.finishAir(inst, result, &.{ bin_op.lhs, bin_op.rhs });
@@ -7114,13 +7110,13 @@ fn airErrorSetHasValue(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     // 'false' branch (i.e. error set does not have value
     // ensure we set local to 0 in case the local was re-used.
     try cg.addImm32(0);
-    try cg.addLabel(.local_set, result.local.value);
+    try cg.addLocal(.local_set, result.local.value);
     try cg.addLabel(.br, 1);
     try cg.endBlock();
 
     // 'true' branch
     try cg.addImm32(1);
-    try cg.addLabel(.local_set, result.local.value);
+    try cg.addLocal(.local_set, result.local.value);
     try cg.addLabel(.br, 0);
     try cg.endBlock();
 
@@ -7161,9 +7157,9 @@ fn airCmpxchg(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             .offset = ptr_operand.offset(),
             .alignment = @intCast(ty.abiAlignment(zcu).toByteUnits().?),
         });
-        try cg.addLabel(.local_tee, val_local.local.value);
+        try cg.addLocal(.local_tee, val_local.local.value);
         _ = try cg.cmp(.stack, expected_val, ty, .eq);
-        try cg.addLabel(.local_set, cmp_result.local.value);
+        try cg.addLocal(.local_set, cmp_result.local.value);
         break :val val_local;
     } else val: {
         if (ty.abiSize(zcu) > 8) {
@@ -7175,7 +7171,7 @@ fn airCmpxchg(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         try cg.lowerToStack(new_val);
         try cg.emitWValue(ptr_val);
         _ = try cg.cmp(ptr_val, expected_val, ty, .eq);
-        try cg.addLabel(.local_tee, cmp_result.local.value);
+        try cg.addLocal(.local_tee, cmp_result.local.value);
         try cg.addTag(.select);
         try cg.store(.stack, .stack, ty, 0);
 
@@ -7285,11 +7281,11 @@ fn airAtomicRmw(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                     },
                 );
                 const select_res = try cg.allocLocal(ty);
-                try cg.addLabel(.local_tee, select_res.local.value);
+                try cg.addLocal(.local_tee, select_res.local.value);
                 _ = try cg.cmp(.stack, value, ty, .neq); // leave on stack so we can use it for br_if
 
                 try cg.emitWValue(select_res);
-                try cg.addLabel(.local_set, value.local.value);
+                try cg.addLocal(.local_set, value.local.value);
 
                 try cg.addLabel(.br_if, 0);
                 try cg.endBlock();
