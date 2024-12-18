@@ -7815,11 +7815,9 @@ fn analyzeCall(
             .param_types = new_param_types,
             .return_type = owner_info.return_type,
             .noalias_bits = owner_info.noalias_bits,
-            .cc = if (owner_info.cc_is_generic) null else owner_info.cc,
+            .cc = owner_info.cc,
             .is_var_args = owner_info.is_var_args,
             .is_noinline = owner_info.is_noinline,
-            .section_is_generic = owner_info.section_is_generic,
-            .addrspace_is_generic = owner_info.addrspace_is_generic,
             .is_generic = owner_info.is_generic,
         };
 
@@ -9555,9 +9553,6 @@ fn zirFunc(
         block,
         inst_data.src_node,
         inst,
-        .none,
-        target_util.defaultAddressSpace(target, .function),
-        .default,
         cc,
         ret_ty,
         false,
@@ -9843,13 +9838,7 @@ fn funcCommon(
     block: *Block,
     src_node_offset: i32,
     func_inst: Zir.Inst.Index,
-    /// null means generic poison
-    alignment: ?Alignment,
-    /// null means generic poison
-    address_space: ?std.builtin.AddressSpace,
-    section: Section,
-    /// null means generic poison
-    cc: ?std.builtin.CallingConvention,
+    cc: std.builtin.CallingConvention,
     /// this might be Type.generic_poison
     bare_return_type: Type,
     var_args: bool,
@@ -9870,26 +9859,17 @@ fn funcCommon(
     const cc_src = block.src(.{ .node_offset_fn_type_cc = src_node_offset });
     const func_src = block.nodeOffset(src_node_offset);
 
-    var is_generic = bare_return_type.isGenericPoison() or
-        alignment == null or
-        address_space == null or
-        section == .generic or
-        cc == null;
+    var is_generic = bare_return_type.isGenericPoison();
 
     if (var_args) {
         if (is_generic) {
             return sema.fail(block, func_src, "generic function cannot be variadic", .{});
         }
-        try sema.checkCallConvSupportsVarArgs(block, cc_src, cc.?);
+        try sema.checkCallConvSupportsVarArgs(block, cc_src, cc);
     }
 
     const is_source_decl = sema.generic_owner == .none;
 
-    // In the case of generic calling convention, or generic alignment, we use
-    // default values which are only meaningful for the generic function, *not*
-    // the instantiation, which can depend on comptime parameters.
-    // Related proposal: https://github.com/ziglang/zig/issues/11834
-    const cc_resolved = cc orelse .auto;
     var comptime_bits: u32 = 0;
     for (block.params.items(.ty), block.params.items(.is_comptime), 0..) |param_ty_ip, param_is_comptime, i| {
         const param_ty = Type.fromInterned(param_ty_ip);
@@ -9907,11 +9887,11 @@ fn funcCommon(
         }
         const this_generic = param_ty.isGenericPoison();
         is_generic = is_generic or this_generic;
-        if (param_is_comptime and !target_util.fnCallConvAllowsZigTypes(cc_resolved)) {
-            return sema.fail(block, param_src, "comptime parameters not allowed in function with calling convention '{s}'", .{@tagName(cc_resolved)});
+        if (param_is_comptime and !target_util.fnCallConvAllowsZigTypes(cc)) {
+            return sema.fail(block, param_src, "comptime parameters not allowed in function with calling convention '{s}'", .{@tagName(cc)});
         }
-        if (this_generic and !sema.no_partial_func_ty and !target_util.fnCallConvAllowsZigTypes(cc_resolved)) {
-            return sema.fail(block, param_src, "generic parameters not allowed in function with calling convention '{s}'", .{@tagName(cc_resolved)});
+        if (this_generic and !sema.no_partial_func_ty and !target_util.fnCallConvAllowsZigTypes(cc)) {
+            return sema.fail(block, param_src, "generic parameters not allowed in function with calling convention '{s}'", .{@tagName(cc)});
         }
         if (!param_ty.isValidParamType(zcu)) {
             const opaque_str = if (param_ty.zigTypeTag(zcu) == .@"opaque") "opaque " else "";
@@ -9919,10 +9899,10 @@ fn funcCommon(
                 opaque_str, param_ty.fmt(pt),
             });
         }
-        if (!this_generic and !target_util.fnCallConvAllowsZigTypes(cc_resolved) and !try sema.validateExternType(param_ty, .param_ty)) {
+        if (!this_generic and !target_util.fnCallConvAllowsZigTypes(cc) and !try sema.validateExternType(param_ty, .param_ty)) {
             const msg = msg: {
                 const msg = try sema.errMsg(param_src, "parameter of type '{}' not allowed in function with calling convention '{s}'", .{
-                    param_ty.fmt(pt), @tagName(cc_resolved),
+                    param_ty.fmt(pt), @tagName(cc),
                 });
                 errdefer msg.destroy(sema.gpa);
 
@@ -9952,13 +9932,13 @@ fn funcCommon(
         {
             return sema.fail(block, param_src, "non-pointer parameter declared noalias", .{});
         }
-        switch (cc_resolved) {
+        switch (cc) {
             .x86_64_interrupt, .x86_interrupt => {
                 const err_code_size = target.ptrBitWidth();
                 switch (i) {
-                    0 => if (param_ty.zigTypeTag(zcu) != .pointer) return sema.fail(block, param_src, "first parameter of function with '{s}' calling convention must be a pointer type", .{@tagName(cc_resolved)}),
-                    1 => if (param_ty.bitSize(zcu) != err_code_size) return sema.fail(block, param_src, "second parameter of function with '{s}' calling convention must be a {d}-bit integer", .{ @tagName(cc_resolved), err_code_size }),
-                    else => return sema.fail(block, param_src, "'{s}' calling convention supports up to 2 parameters, found {d}", .{ @tagName(cc_resolved), i + 1 }),
+                    0 => if (param_ty.zigTypeTag(zcu) != .pointer) return sema.fail(block, param_src, "first parameter of function with '{s}' calling convention must be a pointer type", .{@tagName(cc)}),
+                    1 => if (param_ty.bitSize(zcu) != err_code_size) return sema.fail(block, param_src, "second parameter of function with '{s}' calling convention must be a {d}-bit integer", .{ @tagName(cc), err_code_size }),
+                    else => return sema.fail(block, param_src, "'{s}' calling convention supports up to 2 parameters, found {d}", .{ @tagName(cc), i + 1 }),
                 }
             },
             .arm_interrupt,
@@ -9970,7 +9950,7 @@ fn funcCommon(
             .csky_interrupt,
             .m68k_interrupt,
             .avr_signal,
-            => return sema.fail(block, param_src, "parameters are not allowed with '{s}' calling convention", .{@tagName(cc_resolved)}),
+            => return sema.fail(block, param_src, "parameters are not allowed with '{s}' calling convention", .{@tagName(cc)}),
             else => {},
         }
     }
@@ -9985,9 +9965,6 @@ fn funcCommon(
         assert(has_body);
         assert(!is_generic);
         assert(comptime_bits == 0);
-        assert(cc != null);
-        assert(section != .generic);
-        assert(address_space != null);
         assert(!var_args);
         if (inferred_error_set) {
             try sema.validateErrorUnionPayloadType(block, bare_return_type, ret_ty_src);
@@ -9996,13 +9973,6 @@ fn funcCommon(
             .param_types = param_types,
             .noalias_bits = noalias_bits,
             .bare_return_type = bare_return_type.toIntern(),
-            .cc = cc_resolved,
-            .alignment = alignment.?,
-            .section = switch (section) {
-                .generic => unreachable,
-                .default => .none,
-                .explicit => |x| x.toOptional(),
-            },
             .is_noinline = is_noinline,
             .inferred_error_set = inferred_error_set,
             .generic_owner = sema.generic_owner,
@@ -10016,7 +9986,7 @@ fn funcCommon(
             ret_poison,
             bare_return_type,
             ret_ty_src,
-            cc_resolved,
+            cc,
             is_source_decl,
             ret_ty_requires_comptime,
             func_inst,
@@ -10026,12 +9996,6 @@ fn funcCommon(
             final_is_generic,
         );
     }
-
-    const section_name: InternPool.OptionalNullTerminatedString = switch (section) {
-        .generic => .none,
-        .default => .none,
-        .explicit => |name| name.toOptional(),
-    };
 
     if (inferred_error_set) {
         assert(!is_extern);
@@ -10046,9 +10010,6 @@ fn funcCommon(
             .comptime_bits = comptime_bits,
             .bare_return_type = bare_return_type.toIntern(),
             .cc = cc,
-            .alignment = alignment,
-            .section_is_generic = section == .generic,
-            .addrspace_is_generic = address_space == null,
             .is_var_args = var_args,
             .is_generic = final_is_generic,
             .is_noinline = is_noinline,
@@ -10059,13 +10020,6 @@ fn funcCommon(
             .lbrace_column = @as(u16, @truncate(src_locs.columns)),
             .rbrace_column = @as(u16, @truncate(src_locs.columns >> 16)),
         });
-        // func_decl functions take ownership of the `Nav` of Sema'a owner `Cau`.
-        ip.resolveNavValue(sema.getOwnerCauNav(), .{
-            .val = func_index,
-            .alignment = alignment orelse .none,
-            .@"linksection" = section_name,
-            .@"addrspace" = address_space orelse .generic,
-        });
         return finishFunc(
             sema,
             block,
@@ -10074,7 +10028,7 @@ fn funcCommon(
             ret_poison,
             bare_return_type,
             ret_ty_src,
-            cc_resolved,
+            cc,
             is_source_decl,
             ret_ty_requires_comptime,
             func_inst,
@@ -10091,8 +10045,6 @@ fn funcCommon(
         .comptime_bits = comptime_bits,
         .return_type = bare_return_type.toIntern(),
         .cc = cc,
-        .section_is_generic = section == .generic,
-        .addrspace_is_generic = address_space == null,
         .is_var_args = var_args,
         .is_generic = final_is_generic,
         .is_noinline = is_noinline,
@@ -10100,38 +10052,20 @@ fn funcCommon(
 
     if (is_extern) {
         assert(comptime_bits == 0);
-        assert(cc != null);
-        assert(alignment != null);
-        assert(section != .generic);
-        assert(address_space != null);
         assert(!is_generic);
         if (opt_lib_name) |lib_name| try sema.handleExternLibName(block, block.src(.{
             .node_offset_lib_name = src_node_offset,
         }), lib_name);
-        const func_index = try pt.getExtern(.{
-            .name = sema.getOwnerCauNavName(),
-            .ty = func_ty,
-            .lib_name = try ip.getOrPutStringOpt(gpa, pt.tid, opt_lib_name, .no_embedded_nulls),
-            .is_const = true,
-            .is_threadlocal = false,
-            .is_weak_linkage = false,
-            .is_dll_import = false,
-            .alignment = alignment orelse .none,
-            .@"addrspace" = address_space orelse .generic,
-            .zir_index = sema.getOwnerCauDeclInst(), // `declaration` instruction
-            .owner_nav = undefined, // ignored by `getExtern`
-        });
-        // Note that unlike function declaration, extern functions don't touch the
-        // Sema's owner Cau's owner Nav. The alignment etc were passed above.
+        const extern_func_index = try sema.resolveExternDecl(block, .fromInterned(func_ty), opt_lib_name, true, false);
         return finishFunc(
             sema,
             block,
-            func_index,
+            extern_func_index,
             func_ty,
             ret_poison,
             bare_return_type,
             ret_ty_src,
-            cc_resolved,
+            cc,
             is_source_decl,
             ret_ty_requires_comptime,
             func_inst,
@@ -10154,13 +10088,6 @@ fn funcCommon(
             .lbrace_column = @as(u16, @truncate(src_locs.columns)),
             .rbrace_column = @as(u16, @truncate(src_locs.columns >> 16)),
         });
-        // func_decl functions take ownership of the `Nav` of Sema'a owner `Cau`.
-        ip.resolveNavValue(sema.getOwnerCauNav(), .{
-            .val = func_index,
-            .alignment = alignment orelse .none,
-            .@"linksection" = section_name,
-            .@"addrspace" = address_space orelse .generic,
-        });
         return finishFunc(
             sema,
             block,
@@ -10169,7 +10096,7 @@ fn funcCommon(
             ret_poison,
             bare_return_type,
             ret_ty_src,
-            cc_resolved,
+            cc,
             is_source_decl,
             ret_ty_requires_comptime,
             func_inst,
@@ -10188,7 +10115,7 @@ fn funcCommon(
         ret_poison,
         bare_return_type,
         ret_ty_src,
-        cc_resolved,
+        cc,
         is_source_decl,
         ret_ty_requires_comptime,
         func_inst,
@@ -26839,52 +26766,8 @@ fn zirVarExtended(
     try sema.validateVarType(block, ty_src, var_ty, small.is_extern);
 
     if (small.is_extern) {
-        // We need to resolve the alignment and addrspace early.
-        // Keep in sync with logic in `Zcu.PerThread.semaCau`.
-        const align_src = block.src(.{ .node_offset_var_decl_align = 0 });
-        const addrspace_src = block.src(.{ .node_offset_var_decl_addrspace = 0 });
-
-        const decl_inst, const decl_bodies = decl: {
-            const decl_inst = sema.getOwnerCauDeclInst().resolve(ip) orelse return error.AnalysisFail;
-            const zir_decl, const extra_end = sema.code.getDeclaration(decl_inst);
-            break :decl .{ decl_inst, zir_decl.getBodies(extra_end, sema.code) };
-        };
-
-        const alignment: InternPool.Alignment = a: {
-            const align_body = decl_bodies.align_body orelse break :a .none;
-            const align_ref = try sema.resolveInlineBody(block, align_body, decl_inst);
-            break :a try sema.analyzeAsAlign(block, align_src, align_ref);
-        };
-
-        const @"addrspace": std.builtin.AddressSpace = as: {
-            const addrspace_ctx: Sema.AddressSpaceContext = switch (ip.indexToKey(var_ty.toIntern())) {
-                .func_type => .function,
-                else => .variable,
-            };
-            const target = zcu.getTarget();
-            const addrspace_body = decl_bodies.addrspace_body orelse break :as switch (addrspace_ctx) {
-                .function => target_util.defaultAddressSpace(target, .function),
-                .variable => target_util.defaultAddressSpace(target, .global_mutable),
-                .constant => target_util.defaultAddressSpace(target, .global_constant),
-                else => unreachable,
-            };
-            const addrspace_ref = try sema.resolveInlineBody(block, addrspace_body, decl_inst);
-            break :as try sema.analyzeAsAddressSpace(block, addrspace_src, addrspace_ref, addrspace_ctx);
-        };
-
-        return Air.internedToRef(try pt.getExtern(.{
-            .name = sema.getOwnerCauNavName(),
-            .ty = var_ty.toIntern(),
-            .lib_name = try ip.getOrPutStringOpt(sema.gpa, pt.tid, lib_name, .no_embedded_nulls),
-            .is_const = small.is_const,
-            .is_threadlocal = small.is_threadlocal,
-            .is_weak_linkage = false,
-            .is_dll_import = false,
-            .alignment = alignment,
-            .@"addrspace" = @"addrspace",
-            .zir_index = sema.getOwnerCauDeclInst(), // `declaration` instruction
-            .owner_nav = undefined, // ignored by `getExtern`
-        }));
+        const extern_val = try sema.resolveExternDecl(block, var_ty, lib_name, small.is_const, small.is_threadlocal);
+        return Air.internedToRef(extern_val);
     }
     assert(!small.is_const); // non-const non-extern variable is not legal
     return Air.internedToRef(try pt.intern(.{ .variable = .{
@@ -26895,6 +26778,66 @@ fn zirVarExtended(
         .is_threadlocal = small.is_threadlocal,
         .is_weak_linkage = false,
     } }));
+}
+
+fn resolveExternDecl(
+    sema: *Sema,
+    block: *Block,
+    ty: Type,
+    opt_lib_name: ?[]const u8,
+    is_const: bool,
+    is_threadlocal: bool,
+) CompileError!InternPool.Index {
+    const pt = sema.pt;
+    const zcu = pt.zcu;
+    const ip = &zcu.intern_pool;
+
+    // We need to resolve the alignment and addrspace early.
+    // Keep in sync with logic in `Zcu.PerThread.semaCau`.
+    const align_src = block.src(.{ .node_offset_var_decl_align = 0 });
+    const addrspace_src = block.src(.{ .node_offset_var_decl_addrspace = 0 });
+
+    const decl_inst, const decl_bodies = decl: {
+        const decl_inst = sema.getOwnerCauDeclInst().resolve(ip) orelse return error.AnalysisFail;
+        const zir_decl, const extra_end = sema.code.getDeclaration(decl_inst);
+        break :decl .{ decl_inst, zir_decl.getBodies(extra_end, sema.code) };
+    };
+
+    const alignment: InternPool.Alignment = a: {
+        const align_body = decl_bodies.align_body orelse break :a .none;
+        const align_ref = try sema.resolveInlineBody(block, align_body, decl_inst);
+        break :a try sema.analyzeAsAlign(block, align_src, align_ref);
+    };
+
+    const @"addrspace": std.builtin.AddressSpace = as: {
+        const addrspace_ctx: Sema.AddressSpaceContext = switch (ip.indexToKey(ty.toIntern())) {
+            .func_type => .function,
+            else => .variable,
+        };
+        const target = zcu.getTarget();
+        const addrspace_body = decl_bodies.addrspace_body orelse break :as switch (addrspace_ctx) {
+            .function => target_util.defaultAddressSpace(target, .function),
+            .variable => target_util.defaultAddressSpace(target, .global_mutable),
+            .constant => target_util.defaultAddressSpace(target, .global_constant),
+            else => unreachable,
+        };
+        const addrspace_ref = try sema.resolveInlineBody(block, addrspace_body, decl_inst);
+        break :as try sema.analyzeAsAddressSpace(block, addrspace_src, addrspace_ref, addrspace_ctx);
+    };
+
+    return pt.getExtern(.{
+        .name = sema.getOwnerCauNavName(),
+        .ty = ty.toIntern(),
+        .lib_name = try ip.getOrPutStringOpt(sema.gpa, pt.tid, opt_lib_name, .no_embedded_nulls),
+        .is_const = is_const,
+        .is_threadlocal = is_threadlocal,
+        .is_weak_linkage = false,
+        .is_dll_import = false,
+        .alignment = alignment,
+        .@"addrspace" = @"addrspace",
+        .zir_index = sema.getOwnerCauDeclInst(), // `declaration` instruction
+        .owner_nav = undefined, // ignored by `getExtern`
+    });
 }
 
 fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -26908,9 +26851,6 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     const extra = sema.code.extraData(Zir.Inst.FuncFancy, inst_data.payload_index);
     const target = zcu.getTarget();
 
-    const align_src = block.src(.{ .node_offset_fn_type_align = inst_data.src_node });
-    const addrspace_src = block.src(.{ .node_offset_fn_type_addrspace = inst_data.src_node });
-    const section_src = block.src(.{ .node_offset_fn_type_section = inst_data.src_node });
     const cc_src = block.src(.{ .node_offset_fn_type_cc = inst_data.src_node });
     const ret_src = block.src(.{ .node_offset_fn_type_ret_ty = inst_data.src_node });
     const has_body = extra.data.body_len != 0;
@@ -26924,112 +26864,7 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         break :blk lib_name;
     } else null;
 
-    if (has_body and
-        (extra.data.bits.has_align_body or extra.data.bits.has_align_ref) and
-        !target_util.supportsFunctionAlignment(target))
-    {
-        return sema.fail(block, align_src, "target does not support function alignment", .{});
-    }
-
-    const @"align": ?Alignment = if (extra.data.bits.has_align_body) blk: {
-        const body_len = sema.code.extra[extra_index];
-        extra_index += 1;
-        const body = sema.code.bodySlice(extra_index, body_len);
-        extra_index += body.len;
-
-        const val = try sema.resolveGenericBody(block, align_src, body, inst, Type.u29, .{
-            .needed_comptime_reason = "alignment must be comptime-known",
-        });
-        if (val.isGenericPoison()) {
-            break :blk null;
-        }
-        break :blk try sema.validateAlign(block, align_src, try val.toUnsignedIntSema(pt));
-    } else if (extra.data.bits.has_align_ref) blk: {
-        const align_ref: Zir.Inst.Ref = @enumFromInt(sema.code.extra[extra_index]);
-        extra_index += 1;
-        const uncoerced_align = sema.resolveInst(align_ref) catch |err| switch (err) {
-            error.GenericPoison => break :blk null,
-            else => |e| return e,
-        };
-        const coerced_align = sema.coerce(block, Type.u29, uncoerced_align, align_src) catch |err| switch (err) {
-            error.GenericPoison => break :blk null,
-            else => |e| return e,
-        };
-        const align_val = sema.resolveConstDefinedValue(block, align_src, coerced_align, .{
-            .needed_comptime_reason = "alignment must be comptime-known",
-        }) catch |err| switch (err) {
-            error.GenericPoison => break :blk null,
-            else => |e| return e,
-        };
-        break :blk try sema.validateAlign(block, align_src, try align_val.toUnsignedIntSema(pt));
-    } else .none;
-
-    const @"addrspace": ?std.builtin.AddressSpace = if (extra.data.bits.has_addrspace_body) blk: {
-        const body_len = sema.code.extra[extra_index];
-        extra_index += 1;
-        const body = sema.code.bodySlice(extra_index, body_len);
-        extra_index += body.len;
-
-        const addrspace_ty = try sema.getBuiltinType("AddressSpace");
-        const val = try sema.resolveGenericBody(block, addrspace_src, body, inst, addrspace_ty, .{
-            .needed_comptime_reason = "addrspace must be comptime-known",
-        });
-        if (val.isGenericPoison()) {
-            break :blk null;
-        }
-        break :blk zcu.toEnum(std.builtin.AddressSpace, val);
-    } else if (extra.data.bits.has_addrspace_ref) blk: {
-        const addrspace_ref: Zir.Inst.Ref = @enumFromInt(sema.code.extra[extra_index]);
-        extra_index += 1;
-        const addrspace_ty = try sema.getBuiltinType("AddressSpace");
-        const uncoerced_addrspace = sema.resolveInst(addrspace_ref) catch |err| switch (err) {
-            error.GenericPoison => break :blk null,
-            else => |e| return e,
-        };
-        const coerced_addrspace = sema.coerce(block, addrspace_ty, uncoerced_addrspace, addrspace_src) catch |err| switch (err) {
-            error.GenericPoison => break :blk null,
-            else => |e| return e,
-        };
-        const addrspace_val = sema.resolveConstDefinedValue(block, addrspace_src, coerced_addrspace, .{
-            .needed_comptime_reason = "addrspace must be comptime-known",
-        }) catch |err| switch (err) {
-            error.GenericPoison => break :blk null,
-            else => |e| return e,
-        };
-        break :blk zcu.toEnum(std.builtin.AddressSpace, addrspace_val);
-    } else target_util.defaultAddressSpace(target, .function);
-
-    const section: Section = if (extra.data.bits.has_section_body) blk: {
-        const body_len = sema.code.extra[extra_index];
-        extra_index += 1;
-        const body = sema.code.bodySlice(extra_index, body_len);
-        extra_index += body.len;
-
-        const ty = Type.slice_const_u8;
-        const val = try sema.resolveGenericBody(block, section_src, body, inst, ty, .{
-            .needed_comptime_reason = "linksection must be comptime-known",
-        });
-        if (val.isGenericPoison()) {
-            break :blk .generic;
-        }
-        break :blk .{ .explicit = try sema.sliceToIpString(block, section_src, val, .{
-            .needed_comptime_reason = "linksection must be comptime-known",
-        }) };
-    } else if (extra.data.bits.has_section_ref) blk: {
-        const section_ref: Zir.Inst.Ref = @enumFromInt(sema.code.extra[extra_index]);
-        extra_index += 1;
-        const section_name = sema.resolveConstStringIntern(block, section_src, section_ref, .{
-            .needed_comptime_reason = "linksection must be comptime-known",
-        }) catch |err| switch (err) {
-            error.GenericPoison => {
-                break :blk .generic;
-            },
-            else => |e| return e,
-        };
-        break :blk .{ .explicit = section_name };
-    } else .default;
-
-    const cc: ?std.builtin.CallingConvention = if (extra.data.bits.has_cc_body) blk: {
+    const cc: std.builtin.CallingConvention = if (extra.data.bits.has_cc_body) blk: {
         const body_len = sema.code.extra[extra_index];
         extra_index += 1;
         const body = sema.code.bodySlice(extra_index, body_len);
@@ -27039,28 +26874,16 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         const val = try sema.resolveGenericBody(block, cc_src, body, inst, cc_ty, .{
             .needed_comptime_reason = "calling convention must be comptime-known",
         });
-        if (val.isGenericPoison()) {
-            break :blk null;
-        }
         break :blk try sema.analyzeValueAsCallconv(block, cc_src, val);
     } else if (extra.data.bits.has_cc_ref) blk: {
         const cc_ref: Zir.Inst.Ref = @enumFromInt(sema.code.extra[extra_index]);
         extra_index += 1;
         const cc_ty = try sema.getBuiltinType("CallingConvention");
-        const uncoerced_cc = sema.resolveInst(cc_ref) catch |err| switch (err) {
-            error.GenericPoison => break :blk null,
-            else => |e| return e,
-        };
-        const coerced_cc = sema.coerce(block, cc_ty, uncoerced_cc, cc_src) catch |err| switch (err) {
-            error.GenericPoison => break :blk null,
-            else => |e| return e,
-        };
-        const cc_val = sema.resolveConstDefinedValue(block, cc_src, coerced_cc, .{
+        const uncoerced_cc = try sema.resolveInst(cc_ref);
+        const coerced_cc = try sema.coerce(block, cc_ty, uncoerced_cc, cc_src);
+        const cc_val = try sema.resolveConstDefinedValue(block, cc_src, coerced_cc, .{
             .needed_comptime_reason = "calling convention must be comptime-known",
-        }) catch |err| switch (err) {
-            error.GenericPoison => break :blk null,
-            else => |e| return e,
-        };
+        });
         break :blk try sema.analyzeValueAsCallconv(block, cc_src, cc_val);
     } else cc: {
         if (has_body) {
@@ -27142,9 +26965,6 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         block,
         inst_data.src_node,
         inst,
-        @"align",
-        @"addrspace",
-        section,
         cc,
         ret_ty,
         is_var_args,
