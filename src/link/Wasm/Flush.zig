@@ -28,10 +28,14 @@ missing_exports: std.AutoArrayHashMapUnmanaged(String, void) = .empty,
 
 indirect_function_table: std.AutoArrayHashMapUnmanaged(Wasm.OutputFunctionIndex, u32) = .empty,
 
+/// For debug purposes only.
+memory_layout_finished: bool = false,
+
 pub fn clear(f: *Flush) void {
     f.binary_bytes.clearRetainingCapacity();
     f.data_segment_groups.clearRetainingCapacity();
     f.indirect_function_table.clearRetainingCapacity();
+    f.memory_layout_finished = false;
 }
 
 pub fn deinit(f: *Flush, gpa: Allocator) void {
@@ -348,6 +352,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
         if (shared_memory) wasm.memories.limits.flags.is_shared = true;
         log.debug("maximum memory pages: {?d}", .{wasm.memories.limits.max});
     }
+    f.memory_layout_finished = true;
 
     var section_index: u32 = 0;
     // Index of the code section. Used to tell relocation table where the section lives.

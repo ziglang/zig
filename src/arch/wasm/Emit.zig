@@ -108,7 +108,7 @@ pub fn lowerToCode(emit: *Emit) Error!void {
                 inst += 1;
                 continue :loop tags[inst];
             } else {
-                const addr = try wasm.errorNameTableAddr();
+                const addr: u32 = wasm.errorNameTableAddr();
                 leb.writeIleb128(code.fixedWriter(), addr) catch unreachable;
 
                 inst += 1;
@@ -931,7 +931,7 @@ fn uavRefOffExe(wasm: *Wasm, code: *std.ArrayListUnmanaged(u8), data: Mir.UavRef
     try code.ensureUnusedCapacity(gpa, 11);
     code.appendAssumeCapacity(@intFromEnum(opcode));
 
-    const addr = try wasm.uavAddr(data.uav_exe);
+    const addr = wasm.uavAddr(data.uav_exe);
     leb.writeUleb128(code.fixedWriter(), @as(u32, @intCast(@as(i64, addr) + data.offset))) catch unreachable;
 }
 
@@ -957,8 +957,9 @@ fn navRefOff(wasm: *Wasm, code: *std.ArrayListUnmanaged(u8), data: Mir.NavRefOff
             });
             code.appendNTimesAssumeCapacity(0, 5);
         } else {
-            const addr = try wasm.navAddr(data.nav_index);
-            leb.writeUleb128(code.fixedWriter(), @as(u32, @intCast(@as(i64, addr) + data.offset))) catch unreachable;
+            const function_imports_len: u32 = @intCast(wasm.function_imports.entries.len);
+            const func_index = Wasm.FunctionIndex.fromIpNav(wasm, data.nav_index).?;
+            leb.writeUleb128(code.fixedWriter(), function_imports_len + @intFromEnum(func_index)) catch unreachable;
         }
     } else {
         const opcode: std.wasm.Opcode = if (is_wasm32) .i32_const else .i64_const;
@@ -972,7 +973,7 @@ fn navRefOff(wasm: *Wasm, code: *std.ArrayListUnmanaged(u8), data: Mir.NavRefOff
             });
             code.appendNTimesAssumeCapacity(0, if (is_wasm32) 5 else 10);
         } else {
-            const addr = try wasm.navAddr(data.nav_index);
+            const addr = wasm.navAddr(data.nav_index);
             leb.writeUleb128(code.fixedWriter(), @as(u32, @intCast(@as(i64, addr) + data.offset))) catch unreachable;
         }
     }

@@ -3331,21 +3331,27 @@ pub fn refUavExe(wasm: *Wasm, pt: Zcu.PerThread, ip_index: InternPool.Index) !Ua
     return uav_index;
 }
 
-pub fn uavAddr(wasm: *Wasm, uav_index: UavsExeIndex) Allocator.Error!u32 {
+/// Asserts it is called after `Wasm.data_segments` is fully populated and sorted.
+pub fn uavAddr(wasm: *Wasm, uav_index: UavsExeIndex) u32 {
+    assert(wasm.flush_buffer.memory_layout_finished);
     const comp = wasm.base.comp;
     assert(comp.config.output_mode != .Obj);
     const ds_id: DataSegment.Id = .pack(wasm, .{ .uav_exe = uav_index });
     return wasm.data_segments.get(ds_id).?;
 }
 
-pub fn navAddr(wasm: *Wasm, nav_index: InternPool.Nav.Index) Allocator.Error!u32 {
+/// Asserts it is called after `Wasm.data_segments` is fully populated and sorted.
+pub fn navAddr(wasm: *Wasm, nav_index: InternPool.Nav.Index) u32 {
+    assert(wasm.flush_buffer.memory_layout_finished);
     const comp = wasm.base.comp;
     assert(comp.config.output_mode != .Obj);
     const ds_id: DataSegment.Id = .pack(wasm, .{ .nav_exe = @enumFromInt(wasm.navs_exe.getIndex(nav_index).?) });
     return wasm.data_segments.get(ds_id).?;
 }
 
-pub fn errorNameTableAddr(wasm: *Wasm) Allocator.Error!u32 {
+/// Asserts it is called after `Wasm.data_segments` is fully populated and sorted.
+pub fn errorNameTableAddr(wasm: *Wasm) u32 {
+    assert(wasm.flush_buffer.memory_layout_finished);
     const comp = wasm.base.comp;
     assert(comp.config.output_mode != .Obj);
     return wasm.data_segments.get(.__zig_error_name_table).?;
