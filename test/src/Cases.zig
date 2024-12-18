@@ -572,7 +572,10 @@ pub fn lowerToTranslateCSteps(
             });
             translate_c.step.name = b.fmt("{s} translate-c", .{annotated_case_name});
 
-            const run_exe = translate_c.addExecutable(.{});
+            const run_exe = b.addExecutable(.{
+                .name = "translated_c",
+                .root_module = translate_c.createModule(),
+            });
             run_exe.step.name = b.fmt("{s} build-exe", .{annotated_case_name});
             run_exe.linkLibC();
             const run = b.addRunArtifact(run_exe);
@@ -660,34 +663,37 @@ pub fn lowerToBuildSteps(
             file_sources.put(file.path, writefiles.add(file.path, file.src)) catch @panic("OOM");
         }
 
-        const artifact = if (case.is_test) b.addTest(.{
+        const mod = b.createModule(.{
             .root_source_file = root_source_file,
-            .name = case.name,
             .target = case.target,
             .optimize = case.optimize_mode,
+        });
+        if (case.link_libc) mod.link_libc = true;
+        if (case.pic) |pic| mod.pic = pic;
+        for (case.deps.items) |dep| {
+            mod.addAnonymousImport(dep.name, .{
+                .root_source_file = file_sources.get(dep.path).?,
+            });
+        }
+
+        const artifact = if (case.is_test) b.addTest(.{
+            .name = case.name,
+            .root_module = mod,
         }) else switch (case.output_mode) {
             .Obj => b.addObject(.{
-                .root_source_file = root_source_file,
                 .name = case.name,
-                .target = case.target,
-                .optimize = case.optimize_mode,
+                .root_module = mod,
             }),
             .Lib => b.addStaticLibrary(.{
-                .root_source_file = root_source_file,
                 .name = case.name,
-                .target = case.target,
-                .optimize = case.optimize_mode,
+                .root_module = mod,
             }),
             .Exe => b.addExecutable(.{
-                .root_source_file = root_source_file,
                 .name = case.name,
-                .target = case.target,
-                .optimize = case.optimize_mode,
+                .root_module = mod,
             }),
         };
 
-        if (case.link_libc) artifact.linkLibC();
-        if (case.pic) |pic| artifact.root_module.pic = pic;
         if (case.pie) |pie| artifact.pie = pie;
 
         switch (case.backend) {
@@ -699,12 +705,6 @@ pub fn lowerToBuildSteps(
             .llvm => {
                 artifact.use_llvm = true;
             },
-        }
-
-        for (case.deps.items) |dep| {
-            artifact.root_module.addAnonymousImport(dep.name, .{
-                .root_source_file = file_sources.get(dep.path).?,
-            });
         }
 
         switch (update.case) {

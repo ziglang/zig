@@ -15,9 +15,11 @@ pub fn build(b: *std.Build) void {
 fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.OptimizeMode) void {
     const no_export = b.addExecutable(.{
         .name = "no-export",
-        .root_source_file = b.path("main.zig"),
-        .optimize = optimize,
-        .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("main.zig"),
+            .optimize = optimize,
+            .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
+        }),
     });
     no_export.entry = .disabled;
     no_export.use_llvm = false;
@@ -25,9 +27,11 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
 
     const dynamic_export = b.addExecutable(.{
         .name = "dynamic",
-        .root_source_file = b.path("main.zig"),
-        .optimize = optimize,
-        .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("main.zig"),
+            .optimize = optimize,
+            .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
+        }),
     });
     dynamic_export.entry = .disabled;
     dynamic_export.rdynamic = true;
@@ -36,9 +40,11 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
 
     const force_export = b.addExecutable(.{
         .name = "force",
-        .root_source_file = b.path("main.zig"),
-        .optimize = optimize,
-        .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("main.zig"),
+            .optimize = optimize,
+            .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
+        }),
     });
     force_export.entry = .disabled;
     force_export.root_module.export_symbol_names = &.{"foo"};
