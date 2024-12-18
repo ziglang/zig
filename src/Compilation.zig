@@ -5925,6 +5925,10 @@ pub fn addCCArgs(
                         // Without this flag, Clang would invoke UBSAN when such an extern
                         // function was called.
                         try argv.append("-fno-sanitize=function");
+
+                        if (mod.optimize_mode == .ReleaseSafe) {
+                            try argv.append("-fsanitize-minimal-runtime");
+                        }
                     }
                 }
 
