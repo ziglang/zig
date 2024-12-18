@@ -702,7 +702,7 @@ class root_InternPool_Local_List_SynthProvider:
     def __init__(self, value, _=None): self.value = value
     def update(self):
         capacity = self.value.EvaluateExpression('@as(*@This().Header, @alignCast(@ptrCast(@this().bytes - @This().bytes_offset))).capacity')
-        self.view = create_struct('view', self.value.EvaluateExpression('@This().View').GetValueAsType(), bytes=self.value.GetChildMemberWithName('bytes'), len=capacity, capacity=capacity).GetNonSyntheticValue()
+        self.view = create_struct('view', self.value.type.FindDirectNestedType('View'), bytes=self.value.GetChildMemberWithName('bytes'), len=capacity, capacity=capacity).GetNonSyntheticValue()
     def has_children(self): return True
     def num_children(self): return 1
     def get_child_index(self, name):
