@@ -43,7 +43,7 @@ pub const Error = union(enum) {
     pub fn lower(
         err: Error,
         raw_string: []const u8,
-        offset: u32,
+        off: u32,
         comptime func: anytype,
         first_args: anytype,
     ) @typeInfo(@TypeOf(func)).@"fn".return_type.? {
@@ -66,7 +66,7 @@ pub const Error = union(enum) {
                     .empty_char_literal => .{ "empty character literal", .{} },
                 };
                 return @call(.auto, func, first_args ++ .{
-                    offset + bad_index,
+                    off + bad_index,
                     fmt_str,
                     args,
                 });
