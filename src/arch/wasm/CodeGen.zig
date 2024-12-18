@@ -76,6 +76,7 @@ pt: Zcu.PerThread,
 mir_instructions: *std.MultiArrayList(Mir.Inst),
 /// Contains extra data for MIR
 mir_extra: *std.ArrayListUnmanaged(u32),
+start_mir_extra_off: u32,
 /// List of all locals' types generated throughout this declaration
 /// used to emit locals count at start of 'code' section.
 locals: *std.ArrayListUnmanaged(u8),
@@ -859,7 +860,7 @@ fn addTag(cg: *CodeGen, tag: Mir.Inst.Tag) error{OutOfMemory}!void {
 }
 
 fn addExtended(cg: *CodeGen, opcode: std.wasm.MiscOpcode) error{OutOfMemory}!void {
-    const extra_index = @as(u32, @intCast(cg.mir_extra.items.len));
+    const extra_index = cg.extraLen();
     try cg.mir_extra.append(cg.gpa, @intFromEnum(opcode));
     try cg.addInst(.{ .tag = .misc_prefix, .data = .{ .payload = extra_index } });
 }
@@ -890,7 +891,7 @@ fn addImm64(cg: *CodeGen, imm: u64) error{OutOfMemory}!void {
 /// Accepts the index into the list of 128bit-immediates
 fn addImm128(cg: *CodeGen, index: u32) error{OutOfMemory}!void {
     const simd_values = cg.simd_immediates.items[index];
-    const extra_index = @as(u32, @intCast(cg.mir_extra.items.len));
+    const extra_index = cg.extraLen();
     // tag + 128bit value
     try cg.mir_extra.ensureUnusedCapacity(cg.gpa, 5);
     cg.mir_extra.appendAssumeCapacity(@intFromEnum(std.wasm.SimdOpcode.v128_const));
@@ -935,7 +936,7 @@ fn addExtra(cg: *CodeGen, extra: anytype) error{OutOfMemory}!u32 {
 /// Returns the index into `mir_extra`
 fn addExtraAssumeCapacity(cg: *CodeGen, extra: anytype) error{OutOfMemory}!u32 {
     const fields = std.meta.fields(@TypeOf(extra));
-    const result = @as(u32, @intCast(cg.mir_extra.items.len));
+    const result = cg.extraLen();
     inline for (fields) |field| {
         cg.mir_extra.appendAssumeCapacity(switch (field.type) {
             u32 => @field(extra, field.name),
@@ -1267,6 +1268,7 @@ pub fn function(
         .mir_instructions = &wasm.mir_instructions,
         .mir_extra = &wasm.mir_extra,
         .locals = &wasm.all_zcu_locals,
+        .start_mir_extra_off = @intCast(wasm.mir_extra.items.len),
     };
     defer code_gen.deinit();
 
@@ -1281,7 +1283,6 @@ fn functionInner(cg: *CodeGen, any_returns: bool) InnerError!Function {
     const zcu = cg.pt.zcu;
 
     const start_mir_off: u32 = @intCast(wasm.mir_instructions.len);
-    const start_mir_extra_off: u32 = @intCast(wasm.mir_extra.items.len);
     const start_locals_off: u32 = @intCast(wasm.all_zcu_locals.items.len);
 
     try cg.branches.append(cg.gpa, .{});
@@ -1310,8 +1311,8 @@ fn functionInner(cg: *CodeGen, any_returns: bool) InnerError!Function {
     return .{
         .mir_off = start_mir_off,
         .mir_len = @intCast(wasm.mir_instructions.len - start_mir_off),
-        .mir_extra_off = start_mir_extra_off,
-        .mir_extra_len = @intCast(wasm.mir_extra.items.len - start_mir_extra_off),
+        .mir_extra_off = cg.start_mir_extra_off,
+        .mir_extra_len = cg.extraLen(),
         .locals_off = start_locals_off,
         .locals_len = @intCast(wasm.all_zcu_locals.items.len - start_locals_off),
         .prologue = if (cg.initial_stack_value == .none) .none else .{
@@ -2349,7 +2350,7 @@ fn store(cg: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErr
                 try cg.emitWValue(lhs);
                 try cg.lowerToStack(rhs);
                 // TODO: Add helper functions for simd opcodes
-                const extra_index: u32 = @intCast(cg.mir_extra.items.len);
+                const extra_index = cg.extraLen();
                 // stores as := opcode, offset, alignment (opcode::memarg)
                 try cg.mir_extra.appendSlice(cg.gpa, &[_]u32{
                     @intFromEnum(std.wasm.SimdOpcode.v128_store),
@@ -2463,7 +2464,7 @@ fn load(cg: *CodeGen, operand: WValue, ty: Type, offset: u32) InnerError!WValue 
 
     if (ty.zigTypeTag(zcu) == .vector) {
         // TODO: Add helper functions for simd opcodes
-        const extra_index = @as(u32, @intCast(cg.mir_extra.items.len));
+        const extra_index = cg.extraLen();
         // stores as := opcode, offset, alignment (opcode::memarg)
         try cg.mir_extra.appendSlice(cg.gpa, &[_]u32{
             @intFromEnum(std.wasm.SimdOpcode.v128_load),
@@ -4872,7 +4873,7 @@ fn airArrayElemVal(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
                 try cg.emitWValue(array);
 
-                const extra_index = @as(u32, @intCast(cg.mir_extra.items.len));
+                const extra_index = cg.extraLen();
                 try cg.mir_extra.appendSlice(cg.gpa, &operands);
                 try cg.addInst(.{ .tag = .simd_prefix, .data = .{ .payload = extra_index } });
 
@@ -5024,7 +5025,7 @@ fn airSplat(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                     else => break :blk, // Cannot make use of simd-instructions
                 };
                 try cg.emitWValue(operand);
-                const extra_index: u32 = @intCast(cg.mir_extra.items.len);
+                const extra_index: u32 = cg.extraLen();
                 // stores as := opcode, offset, alignment (opcode::memarg)
                 try cg.mir_extra.appendSlice(cg.gpa, &[_]u32{
                     opcode,
@@ -5043,7 +5044,7 @@ fn airSplat(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                     else => break :blk, // Cannot make use of simd-instructions
                 };
                 try cg.emitWValue(operand);
-                const extra_index = @as(u32, @intCast(cg.mir_extra.items.len));
+                const extra_index = cg.extraLen();
                 try cg.mir_extra.append(cg.gpa, opcode);
                 try cg.addInst(.{ .tag = .simd_prefix, .data = .{ .payload = extra_index } });
                 return cg.finishAir(inst, .stack, &.{ty_op.operand});
@@ -5131,7 +5132,7 @@ fn airShuffle(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         try cg.emitWValue(a);
         try cg.emitWValue(b);
 
-        const extra_index = @as(u32, @intCast(cg.mir_extra.items.len));
+        const extra_index = cg.extraLen();
         try cg.mir_extra.appendSlice(cg.gpa, &operands);
         try cg.addInst(.{ .tag = .simd_prefix, .data = .{ .payload = extra_index } });
 
@@ -7481,4 +7482,8 @@ fn floatCmpIntrinsic(op: std.math.CompareOperator, bits: u16) Mir.Intrinsic {
             else => unreachable,
         },
     };
+}
+
+fn extraLen(cg: *const CodeGen) u32 {
+    return @intCast(cg.mir_extra.items.len - cg.start_mir_extra_off);
 }
