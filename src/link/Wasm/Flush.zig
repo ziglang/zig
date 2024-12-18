@@ -134,7 +134,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
 
     // Merge and order the data segments. Depends on garbage collection so that
     // unused segments can be omitted.
-    try wasm.data_segments.ensureUnusedCapacity(gpa, wasm.object_data_segments.items.len);
+    try wasm.data_segments.ensureUnusedCapacity(gpa, wasm.object_data_segments.items.len + 1);
     for (wasm.object_data_segments.items, 0..) |*ds, i| {
         if (!ds.flags.alive) continue;
         const data_segment_index: Wasm.ObjectDataSegmentIndex = @enumFromInt(i);
@@ -142,6 +142,9 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
         wasm.data_segments.putAssumeCapacityNoClobber(.pack(wasm, .{
             .object = data_segment_index,
         }), @as(u32, undefined));
+    }
+    if (wasm.error_name_table_ref_count > 0) {
+        wasm.data_segments.putAssumeCapacity(.__zig_error_name_table, @as(u32, undefined));
     }
 
     try wasm.functions.ensureUnusedCapacity(gpa, 3);
