@@ -1361,13 +1361,20 @@ pub const DataSegment = extern struct {
                     const ip = &zcu.intern_pool;
                     const ip_index = i.key(wasm).*;
                     const ty: ZcuType = .fromInterned(ip.typeOf(ip_index));
-                    return ty.abiAlignment(zcu);
+                    const result = ty.abiAlignment(zcu);
+                    assert(result != .none);
+                    return result;
                 },
                 inline .nav_exe, .nav_obj => |i| {
                     const zcu = wasm.base.comp.zcu.?;
                     const ip = &zcu.intern_pool;
                     const nav = ip.getNav(i.key(wasm).*);
-                    return nav.status.resolved.alignment;
+                    const explicit = nav.status.resolved.alignment;
+                    if (explicit != .none) return explicit;
+                    const ty: ZcuType = .fromInterned(nav.typeOf(ip));
+                    const result = ty.abiAlignment(zcu);
+                    assert(result != .none);
+                    return result;
                 },
             };
         }
