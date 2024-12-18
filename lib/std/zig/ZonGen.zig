@@ -540,7 +540,7 @@ fn numberLiteral(zg: *ZonGen, num_node: Ast.Node.Index, src_node: Ast.Node.Index
             if (unsigned_num == 0 and sign == .negative) {
                 try zg.addErrorTokNotes(num_token, "integer literal '-0' is ambiguous", .{}, &.{
                     try zg.errNoteTok(num_token, "use '0' for an integer zero", .{}),
-                    try zg.errNoteTok(num_token, "use '-0.0' for a flaoting-point signed zero", .{}),
+                    try zg.errNoteTok(num_token, "use '-0.0' for a floating-point signed zero", .{}),
                 });
                 return;
             }
