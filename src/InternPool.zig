@@ -620,6 +620,13 @@ pub const Nav = struct {
         };
     }
 
+    /// Asserts that `status == .resolved`.
+    pub fn isThreadLocal(nav: Nav, ip: *const InternPool) bool {
+        const val = nav.status.resolved.val;
+        if (!isVariable(ip, val)) return false;
+        return ip.indexToKey(val).variable.is_threadlocal;
+    }
+
     /// Get the ZIR instruction corresponding to this `Nav`, used to resolve source locations.
     /// This is a `declaration`.
     pub fn srcInst(nav: Nav, ip: *const InternPool) TrackedInst.Index {

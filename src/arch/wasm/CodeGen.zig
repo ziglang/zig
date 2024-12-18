@@ -944,8 +944,11 @@ fn addExtraAssumeCapacity(cg: *CodeGen, extra: anytype) error{OutOfMemory}!u32 {
         cg.mir_extra.appendAssumeCapacity(switch (field.type) {
             u32 => @field(extra, field.name),
             i32 => @bitCast(@field(extra, field.name)),
-            InternPool.Index => @intFromEnum(@field(extra, field.name)),
-            InternPool.Nav.Index => @intFromEnum(@field(extra, field.name)),
+            InternPool.Index,
+            InternPool.Nav.Index,
+            Wasm.UavsObjIndex,
+            Wasm.UavsExeIndex,
+            => @intFromEnum(@field(extra, field.name)),
             else => |field_type| @compileError("Unsupported field type " ++ @typeName(field_type)),
         });
     }
@@ -1034,14 +1037,26 @@ fn emitWValue(cg: *CodeGen, value: WValue) InnerError!void {
             }
         },
         .uav_ref => |uav| {
+            const wasm = cg.wasm;
+            const is_obj = wasm.base.comp.config.output_mode == .Obj;
             if (uav.offset == 0) {
-                try cg.addInst(.{ .tag = .uav_ref, .data = .{ .ip_index = uav.ip_index } });
+                try cg.addInst(.{
+                    .tag = .uav_ref,
+                    .data = if (is_obj) .{
+                        .uav_obj = try wasm.refUavObj(cg.pt, uav.ip_index),
+                    } else .{
+                        .uav_exe = try wasm.refUavExe(cg.pt, uav.ip_index),
+                    },
+                });
             } else {
                 try cg.addInst(.{
                     .tag = .uav_ref_off,
                     .data = .{
-                        .payload = try cg.addExtra(Mir.UavRefOff{
-                            .ip_index = uav.ip_index,
+                        .payload = if (is_obj) try cg.addExtra(Mir.UavRefOffObj{
+                            .uav_obj = try wasm.refUavObj(cg.pt, uav.ip_index),
+                            .offset = uav.offset,
+                        }) else try cg.addExtra(Mir.UavRefOffExe{
+                            .uav_exe = try wasm.refUavExe(cg.pt, uav.ip_index),
                             .offset = uav.offset,
                         }),
                     },
@@ -1148,11 +1163,11 @@ pub const Function = extern struct {
         }
     };
 
-    pub fn lower(f: *Function, wasm: *const Wasm, code: *std.ArrayList(u8)) Allocator.Error!void {
+    pub fn lower(f: *Function, wasm: *Wasm, code: *std.ArrayListUnmanaged(u8)) Allocator.Error!void {
         const gpa = wasm.base.comp.gpa;
 
         // Write the locals in the prologue of the function body.
-        const locals = wasm.all_zcu_locals[f.locals_off..][0..f.locals_len];
+        const locals = wasm.all_zcu_locals.items[f.locals_off..][0..f.locals_len];
         try code.ensureUnusedCapacity(gpa, 5 + locals.len * 6 + 38);
 
         std.leb.writeUleb128(code.writer(gpa), @as(u32, @intCast(locals.len))) catch unreachable;
@@ -1164,7 +1179,7 @@ pub const Function = extern struct {
         // Stack management section of function prologue.
         const stack_alignment = f.prologue.flags.stack_alignment;
         if (stack_alignment.toByteUnits()) |align_bytes| {
-            const sp_global = try wasm.stackPointerGlobalIndex();
+            const sp_global: Wasm.GlobalIndex = .stack_pointer;
             // load stack pointer
             code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.global_get));
             std.leb.writeULEB128(code.writer(gpa), @intFromEnum(sp_global)) catch unreachable;
@@ -1172,7 +1187,7 @@ pub const Function = extern struct {
             code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.local_tee));
             leb.writeUleb128(code.writer(gpa), f.prologue.sp_local) catch unreachable;
             // get the total stack size
-            const aligned_stack: i32 = @intCast(f.stack_alignment.forward(f.prologue.stack_size));
+            const aligned_stack: i32 = @intCast(stack_alignment.forward(f.prologue.stack_size));
             code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.i32_const));
             leb.writeIleb128(code.writer(gpa), aligned_stack) catch unreachable;
             // subtract it from the current stack pointer
@@ -1197,7 +1212,7 @@ pub const Function = extern struct {
             .mir = .{
                 .instruction_tags = wasm.mir_instructions.items(.tag)[f.mir_off..][0..f.mir_len],
                 .instruction_datas = wasm.mir_instructions.items(.data)[f.mir_off..][0..f.mir_len],
-                .extra = wasm.mir_extra[f.mir_extra_off..][0..f.mir_extra_len],
+                .extra = wasm.mir_extra.items[f.mir_extra_off..][0..f.mir_extra_len],
             },
             .wasm = wasm,
             .code = code,
@@ -5845,6 +5860,8 @@ fn airErrorName(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const pt = cg.pt;
     const name_ty = Type.slice_const_u8_sentinel_0;
     const abi_size = name_ty.abiSize(pt.zcu);
+
+    cg.wasm.error_name_table_ref_count += 1;
 
     // Lowers to a i32.const or i64.const with the error table memory address.
     try cg.addTag(.error_name_table_ref);

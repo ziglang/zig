@@ -119,21 +119,6 @@ object_relocations: std.MultiArrayList(ObjectRelocation) = .empty,
 /// by the (synthetic) __wasm_call_ctors function.
 object_init_funcs: std.ArrayListUnmanaged(InitFunc) = .empty,
 
-/// Relocations to be emitted into an object file. Remains empty when not
-/// emitting an object file.
-out_relocs: std.MultiArrayList(OutReloc) = .empty,
-/// List of locations within `string_bytes` that must be patched with the virtual
-/// memory address of a Uav during `flush`.
-/// When emitting an object file, `out_relocs` is used instead.
-uav_fixups: std.ArrayListUnmanaged(UavFixup) = .empty,
-/// List of locations within `string_bytes` that must be patched with the virtual
-/// memory address of a Nav during `flush`.
-/// When emitting an object file, `out_relocs` is used instead.
-nav_fixups: std.ArrayListUnmanaged(NavFixup) = .empty,
-/// Symbols to be emitted into an object file. Remains empty when not emitting
-/// an object file.
-symbol_table: std.AutoArrayHashMapUnmanaged(String, void) = .empty,
-
 /// Non-synthetic section that can essentially be mem-cpy'd into place after performing relocations.
 object_data_segments: std.ArrayListUnmanaged(DataSegment) = .empty,
 /// Non-synthetic section that can essentially be mem-cpy'd into place after performing relocations.
@@ -148,6 +133,21 @@ object_relocations_table: std.AutoArrayHashMapUnmanaged(ObjectSectionIndex, Obje
 object_total_sections: u32 = 0,
 /// All comdat symbols from all objects concatenated.
 object_comdat_symbols: std.MultiArrayList(Comdat.Symbol) = .empty,
+
+/// Relocations to be emitted into an object file. Remains empty when not
+/// emitting an object file.
+out_relocs: std.MultiArrayList(OutReloc) = .empty,
+/// List of locations within `string_bytes` that must be patched with the virtual
+/// memory address of a Uav during `flush`.
+/// When emitting an object file, `out_relocs` is used instead.
+uav_fixups: std.ArrayListUnmanaged(UavFixup) = .empty,
+/// List of locations within `string_bytes` that must be patched with the virtual
+/// memory address of a Nav during `flush`.
+/// When emitting an object file, `out_relocs` is used instead.
+nav_fixups: std.ArrayListUnmanaged(NavFixup) = .empty,
+/// Symbols to be emitted into an object file. Remains empty when not emitting
+/// an object file.
+symbol_table: std.AutoArrayHashMapUnmanaged(String, void) = .empty,
 
 /// When importing objects from the host environment, a name must be supplied.
 /// LLVM uses "env" by default when none is given. This would be a good default for Zig
@@ -170,9 +170,15 @@ dump_argv_list: std.ArrayListUnmanaged([]const u8),
 preloaded_strings: PreloadedStrings,
 
 /// This field is used when emitting an object; `navs_exe` used otherwise.
-navs_obj: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, NavObj) = .empty,
+navs_obj: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, ZcuDataObj) = .empty,
 /// This field is unused when emitting an object; `navs_exe` used otherwise.
-navs_exe: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, NavExe) = .empty,
+navs_exe: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, ZcuDataExe) = .empty,
+/// Tracks all InternPool values referenced by codegen. Needed for outputting
+/// the data segment. This one does not track ref count because object files
+/// require using max LEB encoding for these references anyway.
+uavs_obj: std.AutoArrayHashMapUnmanaged(InternPool.Index, ZcuDataObj) = .empty,
+/// Tracks ref count to optimize LEB encodings for UAV references.
+uavs_exe: std.AutoArrayHashMapUnmanaged(InternPool.Index, ZcuDataExe) = .empty,
 zcu_funcs: std.AutoArrayHashMapUnmanaged(InternPool.Index, ZcuFunc) = .empty,
 nav_exports: std.AutoArrayHashMapUnmanaged(NavExport, Zcu.Export.Index) = .empty,
 uav_exports: std.AutoArrayHashMapUnmanaged(UavExport, Zcu.Export.Index) = .empty,
@@ -223,6 +229,13 @@ global_imports: std.AutoArrayHashMapUnmanaged(String, GlobalImportId) = .empty,
 /// Empty until prelink.
 tables: std.AutoArrayHashMapUnmanaged(TableImport.Resolution, void) = .empty,
 table_imports: std.AutoArrayHashMapUnmanaged(String, TableImport.Index) = .empty,
+
+/// Ordered list of data segments that will appear in the final binary.
+/// When sorted, to-be-merged segments will be made adjacent.
+/// Values are offset relative to segment start.
+data_segments: std.AutoArrayHashMapUnmanaged(Wasm.DataSegment.Id, u32) = .empty,
+
+error_name_table_ref_count: u32 = 0,
 
 any_exports_updated: bool = true,
 /// Set to true if any `GLOBAL_INDEX` relocation is encountered with
@@ -306,6 +319,16 @@ pub const OutputFunctionIndex = enum(u32) {
 /// Index into `Wasm.globals`.
 pub const GlobalIndex = enum(u32) {
     _,
+
+    /// This is only accurate when there is a Zcu.
+    pub const stack_pointer: GlobalIndex = @enumFromInt(0);
+
+    /// Same as `stack_pointer` but with a safety assertion.
+    pub fn stackPointer(wasm: *const Wasm) Global.Index {
+        const comp = wasm.base.comp;
+        assert(comp.zcu != null);
+        return .stack_pointer;
+    }
 
     pub fn ptr(index: GlobalIndex, f: *const Flush) *Wasm.GlobalImport.Resolution {
         return &f.globals.items[@intFromEnum(index)];
@@ -545,56 +568,83 @@ pub const Valtype3 = enum(u3) {
     }
 };
 
-pub const NavObj = extern struct {
-    code: DataSegment.Payload,
-    /// Empty if not emitting an object.
-    relocs: OutReloc.Slice,
+/// Index into `Wasm.navs_obj`.
+pub const NavsObjIndex = enum(u32) {
+    _,
 
-    /// Index into `Wasm.navs_obj`.
-    /// Note that swapRemove is sometimes performed on `navs`.
-    pub const Index = enum(u32) {
-        _,
+    pub fn key(i: @This(), wasm: *const Wasm) *InternPool.Nav.Index {
+        return &wasm.navs_obj.keys()[@intFromEnum(i)];
+    }
 
-        pub fn key(i: @This(), wasm: *const Wasm) *InternPool.Nav.Index {
-            return &wasm.navs_obj.keys()[@intFromEnum(i)];
-        }
+    pub fn value(i: @This(), wasm: *const Wasm) *ZcuDataObj {
+        return &wasm.navs_obj.values()[@intFromEnum(i)];
+    }
 
-        pub fn value(i: @This(), wasm: *const Wasm) *NavObj {
-            return &wasm.navs_obj.values()[@intFromEnum(i)];
-        }
-
-        pub fn name(i: @This(), wasm: *const Wasm) [:0]const u8 {
-            const zcu = wasm.base.comp.zcu.?;
-            const ip = &zcu.intern_pool;
-            const nav = ip.getNav(i.key(wasm).*);
-            return nav.fqn.toSlice(ip);
-        }
-    };
+    pub fn name(i: @This(), wasm: *const Wasm) [:0]const u8 {
+        const zcu = wasm.base.comp.zcu.?;
+        const ip = &zcu.intern_pool;
+        const nav = ip.getNav(i.key(wasm).*);
+        return nav.fqn.toSlice(ip);
+    }
 };
 
-pub const NavExe = extern struct {
+/// Index into `Wasm.navs_exe`.
+pub const NavsExeIndex = enum(u32) {
+    _,
+
+    pub fn key(i: @This(), wasm: *const Wasm) *InternPool.Nav.Index {
+        return &wasm.navs_exe.keys()[@intFromEnum(i)];
+    }
+
+    pub fn value(i: @This(), wasm: *const Wasm) *ZcuDataExe {
+        return &wasm.navs_exe.values()[@intFromEnum(i)];
+    }
+
+    pub fn name(i: @This(), wasm: *const Wasm) [:0]const u8 {
+        const zcu = wasm.base.comp.zcu.?;
+        const ip = &zcu.intern_pool;
+        const nav = ip.getNav(i.key(wasm).*);
+        return nav.fqn.toSlice(ip);
+    }
+};
+
+/// Index into `Wasm.uavs_obj`.
+pub const UavsObjIndex = enum(u32) {
+    _,
+
+    pub fn key(i: @This(), wasm: *const Wasm) *InternPool.Index {
+        return &wasm.uavs_obj.keys()[@intFromEnum(i)];
+    }
+
+    pub fn value(i: @This(), wasm: *const Wasm) *ZcuDataObj {
+        return &wasm.uavs_obj.values()[@intFromEnum(i)];
+    }
+};
+
+/// Index into `Wasm.uavs_exe`.
+pub const UavsExeIndex = enum(u32) {
+    _,
+
+    pub fn key(i: @This(), wasm: *const Wasm) *InternPool.Index {
+        return &wasm.uavs_exe.keys()[@intFromEnum(i)];
+    }
+
+    pub fn value(i: @This(), wasm: *const Wasm) *ZcuDataExe {
+        return &wasm.uavs_exe.values()[@intFromEnum(i)];
+    }
+};
+
+/// Used when emitting a relocatable object.
+pub const ZcuDataObj = extern struct {
     code: DataSegment.Payload,
+    relocs: OutReloc.Slice,
+};
 
-    /// Index into `Wasm.navs_exe`.
-    /// Note that swapRemove is sometimes performed on `navs`.
-    pub const Index = enum(u32) {
-        _,
-
-        pub fn key(i: @This(), wasm: *const Wasm) *InternPool.Nav.Index {
-            return &wasm.navs_exe.keys()[@intFromEnum(i)];
-        }
-
-        pub fn value(i: @This(), wasm: *const Wasm) *NavExe {
-            return &wasm.navs_exe.values()[@intFromEnum(i)];
-        }
-
-        pub fn name(i: @This(), wasm: *const Wasm) [:0]const u8 {
-            const zcu = wasm.base.comp.zcu.?;
-            const ip = &zcu.intern_pool;
-            const nav = ip.getNav(i.key(wasm).*);
-            return nav.fqn.toSlice(ip);
-        }
-    };
+/// Used when not emitting a relocatable object.
+pub const ZcuDataExe = extern struct {
+    code: DataSegment.Payload,
+    /// Tracks how many references there are for the purposes of sorting data segments.
+    count: u32,
 };
 
 pub const ZcuFunc = extern struct {
@@ -841,8 +891,8 @@ pub const GlobalImport = extern struct {
             __tls_size,
             __zig_error_name_table,
             object_global: ObjectGlobalIndex,
-            nav_exe: NavExe.Index,
-            nav_obj: NavObj.Index,
+            nav_exe: NavsExeIndex,
+            nav_obj: NavsObjIndex,
         };
 
         pub fn unpack(r: Resolution, wasm: *const Wasm) Unpacked {
@@ -1150,26 +1200,209 @@ pub const DataSegment = extern struct {
     segment_offset: u32,
     section_index: ObjectSectionIndex,
 
+    pub const Category = enum {
+        /// Thread-local variables.
+        tls,
+        /// Data that is not zero initialized and not threadlocal.
+        data,
+        /// Zero-initialized. Does not require corresponding bytes in the
+        /// output file.
+        zero,
+    };
+
     pub const Payload = extern struct {
-        /// Points into string_bytes. No corresponding string_table entry.
-        off: u32,
+        off: Off,
         /// The size in bytes of the data representing the segment within the section.
         len: u32,
 
+        pub const Off = enum(u32) {
+            /// The payload is all zeroes (bss section).
+            none = std.math.maxInt(u32),
+            /// Points into string_bytes. No corresponding string_table entry.
+            _,
+
+            pub fn unwrap(off: Off) ?u32 {
+                return if (off == .none) null else @intFromEnum(off);
+            }
+        };
+
         pub fn slice(p: DataSegment.Payload, wasm: *const Wasm) []const u8 {
-            assert(p.off != p.len);
-            return wasm.string_bytes.items[p.off..][0..p.len];
+            return wasm.string_bytes.items[p.off.unwrap().?..][0..p.len];
         }
     };
 
-    /// Index into `Wasm.object_data_segments`.
-    pub const Index = enum(u32) {
+    pub const Id = enum(u32) {
+        __zig_error_name_table,
+        /// First, an `ObjectDataSegmentIndex`.
+        /// Next, index into `uavs_obj` or `uavs_exe` depending on whether emitting an object.
+        /// Next, index into `navs_obj` or `navs_exe` depending on whether emitting an object.
         _,
 
-        pub fn ptr(i: Index, wasm: *const Wasm) *DataSegment {
-            return &wasm.object_data_segments.items[@intFromEnum(i)];
+        const first_object = @intFromEnum(Id.__zig_error_name_table) + 1;
+
+        pub const Unpacked = union(enum) {
+            __zig_error_name_table,
+            object: ObjectDataSegmentIndex,
+            uav_exe: UavsExeIndex,
+            uav_obj: UavsObjIndex,
+            nav_exe: NavsExeIndex,
+            nav_obj: NavsObjIndex,
+        };
+
+        pub fn pack(wasm: *const Wasm, unpacked: Unpacked) Id {
+            return switch (unpacked) {
+                .__zig_error_name_table => .__zig_error_name_table,
+                .object => |i| @enumFromInt(first_object + @intFromEnum(i)),
+                inline .uav_exe, .uav_obj => |i| @enumFromInt(first_object + wasm.object_data_segments.items.len + @intFromEnum(i)),
+                .nav_exe => |i| @enumFromInt(first_object + wasm.object_data_segments.items.len + wasm.uavs_exe.entries.len + @intFromEnum(i)),
+                .nav_obj => |i| @enumFromInt(first_object + wasm.object_data_segments.items.len + wasm.uavs_obj.entries.len + @intFromEnum(i)),
+            };
+        }
+
+        pub fn unpack(id: Id, wasm: *const Wasm) Unpacked {
+            return switch (id) {
+                .__zig_error_name_table => .__zig_error_name_table,
+                _ => {
+                    const object_index = @intFromEnum(id) - first_object;
+
+                    const uav_index = if (object_index < wasm.object_data_segments.items.len)
+                        return .{ .object = @enumFromInt(object_index) }
+                    else
+                        object_index - wasm.object_data_segments.items.len;
+
+                    const comp = wasm.base.comp;
+                    const is_obj = comp.config.output_mode == .Obj;
+                    if (is_obj) {
+                        const nav_index = if (uav_index < wasm.uavs_obj.entries.len)
+                            return .{ .uav_obj = @enumFromInt(uav_index) }
+                        else
+                            uav_index - wasm.uavs_obj.entries.len;
+
+                        return .{ .nav_obj = @enumFromInt(nav_index) };
+                    } else {
+                        const nav_index = if (uav_index < wasm.uavs_exe.entries.len)
+                            return .{ .uav_obj = @enumFromInt(uav_index) }
+                        else
+                            uav_index - wasm.uavs_exe.entries.len;
+
+                        return .{ .nav_exe = @enumFromInt(nav_index) };
+                    }
+                },
+            };
+        }
+
+        pub fn category(id: Id, wasm: *const Wasm) Category {
+            return switch (unpack(id, wasm)) {
+                .__zig_error_name_table => .data,
+                .object => |i| {
+                    const ptr = i.ptr(wasm);
+                    if (ptr.flags.tls) return .tls;
+                    if (isBss(wasm, ptr.name)) return .zero;
+                    return .data;
+                },
+                inline .uav_exe, .uav_obj => |i| if (i.value(wasm).code.off == .none) .zero else .data,
+                inline .nav_exe, .nav_obj => |i| {
+                    const zcu = wasm.base.comp.zcu.?;
+                    const ip = &zcu.intern_pool;
+                    const nav = ip.getNav(i.key(wasm).*);
+                    if (nav.isThreadLocal(ip)) return .tls;
+                    const code = i.value(wasm).code;
+                    return if (code.off == .none) .zero else .data;
+                },
+            };
+        }
+
+        pub fn isTls(id: Id, wasm: *const Wasm) bool {
+            return switch (unpack(id, wasm)) {
+                .__zig_error_name_table => false,
+                .object => |i| i.ptr(wasm).flags.tls,
+                .uav_exe, .uav_obj => false,
+                inline .nav_exe, .nav_obj => |i| {
+                    const zcu = wasm.base.comp.zcu.?;
+                    const ip = &zcu.intern_pool;
+                    const nav = ip.getNav(i.key(wasm).*);
+                    return nav.isThreadLocal(ip);
+                },
+            };
+        }
+
+        pub fn name(id: Id, wasm: *const Wasm) []const u8 {
+            return switch (unpack(id, wasm)) {
+                .__zig_error_name_table, .uav_exe, .uav_obj => ".data",
+                .object => |i| i.ptr(wasm).name.unwrap().?.slice(wasm),
+                inline .nav_exe, .nav_obj => |i| {
+                    const zcu = wasm.base.comp.zcu.?;
+                    const ip = &zcu.intern_pool;
+                    const nav = ip.getNav(i.key(wasm).*);
+                    return nav.status.resolved.@"linksection".toSlice(ip) orelse ".data";
+                },
+            };
+        }
+
+        pub fn alignment(id: Id, wasm: *const Wasm) Alignment {
+            return switch (unpack(id, wasm)) {
+                .__zig_error_name_table => wasm.pointerAlignment(),
+                .object => |i| i.ptr(wasm).flags.alignment,
+                inline .uav_exe, .uav_obj => |i| {
+                    const zcu = wasm.base.comp.zcu.?;
+                    const ip = &zcu.intern_pool;
+                    const ip_index = i.key(wasm).*;
+                    const ty: ZcuType = .fromInterned(ip.typeOf(ip_index));
+                    return ty.abiAlignment(zcu);
+                },
+                inline .nav_exe, .nav_obj => |i| {
+                    const zcu = wasm.base.comp.zcu.?;
+                    const ip = &zcu.intern_pool;
+                    const nav = ip.getNav(i.key(wasm).*);
+                    return nav.status.resolved.alignment;
+                },
+            };
+        }
+
+        pub fn refCount(id: Id, wasm: *const Wasm) u32 {
+            return switch (unpack(id, wasm)) {
+                .__zig_error_name_table => wasm.error_name_table_ref_count,
+                .object, .uav_obj, .nav_obj => 0,
+                inline .uav_exe, .nav_exe => |i| i.value(wasm).count,
+            };
+        }
+
+        pub fn isPassive(id: Id, wasm: *const Wasm) bool {
+            return switch (unpack(id, wasm)) {
+                .__zig_error_name_table => true,
+                .object => |i| i.ptr(wasm).flags.is_passive,
+                .uav_exe, .uav_obj, .nav_exe, .nav_obj => true,
+            };
+        }
+
+        pub fn size(id: Id, wasm: *const Wasm) u32 {
+            return switch (unpack(id, wasm)) {
+                .__zig_error_name_table => {
+                    const comp = wasm.base.comp;
+                    const zcu = comp.zcu.?;
+                    const errors_len = 1 + zcu.intern_pool.global_error_set.getNamesFromMainThread().len;
+                    const elem_size = ZcuType.slice_const_u8_sentinel_0.abiSize(zcu);
+                    return @intCast(errors_len * elem_size);
+                },
+                .object => |i| i.ptr(wasm).payload.len,
+                inline .uav_exe, .uav_obj, .nav_exe, .nav_obj => |i| i.value(wasm).code.len,
+            };
         }
     };
+};
+
+/// Index into `Wasm.object_data_segments`.
+pub const ObjectDataSegmentIndex = enum(u32) {
+    _,
+
+    pub fn ptr(i: ObjectDataSegmentIndex, wasm: *const Wasm) *DataSegment {
+        return &wasm.object_data_segments.items[@intFromEnum(i)];
+    }
+};
+
+/// Index into `Wasm.uavs`.
+pub const UavIndex = enum(u32) {
+    _,
 };
 
 pub const CustomSegment = extern struct {
@@ -1940,6 +2173,8 @@ pub fn deinit(wasm: *Wasm) void {
 
     wasm.navs_exe.deinit(gpa);
     wasm.navs_obj.deinit(gpa);
+    wasm.uavs_exe.deinit(gpa);
+    wasm.uavs_obj.deinit(gpa);
     wasm.zcu_funcs.deinit(gpa);
     wasm.nav_exports.deinit(gpa);
     wasm.uav_exports.deinit(gpa);
@@ -1978,6 +2213,7 @@ pub fn deinit(wasm: *Wasm) void {
     wasm.global_exports.deinit(gpa);
     wasm.global_imports.deinit(gpa);
     wasm.table_imports.deinit(gpa);
+    wasm.data_segments.deinit(gpa);
     wasm.symbol_table.deinit(gpa);
     wasm.out_relocs.deinit(gpa);
     wasm.uav_fixups.deinit(gpa);
@@ -2053,57 +2289,28 @@ pub fn updateNav(wasm: *Wasm, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index
         return;
     }
 
-    const code_start: u32 = @intCast(wasm.string_bytes.items.len);
-    const relocs_start: u32 = @intCast(wasm.out_relocs.len);
-    wasm.string_bytes_lock.lock();
+    const zcu_data = try lowerZcuData(wasm, pt, nav_init);
 
-    try codegen.generateSymbol(
-        &wasm.base,
-        pt,
-        zcu.navSrcLoc(nav_index),
-        Value.fromInterned(nav_init),
-        &wasm.string_bytes,
-        .none,
-    );
-
-    const code_len: u32 = @intCast(wasm.string_bytes.items.len - code_start);
-    const relocs_len: u32 = @intCast(wasm.out_relocs.len - relocs_start);
-    wasm.string_bytes_lock.unlock();
-
-    const naive_code: DataSegment.Payload = .{
-        .off = code_start,
-        .len = code_len,
-    };
-
-    // Only nonzero init values need to take up space in the output.
-    const all_zeroes = std.mem.allEqual(u8, naive_code.slice(wasm), 0);
-    const code: DataSegment.Payload = if (!all_zeroes) naive_code else c: {
-        wasm.string_bytes.shrinkRetainingCapacity(code_start);
-        // Indicate empty by making off and len the same value, however, still
-        // transmit the data size by using the size as that value.
-        break :c .{
-            .off = naive_code.len,
-            .len = naive_code.len,
-        };
-    };
+    try wasm.data_segments.ensureUnusedCapacity(gpa, 1);
 
     if (is_obj) {
         const gop = try wasm.navs_obj.getOrPut(gpa, nav_index);
-        gop.value_ptr.* = .{
-            .code = code,
-            .relocs = .{
-                .off = relocs_start,
-                .len = relocs_len,
-            },
-        };
+        gop.value_ptr.* = zcu_data;
+        wasm.data_segments.putAssumeCapacity(.pack(wasm, .{
+            .nav_obj = @enumFromInt(gop.index),
+        }), @as(u32, undefined));
     }
 
-    assert(relocs_len == 0);
+    assert(zcu_data.relocs.len == 0);
 
     const gop = try wasm.navs_exe.getOrPut(gpa, nav_index);
     gop.value_ptr.* = .{
-        .code = code,
+        .code = zcu_data.code,
+        .count = 0,
     };
+    wasm.data_segments.putAssumeCapacity(.pack(wasm, .{
+        .nav_exe = @enumFromInt(gop.index),
+    }), @as(u32, undefined));
 }
 
 pub fn updateLineNumber(wasm: *Wasm, pt: Zcu.PerThread, ti_id: InternPool.TrackedInst.Index) !void {
@@ -2249,6 +2456,12 @@ pub fn prelink(wasm: *Wasm, prog_node: std.Progress.Node) link.File.FlushError!v
                 wasm.entry_resolution = import.resolution;
             }
         }
+    }
+
+    if (comp.zcu != null) {
+        // Zig always depends on a stack pointer global.
+        try wasm.globals.put(gpa, .__stack_pointer, {});
+        assert(wasm.globals.entries.len - 1 == @intFromEnum(GlobalIndex.stack_pointer));
     }
 
     // These loops do both recursive marking of alive symbols well as checking for undefined symbols.
@@ -2467,6 +2680,9 @@ pub fn flushModule(
 
     const globals_end_zcu: u32 = @intCast(wasm.globals.entries.len);
     defer wasm.globals.shrinkRetainingCapacity(globals_end_zcu);
+
+    const data_segments_end_zcu: u32 = @intCast(wasm.data_segments.entries.len);
+    defer wasm.data_segments.shrinkRetainingCapacity(data_segments_end_zcu);
 
     wasm.flush_buffer.clear();
 
@@ -2999,7 +3215,7 @@ pub fn addRelocatableDataPayload(wasm: *Wasm, bytes: []const u8) Allocator.Error
     const gpa = wasm.base.comp.gpa;
     try wasm.string_bytes.appendSlice(gpa, bytes);
     return .{
-        .off = @intCast(wasm.string_bytes.items.len - bytes.len),
+        .off = @enumFromInt(wasm.string_bytes.items.len - bytes.len),
         .len = @intCast(bytes.len),
     };
 }
@@ -3023,6 +3239,65 @@ pub fn navSymbolIndex(wasm: *Wasm, nav_index: InternPool.Nav.Index) Allocator.Er
     const name = try wasm.internString(nav.fqn.toSlice(ip));
     const gop = try wasm.symbol_table.getOrPut(gpa, name);
     return @enumFromInt(gop.index);
+}
+
+pub fn errorNameTableSymbolIndex(wasm: *Wasm) Allocator.Error!SymbolTableIndex {
+    const comp = wasm.base.comp;
+    assert(comp.config.output_mode == .Obj);
+    const gpa = comp.gpa;
+    const gop = try wasm.symbol_table.getOrPut(gpa, wasm.preloaded_strings.__zig_error_name_table);
+    gop.value_ptr.* = {};
+    return @enumFromInt(gop.index);
+}
+
+pub fn refUavObj(wasm: *Wasm, pt: Zcu.PerThread, ip_index: InternPool.Index) !UavsObjIndex {
+    const comp = wasm.base.comp;
+    const gpa = comp.gpa;
+    assert(comp.config.output_mode == .Obj);
+    const gop = try wasm.uavs_obj.getOrPut(gpa, ip_index);
+    if (!gop.found_existing) gop.value_ptr.* = try lowerZcuData(wasm, pt, ip_index);
+    const uav_index: UavsObjIndex = @enumFromInt(gop.index);
+    try wasm.data_segments.put(gpa, .pack(wasm, .{ .uav_obj = uav_index }), @as(u32, undefined));
+    return uav_index;
+}
+
+pub fn refUavExe(wasm: *Wasm, pt: Zcu.PerThread, ip_index: InternPool.Index) !UavsExeIndex {
+    const comp = wasm.base.comp;
+    const gpa = comp.gpa;
+    assert(comp.config.output_mode != .Obj);
+    const gop = try wasm.uavs_exe.getOrPut(gpa, ip_index);
+    if (gop.found_existing) {
+        gop.value_ptr.count += 1;
+    } else {
+        const zcu_data = try lowerZcuData(wasm, pt, ip_index);
+        gop.value_ptr.* = .{
+            .code = zcu_data.code,
+            .count = 1,
+        };
+    }
+    const uav_index: UavsExeIndex = @enumFromInt(gop.index);
+    wasm.data_segments.putAssumeCapacity(.pack(wasm, .{ .uav_exe = uav_index }), @as(u32, undefined));
+    return uav_index;
+}
+
+pub fn uavAddr(wasm: *Wasm, uav_index: UavsExeIndex) Allocator.Error!u32 {
+    const comp = wasm.base.comp;
+    assert(comp.config.output_mode != .Obj);
+    const ds_id: DataSegment.Id = .pack(wasm, .{ .uav_exe = uav_index });
+    return wasm.data_segments.get(ds_id).?;
+}
+
+pub fn navAddr(wasm: *Wasm, nav_index: InternPool.Nav.Index) Allocator.Error!u32 {
+    const comp = wasm.base.comp;
+    assert(comp.config.output_mode != .Obj);
+    const ds_id: DataSegment.Id = .pack(wasm, .{ .nav_exe = @enumFromInt(wasm.navs_exe.getIndex(nav_index).?) });
+    return wasm.data_segments.get(ds_id).?;
+}
+
+pub fn errorNameTableAddr(wasm: *Wasm) Allocator.Error!u32 {
+    const comp = wasm.base.comp;
+    assert(comp.config.output_mode != .Obj);
+    return wasm.data_segments.get(.__zig_error_name_table).?;
 }
 
 fn convertZcuFnType(
@@ -3079,4 +3354,55 @@ fn convertZcuFnType(
             else => try params_buffer.append(gpa, CodeGen.typeToValtype(param_type, zcu, target)),
         }
     }
+}
+
+pub fn isBss(wasm: *const Wasm, optional_name: OptionalString) bool {
+    const s = optional_name.slice(wasm) orelse return false;
+    return mem.eql(u8, s, ".bss") or mem.startsWith(u8, s, ".bss.");
+}
+
+fn lowerZcuData(wasm: *Wasm, pt: Zcu.PerThread, ip_index: InternPool.Index) !ZcuDataObj {
+    const code_start: u32 = @intCast(wasm.string_bytes.items.len);
+    const relocs_start: u32 = @intCast(wasm.out_relocs.len);
+    wasm.string_bytes_lock.lock();
+
+    try codegen.generateSymbol(&wasm.base, pt, .unneeded, .fromInterned(ip_index), &wasm.string_bytes, .none);
+
+    const code_len: u32 = @intCast(wasm.string_bytes.items.len - code_start);
+    const relocs_len: u32 = @intCast(wasm.out_relocs.len - relocs_start);
+    wasm.string_bytes_lock.unlock();
+
+    const naive_code: DataSegment.Payload = .{
+        .off = @enumFromInt(code_start),
+        .len = code_len,
+    };
+
+    // Only nonzero init values need to take up space in the output.
+    const all_zeroes = std.mem.allEqual(u8, naive_code.slice(wasm), 0);
+    const code: DataSegment.Payload = if (!all_zeroes) naive_code else c: {
+        wasm.string_bytes.shrinkRetainingCapacity(code_start);
+        // Indicate empty by making off and len the same value, however, still
+        // transmit the data size by using the size as that value.
+        break :c .{
+            .off = .none,
+            .len = naive_code.len,
+        };
+    };
+
+    return .{
+        .code = code,
+        .relocs = .{
+            .off = relocs_start,
+            .len = relocs_len,
+        },
+    };
+}
+
+fn pointerAlignment(wasm: *const Wasm) Alignment {
+    const target = &wasm.base.comp.root_mod.resolved_target.result;
+    return switch (target.cpu.arch) {
+        .wasm32 => .@"4",
+        .wasm64 => .@"8",
+        else => unreachable,
+    };
 }

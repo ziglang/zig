@@ -5,6 +5,7 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const leb = std.leb;
 
+const Wasm = link.File.Wasm;
 const Mir = @import("Mir.zig");
 const link = @import("../../link.zig");
 const Zcu = @import("../../Zcu.zig");
@@ -12,7 +13,7 @@ const InternPool = @import("../../InternPool.zig");
 const codegen = @import("../../codegen.zig");
 
 mir: Mir,
-wasm: *link.File.Wasm,
+wasm: *Wasm,
 /// The binary representation that will be emitted by this module.
 code: *std.ArrayListUnmanaged(u8),
 
@@ -30,8 +31,8 @@ pub fn lowerToCode(emit: *Emit) Error!void {
     const target = &comp.root_mod.resolved_target.result;
     const is_wasm32 = target.cpu.arch == .wasm32;
 
-    const tags = mir.instructions.items(.tag);
-    const datas = mir.instructions.items(.data);
+    const tags = mir.instruction_tags;
+    const datas = mir.instruction_datas;
     var inst: u32 = 0;
 
     loop: switch (tags[inst]) {
@@ -48,17 +49,25 @@ pub fn lowerToCode(emit: *Emit) Error!void {
             continue :loop tags[inst];
         },
         .uav_ref => {
-            try uavRefOff(wasm, code, .{ .ip_index = datas[inst].ip_index, .offset = 0 });
+            if (is_obj) {
+                try uavRefOffObj(wasm, code, .{ .uav_obj = datas[inst].uav_obj, .offset = 0 }, is_wasm32);
+            } else {
+                try uavRefOffExe(wasm, code, .{ .uav_exe = datas[inst].uav_exe, .offset = 0 }, is_wasm32);
+            }
             inst += 1;
             continue :loop tags[inst];
         },
         .uav_ref_off => {
-            try uavRefOff(wasm, code, mir.extraData(Mir.UavRefOff, datas[inst].payload).data);
+            if (is_obj) {
+                try uavRefOffObj(wasm, code, mir.extraData(Mir.UavRefOffObj, datas[inst].payload).data, is_wasm32);
+            } else {
+                try uavRefOffExe(wasm, code, mir.extraData(Mir.UavRefOffExe, datas[inst].payload).data, is_wasm32);
+            }
             inst += 1;
             continue :loop tags[inst];
         },
         .nav_ref => {
-            try navRefOff(wasm, code, .{ .ip_index = datas[inst].ip_index, .offset = 0 }, is_wasm32);
+            try navRefOff(wasm, code, .{ .nav_index = datas[inst].nav_index, .offset = 0 }, is_wasm32);
             inst += 1;
             continue :loop tags[inst];
         },
@@ -124,7 +133,7 @@ pub fn lowerToCode(emit: *Emit) Error!void {
         },
 
         .br_table => {
-            const extra_index = mir.instructions.items(.data)[inst].payload;
+            const extra_index = datas[inst].payload;
             const extra = mir.extraData(Mir.JumpTable, extra_index);
             const labels = mir.extra[extra.end..][0..extra.data.length];
             try code.ensureUnusedCapacity(gpa, 11 + 10 * labels.len);
@@ -223,7 +232,7 @@ pub fn lowerToCode(emit: *Emit) Error!void {
             continue :loop tags[inst];
         },
 
-        .global_set => {
+        .global_set_sp => {
             try code.ensureUnusedCapacity(gpa, 6);
             code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.global_set));
             if (is_obj) {
@@ -235,28 +244,8 @@ pub fn lowerToCode(emit: *Emit) Error!void {
                 });
                 code.appendNTimesAssumeCapacity(0, 5);
             } else {
-                const sp_global = try wasm.stackPointerGlobalIndex();
+                const sp_global: Wasm.GlobalIndex = .stack_pointer;
                 std.leb.writeULEB128(code.fixedWriter(), @intFromEnum(sp_global)) catch unreachable;
-            }
-
-            inst += 1;
-            continue :loop tags[inst];
-        },
-
-        .function_index => {
-            try code.ensureUnusedCapacity(gpa, 6);
-            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.i32_const));
-            if (is_obj) {
-                try wasm.out_relocs.append(gpa, .{
-                    .offset = @intCast(code.items.len),
-                    .pointee = .{ .symbol_index = try wasm.functionSymbolIndex(datas[inst].ip_index) },
-                    .tag = .TABLE_INDEX_SLEB,
-                    .addend = 0,
-                });
-                code.appendNTimesAssumeCapacity(0, 5);
-            } else {
-                const func_index = try wasm.functionIndex(datas[inst].ip_index);
-                std.leb.writeULEB128(code.fixedWriter(), @intFromEnum(func_index)) catch unreachable;
             }
 
             inst += 1;
@@ -521,7 +510,7 @@ pub fn lowerToCode(emit: *Emit) Error!void {
         },
         .simd_prefix => {
             try code.ensureUnusedCapacity(gpa, 6 + 20);
-            const extra_index = mir.instructions.items(.data)[inst].payload;
+            const extra_index = datas[inst].payload;
             const opcode = mir.extra[extra_index];
             code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.simd_prefix));
             leb.writeUleb128(code.fixedWriter(), opcode) catch unreachable;
@@ -578,7 +567,7 @@ pub fn lowerToCode(emit: *Emit) Error!void {
         .atomics_prefix => {
             try code.ensureUnusedCapacity(gpa, 6 + 20);
 
-            const extra_index = mir.instructions.items(.data)[inst].payload;
+            const extra_index = datas[inst].payload;
             const opcode = mir.extra[extra_index];
             code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.atomics_prefix));
             leb.writeUleb128(code.fixedWriter(), opcode) catch unreachable;
@@ -677,34 +666,36 @@ fn encodeMemArg(code: *std.ArrayListUnmanaged(u8), mem_arg: Mir.MemArg) void {
     leb.writeUleb128(code.fixedWriter(), mem_arg.offset) catch unreachable;
 }
 
-fn uavRefOff(wasm: *link.File.Wasm, code: *std.ArrayListUnmanaged(u8), data: Mir.UavRefOff, is_wasm32: bool) !void {
+fn uavRefOffObj(wasm: *Wasm, code: *std.ArrayListUnmanaged(u8), data: Mir.UavRefOffObj, is_wasm32: bool) !void {
     const comp = wasm.base.comp;
     const gpa = comp.gpa;
-    const is_obj = comp.config.output_mode == .Obj;
     const opcode: std.wasm.Opcode = if (is_wasm32) .i32_const else .i64_const;
 
     try code.ensureUnusedCapacity(gpa, 11);
     code.appendAssumeCapacity(@intFromEnum(opcode));
 
-    // If outputting an object file, this needs to be a relocation, since global
-    // constant data may be mixed with other object files in the final link.
-    if (is_obj) {
-        try wasm.out_relocs.append(gpa, .{
-            .offset = @intCast(code.items.len),
-            .pointee = .{ .symbol_index = try wasm.uavSymbolIndex(data.ip_index) },
-            .tag = if (is_wasm32) .MEMORY_ADDR_LEB else .MEMORY_ADDR_LEB64,
-            .addend = data.offset,
-        });
-        code.appendNTimesAssumeCapacity(0, if (is_wasm32) 5 else 10);
-        return;
-    }
-
-    // When linking into the final binary, no relocation mechanism is necessary.
-    const addr = try wasm.uavAddr(data.ip_index);
-    leb.writeUleb128(code.fixedWriter(), addr + data.offset) catch unreachable;
+    try wasm.out_relocs.append(gpa, .{
+        .offset = @intCast(code.items.len),
+        .pointee = .{ .symbol_index = try wasm.uavSymbolIndex(data.uav_obj.key(wasm).*) },
+        .tag = if (is_wasm32) .MEMORY_ADDR_LEB else .MEMORY_ADDR_LEB64,
+        .addend = data.offset,
+    });
+    code.appendNTimesAssumeCapacity(0, if (is_wasm32) 5 else 10);
 }
 
-fn navRefOff(wasm: *link.File.Wasm, code: *std.ArrayListUnmanaged(u8), data: Mir.NavRefOff, is_wasm32: bool) !void {
+fn uavRefOffExe(wasm: *Wasm, code: *std.ArrayListUnmanaged(u8), data: Mir.UavRefOffExe, is_wasm32: bool) !void {
+    const comp = wasm.base.comp;
+    const gpa = comp.gpa;
+    const opcode: std.wasm.Opcode = if (is_wasm32) .i32_const else .i64_const;
+
+    try code.ensureUnusedCapacity(gpa, 11);
+    code.appendAssumeCapacity(@intFromEnum(opcode));
+
+    const addr = try wasm.uavAddr(data.uav_exe);
+    leb.writeUleb128(code.fixedWriter(), @as(u32, @intCast(@as(i64, addr) + data.offset))) catch unreachable;
+}
+
+fn navRefOff(wasm: *Wasm, code: *std.ArrayListUnmanaged(u8), data: Mir.NavRefOff, is_wasm32: bool) !void {
     const comp = wasm.base.comp;
     const zcu = comp.zcu.?;
     const ip = &zcu.intern_pool;
@@ -715,7 +706,7 @@ fn navRefOff(wasm: *link.File.Wasm, code: *std.ArrayListUnmanaged(u8), data: Mir
     try code.ensureUnusedCapacity(gpa, 11);
 
     if (ip.isFunctionType(nav_ty)) {
-        code.appendAssumeCapacity(std.wasm.Opcode.i32_const);
+        code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.i32_const));
         assert(data.offset == 0);
         if (is_obj) {
             try wasm.out_relocs.append(gpa, .{
@@ -727,7 +718,7 @@ fn navRefOff(wasm: *link.File.Wasm, code: *std.ArrayListUnmanaged(u8), data: Mir
             code.appendNTimesAssumeCapacity(0, 5);
         } else {
             const addr = try wasm.navAddr(data.nav_index);
-            leb.writeUleb128(code.fixedWriter(), addr + data.offset) catch unreachable;
+            leb.writeUleb128(code.fixedWriter(), @as(u32, @intCast(@as(i64, addr) + data.offset))) catch unreachable;
         }
     } else {
         const opcode: std.wasm.Opcode = if (is_wasm32) .i32_const else .i64_const;
@@ -742,7 +733,7 @@ fn navRefOff(wasm: *link.File.Wasm, code: *std.ArrayListUnmanaged(u8), data: Mir
             code.appendNTimesAssumeCapacity(0, if (is_wasm32) 5 else 10);
         } else {
             const addr = try wasm.navAddr(data.nav_index);
-            leb.writeUleb128(code.fixedWriter(), addr + data.offset) catch unreachable;
+            leb.writeUleb128(code.fixedWriter(), @as(u32, @intCast(@as(i64, addr) + data.offset))) catch unreachable;
         }
     }
 }

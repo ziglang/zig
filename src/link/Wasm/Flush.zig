@@ -19,10 +19,6 @@ const leb = std.leb;
 const log = std.log.scoped(.link);
 const assert = std.debug.assert;
 
-/// Ordered list of data segments that will appear in the final binary.
-/// When sorted, to-be-merged segments will be made adjacent.
-/// Values are offset relative to segment start.
-data_segments: std.AutoArrayHashMapUnmanaged(Wasm.DataSegment.Index, u32) = .empty,
 /// Each time a `data_segment` offset equals zero it indicates a new group, and
 /// the next element in this array will contain the total merged segment size.
 data_segment_groups: std.ArrayListUnmanaged(u32) = .empty,
@@ -32,21 +28,14 @@ missing_exports: std.AutoArrayHashMapUnmanaged(String, void) = .empty,
 
 indirect_function_table: std.AutoArrayHashMapUnmanaged(Wasm.OutputFunctionIndex, u32) = .empty,
 
-/// 0. Index into `data_segments`.
-const DataSegmentIndex = enum(u32) {
-    _,
-};
-
 pub fn clear(f: *Flush) void {
     f.binary_bytes.clearRetainingCapacity();
-    f.data_segments.clearRetainingCapacity();
     f.data_segment_groups.clearRetainingCapacity();
     f.indirect_function_table.clearRetainingCapacity();
 }
 
 pub fn deinit(f: *Flush, gpa: Allocator) void {
     f.binary_bytes.deinit(gpa);
-    f.data_segments.deinit(gpa);
     f.data_segment_groups.deinit(gpa);
     f.indirect_function_table.deinit(gpa);
     f.* = undefined;
@@ -141,12 +130,14 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
 
     // Merge and order the data segments. Depends on garbage collection so that
     // unused segments can be omitted.
-    try f.data_segments.ensureUnusedCapacity(gpa, wasm.object_data_segments.items.len);
+    try wasm.data_segments.ensureUnusedCapacity(gpa, wasm.object_data_segments.items.len);
     for (wasm.object_data_segments.items, 0..) |*ds, i| {
         if (!ds.flags.alive) continue;
-        const data_segment_index: Wasm.DataSegment.Index = @enumFromInt(i);
-        any_passive_inits = any_passive_inits or ds.flags.is_passive or (import_memory and !isBss(wasm, ds.name));
-        f.data_segments.putAssumeCapacityNoClobber(data_segment_index, @as(u32, undefined));
+        const data_segment_index: Wasm.ObjectDataSegmentIndex = @enumFromInt(i);
+        any_passive_inits = any_passive_inits or ds.flags.is_passive or (import_memory and !wasm.isBss(ds.name));
+        wasm.data_segments.putAssumeCapacityNoClobber(.pack(wasm, .{
+            .object = data_segment_index,
+        }), @as(u32, undefined));
     }
 
     try wasm.functions.ensureUnusedCapacity(gpa, 3);
@@ -170,48 +161,64 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
     }
 
     // Sort order:
-    // 0. Whether the segment is TLS
+    // 0. Segment category (tls, data, zero)
     // 1. Segment name prefix
     // 2. Segment alignment
-    // 3. Segment name suffix
-    // 4. Segment index (to break ties, keeping it deterministic)
+    // 3. Reference count, descending (optimize for LEB encoding)
+    // 4. Segment name suffix
+    // 5. Segment ID interpreted as an integer (for determinism)
+    //
     // TLS segments are intended to be merged with each other, and segments
     // with a common prefix name are intended to be merged with each other.
     // Sorting ensures the segments intended to be merged will be adjacent.
+    //
+    // Each Zcu Nav and Cau has an independent data segment ID in this logic.
+    // For the purposes of sorting, they are implicitly all named ".data".
     const Sort = struct {
         wasm: *const Wasm,
-        segments: []const Wasm.DataSegment.Index,
+        segments: []const Wasm.DataSegment.Id,
         pub fn lessThan(ctx: @This(), lhs: usize, rhs: usize) bool {
-            const lhs_segment_index = ctx.segments[lhs];
-            const rhs_segment_index = ctx.segments[rhs];
-            const lhs_segment = lhs_segment_index.ptr(ctx.wasm);
-            const rhs_segment = rhs_segment_index.ptr(ctx.wasm);
-            const lhs_tls = @intFromBool(lhs_segment.flags.tls);
-            const rhs_tls = @intFromBool(rhs_segment.flags.tls);
-            if (lhs_tls < rhs_tls) return true;
-            if (lhs_tls > rhs_tls) return false;
-            const lhs_prefix, const lhs_suffix = splitSegmentName(lhs_segment.name.unwrap().?.slice(ctx.wasm));
-            const rhs_prefix, const rhs_suffix = splitSegmentName(rhs_segment.name.unwrap().?.slice(ctx.wasm));
+            const lhs_segment = ctx.segments[lhs];
+            const rhs_segment = ctx.segments[rhs];
+            const lhs_category = @intFromEnum(lhs_segment.category(ctx.wasm));
+            const rhs_category = @intFromEnum(rhs_segment.category(ctx.wasm));
+            switch (std.math.order(lhs_category, rhs_category)) {
+                .lt => return true,
+                .gt => return false,
+                .eq => {},
+            }
+            const lhs_segment_name = lhs_segment.name(ctx.wasm);
+            const rhs_segment_name = rhs_segment.name(ctx.wasm);
+            const lhs_prefix, const lhs_suffix = splitSegmentName(lhs_segment_name);
+            const rhs_prefix, const rhs_suffix = splitSegmentName(rhs_segment_name);
             switch (mem.order(u8, lhs_prefix, rhs_prefix)) {
                 .lt => return true,
                 .gt => return false,
                 .eq => {},
             }
-            switch (lhs_segment.flags.alignment.order(rhs_segment.flags.alignment)) {
+            const lhs_alignment = lhs_segment.alignment(ctx.wasm);
+            const rhs_alignment = rhs_segment.alignment(ctx.wasm);
+            switch (lhs_alignment.order(rhs_alignment)) {
                 .lt => return false,
                 .gt => return true,
                 .eq => {},
             }
-            return switch (mem.order(u8, lhs_suffix, rhs_suffix)) {
-                .lt => true,
-                .gt => false,
-                .eq => @intFromEnum(lhs_segment_index) < @intFromEnum(rhs_segment_index),
-            };
+            switch (std.math.order(lhs_segment.refCount(ctx.wasm), rhs_segment.refCount(ctx.wasm))) {
+                .lt => return false,
+                .gt => return true,
+                .eq => {},
+            }
+            switch (mem.order(u8, lhs_suffix, rhs_suffix)) {
+                .lt => return true,
+                .gt => return false,
+                .eq => {},
+            }
+            return @intFromEnum(lhs_segment) < @intFromEnum(rhs_segment);
         }
     };
-    f.data_segments.sortUnstable(@as(Sort, .{
+    wasm.data_segments.sortUnstable(@as(Sort, .{
         .wasm = wasm,
-        .segments = f.data_segments.keys(),
+        .segments = wasm.data_segments.keys(),
     }));
 
     const page_size = std.wasm.page_size; // 64kb
@@ -246,43 +253,44 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
         virtual_addrs.stack_pointer = @intCast(memory_ptr);
     }
 
-    const segment_indexes = f.data_segments.keys();
-    const segment_offsets = f.data_segments.values();
+    const segment_ids = wasm.data_segments.keys();
+    const segment_offsets = wasm.data_segments.values();
     assert(f.data_segment_groups.items.len == 0);
     {
         var seen_tls: enum { before, during, after } = .before;
         var offset: u32 = 0;
-        for (segment_indexes, segment_offsets, 0..) |segment_index, *segment_offset, i| {
-            const segment = segment_index.ptr(wasm);
-            memory_ptr = segment.flags.alignment.forward(memory_ptr);
+        for (segment_ids, segment_offsets, 0..) |segment_id, *segment_offset, i| {
+            const alignment = segment_id.alignment(wasm);
+            memory_ptr = alignment.forward(memory_ptr);
 
             const want_new_segment = b: {
                 if (is_obj) break :b false;
                 switch (seen_tls) {
-                    .before => if (segment.flags.tls) {
+                    .before => if (segment_id.isTls(wasm)) {
                         virtual_addrs.tls_base = if (shared_memory) 0 else @intCast(memory_ptr);
-                        virtual_addrs.tls_align = segment.flags.alignment;
+                        virtual_addrs.tls_align = alignment;
                         seen_tls = .during;
                         break :b true;
                     },
-                    .during => if (!segment.flags.tls) {
+                    .during => if (!segment_id.isTls(wasm)) {
                         virtual_addrs.tls_size = @intCast(memory_ptr - virtual_addrs.tls_base.?);
-                        virtual_addrs.tls_align = virtual_addrs.tls_align.maxStrict(segment.flags.alignment);
+                        virtual_addrs.tls_align = virtual_addrs.tls_align.maxStrict(alignment);
                         seen_tls = .after;
                         break :b true;
                     },
                     .after => {},
                 }
-                break :b i >= 1 and !wantSegmentMerge(wasm, segment_indexes[i - 1], segment_index);
+                break :b i >= 1 and !wantSegmentMerge(wasm, segment_ids[i - 1], segment_id);
             };
             if (want_new_segment) {
                 if (offset > 0) try f.data_segment_groups.append(gpa, offset);
                 offset = 0;
             }
 
+            const size = segment_id.size(wasm);
             segment_offset.* = offset;
-            offset += segment.payload.len;
-            memory_ptr += segment.payload.len;
+            offset += size;
+            memory_ptr += size;
         }
         if (offset > 0) try f.data_segment_groups.append(gpa, offset);
     }
@@ -599,7 +607,6 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
     // Code section.
     if (wasm.functions.count() != 0) {
         const header_offset = try reserveVecSectionHeader(gpa, binary_bytes);
-        const start_offset = binary_bytes.items.len - 5; // minus 5 so start offset is 5 to include entry count
 
         for (wasm.functions.keys()) |resolution| switch (resolution.unpack(wasm)) {
             .unresolved => unreachable,
@@ -610,21 +617,21 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
             .__zig_error_names => @panic("TODO lower __zig_error_names "),
             .object_function => |i| {
                 _ = i;
-                _ = start_offset;
                 @panic("TODO lower object function code and apply relocations");
                 //try leb.writeUleb128(binary_writer, atom.code.len);
                 //try binary_bytes.appendSlice(gpa, atom.code.slice(wasm));
             },
             .zcu_func => |i| {
-                _ = i;
-                _ = start_offset;
-                @panic("TODO lower zcu_func code and apply relocations");
-                //try leb.writeUleb128(binary_writer, atom.code.len);
-                //try binary_bytes.appendSlice(gpa, atom.code.slice(wasm));
+                const code_start = try reserveSize(gpa, binary_bytes);
+                defer replaceSize(binary_bytes, code_start);
+
+                const function = &i.value(wasm).function;
+                try function.lower(wasm, binary_bytes);
             },
         };
 
         replaceVecSectionHeader(binary_bytes, header_offset, .code, @intCast(wasm.functions.entries.len));
+        if (is_obj) @panic("TODO apply offset to code relocs");
         code_section_index = section_index;
         section_index += 1;
     }
@@ -635,11 +642,11 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
 
         var group_index: u32 = 0;
         var offset: u32 = undefined;
-        for (segment_indexes, segment_offsets) |segment_index, segment_offset| {
-            const segment = segment_index.ptr(wasm);
+        for (segment_ids, segment_offsets) |segment_id, segment_offset| {
+            const segment = segment_id.ptr(wasm);
             const segment_payload = segment.payload.slice(wasm);
             if (segment_payload.len == 0) continue;
-            if (!import_memory and isBss(wasm, segment.name)) {
+            if (!import_memory and wasm.isBss(segment.name)) {
                 // It counted for virtual memory but it does not go into the binary.
                 continue;
             }
@@ -682,7 +689,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
         //        try wasm.emitDataRelocations(binary_bytes, data_index, symbol_table);
         //}
     } else if (comp.config.debug_format != .strip) {
-        try emitNameSection(wasm, &f.data_segments, binary_bytes);
+        try emitNameSection(wasm, &wasm.data_segments, binary_bytes);
     }
 
     if (comp.config.debug_format != .strip) {
@@ -997,27 +1004,23 @@ fn emitProducerSection(gpa: Allocator, binary_bytes: *std.ArrayListUnmanaged(u8)
 //    writeCustomSectionHeader(binary_bytes, header_offset);
 //}
 
-fn isBss(wasm: *Wasm, optional_name: Wasm.OptionalString) bool {
-    const s = optional_name.slice(wasm) orelse return false;
-    return mem.eql(u8, s, ".bss") or mem.startsWith(u8, s, ".bss.");
-}
-
 fn splitSegmentName(name: []const u8) struct { []const u8, []const u8 } {
     const start = @intFromBool(name.len >= 1 and name[0] == '.');
     const pivot = mem.indexOfScalarPos(u8, name, start, '.') orelse 0;
     return .{ name[0..pivot], name[pivot..] };
 }
 
-fn wantSegmentMerge(wasm: *const Wasm, a_index: Wasm.DataSegment.Index, b_index: Wasm.DataSegment.Index) bool {
-    const a = a_index.ptr(wasm);
-    const b = b_index.ptr(wasm);
-    if (a.flags.tls and b.flags.tls) return true;
-    if (a.flags.tls != b.flags.tls) return false;
-    if (a.flags.is_passive != b.flags.is_passive) return false;
-    if (a.name == b.name) return true;
-    const a_prefix, _ = splitSegmentName(a.name.slice(wasm).?);
-    const b_prefix, _ = splitSegmentName(b.name.slice(wasm).?);
-    return a_prefix.len > 0 and mem.eql(u8, a_prefix, b_prefix);
+fn wantSegmentMerge(wasm: *const Wasm, a_id: Wasm.DataSegment.Id, b_id: Wasm.DataSegment.Id) bool {
+    const a_category = a_id.category(wasm);
+    const b_category = b_id.category(wasm);
+    if (a_category != b_category) return false;
+    if (a_category == .tls or b_category == .tls) return false;
+    if (a_id.isPassive(wasm) != b_id.isPassive(wasm)) return false;
+    const a_name = a_id.name(wasm);
+    const b_name = b_id.name(wasm);
+    const a_prefix, _ = splitSegmentName(a_name);
+    const b_prefix, _ = splitSegmentName(b_name);
+    return mem.eql(u8, a_prefix, b_prefix);
 }
 
 /// section id + fixed leb contents size + fixed leb vector length
@@ -1062,6 +1065,21 @@ fn replaceHeader(bytes: *std.ArrayListUnmanaged(u8), offset: u32, tag: u8) void 
     w.writeByte(tag) catch unreachable;
     leb.writeUleb128(w, size) catch unreachable;
     bytes.replaceRangeAssumeCapacity(offset, section_header_size, fbw.getWritten());
+}
+
+const max_size_encoding = 5;
+
+fn reserveSize(gpa: Allocator, bytes: *std.ArrayListUnmanaged(u8)) Allocator.Error!u32 {
+    try bytes.appendNTimes(gpa, 0, max_size_encoding);
+    return @intCast(bytes.items.len - max_size_encoding);
+}
+
+fn replaceSize(bytes: *std.ArrayListUnmanaged(u8), offset: u32) void {
+    const size: u32 = @intCast(bytes.items.len - offset - max_size_encoding);
+    var buf: [max_size_encoding]u8 = undefined;
+    var fbw = std.io.fixedBufferStream(&buf);
+    leb.writeUleb128(fbw.writer(), size) catch unreachable;
+    bytes.replaceRangeAssumeCapacity(offset, max_size_encoding, fbw.getWritten());
 }
 
 fn emitLimits(

@@ -103,7 +103,7 @@ pub const Symbol = struct {
         function: Wasm.ObjectFunctionIndex,
         function_import: ScratchSpace.FuncImportIndex,
         data: struct {
-            segment_index: Wasm.DataSegment.Index,
+            segment_index: Wasm.ObjectDataSegmentIndex,
             segment_offset: u32,
             size: u32,
         },
@@ -497,7 +497,7 @@ pub fn parse(
 
                     try wasm.object_custom_segments.put(gpa, section_index, .{
                         .payload = .{
-                            .off = data_off,
+                            .off = @enumFromInt(data_off),
                             .len = @intCast(debug_content.len),
                         },
                         .flags = .{},

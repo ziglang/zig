@@ -610,6 +610,8 @@ pub const Inst = struct {
         nav_index: InternPool.Nav.Index,
         func_ty: Wasm.FunctionType.Index,
         intrinsic: Intrinsic,
+        uav_obj: Wasm.UavsObjIndex,
+        uav_exe: Wasm.UavsExeIndex,
 
         comptime {
             switch (builtin.mode) {
@@ -633,6 +635,11 @@ pub fn extraData(self: *const Mir, comptime T: type, index: usize) struct { data
     inline for (fields) |field| {
         @field(result, field.name) = switch (field.type) {
             u32 => self.extra[i],
+            i32 => @bitCast(self.extra[i]),
+            Wasm.UavsObjIndex,
+            Wasm.UavsExeIndex,
+            InternPool.Nav.Index,
+            => @enumFromInt(self.extra[i]),
             else => |field_type| @compileError("Unsupported field type " ++ @typeName(field_type)),
         };
         i += 1;
@@ -684,8 +691,13 @@ pub const MemArg = struct {
     alignment: u32,
 };
 
-pub const UavRefOff = struct {
-    ip_index: InternPool.Index,
+pub const UavRefOffObj = struct {
+    uav_obj: Wasm.UavsObjIndex,
+    offset: i32,
+};
+
+pub const UavRefOffExe = struct {
+    uav_exe: Wasm.UavsExeIndex,
     offset: i32,
 };
 

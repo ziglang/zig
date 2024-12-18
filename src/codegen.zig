@@ -590,7 +590,7 @@ fn lowerPtr(
     const ptr = zcu.intern_pool.indexToKey(ptr_val).ptr;
     const offset: u64 = prev_offset + ptr.byte_offset;
     return switch (ptr.base_addr) {
-        .nav => |nav| try lowerNavRef(bin_file, pt, src_loc, nav, code, reloc_parent, offset),
+        .nav => |nav| try lowerNavRef(bin_file, pt, nav, code, reloc_parent, offset),
         .uav => |uav| try lowerUavRef(bin_file, pt, src_loc, uav, code, reloc_parent, offset),
         .int => try generateSymbol(bin_file, pt, src_loc, try pt.intValue(Type.usize, offset), code, reloc_parent),
         .eu_payload => |eu_ptr| try lowerPtr(
@@ -708,13 +708,11 @@ fn lowerUavRef(
 fn lowerNavRef(
     lf: *link.File,
     pt: Zcu.PerThread,
-    src_loc: Zcu.LazySrcLoc,
     nav_index: InternPool.Nav.Index,
     code: *std.ArrayListUnmanaged(u8),
     reloc_parent: link.File.RelocInfo.Parent,
     offset: u64,
 ) GenerateSymbolError!void {
-    _ = src_loc;
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
