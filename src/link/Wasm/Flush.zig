@@ -76,7 +76,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
                     .function_index = Wasm.FunctionIndex.fromIpNav(wasm, nav_export.nav_index).?,
                 });
                 _ = f.missing_exports.swapRemove(nav_export.name);
-                _ = wasm.function_imports.swapRemove(nav_export.name);
+                _ = f.function_imports.swapRemove(nav_export.name);
 
                 if (nav_export.name.toOptional() == entry_name)
                     wasm.entry_resolution = .fromIpNav(wasm, nav_export.nav_index);
@@ -86,7 +86,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
                     .global_index = Wasm.GlobalIndex.fromIpNav(wasm, nav_export.nav_index).?,
                 });
                 _ = f.missing_exports.swapRemove(nav_export.name);
-                _ = wasm.global_imports.swapRemove(nav_export.name);
+                _ = f.global_imports.swapRemove(nav_export.name);
             }
         }
 
@@ -104,11 +104,11 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
     }
 
     if (!allow_undefined) {
-        for (wasm.function_imports.keys(), wasm.function_imports.values()) |name, function_import_id| {
+        for (f.function_imports.keys(), f.function_imports.values()) |name, function_import_id| {
             const src_loc = function_import_id.sourceLocation(wasm);
             src_loc.addError(wasm, "undefined function: {s}", .{name.slice(wasm)});
         }
-        for (wasm.global_imports.keys(), wasm.global_imports.values()) |name, global_import_id| {
+        for (f.global_imports.keys(), f.global_imports.values()) |name, global_import_id| {
             const src_loc = global_import_id.sourceLocation(wasm);
             src_loc.addError(wasm, "undefined global: {s}", .{name.slice(wasm)});
         }
@@ -391,12 +391,18 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
         section_index += 1;
     }
 
+    if (!is_obj) {
+        // TODO: sort function_imports by ref count descending for optimal LEB encodings
+        // TODO: sort   global_imports by ref count descending for optimal LEB encodings
+        // TODO: sort output functions by ref count descending for optimal LEB encodings
+    }
+
     // Import section
     {
         var total_imports: usize = 0;
         const header_offset = try reserveVecSectionHeader(gpa, binary_bytes);
 
-        for (wasm.function_imports.values()) |id| {
+        for (f.function_imports.values()) |id| {
             const module_name = id.moduleName(wasm).slice(wasm);
             try leb.writeUleb128(binary_writer, @as(u32, @intCast(module_name.len)));
             try binary_writer.writeAll(module_name);
@@ -408,7 +414,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
             try binary_writer.writeByte(@intFromEnum(std.wasm.ExternalKind.function));
             try leb.writeUleb128(binary_writer, @intFromEnum(id.functionType(wasm)));
         }
-        total_imports += wasm.function_imports.entries.len;
+        total_imports += f.function_imports.entries.len;
 
         for (wasm.table_imports.values()) |id| {
             const table_import = id.value(wasm);
@@ -441,7 +447,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
             total_imports += 1;
         }
 
-        for (wasm.global_imports.values()) |id| {
+        for (f.global_imports.values()) |id| {
             const module_name = id.moduleName(wasm).slice(wasm);
             try leb.writeUleb128(binary_writer, @as(u32, @intCast(module_name.len)));
             try binary_writer.writeAll(module_name);
@@ -455,7 +461,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
             try leb.writeUleb128(binary_writer, @intFromEnum(@as(std.wasm.Valtype, global_type.valtype)));
             try binary_writer.writeByte(@intFromBool(global_type.mutable));
         }
-        total_imports += wasm.global_imports.entries.len;
+        total_imports += f.global_imports.entries.len;
 
         if (total_imports > 0) {
             replaceVecSectionHeader(binary_bytes, header_offset, .import, @intCast(total_imports));
@@ -757,6 +763,7 @@ fn emitNameSection(
     data_segments: *const std.AutoArrayHashMapUnmanaged(Wasm.DataSegment.Id, u32),
     binary_bytes: *std.ArrayListUnmanaged(u8),
 ) !void {
+    const f = &wasm.flush_buffer;
     const comp = wasm.base.comp;
     const gpa = comp.gpa;
 
@@ -771,16 +778,16 @@ fn emitNameSection(
         const sub_offset = try reserveCustomSectionHeader(gpa, binary_bytes);
         defer replaceHeader(binary_bytes, sub_offset, @intFromEnum(std.wasm.NameSubsection.function));
 
-        const total_functions: u32 = @intCast(wasm.function_imports.entries.len + wasm.functions.entries.len);
+        const total_functions: u32 = @intCast(f.function_imports.entries.len + wasm.functions.entries.len);
         try leb.writeUleb128(binary_bytes.writer(gpa), total_functions);
 
-        for (wasm.function_imports.keys(), 0..) |name_index, function_index| {
+        for (f.function_imports.keys(), 0..) |name_index, function_index| {
             const name = name_index.slice(wasm);
             try leb.writeUleb128(binary_bytes.writer(gpa), @as(u32, @intCast(function_index)));
             try leb.writeUleb128(binary_bytes.writer(gpa), @as(u32, @intCast(name.len)));
             try binary_bytes.appendSlice(gpa, name);
         }
-        for (wasm.functions.keys(), wasm.function_imports.entries.len..) |resolution, function_index| {
+        for (wasm.functions.keys(), f.function_imports.entries.len..) |resolution, function_index| {
             const name = resolution.name(wasm).?;
             try leb.writeUleb128(binary_bytes.writer(gpa), @as(u32, @intCast(function_index)));
             try leb.writeUleb128(binary_bytes.writer(gpa), @as(u32, @intCast(name.len)));
@@ -792,16 +799,16 @@ fn emitNameSection(
         const sub_offset = try reserveCustomSectionHeader(gpa, binary_bytes);
         defer replaceHeader(binary_bytes, sub_offset, @intFromEnum(std.wasm.NameSubsection.global));
 
-        const total_globals: u32 = @intCast(wasm.global_imports.entries.len + wasm.globals.entries.len);
+        const total_globals: u32 = @intCast(f.global_imports.entries.len + wasm.globals.entries.len);
         try leb.writeUleb128(binary_bytes.writer(gpa), total_globals);
 
-        for (wasm.global_imports.keys(), 0..) |name_index, global_index| {
+        for (f.global_imports.keys(), 0..) |name_index, global_index| {
             const name = name_index.slice(wasm);
             try leb.writeUleb128(binary_bytes.writer(gpa), @as(u32, @intCast(global_index)));
             try leb.writeUleb128(binary_bytes.writer(gpa), @as(u32, @intCast(name.len)));
             try binary_bytes.appendSlice(gpa, name);
         }
-        for (wasm.globals.keys(), wasm.global_imports.entries.len..) |resolution, global_index| {
+        for (wasm.globals.keys(), f.global_imports.entries.len..) |resolution, global_index| {
             const name = resolution.name(wasm).?;
             try leb.writeUleb128(binary_bytes.writer(gpa), @as(u32, @intCast(global_index)));
             try leb.writeUleb128(binary_bytes.writer(gpa), @as(u32, @intCast(name.len)));
@@ -813,7 +820,7 @@ fn emitNameSection(
         const sub_offset = try reserveCustomSectionHeader(gpa, binary_bytes);
         defer replaceHeader(binary_bytes, sub_offset, @intFromEnum(std.wasm.NameSubsection.data_segment));
 
-        const total_globals: u32 = @intCast(wasm.global_imports.entries.len + wasm.globals.entries.len);
+        const total_globals: u32 = @intCast(f.global_imports.entries.len + wasm.globals.entries.len);
         try leb.writeUleb128(binary_bytes.writer(gpa), total_globals);
 
         for (data_segments.keys(), 0..) |ds, i| {
@@ -1356,7 +1363,7 @@ fn emitSegmentInfo(wasm: *Wasm, binary_bytes: *std.ArrayList(u8)) !void {
 //        .FUNCTION_INDEX_LEB => if (symbol.flags.undefined)
 //            @intFromEnum(symbol.pointee.function_import)
 //        else
-//            @intFromEnum(symbol.pointee.function) + wasm.function_imports.items.len,
+//            @intFromEnum(symbol.pointee.function) + f.function_imports.items.len,
 //        .TABLE_NUMBER_LEB => if (symbol.flags.undefined)
 //            @intFromEnum(symbol.pointee.table_import)
 //        else
@@ -1371,7 +1378,7 @@ fn emitSegmentInfo(wasm: *Wasm, binary_bytes: *std.ArrayList(u8)) !void {
 //        .GLOBAL_INDEX_I32, .GLOBAL_INDEX_LEB => if (symbol.flags.undefined)
 //            @intFromEnum(symbol.pointee.global_import)
 //        else
-//            @intFromEnum(symbol.pointee.global) + wasm.global_imports.items.len,
+//            @intFromEnum(symbol.pointee.global) + f.global_imports.items.len,
 //
 //        .MEMORY_ADDR_I32,
 //        .MEMORY_ADDR_I64,

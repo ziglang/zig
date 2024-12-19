@@ -209,7 +209,17 @@ functions: std.AutoArrayHashMapUnmanaged(FunctionImport.Resolution, void) = .emp
 /// Tracks the value at the end of prelink, at which point `functions`
 /// contains only object file functions, and nothing from the Zcu yet.
 functions_end_prelink: u32 = 0,
-/// Entries are deleted as they are satisfied by the Zcu.
+/// At the end of prelink, this is populated with needed functions from
+/// objects.
+///
+/// During the Zcu phase, entries are not deleted from this table
+/// because doing so would be irreversible when a `deleteExport` call is
+/// handled. However, entries are added during the Zcu phase when extern
+/// functions are passed to `updateNav`.
+///
+/// `flush` gets a copy of this table, and then Zcu exports are applied to
+/// remove elements from the table, and the remainder are either undefined
+/// symbol errors, or import section entries depending on the output mode.
 function_imports: std.AutoArrayHashMapUnmanaged(String, FunctionImportId) = .empty,
 
 /// Ordered list of non-import globals that will appear in the final binary.
@@ -1156,11 +1166,6 @@ pub const ObjectTableIndex = enum(u32) {
     }
 };
 
-/// Index into `global_imports`.
-pub const GlobalImportIndex = enum(u32) {
-    _,
-};
-
 /// Index into `Wasm.object_globals`.
 pub const ObjectGlobalIndex = enum(u32) {
     _,
@@ -1660,6 +1665,10 @@ pub const FunctionImportId = enum(u32) {
 
     pub fn fromObject(function_import_index: FunctionImport.Index, wasm: *const Wasm) FunctionImportId {
         return pack(.{ .object_function_import = function_import_index }, wasm);
+    }
+
+    pub fn fromZcuImport(zcu_import: ZcuImportIndex, wasm: *const Wasm) FunctionImportId {
+        return pack(.{ .zcu_import = zcu_import }, wasm);
     }
 
     /// This function is allowed O(N) lookup because it is only called during
@@ -2297,13 +2306,21 @@ pub fn updateNav(wasm: *Wasm, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index
 
     const nav_init = switch (ip.indexToKey(nav.status.resolved.val)) {
         .func => return, // global const which is a function alias
-        .@"extern" => {
+        .@"extern" => |ext| {
             if (is_obj) {
                 assert(!wasm.navs_obj.contains(nav_index));
             } else {
                 assert(!wasm.navs_exe.contains(nav_index));
             }
-            try wasm.imports.put(gpa, nav_index, {});
+            const name = try wasm.internString(ext.name.toSlice(ip));
+            try wasm.imports.ensureUnusedCapacity(gpa, 1);
+            if (ip.isFunctionType(nav.typeOf(ip))) {
+                try wasm.function_imports.ensureUnusedCapacity(gpa, 1);
+                const zcu_import = wasm.addZcuImportReserved(ext.owner_nav);
+                wasm.function_imports.putAssumeCapacity(name, .fromZcuImport(zcu_import, wasm));
+            } else {
+                @panic("TODO extern data");
+            }
             return;
         },
         .variable => |variable| variable.init,
@@ -3463,4 +3480,10 @@ fn pointerAlignment(wasm: *const Wasm) Alignment {
         .wasm64 => .@"8",
         else => unreachable,
     };
+}
+
+fn addZcuImportReserved(wasm: *Wasm, nav_index: InternPool.Nav.Index) ZcuImportIndex {
+    const gop = wasm.imports.getOrPutAssumeCapacity(nav_index);
+    gop.value_ptr.* = {};
+    return @enumFromInt(gop.index);
 }
