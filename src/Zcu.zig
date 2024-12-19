@@ -836,20 +836,38 @@ pub const SrcLoc = struct {
             .node_offset_var_decl_align => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.relativeToNodeIndex(node_off);
-                const full = tree.fullVarDecl(node).?;
-                return tree.nodeToSpan(full.ast.align_node);
+                var buf: [1]Ast.Node.Index = undefined;
+                const align_node = if (tree.fullVarDecl(node)) |v|
+                    v.ast.align_node
+                else if (tree.fullFnProto(&buf, node)) |f|
+                    f.ast.align_expr
+                else
+                    unreachable;
+                return tree.nodeToSpan(align_node);
             },
             .node_offset_var_decl_section => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.relativeToNodeIndex(node_off);
-                const full = tree.fullVarDecl(node).?;
-                return tree.nodeToSpan(full.ast.section_node);
+                var buf: [1]Ast.Node.Index = undefined;
+                const section_node = if (tree.fullVarDecl(node)) |v|
+                    v.ast.section_node
+                else if (tree.fullFnProto(&buf, node)) |f|
+                    f.ast.section_expr
+                else
+                    unreachable;
+                return tree.nodeToSpan(section_node);
             },
             .node_offset_var_decl_addrspace => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.relativeToNodeIndex(node_off);
-                const full = tree.fullVarDecl(node).?;
-                return tree.nodeToSpan(full.ast.addrspace_node);
+                var buf: [1]Ast.Node.Index = undefined;
+                const addrspace_node = if (tree.fullVarDecl(node)) |v|
+                    v.ast.addrspace_node
+                else if (tree.fullFnProto(&buf, node)) |f|
+                    f.ast.addrspace_expr
+                else
+                    unreachable;
+                return tree.nodeToSpan(addrspace_node);
             },
             .node_offset_var_decl_init => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);

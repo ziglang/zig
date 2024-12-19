@@ -2351,12 +2351,6 @@ const Writer = struct {
 
             .none,
             &.{},
-            .none,
-            &.{},
-            .none,
-            &.{},
-            .none,
-            &.{},
             ret_ty_ref,
             ret_ty_body,
 
@@ -2372,12 +2366,6 @@ const Writer = struct {
         const extra = self.code.extraData(Zir.Inst.FuncFancy, inst_data.payload_index);
 
         var extra_index: usize = extra.end;
-        var align_ref: Zir.Inst.Ref = .none;
-        var align_body: []const Zir.Inst.Index = &.{};
-        var addrspace_ref: Zir.Inst.Ref = .none;
-        var addrspace_body: []const Zir.Inst.Index = &.{};
-        var section_ref: Zir.Inst.Ref = .none;
-        var section_body: []const Zir.Inst.Index = &.{};
         var cc_ref: Zir.Inst.Ref = .none;
         var cc_body: []const Zir.Inst.Index = &.{};
         var ret_ty_ref: Zir.Inst.Ref = .none;
@@ -2390,33 +2378,6 @@ const Writer = struct {
         }
         try self.writeFlag(stream, "test, ", extra.data.bits.is_test);
 
-        if (extra.data.bits.has_align_body) {
-            const body_len = self.code.extra[extra_index];
-            extra_index += 1;
-            align_body = self.code.bodySlice(extra_index, body_len);
-            extra_index += align_body.len;
-        } else if (extra.data.bits.has_align_ref) {
-            align_ref = @as(Zir.Inst.Ref, @enumFromInt(self.code.extra[extra_index]));
-            extra_index += 1;
-        }
-        if (extra.data.bits.has_addrspace_body) {
-            const body_len = self.code.extra[extra_index];
-            extra_index += 1;
-            addrspace_body = self.code.bodySlice(extra_index, body_len);
-            extra_index += addrspace_body.len;
-        } else if (extra.data.bits.has_addrspace_ref) {
-            addrspace_ref = @as(Zir.Inst.Ref, @enumFromInt(self.code.extra[extra_index]));
-            extra_index += 1;
-        }
-        if (extra.data.bits.has_section_body) {
-            const body_len = self.code.extra[extra_index];
-            extra_index += 1;
-            section_body = self.code.bodySlice(extra_index, body_len);
-            extra_index += section_body.len;
-        } else if (extra.data.bits.has_section_ref) {
-            section_ref = @as(Zir.Inst.Ref, @enumFromInt(self.code.extra[extra_index]));
-            extra_index += 1;
-        }
         if (extra.data.bits.has_cc_body) {
             const body_len = self.code.extra[extra_index];
             extra_index += 1;
@@ -2455,12 +2416,6 @@ const Writer = struct {
             extra.data.bits.is_var_args,
             extra.data.bits.is_extern,
             extra.data.bits.is_noinline,
-            align_ref,
-            align_body,
-            addrspace_ref,
-            addrspace_body,
-            section_ref,
-            section_body,
             cc_ref,
             cc_body,
             ret_ty_ref,
@@ -2651,12 +2606,6 @@ const Writer = struct {
         var_args: bool,
         is_extern: bool,
         is_noinline: bool,
-        align_ref: Zir.Inst.Ref,
-        align_body: []const Zir.Inst.Index,
-        addrspace_ref: Zir.Inst.Ref,
-        addrspace_body: []const Zir.Inst.Index,
-        section_ref: Zir.Inst.Ref,
-        section_body: []const Zir.Inst.Index,
         cc_ref: Zir.Inst.Ref,
         cc_body: []const Zir.Inst.Index,
         ret_ty_ref: Zir.Inst.Ref,
@@ -2666,9 +2615,6 @@ const Writer = struct {
         src_locs: Zir.Inst.Func.SrcLocs,
         noalias_bits: u32,
     ) !void {
-        try self.writeOptionalInstRefOrBody(stream, "align=", align_ref, align_body);
-        try self.writeOptionalInstRefOrBody(stream, "addrspace=", addrspace_ref, addrspace_body);
-        try self.writeOptionalInstRefOrBody(stream, "section=", section_ref, section_body);
         try self.writeOptionalInstRefOrBody(stream, "cc=", cc_ref, cc_body);
         try self.writeOptionalInstRefOrBody(stream, "ret_ty=", ret_ty_ref, ret_ty_body);
         try self.writeFlag(stream, "vargs, ", var_args);
