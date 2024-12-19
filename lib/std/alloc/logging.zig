@@ -1,20 +1,20 @@
 const std = @import("../std.zig");
-const Allocator = std.mem.Allocator;
+const mem = std.mem;
 
 /// This allocator is used in front of another allocator and logs to `std.log`
 /// on every call to the allocator.
-/// For logging to a `std.io.Writer` see `std.heap.LogToWriterAllocator`
-pub fn LoggingAllocator(
+/// For logging to a `std.io.Writer` see `std.alloc.LogToWriter`
+pub fn Allocator(
     comptime success_log_level: std.log.Level,
     comptime failure_log_level: std.log.Level,
 ) type {
-    return ScopedLoggingAllocator(.default, success_log_level, failure_log_level);
+    return ScopedAllocator(.default, success_log_level, failure_log_level);
 }
 
 /// This allocator is used in front of another allocator and logs to `std.log`
 /// with the given scope on every call to the allocator.
-/// For logging to a `std.io.Writer` see `std.heap.LogToWriterAllocator`
-pub fn ScopedLoggingAllocator(
+/// For logging to a `std.io.Writer` see `std.alloc.LogToWriter.Allocator`
+pub fn ScopedAllocator(
     comptime scope: @Type(.enum_literal),
     comptime success_log_level: std.log.Level,
     comptime failure_log_level: std.log.Level,
@@ -22,17 +22,17 @@ pub fn ScopedLoggingAllocator(
     const log = std.log.scoped(scope);
 
     return struct {
-        parent_allocator: Allocator,
+        parent_allocator: mem.Allocator,
 
         const Self = @This();
 
-        pub fn init(parent_allocator: Allocator) Self {
+        pub fn init(parent_allocator: mem.Allocator) Self {
             return .{
                 .parent_allocator = parent_allocator,
             };
         }
 
-        pub fn allocator(self: *Self) Allocator {
+        pub fn allocator(self: *Self) mem.Allocator {
             return .{
                 .ptr = self,
                 .vtable = &.{
@@ -127,7 +127,7 @@ pub fn ScopedLoggingAllocator(
 
 /// This allocator is used in front of another allocator and logs to `std.log`
 /// on every call to the allocator.
-/// For logging to a `std.io.Writer` see `std.heap.LogToWriterAllocator`
-pub fn loggingAllocator(parent_allocator: Allocator) LoggingAllocator(.debug, .err) {
-    return LoggingAllocator(.debug, .err).init(parent_allocator);
+/// For logging to a `std.io.Writer` see `std.alloc.LogToWriter.Allocator`
+pub fn allocator(parent_allocator: mem.Allocator) Allocator(.debug, .err) {
+    return Allocator(.debug, .err).init(parent_allocator);
 }

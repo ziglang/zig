@@ -17,7 +17,7 @@
 //!
 //!  * Do not re-use memory slots, so that memory safety is upheld. For small
 //!    allocations, this is handled here; for larger ones it is handled in the
-//!    backing allocator (by default `std.heap.page_allocator`).
+//!    backing allocator (by default `std.alloc.page_allocator`).
 //!
 //!  * Make pointer math errors unlikely to harm memory from
 //!    unrelated allocations.
@@ -98,7 +98,6 @@ const log = std.log.scoped(.gpa);
 const math = std.math;
 const assert = std.debug.assert;
 const mem = std.mem;
-const Allocator = std.mem.Allocator;
 const page_size = std.mem.page_size;
 const StackTrace = std.builtin.StackTrace;
 
@@ -158,9 +157,9 @@ pub const Config = struct {
 pub const Check = enum { ok, leak };
 
 /// Default initialization of this struct is deprecated; use `.init` instead.
-pub fn GeneralPurposeAllocator(comptime config: Config) type {
+pub fn Allocator(comptime config: Config) type {
     return struct {
-        backing_allocator: Allocator = std.heap.page_allocator,
+        backing_allocator: mem.Allocator = std.heap.page_allocator,
         buckets: [small_bucket_count]Buckets = [1]Buckets{Buckets{}} ** small_bucket_count,
         cur_buckets: [small_bucket_count]?*BucketHeader = [1]?*BucketHeader{null} ** small_bucket_count,
         large_allocations: LargeAllocTable = .{},
@@ -175,7 +174,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
 
         const Self = @This();
 
-        /// The initial state of a `GeneralPurposeAllocator`, containing no allocations and backed by the system page allocator.
+        /// The initial state of a `Allocator`, containing no allocations and backed by the system page allocator.
         pub const init: Self = .{
             .backing_allocator = std.heap.page_allocator,
             .buckets = [1]Buckets{.{}} ** small_bucket_count,
@@ -316,7 +315,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             }
         };
 
-        pub fn allocator(self: *Self) Allocator {
+        pub fn allocator(self: *Self) mem.Allocator {
             return .{
                 .ptr = self,
                 .vtable = &.{
@@ -722,7 +721,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             ret_addr: usize,
         ) bool {
             const self: *Self = @ptrCast(@alignCast(ctx));
-            const log2_old_align = @as(Allocator.Log2Align, @intCast(log2_old_align_u8));
+            const log2_old_align = @as(mem.Allocator.Log2Align, @intCast(log2_old_align_u8));
             self.mutex.lock();
             defer self.mutex.unlock();
 
@@ -840,7 +839,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             ret_addr: usize,
         ) void {
             const self: *Self = @ptrCast(@alignCast(ctx));
-            const log2_old_align = @as(Allocator.Log2Align, @intCast(log2_old_align_u8));
+            const log2_old_align = @as(mem.Allocator.Log2Align, @intCast(log2_old_align_u8));
             self.mutex.lock();
             defer self.mutex.unlock();
 
@@ -982,16 +981,16 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             self.mutex.lock();
             defer self.mutex.unlock();
             if (!self.isAllocationAllowed(len)) return null;
-            return allocInner(self, len, @as(Allocator.Log2Align, @intCast(log2_ptr_align)), ret_addr) catch return null;
+            return allocInner(self, len, @as(mem.Allocator.Log2Align, @intCast(log2_ptr_align)), ret_addr) catch return null;
         }
 
         fn allocInner(
             self: *Self,
             len: usize,
-            log2_ptr_align: Allocator.Log2Align,
+            log2_ptr_align: mem.Allocator.Log2Align,
             ret_addr: usize,
-        ) Allocator.Error![*]u8 {
-            const new_aligned_size = @max(len, @as(usize, 1) << @as(Allocator.Log2Align, @intCast(log2_ptr_align)));
+        ) mem.Allocator.Error![*]u8 {
+            const new_aligned_size = @max(len, @as(usize, 1) << @as(mem.Allocator.Log2Align, @intCast(log2_ptr_align)));
             if (new_aligned_size > largest_bucket_object_size) {
                 try self.large_allocations.ensureUnusedCapacity(self.backing_allocator, 1);
                 const ptr = self.backing_allocator.rawAlloc(len, log2_ptr_align, ret_addr) orelse
@@ -1065,7 +1064,7 @@ const TraceKind = enum {
 const test_config = Config{};
 
 test "small allocations - free in same order" {
-    var gpa = GeneralPurposeAllocator(test_config){};
+    var gpa = Allocator(test_config){};
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();
 
@@ -1084,7 +1083,7 @@ test "small allocations - free in same order" {
 }
 
 test "small allocations - free in reverse order" {
-    var gpa = GeneralPurposeAllocator(test_config){};
+    var gpa = Allocator(test_config){};
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();
 
@@ -1103,7 +1102,7 @@ test "small allocations - free in reverse order" {
 }
 
 test "large allocations" {
-    var gpa = GeneralPurposeAllocator(test_config){};
+    var gpa = Allocator(test_config){};
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();
 
@@ -1116,7 +1115,7 @@ test "large allocations" {
 }
 
 test "very large allocation" {
-    var gpa = GeneralPurposeAllocator(test_config){};
+    var gpa = Allocator(test_config){};
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();
 
@@ -1124,7 +1123,7 @@ test "very large allocation" {
 }
 
 test "realloc" {
-    var gpa = GeneralPurposeAllocator(test_config){};
+    var gpa = Allocator(test_config){};
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();
 
@@ -1146,7 +1145,7 @@ test "realloc" {
 }
 
 test "shrink" {
-    var gpa = GeneralPurposeAllocator(test_config){};
+    var gpa = Allocator(test_config){};
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();
 
@@ -1175,7 +1174,7 @@ test "large object - grow" {
         // Not expected to pass on targets that do not have memory mapping.
         return error.SkipZigTest;
     }
-    var gpa: GeneralPurposeAllocator(test_config) = .{};
+    var gpa: Allocator(test_config) = .{};
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();
 
@@ -1193,7 +1192,7 @@ test "large object - grow" {
 }
 
 test "realloc small object to large object" {
-    var gpa = GeneralPurposeAllocator(test_config){};
+    var gpa = Allocator(test_config){};
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();
 
@@ -1210,7 +1209,7 @@ test "realloc small object to large object" {
 }
 
 test "shrink large object to large object" {
-    var gpa = GeneralPurposeAllocator(test_config){};
+    var gpa = Allocator(test_config){};
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();
 
@@ -1235,7 +1234,7 @@ test "shrink large object to large object" {
 }
 
 test "shrink large object to large object with larger alignment" {
-    var gpa = GeneralPurposeAllocator(test_config){};
+    var gpa = Allocator(test_config){};
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();
 
@@ -1271,7 +1270,7 @@ test "shrink large object to large object with larger alignment" {
 }
 
 test "realloc large object to small object" {
-    var gpa = GeneralPurposeAllocator(test_config){};
+    var gpa = Allocator(test_config){};
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();
 
@@ -1286,7 +1285,7 @@ test "realloc large object to small object" {
 }
 
 test "overridable mutexes" {
-    var gpa = GeneralPurposeAllocator(.{ .MutexType = std.Thread.Mutex }){
+    var gpa = Allocator(.{ .MutexType = std.Thread.Mutex }){
         .backing_allocator = std.testing.allocator,
         .mutex = std.Thread.Mutex{},
     };
@@ -1298,7 +1297,7 @@ test "overridable mutexes" {
 }
 
 test "non-page-allocator backing allocator" {
-    var gpa = GeneralPurposeAllocator(.{}){ .backing_allocator = std.testing.allocator };
+    var gpa = Allocator(.{}){ .backing_allocator = std.testing.allocator };
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();
 
@@ -1307,7 +1306,7 @@ test "non-page-allocator backing allocator" {
 }
 
 test "realloc large object to larger alignment" {
-    var gpa = GeneralPurposeAllocator(test_config){};
+    var gpa = Allocator(test_config){};
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();
 
@@ -1354,7 +1353,7 @@ test "large object shrinks to small but allocation fails during shrink" {
     }
 
     var failing_allocator = std.testing.FailingAllocator.init(std.heap.page_allocator, .{ .fail_index = 3 });
-    var gpa = GeneralPurposeAllocator(.{}){ .backing_allocator = failing_allocator.allocator() };
+    var gpa = Allocator(.{}){ .backing_allocator = failing_allocator.allocator() };
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();
 
@@ -1363,7 +1362,7 @@ test "large object shrinks to small but allocation fails during shrink" {
     slice[0] = 0x12;
     slice[3] = 0x34;
 
-    // Next allocation will fail in the backing allocator of the GeneralPurposeAllocator
+    // Next allocation will fail in the backing allocator of the Allocator
 
     try std.testing.expect(allocator.resize(slice, 4));
     slice = slice[0..4];
@@ -1372,7 +1371,7 @@ test "large object shrinks to small but allocation fails during shrink" {
 }
 
 test "objects of size 1024 and 2048" {
-    var gpa = GeneralPurposeAllocator(test_config){};
+    var gpa = Allocator(test_config){};
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();
 
@@ -1384,7 +1383,7 @@ test "objects of size 1024 and 2048" {
 }
 
 test "setting a memory cap" {
-    var gpa = GeneralPurposeAllocator(.{ .enable_memory_limit = true }){};
+    var gpa = Allocator(.{ .enable_memory_limit = true }){};
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();
 
@@ -1411,10 +1410,10 @@ test "setting a memory cap" {
 
 test "double frees" {
     // use a GPA to back a GPA to check for leaks of the latter's metadata
-    var backing_gpa = GeneralPurposeAllocator(.{ .safety = true }){};
+    var backing_gpa = Allocator(.{ .safety = true }){};
     defer std.testing.expect(backing_gpa.deinit() == .ok) catch @panic("leak");
 
-    const GPA = GeneralPurposeAllocator(.{ .safety = true, .never_unmap = true, .retain_metadata = true });
+    const GPA = Allocator(.{ .safety = true, .never_unmap = true, .retain_metadata = true });
     var gpa = GPA{ .backing_allocator = backing_gpa.allocator() };
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();
@@ -1450,7 +1449,7 @@ test "double frees" {
 }
 
 test "empty bucket size class" {
-    const GPA = GeneralPurposeAllocator(.{ .safety = true, .never_unmap = true, .retain_metadata = true });
+    const GPA = Allocator(.{ .safety = true, .never_unmap = true, .retain_metadata = true });
     var gpa = GPA{};
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();
@@ -1468,7 +1467,7 @@ test "empty bucket size class" {
 
 test "bug 9995 fix, large allocs count requested size not backing size" {
     // with AtLeast, buffer likely to be larger than requested, especially when shrinking
-    var gpa = GeneralPurposeAllocator(.{ .enable_memory_limit = true }){};
+    var gpa = Allocator(.{ .enable_memory_limit = true }){};
     const allocator = gpa.allocator();
 
     var buf = try allocator.alignedAlloc(u8, 1, page_size + 1);
@@ -1480,7 +1479,7 @@ test "bug 9995 fix, large allocs count requested size not backing size" {
 }
 
 test "retain metadata and never unmap" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{
+    var gpa = Allocator(.{
         .safety = true,
         .never_unmap = true,
         .retain_metadata = true,

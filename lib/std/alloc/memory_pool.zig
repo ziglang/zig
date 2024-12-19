@@ -2,23 +2,20 @@ const std = @import("../std.zig");
 
 const debug_mode = @import("builtin").mode == .Debug;
 
-pub const MemoryPoolError = error{OutOfMemory};
+pub const Error = error{OutOfMemory};
 
 /// A memory pool that can allocate objects of a single type very quickly.
 /// Use this when you need to allocate a lot of objects of the same type,
 /// because It outperforms general purpose allocators.
-pub fn MemoryPool(comptime Item: type) type {
-    return MemoryPoolAligned(Item, @alignOf(Item));
+pub fn Auto(comptime Item: type) type {
+    return Aligned(Item, @alignOf(Item));
 }
 
-/// A memory pool that can allocate objects of a single type very quickly.
-/// Use this when you need to allocate a lot of objects of the same type,
-/// because It outperforms general purpose allocators.
-pub fn MemoryPoolAligned(comptime Item: type, comptime alignment: u29) type {
+pub fn Aligned(comptime Item: type, comptime alignment: u29) type {
     if (@alignOf(Item) == alignment) {
-        return MemoryPoolExtra(Item, .{});
+        return Extra(Item, .{});
     } else {
-        return MemoryPoolExtra(Item, .{ .alignment = alignment });
+        return Extra(Item, .{ .alignment = alignment });
     }
 }
 
@@ -31,10 +28,7 @@ pub const Options = struct {
     growable: bool = true,
 };
 
-/// A memory pool that can allocate objects of a single type very quickly.
-/// Use this when you need to allocate a lot of objects of the same type,
-/// because It outperforms general purpose allocators.
-pub fn MemoryPoolExtra(comptime Item: type, comptime pool_options: Options) type {
+pub fn Extra(comptime Item: type, comptime pool_options: Options) type {
     return struct {
         const Pool = @This();
 
@@ -55,18 +49,18 @@ pub fn MemoryPoolExtra(comptime Item: type, comptime pool_options: Options) type
         const NodePtr = *align(item_alignment) Node;
         const ItemPtr = *align(item_alignment) Item;
 
-        arena: std.heap.ArenaAllocator,
+        arena: std.alloc.Arena,
         free_list: ?NodePtr = null,
 
         /// Creates a new memory pool.
         pub fn init(allocator: std.mem.Allocator) Pool {
-            return .{ .arena = std.heap.ArenaAllocator.init(allocator) };
+            return .{ .arena = std.alloc.Arena.init(allocator) };
         }
 
         /// Creates a new memory pool and pre-allocates `initial_size` items.
         /// This allows the up to `initial_size` active allocations before a
         /// `OutOfMemory` error happens when calling `create()`.
-        pub fn initPreheated(allocator: std.mem.Allocator, initial_size: usize) MemoryPoolError!Pool {
+        pub fn initPreheated(allocator: std.mem.Allocator, initial_size: usize) Error!Pool {
             var pool = init(allocator);
             errdefer pool.deinit();
             try pool.preheat(initial_size);
@@ -82,7 +76,7 @@ pub fn MemoryPoolExtra(comptime Item: type, comptime pool_options: Options) type
         /// Preheats the memory pool by pre-allocating `size` items.
         /// This allows up to `size` active allocations before an
         /// `OutOfMemory` error might happen when calling `create()`.
-        pub fn preheat(pool: *Pool, size: usize) MemoryPoolError!void {
+        pub fn preheat(pool: *Pool, size: usize) Error!void {
             var i: usize = 0;
             while (i < size) : (i += 1) {
                 const raw_mem = try pool.allocNew();
@@ -94,7 +88,7 @@ pub fn MemoryPoolExtra(comptime Item: type, comptime pool_options: Options) type
             }
         }
 
-        pub const ResetMode = std.heap.ArenaAllocator.ResetMode;
+        pub const ResetMode = std.alloc.Arena.ResetMode;
 
         /// Resets the memory pool and destroys all allocated items.
         /// This can be used to batch-destroy all objects without invalidating the memory pool.
@@ -143,7 +137,7 @@ pub fn MemoryPoolExtra(comptime Item: type, comptime pool_options: Options) type
             pool.free_list = node;
         }
 
-        fn allocNew(pool: *Pool) MemoryPoolError!*align(item_alignment) [item_size]u8 {
+        fn allocNew(pool: *Pool) Error!*align(item_alignment) [item_size]u8 {
             const mem = try pool.arena.allocator().alignedAlloc(u8, item_alignment, item_size);
             return mem[0..item_size]; // coerce slice to array pointer
         }
@@ -151,7 +145,7 @@ pub fn MemoryPoolExtra(comptime Item: type, comptime pool_options: Options) type
 }
 
 test "basic" {
-    var pool = MemoryPool(u32).init(std.testing.allocator);
+    var pool = Auto(u32).init(std.testing.allocator);
     defer pool.deinit();
 
     const p1 = try pool.create();
@@ -171,7 +165,7 @@ test "basic" {
 }
 
 test "preheating (success)" {
-    var pool = try MemoryPool(u32).initPreheated(std.testing.allocator, 4);
+    var pool = try Auto(u32).initPreheated(std.testing.allocator, 4);
     defer pool.deinit();
 
     _ = try pool.create();
@@ -181,11 +175,11 @@ test "preheating (success)" {
 
 test "preheating (failure)" {
     const failer = std.testing.failing_allocator;
-    try std.testing.expectError(error.OutOfMemory, MemoryPool(u32).initPreheated(failer, 5));
+    try std.testing.expectError(error.OutOfMemory, Auto(u32).initPreheated(failer, 5));
 }
 
 test "growable" {
-    var pool = try MemoryPoolExtra(u32, .{ .growable = false }).initPreheated(std.testing.allocator, 4);
+    var pool = try Extra(u32, .{ .growable = false }).initPreheated(std.testing.allocator, 4);
     defer pool.deinit();
 
     _ = try pool.create();
@@ -201,7 +195,7 @@ test "greater than pointer default alignment" {
         data: u64 align(16),
     };
 
-    var pool = MemoryPool(Foo).init(std.testing.allocator);
+    var pool = Auto(Foo).init(std.testing.allocator);
     defer pool.deinit();
 
     const foo: *Foo = try pool.create();
@@ -213,7 +207,7 @@ test "greater than pointer manual alignment" {
         data: u64,
     };
 
-    var pool = MemoryPoolAligned(Foo, 16).init(std.testing.allocator);
+    var pool = Aligned(Foo, 16).init(std.testing.allocator);
     defer pool.deinit();
 
     const foo: *align(16) Foo = try pool.create();

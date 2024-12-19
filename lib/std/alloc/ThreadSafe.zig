@@ -1,9 +1,10 @@
 //! Wraps a non-thread-safe allocator and makes it thread-safe.
-
-child_allocator: Allocator,
+child_allocator: std.mem.Allocator,
 mutex: std.Thread.Mutex = .{},
 
-pub fn allocator(self: *ThreadSafeAllocator) Allocator {
+const Allocator = @This();
+
+pub fn allocator(self: *Allocator) std.mem.Allocator {
     return .{
         .ptr = self,
         .vtable = &.{
@@ -15,7 +16,7 @@ pub fn allocator(self: *ThreadSafeAllocator) Allocator {
 }
 
 fn alloc(ctx: *anyopaque, n: usize, log2_ptr_align: u8, ra: usize) ?[*]u8 {
-    const self: *ThreadSafeAllocator = @ptrCast(@alignCast(ctx));
+    const self: *Allocator = @ptrCast(@alignCast(ctx));
     self.mutex.lock();
     defer self.mutex.unlock();
 
@@ -23,7 +24,7 @@ fn alloc(ctx: *anyopaque, n: usize, log2_ptr_align: u8, ra: usize) ?[*]u8 {
 }
 
 fn resize(ctx: *anyopaque, buf: []u8, log2_buf_align: u8, new_len: usize, ret_addr: usize) bool {
-    const self: *ThreadSafeAllocator = @ptrCast(@alignCast(ctx));
+    const self: *Allocator = @ptrCast(@alignCast(ctx));
 
     self.mutex.lock();
     defer self.mutex.unlock();
@@ -32,7 +33,7 @@ fn resize(ctx: *anyopaque, buf: []u8, log2_buf_align: u8, new_len: usize, ret_ad
 }
 
 fn free(ctx: *anyopaque, buf: []u8, log2_buf_align: u8, ret_addr: usize) void {
-    const self: *ThreadSafeAllocator = @ptrCast(@alignCast(ctx));
+    const self: *Allocator = @ptrCast(@alignCast(ctx));
 
     self.mutex.lock();
     defer self.mutex.unlock();
@@ -41,5 +42,3 @@ fn free(ctx: *anyopaque, buf: []u8, log2_buf_align: u8, ret_addr: usize) void {
 }
 
 const std = @import("../std.zig");
-const ThreadSafeAllocator = @This();
-const Allocator = std.mem.Allocator;

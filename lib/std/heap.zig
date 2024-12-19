@@ -8,257 +8,64 @@ const c = std.c;
 const Allocator = std.mem.Allocator;
 const windows = std.os.windows;
 
-pub const LoggingAllocator = @import("heap/logging_allocator.zig").LoggingAllocator;
-pub const loggingAllocator = @import("heap/logging_allocator.zig").loggingAllocator;
-pub const ScopedLoggingAllocator = @import("heap/logging_allocator.zig").ScopedLoggingAllocator;
-pub const LogToWriterAllocator = @import("heap/log_to_writer_allocator.zig").LogToWriterAllocator;
-pub const logToWriterAllocator = @import("heap/log_to_writer_allocator.zig").logToWriterAllocator;
-pub const ArenaAllocator = @import("heap/arena_allocator.zig").ArenaAllocator;
-pub const GeneralPurposeAllocatorConfig = @import("heap/general_purpose_allocator.zig").Config;
-pub const GeneralPurposeAllocator = @import("heap/general_purpose_allocator.zig").GeneralPurposeAllocator;
-pub const Check = @import("heap/general_purpose_allocator.zig").Check;
-pub const WasmAllocator = @import("heap/WasmAllocator.zig");
-pub const PageAllocator = @import("heap/PageAllocator.zig");
-pub const ThreadSafeAllocator = @import("heap/ThreadSafeAllocator.zig");
-pub const SbrkAllocator = @import("heap/sbrk_allocator.zig").SbrkAllocator;
+pub const alloc = @import("alloc.zig");
 
-const memory_pool = @import("heap/memory_pool.zig");
-pub const MemoryPool = memory_pool.MemoryPool;
-pub const MemoryPoolAligned = memory_pool.MemoryPoolAligned;
-pub const MemoryPoolExtra = memory_pool.MemoryPoolExtra;
-pub const MemoryPoolOptions = memory_pool.Options;
+/// This has moved into std.alloc and is provided here only for compatibility
+pub const LoggingAllocator = alloc.Logging.Allocator;
+/// This has moved into std.alloc and is provided here only for compatibility
+pub const loggingAllocator = alloc.Logging.allocator;
+/// This has moved into std.alloc and is provided here only for compatibility
+pub const ScopedLoggingAllocator = alloc.Logging.ScopedAllocator;
+/// This has moved into std.alloc and is provided here only for compatibility
+pub const LogToWriterAllocator = alloc.LogToWriter.Allocator;
+/// This has moved into std.alloc and is provided here only for compatibility
+pub const logToWriterAllocator = alloc.LogToWriter.allocator;
+/// This has moved into std.alloc and is provided here only for compatibility
+pub const ArenaAllocator = alloc.Arena;
+/// This has moved into std.alloc and is provided here only for compatibility
+pub const GeneralPurposeAllocatorConfig = alloc.GeneralPurpose.Config;
+/// This has moved into std.alloc and is provided here only for compatibility
+pub const GeneralPurposeAllocator = alloc.GeneralPurpose.Allocator;
+/// This has moved into std.alloc and is provided here only for compatibility
+pub const Check = alloc.GeneralPurpose.Check;
+/// This has moved into std.alloc and is provided here only for compatibility
+pub const WasmAllocator = alloc.Wasm;
+/// This has moved into std.alloc and is provided here only for compatibility
+pub const WasmPageAllocator = alloc.WasmPage;
+/// This has moved into std.alloc and is provided here only for compatibility
+pub const PageAllocator = alloc.Page;
+/// This has moved into std.alloc and is provided here only for compatibility
+pub const ThreadSafeAllocator = alloc.ThreadSafe;
+/// This has moved into std.alloc and is provided here only for compatibility
+pub const SbrkAllocator = alloc.Sbrk.Allocator;
 
-/// TODO Utilize this on Windows.
-pub var next_mmap_addr_hint: ?[*]align(mem.page_size) u8 = null;
+/// This has moved into std.alloc and is provided here only for compatibility
+pub const MemoryPool = alloc.MemoryPool.Auto;
+/// This has moved into std.alloc and is provided here only for compatibility
+pub const MemoryPoolAligned = alloc.MemoryPool.Aligned;
+/// This has moved into std.alloc and is provided here only for compatibility
+pub const MemoryPoolExtra = alloc.MemoryPool.Extra;
+/// This has moved into std.alloc and is provided here only for compatibility
+pub const MemoryPoolOptions = alloc.MemoryPool.Options;
 
-const CAllocator = struct {
-    comptime {
-        if (!builtin.link_libc) {
-            @compileError("C allocator is only available when linking against libc");
-        }
-    }
+/// This has moved into std.alloc and is provided here only for compatibility
+const CAllocator = alloc.CAllocator;
 
-    pub const supports_malloc_size = @TypeOf(malloc_size) != void;
-    pub const malloc_size = if (@TypeOf(c.malloc_size) != void)
-        c.malloc_size
-    else if (@TypeOf(c.malloc_usable_size) != void)
-        c.malloc_usable_size
-    else if (@TypeOf(c._msize) != void)
-        c._msize
-    else {};
+/// This has moved into std.alloc and is provided here only for compatibility
+pub const c_allocator = alloc.c_allocator;
+/// This has moved into std.alloc and is provided here only for compatibility
+pub const raw_c_allocator = alloc.raw_c_allocator;
+/// This has moved into std.alloc and is provided here only for compatibility
+pub const page_allocator = alloc.page_allocator;
+/// This has moved into std.alloc and is provided here only for compatibility
+pub const wasm_allocator = alloc.wasm_allocator;
 
-    pub const supports_posix_memalign = switch (builtin.os.tag) {
-        .dragonfly, .netbsd, .freebsd, .solaris, .openbsd, .linux, .macos, .ios, .tvos, .watchos, .visionos => true,
-        else => false,
-    };
-
-    fn getHeader(ptr: [*]u8) *[*]u8 {
-        return @as(*[*]u8, @ptrFromInt(@intFromPtr(ptr) - @sizeOf(usize)));
-    }
-
-    fn alignedAlloc(len: usize, log2_align: u8) ?[*]u8 {
-        const alignment = @as(usize, 1) << @as(Allocator.Log2Align, @intCast(log2_align));
-        if (supports_posix_memalign) {
-            // The posix_memalign only accepts alignment values that are a
-            // multiple of the pointer size
-            const eff_alignment = @max(alignment, @sizeOf(usize));
-
-            var aligned_ptr: ?*anyopaque = undefined;
-            if (c.posix_memalign(&aligned_ptr, eff_alignment, len) != 0)
-                return null;
-
-            return @as([*]u8, @ptrCast(aligned_ptr));
-        }
-
-        // Thin wrapper around regular malloc, overallocate to account for
-        // alignment padding and store the original malloc()'ed pointer before
-        // the aligned address.
-        const unaligned_ptr = @as([*]u8, @ptrCast(c.malloc(len + alignment - 1 + @sizeOf(usize)) orelse return null));
-        const unaligned_addr = @intFromPtr(unaligned_ptr);
-        const aligned_addr = mem.alignForward(usize, unaligned_addr + @sizeOf(usize), alignment);
-        const aligned_ptr = unaligned_ptr + (aligned_addr - unaligned_addr);
-        getHeader(aligned_ptr).* = unaligned_ptr;
-
-        return aligned_ptr;
-    }
-
-    fn alignedFree(ptr: [*]u8) void {
-        if (supports_posix_memalign) {
-            return c.free(ptr);
-        }
-
-        const unaligned_ptr = getHeader(ptr).*;
-        c.free(unaligned_ptr);
-    }
-
-    fn alignedAllocSize(ptr: [*]u8) usize {
-        if (supports_posix_memalign) {
-            return CAllocator.malloc_size(ptr);
-        }
-
-        const unaligned_ptr = getHeader(ptr).*;
-        const delta = @intFromPtr(ptr) - @intFromPtr(unaligned_ptr);
-        return CAllocator.malloc_size(unaligned_ptr) - delta;
-    }
-
-    fn alloc(
-        _: *anyopaque,
-        len: usize,
-        log2_align: u8,
-        return_address: usize,
-    ) ?[*]u8 {
-        _ = return_address;
-        assert(len > 0);
-        return alignedAlloc(len, log2_align);
-    }
-
-    fn resize(
-        _: *anyopaque,
-        buf: []u8,
-        log2_buf_align: u8,
-        new_len: usize,
-        return_address: usize,
-    ) bool {
-        _ = log2_buf_align;
-        _ = return_address;
-        if (new_len <= buf.len) {
-            return true;
-        }
-        if (CAllocator.supports_malloc_size) {
-            const full_len = alignedAllocSize(buf.ptr);
-            if (new_len <= full_len) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    fn free(
-        _: *anyopaque,
-        buf: []u8,
-        log2_buf_align: u8,
-        return_address: usize,
-    ) void {
-        _ = log2_buf_align;
-        _ = return_address;
-        alignedFree(buf.ptr);
-    }
-};
-
-/// Supports the full Allocator interface, including alignment, and exploiting
-/// `malloc_usable_size` if available. For an allocator that directly calls
-/// `malloc`/`free`, see `raw_c_allocator`.
-pub const c_allocator = Allocator{
-    .ptr = undefined,
-    .vtable = &c_allocator_vtable,
-};
-const c_allocator_vtable = Allocator.VTable{
-    .alloc = CAllocator.alloc,
-    .resize = CAllocator.resize,
-    .free = CAllocator.free,
-};
-
-/// Asserts allocations are within `@alignOf(std.c.max_align_t)` and directly calls
-/// `malloc`/`free`. Does not attempt to utilize `malloc_usable_size`.
-/// This allocator is safe to use as the backing allocator with
-/// `ArenaAllocator` for example and is more optimal in such a case
-/// than `c_allocator`.
-pub const raw_c_allocator = Allocator{
-    .ptr = undefined,
-    .vtable = &raw_c_allocator_vtable,
-};
-const raw_c_allocator_vtable = Allocator.VTable{
-    .alloc = rawCAlloc,
-    .resize = rawCResize,
-    .free = rawCFree,
-};
-
-fn rawCAlloc(
-    _: *anyopaque,
-    len: usize,
-    log2_ptr_align: u8,
-    ret_addr: usize,
-) ?[*]u8 {
-    _ = ret_addr;
-    assert(log2_ptr_align <= comptime std.math.log2_int(usize, @alignOf(std.c.max_align_t)));
-    // Note that this pointer cannot be aligncasted to max_align_t because if
-    // len is < max_align_t then the alignment can be smaller. For example, if
-    // max_align_t is 16, but the user requests 8 bytes, there is no built-in
-    // type in C that is size 8 and has 16 byte alignment, so the alignment may
-    // be 8 bytes rather than 16. Similarly if only 1 byte is requested, malloc
-    // is allowed to return a 1-byte aligned pointer.
-    return @as(?[*]u8, @ptrCast(c.malloc(len)));
-}
-
-fn rawCResize(
-    _: *anyopaque,
-    buf: []u8,
-    log2_old_align: u8,
-    new_len: usize,
-    ret_addr: usize,
-) bool {
-    _ = log2_old_align;
-    _ = ret_addr;
-
-    if (new_len <= buf.len)
-        return true;
-
-    if (CAllocator.supports_malloc_size) {
-        const full_len = CAllocator.malloc_size(buf.ptr);
-        if (new_len <= full_len) return true;
-    }
-
-    return false;
-}
-
-fn rawCFree(
-    _: *anyopaque,
-    buf: []u8,
-    log2_old_align: u8,
-    ret_addr: usize,
-) void {
-    _ = log2_old_align;
-    _ = ret_addr;
-    c.free(buf.ptr);
-}
-
-/// On operating systems that support memory mapping, this allocator makes a
-/// syscall directly for every allocation and free.
-///
-/// Otherwise, it falls back to the preferred singleton for the target.
-///
-/// Thread-safe.
-pub const page_allocator: Allocator = if (@hasDecl(root, "os") and
-    @hasDecl(root.os, "heap") and
-    @hasDecl(root.os.heap, "page_allocator"))
-    root.os.heap.page_allocator
-else if (builtin.target.isWasm()) .{
-    .ptr = undefined,
-    .vtable = &WasmAllocator.vtable,
-} else if (builtin.target.os.tag == .plan9) .{
-    .ptr = undefined,
-    .vtable = &SbrkAllocator(std.os.plan9.sbrk).vtable,
-} else .{
-    .ptr = undefined,
-    .vtable = &PageAllocator.vtable,
-};
-
-/// This allocator is fast, small, and specific to WebAssembly. In the future,
-/// this will be the implementation automatically selected by
-/// `GeneralPurposeAllocator` when compiling in `ReleaseSmall` mode for wasm32
-/// and wasm64 architectures.
-/// Until then, it is available here to play with.
-pub const wasm_allocator: Allocator = .{
-    .ptr = undefined,
-    .vtable = &WasmAllocator.vtable,
-};
-
-/// Verifies that the adjusted length will still map to the full length
-pub fn alignPageAllocLen(full_len: usize, len: usize) usize {
-    const aligned_len = mem.alignAllocLen(full_len, len);
-    assert(mem.alignForward(usize, aligned_len, mem.page_size) == full_len);
-    return aligned_len;
-}
+/// This has moved into std.alloc and is provided here only for compatibility
+pub const FixedBufferAllocator = alloc.FixedBuffer;
+/// This has moved into std.alloc and is provided here only for compatibility
+pub const stackFallback = alloc.stackFallback;
+/// This has moved into std.alloc and is provided here only for compatibility
+pub const StackFallbackAllocator = alloc.StackFallbackAllocator;
 
 pub const HeapAllocator = switch (builtin.os.tag) {
     .windows => struct {
@@ -276,7 +83,7 @@ pub const HeapAllocator = switch (builtin.os.tag) {
             return .{
                 .ptr = self,
                 .vtable = &.{
-                    .alloc = alloc,
+                    .alloc = HeapAllocator.alloc,
                     .resize = resize,
                     .free = free,
                 },
@@ -359,273 +166,6 @@ pub const HeapAllocator = switch (builtin.os.tag) {
     },
     else => @compileError("Unsupported OS"),
 };
-
-fn sliceContainsPtr(container: []u8, ptr: [*]u8) bool {
-    return @intFromPtr(ptr) >= @intFromPtr(container.ptr) and
-        @intFromPtr(ptr) < (@intFromPtr(container.ptr) + container.len);
-}
-
-fn sliceContainsSlice(container: []u8, slice: []u8) bool {
-    return @intFromPtr(slice.ptr) >= @intFromPtr(container.ptr) and
-        (@intFromPtr(slice.ptr) + slice.len) <= (@intFromPtr(container.ptr) + container.len);
-}
-
-pub const FixedBufferAllocator = struct {
-    end_index: usize,
-    buffer: []u8,
-
-    pub fn init(buffer: []u8) FixedBufferAllocator {
-        return FixedBufferAllocator{
-            .buffer = buffer,
-            .end_index = 0,
-        };
-    }
-
-    /// *WARNING* using this at the same time as the interface returned by `threadSafeAllocator` is not thread safe
-    pub fn allocator(self: *FixedBufferAllocator) Allocator {
-        return .{
-            .ptr = self,
-            .vtable = &.{
-                .alloc = alloc,
-                .resize = resize,
-                .free = free,
-            },
-        };
-    }
-
-    /// Provides a lock free thread safe `Allocator` interface to the underlying `FixedBufferAllocator`
-    /// *WARNING* using this at the same time as the interface returned by `allocator` is not thread safe
-    pub fn threadSafeAllocator(self: *FixedBufferAllocator) Allocator {
-        return .{
-            .ptr = self,
-            .vtable = &.{
-                .alloc = threadSafeAlloc,
-                .resize = Allocator.noResize,
-                .free = Allocator.noFree,
-            },
-        };
-    }
-
-    pub fn ownsPtr(self: *FixedBufferAllocator, ptr: [*]u8) bool {
-        return sliceContainsPtr(self.buffer, ptr);
-    }
-
-    pub fn ownsSlice(self: *FixedBufferAllocator, slice: []u8) bool {
-        return sliceContainsSlice(self.buffer, slice);
-    }
-
-    /// NOTE: this will not work in all cases, if the last allocation had an adjusted_index
-    ///       then we won't be able to determine what the last allocation was.  This is because
-    ///       the alignForward operation done in alloc is not reversible.
-    pub fn isLastAllocation(self: *FixedBufferAllocator, buf: []u8) bool {
-        return buf.ptr + buf.len == self.buffer.ptr + self.end_index;
-    }
-
-    fn alloc(ctx: *anyopaque, n: usize, log2_ptr_align: u8, ra: usize) ?[*]u8 {
-        const self: *FixedBufferAllocator = @ptrCast(@alignCast(ctx));
-        _ = ra;
-        const ptr_align = @as(usize, 1) << @as(Allocator.Log2Align, @intCast(log2_ptr_align));
-        const adjust_off = mem.alignPointerOffset(self.buffer.ptr + self.end_index, ptr_align) orelse return null;
-        const adjusted_index = self.end_index + adjust_off;
-        const new_end_index = adjusted_index + n;
-        if (new_end_index > self.buffer.len) return null;
-        self.end_index = new_end_index;
-        return self.buffer.ptr + adjusted_index;
-    }
-
-    fn resize(
-        ctx: *anyopaque,
-        buf: []u8,
-        log2_buf_align: u8,
-        new_size: usize,
-        return_address: usize,
-    ) bool {
-        const self: *FixedBufferAllocator = @ptrCast(@alignCast(ctx));
-        _ = log2_buf_align;
-        _ = return_address;
-        assert(@inComptime() or self.ownsSlice(buf));
-
-        if (!self.isLastAllocation(buf)) {
-            if (new_size > buf.len) return false;
-            return true;
-        }
-
-        if (new_size <= buf.len) {
-            const sub = buf.len - new_size;
-            self.end_index -= sub;
-            return true;
-        }
-
-        const add = new_size - buf.len;
-        if (add + self.end_index > self.buffer.len) return false;
-
-        self.end_index += add;
-        return true;
-    }
-
-    fn free(
-        ctx: *anyopaque,
-        buf: []u8,
-        log2_buf_align: u8,
-        return_address: usize,
-    ) void {
-        const self: *FixedBufferAllocator = @ptrCast(@alignCast(ctx));
-        _ = log2_buf_align;
-        _ = return_address;
-        assert(@inComptime() or self.ownsSlice(buf));
-
-        if (self.isLastAllocation(buf)) {
-            self.end_index -= buf.len;
-        }
-    }
-
-    fn threadSafeAlloc(ctx: *anyopaque, n: usize, log2_ptr_align: u8, ra: usize) ?[*]u8 {
-        const self: *FixedBufferAllocator = @ptrCast(@alignCast(ctx));
-        _ = ra;
-        const ptr_align = @as(usize, 1) << @as(Allocator.Log2Align, @intCast(log2_ptr_align));
-        var end_index = @atomicLoad(usize, &self.end_index, .seq_cst);
-        while (true) {
-            const adjust_off = mem.alignPointerOffset(self.buffer.ptr + end_index, ptr_align) orelse return null;
-            const adjusted_index = end_index + adjust_off;
-            const new_end_index = adjusted_index + n;
-            if (new_end_index > self.buffer.len) return null;
-            end_index = @cmpxchgWeak(usize, &self.end_index, end_index, new_end_index, .seq_cst, .seq_cst) orelse
-                return self.buffer[adjusted_index..new_end_index].ptr;
-        }
-    }
-
-    pub fn reset(self: *FixedBufferAllocator) void {
-        self.end_index = 0;
-    }
-};
-
-/// Returns a `StackFallbackAllocator` allocating using either a
-/// `FixedBufferAllocator` on an array of size `size` and falling back to
-/// `fallback_allocator` if that fails.
-pub fn stackFallback(comptime size: usize, fallback_allocator: Allocator) StackFallbackAllocator(size) {
-    return StackFallbackAllocator(size){
-        .buffer = undefined,
-        .fallback_allocator = fallback_allocator,
-        .fixed_buffer_allocator = undefined,
-    };
-}
-
-/// An allocator that attempts to allocate using a
-/// `FixedBufferAllocator` using an array of size `size`. If the
-/// allocation fails, it will fall back to using
-/// `fallback_allocator`. Easily created with `stackFallback`.
-pub fn StackFallbackAllocator(comptime size: usize) type {
-    return struct {
-        const Self = @This();
-
-        buffer: [size]u8,
-        fallback_allocator: Allocator,
-        fixed_buffer_allocator: FixedBufferAllocator,
-        get_called: if (std.debug.runtime_safety) bool else void =
-            if (std.debug.runtime_safety) false else {},
-
-        /// This function both fetches a `Allocator` interface to this
-        /// allocator *and* resets the internal buffer allocator.
-        pub fn get(self: *Self) Allocator {
-            if (std.debug.runtime_safety) {
-                assert(!self.get_called); // `get` called multiple times; instead use `const allocator = stackFallback(N).get();`
-                self.get_called = true;
-            }
-            self.fixed_buffer_allocator = FixedBufferAllocator.init(self.buffer[0..]);
-            return .{
-                .ptr = self,
-                .vtable = &.{
-                    .alloc = alloc,
-                    .resize = resize,
-                    .free = free,
-                },
-            };
-        }
-
-        /// Unlike most std allocators `StackFallbackAllocator` modifies
-        /// its internal state before returning an implementation of
-        /// the`Allocator` interface and therefore also doesn't use
-        /// the usual `.allocator()` method.
-        pub const allocator = @compileError("use 'const allocator = stackFallback(N).get();' instead");
-
-        fn alloc(
-            ctx: *anyopaque,
-            len: usize,
-            log2_ptr_align: u8,
-            ra: usize,
-        ) ?[*]u8 {
-            const self: *Self = @ptrCast(@alignCast(ctx));
-            return FixedBufferAllocator.alloc(&self.fixed_buffer_allocator, len, log2_ptr_align, ra) orelse
-                return self.fallback_allocator.rawAlloc(len, log2_ptr_align, ra);
-        }
-
-        fn resize(
-            ctx: *anyopaque,
-            buf: []u8,
-            log2_buf_align: u8,
-            new_len: usize,
-            ra: usize,
-        ) bool {
-            const self: *Self = @ptrCast(@alignCast(ctx));
-            if (self.fixed_buffer_allocator.ownsPtr(buf.ptr)) {
-                return FixedBufferAllocator.resize(&self.fixed_buffer_allocator, buf, log2_buf_align, new_len, ra);
-            } else {
-                return self.fallback_allocator.rawResize(buf, log2_buf_align, new_len, ra);
-            }
-        }
-
-        fn free(
-            ctx: *anyopaque,
-            buf: []u8,
-            log2_buf_align: u8,
-            ra: usize,
-        ) void {
-            const self: *Self = @ptrCast(@alignCast(ctx));
-            if (self.fixed_buffer_allocator.ownsPtr(buf.ptr)) {
-                return FixedBufferAllocator.free(&self.fixed_buffer_allocator, buf, log2_buf_align, ra);
-            } else {
-                return self.fallback_allocator.rawFree(buf, log2_buf_align, ra);
-            }
-        }
-    };
-}
-
-test "c_allocator" {
-    if (builtin.link_libc) {
-        try testAllocator(c_allocator);
-        try testAllocatorAligned(c_allocator);
-        try testAllocatorLargeAlignment(c_allocator);
-        try testAllocatorAlignedShrink(c_allocator);
-    }
-}
-
-test "raw_c_allocator" {
-    if (builtin.link_libc) {
-        try testAllocator(raw_c_allocator);
-    }
-}
-
-test "PageAllocator" {
-    const allocator = page_allocator;
-    try testAllocator(allocator);
-    try testAllocatorAligned(allocator);
-    if (!builtin.target.isWasm()) {
-        try testAllocatorLargeAlignment(allocator);
-        try testAllocatorAlignedShrink(allocator);
-    }
-
-    if (builtin.os.tag == .windows) {
-        const slice = try allocator.alignedAlloc(u8, mem.page_size, 128);
-        slice[0] = 0x12;
-        slice[127] = 0x34;
-        allocator.free(slice);
-    }
-    {
-        var buf = try allocator.alloc(u8, mem.page_size + 1);
-        defer allocator.free(buf);
-        buf = try allocator.realloc(buf, 1); // shrink past the page boundary
-    }
-}
 
 test "HeapAllocator" {
     if (builtin.os.tag == .windows) {
