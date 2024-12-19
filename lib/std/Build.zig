@@ -65,6 +65,8 @@ debug_pkg_config: bool = false,
 /// Set to 0 to disable stack collection.
 debug_stack_frames_count: u8 = 8,
 
+/// Experimental. Generate a compile_commands.json file.
+enable_compdb: bool = false,
 /// Experimental. Use system Darling installation to run cross compiled macOS build artifacts.
 enable_darling: bool = false,
 /// Use system QEMU installation to run cross compiled foreign architecture build artifacts.
@@ -92,6 +94,8 @@ pkg_hash: []const u8,
 /// A mapping from dependency names to package hashes.
 available_deps: AvailableDeps,
 
+compile_commands_database: ?*CompileCommandsDatabase = null,
+
 release_mode: ReleaseMode,
 
 pub const ReleaseMode = enum {
@@ -100,6 +104,16 @@ pub const ReleaseMode = enum {
     fast,
     safe,
     small,
+};
+
+pub const CompileCommandsDatabase = struct {
+    entries: ArrayList(CompileCommandsEntry),
+};
+pub const CompileCommandsEntry = struct {
+    module: *Module,
+    working_directory: []const u8,
+    relative_path: []const u8,
+    flags: []const []const u8,
 };
 
 /// Shared state among all Build instances.
@@ -383,6 +397,7 @@ fn createChildOnly(
         .debug_log_scopes = parent.debug_log_scopes,
         .debug_compile_errors = parent.debug_compile_errors,
         .debug_pkg_config = parent.debug_pkg_config,
+        .enable_compdb = parent.enable_compdb,
         .enable_darling = parent.enable_darling,
         .enable_qemu = parent.enable_qemu,
         .enable_rosetta = parent.enable_rosetta,
@@ -395,6 +410,7 @@ fn createChildOnly(
         .named_lazy_paths = .init(allocator),
         .pkg_hash = pkg_hash,
         .available_deps = pkg_deps,
+        .compile_commands_database = parent.compile_commands_database,
         .release_mode = parent.release_mode,
     };
     try child.top_level_steps.put(allocator, child.install_tls.step.name, &child.install_tls);
@@ -639,6 +655,122 @@ fn determineAndApplyInstallPrefix(b: *Build) error{OutOfMemory}!void {
     const digest = hash.final();
     const install_prefix = try b.cache_root.join(b.allocator, &.{ "i", &digest });
     b.resolveInstallPrefix(install_prefix, .{});
+}
+
+pub fn initCompdb(self: *Build) !void {
+    if (!self.enable_compdb) return;
+
+    const database = try self.allocator.create(CompileCommandsDatabase);
+    database.* = .{
+        .entries = ArrayList(CompileCommandsEntry).init(self.allocator),
+    };
+    self.compile_commands_database = database;
+}
+
+pub fn generateCompdb(self: *Build) !void {
+    if (!self.enable_compdb) return;
+
+    var file = try self.build_root.handle.createFile("compile_commands.json", .{});
+    defer file.close();
+
+    var buffered = std.io.bufferedWriter(file.writer());
+    var writer = buffered.writer();
+
+    try writer.writeAll("[");
+
+    const entries = self.compile_commands_database.?.entries.items;
+
+    var temp = std.ArrayList(u8).init(self.allocator);
+    defer temp.deinit();
+
+    for (entries, 0..) |entry, i| {
+        try writer.writeAll("{");
+
+        try writer.writeAll("\"directory\":");
+        try std.json.encodeJsonString(entry.working_directory, .{}, writer);
+        try writer.writeAll(",");
+
+        try writer.writeAll("\"arguments\":[");
+        try writer.writeAll("\"zig\",");
+        try writer.writeAll("\"cc\",");
+
+        for (entry.flags) |flag| {
+            try std.json.encodeJsonString(flag, .{}, writer);
+            try writer.writeAll(",");
+        }
+        for (entry.module.c_macros.items) |macro_flag| {
+            try std.json.encodeJsonString(macro_flag, .{}, writer);
+            try writer.writeAll(",");
+        }
+        for (entry.module.include_dirs.items) |include_dir| {
+            const args: [2][]const u8 = blk: switch (include_dir) {
+                .path => |include_path| {
+                    break :blk .{ "-I", include_path.getPath2(self, null) };
+                },
+                .path_system => |include_path| {
+                    break :blk .{ "-isystem", include_path.getPath2(self, null) };
+                },
+                .path_after => |include_path| {
+                    break :blk .{ "-idirafter", include_path.getPath2(self, null) };
+                },
+                .framework_path => |include_path| {
+                    break :blk .{ "-F", include_path.getPath2(self, null) };
+                },
+                .framework_path_system => |include_path| {
+                    break :blk .{ "-iframework", include_path.getPath2(self, null) };
+                },
+                .other_step => |other| {
+                    if (other.generated_h) |header| {
+                        break :blk .{ "-isystem", std.fs.path.dirname(header.getPath()).? };
+                    }
+                    if (other.installed_headers_include_tree) |include_tree| {
+                        break :blk .{ "-I", include_tree.generated_directory.getPath() };
+                    }
+                    continue;
+                },
+                .config_header_step => |config_header| {
+                    const full_file_path = config_header.output_file.getPath();
+                    const header_dir_path = full_file_path[0 .. full_file_path.len - config_header.include_path.len];
+                    break :blk .{ "-I", header_dir_path };
+                },
+            };
+            try std.json.encodeJsonString(args[0], .{}, writer);
+            try writer.writeAll(",");
+            try std.json.encodeJsonString(args[1], .{}, writer);
+            try writer.writeAll(",");
+        }
+
+        if (entry.module.resolved_target) |*target| {
+            if (!target.query.isNative()) {
+                const triple = try target.query.zigTriple(self.allocator);
+                const cpu = try target.query.serializeCpuAlloc(self.allocator);
+
+                try temp.appendSlice("--target=");
+                try temp.appendSlice(triple);
+                try std.json.encodeJsonString(temp.items, .{}, writer);
+                temp.clearRetainingCapacity();
+
+                try temp.appendSlice("-mcpu=");
+                try temp.appendSlice(cpu);
+                try std.json.encodeJsonString(temp.items, .{}, writer);
+            }
+        }
+
+        try std.json.encodeJsonString(entry.relative_path, .{}, writer);
+        try writer.writeAll("],");
+
+        try writer.writeAll("\"file\":");
+        try std.json.encodeJsonString(entry.relative_path, .{}, writer);
+
+        try writer.writeAll("}");
+        if (i != entries.len - 1) {
+            _ = try writer.write(",");
+        }
+    }
+
+    try writer.writeAll("]");
+
+    try buffered.flush();
 }
 
 /// This function is intended to be called by lib/build_runner.zig, not a build.zig file.

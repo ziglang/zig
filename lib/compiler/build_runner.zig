@@ -284,6 +284,10 @@ pub fn main() !void {
                 graph.allow_so_scripts = true;
             } else if (mem.eql(u8, arg, "-fno-allow-so-scripts")) {
                 graph.allow_so_scripts = false;
+            } else if (mem.eql(u8, arg, "-fcompdb")) {
+                builder.enable_compdb = true;
+            } else if (mem.eql(u8, arg, "-fno-compdb")) {
+                builder.enable_compdb = false;
             } else if (mem.eql(u8, arg, "-freference-trace")) {
                 builder.reference_trace = 256;
             } else if (mem.startsWith(u8, arg, "-freference-trace=")) {
@@ -316,6 +320,9 @@ pub fn main() !void {
         } else {
             try targets.append(arg);
         }
+    }
+    if (builder.enable_compdb) {
+        try builder.initCompdb();
     }
 
     const stderr = std.io.getStdErr();
@@ -616,6 +623,10 @@ fn runStepNames(
         }
     }
     assert(run.memory_blocked_steps.items.len == 0);
+
+    if (b.enable_compdb) {
+        try b.generateCompdb();
+    }
 
     var test_skip_count: usize = 0;
     var test_fail_count: usize = 0;
@@ -1257,6 +1268,7 @@ fn usage(b: *std.Build, out_stream: anytype) !void {
         \\  --release[=mode]             Request release mode, optionally specifying a
         \\                               preferred optimization mode: fast, safe, small
         \\
+        \\  -fcompdb,   -fno-compdb      Generate a compile_commands.json file (default: no)
         \\  -fdarling,  -fno-darling     Integration with system-installed Darling to
         \\                               execute macOS programs on Linux hosts
         \\                               (default: no)
