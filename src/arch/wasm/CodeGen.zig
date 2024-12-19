@@ -1042,9 +1042,9 @@ fn emitWValue(cg: *CodeGen, value: WValue) InnerError!void {
                 try cg.addInst(.{
                     .tag = .uav_ref,
                     .data = if (is_obj) .{
-                        .uav_obj = try wasm.refUavObj(cg.pt, uav.ip_index),
+                        .uav_obj = try wasm.refUavObj(uav.ip_index),
                     } else .{
-                        .uav_exe = try wasm.refUavExe(cg.pt, uav.ip_index),
+                        .uav_exe = try wasm.refUavExe(uav.ip_index),
                     },
                 });
             } else {
@@ -1052,10 +1052,10 @@ fn emitWValue(cg: *CodeGen, value: WValue) InnerError!void {
                     .tag = .uav_ref_off,
                     .data = .{
                         .payload = if (is_obj) try cg.addExtra(Mir.UavRefOffObj{
-                            .uav_obj = try wasm.refUavObj(cg.pt, uav.ip_index),
+                            .uav_obj = try wasm.refUavObj(uav.ip_index),
                             .offset = uav.offset,
                         }) else try cg.addExtra(Mir.UavRefOffExe{
-                            .uav_exe = try wasm.refUavExe(cg.pt, uav.ip_index),
+                            .uav_exe = try wasm.refUavExe(uav.ip_index),
                             .offset = uav.offset,
                         }),
                     },

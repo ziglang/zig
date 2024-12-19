@@ -2364,24 +2364,50 @@ pub fn updateNav(wasm: *Wasm, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index
         return;
     }
 
-    const zcu_data = try lowerZcuData(wasm, pt, nav_init);
-
-    try wasm.data_segments.ensureUnusedCapacity(gpa, 1);
-
     if (is_obj) {
-        const gop = try wasm.navs_obj.getOrPut(gpa, nav_index);
-        gop.value_ptr.* = zcu_data;
-        wasm.data_segments.putAssumeCapacity(.pack(wasm, .{ .nav_obj = @enumFromInt(gop.index) }), {});
+        var uavs_i = wasm.uavs_obj.entries.len;
+        var navs_i = wasm.navs_obj.entries.len;
+        _ = try refNavObj(wasm, nav_index); // Possibly creates an entry in `Wasm.navs_obj`.
+        while (true) {
+            while (navs_i < wasm.navs_obj.entries.len) : (navs_i += 1) {
+                const elem_nav = ip.getNav(wasm.navs_obj.keys()[navs_i]);
+                const elem_nav_init = switch (ip.indexToKey(elem_nav.status.resolved.val)) {
+                    .variable => |variable| variable.init,
+                    else => elem_nav.status.resolved.val,
+                };
+                // Call to `lowerZcuData` here possibly creates more entries in these tables.
+                wasm.navs_obj.values()[navs_i] = try lowerZcuData(wasm, pt, elem_nav_init);
+            }
+            while (uavs_i < wasm.uavs_obj.entries.len) : (uavs_i += 1) {
+                // Call to `lowerZcuData` here possibly creates more entries in these tables.
+                wasm.uavs_obj.values()[uavs_i] = try lowerZcuData(wasm, pt, wasm.uavs_obj.keys()[uavs_i]);
+            }
+            if (navs_i >= wasm.navs_obj.entries.len) break;
+        }
+    } else {
+        var uavs_i = wasm.uavs_exe.entries.len;
+        var navs_i = wasm.navs_exe.entries.len;
+        _ = try refNavExe(wasm, nav_index); // Possibly creates an entry in `Wasm.navs_exe`.
+        while (true) {
+            while (navs_i < wasm.navs_exe.entries.len) : (navs_i += 1) {
+                const elem_nav = ip.getNav(wasm.navs_exe.keys()[navs_i]);
+                const elem_nav_init = switch (ip.indexToKey(elem_nav.status.resolved.val)) {
+                    .variable => |variable| variable.init,
+                    else => elem_nav.status.resolved.val,
+                };
+                // Call to `lowerZcuData` here possibly creates more entries in these tables.
+                const zcu_data = try lowerZcuData(wasm, pt, elem_nav_init);
+                assert(zcu_data.relocs.len == 0);
+                wasm.navs_exe.values()[navs_i].code = zcu_data.code;
+            }
+            while (uavs_i < wasm.uavs_exe.entries.len) : (uavs_i += 1) {
+                // Call to `lowerZcuData` here possibly creates more entries in these tables.
+                const zcu_data = try lowerZcuData(wasm, pt, wasm.uavs_exe.keys()[uavs_i]);
+                wasm.uavs_exe.values()[uavs_i].code = zcu_data.code;
+            }
+            if (navs_i >= wasm.navs_exe.entries.len) break;
+        }
     }
-
-    assert(zcu_data.relocs.len == 0);
-
-    const gop = try wasm.navs_exe.getOrPut(gpa, nav_index);
-    gop.value_ptr.* = .{
-        .code = zcu_data.code,
-        .count = if (gop.found_existing) gop.value_ptr.count else 0,
-    };
-    wasm.data_segments.putAssumeCapacity(.pack(wasm, .{ .nav_exe = @enumFromInt(gop.index) }), {});
 }
 
 pub fn updateLineNumber(wasm: *Wasm, pt: Zcu.PerThread, ti_id: InternPool.TrackedInst.Index) !void {
@@ -3346,18 +3372,23 @@ pub fn symbolNameIndex(wasm: *Wasm, name: String) Allocator.Error!SymbolTableInd
     return @enumFromInt(gop.index);
 }
 
-pub fn refUavObj(wasm: *Wasm, pt: Zcu.PerThread, ip_index: InternPool.Index) !UavsObjIndex {
+pub fn refUavObj(wasm: *Wasm, ip_index: InternPool.Index) !UavsObjIndex {
     const comp = wasm.base.comp;
     const gpa = comp.gpa;
     assert(comp.config.output_mode == .Obj);
+    try wasm.data_segments.ensureUnusedCapacity(gpa, 1);
     const gop = try wasm.uavs_obj.getOrPut(gpa, ip_index);
-    if (!gop.found_existing) gop.value_ptr.* = try lowerZcuData(wasm, pt, ip_index);
+    if (!gop.found_existing) gop.value_ptr.* = .{
+        // Lowering the value is delayed to avoid recursion.
+        .code = undefined,
+        .relocs = undefined,
+    };
     const uav_index: UavsObjIndex = @enumFromInt(gop.index);
-    try wasm.data_segments.put(gpa, .pack(wasm, .{ .uav_obj = uav_index }), {});
+    wasm.data_segments.putAssumeCapacity(.pack(wasm, .{ .uav_obj = uav_index }), {});
     return uav_index;
 }
 
-pub fn refUavExe(wasm: *Wasm, pt: Zcu.PerThread, ip_index: InternPool.Index) !UavsExeIndex {
+pub fn refUavExe(wasm: *Wasm, ip_index: InternPool.Index) !UavsExeIndex {
     const comp = wasm.base.comp;
     const gpa = comp.gpa;
     assert(comp.config.output_mode != .Obj);
@@ -3365,15 +3396,30 @@ pub fn refUavExe(wasm: *Wasm, pt: Zcu.PerThread, ip_index: InternPool.Index) !Ua
     if (gop.found_existing) {
         gop.value_ptr.count += 1;
     } else {
-        const zcu_data = try lowerZcuData(wasm, pt, ip_index);
         gop.value_ptr.* = .{
-            .code = zcu_data.code,
+            // Lowering the value is delayed to avoid recursion.
+            .code = undefined,
             .count = 1,
         };
     }
     const uav_index: UavsExeIndex = @enumFromInt(gop.index);
     try wasm.data_segments.put(gpa, .pack(wasm, .{ .uav_exe = uav_index }), {});
     return uav_index;
+}
+
+pub fn refNavObj(wasm: *Wasm, nav_index: InternPool.Nav.Index) !NavsObjIndex {
+    const comp = wasm.base.comp;
+    const gpa = comp.gpa;
+    assert(comp.config.output_mode != .Obj);
+    const gop = try wasm.navs_obj.getOrPut(gpa, nav_index);
+    if (!gop.found_existing) gop.value_ptr.* = .{
+        // Lowering the value is delayed to avoid recursion.
+        .code = undefined,
+        .relocs = undefined,
+    };
+    const navs_obj_index: NavsObjIndex = @enumFromInt(gop.index);
+    try wasm.data_segments.put(gpa, .pack(wasm, .{ .nav_obj = navs_obj_index }), {});
+    return navs_obj_index;
 }
 
 pub fn refNavExe(wasm: *Wasm, nav_index: InternPool.Nav.Index) !NavsExeIndex {
@@ -3385,8 +3431,9 @@ pub fn refNavExe(wasm: *Wasm, nav_index: InternPool.Nav.Index) !NavsExeIndex {
         gop.value_ptr.count += 1;
     } else {
         gop.value_ptr.* = .{
+            // Lowering the value is delayed to avoid recursion.
             .code = undefined,
-            .count = 1,
+            .count = 0,
         };
     }
     const navs_exe_index: NavsExeIndex = @enumFromInt(gop.index);
@@ -3481,6 +3528,11 @@ pub fn isBss(wasm: *const Wasm, optional_name: OptionalString) bool {
     return mem.eql(u8, s, ".bss") or mem.startsWith(u8, s, ".bss.");
 }
 
+/// After this function is called, there may be additional entries in
+/// `Wasm.uavs_obj`, `Wasm.uavs_exe`, `Wasm.navs_obj`, and `Wasm.navs_exe`
+/// which have uninitialized code and relocations. This function is
+/// non-recursive, so callers must coordinate additional calls to populate
+/// those entries.
 fn lowerZcuData(wasm: *Wasm, pt: Zcu.PerThread, ip_index: InternPool.Index) !ZcuDataObj {
     const code_start: u32 = @intCast(wasm.string_bytes.items.len);
     const relocs_start: u32 = @intCast(wasm.out_relocs.len);
