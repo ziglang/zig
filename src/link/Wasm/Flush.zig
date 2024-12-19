@@ -19,12 +19,15 @@ const leb = std.leb;
 const log = std.log.scoped(.link);
 const assert = std.debug.assert;
 
+data_segments: std.AutoArrayHashMapUnmanaged(Wasm.DataSegment.Id, u32) = .empty,
 /// Each time a `data_segment` offset equals zero it indicates a new group, and
 /// the next element in this array will contain the total merged segment size.
 data_segment_groups: std.ArrayListUnmanaged(u32) = .empty,
 
 binary_bytes: std.ArrayListUnmanaged(u8) = .empty,
 missing_exports: std.AutoArrayHashMapUnmanaged(String, void) = .empty,
+function_imports: std.AutoArrayHashMapUnmanaged(String, Wasm.FunctionImportId) = .empty,
+global_imports: std.AutoArrayHashMapUnmanaged(String, Wasm.GlobalImportId) = .empty,
 
 indirect_function_table: std.AutoArrayHashMapUnmanaged(Wasm.OutputFunctionIndex, u32) = .empty,
 
@@ -39,8 +42,12 @@ pub fn clear(f: *Flush) void {
 }
 
 pub fn deinit(f: *Flush, gpa: Allocator) void {
-    f.binary_bytes.deinit(gpa);
+    f.data_segments.deinit(gpa);
     f.data_segment_groups.deinit(gpa);
+    f.binary_bytes.deinit(gpa);
+    f.missing_exports.deinit(gpa);
+    f.function_imports.deinit(gpa);
+    f.global_imports.deinit(gpa);
     f.indirect_function_table.deinit(gpa);
     f.* = undefined;
 }
@@ -58,17 +65,8 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
     const zcu = wasm.base.comp.zcu.?;
     const ip: *const InternPool = &zcu.intern_pool; // No mutations allowed!
 
-    if (wasm.any_exports_updated) {
-        wasm.any_exports_updated = false;
-
-        wasm.function_exports.shrinkRetainingCapacity(wasm.function_exports_len);
-        wasm.global_exports.shrinkRetainingCapacity(wasm.global_exports_len);
-
+    {
         const entry_name = if (wasm.entry_resolution.isNavOrUnresolved(wasm)) wasm.entry_name else .none;
-
-        try f.missing_exports.reinit(gpa, wasm.missing_exports_init, &.{});
-        try wasm.function_imports.reinit(gpa, wasm.function_imports_init_keys, wasm.function_imports_init_vals);
-        try wasm.global_imports.reinit(gpa, wasm.global_imports_init_keys, wasm.global_imports_init_vals);
 
         for (wasm.nav_exports.keys()) |*nav_export| {
             if (ip.isFunctionType(ip.getNav(nav_export.nav_index).typeOf(ip))) {
@@ -134,17 +132,17 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
 
     // Merge and order the data segments. Depends on garbage collection so that
     // unused segments can be omitted.
-    try wasm.data_segments.ensureUnusedCapacity(gpa, wasm.object_data_segments.items.len + 1);
+    try f.data_segments.ensureUnusedCapacity(gpa, wasm.object_data_segments.items.len + 1);
     for (wasm.object_data_segments.items, 0..) |*ds, i| {
         if (!ds.flags.alive) continue;
         const data_segment_index: Wasm.ObjectDataSegmentIndex = @enumFromInt(i);
         any_passive_inits = any_passive_inits or ds.flags.is_passive or (import_memory and !wasm.isBss(ds.name));
-        wasm.data_segments.putAssumeCapacityNoClobber(.pack(wasm, .{
+        f.data_segments.putAssumeCapacityNoClobber(.pack(wasm, .{
             .object = data_segment_index,
         }), @as(u32, undefined));
     }
     if (wasm.error_name_table_ref_count > 0) {
-        wasm.data_segments.putAssumeCapacity(.__zig_error_name_table, @as(u32, undefined));
+        f.data_segments.putAssumeCapacity(.__zig_error_name_table, @as(u32, undefined));
     }
 
     try wasm.functions.ensureUnusedCapacity(gpa, 3);
@@ -223,9 +221,9 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
             return @intFromEnum(lhs_segment) < @intFromEnum(rhs_segment);
         }
     };
-    wasm.data_segments.sortUnstable(@as(Sort, .{
+    f.data_segments.sortUnstable(@as(Sort, .{
         .wasm = wasm,
-        .segments = wasm.data_segments.keys(),
+        .segments = f.data_segments.keys(),
     }));
 
     const page_size = std.wasm.page_size; // 64kb
@@ -260,8 +258,8 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
         virtual_addrs.stack_pointer = @intCast(memory_ptr);
     }
 
-    const segment_ids = wasm.data_segments.keys();
-    const segment_offsets = wasm.data_segments.values();
+    const segment_ids = f.data_segments.keys();
+    const segment_offsets = f.data_segments.values();
     assert(f.data_segment_groups.items.len == 0);
     {
         var seen_tls: enum { before, during, after } = .before;
@@ -703,11 +701,11 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
         //    try wasm.emitCodeRelocations(binary_bytes, code_index, symbol_table);
         //}
         //if (data_section_index) |data_index| {
-        //    if (wasm.data_segments.count() > 0)
+        //    if (f.data_segments.count() > 0)
         //        try wasm.emitDataRelocations(binary_bytes, data_index, symbol_table);
         //}
     } else if (comp.config.debug_format != .strip) {
-        try emitNameSection(wasm, &wasm.data_segments, binary_bytes);
+        try emitNameSection(wasm, &f.data_segments, binary_bytes);
     }
 
     if (comp.config.debug_format != .strip) {
@@ -993,7 +991,7 @@ fn emitProducerSection(gpa: Allocator, binary_bytes: *std.ArrayListUnmanaged(u8)
 //    var count: u32 = 0;
 //    // for each atom, we calculate the uleb size and append that
 //    var size_offset: u32 = 5; // account for code section size leb128
-//    for (wasm.data_segments.values()) |segment_index| {
+//    for (f.data_segments.values()) |segment_index| {
 //        var atom: *Atom = wasm.atoms.get(segment_index).?.ptr(wasm);
 //        while (true) {
 //            size_offset += getUleb128Size(atom.code.len);

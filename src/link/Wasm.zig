@@ -189,7 +189,10 @@ debug_sections: DebugSections = .{},
 
 flush_buffer: Flush = .{},
 
-missing_exports_init: []String = &.{},
+/// Empty until `prelink`. There it is populated based on object files.
+/// Next, it is copied into `Flush.missing_exports` just before `flush`
+/// and that data is used during `flush`.
+missing_exports: std.AutoArrayHashMapUnmanaged(String, void) = .empty,
 entry_resolution: FunctionImport.Resolution = .unresolved,
 
 /// Empty when outputting an object.
@@ -206,13 +209,7 @@ functions: std.AutoArrayHashMapUnmanaged(FunctionImport.Resolution, void) = .emp
 /// Tracks the value at the end of prelink, at which point `functions`
 /// contains only object file functions, and nothing from the Zcu yet.
 functions_end_prelink: u32 = 0,
-/// Immutable after prelink. The undefined functions coming only from all object files.
-/// The Zcu must satisfy these.
-function_imports_init_keys: []String = &.{},
-function_imports_init_vals: []FunctionImportId = &.{},
-/// Initialized as copy of `function_imports_init_keys` and
-/// `function_import_init_vals`; entries are deleted as they are satisfied by
-/// the Zcu.
+/// Entries are deleted as they are satisfied by the Zcu.
 function_imports: std.AutoArrayHashMapUnmanaged(String, FunctionImportId) = .empty,
 
 /// Ordered list of non-import globals that will appear in the final binary.
@@ -221,8 +218,6 @@ globals: std.AutoArrayHashMapUnmanaged(GlobalImport.Resolution, void) = .empty,
 /// Tracks the value at the end of prelink, at which point `globals`
 /// contains only object file globals, and nothing from the Zcu yet.
 globals_end_prelink: u32 = 0,
-global_imports_init_keys: []String = &.{},
-global_imports_init_vals: []GlobalImportId = &.{},
 global_imports: std.AutoArrayHashMapUnmanaged(String, GlobalImportId) = .empty,
 
 /// Ordered list of non-import tables that will appear in the final binary.
@@ -233,11 +228,10 @@ table_imports: std.AutoArrayHashMapUnmanaged(String, TableImport.Index) = .empty
 /// Ordered list of data segments that will appear in the final binary.
 /// When sorted, to-be-merged segments will be made adjacent.
 /// Values are offset relative to segment start.
-data_segments: std.AutoArrayHashMapUnmanaged(Wasm.DataSegment.Id, u32) = .empty,
+data_segments: std.AutoArrayHashMapUnmanaged(Wasm.DataSegment.Id, void) = .empty,
 
 error_name_table_ref_count: u32 = 0,
 
-any_exports_updated: bool = true,
 /// Set to true if any `GLOBAL_INDEX` relocation is encountered with
 /// `SymbolFlags.tls` set to true. This is for objects only; final
 /// value must be this OR'd with the same logic for zig functions
@@ -313,7 +307,7 @@ pub const GlobalExport = extern struct {
     global_index: GlobalIndex,
 };
 
-/// 0. Index into `function_imports`
+/// 0. Index into `Flush.function_imports`
 /// 1. Index into `functions`.
 ///
 /// Note that function_imports indexes are subject to swap removals during
@@ -527,13 +521,6 @@ pub const SymbolFlags = packed struct(u32) {
         if (flags.undefined or flags.binding == .local) return false;
         if (is_dynamic and !flags.visibility_hidden) return true;
         return flags.exported;
-    }
-
-    pub fn requiresImport(flags: SymbolFlags, is_data: bool) bool {
-        if (is_data) return false;
-        if (!flags.undefined) return false;
-        if (flags.binding == .weak) return false;
-        return true;
     }
 
     /// Returns the name as how it will be output into the final object
@@ -2268,6 +2255,8 @@ pub fn deinit(wasm: *Wasm) void {
 
     wasm.params_scratch.deinit(gpa);
     wasm.returns_scratch.deinit(gpa);
+
+    wasm.missing_exports.deinit(gpa);
 }
 
 pub fn updateFunc(wasm: *Wasm, pt: Zcu.PerThread, func_index: InternPool.Index, air: Air, liveness: Liveness) !void {
@@ -2306,28 +2295,27 @@ pub fn updateNav(wasm: *Wasm, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index
     const gpa = comp.gpa;
     const is_obj = comp.config.output_mode == .Obj;
 
-    const is_extern, const nav_init = switch (ip.indexToKey(nav.status.resolved.val)) {
-        .func => return,
-        .@"extern" => .{ true, .none },
-        .variable => |variable| .{ false, variable.init },
-        else => .{ false, nav.status.resolved.val },
+    const nav_init = switch (ip.indexToKey(nav.status.resolved.val)) {
+        .func => return, // global const which is a function alias
+        .@"extern" => {
+            if (is_obj) {
+                assert(!wasm.navs_obj.contains(nav_index));
+            } else {
+                assert(!wasm.navs_exe.contains(nav_index));
+            }
+            try wasm.imports.put(gpa, nav_index, {});
+            return;
+        },
+        .variable => |variable| variable.init,
+        else => nav.status.resolved.val,
     };
-    if (is_extern) {
-        try wasm.imports.put(gpa, nav_index, {});
-        if (is_obj) {
-            if (wasm.navs_obj.swapRemove(nav_index)) @panic("TODO reclaim resources");
-        } else {
-            if (wasm.navs_exe.swapRemove(nav_index)) @panic("TODO reclaim resources");
-        }
-        return;
-    }
-    _ = wasm.imports.swapRemove(nav_index);
+    assert(!wasm.imports.contains(nav_index));
 
     if (nav_init != .none and !Value.fromInterned(nav_init).typeOf(zcu).hasRuntimeBits(zcu)) {
         if (is_obj) {
-            if (wasm.navs_obj.swapRemove(nav_index)) @panic("TODO reclaim resources");
+            assert(!wasm.navs_obj.contains(nav_index));
         } else {
-            if (wasm.navs_exe.swapRemove(nav_index)) @panic("TODO reclaim resources");
+            assert(!wasm.navs_exe.contains(nav_index));
         }
         return;
     }
@@ -2339,9 +2327,7 @@ pub fn updateNav(wasm: *Wasm, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index
     if (is_obj) {
         const gop = try wasm.navs_obj.getOrPut(gpa, nav_index);
         gop.value_ptr.* = zcu_data;
-        wasm.data_segments.putAssumeCapacity(.pack(wasm, .{
-            .nav_obj = @enumFromInt(gop.index),
-        }), @as(u32, undefined));
+        wasm.data_segments.putAssumeCapacity(.pack(wasm, .{ .nav_obj = @enumFromInt(gop.index) }), {});
     }
 
     assert(zcu_data.relocs.len == 0);
@@ -2351,9 +2337,7 @@ pub fn updateNav(wasm: *Wasm, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index
         .code = zcu_data.code,
         .count = 0,
     };
-    wasm.data_segments.putAssumeCapacity(.pack(wasm, .{
-        .nav_exe = @enumFromInt(gop.index),
-    }), @as(u32, undefined));
+    wasm.data_segments.putAssumeCapacity(.pack(wasm, .{ .nav_exe = @enumFromInt(gop.index) }), {});
 }
 
 pub fn updateLineNumber(wasm: *Wasm, pt: Zcu.PerThread, ti_id: InternPool.TrackedInst.Index) !void {
@@ -2380,7 +2364,6 @@ pub fn deleteExport(
         },
         .uav => |uav_index| assert(wasm.uav_exports.swapRemove(.{ .uav_index = uav_index, .name = export_name })),
     }
-    wasm.any_exports_updated = true;
 }
 
 pub fn updateExports(
@@ -2409,7 +2392,6 @@ pub fn updateExports(
             .uav => |uav_index| try wasm.uav_exports.put(gpa, .{ .uav_index = uav_index, .name = name }, export_idx),
         }
     }
-    wasm.any_exports_updated = true;
 }
 
 pub fn loadInput(wasm: *Wasm, input: link.Input) !void {
@@ -2464,32 +2446,28 @@ pub fn prelink(wasm: *Wasm, prog_node: std.Progress.Node) link.File.FlushError!v
     const gpa = comp.gpa;
     const rdynamic = comp.config.rdynamic;
 
-    {
-        var missing_exports: std.AutoArrayHashMapUnmanaged(String, void) = .empty;
-        defer missing_exports.deinit(gpa);
-        for (wasm.export_symbol_names) |exp_name| {
-            const exp_name_interned = try wasm.internString(exp_name);
-            if (wasm.object_function_imports.getPtr(exp_name_interned)) |import| {
-                if (import.resolution != .unresolved) {
-                    import.flags.exported = true;
-                    continue;
-                }
+    assert(wasm.missing_exports.entries.len == 0);
+    for (wasm.export_symbol_names) |exp_name| {
+        const exp_name_interned = try wasm.internString(exp_name);
+        if (wasm.object_function_imports.getPtr(exp_name_interned)) |import| {
+            if (import.resolution != .unresolved) {
+                import.flags.exported = true;
+                continue;
             }
-            if (wasm.object_global_imports.getPtr(exp_name_interned)) |import| {
-                if (import.resolution != .unresolved) {
-                    import.flags.exported = true;
-                    continue;
-                }
-            }
-            if (wasm.object_table_imports.getPtr(exp_name_interned)) |import| {
-                if (import.resolution != .unresolved) {
-                    import.flags.exported = true;
-                    continue;
-                }
-            }
-            try missing_exports.put(gpa, exp_name_interned, {});
         }
-        wasm.missing_exports_init = try gpa.dupe(String, missing_exports.keys());
+        if (wasm.object_global_imports.getPtr(exp_name_interned)) |import| {
+            if (import.resolution != .unresolved) {
+                import.flags.exported = true;
+                continue;
+            }
+        }
+        if (wasm.object_table_imports.getPtr(exp_name_interned)) |import| {
+            if (import.resolution != .unresolved) {
+                import.flags.exported = true;
+                continue;
+            }
+        }
+        try wasm.missing_exports.put(gpa, exp_name_interned, {});
     }
 
     if (wasm.entry_name.unwrap()) |entry_name| {
@@ -2515,8 +2493,6 @@ pub fn prelink(wasm: *Wasm, prog_node: std.Progress.Node) link.File.FlushError!v
         }
     }
     wasm.functions_end_prelink = @intCast(wasm.functions.entries.len);
-    wasm.function_imports_init_keys = try gpa.dupe(String, wasm.function_imports.keys());
-    wasm.function_imports_init_vals = try gpa.dupe(FunctionImportId, wasm.function_imports.values());
     wasm.function_exports_len = @intCast(wasm.function_exports.items.len);
 
     for (wasm.object_global_imports.keys(), wasm.object_global_imports.values(), 0..) |name, *import, i| {
@@ -2525,8 +2501,6 @@ pub fn prelink(wasm: *Wasm, prog_node: std.Progress.Node) link.File.FlushError!v
         }
     }
     wasm.globals_end_prelink = @intCast(wasm.globals.entries.len);
-    wasm.global_imports_init_keys = try gpa.dupe(String, wasm.global_imports.keys());
-    wasm.global_imports_init_vals = try gpa.dupe(GlobalImportId, wasm.global_imports.values());
     wasm.global_exports_len = @intCast(wasm.global_exports.items.len);
 
     for (wasm.object_table_imports.keys(), wasm.object_table_imports.values(), 0..) |name, *import, i| {
@@ -2692,6 +2666,7 @@ pub fn flushModule(
     const comp = wasm.base.comp;
     const use_lld = build_options.have_llvm and comp.config.use_lld;
     const diags = &comp.link_diags;
+    const gpa = comp.gpa;
 
     if (wasm.llvm_object) |llvm_object| {
         try wasm.base.emitLlvmObject(arena, llvm_object, prog_node);
@@ -2728,6 +2703,10 @@ pub fn flushModule(
     defer wasm.data_segments.shrinkRetainingCapacity(data_segments_end_zcu);
 
     wasm.flush_buffer.clear();
+    try wasm.flush_buffer.missing_exports.reinit(gpa, wasm.missing_exports.keys(), &.{});
+    try wasm.flush_buffer.data_segments.reinit(gpa, wasm.data_segments.keys(), &.{});
+    try wasm.flush_buffer.function_imports.reinit(gpa, wasm.function_imports.keys(), wasm.function_imports.values());
+    try wasm.flush_buffer.global_imports.reinit(gpa, wasm.global_imports.keys(), wasm.global_imports.values());
 
     return wasm.flush_buffer.finish(wasm) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
@@ -3330,7 +3309,7 @@ pub fn refUavObj(wasm: *Wasm, pt: Zcu.PerThread, ip_index: InternPool.Index) !Ua
     const gop = try wasm.uavs_obj.getOrPut(gpa, ip_index);
     if (!gop.found_existing) gop.value_ptr.* = try lowerZcuData(wasm, pt, ip_index);
     const uav_index: UavsObjIndex = @enumFromInt(gop.index);
-    try wasm.data_segments.put(gpa, .pack(wasm, .{ .uav_obj = uav_index }), @as(u32, undefined));
+    try wasm.data_segments.put(gpa, .pack(wasm, .{ .uav_obj = uav_index }), {});
     return uav_index;
 }
 
@@ -3349,34 +3328,34 @@ pub fn refUavExe(wasm: *Wasm, pt: Zcu.PerThread, ip_index: InternPool.Index) !Ua
         };
     }
     const uav_index: UavsExeIndex = @enumFromInt(gop.index);
-    try wasm.data_segments.put(gpa, .pack(wasm, .{ .uav_exe = uav_index }), @as(u32, undefined));
+    try wasm.data_segments.put(gpa, .pack(wasm, .{ .uav_exe = uav_index }), {});
     return uav_index;
 }
 
-/// Asserts it is called after `Wasm.data_segments` is fully populated and sorted.
+/// Asserts it is called after `Flush.data_segments` is fully populated and sorted.
 pub fn uavAddr(wasm: *Wasm, uav_index: UavsExeIndex) u32 {
     assert(wasm.flush_buffer.memory_layout_finished);
     const comp = wasm.base.comp;
     assert(comp.config.output_mode != .Obj);
     const ds_id: DataSegment.Id = .pack(wasm, .{ .uav_exe = uav_index });
-    return wasm.data_segments.get(ds_id).?;
+    return wasm.flush_buffer.data_segments.get(ds_id).?;
 }
 
-/// Asserts it is called after `Wasm.data_segments` is fully populated and sorted.
+/// Asserts it is called after `Flush.data_segments` is fully populated and sorted.
 pub fn navAddr(wasm: *Wasm, nav_index: InternPool.Nav.Index) u32 {
     assert(wasm.flush_buffer.memory_layout_finished);
     const comp = wasm.base.comp;
     assert(comp.config.output_mode != .Obj);
     const ds_id: DataSegment.Id = .pack(wasm, .{ .nav_exe = @enumFromInt(wasm.navs_exe.getIndex(nav_index).?) });
-    return wasm.data_segments.get(ds_id).?;
+    return wasm.flush_buffer.data_segments.get(ds_id).?;
 }
 
-/// Asserts it is called after `Wasm.data_segments` is fully populated and sorted.
+/// Asserts it is called after `Flush.data_segments` is fully populated and sorted.
 pub fn errorNameTableAddr(wasm: *Wasm) u32 {
     assert(wasm.flush_buffer.memory_layout_finished);
     const comp = wasm.base.comp;
     assert(comp.config.output_mode != .Obj);
-    return wasm.data_segments.get(.__zig_error_name_table).?;
+    return wasm.flush_buffer.data_segments.get(.__zig_error_name_table).?;
 }
 
 fn convertZcuFnType(
