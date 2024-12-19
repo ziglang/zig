@@ -30,7 +30,6 @@ pub fn lowerToCode(emit: *Emit) Error!void {
     const is_obj = comp.config.output_mode == .Obj;
     const target = &comp.root_mod.resolved_target.result;
     const is_wasm32 = target.cpu.arch == .wasm32;
-    const function_imports_len: u32 = @intCast(wasm.function_imports.entries.len);
 
     const tags = mir.instruction_tags;
     const datas = mir.instruction_datas;
@@ -159,8 +158,7 @@ pub fn lowerToCode(emit: *Emit) Error!void {
                 });
                 code.appendNTimesAssumeCapacity(0, 5);
             } else {
-                const func_index = Wasm.FunctionIndex.fromIpNav(wasm, datas[inst].nav_index).?;
-                leb.writeUleb128(code.fixedWriter(), function_imports_len + @intFromEnum(func_index)) catch unreachable;
+                appendOutputFunctionIndex(code, .fromIpNav(wasm, datas[inst].nav_index));
             }
 
             inst += 1;
@@ -200,8 +198,7 @@ pub fn lowerToCode(emit: *Emit) Error!void {
                 });
                 code.appendNTimesAssumeCapacity(0, 5);
             } else {
-                const func_index = Wasm.FunctionIndex.fromTagNameType(wasm, datas[inst].ip_index).?;
-                leb.writeUleb128(code.fixedWriter(), function_imports_len + @intFromEnum(func_index)) catch unreachable;
+                appendOutputFunctionIndex(code, .fromTagNameType(wasm, datas[inst].ip_index));
             }
 
             inst += 1;
@@ -225,8 +222,7 @@ pub fn lowerToCode(emit: *Emit) Error!void {
                 });
                 code.appendNTimesAssumeCapacity(0, 5);
             } else {
-                const func_index = Wasm.FunctionIndex.fromSymbolName(wasm, symbol_name).?;
-                leb.writeUleb128(code.fixedWriter(), function_imports_len + @intFromEnum(func_index)) catch unreachable;
+                appendOutputFunctionIndex(code, .fromSymbolName(wasm, symbol_name));
             }
 
             inst += 1;
@@ -977,4 +973,8 @@ fn navRefOff(wasm: *Wasm, code: *std.ArrayListUnmanaged(u8), data: Mir.NavRefOff
             leb.writeUleb128(code.fixedWriter(), @as(u32, @intCast(@as(i64, addr) + data.offset))) catch unreachable;
         }
     }
+}
+
+fn appendOutputFunctionIndex(code: *std.ArrayListUnmanaged(u8), i: Wasm.OutputFunctionIndex) void {
+    leb.writeUleb128(code.fixedWriter(), @intFromEnum(i)) catch unreachable;
 }

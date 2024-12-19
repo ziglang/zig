@@ -283,10 +283,6 @@ pub const FunctionIndex = enum(u32) {
         return &wasm.functions.keys()[@intFromEnum(index)];
     }
 
-    pub fn toOutputFunctionIndex(index: FunctionIndex, wasm: *const Wasm) OutputFunctionIndex {
-        return @enumFromInt(wasm.function_imports.entries.len + @intFromEnum(index));
-    }
-
     pub fn fromIpNav(wasm: *const Wasm, nav_index: InternPool.Nav.Index) ?FunctionIndex {
         return fromResolution(wasm, .fromIpNav(wasm, nav_index));
     }
@@ -324,6 +320,31 @@ pub const GlobalExport = extern struct {
 /// `flush`.
 pub const OutputFunctionIndex = enum(u32) {
     _,
+
+    pub fn fromFunctionIndex(wasm: *const Wasm, index: FunctionIndex) OutputFunctionIndex {
+        return @enumFromInt(wasm.function_imports.entries.len + @intFromEnum(index));
+    }
+
+    pub fn fromIpNav(wasm: *const Wasm, nav_index: InternPool.Nav.Index) OutputFunctionIndex {
+        const zcu = wasm.base.comp.zcu.?;
+        const ip = &zcu.intern_pool;
+        const nav = ip.getNav(nav_index);
+        if (nav.toExtern(ip)) |ext| {
+            const name = wasm.getExistingString(ext.name.toSlice(ip)).?;
+            if (wasm.function_imports.getIndex(name)) |i| return @enumFromInt(i);
+            return fromFunctionIndex(wasm, FunctionIndex.fromSymbolName(wasm, name).?);
+        } else {
+            return fromFunctionIndex(wasm, FunctionIndex.fromIpNav(wasm, nav_index).?);
+        }
+    }
+
+    pub fn fromTagNameType(wasm: *const Wasm, tag_type: InternPool.Index) OutputFunctionIndex {
+        return fromFunctionIndex(wasm, FunctionIndex.fromTagNameType(wasm, tag_type).?);
+    }
+
+    pub fn fromSymbolName(wasm: *const Wasm, name: String) OutputFunctionIndex {
+        return fromFunctionIndex(wasm, FunctionIndex.fromSymbolName(wasm, name).?);
+    }
 };
 
 /// Index into `Wasm.globals`.
@@ -788,6 +809,7 @@ pub const FunctionImport = extern struct {
             const zcu = wasm.base.comp.zcu.?;
             const ip = &zcu.intern_pool;
             const nav = ip.getNav(nav_index);
+            //log.debug("Resolution.fromIpNav {}({})", .{ nav.fqn.fmt(ip), nav_index });
             return pack(wasm, .{
                 .zcu_func = @enumFromInt(wasm.zcu_funcs.getIndex(nav.status.resolved.val).?),
             });

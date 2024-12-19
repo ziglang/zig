@@ -621,6 +621,14 @@ pub const Nav = struct {
     }
 
     /// Asserts that `status == .resolved`.
+    pub fn toExtern(nav: *const Nav, ip: *const InternPool) ?Key.Extern {
+        return switch (ip.indexToKey(nav.status.resolved.val)) {
+            .@"extern" => |ext| ext,
+            else => null,
+        };
+    }
+
+    /// Asserts that `status == .resolved`.
     pub fn isThreadLocal(nav: Nav, ip: *const InternPool) bool {
         const val = nav.status.resolved.val;
         if (!isVariable(ip, val)) return false;
