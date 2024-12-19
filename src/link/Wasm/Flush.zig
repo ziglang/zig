@@ -657,7 +657,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
         var group_index: u32 = 0;
         var offset: u32 = undefined;
         for (segment_ids, segment_offsets) |segment_id, segment_offset| {
-            if (!import_memory and segment_id.isBss(wasm)) {
+            if (segment_id.isEmpty(wasm)) {
                 // It counted for virtual memory but it does not go into the binary.
                 continue;
             }

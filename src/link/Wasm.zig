@@ -1410,6 +1410,14 @@ pub const DataSegment = extern struct {
             };
         }
 
+        pub fn isEmpty(id: Id, wasm: *const Wasm) bool {
+            return switch (unpack(id, wasm)) {
+                .__zig_error_name_table => false,
+                .object => |i| i.ptr(wasm).payload.off == .none,
+                inline .uav_exe, .uav_obj, .nav_exe, .nav_obj => |i| i.value(wasm).code.off == .none,
+            };
+        }
+
         pub fn size(id: Id, wasm: *const Wasm) u32 {
             return switch (unpack(id, wasm)) {
                 .__zig_error_name_table => {
