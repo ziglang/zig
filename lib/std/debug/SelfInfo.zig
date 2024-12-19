@@ -756,13 +756,24 @@ pub const Module = switch (native_os) {
                 module,
                 relocated_address - coff_section.virtual_address,
             ) orelse "???";
+            // While DWARF gets us just the function's own name, PDB
+            // stores it qualified with its namespace by the C++ `::`
+            // operator. We can strip that for consistency; the
+            // SymbolInfo will contain the line number, which is a more
+            // language-neutral way of distinguishing same-named symbols
+            // anyway.
+            const symbol_simple_name = if (mem.indexOf(u8, symbol_name, "::")) |cpp_namespace|
+                symbol_name[cpp_namespace + 2 ..]
+            else
+                symbol_name;
+
             const opt_line_info = try self.pdb.?.getLineNumberInfo(
                 module,
                 relocated_address - coff_section.virtual_address,
             );
 
             return .{
-                .name = symbol_name,
+                .name = symbol_simple_name,
                 .compile_unit_name = obj_basename,
                 .source_location = opt_line_info,
             };
