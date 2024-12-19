@@ -105,6 +105,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
 
     if (!allow_undefined) {
         for (f.function_imports.keys(), f.function_imports.values()) |name, function_import_id| {
+            if (function_import_id.undefinedAllowed(wasm)) continue;
             const src_loc = function_import_id.sourceLocation(wasm);
             src_loc.addError(wasm, "undefined function: {s}", .{name.slice(wasm)});
         }
@@ -403,7 +404,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
         const header_offset = try reserveVecSectionHeader(gpa, binary_bytes);
 
         for (f.function_imports.values()) |id| {
-            const module_name = id.moduleName(wasm).slice(wasm);
+            const module_name = id.moduleName(wasm).slice(wasm).?;
             try leb.writeUleb128(binary_writer, @as(u32, @intCast(module_name.len)));
             try binary_writer.writeAll(module_name);
 
@@ -437,7 +438,8 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
             total_imports += 1;
         } else if (import_memory) {
             try emitMemoryImport(wasm, binary_bytes, &.{
-                .module_name = wasm.host_name,
+                // TODO the import_memory option needs to specify from which module
+                .module_name = wasm.object_host_name.unwrap().?,
                 .name = if (is_obj) wasm.preloaded_strings.__linear_memory else wasm.preloaded_strings.memory,
                 .limits_min = wasm.memories.limits.min,
                 .limits_max = wasm.memories.limits.max,
@@ -448,7 +450,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
         }
 
         for (f.global_imports.values()) |id| {
-            const module_name = id.moduleName(wasm).slice(wasm);
+            const module_name = id.moduleName(wasm).slice(wasm).?;
             try leb.writeUleb128(binary_writer, @as(u32, @intCast(module_name.len)));
             try binary_writer.writeAll(module_name);
 

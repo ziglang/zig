@@ -400,6 +400,7 @@ pub const File = struct {
         export_table: bool,
         initial_memory: ?u64,
         max_memory: ?u64,
+        object_host_name: ?[]const u8,
         export_symbol_names: []const []const u8,
         global_base: ?u64,
         build_id: std.zig.BuildId,

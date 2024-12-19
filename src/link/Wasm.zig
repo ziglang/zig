@@ -150,10 +150,10 @@ nav_fixups: std.ArrayListUnmanaged(NavFixup) = .empty,
 symbol_table: std.AutoArrayHashMapUnmanaged(String, void) = .empty,
 
 /// When importing objects from the host environment, a name must be supplied.
-/// LLVM uses "env" by default when none is given. This would be a good default for Zig
-/// to support existing code.
-/// TODO: Allow setting this through a flag?
-host_name: String,
+/// LLVM uses "env" by default when none is given.
+/// This value is passed to object files since wasm tooling conventions provides
+/// no way to specify the module name in the symbol table.
+object_host_name: OptionalString,
 
 /// Memory section
 memories: std.wasm.Memory = .{ .limits = .{
@@ -737,7 +737,7 @@ const DebugSection = struct {};
 
 pub const FunctionImport = extern struct {
     flags: SymbolFlags,
-    module_name: String,
+    module_name: OptionalString,
     source_location: SourceLocation,
     resolution: Resolution,
     type: FunctionType.Index,
@@ -862,7 +862,7 @@ pub const FunctionImport = extern struct {
             return index.key(wasm).*;
         }
 
-        pub fn moduleName(index: Index, wasm: *const Wasm) String {
+        pub fn moduleName(index: Index, wasm: *const Wasm) OptionalString {
             return index.value(wasm).module_name;
         }
 
@@ -888,7 +888,7 @@ pub const Function = extern struct {
 
 pub const GlobalImport = extern struct {
     flags: SymbolFlags,
-    module_name: String,
+    module_name: OptionalString,
     source_location: SourceLocation,
     resolution: Resolution,
 
@@ -1009,7 +1009,7 @@ pub const GlobalImport = extern struct {
             return index.key(wasm).*;
         }
 
-        pub fn moduleName(index: Index, wasm: *const Wasm) String {
+        pub fn moduleName(index: Index, wasm: *const Wasm) OptionalString {
             return index.value(wasm).module_name;
         }
 
@@ -1114,7 +1114,7 @@ pub const TableImport = extern struct {
             return index.key(wasm).*;
         }
 
-        pub fn moduleName(index: Index, wasm: *const Wasm) String {
+        pub fn moduleName(index: Index, wasm: *const Wasm) OptionalString {
             return index.value(wasm).module_name;
         }
     };
@@ -1604,7 +1604,7 @@ pub const ZcuImportIndex = enum(u32) {
         return wasm.getExistingString(name_slice).?;
     }
 
-    pub fn moduleName(index: ZcuImportIndex, wasm: *const Wasm) String {
+    pub fn moduleName(index: ZcuImportIndex, wasm: *const Wasm) OptionalString {
         const zcu = wasm.base.comp.zcu.?;
         const ip = &zcu.intern_pool;
         const nav_index = index.ptr(wasm).*;
@@ -1613,8 +1613,8 @@ pub const ZcuImportIndex = enum(u32) {
             .@"extern" => |*ext| ext,
             else => unreachable,
         };
-        const lib_name = ext.lib_name.toSlice(ip) orelse return wasm.host_name;
-        return wasm.getExistingString(lib_name).?;
+        const lib_name = ext.lib_name.toSlice(ip) orelse return .none;
+        return wasm.getExistingString(lib_name).?.toOptional();
     }
 
     pub fn functionType(index: ZcuImportIndex, wasm: *Wasm) FunctionType.Index {
@@ -1639,8 +1639,8 @@ pub const ZcuImportIndex = enum(u32) {
     }
 };
 
-/// 0. Index into `object_function_imports`.
-/// 1. Index into `imports`.
+/// 0. Index into `Wasm.object_function_imports`.
+/// 1. Index into `Wasm.imports`.
 pub const FunctionImportId = enum(u32) {
     _,
 
@@ -1695,7 +1695,7 @@ pub const FunctionImportId = enum(u32) {
         };
     }
 
-    pub fn moduleName(id: FunctionImportId, wasm: *const Wasm) String {
+    pub fn moduleName(id: FunctionImportId, wasm: *const Wasm) OptionalString {
         return switch (unpack(id, wasm)) {
             inline .object_function_import, .zcu_import => |i| i.moduleName(wasm),
         };
@@ -1704,6 +1704,24 @@ pub const FunctionImportId = enum(u32) {
     pub fn functionType(id: FunctionImportId, wasm: *Wasm) FunctionType.Index {
         return switch (unpack(id, wasm)) {
             inline .object_function_import, .zcu_import => |i| i.functionType(wasm),
+        };
+    }
+
+    /// Asserts not emitting an object, and `Wasm.import_symbols` is false.
+    pub fn undefinedAllowed(id: FunctionImportId, wasm: *const Wasm) bool {
+        assert(!wasm.import_symbols);
+        assert(wasm.base.comp.config.output_mode != .Obj);
+        return switch (unpack(id, wasm)) {
+            .object_function_import => |i| {
+                const import = i.value(wasm);
+                return import.flags.binding == .strong and import.module_name != .none;
+            },
+            .zcu_import => |i| {
+                const zcu = wasm.base.comp.zcu.?;
+                const ip = &zcu.intern_pool;
+                const ext = ip.getNav(i.ptr(wasm).*).toExtern(ip).?;
+                return !ext.is_weak_linkage and ext.lib_name != .none;
+            },
         };
     }
 };
@@ -1760,7 +1778,7 @@ pub const GlobalImportId = enum(u32) {
         };
     }
 
-    pub fn moduleName(id: GlobalImportId, wasm: *const Wasm) String {
+    pub fn moduleName(id: GlobalImportId, wasm: *const Wasm) OptionalString {
         return switch (unpack(id, wasm)) {
             inline .object_global_import, .zcu_import => |i| i.moduleName(wasm),
         };
@@ -2082,7 +2100,7 @@ pub fn createEmpty(
 
         .entry_name = undefined,
         .dump_argv_list = .empty,
-        .host_name = undefined,
+        .object_host_name = .none,
         .preloaded_strings = undefined,
     };
     if (use_llvm and comp.config.have_zcu) {
@@ -2090,7 +2108,7 @@ pub fn createEmpty(
     }
     errdefer wasm.base.destroy();
 
-    wasm.host_name = try wasm.internString("env");
+    if (options.object_host_name) |name| wasm.object_host_name = (try wasm.internString(name)).toOptional();
 
     inline for (@typeInfo(PreloadedStrings).@"struct".fields) |field| {
         @field(wasm.preloaded_strings, field.name) = try wasm.internString(field.name);
@@ -2162,7 +2180,7 @@ fn parseObject(wasm: *Wasm, obj: link.Input.Object) !void {
     var ss: Object.ScratchSpace = .{};
     defer ss.deinit(gpa);
 
-    const object = try Object.parse(wasm, file_contents, obj.path, null, wasm.host_name, &ss, obj.must_link, gc_sections);
+    const object = try Object.parse(wasm, file_contents, obj.path, null, wasm.object_host_name, &ss, obj.must_link, gc_sections);
     wasm.objects.appendAssumeCapacity(object);
 }
 
@@ -2201,7 +2219,7 @@ fn parseArchive(wasm: *Wasm, obj: link.Input.Object) !void {
     try wasm.objects.ensureUnusedCapacity(gpa, offsets.count());
     for (offsets.keys()) |file_offset| {
         const contents = file_contents[file_offset..];
-        const object = try archive.parseObject(wasm, contents, obj.path, wasm.host_name, &ss, obj.must_link, gc_sections);
+        const object = try archive.parseObject(wasm, contents, obj.path, wasm.object_host_name, &ss, obj.must_link, gc_sections);
         wasm.objects.appendAssumeCapacity(object);
     }
 }
@@ -2313,6 +2331,7 @@ pub fn updateNav(wasm: *Wasm, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index
                 assert(!wasm.navs_exe.contains(nav_index));
             }
             const name = try wasm.internString(ext.name.toSlice(ip));
+            if (ext.lib_name.toSlice(ip)) |ext_name| _ = try wasm.internString(ext_name);
             try wasm.imports.ensureUnusedCapacity(gpa, 1);
             if (ip.isFunctionType(nav.typeOf(ip))) {
                 try wasm.function_imports.ensureUnusedCapacity(gpa, 1);

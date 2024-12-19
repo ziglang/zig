@@ -147,7 +147,7 @@ pub fn parseObject(
     wasm: *Wasm,
     file_contents: []const u8,
     path: Path,
-    host_name: Wasm.String,
+    host_name: Wasm.OptionalString,
     scratch_space: *Object.ScratchSpace,
     must_link: bool,
     gc_sections: bool,

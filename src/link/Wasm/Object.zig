@@ -179,7 +179,7 @@ pub fn parse(
     bytes: []const u8,
     path: Path,
     archive_member_name: ?[]const u8,
-    host_name: Wasm.String,
+    host_name: Wasm.OptionalString,
     ss: *ScratchSpace,
     must_link: bool,
     gc_sections: bool,
@@ -560,7 +560,7 @@ pub fn parse(
                                         .mutable = mutable,
                                     },
                                 },
-                                .module_name = interned_module_name,
+                                .module_name = interned_module_name.toOptional(),
                                 .source_location = source_location,
                                 .resolution = .unresolved,
                             });
