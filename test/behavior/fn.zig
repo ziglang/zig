@@ -637,34 +637,9 @@ test "address of function parameter is consistent in other parameter type" {
     S.paramAddrMatch(1, 2);
 }
 
-test "address of function parameter is consistent in function align" {
-    switch (builtin.target.cpu.arch) {
-        .wasm32, .wasm64 => return, // function alignment not supported
-        else => {},
-    }
-    const S = struct {
-        fn paramAddrMatch(comptime x: u8) align(if (&x != &x) unreachable else 1) void {}
-    };
-    S.paramAddrMatch(1);
-}
-
-test "address of function parameter is consistent in function callconv" {
-    const S = struct {
-        fn paramAddrMatch(comptime x: u8) callconv(if (&x != &x) unreachable else .auto) void {}
-    };
-    S.paramAddrMatch(1);
-}
-
 test "address of function parameter is consistent in function return type" {
     const S = struct {
         fn paramAddrMatch(comptime x: u8) if (&x != &x) unreachable else void {}
-    };
-    S.paramAddrMatch(1);
-}
-
-test "address of function parameter is consistent in function addrspace" {
-    const S = struct {
-        fn paramAddrMatch(comptime x: u8) addrspace(if (&x != &x) unreachable else .generic) void {}
     };
     S.paramAddrMatch(1);
 }

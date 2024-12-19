@@ -135,9 +135,6 @@ pub fn create(
     return objcopy;
 }
 
-/// deprecated: use getOutput
-pub const getOutputSource = getOutput;
-
 pub fn getOutput(objcopy: *const ObjCopy) std.Build.LazyPath {
     return .{ .generated = .{ .file = &objcopy.output_file } };
 }

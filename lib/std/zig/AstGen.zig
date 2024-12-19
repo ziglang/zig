@@ -1420,19 +1420,9 @@ fn fnProtoExpr(
 
         .cc_ref = cc,
         .cc_gz = null,
-        .align_ref = .none,
-        .align_gz = null,
         .ret_ref = ret_ty,
         .ret_gz = null,
-        .section_ref = .none,
-        .section_gz = null,
-        .addrspace_ref = .none,
-        .addrspace_gz = null,
 
-        .align_param_refs = &.{},
-        .addrspace_param_refs = &.{},
-        .section_param_refs = &.{},
-        .cc_param_refs = &.{},
         .ret_param_refs = &.{},
         .param_insts = &.{},
 
@@ -4129,6 +4119,8 @@ fn fnDecl(
     const decl_inst = try gz.makeDeclaration(fn_proto.ast.proto_node);
     astgen.advanceSourceCursorToNode(decl_node);
 
+    const saved_cursor = astgen.saveSourceCursor();
+
     var decl_gz: GenZir = .{
         .is_comptime = true,
         .decl_node_index = fn_proto.ast.proto_node,
@@ -4140,16 +4132,7 @@ fn fnDecl(
     };
     defer decl_gz.unstack();
 
-    var fn_gz: GenZir = .{
-        .is_comptime = false,
-        .decl_node_index = fn_proto.ast.proto_node,
-        .decl_line = decl_gz.decl_line,
-        .parent = &decl_gz.base,
-        .astgen = astgen,
-        .instructions = gz.instructions,
-        .instructions_top = GenZir.unstacked_top,
-    };
-    defer fn_gz.unstack();
+    const decl_column = astgen.source_column;
 
     // Set this now, since parameter types, return type, etc may be generic.
     const prev_within_fn = astgen.within_fn;
@@ -4180,7 +4163,7 @@ fn fnDecl(
     var param_insts: std.ArrayListUnmanaged(Zir.Inst.Index) = try .initCapacity(astgen.arena, fn_proto.ast.params.len);
 
     var noalias_bits: u32 = 0;
-    var params_scope = &fn_gz.base;
+    var params_scope = scope;
     const is_var_args = is_var_args: {
         var param_type_i: usize = 0;
         var it = fn_proto.iterate(tree);
@@ -4303,47 +4286,26 @@ fn fnDecl(
     // instructions inside the expression blocks for align, addrspace, cc, and ret_ty
     // to use the function instruction as the "block" to break from.
 
-    var align_gz = decl_gz.makeSubBlock(params_scope);
-    defer align_gz.unstack();
-    const align_ref: Zir.Inst.Ref = if (fn_proto.ast.align_expr == 0) .none else inst: {
-        const inst = try expr(&decl_gz, params_scope, coerced_align_ri, fn_proto.ast.align_expr);
-        if (align_gz.instructionsSlice().len == 0) {
+    var ret_gz = decl_gz.makeSubBlock(params_scope);
+    defer ret_gz.unstack();
+    const ret_ref: Zir.Inst.Ref = inst: {
+        // Parameters are in scope for the return type, so we use `params_scope` here.
+        // The calling convention will not have parameters in scope, so we'll just use `scope`.
+        // See #22263 for a proposal to solve the inconsistency here.
+        const inst = try fullBodyExpr(&ret_gz, params_scope, coerced_type_ri, fn_proto.ast.return_type, .normal);
+        if (ret_gz.instructionsSlice().len == 0) {
             // In this case we will send a len=0 body which can be encoded more efficiently.
             break :inst inst;
         }
-        _ = try align_gz.addBreak(.break_inline, @enumFromInt(0), inst);
+        _ = try ret_gz.addBreak(.break_inline, @enumFromInt(0), inst);
         break :inst inst;
     };
-    const align_body_param_refs = try astgen.fetchRemoveRefEntries(param_insts.items);
+    const ret_body_param_refs = try astgen.fetchRemoveRefEntries(param_insts.items);
 
-    var addrspace_gz = decl_gz.makeSubBlock(params_scope);
-    defer addrspace_gz.unstack();
-    const addrspace_ref: Zir.Inst.Ref = if (fn_proto.ast.addrspace_expr == 0) .none else inst: {
-        const addrspace_ty = try decl_gz.addBuiltinValue(fn_proto.ast.addrspace_expr, .address_space);
-        const inst = try expr(&decl_gz, params_scope, .{ .rl = .{ .coerced_ty = addrspace_ty } }, fn_proto.ast.addrspace_expr);
-        if (addrspace_gz.instructionsSlice().len == 0) {
-            // In this case we will send a len=0 body which can be encoded more efficiently.
-            break :inst inst;
-        }
-        _ = try addrspace_gz.addBreak(.break_inline, @enumFromInt(0), inst);
-        break :inst inst;
-    };
-    const addrspace_body_param_refs = try astgen.fetchRemoveRefEntries(param_insts.items);
+    // We're jumping back in source, so restore the cursor.
+    astgen.restoreSourceCursor(saved_cursor);
 
-    var section_gz = decl_gz.makeSubBlock(params_scope);
-    defer section_gz.unstack();
-    const section_ref: Zir.Inst.Ref = if (fn_proto.ast.section_expr == 0) .none else inst: {
-        const inst = try expr(&decl_gz, params_scope, .{ .rl = .{ .coerced_ty = .slice_const_u8_type } }, fn_proto.ast.section_expr);
-        if (section_gz.instructionsSlice().len == 0) {
-            // In this case we will send a len=0 body which can be encoded more efficiently.
-            break :inst inst;
-        }
-        _ = try section_gz.addBreak(.break_inline, @enumFromInt(0), inst);
-        break :inst inst;
-    };
-    const section_body_param_refs = try astgen.fetchRemoveRefEntries(param_insts.items);
-
-    var cc_gz = decl_gz.makeSubBlock(params_scope);
+    var cc_gz = decl_gz.makeSubBlock(scope);
     defer cc_gz.unstack();
     const cc_ref: Zir.Inst.Ref = blk: {
         if (fn_proto.ast.callconv_expr != 0) {
@@ -4356,7 +4318,7 @@ fn fnDecl(
             }
             const inst = try expr(
                 &cc_gz,
-                params_scope,
+                scope,
                 .{ .rl = .{ .coerced_ty = try cc_gz.addBuiltinValue(fn_proto.ast.callconv_expr, .calling_convention) } },
                 fn_proto.ast.callconv_expr,
             );
@@ -4378,20 +4340,6 @@ fn fnDecl(
             break :blk .none;
         }
     };
-    const cc_body_param_refs = try astgen.fetchRemoveRefEntries(param_insts.items);
-
-    var ret_gz = decl_gz.makeSubBlock(params_scope);
-    defer ret_gz.unstack();
-    const ret_ref: Zir.Inst.Ref = inst: {
-        const inst = try fullBodyExpr(&ret_gz, params_scope, coerced_type_ri, fn_proto.ast.return_type, .normal);
-        if (ret_gz.instructionsSlice().len == 0) {
-            // In this case we will send a len=0 body which can be encoded more efficiently.
-            break :inst inst;
-        }
-        _ = try ret_gz.addBreak(.break_inline, @enumFromInt(0), inst);
-        break :inst inst;
-    };
-    const ret_body_param_refs = try astgen.fetchRemoveRefEntries(param_insts.items);
 
     const func_inst: Zir.Inst.Ref = if (body_node == 0) func: {
         if (!is_extern) {
@@ -4404,19 +4352,9 @@ fn fnDecl(
             .src_node = decl_node,
             .cc_ref = cc_ref,
             .cc_gz = &cc_gz,
-            .cc_param_refs = cc_body_param_refs,
-            .align_ref = align_ref,
-            .align_gz = &align_gz,
-            .align_param_refs = align_body_param_refs,
             .ret_ref = ret_ref,
             .ret_gz = &ret_gz,
             .ret_param_refs = ret_body_param_refs,
-            .section_ref = section_ref,
-            .section_gz = &section_gz,
-            .section_param_refs = section_body_param_refs,
-            .addrspace_ref = addrspace_ref,
-            .addrspace_gz = &addrspace_gz,
-            .addrspace_param_refs = addrspace_body_param_refs,
             .param_block = decl_inst,
             .param_insts = param_insts.items,
             .body_gz = null,
@@ -4430,8 +4368,23 @@ fn fnDecl(
             .proto_hash = undefined, // ignored for `body_gz == null`
         });
     } else func: {
-        // as a scope, fn_gz encloses ret_gz, but for instruction list, fn_gz stacks on ret_gz
-        fn_gz.instructions_top = ret_gz.instructions.items.len;
+        var body_gz: GenZir = .{
+            .is_comptime = false,
+            .decl_node_index = fn_proto.ast.proto_node,
+            .decl_line = decl_gz.decl_line,
+            .parent = params_scope,
+            .astgen = astgen,
+            .instructions = gz.instructions,
+            .instructions_top = gz.instructions.items.len,
+        };
+        defer body_gz.unstack();
+
+        // We want `params_scope` to be stacked like this:
+        // body_gz (top)
+        // param2
+        // param1
+        // param0
+        // decl_gz (bottom)
 
         // Construct the prototype hash.
         // Leave `astgen.src_hasher` unmodified; this will be used for hashing
@@ -4448,13 +4401,13 @@ fn fnDecl(
             astgen.fn_block = prev_fn_block;
             astgen.fn_ret_ty = prev_fn_ret_ty;
         }
-        astgen.fn_block = &fn_gz;
+        astgen.fn_block = &body_gz;
         astgen.fn_ret_ty = if (is_inferred_error or ret_ref.toIndex() != null) r: {
             // We're essentially guaranteed to need the return type at some point,
             // since the return type is likely not `void` or `noreturn` so there
             // will probably be an explicit return requiring RLS. Fetch this
             // return type now so the rest of the function can use it.
-            break :r try fn_gz.addNode(.ret_type, decl_node);
+            break :r try body_gz.addNode(.ret_type, decl_node);
         } else ret_ref;
 
         const prev_var_args = astgen.fn_var_args;
@@ -4465,39 +4418,29 @@ fn fnDecl(
         const lbrace_line = astgen.source_line - decl_gz.decl_line;
         const lbrace_column = astgen.source_column;
 
-        _ = try fullBodyExpr(&fn_gz, params_scope, .{ .rl = .none }, body_node, .allow_branch_hint);
-        try checkUsed(gz, &fn_gz.base, params_scope);
+        _ = try fullBodyExpr(&body_gz, &body_gz.base, .{ .rl = .none }, body_node, .allow_branch_hint);
+        try checkUsed(gz, scope, params_scope);
 
-        if (!fn_gz.endsWithNoReturn()) {
+        if (!body_gz.endsWithNoReturn()) {
             // As our last action before the return, "pop" the error trace if needed
-            _ = try fn_gz.addRestoreErrRetIndex(.ret, .always, decl_node);
+            _ = try body_gz.addRestoreErrRetIndex(.ret, .always, decl_node);
 
             // Add implicit return at end of function.
-            _ = try fn_gz.addUnTok(.ret_implicit, .void_value, tree.lastToken(body_node));
+            _ = try body_gz.addUnTok(.ret_implicit, .void_value, tree.lastToken(body_node));
         }
 
         break :func try decl_gz.addFunc(.{
             .src_node = decl_node,
             .cc_ref = cc_ref,
             .cc_gz = &cc_gz,
-            .cc_param_refs = cc_body_param_refs,
-            .align_ref = align_ref,
-            .align_gz = &align_gz,
-            .align_param_refs = align_body_param_refs,
             .ret_ref = ret_ref,
             .ret_gz = &ret_gz,
             .ret_param_refs = ret_body_param_refs,
-            .section_ref = section_ref,
-            .section_gz = &section_gz,
-            .section_param_refs = section_body_param_refs,
-            .addrspace_ref = addrspace_ref,
-            .addrspace_gz = &addrspace_gz,
-            .addrspace_param_refs = addrspace_body_param_refs,
             .lbrace_line = lbrace_line,
             .lbrace_column = lbrace_column,
             .param_block = decl_inst,
             .param_insts = param_insts.items,
-            .body_gz = &fn_gz,
+            .body_gz = &body_gz,
             .lib_name = lib_name,
             .is_var_args = is_var_args,
             .is_inferred_error = is_inferred_error,
@@ -4509,12 +4452,38 @@ fn fnDecl(
         });
     };
 
+    // Before we stack more stuff onto `decl_gz`, add its final instruction.
+    _ = try decl_gz.addBreak(.break_inline, decl_inst, func_inst);
+
+    // Now that `cc_gz,` `ret_gz`, and `body_gz` are unstacked, we evaluate align, addrspace, and linksection.
+
+    // We're jumping back in source, so restore the cursor.
+    astgen.restoreSourceCursor(saved_cursor);
+
+    var align_gz = decl_gz.makeSubBlock(scope);
+    defer align_gz.unstack();
+    if (fn_proto.ast.align_expr != 0) {
+        const inst = try expr(&decl_gz, &decl_gz.base, coerced_align_ri, fn_proto.ast.align_expr);
+        _ = try align_gz.addBreak(.break_inline, decl_inst, inst);
+    }
+
+    var section_gz = align_gz.makeSubBlock(scope);
+    defer section_gz.unstack();
+    if (fn_proto.ast.section_expr != 0) {
+        const inst = try expr(&decl_gz, scope, .{ .rl = .{ .coerced_ty = .slice_const_u8_type } }, fn_proto.ast.section_expr);
+        _ = try section_gz.addBreak(.break_inline, decl_inst, inst);
+    }
+
+    var addrspace_gz = section_gz.makeSubBlock(scope);
+    defer addrspace_gz.unstack();
+    if (fn_proto.ast.addrspace_expr != 0) {
+        const addrspace_ty = try decl_gz.addBuiltinValue(fn_proto.ast.addrspace_expr, .address_space);
+        const inst = try expr(&decl_gz, scope, .{ .rl = .{ .coerced_ty = addrspace_ty } }, fn_proto.ast.addrspace_expr);
+        _ = try addrspace_gz.addBreak(.break_inline, decl_inst, inst);
+    }
+
     // *Now* we can incorporate the full source code into the hasher.
     astgen.src_hasher.update(tree.getNodeSource(decl_node));
-
-    // We add this at the end so that its instruction index marks the end range
-    // of the top level declaration. addFunc already unstacked fn_gz and ret_gz.
-    _ = try decl_gz.addBreak(.break_inline, decl_inst, func_inst);
 
     var hash: std.zig.SrcHash = undefined;
     astgen.src_hasher.final(&hash);
@@ -4523,12 +4492,15 @@ fn fnDecl(
         hash,
         .{ .named = fn_name_token },
         decl_gz.decl_line,
+        decl_column,
         is_pub,
         is_export,
         &decl_gz,
-        // align, linksection, and addrspace are passed in the func instruction in this case.
-        // TODO: move them from the function instruction to the declaration instruction?
-        null,
+        .{
+            .align_gz = &align_gz,
+            .linksection_gz = &section_gz,
+            .addrspace_gz = &addrspace_gz,
+        },
     );
 }
 
@@ -4567,6 +4539,8 @@ fn globalVarDecl(
         .instructions_top = gz.instructions.items.len,
     };
     defer block_scope.unstack();
+
+    const decl_column = astgen.source_column;
 
     const is_pub = var_decl.visib_token != null;
     const is_export = blk: {
@@ -4693,6 +4667,7 @@ fn globalVarDecl(
         hash,
         .{ .named = name_token },
         block_scope.decl_line,
+        decl_column,
         is_pub,
         is_export,
         &block_scope,
@@ -4738,6 +4713,8 @@ fn comptimeDecl(
     };
     defer decl_block.unstack();
 
+    const decl_column = astgen.source_column;
+
     const block_result = try fullBodyExpr(&decl_block, &decl_block.base, .{ .rl = .none }, body_node, .normal);
     if (decl_block.isEmpty() or !decl_block.refIsNoReturn(block_result)) {
         _ = try decl_block.addBreak(.break_inline, decl_inst, .void_value);
@@ -4750,6 +4727,7 @@ fn comptimeDecl(
         hash,
         .@"comptime",
         decl_block.decl_line,
+        decl_column,
         false,
         false,
         &decl_block,
@@ -4797,6 +4775,8 @@ fn usingnamespaceDecl(
     };
     defer decl_block.unstack();
 
+    const decl_column = astgen.source_column;
+
     const namespace_inst = try typeExpr(&decl_block, &decl_block.base, type_expr);
     _ = try decl_block.addBreak(.break_inline, decl_inst, namespace_inst);
 
@@ -4807,6 +4787,7 @@ fn usingnamespaceDecl(
         hash,
         .@"usingnamespace",
         decl_block.decl_line,
+        decl_column,
         is_pub,
         false,
         &decl_block,
@@ -4848,6 +4829,8 @@ fn testDecl(
         .instructions_top = gz.instructions.items.len,
     };
     defer decl_block.unstack();
+
+    const decl_column = astgen.source_column;
 
     const main_tokens = tree.nodes.items(.main_token);
     const token_tags = tree.tokens.items(.tag);
@@ -4972,19 +4955,9 @@ fn testDecl(
 
         .cc_ref = .none,
         .cc_gz = null,
-        .align_ref = .none,
-        .align_gz = null,
         .ret_ref = .anyerror_void_error_union_type,
         .ret_gz = null,
-        .section_ref = .none,
-        .section_gz = null,
-        .addrspace_ref = .none,
-        .addrspace_gz = null,
 
-        .align_param_refs = &.{},
-        .addrspace_param_refs = &.{},
-        .section_param_refs = &.{},
-        .cc_param_refs = &.{},
         .ret_param_refs = &.{},
         .param_insts = &.{},
 
@@ -5013,6 +4986,7 @@ fn testDecl(
         hash,
         test_name,
         decl_block.decl_line,
+        decl_column,
         false,
         false,
         &decl_block,
@@ -11937,6 +11911,14 @@ const GenZir = struct {
             self.instructions.items[self.instructions_top..];
     }
 
+    fn instructionsSliceUptoOpt(gz: *const GenZir, maybe_stacked_gz: ?*GenZir) []Zir.Inst.Index {
+        if (maybe_stacked_gz) |stacked_gz| {
+            return gz.instructionsSliceUpto(stacked_gz);
+        } else {
+            return gz.instructionsSlice();
+        }
+    }
+
     fn makeSubBlock(gz: *GenZir, scope: *Scope) GenZir {
         return .{
             .is_comptime = gz.is_comptime,
@@ -12073,11 +12055,8 @@ const GenZir = struct {
 
     /// Must be called with the following stack set up:
     ///  * gz (bottom)
-    ///  * align_gz
-    ///  * addrspace_gz
-    ///  * section_gz
-    ///  * cc_gz
     ///  * ret_gz
+    ///  * cc_gz
     ///  * body_gz (top)
     /// Unstacks all of those except for `gz`.
     fn addFunc(
@@ -12088,23 +12067,13 @@ const GenZir = struct {
             lbrace_column: u32 = 0,
             param_block: Zir.Inst.Index,
 
-            align_gz: ?*GenZir,
-            addrspace_gz: ?*GenZir,
-            section_gz: ?*GenZir,
-            cc_gz: ?*GenZir,
             ret_gz: ?*GenZir,
             body_gz: ?*GenZir,
+            cc_gz: ?*GenZir,
 
-            align_param_refs: []Zir.Inst.Index,
-            addrspace_param_refs: []Zir.Inst.Index,
-            section_param_refs: []Zir.Inst.Index,
-            cc_param_refs: []Zir.Inst.Index,
             ret_param_refs: []Zir.Inst.Index,
             param_insts: []Zir.Inst.Index, // refs to params in `body_gz` should still be in `astgen.ref_table`
 
-            align_ref: Zir.Inst.Ref,
-            addrspace_ref: Zir.Inst.Ref,
-            section_ref: Zir.Inst.Ref,
             cc_ref: Zir.Inst.Ref,
             ret_ref: Zir.Inst.Ref,
 
@@ -12126,13 +12095,31 @@ const GenZir = struct {
         const ret_ref = if (args.ret_ref == .void_type) .none else args.ret_ref;
         const new_index: Zir.Inst.Index = @enumFromInt(astgen.instructions.len);
 
+        try gz.instructions.ensureUnusedCapacity(gpa, 1);
         try astgen.instructions.ensureUnusedCapacity(gpa, 1);
 
-        var body: []Zir.Inst.Index = &[0]Zir.Inst.Index{};
-        var ret_body: []Zir.Inst.Index = &[0]Zir.Inst.Index{};
+        const body, const cc_body, const ret_body = bodies: {
+            var stacked_gz: ?*GenZir = null;
+            const body: []const Zir.Inst.Index = if (args.body_gz) |body_gz| body: {
+                const body = body_gz.instructionsSliceUptoOpt(stacked_gz);
+                stacked_gz = body_gz;
+                break :body body;
+            } else &.{};
+            const cc_body: []const Zir.Inst.Index = if (args.cc_gz) |cc_gz| body: {
+                const cc_body = cc_gz.instructionsSliceUptoOpt(stacked_gz);
+                stacked_gz = cc_gz;
+                break :body cc_body;
+            } else &.{};
+            const ret_body: []const Zir.Inst.Index = if (args.ret_gz) |ret_gz| body: {
+                const ret_body = ret_gz.instructionsSliceUptoOpt(stacked_gz);
+                stacked_gz = ret_gz;
+                break :body ret_body;
+            } else &.{};
+            break :bodies .{ body, cc_body, ret_body };
+        };
+
         var src_locs_and_hash_buffer: [7]u32 = undefined;
-        var src_locs_and_hash: []u32 = src_locs_and_hash_buffer[0..0];
-        if (args.body_gz) |body_gz| {
+        const src_locs_and_hash: []const u32 = if (args.body_gz != null) src_locs_and_hash: {
             const tree = astgen.tree;
             const node_tags = tree.nodes.items(.tag);
             const node_datas = tree.nodes.items(.data);
@@ -12158,39 +12145,19 @@ const GenZir = struct {
                 proto_hash_arr[2],
                 proto_hash_arr[3],
             };
-            src_locs_and_hash = &src_locs_and_hash_buffer;
+            break :src_locs_and_hash &src_locs_and_hash_buffer;
+        } else &.{};
 
-            body = body_gz.instructionsSlice();
-            if (args.ret_gz) |ret_gz|
-                ret_body = ret_gz.instructionsSliceUpto(body_gz);
-        } else {
-            if (args.ret_gz) |ret_gz|
-                ret_body = ret_gz.instructionsSlice();
-        }
         const body_len = astgen.countBodyLenAfterFixupsExtraRefs(body, args.param_insts);
 
-        if (args.cc_ref != .none or args.lib_name != .empty or args.is_var_args or args.is_test or
-            args.is_extern or args.align_ref != .none or args.section_ref != .none or
-            args.addrspace_ref != .none or args.noalias_bits != 0 or args.is_noinline)
-        {
-            var align_body: []Zir.Inst.Index = &.{};
-            var addrspace_body: []Zir.Inst.Index = &.{};
-            var section_body: []Zir.Inst.Index = &.{};
-            var cc_body: []Zir.Inst.Index = &.{};
-            if (args.ret_gz != null) {
-                align_body = args.align_gz.?.instructionsSliceUpto(args.addrspace_gz.?);
-                addrspace_body = args.addrspace_gz.?.instructionsSliceUpto(args.section_gz.?);
-                section_body = args.section_gz.?.instructionsSliceUpto(args.cc_gz.?);
-                cc_body = args.cc_gz.?.instructionsSliceUpto(args.ret_gz.?);
-            }
-
+        const tag: Zir.Inst.Tag, const payload_index: u32 = if (args.cc_ref != .none or args.lib_name != .empty or
+            args.is_var_args or args.is_test or args.is_extern or
+            args.noalias_bits != 0 or args.is_noinline)
+        inst_info: {
             try astgen.extra.ensureUnusedCapacity(
                 gpa,
                 @typeInfo(Zir.Inst.FuncFancy).@"struct".fields.len +
-                    fancyFnExprExtraLen(astgen, args.align_param_refs, align_body, args.align_ref) +
-                    fancyFnExprExtraLen(astgen, args.addrspace_param_refs, addrspace_body, args.addrspace_ref) +
-                    fancyFnExprExtraLen(astgen, args.section_param_refs, section_body, args.section_ref) +
-                    fancyFnExprExtraLen(astgen, args.cc_param_refs, cc_body, args.cc_ref) +
+                    fancyFnExprExtraLen(astgen, &.{}, cc_body, args.cc_ref) +
                     fancyFnExprExtraLen(astgen, args.ret_param_refs, ret_body, ret_ref) +
                     body_len + src_locs_and_hash.len +
                     @intFromBool(args.lib_name != .empty) +
@@ -12208,15 +12175,9 @@ const GenZir = struct {
                     .has_lib_name = args.lib_name != .empty,
                     .has_any_noalias = args.noalias_bits != 0,
 
-                    .has_align_ref = args.align_ref != .none,
-                    .has_addrspace_ref = args.addrspace_ref != .none,
-                    .has_section_ref = args.section_ref != .none,
                     .has_cc_ref = args.cc_ref != .none,
                     .has_ret_ty_ref = ret_ref != .none,
 
-                    .has_align_body = align_body.len != 0,
-                    .has_addrspace_body = addrspace_body.len != 0,
-                    .has_section_body = section_body.len != 0,
                     .has_cc_body = cc_body.len != 0,
                     .has_ret_ty_body = ret_body.len != 0,
                 },
@@ -12226,53 +12187,8 @@ const GenZir = struct {
             }
 
             const zir_datas = astgen.instructions.items(.data);
-            if (align_body.len != 0) {
-                astgen.extra.appendAssumeCapacity(
-                    astgen.countBodyLenAfterFixups(args.align_param_refs) +
-                        astgen.countBodyLenAfterFixups(align_body),
-                );
-                astgen.appendBodyWithFixups(args.align_param_refs);
-                astgen.appendBodyWithFixups(align_body);
-                const break_extra = zir_datas[@intFromEnum(align_body[align_body.len - 1])].@"break".payload_index;
-                astgen.extra.items[break_extra + std.meta.fieldIndex(Zir.Inst.Break, "block_inst").?] =
-                    @intFromEnum(new_index);
-            } else if (args.align_ref != .none) {
-                astgen.extra.appendAssumeCapacity(@intFromEnum(args.align_ref));
-            }
-            if (addrspace_body.len != 0) {
-                astgen.extra.appendAssumeCapacity(
-                    astgen.countBodyLenAfterFixups(args.addrspace_param_refs) +
-                        astgen.countBodyLenAfterFixups(addrspace_body),
-                );
-                astgen.appendBodyWithFixups(args.addrspace_param_refs);
-                astgen.appendBodyWithFixups(addrspace_body);
-                const break_extra =
-                    zir_datas[@intFromEnum(addrspace_body[addrspace_body.len - 1])].@"break".payload_index;
-                astgen.extra.items[break_extra + std.meta.fieldIndex(Zir.Inst.Break, "block_inst").?] =
-                    @intFromEnum(new_index);
-            } else if (args.addrspace_ref != .none) {
-                astgen.extra.appendAssumeCapacity(@intFromEnum(args.addrspace_ref));
-            }
-            if (section_body.len != 0) {
-                astgen.extra.appendAssumeCapacity(
-                    astgen.countBodyLenAfterFixups(args.section_param_refs) +
-                        astgen.countBodyLenAfterFixups(section_body),
-                );
-                astgen.appendBodyWithFixups(args.section_param_refs);
-                astgen.appendBodyWithFixups(section_body);
-                const break_extra =
-                    zir_datas[@intFromEnum(section_body[section_body.len - 1])].@"break".payload_index;
-                astgen.extra.items[break_extra + std.meta.fieldIndex(Zir.Inst.Break, "block_inst").?] =
-                    @intFromEnum(new_index);
-            } else if (args.section_ref != .none) {
-                astgen.extra.appendAssumeCapacity(@intFromEnum(args.section_ref));
-            }
             if (cc_body.len != 0) {
-                astgen.extra.appendAssumeCapacity(
-                    astgen.countBodyLenAfterFixups(args.cc_param_refs) +
-                        astgen.countBodyLenAfterFixups(cc_body),
-                );
-                astgen.appendBodyWithFixups(args.cc_param_refs);
+                astgen.extra.appendAssumeCapacity(astgen.countBodyLenAfterFixups(cc_body));
                 astgen.appendBodyWithFixups(cc_body);
                 const break_extra = zir_datas[@intFromEnum(cc_body[cc_body.len - 1])].@"break".payload_index;
                 astgen.extra.items[break_extra + std.meta.fieldIndex(Zir.Inst.Break, "block_inst").?] =
@@ -12301,28 +12217,8 @@ const GenZir = struct {
             astgen.appendBodyWithFixupsExtraRefsArrayList(&astgen.extra, body, args.param_insts);
             astgen.extra.appendSliceAssumeCapacity(src_locs_and_hash);
 
-            // Order is important when unstacking.
-            if (args.body_gz) |body_gz| body_gz.unstack();
-            if (args.ret_gz != null) {
-                args.ret_gz.?.unstack();
-                args.cc_gz.?.unstack();
-                args.section_gz.?.unstack();
-                args.addrspace_gz.?.unstack();
-                args.align_gz.?.unstack();
-            }
-
-            try gz.instructions.ensureUnusedCapacity(gpa, 1);
-
-            astgen.instructions.appendAssumeCapacity(.{
-                .tag = .func_fancy,
-                .data = .{ .pl_node = .{
-                    .src_node = gz.nodeIndexToRelative(args.src_node),
-                    .payload_index = payload_index,
-                } },
-            });
-            gz.instructions.appendAssumeCapacity(new_index);
-            return new_index.toRef();
-        } else {
+            break :inst_info .{ .func_fancy, payload_index };
+        } else inst_info: {
             try astgen.extra.ensureUnusedCapacity(
                 gpa,
                 @typeInfo(Zir.Inst.Func).@"struct".fields.len + 1 +
@@ -12354,30 +12250,29 @@ const GenZir = struct {
             astgen.appendBodyWithFixupsExtraRefsArrayList(&astgen.extra, body, args.param_insts);
             astgen.extra.appendSliceAssumeCapacity(src_locs_and_hash);
 
-            // Order is important when unstacking.
-            if (args.body_gz) |body_gz| body_gz.unstack();
-            if (args.ret_gz) |ret_gz| ret_gz.unstack();
-            if (args.cc_gz) |cc_gz| cc_gz.unstack();
-            if (args.section_gz) |section_gz| section_gz.unstack();
-            if (args.addrspace_gz) |addrspace_gz| addrspace_gz.unstack();
-            if (args.align_gz) |align_gz| align_gz.unstack();
+            break :inst_info .{
+                if (args.is_inferred_error) .func_inferred else .func,
+                payload_index,
+            };
+        };
 
-            try gz.instructions.ensureUnusedCapacity(gpa, 1);
+        // Order is important when unstacking.
+        if (args.body_gz) |body_gz| body_gz.unstack();
+        if (args.cc_gz) |cc_gz| cc_gz.unstack();
+        if (args.ret_gz) |ret_gz| ret_gz.unstack();
 
-            const tag: Zir.Inst.Tag = if (args.is_inferred_error) .func_inferred else .func;
-            astgen.instructions.appendAssumeCapacity(.{
-                .tag = tag,
-                .data = .{ .pl_node = .{
-                    .src_node = gz.nodeIndexToRelative(args.src_node),
-                    .payload_index = payload_index,
-                } },
-            });
-            gz.instructions.appendAssumeCapacity(new_index);
-            return new_index.toRef();
-        }
+        astgen.instructions.appendAssumeCapacity(.{
+            .tag = tag,
+            .data = .{ .pl_node = .{
+                .src_node = gz.nodeIndexToRelative(args.src_node),
+                .payload_index = payload_index,
+            } },
+        });
+        gz.instructions.appendAssumeCapacity(new_index);
+        return new_index.toRef();
     }
 
-    fn fancyFnExprExtraLen(astgen: *AstGen, param_refs_body: []Zir.Inst.Index, main_body: []Zir.Inst.Index, ref: Zir.Inst.Ref) u32 {
+    fn fancyFnExprExtraLen(astgen: *AstGen, param_refs_body: []const Zir.Inst.Index, main_body: []const Zir.Inst.Index, ref: Zir.Inst.Ref) u32 {
         return countBodyLenAfterFixups(astgen, param_refs_body) +
             countBodyLenAfterFixups(astgen, main_body) +
             // If there is a body, we need an element for its length; otherwise, if there is a ref, we need to include that.
@@ -13561,6 +13456,27 @@ fn advanceSourceCursor(astgen: *AstGen, end: usize) void {
     astgen.source_column = column;
 }
 
+const SourceCursor = struct {
+    offset: u32,
+    line: u32,
+    column: u32,
+};
+
+/// Get the current source cursor, to be restored later with `restoreSourceCursor`.
+/// This is useful when analyzing source code out-of-order.
+fn saveSourceCursor(astgen: *const AstGen) SourceCursor {
+    return .{
+        .offset = astgen.source_offset,
+        .line = astgen.source_line,
+        .column = astgen.source_column,
+    };
+}
+fn restoreSourceCursor(astgen: *AstGen, cursor: SourceCursor) void {
+    astgen.source_offset = cursor.offset;
+    astgen.source_line = cursor.line;
+    astgen.source_column = cursor.column;
+}
+
 /// Detects name conflicts for decls and fields, and populates `namespace.decls` with all named declarations.
 /// Returns the number of declarations in the namespace, including unnamed declarations (e.g. `comptime` decls).
 fn scanContainer(
@@ -14013,6 +13929,7 @@ fn addFailedDeclaration(
         @splat(0), // use a fixed hash to represent an AstGen failure; we don't care about source changes if AstGen still failed!
         name,
         gz.astgen.source_line,
+        gz.astgen.source_column,
         is_pub,
         false, // we don't care about exports since semantic analysis will fail
         &decl_gz,
@@ -14027,6 +13944,7 @@ fn setDeclaration(
     src_hash: std.zig.SrcHash,
     name: DeclarationName,
     src_line: u32,
+    src_column: u32,
     is_pub: bool,
     is_export: bool,
     value_gz: *GenZir,
@@ -14079,6 +13997,7 @@ fn setDeclaration(
             .@"usingnamespace" => .@"usingnamespace",
         },
         .src_line = src_line,
+        .src_column = src_column,
         .flags = .{
             .value_body_len = @intCast(value_len),
             .is_pub = is_pub,

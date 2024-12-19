@@ -2494,46 +2494,25 @@ pub const Inst = struct {
 
     /// Trailing:
     /// 0. lib_name: NullTerminatedString, // null terminated string index, if has_lib_name is set
-    /// if (has_align_ref and !has_align_body) {
-    ///   1. align: Ref,
-    /// }
-    /// if (has_align_body) {
-    ///   2. align_body_len: u32
-    ///   3. align_body: u32 // for each align_body_len
-    /// }
-    /// if (has_addrspace_ref and !has_addrspace_body) {
-    ///   4. addrspace: Ref,
-    /// }
-    /// if (has_addrspace_body) {
-    ///   5. addrspace_body_len: u32
-    ///   6. addrspace_body: u32 // for each addrspace_body_len
-    /// }
-    /// if (has_section_ref and !has_section_body) {
-    ///   7. section: Ref,
-    /// }
-    /// if (has_section_body) {
-    ///   8. section_body_len: u32
-    ///   9. section_body: u32 // for each section_body_len
-    /// }
     /// if (has_cc_ref and !has_cc_body) {
-    ///   10. cc: Ref,
+    ///   1. cc: Ref,
     /// }
     /// if (has_cc_body) {
-    ///   11. cc_body_len: u32
-    ///   12. cc_body: u32 // for each cc_body_len
+    ///   2. cc_body_len: u32
+    ///   3. cc_body: u32 // for each cc_body_len
     /// }
     /// if (has_ret_ty_ref and !has_ret_ty_body) {
-    ///   13. ret_ty: Ref,
+    ///   4. ret_ty: Ref,
     /// }
     /// if (has_ret_ty_body) {
-    ///   14. ret_ty_body_len: u32
-    ///   15. ret_ty_body: u32 // for each ret_ty_body_len
+    ///   5. ret_ty_body_len: u32
+    ///   6. ret_ty_body: u32 // for each ret_ty_body_len
     /// }
-    /// 16. noalias_bits: u32 // if has_any_noalias
-    ///     - each bit starting with LSB corresponds to parameter indexes
-    /// 17. body: Index // for each body_len
-    /// 18. src_locs: Func.SrcLocs // if body_len != 0
-    /// 19. proto_hash: std.zig.SrcHash // if body_len != 0; hash of function prototype
+    /// 7. noalias_bits: u32 // if has_any_noalias
+    ///    - each bit starting with LSB corresponds to parameter indexes
+    /// 8. body: Index // for each body_len
+    /// 9. src_locs: Func.SrcLocs // if body_len != 0
+    /// 10. proto_hash: std.zig.SrcHash // if body_len != 0; hash of function prototype
     pub const FuncFancy = struct {
         /// Points to the block that contains the param instructions for this function.
         /// If this is a `declaration`, it refers to the declaration's value body.
@@ -2542,29 +2521,20 @@ pub const Inst = struct {
         bits: Bits,
 
         /// If both has_cc_ref and has_cc_body are false, it means auto calling convention.
-        /// If both has_align_ref and has_align_body are false, it means default alignment.
         /// If both has_ret_ty_ref and has_ret_ty_body are false, it means void return type.
-        /// If both has_section_ref and has_section_body are false, it means default section.
-        /// If both has_addrspace_ref and has_addrspace_body are false, it means default addrspace.
         pub const Bits = packed struct {
             is_var_args: bool,
             is_inferred_error: bool,
             is_test: bool,
             is_extern: bool,
             is_noinline: bool,
-            has_align_ref: bool,
-            has_align_body: bool,
-            has_addrspace_ref: bool,
-            has_addrspace_body: bool,
-            has_section_ref: bool,
-            has_section_body: bool,
             has_cc_ref: bool,
             has_cc_body: bool,
             has_ret_ty_ref: bool,
             has_ret_ty_body: bool,
             has_lib_name: bool,
             has_any_noalias: bool,
-            _: u15 = undefined,
+            _: u21 = undefined,
         };
     };
 
@@ -2636,6 +2606,7 @@ pub const Inst = struct {
         /// The name of this `Decl`. Also indicates whether it is a test, comptime block, etc.
         name: Name,
         src_line: u32,
+        src_column: u32,
         flags: Flags,
 
         pub const Flags = packed struct(u32) {
@@ -4268,36 +4239,6 @@ fn findTrackableInner(
             var extra_index: usize = extra.end;
             extra_index += @intFromBool(extra.data.bits.has_lib_name);
 
-            if (extra.data.bits.has_align_body) {
-                const body_len = zir.extra[extra_index];
-                extra_index += 1;
-                const body = zir.bodySlice(extra_index, body_len);
-                try zir.findTrackableBody(gpa, contents, defers, body);
-                extra_index += body.len;
-            } else if (extra.data.bits.has_align_ref) {
-                extra_index += 1;
-            }
-
-            if (extra.data.bits.has_addrspace_body) {
-                const body_len = zir.extra[extra_index];
-                extra_index += 1;
-                const body = zir.bodySlice(extra_index, body_len);
-                try zir.findTrackableBody(gpa, contents, defers, body);
-                extra_index += body.len;
-            } else if (extra.data.bits.has_addrspace_ref) {
-                extra_index += 1;
-            }
-
-            if (extra.data.bits.has_section_body) {
-                const body_len = zir.extra[extra_index];
-                extra_index += 1;
-                const body = zir.bodySlice(extra_index, body_len);
-                try zir.findTrackableBody(gpa, contents, defers, body);
-                extra_index += body.len;
-            } else if (extra.data.bits.has_section_ref) {
-                extra_index += 1;
-            }
-
             if (extra.data.bits.has_cc_body) {
                 const body_len = zir.extra[extra_index];
                 extra_index += 1;
@@ -4586,21 +4527,6 @@ pub fn getFnInfo(zir: Zir, fn_inst: Inst.Index) FnInfo {
             var ret_ty_body: []const Inst.Index = &.{};
 
             extra_index += @intFromBool(extra.data.bits.has_lib_name);
-            if (extra.data.bits.has_align_body) {
-                extra_index += zir.extra[extra_index] + 1;
-            } else if (extra.data.bits.has_align_ref) {
-                extra_index += 1;
-            }
-            if (extra.data.bits.has_addrspace_body) {
-                extra_index += zir.extra[extra_index] + 1;
-            } else if (extra.data.bits.has_addrspace_ref) {
-                extra_index += 1;
-            }
-            if (extra.data.bits.has_section_body) {
-                extra_index += zir.extra[extra_index] + 1;
-            } else if (extra.data.bits.has_section_ref) {
-                extra_index += 1;
-            }
             if (extra.data.bits.has_cc_body) {
                 extra_index += zir.extra[extra_index] + 1;
             } else if (extra.data.bits.has_cc_ref) {
@@ -4711,18 +4637,6 @@ pub fn getAssociatedSrcHash(zir: Zir, inst: Zir.Inst.Index) ?std.zig.SrcHash {
             const bits = extra.data.bits;
             var extra_index = extra.end;
             extra_index += @intFromBool(bits.has_lib_name);
-            if (bits.has_align_body) {
-                const body_len = zir.extra[extra_index];
-                extra_index += 1 + body_len;
-            } else extra_index += @intFromBool(bits.has_align_ref);
-            if (bits.has_addrspace_body) {
-                const body_len = zir.extra[extra_index];
-                extra_index += 1 + body_len;
-            } else extra_index += @intFromBool(bits.has_addrspace_ref);
-            if (bits.has_section_body) {
-                const body_len = zir.extra[extra_index];
-                extra_index += 1 + body_len;
-            } else extra_index += @intFromBool(bits.has_section_ref);
             if (bits.has_cc_body) {
                 const body_len = zir.extra[extra_index];
                 extra_index += 1 + body_len;

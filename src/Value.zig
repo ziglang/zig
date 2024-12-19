@@ -3840,8 +3840,6 @@ pub fn makeBool(x: bool) Value {
     return if (x) Value.true else Value.false;
 }
 
-pub const RuntimeIndex = InternPool.RuntimeIndex;
-
 /// `parent_ptr` must be a single-pointer to some optional.
 /// Returns a pointer to the payload of the optional.
 /// May perform type resolution.

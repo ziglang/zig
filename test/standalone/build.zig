@@ -47,9 +47,11 @@ pub fn build(b: *std.Build) void {
     }) |tool_src_path| {
         const tool = b.addTest(.{
             .name = std.fs.path.stem(tool_src_path),
-            .root_source_file = b.path(tool_src_path),
-            .optimize = .Debug,
-            .target = tools_target,
+            .root_module = b.createModule(.{
+                .root_source_file = b.path(tool_src_path),
+                .optimize = .Debug,
+                .target = tools_target,
+            }),
         });
         const run = b.addRunArtifact(tool);
         tools_tests_step.dependOn(&run.step);

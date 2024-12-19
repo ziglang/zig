@@ -11,9 +11,11 @@ pub fn build(b: *std.Build) void {
 
     const lib = b.addExecutable(.{
         .name = "lib",
-        .root_source_file = b.path("lib.zig"),
-        .optimize = .ReleaseSafe, // to make the output deterministic in address positions
-        .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("lib.zig"),
+            .optimize = .ReleaseSafe, // to make the output deterministic in address positions
+            .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
+        }),
     });
     lib.entry = .disabled;
     lib.use_lld = false;

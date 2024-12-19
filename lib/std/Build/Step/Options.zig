@@ -390,19 +390,11 @@ pub fn addOptionPath(
     path.addStepDependencies(&options.step);
 }
 
-/// Deprecated: use `addOptionPath(options, name, artifact.getEmittedBin())` instead.
-pub fn addOptionArtifact(options: *Options, name: []const u8, artifact: *Step.Compile) void {
-    return addOptionPath(options, name, artifact.getEmittedBin());
-}
-
 pub fn createModule(options: *Options) *std.Build.Module {
     return options.step.owner.createModule(.{
         .root_source_file = options.getOutput(),
     });
 }
-
-/// deprecated: use `getOutput`
-pub const getSource = getOutput;
 
 /// Returns the main artifact of this Build Step which is a Zig source file
 /// generated from the key-value pairs of the Options.

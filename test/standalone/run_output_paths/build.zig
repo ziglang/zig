@@ -9,9 +9,11 @@ pub fn build(b: *std.Build) void {
 
     const create_file_exe = b.addExecutable(.{
         .name = "create_file",
-        .root_source_file = b.path("create_file.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("create_file.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
     });
 
     const create_first = b.addRunArtifact(create_file_exe);

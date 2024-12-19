@@ -11,10 +11,13 @@ pub fn build(b: *std.Build) void {
         const generated_main_c = write_files.add("main.c", "");
         const exe = b.addExecutable(.{
             .name = "test",
-            .target = b.graph.host,
-            .optimize = optimize,
+            .root_module = b.createModule(.{
+                .root_source_file = null,
+                .target = b.graph.host,
+                .optimize = optimize,
+            }),
         });
-        exe.addCSourceFiles(.{
+        exe.root_module.addCSourceFiles(.{
             .root = generated_main_c.dirname(),
             .files = &.{"main.c"},
         });
@@ -26,11 +29,13 @@ pub fn build(b: *std.Build) void {
         const dir = write_files.addCopyDirectory(b.path("inc"), "", .{});
         const exe = b.addExecutable(.{
             .name = "test",
-            .root_source_file = b.path("inctest.zig"),
-            .target = b.graph.host,
-            .optimize = optimize,
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("inctest.zig"),
+                .target = b.graph.host,
+                .optimize = optimize,
+            }),
         });
-        exe.addIncludePath(dir);
+        exe.root_module.addIncludePath(dir);
         b.step("copydir", "").dependOn(&exe.step);
         test_step.dependOn(&exe.step);
     }

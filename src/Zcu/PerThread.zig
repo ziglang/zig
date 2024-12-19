@@ -1314,67 +1314,83 @@ fn semaCau(pt: Zcu.PerThread, cau_index: InternPool.Cau.Index) !SemaCauResult {
         };
     }
 
-    const nav_already_populated, const queue_linker_work = switch (ip.indexToKey(decl_val.toIntern())) {
-        .func => |f| .{ f.owner_nav == nav_index, true },
-        .variable => |v| .{ false, v.owner_nav == nav_index },
-        .@"extern" => .{ false, false },
-        else => .{ false, true },
+    const queue_linker_work, const is_owned_fn = switch (ip.indexToKey(decl_val.toIntern())) {
+        .func => |f| .{ true, f.owner_nav == nav_index }, // note that this lets function aliases reach codegen
+        .variable => |v| .{ v.owner_nav == nav_index, false },
+        .@"extern" => |e| .{ false, Type.fromInterned(e.ty).zigTypeTag(zcu) == .@"fn" },
+        else => .{ true, false },
     };
 
-    if (nav_already_populated) {
-        // This is a function declaration.
-        // Logic in `Sema.funcCommon` has already populated the `Nav` for us.
-        assert(ip.getNav(nav_index).status.resolved.val == decl_val.toIntern());
-    } else {
-        // Keep in sync with logic in `Sema.zirVarExtended`.
-        const alignment: InternPool.Alignment = a: {
-            const align_body = decl_bodies.align_body orelse break :a .none;
-            const align_ref = try sema.resolveInlineBody(&block, align_body, inst_info.inst);
-            break :a try sema.analyzeAsAlign(&block, align_src, align_ref);
-        };
+    // Keep in sync with logic in `Sema.zirVarExtended`.
+    const alignment: InternPool.Alignment = a: {
+        const align_body = decl_bodies.align_body orelse break :a .none;
+        const align_ref = try sema.resolveInlineBody(&block, align_body, inst_info.inst);
+        break :a try sema.analyzeAsAlign(&block, align_src, align_ref);
+    };
 
-        const @"linksection": InternPool.OptionalNullTerminatedString = ls: {
-            const linksection_body = decl_bodies.linksection_body orelse break :ls .none;
-            const linksection_ref = try sema.resolveInlineBody(&block, linksection_body, inst_info.inst);
-            const bytes = try sema.toConstString(&block, section_src, linksection_ref, .{
-                .needed_comptime_reason = "linksection must be comptime-known",
-            });
-            if (std.mem.indexOfScalar(u8, bytes, 0) != null) {
-                return sema.fail(&block, section_src, "linksection cannot contain null bytes", .{});
-            } else if (bytes.len == 0) {
-                return sema.fail(&block, section_src, "linksection cannot be empty", .{});
-            }
-            break :ls try ip.getOrPutStringOpt(gpa, pt.tid, bytes, .no_embedded_nulls);
-        };
-
-        const @"addrspace": std.builtin.AddressSpace = as: {
-            const addrspace_ctx: Sema.AddressSpaceContext = switch (ip.indexToKey(decl_val.toIntern())) {
-                .func => .function,
-                .variable => .variable,
-                .@"extern" => |e| if (ip.indexToKey(e.ty) == .func_type)
-                    .function
-                else
-                    .variable,
-                else => .constant,
-            };
-            const target = zcu.getTarget();
-            const addrspace_body = decl_bodies.addrspace_body orelse break :as switch (addrspace_ctx) {
-                .function => target_util.defaultAddressSpace(target, .function),
-                .variable => target_util.defaultAddressSpace(target, .global_mutable),
-                .constant => target_util.defaultAddressSpace(target, .global_constant),
-                else => unreachable,
-            };
-            const addrspace_ref = try sema.resolveInlineBody(&block, addrspace_body, inst_info.inst);
-            break :as try sema.analyzeAsAddressSpace(&block, addrspace_src, addrspace_ref, addrspace_ctx);
-        };
-
-        ip.resolveNavValue(nav_index, .{
-            .val = decl_val.toIntern(),
-            .alignment = alignment,
-            .@"linksection" = @"linksection",
-            .@"addrspace" = @"addrspace",
+    const @"linksection": InternPool.OptionalNullTerminatedString = ls: {
+        const linksection_body = decl_bodies.linksection_body orelse break :ls .none;
+        const linksection_ref = try sema.resolveInlineBody(&block, linksection_body, inst_info.inst);
+        const bytes = try sema.toConstString(&block, section_src, linksection_ref, .{
+            .needed_comptime_reason = "linksection must be comptime-known",
         });
+        if (std.mem.indexOfScalar(u8, bytes, 0) != null) {
+            return sema.fail(&block, section_src, "linksection cannot contain null bytes", .{});
+        } else if (bytes.len == 0) {
+            return sema.fail(&block, section_src, "linksection cannot be empty", .{});
+        }
+        break :ls try ip.getOrPutStringOpt(gpa, pt.tid, bytes, .no_embedded_nulls);
+    };
+
+    const @"addrspace": std.builtin.AddressSpace = as: {
+        const addrspace_ctx: Sema.AddressSpaceContext = switch (ip.indexToKey(decl_val.toIntern())) {
+            .func => .function,
+            .variable => .variable,
+            .@"extern" => |e| if (ip.indexToKey(e.ty) == .func_type)
+                .function
+            else
+                .variable,
+            else => .constant,
+        };
+        const target = zcu.getTarget();
+        const addrspace_body = decl_bodies.addrspace_body orelse break :as switch (addrspace_ctx) {
+            .function => target_util.defaultAddressSpace(target, .function),
+            .variable => target_util.defaultAddressSpace(target, .global_mutable),
+            .constant => target_util.defaultAddressSpace(target, .global_constant),
+            else => unreachable,
+        };
+        const addrspace_ref = try sema.resolveInlineBody(&block, addrspace_body, inst_info.inst);
+        break :as try sema.analyzeAsAddressSpace(&block, addrspace_src, addrspace_ref, addrspace_ctx);
+    };
+
+    if (is_owned_fn) {
+        // linksection etc are legal, except some targets do not support function alignment.
+        if (decl_bodies.align_body != null and !target_util.supportsFunctionAlignment(zcu.getTarget())) {
+            return sema.fail(&block, align_src, "target does not support function alignment", .{});
+        }
+    } else if (try decl_ty.comptimeOnlySema(pt)) {
+        // alignment, linksection, addrspace annotations are not allowed for comptime-only types.
+        const reason: []const u8 = switch (ip.indexToKey(decl_val.toIntern())) {
+            .func => "function alias", // slightly clearer message, since you *can* specify these on function *declarations*
+            else => "comptime-only type",
+        };
+        if (decl_bodies.align_body != null) {
+            return sema.fail(&block, align_src, "cannot specify alignment of {s}", .{reason});
+        }
+        if (decl_bodies.linksection_body != null) {
+            return sema.fail(&block, section_src, "cannot specify linksection of {s}", .{reason});
+        }
+        if (decl_bodies.addrspace_body != null) {
+            return sema.fail(&block, addrspace_src, "cannot specify addrspace of {s}", .{reason});
+        }
     }
+
+    ip.resolveNavValue(nav_index, .{
+        .val = decl_val.toIntern(),
+        .alignment = alignment,
+        .@"linksection" = @"linksection",
+        .@"addrspace" = @"addrspace",
+    });
 
     // Mark the `Cau` as completed before evaluating the export!
     assert(zcu.analysis_in_progress.swapRemove(anal_unit));
