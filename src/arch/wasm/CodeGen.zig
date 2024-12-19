@@ -235,7 +235,6 @@ const Op = enum {
     br_table,
     @"return",
     call,
-    call_indirect,
     drop,
     select,
     global_get,
@@ -313,7 +312,6 @@ fn buildOpcode(args: OpcodeBuildArguments) std.wasm.Opcode {
         .br_table => unreachable,
         .@"return" => unreachable,
         .call => unreachable,
-        .call_indirect => unreachable,
         .drop => unreachable,
         .select => unreachable,
         .global_get => unreachable,
@@ -871,6 +869,10 @@ fn addLabel(cg: *CodeGen, tag: Mir.Inst.Tag, label: u32) error{OutOfMemory}!void
 
 fn addLocal(cg: *CodeGen, tag: Mir.Inst.Tag, local: u32) error{OutOfMemory}!void {
     try cg.addInst(.{ .tag = tag, .data = .{ .local = local } });
+}
+
+fn addFuncTy(cg: *CodeGen, tag: Mir.Inst.Tag, i: Wasm.FunctionType.Index) error{OutOfMemory}!void {
+    try cg.addInst(.{ .tag = tag, .data = .{ .func_ty = i } });
 }
 
 /// Accepts an unsigned 32bit integer rather than a signed integer to
@@ -2211,7 +2213,7 @@ fn airCall(cg: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModifie
         try cg.emitWValue(operand);
 
         const fn_type_index = try wasm.internFunctionType(fn_info.cc, fn_info.param_types.get(ip), .fromInterned(fn_info.return_type), cg.target);
-        try cg.addLabel(.call_indirect, @intFromEnum(fn_type_index));
+        try cg.addFuncTy(.call_indirect, fn_type_index);
     }
 
     const result_value = result_value: {
