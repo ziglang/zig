@@ -259,13 +259,13 @@ params_scratch: std.ArrayListUnmanaged(std.wasm.Valtype) = .empty,
 returns_scratch: std.ArrayListUnmanaged(std.wasm.Valtype) = .empty,
 
 pub const UavFixup = extern struct {
-    ip_index: InternPool.Index,
+    uavs_exe_index: UavsExeIndex,
     /// Index into `string_bytes`.
     offset: u32,
 };
 
 pub const NavFixup = extern struct {
-    nav_index: InternPool.Nav.Index,
+    navs_exe_index: NavsExeIndex,
     /// Index into `string_bytes`.
     offset: u32,
 };
@@ -2379,7 +2379,7 @@ pub fn updateNav(wasm: *Wasm, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index
     const gop = try wasm.navs_exe.getOrPut(gpa, nav_index);
     gop.value_ptr.* = .{
         .code = zcu_data.code,
-        .count = 0,
+        .count = if (gop.found_existing) gop.value_ptr.count else 0,
     };
     wasm.data_segments.putAssumeCapacity(.pack(wasm, .{ .nav_exe = @enumFromInt(gop.index) }), {});
 }
@@ -3374,6 +3374,24 @@ pub fn refUavExe(wasm: *Wasm, pt: Zcu.PerThread, ip_index: InternPool.Index) !Ua
     const uav_index: UavsExeIndex = @enumFromInt(gop.index);
     try wasm.data_segments.put(gpa, .pack(wasm, .{ .uav_exe = uav_index }), {});
     return uav_index;
+}
+
+pub fn refNavExe(wasm: *Wasm, nav_index: InternPool.Nav.Index) !NavsExeIndex {
+    const comp = wasm.base.comp;
+    const gpa = comp.gpa;
+    assert(comp.config.output_mode != .Obj);
+    const gop = try wasm.navs_exe.getOrPut(gpa, nav_index);
+    if (gop.found_existing) {
+        gop.value_ptr.count += 1;
+    } else {
+        gop.value_ptr.* = .{
+            .code = undefined,
+            .count = 1,
+        };
+    }
+    const navs_exe_index: NavsExeIndex = @enumFromInt(gop.index);
+    try wasm.data_segments.put(gpa, .pack(wasm, .{ .nav_exe = navs_exe_index }), {});
+    return navs_exe_index;
 }
 
 /// Asserts it is called after `Flush.data_segments` is fully populated and sorted.

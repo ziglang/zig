@@ -674,8 +674,9 @@ fn lowerUavRef(
                     .addend = @intCast(offset),
                 });
             } else {
-                try wasm.uav_fixups.append(gpa, .{
-                    .ip_index = uav.val,
+                try wasm.uav_fixups.ensureUnusedCapacity(gpa, 1);
+                wasm.uav_fixups.appendAssumeCapacity(.{
+                    .uavs_exe_index = try wasm.refUavExe(pt, uav.val),
                     .offset = @intCast(code.items.len),
                 });
             }
@@ -745,8 +746,9 @@ fn lowerNavRef(
                     .addend = @intCast(offset),
                 });
             } else {
-                try wasm.nav_fixups.append(gpa, .{
-                    .nav_index = nav_index,
+                try wasm.nav_fixups.ensureUnusedCapacity(gpa, 1);
+                wasm.nav_fixups.appendAssumeCapacity(.{
+                    .navs_exe_index = try wasm.refNavExe(nav_index),
                     .offset = @intCast(code.items.len),
                 });
             }

@@ -60,6 +60,11 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
     const import_memory = comp.config.import_memory;
     const export_memory = comp.config.export_memory;
     const target = &comp.root_mod.resolved_target.result;
+    const is64 = switch (target.cpu.arch) {
+        .wasm32 => false,
+        .wasm64 => true,
+        else => unreachable,
+    };
     const is_obj = comp.config.output_mode == .Obj;
     const allow_undefined = is_obj or wasm.import_symbols;
     const zcu = wasm.base.comp.zcu.?;
@@ -648,6 +653,27 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
         if (is_obj) @panic("TODO apply offset to code relocs");
         code_section_index = section_index;
         section_index += 1;
+    }
+
+    if (!is_obj) {
+        for (wasm.uav_fixups.items) |uav_fixup| {
+            const ds_id: Wasm.DataSegment.Id = .pack(wasm, .{ .uav_exe = uav_fixup.uavs_exe_index });
+            const vaddr = f.data_segments.get(ds_id).?;
+            if (!is64) {
+                mem.writeInt(u32, wasm.string_bytes.items[uav_fixup.offset..][0..4], vaddr, .little);
+            } else {
+                mem.writeInt(u64, wasm.string_bytes.items[uav_fixup.offset..][0..8], vaddr, .little);
+            }
+        }
+        for (wasm.nav_fixups.items) |nav_fixup| {
+            const ds_id: Wasm.DataSegment.Id = .pack(wasm, .{ .nav_exe = nav_fixup.navs_exe_index });
+            const vaddr = f.data_segments.get(ds_id).?;
+            if (!is64) {
+                mem.writeInt(u32, wasm.string_bytes.items[nav_fixup.offset..][0..4], vaddr, .little);
+            } else {
+                mem.writeInt(u64, wasm.string_bytes.items[nav_fixup.offset..][0..8], vaddr, .little);
+            }
+        }
     }
 
     // Data section.
