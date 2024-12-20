@@ -1185,9 +1185,9 @@ fn renderVarDeclWithoutFixups(
     {
         const name_space = if (var_decl.ast.type_node == 0 and
             (var_decl.ast.align_node != 0 or
-            var_decl.ast.addrspace_node != 0 or
-            var_decl.ast.section_node != 0 or
-            var_decl.ast.init_node != 0))
+                var_decl.ast.addrspace_node != 0 or
+                var_decl.ast.section_node != 0 or
+                var_decl.ast.init_node != 0))
             Space.space
         else
             Space.none;

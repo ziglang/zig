@@ -689,15 +689,15 @@ pub const Module = switch (native_os) {
                 const o_file_path = mem.sliceTo(self.strings[symbol.ofile..], 0);
                 const o_file_info = self.ofiles.getPtr(o_file_path) orelse
                     (self.loadOFile(allocator, o_file_path) catch |err| switch (err) {
-                    error.FileNotFound,
-                    error.MissingDebugInfo,
-                    error.InvalidDebugInfo,
-                    => return .{
-                        .relocated_address = relocated_address,
-                        .symbol = symbol,
-                    },
-                    else => return err,
-                });
+                        error.FileNotFound,
+                        error.MissingDebugInfo,
+                        error.InvalidDebugInfo,
+                        => return .{
+                            .relocated_address = relocated_address,
+                            .symbol = symbol,
+                        },
+                        else => return err,
+                    });
 
                 return .{
                     .relocated_address = relocated_address,
