@@ -1245,45 +1245,70 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
                         .c_source_file => |c_source_file| l: {
                             if (!my_responsibility) break :l;
 
-                            if (c_source_file.flags.len == 0) {
-                                if (prev_has_cflags) {
-                                    try zig_args.append("-cflags");
-                                    try zig_args.append("--");
-                                    prev_has_cflags = false;
-                                }
-                            } else {
+                            if (prev_has_cflags or c_source_file.flags.len != 0) {
                                 try zig_args.append("-cflags");
                                 for (c_source_file.flags) |arg| {
                                     try zig_args.append(arg);
                                 }
                                 try zig_args.append("--");
-                                prev_has_cflags = true;
                             }
+                            prev_has_cflags = (c_source_file.flags.len != 0);
+
+                            if (c_source_file.language != .find_by_file_extension) {
+                                try zig_args.append("-x");
+                                try zig_args.append(switch (c_source_file.language) {
+                                    .find_by_file_extension => unreachable,
+                                    .c => "c",
+                                    .cpp => "c++",
+                                    .assembly => "assembler",
+                                    .assembly_with_cpp => "assembler-with-cpp",
+                                    .objc => "objective-c",
+                                    .objcpp => "objective-c++",
+                                });
+                            }
+
                             try zig_args.append(c_source_file.file.getPath2(mod.owner, step));
+
+                            if (c_source_file.language != .find_by_file_extension) {
+                                try zig_args.append("-x");
+                                try zig_args.append("none");
+                            }
                             total_linker_objects += 1;
                         },
 
                         .c_source_files => |c_source_files| l: {
                             if (!my_responsibility) break :l;
 
-                            if (c_source_files.flags.len == 0) {
-                                if (prev_has_cflags) {
-                                    try zig_args.append("-cflags");
-                                    try zig_args.append("--");
-                                    prev_has_cflags = false;
-                                }
-                            } else {
+                            if (prev_has_cflags or c_source_files.flags.len != 0) {
                                 try zig_args.append("-cflags");
-                                for (c_source_files.flags) |flag| {
-                                    try zig_args.append(flag);
+                                for (c_source_files.flags) |arg| {
+                                    try zig_args.append(arg);
                                 }
                                 try zig_args.append("--");
-                                prev_has_cflags = true;
+                            }
+                            prev_has_cflags = (c_source_files.flags.len != 0);
+
+                            if (c_source_files.language != .find_by_file_extension) {
+                                try zig_args.append("-x");
+                                try zig_args.append(switch (c_source_files.language) {
+                                    .find_by_file_extension => unreachable,
+                                    .c => "c",
+                                    .cpp => "c++",
+                                    .assembly => "assembler",
+                                    .assembly_with_cpp => "assembler-with-cpp",
+                                    .objc => "objective-c",
+                                    .objcpp => "objective-c++",
+                                });
                             }
 
                             const root_path = c_source_files.root.getPath2(mod.owner, step);
                             for (c_source_files.files) |file| {
                                 try zig_args.append(b.pathJoin(&.{ root_path, file }));
+                            }
+
+                            if (c_source_files.language != .find_by_file_extension) {
+                                try zig_args.append("-x");
+                                try zig_args.append("none");
                             }
 
                             total_linker_objects += c_source_files.files.len;

@@ -78,22 +78,36 @@ pub const SystemLib = struct {
     pub const SearchStrategy = enum { paths_first, mode_first, no_fallback };
 };
 
+pub const ForeignSourceLanguage = enum {
+    c,
+    cpp,
+    assembly,
+    assembly_with_cpp,
+    objc,
+    objcpp,
+
+    find_by_file_extension,
+};
+
 pub const CSourceFiles = struct {
     root: LazyPath,
     /// `files` is relative to `root`, which is
     /// the build root by default
     files: []const []const u8,
     flags: []const []const u8,
+    language: ForeignSourceLanguage,
 };
 
 pub const CSourceFile = struct {
     file: LazyPath,
     flags: []const []const u8 = &.{},
+    language: ForeignSourceLanguage = .find_by_file_extension,
 
     pub fn dupe(file: CSourceFile, b: *std.Build) CSourceFile {
         return .{
             .file = file.file.dupe(b),
             .flags = b.dupeStrings(file.flags),
+            .language = file.language,
         };
     }
 };
@@ -378,9 +392,10 @@ pub const AddCSourceFilesOptions = struct {
     root: ?LazyPath = null,
     files: []const []const u8,
     flags: []const []const u8 = &.{},
+    language: ForeignSourceLanguage = .find_by_file_extension,
 };
 
-/// Handy when you have many C/C++ source files and want them all to have the same flags.
+/// Handy when you have many non-Zig source files and want them all to have the same flags.
 pub fn addCSourceFiles(m: *Module, options: AddCSourceFilesOptions) void {
     const b = m.owner;
     const allocator = b.allocator;
@@ -399,6 +414,7 @@ pub fn addCSourceFiles(m: *Module, options: AddCSourceFilesOptions) void {
         .root = options.root orelse b.path(""),
         .files = b.dupeStrings(options.files),
         .flags = b.dupeStrings(options.flags),
+        .language = options.language,
     };
     m.link_objects.append(allocator, .{ .c_source_files = c_source_files }) catch @panic("OOM");
 }
