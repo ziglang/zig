@@ -253,6 +253,13 @@ all_zcu_locals: std.ArrayListUnmanaged(u8) = .empty,
 params_scratch: std.ArrayListUnmanaged(std.wasm.Valtype) = .empty,
 returns_scratch: std.ArrayListUnmanaged(std.wasm.Valtype) = .empty,
 
+/// All Zcu error names in order, null-terminated, concatenated. No need to
+/// serialize; trivially reconstructed.
+error_name_bytes: std.ArrayListUnmanaged(u8) = .empty,
+/// For each Zcu error, in order, offset into `error_name_bytes` where the name
+/// is stored. No need to serialize; trivially reconstructed.
+error_name_offs: std.ArrayListUnmanaged(u32) = .empty,
+
 pub const UavFixup = extern struct {
     uavs_exe_index: UavsExeIndex,
     /// Index into `string_bytes`.
@@ -979,12 +986,11 @@ pub const GlobalImport = extern struct {
         __tls_align,
         __tls_base,
         __tls_size,
-        __zig_error_name_table,
         // Next, index into `object_globals`.
         // Next, index into `navs_obj` or `navs_exe` depending on whether emitting an object.
         _,
 
-        const first_object_global = @intFromEnum(Resolution.__zig_error_name_table) + 1;
+        const first_object_global = @intFromEnum(Resolution.__tls_size) + 1;
 
         pub const Unpacked = union(enum) {
             unresolved,
@@ -994,7 +1000,6 @@ pub const GlobalImport = extern struct {
             __tls_align,
             __tls_base,
             __tls_size,
-            __zig_error_name_table,
             object_global: ObjectGlobalIndex,
             nav_exe: NavsExeIndex,
             nav_obj: NavsObjIndex,
@@ -1009,7 +1014,6 @@ pub const GlobalImport = extern struct {
                 .__tls_align => .__tls_align,
                 .__tls_base => .__tls_base,
                 .__tls_size => .__tls_size,
-                .__zig_error_name_table => .__zig_error_name_table,
                 _ => {
                     const i: u32 = @intFromEnum(r);
                     const object_global_index = i - first_object_global;
@@ -1036,7 +1040,6 @@ pub const GlobalImport = extern struct {
                 .__tls_align => .__tls_align,
                 .__tls_base => .__tls_base,
                 .__tls_size => .__tls_size,
-                .__zig_error_name_table => .__zig_error_name_table,
                 .object_global => |i| @enumFromInt(first_object_global + @intFromEnum(i)),
                 .nav_obj => |i| @enumFromInt(first_object_global + wasm.object_globals.items.len + @intFromEnum(i)),
                 .nav_exe => |i| @enumFromInt(first_object_global + wasm.object_globals.items.len + @intFromEnum(i)),
@@ -1062,7 +1065,6 @@ pub const GlobalImport = extern struct {
                 .__tls_align => @tagName(Unpacked.__tls_align),
                 .__tls_base => @tagName(Unpacked.__tls_base),
                 .__tls_size => @tagName(Unpacked.__tls_size),
-                .__zig_error_name_table => @tagName(Unpacked.__zig_error_name_table),
                 .object_global => |i| i.name(wasm).slice(wasm),
                 .nav_obj => |i| i.name(wasm),
                 .nav_exe => |i| i.name(wasm),
@@ -1332,6 +1334,7 @@ pub const DataSegment = extern struct {
     };
 
     pub const Id = enum(u32) {
+        __zig_error_names,
         __zig_error_name_table,
         /// First, an `ObjectDataSegmentIndex`.
         /// Next, index into `uavs_obj` or `uavs_exe` depending on whether emitting an object.
@@ -1341,6 +1344,7 @@ pub const DataSegment = extern struct {
         const first_object = @intFromEnum(Id.__zig_error_name_table) + 1;
 
         pub const Unpacked = union(enum) {
+            __zig_error_names,
             __zig_error_name_table,
             object: ObjectDataSegmentIndex,
             uav_exe: UavsExeIndex,
@@ -1351,6 +1355,7 @@ pub const DataSegment = extern struct {
 
         pub fn pack(wasm: *const Wasm, unpacked: Unpacked) Id {
             return switch (unpacked) {
+                .__zig_error_names => .__zig_error_names,
                 .__zig_error_name_table => .__zig_error_name_table,
                 .object => |i| @enumFromInt(first_object + @intFromEnum(i)),
                 inline .uav_exe, .uav_obj => |i| @enumFromInt(first_object + wasm.object_data_segments.items.len + @intFromEnum(i)),
@@ -1361,6 +1366,7 @@ pub const DataSegment = extern struct {
 
         pub fn unpack(id: Id, wasm: *const Wasm) Unpacked {
             return switch (id) {
+                .__zig_error_names => .__zig_error_names,
                 .__zig_error_name_table => .__zig_error_name_table,
                 _ => {
                     const object_index = @intFromEnum(id) - first_object;
@@ -1393,7 +1399,7 @@ pub const DataSegment = extern struct {
 
         pub fn category(id: Id, wasm: *const Wasm) Category {
             return switch (unpack(id, wasm)) {
-                .__zig_error_name_table => .data,
+                .__zig_error_names, .__zig_error_name_table => .data,
                 .object => |i| {
                     const ptr = i.ptr(wasm);
                     if (ptr.flags.tls) return .tls;
@@ -1414,7 +1420,7 @@ pub const DataSegment = extern struct {
 
         pub fn isTls(id: Id, wasm: *const Wasm) bool {
             return switch (unpack(id, wasm)) {
-                .__zig_error_name_table => false,
+                .__zig_error_names, .__zig_error_name_table => false,
                 .object => |i| i.ptr(wasm).flags.tls,
                 .uav_exe, .uav_obj => false,
                 inline .nav_exe, .nav_obj => |i| {
@@ -1432,7 +1438,7 @@ pub const DataSegment = extern struct {
 
         pub fn name(id: Id, wasm: *const Wasm) []const u8 {
             return switch (unpack(id, wasm)) {
-                .__zig_error_name_table, .uav_exe, .uav_obj => ".data",
+                .__zig_error_names, .__zig_error_name_table, .uav_exe, .uav_obj => ".data",
                 .object => |i| i.ptr(wasm).name.unwrap().?.slice(wasm),
                 inline .nav_exe, .nav_obj => |i| {
                     const zcu = wasm.base.comp.zcu.?;
@@ -1445,6 +1451,7 @@ pub const DataSegment = extern struct {
 
         pub fn alignment(id: Id, wasm: *const Wasm) Alignment {
             return switch (unpack(id, wasm)) {
+                .__zig_error_names => .@"1",
                 .__zig_error_name_table => wasm.pointerAlignment(),
                 .object => |i| i.ptr(wasm).flags.alignment,
                 inline .uav_exe, .uav_obj => |i| {
@@ -1472,6 +1479,7 @@ pub const DataSegment = extern struct {
 
         pub fn refCount(id: Id, wasm: *const Wasm) u32 {
             return switch (unpack(id, wasm)) {
+                .__zig_error_names => @intCast(wasm.error_name_offs.items.len),
                 .__zig_error_name_table => wasm.error_name_table_ref_count,
                 .object, .uav_obj, .nav_obj => 0,
                 inline .uav_exe, .nav_exe => |i| i.value(wasm).count,
@@ -1481,7 +1489,7 @@ pub const DataSegment = extern struct {
         pub fn isPassive(id: Id, wasm: *const Wasm) bool {
             if (wasm.base.comp.config.import_memory and !id.isBss(wasm)) return true;
             return switch (unpack(id, wasm)) {
-                .__zig_error_name_table => false,
+                .__zig_error_names, .__zig_error_name_table => false,
                 .object => |i| i.ptr(wasm).flags.is_passive,
                 .uav_exe, .uav_obj, .nav_exe, .nav_obj => false,
             };
@@ -1489,7 +1497,7 @@ pub const DataSegment = extern struct {
 
         pub fn isEmpty(id: Id, wasm: *const Wasm) bool {
             return switch (unpack(id, wasm)) {
-                .__zig_error_name_table => false,
+                .__zig_error_names, .__zig_error_name_table => false,
                 .object => |i| i.ptr(wasm).payload.off == .none,
                 inline .uav_exe, .uav_obj, .nav_exe, .nav_obj => |i| i.value(wasm).code.off == .none,
             };
@@ -1497,10 +1505,11 @@ pub const DataSegment = extern struct {
 
         pub fn size(id: Id, wasm: *const Wasm) u32 {
             return switch (unpack(id, wasm)) {
+                .__zig_error_names => @intCast(wasm.error_name_bytes.items.len),
                 .__zig_error_name_table => {
                     const comp = wasm.base.comp;
                     const zcu = comp.zcu.?;
-                    const errors_len = 1 + zcu.intern_pool.global_error_set.getNamesFromMainThread().len;
+                    const errors_len = wasm.error_name_offs.items.len;
                     const elem_size = ZcuType.slice_const_u8_sentinel_0.abiSize(zcu);
                     return @intCast(errors_len * elem_size);
                 },
@@ -1589,8 +1598,8 @@ const PreloadedStrings = struct {
     __wasm_init_memory: String,
     __wasm_init_memory_flag: String,
     __wasm_init_tls: String,
-    __zig_error_name_table: String,
     __zig_error_names: String,
+    __zig_error_name_table: String,
     __zig_errors_len: String,
     _initialize: String,
     _start: String,
@@ -2366,6 +2375,9 @@ pub fn deinit(wasm: *Wasm) void {
 
     wasm.params_scratch.deinit(gpa);
     wasm.returns_scratch.deinit(gpa);
+
+    wasm.error_name_bytes.deinit(gpa);
+    wasm.error_name_offs.deinit(gpa);
 
     wasm.missing_exports.deinit(gpa);
 }

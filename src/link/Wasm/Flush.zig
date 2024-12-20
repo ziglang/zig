@@ -71,10 +71,26 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
     };
     const is_obj = comp.config.output_mode == .Obj;
     const allow_undefined = is_obj or wasm.import_symbols;
-    const zcu = wasm.base.comp.zcu.?;
-    const ip: *const InternPool = &zcu.intern_pool; // No mutations allowed!
 
-    {
+    if (comp.zcu) |zcu| {
+        const ip: *const InternPool = &zcu.intern_pool; // No mutations allowed!
+
+        if (wasm.error_name_table_ref_count > 0) {
+            // Ensure Zcu error name structures are populated.
+            const full_error_names = ip.global_error_set.getNamesFromMainThread();
+            try wasm.error_name_offs.ensureTotalCapacity(gpa, full_error_names.len + 1);
+            if (wasm.error_name_offs.items.len == 0) {
+                // Dummy entry at index 0 to avoid a sub instruction at `@errorName` sites.
+                wasm.error_name_offs.appendAssumeCapacity(0);
+            }
+            const new_error_names = full_error_names[wasm.error_name_offs.items.len - 1 ..];
+            for (new_error_names) |error_name| {
+                wasm.error_name_offs.appendAssumeCapacity(@intCast(wasm.error_name_bytes.items.len));
+                const s: [:0]const u8 = error_name.toSlice(ip);
+                try wasm.error_name_bytes.appendSlice(gpa, s[0 .. s.len + 1]);
+            }
+        }
+
         const entry_name = if (wasm.entry_resolution.isNavOrUnresolved(wasm)) wasm.entry_name else .none;
 
         for (wasm.nav_exports.keys()) |*nav_export| {
@@ -144,7 +160,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
     // unused segments can be omitted.
     try f.data_segments.ensureUnusedCapacity(gpa, wasm.object_data_segments.items.len +
         wasm.uavs_obj.entries.len + wasm.navs_obj.entries.len +
-        wasm.uavs_exe.entries.len + wasm.navs_exe.entries.len + 1);
+        wasm.uavs_exe.entries.len + wasm.navs_exe.entries.len + 2);
     if (is_obj) assert(wasm.uavs_exe.entries.len == 0);
     if (is_obj) assert(wasm.navs_exe.entries.len == 0);
     if (!is_obj) assert(wasm.uavs_obj.entries.len == 0);
@@ -170,6 +186,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
         }), @as(u32, undefined));
     }
     if (wasm.error_name_table_ref_count > 0) {
+        f.data_segments.putAssumeCapacity(.__zig_error_names, @as(u32, undefined));
         f.data_segments.putAssumeCapacity(.__zig_error_name_table, @as(u32, undefined));
     }
 
@@ -546,7 +563,6 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
                 .__tls_align => @panic("TODO"),
                 .__tls_base => @panic("TODO"),
                 .__tls_size => @panic("TODO"),
-                .__zig_error_name_table => @panic("TODO"),
                 .object_global => |i| {
                     const global = i.ptr(wasm);
                     try binary_writer.writeByte(@intFromEnum(@as(std.wasm.Valtype, global.flags.global_type.valtype.to())));
@@ -730,8 +746,18 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
             const code_start = binary_bytes.items.len;
             append: {
                 const code = switch (segment_id.unpack(wasm)) {
+                    .__zig_error_names => {
+                        try binary_bytes.appendSlice(gpa, wasm.error_name_bytes.items);
+                        break :append;
+                    },
                     .__zig_error_name_table => {
-                        if (true) @panic("TODO lower zig error name table");
+                        if (is_obj) @panic("TODO error name table reloc");
+                        const base = f.data_segments.get(.__zig_error_names).?;
+                        if (!is64) {
+                            try emitErrorNameTable(gpa, binary_bytes, wasm.error_name_offs.items, wasm.error_name_bytes.items, base, u32);
+                        } else {
+                            try emitErrorNameTable(gpa, binary_bytes, wasm.error_name_offs.items, wasm.error_name_bytes.items, base, u64);
+                        }
                         break :append;
                     },
                     .object => |i| c: {
@@ -1490,4 +1516,21 @@ fn uleb128size(x: u32) u32 {
     var size: u32 = 0;
     while (value != 0) : (size += 1) value >>= 7;
     return size;
+}
+
+fn emitErrorNameTable(
+    gpa: Allocator,
+    code: *std.ArrayListUnmanaged(u8),
+    error_name_offs: []const u32,
+    error_name_bytes: []const u8,
+    base: u32,
+    comptime Int: type,
+) error{OutOfMemory}!void {
+    const ptr_size_bytes = @divExact(@bitSizeOf(Int), 8);
+    try code.ensureUnusedCapacity(gpa, ptr_size_bytes * 2 * error_name_offs.len);
+    for (error_name_offs) |off| {
+        const name_len: u32 = @intCast(mem.indexOfScalar(u8, error_name_bytes[off..], 0).?);
+        mem.writeInt(Int, code.addManyAsArrayAssumeCapacity(ptr_size_bytes), base + off, .little);
+        mem.writeInt(Int, code.addManyAsArrayAssumeCapacity(ptr_size_bytes), name_len, .little);
+    }
 }
