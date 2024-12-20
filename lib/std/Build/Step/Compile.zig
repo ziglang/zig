@@ -1254,22 +1254,14 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
                             }
                             prev_has_cflags = (c_source_file.flags.len != 0);
 
-                            if (c_source_file.language != .find_by_file_extension) {
+                            if (c_source_file.language) |lang| {
                                 try zig_args.append("-x");
-                                try zig_args.append(switch (c_source_file.language) {
-                                    .find_by_file_extension => unreachable,
-                                    .c => "c",
-                                    .cpp => "c++",
-                                    .assembly => "assembler",
-                                    .assembly_with_cpp => "assembler-with-cpp",
-                                    .objc => "objective-c",
-                                    .objcpp => "objective-c++",
-                                });
+                                try zig_args.append(lang.internalIdentifier());
                             }
 
                             try zig_args.append(c_source_file.file.getPath2(mod.owner, step));
 
-                            if (c_source_file.language != .find_by_file_extension) {
+                            if (c_source_file.language != null) {
                                 try zig_args.append("-x");
                                 try zig_args.append("none");
                             }
@@ -1288,17 +1280,9 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
                             }
                             prev_has_cflags = (c_source_files.flags.len != 0);
 
-                            if (c_source_files.language != .find_by_file_extension) {
+                            if (c_source_files.language) |lang| {
                                 try zig_args.append("-x");
-                                try zig_args.append(switch (c_source_files.language) {
-                                    .find_by_file_extension => unreachable,
-                                    .c => "c",
-                                    .cpp => "c++",
-                                    .assembly => "assembler",
-                                    .assembly_with_cpp => "assembler-with-cpp",
-                                    .objc => "objective-c",
-                                    .objcpp => "objective-c++",
-                                });
+                                try zig_args.append(lang.internalIdentifier());
                             }
 
                             const root_path = c_source_files.root.getPath2(mod.owner, step);
@@ -1306,7 +1290,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
                                 try zig_args.append(b.pathJoin(&.{ root_path, file }));
                             }
 
-                            if (c_source_files.language != .find_by_file_extension) {
+                            if (c_source_files.language != null) {
                                 try zig_args.append("-x");
                                 try zig_args.append("none");
                             }

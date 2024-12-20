@@ -78,15 +78,28 @@ pub const SystemLib = struct {
     pub const SearchStrategy = enum { paths_first, mode_first, no_fallback };
 };
 
-pub const ForeignSourceLanguage = enum {
+pub const CSourceLanguage = enum {
     c,
     cpp,
-    assembly,
-    assembly_with_cpp,
-    objc,
-    objcpp,
 
-    find_by_file_extension,
+    objective_c,
+    objective_cpp,
+
+    /// Standard assembly
+    assembly,
+    /// Assembly with the C preprocessor
+    assembly_with_preprocessor,
+
+    pub fn internalIdentifier(self: CSourceLanguage) []const u8 {
+        return switch (self) {
+            .c => "c",
+            .cpp => "c++",
+            .objective_c => "objective-c",
+            .objective_cpp => "objective-c++",
+            .assembly => "assembler",
+            .assembly_with_preprocessor => "assembler-with-cpp",
+        };
+    }
 };
 
 pub const CSourceFiles = struct {
@@ -95,13 +108,15 @@ pub const CSourceFiles = struct {
     /// the build root by default
     files: []const []const u8,
     flags: []const []const u8,
-    language: ForeignSourceLanguage,
+    /// By default, determines language of each file individually based on its file extension
+    language: ?CSourceLanguage,
 };
 
 pub const CSourceFile = struct {
     file: LazyPath,
     flags: []const []const u8 = &.{},
-    language: ForeignSourceLanguage = .find_by_file_extension,
+    /// By default, determines language of each file individually based on its file extension
+    language: ?CSourceLanguage = null,
 
     pub fn dupe(file: CSourceFile, b: *std.Build) CSourceFile {
         return .{
@@ -392,7 +407,8 @@ pub const AddCSourceFilesOptions = struct {
     root: ?LazyPath = null,
     files: []const []const u8,
     flags: []const []const u8 = &.{},
-    language: ForeignSourceLanguage = .find_by_file_extension,
+    /// By default, determines language of each file individually based on its file extension
+    language: ?CSourceLanguage = null,
 };
 
 /// Handy when you have many non-Zig source files and want them all to have the same flags.
