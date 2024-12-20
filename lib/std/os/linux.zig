@@ -475,22 +475,22 @@ pub const O = switch (native_arch) {
 /// Set by startup code, used by `getauxval`.
 pub var elf_aux_maybe: ?[*]std.elf.Auxv = null;
 
+/// Whether an external or internal getauxval implementation is used.
 const extern_getauxval = switch (builtin.zig_backend) {
     // Calling extern functions is not yet supported with these backends
     .stage2_aarch64, .stage2_arm, .stage2_riscv64, .stage2_sparc64 => false,
     else => !builtin.link_libc,
 };
 
-comptime {
-    const root = @import("root");
-    // Export this only when building executable, otherwise it is overriding
-    // the libc implementation
-    if (extern_getauxval and (builtin.output_mode == .Exe or @hasDecl(root, "main"))) {
-        @export(&getauxvalImpl, .{ .name = "getauxval", .linkage = .weak });
-    }
-}
-
 pub const getauxval = if (extern_getauxval) struct {
+    comptime {
+        const root = @import("root");
+        // Export this only when building an executable, otherwise it is overriding
+        // the libc implementation
+        if (builtin.output_mode == .Exe or @hasDecl(root, "main")) {
+            @export(&getauxvalImpl, .{ .name = "getauxval", .linkage = .weak });
+        }
+    }
     extern fn getauxval(index: usize) usize;
 }.getauxval else getauxvalImpl;
 
