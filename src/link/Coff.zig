@@ -2218,10 +2218,11 @@ pub fn flushModule(coff: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
     const sub_prog_node = prog_node.start("COFF Flush", 0);
     defer sub_prog_node.end();
 
-    const pt: Zcu.PerThread = .{
-        .zcu = comp.zcu orelse return error.LinkingWithoutZigSourceUnimplemented,
-        .tid = tid,
-    };
+    const pt: Zcu.PerThread = .activate(
+        comp.zcu orelse return error.LinkingWithoutZigSourceUnimplemented,
+        tid,
+    );
+    defer pt.deactivate();
 
     if (coff.lazy_syms.getPtr(.anyerror_type)) |metadata| {
         // Most lazy symbols can be updated on first use, but

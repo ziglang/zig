@@ -2181,7 +2181,8 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
     }
 
     if (comp.zcu) |zcu| {
-        const pt: Zcu.PerThread = .{ .zcu = zcu, .tid = .main };
+        const pt: Zcu.PerThread = .activate(zcu, .main);
+        defer pt.deactivate();
 
         zcu.compile_log_text.shrinkAndFree(gpa, 0);
 
@@ -2251,7 +2252,8 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
     try comp.performAllTheWork(main_progress_node);
 
     if (comp.zcu) |zcu| {
-        const pt: Zcu.PerThread = .{ .zcu = zcu, .tid = .main };
+        const pt: Zcu.PerThread = .activate(zcu, .main);
+        defer pt.deactivate();
 
         if (build_options.enable_debug_extensions and comp.verbose_intern_pool) {
             std.debug.print("intern pool stats for '{s}':\n", .{
@@ -3609,7 +3611,8 @@ fn performAllTheWorkInner(
     }
 
     if (comp.zcu) |zcu| {
-        const pt: Zcu.PerThread = .{ .zcu = zcu, .tid = .main };
+        const pt: Zcu.PerThread = .activate(zcu, .main);
+        defer pt.deactivate();
         if (comp.incremental) {
             const update_zir_refs_node = main_progress_node.start("Update ZIR References", 0);
             defer update_zir_refs_node.end();
@@ -3683,14 +3686,16 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job, prog_node: std.Progre
             const named_frame = tracy.namedFrame("analyze_func");
             defer named_frame.end();
 
-            const pt: Zcu.PerThread = .{ .zcu = comp.zcu.?, .tid = @enumFromInt(tid) };
+            const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
+            defer pt.deactivate();
             pt.ensureFuncBodyAnalyzed(func) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.AnalysisFail => return,
             };
         },
         .analyze_cau => |cau_index| {
-            const pt: Zcu.PerThread = .{ .zcu = comp.zcu.?, .tid = @enumFromInt(tid) };
+            const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
+            defer pt.deactivate();
             pt.ensureCauAnalyzed(cau_index) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.AnalysisFail => return,
@@ -3719,7 +3724,8 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job, prog_node: std.Progre
             const named_frame = tracy.namedFrame("resolve_type_fully");
             defer named_frame.end();
 
-            const pt: Zcu.PerThread = .{ .zcu = comp.zcu.?, .tid = @enumFromInt(tid) };
+            const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
+            defer pt.deactivate();
             Type.fromInterned(ty).resolveFully(pt) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.AnalysisFail => return,
@@ -3729,7 +3735,8 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job, prog_node: std.Progre
             const named_frame = tracy.namedFrame("analyze_mod");
             defer named_frame.end();
 
-            const pt: Zcu.PerThread = .{ .zcu = comp.zcu.?, .tid = @enumFromInt(tid) };
+            const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
+            defer pt.deactivate();
             pt.semaPkg(mod) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.AnalysisFail => return,
@@ -4183,7 +4190,8 @@ fn workerAstGenFile(
     const child_prog_node = prog_node.start(file.sub_file_path, 0);
     defer child_prog_node.end();
 
-    const pt: Zcu.PerThread = .{ .zcu = comp.zcu.?, .tid = @enumFromInt(tid) };
+    const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
+    defer pt.deactivate();
     pt.astGenFile(file, path_digest) catch |err| switch (err) {
         error.AnalysisFail => return,
         else => {
