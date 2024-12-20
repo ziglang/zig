@@ -18,17 +18,14 @@ def create_struct(parent, name, struct_type, inits):
     for field in struct_type.fields:
         field_size = field.type.size
         field_init = inits[field.name]
-        field_init_type = type(field_init)
-        if field_init_type == bool:
-            field_bytes = bytes([field_init])
-        elif field_init_type == int:
+        if isinstance(field_init, int):
             match struct_data.byte_order:
                 case lldb.eByteOrderLittle:
                     byte_order = 'little'
                 case lldb.eByteOrderBig:
                     byte_order = 'big'
             field_bytes = field_init.to_bytes(field_size, byte_order, signed=field.type.GetTypeFlags() & lldb.eTypeIsSigned != 0)
-        elif field_init_type == lldb.SBValue:
+        elif isinstance(field_init_type, lldb.SBValue):
             field_bytes = field_init.data.uint8
         else: return
         match struct_data.byte_order:
@@ -731,6 +728,7 @@ class root_InternPool_Local_List_SynthProvider:
 expr_path_re = re.compile(r'\{([^}]+)%([^%#}]+)(?:#([^%#}]+))?\}')
 def root_InternPool_Index_SummaryProvider(value, _=None):
     unwrapped = value.GetChildMemberWithName('unwrapped')
+    if not unwrapped: return '' # .none
     tag = unwrapped.GetChildMemberWithName('tag')
     tag_value = tag.value
     summary = tag.CreateValueFromType(tag.type).GetChildMemberWithName('encodings').GetChildMemberWithName(tag_value.removeprefix('.')).GetChildMemberWithName('summary')
@@ -749,8 +747,8 @@ class root_InternPool_Index_SynthProvider:
         if wrapped == (1 << 32) - 1: return
         unwrapped_type = self.value.type.FindDirectNestedType('Unwrapped')
         ip = self.value.CreateValueFromType(unwrapped_type).GetChildMemberWithName('debug_state').GetChildMemberWithName('intern_pool').GetNonSyntheticValue().GetChildMemberWithName('?')
-        tid_width, tid_shift_30 = ip.GetChildMemberWithName('tid_width').unsigned, ip.GetChildMemberWithName('tid_shift_30').unsigned
-        self.unwrapped = create_struct(self.value, '.unwrapped', unwrapped_type, { 'tid': wrapped >> tid_shift_30 & (1 << tid_width) - 1, 'index': wrapped & (1 << tid_shift_30) - 1 })
+        tid_shift_30 = ip.GetChildMemberWithName('tid_shift_30').unsigned
+        self.unwrapped = create_struct(self.value, '.unwrapped', unwrapped_type, { 'tid': wrapped >> tid_shift_30, 'index': wrapped & (1 << tid_shift_30) - 1 })
     def has_children(self): return True
     def num_children(self): return 0
     def get_child_index(self, name):
@@ -870,9 +868,9 @@ class root_InternPool_Index_Unwrapped_SynthProvider:
         except: pass
 
 def root_InternPool_String_SummaryProvider(value, _=None):
+    wrapped = value.unsigned
     ip = value.CreateValueFromType(value.type).GetChildMemberWithName('debug_state').GetChildMemberWithName('intern_pool').GetNonSyntheticValue().GetChildMemberWithName('?')
     tid_shift_32 = ip.GetChildMemberWithName('tid_shift_32').unsigned
-    wrapped = value.unsigned
     locals_value = ip.GetChildMemberWithName('locals').GetSyntheticValue()
     local_value = locals_value.child[wrapped >> tid_shift_32]
     if local_value is None:
@@ -881,6 +879,44 @@ def root_InternPool_String_SummaryProvider(value, _=None):
     string = local_value.GetChildMemberWithName('shared').GetChildMemberWithName('strings').GetChildMemberWithName('view').GetChildMemberWithName('0').child[wrapped & (1 << tid_shift_32) - 1].address_of
     string.format = lldb.eFormatCString
     return string.value
+
+class root_InternPool_Cau_Index_SynthProvider:
+    def __init__(self, value, _=None): self.value = value
+    def update(self):
+        self.cau = None
+        wrapped = self.value.unsigned
+        if wrapped == (1 << 32) - 1: return
+        ip = self.value.CreateValueFromType(self.value.type).GetChildMemberWithName('debug_state').GetChildMemberWithName('intern_pool').GetNonSyntheticValue().GetChildMemberWithName('?')
+        tid_shift_31 = ip.GetChildMemberWithName('tid_shift_31').unsigned
+        locals_value = ip.GetChildMemberWithName('locals').GetSyntheticValue()
+        local_value = locals_value.child[wrapped >> tid_shift_31]
+        if local_value is None:
+            wrapped = 0
+            local_value = locals_value.child[0]
+        self.cau = local_value.GetChildMemberWithName('shared').GetChildMemberWithName('caus').GetChildMemberWithName('view').GetChildMemberWithName('0').child[wrapped & (1 << tid_shift_31) - 1]
+    def has_children(self): return self.cau.GetNumChildren(1) > 0
+    def num_children(self): return self.cau.GetNumChildren()
+    def get_child_index(self, name): return self.cau.GetIndexOfChildWithName(name)
+    def get_child_at_index(self, index): return self.cau.GetChildAtIndex(index)
+
+class root_InternPool_Nav_Index_SynthProvider:
+    def __init__(self, value, _=None): self.value = value
+    def update(self):
+        self.nav = None
+        wrapped = self.value.unsigned
+        if wrapped == (1 << 32) - 1: return
+        ip = self.value.CreateValueFromType(self.value.type).GetChildMemberWithName('debug_state').GetChildMemberWithName('intern_pool').GetNonSyntheticValue().GetChildMemberWithName('?')
+        tid_shift_32 = ip.GetChildMemberWithName('tid_shift_32').unsigned
+        locals_value = ip.GetChildMemberWithName('locals').GetSyntheticValue()
+        local_value = locals_value.child[wrapped >> tid_shift_32]
+        if local_value is None:
+            wrapped = 0
+            local_value = locals_value.child[0]
+        self.nav = local_value.GetChildMemberWithName('shared').GetChildMemberWithName('navs').GetChildMemberWithName('view').child[wrapped & (1 << tid_shift_32) - 1]
+    def has_children(self): return self.nav.GetNumChildren(1) > 0
+    def num_children(self): return self.nav.GetNumChildren()
+    def get_child_index(self, name): return self.nav.GetIndexOfChildWithName(name)
+    def get_child_at_index(self, index): return self.nav.GetChildAtIndex(index)
 
 # Initialize
 
@@ -937,3 +973,5 @@ def __lldb_init_module(debugger, _=None):
     add(debugger, category='zig', type='root.InternPool.Index', synth=True, summary=True)
     add(debugger, category='zig', type='root.InternPool.Index.Unwrapped', synth=True)
     add(debugger, category='zig', regex=True, type=r'^root\.InternPool\.(Optional)?(NullTerminated)?String$', identifier='root_InternPool_String', summary=True)
+    add(debugger, category='zig', regex=True, type=r'^root\.InternPool\.Cau\.Index(\.Optional)?$', identifier='root_InternPool_Cau_Index', synth=True)
+    add(debugger, category='zig', regex=True, type=r'^root\.InternPool\.Nav\.Index(\.Optional)?$', identifier='root_InternPool_Nav_Index', synth=True)

@@ -470,6 +470,8 @@ pub const Cau = struct {
                     _ => @enumFromInt(@intFromEnum(opt)),
                 };
             }
+
+            const debug_state = InternPool.debug_state;
         };
         pub fn toOptional(i: Cau.Index) Optional {
             return @enumFromInt(@intFromEnum(i));
@@ -491,6 +493,8 @@ pub const Cau = struct {
                 .index = @intFromEnum(cau_index) & ip.getIndexMask(u31),
             };
         }
+
+        const debug_state = InternPool.debug_state;
     };
 };
 
@@ -568,6 +572,8 @@ pub const Nav = struct {
                     _ => @enumFromInt(@intFromEnum(opt)),
                 };
             }
+
+            const debug_state = InternPool.debug_state;
         };
         pub fn toOptional(i: Nav.Index) Optional {
             return @enumFromInt(@intFromEnum(i));
@@ -589,6 +595,8 @@ pub const Nav = struct {
                 .index = @intFromEnum(nav_index) & ip.getIndexMask(u32),
             };
         }
+
+        const debug_state = InternPool.debug_state;
     };
 
     /// The compact in-memory representation of a `Nav`.
@@ -5271,17 +5279,26 @@ pub const Tag = enum(u8) {
 
         .type_int_signed = .{ .summary = .@"i{.data%value}", .data = u32 },
         .type_int_unsigned = .{ .summary = .@"u{.data%value}", .data = u32 },
-        .type_array_big = .{ .summary = .@"[{.payload.len1%value} << 32 | {.payload.len0%value}:{.payload.sentinel%summary}]{.payload.child%summary}", .payload = Array },
+        .type_array_big = .{
+            .summary = .@"[{.payload.len1%value} << 32 | {.payload.len0%value}:{.payload.sentinel%summary}]{.payload.child%summary}",
+            .payload = Array,
+        },
         .type_array_small = .{ .summary = .@"[{.payload.len%value}]{.payload.child%summary}", .payload = Vector },
         .type_vector = .{ .summary = .@"@Vector({.payload.len%value}, {.payload.child%summary})", .payload = Vector },
         .type_pointer = .{ .summary = .@"*... {.payload.child%summary}", .payload = TypePointer },
         .type_slice = .{ .summary = .@"[]... {.data.unwrapped.payload.child%summary}", .data = Index },
         .type_optional = .{ .summary = .@"?{.data%summary}", .data = Index },
         .type_anyframe = .{ .summary = .@"anyframe->{.data%summary}", .data = Index },
-        .type_error_union = .{ .summary = .@"{.payload.error_set_type%summary}!{.payload.payload_type%summary}", .payload = ErrorUnionType },
+        .type_error_union = .{
+            .summary = .@"{.payload.error_set_type%summary}!{.payload.payload_type%summary}",
+            .payload = ErrorUnionType,
+        },
         .type_anyerror_union = .{ .summary = .@"anyerror!{.data%summary}", .data = Index },
         .type_error_set = .{ .summary = .@"error{...}", .payload = ErrorSet },
-        .type_inferred_error_set = .{ .summary = .@"@typeInfo(@typeInfo(@TypeOf({.data%summary})).@\"fn\".return_type.?).error_union.error_set", .data = Index },
+        .type_inferred_error_set = .{
+            .summary = .@"@typeInfo(@typeInfo(@TypeOf({.data%summary})).@\"fn\".return_type.?).error_union.error_set",
+            .data = Index,
+        },
         .type_enum_auto = .{
             .summary = .@"{.payload.name%summary#\"}",
             .payload = EnumAuto,
@@ -5307,12 +5324,8 @@ pub const Tag = enum(u8) {
         .type_opaque = .{
             .summary = .@"{.payload.name%summary#\"}",
             .payload = TypeOpaque,
-            .trailing = struct {
-                captures: []CaptureValue,
-            },
-            .config = .{
-                .@"trailing.captures.len" = .@"payload.captures_len",
-            },
+            .trailing = struct { captures: []CaptureValue },
+            .config = .{ .@"trailing.captures.len" = .@"payload.captures_len" },
         },
         .type_struct = .{
             .summary = .@"{.payload.name%summary#\"}",
@@ -5438,17 +5451,50 @@ pub const Tag = enum(u8) {
 
         .undef = .{ .summary = .@"@as({.data%summary}, undefined)", .data = Index },
         .simple_value = .{ .summary = .@"{.index%value#.}", .index = SimpleValue },
-        .ptr_nav = .{ .payload = PtrNav },
-        .ptr_comptime_alloc = .{ .payload = PtrComptimeAlloc },
-        .ptr_uav = .{ .payload = PtrUav },
-        .ptr_uav_aligned = .{ .payload = PtrUavAligned },
-        .ptr_comptime_field = .{ .payload = PtrComptimeField },
-        .ptr_int = .{ .payload = PtrInt },
-        .ptr_eu_payload = .{ .payload = PtrBase },
-        .ptr_opt_payload = .{ .payload = PtrBase },
-        .ptr_elem = .{ .payload = PtrBaseIndex },
-        .ptr_field = .{ .payload = PtrBaseIndex },
-        .ptr_slice = .{ .payload = PtrSlice },
+        .ptr_nav = .{
+            .summary = .@"@as({.payload.ty%summary}, @ptrFromInt(@intFromPtr(&{.payload.nav.fqn%summary#\"}) + ({.payload.byte_offset_a%value} << 32 | {.payload.byte_offset_b%value})))",
+            .payload = PtrNav,
+        },
+        .ptr_comptime_alloc = .{
+            .summary = .@"@as({.payload.ty%summary}, @ptrFromInt(@intFromPtr(&comptime_allocs[{.payload.index%summary}]) + ({.payload.byte_offset_a%value} << 32 | {.payload.byte_offset_b%value})))",
+            .payload = PtrComptimeAlloc,
+        },
+        .ptr_uav = .{
+            .summary = .@"@as({.payload.ty%summary}, @ptrFromInt(@intFromPtr(&{.payload.val%summary}) + ({.payload.byte_offset_a%value} << 32 | {.payload.byte_offset_b%value})))",
+            .payload = PtrUav,
+        },
+        .ptr_uav_aligned = .{
+            .summary = .@"@as({.payload.ty%summary}, @ptrFromInt(@intFromPtr(@as({.payload.orig_ty%summary}, &{.payload.val%summary})) + ({.payload.byte_offset_a%value} << 32 | {.payload.byte_offset_b%value})))",
+            .payload = PtrUavAligned,
+        },
+        .ptr_comptime_field = .{
+            .summary = .@"@as({.payload.ty%summary}, @ptrFromInt(@intFromPtr(&{.payload.field_val%summary}) + ({.payload.byte_offset_a%value} << 32 | {.payload.byte_offset_b%value})))",
+            .payload = PtrComptimeField,
+        },
+        .ptr_int = .{
+            .summary = .@"@as({.payload.ty%summary}, @ptrFromInt({.payload.byte_offset_a%value} << 32 | {.payload.byte_offset_b%value}))",
+            .payload = PtrInt,
+        },
+        .ptr_eu_payload = .{
+            .summary = .@"@as({.payload.ty%summary}, @ptrFromInt(@intFromPtr(&({.payload.base%summary} catch unreachable)) + ({.payload.byte_offset_a%value} << 32 | {.payload.byte_offset_b%value})))",
+            .payload = PtrBase,
+        },
+        .ptr_opt_payload = .{
+            .summary = .@"@as({.payload.ty%summary}, @ptrFromInt(@intFromPtr(&{.payload.base%summary}.?) + ({.payload.byte_offset_a%value} << 32 | {.payload.byte_offset_b%value})))",
+            .payload = PtrBase,
+        },
+        .ptr_elem = .{
+            .summary = .@"@as({.payload.ty%summary}, @ptrFromInt(@intFromPtr(&{.payload.base%summary}[{.payload.index%summary}]) + ({.payload.byte_offset_a%value} << 32 | {.payload.byte_offset_b%value})))",
+            .payload = PtrBaseIndex,
+        },
+        .ptr_field = .{
+            .summary = .@"@as({.payload.ty%summary}, @ptrFromInt(@intFromPtr(&{.payload.base%summary}[{.payload.index%summary}]) + ({.payload.byte_offset_a%value} << 32 | {.payload.byte_offset_b%value})))",
+            .payload = PtrBaseIndex,
+        },
+        .ptr_slice = .{
+            .summary = .@"{.payload.ptr%summary}[0..{.payload.len%summary}]",
+            .payload = PtrSlice,
+        },
         .opt_payload = .{ .summary = .@"@as({.payload.ty%summary}, {.payload.val%summary})", .payload = TypeValue },
         .opt_null = .{ .summary = .@"@as({.data%summary}, null)", .data = Index },
         .int_u8 = .{ .summary = .@"@as(u8, {.data%value})", .data = u8 },
@@ -5476,18 +5522,16 @@ pub const Tag = enum(u8) {
         .float_c_longdouble_f80 = .{ .summary = .@"@as(c_longdouble, {.payload%value})", .payload = f80 },
         .float_c_longdouble_f128 = .{ .summary = .@"@as(c_longdouble, {.payload%value})", .payload = f128 },
         .float_comptime_float = .{ .summary = .@"{.payload%value}", .payload = f128 },
-        .variable = .{ .payload = Variable },
-        .@"extern" = .{ .payload = Extern },
+        .variable = .{ .summary = .@"{.payload.owner_nav.fqn%summary#\"}", .payload = Variable },
+        .@"extern" = .{ .summary = .@"{.payload.owner_nav.fqn%summary#\"}", .payload = Extern },
         .func_decl = .{
+            .summary = .@"{.payload.owner_nav.fqn%summary#\"}",
             .payload = FuncDecl,
-            .trailing = struct {
-                inferred_error_set: ?Index,
-            },
-            .config = .{
-                .@"trailing.inferred_error_set.?" = .@"payload.analysis.inferred_error_set",
-            },
+            .trailing = struct { inferred_error_set: ?Index },
+            .config = .{ .@"trailing.inferred_error_set.?" = .@"payload.analysis.inferred_error_set" },
         },
         .func_instance = .{
+            .summary = .@"{.payload.owner_nav.fqn%summary#\"}",
             .payload = FuncInstance,
             .trailing = struct {
                 inferred_error_set: ?Index,
@@ -5498,30 +5542,26 @@ pub const Tag = enum(u8) {
                 .@"trailing.param_values.len" = .@"payload.ty.payload.params_len",
             },
         },
-        .func_coerced = .{ .payload = FuncCoerced },
+        .func_coerced = .{
+            .summary = .@"@as(*const {.payload.ty%summary}, @ptrCast(&{.payload.func%summary})).*",
+            .payload = FuncCoerced,
+        },
         .only_possible_value = .{ .summary = .@"@as({.data%summary}, undefined)", .data = Index },
         .union_value = .{ .summary = .@"@as({.payload.ty%summary}, {})", .payload = Union },
         .bytes = .{ .summary = .@"@as({.payload.ty%summary}, {.payload.bytes%summary}.*)", .payload = Bytes },
         .aggregate = .{
             .summary = .@"@as({.payload.ty%summary}, .{...})",
             .payload = Aggregate,
-            .trailing = struct {
-                elements: []Index,
-            },
-            .config = .{
-                .@"trailing.elements.len" = .@"payload.ty.payload.fields_len",
-            },
+            .trailing = struct { elements: []Index },
+            .config = .{ .@"trailing.elements.len" = .@"payload.ty.payload.fields_len" },
         },
         .repeated = .{ .summary = .@"@as({.payload.ty%summary}, @splat({.payload.elem_val%summary}))", .payload = Repeated },
 
         .memoized_call = .{
+            .summary = .@"@memoize({.payload.func%summary})",
             .payload = MemoizedCall,
-            .trailing = struct {
-                arg_values: []Index,
-            },
-            .config = .{
-                .@"trailing.arg_values.len" = .@"payload.args_len",
-            },
+            .trailing = struct { arg_values: []Index },
+            .config = .{ .@"trailing.arg_values.len" = .@"payload.args_len" },
         },
     };
     fn Payload(comptime tag: Tag) type {
@@ -6490,6 +6530,10 @@ pub fn activate(ip: *const InternPool) void {
     _ = OptionalString.debug_state;
     _ = NullTerminatedString.debug_state;
     _ = OptionalNullTerminatedString.debug_state;
+    _ = Cau.Index.debug_state;
+    _ = Cau.Index.Optional.debug_state;
+    _ = Nav.Index.debug_state;
+    _ = Nav.Index.Optional.debug_state;
     std.debug.assert(debug_state.intern_pool == null);
     debug_state.intern_pool = ip;
 }
