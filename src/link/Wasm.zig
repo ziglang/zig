@@ -235,11 +235,6 @@ global_imports: std.AutoArrayHashMapUnmanaged(String, GlobalImportId) = .empty,
 tables: std.AutoArrayHashMapUnmanaged(TableImport.Resolution, void) = .empty,
 table_imports: std.AutoArrayHashMapUnmanaged(String, TableImport.Index) = .empty,
 
-/// Ordered list of data segments that will appear in the final binary.
-/// When sorted, to-be-merged segments will be made adjacent.
-/// Values are offset relative to segment start.
-data_segments: std.AutoArrayHashMapUnmanaged(Wasm.DataSegment.Id, void) = .empty,
-
 error_name_table_ref_count: u32 = 0,
 
 /// Set to true if any `GLOBAL_INDEX` relocation is encountered with
@@ -2360,7 +2355,6 @@ pub fn deinit(wasm: *Wasm) void {
     wasm.global_exports.deinit(gpa);
     wasm.global_imports.deinit(gpa);
     wasm.table_imports.deinit(gpa);
-    wasm.data_segments.deinit(gpa);
     wasm.symbol_table.deinit(gpa);
     wasm.out_relocs.deinit(gpa);
     wasm.uav_fixups.deinit(gpa);
@@ -2416,13 +2410,13 @@ pub fn updateNav(wasm: *Wasm, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index
     const gpa = comp.gpa;
     const is_obj = comp.config.output_mode == .Obj;
 
-    const nav_init = switch (ip.indexToKey(nav.status.resolved.val)) {
+    const nav_init, const chased_nav_index = switch (ip.indexToKey(nav.status.resolved.val)) {
         .func => return, // global const which is a function alias
         .@"extern" => |ext| {
             if (is_obj) {
-                assert(!wasm.navs_obj.contains(nav_index));
+                assert(!wasm.navs_obj.contains(ext.owner_nav));
             } else {
-                assert(!wasm.navs_exe.contains(nav_index));
+                assert(!wasm.navs_exe.contains(ext.owner_nav));
             }
             const name = try wasm.internString(ext.name.toSlice(ip));
             if (ext.lib_name.toSlice(ip)) |ext_name| _ = try wasm.internString(ext_name);
@@ -2436,27 +2430,28 @@ pub fn updateNav(wasm: *Wasm, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index
             }
             return;
         },
-        .variable => |variable| variable.init,
-        else => nav.status.resolved.val,
+        .variable => |variable| .{ variable.init, variable.owner_nav },
+        else => .{ nav.status.resolved.val, nav_index },
     };
-    assert(!wasm.imports.contains(nav_index));
+    log.debug("updateNav {} {}", .{ nav.fqn.fmt(ip), chased_nav_index });
+    assert(!wasm.imports.contains(chased_nav_index));
 
     if (nav_init != .none and !Value.fromInterned(nav_init).typeOf(zcu).hasRuntimeBits(zcu)) {
         if (is_obj) {
-            assert(!wasm.navs_obj.contains(nav_index));
+            assert(!wasm.navs_obj.contains(chased_nav_index));
         } else {
-            assert(!wasm.navs_exe.contains(nav_index));
+            assert(!wasm.navs_exe.contains(chased_nav_index));
         }
         return;
     }
 
     if (is_obj) {
         const zcu_data_starts: ZcuDataStarts = .initObj(wasm);
-        _ = try refNavObj(wasm, nav_index); // Possibly creates an entry in `Wasm.navs_obj`.
+        _ = try refNavObj(wasm, chased_nav_index); // Possibly creates an entry in `Wasm.navs_obj`.
         try zcu_data_starts.finishObj(wasm, pt);
     } else {
         const zcu_data_starts: ZcuDataStarts = .initExe(wasm);
-        _ = try refNavExe(wasm, nav_index); // Possibly creates an entry in `Wasm.navs_exe`.
+        _ = try refNavExe(wasm, chased_nav_index); // Possibly creates an entry in `Wasm.navs_exe`.
         try zcu_data_starts.finishExe(wasm, pt);
     }
 }
@@ -2820,12 +2815,8 @@ pub fn flushModule(
     const globals_end_zcu: u32 = @intCast(wasm.globals.entries.len);
     defer wasm.globals.shrinkRetainingCapacity(globals_end_zcu);
 
-    const data_segments_end_zcu: u32 = @intCast(wasm.data_segments.entries.len);
-    defer wasm.data_segments.shrinkRetainingCapacity(data_segments_end_zcu);
-
     wasm.flush_buffer.clear();
     try wasm.flush_buffer.missing_exports.reinit(gpa, wasm.missing_exports.keys(), &.{});
-    try wasm.flush_buffer.data_segments.reinit(gpa, wasm.data_segments.keys(), &.{});
     try wasm.flush_buffer.function_imports.reinit(gpa, wasm.function_imports.keys(), wasm.function_imports.values());
     try wasm.flush_buffer.global_imports.reinit(gpa, wasm.global_imports.keys(), wasm.global_imports.values());
 
@@ -3427,16 +3418,13 @@ pub fn refUavObj(wasm: *Wasm, ip_index: InternPool.Index) !UavsObjIndex {
     const comp = wasm.base.comp;
     const gpa = comp.gpa;
     assert(comp.config.output_mode == .Obj);
-    try wasm.data_segments.ensureUnusedCapacity(gpa, 1);
     const gop = try wasm.uavs_obj.getOrPut(gpa, ip_index);
     if (!gop.found_existing) gop.value_ptr.* = .{
         // Lowering the value is delayed to avoid recursion.
         .code = undefined,
         .relocs = undefined,
     };
-    const uav_index: UavsObjIndex = @enumFromInt(gop.index);
-    wasm.data_segments.putAssumeCapacity(.pack(wasm, .{ .uav_obj = uav_index }), {});
-    return uav_index;
+    return @enumFromInt(gop.index);
 }
 
 pub fn refUavExe(wasm: *Wasm, ip_index: InternPool.Index) !UavsExeIndex {
@@ -3453,9 +3441,7 @@ pub fn refUavExe(wasm: *Wasm, ip_index: InternPool.Index) !UavsExeIndex {
             .count = 1,
         };
     }
-    const uav_index: UavsExeIndex = @enumFromInt(gop.index);
-    try wasm.data_segments.put(gpa, .pack(wasm, .{ .uav_exe = uav_index }), {});
-    return uav_index;
+    return @enumFromInt(gop.index);
 }
 
 pub fn refNavObj(wasm: *Wasm, nav_index: InternPool.Nav.Index) !NavsObjIndex {
@@ -3468,9 +3454,7 @@ pub fn refNavObj(wasm: *Wasm, nav_index: InternPool.Nav.Index) !NavsObjIndex {
         .code = undefined,
         .relocs = undefined,
     };
-    const navs_obj_index: NavsObjIndex = @enumFromInt(gop.index);
-    try wasm.data_segments.put(gpa, .pack(wasm, .{ .nav_obj = navs_obj_index }), {});
-    return navs_obj_index;
+    return @enumFromInt(gop.index);
 }
 
 pub fn refNavExe(wasm: *Wasm, nav_index: InternPool.Nav.Index) !NavsExeIndex {
@@ -3487,9 +3471,7 @@ pub fn refNavExe(wasm: *Wasm, nav_index: InternPool.Nav.Index) !NavsExeIndex {
             .count = 0,
         };
     }
-    const navs_exe_index: NavsExeIndex = @enumFromInt(gop.index);
-    try wasm.data_segments.put(gpa, .pack(wasm, .{ .nav_exe = navs_exe_index }), {});
-    return navs_exe_index;
+    return @enumFromInt(gop.index);
 }
 
 /// Asserts it is called after `Flush.data_segments` is fully populated and sorted.
@@ -3506,7 +3488,9 @@ pub fn navAddr(wasm: *Wasm, nav_index: InternPool.Nav.Index) u32 {
     assert(wasm.flush_buffer.memory_layout_finished);
     const comp = wasm.base.comp;
     assert(comp.config.output_mode != .Obj);
-    const ds_id: DataSegment.Id = .pack(wasm, .{ .nav_exe = @enumFromInt(wasm.navs_exe.getIndex(nav_index).?) });
+    const navs_exe_index: NavsExeIndex = @enumFromInt(wasm.navs_exe.getIndex(nav_index).?);
+    log.debug("navAddr {s} {}", .{ navs_exe_index.name(wasm), nav_index });
+    const ds_id: DataSegment.Id = .pack(wasm, .{ .nav_exe = navs_exe_index });
     return wasm.flush_buffer.data_segments.get(ds_id).?;
 }
 

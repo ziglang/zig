@@ -19,6 +19,9 @@ const leb = std.leb;
 const log = std.log.scoped(.link);
 const assert = std.debug.assert;
 
+/// Ordered list of data segments that will appear in the final binary.
+/// When sorted, to-be-merged segments will be made adjacent.
+/// Values are offset relative to segment start.
 data_segments: std.AutoArrayHashMapUnmanaged(Wasm.DataSegment.Id, u32) = .empty,
 /// Each time a `data_segment` offset equals zero it indicates a new group, and
 /// the next element in this array will contain the total merged segment size.
@@ -35,8 +38,9 @@ indirect_function_table: std.AutoArrayHashMapUnmanaged(Wasm.OutputFunctionIndex,
 memory_layout_finished: bool = false,
 
 pub fn clear(f: *Flush) void {
-    f.binary_bytes.clearRetainingCapacity();
+    f.data_segments.clearRetainingCapacity();
     f.data_segment_groups.clearRetainingCapacity();
+    f.binary_bytes.clearRetainingCapacity();
     f.indirect_function_table.clearRetainingCapacity();
     f.memory_layout_finished = false;
 }
@@ -138,12 +142,30 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
 
     // Merge and order the data segments. Depends on garbage collection so that
     // unused segments can be omitted.
-    try f.data_segments.ensureUnusedCapacity(gpa, wasm.object_data_segments.items.len + 1);
+    try f.data_segments.ensureUnusedCapacity(gpa, wasm.object_data_segments.items.len +
+        wasm.uavs_obj.entries.len + wasm.navs_obj.entries.len +
+        wasm.uavs_exe.entries.len + wasm.navs_exe.entries.len + 1);
+    if (is_obj) assert(wasm.uavs_exe.entries.len == 0);
+    if (is_obj) assert(wasm.navs_exe.entries.len == 0);
+    if (!is_obj) assert(wasm.uavs_obj.entries.len == 0);
+    if (!is_obj) assert(wasm.navs_obj.entries.len == 0);
+    for (0..wasm.uavs_obj.entries.len) |uavs_index| f.data_segments.putAssumeCapacityNoClobber(.pack(wasm, .{
+        .uav_obj = @enumFromInt(uavs_index),
+    }), @as(u32, undefined));
+    for (0..wasm.navs_obj.entries.len) |navs_index| f.data_segments.putAssumeCapacityNoClobber(.pack(wasm, .{
+        .nav_obj = @enumFromInt(navs_index),
+    }), @as(u32, undefined));
+    for (0..wasm.uavs_exe.entries.len) |uavs_index| f.data_segments.putAssumeCapacityNoClobber(.pack(wasm, .{
+        .uav_exe = @enumFromInt(uavs_index),
+    }), @as(u32, undefined));
+    for (0..wasm.navs_exe.entries.len) |navs_index| f.data_segments.putAssumeCapacityNoClobber(.pack(wasm, .{
+        .nav_exe = @enumFromInt(navs_index),
+    }), @as(u32, undefined));
     for (wasm.object_data_segments.items, 0..) |*ds, i| {
         if (!ds.flags.alive) continue;
         const data_segment_index: Wasm.ObjectDataSegmentIndex = @enumFromInt(i);
         any_passive_inits = any_passive_inits or ds.flags.is_passive or (import_memory and !wasm.isBss(ds.name));
-        f.data_segments.putAssumeCapacityNoClobber(.pack(wasm, .{
+        _ = f.data_segments.putAssumeCapacityNoClobber(.pack(wasm, .{
             .object = data_segment_index,
         }), @as(u32, undefined));
     }
@@ -643,6 +665,8 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
             .zcu_func => |i| {
                 const code_start = try reserveSize(gpa, binary_bytes);
                 defer replaceSize(binary_bytes, code_start);
+
+                log.debug("lowering function code for '{s}'", .{resolution.name(wasm).?});
 
                 try i.value(wasm).function.lower(wasm, binary_bytes);
             },
