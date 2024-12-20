@@ -644,8 +644,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
                 const code_start = try reserveSize(gpa, binary_bytes);
                 defer replaceSize(binary_bytes, code_start);
 
-                const function = &i.value(wasm).function;
-                try function.lower(wasm, binary_bytes);
+                try i.value(wasm).function.lower(wasm, binary_bytes);
             },
         };
 

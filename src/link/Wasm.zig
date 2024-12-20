@@ -675,6 +675,88 @@ pub const ZcuDataExe = extern struct {
     count: u32,
 };
 
+/// An abstraction for calling `lowerZcuData` repeatedly until all data entries
+/// are populated.
+const ZcuDataStarts = struct {
+    uavs_i: u32,
+    navs_i: u32,
+
+    fn init(wasm: *const Wasm) ZcuDataStarts {
+        const comp = wasm.base.comp;
+        const is_obj = comp.config.output_mode == .Obj;
+        return if (is_obj) initObj(wasm) else initExe(wasm);
+    }
+
+    fn initObj(wasm: *const Wasm) ZcuDataStarts {
+        return .{
+            .uavs_i = @intCast(wasm.uavs_obj.entries.len),
+            .navs_i = @intCast(wasm.navs_obj.entries.len),
+        };
+    }
+
+    fn initExe(wasm: *const Wasm) ZcuDataStarts {
+        return .{
+            .uavs_i = @intCast(wasm.uavs_exe.entries.len),
+            .navs_i = @intCast(wasm.navs_exe.entries.len),
+        };
+    }
+
+    fn finish(zds: ZcuDataStarts, wasm: *Wasm, pt: Zcu.PerThread) !void {
+        const comp = wasm.base.comp;
+        const is_obj = comp.config.output_mode == .Obj;
+        return if (is_obj) finishObj(zds, wasm, pt) else finishExe(zds, wasm, pt);
+    }
+
+    fn finishObj(zds: ZcuDataStarts, wasm: *Wasm, pt: Zcu.PerThread) !void {
+        const zcu = wasm.base.comp.zcu.?;
+        const ip = &zcu.intern_pool;
+        var uavs_i = zds.uavs_i;
+        var navs_i = zds.navs_i;
+        while (true) {
+            while (navs_i < wasm.navs_obj.entries.len) : (navs_i += 1) {
+                const elem_nav = ip.getNav(wasm.navs_obj.keys()[navs_i]);
+                const elem_nav_init = switch (ip.indexToKey(elem_nav.status.resolved.val)) {
+                    .variable => |variable| variable.init,
+                    else => elem_nav.status.resolved.val,
+                };
+                // Call to `lowerZcuData` here possibly creates more entries in these tables.
+                wasm.navs_obj.values()[navs_i] = try lowerZcuData(wasm, pt, elem_nav_init);
+            }
+            while (uavs_i < wasm.uavs_obj.entries.len) : (uavs_i += 1) {
+                // Call to `lowerZcuData` here possibly creates more entries in these tables.
+                wasm.uavs_obj.values()[uavs_i] = try lowerZcuData(wasm, pt, wasm.uavs_obj.keys()[uavs_i]);
+            }
+            if (navs_i >= wasm.navs_obj.entries.len) break;
+        }
+    }
+
+    fn finishExe(zds: ZcuDataStarts, wasm: *Wasm, pt: Zcu.PerThread) !void {
+        const zcu = wasm.base.comp.zcu.?;
+        const ip = &zcu.intern_pool;
+        var uavs_i = zds.uavs_i;
+        var navs_i = zds.navs_i;
+        while (true) {
+            while (navs_i < wasm.navs_exe.entries.len) : (navs_i += 1) {
+                const elem_nav = ip.getNav(wasm.navs_exe.keys()[navs_i]);
+                const elem_nav_init = switch (ip.indexToKey(elem_nav.status.resolved.val)) {
+                    .variable => |variable| variable.init,
+                    else => elem_nav.status.resolved.val,
+                };
+                // Call to `lowerZcuData` here possibly creates more entries in these tables.
+                const zcu_data = try lowerZcuData(wasm, pt, elem_nav_init);
+                assert(zcu_data.relocs.len == 0);
+                wasm.navs_exe.values()[navs_i].code = zcu_data.code;
+            }
+            while (uavs_i < wasm.uavs_exe.entries.len) : (uavs_i += 1) {
+                // Call to `lowerZcuData` here possibly creates more entries in these tables.
+                const zcu_data = try lowerZcuData(wasm, pt, wasm.uavs_exe.keys()[uavs_i]);
+                wasm.uavs_exe.values()[uavs_i].code = zcu_data.code;
+            }
+            if (navs_i >= wasm.navs_exe.entries.len) break;
+        }
+    }
+};
+
 pub const ZcuFunc = extern struct {
     function: CodeGen.Function,
 
@@ -2306,6 +2388,8 @@ pub fn updateFunc(wasm: *Wasm, pt: Zcu.PerThread, func_index: InternPool.Index, 
     try wasm.functions.ensureUnusedCapacity(gpa, 1);
     try wasm.zcu_funcs.ensureUnusedCapacity(gpa, 1);
 
+    const zds: ZcuDataStarts = .init(wasm);
+
     // This converts AIR to MIR but does not yet lower to wasm code.
     // That lowering happens during `flush`, after garbage collection, which
     // can affect function and global indexes, which affects the LEB integer
@@ -2314,6 +2398,8 @@ pub fn updateFunc(wasm: *Wasm, pt: Zcu.PerThread, func_index: InternPool.Index, 
         .function = try CodeGen.function(wasm, pt, func_index, air, liveness),
     });
     wasm.functions.putAssumeCapacity(.pack(wasm, .{ .zcu_func = @enumFromInt(wasm.zcu_funcs.entries.len - 1) }), {});
+
+    try zds.finish(wasm, pt);
 }
 
 // Generate code for the "Nav", storing it in memory to be later written to
@@ -2365,48 +2451,13 @@ pub fn updateNav(wasm: *Wasm, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index
     }
 
     if (is_obj) {
-        var uavs_i = wasm.uavs_obj.entries.len;
-        var navs_i = wasm.navs_obj.entries.len;
+        const zcu_data_starts: ZcuDataStarts = .initObj(wasm);
         _ = try refNavObj(wasm, nav_index); // Possibly creates an entry in `Wasm.navs_obj`.
-        while (true) {
-            while (navs_i < wasm.navs_obj.entries.len) : (navs_i += 1) {
-                const elem_nav = ip.getNav(wasm.navs_obj.keys()[navs_i]);
-                const elem_nav_init = switch (ip.indexToKey(elem_nav.status.resolved.val)) {
-                    .variable => |variable| variable.init,
-                    else => elem_nav.status.resolved.val,
-                };
-                // Call to `lowerZcuData` here possibly creates more entries in these tables.
-                wasm.navs_obj.values()[navs_i] = try lowerZcuData(wasm, pt, elem_nav_init);
-            }
-            while (uavs_i < wasm.uavs_obj.entries.len) : (uavs_i += 1) {
-                // Call to `lowerZcuData` here possibly creates more entries in these tables.
-                wasm.uavs_obj.values()[uavs_i] = try lowerZcuData(wasm, pt, wasm.uavs_obj.keys()[uavs_i]);
-            }
-            if (navs_i >= wasm.navs_obj.entries.len) break;
-        }
+        try zcu_data_starts.finishObj(wasm, pt);
     } else {
-        var uavs_i = wasm.uavs_exe.entries.len;
-        var navs_i = wasm.navs_exe.entries.len;
+        const zcu_data_starts: ZcuDataStarts = .initExe(wasm);
         _ = try refNavExe(wasm, nav_index); // Possibly creates an entry in `Wasm.navs_exe`.
-        while (true) {
-            while (navs_i < wasm.navs_exe.entries.len) : (navs_i += 1) {
-                const elem_nav = ip.getNav(wasm.navs_exe.keys()[navs_i]);
-                const elem_nav_init = switch (ip.indexToKey(elem_nav.status.resolved.val)) {
-                    .variable => |variable| variable.init,
-                    else => elem_nav.status.resolved.val,
-                };
-                // Call to `lowerZcuData` here possibly creates more entries in these tables.
-                const zcu_data = try lowerZcuData(wasm, pt, elem_nav_init);
-                assert(zcu_data.relocs.len == 0);
-                wasm.navs_exe.values()[navs_i].code = zcu_data.code;
-            }
-            while (uavs_i < wasm.uavs_exe.entries.len) : (uavs_i += 1) {
-                // Call to `lowerZcuData` here possibly creates more entries in these tables.
-                const zcu_data = try lowerZcuData(wasm, pt, wasm.uavs_exe.keys()[uavs_i]);
-                wasm.uavs_exe.values()[uavs_i].code = zcu_data.code;
-            }
-            if (navs_i >= wasm.navs_exe.entries.len) break;
-        }
+        try zcu_data_starts.finishExe(wasm, pt);
     }
 }
 
