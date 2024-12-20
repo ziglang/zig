@@ -50,7 +50,7 @@ exe_dir: []const u8,
 h_dir: []const u8,
 install_path: []const u8,
 sysroot: ?[]const u8 = null,
-search_prefixes: std.ArrayListUnmanaged([]const u8),
+search_methods: std.ArrayListUnmanaged(SearchMethod),
 libc_file: ?[]const u8 = null,
 /// Path to the directory containing build.zig.
 build_root: Cache.Directory,
@@ -277,7 +277,7 @@ pub fn create(
         .available_options_list = ArrayList(AvailableOption).init(arena),
         .top_level_steps = .{},
         .default_step = undefined,
-        .search_prefixes = .{},
+        .search_methods = .{},
         .install_prefix = undefined,
         .lib_dir = undefined,
         .exe_dir = undefined,
@@ -380,7 +380,7 @@ fn createChildOnly(
         .h_dir = parent.h_dir,
         .install_path = parent.install_path,
         .sysroot = parent.sysroot,
-        .search_prefixes = parent.search_prefixes,
+        .search_methods = parent.search_methods,
         .libc_file = parent.libc_file,
         .build_root = build_root,
         .cache_root = parent.cache_root,
@@ -2008,12 +2008,15 @@ fn tryFindProgram(b: *Build, full_path: []const u8) ?[]const u8 {
 
 pub fn findProgram(b: *Build, names: []const []const u8, paths: []const []const u8) error{FileNotFound}![]const u8 {
     // TODO report error for ambiguous situations
-    for (b.search_prefixes.items) |search_prefix| {
+    for (b.search_methods.items) |search| {
+        const binaries_lazy_path = search.binaries(b) orelse continue;
+        const binaries_path = binaries_lazy_path.getPath3(b, null);
         for (names) |name| {
             if (fs.path.isAbsolute(name)) {
                 return name;
             }
-            return tryFindProgram(b, b.pathJoin(&.{ search_prefix, "bin", name })) orelse continue;
+            const binary_path = binaries_path.joinString(b.allocator, name) catch @panic("OOM");
+            return tryFindProgram(b, binary_path) orelse continue;
         }
     }
     if (b.graph.env_map.get("PATH")) |PATH| {
@@ -2101,8 +2104,45 @@ pub fn run(b: *Build, argv: []const []const u8) []u8 {
     };
 }
 
+pub const SearchMethod = union(enum) {
+    /// Try to find `bin`, `lib`, and `include` sub-dirs.
+    prefix: LazyPath,
+    /// Use as written, without guessing sub-dirs.
+    /// If some path is not passed, it will be skipped.
+    paths: Paths,
+
+    pub const Paths = struct {
+        binaries: ?LazyPath = null,
+        libraries: ?LazyPath = null,
+        includes: ?LazyPath = null,
+    };
+
+    pub fn binaries(self: SearchMethod, b: *std.Build) ?LazyPath {
+        return switch (self) {
+            .prefix => |prefix| prefix.path(b, "bin"),
+            .paths => |paths| paths.binaries,
+        };
+    }
+
+    pub fn libraries(self: SearchMethod, b: *std.Build) ?LazyPath {
+        return switch (self) {
+            .prefix => |prefix| prefix.path(b, "lib"),
+            .paths => |paths| paths.libraries,
+        };
+    }
+
+    pub fn includes(self: SearchMethod, b: *std.Build) ?LazyPath {
+        return switch (self) {
+            .prefix => |prefix| prefix.path(b, "include"),
+            .paths => |paths| paths.includes,
+        };
+    }
+};
+
 pub fn addSearchPrefix(b: *Build, search_prefix: []const u8) void {
-    b.search_prefixes.append(b.allocator, b.dupePath(search_prefix)) catch @panic("OOM");
+    b.search_methods.append(b.allocator, .{
+        .prefix = .{ .cwd_relative = b.dupePath(search_prefix) },
+    }) catch @panic("OOM");
 }
 
 pub fn getInstallPath(b: *Build, dir: InstallDir, dest_rel_path: []const u8) []const u8 {
