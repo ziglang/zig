@@ -734,14 +734,15 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
                         if (true) @panic("TODO lower zig error name table");
                         break :append;
                     },
-                    .object => |i| i.ptr(wasm).payload,
+                    .object => |i| c: {
+                        if (true) @panic("TODO apply data segment relocations");
+                        break :c i.ptr(wasm).payload;
+                    },
                     inline .uav_exe, .uav_obj, .nav_exe, .nav_obj => |i| i.value(wasm).code,
                 };
                 try binary_bytes.appendSlice(gpa, code.slice(wasm));
             }
             offset += @intCast(binary_bytes.items.len - code_start);
-
-            if (true) @panic("TODO apply data segment relocations");
         }
         assert(group_index == f.data_segment_groups.items.len);
 
