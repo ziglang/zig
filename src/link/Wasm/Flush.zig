@@ -571,8 +571,10 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
                 .__tls_size => @panic("TODO"),
                 .object_global => |i| {
                     const global = i.ptr(wasm);
-                    try binary_writer.writeByte(@intFromEnum(@as(std.wasm.Valtype, global.flags.global_type.valtype.to())));
-                    try binary_writer.writeByte(@intFromBool(global.flags.global_type.mutable));
+                    try binary_bytes.appendSlice(gpa, &.{
+                        @intFromEnum(@as(std.wasm.Valtype, global.flags.global_type.valtype.to())),
+                        @intFromBool(global.flags.global_type.mutable),
+                    });
                     try emitExpr(wasm, binary_bytes, global.expr);
                 },
                 .nav_exe => @panic("TODO"),

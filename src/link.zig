@@ -364,6 +364,7 @@ pub const File = struct {
     build_id: std.zig.BuildId,
     allow_shlib_undefined: bool,
     stack_size: u64,
+    post_prelink: bool = false,
 
     /// Prevents other processes from clobbering files in the output directory
     /// of this linking operation.
@@ -780,6 +781,8 @@ pub const File = struct {
             return;
         }
 
+        assert(base.post_prelink);
+
         const use_lld = build_options.have_llvm and comp.config.use_lld;
         const output_mode = comp.config.output_mode;
         const link_mode = comp.config.link_mode;
@@ -1007,7 +1010,8 @@ pub const File = struct {
 
     /// Called when all linker inputs have been sent via `loadInput`. After
     /// this, `loadInput` will not be called anymore.
-    pub fn prelink(base: *File) FlushError!void {
+    pub fn prelink(base: *File, prog_node: std.Progress.Node) FlushError!void {
+        assert(!base.post_prelink);
         const use_lld = build_options.have_llvm and base.comp.config.use_lld;
         if (use_lld) return;
 
@@ -1019,7 +1023,7 @@ pub const File = struct {
         switch (base.tag) {
             inline .wasm => |tag| {
                 dev.check(tag.devFeature());
-                return @as(*tag.Type(), @fieldParentPtr("base", base)).prelink();
+                return @as(*tag.Type(), @fieldParentPtr("base", base)).prelink(prog_node);
             },
             else => {},
         }
@@ -1326,12 +1330,32 @@ pub const File = struct {
 /// from the rest of compilation. All tasks performed here are
 /// single-threaded with respect to one another.
 pub fn flushTaskQueue(tid: usize, comp: *Compilation) void {
+    const diags = &comp.link_diags;
     // As soon as check() is called, another `flushTaskQueue` call could occur,
     // so the safety lock must go after the check.
     while (comp.link_task_queue.check()) |tasks| {
         comp.link_task_queue_safety.lock();
         defer comp.link_task_queue_safety.unlock();
+
+        if (comp.remaining_prelink_tasks > 0) {
+            comp.link_task_queue_postponed.ensureUnusedCapacity(comp.gpa, tasks.len) catch |err| switch (err) {
+                error.OutOfMemory => return diags.setAllocFailure(),
+            };
+        }
+
         for (tasks) |task| doTask(comp, tid, task);
+
+        if (comp.remaining_prelink_tasks == 0) {
+            if (comp.bin_file) |base| if (!base.post_prelink) {
+                base.prelink(comp.work_queue_progress_node) catch |err| switch (err) {
+                    error.OutOfMemory => diags.setAllocFailure(),
+                    error.LinkFailure => continue,
+                };
+                base.post_prelink = true;
+                for (comp.link_task_queue_postponed.items) |task| doTask(comp, tid, task);
+                comp.link_task_queue_postponed.clearRetainingCapacity();
+            };
+        }
     }
 }
 
@@ -1375,6 +1399,7 @@ pub fn doTask(comp: *Compilation, tid: usize, task: Task) void {
     const diags = &comp.link_diags;
     switch (task) {
         .load_explicitly_provided => if (comp.bin_file) |base| {
+            comp.remaining_prelink_tasks -= 1;
             const prog_node = comp.work_queue_progress_node.start("Parse Linker Inputs", comp.link_inputs.len);
             defer prog_node.end();
             for (comp.link_inputs) |input| {
@@ -1392,6 +1417,7 @@ pub fn doTask(comp: *Compilation, tid: usize, task: Task) void {
             }
         },
         .load_host_libc => if (comp.bin_file) |base| {
+            comp.remaining_prelink_tasks -= 1;
             const prog_node = comp.work_queue_progress_node.start("Linker Parse Host libc", 0);
             defer prog_node.end();
 
@@ -1451,6 +1477,7 @@ pub fn doTask(comp: *Compilation, tid: usize, task: Task) void {
             }
         },
         .load_object => |path| if (comp.bin_file) |base| {
+            comp.remaining_prelink_tasks -= 1;
             const prog_node = comp.work_queue_progress_node.start("Linker Parse Object", 0);
             defer prog_node.end();
             base.openLoadObject(path) catch |err| switch (err) {
@@ -1459,6 +1486,7 @@ pub fn doTask(comp: *Compilation, tid: usize, task: Task) void {
             };
         },
         .load_archive => |path| if (comp.bin_file) |base| {
+            comp.remaining_prelink_tasks -= 1;
             const prog_node = comp.work_queue_progress_node.start("Linker Parse Archive", 0);
             defer prog_node.end();
             base.openLoadArchive(path, null) catch |err| switch (err) {
@@ -1467,6 +1495,7 @@ pub fn doTask(comp: *Compilation, tid: usize, task: Task) void {
             };
         },
         .load_dso => |path| if (comp.bin_file) |base| {
+            comp.remaining_prelink_tasks -= 1;
             const prog_node = comp.work_queue_progress_node.start("Linker Parse Shared Library", 0);
             defer prog_node.end();
             base.openLoadDso(path, .{
@@ -1478,6 +1507,7 @@ pub fn doTask(comp: *Compilation, tid: usize, task: Task) void {
             };
         },
         .load_input => |input| if (comp.bin_file) |base| {
+            comp.remaining_prelink_tasks -= 1;
             const prog_node = comp.work_queue_progress_node.start("Linker Parse Input", 0);
             defer prog_node.end();
             base.loadInput(input) catch |err| switch (err) {
@@ -1492,26 +1522,38 @@ pub fn doTask(comp: *Compilation, tid: usize, task: Task) void {
             };
         },
         .codegen_nav => |nav_index| {
-            const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
-            defer pt.deactivate();
-            pt.linkerUpdateNav(nav_index) catch |err| switch (err) {
-                error.OutOfMemory => diags.setAllocFailure(),
-            };
+            if (comp.remaining_prelink_tasks == 0) {
+                const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
+                defer pt.deactivate();
+                pt.linkerUpdateNav(nav_index) catch |err| switch (err) {
+                    error.OutOfMemory => diags.setAllocFailure(),
+                };
+            } else {
+                comp.link_task_queue_postponed.appendAssumeCapacity(task);
+            }
         },
         .codegen_func => |func| {
-            const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
-            defer pt.deactivate();
-            // This call takes ownership of `func.air`.
-            pt.linkerUpdateFunc(func.func, func.air) catch |err| switch (err) {
-                error.OutOfMemory => diags.setAllocFailure(),
-            };
+            if (comp.remaining_prelink_tasks == 0) {
+                const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
+                defer pt.deactivate();
+                // This call takes ownership of `func.air`.
+                pt.linkerUpdateFunc(func.func, func.air) catch |err| switch (err) {
+                    error.OutOfMemory => diags.setAllocFailure(),
+                };
+            } else {
+                comp.link_task_queue_postponed.appendAssumeCapacity(task);
+            }
         },
         .codegen_type => |ty| {
-            const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
-            defer pt.deactivate();
-            pt.linkerUpdateContainerType(ty) catch |err| switch (err) {
-                error.OutOfMemory => diags.setAllocFailure(),
-            };
+            if (comp.remaining_prelink_tasks == 0) {
+                const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
+                defer pt.deactivate();
+                pt.linkerUpdateContainerType(ty) catch |err| switch (err) {
+                    error.OutOfMemory => diags.setAllocFailure(),
+                };
+            } else {
+                comp.link_task_queue_postponed.appendAssumeCapacity(task);
+            }
         },
         .update_line_number => |ti| {
             const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
