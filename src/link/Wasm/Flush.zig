@@ -564,13 +564,12 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
                 .__heap_base => @panic("TODO"),
                 .__heap_end => @panic("TODO"),
                 .__stack_pointer => {
-                    try binary_bytes.appendSlice(gpa, &.{
-                        @intFromEnum(std.wasm.Valtype.i32),
-                        @intFromBool(true), // mutable
-                        @intFromEnum(std.wasm.Opcode.i32_const),
-                        0, // leb128 init value
-                        @intFromEnum(std.wasm.Opcode.end),
-                    });
+                    try binary_bytes.ensureUnusedCapacity(gpa, 9);
+                    binary_bytes.appendAssumeCapacity(@intFromEnum(std.wasm.Valtype.i32));
+                    binary_bytes.appendAssumeCapacity(1); // mutable
+                    binary_bytes.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.i32_const));
+                    leb.writeUleb128(binary_bytes.fixedWriter(), virtual_addrs.stack_pointer) catch unreachable;
+                    binary_bytes.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.end));
                 },
                 .__tls_align => @panic("TODO"),
                 .__tls_base => @panic("TODO"),
