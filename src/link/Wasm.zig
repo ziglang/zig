@@ -327,6 +327,10 @@ pub const GlobalExport = extern struct {
 pub const OutputFunctionIndex = enum(u32) {
     _,
 
+    pub fn fromResolution(wasm: *const Wasm, resolution: FunctionImport.Resolution) ?OutputFunctionIndex {
+        return fromFunctionIndex(wasm, FunctionIndex.fromResolution(wasm, resolution) orelse return null);
+    }
+
     pub fn fromFunctionIndex(wasm: *const Wasm, index: FunctionIndex) OutputFunctionIndex {
         return @enumFromInt(wasm.function_imports.entries.len + @intFromEnum(index));
     }
@@ -1487,7 +1491,8 @@ pub const DataSegment = extern struct {
         }
 
         pub fn isPassive(id: Id, wasm: *const Wasm) bool {
-            if (wasm.base.comp.config.import_memory and !id.isBss(wasm)) return true;
+            const comp = wasm.base.comp;
+            if (comp.config.import_memory and !id.isBss(wasm)) return true;
             return switch (unpack(id, wasm)) {
                 .__zig_error_names, .__zig_error_name_table => false,
                 .object => |i| i.ptr(wasm).flags.is_passive,

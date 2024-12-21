@@ -21,10 +21,11 @@ const assert = std.debug.assert;
 
 /// Ordered list of data segments that will appear in the final binary.
 /// When sorted, to-be-merged segments will be made adjacent.
-/// Values are offset relative to segment start.
+/// Values are virtual address.
 data_segments: std.AutoArrayHashMapUnmanaged(Wasm.DataSegment.Id, u32) = .empty,
 /// Each time a `data_segment` offset equals zero it indicates a new group, and
 /// the next element in this array will contain the total merged segment size.
+/// Value is the virtual memory address of the end of the segment.
 data_segment_groups: std.ArrayListUnmanaged(u32) = .empty,
 
 binary_bytes: std.ArrayListUnmanaged(u8) = .empty,
@@ -71,6 +72,10 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
     };
     const is_obj = comp.config.output_mode == .Obj;
     const allow_undefined = is_obj or wasm.import_symbols;
+    //const undef_byte: u8 = switch (comp.root_mod.optimize_mode) {
+    //    .Debug, .ReleaseSafe => 0xaa,
+    //    .ReleaseFast, .ReleaseSmall => 0x00,
+    //};
 
     if (comp.zcu) |zcu| {
         const ip: *const InternPool = &zcu.intern_pool; // No mutations allowed!
@@ -304,45 +309,46 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
     }
 
     const segment_ids = f.data_segments.keys();
-    const segment_offsets = f.data_segments.values();
+    const segment_vaddrs = f.data_segments.values();
     assert(f.data_segment_groups.items.len == 0);
+    const data_vaddr: u32 = @intCast(memory_ptr);
     {
         var seen_tls: enum { before, during, after } = .before;
-        var offset: u32 = 0;
-        for (segment_ids, segment_offsets, 0..) |segment_id, *segment_offset, i| {
+        var category: Wasm.DataSegment.Category = undefined;
+        for (segment_ids, segment_vaddrs, 0..) |segment_id, *segment_vaddr, i| {
             const alignment = segment_id.alignment(wasm);
-            memory_ptr = alignment.forward(memory_ptr);
+            category = segment_id.category(wasm);
+            const start_addr = alignment.forward(memory_ptr);
 
             const want_new_segment = b: {
                 if (is_obj) break :b false;
                 switch (seen_tls) {
-                    .before => if (segment_id.isTls(wasm)) {
-                        virtual_addrs.tls_base = if (shared_memory) 0 else @intCast(memory_ptr);
+                    .before => if (category == .tls) {
+                        virtual_addrs.tls_base = if (shared_memory) 0 else @intCast(start_addr);
                         virtual_addrs.tls_align = alignment;
                         seen_tls = .during;
-                        break :b true;
+                        break :b f.data_segment_groups.items.len > 0;
                     },
-                    .during => if (!segment_id.isTls(wasm)) {
-                        virtual_addrs.tls_size = @intCast(memory_ptr - virtual_addrs.tls_base.?);
+                    .during => if (category != .tls) {
+                        virtual_addrs.tls_size = @intCast(start_addr - virtual_addrs.tls_base.?);
                         virtual_addrs.tls_align = virtual_addrs.tls_align.maxStrict(alignment);
                         seen_tls = .after;
                         break :b true;
                     },
                     .after => {},
                 }
-                break :b i >= 1 and !wantSegmentMerge(wasm, segment_ids[i - 1], segment_id);
+                break :b i >= 1 and !wantSegmentMerge(wasm, segment_ids[i - 1], segment_id, category);
             };
             if (want_new_segment) {
-                if (offset > 0) try f.data_segment_groups.append(gpa, offset);
-                offset = 0;
+                log.debug("new segment at 0x{x} {} {s} {}", .{ start_addr, segment_id, segment_id.name(wasm), category });
+                try f.data_segment_groups.append(gpa, @intCast(memory_ptr));
             }
 
             const size = segment_id.size(wasm);
-            segment_offset.* = offset;
-            offset += size;
-            memory_ptr += size;
+            segment_vaddr.* = @intCast(start_addr);
+            memory_ptr = start_addr + size;
         }
-        if (offset > 0) try f.data_segment_groups.append(gpa, offset);
+        if (category != .zero) try f.data_segment_groups.append(gpa, @intCast(memory_ptr));
     }
 
     if (shared_memory and any_passive_inits) {
@@ -588,7 +594,8 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
             try leb.writeUleb128(binary_writer, @as(u32, @intCast(name.len)));
             try binary_bytes.appendSlice(gpa, name);
             try binary_bytes.append(gpa, @intFromEnum(std.wasm.ExternalKind.function));
-            try leb.writeUleb128(binary_writer, @intFromEnum(exp.function_index));
+            const func_index = Wasm.OutputFunctionIndex.fromFunctionIndex(wasm, exp.function_index);
+            try leb.writeUleb128(binary_writer, @intFromEnum(func_index));
         }
         exports_len += wasm.function_exports.items.len;
 
@@ -620,9 +627,9 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
         }
     }
 
-    if (Wasm.FunctionIndex.fromResolution(wasm, wasm.entry_resolution)) |entry_index| {
+    if (Wasm.OutputFunctionIndex.fromResolution(wasm, wasm.entry_resolution)) |func_index| {
         const header_offset = try reserveVecSectionHeader(gpa, binary_bytes);
-        replaceVecSectionHeader(binary_bytes, header_offset, .start, @intFromEnum(entry_index));
+        replaceVecSectionHeader(binary_bytes, header_offset, .start, @intFromEnum(func_index));
     }
 
     // element section (function table)
@@ -720,28 +727,41 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
         const header_offset = try reserveVecSectionHeader(gpa, binary_bytes);
 
         var group_index: u32 = 0;
-        var offset: u32 = undefined;
-        for (segment_ids, segment_offsets) |segment_id, segment_offset| {
-            if (segment_id.isEmpty(wasm)) {
-                // It counted for virtual memory but it does not go into the binary.
-                continue;
+        var segment_offset: u32 = 0;
+        var group_start_addr: u32 = data_vaddr;
+        var group_end_addr = f.data_segment_groups.items[group_index];
+        for (segment_ids, segment_vaddrs) |segment_id, segment_vaddr| {
+            if (segment_vaddr >= group_end_addr) {
+                try binary_bytes.appendNTimes(gpa, 0, group_end_addr - group_start_addr - segment_offset);
+                group_index += 1;
+                if (group_index >= f.data_segment_groups.items.len) {
+                    // All remaining segments are zero.
+                    break;
+                }
+                group_start_addr = group_end_addr;
+                group_end_addr = f.data_segment_groups.items[group_index];
+                segment_offset = 0;
             }
             if (segment_offset == 0) {
-                const group_size = f.data_segment_groups.items[group_index];
-                group_index += 1;
-                offset = 0;
-
+                const group_size = group_end_addr - group_start_addr;
+                log.debug("emit data section group, {d} bytes", .{group_size});
                 const flags: Object.DataSegmentFlags = if (segment_id.isPassive(wasm)) .passive else .active;
                 try leb.writeUleb128(binary_writer, @intFromEnum(flags));
-                // when a segment is passive, it's initialized during runtime.
+                // Passive segments are initialized at runtime.
                 if (flags != .passive) {
                     try emitInit(binary_writer, .{ .i32_const = @as(i32, @bitCast(segment_offset)) });
                 }
                 try leb.writeUleb128(binary_writer, group_size);
             }
+            if (segment_id.isEmpty(wasm)) {
+                // It counted for virtual memory but it does not go into the binary.
+                continue;
+            }
 
-            try binary_bytes.appendNTimes(gpa, 0, segment_offset - offset);
-            offset = segment_offset;
+            // Padding for alignment.
+            const needed_offset = segment_vaddr - group_start_addr;
+            try binary_bytes.appendNTimes(gpa, 0, needed_offset - segment_offset);
+            segment_offset = needed_offset;
 
             const code_start = binary_bytes.items.len;
             append: {
@@ -768,7 +788,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
                 };
                 try binary_bytes.appendSlice(gpa, code.slice(wasm));
             }
-            offset += @intCast(binary_bytes.items.len - code_start);
+            segment_offset += @intCast(binary_bytes.items.len - code_start);
         }
         assert(group_index == f.data_segment_groups.items.len);
 
@@ -1111,12 +1131,17 @@ fn splitSegmentName(name: []const u8) struct { []const u8, []const u8 } {
     return .{ name[0..pivot], name[pivot..] };
 }
 
-fn wantSegmentMerge(wasm: *const Wasm, a_id: Wasm.DataSegment.Id, b_id: Wasm.DataSegment.Id) bool {
+fn wantSegmentMerge(
+    wasm: *const Wasm,
+    a_id: Wasm.DataSegment.Id,
+    b_id: Wasm.DataSegment.Id,
+    b_category: Wasm.DataSegment.Category,
+) bool {
     const a_category = a_id.category(wasm);
-    const b_category = b_id.category(wasm);
     if (a_category != b_category) return false;
     if (a_category == .tls or b_category == .tls) return false;
     if (a_id.isPassive(wasm) != b_id.isPassive(wasm)) return false;
+    if (b_category == .zero) return true;
     const a_name = a_id.name(wasm);
     const b_name = b_id.name(wasm);
     const a_prefix, _ = splitSegmentName(a_name);
