@@ -118,6 +118,8 @@ link_task_queue_safety: std.debug.SafetyLock = .{},
 link_task_queue_postponed: std.ArrayListUnmanaged(link.Task) = .empty,
 /// Initialized with how many link input tasks are expected. After this reaches zero
 /// the linker will begin the prelink phase.
+/// Initialized in the Compilation main thread before the pipeline; modified only in
+/// the linker task thread.
 remaining_prelink_tasks: u32,
 
 work_queues: [

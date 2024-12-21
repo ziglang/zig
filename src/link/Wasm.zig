@@ -361,12 +361,13 @@ pub const OutputFunctionIndex = enum(u32) {
 pub const GlobalIndex = enum(u32) {
     _,
 
-    /// This is only accurate when there is a Zcu.
+    /// This is only accurate when not emitting an object and there is a Zcu.
     pub const stack_pointer: GlobalIndex = @enumFromInt(0);
 
     /// Same as `stack_pointer` but with a safety assertion.
     pub fn stackPointer(wasm: *const Wasm) Global.Index {
         const comp = wasm.base.comp;
+        assert(comp.config.output_mode != .Obj);
         assert(comp.zcu != null);
         return .stack_pointer;
     }
@@ -2450,7 +2451,7 @@ pub fn updateNav(wasm: *Wasm, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index
         .variable => |variable| .{ variable.init, variable.owner_nav },
         else => .{ nav.status.resolved.val, nav_index },
     };
-    log.debug("updateNav {} {}", .{ nav.fqn.fmt(ip), chased_nav_index });
+    //log.debug("updateNav {} {}", .{ nav.fqn.fmt(ip), chased_nav_index });
     assert(!wasm.imports.contains(chased_nav_index));
 
     if (nav_init != .none and !Value.fromInterned(nav_init).typeOf(zcu).hasRuntimeBits(zcu)) {
@@ -2578,6 +2579,7 @@ pub fn prelink(wasm: *Wasm, prog_node: std.Progress.Node) link.File.FlushError!v
     const comp = wasm.base.comp;
     const gpa = comp.gpa;
     const rdynamic = comp.config.rdynamic;
+    const is_obj = comp.config.output_mode == .Obj;
 
     assert(wasm.missing_exports.entries.len == 0);
     for (wasm.export_symbol_names) |exp_name| {
@@ -2614,8 +2616,13 @@ pub fn prelink(wasm: *Wasm, prog_node: std.Progress.Node) link.File.FlushError!v
 
     if (comp.zcu != null) {
         // Zig always depends on a stack pointer global.
-        try wasm.globals.put(gpa, .__stack_pointer, {});
-        assert(wasm.globals.entries.len - 1 == @intFromEnum(GlobalIndex.stack_pointer));
+        // If emitting an object, it's an import. Otherwise, the linker synthesizes it.
+        if (is_obj) {
+            @panic("TODO");
+        } else {
+            try wasm.globals.put(gpa, .__stack_pointer, {});
+            assert(wasm.globals.entries.len - 1 == @intFromEnum(GlobalIndex.stack_pointer));
+        }
     }
 
     // These loops do both recursive marking of alive symbols well as checking for undefined symbols.

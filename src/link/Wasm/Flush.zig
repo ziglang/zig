@@ -565,7 +565,15 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
                 .unresolved => unreachable,
                 .__heap_base => @panic("TODO"),
                 .__heap_end => @panic("TODO"),
-                .__stack_pointer => @panic("TODO"),
+                .__stack_pointer => {
+                    try binary_bytes.appendSlice(gpa, &.{
+                        @intFromEnum(std.wasm.Valtype.i32),
+                        @intFromBool(true), // mutable
+                        @intFromEnum(std.wasm.Opcode.i32_const),
+                        0, // leb128 init value
+                        @intFromEnum(std.wasm.Opcode.end),
+                    });
+                },
                 .__tls_align => @panic("TODO"),
                 .__tls_base => @panic("TODO"),
                 .__tls_size => @panic("TODO"),
