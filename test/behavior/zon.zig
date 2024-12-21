@@ -6,10 +6,6 @@ const expectEqualDeep = std.testing.expectEqualDeep;
 const expectEqualSlices = std.testing.expectEqualSlices;
 const expectEqualStrings = std.testing.expectEqualStrings;
 
-test "void" {
-    try expectEqual({}, @as(void, @import("zon/void.zon")));
-}
-
 test "bool" {
     try expectEqual(true, @as(bool, @import("zon/true.zon")));
     try expectEqual(false, @as(bool, @import("zon/false.zon")));
@@ -36,12 +32,10 @@ test "union" {
         const union1: Union = @import("zon/union1.zon");
         const union2: Union = @import("zon/union2.zon");
         const union3: Union = @import("zon/union3.zon");
-        const union4: Union = @import("zon/union4.zon");
 
         try expectEqual(union1.x, 1.5);
         try expectEqual(union2.y, true);
         try expectEqual(union3.z, {});
-        try expectEqual(union4.z, {});
     }
 
     // Inferred tag
@@ -55,12 +49,10 @@ test "union" {
         const union1: Union = @import("zon/union1.zon");
         const union2: Union = @import("zon/union2.zon");
         const union3: Union = @import("zon/union3.zon");
-        const union4: Union = @import("zon/union4.zon");
 
         try expectEqual(union1.x, 1.5);
         try expectEqual(union2.y, true);
         try expectEqual(union3.z, {});
-        try expectEqual(union4.z, {});
     }
 
     // Explicit tag
@@ -79,12 +71,10 @@ test "union" {
         const union1: Union = @import("zon/union1.zon");
         const union2: Union = @import("zon/union2.zon");
         const union3: Union = @import("zon/union3.zon");
-        const union4: Union = @import("zon/union4.zon");
 
         try expectEqual(union1.x, 1.5);
         try expectEqual(union2.y, true);
         try expectEqual(union3.z, {});
-        try expectEqual(union4.z, {});
     }
 }
 
@@ -125,7 +115,6 @@ test "tuple" {
 test "char" {
     try expectEqual(@as(u8, 'a'), @as(u8, @import("zon/a.zon")));
     try expectEqual(@as(u8, 'z'), @as(u8, @import("zon/z.zon")));
-    try expectEqual(@as(i8, -'a'), @as(i8, @import("zon/a_neg.zon")));
 }
 
 test "arrays" {
@@ -280,7 +269,6 @@ test "floats" {
         // Test characters and negated characters
         @as(f32, 'a'),
         @as(f32, 'z'),
-        @as(f32, -'z'),
 
         // Test big integers
         @as(f32, 36893488147419103231),
@@ -303,19 +291,17 @@ test "floats" {
 test "inf and nan" {
     // comptime float
     {
-        const actual: struct { comptime_float, comptime_float, comptime_float, comptime_float } = @import("zon/inf_and_nan.zon");
+        const actual: struct { comptime_float, comptime_float, comptime_float } = @import("zon/inf_and_nan.zon");
         try expect(std.math.isNan(actual[0]));
-        try expect(std.math.isNan(actual[1]));
-        try expect(std.math.isPositiveInf(@as(f128, @floatCast(actual[2]))));
-        try expect(std.math.isNegativeInf(@as(f128, @floatCast(actual[3]))));
+        try expect(std.math.isPositiveInf(@as(f128, @floatCast(actual[1]))));
+        try expect(std.math.isNegativeInf(@as(f128, @floatCast(actual[2]))));
     }
 
     // f32
     {
-        const actual: struct { f32, f32, f32, f32 } = @import("zon/inf_and_nan.zon");
+        const actual: struct { f32, f32, f32 } = @import("zon/inf_and_nan.zon");
         try expect(std.math.isNan(actual[0]));
-        try expect(std.math.isNan(actual[1]));
-        try expect(std.math.isPositiveInf(actual[2]));
-        try expect(std.math.isNegativeInf(actual[3]));
+        try expect(std.math.isPositiveInf(actual[1]));
+        try expect(std.math.isNegativeInf(actual[2]));
     }
 }

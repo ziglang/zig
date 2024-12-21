@@ -1,6 +1,5 @@
 .{
     nan,
-    -nan,
     inf,
     -inf,
 }
