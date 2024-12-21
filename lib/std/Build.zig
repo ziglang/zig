@@ -2140,9 +2140,13 @@ pub const SearchMethod = union(enum) {
 };
 
 pub fn addSearchPrefix(b: *Build, search_prefix: []const u8) void {
-    b.search_methods.append(b.allocator, .{
+    b.addSearchMethod(.{
         .prefix = .{ .cwd_relative = b.dupePath(search_prefix) },
-    }) catch @panic("OOM");
+    });
+}
+
+pub fn addSearchMethod(b: *Build, search_method: SearchMethod) void {
+    b.search_methods.append(b.allocator, search_method) catch @panic("OOM");
 }
 
 pub fn getInstallPath(b: *Build, dir: InstallDir, dest_rel_path: []const u8) []const u8 {
