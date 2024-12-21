@@ -677,11 +677,11 @@ pub const Instruction = struct {
                     else => unreachable,
                 },
                 .frame => if (@TypeOf(encoder).options.allow_frame_locs) {
-                    try encoder.modRm_indirectDisp32(operand_enc, undefined);
+                    try encoder.modRm_indirectDisp32(operand_enc, 0);
                     try encoder.disp32(undefined);
                 } else return error.CannotEncode,
                 .reloc => if (@TypeOf(encoder).options.allow_symbols) {
-                    try encoder.modRm_indirectDisp32(operand_enc, undefined);
+                    try encoder.modRm_indirectDisp32(operand_enc, 0);
                     try encoder.disp32(undefined);
                 } else return error.CannotEncode,
             },

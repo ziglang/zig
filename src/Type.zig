@@ -962,7 +962,6 @@ pub fn abiAlignmentInner(
 ) SemaError!AbiAlignmentInner {
     const pt = strat.pt(zcu, tid);
     const target = zcu.getTarget();
-    const use_llvm = zcu.comp.config.use_llvm;
     const ip = &zcu.intern_pool;
 
     switch (ty.toIntern()) {
@@ -970,7 +969,7 @@ pub fn abiAlignmentInner(
         else => switch (ip.indexToKey(ty.toIntern())) {
             .int_type => |int_type| {
                 if (int_type.bits == 0) return .{ .scalar = .@"1" };
-                return .{ .scalar = intAbiAlignment(int_type.bits, target, use_llvm) };
+                return .{ .scalar = intAbiAlignment(int_type.bits, target) };
             },
             .ptr_type, .anyframe_type => {
                 return .{ .scalar = ptrAbiAlignment(target) };
@@ -1023,7 +1022,7 @@ pub fn abiAlignmentInner(
             .error_set_type, .inferred_error_set_type => {
                 const bits = zcu.errorSetBits();
                 if (bits == 0) return .{ .scalar = .@"1" };
-                return .{ .scalar = intAbiAlignment(bits, target, use_llvm) };
+                return .{ .scalar = intAbiAlignment(bits, target) };
             },
 
             // represents machine code; not a pointer
@@ -1036,7 +1035,7 @@ pub fn abiAlignmentInner(
 
                 .usize,
                 .isize,
-                => return .{ .scalar = intAbiAlignment(target.ptrBitWidth(), target, use_llvm) },
+                => return .{ .scalar = intAbiAlignment(target.ptrBitWidth(), target) },
 
                 .c_char => return .{ .scalar = cTypeAlign(target, .char) },
                 .c_short => return .{ .scalar = cTypeAlign(target, .short) },
@@ -1067,7 +1066,7 @@ pub fn abiAlignmentInner(
                 .anyerror, .adhoc_inferred_error_set => {
                     const bits = zcu.errorSetBits();
                     if (bits == 0) return .{ .scalar = .@"1" };
-                    return .{ .scalar = intAbiAlignment(bits, target, use_llvm) };
+                    return .{ .scalar = intAbiAlignment(bits, target) };
                 },
 
                 .void,
@@ -1291,7 +1290,6 @@ pub fn abiSizeInner(
     tid: strat.Tid(),
 ) SemaError!AbiSizeInner {
     const target = zcu.getTarget();
-    const use_llvm = zcu.comp.config.use_llvm;
     const ip = &zcu.intern_pool;
 
     switch (ty.toIntern()) {
@@ -1300,7 +1298,7 @@ pub fn abiSizeInner(
         else => switch (ip.indexToKey(ty.toIntern())) {
             .int_type => |int_type| {
                 if (int_type.bits == 0) return .{ .scalar = 0 };
-                return .{ .scalar = intAbiSize(int_type.bits, target, use_llvm) };
+                return .{ .scalar = intAbiSize(int_type.bits, target) };
             },
             .ptr_type => |ptr_type| switch (ptr_type.flags.size) {
                 .slice => return .{ .scalar = @divExact(target.ptrBitWidth(), 8) * 2 },
@@ -1362,7 +1360,7 @@ pub fn abiSizeInner(
             .error_set_type, .inferred_error_set_type => {
                 const bits = zcu.errorSetBits();
                 if (bits == 0) return .{ .scalar = 0 };
-                return .{ .scalar = intAbiSize(bits, target, use_llvm) };
+                return .{ .scalar = intAbiSize(bits, target) };
             },
 
             .error_union_type => |error_union_type| {
@@ -1455,7 +1453,7 @@ pub fn abiSizeInner(
                 .anyerror, .adhoc_inferred_error_set => {
                     const bits = zcu.errorSetBits();
                     if (bits == 0) return .{ .scalar = 0 };
-                    return .{ .scalar = intAbiSize(bits, target, use_llvm) };
+                    return .{ .scalar = intAbiSize(bits, target) };
                 },
 
                 .noreturn => unreachable,
@@ -1609,11 +1607,11 @@ pub fn ptrAbiAlignment(target: Target) Alignment {
     return Alignment.fromNonzeroByteUnits(@divExact(target.ptrBitWidth(), 8));
 }
 
-pub fn intAbiSize(bits: u16, target: Target, use_llvm: bool) u64 {
-    return intAbiAlignment(bits, target, use_llvm).forward(@as(u16, @intCast((@as(u17, bits) + 7) / 8)));
+pub fn intAbiSize(bits: u16, target: Target) u64 {
+    return intAbiAlignment(bits, target).forward(@as(u16, @intCast((@as(u17, bits) + 7) / 8)));
 }
 
-pub fn intAbiAlignment(bits: u16, target: Target, use_llvm: bool) Alignment {
+pub fn intAbiAlignment(bits: u16, target: Target) Alignment {
     return switch (target.cpu.arch) {
         .x86 => switch (bits) {
             0 => .none,
@@ -1632,19 +1630,16 @@ pub fn intAbiAlignment(bits: u16, target: Target, use_llvm: bool) Alignment {
             9...16 => .@"2",
             17...32 => .@"4",
             33...64 => .@"8",
-            else => switch (target_util.zigBackend(target, use_llvm)) {
-                .stage2_x86_64 => .@"8",
-                else => .@"16",
-            },
+            else => .@"16",
         },
         else => return Alignment.fromByteUnits(@min(
             std.math.ceilPowerOfTwoPromote(u16, @as(u16, @intCast((@as(u17, bits) + 7) / 8))),
-            maxIntAlignment(target, use_llvm),
+            maxIntAlignment(target),
         )),
     };
 }
 
-pub fn maxIntAlignment(target: std.Target, use_llvm: bool) u16 {
+pub fn maxIntAlignment(target: std.Target) u16 {
     return switch (target.cpu.arch) {
         .avr => 1,
         .msp430 => 2,
@@ -1685,10 +1680,7 @@ pub fn maxIntAlignment(target: std.Target, use_llvm: bool) u16 {
             else => 8,
         },
 
-        .x86_64 => switch (target_util.zigBackend(target, use_llvm)) {
-            .stage2_x86_64 => 8,
-            else => 16,
-        },
+        .x86_64 => 16,
 
         // Even LLVMABIAlignmentOfType(i128) agrees on these targets.
         .x86,

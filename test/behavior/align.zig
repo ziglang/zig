@@ -144,31 +144,17 @@ test "alignment and size of structs with 128-bit fields" {
             },
         },
 
-        .x86_64 => switch (builtin.zig_backend) {
-            .stage2_x86_64 => .{
-                .a_align = 8,
-                .a_size = 16,
+        .x86_64 => .{
+            .a_align = 16,
+            .a_size = 16,
 
-                .b_align = 16,
-                .b_size = 32,
+            .b_align = 16,
+            .b_size = 32,
 
-                .u128_align = 8,
-                .u128_size = 16,
-                .u129_align = 8,
-                .u129_size = 24,
-            },
-            else => .{
-                .a_align = 16,
-                .a_size = 16,
-
-                .b_align = 16,
-                .b_size = 32,
-
-                .u128_align = 16,
-                .u128_size = 16,
-                .u129_align = 16,
-                .u129_size = 32,
-            },
+            .u128_align = 16,
+            .u128_size = 16,
+            .u129_align = 16,
+            .u129_size = 32,
         },
 
         .x86,

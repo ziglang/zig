@@ -31,7 +31,37 @@ fn testBinary(comptime op: anytype) !void {
     try testType(u32, 0x80d7a2c6, 0xbff6a402);
     try testType(u64, 0x71138bc6b4a38898, 0x1bc4043de9438c7b);
     try testType(u128, 0xe05fc132ef2cd8affee00a907f0a851f, 0x29f912a72cfc6a7c6973426a9636da9a);
+    try testType(
+        u256,
+        0xb7935f5c2f3b1ae7a422c0a7c446884294b7d5370bada307d2fe5a4c4284a999,
+        0x310e6e196ba4f143b8d285ca6addf7f3bb3344224aff221b27607a31e148be08,
+    );
+    try testType(
+        u512,
+        0xe5b1fedca3c77db765e517aabd05ffc524a3a8aff1784bbf67c45b894447ede32b65b9940e78173c591e56e078932d465f235aece7ad47b7f229df7ba8f12295,
+        0x8b4bb7c2969e3b121cc1082c442f8b4330f0a50058438fed56447175bb10178607ecfe425cb54dacc25ef26810f3e04681de1844f1aa8d029aca75d658634806,
+    );
 
+    try testType(@Vector(1, u8), .{
+        0x1f,
+    }, .{
+        0x06,
+    });
+    try testType(@Vector(2, u8), .{
+        0x80, 0x63,
+    }, .{
+        0xe4, 0x28,
+    });
+    try testType(@Vector(4, u8), .{
+        0x83, 0x9e, 0x1e, 0xc1,
+    }, .{
+        0xf0, 0x5c, 0x46, 0x85,
+    });
+    try testType(@Vector(8, u8), .{
+        0x1e, 0x4d, 0x9d, 0x2a, 0x4c, 0x74, 0x0a, 0x83,
+    }, .{
+        0x28, 0x60, 0xa9, 0xb5, 0xd9, 0xa6, 0xf1, 0xb6,
+    });
     try testType(@Vector(16, u8), .{
         0xea, 0x80, 0xbb, 0xe8, 0x74, 0x81, 0xc8, 0x66, 0x7b, 0x41, 0x90, 0xcb, 0x30, 0x70, 0x4b, 0x0f,
     }, .{
@@ -75,6 +105,21 @@ fn testBinary(comptime op: anytype) !void {
         0x56, 0x4f, 0xf1, 0xaa, 0x0a, 0x0f, 0xdb, 0x1b, 0xc8, 0x45, 0x9b, 0x12, 0xb4, 0x1a, 0xe4, 0xa3,
     });
 
+    try testType(@Vector(1, u16), .{
+        0x9d6f,
+    }, .{
+        0x44b1,
+    });
+    try testType(@Vector(2, u16), .{
+        0xa0fa, 0xc365,
+    }, .{
+        0xe736, 0xc394,
+    });
+    try testType(@Vector(4, u16), .{
+        0x9608, 0xa558, 0x161b, 0x206f,
+    }, .{
+        0x3088, 0xf25c, 0x7837, 0x9b3f,
+    });
     try testType(@Vector(8, u16), .{
         0xcf61, 0xb121, 0x3cf1, 0x3e9f, 0x43a7, 0x8d69, 0x96f5, 0xc11e,
     }, .{
@@ -118,6 +163,16 @@ fn testBinary(comptime op: anytype) !void {
         0x2c02, 0xff5b, 0x19ca, 0xbbf5, 0x870e, 0xc9ca, 0x47bb, 0xcfcc,
     });
 
+    try testType(@Vector(1, u32), .{
+        0x1d0d9cc4,
+    }, .{
+        0xce2d0ab6,
+    });
+    try testType(@Vector(2, u32), .{
+        0x5ab78c03, 0xd21bb513,
+    }, .{
+        0x8a6664eb, 0x79eac37d,
+    });
     try testType(@Vector(4, u32), .{
         0x234d576e, 0x4151cc9c, 0x39f558e4, 0xba935a32,
     }, .{
@@ -161,9 +216,11 @@ fn testBinary(comptime op: anytype) !void {
         0xf080e943, 0xc8718d14, 0x3f920382, 0x18d101b5,
     });
 
-    // TODO: implement fallback for pcmpeqq
-    if (!comptime @import("std").Target.x86.featureSetHas(@import("builtin").cpu.features, .sse4_1)) return;
-
+    try testType(@Vector(1, u64), .{
+        0x333f593bf9d08546,
+    }, .{
+        0x6918bd767e730778,
+    });
     try testType(@Vector(2, u64), .{
         0x4cd89a317b03d430, 0x28998f61842f63a9,
     }, .{
